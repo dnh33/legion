@@ -431,7 +431,8 @@ kbd { font-size: 10.5px; line-height: 1; padding: 3px 5px; border: 1px solid var
 @media (max-width: 1100px) { .sm-item:not(.lg) { grid-template-columns: minmax(0, 1fr); row-gap: 0; padding: 4px 10px; } .sm-item.lg { grid-template-columns: minmax(150px, 190px) minmax(0, 1fr); column-gap: 10px; } .sm-left { flex-wrap: wrap; white-space: normal; row-gap: 0; } .sm-hint { max-width: 22ch; } }
 
 /* ---------- round 6: heartbeat, settings, task management, agent bridge ---------- */
-.tb-doctor.good .icon { color: var(--accent); transform-origin: center; animation: heartbeat 1.2s ease-in-out infinite; }
+.tb-doctor.good .icon { color: var(--accent); transform-origin: center; animation: heartbeat 1.2s steps(3, jump-none) infinite; } /* stepped: each frame is a compositor draw; the 44 % rest draws nothing */
+:root[data-win='away'] .tb-doctor.good .icon { animation-play-state: paused; }
 @keyframes heartbeat {
   0%, 56%, 100% { transform: scale(1); opacity: .8; }
   14% { transform: scale(1.24); opacity: 1; }

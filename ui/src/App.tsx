@@ -37,6 +37,20 @@ function useOpsMounted(opsOpen: boolean): boolean {
   return opsOpen || mounted;
 }
 
+/**
+ * Marks the document `data-win="away"` while the window is hidden or unfocused. Purely ambient CSS animations (the BSV chain line,
+ * the Doctor heartbeat) pause on it: each of their frames is a compositor draw for the whole window, and nobody is looking.
+ */
+function useWindowAway() {
+  useEffect(() => {
+    const root = document.documentElement;
+    const sync = () => { if (document.hidden || !document.hasFocus()) root.dataset.win = 'away'; else delete root.dataset.win; };
+    sync();
+    window.addEventListener('blur', sync); window.addEventListener('focus', sync); document.addEventListener('visibilitychange', sync);
+    return () => { window.removeEventListener('blur', sync); window.removeEventListener('focus', sync); document.removeEventListener('visibilitychange', sync); delete root.dataset.win; };
+  }, []);
+}
+
 export function App() {
   const opsOpen = useStore((s) => s.opsOpen);
   const palette = useStore((s) => s.palette);
@@ -45,6 +59,7 @@ export function App() {
   const settingsOpen = useStore((s) => s.settingsOpen);
   const view = useStore((s) => s.view);
   const opsMounted = useOpsMounted(opsOpen);
+  useWindowAway();
 
   useEffect(() => { init(); initRooms(); initBsv(); initLibrary(); }, []);
   useEffect(() => {

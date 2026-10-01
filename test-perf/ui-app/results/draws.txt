@@ -1,0 +1,3 @@
+node test-perf/ui-app/draws.mjs <base|new>   (Ops closed so no mascot, BSV chain overlay on, Doctor heart forced to the beating state; compositor draws/s from a CDP trace, software raster)
+base: focused 59.5 draws/s, blurred 60.2 draws/s
+new:  focused 16.5 draws/s, blurred  1.7 draws/s

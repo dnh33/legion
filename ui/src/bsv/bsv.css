@@ -31,13 +31,16 @@
 /* ---- chain overlay: fixed, confined to the 40px title bar, never intercepts the pointer ---- */
 .chain-overlay { position: fixed; left: 0; right: 0; top: 0; height: 40px; z-index: 10; pointer-events: none; overflow: hidden; }
 .chain-line { position: absolute; left: 0; right: 0; bottom: 0; height: 1px; background: color-mix(in srgb, var(--chain) 42%, transparent); overflow: hidden; }
-.chain-line::after { content: ''; position: absolute; top: 0; bottom: 0; left: 0; width: 30%; background: linear-gradient(90deg, transparent, var(--chain) 50%, transparent); transform: translateX(-100%); animation: chain-sweep 6s ease-in-out infinite; }
-.chain-glow { position: absolute; left: 0; right: 0; bottom: 1px; height: 7px; background: linear-gradient(to top, color-mix(in srgb, var(--chain) 16%, transparent), transparent); animation: chain-breathe 6s ease-in-out infinite; }
+.chain-line::after { content: ''; position: absolute; top: 0; bottom: 0; left: 0; width: 30%; background: linear-gradient(90deg, transparent, var(--chain) 50%, transparent); transform: translateX(-100%); animation: chain-sweep 6s steps(52) infinite; }
+.chain-glow { position: absolute; left: 0; right: 0; bottom: 1px; height: 7px; background: linear-gradient(to top, color-mix(in srgb, var(--chain) 16%, transparent), transparent); animation: chain-breathe 6s steps(10) infinite; }
+/* Every frame of an animation is a compositor draw for the whole window, so both run stepped: the sweep at ~12 fps while it travels (it
+   rests for the last 28 % of the cycle and a rest draws nothing), the glow at 3 to 4 steps a second. They stop while the window is hidden or unfocused. */
 @keyframes chain-sweep { 0% { transform: translateX(-100%); } 72%, 100% { transform: translateX(340%); } }
 @keyframes chain-breathe { 0%, 100% { opacity: .45; } 40% { opacity: 1; } }
 .chain-ticker { position: absolute; top: 0; height: 39px; display: flex; flex-direction: column; justify-content: center; align-items: center; gap: 2px; overflow: hidden; white-space: nowrap; font: 500 9.5px/1 var(--font-mono); letter-spacing: .04em; color: var(--chain); opacity: .9; }
 .chain-ticker span:first-child { font-weight: 700; }
 .chain-ticker span + span { opacity: .75; }
+:root[data-win='away'] .chain-line::after, :root[data-win='away'] .chain-glow { animation-play-state: paused; }
 @media (prefers-reduced-motion: reduce) {
   .chain-line::after { display: none; animation: none; }
   .chain-line { background: color-mix(in srgb, var(--chain) 62%, transparent); }
