@@ -1,0 +1,7 @@
+all playing                {"busy":68.4,"script":0.1,"style":17.1,"recalcPerS":275.8,"layoutPerS":66.8}
+none (idle look)           {"busy":10.9,"script":0.1,"style":4,"recalcPerS":21,"layoutPerS":5.2}
+only halo-back+front       {"busy":64.7,"script":0.1,"style":3.1,"recalcPerS":59.7,"layoutPerS":100.7}
+only aura                  {"busy":57,"script":0.1,"style":2.8,"recalcPerS":101.4,"layoutPerS":86.5}
+only plume                 {"busy":62.2,"script":0.1,"style":3.1,"recalcPerS":118.4,"layoutPerS":100}
+only hangs (dash flow)     {"busy":67.8,"script":0.1,"style":10.9,"recalcPerS":402.2,"layoutPerS":99.6}
+only tokens                {"busy":56.3,"script":0.1,"style":3.1,"recalcPerS":119.3,"layoutPerS":103.5}
