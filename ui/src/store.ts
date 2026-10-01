@@ -48,6 +48,8 @@ export interface AppState {
   showClosed: boolean;
   taskMenu: TaskMenu | null;
   renaming: { id: string; src: TaskSrc } | null;
+  /** Centre-column view. 'chat' is the task thread; 'rooms' = comms bridge; 'graph' = knowledge graph. */
+  view: 'chat' | 'rooms' | 'graph';
 }
 
 function ls(key: string): string | null { try { return localStorage.getItem(key); } catch { return null; } }
@@ -70,6 +72,7 @@ let state: AppState = {
   catalog: null, catalogLoading: false,
   mascotLab: false, mascotForce: null, mascotVm: null,
   settings: null, settingsOpen: false, settingsSection: 'claude', showClosed: false, taskMenu: null, renaming: null,
+  view: 'chat',
 };
 
 const listeners = new Set<() => void>();
@@ -175,6 +178,9 @@ export function handleEvent(e: LegionEvent) {
       break;
     case 'approval.resolved':
       setState((s) => ({ approvals: s.approvals.filter((a) => a.id !== e.approvalId) }));
+      break;
+    case 'comms.state':
+      window.dispatchEvent(new CustomEvent('legion:comms', { detail: e }));
       break;
     case 'mascot':
       setState({ mascot: { mood: e.mood, note: e.note, at: Date.now() } });
@@ -454,3 +460,5 @@ export async function saveSettings(patch: SettingsPatch, quiet = false): Promise
   return view;
 }
 export { errText };
+
+export const setView = (view: AppState['view']) => setState({ view });

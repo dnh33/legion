@@ -1,0 +1,284 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Legion Muster Lab</title>
+<style>
+/* ---- app tokens (ui/src/styles/tokens.css) ---- */
+:root{--bg:#0b0d10;--surface:#12151a;--surface-2:#171b21;--surface-3:#1d222a;--line:#1e232b;--line-strong:#2a313b;--text:#e6e9ef;--text-2:#b3bac6;--muted:#8a93a3;--faint:#7d8797;--accent:#7CFFB2;--accent-text:#7CFFB2;--accent-soft:rgba(124,255,178,.10);--accent-line:rgba(124,255,178,.35);--warn:#FFCC66;--danger:#FF6B6B;--font:'IBM Plex Sans','Segoe UI',system-ui,sans-serif;--mono:'JetBrains Mono','Cascadia Code',Consolas,ui-monospace,monospace;color-scheme:dark}
+:root[data-theme='light']{--bg:#f4f5f7;--surface:#ffffff;--surface-2:#f6f7f9;--surface-3:#eceef2;--line:#e3e6eb;--line-strong:#cfd4dc;--text:#14171c;--text-2:#3a4250;--muted:#596275;--faint:#626c7e;--accent:#0c9f5e;--accent-text:#087a47;--accent-soft:rgba(12,159,94,.09);--accent-line:rgba(12,159,94,.4);--warn:#8f5d0c;--danger:#c0343e;color-scheme:light}
+/*__CSS__*/
+*{box-sizing:border-box}
+html,body{margin:0}
+body{background:var(--bg);color:var(--text);font:14px/1.45 var(--font);min-height:100vh}
+button{font:inherit;color:inherit;cursor:pointer}
+header.top{position:sticky;top:0;z-index:20;background:color-mix(in srgb,var(--bg) 92%,transparent);backdrop-filter:blur(6px);border-bottom:1px solid var(--line);padding:10px 16px 10px}
+.row{display:flex;flex-wrap:wrap;align-items:center;gap:8px 14px}
+.row+.row{margin-top:8px}
+h1{font-size:15px;margin:0 8px 0 0;letter-spacing:.02em}
+h1 small{color:var(--muted);font-weight:400;margin-left:6px;font-size:12px}
+.seg{display:inline-flex;border:1px solid var(--line-strong);border-radius:8px;overflow:hidden;background:var(--surface)}
+.seg button{border:0;background:transparent;padding:4px 11px;font-size:12.5px;color:var(--text-2)}
+.seg button+button{border-left:1px solid var(--line)}
+.seg button.on{background:var(--accent-soft);color:var(--accent-text);box-shadow:inset 0 0 0 1px var(--accent-line)}
+.seg button:hover{background:var(--surface-3)}
+.chk{display:inline-flex;align-items:center;gap:6px;font-size:12.5px;color:var(--text-2);user-select:none;cursor:pointer}
+.chk input{accent-color:var(--accent);margin:0}
+.lbl{font-size:11px;letter-spacing:.07em;text-transform:uppercase;color:var(--muted)}
+.states button,.tour button,.btn{border:1px solid var(--line-strong);background:var(--surface);border-radius:7px;padding:3px 10px;font-size:12.5px;color:var(--text-2)}
+.states button{display:inline-flex;align-items:center;gap:6px}
+.states button:hover,.btn:hover{background:var(--surface-3)}
+.states button.on{border-color:var(--accent-line);color:var(--accent-text);background:var(--accent-soft)}
+.dot{width:7px;height:7px;border-radius:50%;background:var(--faint);display:inline-block;flex:none}
+.dot.listening{background:var(--text-2)}.dot.thinking,.dot.awaiting{background:var(--warn)}.dot.hacking,.dot.victory{background:var(--accent)}.dot.error,.dot.annoyed{background:var(--danger)}.dot.sleeping{background:var(--faint);opacity:.5}
+.dot.thinking,.dot.awaiting{animation:lab-blink 1s ease-in-out infinite}
+@keyframes lab-blink{50%{opacity:.35}}
+.tour .btn.on{border-color:var(--accent-line);color:var(--accent-text);background:var(--accent-soft)}
+select{font:inherit;font-size:12.5px;background:var(--surface);color:var(--text-2);border:1px solid var(--line-strong);border-radius:7px;padding:3px 6px}
+main{padding:16px}
+.grid{display:grid;gap:12px;grid-template-columns:repeat(auto-fill,minmax(176px,1fr))}
+body.stage .grid{grid-template-columns:repeat(auto-fill,minmax(244px,1fr))}
+.card{position:relative;background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:10px 10px 9px;display:flex;flex-direction:column;align-items:center;gap:8px;min-width:0}
+.card .hd{display:flex;align-items:center;gap:7px;width:100%;min-width:0}
+.card .nm{font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:1}
+.card .nm i{font-style:normal;color:var(--muted);font-weight:400;font-size:11.5px;margin-left:6px}
+.card .mini{border:1px solid var(--line);background:transparent;border-radius:6px;font-size:11px;padding:1px 6px;color:var(--muted)}
+.card .mini:hover{color:var(--text);background:var(--surface-3)}
+.card .mini.on{color:var(--accent-text);border-color:var(--accent-line);background:var(--accent-soft)}
+.tile{position:relative;display:grid;place-items:center;border-radius:12px;background:var(--surface-3);cursor:pointer;flex:none}
+body.rail .tile{width:56px;height:56px;overflow:hidden;border-radius:12px}
+body.stage .tile{width:204px;height:220px;place-items:start center;overflow:hidden;background:var(--surface-2);border:1px solid var(--line);-webkit-mask-image:linear-gradient(#000 calc(100% - 30px),transparent);mask-image:linear-gradient(#000 calc(100% - 30px),transparent)}
+.tile .host{display:block}
+.tile img.portrait{display:none;max-width:100%;max-height:100%;object-fit:contain;border-radius:8px}
+.card.portrait .tile img.portrait{display:block}
+.card.portrait .tile .host{display:none}
+.mx-quip{display:none!important}
+.sg{display:grid;grid-template-columns:repeat(3,1fr);gap:3px;width:100%}
+.ex{display:grid;grid-template-columns:1fr 1fr;gap:3px;width:100%}.ex .mini{padding:2px 0;text-align:center}
+.sg button{border:1px solid var(--line);background:transparent;border-radius:5px;font-size:10.5px;padding:2px 0;color:var(--muted);letter-spacing:.01em}
+.sg button:hover{background:var(--surface-3);color:var(--text)}
+.sg button.on{border-color:var(--accent-line);background:var(--accent-soft);color:var(--accent-text)}
+.bubble{position:absolute;left:50%;top:2px;transform:translate(-50%,-100%);z-index:30;max-width:230px;width:max-content;background:var(--surface-3);color:var(--text);border:1px solid var(--line-strong);border-radius:9px;padding:6px 9px;font-size:12px;line-height:1.35;box-shadow:0 8px 22px rgba(0,0,0,.35);pointer-events:none;animation:bub-in .18s ease-out}
+.bubble::after{content:'';position:absolute;left:50%;bottom:-5px;width:8px;height:8px;background:inherit;border-right:1px solid var(--line-strong);border-bottom:1px solid var(--line-strong);transform:translateX(-50%) rotate(45deg)}
+@keyframes bub-in{from{opacity:0;transform:translate(-50%,calc(-100% + 4px))}}
+.card:nth-child(-n+3) .bubble{top:auto;bottom:auto}
+.bounce{animation:lab-bounce .35s ease-out}
+@keyframes lab-bounce{30%{transform:scale(.94)}60%{transform:scale(1.04)}}
+section.notes{margin:4px 16px 28px;border:1px solid var(--line);border-radius:12px;background:var(--surface);padding:12px}
+section.notes h2{font-size:12px;letter-spacing:.07em;text-transform:uppercase;color:var(--muted);margin:0 0 8px;font-weight:600}
+section.notes textarea{width:100%;min-height:120px;resize:vertical;background:var(--bg);color:var(--text);border:1px solid var(--line-strong);border-radius:8px;padding:9px 11px;font:13px/1.5 var(--mono)}
+section.notes .row{margin-top:8px}
+.hint{color:var(--muted);font-size:12px}
+.hint kbd{font-family:var(--mono);font-size:11px;border:1px solid var(--line-strong);border-radius:4px;padding:0 4px;background:var(--surface)}
+#status{color:var(--muted);font-size:12px;font-family:var(--mono)}
+@media (max-width:640px){header.top{position:static}.grid{grid-template-columns:repeat(2,1fr)!important}body.stage .tile{width:100%;max-width:204px}}
+</style>
+</head>
+<body class="rail">
+<header class="top">
+  <div class="row">
+    <h1>Legion Muster Lab<small>13 busts, the real engine</small></h1>
+    <span class="lbl">Mode</span>
+    <span class="seg" id="modeSeg"><button data-mode="rail" class="on" title="agent-rail mode, 56 px tiles">Rail 56 px</button><button data-mode="stage" title="stage mode, about 200 px, full behaviour">Stage 200 px</button></span>
+    <span class="lbl">Theme</span>
+    <span class="seg" id="themeSeg"><button data-theme="dark" class="on">Dark</button><button data-theme="light">Light</button></span>
+    <label class="chk"><input type="checkbox" id="optPortrait"> show portrait</label>
+    <label class="chk"><input type="checkbox" id="optQuips" checked> quips on click</label>
+    <label class="chk"><input type="checkbox" id="optPips" checked> status pips</label>
+    <label class="chk"><input type="checkbox" id="optTrack" checked> eyes follow pointer</label>
+    <label class="chk"><input type="checkbox" id="optVm"> VM cloud</label>
+  </div>
+  <div class="row">
+    <span class="lbl">All bots</span>
+    <span class="states" id="globalStates"></span>
+    <span class="tour">
+      <button class="btn" id="tourBtn" title="cycle every state on every bot">Tour</button>
+    </span>
+    <select id="tourSpeed" title="seconds per state"><option value="1800">fast 1.8 s</option><option value="2800" selected>2.8 s</option><option value="4500">slow 4.5 s</option></select>
+    <label class="chk"><input type="checkbox" id="optStagger" checked> stagger bots</label>
+    <span id="status"></span>
+  </div>
+</header>
+<main><div class="grid" id="grid"></div></main>
+<section class="notes">
+  <h2>Notes</h2>
+  <textarea id="notes" placeholder="Observations: which pairs you confuse, which state reads wrong, what to repaint..." spellcheck="false"></textarea>
+  <div class="row">
+    <button class="btn" id="stamp">Stamp current view</button>
+    <button class="btn" id="copyNotes">Copy</button>
+    <button class="btn" id="clearNotes">Clear</button>
+    <span class="hint">Tile click: quip. Five quick clicks: annoyed. <kbd>1</kbd>-<kbd>9</kbd> force a state on all bots, <kbd>T</kbd> tour, <kbd>P</kbd> portraits. Notes are kept in this browser only.</span>
+  </div>
+</section>
+
+<script>
+/*__ENGINE__*/
+</script>
+<script>
+const BOTS = /*__DATA__*/;
+const PORTRAITS = /*__PORTRAITS__*/;
+</script>
+<script>
+(() => {
+'use strict';
+const ORDER = ['zealot','builder','scout','inquisitor','scribe','archivist','sentinel','forgemaster','exorcist','preceptor','herald','assayer','sculptor'];
+const STATES = Engine.STATES;
+const SHORT = { idle:'idle', listening:'listen', thinking:'think', hacking:'hack', awaiting:'await', victory:'win', error:'error', sleeping:'sleep', annoyed:'annoy' };
+const $ = (s, r = document) => r.querySelector(s);
+const cap = (s) => s[0].toUpperCase() + s.slice(1);
+const store = { get(k){ try { return localStorage.getItem(k); } catch { return null; } }, set(k,v){ try { localStorage.setItem(k,v); } catch {} } };
+
+const S = { mode: 'rail', theme: 'dark', portrait: false, quips: true, pips: true, track: true, vm: false, stagger: true, tour: false, speed: 2800 };
+const cur = {};            // id -> forced state
+const flip = new Set();    // per-card portrait flips
+const cards = {};          // id -> { card, tile, host, m, opts, quips, dots, buttons, clicks, bubbleT }
+let tourT = 0, tourI = 0;
+
+/* ---------- build ---------- */
+const grid = $('#grid');
+for (const id of ORDER) {
+  const b = BOTS[id];
+  const card = document.createElement('div'); card.className = 'card'; card.dataset.bot = id;
+  card.innerHTML = `<div class="hd"><span class="dot idle"></span><span class="nm">${cap(id)}<i></i></span></div>
+    <div class="tile"><span class="host"></span><img class="portrait" alt="${cap(id)} portrait" src="${PORTRAITS[id]}"></div>
+    <div class="sg">${STATES.map((s) => `<button data-s="${s}" title="${s}">${SHORT[s]}</button>`).join('')}</div>
+    <div class="ex"><button class="mini" data-act="verb" title="play one of this bot's idle verbs">play verb</button><button class="mini" data-act="portrait" title="swap bust / portrait for this bot">portrait</button></div>`;
+  grid.appendChild(card);
+  cards[id] = { id, card, tile: $('.tile', card), host: $('.host', card), dot: $('.dot', card), sub: $('.nm i', card), m: null, clicks: [], bubbleT: 0, annoyTimer: 0, quips: [...(b.persona.quips || [])] };
+  cur[id] = 'idle';
+}
+
+function boxFor(id) {
+  const b = BOTS[id]; const f = b.persona.cropRail || b.data.cropRail || b.data.crop;
+  if (S.mode === 'rail') { const s = Math.min(56 / f[2], 56 / f[3]); return [Math.round(f[2] * s), Math.round(f[3] * s)]; }
+  const s = Math.min(200 / f[2], 220 * 0.8 / f[3]); return [Math.round(f[2] * s), Math.round(f[3] * s)];
+}
+function mount(id) {
+  const c = cards[id], b = BOTS[id];
+  if (c.m) { c.m.destroy(); c.m = null; }
+  c.host.textContent = '';
+  const [w, h] = boxFor(id);
+  c.host.style.width = w + 'px'; c.host.style.height = h + 'px';
+  const rail = S.mode === 'rail';
+  c.opts = { rail, railCrop: !rail, cropRail: b.persona.cropRail, persona: b.persona, quips: [], annoyedQuip: b.persona.annoyedQuip, track: S.track, hoverEl: c.tile };
+  c.m = Engine.createMascot(c.host, b.data, c.opts);
+  c.m.setVm(S.vm);
+  c.m.setState(cur[id]);
+  c.sub.textContent = '';
+}
+function remountAll() { for (const id of ORDER) mount(id); }
+
+/* ---------- state ---------- */
+function paintState(id) {
+  const c = cards[id], s = cur[id];
+  c.dot.className = 'dot ' + s; c.dot.title = s;
+  c.dot.style.visibility = S.pips ? '' : 'hidden';
+  c.card.querySelectorAll('.sg button').forEach((x) => x.classList.toggle('on', x.dataset.s === s));
+}
+function setState(id, s) { cur[id] = s; cards[id].m.setState(s); paintState(id); syncGlobal(); }
+function setAll(s) { for (const id of ORDER) setState(id, s); }
+function syncGlobal() {
+  const vals = new Set(Object.values(cur));
+  document.querySelectorAll('#globalStates button').forEach((x) => x.classList.toggle('on', vals.size === 1 && vals.has(x.dataset.s)));
+}
+const gs = $('#globalStates');
+gs.innerHTML = STATES.map((s, i) => `<button data-s="${s}" title="key ${i + 1}"><i class="dot ${s}"></i>${s}</button>`).join('');
+gs.addEventListener('click', (e) => { const b = e.target.closest('button'); if (!b) return; stopTour(); setAll(b.dataset.s); });
+grid.addEventListener('click', (e) => {
+  const sb = e.target.closest('.sg button'); const act = e.target.closest('[data-act]');
+  const id = e.target.closest('.card')?.dataset.bot; if (!id) return;
+  if (sb) { setState(id, sb.dataset.s); return; }
+  if (act) {
+    if (act.dataset.act === 'portrait') { flip.has(id) ? flip.delete(id) : flip.add(id); paintPortrait(); }
+    if (act.dataset.act === 'verb') { const vs = cards[id].m.verbs; if (!vs.length) return; if (cur[id] !== 'idle') setState(id, 'idle'); const v = vs[Math.floor(Math.random() * vs.length)]; cards[id].m.play(v); flash(id, 'verb: ' + v); }
+    return;
+  }
+  if (e.target.closest('.tile')) poke(id);
+});
+
+/* ---------- quips ---------- */
+function flash(id, text, ms = 3200) {
+  const c = cards[id];
+  c.card.querySelector('.bubble')?.remove();
+  const bub = document.createElement('div'); bub.className = 'bubble'; bub.textContent = text; bub.setAttribute('role', 'status');
+  c.card.appendChild(bub);
+  const t = c.tile.offsetTop; bub.style.top = (t + 2) + 'px';
+  clearTimeout(c.bubbleT); c.bubbleT = setTimeout(() => bub.remove(), ms);
+}
+function poke(id) {
+  const c = cards[id], b = BOTS[id], now = Date.now();
+  c.tile.classList.remove('bounce'); void c.tile.offsetWidth; c.tile.classList.add('bounce');
+  c.clicks = c.clicks.filter((t) => now - t < 2000); c.clicks.push(now);
+  const annoyed = () => {
+    c.clicks = []; const back = cur[id] === 'annoyed' ? 'idle' : cur[id];
+    if (S.mode === 'rail') { c.m.setState('annoyed'); clearTimeout(c.annoyTimer); c.annoyTimer = setTimeout(() => c.m.setState(back), 2800); }
+    flash(id, b.persona.annoyedQuip || 'Stop poking.', 2800);
+  };
+  if (S.mode === 'stage' && c.m.state === 'annoyed') { flash(id, b.persona.annoyedQuip || 'Stop poking.', 2800); return; }
+  if (c.clicks.length >= 5) { annoyed(); return; }
+  if (!S.quips || !c.quips.length) return;
+  let i = Math.floor(Math.random() * c.quips.length); if (i === c.lastQ) i = (i + 1) % c.quips.length; c.lastQ = i;
+  flash(id, c.quips[i]);
+}
+
+/* ---------- tour ---------- */
+const tourBtn = $('#tourBtn');
+function tourStep() {
+  tourI++;
+  ORDER.forEach((id, k) => { const s = STATES[(tourI + (S.stagger ? k : 0)) % STATES.length]; setState(id, s); });
+  $('#status').textContent = S.stagger ? 'tour: staggered' : 'tour: ' + STATES[tourI % STATES.length];
+}
+function startTour() { S.tour = true; tourBtn.classList.add('on'); tourBtn.textContent = 'Stop tour'; tourStep(); tourT = setInterval(tourStep, S.speed); }
+function stopTour() { S.tour = false; tourBtn.classList.remove('on'); tourBtn.textContent = 'Tour'; clearInterval(tourT); $('#status').textContent = ''; }
+tourBtn.onclick = () => S.tour ? stopTour() : startTour();
+$('#tourSpeed').onchange = (e) => { S.speed = +e.target.value; if (S.tour) { clearInterval(tourT); tourT = setInterval(tourStep, S.speed); } };
+$('#optStagger').onchange = (e) => { S.stagger = e.target.checked; if (S.tour) tourStep(); };
+
+/* ---------- toggles ---------- */
+function paintPortrait() { for (const id of ORDER) { const on = S.portrait !== flip.has(id); cards[id].card.classList.toggle('portrait', on); cards[id].card.querySelector('[data-act=portrait]').classList.toggle('on', on); } }
+$('#optPortrait').onchange = (e) => { S.portrait = e.target.checked; flip.clear(); paintPortrait(); };
+$('#optQuips').onchange = (e) => { S.quips = e.target.checked; };
+$('#optPips').onchange = (e) => { S.pips = e.target.checked; ORDER.forEach(paintState); };
+$('#optTrack').onchange = (e) => { S.track = e.target.checked; for (const id of ORDER) cards[id].opts.track = S.track; };
+$('#optVm').onchange = (e) => { S.vm = e.target.checked; for (const id of ORDER) cards[id].m.setVm(S.vm); };
+$('#modeSeg').addEventListener('click', (e) => { const b = e.target.closest('button'); if (!b) return; setMode(b.dataset.mode); });
+function setMode(m) {
+  S.mode = m; document.body.className = m;
+  document.querySelectorAll('#modeSeg button').forEach((x) => x.classList.toggle('on', x.dataset.mode === m));
+  remountAll();
+}
+function setTheme(t) {
+  S.theme = t; document.documentElement.dataset.theme = t;
+  document.querySelectorAll('#themeSeg button').forEach((x) => x.classList.toggle('on', x.dataset.theme === t));
+}
+$('#themeSeg').addEventListener('click', (e) => { const b = e.target.closest('button'); if (b) setTheme(b.dataset.theme); });
+
+/* ---------- notes ---------- */
+const notes = $('#notes'); notes.value = store.get('muster-lab-notes') || '';
+notes.addEventListener('input', () => store.set('muster-lab-notes', notes.value));
+$('#stamp').onclick = () => {
+  const groups = {}; for (const id of ORDER) (groups[cur[id]] ||= []).push(cap(id));
+  const line = `[${S.mode}, ${S.theme}${S.portrait ? ', portraits' : ''}] ` + Object.entries(groups).map(([s, v]) => `${s}: ${v.join(', ')}`).join(' | ');
+  notes.value += (notes.value && !notes.value.endsWith('\n') ? '\n' : '') + line + '\n'; notes.dispatchEvent(new Event('input')); notes.scrollTop = notes.scrollHeight;
+};
+$('#copyNotes').onclick = async () => { try { await navigator.clipboard.writeText(notes.value); $('#status').textContent = 'notes copied'; } catch { notes.select(); document.execCommand('copy'); $('#status').textContent = 'notes copied'; } setTimeout(() => { if (!S.tour) $('#status').textContent = ''; }, 1500); };
+$('#clearNotes').onclick = () => { if (!notes.value || confirm('Clear the notes?')) { notes.value = ''; notes.dispatchEvent(new Event('input')); } };
+
+/* ---------- keys ---------- */
+addEventListener('keydown', (e) => {
+  if (e.target.closest('textarea,select,input[type=text]') || e.ctrlKey || e.metaKey || e.altKey) return;
+  if (/^[1-9]$/.test(e.key)) { stopTour(); setAll(STATES[+e.key - 1]); }
+  else if (e.key === 't' || e.key === 'T') tourBtn.click();
+  else if (e.key === 'p' || e.key === 'P') $('#optPortrait').click();
+});
+
+/* ---------- boot ---------- */
+for (const id of ORDER) { mount(id); paintState(id); }
+syncGlobal(); paintPortrait();
+// test hooks
+window.__lab = { cards, cur, setAll, setState, setMode, setTheme, startTour, stopTour, poke, S, runtime: () => Engine.runtimeStats() };
+})();
+</script>
+</body>
+</html>

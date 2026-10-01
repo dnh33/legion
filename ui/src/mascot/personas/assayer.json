@@ -1,0 +1,144 @@
+{
+ "name": "Assayer",
+ "tempo": 1.0,
+ "haloFlare": 1.25,
+ "sleepPlume": 5,
+ "annoyedQuip": "Each poke is logged. None of them are tests.",
+ "quips": [
+  "Weigh it twice. Spend once.",
+  "Claim noted. Not yet weighed.",
+  "The fee is wrong. By one satoshi. It matters.",
+  "Your test passes. Show me the one that fails.",
+  "Signed is not the same as verified.",
+  "That script is valid. It is also wrong.",
+  "Ran it again. Same hash. Now I believe you.",
+  "A promise is not a proof. Neither is a screenshot.",
+  "Change output missing. Somebody just paid a miner a tip.",
+  "Broadcast later. Read it first.",
+  "Assayed: sound. Stamped. Next.",
+  "I do not round. I check."
+ ],
+ "verbs": [
+  {
+   "id": "weigh-it-twice",
+   "w": 3,
+   "cd": 45,
+   "steps": [
+    {
+     "p": "flutter",
+     "target": "plume",
+     "deg": 3,
+     "dur": 2800,
+     "cycles": 2
+    },
+    {
+     "p": "scan",
+     "look": [
+      [
+       -6,
+       0
+      ],
+      [
+       6,
+       0
+      ],
+      [
+       0,
+       0
+      ]
+     ],
+     "dur": 2800
+    }
+   ]
+  },
+  {
+   "id": "squint",
+   "w": 2,
+   "cd": 35,
+   "steps": [
+    {
+     "p": "scan",
+     "look": [
+      [
+       0,
+       0
+      ]
+     ],
+     "dur": 1500,
+     "eyes": "narrow"
+    },
+    {
+     "p": "flare",
+     "target": "face",
+     "dur": 1500,
+     "to": 0.9
+    }
+   ]
+  },
+  {
+   "id": "tare",
+   "w": 3,
+   "cd": 45,
+   "steps": [
+    {
+     "p": "flutter",
+     "target": "halo",
+     "deg": 20,
+     "dur": 1200,
+     "keep": true
+    }
+   ]
+  },
+  {
+   "id": "check-the-weights",
+   "w": 2,
+   "cd": 40,
+   "steps": [
+    {
+     "p": "wave",
+     "targets": "hangs",
+     "dur": 1000,
+     "deg": 6,
+     "stagger": 220
+    }
+   ]
+  },
+  {
+   "id": "spend-once",
+   "w": 1,
+   "cd": 120,
+   "steps": [
+    {
+     "p": "nod",
+     "y": 1.2,
+     "dur": 1600
+    },
+    {
+     "p": "flare",
+     "target": "face",
+     "dur": 1200,
+     "peak": 1.2
+    }
+   ]
+  },
+  {
+   "id": "spend-once-after-a-win",
+   "w": 3,
+   "cd": 10,
+   "when": "victory",
+   "steps": [
+    {
+     "p": "nod",
+     "y": 1.2,
+     "dur": 1600
+    },
+    {
+     "p": "flare",
+     "target": "face",
+     "dur": 1200,
+     "peak": 1.2
+    }
+   ]
+  }
+ ]
+}

@@ -90,7 +90,7 @@ export function buildLegionMcpServer(ctx: CoreContext): McpServer {
       'directory and optionally its own on-demand cloud VM (boat.dev) for risky, long-running, GUI or browser work. ' +
       'Returns id, name, description, model, approval mode and current VM state for each. Call this first to learn which agent to hand work to with legion_run.',
     annotations: { readOnlyHint: true },
-  }, safe(async () => json(ctx.store.listAgents().map((a) => ({
+  }, safe(async () => json(ctx.store.listAgents().filter((a) => a.requires !== 'bsv' || ctx.bsvEnabled?.() === true).map((a) => ({
     id: a.id, name: a.name, emoji: a.emoji, description: a.description, model: a.model, approval: a.approval,
     vm: { enabled: a.vm.enabled, size: a.vm.size, state: safeVmState(ctx, a.id) },
   })))));

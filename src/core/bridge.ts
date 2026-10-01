@@ -1,5 +1,6 @@
 /** Agent-to-agent bridge: lets any Legion agent message any other agent (ask = wait, tell = async reply). */
 import type { AgentProfile, ModelChoice, Task, TaskSource } from '../shared/types.js';
+import type { TaskOrigin } from '../shared/comms.js';
 import type { EventBus } from './bus.js';
 import type { Store } from './store.js';
 
@@ -12,6 +13,8 @@ const clampTimeout = (v: unknown, def = 600) => (typeof v === 'number' && Number
 
 export interface BridgeStartParams {
   agentId: string; prompt: string; source: TaskSource; model?: ModelChoice; continueTaskId?: string;
+  /** Set by the rooms module: approval ceiling inherited from the waking bot. */
+  origin?: TaskOrigin;
   bridge?: { fromAgentId: string; parentTaskId?: string; header?: string; reply?: boolean; hop?: number };
 }
 /** The slice of Engine the bridge needs. */
@@ -54,6 +57,8 @@ export class Bridge {
   /** `from>to` -> delivery timestamps (rate limit). */
   private readonly deliveries = new Map<string, number[]>();
   private readonly now: () => number;
+  /** Hides agents that are switched off (e.g. `requires: 'bsv'` while BSV mode is off). Set by the composition root. */
+  isVisible: (a: AgentProfile) => boolean = () => true;
 
   constructor(deps: { store: Store; bus: EventBus; engine: BridgeEngine; now?: () => number }) {
     this.store = deps.store; this.bus = deps.bus; this.engine = deps.engine;
@@ -72,7 +77,7 @@ export class Bridge {
   /** Compact roster for the `agents` tool: one line per other agent. */
   list(callerAgentId: string): string {
     const lines: string[] = [];
-    for (const a of this.store.listAgents()) {
+    for (const a of this.store.listAgents().filter((x) => this.isVisible(x))) {
       if (a.id === callerAgentId) continue;
       const tasks = this.store.listTasks(500, a.id, true);
       const status = tasks.some((t) => t.status === 'running') ? 'working' : tasks.some((t) => t.status === 'queued') ? 'queued' : 'idle';
@@ -148,7 +153,7 @@ export class Bridge {
     if (!caller) throw new BridgeError('Unknown caller task');
     if (!message?.trim()) throw new BridgeError('message is empty');
     const ref = String(agentRef ?? '').trim().toLowerCase();
-    const agents = this.store.listAgents();
+    const agents = this.store.listAgents().filter((x) => this.isVisible(x));
     const target = agents.find((a) => a.id.toLowerCase() === ref) ?? agents.find((a) => a.name.toLowerCase() === ref);
     if (!target) throw new BridgeError(`Unknown agent "${agentRef}". Available: ${agents.filter((a) => a.id !== caller.agentId).map((a) => a.id).join(', ') || 'none'}`);
     if (target.id === caller.agentId) throw new BridgeError('You cannot message yourself');

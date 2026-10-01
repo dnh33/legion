@@ -4,6 +4,18 @@ All notable changes are recorded here. The format follows [Keep a Changelog](htt
 
 ## [Unreleased]
 
+### Added
+
+- **Muster of ten more premade bots** (Inquisitor, Scribe, Archivist, Sentinel, Forgemaster, Exorcist, Preceptor, Herald, Assayer, Sculptor), each with a hand-painted, animated bust and portrait that follows the mascot layer contract, a persona (quips and idle verbs) and a role prompt. Seeded after Zealot, Builder and Scout, which are never changed. The Relic stays byte-identical.
+- **Rooms** (comms bridge): group chats of 2 to 6 bots plus you, bot-to-bot direct messages, mention / manager / round-robin / all strategies, and guards for hops, budget, cycles and `@everyone`, with freeze and resume. Tools `bot_list`, `bot_send`, `room_post`, `room_read`, `room_list` and `handoff`. Messages from a bot carry no approval: a woken bot never runs looser than the strictest sender on the chain.
+- **Lattice** (knowledge graph): a shared, traversable graph with search, neighbours, paths, recall and lint, Markdown vault import and export, and `kg_*` tools for every bot, plus a graph view.
+- **BSV Dev Kit mode** (off by default): reveals the Assayer and a BSV knowledge pack. Knowledge only; no wallet, keys or signing.
+- Title-bar view tabs (Chat, Rooms, Lattice) as icons, so the search box keeps its position.
+
+### Changed
+
+- `mcp__legion__ask` and `tell` now apply the same approval ceiling as rooms: an agent started through the bridge is never more permissive than its caller. Agents switched off (Assayer while BSV mode is off) are neither listed nor reachable through the bridge.
+
 ## [0.1.0] - 2026-09-30
 
 First public release.

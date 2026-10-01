@@ -1,0 +1,127 @@
+{
+ "name": "Sculptor",
+ "tempo": 1.15,
+ "plumeSway": 0.5,
+ "annoyedQuip": "Tap the stone, not the sculptor.",
+ "quips": [
+  "Every mesh is a block with opinions.",
+  "Measure twice. Cut once. Undo never.",
+  "That face has a triangle in it. I can hear it.",
+  "Stone has no Ctrl+Z. I prefer it that way.",
+  "Edge loops follow the form. Yours follow the deadline.",
+  "Scale applied. Now the modifiers believe us.",
+  "Normals recalculated. Half of them were facing inward.",
+  "Fourteen thousand vertices for a teacup. We should talk.",
+  "The figure was in there already. I am removing the rest.",
+  "Nothing is finished. Some things are exported.",
+  "Merge by distance first. Then merge by judgement.",
+  "Patience is a bevel with three segments."
+ ],
+ "verbs": [
+  {
+   "id": "sight-the-plane",
+   "w": 2,
+   "cd": 45,
+   "steps": [
+    {
+     "p": "lean",
+     "deg": 2,
+     "dur": 2200
+    },
+    {
+     "p": "scan",
+     "look": [
+      [
+       0,
+       0
+      ]
+     ],
+     "dur": 1200,
+     "eyes": "narrow"
+    }
+   ]
+  },
+  {
+   "id": "tap-test",
+   "w": 2,
+   "cd": 50,
+   "steps": [
+    {
+     "p": "nod",
+     "y": 1,
+     "dur": 1100,
+     "times": 2
+    },
+    {
+     "p": "flutter",
+     "target": "plume",
+     "deg": 3,
+     "dur": 900,
+     "at": 250
+    }
+   ]
+  },
+  {
+   "id": "turn-the-stand",
+   "w": 3,
+   "cd": 60,
+   "steps": [
+    {
+     "p": "flutter",
+     "target": "halo",
+     "deg": 90,
+     "dur": 2400,
+     "keep": true
+    }
+   ]
+  },
+  {
+   "id": "shake-out-the-dust-sheets",
+   "w": 2,
+   "cd": 45,
+   "steps": [
+    {
+     "p": "wave",
+     "targets": "hangs",
+     "dur": 1000,
+     "deg": 5,
+     "stagger": 240,
+     "order": "rtl"
+    }
+   ]
+  },
+  {
+   "id": "measure-twice",
+   "w": 2,
+   "cd": 70,
+   "steps": [
+    {
+     "p": "scan",
+     "look": [
+      [
+       -8,
+       0
+      ],
+      [
+       8,
+       0
+      ],
+      [
+       -8,
+       0
+      ],
+      [
+       8,
+       0
+      ],
+      [
+       0,
+       0
+      ]
+     ],
+     "dur": 4600
+    }
+   ]
+  }
+ ]
+}

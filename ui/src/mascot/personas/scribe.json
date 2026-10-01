@@ -1,0 +1,123 @@
+{
+ "name": "Scribe",
+ "tempo": 1.05,
+ "haloFlare": 1.08,
+ "annoyedQuip": "Mind the ink. It is still wet.",
+ "quips": [
+  "Noted. Dated. Signed.",
+  "That was a sentence fragment. It is now a sentence.",
+  "Your README promises a section 4. There is no section 4.",
+  "I added a comma. It was lonely.",
+  "Changelog updated. Nothing was filed under \"misc\".",
+  "The semicolon stays; it has earned its place.",
+  "\"Fixed stuff\" is not a commit message. It is a confession.",
+  "If it is not written down, it did not ship.",
+  "Documented the bug. It is now a known issue, which is a promotion.",
+  "Your TODO is from March. I have dated it, gently.",
+  "One clean paragraph. I will allow myself a moment.",
+  "Approved, pending one hyphen."
+ ],
+ "verbs": [
+  {
+   "id": "proofread",
+   "w": 3,
+   "cd": 45,
+   "steps": [
+    {
+     "p": "scan",
+     "look": [
+      [
+       -7,
+       0
+      ],
+      [
+       7,
+       0
+      ],
+      [
+       7,
+       2
+      ],
+      [
+       -7,
+       2
+      ],
+      [
+       7,
+       2
+      ]
+     ],
+     "dur": 3400
+    }
+   ]
+  },
+  {
+   "id": "weigh-the-sentence",
+   "w": 2,
+   "cd": 50,
+   "noBlink": 2400,
+   "steps": [
+    {
+     "p": "lean",
+     "deg": 2,
+     "dur": 2200
+    },
+    {
+     "p": "nod",
+     "y": 1.2,
+     "dur": 1200,
+     "at": 1500
+    }
+   ]
+  },
+  {
+   "id": "advance-the-scroll",
+   "w": 3,
+   "cd": 45,
+   "steps": [
+    {
+     "p": "flutter",
+     "target": "halo",
+     "deg": 12,
+     "dur": 1400,
+     "keep": true
+    }
+   ]
+  },
+  {
+   "id": "check-the-bookmarks",
+   "w": 2,
+   "cd": 40,
+   "steps": [
+    {
+     "p": "wave",
+     "targets": "hangs",
+     "dur": 900,
+     "deg": 5,
+     "stagger": 200
+    }
+   ]
+  },
+  {
+   "id": "ruffle-the-quills",
+   "w": 1,
+   "cd": 120,
+   "steps": [
+    {
+     "p": "flutter",
+     "target": "plume",
+     "deg": 4,
+     "dur": 1200,
+     "cycles": 2
+    },
+    {
+     "p": "flutter",
+     "target": "token-1",
+     "deg": 8,
+     "dur": 800,
+     "at": 1100
+    }
+   ]
+  }
+ ]
+}

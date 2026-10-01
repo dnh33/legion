@@ -4,11 +4,13 @@ import { join } from 'node:path';
 import { query as realQuery } from '@anthropic-ai/claude-agent-sdk';
 import type { McpServerConfig, Options, Query, query as sdkQuery } from '@anthropic-ai/claude-agent-sdk';
 import type {
-  AgentProfile, ChatMessage, ConcreteModel, LegionConfig, MascotMood, MessageRole, ModelChoice, Task, TaskSource,
+  AgentProfile, ApprovalMode, ChatMessage, ConcreteModel, LegionConfig, MascotMood, MessageRole, ModelChoice, Task, TaskSource,
 } from '../shared/types.js';
 import { newId, nowIso, titleFrom } from '../shared/util.js';
 import { scrubHostSessionEnv } from '../shared/config.js';
-import { needsApproval } from './approvals.js';
+import { needsApproval, stricterMode } from './approvals.js';
+import type { CoreModule } from './modules.js';
+import type { TaskOrigin } from '../shared/comms.js';
 import type { ApprovalBroker } from './approvals.js';
 import type { EventBus } from './bus.js';
 import { routeModel, shouldEscalate } from './router.js';
@@ -27,6 +29,7 @@ export interface EngineDeps {
   /** Returns whether boat is configured (vm tools only offered when true). */
   boatConfigured: () => boolean;
   maxConcurrent?: number;
+  modules?: CoreModule[];
 }
 
 /**
@@ -54,7 +57,7 @@ export class EngineError extends Error {
 export const LEGION_PREAMBLE = [
   'You are {name}, an agent inside Legion, the user\'s personal multi-agent bot running on their own computer.',
   'Be direct and get the work done; report results concisely.',
-  'Other Legion agents are reachable ONLY through mcp__legion__agents (list them), mcp__legion__ask and mcp__legion__tell.',
+  'Other Legion agents are reachable through mcp__legion__agents (list them), mcp__legion__ask and mcp__legion__tell (direct delegation).',
   'Use ask when you need the answer before you can continue; it blocks and returns their final message.',
   'Use tell for long or parallel work: it returns at once and their answer arrives later as a new message in your task.',
   'Do not use SendMessage or ListAgents; they do not reach Legion agents. Keep messages short and self-contained.',
@@ -86,6 +89,8 @@ interface Job {
   header?: string;
   /** Set for bridge runs: the caller agent + task, for mascot note and cap bypass. */
   fromAgentId?: string; parentTaskId?: string;
+  /** Set when another bot woke this run (rooms, or the agent bridge). Caps the run's approval mode. */
+  origin?: TaskOrigin;
 }
 interface Active { ac: AbortController; cancelled: boolean; q?: Query }
 interface Outcome { subtype: string; isError: boolean; errorText?: string }
@@ -105,6 +110,7 @@ export class Engine {
   private readonly active = new Map<string, Active>();
   private idleTimer: ReturnType<typeof setTimeout> | undefined;
   readonly bridge: Bridge;
+  private modules: CoreModule[];
 
   constructor(deps: EngineDeps) {
     this.store = deps.store; this.bus = deps.bus; this.vms = deps.vms; this.approvals = deps.approvals;
@@ -112,14 +118,22 @@ export class Engine {
     this.queryFn = deps.queryFn ?? realQuery;
     this.boatConfigured = deps.boatConfigured;
     this.maxConcurrent = Math.max(1, deps.maxConcurrent ?? 4);
+    this.modules = deps.modules ?? [];
     this.bridge = new Bridge({ store: this.store, bus: this.bus, engine: this });
   }
+
+  /** Modules are built after the engine (they need it), so they are attached here. */
+  setModules(mods: CoreModule[]): void { this.modules = mods; }
 
   startTask(p: BridgeStartParams): Task {
     const agent = this.store.getAgent(p.agentId);
     if (!agent) throw new EngineError(`Unknown agent: ${p.agentId}`, 404);
     const prompt = (p.prompt ?? '').trim();
     if (!prompt) throw new EngineError('Prompt is empty', 400);
+
+    // Confused-deputy rule: a run another agent starts through the bridge never gets looser
+    // approvals than its caller (rooms set their own origin and take precedence).
+    const origin = p.origin ?? this.bridgeOrigin(p);
 
     let task: Task;
     let priorModel: ConcreteModel | undefined;
@@ -135,6 +149,8 @@ export class Engine {
         result: undefined, error: undefined,
         ...(viaBridge ? { fromAgentId: p.bridge!.fromAgentId, parentTaskId: p.bridge!.parentTaskId } : {}),
         bridgeHop: p.bridge ? p.bridge.hop ?? 0 : undefined,
+        // A human continuing a task clears any bot-origin ceiling; a bridge reply keeps the task's own.
+        origin: origin ?? (p.bridge?.reply ? prev.origin : undefined),
       });
     } else {
       const now = nowIso();
@@ -146,15 +162,27 @@ export class Engine {
         status: 'queued', source: p.source,
         ...(p.bridge ? { fromAgentId: p.bridge.fromAgentId, parentTaskId: p.bridge.parentTaskId, bridgeHop: p.bridge.hop ?? 0 } : {}),
         requestedModel: p.model ?? agent.model, createdAt: now, updatedAt: now,
+        ...(origin ? { origin } : {}),
       });
     }
     this.addMessage(task.id, 'user', prompt, undefined, p.bridge?.fromAgentId);
     this.queue.push({
       taskId: task.id, agentId: agent.id, prompt, choice: task.requestedModel, priorModel,
       header: p.bridge?.header, fromAgentId: p.bridge?.fromAgentId, parentTaskId: p.bridge && !p.bridge.reply ? p.bridge.parentTaskId : undefined,
+      origin: task.origin,
     });
     queueMicrotask(() => this.pump());
     return { ...task };
+  }
+
+  /** Origin (approval ceiling) for a task started by `ask`/`tell`. Replies go back to the caller's own task and add none. */
+  private bridgeOrigin(p: BridgeStartParams): TaskOrigin | undefined {
+    if (!p.bridge || p.bridge.reply) return undefined;
+    const callerAgent = this.store.getAgent(p.bridge.fromAgentId);
+    const callerTask = p.bridge.parentTaskId ? this.store.getTask(p.bridge.parentTaskId) : undefined;
+    let ceiling: ApprovalMode = callerAgent?.approval ?? 'ask';
+    if (callerTask?.origin) ceiling = stricterMode(ceiling, callerTask.origin.approvalCeiling);
+    return { roomId: 'agent-bridge', fromAgentId: p.bridge.fromAgentId, hop: p.bridge.hop ?? 1, approvalCeiling: ceiling };
   }
 
   cancel(taskId: string): boolean {
@@ -335,6 +363,17 @@ export class Engine {
       agentId: agent.id, taskId, vms: this.vms, bridge: this.bridge,
       vmEnabled: !!agent.vm?.enabled && this.boatConfigured(),
     });
+    for (const m of this.modules) {
+      try { Object.assign(out, m.mcpServers?.(agent) ?? {}); } catch { /* a broken module must not break runs */ }
+    }
+    return out;
+  }
+
+  private modulePreamble(agent: AgentProfile): string {
+    let out = '';
+    for (const m of this.modules) {
+      try { const t = m.preamble?.(agent); if (t) out += '\n\n' + t; } catch { /* ignore */ }
+    }
     return out;
   }
 
@@ -346,7 +385,7 @@ export class Engine {
       cwd,
       systemPrompt: {
         type: 'preset', preset: 'claude_code',
-        append: LEGION_PREAMBLE.replace('{name}', agent.name) + (agent.systemPrompt ? '\n\n' + agent.systemPrompt : ''),
+        append: LEGION_PREAMBLE.replace('{name}', agent.name) + this.modulePreamble(agent) + (agent.systemPrompt ? '\n\n' + agent.systemPrompt : ''),
       },
       settingSources: this.config.claude.inheritClaudeCodeSettings ? ['user', 'project', 'local'] : [],
       mcpServers: this.buildMcpServers(agent, job.taskId),
@@ -358,15 +397,26 @@ export class Engine {
     };
     if (resume) options.resume = resume;
     if (this.config.claude.executablePath) options.pathToClaudeCodeExecutable = this.config.claude.executablePath;
-    if (agent.approval === 'full') {
+    // A task woken by another bot can never be more permissive than the strictest sender on the chain
+    // (confused-deputy guard): it never runs in bypass mode and its cards name who asked.
+    const ceiling = job.origin?.approvalCeiling;
+    const effective = (): ApprovalMode => {
+      const mode = this.store.getAgent(agent.id)?.approval ?? agent.approval;
+      return ceiling ? stricterMode(mode, ceiling) : mode;
+    };
+    if (agent.approval === 'full' && !(ceiling && ceiling !== 'full')) {
       options.permissionMode = 'bypassPermissions';
       options.allowDangerouslySkipPermissions = true;
     } else {
       options.permissionMode = 'default';
       options.canUseTool = async (toolName, input) => {
-        const mode = this.store.getAgent(agent.id)?.approval ?? agent.approval;
+        const mode = effective();
         if (!needsApproval(mode, toolName)) return { behavior: 'allow', updatedInput: input };
-        const allowed = await this.approvals.request(job.taskId, agent.id, toolName, input);
+        const o = job.origin;
+        const allowed = await this.approvals.request(
+          job.taskId, agent.id, toolName, input,
+          o ? { roomId: o.roomId, fromAgentId: o.fromAgentId, hop: o.hop } : undefined,
+        );
         return allowed
           ? { behavior: 'allow', updatedInput: input }
           : { behavior: 'deny', message: 'The user denied this action.' };

@@ -142,3 +142,75 @@
 /* reduced motion: static, readable poses per state */
 .mx.mx-rm *, .mx.mx-rm { animation: none !important; transition: none !important; }
 @media (prefers-reduced-motion: reduce) { .mx *, .mx { animation: none !important; } }
+
+/* =====================================================================================================
+   Engine additions for the muster busts. Everything above this line is the original Relic stylesheet and
+   is unchanged. New classes are namespaced mxs-* so an app class can never paint over a mascot.
+   ===================================================================================================== */
+
+/* tokens that carry a sigil (data-flip="none") rock in victory instead of mirroring */
+.mx.mxs-victory .mx-token.mxs-noflip { animation: mxs-rock .9s ease-in-out 2; }
+@keyframes mxs-rock { 0%, 100% { transform: rotate(0); } 30% { transform: rotate(-7deg); } 70% { transform: rotate(7deg); } }
+
+/* eye sets played by persona verbs (the same sets the states use) */
+.mx.mxs-eyes-narrow .xe-base, .mx.mxs-eyes-shut .xe-base, .mx.mxs-eyes-happy .xe-base { display: none; }
+.mx.mxs-eyes-narrow .xe-narrow, .mx.mxs-eyes-shut .xe-shut, .mx.mxs-eyes-happy .xe-happy { display: inline; }
+
+/* persona: victory flare strength per bust (the Relic's 2.2 whitens pale halos) */
+.mx.mxs-flaresoft.mxs-victory .mx-halo-back, .mx.mxs-flaresoft.mxs-victory .mx-halo-front { animation: mx-spin 70s linear infinite, mxs-flare-soft 1.4s ease-out 1; filter: brightness(var(--flare-end, 1.1)); }
+@keyframes mxs-flare-soft { 0% { filter: brightness(var(--flare, 1.2)); } 100% { filter: brightness(var(--flare-end, 1.1)); } }
+
+/* persona: a halo that is an instrument (protractor) swings instead of turning upside down */
+@keyframes mxs-hswing { 0%, 100% { transform: rotate(-18deg); } 50% { transform: rotate(18deg); } }
+.mx.mxs-hswing .mx-halo-back, .mx.mxs-hswing .mx-halo-front { animation: mxs-hswing 42s ease-in-out infinite; }
+.mx.mxs-hswing.mxs-thinking .mx-halo-back, .mx.mxs-hswing.mxs-thinking .mx-halo-front { animation-duration: 9s; }
+.mx.mxs-hswing.mxs-hacking .mx-halo-back, .mx.mxs-hswing.mxs-hacking .mx-halo-front { animation-duration: 15s; }
+.mx.mxs-hswing.mxs-victory .mx-halo-back, .mx.mxs-hswing.mxs-victory .mx-halo-front { animation: mxs-hswing 42s ease-in-out infinite, mx-flare 1.4s ease-out 1; }
+.mx.mxs-hswing.mxs-error .mx-halo-back, .mx.mxs-hswing.mxs-error .mx-halo-front { animation: mxs-hswing 42s ease-in-out infinite, mx-flick 1.8s steps(1) infinite; }
+.mx.mxs-hswing.mxs-sleeping .mx-halo-back, .mx.mxs-hswing.mxs-sleeping .mx-halo-front { animation-play-state: paused; }
+
+/* persona: a rigid crest rocks at half amplitude; a lit crest goes dark while asleep; a per-bust sleeping tilt */
+@keyframes mxs-plume-soft { 0%, 100% { transform: rotate(-.8deg); } 50% { transform: rotate(1.1deg); } }
+.mx.mxs-plumesoft:not(.mxs-sleeping) .mx-plume { animation-name: mxs-plume-soft; }
+.mx.mxs-plumelight .mx-plume { transition: filter .8s ease; }
+.mx.mxs-plumelight.mxs-sleeping .mx-plume { filter: brightness(.55) saturate(.6); }
+.mx.mxs-sleepplume.mxs-sleeping .mx-plume { transform: rotate(var(--sleep-plume)); }
+
+/* window hidden or bust scrolled out of view: every animation holds still */
+.mx.mxs-paused, .mx.mxs-paused *, .mx.mxs-off, .mx.mxs-off * { animation-play-state: paused !important; }
+
+/* ---------------------------------------------------------------------------------------------------
+   Rail mode (agent rail, ~44 px). Quiet busts have NO infinite animation, so they cost nothing between
+   verbs. What still moves: thinking/hacking turn the halo (hacking also scrolls code), awaiting and error always animate,
+   victory is a short one-shot, sleeping stops completely. Selectors carry .mxs-rail to outrank the
+   stage rules above without touching them.
+   --------------------------------------------------------------------------------------------------- */
+.mx.mxs-rail { overflow: hidden; cursor: inherit; pointer-events: none; }
+.mx.mxs-rail .mx-layer { will-change: auto; }
+/* eyes and blinks switch instantly in the rail: a 0.18 s transition on six eye sets costs a frame per tick for 44 px of benefit */
+.mx.mxs-rail .xe { transition: none; }
+.mx.mxs-rail .mx-float, .mx.mxs-rail .mx-halo-back, .mx.mxs-rail .mx-halo-front, .mx.mxs-rail .mx-plume,
+.mx.mxs-rail .mx-hang, .mx.mxs-rail .mx-token { animation: none; }
+.mx.mxs-rail.mxs-hswing .mx-halo-back, .mx.mxs-rail.mxs-hswing .mx-halo-front { animation: none; }
+.mx.mxs-rail .fx-cloud path { stroke: rgba(0, 0, 0, .35); stroke-width: 2; }
+.mx.mxs-rail .fx-cloud path { transform-box: fill-box; transform-origin: center; transform: scale(1.8); }
+
+.mx.mxs-rail.mxs-thinking .mx-halo-back, .mx.mxs-rail.mxs-thinking .mx-halo-front { animation: mx-spin 8s steps(96) infinite; }
+.mx.mxs-rail.mxs-hacking .mx-halo-back, .mx.mxs-rail.mxs-hacking .mx-halo-front { animation: mx-spin 14s steps(168) infinite; }
+.mx.mxs-rail.mxs-hswing.mxs-thinking .mx-halo-back, .mx.mxs-rail.mxs-hswing.mxs-thinking .mx-halo-front { animation: mxs-hswing 9s steps(54) infinite; }
+.mx.mxs-rail.mxs-hswing.mxs-hacking .mx-halo-back, .mx.mxs-rail.mxs-hswing.mxs-hacking .mx-halo-front { animation: mxs-hswing 15s steps(90) infinite; }
+.mx.mxs-rail.mxs-thinking .mx-face { animation: mx-breathe 1.6s steps(4) infinite; }
+.mx.mxs-rail.mxs-hacking .x-code-roll { animation: mx-roll 2.4s steps(12) infinite; }
+.mx.mxs-rail.mxs-hacking .mx-rig { animation: none; } /* the 0.5 % typing bob is a fifth of a pixel at 44 px */
+/* every endless rail animation ticks at about 12 fps or less: at this size smoother motion is invisible, and every frame is a compositor frame for the whole window */
+
+.mx.mxs-rail.mxs-awaiting .fx-bang { animation: mxs-bang-rail 1.1s steps(4, jump-none) infinite; opacity: 1; }
+.mx.mxs-rail.mxs-awaiting .fx-alarm { animation: mx-alarm 1.1s steps(5, jump-none) infinite; opacity: 1; }
+@keyframes mxs-bang-rail { 0%, 100% { transform: scale(var(--bs, 1.9)); } 50% { transform: scale(calc(var(--bs, 1.9) * 1.16)); } }
+.mx.mxs-rail .fx-bang { transform: scale(var(--bs, 1.9)); }
+
+.mx.mxs-rail.mxs-victory .mx-halo-back, .mx.mxs-rail.mxs-victory .mx-halo-front { animation: mx-flare 1.4s ease-out 1; filter: brightness(1.25); }
+.mx.mxs-rail.mxs-flaresoft.mxs-victory .mx-halo-back, .mx.mxs-rail.mxs-flaresoft.mxs-victory .mx-halo-front { animation: mxs-flare-soft 1.4s ease-out 1; filter: brightness(var(--flare-end, 1.1)); }
+.mx.mxs-rail.mxs-victory .fx-spark { animation: mx-burst 1.6s ease-out var(--d) 2; }
+.mx.mxs-rail.mxs-error .mx-halo-back, .mx.mxs-rail.mxs-error .mx-halo-front { animation: none; filter: saturate(.4) brightness(.8); }
+.mx.mxs-rail.mxs-sleeping .fx-z { animation: none; opacity: .85; }

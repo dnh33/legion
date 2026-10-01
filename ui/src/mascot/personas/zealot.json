@@ -1,0 +1,68 @@
+{
+ "name": "Zealot",
+ "tempo": 1.0,
+ "cropRail": [
+  120,
+  0,
+  400,
+  480
+ ],
+ "annoyedQuip": "Stop poking. I am compiling.",
+ "quips": [
+  "The build is holy. The build is green.",
+  "I do not guess. I grep.",
+  "Merge with reverence.",
+  "Verify, then ship. Then verify again.",
+  "Zero warnings. Zero mercy.",
+  "sudo, but with prayer.",
+  "A failing test is a sermon waiting to be heard.",
+  "Forgive us our unhandled exceptions.",
+  "Tokens are finite. Discipline is not.",
+  "Main is sacred. Branch in peace.",
+  "I have read your logs. We must talk.",
+  "Nothing ships unsealed.",
+  "Patience. The linter is watching.",
+  "Bless this diff."
+ ],
+ "verbs": [
+  {
+   "id": "spin",
+   "w": 2,
+   "cd": 60,
+   "steps": [
+    {
+     "p": "flutter",
+     "target": "halo",
+     "deg": 360,
+     "dur": 1300,
+     "keep": true
+    }
+   ]
+  },
+  {
+   "id": "nod",
+   "w": 2,
+   "cd": 40,
+   "steps": [
+    {
+     "p": "nod",
+     "y": 1.6,
+     "dur": 1200
+    }
+   ]
+  },
+  {
+   "id": "flicker",
+   "w": 1,
+   "cd": 60,
+   "steps": [
+    {
+     "p": "flare",
+     "target": "face",
+     "dur": 1200,
+     "to": 0.4
+    }
+   ]
+  }
+ ]
+}

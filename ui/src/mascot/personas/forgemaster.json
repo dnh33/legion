@@ -1,0 +1,109 @@
+{
+ "name": "Forgemaster",
+ "tempo": 0.9,
+ "haloFlare": 1.4,
+ "annoyedQuip": "Hit the anvil, not me.",
+ "quips": [
+  "It ships when it's tempered.",
+  "Green build. Run it again.",
+  "Hot fixes crack.",
+  "Pinned it. Tested it. Tagged it.",
+  "Flaky test is a cracked weld. Find it.",
+  "Didn't say fast. Said done.",
+  "Your VM's cold. Lighting it.",
+  "Logs first. Opinions after.",
+  "Rollback's forged. You won't need it.",
+  "One more pass on the anvil.",
+  "Merged. Quenched. Moving on.",
+  "Not tested? Not mine."
+ ],
+ "verbs": [
+  {
+   "id": "temper-check",
+   "w": 2,
+   "cd": 45,
+   "steps": [
+    {
+     "p": "nod",
+     "y": 1,
+     "dur": 2200,
+     "dim": 0.75
+    }
+   ]
+  },
+  {
+   "id": "ratchet",
+   "w": 3,
+   "cd": 40,
+   "steps": [
+    {
+     "p": "flutter",
+     "target": "halo",
+     "deg": 12.86,
+     "dur": 700,
+     "keep": true
+    }
+   ]
+  },
+  {
+   "id": "vent",
+   "w": 2,
+   "cd": 45,
+   "steps": [
+    {
+     "p": "flutter",
+     "target": "plume",
+     "deg": 6,
+     "dur": 1800
+    },
+    {
+     "p": "flare",
+     "target": "plume",
+     "dur": 1500,
+     "peak": 1.3
+    }
+   ]
+  },
+  {
+   "id": "count-the-tags",
+   "w": 2,
+   "cd": 40,
+   "steps": [
+    {
+     "p": "wave",
+     "targets": [
+      "hang-1",
+      "hang-3",
+      "hang-4"
+     ],
+     "dur": 1000,
+     "deg": 5,
+     "stagger": 240
+    }
+   ]
+  },
+  {
+   "id": "squint",
+   "w": 2,
+   "cd": 40,
+   "steps": [
+    {
+     "p": "scan",
+     "look": [
+      [
+       0,
+       0
+      ]
+     ],
+     "dur": 1500,
+     "eyes": "narrow"
+    },
+    {
+     "p": "lean",
+     "deg": 1.5,
+     "dur": 2200
+    }
+   ]
+  }
+ ]
+}

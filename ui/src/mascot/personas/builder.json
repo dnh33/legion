@@ -1,0 +1,140 @@
+{
+ "name": "Builder",
+ "tempo": 1.0,
+ "haloFlare": 1.3,
+ "annoyedQuip": "Hands off the scaffold.",
+ "quips": [
+  "Measure twice. Merge once.",
+  "Green. Next.",
+  "Small change. Ran it. Passed.",
+  "Spinning up the VM. Not your laptop.",
+  "VM stopped. Meter's off.",
+  "Broke it in the sandbox so prod doesn't have to.",
+  "That's not a refactor. That's a rebuild.",
+  "Square. Plumb. Next.",
+  "Mortar's still wet. Don't push yet.",
+  "It builds here. Now it builds everywhere.",
+  "Tests pass. Ran them twice.",
+  "Square, level, shipped."
+ ],
+ "verbs": [
+  {
+   "id": "lay-a-course",
+   "w": 3,
+   "cd": 45,
+   "steps": [
+    {
+     "p": "flutter",
+     "target": "halo",
+     "deg": 12,
+     "dur": 1300,
+     "keep": true
+    }
+   ]
+  },
+  {
+   "id": "sight-the-level",
+   "w": 2,
+   "cd": 40,
+   "steps": [
+    {
+     "p": "lean",
+     "deg": [
+      -1.5,
+      1.5,
+      0
+     ],
+     "dur": 3200
+    },
+    {
+     "p": "scan",
+     "look": [
+      [
+       -6,
+       0
+      ],
+      [
+       6,
+       0
+      ],
+      [
+       0,
+       0
+      ]
+     ],
+     "dur": 3200
+    }
+   ]
+  },
+  {
+   "id": "measure-twice",
+   "w": 2,
+   "cd": 45,
+   "steps": [
+    {
+     "p": "scan",
+     "look": [
+      [
+       0,
+       0
+      ]
+     ],
+     "dur": 400,
+     "eyes": "narrow"
+    },
+    {
+     "p": "scan",
+     "look": [
+      [
+       0,
+       0
+      ]
+     ],
+     "dur": 400,
+     "eyes": "narrow",
+     "at": 900
+    },
+    {
+     "p": "nod",
+     "y": 1.3,
+     "dur": 1000,
+     "at": 1800
+    }
+   ]
+  },
+  {
+   "id": "tool-check",
+   "w": 2,
+   "cd": 40,
+   "steps": [
+    {
+     "p": "wave",
+     "targets": "hangs",
+     "dur": 1000,
+     "deg": 6,
+     "stagger": 260
+    }
+   ]
+  },
+  {
+   "id": "green-build",
+   "w": 3,
+   "cd": 10,
+   "when": "victory",
+   "steps": [
+    {
+     "p": "flare",
+     "target": "face",
+     "dur": 900,
+     "peak": 1.25
+    },
+    {
+     "p": "flutter",
+     "target": "plume",
+     "deg": 3,
+     "dur": 1200
+    }
+   ]
+  }
+ ]
+}

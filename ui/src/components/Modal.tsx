@@ -7,10 +7,12 @@ export function Modal({ title, onClose = closeOverlays, children, width = 560, f
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const prev = document.activeElement as HTMLElement | null;
-    const first = ref.current?.querySelector<HTMLElement>('[data-autofocus], input, textarea, select, button');
+    const first = ref.current?.querySelector<HTMLElement>('[data-autofocus], input:not([disabled]), textarea:not([disabled]), select:not([disabled]), button:not([disabled])');
     first?.focus();
-    return () => prev?.focus?.();
-  }, []);
+    const esc = (e: KeyboardEvent) => { if (e.key === 'Escape') { e.preventDefault(); onClose(); } };
+    window.addEventListener('keydown', esc);
+    return () => { window.removeEventListener('keydown', esc); prev?.focus?.(); };
+  }, [onClose]);
   // simple focus trap
   const onKey = (e: React.KeyboardEvent) => {
     if (e.key !== 'Tab' || !ref.current) return;

@@ -295,3 +295,22 @@ The ChatMessage stored in the target thread has `role:'user'`, `fromAgentId`, an
 Port changes are not editable here.
 
 `authToken` is never returned or editable. Secrets appear only as `apiKeySet` plus a hint of the last 4 chars.
+
+## Roster
+
+`src/core/roster.ts` exports `ROSTER`, ten premade bots seeded by `Store.seedDefaults` after the three frozen defaults (zealot, builder and scout are never changed there). Seeding skips any id that already exists, so existing installs gain the new bots on next start and edited agents are never touched. Every roster prompt is the bot's own role, hard limits and output shape, followed by the shared working rules (think first, minimum change, touch only what was asked, verifiable goal, answer first, facts apart from guesses) and two lines on the `mcp__legion_comms__*` tools.
+
+| id | model | approval | VM |
+|---|---|---|---|
+| `inquisitor` | opus | `ask` | off |
+| `scribe` | sonnet | `auto-edits` | off |
+| `archivist` | sonnet | `ask` | off |
+| `sentinel` | sonnet | `ask` | on |
+| `forgemaster` | auto | `ask` | on |
+| `exorcist` | auto | `ask` | on |
+| `preceptor` | opus | `ask` | on |
+| `herald` | sonnet | `ask` | off |
+| `assayer` | auto | `ask` | off |
+| `sculptor` | auto | `ask` | on |
+
+The Assayer carries `requires: 'bsv'` and is hidden until BSV mode is on. All roster VMs use the default size and a 15 minute idle stop.

@@ -77,15 +77,16 @@ If Playwright lives somewhere other than a normal `node_modules`, set `PLAYWRIGH
 
 ## Adding a mascot
 
-Mascots are hand-painted SVGs that follow a fixed layer contract, so the engine can split them into GPU-composited layers without redrawing or simplifying the art.
+Every built-in agent has a hand-painted bust. The painting is never redrawn or simplified at runtime or in the build: the pipeline only regroups the maker's paths into layers, adds overlays (eyes, code scroll, glows) and animates them.
 
-1. Paint your character to the contract in [docs/art/MASCOT_CONTRACT.md](docs/art/MASCOT_CONTRACT.md): required groups such as `L-aura`, `L-halo-back`, `L-helm` and `L-face` (with `L-visor-shape` and `L-eyes` made of 4 px cells), 3 to 8 `L-hang-N` groups, and a `data-crop` on the root. Save it as `docs/art/<name>.layered.svg`.
-2. Build it: `python3 scripts/build-mascot.py docs/art/<name>.layered.svg <name>`. This writes `ui/src/mascot/data/<name>.json`. If you start from a flat painting, `scripts/relic-to-contract.py` shows how the Relic was converted.
-3. Load it in `ui/src/mascot/` the way `Relic.tsx` loads `relic.json`.
-4. Regenerate the Expression Lab with `python3 scripts/build-demo.py`, and check every state in the lab (idle, listening, thinking, hacking, awaiting, victory, error, sleeping, annoyed) at small and large sizes.
-5. Keep animation CSS and SVG only, and respect `prefers-reduced-motion`.
+1. **Paint** one layered SVG that follows [docs/art/MASCOT_CONTRACT.md](docs/art/MASCOT_CONTRACT.md) (layer ids and paint order, 4 px pixel eyes, `data-crop`, `data-crop-rail` that holds the whole halo at any rotation, absolute `M/L/C/Q/Z` in `L-visor-shape`). Add `data-flip="none"` to a sigil token, and `data-alarm` / `data-badge` / `data-vm` only if the defaults land in the wrong place.
+2. **File it** in `docs/art/muster/<id>/`: `<id>.layered.svg`, `<id>.portrait.svg` and the maker's `notes.md`. The folder name is the agent id: the bust is looked up by `agent.id`.
+3. **Build** the json: `python3 scripts/build-mascot.py docs/art/muster/<id>/<id>.layered.svg <id>` (or `--all` to rebuild everything). Ids are prefixed with the bot name so busts never collide. `ui/src/mascot/data/<id>.json` is generated, never hand-edited.
+4. **Give it a persona** in `ui/src/mascot/personas/<id>.json`: 12 quips, the annoyed line, a tempo multiplier, optional flare/halo options, and 3 to 6 weighted, cooldown-gated idle verbs built from `lean`, `nod`, `scan`, `flutter`, `flare`, `wave` (see `ui/src/mascot/verbs.js`). Keep the motion solemn.
+5. **Register** it in `ui/src/mascot/busts.ts` (one loader line).
+6. **Check it like a maker would**: render every state at the size it ships (44 px rail, about 200 px stage) on dark and light, awaiting and error included; run `npm test` (`test/mascot.test.ts`) and `npx vite build --config ui/vite.config.ts`.
 
-Only contribute art you made or have the right to license under the MIT License.
+Golden rule: `ui/src/mascot/data/relic.json` and the Relic stage stay byte-identical (a test pins the hash).
 
 ## Pull requests
 

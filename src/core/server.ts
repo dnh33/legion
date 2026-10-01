@@ -18,6 +18,7 @@ import { SettingsError } from './settings.js';
 import type { SettingsService } from './settings.js';
 import { VmError } from './vm-manager.js';
 import type { VmManager } from './vm-manager.js';
+import type { CoreModule } from './modules.js';
 
 export interface CoreContext {
   config: LegionConfig; store: Store; bus: EventBus; engine: Engine; vms: VmManager; approvals: ApprovalBroker;
@@ -26,6 +27,10 @@ export interface CoreContext {
   /** Claude Code commands + models (cached; force = re-probe). */
   catalog: (force?: boolean) => Promise<Catalog>;
   settings: SettingsService;
+  /** Optional feature modules (comms bridge, knowledge graph, ...). */
+  modules?: CoreModule[];
+  /** True while the optional BSV Dev Kit toggle is on. Agents with `requires: 'bsv'` are hidden from lists while false/absent. */
+  bsvEnabled?: () => boolean;
 }
 
 /** Thrown by handlers; mapped to `{error}` JSON. */
@@ -151,8 +156,8 @@ function parseAgentFields(b: Record<string, unknown>) {
   };
 }
 
-type Ctx = { req: IncomingMessage; res: ServerResponse; url: URL; params: string[]; body: unknown };
-type Handler = (c: Ctx) => unknown | Promise<unknown>;
+export type Ctx = { req: IncomingMessage; res: ServerResponse; url: URL; params: string[]; body: unknown };
+export type Handler = (c: Ctx) => unknown | Promise<unknown>;
 interface Route { method: string; re: RegExp; handler: Handler; status?: number }
 
 /** Creates (does not listen) the HTTP server. Caller does server.listen(config.port, '127.0.0.1'). */
@@ -163,10 +168,13 @@ export function createServer(ctx: CoreContext): Server {
     routes.push({ method, re, handler, status });
   };
 
+  /** Agents gated behind an optional feature (the Assayer needs BSV mode) are hidden while it is off. Lookups by id still work. */
+  const visible = (a: AgentProfile) => a.requires !== 'bsv' || ctx.bsvEnabled?.() === true;
+
   // ---- read-only -------------------------------------------------------
   route('GET', '/api/state', ({ url }): StateSnapshot => ({
     version: VERSION,
-    agents: ctx.store.listAgents(),
+    agents: ctx.store.listAgents().filter(visible),
     tasks: ctx.store.listTasks(200, undefined, ['1', 'true'].includes(url.searchParams.get('archived') ?? '')),
     vms: ctx.store.listVms(),
     approvals: ctx.approvals.pending(),
@@ -183,7 +191,7 @@ export function createServer(ctx: CoreContext): Server {
   route('POST', '/api/settings/boat/test', ({ body }) => ctx.settings.testBoat(isObj(body) ? body.apiKey : undefined, isObj(body) ? body.baseUrl : undefined));
 
   // ---- agents ----------------------------------------------------------
-  route('GET', '/api/agents', () => ctx.store.listAgents());
+  route('GET', '/api/agents', () => ctx.store.listAgents().filter(visible));
   route('POST', '/api/agents', ({ body }) => {
     if (!isObj(body)) throw new HttpError(400, 'JSON object body required');
     const f = parseAgentFields(body);
@@ -320,6 +328,9 @@ export function createServer(ctx: CoreContext): Server {
     return { ok: ctx.approvals.resolve(params[0], body.allow) };
   });
 
+  // ---- feature modules ---------------------------------------------------
+  for (const m of ctx.modules ?? []) m.routes?.(route);
+
   // ---- SSE + MCP (handle the response themselves) -----------------------
   const handleSse = (req: IncomingMessage, res: ServerResponse) => {
     res.writeHead(200, {
@@ -329,7 +340,10 @@ export function createServer(ctx: CoreContext): Server {
       'X-Accel-Buffering': 'no',
     });
     res.write(': connected\n\n');
-    const off = ctx.bus.on((ev: LegionEvent) => { res.write(`data: ${JSON.stringify(ev)}\n\n`); });
+    const off = ctx.bus.on((ev: LegionEvent) => {
+      if (ev.type === 'agent.updated' && !visible(ev.agent)) return; // hidden agents must not leak through the event stream
+      res.write(`data: ${JSON.stringify(ev)}\n\n`);
+    });
     const hb = setInterval(() => { res.write(': hb\n\n'); }, 15000);
     let closed = false;
     const cleanup = () => { if (closed) return; closed = true; clearInterval(hb); off(); };

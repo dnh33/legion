@@ -1,9 +1,27 @@
 import type { ApprovalRequest } from '../../../src/shared/types';
-import { decide } from '../store';
+import '../rooms/rooms.css';
+import { openRoom, useRoomName } from '../rooms/roomsStore';
+import { decide, useStore } from '../store';
 import { shortTool } from '../util';
 import { Icon } from './icons';
 
+/** "Asked by Zealot in Launch crew, hop 2": shown when a bot woken inside a room needs approval. */
+function Origin({ o, inRoomView }: { o: NonNullable<ApprovalRequest['origin']>; inRoomView: boolean }) {
+  const from = useStore((s) => s.agents.find((x) => x.id === o.fromAgentId)?.name ?? o.fromAgentId);
+  const viaBridge = o.roomId === 'agent-bridge';
+  const room = useRoomName(o.roomId);
+  return (
+    <div className="approval-origin">
+      {viaBridge
+        ? <span>Asked by <b>{from}</b> through the agent bridge, hop {o.hop}</span>
+        : <span>Asked by <b>{from}</b> in <b>{room ?? 'a room'}</b>, hop {o.hop}</span>}
+      {!viaBridge && !inRoomView && <button type="button" className="link-btn" onClick={() => openRoom(o.roomId)}>Open room</button>}
+    </div>
+  );
+}
+
 export function ApprovalCard({ a }: { a: ApprovalRequest }) {
+  const inRoomView = useStore((s) => s.view === 'rooms');
   return (
     <div className="approval" tabIndex={0} role="group" aria-label={`Approval needed for ${shortTool(a.toolName)}`}
       onKeyDown={(e) => {
@@ -16,6 +34,7 @@ export function ApprovalCard({ a }: { a: ApprovalRequest }) {
         <span>Needs your OK</span>
         <b className="approval-tool">{shortTool(a.toolName)}</b>
       </div>
+      {a.origin && <Origin o={a.origin} inRoomView={inRoomView} />}
       <pre className="approval-sum">{a.summary}</pre>
       <div className="approval-actions">
         <button className="btn primary" onClick={() => void decide(a.id, true)}>Allow <kbd>A</kbd></button>

@@ -356,3 +356,50 @@ test('timeoutSeconds is clamped (NaN -> default, tiny -> 1s) and deleting a task
   g.open();
   await tick(100);
 });
+
+// ---- merged with the rooms module: approval ceiling and hidden agents ----
+test('confused deputy: an ask from a stricter agent caps the target, even if the target runs in full mode', async () => {
+  let asked: any;
+  const s = setup((c) => c.agent !== 'zealot' ? undefined : (async function* () {
+    yield init('z1');
+    asked = await callTool(c.options, 'ask', { agent: 'builder', message: 'rm -rf it' });
+    yield ok('done', 'z1');
+  })(), 2);
+  s.store.upsertAgent({ ...s.store.getAgent('zealot')!, approval: 'ask' });
+  const z = s.engine.startTask({ agentId: 'zealot', prompt: 'go', source: 'ui' });
+  await s.engine.waitFor(z.id, 5000);
+  const bt = s.store.getTask(asked.json.taskId)!;
+  assert.equal(bt.origin?.approvalCeiling, 'ask');
+  assert.equal(bt.origin?.fromAgentId, 'zealot');
+  const builderCall = s.calls.find((c) => c.agent === 'builder')!;
+  assert.notEqual(builderCall.options.permissionMode, 'bypassPermissions');
+  assert.equal(typeof builderCall.options.canUseTool, 'function');
+});
+
+test('ask from a full-mode agent leaves a full-mode target in bypass mode (no regression)', async () => {
+  let asked: any;
+  const s = setup((c) => c.agent !== 'zealot' ? undefined : (async function* () {
+    yield init('z1');
+    asked = await callTool(c.options, 'ask', { agent: 'builder', message: 'go' });
+    yield ok('done', 'z1');
+  })(), 2);
+  await s.engine.waitFor(s.engine.startTask({ agentId: 'zealot', prompt: 'go', source: 'ui' }).id, 5000);
+  assert.equal(s.store.getTask(asked.json.taskId)!.origin?.approvalCeiling, 'full');
+  assert.equal(s.calls.find((c) => c.agent === 'builder')!.options.permissionMode, 'bypassPermissions');
+});
+
+test('agents hidden by isVisible (BSV off) are neither listed nor reachable through ask/tell', async () => {
+  let list = ''; let err: any;
+  const s = setup((c) => c.agent !== 'zealot' ? undefined : (async function* () {
+    yield init('z1');
+    list = (await callTool(c.options, 'agents', {})).text;
+    err = await callTool(c.options, 'ask', { agent: 'assayer', message: 'hi' });
+    yield ok('x', 'z1');
+  })());
+  s.store.upsertAgent({ ...mkAgent('assayer', 'Assayer'), requires: 'bsv' });
+  s.engine.bridge.isVisible = (a) => a.requires !== 'bsv';
+  await s.engine.waitFor(s.engine.startTask({ agentId: 'zealot', prompt: 'go', source: 'ui' }).id, 5000);
+  assert.ok(!list.includes('assayer'));
+  assert.equal(err.isError, true);
+  assert.match(err.text, /Unknown agent/);
+});
