@@ -1,11 +1,11 @@
 /** Force-directed layout (no libraries): repulsion, degree-aware springs, gravity and collision. */
-import type { KgEdge, KgNode } from '../../../src/shared/kg';
+import type { KgEdge, KgNode } from '../../../src/shared/kg.js';
 
 export interface SimNode {
   id: string; node: KgNode; x: number; y: number; vx: number; vy: number;
   r: number; deg: number; fx: number | null; fy: number | null;
 }
-export interface SimEdge { id: string; s: SimNode; t: SimNode; edge: KgEdge; bend: number }
+export interface SimEdge { id: string; s: SimNode; t: SimNode; edge: KgEdge; bend: number; /** indices of the ends in Sim.nodes */ si: number; ti: number }
 
 const REPEL = 2800;
 const REPEL_MAX2 = 340 * 340;
@@ -21,8 +21,31 @@ export class Sim {
   byId = new Map<string, SimNode>();
   alpha = 0;
 
-  /** Replace the data set but keep positions of nodes that stay; place newcomers next to a neighbour. */
-  setData(nodes: KgNode[], edges: KgEdge[]): void {
+  /** Edge signature of the last setData (order independent): equal ids give an equal signature. */
+  sig = '';
+
+  /**
+   * Seeds the positions of the nodes of a previous Lattice mount (see `savePositions`) so that a re-open does not start from the
+   * phyllotaxis seed. Only when at least 90% of `nodes` are known; returns whether it did. Call before the first setData.
+   */
+  restore(cache: PosCache | null, nodes: KgNode[]): boolean {
+    if (!cache || this.byId.size > 0 || !nodes.length) return false;
+    let known = 0;
+    for (const n of nodes) if (cache.pos.has(n.id)) known++;
+    if (known < nodes.length * 0.9) return false;
+    for (const n of nodes) {
+      const p = cache.pos.get(n.id);
+      if (p) this.byId.set(n.id, { id: n.id, node: n, x: p[0], y: p[1], vx: 0, vy: 0, r: 6, deg: 0, fx: null, fy: null });
+    }
+    return true;
+  }
+
+  /**
+   * Replace the data set but keep positions of nodes that stay; place newcomers next to a neighbour. The layout is re-heated only when
+   * its shape changed (a node or link added or removed): a re-read of the same graph, or a changed title or body, leaves it at rest.
+   * `restoredSig` (after `restore`) says which links the seeded positions were laid out for. Returns whether the shape changed.
+   */
+  setData(nodes: KgNode[], edges: KgEdge[], restoredSig?: string): boolean {
     const prev = this.byId;
     const had = prev.size > 0;
     const ids = new Set(nodes.map((n) => n.id));
@@ -33,10 +56,13 @@ export class Sim {
       (nbr.get(e.to) ?? nbr.set(e.to, []).get(e.to)!).push(e.from);
     }
     const next = new Map<string, SimNode>();
+    const prevEdgeIds = restoredSig === undefined ? new Set(this.edges.map((e) => e.id)) : null;
+    let topo = !had || prev.size !== nodes.length;
     let fresh = 0;
     for (const n of nodes) {
       const old = prev.get(n.id);
       if (old) { old.node = n; next.set(n.id, old); continue; }
+      topo = true;
       let x = 0, y = 0;
       const anchor = (nbr.get(n.id) ?? []).map((id) => prev.get(id) ?? next.get(id)).find(Boolean);
       const a = hash(n.id) * Math.PI * 2;
@@ -46,7 +72,8 @@ export class Sim {
     }
     this.byId = next;
     this.nodes = [...next.values()];
-    for (const n of this.nodes) n.deg = 0;
+    const index = new Map<string, number>();
+    this.nodes.forEach((n, i) => { n.deg = 0; index.set(n.id, i); });
     // parallel / antiparallel edges between the same pair get fanned out
     const groups = new Map<string, KgEdge[]>();
     for (const e of liveEdges) {
@@ -59,11 +86,15 @@ export class Sim {
         const s = next.get(e.from)!, t = next.get(e.to)!;
         s.deg++; t.deg++;
         const bend = g.length === 1 ? 0 : (i - (g.length - 1) / 2) * 0.42 * (e.from < e.to ? 1 : -1);
-        this.edges.push({ id: e.id, s, t, edge: e, bend });
+        if (prevEdgeIds && !prevEdgeIds.has(e.id)) topo = true;
+        this.edges.push({ id: e.id, s, t, edge: e, bend, si: index.get(e.from)!, ti: index.get(e.to)! });
       });
     }
     for (const n of this.nodes) n.r = radiusFor(n.deg);
-    this.alpha = Math.max(this.alpha, had ? 0.55 : 1);
+    this.sig = edgeSig(this.edges);
+    if (prevEdgeIds ? this.edges.length !== prevEdgeIds.size : this.sig !== restoredSig) topo = true;
+    if (topo) this.alpha = Math.max(this.alpha, had ? 0.55 : 1);
+    return topo;
   }
 
   tick(): void {
@@ -125,3 +156,28 @@ export function hash(s: string): number {
   for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); }
   return ((h >>> 0) % 100000) / 100000;
 }
+
+/** Order independent fingerprint of a set of edges (ids only). */
+export function edgeSig(edges: ReadonlyArray<{ id: string }>): string {
+  let h = 0;
+  for (const e of edges) h = (h + Math.imul(hash32(e.id), 2654435761)) >>> 0;
+  return `${edges.length}:${h.toString(36)}`;
+}
+function hash32(s: string): number {
+  let h = 2166136261;
+  for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); }
+  return h >>> 0;
+}
+
+/**
+ * Node positions of the last Lattice, kept for the life of the page (module level) so that closing and re-opening the tab does not
+ * run the layout again: Chat to Library to Chat used to start from scratch and freeze the UI for 100+ ms every time.
+ */
+export interface PosCache { pos: Map<string, [number, number]>; sig: string; settled: boolean }
+let posCache: PosCache | null = null;
+export const loadPositions = (): PosCache | null => posCache;
+export function savePositions(sim: Sim): void {
+  if (!sim.nodes.length) return;
+  posCache = { pos: new Map(sim.nodes.map((n) => [n.id, [n.x, n.y] as [number, number]])), sig: sim.sig, settled: sim.alpha <= ALPHA_MIN };
+}
+export const clearPositions = (): void => { posCache = null; };
