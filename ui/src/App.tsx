@@ -38,8 +38,8 @@ function useOpsMounted(opsOpen: boolean): boolean {
 }
 
 /**
- * Marks the document `data-win="away"` while the window is hidden or unfocused. Purely ambient CSS animations (the BSV chain line,
- * the Doctor heartbeat) pause on it: each of their frames is a compositor draw for the whole window, and nobody is looking.
+ * Marks the document `data-win="away"` while the window is hidden or unfocused. Purely ambient CSS animations (the BSV chain line)
+ * pause on it: each of their frames is a compositor draw for the whole window, and nobody is looking.
  */
 function useWindowAway() {
   useEffect(() => {

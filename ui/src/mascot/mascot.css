@@ -214,3 +214,11 @@
 .mx.mxs-rail.mxs-victory .fx-spark { animation: mx-burst 1.6s ease-out var(--d) 2; }
 .mx.mxs-rail.mxs-error .mx-halo-back, .mx.mxs-rail.mxs-error .mx-halo-front { animation: none; filter: saturate(.4) brightness(.8); }
 .mx.mxs-rail.mxs-sleeping .fx-z { animation: none; opacity: .85; }
+
+/* ---------------------------------------------------------------------------------------------------
+   Perf round M. The painted art inside a stage layer is about 1,900 SVG nodes. Chromium hit-tests the page after every layout (the
+   "fake mouse move" it sends under a resting cursor) and on every real pointer move, and walked all of them every time (about 60 ms of
+   main thread per second while the mascot moved). The layer <div>s are full-frame boxes and take the clicks and the hover instead,
+   so nothing about the interaction changes; only the walk into the art is skipped.
+   --------------------------------------------------------------------------------------------------- */
+.mx:not(.mxs-rail) .mx-layer > svg { pointer-events: none; }

@@ -26,6 +26,10 @@ export interface MascotHandle {
   trick(name: 'spin' | 'nod' | 'flicker'): void;
   /** plays a persona verb by id; false when the persona has none */
   play(id: string): boolean;
+  /** test hook: freeze the motion clock at t seconds and draw that pose; returns the compiled track count */
+  motionAt(t: number): number;
+  /** how the painted SMIL is driven: compiled tracks on the motion clock, SMIL elements left to the browser, clock rate */
+  readonly motion: { tracks: number; native: number; hz: number };
   destroy(): void;
 }
 export interface MascotOptions {
@@ -38,7 +42,12 @@ export interface MascotOptions {
   persona?: Persona;
   /** element whose pointerenter/leave drives the hover lean (the whole rail row) */
   hoverEl?: HTMLElement;
+  /** stage motion clock rate in Hz (default STAGE_MOTION_HZ); 0 leaves the art's SMIL to the browser */
+  motionHz?: number;
 }
 export const STATES: MascotState[];
+/** elements removed from the painted art at render time; empty it to restore them */
+export const HIDE_ELEMENTS: { bust: string; layer: string; selector: string; why: string }[];
+export const STAGE_MOTION_HZ: number;
 export function createMascot(host: HTMLElement, data: MascotData, opts?: MascotOptions): MascotHandle;
 export function runtimeStats(): { items: number; queued: number; frames: number; hidden: boolean; rafPending: boolean };

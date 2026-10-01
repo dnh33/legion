@@ -26,6 +26,126 @@ const HALO_SPIN = new Set(['thinking', 'hacking']);
  */
 export const SMIL_STATES = new Set(['thinking', 'hacking', 'awaiting', 'victory', 'error']);
 
+/**
+ * Elements removed from the painted art at runtime (the art files stay byte for byte as painted; this is a render-time filter).
+ * One entry per element: the bust, the layer, a selector that matches only the thing to drop (matched inside that layer's svg, so
+ * wrapper groups go with it), and why. Empty the array to bring everything back.
+ *
+ * The Relic's L-halo layers (back and front) are the very thin 1 px dotted ellipse that orbits the mascot with its 20 little glyphs
+ * ({ }, 0x, //, ...) riding SMIL animateMotion. The owner asked for exactly that ring gone ("the L-halo"): it is a hairline that
+ * shimmers while it turns and its glyph carousel is most of the SMIL the stage plays. Both layers are dropped whole (the wrapper group
+ * and its animateMotion go with it); a layer left with nothing drawable is display:none so it costs no compositor layer. The aura
+ * (background disc r=210 gradient, the 5 px dashed ring, the 2.2 px comet arc, the binary text ring, the dotted rings) stays exactly
+ * as painted.
+ */
+export const HIDE_ELEMENTS = [
+  { bust: 'relic', layer: 'L-halo-back', selector: ':scope > g', why: 'thin dotted halo ellipse and its orbiting glyphs (back half)' },
+  { bust: 'relic', layer: 'L-halo-front', selector: ':scope > g', why: 'thin dotted halo ellipse and its orbiting glyphs (front half)' },
+];
+
+/**
+ * Stage motion clock. The Relic's painting carries 47 SMIL elements, 27 of them left once the halo is hidden (aura rings, plume, strand swings, dash flow,
+ * seal swings). SMIL runs on the browser's frame clock: one main-thread frame per vsync (style, layout, paint of up to 17 layers,
+ * Layerize), 65 to 70 % of a core for a mascot that is only gently moving. The engine compiles each SMIL element it understands into a
+ * pure function of time (same keyframes, same pivots, same path), removes the element, and drives all of them from ONE timer at this
+ * rate, so the page repaints 12 times a second instead of 60 (measured: thinking 28 % busy at 20 Hz, about 18 % at 10 Hz; 12 Hz keeps the slow sways smooth). Poses are identical to SMIL's at every sampled time (test/mascot-m.test.ts);
+ * only the cadence differs. SMIL elements it does not understand stay native (and are paused/resumed as before). 0 = native SMIL.
+ */
+export const STAGE_MOTION_HZ = 12;
+/**
+ * The stage's other main-thread motion: CSS animations on SVG children (hacking: the code rolling across the visor; awaiting: the "!"
+ * badge and three alarm glows; victory: seven sparks; sleeping: three drifting z). Chromium cannot hand those to the compositor, and
+ * while one runs the page produces a main-thread frame on every vsync (style, layout, paint, Layerize: 25 to 40 % of a core for a
+ * mascot that is asleep). While the motion clock runs, the engine pauses these animations and seeks them from the same timer instead
+ * (the browser still does the interpolation and easing from the stylesheet, so the look is the stylesheet's). STAGE_FX_HZ is the rate
+ * while only they move (sleeping, a slow z drift); in the SMIL states they ride the STAGE_MOTION_HZ tick. 0 leaves them to CSS.
+ */
+export const STAGE_FX_HZ = 0;
+const SEEK_ANIMS = new Set(['mx-roll', 'mx-bang', 'mx-alarm', 'mx-burst', 'mx-z']);
+
+const SMIL_ALLOWED = {
+  animateTransform: ['attributeName', 'type', 'values', 'from', 'to', 'dur', 'begin', 'repeatCount'],
+  animate: ['attributeName', 'from', 'to', 'dur', 'begin', 'repeatCount'],
+  animateMotion: ['dur', 'begin', 'repeatCount', 'rotate'],
+};
+const secs = (v) => { const m = /^\s*(-?\d*\.?\d+)s\s*$/.exec(v ?? ''); return m ? parseFloat(m[1]) : null; };
+const nums = (v) => v.trim().split(/[\s,]+/).map(Number);
+const pathTables = new Map();
+/** Evenly spaced points along a path (arc length), for animateMotion: pos(p) = point at p * length, linearly interpolated. */
+function pathTable(d, N = 1024) {
+  let t = pathTables.get(d);
+  if (!t) {
+    const p = document.createElementNS(SVGNS, 'path'); p.setAttribute('d', d);
+    const L = p.getTotalLength(); const xs = new Float32Array(N + 1); const ys = new Float32Array(N + 1);
+    for (let i = 0; i <= N; i++) { const pt = p.getPointAtLength((L * i) / N); xs[i] = pt.x; ys[i] = pt.y; }
+    t = { N, xs, ys }; pathTables.set(d, t);
+  }
+  return t;
+}
+/**
+ * One SMIL element -> a function of time that writes the same attribute value SMIL would, or null when this element uses a feature
+ * the compiler does not reproduce (calcMode, keyTimes, additive, fill, non-rotate transforms, other SMIL on the same target ...).
+ */
+function compileOne(a, defsRoot) {
+  const tag = a.tagName; const allowed = SMIL_ALLOWED[tag]; const el = a.parentElement;
+  if (!allowed || !el) return null;
+  for (const at of a.getAttributeNames()) if (!allowed.includes(at)) return null;
+  if (a.getAttribute('repeatCount') !== 'indefinite') return null;
+  const dur = secs(a.getAttribute('dur')); if (!(dur > 0)) return null;
+  const bAttr = a.getAttribute('begin'); const begin = bAttr === null ? 0 : secs(bAttr); if (begin === null) return null;
+  // the same attribute must not be driven by a second SMIL element on the same target (SMIL would compose them)
+  const sib = [...el.children].filter((c) => c !== a && (c.tagName === 'animateTransform' || c.tagName === 'animateMotion' || (c.tagName === 'animate' && c.getAttribute('attributeName') === a.getAttribute('attributeName'))));
+  if (sib.length && tag !== 'animate') return null;
+  let attr; let value;
+  if (tag === 'animateTransform') {
+    if (a.getAttribute('attributeName') !== 'transform' || a.getAttribute('type') !== 'rotate') return null;
+    const raw = a.hasAttribute('values') ? a.getAttribute('values').split(';').filter((x) => x.trim()).map(nums) : (a.hasAttribute('from') && a.hasAttribute('to') ? [nums(a.getAttribute('from')), nums(a.getAttribute('to'))] : null);
+    if (!raw || raw.length < 2 || raw.some((v) => (v.length !== 1 && v.length !== 3) || v.some((n) => !Number.isFinite(n)))) return null;
+    if (raw.some((v) => v.length !== raw[0].length)) return null;
+    attr = 'transform';
+    const n = raw.length - 1; const c = raw[0].length === 3 ? ` ${raw[0][1]} ${raw[0][2]}` : '';
+    // pivots must not vary between keyframes (SMIL would interpolate them too)
+    if (raw[0].length === 3 && raw.some((v) => v[1] !== raw[0][1] || v[2] !== raw[0][2])) return null;
+    value = (p) => { const x = p * n; const i = Math.min(n - 1, Math.floor(x)); const u = x - i; return `rotate(${(raw[i][0] + (raw[i + 1][0] - raw[i][0]) * u).toFixed(3)}${c})`; };
+  } else if (tag === 'animate') {
+    attr = a.getAttribute('attributeName');
+    if (attr !== 'stroke-dashoffset' || !a.hasAttribute('from') || !a.hasAttribute('to')) return null;
+    const f = Number(a.getAttribute('from')); const t = Number(a.getAttribute('to'));
+    if (!Number.isFinite(f) || !Number.isFinite(t)) return null;
+    value = (p) => (f + (t - f) * p).toFixed(3);
+  } else {
+    const rot = a.getAttribute('rotate'); if (rot !== null && Number(rot) !== 0) return null;
+    const kids = [...a.children]; const mp = kids[0];
+    if (kids.length !== 1 || mp.tagName !== 'mpath') return null;
+    const id = (mp.getAttribute('href') || mp.getAttribute('xlink:href') || '').replace(/^#/, '');
+    const ref = id && defsRoot.querySelector(`[id="${id}"]`);
+    if (!ref || ref.tagName !== 'path' || ref.getAttribute('transform')) return null;
+    const tab = pathTable(ref.getAttribute('d'));
+    attr = 'transform';
+    const baseT = el.getAttribute('transform');
+    value = (p) => { const x = p * tab.N; const i = Math.min(tab.N - 1, Math.floor(x)); const u = x - i; return `${baseT ? baseT + ' ' : ''}translate(${(tab.xs[i] + (tab.xs[i + 1] - tab.xs[i]) * u).toFixed(2)} ${(tab.ys[i] + (tab.ys[i + 1] - tab.ys[i]) * u).toFixed(2)})`; };
+  }
+  const base = el.getAttribute(attr); let last = null;
+  return (t) => {
+    const local = t - begin;
+    let v;
+    if (local < 0) v = base; // before its begin SMIL is inactive and the element shows its own attribute
+    else { let p = (local % dur) / dur; if (p < 0) p += 1; v = value(p); }
+    if (v === last) return;
+    last = v;
+    if (v === null) el.removeAttribute(attr); else el.setAttribute(attr, v);
+  };
+}
+/** Compiles every SMIL element in one layer's svg that compileOne understands (removing it) and counts the ones it leaves to the browser. */
+function compileSmil(svg, defsRoot) {
+  const tracks = []; let native = 0;
+  for (const a of [...svg.querySelectorAll('animateTransform, animate, animateMotion')]) {
+    const fn = compileOne(a, defsRoot);
+    if (fn) { tracks.push(fn); a.remove(); } else native++;
+  }
+  return { tracks, native };
+}
+
 function el(tag, cls, parent) {
   const e = document.createElement(tag);
   if (cls) e.className = cls;
@@ -193,6 +313,9 @@ export function createMascot(host, data, opts = {}) {
   const halo = [];
   const layerEls = {};
   const smilSvgs = []; // stage only: the layers' <svg> roots whose SMIL timeline the engine pauses and resumes
+  const motionHz = opts.motionHz ?? STAGE_MOTION_HZ; // stage only, see STAGE_MOTION_HZ
+  const motion = []; // compiled SMIL tracks: t (seconds) -> writes the attribute
+  let nativeSmil = 0; // SMIL elements still left to the browser
   for (const L of data.layers) {
     let parent = float;
     if (RIG.has(L.id)) {
@@ -215,7 +338,11 @@ export function createMascot(host, data, opts = {}) {
     svg.setAttribute('viewBox', vb);
     svg.setAttribute('aria-hidden', 'true');
     svg.innerHTML = L.markup;
+    for (const h of HIDE_ELEMENTS) if (h.bust === data.name && h.layer === L.id) svg.querySelectorAll(h.selector).forEach((e) => e.remove());
+    if (!svg.querySelector(':scope > :not(defs)')) layer.style.display = 'none'; // nothing left to draw: no layer for the compositor
     layer.appendChild(svg);
+    // stage: SMIL the engine can compile runs from the motion clock below; the rest stays native
+    if (!rail && !reduced && motionHz > 0) { const c = compileSmil(svg, defs); motion.push(...c.tracks); nativeSmil += c.native; } else nativeSmil += svg.querySelectorAll('animateTransform, animate, animateMotion').length;
     // the Relic's painting carries SMIL particles that would repaint it every frame: rail busts hold still, the stage plays them only in SMIL_STATES
     if (svg.pauseAnimations) { svg.pauseAnimations(); if (!rail) smilSvgs.push(svg); }
   }
@@ -224,6 +351,7 @@ export function createMascot(host, data, opts = {}) {
   // eyes group instead (about 100 nodes). Stage busts keep them on the root exactly as before.
   const eyesEl = rail ? root.querySelector('[id$="L-eyes"]') : null;
   const evar = eyesEl || root;
+  for (const fn of motion) fn(0); // the pose SMIL shows at t = 0 (idle holds it)
   const haloEls = Object.keys(layerEls).filter((k) => k.startsWith('L-halo')).map((k) => layerEls[k]);
 
   // ---- overlay effects, positioned from the art's own pivots ----
@@ -284,11 +412,37 @@ export function createMascot(host, data, opts = {}) {
   // stage SMIL: playing only in SMIL_STATES, only while the window is visible and focused (CSS motion is unaffected by blur)
   let smilOn = false; let winVisible = typeof document === 'undefined' || !document.hidden; let winFocused = typeof document === 'undefined' || document.hasFocus();
   function syncSmil() {
-    if (rail || !smilSvgs.length) return;
-    const want = !reduced && winVisible && winFocused && SMIL_STATES.has(state);
-    if (want === smilOn) return;
-    smilOn = want;
-    for (const v of smilSvgs) { if (want) v.unpauseAnimations(); else v.pauseAnimations(); }
+    if (rail) return;
+    const live = !reduced && winVisible && winFocused;
+    const wantSmil = live && SMIL_STATES.has(state);
+    // the clock also runs while sleeping, only to seek the z drift (see STAGE_FX_HZ)
+    const hz = wantSmil ? motionHz : (live && state === 'sleeping' && STAGE_FX_HZ > 0 && motionHz > 0 ? STAGE_FX_HZ : 0);
+    if (hz !== mHz) motionRun(hz);
+    if (wantSmil === smilOn) return;
+    smilOn = wantSmil;
+    if (nativeSmil) for (const v of smilSvgs) { if (wantSmil) v.unpauseAnimations(); else v.pauseAnimations(); }
+  }
+  // the motion clock: one timer for every compiled track and every seeked CSS animation; it holds its place while stopped
+  let mClock = 0; let mFrom = 0; let mTimer = 0; let mHz = 0;
+  const motionApply = (t) => { for (let i = 0; i < motion.length; i++) motion[i](t); };
+  const seekFx = (nowMs) => {
+    for (const a of root.getAnimations({ subtree: true })) {
+      if (!(a instanceof CSSAnimation) || !SEEK_ANIMS.has(a.animationName)) continue;
+      if (a.__mxT0 === undefined) { a.pause(); a.__mxT0 = nowMs - (a.currentTime || 0); }
+      a.currentTime = nowMs - a.__mxT0;
+    }
+  };
+  function motionRun(hz) {
+    if (mTimer) { clearInterval(mTimer); mTimer = 0; }
+    mHz = hz;
+    if (!hz) return;
+    mFrom = performance.now() - mClock * 1000;
+    mTimer = setInterval(() => {
+      const t = performance.now();
+      mClock = (t - mFrom) / 1000;
+      if (smilOn) motionApply(mClock);
+      seekFx(t);
+    }, 1000 / hz);
   }
   const onVis = () => { winVisible = !document.hidden; syncSmil(); };
   const onBlur = () => { winFocused = false; syncSmil(); };
@@ -513,7 +667,7 @@ export function createMascot(host, data, opts = {}) {
     root.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); poke(); } });
   }
 
-  return {
+  const handle = {
     el: root,
     get state() { return state; },
     setState,
@@ -523,8 +677,12 @@ export function createMascot(host, data, opts = {}) {
     /** Plays a persona verb by id (lab and tests); returns false when the persona has no such verb. */
     play(id) { const v = verbsApi?.byId(id); if (!v) return false; verbsApi.play(v); return true; },
     get verbs() { return verbsApi ? verbsApi.verbs.map((v) => v.id) : []; },
+    /** Test hook: freeze the motion clock at t seconds and draw that pose. Returns the number of compiled tracks. */
+    motionAt(t) { if (mTimer) { clearInterval(mTimer); mTimer = 0; } mHz = 0; mClock = t; motionApply(t); return motion.length; },
+    get motion() { return { tracks: motion.length, native: nativeSmil, hz: motion.length ? motionHz : 0 }; },
     destroy() {
       verbsApi?.cancel();
+      if (mTimer) { clearInterval(mTimer); mTimer = 0; }
       timers.forEach((t) => (rail ? rtCancel(t) : clearTimeout(t))); timers.clear();
       if (raf) cancelAnimationFrame(raf);
       clearTimeout(quipT);
@@ -543,4 +701,6 @@ export function createMascot(host, data, opts = {}) {
       root.remove();
     },
   };
+  root.__mx = handle; // test and perf-probe hook (the Mascot Lab and the harness reach the live handle through the element)
+  return handle;
 }
