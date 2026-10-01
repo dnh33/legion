@@ -12,7 +12,8 @@ import { TaskMenu } from './components/TaskMenu';
 import { Thread } from './components/Thread';
 import { TitleBar } from './components/TitleBar';
 import { Toasts } from './components/Toasts';
-import { GraphView } from './graph/GraphView';
+import { initLibrary } from './library/libraryStore';
+import { LibraryView } from './library/LibraryView';
 import { RoomsView } from './rooms/RoomsView';
 import { initRooms } from './rooms/roomsStore';
 import {
@@ -27,7 +28,7 @@ export function App() {
   const settingsOpen = useStore((s) => s.settingsOpen);
   const view = useStore((s) => s.view);
 
-  useEffect(() => { init(); initRooms(); initBsv(); }, []);
+  useEffect(() => { init(); initRooms(); initBsv(); initLibrary(); }, []);
   useEffect(() => {
     const h = (e: KeyboardEvent) => {
       const mod = e.ctrlKey || e.metaKey;
@@ -53,7 +54,7 @@ export function App() {
           <>
             {view === 'chat' && <><Thread /><Composer /></>}
             {view === 'rooms' && <RoomsView />}
-            {view === 'graph' && <GraphView />}
+            {view === 'graph' && <LibraryView />}
           </>
         )}
       </main>

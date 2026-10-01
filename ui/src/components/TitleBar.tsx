@@ -1,6 +1,7 @@
 import { platform } from '../api';
 import { BsvChip } from '../bsv/BsvChip';
 import { RelicGlyph } from '../mascot/Relic';
+import { useL } from '../library/libraryStore';
 import { isUnread, useRooms } from '../rooms/roomsStore';
 import { openDoctor, openPalette, setView, toggleOps, toggleSettings, toggleTheme, useStore } from '../store';
 import { Icon } from './icons';
@@ -21,6 +22,7 @@ export function TitleBar() {
   const version = useStore((s) => s.version);
   const settingsOpen = useStore((s) => s.settingsOpen);
   const view = useStore((s) => s.view);
+  const pending = useL((s) => s.inbox?.length ?? 0);
   const roomAttn = useRooms((s) => s.rooms.filter((r) => r.paused || isUnread(s, r)).length);
   const bad = doctor ? doctor.filter((c) => !c.ok).length : 0;
   const connLabel = conn === 'online' ? 'Connected' : conn === 'connecting' ? 'Connecting…' : 'Offline — retrying';
@@ -41,11 +43,12 @@ export function TitleBar() {
       <div className="tb-right nodrag">
         <div className="tb-views nodrag" role="tablist" aria-label="View">
           {(['chat', 'rooms', 'graph'] as const).map((v) => {
-            const label = v === 'chat' ? 'Chat' : v === 'rooms' ? 'Rooms' : 'Lattice';
+            const label = v === 'chat' ? 'Chat' : v === 'rooms' ? 'Rooms' : pending > 0 ? `Library, ${pending} waiting for review` : 'Library';
             return (
               <button key={v} role="tab" aria-selected={view === v} aria-label={label} title={label} className={`tb-view${view === v ? ' on' : ''}`} onClick={() => setView(v)}>
                 <ViewGlyph v={v} />
                 {v === 'rooms' && view !== 'rooms' && roomAttn > 0 && <i className="tb-badge" aria-label={`${roomAttn} rooms need attention`}>{roomAttn}</i>}
+                {v === 'graph' && pending > 0 && <i className="tb-badge" aria-hidden="true">{pending > 99 ? '99+' : pending}</i>}
               </button>
             );
           })}

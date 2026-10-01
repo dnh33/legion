@@ -12,6 +12,8 @@ export function relTime(iso: string | null | undefined, now = Date.now()): strin
   if (h < 24) return `${h}h`;
   return `${Math.floor(h / 24)}d`;
 }
+/** "3m ago", or "just now" when relTime says "now". */
+export const ago = (iso: string | null | undefined, now = Date.now()): string => { const r = relTime(iso, now); return r === 'now' ? 'just now' : `${r} ago`; };
 export const money = (n: number | undefined) => (n == null ? '' : n < 0.01 ? '<$0.01' : `$${n.toFixed(2)}`);
 export const shortTool = (name?: string) => (name ?? 'tool').replace(/^mcp__/, '').replace(/__/g, '·');
 export const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);

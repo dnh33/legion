@@ -104,6 +104,15 @@ export function addKgRoutes(add: RouteAdder, d: RouteDeps): void {
     return { edge: r.edge, created: r.created };
   }));
 
+  // change an edge's relation, note or weight (human only; node edits and retyping go through POST /api/kg/nodes with an id)
+  add('PATCH', '/api/kg/edges/:id', wrap(({ params, body }) => {
+    const b = bodyObj(body);
+    if (b.rel !== undefined && typeof b.rel !== 'string') throw new HttpError(400, 'rel must be a string');
+    if (b.note !== undefined && b.note !== null && typeof b.note !== 'string') throw new HttpError(400, 'note must be a string (or null to clear it)');
+    if (b.weight !== undefined && b.weight !== null && typeof b.weight !== 'number') throw new HttpError(400, 'weight must be a number (or null to clear it)');
+    return { edge: g().updateEdge(HUMAN, params[0]!, { rel: b.rel as string | undefined, note: b.note as string | null | undefined, weight: b.weight as number | null | undefined }) };
+  }));
+
   add('DELETE', '/api/kg/edges/:id', wrap(({ params }) => ({ ok: true, edge: g().unlink(HUMAN, { id: params[0]! }) })));
 
   add('GET', '/api/kg/subgraph', wrap(({ url }) => {

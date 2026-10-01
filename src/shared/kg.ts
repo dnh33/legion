@@ -147,6 +147,8 @@ export interface KgActivityRow {
   /** Within 7 days and not undone yet. */
   undoable: boolean;
   undone: boolean;
+  /** Set when an Undo would be refused: past the 7-day window, too large to keep undo data for, or a note changed since. */
+  blocked?: 'expired' | 'too_large' | 'changed';
 }
 
 export const KG_LIMITS = {

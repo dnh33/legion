@@ -441,6 +441,26 @@ export async function deleteEdge(id: string) {
   } catch (e) { notify(`Could not remove the link. ${errMsg(e)}`, 'error'); }
 }
 
+/** Edit some fields of a note in place (the detail panel): only what is given is sent, so nothing else is touched. */
+export async function patchNode(id: string, fields: { title?: string; type?: KgNodeType; body?: string; tags?: string[] }): Promise<KgNode> {
+  const r = await request<{ node: KgNode; created: boolean }>('POST', '/api/kg/nodes', { id, ...fields });
+  learn(r.node);
+  mergeIntoView([r.node], [], [r.node.id]);
+  void afterWrite();
+  notify('Note saved.');
+  return r.node;
+}
+
+/** Change a link's relation or note. Resolves with the stored edge; rejects with the core's message (a 409 when the new relation already exists). */
+export async function updateEdge(id: string, fields: { rel?: string; note?: string | null }): Promise<KgEdge> {
+  const r = await request<{ edge: KgEdge }>('PATCH', `/api/kg/edges/${enc(id)}`, fields);
+  vEdges.set(r.edge.id, r.edge);
+  publish();
+  void afterWrite();
+  notify('Link saved.');
+  return r.edge;
+}
+
 export async function importVault(dir: string): Promise<ImportReport> {
   const r = await request<ImportReport>('POST', '/api/kg/import', { dir: dir.trim() });
   const st = await request<Stats>('GET', '/api/kg/stats').catch(() => null);
@@ -468,20 +488,22 @@ export async function seedBsv() {
 let liveTimer: number | undefined;
 let liveUsers = 0;
 let unsub: (() => void) | null = null;
+/** Re-reads what the view shows (stats, canvas, detail, search, lint). Called on kg.updated and when the Library returns to the Lattice. */
+export function refreshFromServer(changed?: string[]) {
+  void request<Stats>('GET', '/api/kg/stats').then((st) => {
+    const wasEmpty = (s.stats?.nodes ?? 0) === 0;
+    set({ stats: st, ...bsvFrom(st), boot: 'ready', noSeeds: false });
+    if (st.nodes > 0 && (wasEmpty || vNodes.size === 0)) void loadOverview(changed ?? []);
+  }).catch(() => {});
+  void linkUp(true);
+  if (s.selectedId) void loadDetail(s.selectedId);
+  if (s.q.trim()) void runSearch();
+  if (s.tab === 'lint') void loadLint();
+}
 function onEvent(e: LegionEvent) {
   if (e.type !== 'kg.updated') return;
   window.clearTimeout(liveTimer);
-  liveTimer = window.setTimeout(() => {
-    void request<Stats>('GET', '/api/kg/stats').then((st) => {
-      const wasEmpty = (s.stats?.nodes ?? 0) === 0;
-      set({ stats: st, ...bsvFrom(st), boot: 'ready', noSeeds: false });
-      if (st.nodes > 0 && (wasEmpty || vNodes.size === 0)) void loadOverview(e.changed ?? []);
-    }).catch(() => {});
-    void linkUp(true);
-    if (s.selectedId) void loadDetail(s.selectedId);
-    if (s.q.trim()) void runSearch();
-    if (s.tab === 'lint') void loadLint();
-  }, 350);
+  liveTimer = window.setTimeout(() => refreshFromServer(e.changed), 350);
 }
 /** Mount hook: starts the SSE subscription for `kg.updated` while the view is on screen. */
 export function startLive(): () => void {

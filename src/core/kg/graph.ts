@@ -904,6 +904,43 @@ export class Graph {
     return { ...e };
   }
 
+  /**
+   * Change an edge's relation, note or weight. Human only: no bot tool reaches it. The note goes through the same
+   * secret guard as every other write. A relation change is one atomic append (drop the old edge, add it back under the
+   * new relation, same id); it is refused when that relation already links the same two notes.
+   */
+  updateEdge(actor: Actor, id: string, patch: { rel?: string; note?: string | null; weight?: number | null }): KgEdge {
+    if (actor.kind !== 'human') throw new KgError('forbidden', 'Only the human can edit a link.');
+    if (!isObj(patch as unknown)) throw new KgError('invalid', 'Edge patch must be an object.');
+    const e = this.edges.get(id);
+    if (!e || !this.edgeVisible(actor, e)) throw new KgError('not_found', 'No such link.');
+    if (patch.rel === undefined && patch.note === undefined && patch.weight === undefined) throw new KgError('invalid', 'Nothing to change: give rel, note or weight.');
+    const rel = patch.rel !== undefined ? normRel(patch.rel) : e.rel;
+    if (patch.note !== undefined && patch.note !== null && (typeof patch.note !== 'string' || patch.note.length > 500)) throw new KgError('invalid', 'note must be a string of at most 500 chars.');
+    if (patch.weight !== undefined && patch.weight !== null && (typeof patch.weight !== 'number' || !Number.isFinite(patch.weight))) throw new KgError('invalid', 'weight must be a finite number.');
+    if (rel !== e.rel) {
+      const clash = this.edgeKeys.get(edgeKey(e.from, e.to, rel));
+      if (clash && clash !== e.id) throw new KgError('conflict', `These two notes are already linked as "${rel}". Remove that link first, or keep this one as "${e.rel}".`);
+    }
+    const g = this.guard();
+    const next: KgEdge = { ...e, rel };
+    if (patch.note !== undefined) {
+      const t = patch.note === null ? '' : g.text(patch.note).trim();
+      if (t) next.note = t; else delete next.note;
+    }
+    if (patch.weight !== undefined) { if (patch.weight === null) delete next.weight; else next.weight = patch.weight; }
+    if (JSON.stringify(next) === JSON.stringify(e)) return { ...e };
+    if (rel !== e.rel) this.apply([{ op: 'del_edge', id: e.id }, { op: 'edge', edge: next }]);
+    else {
+      const fields: Record<string, unknown> = {};
+      if (next.note !== e.note) fields.note = next.note ?? null;
+      if (next.weight !== e.weight) fields.weight = next.weight ?? null;
+      this.apply([{ op: 'patch', id: e.id, fields }]);
+    }
+    this.changed([e.id, e.from, e.to]);
+    return { ...this.edges.get(e.id)! };
+  }
+
   // ------------------------------------------------------------------ commit helpers, activity, undo
 
   private stamp(): string { return this.now().toISOString(); }
@@ -1002,11 +1039,25 @@ export class Graph {
   }
 
   private activityRow(e: ActivityEntry): KgActivityRow {
+    const blocked = this.undoBlock(e);
     return {
       id: e.id, at: e.at, who: e.who, ...(e.taskId ? { taskId: e.taskId } : {}), kind: e.kind,
       ...(e.nodeId ? { nodeId: e.nodeId } : {}), ...(e.nodeType ? { nodeType: e.nodeType } : {}), ...(e.title ? { title: e.title } : {}),
       ...(e.trust ? { trust: e.trust } : {}), tainted: e.tainted, undoable: this.activity.isUndoable(e), undone: e.undone === true,
+      ...(blocked ? { blocked } : {}),
     };
+  }
+
+  /** Why an Undo would be refused (same checks as undo()), so the list can say it before the click. */
+  private undoBlock(e: ActivityEntry): KgActivityRow['blocked'] {
+    if (e.undone) return undefined;
+    if (!e.inverse) return 'too_large';
+    if (!this.activity.isUndoable(e)) return 'expired';
+    for (const [id, at] of Object.entries(e.stamps)) {
+      const n = this.nodes.get(id);
+      if (n && n.updatedAt !== at) return 'changed';
+    }
+    return undefined;
   }
 
   /**

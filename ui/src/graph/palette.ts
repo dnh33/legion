@@ -1,8 +1,8 @@
-import type { KgNode, KgNodeType, KgScope } from '../../../src/shared/kg';
+import { NODE_TYPES as ALL_NODE_TYPES } from '../../../src/shared/kg';
+import type { KgNode, KgNodeType, KgScope, KgStatus, KgTrust } from '../../../src/shared/kg';
 
-export const NODE_TYPES: KgNodeType[] = [
-  'note', 'entity', 'concept', 'task', 'decision', 'source', 'code', 'person', 'lesson', 'question',
-];
+/** Every node type, from the one list the core uses (editing, retyping and filters all offer exactly these). */
+export const NODE_TYPES: KgNodeType[] = [...ALL_NODE_TYPES];
 
 /** Type tints. Phosphor green is reserved for selection and paths, so no type uses it. */
 export const TYPE_COLORS: Record<'dark' | 'light', Record<KgNodeType, string>> = {
@@ -35,7 +35,14 @@ export const REL_TINT: Record<string, 'danger' | 'warn' | 'accent'> = {
   contradicts: 'danger', supersedes: 'warn', blocks: 'warn',
 };
 
-export const isUntrusted = (n: Pick<KgNode, 'sources'>): boolean => !!n.sources?.some((s) => s.untrusted === true);
+export const isUntrusted = (n: Pick<KgNode, 'sources'> & Partial<Pick<KgNode, 'trust'>>): boolean => n.trust === 'untrusted' || !!n.sources?.some((s) => s.untrusted === true);
+
+/** Same rules as the core (text.ts): older notes carry no trust field. A note with an untrusted source counts as untrusted. */
+export function effectiveTrust(n: Pick<KgNode, 'trust' | 'sources' | 'createdBy'>): KgTrust {
+  if (isUntrusted(n)) return 'untrusted';
+  return n.trust ?? (n.createdBy === 'human' ? 'human' : 'agent');
+}
+export const statusOf = (n: Pick<KgNode, 'status'>): KgStatus => n.status ?? 'active';
 
 export function creatorName(id: string, agentName?: (id: string) => string | undefined): string {
   if (id === 'human') return 'You';

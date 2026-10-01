@@ -2,6 +2,8 @@
 
 Front-end for the knowledge graph. All code is in `ui/src/graph/` (entry: `GraphView` in `GraphView.tsx`). Own store `graphStore.ts`, own CSS `graph.css`, no new dependencies. Layout and renderer are written from scratch on canvas (`layout.ts`, `engine.ts`).
 
+The title-bar tab is now **Library**; `GraphView` is its Lattice sub-tab (`ui/src/library/LibraryView.tsx`, which also holds the Inbox and Activity, see [LIBRARY.md](LIBRARY.md)). `GraphView` is unmounted while another sub-tab is open and re-reads the core when it returns (`refreshFromServer`).
+
 ## How it behaves
 
 - Never holds more than 400 nodes. When the cap is hit the least recently touched nodes go first; the selected node and path nodes are protected.
