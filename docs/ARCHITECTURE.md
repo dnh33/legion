@@ -1,0 +1,239 @@
+# Architecture
+
+This document describes how Legion is put together and the contracts between its parts. Read it before changing the core, the HTTP API or the MCP tools. For setup and workflow, see [CONTRIBUTING.md](../CONTRIBUTING.md).
+
+Legion is a local, personal, Claude-only multi-agent bot. It runs on one machine for one user. It targets Windows first and also runs on macOS and Linux.
+
+## Design principles
+
+1. **Credentials stay with Claude Code.** Legion never reads, copies, stores or proxies Claude OAuth tokens or credential files. In `claude-login` mode it lets the Claude Agent SDK use whichever account Claude Code is signed in to, and removes `ANTHROPIC_API_KEY` (and `ANTHROPIC_AUTH_TOKEN`) from the child environment so the login is used. In `api-key` mode it passes `ANTHROPIC_API_KEY` from config, and nothing else.
+2. **Models are aliases.** Legion passes Claude Code aliases (`sonnet`, `opus`) or values taken from the live model catalog. It never hard-codes dated model ids.
+3. **Local only.** The HTTP server binds `127.0.0.1`. Every route except `GET /health` needs a bearer token.
+4. **Small dependency surface.** Runtime dependencies are `@anthropic-ai/claude-agent-sdk`, `@modelcontextprotocol/sdk` and `zod`, plus Node built-ins. Think twice before adding another.
+5. **Windows-safe.** Use `path.join`, avoid shell-specific commands, and never hard-code `/tmp` on the host.
+6. **ESM with NodeNext.** Relative imports end in `.js`. Node 20.10 or newer.
+
+## Process layout
+
+```
+Electron app (src/electron) --spawns/attaches--> Legion Core (src/bin/legion-core.ts, system Node)
+   renderer UI (ui/) --HTTP + SSE (bearer)-->      Store       JSON files in the data dir
+Claude Code --MCP streamable HTTP /mcp-------->    Engine      Claude Agent SDK query()
+Cowork / Desktop --stdio--> legion-mcp-stdio --->  Router      auto Sonnet/Opus + escalation
+                                                   Approvals   inline Allow/Deny broker
+                                                   Catalog     slash commands + models
+                                                   VmManager --> BoatClient --> boat.dev REST
+                                                   EventBus --> SSE /api/events
+```
+
+- **Legion Core** is a plain Node process (`src/bin/legion-core.ts` is the composition root). It owns all state and all side effects.
+- **The Electron app** is a thin shell. On start it checks `GET /health`; if Core is down it spawns it with the system `node` (`LEGION_NODE` overrides the binary) and logs to `core.log`. Closing the window hides it to the tray. Quit stops Core only if the app started it.
+- **The renderer** (`ui/`) is Vite, React 19 and TypeScript with hand-written CSS. It talks to Core over HTTP and SSE only.
+- **`legion-mcp-stdio`** is a stdio bridge for hosts that only speak stdio (Cowork, Claude Desktop). It proxies to Core's `/mcp` endpoint and starts Core headless if it is not running.
+
+## Data directory
+
+`~/.legion` (Windows: `%USERPROFILE%\.legion`). Override with `LEGION_HOME`.
+
+| Path | Contents |
+|---|---|
+| `config.json` | Configuration, including the generated bearer token. Created on first run. |
+| `state.json` | Agents, tasks and VM records. Written debounced and atomically (temp file plus rename). A corrupt file is moved aside as `state.json.corrupt-<time>`. |
+| `messages/<taskId>.jsonl` | Append-only chat log per task. |
+| `workspaces/<agentId>/` | Default working directory for an agent's local file tools. |
+| `core.log` | Core log. |
+
+Environment overrides: `LEGION_HOME`, `LEGION_PORT`, `LEGION_NODE`, `BOAT_API_KEY`, and `ANTHROPIC_API_KEY` (used only when `claude.auth` is `api-key`).
+
+## Default agents
+
+`Store.seedDefaults` creates these on first run without overwriting edits.
+
+| id | name | model | approval | VM | purpose |
+|---|---|---|---|---|---|
+| `zealot` | Zealot | auto | `auto-edits` | enabled, default size | General-purpose lead. Cannot be deleted. |
+| `builder` | Builder | auto | `full` | enabled, large | Coding and building; prefers its VM for risky work. |
+| `scout` | Scout | sonnet | `ask` | disabled | Research, reading and summarising. |
+
+VM idle stop defaults to 15 minutes. `mcpServers` defaults to `['*']` (all configured servers).
+
+## HTTP API
+
+JSON over `127.0.0.1:<port>` (default 4747). Implemented in `src/core/server.ts`. All routes need `Authorization: Bearer <authToken>` except `/health`; the SSE endpoint also accepts `?token=`. Tokens are compared in constant time.
+
+| Method | Path | Body | Response |
+|---|---|---|---|
+| GET | `/health` | none | `{ok, version, pid}` (no auth) |
+| GET | `/api/state` | none | `StateSnapshot` |
+| GET | `/api/config` | none | config with secrets redacted |
+| GET | `/api/doctor` | none | `DoctorCheck[]` |
+| GET | `/api/catalog?refresh=1` | none | `Catalog` (slash commands and models) |
+| GET | `/api/agents` | none | `AgentProfile[]` |
+| POST | `/api/agents` | `Partial<AgentProfile> & {name}` | `AgentProfile` (201). The id is the slugified name, suffixed if taken. |
+| PATCH | `/api/agents/:id` | `Partial<AgentProfile>` | `AgentProfile` |
+| DELETE | `/api/agents/:id` | none | `{ok:true}`. The `zealot` agent is refused with 400. |
+| POST | `/api/tasks` | `{agentId, prompt, model?, continueTaskId?}` | `Task` (201) |
+| GET | `/api/tasks/:id` | none | `{task, messages}` |
+| GET | `/api/tasks/:id/wait?timeoutMs=N` | none | `Task`. Long-poll; N is at most 600000, default 120000. |
+| POST | `/api/tasks/:id/cancel` | none | `{ok}` |
+| GET | `/api/vms` | none | `VmRecord[]` |
+| POST | `/api/vms/:agentId/start` | none | `VmRecord` |
+| POST | `/api/vms/:agentId/stop` | none | `VmRecord` |
+| POST | `/api/vms/:agentId/exec` | `{command, cwd?, timeoutSeconds?}` | `{exitCode, stdout, stderr}` |
+| POST | `/api/vms/:agentId/desktop` | none | `{url}` (treat as a secret) |
+| GET | `/api/vms/:agentId/screenshot` | none | `{format:'jpeg', data:<base64>}`; 409 if the VM is not running |
+| GET | `/api/approvals` | none | pending `ApprovalRequest[]` |
+| POST | `/api/approvals/:id` | `{allow:boolean}` | `{ok}` |
+| GET | `/api/events` | none | SSE stream of `LegionEvent` as `data: <json>`, heartbeat comment every 15 s |
+| POST, GET, DELETE | `/mcp` | MCP | MCP streamable HTTP, stateless: a new transport and server per request |
+
+Errors are `{error: string}` with status 400, 401, 404, 405, 409, 413, 500, 502 or 503. A 503 means boat.dev is not configured; 502 is an upstream boat.dev failure. Request bodies are capped at 2 MB.
+
+CORS allows origins `null`, `file://`, `http://localhost:5173` (the Vite dev server) and `http://127.0.0.1:*`. Methods are `GET, POST, PATCH, DELETE, OPTIONS`; allowed headers are `Authorization, Content-Type, mcp-session-id, mcp-protocol-version`.
+
+The shared types (`AgentProfile`, `Task`, `ChatMessage`, `LegionEvent`, `VmRecord`, `Catalog`, and so on) live in `src/shared/types.ts`. The UI imports them directly, so change them deliberately.
+
+## MCP tools for Claude Code and Cowork
+
+`src/core/mcp-tools.ts` builds an MCP server named `legion`. All tools return text content, with structured results as pretty-printed JSON. The `agent` argument accepts an id or a name, case-insensitive.
+
+| Tool | Purpose |
+|---|---|
+| `legion_list_agents` | Agents with id, name, description, model, approval mode and VM state. |
+| `legion_models` | Models the signed-in account can use. `refresh` re-probes instead of using the cache. |
+| `legion_create_agent` | `{name, description?, systemPrompt?, model?, vmEnabled?}`. New agents default to `ask` approval. |
+| `legion_run` | `{agent, prompt, model?, wait?=true, timeoutSeconds?=600}`. Waits and returns the answer, task id, model and cost, or returns the task id immediately when `wait` is false. |
+| `legion_continue` | `{taskId, prompt, wait?, timeoutSeconds?}`. Follow-up in the same Claude session. |
+| `legion_status` | `{taskId}`. Task plus its last 20 messages, each clipped to 2000 characters. |
+| `legion_cancel` | `{taskId}`. |
+| `legion_vm` | `{agent, action: status\|start\|stop\|exec\|desktop, command?}`. |
+| `legion_recent_tasks` | `{limit?=10}`. |
+
+## Agent-side VM tools
+
+`src/core/vm-tools.ts` gives each agent an in-process SDK MCP server, also named `legion`, so the model sees tools as `mcp__legion__<name>`. It is attached only when the agent has `vm.enabled` and a boat.dev key is configured.
+
+- `vm_start`: create or resume this agent's VM and return its state.
+- `vm_exec`: run a shell command in the VM. Starts it if needed.
+- `vm_write_file` and `vm_read_file`: file access inside the VM.
+- `vm_claude`: hand a whole task to Claude Code running inside the VM (boat.dev's `claude` provider, which uses the subscription you connected on boat's Agents dashboard). That Claude Code has boat's built-in computer-use tools.
+- `vm_desktop`: return a desktop streaming URL. Treat it as a secret and tell the user to open it.
+- `vm_stop`: stop the VM and snapshot it. Billing pauses.
+
+Every `vm_*` call resets the VM's idle timer.
+
+## Engine
+
+`src/core/engine.ts` runs tasks through the Claude Agent SDK.
+
+- `startTask` creates or continues a `Task` (status `queued`), stores the user message, emits events and queues the job. At most 4 runs execute at once; the rest wait in FIFO order.
+- A run routes the model, then calls `query({prompt, options})` with:
+  - `model` and `cwd` (`agent.cwd`, or `<workspaceDir>/<agentId>`, created if missing);
+  - `resume: task.sessionId` for follow-ups;
+  - `systemPrompt: {type:'preset', preset:'claude_code', append: preamble + agent.systemPrompt}`;
+  - `settingSources: ['user','project','local']` when `claude.inheritClaudeCodeSettings` is true, otherwise `[]`;
+  - `mcpServers`: the agent's selected entries from `config.mcpServers`, plus the `legion` VM tools when available;
+  - approvals: mode `full` uses `bypassPermissions`; `ask` and `auto-edits` use the default permission mode with a `canUseTool` callback that goes through the approval broker;
+  - `maxTurns`, `includePartialMessages: true`, an `AbortController`, and a scrubbed child environment (see Security);
+  - `pathToClaudeCodeExecutable` when `claude.executablePath` is set.
+- Stream handling:
+  - `system/init` stores the session id on the task.
+  - `stream_event` text deltas become `message.delta` events.
+  - `assistant` messages become one assistant `ChatMessage`; `tool_use` blocks become `tool` messages whose text is the compact JSON input, at most 500 characters.
+  - `system/local_command_output` (from slash commands such as `/cost`) becomes an assistant message.
+  - `result` updates the task's result, cumulative cost and turns, and status.
+- Mascot moods follow the run: `thinking` at start, `hacking` on each tool call, `success` or `error` at the end, and `idle` four seconds after nothing is running.
+- Cancel aborts the run, denies its pending approvals and sets status `cancelled`.
+- Tasks left `queued` or `running` when Core last stopped are marked `error` ("Legion restarted") on startup by `Store.recoverInterrupted`.
+
+The preamble tells the agent it is running inside Legion, that VM tools cost money while the VM runs, and to start the VM only when needed and stop it when done.
+
+## Router
+
+`src/core/router.ts`, pure functions.
+
+- **Prefix overrides.** A prompt starting with `/opus` or `/sonnet` (case-insensitive) forces that model and the prefix is stripped. `/model <value>` forces any model; `/model auto` means "route this message normally".
+- **Fixed choice.** A non-`auto` choice passes through verbatim as the SDK `model`, whether an alias or a full id from the catalog.
+- **Auto.** Chooses Opus when any of these hold: the prompt is over 1800 characters; it contains two or more hard keywords (`architect`, `design a`, `refactor`, `debug`, `root cause`, `prove`, `proof`, `optimi`, `security`, `audit`, `migrate`, `migration`, `plan`, `strategy`, `complex`, `tricky`, `concurrency`, `race condition`, `algorithm`, `trade-off`, `tradeoff`, `review`); or it contains an explicit phrase (`think hard`, `ultrathink`, `be thorough`, `deep dive`). Otherwise Sonnet. A continued task that last ran on Opus stays on Opus.
+- **Escalation.** `shouldEscalate` is true only when the model is `sonnet`, the run ended in `error_max_turns`, `error_during_execution` or another error, and the error text does not look like an auth, billing, rate-limit or overload problem (`/auth|login|credit|billing|rate.?limit|429|401|403|overloaded/i`). It happens at most once per task, and only Sonnet to Opus.
+- **Validation.** API and editor inputs accept `auto` or a string of at most 80 characters matching `^[A-Za-z0-9._:\[\]-]+$`.
+
+## Approvals
+
+`src/core/approvals.ts`. `ApprovalBroker.request(taskId, agentId, toolName, input)` returns a promise, emits `approval.requested`, and settles when `resolve(id, allow)` is called (emitting `approval.resolved`). Requests auto-deny after 10 minutes. `cancelForTask` denies everything pending for a task; `pending()` lists what is waiting.
+
+`needsApproval(mode, toolName)`:
+
+- `full` never asks.
+- Read-only tools are always allowed: `Read`, `Glob`, `Grep`, `LS`, `WebSearch`, `WebFetch`, `TodoWrite`, `Task`, `Agent`, and anything under `mcp__legion__`.
+- `ask` also asks for `Write`, `Edit`, `MultiEdit` and `NotebookEdit`.
+- `auto-edits` allows those edit tools.
+- `Bash`, any other `mcp__*` tool and unknown tools ask in both `ask` and `auto-edits`.
+
+`canUseTool` returns `{behavior:'allow', updatedInput}` or `{behavior:'deny', message:'The user denied this action.'}`. The card summary is the command for `Bash`, the path for `Write` and `Edit`, and otherwise compact JSON of at most 400 characters.
+
+## Catalog
+
+`src/core/catalog.ts`, `getCatalog(deps, {force?})`. Probes Claude Code the same way the Doctor's sign-in check does: it starts an idle streaming-input query, calls `supportedCommands()` and `supportedModels()` with a 20 second timeout, then closes it. No model call is made. Results are cached for 10 minutes and concurrent calls share one probe. On failure it returns `{commands: [], models: [], error}` and never throws.
+
+The composer's slash menu and model picker are built from this catalog.
+
+### Slash commands
+
+A prompt starting with `/<name>` where `<name>` is not a Legion command goes to Claude Code verbatim. The SDK runs slash commands, skills and custom commands. Legion's own commands are handled in the UI and never sent: `/new`, `/model <value|auto>`, `/opus`, `/sonnet`, `/vm start|stop|desktop`, `/doctor`, `/agent <name>` and `/clear`.
+
+## VM manager
+
+`src/core/vm-manager.ts` owns the per-agent VM lifecycle on top of `BoatClient` (`src/core/boat.ts`, a small `fetch` client for the boat.dev REST API).
+
+- `ensureRunning(agentId)` creates or resumes the agent's sandbox and waits until it is ready. New sandboxes get a TTL of `idleStopMinutes * 60 + 900` seconds as a safety net. Concurrent calls for one agent share a single promise.
+- `stop` stops and snapshots the sandbox, then briefly waits so the UI can show `archived`.
+- `exec`, `readFile`, `writeFile`, `claude` and `desktopUrl` auto-start the VM and touch the idle timer.
+- `screenshot` requires a running VM, runs an ImageMagick `import` (falling back to `scrot`) inside it, and reads the JPEG back as base64. It deliberately does not touch the idle timer: watching is not using. The UI polls it every 2.5 seconds while the Ops panel shows a running VM and the window is visible.
+- The reaper runs every minute. It refreshes stored state from boat.dev once at startup and stops VMs idle longer than their agent's `idleStopMinutes`.
+- boat.dev states map onto `VmState`: `none`, `provisioning`, `ready`, `running`, `idle`, `archiving`, `archived`, `error`.
+
+## Doctor
+
+`src/core/doctor.ts`. Checks, each of which never throws:
+
+- Node version is 20 or newer.
+- `config.json` exists.
+- Auth mode, and for `api-key` whether a key is present.
+- Claude sign-in: an idle query plus `accountInfo()` with a 20 second timeout. It reports the account email and subscription type, and makes no model call. The fix text is "Run `claude` in a terminal and sign in with /login".
+- boat.dev: if a key is set, `BoatClient.me()`.
+- The workspace directory is writable.
+
+## Electron shell
+
+`src/electron/main.ts`: single-instance lock; 1280x820 window (minimum 960x600) with a hidden title bar and overlay controls on Windows; tray icon with Show, Restart core and Quit; external links open in the default browser. `preload.cjs` is plain CommonJS and exposes `window.legion = {baseUrl, token, platform, openExternal(url)}`, with the values fetched once over a synchronous IPC call. The window runs with `contextIsolation: true`, `nodeIntegration: false` and `sandbox: true`.
+
+## UI
+
+`ui/` is Vite, React 19 and TypeScript, with no UI kit and tokenised hand-written CSS.
+
+- Layout: a custom title bar; a left rail of agents with VM state and pending-approval badges; a center task thread with the composer; and a collapsible Ops panel (Ctrl+.) holding the mascot, the Computer card and recent tasks.
+- Approval cards render inline in the thread. `A` and `D` allow or deny the focused one.
+- `ui/src/api.ts` reads `window.legion` (Electron) or falls back to the `?base=&token=` query string, wraps `fetch` with the bearer token, and subscribes to SSE with automatic reconnect and backoff.
+- Dark is the default theme, with a light variant.
+- Fonts are bundled locally (see [NOTICE](../NOTICE)), so the app renders the same offline.
+
+### Mascot
+
+The mascot is "The Relic", animated by a layered SVG engine in `ui/src/mascot/`. Mascot art follows a fixed layer contract, described in [docs/art/MASCOT_CONTRACT.md](art/MASCOT_CONTRACT.md), and `scripts/build-mascot.py` turns a painted SVG into `ui/src/mascot/data/*.json`. Moods arrive as `mascot` events from the engine. Animation is CSS and SVG only and respects `prefers-reduced-motion`.
+
+## Security model
+
+- Core binds `127.0.0.1` only and requires the bearer token on everything except `/health`. The token is a random 24-byte hex string generated on first run and stored in `config.json`. Comparison is constant-time.
+- CORS is limited to local origins. The Electron renderer uses `file://`.
+- The renderer is sandboxed with context isolation; its only bridge is the four-field `window.legion` object.
+- Legion does not read Claude credentials. The child environment starts from `process.env`, drops variables that belong to a host Claude session (so a Core launched from Claude Code does not attach to it), and removes API-key variables in `claude-login` mode.
+- Approval modes are the main guard on what agents may do locally. `full` is opt-in per agent.
+- boat.dev API keys live in `config.json` or the environment; the API redacts them. VM desktop URLs are secrets and are handed to the user, never logged or forwarded.
+- `/api/config` returns redacted config only.
+
+Vulnerability reporting is covered in [SECURITY.md](../SECURITY.md).
+
+## Tests
+
+`node:test` with `node:assert/strict`, in `test/*.test.ts`. They use fakes for the SDK `query`, boat.dev and the clock, so they need no network and make no Claude calls. `npm test` builds the TypeScript and runs `dist/test/*.test.js`.

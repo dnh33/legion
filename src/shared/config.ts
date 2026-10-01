@@ -1,0 +1,99 @@
+/** Config schema, defaults and data-dir paths. */
+import { randomBytes } from 'node:crypto';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { homedir } from 'node:os';
+import { join } from 'node:path';
+import type { LegionConfig } from './types.js';
+
+export const VERSION = '0.1.0';
+
+/** %USERPROFILE%\.legion on Windows, ~/.legion elsewhere. Override with LEGION_HOME. */
+export function dataDir(): string {
+  const dir = process.env.LEGION_HOME || join(homedir(), '.legion');
+  if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+  return dir;
+}
+
+export function configPath(): string {
+  return join(dataDir(), 'config.json');
+}
+
+export function defaultConfig(): LegionConfig {
+  return {
+    port: 4747,
+    authToken: randomBytes(24).toString('hex'),
+    workspaceDir: join(dataDir(), 'workspaces'),
+    claude: {
+      auth: 'claude-login',
+      inheritClaudeCodeSettings: true,
+      maxTurns: 40,
+    },
+    boat: { baseUrl: 'https://boat.dev/api/v1' },
+    mcpServers: {},
+  };
+}
+
+/** Deep-merge loaded JSON over defaults so new fields appear after upgrades. */
+function merge<T>(base: T, over: unknown): T {
+  if (!over || typeof over !== 'object' || Array.isArray(over)) return base;
+  const out: any = Array.isArray(base) ? [...(base as any)] : { ...(base as any) };
+  for (const [k, v] of Object.entries(over as Record<string, unknown>)) {
+    const b = (base as any)?.[k];
+    out[k] = b && typeof b === 'object' && !Array.isArray(b) && v && typeof v === 'object' && !Array.isArray(v)
+      ? merge(b, v)
+      : v;
+  }
+  return out;
+}
+
+/** Load config, creating it (with a fresh auth token) on first run. Env overrides: LEGION_PORT, BOAT_API_KEY, ANTHROPIC_API_KEY (only used when auth='api-key'). */
+export function loadConfig(): LegionConfig {
+  const p = configPath();
+  let cfg = defaultConfig();
+  if (existsSync(p)) {
+    cfg = merge(cfg, JSON.parse(readFileSync(p, 'utf8')));
+  } else {
+    saveConfig(cfg);
+  }
+  if (process.env.LEGION_PORT) cfg.port = Number(process.env.LEGION_PORT);
+  if (!cfg.boat.apiKey && process.env.BOAT_API_KEY) cfg.boat.apiKey = process.env.BOAT_API_KEY;
+  if (cfg.claude.auth === 'api-key' && !cfg.claude.apiKey && process.env.ANTHROPIC_API_KEY) {
+    cfg.claude.apiKey = process.env.ANTHROPIC_API_KEY;
+  }
+  return cfg;
+}
+
+export function saveConfig(cfg: LegionConfig): void {
+  writeFileSync(configPath(), JSON.stringify(cfg, null, 2), 'utf8');
+}
+
+/** Config safe to send to the UI (no secrets). */
+export function redactConfig(cfg: LegionConfig): LegionConfig {
+  return {
+    ...cfg,
+    authToken: '***',
+    claude: { ...cfg.claude, apiKey: cfg.claude.apiKey ? '***' : undefined },
+    boat: { ...cfg.boat, apiKey: cfg.boat.apiKey ? '***' : undefined },
+  };
+}
+
+/**
+ * When Legion Core is launched from inside a Claude Code / Cowork / Claude Desktop session (e.g. via the
+ * stdio MCP bridge) it inherits that host session's private env vars. Passing those to our own
+ * Claude Code children makes them attach to the host session instead of running standalone.
+ * Keep the user's genuine configuration vars; drop host-session plumbing.
+ */
+const KEEP_ENV = new Set([
+  'CLAUDE_CONFIG_DIR', 'CLAUDE_CODE_GIT_BASH_PATH', 'CLAUDE_CODE_USE_BEDROCK', 'CLAUDE_CODE_USE_VERTEX',
+  'CLAUDE_CODE_USE_FOUNDRY', 'CLAUDE_CODE_MAX_OUTPUT_TOKENS', 'CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC',
+]);
+const HOST_ENV = /^(CLAUDECODE$|CLAUDE_CODE_|CLAUDE_(PID|SESSION_|AFTER_|AUTO_|AUTOCOMPACT_|PROJECT_|INTERNAL_|ADDITIONAL_|EFFORT|ENABLE_|CHROME_)|CCR_|ANTHROPIC_BASE_URL$)/;
+
+export function scrubHostSessionEnv(env: Record<string, string | undefined>): Record<string, string | undefined> {
+  const out: Record<string, string | undefined> = {};
+  for (const [k, v] of Object.entries(env)) {
+    if (HOST_ENV.test(k) && !KEEP_ENV.has(k)) continue;
+    out[k] = v;
+  }
+  return out;
+}

@@ -1,0 +1,230 @@
+<div align="center">
+
+<img src="docs/images/relic.png" alt="The Relic, Legion's mascot: a war helm with a glowing green visor, a code halo and trailing data cables" width="360">
+
+# Legion
+
+**A local, Claude-only multi-agent bot for your desktop, with a VM for every agent when it needs one.**
+
+[Install](#install) · [Orchestrate over MCP](#orchestrate-from-claude-code-or-cowork) · [Architecture](docs/ARCHITECTURE.md) · [Contributing](CONTRIBUTING.md)
+
+</div>
+
+## What it is
+
+Legion is a desktop app for running several Claude agents from one place. Each agent has its own persona, model policy, approval mode and working directory, and can start a cloud Ubuntu VM on [boat.dev](https://boat.dev) when a task calls for one. It runs on your machine: a small Node service on `127.0.0.1` does the work, and an Electron window sits on top. Agents run through the official Claude Agent SDK using the Claude Code account you are already signed in to, so there are no extra logins or keys to manage.
+
+Claude Code and Cowork can drive Legion too, over MCP.
+
+<p align="center">
+  <img src="docs/images/app-dark.png" alt="Legion's main window in the dark theme: agent rail, a task thread with tool calls and an inline approval card, the mascot, a live VM preview and recent tasks" width="900">
+</p>
+
+<details>
+<summary>Light theme</summary>
+<p align="center"><img src="docs/images/app-light.png" alt="Legion's main window in the light theme" width="900"></p>
+</details>
+
+## Features
+
+- **Multiple agents.** Ships with Zealot (lead), Builder (coding) and Scout (research). Create your own with a name, system prompt, model, approval mode and VM settings.
+- **Auto model routing.** Each task goes to Sonnet or Opus depending on how hard it looks. If Sonnet fails or runs out of turns, Legion retries once on Opus. Or pick any model your account offers.
+- **Your Claude Code setup, inherited.** Agents pick up your Claude Code settings, MCP servers, skills, slash commands and claude.ai connectors. Add your own MCP servers in `config.json`.
+- **A VM per agent, on demand.** Agents start, use and stop their own boat.dev VM. You get a live screen preview and an "Open desktop" link. Idle VMs stop on their own so billing pauses.
+- **Inline approvals.** Per agent, choose `ask`, `auto-edits` or `full`. Risky tool calls show up as Allow/Deny cards in the thread. Press `A` or `D`.
+- **Slash commands and a model picker** in the composer.
+- **Orchestration over MCP.** Claude Code connects over HTTP; Cowork and Claude Desktop connect over a stdio bridge.
+- **Doctor.** A built-in check of Node, config, Claude sign-in, boat.dev and the workspace, with a fix for each failure.
+- **A hand-painted animated mascot**, The Relic, that reacts to what your agents are doing.
+- **Keyboard first**, dark and light themes, tray icon, fonts bundled so it works offline.
+
+## Your Claude subscription, and Anthropic's terms
+
+Legion talks to Claude only through the official [Claude Agent SDK](https://docs.claude.com/en/docs/claude-code/sdk). By default (`claude.auth: "claude-login"`) it uses whichever account Claude Code is signed in to on your machine. Legion never reads, copies or stores your Claude credentials, and it removes `ANTHROPIC_API_KEY` from the child environment so your login is the one used. If you would rather pay by API key, set `claude.auth` to `api-key` and provide one.
+
+Use it for yourself, on your own machine. Do not host Legion for other people, put it behind a shared endpoint, or pass your subscription through it to anyone else. Anthropic's terms are the authority on what your plan allows, and they can change; read them for your plan. Legion is an independent project and is not affiliated with or endorsed by Anthropic or boat.dev.
+
+## Requirements
+
+- **Node.js 20.10 or newer.** The Electron app starts Legion Core with your system `node`.
+- **Claude Code, signed in.** Run `claude`, then `/login`. A Claude subscription or an API key is required.
+- **Windows 10/11** is the primary target. macOS and Linux work from a dev install.
+- **Optional:** a [boat.dev](https://boat.dev) account and API key for agent VMs.
+
+## Install
+
+### Windows
+
+Unpack or clone the source anywhere, then double-click `setup.cmd`, or run:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\setup.ps1
+```
+
+Setup installs Legion for your user on the C drive, in `%LOCALAPPDATA%\Programs\Legion`. No admin rights are needed. It copies the source there, installs dependencies, builds the app, and adds **Legion** shortcuts to the Desktop and Start menu. Options:
+
+- `-InstallDir "C:\Some\Folder"` installs somewhere else.
+- `-DryRun` shows what would happen without changing anything.
+- Run setup again from a newer source folder to update in place. It asks before stopping a running Legion.
+
+To launch, use the shortcuts or `start-legion.cmd` in the install folder. To uninstall, run `uninstall.cmd` in the install folder. Your data in `%USERPROFILE%\.legion` is kept; add `/purge` to delete it too (you will be asked to confirm).
+
+### macOS and Linux (or any dev install)
+
+```bash
+git clone https://github.com/OWNER/legion.git
+cd legion
+npm ci
+npm start          # builds, then opens the desktop app
+```
+
+`npm run core` runs the headless core alone, which is enough for the MCP integration.
+
+## First run and Doctor
+
+On first launch Legion creates `config.json` in its data directory (`%USERPROFILE%\.legion` on Windows, `~/.legion` elsewhere) with a fresh auth token. Open **Doctor** in the title bar (or type `/doctor`) to check the setup. It confirms your Node version, config, Claude sign-in (email and plan, with no model call), boat.dev key and workspace folder, and tells you how to fix anything that fails. If sign-in fails, run `claude` in a terminal and use `/login`.
+
+## boat.dev VMs
+
+VMs are optional. Without a key, agents simply work locally.
+
+1. Create an API key in the boat.dev dashboard.
+2. Put it in `config.json` as `"boat": { "apiKey": "…" }`, or set the `BOAT_API_KEY` environment variable.
+3. To let an agent run Claude Code *inside* its VM (`vm_claude`), connect your Claude subscription once on boat's **Agents** dashboard. That sign-in goes through Anthropic's own flow, not through Legion.
+4. Restart Legion, and enable the VM in an agent's settings.
+
+Agents get `vm_start`, `vm_exec`, `vm_write_file`, `vm_read_file`, `vm_claude`, `vm_desktop` and `vm_stop`. VMs cost money while they run; Legion stops them after a configurable idle period (15 minutes by default).
+
+## Orchestrate from Claude Code or Cowork
+
+Run `npm run mcp-config` to print ready-to-paste snippets with your real token.
+
+**Claude Code** (MCP over HTTP):
+
+```bash
+claude mcp add --transport http legion http://127.0.0.1:4747/mcp \
+  --header "Authorization: Bearer <token>"
+```
+
+**Cowork and Claude Desktop** (stdio bridge), in `claude_desktop_config.json` under `mcpServers`:
+
+```json
+"legion": { "command": "node", "args": ["/path/to/legion/dist/src/bin/legion-mcp-stdio.js"] }
+```
+
+The bridge starts Legion Core headless if the app is not running. Then you can say, for example: *"Use legion_run with Builder to scaffold the site in its VM, then summarise."*
+
+| Tool | What it does |
+|---|---|
+| `legion_list_agents` | List agents with model, approval mode and VM state. |
+| `legion_models` | List the models your account can use. |
+| `legion_create_agent` | Create an agent (name, prompt, model, VM). |
+| `legion_run` | Give an agent a task; waits for the answer by default. |
+| `legion_continue` | Follow up on a finished task in the same session. |
+| `legion_status` | Task status, result and recent messages. |
+| `legion_cancel` | Cancel a queued or running task. |
+| `legion_vm` | Check, start, stop, exec in, or get the desktop URL of an agent's VM. |
+| `legion_recent_tasks` | List recent tasks. |
+
+## Slash commands and models
+
+<p align="center">
+  <img src="docs/images/slash-menu.png" alt="The composer's slash menu, with Legion commands and Claude Code commands" width="560">
+  <img src="docs/images/model-picker.png" alt="The model picker, listing Auto and the models available to the account" width="560">
+</p>
+
+Type `/` in the composer to open the menu. Commands that Legion does not handle itself go to Claude Code unchanged, so your skills, plugins and custom commands work.
+
+| Command | Action |
+|---|---|
+| `/new` | Start a new task. |
+| `/model <auto\|name>` | Set the model for the composer, or for one message if you add text. |
+| `/opus`, `/sonnet` | Shorthands for `/model`. |
+| `/vm start\|stop\|desktop` | Control this agent's VM. |
+| `/doctor` | Open the setup checks. |
+| `/agent <name>` | Switch agent. |
+| `/clear` | Clear the draft. |
+
+**Auto** picks Sonnet for ordinary prompts and Opus for long or hard ones (architecture, refactors, debugging, security and similar, or phrases like "think hard"). A Sonnet run that errors or hits its turn limit is retried once on Opus, unless the error looks like an auth, billing or rate-limit problem. Ctrl+M opens the model picker. The choice is remembered per agent.
+
+## Configuration
+
+`config.json` in the data directory. Missing keys fall back to defaults.
+
+| Key | Meaning |
+|---|---|
+| `port` | Local port. Default `4747`. |
+| `authToken` | Bearer token for the API and MCP. Generated for you; keep it private. |
+| `workspaceDir` | Where agent working directories live. Default `<data dir>/workspaces`. |
+| `claude.auth` | `claude-login` (default, your Claude Code account) or `api-key` (with `claude.apiKey`). |
+| `claude.inheritClaudeCodeSettings` | Load your Claude Code user and project settings, MCP servers and connectors. Default `true`. |
+| `claude.executablePath` | Path to your own `claude` binary. By default the one bundled with the SDK is used. |
+| `claude.maxTurns` | Turn cap per run. Default `40`. |
+| `boat.apiKey`, `boat.baseUrl` | boat.dev access. `BOAT_API_KEY` also works. |
+| `mcpServers` | Extra MCP servers, in the same shape as Claude Code's `.mcp.json`. Agents pick them by name, or `*` for all. |
+
+Environment variables: `LEGION_HOME` (data directory), `LEGION_PORT`, `LEGION_NODE` (Node binary for the app to use), `BOAT_API_KEY`.
+
+The data directory holds `config.json`, `state.json`, `messages/`, `workspaces/<agent>/` and `core.log`.
+
+## Keyboard shortcuts
+
+| Keys | Action |
+|---|---|
+| `Ctrl+K` | Command palette |
+| `Ctrl+N` | New task |
+| `Ctrl+M` | Model picker |
+| `Ctrl+.` | Toggle the Ops panel |
+| `Alt+1` to `Alt+9` | Switch agent |
+| `A` / `D` | Allow / Deny the focused approval |
+| `Ctrl+Shift+M` | Open the mascot lab |
+
+On macOS, use `Cmd` in place of `Ctrl`.
+
+## The mascot
+
+The Relic is a single hand-painted SVG, split into layers and animated by a small engine. It leans in while you type, thinks, hacks, waits for your approval, celebrates, winces at errors, and sleeps when nothing happens. You can try every expression in the [Expression Lab](docs/demo/relic-lab.html) (download it and open it in a browser, or use the in-app lab). Want to add your own character? The layer format is documented in the [mascot contract](docs/art/MASCOT_CONTRACT.md).
+
+## Development
+
+```bash
+npm ci
+npm run typecheck   # TypeScript, core and UI
+npm test            # 90 tests, no network, no real Claude calls
+npm run build       # core to dist/, UI to dist-ui/
+npm start           # build and open the app
+npm run core        # headless core only
+npm run dev:ui      # Vite dev server for the UI on :5173
+```
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the full workflow and [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for how it fits together.
+
+## Project layout
+
+```
+src/
+  bin/        legion-core (entry point) and legion-mcp-stdio (MCP bridge)
+  core/       engine, router, approvals, catalog, VM manager, boat.dev client, store, HTTP server, MCP tools
+  electron/   main process and preload
+  shared/     types, config, small helpers
+ui/           Vite + React renderer, mascot engine, bundled fonts
+  dev/        mock server and screenshot scripts
+test/         node:test suites
+scripts/      Windows installer, icon and mascot builders, MCP config printer
+docs/         architecture, mascot art and contract, expression lab, README images
+assets/       app icon, tray icons, splash
+```
+
+## Security
+
+Legion binds to `127.0.0.1`, requires a bearer token on every request except `/health`, and never handles your Claude credentials. Agents can run code on your machine, so pick their approval modes deliberately, and use VMs for untrusted work. See [SECURITY.md](SECURITY.md) for the threat model and how to report a vulnerability.
+
+## Contributing
+
+Bug reports, ideas and pull requests are welcome. Start with [CONTRIBUTING.md](CONTRIBUTING.md). Everyone taking part is expected to follow the [Code of Conduct](CODE_OF_CONDUCT.md). Changes are tracked in the [changelog](CHANGELOG.md).
+
+## Licence and credits
+
+Legion is released under the [MIT License](LICENSE).
+
+Design inspiration came from [OpenMausBot](https://github.com/milind-soni/OpenMausBot) (Apache-2.0): bots as contacts, inline approval cards, and a computer panel with a live preview. No code was copied. Legion uses the [Claude Agent SDK](https://www.npmjs.com/package/@anthropic-ai/claude-agent-sdk) and the [MCP TypeScript SDK](https://github.com/modelcontextprotocol/typescript-sdk), and bundles IBM Plex Sans, JetBrains Mono and Grenze Gotisch under the SIL Open Font License 1.1. Full attribution is in [NOTICE](NOTICE).

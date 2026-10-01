@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src file: data:; style-src 'unsafe-inline'; script-src 'unsafe-inline'">
+<title>Legion</title>
+<style>
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{width:100%;height:100%;overflow:hidden;background:#0b0d10;color:#e6e9ef;-webkit-user-select:none;user-select:none}
+  body{font-family:"Cascadia Code",Consolas,"JetBrains Mono",monospace;position:relative;-webkit-app-region:drag;transition:opacity .5s ease}
+  body.fade{opacity:0}
+  .frame{position:absolute;inset:0;border:1px solid #1e232b;background:
+    radial-gradient(420px 320px at 130px 150px,rgba(124,255,178,.16),transparent 70%),
+    radial-gradient(500px 360px at 100% 100%,rgba(179,32,47,.10),transparent 70%),#0b0d10}
+  .hero{position:absolute;left:0;top:0;width:250px;height:100%;overflow:hidden;
+    -webkit-mask-image:linear-gradient(90deg,#000 62%,transparent 100%);mask-image:linear-gradient(90deg,#000 62%,transparent 100%)}
+  .hero img{position:absolute;width:580px;left:-165px;top:-42px;filter:drop-shadow(0 0 22px rgba(124,255,178,.35))}
+  .glow{position:absolute;left:30px;top:70px;width:200px;height:200px;border-radius:50%;
+    background:radial-gradient(circle,rgba(124,255,178,.22),transparent 65%);animation:pulse 3.2s ease-in-out infinite}
+  @keyframes pulse{50%{opacity:.45;transform:scale(1.08)}}
+  .right{position:absolute;left:260px;right:32px;top:0;bottom:0;display:flex;flex-direction:column;justify-content:flex-start;padding-top:84px}
+  h1{font:400 40px Georgia,"Times New Roman",serif;letter-spacing:.3em;color:#f1e8cd;text-shadow:0 0 24px rgba(124,255,178,.25);margin-right:-.3em}
+  .rule{height:1px;width:120px;margin:14px 0 12px;background:linear-gradient(90deg,#caa64a,transparent)}
+  .tag{font:italic 15px Georgia,serif;color:#8a93a3;letter-spacing:.06em}
+  .log{margin-top:36px;height:74px;font-size:12px;line-height:19px;color:#8a93a3;overflow:hidden}
+  .log div{opacity:0;animation:in .3s forwards}
+  .log div::before{content:"> ";color:#7CFFB2}
+  .log div.ok{color:#7CFFB2}
+  .log div.err{color:#FF6B6B;white-space:normal}
+  .log div.err::before{color:#FF6B6B}
+  @keyframes in{to{opacity:1}}
+  .caret{display:inline-block;width:7px;height:12px;background:#7CFFB2;vertical-align:-2px;margin-left:3px;animation:blink 1s steps(2) infinite}
+  @keyframes blink{50%{opacity:0}}
+  .btns{display:none;gap:10px;margin-top:6px;-webkit-app-region:no-drag}
+  .btns.show{display:flex}
+  button{font:12px inherit;font-family:inherit;color:#e6e9ef;background:#12151a;border:1px solid #2a313b;border-radius:6px;padding:7px 14px;cursor:pointer}
+  button:hover{border-color:#7CFFB2;color:#7CFFB2}
+  .bar{position:absolute;left:0;bottom:0;height:2px;width:100%;background:linear-gradient(90deg,transparent,#7CFFB2,transparent);background-size:40% 100%;background-repeat:no-repeat;animation:sweep 1.6s linear infinite}
+  .bar.stop{display:none}
+  @keyframes sweep{from{background-position:-50% 0}to{background-position:150% 0}}
+</style></head>
+<body>
+<div class="frame"></div>
+<div class="glow"></div>
+<div class="hero"><img src="zealot.svg" alt=""></div>
+<div class="right">
+  <h1>LEGION</h1>
+  <div class="rule"></div>
+  <div class="tag">Your order of agents.</div>
+  <div class="log" id="log"></div>
+  <div class="btns" id="btns"><button id="retry">Retry</button><button id="openlog">Open log</button></div>
+</div>
+<div class="bar" id="bar"></div>
+<script>
+  // Driven by the main process via webContents.executeJavaScript -> window.splash.*
+  var log=document.getElementById('log'),bar=document.getElementById('bar'),btns=document.getElementById('btns'),caret;
+  function clearCaret(){if(caret&&caret.parentNode)caret.parentNode.removeChild(caret)}
+  window.splash={
+    line:function(t,cls){clearCaret();var d=document.createElement('div');if(cls)d.className=cls;d.textContent=t;log.appendChild(d);
+      caret=document.createElement('span');caret.className='caret';d.appendChild(caret);
+      while(log.children.length>4)log.removeChild(log.firstChild)},
+    error:function(t){clearCaret();bar.className='bar stop';this.line(t,'err');clearCaret();btns.className='btns show'},
+    reset:function(){log.textContent='';btns.className='btns';bar.className='bar'},
+    fade:function(){clearCaret();document.body.className='fade'}
+  };
+  // Buttons signal the main process through the document title (no preload, no node).
+  function sig(a){document.title='legion-splash:'+a+':'+Date.now()}
+  document.getElementById('retry').onclick=function(){sig('retry')};
+  document.getElementById('openlog').onclick=function(){sig('log')};
+</script>
+</body></html>

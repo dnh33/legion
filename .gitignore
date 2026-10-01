@@ -1,0 +1,7 @@
+node_modules
+dist
+dist-ui
+ui/dev/shots
+*.log
+.env
+.env.*

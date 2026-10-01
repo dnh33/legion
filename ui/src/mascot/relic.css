@@ -1,0 +1,20 @@
+/* Wrapper, mood label and Mascot Lab around the engine-driven Relic. */
+.relic-wrap { position: relative; display: flex; flex-direction: column; align-items: center; width: 100%; }
+.relic-wrap .mood-label { white-space: nowrap; flex-wrap: nowrap; }
+/* Quip bubble: the stage is a tight frame, so the bubble overlays the top of the art instead of floating above it. */
+.mascot-stage .mx-quip { top: 4px; transform: translate(-50%, 0); }
+.mascot-stage .mx.quip-in .mx-quip { animation: relic-quip-in .2s var(--ease) 1; }
+@keyframes relic-quip-in { from { opacity: 0; transform: translate(-50%, -4px); } }
+.vm-tag { flex: none; margin-left: 4px; padding: 0 6px; border-radius: 8px; border: 1px solid var(--accent-line); color: var(--accent-text); font-size: 10.5px; }
+.ml-awaiting i, .ml-thinking i { background: var(--warn) !important; animation: blink 1s ease-in-out infinite; }
+.ml-hacking i, .ml-victory i { background: var(--accent) !important; }
+.ml-listening i { background: var(--text-2) !important; }
+.ml-error i, .ml-annoyed i { background: var(--danger) !important; }
+@keyframes lab-in { from { opacity: 0; transform: translateY(4px); } }
+.lab { align-self: stretch; margin: 10px 10px 0; padding: 8px; border: 1px solid var(--line-strong); border-radius: var(--r); background: var(--surface-2); box-shadow: 0 10px 28px rgba(0, 0, 0, .35); animation: lab-in 140ms ease-out; }
+.lab h5 { margin: 0 0 6px; font-size: 11px; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+.lab-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 4px; }
+.lab button { height: 24px; font-size: 11.5px; border: 1px solid var(--line); border-radius: 5px; background: var(--surface); color: var(--text-2); transition: all 120ms; }
+.lab button:hover { border-color: var(--line-strong); }
+.lab button.on { border-color: var(--accent-line); color: var(--accent-text); background: var(--accent-soft); }
+.lab .wide { grid-column: 1 / -1; }

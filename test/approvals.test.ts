@@ -1,0 +1,67 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { ApprovalBroker, needsApproval, summarizeToolInput } from '../src/core/approvals.js';
+import { EventBus } from '../src/core/bus.js';
+import type { LegionEvent } from '../src/shared/types.js';
+
+test('needsApproval matrix', () => {
+  for (const t of ['Bash', 'Write', 'mcp__x__y', 'Whatever']) assert.equal(needsApproval('full', t), false);
+  for (const mode of ['ask', 'auto-edits'] as const) {
+    for (const t of ['Read', 'Glob', 'Grep', 'LS', 'WebSearch', 'WebFetch', 'TodoWrite', 'Task', 'Agent', 'mcp__legion__vm_exec']) {
+      assert.equal(needsApproval(mode, t), false, `${mode} ${t}`);
+    }
+    for (const t of ['Bash', 'mcp__github__create_issue', 'Mystery']) assert.equal(needsApproval(mode, t), true, `${mode} ${t}`);
+  }
+  for (const t of ['Write', 'Edit', 'MultiEdit', 'NotebookEdit']) {
+    assert.equal(needsApproval('ask', t), true);
+    assert.equal(needsApproval('auto-edits', t), false);
+  }
+});
+
+test('summarizeToolInput', () => {
+  assert.equal(summarizeToolInput('Bash', { command: 'ls -la' }), 'ls -la');
+  assert.equal(summarizeToolInput('Write', { file_path: '/a/b.txt', content: 'x' }), '/a/b.txt');
+  assert.equal(summarizeToolInput('Edit', { file_path: '/a/c.txt' }), '/a/c.txt');
+  assert.equal(summarizeToolInput('mcp__a__b', { q: 1 }), '{"q":1}');
+  assert.ok(summarizeToolInput('Bash', { command: 'x'.repeat(1000) }).length <= 400);
+  assert.ok(summarizeToolInput('Other', { v: 'y'.repeat(1000) }).length <= 400);
+});
+
+test('broker allow / deny emits events and clears pending', async () => {
+  const bus = new EventBus();
+  const events: LegionEvent[] = [];
+  bus.on((e) => events.push(e));
+  const b = new ApprovalBroker(bus);
+  const p1 = b.request('t1', 'a1', 'Bash', { command: 'rm x' });
+  const p2 = b.request('t1', 'a1', 'Bash', { command: 'ls' });
+  assert.equal(b.pending().length, 2);
+  const [r1, r2] = b.pending();
+  assert.equal(r1!.summary, 'rm x');
+  assert.equal(b.resolve(r1!.id, true), true);
+  assert.equal(b.resolve(r2!.id, false), true);
+  assert.equal(b.resolve(r2!.id, false), false);
+  assert.equal(await p1, true);
+  assert.equal(await p2, false);
+  assert.equal(b.pending().length, 0);
+  assert.equal(events.filter((e) => e.type === 'approval.requested').length, 2);
+  const resolved = events.filter((e) => e.type === 'approval.resolved') as Extract<LegionEvent, { type: 'approval.resolved' }>[];
+  assert.deepEqual(resolved.map((e) => e.allowed), [true, false]);
+});
+
+test('broker auto-denies on timeout', async () => {
+  const b = new ApprovalBroker(new EventBus(), { timeoutMs: 20 });
+  assert.equal(await b.request('t', 'a', 'Bash', { command: 'x' }), false);
+  assert.equal(b.pending().length, 0);
+});
+
+test('cancelForTask denies only that task', async () => {
+  const b = new ApprovalBroker(new EventBus());
+  const a = b.request('t1', 'a', 'Bash', {});
+  const c = b.request('t2', 'a', 'Bash', {});
+  b.cancelForTask('t1');
+  assert.equal(await a, false);
+  assert.equal(b.pending().length, 1);
+  assert.equal(b.pending()[0]!.taskId, 't2');
+  b.resolve(b.pending()[0]!.id, true);
+  assert.equal(await c, true);
+});

@@ -1,0 +1,54 @@
+name: Bug report
+description: Something is broken or behaves differently from what the docs say
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the report. Please do not paste your `authToken`, API keys or desktop URLs. For security problems, use a private advisory instead (see SECURITY.md).
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened?
+      description: What you did, what you expected, and what you saw instead.
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. ...
+        2. ...
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Legion version
+      placeholder: "0.1.0 (see the title bar or package.json)"
+    validations:
+      required: true
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating system
+      options: [Windows 11, Windows 10, macOS, Linux, Other]
+    validations:
+      required: true
+  - type: input
+    id: node
+    attributes:
+      label: Node.js version
+      placeholder: "node --version"
+  - type: dropdown
+    id: where
+    attributes:
+      label: Where does it happen?
+      options: [Desktop app, Headless core, MCP (Claude Code), MCP (Cowork / Claude Desktop), boat.dev VMs, Installer, Other]
+  - type: textarea
+    id: logs
+    attributes:
+      label: Doctor output and logs
+      description: Results from Doctor and relevant lines from `core.log` in your data directory. Remove anything private.
+      render: text

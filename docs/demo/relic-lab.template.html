@@ -1,0 +1,211 @@
+<title>Relic Expression Lab</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Grenze+Gotisch:wght@500;700&family=IBM+Plex+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+/* Layout: one reliquary stage, one command rail, one caption plate. Deliberately single dark theme (the mascots live in Legion's dark UI). */
+:root {
+  color-scheme: dark;
+  --ink: #0b0d11;        /* page */
+  --vault: #11141a;      /* stage */
+  --line: #232a35;
+  --text: #e9e5db;       /* parchment white */
+  --muted: #8f97a5;
+  --phosphor: #7cffb2;
+  --gold: #c9a44a;
+  --crimson: #c22c3c;
+  --amber: #ffcc66;
+  --f-display: "Grenze Gotisch", "UnifrakturCook", Georgia, serif;
+  --f-body: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
+  --f-mono: "JetBrains Mono", "Cascadia Code", Consolas, monospace;
+  --mx-font: var(--f-body);
+}
+* { box-sizing: border-box; }
+html, body { background: var(--ink); color: var(--text); }
+body { font: 15px/1.55 var(--f-body); padding-inline: 20px; padding-block: 28px 48px; }
+.wrap { max-width: 1120px; margin: 0 auto; display: grid; gap: 22px; }
+
+header { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+.brand { display: grid; gap: 2px; }
+.wordmark { font: 700 56px/0.9 var(--f-display); letter-spacing: .06em; color: var(--text);
+  text-shadow: 0 0 24px rgba(124, 255, 178, .18); margin: 0; }
+.wordmark span { color: var(--phosphor); }
+.sub { font: 600 11px/1 var(--f-mono); letter-spacing: .22em; text-transform: uppercase; color: var(--muted); }
+.hint { color: var(--muted); font-size: 13.5px; max-width: 44ch; margin: 0; }
+.hint kbd { font: 600 11px var(--f-mono); color: var(--text); border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 4px; padding: 1px 5px; }
+
+.stages { display: grid; grid-template-columns: minmax(0, 720px); justify-content: center; gap: 18px; }
+.stage { position: relative; border: 1px solid var(--line); border-radius: 18px; overflow: hidden;
+  background:
+    radial-gradient(60% 50% at 50% 42%, rgba(124, 255, 178, .08), transparent 70%),
+    linear-gradient(180deg, #0f1217, var(--vault));
+  display: grid; grid-template-rows: 1fr auto; min-width: 0; }
+.stage .pit { display: grid; place-items: center; padding: 56px 28px 12px; min-height: 460px; }
+.stage .mxhost { width: min(100%, var(--w)); }
+.plate { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; padding: 14px 20px 18px; border-top: 1px solid var(--line); }
+.plate h2 { font: 700 30px/1 var(--f-display); letter-spacing: .04em; margin: 0; }
+.plate p { margin: 4px 0 0; color: var(--muted); font-size: 13.5px; }
+.tag { font: 600 10.5px/1 var(--f-mono); letter-spacing: .16em; text-transform: uppercase; padding: 6px 8px; border-radius: 6px; white-space: nowrap; }
+.tag.grim { color: var(--phosphor); border: 1px solid rgba(124, 255, 178, .35); }
+
+.rail { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.states { display: flex; flex-wrap: wrap; gap: 6px; flex: 1 1 560px; }
+.sb { font: 500 13px/1 var(--f-body); color: var(--text); background: #151920; border: 1px solid var(--line); border-radius: 9px;
+  padding: 9px 11px; cursor: pointer; display: inline-flex; gap: 8px; align-items: center; transition: border-color .15s, background .15s; }
+.sb:hover { border-color: #3a4454; }
+.sb:focus-visible, .tog:focus-visible, .tour:focus-visible { outline: 2px solid var(--phosphor); outline-offset: 2px; }
+.sb i { font: 600 10.5px var(--f-mono); color: var(--muted); font-style: normal; }
+.sb[aria-pressed="true"] { background: #16241d; border-color: rgba(124, 255, 178, .55); }
+.sb[aria-pressed="true"] i { color: var(--phosphor); }
+.sb.sb-awaiting[aria-pressed="true"] { background: #2a2312; border-color: rgba(255, 204, 102, .6); }
+.sb.sb-error[aria-pressed="true"], .sb.sb-annoyed[aria-pressed="true"] { background: #2a1417; border-color: rgba(255, 77, 94, .6); }
+.controls { display: flex; gap: 8px; flex-wrap: wrap; }
+.tog, .tour { font: 500 13px/1 var(--f-body); color: var(--text); background: transparent; border: 1px solid var(--line);
+  border-radius: 9px; padding: 9px 12px; cursor: pointer; display: inline-flex; gap: 8px; align-items: center; }
+.tog .dot { width: 8px; height: 8px; border-radius: 50%; background: #3a4250; }
+.tog[aria-pressed="true"] .dot { background: #8fd3ff; box-shadow: 0 0 0 3px rgba(143, 211, 255, .18); }
+.tog.eyes[aria-pressed="true"] .dot { background: var(--phosphor); box-shadow: 0 0 0 3px rgba(124, 255, 178, .18); }
+.tour { background: var(--phosphor); color: #06140c; border-color: transparent; font-weight: 600; }
+.tour[aria-pressed="true"] { background: #1c2a22; color: var(--phosphor); border-color: rgba(124, 255, 178, .5); }
+
+.caption { display: grid; grid-template-columns: auto 1fr; gap: 6px 22px; align-items: baseline; border: 1px solid var(--line);
+  border-radius: 14px; padding: 16px 20px; background: #0f1216; }
+.caption .name { font: 700 34px/1 var(--f-display); letter-spacing: .03em; grid-row: span 2; min-width: 7ch; }
+.caption .when { margin: 0; color: var(--text); }
+.caption .when b { color: var(--phosphor); font-weight: 600; }
+.caption .what { margin: 0; color: var(--muted); font-size: 14px; }
+.progress { height: 2px; background: var(--line); border-radius: 2px; overflow: hidden; grid-column: 1 / -1; margin-top: 8px; }
+.progress i { display: block; height: 100%; width: 0; background: var(--phosphor); }
+
+@media (max-width: 760px) {
+  .stages { grid-template-columns: 1fr; }
+  .stage .pit { min-height: 0; padding-top: 48px; }
+  .wordmark { font-size: 44px; }
+  .caption { grid-template-columns: 1fr; }
+  .caption .name { grid-row: auto; }
+}
+
+/*__MASCOT_CSS__*/
+</style>
+
+<div class="wrap">
+  <header>
+    <div class="brand">
+      <h1 class="wordmark">Legi<span>o</span>n</h1>
+      <div class="sub">Relic expression lab</div>
+    </div>
+    <p class="hint">The Relic is driven by a painted-art layer engine. Move your cursor and it watches it. Click it for a word, double-click to spin the halo, and poke five times fast if you dare. Keys <kbd>1</kbd>–<kbd>9</kbd> pick a state.</p>
+  </header>
+
+  <section class="stages" aria-label="Mascots">
+    <article class="stage">
+      <div class="pit"><div class="mxhost" id="h-relic" style="--w: 380px"></div></div>
+      <div class="plate"><div><h2>The Relic</h2><p>War-relic helm: code halo, purity seals, data cables.</p></div><span class="tag grim">Mascot</span></div>
+    </article>
+  </section>
+
+  <div class="rail">
+    <div class="states" role="group" aria-label="Expression" id="states"></div>
+    <div class="controls">
+      <button class="tog eyes" id="t-eyes" aria-pressed="true" type="button"><span class="dot"></span>Eyes follow cursor</button>
+      <button class="tog" id="t-vm" aria-pressed="false" type="button"><span class="dot"></span>VM running</button>
+      <button class="tour" id="t-tour" aria-pressed="false" type="button">Play the tour</button>
+    </div>
+  </div>
+
+  <section class="caption" aria-live="polite">
+    <div class="name" id="c-name">Standing vigil</div>
+    <p class="when" id="c-when"></p>
+    <p class="what" id="c-what"></p>
+    <div class="progress" aria-hidden="true"><i id="c-bar"></i></div>
+  </section>
+</div>
+
+<script>
+/*__ENGINE__*/
+const RELIC = /*__RELIC__*/;
+
+const QUIPS = [
+  'The build is holy. The build is green.', 'I do not guess. I grep.', 'Merge with reverence.',
+  'Verify, then ship. Then verify again.', 'Zero warnings. Zero mercy.', 'sudo, but with prayer.',
+  'A failing test is a sermon waiting to be heard.', 'Forgive us our unhandled exceptions.',
+  'Tokens are finite. Discipline is not.', 'Main is sacred. Branch in peace.', 'I have read your logs. We must talk.',
+  'Nothing ships unsealed.', 'Patience. The linter is watching.', 'Bless this diff.',
+];
+
+const INFO = {
+  idle:      ['Standing vigil', 'Nothing is running.', 'Breathes, blinks, glances around, halo turns slowly. Every so often a trick: halo spin, solemn nod or visor flicker.'],
+  listening: ['Listening', 'You are typing in the composer.', 'Leans in, eyes drop to your words, visor brightens.'],
+  thinking:  ['Deliberating', 'A task is queued or the model is reasoning.', 'Eyes lift, the halo turns fast, the visor breathes.'],
+  hacking:   ['Executing', 'An agent is running tools.', 'Code scrolls across the visor, eyes narrow, cables and cloth run hot.'],
+  awaiting:  ['Awaiting your word', 'An approval card is waiting for you.', 'Amber visor, leans toward the thread, seals and tokens pulse, a mark appears.'],
+  victory:   ['Victory', 'A task finished.', 'Happy eyes, the halo flares, sparks burst, tokens flip.'],
+  error:     ['Fault', 'A task failed.', 'Winces, red visor glitches, everything droops.'],
+  sleeping:  ['Dormant', 'Five minutes with nothing happening.', 'Eyes shut, the visor dims, the helm sinks, the halo stops.'],
+  annoyed:   ['Annoyed', 'You poked it five times in two seconds.', 'Angry brows, red visor, a sharp shake.'],
+};
+
+const opts = { quips: QUIPS, annoyedQuip: 'Stop poking. I am compiling.' };
+const mascots = [createMascot(document.getElementById('h-relic'), RELIC, opts)];
+
+const statesEl = document.getElementById('states');
+const btns = {};
+STATES.forEach((s, i) => {
+  const b = document.createElement('button');
+  b.type = 'button'; b.className = 'sb sb-' + s; b.setAttribute('aria-pressed', 'false');
+  b.innerHTML = '<i>' + (i + 1) + '</i>' + INFO[s][0];
+  b.addEventListener('click', () => { stopTour(); setAll(s); });
+  statesEl.appendChild(b); btns[s] = b;
+});
+
+const cName = document.getElementById('c-name'), cWhen = document.getElementById('c-when'), cWhat = document.getElementById('c-what'), cBar = document.getElementById('c-bar');
+function setAll(s) {
+  mascots.forEach((m) => m.setState(s));
+  Object.entries(btns).forEach(([k, b]) => b.setAttribute('aria-pressed', String(k === s)));
+  cName.textContent = INFO[s][0];
+  cWhen.innerHTML = '<b>When</b> ' + INFO[s][1];
+  cWhat.textContent = INFO[s][2];
+}
+setAll('idle');
+
+document.getElementById('t-vm').addEventListener('click', (e) => {
+  const on = e.currentTarget.getAttribute('aria-pressed') !== 'true';
+  e.currentTarget.setAttribute('aria-pressed', String(on));
+  mascots.forEach((m) => m.setVm(on));
+});
+document.getElementById('t-eyes').addEventListener('click', (e) => {
+  const on = e.currentTarget.getAttribute('aria-pressed') !== 'true';
+  e.currentTarget.setAttribute('aria-pressed', String(on));
+  opts.track = on;
+  window.dispatchEvent(new PointerEvent('pointermove', { clientX: innerWidth / 2, clientY: innerHeight / 3 }));
+});
+
+// guided tour through every expression
+const TOUR = ['idle', 'listening', 'thinking', 'hacking', 'awaiting', 'victory', 'error', 'sleeping', 'annoyed', 'idle'];
+const STEP = 3400;
+let tourT = 0, tourI = 0, barAnim = null;
+const tourBtn = document.getElementById('t-tour');
+function stopTour() {
+  clearTimeout(tourT); tourT = 0; tourBtn.setAttribute('aria-pressed', 'false'); tourBtn.textContent = 'Play the tour';
+  if (barAnim) barAnim.cancel(); cBar.style.width = '0';
+}
+function stepTour() {
+  const s = TOUR[tourI];
+  setAll(s);
+  if (s === 'annoyed') mascots.forEach((m) => m.say('Stop poking. I am compiling.', 2600));
+  if (barAnim) barAnim.cancel();
+  barAnim = cBar.animate([{ width: '0%' }, { width: '100%' }], { duration: STEP, easing: 'linear', fill: 'forwards' });
+  tourI += 1;
+  if (tourI >= TOUR.length) { tourT = setTimeout(stopTour, STEP); return; }
+  tourT = setTimeout(stepTour, STEP);
+}
+tourBtn.addEventListener('click', () => {
+  if (tourT) { stopTour(); return; }
+  tourI = 0; tourBtn.setAttribute('aria-pressed', 'true'); tourBtn.textContent = 'Stop the tour'; stepTour();
+});
+document.addEventListener('keydown', (e) => {
+  if (e.target.closest && e.target.closest('input,textarea')) return;
+  const n = parseInt(e.key, 10);
+  if (n >= 1 && n <= STATES.length) { stopTour(); setAll(STATES[n - 1]); }
+});
+</script>

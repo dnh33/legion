@@ -1,0 +1,41 @@
+Legion
+Copyright (c) 2026 Legion contributors. Licensed under the MIT License (see LICENSE).
+
+This file lists attribution for third-party material that Legion uses or bundles.
+
+Design inspiration
+------------------
+Design/UX inspiration: OpenMausBot (https://github.com/milind-soni/OpenMausBot), Apache License 2.0,
+Copyright its contributors. Ideas referenced: bots-as-contacts chat layout, inline tool-approval cards,
+live VM screen preview captured via a shell screenshot command. No source code was copied.
+
+Runtime dependencies (installed from npm, not bundled in this repository)
+-------------------------------------------------------------------------
+- Claude Agent SDK (@anthropic-ai/claude-agent-sdk). Copyright Anthropic, PBC. Use of the SDK, and of Claude
+  Code through it, is subject to Anthropic's terms: https://www.anthropic.com/legal
+  Legion is an independent project. It is not affiliated with, sponsored by or endorsed by Anthropic.
+- Model Context Protocol TypeScript SDK (@modelcontextprotocol/sdk). Copyright the Model Context Protocol contributors.
+  MIT License. https://github.com/modelcontextprotocol/typescript-sdk
+- zod, React, Vite, Electron and TypeScript are used under their own licences (MIT).
+  Their licence texts ship inside each package in node_modules.
+
+Third-party services
+--------------------
+boat.dev provides the optional per-agent cloud VMs. Legion calls its public REST API with your own API key.
+boat.dev is a separate service with its own terms. No boat.dev documentation or code is included here.
+
+Fonts (bundled in ui/src/fonts/)
+--------------------------------
+All three font families are licensed under the SIL Open Font License, Version 1.1.
+The licence text is in licenses/OFL-1.1.txt and at https://openfontlicense.org.
+
+- IBM Plex Sans. Copyright 2019 IBM Corp. https://github.com/IBM/plex
+- JetBrains Mono. Copyright 2020 The JetBrains Mono Project Authors. https://github.com/JetBrains/JetBrainsMono
+- Grenze Gotisch. Copyright 2020 The Grenze Gotisch Project Authors. https://github.com/Omnibus-Type/Grenze-Gotisch
+
+The bundled files are WOFF2 variable-font builds. The fonts are not sold by themselves and are not renamed.
+
+Artwork
+-------
+The Relic mascot, the app icon and the other artwork under docs/art/ and assets/ are original to this project
+and are covered by the MIT License.
