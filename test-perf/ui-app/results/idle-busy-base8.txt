@@ -1,0 +1,44 @@
+{
+ "chat, ops open, idle": {
+  "busy": 34.3,
+  "script": 0,
+  "style": 13.5,
+  "recalcPerS": 151,
+  "layoutPerS": 37.2
+ },
+ "chat, ops CLOSED": {
+  "busy": 79.1,
+  "script": 0.1,
+  "style": 56.7,
+  "recalcPerS": 277.2,
+  "layoutPerS": 68.2
+ },
+ "lattice, ops open, idle": {
+  "busy": 68,
+  "script": 0.1,
+  "style": 52,
+  "recalcPerS": 40.7,
+  "layoutPerS": 10
+ },
+ "chat, lab thinking": {
+  "busy": 59.7,
+  "script": 0,
+  "style": 45.2,
+  "recalcPerS": 24.5,
+  "layoutPerS": 5.7
+ },
+ "chat, lab hacking": {
+  "busy": 57.1,
+  "script": 0.9,
+  "style": 41.2,
+  "recalcPerS": 23.7,
+  "layoutPerS": 6.9
+ },
+ "chat, lab sleeping": {
+  "busy": 69.4,
+  "script": 0,
+  "style": 57.6,
+  "recalcPerS": 29,
+  "layoutPerS": 8.2
+ }
+} []
