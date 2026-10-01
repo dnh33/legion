@@ -255,6 +255,7 @@ export function importVault(graph: Graph, dir: string, actor: Actor = HUMAN): Im
   const root = resolve(dir);
   if (!existsSync(root) || !statSync(root).isDirectory()) throw new KgError('invalid', `Not a directory: ${root}`);
   const report: ImportReport = { files: 0, created: 0, updated: 0, unchanged: 0, edges: 0, stubs: 0, skipped: [] };
+  graph.snapshot();
 
   // ---- read
   const parsed: ParsedFile[] = [];

@@ -15,12 +15,17 @@ export interface BridgeStartParams {
   agentId: string; prompt: string; source: TaskSource; model?: ModelChoice; continueTaskId?: string;
   /** Set by the rooms module: approval ceiling inherited from the waking bot. */
   origin?: TaskOrigin;
-  bridge?: { fromAgentId: string; parentTaskId?: string; header?: string; reply?: boolean; hop?: number };
+  /** `fromTaskId` (replies only) is the task whose result this message carries, so its taint can follow it. */
+  bridge?: { fromAgentId: string; parentTaskId?: string; header?: string; reply?: boolean; hop?: number; fromTaskId?: string };
 }
 /** The slice of Engine the bridge needs. */
 export interface BridgeEngine {
   startTask(p: BridgeStartParams): Task;
   cancel(taskId: string): boolean;
+  /** Whether a task has touched outside content. Optional so test doubles need not implement it. */
+  isTainted?(taskId: string): boolean;
+  /** Marks a live or stored task tainted (a tainted peer's result just reached it). */
+  markTainted?(taskId: string): void;
 }
 
 export class BridgeError extends Error {
@@ -33,6 +38,8 @@ interface QueueItem {
   fromAgentId: string;
   parentTaskId?: string;
   reply: boolean;
+  /** Replies: the task whose result this carries (taint follows it). */
+  fromTaskId?: string;
   /** Bridge hop of the run this message starts (caller's hop + 1). */
   hop: number;
   /** Called with the final task when this item's own run ends; or with an error if it could not start. */
@@ -109,6 +116,8 @@ export class Bridge {
       const t = r.task ?? this.store.getTask(taskId);
       if (!t) throw new BridgeError('The target task no longer exists');
       const text = t.status === 'done' ? (t.result ?? '') : (t.error ?? t.status);
+      // the answer comes back into the caller's context: a tainted answer taints the caller
+      if (this.engine.isTainted?.(t.id)) this.engine.markTainted?.(callerTaskId);
       return { taskId, status: t.status, model: t.model, result: truncate(text) };
     } finally {
       if (timer) clearTimeout(timer);
@@ -227,7 +236,7 @@ export class Bridge {
       : `[From ${caller?.name ?? item.fromAgentId} (Legion agent) via the bridge. Reply with just what they need; your final message is returned to them.]`;
     return this.engine.startTask({
       agentId, prompt: item.message, source, continueTaskId,
-      bridge: { fromAgentId: item.fromAgentId, parentTaskId: item.parentTaskId, header, reply: item.reply, hop: item.hop },
+      bridge: { fromAgentId: item.fromAgentId, parentTaskId: item.parentTaskId, header, reply: item.reply, hop: item.hop, ...(item.fromTaskId ? { fromTaskId: item.fromTaskId } : {}) },
     });
   }
 
@@ -263,7 +272,7 @@ export class Bridge {
     if (!caller || caller.status === 'cancelled') return;
     const hop = (this.store.getTask(fromTaskId)?.bridgeHop ?? 0) + 1;
     if (hop > MAX_HOP) return; // loop guard: stop delivering replies deep in a chain
-    const item: QueueItem = { message: `[Reply from ${from.name} · task ${fromTaskId}] ${body}`, fromAgentId: from.id, reply: true, hop };
+    const item: QueueItem = { message: `[Reply from ${from.name} · task ${fromTaskId}] ${body}`, fromAgentId: from.id, reply: true, hop, fromTaskId };
     if (isLive(caller)) { this.enqueue(caller.id, item); return; }
     try { this.start(caller.agentId, item, caller.id, caller.source); } catch { /* caller agent gone: drop */ }
   }

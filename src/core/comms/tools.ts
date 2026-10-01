@@ -21,7 +21,9 @@ async function guard(fn: () => ToolResult | Promise<ToolResult>): Promise<ToolRe
   try { return await fn(); } catch (e) { return fail(e); }
 }
 
-export function buildCommsToolsServer(agentId: string, hub: CommsHub): McpSdkServerConfigWithInstance {
+/** `run` is the engine's view of the task using this server: its taint travels with every message the bot sends. */
+export function buildCommsToolsServer(agentId: string, hub: CommsHub, run?: { taint(): boolean }): McpSdkServerConfigWithInstance {
+  const sender = (): { tainted?: boolean } => (run?.taint() ? { tainted: true } : {});
   const botList = tool(
     'bot_list',
     'List the other bots you can talk to: id, name, description, state (idle / working / waiting) and the rooms you share with each.',
@@ -38,7 +40,7 @@ export function buildCommsToolsServer(agentId: string, hub: CommsHub): McpSdkSer
       replyTo: z.string().optional().describe('Id of the message you are answering'),
     },
     (a) => guard(() => {
-      const m = hub.botSend(agentId, a.to, a.text, a.replyTo);
+      const m = hub.botSend(agentId, a.to, a.text, a.replyTo, sender());
       return json({ messageId: m.id, roomId: m.roomId, hop: m.hop, note: 'Delivered asynchronously; the answer will arrive as a message from that bot.' });
     }),
   );
@@ -52,7 +54,7 @@ export function buildCommsToolsServer(agentId: string, hub: CommsHub): McpSdkSer
       mention: z.union([z.string(), z.array(z.string())]).optional().describe('Bot id(s) or name(s) to wake in addition to @mentions in the text'),
     },
     (a) => guard(() => {
-      const m = hub.roomPost(agentId, a.room, a.text, a.mention);
+      const m = hub.roomPost(agentId, a.room, a.text, a.mention, sender());
       return json({ messageId: m.id, roomId: m.roomId, hop: m.hop, to: m.to });
     }),
   );
@@ -84,7 +86,7 @@ export function buildCommsToolsServer(agentId: string, hub: CommsHub): McpSdkSer
       summary: z.string().describe('What has been done, what is open, what you expect next'),
     },
     (a) => guard(() => {
-      const m = hub.handoff(agentId, a.room, a.to, a.summary);
+      const m = hub.handoff(agentId, a.room, a.to, a.summary, sender());
       return json({ messageId: m.id, roomId: m.roomId, hop: m.hop, newLead: m.to[0] });
     }),
   );

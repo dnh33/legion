@@ -94,6 +94,7 @@ export function applySeedPack(graph: Graph, pack: SeedPack): { nodes: number; cr
   }
   if (problems.length) throw new KgError('unprocessable', `The BSV knowledge pack was not loaded (nothing was written): ${problems.join('; ')}`);
 
+  graph.snapshot();
   let created = 0;
   let updated = 0;
   for (const i of inputs) {

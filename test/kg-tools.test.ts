@@ -216,7 +216,8 @@ test('stored text cannot break out of the wrapper or fake one', async () => {
 test('forget needs confirm=true', async () => {
   const { g } = mkGraph();
   const t = await connect(g, 'alpha');
-  const a = await t.call('kg_upsert_node', { title: 'Doomed' });
+  // bots forget only their own private notes (a shared note is human-only to delete)
+  const a = await t.call('kg_upsert_node', { title: 'Doomed', scope: 'private' });
   const id = /\(id (n_[0-9a-f]+)/.exec(a.text)![1]!;
   const no = await t.call('kg_forget', { id, confirm: false });
   assert.equal(no.isError, true);
@@ -224,8 +225,9 @@ test('forget needs confirm=true', async () => {
   assert.ok(g.getNode(HUMAN, id));
   const yes = await t.call('kg_forget', { id, confirm: true });
   assert.equal(yes.isError, false);
-  assert.match(yes.text, /Deleted node/);
-  assert.equal(g.getNode(HUMAN, id), undefined);
+  assert.match(yes.text, /Forgot node/);
+  assert.equal(g.getNode(ALPHA, id), undefined, 'hidden from the bot at once');
+  assert.equal(g.getNode(HUMAN, id)!.status, 'archived', 'kept as a tombstone for the human');
   await t.close();
 });
 

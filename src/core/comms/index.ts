@@ -11,7 +11,7 @@ export function createCommsModule(deps: ModuleDeps): CoreModule {
   const hub = new CommsHub({ engine: deps.engine, store: deps.store, bus: deps.bus, dataDir: deps.dataDir });
   return {
     id: 'comms',
-    mcpServers: (agent) => ({ legion_comms: buildCommsToolsServer(agent.id, hub) }),
+    mcpServers: (agent, job) => ({ legion_comms: buildCommsToolsServer(agent.id, hub, job) }),
     preamble: () => COMMS_PREAMBLE,
     routes: (add) => addCommsRoutes(add, hub),
     dispose: () => hub.dispose(),

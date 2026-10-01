@@ -9,10 +9,12 @@ export const TYPE_COLORS: Record<'dark' | 'light', Record<KgNodeType, string>> =
   dark: {
     note: '#9FB0C9', entity: '#4FD1C5', concept: '#B79CFF', task: '#FF9F6B', decision: '#FF7A90',
     source: '#CDB694', code: '#A9E060', person: '#F59BD1', lesson: '#F2D16B', question: '#6BB6FF',
+    mistake: '#FF6B6B', pattern: '#7FD6E8', project: '#E0A458', memory: '#C3A6E8', idea: '#F2B8D9', episode: '#8D9DB5',
   },
   light: {
     note: '#60759A', entity: '#0E8A80', concept: '#7650E8', task: '#CF5A18', decision: '#CC2F4F',
     source: '#8C7753', code: '#4F8A0C', person: '#BE3F90', lesson: '#A57800', question: '#1C6FCB',
+    mistake: '#C93C3C', pattern: '#1A8BA3', project: '#B07318', memory: '#7A52B3', idea: '#B04C86', episode: '#5E6E88',
   },
 };
 

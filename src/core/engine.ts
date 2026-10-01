@@ -8,8 +8,8 @@ import type {
 } from '../shared/types.js';
 import { newId, nowIso, titleFrom } from '../shared/util.js';
 import { scrubHostSessionEnv } from '../shared/config.js';
-import { needsApproval, stricterMode } from './approvals.js';
-import type { CoreModule } from './modules.js';
+import { LEGION_TOOL_PREFIXES, needsApproval, stricterMode } from './approvals.js';
+import type { CoreModule, ModuleJob, PreambleContext, TaskEndOutcome } from './modules.js';
 import type { TaskOrigin } from '../shared/comms.js';
 import type { ApprovalBroker } from './approvals.js';
 import type { EventBus } from './bus.js';
@@ -48,6 +48,17 @@ export function clipToolResult(raw: string, max = 1500): string {
     }
   } catch { /* not JSON */ }
   return raw.slice(0, max - 1) + '…';
+}
+
+/** Tools whose results bring outside content into the run (the web, a shell, external servers, a VM's output). */
+const TAINTING_TOOLS = new Set([
+  'WebFetch', 'WebSearch', 'Bash',
+  'mcp__legion__vm_exec', 'mcp__legion__vm_read_file', 'mcp__legion__vm_claude', 'mcp__legion__vm_desktop',
+]);
+/** True when calling this tool taints the run: web, any shell, a VM's output, or any non-Legion MCP tool. */
+export function taintsRun(toolName: string): boolean {
+  if (TAINTING_TOOLS.has(toolName)) return true;
+  return toolName.startsWith('mcp__') && !LEGION_TOOL_PREFIXES.some((p) => toolName.startsWith(p));
 }
 
 export class EngineError extends Error {
@@ -92,7 +103,13 @@ interface Job {
   /** Set when another bot woke this run (rooms, or the agent bridge). Caps the run's approval mode. */
   origin?: TaskOrigin;
 }
-interface Active { ac: AbortController; cancelled: boolean; q?: Query }
+interface Active {
+  ac: AbortController; cancelled: boolean; q?: Query;
+  /** Sticky: the run (or the chain that woke it) touched outside content. Set by the engine, never by a tool argument. */
+  tainted: boolean;
+  /** tool_use ids already reported (the stream and the PreToolUse hook both see each one). */
+  toolUses: Set<string>;
+}
 interface Outcome { subtype: string; isError: boolean; errorText?: string }
 
 const IDLE_MASCOT_MS = 4000;
@@ -134,6 +151,8 @@ export class Engine {
     // Confused-deputy rule: a run another agent starts through the bridge never gets looser
     // approvals than its caller (rooms set their own origin and take precedence).
     const origin = p.origin ?? this.bridgeOrigin(p);
+    // Taint follows the chain: a tainted waking bot, or a tainted peer's reply, taints this task for good.
+    const tainted = !!origin?.tainted || (!!p.bridge?.reply && !!p.bridge.fromTaskId && this.isTainted(p.bridge.fromTaskId));
 
     let task: Task;
     let priorModel: ConcreteModel | undefined;
@@ -151,6 +170,7 @@ export class Engine {
         bridgeHop: p.bridge ? p.bridge.hop ?? 0 : undefined,
         // A human continuing a task clears any bot-origin ceiling; a bridge reply keeps the task's own.
         origin: origin ?? (p.bridge?.reply ? prev.origin : undefined),
+        ...(tainted ? { tainted: true } : {}),
       });
     } else {
       const now = nowIso();
@@ -163,6 +183,7 @@ export class Engine {
         ...(p.bridge ? { fromAgentId: p.bridge.fromAgentId, parentTaskId: p.bridge.parentTaskId, bridgeHop: p.bridge.hop ?? 0 } : {}),
         requestedModel: p.model ?? agent.model, createdAt: now, updatedAt: now,
         ...(origin ? { origin } : {}),
+        ...(tainted ? { tainted: true } : {}),
       });
     }
     this.addMessage(task.id, 'user', prompt, undefined, p.bridge?.fromAgentId);
@@ -182,7 +203,24 @@ export class Engine {
     const callerTask = p.bridge.parentTaskId ? this.store.getTask(p.bridge.parentTaskId) : undefined;
     let ceiling: ApprovalMode = callerAgent?.approval ?? 'ask';
     if (callerTask?.origin) ceiling = stricterMode(ceiling, callerTask.origin.approvalCeiling);
-    return { roomId: 'agent-bridge', fromAgentId: p.bridge.fromAgentId, hop: p.bridge.hop ?? 1, approvalCeiling: ceiling };
+    const tainted = !!callerTask?.origin?.tainted || (!!p.bridge.parentTaskId && this.isTainted(p.bridge.parentTaskId));
+    return { roomId: 'agent-bridge', fromAgentId: p.bridge.fromAgentId, hop: p.bridge.hop ?? 1, approvalCeiling: ceiling, ...(tainted ? { tainted: true } : {}) };
+  }
+
+  /** Whether a task touched outside content (live run first, then what was stored). */
+  isTainted(taskId: string): boolean {
+    const a = this.active.get(taskId);
+    if (a?.tainted) return true;
+    const t = this.store.getTask(taskId);
+    return !!t && (t.tainted === true || t.origin?.tainted === true);
+  }
+
+  /** Marks a task tainted: live runs flip at once, stored tasks keep it for later runs. */
+  markTainted(taskId: string): void {
+    const a = this.active.get(taskId);
+    if (a) a.tainted = true;
+    const t = this.store.getTask(taskId);
+    if (t && !t.tainted) this.patchTask(taskId, { tainted: true });
   }
 
   cancel(taskId: string): boolean {
@@ -258,13 +296,14 @@ export class Engine {
   }
 
   private markCancelled(taskId: string): void {
-    const t = this.patchTask(taskId, { status: 'cancelled' });
+    const t = this.patchTask(taskId, { status: 'cancelled', ...(this.active.get(taskId)?.tainted ? { tainted: true } : {}) });
     if (t) this.addMessage(taskId, 'system', 'Cancelled');
     this.mascot('idle', 'cancelled');
   }
 
   private startJob(job: Job): void {
-    const act: Active = { ac: new AbortController(), cancelled: false };
+    const act: Active = { ac: new AbortController(), cancelled: false, tainted: false, toolUses: new Set() };
+    act.tainted = !!(job.origin?.tainted || this.store.getTask(job.taskId)?.tainted);
     this.active.set(job.taskId, act);
     void this.runJob(job, act);
   }
@@ -289,8 +328,9 @@ export class Engine {
     try {
       await this.execute(job, act);
     } catch (e) {
-      this.failTask(job.taskId, e);
+      this.failTask(job.taskId, e, act);
     } finally {
+      this.endTask(job, act);
       if (this.active.get(job.taskId) === act) this.active.delete(job.taskId);
       try { this.approvals.cancelForTask(job.taskId); } catch { /* ignore */ }
       if (this.active.size === 0 && this.queue.length === 0) this.scheduleIdle();
@@ -298,12 +338,25 @@ export class Engine {
     }
   }
 
-  private failTask(taskId: string, e: unknown): void {
+  /** Tells every module the run is over (after the final status is saved). A broken module never breaks the engine. */
+  private endTask(job: Job, act: Active): void {
+    const task = this.store.getTask(job.taskId);
+    const agent = this.store.getAgent(job.agentId);
+    if (!task || !agent) return;
+    const outcome: TaskEndOutcome = {
+      status: task.status, isError: task.status === 'error', ...(task.error ? { errorText: task.error } : {}), tainted: act.tainted,
+    };
+    for (const m of this.modules) {
+      try { m.onTaskEnd?.(task, agent, outcome); } catch { /* ignore */ }
+    }
+  }
+
+  private failTask(taskId: string, e: unknown, act?: Active): void {
     const msg = e instanceof Error ? e.message : String(e);
     try {
       const cur = this.store.getTask(taskId);
       if (cur && cur.status === 'cancelled') return;
-      this.patchTask(taskId, { status: 'error', error: msg });
+      this.patchTask(taskId, { status: 'error', error: msg, ...(act?.tainted ? { tainted: true } : {}) });
       this.addMessage(taskId, 'system', `Error: ${msg}`);
     } catch { /* never crash */ }
     this.mascot('error', msg.slice(0, 120));
@@ -339,16 +392,17 @@ export class Engine {
 
     if (outcome.isError) {
       const text = outcome.errorText || outcome.subtype;
-      this.patchTask(job.taskId, { status: 'error', error: text });
+      this.patchTask(job.taskId, { status: 'error', error: text, ...(act.tainted ? { tainted: true } : {}) });
       this.addMessage(job.taskId, 'system', `Error: ${text}`);
       this.mascot('error', text.slice(0, 120));
     } else {
-      this.patchTask(job.taskId, { status: 'done' });
+      this.patchTask(job.taskId, { status: 'done', ...(act.tainted ? { tainted: true } : {}) });
       this.mascot('success');
     }
   }
 
-  private buildMcpServers(agent: AgentProfile, taskId: string): Record<string, McpServerConfig> {
+  private buildMcpServers(agent: AgentProfile, job: Job, act: Active): Record<string, McpServerConfig> {
+    const taskId = job.taskId;
     const out: Record<string, McpServerConfig> = {};
     const wanted = agent.mcpServers ?? [];
     const all = wanted.includes('*');
@@ -363,21 +417,37 @@ export class Engine {
       agentId: agent.id, taskId, vms: this.vms, bridge: this.bridge,
       vmEnabled: !!agent.vm?.enabled && this.boatConfigured(),
     });
+    const moduleJob: ModuleJob = {
+      taskId, ...(job.origin ? { origin: job.origin, ceiling: job.origin.approvalCeiling } : {}),
+      taint: () => act.tainted || job.origin?.tainted === true,
+    };
     for (const m of this.modules) {
-      try { Object.assign(out, m.mcpServers?.(agent) ?? {}); } catch { /* a broken module must not break runs */ }
+      try { Object.assign(out, m.mcpServers?.(agent, moduleJob) ?? {}); } catch { /* a broken module must not break runs */ }
     }
     return out;
   }
 
-  private modulePreamble(agent: AgentProfile): string {
+  private modulePreamble(agent: AgentProfile, ctx: PreambleContext): string {
     let out = '';
     for (const m of this.modules) {
-      try { const t = m.preamble?.(agent); if (t) out += '\n\n' + t; } catch { /* ignore */ }
+      try { const t = m.preamble?.(agent, ctx); if (t) out += '\n\n' + t; } catch { /* ignore */ }
     }
     return out;
   }
 
-  private buildOptions(job: Job, agent: AgentProfile, model: ConcreteModel, act: Active, resume?: string): Options {
+  /** One tool_use seen (in the message stream or by the PreToolUse hook; whichever comes first wins): taint, then tell modules. */
+  private noteToolUse(job: Job, act: Active, toolName: string, toolUseId?: string): void {
+    if (toolUseId) {
+      if (act.toolUses.has(toolUseId)) return;
+      act.toolUses.add(toolUseId);
+    }
+    if (taintsRun(toolName)) act.tainted = true;
+    for (const m of this.modules) {
+      try { m.onToolUse?.(job.agentId, job.taskId, toolName); } catch { /* ignore */ }
+    }
+  }
+
+  private buildOptions(job: Job, agent: AgentProfile, model: ConcreteModel, act: Active, prompt: string, resume?: string): Options {
     const cwd = agent.cwd || join(this.config.workspaceDir, agent.id);
     mkdirSync(cwd, { recursive: true });
     const options: Options = {
@@ -385,15 +455,26 @@ export class Engine {
       cwd,
       systemPrompt: {
         type: 'preset', preset: 'claude_code',
-        append: LEGION_PREAMBLE.replace('{name}', agent.name) + this.modulePreamble(agent) + (agent.systemPrompt ? '\n\n' + agent.systemPrompt : ''),
+        append: LEGION_PREAMBLE.replace('{name}', agent.name)
+          + this.modulePreamble(agent, { prompt, taskId: job.taskId, ...(job.origin ? { origin: job.origin } : {}), tainted: act.tainted || job.origin?.tainted === true })
+          + (agent.systemPrompt ? '\n\n' + agent.systemPrompt : ''),
       },
       settingSources: this.config.claude.inheritClaudeCodeSettings ? ['user', 'project', 'local'] : [],
-      mcpServers: this.buildMcpServers(agent, job.taskId),
+      mcpServers: this.buildMcpServers(agent, job, act),
       disallowedTools: ['SendMessage', 'ListAgents'],
       maxTurns: this.config.claude.maxTurns,
       includePartialMessages: true,
       abortController: act.ac,
       env: buildChildEnv(this.config),
+      // Runs before every tool executes (also in bypass mode), so taint is set before the tool can act on outside content.
+      hooks: {
+        PreToolUse: [{
+          hooks: [async (input) => {
+            if (input.hook_event_name === 'PreToolUse') this.noteToolUse(job, act, input.tool_name, input.tool_use_id);
+            return { continue: true };
+          }],
+        }],
+      },
     };
     if (resume) options.resume = resume;
     if (this.config.claude.executablePath) options.pathToClaudeCodeExecutable = this.config.claude.executablePath;
@@ -428,7 +509,7 @@ export class Engine {
   /** One SDK query() run. Returns the outcome of its result message; throws on SDK failure. */
   private async runOnce(job: Job, agent: AgentProfile, model: ConcreteModel, prompt: string, act: Active): Promise<Outcome> {
     const resume = this.store.getTask(job.taskId)?.sessionId;
-    const options = this.buildOptions(job, agent, model, act, resume);
+    const options = this.buildOptions(job, agent, model, act, prompt, resume);
     const q = this.queryFn({ prompt, options });
     act.q = q;
 
@@ -443,7 +524,7 @@ export class Engine {
         const next = await Promise.race([it.next(), aborted]);
         if (next === 'aborted' || act.cancelled) return { subtype: 'cancelled', isError: false };
         if (next.done) break;
-        const o = this.handleMessage(job.taskId, next.value as any);
+        const o = this.handleMessage(job, act, next.value as any);
         if (o) outcome = o;
       }
     } catch (e) {
@@ -459,7 +540,8 @@ export class Engine {
   }
 
   /** Process one SDK message; returns an Outcome for `result` messages. */
-  private handleMessage(taskId: string, msg: any): Outcome | undefined {
+  private handleMessage(job: Job, act: Active, msg: any): Outcome | undefined {
+    const taskId = job.taskId;
     switch (msg?.type) {
       case 'system': {
         if (msg.subtype === 'init' && typeof msg.session_id === 'string') {
@@ -483,6 +565,7 @@ export class Engine {
         if (text) this.addMessage(taskId, 'assistant', text);
         for (const b of blocks) {
           if (b?.type !== 'tool_use') continue;
+          this.noteToolUse(job, act, String(b.name ?? 'tool'), typeof b.id === 'string' ? b.id : undefined);
           let json: string;
           try { json = JSON.stringify(b.input ?? {}); } catch { json = '{}'; }
           if (json.length > 500) json = json.slice(0, 499) + '…';

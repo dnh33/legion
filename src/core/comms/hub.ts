@@ -59,8 +59,10 @@ const NO_REPLY = /^\W*no[_ -]?reply\W*$/i;
 
 // ------------------------------------------------------------------ internals
 
-interface Delivery { msg: RoomMessage; ceiling: ApprovalMode; humanChain: boolean }
-interface Meta { ceiling: ApprovalMode; humanChain: boolean; auto: boolean }
+interface Delivery { msg: RoomMessage; ceiling: ApprovalMode; humanChain: boolean; tainted?: boolean }
+interface Meta { ceiling: ApprovalMode; humanChain: boolean; auto: boolean; tainted?: boolean }
+/** What the sending bot's run tells the hub about itself (from the engine, never from tool arguments). */
+export interface SenderRun { tainted?: boolean }
 interface Plan { explicit: string[]; wake: string[]; everyone: boolean; rrUsed: boolean }
 interface Wake {
   key: string; roomId: string; botId: string; taskId: string;
@@ -313,7 +315,7 @@ export class CommsHub {
   }
 
   /** Async DM: creates the dm room if needed, stores the message, wakes the peer. Returns the stored message. */
-  botSend(fromId: string, toRef: string, text: string, replyTo?: string): RoomMessage {
+  botSend(fromId: string, toRef: string, text: string, replyTo?: string, run: SenderRun = {}): RoomMessage {
     const sender = this.agents.getAgent(fromId);
     if (!sender) throw new CommsError(404, `Unknown bot "${fromId}"`);
     const peer = this.resolveAgent(toRef);
@@ -336,11 +338,11 @@ export class CommsHub {
     const plan = this.plan(room, from, t, { auto: false });
     const msg = this.post(room, { from, to: plan.explicit, kind: 'chat', text: t, ...(replyTo ? { replyTo } : {}), hop: ctx.hop + 1 });
     this.awaitAnswer(sender.id, room.id, peer.id);
-    this.dispatch(room, msg, plan.wake, { ceiling: ctx.ceiling, humanChain: ctx.humanChain, auto: false });
+    this.dispatch(room, msg, plan.wake, { ceiling: ctx.ceiling, humanChain: ctx.humanChain, auto: false, ...(run.tainted ? { tainted: true } : {}) });
     return clone(msg);
   }
 
-  roomPost(fromId: string, roomRef: string, text: string, mention?: string | string[]): RoomMessage {
+  roomPost(fromId: string, roomRef: string, text: string, mention?: string | string[], run: SenderRun = {}): RoomMessage {
     const room = this.memberRoom(fromId, roomRef);
     if (room.kind === 'dm') throw new CommsError(400, 'That is a direct message; use bot_send to message the other bot.');
     if (room.paused) throw new CommsError(409, `The room is paused (${room.paused.reason}); a human must resume it.`);
@@ -354,11 +356,11 @@ export class CommsHub {
     const msg = this.post(room, { from, to: plan.explicit, kind: 'chat', text: body, hop: ctx.hop + 1 });
     const viaParam = (Array.isArray(mention) ? mention : mention ? [mention] : []).map((m) => '@' + m.replace(/^@/, '')).join(' ');
     this.noteBotEveryone(room, fromId, `${t} ${viaParam}`);
-    this.dispatch(room, msg, plan.wake, { ceiling: ctx.ceiling, humanChain: ctx.humanChain, auto: false });
+    this.dispatch(room, msg, plan.wake, { ceiling: ctx.ceiling, humanChain: ctx.humanChain, auto: false, ...(run.tainted ? { tainted: true } : {}) });
     return clone(msg);
   }
 
-  handoff(fromId: string, roomRef: string, toRef: string, summary: string): RoomMessage {
+  handoff(fromId: string, roomRef: string, toRef: string, summary: string, run: SenderRun = {}): RoomMessage {
     const room = this.memberRoom(fromId, roomRef);
     if (room.paused) throw new CommsError(409, `The room is paused (${room.paused.reason}); a human must resume it.`);
     const target = this.resolveMember(room, toRef);
@@ -368,7 +370,7 @@ export class CommsHub {
     const ctx = this.senderContext(fromId);
     room.lead = target;
     const msg = this.post(room, { from: { kind: 'bot', agentId: fromId }, to: [target], kind: 'handoff', text: t, hop: ctx.hop + 1 });
-    this.dispatch(room, msg, [target], { ceiling: ctx.ceiling, humanChain: ctx.humanChain, auto: false });
+    this.dispatch(room, msg, [target], { ceiling: ctx.ceiling, humanChain: ctx.humanChain, auto: false, ...(run.tainted ? { tainted: true } : {}) });
     return clone(msg);
   }
 
@@ -477,7 +479,7 @@ export class CommsHub {
         return;
       }
     }
-    for (const id of ids) this.deliver(room, id, { msg, ceiling: meta.ceiling, humanChain: meta.humanChain });
+    for (const id of ids) this.deliver(room, id, { msg, ceiling: meta.ceiling, humanChain: meta.humanChain, ...(meta.tainted ? { tainted: true } : {}) });
   }
 
   private deliver(room: Room, botId: string, d: Delivery): void {
@@ -587,6 +589,8 @@ export class CommsHub {
       fromAgentId: (last.msg.from as { kind: 'bot'; agentId: string }).agentId,
       hop: Math.max(...bots.map((d) => d.msg.hop)),
       approvalCeiling: strictest(bots.map((d) => d.ceiling)),
+      // taint is ORed along the chain: one tainted sender taints the whole wake
+      ...(bots.some((d) => d.tainted) ? { tainted: true } : {}),
     };
   }
 
@@ -631,7 +635,7 @@ export class CommsHub {
         from, to: plan.explicit, kind: 'chat', text: result, replyTo: w.triggerId, hop: w.hop + 1, costUsd: delta, taskId: w.taskId,
       });
       this.noteBotEveryone(room, w.botId, result);
-      this.dispatch(room, msg, plan.wake, { ceiling, humanChain: w.humanChain, auto: true });
+      this.dispatch(room, msg, plan.wake, { ceiling, humanChain: w.humanChain, auto: true, ...(task.tainted ? { tainted: true } : {}) });
     } else if (task.status === 'error') {
       this.post(room, {
         from: { kind: 'system' }, kind: 'note', hop: 0, costUsd: delta, taskId: w.taskId,

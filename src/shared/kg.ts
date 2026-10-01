@@ -7,8 +7,23 @@
 /** Who can see a node. 'agent:<id>' is private to one bot, 'bsv' appears only while BSV mode is on. */
 export type KgScope = 'shared' | 'bsv' | `agent:${string}`;
 
-export type KgNodeType =
-  | 'note' | 'entity' | 'concept' | 'task' | 'decision' | 'source' | 'code' | 'person' | 'lesson' | 'question';
+/** The single list of node types: tools, validation and the type itself all derive from it. */
+export const NODE_TYPES = [
+  'note', 'entity', 'concept', 'task', 'decision', 'source', 'code', 'person', 'lesson', 'question',
+  'mistake', 'pattern', 'project', 'memory', 'idea', 'episode',
+] as const;
+export type KgNodeType = (typeof NODE_TYPES)[number];
+
+/**
+ * Who stands behind a node. Engine-derived, never taken from agent input:
+ * 'human' = written or accepted by the human, 'agent' = written by a bot in a clean run,
+ * 'untrusted' = flagged untrusted or written by a run that touched outside content (web, shell, external tools).
+ */
+export type KgTrust = 'human' | 'agent' | 'untrusted';
+/** 'pending' waits for the human (invisible to other agents), 'archived' is a tombstone. A missing status means active. */
+export type KgStatus = 'active' | 'pending' | 'superseded' | 'archived';
+/** Which task wrote the node, and whether that task was tainted. `via` names the bot that woke it, if any. */
+export interface KgOrigin { taskId: string; tainted: boolean; via?: string }
 
 /** Edge vocabulary. Free-form rels are allowed but these are preferred and listed in tool help. */
 export const KG_RELS = [
@@ -37,6 +52,12 @@ export interface KgNode {
   sources?: KgSource[];
   /** 0..1, how sure the author was. */
   confidence?: number;
+  /** Engine-derived. Missing on older nodes: read it with trustOf(). */
+  trust?: KgTrust;
+  /** Engine-derived. Missing means active. */
+  status?: KgStatus;
+  supersededBy?: string;
+  origin?: KgOrigin;
   /** Agent id, 'human', or 'system'. */
   createdBy: string;
   createdAt: string;

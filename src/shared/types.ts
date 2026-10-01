@@ -96,6 +96,8 @@ export interface Task {
   sessionId?: string;
   /** Set when this task was started by another bot (comms bridge). Tightens approvals and labels cards. */
   origin?: TaskOrigin;
+  /** Engine-observed and sticky: this task touched outside content (web, shell, external tools) or was woken by a tainted chain. */
+  tainted?: boolean;
   /** Final assistant text of the latest run. */
   result?: string;
   error?: string;

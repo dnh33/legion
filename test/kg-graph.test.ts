@@ -379,7 +379,9 @@ test('compact() rewrites the log from live state atomically and keeps everything
   assert.equal(g2.getNode(HUMAN, keep.id)!.body, 'v7');
   assert.equal(g2.stats(HUMAN).edges, 1);
   assert.equal(g2.search(HUMAN, 'v7').length, 1);
-  assert.deepEqual(readdirNames(dir), ['graph.jsonl'], 'no tmp file left behind');
+  // compaction first snapshots the log (graph.jsonl.bak-N); nothing else is left behind
+  assert.deepEqual(readdirNames(dir).filter((n) => !/^graph\.jsonl\.bak-\d+$/.test(n)), ['graph.jsonl'], 'no tmp file left behind');
+  assert.deepEqual(readdirNames(dir).filter((n) => /^graph\.jsonl\.bak-\d+$/.test(n)), ['graph.jsonl.bak-1'], 'the pre-compaction snapshot');
 });
 
 const readdirNames = (dir: string): string[] => readdirSync(dir).sort();
@@ -504,9 +506,10 @@ test('agents may write shared and their own scope, never bsv or someone else\'s'
   rejects(() => g.upsertNode(ALPHA, { title: 'x', scope: 'agent:beta' }), 'forbidden');
   const mine = g.upsertNode(ALPHA, { title: 'ok', scope: 'agent:alpha' }).node;
   const shared = note(g, 'a shared one');
-  // agent can promote or demote its own nodes, but cannot move a node into someone else's scope
-  assert.equal(g.upsertNode(ALPHA, { id: mine.id, scope: 'shared' }).node.scope, 'shared');
+  // scope changes are human-only: an agent can neither promote its own node nor move one into someone else's scope
+  rejects(() => g.upsertNode(ALPHA, { id: mine.id, scope: 'shared' }), 'forbidden', /Only the human/);
   rejects(() => g.upsertNode(ALPHA, { id: shared.id, scope: 'agent:beta' }), 'forbidden');
+  assert.equal(g.upsertNode(HUMAN, { id: mine.id, scope: 'shared' }).node.scope, 'shared');
   // linking to bsv knowledge is allowed, unlinking someone else's bsv link is not
   const e = g.link(HUMAN, { from: shared.id, to: seed.id, rel: 'cites' }).edge;
   rejects(() => g.unlink(ALPHA, { id: e.id }), 'forbidden');

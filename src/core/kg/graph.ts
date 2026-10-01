@@ -4,17 +4,18 @@
  * Visibility and write rules are enforced here, so no caller can bypass them.
  */
 import {
-  appendFileSync, closeSync, existsSync, fsyncSync, mkdirSync, openSync, readFileSync, renameSync,
+  appendFileSync, closeSync, copyFileSync, existsSync, fsyncSync, mkdirSync, openSync, readdirSync, readFileSync, renameSync,
   rmSync, statSync, truncateSync, writeFileSync, writeSync,
 } from 'node:fs';
 import { join } from 'node:path';
 import { KG_LIMITS } from '../../shared/kg.js';
 import type {
-  KgEdge, KgLintReport, KgNode, KgScope, KgSearchHit, KgSource, KgSubgraph,
+  KgEdge, KgLintReport, KgNode, KgOrigin, KgScope, KgSearchHit, KgSource, KgStatus, KgSubgraph, KgTrust,
 } from '../../shared/kg.js';
 import { newId, nowIso } from '../../shared/util.js';
-import { makeSnippet, oneLine, safeTitle, tokenize, wrapNode, DATA_LINE, isUntrusted } from './text.js';
-import { actorName, isNodeType, KgError } from './types.js';
+import { findForbiddenSecret, scrubSecrets } from '../comms/scrub.js';
+import { makeSnippet, oneLine, safeTitle, shownTitle, statusOf, tokenize, trustOf, wrapNode, DATA_LINE, isUntrusted } from './text.js';
+import { actorName, isNodeType, isTainted, KgError } from './types.js';
 import type {
   Actor, GraphStats, LinkInput, LinkResult, NeighborsResult, NodeInput, PathResult, RecallResult, UpsertResult,
 } from './types.js';
@@ -28,6 +29,8 @@ export interface GraphOptions {
   compactMinBytes?: number;
   /** Called after every write with the ids that changed. */
   onChange?: (changed: string[]) => void;
+  /** Live secret values (config tokens) that are redacted from anything written. Read at every write. */
+  secrets?: () => readonly string[];
 }
 
 export interface SearchOptions { scope?: string; type?: string; tags?: string[]; limit?: number }
@@ -42,9 +45,28 @@ export const MAX_LICENCE_CHARS = 200;
 const SCOPE_RE = /^agent:[A-Za-z0-9_.-]{1,64}$/;
 const ID_RE = /^[A-Za-z0-9_.:-]{1,80}$/;
 const REL_RE = /^[a-z][a-z0-9_]{0,39}$/;
-const NODE_FIELDS = ['type', 'title', 'body', 'tags', 'scope', 'props', 'sources', 'confidence', 'updatedAt'] as const;
+const NODE_FIELDS = [
+  'type', 'title', 'body', 'tags', 'scope', 'props', 'sources', 'confidence',
+  'trust', 'status', 'supersededBy', 'origin', 'updatedAt',
+] as const;
+/** The fields an editor controls; a write that changes none of them is a no-op whatever its origin. */
+const CONTENT_FIELDS = ['type', 'title', 'body', 'tags', 'scope', 'props', 'sources', 'confidence'] as const;
+/** Most pending (waiting for the human) shared notes one bot may have at a time. */
+export const MAX_PENDING_PER_AGENT = 50;
+/** Tombstones (forgotten nodes) are purged this long after they were forgotten. */
+export const TOMBSTONE_DAYS = 30;
+const SNAPSHOTS_KEPT = 5;
+const BULK_DELETES = 5;
+const BULK_WINDOW_MS = 10 * 60_000;
+const TRUST_RANK: Record<KgTrust, number> = { untrusted: 0, agent: 1, human: 2 };
+const minTrust = (a: KgTrust, b: KgTrust): KgTrust => (TRUST_RANK[a] <= TRUST_RANK[b] ? a : b);
 const K1 = 1.2;
 const B = 0.75;
+
+interface CleanFields {
+  type?: KgNode['type']; title?: string; body?: string; tags?: string[]; scope?: KgScope;
+  props?: Record<string, string | number | boolean>; sources?: KgSource[]; confidence?: number; untrusted?: boolean;
+}
 
 const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v);
 export const isScope = (v: unknown): v is KgScope => v === 'shared' || v === 'bsv' || (typeof v === 'string' && SCOPE_RE.test(v));
@@ -57,6 +79,9 @@ export class Graph {
   private readonly now: () => Date;
   private readonly compactMinBytes: number;
   private readonly onChange?: (changed: string[]) => void;
+  private readonly secrets?: () => readonly string[];
+  /** Deletes in the current window, and the pre-window copy of the log that becomes a snapshot if it turns bulk. */
+  private delWindow?: { start: number; count: number; preCopied: boolean };
 
   private nodes = new Map<string, KgNode>();
   private edges = new Map<string, KgEdge>();
@@ -81,8 +106,11 @@ export class Graph {
     this.now = opts.now ?? (() => new Date());
     this.compactMinBytes = opts.compactMinBytes ?? 1_048_576;
     this.onChange = opts.onChange;
+    this.secrets = opts.secrets;
     mkdirSync(this.dir, { recursive: true });
     this.load();
+    rmSync(`${this.file}.pre-delete`, { force: true });
+    try { this.purgeTombstones(); } catch { /* the log stays valid; purge again next start */ }
   }
 
   // ------------------------------------------------------------------ visibility
@@ -99,9 +127,22 @@ export class Graph {
     return scope === `agent:${actor.id}`;
   }
 
+  /**
+   * Scope visibility plus lifecycle: an agent never sees tombstones, and sees a pending (not yet accepted) node
+   * only when it wrote it. The human sees everything.
+   */
+  canSeeNode(actor: Actor, n: KgNode): boolean {
+    if (!this.canSee(actor, n.scope)) return false;
+    if (actor.kind !== 'agent') return true;
+    const st = statusOf(n);
+    if (st === 'archived') return false;
+    if (st === 'pending') return n.createdBy === actor.id;
+    return true;
+  }
+
   private seen(actor: Actor, id: string): KgNode | undefined {
     const n = this.nodes.get(id);
-    return n && this.canSee(actor, n.scope) ? n : undefined;
+    return n && this.canSeeNode(actor, n) ? n : undefined;
   }
 
   private mustSee(actor: Actor, id: string): KgNode {
@@ -135,14 +176,14 @@ export class Graph {
 
   allNodes(actor: Actor): KgNode[] {
     const res: KgNode[] = [];
-    for (const n of this.nodes.values()) if (this.canSee(actor, n.scope)) res.push(structuredClone(n));
+    for (const n of this.nodes.values()) if (this.canSeeNode(actor, n)) res.push(structuredClone(n));
     return res;
   }
 
   findByTitle(actor: Actor, title: string): KgNode[] {
     const t = normTitle(title);
     const res: KgNode[] = [];
-    for (const n of this.nodes.values()) if (this.canSee(actor, n.scope) && normTitle(n.title) === t) res.push(structuredClone(n));
+    for (const n of this.nodes.values()) if (this.canSeeNode(actor, n) && normTitle(n.title) === t) res.push(structuredClone(n));
     return res;
   }
 
@@ -154,7 +195,7 @@ export class Graph {
     const byScope: Record<string, number> = {};
     let nodes = 0;
     for (const n of this.nodes.values()) {
-      if (!this.canSee(actor, n.scope)) continue;
+      if (!this.canSeeNode(actor, n)) continue;
       nodes++;
       byType[n.type] = (byType[n.type] ?? 0) + 1;
       byScope[n.scope] = (byScope[n.scope] ?? 0) + 1;
@@ -190,7 +231,7 @@ export class Graph {
     const hits: KgSearchHit[] = [];
     for (const [id, score] of scores) {
       const n = this.nodes.get(id);
-      if (!n || !this.canSee(actor, n.scope)) continue;
+      if (!n || !this.canSeeNode(actor, n)) continue;
       if (opts.scope !== undefined && n.scope !== opts.scope) continue;
       if (opts.type !== undefined && n.type !== opts.type) continue;
       if (wantTags.length && !wantTags.every((t) => n.tags.includes(t))) continue;
@@ -321,7 +362,7 @@ export class Graph {
     const max = clampInt(limit, 1, 200, 60);
     const degree = new Map<string, number>();
     const visible: KgNode[] = [];
-    for (const n of this.nodes.values()) if (this.canSee(actor, n.scope)) { visible.push(n); degree.set(n.id, 0); }
+    for (const n of this.nodes.values()) if (this.canSeeNode(actor, n)) { visible.push(n); degree.set(n.id, 0); }
     for (const e of this.edges.values()) {
       if (!this.edgeVisible(actor, e)) continue;
       degree.set(e.from, (degree.get(e.from) ?? 0) + 1);
@@ -373,11 +414,11 @@ export class Graph {
       const n = this.nodes.get(e.id)!;
       let block: string;
       if (e.seed) {
-        block = `${++i}. [${n.type}] ${safeTitle(n.title)} (id ${n.id}, ${n.scope}${n.tags.length ? ', tags: ' + n.tags.slice(0, 6).join(' ') : ''})\n${wrapNode(n, e.snippet ?? '')}`;
+        block = `${++i}. [${n.type}] ${shownTitle(n)} (id ${n.id}, ${n.scope}${isUntrusted(n) ? '' : n.tags.length ? ', tags: ' + n.tags.slice(0, 6).join(' ') : ''})\n${wrapNode(n, e.snippet ?? '')}`;
       } else {
         const sn = this.nodes.get(e.via!.seedId)!;
         const arrow = e.via!.dir === 'out' ? `${e.via!.rel} ->` : `<- ${e.via!.rel}`;
-        block = `   related: [${n.type}] ${safeTitle(n.title)} (id ${n.id}) via ${arrow} "${safeTitle(sn.title).slice(0, 60)}"${isUntrusted(n) ? ' [UNTRUSTED SOURCE]' : ''}`;
+        block = `   related: [${n.type}] ${shownTitle(n)} (id ${n.id}) via ${arrow} "${shownTitle(sn).slice(0, 60)}"${isUntrusted(n) ? ' [UNTRUSTED SOURCE]' : ''}`;
       }
       if (used + block.length + 1 > budget) { truncated = true; continue; }
       used += block.length + 1;
@@ -399,7 +440,7 @@ export class Graph {
 
   lint(actor: Actor): KgLintReport {
     const nowMs = this.now().getTime();
-    const visible = [...this.nodes.values()].filter((n) => this.canSee(actor, n.scope));
+    const visible = [...this.nodes.values()].filter((n) => this.canSeeNode(actor, n));
     const touched = new Set<string>();
     const danglingEdges: string[] = [];
     const contradictions: Array<{ a: string; b: string }> = [];
@@ -409,7 +450,7 @@ export class Graph {
       const t = this.nodes.get(e.to);
       if (!f || !t) {
         const alive = f ?? t;
-        if (actor.kind !== 'agent' || (alive && this.canSee(actor, alive.scope))) danglingEdges.push(e.id);
+        if (actor.kind !== 'agent' || (alive && this.canSeeNode(actor, alive))) danglingEdges.push(e.id);
         continue;
       }
       if (!this.edgeVisible(actor, e)) continue;
@@ -441,6 +482,55 @@ export class Graph {
 
   // ------------------------------------------------------------------ writes
 
+  /** Per-write guard: rejects seed phrases and private keys outright, redacts other secrets, counts what it changed. */
+  private guard(): { text: (s: string) => string; readonly count: number } {
+    const exact = this.secrets?.() ?? [];
+    let count = 0;
+    return {
+      text: (s: string): string => {
+        const bad = findForbiddenSecret(s);
+        if (bad) throw new KgError('invalid', `Refused: this looks like a ${bad}. Secrets never go into the knowledge graph. Nothing was saved.`);
+        const out = scrubSecrets(s, { keepHex: true, exact });
+        if (out !== s) count++;
+        return out;
+      },
+      get count() { return count; },
+    };
+  }
+
+  /**
+   * What this write is allowed to be. Trust and taint come from the engine (the actor's run context), never from
+   * the input: a tainted run writes untrusted notes whatever the bot passes, and a shared note from a tainted run,
+   * or from a run woken by a bot under "ask" approvals, waits for the human.
+   */
+  private writeCtx(actor: Actor, scope: KgScope, untrustedFlag: boolean) {
+    const agent = actor.kind === 'agent' ? actor : undefined;
+    const tainted = !!agent && isTainted(agent);
+    const trust: KgTrust = tainted || untrustedFlag ? 'untrusted' : actor.kind === 'human' ? 'human' : 'agent';
+    const ceiling = agent ? agent.ceiling ?? agent.origin?.approvalCeiling : undefined;
+    const askWoken = !!agent && agent.origin !== undefined && ceiling === 'ask';
+    const hold = !!agent && scope === 'shared' && (tainted || askWoken);
+    const origin: KgOrigin | undefined = agent?.taskId
+      ? { taskId: agent.taskId, tainted, ...(agent.origin?.fromAgentId ? { via: agent.origin.fromAgentId } : {}) }
+      : undefined;
+    const notes: string[] = [];
+    if (tainted) notes.push('This run touched outside content (web, shell or external tools), so what you write is stored as untrusted' + (hold ? ' and shared notes wait for the human to accept them.' : '.'));
+    else if (hold) notes.push('This run was started by another bot under "ask" approvals, so shared notes wait for the human to accept them.');
+    return { agent, tainted, trust, hold, origin, notes };
+  }
+
+  private requirePendingRoom(actor: Actor): void {
+    if (actor.kind !== 'agent') return;
+    let n = 0;
+    for (const x of this.nodes.values()) if (statusOf(x) === 'pending' && x.createdBy === actor.id) n++;
+    if (n >= MAX_PENDING_PER_AGENT) {
+      throw new KgError('limit', `You already have ${n} notes waiting for the human to review (limit ${MAX_PENDING_PER_AGENT}). Nothing was saved: write to your private scope, or stop and ask the human to review the inbox.`);
+    }
+  }
+
+  private chargeNode(actor: Actor, bytes: number): void { if (actor.kind === 'agent') actor.quota?.node(bytes); }
+  private chargeEdge(actor: Actor, bytes = 0): void { if (actor.kind === 'agent') actor.quota?.edge(bytes); }
+
   /**
    * Creates or updates a node. With `dryRun` every check runs (validation, visibility, write rights, limits)
    * but nothing is written, so a batch can be vetted before its first write.
@@ -452,43 +542,111 @@ export class Graph {
       if (typeof input.id !== 'string' || !ID_RE.test(input.id)) throw new KgError('invalid', 'id must be 1-80 chars of letters, digits and _ . : -');
       if (!existing && actor.kind === 'agent') throw new KgError('not_found', `Unknown node "${input.id}". Omit id to create a new node.`);
     }
-    if (existing && !this.canSee(actor, existing.scope)) {
+    if (existing && !this.canSeeNode(actor, existing)) {
       // do not reveal whether a private node of someone else exists
       throw new KgError(actor.kind === 'agent' ? 'not_found' : 'forbidden', `Unknown node "${input.id}" (it may not exist or may not be visible to you).`);
     }
     if (existing && !this.canWrite(actor, existing.scope)) throw new KgError('forbidden', `Node "${existing.id}" is read-only for you (scope ${existing.scope}).`);
 
-    const f = this.cleanFields(input, !existing);
+    const g = this.guard();
+    const f = this.cleanFields(input, !existing, g);
     const scope = f.scope ?? existing?.scope ?? 'shared';
     if (!this.canWrite(actor, scope)) {
       throw new KgError('forbidden', scope === 'bsv'
         ? 'The bsv scope is written only by the human or the seeder.'
         : `You may write only to "shared" or your own private scope, not "${scope}".`);
     }
+    if (existing && actor.kind === 'agent' && scope !== existing.scope) {
+      throw new KgError('forbidden', 'Only the human can move a node between shared and private scope. Create a new node in the scope you want instead.');
+    }
     const now = nowIso();
     const who = actorName(actor);
+    const w = this.writeCtx(actor, scope, f.untrusted === true);
+    const bytes = Buffer.byteLength(JSON.stringify([f.title, f.body, f.tags, f.props, f.sources]));
+    const extra = (r: UpsertResult): UpsertResult => ({
+      ...r, ...(g.count ? { redacted: g.count } : {}), ...(w.notes.length ? { notes: w.notes } : {}),
+    });
 
     if (!existing) {
       if (this.nodes.size >= KG_LIMITS.maxNodes) throw new KgError('limit', `The graph is full (${KG_LIMITS.maxNodes} nodes). Delete or merge nodes first.`);
       if (f.title === undefined) throw new KgError('invalid', 'title is required to create a node.');
       if (f.untrusted && !f.sources?.length) throw new KgError('invalid', 'Content from the web, files or other untrusted input needs at least one source (ref).');
       const props = actor.kind === 'human' || actor.kind === 'system' ? f.props : stripReviewed(f.props);
+      if (w.hold && !opts.dryRun) this.requirePendingRoom(actor);
       const node: KgNode = {
         id: input.id ?? newId('n'), type: f.type ?? 'note', title: f.title, body: f.body ?? '', tags: f.tags ?? [], scope,
         ...(props && Object.keys(props).length ? { props } : {}),
         ...(f.sources?.length ? { sources: f.sources } : {}),
         ...(f.confidence !== undefined ? { confidence: f.confidence } : {}),
+        trust: w.trust, ...(w.hold ? { status: 'pending' as const } : {}), ...(w.origin ? { origin: w.origin } : {}),
         createdBy: who, createdAt: now, updatedAt: now,
       };
-      if (opts.dryRun) return { node: structuredClone(node), created: true, changed: true };
+      if (opts.dryRun) return extra({ node: structuredClone(node), created: true, changed: true, ...(w.hold ? { pending: true } : {}) });
+      this.chargeNode(actor, bytes);
       this.append([{ op: 'node', node }]);
       this.nodes.set(node.id, node);
       this.indexNode(node);
       this.changed([node.id]);
-      return { node: structuredClone(node), created: true, changed: true };
+      return extra({ node: structuredClone(node), created: true, changed: true, ...(w.hold ? { pending: true } : {}) });
     }
 
     // ---- update: merge the given fields
+    const next = this.mergeUpdate(actor, existing, f);
+    if (CONTENT_FIELDS.every((k) => JSON.stringify(next[k] ?? null) === JSON.stringify(existing[k] ?? null))) {
+      if (!opts.dryRun) this.chargeNode(actor, bytes);
+      return { node: structuredClone(existing), created: false, changed: false };
+    }
+    const existingTrust = trustOf(existing);
+    if (w.agent && existing.scope === 'shared') {
+      const ownedByRun = !!w.agent.taskId && existing.origin?.taskId === w.agent.taskId;
+      // A bot never rewrites a human's note, and a held run never rewrites someone else's: it proposes a copy.
+      if (existingTrust === 'human' || (w.hold && !ownedByRun)) {
+        if (!opts.dryRun) this.requirePendingRoom(actor);
+        const copy: KgNode = {
+          ...structuredClone(next), id: newId('n'), trust: w.trust, status: 'pending',
+          ...(w.origin ? { origin: w.origin } : {}), createdBy: who, createdAt: now, updatedAt: now,
+        };
+        delete copy.supersededBy;
+        if (!w.origin) delete copy.origin;
+        const edge: KgEdge = { id: newId('e'), from: copy.id, to: existing.id, rel: 'supersedes', note: 'proposed edit', createdBy: who, createdAt: now };
+        const notes = [...w.notes, `You may not edit "${existing.id}" directly (${existingTrust === 'human' ? 'it was written or accepted by the human' : 'your run is held for review'}): your change was saved as a pending proposal that supersedes it. The human decides.`];
+        if (opts.dryRun) return { node: copy, created: true, changed: true, pending: true, proposalFor: existing.id, notes, ...(g.count ? { redacted: g.count } : {}) };
+        this.chargeNode(actor, bytes);
+        this.chargeEdge(actor);
+        this.append([{ op: 'node', node: copy }, { op: 'edge', edge }]);
+        this.nodes.set(copy.id, copy);
+        this.indexNode(copy);
+        this.addEdge(edge);
+        this.changed([copy.id, edge.id, existing.id]);
+        return { node: structuredClone(copy), created: true, changed: true, pending: true, proposalFor: existing.id, notes, ...(g.count ? { redacted: g.count } : {}) };
+      }
+    }
+    if (w.agent) {
+      // an agent edit can only keep or lower trust, and records which run last touched the node
+      next.trust = minTrust(existingTrust, w.trust);
+      if (w.origin) next.origin = { ...w.origin, tainted: w.origin.tainted || existing.origin?.tainted === true };
+    }
+    const fields: Record<string, unknown> = {};
+    for (const k of NODE_FIELDS) {
+      if (k === 'updatedAt') continue;
+      const a = JSON.stringify(next[k] ?? null);
+      if (a !== JSON.stringify(existing[k] ?? null)) fields[k] = next[k] ?? null;
+    }
+    if (!Object.keys(fields).length) return { node: structuredClone(existing), created: false, changed: false };
+    next.updatedAt = now;
+    fields.updatedAt = now;
+    if (opts.dryRun) return extra({ node: structuredClone(next), created: false, changed: true });
+    this.chargeNode(actor, bytes);
+    this.append([{ op: 'patch', id: existing.id, fields }]);
+    this.unindexNode(existing.id);
+    this.nodes.set(next.id, next);
+    this.indexNode(next);
+    this.changed([next.id]);
+    return extra({ node: structuredClone(next), created: false, changed: true });
+  }
+
+  /** The content of an update applied to a copy of the node (no trust, status or origin changes yet). */
+  private mergeUpdate(actor: Actor, existing: KgNode, f: CleanFields): KgNode {
     const next: KgNode = structuredClone(existing);
     if (f.type !== undefined) next.type = f.type;
     if (f.title !== undefined) next.title = f.title;
@@ -501,8 +659,7 @@ export class Graph {
       next.sources = f.sources;
     } else if (f.untrusted) throw new KgError('invalid', 'Content from the web, files or other untrusted input needs at least one source (ref).');
     if (f.props !== undefined) next.props = f.props;
-    const isOwner = actor.kind !== 'agent';
-    if (!isOwner) {
+    if (actor.kind === 'agent') {
       // an agent can neither launder an untrusted flag nor mark content as human-reviewed
       const before = existing.sources?.filter((s) => s.untrusted) ?? [];
       if (before.length) {
@@ -518,28 +675,31 @@ export class Graph {
     }
     if (next.props && !Object.keys(next.props).length) delete next.props;
     if (next.sources && !next.sources.length) delete next.sources;
-
-    const fields: Record<string, unknown> = {};
-    for (const k of NODE_FIELDS) {
-      if (k === 'updatedAt') continue;
-      const a = JSON.stringify(next[k] ?? null);
-      if (a !== JSON.stringify(existing[k] ?? null)) fields[k] = next[k] ?? null;
-    }
-    if (!Object.keys(fields).length) return { node: structuredClone(existing), created: false, changed: false };
-    next.updatedAt = now;
-    fields.updatedAt = now;
-    if (opts.dryRun) return { node: structuredClone(next), created: false, changed: true };
-    this.append([{ op: 'patch', id: existing.id, fields }]);
-    this.unindexNode(existing.id);
-    this.nodes.set(next.id, next);
-    this.indexNode(next);
-    this.changed([next.id]);
-    return { node: structuredClone(next), created: false, changed: true };
+    return next;
   }
 
-  deleteNode(actor: Actor, id: string): { removedEdges: number } {
+  /**
+   * Forget a node. The human deletes for good. A bot may only forget its own private nodes (or a note of its own
+   * that is still waiting for review), and that is a tombstone: hidden from agents, purged after 30 days, the
+   * human can bring it back with setStatus.
+   */
+  deleteNode(actor: Actor, id: string): { removedEdges: number; tombstoned?: boolean } {
     const n = this.mustSee(actor, id);
     if (!this.canWrite(actor, n.scope)) throw new KgError('forbidden', `Node "${id}" is read-only for you (scope ${n.scope}).`);
+    if (actor.kind === 'agent') {
+      const ownPending = statusOf(n) === 'pending' && n.createdBy === actor.id;
+      if (n.scope !== `agent:${actor.id}` && !ownPending) {
+        throw new KgError('forbidden', `Only the human can delete shared notes. You may forget only your own private notes. To retire a shared note, update it (a proposal goes to the human) or tell the user.`);
+      }
+      this.chargeNode(actor, 0);
+      this.noteDelete();
+      const now = nowIso();
+      this.append([{ op: 'patch', id, fields: { status: 'archived', updatedAt: now } }]);
+      this.nodes.set(id, { ...n, status: 'archived', updatedAt: now });
+      this.changed([id]);
+      return { removedEdges: 0, tombstoned: true };
+    }
+    this.noteDelete();
     const edgeIds = [...new Set([...(this.out.get(id) ?? []), ...(this.inn.get(id) ?? [])])];
     this.append([...edgeIds.map((e) => ({ op: 'del_edge', id: e })), { op: 'del_node', id }]);
     for (const e of edgeIds) this.dropEdge(e);
@@ -548,35 +708,89 @@ export class Graph {
     return { removedEdges: edgeIds.length };
   }
 
+  /**
+   * Moves a node between lifecycle states (accept a pending note, restore a tombstone, archive). Human or system only:
+   * a bot can never accept its own write. `trust` raises or sets trust at the same time (accepting a note = 'human').
+   */
+  setStatus(actor: Actor, id: string, status: KgStatus, opts: { trust?: KgTrust; supersededBy?: string } = {}): KgNode {
+    if (actor.kind === 'agent') throw new KgError('forbidden', 'Only the human can accept, restore or archive notes.');
+    const n = this.nodes.get(id);
+    if (!n) throw new KgError('not_found', `Unknown node "${id}".`);
+    const next: KgNode = structuredClone(n);
+    if (status === 'active') delete next.status; else next.status = status;
+    if (opts.trust) next.trust = opts.trust;
+    if (opts.supersededBy !== undefined) next.supersededBy = opts.supersededBy;
+    next.updatedAt = nowIso();
+    const fields: Record<string, unknown> = { updatedAt: next.updatedAt };
+    for (const k of ['status', 'trust', 'supersededBy'] as const) {
+      if (JSON.stringify(next[k] ?? null) !== JSON.stringify(n[k] ?? null)) fields[k] = next[k] ?? null;
+    }
+    if (Object.keys(fields).length === 1) return structuredClone(n);
+    this.append([{ op: 'patch', id, fields }]);
+    this.nodes.set(id, next);
+    this.changed([id]);
+    return structuredClone(next);
+  }
+
+  /** Removes tombstones older than 30 days (and their links) for good. Returns how many nodes went. */
+  purgeTombstones(): number {
+    const cutoff = this.now().getTime() - TOMBSTONE_DAYS * 86_400_000;
+    const ids = [...this.nodes.values()].filter((n) => statusOf(n) === 'archived' && Date.parse(n.updatedAt) < cutoff).map((n) => n.id);
+    if (!ids.length) return 0;
+    if (ids.length > BULK_DELETES) this.snapshot();
+    for (const id of ids) {
+      const edgeIds = [...new Set([...(this.out.get(id) ?? []), ...(this.inn.get(id) ?? [])])];
+      this.append([...edgeIds.map((e) => ({ op: 'del_edge', id: e })), { op: 'del_node', id }]);
+      for (const e of edgeIds) this.dropEdge(e);
+      this.dropNode(id);
+    }
+    this.changed(ids);
+    return ids.length;
+  }
+
   link(actor: Actor, input: LinkInput): LinkResult {
     if (!isObj(input as unknown)) throw new KgError('invalid', 'Edge input must be an object.');
     const rel = validateLinkFields(input);
-    this.mustSee(actor, input.from);
-    this.mustSee(actor, input.to);
+    const fromNode = this.mustSee(actor, input.from);
+    const toNode = this.mustSee(actor, input.to);
+    const g = this.guard();
+    let note = input.note !== undefined ? g.text(input.note) : undefined;
+    const notes: string[] = [];
+    if (actor.kind === 'agent' && isTainted(actor)) {
+      // a tainted run may only wire up what it wrote itself, so it cannot hijack hubs or plant text on trusted links
+      const mine = (n: KgNode) => !!actor.taskId && n.origin?.taskId === actor.taskId;
+      if (!mine(fromNode) && !mine(toNode)) {
+        throw new KgError('forbidden', 'This run touched outside content (web, shell or external tools), so it may link only notes it wrote itself in this run.');
+      }
+      if (note !== undefined) { note = undefined; notes.push('Link note dropped: this run touched outside content.'); }
+    }
     const key = edgeKey(input.from, input.to, rel);
     const existingId = this.edgeKeys.get(key);
+    const extra = { ...(g.count ? { redacted: g.count } : {}), ...(notes.length ? { notes } : {}) };
     if (existingId) {
       const e = this.edges.get(existingId)!;
       const fields: Record<string, unknown> = {};
       if (input.weight !== undefined && input.weight !== e.weight) fields.weight = input.weight;
-      if (input.note !== undefined && input.note !== e.note) fields.note = input.note;
+      if (note !== undefined && note !== e.note) fields.note = note;
+      this.chargeEdge(actor, Buffer.byteLength(note ?? ''));
       if (Object.keys(fields).length) {
         this.append([{ op: 'patch', id: e.id, fields }]);
         Object.assign(e, fields);
         this.changed([e.id]);
       }
-      return { edge: { ...e }, created: false };
+      return { edge: { ...e }, created: false, ...extra };
     }
+    this.chargeEdge(actor, Buffer.byteLength(note ?? ''));
     const edge: KgEdge = {
       id: newId('e'), from: input.from, to: input.to, rel,
       ...(input.weight !== undefined ? { weight: input.weight } : {}),
-      ...(input.note ? { note: input.note } : {}),
+      ...(note ? { note } : {}),
       createdBy: actorName(actor), createdAt: nowIso(),
     };
     this.append([{ op: 'edge', edge }]);
     this.addEdge(edge);
     this.changed([edge.id, edge.from, edge.to]);
-    return { edge: { ...edge }, created: true };
+    return { edge: { ...edge }, created: true, ...extra };
   }
 
   /** Remove an edge by id, or by from+to+rel. */
@@ -585,10 +799,12 @@ export class Graph {
     const e = id ? this.edges.get(id) : undefined;
     if (!e || !this.edgeVisible(actor, e)) throw new KgError('not_found', 'No such link.');
     if (actor.kind === 'agent' && e.createdBy !== actor.id) {
+      if (isTainted(actor)) throw new KgError('forbidden', 'This run touched outside content (web, shell or external tools), so it may remove only links it created itself.');
       const f = this.nodes.get(e.from)!;
       const t = this.nodes.get(e.to)!;
       if (!this.canWrite(actor, f.scope) || !this.canWrite(actor, t.scope)) throw new KgError('forbidden', 'This link touches read-only (bsv) content and was not created by you.');
     }
+    this.chargeEdge(actor);
     this.append([{ op: 'del_edge', id: e.id }]);
     this.dropEdge(e.id);
     this.changed([e.id, e.from, e.to]);
@@ -597,18 +813,15 @@ export class Graph {
 
   // ------------------------------------------------------------------ validation
 
-  private cleanFields(input: NodeInput, creating: boolean) {
-    const out: {
-      type?: KgNode['type']; title?: string; body?: string; tags?: string[]; scope?: KgScope;
-      props?: Record<string, string | number | boolean>; sources?: KgSource[]; confidence?: number; untrusted?: boolean;
-    } = {};
+  private cleanFields(input: NodeInput, creating: boolean, g: { text: (s: string) => string }): CleanFields {
+    const out: CleanFields = {};
     if (input.type !== undefined) {
       if (!isNodeType(input.type)) throw new KgError('invalid', `Invalid type "${String(input.type)}".`);
       out.type = input.type;
     }
     if (input.title !== undefined) {
       if (typeof input.title !== 'string') throw new KgError('invalid', 'title must be a string.');
-      const t = oneLine(input.title);
+      const t = oneLine(g.text(input.title));
       if (!t) throw new KgError('invalid', 'title must not be empty.');
       if (t.length > KG_LIMITS.titleChars) throw new KgError('invalid', `title is too long (${t.length} > ${KG_LIMITS.titleChars} chars). Shorten it; nothing was saved.`);
       out.title = t;
@@ -616,11 +829,11 @@ export class Graph {
     if (input.body !== undefined) {
       if (typeof input.body !== 'string') throw new KgError('invalid', 'body must be a string.');
       if (input.body.length > KG_LIMITS.bodyChars) throw new KgError('invalid', `body is too long (${input.body.length} > ${KG_LIMITS.bodyChars} chars). Split it into several linked nodes; nothing was saved.`);
-      out.body = input.body;
+      out.body = g.text(input.body);
     }
     if (input.tags !== undefined) {
       if (!Array.isArray(input.tags) || input.tags.some((t) => typeof t !== 'string')) throw new KgError('invalid', 'tags must be an array of strings.');
-      const tags = [...new Set(input.tags.map(normTag).filter(Boolean))];
+      const tags = [...new Set(input.tags.map((t) => normTag(g.text(t))).filter(Boolean))];
       if (tags.length > MAX_TAGS) throw new KgError('invalid', `At most ${MAX_TAGS} tags.`);
       if (tags.some((t) => t.length > 64)) throw new KgError('invalid', 'A tag is longer than 64 chars.');
       out.tags = tags;
@@ -634,9 +847,11 @@ export class Graph {
       const entries = Object.entries(input.props);
       if (entries.length > MAX_PROPS) throw new KgError('invalid', `At most ${MAX_PROPS} props.`);
       const props: Record<string, string | number | boolean> = {};
-      for (const [k, v] of entries) {
+      for (const [k0, v0] of entries) {
+        const k = g.text(k0);
         if (!k || k.length > 64) throw new KgError('invalid', 'Invalid prop key.');
-        if (typeof v === 'string') { if (v.length > 500) throw new KgError('invalid', `props.${k} is longer than 500 chars.`); }
+        let v = v0;
+        if (typeof v === 'string') { v = g.text(v); if (v.length > 500) throw new KgError('invalid', `props.${k} is longer than 500 chars.`); }
         else if (typeof v === 'number') { if (!Number.isFinite(v)) throw new KgError('invalid', `props.${k} must be finite.`); }
         else if (typeof v !== 'boolean') throw new KgError('invalid', `props.${k} must be a string, number or boolean.`);
         props[k] = v;
@@ -649,7 +864,7 @@ export class Graph {
       out.sources = input.sources.map((s) => {
         if (!isObj(s) || typeof s.ref !== 'string' || !s.ref.trim() || s.ref.length > 500) throw new KgError('invalid', 'Each source needs a ref string (max 500 chars).');
         if (s.licence !== undefined && (typeof s.licence !== 'string' || s.licence.length > MAX_LICENCE_CHARS)) throw new KgError('invalid', `source.licence must be a string of at most ${MAX_LICENCE_CHARS} chars.`);
-        return { ref: s.ref.trim(), ...(s.licence ? { licence: s.licence } : {}), ...(s.untrusted === true ? { untrusted: true } : {}) };
+        return { ref: g.text(s.ref.trim()), ...(s.licence ? { licence: g.text(s.licence) } : {}), ...(s.untrusted === true ? { untrusted: true } : {}) };
       });
     }
     if (input.untrusted !== undefined) {
@@ -748,8 +963,53 @@ export class Graph {
     }
   }
 
+  /**
+   * Copies the log to graph.jsonl.bak-N (N counts up; the newest 5 are kept). Taken before anything that rewrites or
+   * mass-removes history: compaction, vault import, seeding, bulk deletes. Skipped when the newest snapshot is identical.
+   * Returns the snapshot path, or undefined when there was nothing to copy.
+   */
+  snapshot(): string | undefined {
+    if (!existsSync(this.file) || statSync(this.file).size === 0) return undefined;
+    return this.snapshotFrom(this.file);
+  }
+
+  private snapshotFrom(src: string): string | undefined {
+    const nums = readdirSync(this.dir).map((f) => /^graph\.jsonl\.bak-(\d+)$/.exec(f)).filter((m): m is RegExpExecArray => !!m)
+      .map((m) => Number(m[1])).sort((a, b) => a - b);
+    const last = nums[nums.length - 1];
+    if (last !== undefined) {
+      const prev = join(this.dir, `graph.jsonl.bak-${last}`);
+      if (statSync(prev).size === statSync(src).size && readFileSync(prev).equals(readFileSync(src))) return prev;
+    }
+    const dest = join(this.dir, `graph.jsonl.bak-${(last ?? 0) + 1}`);
+    copyFileSync(src, dest);
+    for (const n of nums.slice(0, Math.max(0, nums.length + 1 - SNAPSHOTS_KEPT))) rmSync(join(this.dir, `graph.jsonl.bak-${n}`), { force: true });
+    return dest;
+  }
+
+  /**
+   * Called before every delete or tombstone. The first delete of a 10-minute window copies the log aside; when the
+   * window reaches a sixth delete (a bulk delete) that copy, which still holds everything, becomes a snapshot.
+   */
+  private noteDelete(): void {
+    const t = this.now().getTime();
+    let w = this.delWindow;
+    const pre = `${this.file}.pre-delete`;
+    if (!w || t - w.start > BULK_WINDOW_MS) {
+      w = { start: t, count: 0, preCopied: false };
+      this.delWindow = w;
+      try { if (existsSync(this.file)) { copyFileSync(this.file, pre); w.preCopied = true; } } catch { /* the snapshot below falls back to the live log */ }
+    }
+    w.count++;
+    if (w.count === BULK_DELETES + 1) {
+      try { this.snapshotFrom(w.preCopied && existsSync(pre) ? pre : this.file); } catch { /* best effort */ }
+      rmSync(pre, { force: true });
+    }
+  }
+
   /** Rewrites the log from live state (tmp file + rename, so a crash leaves either the old or the new log). */
   compact(): void {
+    this.snapshot();
     const lines: string[] = [];
     for (const n of this.nodes.values()) lines.push(JSON.stringify({ op: 'node', node: n }));
     for (const e of this.edges.values()) lines.push(JSON.stringify({ op: 'edge', edge: e }));
@@ -915,6 +1175,12 @@ function loadNode(v: unknown): KgNode | undefined {
     if (src.length) n.sources = src;
   }
   if (typeof v.confidence === 'number') n.confidence = v.confidence;
+  if (v.trust === 'human' || v.trust === 'agent' || v.trust === 'untrusted') n.trust = v.trust;
+  if (v.status === 'pending' || v.status === 'superseded' || v.status === 'archived') n.status = v.status;
+  if (typeof v.supersededBy === 'string' && v.supersededBy) n.supersededBy = v.supersededBy;
+  if (isObj(v.origin) && typeof v.origin.taskId === 'string') {
+    n.origin = { taskId: v.origin.taskId, tainted: v.origin.tainted === true, ...(typeof v.origin.via === 'string' ? { via: v.origin.via } : {}) };
+  }
   return n;
 }
 

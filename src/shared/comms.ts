@@ -82,6 +82,8 @@ export interface TaskOrigin {
   hop: number;
   /** Strictest approval mode along the chain of senders. The receiver can never exceed it. */
   approvalCeiling: ApprovalMode;
+  /** True when anything on the chain of senders touched outside content (web, shell, external tools). ORed along the chain, never cleared. */
+  tainted?: boolean;
 }
 
 export const DEFAULT_GUARDS: RoomGuards = { maxHops: 6, budgetUsd: 2, cycleRepeats: 3, everyoneCooldownSec: 30 };
