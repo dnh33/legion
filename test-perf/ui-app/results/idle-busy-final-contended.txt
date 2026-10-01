@@ -1,0 +1,180 @@
+== new-1
+{
+ "chat, ops open, idle": {
+  "busy": 11,
+  "script": 0.1,
+  "style": 3.4,
+  "recalcPerS": 54.7,
+  "layoutPerS": 6.4
+ },
+ "chat, ops CLOSED": {
+  "busy": 3.2,
+  "script": 0,
+  "style": 0.5,
+  "recalcPerS": 58.2,
+  "layoutPerS": 0
+ },
+ "lattice, ops open, idle": {
+  "busy": 12.5,
+  "script": 0.2,
+  "style": 5.3,
+  "recalcPerS": 47.1,
+  "layoutPerS": 2.7
+ },
+ "chat, lab thinking": {
+  "busy": 30.9,
+  "script": 0,
+  "style": 8.3,
+  "recalcPerS": 78.8,
+  "layoutPerS": 17.8
+ },
+ "chat, lab hacking": {
+  "busy": 29.3,
+  "script": 0.4,
+  "style": 10.7,
+  "recalcPerS": 37.2,
+  "layoutPerS": 10.7
+ },
+ "chat, lab sleeping": {
+  "busy": 12.7,
+  "script": 0,
+  "style": 4.3,
+  "recalcPerS": 48.3,
+  "layoutPerS": 48.7
+ }
+} []
+== base-1
+{
+ "chat, ops open, idle": {
+  "busy": 26,
+  "script": 0.2,
+  "style": 7.8,
+  "recalcPerS": 109.8,
+  "layoutPerS": 23.9
+ },
+ "chat, ops CLOSED": {
+  "busy": 34.9,
+  "script": 0.2,
+  "style": 12.9,
+  "recalcPerS": 453.3,
+  "layoutPerS": 95.1
+ },
+ "lattice, ops open, idle": {
+  "busy": 34.3,
+  "script": 0.1,
+  "style": 10.8,
+  "recalcPerS": 93.3,
+  "layoutPerS": 19.9
+ },
+ "chat, lab thinking": {
+  "busy": 25.3,
+  "script": 0,
+  "style": 6.2,
+  "recalcPerS": 74.5,
+  "layoutPerS": 15.9
+ },
+ "chat, lab hacking": {
+  "busy": 20.3,
+  "script": 0.7,
+  "style": 5.2,
+  "recalcPerS": 29,
+  "layoutPerS": 7.5
+ },
+ "chat, lab sleeping": {
+  "busy": 22.5,
+  "script": 0.4,
+  "style": 1.8,
+  "recalcPerS": 56,
+  "layoutPerS": 14
+ }
+} []
+== new-2
+{
+ "chat, ops open, idle": {
+  "busy": 17.8,
+  "script": 0.5,
+  "style": 8.7,
+  "recalcPerS": 42.2,
+  "layoutPerS": 4.5
+ },
+ "chat, ops CLOSED": {
+  "busy": 2.5,
+  "script": 0,
+  "style": 0.4,
+  "recalcPerS": 58.4,
+  "layoutPerS": 0
+ },
+ "lattice, ops open, idle": {
+  "busy": 14.3,
+  "script": 0,
+  "style": 5.9,
+  "recalcPerS": 43.3,
+  "layoutPerS": 3.4
+ },
+ "chat, lab thinking": {
+  "busy": 24.6,
+  "script": 0,
+  "style": 7.3,
+  "recalcPerS": 59.4,
+  "layoutPerS": 13.8
+ },
+ "chat, lab hacking": {
+  "busy": 31.7,
+  "script": 0.1,
+  "style": 12.8,
+  "recalcPerS": 51.4,
+  "layoutPerS": 14.7
+ },
+ "chat, lab sleeping": {
+  "busy": 12.6,
+  "script": 0,
+  "style": 1.8,
+  "recalcPerS": 43.6,
+  "layoutPerS": 43.9
+ }
+} []
+== base-2
+{
+ "chat, ops open, idle": {
+  "busy": 22.1,
+  "script": 0.4,
+  "style": 7,
+  "recalcPerS": 91.1,
+  "layoutPerS": 20.2
+ },
+ "chat, ops CLOSED": {
+  "busy": 74.7,
+  "script": 0.2,
+  "style": 50.8,
+  "recalcPerS": 320.7,
+  "layoutPerS": 67.2
+ },
+ "lattice, ops open, idle": {
+  "busy": 51.5,
+  "script": 0.1,
+  "style": 34.3,
+  "recalcPerS": 51.2,
+  "layoutPerS": 11.5
+ },
+ "chat, lab thinking": {
+  "busy": 51.5,
+  "script": 0,
+  "style": 36.4,
+  "recalcPerS": 44.9,
+  "layoutPerS": 10.2
+ },
+ "chat, lab hacking": {
+  "busy": 48.8,
+  "script": 0.2,
+  "style": 35.5,
+  "recalcPerS": 22.3,
+  "layoutPerS": 5.9
+ },
+ "chat, lab sleeping": {
+  "busy": 52.9,
+  "script": 0.1,
+  "style": 37,
+  "recalcPerS": 55.9,
+  "layoutPerS": 14
+ }
+} []

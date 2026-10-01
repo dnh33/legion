@@ -11,7 +11,7 @@ process.env.PLAYWRIGHT_PATH ||= '/opt/node-tools/node_modules/playwright';
 export const SECRET = 'a'.repeat(64);
 const MIME = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.woff2': 'font/woff2', '.png': 'image/png', '.svg': 'image/svg+xml', '.json': 'application/json' };
 
-export async function startEnv({ ui, repo, port = 48100, home = `/tmp/m/u-home-${port}`, seedHome = '/tmp/m/perf-uiapp-home' }) {
+export async function startEnv({ ui, repo, port = 48100, home = `/tmp/m/u-home-${port}-${process.pid}`, seedHome = '/tmp/m/perf-uiapp-home' }) {
   fs.rmSync(home, { recursive: true, force: true });
   fs.cpSync(seedHome, home, { recursive: true });
   const cfgPath = path.join(home, 'config.json');
@@ -57,7 +57,11 @@ export async function startEnv({ ui, repo, port = 48100, home = `/tmp/m/u-home-$
     stat: async () => (await fetch(`${base}/__stat`)).json(),
     emit: (e) => fetch(`${base}/__emit`, { method: 'POST', body: JSON.stringify(e) }),
     core: () => clog,
-    async stop() { core.kill('SIGTERM'); proxy.closeAllConnections?.(); proxy.close(); stat.close(); },
+    async stop() {
+      const exited = new Promise((r) => core.once('exit', r)); core.kill('SIGTERM'); setTimeout(() => core.kill('SIGKILL'), 3000).unref();
+      proxy.closeAllConnections?.(); proxy.close(); stat.close(); await Promise.race([exited, new Promise((r) => setTimeout(r, 4000))]);
+      fs.rmSync(home, { recursive: true, force: true });
+    },
   };
 }
 
