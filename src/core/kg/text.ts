@@ -55,9 +55,34 @@ export function trustOf(n: Pick<KgNode, 'trust' | 'sources' | 'createdBy'>): KgT
   return n.createdBy === 'human' ? 'human' : 'agent';
 }
 export const statusOf = (n: Pick<KgNode, 'status'>): KgStatus => n.status ?? 'active';
+/** Superseded and archived nodes: hidden from search and recall unless asked for. */
+export const isInactive = (n: Pick<KgNode, 'status'>): boolean => n.status === 'superseded' || n.status === 'archived';
 
 export const isUntrusted = (n: Pick<KgNode, 'sources'> & Partial<Pick<KgNode, 'trust'>>): boolean =>
   n.trust === 'untrusted' || !!n.sources?.some((s) => s.untrusted === true);
+
+/** Trust as ranking and the briefing see it: a node with an untrusted source counts as untrusted whatever its field says. */
+export const effectiveTrust = (n: Pick<KgNode, 'trust' | 'sources' | 'createdBy'>): KgTrust => (isUntrusted(n) ? 'untrusted' : trustOf(n));
+
+/** Types whose value does not fade with age. */
+const TIMELESS_TYPES = new Set(['decision', 'pattern', 'mistake']);
+export const RECENCY_HALF_LIFE_DAYS = 90;
+export const RECENCY_FLOOR = 0.5;
+const TRUST_WEIGHT: Record<KgTrust, number> = { human: 1, agent: 0.9, untrusted: 0.25 };
+/**
+ * Recall v2: what a BM25 score is multiplied by. recency (half-life 90 days, floor 0.5; decisions, patterns and
+ * mistakes are exempt) x (0.7 + 0.3 x confidence; unstated confidence counts as 1) x trust (human 1.0, agent 0.9,
+ * untrusted 0.25).
+ */
+export function rankFactor(n: Pick<KgNode, 'type' | 'updatedAt' | 'confidence' | 'trust' | 'sources' | 'createdBy'>, nowMs: number): number {
+  let recency = 1;
+  if (!TIMELESS_TYPES.has(n.type)) {
+    const t = Date.parse(n.updatedAt);
+    const ageDays = Number.isFinite(t) ? Math.max(0, (nowMs - t) / 86_400_000) : 0;
+    recency = Math.max(RECENCY_FLOOR, Math.pow(0.5, ageDays / RECENCY_HALF_LIFE_DAYS));
+  }
+  return recency * (0.7 + 0.3 * (n.confidence ?? 1)) * TRUST_WEIGHT[effectiveTrust(n)];
+}
 
 /** A node title that is safe outside the wrapper: untrusted nodes show only a marker (the id travels separately). */
 export const shownTitle = (n: Pick<KgNode, 'title' | 'sources'> & Partial<Pick<KgNode, 'trust'>>): string =>

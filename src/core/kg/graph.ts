@@ -10,14 +10,21 @@ import {
 import { join } from 'node:path';
 import { KG_LIMITS } from '../../shared/kg.js';
 import type {
-  KgEdge, KgLintReport, KgNode, KgOrigin, KgScope, KgSearchHit, KgSource, KgStatus, KgSubgraph, KgTrust,
+  KgActivityRow, KgEdge, KgInboxRow, KgLintLite, KgLintReport, KgNode, KgNodeType, KgOrigin, KgScope, KgSearchHit, KgSource, KgStatus,
+  KgSubgraph, KgTrust,
 } from '../../shared/kg.js';
 import { newId, nowIso } from '../../shared/util.js';
 import { findForbiddenSecret, scrubSecrets } from '../comms/scrub.js';
-import { makeSnippet, oneLine, safeTitle, shownTitle, statusOf, tokenize, trustOf, wrapNode, DATA_LINE, isUntrusted } from './text.js';
-import { actorName, isNodeType, isTainted, KgError } from './types.js';
+import { ActivityLog, ACTIVITY_DAYS } from './activity.js';
+import type { ActivityEntry, LogOp } from './activity.js';
+import {
+  effectiveTrust, isInactive, makeSnippet, oneLine, rankFactor, safeTitle, shownTitle, statusOf, tokenize, trustOf, wrapNode,
+  DATA_LINE, isUntrusted,
+} from './text.js';
+import { actorName, ARCHIVIST_ID, agentActor, HUMAN, isNodeType, isTainted, KgError, SYSTEM, WM_PREFIX, wmId } from './types.js';
 import type {
-  Actor, GraphStats, LinkInput, LinkResult, NeighborsResult, NodeInput, PathResult, RecallResult, UpsertResult,
+  Actor, BriefingParts, CaptureInput, CaptureResult, GraphStats, LinkInput, LinkResult, MergeResult, NeighborsResult, NodeInput, PathResult,
+  RecallResult, SupersedeResult, UpsertResult,
 } from './types.js';
 
 export interface GraphOptions {
@@ -33,11 +40,33 @@ export interface GraphOptions {
   secrets?: () => readonly string[];
 }
 
-export interface SearchOptions { scope?: string; type?: string; tags?: string[]; limit?: number }
+export interface SearchOptions {
+  scope?: string; type?: string; tags?: string[]; limit?: number;
+  /** Also return superseded and archived nodes (score x0.3, marked). Off by default. */
+  includeInactive?: boolean;
+}
 export interface NeighborOptions { rel?: string; dir?: 'out' | 'in' | 'both'; depth?: number; limit?: number }
 export interface PathOptions { maxDepth?: number; rels?: string[] }
+export interface RecallEntry { id: string; score: number; seed: boolean; via?: { rel: string; dir: 'out' | 'in'; seedId: string }; snippet?: string }
 
 const STALE_DAYS = 90;
+/** Days after which an untouched node is flagged stale, by type. decision, pattern and mistake never go stale. */
+const STALE_DAYS_BY_TYPE: Partial<Record<KgNodeType, number>> = { episode: 30, idea: 60, project: 45 };
+const NEVER_STALE = new Set<KgNodeType>(['decision', 'pattern', 'mistake']);
+/** Days after which an episode (an automatic run summary) is retired. */
+export const EPISODE_DAYS = 30;
+/** Working memory: the part the bot sees at the start of every run is capped; the archive keeps only the newest lines. */
+export const WM_ACTIVE_MAX = 2_500;
+/** The ARCHIVE section is a scratch log: when it grows past this, the oldest lines are dropped (a sane cap, well under the 20,000-char body limit). */
+export const WM_ARCHIVE_MAX = 6_000;
+/** Largest merge a single call may do. */
+export const MAX_MERGE_DROPS = 10;
+const DAY_MS = 86_400_000;
+/** Titles at least this alike (token Jaccard) count as the same note when capturing. */
+export const SIMILAR_TITLE_JACCARD = 0.7;
+export const EPISODE_PROMPT_CHARS = 300;
+export const EPISODE_RESULT_CHARS = 800;
+export const staleDaysFor = (type: KgNodeType): number => (NEVER_STALE.has(type) ? Infinity : STALE_DAYS_BY_TYPE[type] ?? STALE_DAYS);
 const MAX_TAGS = 32;
 const MAX_SOURCES = 20;
 const MAX_PROPS = 32;
@@ -82,6 +111,8 @@ export class Graph {
   private readonly secrets?: () => readonly string[];
   /** Deletes in the current window, and the pre-window copy of the log that becomes a snapshot if it turns bulk. */
   private delWindow?: { start: number; count: number; preCopied: boolean };
+  private readonly activity: ActivityLog;
+  private lite?: KgLintLite;
 
   private nodes = new Map<string, KgNode>();
   private edges = new Map<string, KgEdge>();
@@ -108,6 +139,8 @@ export class Graph {
     this.onChange = opts.onChange;
     this.secrets = opts.secrets;
     mkdirSync(this.dir, { recursive: true });
+    this.activity = new ActivityLog(join(opts.dir, 'activity.jsonl'), this.now);
+    try { this.lite = JSON.parse(readFileSync(join(opts.dir, 'lint-lite.json'), 'utf8')) as KgLintLite; } catch { /* no run yet */ }
     this.load();
     rmSync(`${this.file}.pre-delete`, { force: true });
     try { this.purgeTombstones(); } catch { /* the log stays valid; purge again next start */ }
@@ -229,15 +262,21 @@ export class Graph {
       }
     }
     const hits: KgSearchHit[] = [];
+    const nowMs = this.now().getTime();
     for (const [id, score] of scores) {
       const n = this.nodes.get(id);
       if (!n || !this.canSeeNode(actor, n)) continue;
+      const inactive = isInactive(n);
+      if (inactive && !opts.includeInactive) continue;
       if (opts.scope !== undefined && n.scope !== opts.scope) continue;
       if (opts.type !== undefined && n.type !== opts.type) continue;
       if (wantTags.length && !wantTags.every((t) => n.tags.includes(t))) continue;
+      // recall v2: BM25 x recency x confidence x trust; a retired node, when asked for, counts for a third
+      const ranked = score * rankFactor(n, nowMs) * (inactive ? 0.3 : 1);
       hits.push({
         node: { id: n.id, type: n.type, title: n.title, tags: [...n.tags], scope: n.scope, updatedAt: n.updatedAt, snippet: makeSnippet(n.body, qTokens) || oneLine(n.title) },
-        score: Math.round(score * 10_000) / 10_000,
+        score: Math.round(ranked * 10_000) / 10_000,
+        ...(inactive ? { inactive: { status: statusOf(n), ...(n.supersededBy ? { supersededBy: n.supersededBy } : {}) } } : {}),
       });
     }
     hits.sort((a, b) => b.score - a.score || b.node.updatedAt.localeCompare(a.node.updatedAt) || a.node.id.localeCompare(b.node.id));
@@ -376,25 +415,27 @@ export class Graph {
     return { nodes: top.map((n) => structuredClone(n)), edges, truncated: visible.length > max };
   }
 
-  /** Search top-k, expand one hop, rank with score decay, return a compact outline within the budget. */
-  recall(actor: Actor, query: string, opts: { budgetChars?: number } = {}): RecallResult {
-    const budget = clampInt(opts.budgetChars, 120, KG_LIMITS.toolResultChars, 4_000);
+  /**
+   * Search top-k, expand one hop, rank, and return the entries (best first). Shared by recall() and the briefing.
+   * An untrusted node can be a hit but never seeds the expansion, so a poisoned note cannot pull its neighbours in.
+   */
+  recallEntries(actor: Actor, query: string, opts: { includeInactive?: boolean } = {}): RecallEntry[] {
     const q = oneLine(query);
-    const seeds = this.search(actor, q, { limit: 5 });
-    if (!seeds.length) {
-      const text = `No matching nodes in the knowledge graph for "${safeTitle(q).slice(0, 80)}". Proceed without it, and write what you learn with kg_upsert_node when it is durable.`;
-      return { outline: text.slice(0, budget), nodeIds: [], truncated: false };
-    }
+    const seeds = this.search(actor, q, { limit: 5, includeInactive: opts.includeInactive });
+    if (!seeds.length) return [];
     const seedIds = new Set(seeds.map((s) => s.node.id));
-    interface Entry { id: string; score: number; seed: boolean; via?: { rel: string; dir: 'out' | 'in'; seedId: string }; snippet?: string }
-    const entries = new Map<string, Entry>();
+    const entries = new Map<string, RecallEntry>();
     for (const s of seeds) entries.set(s.node.id, { id: s.node.id, score: s.score, seed: true, snippet: s.node.snippet });
     for (const s of seeds) {
+      const sn = this.nodes.get(s.node.id)!;
+      if (isUntrusted(sn) || isInactive(sn)) continue;
       let taken = 0;
       for (const { edge, other } of this.adjacent(actor, s.node.id, 'both')) {
         if (seedIds.has(other) || taken >= 6) continue;
+        const on = this.nodes.get(other)!;
+        if (isInactive(on) && !opts.includeInactive) continue;
         const w = Math.min(1, Math.max(0.1, edge.weight ?? 1));
-        const score = s.score * 0.5 * w;
+        const score = s.score * 0.5 * w * (effectiveTrust(on) === 'untrusted' ? 0.25 : 1);
         const cur = entries.get(other);
         if (!cur || cur.score < score) {
           entries.set(other, { id: other, score, seed: false, via: { rel: edge.rel, dir: edge.from === s.node.id ? 'out' : 'in', seedId: s.node.id } });
@@ -402,7 +443,18 @@ export class Graph {
         }
       }
     }
-    const ranked = [...entries.values()].sort((a, b) => b.score - a.score || Number(b.seed) - Number(a.seed) || a.id.localeCompare(b.id));
+    return [...entries.values()].sort((a, b) => b.score - a.score || Number(b.seed) - Number(a.seed) || a.id.localeCompare(b.id));
+  }
+
+  /** Recall: the ranked entries as a compact outline within the budget. Untrusted nodes show only as "[untrusted lead]" with their id. */
+  recall(actor: Actor, query: string, opts: { budgetChars?: number; includeInactive?: boolean } = {}): RecallResult {
+    const budget = clampInt(opts.budgetChars, 120, KG_LIMITS.toolResultChars, 4_000);
+    const q = oneLine(query);
+    const ranked = this.recallEntries(actor, q, { includeInactive: opts.includeInactive });
+    if (!ranked.length) {
+      const text = `No matching nodes in the knowledge graph for "${safeTitle(q).slice(0, 80)}". Proceed without it, and write what you learn with kg_capture (or kg_upsert_node) when it is durable.`;
+      return { outline: text.slice(0, budget), nodeIds: [], truncated: false };
+    }
     const header = `Lattice recall for "${safeTitle(q).slice(0, 80)}":`;
     const footer = DATA_LINE;
     let used = header.length + footer.length + 2;
@@ -412,13 +464,15 @@ export class Graph {
     let i = 0;
     for (const e of ranked) {
       const n = this.nodes.get(e.id)!;
+      const retired = isInactive(n) ? ` [${statusOf(n)}${n.supersededBy ? ` by ${n.supersededBy}` : ''}]` : '';
       let block: string;
       if (e.seed) {
-        block = `${++i}. [${n.type}] ${shownTitle(n)} (id ${n.id}, ${n.scope}${isUntrusted(n) ? '' : n.tags.length ? ', tags: ' + n.tags.slice(0, 6).join(' ') : ''})\n${wrapNode(n, e.snippet ?? '')}`;
+        const head = `${++i}. [${n.type}] ${shownTitle(n)} (id ${n.id}, ${n.scope}${isUntrusted(n) ? '' : n.tags.length ? ', tags: ' + n.tags.slice(0, 6).join(' ') : ''})${retired}`;
+        block = isUntrusted(n) ? head : `${head}\n${wrapNode(n, e.snippet ?? '')}`;
       } else {
         const sn = this.nodes.get(e.via!.seedId)!;
         const arrow = e.via!.dir === 'out' ? `${e.via!.rel} ->` : `<- ${e.via!.rel}`;
-        block = `   related: [${n.type}] ${shownTitle(n)} (id ${n.id}) via ${arrow} "${shownTitle(sn).slice(0, 60)}"${isUntrusted(n) ? ' [UNTRUSTED SOURCE]' : ''}`;
+        block = `   related: [${n.type}] ${shownTitle(n)} (id ${n.id}) via ${arrow} "${shownTitle(sn).slice(0, 60)}"${isUntrusted(n) ? ' [UNTRUSTED SOURCE]' : ''}${retired}`;
       }
       if (used + block.length + 1 > budget) { truncated = true; continue; }
       used += block.length + 1;
@@ -440,7 +494,7 @@ export class Graph {
 
   lint(actor: Actor): KgLintReport {
     const nowMs = this.now().getTime();
-    const visible = [...this.nodes.values()].filter((n) => this.canSeeNode(actor, n));
+    const visible = [...this.nodes.values()].filter((n) => this.canSeeNode(actor, n) && !isInactive(n));
     const touched = new Set<string>();
     const danglingEdges: string[] = [];
     const contradictions: Array<{ a: string; b: string }> = [];
@@ -470,13 +524,14 @@ export class Graph {
       titles.set(normTitle(n.title), list);
       const t = Date.parse(n.updatedAt);
       const days = Number.isFinite(t) ? Math.floor((nowMs - t) / 86_400_000) : 0;
-      if (days > STALE_DAYS) stale.push({ id: n.id, daysOld: days });
+      if (days > staleDaysFor(n.type)) stale.push({ id: n.id, daysOld: days });
       if (isUntrusted(n) && n.props?.reviewed !== true) untrustedWithoutReview.push(n.id);
     }
     const duplicateTitles = [...titles.values()].filter((l) => l.length > 1).map((l) => ({ title: l[0]!.title, ids: l.map((x) => x.id) }));
     return {
       orphans, danglingEdges, duplicateTitles, stale: stale.sort((a, b) => b.daysOld - a.daysOld),
       contradictions, untrustedWithoutReview, counts: { nodes: visible.length, edges: edgeCount },
+      ...(this.lite && actor.kind !== 'agent' ? { lite: this.lite } : {}),
     };
   }
 
@@ -509,13 +564,15 @@ export class Graph {
     const trust: KgTrust = tainted || untrustedFlag ? 'untrusted' : actor.kind === 'human' ? 'human' : 'agent';
     const ceiling = agent ? agent.ceiling ?? agent.origin?.approvalCeiling : undefined;
     const askWoken = !!agent && agent.origin !== undefined && ceiling === 'ask';
-    const hold = !!agent && scope === 'shared' && (tainted || askWoken);
+    const archivist = agent?.id === ARCHIVIST_ID;
+    const hold = !!agent && scope === 'shared' && (tainted || askWoken || archivist);
     const origin: KgOrigin | undefined = agent?.taskId
       ? { taskId: agent.taskId, tainted, ...(agent.origin?.fromAgentId ? { via: agent.origin.fromAgentId } : {}) }
       : undefined;
     const notes: string[] = [];
     if (tainted) notes.push('This run touched outside content (web, shell or external tools), so what you write is stored as untrusted' + (hold ? ' and shared notes wait for the human to accept them.' : '.'));
-    else if (hold) notes.push('This run was started by another bot under "ask" approvals, so shared notes wait for the human to accept them.');
+    else if (hold && askWoken) notes.push('This run was started by another bot under "ask" approvals, so shared notes wait for the human to accept them.');
+    else if (hold) notes.push('You are the Archivist: you flag and propose, you never decide. Shared notes you write wait for the human to accept them.');
     return { agent, tainted, trust, hold, origin, notes };
   }
 
@@ -530,6 +587,34 @@ export class Graph {
 
   private chargeNode(actor: Actor, bytes: number): void { if (actor.kind === 'agent') actor.quota?.node(bytes); }
   private chargeEdge(actor: Actor, bytes = 0): void { if (actor.kind === 'agent') actor.quota?.edge(bytes); }
+
+  /**
+   * The node a create would store: every create-time rule in one place (graph size, title, untrusted needs a source,
+   * agents cannot self-review, the 50-pending cap). `w` says what the write is allowed to be (trust, held for review).
+   */
+  private buildNode(actor: Actor, f: CleanFields, scope: KgScope, w: ReturnType<Graph['writeCtx']>, idHint: string | undefined, dryRun: boolean): KgNode {
+    if (this.nodes.size >= KG_LIMITS.maxNodes) throw new KgError('limit', `The graph is full (${KG_LIMITS.maxNodes} nodes). Delete or merge nodes first.`);
+    if (f.title === undefined) throw new KgError('invalid', 'title is required to create a node.');
+    if (f.untrusted && !f.sources?.length) throw new KgError('invalid', 'Content from the web, files or other untrusted input needs at least one source (ref).');
+    const props = actor.kind === 'human' || actor.kind === 'system' ? f.props : stripReviewed(f.props);
+    if (w.hold && !dryRun) this.requirePendingRoom(actor);
+    const now = nowIso();
+    return {
+      id: idHint ?? newId('n'), type: f.type ?? 'note', title: f.title, body: f.body ?? '', tags: f.tags ?? [], scope,
+      ...(props && Object.keys(props).length ? { props } : {}),
+      ...(f.sources?.length ? { sources: f.sources } : {}),
+      ...(f.confidence !== undefined ? { confidence: f.confidence } : {}),
+      trust: w.trust, ...(w.hold ? { status: 'pending' as const } : {}), ...(w.origin ? { origin: w.origin } : {}),
+      createdBy: actorName(actor), createdAt: now, updatedAt: now,
+    };
+  }
+
+  /** A run that touched outside content may not plant trigger tags (standing rules for other runs). */
+  private guardTriggerTags(actor: Actor, tags: string[] | undefined): void {
+    if (actor.kind === 'agent' && isTainted(actor) && tags?.some((t) => t.startsWith('trigger:'))) {
+      throw new KgError('forbidden', 'This run touched outside content (web, shell or external tools), so it may not write trigger tags. Nothing was saved.');
+    }
+  }
 
   /**
    * Creates or updates a node. With `dryRun` every check runs (validation, visibility, write rights, limits)
@@ -547,9 +632,11 @@ export class Graph {
       throw new KgError(actor.kind === 'agent' ? 'not_found' : 'forbidden', `Unknown node "${input.id}" (it may not exist or may not be visible to you).`);
     }
     if (existing && !this.canWrite(actor, existing.scope)) throw new KgError('forbidden', `Node "${existing.id}" is read-only for you (scope ${existing.scope}).`);
+    if (existing && actor.kind === 'agent' && existing.id.startsWith(WM_PREFIX)) throw new KgError('forbidden', 'Working memory is written only with kg_wm_set.');
 
     const g = this.guard();
     const f = this.cleanFields(input, !existing, g);
+    this.guardTriggerTags(actor, f.tags);
     const scope = f.scope ?? existing?.scope ?? 'shared';
     if (!this.canWrite(actor, scope)) {
       throw new KgError('forbidden', scope === 'bsv'
@@ -568,24 +655,13 @@ export class Graph {
     });
 
     if (!existing) {
-      if (this.nodes.size >= KG_LIMITS.maxNodes) throw new KgError('limit', `The graph is full (${KG_LIMITS.maxNodes} nodes). Delete or merge nodes first.`);
-      if (f.title === undefined) throw new KgError('invalid', 'title is required to create a node.');
-      if (f.untrusted && !f.sources?.length) throw new KgError('invalid', 'Content from the web, files or other untrusted input needs at least one source (ref).');
-      const props = actor.kind === 'human' || actor.kind === 'system' ? f.props : stripReviewed(f.props);
-      if (w.hold && !opts.dryRun) this.requirePendingRoom(actor);
-      const node: KgNode = {
-        id: input.id ?? newId('n'), type: f.type ?? 'note', title: f.title, body: f.body ?? '', tags: f.tags ?? [], scope,
-        ...(props && Object.keys(props).length ? { props } : {}),
-        ...(f.sources?.length ? { sources: f.sources } : {}),
-        ...(f.confidence !== undefined ? { confidence: f.confidence } : {}),
-        trust: w.trust, ...(w.hold ? { status: 'pending' as const } : {}), ...(w.origin ? { origin: w.origin } : {}),
-        createdBy: who, createdAt: now, updatedAt: now,
-      };
+      const node = this.buildNode(actor, f, scope, w, input.id, !!opts.dryRun);
       if (opts.dryRun) return extra({ node: structuredClone(node), created: true, changed: true, ...(w.hold ? { pending: true } : {}) });
       this.chargeNode(actor, bytes);
       this.append([{ op: 'node', node }]);
       this.nodes.set(node.id, node);
       this.indexNode(node);
+      this.logActivity(actor, 'create', [{ op: 'del_node', id: node.id }], node);
       this.changed([node.id]);
       return extra({ node: structuredClone(node), created: true, changed: true, ...(w.hold ? { pending: true } : {}) });
     }
@@ -617,6 +693,7 @@ export class Graph {
         this.nodes.set(copy.id, copy);
         this.indexNode(copy);
         this.addEdge(edge);
+        this.logActivity(actor, 'proposal', [{ op: 'del_edge', id: edge.id }, { op: 'del_node', id: copy.id }], copy);
         this.changed([copy.id, edge.id, existing.id]);
         return { node: structuredClone(copy), created: true, changed: true, pending: true, proposalFor: existing.id, notes, ...(g.count ? { redacted: g.count } : {}) };
       }
@@ -637,10 +714,12 @@ export class Graph {
     fields.updatedAt = now;
     if (opts.dryRun) return extra({ node: structuredClone(next), created: false, changed: true });
     this.chargeNode(actor, bytes);
+    const undo = this.inverseOf([{ op: 'patch', id: existing.id, fields }]);
     this.append([{ op: 'patch', id: existing.id, fields }]);
     this.unindexNode(existing.id);
     this.nodes.set(next.id, next);
     this.indexNode(next);
+    this.logActivity(actor, 'update', undo, next);
     this.changed([next.id]);
     return extra({ node: structuredClone(next), created: false, changed: true });
   }
@@ -668,7 +747,7 @@ export class Graph {
         next.sources = [...have.values()];
       }
       const props = { ...(next.props ?? {}) };
-      delete props.reviewed;
+      for (const k of ENGINE_PROPS) delete props[k];
       const contentChanged = next.title !== existing.title || next.body !== existing.body;
       if (existing.props?.reviewed === true && !contentChanged) props.reviewed = true;
       if (Object.keys(props).length) next.props = props; else delete next.props;
@@ -686,6 +765,10 @@ export class Graph {
   deleteNode(actor: Actor, id: string): { removedEdges: number; tombstoned?: boolean } {
     const n = this.mustSee(actor, id);
     if (!this.canWrite(actor, n.scope)) throw new KgError('forbidden', `Node "${id}" is read-only for you (scope ${n.scope}).`);
+    if (actor.kind === 'agent' && actor.id === ARCHIVIST_ID) {
+      throw new KgError('forbidden', 'The Archivist flags and proposes, it never deletes. Say what should go and why; the human decides.');
+    }
+    if (actor.kind === 'agent' && id.startsWith(WM_PREFIX)) throw new KgError('forbidden', 'Working memory is written only with kg_wm_set; it cannot be forgotten by a bot.');
     if (actor.kind === 'agent') {
       const ownPending = statusOf(n) === 'pending' && n.createdBy === actor.id;
       if (n.scope !== `agent:${actor.id}` && !ownPending) {
@@ -694,8 +777,11 @@ export class Graph {
       this.chargeNode(actor, 0);
       this.noteDelete();
       const now = nowIso();
-      this.append([{ op: 'patch', id, fields: { status: 'archived', updatedAt: now } }]);
+      const patch: LogOp = { op: 'patch', id, fields: { status: 'archived', updatedAt: now } };
+      const undo = this.inverseOf([patch]);
+      this.append([patch]);
       this.nodes.set(id, { ...n, status: 'archived', updatedAt: now });
+      this.logActivity(actor, 'forget', undo, this.nodes.get(id));
       this.changed([id]);
       return { removedEdges: 0, tombstoned: true };
     }
@@ -774,8 +860,10 @@ export class Graph {
       if (note !== undefined && note !== e.note) fields.note = note;
       this.chargeEdge(actor, Buffer.byteLength(note ?? ''));
       if (Object.keys(fields).length) {
+        const undo = this.inverseOf([{ op: 'patch', id: e.id, fields }]);
         this.append([{ op: 'patch', id: e.id, fields }]);
         Object.assign(e, fields);
+        this.logActivity(actor, 'link', undo, undefined, [], `${e.from} -${e.rel}-> ${e.to}`);
         this.changed([e.id]);
       }
       return { edge: { ...e }, created: false, ...extra };
@@ -789,6 +877,7 @@ export class Graph {
     };
     this.append([{ op: 'edge', edge }]);
     this.addEdge(edge);
+    this.logActivity(actor, 'link', [{ op: 'del_edge', id: edge.id }], undefined, [], `${edge.from} -${edge.rel}-> ${edge.to}`);
     this.changed([edge.id, edge.from, edge.to]);
     return { edge: { ...edge }, created: true, ...extra };
   }
@@ -798,6 +887,9 @@ export class Graph {
     const id = 'id' in ref ? ref.id : this.edgeKeys.get(edgeKey(ref.from, ref.to, normRel(ref.rel)));
     const e = id ? this.edges.get(id) : undefined;
     if (!e || !this.edgeVisible(actor, e)) throw new KgError('not_found', 'No such link.');
+    if (actor.kind === 'agent' && actor.id === ARCHIVIST_ID && e.createdBy !== actor.id) {
+      throw new KgError('forbidden', 'The Archivist flags and proposes, it never removes links it did not make.');
+    }
     if (actor.kind === 'agent' && e.createdBy !== actor.id) {
       if (isTainted(actor)) throw new KgError('forbidden', 'This run touched outside content (web, shell or external tools), so it may remove only links it created itself.');
       const f = this.nodes.get(e.from)!;
@@ -807,8 +899,650 @@ export class Graph {
     this.chargeEdge(actor);
     this.append([{ op: 'del_edge', id: e.id }]);
     this.dropEdge(e.id);
+    this.logActivity(actor, 'unlink', [{ op: 'edge', edge: { ...e } }], undefined, [], `${e.from} -${e.rel}-> ${e.to}`);
     this.changed([e.id, e.from, e.to]);
     return { ...e };
+  }
+
+  // ------------------------------------------------------------------ commit helpers, activity, undo
+
+  private stamp(): string { return this.now().toISOString(); }
+
+  /**
+   * The ops that put things back as they were, computed from the state BEFORE `ops` are applied (in the order to
+   * apply them). Used for the Activity list's Undo.
+   */
+  private inverseOf(ops: LogOp[]): LogOp[] {
+    const inv: LogOp[] = [];
+    const connected = (id: string) => [...new Set([...(this.out.get(id) ?? []), ...(this.inn.get(id) ?? [])])];
+    for (const op of ops) {
+      switch (op.op) {
+        case 'node': {
+          const n = op.node as KgNode;
+          const cur = this.nodes.get(n.id);
+          inv.push(cur ? { op: 'node', node: structuredClone(cur) } : { op: 'del_node', id: n.id });
+          break;
+        }
+        case 'edge': {
+          const e = op.edge as KgEdge;
+          const clash = this.edgeKeys.get(edgeKey(e.from, e.to, e.rel));
+          const clashEdge = clash && clash !== e.id ? this.edges.get(clash) : undefined;
+          // pushed in reverse intent: the whole list is reversed at the end
+          if (clashEdge) inv.push({ op: 'edge', edge: { ...clashEdge } });
+          inv.push(this.edges.has(e.id) ? { op: 'edge', edge: { ...this.edges.get(e.id)! } } : { op: 'del_edge', id: e.id });
+          break;
+        }
+        case 'patch': {
+          const id = op.id as string;
+          const fields = op.fields as Record<string, unknown>;
+          const n = this.nodes.get(id);
+          const e = n ? undefined : this.edges.get(id);
+          if (n) inv.push({ op: 'patch', id, fields: Object.fromEntries(Object.keys(fields).map((k) => [k, (n as unknown as Record<string, unknown>)[k] ?? null])) });
+          else if (e) inv.push({ op: 'patch', id, fields: Object.fromEntries(Object.keys(fields).map((k) => [k, (e as unknown as Record<string, unknown>)[k] ?? null])) });
+          break;
+        }
+        case 'del_node': {
+          const id = op.id as string;
+          const n = this.nodes.get(id);
+          if (!n) break;
+          for (const eid of connected(id)) inv.push({ op: 'edge', edge: { ...this.edges.get(eid)! } });
+          inv.push({ op: 'node', node: structuredClone(n) });
+          break;
+        }
+        case 'del_edge': {
+          const e = this.edges.get(op.id as string);
+          if (e) inv.push({ op: 'edge', edge: { ...e } });
+          break;
+        }
+      }
+    }
+    return inv.reverse();
+  }
+
+  /** Appends ops to the log and applies them to memory exactly as a reload would (so live state and replayed state cannot differ). */
+  private apply(ops: LogOp[]): void {
+    this.append(ops);
+    for (const op of ops) if (this.replay(JSON.stringify(op))) this.totalEntries--; // append() already counted it
+  }
+
+  /** Puts one write on the Activity list (bots and the system only: the human's own edits are not listed). */
+  private logActivity(actor: Actor, kind: string, inverse: LogOp[], main?: KgNode, touched: string[] = [], label?: string): void {
+    if (actor.kind === 'human') return;
+    const stamps: Record<string, string> = {};
+    for (const id of new Set([main?.id, ...touched])) {
+      const n = id ? this.nodes.get(id) : undefined;
+      if (n) stamps[n.id] = n.updatedAt;
+    }
+    const m = main ? this.nodes.get(main.id) ?? main : undefined;
+    this.activity.add({
+      id: newId('act'), at: this.stamp(), who: actorName(actor),
+      ...(actor.kind === 'agent' && actor.taskId ? { taskId: actor.taskId } : {}),
+      ...(actor.kind === 'agent' && actor.origin?.fromAgentId ? { via: actor.origin.fromAgentId } : {}),
+      kind, ...(m ? { nodeId: m.id, nodeType: m.type, trust: effectiveTrust(m) } : {}),
+      ...(m || label ? { title: oneLine(m?.title ?? label ?? '').slice(0, 120) } : {}),
+      tainted: m?.origin?.tainted ?? isTainted(actor), inverse, stamps,
+    });
+  }
+
+  private requireHuman(actor: Actor, what: string): void {
+    if (actor.kind === 'agent') throw new KgError('forbidden', `Only the human can ${what}.`);
+  }
+
+  /** The last writes by bots and the system, newest first. Human only. */
+  activityFeed(actor: Actor, opts: { limit?: number; agentId?: string } = {}): KgActivityRow[] {
+    this.requireHuman(actor, 'read the activity list');
+    const limit = clampInt(opts.limit, 1, 200, 50);
+    const rows: KgActivityRow[] = [];
+    for (const e of this.activity.list()) {
+      if (opts.agentId && e.who !== opts.agentId) continue;
+      rows.push(this.activityRow(e));
+      if (rows.length >= limit) break;
+    }
+    return rows;
+  }
+
+  private activityRow(e: ActivityEntry): KgActivityRow {
+    return {
+      id: e.id, at: e.at, who: e.who, ...(e.taskId ? { taskId: e.taskId } : {}), kind: e.kind,
+      ...(e.nodeId ? { nodeId: e.nodeId } : {}), ...(e.nodeType ? { nodeType: e.nodeType } : {}), ...(e.title ? { title: e.title } : {}),
+      ...(e.trust ? { trust: e.trust } : {}), tainted: e.tainted, undoable: this.activity.isUndoable(e), undone: e.undone === true,
+    };
+  }
+
+  /**
+   * Undo one Activity entry (within 7 days): restores what it changed. Human only. Refuses when a node it touched
+   * has been changed since, so an undo can never wipe out a later edit.
+   */
+  undo(actor: Actor, entryId: string): KgActivityRow {
+    this.requireHuman(actor, 'undo a write');
+    const e = this.activity.get(entryId);
+    if (!e) throw new KgError('not_found', `Unknown activity entry "${entryId}" (entries are kept for ${ACTIVITY_DAYS} days).`);
+    if (e.undone) throw new KgError('conflict', 'This write was already undone.');
+    if (!this.activity.isUndoable(e)) throw new KgError('conflict', `This write can no longer be undone (older than ${ACTIVITY_DAYS} days, or too large to keep).`);
+    for (const [id, at] of Object.entries(e.stamps)) {
+      const n = this.nodes.get(id);
+      if (n && n.updatedAt !== at) throw new KgError('conflict', `"${id}" has changed since this write. Undo the later change first (nothing was undone).`);
+    }
+    const ops = (e.inverse ?? []).filter((op) => {
+      if (op.op === 'patch') return this.nodes.has(op.id as string) || this.edges.has(op.id as string);
+      return true;
+    });
+    const touched = new Set<string>();
+    for (const op of ops) for (const k of ['id']) if (typeof op[k] === 'string') touched.add(op[k] as string);
+    if (ops.length) { this.apply(ops); this.changed([...touched, ...Object.keys(e.stamps)]); }
+    this.activity.markUndone(entryId);
+    return this.activityRow(e);
+  }
+
+  // ------------------------------------------------------------------ capture, working memory, supersede, merge
+
+  /** Existing live nodes whose title is a near-duplicate (token Jaccard >= 0.7), best first. */
+  similarTitles(actor: Actor, title: string): Array<{ id: string; title: string; score: number }> {
+    const a = new Set(tokenize(title));
+    if (!a.size) return [];
+    const out: Array<{ id: string; title: string; score: number }> = [];
+    for (const n of this.nodes.values()) {
+      if (!this.canSeeNode(actor, n) || isInactive(n) || n.type === 'episode' || n.id.startsWith(WM_PREFIX)) continue;
+      const b = new Set(tokenize(n.title));
+      if (!b.size) continue;
+      let inter = 0;
+      for (const t of a) if (b.has(t)) inter++;
+      const j = inter / (a.size + b.size - inter);
+      if (j >= SIMILAR_TITLE_JACCARD) out.push({ id: n.id, title: shownTitle(n), score: Math.round(j * 100) / 100 });
+    }
+    return out.sort((x, y) => y.score - x.score || x.id.localeCompare(y.id)).slice(0, 3);
+  }
+
+  /**
+   * How an agent may change an existing node: 'direct', as a 'proposal' for the human (human-trust notes, anything a
+   * held run or the Archivist touches that it did not write in this run), or not at all.
+   */
+  private editMode(actor: Actor, n: KgNode): 'direct' | 'proposal' | 'forbidden' {
+    if (actor.kind !== 'agent') return 'direct';
+    if (!this.canWrite(actor, n.scope) || n.id.startsWith(WM_PREFIX)) return 'forbidden';
+    if (n.scope !== 'shared') return 'direct';
+    const w = this.writeCtx(actor, n.scope, false);
+    const ownedByRun = !!actor.taskId && n.origin?.taskId === actor.taskId;
+    return trustOf(n) === 'human' || (w.hold && !ownedByRun) ? 'proposal' : 'direct';
+  }
+
+  /**
+   * Captures one structured note (kind decision, mistake, pattern, project or idea; the body is already rendered by
+   * the caller). ONE atomic append: the node, its links and, for `supersedes`, the old node's retirement. Near-duplicate
+   * titles are reported and nothing is written unless `force` or `supersedes` is given.
+   */
+  capture(actor: Actor, input: CaptureInput): CaptureResult {
+    if (actor.kind !== 'agent') throw new KgError('forbidden', 'kg_capture is a bot tool: the human writes notes directly.');
+    const g = this.guard();
+    const f = this.cleanFields({
+      type: input.type, title: input.title, body: input.body, tags: input.tags, sources: input.sources, confidence: input.confidence,
+      ...(input.scope ? { scope: input.scope } : {}),
+    }, true, g);
+    const scope = f.scope ?? 'shared';
+    if (!this.canWrite(actor, scope)) throw new KgError('forbidden', `You may write only to "shared" or your own private scope, not "${scope}".`);
+    this.guardTriggerTags(actor, f.tags);
+    if (!input.supersedes && !input.force) {
+      const similar = this.similarTitles(actor, f.title!);
+      if (similar.length) return { saved: false, similar, edges: 0, notes: [] };
+    }
+    let w = this.writeCtx(actor, scope, false);
+    const notes = [...w.notes];
+    let target: KgNode | undefined;
+    let direct = false;
+    if (input.supersedes) {
+      target = this.mustSee(actor, input.supersedes);
+      this.assertReplaceable(target, 'superseded');
+      if (target.scope !== scope) throw new KgError('invalid', `supersedes must name a note in the same scope as the new one (${scope}); "${target.id}" is in ${target.scope}.`);
+      const mode = this.editMode(actor, target);
+      if (mode === 'forbidden') throw new KgError('forbidden', `You may not replace "${target.id}".`);
+      direct = mode === 'direct' && !w.hold;
+      if (!direct && !w.hold) {
+        // a note the bot may not rewrite: its replacement is a pending proposal, the old note stays until the human accepts
+        w = { ...w, hold: true };
+        notes.push(`You may not replace "${target.id}" directly (it was written or accepted by the human): your note was saved as a pending proposal that supersedes it. The human decides.`);
+      } else if (!direct) notes.push(`"${target.id}" stays live until the human accepts your pending note.`);
+    }
+    const links = (input.links ?? []).map((l) => ({ to: l.to, rel: normRel(l.rel ?? 'relates') }));
+    // links run FROM the new node, so even a tainted run (which may only wire up what it wrote itself) may add them
+    for (const l of links) this.mustSee(actor, l.to);
+    const node = this.buildNode(actor, f, scope, w, undefined, false);
+    const edges: KgEdge[] = [];
+    const seen = new Set<string>();
+    const addEdge = (to: string, rel: string) => {
+      const k = edgeKey(node.id, to, rel);
+      if (seen.has(k)) return;
+      seen.add(k);
+      edges.push({ id: newId('e'), from: node.id, to, rel, createdBy: actor.id, createdAt: nowIso() });
+    };
+    if (target) addEdge(target.id, 'supersedes');
+    for (const l of links) addEdge(l.to, l.rel);
+    this.chargeNode(actor, Buffer.byteLength(JSON.stringify([f.title, f.body, f.tags, f.sources])));
+    for (const _e of edges) this.chargeEdge(actor);
+    const ops: LogOp[] = [{ op: 'node', node }, ...edges.map((edge) => ({ op: 'edge', edge }) as LogOp)];
+    if (target && direct) ops.push({ op: 'patch', id: target.id, fields: { status: 'superseded', supersededBy: node.id, updatedAt: this.stamp() } });
+    const undo = this.inverseOf(ops);
+    this.apply(ops);
+    const stored = this.nodes.get(node.id)!;
+    this.logActivity(actor, input.supersedes ? 'supersede' : 'capture', undo, stored, target ? [target.id] : []);
+    this.changed([node.id, ...edges.map((e) => e.id), ...(target ? [target.id] : [])]);
+    return {
+      saved: true, node: structuredClone(stored), edges: edges.length, ...(w.hold ? { pending: true } : {}),
+      ...(target ? { superseded: target.id, supersededNow: direct } : {}), ...(g.count ? { redacted: g.count } : {}), notes,
+    };
+  }
+
+  private assertReplaceable(n: KgNode, what: string): void {
+    const st = statusOf(n);
+    if (st === 'superseded' || st === 'archived') throw new KgError('conflict', `"${n.id}" is already ${st}${n.supersededBy ? ` (by ${n.supersededBy})` : ''}; it cannot be ${what} again.`);
+  }
+
+  /**
+   * A bot's working memory: the node `wm:<agentId>` (private, type memory) with an ACTIVE section (at most 2,500
+   * chars, shown to the bot at the start of its next run) and an ARCHIVE scratch log. The only writer; refused in a
+   * run that touched outside content, so nothing a web page said can ever reach the next run's briefing.
+   */
+  setWorkingMemory(actor: Actor, input: { active: string; archiveAppend?: string }): { node: KgNode; created: boolean; changed: boolean; archiveTrimmed: boolean; redacted?: number } {
+    if (actor.kind !== 'agent') throw new KgError('forbidden', 'Working memory belongs to a bot.');
+    if (isTainted(actor)) {
+      throw new KgError('forbidden', 'This run touched outside content (web, shell or external tools), so it may not write working memory: the next run would read it as its own. Nothing was saved. Put findings in a note (they go to the human inbox) and keep your working memory for clean runs.');
+    }
+    if (typeof input.active !== 'string') throw new KgError('invalid', 'active must be a string.');
+    if (input.archiveAppend !== undefined && typeof input.archiveAppend !== 'string') throw new KgError('invalid', 'archiveAppend must be a string.');
+    const g = this.guard();
+    const active = g.text(input.active).replace(/\s+$/, '');
+    if (active.length > WM_ACTIVE_MAX) throw new KgError('invalid', `active is ${active.length} chars; the cap is ${WM_ACTIVE_MAX}. Shorten it (move old items into archiveAppend); nothing was saved.`);
+    const extraLines = input.archiveAppend ? g.text(input.archiveAppend).split('\n').map((l) => l.trim()).filter(Boolean) : [];
+    if ([active, ...extraLines].some((t) => /^##[ \t]+(ACTIVE|ARCHIVE)\b/im.test(t))) throw new KgError('invalid', 'Working memory text may not contain "## ACTIVE" or "## ARCHIVE" headings. Nothing was saved.');
+    const id = wmId(actor.id);
+    const scope = `agent:${actor.id}` as KgScope;
+    if (!ID_RE.test(id) || !isScope(scope)) throw new KgError('invalid', 'This agent id cannot own working memory.');
+    const existing = this.nodes.get(id);
+    const old = existing ? parseWorkingMemory(existing.body) : { active: '', archive: [] as string[] };
+    const day = this.stamp().slice(0, 10);
+    let archive = [...old.archive, ...extraLines.map((l) => `- ${day} ${l}`)];
+    let trimmed = false;
+    // the archive is scratch: keep the newest lines that fit
+    while (archive.join('\n').length > WM_ARCHIVE_MAX && archive.length > 1) { archive = archive.slice(1); trimmed = true; }
+    if (archive.length === 1 && archive[0]!.length > WM_ARCHIVE_MAX) { archive = [archive[0]!.slice(-WM_ARCHIVE_MAX)]; trimmed = true; }
+    const body = renderWorkingMemory(active, archive);
+    const bytes = Buffer.byteLength(body);
+    const origin: KgOrigin | undefined = actor.taskId ? { taskId: actor.taskId, tainted: false, ...(actor.origin?.fromAgentId ? { via: actor.origin.fromAgentId } : {}) } : undefined;
+    this.chargeNode(actor, bytes);
+    const extra = g.count ? { redacted: g.count } : {};
+    if (existing) {
+      if (existing.body === body) return { node: structuredClone(existing), created: false, changed: false, archiveTrimmed: trimmed, ...extra };
+      const fields: Record<string, unknown> = { body, updatedAt: this.stamp() };
+      if (origin) fields.origin = origin;
+      const op: LogOp = { op: 'patch', id, fields };
+      const undo = this.inverseOf([op]);
+      this.apply([op]);
+      const n = this.nodes.get(id)!;
+      this.logActivity(actor, 'wm', undo, n);
+      this.changed([id]);
+      return { node: structuredClone(n), created: false, changed: true, archiveTrimmed: trimmed, ...extra };
+    }
+    const now = this.stamp();
+    const node: KgNode = {
+      id, type: 'memory', title: `Working memory: ${actor.id}`, body, tags: ['working-memory'], scope, trust: 'agent',
+      ...(origin ? { origin } : {}), createdBy: actor.id, createdAt: now, updatedAt: now,
+    };
+    this.apply([{ op: 'node', node }]);
+    const n = this.nodes.get(id)!;
+    this.logActivity(actor, 'wm', [{ op: 'del_node', id }], n);
+    this.changed([id]);
+    return { node: structuredClone(n), created: true, changed: true, archiveTrimmed: trimmed, ...extra };
+  }
+
+  private supersedeOps(old: KgNode, nw: KgNode, who: string): LogOp[] {
+    const ops: LogOp[] = [{ op: 'patch', id: old.id, fields: { status: 'superseded', supersededBy: nw.id, updatedAt: this.stamp() } }];
+    if (!this.edgeKeys.has(edgeKey(nw.id, old.id, 'supersedes'))) {
+      ops.push({ op: 'edge', edge: { id: newId('e'), from: nw.id, to: old.id, rel: 'supersedes', createdBy: who, createdAt: nowIso() } });
+    }
+    return ops;
+  }
+
+  /** Merge plan: every drop is archived and points at keep; its links move to keep (a link that would loop or repeat just goes). */
+  private mergeOps(actor: Actor, keep: KgNode, drops: KgNode[], who: string): { ops: LogOp[]; newEdges: number } {
+    const ops: LogOp[] = [];
+    const dropIds = new Set(drops.map((d) => d.id));
+    const taken = new Set<string>();
+    let newEdges = 0;
+    for (const d of drops) {
+      ops.push({ op: 'patch', id: d.id, fields: { status: 'archived', supersededBy: keep.id, updatedAt: this.stamp() } });
+      if (!this.edgeKeys.has(edgeKey(keep.id, d.id, 'supersedes')) && !taken.has(edgeKey(keep.id, d.id, 'supersedes'))) {
+        taken.add(edgeKey(keep.id, d.id, 'supersedes'));
+        ops.push({ op: 'edge', edge: { id: newId('e'), from: keep.id, to: d.id, rel: 'supersedes', createdBy: who, createdAt: nowIso() } });
+        newEdges++;
+      }
+    }
+    const gone = new Set<string>();
+    for (const d of drops) {
+      for (const { edge, other } of this.adjacent(actor, d.id, 'both')) {
+        if (gone.has(edge.id) || (edge.rel === 'supersedes' && other === keep.id && edge.from === keep.id)) continue;
+        gone.add(edge.id);
+        ops.push({ op: 'del_edge', id: edge.id });
+        if (other === keep.id || dropIds.has(other)) continue;
+        const from = edge.from === d.id ? keep.id : edge.from;
+        const to = edge.to === d.id ? keep.id : edge.to;
+        const key = edgeKey(from, to, edge.rel);
+        if (this.edgeKeys.has(key) || taken.has(key)) continue;
+        taken.add(key);
+        ops.push({ op: 'edge', edge: { id: newId('e'), from, to, rel: edge.rel, ...(edge.weight !== undefined ? { weight: edge.weight } : {}), ...(edge.note ? { note: edge.note } : {}), createdBy: edge.createdBy, createdAt: nowIso() } });
+        newEdges++;
+      }
+    }
+    return { ops, newEdges };
+  }
+
+  /** A pending note that stands for a supersede or merge a bot may not do itself (props.proposal says which). */
+  private proposalMarker(actor: Actor & { kind: 'agent' }, kind: 'supersede' | 'merge', props: Record<string, string>, title: string, reason: string | undefined, g: { text: (s: string) => string }): KgNode {
+    const w = this.writeCtx(actor, 'shared', false);
+    this.requirePendingRoom(actor);
+    const now = nowIso();
+    const text = reason ? oneLine(g.text(reason)).slice(0, 500) : '';
+    return {
+      id: newId('n'), type: 'note', title, body: text ? `Reason given by ${actor.id}: ${text}` : `Proposed by ${actor.id}.`, tags: ['proposal'], scope: 'shared',
+      props: { proposal: kind, ...props }, trust: w.trust, status: 'pending', ...(w.origin ? { origin: w.origin } : {}),
+      createdBy: actor.id, createdAt: now, updatedAt: now,
+    };
+  }
+
+  /**
+   * Replace `oldId` by `newId` (the old one is kept, marked superseded and hidden from recall). One atomic append.
+   * A bot that may not edit the old note directly (human-trust, or a held run, or the Archivist) gets a pending proposal instead.
+   */
+  supersede(actor: Actor, oldId: string, newId_: string, opts: { reason?: string } = {}): SupersedeResult {
+    if (oldId === newId_) throw new KgError('invalid', 'oldId and newId must differ.');
+    const old = this.mustSee(actor, oldId);
+    const nw = this.mustSee(actor, newId_);
+    this.assertReplaceable(old, 'superseded');
+    if (isInactive(nw)) throw new KgError('invalid', `"${nw.id}" is ${statusOf(nw)}: supersede with a live note.`);
+    if (old.scope !== nw.scope) throw new KgError('invalid', `Both notes must be in the same scope (${old.id} is ${old.scope}, ${nw.id} is ${nw.scope}).`);
+    const mode = this.editMode(actor, old);
+    if (mode === 'forbidden') throw new KgError('forbidden', `You may not replace "${old.id}" (scope ${old.scope}).`);
+    const g = this.guard();
+    const asBot = actor.kind === 'agent';
+    const direct = !asBot || (mode === 'direct' && statusOf(nw) === 'active' && !(old.scope === 'shared' && effectiveTrust(nw) === 'untrusted'));
+    if (direct) {
+      if (!asBot) this.requireNotPending(nw);
+      const ops = this.supersedeOps(old, nw, actorName(actor));
+      this.chargeNode(actor, 0);
+      for (const o of ops) if (o.op === 'edge') this.chargeEdge(actor);
+      const undo = this.inverseOf(ops);
+      this.apply(ops);
+      this.logActivity(actor, 'supersede', undo, this.nodes.get(nw.id), [old.id]);
+      this.changed([old.id, nw.id]);
+      return { mode: 'direct', old: structuredClone(this.nodes.get(old.id)!), notes: [] };
+    }
+    const marker = this.proposalMarker(actor as Actor & { kind: 'agent' }, 'supersede', { oldId: old.id, newId: nw.id }, `Proposal: supersede ${old.id} with ${nw.id}`, opts.reason, g);
+    this.chargeNode(actor, Buffer.byteLength(JSON.stringify(marker)));
+    const undo = this.inverseOf([{ op: 'node', node: marker }]);
+    this.apply([{ op: 'node', node: marker }]);
+    this.logActivity(actor, 'proposal', undo, this.nodes.get(marker.id));
+    this.changed([marker.id]);
+    return { mode: 'proposal', old: structuredClone(old), proposal: structuredClone(this.nodes.get(marker.id)!), notes: ['Saved as a pending proposal: the human decides whether to replace the note.'] };
+  }
+
+  private requireNotPending(n: KgNode): void {
+    if (statusOf(n) === 'pending') throw new KgError('conflict', `"${n.id}" is still waiting for review: accept it first.`);
+  }
+
+  /**
+   * Merge duplicates: `drop` notes are archived (superseded by `keep`) and their links move to `keep`. One atomic append.
+   * Becomes a pending proposal when any of the notes may not be changed directly by this bot.
+   */
+  merge(actor: Actor, keepId: string, dropIds: string[], opts: { reason?: string } = {}): MergeResult {
+    const ids = [...new Set(dropIds)];
+    if (!ids.length) throw new KgError('invalid', 'drop must name at least one note.');
+    if (ids.length > MAX_MERGE_DROPS) throw new KgError('invalid', `At most ${MAX_MERGE_DROPS} notes per merge.`);
+    if (ids.includes(keepId)) throw new KgError('invalid', 'keep cannot also be in drop.');
+    const keep = this.mustSee(actor, keepId);
+    const drops = ids.map((i) => this.mustSee(actor, i));
+    for (const n of [keep, ...drops]) {
+      if (isInactive(n)) throw new KgError('conflict', `"${n.id}" is ${statusOf(n)}: merge only live notes.`);
+      if (n.scope !== keep.scope) throw new KgError('invalid', `All notes must be in one scope (${keep.id} is ${keep.scope}, ${n.id} is ${n.scope}).`);
+    }
+    const modes = [keep, ...drops].map((n) => this.editMode(actor, n));
+    if (modes.includes('forbidden')) throw new KgError('forbidden', `You may not change one of these notes (scope ${keep.scope}).`);
+    const g = this.guard();
+    const asBot = actor.kind === 'agent';
+    const untrustedIntoTrusted = asBot && keep.scope === 'shared' && effectiveTrust(keep) === 'untrusted' && drops.some((d) => effectiveTrust(d) !== 'untrusted');
+    const direct = !asBot || (modes.every((m) => m === 'direct') && !untrustedIntoTrusted && [keep, ...drops].every((n) => statusOf(n) === 'active'));
+    if (direct) {
+      const { ops } = this.mergeOps(actor, keep, drops, actorName(actor));
+      for (let i = 0; i < drops.length; i++) this.chargeNode(actor, 0);
+      for (const o of ops) if (o.op === 'edge') this.chargeEdge(actor);
+      const undo = this.inverseOf(ops);
+      this.apply(ops);
+      this.logActivity(actor, 'merge', undo, this.nodes.get(keep.id), drops.map((d) => d.id));
+      this.changed([keep.id, ...drops.map((d) => d.id)]);
+      return { mode: 'direct', keep: structuredClone(this.nodes.get(keep.id)!), dropped: drops.map((d) => d.id), notes: [] };
+    }
+    const marker = this.proposalMarker(actor as Actor & { kind: 'agent' }, 'merge', { keep: keep.id, drop: ids.join(',') }, `Proposal: merge ${ids.join(', ')} into ${keep.id}`, opts.reason, g);
+    this.chargeNode(actor, Buffer.byteLength(JSON.stringify(marker)));
+    const undo = this.inverseOf([{ op: 'node', node: marker }]);
+    this.apply([{ op: 'node', node: marker }]);
+    this.logActivity(actor, 'proposal', undo, this.nodes.get(marker.id));
+    this.changed([marker.id]);
+    return { mode: 'proposal', keep: structuredClone(keep), dropped: [], proposal: structuredClone(this.nodes.get(marker.id)!), notes: ['Saved as a pending proposal: the human decides whether to merge.'] };
+  }
+
+  // ------------------------------------------------------------------ inbox (human only)
+
+  /** Everything waiting for the human: held notes, edit proposals, supersede and merge proposals. Newest first. */
+  inbox(actor: Actor, opts: { agentId?: string } = {}): KgInboxRow[] {
+    this.requireHuman(actor, 'read the inbox');
+    const rows: KgInboxRow[] = [];
+    for (const n of this.nodes.values()) {
+      if (statusOf(n) !== 'pending') continue;
+      if (opts.agentId && n.createdBy !== opts.agentId) continue;
+      const proposal = n.props?.proposal;
+      let target: KgNode | undefined;
+      if (proposal !== 'supersede' && proposal !== 'merge') target = this.editTarget(n);
+      rows.push({
+        id: n.id, kind: proposal === 'supersede' ? 'supersede' : proposal === 'merge' ? 'merge' : target ? 'edit' : 'note',
+        agentId: n.createdBy, node: structuredClone(n), ...(target ? { target: structuredClone(target) } : {}),
+        tainted: n.origin?.tainted === true, untrusted: isUntrusted(n) || n.origin?.tainted === true, createdAt: n.createdAt,
+      });
+    }
+    return rows.sort((a, b) => b.createdAt.localeCompare(a.createdAt) || a.id.localeCompare(b.id));
+  }
+
+  /** The live note a pending edit proposal replaces (the target of its `supersedes` link). */
+  private editTarget(n: KgNode): KgNode | undefined {
+    for (const eid of this.out.get(n.id) ?? []) {
+      const e = this.edges.get(eid);
+      const t = e?.rel === 'supersedes' ? this.nodes.get(e.to) : undefined;
+      if (t && statusOf(t) === 'active') return t;
+    }
+    return undefined;
+  }
+
+  /**
+   * Accept a pending note: it goes live. Trust stays what the run earned: a note from a tainted run becomes 'agent'
+   * (never 'human'), anything else becomes 'human' (the human accepted it), and an explicit edit by the human makes it
+   * 'human' and clears the taint. An edit proposal replaces its target; a supersede or merge proposal is carried out.
+   */
+  acceptPending(actor: Actor, id: string, opts: { edit?: { title?: string; body?: string; tags?: string[] } } = {}): KgNode {
+    this.requireHuman(actor, 'accept notes');
+    const n = this.nodes.get(id);
+    if (!n) throw new KgError('not_found', `Unknown node "${id}".`);
+    if (statusOf(n) !== 'pending') throw new KgError('conflict', `"${id}" is not waiting for review.`);
+    const who = actorName(actor);
+    const proposal = n.props?.proposal;
+    const ops: LogOp[] = [];
+    if (proposal === 'supersede' || proposal === 'merge') {
+      const live = (i: unknown): KgNode => {
+        const x = typeof i === 'string' ? this.nodes.get(i) : undefined;
+        if (!x || isInactive(x) || statusOf(x) === 'pending') throw new KgError('conflict', 'One of the notes in this proposal has changed or is gone: reject it instead.');
+        return x;
+      };
+      if (proposal === 'supersede') {
+        const old = live(n.props?.oldId);
+        const nw = live(n.props?.newId);
+        ops.push(...this.supersedeOps(old, nw, who));
+      } else {
+        const keep = live(n.props?.keep);
+        const drops = String(n.props?.drop ?? '').split(',').filter(Boolean).map(live);
+        ops.push(...this.mergeOps(HUMAN, keep, drops, who).ops);
+      }
+      ops.push({ op: 'patch', id, fields: { status: 'archived', props: { ...n.props, resolved: 'accepted' }, updatedAt: this.stamp() } });
+    } else {
+      const g = this.guard();
+      const f = opts.edit ? this.cleanFields({ title: opts.edit.title, body: opts.edit.body, tags: opts.edit.tags }, false, g) : {};
+      const edited = !!opts.edit && (f.title !== undefined || f.body !== undefined || f.tags !== undefined);
+      const trust: KgTrust = edited ? 'human' : n.origin?.tainted || trustOf(n) === 'untrusted' ? 'agent' : 'human';
+      const fields: Record<string, unknown> = { status: null, trust, updatedAt: this.stamp() };
+      if (f.title !== undefined) fields.title = f.title;
+      if (f.body !== undefined) fields.body = f.body;
+      if (f.tags !== undefined) fields.tags = f.tags;
+      if (edited && n.origin?.tainted) fields.origin = { ...n.origin, tainted: false };
+      ops.push({ op: 'patch', id, fields });
+      const target = this.editTarget(n);
+      if (target) ops.push({ op: 'patch', id: target.id, fields: { status: 'superseded', supersededBy: id, updatedAt: this.stamp() } });
+    }
+    this.apply(ops);
+    this.changed([id, ...ops.filter((o) => o.op === 'patch').map((o) => o.id as string)]);
+    return structuredClone(this.nodes.get(id)!);
+  }
+
+  /**
+   * Accept many. Rows with an untrusted source (or from a tainted run) are skipped unless `overrideUntrusted`:
+   * bulk accept must never wave through what a web page may have written.
+   */
+  acceptMany(actor: Actor, opts: { ids?: string[]; agentId?: string; overrideUntrusted?: boolean } = {}): { accepted: string[]; skipped: Array<{ id: string; reason: string }> } {
+    this.requireHuman(actor, 'accept notes');
+    const rows = this.inbox(actor, { agentId: opts.agentId }).filter((r) => !opts.ids || opts.ids.includes(r.id));
+    const accepted: string[] = [];
+    const skipped: Array<{ id: string; reason: string }> = [];
+    for (const id of opts.ids ?? []) if (!rows.some((r) => r.id === id)) skipped.push({ id, reason: 'not waiting for review' });
+    for (const r of rows) {
+      if (r.untrusted && !opts.overrideUntrusted) { skipped.push({ id: r.id, reason: 'untrusted source: accept it on its own, or pass overrideUntrusted' }); continue; }
+      try { this.acceptPending(actor, r.id); accepted.push(r.id); } catch (e) { skipped.push({ id: r.id, reason: e instanceof Error ? e.message : String(e) }); }
+    }
+    return { accepted, skipped };
+  }
+
+  /** Reject a pending note: it becomes a tombstone (hidden, purged after 30 days). */
+  rejectPending(actor: Actor, id: string): KgNode {
+    this.requireHuman(actor, 'reject notes');
+    const n = this.nodes.get(id);
+    if (!n) throw new KgError('not_found', `Unknown node "${id}".`);
+    if (statusOf(n) !== 'pending') throw new KgError('conflict', `"${id}" is not waiting for review.`);
+    this.apply([{ op: 'patch', id, fields: { status: 'archived', updatedAt: this.stamp() } }]);
+    this.changed([id]);
+    return structuredClone(this.nodes.get(id)!);
+  }
+
+  // ------------------------------------------------------------------ close-out, lint-lite, briefing
+
+  /**
+   * The deterministic summary the module writes when a long task ended without the bot capturing anything: an
+   * `episode` node (private to the agent, written by the system, its source marked untrusted because the result may
+   * quote web content). Same task, same node: a follow-up run updates it. No actor quota applies (system write).
+   */
+  recordEpisode(e: { taskId: string; agentId: string; title: string; status: string; turns: number; costUsd: number; prompt: string; result: string; tainted: boolean }): KgNode | undefined {
+    const id = `ep:${e.taskId}`;
+    const scope = `agent:${e.agentId}` as KgScope;
+    if (!ID_RE.test(id) || !isScope(scope) || (this.nodes.size >= KG_LIMITS.maxNodes && !this.nodes.has(id))) return undefined;
+    const g = this.guard();
+    const header = `Task ${e.taskId} ended ${e.status} after ${e.turns} turns, $${e.costUsd.toFixed(2)}.`;
+    let body: string;
+    let title: string;
+    try {
+      title = oneLine(g.text(`Episode: ${e.title || e.taskId}`)).slice(0, KG_LIMITS.titleChars);
+      body = `${header}\n\nPrompt: ${g.text(e.prompt.slice(0, EPISODE_PROMPT_CHARS))}\n\nResult: ${g.text(e.result.slice(0, EPISODE_RESULT_CHARS))}`;
+    } catch (err) {
+      if (!(err instanceof KgError)) throw err;
+      // a seed phrase or key in the text: keep the fact that the task ran, drop the text
+      title = `Episode: ${e.taskId}`;
+      body = `${header}\n\n(prompt and result left out: they contained a secret)`;
+    }
+    const now = this.stamp();
+    const props = { taskId: e.taskId, turns: e.turns, costUsd: Math.round(e.costUsd * 100) / 100, status: e.status };
+    const existing = this.nodes.get(id);
+    const origin: KgOrigin = { taskId: e.taskId, tainted: e.tainted };
+    let op: LogOp;
+    if (existing) {
+      op = { op: 'patch', id, fields: { title, body, props, origin, updatedAt: now } };
+    } else {
+      const node: KgNode = {
+        id, type: 'episode', title, body, tags: ['episode', 'auto'], scope, props,
+        sources: [{ ref: `task:${e.taskId}`, untrusted: true }], trust: 'untrusted', origin, createdBy: 'system', createdAt: now, updatedAt: now,
+      };
+      op = { op: 'node', node };
+    }
+    const undo = this.inverseOf([op]);
+    this.apply([op]);
+    const n = this.nodes.get(id)!;
+    this.logActivity(SYSTEM, 'episode', undo, n);
+    this.changed([id]);
+    return structuredClone(n);
+  }
+
+  /**
+   * The nightly free pass (no model calls): retire episodes older than 30 days, purge tombstones past their 30 days,
+   * flag nodes past their per-type time-to-live (flag only: decision, pattern and mistake never go stale), drop
+   * Activity entries past 7 days. Pure over the graph and its clock, so tests call it directly.
+   */
+  lintLite(): KgLintLite {
+    const nowMs = this.now().getTime();
+    const old = [...this.nodes.values()].filter((n) => n.type === 'episode' && !isInactive(n) && nowMs - Date.parse(n.updatedAt) > EPISODE_DAYS * DAY_MS);
+    if (old.length) {
+      this.apply(old.map((n) => ({ op: 'patch', id: n.id, fields: { status: 'archived', updatedAt: this.stamp() } }) as LogOp));
+      this.changed(old.map((n) => n.id));
+    }
+    const purgedTombstones = this.purgeTombstones();
+    const staleIds: string[] = [];
+    let stale = 0;
+    let pending = 0;
+    for (const n of this.nodes.values()) {
+      if (statusOf(n) === 'pending') pending++;
+      if (isInactive(n) || statusOf(n) === 'pending') continue;
+      const t = Date.parse(n.updatedAt);
+      if (Number.isFinite(t) && (nowMs - t) / DAY_MS > staleDaysFor(n.type)) { stale++; if (staleIds.length < 50) staleIds.push(n.id); }
+    }
+    const report: KgLintLite = {
+      at: this.stamp(), expiredEpisodes: old.length, purgedTombstones, stale, staleIds, prunedActivity: this.activity.prune(), pending,
+    };
+    this.lite = report;
+    try { writeFileSync(join(this.dir, 'lint-lite.json'), JSON.stringify(report), 'utf8'); } catch { /* status only: memory holds it */ }
+    return report;
+  }
+
+  lastLintLite(): KgLintLite | undefined { return this.lite; }
+
+  /**
+   * What an agent's run briefing may contain, and nothing else: its own working memory (written by a clean run), human-trust
+   * trigger notes, the titles of the best recall hits that are trusted and live, and how many of its notes await review.
+   * Pure and synchronous. Nothing from a tainted run, an untrusted source or a pending note can appear here.
+   */
+  briefingParts(agentId: string, opts: { projectKey?: string; prompt?: string } = {}): BriefingParts {
+    const me = agentActor(agentId);
+    const clean = (n: KgNode): boolean => statusOf(n) === 'active' && effectiveTrust(n) !== 'untrusted' && n.origin?.tainted !== true;
+    let wm: string | undefined;
+    const w = this.nodes.get(wmId(agentId));
+    if (w && w.scope === `agent:${agentId}` && clean(w)) wm = parseWorkingMemory(w.body).active.trim() || undefined;
+    const wanted = new Set(['trigger:always', normTag(`trigger:${agentId}`), ...(opts.projectKey ? [normTag(`trigger:project:${opts.projectKey}`)] : [])]);
+    const rank = (n: KgNode): number => (n.tags.includes(normTag(`trigger:${agentId}`)) ? 0 : n.tags.includes('trigger:always') ? 2 : 1);
+    const triggers = [...this.nodes.values()]
+      .filter((n) => (n.scope === 'shared' || n.scope === `agent:${agentId}`) && statusOf(n) === 'active' && effectiveTrust(n) === 'human' && n.origin?.tainted !== true && n.tags.some((t) => wanted.has(t)))
+      .sort((a, b) => rank(a) - rank(b) || b.updatedAt.localeCompare(a.updatedAt) || a.id.localeCompare(b.id))
+      .slice(0, 5)
+      .map((n) => ({ id: n.id, title: n.title, body: n.body }));
+    const skip = new Set([wmId(agentId), ...triggers.map((t) => t.id)]);
+    const hits: Array<{ id: string; title: string }> = [];
+    if (opts.prompt?.trim()) {
+      for (const e of this.recallEntries(me, opts.prompt)) {
+        const n = this.nodes.get(e.id);
+        if (!n || skip.has(n.id) || !clean(n) || n.type === 'episode') continue;
+        hits.push({ id: n.id, title: n.title });
+        if (hits.length >= 3) break;
+      }
+    }
+    let pending = 0;
+    for (const n of this.nodes.values()) if (statusOf(n) === 'pending' && n.createdBy === agentId) pending++;
+    return { ...(wm ? { wm } : {}), triggers, hits, pending };
   }
 
   // ------------------------------------------------------------------ validation
@@ -1116,6 +1850,14 @@ function truncateTo(file: string, bytes: number): void {
   try { truncateSync(file, bytes); } catch { writeFileSync(file, readFileSync(file).subarray(0, bytes)); }
 }
 
+/** `## ACTIVE` / `## ARCHIVE` sections of a working-memory body. */
+export function parseWorkingMemory(body: string): { active: string; archive: string[] } {
+  const m = /^## ACTIVE\n([\s\S]*?)\n*^## ARCHIVE\n?([\s\S]*)$/m.exec(body);
+  if (!m) return { active: '', archive: [] };
+  return { active: m[1]!.replace(/\s+$/, ''), archive: m[2]!.split('\n').map((l) => l.trim()).filter(Boolean) };
+}
+const renderWorkingMemory = (active: string, archive: string[]): string => `## ACTIVE\n${active}\n\n## ARCHIVE\n${archive.join('\n')}\n`;
+
 const edgeKey = (from: string, to: string, rel: string): string => `${from}\u0000${to}\u0000${rel}`;
 
 export function normTag(t: string): string { return oneLine(t).replace(/^#+/, '').toLowerCase().replace(/\s+/g, '-'); }
@@ -1143,9 +1885,15 @@ function clampInt(v: unknown, min: number, max: number, dflt: number): number {
   return Math.min(max, Math.max(min, Math.floor(v)));
 }
 
+/**
+ * Props only the engine or the human may set: `reviewed` (human-reviewed) and the proposal fields that make a pending
+ * note a supersede or merge proposal. A bot cannot forge them, so the inbox label and what accepting does stay honest.
+ */
+export const ENGINE_PROPS = ['reviewed', 'proposal', 'oldId', 'newId', 'keep', 'drop', 'resolved'] as const;
 const stripReviewed = (p?: Record<string, string | number | boolean>) => {
   if (!p) return p;
-  const { reviewed: _r, ...rest } = p;
+  const rest = { ...p };
+  for (const k of ENGINE_PROPS) delete rest[k];
   return rest;
 };
 

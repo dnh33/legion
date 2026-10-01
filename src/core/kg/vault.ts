@@ -3,15 +3,17 @@
  * YAML frontmatter is handled by a tiny hand parser/writer; no dependencies.
  * Import is read-only on the vault and idempotent; vault content never decides scope or authorship.
  */
-import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
-import { basename, join, relative, resolve } from 'node:path';
+import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { basename, join, relative, resolve, sep } from 'node:path';
 import { KG_LIMITS } from '../../shared/kg.js';
 import type { KgNode, KgSource } from '../../shared/kg.js';
 import type { Graph } from './graph.js';
-import { oneLine } from './text.js';
+import { isUntrusted, oneLine, statusOf } from './text.js';
 import { HUMAN, isNodeType, KgError } from './types.js';
 import type { Actor, ExportReport, ImportReport } from './types.js';
 
+/** The only folder inside a vault that Legion writes to. */
+export const LIBRARY_DIR = 'legion';
 export const VAULT_MAX_FILES = 5_000;
 export const VAULT_MAX_FILE_BYTES = 200 * 1024;
 
@@ -65,6 +67,7 @@ export function parseFrontmatter(text: string): { data: Record<string, YamlValue
     if (kv[2]!.trim() !== '') { data[key] = parseScalar(kv[2]!); continue; }
     // block list: following lines that start with "- " or are indented continuation lines
     const items: YamlValue[] = [];
+    const map: { [k: string]: YamlValue } = {};
     let cur: { [k: string]: YamlValue } | undefined;
     while (i + 1 < lines.length && /^(\s+\S|-\s)/.test(lines[i + 1]!)) {
       const l = lines[++i]!;
@@ -77,19 +80,31 @@ export function parseFrontmatter(text: string): { data: Record<string, YamlValue
       } else if (cur) {
         const ckv = /^\s+([A-Za-z0-9_-]+):[ \t]*(.*)$/.exec(l);
         if (ckv) cur[ckv[1]!] = parseScalar(ckv[2]!);
+      } else {
+        // an indented "key: value" block (props): keys may be quoted
+        const mkv = /^\s+("(?:[^"\\]|\\.)*"|[A-Za-z0-9_-]+):[ \t]*(.*)$/.exec(l);
+        if (mkv) map[mkv[1]!.startsWith('"') ? (JSON.parse(mkv[1]!) as string) : mkv[1]!] = parseScalar(mkv[2]!);
       }
     }
-    data[key] = items.length ? items : null;
+    data[key] = items.length ? items : Object.keys(map).length ? map : null;
   }
   return { data, body: src.slice(m[0].length) };
 }
 
 const q = (s: string): string => JSON.stringify(s);
 
+/** Props that describe where a note lives or how Legion treats it, not what it says: never written to or read from a file. */
+const RESERVED_PROPS = new Set(['vaultPath', 'vaultHash', 'stub', 'reviewed', 'proposal', 'oldId', 'newId', 'keep', 'drop', 'resolved']);
+
 function frontmatterFor(n: KgNode): string {
   const l = ['---', `id: ${q(n.id)}`, `type: ${n.type}`, `title: ${q(n.title)}`, `tags: [${n.tags.map(q).join(', ')}]`,
     `scope: ${q(n.scope)}`, `createdBy: ${q(n.createdBy)}`, `updatedAt: ${q(n.updatedAt)}`];
   if (n.confidence !== undefined) l.push(`confidence: ${n.confidence}`);
+  const props = Object.entries(n.props ?? {}).filter(([k]) => !RESERVED_PROPS.has(k));
+  if (props.length) {
+    l.push('props:');
+    for (const [k, v] of props) l.push(`  ${/^[A-Za-z0-9_-]+$/.test(k) ? k : q(k)}: ${typeof v === 'string' ? q(v) : String(v)}`);
+  }
   if (n.sources?.length) {
     l.push('sources:');
     for (const s of n.sources) {
@@ -112,6 +127,21 @@ export const vaultFileName = (n: Pick<KgNode, 'id' | 'title'>): string => `${slu
 /** Link text that cannot break out of [[...]]; returns the id hint needed when the text differs from the title. */
 const linkText = (t: string): string => oneLine(t).replace(/\[/g, '(').replace(/\]/g, ')').replace(/\|/g, '/').replace(/#/g, '');
 
+/** One node as a vault file: frontmatter, body and a `## Links` list. `linkable` can hide link targets (the library mirror shows only safe ones). */
+function renderNodeFile(graph: Graph, actor: Actor, n: KgNode, titleCount: Map<string, number>, linkable: (t: KgNode) => boolean = () => true): string {
+  const parts = [frontmatterFor(n), '', n.body.replace(/\s+$/, '')];
+  const links: string[] = [];
+  for (const e of graph.edgesOf(actor, n.id, 'out')) {
+    const t = graph.getNode(actor, e.to);
+    if (!t || !linkable(t)) continue;
+    const text = linkText(t.title);
+    const ambiguous = (titleCount.get(oneLine(t.title).toLowerCase()) ?? 0) > 1 || text !== oneLine(t.title);
+    links.push(`- ${e.rel}:: [[${text}]]${ambiguous ? ` <!-- id:${t.id} -->` : ''}`);
+  }
+  if (links.length) parts.push('', '## Links', '', ...links);
+  return parts.join('\n').replace(/\n{3,}/g, '\n\n') + '\n';
+}
+
 export function exportVault(graph: Graph, actor: Actor, dir: string): ExportReport {
   const root = resolve(dir);
   mkdirSync(root, { recursive: true });
@@ -121,18 +151,8 @@ export function exportVault(graph: Graph, actor: Actor, dir: string): ExportRepo
   const wanted = new Map<string, string>(); // safe id -> new file name
   let written = 0;
   for (const n of nodes) {
-    const parts = [frontmatterFor(n), '', n.body.replace(/\s+$/, '')];
-    const links: string[] = [];
-    for (const e of graph.edgesOf(actor, n.id, 'out')) {
-      const t = graph.getNode(actor, e.to);
-      if (!t) continue;
-      const text = linkText(t.title);
-      const ambiguous = (titleCount.get(oneLine(t.title).toLowerCase()) ?? 0) > 1 || text !== oneLine(t.title);
-      links.push(`- ${e.rel}:: [[${text}]]${ambiguous ? ` <!-- id:${t.id} -->` : ''}`);
-    }
-    if (links.length) parts.push('', '## Links', '', ...links);
     const name = vaultFileName(n);
-    writeFileSync(join(root, name), parts.join('\n').replace(/\n{3,}/g, '\n\n') + '\n', 'utf8');
+    writeFileSync(join(root, name), renderNodeFile(graph, actor, n, titleCount), 'utf8');
     wanted.set(fileSafeId(n.id), name);
     written++;
   }
@@ -146,6 +166,55 @@ export function exportVault(graph: Graph, actor: Actor, dir: string): ExportRepo
   return { dir: root, written, removedStale };
 }
 
+/** The notes the library mirror writes: live, shared, written by a bot in a clean run, no untrusted source, not already a vault file. */
+export function isLibraryExportable(n: KgNode): boolean {
+  return n.scope === 'shared' && statusOf(n) === 'active' && !isUntrusted(n) && n.origin?.tainted !== true
+    && n.createdBy !== 'human' && n.createdBy !== 'system' && typeof n.props?.vaultPath !== 'string';
+}
+
+/**
+ * One-way mirror of what the bots wrote into `<vault>/legion/<type>/<slug>--<id>.md`. It writes only active, non-untrusted,
+ * shared bot notes and touches nothing outside `<vault>/legion/`; it also removes its own stale files (a renamed or retired
+ * note) there. Your own notes are never written to or changed. Import skips the legion/ folder, so nothing loops back.
+ */
+export function exportLibrary(graph: Graph, dir: string): ExportReport {
+  const root = resolve(dir);
+  const lib = join(root, LIBRARY_DIR);
+  // never follow a link out of the vault: legion/ and its type folders must be real folders
+  const realDir = (p: string): void => {
+    if (existsSync(p) && lstatSync(p).isSymbolicLink()) throw new KgError('invalid', `${p} is a link, not a folder: the library mirror will not write through it.`);
+  };
+  realDir(lib);
+  const inside = (p: string): boolean => resolve(p).startsWith(lib + sep);
+  const all = graph.allNodes(HUMAN);
+  const nodes = all.filter(isLibraryExportable).sort((a, b) => a.id.localeCompare(b.id));
+  const titleCount = new Map<string, number>();
+  for (const n of all) titleCount.set(oneLine(n.title).toLowerCase(), (titleCount.get(oneLine(n.title).toLowerCase()) ?? 0) + 1);
+  const linkable = (t: KgNode): boolean => t.scope === 'shared' && statusOf(t) === 'active' && !isUntrusted(t);
+  mkdirSync(lib, { recursive: true });
+  const wanted = new Set<string>();
+  let written = 0;
+  for (const n of nodes) {
+    const folder = join(lib, n.type);
+    const file = join(folder, vaultFileName(n));
+    if (!inside(file)) continue;
+    realDir(folder);
+    mkdirSync(folder, { recursive: true });
+    writeFileSync(file, renderNodeFile(graph, HUMAN, n, titleCount, linkable), 'utf8');
+    wanted.add(resolve(file));
+    written++;
+  }
+  let removedStale = 0;
+  for (const folder of readdirSync(lib, { withFileTypes: true })) {
+    if (!folder.isDirectory() || folder.isSymbolicLink()) continue;
+    for (const f of readdirSync(join(lib, folder.name))) {
+      const p = join(lib, folder.name, f);
+      if (/^.+--.+\.md$/.test(f) && inside(p) && !wanted.has(resolve(p))) { rmSync(p, { force: true }); removedStale++; }
+    }
+  }
+  return { dir: lib, written, removedStale };
+}
+
 // ------------------------------------------------------------------ import
 
 interface ParsedFile {
@@ -155,6 +224,7 @@ interface ParsedFile {
   tags: string[];
   type: KgNode['type'];
   confidence?: number;
+  props?: Record<string, string | number | boolean>;
   sources: KgSource[];
   fmId?: string;
   links: Array<{ rel: string; target: string; idHint?: string }>;
@@ -168,6 +238,8 @@ function walk(root: string, skipped: ImportReport['skipped']): string[] {
     entries.sort((a, b) => a.name.localeCompare(b.name));
     for (const e of entries) {
       if (e.name.startsWith('.') || e.isSymbolicLink()) continue;
+      // the legion/ mirror at the vault root is Legion's own output: importing it back would relabel bot notes as the human's
+      if (dir === root && e.isDirectory() && e.name === LIBRARY_DIR) continue;
       const p = join(dir, e.name);
       if (e.isDirectory()) visit(p);
       else if (e.isFile() && /\.md$/i.test(e.name)) {
@@ -181,6 +253,16 @@ function walk(root: string, skipped: ImportReport['skipped']): string[] {
   };
   visit(root);
   return files;
+}
+
+const TYPE_TAGS: Record<string, KgNode['type']> = { decision: 'decision', mistake: 'mistake', pattern: 'pattern', idea: 'idea' };
+
+/** Inline `#tags` in the text (Obsidian style): not in code, not URL fragments or heading links, and not just a number. */
+export function inlineTags(text: string): string[] {
+  const plain = stripCode(text).replace(/\[\[[^\]]*\]\]/g, ' ').replace(/\]\([^)]*\)/g, ' ');
+  const out: string[] = [];
+  for (const m of plain.matchAll(/(?<![\p{L}\p{N}_/&#.:=?%@(-])#([\p{L}\p{N}_/-]*\p{L}[\p{L}\p{N}_/-]*)/gu)) out.push(m[1]!.replace(/[-/]+$/, ''));
+  return [...new Set(out.filter(Boolean))];
 }
 
 /** Text without fenced or inline code, so wikilinks inside code samples are not turned into edges. */
@@ -214,6 +296,18 @@ function parseFile(rel: string, text: string): ParsedFile | string {
   if (Array.isArray(t)) tags = t.filter((x): x is string => typeof x === 'string');
   else if (typeof t === 'string') tags = t.split(/[,\s]+/);
   tags = tags.map((x) => x.trim()).filter(Boolean);
+  const inline = inlineTags(main);
+  tags = [...new Set([...tags, ...inline])];
+
+  let props: ParsedFile['props'];
+  if (data.props && typeof data.props === 'object' && !Array.isArray(data.props)) {
+    props = {};
+    for (const [k, v] of Object.entries(data.props)) {
+      if (Object.keys(props).length >= 32) break;
+      if (RESERVED_PROPS.has(k) || !k || k.length > 64) continue;
+      if (typeof v === 'string' ? v.length <= 500 : typeof v === 'number' ? Number.isFinite(v) : typeof v === 'boolean') props[k] = v as string | number | boolean;
+    }
+  }
 
   const sources: KgSource[] = [{ ref: rel }];
   if (Array.isArray(data.sources)) {
@@ -244,9 +338,11 @@ function parseFile(rel: string, text: string): ParsedFile | string {
   for (const m of stripCode(main).matchAll(/(?<!!)\[\[([^\[\]]+)\]\]/g)) add('mentions', m[1]!);
 
   const confidence = typeof data.confidence === 'number' && data.confidence >= 0 && data.confidence <= 1 ? data.confidence : undefined;
+  // an explicit type wins; otherwise #decision, #mistake, #pattern or #idea (inline or in the tags list) picks one
+  const tagged = tags.map((t) => TYPE_TAGS[t.replace(/^#+/, '').toLowerCase()]).find(Boolean);
   return {
-    rel, title, body, tags, type: isNodeType(data.type) ? data.type : 'note',
-    ...(confidence !== undefined ? { confidence } : {}),
+    rel, title, body, tags, type: isNodeType(data.type) ? data.type : tagged ?? 'note',
+    ...(props ? { props } : {}), ...(confidence !== undefined ? { confidence } : {}),
     sources, ...(typeof data.id === 'string' ? { fmId: data.id } : {}), links,
   };
 }
@@ -297,7 +393,8 @@ export function importVault(graph: Graph, dir: string, actor: Actor = HUMAN): Im
       if (target && claimed.has(target.id)) target = undefined;
       const baseProps = { ...(target?.props ?? {}) };
       delete baseProps.stub;
-      const props = { ...baseProps, vaultPath: f.rel };
+      // a file with a props: block is the truth for the note's props; one without leaves them alone
+      const props = { ...(f.props ? {} : baseProps), ...(f.props ?? {}), vaultPath: f.rel };
       const res = graph.upsertNode(actor, {
         ...(target ? { id: target.id } : {}), type: f.type, title: f.title, body: f.body, tags: f.tags, props,
         sources: f.sources, ...(f.confidence !== undefined ? { confidence: f.confidence } : {}),

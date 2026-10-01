@@ -7,7 +7,8 @@ import type { McpSdkServerConfigWithInstance } from '@anthropic-ai/claude-agent-
 import { z } from 'zod';
 import { KG_LIMITS, KG_RELS, NODE_TYPES } from '../../shared/kg.js';
 import type { KgEdge, KgNode } from '../../shared/kg.js';
-import { MAX_LICENCE_CHARS } from './graph.js';
+import { CAPTURE_HELP, CAPTURE_KINDS, renderCapture } from './capture.js';
+import { MAX_LICENCE_CHARS, MAX_MERGE_DROPS, WM_ACTIVE_MAX } from './graph.js';
 import type { Graph } from './graph.js';
 import { TaskQuota } from './quota.js';
 import { capText, DATA_LINE, isUntrusted, oneLine, safeTitle, shownTitle, statusOf, trustOf, UNTRUSTED_LEAD, UNTRUSTED_MARK, wrapNode } from './text.js';
@@ -69,8 +70,12 @@ export function buildKgToolsServer(graph: Graph, agentId: string, run: RunContex
     'kg_recall',
     'USE THIS FIRST. Looks up what the shared knowledge graph (the Lattice) already knows about a topic: searches, then pulls in directly linked nodes, and returns a compact outline ' +
     'that fits a character budget. Call it before asking the user for context, before researching something, and before starting a task that may have been done before. ' + SAFETY_HELP,
-    { query: z.string().min(1).max(500).describe('Natural-language topic, names or keywords.'), budgetChars: z.number().int().min(120).max(KG_LIMITS.toolResultChars).optional().describe('Max size of the outline (default 4000).') },
-    safe(async (a: { query: string; budgetChars?: number }) => ok(graph.recall(me, a.query, { budgetChars: a.budgetChars }).outline)),
+    {
+      query: z.string().min(1).max(500).describe('Natural-language topic, names or keywords.'),
+      budgetChars: z.number().int().min(120).max(KG_LIMITS.toolResultChars).optional().describe('Max size of the outline (default 4000).'),
+      includeInactive: z.boolean().optional().describe('Also show superseded or archived notes (marked, ranked low). Default false: only live notes.'),
+    },
+    safe(async (a: { query: string; budgetChars?: number; includeInactive?: boolean }) => ok(graph.recall(me, a.query, { budgetChars: a.budgetChars, includeInactive: a.includeInactive }).outline)),
     { annotations: { readOnlyHint: true } },
   );
 
@@ -83,14 +88,15 @@ export function buildKgToolsServer(graph: Graph, agentId: string, run: RunContex
       tags: z.array(z.string().max(64)).max(10).optional().describe('Only nodes that have ALL of these tags.'),
       scope: z.enum(['shared', 'private', 'bsv']).optional(),
       limit: z.number().int().min(1).max(50).optional().describe('Default 10.'),
+      includeInactive: z.boolean().optional().describe('Also return superseded or archived notes (marked, ranked low). Default false.'),
     },
-    safe(async (a: { query: string; type?: string; tags?: string[]; scope?: string; limit?: number }) => {
-      const hits = graph.search(me, a.query, { type: a.type, tags: a.tags, scope: scopeFor(a.scope), limit: a.limit });
+    safe(async (a: { query: string; type?: string; tags?: string[]; scope?: string; limit?: number; includeInactive?: boolean }) => {
+      const hits = graph.search(me, a.query, { type: a.type, tags: a.tags, scope: scopeFor(a.scope), limit: a.limit, includeInactive: a.includeInactive });
       if (!hits.length) return ok(`No results for "${safeTitle(a.query).slice(0, 80)}".`);
       const lines = [`${hits.length} result(s) for "${safeTitle(a.query).slice(0, 80)}":`];
       hits.forEach((h, i) => {
         const full = graph.getNode(me, h.node.id)!;
-        lines.push(`${i + 1}. ${fmtNode(full, `, ${h.node.scope}, score ${h.score}${!isUntrusted(full) && h.node.tags.length ? ', tags: ' + h.node.tags.slice(0, 6).join(' ') : ''}`)}`);
+        lines.push(`${i + 1}. ${fmtNode(full, `, ${h.node.scope}, score ${h.score}${!isUntrusted(full) && h.node.tags.length ? ', tags: ' + h.node.tags.slice(0, 6).join(' ') : ''}${h.inactive ? `, ${h.inactive.status}${h.inactive.supersededBy ? ` (superseded by ${h.inactive.supersededBy})` : ''}` : ''}`)}`);
         lines.push(wrapNode(full, h.node.snippet));
       });
       lines.push(DATA_LINE);
@@ -232,6 +238,84 @@ export function buildKgToolsServer(graph: Graph, agentId: string, run: RunContex
     }),
   );
 
+
+  const capture = tool(
+    'kg_capture',
+    'Capture one durable note in a fixed shape. Kinds and their required fields: ' + CAPTURE_HELP + '. Lists are arrays of strings. ' +
+    'WHEN: after a decision, a mistake and its fix, a reusable pattern, a project map or an idea worth keeping; not chatter or logs. ' +
+    'It warns when a note with a near-identical title exists ("similar: id X") and then writes nothing: pass supersedes=<id> to replace that note, or force=true to save a separate one. ' +
+    'links adds links from the new note to existing ones in the same write. Trigger tags (trigger:always, trigger:<you>) only count when the human wrote them. ' +
+    'A run that used the web, a shell or external tools saves untrusted notes that wait for the human. ' + SCOPES_HELP + ' ' + SAFETY_HELP,
+    {
+      kind: z.enum(CAPTURE_KINDS),
+      title: z.string().min(1).max(KG_LIMITS.titleChars),
+      fields: z.record(z.string(), z.union([z.string().max(2_000), z.number(), z.array(z.string().max(500)).max(20)])).describe('The required fields of the kind (see above).'),
+      tags: z.array(z.string().max(64)).max(32).optional(),
+      sources: z.array(z.object({ ref: z.string().min(1).max(500), licence: z.string().max(MAX_LICENCE_CHARS).optional() })).max(20).optional(),
+      scope: z.enum(['shared', 'private']).optional().describe('Default shared.'),
+      confidence: z.number().min(0).max(1).optional(),
+      supersedes: z.string().max(80).optional().describe('Id of the live note this one replaces.'),
+      links: z.array(z.object({ to: id, rel: z.string().max(40).optional().describe('Default relates.') })).max(8).optional(),
+      force: z.boolean().optional().describe('Save even though a near-duplicate title exists.'),
+    },
+    safe(async (a: { kind: (typeof CAPTURE_KINDS)[number]; title: string; fields: Record<string, unknown>; tags?: string[]; sources?: { ref: string; licence?: string }[]; scope?: 'shared' | 'private'; confidence?: number; supersedes?: string; links?: { to: string; rel?: string }[]; force?: boolean }) => {
+      const { body, ignored } = renderCapture(a.kind, a.fields);
+      const r = graph.capture(me, {
+        type: a.kind, title: a.title, body, tags: a.tags, sources: a.sources, confidence: a.confidence, supersedes: a.supersedes, links: a.links, force: a.force,
+        ...(a.scope ? { scope: a.scope === 'private' ? (`agent:${agentId}` as const) : 'shared' } : {}),
+      });
+      if (!r.saved) {
+        return ok(`Not saved: similar: ${r.similar!.map((s) => `id ${s.id} "${s.title}" (${s.score})`).join('; ')}. Update that note, pass supersedes=<id> to replace it, or force=true to save a separate note.`);
+      }
+      const n = r.node!;
+      const l = [`Captured ${fmtNode(n)} in scope ${n.scope}${isUntrusted(n) ? ' (flagged untrusted, needs human review)' : ''}${r.pending ? ' (PENDING: waiting for the human; other bots cannot see it yet)' : ''}.`];
+      if (r.superseded) l.push(r.supersededNow ? `It replaces ${r.superseded} (now superseded and hidden from recall).` : `It proposes to replace ${r.superseded}.`);
+      if (r.edges) l.push(`${r.edges} link(s) added in the same write.`);
+      if (ignored.length) l.push(`Ignored fields not in a ${a.kind} template: ${ignored.join(', ')}.`);
+      if (r.redacted) l.push(`Note: ${r.redacted} secret-looking string(s) were redacted before saving.`);
+      l.push(...r.notes);
+      return ok(l.join('\n'));
+    }),
+  );
+
+  const wmSet = tool(
+    'kg_wm_set',
+    `Set YOUR working memory: a private note that is shown to you at the start of your next run. Call it once before your final answer on any task that taught you something (what is in flight, what to remember, what to avoid). ` +
+    `active replaces the ACTIVE section (max ${WM_ACTIVE_MAX} chars, over that is refused); archiveAppend adds dated lines to a scratch ARCHIVE that keeps only the newest. ` +
+    'Refused in a run that used the web, a shell or external tools. Nothing here is visible to other bots.',
+    { active: z.string().max(20_000).describe(`Current state, at most ${WM_ACTIVE_MAX} chars.`), archiveAppend: z.string().max(4_000).optional().describe('Lines to move to the archive.') },
+    safe(async (a: { active: string; archiveAppend?: string }) => {
+      const r = graph.setWorkingMemory(me, a);
+      return ok(`${r.created ? 'Created' : r.changed ? 'Updated' : 'No change to'} your working memory (${r.node.body.length} chars).${r.archiveTrimmed ? ' The oldest archive lines were dropped.' : ''}${r.redacted ? ` ${r.redacted} secret-looking string(s) were redacted.` : ''}`);
+    }),
+  );
+
+  const supersede = tool(
+    'kg_supersede',
+    'Mark an outdated note as replaced by a newer one (both must already exist, same scope). The old note is kept but hidden from recall and search; a "supersedes" link is added. One atomic write. ' +
+    'If you may not change the old note directly (the human wrote it) this becomes a pending proposal for the human.',
+    { oldId: id, newId: id, reason: z.string().max(500).optional() },
+    safe(async (a: { oldId: string; newId: string; reason?: string }) => {
+      const r = graph.supersede(me, a.oldId, a.newId, { reason: a.reason });
+      return ok(r.mode === 'direct'
+        ? `${a.oldId} is now superseded by ${a.newId} (kept, hidden from recall).`
+        : `Proposed: ${a.newId} would replace ${a.oldId}. PENDING for the human (proposal ${r.proposal!.id}); nothing changed yet.`);
+    }),
+  );
+
+  const merge = tool(
+    'kg_merge',
+    `Merge duplicate notes: the drop notes are archived (superseded by keep) and their links move to keep. One atomic write, up to ${MAX_MERGE_DROPS} notes, all in one scope. ` +
+    'If you may not change one of them directly this becomes a pending proposal for the human.',
+    { keep: id, drop: z.array(id).min(1).max(MAX_MERGE_DROPS), reason: z.string().max(500).optional() },
+    safe(async (a: { keep: string; drop: string[]; reason?: string }) => {
+      const r = graph.merge(me, a.keep, a.drop, { reason: a.reason });
+      return ok(r.mode === 'direct'
+        ? `Merged ${r.dropped.join(', ')} into ${a.keep} (the dropped notes are archived and hidden; their links now point at ${a.keep}).`
+        : `Proposed: merge ${a.drop.join(', ')} into ${a.keep}. PENDING for the human (proposal ${r.proposal!.id}); nothing changed yet.`);
+    }),
+  );
+
   const link = tool(
     'kg_link',
     'Add a typed link from one node to another (idempotent: the same from+to+rel is never duplicated; passing weight/note updates them). ' + RELS_HELP,
@@ -303,6 +387,6 @@ export function buildKgToolsServer(graph: Graph, agentId: string, run: RunContex
   return createSdkMcpServer({
     name: KG_SERVER_NAME,
     version: '0.1.0',
-    tools: [recall, search, get, neighbors, path, subgraph, upsert, link, unlink, forget, lint, stats],
+    tools: [recall, search, get, neighbors, path, subgraph, upsert, capture, wmSet, supersede, merge, link, unlink, forget, lint, stats],
   });
 }

@@ -78,12 +78,30 @@ export interface KgEdge {
 export interface KgSearchHit {
   node: Pick<KgNode, 'id' | 'type' | 'title' | 'tags' | 'scope' | 'updatedAt'> & { snippet: string };
   score: number;
+  /** Only set on hits of a non-active node, which search returns only when asked (includeInactive). */
+  inactive?: { status: KgStatus; supersededBy?: string };
 }
 
 export interface KgSubgraph {
   nodes: KgNode[];
   edges: KgEdge[];
   truncated: boolean;
+}
+
+/** What the nightly lint-lite pass did and found (no model calls; see Graph.lintLite). */
+export interface KgLintLite {
+  at: string;
+  /** Episodes older than 30 days that were retired (tombstoned). */
+  expiredEpisodes: number;
+  /** Tombstones past their 30 days that were removed for good. */
+  purgedTombstones: number;
+  /** Nodes past their per-type time-to-live that nobody touched (flagged, never changed). */
+  stale: number;
+  staleIds: string[];
+  /** Activity entries older than 7 days that were dropped (they can no longer be undone). */
+  prunedActivity: number;
+  /** Notes waiting for the human. */
+  pending: number;
 }
 
 export interface KgLintReport {
@@ -94,6 +112,41 @@ export interface KgLintReport {
   contradictions: Array<{ a: string; b: string }>;
   untrustedWithoutReview: string[];
   counts: { nodes: number; edges: number };
+  /** The last nightly lint-lite run, once there was one. */
+  lite?: KgLintLite;
+}
+
+/** One row of the human's inbox: a note, edit proposal or supersede/merge proposal waiting for a decision. */
+export interface KgInboxRow {
+  id: string;
+  kind: 'note' | 'edit' | 'supersede' | 'merge';
+  /** The bot that wrote it. */
+  agentId: string;
+  node: KgNode;
+  /** The note an edit would replace (kind 'edit'). */
+  target?: KgNode;
+  tainted: boolean;
+  /** True when the note is untrusted or has an untrusted source: bulk accept skips it. */
+  untrusted: boolean;
+  createdAt: string;
+}
+
+/** One write in the Activity list. */
+export interface KgActivityRow {
+  id: string;
+  at: string;
+  /** Agent id, or 'system'. */
+  who: string;
+  taskId?: string;
+  kind: string;
+  nodeId?: string;
+  nodeType?: KgNodeType;
+  title?: string;
+  trust?: KgTrust;
+  tainted: boolean;
+  /** Within 7 days and not undone yet. */
+  undoable: boolean;
+  undone: boolean;
 }
 
 export const KG_LIMITS = {

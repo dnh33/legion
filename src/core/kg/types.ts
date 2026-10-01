@@ -29,6 +29,15 @@ export const actorName = (a: Actor): string => (a.kind === 'agent' ? a.id : a.ki
 /** True when this agent's run is tainted (engine-observed) or was woken by a tainted chain. */
 export const isTainted = (a: Actor): boolean => a.kind === 'agent' && (a.taint?.() === true || a.origin?.tainted === true);
 
+/**
+ * The Archivist's agent id (see src/core/roster.ts; a test keeps the two in step). "Flag, never delete" is enforced
+ * in the Graph: this bot cannot forget or unlink anything, and everything it writes to the shared scope is a pending proposal.
+ */
+export const ARCHIVIST_ID = 'archivist';
+/** Working memory lives in the node `wm:<agentId>`; only kg_wm_set (Graph.setWorkingMemory) writes it. */
+export const WM_PREFIX = 'wm:';
+export const wmId = (agentId: string): string => `${WM_PREFIX}${agentId}`;
+
 export type KgErrorCode = 'invalid' | 'not_found' | 'forbidden' | 'conflict' | 'limit' | 'unavailable' | 'unprocessable';
 const STATUS: Record<KgErrorCode, number> = {
   invalid: 400, not_found: 404, forbidden: 403, conflict: 409, limit: 409, unavailable: 503, unprocessable: 422,
@@ -102,3 +111,44 @@ export interface ImportReport {
   skipped: Array<{ path: string; reason: string }>;
 }
 export interface ExportReport { dir: string; written: number; removedStale: number }
+
+/** Input of Graph.capture: the caller (kg_capture) has already rendered the fixed-heading body. */
+export interface CaptureInput {
+  type: KgNodeType;
+  title: string;
+  body: string;
+  tags?: string[];
+  sources?: KgSource[];
+  confidence?: number;
+  scope?: KgScope;
+  /** The live note this one replaces. */
+  supersedes?: string;
+  /** Links from the new note to existing ones. */
+  links?: Array<{ to: string; rel?: string }>;
+  /** Save even though a near-duplicate title exists. */
+  force?: boolean;
+}
+export interface CaptureResult {
+  saved: boolean;
+  /** Near-duplicates found (nothing was written). */
+  similar?: Array<{ id: string; title: string; score: number }>;
+  node?: KgNode;
+  pending?: boolean;
+  superseded?: string;
+  /** True when the old note was retired at once; false when that waits for the human. */
+  supersededNow?: boolean;
+  edges: number;
+  redacted?: number;
+  notes: string[];
+}
+export interface SupersedeResult { mode: 'direct' | 'proposal'; old: KgNode; proposal?: KgNode; notes: string[] }
+export interface MergeResult { mode: 'direct' | 'proposal'; keep: KgNode; dropped: string[]; proposal?: KgNode; notes: string[] }
+/** The only things a run briefing may show (see Graph.briefingParts). */
+export interface BriefingParts {
+  /** The ACTIVE section of the bot's own working memory. */
+  wm?: string;
+  triggers: Array<{ id: string; title: string; body: string }>;
+  hits: Array<{ id: string; title: string }>;
+  /** The bot's own notes waiting for the human. */
+  pending: number;
+}

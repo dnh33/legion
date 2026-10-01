@@ -254,12 +254,12 @@ test('validateSeedPack catches missing sources, dangling edges, duplicates and b
 
 // ---------------------------------------------------------------- module
 
-test('module: id, 5-line preamble, per-agent legion_kg server, dispose', async () => {
+test('module: id, 9-line preamble (5 graph lines + 4 library lines), per-agent legion_kg server, dispose', async () => {
   const s = await setup();
   assert.equal(s.mod.id, 'kg');
   const pre = s.mod.preamble!(mkAgent('zealot'));
   assert.equal(pre, KG_PREAMBLE);
-  assert.equal(pre.split('\n').length, 5);
+  assert.equal(pre.split('\n').length, 9);
   assert.match(pre, /shared knowledge graph/);
   assert.match(pre, /kg_recall before asking the user for context/);
   assert.match(pre, /durable facts.*sources/);

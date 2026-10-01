@@ -7,7 +7,7 @@ import type { Graph } from './graph.js';
 import { applySeedPack, BSV_SEED_PATH, loadBsvSeed } from './seed.js';
 import { HUMAN, KgError } from './types.js';
 import type { NodeInput } from './types.js';
-import { exportVault, importVault } from './vault.js';
+import { exportLibrary, exportVault, importVault } from './vault.js';
 
 export interface RouteDeps {
   graph: () => Graph;
@@ -58,6 +58,7 @@ export function addKgRoutes(add: RouteAdder, d: RouteDeps): void {
     const q = strParam(url, 'q', true)!;
     return g().search(HUMAN, q, {
       scope: strParam(url, 'scope'), type: strParam(url, 'type'), tags: listParam(url, 'tags'), limit: intParam(url, 'limit', 1, 50),
+      includeInactive: strParam(url, 'includeInactive') === '1',
     });
   }));
 
@@ -118,6 +119,31 @@ export function addKgRoutes(add: RouteAdder, d: RouteDeps): void {
 
   add('GET', '/api/kg/lint', wrap(() => g().lint(HUMAN)));
 
+  // ---- the human's inbox and Activity list. Graph methods refuse any bot actor; none of this is a kg_* tool.
+  add('GET', '/api/kg/inbox', wrap(({ url }) => g().inbox(HUMAN, { agentId: strParam(url, 'agent') })));
+
+  add('POST', '/api/kg/inbox/accept', wrap(({ body }) => {
+    const b = isObj(body) ? body : {};
+    if (b.ids !== undefined && (!Array.isArray(b.ids) || b.ids.some((x) => typeof x !== 'string'))) throw new HttpError(400, 'ids must be an array of node ids');
+    return g().acceptMany(HUMAN, {
+      ids: b.ids as string[] | undefined, agentId: typeof b.agent === 'string' ? b.agent : undefined, overrideUntrusted: b.overrideUntrusted === true,
+    });
+  }));
+
+  add('POST', '/api/kg/inbox/:id/accept', wrap(({ params, body }) => {
+    const b = isObj(body) ? body : {};
+    const e = isObj(b.edit) ? b.edit : undefined;
+    if (e && ((e.title !== undefined && typeof e.title !== 'string') || (e.body !== undefined && typeof e.body !== 'string')
+      || (e.tags !== undefined && (!Array.isArray(e.tags) || e.tags.some((t) => typeof t !== 'string'))))) throw new HttpError(400, 'edit.title and edit.body must be strings, edit.tags an array of strings');
+    return { node: g().acceptPending(HUMAN, params[0]!, e ? { edit: { title: e.title as string | undefined, body: e.body as string | undefined, tags: e.tags as string[] | undefined } } : {}) };
+  }));
+
+  add('POST', '/api/kg/inbox/:id/reject', wrap(({ params }) => ({ node: g().rejectPending(HUMAN, params[0]!) })));
+
+  add('GET', '/api/kg/activity', wrap(({ url }) => g().activityFeed(HUMAN, { limit: intParam(url, 'limit', 1, 200), agentId: strParam(url, 'agent') })));
+
+  add('POST', '/api/kg/activity/:id/undo', wrap(({ params }) => ({ entry: g().undo(HUMAN, params[0]!) })));
+
   add('POST', '/api/kg/import', wrap(({ body }) => {
     const dir = bodyObj(body).dir;
     if (typeof dir !== 'string' || !dir.trim()) throw new HttpError(400, 'dir (path of the vault folder) is required');
@@ -125,9 +151,12 @@ export function addKgRoutes(add: RouteAdder, d: RouteDeps): void {
   }));
 
   add('POST', '/api/kg/export', wrap(({ body }) => {
-    const dir = bodyObj(body).dir;
+    const b = bodyObj(body);
+    const dir = b.dir;
     if (typeof dir !== 'string' || !dir.trim()) throw new HttpError(400, 'dir (target folder) is required');
-    return exportVault(g(), HUMAN, dir);
+    // mode "library": mirror the bots' shared notes into <dir>/legion/ only; the default exports everything into dir itself
+    if (b.mode !== undefined && b.mode !== 'all' && b.mode !== 'library') throw new HttpError(400, 'mode must be "all" or "library"');
+    return b.mode === 'library' ? exportLibrary(g(), dir) : exportVault(g(), HUMAN, dir);
   }));
 
   add('POST', '/api/kg/seed/bsv', wrap(() => {

@@ -1672,7 +1672,7 @@
       "id": "bsv-simple-library",
       "type": "concept",
       "title": "@bsv/simple: the high-level application API",
-      "body": "The ts-stack README recommends @bsv/simple as a high-level browser and server API for payments, tokens, inscriptions and credentials; its architecture page places it as the application wrapper above the BRC-100 boundary. The simple-mcp server generates code for it. The standalone simple repository is archived, with code now at packages/helpers/simple in ts-stack. High-level helpers hide details, so decode what they will send before approval, and test everything on testnet. **Verify at build time:** current API and the helper package path.",
+      "body": "The ts-stack README recommends @bsv/simple as a high-level browser and server API for payments, tokens, inscriptions and credentials; its architecture page places it as the application wrapper above the BRC-100 boundary. The simple-mcp server generates code for it. The standalone simple repository is archived, with code now at packages/helpers/simple in ts-stack. High-level helpers hide details, so decode what they will send before approval, and test everything on testnet. **Verify at build time:** current API and the helper package path.\n\nCorrection (2026-10-01): default install pulls in @bsv/wallet-toolbox and the /server entry takes a private key. Not for Legion; use @bsv/sdk WalletClient to an external BRC-100 wallet.",
       "tags": [
         "bsv",
         "sdk",
@@ -1729,7 +1729,7 @@
       "id": "bsv-sdk-choice",
       "type": "lesson",
       "title": "Choosing an SDK",
-      "body": "Pick by task. Most apps: @bsv/simple or @bsv/sdk from ts-stack. Wallet builders: @bsv/wallet-toolbox, noting its licence. 1Sat ordinals and tokens: the @1sat packages, accepting 0.0.x risk. Go, Python and other languages: conformance vectors in ts-stack aim to keep implementations consistent, but check each language SDK separately. Whatever you choose, confirm the repository is not archived, pin versions, review licences, run on testnet first and keep wallet access behind BRC-100. **Verify at build time:** SDK versions and per-language status.",
+      "body": "Pick by task. Most apps: @bsv/simple or @bsv/sdk from ts-stack. Wallet builders: @bsv/wallet-toolbox, noting its licence. 1Sat ordinals and tokens: the @1sat packages, accepting 0.0.x risk. Go, Python and other languages: conformance vectors in ts-stack aim to keep implementations consistent, but check each language SDK separately. Whatever you choose, confirm the repository is not archived, pin versions, review licences, run on testnet first and keep wallet access behind BRC-100. **Verify at build time:** SDK versions and per-language status.\n\nCorrection (2026-10-01, ts-stack review): for Legion the answer is @bsv/sdk WalletClient only. @bsv/simple's default entry installs @bsv/wallet-toolbox, and @bsv/simple/server takes a private key; both put keys/storage inside the app, which Legion never does.",
       "tags": [
         "bsv",
         "sdk",
@@ -3000,7 +3000,7 @@
       "id": "bsv-402-profiles",
       "type": "lesson",
       "title": "HTTP 402 profiles compared: BRC-105, BRC-121, BRC-120",
-      "body": "BRC-105 monetizes HTTP services on top of BRC-103/104 mutual auth: the server answers 402 with headers for the required satoshis, a derivation prefix and its identity key, and the client retries with an x-bsv-payment header holding the signed transaction and derivation data. BRC-121 is the deliberately minimal alternative with no session state: the server advertises price and identity key, and the client retries with a BEEF transaction, its key, a nonce, a millisecond timestamp and an output index; replays are blocked by a plus or minus 30 second freshness window and the wallet's merge check. ts-stack's @bsv/402-pay implements BRC-121. BRC-120 is an index entry for the frozen x402 v1.0 spec maintained by Merkle Works, a stateless, request-bound proof scheme with canonical JSON and a nonce UTXO; whether it matches Coinbase's x402 was not stated. This resolves the earlier open question: the 402 plugin's BRC number is 121 (and 120 for x402). Agents spending through any of these need caps and an allowlist.",
+      "body": "BRC-105 monetizes HTTP services on top of BRC-103/104 mutual auth: the server answers 402 with headers for the required satoshis, a derivation prefix and its identity key, and the client retries with an x-bsv-payment header holding the signed transaction and derivation data. BRC-121 is the deliberately minimal alternative with no session state: the server advertises price and identity key, and the client retries with a BEEF transaction, its key, a nonce, a millisecond timestamp and an output index; replays are blocked by a plus or minus 30 second freshness window and the wallet's merge check. ts-stack's @bsv/402-pay implements BRC-121. BRC-120 is an index entry for the frozen x402 v1.0 spec maintained by Merkle Works, a stateless, request-bound proof scheme with canonical JSON and a nonce UTXO; whether it matches Coinbase's x402 was not stated. This resolves the earlier open question: the 402 plugin's BRC number is 121 (and 120 for x402). Agents spending through any of these need caps and an allowlist.\n\nCorrection (2026-10-01): the 402-pay README header table says BEEF but its security section requires strictly framed Atomic BEEF (BRC-95).",
       "tags": [
         "bsv",
         "payments",
@@ -3550,7 +3550,7 @@
       "id": "bsv-ts-stack-package-map",
       "type": "concept",
       "title": "ts-stack package map",
-      "body": "ts-stack groups its packages by job. SDK: @bsv/sdk. Wallet: wallet-toolbox with client and mobile variants and examples, wallet-relay for pairing a phone with a desktop wallet, and btms (a basic token management system) with a permission module. Network: teranode-listener. Overlays: overlay, overlay-express, overlay-discovery-services, overlay-topics and gasp. Messaging: message-box-client (peer-to-peer message boxes), authsocket and its client, and paymail. Middleware: auth-express, payment-express and 402-pay. Helpers: simple, wallet-helper, templates, did-client, amountinator (satoshi and BSV formatting) and fund-wallet (testnet or devnet funding). Infra: uhrp-lite and uhrp-storage-server. The repo uses pnpm and a recent Node release, and all first-party code is under Open BSV License 6.",
+      "body": "ts-stack groups its packages by job. SDK: @bsv/sdk. Wallet: wallet-toolbox with client and mobile variants and examples, wallet-relay for pairing a phone with a desktop wallet, and btms (a basic token management system) with a permission module. Network: teranode-listener. Overlays: overlay, overlay-express, overlay-discovery-services, overlay-topics and gasp. Messaging: message-box-client (peer-to-peer message boxes), authsocket and its client, and paymail. Middleware: auth-express, payment-express and 402-pay. Helpers: simple, wallet-helper, templates, did-client, amountinator (satoshi and BSV formatting) and fund-wallet (testnet or devnet funding). Infra: uhrp-lite and uhrp-storage-server. The repo uses pnpm and a recent Node release, and all first-party code is under Open BSV License 6.\n\nCorrection (2026-10-01): map is incomplete (33 public packages per stack-facts). Also missing: @bsv/auth, authsocket-client, chirp, verifast (WASM script verifier), lch, air-gap, permission modules, create-bsv-app, @bsv/did. uhrp-lite/uhrp-storage-server are linked in the README but 404 on npm: treat as source-only. See the ts-stack nodes.",
       "tags": [
         "bsv",
         "ts-stack",
@@ -3909,6 +3909,538 @@
         }
       ],
       "confidence": 0.7,
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z",
+      "updatedAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "bsv-src-ts-stack-deepwiki",
+      "type": "source",
+      "title": "Source: DeepWiki page for ts-stack (secondary, AI-generated)",
+      "body": "DeepWiki (deepwiki.com/bsv-blockchain/ts-stack) is an AI-generated summary of the repository, supplied by the owner as a map. It is a secondary source: treat it as a pointer, never as proof. Our direct fetch was blocked by a browser-check page, so what we saw is a fetch tool's summary of it, itself a second-hand view. It claims 12 sections (the owner counted 11), 7 functional domains, over 30 public packages, pnpm workspaces, a strictly enforced inward dependency flow around the BRC-100 interface, and a shared conformance corpus with TypeScript and Go runners. Checked against the repo today: pnpm yes; 33 public packages (stack-facts page) yes; conformance corpus yes; domains differ (repo docs say 8, README lists 10 areas); the Go runner and a strict enforcement mechanism were not found; real manifests show some upward links. Anything found only here is marked unverified in the node that uses it.",
+      "tags": [
+        "bsv",
+        "source",
+        "deepwiki",
+        "secondary"
+      ],
+      "scope": "bsv",
+      "props": {
+        "module": "sources",
+        "gapType": "new",
+        "verify": "DeepWiki claims not confirmed in repo: Go conformance runner, strict dependency enforcement, section and domain counts. Re-check the live page; it may be regenerated at any time.",
+        "rank": 1,
+        "order": 130
+      },
+      "sources": [
+        {
+          "ref": "https://deepwiki.com/bsv-blockchain/ts-stack",
+          "licence": "unverified (third-party AI-generated page; check site terms before copying anything)"
+        },
+        {
+          "ref": "https://github.com/bsv-blockchain/ts-stack",
+          "licence": "Open BSV License Version 6 per the repo README (modified MIT; limits use to the BSV blockchain and its testnets; exact terms unverified). Historical grants and incorporated material stay under scop..."
+        }
+      ],
+      "confidence": 0.6,
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z",
+      "updatedAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "bsv-ts-stack-facts-2026-10",
+      "type": "concept",
+      "title": "ts-stack facts and published versions (checked 2026-10-01)",
+      "body": "Repo facts read today from the README, docs and package manifests. The monorepo lists 33 public npm packages and 7 standalone infra services; contributors need Node 24.11 or newer and pnpm 10.33.2, published packages need Node 22 or newer. Versions on npm today (latest tag): @bsv/sdk 2.8.11 (2026-09-29), @bsv/wallet-toolbox 2.14.4, @bsv/overlay 2.6.2, @bsv/message-box-client 2.5.4, @bsv/auth-express-middleware 2.2.8, @bsv/402-pay 0.3.2, @bsv/simple 0.6.0, @bsv/did 0.2.7, create-bsv-app 1.1.2, @bsv/wallet-relay 0.5.1. The main branch is ahead of npm: its manifests say @bsv/sdk 3.0.0, @bsv/simple 0.7.0, @bsv/did 0.3.0 and @bsv/overlay-topics 2.0.0, described in the docs as a coordinated unreleased proposal that removes legacy DID-token code. Pin npm-published versions, not main. Pre-1.0 packages (simple, did, 402-pay, wallet-relay) can change without notice.",
+      "tags": [
+        "bsv",
+        "ts-stack",
+        "versions",
+        "reference"
+      ],
+      "scope": "bsv",
+      "props": {
+        "module": "sdks",
+        "gapType": "deepens",
+        "relatesToExisting": "bsv-ts-stack, bsv-src-ts-stack, bsv-ts-stack-package-map",
+        "verify": "Version numbers are a snapshot of 2026-10-01 and go stale fast; re-read npm at build time. Repo created date and releases could not be read (GitHub pages blocked).",
+        "rank": 2,
+        "order": 131
+      },
+      "sources": [
+        {
+          "ref": "https://github.com/bsv-blockchain/ts-stack",
+          "licence": "Open BSV License Version 6 per the repo README (modified MIT; limits use to the BSV blockchain and its testnets; exact terms unverified). Historical grants and incorporated material stay under scop..."
+        },
+        {
+          "ref": "https://raw.githubusercontent.com/bsv-blockchain/ts-stack/main/docs/reference/stack-facts.md",
+          "licence": "Open BSV License Version 6 per the repo README (modified MIT; limits use to the BSV blockchain and its testnets; exact terms unverified). Historical grants and incorporated material stay under scop..."
+        },
+        {
+          "ref": "https://www.npmjs.com/package/@bsv/sdk",
+          "licence": "Open BSV License Version 6 for current monorepo changes; package READMEs also name retained earlier grants (for example OBSL v4 in 402-pay and create-bsv-app); npm license field reads SEE LICENSE I..."
+        },
+        {
+          "ref": "https://www.npmjs.com/package/@bsv/simple",
+          "licence": "Open BSV License Version 6 for current monorepo changes; package READMEs also name retained earlier grants (for example OBSL v4 in 402-pay and create-bsv-app); npm license field reads SEE LICENSE I..."
+        }
+      ],
+      "confidence": 0.85,
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z",
+      "updatedAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "bsv-ts-stack-legion-usage-map",
+      "type": "lesson",
+      "title": "ts-stack packages: what Legion may and may not use",
+      "body": "This is a Legion policy layered on the package list, not a ts-stack rule. Legion talks to wallets through @bsv/sdk WalletClient only, so keys stay in an external BRC-100 wallet. Allowed: @bsv/sdk (zero npm dependencies). Pure read-only helpers such as @bsv/amountinator or @bsv/templates need an owner decision first. Candidates only after owner review, because they run on a WalletClient and nothing else: @bsv/message-box-client, the @bsv/402-pay client and @bsv/did. Never: @bsv/wallet-toolbox, its client and mobile variants (wallet builders; they hold storage and signing), @bsv/simple/server and its ServerWallet (takes SERVER_PRIVATE_KEY), @bsv/wallet-relay backend (needs a stable server key), servers and middleware (overlay, overlay-express, auth and payment middleware, everything under infra) which are operator tools, and generated starters from create-bsv-app. Note that the plain @bsv/simple package depends on wallet-toolbox at install time even when only its browser entry is used.",
+      "tags": [
+        "bsv",
+        "ts-stack",
+        "packages",
+        "policy",
+        "legion"
+      ],
+      "scope": "bsv",
+      "props": {
+        "module": "sdks",
+        "gapType": "deepens",
+        "relatesToExisting": "bsv-ts-stack-package-map, bsv-sdk-choice, bsv-safety-keys-never-in-legion",
+        "verify": "Policy is Legion's own decision (confirm with the owner). Dependency facts read from npm manifests 2026-10-01 for @bsv/simple 0.6.0; re-check at build time.",
+        "rank": 3,
+        "order": 132
+      },
+      "sources": [
+        {
+          "ref": "https://github.com/bsv-blockchain/ts-stack",
+          "licence": "Open BSV License Version 6 per the repo README (modified MIT; limits use to the BSV blockchain and its testnets; exact terms unverified). Historical grants and incorporated material stay under scop..."
+        },
+        {
+          "ref": "https://www.npmjs.com/package/@bsv/simple",
+          "licence": "Open BSV License Version 6 for current monorepo changes; package READMEs also name retained earlier grants (for example OBSL v4 in 402-pay and create-bsv-app); npm license field reads SEE LICENSE I..."
+        },
+        {
+          "ref": "https://www.npmjs.com/package/@bsv/wallet-toolbox",
+          "licence": "Open BSV License Version 6 for current monorepo changes; package READMEs also name retained earlier grants (for example OBSL v4 in 402-pay and create-bsv-app); npm license field reads SEE LICENSE I..."
+        },
+        {
+          "ref": "https://raw.githubusercontent.com/bsv-blockchain/ts-stack/main/docs/get-started/choose-your-stack.md",
+          "licence": "Open BSV License Version 6 per the repo README (modified MIT; limits use to the BSV blockchain and its testnets; exact terms unverified). Historical grants and incorporated material stay under scop..."
+        }
+      ],
+      "confidence": 0.8,
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z",
+      "updatedAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "bsv-ts-stack-layering-rule",
+      "type": "concept",
+      "title": "ts-stack layering: SDK foundation, BRC-100 seam, and where the rule bends",
+      "body": "Repo docs describe three layers: @bsv/sdk as the foundation (the only zero-dependency package), the BRC-100 wallet interface as the seam, and application wrappers (@bsv/simple) and wallet-builder tooling (@bsv/wallet-toolbox) around it. Overlays, messaging, middleware, tokens and storage are called adjacent capabilities, not a fourth layer, and connect through the wallet interface or SDK primitives. A package-relationships diagram in the docs shows an inward flow toward the SDK; DeepWiki calls this a strictly enforced inward dependency flow (secondary claim, enforcement not found). Real npm manifests show the flow is not a strict tier order: every package takes @bsv/sdk as a peer, but wallet-toolbox depends on both Express middleware packages, overlay-express depends on wallet-toolbox-client, and message-box-client on authsocket-client. Practical rule: the SDK is the base and BRC-100 is the seam, but adding a high-level package pulls in lower and sometimes unexpected ones, so read its dependency list first.",
+      "tags": [
+        "bsv",
+        "ts-stack",
+        "architecture",
+        "dependencies"
+      ],
+      "scope": "bsv",
+      "props": {
+        "module": "sdks",
+        "gapType": "deepens",
+        "relatesToExisting": "bsv-ts-stack, bsv-brc100-wallet, bsv-sdk-ts",
+        "verify": "Strict enforcement claim appears only on DeepWiki. Manifests read from npm 2026-10-01; main may differ.",
+        "rank": 4,
+        "order": 133
+      },
+      "sources": [
+        {
+          "ref": "https://raw.githubusercontent.com/bsv-blockchain/ts-stack/main/docs/architecture/layers.md",
+          "licence": "Open BSV License Version 6 per the repo README (modified MIT; limits use to the BSV blockchain and its testnets; exact terms unverified). Historical grants and incorporated material stay under scop..."
+        },
+        {
+          "ref": "https://raw.githubusercontent.com/bsv-blockchain/ts-stack/main/docs/packages/index.md",
+          "licence": "Open BSV License Version 6 per the repo README (modified MIT; limits use to the BSV blockchain and its testnets; exact terms unverified). Historical grants and incorporated material stay under scop..."
+        },
+        {
+          "ref": "https://www.npmjs.com/package/@bsv/wallet-toolbox",
+          "licence": "Open BSV License Version 6 for current monorepo changes; package READMEs also name retained earlier grants (for example OBSL v4 in 402-pay and create-bsv-app); npm license field reads SEE LICENSE I..."
+        },
+        {
+          "ref": "https://deepwiki.com/bsv-blockchain/ts-stack",
+          "licence": "unverified (third-party AI-generated page; check site terms before copying anything)"
+        }
+      ],
+      "confidence": 0.75,
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z",
+      "updatedAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "bsv-ts-stack-conformance",
+      "type": "concept",
+      "title": "ts-stack conformance corpus: portable JSON vectors",
+      "body": "ts-stack keeps language-neutral JSON test vectors in conformance/vectors with a JSON schema, so other SDKs can check they produce byte-identical results for key derivation, hashes, signatures, transaction and merkle-path serialisation, BRC-29 derivation and BRC-100 wallet methods. Two runners exist in the repo: a structural Node runner that validates the files and a TypeScript Jest runner that dispatches into @bsv/sdk. CI publishes the vectors as an artifact. The repo's generated facts page (checked 2026-09-14 by its own header) lists 77 vector files and 6,700 vectors, 6,489 passing the structural runner and 211 governed skips; the largest file is 5,116 script-evaluation vectors fixtured against SV Node and Teranode. A structural pass does not mean every vector executes against every implementation. DeepWiki also mentions a Go runner; we did not find one. Vectors are test data, not a specification: the BRCs stay authoritative.",
+      "tags": [
+        "bsv",
+        "ts-stack",
+        "conformance",
+        "testing"
+      ],
+      "scope": "bsv",
+      "props": {
+        "module": "sdks",
+        "gapType": "new",
+        "relatesToExisting": "bsv-sdk-choice, bsv-other-language-sdks",
+        "verify": "Counts come from a generated page that may lag main; Go runner is a DeepWiki-only claim; check the Go and Python SDK repos separately.",
+        "rank": 5,
+        "order": 134
+      },
+      "sources": [
+        {
+          "ref": "https://raw.githubusercontent.com/bsv-blockchain/ts-stack/main/docs/architecture/conformance.md",
+          "licence": "Open BSV License Version 6 per the repo README (modified MIT; limits use to the BSV blockchain and its testnets; exact terms unverified). Historical grants and incorporated material stay under scop..."
+        },
+        {
+          "ref": "https://raw.githubusercontent.com/bsv-blockchain/ts-stack/main/docs/reference/stack-facts.md",
+          "licence": "Open BSV License Version 6 per the repo README (modified MIT; limits use to the BSV blockchain and its testnets; exact terms unverified). Historical grants and incorporated material stay under scop..."
+        },
+        {
+          "ref": "https://raw.githubusercontent.com/bsv-blockchain/ts-stack/main/conformance/VECTOR-FORMAT.md",
+          "licence": "Open BSV License Version 6 per the repo README (modified MIT; limits use to the BSV blockchain and its testnets; exact terms unverified). Historical grants and incorporated material stay under scop..."
+        },
+        {
+          "ref": "https://deepwiki.com/bsv-blockchain/ts-stack",
+          "licence": "unverified (third-party AI-generated page; check site terms before copying anything)"
+        }
+      ],
+      "confidence": 0.8,
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z",
+      "updatedAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "bsv-message-box-client",
+      "type": "lesson",
+      "title": "@bsv/message-box-client: authenticated store-and-forward messaging",
+      "body": "MessageBoxClient takes a WalletClient and a server host and offers sendMessage, listMessages and acknowledgeMessage over HTTP, plus live delivery over an authenticated WebSocket that falls back to HTTP. Every response must come from successful BRC-103 mutual authentication, hosts must be HTTPS except loopback, and serverIdentityKeysByHost pins expected server keys. Bodies are encrypted by default; skipEncryption is an explicit choice. Boxes can carry per-sender fees (-1 blocked, 0 free, positive satoshis); checkPermissions quotes the fee and maximumPayment caps it. PeerPayClient adds BRC-29 payments, requests and refunds on the same transport. Overlay-advertised hosts are untrusted candidates. For an agent: message senders are arbitrary keys, so message text is untrusted input; never auto-accept an incoming payment; always set maximumPayment; the wallet stays the spending authority. The README example host is a docs example, not an endorsement.",
+      "tags": [
+        "bsv",
+        "messaging",
+        "message-box",
+        "payments",
+        "level-3"
+      ],
+      "scope": "bsv",
+      "props": {
+        "module": "extras",
+        "gapType": "new",
+        "relatesToExisting": "bsv-brc29-payments, bsv-brc103-104-handshake, bsv-safety-untrusted-chain-data",
+        "verify": "Version 2.5.4 on npm today; the dedicated TeraTestNet host was not yet deployed per the README; who operates the example host and its terms are unverified.",
+        "rank": 6,
+        "order": 135
+      },
+      "sources": [
+        {
+          "ref": "https://www.npmjs.com/package/@bsv/message-box-client",
+          "licence": "Open BSV License Version 6 for current monorepo changes; package READMEs also name retained earlier grants (for example OBSL v4 in 402-pay and create-bsv-app); npm license field reads SEE LICENSE I..."
+        },
+        {
+          "ref": "https://raw.githubusercontent.com/bsv-blockchain/ts-stack/main/docs/packages/messaging/message-box-client.md",
+          "licence": "Open BSV License Version 6 per the repo README (modified MIT; limits use to the BSV blockchain and its testnets; exact terms unverified). Historical grants and incorporated material stay under scop..."
+        },
+        {
+          "ref": "https://github.com/bsv-blockchain/ts-stack",
+          "licence": "Open BSV License Version 6 per the repo README (modified MIT; limits use to the BSV blockchain and its testnets; exact terms unverified). Historical grants and incorporated material stay under scop..."
+        }
+      ],
+      "confidence": 0.85,
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z",
+      "updatedAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "bsv-auth-express-middleware",
+      "type": "concept",
+      "title": "@bsv/auth-express-middleware: BRC-103/104 on Express (operator side)",
+      "body": "createAuthMiddleware({ wallet }) adds BRC-103 mutual authentication over the BRC-104 HTTP transport to an Express server: a public /.well-known/auth handshake, verified requests, signed responses and optional certificate exchange. It needs a BRC-100 WalletInterface and Express 4.18 or newer. Authentication is required by default (401); with allowUnauthenticated the identity key reads 'unknown', which must never be treated as authorisation. BRC-104 v0.1 signs method, path, query, selected headers and body, but not Host, Cookie or forwarding headers, so never choose a tenant from those. Certificate callbacks must call approve() after the app checks required types and fields. Multi-instance deployments need shared session and approval stores. Defaults: 30 s timeout, 1,000 pending requests, 8 MiB bodies; CORS is the app's job. This is a server package: Legion, as a client, calls such services through the SDK's authenticated fetch with its WalletClient, and does not run this middleware.",
+      "tags": [
+        "bsv",
+        "identity",
+        "auth",
+        "middleware",
+        "brc-103",
+        "brc-104"
+      ],
+      "scope": "bsv",
+      "props": {
+        "module": "identity",
+        "gapType": "deepens",
+        "relatesToExisting": "bsv-mutual-auth, bsv-brc103-104-handshake",
+        "verify": "Version 2.2.8 on npm today; whether the SDK AuthFetch class is the right client entry point should be checked against the SDK class map.",
+        "rank": 7,
+        "order": 136
+      },
+      "sources": [
+        {
+          "ref": "https://www.npmjs.com/package/@bsv/auth-express-middleware",
+          "licence": "Open BSV License Version 6 for current monorepo changes; package READMEs also name retained earlier grants (for example OBSL v4 in 402-pay and create-bsv-app); npm license field reads SEE LICENSE I..."
+        },
+        {
+          "ref": "https://github.com/bsv-blockchain/ts-stack",
+          "licence": "Open BSV License Version 6 per the repo README (modified MIT; limits use to the BSV blockchain and its testnets; exact terms unverified). Historical grants and incorporated material stay under scop..."
+        }
+      ],
+      "confidence": 0.85,
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z",
+      "updatedAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "bsv-402-pay-package",
+      "type": "lesson",
+      "title": "@bsv/402-pay and the payment middleware: BRC-121 in code",
+      "body": "@bsv/402-pay (0.3.2, pre-1.0) implements BRC-121 with no auth middleware: createPaymentMiddleware({ wallet, replayStore, calculatePrice }) on the server and create402Fetch({ wallet }) on the client. The server sends x-bsv-sats and x-bsv-server; the client retries with x-bsv-beef, x-bsv-sender, x-bsv-nonce, x-bsv-time and x-bsv-vout. Replay defence has three layers: a 30 second timestamp window, the wallet's BRC-29 validation and an atomic transaction-claim store, which must be shared and durable across processes. The README says the server requires a strictly framed Atomic BEEF (BRC-95). Clients need HTTPS (loopback excepted), refuse cross-origin redirect challenges and never cache paid responses by default. An unexpected failure after payment processing starts returns 503 with no fresh challenge, on purpose: asking again could cause a second spend, so do not blind-retry. @bsv/payment-express-middleware is a different, older flow (x-bsv-payment) that requires the auth middleware. Spending authority stays with the wallet.",
+      "tags": [
+        "bsv",
+        "payments",
+        "402",
+        "brc-121",
+        "middleware",
+        "level-3"
+      ],
+      "scope": "bsv",
+      "props": {
+        "module": "extras",
+        "gapType": "deepens",
+        "relatesToExisting": "bsv-402-profiles, bsv-402-payments, bsv-safety-no-blind-retries",
+        "verify": "Pre-1.0 package; header table says BEEF while the security section says Atomic BEEF; check the code before building.",
+        "rank": 8,
+        "order": 137
+      },
+      "sources": [
+        {
+          "ref": "https://www.npmjs.com/package/@bsv/402-pay",
+          "licence": "Open BSV License Version 6 for current monorepo changes; package READMEs also name retained earlier grants (for example OBSL v4 in 402-pay and create-bsv-app); npm license field reads SEE LICENSE I..."
+        },
+        {
+          "ref": "https://raw.githubusercontent.com/bsv-blockchain/ts-stack/main/docs/packages/middleware/index.md",
+          "licence": "Open BSV License Version 6 per the repo README (modified MIT; limits use to the BSV blockchain and its testnets; exact terms unverified). Historical grants and incorporated material stay under scop..."
+        },
+        {
+          "ref": "https://github.com/bsv-blockchain/ts-stack",
+          "licence": "Open BSV License Version 6 per the repo README (modified MIT; limits use to the BSV blockchain and its testnets; exact terms unverified). Historical grants and incorporated material stay under scop..."
+        }
+      ],
+      "confidence": 0.85,
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z",
+      "updatedAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "bsv-ts-stack-overlay-packages",
+      "type": "concept",
+      "title": "Overlay packages in ts-stack: engine, Express server, topics and discovery",
+      "body": "The overlay family is operator software. @bsv/overlay (2.6.2) is the engine: new Engine(topicManagers, lookupServices, storage, chainTracker, hostingUrl) with a Knex SQL storage adapter, MongoDB as an optional peer, and @bsv/gasp for sync. It needs a Storage and a ChainTracker, or an explicit 'scripts only' validation mode, which skips SPV checks and should be treated as development-only. @bsv/overlay-express (2.7.3) wraps it in an Express 5 server and depends on knex, mongodb, wallet-toolbox-client, auth-express-middleware and @bsv/overlay-discovery-services. @bsv/overlay-topics holds canonical topic managers and lookup services; its main branch (2.0.0, unpublished, npm shows 1.9.1) drops the serial DID overlay. The deployable example lives under infra/overlay-server. Legion only queries overlays as a client and cross-checks results; it never hosts one or holds the server key.",
+      "tags": [
+        "bsv",
+        "overlay",
+        "packages",
+        "operator"
+      ],
+      "scope": "bsv",
+      "props": {
+        "module": "extras",
+        "gapType": "deepens",
+        "relatesToExisting": "bsv-overlay-engine-sdk, bsv-overlay-express, bsv-overlay-services",
+        "verify": "Constructor argument order is from the npm README example; the overlay-topics 2.0.0 change comes from the repo migration guide (source proposal, not published).",
+        "rank": 9,
+        "order": 138
+      },
+      "sources": [
+        {
+          "ref": "https://www.npmjs.com/package/@bsv/overlay",
+          "licence": "Open BSV License Version 6 for current monorepo changes; package READMEs also name retained earlier grants (for example OBSL v4 in 402-pay and create-bsv-app); npm license field reads SEE LICENSE I..."
+        },
+        {
+          "ref": "https://www.npmjs.com/package/@bsv/overlay-express",
+          "licence": "Open BSV License Version 6 for current monorepo changes; package READMEs also name retained earlier grants (for example OBSL v4 in 402-pay and create-bsv-app); npm license field reads SEE LICENSE I..."
+        },
+        {
+          "ref": "https://raw.githubusercontent.com/bsv-blockchain/ts-stack/main/docs/guides/identity-did-vc-migration.md",
+          "licence": "Open BSV License Version 6 per the repo README (modified MIT; limits use to the BSV blockchain and its testnets; exact terms unverified). Historical grants and incorporated material stay under scop..."
+        },
+        {
+          "ref": "https://github.com/bsv-blockchain/ts-stack",
+          "licence": "Open BSV License Version 6 per the repo README (modified MIT; limits use to the BSV blockchain and its testnets; exact terms unverified). Historical grants and incorporated material stay under scop..."
+        }
+      ],
+      "confidence": 0.8,
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z",
+      "updatedAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "bsv-wallet-relay-pairing",
+      "type": "concept",
+      "title": "@bsv/wallet-relay: pairing a mobile wallet with a web app by QR",
+      "body": "@bsv/wallet-relay (0.5.1) lets a website offer 'connect with a mobile wallet': the desktop page shows a QR code, the phone wallet scans it, and wallet calls travel over an encrypted WebSocket relay. The README says keys never leave the phone and the relay never sees plaintext; we did not audit that. It also says this is an early release with no stability guarantee before 1.0 (the repo's package page labels it stable, an inconsistency). Web developers run WalletRelayService on a backend that needs a stable private key, kept in an environment file, because the phone derives its shared secret from it; wallet-app developers use the client WalletPairingSession. Without an allowedOrigins list the relay accepts browser origins it has not seen before. An npx scaffold generates a backend and React frontend. For Legion this explains how BSV Browser reaches web apps; Legion does not host a relay, because that would put a server key in its environment.",
+      "tags": [
+        "bsv",
+        "wallet",
+        "relay",
+        "mobile",
+        "pairing"
+      ],
+      "scope": "bsv",
+      "props": {
+        "module": "wallets",
+        "gapType": "new",
+        "relatesToExisting": "bsv-desktop-wallet, bsv-brc100-wallet, bsv-safety-keys-never-in-legion",
+        "verify": "Encryption and 'keys never leave the phone' claims are the package's own; maturity label differs between the README and the docs page.",
+        "rank": 10,
+        "order": 139
+      },
+      "sources": [
+        {
+          "ref": "https://www.npmjs.com/package/@bsv/wallet-relay",
+          "licence": "Open BSV License Version 6 for current monorepo changes; package READMEs also name retained earlier grants (for example OBSL v4 in 402-pay and create-bsv-app); npm license field reads SEE LICENSE I..."
+        },
+        {
+          "ref": "https://raw.githubusercontent.com/bsv-blockchain/ts-stack/main/docs/packages/wallet/wallet-relay.md",
+          "licence": "Open BSV License Version 6 per the repo README (modified MIT; limits use to the BSV blockchain and its testnets; exact terms unverified). Historical grants and incorporated material stay under scop..."
+        },
+        {
+          "ref": "https://github.com/bsv-blockchain/ts-stack",
+          "licence": "Open BSV License Version 6 per the repo README (modified MIT; limits use to the BSV blockchain and its testnets; exact terms unverified). Historical grants and incorporated material stay under scop..."
+        }
+      ],
+      "confidence": 0.8,
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z",
+      "updatedAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "bsv-create-bsv-app-and-simple",
+      "type": "concept",
+      "title": "create-bsv-app and @bsv/simple: scaffolding and the high-level API in detail",
+      "body": "create-bsv-app (1.1.2) is the CLI that replaced the deprecated @bsv/app. 'new' generates React, Express or full-stack starters; 'add' retrofits wallet-connect, wallet-login or signed-requests; a local --ui mode listens on loopback only; it writes bsv-scaffold.json. Twelve example starters are shallow-cloned from other repositories, which is third-party code. Generated servers read SERVER_PRIVATE_KEY. @bsv/simple (0.6.0, pre-1.0) has a browser entry that wraps WalletClient and a server entry that runs a wallet from a private key. Its README warns that the bundled identity registry is unauthenticated, remote DID resolution carries no proof, presentation envelopes carry no holder signature, and the generated server-wallet route answers 403 until the app supplies an authorize callback. Treat output of both tools as code to read before it runs, and decode what simple will send before any approval.",
+      "tags": [
+        "bsv",
+        "sdk",
+        "simple",
+        "scaffold",
+        "create-bsv-app"
+      ],
+      "scope": "bsv",
+      "props": {
+        "module": "sdks",
+        "gapType": "deepens",
+        "relatesToExisting": "bsv-simple-library, bsv-simple-mcp, bsv-safety-supply-chain",
+        "verify": "Pre-1.0 APIs; main is at simple 0.7.0 with DID changes (unpublished). Starter catalogue entries change by commit.",
+        "rank": 11,
+        "order": 140
+      },
+      "sources": [
+        {
+          "ref": "https://www.npmjs.com/package/create-bsv-app",
+          "licence": "Open BSV License Version 6 for current monorepo changes; package READMEs also name retained earlier grants (for example OBSL v4 in 402-pay and create-bsv-app); npm license field reads SEE LICENSE I..."
+        },
+        {
+          "ref": "https://www.npmjs.com/package/@bsv/simple",
+          "licence": "Open BSV License Version 6 for current monorepo changes; package READMEs also name retained earlier grants (for example OBSL v4 in 402-pay and create-bsv-app); npm license field reads SEE LICENSE I..."
+        },
+        {
+          "ref": "https://github.com/bsv-blockchain/ts-stack",
+          "licence": "Open BSV License Version 6 per the repo README (modified MIT; limits use to the BSV blockchain and its testnets; exact terms unverified). Historical grants and incorporated material stay under scop..."
+        }
+      ],
+      "confidence": 0.85,
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z",
+      "updatedAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "bsv-did-package",
+      "type": "concept",
+      "title": "@bsv/did: SD-JWT credentials and did:key for BSV identity keys",
+      "body": "@bsv/did (0.2.7 on npm) is a compatibility layer, not a change to the SDK. It treats BSV secp256k1 keys as JOSE ES256K keys, builds did:key identifiers and documents, and issues, presents and verifies SD-JWT verifiable credentials with optional key-binding tokens. Its README is clear about limits: 'verified' proves signature, type, validity window, disclosures and the requested binding, not that the issuer is allowed to grant access, so set expectedIssuer and expectedVct or an allowlist; key binding needs both audience and a per-transaction nonce; status lists are not fetched. Some EU profiles need P-256 ES256, which this does not provide. The repo's migration guide (a source proposal, not published) retires @bsv/did-client and the serial-number did:bsv tokens in favour of this package, and SDK 3.0.0 would remove the old DID-token module.",
+      "tags": [
+        "bsv",
+        "identity",
+        "did",
+        "credentials",
+        "sd-jwt"
+      ],
+      "scope": "bsv",
+      "props": {
+        "module": "identity",
+        "gapType": "new",
+        "relatesToExisting": "bsv-brc52-53-certificates, bsv-mutual-auth, bsv-simple-library",
+        "verify": "did-client retirement and SDK 3.0.0 removal are from unreleased source docs; npm still lists @bsv/did-client 1.3.3 as latest.",
+        "rank": 12,
+        "order": 141
+      },
+      "sources": [
+        {
+          "ref": "https://www.npmjs.com/package/@bsv/did",
+          "licence": "Open BSV License Version 6 for current monorepo changes; package READMEs also name retained earlier grants (for example OBSL v4 in 402-pay and create-bsv-app); npm license field reads SEE LICENSE I..."
+        },
+        {
+          "ref": "https://raw.githubusercontent.com/bsv-blockchain/ts-stack/main/docs/guides/identity-did-vc-migration.md",
+          "licence": "Open BSV License Version 6 per the repo README (modified MIT; limits use to the BSV blockchain and its testnets; exact terms unverified). Historical grants and incorporated material stay under scop..."
+        },
+        {
+          "ref": "https://github.com/bsv-blockchain/ts-stack",
+          "licence": "Open BSV License Version 6 per the repo README (modified MIT; limits use to the BSV blockchain and its testnets; exact terms unverified). Historical grants and incorporated material stay under scop..."
+        }
+      ],
+      "confidence": 0.8,
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z",
+      "updatedAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "bsv-safety-ts-stack-server-keys",
+      "type": "lesson",
+      "title": "Refuse ts-stack patterns that put a private key in Legion",
+      "body": "Several ts-stack entry points are built around a key held by the running program, which Legion must decline even though the docs call them normal. @bsv/simple/server and ServerWallet read SERVER_PRIVATE_KEY and talk to a wallet storage server; the docs recommend it for agents and MCP servers. @bsv/wallet-relay needs WALLET_PRIVATE_KEY on its backend. Generated create-bsv-app servers read SERVER_PRIVATE_KEY, and wallet-toolbox assembles wallets that hold keys and storage. Each is fine for an operator who owns that key; none belongs in Legion's config, environment, VMs or logs. If a user asks for a bot wallet, route to an external BRC-100 wallet with spend limits, and say plainly that the key would otherwise be in the bot's reach. If a generated project contains such a variable, do not fill it, print it or commit it, and tell the owner before running it.",
+      "tags": [
+        "bsv",
+        "safety",
+        "keys",
+        "ts-stack",
+        "server-wallet"
+      ],
+      "scope": "bsv",
+      "props": {
+        "module": "safety",
+        "gapType": "new",
+        "relatesToExisting": "bsv-safety-keys-never-in-legion, bsv-safety-external-wallet, bsv-safety-vm-boundary",
+        "verify": "Environment variable names read from the choose-your-stack doc, wallet-relay README and create-bsv-app README on 2026-10-01; they may change.",
+        "rank": 13,
+        "order": 142
+      },
+      "sources": [
+        {
+          "ref": "https://raw.githubusercontent.com/bsv-blockchain/ts-stack/main/docs/get-started/choose-your-stack.md",
+          "licence": "Open BSV License Version 6 per the repo README (modified MIT; limits use to the BSV blockchain and its testnets; exact terms unverified). Historical grants and incorporated material stay under scop..."
+        },
+        {
+          "ref": "https://www.npmjs.com/package/@bsv/wallet-relay",
+          "licence": "Open BSV License Version 6 for current monorepo changes; package READMEs also name retained earlier grants (for example OBSL v4 in 402-pay and create-bsv-app); npm license field reads SEE LICENSE I..."
+        },
+        {
+          "ref": "https://www.npmjs.com/package/create-bsv-app",
+          "licence": "Open BSV License Version 6 for current monorepo changes; package READMEs also name retained earlier grants (for example OBSL v4 in 402-pay and create-bsv-app); npm license field reads SEE LICENSE I..."
+        },
+        {
+          "ref": "https://github.com/bsv-blockchain/ts-stack",
+          "licence": "Open BSV License Version 6 per the repo README (modified MIT; limits use to the BSV blockchain and its testnets; exact terms unverified). Historical grants and incorporated material stay under scop..."
+        }
+      ],
+      "confidence": 0.85,
       "createdBy": "system",
       "createdAt": "2026-10-01T00:00:00.000Z",
       "updatedAt": "2026-10-01T00:00:00.000Z"
@@ -7961,6 +8493,579 @@
       "createdBy": "system",
       "createdAt": "2026-10-01T00:00:00.000Z",
       "note": "protects"
+    },
+    {
+      "id": "e-bsv-src-ts-stack-deepwiki-part_of-bsv-mod-sdks",
+      "from": "bsv-src-ts-stack-deepwiki",
+      "to": "bsv-mod-sdks",
+      "rel": "part_of",
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "e-bsv-src-ts-stack-deepwiki-relates-bsv-src-ts-stack",
+      "from": "bsv-src-ts-stack-deepwiki",
+      "to": "bsv-src-ts-stack",
+      "rel": "relates",
+      "note": "secondary summary of the primary repo; verify against the repo",
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "e-bsv-ts-stack-cites-bsv-src-ts-stack-deepwiki",
+      "from": "bsv-ts-stack",
+      "to": "bsv-src-ts-stack-deepwiki",
+      "rel": "cites",
+      "note": "DeepWiki is a secondary map only",
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "e-bsv-ts-stack-facts-2026-10-part_of-bsv-mod-sdks",
+      "from": "bsv-ts-stack-facts-2026-10",
+      "to": "bsv-mod-sdks",
+      "rel": "part_of",
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "e-bsv-ts-stack-facts-2026-10-cites-bsv-src-ts-stack",
+      "from": "bsv-ts-stack-facts-2026-10",
+      "to": "bsv-src-ts-stack",
+      "rel": "cites",
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "e-bsv-ts-stack-facts-2026-10-relates-bsv-ts-stack-package-map",
+      "from": "bsv-ts-stack-facts-2026-10",
+      "to": "bsv-ts-stack-package-map",
+      "rel": "relates",
+      "note": "adds versions and packages missing from the map",
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "e-bsv-ts-stack-facts-2026-10-relates-bsv-sdk-ts",
+      "from": "bsv-ts-stack-facts-2026-10",
+      "to": "bsv-sdk-ts",
+      "rel": "relates",
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "e-bsv-ts-stack-legion-usage-map-part_of-bsv-mod-sdks",
+      "from": "bsv-ts-stack-legion-usage-map",
+      "to": "bsv-mod-sdks",
+      "rel": "part_of",
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "e-bsv-ts-stack-legion-usage-map-cites-bsv-src-ts-stack",
+      "from": "bsv-ts-stack-legion-usage-map",
+      "to": "bsv-src-ts-stack",
+      "rel": "cites",
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "e-bsv-ts-stack-legion-usage-map-depends_on-bsv-sdk-choice",
+      "from": "bsv-ts-stack-legion-usage-map",
+      "to": "bsv-sdk-choice",
+      "rel": "depends_on",
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "e-bsv-ts-stack-legion-usage-map-depends_on-bsv-safety-keys-never-in-legion",
+      "from": "bsv-ts-stack-legion-usage-map",
+      "to": "bsv-safety-keys-never-in-legion",
+      "rel": "depends_on",
+      "note": "why wallet-toolbox and server wallets are excluded",
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "e-bsv-ts-stack-legion-usage-map-relates-bsv-ts-stack-package-map",
+      "from": "bsv-ts-stack-legion-usage-map",
+      "to": "bsv-ts-stack-package-map",
+      "rel": "relates",
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "e-bsv-ts-stack-legion-usage-map-relates-bsv-wallet-toolbox",
+      "from": "bsv-ts-stack-legion-usage-map",
+      "to": "bsv-wallet-toolbox",
+      "rel": "relates",
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "e-bsv-ts-stack-legion-usage-map-relates-bsv-simple-library",
+      "from": "bsv-ts-stack-legion-usage-map",
+      "to": "bsv-simple-library",
+      "rel": "relates",
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "e-bsv-ts-stack-layering-rule-part_of-bsv-mod-sdks",
+      "from": "bsv-ts-stack-layering-rule",
+      "to": "bsv-mod-sdks",
+      "rel": "part_of",
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "e-bsv-ts-stack-layering-rule-cites-bsv-src-ts-stack",
+      "from": "bsv-ts-stack-layering-rule",
+      "to": "bsv-src-ts-stack",
+      "rel": "cites",
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "e-bsv-ts-stack-layering-rule-cites-bsv-src-ts-stack-deepwiki",
+      "from": "bsv-ts-stack-layering-rule",
+      "to": "bsv-src-ts-stack-deepwiki",
+      "rel": "cites",
+      "note": "source of the strict-inward-flow claim",
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "e-bsv-ts-stack-layering-rule-relates-bsv-brc100-wallet",
+      "from": "bsv-ts-stack-layering-rule",
+      "to": "bsv-brc100-wallet",
+      "rel": "relates",
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "e-bsv-ts-stack-layering-rule-relates-bsv-ts-stack",
+      "from": "bsv-ts-stack-layering-rule",
+      "to": "bsv-ts-stack",
+      "rel": "relates",
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "e-bsv-ts-stack-conformance-part_of-bsv-mod-sdks",
+      "from": "bsv-ts-stack-conformance",
+      "to": "bsv-mod-sdks",
+      "rel": "part_of",
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "e-bsv-ts-stack-conformance-cites-bsv-src-ts-stack",
+      "from": "bsv-ts-stack-conformance",
+      "to": "bsv-src-ts-stack",
+      "rel": "cites",
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "e-bsv-ts-stack-conformance-cites-bsv-src-ts-stack-deepwiki",
+      "from": "bsv-ts-stack-conformance",
+      "to": "bsv-src-ts-stack-deepwiki",
+      "rel": "cites",
+      "note": "source of the Go runner claim",
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "e-bsv-ts-stack-conformance-relates-bsv-sdk-choice",
+      "from": "bsv-ts-stack-conformance",
+      "to": "bsv-sdk-choice",
+      "rel": "relates",
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "e-bsv-ts-stack-conformance-relates-bsv-other-language-sdks",
+      "from": "bsv-ts-stack-conformance",
+      "to": "bsv-other-language-sdks",
+      "rel": "relates",
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "e-bsv-message-box-client-part_of-bsv-mod-extras",
+      "from": "bsv-message-box-client",
+      "to": "bsv-mod-extras",
+      "rel": "part_of",
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "e-bsv-message-box-client-cites-bsv-src-ts-stack",
+      "from": "bsv-message-box-client",
+      "to": "bsv-src-ts-stack",
+      "rel": "cites",
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "e-bsv-message-box-client-depends_on-bsv-walletclient-calls",
+      "from": "bsv-message-box-client",
+      "to": "bsv-walletclient-calls",
+      "rel": "depends_on",
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "e-bsv-message-box-client-depends_on-bsv-safety-untrusted-chain-data",
+      "from": "bsv-message-box-client",
+      "to": "bsv-safety-untrusted-chain-data",
+      "rel": "depends_on",
+      "note": "messages from other keys are untrusted input",
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "e-bsv-message-box-client-depends_on-bsv-safety-spend-caps-approval",
+      "from": "bsv-message-box-client",
+      "to": "bsv-safety-spend-caps-approval",
+      "rel": "depends_on",
+      "note": "maximumPayment and wallet approval",
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "e-bsv-message-box-client-relates-bsv-brc29-payments",
+      "from": "bsv-message-box-client",
+      "to": "bsv-brc29-payments",
+      "rel": "relates",
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "e-bsv-message-box-client-relates-bsv-brc103-104-handshake",
+      "from": "bsv-message-box-client",
+      "to": "bsv-brc103-104-handshake",
+      "rel": "relates",
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "e-bsv-auth-express-middleware-part_of-bsv-mod-identity",
+      "from": "bsv-auth-express-middleware",
+      "to": "bsv-mod-identity",
+      "rel": "part_of",
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "e-bsv-auth-express-middleware-cites-bsv-src-ts-stack",
+      "from": "bsv-auth-express-middleware",
+      "to": "bsv-src-ts-stack",
+      "rel": "cites",
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "e-bsv-auth-express-middleware-relates-bsv-mutual-auth",
+      "from": "bsv-auth-express-middleware",
+      "to": "bsv-mutual-auth",
+      "rel": "relates",
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "e-bsv-auth-express-middleware-relates-bsv-brc103-104-handshake",
+      "from": "bsv-auth-express-middleware",
+      "to": "bsv-brc103-104-handshake",
+      "rel": "relates",
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "e-bsv-auth-express-middleware-relates-bsv-402-pay-package",
+      "from": "bsv-auth-express-middleware",
+      "to": "bsv-402-pay-package",
+      "rel": "relates",
+      "note": "payment-express-middleware requires this middleware; 402-pay does not",
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "e-bsv-402-pay-package-part_of-bsv-mod-extras",
+      "from": "bsv-402-pay-package",
+      "to": "bsv-mod-extras",
+      "rel": "part_of",
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "e-bsv-402-pay-package-cites-bsv-src-ts-stack",
+      "from": "bsv-402-pay-package",
+      "to": "bsv-src-ts-stack",
+      "rel": "cites",
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "e-bsv-402-pay-package-depends_on-bsv-402-profiles",
+      "from": "bsv-402-pay-package",
+      "to": "bsv-402-profiles",
+      "rel": "depends_on",
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "e-bsv-402-pay-package-depends_on-bsv-safety-spend-caps-approval",
+      "from": "bsv-402-pay-package",
+      "to": "bsv-safety-spend-caps-approval",
+      "rel": "depends_on",
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "e-bsv-402-pay-package-depends_on-bsv-safety-no-blind-retries",
+      "from": "bsv-402-pay-package",
+      "to": "bsv-safety-no-blind-retries",
+      "rel": "depends_on",
+      "note": "503 after payment starts means check first, do not retry",
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "e-bsv-402-pay-package-relates-bsv-402-payments",
+      "from": "bsv-402-pay-package",
+      "to": "bsv-402-payments",
+      "rel": "relates",
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "e-bsv-ts-stack-overlay-packages-part_of-bsv-mod-extras",
+      "from": "bsv-ts-stack-overlay-packages",
+      "to": "bsv-mod-extras",
+      "rel": "part_of",
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "e-bsv-ts-stack-overlay-packages-cites-bsv-src-ts-stack",
+      "from": "bsv-ts-stack-overlay-packages",
+      "to": "bsv-src-ts-stack",
+      "rel": "cites",
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "e-bsv-ts-stack-overlay-packages-relates-bsv-overlay-engine-sdk",
+      "from": "bsv-ts-stack-overlay-packages",
+      "to": "bsv-overlay-engine-sdk",
+      "rel": "relates",
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "e-bsv-ts-stack-overlay-packages-relates-bsv-overlay-express",
+      "from": "bsv-ts-stack-overlay-packages",
+      "to": "bsv-overlay-express",
+      "rel": "relates",
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "e-bsv-ts-stack-overlay-packages-relates-bsv-overlay-services",
+      "from": "bsv-ts-stack-overlay-packages",
+      "to": "bsv-overlay-services",
+      "rel": "relates",
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "e-bsv-ts-stack-overlay-packages-relates-bsv-beef-spv",
+      "from": "bsv-ts-stack-overlay-packages",
+      "to": "bsv-beef-spv",
+      "rel": "relates",
+      "note": "'scripts only' mode skips SPV checks",
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "e-bsv-wallet-relay-pairing-part_of-bsv-mod-wallets",
+      "from": "bsv-wallet-relay-pairing",
+      "to": "bsv-mod-wallets",
+      "rel": "part_of",
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "e-bsv-wallet-relay-pairing-cites-bsv-src-ts-stack",
+      "from": "bsv-wallet-relay-pairing",
+      "to": "bsv-src-ts-stack",
+      "rel": "cites",
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "e-bsv-wallet-relay-pairing-relates-bsv-desktop-wallet",
+      "from": "bsv-wallet-relay-pairing",
+      "to": "bsv-desktop-wallet",
+      "rel": "relates",
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "e-bsv-wallet-relay-pairing-relates-bsv-brc100-wallet",
+      "from": "bsv-wallet-relay-pairing",
+      "to": "bsv-brc100-wallet",
+      "rel": "relates",
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "e-bsv-wallet-relay-pairing-relates-bsv-safety-ts-stack-server-keys",
+      "from": "bsv-wallet-relay-pairing",
+      "to": "bsv-safety-ts-stack-server-keys",
+      "rel": "relates",
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "e-bsv-create-bsv-app-and-simple-part_of-bsv-mod-sdks",
+      "from": "bsv-create-bsv-app-and-simple",
+      "to": "bsv-mod-sdks",
+      "rel": "part_of",
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "e-bsv-create-bsv-app-and-simple-cites-bsv-src-ts-stack",
+      "from": "bsv-create-bsv-app-and-simple",
+      "to": "bsv-src-ts-stack",
+      "rel": "cites",
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "e-bsv-create-bsv-app-and-simple-relates-bsv-simple-library",
+      "from": "bsv-create-bsv-app-and-simple",
+      "to": "bsv-simple-library",
+      "rel": "relates",
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "e-bsv-create-bsv-app-and-simple-relates-bsv-simple-mcp",
+      "from": "bsv-create-bsv-app-and-simple",
+      "to": "bsv-simple-mcp",
+      "rel": "relates",
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "e-bsv-create-bsv-app-and-simple-relates-bsv-safety-supply-chain",
+      "from": "bsv-create-bsv-app-and-simple",
+      "to": "bsv-safety-supply-chain",
+      "rel": "relates",
+      "note": "starters clone third-party repositories",
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "e-bsv-did-package-part_of-bsv-mod-identity",
+      "from": "bsv-did-package",
+      "to": "bsv-mod-identity",
+      "rel": "part_of",
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "e-bsv-did-package-cites-bsv-src-ts-stack",
+      "from": "bsv-did-package",
+      "to": "bsv-src-ts-stack",
+      "rel": "cites",
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "e-bsv-did-package-relates-bsv-brc52-53-certificates",
+      "from": "bsv-did-package",
+      "to": "bsv-brc52-53-certificates",
+      "rel": "relates",
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "e-bsv-did-package-relates-bsv-mutual-auth",
+      "from": "bsv-did-package",
+      "to": "bsv-mutual-auth",
+      "rel": "relates",
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "e-bsv-did-package-relates-bsv-simple-library",
+      "from": "bsv-did-package",
+      "to": "bsv-simple-library",
+      "rel": "relates",
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "e-bsv-safety-ts-stack-server-keys-part_of-bsv-mod-safety",
+      "from": "bsv-safety-ts-stack-server-keys",
+      "to": "bsv-mod-safety",
+      "rel": "part_of",
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "e-bsv-safety-ts-stack-server-keys-cites-bsv-src-ts-stack",
+      "from": "bsv-safety-ts-stack-server-keys",
+      "to": "bsv-src-ts-stack",
+      "rel": "cites",
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "e-bsv-safety-ts-stack-server-keys-depends_on-bsv-safety-keys-never-in-legion",
+      "from": "bsv-safety-ts-stack-server-keys",
+      "to": "bsv-safety-keys-never-in-legion",
+      "rel": "depends_on",
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "e-bsv-safety-ts-stack-server-keys-relates-bsv-safety-external-wallet",
+      "from": "bsv-safety-ts-stack-server-keys",
+      "to": "bsv-safety-external-wallet",
+      "rel": "relates",
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "e-bsv-safety-ts-stack-server-keys-relates-bsv-safety-vm-boundary",
+      "from": "bsv-safety-ts-stack-server-keys",
+      "to": "bsv-safety-vm-boundary",
+      "rel": "relates",
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "e-bsv-safety-ts-stack-server-keys-relates-bsv-ts-stack-legion-usage-map",
+      "from": "bsv-safety-ts-stack-server-keys",
+      "to": "bsv-ts-stack-legion-usage-map",
+      "rel": "relates",
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "from": "bsv-safety-ts-stack-server-keys",
+      "to": "bsv-simple-library",
+      "rel": "relates",
+      "note": "protects",
+      "id": "e-bsv-safety-ts-stack-server-keys-relates-bsv-simple-library",
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z"
     }
   ]
 }
