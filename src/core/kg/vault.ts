@@ -176,7 +176,9 @@ function renderNodeFile(graph: Graph, actor: Actor, node: KgNode, titleCount: Ma
 export function exportVault(graph: Graph, actor: Actor, dir: string): ExportReport {
   const root = resolve(dir);
   mkdirSync(root, { recursive: true });
-  const nodes = graph.allNodes(actor).sort((a, b) => a.id.localeCompare(b.id));
+  // The BSV pack is bundled with the app and owned by the seeder: import never takes a file for it (it would add a second copy as shared
+  // notes), so the export leaves it out and Export all then Import is a no-op for it.
+  const nodes = graph.allNodes(actor).filter((n) => n.scope !== 'bsv').sort((a, b) => a.id.localeCompare(b.id));
   const titleCount = new Map<string, number>();
   for (const n of nodes) titleCount.set(oneLine(n.title).toLowerCase(), (titleCount.get(oneLine(n.title).toLowerCase()) ?? 0) + 1);
   const wanted = new Map<string, string>(); // safe id -> new file name
@@ -260,6 +262,8 @@ interface ParsedFile {
   props?: Record<string, string | number | boolean>;
   sources: KgSource[];
   fmId?: string;
+  /** The frontmatter says scope: bsv (a file an older export wrote for a pack note). */
+  claimsBsv?: boolean;
   /** Carries a trigger:* tag: a standing rule for every bot, so it never lands live from a file. */
   trigger: boolean;
   /** The file says it came from a note that was pending, retired, untrusted or tainted: it comes back held, never live. */
@@ -391,7 +395,7 @@ function parseFile(rel: string, text: string): ParsedFile | string {
     notClean: (typeof data.status === 'string' && data.status !== 'active') || data.trust === 'untrusted' || data.tainted === true,
     type: isNodeType(data.type) ? data.type : tagged ?? 'note',
     ...(props ? { props } : {}), ...(confidence !== undefined ? { confidence } : {}),
-    sources, ...(typeof data.id === 'string' ? { fmId: data.id } : {}), links,
+    sources, ...(typeof data.id === 'string' ? { fmId: data.id } : {}), ...(data.scope === 'bsv' ? { claimsBsv: true } : {}), links,
   };
 }
 
@@ -456,6 +460,8 @@ export function importVault(graph: Graph, dir: string, actor: Actor = HUMAN, opt
   const owned = (n: KgNode): boolean => n.createdBy === 'human' && !engineOwnedId(n.id) && n.scope !== 'bsv';
   for (const f of parsed) {
     try {
+      // a file an older export wrote for a note of the bundled BSV pack: the pack note is already there, a second copy would duplicate it
+      if (f.claimsBsv && f.fmId && byId.get(f.fmId)?.scope === 'bsv') { report.skipped.push({ path: f.rel, reason: 'a note of the bundled BSV pack (already in the graph, not imported from files)' }); continue; }
       let held = !trusted || f.trigger || f.notClean;
       let target = byVaultPath.get(f.rel);
       if (target && !owned(target)) target = undefined;

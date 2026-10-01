@@ -78,7 +78,7 @@ test('export only writes what the actor can see, and removes the old file of a r
   assert.equal(exportVault(g, BETA, dir).written, 1);
   assert.equal(exportVault(g, HUMAN, dir).written, 2, 'human sees shared + private, bsv is off');
   bsv.on = true;
-  assert.equal(exportVault(g, HUMAN, dir).written, 3);
+  assert.equal(exportVault(g, HUMAN, dir).written, 2, 'the BSV pack is bundled with the app and never written to a vault (import cannot take it back)');
   const n = g.search(HUMAN, 'shared')[0]!.node;
   g.upsertNode(HUMAN, { id: n.id, title: 'Renamed page' });
   const r = exportVault(g, HUMAN, dir);

@@ -1,7 +1,7 @@
 // Electron main process, emulated: the REAL compiled dist/src/electron/main.js with `electron` stubbed (register.mjs), driving a REAL spawned core.
 // Run: node --import ./test/electron-emu/register.mjs test/electron-emu/run.mjs <scenario>   (the suite does this; one JSON line comes back on stdout)
 // Ported from the round-2 reviewer's e1/e2/e3 proofs. Not run: real Electron, real Windows (taskkill, netstat parsing on real output).
-import { copyFileSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, copyFileSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import http from 'node:http';
@@ -14,7 +14,11 @@ delete process.env.LEGION_PORT;
 const TOKEN = 'tok' + 'a'.repeat(40);
 const PORT = 20000 + Math.floor(Math.random() * 20000);
 writeFileSync(join(home, 'config.json'), JSON.stringify({ port: PORT, authToken: TOKEN }));
-if (scenario === 'shim') process.env.LEGION_NODE = resolve('test/electron-emu/shim.sh');
+if (scenario === 'shim') {
+  // the shim must be executable; a checkout that does not keep the mode bit (archive, some worktrees) would fail with EACCES
+  chmodSync('test/electron-emu/shim.sh', 0o755);
+  process.env.LEGION_NODE = resolve('test/electron-emu/shim.sh');
+}
 
 // the compiled main, plus an export of its internals, next to the original so its relative imports resolve
 const dist = resolve('dist/src/electron');

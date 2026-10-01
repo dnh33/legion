@@ -20,6 +20,7 @@ import { VmError } from './vm-manager.js';
 import type { VmManager } from './vm-manager.js';
 import type { CoreModule } from './modules.js';
 import { agentIdVisible, agentVisible, taskVisible } from './visibility.js';
+import { pushSse } from './sse.js';
 
 export interface CoreContext {
   config: LegionConfig; store: Store; bus: EventBus; engine: Engine; vms: VmManager; approvals: ApprovalBroker;
@@ -92,6 +93,9 @@ function readBody(req: IncomingMessage): Promise<unknown> {
     req.on('error', (e) => { if (!dead) reject(e); });
   });
 }
+
+/** A task as listed in /api/state: everything but the final assistant text. */
+const withoutResult = (t: Task): Task => { if (t.result === undefined) return t; const { result: _result, ...rest } = t; return rest; };
 
 const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v);
 
@@ -183,7 +187,8 @@ export function createServer(ctx: CoreContext): Server {
   route('GET', '/api/state', ({ url }): StateSnapshot => ({
     version: VERSION,
     agents: ctx.store.listAgents().filter(visible),
-    tasks: ctx.store.listTasks(200, undefined, ['1', 'true'].includes(url.searchParams.get('archived') ?? '')).filter(taskShown),
+    // the list leaves out each task's final text (up to 2 KB x 200): GET /api/tasks/:id has it, and task.updated events carry the whole task
+    tasks: ctx.store.listTasks(200, undefined, ['1', 'true'].includes(url.searchParams.get('archived') ?? '')).filter(taskShown).map(withoutResult),
     vms: ctx.store.listVms().filter((v) => agentIdVisible(ctx, v.agentId)),
     approvals: ctx.approvals.pending().filter((a) => agentIdVisible(ctx, a.agentId)),
     boatConfigured: ctx.boatConfigured(),
@@ -360,7 +365,7 @@ export function createServer(ctx: CoreContext): Server {
   };
 
   /** Events only the app window (admin) may see: the human's rooms and their text, bot-to-bot state, and settings (key hints). A token-only stream drops them. */
-  const adminOnlyEvent = (ev: LegionEvent): boolean => ev.type.startsWith('room.') || ev.type.startsWith('comms.') || ev.type.startsWith('settings.');
+  const adminOnlyEvent = (ev: LegionEvent): boolean => ev.type.startsWith('room.') || ev.type.startsWith('comms.') || ev.type.startsWith('settings.') || ev.type.startsWith('kg.');
 
   const handleSse = (req: IncomingMessage, res: ServerResponse, admin: boolean) => {
     res.writeHead(200, {
@@ -373,9 +378,9 @@ export function createServer(ctx: CoreContext): Server {
     const off = ctx.bus.on((ev: LegionEvent) => {
       if (!eventShown(ev)) return; // hidden agents must not leak through the event stream
       if (!admin && adminOnlyEvent(ev)) return;
-      res.write(`data: ${JSON.stringify(ev)}\n\n`);
+      pushSse(res, ev);
     });
-    const hb = setInterval(() => { res.write(': hb\n\n'); }, 15000);
+    const hb = setInterval(() => { if (!res.writableNeedDrain) res.write(': hb\n\n'); }, 15000);
     let closed = false;
     const cleanup = () => { if (closed) return; closed = true; clearInterval(hb); off(); };
     req.on('close', cleanup);

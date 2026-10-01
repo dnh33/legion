@@ -145,6 +145,8 @@ export class Graph {
   private delWindow?: { start: number; count: number; preCopied: boolean };
   private readonly activity: ActivityLog;
   private lite?: KgLintLite;
+  /** > 0 while batch() holds the directory lock. */
+  private batchDepth = 0;
 
   private nodes = new Map<string, KgNode>();
   private edges = new Map<string, KgEdge>();
@@ -338,7 +340,8 @@ export class Graph {
         scores.set(id, (scores.get(id) ?? 0) + idf * ((tf * (K1 + 1)) / (tf + K1 * (1 - B + (B * len) / avg))));
       }
     }
-    const hits: KgSearchHit[] = [];
+    // rank on cheap fields first; the (expensive) snippet is built only for the page that is returned
+    const ranked: Array<{ n: KgNode; score: number; inactive: boolean }> = [];
     const nowMs = this.now().getTime();
     for (const [id, score] of scores) {
       const n = this.nodes.get(id);
@@ -349,15 +352,14 @@ export class Graph {
       if (opts.type !== undefined && n.type !== opts.type) continue;
       if (wantTags.length && !wantTags.every((t) => n.tags.includes(t))) continue;
       // recall v2: BM25 x recency x confidence x trust; a retired node, when asked for, counts for a third
-      const ranked = score * rankFactor(n, nowMs) * (inactive ? 0.3 : 1);
-      hits.push({
-        node: { id: n.id, type: n.type, title: n.title, tags: [...n.tags], scope: n.scope, updatedAt: n.updatedAt, snippet: makeSnippet(n.body, qTokens) || oneLine(n.title) },
-        score: Math.round(ranked * 10_000) / 10_000,
-        ...(inactive ? { inactive: { status: statusOf(n), ...(n.supersededBy ? { supersededBy: n.supersededBy } : {}) } } : {}),
-      });
+      ranked.push({ n, score: Math.round(score * rankFactor(n, nowMs) * (inactive ? 0.3 : 1) * 10_000) / 10_000, inactive });
     }
-    hits.sort((a, b) => b.score - a.score || b.node.updatedAt.localeCompare(a.node.updatedAt) || a.node.id.localeCompare(b.node.id));
-    return hits.slice(0, limit);
+    ranked.sort((a, b) => b.score - a.score || b.n.updatedAt.localeCompare(a.n.updatedAt) || a.n.id.localeCompare(b.n.id));
+    return ranked.slice(0, limit).map(({ n, score, inactive }): KgSearchHit => ({
+      node: { id: n.id, type: n.type, title: n.title, tags: [...n.tags], scope: n.scope, updatedAt: n.updatedAt, snippet: makeSnippet(n.body, qTokens) || oneLine(n.title) },
+      score,
+      ...(inactive ? { inactive: { status: statusOf(n), ...(n.supersededBy ? { supersededBy: n.supersededBy } : {}) } } : {}),
+    }));
   }
 
   // ------------------------------------------------------------------ traversal
@@ -625,10 +627,10 @@ export class Graph {
     let seen = '';
     return {
       text: (s: string): string => {
-        const bad = findForbiddenSecretInField(s) ?? (seen ? findForbiddenSecretInField(`${seen} | ${s.slice(0, SEAM_CHARS)}`) : undefined);
+        const bad = memoBad(s) ?? (seen ? memoBad(`${seen} | ${s.slice(0, SEAM_CHARS)}`) : undefined);
         seen = `${seen} | ${s.slice(-SEAM_CHARS)}`.slice(-SEAM_CHARS * 2);
         if (bad) throw new KgError('invalid', `Refused: this looks like a ${bad}. Secrets never go into the knowledge graph. Nothing was saved.`);
-        const out = scrubSecrets(s, { keepHex: true, exact });
+        const out = memoScrub(s, exact);
         if (out !== s) count++;
         return out;
       },
@@ -1949,6 +1951,20 @@ export class Graph {
     try { this.onChange?.(ids); } catch { /* listeners must not break writes */ }
   }
 
+  /**
+   * Runs `fn` with the directory lock held once: every write inside takes no lock of its own and does not re-check the log
+   * (nobody else can have written while we hold it). A seed of 850 writes is then one lock cycle instead of 850.
+   * Writes are still appended (and applied) one by one, so a crash half way leaves the same complete-prefix log as before.
+   */
+  batch<T>(fn: () => T): T {
+    if (this.batchDepth > 0) return fn();
+    return this.withLock(() => {
+      this.syncFromDisk();
+      this.batchDepth++;
+      try { return fn(); } finally { this.batchDepth--; }
+    });
+  }
+
   // ------------------------------------------------------------------ log
 
   /**
@@ -1960,7 +1976,7 @@ export class Graph {
     const lines = ops.map((o) => JSON.stringify(o));
     const text = (ops.length > 1 ? [batchMark(BATCH_BEGIN, ops.length), ...lines, batchMark(BATCH_COMMIT, ops.length)] : lines).join('\n') + '\n';
     this.withLock(() => {
-      this.syncFromDisk();
+      if (this.batchDepth === 0) this.syncFromDisk();
       const before = this.fileSize();
       try {
         appendFileSync(this.file, text, 'utf8');
@@ -1996,6 +2012,7 @@ export class Graph {
 
   /** Runs `fn` while holding `graph.jsonl.lock` (exclusive create). A lock left by a dead process, or older than 30 s, is taken over. */
   private withLock<T>(fn: () => T): T {
+    if (this.batchDepth > 0) return fn(); // batch() already holds it
     const lock = `${this.file}.lock`;
     const deadline = Date.now() + LOCK_WAIT_MS;
     const mine = `${process.pid} ${Date.now()}`;
@@ -2231,6 +2248,44 @@ export class Graph {
 }
 
 // ---------------------------------------------------------------------- helpers
+
+// The two secret scans are pure functions of their input, and a seed or a re-save runs them twice over the same 1-2 KB text (dry run, then
+// the write), at 1-3 ms per KB. Remembering the answer for a field keeps every check exactly as strict (same function, same input), it only
+// skips recomputing it. Bounded by total characters, oldest first; the scrub answer is keyed by the live-secrets list it depended on.
+const MEMO_MIN = 256;
+const MEMO_MAX_CHARS = 2_000_000;
+class TextMemo<V> {
+  private readonly m = new Map<string, V>();
+  private chars = 0;
+  get(k: string): V | undefined { return this.m.get(k); }
+  has(k: string): boolean { return this.m.has(k); }
+  set(k: string, v: V): void {
+    if (k.length > MEMO_MAX_CHARS / 8) return;
+    while (this.chars + k.length > MEMO_MAX_CHARS && this.m.size) { const [old] = this.m.keys(); this.chars -= old!.length; this.m.delete(old!); }
+    this.m.set(k, v); this.chars += k.length;
+  }
+  clear(): void { this.m.clear(); this.chars = 0; }
+}
+const badMemo = new TextMemo<ReturnType<typeof findForbiddenSecretInField>>();
+let scrubMemoKey = '';
+const scrubMemo = new TextMemo<string>();
+function memoBad(s: string): ReturnType<typeof findForbiddenSecretInField> {
+  if (s.length < MEMO_MIN) return findForbiddenSecretInField(s);
+  if (badMemo.has(s)) return badMemo.get(s);
+  const r = findForbiddenSecretInField(s);
+  badMemo.set(s, r);
+  return r;
+}
+function memoScrub(s: string, exact: readonly string[]): string {
+  if (s.length < MEMO_MIN) return scrubSecrets(s, { keepHex: true, exact });
+  const key = exact.join('\0');
+  if (key !== scrubMemoKey) { scrubMemo.clear(); scrubMemoKey = key; }
+  const hit = scrubMemo.get(s);
+  if (hit !== undefined) return hit;
+  const r = scrubSecrets(s, { keepHex: true, exact });
+  scrubMemo.set(s, r);
+  return r;
+}
 
 /** A lock file is stale when it is old, or names a process on this machine that no longer exists. */
 function lockIsStale(lock: string): boolean {

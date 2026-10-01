@@ -5,6 +5,7 @@ import { describeSeed } from '../../../src/shared/bsv-seed';
 import type { SeedReport } from '../../../src/shared/bsv-seed';
 import type { KgEdge, KgLintReport, KgNode, KgNodeType, KgSearchHit, KgSource, KgSubgraph } from '../../../src/shared/kg';
 import { ApiError, request, subscribe } from '../api';
+import { mapPool, orderOverview, reconcileView, sameHits, seedGroups, touchesDetail, touchesView } from './viewsync';
 
 export const MAX_VIEW_NODES = 400;
 const RECENT_KEY = 'legion.lattice.recent';
@@ -167,9 +168,14 @@ function snowballWords(hits: KgSearchHit[], asked: Set<string>): string[] {
   return [...freq.entries()].sort((a, b) => b[1] - a[1]).slice(0, 70).map(([w]) => w);
 }
 
+/** At most this many searches in flight at once: the app keeps most of the browser's few connections per host for its event streams. */
+const DISCOVER_CONCURRENCY = 4;
+/** A graph this small is read whole by one overview call; discovery by search is only for bigger ones. */
+export const OVERVIEW_ALL = 200;
+
 /**
- * There is no "list everything" endpoint, so the overview discovers nodes by searching: a vocabulary of common words first,
- * then words taken from what came back. Good enough to seed a view; a proper listing endpoint would replace it.
+ * Fallback for graphs the overview call cannot hold whole: discover nodes by searching, a vocabulary of common words first, then words
+ * taken from what came back. Good enough to seed a view of a big graph.
  */
 async function discover(total: number): Promise<Map<string, number>> {
   const found = new Map<string, number>();
@@ -178,9 +184,9 @@ async function discover(total: number): Promise<Map<string, number>> {
   let words = GENERIC;
   for (let round = 0; round < 3 && words.length; round++) {
     const fresh: KgSearchHit[] = [];
-    await Promise.all(words.map((q) => { asked.add(q); return request<KgSearchHit[]>('GET', `/api/kg/search?q=${enc(q)}&limit=25`).then((hits) => {
+    await mapPool(words, DISCOVER_CONCURRENCY, (q) => { asked.add(q); return request<KgSearchHit[]>('GET', `/api/kg/search?q=${enc(q)}&limit=25`).then((hits) => {
       hits.forEach((h, i) => { learn(h.node); found.set(h.node.id, (found.get(h.node.id) ?? 0) + 1 + h.score / 100 - i * 0.001); if (!seen.has(h.node.id)) { seen.set(h.node.id, h); fresh.push(h); } });
-    }).catch(() => {}); }));
+    }).catch(() => {}); });
     if (found.size >= total || found.size >= 900 || !fresh.length) break;
     words = snowballWords(fresh, asked);
   }
@@ -198,10 +204,28 @@ export async function boot() {
   }
 }
 
+/** Counts every load that replaces the whole view (overview, around): only the newest one may land. */
+let viewSeq = 0;
+let overviewRunning = 0;
+
 export async function loadOverview(extraSeeds: string[] = []) {
+  const my = ++viewSeq;
+  overviewRunning++;
   set({ graphLoading: true });
   try {
-    const found = await discover(s.stats?.nodes ?? 0);
+    const total = s.stats?.nodes ?? 0;
+    // the whole graph fits in one overview call: no need to discover it with ~150 searches
+    if (total > 0 && total <= OVERVIEW_ALL) {
+      const all = await request<KgSubgraph>('GET', `/api/kg/overview?limit=${OVERVIEW_ALL}`);
+      if (my !== viewSeq) return;
+      if (all.nodes.length > 0) {
+        const present = new Set(all.nodes.map((n) => n.id));
+        replaceView(orderOverview(all, [...new Set([...extraSeeds, ...recentIds()])].filter((id) => present.has(id))));
+        return;
+      }
+    }
+    const found = await discover(total);
+    if (my !== viewSeq) return;
     const ranked = [...found.entries()].sort((a, b) => b[1] - a[1]).map(([id]) => id);
     const pinned = [...new Set([...extraSeeds, ...recentIds()])].filter((id) => found.has(id) || extraSeeds.includes(id));
     const small = ranked.length <= 300;
@@ -211,21 +235,25 @@ export async function loadOverview(extraSeeds: string[] = []) {
     if (!seeds.length) { set({ graphLoading: false, noSeeds: true }); return; }
     let sub: KgSubgraph;
     try { sub = await request<KgSubgraph>('GET', `/api/kg/subgraph?seed=${enc(seeds.join(','))}&depth=${small ? 1 : 2}&max=${small ? MAX_VIEW_NODES - 20 : 300}`); }
-    catch (e) { if (e instanceof ApiError && e.status === 404) { set({ graphLoading: false, noSeeds: true }); return; } throw e; }
+    catch (e) { if (my !== viewSeq) return; if (e instanceof ApiError && e.status === 404) { set({ graphLoading: false, noSeeds: true }); return; } throw e; }
+    if (my !== viewSeq) return;
     replaceView(sub);
   } catch (e) {
+    if (my !== viewSeq) return;
     set({ graphLoading: false, offline: isOffline(e) });
     notify(`Could not load the graph. ${errMsg(e)}`, 'error');
-  }
+  } finally { overviewRunning--; }
 }
 
 export async function loadAround(seeds: string[], depth = 1) {
   if (!seeds.length) return;
+  const my = ++viewSeq;
   set({ graphLoading: true });
   try {
     const sub = await request<KgSubgraph>('GET', `/api/kg/subgraph?seed=${enc(seeds.slice(0, 60).join(','))}&depth=${depth}&max=${MAX_VIEW_NODES - 100}`);
+    if (my !== viewSeq) return;
     replaceView(sub);
-  } catch (e) { set({ graphLoading: false }); notify(`Could not load the subgraph. ${errMsg(e)}`, 'error'); }
+  } catch (e) { if (my !== viewSeq) return; set({ graphLoading: false }); notify(`Could not load the subgraph. ${errMsg(e)}`, 'error'); }
 }
 
 async function ensureInView(id: string): Promise<boolean> {
@@ -250,22 +278,22 @@ export async function expand(id: string) {
   } catch (e) { set({ graphLoading: false }); notify(`Could not expand. ${errMsg(e)}`, 'error'); }
 }
 
-function chunkIds(ids: string[], maxChars = 6500): string[][] {
-  const out: string[][] = []; let cur: string[] = []; let len = 0;
-  for (const id of ids) { if (len + id.length + 1 > maxChars && cur.length) { out.push(cur); cur = []; len = 0; } cur.push(id); len += id.length + 1; }
-  if (cur.length) out.push(cur);
-  return out;
-}
-/** Re-read every node on the canvas: fresh content, new links, deleted nodes dropped. */
+/** Only the newest re-read may land: an older answer that arrives late would overwrite newer nodes. */
+let linkSeq = 0;
+/**
+ * Re-read every node on the canvas: fresh content, new links, deleted nodes and links dropped. The canvas is told (a new graph is
+ * published) only when something on it actually differs, so a re-read of an unchanged view costs no render and no layout.
+ */
 async function linkUp(dropMissing = false) {
   const ids = [...vNodes.keys()];
   if (!ids.length) return;
+  const my = ++linkSeq;
+  const edgesAtStart = new Set(vEdges.keys());
   try {
-    const parts = await Promise.all(chunkIds(ids).map((c) => request<KgSubgraph>('GET', `/api/kg/subgraph?seed=${enc(c.join(','))}&depth=0&max=500`).catch((e) => { if (e instanceof ApiError && e.status === 404) return { nodes: [], edges: [], truncated: false } as KgSubgraph; throw e; })));
-    const seen = new Set<string>();
-    for (const p of parts) { for (const n of p.nodes) { vNodes.set(n.id, n); seen.add(n.id); learn(n); } for (const e of p.edges) vEdges.set(e.id, e); }
-    if (dropMissing) for (const id of ids) if (!seen.has(id)) vNodes.delete(id);
-    publish();
+    const parts = await Promise.all(seedGroups(ids).map((c) => request<KgSubgraph>('GET', `/api/kg/subgraph?seed=${enc(c.join(','))}&depth=0&max=500`).catch((e) => { if (e instanceof ApiError && e.status === 404) return { nodes: [], edges: [], truncated: false } as KgSubgraph; throw e; })));
+    if (my !== linkSeq) return;
+    const r = reconcileView({ nodes: vNodes, edges: vEdges }, ids, parts, dropMissing, learn, edgesAtStart);
+    if (r.changed) publish();
   } catch { /* the view stays as it is */ }
 }
 
@@ -328,7 +356,9 @@ export async function runSearch() {
     const hits = await request<KgSearchHit[]>('GET', `/api/kg/search?${params}`);
     if (my !== searchSeq) return;
     hits.forEach((h) => learn(h.node));
-    set({ hits, searching: false, kv: s.kv + 1, offline: false });
+    // the same answer as before (a re-run after an unrelated write): nothing to re-render
+    if (sameHits(s.hits, hits)) set({ searching: false, searchError: null, offline: false });
+    else set({ hits, searching: false, kv: s.kv + 1, offline: false });
   } catch (e) {
     if (my !== searchSeq) return;
     set({ searching: false, searchError: errMsg(e), hits: [], offline: isOffline(e) });
@@ -496,10 +526,13 @@ export function refreshFromServer(changed?: string[]) {
   void request<Stats>('GET', '/api/kg/stats').then((st) => {
     const wasEmpty = (s.stats?.nodes ?? 0) === 0;
     set({ stats: st, ...bsvFrom(st), boot: 'ready', noSeeds: false });
-    if (st.nodes > 0 && (wasEmpty || vNodes.size === 0)) void loadOverview(changed ?? []);
+    if (st.nodes > 0 && (wasEmpty || vNodes.size === 0) && !overviewRunning) void loadOverview(changed ?? []);
   }).catch(() => {});
-  void linkUp(true);
-  if (s.selectedId) void loadDetail(s.selectedId);
+  // nothing of the Lattice is on screen (a Library action, with the Inbox or Activity tab open): the tab re-reads everything when it comes back
+  if (liveUsers === 0) return;
+  // the core says which ids it touched: when none of them is on the canvas (or open in the panel) there is nothing to re-read
+  if (touchesView(changed, { nodes: vNodes, edges: vEdges })) void linkUp(true);
+  if (s.selectedId && touchesDetail(changed, [s.selectedId, ...(s.detail ? [...s.detail.out.map((e) => e.to), ...s.detail.in.map((e) => e.from)] : [])])) void loadDetail(s.selectedId);
   if (s.q.trim()) void runSearch();
   if (s.tab === 'lint') void loadLint();
 }

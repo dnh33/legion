@@ -38,6 +38,8 @@ export function CanvasPane({ insetRight, insetLeft, onToggleLeft, leftOpen }: { 
   const canvas = useRef<HTMLCanvasElement>(null);
   const wrap = useRef<HTMLDivElement>(null);
   const eng = useRef<GraphEngine | null>(null);
+  /** The graph revision the engine was last given, so mounting feeds it once (the constructor effect and the [graph.rev] effect both run on mount). */
+  const applied = useRef(-1);
   const [legendPref, setLegendPref] = useState<'auto' | 'open' | 'closed'>(() => { const v = lsGet('legion.lattice.legend'); return v === '1' ? 'open' : v === '0' ? 'closed' : 'auto'; });
   const [size, setSize] = useState({ w: 800, h: 700 });
 
@@ -56,8 +58,10 @@ export function CanvasPane({ insetRight, insetLeft, onToggleLeft, leftOpen }: { 
   useEffect(() => {
     const e = new GraphEngine(canvas.current!, { onSelect: select, onExpand: (id) => void expand(id), onHover: setHover, onPick: pickPath }, opts());
     eng.current = e;
-    if (import.meta.env.DEV) (canvas.current as unknown as { __lattice?: GraphEngine }).__lattice = e;
-    e.setData(getG().graph.nodes, getG().graph.edges);
+    if (import.meta.env.DEV || new URLSearchParams(window.location.search).has('latticeDiag')) (canvas.current as unknown as { __lattice?: GraphEngine }).__lattice = e;
+    const g0 = getG().graph;
+    applied.current = g0.rev;
+    e.setData(g0.nodes, g0.edges);
     const ro = new ResizeObserver(() => { e.resize(); const r = wrap.current!.getBoundingClientRect(); setSize({ w: r.width, h: r.height }); });
     ro.observe(wrap.current!);
     const mo = new MutationObserver(() => { e.readColors(); e.invalidate(); });
@@ -69,7 +73,12 @@ export function CanvasPane({ insetRight, insetLeft, onToggleLeft, leftOpen }: { 
   useEffect(() => { eng.current?.setOptions(opts()); },
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [theme, selectedId, hoverId, pathNodes, pathEdges, hitIds, match, path.picking, frozen, insetLeft, insetRight, badges, legend]);
-  useEffect(() => { eng.current?.setData(graph.nodes, graph.edges); }, [graph.rev]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    const g = getG().graph; // the store's current graph, not this render's: the two can differ for a moment
+    if (g.rev === applied.current) return;
+    applied.current = g.rev;
+    eng.current?.setData(g.nodes, g.edges);
+  }, [graph.rev]);
   useEffect(() => {
     if (!cam.n) return;
     if (cam.kind === 'fit') eng.current?.fit(true);

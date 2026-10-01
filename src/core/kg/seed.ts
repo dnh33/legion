@@ -193,6 +193,9 @@ export function applySeedPack(graph: Graph, bundled: SeedPack, opts: SeedOptions
     };
     const cur = graph.getNode(SYSTEM, n.id);
     if (!cur && goneNodes.has(n.id) && !restoring.has(n.id)) { skippedRemoved.push(n.id); continue; }
+    // A node that exists and is not being written (same-or-newer pack, no restore) needs no dry run: its hash is never used. Nodes that
+    // are new, restored or upgraded still go through every check below.
+    if (cur && !restoring.has(n.id) && !upgrading) { plans.push({ id: n.id, input, action: 'keep' }); continue; }
     // the dry run gives the node as the graph would store it (normalised), which is what the hash must be taken from
     const dry = vet(n.id, () => graph.upsertNode(SYSTEM, input, { dryRun: true }));
     if (!dry) continue;
@@ -241,31 +244,33 @@ export function applySeedPack(graph: Graph, bundled: SeedPack, opts: SeedOptions
   graph.snapshot();
   let created = 0;
   let updated = 0;
-  const write = (p: Plan, input: NodeInput) => {
-    const r = graph.upsertNode(SYSTEM, input);
-    if (r.created) created++; else if (p.action === 'update' && r.changed) updated++;
-  };
-  // 1. a missing index node is created first (the links need it) but with the unfinished marker, never with the real version
-  if (indexPlan?.action === 'add') write(indexPlan, { ...indexPlan.input, props: { ...indexPlan.input.props, seedVersion: 0 } });
-  // 2. every other node (an edited node is not written)
-  for (const p of plans) {
-    if (p.id === indexId || p.action === 'keep' || p.action === 'skip') continue;
-    write(p, p.input);
-  }
-  // 3. links
   let edges = 0;
-  for (const e of edgePlan) {
-    if (graph.link(SYSTEM, { from: e.from, to: e.to, rel: e.rel, weight: e.weight, note: e.note }).created) edges++;
-  }
-  // 4. the index node, with the version marker, LAST. An edited index keeps its text but still moves to the new version.
-  if (indexPlan) {
-    const cur = graph.getNode(SYSTEM, indexId);
-    if (indexPlan.action === 'skip') {
-      if (cur && cur.props?.seedVersion !== pack.version) graph.upsertNode(SYSTEM, { id: indexId, props: { ...cur.props, seedVersion: pack.version } });
-    } else if (indexPlan.action === 'keep') {
-      if (cur && markerMoves) graph.upsertNode(SYSTEM, { id: indexId, props: { ...cur.props, seedVersion: pack.version } });
-    } else write(indexPlan, indexPlan.input);
-  }
+  graph.batch(() => {
+    const write = (p: Plan, input: NodeInput) => {
+      const r = graph.upsertNode(SYSTEM, input);
+      if (r.created) created++; else if (p.action === 'update' && r.changed) updated++;
+    };
+    // 1. a missing index node is created first (the links need it) but with the unfinished marker, never with the real version
+    if (indexPlan?.action === 'add') write(indexPlan, { ...indexPlan.input, props: { ...indexPlan.input.props, seedVersion: 0 } });
+    // 2. every other node (an edited node is not written)
+    for (const p of plans) {
+      if (p.id === indexId || p.action === 'keep' || p.action === 'skip') continue;
+      write(p, p.input);
+    }
+    // 3. links
+    for (const e of edgePlan) {
+      if (graph.link(SYSTEM, { from: e.from, to: e.to, rel: e.rel, weight: e.weight, note: e.note }).created) edges++;
+    }
+    // 4. the index node, with the version marker, LAST. An edited index keeps its text but still moves to the new version.
+    if (indexPlan) {
+      const cur = graph.getNode(SYSTEM, indexId);
+      if (indexPlan.action === 'skip') {
+        if (cur && cur.props?.seedVersion !== pack.version) graph.upsertNode(SYSTEM, { id: indexId, props: { ...cur.props, seedVersion: pack.version } });
+      } else if (indexPlan.action === 'keep') {
+        if (cur && markerMoves) graph.upsertNode(SYSTEM, { id: indexId, props: { ...cur.props, seedVersion: pack.version } });
+      } else write(indexPlan, indexPlan.input);
+    }
+  });
   // 5. only now is a restore final: the ledger forgets the nodes and the links it brought back
   if (restoring.size) {
     graph.forgetSeedRemoved({ nodes: restore, edges: pack.edges.filter((e) => restoring.has(e.from) || restoring.has(e.to)).map(edgeKey) });
