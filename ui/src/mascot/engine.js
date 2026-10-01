@@ -3,7 +3,8 @@
 // stacks each layer as its own <svg> so motion is GPU-composited instead of repainting the art.
 //
 // Two ways to run it:
-//   * stage (default): the Relic experience, one instance with per-instance timers. UNCHANGED by the rail work.
+//   * stage (default): the Relic experience, one instance with per-instance timers. The painted art and its CSS are
+//     unchanged; the engine only decides WHEN the art's built-in SMIL particles run (see SMIL_STATES below).
 //   * rail ({rail:true}): head-and-shoulders crop (data.cropRail), no infinite animation while quiet, one shared
 //     rAF loop + one shared timer for every bust on the page, idle verbs from a persona, paused when the window
 //     is hidden. Awaiting-approval and error always animate; sleeping busts stop completely.
@@ -16,6 +17,14 @@ const RIG = new Set(['L-plume', 'L-helm', 'L-face']);
 const SVGNS = 'http://www.w3.org/2000/svg';
 /** States in which the halo turns continuously (rail and stepping halos); everywhere else it holds its angle. */
 const HALO_SPIN = new Set(['thinking', 'hacking']);
+/**
+ * Stage SMIL. The Relic's painting carries about 67 SMIL elements (orbiting halo dots, aura spin, strand dash flow, seal
+ * swing). SMIL forces a main-thread frame (style + paint + Layerize of every layer) on EVERY vsync for as long as it plays,
+ * which measured 73 % main-thread busy for a mascot standing idle. So the engine plays it only in the states that carry
+ * the art's motion on purpose, and only while the window is visible and focused. Everything else (bob, halo turn, plume and
+ * strand sway, blinks, look-arounds, tricks) is CSS / JS and compositor-cheap, so an idle mascot still lives.
+ */
+export const SMIL_STATES = new Set(['thinking', 'hacking', 'awaiting', 'victory', 'error']);
 
 function el(tag, cls, parent) {
   const e = document.createElement(tag);
@@ -183,6 +192,7 @@ export function createMascot(host, data, opts = {}) {
   let hangIndex = 0;
   const halo = [];
   const layerEls = {};
+  const smilSvgs = []; // stage only: the layers' <svg> roots whose SMIL timeline the engine pauses and resumes
   for (const L of data.layers) {
     let parent = float;
     if (RIG.has(L.id)) {
@@ -206,8 +216,8 @@ export function createMascot(host, data, opts = {}) {
     svg.setAttribute('aria-hidden', 'true');
     svg.innerHTML = L.markup;
     layer.appendChild(svg);
-    // the Relic's painting carries SMIL particles that would repaint it every frame; rail busts hold still
-    if (rail && svg.pauseAnimations) svg.pauseAnimations();
+    // the Relic's painting carries SMIL particles that would repaint it every frame: rail busts hold still, the stage plays them only in SMIL_STATES
+    if (svg.pauseAnimations) { svg.pauseAnimations(); if (!rail) smilSvgs.push(svg); }
   }
   // Rail: eye offsets and blinks are custom properties, and an inherited custom property changed on the root
   // restyles every element of the bust (thousands of SVG nodes) per blink or pointer move. Scope them to the
@@ -271,6 +281,19 @@ export function createMascot(host, data, opts = {}) {
   const unlater = rail ? (t) => { rtCancel(t); timers.delete(t); } : (t) => { clearTimeout(t); timers.delete(t); };
   const pulse = (cls, ms) => { root.classList.remove(cls); void root.offsetWidth; root.classList.add(cls); later(() => root.classList.remove(cls), ms); };
 
+  // stage SMIL: playing only in SMIL_STATES, only while the window is visible and focused (CSS motion is unaffected by blur)
+  let smilOn = false; let winVisible = typeof document === 'undefined' || !document.hidden; let winFocused = typeof document === 'undefined' || document.hasFocus();
+  function syncSmil() {
+    if (rail || !smilSvgs.length) return;
+    const want = !reduced && winVisible && winFocused && SMIL_STATES.has(state);
+    if (want === smilOn) return;
+    smilOn = want;
+    for (const v of smilSvgs) { if (want) v.unpauseAnimations(); else v.pauseAnimations(); }
+  }
+  const onVis = () => { winVisible = !document.hidden; syncSmil(); };
+  const onBlur = () => { winFocused = false; syncSmil(); };
+  const onFocus = () => { winFocused = true; syncSmil(); };
+
   // halo: rail busts and stepping halos hold a fixed angle between states (no endless spin), so the angle is tracked here
   let verbsApi = null;
   let haloAngle = 0;
@@ -292,6 +315,7 @@ export function createMascot(host, data, opts = {}) {
     state = s;
     root.classList.add(`mxs-${state}`);
     root.dataset.state = s;
+    syncSmil();
     if (verbsApi && prev === 'victory' && s === 'idle') afterVerb('victory');
   }
 
@@ -434,6 +458,12 @@ export function createMascot(host, data, opts = {}) {
     window.addEventListener('pointermove', onMove, { passive: true });
     document.documentElement.addEventListener('mouseleave', onLeaveDoc);
   }
+  if (!rail) {
+    document.addEventListener('visibilitychange', onVis);
+    window.addEventListener('blur', onBlur);
+    window.addEventListener('focus', onFocus);
+  }
+
   hoverHost.addEventListener('pointerenter', onEnter);
   hoverHost.addEventListener('pointerleave', onLeave);
 
@@ -487,6 +517,9 @@ export function createMascot(host, data, opts = {}) {
       else {
         window.removeEventListener('pointermove', onMove);
         document.documentElement.removeEventListener('mouseleave', onLeaveDoc);
+        document.removeEventListener('visibilitychange', onVis);
+        window.removeEventListener('blur', onBlur);
+        window.removeEventListener('focus', onFocus);
       }
       hoverHost.removeEventListener('pointerenter', onEnter);
       hoverHost.removeEventListener('pointerleave', onLeave);

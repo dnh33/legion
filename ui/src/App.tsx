@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { initBsv } from './bsv/bsvStore';
 import { ChainOverlay } from './bsv/ChainOverlay';
 import { AgentEditor } from './components/AgentEditor';
@@ -20,6 +20,23 @@ import {
   closeOverlays, closeSettings, getState, init, newTask, openPalette, switchAgentByIndex, toggleMascotLab, toggleOps, toggleSettings, useStore,
 } from './store';
 
+/** Ops-panel slide (app.css `.app` grid transition is 180 ms): keep the panel mounted until it has slid out. */
+const OPS_SLIDE_MS = 220;
+
+/**
+ * True while the Ops panel is open and for one slide after it closes. A closed Ops panel is a 0 px column: nothing in it
+ * is visible, so nothing in it should run (the mascot stage, its timers, the VM screenshot poll).
+ */
+function useOpsMounted(opsOpen: boolean): boolean {
+  const [mounted, setMounted] = useState(opsOpen);
+  useEffect(() => {
+    if (opsOpen) { setMounted(true); return; }
+    const t = window.setTimeout(() => setMounted(false), OPS_SLIDE_MS);
+    return () => clearTimeout(t);
+  }, [opsOpen]);
+  return opsOpen || mounted;
+}
+
 export function App() {
   const opsOpen = useStore((s) => s.opsOpen);
   const palette = useStore((s) => s.palette);
@@ -27,6 +44,7 @@ export function App() {
   const editor = useStore((s) => s.editor);
   const settingsOpen = useStore((s) => s.settingsOpen);
   const view = useStore((s) => s.view);
+  const opsMounted = useOpsMounted(opsOpen);
 
   useEffect(() => { init(); initRooms(); initBsv(); initLibrary(); }, []);
   useEffect(() => {
@@ -58,7 +76,7 @@ export function App() {
           </>
         )}
       </main>
-      <div className="ops-slot" aria-hidden={!opsOpen}><OpsPanel /></div>
+      <div className="ops-slot" aria-hidden={!opsOpen}>{opsMounted && <OpsPanel />}</div>
       {palette && <CommandPalette />}
       {doctorOpen && <DoctorModal />}
       {editor && <AgentEditor key={editor.id ?? 'new'} id={editor.id} />}
