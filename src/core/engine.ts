@@ -13,7 +13,9 @@ import type { ApprovalBroker } from './approvals.js';
 import type { EventBus } from './bus.js';
 import { routeModel, shouldEscalate } from './router.js';
 import type { Store } from './store.js';
-import { buildVmToolsServer } from './vm-tools.js';
+import { buildAgentToolsServer } from './agent-tools.js';
+import { Bridge } from './bridge.js';
+import type { BridgeStartParams } from './bridge.js';
 import type { VmManager } from './vm-manager.js';
 
 export type QueryFn = typeof sdkQuery;
@@ -27,6 +29,24 @@ export interface EngineDeps {
   maxConcurrent?: number;
 }
 
+/**
+ * Keep stored tool results small (≤ ~1500 chars) without breaking JSON: a JSON result is shortened
+ * field by field and re-serialised so UIs can still parse it; anything else is cut with an ellipsis.
+ */
+export function clipToolResult(raw: string, max = 1500): string {
+  if (raw.length <= max) return raw;
+  try {
+    const o = JSON.parse(raw);
+    if (o && typeof o === 'object' && !Array.isArray(o)) {
+      const out: Record<string, unknown> = {};
+      for (const [k, v] of Object.entries(o)) out[k] = typeof v === 'string' && v.length > max - 200 ? v.slice(0, max - 201) + '…' : v;
+      const s = JSON.stringify(out);
+      if (s.length <= max + 200) return s;
+    }
+  } catch { /* not JSON */ }
+  return raw.slice(0, max - 1) + '…';
+}
+
 export class EngineError extends Error {
   constructor(message: string, public readonly status: number) { super(message); this.name = 'EngineError'; }
 }
@@ -34,6 +54,10 @@ export class EngineError extends Error {
 export const LEGION_PREAMBLE = [
   'You are {name}, an agent inside Legion, the user\'s personal multi-agent bot running on their own computer.',
   'Be direct and get the work done; report results concisely.',
+  'Other Legion agents are reachable ONLY through mcp__legion__agents (list them), mcp__legion__ask and mcp__legion__tell.',
+  'Use ask when you need the answer before you can continue; it blocks and returns their final message.',
+  'Use tell for long or parallel work: it returns at once and their answer arrives later as a new message in your task.',
+  'Do not use SendMessage or ListAgents; they do not reach Legion agents. Keep messages short and self-contained.',
   'You may have mcp__legion__vm_* tools (vm_start, vm_exec, vm_write_file, vm_read_file, vm_claude, vm_desktop, vm_stop)',
   'for an on-demand cloud VM that costs money while running. Start it only when needed',
   '(untrusted code, long jobs, GUI/browser work, heavy installs) and stop it with vm_stop when done.',
@@ -56,7 +80,13 @@ export function buildChildEnv(config: LegionConfig): Record<string, string | und
   return env;
 }
 
-interface Job { taskId: string; agentId: string; prompt: string; choice: ModelChoice; priorModel?: ConcreteModel }
+interface Job {
+  taskId: string; agentId: string; prompt: string; choice: ModelChoice; priorModel?: ConcreteModel;
+  /** One-line bridge header prepended to what Claude sees (not stored). */
+  header?: string;
+  /** Set for bridge runs: the caller agent + task, for mascot note and cap bypass. */
+  fromAgentId?: string; parentTaskId?: string;
+}
 interface Active { ac: AbortController; cancelled: boolean; q?: Query }
 interface Outcome { subtype: string; isError: boolean; errorText?: string }
 
@@ -74,6 +104,7 @@ export class Engine {
   private readonly queue: Job[] = [];
   private readonly active = new Map<string, Active>();
   private idleTimer: ReturnType<typeof setTimeout> | undefined;
+  readonly bridge: Bridge;
 
   constructor(deps: EngineDeps) {
     this.store = deps.store; this.bus = deps.bus; this.vms = deps.vms; this.approvals = deps.approvals;
@@ -81,9 +112,10 @@ export class Engine {
     this.queryFn = deps.queryFn ?? realQuery;
     this.boatConfigured = deps.boatConfigured;
     this.maxConcurrent = Math.max(1, deps.maxConcurrent ?? 4);
+    this.bridge = new Bridge({ store: this.store, bus: this.bus, engine: this });
   }
 
-  startTask(p: { agentId: string; prompt: string; source: TaskSource; model?: ModelChoice; continueTaskId?: string }): Task {
+  startTask(p: BridgeStartParams): Task {
     const agent = this.store.getAgent(p.agentId);
     if (!agent) throw new EngineError(`Unknown agent: ${p.agentId}`, 404);
     const prompt = (p.prompt ?? '').trim();
@@ -97,19 +129,30 @@ export class Engine {
       if (prev.status === 'queued' || prev.status === 'running') throw new EngineError('Task is still running', 409);
       if (prev.agentId !== agent.id) throw new EngineError('Task belongs to a different agent', 400);
       priorModel = prev.model;
+      const viaBridge = p.bridge && !p.bridge.reply;
       task = this.saveTask({
         ...prev, status: 'queued', source: p.source, requestedModel: p.model ?? prev.requestedModel,
         result: undefined, error: undefined,
+        ...(viaBridge ? { fromAgentId: p.bridge!.fromAgentId, parentTaskId: p.bridge!.parentTaskId } : {}),
+        bridgeHop: p.bridge ? p.bridge.hop ?? 0 : undefined,
       });
     } else {
       const now = nowIso();
+      const base = prompt.replace(/^\s*\/(opus|sonnet)\b\s*/i, '') || prompt;
+      const callerName = p.bridge ? (this.store.getAgent(p.bridge.fromAgentId)?.name ?? p.bridge.fromAgentId) : '';
       task = this.saveTask({
-        id: newId('task'), agentId: agent.id, title: titleFrom(prompt.replace(/^\s*\/(opus|sonnet)\b\s*/i, '') || prompt), status: 'queued', source: p.source,
+        id: newId('task'), agentId: agent.id,
+        title: p.bridge ? `${callerName}: ${base.replace(/\s+/g, ' ').trim().slice(0, 50)}` : titleFrom(base),
+        status: 'queued', source: p.source,
+        ...(p.bridge ? { fromAgentId: p.bridge.fromAgentId, parentTaskId: p.bridge.parentTaskId, bridgeHop: p.bridge.hop ?? 0 } : {}),
         requestedModel: p.model ?? agent.model, createdAt: now, updatedAt: now,
       });
     }
-    this.addMessage(task.id, 'user', prompt);
-    this.queue.push({ taskId: task.id, agentId: agent.id, prompt, choice: task.requestedModel, priorModel });
+    this.addMessage(task.id, 'user', prompt, undefined, p.bridge?.fromAgentId);
+    this.queue.push({
+      taskId: task.id, agentId: agent.id, prompt, choice: task.requestedModel, priorModel,
+      header: p.bridge?.header, fromAgentId: p.bridge?.fromAgentId, parentTaskId: p.bridge && !p.bridge.reply ? p.bridge.parentTaskId : undefined,
+    });
     queueMicrotask(() => this.pump());
     return { ...task };
   }
@@ -119,6 +162,7 @@ export class Engine {
     if (qi >= 0) {
       this.queue.splice(qi, 1);
       this.markCancelled(taskId);
+      try { this.bridge.cancelFor(taskId); } catch { /* ignore */ }
       return true;
     }
     const a = this.active.get(taskId);
@@ -126,6 +170,7 @@ export class Engine {
     a.cancelled = true;
     this.markCancelled(taskId);
     this.approvals.cancelForTask(taskId);
+    try { this.bridge.cancelFor(taskId); } catch { /* ignore */ }
     try { a.ac.abort(); } catch { /* ignore */ }
     try { void a.q?.interrupt?.()?.catch?.(() => undefined); } catch { /* ignore */ }
     return true;
@@ -163,8 +208,8 @@ export class Engine {
     return this.saveTask({ ...cur, ...patch });
   }
 
-  private addMessage(taskId: string, role: MessageRole, text: string, toolName?: string): ChatMessage {
-    const m: ChatMessage = { id: newId('msg'), taskId, role, text, at: nowIso(), ...(toolName ? { toolName } : {}) };
+  private addMessage(taskId: string, role: MessageRole, text: string, toolName?: string, fromAgentId?: string, extra?: Partial<ChatMessage>): ChatMessage {
+    const m: ChatMessage = { id: newId('msg'), taskId, role, text, at: nowIso(), ...(toolName ? { toolName } : {}), ...(fromAgentId ? { fromAgentId } : {}), ...(extra ?? {}) };
     const saved = this.store.addMessage(m);
     this.bus.emit({ type: 'message', message: saved ?? m });
     return saved ?? m;
@@ -190,21 +235,35 @@ export class Engine {
     this.mascot('idle', 'cancelled');
   }
 
+  private startJob(job: Job): void {
+    const act: Active = { ac: new AbortController(), cancelled: false };
+    this.active.set(job.taskId, act);
+    void this.runJob(job, act);
+  }
+
   private pump(): void {
-    while (this.active.size < this.maxConcurrent && this.queue.length > 0) {
-      const job = this.queue.shift()!;
-      this.active.set(job.taskId, { ac: new AbortController(), cancelled: false });
-      void this.runJob(job);
+    // Bridge runs whose parent is running bypass the cap, so nested asks cannot deadlock the queue.
+    for (let i = 0; i < this.queue.length;) {
+      const j = this.queue[i]!;
+      if (j.parentTaskId && this.active.has(j.parentTaskId) && !this.active.has(j.taskId)) {
+        this.queue.splice(i, 1);
+        this.startJob(j);
+      } else i++;
+    }
+    while (this.active.size < this.maxConcurrent) {
+      const idx = this.queue.findIndex((j) => !this.active.has(j.taskId));
+      if (idx < 0) break;
+      this.startJob(this.queue.splice(idx, 1)[0]!);
     }
   }
 
-  private async runJob(job: Job): Promise<void> {
+  private async runJob(job: Job, act: Active): Promise<void> {
     try {
-      await this.execute(job);
+      await this.execute(job, act);
     } catch (e) {
       this.failTask(job.taskId, e);
     } finally {
-      this.active.delete(job.taskId);
+      if (this.active.get(job.taskId) === act) this.active.delete(job.taskId);
       try { this.approvals.cancelForTask(job.taskId); } catch { /* ignore */ }
       if (this.active.size === 0 && this.queue.length === 0) this.scheduleIdle();
       this.pump();
@@ -222,17 +281,18 @@ export class Engine {
     this.mascot('error', msg.slice(0, 120));
   }
 
-  private async execute(job: Job): Promise<void> {
-    const act = this.active.get(job.taskId)!;
+  private async execute(job: Job, act: Active): Promise<void> {
     const agent = this.store.getAgent(job.agentId);
     if (!agent) throw new Error(`Agent ${job.agentId} no longer exists`);
     const decision = routeModel(job.prompt, job.choice, { priorModel: job.priorModel });
     let model = decision.model;
     const first = this.patchTask(job.taskId, { status: 'running', model, error: undefined });
     if (!first) throw new Error('Task disappeared');
-    this.mascot('thinking', `${agent.name} on ${model}: ${decision.reason}`);
+    const from = job.header && job.fromAgentId ? this.store.getAgent(job.fromAgentId) : undefined;
+    this.mascot('thinking', from ? `${from.name} → ${agent.name}` : `${agent.name} on ${model}: ${decision.reason}`);
+    const sendPrompt = (job.header ? job.header + '\n' : '') + decision.prompt;
 
-    let outcome = await this.runOnce(job, agent, model, decision.prompt, act);
+    let outcome = await this.runOnce(job, agent, model, sendPrompt, act);
     if (act.cancelled) return;
 
     const cur = this.store.getTask(job.taskId);
@@ -245,7 +305,7 @@ export class Engine {
       this.patchTask(job.taskId, { escalated: true, model });
       this.addMessage(job.taskId, 'system', `Escalated to Opus: ${reason}`);
       this.mascot('thinking', 'escalating to opus');
-      outcome = await this.runOnce(job, agent, model, decision.prompt, act);
+      outcome = await this.runOnce(job, agent, model, sendPrompt, act);
       if (act.cancelled) return;
     }
 
@@ -260,7 +320,7 @@ export class Engine {
     }
   }
 
-  private buildMcpServers(agent: AgentProfile): Record<string, McpServerConfig> {
+  private buildMcpServers(agent: AgentProfile, taskId: string): Record<string, McpServerConfig> {
     const out: Record<string, McpServerConfig> = {};
     const wanted = agent.mcpServers ?? [];
     const all = wanted.includes('*');
@@ -270,7 +330,11 @@ export class Engine {
       else if (entry.type === 'sse') out[name] = { type: 'sse', url: entry.url, ...(entry.headers ? { headers: entry.headers } : {}) };
       else out[name] = { type: 'stdio', command: entry.command, ...(entry.args ? { args: entry.args } : {}), ...(entry.env ? { env: entry.env } : {}) };
     }
-    if (agent.vm?.enabled && this.boatConfigured()) out.legion = buildVmToolsServer(agent.id, this.vms);
+    // Every agent gets the in-process `legion` server (bridge tools; plus vm_* when a VM is enabled).
+    out.legion = buildAgentToolsServer({
+      agentId: agent.id, taskId, vms: this.vms, bridge: this.bridge,
+      vmEnabled: !!agent.vm?.enabled && this.boatConfigured(),
+    });
     return out;
   }
 
@@ -285,7 +349,8 @@ export class Engine {
         append: LEGION_PREAMBLE.replace('{name}', agent.name) + (agent.systemPrompt ? '\n\n' + agent.systemPrompt : ''),
       },
       settingSources: this.config.claude.inheritClaudeCodeSettings ? ['user', 'project', 'local'] : [],
-      mcpServers: this.buildMcpServers(agent),
+      mcpServers: this.buildMcpServers(agent, job.taskId),
+      disallowedTools: ['SendMessage', 'ListAgents'],
       maxTurns: this.config.claude.maxTurns,
       includePartialMessages: true,
       abortController: act.ac,
@@ -371,8 +436,22 @@ export class Engine {
           let json: string;
           try { json = JSON.stringify(b.input ?? {}); } catch { json = '{}'; }
           if (json.length > 500) json = json.slice(0, 499) + '…';
-          this.addMessage(taskId, 'tool', json, String(b.name ?? 'tool'));
+          this.addMessage(taskId, 'tool', json, String(b.name ?? 'tool'), undefined, typeof b.id === 'string' ? { toolUseId: b.id } : undefined);
           this.mascot('hacking', String(b.name ?? ''));
+        }
+        return undefined;
+      }
+      case 'user': {
+        // Tool results: stored (truncated) and paired with their call via resultFor, so the UI can expand them.
+        if (msg.parent_tool_use_id) return undefined;
+        const blocks: any[] = Array.isArray(msg.message?.content) ? msg.message.content : [];
+        for (const b of blocks) {
+          if (b?.type !== 'tool_result' || typeof b.tool_use_id !== 'string') continue;
+          const raw = typeof b.content === 'string' ? b.content
+            : Array.isArray(b.content) ? b.content.filter((c: any) => c?.type === 'text').map((c: any) => c.text).join('\n') : '';
+          if (!raw.trim()) continue;
+          const text = clipToolResult(raw);
+          this.addMessage(taskId, 'tool', text, undefined, undefined, { resultFor: b.tool_use_id });
         }
         return undefined;
       }

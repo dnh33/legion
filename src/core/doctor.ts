@@ -77,7 +77,7 @@ export async function runDoctor(deps: { config: LegionConfig; getBoat: () => Boa
     if (config.claude.auth === 'api-key') {
       return config.claude.apiKey
         ? { ok: true, detail: 'api-key (key present)' }
-        : { ok: false, detail: 'api-key mode but no key set', fix: 'Set claude.apiKey in config.json or ANTHROPIC_API_KEY' };
+        : { ok: false, detail: 'api-key mode but no key set', fix: 'Open Settings → Claude to add an API key' };
     }
     return { ok: true, detail: 'claude-login (uses your signed-in Claude Code account)' };
   }));
@@ -86,10 +86,10 @@ export async function runDoctor(deps: { config: LegionConfig; getBoat: () => Boa
 
   checks.push(await safe('boat', 'boat.dev', async () => {
     const boat = deps.getBoat();
-    if (!boat) return { ok: true, detail: 'Not configured (agent VMs disabled)', fix: 'Set boat.apiKey in config.json or BOAT_API_KEY to enable VMs' };
+    if (!boat) return { ok: true, detail: 'Not configured (agent VMs disabled)', fix: 'Open Settings → boat.dev to add a key and enable VMs' };
     await boat.me();
     return { ok: true, detail: 'Connected' };
-  }).then((c) => (c.ok ? c : { ...c, fix: c.fix ?? 'Check boat.apiKey and your network connection' })));
+  }).then((c) => (c.ok ? c : { ...c, fix: c.fix ?? 'Open Settings → boat.dev to check the key' })));
 
   checks.push(await safe('workspace', 'Workspace directory', () => {
     mkdirSync(config.workspaceDir, { recursive: true });

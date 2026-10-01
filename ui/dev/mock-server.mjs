@@ -41,6 +41,12 @@ function makeDb(flags) {
     ],
     tasks: [], vms: [], approvals: [], messages: {},
     boat: !(f('noboat') || f('first')),
+    settings: {
+      claude: { auth: 'claude-login', apiKeySet: false, executablePath: undefined, inheritClaudeCodeSettings: true, maxTurns: 40 },
+      boat: { apiKeySet: !(f('noboat') || f('first')), apiKeyHint: !(f('noboat') || f('first')) ? '\u2026a3f9' : undefined, baseUrl: 'https://boat.dev/api/v1' },
+      mcpServers: f('mcp') ? { github: { type: 'stdio', command: 'npx', args: ['-y', '@modelcontextprotocol/server-github'], env: { GITHUB_TOKEN: '\u2022\u2022\u2022\u2022ghp4', LOG_LEVEL: 'info' } }, docs: { type: 'http', url: 'https://mcp.example.com/docs', headers: { Authorization: '\u2022\u2022\u2022\u20221234' } } } : {},
+      port: PORT, configPath: 'C:\\Users\\you\\.legion\\config.json', dataDir: 'C:\\Users\\you\\.legion',
+    },
   };
   if (f('first') || f('empty')) return db;
   const T = long
@@ -57,6 +63,9 @@ function makeDb(flags) {
   const z = { 'vm-starting': 'provisioning', 'vm-running': 'running', 'vm-archived': 'archived', 'vm-error': 'error' }[[...flags].find((x) => x.startsWith('vm-') && x !== 'vm-none' && x !== 'vm-disabled')];
   if (z) db.vms.push(vm({ agentId: 'zealot', state: z, size: 'default', error: z === 'error' ? 'boat.dev returned 502 while provisioning the sandbox. Try again in a minute.' : undefined }));
   db.vms.push(vm({ agentId: 'builder' }));
+  if (f('bridge')) {
+    db.tasks.push({ id: 't7', agentId: 'builder', title: 'Zealot: Migrate the auth module to the new session API and keep the tests green', status: f('bridge-run') ? 'running' : 'done', source: 'agent', fromAgentId: 'zealot', parentTaskId: 't1', requestedModel: 'auto', model: 'sonnet', costUsd: 0.09, turns: 6, createdAt: ago(20), updatedAt: ago(f('bridge-run') ? 0 : 15) });
+  }
   db.messages = {
     t1: [
       { id: 'm1', taskId: 't1', role: 'user', text: 'Audit the auth flow and refactor the token refresh so it cannot race.', at: ago(40) },
@@ -86,7 +95,25 @@ function makeDb(flags) {
       { id: 'c2', taskId: 't5', role: 'assistant', at: ago(199), text: 'Here it is. An unbroken identifier also appears: `' + 'superlongidentifier_'.repeat(8) + '`.\n\n```ts\n' + LONG_LINE + '\nconsole.log(result.status);\n```\n\nAnd a table-ish list:\n1. Build\n2. Push\n3. Deploy\n\n# A top heading\n## Second level\nDone.' },
     ],
     t6: [],
+    t7: [
+      { id: 'b1', taskId: 't7', role: 'user', fromAgentId: 'zealot', text: 'Migrate the auth module to the new session API and keep the tests green. Reply with the diff summary only.', at: ago(20) },
+      { id: 'b2', taskId: 't7', role: 'tool', toolName: 'Edit', text: JSON.stringify({ file_path: 'src/auth/session.ts' }), at: ago(18) },
+      { id: 'b3', taskId: 't7', role: 'assistant', at: ago(15), text: 'Migrated `src/auth/session.ts` to `createSession()` and updated 4 call sites. Tests pass (38/38).' },
+    ],
   };
+  if (f('bridge')) {
+    db.messages.t1.push(
+      { id: 'br0', taskId: 't1', role: 'tool', toolName: 'ToolSearch', toolUseId: 'u0', text: JSON.stringify({ query: 'select:mcp__legion__ask' }), at: ago(31) },
+      { id: 'br1', taskId: 't1', role: 'tool', toolName: 'mcp__legion__agents', toolUseId: 'u1', text: '{}', at: ago(31) },
+      { id: 'br1r', taskId: 't1', role: 'tool', resultFor: 'u1', text: JSON.stringify([{ id: 'builder', name: 'Builder', status: 'idle', role: 'coding' }, { id: 'scout', name: 'Scout', status: 'working', role: 'research' }]), at: ago(31) },
+      { id: 'br2', taskId: 't1', role: 'tool', toolName: 'mcp__legion__ask', toolUseId: 'u2', text: JSON.stringify({ agent: 'builder', message: 'Migrate the auth module to the new session API and keep the tests green. Reply with the diff summary only.' }), at: ago(30) },
+      { id: 'br2r', taskId: 't1', role: 'tool', resultFor: 'u2', text: JSON.stringify({ taskId: 't7', status: 'done', model: 'sonnet', result: 'Migrated src/auth/session.ts to createSession() and updated 4 call sites. Tests pass (38/38).' }), at: ago(29) },
+      { id: 'br3', taskId: 't1', role: 'tool', toolName: 'mcp__legion__tell', toolUseId: 'u3', text: JSON.stringify({ agent: 'scout', message: 'Find the RFC that describes refresh token rotation and summarise it in 5 bullets.' }), at: ago(29) },
+      { id: 'br3r', taskId: 't1', role: 'tool', resultFor: 'u3', text: JSON.stringify({ taskId: 't4' }), at: ago(29) },
+      { id: 'br4', taskId: 't1', role: 'user', text: '[Reply from Scout \u00b7 task t4] RFC 6749 section 6 covers refresh; rotation is in the OAuth 2.1 draft. Five bullets: 1) issue a new refresh token on every use...', at: ago(28), fromAgentId: 'scout' },
+    );
+  }
+  if (f('many')) for (let i = 0; i < 16; i++) db.tasks.push({ id: 'x' + i, agentId: 'zealot', title: 'Extra task number ' + (i + 1), status: 'done', source: 'ui', requestedModel: 'auto', createdAt: ago(1000 + i), updatedAt: ago(10 + i) });
   if (f('approval')) {
     db.approvals.push({ id: 'apA', taskId: 't1', agentId: 'zealot', toolName: 'Bash', summary: 'sudo apt-get install -y imagemagick && convert -version', input: {}, at: ago(1) });
     db.approvals.push({ id: 'apB', taskId: 't3', agentId: 'builder', toolName: 'Bash', summary: 'rm -rf node_modules && npm install', input: {}, at: ago(1) });
@@ -189,7 +216,7 @@ const readBody = (req) => new Promise((r) => { let s = ''; req.on('data', (c) =>
 const doctorChecks = (pass, boat) => [
   { id: 'node', label: 'Node.js \u2265 20', ok: true, detail: 'v22.11.0' },
   { id: 'claude-signin', label: 'Claude sign-in', ok: true, detail: 'you@example.com \u00b7 Max subscription' },
-  pass || boat ? { id: 'boat', label: 'boat.dev key', ok: true, detail: 'Key accepted \u00b7 3 sandboxes' } : { id: 'boat', label: 'boat.dev key', ok: false, detail: 'Key rejected (401).', fix: 'Set boat.apiKey in ~/.legion/config.json' },
+  boat ? { id: 'boat', label: 'boat.dev', ok: true, detail: 'Key accepted \u00b7 3 sandboxes' } : { id: 'boat', label: 'boat.dev', ok: true, detail: 'Not configured (agent VMs disabled)', fix: 'Add your key in Settings \u2192 boat.dev' },
   { id: 'workspace', label: 'Workspace writable', ok: true, detail: '~/.legion/workspaces' },
   ...(pass ? [] : [{ id: 'mcp', label: 'MCP server "github"', ok: false, detail: 'Failed to start: spawn npx ENOENT. The server never answered the initialize request within 10 seconds and was killed by the supervisor.', fix: 'npm i -g npx && legion-core --restart' }]),
 ];
@@ -217,7 +244,7 @@ http.createServer(async (req, res) => {
     res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', Connection: 'keep-alive' });
     res.write(': hi\n\n'); ctx.clients.add(res); req.on('close', () => ctx.clients.delete(res)); return;
   }
-  if (p === '/api/state') return send(res, 200, { version: '0.1.0', agents: db.agents, tasks: db.tasks.slice().reverse(), vms: db.vms, approvals: db.approvals, boatConfigured: db.boat, auth: 'claude-login' });
+  if (p === '/api/state') return send(res, 200, { version: '0.1.0', agents: db.agents, tasks: db.tasks.filter((t) => url.searchParams.get('archived') === '1' || !t.archived).reverse(), vms: db.vms, approvals: db.approvals, boatConfigured: db.boat, auth: 'claude-login' });
   if (p === '/api/config') return send(res, 200, { port: PORT, authToken: '***', claude: { auth: 'claude-login', inheritClaudeCodeSettings: true, maxTurns: 40 }, boat: { apiKey: '***', baseUrl: 'https://boat.dev/api/v1' }, mcpServers: {} });
   if (p === '/api/doctor') return send(res, 200, doctorChecks(flags.has('doctor-pass'), db.boat));
   if (p === '/api/catalog') {
@@ -227,7 +254,43 @@ http.createServer(async (req, res) => {
   }
   if (p === '/api/vms') return send(res, 200, db.vms);
   if (p === '/api/approvals') return send(res, 200, db.approvals);
+  if (p === '/api/settings' && req.method === 'GET') return send(res, 200, db.settings);
+  if (p === '/api/settings' && req.method === 'PATCH') {
+    const b = await readBody(req); const st = db.settings;
+    await sleep(250);
+    if (b.claude?.maxTurns !== undefined && !(Number.isInteger(b.claude.maxTurns) && b.claude.maxTurns >= 1 && b.claude.maxTurns <= 1000)) return send(res, 400, { error: 'claude.maxTurns must be a whole number between 1 and 1000' });
+    if (b.boat?.baseUrl !== undefined && !/^https?:\/\/[^ ]+$/.test(b.boat.baseUrl)) return send(res, 400, { error: 'boat.baseUrl must be an http(s) URL' });
+    if (b.claude?.auth === 'api-key' && !st.claude.apiKeySet && !b.claude.apiKey) return send(res, 400, { error: 'claude.apiKey is required when auth is "api-key"' });
+    if (b.mcpServers) for (const [n, e] of Object.entries(b.mcpServers)) {
+      if (!/^[A-Za-z0-9_-]+$/.test(n)) return send(res, 400, { error: `mcpServers.${n}: name may only use letters, numbers, - and _` });
+      if ((!e.type || e.type === 'stdio') && !e.command) return send(res, 400, { error: `mcpServers.${n}: command is required` });
+      if ((e.type === 'http' || e.type === 'sse') && !/^https?:\/\//.test(e.url || '')) return send(res, 400, { error: `mcpServers.${n}: url must start with http:// or https://` });
+    }
+    const hint = (k) => '\u2026' + String(k).slice(-4);
+    if (b.claude) { const { apiKey, executablePath, ...rest } = b.claude; Object.assign(st.claude, rest); if (apiKey !== undefined) { st.claude.apiKeySet = !!apiKey; st.claude.apiKeyHint = apiKey ? hint(apiKey) : undefined; } if (executablePath !== undefined) st.claude.executablePath = executablePath || undefined; }
+    if (b.boat) { if (b.boat.baseUrl) st.boat.baseUrl = b.boat.baseUrl; if (b.boat.apiKey !== undefined) { st.boat.apiKeySet = !!b.boat.apiKey; st.boat.apiKeyHint = b.boat.apiKey ? hint(b.boat.apiKey) : undefined; db.boat = !!b.boat.apiKey; } }
+    if (b.mcpServers) st.mcpServers = b.mcpServers;
+    emit(ctx, { type: 'settings.updated', settings: st });
+    return send(res, 200, st);
+  }
+  if (p === '/api/settings/boat/test' && req.method === 'POST') {
+    const b = await readBody(req); await sleep(700);
+    const key = b.apiKey || (db.settings.boat.apiKeySet ? 'saved' : ''); db.lastTestBase = b.baseUrl;
+    if (!key) return send(res, 200, { ok: false, detail: 'No key to test. Paste one first.' });
+    if (/bad$/i.test(key)) return send(res, 200, { ok: false, detail: 'boat.dev rejected this key (401 unauthorized).' });
+    return send(res, 200, { ok: true, detail: 'Connected \u00b7 3 sandboxes' });
+  }
   let m;
+  if ((m = p.match(/^\/api\/tasks\/([^/]+)$/)) && req.method === 'PATCH') {
+    const task = db.tasks.find((t) => t.id === m[1]); if (!task) return send(res, 404, { error: 'not found' });
+    const b = await readBody(req); if (typeof b.archived === 'boolean') task.archived = b.archived; if (typeof b.title === 'string' && b.title.trim()) task.title = b.title.trim().slice(0, 120);
+    task.updatedAt = now(); emit(ctx, { type: 'task.updated', task }); return send(res, 200, task);
+  }
+  if ((m = p.match(/^\/api\/tasks\/([^/]+)$/)) && req.method === 'DELETE') {
+    const task = db.tasks.find((t) => t.id === m[1]); if (!task) return send(res, 404, { error: 'not found' });
+    if (task.status === 'running') return send(res, 409, { error: 'Task is running. Stop it first.' });
+    db.tasks = db.tasks.filter((t) => t !== task); delete db.messages[task.id]; emit(ctx, { type: 'task.deleted', taskId: task.id }); return send(res, 200, { ok: true });
+  }
   if ((m = p.match(/^\/api\/tasks\/([^/]+)$/))) { const task = db.tasks.find((t) => t.id === m[1]); return task ? send(res, 200, { task, messages: db.messages[task.id] || [] }) : send(res, 404, { error: 'not found' }); }
   if (p === '/api/tasks' && req.method === 'POST') {
     const b = await readBody(req);

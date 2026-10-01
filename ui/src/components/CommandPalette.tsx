@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
-  cancelSelected, closeOverlays, newTask, openDoctor, openEditor, selectAgent, toggleMascotLab, toggleOps, toggleTheme, useStore, vmAction,
+  cancelSelected, closeOverlays, newTask, openDoctor, openEditor, openSettings, selectAgent, toggleMascotLab, toggleOps, toggleTheme, useStore, vmAction,
 } from '../store';
 import { vmIsLive } from '../util';
 
@@ -29,6 +29,8 @@ export function CommandPalette() {
     c.push(
       { id: 'edit', group: 'Agents', label: `Edit ${agent?.name ?? 'agent'}`, run: () => openEditor(agentId) },
       { id: 'newagent', group: 'Agents', label: 'New agent…', run: () => openEditor(null) },
+      { id: 'settings', group: 'App', label: 'Settings', hint: 'Ctrl ,', run: () => openSettings() },
+      { id: 'boatkey', group: 'App', label: 'Add or change boat.dev key', run: () => openSettings('boat') },
       { id: 'doctor', group: 'App', label: 'Open Doctor (sign-in & setup checks)', run: openDoctor },
       { id: 'model', group: 'App', label: 'Change model', hint: 'Ctrl M', run: () => window.dispatchEvent(new Event('legion:model-picker')) },
       { id: 'lab', group: 'App', label: 'Mascot Lab', hint: 'Ctrl Shift M', run: toggleMascotLab },

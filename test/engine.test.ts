@@ -7,7 +7,7 @@ import { ApprovalBroker } from '../src/core/approvals.js';
 import { EventBus } from '../src/core/bus.js';
 import { Engine, EngineError } from '../src/core/engine.js';
 import type { QueryFn } from '../src/core/engine.js';
-import { buildVmToolsServer } from '../src/core/vm-tools.js';
+import { buildAgentToolsServer } from '../src/core/agent-tools.js';
 import { defaultConfig } from '../src/shared/config.js';
 import type { AgentProfile, ChatMessage, LegionConfig, LegionEvent, Task } from '../src/shared/types.js';
 
@@ -333,11 +333,14 @@ test('mcpServers: config filtered per agent; legion vm server only when vm enabl
 
   const some = setup(() => happy(), { config: cfgFn, boat: false, agent: { vm, mcpServers: ['two'] } });
   await some.engine.waitFor(some.engine.startTask({ agentId: 'a1', prompt: 'x', source: 'ui' }).id, 3000);
-  assert.deepEqual(Object.keys(some.calls[0]!.options.mcpServers), ['two']);
+  assert.deepEqual(Object.keys(some.calls[0]!.options.mcpServers).sort(), ['legion', 'two']);
+  assert.deepEqual(Object.keys((some.calls[0]!.options.mcpServers.legion.instance as any)._registeredTools).sort(), ['agents', 'ask', 'tell']);
+  assert.deepEqual(some.calls[0]!.options.disallowedTools, ['SendMessage', 'ListAgents']);
+  assert.deepEqual(Object.keys((all.calls[0]!.options.mcpServers.legion.instance as any)._registeredTools).sort(), ['agents', 'ask', 'tell', 'vm_claude', 'vm_desktop', 'vm_exec', 'vm_read_file', 'vm_start', 'vm_stop', 'vm_write_file']);
 });
 
-test('vm tools server builds with name legion', () => {
-  const srv = buildVmToolsServer('a1', {} as any);
+test('agent tools server builds with name legion', () => {
+  const srv = buildAgentToolsServer({ agentId: 'a1', taskId: 't', vms: {} as any, vmEnabled: false, bridge: {} as any });
   assert.equal(srv.type, 'sdk');
   assert.equal(srv.name, 'legion');
   assert.ok(srv.instance);
@@ -368,4 +371,14 @@ test('/model prefix sets model and is stripped; non-sonnet errors do not escalat
   assert.equal(s.calls[0]!.options.model, 'haiku');
   assert.equal(s.calls[0]!.prompt, 'do x');
   assert.equal(done.status, 'error');
+});
+
+import { clipToolResult } from '../src/core/engine.js';
+test('clipToolResult keeps long JSON results parseable', () => {
+  const raw = JSON.stringify({ taskId: 't1', status: 'done', result: 'x'.repeat(5000) });
+  const out = clipToolResult(raw);
+  const o = JSON.parse(out);
+  assert.equal(o.taskId, 't1');
+  assert.ok(o.result.length < 1500 && o.result.endsWith('…'));
+  assert.ok(clipToolResult('y'.repeat(3000)).length === 1500);
 });

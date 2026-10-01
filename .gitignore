@@ -5,3 +5,7 @@ ui/dev/shots
 *.log
 .env
 .env.*
+docs/video/*.mp4
+docs/video/frames/
+docs/video/score.wav
+__pycache__/

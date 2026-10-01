@@ -204,7 +204,7 @@ export class BoatClient {
 
 function explain(status: number, msg: string, code: string | undefined, method: string, path: string): string {
   const tag = `${method} ${path} -> ${status}${code ? ' ' + code : ''}`;
-  if (status === 401) return `boat.dev API key rejected (401). Check boat.apiKey in ~/.legion/config.json or BOAT_API_KEY. [${tag}] ${msg}`;
+  if (status === 401) return `boat.dev API key rejected (401). Open Settings → boat.dev to check the key. [${tag}] ${msg}`;
   if (status === 402) return `boat.dev says this account cannot run sandboxes right now (402): check billing and usage limits on your boat.dev dashboard. [${tag}] ${msg}`;
   if (status === 403) return `boat.dev refused this request (403), likely a plan/limit or permission issue: check billing and limits on your boat.dev dashboard. [${tag}] ${msg}`;
   if (status === 429) return `boat.dev rate limit hit (429); try again shortly. [${tag}] ${msg}`;

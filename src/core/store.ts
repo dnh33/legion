@@ -1,5 +1,5 @@
 /** Persistent state in JSON files. */
-import { appendFileSync, existsSync, mkdirSync, readFileSync, renameSync } from 'node:fs';
+import { appendFileSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync } from 'node:fs';
 import { writeFile, rename, unlink, mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { AgentProfile, ChatMessage, Task, VmRecord } from '../shared/types.js';
@@ -48,14 +48,23 @@ export class Store {
   }
 
   /** Newest first (by updatedAt). */
-  listTasks(limit = 200, agentId?: string): Task[] {
+  listTasks(limit = 200, agentId?: string, includeArchived = false): Task[] {
     let list = [...this.tasks.values()];
+    if (!includeArchived) list = list.filter((t) => !t.archived);
     if (agentId) list = list.filter((t) => t.agentId === agentId);
     list.sort((a, b) => (a.updatedAt < b.updatedAt ? 1 : a.updatedAt > b.updatedAt ? -1 : 0));
     return list.slice(0, limit);
   }
   getTask(id: string): Task | undefined { return this.tasks.get(id); }
   upsertTask(t: Task): Task { this.tasks.set(t.id, t); this.markDirty(); return t; }
+  /** Removes the task and its messages file. Returns false if unknown. */
+  deleteTask(id: string): boolean {
+    const had = this.tasks.delete(id);
+    this.messages.delete(id);
+    try { rmSync(this.msgFile(id), { force: true }); } catch { /* ignore */ }
+    if (had) this.markDirty();
+    return had;
+  }
 
   /** Messages live in <dir>/messages/<taskId>.jsonl (append-only). */
   listMessages(taskId: string): ChatMessage[] {

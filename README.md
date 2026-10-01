@@ -10,6 +10,8 @@
 
 </div>
 
+<p align="center"><img src="docs/video/legion-demo.gif" alt="Legion trailer: the Relic awakens, the agents muster, and work gets sealed" width="900"></p>
+
 ## What it is
 
 Legion is a desktop app for running several Claude agents from one place. Each agent has its own persona, model policy, approval mode and working directory, and can start a cloud Ubuntu VM on [boat.dev](https://boat.dev) when a task calls for one. It runs on your machine: a small Node service on `127.0.0.1` does the work, and an Electron window sits on top. Agents run through the official Claude Agent SDK using the Claude Code account you are already signed in to, so there are no extra logins or keys to manage.
@@ -28,6 +30,8 @@ Claude Code and Cowork can drive Legion too, over MCP.
 ## Features
 
 - **Multiple agents.** Ships with Zealot (lead), Builder (coding) and Scout (research). Create your own with a name, system prompt, model, approval mode and VM settings.
+- **Agents talk to each other.** Any agent can `ask` another and wait for the answer, or `tell` it and get the reply later in its own task. Pair threads resume the same session, so repeat conversations stay cheap. Hop, rate and cycle guards stop runaway loops.
+- **Settings in the app.** Claude sign-in or API key, your boat.dev key (with a Test button), MCP servers and connection snippets. Changes apply live.
 - **Auto model routing.** Each task goes to Sonnet or Opus depending on how hard it looks. If Sonnet fails or runs out of turns, Legion retries once on Opus. Or pick any model your account offers.
 - **Your Claude Code setup, inherited.** Agents pick up your Claude Code settings, MCP servers, skills, slash commands and claude.ai connectors. Add your own MCP servers in `config.json`.
 - **A VM per agent, on demand.** Agents start, use and stop their own boat.dev VM. You get a live screen preview and an "Open desktop" link. Idle VMs stop on their own so billing pauses.

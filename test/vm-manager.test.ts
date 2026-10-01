@@ -102,7 +102,7 @@ test('error codes: unknown_agent, not_configured, disabled', async () => {
   await assert.rejects(s.vm.ensureRunning('ghost'), (e: any) => e instanceof VmError && e.code === 'unknown_agent');
   await assert.rejects(s.vm.ensureRunning('scout'), (e: any) => e.code === 'disabled');
   const n = setup({ boat: null });
-  await assert.rejects(n.vm.ensureRunning('zealot'), (e: any) => e.code === 'not_configured' && /BOAT_API_KEY/.test(e.message) && /config\.json/.test(e.message));
+  await assert.rejects(n.vm.ensureRunning('zealot'), (e: any) => e.code === 'not_configured' && /Settings → boat\.dev/.test(e.message));
 });
 
 test('boat failure -> VmError boat and record state error', async () => {

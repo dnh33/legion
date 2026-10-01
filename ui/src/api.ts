@@ -1,4 +1,5 @@
 import type {
+  SettingsView, SettingsPatch,
   AgentProfile, ApprovalRequest, Catalog, ChatMessage, DoctorCheck, LegionConfig, LegionEvent, ModelChoice, StateSnapshot, Task, VmRecord,
 } from '../../src/shared/types';
 
@@ -48,7 +49,12 @@ async function req<T>(method: string, path: string, body?: unknown): Promise<T> 
 export type NewAgent = Partial<AgentProfile> & { name: string };
 
 export const api = {
-  state: () => req<StateSnapshot>('GET', '/api/state'),
+  state: (archived = false) => req<StateSnapshot>('GET', `/api/state${archived ? '?archived=1' : ''}`),
+  settings: () => req<SettingsView>('GET', '/api/settings'),
+  patchSettings: (p: SettingsPatch) => req<SettingsView>('PATCH', '/api/settings', p),
+  testBoat: (apiKey?: string, baseUrl?: string) => req<{ ok: boolean; detail: string }>('POST', '/api/settings/boat/test', { ...(apiKey ? { apiKey } : {}), ...(baseUrl ? { baseUrl } : {}) }),
+  patchTask: (id: string, b: { archived?: boolean; title?: string }) => req<Task>('PATCH', `/api/tasks/${encodeURIComponent(id)}`, b),
+  deleteTask: (id: string) => req<{ ok: true }>('DELETE', `/api/tasks/${encodeURIComponent(id)}`),
   config: () => req<Partial<LegionConfig>>('GET', '/api/config'),
   catalog: (refresh = false) => req<Catalog>('GET', `/api/catalog${refresh ? '?refresh=1' : ''}`),
   doctor: () => req<DoctorCheck[]>('GET', '/api/doctor'),

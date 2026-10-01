@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { ChatMessage } from '../../../src/shared/types';
 import { base, token } from '../api';
-import { decide, dismissOnboarding, openDoctor, openEditor, refresh, selectTask, sendPrompt, useStore } from '../store';
+import { decide, dismissOnboarding, openDoctor, openEditor, openSettings, refresh, selectTask, sendPrompt, useStore } from '../store';
 import { copyText, money } from '../util';
 import { ApprovalCard } from './ApprovalCard';
 import { Icon } from './icons';
@@ -11,9 +11,17 @@ import { ToolGroup } from './ToolChip';
 
 type Item = { k: 'msg'; m: ChatMessage } | { k: 'tools'; items: ChatMessage[] };
 
+/** Tool results are stored as separate messages (resultFor → toolUseId); they are shown inside their call's chip. */
+function toolResults(messages: ChatMessage[]): Record<string, string> {
+  const r: Record<string, string> = {};
+  for (const m of messages) if (m.resultFor) r[m.resultFor] = m.text;
+  return r;
+}
+
 function group(messages: ChatMessage[]): Item[] {
   const out: Item[] = [];
   for (const m of messages) {
+    if (m.resultFor) continue;
     if (m.role === 'tool') {
       const last = out[out.length - 1];
       if (last && last.k === 'tools') last.items.push(m); else out.push({ k: 'tools', items: [m] });
@@ -76,7 +84,8 @@ export function Thread() {
   });
 
   const items = useMemo(() => group(messages), [messages]);
-  const lastUser = useMemo(() => [...messages].reverse().find((m) => m.role === 'user'), [messages]);
+  const results = useMemo(() => toolResults(messages), [messages]);
+  const lastUser = useMemo(() => [...messages].reverse().find((m) => m.role === 'user' && !m.fromAgentId), [messages]);
   const empty = items.length === 0 && !stream && !running;
 
   return (
@@ -109,7 +118,7 @@ export function Thread() {
           {empty ? <EmptyState /> : (
             <>
               {items.map((it, i) => it.k === 'tools'
-                ? <ToolGroup key={it.items[0].id} items={it.items} />
+                ? <ToolGroup key={it.items[0].id} items={it.items} results={results} />
                 : <MessageView key={it.m.id} m={it.m} agent={agent} task={task} />)}
               {stream && <MessageView m={{ role: 'assistant', text: stream }} agent={agent} task={task} streaming />}
               {running && !stream && <div className="working" aria-live="polite"><i /><i /><i /><span>{task?.status === 'queued' ? 'Queued' : 'Working'}</span></div>}
@@ -182,7 +191,8 @@ function EmptyState() {
         </li>
         <li>
           <span className={`step-n${boat ? ' ok' : ''}`}>{boat ? <Icon name="check" size={12} /> : 2}</span>
-          <div><b>Add a boat key for VMs</b><p>{boat ? 'Connected. Agents can start on-demand VMs.' : <>Put your key in <code>~/.legion/config.json</code> under <code>boat.apiKey</code> (or set <code>BOAT_API_KEY</code>) and restart the core.</>}</p></div>
+          <div><b>Add a boat key for VMs</b><p>{boat ? 'Connected. Agents can start on-demand VMs.' : <>Paste your boat.dev key in Settings. It applies straight away, no restart.</>}</p></div>
+          {!boat && <button className="btn" onClick={() => openSettings('boat')}>Add key</button>}
         </li>
         <li>
           <span className="step-n">3</span>

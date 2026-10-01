@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { api, openExternal } from '../api';
-import { openDoctor, openEditor, toast, useStore, vmAction } from '../store';
+import { openEditor, openSettings, toast, useStore, vmAction } from '../store';
 import { clip, vmIsLive, vmLabel, vmTone } from '../util';
 import { Icon } from './icons';
 
@@ -80,8 +80,8 @@ export function ComputerCard() {
       {enabled && !boat && (
         <div className="vm-note warn">
           <Icon name="shield" size={14} />
-          <div><b>boat.dev key missing</b>Add <code>boat.apiKey</code> to the config to let agents start VMs.
-            <button className="btn-ghost sm" onClick={openDoctor}>Open Doctor</button></div>
+          <div><b>boat.dev key missing</b>Add your boat.dev API key to let agents start VMs.
+            <button className="btn-ghost sm" onClick={() => openSettings('boat')}>Add key in Settings</button></div>
         </div>
       )}
       {enabled && boat && state === 'provisioning' && (

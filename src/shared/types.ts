@@ -68,7 +68,7 @@ export interface VmRecord {
 }
 
 export type TaskStatus = 'queued' | 'running' | 'done' | 'error' | 'cancelled';
-export type TaskSource = 'ui' | 'mcp' | 'cli';
+export type TaskSource = 'ui' | 'mcp' | 'cli' | 'agent';
 
 export interface Task {
   id: string;
@@ -76,6 +76,14 @@ export interface Task {
   title: string;              // first ~60 chars of the first prompt
   status: TaskStatus;
   source: TaskSource;
+  /** Set when another Legion agent started or continued this task (agent-to-agent bridge). */
+  fromAgentId?: string;
+  /** The caller's task when this task was started by another agent. Used for loop/depth guards and reply routing. */
+  parentTaskId?: string;
+  /** Internal: bridge hop of the latest run (0 = started by a human/UI/MCP). Bounds agent-to-agent chains. */
+  bridgeHop?: number;
+  /** Hidden from tabs and Recent tasks (closed by the user). Still stored and resumable. */
+  archived?: boolean;
   requestedModel: ModelChoice;
   /** Model used for the latest run; set when the run starts. */
   model?: ConcreteModel;
@@ -101,7 +109,13 @@ export interface ChatMessage {
   text: string;
   /** For role 'tool': tool name, e.g. "mcp__legion__vm_exec" or "Bash". */
   toolName?: string;
+  /** For role 'tool': the tool_use id, so a later result can be paired with its call. */
+  toolUseId?: string;
+  /** For role 'tool' result messages: the toolUseId this result belongs to (text = result, ≤1500 chars). UIs attach it to the call instead of rendering it on its own. */
+  resultFor?: string;
   at: string;                 // ISO
+  /** For role 'user' messages sent by another agent through the bridge. */
+  fromAgentId?: string;
 }
 
 export type MascotMood = 'idle' | 'thinking' | 'hacking' | 'success' | 'error' | 'sleeping';
@@ -114,6 +128,8 @@ export type LegionEvent =
   | { type: 'vm.updated'; vm: VmRecord }
   | { type: 'agent.updated'; agent: AgentProfile }
   | { type: 'agent.deleted'; agentId: string }
+  | { type: 'task.deleted'; taskId: string }
+  | { type: 'settings.updated'; settings: SettingsView }
   | { type: 'approval.requested'; approval: ApprovalRequest }
   | { type: 'approval.resolved'; approvalId: string; allowed: boolean }
   | { type: 'mascot'; mood: MascotMood; note?: string };
@@ -209,4 +225,32 @@ export interface Catalog {
   models: CatalogModel[];
   fetchedAt: string;     // ISO
   error?: string;        // set when the probe failed; lists may be empty
+}
+
+/** GET/PATCH /api/settings. Secrets are never returned, only whether they are set and a short hint. */
+export interface SettingsView {
+  claude: {
+    auth: 'claude-login' | 'api-key';
+    apiKeySet: boolean;
+    apiKeyHint?: string;           // e.g. "…a3f9"
+    executablePath?: string;
+    inheritClaudeCodeSettings: boolean;
+    maxTurns: number;
+  };
+  boat: {
+    apiKeySet: boolean;
+    apiKeyHint?: string;
+    baseUrl: string;
+  };
+  mcpServers: Record<string, McpServerEntry>;
+  port: number;
+  configPath: string;
+  dataDir: string;
+}
+
+/** PATCH /api/settings body. Omitted fields are unchanged; apiKey: null clears a key. */
+export interface SettingsPatch {
+  claude?: { auth?: 'claude-login' | 'api-key'; apiKey?: string | null; executablePath?: string | null; inheritClaudeCodeSettings?: boolean; maxTurns?: number };
+  boat?: { apiKey?: string | null; baseUrl?: string };
+  mcpServers?: Record<string, McpServerEntry>;
 }

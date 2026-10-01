@@ -112,3 +112,21 @@ test('corrupt state.json does not crash', () => {
   const s = new Store(dir);
   assert.equal(s.listAgents().length, 0);
 });
+
+test('deleteTask removes task and messages file; archived tasks are hidden unless requested', async () => {
+  const dir = tmp();
+  const s = new Store(dir);
+  s.upsertTask(task('a', 'done', '2026-01-01T00:00:00Z'));
+  s.upsertTask({ ...task('b', 'done', '2026-01-02T00:00:00Z'), archived: true });
+  s.addMessage({ id: 'm1', taskId: 'a', role: 'user', text: 'x', at: '2026-01-01T00:00:00Z' } as ChatMessage);
+  assert.deepEqual(s.listTasks().map((t) => t.id), ['a']);
+  assert.deepEqual(s.listTasks(200, undefined, true).map((t) => t.id), ['b', 'a']);
+  assert.ok(existsSync(join(dir, 'messages', 'a.jsonl')));
+  assert.equal(s.deleteTask('a'), true);
+  assert.equal(s.deleteTask('a'), false);
+  assert.equal(s.getTask('a'), undefined);
+  assert.deepEqual(s.listMessages('a'), []);
+  assert.ok(!existsSync(join(dir, 'messages', 'a.jsonl')));
+  await s.flush();
+  assert.deepEqual(new Store(dir).listTasks(10, undefined, true).map((t) => t.id), ['b']);
+});

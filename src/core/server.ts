@@ -14,6 +14,8 @@ import { EngineError } from './engine.js';
 import type { Engine } from './engine.js';
 import { buildLegionMcpServer } from './mcp-tools.js';
 import type { Store } from './store.js';
+import { SettingsError } from './settings.js';
+import type { SettingsService } from './settings.js';
 import { VmError } from './vm-manager.js';
 import type { VmManager } from './vm-manager.js';
 
@@ -23,6 +25,7 @@ export interface CoreContext {
   doctor: () => Promise<DoctorCheck[]>;
   /** Claude Code commands + models (cached; force = re-probe). */
   catalog: (force?: boolean) => Promise<Catalog>;
+  settings: SettingsService;
 }
 
 /** Thrown by handlers; mapped to `{error}` JSON. */
@@ -161,10 +164,10 @@ export function createServer(ctx: CoreContext): Server {
   };
 
   // ---- read-only -------------------------------------------------------
-  route('GET', '/api/state', (): StateSnapshot => ({
+  route('GET', '/api/state', ({ url }): StateSnapshot => ({
     version: VERSION,
     agents: ctx.store.listAgents(),
-    tasks: ctx.store.listTasks(200),
+    tasks: ctx.store.listTasks(200, undefined, ['1', 'true'].includes(url.searchParams.get('archived') ?? '')),
     vms: ctx.store.listVms(),
     approvals: ctx.approvals.pending(),
     boatConfigured: ctx.boatConfigured(),
@@ -173,6 +176,11 @@ export function createServer(ctx: CoreContext): Server {
   route('GET', '/api/config', () => redactConfig(ctx.config));
   route('GET', '/api/doctor', () => ctx.doctor());
   route('GET', '/api/catalog', ({ url }) => ctx.catalog(['1', 'true'].includes(url.searchParams.get('refresh') ?? '')));
+
+  // ---- settings --------------------------------------------------------
+  route('GET', '/api/settings', () => ctx.settings.view());
+  route('PATCH', '/api/settings', ({ body }) => ctx.settings.patch(body));
+  route('POST', '/api/settings/boat/test', ({ body }) => ctx.settings.testBoat(isObj(body) ? body.apiKey : undefined, isObj(body) ? body.baseUrl : undefined));
 
   // ---- agents ----------------------------------------------------------
   route('GET', '/api/agents', () => ctx.store.listAgents());
@@ -256,6 +264,32 @@ export function createServer(ctx: CoreContext): Server {
     if (!task) throw new HttpError(404, `Unknown task "${params[0]}"`);
     return { task, messages: ctx.store.listMessages(task.id) };
   });
+  route('PATCH', '/api/tasks/:id', ({ params, body }) => {
+    const cur = ctx.store.getTask(params[0]);
+    if (!cur) throw new HttpError(404, `Unknown task "${params[0]}"`);
+    if (!isObj(body)) throw new HttpError(400, 'JSON object body required');
+    if (body.archived === undefined && body.title === undefined) throw new HttpError(400, 'archived or title required');
+    const next = { ...cur };
+    if (body.archived !== undefined) {
+      if (typeof body.archived !== 'boolean') throw new HttpError(400, 'archived must be a boolean');
+      if (body.archived) next.archived = true; else delete next.archived;
+    }
+    if (body.title !== undefined) {
+      if (typeof body.title !== 'string' || !body.title.trim() || body.title.length > 200) throw new HttpError(400, 'title must be a non-empty string (max 200)');
+      next.title = body.title.trim();
+    }
+    const saved = ctx.store.upsertTask(next);
+    ctx.bus.emit({ type: 'task.updated', task: saved });
+    return saved;
+  });
+  route('DELETE', '/api/tasks/:id', ({ params }) => {
+    const cur = ctx.store.getTask(params[0]);
+    if (!cur) throw new HttpError(404, `Unknown task "${params[0]}"`);
+    if (cur.status === 'queued' || cur.status === 'running') throw new HttpError(409, 'Task is running; cancel it first');
+    ctx.store.deleteTask(cur.id);
+    ctx.bus.emit({ type: 'task.deleted', taskId: cur.id });
+    return { ok: true };
+  });
   route('POST', '/api/tasks/:id/cancel', ({ params }) => {
     if (!ctx.store.getTask(params[0])) throw new HttpError(404, `Unknown task "${params[0]}"`);
     return { ok: ctx.engine.cancel(params[0]) };
@@ -333,6 +367,7 @@ export function createServer(ctx: CoreContext): Server {
     let message = e instanceof Error ? e.message : String(e);
     if (e instanceof HttpError) status = e.status;
     else if (e instanceof EngineError) status = e.status;
+    else if (e instanceof SettingsError) status = e.status;
     else if (e instanceof VmError) status = VM_STATUS[e.code] ?? 500;
     if (status === 500) { try { process.stderr.write(`[legion-core] 500: ${e instanceof Error ? e.stack : message}\n`); } catch { /* ignore */ } }
     if (res.headersSent) { res.end(); return; }

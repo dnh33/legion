@@ -3,6 +3,10 @@ import type { AddressInfo } from 'node:net';
 import type { Server } from 'node:http';
 import { EventBus } from '../src/core/bus.js';
 import { EngineError } from '../src/core/engine.js';
+import { SettingsService } from '../src/core/settings.js';
+import { mkdtempSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { createServer } from '../src/core/server.js';
 import type { CoreContext } from '../src/core/server.js';
 import type { AgentProfile, ApprovalRequest, ChatMessage, Task, VmRecord } from '../src/shared/types.js';
@@ -65,8 +69,10 @@ export function makeFakes() {
     getAgent: (id: string) => agents.get(id),
     upsertAgent: (a: AgentProfile) => { agents.set(a.id, a); return a; },
     deleteAgent: (id: string) => agents.delete(id),
-    listTasks: (limit = 200) => [...tasks.values()].reverse().slice(0, limit),
+    listTasks: (limit = 200, _a?: string, incl = false) => [...tasks.values()].filter((t) => incl || !t.archived).reverse().slice(0, limit),
     getTask: (id: string) => tasks.get(id),
+    upsertTask: (t: Task) => { tasks.set(t.id, t); return t; },
+    deleteTask: (id: string) => { messages.delete(id); return tasks.delete(id); },
     listMessages: (id: string) => messages.get(id) ?? [],
     listVms: () => [...agents.keys()].map(vm),
   };
@@ -74,21 +80,31 @@ export function makeFakes() {
     pending: () => pending,
     resolve: (id: string, allow: boolean) => { calls.resolved.push([id, allow]); return pending.some((p) => p.id === id); },
   };
+  const dir = mkdtempSync(join(tmpdir(), 'legion-set-'));
+  const config: CoreContext['config'] = {
+    port: 0, authToken: TOKEN, workspaceDir: '/x',
+    claude: { auth: 'claude-login', inheritClaudeCodeSettings: true, maxTurns: 5 },
+    boat: { baseUrl: 'https://boat.test', apiKey: 'secret-key-abcd' }, mcpServers: {},
+  };
+  const boatChanges: number[] = [];
+  let lastBase = '';
+  const configPath = join(dir, 'config.json');
+  writeFileSync(configPath, JSON.stringify({ port: 0, authToken: TOKEN, boat: { baseUrl: 'https://boat.test', apiKey: 'secret-key-abcd' } }));
+  const settings = new SettingsService({
+    config, bus, configPath, dataDir: dir, onBoatChange: () => { boatChanges.push(1); },
+    makeBoat: (o) => { lastBase = o.baseUrl; return { me: async () => { if (o.apiKey === 'bad') throw new Error('401 unauthorized'); return { email: 'me@x.io' }; } }; },
+  });
   const ctx: CoreContext = {
-    config: {
-      port: 0, authToken: TOKEN, workspaceDir: '/x',
-      claude: { auth: 'claude-login', inheritClaudeCodeSettings: true, maxTurns: 5 },
-      boat: { baseUrl: 'https://boat.test', apiKey: 'secret' }, mcpServers: {},
-    },
-    store, bus, engine, vms, approvals, boatConfigured: () => true,
+    config, store, bus, engine, vms, approvals, boatConfigured: () => !!config.boat.apiKey,
     doctor: async () => [{ id: 'node', label: 'Node', ok: true, detail: 'ok' }],
     catalog: async (force?: boolean) => ({
       commands: [{ name: 'cost', description: 'Show cost', argumentHint: '' }],
       models: [{ value: 'opus', displayName: 'Opus 5.5', description: 'strongest' }],
       fetchedAt: force ? 'forced' : 'cached',
     }),
+    settings,
   };
-  return { ctx, agents, tasks, pending, calls, bus };
+  return { ctx, agents, tasks, pending, calls, bus, configPath, boatChanges, lastBoatBase: () => lastBase };
 }
 
 export async function start(ctx: CoreContext): Promise<{ server: Server; base: string; close: () => Promise<void> }> {

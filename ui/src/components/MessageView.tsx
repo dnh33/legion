@@ -1,7 +1,7 @@
 import type { AgentProfile, ChatMessage, Task } from '../../../src/shared/types';
 import { Markdown } from './Markdown';
 import { modelLabel } from '../models';
-import { useStore } from '../store';
+import { selectTask, useStore } from '../store';
 
 export function ModelTag({ task }: { task?: Task }) {
   const catalog = useStore((s) => s.catalog);
@@ -22,7 +22,8 @@ export function splitPrefix(text: string): { model: string | null; text: string 
   return b ? { model: b[1], text: b[2] } : { model: null, text };
 }
 
-export function MessageView({ m, agent, task, streaming }: { m: Pick<ChatMessage, 'role' | 'text'>; agent?: AgentProfile; task?: Task; streaming?: boolean }) {
+export function MessageView({ m, agent, task, streaming }: { m: Pick<ChatMessage, 'role' | 'text' | 'fromAgentId'>; agent?: AgentProfile; task?: Task; streaming?: boolean }) {
+  if (m.role === 'user' && (m.fromAgentId || parseReply(m.text))) return <AgentMessage from={m.fromAgentId ?? parseReply(m.text)!.name} text={m.text} />;
   if (m.role === 'user') return <UserBubble text={m.text} />;
   if (m.role === 'system') return <div className="msg system">{m.text}</div>;
   return (
@@ -44,6 +45,33 @@ function UserBubble({ text }: { text: string }) {
     <div className="msg user">
       {p.model && <span className="mtag user-mtag" title="Model chosen for this message">{modelLabel(catalog, p.model)}</span>}
       <div className="bubble">{p.text}</div>
+    </div>
+  );
+}
+
+/** "[Reply from Builder \u00b7 task task_x] body" is how a tell() result is delivered back into the caller's task. */
+export function parseReply(text: string): { name: string; taskId: string; body: string } | null {
+  const r = /^\[Reply from (.+?) \u00b7 task (\S+?)\]\s*([\s\S]*)$/.exec(text);
+  return r ? { name: r[1], taskId: r[2], body: r[3] } : null;
+}
+
+/** A user-role turn sent by another Legion agent through the bridge. Not the owner's bubble. */
+function AgentMessage({ from, text }: { from: string; text: string }) {
+  const sender = useStore((s) => s.agents.find((a) => a.id === from));
+  const reply = parseReply(text);
+  const taskExists = useStore((s) => (reply ? s.tasks.some((t) => t.id === reply.taskId) : false));
+  return (
+    <div className="msg from-agent">
+      <div className="msg-head">
+        <span className="mini-avatar">{sender?.emoji ?? '\u25cf'}</span>
+        <span className="who">{sender?.name ?? reply?.name ?? from}</span>
+        {reply ? (taskExists
+          ? <button type="button" className="mtag reply-tag" title={`Open task ${reply.taskId}`} onClick={() => selectTask(reply.taskId)}>Reply {'\u2197'}</button>
+          : <span className="mtag reply-tag" title={`Task ${reply.taskId}`}>Reply</span>)
+          : null}
+        <span className="mtag via-tag" title="Sent by another agent through the Legion bridge">via Legion</span>
+      </div>
+      <div className="fa-body">{reply ? reply.body : text}</div>
     </div>
   );
 }

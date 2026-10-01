@@ -188,7 +188,7 @@ export class VmManager {
   // ---- internals ----
   private requireBoat(): BoatClient {
     const boat = this.getBoat();
-    if (!boat) throw new VmError('boat.dev is not configured. Set boat.apiKey in ~/.legion/config.json or the BOAT_API_KEY environment variable.', 'not_configured');
+    if (!boat) throw new VmError('boat.dev is not configured. Open Settings → boat.dev to add a key.', 'not_configured');
     return boat;
   }
 

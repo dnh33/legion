@@ -57,3 +57,10 @@ export const cleanTitle = (t: string | undefined) => (t ?? '').replace(/^\s*\/(o
 
 /** Shorten to n characters with an ellipsis (display only). */
 export const clip = (t: string, n: number) => (t.length > n ? t.slice(0, n - 1).trimEnd() + '\u2026' : t);
+
+/** Title without the router prefix and, for bridge tasks, without the "Sender: " lead that the from-chip already says. */
+export function taskTitle(title: string, from?: string | null): string {
+  let t = cleanTitle(title);
+  if (from && t.toLowerCase().startsWith(from.toLowerCase() + ':')) t = t.slice(from.length + 1).trim();
+  return t || cleanTitle(title);
+}

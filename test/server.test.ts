@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { strict as assert } from 'node:assert';
 import { after, before, describe, it } from 'node:test';
 import { makeFakes, start, TOKEN } from './helpers-c.js';
@@ -85,6 +86,129 @@ describe('HTTP server', () => {
     assert.equal((await api('/api/tasks', { method: 'POST', body: JSON.stringify({ agentId: 'zealot', prompt: 'hi', model: 'nope!' }) })).status, 400);
     assert.equal((await api('/api/tasks', { method: 'POST', body: JSON.stringify({ agentId: 'zealot', prompt: 'hi', model: 'haiku' }) })).status, 201);
   });
+  it('task archive / rename / delete', async () => {
+    const created = await (await api('/api/tasks', { method: 'POST', body: JSON.stringify({ agentId: 'zealot', prompt: 'keep me' }) })).json() as any;
+    const id = created.id;
+    assert.equal((await api(`/api/tasks/${id}`, { method: 'DELETE' })).status, 409, 'running task cannot be deleted');
+    await (await api(`/api/tasks/${id}/wait?timeoutMs=2000`)).json();
+    assert.equal((await api('/api/tasks/nope', { method: 'PATCH', body: '{"archived":true}' })).status, 404);
+    assert.equal((await api(`/api/tasks/${id}`, { method: 'PATCH', body: '{}' })).status, 400);
+    assert.equal((await api(`/api/tasks/${id}`, { method: 'PATCH', body: '{"archived":"yes"}' })).status, 400);
+    assert.equal((await api(`/api/tasks/${id}`, { method: 'PATCH', body: '{"title":"  "}' })).status, 400);
+    const events: any[] = [];
+    const off = f.bus.on((e) => events.push(e));
+    const p = await api(`/api/tasks/${id}`, { method: 'PATCH', body: JSON.stringify({ archived: true, title: ' Renamed ' }) });
+    assert.equal(p.status, 200);
+    const pt: any = await p.json();
+    assert.equal(pt.archived, true);
+    assert.equal(pt.title, 'Renamed');
+    assert.ok(events.some((e) => e.type === 'task.updated' && e.task.id === id));
+    let st: any = await (await api('/api/state')).json();
+    assert.ok(!st.tasks.some((t: any) => t.id === id), 'archived hidden from state');
+    st = await (await api('/api/state?archived=1')).json();
+    assert.ok(st.tasks.some((t: any) => t.id === id));
+    const un: any = await (await api(`/api/tasks/${id}`, { method: 'PATCH', body: '{"archived":false}' })).json();
+    assert.equal(un.archived, undefined);
+    assert.equal((await api(`/api/tasks/${id}`, { method: 'DELETE' })).status, 200);
+    off();
+    assert.ok(events.some((e) => e.type === 'task.deleted' && e.taskId === id));
+    assert.equal((await api(`/api/tasks/${id}`)).status, 404);
+    assert.equal((await api(`/api/tasks/${id}`, { method: 'DELETE' })).status, 404);
+  });
+
+  it('settings: GET is redacted; PATCH validates, writes config.json, applies live; boat test never stores', async () => {
+    const before = await api('/api/settings');
+    const raw = await before.text();
+    assert.equal(before.status, 200);
+    assert.ok(!raw.includes(TOKEN) && !raw.includes('authToken'), 'authToken never returned');
+    assert.ok(!raw.includes('secret-key-abcd'), 'full key never returned');
+    const v0: any = JSON.parse(raw);
+    assert.equal(v0.boat.apiKeySet, true);
+    assert.equal(v0.boat.apiKeyHint, '…abcd');
+    assert.equal(v0.claude.apiKeySet, false);
+    assert.equal(v0.configPath, f.configPath);
+
+    for (const bad of [
+      '[]', '{"claude":{"auth":"oauth"}}', '{"claude":{"maxTurns":0}}', '{"claude":{"maxTurns":1.5}}', '{"claude":{"apiKey":""}}',
+      '{"claude":{"inheritClaudeCodeSettings":"yes"}}', '{"boat":{"baseUrl":"ftp://x"}}', '{"boat":{"apiKey":5}}',
+      '{"mcpServers":{"legion":{"command":"x"}}}', '{"mcpServers":{"a b":{"command":"x"}}}', '{"mcpServers":{"a":{"command":""}}}',
+      '{"mcpServers":{"a":{"type":"http","url":"nope"}}}', '{"mcpServers":{"a":{"command":"x","args":[1]}}}',
+    ]) assert.equal((await api('/api/settings', { method: 'PATCH', body: bad })).status, 400, bad);
+    assert.equal(JSON.parse(readFileSync(f.configPath, 'utf8')).boat.apiKey, 'secret-key-abcd', 'invalid patches write nothing');
+
+    const events: any[] = [];
+    const off = f.bus.on((e) => events.push(e));
+    const r = await api('/api/settings', { method: 'PATCH', body: JSON.stringify({
+      claude: { auth: 'api-key', apiKey: 'sk-ant-zzzz1234', maxTurns: 12, executablePath: '/bin/claude' },
+      boat: { apiKey: 'new-boat-key-9999', baseUrl: 'https://boat.test/api/v1/' },
+      mcpServers: { gh: { type: 'http', url: 'https://x.test/mcp', headers: { A: 'b' } }, loc: { command: 'node', args: ['s.js'] } },
+    }) });
+    assert.equal(r.status, 200);
+    const v: any = await r.json();
+    assert.equal(v.claude.auth, 'api-key');
+    assert.equal(v.claude.apiKeyHint, '…1234');
+    assert.ok(!JSON.stringify(v).includes('sk-ant-zzzz1234'));
+    assert.equal(v.boat.baseUrl, 'https://boat.test/api/v1');
+    assert.deepEqual(Object.keys(v.mcpServers).sort(), ['gh', 'loc']);
+    const disk = JSON.parse(readFileSync(f.configPath, 'utf8'));
+    assert.equal(disk.authToken, TOKEN, 'unrelated keys preserved');
+    assert.equal(disk.claude.apiKey, 'sk-ant-zzzz1234');
+    assert.equal(disk.claude.maxTurns, 12);
+    assert.equal(disk.boat.apiKey, 'new-boat-key-9999');
+    assert.equal(f.ctx.config.claude.maxTurns, 12, 'applied live');
+    assert.equal(f.ctx.config.boat.apiKey, 'new-boat-key-9999');
+    assert.equal(f.boatChanges.length, 1);
+    assert.ok(events.some((e) => e.type === 'settings.updated' && e.settings.claude.maxTurns === 12));
+    assert.ok(!JSON.stringify(events).includes('sk-ant-zzzz1234'));
+
+    // unrelated patch: no boat change callback; null clears keys
+    await api('/api/settings', { method: 'PATCH', body: JSON.stringify({ claude: { apiKey: null, executablePath: null } }) });
+    assert.equal(f.boatChanges.length, 1);
+    const d2 = JSON.parse(readFileSync(f.configPath, 'utf8'));
+    assert.equal(d2.claude.apiKey, undefined);
+    assert.equal(d2.claude.executablePath, undefined);
+    assert.equal(((await (await api('/api/settings')).json()) as any).claude.apiKeySet, false);
+
+    // MCP secrets are masked in the view and in settings.updated; masked values mean "keep existing"
+    await api('/api/settings', { method: 'PATCH', body: JSON.stringify({ mcpServers: {
+      gh: { type: 'http', url: 'https://x.test/mcp', headers: { Authorization: 'Bearer supersecret-token-1234', Short: 'abc' } },
+      loc: { command: 'node', env: { API_TOKEN: 'abcdefgh-5678' } },
+    } }) });
+    const mv: any = await (await api('/api/settings')).json();
+    assert.deepEqual(mv.mcpServers.gh.headers, { Authorization: '••••1234', Short: '••••' });
+    assert.deepEqual(mv.mcpServers.loc.env, { API_TOKEN: '••••5678' });
+    assert.ok(!JSON.stringify(events).includes('supersecret'));
+    const keep = await api('/api/settings', { method: 'PATCH', body: JSON.stringify({ mcpServers: {
+      gh: { type: 'http', url: 'https://x.test/other', headers: mv.mcpServers.gh.headers },
+      loc: { command: 'node', env: { API_TOKEN: '••••5678', NEW: 'plain-value-xyz' } },
+    } }) });
+    assert.equal(keep.status, 200);
+    const d3 = JSON.parse(readFileSync(f.configPath, 'utf8'));
+    assert.equal(d3.mcpServers.gh.headers.Authorization, 'Bearer supersecret-token-1234');
+    assert.equal(d3.mcpServers.gh.headers.Short, 'abc');
+    assert.equal(d3.mcpServers.gh.url, 'https://x.test/other');
+    assert.equal(d3.mcpServers.loc.env.API_TOKEN, 'abcdefgh-5678');
+    assert.equal(d3.mcpServers.loc.env.NEW, 'plain-value-xyz');
+    assert.equal((await api('/api/settings', { method: 'PATCH', body: JSON.stringify({ mcpServers: { fresh: { command: 'x', env: { K: '••••zzzz' } } } }) })).status, 400);
+
+    // boat test: given key vs saved key; never stores
+    assert.deepEqual(await (await api('/api/settings/boat/test', { method: 'POST', body: '{"apiKey":"bad"}' })).json(), { ok: false, detail: '401 unauthorized' });
+    assert.equal((await api('/api/settings/boat/test', { method: 'POST', body: '{"apiKey":"k","baseUrl":"nope"}' })).status, 400);
+    assert.equal(((await (await api('/api/settings/boat/test', { method: 'POST', body: '{"apiKey":"k","baseUrl":"https://other.test/api"}' })).json()) as any).ok, true);
+    assert.equal(f.lastBoatBase(), 'https://other.test/api');
+    const good: any = await (await api('/api/settings/boat/test', { method: 'POST', body: '{"apiKey":"good-key"}' })).json();
+    assert.equal(good.ok, true);
+    assert.match(good.detail, /me@x\.io/);
+    assert.equal(f.ctx.config.boat.apiKey, 'new-boat-key-9999');
+    assert.equal(((await (await api('/api/settings/boat/test', { method: 'POST', body: '{}' })).json()) as any).ok, true);
+    // clearing the boat key turns boat off
+    await api('/api/settings', { method: 'PATCH', body: '{"boat":{"apiKey":null}}' });
+    assert.equal(f.boatChanges.length, 2);
+    assert.equal(f.ctx.boatConfigured(), false);
+    assert.equal(((await (await api('/api/settings/boat/test', { method: 'POST', body: '{}' })).json()) as any).ok, false);
+    off();
+  });
+
   it('agent CRUD', async () => {
     const events: any[] = [];
     const off = f.bus.on((e) => events.push(e));

@@ -4,9 +4,9 @@ import { appendFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { configPath, dataDir, loadConfig, scrubHostSessionEnv, VERSION } from '../shared/config.js';
 import { ApprovalBroker } from '../core/approvals.js';
-import { BoatClient } from '../core/boat.js';
 import { EventBus } from '../core/bus.js';
 import { getCatalog } from '../core/catalog.js';
+import { makeBoatGetter, SettingsService } from '../core/settings.js';
 import { runDoctor } from '../core/doctor.js';
 import { Engine } from '../core/engine.js';
 import { createServer } from '../core/server.js';
@@ -31,24 +31,24 @@ async function main() {
   if (recovered) log(`recovered ${recovered} interrupted task(s)`);
 
   const bus = new EventBus();
-  let boat: BoatClient | null = null;
-  const getBoat = () => {
-    if (!config.boat.apiKey) return null;
-    boat ??= new BoatClient({ apiKey: config.boat.apiKey, baseUrl: config.boat.baseUrl });
-    return boat;
-  };
+  // Follows live Settings edits of config.boat.
+  const getBoat = makeBoatGetter(config);
   const boatConfigured = () => !!config.boat.apiKey;
 
   const vms = new VmManager({ store, bus, getBoat });
   const approvals = new ApprovalBroker(bus);
   const engine = new Engine({ store, bus, vms, approvals, config, boatConfigured });
+  let stopReaper: () => void = () => {};
+  const restartReaper = () => { stopReaper(); stopReaper = boatConfigured() ? vms.startReaper() : () => {}; };
+  const settings = new SettingsService({ config, bus, configPath: configPath(), dataDir: dataDir(), onBoatChange: restartReaper });
   const server = createServer({
     config, store, bus, engine, vms, approvals, boatConfigured,
     doctor: () => runDoctor({ config, getBoat }),
     catalog: (force) => getCatalog({ config }, { force }),
+    settings,
   });
 
-  const stopReaper = boatConfigured() ? vms.startReaper() : () => {};
+  restartReaper();
 
   server.on('error', (err: NodeJS.ErrnoException) => {
     if (err.code === 'EADDRINUSE') {

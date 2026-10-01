@@ -132,7 +132,7 @@ export function createMascot(host, data, opts = {}) {
   }
   function loopTrick() {
     trickT = later(() => {
-      if (state === 'idle') { const t = ['trick-spin', 'trick-nod', 'trick-flicker'][Math.floor(Math.random() * 3)]; pulse(t, 1400); }
+      if (state === 'idle') { const t = ['trick-spin', 'trick-nod', 'trick-flicker'][Math.floor(Math.random() * 3)]; pulse(t, 2300); }
       loopTrick();
     }, 18000 + Math.random() * 20000);
   }
@@ -182,7 +182,7 @@ export function createMascot(host, data, opts = {}) {
     say(quips[i]);
   }
   root.addEventListener('click', poke);
-  root.addEventListener('dblclick', () => pulse('trick-spin', 1400));
+  root.addEventListener('dblclick', () => pulse('trick-spin', 2300));
   root.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); poke(); } });
 
   return {
@@ -191,7 +191,7 @@ export function createMascot(host, data, opts = {}) {
     setState,
     setVm(on) { root.classList.toggle('vm-on', !!on); },
     say,
-    trick(name) { pulse(`trick-${name}`, 1400); },
+    trick(name) { pulse(`trick-${name}`, 2300); },
     destroy() {
       timers.forEach(clearTimeout); timers.clear();
       if (raf) cancelAnimationFrame(raf);

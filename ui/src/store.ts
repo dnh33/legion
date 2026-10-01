@@ -1,10 +1,14 @@
 import { useSyncExternalStore } from 'react';
 import type {
-  AgentProfile, ApprovalRequest, Catalog, ChatMessage, DoctorCheck, LegionEvent, MascotMood, ModelChoice, StateSnapshot, Task, VmRecord,
+  AgentProfile, ApprovalRequest, Catalog, SettingsPatch, SettingsView, ChatMessage, DoctorCheck, LegionEvent, MascotMood, ModelChoice, StateSnapshot, Task, VmRecord,
 } from '../../src/shared/types';
 import { api, subscribe, ApiError, type ConnStatus } from './api';
 
 export type RelicState = 'idle' | 'listening' | 'thinking' | 'hacking' | 'awaiting' | 'victory' | 'error' | 'sleeping' | 'annoyed';
+
+export type SettingsSection = 'claude' | 'boat' | 'mcp' | 'connections' | 'about';
+export type TaskSrc = 'tab' | 'recent';
+export interface TaskMenu { x: number; y: number; taskId: string; src: TaskSrc }
 
 export interface Toast { id: number; text: string; kind: 'info' | 'error'; n: number }
 
@@ -38,6 +42,12 @@ export interface AppState {
   mascotLab: boolean;
   mascotForce: RelicState | null;
   mascotVm: boolean | null;
+  settings: SettingsView | null;
+  settingsOpen: boolean;
+  settingsSection: SettingsSection;
+  showClosed: boolean;
+  taskMenu: TaskMenu | null;
+  renaming: { id: string; src: TaskSrc } | null;
 }
 
 function ls(key: string): string | null { try { return localStorage.getItem(key); } catch { return null; } }
@@ -59,6 +69,7 @@ let state: AppState = {
   onboardingDismissed: ls('legion.onboarded') === '1', toasts: [],
   catalog: null, catalogLoading: false,
   mascotLab: false, mascotForce: null, mascotVm: null,
+  settings: null, settingsOpen: false, settingsSection: 'claude', showClosed: false, taskMenu: null, renaming: null,
 };
 
 const listeners = new Set<() => void>();
@@ -96,7 +107,7 @@ function upsertTask(tasks: Task[], t: Task): Task[] {
 }
 
 export function tasksForAgent(s: AppState, agentId: string) {
-  return s.tasks.filter((t) => t.agentId === agentId).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+  return s.tasks.filter((t) => t.agentId === agentId && !t.archived).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
 }
 
 function pickTaskFor(agentId: string): string | null {
@@ -113,8 +124,19 @@ export function handleEvent(e: LegionEvent) {
         const streaming = terminal && s.streaming[e.task.id] ? { ...s.streaming, [e.task.id]: '' } : s.streaming;
         return { tasks: upsertTask(s.tasks, e.task), streaming };
       });
+      if (e.task.archived && getState().selectedTaskId === e.task.id && !getState().showClosed) leaveTask(e.task.id);
       break;
     }
+    case 'task.deleted': {
+      const id = e.taskId;
+      const wasSel = getState().selectedTaskId === id;
+      if (wasSel) leaveTask(id);
+      setState((s) => { const { [id]: _m, ...messages } = s.messages; return { tasks: s.tasks.filter((t) => t.id !== id), messages }; });
+      break;
+    }
+    case 'settings.updated':
+      setState({ settings: e.settings, boatConfigured: e.settings.boat.apiKeySet, auth: e.settings.claude.auth });
+      break;
     case 'message': {
       const m = e.message;
       setState((s) => {
@@ -163,7 +185,7 @@ export function handleEvent(e: LegionEvent) {
 /* ---------- bootstrap ---------- */
 export async function refresh() {
   try {
-    const snap = await api.state();
+    const snap = await api.state(getState().showClosed);
     const vms: Record<string, VmRecord> = {};
     for (const v of snap.vms) vms[v.agentId] = v;
     setState((s) => {
@@ -360,3 +382,75 @@ export async function removeAgent(id: string) {
 export const toggleMascotLab = () => setState((s) => ({ mascotLab: !s.mascotLab }));
 export const forceMascot = (f: RelicState | null) => setState({ mascotForce: f });
 export const forceMascotVm = (v: boolean | null) => setState({ mascotVm: v });
+
+/* ---------- task management ---------- */
+/** Moves selection off a task that was closed or deleted: next tab of the same agent, else the empty "New task" view. */
+function leaveTask(id: string) {
+  const t = getState().tasks.find((x) => x.id === id);
+  const next = t ? tasksForAgent(getState(), t.agentId).find((x) => x.id !== id) : undefined;
+  if (next) selectTask(next.id); else setState({ selectedTaskId: null });
+}
+export function openTaskMenu(x: number, y: number, taskId: string, src: TaskSrc = 'tab') { setState({ taskMenu: { x, y, taskId, src } }); }
+export function closeTaskMenu() { if (getState().taskMenu) setState({ taskMenu: null }); }
+export function startRename(taskId: string, src: TaskSrc = 'tab') { setState({ taskMenu: null, renaming: { id: taskId, src } }); }
+export function stopRename() { setState({ renaming: null }); }
+
+export async function archiveTask(id: string) {
+  const prev = getState().tasks.find((t) => t.id === id); if (!prev) return;
+  if (getState().selectedTaskId === id && !getState().showClosed) leaveTask(id);
+  setState((s) => ({ tasks: upsertTask(s.tasks, { ...prev, archived: true }) }));
+  try { await api.patchTask(id, { archived: true }); } catch (e) { setState((s) => ({ tasks: upsertTask(s.tasks, prev) })); toast(errText(e), 'error'); }
+}
+export async function reopenTask(id: string) {
+  const prev = getState().tasks.find((t) => t.id === id); if (!prev) return;
+  setState((s) => ({ tasks: upsertTask(s.tasks, { ...prev, archived: false }) }));
+  try { await api.patchTask(id, { archived: false }); } catch (e) { setState((s) => ({ tasks: upsertTask(s.tasks, prev) })); toast(errText(e), 'error'); }
+}
+export async function closeOthers(id: string) {
+  const keep = getState().tasks.find((t) => t.id === id); if (!keep) return;
+  const others = tasksForAgent(getState(), keep.agentId).filter((t) => t.id !== id && t.status !== 'running' && t.status !== 'queued');
+  await Promise.all(others.map((t) => archiveTask(t.id)));
+  selectTask(id);
+}
+export async function renameTask(id: string, title: string) {
+  const prev = getState().tasks.find((t) => t.id === id); stopRename();
+  const t = title.trim(); if (!prev || !t || t === prev.title) return;
+  setState((s) => ({ tasks: upsertTask(s.tasks, { ...prev, title: t }) }));
+  try { await api.patchTask(id, { title: t }); } catch (e) { setState((s) => ({ tasks: upsertTask(s.tasks, prev) })); toast(errText(e), 'error'); }
+}
+export async function deleteTask(id: string) {
+  try { await api.deleteTask(id); handleEvent({ type: 'task.deleted', taskId: id }); } catch (e) { toast(errText(e), 'error'); }
+}
+export async function stopTask(id: string) {
+  try { await api.cancelTask(id); } catch (e) { toast(errText(e), 'error'); }
+}
+export async function setShowClosed(on: boolean) {
+  setState({ showClosed: on });
+  if (on) {
+    try {
+      const snap = await api.state(true);
+      setState((s) => { const have = new Set(s.tasks.map((t) => t.id)); return { tasks: [...s.tasks, ...snap.tasks.filter((t) => t.archived && !have.has(t.id))] }; });
+    } catch (e) { toast(errText(e), 'error'); setState({ showClosed: false }); }
+  } else setState((s) => ({ tasks: s.tasks.filter((t) => !t.archived) }));
+}
+
+/* ---------- settings ---------- */
+export async function loadSettings() {
+  try { setState({ settings: await api.settings() }); } catch (e) { toast(errText(e), 'error'); }
+}
+export function openSettings(section?: SettingsSection) {
+  setState({ settingsOpen: true, palette: false, doctorOpen: false, editor: null, ...(section ? { settingsSection: section } : {}) });
+  void loadSettings();
+}
+export function setSettingsSection(settingsSection: SettingsSection) { setState({ settingsSection }); }
+export function closeSettings() { setState({ settingsOpen: false }); }
+export function toggleSettings() { if (getState().settingsOpen) closeSettings(); else openSettings(); }
+/** PATCH /api/settings. Throws the server's message so the form can show it inline. */
+export async function saveSettings(patch: SettingsPatch, quiet = false): Promise<SettingsView> {
+  const view = await api.patchSettings(patch);
+  setState({ settings: view, boatConfigured: view.boat.apiKeySet, auth: view.claude.auth });
+  if (!quiet) toast('Saved');
+  void runDoctor();
+  return view;
+}
+export { errText };

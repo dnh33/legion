@@ -237,3 +237,61 @@ Vulnerability reporting is covered in [SECURITY.md](../SECURITY.md).
 ## Tests
 
 `node:test` with `node:assert/strict`, in `test/*.test.ts`. They use fakes for the SDK `query`, boat.dev and the clock, so they need no network and make no Claude calls. `npm test` builds the TypeScript and runs `dist/test/*.test.js`.
+
+## Round 5 contracts
+
+### Agent-to-agent bridge ("the vox")
+Every agent always gets the in-process SDK MCP server `legion`. The VM tools stay on it when a VM is enabled, and it now always carries these three tools:
+
+| Tool (as the model sees it) | Args | Behaviour |
+|---|---|---|
+| `mcp__legion__agents` | none | Lists the other agents: id, name, one-line role, status (`idle` / `working` / `queued`), and whether a pair thread with the caller exists. Compact: one line per agent. |
+| `mcp__legion__ask` | `{agent, message, fresh?: boolean, timeoutSeconds?: number=600}` | Synchronous. Delivers `message` to the target and waits for its final answer, then returns `{taskId, status, model, result}`. The result is truncated to 4000 chars with a note. |
+| `mcp__legion__tell` | `{agent, message, fresh?: boolean}` | Asynchronous. Returns `{taskId}` at once. When the target's run ends, its result is delivered back into the caller's task as a new user turn: `"[Reply from <Name> · task <id>] <result>"`. If the caller is running at that moment, delivery waits until the caller finishes, then resumes the caller's session. At most one reply per tell. |
+
+**Routing: pair threads.** For each (caller agent → target agent) pair, Legion keeps the latest bridge task.
+- If it exists, is not running, is not archived and `fresh` is not true, the message continues that task. Its session resumes, which reuses the prompt cache and costs few tokens.
+- Otherwise Legion creates a new task: `source:'agent'`, `fromAgentId`, `parentTaskId` = caller's task, title `"<CallerName>: <first 50 chars>"`.
+- If the target is busy on that exact thread, the message is queued: FIFO per task, run after the current run.
+
+**What the target sees.** One header line is prepended:
+`[From <CallerName> (Legion agent) via the bridge. Reply with just what they need; your final message is returned to them.]`
+The ChatMessage stored in the target thread has `role:'user'`, `fromAgentId`, and the raw message text without the header.
+
+**Guards.**
+- Self-messaging is an error.
+- Depth is the parentTaskId chain length; above 3 is an error: "delegation too deep".
+- Cycle guard: a target that is already an ancestor in the chain AND is waiting on an `ask` gets an error: "would deadlock". A `tell` is allowed.
+- Bridge runs whose parent is running bypass the global concurrency cap, so nested asks can't deadlock the queue.
+- Cancelling a task cancels its pending asks.
+- Approvals still apply per target agent.
+
+**Hygiene.**
+- Engine options add `disallowedTools: ['SendMessage', 'ListAgents']`. Those are Claude Code's own peer-session tools and confuse agents inside Legion.
+- The preamble tells agents to use `agents`, `ask` and `tell` for other Legion agents.
+
+**Mascot.** `thinking`/`hacking` as usual. The note shows "Zealot → Builder".
+
+### Task management
+| Method | Path | Body | Response |
+|---|---|---|---|
+| PATCH | /api/tasks/:id | `{archived?: boolean, title?: string}` | `Task` (emits `task.updated`) |
+| DELETE | /api/tasks/:id | – | `{ok:true}`. 409 if running. Removes the task and its messages file; emits `task.deleted`. |
+
+`GET /api/state` and MCP `legion_recent_tasks` exclude archived tasks by default. `?archived=1` includes them.
+
+### Settings
+| Method | Path | Body | Response |
+|---|---|---|---|
+| GET | /api/settings | – | `SettingsView` |
+| PATCH | /api/settings | `SettingsPatch` | `SettingsView`. Validates, writes config.json atomically, applies live, emits `settings.updated`. |
+| POST | /api/settings/boat/test | `{apiKey?: string}` | `{ok:boolean, detail:string}`. Tests the given key, or the saved one, with `GET /me`; never stores. |
+
+**Applied live, no restart:**
+- boat key/baseUrl: rebuild the BoatClient and start or stop the VM reaper;
+- claude auth/apiKey/executablePath/inherit/maxTurns: used from the next run;
+- mcpServers: from the next run.
+
+Port changes are not editable here.
+
+`authToken` is never returned or editable. Secrets appear only as `apiKeySet` plus a hint of the last 4 chars.

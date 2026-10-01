@@ -1,8 +1,9 @@
-/** In-process SDK MCP server ("legion") giving an agent its vm_* tools. */
+/** In-process SDK MCP server ("legion"): agent-to-agent bridge tools for every agent, plus vm_* tools when the VM is enabled. */
 import { createSdkMcpServer, tool } from '@anthropic-ai/claude-agent-sdk';
 import type { McpSdkServerConfigWithInstance } from '@anthropic-ai/claude-agent-sdk';
 import { z } from 'zod';
 import type { VmManager } from './vm-manager.js';
+import type { Bridge } from './bridge.js';
 
 const MAX_CHARS = 12_000;
 
@@ -23,7 +24,53 @@ function truncateHead(s: string, max = MAX_CHARS): string {
   return s.slice(0, max) + `\n[truncated: showing first ${max} of ${s.length} chars]`;
 }
 
-export function buildVmToolsServer(agentId: string, vms: VmManager): McpSdkServerConfigWithInstance {
+export interface AgentToolsCtx {
+  agentId: string;
+  /** The task this run belongs to (the caller for ask/tell). */
+  taskId: string;
+  vms: VmManager;
+  /** Offer the vm_* tools (agent.vm.enabled && boat configured). */
+  vmEnabled: boolean;
+  bridge: Bridge;
+}
+
+/** Bridge tools only: agents / ask / tell. */
+function bridgeTools(ctx: AgentToolsCtx) {
+  const { bridge, agentId, taskId } = ctx;
+  const guard = async (fn: () => Promise<unknown> | unknown): Promise<ToolResult> => {
+    try {
+      const v = await fn();
+      return ok(typeof v === 'string' ? v : JSON.stringify(v));
+    } catch (e) { return fail(e); }
+  };
+  const agents = tool(
+    'agents',
+    'List the other Legion agents (id, role, status) and whether you already have a thread with each.',
+    {},
+    () => guard(() => bridge.list(agentId)),
+  );
+  const ask = tool(
+    'ask',
+    'Send a message to another Legion agent and wait for its answer. Reuses your ongoing thread with it unless fresh=true. Use when you need the result before continuing.',
+    {
+      agent: z.string().describe('Agent id or name'),
+      message: z.string().min(1),
+      fresh: z.boolean().optional().describe('Start a new thread instead of continuing the existing one'),
+      timeoutSeconds: z.number().positive().max(3600).optional().describe('Default 600'),
+    },
+    (a) => guard(() => bridge.ask(taskId, a.agent, a.message, { fresh: a.fresh, timeoutSeconds: a.timeoutSeconds })),
+  );
+  const tell = tool(
+    'tell',
+    'Send a message to another Legion agent without waiting. Its answer arrives later as a new message in your task. Use for long or parallel work.',
+    { agent: z.string().describe('Agent id or name'), message: z.string().min(1), fresh: z.boolean().optional() },
+    (a) => guard(() => bridge.tell(taskId, a.agent, a.message, { fresh: a.fresh })),
+  );
+  return [agents, ask, tell];
+}
+
+export function buildAgentToolsServer(ctx: AgentToolsCtx): McpSdkServerConfigWithInstance {
+  const { agentId, vms } = ctx;
   const touch = () => { try { vms.touch(agentId); } catch { /* best effort */ } };
   const run = async (fn: () => Promise<string>, opts?: { touch?: boolean }): Promise<ToolResult> => {
     try {
@@ -111,6 +158,7 @@ export function buildVmToolsServer(agentId: string, vms: VmManager): McpSdkServe
   return createSdkMcpServer({
     name: 'legion',
     version: '0.1.0',
-    tools: [vmStart, vmExec, vmWriteFile, vmReadFile, vmClaude, vmDesktop, vmStop],
+    alwaysLoad: true, // never deferred behind ToolSearch: agents call mcp__legion__* directly
+    tools: [...bridgeTools(ctx), ...(ctx.vmEnabled ? [vmStart, vmExec, vmWriteFile, vmReadFile, vmClaude, vmDesktop, vmStop] : [])],
   });
 }
