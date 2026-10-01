@@ -10,8 +10,6 @@
 
 </div>
 
-<p align="center"><img src="docs/video/legion-demo.gif" alt="Legion trailer: the Relic awakens, the agents muster, and work gets sealed" width="900"></p>
-
 ## What it is
 
 Legion is a desktop app for running several Claude agents from one place. Each agent has its own persona, model policy, approval mode and working directory, and can start a cloud Ubuntu VM on [boat.dev](https://boat.dev) when a task calls for one. It runs on your machine: a small Node service on `127.0.0.1` does the work, and an Electron window sits on top. Agents run through the official Claude Agent SDK using the Claude Code account you are already signed in to, so there are no extra logins or keys to manage.
@@ -29,7 +27,10 @@ Claude Code and Cowork can drive Legion too, over MCP.
 
 ## Features
 
-- **Multiple agents.** Ships with Zealot (lead), Builder (coding) and Scout (research). Create your own with a name, system prompt, model, approval mode and VM settings.
+- **Multiple agents.** Ships with Zealot (lead), Builder (coding) and Scout (research), plus ten more premade bots (see [The Muster](#the-muster)). Create your own with a name, system prompt, model, approval mode and VM settings.
+- **Rooms.** Group chats of bots and you, with guards against runaway loops (see [Rooms](#rooms)).
+- **The Lattice and the Library.** A shared knowledge graph the bots use as long-term memory, with an Inbox where you accept or reject what they save (see [Lattice and Library](#lattice-and-library)).
+- **BSV mode** (off by default): reveals the Assayer and a BSV knowledge pack. Knowledge only, no wallet (see [BSV mode](#bsv-mode)).
 - **Agents talk to each other.** Any agent can `ask` another and wait for the answer, or `tell` it and get the reply later in its own task. Pair threads resume the same session, so repeat conversations stay cheap. Hop, rate and cycle guards stop runaway loops.
 - **Settings in the app.** Claude sign-in or API key, your boat.dev key (with a Test button), MCP servers and connection snippets. Changes apply live.
 - **Auto model routing.** Each task goes to Sonnet or Opus depending on how hard it looks. If Sonnet fails or runs out of turns, Legion retries once on Opus. Or pick any model your account offers.
@@ -41,6 +42,22 @@ Claude Code and Cowork can drive Legion too, over MCP.
 - **Doctor.** A built-in check of Node, config, Claude sign-in, boat.dev and the workspace, with a fix for each failure.
 - **A hand-painted animated mascot**, The Relic, that reacts to what your agents are doing.
 - **Keyboard first**, dark and light themes, tray icon, fonts bundled so it works offline.
+
+## The Muster
+
+Legion ships with 13 premade bots, each with its own persona, model policy, approval mode and animated bust. The three originals are **Zealot** (lead), **Builder** (coding) and **Scout** (research). Ten more join them: **Inquisitor** (hostile review and security audit), **Scribe** (documentation), **Archivist** (notes and memory hygiene; flags, never deletes), **Sentinel** (watch duty and alerts), **Forgemaster** (infrastructure, CI and deploys), **Exorcist** (debugging), **Preceptor** (craft and mentoring), **Herald** (message drafts; drafts only, never sends), **Sculptor** (Blender work through the Blender bridge) and **Assayer** (BSV development; hidden until BSV mode is on, so you see 12 until then). They are ordinary agents: edit their prompts, models and approval modes like any other, or delete the ones you do not want.
+
+## Rooms
+
+A room is a group chat of 2 to 6 bots plus you. Bots can also message each other directly. A plain message wakes bots by one of four strategies (mention, manager, round-robin, all), and guards for hops, budget, cycles and `@everyone` stop loops; you can freeze and resume a room at any time. A bot that wakes through a room never runs with more freedom than the bot that woke it, and text that looks like a seed phrase is refused rather than stored. Details: [docs/COMMS-BRIDGE.md](docs/COMMS-BRIDGE.md).
+
+## Lattice and Library
+
+The Lattice is a shared, traversable knowledge graph (search, neighbours, paths, recall, lint, Markdown vault import and export) with `kg_*` tools for every bot and a graph view. The Library turns it into long-term memory: bots capture decisions, mistakes and patterns, every note carries a trust level, and anything a bot writes after touching the web, a shell or an outside tool waits in your Inbox until you accept it. There are no model calls or embeddings in any of it. See [docs/KNOWLEDGE-GRAPH.md](docs/KNOWLEDGE-GRAPH.md) and [docs/LIBRARY.md](docs/LIBRARY.md).
+
+## BSV mode
+
+An optional toggle in Settings, off by default, with the network fixed to testnet. It is knowledge only: it shows the Assayer bot, loads a read-only BSV knowledge pack into the Lattice and gives the Assayer a short preamble. Legion has no wallet, no key handling, no signing and no broadcasting, and nothing in it can send funds. The Assayer is an ordinary agent: in `ask` mode its shell commands and file edits need your approval, while web fetch and read-only tools run without a prompt. See [docs/BSV-MODE.md](docs/BSV-MODE.md) for what it is and is not.
 
 ## Your Claude subscription, and Anthropic's terms
 
@@ -198,7 +215,7 @@ The Relic is a single hand-painted SVG, split into layers and animated by a smal
 ```bash
 npm ci
 npm run typecheck   # TypeScript, core and UI
-npm test            # 90 tests, no network, no real Claude calls
+npm test            # the full suite, no network, no real Claude calls
 npm run build       # core to dist/, UI to dist-ui/
 npm start           # build and open the app
 npm run core        # headless core only
@@ -219,7 +236,7 @@ ui/           Vite + React renderer, mascot engine, bundled fonts
   dev/        mock server and screenshot scripts
 test/         node:test suites
 scripts/      Windows installer, icon and mascot builders, MCP config printer
-docs/         architecture, BSV mode, mascot art and contract, expression lab, README images
+docs/         architecture, comms bridge, Lattice and Library, BSV mode, mascot art and contract, expression lab, README images
 assets/       app icon, tray icons, splash
 ```
 

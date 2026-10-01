@@ -187,7 +187,10 @@ export function scanTree(root: string, allow: Allow = ALLOWLIST): ScanResult {
     if (named) bad(`names the network global ${named[0]} in a string (computed access to the network)`);
     if (COMPUTED_GLOBAL.test(joinedKept)) bad('computed access to a global object (globalThis[...]) can reach the network');
 
-    // modules (static, dynamic, require); a specifier built at run time is refused outright
+    // modules (static, dynamic, require). A specifier that starts with something other than a quote (a bare variable) is refused below.
+    // It does NOT see a specifier that starts with a string literal and is finished at run time, e.g. import('node:' + name); it also
+    // cannot see globalThis[name] with a name computed from data, or a computed URL passed to fetch inside an allowlisted file
+    // (boat.ts, ui/src/api.ts): the allowlist is by file, not by destination. Those are covered by review, not by this scan.
     for (const m of joinedKept.matchAll(/(?:\bfrom|\bimport\s*\(|\brequire\s*\(|\bimport)\s*['"`]([^'"`]+)['"`]/g)) {
       const spec = m[1]!;
       if (BSV_MODULE.test(spec)) bad(`imports ${spec}`);

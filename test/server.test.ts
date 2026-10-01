@@ -223,9 +223,10 @@ describe('HTTP server', () => {
     assert.deepEqual(a.vm, { enabled: true, size: 'default', idleStopMinutes: 15 });
     assert.deepEqual(a.mcpServers, ['*']);
     const b: any = await (await api('/api/agents', { method: 'POST', body: JSON.stringify({ name: 'Research Bot' }) })).json();
-    assert.equal(b.id, 'research-bot-2');
+    assert.match(b.id, /^research-bot-[a-z0-9]{4,8}$/, 'a collision gets a random suffix, never -2');
     const c: any = await (await api('/api/agents', { method: 'POST', body: JSON.stringify({ name: 'Research Bot' }) })).json();
-    assert.equal(c.id, 'research-bot-3');
+    assert.match(c.id, /^research-bot-[a-z0-9]{4,8}$/);
+    assert.notEqual(c.id, b.id);
 
     const p = await api('/api/agents/research-bot', { method: 'PATCH', body: JSON.stringify({ model: 'opus', vm: { size: 'large' } }) });
     const pa: any = await p.json();
@@ -238,12 +239,12 @@ describe('HTTP server', () => {
 
     assert.equal((await api('/api/agents/zealot', { method: 'DELETE' })).status, 400);
     assert.equal((await api('/api/agents/nope', { method: 'DELETE' })).status, 404);
-    assert.equal((await api('/api/agents/research-bot-3', { method: 'DELETE' })).status, 200);
-    assert.ok(events.some((e) => e.type === 'agent.deleted' && e.agentId === 'research-bot-3'));
+    assert.equal((await api(`/api/agents/${c.id}`, { method: 'DELETE' })).status, 200);
+    assert.ok(events.some((e) => e.type === 'agent.deleted' && e.agentId === c.id));
     assert.ok(events.some((e) => e.type === 'agent.updated' && e.agent.id === 'research-bot'));
     off();
     const list: any[] = await (await api('/api/agents')).json();
-    assert.ok(!list.some((x) => x.id === 'research-bot-3'));
+    assert.ok(!list.some((x) => x.id === c.id));
   });
 
   it('invalid JSON -> 400', async () => {

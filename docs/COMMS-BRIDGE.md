@@ -27,6 +27,7 @@ Every trip posts a `guard` system message explaining why and how to resume.
 - A task woken by a bot carries `origin` (`TaskOrigin`). The engine already enforces: such a task never runs looser than `origin.approvalCeiling` (the strictest approval mode along the sender chain), never in bypass mode unless the ceiling is `full`, and its approval cards carry `origin` so the UI can say "Scribe via Zealot".
 - The hub computes `approvalCeiling` = stricter of (sender agent's current approval mode, the incoming message's own ceiling if the sender was itself woken by a bot). Human-originated wakes have ceiling `full` (no extra restriction).
 - Message text is scrubbed of anything that looks like a boat desktop URL or token pattern before it is stored or delivered.
+- A message that looks like it holds a seed phrase (a 12 to 24 word BIP-39 recovery phrase) is refused when you or a bot send it. A bot's final reply in a room that holds one is not posted or stored; the room gets a short system notice instead (the bot's own task record in the engine still holds its raw result). Key-shaped strings are redacted; a bare 64-hex string is left alone because it is a transaction id, but 64 hex next to a key, secret, wif or seed label is redacted.
 - Messaging a bot whose VM is stopped does not start the VM; the receiver's own policy decides.
 
 ## Tools (in-process MCP server named `legion_comms`, given to every agent; tools are auto-approved)

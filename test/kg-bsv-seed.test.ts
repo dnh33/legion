@@ -13,7 +13,7 @@ const ids = new Set(seed.nodes.map((n) => n.id));
 const words = (s: string) => s.trim().split(/\s+/).length;
 
 test('bsv seed parses with the expected envelope and size', () => {
-  assert.equal(seed.version, 3);
+  assert.equal(seed.version, 4);
   assert.ok(!Number.isNaN(Date.parse(seed.generatedAt)));
   assert.ok(Array.isArray(seed.nodes) && Array.isArray(seed.edges));
   assert.ok(seed.nodes.length >= 45 && seed.nodes.length <= 220, `node count ${seed.nodes.length}`);
@@ -199,7 +199,7 @@ test('status node: says what BSV mode is today, is reachable from the index, eve
   assert.ok(s, 'bsv-status-today exists');
   assert.equal(s!.type, 'lesson');
   assert.notEqual(s!.props?.built, false, 'the status node is the truth, not a design');
-  for (const phrase of [/testnet only/i, /knowledge only|read-only knowledge pack/i, /no wallet/, /no spend caps/, /no Freeze/, /no approval card/, /advisory bot with no BSV tools/, /normal Claude tools[^.]*behind your approval/, /Bots cannot edit this pack's notes or links/]) assert.match(s!.body, phrase);
+  for (const phrase of [/testnet only/i, /knowledge only|read-only knowledge pack/i, /no wallet/, /no spend caps/, /no Freeze/, /no approval card/, /advisory bot with no BSV tools/, /shell commands and file edits wait for your approval/, /Bots cannot edit this pack's notes or links/]) assert.match(s!.body, phrase);
   const rel = (from: string, to: string, rels = ['relates', 'part_of', 'depends_on']) => seed.edges.some((e) => e.from === from && e.to === to && rels.includes(e.rel));
   assert.ok(rel('bsv-curriculum-index', 'bsv-status-today'), 'index links to it');
   for (const hub of ['safety', 'foundations', 'wallets', 'network', 'ordinals', 'identity', 'sdks', 'extras']) assert.ok(rel(`bsv-mod-${hub}`, 'bsv-status-today'), `hub ${hub} links to it`);

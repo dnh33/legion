@@ -977,6 +977,9 @@ export class Graph {
     if (!ids.length) return 0;
     if (ids.length > BULK_DELETES) this.snapshot();
     for (const id of ids) {
+      // a purged pack node goes on the removal ledger first, so startup repair does not bring back what a human archived
+      const gone = this.nodes.get(id);
+      if (gone) this.noteSeedNodeGone(gone);
       const edgeIds = [...new Set([...(this.out.get(id) ?? []), ...(this.inn.get(id) ?? [])])];
       this.append([...edgeIds.map((e) => ({ op: 'del_edge', id: e })), { op: 'del_node', id }]);
       for (const e of edgeIds) this.dropEdge(e);

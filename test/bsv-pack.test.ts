@@ -243,12 +243,12 @@ test('a human note written to scope bsv first no longer blocks seeding', async (
   assert.equal((await s.call('GET', '/api/kg/stats')).body.byScope.bsv, 5);
 });
 
-test('the bundled pack carries a seedHash on every node and seedVersion 3 on the index', () => {
+test('the bundled pack carries a seedHash on every node and seedVersion 4 on the index', () => {
   const { g } = bundledGraph();
   const pack = loadBsvSeed(BSV_SEED_PATH);
-  assert.equal(pack.version, 3);
+  assert.equal(pack.version, 4);
   for (const n of pack.nodes) assert.match(String(g.getNode(HUMAN, n.id)!.props?.seedHash), /^[0-9a-f]{16}$/, n.id);
-  assert.equal(g.getNode(HUMAN, 'bsv-curriculum-index')!.props!.seedVersion, 3);
+  assert.equal(g.getNode(HUMAN, 'bsv-curriculum-index')!.props!.seedVersion, 4);
   assert.equal(applySeedPack(g, pack).status, 'already-loaded');
 });
 
@@ -267,7 +267,7 @@ test('an install from before hashes: untouched nodes (even ones a system re-seed
 
   const r = applySeedPack(g, loadBsvSeed(BSV_SEED_PATH));
   assert.equal(r.status, 'upgraded');
-  assert.deepEqual([r.from, r.to], [1, 3]);
+  assert.deepEqual([r.from, r.to], [1, 4]);
   assert.deepEqual(r.skippedEdited, ['bsv-safety-spend-caps-approval']);
   assert.match(g.getNode(HUMAN, tn.id)!.body, /Association's own release page confirms/, 'the rev-2 node was never edited, so it took the folded text');
   assert.doesNotMatch(g.getNode(HUMAN, tn.id)!.body, /Update \(/);

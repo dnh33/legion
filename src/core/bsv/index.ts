@@ -52,6 +52,9 @@ export function createBsvModule(deps: ModuleDeps, opts: BsvModuleOptions = {}): 
     return h({ req: undefined as never, res: undefined as never, url: new URL('http://127.0.0.1' + pattern), params: [], body: undefined });
   };
 
+  /** The agents behind the BSV gate (the seeded Assayer). Found by `requires`, not by id. */
+  const gated = (): AgentProfile[] => deps.store.listAgents().filter((a) => a.requires === 'bsv');
+
   async function bsvNodes(): Promise<number> {
     if (!kgHandlers.size || !state.enabled) return 0;
     try { return Number((await kgCall('GET', '/api/kg/stats')).byScope?.bsv ?? 0) || 0; } catch { return 0; }
@@ -61,7 +64,7 @@ export function createBsvModule(deps: ModuleDeps, opts: BsvModuleOptions = {}): 
     const nodes = await bsvNodes();
     return {
       enabled: state.enabled, network: state.network,
-      assayerAvailable: !!deps.store.getAgent(ASSAYER_ID),
+      assayerAvailable: gated().length > 0,
       knowledgeLoaded: nodes > 0, knowledgeNodes: nodes,
     };
   }
@@ -111,7 +114,8 @@ export function createBsvModule(deps: ModuleDeps, opts: BsvModuleOptions = {}): 
     state,
     ensureSeed,
     start,
-    preamble: (agent: AgentProfile) => (agent.id === ASSAYER_ID && state.enabled ? BSV_PREAMBLE : ''),
+    // keyed on the gate, not on an id string: a bot a user happens to name "Assayer" is an ordinary bot
+    preamble: (agent: AgentProfile) => (agent.requires === 'bsv' && state.enabled ? BSV_PREAMBLE : ''),
     routes: (add) => {
       add('GET', '/api/bsv', () => status());
       add('POST', '/api/bsv', ({ body }) => exclusive(async (): Promise<BsvToggleResult> => {
@@ -125,10 +129,9 @@ export function createBsvModule(deps: ModuleDeps, opts: BsvModuleOptions = {}): 
         if (!body.enabled) { try { (deps.engine as { cancelHiddenQueued?: () => string[] }).cancelHiddenQueued?.(); } catch { /* the start-time check still holds */ } }
         if (body.enabled) {
           seed = await ensureSeed();
-          const assayer = deps.store.getAgent(ASSAYER_ID);
-          // Turning ON: tell open clients the Assayer exists now. Turning OFF has no event (the frozen event union
+          // Turning ON: tell open clients the gated agent(s) exist now. Turning OFF has no event (the frozen event union
           // has no "hidden"), so clients simply refetch /api/state; agent.deleted would be wrong here.
-          if (changed && assayer) deps.bus.emit({ type: 'agent.updated', agent: assayer });
+          if (changed) for (const a of gated()) deps.bus.emit({ type: 'agent.updated', agent: a });
         }
         return { ...(await status()), ...(seed ? { seed } : {}) };
       }));

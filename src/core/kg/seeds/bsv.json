@@ -1,5 +1,5 @@
 {
-  "version": 3,
+  "version": 4,
   "generatedAt": "2026-10-01T00:00:00.000Z",
   "nodes": [
     {
@@ -5201,7 +5201,7 @@
       "id": "bsv-status-today",
       "type": "lesson",
       "title": "BSV mode today: what exists and what is design",
-      "body": "BSV mode today, in plain terms. What it is: an optional toggle, off by default, testnet only (the network is fixed to testnet) and knowledge only. Turning it on shows the Assayer bot, loads this read-only knowledge pack into the Lattice scope bsv, and adds a four-line preamble for the Assayer only. What it is not: Legion has no wallet, no key handling, no signing, no broadcasting and no chain or wallet network call in this version. There are no spend caps, no approval card for spends, no audit log, no Freeze, no mainnet arming and no Legion-owned bsv tool. The Assayer is an advisory bot with no BSV tools: it explains, drafts and reviews. It is still an ordinary Legion agent with the normal Claude tools (shell, files, web fetch) behind your approval (ask by default; you can change its approval mode, and full removes the prompts). Nothing in Legion signs or sends BSV, and a human does every wallet step in their own wallet. Bots cannot edit this pack's notes or links; only the human can, and a human edit is kept across upgrades. Lessons whose title starts with [Design] (their text opens with 'Design, not built in v0') describe how a later, reviewed wallet phase is meant to work; never tell a user those controls exist today. Check the live source before relying on any fact marked verify at build time.",
+      "body": "BSV mode today. What it is: an optional toggle, off by default, testnet only and knowledge only. Turning it on shows the Assayer bot, loads this read-only knowledge pack into the Lattice scope bsv, and adds a four-line preamble for the Assayer only. What it is not: Legion has no wallet, no key handling, no signing, no broadcasting and no chain or wallet network call in this version. There are no spend caps, no approval card for spends, no audit log, no Freeze, no mainnet arming and no Legion-owned bsv tool. The Assayer is an advisory bot with no BSV tools: it explains, drafts and reviews. It is still an ordinary agent with the normal Claude tools: in ask mode (the default) shell commands and file edits wait for your approval, while web fetch, web search and read-only tools run without a prompt; you can switch its approval to full. Nothing in Legion signs or sends BSV, and a human does every wallet step in their own wallet. Bots cannot edit this pack's notes or links; only the human can, and a human edit is kept across upgrades. Lessons whose title starts with [Design] (their text opens with 'Design, not built in v0') describe how a later, reviewed wallet phase is meant to work; never tell a user those controls exist today. Check the live source before relying on any fact marked verify at build time.",
       "tags": [
         "bsv",
         "status",

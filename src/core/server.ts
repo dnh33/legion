@@ -7,7 +7,7 @@ import { redactConfig, VERSION } from '../shared/config.js';
 import type {
   AgentProfile, ApprovalMode, DoctorCheck, LegionConfig, LegionEvent, Catalog, ModelChoice, StateSnapshot, Task, VmSize,
 } from '../shared/types.js';
-import { nowIso, slugify } from '../shared/util.js';
+import { nowIso, slugify, uniqueAgentId } from '../shared/util.js';
 import type { ApprovalBroker } from './approvals.js';
 import type { EventBus } from './bus.js';
 import { EngineError } from './engine.js';
@@ -212,8 +212,7 @@ export function createServer(ctx: CoreContext): Server {
     if (!name) throw new HttpError(400, 'name is required');
     const taken = new Set(ctx.store.listAgents().map((a) => a.id));
     const base = slugify(name);
-    let id = base;
-    for (let i = 2; taken.has(id); i++) id = `${base}-${i}`;
+    const id = uniqueAgentId(base, taken);
     const now = nowIso();
     const agent: AgentProfile = {
       id, name,

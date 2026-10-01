@@ -636,8 +636,16 @@ export class CommsHub {
     if (w.external) { this.afterWake(room, w); return; }
 
     const agentName = this.nameOf(w.botId);
-    const result = clip(scrubSecrets(task.result ?? '').trim(), MAX_TEXT);
-    if (task.status === 'done' && result && !NO_REPLY.test(result)) {
+    // a final reply that carries a seed phrase is dropped whole (same detector as cleanText): the room gets a short notice, never the words
+    const leaked = task.status === 'done' && containsSeedPhrase(task.result ?? '');
+    const result = leaked ? '' : clip(scrubSecrets(task.result ?? '', { keepHex: true }).trim(), MAX_TEXT);
+    if (leaked) {
+      this.post(room, {
+        from: { kind: 'system' }, kind: 'note', hop: 0, costUsd: delta, taskId: w.taskId,
+        text: `${agentName}'s reply looked like it contained a seed phrase (a 12 or 24 word recovery phrase), so it was not posted or stored.`,
+        ...(task.tainted ? { tainted: true } : {}),
+      });
+    } else if (task.status === 'done' && result && !NO_REPLY.test(result)) {
       const ceiling = stricterMode(this.agentMode(w.botId), w.ceiling);
       const from: RoomSender = { kind: 'bot', agentId: w.botId };
       const plan = this.plan(room, from, result, { auto: true });
@@ -708,7 +716,7 @@ export class CommsHub {
     from: RoomSender; to?: string[]; kind: RoomMessageKind; text: string; replyTo?: string; hop: number; costUsd?: number; taskId?: string; tainted?: boolean;
   }): RoomMessage {
     const msg: RoomMessage = {
-      id: newId('rmsg'), roomId: room.id, from: p.from, to: p.to ?? [], kind: p.kind, text: scrubSecrets(p.text), at: nowIso(), hop: p.hop,
+      id: newId('rmsg'), roomId: room.id, from: p.from, to: p.to ?? [], kind: p.kind, text: scrubSecrets(p.text, { keepHex: true }), at: nowIso(), hop: p.hop,
       ...(p.replyTo ? { replyTo: p.replyTo } : {}),
       ...(typeof p.costUsd === 'number' ? { costUsd: p.costUsd } : {}),
       ...(p.taskId ? { taskId: p.taskId } : {}),
@@ -882,7 +890,7 @@ export class CommsHub {
     if (v.length > MAX_TEXT) throw new CommsError(400, `text must be at most ${MAX_TEXT} characters`);
     // a seed phrase is refused outright (the same detector the knowledge graph uses), never stored or woken into a bot; key-shaped strings are redacted
     if (containsSeedPhrase(v)) throw new CommsError(400, 'That message looks like it contains a seed phrase (a 12 or 24 word recovery phrase). Messages never carry one, so nothing was sent. Remove it and send again.');
-    return scrubSecrets(v.trim());
+    return scrubSecrets(v.trim(), { keepHex: true });
   }
 
   private nameOf(id: string): string { return this.agents.getAgent(id)?.name ?? id; }

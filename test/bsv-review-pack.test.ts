@@ -113,8 +113,11 @@ test('F10/F12: no unmarked node states a control Legion does not have as a prese
 test('F9/F12: the status node says the Assayer is an ordinary agent with normal tools behind approval, and the preamble no longer says nothing can sign', async () => {
   const status = asNode(pack.nodes.find((n) => n.id === 'bsv-status-today')!).body;
   assert.match(status, /advisory bot with no BSV tools/);
-  assert.match(status, /normal Claude tools[^.]*behind your approval/);
-  assert.match(status, /you can change its approval mode/);
+  // G2: the truth from src/core/approvals.ts: in ask mode shell and file edits wait for approval, web fetch/search and read-only tools do not
+  assert.match(status, /shell commands and file edits wait for your approval/);
+  assert.match(status, /web fetch, web search and read-only tools run without a prompt/);
+  assert.match(status, /switch its approval to full/);
+  assert.doesNotMatch(status, /web fetch\) behind your approval/);
   assert.match(status, /Nothing in Legion signs or sends BSV/);
   assert.doesNotMatch(status, /answer-only/);
   const { BSV_PREAMBLE } = await import('../src/core/bsv/index.js');

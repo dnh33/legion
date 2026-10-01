@@ -1,7 +1,7 @@
 /** MCP server exposing Legion to Claude Code / Cowork. */
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
-import { slugify, nowIso } from '../shared/util.js';
+import { slugify, nowIso, uniqueAgentId } from '../shared/util.js';
 import { VERSION } from '../shared/config.js';
 import type { AgentProfile, ChatMessage, Task } from '../shared/types.js';
 import { EngineError } from './engine.js';
@@ -133,8 +133,7 @@ export function buildLegionMcpServer(ctx: CoreContext): McpServer {
   }, safe(async (a: { name: string; description?: string; systemPrompt?: string; model?: string; vmEnabled?: boolean }) => {
     const taken = new Set(ctx.store.listAgents().map((x) => x.id));
     const base = slugify(a.name);
-    let id = base;
-    for (let i = 2; taken.has(id); i++) id = `${base}-${i}`;
+    const id = uniqueAgentId(base, taken);
     const now = nowIso();
     const agent: AgentProfile = {
       id, name: a.name.trim(), emoji: '◆', description: a.description ?? '', systemPrompt: a.systemPrompt ?? '',
