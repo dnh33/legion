@@ -5,13 +5,18 @@ import type {
 
 declare global {
   interface Window {
-    legion?: { baseUrl: string; token: string; platform: string; openExternal(url: string): void };
+    legion?: { baseUrl: string; token: string; admin?: string; platform: string; openExternal(url: string): void };
   }
 }
 
 const qs = new URLSearchParams(window.location.search);
 export const base: string = (window.legion?.baseUrl ?? qs.get('base') ?? 'http://127.0.0.1:4747').replace(/\/$/, '');
 export const token: string = window.legion?.token ?? qs.get('token') ?? '';
+/**
+ * Per-launch admin key, handed over by the Electron main process only when it is talking to its own core. Not available in a plain browser
+ * (dev UI with `?token=`): that session is read-only (state, agents, tasks, events); every other route answers 403 admin_required.
+ */
+export const adminKey: string = window.legion?.admin ?? '';
 export const platform: string = window.legion?.platform ?? qs.get('platform') ?? 'web';
 
 export function openExternal(url: string) {
@@ -22,7 +27,26 @@ export function openExternal(url: string) {
 
 export class ApiError extends Error {
   status: number;
-  constructor(status: number, message: string) { super(message); this.status = status; }
+  /** Set for the two admin refusals, so the UI can tell them apart from an ordinary 403. */
+  code?: 'admin_unavailable' | 'admin_required';
+  constructor(status: number, message: string, code?: 'admin_unavailable' | 'admin_required') { super(message); this.status = status; this.code = code; }
+}
+
+/** Headers for every call to the core: the MCP-class bearer, plus the admin key when this window has one. One choke point (also used by raw fetches). */
+export function authHeaders(extra: Record<string, string> = {}): Record<string, string> {
+  return { Authorization: `Bearer ${token}`, ...(adminKey ? { 'X-Legion-Admin': adminKey } : {}), ...extra };
+}
+
+/** Plain words for a 403 from the admin gate (the server sends `admin_unavailable: ...` or `admin_required`). */
+export function adminRefusal(status: number, serverMessage: string | undefined): { code: 'admin_unavailable' | 'admin_required'; message: string } | undefined {
+  if (status !== 403 || !serverMessage) return undefined;
+  if (serverMessage.startsWith('admin_unavailable')) {
+    return { code: 'admin_unavailable', message: 'Open the Legion app to approve or change settings. This core was started outside the app, so those actions are locked; restart the core from the tray menu (Restart core).' };
+  }
+  if (serverMessage.startsWith('admin_required')) {
+    return { code: 'admin_required', message: 'This window has no admin key for the core (it restarted, or this is a browser tab). Reload the Legion window, or restart the core from the tray menu.' };
+  }
+  return undefined;
 }
 
 export async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
@@ -30,7 +54,7 @@ export async function request<T>(method: string, path: string, body?: unknown): 
   try {
     res = await fetch(base + path, {
       method,
-      headers: { Authorization: `Bearer ${token}`, ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}) },
+      headers: authHeaders(body !== undefined ? { 'Content-Type': 'application/json' } : {}),
       body: body !== undefined ? JSON.stringify(body) : undefined,
     });
   } catch {
@@ -41,6 +65,8 @@ export async function request<T>(method: string, path: string, body?: unknown): 
   try { data = text ? JSON.parse(text) : undefined; } catch { /* ignore */ }
   if (!res.ok) {
     const msg = (data as { error?: string } | undefined)?.error ?? `${res.status} ${res.statusText}`;
+    const refusal = adminRefusal(res.status, msg);
+    if (refusal) throw new ApiError(res.status, refusal.message, refusal.code);
     throw new ApiError(res.status, msg);
   }
   return data as T;
@@ -87,6 +113,7 @@ export function subscribe(onEvent: (e: LegionEvent) => void, onStatus: (s: ConnS
   const connect = () => {
     if (closed) return;
     onStatus(attempt === 0 ? 'connecting' : 'offline');
+    // EventSource cannot send headers, so the stream keeps `?token=` (the MCP-class token is enough: the stream is read-only).
     es = new EventSource(`${base}/api/events?token=${encodeURIComponent(token)}`);
     es.onopen = () => { attempt = 0; onStatus('online'); };
     es.onmessage = (m) => {

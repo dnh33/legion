@@ -12,6 +12,14 @@ import type { CoreContext } from '../src/core/server.js';
 import type { AgentProfile, ApprovalRequest, ChatMessage, Task, VmRecord } from '../src/shared/types.js';
 
 export const TOKEN = 'test-token-123';
+/** The in-process test core's admin secret. Only the test ctx knows it (set by start()); nothing is written to a config file. */
+export const TEST_ADMIN = 'test-admin-secret-0123456789abcdef';
+/** What the Electron UI sends: the MCP-class bearer plus the admin header. The default for test requests. */
+export const AUTH: Record<string, string> = { Authorization: `Bearer ${TOKEN}`, 'X-Legion-Admin': TEST_ADMIN };
+/** Opt-out: a token-only client (Claude Code, Cowork, curl, a bot that read config.json). */
+export const asClient: Record<string, string> = { Authorization: `Bearer ${TOKEN}` };
+/** Headers for a test request: admin by default, `{ asClient: true }` for the token only. */
+export const authHeaders = (o: { asClient?: boolean; json?: boolean } = {}): Record<string, string> => ({ ...(o.asClient ? asClient : AUTH), ...(o.json ? { 'Content-Type': 'application/json' } : {}) });
 
 export function mkAgent(id: string, name = id): AgentProfile {
   return {
@@ -107,7 +115,9 @@ export function makeFakes() {
   return { ctx, agents, tasks, pending, calls, bus, configPath, boatChanges, lastBoatBase: () => lastBase };
 }
 
+/** Starts the real server on a free port. The test ctx holds TEST_ADMIN unless the caller set `adminSecret` itself (even to undefined: a headless core). */
 export async function start(ctx: CoreContext): Promise<{ server: Server; base: string; close: () => Promise<void> }> {
+  if (!('adminSecret' in ctx)) ctx.adminSecret = TEST_ADMIN;
   const server = createServer(ctx);
   await new Promise<void>((r) => server.listen(0, '127.0.0.1', r));
   const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;

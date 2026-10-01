@@ -173,7 +173,7 @@ export class Engine {
 
     // Confused-deputy rule: a run another agent starts through the bridge never gets looser
     // approvals than its caller (rooms set their own origin and take precedence).
-    const origin = p.origin ?? this.bridgeOrigin(p);
+    const origin = p.origin ?? this.bridgeOrigin(p) ?? this.mcpOrigin(p, p.continueTaskId ? this.store.getTask(p.continueTaskId) : undefined);
     // Taint follows the chain: a tainted waking bot, or a tainted peer's reply, taints this task for good.
     const tainted = !!p.tainted || !!origin?.tainted || (!!p.bridge?.reply && !!p.bridge.fromTaskId && this.isTainted(p.bridge.fromTaskId));
 
@@ -217,6 +217,18 @@ export class Engine {
     });
     queueMicrotask(() => this.pump());
     return { ...task };
+  }
+
+  /**
+   * A run started by a bearer-token client (Claude Code / Cowork / curl via MCP or POST /api/tasks without the admin header) is never
+   * human-level: its approval is capped at `ask` whatever the agent is set to (a `full` agent runs in `default` mode with cards).
+   * Only the Electron UI (admin) starts human runs. Continuing keeps what the task already had (room, hop, taint) and the stricter
+   * of its earlier ceiling and `ask`, so a continue can never launder a ceiling away.
+   */
+  private mcpOrigin(p: BridgeStartParams, prev?: Task): TaskOrigin | undefined {
+    if (p.source !== 'mcp') return undefined;
+    if (prev?.origin) return { ...prev.origin, approvalCeiling: stricterMode(prev.origin.approvalCeiling, 'ask') };
+    return { roomId: 'mcp', fromAgentId: 'mcp', hop: 0, approvalCeiling: 'ask' };
   }
 
   /** Origin (approval ceiling) for a task started by `ask`/`tell`. Replies go back to the caller's own task and add none. */

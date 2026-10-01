@@ -10,7 +10,7 @@ import { join } from 'node:path';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import { ASSAYER_ID, BSV_PREAMBLE, createBsvModule, createBsvState } from '../src/core/bsv/index.js';
-import { makeFakes, mkAgent, start, TOKEN } from './helpers-c.js';
+import { makeFakes, mkAgent, start, TOKEN, AUTH } from './helpers-c.js';
 
 const closers: Array<() => Promise<void>> = [];
 after(async () => { for (const c of closers) await c().catch(() => undefined); });
@@ -28,7 +28,7 @@ async function setup(on: boolean) {
   const srv = await start(f.ctx);
   closers.push(() => srv.close());
   const call = async (method: string, path: string, body?: unknown) => {
-    const r = await fetch(srv.base + path, { method, headers: { Authorization: `Bearer ${TOKEN}`, 'Content-Type': 'application/json' }, body: body === undefined ? undefined : JSON.stringify(body) });
+    const r = await fetch(srv.base + path, { method, headers: { ...AUTH, 'Content-Type': 'application/json' }, body: body === undefined ? undefined : JSON.stringify(body) });
     const text = await r.text();
     return { status: r.status, body: text ? JSON.parse(text) : undefined };
   };

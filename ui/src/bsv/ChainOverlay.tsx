@@ -3,11 +3,12 @@ import { Modal } from '../components/Modal';
 import { cancelConfirm, confirmEnable, useBsv } from './bsvStore';
 import './bsv.css';
 
-/** Four short lines for the first-enable dialog (kept as data so the copy is easy to review). */
+/** Five short lines for the first-enable dialog (kept as data so the copy is easy to review). */
 const CONFIRM_LINES = [
   'Turns on: the Assayer in the rail and the BSV knowledge pack.',
   'Testnet only, shown by a calm cyan line along the title bar.',
   'No wallet: no keys, no signing, no funds. Never paste a seed phrase.',
+  'Approvals and settings need this window. A bot that runs shell commands as you could still read your files or reach your wallet directly: a VM or a separate account is the real wall.',
   'Turn it off any time with the BSV switch in the title bar.',
 ];
 

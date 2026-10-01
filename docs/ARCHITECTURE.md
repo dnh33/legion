@@ -8,7 +8,7 @@ Legion is a local, personal, Claude-only multi-agent bot. It runs on one machine
 
 1. **Credentials stay with Claude Code.** Legion never reads, copies, stores or proxies Claude OAuth tokens or credential files. In `claude-login` mode it lets the Claude Agent SDK use whichever account Claude Code is signed in to, and removes `ANTHROPIC_API_KEY` (and `ANTHROPIC_AUTH_TOKEN`) from the child environment so the login is used. In `api-key` mode it passes `ANTHROPIC_API_KEY` from config, and nothing else.
 2. **Models are aliases.** Legion passes Claude Code aliases (`sonnet`, `opus`) or values taken from the live model catalog. It never hard-codes dated model ids.
-3. **Local only.** The HTTP server binds `127.0.0.1`. Every route except `GET /health` needs a bearer token.
+3. **Local only.** The HTTP server binds `127.0.0.1`. Every route except `GET /health` needs the MCP-class bearer token, and every route outside a short client list also needs the per-launch admin secret (see Security model).
 4. **Small dependency surface.** Runtime dependencies are `@anthropic-ai/claude-agent-sdk`, `@modelcontextprotocol/sdk` and `zod`, plus Node built-ins. Think twice before adding another.
 5. **Windows-safe.** Use `path.join`, avoid shell-specific commands, and never hard-code `/tmp` on the host.
 6. **ESM with NodeNext.** Relative imports end in `.js`. Node 20.10 or newer.
@@ -37,7 +37,7 @@ Cowork / Desktop --stdio--> legion-mcp-stdio --->  Router      auto Sonnet/Opus 
 
 | Path | Contents |
 |---|---|
-| `config.json` | Configuration, including the generated bearer token. Created on first run. |
+| `config.json` | Configuration, including the generated MCP-class bearer token and, in plaintext, `boat.apiKey` (and `claude.apiKey` in `api-key` mode). Created on first run, mode 0600. The admin secret is never written here or anywhere else. |
 | `state.json` | Agents, tasks and VM records. Written debounced and atomically (temp file plus rename). A corrupt file is moved aside as `state.json.corrupt-<time>`. |
 | `messages/<taskId>.jsonl` | Append-only chat log per task. |
 | `workspaces/<agentId>/` | Default working directory for an agent's local file tools. |
@@ -59,11 +59,11 @@ VM idle stop defaults to 15 minutes. `mcpServers` defaults to `['*']` (all confi
 
 ## HTTP API
 
-JSON over `127.0.0.1:<port>` (default 4747). Implemented in `src/core/server.ts`. All routes need `Authorization: Bearer <authToken>` except `/health`; the SSE endpoint also accepts `?token=`. Tokens are compared in constant time.
+JSON over `127.0.0.1:<port>` (default 4747). Implemented in `src/core/server.ts`. Two classes of caller (`src/core/admin.ts`). The **MCP token** (`Authorization: Bearer <authToken>`) opens only `/mcp`, `GET /api/state|agents|catalog|tasks/:id(/wait)`, `POST /api/tasks` (always an MCP-origin task under the `ask` ceiling unless the admin header is present), `POST /api/tasks/:id/cancel` and the SSE stream `GET /api/events` (which also accepts `?token=`). **Every other route** needs `X-Legion-Admin: <secret>` (default deny, decided before routing, so an unknown path is 403, not 404; a core without a secret answers `403 admin_unavailable: open the Legion app`; a wrong secret answers `403 admin_required`). Both secrets are compared in constant time. Every route table below except the client list above is admin-only.
 
 | Method | Path | Body | Response |
 |---|---|---|---|
-| GET | `/health` | none | `{ok, version, pid}` (no auth) |
+| GET | `/health` | none | `{ok, version, pid, admin}` (no auth; `admin` says whether this core holds an admin secret, never the secret) |
 | GET | `/api/state` | none | `StateSnapshot` |
 | GET | `/api/config` | none | config with secrets redacted |
 | GET | `/api/doctor` | none | `DoctorCheck[]` |
@@ -206,7 +206,7 @@ A prompt starting with `/<name>` where `<name>` is not a Legion command goes to 
 
 ## Electron shell
 
-`src/electron/main.ts`: single-instance lock; 1280x820 window (minimum 960x600) with a hidden title bar and overlay controls on Windows; tray icon with Show, Restart core and Quit; external links open in the default browser. `preload.cjs` is plain CommonJS and exposes `window.legion = {baseUrl, token, platform, openExternal(url)}`, with the values fetched once over a synchronous IPC call. The window runs with `contextIsolation: true`, `nodeIntegration: false` and `sandbox: true`.
+`src/electron/main.ts`: single-instance lock; 1280x820 window (minimum 960x600) with a hidden title bar and overlay controls on Windows; tray icon with Show, Restart core and Quit; external links open in the default browser. On each core start main makes a random 24-byte admin secret, writes it to the core child's stdin pipe (`LEGION_ADMIN_STDIN=1`, never env, argv or a file) and keeps it in memory; a tray Restart core rotates it and reloads the window. `preload.cjs` is plain CommonJS and exposes `window.legion = {baseUrl, token, admin, platform, openExternal(url)}`, with the values fetched once over a synchronous IPC call; `admin` is non-empty only when `GET /health` has just shown `pid === the child we spawned && admin === true`, so a foreign core never receives it. If the core on the port is not ours (started by the MCP bridge or a terminal) and idle, main stops it by pid and starts its own; if it has running tasks or pending approvals main asks (Restart now / Later), and until then approvals and settings answer 403 with an explanation in the UI. The decisions are pure functions in `src/electron/admin-logic.ts`. The window runs with `contextIsolation: true`, `nodeIntegration: false` and `sandbox: true`.
 
 ## UI
 
@@ -214,7 +214,7 @@ A prompt starting with `/<name>` where `<name>` is not a Legion command goes to 
 
 - Layout: a custom title bar; a left rail of agents with VM state and pending-approval badges; a center task thread with the composer; and a collapsible Ops panel (Ctrl+.) holding the mascot, the Computer card and recent tasks.
 - Approval cards render inline in the thread. `A` and `D` allow or deny the focused one.
-- `ui/src/api.ts` reads `window.legion` (Electron) or falls back to the `?base=&token=` query string, wraps `fetch` with the bearer token, and subscribes to SSE with automatic reconnect and backoff.
+- `ui/src/api.ts` reads `window.legion` (Electron) or falls back to the `?base=&token=` query string, sends the bearer token and (in the app) `X-Legion-Admin` on every request through one helper, turns a `403 admin_unavailable` into a plain-words message ("Open the Legion app to approve or change settings"), and subscribes to SSE (still `?token=`, since `EventSource` cannot send headers) with automatic reconnect and backoff. A browser tab with `?token=` is read-only.
 - Dark is the default theme, with a light variant.
 - Fonts are bundled locally (see [NOTICE](../NOTICE)), so the app renders the same offline.
 
@@ -224,9 +224,11 @@ The mascot is "The Relic", animated by a layered SVG engine in `ui/src/mascot/`.
 
 ## Security model
 
-- Core binds `127.0.0.1` only and requires the bearer token on everything except `/health`. The token is a random 24-byte hex string generated on first run and stored in `config.json`. Comparison is constant-time.
+- Core binds `127.0.0.1` only. The MCP token (random 24-byte hex, generated on first run, in `config.json`) opens the client routes; the admin secret (random 24 bytes, new on every core start, memory only, delivered over stdin) is needed for everything else. Comparison is constant-time.
+- A task started with the MCP token alone (`/mcp` or `POST /api/tasks`) gets `origin {roomId:'mcp', approvalCeiling:'ask'}`: a `full` agent runs in `default` mode with approval cards, and `legion_continue` keeps the earlier ceiling, origin and taint. Shared Library notes from such a run are held for the Inbox.
+- Residuals, stated plainly: a process running as the same OS user can read Legion's memory (and so the admin secret), edit the installed files, synthesize input to the window, call the BSV wallet at `127.0.0.1:3321` directly, and read `config.json` (which holds `boat.apiKey` in plaintext). Only a VM or a separate OS account stops those. See SECURITY.md.
 - CORS is limited to local origins. The Electron renderer uses `file://`.
-- The renderer is sandboxed with context isolation; its only bridge is the four-field `window.legion` object.
+- The renderer is sandboxed with context isolation; its only bridge is the `window.legion` object (base URL, token, admin key, platform, openExternal).
 - Legion does not read Claude credentials. The child environment starts from `process.env`, drops variables that belong to a host Claude session (so a Core launched from Claude Code does not attach to it), and removes API-key variables in `claude-login` mode.
 - Approval modes are the main guard on what agents may do locally. `full` is opt-in per agent.
 - boat.dev API keys live in `config.json` or the environment; the API redacts them. VM desktop URLs are secrets and are handed to the user, never logged or forwarded.

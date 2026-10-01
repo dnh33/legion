@@ -9,7 +9,7 @@ import { ASSAYER_ID, BSV_PREAMBLE, createBsvModule, createBsvState } from '../sr
 import { createKnowledgeModule } from '../src/core/kg/index.js';
 import type { CoreModule } from '../src/core/modules.js';
 import type { LegionEvent } from '../src/shared/types.js';
-import { makeFakes, mkAgent, start, TOKEN } from './helpers-c.js';
+import { makeFakes, mkAgent, start, TOKEN, AUTH } from './helpers-c.js';
 
 const closers: Array<() => Promise<void>> = [];
 after(async () => { for (const c of closers) await c().catch(() => undefined); });
@@ -38,7 +38,7 @@ async function setup(o: SetupOpts = {}) {
   const call = async (method: string, path: string, body?: unknown, raw?: string) => {
     const r = await fetch(srv.base + path, {
       method,
-      headers: { Authorization: `Bearer ${TOKEN}`, ...(body !== undefined || raw !== undefined ? { 'Content-Type': 'application/json' } : {}) },
+      headers: { ...AUTH, ...(body !== undefined || raw !== undefined ? { 'Content-Type': 'application/json' } : {}) },
       body: raw !== undefined ? raw : body === undefined ? undefined : JSON.stringify(body),
     });
     const text = await r.text();

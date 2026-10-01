@@ -51,7 +51,7 @@ export function setup(script: Script, opts: { modules?: CoreModule[]; agents?: A
   const engine = new Engine({ store, bus, vms: {} as any, approvals, config, queryFn, boatConfigured: () => false, maxConcurrent: 4 });
   const kg = createKnowledgeModule({ config, store, bus, engine, approvals, dataDir: join(dir, 'data'), bsvEnabled: () => false }, opts.kg);
   engine.setModules([kg, ...(opts.modules ?? [])]);
-  return { dir, store, bus, engine, calls, kg, graph: kg.graph() as Graph, config };
+  return { dir, store, bus, engine, calls, kg, graph: kg.graph() as Graph, config, approvals };
 }
 
 /** Invoke one of the agent's own kg tools exactly as the model would. */

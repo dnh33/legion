@@ -3,7 +3,7 @@ import { after, before, describe, it } from 'node:test';
 import { createCommsModule } from '../src/core/comms/index.js';
 import type { ModuleDeps } from '../src/core/modules.js';
 import type { Room, RoomMessage } from '../src/shared/comms.js';
-import { makeFakes, start, TOKEN } from './helpers-c.js';
+import { makeFakes, start, TOKEN, AUTH } from './helpers-c.js';
 import { makeHarness } from './comms-fakes.test.js';
 
 describe('comms HTTP API', () => {
@@ -27,7 +27,7 @@ describe('comms HTTP API', () => {
   const call = async (method: string, path: string, body?: unknown, auth = true) => {
     const res = await fetch(base + path, {
       method,
-      headers: { ...(auth ? { Authorization: `Bearer ${TOKEN}` } : {}), ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}) },
+      headers: { ...(auth ? { ...AUTH } : {}), ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}) },
       body: body === undefined ? undefined : typeof body === 'string' ? body : JSON.stringify(body),
     });
     const text = await res.text();

@@ -8,7 +8,7 @@ import { createKnowledgeModule } from '../src/core/kg/index.js';
 import { Graph, MAX_PENDING_PER_AGENT } from '../src/core/kg/graph.js';
 import { agentActor, HUMAN, KgError, SYSTEM } from '../src/core/kg/types.js';
 import type { TaskOrigin } from '../src/shared/comms.js';
-import { makeFakes, start, TOKEN } from './helpers-c.js';
+import { makeFakes, start, TOKEN, AUTH } from './helpers-c.js';
 import { mkGraph, note, tmpDir } from './kg-helpers.js';
 import { connect, idOf } from './library-fakes.js';
 
@@ -295,7 +295,7 @@ async function server() {
   const call = async (method: string, path: string, body?: unknown, auth = true) => {
     const r = await fetch(srv.base + path, {
       method,
-      headers: { ...(auth ? { Authorization: `Bearer ${TOKEN}` } : {}), ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}) },
+      headers: { ...(auth ? { ...AUTH } : {}), ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}) },
       body: body === undefined ? undefined : JSON.stringify(body),
     });
     const text = await r.text();

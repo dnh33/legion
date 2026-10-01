@@ -6,7 +6,7 @@ import { createKnowledgeModule, KG_PREAMBLE } from '../src/core/kg/index.js';
 import { addKgRoutes } from '../src/core/kg/routes.js';
 import { applySeedPack, BSV_SEED_PATH, loadBsvSeed, validateSeedPack } from '../src/core/kg/seed.js';
 import type { LegionEvent } from '../src/shared/types.js';
-import { makeFakes, mkAgent, start, TOKEN } from './helpers-c.js';
+import { makeFakes, mkAgent, start, TOKEN, AUTH } from './helpers-c.js';
 import { KgError } from '../src/core/kg/types.js';
 import { HUMAN, mkGraph, tmpDir } from './kg-helpers.js';
 
@@ -26,7 +26,7 @@ async function setup(opts: { seedPath?: string; debounceMs?: number } = {}) {
   const call = async (method: string, path: string, body?: unknown, auth = true) => {
     const r = await fetch(srv.base + path, {
       method,
-      headers: { ...(auth ? { Authorization: `Bearer ${TOKEN}` } : {}), ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}) },
+      headers: { ...(auth ? { ...AUTH } : {}), ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}) },
       body: body === undefined ? undefined : JSON.stringify(body),
     });
     const text = await r.text();
@@ -312,7 +312,7 @@ test('module: the graph file lives in <dataDir>/kg/graph.jsonl and survives a re
   const mod2 = createKnowledgeModule({ config: f.ctx.config, store: f.ctx.store, bus: f.bus, engine: f.ctx.engine, approvals: f.ctx.approvals, dataDir, bsvEnabled: () => false });
   f.ctx.modules = [mod2];
   const srv = await start(f.ctx);
-  const r = await fetch(`${srv.base}/api/kg/nodes/${id}`, { headers: { Authorization: `Bearer ${TOKEN}` } });
+  const r = await fetch(`${srv.base}/api/kg/nodes/${id}`, { headers: { ...AUTH } });
   assert.equal(r.status, 200);
   assert.equal(((await r.json()) as { node: { title: string } }).node.title, 'Persistent');
   await mod2.dispose!();

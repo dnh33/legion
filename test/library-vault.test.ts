@@ -9,7 +9,7 @@ import { join, relative } from 'node:path';
 import { createKnowledgeModule } from '../src/core/kg/index.js';
 import { agentActor, HUMAN } from '../src/core/kg/types.js';
 import { exportLibrary, exportVault, importVault as importVaultRaw, inlineTags, isLibraryExportable, parseFrontmatter, vaultFileName } from '../src/core/kg/vault.js';
-import { makeFakes, start, TOKEN } from './helpers-c.js';
+import { makeFakes, start, TOKEN, AUTH } from './helpers-c.js';
 import { mkGraph, tmpDir } from './kg-helpers.js';
 
 /** These tests exercise the user-initiated import (the app's route); the held-only default is covered in library-review-integrity. */
@@ -224,7 +224,7 @@ test('route: POST /api/kg/export mode library mirrors into legion/; the default 
   const srv = await start(f.ctx);
   open.push(async () => { await mod.dispose?.(); await srv.close(); });
   const call = async (body: unknown) => {
-    const r = await fetch(srv.base + '/api/kg/export', { method: 'POST', headers: { Authorization: `Bearer ${TOKEN}`, 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    const r = await fetch(srv.base + '/api/kg/export', { method: 'POST', headers: { ...AUTH, 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
     return { status: r.status, body: await r.json() as any };
   };
   const g = mod.graph();

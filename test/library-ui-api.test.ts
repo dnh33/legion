@@ -6,7 +6,7 @@ import test, { after } from 'node:test';
 import assert from 'node:assert/strict';
 import { createKnowledgeModule } from '../src/core/kg/index.js';
 import { agentActor, HUMAN, KgError, SYSTEM } from '../src/core/kg/types.js';
-import { makeFakes, start, TOKEN } from './helpers-c.js';
+import { makeFakes, start, TOKEN, AUTH } from './helpers-c.js';
 import { mkGraph, note, tmpDir } from './kg-helpers.js';
 
 const rejects = (fn: () => unknown, code: string, re?: RegExp) => assert.throws(fn, (e: unknown) => e instanceof KgError && e.code === code && (!re || re.test(e.message)), `${code} ${re ?? ''}`);
@@ -23,7 +23,7 @@ async function setup() {
   const srv = await start(f.ctx);
   const call = async (method: string, path: string, body?: unknown) => {
     const r = await fetch(srv.base + path, {
-      method, headers: { Authorization: `Bearer ${TOKEN}`, ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}) },
+      method, headers: { ...AUTH, ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}) },
       body: body === undefined ? undefined : JSON.stringify(body),
     });
     const text = await r.text();

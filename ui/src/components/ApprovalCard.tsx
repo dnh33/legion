@@ -9,13 +9,16 @@ import { Icon } from './icons';
 function Origin({ o, inRoomView }: { o: NonNullable<ApprovalRequest['origin']>; inRoomView: boolean }) {
   const from = useStore((s) => s.agents.find((x) => x.id === o.fromAgentId)?.name ?? o.fromAgentId);
   const viaBridge = o.roomId === 'agent-bridge';
+  const viaMcp = o.roomId === 'mcp';
   const room = useRoomName(o.roomId);
   return (
     <div className="approval-origin">
-      {viaBridge
+      {viaMcp
+        ? <span>Asked by <b>an MCP client</b> (Claude Code, Cowork or another tool using your access token)</span>
+        : viaBridge
         ? <span>Asked by <b>{from}</b> through the agent bridge, hop {o.hop}</span>
         : <span>Asked by <b>{from}</b> in <b>{room ?? 'a room'}</b>, hop {o.hop}</span>}
-      {!viaBridge && !inRoomView && <button type="button" className="link-btn" onClick={() => openRoom(o.roomId)}>Open room</button>}
+      {!viaBridge && !viaMcp && !inRoomView && <button type="button" className="link-btn" onClick={() => openRoom(o.roomId)}>Open room</button>}
     </div>
   );
 }

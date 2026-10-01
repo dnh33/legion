@@ -19,7 +19,7 @@ import { Store } from '../src/core/store.js';
 import { defaultConfig } from '../src/shared/config.js';
 import type { CoreContext } from '../src/core/server.js';
 import type { LegionEvent, Task } from '../src/shared/types.js';
-import { start, TOKEN } from './helpers-c.js';
+import { start, TOKEN, AUTH } from './helpers-c.js';
 import { init, mkAgent, ok } from './library-fakes.js';
 
 const closers: Array<() => Promise<void>> = [];
@@ -65,7 +65,7 @@ async function rig(opts: { maxConcurrent?: number } = {}) {
   const srv = await start(ctx);
   closers.push(async () => { await comms.dispose?.(); await srv.close(); });
   const call = async (method: string, path: string, body?: unknown) => {
-    const r = await fetch(srv.base + path, { method, headers: { Authorization: `Bearer ${TOKEN}`, ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}) }, body: body === undefined ? undefined : JSON.stringify(body) });
+    const r = await fetch(srv.base + path, { method, headers: { ...AUTH, ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}) }, body: body === undefined ? undefined : JSON.stringify(body) });
     const t = await r.text();
     return { status: r.status, body: t ? JSON.parse(t) : undefined };
   };

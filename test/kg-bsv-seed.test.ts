@@ -13,7 +13,7 @@ const ids = new Set(seed.nodes.map((n) => n.id));
 const words = (s: string) => s.trim().split(/\s+/).length;
 
 test('bsv seed parses with the expected envelope and size', () => {
-  assert.equal(seed.version, 4);
+  assert.equal(seed.version, 5);
   assert.ok(!Number.isNaN(Date.parse(seed.generatedAt)));
   assert.ok(Array.isArray(seed.nodes) && Array.isArray(seed.edges));
   assert.ok(seed.nodes.length >= 45 && seed.nodes.length <= 220, `node count ${seed.nodes.length}`);

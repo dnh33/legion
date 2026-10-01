@@ -339,7 +339,7 @@ function ConnectionsSection({ s }: { s: SettingsView }) {
   return (
     <div className="set-section">
       <Head title="Connections" lead="Drive your agents from Claude Code, Claude Desktop or Cowork." />
-      <Snippet title="Claude Code" lead="Run once in a terminal. Copy includes your access token; it stays hidden here." shown={cmd(token ? mask : '<token>')} real={cmd(token || '<token>')} />
+      <Snippet title="Claude Code" lead="Run once in a terminal. Copy includes your access token; it stays hidden here. It lets Claude Code run and read agents, but not approve cards or change settings." shown={cmd(token ? mask : '<token>')} real={cmd(token || '<token>')} />
       <Snippet title="Claude Desktop and Cowork" lead="Add this to the mcpServers section of claude_desktop_config.json, then restart the app. It starts a small local bridge; no token needed." shown={json} real={json} />
     </div>
   );

@@ -1,5 +1,5 @@
 {
-  "version": 4,
+  "version": 5,
   "generatedAt": "2026-10-01T00:00:00.000Z",
   "nodes": [
     {
@@ -462,7 +462,7 @@
       "id": "bsv-safety-mainnet-armed-native",
       "type": "lesson",
       "title": "[Design] Mainnet is armed only through native confirmation",
-      "body": "Design, not built in v0.\nToday Legion BSV mode is testnet only and has no mainnet switch at all. The design for a later, reviewed phase: testnet stays the default; mainnet would need an explicit Arm mainnet action by the owner with an expiry, and the armed state would live in memory only, so a restart disarms it. Arming, caps and allowlists would change only through Electron main-process IPC with a native confirmation dialog, never through the localhost HTTP API: the API bearer token sits in config on disk, and any agent with a shell could read it and call the API itself. The interface would show a calm cyan overlay on testnet and a warm amber LIVE FUNDS border with a countdown when mainnet is armed. An agent must never try to arm mainnet, only ask the owner.",
+      "body": "Design, not built in v0.\nToday Legion BSV mode is testnet only and has no mainnet switch at all. The design for a later, reviewed phase: testnet stays the default; mainnet would need an explicit Arm mainnet action by the owner with an expiry, and the armed state would live in memory only, so a restart disarms it. Arming, caps and allowlists would change only through Electron main-process IPC with a native confirmation dialog, never through a plain HTTP call: the MCP token in config on disk cannot reach Legion's admin routes today (they need a secret that lives only in the app's memory), but a process running as the same user could still read that memory or call the wallet directly, so the owner's native confirmation and the wallet's own prompt stay the real gate. The interface would show a calm cyan overlay on testnet and a warm amber LIVE FUNDS border with a countdown when mainnet is armed. An agent must never try to arm mainnet, only ask the owner.",
       "tags": [
         "bsv",
         "safety",

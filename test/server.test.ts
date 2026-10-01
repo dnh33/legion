@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { strict as assert } from 'node:assert';
 import { after, before, describe, it } from 'node:test';
-import { makeFakes, start, TOKEN } from './helpers-c.js';
+import { makeFakes, start, TOKEN, AUTH } from './helpers-c.js';
 
 describe('HTTP server', () => {
   const f = makeFakes();
@@ -10,7 +10,7 @@ describe('HTTP server', () => {
   before(async () => { const s = await start(f.ctx); base = s.base; close = s.close; });
   after(async () => { await close(); });
 
-  const H = { Authorization: `Bearer ${TOKEN}`, 'Content-Type': 'application/json' };
+  const H = { ...AUTH, 'Content-Type': 'application/json' };
   const api = (path: string, init: RequestInit = {}) => fetch(base + path, { ...init, headers: { ...H, ...(init.headers as any) } });
 
   it('/health needs no auth', async () => {

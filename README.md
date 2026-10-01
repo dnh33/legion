@@ -118,7 +118,7 @@ Agents get `vm_start`, `vm_exec`, `vm_write_file`, `vm_read_file`, `vm_claude`, 
 
 ## Orchestrate from Claude Code or Cowork
 
-Run `npm run mcp-config` to print ready-to-paste snippets with your real token.
+Run `npm run mcp-config` to print ready-to-paste snippets with your real token. That token is the MCP token: it lets Claude Code and Cowork run and read agents (under the `ask` approval ceiling), but it cannot approve cards, accept Library notes, change settings or touch BSV; those need the Legion app window, which holds a secret that lives only in memory.
 
 **Claude Code** (MCP over HTTP):
 
@@ -175,7 +175,7 @@ Type `/` in the composer to open the menu. Commands that Legion does not handle 
 | Key | Meaning |
 |---|---|
 | `port` | Local port. Default `4747`. |
-| `authToken` | Bearer token for the API and MCP. Generated for you; keep it private. |
+| `authToken` | The MCP-client token (Claude Code, Cowork, curl): `/mcp`, state reads, start and cancel tasks, event stream. Generated for you; keep it private. It cannot approve or change settings; the per-launch admin secret that does is never stored. |
 | `workspaceDir` | Where agent working directories live. Default `<data dir>/workspaces`. |
 | `claude.auth` | `claude-login` (default, your Claude Code account) or `api-key` (with `claude.apiKey`). |
 | `claude.inheritClaudeCodeSettings` | Load your Claude Code user and project settings, MCP servers and connectors. Default `true`. |
@@ -242,7 +242,7 @@ assets/       app icon, tray icons, splash
 
 ## Security
 
-Legion binds to `127.0.0.1`, requires a bearer token on every request except `/health`, and never handles your Claude credentials. Agents can run code on your machine, so pick their approval modes deliberately, and use VMs for untrusted work. See [SECURITY.md](SECURITY.md) for the threat model and how to report a vulnerability.
+Legion binds to `127.0.0.1`, requires a bearer token on every request except `/health`, keeps a second, in-memory admin secret for approvals, settings, the Library inbox and BSV (so a bot that reads `config.json` cannot approve its own request), and never handles your Claude credentials. It does not stop a process running as your own user from attacking Legion's memory or files or calling your BSV wallet directly; only a VM or a separate OS account does. Agents can run code on your machine, so pick their approval modes deliberately, and use VMs for untrusted work. See [SECURITY.md](SECURITY.md) for the threat model and how to report a vulnerability.
 
 ## Contributing
 

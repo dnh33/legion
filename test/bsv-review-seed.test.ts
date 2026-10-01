@@ -14,7 +14,7 @@ import { createKnowledgeModule } from '../src/core/kg/index.js';
 import { applySeedPack } from '../src/core/kg/seed.js';
 import type { SeedPack } from '../src/core/kg/seed.js';
 import { agentActor, KgError, SYSTEM } from '../src/core/kg/types.js';
-import { makeFakes, mkAgent, start, TOKEN } from './helpers-c.js';
+import { makeFakes, mkAgent, start, TOKEN, AUTH } from './helpers-c.js';
 import { HUMAN, mkGraph } from './kg-helpers.js';
 
 const closers: Array<() => Promise<void>> = [];
@@ -244,7 +244,7 @@ test('F7: POST /api/kg/seed/bsv {restore:[ids]} is the button-less remedy over H
   const srv = await start(f.ctx);
   closers.push(async () => { await kg.dispose?.(); await srv.close(); });
   const call = async (method: string, path: string, body?: unknown) => {
-    const r = await fetch(srv.base + path, { method, headers: { Authorization: `Bearer ${TOKEN}`, 'Content-Type': 'application/json' }, body: body === undefined ? undefined : JSON.stringify(body) });
+    const r = await fetch(srv.base + path, { method, headers: { ...AUTH, 'Content-Type': 'application/json' }, body: body === undefined ? undefined : JSON.stringify(body) });
     const t = await r.text();
     return { status: r.status, body: t ? JSON.parse(t) : undefined };
   };

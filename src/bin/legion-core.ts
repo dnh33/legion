@@ -3,6 +3,7 @@
 import { appendFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { configPath, dataDir, loadConfig, scrubHostSessionEnv, VERSION } from '../shared/config.js';
+import { readAdminSecret } from '../core/admin.js';
 import { ApprovalBroker } from '../core/approvals.js';
 import { EventBus } from '../core/bus.js';
 import { getCatalog } from '../core/catalog.js';
@@ -25,6 +26,8 @@ const log = (...a: unknown[]) => {
 };
 
 async function main() {
+  // Per-launch admin secret from the stdin pipe (Electron main only). None for a headless/bridge-started core: admin routes stay closed.
+  const adminSecret = await readAdminSecret(process.env, process.stdin);
   // Run standalone even if launched from inside a Claude host session.
   const clean = scrubHostSessionEnv(process.env);
   for (const k of Object.keys(process.env)) if (!(k in clean)) delete process.env[k];
@@ -58,7 +61,7 @@ async function main() {
     config, store, bus, engine, vms, approvals, boatConfigured, modules, bsvEnabled,
     doctor: () => runDoctor({ config, getBoat }),
     catalog: (force) => getCatalog({ config }, { force }),
-    settings,
+    settings, adminSecret,
   });
 
   restartReaper();

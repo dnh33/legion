@@ -1,10 +1,12 @@
 /** Electron main process. */
 import { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, shell, Tray } from 'electron';
-import { spawn, type ChildProcess } from 'node:child_process';
+import { execFile, spawn, type ChildProcess } from 'node:child_process';
+import { randomBytes } from 'node:crypto';
 import { closeSync, existsSync, mkdirSync, openSync, readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { adminForRenderer, coreAction, coreIsBusy, type CoreHealth } from './admin-logic.js';
 
 const here = dirname(fileURLToPath(import.meta.url)); // <root>/dist/src/electron
 const root = resolve(here, '..', '..', '..');
@@ -31,23 +33,60 @@ function readConfig(): { port: number; token: string } {
   return { port, token };
 }
 
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
 let win: BrowserWindow | null = null;
 let tray: Tray | null = null;
 let coreProc: ChildProcess | null = null;
 let quitting = false;
 let booting = true;
 let splash: BrowserWindow | null = null;
+/** Per-launch admin secret of the core child we spawned (memory only: stdin pipe to the child, IPC to our own renderer; never env, argv or disk). */
+let adminSecret: string | undefined;
+/** What `legion:bootstrap` hands to the renderer: set only after /health proved the core on the port is our child and holds the secret. */
+let rendererAdmin: string | undefined;
 
 const isHttp = (u: string) => {
   try { const p = new URL(u).protocol; return p === 'http:' || p === 'https:'; } catch { return false; }
 };
 const openExternal = (u: string) => { if (isHttp(u)) void shell.openExternal(u); };
 
-async function healthy(port: number, timeoutMs = 1500): Promise<boolean> {
+/** /health body of whatever answers on the port, or null. */
+async function getHealth(port: number, timeoutMs = 1500): Promise<CoreHealth | null> {
   try {
     const r = await fetch(`http://127.0.0.1:${port}/health`, { signal: AbortSignal.timeout(timeoutMs) });
-    return r.ok;
-  } catch { return false; }
+    if (!r.ok) return null;
+    const j = (await r.json().catch(() => ({}))) as CoreHealth;
+    return { ...j, ok: true };
+  } catch { return null; }
+}
+const healthy = async (port: number, timeoutMs?: number): Promise<boolean> => !!(await getHealth(port, timeoutMs));
+
+/** Whether the core on the port has running tasks or pending approvals (read with the MCP-class token; unreadable counts as busy). */
+async function foreignCoreBusy(port: number): Promise<boolean> {
+  try {
+    const r = await fetch(`http://127.0.0.1:${port}/api/state`, { headers: { Authorization: `Bearer ${readConfig().token}` }, signal: AbortSignal.timeout(2500) });
+    if (!r.ok) return true;
+    return coreIsBusy(await r.json());
+  } catch { return true; }
+}
+
+function stopPid(pid: number): void {
+  try {
+    if (process.platform === 'win32') execFile('taskkill', ['/PID', String(pid), '/T', '/F'], { windowsHide: true }, () => undefined);
+    else process.kill(pid, 'SIGTERM');
+  } catch { /* already gone */ }
+}
+
+async function waitPortFree(port: number, ms = 6000): Promise<boolean> {
+  const end = Date.now() + ms;
+  while (Date.now() < end) { if (!(await healthy(port, 500))) return true; await sleep(250); }
+  return false;
+}
+
+/** Re-checks that the core on the port is our child and holds the secret; only then does the renderer get it. */
+async function refreshRendererAdmin(): Promise<void> {
+  rendererAdmin = adminForRenderer(await getHealth(readConfig().port), coreProc?.pid, adminSecret);
 }
 
 /** Returns null on success, or a human-readable error. */
@@ -57,14 +96,20 @@ async function spawnCore(): Promise<string | null> {
   try { out = openSync(join(dataDir(), 'core.log'), 'a'); } catch { /* ignore */ }
   try {
     let failure: string | null = null;
+    // A fresh secret for every core we start (a tray restart rotates it). It goes over the stdin pipe only.
+    const secret = randomBytes(24).toString('hex');
     const child = spawn(nodeBin, [coreEntry], {
       cwd: root,
-      stdio: ['ignore', out, out],
+      stdio: ['pipe', out, out],
       windowsHide: true,
       detached: false,
-      env: process.env,
+      env: { ...process.env, LEGION_ADMIN_STDIN: '1' },
     });
     coreProc = child;
+    adminSecret = secret;
+    rendererAdmin = undefined;
+    child.stdin?.on('error', () => undefined);
+    child.stdin?.end(secret + '\n');
     child.on('error', (err: NodeJS.ErrnoException) => {
       coreProc = null;
       failure = err.code === 'ENOENT'
@@ -72,7 +117,7 @@ async function spawnCore(): Promise<string | null> {
         : `Could not start core: ${err.message || err}`;
     });
     child.on('exit', (code) => {
-      if (coreProc === child) coreProc = null;
+      if (coreProc === child) { coreProc = null; adminSecret = undefined; rendererAdmin = undefined; }
       if (!failure) failure = `Core exited (code ${code}). See core.log.`;
     });
     await new Promise((r) => setTimeout(r, 200));
@@ -82,14 +127,42 @@ async function spawnCore(): Promise<string | null> {
   }
 }
 
-/** Returns null when the core is healthy, else an error message. */
+/** Asks what to do with a foreign core that is busy. true = restart it now. */
+async function askRestartForeignCore(): Promise<boolean> {
+  const r = await dialog.showMessageBox({
+    type: 'question',
+    buttons: ['Restart now', 'Later'],
+    defaultId: 1, cancelId: 1,
+    message: 'Legion Core was started outside this app and is busy.',
+    detail: 'Approvals and settings stay locked until Legion restarts it, because only a core started by this app holds the admin key. '
+      + 'Restarting now cuts off its running tasks and pending approvals. Later keeps it running; use Restart core in the tray menu when it is idle.',
+  });
+  return r.response === 0;
+}
+
+/** Returns null when a core we can use is up, else an error message. */
 async function ensureCore(): Promise<string | null> {
-  if (await healthy(readConfig().port)) return null;
+  const { port } = readConfig();
+  const health = await getHealth(port);
+  if (health) {
+    const busy = (health.pid !== coreProc?.pid || health.admin !== true) ? await foreignCoreBusy(port) : false;
+    const action = coreAction({ health, ourPid: coreProc?.pid, busy, selfPid: process.pid });
+    if (action === 'use') { await refreshRendererAdmin(); return null; }
+    if (action === 'blocked') {
+      dialog.showMessageBox({ type: 'info', message: 'Legion Core was started outside this app.', detail: 'Approvals and settings are locked. Stop it from its own terminal and restart Legion.' }).catch(() => {});
+      rendererAdmin = undefined;
+      return null;
+    }
+    if (action === 'ask' && !(await askRestartForeignCore())) { rendererAdmin = undefined; return null; }
+    // 'replace' (idle) or 'ask' answered yes: stop the foreign core by pid, then start our own.
+    stopPid(health.pid as number);
+    if (!(await waitPortFree(port))) return 'The core on the port did not stop. Stop it manually (see core.log) and try again.';
+  }
   const err = await spawnCore();
   if (err) return err;
   const deadline = Date.now() + 15000;
   while (Date.now() < deadline) {
-    if (await healthy(readConfig().port)) return null;
+    if (await healthy(readConfig().port)) { await refreshRendererAdmin(); return null; }
     if (!coreProc) return 'Core exited before becoming ready. See core.log.';
     await new Promise((r) => setTimeout(r, 300));
   }
@@ -97,23 +170,19 @@ async function ensureCore(): Promise<string | null> {
 }
 
 function killCore(): void {
+  rendererAdmin = undefined;
+  adminSecret = undefined;
   if (coreProc) {
     try { coreProc.kill(); } catch { /* ignore */ }
     coreProc = null;
   }
 }
 
+/** Tray "Restart core": rotates the admin secret. The window reload re-runs the preload, so the renderer picks up the new secret. */
 async function restartCore(): Promise<void> {
-  const wasOurs = !!coreProc;
-  if (wasOurs) {
+  if (coreProc) {
     killCore();
-    await new Promise((r) => setTimeout(r, 500));
-  } else {
-    const { port } = readConfig();
-    if (await healthy(port)) {
-      dialog.showMessageBox({ type: 'info', message: 'Legion Core was started outside this app.', detail: 'Stop it from its own terminal and restart it there.' }).catch(() => {});
-      return;
-    }
+    await sleep(500);
   }
   const err = await ensureCore();
   if (err) dialog.showErrorBox('Could not restart Legion Core', err);
@@ -174,7 +243,6 @@ const splashJs = (fn: string, arg?: string) => {
   if (!splash || splash.isDestroyed()) return;
   splash.webContents.executeJavaScript(`window.splash && window.splash.${fn}(${arg === undefined ? '' : JSON.stringify(arg)})`).catch(() => {});
 };
-const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 function createSplash(): void {
   splash = new BrowserWindow({
@@ -270,7 +338,8 @@ if (!app.requestSingleInstanceLock()) {
 
   ipcMain.on('legion:bootstrap', (e) => {
     const { port, token } = readConfig();
-    e.returnValue = { baseUrl: `http://127.0.0.1:${port}`, token, platform: process.platform };
+    // `admin` is the per-launch secret, and only when /health just showed our own core child holding it (never for a foreign core).
+    e.returnValue = { baseUrl: `http://127.0.0.1:${port}`, token, admin: rendererAdmin ?? '', platform: process.platform };
   });
   ipcMain.handle('legion:open-external', (_e, url: unknown) => {
     if (typeof url === 'string' && isHttp(url)) { void shell.openExternal(url); return true; }

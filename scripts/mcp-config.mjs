@@ -19,7 +19,7 @@ if (existsSync(cfgPath)) {
 }
 if (process.env.LEGION_PORT) port = Number(process.env.LEGION_PORT) || port;
 
-console.log('# 1) Claude Code (run in any terminal):\n');
+console.log('# 1) Claude Code (run in any terminal). This token only runs and reads agents (approvals stay with you: it cannot approve cards, accept notes or change settings):\n');
 console.log(`claude mcp add --transport http legion http://127.0.0.1:${port}/mcp --header "Authorization: Bearer ${token}"\n`);
 
 const stdio = join(root, 'dist', 'src', 'bin', 'legion-mcp-stdio.js').replace(/\\/g, '/');

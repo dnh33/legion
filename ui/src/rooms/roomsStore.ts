@@ -6,7 +6,7 @@
 import { useEffect, useSyncExternalStore } from 'react';
 import type { CommsState, Room, RoomGuards, RoomMessage, RoomStrategy } from '../../../src/shared/comms';
 import type { LegionEvent } from '../../../src/shared/types';
-import { ApiError, base, request, subscribe, token, type ConnStatus } from '../api';
+import { adminRefusal, ApiError, authHeaders, base, request, subscribe, type ConnStatus } from '../api';
 import { setView, toast } from '../store';
 import './rooms.css';
 
@@ -315,12 +315,12 @@ export function runSearch(q: string) {
 export async function exportRoom(roomId: string, format: 'md' | 'json'): Promise<void> {
   let res: Response;
   try {
-    res = await fetch(`${base}/api/rooms/${encodeURIComponent(roomId)}/export?format=${format}`, { headers: { Authorization: `Bearer ${token}` } });
+    res = await fetch(`${base}/api/rooms/${encodeURIComponent(roomId)}/export?format=${format}`, { headers: authHeaders() });
   } catch { throw new Error('Cannot reach Legion core'); }
   if (!res.ok) {
     let msg = `${res.status} ${res.statusText}`;
     try { msg = (JSON.parse(await res.text()) as { error?: string }).error ?? msg; } catch { /* keep */ }
-    throw new Error(msg);
+    throw new Error(adminRefusal(res.status, msg)?.message ?? msg);
   }
   let text = await res.text();
   if (format === 'json') { try { text = JSON.stringify(JSON.parse(text), null, 2); } catch { /* keep raw */ } }

@@ -1,5 +1,4 @@
 /** Local HTTP API + SSE + MCP endpoint. */
-import { timingSafeEqual } from 'node:crypto';
 import { createServer as createHttpServer } from 'node:http';
 import type { IncomingMessage, Server, ServerResponse } from 'node:http';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
@@ -8,6 +7,7 @@ import type {
   AgentProfile, ApprovalMode, DoctorCheck, LegionConfig, LegionEvent, Catalog, ModelChoice, StateSnapshot, Task, VmSize,
 } from '../shared/types.js';
 import { nowIso, slugify, uniqueAgentId } from '../shared/util.js';
+import { ADMIN_HEADER, gate, isAdminSecret, isSsePath, safeEqual } from './admin.js';
 import type { ApprovalBroker } from './approvals.js';
 import type { EventBus } from './bus.js';
 import { EngineError } from './engine.js';
@@ -32,6 +32,8 @@ export interface CoreContext {
   modules?: CoreModule[];
   /** True while the optional BSV Dev Kit toggle is on. Agents with `requires: 'bsv'` are hidden from lists while false/absent. */
   bsvEnabled?: () => boolean;
+  /** Per-launch admin secret (memory only, handed over by the Electron main process over stdin). Absent: admin routes are closed to everyone. Never logged, never in /health. */
+  adminSecret?: string;
 }
 
 /** Thrown by handlers; mapped to `{error}` JSON. */
@@ -61,13 +63,6 @@ function allowedOrigin(origin: string | undefined): boolean {
   if (origin === 'null' || origin === 'file://') return true;
   if (origin === 'http://localhost:5173') return true;
   return /^http:\/\/127\.0\.0\.1(:\d+)?$/.test(origin);
-}
-
-function safeEqual(a: string, b: string): boolean {
-  const ba = Buffer.from(a);
-  const bb = Buffer.from(b);
-  if (ba.length !== bb.length) return false;
-  return timingSafeEqual(ba, bb);
 }
 
 function sendJson(res: ServerResponse, status: number, body: unknown): void {
@@ -265,14 +260,17 @@ export function createServer(ctx: CoreContext): Server {
   });
 
   // ---- tasks -----------------------------------------------------------
-  route('POST', '/api/tasks', ({ body }) => {
+  route('POST', '/api/tasks', (c) => {
+    const { body } = c;
     if (!isObj(body)) throw new HttpError(400, 'JSON object body required');
     const agentId = str(body.agentId, 'agentId', { required: true })!;
     mustBeRunnable(agentId);
     const prompt = str(body.prompt, 'prompt', { required: true })!;
     const model = parseModel(body.model);
     const continueTaskId = str(body.continueTaskId, 'continueTaskId');
-    return ctx.engine.startTask({ agentId, prompt, source: 'ui', model, continueTaskId });
+    // Without the admin header this is an MCP-class client: source 'mcp', which the engine caps at the `ask` ceiling.
+    const admin = !!(c.req as unknown as { legionAdmin?: boolean }).legionAdmin;
+    return ctx.engine.startTask({ agentId, prompt, source: admin ? 'ui' : 'mcp', model, continueTaskId });
   }, 201);
   route('GET', '/api/tasks/:id/wait', async ({ params, url }) => {
     const raw = url.searchParams.get('timeoutMs');
@@ -399,7 +397,7 @@ export function createServer(ctx: CoreContext): Server {
       res.setHeader('Access-Control-Allow-Origin', origin!);
       res.setHeader('Vary', 'Origin');
       res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PATCH,DELETE,OPTIONS');
-      res.setHeader('Access-Control-Allow-Headers', 'Authorization, Content-Type, mcp-session-id, mcp-protocol-version');
+      res.setHeader('Access-Control-Allow-Headers', 'Authorization, Content-Type, X-Legion-Admin, mcp-session-id, mcp-protocol-version');
       res.setHeader('Access-Control-Expose-Headers', 'mcp-session-id');
       res.setHeader('Access-Control-Max-Age', '600');
     }
@@ -439,16 +437,21 @@ export function createServer(ctx: CoreContext): Server {
     if (method === 'OPTIONS') { res.writeHead(204); res.end(); return; }
 
     if (method === 'GET' && path === '/health') {
-      sendJson(res, 200, { ok: true, version: VERSION, pid: process.pid });
+      // `admin` only says whether this core holds an admin secret (the app uses it to spot a foreign core); never the secret.
+      sendJson(res, 200, { ok: true, version: VERSION, pid: process.pid, admin: !!ctx.adminSecret });
       return;
     }
 
-    const isSse = method === 'GET' && path === '/api/events';
-    if (!authorized(req, url, isSse)) {
-      res.setHeader('WWW-Authenticate', 'Bearer');
-      sendJson(res, 401, { error: 'Unauthorized: missing or invalid bearer token' });
+    // Default-deny gate, BEFORE routing: unknown and unclassified paths get the same 403 as admin routes.
+    const isSse = isSsePath(method, path);
+    const adminOk = isAdminSecret(req.headers[ADMIN_HEADER], ctx.adminSecret);
+    const decision = gate({ method, path, adminOk, bearerOk: adminOk || authorized(req, url, isSse), hasSecret: !!ctx.adminSecret });
+    if (!decision.allow) {
+      if (decision.status === 401) res.setHeader('WWW-Authenticate', 'Bearer');
+      sendJson(res, decision.status, { error: decision.error });
       return;
     }
+    (req as unknown as { legionAdmin?: boolean }).legionAdmin = decision.admin;
 
     if (isSse) { handleSse(req, res); return; }
 

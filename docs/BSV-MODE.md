@@ -23,7 +23,7 @@ It spots names spelled in pieces (`'Wallet' + 'Client'`, `['Wallet','Client'].jo
 
 ## Pack versioning
 
-The pack has a `version` (now 4). The version is stored on the index node (`props.seedVersion`) and every seeded node carries `props.seedHash`, a hash of what the pack said: title, body, tags, confidence, type, scope, props (without the seed's own bookkeeping) and sources. The upgrade runs when you toggle BSV on, when you press **Load BSV pack**, and once at core start when BSV is already on (idempotent, logged, never blocks boot and never throws).
+The pack has a `version` (now 5). The version is stored on the index node (`props.seedVersion`) and every seeded node carries `props.seedHash`, a hash of what the pack said: title, body, tags, confidence, type, scope, props (without the seed's own bookkeeping) and sources. The upgrade runs when you toggle BSV on, when you press **Load BSV pack**, and once at core start when BSV is already on (idempotent, logged, never blocks boot and never throws).
 
 - Nothing loaded: every node is added.
 - An older version loaded: missing nodes are added; nodes you never edited take the new text; nodes you edited (any of the fields above) are left alone and returned as `skippedEdited`; links that are missing are added, links that exist are never touched (your note or weight on a pack link stays). The toast and the API result say what happened (`loaded`, `upgraded`, `repaired`, `already-loaded`, and the counts).
@@ -33,6 +33,10 @@ The pack has a `version` (now 4). The version is stored on the index node (`prop
 - To take the pack text for a node, or to bring one back, ask for it by id: `POST /api/kg/seed/bsv {"restore":["bsv-tx-fees"]}` (BSV mode on). A deleted node comes back with its links; a node you edited is reset to the pack text. Unknown ids are refused (400) and nothing is written. Plain "delete the node and toggle again" does NOT bring it back: that is what the ledger is for.
 - A node the new pack dropped is never deleted or archived: that is your call. A snapshot of the graph log is taken before anything is written.
 - "Edited" means the current node no longer matches the stored `seedHash`. A node seeded with the first, narrower hash (title, body, tags, confidence) is compared on those fields only. An install from before hashes counts a node as untouched when it was never changed or still matches a text an earlier pack shipped (`seeds/bsv-legacy-hashes.json`). An archived or superseded pack node counts as edited.
+
+## What the token split does and does not cover
+
+Turning BSV mode on or off (`POST /api/bsv`) and every Library route need the admin secret that only the Legion app window holds, so a bot with a shell that reads `config.json` can no longer flip the switch or accept its own notes. That is all it does for BSV: the app has no wallet code, and a process running as your own user can still read Legion's memory, edit its files, synthesize input to the window, or call your BSV wallet directly on `127.0.0.1:3321`. Only a VM or a separate OS account stops that. Every BSV spend is still confirmed in your own wallet.
 
 ## Not built (design only)
 
