@@ -510,11 +510,11 @@ test('agents may write shared and their own scope, never bsv or someone else\'s'
   rejects(() => g.upsertNode(ALPHA, { id: mine.id, scope: 'shared' }), 'forbidden', /Only the human/);
   rejects(() => g.upsertNode(ALPHA, { id: shared.id, scope: 'agent:beta' }), 'forbidden');
   assert.equal(g.upsertNode(HUMAN, { id: mine.id, scope: 'shared' }).node.scope, 'shared');
-  // linking to bsv knowledge is allowed, unlinking someone else's bsv link is not
+  // the human may link to bsv knowledge; a bot may neither link onto it nor remove the human's link (review F9: it could rewrite seed edges)
   const e = g.link(HUMAN, { from: shared.id, to: seed.id, rel: 'cites' }).edge;
   rejects(() => g.unlink(ALPHA, { id: e.id }), 'forbidden');
-  const own = g.link(ALPHA, { from: shared.id, to: seed.id, rel: 'teaches' }).edge;
-  assert.equal(g.unlink(ALPHA, { id: own.id }).id, own.id);
+  rejects(() => g.link(ALPHA, { from: shared.id, to: seed.id, rel: 'teaches' }), 'forbidden', /read-only for bots/);
+  rejects(() => g.link(ALPHA, { from: shared.id, to: seed.id, rel: 'cites', note: 'rewritten by a bot' }), 'forbidden');
 });
 
 // ---------------------------------------------------------------- untrusted

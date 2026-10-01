@@ -2,7 +2,7 @@
 
 export type BsvNetwork = 'testnet';
 
-export type BsvSeedStatus = 'loaded' | 'upgraded' | 'already-loaded' | 'no-kg' | 'error';
+export type BsvSeedStatus = 'loaded' | 'upgraded' | 'repaired' | 'already-loaded' | 'no-kg' | 'error';
 
 export interface BsvSeedResult {
   status: BsvSeedStatus;
@@ -18,6 +18,10 @@ export interface BsvSeedResult {
   added?: number;
   /** Nodes a human edited: the pack text for them was not applied. Present after a load or an upgrade. */
   skippedEdited?: string[];
+  /** Pack nodes a human deleted: they stay deleted until restored with POST /api/kg/seed/bsv {restore:[ids]}. */
+  skippedRemoved?: string[];
+  /** Nodes brought back by a restore. */
+  restored?: string[];
   error?: string;
 }
 

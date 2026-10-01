@@ -163,6 +163,11 @@ export class Graph {
   private diskId = 'none';
   /** What load() found: lines it could not use and whether a torn tail was repaired. */
   readonly loadInfo = { skippedLines: 0, repairedTornTail: false };
+  /**
+   * What the human removed from the bundled BSV pack (seed-removed.json beside the log): node ids and edge keys "from|rel|to".
+   * The pack upgrade reads it so a delete is a decision that sticks; restoring (seed.ts) clears entries.
+   */
+  private seedGone: { nodes: Set<string>; edges: Set<string> } = { nodes: new Set(), edges: new Set() };
 
   constructor(opts: GraphOptions) {
     this.dir = opts.dir;
@@ -176,9 +181,46 @@ export class Graph {
     this.activity = new ActivityLog(join(opts.dir, 'activity.jsonl'), this.now);
     try { this.lite = JSON.parse(readFileSync(join(opts.dir, 'lint-lite.json'), 'utf8')) as KgLintLite; } catch { /* no run yet */ }
     this.load();
+    this.loadSeedGone();
     this.diskId = this.fileId();
     rmSync(`${this.file}.pre-delete`, { force: true });
     try { this.purgeTombstones(); } catch { /* the log stays valid; purge again next start */ }
+  }
+
+  // ------------------------------------------------------------------ what the human removed from the BSV pack
+
+  private loadSeedGone(): void {
+    try {
+      const raw = JSON.parse(readFileSync(join(this.dir, 'seed-removed.json'), 'utf8')) as { nodes?: unknown; edges?: unknown };
+      const strs = (v: unknown) => (Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : []);
+      this.seedGone = { nodes: new Set(strs(raw.nodes)), edges: new Set(strs(raw.edges)) };
+    } catch { /* no ledger yet */ }
+  }
+
+  private saveSeedGone(): void {
+    const file = join(this.dir, 'seed-removed.json');
+    const tmp = `${file}.tmp`;
+    try {
+      writeFileSync(tmp, JSON.stringify({ nodes: [...this.seedGone.nodes].sort(), edges: [...this.seedGone.edges].sort() }), 'utf8');
+      renameSync(tmp, file);
+    } catch { /* the delete itself already happened; worst case the next upgrade re-adds the node */ }
+  }
+
+  /** Pack nodes and edges a human deleted (they stay deleted through upgrades until restored). */
+  seedRemoved(): { nodes: string[]; edges: string[] } { return { nodes: [...this.seedGone.nodes], edges: [...this.seedGone.edges] }; }
+
+  /** Takes entries off the ledger (the restore path). Edge keys are "from|rel|to". */
+  forgetSeedRemoved(p: { nodes?: string[]; edges?: string[] }): void {
+    let hit = false;
+    for (const id of p.nodes ?? []) hit = this.seedGone.nodes.delete(id) || hit;
+    for (const k of p.edges ?? []) hit = this.seedGone.edges.delete(k) || hit;
+    if (hit) this.saveSeedGone();
+  }
+
+  private noteSeedNodeGone(n: KgNode): void {
+    if (n.scope !== 'bsv' || n.createdBy !== 'system' || this.seedGone.nodes.has(n.id)) return;
+    this.seedGone.nodes.add(n.id);
+    this.saveSeedGone();
   }
 
   // ------------------------------------------------------------------ visibility
@@ -898,6 +940,7 @@ export class Graph {
     this.append([...edgeIds.map((e) => ({ op: 'del_edge', id: e })), { op: 'del_node', id }]);
     for (const e of edgeIds) this.dropEdge(e);
     this.dropNode(id);
+    if (actor.kind === 'human') this.noteSeedNodeGone(n);
     this.changed([id]);
     return { removedEdges: edgeIds.length };
   }
@@ -948,6 +991,9 @@ export class Graph {
     const rel = validateLinkFields(input);
     const fromNode = this.mustSee(actor, input.from);
     const toNode = this.mustSee(actor, input.to);
+    if (actor.kind === 'agent' && (fromNode.scope === 'bsv' || toNode.scope === 'bsv')) {
+      throw new KgError('forbidden', 'The BSV knowledge pack is read-only for bots: you cannot link onto its notes or change its links. Link your own notes to each other, or tell the user.');
+    }
     const g = this.guard();
     this.checkRel(g, rel);
     let note = input.note !== undefined ? g.text(input.note) : undefined;
@@ -1018,6 +1064,10 @@ export class Graph {
     this.chargeEdge(actor);
     this.append([{ op: 'del_edge', id: e.id }]);
     this.dropEdge(e.id);
+    if (actor.kind === 'human' && e.createdBy === 'system' && this.nodes.get(e.from)?.scope === 'bsv' && this.nodes.get(e.to)?.scope === 'bsv') {
+      this.seedGone.edges.add(`${e.from}|${e.rel}|${e.to}`);
+      this.saveSeedGone();
+    }
     this.logActivity(actor, 'unlink', [{ op: 'edge', edge: { ...e } }], undefined, [], `${e.from} -${e.rel}-> ${e.to}`);
     this.changed([e.id, e.from, e.to]);
     return { ...e };
@@ -1050,8 +1100,14 @@ export class Graph {
     }
     if (patch.weight !== undefined) { if (patch.weight === null) delete next.weight; else next.weight = patch.weight; }
     if (JSON.stringify(next) === JSON.stringify(e)) return { ...e };
-    if (rel !== e.rel) this.apply([{ op: 'del_edge', id: e.id }, { op: 'edge', edge: next }]);
-    else {
+    if (rel !== e.rel) {
+      this.apply([{ op: 'del_edge', id: e.id }, { op: 'edge', edge: next }]);
+      // a pack link given another relation: the pack's own version of it must not be added back beside it
+      if (e.createdBy === 'system' && this.nodes.get(e.from)?.scope === 'bsv' && this.nodes.get(e.to)?.scope === 'bsv') {
+        this.seedGone.edges.add(`${e.from}|${e.rel}|${e.to}`);
+        this.saveSeedGone();
+      }
+    } else {
       const fields: Record<string, unknown> = {};
       if (next.note !== e.note) fields.note = next.note ?? null;
       if (next.weight !== e.weight) fields.weight = next.weight ?? null;

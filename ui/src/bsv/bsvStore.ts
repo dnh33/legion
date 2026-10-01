@@ -7,6 +7,8 @@
 import { useSyncExternalStore } from 'react';
 import { ApiError, request } from '../api';
 import { getState, refresh, selectAgent, toast } from '../store';
+import { describeSeed } from '../../../src/shared/bsv-seed';
+import type { SeedReport } from '../../../src/shared/bsv-seed';
 
 export interface BsvStatus {
   enabled: boolean;
@@ -15,7 +17,7 @@ export interface BsvStatus {
   knowledgeLoaded: boolean;
   knowledgeNodes: number;
 }
-interface SeedResult { status: 'loaded' | 'upgraded' | 'already-loaded' | 'no-kg' | 'error'; nodes?: number; error?: string }
+type SeedResult = SeedReport;
 
 export interface BsvUiState extends BsvStatus {
   /** First /api/bsv answer has arrived. */
@@ -81,7 +83,8 @@ export async function setBsv(enabled: boolean): Promise<void> {
     const r = await request<BsvStatus & { seed?: SeedResult }>('POST', '/api/bsv', { enabled });
     set({ ...pick(r), loaded: true });
     await syncAgents();
-    if (enabled && r.seed?.status === 'error') toast(`BSV mode is on, but the knowledge pack did not load: ${r.seed.error ?? 'unknown error'}`, 'error');
+    if (enabled && r.seed && (r.seed.status === 'error' || r.seed.status === 'no-kg')) toast(`BSV mode is on, but the knowledge pack did not load: ${describeSeed(r.seed).text}`, 'error');
+    else if (enabled && r.seed && r.seed.status !== 'already-loaded') toast(`BSV mode on (testnet, knowledge only). ${describeSeed(r.seed).text}`); // loaded, upgraded or repaired: say what changed
     else toast(enabled ? 'BSV mode on (testnet, knowledge only)' : 'BSV mode off');
   } catch (e) {
     toast(`Could not change BSV mode: ${msg(e)}`, 'error');

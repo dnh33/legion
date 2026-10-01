@@ -324,7 +324,37 @@ export class Engine {
     this.mascot('idle', 'cancelled');
   }
 
+  /**
+   * Cancels, right now, every queued job whose agent is no longer visible (the Assayer when BSV mode goes off). Returns the task ids.
+   * Runs already in progress are left to finish; startJob re-checks too, so a job can never start for a hidden agent.
+   */
+  cancelHiddenQueued(): string[] {
+    const hidden = this.queue.filter((j) => this.isHiddenAgent(j.agentId));
+    const ids: string[] = [];
+    for (const j of hidden) {
+      const i = this.queue.indexOf(j);
+      if (i >= 0) { this.queue.splice(i, 1); this.dropHiddenJob(j); ids.push(j.taskId); }
+    }
+    if (ids.length && this.active.size === 0 && this.queue.length === 0) this.scheduleIdle();
+    return ids;
+  }
+
+  private isHiddenAgent(agentId: string): boolean {
+    const a = this.store.getAgent(agentId);
+    return !!a && !this.bridge.isVisible(a);
+  }
+
+  /** A queued job whose agent got hidden: it is cancelled with a visible reason and never runs. */
+  private dropHiddenJob(job: Job): void {
+    const t = this.patchTask(job.taskId, { status: 'cancelled' });
+    if (t) this.addMessage(job.taskId, 'system', 'Cancelled: BSV mode was turned off before this run started.');
+    try { this.bridge.cancelFor(job.taskId); } catch { /* ignore */ }
+    this.mascot('idle', 'cancelled');
+  }
+
   private startJob(job: Job): void {
+    // the agent may have been switched off while the job waited in the queue
+    if (this.isHiddenAgent(job.agentId)) { this.dropHiddenJob(job); return; }
     const act: Active = { ac: new AbortController(), cancelled: false, tainted: false, toolUses: new Set() };
     act.tainted = !!(job.origin?.tainted || this.store.getTask(job.taskId)?.tainted);
     this.active.set(job.taskId, act);

@@ -19,12 +19,14 @@ export const ASSAYER_ID = 'assayer';
 /** Exactly four lines, appended only for the Assayer and only while BSV mode is on. */
 export const BSV_PREAMBLE = [
   'BSV mode is on and the network is testnet.',
-  'You have no wallet tools in this version: you can explain and draft, but nothing here can sign, send or hold funds. Lessons marked "Design, not built in v0" describe controls that do not exist yet.',
+  'You have no wallet or BSV tools in this version: explain, draft and review only. Nothing in Legion signs, sends or holds funds, so never attempt to. Lessons whose title starts with [Design] describe controls that do not exist yet.',
   'Use the knowledge graph for BSV lessons: call mcp__legion_kg__kg_recall with scope bsv before answering from recall.',
   'Never ask the user for keys, seed phrases or wallet secrets, and tell them not to paste any into chat.',
 ].join('\n');
 
 export interface BsvModuleOptions {
+  /** Where start() reports what it did (the core logs to stderr). Defaults to silent. */
+  log?: (msg: string) => void;
   /** Shared with the composition root (bsvEnabled reads it). Created from deps when omitted. */
   state?: BsvState;
   /** The knowledge-graph module, when present: its HTTP route handlers are reused to load the seed and count nodes. */
@@ -33,8 +35,13 @@ export interface BsvModuleOptions {
 
 const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v);
 
-export function createBsvModule(deps: ModuleDeps, opts: BsvModuleOptions = {}): CoreModule & { state: BsvState } {
+export function createBsvModule(deps: ModuleDeps, opts: BsvModuleOptions = {}): CoreModule & { state: BsvState; ensureSeed: () => Promise<BsvSeedResult>; start: () => Promise<void> } {
   const state = opts.state ?? new BsvState({ dataDir: deps.dataDir, config: deps.config });
+  const log = opts.log ?? (() => undefined);
+
+  // The Assayer is hidden while BSV mode is off. The engine asks this before it starts a task and again when a queued job is about to run.
+  const bridge = (deps.engine as { bridge?: { isVisible: (a: AgentProfile) => boolean } } | undefined)?.bridge;
+  if (bridge) bridge.isVisible = (a) => a.requires !== 'bsv' || state.enabled;
 
   // The kg module is reached through its own route semantics (no edits to src/core/kg): record its handlers.
   const kgHandlers = new Map<string, Handler>();
@@ -82,9 +89,28 @@ export function createBsvModule(deps: ModuleDeps, opts: BsvModuleOptions = {}): 
     return run;
   };
 
+  /**
+   * Core startup: when BSV mode is already on, bring the pack up to the bundled version (idempotent: it does nothing at the same
+   * version). Never blocks boot and never throws: a failure is logged and the next toggle or Load button tries again.
+   */
+  async function start(): Promise<void> {
+    try {
+      if (!state.enabled) return;
+      const r = await exclusive(ensureSeed); // serialised with the toggle, so a click during start cannot interleave
+      if (r.status === 'error') log(`BSV knowledge pack not loaded: ${r.error ?? 'unknown error'}`);
+      else if (r.status === 'no-kg') log('BSV knowledge pack not loaded: the knowledge graph module is not present');
+      else if (r.status === 'already-loaded') log(`BSV knowledge pack already at version ${r.to ?? '?'}`);
+      else log(`BSV knowledge pack ${r.status} (v${r.from ?? 0} -> v${r.to ?? '?'}): ${r.created ?? 0} added, ${r.updated ?? 0} updated, ${r.edges ?? 0} links${r.skippedEdited?.length ? `, ${r.skippedEdited.length} edited by you left alone` : ''}${r.skippedRemoved?.length ? `, ${r.skippedRemoved.length} you deleted stay deleted` : ''}`);
+    } catch (e) {
+      try { log(`BSV knowledge pack not loaded: ${e instanceof Error ? e.message : String(e)}`); } catch { /* logging must not throw either */ }
+    }
+  }
+
   return {
     id: 'bsv',
     state,
+    ensureSeed,
+    start,
     preamble: (agent: AgentProfile) => (agent.id === ASSAYER_ID && state.enabled ? BSV_PREAMBLE : ''),
     routes: (add) => {
       add('GET', '/api/bsv', () => status());
@@ -95,6 +121,8 @@ export function createBsvModule(deps: ModuleDeps, opts: BsvModuleOptions = {}): 
           throw new HttpError(500, `Could not save the BSV setting: ${e instanceof Error ? e.message : String(e)}`);
         }
         let seed: BsvSeedResult | undefined;
+        // Turning OFF: jobs of the Assayer that are still waiting in the queue are cancelled now (the engine also re-checks when a job starts).
+        if (!body.enabled) { try { (deps.engine as { cancelHiddenQueued?: () => string[] }).cancelHiddenQueued?.(); } catch { /* the start-time check still holds */ } }
         if (body.enabled) {
           seed = await ensureSeed();
           const assayer = deps.store.getAgent(ASSAYER_ID);

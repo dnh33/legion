@@ -168,8 +168,11 @@ export function addKgRoutes(add: RouteAdder, d: RouteDeps): void {
     return b.mode === 'library' ? exportLibrary(g(), dir) : exportVault(g(), HUMAN, dir);
   }));
 
-  add('POST', '/api/kg/seed/bsv', wrap(() => {
+  // body {restore:[node ids]}: bring named pack nodes back (deleted ones with their links, edited ones reset to the pack text)
+  add('POST', '/api/kg/seed/bsv', wrap(({ body }) => {
     if (!d.bsvEnabled()) throw new HttpError(409, 'BSV mode is off: turn on the BSV Dev Kit toggle before loading the BSV knowledge pack.');
-    return { ok: true, ...applySeedPack(g(), loadBsvSeed(d.seedPath ?? BSV_SEED_PATH)) };
+    const b = isObj(body) ? body : {};
+    if (b.restore !== undefined && (!Array.isArray(b.restore) || b.restore.some((x) => typeof x !== 'string'))) throw new HttpError(400, 'restore must be an array of pack node ids');
+    return { ok: true, ...applySeedPack(g(), loadBsvSeed(d.seedPath ?? BSV_SEED_PATH), { restore: b.restore as string[] | undefined }) };
   }));
 }

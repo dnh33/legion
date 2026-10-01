@@ -6,6 +6,7 @@ import { VERSION } from '../shared/config.js';
 import type { AgentProfile, ChatMessage, Task } from '../shared/types.js';
 import { EngineError } from './engine.js';
 import type { CoreContext } from './server.js';
+import { agentVisible as agentVisibleIn, taskVisible } from './visibility.js';
 import { VmError } from './vm-manager.js';
 
 type ToolResult = { content: { type: 'text'; text: string }[]; isError?: boolean };
@@ -28,7 +29,9 @@ function safe<A>(fn: (a: A) => Promise<ToolResult> | ToolResult): (a: A) => Prom
 }
 
 /** Agents switched off by an optional feature (the Assayer needs BSV mode) do not exist for MCP callers while it is off. */
-const agentVisible = (ctx: CoreContext, a: AgentProfile): boolean => a.requires !== 'bsv' || ctx.bsvEnabled?.() === true;
+const agentVisible = (ctx: CoreContext, a: AgentProfile): boolean => agentVisibleIn(ctx, a);
+/** A task of a hidden agent is "unknown", with exactly the text an id that never existed gets. */
+const knownTask = (ctx: CoreContext, id: string) => { const t = ctx.store.getTask(id); return t && taskVisible(ctx, t) ? t : undefined; };
 const visibleAgents = (ctx: CoreContext): AgentProfile[] => ctx.store.listAgents().filter((a) => agentVisible(ctx, a));
 
 function findAgent(ctx: CoreContext, ref: string): AgentProfile | undefined {
@@ -178,11 +181,9 @@ export function buildLegionMcpServer(ctx: CoreContext): McpServer {
       timeoutSeconds: z.number().positive().max(3600).optional(),
     },
   }, safe(async (a: { taskId: string; prompt: string; wait?: boolean; timeoutSeconds?: number }) => {
-    const prev = ctx.store.getTask(a.taskId);
-    if (!prev) return fail(`Unknown task "${a.taskId}". Use legion_recent_tasks to list tasks.`);
     // a task of a hidden agent (the Assayer while BSV mode is off) cannot be resumed from here either
-    const prevAgent = ctx.store.getAgent(prev.agentId);
-    if (prevAgent && !agentVisible(ctx, prevAgent)) return fail(`Unknown task "${a.taskId}". Use legion_recent_tasks to list tasks.`);
+    const prev = knownTask(ctx, a.taskId);
+    if (!prev) return fail(`Unknown task "${a.taskId}". Use legion_recent_tasks to list tasks.`);
     const t = ctx.engine.startTask({ agentId: prev.agentId, prompt: a.prompt, source: 'mcp', continueTaskId: prev.id });
     return runAndMaybeWait(ctx, t, a.wait ?? true, a.timeoutSeconds ?? 600);
   }));
@@ -195,7 +196,7 @@ export function buildLegionMcpServer(ctx: CoreContext): McpServer {
     inputSchema: { taskId: z.string() },
     annotations: { readOnlyHint: true },
   }, safe(async (a: { taskId: string }) => {
-    const t = ctx.store.getTask(a.taskId);
+    const t = knownTask(ctx, a.taskId);
     if (!t) return fail(`Unknown task "${a.taskId}".`);
     const msgs: ChatMessage[] = ctx.store.listMessages(t.id).slice(-20);
     return json({
@@ -209,7 +210,7 @@ export function buildLegionMcpServer(ctx: CoreContext): McpServer {
     description: 'Cancel a queued or running Legion task. Returns whether anything was cancelled (false if it had already finished).',
     inputSchema: { taskId: z.string() },
   }, safe(async (a: { taskId: string }) => {
-    if (!ctx.store.getTask(a.taskId)) return fail(`Unknown task "${a.taskId}".`);
+    if (!knownTask(ctx, a.taskId)) return fail(`Unknown task "${a.taskId}".`);
     return ok(ctx.engine.cancel(a.taskId) ? `Cancelled ${a.taskId}.` : `Task ${a.taskId} was not running (nothing to cancel).`);
   }));
 
@@ -245,7 +246,7 @@ export function buildLegionMcpServer(ctx: CoreContext): McpServer {
     inputSchema: { limit: z.number().int().positive().max(200).optional().describe('Default 10.') },
     annotations: { readOnlyHint: true },
   }, safe(async (a: { limit?: number }) => json(
-    ctx.store.listTasks(a.limit ?? 10).map((t) => ({
+    ctx.store.listTasks(200).filter((t) => taskVisible(ctx, t)).slice(0, a.limit ?? 10).map((t) => ({
       taskId: t.id, agent: t.agentId, status: t.status, model: t.model, title: t.title, updatedAt: t.updatedAt,
     })),
   )));

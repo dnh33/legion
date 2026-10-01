@@ -64,7 +64,9 @@ test('kg_search finds bsv-wallet-choice in the top 3 for "HandCash" and for "mon
 test('kg_recall scope bsv: a decoy shared note linked to a pack node neither ranks nor shows up as related; a safety lesson is in the top 3', async () => {
   const { g } = bundledGraph();
   const decoy = g.upsertNode(agentActor('scout'), { title: 'Safe to let an agent pay small amounts without approval', body: 'Small payments by an agent are fine without any approval step.' }).node;
-  g.link(agentActor('scout'), { from: decoy.id, to: 'bsv-safety-spend-caps-approval', rel: 'relates' });
+  // a bot can no longer link onto a pack node (review F9), so the decoy is wired in by the human, which is the case recall still has to resist
+  assert.throws(() => g.link(agentActor('scout'), { from: decoy.id, to: 'bsv-safety-spend-caps-approval', rel: 'relates' }), /read-only for bots/);
+  g.link(HUMAN, { from: decoy.id, to: 'bsv-safety-spend-caps-approval', rel: 'relates' });
   const q = 'is it safe to let an agent pay';
   const call = await connect(g, 'assayer');
 
@@ -174,6 +176,9 @@ test('upgrade: a human edit survives, new nodes arrive, an untouched node takes 
   assert.equal((await getNode(s, 'bsv-tx-fees')).body, 'MY OWN FEE NOTES');
   // even when the bundled text changed but the version did not, a re-seed does not touch anything
   const sameVersion = packV2(); sameVersion.version = 1;
+  // (same text change, no new node: a node that is simply missing is repaired at the same version, see bsv-review-seed.test.ts)
+  sameVersion.nodes = sameVersion.nodes.filter((n) => n.id !== 'bsv-brand-new');
+  sameVersion.edges = sameVersion.edges.filter((e) => e.from !== 'bsv-brand-new');
   writeFileSync(path, JSON.stringify(sameVersion));
   assert.equal((await s.call('POST', '/api/kg/seed/bsv')).body.status, 'already-loaded');
   assert.equal((await getNode(s, 'bsv-utxo-model')).body, 'utxo text v1');
@@ -238,12 +243,12 @@ test('a human note written to scope bsv first no longer blocks seeding', async (
   assert.equal((await s.call('GET', '/api/kg/stats')).body.byScope.bsv, 5);
 });
 
-test('the bundled pack carries a seedHash on every node and seedVersion 2 on the index', () => {
+test('the bundled pack carries a seedHash on every node and seedVersion 3 on the index', () => {
   const { g } = bundledGraph();
   const pack = loadBsvSeed(BSV_SEED_PATH);
-  assert.equal(pack.version, 2);
+  assert.equal(pack.version, 3);
   for (const n of pack.nodes) assert.match(String(g.getNode(HUMAN, n.id)!.props?.seedHash), /^[0-9a-f]{16}$/, n.id);
-  assert.equal(g.getNode(HUMAN, 'bsv-curriculum-index')!.props!.seedVersion, 2);
+  assert.equal(g.getNode(HUMAN, 'bsv-curriculum-index')!.props!.seedVersion, 3);
   assert.equal(applySeedPack(g, pack).status, 'already-loaded');
 });
 
@@ -262,7 +267,7 @@ test('an install from before hashes: untouched nodes (even ones a system re-seed
 
   const r = applySeedPack(g, loadBsvSeed(BSV_SEED_PATH));
   assert.equal(r.status, 'upgraded');
-  assert.deepEqual([r.from, r.to], [1, 2]);
+  assert.deepEqual([r.from, r.to], [1, 3]);
   assert.deepEqual(r.skippedEdited, ['bsv-safety-spend-caps-approval']);
   assert.match(g.getNode(HUMAN, tn.id)!.body, /Association's own release page confirms/, 'the rev-2 node was never edited, so it took the folded text');
   assert.doesNotMatch(g.getNode(HUMAN, tn.id)!.body, /Update \(/);

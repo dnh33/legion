@@ -5,7 +5,7 @@ import type { IncomingMessage, Server, ServerResponse } from 'node:http';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { redactConfig, VERSION } from '../shared/config.js';
 import type {
-  AgentProfile, ApprovalMode, DoctorCheck, LegionConfig, LegionEvent, Catalog, ModelChoice, StateSnapshot, VmSize,
+  AgentProfile, ApprovalMode, DoctorCheck, LegionConfig, LegionEvent, Catalog, ModelChoice, StateSnapshot, Task, VmSize,
 } from '../shared/types.js';
 import { nowIso, slugify } from '../shared/util.js';
 import type { ApprovalBroker } from './approvals.js';
@@ -19,6 +19,7 @@ import type { SettingsService } from './settings.js';
 import { VmError } from './vm-manager.js';
 import type { VmManager } from './vm-manager.js';
 import type { CoreModule } from './modules.js';
+import { agentIdVisible, agentVisible, taskVisible } from './visibility.js';
 
 export interface CoreContext {
   config: LegionConfig; store: Store; bus: EventBus; engine: Engine; vms: VmManager; approvals: ApprovalBroker;
@@ -169,7 +170,14 @@ export function createServer(ctx: CoreContext): Server {
   };
 
   /** Agents gated behind an optional feature (the Assayer needs BSV mode) are hidden while it is off. Lookups by id still work. */
-  const visible = (a: AgentProfile) => a.requires !== 'bsv' || ctx.bsvEnabled?.() === true;
+  const visible = (a: AgentProfile) => agentVisible(ctx, a);
+  const taskShown = (t: Pick<Task, 'agentId'>) => taskVisible(ctx, t);
+  /** A task of a hidden agent answers 404, exactly like an id that never existed. */
+  const mustTask = (id: string): Task => {
+    const t = ctx.store.getTask(id);
+    if (!t || !taskShown(t)) throw new HttpError(404, `Unknown task "${id}"`);
+    return t;
+  };
   /** Running or driving a hidden agent (starting a task, its VM, its desktop) is refused like an unknown id, so the HTTP API matches the MCP tools. Reading, editing and stopping stay possible. */
   const mustBeRunnable = (agentId: string): void => {
     const a = ctx.store.getAgent(agentId);
@@ -180,9 +188,9 @@ export function createServer(ctx: CoreContext): Server {
   route('GET', '/api/state', ({ url }): StateSnapshot => ({
     version: VERSION,
     agents: ctx.store.listAgents().filter(visible),
-    tasks: ctx.store.listTasks(200, undefined, ['1', 'true'].includes(url.searchParams.get('archived') ?? '')),
-    vms: ctx.store.listVms(),
-    approvals: ctx.approvals.pending(),
+    tasks: ctx.store.listTasks(200, undefined, ['1', 'true'].includes(url.searchParams.get('archived') ?? '')).filter(taskShown),
+    vms: ctx.store.listVms().filter((v) => agentIdVisible(ctx, v.agentId)),
+    approvals: ctx.approvals.pending().filter((a) => agentIdVisible(ctx, a.agentId)),
     boatConfigured: ctx.boatConfigured(),
     auth: ctx.config.claude.auth,
   }));
@@ -249,9 +257,11 @@ export function createServer(ctx: CoreContext): Server {
   route('DELETE', '/api/agents/:id', ({ params }) => {
     const id = params[0];
     if (id === 'zealot') throw new HttpError(400, 'The "zealot" agent cannot be deleted');
-    if (!ctx.store.getAgent(id)) throw new HttpError(404, `Unknown agent "${id}"`);
+    const gone = ctx.store.getAgent(id);
+    if (!gone) throw new HttpError(404, `Unknown agent "${id}"`);
+    const wasShown = visible(gone);
     ctx.store.deleteAgent(id);
-    ctx.bus.emit({ type: 'agent.deleted', agentId: id });
+    if (wasShown) ctx.bus.emit({ type: 'agent.deleted', agentId: id });
     return { ok: true };
   });
 
@@ -270,17 +280,15 @@ export function createServer(ctx: CoreContext): Server {
     let ms = raw === null ? 120000 : Number(raw);
     if (!Number.isFinite(ms) || ms < 0) ms = 120000;
     ms = Math.min(ms, 600000);
-    if (!ctx.store.getTask(params[0])) throw new HttpError(404, `Unknown task "${params[0]}"`);
+    mustTask(params[0]);
     return ctx.engine.waitFor(params[0], ms);
   });
   route('GET', '/api/tasks/:id', ({ params }) => {
-    const task = ctx.store.getTask(params[0]);
-    if (!task) throw new HttpError(404, `Unknown task "${params[0]}"`);
+    const task = mustTask(params[0]);
     return { task, messages: ctx.store.listMessages(task.id) };
   });
   route('PATCH', '/api/tasks/:id', ({ params, body }) => {
-    const cur = ctx.store.getTask(params[0]);
-    if (!cur) throw new HttpError(404, `Unknown task "${params[0]}"`);
+    const cur = mustTask(params[0]);
     if (!isObj(body)) throw new HttpError(400, 'JSON object body required');
     if (body.archived === undefined && body.title === undefined) throw new HttpError(400, 'archived or title required');
     const next = { ...cur };
@@ -297,15 +305,14 @@ export function createServer(ctx: CoreContext): Server {
     return saved;
   });
   route('DELETE', '/api/tasks/:id', ({ params }) => {
-    const cur = ctx.store.getTask(params[0]);
-    if (!cur) throw new HttpError(404, `Unknown task "${params[0]}"`);
+    const cur = mustTask(params[0]);
     if (cur.status === 'queued' || cur.status === 'running') throw new HttpError(409, 'Task is running; cancel it first');
     ctx.store.deleteTask(cur.id);
     ctx.bus.emit({ type: 'task.deleted', taskId: cur.id });
     return { ok: true };
   });
   route('POST', '/api/tasks/:id/cancel', ({ params }) => {
-    if (!ctx.store.getTask(params[0])) throw new HttpError(404, `Unknown task "${params[0]}"`);
+    mustTask(params[0]);
     return { ok: ctx.engine.cancel(params[0]) };
   });
 
@@ -339,6 +346,22 @@ export function createServer(ctx: CoreContext): Server {
   for (const m of ctx.modules ?? []) m.routes?.(route);
 
   // ---- SSE + MCP (handle the response themselves) -----------------------
+  /** False for an event that would show a hidden agent's task, message, approval, VM, room or comms state. */
+  const eventShown = (ev: LegionEvent): boolean => {
+    switch (ev.type) {
+      case 'agent.updated': return visible(ev.agent);
+      case 'agent.deleted': return agentIdVisible(ctx, ev.agentId);
+      case 'task.updated': return taskShown(ev.task);
+      case 'message': case 'message.delta': { const t = ctx.store.getTask(ev.type === 'message' ? ev.message.taskId : ev.taskId); return !t || taskShown(t); }
+      case 'vm.updated': return agentIdVisible(ctx, ev.vm.agentId);
+      case 'approval.requested': return agentIdVisible(ctx, ev.approval.agentId);
+      case 'comms.state': return agentIdVisible(ctx, ev.agentId) && (!ev.peerId || agentIdVisible(ctx, ev.peerId));
+      case 'room.updated': return ev.room.members.every((m) => agentIdVisible(ctx, m));
+      case 'room.message': return (ev.message.from.kind !== 'bot' || agentIdVisible(ctx, ev.message.from.agentId)) && ev.message.to.every((m) => agentIdVisible(ctx, m));
+      default: return true;
+    }
+  };
+
   const handleSse = (req: IncomingMessage, res: ServerResponse) => {
     res.writeHead(200, {
       'Content-Type': 'text/event-stream; charset=utf-8',
@@ -348,7 +371,7 @@ export function createServer(ctx: CoreContext): Server {
     });
     res.write(': connected\n\n');
     const off = ctx.bus.on((ev: LegionEvent) => {
-      if (ev.type === 'agent.updated' && !visible(ev.agent)) return; // hidden agents must not leak through the event stream
+      if (!eventShown(ev)) return; // hidden agents must not leak through the event stream
       res.write(`data: ${JSON.stringify(ev)}\n\n`);
     });
     const hb = setInterval(() => { res.write(': hb\n\n'); }, 15000);

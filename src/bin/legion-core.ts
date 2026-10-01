@@ -50,10 +50,10 @@ async function main() {
   const bsvEnabled = () => bsvState.enabled;
   const moduleDeps: ModuleDeps = { config, store, bus, engine, approvals, dataDir: dataDir(), bsvEnabled };
   const kg = createKnowledgeModule(moduleDeps);
-  const modules = [kg, createCommsModule(moduleDeps), createBsvModule(moduleDeps, { state: bsvState, kg })];
+  // (creating the BSV module also tells the engine's agent bridge to hide agents that are switched off)
+  const bsv = createBsvModule(moduleDeps, { state: bsvState, kg, log });
+  const modules = [kg, createCommsModule(moduleDeps), bsv];
   engine.setModules(modules);
-  // The agent bridge (ask/tell) must not reveal agents that are switched off, same as the lists.
-  engine.bridge.isVisible = (a) => a.requires !== 'bsv' || bsvEnabled();
   const server = createServer({
     config, store, bus, engine, vms, approvals, boatConfigured, modules, bsvEnabled,
     doctor: () => runDoctor({ config, getBoat }),
@@ -72,6 +72,8 @@ async function main() {
   });
   server.listen(config.port, '127.0.0.1', () => {
     log(`Legion Core ${VERSION} on http://127.0.0.1:${config.port}  (config: ${configPath()})`);
+    // BSV mode already on: bring the pack up to the bundled version without anyone toggling (never blocks, never throws)
+    void bsv.start();
   });
 
   const shutdown = async (sig: string) => {

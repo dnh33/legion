@@ -1,6 +1,8 @@
 /** Store for the Lattice view: own state (useSyncExternalStore), talks to /api/kg through the shared `request`. */
 import { useSyncExternalStore } from 'react';
 import type { LegionEvent } from '../../../src/shared/types';
+import { describeSeed } from '../../../src/shared/bsv-seed';
+import type { SeedReport } from '../../../src/shared/bsv-seed';
 import type { KgEdge, KgLintReport, KgNode, KgNodeType, KgSearchHit, KgSource, KgSubgraph } from '../../../src/shared/kg';
 import { ApiError, request, subscribe } from '../api';
 
@@ -473,11 +475,12 @@ export const exportVault = (dir: string) => request<ExportReport>('POST', '/api/
 
 export async function seedBsv() {
   try {
-    await request('POST', '/api/kg/seed/bsv');
+    const r = await request<SeedReport>('POST', '/api/kg/seed/bsv');
     const st = await request<Stats>('GET', '/api/kg/stats').catch(() => null);
     if (st) set({ stats: st, ...bsvFrom(st), boot: 'ready' });
     await loadOverview(['bsv-curriculum-index']);
-    notify('BSV knowledge pack loaded.');
+    const d = describeSeed(r); // what really happened: loaded, upgraded, repaired, already up to date, and what was left alone
+    notify(d.text, d.level);
   } catch (e) {
     if (e instanceof ApiError && e.status === 409) { set({ bsv: 'off', bsvMsg: e.message }); notify(e.message, 'error'); }
     else notify(`Could not load the BSV pack. ${errMsg(e)}`, 'error');

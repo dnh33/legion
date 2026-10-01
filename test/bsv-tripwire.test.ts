@@ -1,25 +1,23 @@
 /**
- * Tripwire: BSV mode v1 has no wallet, no keys, no chain and no network code, and nothing in it can arm mainnet.
- * This is the test that proves "knowledge only". It fails the build the day someone adds a wallet call to src/core/bsv or to
- * any tool registration, so that change has to be a deliberate, reviewed one (the wallet phase), not a drive-by.
- * The scan is checked against itself: it must find enough files, and a planted string in a temp copy must trip it.
+ * Tripwire: BSV mode v1 has no wallet, no keys, no chain and no outbound network code beyond a short allowlist, and nothing in it can arm mainnet.
+ * The scan (test/bsv-scan.ts) reads ALL of src/ and ui/src: the day someone adds a wallet name, the wallet port, an unlisted
+ * network or process user, or a wallet-shaped tool anywhere, the build fails, so that change has to be a deliberate, reviewed one
+ * (the wallet phase), not a drive-by. It is a static scan, not a sandbox: docs/BSV-MODE.md says what it cannot see. The scan is
+ * checked against itself in bsv-review-tripwire.test.ts (every evasion the review found is planted in a copy and must be caught).
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { cpSync, mkdtempSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { normalizeBsv } from '../src/shared/config.js';
 import { BsvState } from '../src/core/bsv/state.js';
+import { lex, scanTree } from './bsv-scan.js';
 
 // Tests run from dist/test, so sources are resolved from the repo root.
 const REPO = fileURLToPath(new URL('../../', import.meta.url));
-const CORE = join(REPO, 'src/core');
-const BSV_DIR = join(CORE, 'bsv');
-
-/** What no BSV or tool file may contain, anywhere (comments included: a wallet name in a comment is where a wallet call starts). */
-const FORBIDDEN = ['3321', 'WalletClient', '@bsv/sdk', 'createAction', 'HTTPWalletJSON'];
+const BSV_DIR = join(REPO, 'src/core/bsv');
 
 function tsFiles(dir: string): string[] {
   const out: string[] = [];
@@ -31,60 +29,19 @@ function tsFiles(dir: string): string[] {
   return out;
 }
 
-/** Source with comments and string literals blanked, so only executable code is judged for outbound calls. */
-function code(src: string): string {
-  return src
-    .replace(/\/\*[\s\S]*?\*\//g, ' ')
-    .replace(/(^|[^:'"`\\])\/\/.*$/gm, '$1')
-    .replace(/'(?:\\.|[^'\\\n])*'|"(?:\\.|[^"\\\n])*"|`(?:\\.|[^`\\])*`/g, '""');
-}
+/** Source with comments and string literals blanked, so only executable code is judged. */
+const code = (src: string): string => lex(src).code;
 
-/** Source with comments removed but string literals kept (an import specifier is a string). */
-const noComments = (src: string): string => src.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/(^|[^:'"`\\])\/\/.*$/gm, '$1');
-
-const TOOL_REG = /\bregisterTool\s*\(|\btool\(\s*['"`]/;
-const TOOL_NAME = /(?:registerTool|\btool)\(\s*['"`]([A-Za-z0-9_.-]+)['"`]/g;
-const OUTBOUND_CALL = /\b(?:fetch|XMLHttpRequest|WebSocket|EventSource)\s*\(|\bhttps?\.(?:request|get)\s*\(/;
-const OUTBOUND_IMPORT = /from\s+['"](?:node:)?(?:https?|http2|net|tls|dgram|undici|axios|node-fetch)['"]|require\(\s*['"](?:node:)?(?:https?|http2|net|tls|dgram|undici|axios|node-fetch)['"]\s*\)/;
-const WALLETY_TOOL_NAME = /wallet|bsv|spend|pay|sign|broadcast|createaction|arm|freeze/i;
-
-interface Scan { bsvFiles: number; toolFiles: number; toolNames: string[]; violations: string[] }
-
-/** Scans a src/core-shaped directory. */
-function scan(core: string): Scan {
-  const violations: string[] = [];
-  const rel = (p: string) => p.slice(core.length + 1);
-  const bsvFiles = tsFiles(join(core, 'bsv'));
-  for (const f of bsvFiles) {
-    const src = readFileSync(f, 'utf8');
-    for (const tok of FORBIDDEN) if (src.includes(tok)) violations.push(`${rel(f)} contains ${tok}`);
-    if (OUTBOUND_CALL.test(code(src)) || OUTBOUND_IMPORT.test(noComments(src))) violations.push(`${rel(f)} makes an outbound http/https/fetch call`);
-    if (/\bmainnet\b/.test(code(src))) violations.push(`${rel(f)} names mainnet in code`);
-  }
-  const toolNames: string[] = [];
-  const toolFiles = tsFiles(core).filter((f) => TOOL_REG.test(readFileSync(f, 'utf8')));
-  for (const f of toolFiles) {
-    const src = readFileSync(f, 'utf8');
-    for (const tok of FORBIDDEN) if (src.includes(tok)) violations.push(`${rel(f)} (a tool registration) contains ${tok}`);
-    if (/from\s+['"]@bsv\//.test(src)) violations.push(`${rel(f)} imports @bsv/*`);
-    for (const m of src.matchAll(TOOL_NAME)) {
-      toolNames.push(m[1]!);
-      if (WALLETY_TOOL_NAME.test(m[1]!)) violations.push(`${rel(f)} registers a wallet-like tool name: ${m[1]}`);
-    }
-  }
-  return { bsvFiles: bsvFiles.length, toolFiles: toolFiles.length, toolNames, violations };
-}
-
-test('tripwire: the scan is not vacuous (it finds the bsv files, the tool files and plenty of tool names)', () => {
-  const r = scan(CORE);
-  assert.ok(r.bsvFiles >= 3, `bsv files: ${r.bsvFiles}`);
-  assert.ok(r.toolFiles >= 4, `tool-registering files: ${r.toolFiles}`);
+test('tripwire: the scan is not vacuous (it reads all of src and ui/src, and sees the tool registrations)', () => {
+  const r = scanTree(REPO);
+  assert.ok(r.files.length > 100, `files scanned: ${r.files.length}`);
+  assert.ok(r.files.some((f) => f.startsWith('src/core/bsv/')) && r.files.some((f) => f.startsWith('ui/src/bsv/')), 'the bsv sources are scanned');
   assert.ok(r.toolNames.length >= 25, `tool names found: ${r.toolNames.length}`);
   for (const known of ['legion_run', 'legion_vm', 'kg_recall', 'kg_search']) assert.ok(r.toolNames.includes(known), `scan did not see tool ${known}`);
 });
 
-test('tripwire: src/core/bsv and every tool registration have no wallet, key or chain call, and no tool is wallet-shaped', () => {
-  assert.deepEqual(scan(CORE).violations, []);
+test('tripwire: nothing in src or ui/src has a wallet, key or chain call, an unlisted network or process user, or a wallet-shaped tool (planted cases: bsv-review-tripwire.test.ts)', () => {
+  assert.deepEqual(scanTree(REPO).violations, []);
 });
 
 test('tripwire: nothing under src imports @bsv/*, and package.json has no @bsv or wallet dependency', () => {
@@ -95,37 +52,6 @@ test('tripwire: nothing under src imports @bsv/*, and package.json has no @bsv o
   const deps = Object.keys({ ...pkg.dependencies, ...pkg.devDependencies });
   assert.ok(deps.length > 5);
   assert.deepEqual(deps.filter((d) => /^@bsv\/|bsv|bitcoin|wallet|secp256k1|ethers/i.test(d)), []);
-});
-
-test('tripwire: a planted wallet string, import, port or outbound call in a copy of src/core is caught', () => {
-  const tmp = mkdtempSync(join(tmpdir(), 'legion-tripwire-'));
-  const copy = join(tmp, 'core');
-  cpSync(CORE, copy, { recursive: true, filter: (p) => !p.endsWith('.json') && !p.endsWith('.jsonl') });
-  assert.deepEqual(scan(copy).violations, [], 'the untouched copy is clean');
-  const plants: Array<[string, string, RegExp]> = [
-    ['bsv/index.ts', '\n// talks to 127.0.0.1:3321\n', /3321/],
-    ['bsv/state.ts', "\nconst w = new WalletClient();\n", /WalletClient/],
-    ['bsv/types.ts', "\nimport { PrivateKey } from '@bsv/sdk';\n", /@bsv\/sdk/],
-    ['bsv/types.ts', '\nconst a = createAction;\n', /createAction/],
-    ['bsv/index.ts', '\nconst t = HTTPWalletJSON;\n', /HTTPWalletJSON/],
-    ['bsv/state.ts', "\nvoid fetch('http://127.0.0.1:3321/getVersion');\n", /outbound/],
-    ['bsv/state.ts', "\nimport https from 'node:https';\n", /outbound/],
-    ['mcp-tools.ts', "\nconst x = 'createAction';\n", /createAction/],
-    ['kg/tools.ts', '\n// WalletClient\n', /WalletClient/],
-  ];
-  for (const [file, text, expect] of plants) {
-    const path = join(copy, file);
-    const before = readFileSync(path, 'utf8');
-    writeFileSync(path, before + text);
-    const v = scan(copy).violations;
-    assert.ok(v.some((x) => expect.test(x)), `planting ${JSON.stringify(text.trim())} in ${file} was not caught: ${JSON.stringify(v)}`);
-    writeFileSync(path, before);
-  }
-  // a wallet-shaped tool registration is caught too
-  const toolsPath = join(copy, 'mcp-tools.ts');
-  const before = readFileSync(toolsPath, 'utf8');
-  writeFileSync(toolsPath, before + "\nserver.registerTool('legion_wallet_spend', {}, async () => ({}));\n");
-  assert.ok(scan(copy).violations.some((x) => /wallet-like tool name: legion_wallet_spend/.test(x)));
 });
 
 test('tripwire: BsvNetwork stays the literal testnet and no input can make the network mainnet', () => {

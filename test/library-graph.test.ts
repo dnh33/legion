@@ -207,7 +207,7 @@ test('C: six tombstones by one bot in one task also snapshot, and the nodes come
 });
 
 test('C: snapshots keep the newest 5, are taken before compact, import and seed, and identical ones are not repeated', () => {
-  const { g, dir } = mkGraph();
+  const { g, dir, bsv } = mkGraph();
   assert.equal(g.snapshot(), undefined, 'nothing to copy yet');
   for (let i = 0; i < 7; i++) { note(g, `step ${i}`); g.snapshot(); }
   assert.deepEqual(bak(dir), ['graph.jsonl.bak-3', 'graph.jsonl.bak-4', 'graph.jsonl.bak-5', 'graph.jsonl.bak-6', 'graph.jsonl.bak-7']);
@@ -228,6 +228,7 @@ test('C: snapshots keep the newest 5, are taken before compact, import and seed,
   assert.doesNotMatch(readFileSync(join(dir, 'graph.jsonl.bak-9'), 'utf8'), /Imported/);
 
   const seedPack = { nodes: [{ id: 'bsv-x', title: 'Seed node', body: 'b', sources: [{ ref: 'https://x.test', licence: 'MIT' }] }], edges: [] };
+  bsv.on = true; // seeding needs BSV mode on (the route refuses otherwise); the pack index node is written twice now (marker last)
   applySeedPack(g, seedPack);
   assert.equal(bak(dir).at(-1), 'graph.jsonl.bak-10', 'seeding snapshots first');
   assert.equal(bak(dir).length, 5);

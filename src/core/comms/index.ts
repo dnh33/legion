@@ -8,7 +8,8 @@ export { CommsHub, CommsError } from './hub.js';
 export { scrubSecrets } from './scrub.js';
 
 export function createCommsModule(deps: ModuleDeps): CoreModule {
-  const hub = new CommsHub({ engine: deps.engine, store: deps.store, bus: deps.bus, dataDir: deps.dataDir });
+  // an agent that is switched off (the Assayer while BSV mode is off) is invisible to rooms and bot messaging
+  const hub = new CommsHub({ engine: deps.engine, store: deps.store, bus: deps.bus, dataDir: deps.dataDir, isVisible: (a) => a.requires !== 'bsv' || deps.bsvEnabled() });
   return {
     id: 'comms',
     mcpServers: (agent, job) => ({ legion_comms: buildCommsToolsServer(agent.id, hub, job) }),

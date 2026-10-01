@@ -12,7 +12,7 @@ import { stricterMode } from '../approvals.js';
 import type { EventBus } from '../bus.js';
 import { RoomStore } from './rooms.js';
 import type { HubState, TaskMapEntry } from './rooms.js';
-import { clip, cycleHash, neutralizeTags, safeName, scrubSecrets } from './scrub.js';
+import { clip, containsSeedPhrase, cycleHash, neutralizeTags, safeName, scrubSecrets } from './scrub.js';
 
 // ------------------------------------------------------------------ public types
 
@@ -31,6 +31,8 @@ export interface HubOptions {
   store: HubStore;
   bus: EventBus;
   dataDir: string;
+  /** False for an agent that is switched off (the Assayer while BSV mode is off): it is not listed, not found, not messaged and not added to rooms. Default: all visible. */
+  isVisible?: (a: AgentProfile) => boolean;
   /** Injected for tests (cooldowns). */
   now?: () => number;
 }
@@ -116,7 +118,10 @@ export class CommsHub {
   private readonly awaiting = new Map<string, Map<string, string>>();
   private readonly off: () => void;
 
+  private readonly visible: (a: AgentProfile) => boolean;
+
   constructor(o: HubOptions) {
+    this.visible = o.isVisible ?? (() => true);
     this.engine = o.engine;
     this.agents = o.store;
     this.bus = o.bus;
@@ -136,7 +141,7 @@ export class CommsHub {
 
   // ================================================================ human-facing API
 
-  listRooms(): Room[] { return this.rooms.all().map(clone); }
+  listRooms(): Room[] { return this.liveRooms().map(clone); }
 
   getRoom(id: string): Room { return clone(this.mustRoom(id)); }
 
@@ -271,9 +276,9 @@ export class CommsHub {
   search(q: string): { rooms: Room[]; messages: RoomMessage[] } {
     const needle = q.trim().toLowerCase();
     if (!needle) throw new CommsError(400, 'q is required');
-    const rooms = this.rooms.all().filter((r) => r.name.toLowerCase().includes(needle)).map(clone);
+    const rooms = this.liveRooms().filter((r) => r.name.toLowerCase().includes(needle)).map(clone);
     const messages: RoomMessage[] = [];
-    for (const r of this.rooms.all()) {
+    for (const r of this.liveRooms()) {
       for (const m of this.rooms.messages(r.id)) if (m.text.toLowerCase().includes(needle)) messages.push(clone(m));
     }
     messages.sort((a, b) => (a.at < b.at ? 1 : a.at > b.at ? -1 : 0));
@@ -305,12 +310,12 @@ export class CommsHub {
   // ================================================================ bot-facing API (used by tools.ts)
 
   botList(agentId: string): BotInfo[] {
-    return this.agents.listAgents().filter((a) => a.id !== agentId).map((a) => ({
+    return this.agents.listAgents().filter((a) => a.id !== agentId && this.visible(a)).map((a) => ({
       id: a.id,
       name: a.name,
       description: scrubSecrets(a.description ?? ''),
       state: this.botState(a.id),
-      sharedRooms: this.rooms.all().filter((r) => r.members.includes(agentId) && r.members.includes(a.id)).map((r) => ({ id: r.id, name: r.name })),
+      sharedRooms: this.liveRooms().filter((r) => r.members.includes(agentId) && r.members.includes(a.id)).map((r) => ({ id: r.id, name: r.name })),
     }));
   }
 
@@ -322,7 +327,7 @@ export class CommsHub {
     if (!peer) throw new CommsError(404, `Unknown bot "${toRef}". Use bot_list to see the available bots.`);
     if (peer.id === sender.id) throw new CommsError(400, 'You cannot send a message to yourself');
     const t = this.cleanText(text);
-    let room = this.rooms.all().find((r) => r.kind === 'dm' && r.members.includes(sender.id) && r.members.includes(peer.id));
+    let room = this.liveRooms().find((r) => r.kind === 'dm' && r.members.includes(sender.id) && r.members.includes(peer.id));
     if (room?.paused) throw new CommsError(409, `The conversation is paused (${room.paused.reason}); a human must resume it.`);
     if (!room) {
       const now = nowIso();
@@ -407,7 +412,7 @@ export class CommsHub {
   }
 
   roomList(agentId: string): RoomInfo[] {
-    return this.rooms.all().filter((r) => r.members.includes(agentId)).map((r) => {
+    return this.liveRooms().filter((r) => r.members.includes(agentId)).map((r) => {
       const cursor = this.state.reads[keyOf(r.id, agentId)];
       const msgs = this.rooms.messages(r.id);
       const from = cursor ? msgs.findIndex((m) => m.id === cursor) + 1 : 0;
@@ -772,15 +777,22 @@ export class CommsHub {
 
   // ================================================================ lookups and validation
 
+  /** Rooms in which every member is visible. A room with a switched-off agent in it is dormant: nobody can list, read, post to or search it until the agent is back. */
+  private liveRooms(): Room[] { return this.rooms.all().filter((r) => this.roomVisible(r)); }
+
+  private roomVisible(r: Room): boolean {
+    return r.members.every((id) => { const a = this.agents.getAgent(id); return !a || this.visible(a); });
+  }
+
   private mustRoom(id: string): Room {
     const r = this.rooms.get(id);
-    if (!r) throw new CommsError(404, `Unknown room "${id}"`);
+    if (!r || !this.roomVisible(r)) throw new CommsError(404, `Unknown room "${id}"`);
     return r;
   }
 
   /** A room the agent belongs to, by id or (case-insensitive) name. Non-members get the same 404. */
   private memberRoom(agentId: string, ref: string): Room {
-    const mine = this.rooms.all().filter((r) => r.members.includes(agentId));
+    const mine = this.liveRooms().filter((r) => r.members.includes(agentId));
     const r = ref.trim();
     const hit = mine.find((x) => x.id === r)
       ?? (() => { const byName = mine.filter((x) => x.name.toLowerCase() === r.toLowerCase()); return byName.length === 1 ? byName[0] : undefined; })();
@@ -790,7 +802,7 @@ export class CommsHub {
 
   private resolveAgent(ref: string): AgentProfile | undefined {
     const r = ref.trim();
-    const all = this.agents.listAgents();
+    const all = this.agents.listAgents().filter((a) => this.visible(a));
     return all.find((a) => a.id === r) ?? all.find((a) => a.id.toLowerCase() === r.toLowerCase() || a.name.toLowerCase() === r.toLowerCase());
   }
 
@@ -868,6 +880,8 @@ export class CommsHub {
   private cleanText(v: unknown): string {
     if (typeof v !== 'string' || !v.trim()) throw new CommsError(400, 'text is required');
     if (v.length > MAX_TEXT) throw new CommsError(400, `text must be at most ${MAX_TEXT} characters`);
+    // a seed phrase is refused outright (the same detector the knowledge graph uses), never stored or woken into a bot; key-shaped strings are redacted
+    if (containsSeedPhrase(v)) throw new CommsError(400, 'That message looks like it contains a seed phrase (a 12 or 24 word recovery phrase). Messages never carry one, so nothing was sent. Remove it and send again.');
     return scrubSecrets(v.trim());
   }
 

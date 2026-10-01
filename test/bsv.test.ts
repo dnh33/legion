@@ -265,7 +265,7 @@ test('preamble: four lines, only for the assayer, only while on', async () => {
   assert.equal(p.split('\n').length, 4);
   assert.match(p, /BSV mode is on/);
   assert.match(p, /testnet/);
-  assert.match(p, /no wallet tools/);
+  assert.match(p, /no wallet or BSV tools/);
   assert.match(p, /kg_recall with scope bsv/);
   assert.match(p, /Never ask the user for keys, seed phrases/);
   for (const id of ['zealot', 'scout', 'builder', 'herald', 'assayer2']) assert.equal(s.bsv.preamble!(mkAgent(id)), '', id);
