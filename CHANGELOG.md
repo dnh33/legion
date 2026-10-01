@@ -15,6 +15,13 @@ All notable changes are recorded here. The format follows [Keep a Changelog](htt
 - **Library safety**: every note carries an engine-derived trust (human, agent, untrusted). A run that touches the web, a shell or an outside tool is tainted for the rest of the task: its writes are untrusted and wait for you. Bots cannot edit your notes (their change becomes a proposal), change scope or delete shared notes; per-task write quotas; secret redaction; safety copies of the log.
 - **Library screens**: Inbox (accept, edit then accept, reject, before/after diff of proposals, bulk accept that skips untrusted sources unless you tick it, filter by bot), Activity (the last writes with a 7-day Undo that says why it is disabled), amber pending count on the title-bar tab, trust and status badges, and in-place editing of a note (title, type, tags, body) and of a link (relation, note) in the Lattice detail panel.
 - `PATCH /api/kg/edges/:id` to change a link's relation, note or weight (human only).
+- **BSV mode v1** (still knowledge only; see [docs/BSV-MODE.md](docs/BSV-MODE.md)): a truthful pack (pack version 2). Lessons about controls that do not exist yet (spend caps, approval broker, audit log and Freeze, native arming, the Legion-owned bsv tool, VM boundary) are marked `props.built:false`, start with "Design, not built in v0." and sit at confidence 0.6; the new `bsv-status-today` lesson says what BSV mode is today; the contradictory Update/Correction paragraphs are folded into their nodes; the new `bsv-wallet-choice` lesson records the wallet plan (BSV Desktop first, HandCash beta second, never a monthly limit or auto-pay, two-stage approval). `kg_recall` takes an optional `scope`, which also restricts the linked notes it pulls in. A pack upgrade that never overwrites human edits: the version is stored on the index node, every seeded node carries a `seedHash`, and the toggle (or **Load BSV pack**) adds missing nodes, updates untouched ones and reports `skippedEdited`. A tripwire test keeps wallet, key and network code out of `src/core/bsv` and every tool registration.
+
+
+### Fixed
+
+- The Assayer stayed reachable while BSV mode was off through `legion_run`, `legion_continue` and `legion_vm` (including `exec`), and the error text named it; the same lookup now refuses it as an unknown agent, and the HTTP routes that start a task or drive the VM of a hidden agent answer 404.
+- A plain re-seed of the BSV pack (the Lattice button, or toggling BSV off and on) overwrote human edits of pack nodes, and a human note written to scope `bsv` first stopped the pack from ever loading.
 
 ### Changed
 

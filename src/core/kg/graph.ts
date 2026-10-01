@@ -453,10 +453,12 @@ export class Graph {
   /**
    * Search top-k, expand one hop, rank, and return the entries (best first). Shared by recall() and the briefing.
    * An untrusted node can be a hit but never seeds the expansion, so a poisoned note cannot pull its neighbours in.
+   * With `scope`, the hits AND the neighbours pulled in through links are restricted to that one scope (visibility still applies:
+   * a hidden scope, such as bsv while BSV mode is off, or another bot's private scope, yields nothing).
    */
-  recallEntries(actor: Actor, query: string, opts: { includeInactive?: boolean } = {}): RecallEntry[] {
+  recallEntries(actor: Actor, query: string, opts: { includeInactive?: boolean; scope?: string } = {}): RecallEntry[] {
     const q = oneLine(query);
-    const seeds = this.search(actor, q, { limit: 5, includeInactive: opts.includeInactive });
+    const seeds = this.search(actor, q, { limit: 5, includeInactive: opts.includeInactive, scope: opts.scope });
     if (!seeds.length) return [];
     const seedIds = new Set(seeds.map((s) => s.node.id));
     const entries = new Map<string, RecallEntry>();
@@ -469,6 +471,7 @@ export class Graph {
         if (seedIds.has(other) || taken >= 6) continue;
         const on = this.nodes.get(other)!;
         if (isInactive(on) && !opts.includeInactive) continue;
+        if (opts.scope !== undefined && on.scope !== opts.scope) continue;
         const w = Math.min(1, Math.max(0.1, edge.weight ?? 1));
         const score = s.score * 0.5 * w * (effectiveTrust(on) === 'untrusted' ? 0.25 : 1);
         const cur = entries.get(other);
@@ -482,10 +485,10 @@ export class Graph {
   }
 
   /** Recall: the ranked entries as a compact outline within the budget. Untrusted nodes show only as "[untrusted lead]" with their id. */
-  recall(actor: Actor, query: string, opts: { budgetChars?: number; includeInactive?: boolean } = {}): RecallResult {
+  recall(actor: Actor, query: string, opts: { budgetChars?: number; includeInactive?: boolean; scope?: string } = {}): RecallResult {
     const budget = clampInt(opts.budgetChars, 120, KG_LIMITS.toolResultChars, 4_000);
     const q = oneLine(query);
-    const ranked = this.recallEntries(actor, q, { includeInactive: opts.includeInactive });
+    const ranked = this.recallEntries(actor, q, { includeInactive: opts.includeInactive, scope: opts.scope });
     if (!ranked.length) {
       const text = `No matching nodes in the knowledge graph for "${safeTitle(q).slice(0, 80)}". Proceed without it, and write what you learn with kg_capture (or kg_upsert_node) when it is durable.`;
       return { outline: text.slice(0, budget), nodeIds: [], truncated: false };

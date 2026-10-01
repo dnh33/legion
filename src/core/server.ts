@@ -170,6 +170,11 @@ export function createServer(ctx: CoreContext): Server {
 
   /** Agents gated behind an optional feature (the Assayer needs BSV mode) are hidden while it is off. Lookups by id still work. */
   const visible = (a: AgentProfile) => a.requires !== 'bsv' || ctx.bsvEnabled?.() === true;
+  /** Running or driving a hidden agent (starting a task, its VM, its desktop) is refused like an unknown id, so the HTTP API matches the MCP tools. Reading, editing and stopping stay possible. */
+  const mustBeRunnable = (agentId: string): void => {
+    const a = ctx.store.getAgent(agentId);
+    if (a && !visible(a)) throw new HttpError(404, `Unknown agent "${agentId}"`);
+  };
 
   // ---- read-only -------------------------------------------------------
   route('GET', '/api/state', ({ url }): StateSnapshot => ({
@@ -254,6 +259,7 @@ export function createServer(ctx: CoreContext): Server {
   route('POST', '/api/tasks', ({ body }) => {
     if (!isObj(body)) throw new HttpError(400, 'JSON object body required');
     const agentId = str(body.agentId, 'agentId', { required: true })!;
+    mustBeRunnable(agentId);
     const prompt = str(body.prompt, 'prompt', { required: true })!;
     const model = parseModel(body.model);
     const continueTaskId = str(body.continueTaskId, 'continueTaskId');
@@ -305,9 +311,10 @@ export function createServer(ctx: CoreContext): Server {
 
   // ---- vms -------------------------------------------------------------
   route('GET', '/api/vms', () => ctx.store.listVms());
-  route('POST', '/api/vms/:agentId/start', ({ params }) => ctx.vms.ensureRunning(params[0]));
+  route('POST', '/api/vms/:agentId/start', ({ params }) => { mustBeRunnable(params[0]); return ctx.vms.ensureRunning(params[0]); });
   route('POST', '/api/vms/:agentId/stop', ({ params }) => ctx.vms.stop(params[0]));
   route('POST', '/api/vms/:agentId/exec', ({ params, body }) => {
+    mustBeRunnable(params[0]);
     if (!isObj(body)) throw new HttpError(400, 'JSON object body required');
     const command = str(body.command, 'command', { required: true })!;
     const cwd = str(body.cwd, 'cwd');
@@ -318,8 +325,8 @@ export function createServer(ctx: CoreContext): Server {
     }
     return ctx.vms.exec(params[0], command, { cwd, timeoutSeconds });
   });
-  route('POST', '/api/vms/:agentId/desktop', async ({ params }) => ({ url: await ctx.vms.desktopUrl(params[0]) }));
-  route('GET', '/api/vms/:agentId/screenshot', ({ params }) => ctx.vms.screenshot(params[0]));
+  route('POST', '/api/vms/:agentId/desktop', async ({ params }) => { mustBeRunnable(params[0]); return { url: await ctx.vms.desktopUrl(params[0]) }; });
+  route('GET', '/api/vms/:agentId/screenshot', ({ params }) => { mustBeRunnable(params[0]); return ctx.vms.screenshot(params[0]); });
 
   // ---- approvals -------------------------------------------------------
   route('GET', '/api/approvals', () => ctx.approvals.pending());

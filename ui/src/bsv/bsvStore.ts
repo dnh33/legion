@@ -15,7 +15,7 @@ export interface BsvStatus {
   knowledgeLoaded: boolean;
   knowledgeNodes: number;
 }
-interface SeedResult { status: 'loaded' | 'already-loaded' | 'no-kg' | 'error'; nodes?: number; error?: string }
+interface SeedResult { status: 'loaded' | 'upgraded' | 'already-loaded' | 'no-kg' | 'error'; nodes?: number; error?: string }
 
 export interface BsvUiState extends BsvStatus {
   /** First /api/bsv answer has arrived. */

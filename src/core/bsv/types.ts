@@ -2,15 +2,22 @@
 
 export type BsvNetwork = 'testnet';
 
-export type BsvSeedStatus = 'loaded' | 'already-loaded' | 'no-kg' | 'error';
+export type BsvSeedStatus = 'loaded' | 'upgraded' | 'already-loaded' | 'no-kg' | 'error';
 
 export interface BsvSeedResult {
   status: BsvSeedStatus;
-  /** Visible bsv nodes after the call (loaded and already-loaded). */
+  /** Nodes in the bundled pack (loaded, upgraded and already-loaded). */
   nodes?: number;
   created?: number;
   updated?: number;
   edges?: number;
+  /** Pack version that was loaded before (0 = none) and the bundled one. */
+  from?: number;
+  to?: number;
+  /** Nodes that were not there (same as created). */
+  added?: number;
+  /** Nodes a human edited: the pack text for them was not applied. Present after a load or an upgrade. */
+  skippedEdited?: string[];
   error?: string;
 }
 

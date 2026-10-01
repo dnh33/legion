@@ -167,7 +167,7 @@ export class Engine {
 
   startTask(p: BridgeStartParams): Task {
     const agent = this.store.getAgent(p.agentId);
-    if (!agent) throw new EngineError(`Unknown agent: ${p.agentId}`, 404);
+    if (!agent || !this.bridge.isVisible(agent)) throw new EngineError(`Unknown agent: ${p.agentId}`, 404);
     const prompt = (p.prompt ?? '').trim();
     if (!prompt) throw new EngineError('Prompt is empty', 400);
 

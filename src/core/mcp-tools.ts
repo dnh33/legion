@@ -27,8 +27,12 @@ function safe<A>(fn: (a: A) => Promise<ToolResult> | ToolResult): (a: A) => Prom
   };
 }
 
+/** Agents switched off by an optional feature (the Assayer needs BSV mode) do not exist for MCP callers while it is off. */
+const agentVisible = (ctx: CoreContext, a: AgentProfile): boolean => a.requires !== 'bsv' || ctx.bsvEnabled?.() === true;
+const visibleAgents = (ctx: CoreContext): AgentProfile[] => ctx.store.listAgents().filter((a) => agentVisible(ctx, a));
+
 function findAgent(ctx: CoreContext, ref: string): AgentProfile | undefined {
-  const agents = ctx.store.listAgents();
+  const agents = visibleAgents(ctx);
   const r = ref.trim();
   return agents.find((a) => a.id === r) ?? agents.find((a) => a.id.toLowerCase() === r.toLowerCase() || a.name.toLowerCase() === r.toLowerCase());
 }
@@ -36,7 +40,7 @@ function findAgent(ctx: CoreContext, ref: string): AgentProfile | undefined {
 function needAgent(ctx: CoreContext, ref: string): AgentProfile {
   const a = findAgent(ctx, ref);
   if (!a) {
-    const names = ctx.store.listAgents().map((x) => `${x.id} (${x.name})`).join(', ');
+    const names = visibleAgents(ctx).map((x) => `${x.id} (${x.name})`).join(', ');
     throw new Error(`Unknown agent "${ref}". Available agents: ${names || 'none'}.`);
   }
   return a;
@@ -90,7 +94,7 @@ export function buildLegionMcpServer(ctx: CoreContext): McpServer {
       'directory and optionally its own on-demand cloud VM (boat.dev) for risky, long-running, GUI or browser work. ' +
       'Returns id, name, description, model, approval mode and current VM state for each. Call this first to learn which agent to hand work to with legion_run.',
     annotations: { readOnlyHint: true },
-  }, safe(async () => json(ctx.store.listAgents().filter((a) => a.requires !== 'bsv' || ctx.bsvEnabled?.() === true).map((a) => ({
+  }, safe(async () => json(visibleAgents(ctx).map((a) => ({
     id: a.id, name: a.name, emoji: a.emoji, description: a.description, model: a.model, approval: a.approval,
     vm: { enabled: a.vm.enabled, size: a.vm.size, state: safeVmState(ctx, a.id) },
   })))));
@@ -176,6 +180,9 @@ export function buildLegionMcpServer(ctx: CoreContext): McpServer {
   }, safe(async (a: { taskId: string; prompt: string; wait?: boolean; timeoutSeconds?: number }) => {
     const prev = ctx.store.getTask(a.taskId);
     if (!prev) return fail(`Unknown task "${a.taskId}". Use legion_recent_tasks to list tasks.`);
+    // a task of a hidden agent (the Assayer while BSV mode is off) cannot be resumed from here either
+    const prevAgent = ctx.store.getAgent(prev.agentId);
+    if (prevAgent && !agentVisible(ctx, prevAgent)) return fail(`Unknown task "${a.taskId}". Use legion_recent_tasks to list tasks.`);
     const t = ctx.engine.startTask({ agentId: prev.agentId, prompt: a.prompt, source: 'mcp', continueTaskId: prev.id });
     return runAndMaybeWait(ctx, t, a.wait ?? true, a.timeoutSeconds ?? 600);
   }));

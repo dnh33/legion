@@ -1,0 +1,482 @@
+{
+ "note": "Content hashes (title, body, tags, confidence, see seedContentHash in seed.ts) of every text that packs shipped before props.seedHash existed (pack version 1, git history of bsv.json up to the 155-node pack). An install from that time has no seedHash on its nodes; a node whose current text matches one of these was never edited by a human and may take the upgrade. Do not extend: version 2 and later packs store the hash on the node.",
+ "hashes": {
+  "bsv-curriculum-index": [
+   "b51a4f7f72e25b77"
+  ],
+  "bsv-mod-safety": [
+   "b5140cca7b944a37"
+  ],
+  "bsv-mod-foundations": [
+   "fbab83f596167209"
+  ],
+  "bsv-mod-wallets": [
+   "3c833e09ac74b061"
+  ],
+  "bsv-mod-network": [
+   "d297107e3cb75aff"
+  ],
+  "bsv-mod-ordinals": [
+   "b373259a54093f3b"
+  ],
+  "bsv-mod-identity": [
+   "2e82e31f3e7699fa"
+  ],
+  "bsv-mod-sdks": [
+   "2e25e59242c121d2"
+  ],
+  "bsv-mod-extras": [
+   "1ed95cbce5340e21"
+  ],
+  "bsv-safety-overview": [
+   "2ddfd9a15f290306"
+  ],
+  "bsv-safety-keys-never-in-legion": [
+   "fd7566df175c20bb"
+  ],
+  "bsv-safety-external-wallet": [
+   "d9e00733a41bf911"
+  ],
+  "bsv-safety-spend-caps-approval": [
+   "b5a1627185ad573c"
+  ],
+  "bsv-safety-untrusted-chain-data": [
+   "1fee7a974c5eaacd"
+  ],
+  "bsv-safety-no-blind-retries": [
+   "6d704a1ef19a8a8d"
+  ],
+  "bsv-safety-mainnet-armed-native": [
+   "f2578b02fc2d3dd1"
+  ],
+  "bsv-safety-testnet-default": [
+   "c8fb9c18f4cd3c12"
+  ],
+  "bsv-safety-dry-run-decode": [
+   "7c28a53aaec390d1"
+  ],
+  "bsv-safety-vm-boundary": [
+   "733adb379354c153"
+  ],
+  "bsv-safety-secret-scrubbing": [
+   "c7a71ca7531ce5af"
+  ],
+  "bsv-safety-audit-freeze": [
+   "6117854a8328727a"
+  ],
+  "bsv-safety-supply-chain": [
+   "98f68aa1b74d77c4"
+  ],
+  "bsv-safety-experimental-software": [
+   "17a7d6fefce16cc2"
+  ],
+  "bsv-safety-ordinal-burn": [
+   "53a7e5090bcbae7e"
+  ],
+  "bsv-antipattern-trust-chain-text": [
+   "55a6e85b4aa9f374"
+  ],
+  "bsv-orientation": [
+   "0df4d86e76365a99"
+  ],
+  "bsv-utxo-model": [
+   "f603353baa699712"
+  ],
+  "bsv-tx-anatomy": [
+   "7bd7481d6ed17e97"
+  ],
+  "bsv-script-basics": [
+   "8c19bf01a8efe5ea"
+  ],
+  "bsv-tx-fees": [
+   "ed61e2b2c8131cb5"
+  ],
+  "bsv-beef-spv": [
+   "3cae3768c0bad14b"
+  ],
+  "bsv-keys-derivation": [
+   "ec94a6c9a04cba4b"
+  ],
+  "bsv-bkds-brc42-43": [
+   "3576e54b52080a7b"
+  ],
+  "bsv-brc100-wallet": [
+   "a3471ed22e470e7c"
+  ],
+  "bsv-walletclient-calls": [
+   "89fe78cfa7a553e7"
+  ],
+  "bsv-baskets-labels": [
+   "92060eb11cb210ec"
+  ],
+  "bsv-wallet-toolbox": [
+   "89de61bf0efde59a"
+  ],
+  "bsv-desktop-wallet": [
+   "b19a321e53bf66c4"
+  ],
+  "bsv-archived-standalone-repos": [
+   "42b59f8f8d99eaf3"
+  ],
+  "bsv-arc-broadcast": [
+   "5bf017ac3512e44e"
+  ],
+  "bsv-chain-services": [
+   "2c7c719812a75b6b"
+  ],
+  "bsv-testnet-first": [
+   "abe163d794ee3e8c"
+  ],
+  "bsv-testnet-faucet": [
+   "b2a8b22bd388320e"
+  ],
+  "bsv-testnet-exercises": [
+   "b20aecd0d26175f6"
+  ],
+  "bsv-teranode-networks": [
+   "d1ea9fbcc8045560",
+   "7e757fe2e3e0f593",
+   "d67db3be50a8eb67"
+  ],
+  "bsv-1sat-ordinals": [
+   "919003e83b638bae"
+  ],
+  "bsv-inscription-envelope": [
+   "709ca042dcc60740"
+  ],
+  "bsv-ordfs": [
+   "7bd7bb9f7f67633d"
+  ],
+  "bsv-bsv20-bsv21": [
+   "07aff762a55ebae8"
+  ],
+  "bsv-ordlock-marketplace": [
+   "fc940d4292d7c83c"
+  ],
+  "bsv-map-metadata": [
+   "7d5bec37378cba56"
+  ],
+  "bsv-bap-identity": [
+   "868b4687848a1db9"
+  ],
+  "bsv-sigma-signing": [
+   "447e8307be0a13f4"
+  ],
+  "bsv-message-signing": [
+   "044fc5e125ef4158"
+  ],
+  "bsv-mutual-auth": [
+   "2c2bb698b5be6ea6",
+   "c252758e5c9579e2"
+  ],
+  "bsv-ts-stack": [
+   "d0e0fa919e412ed5"
+  ],
+  "bsv-sdk-ts": [
+   "0dfc63419325eba5"
+  ],
+  "bsv-simple-library": [
+   "baabbe25c6772c10",
+   "b2d0a4555b2a566c"
+  ],
+  "bsv-1sat-sdk": [
+   "cba23a6cfd15bc0d"
+  ],
+  "bsv-sdk-choice": [
+   "f8649950b1137f1f",
+   "78d6fb8389723715"
+  ],
+  "bsv-docs-hub": [
+   "6acc1a43f8038067"
+  ],
+  "bsv-simple-mcp": [
+   "9a9cdad043a3ba14"
+  ],
+  "bsv-brc-index": [
+   "f6339012839f3f5c"
+  ],
+  "bsv-community-bsv-mcp": [
+   "da8b59552671ec6d"
+  ],
+  "bsv-skills-plugins": [
+   "8277fc6bacdea61f"
+  ],
+  "bsv-assayer-playbook": [
+   "20e4e88c0475de8f"
+  ],
+  "bsv-402-payments": [
+   "d6778fd2837430ee",
+   "800769cb8fcc0215"
+  ],
+  "bsv-overlay-services": [
+   "0d7f9b8a1f107062",
+   "4a9de55056677f7b"
+  ],
+  "bsv-production-lessons": [
+   "8a546e2744545fd1"
+  ],
+  "bsv-sound-events": [
+   "156ed2c494c170a9"
+  ],
+  "bsv-sound-licence-hygiene": [
+   "6a7dd65dcb5bc80a"
+  ],
+  "bsv-src-docs-hub": [
+   "0929b000c2ac49fd"
+  ],
+  "bsv-src-ts-stack": [
+   "b70c6955bd64b0a3"
+  ],
+  "bsv-src-brcs": [
+   "f0dde8fc0d75a7ee"
+  ],
+  "bsv-src-wallet-toolbox-archive": [
+   "dfeffc270b9b9f07"
+  ],
+  "bsv-src-1sat-university": [
+   "cd797f4461aed131"
+  ],
+  "bsv-src-1sat-sdk": [
+   "55256ee88f8468bf"
+  ],
+  "bsv-src-1sat-docs": [
+   "27c1b5b5b256e078"
+  ],
+  "bsv-src-simple-mcp": [
+   "894d223b103f3c91"
+  ],
+  "bsv-src-bsv-skills": [
+   "fc28849ced9b1fe7"
+  ],
+  "bsv-src-agentcraft": [
+   "f965745b1f682aa1"
+  ],
+  "bsv-src-arc": [
+   "bfadefe2b3b3b9fb"
+  ],
+  "bsv-src-bap": [
+   "d4fa498bba4f2808"
+  ],
+  "bsv-src-legion-kit": [
+   "bd983a561e164bde"
+  ],
+  "bsv-brc62-beef-format": [
+   "42de0065d310db73"
+  ],
+  "bsv-brc74-bump": [
+   "b8340aaba8876300"
+  ],
+  "bsv-arc-api-reference": [
+   "c3137b6c6164df1e"
+  ],
+  "bsv-arc-status-handling": [
+   "f1ce9069e2272faa"
+  ],
+  "bsv-chronicle-upgrade": [
+   "f43d9c0d767941f8"
+  ],
+  "bsv-teranode-status-timeline": [
+   "51442f485ed67c24",
+   "5a032029586d6318"
+  ],
+  "bsv-brc-cheatsheet": [
+   "de94d4f442ba9f13"
+  ],
+  "bsv-brc-status-map": [
+   "396d72ee5fdd6d99"
+  ],
+  "bsv-beef-variants": [
+   "58774be328322088"
+  ],
+  "bsv-spv-verification-steps": [
+   "899c64f5918ae62f"
+  ],
+  "bsv-brc22-topic-managers": [
+   "cee094f3a57c7f35"
+  ],
+  "bsv-brc24-lookup-services": [
+   "08184ea971509fd5"
+  ],
+  "bsv-ship-slap-discovery": [
+   "4bd7507ed6050560"
+  ],
+  "bsv-overlay-express": [
+   "65b2dd16e9d9e983"
+  ],
+  "bsv-brc29-payments": [
+   "b0ffbfdc09dbf653"
+  ],
+  "bsv-pushdrop-template": [
+   "68811992c8e74631"
+  ],
+  "bsv-402-profiles": [
+   "65da0dc0af56cf0c",
+   "aea9bc58918f135c"
+  ],
+  "bsv-brc103-104-handshake": [
+   "808b5df8845a4a4f"
+  ],
+  "bsv-brc181-agent-spend-policy": [
+   "1b2c6369a55e9e9a"
+  ],
+  "bsv-ts-sdk-class-map": [
+   "f64d0f9a2a6ec88d"
+  ],
+  "bsv-overlay-engine-sdk": [
+   "755176e7e402ecde"
+  ],
+  "bsv-brc151-179-integration-risk": [
+   "ebfbd8cfee5ee15a"
+  ],
+  "bsv-teranode-architecture": [
+   "f9f96744e075676f",
+   "bbae96bb9083798d"
+  ],
+  "bsv-arcade-broadcaster": [
+   "f5cbedaa737dee94"
+  ],
+  "bsv-brc52-53-certificates": [
+   "596de609714d77ee"
+  ],
+  "bsv-brc116-wallet-permissions": [
+   "5b674cc29f0fafbb"
+  ],
+  "bsv-bsv21-specs": [
+   "05457c64c5408d17"
+  ],
+  "bsv-1sat-brc-family": [
+   "8793a0dda4d891ae"
+  ],
+  "bsv-kvstore-history-uhrp": [
+   "b28342fa4f99946f"
+  ],
+  "bsv-chain-facts-fees": [
+   "31e9f984373c4aa1"
+  ],
+  "bsv-ts-stack-package-map": [
+   "570a06c977db1ef3",
+   "117c71ffeac6d80e"
+  ],
+  "bsv-wallet-crypto-formats": [
+   "a0cfeb56e7c440d7"
+  ],
+  "bsv-brc69-key-linkage": [
+   "c35ba1824fe14263"
+  ],
+  "bsv-other-language-sdks": [
+   "e7d77cc75f119057",
+   "db0a49f0e50abff1"
+  ],
+  "bsv-push-tx-covenants": [
+   "13d01788125d4825"
+  ],
+  "bsv-contract-options-map": [
+   "cc60c7cb8d589170"
+  ],
+  "bsv-mnee-stablecoin": [
+   "71a9f9bbf1628fec"
+  ],
+  "bsv-gasp-basm-sync": [
+   "97677ba0e920d631"
+  ],
+  "bsv-brc140-shamir-backup": [
+   "99a2eba3e7284901"
+  ],
+  "bsv-src-teranode": [
+   "213a5d30ad6a66e8"
+  ],
+  "bsv-src-ts-stack-deepwiki": [
+   "9e44ebace9dcfea2"
+  ],
+  "bsv-ts-stack-facts-2026-10": [
+   "4ab169e149f63f71"
+  ],
+  "bsv-ts-stack-legion-usage-map": [
+   "62c4e37b06623fa5"
+  ],
+  "bsv-ts-stack-layering-rule": [
+   "eb1dfbac967470a3"
+  ],
+  "bsv-ts-stack-conformance": [
+   "d51bd305253f6d0c"
+  ],
+  "bsv-message-box-client": [
+   "c2cc98e4e33ece1e"
+  ],
+  "bsv-auth-express-middleware": [
+   "030bd832add0064a"
+  ],
+  "bsv-402-pay-package": [
+   "8eba88c7e2827283"
+  ],
+  "bsv-ts-stack-overlay-packages": [
+   "8d9eb79bfe383006"
+  ],
+  "bsv-wallet-relay-pairing": [
+   "b387bf8df5709961"
+  ],
+  "bsv-create-bsv-app-and-simple": [
+   "8a9b2a64a6aff40e"
+  ],
+  "bsv-did-package": [
+   "b74b17c3d3f47bd8"
+  ],
+  "bsv-safety-ts-stack-server-keys": [
+   "bb39b0a5763ce5cb"
+  ],
+  "bsv-src-batch3-repos": [
+   "87674901d27d903e"
+  ],
+  "bsv-skills-center-repo": [
+   "9ace5586573c84af"
+  ],
+  "bsv-mockchain-offline-stack": [
+   "6a69499a8b358196"
+  ],
+  "bsv-chronicle-primary-notes": [
+   "d48978749c929de4"
+  ],
+  "bsv-claude-agents-repo": [
+   "1aed375c63a876e4"
+  ],
+  "bsv-safety-copy-no-key-samples": [
+   "81bd0a11a6885d92"
+  ],
+  "bsv-safety-agent-installers": [
+   "aa868fb92b098283"
+  ],
+  "bsv-assayer-borrow-from-expert-agents": [
+   "273f7c27215720a6"
+  ],
+  "bsv-go-wallet-toolbox": [
+   "9514bce7b7d08fdc"
+  ],
+  "bsv-go-wallet-toolbox-gaps": [
+   "2b49ad1c4b765423"
+  ],
+  "bsv-wallet-toolbox-architecture": [
+   "0b7bb1fffbb180af"
+  ],
+  "bsv-wallet-results-delayed-broadcast": [
+   "2ecb0e41c862824d"
+  ],
+  "bsv-desktop-toolbox-wiring": [
+   "9bb16841567c1224"
+  ],
+  "bsv-teranode-service-map": [
+   "b5b733e4773428e9"
+  ],
+  "bsv-teranode-stores-kafka-deploy": [
+   "4872191abb6fed6b"
+  ],
+  "bsv-teranode-claims-vs-architecture": [
+   "c32c3f9d1f529385"
+  ],
+  "bsv-teranode-release-licence-networks": [
+   "02c887bc33fa0d30"
+  ],
+  "bsv-teranode-alert-freeze": [
+   "ac52480629fd02ad"
+  ]
+ }
+}

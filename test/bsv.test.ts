@@ -278,3 +278,74 @@ test('the module has no mcp servers of its own (no tools, no wallet)', async () 
   s.state.set(true);
   assert.equal(s.bsv.mcpServers, undefined);
 });
+
+// ---------------------------------------------------------------- BSV mode v1: the hidden Assayer stays hidden for every way of running it
+
+async function mcpClient(s: Awaited<ReturnType<typeof setup>>): Promise<(name: string, args: Record<string, unknown>) => Promise<{ text: string; isError: boolean }>> {
+  const client = new Client({ name: 'test', version: '0' });
+  await client.connect(new StreamableHTTPClientTransport(new URL(s.srv.base + '/mcp'), { requestInit: { headers: { Authorization: `Bearer ${TOKEN}` } } }));
+  closers.push(() => client.close());
+  return async (name, args) => {
+    const r: any = await client.callTool({ name, arguments: args });
+    return { text: r.content.map((c: any) => c.text).join('\n'), isError: r.isError === true };
+  };
+}
+
+test('hidden Assayer: legion_run, legion_continue and legion_vm (exec included) say Unknown agent while BSV is off, and the message does not name it; BSV on works', async () => {
+  const s = await setup();
+  const call = await mcpClient(s);
+  // a finished Assayer task from an earlier "on" period, to try to continue
+  await s.call('POST', '/api/bsv', { enabled: true });
+  const first = await call('legion_run', { agent: 'assayer', prompt: 'explain utxos' });
+  assert.equal(first.isError, false, first.text);
+  assert.match(first.text, /echo: explain utxos/);
+  const taskId = /"taskId":\s*"(task_\d+)"/.exec(first.text)![1]!;
+  assert.equal((await call('legion_vm', { agent: 'Assayer', action: 'exec', command: 'echo hi' })).isError, false, 'BSV on: exec reaches the Assayer VM');
+  assert.equal((await call('legion_continue', { taskId, prompt: 'more' })).isError, false);
+
+  await s.call('POST', '/api/bsv', { enabled: false });
+  const calls: Array<[string, Record<string, unknown>]> = [
+    ['legion_run', { agent: 'assayer', prompt: 'x' }],
+    ['legion_run', { agent: 'ASSAYER', prompt: 'x' }],
+    ['legion_run', { agent: 'Assayer', prompt: 'x', wait: false }],
+    ['legion_vm', { agent: 'assayer', action: 'status' }],
+    ['legion_vm', { agent: 'assayer', action: 'start' }],
+    ['legion_vm', { agent: 'assayer', action: 'exec', command: 'echo hi' }],
+    ['legion_vm', { agent: 'assayer', action: 'desktop' }],
+  ];
+  for (const [name, args] of calls) {
+    const r = await call(name, args);
+    assert.equal(r.isError, true, `${name} ${JSON.stringify(args)}`);
+    assert.match(r.text, /Unknown agent "[^"]*"/i, name);
+    assert.match(r.text, /Available agents: zealot \(Zealot\), scout \(Scout\)\./, 'the list omits the Assayer');
+    assert.doesNotMatch(r.text.replace(/Unknown agent "[^"]*"/i, ''), /assayer/i, `${name}: the message must not name the Assayer`);
+  }
+  const cont = await call('legion_continue', { taskId, prompt: 'more' });
+  assert.equal(cont.isError, true);
+  assert.match(cont.text, /Unknown task/);
+  assert.doesNotMatch(cont.text, /assayer/i);
+  // other agents are unaffected
+  assert.equal((await call('legion_run', { agent: 'scout', prompt: 'hi' })).isError, false);
+  assert.equal((await call('legion_vm', { agent: 'scout', action: 'status' })).isError, false);
+
+  await s.call('POST', '/api/bsv', { enabled: true });
+  assert.equal((await call('legion_run', { agent: 'assayer', prompt: 'back again' })).isError, false, 'BSV on again');
+});
+
+test('hidden Assayer over HTTP: starting a task, its VM, exec and desktop are refused while BSV is off; reading, editing and stopping still work', async () => {
+  const s = await setup();
+  const off = [
+    await s.call('POST', '/api/tasks', { agentId: 'assayer', prompt: 'x' }),
+    await s.call('POST', '/api/vms/assayer/start'),
+    await s.call('POST', '/api/vms/assayer/exec', { command: 'echo hi' }),
+    await s.call('POST', '/api/vms/assayer/desktop'),
+    await s.call('GET', '/api/vms/assayer/screenshot'),
+  ];
+  for (const r of off) assert.equal(r.status, 404, JSON.stringify(r.body));
+  assert.equal((await s.call('POST', '/api/vms/assayer/stop')).status, 200, 'a running VM can still be stopped');
+  assert.equal((await s.call('PATCH', '/api/agents/assayer', { description: 'tuned while hidden' })).status, 200);
+  assert.equal((await s.call('POST', '/api/tasks', { agentId: 'scout', prompt: 'x' })).status, 201);
+  await s.call('POST', '/api/bsv', { enabled: true });
+  assert.equal((await s.call('POST', '/api/tasks', { agentId: 'assayer', prompt: 'x' })).status, 201);
+  assert.equal((await s.call('POST', '/api/vms/assayer/exec', { command: 'echo hi' })).status, 200);
+});

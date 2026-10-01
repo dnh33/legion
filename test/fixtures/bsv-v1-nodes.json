@@ -1,0 +1,88 @@
+{
+ "note": "Three nodes exactly as the version-1 pack (git 101b7eb) shipped them: used to test the upgrade of an install that predates props.seedHash.",
+ "nodes": [
+  {
+   "id": "bsv-curriculum-index",
+   "type": "concept",
+   "title": "BSV knowledge pack: curriculum map",
+   "body": "Start here. This pack is a lesson-style curriculum for building on the BSV blockchain, written for the Assayer and for anyone using Legion in BSV mode. Eight modules run in a loose order: safety first (required before any wallet, signing or broadcast tool), foundations (UTXOs, transactions, fees, keys), wallets and BRC-100, network and testnet practice, 1Sat ordinals and tokens, identity, SDKs and tooling, and extras (payments, production, agent sounds). Lessons link with depends_on prerequisites, source nodes carry licence notes, and every lesson that touches real funds ends with a checkable exercise that runs on testnet only. Nothing here is financial advice, and ecosystem facts move quickly: where a lesson says verify at build time, check the live source before acting. Attribution: curriculum structure adapted from 1Sat University by b-open-io (https://github.com/b-open-io/1sat-university), licensed CC BY 4.0. This text is rewritten and changes were made.",
+   "tags": [
+    "bsv",
+    "index",
+    "curriculum"
+   ],
+   "scope": "bsv",
+   "props": {
+    "module": "index",
+    "order": 0
+   },
+   "sources": [
+    {
+     "ref": "https://github.com/b-open-io/1sat-university",
+     "licence": "CC BY 4.0"
+    },
+    {
+     "ref": "legion-specs/legion-bsv-kit.md",
+     "licence": "Project-internal design document (Legion owner)"
+    }
+   ],
+   "confidence": 0.85,
+   "createdBy": "system",
+   "createdAt": "2026-10-01T00:00:00.000Z",
+   "updatedAt": "2026-10-01T00:00:00.000Z"
+  },
+  {
+   "id": "bsv-safety-spend-caps-approval",
+   "type": "lesson",
+   "title": "Spend caps and manual approval inside the tool handler",
+   "body": "Every spend, sign or broadcast needs a human decision, with no always-allow option. The approval is awaited inside the tool handler through the approval broker, not through a permission callback that some run modes skip, and a pre-tool hook adds defence in depth (confirm against the SDK that hooks still run in bypass mode). The card shows the decoded transaction: outputs, amounts in BSV and satoshis, fee, change, recipient, which agent and task, and why. Caps apply per transaction, per session and per rolling 24 hours, with a recipient allowlist, maximum outputs and a fee ceiling; defaults are tiny. A short timeout denies by default. Only the owner changes these limits.",
+   "tags": [
+    "bsv",
+    "safety",
+    "approval",
+    "caps"
+   ],
+   "scope": "bsv",
+   "props": {
+    "module": "safety",
+    "order": 12
+   },
+   "sources": [
+    {
+     "ref": "legion-specs/legion-bsv-kit.md",
+     "licence": "Project-internal design document (Legion owner)"
+    }
+   ],
+   "confidence": 0.9,
+   "createdBy": "system",
+   "createdAt": "2026-10-01T00:00:00.000Z",
+   "updatedAt": "2026-10-01T00:00:00.000Z"
+  },
+  {
+   "id": "bsv-teranode-networks",
+   "type": "concept",
+   "title": "Teranode and network changes",
+   "body": "Teranode is the BSV Association node architecture built from microservices that scale horizontally, intended to raise throughput well beyond the monolithic node. Public statements cite very high testnet throughput, but those are claims. For developers the practical point is that networks, testnets and protocol rules change with upgrades, so a tutorial that worked last year may fail today. Check the BSV hub for the current network environments, node software notes and any opcode or sighash changes before relying on older instructions. **Verify at build time:** current node software, testnet environment and upgrade schedule; a third-party site mentioned a 2026 protocol upgrade that we did not confirm. **Update (2026-10-01):** the Chronicle protocol upgrade activated on 7 April 2026 at block 943,816 (restored opcodes, relaxed malleability rules for transaction version above 1, a 0x20 sighash flag, 32 MB script numbers; press-sourced, confirm against the node release notes). Teranode itself went source-available on 14 October 2025 and was at v0.15.3 (pre-1.0) in July 2026. See the Chronicle, Teranode and ARC nodes.\n\nCorrection (2026-10-01): latest tag v0.15.9 (2026-09-16), OBSL v6.",
+   "tags": [
+    "bsv",
+    "teranode",
+    "network"
+   ],
+   "scope": "bsv",
+   "props": {
+    "module": "network",
+    "order": 44
+   },
+   "sources": [
+    {
+     "ref": "https://docs.bsvblockchain.org/",
+     "licence": "unverified (check site terms before copying anything)"
+    }
+   ],
+   "confidence": 0.65,
+   "createdBy": "system",
+   "createdAt": "2026-10-01T00:00:00.000Z",
+   "updatedAt": "2026-10-01T00:00:00.000Z"
+  }
+ ]
+}

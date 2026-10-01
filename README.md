@@ -185,6 +185,10 @@ The data directory holds `config.json`, `state.json`, `messages/`, `workspaces/<
 
 On macOS, use `Cmd` in place of `Ctrl`.
 
+## BSV mode
+
+An optional toggle (off by default, testnet only) that shows the Assayer bot and loads a read-only BSV knowledge pack into the Lattice. It is knowledge only: there is no wallet, no key handling, no signing and no chain or wallet network call. [docs/BSV-MODE.md](docs/BSV-MODE.md) says exactly what it holds, what it does not do, and which lessons describe design that is not built yet.
+
 ## The mascot
 
 The Relic is a single hand-painted SVG, split into layers and animated by a small engine. It leans in while you type, thinks, hacks, waits for your approval, celebrates, winces at errors, and sleeps when nothing happens. You can try every expression in the [Expression Lab](docs/demo/relic-lab.html) (download it and open it in a browser, or use the in-app lab). Want to add your own character? The layer format is documented in the [mascot contract](docs/art/MASCOT_CONTRACT.md).
@@ -215,7 +219,7 @@ ui/           Vite + React renderer, mascot engine, bundled fonts
   dev/        mock server and screenshot scripts
 test/         node:test suites
 scripts/      Windows installer, icon and mascot builders, MCP config printer
-docs/         architecture, mascot art and contract, expression lab, README images
+docs/         architecture, BSV mode, mascot art and contract, expression lab, README images
 assets/       app icon, tray icons, splash
 ```
 

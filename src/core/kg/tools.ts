@@ -74,8 +74,9 @@ export function buildKgToolsServer(graph: Graph, agentId: string, run: RunContex
       query: z.string().min(1).max(500).describe('Natural-language topic, names or keywords.'),
       budgetChars: z.number().int().min(120).max(KG_LIMITS.toolResultChars).optional().describe('Max size of the outline (default 4000).'),
       includeInactive: z.boolean().optional().describe('Also show superseded or archived notes (marked, ranked low). Default false: only live notes.'),
+      scope: z.enum(['shared', 'private', 'bsv']).optional().describe('Look only in this scope, linked notes included (e.g. bsv for the BSV curriculum, so shared notes cannot compete with it). Default: every scope you may see.'),
     },
-    safe(async (a: { query: string; budgetChars?: number; includeInactive?: boolean }) => ok(graph.recall(me, a.query, { budgetChars: a.budgetChars, includeInactive: a.includeInactive }).outline)),
+    safe(async (a: { query: string; budgetChars?: number; includeInactive?: boolean; scope?: string }) => ok(graph.recall(me, a.query, { budgetChars: a.budgetChars, includeInactive: a.includeInactive, scope: scopeFor(a.scope) }).outline)),
     { annotations: { readOnlyHint: true } },
   );
 

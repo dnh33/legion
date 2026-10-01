@@ -19,7 +19,7 @@ export const ASSAYER_ID = 'assayer';
 /** Exactly four lines, appended only for the Assayer and only while BSV mode is on. */
 export const BSV_PREAMBLE = [
   'BSV mode is on and the network is testnet.',
-  'You have no wallet tools in this version: you can explain and draft, but nothing here can sign, send or hold funds.',
+  'You have no wallet tools in this version: you can explain and draft, but nothing here can sign, send or hold funds. Lessons marked "Design, not built in v0" describe controls that do not exist yet.',
   'Use the knowledge graph for BSV lessons: call mcp__legion_kg__kg_recall with scope bsv before answering from recall.',
   'Never ask the user for keys, seed phrases or wallet secrets, and tell them not to paste any into chat.',
 ].join('\n');
@@ -59,14 +59,16 @@ export function createBsvModule(deps: ModuleDeps, opts: BsvModuleOptions = {}): 
     };
   }
 
-  /** Loads the bundled pack unless bsv nodes are already there. Never throws: a missing pack must not block the toggle. */
+  /**
+   * Loads or upgrades the bundled pack through the kg seed route, which decides by the index node's recorded pack version (not by
+   * "any bsv node exists", so a human note in scope bsv cannot block seeding). Human edits are never overwritten.
+   * Never throws: a missing pack must not block the toggle.
+   */
   async function ensureSeed(): Promise<BsvSeedResult> {
     if (!kgHandlers.size) return { status: 'no-kg' };
     try {
-      const have = await bsvNodes();
-      if (have > 0) return { status: 'already-loaded', nodes: have };
-      const r = await kgCall('POST', '/api/kg/seed/bsv');
-      return { status: 'loaded', nodes: r.nodes, created: r.created, updated: r.updated, edges: r.edges };
+      const { ok: _ok, ...result } = await kgCall('POST', '/api/kg/seed/bsv');
+      return result as BsvSeedResult;
     } catch (e) {
       return { status: 'error', error: e instanceof Error ? e.message : String(e) };
     }

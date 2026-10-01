@@ -13,7 +13,7 @@ const ids = new Set(seed.nodes.map((n) => n.id));
 const words = (s: string) => s.trim().split(/\s+/).length;
 
 test('bsv seed parses with the expected envelope and size', () => {
-  assert.equal(seed.version, 1);
+  assert.equal(seed.version, 2);
   assert.ok(!Number.isNaN(Date.parse(seed.generatedAt)));
   assert.ok(Array.isArray(seed.nodes) && Array.isArray(seed.edges));
   assert.ok(seed.nodes.length >= 45 && seed.nodes.length <= 220, `node count ${seed.nodes.length}`);
@@ -158,4 +158,82 @@ test('supersedes and contradicts edges are used, and the bodies contain no key-l
     assert.ok(!wif.test(n.body), `${n.id} contains a WIF-like string`);
     assert.ok(!/BEGIN (?:RSA |EC )?PRIVATE KEY/.test(n.body), `${n.id} contains a PEM key`);
   }
+});
+
+// ---------------------------------------------------------------- BSV mode v1: a truthful pack
+
+const MARKER = 'Design, not built in v0.';
+const byIdMap = new Map(seed.nodes.map((n) => [n.id, n]));
+
+test('truthful pack: every built:false node starts with the design marker, has confidence 0.6, and the set is not empty', () => {
+  const design = seed.nodes.filter((n) => n.props?.built === false);
+  assert.ok(design.length >= 12, `only ${design.length} design nodes`);
+  for (const n of design) {
+    assert.ok(n.body.startsWith(MARKER), `${n.id} is built:false but does not start with the marker`);
+    assert.equal(n.confidence, 0.6, `${n.id} confidence`);
+  }
+  // and the other way round: the marker is only ever used together with built:false
+  for (const n of seed.nodes.filter((x) => x.body.startsWith(MARKER))) assert.equal(n.props?.built, false, `${n.id} has the marker but not built:false`);
+  // the controls that do not exist today are all marked
+  for (const id of ['bsv-safety-spend-caps-approval', 'bsv-safety-audit-freeze', 'bsv-safety-mainnet-armed-native', 'bsv-safety-external-wallet',
+    'bsv-safety-vm-boundary', 'bsv-safety-overview', 'bsv-safety-untrusted-chain-data', 'bsv-mod-safety', 'bsv-mod-wallets', 'bsv-desktop-wallet', 'bsv-src-legion-kit', 'bsv-wallet-choice']) {
+    assert.equal(byIdMap.get(id)!.props?.built, false, `${id} must be marked built:false`);
+  }
+});
+
+test('truthful pack: no body claims a control that does not exist (one-click Freeze, "the owner has", "is awaited inside")', () => {
+  for (const n of seed.nodes) assert.doesNotMatch(n.body, /one-click Freeze|owner has|is awaited inside/, n.id);
+});
+
+test('truthful pack: a node that is not marked as design never describes a missing control as present', () => {
+  // Phrases that only make sense for the wallet phase. They may appear in design nodes and in the status node (which says they do not exist).
+  const unbuilt = /approval card|plan card|spend card|approval broker|one-click|Freeze control|armed network|Arm mainnet action|native confirmation|per-session|rolling 24|Legion-owned|bsv wrapper|release gate|tool handler|Only the Assayer gets/i;
+  for (const n of seed.nodes) {
+    if (n.props?.built === false || n.id === 'bsv-status-today') continue;
+    assert.doesNotMatch(n.body, unbuilt, `${n.id} describes an unbuilt control without the design marker`);
+  }
+});
+
+test('status node: says what BSV mode is today, is reachable from the index, every hub and the orientation lesson', () => {
+  const s = byIdMap.get('bsv-status-today');
+  assert.ok(s, 'bsv-status-today exists');
+  assert.equal(s!.type, 'lesson');
+  assert.notEqual(s!.props?.built, false, 'the status node is the truth, not a design');
+  for (const phrase of [/testnet only/i, /knowledge only|read-only knowledge pack/i, /no wallet/, /no spend caps/, /no Freeze/, /no approval card/, /answer-only/, /Bots cannot edit this pack/]) assert.match(s!.body, phrase);
+  const rel = (from: string, to: string, rels = ['relates', 'part_of', 'depends_on']) => seed.edges.some((e) => e.from === from && e.to === to && rels.includes(e.rel));
+  assert.ok(rel('bsv-curriculum-index', 'bsv-status-today'), 'index links to it');
+  for (const hub of ['safety', 'foundations', 'wallets', 'network', 'ordinals', 'identity', 'sdks', 'extras']) assert.ok(rel(`bsv-mod-${hub}`, 'bsv-status-today'), `hub ${hub} links to it`);
+  assert.ok(rel('bsv-status-today', 'bsv-orientation', ['depends_on']), 'it is a lesson downstream of orientation');
+  assert.match(byIdMap.get('bsv-curriculum-index')!.body, /bsv-status-today/);
+});
+
+test('folded notes: no Update/Correction/Addendum paragraph markers are left in any body', () => {
+  for (const n of seed.nodes) assert.doesNotMatch(n.body, /Update \(|Correction \(|Addendum \(|Update\/Correction/, n.id);
+});
+
+test('folded notes: a node never says both unconfirmed and activated about Chronicle (teranode-networks, chronicle-upgrade, timeline)', () => {
+  for (const id of ['bsv-teranode-networks', 'bsv-chronicle-upgrade', 'bsv-teranode-status-timeline']) {
+    const b = byIdMap.get(id)!.body;
+    assert.doesNotMatch(b, /did not confirm|could not confirm/i, id);
+    assert.match(b, /press/i, `${id} keeps the honest status: activation is press-sourced`);
+  }
+  assert.match(byIdMap.get('bsv-teranode-networks')!.body, /Association's own release page confirms/);
+  assert.match(byIdMap.get('bsv-chronicle-upgrade')!.body, /Association's own release page/);
+  assert.doesNotMatch(byIdMap.get('bsv-chronicle-upgrade')!.body, /secondary press only/);
+  assert.doesNotMatch(byIdMap.get('bsv-teranode-status-timeline')!.body, /Chronicle upgrade activated in April/);
+});
+
+test('wallet-choice node: the plan, the red flags and the never-list, as a design lesson wired into the safety and wallet nodes', () => {
+  const w = byIdMap.get('bsv-wallet-choice')!;
+  assert.ok(w, 'bsv-wallet-choice exists');
+  assert.equal(w.props?.built, false);
+  assert.equal(w.confidence, 0.6);
+  for (const phrase of [/BSV Desktop first/, /HandCash BRC wallet second/, /beta/, /BSV Browser later/, /Yours Wallet/, /Panda/, /Metanet Desktop/, /bsv-mcp/, /never grant a monthly limit or auto-pay/,
+    /originator legion\.local/, /@bsv\/sdk WalletClient only, not wallet-toolbox/, /3321/, /self-declared/, /indefinitely/, /10 USD per 24 hours/, /two-stage/, /Legion's card first, then the wallet's own prompt/]) assert.match(w.body, phrase);
+  const out = seed.edges.filter((e) => e.from === w.id);
+  assert.ok(out.some((e) => e.rel === 'depends_on' && e.to === 'bsv-safety-external-wallet'));
+  assert.ok(out.some((e) => e.rel === 'relates' && e.to === 'bsv-desktop-wallet' && e.note === 'protects'));
+  assert.ok(out.some((e) => e.rel === 'part_of' && e.to === 'bsv-mod-wallets'));
+  assert.ok(out.some((e) => e.rel === 'part_of' && e.to === 'bsv-mod-safety'));
+  assert.ok(out.some((e) => e.rel === 'cites'));
 });
