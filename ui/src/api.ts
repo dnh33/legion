@@ -103,19 +103,34 @@ export const api = {
 
 export type ConnStatus = 'connecting' | 'online' | 'offline';
 
-/** SSE subscription with exponential backoff reconnect. Returns an unsubscribe fn. */
-export function subscribe(onEvent: (e: LegionEvent) => void, onStatus: (s: ConnStatus) => void): () => void {
-  let es: EventSource | null = null;
-  let ac: AbortController | null = null;
-  let closed = false;
-  let attempt = 0;
-  let timer: number | undefined;
+interface Listener { onEvent: (e: LegionEvent) => void; onStatus: (s: ConnStatus) => void }
+const listeners = new Set<Listener>();
+let status: ConnStatus = 'connecting';
+/** Bumped on every start/stop of the shared stream so a late callback of an old connection can never touch the new one. */
+let gen = 0;
+let es: EventSource | null = null;
+let ac: AbortController | null = null;
+let attempt = 0;
+let retryTimer: number | undefined;
+
+function setStatus(s: ConnStatus) {
+  status = s;
+  for (const l of [...listeners]) { try { l.onStatus(s); } catch { /* a listener must not break the others */ } }
+}
+function dispatch(e: LegionEvent) {
+  for (const l of [...listeners]) { try { l.onEvent(e); } catch { /* ignore a throwing listener */ } }
+}
+
+function startShared() {
+  const my = ++gen;
+  attempt = 0;
+  const live = () => my === gen;
 
   const retry = () => {
-    if (closed) return;
-    onStatus('offline');
+    if (!live()) return;
+    setStatus('offline');
     const delay = Math.min(10000, 500 * 2 ** attempt++);
-    timer = window.setTimeout(connect, delay);
+    retryTimer = window.setTimeout(connect, delay);
   };
 
   /**
@@ -124,12 +139,14 @@ export function subscribe(onEvent: (e: LegionEvent) => void, onStatus: (s: ConnS
    * (the MCP-class token: it gets the task, agent and approval events but none of the admin-only ones).
    */
   const connectFetch = () => {
-    ac = new AbortController();
+    const ctl = new AbortController();
+    ac = ctl;
     void (async () => {
       try {
-        const res = await fetch(`${base}/api/events`, { headers: authHeaders(), signal: ac!.signal });
+        const res = await fetch(`${base}/api/events`, { headers: authHeaders(), signal: ctl.signal });
         if (!res.ok || !res.body) throw new Error(String(res.status));
-        attempt = 0; onStatus('online');
+        if (!live()) return;
+        attempt = 0; setStatus('online');
         const rd = res.body.getReader();
         const dec = new TextDecoder();
         let buf = '';
@@ -142,7 +159,9 @@ export function subscribe(onEvent: (e: LegionEvent) => void, onStatus: (s: ConnS
             const chunk = buf.slice(0, i); buf = buf.slice(i + 2);
             const line = chunk.split('\n').find((l) => l.startsWith('data:'));
             if (!line) continue;
-            try { onEvent(JSON.parse(line.slice(5).trim()) as LegionEvent); } catch { /* ignore malformed */ }
+            let ev: LegionEvent;
+            try { ev = JSON.parse(line.slice(5).trim()) as LegionEvent; } catch { continue; /* ignore malformed */ }
+            dispatch(ev);
           }
         }
       } catch { /* aborted or dropped: retry below */ }
@@ -151,16 +170,43 @@ export function subscribe(onEvent: (e: LegionEvent) => void, onStatus: (s: ConnS
   };
 
   const connect = () => {
-    if (closed) return;
-    onStatus(attempt === 0 ? 'connecting' : 'offline');
+    if (!live()) return;
+    setStatus(attempt === 0 ? 'connecting' : 'offline');
     if (adminKey) { connectFetch(); return; }
-    es = new EventSource(`${base}/api/events?token=${encodeURIComponent(token)}`);
-    es.onopen = () => { attempt = 0; onStatus('online'); };
-    es.onmessage = (m) => {
-      try { onEvent(JSON.parse(m.data) as LegionEvent); } catch { /* ignore malformed */ }
+    const src = new EventSource(`${base}/api/events?token=${encodeURIComponent(token)}`);
+    es = src;
+    src.onopen = () => { if (!live()) return; attempt = 0; setStatus('online'); };
+    src.onmessage = (m) => {
+      let ev: LegionEvent;
+      try { ev = JSON.parse(m.data) as LegionEvent; } catch { return; /* ignore malformed */ }
+      if (live()) dispatch(ev);
     };
-    es.onerror = () => { es?.close(); es = null; retry(); };
+    src.onerror = () => { src.close(); if (es === src) es = null; retry(); };
   };
   connect();
-  return () => { closed = true; es?.close(); ac?.abort(); if (timer) clearTimeout(timer); };
+}
+
+function stopShared() {
+  gen++;
+  es?.close(); es = null;
+  ac?.abort(); ac = null;
+  if (retryTimer) { clearTimeout(retryTimer); retryTimer = undefined; }
+  status = 'connecting';
+}
+
+/**
+ * SSE subscription with exponential backoff reconnect. Returns an unsubscribe fn.
+ * Every caller shares ONE connection to the core (reference counted, opened by the first subscriber and closed with the last), and each
+ * event is parsed once. Chromium allows 6 connections per host: with one stream per store (5 with the Lattice open) a single slow API call
+ * left every other request waiting for the last socket. A caller that joins a stream that is already up gets the current status at once.
+ */
+export function subscribe(onEvent: (e: LegionEvent) => void, onStatus: (s: ConnStatus) => void): () => void {
+  const l: Listener = { onEvent, onStatus };
+  listeners.add(l);
+  if (listeners.size === 1) startShared();
+  else { try { onStatus(status); } catch { /* ignore */ } }
+  return () => {
+    if (!listeners.delete(l)) return;
+    if (listeners.size === 0) stopShared();
+  };
 }

@@ -30,6 +30,7 @@ export async function startEnv({ ui, repo, port = 48100, home = `/tmp/m/u-home-$
   const sse = new Set(); const stats = { sseOpened: 0, apiCalls: {} };
   const proxy = http.createServer((req, res) => {
     if (req.url === '/__stat') { res.end(JSON.stringify({ sse: sse.size, ...stats })); return; }
+    if (req.url === '/__dropsse') { for (const r of [...sse]) r.destroy(); res.end('ok'); return; }
     if (req.url === '/__emit' && req.method === 'POST') {
       let b = ''; req.on('data', (c) => (b += c)); req.on('end', () => { for (const e of [].concat(JSON.parse(b))) for (const r of sse) r.write(`data: ${JSON.stringify(e)}\n\n`); res.end('ok'); }); return;
     }
@@ -37,7 +38,7 @@ export async function startEnv({ ui, repo, port = 48100, home = `/tmp/m/u-home-$
     const h = { ...req.headers }; delete h.host;
     const pr = http.request({ host: '127.0.0.1', port: up, path: req.url, method: req.method, headers: h }, (ur) => {
       res.writeHead(ur.statusCode, ur.headers);
-      if (req.url.startsWith('/api/events')) { sse.add(res); stats.sseOpened++; res.on('close', () => sse.delete(res)); }
+      if (req.url.startsWith('/api/events') && req.method === 'GET') { if (process.env.DBG) console.log('SSE open', Date.now() % 100000, req.headers['x-legion-admin'] ? 'admin' : 'noadmin', req.headers['user-agent']?.slice(0, 20)); sse.add(res); stats.sseOpened++; res.on('close', () => sse.delete(res)); }
       ur.pipe(res);
     });
     pr.on('error', () => { res.statusCode = 502; res.end(); });

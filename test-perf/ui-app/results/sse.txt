@@ -1,0 +1,32 @@
+== base fetch
+FAIL fetch: chat view holds exactly one SSE connection: live SSE = 4
+FAIL rooms view: still one: live SSE = 4
+FAIL library/lattice view: still one: live SSE = 5
+ok   a kg.updated event reaches the library inbox and the lattice (both refetch)
+ok   a mascot event reaches the store (stage state follows)
+FAIL after the server drops the stream: reconnects, again exactly one connection: live SSE = 4
+total SSE connections opened over the run: 9 (live now 4)
+== base eventsource
+FAIL eventsource: chat view holds exactly one SSE connection: live SSE = 4
+FAIL rooms view: still one: live SSE = 4
+FAIL library/lattice view: still one: live SSE = 5
+ok   a kg.updated event reaches the library inbox and the lattice (both refetch)
+ok   a mascot event reaches the store (stage state follows)
+FAIL after the server drops the stream: reconnects, again exactly one connection: live SSE = 4
+total SSE connections opened over the run: 9 (live now 4)
+== new fetch
+ok   fetch: chat view holds exactly one SSE connection
+ok   rooms view: still one
+ok   library/lattice view: still one
+ok   a kg.updated event reaches the library inbox and the lattice (both refetch)
+ok   a mascot event reaches the store (stage state follows)
+ok   after the server drops the stream: reconnects, again exactly one connection
+total SSE connections opened over the run: 2 (live now 1)
+== new eventsource
+ok   eventsource: chat view holds exactly one SSE connection
+ok   rooms view: still one
+ok   library/lattice view: still one
+ok   a kg.updated event reaches the library inbox and the lattice (both refetch)
+ok   a mascot event reaches the store (stage state follows)
+ok   after the server drops the stream: reconnects, again exactly one connection
+total SSE connections opened over the run: 2 (live now 1)

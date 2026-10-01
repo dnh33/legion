@@ -1,19 +1,16 @@
 /**
  * Latest room-communication state per agent (LegionEvent 'comms.state'), for the busts.
- * store.ts does not carry these events, so this module keeps ONE shared SSE subscription of its own,
- * opened with the first bust and closed with the last. If the store later forwards the event as
+ * store.ts forwards every 'comms.state' event it receives as
  *   window.dispatchEvent(new CustomEvent('legion:comms', { detail: event }))
- * that is honoured too (and the extra subscription can then be dropped).
+ * and this module listens for that, so it needs no stream of its own (the app has ONE shared SSE connection, see api.ts).
  */
 import { useSyncExternalStore } from 'react';
 import type { LegionEvent } from '../../../src/shared/types';
 import type { CommsState } from '../../../src/shared/comms';
-import { subscribe } from '../api';
 
 export interface CommsEntry { state: CommsState; at: number }
 const map = new Map<string, CommsEntry>();
 const listeners = new Set<() => void>();
-let unsub: (() => void) | null = null;
 let refs = 0;
 
 function put(e: { agentId: string; state: CommsState }) {
@@ -27,12 +24,10 @@ const onWindow = (ev: Event) => { const d = (ev as CustomEvent<LegionEvent>).det
 function open() {
   if (refs++ > 0) return;
   window.addEventListener('legion:comms', onWindow);
-  unsub = subscribe((e) => { if (e.type === 'comms.state') put(e); }, () => {});
 }
 function close() {
   if (--refs > 0) return;
   window.removeEventListener('legion:comms', onWindow);
-  unsub?.(); unsub = null;
 }
 function sub(l: () => void) { open(); listeners.add(l); return () => { listeners.delete(l); close(); }; }
 
