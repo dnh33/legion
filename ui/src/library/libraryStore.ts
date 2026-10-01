@@ -72,12 +72,18 @@ export function setSub(sub: Sub) {
 
 /* ---------- reads ---------- */
 let inboxSeq = 0;
+/** JSON of the last inbox / activity answer: an answer identical to it (the usual result of a kg.updated about something else) changes nothing and renders nothing. */
+let inboxJson = '';
+let activityJson = '';
 export async function loadInbox(quiet = false) {
   const my = ++inboxSeq;
   if (!quiet || s.inbox === null) set({ inboxState: s.inbox === null ? 'loading' : s.inboxState, inboxError: null });
   try {
     const rows = await request<KgInboxRow[]>('GET', '/api/kg/inbox');
     if (my !== inboxSeq) return;
+    const json = JSON.stringify(rows);
+    if (json === inboxJson && s.inbox !== null && s.inboxState === 'ready' && !s.inboxError) return;
+    inboxJson = json;
     const ids = new Set(rows.map((r) => r.id));
     const sel = new Set([...s.sel].filter((id) => ids.has(id)));
     // a filter that no longer matches anything would hide the whole list: drop it
@@ -96,6 +102,9 @@ export async function loadActivity(quiet = false) {
   try {
     const rows = await request<KgActivityRow[]>('GET', '/api/kg/activity?limit=100');
     if (my !== activitySeq) return;
+    const json = JSON.stringify(rows);
+    if (json === activityJson && s.activity !== null && s.activityState === 'ready' && !s.activityError) return;
+    activityJson = json;
     set({ activity: rows, activityState: 'ready', activityError: null });
   } catch (e) {
     if (my !== activitySeq) return;
