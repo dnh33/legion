@@ -6,7 +6,7 @@ import { closeSync, existsSync, mkdirSync, openSync, readFileSync } from 'node:f
 import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { adminForRenderer, coreAction, coreIsBusy, type CoreHealth } from './admin-logic.js';
+import { adminForRenderer, coreAction, coreIsBusy, killPlan, listenerCommands, listenerPids, type CoreHealth } from './admin-logic.js';
 
 const here = dirname(fileURLToPath(import.meta.url)); // <root>/dist/src/electron
 const root = resolve(here, '..', '..', '..');
@@ -82,11 +82,46 @@ async function foreignCoreBusy(port: number): Promise<boolean> {
   } catch { return true; }
 }
 
-function stopPid(pid: number): void {
+/** Runs a command and returns its stdout, or undefined when it is missing, fails or takes too long. */
+const capture = (cmd: string, args: string[], timeoutMs = 4000): Promise<string | undefined> =>
+  new Promise((res) => {
+    try { execFile(cmd, args, { windowsHide: true, timeout: timeoutMs, maxBuffer: 4_000_000 }, (err, out) => res(err ? undefined : String(out))); } catch { res(undefined); }
+  });
+
+/**
+ * The pids that own the listener on `port` (netstat -ano on Windows, lsof then ss elsewhere), or undefined when no tool could say.
+ * /health's `pid` is only a claim by whatever answers; main kills a foreign pid only when this list contains it.
+ */
+async function listenersOn(port: number): Promise<number[] | undefined> {
+  for (const c of listenerCommands(process.platform, port)) {
+    const out = await capture(c.cmd, c.args);
+    if (out === undefined) continue;
+    const pids = listenerPids(c.tool, out, port);
+    if (pids.length) return pids;
+  }
+  return undefined;
+}
+
+/** Stops a foreign core by pid (its whole tree on Windows). Off Windows only that pid: its process group is not ours to signal. */
+function stopForeignPid(pid: number): void {
   try {
-    if (process.platform === 'win32') execFile('taskkill', ['/PID', String(pid), '/T', '/F'], { windowsHide: true }, () => undefined);
+    const plan = killPlan('win32', pid);
+    if (process.platform === 'win32' && plan?.kind === 'taskkill') execFile(plan.cmd, plan.args, { windowsHide: true }, () => undefined);
     else process.kill(pid, 'SIGTERM');
   } catch { /* already gone */ }
+}
+
+/** Stops our own core child and everything it started: taskkill /T /F on Windows, a signal to its process group elsewhere (it is spawned detached). */
+function killTree(child: ChildProcess, signal: NodeJS.Signals): Promise<void> {
+  return new Promise((done) => {
+    const plan = child.pid ? killPlan(process.platform, child.pid, signal) : null;
+    try {
+      if (plan?.kind === 'taskkill') { execFile(plan.cmd, plan.args, { windowsHide: true }, () => done()); return; }
+      if (plan?.kind === 'group') process.kill(plan.pid, plan.signal);
+      else child.kill(signal);
+    } catch { try { child.kill(signal); } catch { /* already gone */ } }
+    done();
+  });
 }
 
 async function waitPortFree(port: number, ms = 6000): Promise<boolean> {
@@ -103,12 +138,13 @@ async function spawnCore(port: number): Promise<string | null> {
   try {
     let failure: string | null = null;
     // A fresh secret for every core we start (a tray restart rotates it). It goes over the stdin pipe only.
-    const secret = randomBytes(24).toString('hex');
+    const secret = randomBytes(32).toString('hex');
     const child = spawn(nodeBin, [coreEntry], {
       cwd: root,
       stdio: ['pipe', out, out],
       windowsHide: true,
-      detached: false,
+      // Off Windows the core leads its own process group, so stopping it also stops anything a `node` shim started in front of it.
+      detached: process.platform !== 'win32',
       // LEGION_PORT pins the port we just chose: the core listens exactly there even if config.json is edited meanwhile.
       env: { ...process.env, LEGION_ADMIN_STDIN: '1', LEGION_PORT: String(port) },
     });
@@ -155,7 +191,9 @@ async function ensureCore(): Promise<string | null> {
   if (health) {
     const mine = await ownCoreSecret(port);
     const busy = mine ? false : await foreignCoreBusy(port);
-    const action = coreAction({ health, ownProof: !!mine, busy, selfPid: process.pid });
+    // Only a core that did not prove itself needs the lookup: its claimed pid must really own the listener before it can be killed.
+    const listeners = mine ? undefined : await listenersOn(port);
+    const action = coreAction({ health, ownProof: !!mine, busy, selfPid: process.pid, listeners });
     if (action === 'use') { pinned = { port, token: readConfig().token }; rendererAdmin = mine; return null; }
     if (action === 'blocked') {
       dialog.showMessageBox({ type: 'info', message: 'Legion Core was started outside this app.', detail: 'Approvals and settings are locked. Stop it from its own terminal and restart Legion.' }).catch(() => {});
@@ -164,7 +202,7 @@ async function ensureCore(): Promise<string | null> {
     }
     if (action === 'ask' && !(await askRestartForeignCore())) { pinned = readConfig(); rendererAdmin = undefined; return null; }
     // 'replace' (idle) or 'ask' answered yes: stop the foreign core by pid, then start our own.
-    stopPid(health.pid as number);
+    stopForeignPid(health.pid as number);
     if (!(await waitPortFree(port))) return 'The core on the port did not stop. Stop it manually (see core.log) and try again.';
   }
   pinned = { port, token: '' };
@@ -189,9 +227,9 @@ async function killCore(): Promise<void> {
   coreProc = null;
   if (!c || c.exitCode !== null || c.signalCode !== null) return;
   const exited = new Promise<void>((r) => c.once('exit', () => r()));
-  try { c.kill(); } catch { /* ignore */ }
+  await killTree(c, 'SIGTERM');
   await Promise.race([exited, sleep(5000)]);
-  if (c.exitCode === null && c.signalCode === null) { try { c.kill('SIGKILL'); } catch { /* ignore */ } }
+  if (c.exitCode === null && c.signalCode === null) await killTree(c, 'SIGKILL');
 }
 
 /** Tray "Restart core": rotates the admin secret. The window reload re-runs the preload, so the renderer picks up the new secret. */

@@ -175,7 +175,7 @@ Type `/` in the composer to open the menu. Commands that Legion does not handle 
 | Key | Meaning |
 |---|---|
 | `port` | Local port. Default `4747`. |
-| `authToken` | The MCP-client token (Claude Code, Cowork, curl): `/mcp`, state reads, start and cancel tasks, event stream. Generated for you; keep it private. It cannot approve or change settings; the per-launch admin secret that does is never stored. |
+| `authToken` | The MCP-client token (Claude Code, Cowork, curl): `/mcp`, state reads, start and cancel tasks, event stream. Generated for you; keep it private. It cannot approve or change settings; the per-launch admin secret that does is never stored. Tasks it starts run under an `ask` ceiling and cannot write working memory or trusted notes. |
 | `workspaceDir` | Where agent working directories live. Default `<data dir>/workspaces`. |
 | `claude.auth` | `claude-login` (default, your Claude Code account) or `api-key` (with `claude.apiKey`). |
 | `claude.inheritClaudeCodeSettings` | Load your Claude Code user and project settings, MCP servers and connectors. Default `true`. |

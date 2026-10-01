@@ -14,8 +14,8 @@ import { createHmac, timingSafeEqual } from 'node:crypto';
 export const ADMIN_HEADER = 'x-legion-admin';
 /** Env flag the Electron main sets to say "the admin secret is on stdin". Its value is only ever '1', never the secret. */
 export const ADMIN_STDIN_FLAG = 'LEGION_ADMIN_STDIN';
-/** Anything shorter is ignored (admin stays closed) rather than accepted as a guessable secret. Electron sends 48 hex chars. */
-export const MIN_ADMIN_SECRET_LENGTH = 16;
+/** Anything shorter is ignored (admin stays closed) rather than accepted as a guessable secret. Electron sends 64 hex chars (32 random bytes). */
+export const MIN_ADMIN_SECRET_LENGTH = 32;
 
 /** Constant-time string compare (length differences are not hidden; secrets are fixed length). */
 export function safeEqual(a: string, b: string): boolean {

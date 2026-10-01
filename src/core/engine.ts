@@ -596,9 +596,9 @@ export class Engine {
           { onTimeout: () => { timedOut = true; } },
         );
         if (allowed) return { behavior: 'allow', updatedInput: input };
-        // A client started this run (Claude Code, Cowork). Its card can only be answered in the Legion app window, so say so
+        // An MCP client started this run (Claude Code, Cowork) or woke it through a chain, so the ceiling is `ask`. Its card can only be answered in the Legion app window, so say so
         // instead of a bare denial when nobody answered (the app is closed, or this core was started headless by the MCP bridge).
-        if (timedOut && o?.roomId === 'mcp') {
+        if (timedOut && o?.approvalCeiling === 'ask') {
           return { behavior: 'deny', message: 'No one approved this action: it needs your OK in the Legion app window and nothing was answered within 10 minutes. Open the Legion app, then ask for it again.' };
         }
         return { behavior: 'deny', message: 'The user denied this action.' };

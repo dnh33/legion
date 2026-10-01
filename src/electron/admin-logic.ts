@@ -38,6 +38,54 @@ export function coreIsBusy(state: unknown): boolean {
   return s.tasks.some((t) => !!t && typeof t === 'object' && ['queued', 'running'].includes((t as { status?: string }).status ?? ''));
 }
 
+export type ListenerTool = 'netstat' | 'lsof' | 'ss';
+
+/** The command that lists listeners on a port, in the order to try: `netstat -ano` on Windows, `lsof` then `ss` elsewhere. */
+export function listenerCommands(platform: NodeJS.Platform, port: number): Array<{ tool: ListenerTool; cmd: string; args: string[] }> {
+  if (platform === 'win32') return [{ tool: 'netstat', cmd: 'netstat', args: ['-ano', '-p', 'tcp'] }];
+  return [
+    { tool: 'lsof', cmd: 'lsof', args: ['-nP', `-iTCP:${port}`, '-sTCP:LISTEN', '-Fp'] },
+    { tool: 'ss', cmd: 'ss', args: ['-ltnpH'] },
+  ];
+}
+
+/**
+ * The pids that LISTEN on `port`, from the output of a listener command. Only the local port is matched (a local address ending in
+ * `:<port>`, not `:<port>0`; not an ESTABLISHED row, not UDP). Unreadable output gives [], which callers treat as "unknown".
+ */
+export function listenerPids(tool: ListenerTool, output: string, port: number): number[] {
+  const pids = new Set<number>();
+  const add = (v: string | undefined) => { const n = Number(v); if (Number.isInteger(n) && n > 0) pids.add(n); };
+  const text = typeof output === 'string' ? output : '';
+  if (tool === 'lsof') {
+    for (const line of text.split(/\r?\n/)) if (/^p\d+$/.test(line.trim())) add(line.trim().slice(1));
+  } else if (tool === 'netstat') {
+    for (const line of text.split(/\r?\n/)) {
+      const f = line.trim().split(/\s+/);
+      // Proto Local Foreign State PID. The state word is localized on some Windows installs, so a listener is recognised by its foreign port 0.
+      if (f.length < 5 || !/^TCP/i.test(f[0]!) || !/:0$/.test(f[2]!)) continue;
+      if (new RegExp(`:${port}$`).test(f[1]!)) add(f[4]);
+    }
+  } else {
+    for (const line of text.split(/\r?\n/)) {
+      const f = line.trim().split(/\s+/);
+      if (!/^LISTEN$/i.test(f[0] ?? '') || f.length < 5) continue;
+      // Recv-Q Send-Q Local:Port Peer:Port Process
+      if (!new RegExp(`:${port}$`).test(f[3]!)) continue;
+      for (const m of line.matchAll(/pid=(\d+)/g)) add(m[1]);
+    }
+  }
+  return [...pids];
+}
+
+/** What stops a process and everything it started: `taskkill /T /F` on Windows, a signal to the process group elsewhere (the child must be spawned `detached`). */
+export type KillPlan = { kind: 'taskkill'; cmd: string; args: string[] } | { kind: 'group'; pid: number; signal: NodeJS.Signals };
+export function killPlan(platform: NodeJS.Platform, pid: number, signal: NodeJS.Signals = 'SIGTERM'): KillPlan | null {
+  if (!Number.isInteger(pid) || pid <= 1) return null;
+  if (platform === 'win32') return { kind: 'taskkill', cmd: 'taskkill', args: ['/PID', String(pid), '/T', '/F'] };
+  return { kind: 'group', pid: -pid, signal };
+}
+
 export type CoreAction =
   /** Nothing answers on the port: spawn our own core. */
   | 'spawn'
@@ -50,10 +98,15 @@ export type CoreAction =
   /** A foreign core whose pid cannot be used: tell the person to stop it themselves. */
   | 'blocked';
 
-/** `ownProof` = the core answered our challenge correctly (see proofValid). */
-export function coreAction(i: { health: CoreHealth | null | undefined; ownProof: boolean; busy: boolean; selfPid: number }): CoreAction {
+/**
+ * `ownProof` = the core answered our challenge correctly (see proofValid). `listeners` = the pids that own the listener on our port
+ * (see listenerPids); undefined or empty means the lookup failed. /health's `pid` is only a claim: a squatter can name any process, so
+ * it is stopped only when that pid really is the one listening on the port. Otherwise the person is told to stop it themselves.
+ */
+export function coreAction(i: { health: CoreHealth | null | undefined; ownProof: boolean; busy: boolean; selfPid: number; listeners?: number[] }): CoreAction {
   if (!i.health) return 'spawn';
   if (i.ownProof) return 'use';
   if (!stoppablePid(i.health.pid, i.selfPid)) return 'blocked';
+  if (!i.listeners || !i.listeners.includes(i.health.pid)) return 'blocked';
   return i.busy ? 'ask' : 'replace';
 }

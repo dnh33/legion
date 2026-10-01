@@ -33,7 +33,8 @@ test('bootstrap: the renderer gets the secret only when the core on the port ans
 
 test('foreign core: spawn / use / replace when idle / ask when busy / blocked without a usable pid', () => {
   const self = 100;
-  const c = (health: object | null, ownProof: boolean, busy: boolean) => coreAction({ health, ownProof, busy, selfPid: self });
+  // the pid a foreign core claims owns the listener (N5 is tested in token-v1-fix2.test.ts); here it always does
+  const c = (health: object | null, ownProof: boolean, busy: boolean) => coreAction({ health, ownProof, busy, selfPid: self, listeners: [(health as { pid?: number } | null)?.pid ?? 0] });
   assert.equal(c(null, false, false), 'spawn');
   assert.equal(c({ pid: 4242, admin: true }, true, false), 'use');
   assert.equal(c({ pid: 555, admin: true }, true, false), 'use', 'a shim: our core, whatever pid it reports');
@@ -72,7 +73,7 @@ const preload = readFileSync(new URL('../../src/electron/preload.cjs', import.me
 const api = readFileSync(new URL('../../ui/src/api.ts', import.meta.url), 'utf8');
 
 test('wiring (source guard): secret generated per core spawn, written to the stdin pipe only, bootstrap uses the verified value', () => {
-  assert.match(main, /randomBytes\(24\)\.toString\('hex'\)/);
+  assert.match(main, /randomBytes\(32\)\.toString\('hex'\)/);
   assert.match(main, /stdio: \['pipe', out, out\]/);
   assert.match(main, /child\.stdin\?\.end\(secret \+ '\\n'\)/);
   assert.match(main, /LEGION_ADMIN_STDIN: '1'/);

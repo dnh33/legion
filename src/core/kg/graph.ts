@@ -23,7 +23,7 @@ import {
   clipCp, effectiveTrust, guarded, isInactive, makeSnippet, oneLine, rankFactor, safeTitle, shownTitle, statusOf, tokenize, trustOf, wrapNode,
   DATA_LINE, isUntrusted,
 } from './text.js';
-import { actorName, ARCHIVIST_ID, agentActor, HUMAN, isNodeType, isTainted, KgError, SYSTEM, WM_PREFIX, wmId } from './types.js';
+import { actorName, ARCHIVIST_ID, agentActor, HUMAN, isAskCapped, isNodeType, isTainted, KgError, SYSTEM, WM_PREFIX, wmId } from './types.js';
 import type {
   Actor, BriefingParts, CaptureInput, CaptureResult, GraphStats, LinkInput, LinkResult, MergeResult, NeighborsResult, NodeInput, PathResult,
   RecallResult, SupersedeResult, UpsertResult,
@@ -653,15 +653,17 @@ export class Graph {
   private writeCtx(actor: Actor, scope: KgScope, untrustedFlag: boolean) {
     const agent = actor.kind === 'agent' ? actor : undefined;
     const tainted = !!agent && isTainted(agent);
-    const trust: KgTrust = tainted || untrustedFlag ? 'untrusted' : actor.kind === 'human' ? 'human' : 'agent';
-    const ceiling = agent ? agent.ceiling ?? agent.origin?.approvalCeiling : undefined;
-    const askWoken = !!agent && agent.origin !== undefined && ceiling === 'ask';
+    const askWoken = isAskCapped(agent);
+    // A run capped at "ask" (started by an MCP client, or woken by one) may be carrying text somebody else planted. Its shared notes wait in
+    // the Inbox for you; its private notes (no human sees them first) are stored untrusted, which keeps them out of the next run's briefing.
+    const trust: KgTrust = tainted || (askWoken && scope !== 'shared') || untrustedFlag ? 'untrusted' : actor.kind === 'human' ? 'human' : 'agent';
     const archivist = agent?.id === ARCHIVIST_ID;
     const hold = !!agent && scope === 'shared' && (tainted || askWoken || archivist);
     const origin: KgOrigin | undefined = agent?.taskId
       ? { taskId: agent.taskId, tainted, ...(agent.origin?.fromAgentId ? { via: agent.origin.fromAgentId } : {}) }
       : undefined;
     const notes: string[] = [];
+    if (askWoken && !tainted && scope !== 'shared') notes.push('This run was started by an MCP client or another bot under "ask" approvals, so what you write here is stored as untrusted and is not shown in the next run\'s briefing.');
     if (tainted) notes.push('This run touched outside content (web, shell or external tools), so what you write is stored as untrusted' + (hold ? ' and shared notes wait for the human to accept them.' : '.'));
     else if (hold && askWoken) notes.push('This run was started by another bot under "ask" approvals, so shared notes wait for the human to accept them.');
     else if (hold) notes.push('You are the Archivist: you flag and propose, you never decide. Shared notes you write wait for the human to accept them.');
@@ -1400,6 +1402,9 @@ export class Graph {
     if (actor.kind !== 'agent') throw new KgError('forbidden', 'Working memory belongs to a bot.');
     if (isTainted(actor)) {
       throw new KgError('forbidden', 'This run touched outside content (web, shell or external tools), so it may not write working memory: the next run would read it as its own. Nothing was saved. Put findings in a note (they go to the human inbox) and keep your working memory for clean runs.');
+    }
+    if (isAskCapped(actor)) {
+      throw new KgError('forbidden', 'This run was started by an MCP client or another bot under "ask" approvals, so it may not write working memory: the next run you start for the human would read it as its own. Nothing was saved. Put what matters in a note (shared notes go to the human inbox).');
     }
     if (typeof input.active !== 'string') throw new KgError('invalid', 'active must be a string.');
     if (input.archiveAppend !== undefined && typeof input.archiveAppend !== 'string') throw new KgError('invalid', 'archiveAppend must be a string.');

@@ -29,6 +29,8 @@ export const SYSTEM: Actor = { kind: 'system' };
 export const agentActor = (id: string, run: RunContext = {}): Actor => ({ kind: 'agent', id, ...run });
 export const actorName = (a: Actor): string => (a.kind === 'agent' ? a.id : a.kind);
 /** True when this agent's run is tainted (engine-observed) or was woken by a tainted chain. */
+/** A run whose approval ceiling is `ask` because an MCP client started it or woke it (not a person in the app). Nothing it writes may steer a later run. */
+export const isAskCapped = (a: Actor | undefined): boolean => !!a && a.kind === 'agent' && a.origin !== undefined && (a.ceiling ?? a.origin.approvalCeiling) === 'ask';
 export const isTainted = (a: Actor): boolean => a.kind === 'agent' && (a.taint?.() === true || a.origin?.tainted === true);
 
 /**
