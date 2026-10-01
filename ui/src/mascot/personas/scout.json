@@ -1,0 +1,138 @@
+{
+ "name": "Scout",
+ "tempo": 0.95,
+ "haloFlare": 1.12,
+ "annoyedQuip": "Poking is not a primary source.",
+ "quips": [
+  "Three sources. Two agree. One is lying.",
+  "Short answer: no. Long answer below, with footnotes.",
+  "That is a guess. I have labelled it as one.",
+  "The docs say yes. The code says no. The code wins.",
+  "Read the whole thread. You want the third reply.",
+  "Confidence: medium. Sources: excellent.",
+  "Nobody has tried this. Or nobody wrote it down.",
+  "Citation needed. I checked. Still needed.",
+  "The changelog and the release notes disagree. Again.",
+  "I did not touch anything. I only looked.",
+  "Last updated 2019. Treat it as folklore.",
+  "Found it. Page four, footnote two."
+ ],
+ "verbs": [
+  {
+   "id": "take-a-bearing",
+   "w": 3,
+   "cd": 45,
+   "steps": [
+    {
+     "p": "flutter",
+     "target": "halo",
+     "deg": 15,
+     "dur": 1800,
+     "cycles": 2
+    }
+   ]
+  },
+  {
+   "id": "side-eye",
+   "w": 3,
+   "cd": 45,
+   "noBlink": 1900,
+   "steps": [
+    {
+     "p": "scan",
+     "look": [
+      [
+       8,
+       0
+      ],
+      [
+       8,
+       0
+      ]
+     ],
+     "dur": 1800
+    }
+   ]
+  },
+  {
+   "id": "gust",
+   "w": 2,
+   "cd": 50,
+   "steps": [
+    {
+     "p": "wave",
+     "targets": [
+      "hang-1",
+      "hang-2"
+     ],
+     "dur": 1000,
+     "deg": 6,
+     "stagger": 0,
+     "cycles": 3
+    },
+    {
+     "p": "flutter",
+     "target": "plume",
+     "deg": 6,
+     "dur": 1000,
+     "cycles": 3
+    },
+    {
+     "p": "flutter",
+     "target": "hang-3",
+     "deg": 4,
+     "dur": 1000,
+     "cycles": 2,
+     "at": 300
+    }
+   ]
+  },
+  {
+   "id": "check-the-map",
+   "w": 2,
+   "cd": 40,
+   "steps": [
+    {
+     "p": "nod",
+     "y": 1.2,
+     "dur": 1400
+    },
+    {
+     "p": "scan",
+     "look": [
+      [
+       0,
+       0
+      ]
+     ],
+     "dur": 1000,
+     "eyes": "narrow"
+    }
+   ]
+  },
+  {
+   "id": "cocked-brow",
+   "w": 3,
+   "cd": 15,
+   "when": "quip",
+   "steps": [
+    {
+     "p": "lean",
+     "deg": 2.5,
+     "dur": 1800
+    },
+    {
+     "p": "scan",
+     "look": [
+      [
+       0,
+       0
+      ]
+     ],
+     "dur": 600,
+     "eyes": "narrow"
+    }
+   ]
+  }
+ ]
+}

@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react';
 import { RelicStage } from '../mascot/Relic';
+import { BustStage } from '../mascot/BustStage';
+import { hasBust } from '../mascot/busts';
 import { forceMascot, forceMascotVm, selectTask, useStore, type RelicState } from '../store';
 import { cleanTitle, money, relTime } from '../util';
 import { ComputerCard } from './ComputerCard';
@@ -32,6 +34,7 @@ export function OpsPanel() {
   const lab = useStore((s) => s.mascotLab);
   const tasks = useStore((s) => s.tasks);
   const agents = useStore((s) => s.agents);
+  const selAgent = useStore((s) => s.selectedAgentId);
   const sel = useStore((s) => s.selectedTaskId);
   const [, tick] = useState(0);
   const short = useShort();
@@ -42,7 +45,9 @@ export function OpsPanel() {
     <aside className="ops" aria-label="Ops">
       <div className="ops-inner">
         <div className="mascot-stage">
-          <RelicStage width={short ? 124 : 210} />
+          {selAgent !== 'zealot' && hasBust(selAgent)
+            ? <BustStage key={selAgent} agentId={selAgent} width={short ? 124 : 210} />
+            : <RelicStage width={short ? 124 : 210} />}
           {lab && <Lab />}
         </div>
         <ComputerCard />

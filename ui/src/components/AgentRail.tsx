@@ -1,6 +1,8 @@
 import { openEditor, selectAgent, useStore } from '../store';
 import { Icon } from './icons';
 import { vmTone, vmLabel } from '../util';
+import { Bust } from '../mascot/Bust';
+import { hasBust } from '../mascot/busts';
 
 export function AgentRail() {
   const agents = useStore((s) => s.agents);
@@ -21,8 +23,10 @@ export function AgentRail() {
           const running = tasks.some((t) => t.agentId === a.id && (t.status === 'running' || t.status === 'queued'));
           const tone = vm ? vmTone(vm.state) : 'off';
           return (
-            <button key={a.id} className={`agent${a.id === sel ? ' sel' : ''}`} onClick={() => selectAgent(a.id)} aria-current={a.id === sel} title={`${a.name}${i < 9 ? ` (Alt ${i + 1})` : ''}`}>
-              <span className={`avatar${running ? ' busy' : ''}`}>{a.emoji || '●'}</span>
+            <button key={a.id} className={`agent${hasBust(a.id) ? ' bust-row' : ''}${a.id === sel ? ' sel' : ''}`} onClick={() => selectAgent(a.id)} aria-current={a.id === sel} title={`${a.name}${i < 9 ? ` (Alt ${i + 1})` : ''}`}>
+              {hasBust(a.id)
+                ? <span className={`avatar bust-avatar${running ? ' busy' : ''}`}><Bust agentId={a.id} size={44} /></span>
+                : <span className={`avatar${running ? ' busy' : ''}`}>{a.emoji || '●'}</span>}
               <span className="agent-main">
                 <span className="agent-name">{a.name}</span>
                 {pending > 0

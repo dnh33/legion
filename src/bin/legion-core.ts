@@ -10,6 +10,10 @@ import { getCatalog } from '../core/catalog.js';
 import { runDoctor } from '../core/doctor.js';
 import { Engine } from '../core/engine.js';
 import { createServer } from '../core/server.js';
+import { createBsvModule, createBsvState } from '../core/bsv/index.js';
+import { createCommsModule } from '../core/comms/index.js';
+import { createKnowledgeModule } from '../core/kg/index.js';
+import type { ModuleDeps } from '../core/modules.js';
 import { Store } from '../core/store.js';
 import { VmManager } from '../core/vm-manager.js';
 
@@ -42,8 +46,15 @@ async function main() {
   const vms = new VmManager({ store, bus, getBoat });
   const approvals = new ApprovalBroker(bus);
   const engine = new Engine({ store, bus, vms, approvals, config, boatConfigured });
+  // BSV mode v0 (knowledge and visibility only; no wallet). The flag lives in config.json under "bsv".
+  const bsvState = createBsvState({ dataDir: dataDir(), config });
+  const bsvEnabled = () => bsvState.enabled;
+  const moduleDeps: ModuleDeps = { config, store, bus, engine, approvals, dataDir: dataDir(), bsvEnabled };
+  const kg = createKnowledgeModule(moduleDeps);
+  const modules = [kg, createCommsModule(moduleDeps), createBsvModule(moduleDeps, { state: bsvState, kg })];
+  engine.setModules(modules);
   const server = createServer({
-    config, store, bus, engine, vms, approvals, boatConfigured,
+    config, store, bus, engine, vms, approvals, boatConfigured, modules, bsvEnabled,
     doctor: () => runDoctor({ config, getBoat }),
     catalog: (force) => getCatalog({ config }, { force }),
   });
@@ -64,6 +75,7 @@ async function main() {
   const shutdown = async (sig: string) => {
     log(`shutting down (${sig})`);
     stopReaper();
+    for (const m of modules) { try { await m.dispose?.(); } catch { /* ignore */ } }
     for (const id of engine.running()) engine.cancel(id);
     server.close();
     await store.flush();

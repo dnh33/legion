@@ -1,0 +1,105 @@
+{
+ "name": "Preceptor",
+ "tempo": 1.0,
+ "haloMotion": "swing",
+ "haloFlare": 1.15,
+ "annoyedQuip": "Poking is not measuring.",
+ "quips": [
+  "Show me at the size it ships.",
+  "Again. Smaller.",
+  "It works. Now why?",
+  "Seen. Not yet proven.",
+  "Render it first. Then tell me.",
+  "Two pixels left. There. Feel that?",
+  "Plausible is not a unit.",
+  "Good. Now on the slow machine.",
+  "You fixed the symptom. Find the cause; I'll wait.",
+  "Nice line. Half a pixel off the grid.",
+  "Measure twice. You measured once.",
+  "Proven. Well made. Ship it."
+ ],
+ "verbs": [
+  {
+   "id": "level-check",
+   "w": 3,
+   "cd": 45,
+   "steps": [
+    {
+     "p": "lean",
+     "deg": [
+      -1,
+      1,
+      0
+     ],
+     "dur": 3200
+    }
+   ]
+  },
+  {
+   "id": "plumb",
+   "w": 2,
+   "cd": 45,
+   "steps": [
+    {
+     "p": "flutter",
+     "target": "plume",
+     "deg": 5,
+     "dur": 2200,
+     "cycles": 2
+    }
+   ]
+  },
+  {
+   "id": "read-the-scale",
+   "w": 2,
+   "cd": 50,
+   "steps": [
+    {
+     "p": "flutter",
+     "target": "halo",
+     "deg": 8,
+     "dur": 2600,
+     "cycles": 2
+    }
+   ]
+  },
+  {
+   "id": "look-closer",
+   "w": 2,
+   "cd": 40,
+   "steps": [
+    {
+     "p": "scan",
+     "look": [
+      [
+       0,
+       0
+      ]
+     ],
+     "dur": 1500,
+     "eyes": "narrow"
+    },
+    {
+     "p": "flare",
+     "target": "face",
+     "dur": 1500,
+     "peak": 1.1
+    }
+   ]
+  },
+  {
+   "id": "check-the-tapes",
+   "w": 2,
+   "cd": 40,
+   "steps": [
+    {
+     "p": "wave",
+     "targets": "hangs",
+     "dur": 900,
+     "deg": 4,
+     "stagger": 220
+    }
+   ]
+  }
+ ]
+}

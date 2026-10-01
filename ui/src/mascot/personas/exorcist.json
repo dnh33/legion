@@ -1,0 +1,107 @@
+{
+ "name": "Exorcist",
+ "tempo": 1.1,
+ "haloFlare": 1.15,
+ "annoyedQuip": "Poking it will not make it reproduce.",
+ "quips": [
+  "Name the bug. Then it leaves.",
+  "It reproduced. Good. Now it is mine.",
+  "Line 42. It is always line 42.",
+  "Do not panic. Panic is not a stack frame.",
+  "I have seen worse. I have buried worse.",
+  "The bug is not haunted. It is uninitialised.",
+  "Salt the inputs. Trust nothing that comes in at night.",
+  "One fix, one line. The rest is superstition.",
+  "It works now. Do not ask it why.",
+  "Rang the bell. The race condition heard it.",
+  "Root cause found. It was us. It is usually us.",
+  "Cast out. Write the test so it stays out."
+ ],
+ "verbs": [
+  {
+   "id": "toll",
+   "w": 3,
+   "cd": 60,
+   "steps": [
+    {
+     "p": "flutter",
+     "target": "hang-4",
+     "deg": 10,
+     "dur": 1800
+    },
+    {
+     "p": "flare",
+     "target": "face",
+     "dur": 900,
+     "peak": 1.2,
+     "at": 1500
+    }
+   ]
+  },
+  {
+   "id": "salt-the-circle",
+   "w": 2,
+   "cd": 50,
+   "steps": [
+    {
+     "p": "flutter",
+     "target": "halo",
+     "deg": 30,
+     "dur": 1800,
+     "keep": true
+    }
+   ]
+  },
+  {
+   "id": "name-it",
+   "w": 2,
+   "cd": 40,
+   "steps": [
+    {
+     "p": "scan",
+     "look": [
+      [
+       0,
+       0
+      ]
+     ],
+     "dur": 1000,
+     "eyes": "narrow"
+    },
+    {
+     "p": "nod",
+     "y": 1.3,
+     "dur": 1100,
+     "at": 1000
+    }
+   ]
+  },
+  {
+   "id": "count-the-beads",
+   "w": 2,
+   "cd": 40,
+   "steps": [
+    {
+     "p": "wave",
+     "targets": "hang-1..3",
+     "dur": 1000,
+     "deg": 3,
+     "stagger": 260
+    }
+   ]
+  },
+  {
+   "id": "listen-to-the-bell",
+   "w": 2,
+   "cd": 50,
+   "noBlink": 3000,
+   "steps": [
+    {
+     "p": "lean",
+     "deg": 2,
+     "dur": 3000
+    }
+   ]
+  }
+ ]
+}

@@ -6,9 +6,18 @@ import type { EventBus } from './bus.js';
 const READ_ONLY = new Set(['Read', 'Glob', 'Grep', 'LS', 'WebSearch', 'WebFetch', 'TodoWrite', 'Task', 'Agent']);
 const EDIT_TOOLS = new Set(['Write', 'Edit', 'MultiEdit', 'NotebookEdit']);
 
+/** Legion's own in-process MCP servers: vm tools, the comms bridge and the knowledge graph. */
+const LEGION_TOOL_PREFIXES = ['mcp__legion__', 'mcp__legion_comms__', 'mcp__legion_kg__'];
+
+const MODE_RANK: Record<ApprovalMode, number> = { ask: 0, 'auto-edits': 1, full: 2 };
+/** The stricter (less permissive) of two approval modes. */
+export function stricterMode(a: ApprovalMode, b: ApprovalMode): ApprovalMode {
+  return MODE_RANK[a] <= MODE_RANK[b] ? a : b;
+}
+
 export function needsApproval(mode: ApprovalMode, toolName: string): boolean {
   if (mode === 'full') return false;
-  if (READ_ONLY.has(toolName) || toolName.startsWith('mcp__legion__')) return false;
+  if (READ_ONLY.has(toolName) || LEGION_TOOL_PREFIXES.some((p) => toolName.startsWith(p))) return false;
   if (EDIT_TOOLS.has(toolName)) return mode === 'ask';
   // Bash, other mcp__*, and unknown tools
   return true;
@@ -36,10 +45,14 @@ export class ApprovalBroker {
     this.timeoutMs = opts?.timeoutMs ?? 10 * 60 * 1000;
   }
 
-  request(taskId: string, agentId: string, toolName: string, input: Record<string, unknown>): Promise<boolean> {
+  request(
+    taskId: string, agentId: string, toolName: string, input: Record<string, unknown>,
+    origin?: ApprovalRequest['origin'],
+  ): Promise<boolean> {
     const req: ApprovalRequest = {
       id: newId('apr'), taskId, agentId, toolName,
       summary: summarizeToolInput(toolName, input), input, at: nowIso(),
+      ...(origin ? { origin } : {}),
     };
     return new Promise<boolean>((resolvePromise) => {
       const timer = setTimeout(() => this.settle(req.id, false), this.timeoutMs);

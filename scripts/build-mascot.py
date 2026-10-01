@@ -2,14 +2,20 @@
 """
 Build a live mascot from a layered, hand-painted SVG (see docs/art/MASCOT_CONTRACT.md).
 
-  python3 scripts/build-mascot.py docs/art/relic.layered.svg relic
-  -> ui/src/mascot/data/relic.json
+  python3 scripts/build-mascot.py docs/art/muster/zealot/relic.layered.svg relic
+  python3 scripts/build-mascot.py docs/art/muster/scout/scout.layered.svg scout
+  python3 scripts/build-mascot.py --all        (rebuild every bot from docs/art/muster/*)
+  -> ui/src/mascot/data/<name>.json
 
 No painted path is modified. The script only:
   * splits the top-level L-* groups into separate layer documents (stacked + GPU-composited at runtime),
   * wraps the original pixel eyes as the "base" set and adds alternate eye sets on the SAME 4px grid,
   * adds a visor "code scroll" clipped to L-visor-shape (hidden unless the state shows it),
-  * prefixes every id so several mascots can live on one page.
+  * prefixes every id so several mascots can live on one page (collision-free: the full bot name;
+    only the original Relic keeps its historical "rx-" prefix so relic.json stays byte-identical),
+  * carries the optional contract extras into the json ONLY when the art declares them, so the Relic's output
+    is unchanged: root data-crop-rail -> cropRail, data-badge -> badge, data-vm -> vm,
+    per-layer data-alarm -> alarm, data-flip="none" -> flip:"none".
 Dev-time only (Python 3). Output is committed.
 """
 import json, os, re, sys, random, xml.etree.ElementTree as ET
@@ -26,12 +32,28 @@ EYES = {  # 7 cols x 4 rows, left eye; right eye mirrored. '#' core, '+' glow.
     'angry':  ['##.....', '.+###..', '..####+', '..++++.'],
 }
 
+# Historical prefixes that must not change (their committed json is a golden file).
+LEGACY_PREFIX = {'relic': 'rx-'}
+
+
+def id_prefix(name):
+    """Collision-free id prefix per bot: the full name (the old name[:1] gave sx- to scout/scribe/sentinel/sculptor)."""
+    if name in LEGACY_PREFIX:
+        return LEGACY_PREFIX[name]
+    return re.sub(r'[^a-z0-9]', '', name.lower()) + '-x-'
+
+
+def pair(attr):
+    """'x y' -> [x, y] or None."""
+    return [float(v) for v in attr.split()] if attr else None
+
+
 def main(src, name):
     root_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     tree = ET.parse(os.path.join(root_dir, src) if not os.path.isabs(src) else src)
     svg = tree.getroot()
     crop = [float(v) for v in svg.get('data-crop').split()]
-    prefix = name[:1] + 'x-'
+    prefix = id_prefix(name)
 
     # ---- eyes: wrap base, add expression sets ----
     eyes = svg.find('.//*[@id="L-eyes"]')
@@ -92,8 +114,12 @@ def main(src, name):
             continue
         piv = el.get('data-pivot')
         inner = ''.join(ET.tostring(c, encoding='unicode') for c in el)
-        layers.append({'id': lid, 'pivot': [float(v) for v in piv.split()] if piv else None,
-                       'z': el.get('data-z', ''), 'markup': inner})
+        layer = {'id': lid, 'pivot': [float(v) for v in piv.split()] if piv else None,
+                 'z': el.get('data-z', ''), 'markup': inner}
+        # optional per-layer extras, emitted only when declared (keeps older art byte-identical)
+        if el.get('data-alarm'): layer['alarm'] = pair(el.get('data-alarm'))
+        if el.get('data-flip') == 'none': layer['flip'] = 'none'
+        layers.append(layer)
     defs_xml = ET.tostring(defs, encoding='unicode')
 
     # ---- prefix ids everywhere ----
@@ -111,11 +137,32 @@ def main(src, name):
     defs_xml = pre(defs_xml)
 
     out = {'name': name, 'crop': crop, 'defs': defs_xml, 'layers': layers, 'codeScroll': code_h}
+    # optional root extras (see MASCOT_CONTRACT.md): rail crop, "!" badge anchor, VM cloud anchor
+    if svg.get('data-crop-rail'): out['cropRail'] = [float(v) for v in svg.get('data-crop-rail').split()]
+    if svg.get('data-badge'): out['badge'] = pair(svg.get('data-badge'))
+    if svg.get('data-vm'): out['vm'] = pair(svg.get('data-vm'))
     dst = os.path.join(root_dir, 'ui', 'src', 'mascot', 'data', name + '.json')
     os.makedirs(os.path.dirname(dst), exist_ok=True)
     with open(dst, 'w', encoding='utf-8') as f:
         json.dump(out, f, separators=(',', ':'))
     print('wrote', dst, os.path.getsize(dst) // 1024, 'KB', [L['id'] for L in layers])
 
+def build_all():
+    """Rebuild every committed json from docs/art/muster (zealot's source builds relic.json)."""
+    root_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    base = os.path.join(root_dir, 'docs', 'art', 'muster')
+    for d in sorted(os.listdir(base)):
+        folder = os.path.join(base, d)
+        if not os.path.isdir(folder):
+            continue
+        if d == 'zealot':
+            main(os.path.join(folder, 'relic.layered.svg'), 'relic')
+        else:
+            main(os.path.join(folder, d + '.layered.svg'), d)
+
+
 if __name__ == '__main__':
-    main(sys.argv[1], sys.argv[2])
+    if len(sys.argv) == 2 and sys.argv[1] == '--all':
+        build_all()
+    else:
+        main(sys.argv[1], sys.argv[2])

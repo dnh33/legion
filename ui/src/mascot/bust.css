@@ -1,0 +1,18 @@
+/* Bust wrapper (rail avatar tile and Ops stage). Engine-internal classes live in mascot.css (mx-*, mxs-*). */
+.bust { position: relative; display: inline-grid; place-items: center; flex: none; line-height: 1; }
+.bust-host { display: block; }
+/* Ops stage: the body is cut a little below the rail crop and fades out above the mood label */
+.bust.bust-stage { place-items: start center; overflow: hidden; -webkit-mask-image: linear-gradient(#000 calc(100% - 30px), transparent); mask-image: linear-gradient(#000 calc(100% - 30px), transparent); }
+.bust-host > .mx { width: 100%; }
+.bust-fallback { font-family: 'Segoe UI Symbol', 'Noto Sans Symbols 2', sans-serif; color: var(--text-2); }
+
+/* agent rail: 44 px painted tile in place of the emoji avatar, keeps the busy ring from .avatar.busy */
+.avatar.bust-avatar { width: 44px; height: 44px; padding: 0; border-radius: 12px; background: var(--surface-3); overflow: visible; }
+.avatar.bust-avatar.busy::after { border-radius: 15px; }
+.bust-avatar > .bust { border-radius: 11px; overflow: hidden; }
+.agent.sel .bust-avatar { border-color: var(--accent-line); }
+
+/* a painted tile is taller than the emoji tile: trim the row padding so a full muster fits a 900 px window */
+.rail-list .agent.bust-row { padding-block: 5px; }
+/* the busy ring keeps its look but ticks (8 steps per 1.6 s): it is the only endless animation a working bust adds to the rail */
+.avatar.bust-avatar.busy::after { animation: ring 1.6s steps(8) infinite; }

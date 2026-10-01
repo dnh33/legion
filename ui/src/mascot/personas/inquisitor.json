@@ -1,0 +1,118 @@
+{
+ "name": "Inquisitor",
+ "tempo": 1.0,
+ "annoyedQuip": "Poking is not a valid test case.",
+ "quips": [
+  "Not fixed. Show me the repro.",
+  "Works on your machine. Noted. Irrelevant.",
+  "Every input is hostile until proven boring.",
+  "I read the diff. All of it.",
+  "Passing tests prove the tests pass.",
+  "Your regex has opinions. Bad ones.",
+  "Claim received. Evidence pending.",
+  "Line 212 knows what you did.",
+  "Verdict: questionable. Appeal denied.",
+  "Three out of three. Reproduced. Congratulations.",
+  "I don't trust the caller. I barely trust the compiler.",
+  "That's not a fix. That's a different bug."
+ ],
+ "verbs": [
+  {
+   "id": "inspect",
+   "w": 3,
+   "cd": 50,
+   "steps": [
+    {
+     "p": "flutter",
+     "target": "token-1",
+     "deg": 14,
+     "dur": 2000
+    },
+    {
+     "p": "scan",
+     "look": [
+      [
+       0,
+       0
+      ]
+     ],
+     "dur": 1200,
+     "eyes": "narrow"
+    }
+   ]
+  },
+  {
+   "id": "click-the-dial",
+   "w": 3,
+   "cd": 40,
+   "steps": [
+    {
+     "p": "flutter",
+     "target": "halo",
+     "deg": 3,
+     "dur": 500,
+     "keep": true
+    }
+   ]
+  },
+  {
+   "id": "screw-it-down",
+   "w": 1,
+   "cd": 90,
+   "steps": [
+    {
+     "p": "flutter",
+     "target": "halo",
+     "deg": 90,
+     "dur": 1500,
+     "keep": true
+    }
+   ]
+  },
+  {
+   "id": "case-review",
+   "w": 2,
+   "cd": 40,
+   "steps": [
+    {
+     "p": "wave",
+     "targets": "hangs",
+     "dur": 1000,
+     "deg": 5,
+     "stagger": 240
+    }
+   ]
+  },
+  {
+   "id": "the-stare",
+   "w": 2,
+   "cd": 60,
+   "noBlink": 4200,
+   "steps": [
+    {
+     "p": "scan",
+     "look": [
+      [
+       0,
+       0
+      ]
+     ],
+     "dur": 4000
+    }
+   ]
+  },
+  {
+   "id": "slow-verdict",
+   "w": 2,
+   "cd": 60,
+   "steps": [
+    {
+     "p": "nod",
+     "y": 1.5,
+     "dur": 2400,
+     "dim": 0.7
+    }
+   ]
+  }
+ ]
+}

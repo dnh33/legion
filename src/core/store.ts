@@ -4,6 +4,7 @@ import { writeFile, rename, unlink, mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { AgentProfile, ChatMessage, Task, VmRecord } from '../shared/types.js';
 import { nowIso } from '../shared/util.js';
+import { ROSTER } from './roster.js';
 
 interface StateFile { agents: AgentProfile[]; tasks: Task[]; vms: VmRecord[] }
 
@@ -105,6 +106,8 @@ export class Store {
         vm: { enabled: false, size: 'default', idleStopMinutes: 15 }, mcpServers: ['*'],
       },
     ];
+    // Muster roster (src/core/roster.ts). Cloned so stored agents never share objects with the constants.
+    defs.push(...ROSTER.map((r) => ({ ...r, vm: { ...r.vm }, mcpServers: [...r.mcpServers] })));
     let changed = false;
     for (const d of defs) {
       if (this.agents.has(d.id)) continue;

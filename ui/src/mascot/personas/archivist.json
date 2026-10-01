@@ -1,0 +1,122 @@
+{
+ "name": "Archivist",
+ "tempo": 1.0,
+ "haloFlare": 1.1,
+ "annoyedQuip": "Hands off the drawers. They are in order.",
+ "quips": [
+  "Last touched 214 days ago. Archive it or love it.",
+  "Two files, one idea. One of them is leaving.",
+  "Nothing links here. Nothing has for some time.",
+  "This note says \"temporary\". It is from 2024.",
+  "Filed under A, for \"already exists\".",
+  "Your TODO has a TODO.",
+  "I don't delete. I archive, with a date.",
+  "Undated means unknown. Unknown means stale.",
+  "Three drafts called final. I kept the one that is.",
+  "No frontmatter. No title, no date, no excuse.",
+  "Moved, not lost. There is a forwarding card.",
+  "Indexed. Cross-referenced. Quietly judged."
+ ],
+ "verbs": [
+  {
+   "id": "thumb-through",
+   "w": 2,
+   "cd": 40,
+   "steps": [
+    {
+     "p": "wave",
+     "targets": "hangs",
+     "dur": 900,
+     "deg": 5,
+     "stagger": 200
+    },
+    {
+     "p": "scan",
+     "look": [
+      [
+       0,
+       0
+      ],
+      [
+       0,
+       2
+      ],
+      [
+       0,
+       4
+      ],
+      [
+       0,
+       0
+      ]
+     ],
+     "dur": 2000
+    }
+   ]
+  },
+  {
+   "id": "re-file",
+   "w": 3,
+   "cd": 45,
+   "steps": [
+    {
+     "p": "flutter",
+     "target": "halo",
+     "deg": 15,
+     "dur": 1600,
+     "keep": true
+    }
+   ]
+  },
+  {
+   "id": "check-the-date",
+   "w": 2,
+   "cd": 40,
+   "steps": [
+    {
+     "p": "scan",
+     "look": [
+      [
+       3,
+       1
+      ]
+     ],
+     "dur": 1200,
+     "eyes": "narrow"
+    },
+    {
+     "p": "lean",
+     "deg": 2,
+     "dur": 1800
+    }
+   ]
+  },
+  {
+   "id": "flick-the-cards",
+   "w": 2,
+   "cd": 35,
+   "steps": [
+    {
+     "p": "flutter",
+     "target": "plume",
+     "deg": 4,
+     "dur": 700,
+     "cycles": 2
+    }
+   ]
+  },
+  {
+   "id": "wind-down",
+   "w": 1,
+   "cd": 90,
+   "steps": [
+    {
+     "p": "nod",
+     "y": 1.5,
+     "dur": 2200,
+     "dim": 0.7
+    }
+   ]
+  }
+ ]
+}

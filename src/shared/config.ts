@@ -7,6 +7,15 @@ import type { LegionConfig } from './types.js';
 
 export const VERSION = '0.1.0';
 
+/**
+ * Optional BSV Dev Kit toggle (knowledge and visibility only: no wallet, no keys, no funds).
+ * The network is fixed to testnet; any other value in a config file is ignored on load.
+ * Kept here (not in types.ts) so the shared types stay frozen; LegionConfig consumers that
+ * do not care about BSV are unaffected.
+ */
+export interface BsvConfig { enabled: boolean; network: 'testnet' }
+export type CoreConfig = LegionConfig & { bsv: BsvConfig };
+
 /** %USERPROFILE%\.legion on Windows, ~/.legion elsewhere. Override with LEGION_HOME. */
 export function dataDir(): string {
   const dir = process.env.LEGION_HOME || join(homedir(), '.legion');
@@ -18,7 +27,7 @@ export function configPath(): string {
   return join(dataDir(), 'config.json');
 }
 
-export function defaultConfig(): LegionConfig {
+export function defaultConfig(): CoreConfig {
   return {
     port: 4747,
     authToken: randomBytes(24).toString('hex'),
@@ -30,7 +39,14 @@ export function defaultConfig(): LegionConfig {
     },
     boat: { baseUrl: 'https://boat.dev/api/v1' },
     mcpServers: {},
+    bsv: { enabled: false, network: 'testnet' },
   };
+}
+
+/** Whatever the file held under "bsv", reduced to the one shape we accept (testnet only, boolean flag). */
+export function normalizeBsv(v: unknown): BsvConfig {
+  const enabled = !!v && typeof v === 'object' && (v as { enabled?: unknown }).enabled === true;
+  return { enabled, network: 'testnet' };
 }
 
 /** Deep-merge loaded JSON over defaults so new fields appear after upgrades. */
@@ -47,7 +63,7 @@ function merge<T>(base: T, over: unknown): T {
 }
 
 /** Load config, creating it (with a fresh auth token) on first run. Env overrides: LEGION_PORT, BOAT_API_KEY, ANTHROPIC_API_KEY (only used when auth='api-key'). */
-export function loadConfig(): LegionConfig {
+export function loadConfig(): CoreConfig {
   const p = configPath();
   let cfg = defaultConfig();
   if (existsSync(p)) {
@@ -55,6 +71,7 @@ export function loadConfig(): LegionConfig {
   } else {
     saveConfig(cfg);
   }
+  cfg.bsv = normalizeBsv(cfg.bsv);
   if (process.env.LEGION_PORT) cfg.port = Number(process.env.LEGION_PORT);
   if (!cfg.boat.apiKey && process.env.BOAT_API_KEY) cfg.boat.apiKey = process.env.BOAT_API_KEY;
   if (cfg.claude.auth === 'api-key' && !cfg.claude.apiKey && process.env.ANTHROPIC_API_KEY) {
@@ -68,7 +85,7 @@ export function saveConfig(cfg: LegionConfig): void {
 }
 
 /** Config safe to send to the UI (no secrets). */
-export function redactConfig(cfg: LegionConfig): LegionConfig {
+export function redactConfig<T extends LegionConfig>(cfg: T): T {
   return {
     ...cfg,
     authToken: '***',

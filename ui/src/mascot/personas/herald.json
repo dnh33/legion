@@ -1,0 +1,117 @@
+{
+ "name": "Herald",
+ "tempo": 1.1,
+ "haloFlare": 1.3,
+ "annoyedQuip": "Decorum, please. I am mid-proclamation.",
+ "quips": [
+  "Hear ye: the build is green.",
+  "Drafted. Sealed. Awaiting your word.",
+  "I do not send. I propose to send.",
+  "Announcement ready. It is, if I may, rather good.",
+  "To: all hands. Re: nothing broke. Status: astonishing.",
+  "Your email had three apologies. It now has none.",
+  "The changelog has been proclaimed. Twice, for the back rows.",
+  "Subject line trimmed to eleven words. Ten would be vulgar.",
+  "I have read it aloud. It scans.",
+  "Nothing leaves these gates without a seal.",
+  "Reply-all detected. I have taken the liberty of not.",
+  "Let it be known: tests pass."
+ ],
+ "verbs": [
+  {
+   "id": "clear-the-throat",
+   "w": 2,
+   "cd": 45,
+   "steps": [
+    {
+     "p": "nod",
+     "y": -1.5,
+     "dur": 1500
+    },
+    {
+     "p": "flare",
+     "target": "face",
+     "dur": 900,
+     "peak": 1.15
+    }
+   ]
+  },
+  {
+   "id": "dip-the-standard",
+   "w": 3,
+   "cd": 45,
+   "steps": [
+    {
+     "p": "flutter",
+     "target": "plume",
+     "deg": 6,
+     "dur": 2200
+    }
+   ]
+  },
+  {
+   "id": "unfurl-the-ribbon",
+   "w": 3,
+   "cd": 50,
+   "steps": [
+    {
+     "p": "flutter",
+     "target": "halo",
+     "deg": 60,
+     "dur": 1800,
+     "keep": true
+    }
+   ]
+  },
+  {
+   "id": "check-the-seal",
+   "w": 2,
+   "cd": 45,
+   "steps": [
+    {
+     "p": "scan",
+     "look": [
+      [
+       4,
+       3
+      ]
+     ],
+     "dur": 1600,
+     "eyes": "narrow"
+    },
+    {
+     "p": "flutter",
+     "target": "token-1",
+     "deg": 6,
+     "dur": 900,
+     "at": 400
+    }
+   ]
+  },
+  {
+   "id": "wind-in-the-banner",
+   "w": 2,
+   "cd": 45,
+   "steps": [
+    {
+     "p": "wave",
+     "targets": "hang-4..6",
+     "dur": 900,
+     "deg": 5,
+     "stagger": 200
+    },
+    {
+     "p": "wave",
+     "targets": [
+      "hang-2",
+      "hang-3"
+     ],
+     "dur": 900,
+     "deg": 4,
+     "stagger": 200,
+     "at": 1000
+    }
+   ]
+  }
+ ]
+}

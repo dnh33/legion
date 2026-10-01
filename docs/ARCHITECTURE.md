@@ -237,3 +237,22 @@ Vulnerability reporting is covered in [SECURITY.md](../SECURITY.md).
 ## Tests
 
 `node:test` with `node:assert/strict`, in `test/*.test.ts`. They use fakes for the SDK `query`, boat.dev and the clock, so they need no network and make no Claude calls. `npm test` builds the TypeScript and runs `dist/test/*.test.js`.
+
+## Roster
+
+`src/core/roster.ts` exports `ROSTER`, ten premade bots seeded by `Store.seedDefaults` after the three frozen defaults (zealot, builder and scout are never changed there). Seeding skips any id that already exists, so existing installs gain the new bots on next start and edited agents are never touched. Every roster prompt is the bot's own role, hard limits and output shape, followed by the shared working rules (think first, minimum change, touch only what was asked, verifiable goal, answer first, facts apart from guesses) and two lines on the `mcp__legion_comms__*` tools.
+
+| id | model | approval | VM |
+|---|---|---|---|
+| `inquisitor` | opus | `ask` | off |
+| `scribe` | sonnet | `auto-edits` | off |
+| `archivist` | sonnet | `ask` | off |
+| `sentinel` | sonnet | `ask` | on |
+| `forgemaster` | auto | `ask` | on |
+| `exorcist` | auto | `ask` | on |
+| `preceptor` | opus | `ask` | on |
+| `herald` | sonnet | `ask` | off |
+| `assayer` | auto | `ask` | off |
+| `sculptor` | auto | `ask` | on |
+
+The Assayer carries `requires: 'bsv'` and is hidden until BSV mode is on. All roster VMs use the default size and a 15 minute idle stop.

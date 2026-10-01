@@ -1,4 +1,6 @@
 import { useEffect } from 'react';
+import { initBsv } from './bsv/bsvStore';
+import { ChainOverlay } from './bsv/ChainOverlay';
 import { AgentEditor } from './components/AgentEditor';
 import { AgentRail } from './components/AgentRail';
 import { CommandPalette } from './components/CommandPalette';
@@ -8,6 +10,9 @@ import { OpsPanel } from './components/OpsPanel';
 import { Thread } from './components/Thread';
 import { TitleBar } from './components/TitleBar';
 import { Toasts } from './components/Toasts';
+import { GraphView } from './graph/GraphView';
+import { RoomsView } from './rooms/RoomsView';
+import { initRooms } from './rooms/roomsStore';
 import {
   closeOverlays, getState, init, newTask, openPalette, switchAgentByIndex, toggleMascotLab, toggleOps, useStore,
 } from './store';
@@ -17,8 +22,9 @@ export function App() {
   const palette = useStore((s) => s.palette);
   const doctorOpen = useStore((s) => s.doctorOpen);
   const editor = useStore((s) => s.editor);
+  const view = useStore((s) => s.view);
 
-  useEffect(() => { init(); }, []);
+  useEffect(() => { init(); initRooms(); initBsv(); }, []);
   useEffect(() => {
     const h = (e: KeyboardEvent) => {
       const mod = e.ctrlKey || e.metaKey;
@@ -38,12 +44,17 @@ export function App() {
     <div className={`app${opsOpen ? '' : ' ops-closed'}`}>
       <TitleBar />
       <AgentRail />
-      <main className="center"><Thread /><Composer /></main>
+      <main className="center">
+        {view === 'chat' && <><Thread /><Composer /></>}
+        {view === 'rooms' && <RoomsView />}
+        {view === 'graph' && <GraphView />}
+      </main>
       <div className="ops-slot" aria-hidden={!opsOpen}><OpsPanel /></div>
       {palette && <CommandPalette />}
       {doctorOpen && <DoctorModal />}
       {editor && <AgentEditor key={editor.id ?? 'new'} id={editor.id} />}
       <Toasts />
+      <ChainOverlay />
     </div>
   );
 }

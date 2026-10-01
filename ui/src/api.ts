@@ -24,7 +24,7 @@ export class ApiError extends Error {
   constructor(status: number, message: string) { super(message); this.status = status; }
 }
 
-async function req<T>(method: string, path: string, body?: unknown): Promise<T> {
+export async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
   let res: Response;
   try {
     res = await fetch(base + path, {
@@ -48,25 +48,25 @@ async function req<T>(method: string, path: string, body?: unknown): Promise<T> 
 export type NewAgent = Partial<AgentProfile> & { name: string };
 
 export const api = {
-  state: () => req<StateSnapshot>('GET', '/api/state'),
-  config: () => req<Partial<LegionConfig>>('GET', '/api/config'),
-  catalog: (refresh = false) => req<Catalog>('GET', `/api/catalog${refresh ? '?refresh=1' : ''}`),
-  doctor: () => req<DoctorCheck[]>('GET', '/api/doctor'),
-  createAgent: (a: NewAgent) => req<AgentProfile>('POST', '/api/agents', a),
-  patchAgent: (id: string, a: Partial<AgentProfile>) => req<AgentProfile>('PATCH', `/api/agents/${encodeURIComponent(id)}`, a),
-  deleteAgent: (id: string) => req<{ ok: true }>('DELETE', `/api/agents/${encodeURIComponent(id)}`),
-  createTask: (b: { agentId: string; prompt: string; model?: ModelChoice; continueTaskId?: string }) => req<Task>('POST', '/api/tasks', b),
-  getTask: (id: string) => req<{ task: Task; messages: ChatMessage[] }>('GET', `/api/tasks/${encodeURIComponent(id)}`),
-  cancelTask: (id: string) => req<{ ok: boolean }>('POST', `/api/tasks/${encodeURIComponent(id)}/cancel`),
-  vms: () => req<VmRecord[]>('GET', '/api/vms'),
-  startVm: (agentId: string) => req<VmRecord>('POST', `/api/vms/${encodeURIComponent(agentId)}/start`),
-  stopVm: (agentId: string) => req<VmRecord>('POST', `/api/vms/${encodeURIComponent(agentId)}/stop`),
+  state: () => request<StateSnapshot>('GET', '/api/state'),
+  config: () => request<Partial<LegionConfig>>('GET', '/api/config'),
+  catalog: (refresh = false) => request<Catalog>('GET', `/api/catalog${refresh ? '?refresh=1' : ''}`),
+  doctor: () => request<DoctorCheck[]>('GET', '/api/doctor'),
+  createAgent: (a: NewAgent) => request<AgentProfile>('POST', '/api/agents', a),
+  patchAgent: (id: string, a: Partial<AgentProfile>) => request<AgentProfile>('PATCH', `/api/agents/${encodeURIComponent(id)}`, a),
+  deleteAgent: (id: string) => request<{ ok: true }>('DELETE', `/api/agents/${encodeURIComponent(id)}`),
+  createTask: (b: { agentId: string; prompt: string; model?: ModelChoice; continueTaskId?: string }) => request<Task>('POST', '/api/tasks', b),
+  getTask: (id: string) => request<{ task: Task; messages: ChatMessage[] }>('GET', `/api/tasks/${encodeURIComponent(id)}`),
+  cancelTask: (id: string) => request<{ ok: boolean }>('POST', `/api/tasks/${encodeURIComponent(id)}/cancel`),
+  vms: () => request<VmRecord[]>('GET', '/api/vms'),
+  startVm: (agentId: string) => request<VmRecord>('POST', `/api/vms/${encodeURIComponent(agentId)}/start`),
+  stopVm: (agentId: string) => request<VmRecord>('POST', `/api/vms/${encodeURIComponent(agentId)}/stop`),
   exec: (agentId: string, command: string) =>
-    req<{ exitCode: number; stdout: string; stderr: string }>('POST', `/api/vms/${encodeURIComponent(agentId)}/exec`, { command }),
-  desktop: (agentId: string) => req<{ url: string }>('POST', `/api/vms/${encodeURIComponent(agentId)}/desktop`),
-  screenshot: (agentId: string) => req<{ format: 'jpeg'; data: string }>('GET', `/api/vms/${encodeURIComponent(agentId)}/screenshot`),
-  approvals: () => req<ApprovalRequest[]>('GET', '/api/approvals'),
-  decide: (id: string, allow: boolean) => req<{ ok: boolean }>('POST', `/api/approvals/${encodeURIComponent(id)}`, { allow }),
+    request<{ exitCode: number; stdout: string; stderr: string }>('POST', `/api/vms/${encodeURIComponent(agentId)}/exec`, { command }),
+  desktop: (agentId: string) => request<{ url: string }>('POST', `/api/vms/${encodeURIComponent(agentId)}/desktop`),
+  screenshot: (agentId: string) => request<{ format: 'jpeg'; data: string }>('GET', `/api/vms/${encodeURIComponent(agentId)}/screenshot`),
+  approvals: () => request<ApprovalRequest[]>('GET', '/api/approvals'),
+  decide: (id: string, allow: boolean) => request<{ ok: boolean }>('POST', `/api/approvals/${encodeURIComponent(id)}`, { allow }),
 };
 
 export type ConnStatus = 'connecting' | 'online' | 'offline';

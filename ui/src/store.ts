@@ -38,6 +38,8 @@ export interface AppState {
   mascotLab: boolean;
   mascotForce: RelicState | null;
   mascotVm: boolean | null;
+  /** Centre-column view. 'chat' is the task thread; 'rooms' = comms bridge; 'graph' = knowledge graph. */
+  view: 'chat' | 'rooms' | 'graph';
 }
 
 function ls(key: string): string | null { try { return localStorage.getItem(key); } catch { return null; } }
@@ -59,6 +61,7 @@ let state: AppState = {
   onboardingDismissed: ls('legion.onboarded') === '1', toasts: [],
   catalog: null, catalogLoading: false,
   mascotLab: false, mascotForce: null, mascotVm: null,
+  view: 'chat',
 };
 
 const listeners = new Set<() => void>();
@@ -153,6 +156,9 @@ export function handleEvent(e: LegionEvent) {
       break;
     case 'approval.resolved':
       setState((s) => ({ approvals: s.approvals.filter((a) => a.id !== e.approvalId) }));
+      break;
+    case 'comms.state':
+      window.dispatchEvent(new CustomEvent('legion:comms', { detail: e }));
       break;
     case 'mascot':
       setState({ mascot: { mood: e.mood, note: e.note, at: Date.now() } });
@@ -360,3 +366,5 @@ export async function removeAgent(id: string) {
 export const toggleMascotLab = () => setState((s) => ({ mascotLab: !s.mascotLab }));
 export const forceMascot = (f: RelicState | null) => setState({ mascotForce: f });
 export const forceMascotVm = (v: boolean | null) => setState({ mascotVm: v });
+
+export const setView = (view: AppState['view']) => setState({ view });

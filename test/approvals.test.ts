@@ -65,3 +65,12 @@ test('cancelForTask denies only that task', async () => {
   b.resolve(b.pending()[0]!.id, true);
   assert.equal(await c, true);
 });
+
+test('legion in-process tool prefixes need no approval; stricterMode picks the tighter mode', async () => {
+  const { stricterMode } = await import('../src/core/approvals.js');
+  for (const t of ['mcp__legion_comms__bot_send', 'mcp__legion_kg__kg_search']) assert.equal(needsApproval('ask', t), false);
+  assert.equal(needsApproval('ask', 'mcp__legion_other__x'), true);
+  assert.equal(stricterMode('full', 'ask'), 'ask');
+  assert.equal(stricterMode('auto-edits', 'full'), 'auto-edits');
+  assert.equal(stricterMode('ask', 'ask'), 'ask');
+});

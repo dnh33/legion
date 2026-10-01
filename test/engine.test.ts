@@ -369,3 +369,43 @@ test('/model prefix sets model and is stripped; non-sonnet errors do not escalat
   assert.equal(s.calls[0]!.prompt, 'do x');
   assert.equal(done.status, 'error');
 });
+
+// ---- module seam and bot-origin approval ceiling
+test('modules: mcp servers and preamble are merged into the run options', async () => {
+  const s = setup(() => happy());
+  s.engine.setModules([{
+    id: 'm',
+    mcpServers: () => ({ legion_comms: { type: 'stdio', command: 'x' } as any }),
+    preamble: () => 'COMMS PREAMBLE',
+  }, { id: 'broken', mcpServers: () => { throw new Error('boom'); }, preamble: () => { throw new Error('boom'); } }]);
+  const t = s.engine.startTask({ agentId: 'a1', prompt: 'hi', source: 'ui' });
+  await s.engine.waitFor(t.id, 3000);
+  const o = s.calls[0]!.options;
+  assert.ok(o.mcpServers.legion_comms);
+  assert.match(o.systemPrompt.append, /COMMS PREAMBLE/);
+});
+
+test('bot-origin task: a full-approval agent is never run in bypass mode when the sender is stricter', async () => {
+  const s = setup(() => happy(), { agent: { approval: 'full' } });
+  const origin = { roomId: 'room_1', fromAgentId: 'scout', hop: 1, approvalCeiling: 'ask' as const };
+  const t = s.engine.startTask({ agentId: 'a1', prompt: 'do it', source: 'bot', origin });
+  await s.engine.waitFor(t.id, 3000);
+  const o = s.calls[0]!.options;
+  assert.notEqual(o.permissionMode, 'bypassPermissions');
+  assert.equal(typeof o.canUseTool, 'function');
+  assert.equal(s.store.getTask(t.id)!.origin?.fromAgentId, 'scout');
+  // Bash needs a card, and the card names the sender.
+  const sig = { signal: new AbortController().signal };
+  const p = o.canUseTool('Bash', { command: 'rm -rf x' }, sig);
+  const [req] = s.approvals.pending();
+  assert.deepEqual(req!.origin, { roomId: 'room_1', fromAgentId: 'scout', hop: 1 });
+  s.approvals.resolve(req!.id, false);
+  assert.equal((await p).behavior, 'deny');
+});
+
+test('bot-origin task with a full ceiling keeps the receiver bypass mode; human tasks are unchanged', async () => {
+  const s = setup(() => happy(), { agent: { approval: 'full' } });
+  const t = s.engine.startTask({ agentId: 'a1', prompt: 'x', source: 'bot', origin: { roomId: 'r', fromAgentId: 'builder', hop: 1, approvalCeiling: 'full' } });
+  await s.engine.waitFor(t.id, 3000);
+  assert.equal(s.calls[0]!.options.permissionMode, 'bypassPermissions');
+});

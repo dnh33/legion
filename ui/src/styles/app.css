@@ -427,3 +427,9 @@ kbd { font-size: 10.5px; line-height: 1; padding: 3px 5px; border: 1px solid var
 @media (max-height: 700px) { .modal-head { padding-top: 10px; padding-bottom: 6px; } .modal-body { padding-bottom: 10px; } .form { gap: 8px; } .form textarea { min-height: 0; } .firstrun { padding-top: 12px; } .firstrun .steps li { padding: 8px 10px; } .empty { padding-top: 12px; } }
 .slash-menu.scroll-cue { --cue: var(--surface-2); }
 @media (max-width: 1100px) { .sm-item:not(.lg) { grid-template-columns: minmax(0, 1fr); row-gap: 0; padding: 4px 10px; } .sm-item.lg { grid-template-columns: minmax(150px, 190px) minmax(0, 1fr); column-gap: 10px; } .sm-left { flex-wrap: wrap; white-space: normal; row-gap: 0; } .sm-hint { max-width: 22ch; } }
+
+/* view tabs (title bar) */
+.tb-views { display: flex; gap: 2px; margin-right: 4px; padding: 2px; border: 1px solid var(--line); border-radius: var(--r); background: var(--surface); }
+.tb-view { padding: 3px 10px; border: 0; border-radius: var(--r-sm); background: transparent; color: var(--muted); font-size: 12px; }
+.tb-view:hover { color: var(--text); }
+.tb-view.on { background: var(--surface-3); color: var(--text); }

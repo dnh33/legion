@@ -4,11 +4,13 @@ import { join } from 'node:path';
 import { query as realQuery } from '@anthropic-ai/claude-agent-sdk';
 import type { McpServerConfig, Options, Query, query as sdkQuery } from '@anthropic-ai/claude-agent-sdk';
 import type {
-  AgentProfile, ChatMessage, ConcreteModel, LegionConfig, MascotMood, MessageRole, ModelChoice, Task, TaskSource,
+  AgentProfile, ApprovalMode, ChatMessage, ConcreteModel, LegionConfig, MascotMood, MessageRole, ModelChoice, Task, TaskSource,
 } from '../shared/types.js';
 import { newId, nowIso, titleFrom } from '../shared/util.js';
 import { scrubHostSessionEnv } from '../shared/config.js';
-import { needsApproval } from './approvals.js';
+import { needsApproval, stricterMode } from './approvals.js';
+import type { CoreModule } from './modules.js';
+import type { TaskOrigin } from '../shared/comms.js';
 import type { ApprovalBroker } from './approvals.js';
 import type { EventBus } from './bus.js';
 import { routeModel, shouldEscalate } from './router.js';
@@ -25,6 +27,7 @@ export interface EngineDeps {
   /** Returns whether boat is configured (vm tools only offered when true). */
   boatConfigured: () => boolean;
   maxConcurrent?: number;
+  modules?: CoreModule[];
 }
 
 export class EngineError extends Error {
@@ -56,7 +59,7 @@ export function buildChildEnv(config: LegionConfig): Record<string, string | und
   return env;
 }
 
-interface Job { taskId: string; agentId: string; prompt: string; choice: ModelChoice; priorModel?: ConcreteModel }
+interface Job { taskId: string; agentId: string; prompt: string; choice: ModelChoice; priorModel?: ConcreteModel; origin?: TaskOrigin }
 interface Active { ac: AbortController; cancelled: boolean; q?: Query }
 interface Outcome { subtype: string; isError: boolean; errorText?: string }
 
@@ -74,6 +77,7 @@ export class Engine {
   private readonly queue: Job[] = [];
   private readonly active = new Map<string, Active>();
   private idleTimer: ReturnType<typeof setTimeout> | undefined;
+  private modules: CoreModule[];
 
   constructor(deps: EngineDeps) {
     this.store = deps.store; this.bus = deps.bus; this.vms = deps.vms; this.approvals = deps.approvals;
@@ -81,9 +85,13 @@ export class Engine {
     this.queryFn = deps.queryFn ?? realQuery;
     this.boatConfigured = deps.boatConfigured;
     this.maxConcurrent = Math.max(1, deps.maxConcurrent ?? 4);
+    this.modules = deps.modules ?? [];
   }
 
-  startTask(p: { agentId: string; prompt: string; source: TaskSource; model?: ModelChoice; continueTaskId?: string }): Task {
+  /** Modules are built after the engine (they need it), so they are attached here. */
+  setModules(mods: CoreModule[]): void { this.modules = mods; }
+
+  startTask(p: { agentId: string; prompt: string; source: TaskSource; model?: ModelChoice; continueTaskId?: string; origin?: TaskOrigin }): Task {
     const agent = this.store.getAgent(p.agentId);
     if (!agent) throw new EngineError(`Unknown agent: ${p.agentId}`, 404);
     const prompt = (p.prompt ?? '').trim();
@@ -99,17 +107,18 @@ export class Engine {
       priorModel = prev.model;
       task = this.saveTask({
         ...prev, status: 'queued', source: p.source, requestedModel: p.model ?? prev.requestedModel,
-        result: undefined, error: undefined,
+        result: undefined, error: undefined, origin: p.origin,
       });
     } else {
       const now = nowIso();
       task = this.saveTask({
         id: newId('task'), agentId: agent.id, title: titleFrom(prompt.replace(/^\s*\/(opus|sonnet)\b\s*/i, '') || prompt), status: 'queued', source: p.source,
         requestedModel: p.model ?? agent.model, createdAt: now, updatedAt: now,
+        ...(p.origin ? { origin: p.origin } : {}),
       });
     }
     this.addMessage(task.id, 'user', prompt);
-    this.queue.push({ taskId: task.id, agentId: agent.id, prompt, choice: task.requestedModel, priorModel });
+    this.queue.push({ taskId: task.id, agentId: agent.id, prompt, choice: task.requestedModel, priorModel, origin: p.origin });
     queueMicrotask(() => this.pump());
     return { ...task };
   }
@@ -271,6 +280,17 @@ export class Engine {
       else out[name] = { type: 'stdio', command: entry.command, ...(entry.args ? { args: entry.args } : {}), ...(entry.env ? { env: entry.env } : {}) };
     }
     if (agent.vm?.enabled && this.boatConfigured()) out.legion = buildVmToolsServer(agent.id, this.vms);
+    for (const m of this.modules) {
+      try { Object.assign(out, m.mcpServers?.(agent) ?? {}); } catch { /* a broken module must not break runs */ }
+    }
+    return out;
+  }
+
+  private modulePreamble(agent: AgentProfile): string {
+    let out = '';
+    for (const m of this.modules) {
+      try { const t = m.preamble?.(agent); if (t) out += '\n\n' + t; } catch { /* ignore */ }
+    }
     return out;
   }
 
@@ -282,7 +302,7 @@ export class Engine {
       cwd,
       systemPrompt: {
         type: 'preset', preset: 'claude_code',
-        append: LEGION_PREAMBLE.replace('{name}', agent.name) + (agent.systemPrompt ? '\n\n' + agent.systemPrompt : ''),
+        append: LEGION_PREAMBLE.replace('{name}', agent.name) + this.modulePreamble(agent) + (agent.systemPrompt ? '\n\n' + agent.systemPrompt : ''),
       },
       settingSources: this.config.claude.inheritClaudeCodeSettings ? ['user', 'project', 'local'] : [],
       mcpServers: this.buildMcpServers(agent),
@@ -293,15 +313,26 @@ export class Engine {
     };
     if (resume) options.resume = resume;
     if (this.config.claude.executablePath) options.pathToClaudeCodeExecutable = this.config.claude.executablePath;
-    if (agent.approval === 'full') {
+    // A task woken by another bot can never be more permissive than the strictest sender on the chain
+    // (confused-deputy guard): it never runs in bypass mode and its cards name who asked.
+    const ceiling = job.origin?.approvalCeiling;
+    const effective = (): ApprovalMode => {
+      const mode = this.store.getAgent(agent.id)?.approval ?? agent.approval;
+      return ceiling ? stricterMode(mode, ceiling) : mode;
+    };
+    if (agent.approval === 'full' && !(ceiling && ceiling !== 'full')) {
       options.permissionMode = 'bypassPermissions';
       options.allowDangerouslySkipPermissions = true;
     } else {
       options.permissionMode = 'default';
       options.canUseTool = async (toolName, input) => {
-        const mode = this.store.getAgent(agent.id)?.approval ?? agent.approval;
+        const mode = effective();
         if (!needsApproval(mode, toolName)) return { behavior: 'allow', updatedInput: input };
-        const allowed = await this.approvals.request(job.taskId, agent.id, toolName, input);
+        const o = job.origin;
+        const allowed = await this.approvals.request(
+          job.taskId, agent.id, toolName, input,
+          o ? { roomId: o.roomId, fromAgentId: o.fromAgentId, hop: o.hop } : undefined,
+        );
         return allowed
           ? { behavior: 'allow', updatedInput: input }
           : { behavior: 'deny', message: 'The user denied this action.' };

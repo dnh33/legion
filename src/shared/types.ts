@@ -2,6 +2,7 @@
  * Legion — shared contract.
  * Every module, the HTTP API, the MCP tools and the UI speak these types.
  */
+import type { Room, RoomMessage, CommsState, TaskOrigin } from './comms.js';
 
 /** What the user picks per agent/task. 'auto' lets the router decide. */
 export type ModelChoice = 'auto' | string;
@@ -43,6 +44,8 @@ export interface AgentProfile {
   mcpServers: string[];
   /** Working directory for local file tools. Absolute. Defaults to LegionConfig.workspaceDir/<id>. */
   cwd?: string;
+  /** Hidden from lists and the rail until this optional feature is on (e.g. the Assayer needs the BSV Dev Kit). */
+  requires?: 'bsv';
   createdAt: string;     // ISO
   updatedAt: string;     // ISO
 }
@@ -68,7 +71,7 @@ export interface VmRecord {
 }
 
 export type TaskStatus = 'queued' | 'running' | 'done' | 'error' | 'cancelled';
-export type TaskSource = 'ui' | 'mcp' | 'cli';
+export type TaskSource = 'ui' | 'mcp' | 'cli' | 'bot';
 
 export interface Task {
   id: string;
@@ -83,6 +86,8 @@ export interface Task {
   escalated?: boolean;
   /** Claude Agent SDK session id, used to resume follow-ups. */
   sessionId?: string;
+  /** Set when this task was started by another bot (comms bridge). Tightens approvals and labels cards. */
+  origin?: TaskOrigin;
   /** Final assistant text of the latest run. */
   result?: string;
   error?: string;
@@ -116,7 +121,12 @@ export type LegionEvent =
   | { type: 'agent.deleted'; agentId: string }
   | { type: 'approval.requested'; approval: ApprovalRequest }
   | { type: 'approval.resolved'; approvalId: string; allowed: boolean }
-  | { type: 'mascot'; mood: MascotMood; note?: string };
+  | { type: 'mascot'; mood: MascotMood; note?: string }
+  | { type: 'room.updated'; room: Room }
+  | { type: 'room.deleted'; roomId: string }
+  | { type: 'room.message'; message: RoomMessage }
+  | { type: 'comms.state'; agentId: string; state: CommsState; roomId?: string; peerId?: string }
+  | { type: 'kg.updated'; nodeCount: number; edgeCount: number; changed?: string[] };
 
 /** A tool call waiting for the user's decision. Auto-denied after 10 minutes. */
 export interface ApprovalRequest {
@@ -128,6 +138,8 @@ export interface ApprovalRequest {
   summary: string;
   input: Record<string, unknown>;
   at: string;
+  /** Present when the requesting task was woken by another bot: who asked, in which room. */
+  origin?: { roomId: string; fromAgentId: string; hop: number };
 }
 
 /** MCP server entry — same shape as Claude Code's .mcp.json entries. */
