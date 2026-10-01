@@ -8,6 +8,14 @@ const EDIT_TOOLS = new Set(['Write', 'Edit', 'MultiEdit', 'NotebookEdit']);
 
 /** Legion's own in-process MCP servers: vm tools, the comms bridge and the knowledge graph. */
 export const LEGION_TOOL_PREFIXES = ['mcp__legion__', 'mcp__legion_comms__', 'mcp__legion_kg__'];
+const LEGION_TOOL_NAME = /^mcp__legion(?:_comms|_kg)?__[a-z][a-z0-9_]*$/;
+/**
+ * One of Legion's own in-process tools: the exact server name, then a plain tool name. A prefix test alone also matches
+ * "mcp__legion__x__run", a tool of some other server that happens to be called "legion__x"; its tool part holds "__".
+ */
+export function isLegionTool(toolName: string): boolean {
+  return LEGION_TOOL_NAME.test(toolName) && !toolName.split('__').slice(2).join('__').includes('__');
+}
 
 const MODE_RANK: Record<ApprovalMode, number> = { ask: 0, 'auto-edits': 1, full: 2 };
 /** The stricter (less permissive) of two approval modes. */
@@ -17,7 +25,7 @@ export function stricterMode(a: ApprovalMode, b: ApprovalMode): ApprovalMode {
 
 export function needsApproval(mode: ApprovalMode, toolName: string): boolean {
   if (mode === 'full') return false;
-  if (READ_ONLY.has(toolName) || LEGION_TOOL_PREFIXES.some((p) => toolName.startsWith(p))) return false;
+  if (READ_ONLY.has(toolName) || isLegionTool(toolName)) return false;
   if (EDIT_TOOLS.has(toolName)) return mode === 'ask';
   // Bash, other mcp__*, and unknown tools
   return true;

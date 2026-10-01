@@ -25,10 +25,25 @@ test('seed detection: ordinary English paragraphs and word lists are not mistake
   }
 });
 
-test('seed detection: documented trade-off, a field that is nothing but 12+ short plain words is held back, one sentence of context frees it', () => {
-  const bare = 'apple banana cherry grape lemon mango melon peach pear plum lime fig date kiwi guava';
-  assert.equal(findForbiddenSecretInField(bare), 'seed phrase');
-  assert.equal(findForbiddenSecretInField(`Fruit I want to buy at the market this week: ${bare}.`), undefined);
+test('seed detection: Danish prose and Danish ASCII prose are not seed phrases, with or without a label', () => {
+  const danish = [
+    'Vi besluttede at beholde køen i hukommelsen, fordi disken tilføjer forsinkelse, og holdet foretrækker et enkelt design som kan genopbygges fra loggen efter et nedbrud.',
+    'backup: det hele bliver gemt hver nat paa serveren hos den store kunde som vil have det saadan hver eneste dag i aaret',
+    'Gendannelsesplan: stop arbejderen, tjek loggen, genstart tjenesten, hold øje med dashboardet i ti minutter og skriv ned hvad der skete.',
+    'seed data til staging ligger i mappen seeds og indlæses af opsætningsscriptet første gang containeren starter i dag',
+  ];
+  for (const p of danish) {
+    assert.equal(findForbiddenSecret(p), undefined, p);
+    assert.equal(findForbiddenSecretInField(p), undefined, p);
+  }
+});
+
+test('seed detection: a list of twelve fruits, folders or frameworks is a list, a real phrase in any layout is a phrase', () => {
+  assert.equal(findForbiddenSecret('apple banana cherry grape lemon mango melon olive peach pear plum lime'), undefined);
+  assert.equal(findForbiddenSecret('react vue angular svelte solid preact alpine htmx astro remix next nuxt'), undefined);
+  const phrase = 'army van defense carry jealous true garbage claim echo media make crunch';
+  assert.equal(findForbiddenSecret(phrase), 'seed phrase');
+  assert.equal(findForbiddenSecret(`Fruit I want to buy: ${phrase}.`), 'seed phrase', 'a label is not needed and prose around it does not hide it');
 });
 
 test('seed detection: a normal note with these paragraphs is accepted by the graph (no guard refusal)', () => {
@@ -36,7 +51,7 @@ test('seed detection: a normal note with these paragraphs is accepted by the gra
   for (const [i, p] of PROSE.entries()) assert.doesNotThrow(() => g.upsertNode(HUMAN, { title: `prose ${i}`, body: p }), p);
 });
 
-test('seed detection: a labelled and an unlabelled-but-bare list of twelve seed-like words are both caught', () => {
+test('seed detection: a labelled and an unlabelled list of twelve seed words are both caught', () => {
   const words = 'abandon ability able about above absent absorb abstract absurd abuse access accident';
   assert.equal(findForbiddenSecret(`my seed phrase is: ${words}`), 'seed phrase');
   assert.equal(findForbiddenSecret(`Mnemonic - ${words.split(' ').map((w, i) => `${i + 1}. ${w}`).join(' ')}`), 'seed phrase');

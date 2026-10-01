@@ -1,8 +1,8 @@
 /** Config schema, defaults and data-dir paths. */
 import { randomBytes } from 'node:crypto';
-import { chmodSync, existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import type { LegionConfig } from './types.js';
 
 export const VERSION = '0.1.0';
@@ -86,9 +86,27 @@ export function loadConfig(): CoreConfig {
  * This keeps other local users out; it does NOT keep out a bot that runs as the same user (see docs/LIBRARY.md).
  */
 export function saveConfig(cfg: LegionConfig): void {
-  const p = configPath();
-  writeFileSync(p, JSON.stringify(cfg, null, 2), { encoding: 'utf8', mode: 0o600 });
-  tightenConfigMode(p);
+  writeConfigFile(configPath(), JSON.stringify(cfg, null, 2));
+}
+
+/**
+ * The one way config.json is written (first run, Settings, the BSV toggle): a temp file created 0600 next to it, renamed over
+ * it, then the mode checked again. A writer that renames a default-mode temp file would silently undo the 0600.
+ */
+export function writeConfigFile(file: string, json: string): void {
+  mkdirSync(dirname(file), { recursive: true });
+  const tmp = `${file}.${process.pid}.tmp`;
+  try { unlinkSync(tmp); } catch { /* none left over */ }
+  writeFileSync(tmp, json, { encoding: 'utf8', mode: 0o600, flag: 'wx' });
+  tightenConfigMode(tmp);
+  try {
+    renameSync(tmp, file);
+  } catch (e) {
+    const code = (e as NodeJS.ErrnoException).code;
+    if (code === 'EPERM' || code === 'EEXIST') { try { unlinkSync(file); } catch { /* ignore */ } renameSync(tmp, file); }
+    else { try { unlinkSync(tmp); } catch { /* ignore */ } throw e; }
+  }
+  tightenConfigMode(file);
 }
 
 /** Takes group and other access off an existing config file (created by an older version with the default mode). Best effort. */

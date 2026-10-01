@@ -115,6 +115,10 @@ function frontmatterFor(n: KgNode, mirror = false): string {
   const l = ['---', `id: ${q(n.id)}`, `type: ${n.type}`, `title: ${q(n.title)}`, `tags: [${n.tags.map(q).join(', ')}]`,
     `scope: ${q(n.scope)}`, `createdBy: ${q(n.createdBy)}`, `updatedAt: ${q(n.updatedAt)}`];
   if (mirror) l.push(`mirror: ${q(LIBRARY_DIR)}`);
+  // a note that is not clean says so: import turns such a file into a held (pending, untrusted) note instead of a live human note
+  if (statusOf(n) !== 'active') l.push(`status: ${q(statusOf(n))}`);
+  if (isUntrusted(n)) l.push('trust: "untrusted"');
+  if (n.origin?.tainted) l.push('tainted: true');
   if (n.confidence !== undefined) l.push(`confidence: ${n.confidence}`);
   const props = Object.entries(n.props ?? {}).filter(([k]) => !RESERVED_PROPS.has(k));
   if (props.length) {
@@ -219,7 +223,7 @@ export function exportLibrary(graph: Graph, dir: string): ExportReport {
   for (const n of all) titleCount.set(oneLine(n.title).toLowerCase(), (titleCount.get(oneLine(n.title).toLowerCase()) ?? 0) + 1);
   const linkable = (t: KgNode): boolean => t.scope === 'shared' && statusOf(t) === 'active' && !isUntrusted(t);
   mkdirSync(lib, { recursive: true });
-  try { writeFileNoFollow(join(lib, MIRROR_MARKER), 'Written by Legion. Import skips this folder.\n'); } catch { /* the folder name and the mirror frontmatter still protect it */ }
+  try { writeFileNoFollow(join(lib, MIRROR_MARKER), `${MIRROR_HEADER} Import skips this folder.\n`); } catch { /* the folder name and the mirror frontmatter still protect it */ }
   const wanted = new Set<string>();
   let written = 0;
   for (const n of nodes) {
@@ -258,7 +262,14 @@ interface ParsedFile {
   fmId?: string;
   /** Carries a trigger:* tag: a standing rule for every bot, so it never lands live from a file. */
   trigger: boolean;
+  /** The file says it came from a note that was pending, retired, untrusted or tainted: it comes back held, never live. */
+  notClean: boolean;
   links: Array<{ rel: string; target: string; idHint?: string }>;
+}
+
+const MIRROR_HEADER = 'Written by Legion.';
+function isMirrorMarker(p: string): boolean {
+  try { return readFileSync(p, 'utf8').startsWith(MIRROR_HEADER); } catch { return false; }
 }
 
 function walk(root: string, skipped: ImportReport['skipped']): string[] {
@@ -267,14 +278,14 @@ function walk(root: string, skipped: ImportReport['skipped']): string[] {
   const visit = (dir: string) => {
     let entries;
     try { entries = readdirSync(dir, { withFileTypes: true }); } catch { return; }
-    // a folder that holds the mirror marker is the mirror, wherever it was moved to or whatever it was renamed to
-    if (entries.some((e) => e.name === MIRROR_MARKER)) { mirrorSkip(dir); return; }
+    // a folder that holds Legion's own mirror marker is the mirror, wherever it was moved to or whatever it was renamed to.
+    // A marker file with any other content is somebody else's file and protects nothing (a stray one must not hide a whole folder).
+    if (entries.some((e) => e.name === MIRROR_MARKER && e.isFile()) && isMirrorMarker(join(dir, MIRROR_MARKER))) { mirrorSkip(dir); return; }
     entries.sort((a, b) => a.name.localeCompare(b.name));
     for (const e of entries) {
       if (e.name.startsWith('.') || e.isSymbolicLink()) continue;
       const p = join(dir, e.name);
-      // the legion/ mirror, at any depth, is Legion's own output: importing it back would relabel bot notes as the human's
-      if (e.isDirectory() && e.name.toLowerCase() === LIBRARY_DIR) { mirrorSkip(p); continue; }
+      // (a folder that merely happens to be called Legion is the user's own folder: only the marker and the file front matter identify the mirror)
       if (e.isDirectory()) visit(p);
       else if (e.isFile() && /\.md$/i.test(e.name)) {
         if (files.length >= VAULT_MAX_FILES) {
@@ -376,7 +387,9 @@ function parseFile(rel: string, text: string): ParsedFile | string {
   // an explicit type wins; otherwise #decision, #mistake, #pattern or #idea (inline or in the tags list) picks one
   const tagged = tags.map((t) => TYPE_TAGS[t.replace(/^#+/, '').toLowerCase()]).find(Boolean);
   return {
-    rel, title, body, tags, trigger: tags.some((t) => /^#*trigger:/i.test(t)), type: isNodeType(data.type) ? data.type : tagged ?? 'note',
+    rel, title, body, tags, trigger: tags.some((t) => /^#*trigger:/i.test(t)),
+    notClean: (typeof data.status === 'string' && data.status !== 'active') || data.trust === 'untrusted' || data.tainted === true,
+    type: isNodeType(data.type) ? data.type : tagged ?? 'note',
     ...(props ? { props } : {}), ...(confidence !== undefined ? { confidence } : {}),
     sources, ...(typeof data.id === 'string' ? { fmId: data.id } : {}), links,
   };
@@ -443,13 +456,19 @@ export function importVault(graph: Graph, dir: string, actor: Actor = HUMAN, opt
   const owned = (n: KgNode): boolean => n.createdBy === 'human' && !engineOwnedId(n.id) && n.scope !== 'bsv';
   for (const f of parsed) {
     try {
-      let held = !trusted || f.trigger;
+      let held = !trusted || f.trigger || f.notClean;
       let target = byVaultPath.get(f.rel);
       if (target && !owned(target)) target = undefined;
+      let viaId = false;
       if (!target && f.fmId && !claimed.has(f.fmId)) {
         // the id in a file is a hint for round trips, honoured only for a note this importer may touch, and only for a trusted import
         if (engineOwnedId(f.fmId)) held = true;
-        else if (trusted) { const t = byId.get(f.fmId); if (t && owned(t)) target = t; }
+        else if (trusted) {
+          let t = byId.get(f.fmId);
+          // an accepted proposal replaced the note the file was exported from: follow the chain to the live one
+          for (let hop = 0; t && statusOf(t) === 'superseded' && t.supersededBy && hop < 8; hop++) t = byId.get(t.supersededBy) ?? t;
+          if (t && owned(t)) { target = t; viaId = true; }
+        }
       }
       if (!target) { const s = stubs.get(oneLine(f.title).toLowerCase()); if (s && !claimed.has(s.id) && owned(s)) target = s; }
       if (target && claimed.has(target.id)) target = undefined;
@@ -459,6 +478,24 @@ export function importVault(graph: Graph, dir: string, actor: Actor = HUMAN, opt
       delete baseProps.stub;
       // a file with a props: block is the truth for the note's props; one without leaves them alone
       const props = { ...(f.props ? {} : baseProps), ...(f.props ?? {}), vaultPath: f.rel };
+      if (viaId && target) {
+        // A file that names an existing note by id may be a round trip or something a bot planted. If it changes the note, the change
+        // is a proposal the human reviews in the Inbox (with a diff), never a live overwrite; if it changes nothing, nothing happens.
+        const probe = graph.upsertNode(actor, {
+          id: target.id, type: f.type, title: f.title, body: f.body, tags: f.tags, props: { ...(f.props ? {} : baseProps), ...(f.props ?? {}) },
+          // the importer adds the file path as a source of its own: only the sources the file itself lists count as content
+          ...(f.sources.length > 1 ? { sources: f.sources.slice(1) } : {}), ...(f.confidence !== undefined ? { confidence: f.confidence } : {}),
+        }, { dryRun: true });
+        if (!probe.changed) {
+          claimed.add(target.id);
+          idOfFile.set(f.rel, target.id);
+          if (f.fmId) idOfFmId.set(f.fmId, target.id);
+          vaultTitles.set(oneLine(f.title).toLowerCase(), vaultTitles.get(oneLine(f.title).toLowerCase()) ?? target.id);
+          report.unchanged++;
+          continue;
+        }
+        held = true;
+      }
       const res = graph.upsertNode(actor, {
         ...(target ? { id: target.id } : {}), type: f.type, title: f.title, body: f.body, tags: f.tags, props,
         sources: f.sources, ...(f.confidence !== undefined ? { confidence: f.confidence } : {}),
@@ -469,7 +506,7 @@ export function importVault(graph: Graph, dir: string, actor: Actor = HUMAN, opt
       idOfFile.set(f.rel, res.node.id);
       if (f.fmId) idOfFmId.set(f.fmId, res.node.id);
       vaultTitles.set(oneLine(f.title).toLowerCase(), vaultTitles.get(oneLine(f.title).toLowerCase()) ?? res.node.id);
-      if (res.created) report.created++; else if (res.changed) report.updated++; else report.unchanged++;
+      if (res.proposalFor) { /* a proposal in the inbox: counted as held */ } else if (res.created) report.created++; else if (res.changed) report.updated++; else report.unchanged++;
     } catch (e) { report.skipped.push({ path: f.rel, reason: e instanceof Error ? e.message : String(e) }); }
   }
 

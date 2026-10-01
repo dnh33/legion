@@ -92,9 +92,28 @@ export const AGENT_NODE_CAP = 10_000;
 export const HUMAN_RESERVE = 500;
 /** Writers on one directory take turns through this lock file; a lock older than this is treated as left behind by a crash. */
 const LOCK_STALE_MS = 30_000;
-const LOCK_WAIT_MS = 5_000;
-const BATCH_BEGIN = '{"op":"begin"}';
-const BATCH_COMMIT = '{"op":"commit"}';
+/** A live holder keeps the lock for milliseconds; waiting longer than this means something is wrong, and the core must not freeze on it. */
+const LOCK_WAIT_MS = 1_500;
+/** A lock file with no readable content may be one its owner has only just created; after this long it is a leftover. */
+const LOCK_EMPTY_GRACE_MS = 250;
+/**
+ * A multi-op write is bracketed by two marker lines that both carry the number of ops: {"op":"begin","n":3}, the 3 ops,
+ * {"op":"commit","n":3}. The count lets load tell a batch that crashed half way (drop it) from a later, complete write
+ * that follows it. Markers without a count (older builds, hand-edited logs) are read the old way: a begin that has a
+ * commit somewhere after it brackets a batch, a begin with none is ignored and its lines apply one by one.
+ */
+/** How much of one field is joined to its neighbours when looking for a seed phrase split across fields. */
+const SEAM_CHARS = 400;
+const BATCH_BEGIN = '{"op":"begin"';
+const BATCH_COMMIT = '{"op":"commit"';
+const batchMark = (kind: typeof BATCH_BEGIN | typeof BATCH_COMMIT, n: number): string => `${kind},"n":${n}}`;
+const markerKind = (line: string): 'begin' | 'commit' | undefined => {
+  if (!line.startsWith('{"op":"')) return undefined;
+  if (line.startsWith(BATCH_BEGIN) && /^\{"op":"begin"(,"n":\d+)?\}$/.test(line)) return 'begin';
+  if (line.startsWith(BATCH_COMMIT) && /^\{"op":"commit"(,"n":\d+)?\}$/.test(line)) return 'commit';
+  return undefined;
+};
+const markerCount = (line: string): number | undefined => { const m = /"n":(\d+)/.exec(line); return m ? Number(m[1]) : undefined; };
 /** Tombstones (forgotten nodes) are purged this long after they were forgotten. */
 export const TOMBSTONE_DAYS = 30;
 const SNAPSHOTS_KEPT = 5;
@@ -557,9 +576,12 @@ export class Graph {
   private guard(): { text: (s: string) => string; readonly count: number } {
     const exact = this.secrets?.() ?? [];
     let count = 0;
+    // the tail of what this write has carried so far: a phrase split over tags, props, title and body is read across the seams
+    let seen = '';
     return {
       text: (s: string): string => {
-        const bad = findForbiddenSecretInField(s);
+        const bad = findForbiddenSecretInField(s) ?? (seen ? findForbiddenSecretInField(`${seen} | ${s.slice(0, SEAM_CHARS)}`) : undefined);
+        seen = `${seen} | ${s.slice(-SEAM_CHARS)}`.slice(-SEAM_CHARS * 2);
         if (bad) throw new KgError('invalid', `Refused: this looks like a ${bad}. Secrets never go into the knowledge graph. Nothing was saved.`);
         const out = scrubSecrets(s, { keepHex: true, exact });
         if (out !== s) count++;
@@ -604,17 +626,29 @@ export class Graph {
   /** Room for one more node: bots stop at the graph cap (and at their own per-bot cap), the human has a reserve above it. */
   private assertRoom(actor: Actor): void {
     const max = KG_LIMITS.maxNodes;
-    const size = this.nodes.size;
-    if (actor.kind !== 'agent') {
-      if (size >= max + HUMAN_RESERVE) throw new KgError('limit', `The graph is full (${max + HUMAN_RESERVE} nodes). Delete or merge nodes first.`);
-      return;
+    const total = this.nodes.size;
+    if (total < max) {
+      if (actor.kind !== 'agent') return;
+    } else {
+      // Archived notes (forgotten notes waiting out their 30 days, retired and merged notes) do not use up the graph's room, or one bot
+      // that creates and forgets in a loop could lock everyone else out. They count toward their author's own cap below, and a
+      // hard backstop bounds the whole file.
+      let live = 0;
+      for (const n of this.nodes.values()) if (statusOf(n) !== 'archived') live++;
+      if (actor.kind !== 'agent') {
+        if (live >= max + HUMAN_RESERVE) throw new KgError('limit', `The graph is full (${max + HUMAN_RESERVE} nodes). Delete or merge nodes first.`);
+        if (total >= 2 * max + HUMAN_RESERVE) throw new KgError('limit', 'The graph holds too many retired notes. Purge forgotten notes or compact first.');
+        return;
+      }
+      if (live >= max) throw new KgError('limit', `The graph is full (${max} nodes). Nothing was saved: tell the human to delete or merge notes.`);
+      if (total >= 2 * max) throw new KgError('limit', 'The graph holds too many forgotten and retired notes. Nothing was saved: tell the human to purge them.');
     }
-    if (size >= max) throw new KgError('limit', `The graph is full (${max} nodes). Nothing was saved: tell the human to delete or merge notes.`);
     const cap = Math.min(AGENT_NODE_CAP, max);
-    if (size < cap) return; // cannot reach the per-bot cap yet
+    if (total < cap) return; // cannot reach the per-bot cap yet
+    // everything the bot made counts, forgotten notes included, until they are purged
     let mine = 0;
-    for (const n of this.nodes.values()) if ((n.createdBy === actor.id || n.scope === `agent:${actor.id}`) && statusOf(n) !== 'archived') mine++;
-    if (mine >= cap) throw new KgError('limit', `You already own ${mine} notes (limit ${cap}). Nothing was saved: merge or forget some, or ask the human to review them.`);
+    for (const n of this.nodes.values()) if (n.createdBy === actor.id || n.scope === `agent:${actor.id}`) mine++;
+    if (mine >= cap) throw new KgError('limit', `You already own ${mine} notes, forgotten ones included (limit ${cap}). Nothing was saved: merge or forget some, or ask the human to review them.`);
   }
 
   private requirePendingRoom(actor: Actor): void {
@@ -743,15 +777,25 @@ export class Graph {
         return { node: structuredClone(copy), created: true, changed: true, pending: true, proposalFor: existing.id, notes, ...(g.count ? { redacted: g.count } : {}) };
       }
     }
+    // the clean version of a note that this run wrote while still clean and is now rewriting after turning tainted
+    let keepLive: { copy: KgNode; edges: KgEdge[]; sup: KgEdge } | undefined;
     if (w.agent) {
       // an agent edit can only keep or lower trust, and records which run last touched the node
       next.trust = minTrust(existingTrust, w.trust);
       if (w.origin) next.origin = { ...w.origin, tainted: w.origin.tainted || existing.origin?.tainted === true };
       if (w.hold && existing.scope === 'shared' && statusOf(existing) === 'active') {
-        // a live note this run wrote while it was still clean, rewritten after the run turned tainted: it goes back to the inbox
-        if (!opts.dryRun) this.requirePendingRoom(actor);
+        // A live note this run wrote while it was still clean, rewritten after the run turned tainted: the rewrite goes to the
+        // inbox under the same id, and the clean version stays live as a copy (with the same links) until the human decides, so
+        // rejecting the rewrite loses nothing and other bots do not lose the note meanwhile.
+        if (!opts.dryRun) { this.requirePendingRoom(actor); this.assertRoom(actor); }
         next.status = 'pending';
-        w.notes.push(`"${existing.id}" was live before this run touched outside content; with your rewrite it now waits for the human to accept it.`);
+        const copy: KgNode = { ...structuredClone(existing), id: newId('n'), updatedAt: now, rev: 1 };
+        const links = [...new Set([...(this.out.get(existing.id) ?? []), ...(this.inn.get(existing.id) ?? [])])]
+          .map((eid) => this.edges.get(eid)).filter((e): e is KgEdge => !!e && e.rel !== 'supersedes');
+        const edges = links.map((e): KgEdge => ({ ...structuredClone(e), id: newId('e'), from: e.from === existing.id ? copy.id : e.from, to: e.to === existing.id ? copy.id : e.to }));
+        const sup: KgEdge = { id: newId('e'), from: existing.id, to: copy.id, rel: 'supersedes', note: 'proposed edit', createdBy: who, createdAt: now };
+        keepLive = { copy, edges, sup };
+        w.notes.push(`"${existing.id}" was live before this run touched outside content; your rewrite now waits for the human to accept it, and the earlier text stays live as "${copy.id}" until then.`);
       }
     }
     const fields: Record<string, unknown> = {};
@@ -766,13 +810,22 @@ export class Graph {
     next.rev = (existing.rev ?? 0) + 1;
     if (opts.dryRun) return extra({ node: structuredClone(next), created: false, changed: true });
     this.chargeNode(actor, bytes);
-    const undo = this.inverseOf([{ op: 'patch', id: existing.id, fields }]);
-    this.append([{ op: 'patch', id: existing.id, fields }]);
+    const ops: LogOp[] = [
+      ...(keepLive ? [{ op: 'node', node: keepLive.copy } as LogOp, ...[...keepLive.edges, keepLive.sup].map((edge) => ({ op: 'edge', edge }) as LogOp)] : []),
+      { op: 'patch', id: existing.id, fields },
+    ];
+    const undo = this.inverseOf(ops);
+    this.append(ops);
     this.unindexNode(existing.id);
     this.nodes.set(next.id, next);
     this.indexNode(next);
+    if (keepLive) {
+      this.nodes.set(keepLive.copy.id, keepLive.copy);
+      this.indexNode(keepLive.copy);
+      for (const e of [...keepLive.edges, keepLive.sup]) this.addEdge(e);
+    }
     this.logActivity(actor, 'update', undo, next);
-    this.changed([next.id]);
+    this.changed(keepLive ? [next.id, keepLive.copy.id] : [next.id]);
     return extra({ node: structuredClone(next), created: false, changed: true });
   }
 
@@ -1838,14 +1891,26 @@ export class Graph {
    */
   private append(ops: object[]): void {
     const lines = ops.map((o) => JSON.stringify(o));
-    const text = (ops.length > 1 ? [BATCH_BEGIN, ...lines, BATCH_COMMIT] : lines).join('\n') + '\n';
+    const text = (ops.length > 1 ? [batchMark(BATCH_BEGIN, ops.length), ...lines, batchMark(BATCH_COMMIT, ops.length)] : lines).join('\n') + '\n';
     this.withLock(() => {
       this.syncFromDisk();
-      appendFileSync(this.file, text, 'utf8');
+      const before = this.fileSize();
+      try {
+        appendFileSync(this.file, text, 'utf8');
+      } catch (e) {
+        // a failed write (a full disk) may have left part of the batch on disk while memory has not changed: cut it away,
+        // or the next successful write would land behind a half batch
+        try { truncateTo(this.file, before); } catch { /* nothing more can be done */ }
+        throw e;
+      }
       this.bytes += Buffer.byteLength(text);
       this.totalEntries += ops.length;
       this.diskId = this.fileId();
     });
+  }
+
+  private fileSize(): number {
+    try { return statSync(this.file).size; } catch { return 0; }
   }
 
   private fileId(): string {
@@ -1866,19 +1931,32 @@ export class Graph {
   private withLock<T>(fn: () => T): T {
     const lock = `${this.file}.lock`;
     const deadline = Date.now() + LOCK_WAIT_MS;
+    const mine = `${process.pid} ${Date.now()}`;
     for (;;) {
+      let fd: number;
       try {
-        const fd = openSync(lock, 'wx');
-        try { writeSync(fd, `${process.pid} ${Date.now()}`); } finally { closeSync(fd); }
-        break;
+        fd = openSync(lock, 'wx');
       } catch (e) {
         if ((e as NodeJS.ErrnoException).code !== 'EEXIST') return fn(); // a read-only or odd file system: no lock, same as before
         if (lockIsStale(lock)) { rmSync(lock, { force: true }); continue; }
-        if (Date.now() > deadline) throw new KgError('unavailable', 'Another Legion process is writing the library right now. Try again in a moment.');
+        if (Date.now() > deadline) {
+          throw new KgError('unavailable', `Another Legion process is holding ${lock} (${lockHolder(lock)}). If no other Legion is running, delete that file and try again.`);
+        }
         Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 15);
+        continue;
       }
+      try { writeSync(fd, mine); } catch {
+        // a full disk: the empty file we just made must not stay behind as a lock nobody owns
+        try { closeSync(fd); } catch { /* already closed */ }
+        rmSync(lock, { force: true });
+        return fn();
+      }
+      closeSync(fd);
+      break;
     }
-    try { return fn(); } finally { rmSync(lock, { force: true }); }
+    try { return fn(); } finally {
+      try { if (readFileSync(lock, 'utf8') === mine) rmSync(lock, { force: true }); } catch { /* already gone */ }
+    }
   }
 
   private maybeCompact(): void {
@@ -1965,24 +2043,38 @@ export class Graph {
     // everything up to the last newline is complete lines; what follows is a partial or unterminated record
     const keep = buf.lastIndexOf(0x0a) + 1;
     // a batch (begin ... commit) applies as a whole or not at all
-    let open: { start: number; lines: string[] } | undefined;
+    let open: { start: number; n: number | undefined; lines: string[] } | undefined;
     for (let pos = 0; pos < keep; ) {
       const nl = buf.indexOf(0x0a, pos);
       const line = buf.toString('utf8', pos, nl);
       const start = pos;
       pos = nl + 1;
       if (!line.trim()) continue;
-      if (line === BATCH_BEGIN) {
+      const mark = markerKind(line);
+      // a counted batch already holds all its ops: anything but its commit now means it was cut short by a failed write
+      if (open && open.n !== undefined && open.lines.length >= open.n && mark !== 'commit') {
+        this.loadInfo.skippedLines += open.lines.length + 1;
+        open = undefined;
+      }
+      if (mark === 'begin') {
         if (open) this.loadInfo.skippedLines += open.lines.length + 1; // an earlier batch never committed
-        open = { start, lines: [] };
-      } else if (line === BATCH_COMMIT) {
-        if (open) { for (const l of open.lines) if (!this.replay(l)) this.loadInfo.skippedLines++; open = undefined; }
+        const n = markerCount(line);
+        // an uncounted begin with no commit anywhere after it cannot be told from a crash tail: ignore the marker, apply the lines
+        if (n === undefined && buf.indexOf('\n{"op":"commit"', pos - 1) < 0) { open = undefined; continue; }
+        open = { start, n, lines: [] };
+      } else if (mark === 'commit') {
+        if (open) {
+          const n = markerCount(line);
+          if (n !== undefined && n !== open.lines.length) this.loadInfo.skippedLines += open.lines.length + 1;
+          else for (const l of open.lines) if (!this.replay(l)) this.loadInfo.skippedLines++;
+          open = undefined;
+        }
       } else if (open) open.lines.push(line);
       else if (!this.replay(line)) this.loadInfo.skippedLines++;
     }
     if (open) {
       const rest = buf.subarray(keep).toString('utf8').trim();
-      if (rest === BATCH_COMMIT) {
+      if (markerKind(rest) === 'commit' && (markerCount(rest) ?? open.lines.length) === open.lines.length) {
         // the commit line was written but its newline was not
         for (const l of open.lines) if (!this.replay(l)) this.loadInfo.skippedLines++;
         appendFileSync(this.file, '\n');
@@ -2075,18 +2167,24 @@ export class Graph {
 
 /** A lock file is stale when it is old, or names a process on this machine that no longer exists. */
 function lockIsStale(lock: string): boolean {
-  try {
-    const [pidText, atText] = readFileSync(lock, 'utf8').split(' ');
-    const at = Number(atText);
-    if (Number.isFinite(at) && Date.now() - at > LOCK_STALE_MS) return true;
-    const pid = Number(pidText);
-    if (Number.isInteger(pid) && pid > 0 && pid !== process.pid) {
-      try { process.kill(pid, 0); } catch (e) { return (e as NodeJS.ErrnoException).code === 'ESRCH'; }
-    }
-    return false;
-  } catch {
-    try { return Date.now() - statSync(lock).mtimeMs > LOCK_STALE_MS; } catch { return false; }
-  }
+  let age: number;
+  try { age = Date.now() - statSync(lock).mtimeMs; } catch { return true; } // gone already: the next create decides
+  let text = '';
+  try { text = readFileSync(lock, 'utf8'); } catch { return age > LOCK_EMPTY_GRACE_MS; }
+  const m = /^(\d+) (\d+)$/.exec(text.trim());
+  // empty, cut short or garbage: a crashed writer or a stray file; give a live creator a moment to fill it in, then take it over
+  if (!m) return age > LOCK_EMPTY_GRACE_MS;
+  const pid = Number(m[1]);
+  const at = Number(m[2]);
+  if (Date.now() - at > LOCK_STALE_MS || age > LOCK_STALE_MS) return true;
+  // this process never holds the lock outside withLock, so a lock naming us is a leftover (a restart that reused our pid)
+  if (pid === process.pid) return true;
+  try { process.kill(pid, 0); } catch (e) { return (e as NodeJS.ErrnoException).code === 'ESRCH'; }
+  return false;
+}
+
+function lockHolder(lock: string): string {
+  try { const t = readFileSync(lock, 'utf8').trim(); return t ? `pid/time ${t}` : 'empty lock file'; } catch { return 'unreadable'; }
 }
 
 function truncateTo(file: string, bytes: number): void {

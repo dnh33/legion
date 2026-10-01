@@ -135,7 +135,8 @@ test('scrubSecrets keepHex / exact options, and findForbiddenSecret shapes', () 
   assert.equal(scrubSecrets('use abcd now', { exact: ['abcd'] }), 'use abcd now');
   assert.equal(findForbiddenSecret(`seed phrase: ${SEED12}`), 'seed phrase');
   assert.equal(findForbiddenSecret(`The mnemonic is "${SEED12}"`), 'seed phrase');
-  assert.equal(findForbiddenSecret(SEED12), undefined, 'twelve words with no label are just words');
+  assert.equal(findForbiddenSecret(SEED12), 'seed phrase', 'twelve BIP-39 words are a seed phrase whether or not a label sits in front (second review, R2-S1)');
+  assert.equal(findForbiddenSecret('one two three four five six seven eight nine ten eleven twelve thirteen'), undefined, 'twelve ordinary words that are not BIP-39 words are just words');
   assert.equal(findForbiddenSecret('seed phrase: abandon ability able'), undefined, 'too short');
   assert.equal(findForbiddenSecret('A seed phrase is the list of the words that you must keep safe and never share with any other person or service'), undefined, 'prose with common words');
   assert.equal(findForbiddenSecret(`txid ${TXID}`), undefined);

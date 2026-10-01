@@ -8,7 +8,8 @@ import type {
 } from '../shared/types.js';
 import { newId, nowIso, titleFrom } from '../shared/util.js';
 import { scrubHostSessionEnv } from '../shared/config.js';
-import { LEGION_TOOL_PREFIXES, needsApproval, stricterMode } from './approvals.js';
+import { isLegionTool, needsApproval, stricterMode } from './approvals.js';
+import { TaintedPaths } from './tainted-paths.js';
 import type { CoreModule, ModuleJob, PreambleContext, TaskEndOutcome } from './modules.js';
 import type { TaskOrigin } from '../shared/comms.js';
 import type { ApprovalBroker } from './approvals.js';
@@ -30,6 +31,8 @@ export interface EngineDeps {
   boatConfigured: () => boolean;
   maxConcurrent?: number;
   modules?: CoreModule[];
+  /** Where the list of files written by tainted runs is kept; defaults to <workspaceDir>/.tainted-paths.json. */
+  taintedPaths?: TaintedPaths;
 }
 
 /**
@@ -58,7 +61,14 @@ export function clipToolResult(raw: string, max = 1500): string {
 const CLEAN_BUILTINS = new Set([
   'Read', 'Glob', 'Grep', 'LS', 'Edit', 'MultiEdit', 'Write', 'NotebookEdit',
   'TodoWrite', 'Task', 'Agent', 'ExitPlanMode', 'EnterPlanMode',
+  // the agent's own plumbing: no network, no other server, nothing that carries someone else's text into the run
+  'Skill', 'ToolSearch', 'AskUserQuestion', 'TaskStop', 'TaskCreate', 'TaskUpdate', 'TaskList', 'TaskGet',
+  'Config', 'EnterWorktree', 'ExitWorktree', 'CronCreate', 'CronList', 'CronDelete', 'Monitor',
 ]);
+/** File tools that put a run's content on disk, and the input field that names the file. */
+const WRITE_FILE_TOOLS: Record<string, string> = { Write: 'file_path', Edit: 'file_path', MultiEdit: 'file_path', NotebookEdit: 'notebook_path' };
+const READ_FILE_TOOLS: Record<string, string> = { Read: 'file_path' };
+const SEARCH_TOOLS = new Set(['Glob', 'Grep', 'LS']);
 /** Legion's own in-process tools that still return outside content: a VM's output. */
 const TAINTING_LEGION_TOOLS = new Set([
   'mcp__legion__vm_exec', 'mcp__legion__vm_read_file', 'mcp__legion__vm_claude', 'mcp__legion__vm_desktop',
@@ -66,7 +76,7 @@ const TAINTING_LEGION_TOOLS = new Set([
 /** True when calling this tool taints the run: unless it is a Legion in-process tool (not a VM-output one) or on the clean built-in list, it does. */
 export function taintsRun(toolName: string): boolean {
   if (TAINTING_LEGION_TOOLS.has(toolName)) return true;
-  if (LEGION_TOOL_PREFIXES.some((p) => toolName.startsWith(p))) return false;
+  if (isLegionTool(toolName)) return false;
   return !CLEAN_BUILTINS.has(toolName);
 }
 
@@ -95,7 +105,7 @@ export const LEGION_PREAMBLE = [
 export function buildChildEnv(config: LegionConfig): Record<string, string | undefined> {
   const env: Record<string, string | undefined> = scrubHostSessionEnv({ ...process.env });
   // the bearer token opens every human-only route: whatever put it in this process's environment, it must not reach a bot's
-  if (config.authToken.length >= 8) for (const [k, v] of Object.entries(env)) if (typeof v === 'string' && v.includes(config.authToken)) delete env[k];
+  if (config.authToken.length >= 8) for (const [k, v] of Object.entries(env)) if (typeof v === 'string' && v.toLowerCase().includes(config.authToken.toLowerCase())) delete env[k];
   if (config.claude.auth === 'api-key') {
     env.ANTHROPIC_API_KEY = config.claude.apiKey;
   } else {
@@ -134,6 +144,7 @@ export class Engine {
   private readonly queryFn: QueryFn;
   private readonly boatConfigured: () => boolean;
   private readonly maxConcurrent: number;
+  private readonly taintedPaths: TaintedPaths;
   private readonly queue: Job[] = [];
   private readonly active = new Map<string, Active>();
   private idleTimer: ReturnType<typeof setTimeout> | undefined;
@@ -147,6 +158,7 @@ export class Engine {
     this.boatConfigured = deps.boatConfigured;
     this.maxConcurrent = Math.max(1, deps.maxConcurrent ?? 4);
     this.modules = deps.modules ?? [];
+    this.taintedPaths = deps.taintedPaths ?? new TaintedPaths(join(deps.config.workspaceDir, '.tainted-paths.json'));
     this.bridge = new Bridge({ store: this.store, bus: this.bus, engine: this });
   }
 
@@ -448,15 +460,44 @@ export class Engine {
   }
 
   /** One tool_use seen (in the message stream or by the PreToolUse hook; whichever comes first wins): taint, then tell modules. */
-  private noteToolUse(job: Job, act: Active, toolName: string, toolUseId?: string): void {
+  private noteToolUse(job: Job, act: Active, toolName: string, toolUseId?: string, input?: unknown): void {
     if (toolUseId) {
       if (act.toolUses.has(toolUseId)) return;
       act.toolUses.add(toolUseId);
     }
     if (taintsRun(toolName)) act.tainted = true;
+    this.trackWorkspaceTaint(job, act, toolName, input);
     for (const m of this.modules) {
       try { m.onToolUse?.(job.agentId, job.taskId, toolName); } catch { /* ignore */ }
     }
+  }
+
+  /**
+   * Taint follows files: what a tainted run Writes or Edits is marked, and a later run that reads a marked file (or searches a
+   * tree that holds one) is tainted before the tool runs. A clean run that rewrites a whole file takes the mark off it.
+   */
+  private trackWorkspaceTaint(job: Job, act: Active, toolName: string, input: unknown): void {
+    const o = input && typeof input === 'object' ? input as Record<string, unknown> : {};
+    const cwd = this.agentCwd(job.agentId);
+    const arg = (field: string | undefined): string | undefined => (field && typeof o[field] === 'string' && o[field] ? TaintedPaths.resolvePath(cwd, o[field] as string) : undefined);
+    const w = arg(WRITE_FILE_TOOLS[toolName]);
+    if (w) {
+      if (act.tainted) this.taintedPaths.mark(w);
+      else if (toolName === 'Write') this.taintedPaths.unmark(w);
+      return;
+    }
+    if (act.tainted) return;
+    const r = arg(READ_FILE_TOOLS[toolName]);
+    if (r) { if (this.taintedPaths.has(r)) act.tainted = true; return; }
+    if (SEARCH_TOOLS.has(toolName)) {
+      const root = typeof o.path === 'string' && o.path ? TaintedPaths.resolvePath(cwd, o.path) : TaintedPaths.resolvePath(cwd, '.');
+      if (this.taintedPaths.touches(root)) act.tainted = true;
+    }
+  }
+
+  private agentCwd(agentId: string): string {
+    const agent = this.store.getAgent(agentId);
+    return agent?.cwd || join(this.config.workspaceDir, agentId);
   }
 
   private buildOptions(job: Job, agent: AgentProfile, model: ConcreteModel, act: Active, prompt: string, resume?: string): Options {
@@ -482,7 +523,7 @@ export class Engine {
       hooks: {
         PreToolUse: [{
           hooks: [async (input) => {
-            if (input.hook_event_name === 'PreToolUse') this.noteToolUse(job, act, input.tool_name, input.tool_use_id);
+            if (input.hook_event_name === 'PreToolUse') this.noteToolUse(job, act, input.tool_name, input.tool_use_id, input.tool_input);
             return { continue: true };
           }],
         }],
@@ -577,7 +618,7 @@ export class Engine {
         if (text) this.addMessage(taskId, 'assistant', text);
         for (const b of blocks) {
           if (b?.type !== 'tool_use') continue;
-          this.noteToolUse(job, act, String(b.name ?? 'tool'), typeof b.id === 'string' ? b.id : undefined);
+          this.noteToolUse(job, act, String(b.name ?? 'tool'), typeof b.id === 'string' ? b.id : undefined, b.input);
           let json: string;
           try { json = JSON.stringify(b.input ?? {}); } catch { json = '{}'; }
           if (json.length > 500) json = json.slice(0, 499) + '…';

@@ -1,6 +1,6 @@
 /** Settings API backend: validate, persist atomically to config.json, apply live. */
-import { existsSync, mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from 'node:fs';
-import { dirname } from 'node:path';
+import { existsSync, readFileSync } from 'node:fs';
+import { writeConfigFile } from '../shared/config.js';
 import type { LegionConfig, McpServerEntry, SettingsPatch, SettingsView } from '../shared/types.js';
 import { BoatClient } from './boat.js';
 import type { EventBus } from './bus.js';
@@ -124,18 +124,6 @@ export function validatePatch(raw: unknown, current?: Record<string, McpServerEn
   return out;
 }
 
-function writeAtomic(file: string, json: string): void {
-  mkdirSync(dirname(file), { recursive: true });
-  const tmp = `${file}.${process.pid}.tmp`;
-  writeFileSync(tmp, json, { encoding: 'utf8', mode: 0o600 });
-  try {
-    renameSync(tmp, file);
-  } catch (e) {
-    const code = (e as NodeJS.ErrnoException).code;
-    if (code === 'EPERM' || code === 'EEXIST') { try { unlinkSync(file); } catch { /* ignore */ } renameSync(tmp, file); }
-    else { try { unlinkSync(tmp); } catch { /* ignore */ } throw e; }
-  }
-}
 
 export class SettingsService {
   constructor(private readonly deps: SettingsDeps) {}
@@ -175,7 +163,7 @@ export class SettingsService {
       if (p.mcpServers) target.mcpServers = p.mcpServers;
     };
     apply(disk);
-    try { writeAtomic(this.deps.configPath, JSON.stringify(disk, null, 2)); } catch (e) {
+    try { writeConfigFile(this.deps.configPath, JSON.stringify(disk, null, 2)); } catch (e) {
       throw new SettingsError(`Could not write config: ${e instanceof Error ? e.message : String(e)}`, 500);
     }
     const boatBefore = `${cfg.boat.apiKey ?? ''}|${cfg.boat.baseUrl}`;

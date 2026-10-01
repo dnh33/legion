@@ -1,0 +1,11 @@
+{"op":"node","node":{"id":"n_b2c04fe8256a","type":"note","title":"old one","body":"alpha body one","tags":[],"scope":"shared","trust":"agent","origin":{"taskId":"T1","tainted":false},"createdBy":"alpha","createdAt":"2026-10-01T13:23:14.380Z","updatedAt":"2026-10-01T13:23:14.380Z"}}
+{"op":"node","node":{"id":"n_7e492b19a11d","type":"note","title":"old two","body":"alpha body two","tags":[],"scope":"shared","trust":"agent","origin":{"taskId":"T1","tainted":false},"createdBy":"alpha","createdAt":"2026-10-01T13:23:14.384Z","updatedAt":"2026-10-01T13:23:14.384Z"}}
+{"op":"node","node":{"id":"n_e4e523b60eea","type":"note","title":"old three","body":"three","tags":[],"scope":"shared","trust":"agent","origin":{"taskId":"T2","tainted":false},"createdBy":"alpha","createdAt":"2026-10-01T13:23:14.385Z","updatedAt":"2026-10-01T13:23:14.385Z"}}
+{"op":"edge","edge":{"id":"e_2e2a8c50f869","from":"n_b2c04fe8256a","to":"n_7e492b19a11d","rel":"relates","createdBy":"alpha","createdAt":"2026-10-01T13:23:14.385Z"}}
+{"op":"patch","id":"n_b2c04fe8256a","fields":{"body":"alpha body one edited","origin":{"taskId":"T3","tainted":false},"updatedAt":"2026-10-01T13:23:14.386Z"}}
+{"op":"patch","id":"n_e4e523b60eea","fields":{"status":"archived","supersededBy":"n_7e492b19a11d","updatedAt":"2026-10-01T13:23:14.387Z"}}
+{"op":"edge","edge":{"id":"e_65c251e558e4","from":"n_7e492b19a11d","to":"n_e4e523b60eea","rel":"supersedes","createdBy":"alpha","createdAt":"2026-10-01T13:23:14.387Z"}}
+{"op":"node","node":{"id":"n_b3c93fe8e4fa","type":"decision","title":"Pick X","body":"## Chose\nX","tags":[],"scope":"shared","trust":"agent","origin":{"taskId":"T5","tainted":false},"createdBy":"alpha","createdAt":"2026-10-01T13:23:14.389Z","updatedAt":"2026-10-01T13:23:14.389Z"}}
+{"op":"edge","edge":{"id":"e_8f51d527e26c","from":"n_b3c93fe8e4fa","to":"n_b2c04fe8256a","rel":"supersedes","createdBy":"alpha","createdAt":"2026-10-01T13:23:14.389Z"}}
+{"op":"patch","id":"n_b2c04fe8256a","fields":{"status":"superseded","supersededBy":"n_b3c93fe8e4fa","updatedAt":"2026-10-01T13:23:14.389Z"}}
+{"op":"node","node":{"id":"n_7618403825c9","type":"note","title":"human note","body":"h","tags":[],"scope":"shared","trust":"human","createdBy":"human","createdAt":"2026-10-01T13:23:14.389Z","updatedAt":"2026-10-01T13:23:14.389Z"}}

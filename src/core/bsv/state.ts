@@ -4,9 +4,9 @@
  * saving the in-memory config: that object carries env-derived values (API keys, port) which must not land on disk.
  * When there is no config.json (tests, odd setups) it falls back to <dataDir>/bsv.json.
  */
-import { existsSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { normalizeBsv } from '../../shared/config.js';
+import { normalizeBsv, writeConfigFile } from '../../shared/config.js';
 import type { BsvConfig } from '../../shared/config.js';
 import type { LegionConfig } from '../../shared/types.js';
 
@@ -43,9 +43,7 @@ export class BsvState {
     if (existsSync(this.configFile)) {
       const cur = JSON.parse(readFileSync(this.configFile, 'utf8')) as Record<string, unknown>;
       cur.bsv = bsv;
-      const tmp = this.configFile + '.tmp';
-      writeFileSync(tmp, JSON.stringify(cur, null, 2), 'utf8');
-      renameSync(tmp, this.configFile);
+      writeConfigFile(this.configFile, JSON.stringify(cur, null, 2));
     } else {
       writeFileSync(this.fallbackFile, JSON.stringify(bsv, null, 2), 'utf8');
     }

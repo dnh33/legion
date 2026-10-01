@@ -122,24 +122,35 @@ test('export then import into a fresh graph reproduces notes, tags and typed lin
   assert.equal(logLines(dst.file).length, before.log);
 });
 
-test('importing the export of the same graph updates in place instead of duplicating', () => {
+test('importing the export of the same graph does not duplicate; a change made in the vault waits in the Inbox as a proposal', () => {
   const { g } = mkGraph();
   const a = note(g, 'One', { body: 'first' });
   const b = note(g, 'Two');
   g.link(HUMAN, { from: a.id, to: b.id, rel: 'teaches' });
   const vault = tmpDir();
   exportVault(g, HUMAN, vault);
+  // untouched export: nothing changes, nothing is proposed
+  const r0 = importVault(g, vault);
+  assert.equal(r0.unchanged, 2);
+  assert.equal(g.inbox(HUMAN).length, 0);
   // edit the vault like a human would in Obsidian
   const f = join(vault, vaultFileName(a));
   writeFileSync(f, readFileSync(f, 'utf8').replace('first', 'first, edited in the vault'));
   const r = importVault(g, vault);
   assert.equal(r.created, 0);
-  assert.equal(g.stats(HUMAN).nodes, 2, 'no duplicates');
-  assert.equal(g.getNode(HUMAN, a.id)!.body, 'first, edited in the vault');
-  assert.equal(g.stats(HUMAN).edges, 1);
+  assert.equal(r.held, 1, 'a file that names an existing note by id may be planted: the change is a proposal');
+  assert.equal(g.getNode(HUMAN, a.id)!.body, 'first', 'the live note is untouched until the human accepts');
+  const rows = g.inbox(HUMAN);
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0]!.kind, 'edit');
+  g.acceptPending(HUMAN, rows[0]!.id);
+  assert.equal(g.findByTitle(HUMAN, 'One').filter((n) => n.status === undefined)[0]!.body, 'first, edited in the vault');
+  assert.equal(g.stats(HUMAN).edges >= 1, true);
+  // after accepting, the same files change nothing and propose nothing
   const r2 = importVault(g, vault);
   assert.equal(r2.unchanged, 2);
   assert.equal(r2.updated, 0);
+  assert.equal(g.inbox(HUMAN).length, 0);
 });
 
 test('a link to one of two nodes that share a title round-trips to the right one', () => {
