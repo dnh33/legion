@@ -1,0 +1,5 @@
+node test-perf/ui-app/pointer-sweep.mjs <base|new>   (400 pointer moves over the chat view, Relic stage present, SMIL paused in both builds, software raster)
+base run1: task 29603 ms, style 23769 ms, 868 recalcs, 953 layouts
+new  run1: task 10254 ms, style  4777 ms, 832 recalcs, 984 layouts
+base run2: task 32924 ms, style 25216 ms, 932 recalcs, 971 layouts
+new  run2: task 10830 ms, style  5333 ms, 847 recalcs, 956 layouts

@@ -410,17 +410,31 @@ export function createMascot(host, data, opts = {}) {
     }
   }
 
-  // pointer tracking (eyes follow the cursor anywhere on the page) + hover lean
+  // pointer tracking (eyes follow the cursor anywhere on the page) + hover lean.
+  // The eye offsets are custom properties, and an inherited custom property changed on the ROOT restyles every element of
+  // the mascot (about 1,900 SVG nodes) on every pointer move, plus a forced layout for the rect. So: --ex/--ey live on the eyes
+  // group (about 100 nodes), --lean on the rig (the only element that reads it), the rect is cached and refreshed on
+  // resize / scroll / every 500 ms (the panel can slide), tiny deltas are skipped, and moves are rAF-coalesced.
   let hovering = false; let raf = 0; let mx = null; let my = null;
+  const eyesGrp = root.querySelector('[id$="L-eyes"]') || root;
+  const leanEl = rig || root;
+  let sRect = null; let sRectAt = 0; let lEx = NaN; let lEy = NaN; let lLn = NaN;
+  const dropRect = () => { sRect = null; };
   const apply = () => {
     raf = 0;
-    if (mx === null || opts.track === false) { root.style.setProperty('--ex', '0px'); root.style.setProperty('--ey', '0px'); root.style.setProperty('--lean', '0deg'); return; }
-    const r = root.getBoundingClientRect();
-    const dx = mx - (r.left + r.width / 2); const dy = my - (r.top + r.height * 0.36);
-    const k = (v, s) => Math.max(-1, Math.min(1, v / s));
-    root.style.setProperty('--ex', `${(k(dx, 320) * 6).toFixed(2)}px`);
-    root.style.setProperty('--ey', `${(k(dy, 320) * 4).toFixed(2)}px`);
-    root.style.setProperty('--lean', hovering ? `${(k(dx, 160) * 3).toFixed(2)}deg` : '0deg');
+    let ex = 0; let ey = 0; let ln = 0;
+    if (!(mx === null || opts.track === false)) {
+      const t = performance.now();
+      if (!sRect || t - sRectAt > 500) { sRect = root.getBoundingClientRect(); sRectAt = t; }
+      const dx = mx - (sRect.left + sRect.width / 2); const dy = my - (sRect.top + sRect.height * 0.36);
+      const k = (v, s) => Math.max(-1, Math.min(1, v / s));
+      ex = k(dx, 320) * 6; ey = k(dy, 320) * 4; ln = hovering ? k(dx, 160) * 3 : 0;
+    }
+    if (Math.abs(ex - lEx) < 0.15 && Math.abs(ey - lEy) < 0.15 && Math.abs(ln - lLn) < 0.2) return;
+    lEx = ex; lEy = ey; lLn = ln;
+    eyesGrp.style.setProperty('--ex', `${ex.toFixed(2)}px`);
+    eyesGrp.style.setProperty('--ey', `${ey.toFixed(2)}px`);
+    leanEl.style.setProperty('--lean', `${ln.toFixed(2)}deg`);
   };
   const onMove = (e) => { mx = e.clientX; my = e.clientY; if (!raf) raf = requestAnimationFrame(apply); };
   const onLeaveDoc = () => { mx = null; if (!raf) raf = requestAnimationFrame(apply); };
@@ -459,11 +473,12 @@ export function createMascot(host, data, opts = {}) {
     document.documentElement.addEventListener('mouseleave', onLeaveDoc);
   }
   if (!rail) {
+    window.addEventListener('resize', dropRect, { passive: true });
+    window.addEventListener('scroll', dropRect, { passive: true, capture: true });
     document.addEventListener('visibilitychange', onVis);
     window.addEventListener('blur', onBlur);
     window.addEventListener('focus', onFocus);
   }
-
   hoverHost.addEventListener('pointerenter', onEnter);
   hoverHost.addEventListener('pointerleave', onLeave);
 
@@ -517,6 +532,8 @@ export function createMascot(host, data, opts = {}) {
       else {
         window.removeEventListener('pointermove', onMove);
         document.documentElement.removeEventListener('mouseleave', onLeaveDoc);
+        window.removeEventListener('resize', dropRect);
+        window.removeEventListener('scroll', dropRect, true);
         document.removeEventListener('visibilitychange', onVis);
         window.removeEventListener('blur', onBlur);
         window.removeEventListener('focus', onFocus);
