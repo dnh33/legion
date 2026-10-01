@@ -7,7 +7,7 @@
  *   stage        full behaviour (hover, pokes, quips, all layers live) instead of the agent-rail performance mode
  *   width        box width for stage use (the bust is fitted inside width x size)
  */
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { memo, useEffect, useMemo, useRef, useState } from 'react';
 import { useStore, type RelicState } from '../store';
 import { createMascot, type MascotHandle } from './engine.js';
 import { hasBust, loadBust, type LoadedBust } from './busts';
@@ -17,7 +17,7 @@ import './bust.css';
 
 export interface BustProps { agentId: string; size?: number; className?: string; state?: RelicState; vm?: boolean; stage?: boolean; width?: number }
 
-export function Bust({ agentId, size = 40, className, state: forced, vm: forcedVm, stage = false, width }: BustProps) {
+export const Bust = memo(function Bust({ agentId, size = 40, className, state: forced, vm: forcedVm, stage = false, width }: BustProps) {
   const emoji = useStore((s) => s.agents.find((a) => a.id === agentId)?.emoji ?? '●');
   const builtIn = hasBust(agentId);
   const [asset, setAsset] = useState<LoadedBust | null>(null);
@@ -65,4 +65,4 @@ export function Bust({ agentId, size = 40, className, state: forced, vm: forcedV
         : <span className="bust-fallback" style={{ fontSize: Math.round(size * 0.5) }}>{emoji}</span>}
     </span>
   );
-}
+});

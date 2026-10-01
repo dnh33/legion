@@ -41,7 +41,7 @@ export function deriveBustState(g: BustSignals, t: number): RelicState {
   return 'idle';
 }
 
-/** Next moment at which deriveBustState could change by itself (a window expiring). */
+/** Next moment (absolute, ms since epoch) at which deriveBustState could change by itself (a window expiring); Infinity when none. */
 function nextDeadline(g: BustSignals, t: number): number {
   const ds: number[] = [];
   const [, fu] = g.finished.split('|');
@@ -50,7 +50,7 @@ function nextDeadline(g: BustSignals, t: number): number {
   if (g.comms) ds.push(g.comms.at + COMMS_STALE_MS);
   if (g.vmEnabled && g.vmState === 'archived' && g.lastActive) ds.push(Date.parse(g.lastActive) + SLEEP_MS);
   const future = ds.filter((d) => d > t);
-  return future.length ? Math.min(...future) - t + 30 : Infinity;
+  return future.length ? Math.min(...future) + 30 : Infinity;
 }
 
 /**
@@ -87,13 +87,13 @@ export function useBustState(agentId: string, enabled = true): { state: RelicSta
   const sig: BustSignals = { pending, running, finished, toolAt, comms, vmState, vmEnabled, lastActive };
   const [, bump] = useState(0);
   // wake when a transient window (victory, error, tool, comms, sleep) runs out
+  // (keyed on the absolute deadline: the timer is re-armed when the deadline moves, not on every render of every bust)
+  const deadline = enabled ? nextDeadline(sig, Date.now()) : Infinity;
   useEffect(() => {
-    if (!enabled) return;
-    const d = nextDeadline(sig, Date.now());
-    if (!Number.isFinite(d)) return;
-    const id = window.setTimeout(() => bump((n) => n + 1), Math.min(d, 2 ** 30));
+    if (!Number.isFinite(deadline)) return;
+    const id = window.setTimeout(() => bump((n) => n + 1), Math.min(Math.max(0, deadline - Date.now()), 2 ** 30));
     return () => clearTimeout(id);
-  });
+  }, [deadline]);
 
   const target = enabled ? deriveBustState(sig, Date.now()) : 'idle';
   const [shown, setShown] = useState<RelicState>(target);

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { memo, useState } from 'react';
 import type { ChatMessage } from '../../../src/shared/types';
 import { selectTask, useStore } from '../store';
 import { clip, shortTool, toolPreview, tryPretty } from '../util';
@@ -39,7 +39,7 @@ function bridgeInfo(m: ChatMessage, nameOf: (id: string) => string, rawResult?: 
   return { verb: n === 'ask' ? 'Asked' : 'Told', kind: n, target, message: typeof o.message === 'string' ? o.message : undefined, result: res, taskId };
 }
 
-export function ToolGroup({ items, results = {} }: { items: ChatMessage[]; results?: Record<string, string> }) {
+function ToolGroupImpl({ items, results = {} }: { items: ChatMessage[]; results?: Record<string, string> }) {
   const [open, setOpen] = useState<string | null>(null);
   const agents = useStore((s) => s.agents);
   const nameOf = (id: string) => agents.find((a) => a.id === id || a.name.toLowerCase() === id.toLowerCase())?.name ?? id;
@@ -91,3 +91,15 @@ export function ToolGroup({ items, results = {} }: { items: ChatMessage[]; resul
     </div>
   );
 }
+
+type TGProps = Parameters<typeof ToolGroupImpl>[0];
+/** Thread rebuilds `items` and `results` on every message; a group re-renders only if one of its own calls or results changed. */
+export const ToolGroup = memo(ToolGroupImpl, (p: TGProps, n: TGProps) => {
+  if (p.items.length !== n.items.length) return false;
+  for (let i = 0; i < p.items.length; i++) {
+    const a = p.items[i]!; const b = n.items[i]!;
+    if (a !== b && (a.id !== b.id || a.text !== b.text || a.toolName !== b.toolName || a.toolUseId !== b.toolUseId)) return false;
+    if (a.toolUseId && p.results?.[a.toolUseId] !== n.results?.[a.toolUseId]) return false;
+  }
+  return true;
+});

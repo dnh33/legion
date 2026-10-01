@@ -1,0 +1,4 @@
+{"build":"base","history":200,"renderedMsgs":200,"deltas":100,"delta":{"scriptMsPerDelta":6.98,"taskMsPerDelta":22.1,"domMutations":84},"taskUpdated":{"scriptMsPerEvent":6.7,"taskMsPerEvent":19.87}} []
+{"build":"new","history":200,"renderedMsgs":200,"deltas":100,"delta":{"scriptMsPerDelta":0.99,"taskMsPerDelta":12.98,"domMutations":24},"taskUpdated":{"scriptMsPerEvent":1.22,"taskMsPerEvent":17.01}} []
+{"build":"base","history":200,"renderedMsgs":200,"deltas":100,"delta":{"scriptMsPerDelta":9.12,"taskMsPerDelta":24.53,"domMutations":61},"taskUpdated":{"scriptMsPerEvent":7.63,"taskMsPerEvent":18.84}} []
+{"build":"new","history":200,"renderedMsgs":200,"deltas":100,"delta":{"scriptMsPerDelta":0.8,"taskMsPerDelta":18.01,"domMutations":57},"taskUpdated":{"scriptMsPerEvent":1.13,"taskMsPerEvent":15.75}} []

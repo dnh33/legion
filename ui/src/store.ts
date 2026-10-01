@@ -119,9 +119,34 @@ function pickTaskFor(agentId: string): string | null {
 }
 
 /* ---------- event handling ---------- */
+/**
+ * `message.delta` arrives at up to 50 a second. Every store write re-renders the thread, so the text is collected here and written ONCE per
+ * animation frame (with a 100 ms timer as a backstop for a window whose rAF is throttled). Anything that finishes or resets a stream
+ * (the final `message`, a terminal `task.updated`, `task.deleted`) writes the pending text first, so the order the core sent is kept.
+ */
+const pendingDelta: Record<string, string> = {};
+let deltaRaf = 0;
+let deltaTimer: ReturnType<typeof setTimeout> | undefined;
+function flushDeltas() {
+  if (deltaRaf) cancelAnimationFrame(deltaRaf);
+  clearTimeout(deltaTimer);
+  deltaRaf = 0; deltaTimer = undefined;
+  const ids = Object.keys(pendingDelta);
+  if (!ids.length) return;
+  const add: Record<string, string> = {};
+  for (const id of ids) { add[id] = pendingDelta[id]!; delete pendingDelta[id]; }
+  setState((s) => {
+    const streaming = { ...s.streaming };
+    for (const id of ids) streaming[id] = (streaming[id] ?? '') + add[id];
+    return { streaming };
+  });
+}
+const flushDeltasFor = (taskId: string) => { if (pendingDelta[taskId] !== undefined) flushDeltas(); };
+
 export function handleEvent(e: LegionEvent) {
   switch (e.type) {
     case 'task.updated': {
+      if (e.task.status === 'done' || e.task.status === 'error' || e.task.status === 'cancelled') flushDeltasFor(e.task.id);
       const terminal = e.task.status === 'done' || e.task.status === 'error' || e.task.status === 'cancelled';
       setState((s) => {
         const streaming = terminal && s.streaming[e.task.id] ? { ...s.streaming, [e.task.id]: '' } : s.streaming;
@@ -132,6 +157,7 @@ export function handleEvent(e: LegionEvent) {
     }
     case 'task.deleted': {
       const id = e.taskId;
+      delete pendingDelta[id];
       const wasSel = getState().selectedTaskId === id;
       if (wasSel) leaveTask(id);
       setState((s) => { const { [id]: _m, ...messages } = s.messages; return { tasks: s.tasks.filter((t) => t.id !== id), messages }; });
@@ -142,6 +168,7 @@ export function handleEvent(e: LegionEvent) {
       break;
     case 'message': {
       const m = e.message;
+      if (m.role === 'assistant') flushDeltasFor(m.taskId);
       setState((s) => {
         const list = s.messages[m.taskId] ?? [];
         if (list.some((x) => x.id === m.id)) return {};
@@ -154,7 +181,8 @@ export function handleEvent(e: LegionEvent) {
       break;
     }
     case 'message.delta':
-      setState((s) => ({ streaming: { ...s.streaming, [e.taskId]: (s.streaming[e.taskId] ?? '') + e.text } }));
+      pendingDelta[e.taskId] = (pendingDelta[e.taskId] ?? '') + e.text;
+      if (!deltaRaf) { deltaRaf = requestAnimationFrame(flushDeltas); deltaTimer = setTimeout(flushDeltas, 100); }
       break;
     case 'vm.updated':
       setState((s) => ({ vms: { ...s.vms, [e.vm.agentId]: e.vm } }));

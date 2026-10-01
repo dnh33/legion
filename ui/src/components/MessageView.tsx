@@ -1,3 +1,4 @@
+import { memo } from 'react';
 import type { AgentProfile, ChatMessage, Task } from '../../../src/shared/types';
 import { Markdown } from './Markdown';
 import { modelLabel } from '../models';
@@ -22,7 +23,7 @@ export function splitPrefix(text: string): { model: string | null; text: string 
   return b ? { model: b[1], text: b[2] } : { model: null, text };
 }
 
-export function MessageView({ m, agent, task, streaming }: { m: Pick<ChatMessage, 'role' | 'text' | 'fromAgentId'>; agent?: AgentProfile; task?: Task; streaming?: boolean }) {
+function MessageViewImpl({ m, agent, task, streaming }: { m: Pick<ChatMessage, 'role' | 'text' | 'fromAgentId'>; agent?: AgentProfile; task?: Task; streaming?: boolean }) {
   if (m.role === 'user' && (m.fromAgentId || parseReply(m.text))) return <AgentMessage from={m.fromAgentId ?? parseReply(m.text)!.name} text={m.text} />;
   if (m.role === 'user') return <UserBubble text={m.text} />;
   if (m.role === 'system') return <div className="msg system">{m.text}</div>;
@@ -75,3 +76,14 @@ function AgentMessage({ from, text }: { from: string; text: string }) {
     </div>
   );
 }
+
+type MVProps = Parameters<typeof MessageViewImpl>[0];
+/**
+ * A history bubble re-renders only when what it draws changes: its text/role, the agent, the model tag (task.model / task.escalated, the only
+ * task fields it reads) or the streaming caret. The live bubble gets a new `m` object per frame, so only it re-renders while text streams
+ * (before: every bubble in the thread, on every delta and every task.updated).
+ */
+export const MessageView = memo(MessageViewImpl, (p: MVProps, n: MVProps) =>
+  (p.m === n.m || (p.m.text === n.m.text && p.m.role === n.m.role && p.m.fromAgentId === n.m.fromAgentId))
+  && p.agent === n.agent && p.streaming === n.streaming
+  && p.task?.model === n.task?.model && p.task?.escalated === n.task?.escalated);

@@ -49,18 +49,20 @@ export function Thread() {
   const scroller = useRef<HTMLDivElement>(null);
   const stick = useRef(true);
   const [away, setAway] = useState(false);
+  const awayRef = useRef(false);
+  const setAwayOnce = useCallback((v: boolean) => { if (awayRef.current !== v) { awayRef.current = v; setAway(v); } }, []);
 
   const onScroll = useCallback(() => {
     const el = scroller.current; if (!el) return;
     const near = el.scrollHeight - el.scrollTop - el.clientHeight < 72;
     stick.current = near;
-    setAway((p) => (p === !near ? p : !near));
-  }, []);
+    setAwayOnce(!near);
+  }, [setAwayOnce]);
   const toBottom = useCallback((smooth = false) => {
     const el = scroller.current; if (!el) return;
     el.scrollTo({ top: el.scrollHeight, behavior: smooth ? 'smooth' : 'auto' });
-    stick.current = true; setAway(false);
-  }, []);
+    stick.current = true; setAwayOnce(false);
+  }, [setAwayOnce]);
 
   // new thread → jump to bottom without animation
   useLayoutEffect(() => { stick.current = true; toBottom(); }, [taskId, toBottom]);
