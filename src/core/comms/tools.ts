@@ -7,7 +7,8 @@ import { createSdkMcpServer, tool } from '@anthropic-ai/claude-agent-sdk';
 import type { McpSdkServerConfigWithInstance } from '@anthropic-ai/claude-agent-sdk';
 import { z } from 'zod';
 import { CommsError } from './hub.js';
-import type { CommsHub } from './hub.js';
+import type { CommsHub, SenderRun } from './hub.js';
+import type { ApprovalMode } from '../../shared/types.js';
 
 type ToolResult = { content: { type: 'text'; text: string }[]; isError?: boolean };
 const ok = (text: string): ToolResult => ({ content: [{ type: 'text', text }] });
@@ -21,9 +22,9 @@ async function guard(fn: () => ToolResult | Promise<ToolResult>): Promise<ToolRe
   try { return await fn(); } catch (e) { return fail(e); }
 }
 
-/** `run` is the engine's view of the task using this server: its taint travels with every message the bot sends. */
-export function buildCommsToolsServer(agentId: string, hub: CommsHub, run?: { taint(): boolean; markTainted?(): void }): McpSdkServerConfigWithInstance {
-  const sender = (): { tainted?: boolean } => (run?.taint() ? { tainted: true } : {});
+/** `run` is the engine's view of the task using this server: its taint and its approval ceiling travel with every message the bot sends. */
+export function buildCommsToolsServer(agentId: string, hub: CommsHub, run?: { taint(): boolean; markTainted?(): void; ceiling?: ApprovalMode }): McpSdkServerConfigWithInstance {
+  const sender = (): SenderRun => ({ ...(run?.taint() ? { tainted: true } : {}), ...(run?.ceiling ? { ceiling: run.ceiling } : {}) });
   const botList = tool(
     'bot_list',
     'List the other bots you can talk to: id, name, description, state (idle / working / waiting) and the rooms you share with each.',

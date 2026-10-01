@@ -106,26 +106,61 @@ export type ConnStatus = 'connecting' | 'online' | 'offline';
 /** SSE subscription with exponential backoff reconnect. Returns an unsubscribe fn. */
 export function subscribe(onEvent: (e: LegionEvent) => void, onStatus: (s: ConnStatus) => void): () => void {
   let es: EventSource | null = null;
+  let ac: AbortController | null = null;
   let closed = false;
   let attempt = 0;
   let timer: number | undefined;
 
+  const retry = () => {
+    if (closed) return;
+    onStatus('offline');
+    const delay = Math.min(10000, 500 * 2 ** attempt++);
+    timer = window.setTimeout(connect, delay);
+  };
+
+  /**
+   * In the app the stream is read with fetch so it can carry `X-Legion-Admin`: the core sends rooms, comms and settings events only to an
+   * admin stream. A browser tab without an admin key falls back to EventSource, which cannot send headers and so keeps `?token=`
+   * (the MCP-class token: it gets the task, agent and approval events but none of the admin-only ones).
+   */
+  const connectFetch = () => {
+    ac = new AbortController();
+    void (async () => {
+      try {
+        const res = await fetch(`${base}/api/events`, { headers: authHeaders(), signal: ac!.signal });
+        if (!res.ok || !res.body) throw new Error(String(res.status));
+        attempt = 0; onStatus('online');
+        const rd = res.body.getReader();
+        const dec = new TextDecoder();
+        let buf = '';
+        for (;;) {
+          const { value, done } = await rd.read();
+          if (done) break;
+          buf += dec.decode(value, { stream: true });
+          let i: number;
+          while ((i = buf.indexOf('\n\n')) >= 0) {
+            const chunk = buf.slice(0, i); buf = buf.slice(i + 2);
+            const line = chunk.split('\n').find((l) => l.startsWith('data:'));
+            if (!line) continue;
+            try { onEvent(JSON.parse(line.slice(5).trim()) as LegionEvent); } catch { /* ignore malformed */ }
+          }
+        }
+      } catch { /* aborted or dropped: retry below */ }
+      retry();
+    })();
+  };
+
   const connect = () => {
     if (closed) return;
     onStatus(attempt === 0 ? 'connecting' : 'offline');
-    // EventSource cannot send headers, so the stream keeps `?token=` (the MCP-class token is enough: the stream is read-only).
+    if (adminKey) { connectFetch(); return; }
     es = new EventSource(`${base}/api/events?token=${encodeURIComponent(token)}`);
     es.onopen = () => { attempt = 0; onStatus('online'); };
     es.onmessage = (m) => {
       try { onEvent(JSON.parse(m.data) as LegionEvent); } catch { /* ignore malformed */ }
     };
-    es.onerror = () => {
-      es?.close(); es = null;
-      onStatus('offline');
-      const delay = Math.min(10000, 500 * 2 ** attempt++);
-      timer = window.setTimeout(connect, delay);
-    };
+    es.onerror = () => { es?.close(); es = null; retry(); };
   };
   connect();
-  return () => { closed = true; es?.close(); if (timer) clearTimeout(timer); };
+  return () => { closed = true; es?.close(); ac?.abort(); if (timer) clearTimeout(timer); };
 }

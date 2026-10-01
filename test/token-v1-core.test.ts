@@ -11,7 +11,8 @@ import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { PassThrough } from 'node:stream';
-import { ADMIN_STDIN_FLAG, readAdminSecret, readSecretFromStream } from '../src/core/admin.js';
+import { ADMIN_STDIN_FLAG, healthProof, readAdminSecret, readSecretFromStream } from '../src/core/admin.js';
+import { adminForRenderer } from '../src/electron/admin-logic.js';
 import { makeFakes, start, TEST_ADMIN } from './helpers-c.js';
 
 // ---------------------------------------------------------------- /health
@@ -25,10 +26,17 @@ test('/health reports admin:boolean and never the secret (in-process server)', a
   assert.equal(j.admin, true);
   assert.equal(typeof j.pid, 'number');
   assert.ok(!body.includes(TEST_ADMIN), '/health must not contain the admin secret');
-  assert.deepEqual(Object.keys(j).sort(), ['admin', 'ok', 'pid', 'version']);
+  assert.deepEqual(Object.keys(j).sort(), ['admin', 'ok', 'pid', 'version'], 'no nonce: no proof, nothing new');
+  // the challenge: HMAC(secret, nonce), only for a valid hex nonce, never the secret itself
+  const nonce = 'ab12'.repeat(8);
+  const ch = await (await fetch(`${withSecret.base}/health?nonce=${nonce}`)).text();
+  assert.equal(JSON.parse(ch).proof, healthProof(TEST_ADMIN, nonce));
+  assert.ok(!ch.includes(TEST_ADMIN));
+  for (const bad of ['zz', 'ab', 'g'.repeat(32), 'ab'.repeat(100), '']) assert.equal(JSON.parse(await (await fetch(`${withSecret.base}/health?nonce=${bad}`)).text()).proof, undefined, `nonce "${bad.slice(0, 8)}"`);
   await withSecret.close();
   const headless = await start({ ...f.ctx, adminSecret: undefined });
   assert.equal((await (await fetch(headless.base + '/health')).json()).admin, false);
+  assert.equal((await (await fetch(`${headless.base}/health?nonce=${nonce}`)).json()).proof, undefined, 'a core without a secret can never prove one');
   await headless.close();
 });
 
@@ -148,5 +156,36 @@ test('a real core started without the flag (headless, like the MCP bridge does) 
       const r2 = await fetch(core.base + '/api/approvals/x', { method: 'POST', headers: { ...B, 'Content-Type': 'application/json' }, body: '{"allow":true}' });
       assert.equal(r2.status, 403, label);
     } finally { await core.stop(); }
+  }
+});
+
+test('a real core answers the challenge, also through a shim whose pid is not the core pid; a rogue echoing the pid cannot', async () => {
+  const SECRET = randomBytes(24).toString('hex');
+  // a shim: the process we spawn (like node.cmd / Volta / scoop) starts the real core as its child and passes our stdin pipe on
+  const home = mkdtempSync(join(tmpdir(), 'legion-tok1-shim-'));
+  const port = await freePort();
+  const shim = spawn(process.execPath, ['-e', "require('child_process').spawn(process.execPath,[process.argv[1]],{stdio:'inherit'})", coreJs], {
+    env: { ...process.env, LEGION_HOME: home, LEGION_PORT: String(port), [ADMIN_STDIN_FLAG]: '1' }, stdio: ['pipe', 'ignore', 'ignore'],
+  });
+  shim.stdin!.end(SECRET + '\n');
+  const base = `http://127.0.0.1:${port}`;
+  try {
+    const end = Date.now() + 20000; let up = false;
+    while (Date.now() < end && !up) { try { up = (await fetch(base + '/health', { signal: AbortSignal.timeout(500) })).ok; } catch { await new Promise((r) => setTimeout(r, 100)); } }
+    assert.ok(up, 'shimmed core did not come up');
+    const nonce = randomBytes(16).toString('hex');
+    const h = await (await fetch(`${base}/health?nonce=${nonce}`)).json();
+    assert.notEqual(h.pid, shim.pid, 'the shim pid differs from the core pid');
+    assert.equal(adminForRenderer(h, SECRET, nonce), SECRET, 'main would release the secret to it');
+    // a rogue that copies the public pid and the admin flag, with no secret
+    const rogue = { ok: true, pid: h.pid, admin: true, proof: healthProof('c'.repeat(48), nonce) };
+    assert.equal(adminForRenderer(rogue, SECRET, nonce), undefined);
+    assert.equal(adminForRenderer({ ...h, proof: undefined }, SECRET, nonce), undefined);
+    // and a different core (another secret) is not ours
+    assert.equal(adminForRenderer(h, 'd'.repeat(48), nonce), undefined);
+  } finally {
+    shim.kill('SIGTERM');
+    // the core is the shim's child: stop it through the port's own pid
+    try { const hh = await (await fetch(`${base}/health`, { signal: AbortSignal.timeout(500) })).json(); process.kill(hh.pid, 'SIGTERM'); } catch { /* already gone */ }
   }
 });

@@ -7,7 +7,7 @@ import type {
   AgentProfile, ApprovalMode, DoctorCheck, LegionConfig, LegionEvent, Catalog, ModelChoice, StateSnapshot, Task, VmSize,
 } from '../shared/types.js';
 import { nowIso, slugify, uniqueAgentId } from '../shared/util.js';
-import { ADMIN_HEADER, gate, isAdminSecret, isSsePath, safeEqual } from './admin.js';
+import { ADMIN_HEADER, gate, healthProof, isAdminSecret, isHexNonce, isSsePath, safeEqual } from './admin.js';
 import type { ApprovalBroker } from './approvals.js';
 import type { EventBus } from './bus.js';
 import { EngineError } from './engine.js';
@@ -359,7 +359,10 @@ export function createServer(ctx: CoreContext): Server {
     }
   };
 
-  const handleSse = (req: IncomingMessage, res: ServerResponse) => {
+  /** Events only the app window (admin) may see: the human's rooms and their text, bot-to-bot state, and settings (key hints). A token-only stream drops them. */
+  const adminOnlyEvent = (ev: LegionEvent): boolean => ev.type.startsWith('room.') || ev.type.startsWith('comms.') || ev.type.startsWith('settings.');
+
+  const handleSse = (req: IncomingMessage, res: ServerResponse, admin: boolean) => {
     res.writeHead(200, {
       'Content-Type': 'text/event-stream; charset=utf-8',
       'Cache-Control': 'no-cache, no-transform',
@@ -369,6 +372,7 @@ export function createServer(ctx: CoreContext): Server {
     res.write(': connected\n\n');
     const off = ctx.bus.on((ev: LegionEvent) => {
       if (!eventShown(ev)) return; // hidden agents must not leak through the event stream
+      if (!admin && adminOnlyEvent(ev)) return;
       res.write(`data: ${JSON.stringify(ev)}\n\n`);
     });
     const hb = setInterval(() => { res.write(': hb\n\n'); }, 15000);
@@ -438,7 +442,10 @@ export function createServer(ctx: CoreContext): Server {
 
     if (method === 'GET' && path === '/health') {
       // `admin` only says whether this core holds an admin secret (the app uses it to spot a foreign core); never the secret.
-      sendJson(res, 200, { ok: true, version: VERSION, pid: process.pid, admin: !!ctx.adminSecret });
+      // With `?nonce=<hex>` a core that holds the secret also answers HMAC(secret, nonce): the app's proof that this is its own core.
+      const nonce = url.searchParams.get('nonce');
+      const proof = ctx.adminSecret && isHexNonce(nonce) ? healthProof(ctx.adminSecret, nonce) : undefined;
+      sendJson(res, 200, { ok: true, version: VERSION, pid: process.pid, admin: !!ctx.adminSecret, ...(proof ? { proof } : {}) });
       return;
     }
 
@@ -453,7 +460,7 @@ export function createServer(ctx: CoreContext): Server {
     }
     (req as unknown as { legionAdmin?: boolean }).legionAdmin = decision.admin;
 
-    if (isSse) { handleSse(req, res); return; }
+    if (isSse) { handleSse(req, res, decision.admin); return; }
 
     let body: unknown;
     if (method === 'POST' || method === 'PATCH' || method === 'PUT') body = await readBody(req);

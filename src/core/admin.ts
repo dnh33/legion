@@ -9,7 +9,7 @@
  * Everything not listed as a client route needs the admin secret (default deny, decided BEFORE routing, so an unknown path is a 403, not a 404).
  * A core without a secret (headless, started by the MCP stdio bridge) is admin-closed: nothing can pass the gate.
  */
-import { timingSafeEqual } from 'node:crypto';
+import { createHmac, timingSafeEqual } from 'node:crypto';
 
 export const ADMIN_HEADER = 'x-legion-admin';
 /** Env flag the Electron main sets to say "the admin secret is on stdin". Its value is only ever '1', never the secret. */
@@ -23,6 +23,18 @@ export function safeEqual(a: string, b: string): boolean {
   const bb = Buffer.from(b);
   if (ba.length !== bb.length) return false;
   return timingSafeEqual(ba, bb);
+}
+
+/** A challenge nonce for `GET /health?nonce=`: 16 to 128 hex characters. */
+export const isHexNonce = (v: unknown): v is string => typeof v === 'string' && /^[0-9a-f]{16,128}$/i.test(v);
+
+/**
+ * Proof that a core holds the admin secret, without revealing it: HMAC-SHA256(secret, nonce) as hex. The Electron app sends a fresh random
+ * nonce to /health and hands the renderer the secret only if the answer matches; anything else on the port (a foreign core, a rogue
+ * server that copies our pid) cannot produce it.
+ */
+export function healthProof(secret: string, nonce: string): string {
+  return createHmac('sha256', secret).update(nonce, 'utf8').digest('hex');
 }
 
 /** True when `given` (the header value) equals the per-launch secret. No secret configured: always false. */

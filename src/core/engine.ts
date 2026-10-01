@@ -587,15 +587,21 @@ export class Engine {
       options.permissionMode = 'default';
       options.canUseTool = async (toolName, input) => {
         const mode = effective();
-        if (!needsApproval(mode, toolName)) return { behavior: 'allow', updatedInput: input };
+        if (!needsApproval(mode, toolName, { capped: job.origin?.approvalCeiling === 'ask' })) return { behavior: 'allow', updatedInput: input };
         const o = job.origin;
+        let timedOut = false;
         const allowed = await this.approvals.request(
           job.taskId, agent.id, toolName, input,
           o ? { roomId: o.roomId, fromAgentId: o.fromAgentId, hop: o.hop } : undefined,
+          { onTimeout: () => { timedOut = true; } },
         );
-        return allowed
-          ? { behavior: 'allow', updatedInput: input }
-          : { behavior: 'deny', message: 'The user denied this action.' };
+        if (allowed) return { behavior: 'allow', updatedInput: input };
+        // A client started this run (Claude Code, Cowork). Its card can only be answered in the Legion app window, so say so
+        // instead of a bare denial when nobody answered (the app is closed, or this core was started headless by the MCP bridge).
+        if (timedOut && o?.roomId === 'mcp') {
+          return { behavior: 'deny', message: 'No one approved this action: it needs your OK in the Legion app window and nothing was answered within 10 minutes. Open the Legion app, then ask for it again.' };
+        }
+        return { behavior: 'deny', message: 'The user denied this action.' };
       };
     }
     return options;

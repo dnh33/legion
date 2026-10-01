@@ -23,7 +23,15 @@ export function stricterMode(a: ApprovalMode, b: ApprovalMode): ApprovalMode {
   return MODE_RANK[a] <= MODE_RANK[b] ? a : b;
 }
 
-export function needsApproval(mode: ApprovalMode, toolName: string): boolean {
+/** VM tools that burn billing or hand a whole task to another Claude inside the VM. A run capped by another party (an MCP client, or a bot woken by one) needs a card for these. */
+const CAPPED_CARDED = new Set(['mcp__legion__vm_exec', 'mcp__legion__vm_claude', 'mcp__legion__vm_desktop']);
+
+/**
+ * `capped`: the run has an approval ceiling from someone else (it came from an MCP client or was woken by another bot). Then vm_exec,
+ * vm_claude and vm_desktop need a card even though they are Legion's own tools; everything else follows the mode as before.
+ */
+export function needsApproval(mode: ApprovalMode, toolName: string, opts: { capped?: boolean } = {}): boolean {
+  if (opts.capped && CAPPED_CARDED.has(toolName)) return true;
   if (mode === 'full') return false;
   if (READ_ONLY.has(toolName) || isLegionTool(toolName)) return false;
   if (EDIT_TOOLS.has(toolName)) return mode === 'ask';
@@ -56,6 +64,7 @@ export class ApprovalBroker {
   request(
     taskId: string, agentId: string, toolName: string, input: Record<string, unknown>,
     origin?: ApprovalRequest['origin'],
+    opts: { onTimeout?: () => void } = {},
   ): Promise<boolean> {
     const req: ApprovalRequest = {
       id: newId('apr'), taskId, agentId, toolName,
@@ -63,7 +72,7 @@ export class ApprovalBroker {
       ...(origin ? { origin } : {}),
     };
     return new Promise<boolean>((resolvePromise) => {
-      const timer = setTimeout(() => this.settle(req.id, false), this.timeoutMs);
+      const timer = setTimeout(() => { try { opts.onTimeout?.(); } catch { /* advisory */ } this.settle(req.id, false); }, this.timeoutMs);
       this.items.set(req.id, { req, resolve: resolvePromise, timer });
       this.bus.emit({ type: 'approval.requested', approval: req });
     });

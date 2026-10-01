@@ -64,7 +64,11 @@ const NO_REPLY = /^\W*no[_ -]?reply\W*$/i;
 interface Delivery { msg: RoomMessage; ceiling: ApprovalMode; humanChain: boolean; tainted?: boolean }
 interface Meta { ceiling: ApprovalMode; humanChain: boolean; auto: boolean; tainted?: boolean }
 /** What the sending bot's run tells the hub about itself (from the engine, never from tool arguments). */
-export interface SenderRun { tainted?: boolean }
+export interface SenderRun {
+  tainted?: boolean;
+  /** The approval ceiling of the sender's own run (an MCP-started run is capped at `ask`). Whatever the sender's agent is set to, a message it sends never wakes a peer above this. */
+  ceiling?: ApprovalMode;
+}
 interface Plan { explicit: string[]; wake: string[]; everyone: boolean; rrUsed: boolean }
 interface Wake {
   key: string; roomId: string; botId: string; taskId: string;
@@ -343,7 +347,7 @@ export class CommsHub {
     const plan = this.plan(room, from, t, { auto: false });
     const msg = this.post(room, { from, to: plan.explicit, kind: 'chat', text: t, ...(replyTo ? { replyTo } : {}), hop: ctx.hop + 1, ...(run.tainted ? { tainted: true } : {}) });
     this.awaitAnswer(sender.id, room.id, peer.id);
-    this.dispatch(room, msg, plan.wake, { ceiling: ctx.ceiling, humanChain: ctx.humanChain, auto: false, ...(run.tainted ? { tainted: true } : {}) });
+    this.dispatch(room, msg, plan.wake, { ceiling: this.sendCeiling(ctx, run), humanChain: ctx.humanChain, auto: false, ...(run.tainted ? { tainted: true } : {}) });
     return clone(msg);
   }
 
@@ -361,7 +365,7 @@ export class CommsHub {
     const msg = this.post(room, { from, to: plan.explicit, kind: 'chat', text: body, hop: ctx.hop + 1, ...(run.tainted ? { tainted: true } : {}) });
     const viaParam = (Array.isArray(mention) ? mention : mention ? [mention] : []).map((m) => '@' + m.replace(/^@/, '')).join(' ');
     this.noteBotEveryone(room, fromId, `${t} ${viaParam}`);
-    this.dispatch(room, msg, plan.wake, { ceiling: ctx.ceiling, humanChain: ctx.humanChain, auto: false, ...(run.tainted ? { tainted: true } : {}) });
+    this.dispatch(room, msg, plan.wake, { ceiling: this.sendCeiling(ctx, run), humanChain: ctx.humanChain, auto: false, ...(run.tainted ? { tainted: true } : {}) });
     return clone(msg);
   }
 
@@ -375,7 +379,7 @@ export class CommsHub {
     const ctx = this.senderContext(fromId);
     room.lead = target;
     const msg = this.post(room, { from: { kind: 'bot', agentId: fromId }, to: [target], kind: 'handoff', text: t, hop: ctx.hop + 1, ...(run.tainted ? { tainted: true } : {}) });
-    this.dispatch(room, msg, [target], { ceiling: ctx.ceiling, humanChain: ctx.humanChain, auto: false, ...(run.tainted ? { tainted: true } : {}) });
+    this.dispatch(room, msg, [target], { ceiling: this.sendCeiling(ctx, run), humanChain: ctx.humanChain, auto: false, ...(run.tainted ? { tainted: true } : {}) });
     return clone(msg);
   }
 
@@ -909,6 +913,11 @@ export class CommsHub {
       ceiling: strictest([mode, ...active.map((w) => w.ceiling)]),
       humanChain: active.some((w) => w.humanChain),
     };
+  }
+
+  /** The ceiling a message carries: the strictest of the sender's agent mode, the woken tasks it is running, and its own run's ceiling. */
+  private sendCeiling(ctx: { ceiling: ApprovalMode }, run: SenderRun): ApprovalMode {
+    return run.ceiling ? stricterMode(ctx.ceiling, run.ceiling) : ctx.ceiling;
   }
 
   private botState(agentId: string): BotState {
