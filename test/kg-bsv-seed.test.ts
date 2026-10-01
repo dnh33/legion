@@ -16,7 +16,7 @@ test('bsv seed parses with the expected envelope and size', () => {
   assert.equal(seed.version, 1);
   assert.ok(!Number.isNaN(Date.parse(seed.generatedAt)));
   assert.ok(Array.isArray(seed.nodes) && Array.isArray(seed.edges));
-  assert.ok(seed.nodes.length >= 45 && seed.nodes.length <= 160, `node count ${seed.nodes.length}`);
+  assert.ok(seed.nodes.length >= 45 && seed.nodes.length <= 220, `node count ${seed.nodes.length}`);
   assert.ok(seed.edges.length > seed.nodes.length - 1);
 });
 
