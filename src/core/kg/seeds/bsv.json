@@ -1288,7 +1288,7 @@
       "id": "bsv-teranode-networks",
       "type": "concept",
       "title": "Teranode and network changes",
-      "body": "Teranode is the BSV Association node architecture built from microservices that scale horizontally, intended to raise throughput well beyond the monolithic node. Public statements cite very high testnet throughput, but those are claims. For developers the practical point is that networks, testnets and protocol rules change with upgrades, so a tutorial that worked last year may fail today. Check the BSV hub for the current network environments, node software notes and any opcode or sighash changes before relying on older instructions. **Verify at build time:** current node software, testnet environment and upgrade schedule; a third-party site mentioned a 2026 protocol upgrade that we did not confirm.",
+      "body": "Teranode is the BSV Association node architecture built from microservices that scale horizontally, intended to raise throughput well beyond the monolithic node. Public statements cite very high testnet throughput, but those are claims. For developers the practical point is that networks, testnets and protocol rules change with upgrades, so a tutorial that worked last year may fail today. Check the BSV hub for the current network environments, node software notes and any opcode or sighash changes before relying on older instructions. **Verify at build time:** current node software, testnet environment and upgrade schedule; a third-party site mentioned a 2026 protocol upgrade that we did not confirm. **Update (2026-10-01):** the Chronicle protocol upgrade activated on 7 April 2026 at block 943,816 (restored opcodes, relaxed malleability rules for transaction version above 1, a 0x20 sighash flag, 32 MB script numbers; press-sourced, confirm against the node release notes). Teranode itself went source-available on 14 October 2025 and was at v0.15.3 (pre-1.0) in July 2026. See the Chronicle, Teranode and ARC nodes.",
       "tags": [
         "bsv",
         "teranode",
@@ -1583,7 +1583,7 @@
       "id": "bsv-mutual-auth",
       "type": "lesson",
       "title": "Mutual authentication: BRC-31 and BRC-103",
-      "body": "BRC-31 (Authrite) and the later BRC-103 let two parties prove who they are to each other with certificates, nonces and signatures, over interchangeable transports such as HTTP or WebSockets. BRC-103 allows selective disclosure of certificate fields and builds on BRC-52 certificates. In ts-stack this appears as auth middleware and socket packages. Identity here means a key plus attestations from certifiers, so check who certified what before trusting a field. Services protected this way know the caller key, and logs can reveal it. **Verify at build time:** current package names and the final status of each BRC.",
+      "body": "BRC-31 (Authrite) and the later BRC-103 let two parties prove who they are to each other with certificates, nonces and signatures, over interchangeable transports such as HTTP or WebSockets. BRC-103 allows selective disclosure of certificate fields and builds on BRC-52 certificates. In ts-stack this appears as auth middleware and socket packages. Identity here means a key plus attestations from certifiers, so check who certified what before trusting a field. Services protected this way know the caller key, and logs can reveal it. **Verify at build time:** current package names and the final status of each BRC. **Update (2026-10-01):** BRC-31 (Authrite) is deprecated in favour of BRC-103 and BRC-104; prefer those for new work.",
       "tags": [
         "bsv",
         "identity",
@@ -1928,7 +1928,7 @@
       "id": "bsv-402-payments",
       "type": "lesson",
       "title": "HTTP 402 micropayments and paid APIs",
-      "body": "ts-stack lists packages for monetising APIs: @bsv/402-pay and a payment middleware for Express, alongside auth middleware for mutual authentication. The pattern is that a server answers a request with HTTP 402 and a price, the client wallet pays and retries with proof, and the server verifies before serving. A related community x402 plugin exists, and our notes mention a BRC number for it that we could not confirm. For agents this is a way to spend money automatically, so per-request caps, a recipient allowlist and approval rules matter even more. **Verify at build time:** the governing BRC, package status and client flow.",
+      "body": "ts-stack lists packages for monetising APIs: @bsv/402-pay and a payment middleware for Express, alongside auth middleware for mutual authentication. The pattern is that a server answers a request with HTTP 402 and a price, the client wallet pays and retries with proof, and the server verifies before serving. A related community x402 plugin exists, and our notes mention a BRC number for it that we could not confirm. For agents this is a way to spend money automatically, so per-request caps, a recipient allowlist and approval rules matter even more. **Verify at build time:** the governing BRC, package status and client flow. **Update (2026-10-01):** the payment-protocol BRC discussed here is BRC-121 (BRC-120 is the x402 index entry); still confirm against the BRCs repo before building.",
       "tags": [
         "bsv",
         "payments",
@@ -1959,7 +1959,7 @@
       "id": "bsv-overlay-services",
       "type": "concept",
       "title": "Overlay services and topic indexing",
-      "body": "Overlay networks index and serve on-chain data for specific purposes. ts-stack includes @bsv/overlay and @bsv/overlay-express for operators, plus services for key-value stores and identity. An overlay admits only the transactions that match its topic and answers lookups about them, which keeps indexes small and verifiable with SPV proofs. Applications trust an overlay to be honest about what it indexed, so cross-check important results. **Verify at build time:** current overlay package names and example deployments.",
+      "body": "Overlay networks index and serve on-chain data for specific purposes. ts-stack includes @bsv/overlay and @bsv/overlay-express for operators, plus services for key-value stores and identity. An overlay admits only the transactions that match its topic and answers lookups about them, which keeps indexes small and verifiable with SPV proofs. Applications trust an overlay to be honest about what it indexed, so cross-check important results. **Verify at build time:** current overlay package names and example deployments. **Update (2026-10-01):** the standalone overlay-express repository was archived on 12 June 2026 and now lives in ts-stack; point new work there. See the overlay nodes (BRC-22 submit, BRC-24 lookup, SHIP/SLAP).",
       "tags": [
         "bsv",
         "overlay",
@@ -2386,6 +2386,1529 @@
         }
       ],
       "confidence": 0.9,
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z",
+      "updatedAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "bsv-brc62-beef-format",
+      "type": "concept",
+      "title": "BEEF (BRC-62) wire format in detail",
+      "body": "A BEEF payload starts with the four marker bytes 0100BEEF (a version number chosen so it reads as 'BEEF' in hex), then a list of BUMP merkle paths, then the transactions ordered oldest ancestor first with the subject transaction last. Each transaction carries a one-byte flag: 01 followed by an index into the BUMP list means the transaction is anchored by a merkle proof, 00 means it is validated through its parents. A verifier parses and indexes everything, computes the merkle root for each anchored transaction and asks its own header source whether that root is on the best chain, then checks scripts, input availability and satoshi accounting for the unanchored ones. The spec page describes itself as a proposal, yet it is what wallets, ARC and overlays exchange in practice. Never treat BEEF as proof of payment until the headers check and script checks have actually been run.",
+      "tags": [
+        "bsv",
+        "beef",
+        "brc-62",
+        "spv",
+        "transactions"
+      ],
+      "scope": "bsv",
+      "props": {
+        "module": "foundations",
+        "gapType": "deepens",
+        "relatesToExisting": "bsv-beef-spv",
+        "verify": "Status label on the live BRC and any version bump.",
+        "rank": 1,
+        "order": 84
+      },
+      "sources": [
+        {
+          "ref": "https://bsv.brc.dev/transactions/0062",
+          "licence": "Open BSV License per the bsv.brc.dev index page; version and per-spec terms unverified"
+        },
+        {
+          "ref": "https://github.com/bsv-blockchain/ts-stack",
+          "licence": "Open BSV License Version 6 per the repo README (modified MIT; limits use to the BSV blockchain and its testnets; exact terms unverified)"
+        }
+      ],
+      "confidence": 0.85,
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z",
+      "updatedAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "bsv-brc74-bump",
+      "type": "concept",
+      "title": "BUMP merkle paths (BRC-74)",
+      "body": "BUMP is the compact binary merkle path used inside BEEF. It starts with the block height (a variable-length integer) and the tree height (one byte), then for each tree level a leaf count followed by leaves. Each leaf holds an offset in that level, a flag byte and, depending on the flag, a 32-byte hash: flag 00 means a sibling hash follows, 01 means duplicate the working hash (no data), and 02 means the hash is a transaction id the client cares about. To compute the root, start from a known txid and at each level combine it with the sibling (or itself) using double SHA-256, choosing the left or right order from the offset bit. BRC-74 consolidates the older merkle proof formats BRC-10, 11, 58 and 61, so code or docs that mention those are legacy.",
+      "tags": [
+        "bsv",
+        "bump",
+        "brc-74",
+        "merkle",
+        "spv"
+      ],
+      "scope": "bsv",
+      "props": {
+        "module": "foundations",
+        "gapType": "new",
+        "relatesToExisting": "bsv-beef-spv",
+        "rank": 2,
+        "order": 85
+      },
+      "sources": [
+        {
+          "ref": "https://bsv.brc.dev/transactions/0074",
+          "licence": "Open BSV License per the bsv.brc.dev index page; version and per-spec terms unverified"
+        },
+        {
+          "ref": "https://github.com/bsv-blockchain/ts-stack",
+          "licence": "Open BSV License Version 6 per the repo README (modified MIT; limits use to the BSV blockchain and its testnets; exact terms unverified)"
+        }
+      ],
+      "confidence": 0.85,
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z",
+      "updatedAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "bsv-arc-api-reference",
+      "type": "lesson",
+      "title": "ARC API: endpoints, headers and formats",
+      "body": "The ARC API spec lists GET /v1/policy (miner fee and size policy), GET /v1/health, GET /v1/tx/{txid}, POST /v1/tx and POST /v1/txs for batches. A submission can be raw hex text, a JSON object or binary BEEF, and Extended Format is described in the docs. Useful request headers include X-WaitFor (which status to wait for before replying), X-CallbackUrl and X-CallbackToken (webhooks for double-spend and merkle-proof notices), X-FullStatusUpdates, X-CallbackBatch and X-MaxTimeout (default 5 s, max 30 s). Several skip-validation headers exist (fee, script, whole transaction); a safe agent tool never sets them. ARC itself is five Go services (API, Metamorph, BlockTx, Callbacker, a Kubernetes watcher) backed by PostgreSQL and NATS JetStream, which matters only if someone is hosting it. Read GET /v1/policy before building a transaction instead of hard-coding fees.",
+      "tags": [
+        "bsv",
+        "arc",
+        "broadcast",
+        "api",
+        "fees"
+      ],
+      "scope": "bsv",
+      "props": {
+        "module": "network",
+        "gapType": "deepens",
+        "relatesToExisting": "bsv-arc-broadcast, bsv-src-arc, bsv-tx-fees",
+        "verify": "Live OpenAPI spec, auth model, current header names, hosted endpoint terms.",
+        "rank": 3,
+        "order": 86
+      },
+      "sources": [
+        {
+          "ref": "https://github.com/bitcoin-sv/arc",
+          "licence": "unverified (a LICENSE file exists; type not read)"
+        },
+        {
+          "ref": "https://bitcoin-sv.github.io/arc/",
+          "licence": "unverified (page body did not render in our fetch)"
+        }
+      ],
+      "confidence": 0.75,
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z",
+      "updatedAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "bsv-arc-status-handling",
+      "type": "lesson",
+      "title": "Reading ARC statuses without double-sending",
+      "body": "ARC reports a lifecycle that runs roughly UNKNOWN, QUEUED, RECEIVED, STORED, ANNOUNCED_TO_NETWORK, REQUESTED_BY_NETWORK, SENT_TO_NETWORK, ACCEPTED_BY_NETWORK, SEEN_IN_ORPHAN_MEMPOOL, SEEN_ON_NETWORK, then MINED, with side exits DOUBLE_SPEND_ATTEMPTED, REJECTED and MINED_IN_STALE_BLOCK. The API spec shows 14 values while one README says 13, so code must tolerate unknown values. The docs say ARC re-sends a transaction that is not at least SEEN_ON_NETWORK within 60 seconds by default, so a client that also resends can cause noise; poll the txid first. When two transactions spend the same output, both show DOUBLE_SPEND_ATTEMPTED with the competitor ids until one is mined and the other becomes REJECTED. Callbacks are retried (10 attempts, 24 hours by default) and carry a merkle proof when mined. Map this onto the no-blind-retry rule: RECEIVED is not confirmation, SEEN_ON_NETWORK is not final, and MINED_IN_STALE_BLOCK means check again.",
+      "tags": [
+        "bsv",
+        "arc",
+        "status",
+        "double-spend",
+        "retry"
+      ],
+      "scope": "bsv",
+      "props": {
+        "module": "network",
+        "gapType": "deepens",
+        "relatesToExisting": "bsv-arc-broadcast, bsv-safety-no-blind-retries",
+        "verify": "Status enum and defaults against the live spec.",
+        "rank": 4,
+        "order": 87
+      },
+      "sources": [
+        {
+          "ref": "https://github.com/bitcoin-sv/arc",
+          "licence": "unverified (a LICENSE file exists; type not read)"
+        },
+        {
+          "ref": "https://bitcoin-sv.github.io/arc/",
+          "licence": "unverified (page body did not render in our fetch)"
+        }
+      ],
+      "confidence": 0.75,
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z",
+      "updatedAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "bsv-chronicle-upgrade",
+      "type": "concept",
+      "title": "Chronicle protocol upgrade (April 2026)",
+      "body": "Chronicle is a mandatory BSV network upgrade that, per press coverage, activated on 7 April 2026 at block height 943,816 (announced 2 April). It restores a set of Satoshi-era script opcodes that had been disabled (substring, left, right, 2mul, 2div, ver, verif, vernotif) and adds two number-shift opcodes. For transactions with a version above 1 it relaxes several malleability rules (minimal encoding, low-S, NULLFAIL, MINIMALIF, clean stack), keeping version-1 behaviour unchanged. It also adds an opt-in sighash flag (0x20) that selects the original, pre-BIP143 transaction digest, and raises the script-number size limit from 750 KB to 32 MB. For a dev bot the practical effect is that old tutorials about 'disabled opcodes' and signing rules can be wrong, and script-reviewing tools must be checked against the post-Chronicle rules. Facts come from secondary press only; read the node release notes or spec before generating scripts that depend on them.",
+      "tags": [
+        "bsv",
+        "chronicle",
+        "consensus",
+        "script",
+        "teranode"
+      ],
+      "scope": "bsv",
+      "props": {
+        "module": "network",
+        "gapType": "new",
+        "relatesToExisting": "bsv-script-basics, bsv-teranode-networks",
+        "verify": "Primary spec or node release notes; exact opcode list; whether wallet and SDK signing defaults changed.",
+        "rank": 5,
+        "order": 88
+      },
+      "sources": [
+        {
+          "ref": "https://coingeek.com/chronicle-upgrade-on-bsv-mainnet-clears-path-for-teranode/",
+          "licence": "News article, copyright of the publisher; facts summarised in our own words, nothing copied"
+        },
+        {
+          "ref": "https://coingeek.com/chronicle-and-the-16-year-restoration-of-bitcoins-original-protocol/",
+          "licence": "News article, copyright of the publisher; facts summarised in our own words, nothing copied"
+        },
+        {
+          "ref": "https://altfins.com/crypto-news/article/bsv-association-announces-chronicle-a-mandatory-network-upgrade-that-completes-the-bitcoin-protocol",
+          "licence": "News article, copyright of the publisher; facts summarised in our own words, nothing copied (press-release republication)"
+        }
+      ],
+      "confidence": 0.7,
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z",
+      "updatedAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "bsv-teranode-status-timeline",
+      "type": "concept",
+      "title": "Teranode status timeline and conflicting claims",
+      "body": "Public timeline as we could assemble it: a September 2024 community article said one Teranode instance was listening on mainnet with mining planned for Q4 2024; the Association announced a public, source-available release on 14 October 2025; its January 2026 pages cite over one million transactions per second on a test network; the Chronicle upgrade activated in April 2026; and the repository showed release 0.15.3 dated 6 July 2026, which is pre-1.0. Two Association pages with the same January 2026 modification date quote different mainnet throughput figures (about 13,600 and about 2,800 transactions per second), so treat all throughput numbers as marketing until measured. We did not find a dated statement of what share of mainnet runs Teranode, nor an end-of-life date for the older node. Tell users to build against ARC-compatible APIs and BEEF, and check the current network page before relying on any node-level behaviour.",
+      "tags": [
+        "bsv",
+        "teranode",
+        "status",
+        "claims",
+        "timeline"
+      ],
+      "scope": "bsv",
+      "props": {
+        "module": "network",
+        "gapType": "updates-existing",
+        "relatesToExisting": "bsv-teranode-networks",
+        "verify": "Mainnet share, SV Node sunset, current release number.",
+        "rank": 6,
+        "order": 89
+      },
+      "sources": [
+        {
+          "ref": "https://www.prnewswire.com/news-releases/bsv-association-bsva-announces-public-release-of-teranode-software-302583362.html",
+          "licence": "News article, copyright of the publisher; facts summarised in our own words, nothing copied"
+        },
+        {
+          "ref": "https://coingeek.com/what-is-going-on-with-teranode-video/",
+          "licence": "News article, copyright of the publisher; facts summarised in our own words, nothing copied"
+        },
+        {
+          "ref": "https://bsvblockchain.org/?p=28986",
+          "licence": "unverified (site terms not read)"
+        },
+        {
+          "ref": "https://github.com/bsv-blockchain/teranode",
+          "licence": "LICENSE file present; type unverified"
+        }
+      ],
+      "confidence": 0.65,
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z",
+      "updatedAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "bsv-brc-cheatsheet",
+      "type": "lesson",
+      "title": "BRC cheat sheet: the numbers that matter",
+      "body": "Core and wallet: 100 wallet-to-app interface (about 28 calls); 42 key derivation (BKDS); 43 security levels, protocol ids, key ids, counterparties; 46 output baskets; 45 outputs as tokens; 2 encryption; 3 signatures; 69 key-linkage revelation; 116 wallet permissions; 73 grouped permissions; 181 agent spend policy. Transactions: 62 BEEF; 74 BUMP; 95 Atomic BEEF; 96 BEEF V2; 30 Extended Format; 67 SPV. Auth and identity: 103 mutual auth, 104 its HTTP transport, 31 Authrite (deprecated); 52 identity certificates; 53 certificate revelation; 77 message signatures; 78 portable encrypted messages. Payments: 29 P2PKH payment protocol; 105 HTTP monetization; 121 simple 402 payments; 120 x402 index. Scripts and overlays: 48 PushDrop; 21 push-tx; 22 submit; 24 lookup; 88 SHIP and SLAP; 87 naming; 35 key-value; 26 UHRP. Tokens: 159 1Sat origin, 160 inscription envelope, 161 and 162 BSV-21. Note that BRC-20 is deliberately 'there is no BRC-20' and is unrelated to Bitcoin's BRC-20 tokens.",
+      "tags": [
+        "bsv",
+        "brc",
+        "index",
+        "reference"
+      ],
+      "scope": "bsv",
+      "props": {
+        "module": "sdks",
+        "gapType": "deepens",
+        "relatesToExisting": "bsv-brc-index, bsv-src-brcs",
+        "verify": "Numbers and titles against the live index; the index lists well over 200 BRCs by category.",
+        "rank": 7,
+        "order": 90
+      },
+      "sources": [
+        {
+          "ref": "https://bsv.brc.dev/",
+          "licence": "Open BSV License per the bsv.brc.dev index page; version and per-spec terms unverified"
+        }
+      ],
+      "confidence": 0.8,
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z",
+      "updatedAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "bsv-brc-status-map",
+      "type": "concept",
+      "title": "BRC status map: deprecated, superseded, exploratory",
+      "body": "Several BRCs a model may remember are no longer the current path. BRC-31 (Authrite) is marked deprecated in favour of 103 and 104. BRC-22 and BRC-24 note that their early JSON envelopes and 'provider' naming are historical, and BRC-64 calls the BRC-36 envelope deprecated. BRC-76 (GASP) says it is exploratory and not used by wallet-toolbox. BRC-101 describes future URL schemes that nothing implements. BRC-28 (Paymail) says newer integrations should use BRC-100 and BRC-29 unless Paymail interoperability is needed, and the legacy Paymail client is deprecated. BRC-62 and BRC-96 call themselves proposals despite wide use. BRC-161 builds on what it calls the deprecated BSV-20 format. Always read the status paragraph at the top of the live page.",
+      "tags": [
+        "bsv",
+        "brc",
+        "status",
+        "deprecated"
+      ],
+      "scope": "bsv",
+      "props": {
+        "module": "sdks",
+        "gapType": "new",
+        "relatesToExisting": "bsv-brc-index, bsv-mutual-auth",
+        "verify": "Each status line is read from the page on 2026-10-01 and may change.",
+        "rank": 8,
+        "order": 91
+      },
+      "sources": [
+        {
+          "ref": "https://bsv.brc.dev/peer-to-peer/0031",
+          "licence": "Open BSV License per the bsv.brc.dev index page; version and per-spec terms unverified"
+        },
+        {
+          "ref": "https://bsv.brc.dev/overlays/0064",
+          "licence": "Open BSV License per the bsv.brc.dev index page; version and per-spec terms unverified"
+        },
+        {
+          "ref": "https://bsv.brc.dev/payments/0028",
+          "licence": "Open BSV License per the bsv.brc.dev index page; version and per-spec terms unverified"
+        },
+        {
+          "ref": "https://bsv.brc.dev/tokens/0161",
+          "licence": "Open BSV License per the bsv.brc.dev index page; version and per-spec terms unverified"
+        }
+      ],
+      "confidence": 0.75,
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z",
+      "updatedAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "bsv-beef-variants",
+      "type": "concept",
+      "title": "BEEF variants and Extended Format: Atomic BEEF, V2, EF",
+      "body": "Atomic BEEF (BRC-95) is BEEF restricted to one subject transaction plus exactly the ancestors needed to validate it; it begins with the prefix 01010101, then the 32-byte subject txid, then ordinary BEEF. Wallet payment protocols such as BRC-29 pass Atomic BEEF so a recipient never receives unrelated transactions. BEEF V2 (BRC-96, marker 0200BEEF, described as a proposal) turns the has-proof byte into a three-way format byte: raw transaction, raw transaction with a BUMP index, or a bare 32-byte txid for transactions both sides already validated. Extended Format (BRC-30, from BIP-239) is different: it is a single transaction that also embeds each input's amount and locking script, marked by 0000000000EF after the version, so a broadcaster can check fees and scripts without fetching parents. BRC-158 (Outpoint BEEF) exists too but was only seen by title. Know which one an API wants: ARC accepts EF and BEEF, wallets exchange Atomic BEEF.",
+      "tags": [
+        "bsv",
+        "beef",
+        "atomic-beef",
+        "extended-format",
+        "brc-95",
+        "brc-96",
+        "brc-30"
+      ],
+      "scope": "bsv",
+      "props": {
+        "module": "foundations",
+        "gapType": "new",
+        "relatesToExisting": "bsv-beef-spv, bsv-arc-broadcast",
+        "verify": "BRC-158 text; whether V2 is deployed by the main SDK.",
+        "rank": 9,
+        "order": 92
+      },
+      "sources": [
+        {
+          "ref": "https://bsv.brc.dev/transactions/0095",
+          "licence": "Open BSV License per the bsv.brc.dev index page; version and per-spec terms unverified"
+        },
+        {
+          "ref": "https://bsv.brc.dev/transactions/0096",
+          "licence": "Open BSV License per the bsv.brc.dev index page; version and per-spec terms unverified"
+        },
+        {
+          "ref": "https://bsv.brc.dev/transactions/0030",
+          "licence": "Open BSV License per the bsv.brc.dev index page; version and per-spec terms unverified"
+        },
+        {
+          "ref": "https://bsv.brc.dev/",
+          "licence": "Open BSV License per the bsv.brc.dev index page; version and per-spec terms unverified"
+        }
+      ],
+      "confidence": 0.8,
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z",
+      "updatedAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "bsv-spv-verification-steps",
+      "type": "lesson",
+      "title": "SPV verification checklist (BRC-67) for agents",
+      "body": "BRC-67 reduces simplified payment verification to four checks: every unlocking script must evaluate to true against the previous locking script; inputs must exceed outputs by at least an acceptable fee; every input must chain back to a merkle proof of a mined block; and locktime and sequence must match expectations. In code this means a chain tracker or header service you trust, not an indexer's word. When a tool hands Legion a BEEF or a proof, the correct move is to run the SDK verification with a header source and report which transactions were proven and which were only locally validated. Exercise on testnet: take a BEEF you built, verify it, then flip one byte and show the verification fails. Remember that SPV proves inclusion and validity of the transaction, not that the payer was honest or that a double spend cannot be attempted.",
+      "tags": [
+        "bsv",
+        "spv",
+        "brc-67",
+        "verification",
+        "exercise"
+      ],
+      "scope": "bsv",
+      "props": {
+        "module": "foundations",
+        "gapType": "new",
+        "relatesToExisting": "bsv-beef-spv, bsv-safety-untrusted-chain-data",
+        "rank": 10,
+        "order": 93
+      },
+      "sources": [
+        {
+          "ref": "https://bsv.brc.dev/transactions/0067",
+          "licence": "Open BSV License per the bsv.brc.dev index page; version and per-spec terms unverified"
+        },
+        {
+          "ref": "https://github.com/bsv-blockchain/ts-stack",
+          "licence": "Open BSV License Version 6 per the repo README (modified MIT; limits use to the BSV blockchain and its testnets; exact terms unverified)"
+        }
+      ],
+      "confidence": 0.8,
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z",
+      "updatedAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "bsv-brc22-topic-managers",
+      "type": "concept",
+      "title": "Topic managers and transaction submission (BRC-22)",
+      "body": "In an overlay network a topic manager decides which outputs belong to a topic and which spent inputs are worth retaining. A client submits a transaction as BEEF with a header listing topics, and the node validates it, runs the topic logic and answers per topic with outputs to admit, coins to retain and optionally coins removed. The current text describes a single POST /submit route taking a binary body; the older JSON envelope design is called historical. Each node chooses what its topics mean and only processes topics it hosts, so admission rules are local policy, not consensus. Topic names follow BRC-87: a tm_ prefix, lowercase letters and underscores, under 50 characters.",
+      "tags": [
+        "bsv",
+        "overlay",
+        "brc-22",
+        "topic-manager"
+      ],
+      "scope": "bsv",
+      "props": {
+        "module": "extras",
+        "gapType": "new",
+        "relatesToExisting": "bsv-overlay-services, bsv-brc62-beef-format",
+        "rank": 11,
+        "order": 94
+      },
+      "sources": [
+        {
+          "ref": "https://bsv.brc.dev/overlays/0022",
+          "licence": "Open BSV License per the bsv.brc.dev index page; version and per-spec terms unverified"
+        },
+        {
+          "ref": "https://bsv.brc.dev/overlays/0087",
+          "licence": "Open BSV License per the bsv.brc.dev index page; version and per-spec terms unverified"
+        },
+        {
+          "ref": "https://github.com/bsv-blockchain/ts-stack",
+          "licence": "Open BSV License Version 6 per the repo README (modified MIT; limits use to the BSV blockchain and its testnets; exact terms unverified)"
+        }
+      ],
+      "confidence": 0.8,
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z",
+      "updatedAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "bsv-brc24-lookup-services",
+      "type": "concept",
+      "title": "Lookup services (BRC-24)",
+      "body": "A lookup service indexes the output state an overlay admits and spends, and answers questions about it. Clients POST a JSON body to /lookup with a service name (BRC-87 style, prefixed ls_) and a service-specific query object. The usual answer is an output list in which each item carries BEEF data, an output index and optional context bytes, and there is a compact binary alternative that shares one BEEF payload across outputs. Each service chooses its own storage, so one overlay can offer very different query shapes. Because the response is only as honest as the overlay operator, verify the BEEF proofs and cross-check anything valuable.",
+      "tags": [
+        "bsv",
+        "overlay",
+        "brc-24",
+        "lookup"
+      ],
+      "scope": "bsv",
+      "props": {
+        "module": "extras",
+        "gapType": "new",
+        "relatesToExisting": "bsv-overlay-services, bsv-brc22-topic-managers",
+        "rank": 12,
+        "order": 95
+      },
+      "sources": [
+        {
+          "ref": "https://bsv.brc.dev/overlays/0024",
+          "licence": "Open BSV License per the bsv.brc.dev index page; version and per-spec terms unverified"
+        },
+        {
+          "ref": "https://bsv.brc.dev/overlays/0087",
+          "licence": "Open BSV License per the bsv.brc.dev index page; version and per-spec terms unverified"
+        },
+        {
+          "ref": "https://github.com/bsv-blockchain/ts-stack",
+          "licence": "Open BSV License Version 6 per the repo README (modified MIT; limits use to the BSV blockchain and its testnets; exact terms unverified)"
+        }
+      ],
+      "confidence": 0.8,
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z",
+      "updatedAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "bsv-ship-slap-discovery",
+      "type": "concept",
+      "title": "SHIP and SLAP: finding overlay hosts (BRC-88)",
+      "body": "SHIP (Services Host Interconnect Protocol) lets a node advertise that it accepts transactions for a named topic such as tm_example, and SLAP (Services Lookup Availability Protocol) lets it advertise a lookup service such as ls_kvstore. An advertisement is a PushDrop token carrying the protocol label, the advertiser's identity key, the host base URL and the topic or service name. To find hosts a client queries the ls_ship or ls_slap lookup with the topic name; modern implementations cache results, refresh in the background and back off from bad hosts. BRC-101 proposes richer URL schemes (WebSocket, authenticated or paid variants) but is described as not yet implemented, so assume plain HTTPS. BRC-23 (CHIP) and BRC-25 (CLAP) appear in the index as earlier names for the same ideas, but we only saw their titles.",
+      "tags": [
+        "bsv",
+        "overlay",
+        "ship",
+        "slap",
+        "brc-88",
+        "brc-101"
+      ],
+      "scope": "bsv",
+      "props": {
+        "module": "extras",
+        "gapType": "new",
+        "relatesToExisting": "bsv-overlay-services, bsv-brc22-topic-managers, bsv-brc24-lookup-services",
+        "verify": "BRC-23 and BRC-25 status; default tracker hosts.",
+        "rank": 13,
+        "order": 96
+      },
+      "sources": [
+        {
+          "ref": "https://bsv.brc.dev/overlays/0088",
+          "licence": "Open BSV License per the bsv.brc.dev index page; version and per-spec terms unverified"
+        },
+        {
+          "ref": "https://bsv.brc.dev/overlays/0101",
+          "licence": "Open BSV License per the bsv.brc.dev index page; version and per-spec terms unverified"
+        },
+        {
+          "ref": "https://bsv.brc.dev/",
+          "licence": "Open BSV License per the bsv.brc.dev index page; version and per-spec terms unverified"
+        }
+      ],
+      "confidence": 0.75,
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z",
+      "updatedAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "bsv-overlay-express",
+      "type": "entity",
+      "title": "OverlayExpress: running an overlay node",
+      "body": "OverlayExpress is the Express wrapper for running overlay services. The standalone repository was archived on 12 June 2026; the maintained copy is ts-stack/packages/overlays/overlay-express. Setup is a builder sequence: construct it with a node name, a server private key and the public hostname, set port and edge policy, configure both a MongoDB and a Knex-compatible SQL database, register topic managers and lookup services, configure the broadcaster (Arcade primary, ARC as fallback) and a block-header source, call configureEngine and then start. GASP sync is off by default and production setups are told to enable it. Admin routes (advertisement sync, GASP and BASM sync, proof refresh, eviction, janitor) need a bearer token. The server key is a real key: it belongs to the operator, never to Legion or a chat.",
+      "tags": [
+        "bsv",
+        "overlay",
+        "overlay-express",
+        "operator"
+      ],
+      "scope": "bsv",
+      "props": {
+        "module": "extras",
+        "gapType": "updates-existing",
+        "relatesToExisting": "bsv-overlay-services, bsv-archived-standalone-repos",
+        "verify": "Builder method names, DB requirements, whether MongoDB is truly mandatory.",
+        "rank": 14,
+        "order": 97
+      },
+      "sources": [
+        {
+          "ref": "https://github.com/bsv-blockchain/ts-stack",
+          "licence": "Open BSV License Version 6 per the repo README (modified MIT; limits use to the BSV blockchain and its testnets; exact terms unverified)"
+        },
+        {
+          "ref": "https://github.com/bsv-blockchain/overlay-express",
+          "licence": "LICENSE.txt present; type unverified (repo archived)"
+        }
+      ],
+      "confidence": 0.75,
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z",
+      "updatedAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "bsv-brc29-payments",
+      "type": "lesson",
+      "title": "Wallet-to-wallet payments with BRC-29",
+      "body": "BRC-29 is the simple authenticated P2PKH payment protocol between BRC-100 wallets. The sender derives a unique recipient key with BRC-42 using the recipient's identity key and an invoice string that combines a payment-wide derivation prefix, an output-specific suffix and a fixed protocol identifier at security level 2. It builds the transaction with createAction and sends the recipient Atomic BEEF plus a remittance record (prefix, suffix, sender identity key). The recipient calls internalizeAction, and its wallet checks that the output key hashes really derive from the two identities before accepting. Each payment lands on a fresh address, so nothing is reused on chain. Test this flow on testnet first and decode the transaction before approval.",
+      "tags": [
+        "bsv",
+        "payments",
+        "brc-29",
+        "wallet",
+        "derivation"
+      ],
+      "scope": "bsv",
+      "props": {
+        "module": "wallets",
+        "gapType": "new",
+        "relatesToExisting": "bsv-brc100-wallet, bsv-bkds-brc42-43",
+        "verify": "Exact invoice-number format and protocol identifier in the live text.",
+        "rank": 15,
+        "order": 98
+      },
+      "sources": [
+        {
+          "ref": "https://bsv.brc.dev/payments/0029",
+          "licence": "Open BSV License per the bsv.brc.dev index page; version and per-spec terms unverified"
+        },
+        {
+          "ref": "https://github.com/bsv-blockchain/ts-stack",
+          "licence": "Open BSV License Version 6 per the repo README (modified MIT; limits use to the BSV blockchain and its testnets; exact terms unverified)"
+        }
+      ],
+      "confidence": 0.8,
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z",
+      "updatedAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "bsv-pushdrop-template",
+      "type": "lesson",
+      "title": "PushDrop: data-carrying spendable tokens (BRC-48)",
+      "body": "PushDrop locks an output with one or more data pushes, drops them with OP_DROP or OP_2DROP, and then ends with an ordinary public-key lock plus signature check. Unlike an OP_RETURN output, the output stays spendable, so it can represent ownership, be updated by spending it into a successor, and be tracked as a UTXO. The SDK exposes a PushDrop class and ts-stack has a templates package; SHIP and SLAP advertisements and key-value store entries are PushDrop tokens. A key used for the lock is normally derived through the wallet (BRC-42/43), which our sources imply but did not state for BRC-48 itself. Review checklist for any template: what is pushed, whose key locks it, can it be spent by anyone else, and does it hold at least one satoshi.",
+      "tags": [
+        "bsv",
+        "pushdrop",
+        "script-template",
+        "brc-48",
+        "tokens"
+      ],
+      "scope": "bsv",
+      "props": {
+        "module": "sdks",
+        "gapType": "new",
+        "relatesToExisting": "bsv-script-basics, bsv-sdk-ts, bsv-ship-slap-discovery",
+        "verify": "PushDrop class API and key derivation conventions in the SDK.",
+        "rank": 16,
+        "order": 99
+      },
+      "sources": [
+        {
+          "ref": "https://bsv.brc.dev/scripts/0048",
+          "licence": "Open BSV License per the bsv.brc.dev index page; version and per-spec terms unverified"
+        },
+        {
+          "ref": "https://github.com/bsv-blockchain/ts-stack",
+          "licence": "Open BSV License Version 6 per the repo README (modified MIT; limits use to the BSV blockchain and its testnets; exact terms unverified)"
+        }
+      ],
+      "confidence": 0.8,
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z",
+      "updatedAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "bsv-402-profiles",
+      "type": "lesson",
+      "title": "HTTP 402 profiles compared: BRC-105, BRC-121, BRC-120",
+      "body": "BRC-105 monetizes HTTP services on top of BRC-103/104 mutual auth: the server answers 402 with headers for the required satoshis, a derivation prefix and its identity key, and the client retries with an x-bsv-payment header holding the signed transaction and derivation data. BRC-121 is the deliberately minimal alternative with no session state: the server advertises price and identity key, and the client retries with a BEEF transaction, its key, a nonce, a millisecond timestamp and an output index; replays are blocked by a plus or minus 30 second freshness window and the wallet's merge check. ts-stack's @bsv/402-pay implements BRC-121. BRC-120 is an index entry for the frozen x402 v1.0 spec maintained by Merkle Works, a stateless, request-bound proof scheme with canonical JSON and a nonce UTXO; whether it matches Coinbase's x402 was not stated. This resolves the earlier open question: the 402 plugin's BRC number is 121 (and 120 for x402). Agents spending through any of these need caps and an allowlist.",
+      "tags": [
+        "bsv",
+        "payments",
+        "402",
+        "brc-105",
+        "brc-121",
+        "brc-120",
+        "x402"
+      ],
+      "scope": "bsv",
+      "props": {
+        "module": "extras",
+        "gapType": "deepens",
+        "relatesToExisting": "bsv-402-payments, bsv-safety-spend-caps-approval",
+        "verify": "@bsv/402-pay current status; BRC-166 and BRC-118 (titles only).",
+        "rank": 17,
+        "order": 100
+      },
+      "sources": [
+        {
+          "ref": "https://bsv.brc.dev/payments/0105",
+          "licence": "Open BSV License per the bsv.brc.dev index page; version and per-spec terms unverified"
+        },
+        {
+          "ref": "https://bsv.brc.dev/payments/0121",
+          "licence": "Open BSV License per the bsv.brc.dev index page; version and per-spec terms unverified"
+        },
+        {
+          "ref": "https://bsv.brc.dev/payments/0120",
+          "licence": "Open BSV License per the bsv.brc.dev index page; version and per-spec terms unverified"
+        },
+        {
+          "ref": "https://github.com/bsv-blockchain/ts-stack",
+          "licence": "Open BSV License Version 6 per the repo README (modified MIT; limits use to the BSV blockchain and its testnets; exact terms unverified)"
+        }
+      ],
+      "confidence": 0.8,
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z",
+      "updatedAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "bsv-brc103-104-handshake",
+      "type": "concept",
+      "title": "BRC-103 handshake and BRC-104 HTTP transport",
+      "body": "BRC-103 defines five message kinds between two peers: an initial request carrying the sender's identity key and a random nonce, an initial response that echoes it with the other peer's nonce and a signature, a certificate request, a certificate response with selectively revealed fields, and general messages for authenticated traffic. Binding both nonces into signatures prevents replay and proves both sides hold their keys. BRC-104 maps this onto HTTP: handshake and certificate messages go to POST /.well-known/auth as JSON, while ordinary requests carry x-bsv-auth-* headers (identity key, nonce, signature, request id) in a fixed lexicographic order so both sides sign the same preimage. BRC-31 (Authrite, X-Authrite headers) is the deprecated predecessor. The ts-stack auth middleware and authenticated WebSocket packages implement this.",
+      "tags": [
+        "bsv",
+        "auth",
+        "brc-103",
+        "brc-104",
+        "identity"
+      ],
+      "scope": "bsv",
+      "props": {
+        "module": "identity",
+        "gapType": "deepens",
+        "relatesToExisting": "bsv-mutual-auth",
+        "verify": "Header names and message type names in the live text.",
+        "rank": 18,
+        "order": 101
+      },
+      "sources": [
+        {
+          "ref": "https://bsv.brc.dev/peer-to-peer/0103",
+          "licence": "Open BSV License per the bsv.brc.dev index page; version and per-spec terms unverified"
+        },
+        {
+          "ref": "https://bsv.brc.dev/peer-to-peer/0104",
+          "licence": "Open BSV License per the bsv.brc.dev index page; version and per-spec terms unverified"
+        },
+        {
+          "ref": "https://bsv.brc.dev/peer-to-peer/0031",
+          "licence": "Open BSV License per the bsv.brc.dev index page; version and per-spec terms unverified"
+        },
+        {
+          "ref": "https://github.com/bsv-blockchain/ts-stack",
+          "licence": "Open BSV License Version 6 per the repo README (modified MIT; limits use to the BSV blockchain and its testnets; exact terms unverified)"
+        }
+      ],
+      "confidence": 0.8,
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z",
+      "updatedAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "bsv-brc181-agent-spend-policy",
+      "type": "lesson",
+      "title": "Agent spend policy at the wallet (BRC-181)",
+      "body": "BRC-181 proposes that the wallet, not the agent, enforces how an autonomous agent may spend. A signed policy record set by the human operator holds per-transaction, rolling-period and lifetime caps, a fee cap, a destination allowlist with optional per-destination limits, rate limits, circuit breakers on bursts and on new destinations, and an expiry. The agent presents a bearer token tied to a dedicated, capped account and is treated as an untrusted requester: each spend is checked, reserved and debited atomically, and off-policy requests are refused or escalated to a human. The stated motive is prompt injection: a single monthly ceiling does not stop rapid repeated payouts. This is the closest standard to Legion's spend-cap lesson, so borrow its field list when designing caps. Maturity and reference implementations were not confirmed.",
+      "tags": [
+        "bsv",
+        "safety",
+        "agents",
+        "brc-181",
+        "spend-policy"
+      ],
+      "scope": "bsv",
+      "props": {
+        "module": "safety",
+        "gapType": "new",
+        "relatesToExisting": "bsv-safety-spend-caps-approval, bsv-safety-external-wallet",
+        "verify": "Status label, any reference implementation, field names.",
+        "rank": 19,
+        "order": 102
+      },
+      "sources": [
+        {
+          "ref": "https://bsv.brc.dev/wallet/0181",
+          "licence": "Open BSV License per the bsv.brc.dev index page; version and per-spec terms unverified"
+        }
+      ],
+      "confidence": 0.75,
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z",
+      "updatedAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "bsv-ts-sdk-class-map",
+      "type": "concept",
+      "title": "@bsv/sdk class map",
+      "body": "The docs group the SDK roughly as follows. Keys and crypto: PrivateKey, PublicKey, Signature, ECDSA, Hash, BigNumber, SymmetricKey, Mnemonic, HD. Scripts and templates: Script, LockingScript, UnlockingScript, P2PKH, PushDrop. Transactions and proofs: Transaction, MerklePath, Beef, ChainTracker, a Broadcaster interface with ARC and WhatsOnChain implementations, and a per-kilobyte fee model (the SatoshisPerKilobyte name is confirmed only in the Python SDK docs). Wallet and identity: WalletClient (BRC-100), Certificate, MasterCertificate, an Identity client. Network and overlay: Peer with SimplifiedHTTPTransport for BRC-103, KVStore, TopicBroadcaster, LookupResolver, Historian. The package ships on npm with a 2.x line seen (2.0.13) under the Open BSV License; the standalone repository is archived and docs moved with ts-stack, so check the docs site URL. Names come from the docs index as summarised and are unverified in detail.",
+      "tags": [
+        "bsv",
+        "sdk",
+        "typescript",
+        "classes",
+        "reference"
+      ],
+      "scope": "bsv",
+      "props": {
+        "module": "sdks",
+        "gapType": "deepens",
+        "relatesToExisting": "bsv-sdk-ts, bsv-archived-standalone-repos",
+        "verify": "Class names and v2 changes in CHANGELOG.md.",
+        "rank": 20,
+        "order": 103
+      },
+      "sources": [
+        {
+          "ref": "https://bsv-blockchain.github.io/ts-sdk/",
+          "licence": "unverified (docs licence not read)"
+        },
+        {
+          "ref": "https://github.com/bsv-blockchain/ts-stack",
+          "licence": "Open BSV License Version 6 per the repo README (modified MIT; limits use to the BSV blockchain and its testnets; exact terms unverified)"
+        },
+        {
+          "ref": "https://cdn.jsdelivr.net/npm/@bsv/sdk@2.0.13/README.md",
+          "licence": "Open BSV License Version 6 per the repo README (modified MIT; limits use to the BSV blockchain and its testnets; exact terms unverified)"
+        }
+      ],
+      "confidence": 0.7,
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z",
+      "updatedAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "bsv-overlay-engine-sdk",
+      "type": "concept",
+      "title": "Overlay Engine, canonical topics and client classes",
+      "body": "@bsv/overlay is the core engine: it admits transactions through topic managers, tracks UTXO state, serves lookup services and coordinates synchronisation (SHIP, SLAP, GASP, BASM). A topic manager implements admissibility checks and documentation hooks; a lookup service implements callbacks for admitted, spent and evicted outputs plus a generic lookup. Storage is abstracted, with a Knex SQL adapter. The docs stress that authentication, CORS, rate limits and timeouts are the wrapper's job. Around it sit @bsv/overlay-topics (canonical topic managers and lookups), @bsv/overlay-discovery-services, and in @bsv/sdk the client side classes TopicBroadcaster, LookupResolver and Historian. Interface method names are from memory of the SDK and unverified.",
+      "tags": [
+        "bsv",
+        "overlay",
+        "engine",
+        "sdk",
+        "topic-manager"
+      ],
+      "scope": "bsv",
+      "props": {
+        "module": "extras",
+        "gapType": "new",
+        "relatesToExisting": "bsv-overlay-services, bsv-ts-stack",
+        "verify": "Exact interface names and the content of @bsv/overlay-topics.",
+        "rank": 21,
+        "order": 104
+      },
+      "sources": [
+        {
+          "ref": "https://github.com/bsv-blockchain/ts-stack",
+          "licence": "Open BSV License Version 6 per the repo README (modified MIT; limits use to the BSV blockchain and its testnets; exact terms unverified)"
+        }
+      ],
+      "confidence": 0.7,
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z",
+      "updatedAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "bsv-brc151-179-integration-risk",
+      "type": "concept",
+      "title": "Integration risk and capability manifests (BRC-151, BRC-179)",
+      "body": "BRC-151 is an opinion piece on risks of the BRC-100 model: one gateway concentrating payments and identity, monoculture, identity requirements creeping in, metadata that reveals which apps a user touches, legal exposure of few wallet vendors, fast-moving AI agents spending with prior permissions, and recovery lock-in. Its advice: request minimal capability, keep operating balances apart from savings, isolate agents in dedicated wallets with hard limits, test recovery without the vendor, prefer app-specific keys and keep certificates optional. BRC-179 adds a signed capability manifest that lists every method a wallet or tool server exposes with a risk tier; only the two lowest tiers (read and verify) are on by default, anything undeclared is denied, and a hash fingerprints the exposed surface so scope creep is visible. Both map directly onto how Legion should expose BSV tools.",
+      "tags": [
+        "bsv",
+        "safety",
+        "brc-151",
+        "brc-179",
+        "capability-manifest"
+      ],
+      "scope": "bsv",
+      "props": {
+        "module": "safety",
+        "gapType": "new",
+        "relatesToExisting": "bsv-safety-external-wallet, bsv-safety-supply-chain",
+        "verify": "BRC-179 tier names and default policy.",
+        "rank": 22,
+        "order": 105
+      },
+      "sources": [
+        {
+          "ref": "https://bsv.brc.dev/opinions/0151",
+          "licence": "Open BSV License per the bsv.brc.dev index page; version and per-spec terms unverified"
+        },
+        {
+          "ref": "https://bsv.brc.dev/wallet/0179",
+          "licence": "Open BSV License per the bsv.brc.dev index page; version and per-spec terms unverified"
+        }
+      ],
+      "confidence": 0.75,
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z",
+      "updatedAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "bsv-teranode-architecture",
+      "type": "concept",
+      "title": "Teranode architecture and how to run it",
+      "body": "Teranode is the BSV Association's horizontally scalable node, written as separate services: propagation, transaction validation, block assembly, block validation, a blockchain state service, subtree validation, alert and an asset server, plus a compatibility service for the older node protocol. Per its documentation it uses Kafka for events between services, Aerospike for the UTXO set, blob storage for blocks and transactions, and libp2p for peer-to-peer messaging. The repository's quickstart is Docker based and covers mainnet, testnet, teratestnet and regtest, which is useful for local exercises without touching real funds. The ts-stack also ships a Teranode P2P listener client (@bsv/teranode-listener). The BRC index lists a family of multicast frame BRCs (124 to 149) that appear aimed at this scaling work, but we only saw their titles. Application developers rarely run Teranode; they talk to ARC-compatible services and wallets.",
+      "tags": [
+        "bsv",
+        "teranode",
+        "node",
+        "architecture",
+        "regtest"
+      ],
+      "scope": "bsv",
+      "props": {
+        "module": "network",
+        "gapType": "deepens",
+        "relatesToExisting": "bsv-teranode-networks",
+        "verify": "Service list, data stores, quickstart commands, multicast BRCs relevance (unverified).",
+        "rank": 23,
+        "order": 106
+      },
+      "sources": [
+        {
+          "ref": "https://bsv-blockchain.github.io/teranode/",
+          "licence": "unverified (docs licence not read)"
+        },
+        {
+          "ref": "https://github.com/bsv-blockchain/teranode",
+          "licence": "LICENSE file present; type unverified (press release calls it source-available)"
+        },
+        {
+          "ref": "https://github.com/bsv-blockchain/ts-stack",
+          "licence": "Open BSV License Version 6 per the repo README (modified MIT; limits use to the BSV blockchain and its testnets; exact terms unverified)"
+        }
+      ],
+      "confidence": 0.7,
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z",
+      "updatedAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "bsv-arcade-broadcaster",
+      "type": "entity",
+      "title": "Arcade broadcaster and the legacy Merchant API",
+      "body": "Arcade (bsv-blockchain/arcade) is a broadcast and status tracker aimed at Teranode. It offers ARC-compatible endpoints so clients can swap it in: POST /tx with raw hex, GET /tx/{txid}, and a Server-Sent Events stream at /events with a callback token and catch-up replay. It defaults to SQLite instead of PostgreSQL, listens to Teranode peer-to-peer gossip rather than relying on node callbacks, and lists its licence as OpenBSV. The overlay-express docs treat Arcade as the primary broadcast and proof provider with ARC as an optional fallback. The older Merchant API (mAPI, released April 2020) offered miner fee quotes, submission and status in a signed envelope; ARC is what current docs and tools point to, and BRC-57 only discusses legitimate uses of mAPI. Whether mAPI is formally retired was not confirmed.",
+      "tags": [
+        "bsv",
+        "arcade",
+        "teranode",
+        "mapi",
+        "broadcast"
+      ],
+      "scope": "bsv",
+      "props": {
+        "module": "network",
+        "gapType": "new",
+        "relatesToExisting": "bsv-arc-broadcast, bsv-chain-services",
+        "verify": "Arcade endpoint paths and auth; mAPI status; public hosted Arcade endpoint terms.",
+        "rank": 24,
+        "order": 107
+      },
+      "sources": [
+        {
+          "ref": "https://github.com/bsv-blockchain/arcade",
+          "licence": "OpenBSV per repo page; version unverified"
+        },
+        {
+          "ref": "https://hub.bsvblockchain.org/wiki/standards-protocols-and-tools/building-on-bitcoin/merchant-api",
+          "licence": "unverified (site terms not read)"
+        },
+        {
+          "ref": "https://bsv.brc.dev/opinions/0057",
+          "licence": "Open BSV License per the bsv.brc.dev index page; version and per-spec terms unverified"
+        }
+      ],
+      "confidence": 0.65,
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z",
+      "updatedAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "bsv-brc52-53-certificates",
+      "type": "concept",
+      "title": "Identity certificates and selective revelation (BRC-52, BRC-53)",
+      "body": "A BRC-52 certificate binds claims to an identity key with seven fields: type, serial number, subject, certifier, a revocation outpoint (spending that output revokes it), the encrypted fields, and the certifier's signature over a canonical serialisation. BRC-53 explains how fields stay private: each field is encrypted, and a master keyring lets the owner unlock them. To prove a certificate to a verifier the wallet decrypts the needed field keys, re-encrypts them for that verifier's key and attaches a verifier keyring, so different verifiers can see different fields and the certifier signature still covers everything. For Legion this means 'the user has a certificate' is evidence from a certifier, not a fact, and a verifier keyring should only ever reveal what a task needs.",
+      "tags": [
+        "bsv",
+        "identity",
+        "certificates",
+        "brc-52",
+        "brc-53",
+        "privacy"
+      ],
+      "scope": "bsv",
+      "props": {
+        "module": "identity",
+        "gapType": "new",
+        "relatesToExisting": "bsv-mutual-auth, bsv-brc100-wallet",
+        "rank": 25,
+        "order": 108
+      },
+      "sources": [
+        {
+          "ref": "https://bsv.brc.dev/peer-to-peer/0052",
+          "licence": "Open BSV License per the bsv.brc.dev index page; version and per-spec terms unverified"
+        },
+        {
+          "ref": "https://bsv.brc.dev/wallet/0053",
+          "licence": "Open BSV License per the bsv.brc.dev index page; version and per-spec terms unverified"
+        }
+      ],
+      "confidence": 0.8,
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z",
+      "updatedAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "bsv-brc116-wallet-permissions",
+      "type": "concept",
+      "title": "Wallet permission model (BRC-116, BRC-73)",
+      "body": "BRC-116 describes how a wallet decides what an app may do: protocol permissions scoped by protocol name and security level, spending permissions (one-off or monthly standing limits), basket permissions, and certificate permissions with per-field consent. For peer interactions at the per-counterparty level it adds a trust check on the specific peer, separate from trusting the app. BRC-73 lets an app declare what it needs in a manifest so the wallet can ask once. Permissions persist as encrypted tokens in admin baskets and are read from that canonical state, so they are revocable. Baskets whose names start with p are reserved for permission schemes (BRC-46). Design Legion's own approval prompts to match these categories rather than inventing new ones.",
+      "tags": [
+        "bsv",
+        "wallet",
+        "permissions",
+        "brc-116",
+        "brc-73"
+      ],
+      "scope": "bsv",
+      "props": {
+        "module": "wallets",
+        "gapType": "new",
+        "relatesToExisting": "bsv-brc100-wallet, bsv-safety-spend-caps-approval",
+        "verify": "BRC-73 manifest format; BRC-98, 99 and 111 (titles only).",
+        "rank": 26,
+        "order": 109
+      },
+      "sources": [
+        {
+          "ref": "https://bsv.brc.dev/wallet/0116",
+          "licence": "Open BSV License per the bsv.brc.dev index page; version and per-spec terms unverified"
+        },
+        {
+          "ref": "https://bsv.brc.dev/wallet/0046",
+          "licence": "Open BSV License per the bsv.brc.dev index page; version and per-spec terms unverified"
+        }
+      ],
+      "confidence": 0.75,
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z",
+      "updatedAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "bsv-bsv21-specs",
+      "type": "concept",
+      "title": "BSV-21 in the BRCs (161, 162, 176)",
+      "body": "BRC-161 specifies the JSON form of BSV-21: the field p stays the string bsv-20, op is one of deploy+mint, deploy+auth, mint, auth, transfer or burn, amt is a decimal string up to uint64, and id is the deploy output's txid_vout so a ticker symbol is never the identity. Decimals run from 0 to 18. An indexer accepts a transfer only if outputs plus burns do not exceed valid inputs for that token; excess is rejected and the inputs burn. BRC-162 is a binary script-prefix encoding of the same model, and BRC-176 defines a validity proof as a BEEF packet with the token's ancestor transactions back to deploy, so a wallet can check a token offline against its own headers instead of trusting an indexer. BRC-161 describes plain BSV-20 as deprecated. Token outputs must stay out of funding selection.",
+      "tags": [
+        "bsv",
+        "tokens",
+        "bsv-21",
+        "brc-161",
+        "brc-162",
+        "brc-176"
+      ],
+      "scope": "bsv",
+      "props": {
+        "module": "ordinals",
+        "gapType": "deepens",
+        "relatesToExisting": "bsv-bsv20-bsv21, bsv-baskets-labels",
+        "verify": "BRC-162 and 163 texts.",
+        "rank": 27,
+        "order": 110
+      },
+      "sources": [
+        {
+          "ref": "https://bsv.brc.dev/tokens/0161",
+          "licence": "Open BSV License per the bsv.brc.dev index page; version and per-spec terms unverified"
+        },
+        {
+          "ref": "https://bsv.brc.dev/tokens/0176",
+          "licence": "Open BSV License per the bsv.brc.dev index page; version and per-spec terms unverified"
+        },
+        {
+          "ref": "https://bsv.brc.dev/",
+          "licence": "Open BSV License per the bsv.brc.dev index page; version and per-spec terms unverified"
+        }
+      ],
+      "confidence": 0.8,
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z",
+      "updatedAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "bsv-1sat-brc-family",
+      "type": "concept",
+      "title": "1Sat Ordinals as BRCs: origin and envelope (159, 160)",
+      "body": "BRC-159 defines a 1Sat Ordinal as a single-satoshi output whose permanent identity, its origin, is the outpoint of the first one-satoshi output in its chain. To prove an origin, walk back through transactions along one-satoshi-to-one-satoshi hops until that link breaks; if the satoshi lands in a larger output the chain ends and a new origin starts. BRC-160 sets the envelope: OP_FALSE OP_IF, the marker ord, field 1 content type, field 0 body, OP_ENDIF, with an optional parent field and optional MAP metadata after an OP_RETURN, and exactly one satoshi per output. Related BRCs 147 (a 1sat basket profile), 150 (provenance remittance) and 165 (a permission scheme for the 1sat basket) were seen by title. The docs.1satordinals.com site still labels itself draft, and these BRCs are community specs, so mark confidence accordingly.",
+      "tags": [
+        "bsv",
+        "ordinals",
+        "1sat",
+        "brc-159",
+        "brc-160",
+        "origin"
+      ],
+      "scope": "bsv",
+      "props": {
+        "module": "ordinals",
+        "gapType": "deepens",
+        "relatesToExisting": "bsv-1sat-ordinals, bsv-inscription-envelope, bsv-safety-ordinal-burn",
+        "verify": "BRC-147, 150 and 165 texts.",
+        "rank": 28,
+        "order": 111
+      },
+      "sources": [
+        {
+          "ref": "https://bsv.brc.dev/tokens/0159",
+          "licence": "Open BSV License per the bsv.brc.dev index page; version and per-spec terms unverified"
+        },
+        {
+          "ref": "https://bsv.brc.dev/tokens/0160",
+          "licence": "Open BSV License per the bsv.brc.dev index page; version and per-spec terms unverified"
+        },
+        {
+          "ref": "https://docs.1satordinals.com/",
+          "licence": "unverified"
+        }
+      ],
+      "confidence": 0.75,
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z",
+      "updatedAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "bsv-kvstore-history-uhrp",
+      "type": "concept",
+      "title": "Overlay-backed data patterns: key-value store, history, file hosting",
+      "body": "BRC-35 models a key-value store as PushDrop tokens carrying protocol id, key, value, controller and optional tags. A global profile publishes entries through an overlay with verified controller signatures; a local profile uses the wallet's own baskets as namespaces and output tags as keys, with encrypted values. Updates spend the current token into a successor, and BRC-64 describes recovering history by following source-transaction ancestry inside returned BEEF, with the topic manager choosing which spent inputs to retain. BRC-26 (UHRP) applies the same shape to files: a host advertises a file by its SHA-256 hash with URL, expiry and size, lookups go through ls_uhrp, and spending the token cancels the advert. The SDK has storage helpers and ts-stack ships uhrp-lite and a storage server for hosting.",
+      "tags": [
+        "bsv",
+        "kvstore",
+        "brc-35",
+        "brc-64",
+        "uhrp",
+        "brc-26",
+        "overlay"
+      ],
+      "scope": "bsv",
+      "props": {
+        "module": "extras",
+        "gapType": "new",
+        "relatesToExisting": "bsv-overlay-services, bsv-pushdrop-template, bsv-baskets-labels",
+        "verify": "Helper class names for storage and kvstore.",
+        "rank": 29,
+        "order": 112
+      },
+      "sources": [
+        {
+          "ref": "https://bsv.brc.dev/overlays/0035",
+          "licence": "Open BSV License per the bsv.brc.dev index page; version and per-spec terms unverified"
+        },
+        {
+          "ref": "https://bsv.brc.dev/overlays/0064",
+          "licence": "Open BSV License per the bsv.brc.dev index page; version and per-spec terms unverified"
+        },
+        {
+          "ref": "https://bsv.brc.dev/overlays/0026",
+          "licence": "Open BSV License per the bsv.brc.dev index page; version and per-spec terms unverified"
+        },
+        {
+          "ref": "https://github.com/bsv-blockchain/ts-stack",
+          "licence": "Open BSV License Version 6 per the repo README (modified MIT; limits use to the BSV blockchain and its testnets; exact terms unverified)"
+        }
+      ],
+      "confidence": 0.75,
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z",
+      "updatedAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "bsv-chain-facts-fees",
+      "type": "concept",
+      "title": "Chain facts: block size, fees and throughput claims",
+      "body": "BSV has no protocol-defined maximum block size; miners set policy. The largest block usually cited is about 2 GB, mined 16 August 2021 at height 700606, and Association pages now say blocks up to 4 GB have been processed. Throughput statements disagree: two pages dated January 2026 give about 13,600 and about 2,800 transactions per second for mainnet, and 1 million-plus for a Teranode test network, so none should be quoted as fact. Fees are miner policy, usually described as a fraction of a cent. SDKs model them as satoshis per kilobyte times size, rounded up, and ARC exposes the current miner policy at GET /v1/policy. Chronicle raised the script-number limit to 32 MB. Never hard-code a fee or block size.",
+      "tags": [
+        "bsv",
+        "chain",
+        "fees",
+        "block-size",
+        "claims"
+      ],
+      "scope": "bsv",
+      "props": {
+        "module": "foundations",
+        "gapType": "new",
+        "relatesToExisting": "bsv-tx-fees, bsv-orientation",
+        "verify": "Current miner fee policy and any block size figures.",
+        "rank": 30,
+        "order": 113
+      },
+      "sources": [
+        {
+          "ref": "https://coingeek.com/new-world-record-2-gigabyte-block-on-bitcoin-sv-blockchain-paves-future-for-bitcoin-mining-with-transaction-fees-as-majority-of-block-reward/",
+          "licence": "News article, copyright of the publisher; facts summarised in our own words, nothing copied"
+        },
+        {
+          "ref": "https://bsvblockchain.org/?p=28986",
+          "licence": "unverified (site terms not read)"
+        },
+        {
+          "ref": "https://bitcoin-sv.github.io/arc/",
+          "licence": "unverified (page body did not render in our fetch)"
+        }
+      ],
+      "confidence": 0.65,
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z",
+      "updatedAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "bsv-ts-stack-package-map",
+      "type": "concept",
+      "title": "ts-stack package map",
+      "body": "ts-stack groups its packages by job. SDK: @bsv/sdk. Wallet: wallet-toolbox with client and mobile variants and examples, wallet-relay for pairing a phone with a desktop wallet, and btms (a basic token management system) with a permission module. Network: teranode-listener. Overlays: overlay, overlay-express, overlay-discovery-services, overlay-topics and gasp. Messaging: message-box-client (peer-to-peer message boxes), authsocket and its client, and paymail. Middleware: auth-express, payment-express and 402-pay. Helpers: simple, wallet-helper, templates, did-client, amountinator (satoshi and BSV formatting) and fund-wallet (testnet or devnet funding). Infra: uhrp-lite and uhrp-storage-server. The repo uses pnpm and a recent Node release, and all first-party code is under Open BSV License 6.",
+      "tags": [
+        "bsv",
+        "ts-stack",
+        "packages",
+        "reference"
+      ],
+      "scope": "bsv",
+      "props": {
+        "module": "sdks",
+        "gapType": "deepens",
+        "relatesToExisting": "bsv-ts-stack, bsv-src-ts-stack",
+        "verify": "Package list changes quickly; re-read the README table.",
+        "rank": 31,
+        "order": 114
+      },
+      "sources": [
+        {
+          "ref": "https://github.com/bsv-blockchain/ts-stack",
+          "licence": "Open BSV License Version 6 per the repo README (modified MIT; limits use to the BSV blockchain and its testnets; exact terms unverified)"
+        }
+      ],
+      "confidence": 0.8,
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z",
+      "updatedAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "bsv-wallet-crypto-formats",
+      "type": "concept",
+      "title": "Wallet encryption, signatures and message formats (BRC-2, 3, 77, 78)",
+      "body": "BRC-2 encrypts data with a symmetric key derived from the shared secret of two BRC-42 child keys, using AES-256-GCM with a random 256-bit IV prepended to the ciphertext; with no counterparty the wallet encrypts to itself. BRC-3 is the matching signature standard, built on the same protocol id, key id and counterparty arguments (its details were not read). BRC-77 defines a signed-message layout: a four-byte version, the 33-byte signer key, a verifier key (or one zero byte for public verification), a 32-byte key id and a DER signature. Because each message uses a fresh derived key, it needs no 'signed message' text prefix and can be verifiable by one recipient only. BRC-78 (portable encrypted messages) was only seen by title. Use these only through wallet calls, never by hand-rolling.",
+      "tags": [
+        "bsv",
+        "crypto",
+        "brc-2",
+        "brc-3",
+        "brc-77",
+        "brc-78",
+        "encryption"
+      ],
+      "scope": "bsv",
+      "props": {
+        "module": "identity",
+        "gapType": "deepens",
+        "relatesToExisting": "bsv-message-signing, bsv-bkds-brc42-43",
+        "verify": "BRC-3 and BRC-78 details.",
+        "rank": 32,
+        "order": 115
+      },
+      "sources": [
+        {
+          "ref": "https://bsv.brc.dev/wallet/0002",
+          "licence": "Open BSV License per the bsv.brc.dev index page; version and per-spec terms unverified"
+        },
+        {
+          "ref": "https://bsv.brc.dev/peer-to-peer/0077",
+          "licence": "Open BSV License per the bsv.brc.dev index page; version and per-spec terms unverified"
+        },
+        {
+          "ref": "https://bsv.brc.dev/",
+          "licence": "Open BSV License per the bsv.brc.dev index page; version and per-spec terms unverified"
+        }
+      ],
+      "confidence": 0.7,
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z",
+      "updatedAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "bsv-brc69-key-linkage",
+      "type": "concept",
+      "title": "Revealing key linkages (BRC-69)",
+      "body": "BRC-69 gives two ways to prove that a derived key belongs to a root key. Counterparty-level linkage reveals the shared secret between two identities, which lets anyone link all past and future derived keys between them: strong but privacy-destroying. Specific linkage reveals only the offset for one protocol, key id and counterparty, so a single key can be tied to its owner without exposing the rest. Neither lets the recipient decrypt data protected under BRC-2. The use case is audit or accountability, and in BRC-100 these are the revealCounterpartyKeyLinkage and revealSpecificKeyLinkage calls. BRC-72 (protecting linkage data in transit) and BRC-93 (limits of BRC-69) exist by title. An agent should never invoke these without explicit user approval.",
+      "tags": [
+        "bsv",
+        "keys",
+        "brc-69",
+        "audit",
+        "privacy"
+      ],
+      "scope": "bsv",
+      "props": {
+        "module": "wallets",
+        "gapType": "new",
+        "relatesToExisting": "bsv-bkds-brc42-43, bsv-walletclient-calls",
+        "verify": "BRC-72 and BRC-93 texts.",
+        "rank": 33,
+        "order": 116
+      },
+      "sources": [
+        {
+          "ref": "https://bsv.brc.dev/key-derivation/0069",
+          "licence": "Open BSV License per the bsv.brc.dev index page; version and per-spec terms unverified"
+        },
+        {
+          "ref": "https://bsv.brc.dev/",
+          "licence": "Open BSV License per the bsv.brc.dev index page; version and per-spec terms unverified"
+        }
+      ],
+      "confidence": 0.75,
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z",
+      "updatedAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "bsv-other-language-sdks",
+      "type": "concept",
+      "title": "Go and Python SDKs",
+      "body": "The Go SDK (bsv-blockchain/go-sdk) provides transaction building with BEEF and Atomic BEEF, a script interpreter, elliptic-curve primitives with ECDSA and Schnorr, a BRC-100 wallet framework, message signing and encryption, BRC-103/104 peer auth and overlay broadcast and discovery, with ARC, TAAL and WhatsOnChain broadcasters. It is pre-release, Open BSV licensed, and the README mentions a possible move into a monorepo. The Python SDK (bsv-blockchain/py-sdk) covers script types, BIP32/39/44 HD wallets, SPV with BEEF, a script interpreter, identity and overlay support, reports over 5,000 tests, supports Python 3.10 to 3.13 and is on PyPI. A py-wallet-toolbox repository exists and a pull request added an Arcade broadcaster, but its state was not checked. Pick one SDK per project, pin versions and confirm the repo is not archived.",
+      "tags": [
+        "bsv",
+        "sdk",
+        "go",
+        "python",
+        "reference"
+      ],
+      "scope": "bsv",
+      "props": {
+        "module": "sdks",
+        "gapType": "new",
+        "relatesToExisting": "bsv-sdk-choice",
+        "verify": "Release numbers, monorepo move, py-wallet-toolbox status.",
+        "rank": 34,
+        "order": 117
+      },
+      "sources": [
+        {
+          "ref": "https://github.com/bsv-blockchain/go-sdk",
+          "licence": "Open BSV License per README"
+        },
+        {
+          "ref": "https://github.com/bsv-blockchain/py-sdk",
+          "licence": "Open BSV License per README"
+        }
+      ],
+      "confidence": 0.65,
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z",
+      "updatedAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "bsv-push-tx-covenants",
+      "type": "concept",
+      "title": "OP_PUSH_TX and covenants (BRC-21)",
+      "body": "BRC-21 describes a technique that gives a script sight of its own spending transaction: the unlocking data includes the transaction preimage, and the locking script rebuilds the signature check on that preimage so the script can inspect inputs, outputs, sequence and locktime. This is how covenants (rules about how a coin may be spent later) and stateful contracts are built without new opcodes. BRC-226, seen by title, applies it to resale-royalty tokens and BRC-60 and 171 discuss state machines. Chronicle's restored opcodes and the optional original signing digest may change how such scripts are written, though we did not confirm that. Contract scripts are easy to get wrong and unspendable if flawed; test on testnet and never hand-assemble one for mainnet.",
+      "tags": [
+        "bsv",
+        "script",
+        "covenants",
+        "brc-21",
+        "op-push-tx",
+        "state-machine"
+      ],
+      "scope": "bsv",
+      "props": {
+        "module": "sdks",
+        "gapType": "new",
+        "relatesToExisting": "bsv-script-basics, bsv-chronicle-upgrade",
+        "verify": "Chronicle impact on PushTX patterns; BRC-226 and BRC-171 text.",
+        "rank": 35,
+        "order": 118
+      },
+      "sources": [
+        {
+          "ref": "https://bsv.brc.dev/scripts/0021",
+          "licence": "Open BSV License per the bsv.brc.dev index page; version and per-spec terms unverified"
+        },
+        {
+          "ref": "https://bsv.brc.dev/",
+          "licence": "Open BSV License per the bsv.brc.dev index page; version and per-spec terms unverified"
+        }
+      ],
+      "confidence": 0.65,
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z",
+      "updatedAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "bsv-contract-options-map",
+      "type": "concept",
+      "title": "Smart contract and token options: sCrypt, Run, PushDrop, 1Sat",
+      "body": "Options for programmable money on BSV: PushDrop tokens (simple, SPV-verifiable, wallet-friendly), 1Sat ordinals and BSV-21 (indexer or validity-proof based), covenant scripts using push-tx, sCrypt, and the older Run protocol. sCrypt is a TypeScript-based language that compiles to Bitcoin Script; its docs say it fully works on Bitcoin, the scryptlib repository is MIT with an update in early 2025, but we could not load the scrypt-ts repository page, so current maintenance is unverified. Run (jigs, JavaScript objects executed off-chain with Bitcoin for ordering and ownership) is archived and its README says it is no longer supported. STAS and Tokenized were not researched. The ts-stack also has a Basic Token Management System. Recommend the simplest option that fits and flag unmaintained ones.",
+      "tags": [
+        "bsv",
+        "scrypt",
+        "run",
+        "smart-contracts",
+        "tokens",
+        "options"
+      ],
+      "scope": "bsv",
+      "props": {
+        "module": "sdks",
+        "gapType": "new",
+        "relatesToExisting": "bsv-pushdrop-template, bsv-1sat-brc-family, bsv-push-tx-covenants",
+        "verify": "scrypt-ts status and licence; STAS; Tokenized.",
+        "rank": 36,
+        "order": 119
+      },
+      "sources": [
+        {
+          "ref": "https://docs.scrypt.io/",
+          "licence": "unverified"
+        },
+        {
+          "ref": "https://github.com/runonbitcoin/run",
+          "licence": "MIT per repo page; archived"
+        },
+        {
+          "ref": "https://github.com/sCrypt-Inc",
+          "licence": "scryptlib MIT per org page; other repos unverified"
+        },
+        {
+          "ref": "https://github.com/bsv-blockchain/ts-stack",
+          "licence": "Open BSV License Version 6 per the repo README (modified MIT; limits use to the BSV blockchain and its testnets; exact terms unverified)"
+        }
+      ],
+      "confidence": 0.6,
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z",
+      "updatedAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "bsv-mnee-stablecoin",
+      "type": "entity",
+      "title": "MNEE: USD stablecoin on 1Sat",
+      "body": "MNEE describes itself as a fully collateralised USD stablecoin with fees under a cent and no separate gas token on BSV. It runs on two networks: 1Sat Ordinals on BSV and an Ethereum-compatible ERC-20. Its site says a third-party accountancy was engaged for monthly reserve attestations, and a developer hackathon with an AI-agent payments track was announced; these are issuer claims, not verified here. The developer docs list a TypeScript SDK with API-key authentication, balance and UTXO queries, single and batch transfers, transaction status and webhooks, a CLI and a testnet faucet. A search result pointed to a supply-chain advisory page for an npm package named mnee, which we did not read, so audit any package before installing. Treat MNEE as a third-party asset with issuer risk, and never let an agent move it without approval.",
+      "tags": [
+        "bsv",
+        "stablecoin",
+        "mnee",
+        "payments",
+        "tokens"
+      ],
+      "scope": "bsv",
+      "props": {
+        "module": "extras",
+        "gapType": "new",
+        "relatesToExisting": "bsv-bsv20-bsv21, bsv-safety-spend-caps-approval",
+        "verify": "Issuer entity, reserves, SDK package name, cosigner model, npm advisory.",
+        "rank": 37,
+        "order": 120
+      },
+      "sources": [
+        {
+          "ref": "https://mnee.io",
+          "licence": "unverified"
+        },
+        {
+          "ref": "https://docs.mnee.io/llms.txt",
+          "licence": "unverified"
+        },
+        {
+          "ref": "https://bsv-case-studies.bsvblockchain.org/fintech/mnee-stablecoin",
+          "licence": "unverified"
+        }
+      ],
+      "confidence": 0.6,
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z",
+      "updatedAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "bsv-gasp-basm-sync",
+      "type": "concept",
+      "title": "GASP and block-anchored overlay sync",
+      "body": "GASP (BRC-76) is a graph-aware sync protocol: two parties exchange bloom filters of their spendable outputs, send each other what the other lacks, and recursively supply ancestor transactions until every input is proven to a merkle anchor, then swap roles. The spec's own status note calls it exploratory and says wallet-toolbox does not use it, relying on a chunked, resumable storage-provider protocol (BRC-40). The overlay engine nevertheless lists GASP and BASM (BRC-136, block-anchored sparse merkle trees, title only) as sync mechanisms, so overlay operators meet them. For a dev bot: explain them as operator topics, not something an app calls, and do not promise stability.",
+      "tags": [
+        "bsv",
+        "overlay",
+        "gasp",
+        "brc-76",
+        "sync"
+      ],
+      "scope": "bsv",
+      "props": {
+        "module": "extras",
+        "gapType": "new",
+        "relatesToExisting": "bsv-overlay-services, bsv-overlay-engine-sdk",
+        "verify": "BRC-136 text; whether GASP is production-default in overlay-express.",
+        "rank": 38,
+        "order": 121
+      },
+      "sources": [
+        {
+          "ref": "https://bsv.brc.dev/transactions/0076",
+          "licence": "Open BSV License per the bsv.brc.dev index page; version and per-spec terms unverified"
+        },
+        {
+          "ref": "https://github.com/bsv-blockchain/ts-stack",
+          "licence": "Open BSV License Version 6 per the repo README (modified MIT; limits use to the BSV blockchain and its testnets; exact terms unverified)"
+        }
+      ],
+      "confidence": 0.65,
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z",
+      "updatedAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "bsv-brc140-shamir-backup",
+      "type": "concept",
+      "title": "Threshold key backup with Shamir shares (BRC-140)",
+      "body": "BRC-140 splits a private key into m shares of which any n (minimum 2) rebuild it, using Shamir's scheme over the secp256k1 prime field: the key is the constant term of a polynomial and each share is a point on it, with the share positions derived deterministically from a seed. A share serialises as four dot-separated parts (x, y, threshold, integrity) in Base58, where the integrity tag is the first four bytes of the HASH160 of the compressed public key, so recovery can check it rebuilt the right key. Related BRCs cover pluggable backup services (154) and entropy-rooted mnemonic backup (157) but were read by title only. For Legion this is background so it can explain recovery; it must never ask for, store or generate shares.",
+      "tags": [
+        "bsv",
+        "keys",
+        "backup",
+        "brc-140",
+        "shamir"
+      ],
+      "scope": "bsv",
+      "props": {
+        "module": "safety",
+        "gapType": "new",
+        "relatesToExisting": "bsv-safety-keys-never-in-legion, bsv-keys-derivation",
+        "verify": "BRC-154 and BRC-157.",
+        "rank": 39,
+        "order": 122
+      },
+      "sources": [
+        {
+          "ref": "https://bsv.brc.dev/key-derivation/0140",
+          "licence": "Open BSV License per the bsv.brc.dev index page; version and per-spec terms unverified"
+        },
+        {
+          "ref": "https://bsv.brc.dev/",
+          "licence": "Open BSV License per the bsv.brc.dev index page; version and per-spec terms unverified"
+        }
+      ],
+      "confidence": 0.7,
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z",
+      "updatedAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "bsv-src-teranode",
+      "type": "source",
+      "title": "Source: bsv-blockchain/teranode and docs",
+      "body": "The Teranode node software repository, with documentation at bsv-blockchain.github.io/teranode and a Docker quickstart (teranode-quickstart) that supports mainnet, testnet, teratestnet and regtest. The repo showed release 0.15.3 dated 6 July 2026, thousands of commits, and no archive notice. Its licence file type was not read and the Association's release announcement calls the software source-available, so do not assume open source. Legion cites it for architecture facts and never installs or runs it.",
+      "tags": [
+        "bsv",
+        "teranode",
+        "source"
+      ],
+      "scope": "bsv",
+      "props": {
+        "module": "sources",
+        "gapType": "new",
+        "rank": 40,
+        "order": 123
+      },
+      "sources": [
+        {
+          "ref": "https://github.com/bsv-blockchain/teranode",
+          "licence": "LICENSE file present; type unverified"
+        }
+      ],
+      "confidence": 0.7,
       "createdBy": "system",
       "createdAt": "2026-10-01T00:00:00.000Z",
       "updatedAt": "2026-10-01T00:00:00.000Z"
@@ -4940,6 +6463,1504 @@
       "note": "licence and archive note",
       "createdBy": "system",
       "createdAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "e-bsv-brc62-beef-format-part_of-bsv-mod-foundations",
+      "from": "bsv-brc62-beef-format",
+      "to": "bsv-mod-foundations",
+      "rel": "part_of",
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "e-bsv-brc62-beef-format-cites-bsv-src-brcs",
+      "from": "bsv-brc62-beef-format",
+      "to": "bsv-src-brcs",
+      "rel": "cites",
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "e-bsv-brc62-beef-format-cites-bsv-src-ts-stack",
+      "from": "bsv-brc62-beef-format",
+      "to": "bsv-src-ts-stack",
+      "rel": "cites",
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "e-bsv-brc74-bump-part_of-bsv-mod-foundations",
+      "from": "bsv-brc74-bump",
+      "to": "bsv-mod-foundations",
+      "rel": "part_of",
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "e-bsv-brc74-bump-cites-bsv-src-brcs",
+      "from": "bsv-brc74-bump",
+      "to": "bsv-src-brcs",
+      "rel": "cites",
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "e-bsv-brc74-bump-cites-bsv-src-ts-stack",
+      "from": "bsv-brc74-bump",
+      "to": "bsv-src-ts-stack",
+      "rel": "cites",
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "e-bsv-arc-api-reference-part_of-bsv-mod-network",
+      "from": "bsv-arc-api-reference",
+      "to": "bsv-mod-network",
+      "rel": "part_of",
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "e-bsv-arc-api-reference-cites-bsv-src-arc",
+      "from": "bsv-arc-api-reference",
+      "to": "bsv-src-arc",
+      "rel": "cites",
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "e-bsv-arc-status-handling-part_of-bsv-mod-network",
+      "from": "bsv-arc-status-handling",
+      "to": "bsv-mod-network",
+      "rel": "part_of",
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "e-bsv-arc-status-handling-cites-bsv-src-arc",
+      "from": "bsv-arc-status-handling",
+      "to": "bsv-src-arc",
+      "rel": "cites",
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "e-bsv-chronicle-upgrade-part_of-bsv-mod-network",
+      "from": "bsv-chronicle-upgrade",
+      "to": "bsv-mod-network",
+      "rel": "part_of",
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "e-bsv-teranode-status-timeline-part_of-bsv-mod-network",
+      "from": "bsv-teranode-status-timeline",
+      "to": "bsv-mod-network",
+      "rel": "part_of",
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "e-bsv-teranode-status-timeline-cites-bsv-src-docs-hub",
+      "from": "bsv-teranode-status-timeline",
+      "to": "bsv-src-docs-hub",
+      "rel": "cites",
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "e-bsv-teranode-status-timeline-cites-bsv-src-teranode",
+      "from": "bsv-teranode-status-timeline",
+      "to": "bsv-src-teranode",
+      "rel": "cites",
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "e-bsv-brc-cheatsheet-part_of-bsv-mod-sdks",
+      "from": "bsv-brc-cheatsheet",
+      "to": "bsv-mod-sdks",
+      "rel": "part_of",
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "e-bsv-brc-cheatsheet-cites-bsv-src-brcs",
+      "from": "bsv-brc-cheatsheet",
+      "to": "bsv-src-brcs",
+      "rel": "cites",
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "e-bsv-brc-status-map-part_of-bsv-mod-sdks",
+      "from": "bsv-brc-status-map",
+      "to": "bsv-mod-sdks",
+      "rel": "part_of",
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "e-bsv-brc-status-map-cites-bsv-src-brcs",
+      "from": "bsv-brc-status-map",
+      "to": "bsv-src-brcs",
+      "rel": "cites",
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "e-bsv-beef-variants-part_of-bsv-mod-foundations",
+      "from": "bsv-beef-variants",
+      "to": "bsv-mod-foundations",
+      "rel": "part_of",
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "e-bsv-beef-variants-cites-bsv-src-brcs",
+      "from": "bsv-beef-variants",
+      "to": "bsv-src-brcs",
+      "rel": "cites",
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "e-bsv-spv-verification-steps-part_of-bsv-mod-foundations",
+      "from": "bsv-spv-verification-steps",
+      "to": "bsv-mod-foundations",
+      "rel": "part_of",
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "e-bsv-spv-verification-steps-cites-bsv-src-brcs",
+      "from": "bsv-spv-verification-steps",
+      "to": "bsv-src-brcs",
+      "rel": "cites",
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "e-bsv-spv-verification-steps-cites-bsv-src-ts-stack",
+      "from": "bsv-spv-verification-steps",
+      "to": "bsv-src-ts-stack",
+      "rel": "cites",
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "e-bsv-brc22-topic-managers-part_of-bsv-mod-extras",
+      "from": "bsv-brc22-topic-managers",
+      "to": "bsv-mod-extras",
+      "rel": "part_of",
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "e-bsv-brc22-topic-managers-cites-bsv-src-brcs",
+      "from": "bsv-brc22-topic-managers",
+      "to": "bsv-src-brcs",
+      "rel": "cites",
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "e-bsv-brc22-topic-managers-cites-bsv-src-ts-stack",
+      "from": "bsv-brc22-topic-managers",
+      "to": "bsv-src-ts-stack",
+      "rel": "cites",
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "e-bsv-brc24-lookup-services-part_of-bsv-mod-extras",
+      "from": "bsv-brc24-lookup-services",
+      "to": "bsv-mod-extras",
+      "rel": "part_of",
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "e-bsv-brc24-lookup-services-cites-bsv-src-brcs",
+      "from": "bsv-brc24-lookup-services",
+      "to": "bsv-src-brcs",
+      "rel": "cites",
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "e-bsv-brc24-lookup-services-cites-bsv-src-ts-stack",
+      "from": "bsv-brc24-lookup-services",
+      "to": "bsv-src-ts-stack",
+      "rel": "cites",
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "e-bsv-ship-slap-discovery-part_of-bsv-mod-extras",
+      "from": "bsv-ship-slap-discovery",
+      "to": "bsv-mod-extras",
+      "rel": "part_of",
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "e-bsv-ship-slap-discovery-cites-bsv-src-brcs",
+      "from": "bsv-ship-slap-discovery",
+      "to": "bsv-src-brcs",
+      "rel": "cites",
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "e-bsv-overlay-express-part_of-bsv-mod-extras",
+      "from": "bsv-overlay-express",
+      "to": "bsv-mod-extras",
+      "rel": "part_of",
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "e-bsv-overlay-express-cites-bsv-src-ts-stack",
+      "from": "bsv-overlay-express",
+      "to": "bsv-src-ts-stack",
+      "rel": "cites",
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "e-bsv-brc29-payments-part_of-bsv-mod-wallets",
+      "from": "bsv-brc29-payments",
+      "to": "bsv-mod-wallets",
+      "rel": "part_of",
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "e-bsv-brc29-payments-cites-bsv-src-brcs",
+      "from": "bsv-brc29-payments",
+      "to": "bsv-src-brcs",
+      "rel": "cites",
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "e-bsv-brc29-payments-cites-bsv-src-ts-stack",
+      "from": "bsv-brc29-payments",
+      "to": "bsv-src-ts-stack",
+      "rel": "cites",
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "e-bsv-pushdrop-template-part_of-bsv-mod-sdks",
+      "from": "bsv-pushdrop-template",
+      "to": "bsv-mod-sdks",
+      "rel": "part_of",
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "e-bsv-pushdrop-template-cites-bsv-src-brcs",
+      "from": "bsv-pushdrop-template",
+      "to": "bsv-src-brcs",
+      "rel": "cites",
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "e-bsv-pushdrop-template-cites-bsv-src-ts-stack",
+      "from": "bsv-pushdrop-template",
+      "to": "bsv-src-ts-stack",
+      "rel": "cites",
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "e-bsv-402-profiles-part_of-bsv-mod-extras",
+      "from": "bsv-402-profiles",
+      "to": "bsv-mod-extras",
+      "rel": "part_of",
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "e-bsv-402-profiles-cites-bsv-src-brcs",
+      "from": "bsv-402-profiles",
+      "to": "bsv-src-brcs",
+      "rel": "cites",
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "e-bsv-402-profiles-cites-bsv-src-ts-stack",
+      "from": "bsv-402-profiles",
+      "to": "bsv-src-ts-stack",
+      "rel": "cites",
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "e-bsv-brc103-104-handshake-part_of-bsv-mod-identity",
+      "from": "bsv-brc103-104-handshake",
+      "to": "bsv-mod-identity",
+      "rel": "part_of",
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "e-bsv-brc103-104-handshake-cites-bsv-src-brcs",
+      "from": "bsv-brc103-104-handshake",
+      "to": "bsv-src-brcs",
+      "rel": "cites",
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "e-bsv-brc103-104-handshake-cites-bsv-src-ts-stack",
+      "from": "bsv-brc103-104-handshake",
+      "to": "bsv-src-ts-stack",
+      "rel": "cites",
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "e-bsv-brc181-agent-spend-policy-part_of-bsv-mod-safety",
+      "from": "bsv-brc181-agent-spend-policy",
+      "to": "bsv-mod-safety",
+      "rel": "part_of",
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "e-bsv-brc181-agent-spend-policy-cites-bsv-src-brcs",
+      "from": "bsv-brc181-agent-spend-policy",
+      "to": "bsv-src-brcs",
+      "rel": "cites",
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "e-bsv-ts-sdk-class-map-part_of-bsv-mod-sdks",
+      "from": "bsv-ts-sdk-class-map",
+      "to": "bsv-mod-sdks",
+      "rel": "part_of",
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "e-bsv-ts-sdk-class-map-cites-bsv-src-ts-stack",
+      "from": "bsv-ts-sdk-class-map",
+      "to": "bsv-src-ts-stack",
+      "rel": "cites",
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "e-bsv-overlay-engine-sdk-part_of-bsv-mod-extras",
+      "from": "bsv-overlay-engine-sdk",
+      "to": "bsv-mod-extras",
+      "rel": "part_of",
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "e-bsv-overlay-engine-sdk-cites-bsv-src-ts-stack",
+      "from": "bsv-overlay-engine-sdk",
+      "to": "bsv-src-ts-stack",
+      "rel": "cites",
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "e-bsv-brc151-179-integration-risk-part_of-bsv-mod-safety",
+      "from": "bsv-brc151-179-integration-risk",
+      "to": "bsv-mod-safety",
+      "rel": "part_of",
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "e-bsv-brc151-179-integration-risk-cites-bsv-src-brcs",
+      "from": "bsv-brc151-179-integration-risk",
+      "to": "bsv-src-brcs",
+      "rel": "cites",
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "e-bsv-teranode-architecture-part_of-bsv-mod-network",
+      "from": "bsv-teranode-architecture",
+      "to": "bsv-mod-network",
+      "rel": "part_of",
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "e-bsv-teranode-architecture-cites-bsv-src-teranode",
+      "from": "bsv-teranode-architecture",
+      "to": "bsv-src-teranode",
+      "rel": "cites",
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "e-bsv-teranode-architecture-cites-bsv-src-ts-stack",
+      "from": "bsv-teranode-architecture",
+      "to": "bsv-src-ts-stack",
+      "rel": "cites",
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "e-bsv-arcade-broadcaster-part_of-bsv-mod-network",
+      "from": "bsv-arcade-broadcaster",
+      "to": "bsv-mod-network",
+      "rel": "part_of",
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "e-bsv-arcade-broadcaster-cites-bsv-src-docs-hub",
+      "from": "bsv-arcade-broadcaster",
+      "to": "bsv-src-docs-hub",
+      "rel": "cites",
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "e-bsv-arcade-broadcaster-cites-bsv-src-brcs",
+      "from": "bsv-arcade-broadcaster",
+      "to": "bsv-src-brcs",
+      "rel": "cites",
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "e-bsv-brc52-53-certificates-part_of-bsv-mod-identity",
+      "from": "bsv-brc52-53-certificates",
+      "to": "bsv-mod-identity",
+      "rel": "part_of",
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "e-bsv-brc52-53-certificates-cites-bsv-src-brcs",
+      "from": "bsv-brc52-53-certificates",
+      "to": "bsv-src-brcs",
+      "rel": "cites",
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "e-bsv-brc116-wallet-permissions-part_of-bsv-mod-wallets",
+      "from": "bsv-brc116-wallet-permissions",
+      "to": "bsv-mod-wallets",
+      "rel": "part_of",
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "e-bsv-brc116-wallet-permissions-cites-bsv-src-brcs",
+      "from": "bsv-brc116-wallet-permissions",
+      "to": "bsv-src-brcs",
+      "rel": "cites",
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "e-bsv-bsv21-specs-part_of-bsv-mod-ordinals",
+      "from": "bsv-bsv21-specs",
+      "to": "bsv-mod-ordinals",
+      "rel": "part_of",
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "e-bsv-bsv21-specs-cites-bsv-src-brcs",
+      "from": "bsv-bsv21-specs",
+      "to": "bsv-src-brcs",
+      "rel": "cites",
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "e-bsv-1sat-brc-family-part_of-bsv-mod-ordinals",
+      "from": "bsv-1sat-brc-family",
+      "to": "bsv-mod-ordinals",
+      "rel": "part_of",
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "e-bsv-1sat-brc-family-cites-bsv-src-brcs",
+      "from": "bsv-1sat-brc-family",
+      "to": "bsv-src-brcs",
+      "rel": "cites",
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "e-bsv-1sat-brc-family-cites-bsv-src-1sat-docs",
+      "from": "bsv-1sat-brc-family",
+      "to": "bsv-src-1sat-docs",
+      "rel": "cites",
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "e-bsv-kvstore-history-uhrp-part_of-bsv-mod-extras",
+      "from": "bsv-kvstore-history-uhrp",
+      "to": "bsv-mod-extras",
+      "rel": "part_of",
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "e-bsv-kvstore-history-uhrp-cites-bsv-src-brcs",
+      "from": "bsv-kvstore-history-uhrp",
+      "to": "bsv-src-brcs",
+      "rel": "cites",
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "e-bsv-kvstore-history-uhrp-cites-bsv-src-ts-stack",
+      "from": "bsv-kvstore-history-uhrp",
+      "to": "bsv-src-ts-stack",
+      "rel": "cites",
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "e-bsv-chain-facts-fees-part_of-bsv-mod-foundations",
+      "from": "bsv-chain-facts-fees",
+      "to": "bsv-mod-foundations",
+      "rel": "part_of",
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "e-bsv-chain-facts-fees-cites-bsv-src-docs-hub",
+      "from": "bsv-chain-facts-fees",
+      "to": "bsv-src-docs-hub",
+      "rel": "cites",
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "e-bsv-chain-facts-fees-cites-bsv-src-arc",
+      "from": "bsv-chain-facts-fees",
+      "to": "bsv-src-arc",
+      "rel": "cites",
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "e-bsv-ts-stack-package-map-part_of-bsv-mod-sdks",
+      "from": "bsv-ts-stack-package-map",
+      "to": "bsv-mod-sdks",
+      "rel": "part_of",
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "e-bsv-ts-stack-package-map-cites-bsv-src-ts-stack",
+      "from": "bsv-ts-stack-package-map",
+      "to": "bsv-src-ts-stack",
+      "rel": "cites",
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "e-bsv-wallet-crypto-formats-part_of-bsv-mod-identity",
+      "from": "bsv-wallet-crypto-formats",
+      "to": "bsv-mod-identity",
+      "rel": "part_of",
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "e-bsv-wallet-crypto-formats-cites-bsv-src-brcs",
+      "from": "bsv-wallet-crypto-formats",
+      "to": "bsv-src-brcs",
+      "rel": "cites",
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "e-bsv-brc69-key-linkage-part_of-bsv-mod-wallets",
+      "from": "bsv-brc69-key-linkage",
+      "to": "bsv-mod-wallets",
+      "rel": "part_of",
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "e-bsv-brc69-key-linkage-cites-bsv-src-brcs",
+      "from": "bsv-brc69-key-linkage",
+      "to": "bsv-src-brcs",
+      "rel": "cites",
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "e-bsv-other-language-sdks-part_of-bsv-mod-sdks",
+      "from": "bsv-other-language-sdks",
+      "to": "bsv-mod-sdks",
+      "rel": "part_of",
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "e-bsv-push-tx-covenants-part_of-bsv-mod-sdks",
+      "from": "bsv-push-tx-covenants",
+      "to": "bsv-mod-sdks",
+      "rel": "part_of",
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "e-bsv-push-tx-covenants-cites-bsv-src-brcs",
+      "from": "bsv-push-tx-covenants",
+      "to": "bsv-src-brcs",
+      "rel": "cites",
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "e-bsv-contract-options-map-part_of-bsv-mod-sdks",
+      "from": "bsv-contract-options-map",
+      "to": "bsv-mod-sdks",
+      "rel": "part_of",
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "e-bsv-contract-options-map-cites-bsv-src-ts-stack",
+      "from": "bsv-contract-options-map",
+      "to": "bsv-src-ts-stack",
+      "rel": "cites",
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "e-bsv-mnee-stablecoin-part_of-bsv-mod-extras",
+      "from": "bsv-mnee-stablecoin",
+      "to": "bsv-mod-extras",
+      "rel": "part_of",
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "e-bsv-gasp-basm-sync-part_of-bsv-mod-extras",
+      "from": "bsv-gasp-basm-sync",
+      "to": "bsv-mod-extras",
+      "rel": "part_of",
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "e-bsv-gasp-basm-sync-cites-bsv-src-brcs",
+      "from": "bsv-gasp-basm-sync",
+      "to": "bsv-src-brcs",
+      "rel": "cites",
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "e-bsv-gasp-basm-sync-cites-bsv-src-ts-stack",
+      "from": "bsv-gasp-basm-sync",
+      "to": "bsv-src-ts-stack",
+      "rel": "cites",
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "e-bsv-brc140-shamir-backup-part_of-bsv-mod-safety",
+      "from": "bsv-brc140-shamir-backup",
+      "to": "bsv-mod-safety",
+      "rel": "part_of",
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "e-bsv-brc140-shamir-backup-cites-bsv-src-brcs",
+      "from": "bsv-brc140-shamir-backup",
+      "to": "bsv-src-brcs",
+      "rel": "cites",
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "e-bsv-brc62-beef-format-depends_on-bsv-beef-spv",
+      "from": "bsv-brc62-beef-format",
+      "to": "bsv-beef-spv",
+      "rel": "depends_on",
+      "note": "deepens the existing BEEF lesson",
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "e-bsv-brc62-beef-format-depends_on-bsv-tx-anatomy",
+      "from": "bsv-brc62-beef-format",
+      "to": "bsv-tx-anatomy",
+      "rel": "depends_on",
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "e-bsv-brc74-bump-depends_on-bsv-brc62-beef-format",
+      "from": "bsv-brc74-bump",
+      "to": "bsv-brc62-beef-format",
+      "rel": "depends_on",
+      "note": "BUMPs live inside BEEF",
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "e-bsv-beef-variants-depends_on-bsv-brc62-beef-format",
+      "from": "bsv-beef-variants",
+      "to": "bsv-brc62-beef-format",
+      "rel": "depends_on",
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "e-bsv-beef-variants-relates-bsv-brc74-bump",
+      "from": "bsv-beef-variants",
+      "to": "bsv-brc74-bump",
+      "rel": "relates",
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "e-bsv-beef-variants-relates-bsv-arc-api-reference",
+      "from": "bsv-beef-variants",
+      "to": "bsv-arc-api-reference",
+      "rel": "relates",
+      "note": "ARC accepts EF and BEEF",
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "e-bsv-spv-verification-steps-depends_on-bsv-brc62-beef-format",
+      "from": "bsv-spv-verification-steps",
+      "to": "bsv-brc62-beef-format",
+      "rel": "depends_on",
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "e-bsv-spv-verification-steps-depends_on-bsv-brc74-bump",
+      "from": "bsv-spv-verification-steps",
+      "to": "bsv-brc74-bump",
+      "rel": "depends_on",
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "e-bsv-spv-verification-steps-teaches-bsv-brc74-bump",
+      "from": "bsv-spv-verification-steps",
+      "to": "bsv-brc74-bump",
+      "rel": "teaches",
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "e-bsv-spv-verification-steps-relates-bsv-safety-untrusted-chain-data",
+      "from": "bsv-spv-verification-steps",
+      "to": "bsv-safety-untrusted-chain-data",
+      "rel": "relates",
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "e-bsv-teranode-architecture-depends_on-bsv-teranode-networks",
+      "from": "bsv-teranode-architecture",
+      "to": "bsv-teranode-networks",
+      "rel": "depends_on",
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "e-bsv-teranode-architecture-relates-bsv-testnet-first",
+      "from": "bsv-teranode-architecture",
+      "to": "bsv-testnet-first",
+      "rel": "relates",
+      "note": "regtest and teratestnet via the quickstart",
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "e-bsv-teranode-status-timeline-relates-bsv-teranode-networks",
+      "from": "bsv-teranode-status-timeline",
+      "to": "bsv-teranode-networks",
+      "rel": "relates",
+      "note": "updates the existing note with dated facts",
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "e-bsv-teranode-status-timeline-relates-bsv-chronicle-upgrade",
+      "from": "bsv-teranode-status-timeline",
+      "to": "bsv-chronicle-upgrade",
+      "rel": "relates",
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "e-bsv-teranode-status-timeline-relates-bsv-teranode-architecture",
+      "from": "bsv-teranode-status-timeline",
+      "to": "bsv-teranode-architecture",
+      "rel": "relates",
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "e-bsv-chronicle-upgrade-depends_on-bsv-script-basics",
+      "from": "bsv-chronicle-upgrade",
+      "to": "bsv-script-basics",
+      "rel": "depends_on",
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "e-bsv-chronicle-upgrade-relates-bsv-teranode-networks",
+      "from": "bsv-chronicle-upgrade",
+      "to": "bsv-teranode-networks",
+      "rel": "relates",
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "e-bsv-arc-api-reference-depends_on-bsv-arc-broadcast",
+      "from": "bsv-arc-api-reference",
+      "to": "bsv-arc-broadcast",
+      "rel": "depends_on",
+      "note": "deepens the existing ARC lesson",
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "e-bsv-arc-api-reference-relates-bsv-tx-fees",
+      "from": "bsv-arc-api-reference",
+      "to": "bsv-tx-fees",
+      "rel": "relates",
+      "note": "GET /v1/policy exposes fee policy",
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "e-bsv-arc-status-handling-depends_on-bsv-arc-api-reference",
+      "from": "bsv-arc-status-handling",
+      "to": "bsv-arc-api-reference",
+      "rel": "depends_on",
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "e-bsv-arc-status-handling-relates-bsv-safety-no-blind-retries",
+      "from": "bsv-arc-status-handling",
+      "to": "bsv-safety-no-blind-retries",
+      "rel": "relates",
+      "note": "applies the rule to ARC statuses",
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "e-bsv-arcade-broadcaster-depends_on-bsv-arc-api-reference",
+      "from": "bsv-arcade-broadcaster",
+      "to": "bsv-arc-api-reference",
+      "rel": "depends_on",
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "e-bsv-arcade-broadcaster-relates-bsv-teranode-architecture",
+      "from": "bsv-arcade-broadcaster",
+      "to": "bsv-teranode-architecture",
+      "rel": "relates",
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "e-bsv-arcade-broadcaster-relates-bsv-chain-services",
+      "from": "bsv-arcade-broadcaster",
+      "to": "bsv-chain-services",
+      "rel": "relates",
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "e-bsv-brc22-topic-managers-depends_on-bsv-overlay-services",
+      "from": "bsv-brc22-topic-managers",
+      "to": "bsv-overlay-services",
+      "rel": "depends_on",
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "e-bsv-brc22-topic-managers-depends_on-bsv-brc62-beef-format",
+      "from": "bsv-brc22-topic-managers",
+      "to": "bsv-brc62-beef-format",
+      "rel": "depends_on",
+      "note": "submissions are BEEF",
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "e-bsv-brc24-lookup-services-depends_on-bsv-brc22-topic-managers",
+      "from": "bsv-brc24-lookup-services",
+      "to": "bsv-brc22-topic-managers",
+      "rel": "depends_on",
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "e-bsv-ship-slap-discovery-depends_on-bsv-brc22-topic-managers",
+      "from": "bsv-ship-slap-discovery",
+      "to": "bsv-brc22-topic-managers",
+      "rel": "depends_on",
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "e-bsv-ship-slap-discovery-depends_on-bsv-brc24-lookup-services",
+      "from": "bsv-ship-slap-discovery",
+      "to": "bsv-brc24-lookup-services",
+      "rel": "depends_on",
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "e-bsv-ship-slap-discovery-depends_on-bsv-pushdrop-template",
+      "from": "bsv-ship-slap-discovery",
+      "to": "bsv-pushdrop-template",
+      "rel": "depends_on",
+      "note": "advertisements are PushDrop tokens",
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "e-bsv-overlay-express-depends_on-bsv-overlay-services",
+      "from": "bsv-overlay-express",
+      "to": "bsv-overlay-services",
+      "rel": "depends_on",
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "e-bsv-overlay-express-relates-bsv-archived-standalone-repos",
+      "from": "bsv-overlay-express",
+      "to": "bsv-archived-standalone-repos",
+      "rel": "relates",
+      "note": "repo archived 2026-06-12, moved to ts-stack",
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "e-bsv-overlay-express-relates-bsv-arcade-broadcaster",
+      "from": "bsv-overlay-express",
+      "to": "bsv-arcade-broadcaster",
+      "rel": "relates",
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "e-bsv-overlay-engine-sdk-depends_on-bsv-brc24-lookup-services",
+      "from": "bsv-overlay-engine-sdk",
+      "to": "bsv-brc24-lookup-services",
+      "rel": "depends_on",
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "e-bsv-overlay-engine-sdk-relates-bsv-overlay-express",
+      "from": "bsv-overlay-engine-sdk",
+      "to": "bsv-overlay-express",
+      "rel": "relates",
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "e-bsv-gasp-basm-sync-depends_on-bsv-overlay-engine-sdk",
+      "from": "bsv-gasp-basm-sync",
+      "to": "bsv-overlay-engine-sdk",
+      "rel": "depends_on",
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "e-bsv-pushdrop-template-depends_on-bsv-script-basics",
+      "from": "bsv-pushdrop-template",
+      "to": "bsv-script-basics",
+      "rel": "depends_on",
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "e-bsv-pushdrop-template-relates-bsv-sdk-ts",
+      "from": "bsv-pushdrop-template",
+      "to": "bsv-sdk-ts",
+      "rel": "relates",
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "e-bsv-kvstore-history-uhrp-depends_on-bsv-pushdrop-template",
+      "from": "bsv-kvstore-history-uhrp",
+      "to": "bsv-pushdrop-template",
+      "rel": "depends_on",
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "e-bsv-kvstore-history-uhrp-relates-bsv-baskets-labels",
+      "from": "bsv-kvstore-history-uhrp",
+      "to": "bsv-baskets-labels",
+      "rel": "relates",
+      "note": "local profile uses baskets as namespaces",
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "e-bsv-kvstore-history-uhrp-relates-bsv-brc24-lookup-services",
+      "from": "bsv-kvstore-history-uhrp",
+      "to": "bsv-brc24-lookup-services",
+      "rel": "relates",
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "e-bsv-brc-cheatsheet-relates-bsv-brc-index",
+      "from": "bsv-brc-cheatsheet",
+      "to": "bsv-brc-index",
+      "rel": "relates",
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "e-bsv-brc-status-map-depends_on-bsv-brc-cheatsheet",
+      "from": "bsv-brc-status-map",
+      "to": "bsv-brc-cheatsheet",
+      "rel": "depends_on",
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "e-bsv-brc-status-map-relates-bsv-brc-index",
+      "from": "bsv-brc-status-map",
+      "to": "bsv-brc-index",
+      "rel": "relates",
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "e-bsv-brc-status-map-relates-bsv-mutual-auth",
+      "from": "bsv-brc-status-map",
+      "to": "bsv-mutual-auth",
+      "rel": "relates",
+      "note": "BRC-31 deprecated in favour of 103/104",
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "e-bsv-brc29-payments-depends_on-bsv-brc100-wallet",
+      "from": "bsv-brc29-payments",
+      "to": "bsv-brc100-wallet",
+      "rel": "depends_on",
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "e-bsv-brc29-payments-depends_on-bsv-bkds-brc42-43",
+      "from": "bsv-brc29-payments",
+      "to": "bsv-bkds-brc42-43",
+      "rel": "depends_on",
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "e-bsv-brc29-payments-relates-bsv-beef-variants",
+      "from": "bsv-brc29-payments",
+      "to": "bsv-beef-variants",
+      "rel": "relates",
+      "note": "payments carry Atomic BEEF",
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "e-bsv-brc103-104-handshake-depends_on-bsv-mutual-auth",
+      "from": "bsv-brc103-104-handshake",
+      "to": "bsv-mutual-auth",
+      "rel": "depends_on",
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "e-bsv-brc103-104-handshake-relates-bsv-brc52-53-certificates",
+      "from": "bsv-brc103-104-handshake",
+      "to": "bsv-brc52-53-certificates",
+      "rel": "relates",
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "e-bsv-402-profiles-depends_on-bsv-402-payments",
+      "from": "bsv-402-profiles",
+      "to": "bsv-402-payments",
+      "rel": "depends_on",
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "e-bsv-402-profiles-depends_on-bsv-brc29-payments",
+      "from": "bsv-402-profiles",
+      "to": "bsv-brc29-payments",
+      "rel": "depends_on",
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "e-bsv-402-profiles-relates-bsv-brc103-104-handshake",
+      "from": "bsv-402-profiles",
+      "to": "bsv-brc103-104-handshake",
+      "rel": "relates",
+      "note": "BRC-105 sits on 103/104",
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "e-bsv-402-profiles-relates-bsv-safety-spend-caps-approval",
+      "from": "bsv-402-profiles",
+      "to": "bsv-safety-spend-caps-approval",
+      "rel": "relates",
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "e-bsv-brc52-53-certificates-depends_on-bsv-mutual-auth",
+      "from": "bsv-brc52-53-certificates",
+      "to": "bsv-mutual-auth",
+      "rel": "depends_on",
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "e-bsv-brc69-key-linkage-depends_on-bsv-bkds-brc42-43",
+      "from": "bsv-brc69-key-linkage",
+      "to": "bsv-bkds-brc42-43",
+      "rel": "depends_on",
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "e-bsv-brc69-key-linkage-relates-bsv-walletclient-calls",
+      "from": "bsv-brc69-key-linkage",
+      "to": "bsv-walletclient-calls",
+      "rel": "relates",
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "e-bsv-wallet-crypto-formats-depends_on-bsv-bkds-brc42-43",
+      "from": "bsv-wallet-crypto-formats",
+      "to": "bsv-bkds-brc42-43",
+      "rel": "depends_on",
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "e-bsv-wallet-crypto-formats-relates-bsv-message-signing",
+      "from": "bsv-wallet-crypto-formats",
+      "to": "bsv-message-signing",
+      "rel": "relates",
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "e-bsv-brc116-wallet-permissions-depends_on-bsv-brc100-wallet",
+      "from": "bsv-brc116-wallet-permissions",
+      "to": "bsv-brc100-wallet",
+      "rel": "depends_on",
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "e-bsv-brc116-wallet-permissions-relates-bsv-safety-spend-caps-approval",
+      "from": "bsv-brc116-wallet-permissions",
+      "to": "bsv-safety-spend-caps-approval",
+      "rel": "relates",
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "e-bsv-brc181-agent-spend-policy-depends_on-bsv-safety-spend-caps-approval",
+      "from": "bsv-brc181-agent-spend-policy",
+      "to": "bsv-safety-spend-caps-approval",
+      "rel": "depends_on",
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "e-bsv-brc181-agent-spend-policy-relates-bsv-brc116-wallet-permissions",
+      "from": "bsv-brc181-agent-spend-policy",
+      "to": "bsv-brc116-wallet-permissions",
+      "rel": "relates",
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "e-bsv-brc181-agent-spend-policy-relates-bsv-safety-external-wallet",
+      "from": "bsv-brc181-agent-spend-policy",
+      "to": "bsv-safety-external-wallet",
+      "rel": "relates",
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "e-bsv-brc151-179-integration-risk-depends_on-bsv-brc100-wallet",
+      "from": "bsv-brc151-179-integration-risk",
+      "to": "bsv-brc100-wallet",
+      "rel": "depends_on",
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "e-bsv-brc151-179-integration-risk-relates-bsv-brc181-agent-spend-policy",
+      "from": "bsv-brc151-179-integration-risk",
+      "to": "bsv-brc181-agent-spend-policy",
+      "rel": "relates",
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "e-bsv-brc151-179-integration-risk-relates-bsv-safety-supply-chain",
+      "from": "bsv-brc151-179-integration-risk",
+      "to": "bsv-safety-supply-chain",
+      "rel": "relates",
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "e-bsv-brc140-shamir-backup-depends_on-bsv-keys-derivation",
+      "from": "bsv-brc140-shamir-backup",
+      "to": "bsv-keys-derivation",
+      "rel": "depends_on",
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "e-bsv-brc140-shamir-backup-relates-bsv-safety-keys-never-in-legion",
+      "from": "bsv-brc140-shamir-backup",
+      "to": "bsv-safety-keys-never-in-legion",
+      "rel": "relates",
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "e-bsv-ts-sdk-class-map-depends_on-bsv-sdk-ts",
+      "from": "bsv-ts-sdk-class-map",
+      "to": "bsv-sdk-ts",
+      "rel": "depends_on",
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "e-bsv-ts-sdk-class-map-relates-bsv-archived-standalone-repos",
+      "from": "bsv-ts-sdk-class-map",
+      "to": "bsv-archived-standalone-repos",
+      "rel": "relates",
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "e-bsv-other-language-sdks-depends_on-bsv-sdk-choice",
+      "from": "bsv-other-language-sdks",
+      "to": "bsv-sdk-choice",
+      "rel": "depends_on",
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "e-bsv-ts-stack-package-map-depends_on-bsv-ts-stack",
+      "from": "bsv-ts-stack-package-map",
+      "to": "bsv-ts-stack",
+      "rel": "depends_on",
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "e-bsv-1sat-brc-family-depends_on-bsv-1sat-ordinals",
+      "from": "bsv-1sat-brc-family",
+      "to": "bsv-1sat-ordinals",
+      "rel": "depends_on",
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "e-bsv-1sat-brc-family-relates-bsv-inscription-envelope",
+      "from": "bsv-1sat-brc-family",
+      "to": "bsv-inscription-envelope",
+      "rel": "relates",
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "e-bsv-1sat-brc-family-relates-bsv-safety-ordinal-burn",
+      "from": "bsv-1sat-brc-family",
+      "to": "bsv-safety-ordinal-burn",
+      "rel": "relates",
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "e-bsv-bsv21-specs-depends_on-bsv-1sat-brc-family",
+      "from": "bsv-bsv21-specs",
+      "to": "bsv-1sat-brc-family",
+      "rel": "depends_on",
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "e-bsv-bsv21-specs-depends_on-bsv-bsv20-bsv21",
+      "from": "bsv-bsv21-specs",
+      "to": "bsv-bsv20-bsv21",
+      "rel": "depends_on",
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "e-bsv-bsv21-specs-relates-bsv-baskets-labels",
+      "from": "bsv-bsv21-specs",
+      "to": "bsv-baskets-labels",
+      "rel": "relates",
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "e-bsv-bsv21-specs-relates-bsv-brc62-beef-format",
+      "from": "bsv-bsv21-specs",
+      "to": "bsv-brc62-beef-format",
+      "rel": "relates",
+      "note": "validity proofs are BEEF",
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "e-bsv-push-tx-covenants-depends_on-bsv-script-basics",
+      "from": "bsv-push-tx-covenants",
+      "to": "bsv-script-basics",
+      "rel": "depends_on",
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "e-bsv-push-tx-covenants-relates-bsv-chronicle-upgrade",
+      "from": "bsv-push-tx-covenants",
+      "to": "bsv-chronicle-upgrade",
+      "rel": "relates",
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "e-bsv-contract-options-map-depends_on-bsv-pushdrop-template",
+      "from": "bsv-contract-options-map",
+      "to": "bsv-pushdrop-template",
+      "rel": "depends_on",
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "e-bsv-contract-options-map-relates-bsv-1sat-brc-family",
+      "from": "bsv-contract-options-map",
+      "to": "bsv-1sat-brc-family",
+      "rel": "relates",
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "e-bsv-contract-options-map-relates-bsv-push-tx-covenants",
+      "from": "bsv-contract-options-map",
+      "to": "bsv-push-tx-covenants",
+      "rel": "relates",
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "e-bsv-contract-options-map-relates-bsv-safety-experimental-software",
+      "from": "bsv-contract-options-map",
+      "to": "bsv-safety-experimental-software",
+      "rel": "relates",
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "e-bsv-mnee-stablecoin-depends_on-bsv-bsv20-bsv21",
+      "from": "bsv-mnee-stablecoin",
+      "to": "bsv-bsv20-bsv21",
+      "rel": "depends_on",
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "e-bsv-mnee-stablecoin-relates-bsv-safety-spend-caps-approval",
+      "from": "bsv-mnee-stablecoin",
+      "to": "bsv-safety-spend-caps-approval",
+      "rel": "relates",
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "e-bsv-chain-facts-fees-depends_on-bsv-tx-fees",
+      "from": "bsv-chain-facts-fees",
+      "to": "bsv-tx-fees",
+      "rel": "depends_on",
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "e-bsv-chain-facts-fees-relates-bsv-orientation",
+      "from": "bsv-chain-facts-fees",
+      "to": "bsv-orientation",
+      "rel": "relates",
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "e-bsv-chain-facts-fees-relates-bsv-teranode-status-timeline",
+      "from": "bsv-chain-facts-fees",
+      "to": "bsv-teranode-status-timeline",
+      "rel": "relates",
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "e-bsv-402-profiles-relates-bsv-402-payments",
+      "from": "bsv-402-profiles",
+      "to": "bsv-402-payments",
+      "rel": "relates",
+      "note": "supplies the BRC numbers that note could not confirm",
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "e-bsv-brc-cheatsheet-depends_on-bsv-orientation",
+      "from": "bsv-brc-cheatsheet",
+      "to": "bsv-orientation",
+      "rel": "depends_on",
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "id": "e-bsv-brc181-agent-spend-policy-relates-bsv-brc100-wallet",
+      "from": "bsv-brc181-agent-spend-policy",
+      "to": "bsv-brc100-wallet",
+      "rel": "relates",
+      "createdBy": "system",
+      "createdAt": "2026-10-01T00:00:00.000Z",
+      "note": "protects"
     }
   ]
 }
