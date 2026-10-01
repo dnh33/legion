@@ -18,6 +18,8 @@ export interface RunContext {
   /** True once the run touched outside content. Sticky; read at every write. */
   taint?: () => boolean;
   quota?: TaskQuota;
+  /** Called by the tool layer after kg_capture or kg_wm_set actually stored something (a refused call does not count). */
+  saved?: () => void;
 }
 
 /** Who is acting. Visibility and write rights derive from it. */
@@ -108,6 +110,8 @@ export interface ImportReport {
   unchanged: number;
   edges: number;
   stubs: number;
+  /** Notes that landed pending (in the inbox) instead of live: every file of a non-user-initiated import, and any file with a trigger tag. */
+  held?: number;
   skipped: Array<{ path: string; reason: string }>;
 }
 export interface ExportReport { dir: string; written: number; removedStale: number }

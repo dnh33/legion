@@ -4,9 +4,13 @@ import { mkdirSync, readdirSync, readFileSync, statSync, symlinkSync, writeFileS
 import { join } from 'node:path';
 import { Graph } from '../src/core/kg/graph.js';
 import { KgError } from '../src/core/kg/types.js';
-import { exportVault, importVault, parseFrontmatter, VAULT_MAX_FILE_BYTES, VAULT_MAX_FILES, vaultFileName } from '../src/core/kg/vault.js';
+import { exportVault, importVault as importVaultRaw, parseFrontmatter, VAULT_MAX_FILE_BYTES, VAULT_MAX_FILES, vaultFileName } from '../src/core/kg/vault.js';
 import { KG_LIMITS } from '../src/shared/kg.js';
 import { ALPHA, BETA, HUMAN, logLines, mkGraph, note, tmpDir } from './kg-helpers.js';
+
+/** These tests exercise the user-initiated import (the app's route); the held-only default is covered in library-review-integrity. */
+const importVault = (g: Parameters<typeof importVaultRaw>[0], dir: string, actor?: Parameters<typeof importVaultRaw>[2]) =>
+  importVaultRaw(g, dir, actor, { userInitiated: true });
 
 const write = (root: string, rel: string, text: string) => {
   const p = join(root, rel);

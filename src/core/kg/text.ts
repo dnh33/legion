@@ -84,18 +84,32 @@ export function rankFactor(n: Pick<KgNode, 'type' | 'updatedAt' | 'confidence' |
   return recency * (0.7 + 0.3 * (n.confidence ?? 1)) * TRUST_WEIGHT[effectiveTrust(n)];
 }
 
-/** A node title that is safe outside the wrapper: untrusted nodes show only a marker (the id travels separately). */
-export const shownTitle = (n: Pick<KgNode, 'title' | 'sources'> & Partial<Pick<KgNode, 'trust'>>): string =>
-  isUntrusted(n) ? UNTRUSTED_LEAD : safeTitle(n.title);
+/**
+ * Nodes whose words are shown only inside a wrapper: untrusted ones, and ones written by a run that touched outside content
+ * even after a human accepted them (accepting makes a note usable, it does not make the web page that inspired it any safer).
+ */
+export const guarded = (n: Pick<KgNode, 'sources'> & Partial<Pick<KgNode, 'trust' | 'origin'>>): boolean => isUntrusted(n) || n.origin?.tainted === true;
+
+/** A node title that is safe outside the wrapper: guarded nodes show only a marker (the id travels separately). */
+export const shownTitle = (n: Pick<KgNode, 'title' | 'sources'> & Partial<Pick<KgNode, 'trust' | 'origin'>>): string =>
+  guarded(n) ? UNTRUSTED_LEAD : safeTitle(n.title);
 
 /** `<kg-node id=".." created-by=".." untrusted="true|false">text</kg-node>`; untrusted nodes also get a visible marker. */
-export function wrapNode(n: Pick<KgNode, 'id' | 'createdBy' | 'sources'> & Partial<Pick<KgNode, 'trust'>>, text: string): string {
-  const u = isUntrusted(n);
+export function wrapNode(n: Pick<KgNode, 'id' | 'createdBy' | 'sources'> & Partial<Pick<KgNode, 'trust' | 'origin'>>, text: string): string {
+  const u = guarded(n);
   return `<kg-node id="${attr(n.id)}" created-by="${attr(n.createdBy)}" untrusted="${u}">\n${u ? UNTRUSTED_MARK + ' ' : ''}${neutralise(text)}\n</kg-node>`;
 }
 
-/** A title as a safe single line (titles sit outside the wrapper, so they must not be able to fake one). */
-export const safeTitle = (t: string): string => neutralise(oneLine(t));
+/** A title (or tag, or any short field) as a safe single line: it sits outside the wrapper, so it cannot fake a tag or carry a raw `<`. */
+export const safeTitle = (t: string): string => neutralise(oneLine(t)).replace(/</g, '‹');
+
+/** Cuts to at most `max` UTF-16 units without splitting a surrogate pair (a lone surrogate is not valid text for an API). */
+export function clipCp(s: string, max: number): string {
+  if (s.length <= max) return s;
+  let t = s.slice(0, Math.max(0, max));
+  if (/[\ud800-\udbff]$/.test(t)) t = t.slice(0, -1);
+  return t;
+}
 
 /** ~`width` chars of body around the first query match (or the start of the body). */
 export function makeSnippet(body: string, queryTokens: string[], width = 160): string {

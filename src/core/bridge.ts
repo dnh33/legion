@@ -15,6 +15,8 @@ export interface BridgeStartParams {
   agentId: string; prompt: string; source: TaskSource; model?: ModelChoice; continueTaskId?: string;
   /** Set by the rooms module: approval ceiling inherited from the waking bot. */
   origin?: TaskOrigin;
+  /** The prompt carries text from a tainted source (for example room history written by a tainted bot): the task starts tainted. */
+  tainted?: boolean;
   /** `fromTaskId` (replies only) is the task whose result this message carries, so its taint can follow it. */
   bridge?: { fromAgentId: string; parentTaskId?: string; header?: string; reply?: boolean; hop?: number; fromTaskId?: string };
 }

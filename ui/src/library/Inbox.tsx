@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { KgInboxRow } from '../../../src/shared/kg';
 import { KG_LIMITS } from '../../../src/shared/kg';
-import { agentCounts, inboxKindLabel, parseTags, planBulk, previewText } from '../../../src/shared/kg-library';
+import { agentCounts, inboxKindLabel, parseTags, planBulk, previewText, skipNote } from '../../../src/shared/kg-library';
 import { GIcon } from '../graph/icons';
 import { resolveTitles, titleOf, useG } from '../graph/graphStore';
 import { fmtDate, scopeLabel } from '../graph/palette';
@@ -67,10 +67,10 @@ export function Inbox() {
             </label>
           )}
           <button className="btn sm primary" disabled={bulkBusy || plan.accept.length === 0} onClick={() => void acceptSelected()}
-            title={sel.size === 0 ? 'Tick rows to accept several at once' : plan.skip.length ? 'Rows with an untrusted source are skipped unless you tick "Include untrusted"' : undefined}>
+            title={sel.size === 0 ? 'Tick rows to accept several at once' : plan.skip.length ? 'Rows with an untrusted source are skipped unless you tick "Include untrusted". Trigger notes, edits of your own notes and rows from a bot another bot woke are always reviewed one by one.' : undefined}>
             {bulkBusy ? 'Accepting' : `Accept ${plan.accept.length || ''}`.trim()}
           </button>
-          {plan.skip.length > 0 && <span className="lib-skipnote" role="status">{plan.skip.length} will be skipped: untrusted source</span>}
+          {plan.skip.length > 0 && <span className="lib-skipnote" role="status">{skipNote(plan.skip)}</span>}
         </div>
       )}
 

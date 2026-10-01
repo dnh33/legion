@@ -58,6 +58,8 @@ export interface KgNode {
   status?: KgStatus;
   supersededBy?: string;
   origin?: KgOrigin;
+  /** Counts every change to this node (engine-derived). Undo compares it, not the clock: two writes in one millisecond differ. */
+  rev?: number;
   /** Agent id, 'human', or 'system'. */
   createdBy: string;
   createdAt: string;
@@ -128,6 +130,12 @@ export interface KgInboxRow {
   tainted: boolean;
   /** True when the note is untrusted or has an untrusted source: bulk accept skips it. */
   untrusted: boolean;
+  /** Written by a bot that another bot woke (rooms, ask, tell): bulk accept never takes it. */
+  woken?: boolean;
+  /** Carries a trigger:* tag, a standing rule for every bot: bulk accept never takes it. */
+  trigger?: boolean;
+  /** Changes, replaces or merges one of the human's own notes: bulk accept never takes it. */
+  touchesHuman?: boolean;
   createdAt: string;
 }
 

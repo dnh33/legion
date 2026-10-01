@@ -1,6 +1,6 @@
 /** Config schema, defaults and data-dir paths. */
 import { randomBytes } from 'node:crypto';
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import type { LegionConfig } from './types.js';
@@ -68,6 +68,7 @@ export function loadConfig(): CoreConfig {
   let cfg = defaultConfig();
   if (existsSync(p)) {
     cfg = merge(cfg, JSON.parse(readFileSync(p, 'utf8')));
+    tightenConfigMode(p);
   } else {
     saveConfig(cfg);
   }
@@ -80,8 +81,20 @@ export function loadConfig(): CoreConfig {
   return cfg;
 }
 
+/**
+ * config.json holds the bearer token and provider keys: owner read/write only (0600) wherever the OS has file modes.
+ * This keeps other local users out; it does NOT keep out a bot that runs as the same user (see docs/LIBRARY.md).
+ */
 export function saveConfig(cfg: LegionConfig): void {
-  writeFileSync(configPath(), JSON.stringify(cfg, null, 2), 'utf8');
+  const p = configPath();
+  writeFileSync(p, JSON.stringify(cfg, null, 2), { encoding: 'utf8', mode: 0o600 });
+  tightenConfigMode(p);
+}
+
+/** Takes group and other access off an existing config file (created by an older version with the default mode). Best effort. */
+export function tightenConfigMode(p: string): void {
+  if (process.platform === 'win32') return; // Windows ACLs are inherited from the profile folder; POSIX bits mean nothing there
+  try { if ((statSync(p).mode & 0o077) !== 0) chmodSync(p, 0o600); } catch { /* read-only or foreign file: nothing more to do */ }
 }
 
 /** Config safe to send to the UI (no secrets). */

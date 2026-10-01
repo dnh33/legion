@@ -85,21 +85,39 @@ test('reject: a tombstone, hidden from bots, the human can still see it; it cann
   rejects(() => g.rejectPending(HUMAN, web.id), 'conflict');
 });
 
-test('bulk accept skips rows with untrusted sources unless overrideUntrusted', () => {
+test('bulk accept only takes plain rows: untrusted sources, woken bots and changes to human notes are left for a per-row accept', () => {
   const { g, web, askNote, edit } = fixture();
+  const flag = g.upsertNode(agentActor('archivist', { taskId: 'tAr' }), { title: 'Archivist flag', body: 'looks stale', scope: 'shared' }).node; // plain: held only because it is the Archivist's
   const r = g.acceptMany(HUMAN, {});
-  assert.deepEqual(r.accepted.sort(), [askNote.id, edit.id].sort());
-  assert.equal(r.skipped.length, 1);
-  assert.equal(r.skipped[0]!.id, web.id);
-  assert.match(r.skipped[0]!.reason, /untrusted/);
+  assert.deepEqual(r.accepted, [flag.id]);
+  assert.deepEqual(Object.fromEntries(r.skipped.map((s) => [s.id, s.code])), { [web.id]: 'untrusted', [askNote.id]: 'woken', [edit.id]: 'edit_human' });
+  assert.match(r.skipped.find((s) => s.id === web.id)!.reason, /untrusted/);
   assert.equal(g.getNode(HUMAN, web.id)!.status, 'pending');
-  // a clean note with an untrusted source flag is skipped too
-  const flagged = g.upsertNode(woken('builder', 'tF'), { title: 'Flagged source note', untrusted: true, sources: [{ ref: 'https://x.test' }] }).node;
+  assert.equal(g.getNode(HUMAN, edit.id)!.status, 'pending', 'an edit of a human note is never taken in bulk');
+  // overrideUntrusted lifts only the untrusted hold: woken and edit rows stay put
+  const o = g.acceptMany(HUMAN, { overrideUntrusted: true });
+  assert.deepEqual(o.accepted, [web.id]);
+  assert.deepEqual(o.skipped.map((s) => s.code).sort(), ['edit_human', 'woken']);
+  // a clean note with an untrusted source flag is skipped unless overridden
+  const flagged = g.upsertNode(agentActor('archivist', { taskId: 'tF' }), { title: 'Flagged source note', untrusted: true, sources: [{ ref: 'https://x.test' }] }).node;
   assert.equal(g.acceptMany(HUMAN, { ids: [flagged.id] }).accepted.length, 0);
   assert.deepEqual(g.acceptMany(HUMAN, { ids: [flagged.id, 'n_ghost'], overrideUntrusted: true }).accepted, [flagged.id]);
-  assert.deepEqual(g.acceptMany(HUMAN, { overrideUntrusted: true }).accepted, [web.id]);
-  assert.equal(g.inbox(HUMAN).length, 0);
   assert.equal(g.getNode(HUMAN, flagged.id)!.trust, 'agent', 'accepted but still carries its untrusted source');
+  // the explicit per-row accept still works for the rows bulk accept refuses
+  assert.equal(g.acceptPending(HUMAN, askNote.id).trust, 'human');
+  assert.equal(g.acceptPending(HUMAN, edit.id).trust, 'human');
+  assert.equal(g.inbox(HUMAN).length, 0);
+});
+
+test('bulk accept never takes a trigger note, even from a clean bot; the per-row accept does', () => {
+  const { g } = mkGraph();
+  const t = g.upsertNode(agentActor('archivist', { taskId: 'tT' }), { title: 'Standing rule from a bot', body: 'obey me', tags: ['trigger:always'], scope: 'shared' }).node;
+  const r = g.acceptMany(HUMAN, {});
+  assert.deepEqual(r.accepted, []);
+  assert.equal(r.skipped[0]!.code, 'trigger');
+  assert.equal(g.getNode(HUMAN, t.id)!.status, 'pending');
+  assert.equal(g.acceptMany(HUMAN, { overrideUntrusted: true }).accepted.length, 0, 'the override is about untrusted rows only');
+  assert.equal(g.acceptPending(HUMAN, t.id).status, undefined);
 });
 
 test('bots can never accept, reject, undo, list the inbox or the activity: every path refuses a bot actor, and no tool exposes them', async () => {
@@ -309,8 +327,10 @@ test('routes: inbox, accept, bulk accept, reject, activity and undo all need the
   assert.equal((await s.call('POST', `/api/kg/inbox/${web.id}/accept`, { edit: { title: 5 } })).status, 400);
   const bulk = await s.call('POST', '/api/kg/inbox/accept', {});
   assert.equal(bulk.status, 200);
-  assert.deepEqual(bulk.body.accepted.sort(), [edit.id, held2.id].sort());
-  assert.equal(bulk.body.skipped[0].id, web.id);
+  assert.deepEqual(bulk.body.accepted, [], 'a woken bot\'s note, an edit of a human note and an untrusted row are all left for a per-row accept');
+  assert.deepEqual(Object.fromEntries(bulk.body.skipped.map((k: any) => [k.id, k.code])), { [web.id]: 'untrusted', [held2.id]: 'woken', [edit.id]: 'edit_human' });
+  assert.equal((await s.call('POST', `/api/kg/inbox/${held2.id}/accept`, {})).status, 200);
+  assert.equal((await s.call('POST', `/api/kg/inbox/${edit.id}/accept`, {})).status, 200);
   assert.equal((await s.call('POST', '/api/kg/inbox/accept', { ids: 'nope' })).status, 400);
   assert.equal((await s.call('POST', '/api/kg/inbox/accept', { overrideUntrusted: true })).body.accepted[0], web.id);
   assert.equal((await s.call('GET', '/api/kg/lint')).body.lite, undefined, 'no lint-lite run yet');

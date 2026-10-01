@@ -18,6 +18,8 @@ export interface ModuleJob {
   ceiling?: ApprovalMode;
   /** True once the run touched outside content (WebFetch, WebSearch, Bash, an external tool) or was woken by a tainted chain. Sticky. */
   taint(): boolean;
+  /** Flags the run as tainted from now on (a tool just handed it text a tainted bot wrote, e.g. room_read). Sticky. */
+  markTainted?(): void;
 }
 
 /** What the engine tells a module while it builds a run's system prompt. */

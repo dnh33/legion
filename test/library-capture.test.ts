@@ -25,7 +25,8 @@ function spyAppend(g: Graph): number[] {
   (g as any).append = (ops: object[]) => { calls.push(ops.length); orig(ops); };
   return calls;
 }
-const logCount = (g: Graph) => readFileSync(g.file, 'utf8').split('\n').filter(Boolean).length;
+/** Ops in the log (the begin/commit lines that bracket a multi-op batch are not ops). */
+const logCount = (g: Graph) => readFileSync(g.file, 'utf8').split('\n').filter((l) => l && l !== '{"op":"begin"}' && l !== '{"op":"commit"}').length;
 
 const decision = { chose: 'Postgres', why: 'we need transactions', rejected: ['SQLite', 'Mongo'], revisitIf: 'writes exceed 5k/s' };
 

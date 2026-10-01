@@ -61,33 +61,74 @@ export interface BulkPlan {
   /** Selected rows that will be accepted. */
   accept: string[];
   /** Selected rows held back, with the reason shown to the owner. */
-  skip: Array<{ id: string; reason: string }>;
+  skip: Array<{ id: string; reason: string; code: BulkHoldCode }>;
   /** How many of the selected rows have an untrusted source (they are what the "include untrusted" tick is about). */
   untrusted: number;
 }
 
+/** Why bulk accept leaves a row for you to accept on its own. */
+export type BulkHoldCode = 'untrusted' | 'trigger' | 'edit_human' | 'woken';
+type BulkRow = Pick<KgInboxRow, 'id' | 'untrusted'> & Partial<Pick<KgInboxRow, 'woken' | 'trigger' | 'touchesHuman'>>;
+
+/**
+ * The one rule for what bulk accept may take. Always held back, whatever the tick: a trigger note (a standing rule for
+ * every bot), a change to one of your own notes, and anything a bot wrote after another bot woke it. An untrusted row is
+ * held back unless `includeUntrusted`. The core (Graph.acceptMany) and the preview below both call this.
+ */
+export function bulkHold(row: BulkRow, includeUntrusted: boolean): { reason: string; code: BulkHoldCode } | undefined {
+  if (row.trigger) return { code: 'trigger', reason: 'trigger note: it would become a standing rule for every bot. Open it and accept it on its own.' };
+  if (row.touchesHuman) return { code: 'edit_human', reason: 'a change to one of your own notes: read the change and accept it on its own.' };
+  if (row.woken) return { code: 'woken', reason: 'written by a bot that another bot woke: read it and accept it on its own.' };
+  if (row.untrusted && !includeUntrusted) return { code: 'untrusted', reason: 'untrusted source: accept it on its own, or pass overrideUntrusted' };
+  return undefined;
+}
+
 /** What bulk accept will do with a selection. The core makes the same call (acceptMany); this is the preview. */
-export function planBulk(rows: readonly Pick<KgInboxRow, 'id' | 'untrusted'>[], selected: Iterable<string>, includeUntrusted: boolean): BulkPlan {
+export function planBulk(rows: readonly BulkRow[], selected: Iterable<string>, includeUntrusted: boolean): BulkPlan {
   const want = new Set(selected);
   const plan: BulkPlan = { accept: [], skip: [], untrusted: 0 };
   for (const r of rows) {
     if (!want.has(r.id)) continue;
     if (r.untrusted) plan.untrusted++;
-    if (r.untrusted && !includeUntrusted) plan.skip.push({ id: r.id, reason: 'untrusted source: accept it on its own, or tick "include untrusted"' });
+    const hold = bulkHold(r, includeUntrusted);
+    if (hold) plan.skip.push({ id: r.id, ...hold });
     else plan.accept.push(r.id);
   }
   return plan;
 }
 
+const HOLD_WORDS: Record<BulkHoldCode, string> = {
+  untrusted: 'an untrusted source', trigger: 'being trigger notes', edit_human: 'changing your own notes', woken: 'a bot another bot woke',
+};
+const codeOf = (s: { reason: string; code?: string }): BulkHoldCode | undefined => {
+  if (s.code && s.code in HOLD_WORDS) return s.code as BulkHoldCode;
+  if (/^untrusted source/.test(s.reason)) return 'untrusted';
+  if (/^trigger note/.test(s.reason)) return 'trigger';
+  if (/^a change to one of your own/.test(s.reason)) return 'edit_human';
+  if (/^written by a bot that another bot woke/.test(s.reason)) return 'woken';
+  return undefined;
+};
+
+/** One short note for the rows a selection will skip, by reason ("2 untrusted, 1 trigger note"), for the toolbar. */
+export function skipNote(skip: ReadonlyArray<{ code?: string; reason: string }>): string {
+  const by: Partial<Record<BulkHoldCode, number>> = {};
+  for (const s of skip) { const c = codeOf(s); if (c) by[c] = (by[c] ?? 0) + 1; }
+  const names: Record<BulkHoldCode, string> = { untrusted: 'untrusted source', trigger: 'trigger note', edit_human: 'edit of your note', woken: 'woken by a bot' };
+  const parts = (Object.keys(names) as BulkHoldCode[]).filter((c) => by[c]).map((c) => `${by[c]} ${names[c]}`);
+  return `${skip.length} will be skipped${parts.length ? `: ${parts.join(', ')}` : ''}`;
+}
+
 /** One sentence for the result of a bulk accept. */
-export function bulkSummary(r: { accepted: readonly string[]; skipped: ReadonlyArray<{ id: string; reason: string }> }): string {
+export function bulkSummary(r: { accepted: readonly string[]; skipped: ReadonlyArray<{ id: string; reason: string; code?: string }> }): string {
   const n = r.accepted.length;
   const acc = n === 0 ? 'Nothing was accepted' : `Accepted ${n} note${n === 1 ? '' : 's'}`;
   if (!r.skipped.length) return `${acc}.`;
-  const untrusted = r.skipped.filter((s) => /^untrusted source/.test(s.reason)).length;
-  const other = r.skipped.length - untrusted;
-  const parts = [];
-  if (untrusted) parts.push(`${untrusted} held back for an untrusted source`);
+  const by: Partial<Record<BulkHoldCode, number>> = {};
+  let other = 0;
+  for (const s of r.skipped) { const c = codeOf(s); if (c) by[c] = (by[c] ?? 0) + 1; else other++; }
+  const parts: string[] = [];
+  if (by.untrusted) parts.push(`${by.untrusted} held back for an untrusted source`);
+  for (const c of ['trigger', 'edit_human', 'woken'] as const) if (by[c]) parts.push(`${by[c]} held back for review one by one (${HOLD_WORDS[c]})`);
   if (other) parts.push(`${other} skipped for another reason`);
   return `${acc}. ${parts.join(', ')}.`;
 }

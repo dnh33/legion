@@ -156,7 +156,7 @@ export function addKgRoutes(add: RouteAdder, d: RouteDeps): void {
   add('POST', '/api/kg/import', wrap(({ body }) => {
     const dir = bodyObj(body).dir;
     if (typeof dir !== 'string' || !dir.trim()) throw new HttpError(400, 'dir (path of the vault folder) is required');
-    return importVault(g(), dir);
+    return importVault(g(), dir, HUMAN, { userInitiated: true });
   }));
 
   add('POST', '/api/kg/export', wrap(({ body }) => {

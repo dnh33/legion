@@ -4,13 +4,17 @@
 import test, { after } from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join, relative } from 'node:path';
 import { createKnowledgeModule } from '../src/core/kg/index.js';
 import { agentActor, HUMAN } from '../src/core/kg/types.js';
-import { exportLibrary, exportVault, importVault, inlineTags, isLibraryExportable, parseFrontmatter, vaultFileName } from '../src/core/kg/vault.js';
+import { exportLibrary, exportVault, importVault as importVaultRaw, inlineTags, isLibraryExportable, parseFrontmatter, vaultFileName } from '../src/core/kg/vault.js';
 import { makeFakes, start, TOKEN } from './helpers-c.js';
 import { mkGraph, tmpDir } from './kg-helpers.js';
+
+/** These tests exercise the user-initiated import (the app's route); the held-only default is covered in library-review-integrity. */
+const importVault = (g: Parameters<typeof importVaultRaw>[0], dir: string, actor?: Parameters<typeof importVaultRaw>[2]) =>
+  importVaultRaw(g, dir, actor, { userInitiated: true });
 
 const tree = (root: string): Map<string, string> => {
   const out = new Map<string, string>();
@@ -55,8 +59,16 @@ test('import snapshots the graph first', () => {
   g.upsertNode(HUMAN, { title: 'Existing note' });
   const vault = tmpDir();
   writeFileSync(join(vault, 'a.md'), '# New\n');
+  const before = readFileSync(join(dir, 'graph.jsonl'), 'utf8');
+  assert.ok(before.includes('Existing note'));
   importVault(g, vault);
-  assert.ok(readdirSync(dir).some((f) => /^graph\.jsonl\.bak-\d+$/.test(f)));
+  const baks = readdirSync(dir).filter((f) => /^graph\.jsonl\.bak-\d+$/.test(f));
+  assert.ok(baks.length >= 1);
+  // the snapshot holds the pre-import graph, not an empty or post-import file
+  const snap = readFileSync(join(dir, baks[baks.length - 1]!), 'utf8');
+  assert.equal(snap, before);
+  assert.ok(!snap.includes('"New"'), 'the imported note is not in the snapshot');
+  assert.ok(readFileSync(join(dir, 'graph.jsonl'), 'utf8').includes('"New"'), 'but it is in the live graph');
 });
 
 test('frontmatter round-trips props (including quoted keys) and tags; reserved props never travel', () => {
@@ -118,7 +130,9 @@ test('vault tree diff: the library mirror writes only active, non-untrusted shar
   // every pre-existing file is byte-identical; every new file is inside legion/
   for (const [p, h] of before) assert.equal(after.get(p), h, `${p} was changed`);
   const added = [...after.keys()].filter((p) => !before.has(p));
-  assert.equal(added.length, 2);
+  // the two notes plus the mirror marker that lets import skip the folder wherever it ends up
+  assert.equal(added.length, 3);
+  assert.ok(added.includes('legion/.legion-mirror'));
   for (const p of added) assert.ok(p.startsWith('legion/'), `${p} is outside legion/`);
   assert.ok(added.includes(`legion/decision/${vaultFileName(f.good)}`));
   assert.ok(added.includes(`legion/pattern/${vaultFileName(f.good2)}`));
@@ -172,6 +186,23 @@ test('exportLibrary refuses to write through a legion/ link', () => {
   assert.deepEqual(readdirSync(outside), []);
 });
 
+test('exportLibrary never writes through a leaf symlink inside legion/ (skips only where symlinks are unsupported)', (t) => {
+  const { g } = mkGraph();
+  const n = g.upsertNode(bot('alpha'), { title: 'Bot note', type: 'pattern' }).node;
+  const vault = tmpDir();
+  exportLibrary(g, vault);
+  const leaf = join(vault, 'legion', 'pattern', vaultFileName(n));
+  const outsideDir = tmpDir();
+  const target = join(outsideDir, 'precious.txt');
+  writeFileSync(target, 'PRECIOUS');
+  try { rmSync(leaf); symlinkSync(target, leaf); } catch (e) { t.skip(`symlinks are not supported here: ${(e as Error).message}`); return; }
+  g.upsertNode(bot('alpha'), { id: n.id, body: 'changed so the file is rewritten' });
+  exportLibrary(g, vault);
+  assert.equal(readFileSync(target, 'utf8'), 'PRECIOUS', 'the file the link pointed at is untouched');
+  assert.equal(lstatSync(leaf).isSymbolicLink(), false, 'the link was replaced by a regular file');
+  assert.match(readFileSync(leaf, 'utf8'), /changed so the file is rewritten/);
+});
+
 test('exportLibrary on an empty or missing vault dir creates only legion/', () => {
   const { g } = mkGraph();
   const root = join(tmpDir(), 'fresh-vault');
@@ -203,7 +234,9 @@ test('route: POST /api/kg/export mode library mirrors into legion/; the default 
   const a = await call({ dir: lib, mode: 'library' });
   assert.equal(a.status, 200);
   assert.equal(a.body.written, 1);
-  assert.deepEqual([...tree(lib).keys()].map((p) => p.split('/')[0]), ['legion']);
+  const libFiles = [...tree(lib).keys()];
+  assert.ok(libFiles.length >= 2 && libFiles.every((p) => p.startsWith('legion/')), 'everything lands under legion/');
+  assert.ok(libFiles.includes('legion/.legion-mirror'));
   const all = tmpDir();
   const b = await call({ dir: all });
   assert.equal(b.body.written, 2);

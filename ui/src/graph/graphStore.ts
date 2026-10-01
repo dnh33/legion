@@ -12,7 +12,7 @@ export interface Stats { nodes: number; edges: number; byType: Record<string, nu
 export interface Detail { node: KgNode; out: KgEdge[]; in: KgEdge[] }
 export interface Lite { id: string; title: string; type: KgNodeType; scope: string }
 export interface PathResult { found: boolean; nodes: KgNode[]; edges: KgEdge[] }
-export interface ImportReport { files: number; created: number; updated: number; unchanged: number; edges: number; stubs: number; skipped: Array<{ path: string; reason: string }> }
+export interface ImportReport { files: number; created: number; updated: number; unchanged: number; edges: number; stubs: number; held?: number; skipped: Array<{ path: string; reason: string }> }
 export interface ExportReport { dir: string; written: number; removedStale: number }
 export type Dialog =
   | null

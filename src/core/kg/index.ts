@@ -36,8 +36,6 @@ export function msUntilNightly(from: Date, hour = 3, minute = 30): number {
   return next.getTime() - from.getTime();
 }
 
-/** The tool names that count as "the bot saved what it learned" for the close-out episode. */
-const CAPTURE_TOOLS = new Set([`mcp__${KG_SERVER_NAME}__kg_capture`, `mcp__${KG_SERVER_NAME}__kg_wm_set`]);
 /** Tasks at least this long or this costly get an episode when the bot captured nothing. */
 export const EPISODE_MIN_TURNS = 8;
 export const EPISODE_MIN_COST_USD = 0.10;
@@ -78,7 +76,7 @@ export function createKnowledgeModule(deps: ModuleDeps, opts: KnowledgeModuleOpt
     set: (fn: () => void, ms: number) => { const t = setTimeout(fn, ms); t.unref?.(); return t; },
     clear: (h: unknown) => clearTimeout(h as ReturnType<typeof setTimeout>),
   };
-  /** Tasks in which the bot called kg_capture or kg_wm_set (so no episode is written for them). Bounded. */
+  /** Tasks in which kg_capture or kg_wm_set actually stored something (so no episode is written for them). A refused call does not count. Bounded. */
   const captured = new Set<string>();
   const pending = new Set<string>();
   /** One write quota per task run, shared by every server built for that task (an escalated re-run keeps counting). */
@@ -119,14 +117,12 @@ export function createKnowledgeModule(deps: ModuleDeps, opts: KnowledgeModuleOpt
     graph: getGraph,
     mcpServers: (agent, job) => {
       const run: RunContext = job
-        ? { taskId: job.taskId, ...(job.origin ? { origin: job.origin } : {}), ...(job.ceiling ? { ceiling: job.ceiling } : {}), taint: job.taint, quota: quotaFor(job.taskId) }
+        ? {
+          taskId: job.taskId, ...(job.origin ? { origin: job.origin } : {}), ...(job.ceiling ? { ceiling: job.ceiling } : {}), taint: job.taint, quota: quotaFor(job.taskId),
+          saved: () => { captured.add(job.taskId); if (captured.size > 500) captured.delete(captured.values().next().value as string); },
+        }
         : {};
       return { [KG_SERVER_NAME]: buildKgToolsServer(getGraph(), agent.id, run) };
-    },
-    onToolUse: (_agentId, taskId, toolName) => {
-      if (!CAPTURE_TOOLS.has(toolName)) return;
-      captured.add(taskId);
-      if (captured.size > 500) captured.delete(captured.values().next().value as string);
     },
     onTaskEnd: (task, agent) => {
       quotas.delete(task.id);

@@ -222,7 +222,7 @@ function ImportDialog() {
         {rep && (
           <div className="lt-report" role="status">
             <b>Imported {rep.files} file{rep.files === 1 ? '' : 's'}</b>
-            <ul><li>{rep.created} created</li><li>{rep.updated} updated</li><li>{rep.unchanged} unchanged</li><li>{rep.edges} links</li>{rep.stubs > 0 && <li>{rep.stubs} stubs for unresolved titles</li>}</ul>
+            <ul><li>{rep.created} created</li><li>{rep.updated} updated</li><li>{rep.unchanged} unchanged</li><li>{rep.edges} links</li>{rep.stubs > 0 && <li>{rep.stubs} stubs for unresolved titles</li>}{(rep.held ?? 0) > 0 && <li>{rep.held} held for review in the Inbox (trigger notes or protected notes)</li>}</ul>
             {rep.skipped.length > 0 && <details><summary>{rep.skipped.length} skipped</summary><ul className="lt-skipped">{rep.skipped.slice(0, 50).map((s, i) => <li key={i}><code>{s.path}</code> {s.reason}</li>)}</ul></details>}
           </div>
         )}

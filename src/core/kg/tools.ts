@@ -11,7 +11,7 @@ import { CAPTURE_HELP, CAPTURE_KINDS, renderCapture } from './capture.js';
 import { MAX_LICENCE_CHARS, MAX_MERGE_DROPS, WM_ACTIVE_MAX } from './graph.js';
 import type { Graph } from './graph.js';
 import { TaskQuota } from './quota.js';
-import { capText, DATA_LINE, isUntrusted, oneLine, safeTitle, shownTitle, statusOf, trustOf, UNTRUSTED_LEAD, UNTRUSTED_MARK, wrapNode } from './text.js';
+import { capText, DATA_LINE, guarded, isUntrusted, oneLine, safeTitle, shownTitle, statusOf, trustOf, UNTRUSTED_LEAD, UNTRUSTED_MARK, wrapNode } from './text.js';
 import { agentActor, KgError } from './types.js';
 import type { Actor, RunContext } from './types.js';
 
@@ -63,7 +63,7 @@ export function buildKgToolsServer(graph: Graph, agentId: string, run: RunContex
     const n = graph.getNode(me, nid);
     return n ? `"${shownTitle(n).slice(0, 80)}" (${nid})` : nid;
   };
-  const untrustedId = (nid: string): boolean => { const n = graph.getNode(me, nid); return !!n && isUntrusted(n); };
+  const untrustedId = (nid: string): boolean => { const n = graph.getNode(me, nid); return !!n && guarded(n); };
   const scopeFor = (s: string | undefined): string | undefined => (s === undefined ? undefined : s === 'private' ? `agent:${agentId}` : s);
 
   const recall = tool(
@@ -96,7 +96,7 @@ export function buildKgToolsServer(graph: Graph, agentId: string, run: RunContex
       const lines = [`${hits.length} result(s) for "${safeTitle(a.query).slice(0, 80)}":`];
       hits.forEach((h, i) => {
         const full = graph.getNode(me, h.node.id)!;
-        lines.push(`${i + 1}. ${fmtNode(full, `, ${h.node.scope}, score ${h.score}${!isUntrusted(full) && h.node.tags.length ? ', tags: ' + h.node.tags.slice(0, 6).join(' ') : ''}${h.inactive ? `, ${h.inactive.status}${h.inactive.supersededBy ? ` (superseded by ${h.inactive.supersededBy})` : ''}` : ''}`)}`);
+        lines.push(`${i + 1}. ${fmtNode(full, `, ${h.node.scope}, score ${h.score}${!guarded(full) && h.node.tags.length ? ', tags: ' + h.node.tags.slice(0, 6).map(safeTitle).join(' ') : ''}${h.inactive ? `, ${h.inactive.status}${h.inactive.supersededBy ? ` (superseded by ${h.inactive.supersededBy})` : ''}` : ''}`)}`);
         lines.push(wrapNode(full, h.node.snippet));
       });
       lines.push(DATA_LINE);
@@ -115,14 +115,14 @@ export function buildKgToolsServer(graph: Graph, agentId: string, run: RunContex
       const edges = graph.edgesOf(me, n.id, 'both');
       const out = edges.filter((e) => e.from === n.id);
       const inn = edges.filter((e) => e.to === n.id);
-      const untrusted = isUntrusted(n);
+      const untrusted = guarded(n);
       const st = statusOf(n);
       const l: string[] = [
-        `Node ${fmtNode(n)} scope ${n.scope}, created by ${oneLine(n.createdBy)}, updated ${n.updatedAt}${n.confidence !== undefined ? `, confidence ${n.confidence}` : ''}, trust ${trustOf(n)}${st !== 'active' ? `, status ${st}` : ''}`,
+        `Node ${fmtNode(n)} scope ${n.scope}, created by ${safeTitle(n.createdBy)}, updated ${n.updatedAt}${n.confidence !== undefined ? `, confidence ${n.confidence}` : ''}, trust ${trustOf(n)}${st !== 'active' ? `, status ${st}` : ''}`,
       ];
       const meta: string[] = [];
       if (untrusted) meta.push(`title: ${n.title}`);
-      meta.push(`tags: ${n.tags.length ? n.tags.join(', ') : '(none)'}`);
+      meta.push(`tags: ${n.tags.length ? (untrusted ? n.tags : n.tags.map(safeTitle)).join(', ') : '(none)'}`);
       if (n.props && Object.keys(n.props).length) meta.push(`props: ${untrusted ? JSON.stringify(n.props).slice(0, 400) : safeTitle(JSON.stringify(n.props)).slice(0, 400)}`);
       if (n.sources?.length) meta.push('sources: ' + n.sources.map((s) => `${untrusted ? s.ref.slice(0, 200) : safeTitle(s.ref).slice(0, 200)}${s.licence ? ` (${safeTitle(s.licence)})` : ''}${s.untrusted ? ' [untrusted]' : ''}`).join('; '));
       if (untrusted) {
@@ -157,9 +157,9 @@ export function buildKgToolsServer(graph: Graph, agentId: string, run: RunContex
       const r = graph.neighbors(me, a.id, { rel: a.rel, dir: a.dir, depth: a.depth, limit: a.limit });
       const names = new Map([[r.start.id, r.start], ...r.nodes.map((x) => [x.node.id, x.node] as const)]);
       const t = (nid: string) => { const n = names.get(nid); return n ? `"${shownTitle(n).slice(0, 80)}" (${nid})` : nid; };
-      const u = (nid: string) => { const n = names.get(nid); return !!n && isUntrusted(n); };
+      const u = (nid: string) => { const n = names.get(nid); return !!n && guarded(n); };
       const l = [`Neighbors of ${fmtNode(r.start)}: ${r.nodes.length} node(s)${r.truncated ? ', truncated at the limit' : ''}.`];
-      for (const x of r.nodes) l.push(`  depth ${x.depth}: ${fmtNode(x.node)}${isUntrusted(x.node) ? ' ' + UNTRUSTED_MARK : ''}`);
+      for (const x of r.nodes) l.push(`  depth ${x.depth}: ${fmtNode(x.node)}${guarded(x.node) ? ' ' + UNTRUSTED_MARK : ''}`);
       if (r.edges.length) { l.push('links:'); for (const e of r.edges) l.push('  ' + fmtEdge(e, t, u)); }
       return ok(l.join('\n'));
     }),
@@ -192,7 +192,7 @@ export function buildKgToolsServer(graph: Graph, agentId: string, run: RunContex
       const r = graph.subgraph(me, a.seeds, { depth: a.depth, maxNodes: a.maxNodes });
       const byId = new Map(r.nodes.map((n) => [n.id, n]));
       const t = (nid: string) => { const n = byId.get(nid); return n ? `"${shownTitle(n).slice(0, 60)}"` : nid; };
-      const u = (nid: string) => { const n = byId.get(nid); return !!n && isUntrusted(n); };
+      const u = (nid: string) => { const n = byId.get(nid); return !!n && guarded(n); };
       const l = [`Subgraph: ${r.nodes.length} node(s), ${r.edges.length} link(s), truncated=${r.truncated}.`];
       for (const n of r.nodes) l.push(`  ${fmtNode(n)}`);
       for (const e of r.edges) l.push('  ' + fmtEdge(e, t, u));
@@ -267,6 +267,7 @@ export function buildKgToolsServer(graph: Graph, agentId: string, run: RunContex
       if (!r.saved) {
         return ok(`Not saved: similar: ${r.similar!.map((s) => `id ${s.id} "${s.title}" (${s.score})`).join('; ')}. Update that note, pass supersedes=<id> to replace it, or force=true to save a separate note.`);
       }
+      run.saved?.();
       const n = r.node!;
       const l = [`Captured ${fmtNode(n)} in scope ${n.scope}${isUntrusted(n) ? ' (flagged untrusted, needs human review)' : ''}${r.pending ? ' (PENDING: waiting for the human; other bots cannot see it yet)' : ''}.`];
       if (r.superseded) l.push(r.supersededNow ? `It replaces ${r.superseded} (now superseded and hidden from recall).` : `It proposes to replace ${r.superseded}.`);
@@ -286,6 +287,7 @@ export function buildKgToolsServer(graph: Graph, agentId: string, run: RunContex
     { active: z.string().max(20_000).describe(`Current state, at most ${WM_ACTIVE_MAX} chars.`), archiveAppend: z.string().max(4_000).optional().describe('Lines to move to the archive.') },
     safe(async (a: { active: string; archiveAppend?: string }) => {
       const r = graph.setWorkingMemory(me, a);
+      run.saved?.();
       return ok(`${r.created ? 'Created' : r.changed ? 'Updated' : 'No change to'} your working memory (${r.node.body.length} chars).${r.archiveTrimmed ? ' The oldest archive lines were dropped.' : ''}${r.redacted ? ` ${r.redacted} secret-looking string(s) were redacted.` : ''}`);
     }),
   );

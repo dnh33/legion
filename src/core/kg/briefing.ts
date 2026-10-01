@@ -4,7 +4,7 @@
  * Synchronous, no model call, no tool call.
  */
 import type { BriefingParts } from './types.js';
-import { DATA_LINE } from './text.js';
+import { clipCp, DATA_LINE } from './text.js';
 
 export const BRIEFING_MAX = 1_200;
 const OPEN = '<kg-briefing>';
@@ -15,7 +15,7 @@ const plain = (s: string, keepBreaks = false): string => {
   const t = s.replace(/\r/g, '').replace(/</g, '‹');
   return keepBreaks ? t.replace(/[ \t]+/g, ' ').replace(/\n{2,}/g, '\n').trim() : t.replace(/\s+/g, ' ').trim();
 };
-const clip = (s: string, max: number): string => (s.length <= max ? s : s.slice(0, Math.max(0, max - 1)).trimEnd() + '…');
+const clip = (s: string, max: number): string => (s.length <= max ? s : clipCp(s, Math.max(0, max - 1)).trimEnd() + '…');
 
 /** The most telling line of a note: its lesson, choice or rule if it has one, else the first line of text. */
 export function keyLine(body: string): string {
@@ -54,5 +54,5 @@ export function renderBriefing(p: BriefingParts): string {
   if (inbox) lines.push(inbox);
   const text = `${head}\n${lines.join('\n')}${tail}`;
   // belt and braces: never over the cap, always closed
-  return text.length <= BRIEFING_MAX ? text : text.slice(0, BRIEFING_MAX - tail.length) + tail;
+  return text.length <= BRIEFING_MAX ? text : clipCp(text, BRIEFING_MAX - tail.length) + tail;
 }

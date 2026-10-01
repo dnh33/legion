@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { Graph } from '../src/core/kg/graph.js';
 import { agentActor, HUMAN } from '../src/core/kg/types.js';
 import {
-  activityVerb, agentCounts, bulkSummary, collapseDiff, diffChanged, diffStats, editDelta, humanizeIds, idsIn, lineDiff, parseTags, planBulk, previewText, undoState,
+  activityVerb, agentCounts, bulkSummary, collapseDiff, diffChanged, diffStats, editDelta, humanizeIds, idsIn, lineDiff, parseTags, planBulk, previewText, skipNote, undoState,
 } from '../src/shared/kg-library.js';
 import { mkGraph, note } from './kg-helpers.js';
 
@@ -85,20 +85,25 @@ test('planBulk agrees with the core: acceptMany skips exactly the rows the plan 
   const res = g.acceptMany(HUMAN, { ids, overrideUntrusted: false });
   assert.deepEqual([...res.accepted].sort(), [...plan.accept].sort());
   assert.deepEqual(res.skipped.map((s) => s.id).sort(), plan.skip.map((s) => s.id).sort());
-  assert.deepEqual(plan.skip.map((s) => s.id).sort(), [src.id, web.id].sort());
-  assert.deepEqual(plan.accept, [edit.id]);
-  assert.match(bulkSummary(res), /Accepted 1 note\. 2 held back for an untrusted source\./);
-  // with the explicit tick, the plan and the core both take all of the rest
+  assert.deepEqual(res.skipped.map((s) => `${s.id}:${s.code}`).sort(), plan.skip.map((s) => `${s.id}:${s.code}`).sort(), 'same reason on both sides');
+  assert.deepEqual(plan.skip.map((s) => s.id).sort(), [src.id, web.id, edit.id].sort());
+  assert.deepEqual(plan.accept, [], 'a change to a human note is never taken in bulk, an untrusted row only with the tick');
+  assert.match(bulkSummary(res), /Nothing was accepted\. 1 held back for an untrusted source, 2 held back for review one by one \(changing your own notes\)\./);
+  assert.match(skipNote(plan.skip), /^3 will be skipped: 1 untrusted source, 2 edit of your note$/);
+  // with the explicit tick, the plan and the core both take what the tick covers (the web row), and still not the edits of human notes
   const rest = g.inbox(HUMAN).map((r) => r.id);
   const plan2 = planBulk(g.inbox(HUMAN), rest, true);
   const res2 = g.acceptMany(HUMAN, { ids: rest, overrideUntrusted: true });
   assert.deepEqual([...res2.accepted].sort(), [...plan2.accept].sort());
+  assert.deepEqual(res2.accepted, [web.id]);
 });
 
 test('bulkSummary reads plainly for none, one, many and mixed skips', () => {
   assert.equal(bulkSummary({ accepted: [], skipped: [] }), 'Nothing was accepted.');
   assert.equal(bulkSummary({ accepted: ['a'], skipped: [] }), 'Accepted 1 note.');
   assert.equal(bulkSummary({ accepted: ['a', 'b'], skipped: [{ id: 'c', reason: 'not waiting for review' }] }), 'Accepted 2 notes. 1 skipped for another reason.');
+  assert.equal(bulkSummary({ accepted: [], skipped: [{ id: 'c', reason: 'x', code: 'trigger' }, { id: 'd', reason: 'y', code: 'woken' }] }),
+    'Nothing was accepted. 1 held back for review one by one (being trigger notes), 1 held back for review one by one (a bot another bot woke).');
   assert.equal(bulkSummary({ accepted: [], skipped: [{ id: 'c', reason: 'untrusted source: x' }, { id: 'd', reason: 'boom' }] }), 'Nothing was accepted. 1 held back for an untrusted source, 1 skipped for another reason.');
 });
 

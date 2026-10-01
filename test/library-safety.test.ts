@@ -157,8 +157,8 @@ test('A: taint is sticky, covers Bash / external MCP tools but not legion tools,
   assert.equal(t2.tainted, undefined);
 });
 
-test('taintsRun: web, shell, VM output and non-Legion MCP tools taint; Legion tools and file tools do not', () => {
-  for (const n of ['WebFetch', 'WebSearch', 'Bash', 'mcp__github__x', 'mcp__legion__vm_exec', 'mcp__legion__vm_read_file', 'mcp__legion__vm_claude', 'mcp__legion__vm_desktop']) assert.equal(taintsRun(n), true, n);
+test('taintsRun allowlist: anything not known clean taints (web, shell, VM output, MCP resources, unknown and future tools); Legion tools and file tools do not', () => {
+  for (const n of ['WebFetch', 'WebSearch', 'Bash', 'mcp__github__x', 'mcp__legion__vm_exec', 'mcp__legion__vm_read_file', 'mcp__legion__vm_claude', 'mcp__legion__vm_desktop', 'ReadMcpResourceTool', 'ListMcpResourcesTool', 'NotebookRead', 'SomeFutureTool']) assert.equal(taintsRun(n), true, n);
   for (const n of ['Read', 'Write', 'Edit', 'Glob', 'Grep', 'TodoWrite', 'mcp__legion__ask', 'mcp__legion__tell', 'mcp__legion__agents', 'mcp__legion__vm_start', 'mcp__legion_comms__bot_send', 'mcp__legion_kg__kg_upsert_node']) assert.equal(taintsRun(n), false, n);
 });
 

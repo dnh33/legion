@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { createKnowledgeModule, KG_PREAMBLE } from '../src/core/kg/index.js';
+import { addKgRoutes } from '../src/core/kg/routes.js';
 import { applySeedPack, BSV_SEED_PATH, loadBsvSeed, validateSeedPack } from '../src/core/kg/seed.js';
 import type { LegionEvent } from '../src/shared/types.js';
 import { makeFakes, mkAgent, start, TOKEN } from './helpers-c.js';
@@ -44,10 +45,16 @@ const validPack = () => ({
   edges: [{ from: 'bsv-a', to: 'bsv-b', rel: 'depends_on' }],
 });
 
-test('every kg route requires the bearer token', async () => {
+test('every kg route requires the bearer token (all registered routes, every method)', async () => {
   const s = await setup();
-  assert.equal((await s.call('GET', '/api/kg/stats', undefined, false)).status, 401);
-  assert.equal((await s.call('POST', '/api/kg/nodes', { title: 'x' }, false)).status, 401);
+  const registered: Array<[string, string]> = [];
+  addKgRoutes((m, p) => { registered.push([m, p]); }, { graph: () => s.mod.graph(), bsvEnabled: () => false });
+  assert.ok(registered.length >= 20, `enumerated ${registered.length} routes`);
+  // the list is taken from the registrar, so a route added later is covered without touching this test
+  for (const [method, p] of registered) {
+    const path = p.replace(/:id/g, 'n_x').replace(/\(\.\*\)/g, 'x');
+    assert.equal((await s.call(method, path, method === 'GET' || method === 'DELETE' ? undefined : {}, false)).status, 401, `${method} ${path}`);
+  }
   assert.equal((await s.call('GET', '/api/kg/stats')).status, 200);
   await s.close();
 });

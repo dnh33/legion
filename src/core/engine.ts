@@ -50,15 +50,24 @@ export function clipToolResult(raw: string, max = 1500): string {
   return raw.slice(0, max - 1) + '…';
 }
 
-/** Tools whose results bring outside content into the run (the web, a shell, external servers, a VM's output). */
-const TAINTING_TOOLS = new Set([
-  'WebFetch', 'WebSearch', 'Bash',
+/**
+ * The tools that are known not to bring outside content into a run: file tools (the agent's own workspace), the to-do list
+ * and sub-agent plumbing. Everything NOT on this list taints the run (an allowlist, so a tool Legion has never heard of,
+ * such as ReadMcpResourceTool, is treated as outside content until someone vouches for it here).
+ */
+const CLEAN_BUILTINS = new Set([
+  'Read', 'Glob', 'Grep', 'LS', 'Edit', 'MultiEdit', 'Write', 'NotebookEdit',
+  'TodoWrite', 'Task', 'Agent', 'ExitPlanMode', 'EnterPlanMode',
+]);
+/** Legion's own in-process tools that still return outside content: a VM's output. */
+const TAINTING_LEGION_TOOLS = new Set([
   'mcp__legion__vm_exec', 'mcp__legion__vm_read_file', 'mcp__legion__vm_claude', 'mcp__legion__vm_desktop',
 ]);
-/** True when calling this tool taints the run: web, any shell, a VM's output, or any non-Legion MCP tool. */
+/** True when calling this tool taints the run: unless it is a Legion in-process tool (not a VM-output one) or on the clean built-in list, it does. */
 export function taintsRun(toolName: string): boolean {
-  if (TAINTING_TOOLS.has(toolName)) return true;
-  return toolName.startsWith('mcp__') && !LEGION_TOOL_PREFIXES.some((p) => toolName.startsWith(p));
+  if (TAINTING_LEGION_TOOLS.has(toolName)) return true;
+  if (LEGION_TOOL_PREFIXES.some((p) => toolName.startsWith(p))) return false;
+  return !CLEAN_BUILTINS.has(toolName);
 }
 
 export class EngineError extends Error {
@@ -85,6 +94,8 @@ export const LEGION_PREAMBLE = [
  */
 export function buildChildEnv(config: LegionConfig): Record<string, string | undefined> {
   const env: Record<string, string | undefined> = scrubHostSessionEnv({ ...process.env });
+  // the bearer token opens every human-only route: whatever put it in this process's environment, it must not reach a bot's
+  if (config.authToken.length >= 8) for (const [k, v] of Object.entries(env)) if (typeof v === 'string' && v.includes(config.authToken)) delete env[k];
   if (config.claude.auth === 'api-key') {
     env.ANTHROPIC_API_KEY = config.claude.apiKey;
   } else {
@@ -152,7 +163,7 @@ export class Engine {
     // approvals than its caller (rooms set their own origin and take precedence).
     const origin = p.origin ?? this.bridgeOrigin(p);
     // Taint follows the chain: a tainted waking bot, or a tainted peer's reply, taints this task for good.
-    const tainted = !!origin?.tainted || (!!p.bridge?.reply && !!p.bridge.fromTaskId && this.isTainted(p.bridge.fromTaskId));
+    const tainted = !!p.tainted || !!origin?.tainted || (!!p.bridge?.reply && !!p.bridge.fromTaskId && this.isTainted(p.bridge.fromTaskId));
 
     let task: Task;
     let priorModel: ConcreteModel | undefined;
@@ -420,6 +431,7 @@ export class Engine {
     const moduleJob: ModuleJob = {
       taskId, ...(job.origin ? { origin: job.origin, ceiling: job.origin.approvalCeiling } : {}),
       taint: () => act.tainted || job.origin?.tainted === true,
+      markTainted: () => { act.tainted = true; },
     };
     for (const m of this.modules) {
       try { Object.assign(out, m.mcpServers?.(agent, moduleJob) ?? {}); } catch { /* a broken module must not break runs */ }

@@ -50,9 +50,15 @@ test('D: a 10-turn task with no capture yields exactly one episode, with no extr
 });
 
 test('D: no episode when the bot captured or set working memory, or the task was short and cheap; cost alone is enough', async () => {
-  const mk = (n: number, tool: string | undefined, cost: number) => (c: { agent: string; n: number }) => c.agent !== 'alpha' ? undefined : (async function* () {
+  // the tools are really called: only a call that stored something counts as "the bot saved what it learned"
+  const CALLS: Record<string, [string, Record<string, unknown>]> = {
+    mcp__legion_kg__kg_capture: ['kg_capture', { kind: 'idea', title: 'An idea worth keeping', fields: { pitch: 'p', status: 's', score: 1 }, force: true }],
+    mcp__legion_kg__kg_wm_set: ['kg_wm_set', { active: 'state for next time' }],
+    mcp__legion_kg__kg_recall: ['kg_recall', { query: 'anything at all' }],
+  };
+  const mk = (n: number, tool: string | undefined, cost: number) => (c: any) => c.agent !== 'alpha' ? undefined : (async function* () {
     yield init(`s${n}`);
-    if (tool) yield toolUse(tool);
+    if (tool) { yield toolUse(tool); await kg(c.options, ...CALLS[tool]!); }
     yield ok('done', `s${n}`, { num_turns: n, total_cost_usd: cost });
   })();
   for (const [turns, tool, cost, want] of [
@@ -63,6 +69,25 @@ test('D: no episode when the bot captured or set working memory, or the task was
     await waitDone(s, s.engine.startTask({ agentId: 'alpha', prompt: 'do it', source: 'ui' }));
     assert.equal(episodes(s).length, want, `turns ${turns} tool ${tool} cost ${cost}`);
   }
+});
+
+test('D: a refused kg_wm_set or kg_capture does not count as saving: the episode is still written; a capture that was stored (even pending) does count', async () => {
+  const run = async (what: 'wm' | 'capture') => {
+    const s = setup((c) => c.agent !== 'alpha' ? undefined : (async function* () {
+      yield init('a1');
+      yield toolUse('Bash'); // the run is tainted from here on
+      if (what === 'wm') yield toolUse('mcp__legion_kg__kg_wm_set');
+      const r = what === 'wm'
+        ? await kg(c.options, 'kg_wm_set', { active: 'refused: this run touched outside content' })
+        : await kg(c.options, 'kg_capture', { kind: 'idea', title: 'A tainted idea', fields: { pitch: 'p', status: 's', score: 1 } });
+      assert.equal(r.isError, what === 'wm', r.text);
+      yield ok('done', 'a1', { num_turns: 12 });
+    })());
+    await waitDone(s, s.engine.startTask({ agentId: 'alpha', prompt: 'do it', source: 'ui' }));
+    return episodes(s).length;
+  };
+  assert.equal(await run('wm'), 1, 'wm_set was refused in a tainted run: an episode is owed');
+  assert.equal(await run('capture'), 0, 'the capture was stored (pending for the human): nothing more is owed');
 });
 
 test('D: the episode of a tainted run says so; it does not count against the bot\'s task quota and survives an exhausted quota', async () => {

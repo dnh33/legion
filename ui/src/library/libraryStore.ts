@@ -157,7 +157,7 @@ export async function acceptSelected() {
   if (!ids.length || s.bulkBusy) return;
   set({ bulkBusy: true, flash: null });
   try {
-    const r = await request<{ accepted: string[]; skipped: Array<{ id: string; reason: string }> }>('POST', '/api/kg/inbox/accept', { ids, overrideUntrusted: s.includeUntrusted });
+    const r = await request<{ accepted: string[]; skipped: Array<{ id: string; reason: string; code?: string }> }>('POST', '/api/kg/inbox/accept', { ids, overrideUntrusted: s.includeUntrusted });
     const title = (id: string) => s.inbox?.find((x) => x.id === id)?.node.title ?? id;
     flash(r.skipped.length ? 'warn' : 'ok', bulkSummary(r), r.skipped.map((k) => `${title(k.id)}: ${k.reason}`));
     set({ sel: new Set(r.skipped.map((k) => k.id)), includeUntrusted: false });

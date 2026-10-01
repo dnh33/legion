@@ -70,6 +70,8 @@ export interface RoomMessage {
   costUsd?: number;
   /** Task that produced / handled this message. */
   taskId?: string;
+  /** Written by a run that had touched outside content (or by a chain that had): a bot that reads it becomes tainted too. */
+  tainted?: boolean;
 }
 
 /** What a bust shows about communication. Combined with task state by the UI. */

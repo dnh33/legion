@@ -8,6 +8,8 @@ import type { KgNodeType, KgTrust } from '../../shared/kg.js';
 
 export const ACTIVITY_DAYS = 7;
 const MAX_ENTRIES = 500;
+/** The file may run this many lines past MAX_ENTRIES before it is rewritten, so a steady stream of writes appends in chunks instead of rewriting the whole file each time. */
+const TRIM_CHUNK = 100;
 /** An entry whose undo data is bigger than this is kept in the list but cannot be undone. */
 const MAX_INVERSE_BYTES = 64 * 1024;
 const REWRITE_BYTES = 4 * 1024 * 1024;
@@ -31,13 +33,17 @@ export interface ActivityEntry {
   tainted: boolean;
   /** Log ops that put things back as they were, in the order to apply them. Absent: not undoable. */
   inverse?: LogOp[];
-  /** Node id -> updatedAt right after this write. Undo refuses when a node has changed since. */
-  stamps: Record<string, string>;
+  /** Node id -> revision counter right after this write (older entries: the updatedAt string). Undo refuses when a node has changed since. */
+  stamps: Record<string, number | string>;
+  /** Node id -> fingerprint of the node's links right after this write. Undoing a create refuses when they changed. Absent on older entries. */
+  edges?: Record<string, string>;
   undone?: boolean;
 }
 
 export class ActivityLog {
   private entries: ActivityEntry[] = [];
+  /** Lines in the file that hold an entry (some may already be trimmed from memory). */
+  private fileLines = 0;
 
   constructor(private readonly file: string, private readonly now: () => Date) {
     this.load();
@@ -59,7 +65,8 @@ export class ActivityLog {
       } catch { dirty = true; }
     }
     if (this.prune() > 0) dirty = true;
-    if (this.entries.length > MAX_ENTRIES) { this.entries = this.entries.slice(-MAX_ENTRIES); dirty = true; }
+    this.fileLines = this.entries.length;
+    if (this.entries.length > MAX_ENTRIES) { this.entries = this.entries.slice(-MAX_ENTRIES); dirty = this.fileLines > MAX_ENTRIES + TRIM_CHUNK; }
     if (dirty || statSync(this.file).size > REWRITE_BYTES) this.rewrite();
   }
 
@@ -69,6 +76,7 @@ export class ActivityLog {
     try {
       writeFileSync(tmp, body ? body + '\n' : '', 'utf8');
       renameSync(tmp, this.file);
+      this.fileLines = this.entries.length;
     } catch { rmSync(tmp, { force: true }); }
   }
 
@@ -76,8 +84,10 @@ export class ActivityLog {
     const e: ActivityEntry = { ...entry };
     if (e.inverse && Buffer.byteLength(JSON.stringify(e.inverse)) > MAX_INVERSE_BYTES) delete e.inverse;
     this.entries.push(e);
-    try { appendFileSync(this.file, JSON.stringify({ a: 'add', e }) + '\n', 'utf8'); } catch { /* the list is a convenience: losing a line must not fail a write */ }
-    if (this.entries.length > MAX_ENTRIES) { this.entries = this.entries.slice(-MAX_ENTRIES); this.rewrite(); }
+    try { appendFileSync(this.file, JSON.stringify({ a: 'add', e }) + '\n', 'utf8'); this.fileLines++; } catch { /* the list is a convenience: losing a line must not fail a write */ }
+    if (this.entries.length > MAX_ENTRIES) this.entries = this.entries.slice(-MAX_ENTRIES);
+    // trim the file in chunks: append for a while, then one rewrite
+    if (this.fileLines > MAX_ENTRIES + TRIM_CHUNK) this.rewrite();
   }
 
   /** Newest first. */

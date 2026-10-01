@@ -63,11 +63,16 @@ export function scrubSecrets(text: string, opts: ScrubOptions = {}): string {
 }
 
 const BASE58_RE = `[${BASE58}]`;
-const STOPWORDS = new Set('the and for with that this are was you your not but from have has will can all any into which when then them they their what who how why also more some such than'.split(' '));
+/** Function words: a run of words with several of these is prose, not a seed phrase (BIP-39 words are almost all content words). */
+const FUNCTION_WORDS = new Set((
+  'the and for with that this are was were you your not but from have has had will would can could should may might all any into which when then them they their ' +
+  'what who how why also more some such than there where while been being does did our out its his her him she his over under before after each every other ' +
+  'these those here only very much many most just like once both same own too off'
+).split(' '));
 const SEED_LABEL =
-  '(?:seed[ _-]?(?:phrase|words?)|mnemonic(?:[ _-]?(?:phrase|words?))?|recovery[ _-]?(?:phrase|words?)|backup[ _-]?(?:phrase|words?)|secret[ _-]?recovery[ _-]?phrase)';
-// label, a little punctuation (or "is"), then 12..24 lowercase words of 3..8 letters. Shape only: no wordlist.
-const SEED_RE = new RegExp(`\\b${SEED_LABEL}\\b[\\s:=\\-"'\`(\\[]{0,16}(?:(?:is|are|was)[\\s:="'\`(\\[]{1,5})?((?:[a-z]{3,8}[ \\t,\\n]+){11,23}[a-z]{3,8})\\b`, 'gi');
+  '(?:seed(?:[ _-]?(?:phrase|words?))?|mnemonic(?:[ _-]?(?:phrase|words?))?|recovery(?:[ _-]?(?:phrase|words?|seed))?|backup(?:[ _-]?(?:phrase|words?|seed))?' +
+  '|bip[ _-]?(?:32|39|44)|(?:12|24|twelve|twenty[ -]?four)[ _-]?words?|words|passphrase|keyphrase|secret[ _-]?recovery[ _-]?phrase)';
+const SEED_LABEL_RE = new RegExp(`\\b${SEED_LABEL}\\b`, 'g');
 const PRIVKEY_SHAPES: RegExp[] = [
   /-----BEGIN [A-Z ]*PRIVATE KEY-----/,
   /\b[xt]prv[1-9A-HJ-NP-Za-km-z]{40,}\b/,
@@ -76,16 +81,76 @@ const PRIVKEY_SHAPES: RegExp[] = [
 ];
 
 /**
- * Text that must never be stored at all (not even redacted): a labelled seed phrase or a private key.
- * Returns what it looked like, or undefined. Bare 64-hex strings (txids) are fine.
+ * The text as a reader sees it: NFKC (full-width and compatibility forms), zero-width and bidi control characters removed,
+ * every kind of space (NBSP, thin space, ideographic space ...) turned into a plain space. Case is kept.
+ */
+export function normaliseForSecrets(text: string): string {
+  return text.normalize('NFKC')
+    .replace(/[\u00ad\u034f\u061c\u115f\u1160\u17b4\u17b5\u180b-\u180e\u200b-\u200f\u202a-\u202e\u2060-\u206f\u3164\ufe00-\ufe0f\ufeff]/g, '')
+    .replace(/[\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000]/g, ' ');
+}
+
+/** Words (3..8 lowercase letters) that follow a seed label: separators, list numbering and a leading "is" are skipped. At most 31 are read. */
+function wordRunAfter(lower: string, from: number): string[] {
+  const window = lower.slice(from, from + 700);
+  const words: string[] = [];
+  let i = 0;
+  let first = true;
+  const skip = /(?:\s|[:=,;|\/\\.*()\[\]"'`_\u2013\u2014-]|\d{1,2}(?!\d))*/y;
+  const word = /[a-z]{3,8}(?![a-z])/y;
+  while (words.length < 31) {
+    skip.lastIndex = i;
+    const s = skip.exec(window);
+    const gap = s ? s[0].length : 0;
+    if (gap > 64) break;
+    i += gap;
+    if (first) {
+      first = false;
+      const filler = /(?:is|are|was)(?![a-z])/y;
+      filler.lastIndex = i;
+      if (filler.test(window)) { i = filler.lastIndex; continue; }
+    }
+    word.lastIndex = i;
+    const m = word.exec(window);
+    if (!m) break;
+    words.push(m[0]);
+    i = word.lastIndex;
+  }
+  return words;
+}
+
+const proseLike = (words: string[], limit: number): boolean => words.filter((w) => FUNCTION_WORDS.has(w)).length >= limit;
+
+/**
+ * Text that must never be stored at all (not even redacted): a labelled seed phrase or a private key. Layout tricks (NBSP,
+ * zero-width characters, hyphens or newlines between words, list numbering, a label such as "backup" or "BIP39") are
+ * normalised away first. Returns what it looked like, or undefined. Bare 64-hex strings (txids) and a run of words with no
+ * label are fine here; see findForbiddenSecretInField for the field-level rule.
  */
 export function findForbiddenSecret(text: string): 'seed phrase' | 'private key' | undefined {
-  if (PRIVKEY_SHAPES.some((re) => re.test(text))) return 'private key';
-  for (const m of text.matchAll(SEED_RE)) {
-    const words = m[1]!.toLowerCase().split(/[ \t,\n]+/).filter(Boolean);
-    if (words.length >= 12 && words.filter((w) => STOPWORDS.has(w)).length < 4) return 'seed phrase';
+  const clean = normaliseForSecrets(text);
+  if (PRIVKEY_SHAPES.some((re) => re.test(clean))) return 'private key';
+  const lower = clean.toLowerCase();
+  for (const m of lower.matchAll(SEED_LABEL_RE)) {
+    const words = wordRunAfter(lower, m.index! + m[0].length);
+    if (words.length >= 12 && !proseLike(words, 4)) return 'seed phrase';
   }
   return undefined;
+}
+
+/** True when the whole field is nothing but 12 to 24 words of 3..8 lowercase letters (spaces, newlines, list numbers between them): the shape of a seed phrase written on its own. */
+export function looksLikeSeedList(text: string): boolean {
+  const lower = normaliseForSecrets(text).toLowerCase().trim();
+  if (lower.length < 36 || lower.length > 400) return false;
+  const tokens = lower.split(/\s+/).filter((t) => !/^\d{1,2}[.):]?$/.test(t)).map((t) => t.replace(/^\d{1,2}[.):]+/, ''));
+  if (tokens.length < 12 || tokens.length > 24 || tokens.some((t) => !/^[a-z]{3,8}$/.test(t))) return false;
+  if (new Set(tokens).size < tokens.length / 2) return false;
+  return !proseLike(tokens, 3);
+}
+
+/** The rule the knowledge graph applies to every text field of a write: a labelled phrase or key anywhere, or a field that is only a seed-shaped word list. */
+export function findForbiddenSecretInField(text: string): 'seed phrase' | 'private key' | undefined {
+  return findForbiddenSecret(text) ?? (looksLikeSeedList(text) ? 'seed phrase' : undefined);
 }
 
 const WRAP_TAGS = /<(\/?)(bot-message|human-message|system-note|room-transcript|room-history)\b/gi;

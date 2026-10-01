@@ -22,7 +22,7 @@ async function guard(fn: () => ToolResult | Promise<ToolResult>): Promise<ToolRe
 }
 
 /** `run` is the engine's view of the task using this server: its taint travels with every message the bot sends. */
-export function buildCommsToolsServer(agentId: string, hub: CommsHub, run?: { taint(): boolean }): McpSdkServerConfigWithInstance {
+export function buildCommsToolsServer(agentId: string, hub: CommsHub, run?: { taint(): boolean; markTainted?(): void }): McpSdkServerConfigWithInstance {
   const sender = (): { tainted?: boolean } => (run?.taint() ? { tainted: true } : {});
   const botList = tool(
     'bot_list',
@@ -67,7 +67,12 @@ export function buildCommsToolsServer(agentId: string, hub: CommsHub, run?: { ta
       limit: z.number().int().positive().max(100).optional().describe('Number of recent messages (default 20)'),
       sinceId: z.string().optional().describe('Only messages after this message id'),
     },
-    (a) => guard(() => ok(hub.roomRead(agentId, a.room, { limit: a.limit, sinceId: a.sinceId }).text)),
+    (a) => guard(() => {
+      const r = hub.roomRead(agentId, a.room, { limit: a.limit, sinceId: a.sinceId });
+      // what a tainted bot wrote is outside content to the reader: from here on this run is tainted too
+      if (r.tainted) run?.markTainted?.();
+      return ok(r.text);
+    }),
   );
 
   const roomList = tool(
