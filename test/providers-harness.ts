@@ -43,6 +43,8 @@ export interface Opts {
   turn?: typeof chatTurn;
   approvalTimeoutMs?: number;
   claude?: (params: any) => AsyncGenerator<any, void>;
+  /** Extra runtime dependencies (a fake CLI port, a home folder, a clock). */
+  runtimeDeps?: Partial<import('../src/core/providers/runtime.js').RuntimeDeps>;
 }
 
 export function setup(fake: Fake, o: Opts = {}) {
@@ -58,7 +60,7 @@ export function setup(fake: Fake, o: Opts = {}) {
   if (o.maxTurns) config.providers.maxTurns = o.maxTurns;
   if (o.maxToolCallsPerTurn) config.providers.maxToolCallsPerTurn = o.maxToolCallsPerTurn;
   const keys = memKeys(mkdtempSync(join(tmpdir(), 'legion-pk-')));
-  const providers = new ProviderRuntime({ config, keys, limits: o.limits, turn: o.turn });
+  const providers = new ProviderRuntime({ config, keys, limits: o.limits, turn: o.turn, ...o.runtimeDeps });
   const approvals = new ApprovalBroker(bus, { timeoutMs: o.approvalTimeoutMs });
   const claudeCalls: any[] = [];
   const queryFn = ((params: any) => {
