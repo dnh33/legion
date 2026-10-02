@@ -27,7 +27,7 @@ Cloud work runs on the claude.ai/code web surface (credits). Branches live in pr
 | R1 K1 U1 | Rooms no default spend limit, lazy key probe, Builder reset (`claude/rooms-probe-upgrade`) | built; review = SHIP AFTER FIXES (B1 budget >10000, B2 operator ceiling bypass, K1-F1 doc wording); fix session running (claude web) |
 | B | Packaging + public audit (`claude/release-packaging`) | reviewed (SHIP AFTER FIXES), all 8 fixes landed, 1392/1392 with PowerShell; merged into integration/v1; NOT run on Windows yet: see tracker-pc-checks.md P1-P10; version bump + CHANGELOG finalise still open |
 | C | boat.dev + Blender real-system verification (owner present) | todo |
-| D | Blender follow-ups | todo |
+| D | Blender: **local-first** (owner direction 2026-10-02): add a local headless mode (`blender -b` on this PC, per-task scene, approval card with full script, backup, audit, exports quarantined) as the default when Blender is found; boat.dev VM stays as the opt-in isolated mode. Today default is VM-first and local = live add-on socket only. Plus pin community add-on, extension install path, busy-while-running, line counts. Plan for owner approval before build (trade-off: a local script has the user's full rights; the static check is a filter, not a sandbox) | todo, after v0.2.0 delivery |
 | E | Real-PC sweep (section 6.2) | todo |
 | F | BSV rung 3 testnet tool (section 6.6) | todo, after plan |
 
@@ -36,3 +36,9 @@ Cloud work runs on the claude.ai/code web surface (credits). Branches live in pr
 - DECIDED 2026-10-02: BSV knowledge pack: soften NOTICE to "written in our own words from public documentation; licence status of some sources not established", ship pack unchanged (91 of 157 nodes only unverified/no-licence sources; 24 cite private `legion-specs` docs). To apply after the packaging fix session lands.
 - Installer type: robocopy installer, unsigned (assumed, not confirmed). Version 0.2.0 confirmed.
 - Weekly Claude usage at ~98% (resets Mon Oct 5 01:00): cloud sessions may stall.
+
+## Follow-ups found during this release (not yet done)
+
+- `scrubSecrets` (src/core) is already quadratic for the `token`, `secret_eq` and `http` shapes: about 0.1 s at 20k chars, 1.7 s at 80k. Found by the Windows R3.4 scaling test; tests hold those shapes to "no worse than now". Candidate fix: linear scan.
+- Real-PC checks: see `tracker-pc-checks.md`.
+- Cloud sessions run on the claude.ai web surface (credits); API routine route is not to be used (see memory).
