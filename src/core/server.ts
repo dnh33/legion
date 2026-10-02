@@ -21,6 +21,7 @@ import type { VmManager } from './vm-manager.js';
 import type { CoreModule } from './modules.js';
 import { agentIdVisible, agentVisible, taskVisible } from './visibility.js';
 import { pushSse } from './sse.js';
+import { checkRequest, dropNonLoopback, originAllowed } from './net-guard.js';
 import { publicBoatHealth } from './boat-health.js';
 
 export interface CoreContext {
@@ -59,13 +60,6 @@ const VM_SIZES: VmSize[] = ['small', 'default', 'large'];
 const VM_STATUS: Record<VmError['code'], number> = {
   not_configured: 503, disabled: 400, not_running: 409, unknown_agent: 404, boat: 502, claude_not_configured: 409,
 };
-
-function allowedOrigin(origin: string | undefined): boolean {
-  if (!origin) return false;
-  if (origin === 'null' || origin === 'file://') return true;
-  if (origin === 'http://localhost:5173') return true;
-  return /^http:\/\/127\.0\.0\.1(:\d+)?$/.test(origin);
-}
 
 function sendJson(res: ServerResponse, status: number, body: unknown): void {
   if (res.headersSent) { res.end(); return; }
@@ -161,7 +155,7 @@ export type Ctx = { req: IncomingMessage; res: ServerResponse; url: URL; params:
 export type Handler = (c: Ctx) => unknown | Promise<unknown>;
 interface Route { method: string; re: RegExp; handler: Handler; status?: number }
 
-/** Creates (does not listen) the HTTP server. Caller does server.listen(config.port, '127.0.0.1'). */
+/** Creates (does not listen) the HTTP server. The caller listens with listenLoopback() from net-guard.ts (127.0.0.1 only). */
 export function createServer(ctx: CoreContext): Server {
   const routes: Route[] = [];
   const route = (method: string, pattern: string, handler: Handler, status = 200) => {
@@ -414,13 +408,23 @@ export function createServer(ctx: CoreContext): Server {
 
   // ---- dispatcher ------------------------------------------------------
   const server = createHttpServer((req, res) => {
+    // Loopback guard (src/core/net-guard.ts): remote address, Host and Origin, before CORS, auth and every route (/health, /mcp, SSE included).
+    const g = checkRequest(req, listeningPort());
+    if (!g.ok) {
+      if (g.destroy) { req.socket.destroy(); return; }
+      sendJson(res, g.status, { error: g.error });
+      return;
+    }
     void dispatch(req, res).catch((e) => fail(res, e));
   });
 
+  server.on('connection', (sock) => { dropNonLoopback(sock); });
+  function listeningPort(): number { const a = server.address(); return a && typeof a === 'object' ? a.port : -1; }
+
   function applyCors(req: IncomingMessage, res: ServerResponse) {
     const origin = req.headers.origin;
-    if (allowedOrigin(origin)) {
-      res.setHeader('Access-Control-Allow-Origin', origin!);
+    if (origin !== undefined && originAllowed(origin, listeningPort(), req.headers['user-agent'])) {
+      res.setHeader('Access-Control-Allow-Origin', origin);
       res.setHeader('Vary', 'Origin');
       res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PATCH,DELETE,OPTIONS');
       res.setHeader('Access-Control-Allow-Headers', 'Authorization, Content-Type, X-Legion-Admin, mcp-session-id, mcp-protocol-version');

@@ -15,6 +15,7 @@ import { makeBoatGetter, SettingsService } from '../core/settings.js';
 import { runDoctor } from '../core/doctor.js';
 import { Engine } from '../core/engine.js';
 import { createServer } from '../core/server.js';
+import { listenLoopback } from '../core/net-guard.js';
 import { createBlenderModule } from '../core/blender/index.js';
 import { createBsvModule, createBsvState } from '../core/bsv/index.js';
 import { createCommsModule } from '../core/comms/index.js';
@@ -98,11 +99,11 @@ async function main() {
     }
     log('server error', err);
   });
-  server.listen(config.port, '127.0.0.1', () => {
+  listenLoopback(server, config.port, () => {
     log(`Legion Core ${VERSION} on http://127.0.0.1:${config.port}  (config: ${configPath()})`);
     // BSV mode already on: bring the pack up to the bundled version without anyone toggling (never blocks, never throws)
     void bsv.start();
-  });
+  }, (addr) => { log('refusing to run: the server bound a non-loopback address', addr); process.exit(4); });
 
   const shutdown = async (sig: string) => {
     log(`shutting down (${sig})`);

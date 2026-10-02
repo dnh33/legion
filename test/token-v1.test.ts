@@ -309,8 +309,11 @@ test('e: the admin header opens the same routes (200); a wrong or empty secret i
 
 test('e: CORS preflight allows the admin header (the app window is a file:// origin)', async () => {
   const m = await mount();
-  const r = await fetch(`${m.srv.base}/api/approvals/x`, { method: 'OPTIONS', headers: { Origin: 'null', 'Access-Control-Request-Method': 'POST', 'Access-Control-Request-Headers': 'x-legion-admin,authorization,content-type' } });
+  const r = await fetch(`${m.srv.base}/api/approvals/x`, { method: 'OPTIONS', headers: { Origin: 'null', 'User-Agent': 'Mozilla/5.0 Chrome/130.0.0.0 Electron/33.0.0 Safari/537.36', 'Access-Control-Request-Method': 'POST', 'Access-Control-Request-Headers': 'x-legion-admin,authorization,content-type' } });
   assert.equal(r.status, 204);
+  // a web page's opaque origin (sandboxed iframe) is not the app window: no Electron User-Agent, no preflight answer (loopback guard)
+  const web = await fetch(`${m.srv.base}/api/approvals/x`, { method: 'OPTIONS', headers: { Origin: 'null', 'User-Agent': 'Mozilla/5.0 Chrome/130.0.0.0 Safari/537.36', 'Access-Control-Request-Method': 'POST' } });
+  assert.equal(web.status, 403);
   assert.match(r.headers.get('access-control-allow-headers') ?? '', /X-Legion-Admin/i);
   await m.close();
 });
