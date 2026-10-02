@@ -32,7 +32,8 @@ import { findLink, isInside, resolveFolder } from './fs-safe.js';
 import type { SandboxPort } from './sandbox.js';
 import { BIDI_CONTROL, checkScript, describeFindings, EXPORT_DIR_VAR, INVISIBLE_CHARS, MAX_SCRIPT_BYTES, scriptHash } from './static-check.js';
 
-export type RunMode = 'live' | 'sandbox';
+export type { RunMode } from './ports.js';
+import type { RunMode } from './ports.js';
 
 /** Which side runs a script: pure, so every combination is tested. `error` is plain text for the agent. */
 export function resolveMode(sandbox: BlenderSandboxMode, requested: RunMode | undefined): { mode: RunMode } | { error: string } {

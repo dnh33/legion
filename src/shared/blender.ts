@@ -5,7 +5,10 @@
 
 export type BlenderBackendChoice = 'auto' | 'official' | 'community';
 export type BlenderBackendKind = 'official' | 'community';
-/** off = scripts only run in your live Blender; vm = only in the Sculptor's boat.dev VM; auto = VM unless a script was approved live before. */
+/** Where scripts run. auto = this computer when Blender is found, else the cloud VM; local = headless Blender on this computer; vm = the Sculptor's boat.dev VM; live = your open Blender. */
+export type BlenderMode = 'auto' | 'local' | 'vm' | 'live';
+export const BLENDER_MODES: readonly BlenderMode[] = ['auto', 'local', 'vm', 'live'];
+/** LEGACY key (kept for reading and mirroring so a downgrade still opens). `off` is only the old alias of mode `live`. off = scripts only run in your live Blender; vm = only in the Sculptor's boat.dev VM; auto = VM unless a script was approved live before. */
 export type BlenderSandboxMode = 'off' | 'vm' | 'auto';
 
 /** Blender 5.1 is the first version the official Blender Lab MCP supports. */
@@ -37,7 +40,23 @@ export interface BlenderToolMap {
 }
 
 /** Everything under blender.advanced is for people who edit config.json: assumptions kept as data, not code. */
+/** Guard for the local runner's Python-level write/network seatbelt: block = refuse, log = record only (documented fallback). */
+export type BlenderLocalGuard = 'block' | 'log';
+
 export interface BlenderAdvanced {
+  local: {
+    /** Longest a local script may run (seconds, clamped 10-900). */
+    timeoutSeconds: number;
+    /** A task folder bigger than this refuses the run. */
+    maxTaskBytes: number;
+    /** Stdout+stderr above this kills the process. */
+    maxOutputBytes: number;
+    /** Extra folders the runner's write guard allows besides the task folder. */
+    extraWriteDirs: string[];
+    guard: BlenderLocalGuard;
+    /** Extra Blender arguments. The fixed hardening flags are added by code, never by config. */
+    args: string[];
+  };
   official: {
     /** Where the official server is downloaded from, only when you press Set up. The default is the v1.0.3 TAG, not a moving branch. */
     sourceUrl: string;
@@ -87,13 +106,20 @@ export interface BlenderConfig {
   port: number;
   /** Optional: path of blender(.exe) or the folder that holds it. Overrides detection. */
   installPath?: string;
+  /** Where scripts run. ABSENT until the user saves a choice (then the legacy `sandbox` key decides, see effectiveMode). */
+  mode?: BlenderMode;
+  /** Legacy mirror of `mode` (auto/local -> auto, vm -> vm, live -> off). Always written alongside `mode`. */
   sandbox: BlenderSandboxMode;
   /** Written by Setup. NOT an entry of config.mcpServers: those are handed to agents, and this server has a raw execute tool. */
   entry?: BlenderEntry;
   advanced: BlenderAdvanced;
 }
 
+export const LOCAL_MIN_TIMEOUT_S = 10;
+export const LOCAL_MAX_TIMEOUT_S = 900;
+
 export const DEFAULT_ADVANCED: BlenderAdvanced = {
+  local: { timeoutSeconds: 120, maxTaskBytes: 500 * 1024 * 1024, maxOutputBytes: 4 * 1024 * 1024, extraWriteDirs: [], guard: 'block', args: [] },
   official: {
     sourceUrl: 'https://projects.blender.org/api/v1/repos/lab/blender_mcp/archive/v1.0.3.zip',
     sha256: 'e08a16ba01a02b80469ef9ca2dc04cee8711d0b4a32ad27c66891935cc5abebe',
@@ -125,6 +151,13 @@ export function defaultBlenderConfig(): BlenderConfig {
     advanced: JSON.parse(JSON.stringify(DEFAULT_ADVANCED)) as BlenderAdvanced,
   };
 }
+
+/** The legacy `sandbox` value that mirrors a mode, so an older Legion still opens the file. */
+export const mirrorSandbox = (m: BlenderMode): BlenderSandboxMode => (m === 'vm' ? 'vm' : m === 'live' ? 'off' : 'auto');
+/** Legacy `sandbox` value -> mode (`off` is only an alias of live). */
+export const modeFromSandbox = (s: BlenderSandboxMode): BlenderMode => (s === 'vm' ? 'vm' : s === 'off' ? 'live' : 'auto');
+/** The mode in force: the saved one, else derived from the legacy key. */
+export const effectiveMode = (c: Pick<BlenderConfig, 'mode' | 'sandbox'>): BlenderMode => c.mode ?? modeFromSandbox(c.sandbox);
 
 const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v);
 const str = (v: unknown, d: string, max = 1000): string => (typeof v === 'string' && v.trim() && v.length <= max && !/[\0\r\n]/.test(v) ? v.trim() : d);
@@ -169,6 +202,11 @@ export function normalizeBlender(v: unknown): BlenderConfig {
   const off = isObj(adv.official) ? adv.official : {};
   const com = isObj(adv.community) ? adv.community : {};
   const vm = isObj(adv.vm) ? adv.vm : {};
+  const loc = isObj(adv.local) ? adv.local : {};
+  const dl = d.advanced.local;
+  const int = (x: unknown, def: number, lo: number, hi: number): number => (typeof x === 'number' && Number.isFinite(x) ? Math.min(hi, Math.max(lo, Math.round(x))) : def);
+  const mode = BLENDER_MODES.includes(v.mode as BlenderMode) ? (v.mode as BlenderMode) : undefined;
+  const legacy: BlenderSandboxMode = v.sandbox === 'off' || v.sandbox === 'vm' || v.sandbox === 'auto' ? v.sandbox : d.sandbox;
   const tools = isObj(off.tools) ? off.tools : {};
   const dt = d.advanced.official.tools;
   const port = typeof v.port === 'number' && Number.isInteger(v.port) && v.port >= 1024 && v.port <= 65535 ? v.port : d.port;
@@ -180,9 +218,18 @@ export function normalizeBlender(v: unknown): BlenderConfig {
     host: typeof v.host === 'string' && isLoopbackHost(v.host.trim()) ? v.host.trim() : d.host,
     port,
     ...(typeof v.installPath === 'string' && v.installPath.trim() && v.installPath.length <= 1000 && !/\0/.test(v.installPath) ? { installPath: v.installPath.trim() } : {}),
-    sandbox: v.sandbox === 'off' || v.sandbox === 'vm' || v.sandbox === 'auto' ? v.sandbox : d.sandbox,
+    ...(mode ? { mode } : {}),
+    sandbox: mode ? mirrorSandbox(mode) : legacy,
     ...(normEntry(v.entry) ? { entry: normEntry(v.entry)! } : {}),
     advanced: {
+      local: {
+        timeoutSeconds: int(loc.timeoutSeconds, dl.timeoutSeconds, LOCAL_MIN_TIMEOUT_S, LOCAL_MAX_TIMEOUT_S),
+        maxTaskBytes: int(loc.maxTaskBytes, dl.maxTaskBytes, 1024 * 1024, 100 * 1024 * 1024 * 1024),
+        maxOutputBytes: int(loc.maxOutputBytes, dl.maxOutputBytes, 1024, 256 * 1024 * 1024),
+        extraWriteDirs: strList(loc.extraWriteDirs, dl.extraWriteDirs),
+        guard: loc.guard === 'log' || loc.guard === 'block' ? loc.guard : dl.guard,
+        args: strList(loc.args, dl.args),
+      },
       official: {
         sourceUrl: httpsUrl(off.sourceUrl, d.advanced.official.sourceUrl),
         sha256: hex(off.sha256, d.advanced.official.sha256),
@@ -226,7 +273,7 @@ export interface BlenderInstall {
   versionGuessed?: boolean;
 }
 
-export type BlenderLight = 'off' | 'not-found' | 'needs-setup' | 'disconnected' | 'connected' | 'sandbox' | 'error';
+export type BlenderLight = 'off' | 'not-found' | 'needs-setup' | 'disconnected' | 'connected' | 'sandbox' | 'local' | 'busy' | 'error';
 
 /** GET /api/blender and the blender.status event. No secrets; paths are the user's own. */
 export interface BlenderStatusView {
@@ -247,6 +294,15 @@ export interface BlenderStatusView {
   /** The Sculptor can run VM scripts right now (boat.dev key set and the Sculptor's VM switched on). */
   sandboxReady: boolean;
   sandboxNote: string;
+  /** The effective mode (saved, else derived from the legacy key). */
+  mode?: BlenderMode;
+  /** A Blender >= 3.0 was found on this computer, so local runs can start. */
+  localReady?: boolean;
+  localNote?: string;
+  /** Plain text: where the next script goes, or why it cannot run. */
+  nextRun?: string;
+  /** A script is running (or timed out and may still be running). */
+  busy?: { since: string; hash12: string; mode: 'live' | 'local' | 'sandbox' } | null;
   host: string;
   port: number;
   /** What Setup already put on disk. */

@@ -101,3 +101,52 @@ test('loadConfig fills the blender section and keeps user edits', () => {
     assert.equal(again.blender.advanced.official.command, DEFAULT_ADVANCED.official.command);
   } finally { if (prev === undefined) delete process.env.LEGION_HOME; else process.env.LEGION_HOME = prev; }
 });
+
+test('mode migration: pre-change configs (legacy sandbox key only) derive the mode and write no mode key', async () => {
+  const { effectiveMode, modeFromSandbox, mirrorSandbox } = await import('../src/shared/blender.js');
+  for (const [legacy, want] of [['auto', 'auto'], ['off', 'live'], ['vm', 'vm']] as const) {
+    const c = normalizeBlender({ enabled: true, sandbox: legacy });
+    assert.equal(effectiveMode(c), want);
+    assert.equal(c.mode, undefined);
+    assert.equal(c.sandbox, legacy);
+    assert.equal('mode' in c, false);
+    assert.equal(modeFromSandbox(legacy), want);
+  }
+  assert.equal(effectiveMode(normalizeBlender({})), 'auto');
+  assert.equal(effectiveMode(normalizeBlender({ sandbox: 'junk' })), 'auto');
+  // the legacy `off` is an alias of live, never of local
+  assert.notEqual(effectiveMode(normalizeBlender({ sandbox: 'off' })), 'local');
+});
+
+test('mode migration: a valid mode wins over the legacy key; an invalid one is ignored; the legacy key mirrors it', async () => {
+  const { mirrorSandbox } = await import('../src/shared/blender.js');
+  const c = normalizeBlender({ mode: 'local', sandbox: 'vm' });
+  assert.equal(c.mode, 'local');
+  assert.equal(c.sandbox, 'auto');
+  assert.equal(normalizeBlender({ mode: 'live', sandbox: 'auto' }).sandbox, 'off');
+  assert.equal(normalizeBlender({ mode: 'vm' }).sandbox, 'vm');
+  assert.equal(normalizeBlender({ mode: 'auto' }).sandbox, 'auto');
+  const bad = normalizeBlender({ mode: 'off', sandbox: 'vm' });
+  assert.equal(bad.mode, undefined);
+  assert.equal(bad.sandbox, 'vm');
+  assert.equal(normalizeBlender({ mode: 'nope' }).mode, undefined);
+  assert.deepEqual((['auto', 'local', 'vm', 'live'] as const).map(mirrorSandbox), ['auto', 'auto', 'vm', 'off']);
+});
+
+test('advanced.local: defaults and clamps', () => {
+  assert.deepEqual(defaultBlenderConfig().advanced.local, { timeoutSeconds: 120, maxTaskBytes: 500 * 1024 * 1024, maxOutputBytes: 4 * 1024 * 1024, extraWriteDirs: [], guard: 'block', args: [] });
+  const t = (x: unknown) => normalizeBlender({ advanced: { local: { timeoutSeconds: x } } }).advanced.local.timeoutSeconds;
+  assert.equal(t(1), 10);
+  assert.equal(t(5000), 900);
+  assert.equal(t(45.4), 45);
+  assert.equal(t('x'), 120);
+  assert.equal(t(NaN), 120);
+  const l = normalizeBlender({ advanced: { local: { guard: 'log', extraWriteDirs: ['D:\\x'], args: ['--x'], maxOutputBytes: 'big', maxTaskBytes: -5 } } }).advanced.local;
+  assert.equal(l.guard, 'log');
+  assert.deepEqual(l.extraWriteDirs, ['D:\\x']);
+  assert.deepEqual(l.args, ['--x']);
+  assert.equal(l.maxOutputBytes, 4 * 1024 * 1024);
+  assert.ok(l.maxTaskBytes > 0);
+  assert.equal(normalizeBlender({ advanced: { local: { guard: 'off', args: [1] } } }).advanced.local.guard, 'block');
+  assert.deepEqual(normalizeBlender({ advanced: { local: { args: [1] } } }).advanced.local.args, []);
+});

@@ -723,3 +723,17 @@ test('S2: quarantined sandbox exports are listed as such in the audit line', asy
   assert.deepEqual(done.quarantined, ['/ws/blender-quarantine/t/a.blend.untrusted']);
   await t.close();
 });
+
+test('audit: a hash chain mixing live, sandbox and local entries verifies, and tampering a local line breaks it', () => {
+  const dir = tmp();
+  const log = new AuditLog(dir);
+  for (const mode of ['live', 'sandbox', 'local', 'local'] as const) {
+    assert.equal(log.append({ taskId: 't', agentId: 'sculptor', mode, hash: 'a'.repeat(64), bytes: 1, lines: 1, decision: 'approved' }).ok, true);
+  }
+  assert.equal(verifyAudit(log.file).ok, true);
+  const rows = readFileSync(log.file, 'utf8').split('\n').filter(Boolean);
+  assert.equal(JSON.parse(rows[2]).mode, 'local');
+  rows[2] = rows[2].replace('"local"', '"live"');
+  writeFileSync(log.file, rows.join('\n') + '\n');
+  assert.equal(verifyAudit(log.file).ok, false);
+});
