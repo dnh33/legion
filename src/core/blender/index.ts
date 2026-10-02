@@ -7,7 +7,7 @@
  */
 import type { McpServerConfig } from '@anthropic-ai/claude-agent-sdk';
 import { join } from 'node:path';
-import { BLENDER_EXEC_TOOL, BLENDER_SERVER_NAME, BLENDER_SOCKET_NOTICE, BLENDER_UPGRADE_NOTICE, BLENDER_MODES, effectiveMode, SCULPTOR_ID } from '../../shared/blender.js';
+import { BLENDER_DOWNLOAD_PAGE, BLENDER_EXEC_TOOL, BLENDER_SERVER_NAME, GET_BLENDER_TOOL, MANAGED_BLENDER, BLENDER_SOCKET_NOTICE, BLENDER_UPGRADE_NOTICE, BLENDER_MODES, effectiveMode, SCULPTOR_ID } from '../../shared/blender.js';
 import type { BlenderBackendKind, BlenderMode, BlenderConfig, BlenderInstall, BlenderLight, BlenderSetupResult, BlenderStatusView, BlenderTestResult, BlenderSetupStep } from '../../shared/blender.js';
 import type { AgentProfile } from '../../shared/types.js';
 import { HttpError } from '../server.js';
@@ -29,7 +29,9 @@ import { launchBlender, setupLive, testConnection } from './setup.js';
 import type { BlenderIo } from './setup.js';
 import { BlenderState } from './state.js';
 import type { BlenderPatch } from './state.js';
-import { createProcessPort, createRealIo } from './system.js';
+import { createGetBlenderPorts, createProcessPort, createRealIo } from './system.js';
+import { effectiveSha, getManagedBlender, readManaged } from './get-blender.js';
+import type { GetBlenderPorts, ManagedPin } from './get-blender.js';
 import { tcpProbe } from './tcp.js';
 
 export { BlenderState } from './state.js';
@@ -42,6 +44,9 @@ export interface BlenderModuleOptions {
   sandbox?: SandboxPort;
   /** Test seam: a stand-in for the headless-Blender runner. Production passes nothing and gets a LocalRunner (below); never set it in src/. */
   local?: LocalPort;
+  /** Test seams for "Get Blender for Legion": fake ports and a stand-in pin. Production passes neither (the real ports and MANAGED_BLENDER are used). */
+  getPorts?: GetBlenderPorts;
+  managedPin?: ManagedPin;
   makeBackend?: (kind: BlenderBackendKind, cfg: BlenderConfig) => BlenderBackend;
   probe?: (host: string, port: number) => Promise<boolean>;
   backup?: GuardDeps['backup'];
@@ -55,8 +60,12 @@ const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 
 
 export const SCULPTOR_PREAMBLE_ON = [
   'The Blender bridge is on. Your tools are mcp__legion_blender__blender_exec, _inspect, _screenshot, _docs and _status.',
-  'Call blender_status first: it says where the next script goes. With the default setting (Automatic) a script runs in a background Blender on this computer when Blender is found, otherwise in the cloud VM; use mode "vm" to ask for the VM and mode "live" only when the user asked to work in their open Blender (the card then says LIVE). Settings can restrict the place, and a mode they forbid is refused, not redirected.',
-  'Every script is checked and shown to the user in full; a denied or blocked script did not run. Read the finished result with blender_screenshot before you call it done.',
+  'Call blender_status first: it says where the next script goes and what is ready. There are three places a script can run, and every one needs the user to read and approve the full script:',
+  '- "local" (a background Blender on this computer): the best fit for quick edits, the user\'s own scenes and files, previews, and exports they want on this PC. It runs with the user\'s Windows rights; Legion\'s check is a filter, not a sandbox.',
+  '- "vm" (the cloud VM): the better fit for scripts or .blend files from the web or an unknown source, long or heavy jobs, when the user wants Blender kept away from their files, or when no Blender is installed on this computer.',
+  '- "live" (the user\'s open Blender, the card says LIVE): only when the user asked you to work in the Blender they have open.',
+  'Say in one line which place you chose and why, and offer the other one when it matters. When Settings is Automatic and the choice matters (for example a file of unknown origin), ask the user in chat which they prefer for this task and pass it as the mode argument. You cannot change Settings: if a mode is restricted the tool says so and the user decides, so do not try to get around it.',
+  'A denied or blocked script did not run. Read the finished result with blender_screenshot before you call it done.',
 ].join('\n');
 export const SCULPTOR_PREAMBLE_OFF = 'The Blender bridge is switched off in Settings (Blender), so you have no Blender tools. Plan and explain; tell the user to turn it on if they want you to build.';
 
@@ -81,6 +90,11 @@ export function createBlenderModule(deps: ModuleDeps, opts: BlenderModuleOptions
   const checkAudit = (): AuditVerdict => { try { auditVerdict = audit.verify(); } catch (e) { auditVerdict = { ok: false, lines: 0, anchor: 'mismatch', note: `The audit log could not be checked: ${e instanceof Error ? e.message : String(e)}` }; } return auditVerdict; };
   const makeBackend = opts.makeBackend ?? ((kind, c) => (kind === 'official' ? new OfficialBackend(c) : new CommunityBackend(c)));
 
+  // ---- the Blender Legion fetched itself (Settings, Get Blender for Legion); read from a record that must point inside Legion's own folder
+  const getPorts = opts.getPorts ?? createGetBlenderPorts();
+  const managedNow = () => { try { return readManaged(getPorts, deps.dataDir); } catch { return null; } };
+  let getting = false;
+
   // ---- detection (cached; Settings can force a refresh)
   let installs: BlenderInstall[] = [];
   let detectedAt = 0;
@@ -91,7 +105,7 @@ export function createBlenderModule(deps: ModuleDeps, opts: BlenderModuleOptions
     if (!force && detectedAt && Date.now() - detectedAt < DETECT_TTL_MS && key === detectKey) return installs;
     if (detecting && !force && key === detectKey) return detecting;
     const run = (async () => {
-      try { installs = await detectInstalls(io.detect, cfg().installPath); } catch (e) { log(`blender detection failed: ${e instanceof Error ? e.message : String(e)}`); installs = []; }
+      try { installs = await detectInstalls(io.detect, cfg().installPath, managedNow()?.path); } catch (e) { log(`blender detection failed: ${e instanceof Error ? e.message : String(e)}`); installs = []; }
       detectedAt = Date.now();
       detectKey = key;
       return installs;
@@ -136,6 +150,8 @@ export function createBlenderModule(deps: ModuleDeps, opts: BlenderModuleOptions
     try { await backend.connect(); lastError = undefined; } catch (e) { lastError = e instanceof Error ? e.message : String(e); throw e; }
     return backend;
   }
+
+  const pin = (): ManagedPin => opts.managedPin ?? MANAGED_BLENDER;
 
   // ---- status
   const sculptor = (): AgentProfile | undefined => deps.store.getAgent(SCULPTOR_ID);
@@ -194,6 +210,11 @@ export function createBlenderModule(deps: ModuleDeps, opts: BlenderModuleOptions
     return {
       enabled: c.enabled, light, summary, backendChoice: c.backend, chosenBackend: choice.kind, backendReason: choice.reason,
       installs, ...(selected ? { selected } : {}), connected, socketOpen, sandbox: c.sandbox,
+      modeAsked: c.modeAsked === true,
+      managed: {
+        installed: managedNow(), pinned: !!effectiveSha(pin(), c.advanced.managed.sha256), version: pin().version, channel: pin().channel,
+        approxMb: Math.round(pin().approxBytes / (1024 * 1024)), supported: getPorts.platform === pin().platform, url: pin().url, downloadPage: BLENDER_DOWNLOAD_PAGE, ...(getting ? { getting: true } : {}),
+      },
       sandboxReady: rd.ready, sandboxNote: rd.note, mode, localReady: lr.ready, localNote: lr.note, nextRun,
       busy: busy ? { since: busy.since, hash12: busy.hash12, mode: busy.mode } : null,
       host: c.host, port: c.port, setup: rec,
@@ -337,6 +358,24 @@ export function createBlenderModule(deps: ModuleDeps, opts: BlenderModuleOptions
         return runSetup(t, isObj(body) && body.retrust === true);
       }));
       add('POST', '/api/blender/test', () => exclusive(runTest));
+      // Admin only by default-deny (not in the client route list). Needs the owner's click AND an approval card; an agent has no way to call it.
+      add('POST', '/api/blender/get', async () => {
+        if (!cfg().enabled) throw new HttpError(409, 'Turn the Blender bridge on first.');
+        if (getting) throw new HttpError(409, 'A Blender download is already waiting for approval or running.');
+        getting = true;
+        emitStatus();
+        try {
+          const r = await getManagedBlender(getPorts, {
+            dataDir: deps.dataDir, cfgSha: cfg().advanced.managed.sha256, ...(opts.managedPin ? { pin: opts.managedPin } : {}),
+            approve: (a) => deps.approvals.request('blender-get', SCULPTOR_ID, GET_BLENDER_TOOL, { ...a }, undefined, { summary: a.summary }),
+          });
+          getting = false;
+          if (r.ok) await detect(true);
+          const st = await status(true);
+          deps.bus.emit({ type: 'blender.status', status: st });
+          return { ok: r.ok, steps: r.steps, status: st };
+        } finally { if (getting) { getting = false; emitStatus(); } }
+      });
       add('POST', '/api/blender/launch', () => exclusive(async () => {
         if (!cfg().enabled) throw new HttpError(409, 'Turn the Blender bridge on first.');
         await detect(true);

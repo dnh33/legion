@@ -13,6 +13,41 @@ export type BlenderSandboxMode = 'off' | 'vm' | 'auto';
 
 /** Blender 5.1 is the first version the official Blender Lab MCP supports. */
 export const OFFICIAL_MIN_VERSION = '5.1.0';
+/** Oldest Blender a LOCAL (headless) run accepts. Raised from 3.0 to 4.2 (the oldest LTS the owner supports); the community live backend still accepts 3.0+. */
+export const LOCAL_MIN_VERSION = '4.2.0';
+
+/**
+ * The ONE headless Blender build Legion itself may fetch (Settings, "Get Blender for Legion"), after the user clicks and approves a card.
+ * Fixed in code on purpose: the address and the hash are not read from config, so editing config.json cannot point the download elsewhere.
+ * Provenance (looked up 2026-10-02): version, channel, size and date from blender.org/download and blender.org/download/lts (5.2 LTS, last updated to
+ * 5.2.2 on 2026-09-15; "Windows Portable (.zip) 386 MB"). The file name follows Blender's release naming and is NOT confirmed by a request.
+ * sha256: given by the owner in the build session on 2026-10-02 as the value from Blender's official checksum file (checksumUrl) for blender-5.2.2-windows-x64.zip (x64, not the ARM64 zip).
+ * The cloud session could not reach download.blender.org to read it itself, so it is NOT independently reproduced.
+ * TODO OWNER PC: compare it with `checksumUrl` (or Get-FileHash on the downloaded zip) before release. If a hash is ever empty the download is
+ * REFUSED (Legion never installs an archive it has no hash for); config blender.advanced.managed.sha256 is only a fallback for that case.
+ */
+export const MANAGED_BLENDER = {
+  version: '5.2.2',
+  channel: '5.2 LTS',
+  platform: 'win32' as NodeJS.Platform,
+  url: 'https://download.blender.org/release/Blender5.2/blender-5.2.2-windows-x64.zip',
+  checksumUrl: 'https://download.blender.org/release/Blender5.2/blender-5.2.2.sha256',
+  sha256: '3849d17a682cba006075aaa3f3597ecb5c9c30ec31035b2e092c53e40679b535',
+  /** Shown to the user; the real limits are the two caps below. */
+  approxBytes: 386 * 1024 * 1024,
+  maxArchiveBytes: 700 * 1024 * 1024,
+  maxUnpackedBytes: 3 * 1024 * 1024 * 1024,
+  maxEntries: 40_000,
+  /** The folder inside the zip and the executable Legion looks for after unpacking. */
+  topDir: 'blender-5.2.2-windows-x64',
+  exe: 'blender.exe',
+  license: 'GPL-3.0-or-later',
+  sourceUrl: 'https://projects.blender.org/blender/blender',
+} as const;
+/** The official download page, for people who want the full Blender (opened in the browser; Legion downloads nothing from it). */
+export const BLENDER_DOWNLOAD_PAGE = 'https://www.blender.org/download/';
+/** Tool name of the approval card for the managed download (not an agent tool: only the Settings route asks). */
+export const GET_BLENDER_TOOL = 'legion_get_blender';
 
 /** The id of the one bot that gets the Blender tools. */
 export const SCULPTOR_ID = 'sculptor';
@@ -44,6 +79,10 @@ export interface BlenderToolMap {
 export type BlenderLocalGuard = 'block' | 'log';
 
 export interface BlenderAdvanced {
+  managed: {
+    /** sha256 (64 hex) for the pinned managed build, used only while MANAGED_BLENDER.sha256 is empty. Empty = the download is refused. */
+    sha256: string;
+  };
   local: {
     /** Longest a local script may run (seconds, clamped 10-900). */
     timeoutSeconds: number;
@@ -108,6 +147,8 @@ export interface BlenderConfig {
   installPath?: string;
   /** Where scripts run. ABSENT until the user saves a choice (then the legacy `sandbox` key decides, see effectiveMode). */
   mode?: BlenderMode;
+  /** True once the user chose where scripts run (the first-use chooser or the Settings radio). Enabling the bridge alone does not set it. */
+  modeAsked?: boolean;
   /** Legacy mirror of `mode` (auto/local -> auto, vm -> vm, live -> off). Always written alongside `mode`. */
   sandbox: BlenderSandboxMode;
   /** Written by Setup. NOT an entry of config.mcpServers: those are handed to agents, and this server has a raw execute tool. */
@@ -132,6 +173,7 @@ export function countLines(s: string): number {
 }
 
 export const DEFAULT_ADVANCED: BlenderAdvanced = {
+  managed: { sha256: '' },
   local: { timeoutSeconds: 120, maxTaskBytes: 500 * 1024 * 1024, maxOutputBytes: 4 * 1024 * 1024, extraWriteDirs: [], guard: 'block', args: [] },
   official: {
     sourceUrl: 'https://projects.blender.org/api/v1/repos/lab/blender_mcp/archive/v1.0.3.zip',
@@ -229,6 +271,7 @@ export function normalizeBlender(v: unknown): BlenderConfig {
   const com = isObj(adv.community) ? adv.community : {};
   const vm = isObj(adv.vm) ? adv.vm : {};
   const loc = isObj(adv.local) ? adv.local : {};
+  const man = isObj(adv.managed) ? adv.managed : {};
   const dl = d.advanced.local;
   const int = (x: unknown, def: number, lo: number, hi: number): number => (typeof x === 'number' && Number.isFinite(x) ? Math.min(hi, Math.max(lo, Math.round(x))) : def);
   const mode = BLENDER_MODES.includes(v.mode as BlenderMode) ? (v.mode as BlenderMode) : undefined;
@@ -245,9 +288,11 @@ export function normalizeBlender(v: unknown): BlenderConfig {
     port,
     ...(typeof v.installPath === 'string' && v.installPath.trim() && v.installPath.length <= 1000 && !/\0/.test(v.installPath) ? { installPath: v.installPath.trim() } : {}),
     ...(mode ? { mode } : {}),
+    ...(v.modeAsked === true ? { modeAsked: true } : {}),
     sandbox: mode ? mirrorSandbox(mode) : legacy,
     ...(normEntry(v.entry) ? { entry: normEntry(v.entry)! } : {}),
     advanced: {
+      managed: { sha256: hex(man.sha256, '') },
       local: {
         timeoutSeconds: int(loc.timeoutSeconds, dl.timeoutSeconds, LOCAL_MIN_TIMEOUT_S, LOCAL_MAX_TIMEOUT_S),
         maxTaskBytes: int(loc.maxTaskBytes, dl.maxTaskBytes, 1024 * 1024, 100 * 1024 * 1024 * 1024),
@@ -294,7 +339,7 @@ export interface BlenderInstall {
   path: string;
   /** "5.1.0"; the folder name when the executable could not be asked ("5.1"). */
   version: string;
-  source: 'config' | 'registry' | 'program-files' | 'steam' | 'path' | 'applications' | 'linux';
+  source: 'config' | 'managed' | 'registry' | 'program-files' | 'steam' | 'path' | 'applications' | 'linux';
   /** True when the version came from the folder name and not from `blender --version`. */
   versionGuessed?: boolean;
 }
@@ -327,6 +372,22 @@ export interface BlenderStatusView {
   localNote?: string;
   /** Plain text: where the next script goes, or why it cannot run. */
   nextRun?: string;
+  /** The user has not yet chosen where scripts run: the first approval card carries a one-time chooser. */
+  modeAsked?: boolean;
+  /** The Legion-managed headless Blender (Settings, "Get Blender for Legion"). */
+  managed?: {
+    installed: { version: string; path: string; sha256: string; at: string } | null;
+    /** A pinned hash exists, so the download may run. False until the owner records one (see MANAGED_BLENDER). */
+    pinned: boolean;
+    version: string;
+    channel: string;
+    approxMb: number;
+    supported: boolean;
+    url: string;
+    downloadPage: string;
+    /** A download is waiting for the user's approval or running now. */
+    getting?: boolean;
+  };
   /** A script is running (or timed out and may still be running). */
   busy?: { since: string; hash12: string; mode: 'live' | 'local' | 'sandbox' } | null;
   host: string;

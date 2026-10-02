@@ -11,6 +11,7 @@ import { createHash, randomBytes } from 'node:crypto';
 import { copyFileSync, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { basename, dirname, join } from 'node:path';
 import type { BlenderConfig } from '../../shared/blender.js';
+import { LOCAL_MIN_VERSION } from '../../shared/blender.js';
 import type { AgentProfile } from '../../shared/types.js';
 import type { BackendResult } from './backend.js';
 import { PYTHON_UTF8_ENV, capText, fail, ok } from './backend.js';
@@ -21,7 +22,7 @@ import type { LocalPort, LocalRunResult, ProcessPort } from './ports.js';
 import { INSPECT_PY, previewPy } from './sandbox.js';
 import { scriptHash } from './static-check.js';
 
-export const LOCAL_MIN_VERSION = '3.0.0';
+export { LOCAL_MIN_VERSION };
 const MAX_PATH_CHARS = 200;
 const KEEP_BACKUPS = 5;
 const STOP_WAIT_MS = 5000;
