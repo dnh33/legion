@@ -2,7 +2,7 @@
  *  the run command, the export copy-back and its limits are exercised for real (skipped when python3 or bash is missing). */
 import assert from 'node:assert/strict';
 import { execFileSync, spawnSync } from 'node:child_process';
-import { chmodSync, existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import test from 'node:test';
 import { defaultBlenderConfig } from '../src/shared/blender.js';
@@ -10,9 +10,14 @@ import { MAX_EXPORT_BYTES, RUNNER_PY, SandboxRunner, renderRunCommand, safeSegme
 import type { VmPort } from '../src/core/blender/sandbox.js';
 import { scriptHash } from '../src/core/blender/static-check.js';
 import { agent, tmp } from './blender-helpers.js';
+import { fileLinkOrSkip, linkOrSkip } from './fs-links.js';
 
 const have = (c: string, a: string[]): boolean => { try { execFileSync(c, a, { stdio: 'ignore' }); return true; } catch { return false; } };
+// The product runs this in a Linux VM (POSIX paths, pkill, a sh blender); the local stand-in is real bash and python3 over a temp folder, so it
+// needs a POSIX host. On Windows these are skipped with this reason (the host-side copy-back guards they exercise are covered by blender-fs-safe,
+// which runs on Windows with junctions and hard links).
 const can = have('python3', ['--version']) && have('bash', ['--version']) && process.platform !== 'win32';
+const why = process.platform === 'win32' ? 'the stand-in VM is a POSIX bash + python3 host (the real runner is a Linux VM); not run on Windows' : 'python3 or bash is not installed';
 
 const STUB_BPY = `
 import os
@@ -84,7 +89,7 @@ test('readiness: needs a boat key and a VM that is switched on', () => {
   assert.match(s.sb.readiness(s.a).note, /UNVERIFIED/);
 });
 
-test('run: executes the script in the (stub) Blender, returns its output and brings exports back into the workspace', { skip: !can }, async () => {
+test('run: executes the script in the (stub) Blender, returns its output and brings exports back into the workspace', { skip: !can && why }, async () => {
   const s = setup();
   const script = 'import os\nprint("hello from", __name__)\nopen(os.path.join(LEGION_EXPORT_DIR, "cube.glb"), "wb").write(b"glTF-bytes")\n';
   const r = await s.sb.run({ agent: s.a, taskId: 'task_9', script });
@@ -98,7 +103,7 @@ test('run: executes the script in the (stub) Blender, returns its output and bri
   assert.ok(existsSync(join(s.root, 'legion-blender', 'work', 'task_9', 'scene.blend')), 'scene is kept per task');
 });
 
-test('run: a script error is reported with its traceback and ok=false, and the scene is still saved', { skip: !can }, async () => {
+test('run: a script error is reported with its traceback and ok=false, and the scene is still saved', { skip: !can && why }, async () => {
   const s = setup();
   const r = await s.sb.run({ agent: s.a, taskId: 't2', script: 'print("before")\nraise ValueError("kaboom")\n' });
   assert.equal(r.ok, false);
@@ -107,7 +112,7 @@ test('run: a script error is reported with its traceback and ok=false, and the s
   assert.match(r.text, /<legion-script>/);
 });
 
-test('run: only known extensions, plain names, and size/count limits come back', { skip: !can }, async () => {
+test('run: only known extensions, plain names, and size/count limits come back', { skip: !can && why }, async () => {
   const s = setup();
   const script = [
     'import os',
@@ -125,13 +130,13 @@ test('run: only known extensions, plain names, and size/count limits come back',
   assert.ok(!existsSync(join(s.ws, 'blender-exports', 't3', 'evil.sh')));
 });
 
-test('run: at most 20 files come back', { skip: !can }, async () => {
+test('run: at most 20 files come back', { skip: !can && why }, async () => {
   const s = setup();
   const r = await s.sb.run({ agent: s.a, taskId: 't4', script: 'import os\nfor i in range(30):\n    open(os.path.join(LEGION_EXPORT_DIR, f"f{i}.png"), "wb").write(b"p")\n' });
   assert.equal(r.files.length, 20);
 });
 
-test('run: a task id cannot climb out of the work folder or the workspace', { skip: !can }, async () => {
+test('run: a task id cannot climb out of the work folder or the workspace', { skip: !can && why }, async () => {
   const s = setup();
   const r = await s.sb.run({ agent: s.a, taskId: '../../x', script: 'import os\nopen(os.path.join(LEGION_EXPORT_DIR, "a.png"), "wb").write(b"p")\n' });
   assert.equal(r.ok, true, r.text);
@@ -139,7 +144,7 @@ test('run: a task id cannot climb out of the work folder or the workspace', { sk
   assert.ok(existsSync(join(s.root, 'legion-blender', 'work', '______x', 'scene.blend')));
 });
 
-test('inspect: a failing fixed script comes back as a failed result, never a throw', { skip: !can }, async () => {
+test('inspect: a failing fixed script comes back as a failed result, never a throw', { skip: !can && why }, async () => {
   const s = setup();
   const i = await s.sb.inspect({ agent: s.a, taskId: 't5' });
   // the stub has no bpy.data, so the fixed inspect script fails: the error must come back as a failed result, not a throw
@@ -187,7 +192,7 @@ test('Blender install failing in the VM gives an actionable message and no throw
   assert.match(run.text, /sandbox run failed/);
 });
 
-test('the runner script is valid Python', { skip: !can }, () => {
+test('the runner script is valid Python', { skip: !can && why }, () => {
   const dir = tmp();
   writeFileSync(join(dir, 'r.py'), RUNNER_PY);
   const r = spawnSync('python3', ['-m', 'py_compile', join(dir, 'r.py')], { encoding: 'utf8' });
@@ -196,7 +201,7 @@ test('the runner script is valid Python', { skip: !can }, () => {
 
 // ---- review fixes S2, S3, S8
 
-test('S2: a .blend export is quarantined (never in the live export folder), named .untrusted, and reported as quarantined', { skip: !can }, async () => {
+test('S2: a .blend export is quarantined (never in the live export folder), named .untrusted, and reported as quarantined', { skip: !can && why }, async () => {
   const s = setup();
   const r = await s.sb.run({ agent: s.a, taskId: 'tq', script: 'import os\nopen(os.path.join(LEGION_EXPORT_DIR, "scene2.blend"), "wb").write(b"BLEND-with-code")\nopen(os.path.join(LEGION_EXPORT_DIR, "a.png"), "wb").write(b"p")\n' });
   assert.equal(r.ok, true, r.text);
@@ -212,7 +217,7 @@ test('S2: a .blend export is quarantined (never in the live export folder), name
   assert.equal(r.files.find((f) => f.name === 'a.png')!.quarantined, undefined);
 });
 
-test('S3: every run has its own script and result file, and nothing is left behind', { skip: !can }, async () => {
+test('S3: every run has its own script and result file, and nothing is left behind', { skip: !can && why }, async () => {
   const s = setup();
   await s.sb.run({ agent: s.a, taskId: 'tu', script: 'print("one")\n' });
   await s.sb.run({ agent: s.a, taskId: 'tu', script: 'print("two")\n' });
@@ -226,7 +231,7 @@ test('S3: every run has its own script and result file, and nothing is left behi
   assert.ok(!existsSync(join(work, 'script.py')) && !existsSync(join(work, 'result.json')), 'the old shared file names are not used');
 });
 
-test('S3: two runs of the same task at once are queued and each result is its own run output', { skip: !can }, async () => {
+test('S3: two runs of the same task at once are queued and each result is its own run output', { skip: !can && why }, async () => {
   const s = setup();
   const [a, b] = await Promise.all([
     s.sb.run({ agent: s.a, taskId: 'tl', script: 'import time\ntime.sleep(0.3)\nprint("OUTPUT-A")\n' }),
@@ -236,7 +241,7 @@ test('S3: two runs of the same task at once are queued and each result is its ow
   assert.match(b.text, /OUTPUT-B/); assert.doesNotMatch(b.text, /OUTPUT-A/);
 });
 
-test('S3: the VM runner refuses a script whose bytes are not the approved ones, and says so', { skip: !can }, async () => {
+test('S3: the VM runner refuses a script whose bytes are not the approved ones, and says so', { skip: !can && why }, async () => {
   const s = setup();
   const r = await s.sb.run({ agent: s.a, taskId: 'th', script: 'print("SHOULD-NOT-RUN")\n', hash: scriptHash('print("something else")\n') });
   assert.equal(r.ok, false);
@@ -249,7 +254,7 @@ test('S3: the VM runner refuses a script whose bytes are not the approved ones, 
   assert.match(ok.text, /RAN-OK/);
 });
 
-test('S3: a result file that belongs to another run (or another script) is discarded, never reported', { skip: !can }, async () => {
+test('S3: a result file that belongs to another run (or another script) is discarded, never reported', { skip: !can && why }, async () => {
   const s = setup();
   const forge = (run: string, hash: string): VmPort => {
     const vm = s.vm;
@@ -269,25 +274,25 @@ test('S3: a result file that belongs to another run (or another script) is disca
   assert.doesNotMatch(r1.text, /FORGED-OUTPUT/);
 });
 
-test('S8: a link planted in place of the host export folder is refused and nothing is written through it', { skip: !can || process.platform === 'win32' }, async () => {
+test('S8: a link planted in place of the host export folder is refused and nothing is written through it', { skip: !can && why }, async (tc) => {
   const s = setup();
   const outside = tmp('legion-outside-');
   mkdirSync(join(s.ws, 'blender-exports'), { recursive: true });
-  symlinkSync(outside, join(s.ws, 'blender-exports', 'ts'));
+  if (!linkOrSkip(tc, outside, join(s.ws, 'blender-exports', 'ts'), 'dir')) return;
   const r = await s.sb.run({ agent: s.a, taskId: 'ts', script: 'import os\nopen(os.path.join(LEGION_EXPORT_DIR, "cube.glb"), "wb").write(b"data")\n' });
   assert.deepEqual(readdirSync(outside), [], 'nothing was written into the folder the link points to');
   assert.equal(r.files.length, 0);
   assert.match(r.text, /symbolic link|outside the workspace/);
 });
 
-test('S8: a link planted at the FINAL file name is replaced, not written through', { skip: !can || process.platform === 'win32' }, async () => {
+test('S8: a link planted at the FINAL file name is replaced, not written through', { skip: !can && why }, async (tc) => {
   const s = setup();
   const outside = tmp('legion-outside-');
   const victim = join(outside, 'victim.txt');
   writeFileSync(victim, 'original');
   const dest = join(s.ws, 'blender-exports', 'tn');
   mkdirSync(dest, { recursive: true });
-  symlinkSync(victim, join(dest, 'cube.glb'));
+  if (!fileLinkOrSkip(tc, victim, join(dest, 'cube.glb'))) return;
   const r = await s.sb.run({ agent: s.a, taskId: 'tn', script: 'import os\nopen(os.path.join(LEGION_EXPORT_DIR, "cube.glb"), "wb").write(b"new-bytes")\n' });
   // the folder now holds a link, so the whole copy-back is refused; either way the victim is untouched
   assert.equal(readFileSync(victim, 'utf8'), 'original');

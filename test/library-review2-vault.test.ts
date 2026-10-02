@@ -1,12 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Graph } from '../src/core/kg/graph.js';
 import { agentActor, HUMAN } from '../src/core/kg/types.js';
 import { exportVault, exportLibrary, importVault, MIRROR_MARKER } from '../src/core/kg/vault.js';
 import { findForbiddenSecretInField } from '../src/core/comms/scrub.js';
+import { fileLinkOrSkip } from './fs-links.js';
 
 const tmp = (p: string) => mkdtempSync(join(tmpdir(), p));
 const mk = () => new Graph({ dir: tmp('r2v-g-') });
@@ -86,7 +87,7 @@ test('R2-V6 re-importing an edited file over a human trigger note stacks one pen
   assert.equal(g.inbox(HUMAN).length, 1);
 });
 
-test('R2-V7 export is not symlink-following at the leaf, tmp files are not left, library marker present', () => {
+test('R2-V7 export is not symlink-following at the leaf, tmp files are not left, library marker present', (t) => {
   const g = mk();
   const bot = agentActor('alpha', { taskId: 'T1' });
   const n = g.upsertNode(bot, { title: 'Shared fact', body: 'b', scope: 'shared' }).node;
@@ -94,7 +95,8 @@ test('R2-V7 export is not symlink-following at the leaf, tmp files are not left,
   const victim = join(tmp('r2v-victim-'), 'victim.txt');
   writeFileSync(victim, 'keep me');
   mkdirSync(join(vault, 'legion', n.type), { recursive: true });
-  try { symlinkSync(victim, join(vault, 'legion', n.type, `shared-fact--${n.id}.md`)); } catch { return; }
+  // a hard link where a file symlink needs privilege (Windows): an in-place write would change the victim through either kind
+  if (!fileLinkOrSkip(t, victim, join(vault, 'legion', n.type, `shared-fact--${n.id}.md`))) return;
   exportLibrary(g, vault);
   assert.equal(readFileSync(victim, 'utf8'), 'keep me');
   const leftovers = readdirSync(join(vault, 'legion', n.type)).filter((f) => f.endsWith('.tmp'));
