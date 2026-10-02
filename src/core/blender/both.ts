@@ -125,13 +125,14 @@ export class BothBackend implements BlenderBackend {
   async connect(): Promise<void> {
     // The guard connects before every call. The identity probes (one of them goes to the official port) run on the first connect, after the main
     // connection was lost, and then at most once a minute, not on every tool call.
-    const fresh = this.verdict !== null && this.d.main.isConnected() && this.now() - this.verifiedAt < 60_000;
+    const v0 = this.verdict;
+    const fresh = v0 !== null && v0.official.state !== 'wrong' && v0.community.state !== 'wrong' && this.d.main.isConnected() && this.now() - this.verifiedAt < 60_000;
     if (!fresh) {
       const v = await verifyBoth(this.d.host, this.d.ports, this.d);
       this.verdict = v;
       this.verifiedAt = this.now();
-      if (v.official.state === 'wrong') { this.verdict = null; throw new Error(v.official.note); }
-      if (v.community.state === 'wrong') { this.verdict = null; throw new Error(v.community.note); }
+      if (v.official.state === 'wrong') throw new Error(v.official.note);
+      if (v.community.state === 'wrong') throw new Error(v.community.note);
     }
     await this.d.main.connect();
   }

@@ -556,6 +556,19 @@ test('B17-20 review fixes: identity probes are not repeated on every call, own-p
   }
   await both.close(); await comm.close(); await off.close();
 
+  // a "wrong" verdict is never served from the cache: with the main connection still up, the next call checks again and still refuses
+  let c2 = 5_000_000;
+  const imp = await listener('impostor');
+  const off2 = await listener('silent');
+  const main2 = fakeOfficial();
+  await main2.connect(); // the main connection is already up, so only the verdict can refuse
+  const b2 = new BothBackend({ main: main2, second: new CommunityBackend({ host: '127.0.0.1', port: imp.port, advanced: defaultBlenderConfig().advanced }), host: '127.0.0.1', ports: { official: off2.port, community: imp.port }, ...deps }, () => c2);
+  await assert.rejects(b2.connect(), /does not answer like the community add-on/);
+  await assert.rejects(b2.connect(), /does not answer like the community add-on/);
+  await assert.rejects(b2.connect(), /does not answer like the community add-on/);
+  assert.ok(imp.seen.length >= 3, 'each refused call checked again');
+  await b2.close(); await imp.close(); await off2.close();
+
   // device names and a second download of the same asset
   for (const bad of ['con.png', 'NUL.bin', 'textures/aux.jpg', 'lpt1.hdr']) assert.equal(safeRel(bad), false, bad);
   const slow = new FakeAssets();
