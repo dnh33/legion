@@ -184,9 +184,9 @@ test('wallet: an unreachable wallet is "not detected"; the configured URL is val
   const wal = fakeWallet();
   const mod = createBsvModule({ config: f.ctx.config, store: f.ctx.store, bus: f.bus, engine: f.ctx.engine, approvals: f.ctx.approvals, dataDir: d, bsvEnabled: () => true }, { state, transport: wal.transport });
   const st = await mod.probe.check();
-  assert.equal(st.condition, 'not-connected', 'even a perfectly good address is not contacted before Connect');
+  assert.equal(st.condition, 'not-configured', 'a hand-edited address is ignored: only Connect sets it, so nothing is contacted');
   assert.equal(mod.probe.connect().ok, false, 'and Connect itself refuses an address that is not loopback');
-  assert.equal((await mod.probe.check()).condition, 'not-connected');
+  assert.equal((await mod.probe.check()).condition, 'not-configured');
   assert.equal(wal.w.calls.length, 0);
   // the Connect route refuses it too, with a reason, before anything is saved or sent
   const s2 = await setup({ on: true });
@@ -195,13 +195,14 @@ test('wallet: an unreachable wallet is "not detected"; the configured URL is val
   assert.equal(s2.state.walletUrl, undefined, 'a refused address is not kept');
 });
 
-test('walletUrl survives toggling BSV mode (the toggle rewrites only the bsv key and keeps the url)', async () => {
+test('a hand-edited walletUrl is ignored (only Connect sets it); the BSV toggle rewrites bsv without it', async () => {
   const d = mkdtempSync(join(tmpdir(), 'legion-bsvw-'));
   writeFileSync(join(d, 'config.json'), JSON.stringify({ port: 1, bsv: { enabled: false, network: 'testnet', walletUrl: 'http://127.0.0.1:4444' } }));
   const state = createBsvState({ dataDir: d, config: { bsv: { enabled: false, network: 'testnet', walletUrl: 'http://127.0.0.1:4444' } } as never });
-  assert.equal(state.walletUrl, 'http://127.0.0.1:4444');
+  assert.equal(state.walletUrl, undefined);
   state.set(true);
-  assert.deepEqual(JSON.parse(readFileSync(join(d, 'config.json'), 'utf8')).bsv, { enabled: true, network: 'testnet', walletUrl: 'http://127.0.0.1:4444' });
+  assert.deepEqual(JSON.parse(readFileSync(join(d, 'config.json'), 'utf8')).bsv, { enabled: true, network: 'testnet' });
+  assert.equal(state.walletUrl, undefined);
 });
 
 // ---------------------------------------------------------------- arming and freezing through the routes
