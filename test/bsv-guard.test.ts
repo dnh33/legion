@@ -14,7 +14,7 @@ function code(src: string): string {
     .replace(/'(?:\\.|[^'\\\n])*'|"(?:\\.|[^"\\\n])*"|`(?:\\.|[^`\\])*`/g, '""');
 }
 
-const files = DIRS.flatMap((d) => readdirSync(d).filter((f) => /\.(ts|tsx)$/.test(f)).map((f) => ({ path: d + f, src: readFileSync(d + f, 'utf8') })));
+const files = DIRS.flatMap((d) => readdirSync(d).filter((f) => /\.(ts|tsx)$/.test(f)).map((f) => ({ path: (d + f).replace(/\\/g, '/'), src: readFileSync(d + f, 'utf8') })));
 
 test('BSV v0 has files to guard', () => { assert.ok(files.length >= 3); });
 
