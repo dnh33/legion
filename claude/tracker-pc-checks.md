@@ -107,3 +107,46 @@ B4/B5 (managed Blender, chooser). Downloads: the owner present and a go for each
 
 ## V0 result (2026-10-02 night, orchestrator by hand, owner's BSV Desktop at 127.0.0.1:3321, read-only, scratch script outside the repo)
 POST /getVersion -> 200 {"version":"wallet-brc100-1.0.0"} (78 ms); /getNetwork -> {"network":"mainnet"} (8 ms); /isAuthenticated -> {"authenticated":true} (5 ms); /getHeight -> {"height":969369} (470 ms). No permission prompt appeared (the owner was present). Content-Type of every reply is text/html; charset=utf-8 although the body is JSON (Legion's probe does not check the content type: OK, keep it that way). FINDINGS: (F-W1) the real version string is NOT semver: readVersion() in src/core/bsv/wallet-probe.ts returns null for it (SEMVER_RE), so Legion shows the version as unknown; reachable stays true; harmless but wrong: accept a short safe token like [a-z0-9-]+-\d+\.\d+\.\d+ or show the clipped raw string (fix in T5-owned file wallet-probe.ts, tests included). (F-W2) the real network string is "mainnet": readNetwork maps it to main, correct. The owner's wallet is MAINNET, so a testnet spend cannot be tested against it; the network-mismatch refusal can.
+
+## BSV spend tool (T2, branch `claude/bsv-t2-spend`): owner-only wallet checks. Nothing here was run: the build used fakes only
+Each assumption A1..A12 of `claude/plan-bsv-rung3.md` section 15 is a named failing-closed check in `src/core/bsv/spend.ts`; the row that proves it on a real wallet is below. If a real wallet contradicts one, the spend path refuses (fails closed) and the owner is told; release is gated on these rows, not on the build. Plan ids in `claude/real-pc-test-plan.md`: V = BSVT, R = BSVM.
+
+### V1 to V12: a SEPARATE TESTNET wallet (BSV Desktop switched to its testnet database, or a VM), owner present. Never the funded mainnet wallet
+Setup V0: the wallet app in testnet mode with testnet coins from a faucet; Legion built from the reviewed commit; confirm in Legion's BSV panel that the wallet claims a TESTNET network before anything else.
+
+| # | Owner action | Expected observation | Assumption it proves | State |
+|---|---|---|---|---|
+| V1 | By hand (no Legion code): ask the wallet for an unsigned transaction (`createAction` with `options.signAndProcess:false`, one P2PKH output to a second testnet address of the wallet itself); save a scrubbed copy of the answer | `signableTransaction {tx, reference}` and NO txid; no wallet prompt; nothing broadcast. Note: encoding of `tx` (byte array or hex), whether the parent transactions are inside the BEEF, number and kind of extra outputs (change) | A1 A2 A3 A4 | todo |
+| V2 | By hand: `abortAction` with that `reference` | `{aborted:true}`; the locked coins are spendable again; a second `abortAction` with the same reference fails cleanly | A5 | todo |
+| V3 | Connect to the wallet in Legion, run `bsv_status` | testnet, reachable, signed in; the version string is whatever the wallet says (the real one is not semver, finding F-W1) | A9 A12 | todo |
+| V4 | Panel: put one testnet address (the wallet's second address) on the TESTNET allowlist | native dialog; list saved | | todo |
+| V5 | Assayer asks for 600 sat to that address | card: 600 sat, FULL address, TESTNET, fee, caps; second dialog (untrusted content) because `bsv_status` taints the run; the wallet's own prompt appears only after both; a txid comes back; open it in a testnet explorer (Legion does not check it) | A6 A7 A10 A11 | todo |
+| V6 | A second request right after | the wallet prompts AGAIN (no standing grant for the originator `legion.local`) | A6 | todo |
+| V7 | Cancel at Legion's dialog | no wallet prompt; reservation freed; the wallet's coins are not locked (abort worked); a following request for the same amount works | A5 | todo |
+| V8 | Decline in the WALLET's prompt | record exactly what the wallet sends back (HTTP status, JSON `code`); Legion shows `unknown` (expected) until a reviewed mapping exists; resolve it natively ("it was NOT sent") | A8 | todo |
+| V9 | Kill the wallet during its prompt, then restart Legion | `unknown`; after the restart still blocked and frozen; resolve natively, unfreeze; spends work again | A8 | todo |
+| V10 | Request 1,001 sat; request a non-allowlisted address | denied before any dialog; the wallet is not asked to build anything | | todo |
+| V11 | Freeze while the card dialog is open | the dialog answer is refused; no wallet prompt | | todo |
+| V12 | Hand-edit `bsv.walletUrl` in `config.json`, restart | not used; the panel asks for Connect | | todo |
+
+Also record: the wallet prompt's wording (for the docs), whether a "remember / always allow" option appears (must be declined; if it cannot be avoided, that is a blocker), whether the wallet adds more than one change output, and the fee level it chooses (sets the mainnet fee ceiling, A11).
+
+### R0 to R11: the owner's real-funds check, BY HAND, tiny amounts, owner at the keyboard. Never scripted, never by an agent
+Preconditions: V1..V12 passed; independent review of the spend module, per-network policy and the dialogs signed off; Legion built from the reviewed commit; a second mainnet address of the owner's OWN (so the net cost is the fee). Amount 200 sat, mainnet caps at defaults. Until R0..R11 are recorded every document says "has not been verified with real funds".
+
+| # | Owner action | Expected observation | State |
+|---|---|---|---|
+| R0 | Note the wallet balance and history; open Legion's BSV panel | Mainnet switch OFF, not armed | todo |
+| R1 | Connect to the real wallet; ask the Assayer for 200 sat | Denied `mainnet-disabled`; NO wallet prompt; audit `denied` with `net` main; the wallet's call log shows only the four read-only questions | todo |
+| R2 | Enable mainnet, read the dialog, confirm | Panel: enabled, not armed | todo |
+| R3 | Allowlist the own address on the MAINNET list; ask again | Denied `not-armed`; no wallet prompt | todo |
+| R4 | Arm 5 minutes (read the dialog); ask again | D1 then D2 (D3 if tainted); compare amount, network word, FULL address (character by character against the wallet) and caps with this table | todo |
+| R5 | Press Cancel on D2 | `declined`; no wallet prompt; reservation freed; still armed | todo |
+| R6 | Ask again, confirm D1 and D2 | The wallet shows its OWN prompt: 200 sat, the recipient, ONE payment output; approve there only if all match | todo |
+| R7 | Read the result | txid returned; check it in a mainnet explorer in a browser (Legion does not): one 200 sat output to the own address plus change; the balance fell by the fee only | todo |
+| R8 | Ask once more | Denied `not-armed` (one arm, one spend); no wallet prompt | todo |
+| R9 | Arm, ask, confirm D1 and D2, then Decline in the WALLET | Legion shows `unknown`; the switch is off (auto-off); read the wallet history and resolve natively ("NOT sent") | todo |
+| R10 | Enable, arm, ask; Freeze while D1 is open | Dialog answer refused; no wallet prompt | todo |
+| R11 | Disable mainnet, Disarm, Disconnect | Panel shows off; read the audit lines for R1..R10 and record dated results here | todo |
+
+ABORT at once (Freeze, Disable mainnet, no retry, record) if: a dialog differs from the table in amount, network word or one character of the address; the wallet prompt comes before D1 and D2 are answered, shows another amount or recipient or more than one payment output, offers "always allow" or a monthly limit (do not tick it), or does not appear at all in R6 (assumption A6); the fee shown exceeds 100 sat; Legion returns any status other than the expected one; a second prompt appears; the txid is not 64 hex or the explorer shows anything unexpected. After an abort read the wallet history before anything else.
