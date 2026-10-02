@@ -8,6 +8,8 @@ Each agent has `vm.enabled`, `vm.size` (`small`, `default`, `large`) and `vm.idl
 
 `default` works on every boat.dev plan. `large` needs a paid plan. On a free trial boat.dev answers `403 trial_machine_class_not_allowed`; Legion then starts the VM at `default`, shows "Running at default size" in the Computer card and keeps the configured size, so it returns to `large` on its own once the plan allows it.
 
+On upgrade from a build that seeded Builder with `large`, Legion sets Builder to `default` once (flag `builder-vm-size-default-v1` in `state.json`); a size you choose afterwards is kept.
+
 A running VM keeps its size; a changed setting applies the next time it is stopped and started (a stopped VM picks it up when it resumes).
 
 ## When a start keeps failing
@@ -22,7 +24,7 @@ Press **Start** (or **Retry**) in the Computer card, or let the agent call `vm_s
 
 If `vm_stop` says boat.dev still reports the VM up, or that it could not confirm, the stop request was sent but the VM may still be running and billing: check the Computer card or the boat.dev dashboard, or call stop again. A start and a stop for the same agent never overlap; a stop during a start waits for the start to finish and then stops it.
 
-Settings, boat.dev shows **Key permissions** with a **Check again** button. The check only reads and asks about a sandbox id that cannot exist, so it never creates a VM or costs money. "Not refused" means boat.dev did not refuse the action at that moment; a real call can still be refused, and then it appears in the same list. If boat.dev cannot be reached, is rate limiting or has a server error, the check says so and gives no verdict on the key (only a rejected key is reported as rejected). Pasting a different key, or removing it, starts the findings over.
+The check is lazy: Legion runs no key-permission probe at start (stored VMs are still refreshed at start: one boat.dev read per VM you already have). The first look runs once, in the background, on the first VM use or when you open Settings, boat.dev (and again when you save a different key); after that the result is cached until you press **Check again** or change the key. Settings, boat.dev shows **Key permissions** with a **Check again** button. The check only reads and asks about a sandbox id that cannot exist, so it never creates a VM or costs money. "Not refused" means boat.dev did not refuse the action at that moment; a real call can still be refused, and then it appears in the same list. If boat.dev cannot be reached, is rate limiting or has a server error, the check says so and gives no verdict on the key (only a rejected key is reported as rejected). Pasting a different key, or removing it, starts the findings over.
 
 ## Usage and cost
 

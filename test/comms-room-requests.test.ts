@@ -4,6 +4,9 @@
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync, writeFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { RoomStore } from '../src/core/comms/rooms.js';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import type { McpSdkServerConfigWithInstance } from '@anthropic-ai/claude-agent-sdk';
@@ -11,7 +14,7 @@ import { ApprovalBroker } from '../src/core/approvals.js';
 import { createCommsModule } from '../src/core/comms/index.js';
 import { buildCommsToolsServer } from '../src/core/comms/tools.js';
 import type { ModuleDeps } from '../src/core/modules.js';
-import { normalizeComms } from '../src/shared/config.js';
+import { MAX_ROOM_BUDGET_USD, normalizeComms } from '../src/shared/config.js';
 import type { RoomRequest } from '../src/core/comms/hub.js';
 import { makeHarness } from './comms-fakes.test.js';
 import { AUTH, asClient } from './helpers-c.js';
@@ -42,7 +45,8 @@ test('C: room_create shows a card first, and only on Allow creates a room marked
   assert.equal(card.agentId, 'zealot');
   assert.equal(card.taskId, 'task_1');
   assert.match(card.summary, /Zealot asks to create a room\. The name below is the bot's text, not Legion's: Launch crew\nMembers: Zealot, Scout, Builder\. Lead: Zealot\./);
-  assert.match(card.summary, /Budget: \$1\.00/);
+  assert.match(card.summary, /No spend limit/, 'the owner is told plainly that nothing caps the cost');
+  assert.doesNotMatch(card.summary, /Budget: \$/);
   assert.match(card.summary, /Only you can delete the room later/);
   assert.equal(h.hub.listRooms().length, 0, 'nothing exists while the card is open');
   assert.ok(!h.events.some((e) => e.type === 'room.updated'), 'and nothing was announced');
@@ -52,7 +56,7 @@ test('C: room_create shows a card first, and only on Allow creates a room marked
   assert.deepEqual(room.members, ['zealot', 'scout', 'builder']);
   assert.equal(room.lead, 'zealot');
   assert.equal(room.kind, 'group');
-  assert.equal(room.guards.budgetUsd, 1, 'default budget for a bot-made room');
+  assert.equal(room.guards.budgetUsd, null, 'a bot-made room has no spend limit unless one is named');
   assert.equal(room.guards.maxHops, 6, 'the ordinary hop guard');
   assert.equal(room.guards.cycleRepeats, 3);
   assert.match(h.messages(room.id)[0]!.text, /Room created by Zealot; you approved it/);
@@ -88,7 +92,6 @@ test('C: caps are enforced before any card: members, budget, lead, strangers, se
   await assert.rejects(h.hub.botCreateRoom('zealot', { name: 'Big', members: names }, ctx()), /at most 6 bots including you \(you named 7\)/);
   await assert.rejects(h.hub.botCreateRoom('zealot', { name: 'Alone', members: ['zealot'] }, ctx()), /at least one other bot/);
   await assert.rejects(h.hub.botCreateRoom('zealot', { name: 'Ghost', members: ['nobody'] }, ctx()), /Unknown agent "nobody"/);
-  await assert.rejects(h.hub.botCreateRoom('zealot', { name: 'Rich', members: ['scout'], budgetUsd: 50 }, ctx()), /at most \$5\.00/);
   await assert.rejects(h.hub.botCreateRoom('zealot', { name: 'Free', members: ['scout'], budgetUsd: 0 }, ctx()), /at least 0\.05/);
   await assert.rejects(h.hub.botCreateRoom('zealot', { name: 'Lead', members: ['scout'], lead: 'builder' }, ctx()), /lead must be one of the members/);
   await assert.rejects(h.hub.botCreateRoom('zealot', { name: '  ', members: ['scout'] }, ctx()), /name is required/);
@@ -98,7 +101,7 @@ test('C: caps are enforced before any card: members, budget, lead, strangers, se
 
 test('C: the member cap, the budget default and the budget ceiling come from config', async () => {
   const a = approver();
-  const h = makeHarness({ hub: { approve: a.approve, comms: { botRoomMaxMembers: 3, botRoomDefaultBudgetUsd: 0.5, botRoomMaxBudgetUsd: 2 } } });
+  const h = makeHarness({ hub: { approve: a.approve, comms: { botRoomMaxMembers: 3, botRoomDefaultBudgetUsd: 0.5, botRoomMaxBudgetUsd: 2, turnCostFloorUsd: 0.02 } } });
   await assert.rejects(h.hub.botCreateRoom('zealot', { name: 'Four', members: ['scout', 'builder', 'scribe'] }, ctx()), /at most 3 bots/);
   await assert.rejects(h.hub.botCreateRoom('zealot', { name: 'Rich', members: ['scout'], budgetUsd: 2.5 }, ctx()), /at most \$2\.00/);
   const p = h.hub.botCreateRoom('zealot', { name: 'Ok', members: ['scout', 'builder'], budgetUsd: 2 }, ctx());
@@ -110,19 +113,19 @@ test('C: the member cap, the budget default and the budget ceiling come from con
 });
 
 test('C: normalizeComms pulls config values back into range', () => {
-  assert.deepEqual(normalizeComms(undefined), { botRoomMaxMembers: 6, botRoomDefaultBudgetUsd: 1, botRoomMaxBudgetUsd: 5, turnCostFloorUsd: 0.02 });
+  assert.deepEqual(normalizeComms(undefined), { botRoomMaxMembers: 6, botRoomDefaultBudgetUsd: null, botRoomMaxBudgetUsd: null, turnCostFloorUsd: 0.02 });
   const n = normalizeComms({ botRoomMaxMembers: 40, botRoomDefaultBudgetUsd: 9, botRoomMaxBudgetUsd: 3, turnCostFloorUsd: -1 });
   assert.equal(n.botRoomMaxMembers, 6, 'never above the 6 every room is limited to');
   assert.equal(n.botRoomMaxBudgetUsd, 3);
   assert.equal(n.botRoomDefaultBudgetUsd, 3, 'the default cannot exceed the ceiling');
   assert.equal(n.turnCostFloorUsd, 0.02);
   assert.equal(normalizeComms({ botRoomMaxMembers: 4.5 }).botRoomMaxMembers, 6);
-  assert.equal(normalizeComms('junk').botRoomMaxBudgetUsd, 5);
+  assert.equal(normalizeComms('junk').botRoomMaxBudgetUsd, null);
   // a $0 or negative budget in the config file falls back to the defaults: a room a bot makes can never start wedged
   const low = normalizeComms({ botRoomDefaultBudgetUsd: 0, botRoomMaxBudgetUsd: -2 });
-  assert.equal(low.botRoomMaxBudgetUsd, 5);
-  assert.equal(low.botRoomDefaultBudgetUsd, 1);
-  assert.equal(normalizeComms({ botRoomDefaultBudgetUsd: 0.01 }).botRoomDefaultBudgetUsd, 1, 'below the 0.05 minimum is not accepted');
+  assert.equal(low.botRoomMaxBudgetUsd, null);
+  assert.equal(low.botRoomDefaultBudgetUsd, null);
+  assert.equal(normalizeComms({ botRoomDefaultBudgetUsd: 0.01 }).botRoomDefaultBudgetUsd, null, 'below the 0.05 minimum is not accepted');
 });
 
 test('C: a room a bot made starts with the same guards: the hop limit and the budget guard stop it like any other', async () => {
@@ -443,7 +446,7 @@ test('C e2e: the card appears in the app, the MCP token cannot answer it, the ad
   assert.equal(rooms.length, 1);
   assert.equal(rooms[0].createdBy, 'f');
   assert.deepEqual(rooms[0].members, ['f', 'g']);
-  assert.equal(rooms[0].guards.budgetUsd, 1);
+  assert.equal(rooms[0].guards.budgetUsd, null);
   // the token cannot delete it; the app can
   assert.equal((await m.http('DELETE', `/api/rooms/${rooms[0].id}`, undefined, asClient)).status, 403);
   assert.equal((await m.http('DELETE', `/api/rooms/${rooms[0].id}`, undefined, AUTH)).status, 200);
@@ -502,4 +505,88 @@ test('C: createCommsModule wires the real broker: the card is a normal approval 
   assert.equal(JSON.parse(textOf(await ok2)).created, true);
   await close();
   await mod.dispose!();
+});
+
+test('R1: a bot-made room with no budget never trips the budget guard, however much it spends; hop and cycle guards still apply', async () => {
+  const a = approver();
+  const h = makeHarness({ hub: { approve: a.approve, comms: { turnCostFloorUsd: 0.5 } } });
+  const p = h.hub.botCreateRoom('zealot', { name: 'Open', members: ['scout'] }, ctx());
+  await tick(); a.answer(true);
+  const room = await p;
+  assert.equal(room.guards.budgetUsd, null);
+  h.hub.postHuman(room.id, '@zealot go');
+  h.engine.finish(h.engine.last('zealot').taskId, '@scout take over', { cost: 500 });
+  assert.equal(h.hub.getRoom(room.id).paused, undefined, 'no pause on cost');
+  assert.equal(h.engine.startsFor('scout').length, 1, 'the next bot is woken');
+  assert.equal(h.hub.botRoomView(h.hub.getRoom(room.id)).budgetUsd, null);
+});
+
+test('R1: a human can add, raise and remove a budget on a no-limit room; null survives a restart and existing numbers are kept', async () => {
+  const a = approver();
+  const h = makeHarness({ hub: { approve: a.approve } });
+  const p = h.hub.botCreateRoom('zealot', { name: 'Open', members: ['scout'] }, ctx());
+  await tick(); a.answer(true);
+  const room = await p;
+  assert.equal(h.hub.updateRoom(room.id, { guards: { budgetUsd: 3 } }).guards.budgetUsd, 3, 'add');
+  assert.equal(h.hub.updateRoom(room.id, { guards: { budgetUsd: 9 } }).guards.budgetUsd, 9, 'raise');
+  assert.equal(h.hub.updateRoom(room.id, { guards: { budgetUsd: null } }).guards.budgetUsd, null, 'remove');
+  assert.throws(() => h.hub.updateRoom(room.id, { guards: { budgetUsd: 0.01 } }), /between 0\.05/);
+  // persistence: the index file is read back as written (null stays null, a stored number stays), a missing budget gets the default
+  const dir = (h.hub as any).rooms.dir as string;
+  const idx = JSON.parse(readFileSync(join(dir, 'index.json'), 'utf8')) as Array<Record<string, any>>;
+  assert.equal(idx[0]!.guards.budgetUsd, null);
+  const old = { ...idx[0]!, id: 'room_old', guards: { ...idx[0]!.guards, budgetUsd: 4 } };
+  const legacy = { ...idx[0]!, id: 'room_legacy', guards: { maxHops: 6, cycleRepeats: 3, everyoneCooldownSec: 30 } };
+  writeFileSync(join(dir, 'index.json'), JSON.stringify([idx[0], old, legacy]));
+  const store = new RoomStore(dirname(dir));
+  assert.equal(store.get(room.id)!.guards.budgetUsd, null);
+  assert.equal(store.get('room_old')!.guards.budgetUsd, 4, 'an existing room keeps its budget');
+  assert.equal(store.get('room_legacy')!.guards.budgetUsd, 2, 'a room with no stored budget gets the ordinary default');
+});
+
+test('R1: a bot that names a budget still gets the 0.05 minimum; an optional ceiling still applies when configured', async () => {
+  const a = approver();
+  const h = makeHarness({ hub: { approve: a.approve } });
+  await assert.rejects(h.hub.botCreateRoom('zealot', { name: 'Tiny', members: ['scout'], budgetUsd: 0.01 }, ctx()), /at least 0\.05/);
+  const p = h.hub.botCreateRoom('zealot', { name: 'Big', members: ['scout'], budgetUsd: 500 }, ctx());
+  await tick();
+  assert.match(a.seen[0]!.summary, /Budget: \$500\.00/);
+  a.answer(true);
+  assert.equal((await p).guards.budgetUsd, 500, 'no default ceiling');
+});
+
+test('B1: a bot-named budget above the room maximum is refused up front, before any card; the maximum itself still works', async () => {
+  const a = approver();
+  const h = makeHarness({ hub: { approve: a.approve } });
+  for (const budgetUsd of [1e9, 10001]) {
+    await assert.rejects(h.hub.botCreateRoom('zealot', { name: 'Big', members: ['scout'], budgetUsd }, ctx()), /budgetUsd must be at most \$10000/);
+  }
+  assert.equal(a.seen.length, 0, 'no card for a budget that could not be created');
+  const p = h.hub.botCreateRoom('zealot', { name: 'Max', members: ['scout'], budgetUsd: MAX_ROOM_BUDGET_USD }, ctx());
+  await tick(); a.answer(true);
+  assert.equal((await p).guards.budgetUsd, 10000);
+});
+
+test('B1: the re-check at approval time also refuses a budget above the maximum', () => {
+  const h = makeHarness();
+  const recheck = (h.hub as unknown as { recheckRoomPlan(s: unknown, p: unknown): void }).recheckRoomPlan.bind(h.hub);
+  const sender = h.agents.get("zealot")!;
+  const plan = (budgetUsd: number | null) => ({ name: 'X', members: ['zealot', 'scout'], lead: 'zealot', budgetUsd });
+  assert.throws(() => recheck(sender, plan(1e9)), /nothing was created/);
+  assert.doesNotThrow(() => recheck(sender, plan(10000)));
+  assert.doesNotThrow(() => recheck(sender, plan(null)));
+});
+
+test('B2: with a ceiling configured and no budget named, the room gets the ceiling (or the default clamped to it), not no limit', async () => {
+  const a = approver();
+  const h = makeHarness({ hub: { approve: a.approve, comms: { botRoomMaxMembers: 6, botRoomDefaultBudgetUsd: null, botRoomMaxBudgetUsd: 2, turnCostFloorUsd: 0.02 } } });
+  const p = h.hub.botCreateRoom('zealot', { name: 'Capped', members: ['scout'] }, ctx());
+  await tick();
+  assert.match(a.seen[0]!.summary, /Budget: \$2\.00/);
+  a.answer(true);
+  assert.equal((await p).guards.budgetUsd, 2);
+  const h2 = makeHarness({ hub: { approve: a.approve, comms: { botRoomMaxMembers: 6, botRoomDefaultBudgetUsd: 9, botRoomMaxBudgetUsd: 3, turnCostFloorUsd: 0.02 } } });
+  const q = h2.hub.botCreateRoom('zealot', { name: 'Clamped', members: ['scout'] }, ctx());
+  await tick(); a.answer(true, 1);
+  assert.equal((await q).guards.budgetUsd, 3);
 });

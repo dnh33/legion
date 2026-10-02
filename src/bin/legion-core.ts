@@ -50,13 +50,14 @@ async function main() {
   // lets ask/tell check a per-task model against what the account offers
   engine.bridge.catalog = () => getCatalog({ config });
   let stopReaper: () => void = () => {};
-  const restartReaper = () => {
+  const restartReaper = (keyChanged = false) => {
     stopReaper(); stopReaper = boatConfigured() ? vms.startReaper() : () => {};
-    // A new key knows nothing yet: forget the old key's findings and look again in the background (cheap reads, never creates a sandbox).
+    // A new key knows nothing yet: forget the old key's findings. The permission probe (about 8 boat.dev calls) does NOT run at core start:
+    // it runs when the user saves a key in Settings, on the first VM use, or when Settings, boat.dev opens (see BoatHealth.ensure).
     vms.health.reset();
-    if (boatConfigured()) void vms.health.probe().catch(() => undefined);
+    if (keyChanged && boatConfigured()) void vms.health.probe().catch(() => undefined);
   };
-  const settings = new SettingsService({ config, bus, configPath: configPath(), dataDir: dataDir(), onBoatChange: restartReaper });
+  const settings = new SettingsService({ config, bus, configPath: configPath(), dataDir: dataDir(), onBoatChange: () => restartReaper(true) });
   // BSV mode v0 (knowledge and visibility only; no wallet). The flag lives in config.json under "bsv".
   const bsvState = createBsvState({ dataDir: dataDir(), config });
   const bsvEnabled = () => bsvState.enabled;

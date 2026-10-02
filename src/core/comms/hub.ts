@@ -7,7 +7,7 @@ import type {
   Room, RoomGuards, RoomKind, RoomMessage, RoomMessageKind, RoomPauseReason, RoomSender, RoomStrategy, TaskOrigin, CommsState,
 } from '../../shared/comms.js';
 import type { AgentProfile, ApprovalMode, ApprovalRequest, LegionEvent, ModelChoice, Task, TaskSource } from '../../shared/types.js';
-import { DEFAULT_COMMS, MIN_ROOM_BUDGET_USD } from '../../shared/config.js';
+import { DEFAULT_COMMS, MAX_ROOM_BUDGET_USD, MIN_ROOM_BUDGET_USD } from '../../shared/config.js';
 import type { CommsConfig } from '../../shared/config.js';
 import { newId, nowIso } from '../../shared/util.js';
 import { stricterMode } from '../approvals.js';
@@ -65,7 +65,7 @@ export interface HubOptions {
 }
 
 /** Thrown for caller mistakes; carries the HTTP status the route layer should use. */
-export { MIN_ROOM_BUDGET_USD };
+export { MIN_ROOM_BUDGET_USD, MAX_ROOM_BUDGET_USD };
 /** Human messages held while a room is paused for budget, per room (the transcript keeps them anyway; this is only what gets replayed). */
 const HELD_CAP = 20;
 
@@ -162,7 +162,7 @@ export function mergeGuards(base: RoomGuards, patch: Partial<RoomGuards> | undef
   const allowed = new Set(['maxHops', 'budgetUsd', 'cycleRepeats', 'everyoneCooldownSec']);
   for (const k of Object.keys(patch)) if (!allowed.has(k)) throw new CommsError(400, `Unknown guard "${k}"`);
   if (patch.maxHops !== undefined) out.maxHops = num(patch.maxHops, 'maxHops', 1, 100, true);
-  if (patch.budgetUsd !== undefined) out.budgetUsd = num(patch.budgetUsd, 'budgetUsd', MIN_ROOM_BUDGET_USD, 10_000, false);
+  if (patch.budgetUsd !== undefined) out.budgetUsd = patch.budgetUsd === null ? null : num(patch.budgetUsd, 'budgetUsd', MIN_ROOM_BUDGET_USD, MAX_ROOM_BUDGET_USD, false);
   if (patch.cycleRepeats !== undefined) out.cycleRepeats = num(patch.cycleRepeats, 'cycleRepeats', 2, 50, true);
   if (patch.everyoneCooldownSec !== undefined) out.everyoneCooldownSec = num(patch.everyoneCooldownSec, 'everyoneCooldownSec', 0, 86_400, false);
   return out;
@@ -533,7 +533,7 @@ export class CommsHub {
   }
 
   /** What a bot is told about a room it just changed. */
-  botRoomView(room: Room): { id: string; name: string; members: Array<{ id: string; name: string }>; lead: string; budgetUsd: number; createdBy?: string } {
+  botRoomView(room: Room): { id: string; name: string; members: Array<{ id: string; name: string }>; lead: string; budgetUsd: number | null; createdBy?: string } {
     return {
       id: room.id, name: room.name, members: room.members.map((m) => ({ id: m, name: this.nameOf(m) })), lead: room.lead,
       budgetUsd: room.guards.budgetUsd, ...(room.createdBy ? { createdBy: this.nameOf(room.createdBy) } : {}),
@@ -544,7 +544,7 @@ export class CommsHub {
 
   /**
    * `room_create`: validate, show the user a card ("Zealot wants to create room X with A, B, C"), and only on Allow make the room.
-   * The creator is always a member. Members are capped, the budget has a default and a ceiling (config "comms"), the guards are the
+   * The creator is always a member. Members are capped, the budget is optional (none unless the bot names one or config "comms" sets a default; an optional ceiling applies), the guards are the
    * ordinary ones, the room is marked as created by the bot, and no bot tool deletes a room: only the user can.
    */
   async botCreateRoom(fromId: string, input: { name: string; members: string[]; lead?: string; budgetUsd?: number }, ctx: BotToolContext = {}): Promise<Room> {
@@ -555,7 +555,7 @@ export class CommsHub {
     const lines = [
       `${who} asks to create a room. The name below is the bot's text, not Legion's: ${cardText(plan.name, 60)}`,
       `Members: ${plan.members.map((m) => cardText(this.nameOf(m), 40)).join(', ')}. Lead: ${cardText(this.nameOf(plan.lead), 40)}.`,
-      `Budget: $${plan.budgetUsd.toFixed(2)} (the room pauses when it is spent), ${DEFAULT_GUARDS.maxHops} bot-to-bot hops at most.`,
+      `${plan.budgetUsd === null ? 'No spend limit: the room never pauses on cost, so it can spend without bound until you pause it or set a budget in room settings.' : `Budget: $${plan.budgetUsd.toFixed(2)} (the room pauses when it is spent).`} ${DEFAULT_GUARDS.maxHops} bot-to-bot hops at most.`,
       ...(ctx.tainted ? ['This run has read outside content (web, shell or an external tool); check the request carefully.'] : []),
       'Only you can delete the room later. Deny to stop it.',
     ];
@@ -614,7 +614,7 @@ export class CommsHub {
   }
 
   /** The frozen plan of an approved room_create, checked again against the world as it is now. */
-  private recheckRoomPlan(sender: AgentProfile, plan: { name: string; members: string[]; lead: string; budgetUsd: number }): void {
+  private recheckRoomPlan(sender: AgentProfile, plan: { name: string; members: string[]; lead: string; budgetUsd: number | null }): void {
     const stale = (why: string): never => { throw new CommsError(409, `${why} since you were asked, so nothing was created. Ask again if you still want it.`); };
     if (!this.agents.getAgent(sender.id)) stale('You no longer exist');
     for (const id of plan.members) {
@@ -624,14 +624,15 @@ export class CommsHub {
     const max = Math.min(this.comms.botRoomMaxMembers, MAX_MEMBERS);
     if (plan.members.length < 2 || plan.members.length > max) stale(`The limit for a room a bot creates is now ${max} bots`);
     if (!plan.members.includes(plan.lead) || !plan.members.includes(sender.id)) stale('The members changed');
-    if (plan.budgetUsd < MIN_ROOM_BUDGET_USD || plan.budgetUsd > this.comms.botRoomMaxBudgetUsd) stale(`The budget limit for a room a bot creates is now $${this.comms.botRoomMaxBudgetUsd.toFixed(2)}`);
+    const cap = this.comms.botRoomMaxBudgetUsd;
+    if (plan.budgetUsd !== null && (plan.budgetUsd < MIN_ROOM_BUDGET_USD || plan.budgetUsd > MAX_ROOM_BUDGET_USD || (cap !== null && plan.budgetUsd > cap))) stale(`The budget limit for a room a bot creates is now $${(cap ?? MIN_ROOM_BUDGET_USD).toFixed(2)}`);
   }
 
   /** What a membership card was shown: if the room differs when the user answers, the request is void. */
   private roomSnapshot(room: Room): string { return JSON.stringify([room.name, [...room.members].sort(), room.lead]); }
 
   /** Validates a bot's room_create input into what would be created. */
-  private planBotRoom(sender: AgentProfile, input: { name: string; members: string[]; lead?: string; budgetUsd?: number }): { name: string; members: string[]; lead: string; budgetUsd: number } {
+  private planBotRoom(sender: AgentProfile, input: { name: string; members: string[]; lead?: string; budgetUsd?: number }): { name: string; members: string[]; lead: string; budgetUsd: number | null } {
     const name = cardText(this.cleanName(input?.name), 60);
     if (!name) throw new CommsError(400, 'name must contain letters or digits');
     const asked = this.cleanMembers(input?.members);
@@ -641,11 +642,14 @@ export class CommsHub {
     if (members.length > max) throw new CommsError(400, `A room a bot creates holds at most ${max} bots including you (you named ${members.length}). Name fewer bots.`);
     const lead = input.lead === undefined ? sender.id : (this.resolveAgent(input.lead)?.id ?? input.lead);
     if (!members.includes(lead)) throw new CommsError(400, 'lead must be one of the members');
-    let budgetUsd = this.comms.botRoomDefaultBudgetUsd;
+    const cap = this.comms.botRoomMaxBudgetUsd;
+    // A configured ceiling also covers a bot that names no budget: it gets the default (clamped to the ceiling) or the ceiling itself, never no limit.
+    let budgetUsd: number | null = cap === null ? this.comms.botRoomDefaultBudgetUsd : Math.min(this.comms.botRoomDefaultBudgetUsd ?? cap, cap);
     if (input.budgetUsd !== undefined) {
       const b = input.budgetUsd;
       if (typeof b !== 'number' || !Number.isFinite(b) || b < MIN_ROOM_BUDGET_USD) throw new CommsError(400, `budgetUsd must be a number of at least ${MIN_ROOM_BUDGET_USD}`);
-      if (b > this.comms.botRoomMaxBudgetUsd) throw new CommsError(400, `budgetUsd must be at most $${this.comms.botRoomMaxBudgetUsd.toFixed(2)} for a room a bot creates (the user can raise it later).`);
+      if (b > MAX_ROOM_BUDGET_USD) throw new CommsError(400, `budgetUsd must be at most $${MAX_ROOM_BUDGET_USD} (the same limit as every room)`);
+      if (cap !== null && b > cap) throw new CommsError(400, `budgetUsd must be at most $${cap.toFixed(2)} for a room a bot creates (the user can raise it later).`);
       budgetUsd = b;
     }
     return { name, members, lead, budgetUsd };
@@ -772,6 +776,7 @@ export class CommsHub {
    * their cost only shows when they finish.
    */
   private budgetStop(room: Room): { estimate?: number } | undefined {
+    if (room.guards.budgetUsd === null) return undefined; // no spend limit: the guard never fires (hop and cycle guards still do)
     const budget = Math.max(room.guards.budgetUsd, MIN_ROOM_BUDGET_USD); // a stored $0 or negative budget cannot wedge the room
     if (room.costUsd >= budget) return {};
     const running = [...this.busy.values()].filter((w) => w.roomId === room.id && !w.external && !w.cancelled).length;
@@ -803,14 +808,16 @@ export class CommsHub {
   }
 
   private pauseBudget(room: Room, stop: { estimate?: number }): void {
+    const limit = room.guards.budgetUsd;
+    if (limit === null) throw new Error('pauseBudget called for a room with no budget (budgetStop never stops one)'); // unreachable
     const how = `Raise guards.budgetUsd with PATCH /api/rooms/${room.id}, then POST /api/rooms/${room.id}/resume.`;
     if (stop.estimate === undefined) {
       this.pause(room, 'budget', `$${room.costUsd.toFixed(4)}`,
-        `Paused: the room's cost ($${room.costUsd.toFixed(2)}) reached its budget ($${room.guards.budgetUsd.toFixed(2)}). ${how}`);
+        `Paused: the room's cost ($${room.costUsd.toFixed(2)}) reached its budget ($${limit.toFixed(2)}). ${how}`);
       return;
     }
     this.pause(room, 'budget', `$${room.costUsd.toFixed(4)} + ~$${stop.estimate.toFixed(4)}`,
-      `Paused: the room's cost ($${room.costUsd.toFixed(2)}) is close to its budget ($${room.guards.budgetUsd.toFixed(2)}); paused before the next turn would exceed it (estimated next turn $${stop.estimate.toFixed(2)}). ${how}`);
+      `Paused: the room's cost ($${room.costUsd.toFixed(2)}) is close to its budget ($${limit.toFixed(2)}); paused before the next turn would exceed it (estimated next turn $${stop.estimate.toFixed(2)}). ${how}`);
   }
 
   private enqueue(key: string, room: Room, botId: string, d: Delivery): void {

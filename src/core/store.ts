@@ -6,7 +6,21 @@ import type { AgentProfile, ChatMessage, Task, VmRecord } from '../shared/types.
 import { nowIso } from '../shared/util.js';
 import { ROSTER } from './roster.js';
 
-interface StateFile { agents: AgentProfile[]; tasks: Task[]; vms: VmRecord[] }
+interface StateFile { agents: AgentProfile[]; tasks: Task[]; vms: VmRecord[]; /** One-time migrations already applied (see MIGRATIONS). Absent in files from older builds. */ migrations?: string[] }
+
+/** Applied once per state file, in order, then recorded in `migrations` so they never run again (and never undo a later manual choice). */
+const MIGRATIONS: Array<{ id: string; run: (agents: Map<string, AgentProfile>) => boolean }> = [
+  {
+    // Builder used to be seeded with VM size 'large', which free boat.dev trials refuse. Reset it to 'default' once; the user can pick 'large' again.
+    id: 'builder-vm-size-default-v1',
+    run: (agents) => {
+      const b = agents.get('builder');
+      if (!b || b.vm?.size !== 'large') return false;
+      b.vm = { ...b.vm, size: 'default' };
+      return true;
+    },
+  },
+];
 
 const DEBOUNCE_MS = 200;
 
@@ -18,6 +32,7 @@ export class Store {
   private dirty = false;
   private timer: NodeJS.Timeout | null = null;
   private writing: Promise<void> = Promise.resolve();
+  private migrations = new Set<string>();
   private readonly stateFile: string;
   private readonly messagesDir: string;
 
@@ -32,11 +47,25 @@ export class Store {
         for (const a of s.agents ?? []) this.agents.set(a.id, a);
         for (const t of s.tasks ?? []) this.tasks.set(t.id, t);
         for (const v of s.vms ?? []) this.vms.set(v.agentId, v);
+        for (const m of Array.isArray(s.migrations) ? s.migrations : []) if (typeof m === 'string') this.migrations.add(m);
       } catch {
         // Corrupt state file: keep a backup and start fresh rather than crash.
         try { renameSync(this.stateFile, this.stateFile + '.corrupt-' + Date.now()); } catch { /* ignore */ }
       }
     }
+    this.migrate();
+  }
+
+  /** Runs each migration that this state file has not recorded yet. A fresh install records them all without changing anything. */
+  private migrate(): void {
+    let changed = false;
+    for (const m of MIGRATIONS) {
+      if (this.migrations.has(m.id)) continue;
+      if (m.run(this.agents)) changed = true;
+      this.migrations.add(m.id);
+      changed = true;
+    }
+    if (changed) this.markDirty();
   }
 
   listAgents(): AgentProfile[] { return [...this.agents.values()]; }
@@ -175,7 +204,7 @@ export class Store {
 
   private schedulePersist(): void {
     this.dirty = false;
-    const data: StateFile = { agents: this.listAgents(), tasks: [...this.tasks.values()], vms: this.listVms() };
+    const data: StateFile = { agents: this.listAgents(), tasks: [...this.tasks.values()], vms: this.listVms(), migrations: [...this.migrations] };
     const json = JSON.stringify(data); // compact: the file is machine-written (pretty printing 3000 tasks cost 35 ms and 2x the bytes)
     this.writing = this.writing.then(() => this.writeAtomic(json)).catch(() => { /* best effort */ });
   }

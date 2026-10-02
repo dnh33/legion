@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import type { Room, RoomGuards, RoomStrategy } from '../../../src/shared/comms';
+import { MAX_ROOM_BUDGET_USD } from '../../../src/shared/comms';
 import { Icon } from '../components/icons';
 import { Face } from './Stack';
 import { useStore } from '../store';
@@ -19,7 +20,7 @@ export function RoomSettings({ room }: { room: Room }) {
   const [members, setMembers] = useState<string[]>(room.members);
   const [leadPick, setLeadPick] = useState(room.lead);
   const [maxHops, setMaxHops] = useState(String(room.guards.maxHops));
-  const [budget, setBudget] = useState(String(room.guards.budgetUsd));
+  const [budget, setBudget] = useState(room.guards.budgetUsd === null ? '' : String(room.guards.budgetUsd));
   const [cycle, setCycle] = useState(String(room.guards.cycleRepeats));
   const [cool, setCool] = useState(String(room.guards.everyoneCooldownSec));
   const [adding, setAdding] = useState('');
@@ -33,13 +34,16 @@ export function RoomSettings({ room }: { room: Room }) {
 
   const num = (v: string, lo: number, hi: number, int: boolean) => { const n = Number(v); return v.trim() !== '' && Number.isFinite(n) && n >= lo && n <= hi && (!int || Number.isInteger(n)) ? n : null; };
   const nHops = num(maxHops, 1, 100, true);
-  const nBudget = num(budget, 0.05, 10_000, false);
+  // An empty box means no spend limit (null); anything else must be an amount in range.
+  const budgetBlank = budget.trim() === '';
+  const budgetBad = !budgetBlank && num(budget, 0.05, MAX_ROOM_BUDGET_USD, false) === null;
+  const nBudget: number | null = budgetBlank ? null : num(budget, 0.05, MAX_ROOM_BUDGET_USD, false);
   const nCycle = num(cycle, 2, 50, true);
   const nCool = num(cool, 0, 86_400, false);
   const nameOk = name.trim().length > 0 && name.trim().length <= 80;
   const membersOk = members.length >= 2 && members.length <= MAX;
   const bad = !nameOk ? 'Name is required (80 characters max).' : !membersOk ? 'A group needs 2 to 6 agents.'
-    : nHops === null ? 'Max hops: whole number, 1 to 100.' : nBudget === null ? 'Budget: $0.05 to $10,000.'
+    : nHops === null ? 'Max hops: whole number, 1 to 100.' : budgetBad ? `Budget: $0.05 to $${MAX_ROOM_BUDGET_USD.toLocaleString('en-US')}, or leave it empty for no limit.`
     : nCycle === null ? 'Repeats: whole number, 2 to 50.' : nCool === null ? 'Cooldown: 0 to 86,400 seconds.' : '';
 
   const added = members.filter((m) => !room.members.includes(m));
@@ -52,7 +56,7 @@ export function RoomSettings({ room }: { room: Room }) {
     setBusy(true); setErr('');
     const guards: Partial<RoomGuards> = {};
     if (nHops !== room.guards.maxHops) guards.maxHops = nHops!;
-    if (nBudget !== room.guards.budgetUsd) guards.budgetUsd = nBudget!;
+    if (nBudget !== room.guards.budgetUsd) guards.budgetUsd = nBudget;
     if (nCycle !== room.guards.cycleRepeats) guards.cycleRepeats = nCycle!;
     if (nCool !== room.guards.everyoneCooldownSec) guards.everyoneCooldownSec = nCool!;
     try {
@@ -139,7 +143,8 @@ export function RoomSettings({ room }: { room: Room }) {
               <input type="number" min={1} max={100} step={1} value={maxHops} onChange={(e) => setMaxHops(e.target.value)} aria-invalid={nHops === null} />
             </label>
             <label className="grow">Budget (USD)
-              <input type="number" min={0.05} step={0.5} value={budget} onChange={(e) => setBudget(e.target.value)} aria-invalid={nBudget === null} />
+              <input type="number" min={0.05} step={0.5} value={budget} placeholder="No limit" onChange={(e) => setBudget(e.target.value)} aria-invalid={budgetBad} />
+              {budgetBlank && room.guards.budgetUsd !== null && <span className="rm-hint" role="status">This room will have no spend limit.</span>}
             </label>
           </div>
           <div className="row">

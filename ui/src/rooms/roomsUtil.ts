@@ -2,7 +2,7 @@ import type { Room, RoomPauseReason, RoomStrategy } from '../../../src/shared/co
 import type { AgentProfile } from '../../../src/shared/types';
 
 export const fmtCost = (n: number | undefined): string => (n == null ? '' : n === 0 ? '$0.00' : n < 0.01 ? '<$0.01' : `$${n.toFixed(2)}`);
-export const fmtBudget = (n: number): string => (n >= 100 ? `$${Math.round(n)}` : `$${n.toFixed(2)}`);
+export const fmtBudget = (n: number | null): string => (n === null ? 'No limit' : n >= 100 ? `$${Math.round(n)}` : `$${n.toFixed(2)}`);
 
 export const clock = (iso: string): string => {
   const d = new Date(iso);
@@ -54,7 +54,7 @@ export function pauseCopy(room: Room): PauseCopy | null {
   switch (reason) {
     case 'frozen': return { title: 'Room frozen', body: 'Running bot tasks were cancelled and queued messages dropped. New messages are stored, but no bot wakes until you resume.', sendResumes: false };
     case 'max-hops': return { title: 'Hop limit reached', body: `Bots passed the conversation ${g.maxHops} times without a human message. Resume, or send a message to continue.`, sendResumes: true };
-    case 'budget': return { title: 'Budget reached', body: `This room spent ${fmtCost(room.costUsd)} of its ${fmtBudget(g.budgetUsd)} limit. Raise the budget in room settings, then resume.`, sendResumes: false };
+    case 'budget': return { title: 'Budget reached', body: g.budgetUsd === null ? `This room spent ${fmtCost(room.costUsd)} and was paused for its budget, but the limit has since been removed. Resume to continue with no spend limit, or set a budget in room settings first.` : `This room spent ${fmtCost(room.costUsd)} of its ${fmtBudget(g.budgetUsd)} limit. Raise the budget in room settings, then resume.`, sendResumes: false };
     case 'cycle': return { title: 'Loop detected', body: `Two bots repeated nearly the same message ${g.cycleRepeats} times. Resume, or send a message to break the loop.`, sendResumes: true };
   }
 }

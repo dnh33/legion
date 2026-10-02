@@ -78,6 +78,7 @@ export class VmManager {
   ensureRunning(agentId: string): Promise<VmRecord> {
     const existing = this.inflight.get(agentId);
     if (existing) return existing;
+    void this.health.ensure().catch(() => undefined); // first VM use: learn what the key may do (once, cached; does not delay the start)
     const p: Promise<VmRecord> = this.enqueue(agentId, () => this.doEnsure(agentId)).finally(() => { if (this.inflight.get(agentId) === p) this.inflight.delete(agentId); });
     this.inflight.set(agentId, p);
     return p;

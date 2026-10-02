@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import type { RoomStrategy } from '../../../src/shared/comms';
-import { DEFAULT_GUARDS } from '../../../src/shared/comms';
+import { DEFAULT_GUARDS, MAX_ROOM_BUDGET_USD } from '../../../src/shared/comms';
 import { Face } from './Stack';
 import { useStore } from '../store';
 import { Dialog } from './Dialog';
@@ -25,14 +25,14 @@ export function NewRoomDialog() {
   const lead = picked.includes(leadPick) ? leadPick : (picked[0] ?? '');
   const hops = Number(maxHops); const usd = Number(budget);
   const hopsOk = Number.isInteger(hops) && hops >= 1 && hops <= 100;
-  const usdOk = Number.isFinite(usd) && usd >= 0.05 && usd <= 10_000;
+  const usdOk = Number.isFinite(usd) && usd >= 0.05 && usd <= MAX_ROOM_BUDGET_USD;
   const nameOk = name.trim().length > 0 && name.trim().length <= 80;
   const valid = nameOk && picked.length >= 2 && picked.length <= MAX && hopsOk && usdOk;
   const why = useMemo(() => {
     if (!nameOk) return name.trim().length > 80 ? 'Name is limited to 80 characters.' : 'Give the room a name.';
     if (picked.length < 2) return 'Pick at least two agents.';
     if (!hopsOk) return 'Max hops must be a whole number from 1 to 100.';
-    if (!usdOk) return 'Budget must be between $0.05 and $10,000.';
+    if (!usdOk) return `Budget must be between $0.05 and $${MAX_ROOM_BUDGET_USD.toLocaleString('en-US')}.`;
     return '';
   }, [nameOk, name, picked.length, hopsOk, usdOk]);
 

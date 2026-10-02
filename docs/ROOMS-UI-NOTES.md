@@ -67,3 +67,7 @@ Guard messages posted by `src/core/comms/hub.ts` contain "Send POST /api/rooms/<
 - Each live `<Bust>` runs its own animation engine, so `Face` (`rooms/Stack.tsx`) mounts a Bust only while its frame is on screen (IntersectionObserver) and shows the agent emoji otherwise. A long transcript would otherwise create one engine per message.
 - Export uses `fetch` with the bearer header and a Blob download (a plain link cannot send the token).
 - `ApprovalCard` imports `rooms/roomsStore` to resolve the room name (it triggers a room-list load the first time an approval with `origin` renders) and offers "Open room" outside the Rooms view.
+
+## 6. Room budget is optional (no spend limit)
+
+`guards.budgetUsd` is `number | null`. A room a bot creates starts with `null`. Room settings shows an empty Budget box with the placeholder "No limit"; empty saves `null`, otherwise $0.05 to $10,000. The header Cost meter shows "$x.xx · No limit" with an empty bar and no `aria-valuemax`. The New room dialog (human-made rooms) still defaults to $2. The `room_create` approval card text says "No spend limit: the room never pauses on cost..." instead of a dollar amount; that text is built in the hub (`botCreateRoom`), the UI shows it as is.

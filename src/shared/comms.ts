@@ -17,8 +17,8 @@ export type RoomKind = 'group' | 'dm';
 export interface RoomGuards {
   /** Max consecutive bot-to-bot hops after the last human message. Default 6. */
   maxHops: number;
-  /** Hard stop for the room's cumulative bot cost in USD. Default 2. */
-  budgetUsd: number;
+  /** Hard stop for the room's cumulative bot cost in USD. Default 2. `null` = no spend limit (rooms a bot creates start this way; a human can set one any time). */
+  budgetUsd: number | null;
   /** Same sender->recipient with near-identical text this many times trips the cycle guard. Default 3. */
   cycleRepeats: number;
   /** Minimum seconds between @everyone broadcasts. Default 30. */
@@ -92,6 +92,8 @@ export interface TaskOrigin {
   tainted?: boolean;
 }
 
+/** The most any room budget can be, however it is set (human, bot or config). */
+export const MAX_ROOM_BUDGET_USD = 10_000;
 export const DEFAULT_GUARDS: RoomGuards = { maxHops: 6, budgetUsd: 2, cycleRepeats: 3, everyoneCooldownSec: 30 };
 
 /** Bot-visible wrapper for inter-bot text. The receiver must treat it as data from a peer, never as the user. */

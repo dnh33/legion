@@ -4,7 +4,7 @@
  */
 import { appendFileSync, existsSync, mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import type { Room, RoomMessage } from '../../shared/comms.js';
+import { DEFAULT_GUARDS, type Room, type RoomMessage } from '../../shared/comms.js';
 
 export interface TaskMapEntry { taskId: string; lastCost: number }
 export interface HubState {
@@ -41,7 +41,11 @@ export class RoomStore {
     this.stateFile = join(this.dir, 'state.json');
     const idx = this.readJson<unknown>(this.indexFile, []);
     for (const r of Array.isArray(idx) ? (idx as Room[]) : []) {
-      if (r && typeof r.id === 'string') this.rooms.set(r.id, r);
+      if (!r || typeof r.id !== 'string') continue;
+      // A stored number keeps its value and null means "no spend limit"; only a missing or junk budget falls back to the default.
+      const b = r.guards?.budgetUsd as unknown;
+      if (r.guards && b !== null && !(typeof b === 'number' && Number.isFinite(b))) r.guards = { ...r.guards, budgetUsd: DEFAULT_GUARDS.budgetUsd };
+      this.rooms.set(r.id, r);
     }
   }
 
