@@ -1,0 +1,397 @@
+{
+  "duration": 60,
+  "fps": 30,
+  "bpm": 96,
+  "sections": [
+    {
+      "name": "cold-open",
+      "start": 0,
+      "end": 5
+    },
+    {
+      "name": "awakening",
+      "start": 5,
+      "end": 10
+    },
+    {
+      "name": "muster",
+      "start": 10,
+      "end": 20
+    },
+    {
+      "name": "field",
+      "start": 20,
+      "end": 32.5
+    },
+    {
+      "name": "forges",
+      "start": 32.5,
+      "end": 40
+    },
+    {
+      "name": "vox",
+      "start": 40,
+      "end": 50
+    },
+    {
+      "name": "victory",
+      "start": 50,
+      "end": 52.5
+    },
+    {
+      "name": "end",
+      "start": 52.5,
+      "end": 60
+    }
+  ],
+  "events": [
+    {
+      "t": 0.938,
+      "name": "line1"
+    },
+    {
+      "t": 2.5,
+      "name": "line2"
+    },
+    {
+      "t": 6.25,
+      "name": "relic_wake"
+    },
+    {
+      "t": 6.625,
+      "name": "subtitle"
+    },
+    {
+      "t": 10,
+      "name": "banner",
+      "n": 1
+    },
+    {
+      "t": 10.625,
+      "name": "banner",
+      "n": 2
+    },
+    {
+      "t": 11.25,
+      "name": "banner",
+      "n": 3
+    },
+    {
+      "t": 11.375,
+      "name": "caption"
+    },
+    {
+      "t": 15,
+      "name": "roster",
+      "n": 1
+    },
+    {
+      "t": 15.156,
+      "name": "roster",
+      "n": 2
+    },
+    {
+      "t": 15.313,
+      "name": "roster",
+      "n": 3
+    },
+    {
+      "t": 15.469,
+      "name": "roster",
+      "n": 4
+    },
+    {
+      "t": 15.625,
+      "name": "roster",
+      "n": 5
+    },
+    {
+      "t": 15.781,
+      "name": "roster",
+      "n": 6
+    },
+    {
+      "t": 15.938,
+      "name": "roster",
+      "n": 7
+    },
+    {
+      "t": 16.094,
+      "name": "roster",
+      "n": 8
+    },
+    {
+      "t": 16.25,
+      "name": "roster",
+      "n": 9
+    },
+    {
+      "t": 16.406,
+      "name": "roster",
+      "n": 10
+    },
+    {
+      "t": 16.563,
+      "name": "roster",
+      "n": 11
+    },
+    {
+      "t": 16.719,
+      "name": "roster",
+      "n": 12
+    },
+    {
+      "t": 16.875,
+      "name": "roster",
+      "n": 13
+    },
+    {
+      "t": 16.875,
+      "name": "caption2"
+    },
+    {
+      "t": 20.25,
+      "name": "push"
+    },
+    {
+      "t": 20.875,
+      "name": "callout",
+      "n": 1
+    },
+    {
+      "t": 23.125,
+      "name": "pan"
+    },
+    {
+      "t": 24.125,
+      "name": "callout",
+      "n": 2
+    },
+    {
+      "t": 26.875,
+      "name": "shot",
+      "n": 1
+    },
+    {
+      "t": 29.375,
+      "name": "shot",
+      "n": 2
+    },
+    {
+      "t": 32.5,
+      "name": "bsv_in"
+    },
+    {
+      "t": 33.75,
+      "name": "chain_pulse",
+      "n": 1
+    },
+    {
+      "t": 35,
+      "name": "chain_pulse",
+      "n": 2
+    },
+    {
+      "t": 35,
+      "name": "bsv_approval"
+    },
+    {
+      "t": 36,
+      "name": "chain_pulse",
+      "n": 3
+    },
+    {
+      "t": 36.25,
+      "name": "blender_in"
+    },
+    {
+      "t": 40,
+      "name": "vox_in"
+    },
+    {
+      "t": 41.875,
+      "name": "chips"
+    },
+    {
+      "t": 42.5,
+      "name": "vox_line",
+      "n": 1
+    },
+    {
+      "t": 43.75,
+      "name": "vox_line",
+      "n": 2
+    },
+    {
+      "t": 44.3,
+      "name": "vox_ok"
+    },
+    {
+      "t": 45,
+      "name": "vox_line",
+      "n": 3
+    },
+    {
+      "t": 45.55,
+      "name": "vox_ok"
+    },
+    {
+      "t": 46.25,
+      "name": "vox_line",
+      "n": 4
+    },
+    {
+      "t": 47.5,
+      "name": "vox_line",
+      "n": 5
+    },
+    {
+      "t": 48.125,
+      "name": "vox_line",
+      "n": 6
+    },
+    {
+      "t": 48.45,
+      "name": "vox_line",
+      "n": 7
+    },
+    {
+      "t": 48.525,
+      "name": "vox_ok"
+    },
+    {
+      "t": 48.75,
+      "name": "vox_sealed"
+    },
+    {
+      "t": 50,
+      "name": "victory"
+    },
+    {
+      "t": 53.281,
+      "name": "wm_draw"
+    },
+    {
+      "t": 55,
+      "name": "wm_fill"
+    },
+    {
+      "t": 55.938,
+      "name": "tag"
+    },
+    {
+      "t": 56.563,
+      "name": "url"
+    },
+    {
+      "t": 57.063,
+      "name": "print"
+    },
+    {
+      "t": 57.5,
+      "name": "sigil"
+    },
+    {
+      "t": 59.063,
+      "name": "fade_out"
+    },
+    {
+      "t": 60,
+      "name": "end"
+    }
+  ],
+  "typing": [
+    {
+      "start": 42.5,
+      "end": 43,
+      "chars": 34
+    },
+    {
+      "start": 43.75,
+      "end": 44.3,
+      "chars": 33
+    },
+    {
+      "start": 45,
+      "end": 45.55,
+      "chars": 34
+    },
+    {
+      "start": 46.25,
+      "end": 47.25,
+      "chars": 47
+    },
+    {
+      "start": 47.5,
+      "end": 47.95,
+      "chars": 36
+    },
+    {
+      "start": 48.125,
+      "end": 48.525,
+      "chars": 38
+    },
+    {
+      "start": 48.45,
+      "end": 48.75,
+      "chars": 12
+    }
+  ],
+  "cuts": [
+    {
+      "id": "cold>awaken",
+      "t": 5,
+      "kind": "dissolve"
+    },
+    {
+      "id": "awaken>muster",
+      "t": 10,
+      "kind": "match"
+    },
+    {
+      "id": "banners>roster",
+      "t": 15,
+      "kind": "dissolve"
+    },
+    {
+      "id": "muster>field",
+      "t": 20,
+      "kind": "dissolve"
+    },
+    {
+      "id": "field>slash",
+      "t": 26.875,
+      "kind": "hard"
+    },
+    {
+      "id": "slash>model",
+      "t": 29.375,
+      "kind": "hard"
+    },
+    {
+      "id": "model>bsv",
+      "t": 32.5,
+      "kind": "hard"
+    },
+    {
+      "id": "bsv>blender",
+      "t": 36.25,
+      "kind": "dissolve"
+    },
+    {
+      "id": "blender>vox",
+      "t": 40,
+      "kind": "hard"
+    },
+    {
+      "id": "vox>victory",
+      "t": 50,
+      "kind": "hard"
+    },
+    {
+      "id": "victory>end",
+      "t": 52.5,
+      "kind": "match"
+    }
+  ]
+}
