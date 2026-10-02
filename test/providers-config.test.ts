@@ -35,7 +35,7 @@ test('C19 normalizeProviders: clamps, drops bad entries, refuses cli and a non-c
     entries: {
       ok: { baseUrl: 'https://api.example.com/v1/', enabled: true, label: 'Ok', models: ['m1', 'bad model', 5] },
       cli: { kind: 'cli', baseUrl: 'https://x.example/v1' },
-      resp: { baseUrl: 'https://x.example/v1', wire: 'responses' },
+      resp: { baseUrl: 'https://x.example/v1', wire: 'soap' },
       claude: { baseUrl: 'https://x.example/v1' },
       'Bad Id': { baseUrl: 'https://x.example/v1' },
       http: { baseUrl: 'http://remote.example/v1' },
@@ -53,7 +53,7 @@ test('C19 normalizeProviders: clamps, drops bad entries, refuses cli and a non-c
   assert.deepEqual(Object.keys(n.entries.priced!.prices!), ['m']);
   const why = (n.dropped ?? []).join(' | ');
   assert.match(why, /CLI providers are not available/);
-  assert.match(why, /only the chat completions API/);
+  assert.match(why, /wire must be chat or responses/);
   assert.match(why, /http is only allowed for this computer/);
 });
 

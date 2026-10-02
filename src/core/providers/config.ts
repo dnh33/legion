@@ -20,7 +20,7 @@ export function normalizeEntry(id: string, v: unknown): { entry: ProviderEntry }
   if (!isObj(v)) return { reason: `${id}: not an object` };
   if (v.kind === 'cli') return { reason: `${id}: CLI providers are not available in this version` };
   if (v.kind !== undefined && v.kind !== 'openai-compat') return { reason: `${id}: unknown kind` };
-  if (v.wire !== undefined && v.wire !== 'chat') return { reason: `${id}: only the chat completions API is supported` };
+  if (v.wire !== undefined && v.wire !== 'chat' && v.wire !== 'responses') return { reason: `${id}: wire must be chat or responses` };
   const allowPrivate = v.allowPrivateNetwork === true;
   const ep = checkEndpoint(v.baseUrl, { allowPrivate });
   if (!ep.ok) return { reason: `${id}: ${ep.reason}` };
@@ -33,6 +33,7 @@ export function normalizeEntry(id: string, v: unknown): { entry: ProviderEntry }
   return {
     entry: {
       kind: 'openai-compat', label, baseUrl: ep.url, enabled: v.enabled === true, models,
+      ...(v.wire === 'responses' ? { wire: 'responses' as const } : {}),
       ...(keyless ? { keyless: true } : {}), ...(allowPrivate && ep.privateLiteral ? { allowPrivateNetwork: true } : {}),
       ...(Object.keys(prices).length ? { prices } : {}),
     },

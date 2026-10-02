@@ -2,6 +2,7 @@
 export interface ProviderView {
   id: string; label: string; baseUrl: string; enabled: boolean; preset: boolean; needsKey: boolean; note?: string;
   keySet: boolean; keyHint?: string; keyMatchesAddress: boolean; keyless: boolean; allowPrivateNetwork: boolean;
+  wire: 'chat' | 'responses';
   loopback: boolean; models: string[]; hasPrices: boolean;
   status: string;
   lastTest?: { at: string; ok: boolean; detail: string };

@@ -70,3 +70,26 @@ export const jsonReply = (res: ServerResponse, status: number, obj: unknown, hea
 export const entryFor = (f: Fake, over: Partial<ProviderEntry> = {}): ProviderEntry => ({ kind: 'openai-compat', label: 'Fake', baseUrl: f.url, enabled: true, keyless: true, ...over });
 export const provCfg = (entries: Record<string, ProviderEntry>): ProvidersConfig => ({ version: 1, entries, maxTurns: 40, maxToolCallsPerTurn: 16 });
 export const memKeys = (dir: string): ProviderKeys => new ProviderKeys(`${dir}/providers/keys.json`);
+
+/** A Responses-API stream: named events as `data:` lines (the type is inside the JSON). */
+export function rsText(res: ServerResponse, text: string, usage?: { input_tokens: number; output_tokens: number }): void {
+  sseHead(res);
+  sseSend(res, { type: 'response.created', response: {} });
+  sseSend(res, { type: 'response.output_text.delta', delta: text.slice(0, 3) });
+  sseSend(res, { type: 'response.output_text.delta', delta: text.slice(3) });
+  sseSend(res, { type: 'response.completed', response: { ...(usage ? { usage } : {}) } });
+  res.end();
+}
+export function rsTools(res: ServerResponse, calls: Array<{ call_id: string; name: string; args: unknown }>, usage?: { input_tokens: number; output_tokens: number }): void {
+  sseHead(res);
+  calls.forEach((c, i) => {
+    const a = typeof c.args === 'string' ? c.args : JSON.stringify(c.args);
+    sseSend(res, { type: 'response.output_item.added', output_index: i, item: { type: 'function_call', id: `fc_${i}`, call_id: c.call_id, name: c.name, arguments: '' } });
+    sseSend(res, { type: 'response.function_call_arguments.delta', item_id: `fc_${i}`, output_index: i, delta: a.slice(0, 4) });
+    sseSend(res, { type: 'response.function_call_arguments.delta', item_id: `fc_${i}`, output_index: i, delta: a.slice(4) });
+    sseSend(res, { type: 'response.function_call_arguments.done', item_id: `fc_${i}`, output_index: i, arguments: a });
+    sseSend(res, { type: 'response.output_item.done', output_index: i, item: { type: 'function_call', id: `fc_${i}`, call_id: c.call_id, name: c.name, arguments: a } });
+  });
+  sseSend(res, { type: 'response.completed', response: { ...(usage ? { usage } : {}) } });
+  res.end();
+}

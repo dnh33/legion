@@ -31,6 +31,14 @@ function ProviderCard({ p }: { p: ProviderView }) {
             <button type="button" className="btn-ghost sm" onClick={() => { setAddr(p.baseUrl); setEditAddr(false); }}>Cancel</button></>
           : <><code>{p.baseUrl}</code><button type="button" className="btn-ghost sm" onClick={() => setEditAddr(true)}>Change</button></>}
       </div>
+      <div className="prov-row">
+        <label>API format
+          <select value={p.wire} disabled={!!busy} onChange={(e) => void saveEntry(p.id, { wire: e.target.value })}>
+            <option value="chat">Chat completions (works with most servers)</option>
+            <option value="responses">Responses API (OpenAI)</option>
+          </select>
+        </label>
+      </div>
       {(p.needsKey || p.keySet) && (
         <form className="prov-row" onSubmit={(e) => { e.preventDefault(); void submitKey(); }}>
           <label className="grow">API key

@@ -11,6 +11,8 @@ export interface ProviderPrice {
 export interface ProviderEntry {
   /** Only 'openai-compat' exists. 'cli' is reserved and refused on load. */
   kind: 'openai-compat';
+  /** Which HTTP dialect: 'chat' (chat completions, default) or 'responses' (the Responses API). */
+  wire?: 'chat' | 'responses';
   label: string;
   baseUrl: string;
   enabled: boolean;

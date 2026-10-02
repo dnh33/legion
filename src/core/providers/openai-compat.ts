@@ -62,6 +62,76 @@ function feed(acc: Acc, payload: unknown, onText: (d: string) => void): void {
   }
 }
 
+
+// ---- the Responses API dialect (entry.wire === 'responses')
+
+/** Chat-style messages as Responses input items: the system message becomes `instructions`, tool calls and results become typed items. */
+export function toResponsesInput(messages: ChatMessage[]): { instructions: string; input: unknown[] } {
+  let instructions = '';
+  const input: unknown[] = [];
+  for (const m of messages) {
+    if (m.role === 'system') instructions += (instructions ? '\n\n' : '') + (m.content ?? '');
+    else if (m.role === 'user') input.push({ role: 'user', content: m.content ?? '' });
+    else if (m.role === 'assistant') {
+      if (m.content) input.push({ role: 'assistant', content: m.content });
+      for (const c of m.tool_calls ?? []) input.push({ type: 'function_call', call_id: c.id, name: c.function.name, arguments: c.function.arguments });
+    } else if (m.role === 'tool') input.push({ type: 'function_call_output', call_id: m.tool_call_id ?? '', output: m.content ?? '' });
+  }
+  return { instructions, input };
+}
+
+function takeCall(acc: Acc, byItem: Map<string, number>, item: Record<string, unknown>, outIndex: unknown): number {
+  const key = typeof item.id === 'string' && item.id ? item.id : typeof item.call_id === 'string' ? item.call_id : '';
+  let idx = key ? byItem.get(key) : undefined;
+  if (idx === undefined) { idx = typeof outIndex === 'number' ? outIndex : acc.calls.size; if (key) byItem.set(key, idx); }
+  if (!acc.calls.has(idx)) acc.calls.set(idx, { id: '', name: '', args: '' });
+  return idx;
+}
+
+function feedResponses(acc: Acc, byItem: Map<string, number>, ev: unknown, onText: (d: string) => void): void {
+  if (!isObj(ev)) return;
+  const t = typeof ev.type === 'string' ? ev.type : '';
+  const fail = (m: unknown): never => { throw new ProviderHttpError('status', typeof m === 'string' && m ? m.slice(0, 300) : 'The provider reported an error in its stream.'); };
+  if (t === 'error') return fail(isObj(ev.error) ? ev.error.message : ev.message);
+  if (t === 'response.failed') return fail(isObj(ev.response) && isObj(ev.response.error) ? ev.response.error.message : undefined);
+  if (t === 'response.output_text.delta' && typeof ev.delta === 'string' && ev.delta) { acc.text += ev.delta; onText(ev.delta); return; }
+  if ((t === 'response.output_item.added' || t === 'response.output_item.done') && isObj(ev.item) && ev.item.type === 'function_call') {
+    const idx = takeCall(acc, byItem, ev.item, ev.output_index);
+    const c = acc.calls.get(idx)!;
+    if (typeof ev.item.call_id === 'string' && ev.item.call_id) c.id = ev.item.call_id;
+    if (typeof ev.item.name === 'string' && ev.item.name) c.name = ev.item.name;
+    if (typeof ev.item.arguments === 'string' && (t === 'response.output_item.done' || ev.item.arguments)) c.args = ev.item.arguments;
+    return;
+  }
+  if ((t === 'response.function_call_arguments.delta' || t === 'response.function_call_arguments.done') && typeof ev.item_id === 'string') {
+    const idx = takeCall(acc, byItem, { id: ev.item_id }, ev.output_index);
+    const c = acc.calls.get(idx)!;
+    if (t.endsWith('.delta') && typeof ev.delta === 'string') c.args += ev.delta;
+    else if (typeof ev.arguments === 'string') c.args = ev.arguments;
+    if (c.args.length > 256 * 1024) throw new ProviderHttpError('too_large', 'A tool call from the model is larger than the limit.');
+    return;
+  }
+  if (t === 'response.completed' || t === 'response.incomplete') {
+    const r = isObj(ev.response) ? ev.response : {};
+    const u = usageOf(r.usage);
+    if (u) acc.usage = u;
+    acc.finish = t === 'response.incomplete' ? 'length' : acc.calls.size ? 'tool_calls' : 'stop';
+  }
+}
+
+/** A Responses answer delivered as one JSON body (a server that ignored `stream`). */
+function feedResponsesBody(acc: Acc, byItem: Map<string, number>, body: unknown): void {
+  if (!isObj(body)) return;
+  if (body.error) feedResponses(acc, byItem, { type: 'error', error: body.error }, () => undefined);
+  for (const item of Array.isArray(body.output) ? body.output : []) {
+    if (!isObj(item)) continue;
+    if (item.type === 'function_call') feedResponses(acc, byItem, { type: 'response.output_item.done', item }, () => undefined);
+    else if (item.type === 'message') for (const c of Array.isArray(item.content) ? item.content : []) if (isObj(c) && c.type === 'output_text' && typeof c.text === 'string') acc.text += c.text;
+  }
+  const u = usageOf(body.usage);
+  if (u) acc.usage = u;
+}
+
 const refusedTools = (e: unknown): boolean => e instanceof ProviderHttpError && e.code === 'status' && e.status === 400 && /tool|function/i.test(e.message);
 const refusedStreamOptions = (e: unknown): boolean => e instanceof ProviderHttpError && e.code === 'status' && e.status === 400 && /stream_options|include_usage/i.test(e.message);
 
@@ -71,21 +141,31 @@ export async function chatTurn(target: ProviderTarget, req: ChatTurnRequest): Pr
   let streamOptions = true;
   let waited = false;
   for (let attempt = 0; attempt < 4; attempt++) {
-    const body: Record<string, unknown> = { model: req.model, messages: req.messages, stream: true };
-    if (streamOptions) body.stream_options = { include_usage: true };
-    if (withTools) { body.tools = req.tools; body.tool_choice = 'auto'; }
+    const responses = target.entry.wire === 'responses';
+    const body: Record<string, unknown> = { model: req.model, stream: true };
+    if (responses) {
+      const ri = toResponsesInput(req.messages);
+      body.instructions = ri.instructions; body.input = ri.input; body.store = false;
+      if (withTools) { body.tools = req.tools.map((t) => ({ type: 'function', name: t.function.name, description: t.function.description, parameters: t.function.parameters })); body.tool_choice = 'auto'; }
+    } else {
+      body.messages = req.messages;
+      if (streamOptions) body.stream_options = { include_usage: true };
+      if (withTools) { body.tools = req.tools; body.tool_choice = 'auto'; }
+    }
     try {
-      const r = await providerRequest(target, '/chat/completions', { method: 'POST', body, accept: 'any', signal: req.signal, limits: req.limits });
+      const r = await providerRequest(target, responses ? '/responses' : '/chat/completions', { method: 'POST', body, accept: 'any', signal: req.signal, limits: req.limits });
       const acc: Acc = { text: '', calls: new Map() };
+      const byItem = new Map<string, number>();
       if (r.kind === 'json') {
-        feed(acc, r.json, () => undefined); // a server that ignored `stream`: one body with choices[0].message
+        if (responses) feedResponsesBody(acc, byItem, r.json);
+        else feed(acc, r.json, () => undefined); // a server that ignored `stream`: one body with choices[0].message
         if (acc.text) req.onText(acc.text);
       } else {
         for await (const data of r.events) {
           if (data.trim() === '[DONE]') break;
           let j: unknown;
           try { j = JSON.parse(data); } catch { throw new ProviderHttpError('format', 'The provider sent a stream line Legion could not read.'); }
-          feed(acc, j, req.onText);
+          if (responses) feedResponses(acc, byItem, j, req.onText); else feed(acc, j, req.onText);
         }
       }
       const toolCalls: ChatToolCall[] = [...acc.calls.entries()].sort((a, b) => a[0] - b[0]).map(([, c], i) => ({

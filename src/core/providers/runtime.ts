@@ -122,7 +122,7 @@ export class ProviderRuntime {
         id, label: e.label, baseUrl: e.baseUrl, enabled: e.enabled, preset: !!preset, needsKey: preset ? preset.needsKey : !e.keyless,
         ...(preset ? { note: preset.note } : {}),
         keySet: this.deps.keys.has(id), ...(this.deps.keys.has(id) ? { keyHint: this.deps.keys.hint(id) } : {}), keyMatchesAddress: st.keyMatches,
-        keyless: e.keyless === true, allowPrivateNetwork: e.allowPrivateNetwork === true, loopback: ep.ok && ep.loopback, models,
+        wire: e.wire === 'responses' ? 'responses' : 'chat', keyless: e.keyless === true, allowPrivateNetwork: e.allowPrivateNetwork === true, loopback: ep.ok && ep.loopback, models,
         hasPrices: !!e.prices && Object.keys(e.prices).length > 0, status: st.text, ...(t ? { lastTest: t } : {}),
       };
     };
