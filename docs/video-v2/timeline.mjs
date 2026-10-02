@@ -37,7 +37,7 @@ export const SHOTS = [
   { id: 'lattice', img: 'library-lattice.png', in: b(11), out: b(12, 3), cam: [[b(11), 1, .5, .5], [b(12, 3), 1.3, .55, .5]], marks: [] },
   { id: 'inbox2', img: 'library-inbox.png', in: b(12, 3), out: b(14), cam: [[b(12, 3), 1.5, .45, .4], [b(14), 1.6, .4, .38]], marks: [[b(13, 1), .29, .37]] },
   { id: 'projects', img: 'projects.png', in: b(14), out: b(15), cam: [[b(14), 1, .5, .5], [b(15), 1.45, .32, .45]], marks: [] },
-  { id: 'boardA', img: 'board.png', in: b(15), out: b(16, 2), cam: [[b(15), 1, .5, .5], [b(16, 2), 1.6, .5, .38]], marks: [[b(15, 3), .375, .595]] },
+  { id: 'boardA', img: 'board.png', in: b(15), out: b(16, 2), cam: [[b(15), 1, .5, .5], [b(16, 2), 1.35, .55, .38]], marks: [[b(15, 3), .375, .595]] },
   { id: 'boardB', img: 'board-guards.png', in: b(16, 2), out: b(17, 3), cam: [[b(16, 2), 1.3, .5, .3], [b(17, 3), 1.8, .5, .3]], marks: [[b(16, 3.5), .22, .263]] },
   { id: 'pmem', img: 'project-memory.png', in: b(17, 3), out: b(19), cam: [[b(17, 3), 1.2, .5, .4], [b(19), 1.6, .55, .35]], marks: [[b(18, 1), .717, .318]] },
   { id: 'vmpanel', img: 'app-approval.png', in: b(20), out: b(21, 2), cam: [[b(20), 1.5, .72, .45], [b(21, 2), 1.9, .75, .42]], marks: [] },
