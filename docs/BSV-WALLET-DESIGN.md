@@ -127,7 +127,7 @@ Actors and entry points:
 | Replay or blind retry of an approval | Idempotent ids, one-time ids, card hash, expiry, unknown-outcome blocking | None known |
 | Approval fatigue | No always-allow, tiny defaults, a calm single card, freeze one click away | A person can still click through; that is human |
 | A compromised window page fakes a card or presses approve | Approvals come from a native dialog worded by main from data main read itself | A same-user process can click the native dialog |
-| Stolen MCP token | Opens only client routes; no BSV route | None for BSV |
+| Stolen MCP token | Opens only client routes; the one BSV route is Freeze, which can only stop things | None for BSV beyond a nuisance freeze |
 | Same-user malware | Nothing in Legion can stop it (it can read memory, edit files, click dialogs, rewrite the audit log, call the wallet on 3321) | Real. Only a VM or a separate OS account stops it, and the wallet's own prompts are the last gate |
 | A funded mainnet wallet on the owner's PC | Legion is testnet only; a mainnet answer gives a warning and Legion refuses to use it; no balance or output reads exist today | Any local program, including a bot with a shell, can call the wallet directly. The wallet's permission prompts and a small float are the defence |
 | Probe retargeted by editing `config.json` (`bsv.walletUrl`) | Loopback only, no path or redirect, harmless fixed body; no default address; nothing is contacted until the owner presses Connect, and the native dialog names the address that will be used | A bot with file access can change the saved address, and the owner may confirm it without looking: four POSTs of `{}` then go to another loopback service. Low impact |

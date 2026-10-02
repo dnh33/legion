@@ -49,6 +49,8 @@ async function probe(deps: CatalogDeps, now: () => number): Promise<Catalog> {
     const options: Parameters<QueryFn>[0]['options'] = {
       cwd: tmpdir(), env: buildChildEnv(deps.config), abortController: ac,
       settingSources: deps.config.claude.inheritClaudeCodeSettings ? ['user', 'project', 'local'] : [],
+      // Only the command and model lists are wanted: do not connect (and tear down) every inherited MCP server for it.
+      strictMcpConfig: true,
     };
     if (deps.config.claude.executablePath) options.pathToClaudeCodeExecutable = deps.config.claude.executablePath;
     q = queryFn({ prompt: input(), options });

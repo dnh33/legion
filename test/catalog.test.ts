@@ -38,6 +38,7 @@ test('catalog: dedupes, strips slash, uses idle streaming prompt and no API key 
     assert.equal(typeof st.prompt[Symbol.asyncIterator], 'function');
     assert.equal(st.opts.env.ANTHROPIC_API_KEY, undefined);
     assert.equal(st.closed, 1);
+    assert.equal(st.opts.strictMcpConfig, true, 'the picker probe must not connect inherited MCP servers');
   } finally { if (save === undefined) delete process.env.ANTHROPIC_API_KEY; else process.env.ANTHROPIC_API_KEY = save; }
 });
 
