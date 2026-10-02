@@ -229,3 +229,13 @@ test('a form submit is checked and asked about BEFORE the text is sent', async (
     assert.equal(wrote(r), 1);
   } finally { await r.done(); }
 });
+
+test('a cached verdict does not outlive a settings change: local addresses turned off apply to the same session', async () => {
+  const local = { on: true };
+  const r = await rig({ pages: { 'https://a.test/': { text: 'x', subrequests: ['http://127.0.0.1:8080/pixel'] } } }, { guard: () => (local.on ? { allowLocal: true, localPorts: [8080] } : {}) });
+  try {
+    assert.equal((await r.session.open('https://a.test/')).url, 'https://a.test/');
+    local.on = false;
+    await assert.rejects(r.session.open('https://a.test/'), SessionRefusal);
+  } finally { await r.done(); }
+});
