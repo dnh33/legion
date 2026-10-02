@@ -237,7 +237,7 @@ test('C: snapshots keep the newest 5, are taken before compact, import and seed,
 // ---------------------------------------------------------------- tombstones and human-only actions
 
 test('forget: bots forget only their own private notes (tombstone, hidden at once, purged after 30 days); the human restores', () => {
-  let clock = Date.parse('2026-10-01T00:00:00Z');
+  let clock = Date.now(); // tombstones are stamped with the real clock (deleteNode), so the fake clock must start from it or the test depends on today's date
   const { g, dir } = mkGraph({ now: () => new Date(clock) });
   const mine = g.upsertNode(ALPHA, { title: 'My scratch', scope: 'agent:alpha' }).node;
   const shared = g.upsertNode(ALPHA, { title: 'A shared one' }).node;
