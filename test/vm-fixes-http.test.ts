@@ -166,10 +166,12 @@ describe('VM fixes over HTTP', () => {
       const dec = new TextDecoder();
       let buf = '';
       const deadline = Date.now() + 3000;
-      while (!buf.includes('boat.health') && Date.now() < deadline) {
+      // The check emits several boat.health events (the first one before its results exist) and they can arrive in separate chunks, so
+      // stopping at the first would test a half-filled view (it does on Windows). Read until the stream goes quiet after one has arrived.
+      while (Date.now() < deadline) {
         const { value, done } = await Promise.race([reader.read(), new Promise<{ value?: Uint8Array; done: boolean }>((r) => setTimeout(() => r({ done: true }), 500))]);
         if (value) buf += dec.decode(value);
-        if (done) break;
+        if (done && buf.includes('boat.health')) break;
       }
       ac.abort();
       return buf;
