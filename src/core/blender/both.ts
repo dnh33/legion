@@ -69,6 +69,8 @@ export interface VerifyDeps {
   /** One JSON request to the community protocol (src/core/blender/tcp.ts jsonRequest). */
   request: (host: string, port: number, payload: unknown, opts: { timeoutMs: number }) => Promise<unknown>;
 }
+/** Text from a server, one line, no control characters. */
+const plain = (s: string, max: number): string => s.replace(/[\u0000-\u001f\u007f]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, max);
 const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v);
 const unwrap = (raw: unknown): unknown => (isObj(raw) && raw.status === 'success' && 'result' in raw ? raw.result : undefined);
 
@@ -82,9 +84,9 @@ async function answersAsCommunity(host: string, port: number, d: VerifyDeps, tim
 
 /**
  * What is on each port right now. community: nothing = down; the community add-on = ok; anything else = wrong (something else owns the port).
- * official: nothing = down; the COMMUNITY add-on answering there = wrong (the two are swapped or one port is shared); anything else is left to the MCP
- * server, whose own handshake and tool list confirm the official add-on when Legion connects. A reply to a stray JSON request on the official port is
- * the only thing this sends there (timeout 1.5 s), and its protocol is not assumed.
+ * official: nothing = down; the COMMUNITY add-on answering there = wrong (the two are swapped or one port is shared); anything else counts as ok.
+ * That only RULES OUT the community add-on on that port: nothing here identifies the official add-on itself (the MCP server process Legion starts
+ * talks to whatever owns the port). A reply to a stray JSON request on the official port is all this sends there (timeout 1.5 s); its protocol is not assumed.
  */
 export async function verifyBoth(host: string, ports: BothPorts, d: VerifyDeps): Promise<BothVerdict> {
   const out: BothVerdict = { official: { state: 'down', note: '' }, community: { state: 'down', note: '' } };
@@ -94,7 +96,7 @@ export async function verifyBoth(host: string, ports: BothPorts, d: VerifyDeps):
 
   if (!(await d.probe(host, ports.official).catch(() => false))) out.official = { state: 'down', note: `Nothing is listening on port ${ports.official}. Start the official add-on's server in Blender (its sidebar panel) on that port.` };
   else if (await answersAsCommunity(host, ports.official, d, 1500)) out.official = { state: 'wrong', note: `The community add-on is answering on port ${ports.official}, which is the OFFICIAL add-on's port. Nothing was used. Give each add-on its own port.` };
-  else out.official = { state: 'ok', note: `Something other than the community add-on is listening on port ${ports.official}; the official server's own handshake confirms it when Legion connects.` };
+  else out.official = { state: 'ok', note: `Something other than the community add-on is listening on port ${ports.official}. Legion cannot tell whether it is the official add-on: it only rules out the community add-on there.` };
   return out;
 }
 
@@ -116,14 +118,21 @@ export interface BothDeps extends VerifyDeps {
 export class BothBackend implements BlenderBackend {
   readonly kind = 'official' as const;
   verdict: BothVerdict | null = null;
-  constructor(private readonly d: BothDeps) {}
+  private verifiedAt = 0;
+  constructor(private readonly d: BothDeps, private readonly now: () => number = Date.now) {}
 
   /** Fails closed when a port is taken or the wrong add-on answers (either side). A community add-on that is simply not running is not fatal: its extras say so. */
   async connect(): Promise<void> {
-    const v = await verifyBoth(this.d.host, this.d.ports, this.d);
-    this.verdict = v;
-    if (v.official.state === 'wrong') throw new Error(v.official.note);
-    if (v.community.state === 'wrong') throw new Error(v.community.note);
+    // The guard connects before every call. The identity probes (one of them goes to the official port) run on the first connect, after the main
+    // connection was lost, and then at most once a minute, not on every tool call.
+    const fresh = this.verdict !== null && this.d.main.isConnected() && this.now() - this.verifiedAt < 60_000;
+    if (!fresh) {
+      const v = await verifyBoth(this.d.host, this.d.ports, this.d);
+      this.verdict = v;
+      this.verifiedAt = this.now();
+      if (v.official.state === 'wrong') { this.verdict = null; throw new Error(v.official.note); }
+      if (v.community.state === 'wrong') { this.verdict = null; throw new Error(v.community.note); }
+    }
     await this.d.main.connect();
   }
   isConnected(): boolean { return this.d.main.isConnected(); }
@@ -137,14 +146,15 @@ export class BothBackend implements BlenderBackend {
   private officialExtras(): ExtraTool[] {
     const m = this.d.main as Partial<OfficialBackend>;
     return (m.extraTools?.() ?? []).map((t) => ({
-      name: `official:${t.name}`, source: 'official' as const, description: (t.description ?? '').slice(0, 300),
-      args: Object.fromEntries(Object.entries(t.inputSchema?.properties ?? {}).map(([k, v]) => [k, v?.type ?? 'value'])),
+      name: `official:${t.name}`, source: 'official' as const, description: plain(t.description ?? '', 300),
+      args: Object.fromEntries(Object.entries(t.inputSchema?.properties ?? {}).map(([k, v]) => [plain(k, 40), plain(String(v?.type ?? 'value'), 20)])),
     }));
   }
 
   /** The merged list: the main's read-only extras, then the second's fixed extras that the main has no equivalent of. */
   catalog(): ExtraTool[] {
-    const mainNames = this.toolNames();
+    // only tools the Sculptor can actually call count as "the main already has this"
+    const mainNames = (this.d.main as Partial<OfficialBackend>).callableNames?.() ?? [];
     const second = COMMUNITY_EXTRAS.filter((e) => !mainNames.some((n) => e.officialHas.test(n)))
       .map((e) => ({ name: `community:${e.key}`, source: 'community' as const, description: e.description, args: e.args }));
     return [...this.officialExtras(), ...second];

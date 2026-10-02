@@ -68,7 +68,8 @@ const MAX_REDIRECTS = 4;
 async function download(url: string, dest: string, opts: { maxBytes: number; urlOk?: (url: string) => boolean }): Promise<{ sha256: string; bytes: number }> {
   let current = url;
   for (let hop = 0; ; hop++) {
-    if (!isPublicHttpsUrl(current) || (opts.urlOk && !opts.urlOk(current))) throw new Error('Refusing to download: the address must be https, public and on the expected host.');
+    if (!isPublicHttpsUrl(current)) throw new Error('Refusing to download: the address must be https and public.');
+    if (opts.urlOk && !opts.urlOk(current)) throw new Error('Refusing to download: the address is not on the expected host.');
     const res = await fetch(current, { redirect: 'manual', signal: AbortSignal.timeout(10 * 60_000), headers: { 'user-agent': 'Legion-Blender-Setup' } });
     if (res.status >= 300 && res.status < 400) {
       const loc = res.headers.get('location');

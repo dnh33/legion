@@ -164,6 +164,13 @@ export class OfficialBackend implements BlenderBackend {
     return this.tools.filter((t) => t.annotations?.readOnlyHint === true && !mapped.has(t.name) && !isCli(t.name) && !takesCode(t) && !takesLocation(t));
   }
 
+  /** Names of tools the Sculptor can actually reach through this backend: the mapped read tools (inspect, object detail, screenshot, docs; never exec) and extraTools(). */
+  callableNames(): string[] {
+    const { exec, ...reads } = this.names;
+    void exec;
+    return [...Object.values(reads).filter((n): n is string => typeof n === 'string'), ...this.extraTools().map((t) => t.name)];
+  }
+
   /** Calls one of extraTools(). Unknown names, unknown argument names and non-plain values are refused here, before the server is asked. */
   async callExtra(name: string, args: Record<string, unknown>): Promise<BackendResult> {
     await this.connect();
@@ -172,7 +179,7 @@ export class OfficialBackend implements BlenderBackend {
     const props = t.inputSchema?.properties ?? {};
     const clean: Record<string, unknown> = {};
     for (const [k, v] of Object.entries(args)) {
-      if (!(k in props)) return fail(`"${name}" has no argument "${k}". It takes: ${Object.keys(props).join(', ') || 'nothing'}.`);
+      if (!Object.hasOwn(props, k)) return fail(`"${name}" has no argument "${k}". It takes: ${Object.keys(props).join(', ') || 'nothing'}.`);
       if (!(typeof v === 'string' ? v.length <= 500 : typeof v === 'number' ? Number.isFinite(v) : typeof v === 'boolean')) return fail(`Argument "${k}" must be a short string, a number or true/false.`);
       clean[k] = v;
     }

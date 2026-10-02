@@ -29,7 +29,7 @@ import type { AuditEntry } from './audit.js';
 import type { BackendResult, BlenderBackend } from './backend.js';
 import { capText } from './backend.js';
 import { assetDir, ASSET_KINDS, cardSummary, importScript } from './assets.js';
-import type { AssetKind, AssetPort } from './assets.js';
+import type { AssetKind, AssetPlan, AssetPort } from './assets.js';
 import { safeSegment } from './exports.js';
 import { findLink, isInside, resolveFolder } from './fs-safe.js';
 import type { LocalPort } from './ports.js';
@@ -197,6 +197,8 @@ export class BlenderGuard {
   /** Tasks that already have a backup this session (a task is a session; follow-ups keep it). Bounded. */
   private readonly backedUp = new Map<string, string>();
   private queue: Promise<unknown> = Promise.resolve();
+  /** Asset folders being downloaded right now: a second download of the same asset in the same task is refused, so two runs never share a staging folder. */
+  private readonly assetsInFlight = new Set<string>();
   private readonly now: () => Date;
 
   constructor(private readonly d: GuardDeps) { this.now = d.now ?? (() => new Date()); }
@@ -555,6 +557,12 @@ export class BlenderGuard {
     }
     const plan = planned.plan;
     const dir = assetDir(this.d.dataDir, taskId, plan.id);
+    if (this.assetsInFlight.has(dir)) return this.text(`"${plan.id}" is already being downloaded for this task; wait for it to finish.`, true);
+    this.assetsInFlight.add(dir);
+    try { return await this.assetGetLocked(agent, job, a, g.source, plan, dir, base, key, hash, taskId); } finally { this.assetsInFlight.delete(dir); }
+  }
+
+  private async assetGetLocked(agent: AgentProfile, job: ModuleJob | undefined, a: { source: string; id: string; kind: AssetKind; resolution?: string }, _source: AssetSource, plan: AssetPlan, dir: string, base: Omit<AuditEntry, 'decision'>, _key: string, hash: string, taskId: string): Promise<ToolResult> {
     // the live Blender must be reachable before the owner is bothered
     let backend: BlenderBackend;
     try { backend = await this.d.getBackend(); } catch (e) {
@@ -672,7 +680,7 @@ export class BlenderGuard {
       list.push(
         tool('blender_tools', 'The merged list of extra READ-ONLY Blender tools from both backends, each named source:name ("official:..." from the main Blender Lab server, "community:..." from the second add-on, only where the main has none). Use blender_tool to call one. Needs "Use both backends at once".', {},
           safe(() => this.extraCatalog(agent, job)), { annotations: { readOnlyHint: true } }),
-        tool('blender_tool', 'Call one tool from blender_tools by its source:name (for example "community:node_type" with {"bl_idname":"ShaderNodeBsdfPrincipled"}). Read-only; no approval. Output is outside text.',
+        tool('blender_tool', 'Call one tool from blender_tools by its source:name (for example "community:node_type" with {"bl_idname":"ShaderNodeBsdfPrincipled"}). Read-only (the one exception: community:node_type builds a scratch node in Blender and removes it again); no approval. Output is outside text.',
           { name: z.string().min(3).max(100).regex(/^(official|community):[A-Za-z0-9_.-]{1,80}$/), args: z.record(z.string(), z.union([z.string().max(500), z.number(), z.boolean()])).optional() },
           safe((a: { name: string; args?: Record<string, unknown> }) => this.extraCall(agent, job, a)), { annotations: { readOnlyHint: true } }),
       );

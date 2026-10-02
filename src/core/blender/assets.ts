@@ -31,7 +31,7 @@ export const MAX_ASSET_TOTAL_BYTES = 100 * 1024 * 1024;
 export const MAX_ASSET_FILES = 40;
 export const RESOLUTIONS = new Set(['1k', '2k', '4k']);
 const ID_RE = /^[A-Za-z0-9][A-Za-z0-9_-]{0,79}$/;
-const SEGMENT = /^[A-Za-z0-9][A-Za-z0-9._ -]{0,79}$/;
+const SEGMENT = /^(?!(?:CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])(?:\.|$))[A-Za-z0-9][A-Za-z0-9._ -]{0,79}$/i;
 
 export interface AssetNet {
   /** GET a JSON document. Only api.polyhaven.com addresses are ever passed. */
@@ -158,6 +158,33 @@ export function importScript(plan: AssetPlan, dir: string): string {
   ].join('\n');
 }
 
+/**
+ * A downloaded .gltf names its buffers and images by `uri`. Blender's importer would load whatever a uri points at, relative to the .gltf: a
+ * "../" path or an absolute path would pull a file from outside the asset folder into the scene. So every uri must be a data: URI or a plain
+ * relative path that is one of the files Legion itself downloaded (case-sensitive, after percent-decoding). Anything else refuses the whole asset.
+ */
+export function checkGltfRefs(gltfText: string, downloaded: ReadonlySet<string>): void {
+  let doc: unknown;
+  try { doc = JSON.parse(gltfText); } catch { throw new AssetError('The glTF file is not valid JSON.'); }
+  if (!isObj(doc)) throw new AssetError('The glTF file is not a glTF document.');
+  for (const key of ['buffers', 'images'] as const) {
+    const list = doc[key];
+    if (list === undefined) continue;
+    if (!Array.isArray(list)) throw new AssetError(`The glTF "${key}" is not a list.`);
+    for (const item of list) {
+      const uri = isObj(item) ? item.uri : undefined;
+      if (uri === undefined) continue;
+      if (typeof uri !== 'string') throw new AssetError(`A glTF ${key} entry has a uri that is not text.`);
+      if (/^data:/i.test(uri)) continue;
+      let decoded: string;
+      try { decoded = decodeURIComponent(uri); } catch { throw new AssetError(`A glTF ${key} uri is not valid.`); }
+      if (!downloaded.has(decoded) || /^[a-z][a-z0-9+.-]*:/i.test(decoded) || decoded.startsWith('/') || decoded.includes('\\') || decoded.split('/').includes('..')) {
+        throw new AssetError(`The glTF refers to "${uri.slice(0, 80)}", which is not one of the files that were downloaded with it. Nothing was kept.`);
+      }
+    }
+  }
+}
+
 export interface FetchResult { ok: boolean; manifest?: AssetManifest; dir?: string; problems: string[] }
 
 const md5Of = (file: string): string => createHash('md5').update(readFileSync(file)).digest('hex');
@@ -191,6 +218,11 @@ export async function fetchPlan(net: AssetNet, plan: AssetPlan, dir: string, now
       if (statSync(dest).size !== r.bytes) throw new AssetError(`"${f.rel}" changed while it was written.`);
       if (md5Of(dest) !== f.md5) throw new AssetError(`"${f.rel}" does not match the md5 Poly Haven lists. It was not kept.`);
       got.push({ rel: f.rel, bytes: r.bytes, sha256: r.sha256 });
+    }
+    if (plan.kind === 'models') {
+      const mainPath = join(stage, ...plan.main.split('/'));
+      if (statSync(mainPath).size > MAX_ASSET_FILE_BYTES) throw new AssetError('The glTF file is too large to check.');
+      checkGltfRefs(readFileSync(mainPath, 'utf8'), new Set(plan.files.map((f) => f.rel)));
     }
     const inner = findLink(stage);
     if (inner) throw new AssetError(`A symbolic link appeared in the asset folder (${inner}).`);
