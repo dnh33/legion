@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { checkScript, describeFindings, pathProblem, scriptHash, MAX_SCRIPT_BYTES } from '../src/core/blender/static-check.js';
+import { checkScript, describeFindings, pathProblem, scriptHash, MAX_SCRIPT_BYTES, ALLOWED_MODULES } from '../src/core/blender/static-check.js';
 
 const DIR = '/home/u/.legion/ws/sculptor/blender-exports';
 const WINDIR = 'C:\\Users\\Dan\\.legion\\ws\\sculptor\\blender-exports';
@@ -328,7 +328,7 @@ test('wm operators that touch files meet the path rules', () => {
 });
 
 test('notes: allowed but notable things are listed for the approval card', () => {
-  const r = check('bpy.ops.wm.read_factory_settings(use_empty=True)\nbpy.ops.object.delete()\nwhile False:\n    pass\nbpy.ops.wm.save_mainfile()');
+  const r = check('bpy.ops.wm.read_homefile(use_empty=True)\nbpy.ops.object.delete()\nwhile False:\n    pass\nbpy.ops.wm.save_mainfile()');
   assert.equal(r.ok, true);
   assert.ok(r.notes.some((n) => /replaces the open scene/.test(n)), r.notes.join('|'));
   assert.ok(r.notes.some((n) => /deletes objects/.test(n)));
@@ -380,4 +380,131 @@ test('adversarial: keyword names and statement forms', () => {
   blocked('x = obj.open("a")', 'banned-attribute');
   blocked('x = os . system ( "x" )', 'banned-name');
   blocked('x = (  os\n.system)("x")', 'banned-name');
+});
+
+// ---- review fixes B1, B2, S1, S2, S7 and the linear-time nit. Every snippet below is a harmless sample: the test asserts the checker REFUSES it.
+import { BIDI_CONTROL, INVISIBLE_CHARS } from '../src/core/blender/static-check.js';
+const liveCheck = (src: string) => checkScript(src, { allowedDirs: [DIR], live: true });
+const liveBlocked = (src: string, rule: string) => {
+  const r = liveCheck(src);
+  assert.equal(r.ok, false, `expected blocked in live mode:\n${src}`);
+  assert.ok(r.findings.some((f) => f.rule === rule), `expected ${rule}, got ${JSON.stringify(r.findings.map((f) => f.rule))}`);
+};
+const H = 'import bpy\n';
+
+test('B1: text-block-to-module, type-hint evaluation and use_scripts are refused', () => {
+  blocked(`${H}m = bpy.data.texts["a"].as_module()`, 'banned-attribute');
+  blocked(`${H}x = obj.use_module`, 'banned-attribute');
+  blocked(`${H}f = get_type_hints(Foo)`, 'banned-name');
+  blocked(`${H}f = ForwardRef("x")`, 'banned-name');
+  blocked(`${H}bpy.ops.wm.open_mainfile(filepath="${DIR}/a.blend", use_scripts=True)`, 'use-scripts');
+  blocked(`${H}bpy.ops.wm.open_mainfile(filepath="${DIR}/a.blend", use_scripts=False)`, 'use-scripts');
+  blocked(`${H}d = dict(use_scripts=1)`, 'use-scripts');
+});
+
+test('B1: typing and bpy_extras are not importable', () => {
+  blocked('import typing', 'import');
+  blocked('from typing import List', 'import');
+  blocked('import bpy_extras', 'import');
+  blocked('from bpy_extras import io_utils', 'import');
+  assert.equal(ALLOWED_MODULES.has('typing'), false);
+  assert.equal(ALLOWED_MODULES.has('bpy_extras'), false);
+});
+
+test('B2: setattr/getattr with a path-like name is refused, including a name built at run time', () => {
+  blocked(`${H}setattr(img, "filepath", "x")`, 'getattr');
+  blocked(`${H}n = "file" + "path"\ngetattr(img, n)`, 'getattr');
+  blocked(`${H}getattr(img, "directory")`, 'getattr');
+});
+
+test('B2: a path-like attribute is checked in every assignment form (tuple, for, with-as, augmented, chained, annotated)', () => {
+  for (const src of [
+    'img.filepath, k = "/tmp/a", 1',
+    'for img.filepath in ["/tmp/a"]:\n    pass',
+    'with open(x) as img.filepath:\n    pass',
+    'img.filepath += "/tmp/a"',
+    'img.filepath = other = "/tmp/a"',
+    'img.filepath: str = "/tmp/a"',
+    'k, (img.filepath, j) = 1, ("/tmp/a", 2)',
+    'img.filepath = some_function()',
+  ]) blocked(H + src, 'path');
+  fine(`${H}img.filepath = "${DIR}/ok.png"`);
+  fine(`${H}img.use_fake_user = True`);
+});
+
+test('B2: more path-like attribute names: cache_directory and the file-output slot .path', () => {
+  blocked(`${H}scene.cache_directory = "/tmp/x"`, 'path');
+  blocked(`${H}slot.path = "/tmp/x"`, 'path');
+  blocked(`${H}node.file_slots[0].path = "/tmp/x"`, 'path');
+  blocked(`${H}node.base_path = "/tmp/x"`, 'path');
+});
+
+test('B2: operator names are NOT exempt from the banned list: unpack operators and the like are refused', () => {
+  blocked(`${H}bpy.ops.file.unpack_all()`, 'ops-namespace');
+  blocked(`${H}bpy.ops.file.unpack_item()`, 'ops-namespace');
+  blocked(`${H}bpy.ops.image.unpack()`, 'banned-attribute');
+  blocked(`${H}bpy.ops.script.python_file_run(filepath="x")`, 'ops-namespace');
+});
+
+test('S1: only allowlisted operator namespaces: add-on operators and the named operators are refused', () => {
+  blocked(`${H}bpy.ops.blendermcp.start_server()`, 'ops-namespace');
+  blocked(`${H}bpy.ops.someaddon.do_thing()`, 'ops-namespace');
+  blocked(`${H}bpy.ops.render.play_rendered_anim()`, 'ops-denied');
+  blocked(`${H}bpy.ops.wm.read_factory_settings()`, 'ops-denied');
+  for (const ok of ['mesh.primitive_cube_add()', 'object.select_all(action="DESELECT")', 'transform.translate(value=(1, 0, 0))', 'curve.primitive_bezier_curve_add()', 'wm.save_mainfile()'])
+    fine(`${H}bpy.ops.${ok}`);
+});
+
+test('S2: live runs refuse to open, append or link any .blend; sandbox runs (inside the VM) may', () => {
+  liveBlocked(`${H}bpy.ops.wm.open_mainfile(filepath="${DIR}/a.blend")`, 'ops-blend-load');
+  liveBlocked(`${H}bpy.ops.wm.append(directory="${DIR}/a.blend/Object/", filename="C")`, 'ops-blend-load');
+  liveBlocked(`${H}bpy.ops.wm.link(directory="${DIR}/a.blend/Object/", filename="C")`, 'ops-blend-load');
+  assert.ok(!rules(`${H}bpy.ops.wm.open_mainfile(filepath="${DIR}/a.blend")`).includes('ops-blend-load'), 'the VM is the sandbox: it is not refused there');
+});
+
+test('nit: save_as_mainfile must say copy=True (otherwise it re-points the open file)', () => {
+  blocked(`${H}bpy.ops.wm.save_as_mainfile(filepath="${DIR}/a.blend")`, 'ops-save-copy');
+  blocked(`${H}bpy.ops.wm.save_as_mainfile(filepath="${DIR}/a.blend", copy=False)`, 'ops-save-copy');
+  fine(`${H}bpy.ops.wm.save_as_mainfile(filepath="${DIR}/a.blend", copy=True)`);
+  liveBlocked(`${H}bpy.ops.wm.save_as_mainfile(filepath="${DIR}/a.blend")`, 'ops-save-copy');
+});
+
+test('nit: // relative paths are refused in live mode (they would resolve against the open .blend), allowed only for the sandbox', () => {
+  assert.match(pathProblem('//out.obj', [DIR], true) ?? '', /./);
+  assert.equal(pathProblem('//out.obj', [DIR], false), null);
+  liveBlocked(`${H}bpy.ops.wm.obj_export(filepath="//out.obj")`, 'path');
+  fine(`${H}bpy.ops.wm.obj_export(filepath="${DIR}/o.obj")`);
+});
+
+test('S7: bidirectional controls are refused; other invisible characters are noted for the card', () => {
+  const bidi = `${H}x = 1‮`;
+  blocked(bidi, 'hidden-characters');
+  assert.ok(BIDI_CONTROL.test(bidi));
+  const inv = check(`${H}x = "a​b"`);
+  assert.ok(inv.notes.some((n) => /invisible|hidden|zero-width/i.test(n)), inv.notes.join('|'));
+  assert.ok(new RegExp(INVISIBLE_CHARS.source).test('​'));
+});
+
+test('S7: a lone \\r is a newline for the checker, so a banned call cannot hide after one', () => {
+  const r = check(`${H}x = 1\rimport os`);
+  assert.equal(r.ok, false);
+  const lines = r.findings.map((f) => f.line);
+  assert.ok(lines.includes(3), `the finding is on line 3 (the card splits on lone \\r too), got ${JSON.stringify(lines)}`);
+});
+
+test('nit: the checker is linear time: a ~56 KB keyword-heavy script is checked in well under a second', () => {
+  const unit = 'bpy.ops.mesh.primitive_cube_add(size=1, location=(0, 0, 0), rotation=(0, 0, 0), enter_editmode=False, align="WORLD")\n';
+  const kw = 'obj = foo(' + Array.from({ length: 2000 }, (_, i) => `a${i}=${i}`).join(', ') + ')\n';
+  const src = H + unit.repeat(250) + kw;
+  assert.ok(src.length > 50_000 && src.length < MAX_SCRIPT_BYTES, String(src.length));
+  const t0 = performance.now();
+  const r = check(src);
+  const ms = performance.now() - t0;
+  assert.ok(ms < 1000, `took ${ms.toFixed(0)} ms`);
+  assert.ok(r.findings.length >= 0);
+  // deeply nested brackets and long chains are linear too
+  const nest = `${H}x = ${'('.repeat(2000)}1${')'.repeat(2000)}\n` + `y = ${'[1, '.repeat(3000)}0${']'.repeat(3000)}\n`;
+  const t1 = performance.now();
+  checkScript(nest, { allowedDirs: [DIR] });
+  assert.ok(performance.now() - t1 < 1000);
 });

@@ -51,7 +51,8 @@ test('ports, sandbox and backend values are validated', () => {
 test('download URLs must be https; hashes must be 64 hex characters', () => {
   const c = normalizeBlender({ advanced: { official: { sourceUrl: 'http://x.test/a.zip', sha256: 'abc' }, community: { addonUrl: 'file:///etc/passwd', sha256: 'A'.repeat(64) }, vm: { blenderUrl: 'ftp://x/y' } } });
   assert.equal(c.advanced.official.sourceUrl, DEFAULT_ADVANCED.official.sourceUrl);
-  assert.equal(c.advanced.official.sha256, '');
+  assert.equal(c.advanced.official.sha256, DEFAULT_ADVANCED.official.sha256, 'a malformed hash keeps the default pin');
+  assert.equal(normalizeBlender({ advanced: { official: { sha256: '' } } }).advanced.official.sha256, '', 'an explicitly empty hash means no pin');
   assert.equal(c.advanced.community.addonUrl, DEFAULT_ADVANCED.community.addonUrl);
   assert.equal(c.advanced.community.sha256, 'a'.repeat(64));
   assert.equal(c.advanced.vm.blenderUrl, DEFAULT_ADVANCED.vm.blenderUrl);

@@ -5,6 +5,9 @@
 import net from 'node:net';
 import { isLoopbackHost } from '../../shared/blender.js';
 
+/** The peer did not answer in time. The request may still be running on the other side. */
+export class TimedOutError extends Error { readonly timedOut = true; }
+
 function assertLoopback(host: string): void {
   if (!isLoopbackHost(host)) throw new Error(`Refusing to connect to ${host}: the Blender bridge only talks to this computer (127.0.0.1)`);
 }
@@ -40,7 +43,7 @@ export function jsonRequest(host: string, port: number, payload: unknown, opts: 
       s.destroy();
       if (err) reject(err); else resolve(value);
     };
-    const timer = setTimeout(() => finish(new Error(`Blender did not answer within ${Math.round(opts.timeoutMs / 1000)}s (the script may still be running in Blender)`)), opts.timeoutMs);
+    const timer = setTimeout(() => finish(new TimedOutError(`Blender did not answer within ${Math.round(opts.timeoutMs / 1000)}s. Whatever was sent may STILL BE RUNNING in Blender; the connection was dropped but nothing was cancelled`)), opts.timeoutMs);
     s.setEncoding('utf8');
     s.once('connect', () => { s.write(JSON.stringify(payload)); });
     s.on('data', (chunk: string) => {

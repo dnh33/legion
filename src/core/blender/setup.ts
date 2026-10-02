@@ -40,6 +40,15 @@ export interface LiveSetupOutcome {
   entry?: BlenderEntry;
   info?: ServerSetupInfo;
   addonInstalled: boolean;
+  /** The download differs from the one you trusted before and nothing was changed; press "Trust the new download" to accept it. */
+  retrustRequired?: boolean;
+}
+
+export interface SetupOptions {
+  /** What was recorded the last time this backend was set up (url and sha256), or null for a first use. */
+  prior?: ServerSetupInfo | null;
+  /** The user explicitly accepts a changed download (the "Trust the new download" button). */
+  retrust?: boolean;
 }
 
 const OFFICIAL_MAX_BYTES = 200 * 1024 * 1024;
@@ -86,11 +95,22 @@ async function installAddonHeadless(io: BlenderIo, install: BlenderInstall, work
   return step('addon', false, `Blender ran but the add-on did not enable (exit ${r.code}): ${tail || 'no output'}. You can install ${src} by hand (Edit, Preferences, Add-ons, Install from disk).`);
 }
 
-/** Checks a downloaded file against the pinned hash, or records its hash (trust on first use) and says so. */
-function checkHash(pinned: string, got: string): { ok: boolean; detail: string } {
+interface HashVerdict { ok: boolean; detail: string; changed?: boolean }
+
+/**
+ * Checks a downloaded file. A pinned sha256 must match. With no pin, the first download from a URL is trusted and its hash recorded; a LATER
+ * download from the same URL with a different hash is refused until the user re-trusts it, so an upstream that changes (or is replaced) under
+ * a branch name is noticed instead of silently installed. A different URL is a new source and counts as a first use.
+ */
+export function checkHash(pinned: string, got: string, url: string, prior: ServerSetupInfo | null | undefined, retrust: boolean): HashVerdict {
   const p = pinned.trim().toLowerCase();
   if (p) return p === got ? { ok: true, detail: `sha256 matches the pinned value (${got.slice(0, 12)}...)` } : { ok: false, detail: `sha256 ${got.slice(0, 12)}... does not match the pinned ${p.slice(0, 12)}...; the file was not used` };
-  return { ok: true, detail: `sha256 ${got} (no pin set: trusted on first use; pin it in blender.advanced to refuse changes)` };
+  if (prior && prior.url === url) {
+    if (prior.sha256 === got) return { ok: true, detail: `sha256 ${got.slice(0, 12)}... is the same file you trusted on ${prior.at.slice(0, 10) || 'an earlier setup'}` };
+    if (retrust) return { ok: true, detail: `sha256 ${got.slice(0, 12)}... differs from the one you trusted (${prior.sha256.slice(0, 12)}...); you chose to trust the new download` };
+    return { ok: false, changed: true, detail: `CHANGED: this download is ${got.slice(0, 12)}..., but the one you trusted was ${prior.sha256.slice(0, 12)}... (same address). Nothing was installed or replaced. If you expected an update, press "Trust the new download"; otherwise leave it, the source may have been tampered with. Pin a sha256 in blender.advanced to stop this prompt.` };
+  }
+  return { ok: true, detail: `sha256 ${got} (no pin set: trusted on first use, and recorded; a later download with a different hash is refused until you re-trust it)` };
 }
 
 function subst(s: string, v: { serverDir: string; host: string; port: number }): string {
@@ -100,7 +120,7 @@ function subst(s: string, v: { serverDir: string; host: string; port: number }):
 /**
  * Sets up the live backend for `kind`. Steps are returned in order and the first failure stops the run (later steps need the earlier ones).
  */
-export async function setupLive(io: BlenderIo, cfg: BlenderConfig, dataDir: string, install: BlenderInstall | undefined, kind: BlenderBackendKind): Promise<LiveSetupOutcome> {
+export async function setupLive(io: BlenderIo, cfg: BlenderConfig, dataDir: string, install: BlenderInstall | undefined, kind: BlenderBackendKind, opts: SetupOptions = {}): Promise<LiveSetupOutcome> {
   const steps: BlenderSetupStep[] = [];
   const out = (ok: boolean, extra: Partial<LiveSetupOutcome> = {}): LiveSetupOutcome => ({ steps, ok, backend: kind, addonInstalled: false, ...extra });
   if (!install) { steps.push(step('blender', false, 'Blender was not found on this computer. Install it from blender.org, or set the install path in Settings.')); return out(false); }
@@ -117,9 +137,9 @@ export async function setupLive(io: BlenderIo, cfg: BlenderConfig, dataDir: stri
       const adv = cfg.advanced.community;
       const file = join(root, 'addon.py');
       const d = await io.download(adv.addonUrl, file, { maxBytes: COMMUNITY_MAX_BYTES });
-      const h = checkHash(adv.sha256, d.sha256);
+      const h = checkHash(adv.sha256, d.sha256, adv.addonUrl, opts.prior, opts.retrust === true);
       steps.push(step('download', h.ok, `Downloaded the community add-on (${d.bytes} bytes) from ${adv.addonUrl}. ${h.detail}`));
-      if (!h.ok) { io.removeDir(root); return out(false); }
+      if (!h.ok) { io.removeDir(root); return out(false, h.changed ? { retrustRequired: true } : {}); }
       const info: ServerSetupInfo = { url: adv.addonUrl, sha256: d.sha256, at: io.now().toISOString(), license: 'MIT' };
       const a = await installAddonHeadless(io, install, root, file, 'legion_community_blender_mcp');
       steps.push(a);
@@ -132,9 +152,9 @@ export async function setupLive(io: BlenderIo, cfg: BlenderConfig, dataDir: stri
     const adv = cfg.advanced.official;
     const archive = join(root, 'server-archive.zip');
     const d = await io.download(adv.sourceUrl, archive, { maxBytes: OFFICIAL_MAX_BYTES });
-    const h = checkHash(adv.sha256, d.sha256);
+    const h = checkHash(adv.sha256, d.sha256, adv.sourceUrl, opts.prior, opts.retrust === true);
     steps.push(step('download', h.ok, `Downloaded the official Blender Lab MCP server (${Math.round(d.bytes / 1024)} KB) from ${adv.sourceUrl}. ${h.detail}`));
-    if (!h.ok) { io.removeDir(root); return out(false); }
+    if (!h.ok) { io.removeDir(root); return out(false, h.changed ? { retrustRequired: true } : {}); }
     const unpack = join(root, 'server');
     io.removeDir(unpack);
     await io.extract(archive, unpack);
@@ -152,19 +172,44 @@ export async function setupLive(io: BlenderIo, cfg: BlenderConfig, dataDir: stri
     steps.push(a);
     if (!a.ok) return out(false, { info });
     const v = { serverDir, host: cfg.host, port: cfg.port };
-    const entry: BlenderEntry = { command: adv.command, args: adv.args.map((x) => subst(x, v)), env: { ...adv.env }, serverDir, at: io.now().toISOString() };
+    const entry: BlenderEntry = { command: adv.command, args: adv.args.map((x) => subst(x, v)), env: Object.fromEntries(Object.entries(adv.env).map(([k, x]) => [k, subst(x, v)])), serverDir, at: io.now().toISOString() };
     const probe = await io.run(entry.command, ['--version'], 15_000);
     if (!probe) {
       steps.push(step('launcher', false, `"${entry.command}" is not installed or not on PATH. The official server is a Python project started with it. Install it (for uv: docs.astral.sh/uv) or change blender.advanced.official.command.`));
       return out(false, { info, addonInstalled: true });
     }
-    steps.push(step('launcher', true, `Launcher "${entry.command}" found. The first start also downloads the server's Python dependencies through it (a second download, from the package index).`));
+    steps.push(step('launcher', true, `Launcher "${entry.command}" found.`));
+    // lock the server's Python dependencies, where the launcher is uv: later starts then install exactly what the lock file names, hashes included
+    const lock = await lockDependencies(io, entry);
+    steps.push(lock.step);
+    if (lock.args) entry.args = lock.args;
     steps.push(step('config', true, `Saved how to start the server (${entry.command} ${entry.args.join(' ')}). It is kept in Legion's Blender settings, not handed to agents.`));
     return out(true, { info, entry, addonInstalled: true });
   } catch (e) {
     steps.push(step('setup', false, e instanceof Error ? e.message : String(e)));
     return out(false);
   }
+}
+
+const isUv = (command: string): boolean => /^uv(\.exe)?$/i.test(command.split(/[\\/]/).pop() ?? '');
+
+/**
+ * `uv run` resolves and downloads the server's Python dependencies on its first start and again whenever they change. Where the launcher is uv
+ * this locks them: an existing uv.lock is used as is, otherwise `uv lock` creates one now (one download from the package index, hashes recorded),
+ * and the saved start command gets --frozen so no later start re-resolves. Not possible for another launcher: said plainly, not hidden.
+ */
+async function lockDependencies(io: BlenderIo, entry: BlenderEntry): Promise<{ step: BlenderSetupStep; args?: string[] }> {
+  if (!isUv(entry.command)) return { step: step('lock', true, `NOT PINNED: "${entry.command}" is not uv, so Legion cannot lock the server's Python dependencies; they are resolved by whatever starts the server.`) };
+  if (entry.args.some((a) => a === '--frozen' || a === '--locked')) return { step: step('lock', true, 'The start command already uses --frozen or --locked.') };
+  const pi = entry.args.indexOf('--project');
+  const project = pi >= 0 && entry.args[pi + 1] ? entry.args[pi + 1]! : entry.serverDir;
+  const lockFile = join(project, 'uv.lock');
+  const withFrozen = (): string[] => { const i = entry.args.indexOf('run'); return i < 0 ? ['--frozen', ...entry.args] : [...entry.args.slice(0, i + 1), '--frozen', ...entry.args.slice(i + 1)]; };
+  if (io.exists(lockFile)) return { step: step('lock', true, `uv.lock found in ${project}: later starts use --frozen, so dependencies are exactly the locked, hash-checked set.`), args: withFrozen() };
+  const r = await io.run(entry.command, ['lock', '--project', project], 240_000);
+  if (r && r.code === 0 && io.exists(lockFile)) return { step: step('lock', true, `No uv.lock came with the download, so one was created now (dependencies resolved once from the package index, hashes recorded in ${lockFile}). Later starts use --frozen. This pins what was resolved TODAY; it does not prove those packages are the ones the authors tested.`), args: withFrozen() };
+  const why = r ? (r.stderr || r.stdout).trim().split('\n').slice(-2).join(' | ').slice(0, 240) : `${entry.command} could not be started`;
+  return { step: step('lock', true, `NOT PINNED: could not create uv.lock (${why || 'no output'}). The first start will resolve and download the server's Python dependencies from the package index, unpinned.`) };
 }
 
 /** The connection test: a TCP probe of the add-on socket, then connect and a trivial inspect. */

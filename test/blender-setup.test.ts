@@ -4,15 +4,18 @@ import { join } from 'node:path';
 import test from 'node:test';
 import { defaultBlenderConfig } from '../src/shared/blender.js';
 import type { BlenderInstall } from '../src/shared/blender.js';
-import { addonInstallPy, launchBlender, moduleNameFor, pyExprForFile, setupLive, testConnection } from '../src/core/blender/setup.js';
+import { addonInstallPy, checkHash, launchBlender, moduleNameFor, pyExprForFile, setupLive, testConnection } from '../src/core/blender/setup.js';
 import type { BlenderIo } from '../src/core/blender/setup.js';
 import { isPublicHttpsUrl } from '../src/core/blender/system.js';
 import { FakeBackend } from './blender-helpers.js';
 
 const install = (v = '5.1.0'): BlenderInstall => ({ path: '/opt/blender/blender', version: v, source: 'linux' });
 
-function fakeIo(over: Partial<{ downloadSha: string; blenderOut: string; launcherMissing: boolean; layout: string[]; throwDownload: boolean }> = {}) {
-  const log = { downloads: [] as Array<{ url: string; dest: string; maxBytes: number }>, runs: [] as Array<{ file: string; args: string[] }>, writes: new Map<string, string>(), spawned: [] as Array<{ file: string; args: string[] }>, removed: [] as string[] };
+/** The sha256 the default configuration pins for the official archive. */
+const PINNED = defaultBlenderConfig().advanced.official.sha256;
+
+function fakeIo(over: Partial<{ downloadSha: string; blenderOut: string; launcherMissing: boolean; layout: string[]; throwDownload: boolean; hasLock: boolean; lockFails: boolean; launcher: string }> = {}) {
+  const log = { downloads: [] as Array<{ url: string; dest: string; maxBytes: number }>, runs: [] as Array<{ file: string; args: string[] }>, writes: new Map<string, string>(), spawned: [] as Array<{ file: string; args: string[] }>, removed: [] as string[], locked: false };
   const layout = over.layout ?? ['blender_mcp'];
   const io: BlenderIo = {
     detect: { platform: 'linux', env: {}, home: '/home/u', exists: () => false, readDir: () => [], run: async () => null },
@@ -20,15 +23,16 @@ function fakeIo(over: Partial<{ downloadSha: string; blenderOut: string; launche
       log.runs.push({ file, args });
       if (file === install().path) return { code: 0, stdout: over.blenderOut ?? 'LEGION_ADDON_OK name /x\n', stderr: '' };
       if (over.launcherMissing) return null;
+      if (args[0] === 'lock') { if (over.lockFails) return { code: 1, stdout: '', stderr: 'no index' }; log.locked = true; return { code: 0, stdout: '', stderr: '' }; }
       return { code: 0, stdout: 'uv 0.5', stderr: '' };
     },
-    download: async (url, dest, opts) => { if (over.throwDownload) throw new Error('offline'); log.downloads.push({ url, dest, maxBytes: opts.maxBytes }); return { sha256: over.downloadSha ?? 'a'.repeat(64), bytes: 1234 }; },
+    download: async (url, dest, opts) => { if (over.throwDownload) throw new Error('offline'); log.downloads.push({ url, dest, maxBytes: opts.maxBytes }); return { sha256: over.downloadSha ?? PINNED, bytes: 1234 }; },
     extract: async () => undefined,
     mkdirp: () => undefined,
     writeText: (p, t) => { log.writes.set(p, t); },
     readText: (p) => log.writes.get(p),
     copyFile: () => undefined,
-    exists: (p) => p.endsWith('/addon') || p.endsWith('legion_blender'),
+    exists: (p) => p.endsWith('/addon') || p.endsWith('/addon/blender_mcp_addon') || p.endsWith('legion_blender') || (p.endsWith('uv.lock') && (over.hasLock === true || log.locked)),
     isDir: (p) => layout.some((n) => p.endsWith(`/server/${n}`)),
     listDir: (p) => (p.endsWith('/server') ? layout : ['addon', 'pyproject.toml']),
     removeDir: (p) => { log.removed.push(p); },
@@ -43,7 +47,7 @@ test('official setup: download (https, size capped), unpack, headless add-on ins
   const cfg = defaultBlenderConfig();
   const r = await setupLive(io, cfg, '/data', install(), 'official');
   assert.equal(r.ok, true, JSON.stringify(r.steps));
-  assert.deepEqual(r.steps.map((s) => s.step), ['blender', 'license', 'download', 'unpack', 'addon', 'launcher', 'config']);
+  assert.deepEqual(r.steps.map((s) => s.step), ['blender', 'license', 'download', 'unpack', 'addon', 'launcher', 'lock', 'config']);
   assert.match(r.steps[1]!.detail, /GPL-3\.0-or-later/);
   assert.equal(log.downloads.length, 1);
   assert.equal(log.downloads[0]!.url, cfg.advanced.official.sourceUrl);
@@ -52,9 +56,11 @@ test('official setup: download (https, size capped), unpack, headless add-on ins
   assert.deepEqual(log.runs[0]!.args.slice(0, 3), ['-b', '--factory-startup', '--python-expr']);
   assert.equal(r.entry!.serverDir, join('/data', 'blender', 'official', 'server', 'blender_mcp'));
   assert.ok(r.entry!.args.every((a) => !a.includes('{')), 'placeholders are replaced');
-  assert.ok(r.entry!.args.includes(String(cfg.port)));
+  assert.equal(r.entry!.env.BLENDER_MCP_PORT, String(cfg.port), 'the port reaches the server through its environment');
+  assert.ok(Object.values(r.entry!.env).every((v) => !v.includes('{')));
   assert.equal(r.info!.license, 'GPL-3.0-or-later');
-  assert.match(r.steps.find((s) => s.step === 'download')!.detail, /trusted on first use/);
+  assert.match(r.steps.find((s) => s.step === 'download')!.detail, /matches the pinned/);
+  assert.ok(r.entry!.args.includes('--frozen'), 'dependencies are locked after setup');
 });
 
 test('official setup is refused for Blender older than 5.1 and nothing is downloaded', async () => {
@@ -85,12 +91,85 @@ test('a pinned sha256 that does not match refuses the file and removes it', asyn
 });
 
 test('a matching pin passes and says so', async () => {
-  const { io } = fakeIo();
+  const { io } = fakeIo({ downloadSha: 'a'.repeat(64) });
   const cfg = defaultBlenderConfig();
   cfg.advanced.official.sha256 = 'A'.repeat(64);
   const r = await setupLive(io, cfg, '/data', install(), 'official');
   assert.equal(r.ok, true);
   assert.match(r.steps.find((s) => s.step === 'download')!.detail, /matches the pinned/);
+});
+
+test('S5: the default official source is pinned (tag URL and sha256), not a branch', () => {
+  const o = defaultBlenderConfig().advanced.official;
+  assert.match(o.sourceUrl, /v1\.0\.3|1\.0\.3/);
+  assert.match(o.sha256, /^[0-9a-f]{64}$/);
+});
+
+test('S5: with no pin, the first download is trusted and recorded; the same file again passes', async () => {
+  const cfg = defaultBlenderConfig();
+  cfg.advanced.official.sha256 = '';
+  const first = fakeIo({ downloadSha: 'c'.repeat(64) });
+  const r1 = await setupLive(first.io, cfg, '/data', install(), 'official');
+  assert.equal(r1.ok, true);
+  assert.match(r1.steps.find((s) => s.step === 'download')!.detail, /first use/);
+  const prior = r1.info!;
+  assert.equal(prior.sha256, 'c'.repeat(64));
+  const again = fakeIo({ downloadSha: 'c'.repeat(64) });
+  const r2 = await setupLive(again.io, cfg, '/data', install(), 'official', { prior });
+  assert.equal(r2.ok, true);
+  assert.match(r2.steps.find((s) => s.step === 'download')!.detail, /same file you trusted/);
+});
+
+test('S5: a changed hash from the same URL is REFUSED without an explicit re-trust, and nothing is installed', async () => {
+  const cfg = defaultBlenderConfig();
+  cfg.advanced.official.sha256 = '';
+  const prior = { url: cfg.advanced.official.sourceUrl, sha256: 'c'.repeat(64), at: '2026-10-01T00:00:00Z', license: 'GPL-3.0-or-later' };
+  const { io, log } = fakeIo({ downloadSha: 'd'.repeat(64) });
+  const r = await setupLive(io, cfg, '/data', install(), 'official', { prior });
+  assert.equal(r.ok, false);
+  assert.equal(r.retrustRequired, true);
+  assert.match(r.steps.at(-1)!.detail, /CHANGED/);
+  assert.equal(log.runs.length, 0, 'Blender is never started with the changed file');
+  assert.ok(log.removed.length > 0, 'the changed download is removed');
+  // an explicit re-trust accepts it
+  const ok = fakeIo({ downloadSha: 'd'.repeat(64) });
+  const r2 = await setupLive(ok.io, cfg, '/data', install(), 'official', { prior, retrust: true });
+  assert.equal(r2.ok, true, JSON.stringify(r2.steps));
+  assert.equal(r2.info!.sha256, 'd'.repeat(64));
+  // a different URL is a new source, not a change
+  const other = { ...prior, url: 'https://example.org/other.zip' };
+  const o = fakeIo({ downloadSha: 'd'.repeat(64) });
+  assert.equal((await setupLive(o.io, cfg, '/data', install(), 'official', { prior: other })).ok, true);
+});
+
+test('S5: checkHash covers pinned, first use, same, changed and re-trusted', () => {
+  const prior = { url: 'u', sha256: '1'.repeat(64), at: '2026-01-01T00:00:00Z', license: 'MIT' };
+  assert.equal(checkHash('', '1'.repeat(64), 'u', prior, false).ok, true);
+  const bad = checkHash('', '2'.repeat(64), 'u', prior, false);
+  assert.equal(bad.ok, false);
+  assert.equal(bad.changed, true);
+  assert.equal(checkHash('', '2'.repeat(64), 'u', prior, true).ok, true);
+  assert.equal(checkHash('', '2'.repeat(64), 'v', prior, false).ok, true);
+  assert.equal(checkHash('', '2'.repeat(64), 'u', null, false).ok, true);
+  assert.equal(checkHash('3'.repeat(64), '2'.repeat(64), 'u', prior, true).ok, false, 'a wrong pin is never overridden by re-trust');
+});
+
+test('S5: uv dependencies are locked: an existing uv.lock gets --frozen; a missing one is created; a failed lock is reported as NOT PINNED', async () => {
+  const have = fakeIo({ hasLock: true });
+  const a = await setupLive(have.io, defaultBlenderConfig(), '/data', install(), 'official');
+  assert.equal(a.ok, true);
+  assert.equal(a.entry!.args[a.entry!.args.indexOf('run') + 1], '--frozen');
+  assert.ok(!have.log.runs.some((x) => x.args[0] === 'lock'));
+  const make = fakeIo();
+  const b = await setupLive(make.io, defaultBlenderConfig(), '/data', install(), 'official');
+  assert.equal(b.ok, true);
+  assert.ok(make.log.runs.some((x) => x.args[0] === 'lock'));
+  assert.ok(b.entry!.args.includes('--frozen'));
+  const bad = fakeIo({ lockFails: true });
+  const c = await setupLive(bad.io, defaultBlenderConfig(), '/data', install(), 'official');
+  assert.equal(c.ok, true);
+  assert.match(c.steps.find((s) => s.step === 'lock')!.detail, /NOT PINNED/);
+  assert.ok(!c.entry!.args.includes('--frozen'));
 });
 
 test('community setup: add-on only, no MCP entry, direct socket explained', async () => {

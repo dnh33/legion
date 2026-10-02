@@ -6,7 +6,13 @@
 import type { BlenderBackendKind } from '../../shared/blender.js';
 
 export interface BackendImage { mime: string; /** base64 */ data: string }
-export interface BackendResult { ok: boolean; text: string; images: BackendImage[] }
+export interface BackendResult {
+  ok: boolean;
+  text: string;
+  images: BackendImage[];
+  /** The call hit its time limit; whatever it started in Blender may still be running. */
+  timedOut?: boolean;
+}
 
 export interface BlenderBackend {
   readonly kind: BlenderBackendKind;
@@ -24,7 +30,7 @@ export interface BlenderBackend {
 }
 
 export const ok = (text: string, images: BackendImage[] = []): BackendResult => ({ ok: true, text, images });
-export const fail = (text: string): BackendResult => ({ ok: false, text, images: [] });
+export const fail = (text: string, timedOut = false): BackendResult => ({ ok: false, text, images: [], ...(timedOut ? { timedOut: true } : {}) });
 
 /** Hard cap on text that goes back to an agent. */
 export const MAX_RESULT_CHARS = 12_000;

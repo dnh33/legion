@@ -1,18 +1,20 @@
 /**
  * The Blender Bridge module. Off by default. When enabled, ONLY the Sculptor gets the in-process `legion_blender` server (see guard.ts);
- * everything raw (the backend's execute tool, the official MCP server, the add-on socket) stays behind it. HTTP routes are admin-only
+ * the backend's execute tool and the official MCP server stay behind it. (The add-on's own socket in Blender has no password and is NOT behind
+ * anything: a local program can use it directly. That is a stated limit, see docs/BLENDER.md.) HTTP routes are admin-only
  * by default-deny (admin.ts): GET /api/blender, POST /api/blender/{setup,test,config,launch}. Status changes go out as `blender.status`
  * events, which server.ts filters for admin clients. See docs/BLENDER.md.
  */
 import type { McpServerConfig } from '@anthropic-ai/claude-agent-sdk';
 import { join } from 'node:path';
-import { BLENDER_EXEC_TOOL, BLENDER_SERVER_NAME, SCULPTOR_ID } from '../../shared/blender.js';
+import { BLENDER_EXEC_TOOL, BLENDER_SERVER_NAME, BLENDER_SOCKET_NOTICE, SCULPTOR_ID } from '../../shared/blender.js';
 import type { BlenderBackendKind, BlenderConfig, BlenderInstall, BlenderLight, BlenderSetupResult, BlenderStatusView, BlenderTestResult, BlenderSetupStep } from '../../shared/blender.js';
 import type { AgentProfile } from '../../shared/types.js';
 import { HttpError } from '../server.js';
 import type { CoreModule, ModuleDeps, ModuleJob } from '../modules.js';
 import { liveSecrets } from '../kg/index.js';
 import { AuditLog } from './audit.js';
+import type { AuditVerdict } from './audit.js';
 import type { BlenderBackend } from './backend.js';
 import { CommunityBackend } from './backends/community.js';
 import { OfficialBackend } from './backends/official.js';
@@ -70,6 +72,8 @@ export function createBlenderModule(deps: ModuleDeps, opts: BlenderModuleOptions
     : undefined);
   const audit = new AuditLog(deps.dataDir, () => liveSecrets(deps.config));
   const cfg = (): BlenderConfig => state.config;
+  let auditVerdict: AuditVerdict | null = null;
+  const checkAudit = (): AuditVerdict => { try { auditVerdict = audit.verify(); } catch (e) { auditVerdict = { ok: false, lines: 0, anchor: 'mismatch', note: `The audit log could not be checked: ${e instanceof Error ? e.message : String(e)}` }; } return auditVerdict; };
   const makeBackend = opts.makeBackend ?? ((kind, c) => (kind === 'official' ? new OfficialBackend(c) : new CommunityBackend(c)));
 
   // ---- detection (cached; Settings can force a refresh)
@@ -138,11 +142,18 @@ export function createBlenderModule(deps: ModuleDeps, opts: BlenderModuleOptions
     else if (!choice.kind) { light = 'error'; summary = choice.reason; }
     else if (!setupDone) { light = 'needs-setup'; summary = `Blender ${selected.version} found. Press Set up to install the add-on.`; }
     else { light = 'disconnected'; summary = `Blender ${selected.version} found, but its add-on is not listening on port ${c.port}. Open Blender or press Launch.`; }
+    const notices: string[] = [];
+    if (c.enabled && choice.kind && c.sandbox !== 'vm') notices.push(BLENDER_SOCKET_NOTICE);
+    if (c.enabled) {
+      const av = refresh || !auditVerdict ? checkAudit() : auditVerdict;
+      if (!av.ok) notices.push(`Audit log: ${av.note}`);
+      if (audit.failures > 0) notices.push(`${audit.failures} audit record(s) could not be written this session; scripts that need a record were not run.`);
+    }
     return {
       enabled: c.enabled, light, summary, backendChoice: c.backend, chosenBackend: choice.kind, backendReason: choice.reason,
       installs, ...(selected ? { selected } : {}), connected, socketOpen, sandbox: c.sandbox,
       sandboxReady: rd.ready, sandboxNote: rd.note, host: c.host, port: c.port, setup: rec,
-      ...(lastError ? { lastError } : {}), lastCheckedAt: new Date().toISOString(), stats: { ...guard.stats },
+      ...(lastError ? { lastError } : {}), ...(notices.length ? { notices } : {}), lastCheckedAt: new Date().toISOString(), stats: { ...guard.stats },
     };
   }
 
@@ -161,6 +172,7 @@ export function createBlenderModule(deps: ModuleDeps, opts: BlenderModuleOptions
     config: cfg, dataDir: deps.dataDir, approvals: deps.approvals, getBackend, ...(sandbox ? { sandbox } : {}),
     secrets: () => liveSecrets(deps.config),
     exportDirFor: (a) => join(a.cwd || join(deps.config.workspaceDir, a.id), 'blender-exports'),
+    workspaceOf: (a) => a.cwd || join(deps.config.workspaceDir, a.id),
     audit, ...(opts.backup ? { backup: opts.backup } : {}), onChange: emitStatus,
   });
 
@@ -193,17 +205,19 @@ export function createBlenderModule(deps: ModuleDeps, opts: BlenderModuleOptions
     return p;
   }
 
-  async function runSetup(target: 'live' | 'sandbox' | 'both'): Promise<BlenderSetupResult> {
+  async function runSetup(target: 'live' | 'sandbox' | 'both', retrust = false): Promise<BlenderSetupResult> {
     const steps: BlenderSetupStep[] = [];
+    let retrustRequired: BlenderBackendKind | undefined;
     if (!cfg().enabled) return { ok: false, steps: [{ step: 'enabled', ok: false, detail: 'Turn the Blender bridge on first.' }], status: await status() };
     if (target !== 'sandbox') {
       await detect(true);
       const choice = choose();
       if (!choice.kind) steps.push({ step: 'backend', ok: false, detail: choice.reason });
       else {
-        const r = await setupLive(io, cfg(), deps.dataDir, pickInstall(installs), choice.kind);
+        const r = await setupLive(io, cfg(), deps.dataDir, pickInstall(installs), choice.kind, { prior: state.setup[choice.kind], retrust });
         steps.push(...r.steps);
-        try { state.recordSetup({ kind: choice.kind, ...(r.info ? { info: r.info } : {}), ...(r.entry ? { entry: r.entry } : {}), addonInstalled: r.addonInstalled }); } catch (e) { steps.push({ step: 'save', ok: false, detail: `Could not save the setup result: ${e instanceof Error ? e.message : String(e)}` }); }
+        if (r.retrustRequired) retrustRequired = choice.kind;
+        try { state.recordSetup({ kind: choice.kind, ...(r.info ? { info: r.info } : {}), ...(r.entry ? { entry: r.entry } : {}), addonInstalled: r.addonInstalled, retrust }); } catch (e) { steps.push({ step: 'save', ok: false, detail: `Could not save the setup result: ${e instanceof Error ? e.message : String(e)}` }); }
       }
     }
     if (target !== 'live' && cfg().sandbox !== 'off') {
@@ -218,7 +232,7 @@ export function createBlenderModule(deps: ModuleDeps, opts: BlenderModuleOptions
     else lastError = undefined;
     const st = await status(true);
     deps.bus.emit({ type: 'blender.status', status: st });
-    return { ok, steps, status: st };
+    return { ok, steps, status: st, ...(retrustRequired ? { retrustRequired } : {}) };
   }
 
   async function runTest(): Promise<BlenderTestResult> {
@@ -269,7 +283,8 @@ export function createBlenderModule(deps: ModuleDeps, opts: BlenderModuleOptions
       add('POST', '/api/blender/setup', ({ body }) => exclusive(() => {
         const t = isObj(body) && body.target !== undefined ? body.target : 'both';
         if (t !== 'live' && t !== 'sandbox' && t !== 'both') throw new HttpError(400, 'target must be live, sandbox or both');
-        return runSetup(t);
+        if (isObj(body) && 'retrust' in body && typeof body.retrust !== 'boolean') throw new HttpError(400, 'retrust must be true or false');
+        return runSetup(t, isObj(body) && body.retrust === true);
       }));
       add('POST', '/api/blender/test', () => exclusive(runTest));
       add('POST', '/api/blender/launch', () => exclusive(async () => {

@@ -19,15 +19,19 @@ export const BLENDER_SERVER_NAME = 'legion_blender';
 export const BLENDER_EXEC_TOOL = `mcp__${BLENDER_SERVER_NAME}__blender_exec`;
 
 /**
- * Names the OFFICIAL server's tools are looked up by. UNVERIFIED: these are best guesses from the public description; at connect time
- * the backend also matches against the server's real tool list by pattern (see backends/official.ts) and falls back to these.
+ * Names the OFFICIAL server's tools are looked up by. The defaults are the tool names in the blender_mcp v1.0.3 source (mcp/blmcp/tools/*.py,
+ * read when this default was set); see backends/official.ts for how a name is matched.
  */
 export interface BlenderToolMap {
   /** The raw code-execution tool. Only the guard calls it; agents never see it. */
   exec: string;
   /** Argument name that carries the Python source. */
   execArg: string;
+  /** The no-approval tools (inspect, objectInfo, screenshot, docs) are used only under exactly these names, or, when the server does not have them,
+   *  a pattern match the server itself marks readOnlyHint; never the exec tool and never a tool that takes code. */
   inspect: string;
+  /** Detail of one object (takes the object's name). */
+  objectInfo: string;
   screenshot: string;
   docs: string;
 }
@@ -35,21 +39,23 @@ export interface BlenderToolMap {
 /** Everything under blender.advanced is for people who edit config.json: assumptions kept as data, not code. */
 export interface BlenderAdvanced {
   official: {
-    /** Where the official server is downloaded from, only when you press Set up. UNVERIFIED default. */
+    /** Where the official server is downloaded from, only when you press Set up. The default is the v1.0.3 TAG, not a moving branch. */
     sourceUrl: string;
-    /** Optional sha256 (hex) the downloaded archive must match; empty = trust on first use, the hash is recorded and shown. */
+    /** sha256 (hex) the downloaded archive must match. The default pins the v1.0.3 archive. Empty = trusted on first use: the hash is recorded, and a later
+     *  download whose hash differs is REFUSED until you press "Trust the new download" (it is never replaced silently). */
     sha256: string;
-    /** How Legion starts the server (stdio MCP). {serverDir} {host} {port} are replaced. UNVERIFIED default. */
+    /** How Legion starts the server (stdio MCP). {serverDir} {host} {port} are replaced (args and env). */
     command: string;
     args: string[];
     env: Record<string, string>;
-    /** Path of the add-on inside the downloaded archive (a folder, a .py or a .zip). UNVERIFIED default. */
+    /** Path of the add-on inside the downloaded archive (a folder, a .py or a .zip). */
     addonPath: string;
     tools: BlenderToolMap;
   };
   community: {
-    /** Raw add-on file. Default: the upstream addon.py on the main branch. */
+    /** Raw add-on file. Default: the upstream addon.py on the main branch (a moving target: no tag or commit could be looked up when this was written; pin sha256 below). */
     addonUrl: string;
+    /** As for the official server: empty = trusted on first use, a changed download is refused until re-trusted. */
     sha256: string;
     /** Command names of the add-on's JSON socket protocol ({"type": <name>, "params": {...}}). UNVERIFIED defaults taken from the public add-on. */
     commands: { exec: string; inspect: string; objectInfo: string; screenshot: string };
@@ -89,13 +95,13 @@ export interface BlenderConfig {
 
 export const DEFAULT_ADVANCED: BlenderAdvanced = {
   official: {
-    sourceUrl: 'https://projects.blender.org/lab/blender_mcp/archive/main.zip',
-    sha256: '',
+    sourceUrl: 'https://projects.blender.org/api/v1/repos/lab/blender_mcp/archive/v1.0.3.zip',
+    sha256: 'e08a16ba01a02b80469ef9ca2dc04cee8711d0b4a32ad27c66891935cc5abebe',
     command: 'uv',
-    args: ['run', '--project', '{serverDir}', 'blender-mcp', '--host', '{host}', '--port', '{port}'],
-    env: {},
-    addonPath: 'addon',
-    tools: { exec: 'execute_python', execArg: 'code', inspect: 'get_scene_info', screenshot: 'get_viewport_screenshot', docs: 'search_docs' },
+    args: ['run', '--project', '{serverDir}/mcp', 'blender-mcp'],
+    env: { BLENDER_MCP_HOST: '{host}', BLENDER_MCP_PORT: '{port}' },
+    addonPath: 'addon/blender_mcp_addon',
+    tools: { exec: 'execute_blender_code', execArg: 'code', inspect: 'get_objects_summary', objectInfo: 'get_object_detail_summary', screenshot: 'get_screenshot_of_window_as_image', docs: 'search_api_docs' },
   },
   community: {
     addonUrl: 'https://raw.githubusercontent.com/ahujasid/blender-mcp/main/addon.py',
@@ -133,7 +139,12 @@ const httpsUrl = (v: unknown, d: string): string => {
   if (typeof v !== 'string') return d;
   try { const u = new URL(v); return u.protocol === 'https:' ? u.toString() : d; } catch { return d; }
 };
-const hex = (v: unknown): string => (typeof v === 'string' && /^[0-9a-fA-F]{64}$/.test(v.trim()) ? v.trim().toLowerCase() : '');
+const hex = (v: unknown, dflt = ''): string => {
+  if (typeof v !== 'string') return dflt;
+  if (/^[0-9a-fA-F]{64}$/.test(v.trim())) return v.trim().toLowerCase();
+  // an explicitly empty value means "no pin" (trust on first use, with a re-trust prompt on change); anything malformed keeps the default
+  return v.trim() === '' ? '' : dflt;
+};
 
 const normEntry = (v: unknown): BlenderEntry | undefined => {
   if (!isObj(v) || typeof v.command !== 'string' || !v.command.trim() || v.command.length > 500 || /\0/.test(v.command)) return undefined;
@@ -174,14 +185,14 @@ export function normalizeBlender(v: unknown): BlenderConfig {
     advanced: {
       official: {
         sourceUrl: httpsUrl(off.sourceUrl, d.advanced.official.sourceUrl),
-        sha256: hex(off.sha256),
+        sha256: hex(off.sha256, d.advanced.official.sha256),
         command: str(off.command, d.advanced.official.command, 500),
         args: strList(off.args, d.advanced.official.args),
         env: strMap(off.env, d.advanced.official.env),
         addonPath: str(off.addonPath, d.advanced.official.addonPath, 300),
         tools: {
           exec: toolName(tools.exec, dt.exec), execArg: toolName(tools.execArg, dt.execArg), inspect: toolName(tools.inspect, dt.inspect),
-          screenshot: toolName(tools.screenshot, dt.screenshot), docs: toolName(tools.docs, dt.docs),
+          objectInfo: toolName(tools.objectInfo, dt.objectInfo), screenshot: toolName(tools.screenshot, dt.screenshot), docs: toolName(tools.docs, dt.docs),
         },
       },
       community: {
@@ -241,19 +252,31 @@ export interface BlenderStatusView {
   /** What Setup already put on disk. */
   setup: { official: ServerSetupInfo | null; community: ServerSetupInfo | null; addonInstalledFor: BlenderBackendKind | null };
   lastError?: string;
+  /** Plain warnings shown next to the light: the add-on socket has no password, an audit log that does not check out, failed audit writes. */
+  notices?: string[];
   lastCheckedAt: string;
   /** Scripts this core run asked the user about, and what they said. */
-  stats: { approved: number; denied: number; blocked: number };
+  stats: { approved: number; denied: number; blocked: number; auditFailures?: number };
 }
 
 export interface ServerSetupInfo { url: string; sha256: string; at: string; license: string }
 
 export interface BlenderSetupStep { step: string; ok: boolean; detail: string }
-export interface BlenderSetupResult { ok: boolean; steps: BlenderSetupStep[]; status: BlenderStatusView }
+export interface BlenderSetupResult {
+  ok: boolean;
+  steps: BlenderSetupStep[];
+  status: BlenderStatusView;
+  /** A download differs from the one trusted before; nothing was changed. The UI offers "Trust the new download" (POST /api/blender/setup with retrust: true). */
+  retrustRequired?: BlenderBackendKind;
+}
 export interface BlenderTestResult { ok: boolean; steps: BlenderSetupStep[]; status: BlenderStatusView }
+
+/** True of both backends today: the add-on in Blender opens a local socket with no password (checked in the v1.0.3 official source and the community addon.py). */
+export const BLENDER_SOCKET_NOTICE =
+  'While the add-on\'s server is running in Blender, any program on this computer can send code to its port (127.0.0.1) without Legion\'s approval card: the add-on has no password and Legion cannot add one. Stop the server (or close Blender) when you are not using the bridge, and do not give a Bash tool to an agent that reads untrusted content.';
 
 /** Words shown next to the Set up button and in docs/BLENDER.md. Kept here so UI and docs say the same thing. */
 export const BLENDER_LICENSE_NOTE =
   'The official Blender Lab MCP server is GPL-3.0-or-later; Legion is MIT. Legion never bundles or copies it: it is downloaded from its official source only when you press Set up, and stays a separate program Legion talks to over a socket or stdio.';
 export const BLENDER_SAFETY_NOTE =
-  'Blender runs scripts without any guards. Agents never get the raw execute tool: every script is checked, shown to you in full and needs your OK, the .blend is backed up before the first script of a run, and by default scripts run in a cloud VM instead of your machine. The check is a filter, not a sandbox: read the script before you approve it.';
+  'Blender runs scripts without any guards. Agents never get the raw execute tool through Legion: every script is checked, shown to you in full and needs your OK, the .blend is backed up before the first live script of a run, and by default scripts run in a cloud VM instead of your machine. The check is a filter, not a sandbox: read the script before you approve it. The add-on socket in Blender has no password, so a local program can bypass the card (see the notice on the Blender card).';

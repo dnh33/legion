@@ -1,11 +1,14 @@
 /**
  * Official Blender Lab MCP backend. Legion starts the server (a separate program, GPL-3.0-or-later, downloaded only when you press
- * Set up) as an MCP stdio client; the server reaches the Blender add-on over its own local socket. UNVERIFIED: the exact tool names and
- * argument names. They are config (advanced.official.tools), and at connect time they are matched against the server's real tool list:
- *   1. the configured name, when the server has a tool of that name;
- *   2. otherwise the first tool whose name matches a pattern for that role (command-line `_for_cli` variants are never picked);
- *   3. otherwise the role is unavailable and the call says so. If no execute tool is found the backend refuses to connect.
- * The execute tool is held in a private field and only exec() calls it; it is never listed to agents.
+ * Set up) as an MCP stdio client; the server reaches the Blender add-on over its own local socket (which, like the community add-on's, has no
+ * password in the v1.0.3 source: see docs/BLENDER.md). Tool names are config (advanced.official.tools; the defaults are the v1.0.3 names) and
+ * at connect time they are matched against the server's real tool list:
+ *   - the exec tool: the configured name, else the first non-CLI tool whose name looks like "execute ... code" and that the server does not
+ *     mark read-only. If none is found the backend refuses to connect. It is held in a private field, only exec() calls it, and it is never
+ *     listed to agents.
+ *   - the tools that run WITHOUT an approval card (inspect, object detail, screenshot, docs): only the exact configured name, or a pattern
+ *     match that the server itself marks readOnlyHint. Never the exec tool, never a tool whose arguments take code. Otherwise the role is
+ *     unavailable and the call says so; a wrong guess can no longer turn a code tool into a card-free one.
  */
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport, getDefaultEnvironment } from '@modelcontextprotocol/sdk/client/stdio.js';
@@ -13,7 +16,7 @@ import type { BlenderConfig, BlenderEntry } from '../../../shared/blender.js';
 import type { BackendImage, BackendResult, BlenderBackend } from '../backend.js';
 import { capText, fail, ok } from '../backend.js';
 
-export interface McpToolInfo { name: string; description?: string; inputSchema?: { properties?: Record<string, { type?: string }>; required?: string[] } }
+export interface McpToolInfo { name: string; description?: string; annotations?: { readOnlyHint?: boolean; destructiveHint?: boolean }; inputSchema?: { properties?: Record<string, { type?: string }>; required?: string[] } }
 /** The part of the MCP SDK Client this backend uses; tests pass a fake. */
 export interface McpLike {
   listTools(): Promise<{ tools: McpToolInfo[] }>;
@@ -27,28 +30,44 @@ export interface OfficialDeps {
 }
 
 const PATTERNS = {
-  exec: /(execute|exec|run).*(python|code|script)|python|bpy/i,
-  inspect: /(scene|object|datablock|inspect|info)/i,
+  exec: /^(execute|exec|run)[a-z_]*(python|code|script)/i,
+  inspect: /(scene|object|datablock|inspect|summary)/i,
+  objectInfo: /(object).*(detail|info|summary)|(detail|info).*(object)/i,
   screenshot: /(screenshot|viewport)/i,
-  docs: /(doc|manual|api).*(search|query|lookup)|search.*(doc|manual)|docs/i,
+  docs: /(doc|manual|api).*(search|query|lookup)|search.*(doc|manual)/i,
 };
 
 export type Role = keyof typeof PATTERNS;
 
-/** Picks the server tool for a role. Pure; exported for tests. */
-export function resolveTool(role: Role, tools: McpToolInfo[], configured: string): string | undefined {
-  if (tools.some((t) => t.name === configured)) return configured;
-  const cli = (n: string) => /_for_cli|cli$|^cli_|headless|batch/i.test(n);
-  return tools.find((t) => !cli(t.name) && PATTERNS[role].test(t.name))?.name;
+const isCli = (n: string): boolean => /_for_cli|cli$|^cli_|headless|batch/i.test(n);
+/** A string argument that carries code or a command: a tool with one is never a card-free tool. */
+const CODE_ARG = /^(code|script|python|source|expression|command|cmd|statement)$/i;
+const takesCode = (t: McpToolInfo): boolean => Object.entries(t.inputSchema?.properties ?? {}).some(([k, v]) => CODE_ARG.test(k) && (v?.type === undefined || v.type === 'string'));
+
+/** Picks the server tool for a role. Pure; exported for tests. `execName` is the tool chosen for exec (a card-free role may never be that tool). */
+export function resolveTool(role: Role, tools: McpToolInfo[], configured: string, execName?: string): string | undefined {
+  if (role === 'exec') {
+    if (tools.some((t) => t.name === configured)) return configured;
+    return tools.find((t) => !isCli(t.name) && PATTERNS.exec.test(t.name) && t.annotations?.readOnlyHint !== true)?.name;
+  }
+  const usable = (t: McpToolInfo): boolean => t.name !== execName && !isCli(t.name) && !takesCode(t);
+  const exact = tools.find((t) => t.name === configured);
+  if (exact) return usable(exact) ? exact.name : undefined;
+  return tools.find((t) => usable(t) && t.annotations?.readOnlyHint === true && PATTERNS[role].test(t.name))?.name;
 }
 
-/** Which argument carries the main value: the configured name when the schema has it, else the only string property, else the configured name. */
-export function resolveArg(tool: McpToolInfo | undefined, configured: string): string {
+/**
+ * Which argument carries the main value: the configured name when the schema has it, else a string property that fits the ROLE, else the only
+ * string property, else the configured name. For the card-free roles a code-like argument is never preferred.
+ */
+export function resolveArg(tool: McpToolInfo | undefined, configured: string, role: Role = 'exec'): string {
   const props = tool?.inputSchema?.properties;
   if (!props || configured in props) return configured;
   const strings = Object.entries(props).filter(([, v]) => v?.type === 'string').map(([k]) => k);
-  const pref = strings.find((k) => /code|script|python|source|query|text|name/i.test(k));
-  return pref ?? (strings.length === 1 ? strings[0]! : configured);
+  const pref = strings.find((k) => (role === 'exec' ? /code|script|python|source/i : /query|search|text|name|term|identifier|object/i).test(k) && (role === 'exec' || !CODE_ARG.test(k)));
+  if (pref) return pref;
+  const only = strings.length === 1 ? strings[0]! : undefined;
+  return only && (role === 'exec' || !CODE_ARG.test(only)) ? only : configured;
 }
 
 function contentToResult(res: { content?: unknown; isError?: boolean }): BackendResult {
@@ -78,8 +97,9 @@ export class OfficialBackend implements BlenderBackend {
     const e: BlenderEntry | undefined = this.cfg.entry;
     const adv = this.cfg.advanced.official;
     const sub = (s: string) => s.replace(/\{serverDir\}/g, e?.serverDir ?? '').replace(/\{host\}/g, this.cfg.host).replace(/\{port\}/g, String(this.cfg.port));
-    if (e) return { command: e.command, args: e.args.map(sub), env: { ...adv.env, ...e.env } };
-    return { command: adv.command, args: adv.args.map(sub), env: { ...adv.env } };
+    const subEnv = (m: Record<string, string>): Record<string, string> => Object.fromEntries(Object.entries(m).map(([k, v]) => [k, sub(v)]));
+    if (e) return { command: e.command, args: e.args.map(sub), env: { ...subEnv(adv.env), ...subEnv(e.env) } };
+    return { command: adv.command, args: adv.args.map(sub), env: subEnv(adv.env) };
   }
 
   connect(): Promise<void> {
@@ -96,7 +116,9 @@ export class OfficialBackend implements BlenderBackend {
         if (!exec) { await client.close().catch(() => undefined); throw new Error(`The Blender MCP server started but offers no code-execution tool. Tools it offers: ${tools.map((x) => x.name).join(', ') || 'none'}. Check advanced.official.tools in config.json.`); }
         this.tools = tools;
         this.names = {
-          exec, inspect: resolveTool('inspect', tools, t.inspect), screenshot: resolveTool('screenshot', tools, t.screenshot), docs: resolveTool('docs', tools, t.docs),
+          exec,
+          inspect: resolveTool('inspect', tools, t.inspect, exec), objectInfo: resolveTool('objectInfo', tools, t.objectInfo, exec),
+          screenshot: resolveTool('screenshot', tools, t.screenshot, exec), docs: resolveTool('docs', tools, t.docs, exec),
         };
         this.client = client;
       } finally { this.connecting = null; }
@@ -122,7 +144,11 @@ export class OfficialBackend implements BlenderBackend {
     } catch (e) {
       // a dead server must reconnect on the next call
       await this.close();
-      return fail(`The Blender server did not answer: ${e instanceof Error ? e.message : String(e)}`);
+      const msg = e instanceof Error ? e.message : String(e);
+      const timedOut = (e as { code?: unknown } | undefined)?.code === -32001 || /timed out|timeout/i.test(msg);
+      return fail(timedOut
+        ? `The Blender server did not answer in time (${msg}). What was sent may STILL BE RUNNING in Blender; nothing was cancelled.`
+        : `The Blender server did not answer: ${msg}`, timedOut);
     }
   }
 
@@ -130,25 +156,29 @@ export class OfficialBackend implements BlenderBackend {
 
   async exec(script: string, opts: { timeoutMs?: number } = {}): Promise<BackendResult> {
     await this.connect();
-    const arg = resolveArg(this.infoFor('exec'), this.cfg.advanced.official.tools.execArg);
+    const arg = resolveArg(this.infoFor('exec'), this.cfg.advanced.official.tools.execArg, 'exec');
     return this.call('exec', { [arg]: script }, opts.timeoutMs ?? 120_000);
   }
   async inspect(o: { object?: string }): Promise<BackendResult> {
     await this.connect();
-    const tool = this.infoFor('inspect');
-    const props = tool?.inputSchema?.properties ?? {};
-    const nameArg = Object.keys(props).find((k) => /name|object/i.test(k));
+    if (o.object && this.names.objectInfo) {
+      const arg = resolveArg(this.infoFor('objectInfo'), 'name', 'objectInfo');
+      return this.call('objectInfo', { [arg]: o.object }, 30_000);
+    }
+    const props = this.infoFor('inspect')?.inputSchema?.properties ?? {};
+    const nameArg = Object.keys(props).find((k) => /name|object/i.test(k) && !CODE_ARG.test(k));
     return this.call('inspect', o.object && nameArg ? { [nameArg]: o.object } : {}, 30_000);
   }
   async screenshot(o: { maxSize?: number }): Promise<BackendResult> {
     await this.connect();
     const props = this.infoFor('screenshot')?.inputSchema?.properties ?? {};
-    const sizeArg = Object.keys(props).find((k) => /size|width/i.test(k));
+    // a size in pixels only; v1.0.3's argument is size_limit_in_bytes, which is not pixels and is left at its default
+    const sizeArg = Object.keys(props).find((k) => /size|width/i.test(k) && !/byte/i.test(k));
     return this.call('screenshot', o.maxSize && sizeArg ? { [sizeArg]: o.maxSize } : {}, 60_000);
   }
   async docs(query: string): Promise<BackendResult> {
     await this.connect();
-    const arg = resolveArg(this.infoFor('docs'), 'query');
+    const arg = resolveArg(this.infoFor('docs'), 'query', 'docs');
     return this.call('docs', { [arg]: query }, 30_000);
   }
 }

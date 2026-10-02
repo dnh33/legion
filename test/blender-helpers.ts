@@ -51,12 +51,12 @@ export class FakeBackend implements BlenderBackend {
 
 export class FakeSandbox implements SandboxPort {
   ready = { ready: true, note: 'ok' };
-  runs: Array<{ taskId: string; script: string }> = [];
+  runs: Array<{ taskId: string; script: string; hash?: string }> = [];
   inspects = 0;
   previews = 0;
-  result = { ok: true, text: 'sandbox ran', files: [] as Array<{ name: string; path: string; bytes: number }> };
+  result = { ok: true, text: 'sandbox ran', files: [] as Array<{ name: string; path: string; bytes: number; quarantined?: boolean }> };
   readiness() { return this.ready; }
-  async run(r: { taskId: string; script: string }) { this.runs.push({ taskId: r.taskId, script: r.script }); return this.result; }
+  async run(r: { taskId: string; script: string; hash?: string }) { this.runs.push({ taskId: r.taskId, script: r.script, hash: r.hash }); return this.result; }
   async inspect(): Promise<BackendResult> { this.inspects++; return { ok: true, text: 'sandbox scene', images: [] }; }
   async preview(): Promise<BackendResult> { this.previews++; return { ok: true, text: 'sandbox preview', images: [{ mime: 'image/png', data: 'BBBB' }] }; }
   async setup() { return [{ step: 'sandbox', ok: true, detail: 'fake' }]; }
@@ -82,7 +82,7 @@ export interface Rig {
   events: LegionEvent[];
 }
 
-export function rig(opts: { cfg?: Partial<BlenderConfig>; timeoutMs?: number; backup?: GuardDeps['backup']; taskId?: string } = {}): Rig {
+export function rig(opts: { cfg?: Partial<BlenderConfig>; timeoutMs?: number; backup?: GuardDeps['backup']; taskId?: string; extra?: Partial<GuardDeps> } = {}): Rig {
   const dataDir = tmp();
   const bus = new EventBus();
   const approvals = new ApprovalBroker(bus, { timeoutMs: opts.timeoutMs });
@@ -112,7 +112,8 @@ export function rig(opts: { cfg?: Partial<BlenderConfig>; timeoutMs?: number; ba
     config: () => cfg, dataDir, approvals, getBackend: async () => { await backend.connect(); return backend; }, sandbox,
     secrets: () => secrets, exportDirFor: (a) => join(dataDir, 'ws', a.id, 'blender-exports'), audit,
     backup: opts.backup ?? (async ({ file }) => { order.push('backup'); backups.push(file); return { ok: true }; }),
-    makeDir: () => undefined,
+    makeDir: () => undefined, workspaceOf: (a) => join(dataDir, 'ws', a.id),
+    ...opts.extra,
   });
   return { guard, backend, sandbox, approvals, bus, audit, dataDir, cfg, cards, decision, order, secrets, tainted, job, backups, events };
 }

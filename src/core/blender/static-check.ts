@@ -6,10 +6,13 @@
  *  - imports outside a small allowlist; os, sys, subprocess, socket, ctypes, importlib, io, pickle ... also as bare names or attributes
  *  - eval, exec, compile, open, input, __import__, globals, locals, vars; dunder and private attribute access; frame and loader attributes
  *  - getattr / setattr / hasattr / delattr unless the attribute name is a plain literal that passes the same rules
- *  - file paths: every path argument (filepath=, directory=, .load(), .save() ...) must be a plain string literal inside the allowed
- *    directories (or "//" next to the .blend), or LEGION_EXPORT_DIR + "/name"; built strings, variables and ".." are refused
- *  - bpy.ops: no aliasing; the script, text, console, preferences, extensions and file namespaces; only a short list of bpy.ops.wm operators
- *  - Blender features that run strings or outlive the script: driver expressions, handlers, timers, add-on and preference access
+ *  - file paths: every path argument (any keyword whose name says path, dir, file or folder; .load(), .save() ...) and every assignment
+ *    to such an attribute (plain, tuple, for, with, augmented; setattr is refused for those names) must be a plain string literal inside
+ *    the allowed directories (or "//" next to the .blend in the sandbox), or LEGION_EXPORT_DIR + "/name"; built strings, variables and ".." are refused
+ *  - bpy.ops: no aliasing; an ALLOWLIST of namespaces (modelling, materials, render to file, import/export), a short list for wm, image and
+ *    render; in live Blender no operator that loads a .blend (open_mainfile, append, link ...)
+ *  - Blender features that run strings or outlive the script: driver expressions, handlers, timers, add-on and preference access,
+ *    Text.as_module / use_module, typing.get_type_hints / ForwardRef, use_scripts=
  *
  * What it cannot do: stop a script that wrecks the open scene, loops forever or eats memory; know every Blender API that evaluates a
  * string; see through a string built at run time and used by an API it does not know. The approval card, the .blend backup and the
@@ -27,6 +30,11 @@ export interface Finding { rule: string; line: number; detail: string; snippet?:
 export interface CheckOptions {
   /** Absolute folders a literal path may point into (the export folder; for a VM run, the VM work folder). */
   allowedDirs: string[];
+  /**
+   * True for a script that runs in the user's open Blender. Live scripts may not use "//" paths (next to the user's own .blend, not the
+   * export folder) and may not load a .blend (open_mainfile, append, link ...): a .blend can carry runnable code.
+   */
+  live?: boolean;
 }
 export interface CheckResult {
   ok: boolean;
@@ -43,10 +51,13 @@ export const scriptHash = (script: string): string => createHash('sha256').updat
 // Allow and deny lists
 // ---------------------------------------------------------------------------------------------------------------------------------
 
-/** Modules a script may import (root names). Anything else is refused. numpy is left out on purpose: its file and library loaders are many. */
+/**
+ * Modules a script may import (root names). Anything else is refused. Left out on purpose: numpy (many file and library loaders), typing
+ * (get_type_hints and ForwardRef evaluate strings), bpy_extras (io_utils and image_utils do file IO under other argument names), gpu, gpu_extras and blf.
+ */
 export const ALLOWED_MODULES = new Set([
-  'bpy', 'bmesh', 'mathutils', 'bpy_extras', 'gpu', 'gpu_extras', 'blf', 'idprop',
-  'math', 'random', 'time', 'colorsys', 'itertools', 'functools', 'operator', 'collections', 'typing', 'dataclasses', 'enum',
+  'bpy', 'bmesh', 'mathutils', 'idprop',
+  'math', 'random', 'time', 'colorsys', 'itertools', 'functools', 'operator', 'collections', 'dataclasses', 'enum',
   're', 'json', 'string', 'textwrap', 'copy', 'statistics', 'heapq', 'bisect', 'array', 'decimal', 'fractions', '__future__',
 ]);
 
@@ -59,12 +70,13 @@ const BANNED_MODULES = [
   'pwd', 'grp', 'getpass', 'imp', 'pkgutil', 'zipimport', 'site', 'sysconfig', 'pip', 'cffi', 'atexit', 'logging', 'tkinter',
   'xmlrpc', 'addon_utils', 'ast', 'dis', 'numpy', 'scipy', 'fnmatch', 'filecmp', 'stat', 'netrc', 'cgi', 'select', 'selectors',
   'sched', 'trace', 'pdb', 'faulthandler', 'tracemalloc', 'sqlite', 'ensurepip', 'venv', 'distutils', 'setuptools',
+  'typing', 'bpy_extras',
 ];
 /** Words that are also ordinary Blender or variable names (bpy.types, vertex.select, code ...): not banned as bare names or attributes; the import rule already keeps the real modules out. */
 const GENERIC_WORDS = new Set(['types', 'code', 'select', 'stat', 'trace', 'resource', 'signal', 'site', 'ast', 'dis', 'cgi', 'sched', 'glob', 'http', 'imp']);
 const BANNED_BARE_EXTRA = [
   'eval', 'exec', 'compile', 'open', 'input', 'breakpoint', 'exit', 'quit', 'help', 'globals', 'locals', 'vars', 'execfile',
-  'reload', 'SystemExit', 'copyright', 'credits', 'license',
+  'reload', 'SystemExit', 'copyright', 'credits', 'license', 'get_type_hints', 'ForwardRef',
 ];
 export const BANNED_BARE = new Set<string>([...BANNED_MODULES.filter((m) => !GENERIC_WORDS.has(m)), ...BANNED_BARE_EXTRA]);
 
@@ -85,7 +97,19 @@ const BANNED_ATTR_EXTRA = [
   // Blender features that evaluate strings, outlive the script, or load code and settings
   'driver_add', 'expression', 'driver_namespace', 'handlers', 'timers', 'addons', 'preferences', 'user_preferences', 'libraries',
   'python_file_run', 'run_script', 'load_scripts', 'use_scripts_auto_execute', 'script_paths_extra', 'unpack', 'sleep',
+  // strings that run as code, text blocks that carry code, persistent callbacks, key-config and CLI registration
+  'as_module', 'use_module', 'get_type_hints', 'ForwardRef', 'use_scripts', 'texts', 'msgbus', 'draw_handler_add',
+  'keyconfig_import', 'keyconfig_export', 'register_cli_command', 'unregister_cli_command', 'register_tool', 'register_manual_map',
+  'register_preset_path', 'path_reference_copy', 'load_image', 'io_utils', 'image_utils',
 ];
+/** Names refused wherever they appear, also as keyword arguments (use_scripts=True lets a .blend run its own scripts). */
+const ALWAYS_BANNED_NAMES: Record<string, { rule: string; detail: string }> = {
+  as_module: { rule: 'string-code', detail: 'Text.as_module() runs a text block as a Python module' },
+  use_module: { rule: 'string-code', detail: 'text.use_module registers a text block to run as a module when a .blend is opened' },
+  get_type_hints: { rule: 'string-code', detail: 'typing.get_type_hints evaluates strings as code' },
+  ForwardRef: { rule: 'string-code', detail: 'typing.ForwardRef compiles and evaluates strings as code' },
+  use_scripts: { rule: 'use-scripts', detail: 'use_scripts lets a .blend file run its own scripts when it is opened, appended or linked' },
+};
 export const BANNED_ATTRS = new Set<string>([...BANNED_MODULES.filter((m) => !GENERIC_WORDS.has(m)), ...BANNED_ATTR_EXTRA]);
 
 const BARE_DUNDER_OK = new Set([
@@ -95,23 +119,50 @@ const BARE_DUNDER_OK = new Set([
 ]);
 const ATTR_DUNDER_OK = new Set(['__init__', '__name__', '__doc__']);
 
-/** bpy.ops namespaces refused outright: they run scripts, edit preferences, install code, or touch files in ways a path check cannot see. */
+/** bpy.ops namespaces refused outright (named so the message can say why); everything not on the allowlist below is refused too. */
 const DENIED_OPS_NS = new Set(['script', 'text', 'console', 'preferences', 'extensions', 'file', 'buttons']);
-/** The only bpy.ops.wm operators allowed. The rest of wm opens files, edits preferences, opens URLs and programs, or evals strings (context_set_*). */
+/**
+ * bpy.ops namespaces a script may use: modelling, materials, scene data and import/export. This is an ALLOWLIST: an installed add-on's
+ * operators (blendermcp.*, anything an extension registers), screen, sequencer, clip, ptcache, fluid bake and the like are refused.
+ */
+const ALLOWED_OPS_NS = new Set([
+  'object', 'mesh', 'curve', 'surface', 'material', 'node', 'uv', 'transform', 'collection', 'anim', 'constraint', 'armature', 'pose',
+  'sculpt', 'lattice', 'particle', 'rigidbody', 'cloth', 'scene', 'world', 'texture', 'grease_pencil', 'mball', 'font', 'geometry',
+  // namespaces below have a narrower list in OPS_SUBLIST
+  'wm', 'image', 'render', 'outliner',
+  // import and export operators registered by Blender's bundled io add-ons
+  'export_scene', 'import_scene', 'export_mesh', 'import_mesh', 'export_anim', 'import_anim', 'export_curve', 'import_curve', 'import_image',
+]);
+/** Namespaces where only these operators are allowed. The rest of wm opens files, edits preferences, opens URLs and programs, or evals strings (context_set_*). */
 const WM_ALLOWED = new Set([
-  'save_mainfile', 'save_as_mainfile', 'open_mainfile', 'append', 'link', 'read_homefile', 'read_factory_settings',
+  'save_mainfile', 'save_as_mainfile', 'open_mainfile', 'append', 'link', 'read_homefile',
   'obj_export', 'obj_import', 'ply_export', 'ply_import', 'stl_export', 'stl_import', 'usd_export', 'usd_import', 'alembic_export',
   'alembic_import', 'collada_export', 'collada_import', 'gpencil_export_svg', 'gpencil_export_pdf', 'gpencil_import_svg',
 ]);
-const DENIED_OPS = new Set(['image.external_edit', 'image.project_edit', 'image.project_apply', 'render.view_show']);
+const OPS_SUBLIST: Record<string, Set<string>> = {
+  wm: WM_ALLOWED,
+  image: new Set(['new', 'open', 'save_as', 'save', 'pack', 'invert', 'flip', 'resize', 'reload', 'clear']),
+  render: new Set(['render', 'opengl']),
+  outliner: new Set(['delete', 'orphans_purge', 'collection_new', 'collection_delete', 'item_activate']),
+};
+const DENIED_OPS = new Set(['image.external_edit', 'image.project_edit', 'image.project_apply', 'render.view_show', 'render.play_rendered_anim', 'wm.read_factory_settings', 'node.shader_script_update']);
+/** Operators whose NAME is a banned attribute word only because it is ordinary Blender vocabulary (image.open opens an image). */
+const OPS_BANNED_OK = new Set(['image.open', 'font.open']);
 const OPS_REPLACES_SCENE = new Set(['wm.open_mainfile', 'wm.read_homefile', 'wm.read_factory_settings', 'wm.revert_mainfile']);
+/** In LIVE Blender these load a .blend, which can carry runnable code (text modules, drivers, handlers); nothing in the export folder may be opened that way. */
+const LIVE_BLEND_LOAD = new Set(['wm.open_mainfile', 'wm.append', 'wm.link', 'wm.read_homefile', 'wm.revert_mainfile']);
 
-/** Keyword and attribute names that carry a file path. The value must be a plain literal inside the allowed folders. */
-const SINK_KWARG = /^(filepath|filepath_raw|filename|directory|dirpath|file|folder|path|output|output_path|outpath|export_path|import_path|texture_dir|cache_path|library_path|audio_filepath|base_path)$/;
-/** Attribute names whose assignment sets a path (scene.render.filepath = ..., image.filepath = ..., output node base_path). */
-const SINK_ATTR = /^(filepath|filepath_raw|filename|directory|dirpath|base_path|audio_filepath|output_path)$/;
+/** Keyword and attribute names that carry a file path: anything that says path, dir, file or folder. The value must be a plain literal inside the allowed folders. */
+const PATH_NAME = /(^|_)(path|paths|dir|dirs|dirname|directory|file|files|filename|filepath|folder|output)(_|$)|filepath|directory|dirpath|outpath/i;
+/** Names that look like a path name but are enums, switches or filters (file_format, path_mode, use_file_extension, filter_folder, data_path). */
+const PATH_NAME_EXEMPT = /(_mode|_format|_type|_extension|_ext|_count|_size)$|^(use|is|has|show|filter|check)_|^(data|rna|bone|fcurve)_path$/i;
+const isPathName = (n: string): boolean => PATH_NAME.test(n) && !PATH_NAME_EXEMPT.test(n);
+/** Keyword names that are sinks although they do not say path, dir, file or folder. */
+const SINK_KWARG_OLD = new Set(['output', 'outpath', 'export_path', 'import_path', 'texture_dir', 'cache_path', 'library_path', 'audio_filepath', 'base_path']);
 /** Method names whose first positional argument is a path. */
 const SINK_CALLS = new Set(['load', 'save', 'save_render', 'save_as', 'export', 'read_file']);
+/** Method names whose SECOND positional argument is a path (sequencer strips). */
+const SINK_CALLS_ARG2 = new Set(['new_movie', 'new_sound', 'new_image']);
 
 // ---------------------------------------------------------------------------------------------------------------------------------
 // Tokenizer
@@ -348,14 +399,15 @@ function normPath(p: string, lower: boolean): string {
 }
 
 /** Why a literal path is refused, or null when it is fine. */
-export function pathProblem(value: string, allowedDirs: string[]): string | null {
+export function pathProblem(value: string, allowedDirs: string[], live = false): string | null {
   if (value === '') return null;
   if (/[\0\r\n]/.test(value)) return 'the path holds control characters';
   if (value.startsWith('\\\\')) return 'network (UNC) paths are not allowed';
   if (/%[A-Za-z_]+%|\$\{?[A-Za-z_]|~/.test(value)) return 'environment variables and ~ are not expanded by the check, so they are refused';
   const segs = value.split(/[\\/]+/);
   if (segs.includes('..')) return 'a ".." segment could leave the allowed folder';
-  // Blender-relative: "//" followed by a path, next to the .blend
+  // Blender-relative: "//" followed by a path, next to the .blend (in live Blender that is the user's own project folder)
+  if (value.startsWith('//') && live) return 'a "//" path is next to the open .blend in the user\'s own folders; write into the export folder with LEGION_EXPORT_DIR + "/name"';
   if (value.startsWith('//')) return value.length > 2 && /^\/\/[^\\/]/.test(value) ? (/:/.test(value) ? 'a drive or scheme inside a relative path' : null) : 'an empty relative path';
   if (/^[A-Za-z][A-Za-z0-9+.-]*:\/\//.test(value)) return 'URLs are not file paths here';
   const absolute = value.startsWith('/') || value.startsWith('\\') || looksWindows(value);
@@ -425,7 +477,7 @@ function pathExpr(ctx: Ctx, t: Tok[], from: number, end: number): PathVerdict {
   if (from >= end) return { ok: false, why: 'the path argument is empty' };
   const lit = literalAt(t, from, end);
   if (lit && lit.next === end) {
-    const why = pathProblem(lit.value, ctx.opts.allowedDirs);
+    const why = pathProblem(lit.value, ctx.opts.allowedDirs, ctx.opts.live === true);
     return why ? { ok: false, why } : { ok: true, desc: lit.value };
   }
   if (isName(t[from], EXPORT_DIR_VAR)) {
@@ -522,7 +574,23 @@ function checkImports(ctx: Ctx, t: Tok[]): void {
   }
 }
 
+/** One linear pass: the innermost open bracket around each token (-1 at top level) and the bracket depth. Keeps every later rule O(1) per token. */
+function bracketMaps(t: Tok[]): { openOf: Int32Array; depthOf: Int32Array } {
+  const openOf = new Int32Array(t.length);
+  const depthOf = new Int32Array(t.length);
+  const stack: number[] = [];
+  for (let i = 0; i < t.length; i++) {
+    const x = t[i]!;
+    if (x.k === 'op' && CLOSE[x.v]) stack.pop();
+    openOf[i] = stack.length ? stack[stack.length - 1]! : -1;
+    depthOf[i] = stack.length;
+    if (x.k === 'op' && OPEN.has(x.v)) stack.push(i);
+  }
+  return { openOf, depthOf };
+}
+
 function analyzeStream(ctx: Ctx, t: Tok[]): void {
+  const { openOf, depthOf } = bracketMaps(t);
   const exempt = new Set<number>();
   // mark def / lambda parameter lists
   for (let i = 0; i < t.length; i++) {
@@ -547,35 +615,47 @@ function analyzeStream(ctx: Ctx, t: Tok[]): void {
     if (x.k === 'op') {
       // keyword unpacking hides arguments from the path and ops checks
       if (x.v === '**' && (isOp(t[i - 1], '(') || isOp(t[i - 1], ',')) && !exempt.has(i)) {
-        // find enclosing paren
-        let depth = 0; let open = -1;
-        for (let j = i - 1; j >= 0; j--) {
-          const y = t[j]!;
-          if (y.k === 'op' && CLOSE[y.v]) { depth++; continue; }
-          if (y.k === 'op' && OPEN.has(y.v)) { if (depth === 0) { open = j; break; } depth--; }
-        }
+        const open = openOf[i]!;
         if (open >= 0 && t[open]!.v === '(' && !t[open]!.defParen) block(ctx, 'keyword-unpacking', x.line, '**mapping in a call hides arguments from the check; pass the arguments explicitly');
       }
       continue;
     }
     if (x.k !== 'name') continue;
     const name = x.v;
+    const always = ALWAYS_BANNED_NAMES[name];
+    if (always) block(ctx, always.rule, x.line, `"${name}" is not allowed: ${always.detail}`);
 
     // ---- bpy.ops chains -------------------------------------------------------------------------------------------------
     if (name === 'ops' && (afterDot || isOp(t[i + 1], '.'))) {
       if (isOp(t[i + 1], '.') && isName(t[i + 2]) && isOp(t[i + 3], '.') && isName(t[i + 4])) {
         const ns = t[i + 2]!.v;
         const op = t[i + 4]!.v;
+        const key = `${ns}.${op}`;
         if (ns.startsWith('_') || op.startsWith('_')) block(ctx, 'private-attribute', x.line, 'private operator names are not allowed');
         if (DENIED_OPS_NS.has(ns)) block(ctx, 'ops-namespace', x.line, `bpy.ops.${ns}.* is not allowed (it runs scripts, changes preferences, installs code or handles files outside the path check)`);
-        else if (ns === 'wm' && !WM_ALLOWED.has(op)) block(ctx, 'ops-wm', x.line, `bpy.ops.wm.${op} is not allowed (only ${[...WM_ALLOWED].slice(0, 5).join(', ')} and the import/export operators are)`);
-        else if (DENIED_OPS.has(`${ns}.${op}`)) block(ctx, 'ops-denied', x.line, `bpy.ops.${ns}.${op} is not allowed (it starts another program or shows an external window)`);
-        else if (/driver/.test(op)) block(ctx, 'ops-driver', x.line, `bpy.ops.${ns}.${op}: drivers can hold Python expressions the check cannot read`);
-        if (OPS_REPLACES_SCENE.has(`${ns}.${op}`)) ctx.notes.add(`replaces the open scene (bpy.ops.${ns}.${op}); the backup is the way back`);
-        if (ns === 'wm' && (op === 'save_mainfile' || op === 'save_as_mainfile')) ctx.notes.add('saves the .blend file');
+        else if (!ALLOWED_OPS_NS.has(ns)) block(ctx, 'ops-namespace', x.line, `bpy.ops.${ns}.* is not on the allowlist (modelling, material, scene data, image, render-to-file and import/export operators only; add-on operators are refused)`);
+        else if (OPS_SUBLIST[ns] && !OPS_SUBLIST[ns]!.has(op)) {
+          if (ns === 'wm') block(ctx, 'ops-wm', x.line, `bpy.ops.wm.${op} is not allowed (only ${[...WM_ALLOWED].slice(0, 5).join(', ')} and the import/export operators are)`);
+          else block(ctx, 'ops-denied', x.line, `bpy.ops.${key} is not allowed (only ${[...OPS_SUBLIST[ns]!].join(', ')} are)`);
+        }
+        if (DENIED_OPS.has(key)) block(ctx, 'ops-denied', x.line, `bpy.ops.${key} is not allowed (it starts another program, resets the user's settings or shows an external window)`);
+        if (/driver/.test(op)) block(ctx, 'ops-driver', x.line, `bpy.ops.${key}: drivers can hold Python expressions the check cannot read`);
+        if (ctx.opts.live && LIVE_BLEND_LOAD.has(key)) block(ctx, 'ops-blend-load', x.line, `bpy.ops.${key} is refused in live Blender: a .blend file can carry runnable code (text modules, drivers, handlers), and files in the export folder are not trusted`);
+        if (key === 'wm.save_as_mainfile') {
+          const open = t[i + 5];
+          let hasCopy = false;
+          if (isOp(open, '(') && open!.pair !== undefined) {
+            for (let j = i + 6; j < open!.pair!; j++) {
+              if (depthOf[j] === depthOf[i + 5]! + 1 && isName(t[j], 'copy') && isOp(t[j + 1], '=') && isName(t[j + 2], 'True') && (isOp(t[j + 3], ',') || j + 3 === open!.pair)) hasCopy = true;
+            }
+          }
+          if (!hasCopy) block(ctx, 'ops-save-copy', x.line, 'bpy.ops.wm.save_as_mainfile must be called with copy=True (without it the open scene is renamed to the new file)');
+        }
+        if (OPS_REPLACES_SCENE.has(key)) ctx.notes.add(`replaces the open scene (bpy.ops.${key}); the backup is the way back`);
+        if (ns === 'wm' && (op === 'save_mainfile' || op === 'save_as_mainfile')) ctx.notes.add('saves the .blend file (a .blend can carry runnable code: do not open it with auto-run scripts on)');
         if (ns === 'object' && /delete/.test(op)) ctx.notes.add('deletes objects');
         if (ns === 'outliner' && /delete|orphans_purge/.test(op)) ctx.notes.add('deletes data');
-        exempt.add(i + 2); exempt.add(i + 4);
+        if (OPS_BANNED_OK.has(key)) exempt.add(i + 4);
       } else {
         block(ctx, 'ops-alias', x.line, '"ops" must be used as bpy.ops.<group>.<operator>(...); aliasing it, passing it on or looking its members up by name hides what runs');
       }
@@ -601,6 +681,18 @@ function analyzeStream(ctx: Ctx, t: Tok[]): void {
           }
         }
       }
+      // sequencer strips: new_movie(name, filepath, ...) carries the path in the second positional argument
+      if (SINK_CALLS_ARG2.has(name) && isOp(t[i + 1], '(') && t[i + 1]!.pair !== undefined) {
+        const close = t[i + 1]!.pair!;
+        let c = -1;
+        for (let j = i + 2; j < close; j = isOp(t[j], '(') || isOp(t[j], '[') || isOp(t[j], '{') ? t[j]!.pair! + 1 : j + 1) { if (isOp(t[j], ',')) { c = j; break; } }
+        if (c > 0 && !(isName(t[c + 1]) && isOp(t[c + 2], '='))) {
+          const v = pathExpr(ctx, t, c + 1, valueEnd(t, c + 1));
+          if (!v.ok) block(ctx, 'path', x.line, `.${name}(...): ${v.why}`);
+        } else if (c < 0 || (isName(t[c + 1]) && isOp(t[c + 2], '='))) {
+          // the path may be given as filepath=..., which the keyword rule reads; a missing one is the call's own error
+        }
+      }
     } else {
       if (name.startsWith('__') && name.endsWith('__') && name.length > 4) {
         if (!BARE_DUNDER_OK.has(name)) block(ctx, 'dunder-name', x.line, `"${name}" gives access to Python internals`);
@@ -620,6 +712,7 @@ function analyzeStream(ctx: Ctx, t: Tok[]): void {
           else {
             const before = ctx.findings.length;
             if (lit.value === 'ops') block(ctx, 'getattr', x.line, 'looking up "ops" by name would hide bpy.ops from the check');
+            if (isPathName(lit.value)) block(ctx, 'getattr', x.line, `${name}(obj, "${lit.value}"): path-carrying attributes can only be set with a plain obj.${lit.value} = "<literal path>" so the path check can read the value`);
             checkAttrName(ctx, lit.value, x.line, false);
             if (ctx.findings.length > before) ctx.findings[ctx.findings.length - 1]!.rule = 'getattr';
           }
@@ -627,12 +720,11 @@ function analyzeStream(ctx: Ctx, t: Tok[]): void {
       }
     }
 
-    // ---- path sinks: keyword arguments and attribute assignments -------------------------------------------------------
-    const isKw = isKeywordArgName(t, i) && isCallParen(t, i);
-    const isAttrAssign = afterDot && isOp(t[i + 1], '=');
-    if (((isKw && SINK_KWARG.test(name)) || (isAttrAssign && SINK_ATTR.test(name))) && isOp(t[i + 1], '=')) {
+    // ---- path sinks: keyword arguments (attribute assignments are read by checkAssignments below) --------------------------
+    const isKw = isKeywordArgName(t, i) && isCallParen(t, openOf, i);
+    if (isKw && name !== 'files' && (SINK_KWARG_OLD.has(name) || isPathName(name))) {
       const end = valueEnd(t, i + 2);
-      const v = pathExpr(ctx, t, i + 2, end);
+      const v = isHarmlessScalar(t, i + 2, end) ? ({ ok: true } as PathVerdict) : pathExpr(ctx, t, i + 2, end);
       if (!v.ok) block(ctx, 'path', x.line, `${name}=: ${v.why}`);
       else if (v.desc) ctx.notes.add(`writes or reads ${v.desc}`);
     }
@@ -642,29 +734,135 @@ function analyzeStream(ctx: Ctx, t: Tok[]): void {
     }
     if (name === 'while' && !afterDot) ctx.notes.add('contains a while loop (Blender stays busy until it ends)');
   }
+  checkAssignments(ctx, t, depthOf);
+}
+
+/** A value that cannot be a path: one number, True, False or None (curve.path_duration = 100, relative_path=True). */
+function isHarmlessScalar(t: Tok[], from: number, end: number): boolean {
+  let j = from;
+  if (isOp(t[j], '-') || isOp(t[j], '+')) j++;
+  return end - j === 1 && j < end && (t[j]!.k === 'num' || (isName(t[j]) && (t[j]!.v === 'True' || t[j]!.v === 'False' || t[j]!.v === 'None')));
+}
+
+const HEADER_KW = new Set(['if', 'elif', 'else', 'while', 'for', 'with', 'try', 'except', 'finally', 'def', 'class', 'async']);
+const AUG_OPS = new Set(['+=', '-=', '*=', '/=', '//=', '%=', '**=', '>>=', '<<=', '&=', '^=', '|=', '@=']);
+const LOOKAHEAD_CAP = 200;
+
+/**
+ * Every way Python assigns to an attribute: `a.b = v`, `a.b = c.d = v`, `a.b, c = ...`, `[a.b] = ...`, `for a.b in ...`, `with x as a.b`,
+ * `a.b += v`, annotated `a.b: T = v`. A plain target is checked like a path keyword (the value must be a literal inside the allowed folders);
+ * a tuple, loop, with or augmented target that names a path attribute is refused, because the value cannot be read.
+ */
+function checkAssignments(ctx: Ctx, t: Tok[], depthOf: Int32Array): void {
+  const pathHits = (from: number, to: number): number[] => {
+    const out: number[] = [];
+    for (let j = Math.max(from, 0); j < to && j < t.length; j++) if (t[j]!.k === 'name' && isOp(t[j - 1], '.') && isPathName(t[j]!.v)) out.push(j);
+    return out;
+  };
+  const refuse = (idx: number, why: string): void => block(ctx, 'path', t[idx]!.line, `.${t[idx]!.v}: ${why}`);
+  /** [from,to) is a plain chain of names, .attr, [..] and (..) with nothing else around it. Returns the last name token when the chain ENDS in an attribute. */
+  const chainEnd = (from: number, to: number): { simple: boolean; attr: number } => {
+    let j = from;
+    if (!isName(t[j])) return { simple: false, attr: -1 };
+    let attr = -1;
+    j++;
+    while (j < to) {
+      if (isOp(t[j], '.') && isName(t[j + 1]) && j + 1 < to) { attr = j + 1; j += 2; continue; }
+      if ((isOp(t[j], '[') || isOp(t[j], '(')) && t[j]!.pair !== undefined) { j = t[j]!.pair! + 1; attr = -1; continue; }
+      return { simple: false, attr: -1 };
+    }
+    return { simple: j === to, attr };
+  };
+  const checkTarget = (from: number, to: number, value: [number, number] | null): void => {
+    const hits = pathHits(from, to);
+    if (!hits.length) return;
+    const ch = chainEnd(from, to);
+    if (ch.simple) {
+      if (ch.attr < 0 || !hits.includes(ch.attr)) return; // a subscript or a call on a path-ish name, or a path-ish name in the middle of the chain
+      if (!value) { refuse(ch.attr, 'an augmented assignment to a path attribute cannot be read; assign a plain literal path instead'); return; }
+      if (isHarmlessScalar(t, value[0], value[1])) return;
+      const v = pathExpr(ctx, t, value[0], value[1]);
+      if (!v.ok) block(ctx, 'path', t[ch.attr]!.line, `${t[ch.attr]!.v}=: ${v.why}`);
+      else if (v.desc) ctx.notes.add(`writes or reads ${v.desc}`);
+      return;
+    }
+    refuse(hits[0]!, 'a path attribute assigned through a tuple, list, starred, loop or with target cannot be read; assign it with a plain `obj.attr = "<literal path>"` statement');
+  };
+
+  // simple statements (a compound header is cut at its colon; the rest is a statement of its own)
+  const work: Array<[number, number]> = [];
+  let s0 = 0;
+  for (let i = 0; i <= t.length; i++) {
+    if (i === t.length || t[i]!.k === 'nl' || (isOp(t[i], ';') && depthOf[i] === 0)) { if (i > s0) work.push([s0, i]); s0 = i + 1; }
+  }
+  while (work.length) {
+    let [a, b] = work.pop()!;
+    if (a >= b) continue;
+    if (isName(t[a]) && HEADER_KW.has(t[a]!.v)) {
+      let c = -1;
+      for (let j = a + 1; j < b; j++) if (isOp(t[j], ':') && depthOf[j] === 0) { c = j; break; }
+      if (c < 0) continue;
+      a = c + 1;
+      if (a >= b) continue;
+    }
+    const eqs: number[] = [];
+    let aug = -1;
+    let ann = -1;
+    let sawLambda = false;
+    for (let j = a; j < b; j++) {
+      if (depthOf[j] !== 0) continue;
+      const x = t[j]!;
+      if (isName(x, 'lambda')) sawLambda = true;
+      if (isOp(x, '=')) eqs.push(j);
+      else if (x.k === 'op' && AUG_OPS.has(x.v) && aug < 0) aug = j;
+      else if (isOp(x, ':') && ann < 0 && !sawLambda && eqs.length === 0) ann = j;
+    }
+    if (aug >= 0 && eqs.length === 0) { checkTarget(a, aug, null); continue; }
+    if (ann >= 0) {
+      const eq = eqs.find((e) => e > ann);
+      checkTarget(a, ann, eq !== undefined ? [eq + 1, b] : null);
+      if (eq === undefined) continue;
+    }
+    if (eqs.length && ann < 0) {
+      const value: [number, number] = [eqs[eqs.length - 1]! + 1, b];
+      let from = a;
+      for (const e of eqs) { checkTarget(from, e, value); from = e + 1; }
+    }
+  }
+  // loop and with targets, wherever they appear (statement or comprehension)
+  for (let i = 0; i < t.length; i++) {
+    if ((isName(t[i], 'for') || isName(t[i], 'as')) && !isOp(t[i - 1], '.')) {
+      const d = depthOf[i]!;
+      let end = -1;
+      for (let j = i + 1; j < t.length && j < i + LOOKAHEAD_CAP; j++) {
+        if (t[j]!.k === 'nl' || depthOf[j]! < d) { end = j; break; }
+        if (depthOf[j] === d && (isName(t[j], 'in') && t[i]!.v === 'for' || (t[i]!.v === 'as' && (isOp(t[j], ',') || isOp(t[j], ':'))))) { end = j; break; }
+      }
+      if (end < 0) end = Math.min(t.length, i + LOOKAHEAD_CAP);
+      const hits = pathHits(i + 1, end);
+      if (hits.length) refuse(hits[0]!, `a path attribute used as a ${t[i]!.v === 'for' ? 'loop' : 'with'} target cannot be read; assign it with a plain \`obj.attr = "<literal path>"\` statement`);
+    }
+  }
 }
 
 /** True when the name token at i looks like `name=` right after `(` or `,`. */
 function isKeywordArgName(t: Tok[], i: number): boolean {
   return isOp(t[i + 1], '=') && (isOp(t[i - 1], '(') || isOp(t[i - 1], ','));
 }
-/** True when the innermost bracket around token i is a call's parenthesis (not a def parameter list, tuple, list or dict). */
-function isCallParen(t: Tok[], i: number): boolean {
-  let depth = 0;
-  for (let j = i - 1; j >= 0; j--) {
-    const y = t[j]!;
-    if (y.k === 'op' && CLOSE[y.v]) { depth++; continue; }
-    if (y.k === 'op' && OPEN.has(y.v)) {
-      if (depth === 0) {
-        if (y.v !== '(' || y.defParen) return false;
-        const p = t[j - 1];
-        return !!p && (p.k === 'name' || isOp(p, ')') || isOp(p, ']'));
-      }
-      depth--;
-    }
-  }
-  return false;
+/** True when the innermost bracket around token i is a call's parenthesis (not a def parameter list, tuple, list or dict). Uses the precomputed bracket map: O(1). */
+function isCallParen(t: Tok[], openOf: Int32Array, i: number): boolean {
+  const o = openOf[i]!;
+  if (o < 0) return false;
+  const y = t[o]!;
+  if (y.v !== '(' || y.defParen) return false;
+  const p = t[o - 1];
+  return !!p && (p.k === 'name' || isOp(p, ')') || isOp(p, ']'));
 }
+
+/** Bidirectional overrides, embeddings and isolates (U+202A-202E, U+2066-2069): refused. */
+export const BIDI_CONTROL = /[\u202a-\u202e\u2066-\u2069]/g;
+/** Zero-width, joiner, word-joiner, BOM, soft hyphen, bidi marks, line and paragraph separators, NEL: flagged. */
+export const INVISIBLE_CHARS = /[\u00ad\u061c\u0085\u180e\u200b-\u200f\u2028\u2029\u2060-\u2064\ufeff]/g;
 
 function codingCookie(src: string): string | null {
   const first = src.split(/\r\n|\r|\n/, 2);
@@ -685,6 +883,16 @@ export function checkScript(source: string, opts: CheckOptions): CheckResult {
   if (source.includes('\0')) { block(ctx, 'control', 1, 'the script holds a NUL character'); return done(); }
   const cookie = codingCookie(source);
   if (cookie && !/^utf-?8$/i.test(cookie)) { block(ctx, 'encoding', 1, `source encoding "${cookie}" is not allowed (UTF-8 only)`); return done(); }
+  // Characters that make the text on a screen differ from the text Python reads (Trojan Source): bidirectional overrides and isolates are refused
+  // wherever they are (comments and strings too); other invisible characters are allowed but flagged on the approval card.
+  const lineAt = (idx: number): number => { let n = 1; const re = /\r\n|\r|\n/g; const head = source.slice(0, idx); while (re.exec(head)) n++; return n; };
+  for (const m of source.matchAll(BIDI_CONTROL)) {
+    block(ctx, 'hidden-characters', lineAt(m.index ?? 0), `the script holds the bidirectional control character U+${m[0].codePointAt(0)!.toString(16).toUpperCase().padStart(4, '0')}; it can make the code on screen read differently from the code Python runs`);
+    if (ctx.findings.length >= 6) break;
+  }
+  if (ctx.findings.length) return done();
+  const invisible = source.match(INVISIBLE_CHARS);
+  if (invisible) ctx.notes.add(`holds ${invisible.length} invisible or line-separator character${invisible.length === 1 ? '' : 's'} (${[...new Set(invisible.map((c) => 'U+' + c.codePointAt(0)!.toString(16).toUpperCase().padStart(4, '0')))].slice(0, 4).join(', ')}); the card shows them as markers`);
   let scanned: Scanned;
   try { scanned = tokenize(source, 1, 0); } catch (e) {
     if (e instanceof ScanError) { block(ctx, 'syntax', e.line, `cannot check this script: ${e.message}`); return done(); }

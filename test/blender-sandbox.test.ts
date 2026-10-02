@@ -2,12 +2,13 @@
  *  the run command, the export copy-back and its limits are exercised for real (skipped when python3 or bash is missing). */
 import assert from 'node:assert/strict';
 import { execFileSync, spawnSync } from 'node:child_process';
-import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import test from 'node:test';
 import { defaultBlenderConfig } from '../src/shared/blender.js';
 import { MAX_EXPORT_BYTES, RUNNER_PY, SandboxRunner, renderRunCommand, safeSegment, shq } from '../src/core/blender/sandbox.js';
 import type { VmPort } from '../src/core/blender/sandbox.js';
+import { scriptHash } from '../src/core/blender/static-check.js';
 import { agent, tmp } from './blender-helpers.js';
 
 const have = (c: string, a: string[]): boolean => { try { execFileSync(c, a, { stdio: 'ignore' }); return true; } catch { return false; } };
@@ -191,4 +192,104 @@ test('the runner script is valid Python', { skip: !can }, () => {
   writeFileSync(join(dir, 'r.py'), RUNNER_PY);
   const r = spawnSync('python3', ['-m', 'py_compile', join(dir, 'r.py')], { encoding: 'utf8' });
   assert.equal(r.status, 0, r.stderr);
+});
+
+// ---- review fixes S2, S3, S8
+
+test('S2: a .blend export is quarantined (never in the live export folder), named .untrusted, and reported as quarantined', { skip: !can }, async () => {
+  const s = setup();
+  const r = await s.sb.run({ agent: s.a, taskId: 'tq', script: 'import os\nopen(os.path.join(LEGION_EXPORT_DIR, "scene2.blend"), "wb").write(b"BLEND-with-code")\nopen(os.path.join(LEGION_EXPORT_DIR, "a.png"), "wb").write(b"p")\n' });
+  assert.equal(r.ok, true, r.text);
+  const blend = r.files.find((f) => f.name === 'scene2.blend')!;
+  assert.equal(blend.quarantined, true);
+  assert.equal(blend.path, join(s.ws, 'blender-quarantine', 'tq', 'scene2.blend.untrusted'));
+  assert.equal(readFileSync(blend.path, 'utf8'), 'BLEND-with-code');
+  assert.ok(!existsSync(join(s.ws, 'blender-exports', 'tq', 'scene2.blend')), 'not in the export folder');
+  assert.ok(!existsSync(join(s.ws, 'blender-exports', 'tq', 'scene2.blend.untrusted')));
+  assert.match(r.text, /QUARANTINED/);
+  assert.match(r.text, /runnable code/);
+  assert.ok(!r.text.split('\n').find((l) => l.startsWith('exports in your workspace'))?.includes('.blend'), 'the plain export line does not list the .blend');
+  assert.equal(r.files.find((f) => f.name === 'a.png')!.quarantined, undefined);
+});
+
+test('S3: every run has its own script and result file, and nothing is left behind', { skip: !can }, async () => {
+  const s = setup();
+  await s.sb.run({ agent: s.a, taskId: 'tu', script: 'print("one")\n' });
+  await s.sb.run({ agent: s.a, taskId: 'tu', script: 'print("two")\n' });
+  const runCmds = s.vm.calls.filter((c) => /runner/.test(c) && /[0-9a-f]{64}/.test(c));
+  assert.equal(runCmds.length, 2);
+  const ids = runCmds.map((c) => /'([0-9a-f]{16})' '[0-9a-f]{64}'/.exec(c)?.[1]);
+  assert.ok(ids[0] && ids[1] && ids[0] !== ids[1], `run ids differ: ${ids.join(' ')}`);
+  const work = join(s.root, 'legion-blender', 'work', 'tu');
+  const left = readdirSync(work).filter((n) => /^(script|result)-/.test(n));
+  assert.deepEqual(left, [], 'no script or result file stays behind');
+  assert.ok(!existsSync(join(work, 'script.py')) && !existsSync(join(work, 'result.json')), 'the old shared file names are not used');
+});
+
+test('S3: two runs of the same task at once are queued and each result is its own run output', { skip: !can }, async () => {
+  const s = setup();
+  const [a, b] = await Promise.all([
+    s.sb.run({ agent: s.a, taskId: 'tl', script: 'import time\ntime.sleep(0.3)\nprint("OUTPUT-A")\n' }),
+    s.sb.run({ agent: s.a, taskId: 'tl', script: 'print("OUTPUT-B")\n' }),
+  ]);
+  assert.match(a.text, /OUTPUT-A/); assert.doesNotMatch(a.text, /OUTPUT-B/);
+  assert.match(b.text, /OUTPUT-B/); assert.doesNotMatch(b.text, /OUTPUT-A/);
+});
+
+test('S3: the VM runner refuses a script whose bytes are not the approved ones, and says so', { skip: !can }, async () => {
+  const s = setup();
+  const r = await s.sb.run({ agent: s.a, taskId: 'th', script: 'print("SHOULD-NOT-RUN")\n', hash: scriptHash('print("something else")\n') });
+  assert.equal(r.ok, false);
+  assert.match(r.text, /does not match the approved script/);
+  assert.doesNotMatch(r.text.replace(/\[legion\][^\n]*/, ''), /SHOULD-NOT-RUN/);
+  // and an approved hash that matches runs normally
+  const script = 'print("RAN-OK")\n';
+  const ok = await s.sb.run({ agent: s.a, taskId: 'th', script, hash: scriptHash(script) });
+  assert.equal(ok.ok, true, ok.text);
+  assert.match(ok.text, /RAN-OK/);
+});
+
+test('S3: a result file that belongs to another run (or another script) is discarded, never reported', { skip: !can }, async () => {
+  const s = setup();
+  const forge = (run: string, hash: string): VmPort => {
+    const vm = s.vm;
+    return Object.assign(Object.create(vm) as LocalVmLike, {
+      async readFile(id: string, path: string, enc: 'utf8' | 'base64' = 'utf8') {
+        if (/result-[0-9a-f]+\.json$/.test(path)) return JSON.stringify({ ok: true, output: 'FORGED-OUTPUT', run, hash });
+        return vm.readFile(id, path, enc);
+      },
+    });
+  };
+  type LocalVmLike = VmPort;
+  const script = 'print("x")\n';
+  const other = new SandboxRunner({ vms: forge('0123456789abcdef', scriptHash(script)), config: () => s.cfg, boatConfigured: () => true, workspaceOf: () => s.ws });
+  const r1 = await other.run({ agent: s.a, taskId: 'tf', script });
+  assert.equal(r1.ok, false);
+  assert.match(r1.text, /does not belong to this run/);
+  assert.doesNotMatch(r1.text, /FORGED-OUTPUT/);
+});
+
+test('S8: a link planted in place of the host export folder is refused and nothing is written through it', { skip: !can || process.platform === 'win32' }, async () => {
+  const s = setup();
+  const outside = tmp('legion-outside-');
+  mkdirSync(join(s.ws, 'blender-exports'), { recursive: true });
+  symlinkSync(outside, join(s.ws, 'blender-exports', 'ts'));
+  const r = await s.sb.run({ agent: s.a, taskId: 'ts', script: 'import os\nopen(os.path.join(LEGION_EXPORT_DIR, "cube.glb"), "wb").write(b"data")\n' });
+  assert.deepEqual(readdirSync(outside), [], 'nothing was written into the folder the link points to');
+  assert.equal(r.files.length, 0);
+  assert.match(r.text, /symbolic link|outside the workspace/);
+});
+
+test('S8: a link planted at the FINAL file name is replaced, not written through', { skip: !can || process.platform === 'win32' }, async () => {
+  const s = setup();
+  const outside = tmp('legion-outside-');
+  const victim = join(outside, 'victim.txt');
+  writeFileSync(victim, 'original');
+  const dest = join(s.ws, 'blender-exports', 'tn');
+  mkdirSync(dest, { recursive: true });
+  symlinkSync(victim, join(dest, 'cube.glb'));
+  const r = await s.sb.run({ agent: s.a, taskId: 'tn', script: 'import os\nopen(os.path.join(LEGION_EXPORT_DIR, "cube.glb"), "wb").write(b"new-bytes")\n' });
+  // the folder now holds a link, so the whole copy-back is refused; either way the victim is untouched
+  assert.equal(readFileSync(victim, 'utf8'), 'original');
+  assert.ok(r.files.length === 0 || !lstatSync(join(dest, 'cube.glb')).isSymbolicLink());
 });

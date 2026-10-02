@@ -34,6 +34,9 @@ export function BlenderCard() {
           </div>
         </div>
       )}
+      {st.enabled && st.notices && st.notices.length > 0 && (
+        <ul className="bl-notices" aria-label="Limits and warnings">{st.notices.map((n, i) => <li key={i}>{n}</li>)}</ul>
+      )}
       {st.enabled && (
         <div className="bl-meta">
           <span>Live: {live ? `${st.chosenBackend ?? ''} backend` : 'not connected'}</span>

@@ -57,7 +57,12 @@ export class BlenderState {
   }
 
   /** Setup result: the MCP entry (official) and what was downloaded. */
-  recordSetup(r: { kind: BlenderBackendKind; info?: ServerSetupInfo; entry?: BlenderEntry; addonInstalled: boolean }): void {
+  recordSetup(r: { kind: BlenderBackendKind; info?: ServerSetupInfo; entry?: BlenderEntry; addonInstalled: boolean; retrust?: boolean }): void {
+    // the trusted hash is never overwritten by a different one from the same address unless the user re-trusted it
+    const was = this.rec[r.kind];
+    if (r.info && was && was.url === r.info.url && was.sha256 !== r.info.sha256 && r.retrust !== true) {
+      throw new Error(`refusing to replace the trusted download hash (${was.sha256.slice(0, 12)}...) with ${r.info.sha256.slice(0, 12)}... without an explicit re-trust`);
+    }
     if (r.entry) this.commit(normalizeBlender({ ...this.cfg, entry: r.entry }));
     const next: SetupRecord = { ...this.rec, ...(r.info ? { [r.kind]: r.info } : {}), ...(r.addonInstalled ? { addonInstalledFor: r.kind } : {}) };
     mkdirSync(dirname(this.setupFile), { recursive: true });

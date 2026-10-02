@@ -342,6 +342,7 @@ function BlenderSection() {
   const steps = useBlender((x) => x.steps);
   const stepsTitle = useBlender((x) => x.stepsTitle);
   const error = useBlender((x) => x.error);
+  const retrust = useBlender((x) => x.retrust);
   const [port, setPort] = useState('');
   const [path, setPath] = useState('');
   useEffect(() => { void loadBlender(true); }, []);
@@ -387,6 +388,11 @@ function BlenderSection() {
         </div>
         <span className="set-hint">Set up downloads the backend from its official source, installs the add-on into Blender and saves how to start it. It only runs when you press it.</span>
         {error && <div className="set-error" role="alert"><Icon name="x" size={13} /> <span>{error}</span></div>}
+        {retrust && (
+          <div className="bl-note warn" role="alert"><b>The {retrust} download changed.</b> It is not the file you trusted before, so nothing was installed or replaced. If you expected an update, accept it; if not, leave it and check the source.
+            <div className="set-actions"><button type="button" className="btn" disabled={b} onClick={() => void runBlenderSetup('both', true)}>Trust the new download</button></div></div>
+        )}
+        {st.notices && st.notices.length > 0 && <ul className="bl-notices" aria-label="Limits and warnings">{st.notices.map((n, i) => <li key={i}>{n}</li>)}</ul>}
         {steps.length > 0 && (
           <div className="set-field"><span className="set-label">{stepsTitle}</span>
             <ul className="bl-steps">{steps.map((x, i) => <li key={i} className={x.ok ? 'ok' : 'bad'}><Icon name={x.ok ? 'check' : 'x'} size={13} /><span><b>{x.step}</b>{x.detail}</span></li>)}</ul>

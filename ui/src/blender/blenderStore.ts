@@ -6,7 +6,7 @@
  */
 import { useSyncExternalStore } from 'react';
 import { ApiError, request } from '../api';
-import type { BlenderSetupResult, BlenderSetupStep, BlenderStatusView, BlenderTestResult } from '../../../src/shared/blender';
+import type { BlenderBackendKind, BlenderSetupResult, BlenderSetupStep, BlenderStatusView, BlenderTestResult } from '../../../src/shared/blender';
 
 export type BlenderBusy = 'config' | 'setup' | 'test' | 'launch' | null;
 export interface BlenderUiState {
@@ -17,9 +17,11 @@ export interface BlenderUiState {
   steps: BlenderSetupStep[];
   stepsTitle: string;
   error: string | null;
+  /** Set when Set up found a download that differs from the one trusted before: the UI offers "Trust the new download". */
+  retrust: BlenderBackendKind | null;
 }
 
-let state: BlenderUiState = { status: null, loaded: false, busy: null, steps: [], stepsTitle: '', error: null };
+let state: BlenderUiState = { status: null, loaded: false, busy: null, steps: [], stepsTitle: '', error: null, retrust: null };
 const listeners = new Set<() => void>();
 const set = (p: Partial<BlenderUiState>) => { state = { ...state, ...p }; listeners.forEach((l) => l()); };
 const sub = (l: () => void) => { listeners.add(l); return () => { listeners.delete(l); }; };
@@ -47,10 +49,10 @@ export function initBlender(): void {
 
 async function act<T extends { status: BlenderStatusView; steps: BlenderSetupStep[]; ok: boolean }>(busy: Exclude<BlenderBusy, null>, title: string, fn: () => Promise<T>): Promise<T | null> {
   if (state.busy) return null;
-  set({ busy, error: null, steps: [], stepsTitle: title });
+  set({ busy, error: null, steps: [], stepsTitle: title, retrust: null });
   try {
     const r = await fn();
-    set({ status: r.status, steps: r.steps, loaded: true });
+    set({ status: r.status, steps: r.steps, loaded: true, retrust: (r as { retrustRequired?: BlenderBackendKind }).retrustRequired ?? null });
     return r;
   } catch (e) { set({ error: msg(e) }); return null; } finally { set({ busy: null }); }
 }
@@ -60,7 +62,7 @@ export async function saveBlenderConfig(patch: { enabled?: boolean; backend?: 'a
   set({ busy: 'config', error: null });
   try { set({ status: await request<BlenderStatusView>('POST', '/api/blender/config', patch), loaded: true }); } catch (e) { set({ error: msg(e) }); } finally { set({ busy: null }); }
 }
-export const runBlenderSetup = (target: 'live' | 'sandbox' | 'both' = 'both') => act('setup', 'Set up', () => request<BlenderSetupResult>('POST', '/api/blender/setup', { target }));
+export const runBlenderSetup = (target: 'live' | 'sandbox' | 'both' = 'both', retrust = false) => act('setup', retrust ? 'Set up (new download trusted)' : 'Set up', () => request<BlenderSetupResult>('POST', '/api/blender/setup', { target, ...(retrust ? { retrust: true } : {}) }));
 export const runBlenderTest = () => act('test', 'Connection test', () => request<BlenderTestResult>('POST', '/api/blender/test', {}));
 export const runBlenderLaunch = () => act('launch', 'Launch', () => request<{ ok: boolean; steps: BlenderSetupStep[]; status: BlenderStatusView }>('POST', '/api/blender/launch', {}));
 

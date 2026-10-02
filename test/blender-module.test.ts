@@ -16,8 +16,9 @@ import type { BlenderIo } from '../src/core/blender/setup.js';
 import type { CoreModule } from '../src/core/modules.js';
 import { Store } from '../src/core/store.js';
 import { defaultConfig } from '../src/shared/config.js';
+import { BlenderState } from '../src/core/blender/state.js';
 import type { LegionEvent } from '../src/shared/types.js';
-import { BLENDER_EXEC_TOOL } from '../src/shared/blender.js';
+import { BLENDER_EXEC_TOOL, DEFAULT_ADVANCED } from '../src/shared/blender.js';
 import { init, ok } from './library-fakes.js';
 import { asClient, AUTH, start, TOKEN } from './helpers-c.js';
 import { agent, FakeBackend, FakeSandbox } from './blender-helpers.js';
@@ -25,10 +26,11 @@ import { agent, FakeBackend, FakeSandbox } from './blender-helpers.js';
 const closers: Array<() => Promise<void>> = [];
 after(async () => { for (const c of closers) await c().catch(() => undefined); });
 
-interface Opts { enabled?: boolean; installs?: string[]; socketOpen?: boolean; mcpServers?: Record<string, any>; sandboxReady?: boolean; withSandbox?: boolean }
+interface Opts { enabled?: boolean; installs?: string[]; socketOpen?: boolean; mcpServers?: Record<string, any>; sandboxReady?: boolean; withSandbox?: boolean; unpinned?: boolean }
 
-function fakeIo(versions: string[]): { io: BlenderIo; downloads: string[] } {
+function fakeIo(versions: string[]): { io: BlenderIo; downloads: string[]; hash: { value?: string } } {
   const downloads: string[] = [];
+  const hash: { value?: string } = {};
   const paths = versions.map((v) => `/opt/blender-${v}/blender`);
   const io: BlenderIo = {
     detect: {
@@ -36,12 +38,12 @@ function fakeIo(versions: string[]): { io: BlenderIo; downloads: string[] } {
       run: async (file, args) => { const i = paths.indexOf(file); return i >= 0 && args[0] === '--version' ? { code: 0, stdout: `Blender ${versions[i]}\n`, stderr: '' } : null; },
     },
     run: async (file, args) => (args[0] === '--version' && !paths.includes(file) ? { code: 0, stdout: 'uv 1', stderr: '' } : { code: 0, stdout: 'LEGION_ADDON_OK x /y\n', stderr: '' }),
-    download: async (url) => { downloads.push(url); return { sha256: 'c'.repeat(64), bytes: 10 }; },
+    download: async (url) => { downloads.push(url); return { sha256: hash.value ?? (url.includes('blender_mcp') ? DEFAULT_ADVANCED.official.sha256 : 'c'.repeat(64)), bytes: 10 }; },
     extract: async () => undefined, mkdirp: () => undefined, writeText: () => undefined, readText: () => undefined, copyFile: () => undefined,
-    exists: (p) => p.endsWith('/addon') || paths.includes(p), isDir: (p) => p.endsWith('/server/pkg'), listDir: (p) => (p.endsWith('/server') ? ['pkg'] : ['addon']),
+    exists: (p) => p.endsWith('/addon') || p.endsWith('/addon/blender_mcp_addon') || paths.includes(p), isDir: (p) => p.endsWith('/server/pkg'), listDir: (p) => (p.endsWith('/server') ? ['pkg'] : ['addon']),
     removeDir: () => undefined, spawnDetached: () => undefined, now: () => new Date('2026-10-02T00:00:00Z'),
   };
-  return { io, downloads };
+  return { io, downloads, hash };
 }
 
 async function mount(o: Opts = {}) {
@@ -49,7 +51,7 @@ async function mount(o: Opts = {}) {
   const dataDir = join(dir, 'data');
   mkdirSync(dataDir, { recursive: true });
   const configPath = join(dataDir, 'config.json');
-  const raw = { port: 4747, authToken: TOKEN, workspaceDir: join(dir, 'ws'), claude: { auth: 'claude-login', inheritClaudeCodeSettings: true, maxTurns: 40 }, boat: { baseUrl: 'https://boat.test', apiKey: 'boat-secret-key-12345' }, mcpServers: o.mcpServers ?? {}, blender: { enabled: o.enabled ?? true } };
+  const raw = { port: 4747, authToken: TOKEN, workspaceDir: join(dir, 'ws'), claude: { auth: 'claude-login', inheritClaudeCodeSettings: true, maxTurns: 40 }, boat: { baseUrl: 'https://boat.test', apiKey: 'boat-secret-key-12345' }, mcpServers: o.mcpServers ?? {}, blender: { enabled: o.enabled ?? true, ...(o.unpinned ? { advanced: { official: { sha256: '' } } } : {}) } };
   writeFileSync(configPath, JSON.stringify(raw, null, 2));
   const store = new Store(dir);
   store.seedDefaults(join(dir, 'ws'));
@@ -66,7 +68,7 @@ async function mount(o: Opts = {}) {
   const approvals = new ApprovalBroker(bus, { timeoutMs: 2000 });
   const vms: any = { touch() {}, ensureRunning: async () => ({}), stop: async () => ({}), status: (id: string) => ({ agentId: id, state: 'none' }) };
   const engine = new Engine({ store, bus, vms, approvals, config, queryFn, boatConfigured: () => true, maxConcurrent: 4 });
-  const { io, downloads } = fakeIo(o.installs ?? ['5.1.0']);
+  const { io, downloads, hash } = fakeIo(o.installs ?? ['5.1.0']);
   const backend = new FakeBackend();
   const sandbox = new FakeSandbox();
   sandbox.ready = { ready: o.sandboxReady ?? false, note: o.sandboxReady ? 'sandbox ok' : 'no key' };
@@ -91,7 +93,7 @@ async function mount(o: Opts = {}) {
   };
   const close = async () => { await mod.dispose?.(); await srv.close(); };
   closers.push(close);
-  return { dir, dataDir, configPath, store, bus, engine, approvals, calls, mod, srv, http, events, downloads, sandbox, backend, kinds, config, close };
+  return { dir, dataDir, configPath, store, bus, engine, approvals, calls, mod, srv, http, events, downloads, sandbox, backend, kinds, config, close, hash };
 }
 
 const runAgent = async (m: Awaited<ReturnType<typeof mount>>, id: string) => {
@@ -250,6 +252,47 @@ test('setup route: downloads only now, installs, records the entry and the hash,
   assert.ok(existsSync(join(m.dataDir, 'blender', 'setup.json')));
   assert.equal(r.json.status.light, 'disconnected');
   assert.equal((await m.http('POST', '/api/blender/setup', { target: 'nonsense' })).status, 400);
+});
+
+test('S5: setup route: a changed hash is refused (nothing replaced) until the user re-trusts; the trusted hash only changes on re-trust', async () => {
+  const m = await mount({ installs: ['5.1.0'], unpinned: true });
+  const setupFile = join(m.dataDir, 'blender', 'setup.json');
+  m.hash.value = 'c'.repeat(64);
+  const first = await m.http('POST', '/api/blender/setup', { target: 'live' });
+  assert.equal(first.json.ok, true, JSON.stringify(first.json.steps));
+  assert.equal(JSON.parse(readFileSync(setupFile, 'utf8')).official.sha256, 'c'.repeat(64));
+  const entryBefore = JSON.parse(readFileSync(m.configPath, 'utf8')).blender.entry;
+  m.hash.value = 'd'.repeat(64);
+  const changed = await m.http('POST', '/api/blender/setup', { target: 'live' });
+  assert.equal(changed.json.ok, false);
+  assert.equal(changed.json.retrustRequired, 'official');
+  assert.match(JSON.stringify(changed.json.steps), /CHANGED/);
+  assert.equal(JSON.parse(readFileSync(setupFile, 'utf8')).official.sha256, 'c'.repeat(64), 'the trusted hash was not overwritten');
+  assert.deepEqual(JSON.parse(readFileSync(m.configPath, 'utf8')).blender.entry, entryBefore, 'the start command was not replaced');
+  assert.equal((await m.http('POST', '/api/blender/setup', { target: 'live', retrust: 'yes' })).status, 400, 'retrust must be a real boolean');
+  const again = await m.http('POST', '/api/blender/setup', { target: 'live', retrust: true });
+  assert.equal(again.json.ok, true, JSON.stringify(again.json.steps));
+  assert.equal(JSON.parse(readFileSync(setupFile, 'utf8')).official.sha256, 'd'.repeat(64));
+});
+
+test('S5: the state store itself refuses to replace a trusted hash from the same address without retrust', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'legion-blstate-'));
+  writeFileSync(join(dir, 'config.json'), JSON.stringify({ blender: {} }));
+  const st = new BlenderState({ dataDir: dir });
+  const info = (sha256: string) => ({ url: 'https://example.org/a.zip', sha256, at: 'x', license: 'MIT' });
+  st.recordSetup({ kind: 'official', info: info('1'.repeat(64)), addonInstalled: false });
+  assert.throws(() => st.recordSetup({ kind: 'official', info: info('2'.repeat(64)), addonInstalled: false }), /re-trust/);
+  assert.equal(st.setup.official!.sha256, '1'.repeat(64));
+  st.recordSetup({ kind: 'official', info: info('2'.repeat(64)), addonInstalled: false, retrust: true });
+  assert.equal(st.setup.official!.sha256, '2'.repeat(64));
+});
+
+test('B3: the status view carries the add-on socket notice (and says so next to the audit verdict) while the bridge can use a live backend', async () => {
+  const m = await mount({ installs: ['5.1.0'] });
+  const r = await m.http('GET', '/api/blender?refresh=1');
+  assert.equal(r.status, 200, r.text);
+  assert.ok(Array.isArray(r.json.notices), JSON.stringify(r.json));
+  assert.ok(r.json.notices.some((n: string) => /any program on this computer/.test(n)), r.json.notices.join('|'));
 });
 
 test('setup is refused while the bridge is off', async () => {
