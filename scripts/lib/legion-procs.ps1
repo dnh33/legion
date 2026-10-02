@@ -2,6 +2,7 @@
 #
 # Legion is two kinds of process, wherever its folder is (install dir, a source checkout, an old install elsewhere):
 #   1. Electron: <root>\node_modules\electron\dist\electron.exe   (main process and its renderer/GPU helpers)
+#      or, in a prebuilt package, <root>\runtime\electron\electron.exe (which is also what runs the core, in node mode)
 #   2. Core:     node.exe running <root>\dist\src\bin\legion-core.js
 # <root> only counts when it really is a Legion folder (RootCheck). Anything else named node.exe or electron.exe
 # (VS Code, Discord, another app's Electron, your dev servers) is never matched.
@@ -74,6 +75,7 @@ function Get-LegionProcessRoot {
   param([string]$Name, [string]$ExePath, [string]$CommandLine)
   if ($Name -ieq 'electron.exe') {
     if ($ExePath -match '^(?<root>.+?)\\node_modules\\electron\\dist\\electron\.exe$') { return $Matches['root'] }
+    if ($ExePath -match '^(?<root>.+?)\\runtime\\electron\\electron\.exe$') { return $Matches['root'] }
     return $null
   }
   if ($Name -ieq 'node.exe') {
@@ -173,6 +175,8 @@ function Get-InstallDirVerdict {
   $kids = @()
   try { $kids = @(Get-ChildItem -LiteralPath $full -Force -ErrorAction Stop) }
   catch { return [pscustomobject]@{ Ok = $false; Reason = "the folder cannot be read ($($_.Exception.Message))"; Path = $full } }
+  # A failed first run can leave only Legion's own marked runtime\node download behind; that still counts as empty.
+  $kids = @($kids | Where-Object { -not ($_.Name -eq 'runtime' -and (Test-RuntimeOwned (Join-Path $_.FullName 'node'))) })
   if ($kids.Count -eq 0) { return [pscustomobject]@{ Ok = $true; Reason = 'the folder is empty'; Path = $full } }
   if (Test-LegionPackage $full) { return [pscustomobject]@{ Ok = $true; Reason = 'the folder is an existing Legion install (package.json name is legion) and will be updated'; Path = $full } }
   return [pscustomobject]@{ Ok = $false; Reason = 'the folder is not empty and is not a Legion install (no package.json named legion); setup would delete its other contents. Pick a new or empty folder'; Path = $full }
@@ -197,4 +201,70 @@ function Get-PurgeVerdict {
     return [pscustomobject]@{ Ok = $false; Reason = 'LEGION_HOME points to a folder without Legion''s config.json, so it is not deleted'; Path = $full }
   }
   return [pscustomobject]@{ Ok = $true; Reason = 'looks like Legion data'; Path = $full }
+}
+
+# ---- Legion-owned Node.js runtime (<install>\runtime\node). Shared by setup (node-bootstrap.ps1) and uninstall.
+# A runtime folder is Legion's only when it holds the marker file setup writes LAST, after the download was verified.
+$script:LegionRuntimeMarker = '.legion-owned'
+
+function Get-RuntimeNodeDir {
+  param([string]$InstallDir)
+  return (Join-Path (Join-Path $InstallDir 'runtime') 'node')
+}
+
+function Test-RuntimeOwned {
+  param([string]$NodeDir)
+  if ([string]::IsNullOrEmpty($NodeDir)) { return $false }
+  return (Test-Path -LiteralPath (Join-Path $NodeDir $script:LegionRuntimeMarker) -PathType Leaf)
+}
+
+function Test-ReparsePoint {
+  param([string]$Path)
+  try {
+    $a = [System.IO.File]::GetAttributes($Path)
+    return (($a -band [System.IO.FileAttributes]::ReparsePoint) -ne 0)
+  } catch { return $false }
+}
+
+# Deletes a tree WITHOUT following links: a junction or symlink is removed as a link (non-recursive), its target is never touched.
+# (Windows PowerShell 5.1 Remove-Item -Recurse can delete through a link; this is the replacement.)
+function Remove-TreeNoFollow {
+  param([string]$Path)
+  if (-not (Test-Path -LiteralPath $Path)) { return }
+  if (Test-ReparsePoint $Path) {
+    if (Test-Path -LiteralPath $Path -PathType Container) { [System.IO.Directory]::Delete($Path, $false) } else { [System.IO.File]::Delete($Path) }
+    return
+  }
+  if (Test-Path -LiteralPath $Path -PathType Container) {
+    foreach ($k in @(Get-ChildItem -LiteralPath $Path -Force)) { Remove-TreeNoFollow $k.FullName }
+    [System.IO.Directory]::Delete($Path, $false)
+  } else {
+    [System.IO.File]::SetAttributes($Path, [System.IO.FileAttributes]::Normal)
+    [System.IO.File]::Delete($Path)
+  }
+}
+
+# Removes <InstallDir>\runtime\node when Legion owns it (marker present) or when it is only a link (the link goes, never the target).
+# Returns @{ Removed; Reason }. A folder without the marker is not ours and is left alone.
+function Remove-LegionRuntime {
+  param([string]$InstallDir, [switch]$DryRun)
+  $nodeDir = Get-RuntimeNodeDir $InstallDir
+  $runtime = Join-Path $InstallDir 'runtime'
+  if (Test-ReparsePoint $runtime) {
+    if ($DryRun) { return [pscustomobject]@{ Removed = $false; Reason = 'dry run: would detach the link' } }
+    Remove-TreeNoFollow $runtime
+    return [pscustomobject]@{ Removed = $true; Reason = 'runtime was a link; the link was removed and its target left alone' }
+  }
+  if (-not (Test-Path -LiteralPath $nodeDir)) { return [pscustomobject]@{ Removed = $false; Reason = 'no runtime folder' } }
+  if (-not (Test-ReparsePoint $nodeDir) -and -not (Test-RuntimeOwned $nodeDir)) {
+    return [pscustomobject]@{ Removed = $false; Reason = 'runtime\node has no Legion marker, so it is not ours and was left alone' }
+  }
+  if ($DryRun) { return [pscustomobject]@{ Removed = $false; Reason = 'dry run: would remove runtime\node' } }
+  Remove-TreeNoFollow $nodeDir
+  # runtime\ itself only if nothing else is in it (a staging leftover of ours has the .staging- prefix)
+  foreach ($k in @(Get-ChildItem -LiteralPath $runtime -Force -ErrorAction SilentlyContinue)) {
+    if ($k.Name -like '.staging-*') { Remove-TreeNoFollow $k.FullName }
+  }
+  if (@(Get-ChildItem -LiteralPath $runtime -Force -ErrorAction SilentlyContinue).Count -eq 0) { [System.IO.Directory]::Delete($runtime, $false) }
+  return [pscustomobject]@{ Removed = $true; Reason = 'removed runtime\node' }
 }

@@ -16,6 +16,8 @@ export interface SettingsDeps {
   bus: EventBus;
   configPath: string;
   dataDir: string;
+  /** Where Legion is installed and whether it is a prebuilt package (the Connections snippets differ). Shown only when given. */
+  install?: { dir: string; packaged: boolean };
   /** Called after boat key/baseUrl changed (rebuild client happens lazily via getBoat; this restarts the reaper). */
   onBoatChange?: () => void;
   /** Test hook. */
@@ -163,6 +165,7 @@ export class SettingsService {
       },
       mcpServers: Object.fromEntries(Object.entries(c.mcpServers ?? {}).map(([k, v]) => [k, maskEntry(v)])),
       port: c.port, configPath: this.deps.configPath, dataDir: this.deps.dataDir,
+      ...(this.deps.install ? { install: this.deps.install } : {}),
     };
   }
 

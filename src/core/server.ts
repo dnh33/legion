@@ -21,7 +21,9 @@ import type { VmManager } from './vm-manager.js';
 import type { CoreModule } from './modules.js';
 import { agentIdVisible, agentVisible, taskVisible } from './visibility.js';
 import { pushSse } from './sse.js';
+import { checkRequest, dropNonLoopback, originAllowed } from './net-guard.js';
 import { publicBoatHealth } from './boat-health.js';
+import type { ProjectStore } from './projects/store.js';
 
 export interface CoreContext {
   config: LegionConfig; store: Store; bus: EventBus; engine: Engine; vms: VmManager; approvals: ApprovalBroker;
@@ -36,6 +38,8 @@ export interface CoreContext {
   bsvEnabled?: () => boolean;
   /** Per-launch admin secret (memory only, handed over by the Electron main process over stdin). Absent: admin routes are closed to everyone. Never logged, never in /health. */
   adminSecret?: string;
+  /** Projects (read-only here: the MCP tool `legion_projects` lists and gets them; every change goes through the projects module's admin routes). */
+  projects?: ProjectStore;
 }
 
 /** Thrown by handlers; mapped to `{error}` JSON. */
@@ -59,13 +63,6 @@ const VM_SIZES: VmSize[] = ['small', 'default', 'large'];
 const VM_STATUS: Record<VmError['code'], number> = {
   not_configured: 503, disabled: 400, not_running: 409, unknown_agent: 404, boat: 502, claude_not_configured: 409,
 };
-
-function allowedOrigin(origin: string | undefined): boolean {
-  if (!origin) return false;
-  if (origin === 'null' || origin === 'file://') return true;
-  if (origin === 'http://localhost:5173') return true;
-  return /^http:\/\/127\.0\.0\.1(:\d+)?$/.test(origin);
-}
 
 function sendJson(res: ServerResponse, status: number, body: unknown): void {
   if (res.headersSent) { res.end(); return; }
@@ -161,7 +158,7 @@ export type Ctx = { req: IncomingMessage; res: ServerResponse; url: URL; params:
 export type Handler = (c: Ctx) => unknown | Promise<unknown>;
 interface Route { method: string; re: RegExp; handler: Handler; status?: number }
 
-/** Creates (does not listen) the HTTP server. Caller does server.listen(config.port, '127.0.0.1'). */
+/** Creates (does not listen) the HTTP server. The caller listens with listenLoopback() from net-guard.ts (127.0.0.1 only). */
 export function createServer(ctx: CoreContext): Server {
   const routes: Route[] = [];
   const route = (method: string, pattern: string, handler: Handler, status = 200) => {
@@ -282,7 +279,10 @@ export function createServer(ctx: CoreContext): Server {
     const continueTaskId = str(body.continueTaskId, 'continueTaskId');
     // Without the admin header this is an MCP-class client: source 'mcp', which the engine caps at the `ask` ceiling.
     const admin = !!(c.req as unknown as { legionAdmin?: boolean }).legionAdmin;
-    return ctx.engine.startTask({ agentId, prompt, source: admin ? 'ui' : 'mcp', model, continueTaskId });
+    // Only the app starts a task inside a project: a token client cannot put a run in a project (it can continue one, which keeps its project).
+    const projectId = str(body.projectId, 'projectId');
+    if (projectId !== undefined && !admin) throw new HttpError(403, 'admin_required: only the Legion app can start a task inside a project');
+    return ctx.engine.startTask({ agentId, prompt, source: admin ? 'ui' : 'mcp', model, continueTaskId, ...(projectId ? { projectId } : {}) });
   }, 201);
   route('GET', '/api/tasks/:id/wait', async ({ params, url }) => {
     const raw = url.searchParams.get('timeoutMs');
@@ -382,7 +382,7 @@ export function createServer(ctx: CoreContext): Server {
   };
 
   /** Events only the app window (admin) may see: the human's rooms and their text, bot-to-bot state, and settings (key hints). A token-only stream drops them. */
-  const adminOnlyEvent = (ev: LegionEvent): boolean => ev.type.startsWith('room.') || ev.type.startsWith('comms.') || ev.type.startsWith('settings.') || ev.type.startsWith('kg.') || ev.type.startsWith('blender.');
+  const adminOnlyEvent = (ev: LegionEvent): boolean => ev.type.startsWith('room.') || ev.type.startsWith('comms.') || ev.type.startsWith('settings.') || ev.type.startsWith('kg.') || ev.type.startsWith('blender.') || ev.type.startsWith('project.');
 
   const handleSse = (req: IncomingMessage, res: ServerResponse, admin: boolean) => {
     res.writeHead(200, {
@@ -414,13 +414,23 @@ export function createServer(ctx: CoreContext): Server {
 
   // ---- dispatcher ------------------------------------------------------
   const server = createHttpServer((req, res) => {
+    // Loopback guard (src/core/net-guard.ts): remote address, Host and Origin, before CORS, auth and every route (/health, /mcp, SSE included).
+    const g = checkRequest(req, listeningPort());
+    if (!g.ok) {
+      if (g.destroy) { req.socket.destroy(); return; }
+      sendJson(res, g.status, { error: g.error });
+      return;
+    }
     void dispatch(req, res).catch((e) => fail(res, e));
   });
 
+  server.on('connection', (sock) => { dropNonLoopback(sock); });
+  function listeningPort(): number { const a = server.address(); return a && typeof a === 'object' ? a.port : -1; }
+
   function applyCors(req: IncomingMessage, res: ServerResponse) {
     const origin = req.headers.origin;
-    if (allowedOrigin(origin)) {
-      res.setHeader('Access-Control-Allow-Origin', origin!);
+    if (origin !== undefined && originAllowed(origin, listeningPort(), req.headers['user-agent'])) {
+      res.setHeader('Access-Control-Allow-Origin', origin);
       res.setHeader('Vary', 'Origin');
       res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PATCH,DELETE,OPTIONS');
       res.setHeader('Access-Control-Allow-Headers', 'Authorization, Content-Type, X-Legion-Admin, mcp-session-id, mcp-protocol-version');

@@ -15,6 +15,8 @@ import { TitleBar } from './components/TitleBar';
 import { Toasts } from './components/Toasts';
 import { initLibrary } from './library/libraryStore';
 import { LibraryView } from './library/LibraryView';
+import { ProjectView } from './projects/ProjectView';
+import { initProjects } from './projects/projectsStore';
 import { RoomsView } from './rooms/RoomsView';
 import { initRooms } from './rooms/roomsStore';
 import {
@@ -62,7 +64,7 @@ export function App() {
   const opsMounted = useOpsMounted(opsOpen);
   useWindowAway();
 
-  useEffect(() => { init(); initRooms(); initBsv(); initBlender(); initLibrary(); }, []);
+  useEffect(() => { init(); initRooms(); initBsv(); initBlender(); initLibrary(); initProjects(); }, []);
   useEffect(() => {
     const h = (e: KeyboardEvent) => {
       const mod = e.ctrlKey || e.metaKey;
@@ -89,6 +91,7 @@ export function App() {
             {view === 'chat' && <><Thread /><Composer /></>}
             {view === 'rooms' && <RoomsView />}
             {view === 'graph' && <LibraryView />}
+            {view === 'project' && <ProjectView />}
           </>
         )}
       </main>

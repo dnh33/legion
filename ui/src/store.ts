@@ -4,6 +4,8 @@ import type {
 } from '../../src/shared/types';
 import { api, subscribe, ApiError, type ConnStatus } from './api';
 import { incomingWins } from './chat/tasksync';
+import type { Project } from '../../src/shared/projects';
+import { FILTER_KEY, inProject, newTaskProjectId } from './projects/projectsLogic';
 
 export type RelicState = 'idle' | 'listening' | 'thinking' | 'hacking' | 'awaiting' | 'victory' | 'error' | 'sleeping' | 'annoyed';
 
@@ -52,7 +54,11 @@ export interface AppState {
   taskMenu: TaskMenu | null;
   renaming: { id: string; src: TaskSrc } | null;
   /** Centre-column view. 'chat' is the task thread; 'rooms' = comms bridge; 'graph' = knowledge graph. */
-  view: 'chat' | 'rooms' | 'graph';
+  view: 'chat' | 'rooms' | 'graph' | 'project';
+  /** Owner's projects (empty in a window without the admin key). */
+  projects: Project[];
+  /** The rail's project switcher: null = All (today's behaviour), else a project id. Shows only that project's agents and tasks. */
+  projectFilter: string | null;
 }
 
 function ls(key: string): string | null { try { return localStorage.getItem(key); } catch { return null; } }
@@ -76,6 +82,7 @@ let state: AppState = {
   mascotLab: false, mascotForce: null, mascotVm: null,
   settings: null, settingsOpen: false, settingsSection: 'claude', showClosed: false, taskMenu: null, renaming: null,
   view: 'chat',
+  projects: [], projectFilter: ls(FILTER_KEY) || null,
 };
 
 const listeners = new Set<() => void>();
@@ -121,7 +128,7 @@ function upsertTaskIfNewer(tasks: Task[], t: Task): Task[] {
 }
 
 export function tasksForAgent(s: AppState, agentId: string) {
-  return s.tasks.filter((t) => t.agentId === agentId && !t.archived).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+  return s.tasks.filter((t) => t.agentId === agentId && !t.archived && inProject(t, s.projectFilter)).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
 }
 
 function pickTaskFor(agentId: string): string | null {
@@ -212,6 +219,9 @@ export function handleEvent(e: LegionEvent) {
         const agents = i === -1 ? [...s.agents, e.agent] : s.agents.map((a) => (a.id === e.agent.id ? e.agent : a));
         return { agents };
       });
+      break;
+    case 'project.updated':
+      setState((s) => (s.projects.some((p) => p.id === e.project.id) ? { projects: s.projects.map((p) => (p.id === e.project.id ? e.project : p)) } : { projects: [...s.projects, e.project] }));
       break;
     case 'agent.deleted':
       setState((s) => {
@@ -362,7 +372,8 @@ export async function sendPromptTo(target: { agentId: string; taskId: string | n
   const text = prompt.trim();
   if (!text) return { ok: false, status: 400, message: 'Prompt is empty' };
   const cont = target.taskId ? s.tasks.find((t) => t.id === target.taskId) : undefined;
-  const body = { agentId: target.agentId, prompt: text, model: opts.model ?? effectiveModel(s), ...(cont ? { continueTaskId: cont.id } : {}) };
+  const projectId = newTaskProjectId(s.projects, s.projectFilter, target.agentId, !!cont);
+  const body = { agentId: target.agentId, prompt: text, model: opts.model ?? effectiveModel(s), ...(cont ? { continueTaskId: cont.id } : {}), ...(projectId ? { projectId } : {}) };
   // optimistic echo for follow-ups (replaced when the real user message arrives)
   if (cont) {
     const tmp: ChatMessage = { id: 'tmp-' + Date.now(), taskId: cont.id, role: 'user', text, at: new Date().toISOString() };

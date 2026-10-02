@@ -8,6 +8,7 @@ import { FULL_BLENDER_TEXT, GET_BLENDER_NOT_PINNED, GET_BLENDER_TEXT, LOCAL_SAFE
 import { lightLabel, loadBlender, runBlenderGet, runBlenderLaunch, runBlenderSetup, runBlenderTest, saveBlenderConfig, useBlender } from '../blender/blenderStore';
 import '../blender/blender.css';
 import { ProvidersSection } from '../providers/ProvidersSection';
+import { loadProviders, useProviders } from '../providers/providersStore';
 import { Icon } from './icons';
 import { UpdatePanel } from './UpdatePanel';
 import { BrowserSection } from '../browser/BrowserSection';
@@ -26,12 +27,16 @@ export function SettingsPanel() {
   const section = useStore((s) => s.settingsSection);
   const settings = useStore((s) => s.settings);
   useEffect(() => { if (!settings) void loadSettings(); }, []);
+  // Providers are not part of this release: the tab shows only when the core serves the provider routes (config.json experimental.providers)
+  const provView = useProviders((x) => x.view);
+  useEffect(() => { void loadProviders(); }, []);
+  const nav = provView ? NAV : NAV.filter((n) => n.id !== 'providers');
   return (
     <section className="settings" aria-label="Settings">
       <nav className="set-nav" aria-label="Settings sections">
         <button className="set-back" onClick={closeSettings} aria-label="Back to chat" title="Back to chat (Esc)"><Icon name="chevron" size={13} /> <span>Back to chat</span></button>
         <h2>Settings</h2>
-        {NAV.map((n) => (
+        {nav.map((n) => (
           <button key={n.id} className={`set-link${section === n.id ? ' sel' : ''}`} aria-current={section === n.id} onClick={() => setSection(n.id)}>
             <b>{n.label}</b><span>{n.hint}</span>
           </button>
@@ -547,8 +552,11 @@ function ConnectionsSection({ s }: { s: SettingsView }) {
   const mask = '\u2022'.repeat(12);
   const cmd = (t: string) => `claude mcp add --transport http legion ${base}/mcp --header "Authorization: Bearer ${t}"`;
   // Claude Desktop only speaks stdio, so it goes through the small bridge script that ships with Legion
-  const dir = ((s as SettingsView & { installDir?: string }).installDir ?? '%LOCALAPPDATA%/Programs/Legion').replace(/\\/g, '/').replace(/\/$/, '');
-  const json = JSON.stringify({ mcpServers: { legion: { command: 'node', args: [`${dir}/dist/src/bin/legion-mcp-stdio.js`] } } }, null, 2);
+  const dir = (s.install?.dir ?? '%LOCALAPPDATA%/Programs/Legion').replace(/\\/g, '/').replace(/\/$/, '');
+  // A prebuilt package has no system Node: the bridge runs on Legion's own Electron in node mode (the env entry switches that on).
+  const json = JSON.stringify({ mcpServers: { legion: s.install?.packaged
+    ? { command: `${dir}/runtime/electron/electron.exe`, args: [`${dir}/dist/src/bin/legion-mcp-stdio.js`], env: { ELECTRON_RUN_AS_NODE: '1' } }
+    : { command: 'node', args: [`${dir}/dist/src/bin/legion-mcp-stdio.js`] } } }, null, 2);
   return (
     <div className="set-section">
       <Head title="Connections" lead="Drive your agents from Claude Code, Claude Desktop or Cowork." />

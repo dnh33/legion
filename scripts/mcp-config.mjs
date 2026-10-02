@@ -3,6 +3,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { detectKind, mcpStdioEntry } from './lib/package-lib.mjs';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const home = process.env.LEGION_HOME || join(homedir(), '.legion');
@@ -24,4 +25,6 @@ console.log(`claude mcp add --transport http legion http://127.0.0.1:${port}/mcp
 
 const stdio = join(root, 'dist', 'src', 'bin', 'legion-mcp-stdio.js').replace(/\\/g, '/');
 console.log('# 2) Claude Desktop / Cowork - add to claude_desktop_config.json:\n');
-console.log(JSON.stringify({ mcpServers: { legion: { command: 'node', args: [stdio] } } }, null, 2));
+// A prebuilt package has no system Node: the proxy runs on the package's own Electron in node mode (the env entry switches that on).
+const entry = detectKind(root).kind === 'package' ? mcpStdioEntry(root.replace(/\//g, '\\')) : { command: 'node', args: [stdio] };
+console.log(JSON.stringify({ mcpServers: { legion: entry } }, null, 2));

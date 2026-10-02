@@ -15,14 +15,17 @@ import { makeBoatGetter, SettingsService } from '../core/settings.js';
 import { runDoctor } from '../core/doctor.js';
 import { Engine } from '../core/engine.js';
 import { createServer } from '../core/server.js';
+import { listenLoopback } from '../core/net-guard.js';
 import { createBlenderModule } from '../core/blender/index.js';
 import { createBrowserModule } from '../core/browser/index.js';
 import { createBsvModule, createBsvState } from '../core/bsv/index.js';
 import { createCommsModule } from '../core/comms/index.js';
 import { createKnowledgeModule } from '../core/kg/index.js';
 import { createUpdaterModule } from '../core/updater/index.js';
+import { createProjectsModule, ProjectStore } from '../core/projects/index.js';
 import type { ModuleDeps } from '../core/modules.js';
 import { Store } from '../core/store.js';
+import { isPackageInstall } from '../electron/resolve-node.js';
 import { VmManager } from '../core/vm-manager.js';
 
 const logFile = join(dataDir(), 'core.log');
@@ -53,8 +56,11 @@ async function main() {
   const vms = new VmManager({ store, bus, getBoat, boatConfig: () => config.boat });
   const approvals = new ApprovalBroker(bus);
   // other model providers (OpenAI-compatible endpoints); keys live in <dataDir>/providers/keys.json, never in config.json
-  const providerRuntime = new ProviderRuntime({ config, keys: new ProviderKeys(keyFileFor(dataDir())) });
-  const engine = new Engine({ store, bus, vms, approvals, config, boatConfigured, providers: providerRuntime });
+  // built but not released (v0.2.1): off unless config.json says experimental.providers = true, then no provider code runs at all
+  const providerRuntime = config.experimental.providers ? new ProviderRuntime({ config, keys: new ProviderKeys(keyFileFor(dataDir())) }) : undefined;
+  // projects (owner-only groups of tasks, rooms, notes; own file <dataDir>/projects.json)
+  const projects = new ProjectStore(dataDir(), config.workspaceDir);
+  const engine = new Engine({ store, bus, vms, approvals, config, boatConfigured, projects, ...(providerRuntime ? { providers: providerRuntime } : {}) });
   // lets ask/tell check a per-task model against what the account offers
   engine.bridge.catalog = () => getCatalog({ config });
   let stopReaper: () => void = () => {};
@@ -65,7 +71,8 @@ async function main() {
     vms.health.reset();
     if (keyChanged && boatConfigured()) void vms.health.probe().catch(() => undefined);
   };
-  const settings = new SettingsService({ config, bus, configPath: configPath(), dataDir: dataDir(), onBoatChange: () => restartReaper(true) });
+  const installRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
+  const settings = new SettingsService({ config, bus, configPath: configPath(), dataDir: dataDir(), install: { dir: installRoot, packaged: isPackageInstall(installRoot) }, onBoatChange: () => restartReaper(true) });
   // BSV mode v0 (knowledge and visibility only; no wallet). The flag lives in config.json under "bsv".
   const bsvState = createBsvState({ dataDir: dataDir(), config });
   const bsvEnabled = () => bsvState.enabled;
@@ -76,16 +83,17 @@ async function main() {
   const blender = createBlenderModule(moduleDeps, { vms, boatConfigured, log });
   // In-app updates (plan: claude/plan-updater.md): checks and stages a signed release; main applies it when the core is idle. No overrides are passed here.
   const updater = createUpdaterModule(moduleDeps, {
-    root: resolve(dirname(fileURLToPath(import.meta.url)), '..', '..', '..'), nativeSecret, log,
+    root: installRoot, nativeSecret, log,
     probes: { 'a Blender download or setup is running': async () => !!((await blender.status(false)) as { getting?: boolean }).getting },
   });
-  const modules = [kg, createCommsModule(moduleDeps), bsv, blender, createProvidersModule({ runtime: providerRuntime, configPath: configPath(), nativeSecret }), updater, createBrowserModule(moduleDeps, { nativeSecret, log })];
+  const providersModules = providerRuntime ? [createProvidersModule({ runtime: providerRuntime, configPath: configPath(), nativeSecret })] : [];
+  const modules = [kg, createCommsModule(moduleDeps, { projects }), createProjectsModule(moduleDeps, { projects, nativeSecret }), bsv, blender, ...providersModules, updater, createBrowserModule(moduleDeps, { nativeSecret, log })];
   engine.setModules(modules);
   const server = createServer({
     config, store, bus, engine, vms, approvals, boatConfigured, modules, bsvEnabled,
     doctor: () => runDoctor({ config, getBoat, health: vms.health }),
     catalog: (force) => getCatalog({ config }, { force }),
-    settings, adminSecret,
+    settings, adminSecret, projects,
   });
 
   restartReaper();
@@ -97,11 +105,11 @@ async function main() {
     }
     log('server error', err);
   });
-  server.listen(config.port, '127.0.0.1', () => {
+  listenLoopback(server, config.port, () => {
     log(`Legion Core ${VERSION} on http://127.0.0.1:${config.port}  (config: ${configPath()})`);
     // BSV mode already on: bring the pack up to the bundled version without anyone toggling (never blocks, never throws)
     void bsv.start();
-  });
+  }, (addr) => { log('refusing to run: the server bound a non-loopback address', addr); process.exit(4); });
 
   const shutdown = async (sig: string) => {
     log(`shutting down (${sig})`);
@@ -110,6 +118,7 @@ async function main() {
     for (const id of engine.running()) engine.cancel(id);
     server.close();
     await store.flush();
+    await projects.flush();
     process.exit(0);
   };
   process.on('SIGINT', () => void shutdown('SIGINT'));

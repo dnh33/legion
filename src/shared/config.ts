@@ -39,7 +39,13 @@ export interface CommsConfig {
   /** What one turn is assumed to cost in a room with no turn history, for the budget guard that stops BEFORE a wake. Default 0.02. */
   turnCostFloorUsd: number;
 }
-export type CoreConfig = LegionConfig & { bsv: BsvConfig; comms: CommsConfig; blender: BlenderConfig; providers: ProvidersConfig };
+/** Switches for work that is built but not part of a release yet. Set only by editing config.json (no UI, no route writes it). */
+export interface ExperimentalConfig { providers: boolean }
+export function normalizeExperimental(v: unknown): ExperimentalConfig {
+  return { providers: !!v && typeof v === 'object' && (v as { providers?: unknown }).providers === true };
+}
+
+export type CoreConfig = LegionConfig & { bsv: BsvConfig; comms: CommsConfig; blender: BlenderConfig; providers: ProvidersConfig; experimental: ExperimentalConfig };
 
 /** The least a room's budget can be (below it one turn cannot fit). The hub, the settings dialogs and the bot-room limits all use it. */
 export const MIN_ROOM_BUDGET_USD = 0.05;
@@ -96,6 +102,7 @@ export function defaultConfig(): CoreConfig {
     comms: { ...DEFAULT_COMMS },
     blender: defaultBlenderConfig(),
     providers: { ...DEFAULT_PROVIDERS, entries: {} },
+    experimental: { providers: false },
   };
 }
 
@@ -135,6 +142,7 @@ export function loadConfig(): CoreConfig {
   cfg.comms = normalizeComms(cfg.comms);
   cfg.blender = normalizeBlender(cfg.blender);
   cfg.providers = normalizeProviders(cfg.providers);
+  cfg.experimental = normalizeExperimental(cfg.experimental);
   if (process.env.LEGION_PORT) cfg.port = Number(process.env.LEGION_PORT);
   if (!cfg.boat.apiKey && process.env.BOAT_API_KEY) cfg.boat.apiKey = process.env.BOAT_API_KEY;
   if (cfg.claude.auth === 'api-key' && !cfg.claude.apiKey && process.env.ANTHROPIC_API_KEY) {

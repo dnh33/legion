@@ -88,6 +88,12 @@ try {
     if ($DryRun) { Say "  (dry run) remove $l" 'DarkGray' } else { Remove-Item -LiteralPath $l -Force; Say "  removed $l" }
   }
 
+  # Legion's own Node.js runtime (<install>\runtime\node): removed only when it carries Legion's marker; a link is detached, never followed.
+  try {
+    $rt = Remove-LegionRuntime -InstallDir $InstallDir -DryRun:$DryRun
+    Say "  node runtime: $($rt.Reason)" $(if ($rt.Removed) { 'Gray' } else { 'DarkGray' })
+  } catch { Say "  (could not remove the Node runtime: $($_.Exception.Message))" 'Yellow' }
+
   # Install folder
   if ($isCheckout) {
     Say "  kept $InstallDir (it is a source checkout with a .git folder; delete it yourself if you want it gone)" 'Yellow'

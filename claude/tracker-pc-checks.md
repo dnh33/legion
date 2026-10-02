@@ -93,3 +93,17 @@ B4/B5 (managed Blender, chooser). Downloads: the owner present and a go for each
 | B16 | First-use chooser: a fresh data dir with the bridge on shows the chooser on the first Blender card; picking "This computer" saves `mode` and `modeAsked` in `config.json` and the chooser is gone on the next card; the Sculptor, asked in chat, names the place it chose and why | todo |
 
 - Extension verify (setup.ts `extensionListed`): the real `extension list` layout is not known. The step now needs the entry line to start with the id, show the exact version and an `enabled` marker (same line or indented lines under it). Check on the PC with Blender 5.1+ that a real list passes; if the layout differs, adjust the parser, do not loosen it to "the word appears".
+
+## Loopback-only guard (claude/plan-loopback.md). Safety class: none unless noted
+
+| # | Check | State |
+|---|---|---|
+| LB1 | Start the installed app: the window loads, tasks list, the event stream (live updates) works. If the window shows 403/421 errors, capture the core log and DevTools network tab (what `Origin` and `User-Agent` the window sends: `null` or `file://`, and whether the UA contains `Electron/`). | todo |
+| LB2 | Windows Firewall: first start of the core must NOT show an "allow access" prompt (it listens on 127.0.0.1 only). Note any prompt. | todo |
+| LB3 | `netstat -ano \| findstr :4747` shows only `127.0.0.1:4747` LISTENING (no `0.0.0.0`, no `[::]`). | todo |
+| LB4 | From another computer on the LAN: `curl http://<pc-lan-ip>:4747/health` cannot connect. | todo |
+| LB5 | Owner's own tunnel test (ngrok/cloudflared to 4747, **owner present, a tunnel is outbound exposure; delete it after**): `curl https://<tunnel-host>/health` must answer 421, not 200, and with the real token also 421. | todo |
+| LB6 | Claude Code / Cowork through the MCP stdio proxy still lists Legion tools; `curl -H "Authorization: Bearer <token>" http://127.0.0.1:4747/api/state` still works. | todo |
+
+## V0 result (2026-10-02 night, orchestrator by hand, owner's BSV Desktop at 127.0.0.1:3321, read-only, scratch script outside the repo)
+POST /getVersion -> 200 {"version":"wallet-brc100-1.0.0"} (78 ms); /getNetwork -> {"network":"mainnet"} (8 ms); /isAuthenticated -> {"authenticated":true} (5 ms); /getHeight -> {"height":969369} (470 ms). No permission prompt appeared (the owner was present). Content-Type of every reply is text/html; charset=utf-8 although the body is JSON (Legion's probe does not check the content type: OK, keep it that way). FINDINGS: (F-W1) the real version string is NOT semver: readVersion() in src/core/bsv/wallet-probe.ts returns null for it (SEMVER_RE), so Legion shows the version as unknown; reachable stays true; harmless but wrong: accept a short safe token like [a-z0-9-]+-\d+\.\d+\.\d+ or show the clipped raw string (fix in T5-owned file wallet-probe.ts, tests included). (F-W2) the real network string is "mainnet": readNetwork maps it to main, correct. The owner's wallet is MAINNET, so a testnet spend cannot be tested against it; the network-mismatch refusal can.

@@ -5,7 +5,7 @@
  * and runs it from there under the installed Electron binary in node mode, so it does not live in the folders it swaps. main also imports
  * `recoverInterrupted` from it at every start.
  *
- * What it touches: only the names in CODE_SET inside the install folder, and its own <install>/.update folder. Never node_modules, the data
+ * What it touches: only the names in CODE_SET (or the names a full-package install passes) inside the install folder, and its own <install>/.update folder. Never node_modules, the data
  * folder, shortcuts or uninstall.cmd; no robocopy; no recursive delete outside .update (and there only after a containment and not-a-link check).
  * Every state change is journaled (temp file + fsync + rename) so a kill at any point is recoverable by `recoverInterrupted`.
  */
@@ -73,14 +73,15 @@ async function renameRetry(from: string, to: string, retryMs: number): Promise<v
   }
 }
 
-export interface SwapOptions { installDir: string; stagedDir: string; from: string; to: string; retryMs?: number; /** Test hook: throws to simulate a kill at that step. */ step?: (label: string) => void }
+export interface SwapOptions { installDir: string; stagedDir: string; from: string; to: string; retryMs?: number; /** The names to swap; default CODE_SET. A full-package install passes the code set plus node_modules and runtime. Each must be one plain folder or file name. */ names?: readonly string[]; /** Test hook: throws to simulate a kill at that step. */ step?: (label: string) => void }
 
 /** Moves the live code-set entries into .update/prev and the staged ones into place. Throws on failure after rolling back (or leaves the journal for recovery if the process dies). */
 export async function swapIn(o: SwapOptions): Promise<void> {
   const { installDir, stagedDir } = o;
   const retryMs = o.retryMs ?? 15_000;
   const step = o.step ?? (() => undefined);
-  const names = CODE_SET.filter((n) => existsSync(join(stagedDir, n)));
+  for (const n of o.names ?? []) if (!n || n === '.' || n === '..' || /[\\/:]/.test(n) || n === UPDATE_DIR) throw new Error(`refusing to swap "${n}"`);
+  const names = (o.names ?? CODE_SET).filter((n) => existsSync(join(stagedDir, n)));
   if (!names.includes('package.json') || !names.includes('dist')) throw new Error('the staged tree is incomplete');
   for (const n of names) if (isLink(join(stagedDir, n))) throw new Error('a staged entry is a link');
   mkdirSync(upDir(installDir), { recursive: true });
