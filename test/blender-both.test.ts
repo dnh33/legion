@@ -8,12 +8,12 @@ import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import net from 'node:net';
-import test from 'node:test';
+import test, { after } from 'node:test';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { BLENDER_ASSET_TOOL, DEFAULT_COMMUNITY_PORT, defaultBlenderConfig, normalizeBlender } from '../src/shared/blender.js';
 import type { BlenderConfig } from '../src/shared/blender.js';
-import { AssetError, assetDir, fetchPlan, importScript, planFromFiles, polyhavenUrlOk, PolyHavenAssets, safeRel } from '../src/core/blender/assets.js';
+import { AssetError, assetDir, cardSummary, fetchPlan, importScript, planFromFiles, polyhavenUrlOk, PolyHavenAssets, safeRel } from '../src/core/blender/assets.js';
 import type { AssetNet, AssetPlan, AssetPort, FetchResult } from '../src/core/blender/assets.js';
 import { BothBackend, bothPorts, ensureFreePorts, ROUTING, verifyBoth } from '../src/core/blender/both.js';
 import { CommunityBackend, COMMUNITY_EXTRAS } from '../src/core/blender/backends/community.js';
@@ -29,6 +29,8 @@ interface Fake { port: number; seen: any[]; close(): Promise<void> }
 const INFO = { name: 'MCP for Blender', addon_version: [1, 8], protocol_version: 13, capabilities: ['get_scene_info', 'execute_code'], blender_version: '5.2.2', premium_generators: [] };
 const SCENE = { name: 'Scene', object_count: 1, objects: [{ name: 'Cube', type: 'MESH', location: [0, 0, 0] }], materials_count: 0 };
 /** A listener on an ephemeral loopback port. kind 'community' answers like the add-on; 'impostor' answers with something else; 'silent' accepts and says nothing. */
+const openListeners = new Set<Fake>();
+after(async () => { for (const f of [...openListeners]) await f.close(); });
 async function listener(kind: 'community' | 'impostor' | 'silent', onReq: (r: any) => void = () => undefined): Promise<Fake> {
   const seen: any[] = [];
   const sockets = new Set<net.Socket>();
@@ -47,7 +49,9 @@ async function listener(kind: 'community' | 'impostor' | 'silent', onReq: (r: an
     });
   });
   await new Promise<void>((r) => srv.listen(0, '127.0.0.1', r));
-  return { port: (srv.address() as net.AddressInfo).port, seen, close: () => new Promise((r) => { for (const s of sockets) s.destroy(); srv.close(() => r()); }) };
+  const fake: Fake = { port: (srv.address() as net.AddressInfo).port, seen, close: () => new Promise((r) => { openListeners.delete(fake); for (const s of sockets) s.destroy(); srv.close(() => r()); }) };
+  openListeners.add(fake);
+  return fake;
 }
 const freePort = async (): Promise<number> => { const f = await listener('silent'); const p = f.port; await f.close(); return p; };
 
@@ -238,13 +242,21 @@ test('B17-8 asset plan: only allowed hosts, plain names, extension allowlist (no
     ['a look-alike host', modelFiles({ 'y.bin': { url: 'https://polyhaven.org.evil.example/y.bin', md5: 'a'.repeat(32), size: 1 } }), /address Legion does not accept/],
     ['http', modelFiles({ 'y.bin': { url: 'http://dl.polyhaven.org/y.bin', md5: 'a'.repeat(32), size: 1 } }), /address Legion does not accept/],
     ['a huge file', modelFiles({ 'y.bin': { url: 'https://dl.polyhaven.org/y.bin', md5: 'a'.repeat(32), size: 99 * 1024 * 1024 } }), /limit per file/],
-    ['no md5', modelFiles({ 'y.bin': { url: 'https://dl.polyhaven.org/y.bin', size: 1 } }), /missing its address, size or md5/],
+    ['a size that is not a number', modelFiles({ 'y.bin': { url: 'https://dl.polyhaven.org/y.bin', md5: 'a'.repeat(32), size: 'big' } }), /size is not a number/],
+    ['no md5', modelFiles({ 'y.bin': { url: 'https://dl.polyhaven.org/y.bin', size: 1 } }), /missing its address or md5/],
     ['a bad md5', modelFiles({ 'y.bin': { url: 'https://dl.polyhaven.org/y.bin', md5: 'zz', size: 1 } }), /md5 .* not valid/],
   ];
   for (const [name, files, re] of bad) assert.throws(() => planFromFiles('polyhaven', 'crate', 'models', '1k', files), (e: Error) => e instanceof AssetError && re.test(e.message), name);
   // total cap: five 25 MB files
   const big = Object.fromEntries([1, 2, 3, 4, 5].map((i) => [`p${i}.bin`, { url: `https://dl.polyhaven.org/p${i}.bin`, md5: 'a'.repeat(32), size: 24 * 1024 * 1024 }]));
   assert.throws(() => planFromFiles('polyhaven', 'crate', 'models', '1k', modelFiles(big)), /total/);
+  // a missing size is allowed (the add-on never reads it): worst case is assumed and the card says so
+  const noSize = planFromFiles('polyhaven', 'crate', 'models', '1k', modelFiles({ 'y.bin': { url: 'https://dl.polyhaven.org/y.bin', md5: 'a'.repeat(32) } }));
+  assert.equal(noSize.sizeKnown, false);
+  assert.equal(noSize.files.find((f) => f.rel === 'y.bin')!.bytes, 25 * 1024 * 1024);
+  assert.equal(ok.sizeKnown, true);
+  assert.match(cardSummary(noSize, 'D'), /up to .* MB \(Poly Haven lists no size for some files/);
+  assert.doesNotMatch(cardSummary(ok, 'D'), /up to/);
   assert.equal(polyhavenUrlOk('https://api.polyhaven.com/files/x'), true);
   assert.equal(polyhavenUrlOk('https://user:pw@api.polyhaven.com/x'), false);
   assert.equal(polyhavenUrlOk('https://api.polyhaven.com:8443/x'), false);
@@ -295,7 +307,7 @@ test('B17-9 fetchPlan: files land only in the per-task asset folder with sha256 
 test('B17-10 the fixed import scripts pass Legion\'s own static check with the asset folder as the only allowed folder, and carry only that path', () => {
   const dir = join(rig().dataDir, 'a');
   for (const [kind, id, main] of [['models', 'crate', 'crate.gltf'], ['hdris', 'sky', 'sky_1k.hdr']] as const) {
-    const plan: AssetPlan = { source: 'polyhaven', id, kind, resolution: '1k', files: [], totalBytes: 0, main };
+    const plan: AssetPlan = { source: 'polyhaven', id, kind, resolution: '1k', files: [], totalBytes: 0, main, sizeKnown: true };
     const s = importScript(plan, dir);
     const c = checkScript(s, { allowedDirs: [dir], live: true });
     assert.equal(c.ok, true, `${kind}: ${JSON.stringify(c.ok ? [] : c.findings)}`);
@@ -306,6 +318,8 @@ test('B17-10 the fixed import scripts pass Legion\'s own static check with the a
 class FakeAssets implements AssetPort {
   readonly sources = ['polyhaven'] as const;
   calls: string[] = [];
+  /** Called when the download starts: lets a test look at the run's state at that moment. */
+  onRetrieve: () => void = () => undefined;
   fail: string | null = null;
   constructor(private readonly net: AssetNet = fakeNet(FILES)) {}
   private readonly real = () => new PolyHavenAssets(this.net, () => new Date('2026-10-02T00:00:00Z'));
@@ -313,6 +327,7 @@ class FakeAssets implements AssetPort {
   plan(s: 'polyhaven', q: any) { this.calls.push('plan'); return this.real().plan(s, q); }
   async retrieve(plan: AssetPlan, dir: string): Promise<FetchResult> {
     this.calls.push('fetch');
+    this.onRetrieve();
     return this.fail ? { ok: false, problems: [this.fail] } : this.real().retrieve(plan, dir);
   }
 }
@@ -390,10 +405,14 @@ test('B17-13 asset get: card first (what, where from, how big), a denial fetches
 
   x.r.decision.value = true;
   x.r.order.length = 0;
+  let taintAtDownload = -1;
+  x.assets.onRetrieve = () => { taintAtDownload = x.r.tainted.n; assert.ok(x.r.tainted.n > 0, 'the run is already tainted when the download starts'); };
+  x.r.tainted.n = 0;
   const ok = await t.call('blender_asset_get', { source: 'polyhaven', id: 'crate', kind: 'models' });
   assert.equal(ok.isError, false, ok.text);
   assert.deepEqual(x.assets.calls, ['plan', 'plan', 'fetch']);
   assert.ok(x.r.tainted.n > 0, 'the run is tainted');
+  assert.ok(taintAtDownload > 0, 'the run was tainted before the first byte was fetched');
   assert.equal(x.fb.execs.length, 1);
   assert.match(x.fb.execs[0]!, /import_scene\.gltf/);
   assert.ok(x.fb.execs[0]!.includes(assetDir(x.r.dataDir, 'task_1', 'crate').split('\\').join('\\\\')) || x.fb.execs[0]!.includes(JSON.stringify(join(assetDir(x.r.dataDir, 'task_1', 'crate'), 'crate.gltf'))));
@@ -458,4 +477,23 @@ test('B17-17 the routing table: every row is in the plan and the docs, and the c
   }
   assert.equal(ROUTING.filter((r) => r.backend === 'community' && /exec/i.test(r.tool)).length, 0);
   assert.equal(ROUTING.find((r) => r.tool === 'blender_exec')!.backend, 'official');
+});
+
+test('B17-18 asset network: nothing but Poly Haven hosts is contacted, a redirect to another host is refused, the file download refuses a foreign address before any request', async () => {
+  const { createAssetNet } = await import('../src/core/blender/system.js');
+  const real = globalThis.fetch;
+  const urls: string[] = [];
+  try {
+    (globalThis as any).fetch = async (u: string) => { urls.push(String(u)); return new Response('', { status: 302, headers: { location: 'https://evil.example/steal' } }); };
+    const net = createAssetNet();
+    await assert.rejects(net.getJson('https://api.polyhaven.com/assets?type=models'), /Poly Haven host/);
+    assert.deepEqual(urls, ['https://api.polyhaven.com/assets?type=models'], 'the redirect target was never requested');
+    urls.length = 0;
+    await assert.rejects(net.getJson('https://evil.example/x'), /Poly Haven host/);
+    await assert.rejects(net.getJson('http://api.polyhaven.com/x'), /Poly Haven host|https/);
+    await assert.rejects(net.download('https://evil.example/f.bin', join(rig().dataDir, 'f.bin'), { maxBytes: 100 }), /expected host/);
+    assert.deepEqual(urls, [], 'no request for a foreign or http address');
+    (globalThis as any).fetch = async () => new Response(JSON.stringify({ a: 1 }), { status: 200 });
+    assert.deepEqual(await net.getJson('https://api.polyhaven.com/assets?type=models'), { a: 1 });
+  } finally { globalThis.fetch = real; }
 });

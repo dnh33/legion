@@ -40,7 +40,11 @@ export interface AssetNet {
   download(url: string, dest: string, opts: { maxBytes: number }): Promise<{ sha256: string; bytes: number }>;
 }
 
-export interface PlannedFile { rel: string; url: string; bytes: number; md5: string }
+export interface PlannedFile {
+  rel: string; url: string;
+  /** The size the API lists; when it lists none this is the per-file cap (worst case) and `sizeKnown` is false. */
+  bytes: number; sizeKnown: boolean; md5: string;
+}
 export interface AssetPlan {
   source: AssetSource;
   id: string;
@@ -50,6 +54,8 @@ export interface AssetPlan {
   totalBytes: number;
   /** The file to import: a .gltf/.glb for a model, the image for an HDRI. */
   main: string;
+  /** False when at least one file has no listed size: totalBytes is then an upper bound, not a measurement. */
+  sizeKnown: boolean;
 }
 export interface FetchedFile { rel: string; bytes: number; sha256: string }
 export interface AssetManifest { source: AssetSource; id: string; kind: AssetKind; resolution: string; fetchedAt: string; main: string; files: FetchedFile[] }
@@ -80,12 +86,14 @@ export function planFromFiles(source: AssetSource, id: string, kind: AssetKind, 
   if (!isObj(files)) throw new AssetError('The Poly Haven answer was not in the expected shape.');
   const list: PlannedFile[] = [];
   const add = (rel: string, e: unknown): PlannedFile => {
-    if (!isObj(e) || typeof e.url !== 'string' || typeof e.size !== 'number' || typeof e.md5 !== 'string') throw new AssetError(`A file entry for "${rel}" is missing its address, size or md5.`);
+    if (!isObj(e) || typeof e.url !== 'string' || typeof e.md5 !== 'string' || (e.size !== undefined && typeof e.size !== 'number')) throw new AssetError(`A file entry for "${rel}" is missing its address or md5, or its size is not a number.`);
+    const sizeKnown = typeof e.size === 'number';
+    const size = sizeKnown ? (e.size as number) : MAX_ASSET_FILE_BYTES;
     if (!polyhavenUrlOk(e.url)) throw new AssetError(`A file for "${rel}" is on an address Legion does not accept (${e.url.slice(0, 60)}).`);
     if (!safeRel(rel)) throw new AssetError(`A file name is not allowed: ${JSON.stringify(rel.slice(0, 60))} (plain names with a known image or glTF extension only).`);
-    if (!Number.isFinite(e.size) || e.size < 0 || e.size > MAX_ASSET_FILE_BYTES) throw new AssetError(`"${rel}" is ${Math.round(e.size / 1e6)} MB, over the ${MAX_ASSET_FILE_BYTES / 1e6} MB limit per file.`);
+    if (!Number.isFinite(size) || size < 0 || size > MAX_ASSET_FILE_BYTES) throw new AssetError(`"${rel}" is ${Math.round(size / 1e6)} MB, over the ${MAX_ASSET_FILE_BYTES / 1e6} MB limit per file.`);
     if (!/^[0-9a-f]{32}$/i.test(e.md5)) throw new AssetError(`The md5 for "${rel}" is not valid.`);
-    const f = { rel, url: e.url, bytes: e.size, md5: e.md5.toLowerCase() };
+    const f = { rel, url: e.url, bytes: size, sizeKnown, md5: e.md5.toLowerCase() };
     list.push(f);
     return f;
   };
@@ -108,7 +116,7 @@ export function planFromFiles(source: AssetSource, id: string, kind: AssetKind, 
   if (total > MAX_ASSET_TOTAL_BYTES) throw new AssetError(`The asset is ${Math.round(total / 1e6)} MB in total, over the ${MAX_ASSET_TOTAL_BYTES / 1e6} MB limit. Try a lower resolution.`);
   const seen = new Set<string>();
   for (const f of list) { const k = f.rel.toLowerCase(); if (seen.has(k)) throw new AssetError(`The asset lists "${f.rel}" twice.`); seen.add(k); }
-  return { source, id, kind, resolution, files: list, totalBytes: total, main };
+  return { source, id, kind, resolution, files: list, totalBytes: total, main, sizeKnown: list.every((f) => f.sizeKnown) };
 }
 
 const available = (files: Record<string, unknown>, key: string): string => {
@@ -119,7 +127,7 @@ const available = (files: Record<string, unknown>, key: string): string => {
 /** The card text: what, from where, how big, where it lands. Everything in it came from Legion or the API listing, never from the model. */
 export function cardSummary(plan: AssetPlan, dir: string): string {
   const mb = (plan.totalBytes / (1024 * 1024)).toFixed(1);
-  return `Download ${plan.kind === 'hdris' ? 'the HDRI' : 'the model'} "${plan.id}" (${plan.resolution}) from Poly Haven: ${plan.files.length} file${plan.files.length === 1 ? '' : 's'}, ${mb} MB, `
+  return `Download ${plan.kind === 'hdris' ? 'the HDRI' : 'the model'} "${plan.id}" (${plan.resolution}) from Poly Haven: ${plan.files.length} file${plan.files.length === 1 ? '' : 's'}, ${plan.sizeKnown ? '' : 'up to '}${mb} MB${plan.sizeKnown ? '' : ' (Poly Haven lists no size for some files, so this is the most Legion will accept)'}, `
     + `from ${[...new Set(plan.files.map((f) => new URL(f.url).hostname))].join(', ')}. The files are saved in ${dir} (never in your workspace), checked against Poly Haven's md5, and imported by Legion's own fixed script as ${plan.kind === 'hdris' ? 'the world lighting' : 'a glTF model'} in your open Blender. `
     + 'No downloaded script is run. The result counts as outside content for the rest of this run.';
 }
