@@ -16,7 +16,7 @@ import type { ProcessPort, SpawnRequest, SpawnedProcess } from '../src/core/blen
 import { scriptHash } from '../src/core/blender/static-check.js';
 import { createProcessPort } from '../src/core/blender/system.js';
 import { agent, tmp } from './blender-helpers.js';
-import { linkOrSkip } from './fs-links.js';
+import { linkOrSkip, tryLink } from './fs-links.js';
 
 type Plan = Record<string, unknown> & { mode: 'ok' | 'env' | 'sleep' | 'spam' | 'foreign' | 'badhash' | 'noresult' | 'slow' | 'inspect' | 'preview' | 'bytes' };
 
@@ -37,6 +37,7 @@ const putExports = () => {
   if (PLAN.linkTo) { try { symlinkSync(PLAN.linkTo, join(task, 'exports', 'planted'), process.platform === 'win32' ? 'junction' : 'dir'); } catch { writeFileSync(join(task, 'nolink.txt'), 'x'); } }
 };
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+if (PLAN.tmpJunk) writeFileSync(join(task, 'tmp', 'junk.bin'), 'junk');
 if (PLAN.saveScene !== false) writeFileSync(join(task, 'scene.blend'), PLAN.sceneText || 'BLEND');
 switch (PLAN.mode) {
   case 'ok': putExports(); done({ output: 'fake ran' }); break;
@@ -66,10 +67,15 @@ class TestPort implements ProcessPort {
   maxInFlight = 0;
   noKill = false;
   pids: number[] = [];
+  killCalls: number[] = [];
+  killDelayMs = 0;
+  /** What runner.py held at the moment of each spawn. */
+  runnerSeen: string[] = [];
   file = process.execPath;
   constructor(readonly fake: string) {}
   spawn(req: SpawnRequest): SpawnedProcess {
     this.spawns.push(req);
+    try { this.runnerSeen.push(readFileSync(req.args[req.args.indexOf('--python') + 1]!, 'utf8')); } catch { this.runnerSeen.push('<unreadable>'); }
     const p = this.inner.spawn({ ...req, file: this.file, prefixArgs: this.file === process.execPath ? [this.fake] : [] });
     if (p.pid) this.pids.push(p.pid);
     this.inFlight++;
@@ -77,7 +83,11 @@ class TestPort implements ProcessPort {
     void p.exited.then(() => { this.inFlight--; });
     return p;
   }
-  kill(pid: number): Promise<boolean> { return this.noKill ? Promise.resolve(false) : this.inner.kill(pid); }
+  async kill(pid: number): Promise<boolean> {
+    this.killCalls.push(pid);
+    if (this.killDelayMs) await sleep(this.killDelayMs);
+    return this.noKill ? false : this.inner.kill(pid);
+  }
   realKill(pid: number): Promise<boolean> { return this.inner.kill(pid); }
 }
 
@@ -526,4 +536,84 @@ test('no shell: an argument with shell metacharacters reaches the program as one
   assert.equal(exit.code, 0, p.stderr());
   assert.deepEqual(JSON.parse(p.stdout()), [tail]);
   assert.equal(existsSync(marker), false);
+});
+
+test('M1/C7: a scene that cannot be copied (scene.blend is a folder) stops the run: backup_failed and nothing spawned', async () => {
+  const r = rig({ mode: 'ok' });
+  await r.runner.run(req(r));
+  const n = r.port.spawns.length;
+  rmSync(join(r.task('t1'), 'scene.blend'), { force: true });
+  mkdirSync(join(r.task('t1'), 'scene.blend'));
+  const res = await r.runner.run(req(r));
+  assert.equal(res.ok, false);
+  assert.match(res.text, /backup_failed/);
+  assert.equal(r.port.spawns.length, n, 'nothing was spawned');
+});
+
+test('M2: runner.py is checked before every run: a changed or linked copy is rewritten before the spawn', async (t) => {
+  const r = rig({ mode: 'ok' });
+  await r.runner.run(req(r));
+  const file = join(r.root, 'runner.py');
+  writeFileSync(file, LOCAL_RUNNER_PY + '\nimport os; os.system("x")\n');
+  await r.runner.run(req(r));
+  assert.equal(r.port.runnerSeen[1], LOCAL_RUNNER_PY, 'the tampered file was already repaired when Blender started');
+  rmSync(file, { force: true });
+  const other = join(r.base, 'other.py');
+  writeFileSync(other, LOCAL_RUNNER_PY);
+  if (!tryLink(other, file, 'file').ok) { t.diagnostic('file symlinks need privilege here; the replace-a-link step was skipped'); return; }
+  await r.runner.run(req(r));
+  assert.equal(lstatSync(file).isSymbolicLink(), false, 'a link in the runner place is replaced by the real file');
+  assert.equal(r.port.runnerSeen[2], LOCAL_RUNNER_PY);
+});
+
+test('M3: tmp/ is emptied after each run, and a big scene cannot lock its own task out through backups', async () => {
+  const r = rig({ mode: 'ok', tmpJunk: true, sceneText: 'S'.repeat(400) }, { cfg: (c) => { c.advanced.local.maxTaskBytes = 1500; } });
+  for (let i = 0; i < 8; i++) {
+    const res = await r.runner.run(req(r));
+    assert.equal(res.ok, true, `run ${i}: ${res.text}`);
+    assert.deepEqual(readdirSync(join(r.task('t1'), 'tmp')), [], 'tmp is empty after the run');
+  }
+  assert.ok(readdirSync(join(r.task('t1'), 'backups')).length <= 2, 'oldest backups were dropped to stay under the cap');
+});
+
+test('M3: the "too large" refusal names the folder and what to delete', async () => {
+  const r = rig({ mode: 'ok' }, { cfg: (c) => { c.advanced.local.maxTaskBytes = 1000; } });
+  mkdirSync(r.task('t1'), { recursive: true });
+  writeFileSync(join(r.task('t1'), 'big.bin'), Buffer.alloc(5000));
+  const res = await r.runner.run(req(r));
+  assert.ok(res.text.includes(r.task('t1')), res.text);
+  assert.match(res.text, /Delete its backups folder/);
+});
+
+test('L5: dispose() during a timeout kill still reaches the process (it stays tracked until it is gone)', async () => {
+  const r = rig({ mode: 'sleep' }, { deps: { stopWaitMs: 3000 } });
+  r.port.killDelayMs = 700;
+  let pids: number[] = [];
+  const running = r.runner.run(req(r, 'x=1\n', 't1', 1000));
+  for (let i = 0; i < 100 && !existsSync(join(r.base, 'self.pid')); i++) await sleep(20);
+  try {
+    for (let i = 0; i < 100 && r.port.killCalls.length < 1; i++) await sleep(20); // the timeout kill has started and is slow
+    await r.runner.dispose();
+    assert.ok(r.port.killCalls.length >= 2, 'dispose issued its own kill for the tracked process');
+    await running;
+    pids = [readPid(r, 'self.pid'), readPid(r, 'child.pid')];
+    for (const pid of pids) assert.equal(await isGone(pid), true);
+  } finally { for (const pid of pids) await r.port.realKill(pid).catch(() => false); }
+});
+
+test('L6: an output-cap kill that did not work marks the PID stuck and refuses new runs', async () => {
+  let alive = true;
+  const r = rig({ mode: 'spam' }, { cfg: (c) => { c.advanced.local.maxOutputBytes = 64 * 1024; }, deps: { stopWaitMs: 300, isAlive: () => alive } });
+  let pid = 0;
+  try {
+    const res = await r.runner.run(req(r, 'x=1\n', 't1', 20_000));
+    pid = readPid(r, 'self.pid');
+    assert.equal(res.ok, false);
+    assert.match(res.text, /may still be running/);
+    const n = r.port.spawns.length;
+    const again = await r.runner.run(req(r));
+    assert.match(again.text, /could not be stopped/);
+    assert.equal(r.port.spawns.length, n, 'nothing new started while the old process is there');
+    alive = false;
+  } finally { if (pid) await r.port.realKill(pid).catch(() => false); }
 });

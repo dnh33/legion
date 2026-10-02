@@ -7,7 +7,7 @@
  *
  * This file starts no process itself: it takes a ProcessPort (system.ts holds the real spawn and the tree kill), so tests run a fake blender.
  */
-import { randomBytes } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 import { copyFileSync, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { basename, dirname, join } from 'node:path';
 import type { BlenderConfig } from '../../shared/blender.js';
@@ -275,7 +275,6 @@ interface Prepared { task: string; exportsDir: string; home: string; blender: st
 
 export class LocalRunner implements LocalPort {
   private chain: Promise<unknown> = Promise.resolve();
-  private runnerWritten = false;
   /** The child in flight. Kept until its exit is confirmed (also through a timeout or output-cap kill), so dispose() can still stop it. */
   private current: { pid: number; exited: Promise<unknown> } | undefined;
   private disposed = false;
@@ -305,6 +304,7 @@ export class LocalRunner implements LocalPort {
   /** Core exit: refuse new runs, kill the running child's tree by PID and wait (bounded) for it to exit. */
   async dispose(): Promise<void> {
     this.disposed = true;
+    if (this.stuck !== undefined) await this.d.proc.kill(this.stuck).catch(() => false);
     const c = this.current;
     if (!c) return;
     await this.d.proc.kill(c.pid).catch(() => false);
@@ -330,13 +330,13 @@ export class LocalRunner implements LocalPort {
       }
       const link = findLink(task);
       if (link) return { ok: false, error: `The local task folder holds a link (${link}); remove it first. Nothing was run.` };
-      if (dirSize(task, cfg.maxTaskBytes) > cfg.maxTaskBytes) return { ok: false, error: `The task folder is larger than ${Math.round(cfg.maxTaskBytes / 1e6)} MB; clear it first. Nothing was run.` };
+      if (dirSize(task, cfg.maxTaskBytes) > cfg.maxTaskBytes) return { ok: false, error: `The task folder ${task} is larger than ${Math.round(cfg.maxTaskBytes / 1e6)} MB (scene, backups and files). Delete its backups folder or the files you no longer need, then try again. Nothing was run.` };
       return { ok: true, p: { task, exportsDir: join(task, 'exports'), home, blender } };
     } catch (e) { return { ok: false, error: `The local task folder could not be prepared: ${e instanceof Error ? e.message : String(e)}` }; }
   }
 
   /** C7: copy scene.blend into backups/ (newest 5 kept). Throws when it cannot, and the run is then refused. */
-  private backup(task: string, runId: string): string | undefined {
+  private backup(task: string, runId: string, maxTaskBytes: number): string | undefined {
     const scene = join(task, 'scene.blend');
     if (!existsSync(scene)) return undefined;
     const dir = join(task, 'backups');
@@ -347,16 +347,31 @@ export class LocalRunner implements LocalPort {
     const dest = join(r.dir, `scene-${stamp}-${runId.slice(0, 6)}.blend`);
     copyFileSync(scene, dest);
     try {
-      const old = readdirSync(r.dir).filter((n) => /^scene-.*\.blend$/.test(n)).sort().reverse().slice(KEEP_BACKUPS);
-      for (const n of old) rmSync(join(r.dir, n), { force: true });
+      const names = readdirSync(r.dir).filter((n) => /^scene-.*\.blend$/.test(n)).sort().reverse();
+      for (const n of names.slice(KEEP_BACKUPS)) rmSync(join(r.dir, n), { force: true });
+      // the size cap counts backups too: drop the oldest (never the newest) until the folder is back under it, so a big scene cannot lock its own task out
+      const kept = names.slice(0, KEEP_BACKUPS);
+      while (kept.length > 1 && dirSize(task, maxTaskBytes) > maxTaskBytes) rmSync(join(r.dir, kept.pop()!), { force: true });
     } catch { /* pruning is best effort */ }
     return dest;
   }
 
+  /** M2: the runner is checked before EVERY spawn (a plain file whose sha256 is the constant's) and rewritten when it differs or is a link. */
   private runnerFile(): string {
     const p = join(this.root, 'runner.py');
-    if (!this.runnerWritten) { safeWriteFile(this.root, 'runner.py', Buffer.from(LOCAL_RUNNER_PY, 'utf8')); this.runnerWritten = true; }
+    const want = createHash('sha256').update(LOCAL_RUNNER_PY, 'utf8').digest('hex');
+    let have = '';
+    try { const st = lstatSync(p); if (st.isFile() && !st.isSymbolicLink()) have = createHash('sha256').update(readFileSync(p)).digest('hex'); } catch { have = ''; }
+    if (have !== want) safeWriteFile(this.root, 'runner.py', Buffer.from(LOCAL_RUNNER_PY, 'utf8'));
     return p;
+  }
+
+  /** Waits (bounded) until the PID is gone; true when it is. */
+  private async gone(pid: number | undefined): Promise<boolean> {
+    if (pid === undefined) return true;
+    const end = Date.now() + (this.d.stopWaitMs ?? STOP_WAIT_MS);
+    while (this.alive(pid)) { if (Date.now() >= end) return false; await new Promise((r) => setTimeout(r, 50)); }
+    return true;
   }
 
   private async execute(req: { agent: AgentProfile; taskId: string; script: string; hash: string; timeoutMs?: number }, o: { readonly: boolean; withBackup: boolean }): Promise<
@@ -377,7 +392,7 @@ export class LocalRunner implements LocalPort {
     const runId = randomBytes(8).toString('hex');
     let backup: string | undefined;
     if (o.withBackup) {
-      try { backup = this.backup(p.task, runId); } catch (e) {
+      try { backup = this.backup(p.task, runId, cfg.maxTaskBytes); } catch (e) {
         return { kind: 'refused', text: `backup_failed: the scene could not be backed up (${e instanceof Error ? e.message : String(e)}), so the script was not run.` };
       }
     }
@@ -408,6 +423,11 @@ export class LocalRunner implements LocalPort {
       }
       const exit = first;
       if (exit.error === 'output limit') {
+        // L6: system.ts killed the tree; if the PID is still there afterwards it is marked stuck exactly like a timeout
+        if (!(await this.gone(proc.pid))) {
+          this.stuck = proc.pid;
+          return { kind: 'ran', p, runId, ok: false, timedOut: false, backup, violations: [], output: `Blender printed more than ${Math.round(cfg.maxOutputBytes / 1024)} KB; it could not be stopped and may still be running (process ${proc.pid}). New local runs wait until it is gone.` };
+        }
         return { kind: 'ran', p, runId, ok: false, timedOut: false, backup, violations: [], output: `Blender printed more than ${Math.round(cfg.maxOutputBytes / 1024)} KB and was stopped. The scene was not saved.` };
       }
       if (exit.error && proc.pid === undefined) return { kind: 'ran', p, runId, ok: false, timedOut: false, backup, violations: [], output: `Blender could not be started: ${exit.error}` };
@@ -431,6 +451,7 @@ export class LocalRunner implements LocalPort {
       return { kind: 'refused', text: `The local run failed: ${e instanceof Error ? e.message : String(e)}` };
     } finally {
       this.current = undefined;
+      try { for (const n of readdirSync(join(p.task, 'tmp'))) rmSync(join(p.task, 'tmp', n), { recursive: true, force: true }); } catch { /* best effort */ }
       for (const f of [scriptFile, resultFile, `${resultFile}.tmp`]) { try { rmSync(f, { force: true }); } catch { /* ignore */ } }
     }
   }
