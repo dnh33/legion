@@ -106,3 +106,5 @@ BSV order: T1 merge -> T5 mainnet enablement -> T2 spend module (after V1/V2) + 
 Blender order: B1/B2/B3 merge into `integration/v1` (B2 owns conflicts in index.ts; `test/bsv-scan.ts` also edited by BSV T2 later) -> full gate Linux + Windows -> real-Blender PC run (plan 6.2) -> independent reviewer.
 Then item G (docs + screenshots), delivery `D:/bots/legion-v6-7`, install, Legion MCP (user scope), PC checks, fast-forward `main`.
 Limits: weekly Claude plan usage ~99% (reset Mon Oct 5 01:00); cloud credits $238/$250 left (expire Nov 5), about $1.30 per cloud session; the cloud sessions keep running without the orchestrator. Never use the API routine route for cloud work.
+
+Blender B4 (managed Blender: "Get Blender for Legion" pinned portable download + "Open download page" + winget text) is planned in `claude/plan-blender-local-first.md` section 11; starts after B1-B3 merge (owner approved the idea 2026-10-02; deliberately not steered into the running builders).
