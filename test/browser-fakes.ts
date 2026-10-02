@@ -39,6 +39,8 @@ export interface FakeCdpOptions {
   popup?: boolean;
   /** Only the Fetch domain reports requests: no Network.* events and no frameNavigated (so each guard path can be proven on its own). */
   fetchOnly?: boolean;
+  /** Only this WebSocket path is accepted (a real browser serves its endpoint only at /devtools/browser/<guid>). */
+  onlyPath?: string;
   /** The fake page's script does not run (the check page then reports JavaScript as not working). */
   noJs?: boolean;
   /** A build that sends no Network or navigation events: only the final address can show where the page ended up. */
@@ -106,6 +108,7 @@ export async function startFakeCdp(o: FakeCdpOptions, port = 0): Promise<FakeCdp
   server.on('upgrade', (req: IncomingMessage, socket: Socket) => {
     const key = req.headers['sec-websocket-key'];
     if (typeof key !== 'string') { socket.destroy(); return; }
+    if (o.onlyPath !== undefined && req.url !== o.onlyPath) { socket.write('HTTP/1.1 404 Not Found\r\nConnection: close\r\n\r\n'); socket.destroy(); return; }
     socket.write(`HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: ${createHash('sha1').update(key + GUID).digest('base64')}\r\n\r\n`);
     sockets.add(socket); connections++;
     socket.on('close', () => sockets.delete(socket));

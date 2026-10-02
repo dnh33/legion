@@ -15,9 +15,9 @@ writeFileSync(report!, JSON.stringify({ argv: args, env: process.env, cwd: proce
 if (mode === 'never') { setInterval(() => undefined, 1000); }
 else {
   const pages = pagesFile && pagesFile !== '-' ? JSON.parse(readFileSync(pagesFile, 'utf8')) : {};
-  const fake = await startFakeCdp({ pages, ...(mode === 'nojs' ? { noJs: true } : {}) }, 0);
-  mkdirSync(userDataDir, { recursive: true });
   const guid = '0f3b2c1d-aaaa-bbbb-cccc-1234567890ab';
+  const fake = await startFakeCdp({ pages, onlyPath: `/devtools/browser/${guid}`, ...(mode === 'nojs' ? { noJs: true } : {}) }, 0);
+  mkdirSync(userDataDir, { recursive: true });
   const nl = mode === 'crlf' ? '\r\n' : '\n';
   const path = mode === 'badpath' ? '/devtools/page/xyz' : `/devtools/browser/${guid}`;
   writeFileSync(join(userDataDir, 'DevToolsActivePort'), `${fake.port}${nl}${path}${nl}`);
