@@ -83,7 +83,7 @@ function Board({ project }: { project: Project }) {
   return (
     <section className="bd" aria-labelledby="bd-h">
       <div className="bd-head">
-        <h3 id="bd-h">Board</h3>
+        <h3 id="bd-h">Work items</h3>
         <div role="tablist" aria-label="Board views" className="bd-tabs">
           {([['board', 'Board'], ['list', 'List'], ['inbox', `Inbox${inbox.length ? ` (${inbox.length})` : ''}`]] as const).map(([k, label]) => (
             <button key={k} type="button" role="tab" id={`bd-tab-${k}`} aria-selected={tab === k} aria-controls="bd-panel" tabIndex={tab === k ? 0 : -1} className={`bd-tab${tab === k ? ' on' : ''}`} onClick={() => setTab(k)}
