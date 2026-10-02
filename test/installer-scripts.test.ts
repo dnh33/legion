@@ -11,11 +11,19 @@ import { fileURLToPath } from 'node:url';
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const read = (p: string): string => readFileSync(join(root, p), 'utf8').replace(/\r\n/g, '\n');
 
-test('setup-yes.cmd runs setup.ps1 with -Yes, bypassing the execution policy, and does not pause', () => {
+test('setup-yes.cmd runs setup.ps1 with -Yes, bypassing the execution policy, and pauses only after a failure on a console', () => {
   const s = read('setup-yes.cmd');
   assert.match(s, /powershell[^\n]*-ExecutionPolicy Bypass[^\n]*-File "%~dp0scripts\\setup\.ps1" -Yes/i);
-  assert.doesNotMatch(s, /^\s*pause\b/im);
   assert.doesNotMatch(s, /\bset \/p\b/i);
+  // success exits before anything that could wait
+  const iOk = s.indexOf('if "%LEGION_RC%"=="0" exit /b 0');
+  const iRedir = s.indexOf('[Console]::IsInputRedirected');
+  const iPause = s.search(/^\s*pause\b/im);
+  assert.ok(iOk > 0 && iRedir > iOk && iPause > iRedir, 'success exit, then the redirect test, then the one pause');
+  assert.equal((s.match(/^\s*pause\b/gim) ?? []).length, 1);
+  assert.match(s, /if errorlevel 1 exit \/b %LEGION_RC%\r?\n/, 'redirected input never reaches the pause');
+  assert.match(s, /Legion setup failed \(exit code %LEGION_RC%\)/);
+  assert.match(s, /exit \/b %LEGION_RC%\s*$/);
 });
 
 test('setup.cmd does not wait for a key when -Yes is passed or stdin is redirected', () => {
