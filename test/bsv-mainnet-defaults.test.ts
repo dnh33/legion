@@ -124,10 +124,11 @@ test('migration through the module: a policy file written by the earlier (testne
 // ------------------------------------------------------------------ the route (a real HTTP server with the real gate)
 
 interface Rig { call: (body?: unknown, h?: Record<string, string>) => Promise<{ status: number; body: any }>; policy: PolicyEngine; file: string; notes: Array<[string, string, string, string?]>; flags: { bsv: boolean; save: boolean; checks: number } }
-async function rig(o: { on?: boolean; frozen?: boolean } = {}): Promise<Rig> {
+async function rig(o: { on?: boolean; frozen?: boolean; unknown?: Array<{ requestId: string; agentId: string; totalSats: number; net?: unknown }>; fileOn?: boolean } = {}): Promise<Rig> {
   const f = makeFakes();
   const dir = mkdtempSync(join(tmpdir(), 'legion-mroute-')); const file = join(dir, 'policy.json');
-  const policy = new PolicyEngine({ config: { nets: { test: { caps: { ...NET.test.defaultCaps }, allowlist: [] }, main: { caps: { ...NET.main.defaultCaps }, allowlist: [MAIN_A, MAIN_B] } }, frozen: null, mainnetEnabled: !!o.on } });
+  const policy = new PolicyEngine({ config: { nets: { test: { caps: { ...NET.test.defaultCaps }, allowlist: [] }, main: { caps: { ...NET.main.defaultCaps }, allowlist: [MAIN_A, MAIN_B] } }, frozen: null, mainnetEnabled: !!o.on }, ...(o.unknown ? { unknown: o.unknown } : {}) });
+  if (o.fileOn) savePolicyConfig(file, { ...policy.config(), mainnetEnabled: true }); // a file that says on while memory may say off
   if (o.frozen) policy.freeze('test');
   const notes: Rig['notes'] = []; const flags = { bsv: true, save: true, checks: 0 };
   registerRoutesIntoCtx(f.ctx, policy, file, notes, flags);
@@ -261,4 +262,46 @@ test('C35: the sentences Legion shows about mainnet say it is OFF until the owne
   // the default table the words rest on
   assert.equal(new PolicyEngine().snapshot().mainnetEnabled, false);
   assert.deepEqual({ ...NET.main.defaultCaps }, { perTxSats: 1000, perSessionSats: 2000, per24hSats: 5000, maxOutputs: 1, maxFeeSats: 100 });
+});
+
+test('C27d: enable while the chain is frozen is refused AND the file is not written with the switch on (the check comes before the save)', async () => {
+  const r = await rig({ frozen: true });
+  const on = await r.call({ enabled: true });
+  assert.equal(on.status, 409);
+  assert.equal(existsSync(r.file), false, 'nothing was saved');
+  assert.equal(r.policy.mainnetEnabled, false);
+  // the same with BSV mode off
+  const b = await rig(); b.flags.bsv = false;
+  assert.equal((await b.call({ enabled: true })).status, 409); assert.equal(existsSync(b.file), false);
+});
+
+test('C27h: DISABLE runs the policy-file check first (a tampered file is noticed on the safe path too); so does enable', async () => {
+  const r = await rig({ on: true });
+  await r.call({ enabled: false }, { ...AUTH });
+  assert.equal(r.flags.checks, 1, 'disable');
+  const e = await rig(); await e.call({ enabled: true });
+  assert.equal(e.flags.checks, 1, 'enable');
+  const bad = await rig({ on: true }); await bad.call('nope' as never, { ...AUTH });
+  assert.equal(bad.flags.checks, 0, 'a refused body changes nothing and checks nothing');
+});
+
+test('B5: Disable always writes the file and reports that result, even when memory already says off but the file still says on', async () => {
+  const r = await rig({ fileOn: true });
+  assert.equal(r.policy.mainnetEnabled, false); assert.equal(saved(r).mainnetEnabled, true, 'precondition: the file says on');
+  const off = await r.call({ enabled: false }, { ...AUTH });
+  assert.equal(off.status, 200); assert.equal(off.body.persisted, true);
+  assert.equal(saved(r).mainnetEnabled, false, 'the file was repaired');
+  assert.equal(r.notes.filter((n) => n[2] === 'mainnet-off').length, 1);
+  // and when that save fails the answer says false (not a stale true) and the chain freezes
+  const f = await rig({ fileOn: true }); f.flags.save = false;
+  const bad = await f.call({ enabled: false }, { ...AUTH });
+  assert.equal(bad.body.persisted, false); assert.equal(f.policy.isFrozen, true);
+});
+
+test('B5: a restart seed that switched mainnet off (an earlier mainnet spend had no outcome) is saved and logged once the route registers its hook', async () => {
+  const r = await rig({ on: true, unknown: [{ requestId: 'seed-main-0001', agentId: 'assayer', totalSats: 620, net: 'main' }] });
+  assert.equal(r.policy.mainnetEnabled, false);
+  assert.equal(saved(r).mainnetEnabled, false, 'the file says off');
+  assert.deepEqual(r.notes.map((n) => n.slice(0, 3)), [['legion', 'policy', 'mainnet-off']]);
+  assert.match(String(r.notes[0]![3]), /no known outcome/);
 });

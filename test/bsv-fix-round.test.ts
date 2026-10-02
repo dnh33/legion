@@ -25,7 +25,7 @@ import { gate, isClientRoute } from '../src/core/admin.js';
 import { bsvConfirmation, bsvPreflight, parseBsvAction } from '../src/electron/admin-logic.js';
 import { joinLiterals, normalize, unescapeLiterals } from './bsv-scan.js';
 import { AUTH, asClient, makeFakes, mkAgent, start } from './helpers-c.js';
-import { mkAddr } from './bsv-net-helpers.js';
+import { mkAddr, MAIN_A, MAIN_B } from './bsv-net-helpers.js';
 
 const closers: Array<() => Promise<void>> = [];
 after(async () => { for (const c of closers) await c().catch(() => undefined); });
@@ -743,4 +743,77 @@ test('7: through the module, a wallet that reports a vendor tag, a "v" prefix or
   }
   assert.deepEqual(seen, ['1.2.3', '2.0.0-rc.1+b5', null, null, null, null]);
   void TESTNET_HARD_CAPS;
+});
+
+// ================================================================== T5 review fixes at module level (B1, B4, B5)
+
+const mainReq = (id: string): SpendRequest => ({
+  requestId: id, network: 'main', walletNetwork: 'main', agentId: 'assayer', taskId: 'task-1', reason: 'pay', tainted: false,
+  decoded: { inputSats: 4_620, outputs: [{ recipient: MAIN_A, sats: 600 }, { recipient: MAIN_B, sats: 4_000, change: true }], feeSats: 20 },
+});
+const enableMainnet = (s: Rig) => { s.bsv.policy.setAllowlist([MAIN_A], 'main'); s.bsv.policy.setMainnetEnabled(true); };
+
+test('B1: audit lines carry the network, and a mainnet spend is restored as MAINNET usage (and no testnet usage) after a restart', async () => {
+  const s = await setup({ on: true });
+  enableMainnet(s);
+  s.bsv.policy.arm(5);
+  const d = s.bsv.policy.evaluate(mainReq('req-main-0001'));
+  assert.equal(d.verdict, 'needs_approval');
+  assert.equal(s.bsv.policy.approve('req-main-0001', { cardHash: d.card!.hash, confirmations: d.requiredConfirmations, walletNetwork: 'main' }).ok, true);
+  assert.deepEqual(s.bsv.policy.settle('req-main-0001', { kind: 'executed', sats: 620 }), { ok: true });
+  const a = auditLines(s.dataDir);
+  for (const dec of ['approved', 'executed']) assert.equal(a.find((e) => e.tool === 'spend-policy' && e.decision === dec).fields.net, 'main', dec);
+  assert.ok(a.some((e) => e.tool === 'policy' && e.decision === 'caps-changed') === false, 'control: no caps change yet');
+  s.bsv.policy.setCaps({ perTxSats: 900 }, 'main'); s.bsv.policy.setAllowlist([MAIN_A, MAIN_B], 'main');
+  const a2 = auditLines(s.dataDir);
+  assert.equal(a2.find((e) => e.decision === 'caps-changed').fields.net, 'main');
+  assert.equal(a2.find((e) => e.decision === 'allowlist-changed').fields.net, 'main');
+  assert.ok(a2.some((e) => e.tool === 'policy' && e.decision === 'mainnet-changed' && e.fields.enabled === true), 'the switch change is logged');
+  // restart: the rolling 24 h window is rebuilt from the log with the right network
+  const s2 = await setup({ dataDir: s.dataDir, on: true });
+  const snap = s2.bsv.policy.snapshot();
+  assert.equal(snap.nets.main.usage.last24hSats, 620, 'mainnet usage restored');
+  assert.equal(snap.nets.test.usage.last24hSats, 0, 'and no phantom testnet spend');
+});
+
+test('B1: voiding pending mainnet cards is written to the audit log, with the network', async () => {
+  const s = await setup({ on: true });
+  enableMainnet(s); s.bsv.policy.arm(5);
+  assert.equal(s.bsv.policy.evaluate(mainReq('req-main-0002')).verdict, 'needs_approval');
+  s.bsv.policy.mainnetOff('the owner pressed Disable');
+  const v = auditLines(s.dataDir).find((e) => e.tool === 'policy' && e.decision === 'voided');
+  assert.ok(v); assert.equal(v.fields.net, 'main'); assert.equal(v.fields.count, 1);
+});
+
+test('B4: a policy file tampered with while running switches mainnet OFF before the freeze, and Unfreeze does not bring it back', async () => {
+  const s = await setup({ on: true });
+  enableMainnet(s);
+  assert.equal((await s.call('POST', '/api/bsv/policy/caps', { perTxSats: 800 })).status, 200); // saves the file with the switch on
+  assert.equal(JSON.parse(readFileSync(policyFile(s.dataDir), 'utf8')).mainnetEnabled, true);
+  const edited = JSON.parse(readFileSync(policyFile(s.dataDir), 'utf8')); edited.nets.test.caps.perTxSats = 999;
+  writeFileSync(policyFile(s.dataDir), JSON.stringify(edited));
+  await s.call('GET', '/api/bsv/policy'); // the next read notices
+  assert.equal(s.bsv.policy.isFrozen, true);
+  assert.equal(s.bsv.policy.mainnetEnabled, false, 'off, not just frozen');
+  assert.equal(JSON.parse(readFileSync(policyFile(s.dataDir), 'utf8')).mainnetEnabled, false, 'and the file Legion wrote back says off');
+  const un = await s.call('POST', '/api/bsv/policy/unfreeze', {});
+  assert.equal(un.status, 200); assert.equal(s.bsv.policy.isFrozen, false);
+  assert.equal(s.bsv.policy.mainnetEnabled, false, 'unfreezing does not turn mainnet back on');
+  assert.ok(auditLines(s.dataDir).some((e) => e.decision === 'mainnet-changed' && e.fields.enabled === false));
+});
+
+test('B5: the audit log is a second source for "mainnet is off": a file that still says on loads off after a restart, and is repaired', async () => {
+  const s = await setup({ on: true });
+  enableMainnet(s);
+  await s.call('POST', '/api/bsv/policy/caps', { perTxSats: 800 }); // file says on
+  s.bsv.policy.mainnetOff('a mainnet spend has an unknown outcome'); // memory off, audit line written; nothing registered here saves the file
+  assert.equal(JSON.parse(readFileSync(policyFile(s.dataDir), 'utf8')).mainnetEnabled, true, 'precondition: the file still says on');
+  const s2 = await setup({ dataDir: s.dataDir, on: true });
+  assert.equal(s2.bsv.policy.mainnetEnabled, false, 'the log says off, so it loads off');
+  assert.equal(s2.bsv.policy.isFrozen, false, 'not a tamper: no freeze');
+  assert.equal(JSON.parse(readFileSync(policyFile(s.dataDir), 'utf8')).mainnetEnabled, false, 'the file is repaired');
+  // and a later owner choice is not overridden: on again, logged, restart keeps it
+  enableMainnet(s2); await s2.call('POST', '/api/bsv/policy/caps', { perTxSats: 800 });
+  const s3 = await setup({ dataDir: s.dataDir, on: true });
+  assert.equal(s3.bsv.policy.mainnetEnabled, true, 'the last line says on, so the file is believed');
 });
