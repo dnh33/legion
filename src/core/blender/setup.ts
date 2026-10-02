@@ -173,16 +173,21 @@ export async function testConnection(probe: (host: string, port: number) => Prom
   const open = await probe(cfg.host, cfg.port);
   steps.push(step('socket', open, open ? `Something is listening on ${cfg.host}:${cfg.port}` : `Nothing is listening on ${cfg.host}:${cfg.port}. Open Blender and start the add-on's server (3D View sidebar), or press Launch.`));
   if (!open) return { ok: false, steps };
+  let b: BlenderBackend;
   try {
-    const b = await getBackend();
+    b = await getBackend();
     steps.push(step('connect', true, `Connected through the ${b.kind} backend`));
-    const r = await b.inspect({});
-    steps.push(step('inspect', r.ok, r.ok ? `Read the scene: ${r.text.replace(/\s+/g, ' ').slice(0, 160)}` : `The scene could not be read: ${r.text.slice(0, 200)}`));
-    return { ok: steps.every((s) => s.ok), steps };
   } catch (e) {
     steps.push(step('connect', false, e instanceof Error ? e.message : String(e)));
     return { ok: false, steps };
   }
+  try {
+    const r = await b.inspect({});
+    steps.push(step('inspect', r.ok, r.ok ? `Read the scene: ${r.text.replace(/\s+/g, ' ').slice(0, 160)}` : `The scene could not be read: ${r.text.slice(0, 200)}`));
+  } catch (e) {
+    steps.push(step('inspect', false, `The scene could not be read: ${e instanceof Error ? e.message : String(e)}. The add-on accepted the connection but did not answer; check that its server is running inside Blender.`));
+  }
+  return { ok: steps.every((s) => s.ok), steps };
 }
 
 /** Starts Blender with Legion's fixed start-up expression (community add-on only; the official add-on is started from Blender's sidebar). */

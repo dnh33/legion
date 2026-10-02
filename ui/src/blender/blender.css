@@ -1,0 +1,36 @@
+/* Blender Bridge UI. Uses the app tokens only. Nothing here animates. */
+.pill-warn { color: var(--warn); border-color: rgba(255, 204, 102, .3); } .pill-warn i { background: var(--warn); }
+.blender-card .vm-note b { display: block; }
+.blender-card .bl-actions { display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 0 2px; }
+.blender-card .bl-meta { display: flex; flex-wrap: wrap; gap: 4px 12px; margin-top: 8px; color: var(--faint); font-size: 11.5px; }
+.bl-badge { display: inline-flex; align-items: center; gap: 5px; font-size: 11px; font-weight: 600; letter-spacing: .03em; padding: 1px 8px; border-radius: 10px; border: 1px solid var(--line-strong); color: var(--text-2); text-transform: uppercase; }
+.bl-badge.live { color: var(--danger); border-color: rgba(255, 107, 107, .45); background: var(--danger-soft); }
+.bl-badge.sandbox { color: var(--accent-text); border-color: var(--accent-line); background: var(--accent-soft); }
+
+/* approval card for blender_exec */
+.approval.blender { border-color: rgba(255, 204, 102, .4); animation: none; }
+.approval.blender.is-live { border-color: rgba(255, 107, 107, .55); background: linear-gradient(var(--danger-soft), transparent 70%), var(--surface); }
+.approval.blender .approval-head { flex-wrap: wrap; }
+.bl-facts { display: flex; flex-wrap: wrap; gap: 3px 14px; margin: 8px 0 0; color: var(--muted); font-size: 11.5px; }
+.bl-facts b { color: var(--text-2); font-weight: 600; }
+.bl-purpose { margin: 8px 0 0; color: var(--text-2); font-size: 12.5px; }
+.bl-script { display: flex; margin: 8px 0 8px; background: var(--code-bg); border: 1px solid var(--line); border-radius: var(--r); font-family: var(--font-mono); font-size: 12px; line-height: 1.5; max-height: 340px; overflow: auto; }
+.bl-script pre { margin: 0; padding: 9px 0; font: inherit; }
+/* (specific selectors: `.bl-script pre` would otherwise win over the padding below) */
+.bl-script .bl-gutter { position: sticky; left: 0; flex: none; padding-left: 10px; padding-right: 10px; text-align: right; min-width: 2.2em; color: var(--faint); background: var(--code-bg); border-right: 1px solid var(--line); user-select: none; }
+.bl-script .bl-code { padding-left: 11px; padding-right: 11px; white-space: pre; tab-size: 4; }
+.bl-notes { margin: 0 0 8px; padding: 8px 10px 8px 26px; border: 1px solid rgba(255, 204, 102, .28); background: var(--warn-soft); border-radius: var(--r); color: var(--text-2); font-size: 12px; }
+.bl-live-warn { margin: 8px 0 0; padding: 8px 10px; border: 1px solid rgba(255, 107, 107, .35); background: var(--danger-soft); border-radius: var(--r); color: var(--text-2); font-size: 12px; line-height: 1.45; }
+
+/* settings */
+.bl-steps { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 6px; }
+.bl-steps li { display: flex; gap: 8px; align-items: flex-start; font-size: 12.5px; line-height: 1.45; color: var(--text-2); }
+.bl-steps li .icon { flex: none; margin-top: 2px; }
+.bl-steps li.ok .icon { color: var(--accent-text); } .bl-steps li.bad .icon { color: var(--danger); }
+.bl-steps li b { font-weight: 600; margin-right: 6px; }
+.bl-steps li span { overflow-wrap: anywhere; min-width: 0; }
+.bl-install { margin: 0; padding: 0; list-style: none; font-family: var(--font-mono); font-size: 11.5px; color: var(--muted); display: flex; flex-direction: column; gap: 3px; overflow-wrap: anywhere; }
+.bl-install .sel { color: var(--text-2); }
+.bl-note { padding: 10px 12px; border-radius: var(--r); border: 1px solid var(--line); background: var(--surface-2); color: var(--muted); font-size: 12px; line-height: 1.5; }
+.bl-note.warn { border-color: rgba(255, 204, 102, .3); background: var(--warn-soft); }
+.bl-note b { color: var(--text-2); }

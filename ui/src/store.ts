@@ -6,7 +6,7 @@ import { api, subscribe, ApiError, type ConnStatus } from './api';
 
 export type RelicState = 'idle' | 'listening' | 'thinking' | 'hacking' | 'awaiting' | 'victory' | 'error' | 'sleeping' | 'annoyed';
 
-export type SettingsSection = 'claude' | 'boat' | 'mcp' | 'connections' | 'about';
+export type SettingsSection = 'claude' | 'boat' | 'mcp' | 'blender' | 'connections' | 'about';
 export type TaskSrc = 'tab' | 'recent';
 export interface TaskMenu { x: number; y: number; taskId: string; src: TaskSrc }
 
@@ -209,6 +209,9 @@ export function handleEvent(e: LegionEvent) {
       break;
     case 'comms.state':
       window.dispatchEvent(new CustomEvent('legion:comms', { detail: e }));
+      break;
+    case 'blender.status':
+      window.dispatchEvent(new CustomEvent('legion:blender', { detail: e.status }));
       break;
     case 'mascot':
       setState({ mascot: { mood: e.mood, note: e.note, at: Date.now() } });

@@ -131,11 +131,11 @@ export function createBlenderModule(deps: ModuleDeps, opts: BlenderModuleOptions
     let light: BlenderLight;
     let summary: string;
     if (!c.enabled) { light = 'off'; summary = 'Blender bridge is off.'; }
+    else if (socketOpen && lastError && !connected) { light = 'error'; summary = lastError.slice(0, 200); }
     else if (liveUsable) { light = 'connected'; summary = `Blender is reachable (${choice.kind} backend${selected ? `, Blender ${selected.version}` : ''}).${rd.ready ? ' Sandbox VM ready.' : ''}`; }
     else if (rd.ready && c.sandbox !== 'off') { light = 'sandbox'; summary = selected ? `Sandbox VM ready; live Blender ${selected.version} is not connected.` : 'Sandbox VM ready; no Blender found on this computer.'; }
     else if (!selected) { light = 'not-found'; summary = 'Blender was not found on this computer.'; }
     else if (!choice.kind) { light = 'error'; summary = choice.reason; }
-    else if (socketOpen && lastError) { light = 'error'; summary = lastError.slice(0, 200); }
     else if (!setupDone) { light = 'needs-setup'; summary = `Blender ${selected.version} found. Press Set up to install the add-on.`; }
     else { light = 'disconnected'; summary = `Blender ${selected.version} found, but its add-on is not listening on port ${c.port}. Open Blender or press Launch.`; }
     return {

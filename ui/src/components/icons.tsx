@@ -23,6 +23,7 @@ const P: Record<string, string> = {
   pulse: 'M3 12h4l2-6 4 12 2-6h6',
   monitor: 'M3 5h18v11H3zM8 20h8M12 16v4',
   terminal: 'M4 5h16v14H4zM8 10l3 2-3 2M13 15h3',
+  cube: 'M12 3l8 4.5v9L12 21l-8-4.5v-9zM4 7.5l8 4.5 8-4.5M12 12v9',
   shield: 'M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z',
 };
 export function Icon({ name, size = 16 }: { name: keyof typeof P | string; size?: number }) {

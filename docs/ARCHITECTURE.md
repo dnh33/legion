@@ -298,6 +298,10 @@ Port changes are not editable here.
 
 `authToken` is never returned or editable. Secrets appear only as `apiKeySet` plus a hint of the last 4 chars.
 
+## Blender Bridge
+
+`src/core/blender/` is a core module (`createBlenderModule`, registered in `legion-core.ts`; off by default). It gives only the Sculptor the in-process server `legion_blender` (`blender_exec`, `_inspect`, `_screenshot`, `_docs`, `_status`) and adds the raw Blender MCP server names to every agent's `disallowedTools` through the new `CoreModule.disallowedTools(agent)` seam (the engine merges it into every run). `blender_exec` runs a static check, awaits an approval card inside the tool (it does not rely on `canUseTool`, so a bypass-mode bot still stops; `isLegionTool` includes `mcp__legion_blender__` so there is no second prompt), saves a `.blend` backup before the first live script of a task, forwards to a `BlenderBackend` (community JSON socket or official MCP stdio) or to the Sculptor's boat.dev VM (headless Blender, exports copied back into the workspace), and appends to a hash-chained audit log; output is untrusted text and marks the run tainted. Routes `GET /api/blender`, `POST /api/blender/{config,setup,test,launch}` are admin-only by the default-deny gate, and `blender.status` events are admin-only on the stream. The settings key is `blender` in `config.json`, rewritten alone like `bsv`. All downloads and processes go through `setup.ts`'s `BlenderIo` (real implementation in `system.ts`, on the BSV tripwire allowlist). See [BLENDER.md](BLENDER.md).
+
 ## Roster
 
 `src/core/roster.ts` exports `ROSTER`, ten premade bots seeded by `Store.seedDefaults` after the three frozen defaults (zealot, builder and scout are never changed there). Seeding skips any id that already exists, so existing installs gain the new bots on next start and edited agents are never touched. Every roster prompt is the bot's own role, hard limits and output shape, followed by the shared working rules (think first, minimum change, touch only what was asked, verifiable goal, answer first, facts apart from guesses) and two lines on the `mcp__legion_comms__*` tools.
