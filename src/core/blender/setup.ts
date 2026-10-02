@@ -119,6 +119,30 @@ export function parseLocalRepoId(out: string): string | undefined {
 }
 
 /**
+ * Reads `extension list` back: is `id` listed at exactly `version`, and enabled? The entry is the line that STARTS with the id (after an optional bullet or quote), together with the
+ * version as a whole token (1.0.30 or 11.0.3 are not 1.0.3), plus the indented lines under it; `enabled` must appear there and `disabled` / `not enabled` must not.
+ * Another extension that happens to share a version string, or the word `mcp` somewhere else, does not count. UNVERIFIED format (needs the PC): the exact
+ * layout of a real Blender's list is not known, so a layout without an enabled marker fails the step (closed) and the owner installs by hand.
+ */
+export function extensionListed(out: string, id: string, version: string): { listed: boolean; enabled: boolean } {
+  const esc = (t: string): string => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const idRe = new RegExp(`^\\s*[-*]?\\s*["']?${esc(id)}["']?(?=[\\s:(\\[,]|$)`);
+  const verRe = new RegExp(`(^|[^0-9.])v?${esc(version)}([^0-9.]|$)`);
+  const lines = out.split(/\r?\n/);
+  const indent = (l: string): number => l.length - l.trimStart().length;
+  let listed = false;
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i]!;
+    if (!idRe.test(line) || !verRe.test(line)) continue;
+    listed = true;
+    let text = line;
+    for (let j = i + 1; j < lines.length && lines[j]!.trim() && indent(lines[j]!) > indent(line); j++) text += `\n${lines[j]}`;
+    if (/(^|[^A-Za-z])enabled([^A-Za-z]|$)/i.test(text) && !/(disabled|not enabled)/i.test(text)) return { listed: true, enabled: true };
+  }
+  return { listed, enabled: false };
+}
+
+/**
  * The official add-on is a Blender EXTENSION (blender_manifest.toml), not a legacy add-on: build the zip, make sure a local repo exists, install the
  * zip into it and enabled, then read `extension list` back. Every command is `blender --factory-startup --command extension ...` (global flags
  * before --command, which takes the rest of the arguments) and no shell. The first failure stops the rest. Argument names are from Blender's manual;
@@ -156,8 +180,8 @@ async function installExtension(io: BlenderIo, install: BlenderInstall, root: st
   steps.push(step('ext-install', true, `Installed ${id} ${version} into "${repo}" and asked Blender to enable it.`));
 
   const v = await ext(['list'], 60_000);
-  const listed = !!v && v.code === 0 && new RegExp(`(^|[^A-Za-z0-9_])${id.replace(/[^A-Za-z0-9_]/g, '')}([^A-Za-z0-9_]|$)`, 'm').test(v.stdout) && v.stdout.includes(version);
-  if (!listed) return fail('verify', `The extension list does not show ${id} ${version} after the install${v ? `: ${tailOf(v, 3) || 'no output'}` : ''}.`);
+  const seen = v && v.code === 0 ? extensionListed(v.stdout, id, version) : { listed: false, enabled: false };
+  if (!seen.enabled) return fail('verify', `The extension list ${seen.listed ? `shows ${id} ${version} but not as enabled` : `does not show ${id} ${version}`} after the install${v ? `: ${tailOf(v, 3) || 'no output'}` : ''}.`);
   steps.push(step('verify', true, `Blender lists ${id} ${version}. Its module name is bl_ext.${repo}.${id}. Start the add-on's server from its sidebar panel in Blender, then press Test. Not yet tried on a real Blender 5.1 or later: check it there.`));
   return { steps, ok: true };
 }

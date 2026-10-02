@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import test from 'node:test';
 import { defaultBlenderConfig } from '../src/shared/blender.js';
 import type { BlenderInstall } from '../src/shared/blender.js';
-import { addonInstallPy, checkHash, launchBlender, moduleNameFor, pyExprForFile, setupLive, testConnection } from '../src/core/blender/setup.js';
+import { addonInstallPy, extensionListed, checkHash, launchBlender, moduleNameFor, pyExprForFile, setupLive, testConnection } from '../src/core/blender/setup.js';
 import type { BlenderIo } from '../src/core/blender/setup.js';
 import { isPublicHttpsUrl } from '../src/core/blender/system.js';
 import { FakeBackend } from './blender-helpers.js';
@@ -347,7 +347,7 @@ function extIo(over: Partial<{ buildCode: number; noZip: boolean; repoList: stri
       if (sub === 'repo-list') return { code: 0, stdout: over.repoList ?? 'user_default:\n  name: "User Default"\n  directory: "/home/u/ext"\n', stderr: '' };
       if (sub === 'repo-add') return { code: over.repoAddCode ?? 0, stdout: '', stderr: '' };
       if (sub === 'install-file') return { code: over.installCode ?? 0, stdout: 'installed', stderr: '' };
-      if (sub === 'list') return { code: 0, stdout: over.list ?? 'user_default:\n  mcp: Blender MCP (1.0.3)\n', stderr: '' };
+      if (sub === 'list') return { code: 0, stdout: over.list ?? 'user_default:\n  mcp: Blender MCP (1.0.3) [enabled]\n', stderr: '' };
       return { code: 1, stdout: '', stderr: 'unknown' };
     },
   };
@@ -377,7 +377,7 @@ test('extension install: exact argv per step, in order; step names; recorded onl
 });
 
 test('extension install: no local repo -> repo-add with the Legion repo, then install into it', async () => {
-  const { io, calls } = extIo({ repoList: 'blender_org:\n  name: "Blender"\n  remote_url: "https://extensions.blender.org/api/v1/extensions/"\n', list: 'legion_local:\n  mcp (1.0.3)\n' });
+  const { io, calls } = extIo({ repoList: 'blender_org:\n  name: "Blender"\n  remote_url: "https://extensions.blender.org/api/v1/extensions/"\n', list: 'legion_local:\n  mcp (1.0.3) enabled\n' });
   const r = await setupLive(io, defaultBlenderConfig(), '/data', install(), 'official');
   assert.equal(r.ok, true, JSON.stringify(r.steps));
   const subs = extCalls(calls).map((c) => c.args[3]);
@@ -432,4 +432,27 @@ test('official add-on without a manifest still takes the legacy path', async () 
   assert.equal(r.ok, true, JSON.stringify(r.steps));
   assert.ok(r.steps.some((s) => s.step === 'addon') && !r.steps.some((s) => s.step.startsWith('ext-')));
   assert.ok(!extCalls(calls).some((c) => c.args.includes('--command')));
+});
+
+test('M5: the extension verify step needs THIS extension at THIS version AND enabled (pure parser)', () => {
+  const ok = (out: string) => extensionListed(out, 'mcp', '1.0.3');
+  assert.deepEqual(ok('user_default:\n  mcp: Blender MCP (1.0.3) [enabled]\n'), { listed: true, enabled: true });
+  assert.deepEqual(ok('user_default:\n  mcp (1.0.3)\n    status: enabled\n'), { listed: true, enabled: true }, 'the state may sit on an indented line under the entry');
+  assert.deepEqual(ok('user_default:\n  mcp (1.0.3) [disabled]\n'), { listed: true, enabled: false });
+  assert.deepEqual(ok('user_default:\n  mcp (1.0.3) not enabled\n'), { listed: true, enabled: false });
+  assert.equal(ok('user_default:\n  other (1.0.3) [enabled]\n').enabled, false, 'another extension with the same version string does not count');
+  assert.equal(ok('user_default:\n  other (9.9) [enabled]\n  mcp-helper (2.0)\n  note: the mcp protocol 1.0.3 is enabled\n').enabled, false, 'the word mcp elsewhere does not count');
+  assert.equal(ok('user_default:\n  mcp (1.0.30) [enabled]\n').enabled, false, 'a longer version is not this version');
+  assert.equal(ok('user_default:\n  mcp (11.0.3) [enabled]\n').enabled, false);
+  assert.equal(ok('user_default:\n  other (1.0.3)\n    status: enabled\n  mcp (2.0.0)\n').enabled, false, 'the enabled line of the neighbour is not ours');
+});
+
+test('M5: setup fails (and records nothing) when the list shows the extension only as disabled, or enabled at another version', async () => {
+  for (const list of ['user_default:\n  mcp: Blender MCP (1.0.3) [disabled]\n', 'user_default:\n  mcp: Blender MCP (1.0.2) [enabled]\n', 'user_default:\n  other (1.0.3) [enabled]\n']) {
+    const r = await setupLive(extIo({ list }).io, defaultBlenderConfig(), '/data', install(), 'official');
+    assert.equal(r.ok, false, list);
+    assert.equal(r.steps.at(-1)!.step, 'verify');
+    assert.equal(r.addonInstalled, false);
+  }
+  assert.match((await setupLive(extIo({ list: 'user_default:\n  mcp (1.0.3) [disabled]\n' }).io, defaultBlenderConfig(), '/data', install(), 'official')).steps.at(-1)!.detail, /not as enabled/);
 });
