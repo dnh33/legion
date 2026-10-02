@@ -433,7 +433,7 @@ if os.environ.get('DUMP'): np.savez(os.path.join(os.environ['DUMP'], 'buses.npz'
 mix = np.stack([hp(mix[c], 38, 3) for c in range(2)])
 
 # arc trim (dB per section, linear-interpolated at section midpoints) set from measurements
-TRIM = {'cold': 0, 'awaken': 0, 'muster': 0.5, 'approvals': 2.2, 'rooms': 2.0, 'library': 1.5, 'projects': 0.8,
+TRIM = {'cold': 0, 'awaken': -1.5, 'muster': 0.5, 'approvals': 2.2, 'rooms': 2.0, 'library': 1.5, 'projects': 0.8,
         'vm': 0, 'bsv': 0, 'blender': 0, 'install': 0, 'next': 3.5, 'end': 0}
 TRIM.update(json.loads(os.environ.get('TRIM', '{}')))
 xs = [(x['start'] + x['end']) / 2 for x in CUES['sections']]

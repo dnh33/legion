@@ -97,19 +97,141 @@ async function main() {
   ok(await s.call('POST', '/api/kg/edges', { from: 'p-auth', to: 'p-map', rel: 'part_of' }), 'pedge');
   ok(await s.call('POST', '/api/kg/edges', { from: 'p-auth', to: 'n-retry', rel: 'relates' }), 'pedge2');
 
-  if (on('explore')) {
+  // room wake-up tasks are noise in the Recent tasks list; archive them (they stay in the rooms)
+  const archiveRoomTasks = async (st) => { for (const t of (await st.call('GET', '/api/state')).json.tasks) if (/^You are /.test(t.title ?? '')) await st.call('PATCH', `/api/tasks/${t.id}`, { archived: true }); };
+  await archiveRoomTasks(s);
+
+  // ---- 3 + 2: lattice, inbox
+  if (on('library-lattice') || on('library-inbox') || on('library-project-note')) {
     const { ctx, page, errors } = await openPage(s);
     await page.getByRole('tab', { name: /^Library/ }).click(); await sleep(1500);
-    await page.getByRole('tab', { name: /^Inbox/ }).click(); await sleep(900);
-    await shot(page, '_explore-inbox');
-    await page.getByRole('tab', { name: 'Rooms' }).click(); await sleep(1200);
-    await shot(page, '_explore-rooms');
-    await page.getByRole('tab', { name: 'Chat' }).click(); await sleep(400);
-    await page.locator('select').first().selectOption({ index: 1 }); await sleep(800);
-    await shot(page, '_explore-projsel');
+    if (on('library-lattice')) {
+      await page.getByText('Retry only idempotent calls', { exact: true }).first().click();
+      await sleep(1500);
+      await page.mouse.move(1000, 520); await sleep(500);
+      await page.screenshot({ path: join(out, 'library-lattice.png') }); console.log('wrote library-lattice.png');
+    }
+    if (on('library-inbox')) {
+      await page.getByRole('tab', { name: /^Inbox/ }).click(); await sleep(900);
+      await shot(page, 'library-inbox');
+      await page.getByRole('tab', { name: 'Lattice' }).click(); await sleep(600);
+    }
+    if (on('library-project-note')) {
+      await page.getByPlaceholder('Search the Lattice').fill('Sessions last'); await sleep(1200);
+      await shot(page, '_explore-pnote-search');
+      await page.getByText('Sessions last 8 hours on shared computers').first().click(); await sleep(1500);
+      await shot(page, 'library-project-note');
+    }
     console.log('errors', errors);
     await ctx.close();
   }
+
+  // ---- 5 rooms
+  if (on('rooms')) {
+    const { ctx, page, errors } = await openPage(s);
+    await page.getByRole('tab', { name: 'Rooms' }).click(); await sleep(1000);
+    await page.getByText('Launch review', { exact: true }).first().click(); await sleep(1200);
+    await shot(page, 'rooms');
+    console.log('errors', errors);
+    await ctx.close();
+  }
+
+  // ---- 6 projects
+  if (on('projects')) {
+    const { ctx, page, errors } = await openPage(s);
+    await page.locator('select').first().selectOption({ label: 'Harbor web app' }); await sleep(800);
+    await page.getByText('Project page', { exact: true }).click(); await sleep(1200);
+    await shot(page, 'projects');
+    console.log('errors', errors);
+    await ctx.close();
+  }
+
+  // ---- 11, 12 settings (before the Blender bridge is turned on)
+  if (on('update-panel') || on('settings-connections')) {
+    const { ctx, page, errors } = await openPage(s);
+    await page.locator('button[aria-label="Settings"]').click(); await sleep(900);
+    if (on('settings-connections')) {
+      await page.locator('.set-nav').getByText('Connections', { exact: true }).click(); await sleep(900);
+      await shot(page, 'settings-connections');
+    }
+    if (on('update-panel')) {
+      await page.locator('.set-nav').getByText('About', { exact: true }).click(); await sleep(1500);
+      await shot(page, 'update-panel');
+    }
+    console.log('errors', errors);
+    await ctx.close();
+  }
+
+  // ---- 10 blender get card, 9 blender chooser
+  if (on('blender-get') || on('blender-chooser')) {
+    ok(await s.call('POST', '/api/blender/config', { enabled: true, installPath: s.blenderPath }), 'blender on');
+    if (on('blender-get')) {
+      const { ctx, page, errors } = await openPage(s);
+      await page.locator('button[aria-label="Settings"]').click(); await sleep(900);
+      await page.locator('.set-nav').getByText('Blender', { exact: true }).click(); await sleep(1500);
+      await page.locator('.bl-get').scrollIntoViewIfNeeded(); await sleep(500);
+      await shot(page, 'blender-get');
+      console.log('errors', errors);
+      await ctx.close();
+    }
+    if (on('blender-chooser')) {
+      const script = 'import bpy\n\n# Clear the default scene and add a simple lamp post.\nbpy.ops.object.select_all(action="SELECT")\nbpy.ops.object.delete()\nbpy.ops.mesh.primitive_cylinder_add(radius=0.05, depth=3, location=(0, 0, 1.5))\nbpy.ops.object.light_add(type="POINT", location=(0, 0, 3.1))\nbpy.context.object.data.energy = 800\n';
+      const t = await runTask(s, 'sculptor', 'Build a small lamp post', [{ say: 'I will add a pole and a point light.' }, { tool: 'mcp__legion_blender__blender_exec', input: { script, purpose: 'Add a lamp post: a thin pole with a point light on top.' } }, { result: 'done' }], { wait: false });
+      await s.until(async () => ((await s.call('GET', '/api/approvals')).json ?? []).length > 0, 15000, 'blender card');
+      const { ctx, page, errors } = await openPage(s);
+      await page.getByText('Sculptor', { exact: true }).first().click(); await sleep(600);
+      await page.getByText('Build a small lamp post').first().click(); await sleep(1500);
+      await shot(page, 'blender-chooser');
+      console.log('errors', errors);
+      await ctx.close();
+      for (const a of (await s.call('GET', '/api/approvals')).json ?? []) await s.call('POST', `/api/approvals/${a.id}`, { allow: false });
+      await s.until(async () => { const x = (await s.call('GET', `/api/tasks/${t.id}`)).json?.task; return x && ['done', 'error', 'cancelled'].includes(x.status); }, 15000, 'sculptor end');
+    }
+  }
+
+  // ---- 1 app-approval (last in this stack: leaves a pending card)
+  if (on('app-approval')) await approvalShot(s, 'app-approval');
 }
 
-try { await main(); } catch (e) { console.error('FAILED:', e.stack || e); process.exitCode = 1; } finally { await cleanup(); }
+/** A task thread with tool chips and a PENDING approval card from an `ask` agent; the VM is started so the Computer panel has a state to show. */
+async function approvalShot(s, name) {
+  await s.call('POST', '/api/vms/forgemaster/start').catch(() => undefined);
+  const prompt = 'Run the tests and fix whatever fails';
+  const t = await runTask(s, 'forgemaster', prompt, [
+    { say: 'I will look at the test setup first, then run the suite.' },
+    { tool: 'Read', input: { file_path: 'package.json' } },
+    { tool: 'Grep', input: { pattern: 'describe\\(', path: 'test' } },
+    { say: 'Two test files, both use the same helper. Running the suite now.' },
+    { tool: 'Bash', input: { command: 'npm test -- --reporter=dot' }, as: 'b' },
+    { result: 'The suite ran. All tests pass.', costUsd: 0.05 }], { wait: false });
+  await s.until(async () => ((await s.call('GET', '/api/approvals')).json ?? []).length > 0, 15000, 'approval card');
+  const { ctx, page, errors } = await openPage(s);
+  await page.getByText('Forgemaster', { exact: true }).first().click(); await sleep(700);
+  await page.getByText(prompt).first().click().catch(() => undefined); await sleep(1800);
+  await shot(page, name);
+  console.log('errors', errors);
+  await ctx.close();
+  for (const a of (await s.call('GET', '/api/approvals')).json ?? []) await s.call('POST', `/api/approvals/${a.id}`, { allow: false });
+  await s.until(async () => { const x = (await s.call('GET', `/api/tasks/${t.id}`)).json?.task; return x && ['done', 'error', 'cancelled'].includes(x.status); }, 15000, 'task end');
+}
+
+/** Second stack: BSV mode on with the fake wallet. */
+async function bsvStack() {
+  if (!(on('bsv-status') || on('bsv-spend') || on('app-approval-13bots'))) return;
+  const s = stack = await startStack();
+  ok(await s.call('POST', '/api/bsv', { enabled: true }), 'bsv on');
+  ok(await s.call('POST', '/api/bsv/wallet/connect', { url: s.wallet.url }, 'native'), 'wallet connect (fake wallet)');
+  if (on('bsv-status') || on('bsv-spend')) {
+    const { ctx, page, errors } = await openPage(s);
+    await page.getByRole('button', { name: 'Open the BSV panel' }).click(); await sleep(2000);
+    await shot(page, '_explore-bsv');
+    console.log('errors', errors);
+    await ctx.close();
+  }
+  if (on('app-approval-13bots')) await approvalShot(s, 'app-approval-13bots');
+  await s.stop(); stack = null;
+}
+
+async function mainAll() { await main(); await stack?.stop(); stack = null; await bsvStack(); }
+
+try { await mainAll(); } catch (e) { console.error('FAILED:', e.stack || e); process.exitCode = 1; } finally { await cleanup(); }
