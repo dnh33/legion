@@ -50,6 +50,7 @@ First run has no Claude sign-in yet if the owner's `~/.claude` has none: the exi
 Create one agent task with a trivial prompt ("say hello") and let it finish. While it runs: `Get-CimInstance Win32_Process | ? Name -eq 'claude.exe' | select ExecutablePath` shows the **bundled** `...\Legion Test\node_modules\@anthropic-ai\claude-agent-sdk-win32-x64\claude.exe`. Write down whether it needed a sign-in and how that looked. If there is no sign-in: run `"D:\bots\legion-pkg-test\Legion Test\scripts\legion-claude.cmd"` and let the owner type `/login` (the orchestrator does not log in for them).
 
 ## PB7 MCP stdio proxy on the package's own Node
+Also try the Claude Desktop config entry in BOTH forms (the electron command with an `env` object, and `scripts\legion-mcp.cmd` as the command) on a copy of the config, and write down which one Claude Desktop accepts (the `env` support is unconfirmed, see plan section 13).
 With the env vars of PB5 set, app running:
 ```
 '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"pc-check","version":"0"}}}' | & 'D:\bots\legion-pkg-test\Legion Test\scripts\legion-mcp.cmd'

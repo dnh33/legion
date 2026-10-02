@@ -92,3 +92,20 @@ Two assets, one format (full and update zips share bytes). Hash for route A is t
 ## 12. Only the real Windows run proves
 
 `npm ci` really picks `claude-agent-sdk-win32-x64`, and its `claude.exe` matches the SDK manifest; Electron's dist copy runs; `electron.exe` in node mode runs the core, the stdio proxy and the apply helper; the real size and zip time; `Expand-ZipSafe` on 700 MB under Windows PowerShell 5.1; shortcuts; the swap with real file locks and Defender; SmartScreen and web-mark behaviour of copied files; quarantine messages; uninstall of a 700 MB tree; the doctor card and `legion-claude.cmd /login`. Steps: `claude/tracker-pc-checks-prebuilt.md`.
+
+## 13. Documented fact / assumption / unknown (looked up 2026-10-02)
+
+| Item | Status | Source or the check that settles it |
+|---|---|---|
+| `ELECTRON_RUN_AS_NODE` starts Electron as a plain Node process and takes Node CLI options (`-e` is not on the excluded list shown) | Documented | https://github.com/electron/electron/blob/main/docs/api/environment-variables.md (section `ELECTRON_RUN_AS_NODE`) |
+| The variable is ignored when the `runAsNode` fuse is off; default is **Enabled** | Documented | https://github.com/electron/electron/blob/main/docs/tutorial/fuses.md. The stock `electron.exe` from the npm `electron` package is not re-fused by Legion, but whether that exact binary ships with the default: **assumption**, settled by PB5 (`electron.exe -e` prints, no node.exe in the process list) and by the smoke test in `package-install.mjs` |
+| GitHub release assets redirect from `github.com` to `release-assets.githubusercontent.com` | Documented by observation (HEAD request on an Electron release asset returned 302 to that host); `objects.githubusercontent.com` is the older host, kept on the allowlist | request made 2026-10-02; PB10 repeats it for Legion's own release |
+| Electron 44.5.1 win32-x64 zip is 157,998,329 bytes | Measured (Content-Length of the GitHub release asset) | HEAD request, 2026-10-02 |
+| Agent SDK 0.3.285 resolves `@anthropic-ai/claude-agent-sdk-<platform>-<arch>/claude[.exe]` from `node_modules`; its `manifest.json` lists `win32-x64` as `claude.exe`, size 243751072, sha256 `121fc815...697e` | Read from the installed package (`core.mjs`, `manifest.json`); win32-x64 tarball unpacked size 243,751,648 from the npm registry | build checks it on every run; PB1 proves it on a real Windows install |
+| `npm ci` on Windows x64 installs only the win32-x64 optional SDK build | Assumption (npm optional-dependency `os`/`cpu` fields, present in the lock) | PB1 (the build fails by name if the file is missing) |
+| Electron's dist has no native add-ons the app needs beyond itself; production tree has no `.node` files | Measured on the Linux install of the production tree (none found) | PB1 |
+| Claude Desktop / Cowork accept an `env` object in an `mcpServers` entry | **Unknown**: modelcontextprotocol.io is blocked from this sandbox (HTTP 403), so I could not quote it. The wrapper `scripts\legion-mcp.cmd` (sets the variable itself) is the fallback and needs no `env` support | TODO OWNER PC: PB7 with a real Claude Desktop config using either form |
+| Whether Explorer's unzip / `Expand-Archive` and file copy keep the web mark (`Zone.Identifier`) on `electron.exe` | **Unknown** | PB3 (reads `Get-Item -Stream *`) |
+| Whether `claude.exe --version` runs without network or login | Assumption | PB3 smoke test; if it fails the install rolls back with a named file, so the failure is loud |
+| Defender behaviour on the 244 MB `claude.exe` and on `electron.exe` | **Unknown** | PB9 |
+| PowerShell 5.1 behaviour of `Expand-ZipSafe` on a 700 MB zip, and `ProcessStartInfo.EnvironmentVariables` | Tested only under PowerShell 7.4.6 on Linux here | PB3 through `setup.cmd` (Windows PowerShell 5.1) |
