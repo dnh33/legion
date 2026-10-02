@@ -4,6 +4,10 @@ All notable changes are recorded here. The format follows [Keep a Changelog](htt
 
 ## [Unreleased]
 
+### Blender
+
+- **Added: a Blender chip in the title bar**, next to the BSV chip: a status light with a short label taken only from real status ("Blender: unknown" when the status is unknown or failed), a switch for `blender.enabled` that uses the same function as the Settings switch, and a link to Settings, Blender ("Get Blender" when none is found; it does not download). No chip with an older core that has no Blender module. Not yet looked at in the real app (B17 in `claude/tracker-pc-checks.md`).
+
 ### BSV
 
 - **Added: `bsv_spend_request`, a spend tool for the Assayer, on testnet AND mainnet; mainnet is built and OFF by default.** One payment to one address per request. The wallet builds an unsigned transaction, Legion decodes it itself, the policy engine checks the decoded numbers, you read native dialogs, and only then is the wallet asked to sign; the wallet's own prompt is the last gate. Legion's own code holds no key and never retries a signing call. See [docs/BSV-MODE.md](docs/BSV-MODE.md), section Spend. **Tested against fake wallets only; not verified against a real wallet or with real funds** until the owner's checks (V1 to V12, R0 to R11, ND1 to ND11 in `claude/tracker-pc-checks.md`) are recorded.
