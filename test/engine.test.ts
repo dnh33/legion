@@ -398,6 +398,19 @@ test('modules: mcp servers and preamble are merged into the run options', async 
   assert.match(o.systemPrompt.append, /COMMS PREAMBLE/);
 });
 
+test('modules: disallowedTools are added in every permission mode; a throwing module adds nothing', async () => {
+  const s = setup(() => happy(), { agent: { approval: 'full' } });
+  s.engine.setModules([
+    { id: 'm', disallowedTools: (a) => (a.id === 'a1' ? ['mcp__blender'] : ['other']) },
+    { id: 'broken', disallowedTools: () => { throw new Error('boom'); } },
+  ]);
+  const t = s.engine.startTask({ agentId: 'a1', prompt: 'hi', source: 'ui' });
+  await s.engine.waitFor(t.id, 3000);
+  const o = s.calls[0]!.options;
+  assert.equal(o.permissionMode, 'bypassPermissions');
+  assert.deepEqual(o.disallowedTools, ['SendMessage', 'ListAgents', 'mcp__blender']);
+});
+
 test('bot-origin task: a full-approval agent is never run in bypass mode when the sender is stricter', async () => {
   const s = setup(() => happy(), { agent: { approval: 'full' } });
   const origin = { roomId: 'room_1', fromAgentId: 'scout', hop: 1, approvalCeiling: 'ask' as const };

@@ -163,16 +163,18 @@ export class VmManager {
     try { return await this.requireBoat().exec(rec.sandboxId!, command, opts); } catch (e) { throw this.wrap(e); } finally { this.touch(agentId); }
   }
 
-  async readFile(agentId: string, path: string): Promise<string> {
+  /** `encoding: 'base64'` returns the file base64-encoded (binary exports); the default is UTF-8 text. */
+  async readFile(agentId: string, path: string, encoding: 'utf8' | 'base64' = 'utf8'): Promise<string> {
     const rec = await this.ensureRunning(agentId);
     this.touch(agentId);
-    try { return await this.requireBoat().readFile(rec.sandboxId!, path); } catch (e) { throw this.wrap(e); } finally { this.touch(agentId); }
+    try { return await this.requireBoat().readFile(rec.sandboxId!, path, encoding); } catch (e) { throw this.wrap(e); } finally { this.touch(agentId); }
   }
 
-  async writeFile(agentId: string, path: string, content: string): Promise<void> {
+  /** `encoding: 'base64'` means `content` is base64 text for a binary file; the default is UTF-8 text. */
+  async writeFile(agentId: string, path: string, content: string, encoding: 'utf8' | 'base64' = 'utf8'): Promise<void> {
     const rec = await this.ensureRunning(agentId);
     this.touch(agentId);
-    try { await this.requireBoat().writeFile(rec.sandboxId!, path, content); } catch (e) { throw this.wrap(e); } finally { this.touch(agentId); }
+    try { await this.requireBoat().writeFile(rec.sandboxId!, path, content, encoding); } catch (e) { throw this.wrap(e); } finally { this.touch(agentId); }
   }
 
   /** Run a whole task with Claude Code inside the VM; returns final text. */

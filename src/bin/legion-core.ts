@@ -11,6 +11,7 @@ import { makeBoatGetter, SettingsService } from '../core/settings.js';
 import { runDoctor } from '../core/doctor.js';
 import { Engine } from '../core/engine.js';
 import { createServer } from '../core/server.js';
+import { createBlenderModule } from '../core/blender/index.js';
 import { createBsvModule, createBsvState } from '../core/bsv/index.js';
 import { createCommsModule } from '../core/comms/index.js';
 import { createKnowledgeModule } from '../core/kg/index.js';
@@ -63,7 +64,8 @@ async function main() {
   const kg = createKnowledgeModule(moduleDeps);
   // (creating the BSV module also tells the engine's agent bridge to hide agents that are switched off)
   const bsv = createBsvModule(moduleDeps, { state: bsvState, kg, log, nativeSecret });
-  const modules = [kg, createCommsModule(moduleDeps), bsv];
+  const blender = createBlenderModule(moduleDeps, { vms, boatConfigured, log });
+  const modules = [kg, createCommsModule(moduleDeps), bsv, blender];
   engine.setModules(modules);
   const server = createServer({
     config, store, bus, engine, vms, approvals, boatConfigured, modules, bsvEnabled,

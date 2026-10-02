@@ -48,6 +48,12 @@ export interface CoreModule {
    * `job` is absent only when a caller builds servers outside a run (tests, tooling).
    */
   mcpServers?(agent: AgentProfile, job?: ModuleJob): Record<string, McpServerConfig>;
+  /**
+   * Tool names (or whole-server names like "mcp__blender") the engine must forbid for this agent in every permission mode.
+   * A module uses it to keep a backend's raw tools out of reach when the backend could also be reached through the user's own
+   * Claude Code settings. The engine adds these to disallowedTools; a throwing module adds nothing.
+   */
+  disallowedTools?(agent: AgentProfile): string[];
   /** Extra system-prompt text for this agent (appended after the Legion preamble). `ctx` is absent outside a run. */
   preamble?(agent: AgentProfile, ctx?: PreambleContext): string;
   /** Fired synchronously for every tool_use the engine sees in a run (once per tool_use id), before the tool's result. */

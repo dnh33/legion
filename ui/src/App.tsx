@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { initBlender } from './blender/blenderStore';
 import { initBsv } from './bsv/bsvStore';
 import { ChainOverlay } from './bsv/ChainOverlay';
 import { AgentEditor } from './components/AgentEditor';
@@ -61,7 +62,7 @@ export function App() {
   const opsMounted = useOpsMounted(opsOpen);
   useWindowAway();
 
-  useEffect(() => { init(); initRooms(); initBsv(); initLibrary(); }, []);
+  useEffect(() => { init(); initRooms(); initBsv(); initBlender(); initLibrary(); }, []);
   useEffect(() => {
     const h = (e: KeyboardEvent) => {
       const mod = e.ctrlKey || e.metaKey;

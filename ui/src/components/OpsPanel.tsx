@@ -6,6 +6,7 @@ import { forceMascot, forceMascotVm, openTaskMenu, reopenTask, selectTask, setSh
 import { modelLabel } from '../models';
 import { RenameInput } from './TaskSwitcher';
 import { cleanTitle, money, relTime, taskTitle } from '../util';
+import { BlenderCard } from '../blender/BlenderCard';
 import { ComputerCard } from './ComputerCard';
 
 const LAB_STATES: RelicState[] = ['idle', 'listening', 'thinking', 'hacking', 'awaiting', 'victory', 'error', 'sleeping', 'annoyed'];
@@ -56,6 +57,7 @@ export function OpsPanel() {
           {lab && <Lab />}
         </div>
         <ComputerCard />
+        <BlenderCard />
         <section className={`card recent-card${recent.length === 0 ? ' solo' : ''}`}>
           <div className="card-head"><h4>Recent tasks</h4>{recent.length > 0 && <span className="count">{recent.length}</span>}<button type="button" className="show-closed" onClick={() => void setShowClosed(!showClosed)} aria-pressed={showClosed}>{showClosed ? 'Hide closed' : 'Show closed'}</button></div>
           {recent.length === 0 && <div className="card-empty"><p>Tasks show up here as agents work.</p></div>}

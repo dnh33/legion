@@ -508,6 +508,14 @@ export class Engine {
     return out;
   }
 
+  private moduleDisallowed(agent: AgentProfile): string[] {
+    const out: string[] = [];
+    for (const m of this.modules) {
+      try { out.push(...(m.disallowedTools?.(agent) ?? [])); } catch { /* ignore */ }
+    }
+    return out;
+  }
+
   private modulePreamble(agent: AgentProfile, ctx: PreambleContext): string {
     let out = '';
     for (const m of this.modules) {
@@ -571,7 +579,7 @@ export class Engine {
       },
       settingSources: this.config.claude.inheritClaudeCodeSettings ? ['user', 'project', 'local'] : [],
       mcpServers: this.buildMcpServers(agent, job, act),
-      disallowedTools: ['SendMessage', 'ListAgents'],
+      disallowedTools: ['SendMessage', 'ListAgents', ...this.moduleDisallowed(agent)],
       maxTurns: this.config.claude.maxTurns,
       includePartialMessages: true,
       abortController: act.ac,

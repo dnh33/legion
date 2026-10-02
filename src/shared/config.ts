@@ -3,6 +3,8 @@ import { randomBytes } from 'node:crypto';
 import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
+import { defaultBlenderConfig, normalizeBlender } from './blender.js';
+import type { BlenderConfig } from './blender.js';
 import type { LegionConfig } from './types.js';
 
 export const VERSION = '0.1.0';
@@ -33,7 +35,7 @@ export interface CommsConfig {
   /** What one turn is assumed to cost in a room with no turn history, for the budget guard that stops BEFORE a wake. Default 0.02. */
   turnCostFloorUsd: number;
 }
-export type CoreConfig = LegionConfig & { bsv: BsvConfig; comms: CommsConfig };
+export type CoreConfig = LegionConfig & { bsv: BsvConfig; comms: CommsConfig; blender: BlenderConfig };
 
 /** The least a room's budget can be (below it one turn cannot fit). The hub, the settings dialogs and the bot-room limits all use it. */
 export const MIN_ROOM_BUDGET_USD = 0.05;
@@ -81,6 +83,7 @@ export function defaultConfig(): CoreConfig {
     mcpServers: {},
     bsv: { enabled: false, network: 'testnet' },
     comms: { ...DEFAULT_COMMS },
+    blender: defaultBlenderConfig(),
   };
 }
 
@@ -118,6 +121,7 @@ export function loadConfig(): CoreConfig {
   }
   cfg.bsv = normalizeBsv(cfg.bsv);
   cfg.comms = normalizeComms(cfg.comms);
+  cfg.blender = normalizeBlender(cfg.blender);
   if (process.env.LEGION_PORT) cfg.port = Number(process.env.LEGION_PORT);
   if (!cfg.boat.apiKey && process.env.BOAT_API_KEY) cfg.boat.apiKey = process.env.BOAT_API_KEY;
   if (cfg.claude.auth === 'api-key' && !cfg.claude.apiKey && process.env.ANTHROPIC_API_KEY) {

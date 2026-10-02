@@ -3,6 +3,7 @@ import '../rooms/rooms.css';
 import { openRoom, useRoomName } from '../rooms/roomsStore';
 import { decide, useStore } from '../store';
 import { shortTool } from '../util';
+import { BlenderBadge, BlenderBody, blenderView, isBlenderExec } from '../blender/BlenderApproval';
 import { Icon } from './icons';
 
 /** "Asked by Zealot in Launch crew, hop 2": shown when a bot woken inside a room needs approval. */
@@ -29,22 +30,26 @@ const cardTool = (name: string): string => (ROOM_REQUEST.test(name) ? 'Room requ
 
 export function ApprovalCard({ a }: { a: ApprovalRequest }) {
   const inRoomView = useStore((s) => s.view === 'rooms');
+  const bl = isBlenderExec(a);
+  const live = bl && blenderView(a).live;
   return (
-    <div className="approval" tabIndex={0} role="group" aria-label={`Approval needed for ${cardTool(a.toolName)}`}
+    <div className={`approval${bl ? ` blender${live ? ' is-live' : ''}` : ''}`} tabIndex={0} role="group" aria-label={`Approval needed for ${cardTool(a.toolName)}`}
       onKeyDown={(e) => {
         if (e.ctrlKey || e.metaKey || e.altKey) return;
-        if (e.key === 'a' || e.key === 'A') { e.preventDefault(); void decide(a.id, true); }
+        // a Blender script is allowed by clicking, after reading it: no one-key approve
+        if (!bl && (e.key === 'a' || e.key === 'A')) { e.preventDefault(); void decide(a.id, true); }
         if (e.key === 'd' || e.key === 'D') { e.preventDefault(); void decide(a.id, false); }
       }}>
       <div className="approval-head">
         <Icon name="shield" size={14} />
         <span>Needs your OK</span>
         <b className="approval-tool">{cardTool(a.toolName)}</b>
+        {bl && <BlenderBadge live={live} />}
       </div>
       {a.origin && <Origin o={a.origin} inRoomView={inRoomView} />}
-      <pre className="approval-sum">{a.summary}</pre>
+      {bl ? <BlenderBody a={a} /> : <pre className="approval-sum">{a.summary}</pre>}
       <div className="approval-actions">
-        <button className="btn primary" onClick={() => void decide(a.id, true)}>Allow <kbd>A</kbd></button>
+        <button className="btn primary" onClick={() => void decide(a.id, true)}>Allow{!bl && <> <kbd>A</kbd></>}</button>
         <button className="btn" onClick={() => void decide(a.id, false)}>Deny <kbd>D</kbd></button>
         <span className="approval-note">Auto-denies after 10 min</span>
       </div>
