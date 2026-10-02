@@ -119,5 +119,5 @@ B17 (both backends at once). Area: Blender both-backends mode. Safety class: dow
 | B17f | Poly Haven switched OFF: `blender_asset_get` is refused before any listing; Sketchfab and Hyper3D show "Not available" in Settings and cannot be switched on | todo |
 
 
-## Browser tool (Lightpanda) - see claude/tracker-pc-checks-browser.md for the full steps (BR1 to BR13)
+## Browser tool (Lightpanda) - see claude/tracker-pc-checks-browser.md for the full steps (BR1 to BR14)
 Safety classes: BR2 downloads; BR3-BR8 none (a harmless public page you control); BR12 native dialog; BR13 none. Nothing in this section was run in the cloud session; do not call the browser tool verified until each is recorded as passed.
