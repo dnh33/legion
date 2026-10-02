@@ -85,7 +85,8 @@ Projects already scope Library notes (`agent:project.<id>`): the owner and runs 
 - **Project-memory habit.** The board preamble tells agents to save what is worth keeping as a project note (`kg_capture` with scope `project`) and name its id in their note on the item.
 - **Notes linked to items** (`WorkItem.noteIds`, <= 10, project-scope notes only). Three ways in: (1) *automatic*: when a run ends, the project-scope notes it saved (not automatic episodes) are linked to the item(s) it worked on (the one it was started for, or the ones it updated); (2) an agent names them in `update` (`noteIds`, each must exist in THIS project's Library, so no private or other-project note can be linked); (3) the owner.
 - **Save what we learned.** When the owner closes an item that has no note, a banner offers it (focus is not taken); the item dialog also has the button on Review and Done items. The owner edits a prefilled draft (what the last run reported, the agents' notes; a warning if the run read outside content) and saves it as a project note (human-written, scope `project`, tags `board`, `learned`, `props.boardItem` = the item id), linked to the item. The dialog lists the item's notes and opens them in the Library.
-Not built: a briefing that always lists the project's notes (recall surfaces them when relevant); removing a link as an agent (only the owner can).
+- **Project notes in the briefing.** The same digest names the project's 5 most recently updated notes that are safe to name (active, not untrusted, not from a tainted run, not automatic episodes) with their ids, so every run in the project starts knowing what the project has written down (`BoardNotes.recent`).
+Not built (deliberate): an agent removing a link (only the owner can); a briefing of untrusted leads.
 
 ## 6. Run this item
 
@@ -127,6 +128,7 @@ Not built: a briefing that always lists the project's notes (recall surfaces the
 | C15 | Order: moves keep a dense order per column; keyboard/pointer moves share one pure function | `-store`, `-ui` | skip renumber |
 | C16 | UI logic (filters, move targets, keyboard) and accessible names/live region in the sources | `-ui` | remove a label |
 | C19 | Notes: agents link only this project's notes; automatic linking at run end (not episodes, not other projects); the owner's note lands in project scope, linked, refused when archived/empty/secret; offer only on a fresh close without a note; link cap | `-notes`, `-ui` | allow any note id; link every scope; save in `shared`; skip the cap |
+| C20 | Briefing names only clean project notes (not untrusted, tainted, other-scope), capped at 5, also on an empty board | `-kg` | drop the trust filter; drop the scope filter; drop the section |
 | C18 | Project as context: episodes in project scope (members only), board digest capped and neutralised, preamble only for members of active projects | `-kg` | always-private episodes; uncap the digest |
 | C17 | Tripwire, hedge, key-literal tests stay green; no child process or network code added (scan of new files) | existing + `-flag` | add `fetch(` |
 
@@ -151,7 +153,7 @@ Not built: a briefing that always lists the project's notes (recall surfaces the
 
 ## 12. Result (built 2026-10-02, not run on Windows)
 
-Gates (final): 2,007 tests, 2,004 pass, 0 fail, 3 skipped (the 3 skips were there before). `npm run typecheck` and `npm run build:ui` exit 0. New test files: `project-board-{flag,store,tools,http,run,ui}.test.ts` (about 40 tests). Every control C1..C17 was mutated (about 25 mutations) and each turned its test red, except one equivalent mutant: removing the redundant `tainted: true` from a capped run changes nothing because the run's `origin.tainted` already taints it. Tripwire, hedge, key-literal and harness tests stay as they were; the only edit to a shared script is the mirror in `scripts/harness/core-entry.mjs`.
+Gates (final): 2,009 tests, 2,006 pass, 0 fail, 3 skipped (the 3 skips were there before). `npm run typecheck` and `npm run build:ui` exit 0. New test files: `project-board-{flag,store,tools,http,run,ui}.test.ts` (about 40 tests). Every control C1..C17 was mutated (about 25 mutations) and each turned its test red, except one equivalent mutant: removing the redundant `tainted: true` from a capped run changes nothing because the run's `origin.tainted` already taints it. Tripwire, hedge, key-literal and harness tests stay as they were; the only edit to a shared script is the mirror in `scripts/harness/core-entry.mjs`.
 Rendered in headless Chromium (real core, flag on, seeded board): 1440 and 960 px with the full app, 390 px with the app shell hidden (the Electron window has a 960 px minimum, so the shell itself is not built for 390), light and dark, Board / List / Inbox / item dialog; no horizontal page scroll; a keyboard Alt+Right move was announced in the live region, kept focus and persisted.
 
 ## 13. Known limits (kept honest)
@@ -159,7 +161,7 @@ Rendered in headless Chromium (real core, flag on, seeded board): 1440 and 960 p
 - No board action is checked against what an allowed agent tool can do: Legion's own code decides who may write the board, not what a run does.
 - A compromised app window holds the admin key and could edit or delete items, choose a leader and click "Run this item"; the run and every agent delete still go through approval cards. A bot's text the owner accepted unedited runs under the `ask` ceiling, but once the owner presses "Mark as reviewed" it runs with the agent's own setting.
 - `Mark as reviewed` is one click for the whole item (title and description together).
-- Room links are not checked for existence (shape only); the UI offers none yet except those a bot's own room run added.
+- Room links are checked for shape only by the core; the dialog offers only this project's rooms (and agents' room runs add theirs).
 - Appending one line per change is not a transaction: a crash mid-line loses at most that line (skipped on load). Compaction is tmp + rename; Windows rename-over-open-file and antivirus behaviour are unverified.
 - The 5 columns are fixed; there is no WIP limit, no sub-items, no comments, no schedules or auto-run (Later).
 - Pointer drag-and-drop is not touch-tested; touch and narrow screens use the "Move to" select.

@@ -6,7 +6,8 @@ import type { Project } from '../../../../src/shared/projects';
 import { Modal } from '../../components/Modal';
 import { focusNode } from '../../graph/graphStore';
 import { api } from '../../api';
-import { openRoom } from '../../rooms/roomsStore';
+import { ensureRoomList, openRoom, useRooms } from '../../rooms/roomsStore';
+import { roomsOf } from '../projectsLogic';
 import { setView, useStore } from '../../store';
 import { acceptItem, createItem, deleteItem, getBoardState, loadBoard, moveItem, openTask, patchItem, probeBoard, rejectItem, runItem, sayItem, setLeader, useBoard } from './boardStore';
 import {
@@ -255,6 +256,10 @@ function ItemDialog({ project, item, members, name, archived, onClose, startLear
   const [lBody, setLBody] = useState(draft.body);
   const [titles, setTitles] = useState<Record<string, string>>({});
   const busy = useBoard((s) => s.busy);
+  const rooms = useRooms((s) => s.rooms);
+  const [roomPick, setRoomPick] = useState('');
+  useEffect(() => { ensureRoomList(); }, []);
+  const projectRooms = roomsOf(rooms, project.id);
   useEffect(() => { for (const id of item?.noteIds ?? []) if (!(id in titles)) void api.boardNoteTitle(project.id, id).then((r) => setTitles((t) => ({ ...t, [id]: r.title })), () => setTitles((t) => ({ ...t, [id]: '(note not found)' }))); }, [item?.noteIds.join(',')]); // eslint-disable-line react-hooks/exhaustive-deps
   const counter = descCounter(desc);
   const labelList = labels.split(',').map((l) => l.trim()).filter(Boolean);
@@ -322,8 +327,19 @@ function ItemDialog({ project, item, members, name, archived, onClose, startLear
                 <h4 className="bd-h4">Linked work</h4>
                 <ul className="proj-list">
                   {item.taskIds.map((t) => <li key={t}><button type="button" className="proj-link" onClick={() => { onClose(); openTask(t); }}>Open task {t.slice(-6)}</button></li>)}
-                  {item.roomIds.map((r) => <li key={r}><button type="button" className="proj-link" onClick={() => { onClose(); setView('rooms'); openRoom(r); }}>Open room {r.slice(-6)}</button></li>)}
+                  {item.roomIds.map((r) => <li key={r}><button type="button" className="proj-link" onClick={() => { onClose(); setView('rooms'); openRoom(r); }}>Open room {rooms.find((x) => x.id === r)?.name ?? r.slice(-6)}</button>{!archived && <button type="button" className="btn-ghost sm" aria-label={`Unlink room ${rooms.find((x) => x.id === r)?.name ?? r.slice(-6)}`} onClick={() => void patchItem(project.id, item.id, { roomIds: item.roomIds.filter((x) => x !== r) })}>Unlink</button>}</li>)}
                 </ul>
+              </div>
+            )}
+            {!archived && !item.proposal && projectRooms.some((r) => !item.roomIds.includes(r.id)) && item.roomIds.length < BOARD_LIMITS.roomLinks && (
+              <div className="proj-row">
+                <label className="proj-inline"><span>Link a room</span>
+                  <select value={roomPick} onChange={(e) => setRoomPick(e.target.value)}>
+                    <option value="">Choose a room of this project</option>
+                    {projectRooms.filter((r) => !item.roomIds.includes(r.id)).map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}
+                  </select>
+                </label>
+                <button type="button" className="btn" disabled={!roomPick || busy} onClick={() => void patchItem(project.id, item.id, { roomIds: [...item.roomIds, roomPick] }).then(() => setRoomPick(''))}>Link</button>
               </div>
             )}
             <div>

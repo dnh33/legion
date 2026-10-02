@@ -57,7 +57,7 @@ export function createBoardModule(deps: ModuleDeps, opts: BoardModuleOpts): Core
       const p = ctx?.projectId ? projects.forRun(ctx.projectId, agent.id) : undefined;
       if (!p) return '';
       let digest = '';
-      try { digest = boardDigest(board.view(p).items, agent.id, (id) => deps.store.getAgent(id)?.name ?? id); } catch { /* the digest is a convenience */ }
+      try { digest = boardDigest(board.view(p).items, agent.id, (id) => deps.store.getAgent(id)?.name ?? id, undefined, notes?.recent(p.id) ?? []); } catch { /* the digest is a convenience */ }
       return digest ? `${BOARD_PREAMBLE}\n${digest}` : BOARD_PREAMBLE;
     },
     onTaskEnd: (task, _agent, outcome) => {

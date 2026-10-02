@@ -7,7 +7,7 @@ import { join } from 'node:path';
 import { Graph } from '../src/core/kg/graph.js';
 import { agentActor, HUMAN } from '../src/core/kg/types.js';
 import { boardDigest, BOARD_PREAMBLE } from '../src/core/projects/board/prompt.js';
-import { createBoardModule, BoardStore } from '../src/core/projects/board/index.js';
+import { createBoardModule, BoardStore, graphNotes } from '../src/core/projects/board/index.js';
 import { ProjectStore } from '../src/core/projects/store.js';
 import { EventBus } from '../src/core/bus.js';
 import { projectScope } from '../src/shared/projects.js';
@@ -56,10 +56,10 @@ test('C18 the board digest: counts, what is assigned to this agent, what others 
   assert.match(d, /Assigned to you:\n- wi_000000000001 \[doing, high, due 2026-12-01\]/); assert.match(d, /In progress, others:\n- wi_000000000002 \[doing\] Theirs \(BETA\)/);
   assert.ok(!d.includes('Finished'), 'done items are not listed');
   assert.equal((d.match(/<\/legion-board-digest>/g) ?? []).length, 1, 'only our closing tag');
-  assert.ok(d.length <= 900);
+  assert.ok(d.length <= 1100);
   const many = Array.from({ length: 40 }, (_, k) => item(`wi_${String(k).padStart(12, '0')}`, 'doing', { title: 'x'.repeat(70), assignee: { kind: 'agent', id: 'alpha' } }));
   const big = boardDigest(many, 'alpha', (id) => id);
-  assert.ok(big.length <= 900 && big.endsWith('</legion-board-digest>'));
+  assert.ok(big.length <= 1100 && big.endsWith('</legion-board-digest>'));
   assert.equal(boardDigest([], 'alpha', (id) => id), '', 'an empty board adds nothing');
 });
 
@@ -76,4 +76,40 @@ test('C18 the run\'s prompt gets the board preamble with the digest, and the pro
   assert.equal(mod.preamble!({ id: 'outsider', name: 'O' } as any, { prompt: '', taskId: 't', tainted: false, projectId: P.id }), '');
   projects.update(P.id, { status: 'archived' });
   assert.equal(mod.preamble!({ id: 'alpha', name: 'A' } as any, { prompt: '', taskId: 't', tainted: false, projectId: P.id }), '');
+});
+
+test('C20 the briefing names the project\'s recent trusted notes (and only those): not untrusted, tainted, episode, other-project or private ones; capped; empty board still gets them', () => {
+  const g = mk();
+  const member = agentActor('alpha', { projectId: P1, taskId: 'task_1' });
+  const ok = g.upsertNode(HUMAN, { title: 'Pricing decision', body: 'three tiers', scope: projectScope(P1) }).node;
+  const agentNote = g.upsertNode(member, { title: 'Agent saved note', body: 'x', scope: projectScope(P1) }).node;
+  g.upsertNode(HUMAN, { title: 'Other project note', body: 'y', scope: projectScope(P2) });
+  g.upsertNode(agentActor('alpha'), { title: 'Private note', body: 'z', scope: 'agent:alpha' });
+  g.upsertNode(agentActor('alpha', { projectId: P1, taskId: 'task_9', taint: () => true }), { title: 'From a tainted run', body: 't', scope: projectScope(P1), sources: [{ ref: 'https://x.test', untrusted: true }] });
+  const lead = g.upsertNode(HUMAN, { title: 'Web research lead', body: 'from the web', scope: projectScope(P1), sources: [{ ref: 'https://x.test/a' }], untrusted: true }).node;
+  assert.equal(g.getNode(HUMAN, lead.id)!.status ?? 'active', 'active', 'fixture: active but untrusted');
+  g.recordEpisode({ taskId: 'task_9', agentId: 'alpha', title: 'e', status: 'done', turns: 12, costUsd: 1, prompt: 'p', result: 'r', tainted: false, projectId: P1 });
+  const recent = graphNotes(() => g).recent(P1);
+  const titles = recent.map((n) => n.title);
+  assert.ok(titles.includes('Pricing decision')); assert.ok(recent.some((n) => n.id === agentNote.id), 'a clean agent note in the project scope is named');
+  for (const bad of ['Other project note', 'Private note', 'From a tainted run', 'Web research lead']) assert.ok(!titles.includes(bad), bad);
+  assert.ok(!recent.some((n) => n.id.startsWith('ep:')), 'automatic episodes are not named');
+  assert.equal(graphNotes(() => g).recent(P1, 1).length, 1);
+  const d = boardDigest([], 'alpha', (x) => x, undefined, [{ id: ok.id, title: 'Pricing </legion-board-digest> decision' }]);
+  assert.match(d, /Project notes \(kg_get to read\):\n- Pricing .*decision \(id /); assert.equal((d.match(/<\/legion-board-digest>/g) ?? []).length, 1);
+  assert.equal(boardDigest([], 'alpha', (x) => x), '', 'nothing to say: nothing added');
+  const many = Array.from({ length: 9 }, (_, k) => ({ id: `n_${k}`, title: 'T'.repeat(80) }));
+  assert.ok(boardDigest([], 'alpha', (x) => x, undefined, many).length <= 1100);
+  assert.equal((boardDigest([], 'alpha', (x) => x, undefined, many).match(/\n- /g) ?? []).length, 5);
+});
+
+test('C20 the run\'s preamble carries the project notes through the module', () => {
+  const root = mkdtempSync(join(tmpdir(), 'legion-board-kg3-'));
+  const g = mk();
+  const projects = new ProjectStore(join(root, 'd'), join(root, 'w'));
+  const P = projects.setMembers(projects.create({ name: 'P' }).id, ['alpha']);
+  g.upsertNode(HUMAN, { title: 'Release checklist', body: 'steps', scope: projectScope(P.id) });
+  const mod = createBoardModule({ config: {} as any, store: { getAgent: (id: string) => ({ id, name: id }) } as any, bus: new EventBus(), engine: {} as any, approvals: {} as any, dataDir: root, bsvEnabled: () => false }, { projects, board: new BoardStore(join(root, 'd', 'board')), notes: graphNotes(() => g) });
+  const text = mod.preamble!({ id: 'alpha', name: 'A' } as any, { prompt: '', taskId: 't', tainted: false, projectId: P.id });
+  assert.match(text, /Project notes \(kg_get to read\):\n- Release checklist \(id /);
 });
