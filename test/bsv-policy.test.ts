@@ -218,7 +218,7 @@ test('ledgerFromAudit rebuilds executed spends from audit entries and ignores ev
     { decision: 'executed', ts: '2026-10-02T10:02:00.000Z', fields: { sats: -5 } },
     { decision: 'executed', ts: '2026-10-02T10:03:00.000Z', fields: { sats: '12' } },
   ]);
-  assert.deepEqual(recs, [{ requestId: 'r1', sats: 700, at: Date.parse('2026-10-02T10:00:00.000Z') }]);
+  assert.deepEqual(recs, [{ requestId: 'r1', sats: 700, at: Date.parse('2026-10-02T10:00:00.000Z'), net: 'test' }]);
 });
 
 // ------------------------------------------------------------------ the shape of a transaction
@@ -628,4 +628,15 @@ test('ledgerFromAudit: duplicate executed lines for one request id count once; l
   assert.equal(rec.reduce((a, r) => a + r.sats, 0), 600 + 300 + 100 + 100);
   const e = new PolicyEngine({ clock: { wall: () => Date.parse('2026-10-02T11:00:00.000Z'), mono: () => 1 }, ledger: rec, config: { caps: { ...DEFAULT_CAPS }, allowlist: [ALICE], frozen: null } });
   assert.equal(e.snapshot().usage.last24hSats, 1100, 'the 24 h window sees one 600 sat spend, not two');
+});
+
+test('net: a legacy record or audit line without net loads as testnet; the same request id on two nets is not deduped; the unknown seed carries net', () => {
+  const t = '2026-10-02T10:00:00.000Z';
+  const line = (fields: Record<string, unknown>) => ({ decision: 'executed', ts: t, fields });
+  const rec = ledgerFromAudit([line({ requestId: 'req-net-0001', sats: 100 }), line({ requestId: 'req-net-0001', sats: 100, net: 'test' }), line({ requestId: 'req-net-0001', sats: 100, net: 'main' }), line({ requestId: 'req-net-0001', sats: 100, net: 'main' })]);
+  assert.deepEqual(rec.map((r) => r.net), ['test', 'main'], 'legacy and explicit test dedupe to one; main stays separate');
+  const legacy = new PolicyEngine({ clock: { wall: () => Date.parse(t), mono: () => 1 }, ledger: [{ requestId: 'old', sats: 5, at: Date.parse(t) }] });
+  assert.equal(legacy.executedRecords()[0]!.net, undefined, 'stored as given; absent means testnet');
+  const e = new PolicyEngine({ unknown: [{ requestId: 'req-net-0002', agentId: 'a', totalSats: 10 }, { requestId: 'req-net-0003', agentId: 'a', totalSats: 10, net: 'main' }] });
+  assert.equal(e.snapshot().unknown.length, 2);
 });

@@ -133,7 +133,8 @@ interface Record_ {
 /** A deep copy that shares nothing with the original: a caller may do what it likes with it. */
 function copyDecision(d: Decision): Decision { return structuredClone(d); }
 
-export interface LedgerRecord { requestId: string; sats: number; at: number; session?: string }
+/** `net` is the network the spend was on; a record without it is a testnet record (older logs never wrote it). */
+export interface LedgerRecord { requestId: string; sats: number; at: number; session?: string; net?: Net }
 
 export type PolicyEvent =
   | { type: 'armed'; until: number; minutes: number }
@@ -235,7 +236,7 @@ export interface PolicyOptions {
   sessionId?: string;
   /** Spends an earlier session left without an outcome (rebuilt from the audit log by the module). Each becomes an `unknown` record: it keeps
    *  its reservation, blocks every new spend, and is cleared only by `resolveUnknown`. This is not an "allow": nothing here loosens a check. */
-  unknown?: Array<{ requestId: string; agentId: string; totalSats: number }>;
+  unknown?: Array<{ requestId: string; agentId: string; totalSats: number; net?: Net }>;
 }
 
 export class PolicyEngine {
@@ -262,7 +263,7 @@ export class PolicyEngine {
       if (!u || typeof u.requestId !== 'string' || !REQUEST_ID.test(u.requestId) || !isSats(u.totalSats) || this.requests.has(u.requestId)) continue;
       const decision: Decision = { verdict: 'deny', requestId: u.requestId, reasons: ['an earlier session left this spend without a known outcome'], requiredConfirmations: ['approve'] };
       this.requests.set(u.requestId, {
-        requestId: u.requestId, hash: '', status: 'unknown', agentId: safeId(u.agentId), taskId: '', network: 'test', totalSats: u.totalSats,
+        requestId: u.requestId, hash: '', status: 'unknown', agentId: safeId(u.agentId), taskId: '', network: u.net === 'main' ? 'main' : 'test', totalSats: u.totalSats,
         createdAt: now, expiresAt: 0, settledAt: now, decision, required: Object.freeze(['approve'] as Confirmation[]),
       });
     }
@@ -622,8 +623,9 @@ export function ledgerFromAudit(entries: ReadonlyArray<{ decision: string; ts: s
     const sats = e.fields.sats; const at = Date.parse(e.ts);
     if (!isSats(sats) || !Number.isFinite(at)) continue;
     const id = e.fields.requestId;
-    if (typeof id === 'string') { if (seen.has(id)) continue; seen.add(id); }
-    out.push({ requestId: typeof id === 'string' ? id : 'audit', sats, at });
+    const net: Net = e.fields.net === 'main' ? 'main' : 'test'; // a line without `net` is a testnet line
+    if (typeof id === 'string') { const k = `${net}:${id}`; if (seen.has(k)) continue; seen.add(k); }
+    out.push({ requestId: typeof id === 'string' ? id : 'audit', sats, at, net });
   }
   // ordered by the time of the spend, never by where the line sits in the file (a rotated or restored file is not in time order)
   return out.sort((a, b) => a.at - b.at);
