@@ -14,13 +14,37 @@ function Test-PathUnder {
          ($Path.TrimEnd('\')).Equals($Dir.TrimEnd('\'), [System.StringComparison]::OrdinalIgnoreCase)
 }
 
-# Default marker: a built Legion has dist\src\electron\main.js and a package.json next to it.
+# Joins path parts one at a time, so the result is right whatever the separator of the host is.
+function Join-PathParts {
+  param([string]$Base, [string[]]$Parts)
+  $p = $Base
+  foreach ($x in $Parts) { $p = Join-Path $p $x }
+  return $p
+}
+
+# True when <Dir>\package.json parses and its "name" is exactly "legion". The one marker every Legion folder has.
+function Test-LegionPackage {
+  param([string]$Dir)
+  if ([string]::IsNullOrEmpty($Dir)) { return $false }
+  $pkg = Join-Path $Dir 'package.json'
+  if (-not (Test-Path -LiteralPath $pkg -PathType Leaf)) { return $false }
+  try {
+    $j = Get-Content -Raw -LiteralPath $pkg -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop
+    return ($null -ne $j) -and ($j.name -ceq 'legion')
+  } catch { return $false }
+}
+
+# Default marker for "this folder is Legion": package.json named legion, one of the two Electron entry points, and the core entry point
+# (built or source). A different Electron+TypeScript app that merely has src\electron\main.ts does not pass.
 function Test-LegionRoot {
   param([string]$Root)
   if ([string]::IsNullOrEmpty($Root)) { return $false }
-  return (Test-Path -LiteralPath (Join-Path $Root 'package.json')) -and
-         ((Test-Path -LiteralPath (Join-Path $Root 'dist\src\electron\main.js')) -or
-          (Test-Path -LiteralPath (Join-Path $Root 'src\electron\main.ts')))
+  if (-not (Test-LegionPackage $Root)) { return $false }
+  $main = (Test-Path -LiteralPath (Join-PathParts $Root @('dist', 'src', 'electron', 'main.js')) -PathType Leaf) -or
+          (Test-Path -LiteralPath (Join-PathParts $Root @('src', 'electron', 'main.ts')) -PathType Leaf)
+  if (-not $main) { return $false }
+  return (Test-Path -LiteralPath (Join-PathParts $Root @('dist', 'src', 'bin', 'legion-core.js')) -PathType Leaf) -or
+         (Test-Path -LiteralPath (Join-PathParts $Root @('src', 'bin', 'legion-core.ts')) -PathType Leaf)
 }
 
 # Returns the Legion root a process belongs to, or $null. Pure: no file or process access.
