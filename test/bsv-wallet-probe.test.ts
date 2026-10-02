@@ -309,7 +309,7 @@ test('meaning: a wallet on the main network is a warning with the exact promise;
   const main = describeWallet({ ...base, network: 'main' }, '127.0.0.1:45001');
   assert.equal(main.condition, 'mainnet-warning');
   assert.equal(main.message, MAINNET_WARNING);
-  assert.equal(MAINNET_WARNING, "The wallet says it is on MAINNET (real funds). Mainnet spending is off in Legion's own code until you turn it on; each spend then needs Arm, your confirmations and the wallet's own prompt.");
+  assert.equal(MAINNET_WARNING, "The wallet says it is on MAINNET (real funds). In Legion's own code a mainnet spend needs the mainnet switch (off by default), Arm, your confirmations and the wallet's own prompt.");
   assert.match(MAINNET_WARNING, /^The wallet says it is on MAINNET/);
   assert.doesNotMatch(MAINNET_WARNING, /will not use it/, 'the old sentence is false once the owner can enable mainnet');
   assert.match(MAINNET_WARNING, /Legion's own code/, 'the claim is scoped to Legion\'s own code');

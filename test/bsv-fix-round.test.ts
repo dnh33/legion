@@ -15,7 +15,7 @@ import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import type { McpSdkServerConfigWithInstance } from '@anthropic-ai/claude-agent-sdk';
 import { ASSAYER_ID, createBsvModule, createBsvState } from '../src/core/bsv/index.js';
 import { AuditLog, auditPath, verifyText } from '../src/core/bsv/audit.js';
-import { DAY_MS, DEFAULT_CAPS, HARD_CAPS, ledgerFromAudit, PolicyEngine, requestHash } from '../src/core/bsv/policy.js';
+import { DAY_MS, TESTNET_DEFAULT_CAPS, TESTNET_HARD_CAPS, ledgerFromAudit, PolicyEngine, requestHash } from '../src/core/bsv/policy.js';
 import type { Clock, PolicyEvent, SpendRequest } from '../src/core/bsv/policy.js';
 import { loadPolicyConfig, policyFileHash, policyPath, savePolicyConfig, sha256 } from '../src/core/bsv/policy-store.js';
 import * as probeModule from '../src/core/bsv/wallet-probe.js';
@@ -25,11 +25,12 @@ import { gate, isClientRoute } from '../src/core/admin.js';
 import { bsvConfirmation, bsvPreflight, parseBsvAction } from '../src/electron/admin-logic.js';
 import { joinLiterals, normalize, unescapeLiterals } from './bsv-scan.js';
 import { AUTH, asClient, makeFakes, mkAgent, start } from './helpers-c.js';
+import { mkAddr } from './bsv-net-helpers.js';
 
 const closers: Array<() => Promise<void>> = [];
 after(async () => { for (const c of closers) await c().catch(() => undefined); });
 
-const ALICE = 'mtestAddressAlice1111111111111111';
+const ALICE = mkAddr(0x6f, 0x11);
 const NATIVE = 'native-secret-0123456789abcdef0123456789';
 const WALLET_URL = 'http://127.0.0.1:45001';
 
@@ -42,14 +43,14 @@ let n = 0;
 function req(over: Partial<SpendRequest> = {}): SpendRequest {
   return {
     requestId: `fix-${String(++n).padStart(6, '0')}`, network: 'test', walletNetwork: 'test', agentId: 'assayer', taskId: 'task-1', reason: 'pay the faucet back', tainted: false,
-    decoded: { inputSats: 4620, outputs: [{ recipient: ALICE, sats: 600 }, { recipient: 'mtestChange', sats: 4000, change: true }], feeSats: 20 },
+    decoded: { inputSats: 4620, outputs: [{ recipient: ALICE, sats: 600 }, { recipient: mkAddr(0x6f, 0x44), sats: 4000, change: true }], feeSats: 20 },
     ...over,
   };
 }
 function engine(o: { allow?: string[]; ledger?: Array<{ requestId: string; sats: number; at: number }> } = {}) {
   const clock = new FakeClock();
   const events: PolicyEvent[] = [];
-  const e = new PolicyEngine({ clock, sessionId: 's1', ledger: o.ledger, onEvent: (ev) => events.push(ev), config: { caps: { ...DEFAULT_CAPS }, allowlist: o.allow ?? [ALICE], frozen: null } });
+  const e = new PolicyEngine({ clock, sessionId: 's1', ledger: o.ledger, onEvent: (ev) => events.push(ev), config: { caps: { ...TESTNET_DEFAULT_CAPS }, allowlist: o.allow ?? [ALICE], frozen: null } });
   return { e, clock, events };
 }
 
@@ -97,7 +98,7 @@ test('8: the request is copied once on entry: editing it afterwards, or a getter
   const d = e.evaluate(r);
   const hashAtEntry = d.card!.hash;
   // edit the caller's object after the check: the card, the hash and the reservation are not affected
-  r.decoded.outputs[0]!.recipient = 'mtestMallory1111111111111111111'; r.reason = 'something else';
+  r.decoded.outputs[0]!.recipient = mkAddr(0x6f, 0x22); r.reason = 'something else';
   assert.equal(e.snapshot().usage.reservedSats, 620);
   assert.equal(d.card!.hash, hashAtEntry);
   // the same id with the edited content is a different request, and is refused as such
@@ -113,7 +114,7 @@ test('8: the request is copied once on entry: editing it afterwards, or a getter
   assert.equal(d2.card!.totalSpendSats, 620);
   assert.equal(reads, 1, 'read exactly once, on entry');
   // and hash = what the card shows
-  assert.equal(d2.card!.hash, requestHash({ ...sneaky, decoded: { ...sneaky.decoded, outputs: [{ recipient: ALICE, sats: 600 }, { recipient: 'mtestChange', sats: 4000, change: true }] } }));
+  assert.equal(d2.card!.hash, requestHash({ ...sneaky, decoded: { ...sneaky.decoded, outputs: [{ recipient: ALICE, sats: 600 }, { recipient: mkAddr(0x6f, 0x44), sats: 4000, change: true }] } }));
 });
 
 test('8: an object the engine cannot copy (a proxy, a function field, a cycle) is a denial, never an exception and never a reservation', () => {
@@ -170,7 +171,7 @@ test('8: caps, allowlist and events are copies too: what a caller or an observer
   assert.equal(e.config().caps.perTxSats, 700);
   const list = [ALICE];
   e.setAllowlist(list);
-  list.push('mtestMallory1111111111111111111');
+  list.push(mkAddr(0x6f, 0x22));
   assert.deepEqual(e.config().allowlist, [ALICE]);
   const cfg = e.config(); cfg.caps.perTxSats = 1; cfg.allowlist.push('x');
   assert.equal(e.config().caps.perTxSats, 700);
@@ -432,12 +433,12 @@ test('1: a hand-edited policy file (raised limits, an extra recipient) loads as 
   const s = await setup({ on: true });
   await s.call('POST', '/api/bsv/policy/caps', { perTxSats: 800 });
   const edited = JSON.parse(readFileSync(policyFile(s.dataDir), 'utf8'));
-  edited.nets.test.caps.perTxSats = 5000; edited.nets.test.caps.perSessionSats = 5_000_000; edited.nets.test.allowlist = ['evil-address-1']; edited.mainnetEnabled = true;
+  edited.nets.test.caps.perTxSats = 5000; edited.nets.test.caps.perSessionSats = 5_000_000; edited.nets.test.allowlist = [mkAddr(0x6f, 0x99)]; edited.mainnetEnabled = true;
   writeFileSync(policyFile(s.dataDir), JSON.stringify(edited, null, 2));
   const s2 = await setup({ dataDir: s.dataDir, on: true });
   assert.equal(s2.bsv.policy.isFrozen, true);
   assert.match(s2.bsv.policy.config().frozen!.reason, /changed outside Legion/);
-  assert.deepEqual(s2.bsv.policy.config().caps, DEFAULT_CAPS, 'the edited limits are not used, and neither are Legion\'s earlier ones: the owner sets them again');
+  assert.deepEqual(s2.bsv.policy.config().caps, TESTNET_DEFAULT_CAPS, 'the edited limits are not used, and neither are Legion\'s earlier ones: the owner sets them again');
   assert.deepEqual(s2.bsv.policy.config().allowlist, []);
   assert.equal(s2.bsv.policy.mainnetEnabled, false, 'a hand-edited mainnetEnabled:true is not used: the file is untrusted, so the switch is off');
   assert.equal(evidence(s.dataDir).length, 1);
@@ -455,7 +456,7 @@ test('1: a hand-edited policy file (raised limits, an extra recipient) loads as 
 test('1: a policy file with no record at all (created by hand on a fresh install), a missing file Legion had saved, and an unreadable file each freeze', async () => {
   // no record
   const d1 = mkdtempSync(join(tmpdir(), 'legion-bsvfix-')); mkdirSync(join(d1, 'bsv'), { recursive: true });
-  writeFileSync(policyFile(d1), JSON.stringify({ caps: { perTxSats: 900 }, allowlist: ['evil-address-1'], frozen: null }));
+  writeFileSync(policyFile(d1), JSON.stringify({ caps: { perTxSats: 900 }, allowlist: [mkAddr(0x6f, 0x99)], frozen: null }));
   const a = await setup({ dataDir: d1, on: true });
   assert.equal(a.bsv.policy.isFrozen, true);
   assert.match(a.bsv.policy.config().frozen!.reason, /no record of being written by Legion/);
@@ -517,7 +518,7 @@ test('1: removing the file while running freezes too, and a GET of the policy is
 test('1: the policy store reports the hash of what it wrote and of what it read; evidence files are capped at ten', async () => {
   const dir = auditDir();
   const f = join(dir, 'bsv', 'policy.json');
-  const cfg = { caps: { ...DEFAULT_CAPS }, allowlist: [ALICE], frozen: null };
+  const cfg = { caps: { ...TESTNET_DEFAULT_CAPS }, allowlist: [ALICE], frozen: null };
   const h = savePolicyConfig(f, cfg);
   assert.equal(h, sha256(readFileSync(f)));
   const l = loadPolicyConfig(f);
@@ -741,5 +742,5 @@ test('7: through the module, a wallet that reports a vendor tag, a "v" prefix or
     seen.push((await s.call('GET', '/api/bsv/wallet?cached=1')).body.version);
   }
   assert.deepEqual(seen, ['1.2.3', '2.0.0-rc.1+b5', null, null, null, null]);
-  void HARD_CAPS;
+  void TESTNET_HARD_CAPS;
 });

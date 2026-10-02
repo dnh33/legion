@@ -65,10 +65,10 @@ test('addresses: 400 random and mutated strings never throw and only a real addr
 // ------------------------------------------------------------------ migration of an old policy file (testnet-only shape)
 
 test('migration: an old policy file (top-level caps and allowlist) loads as TESTNET limits; mainnet is at its defaults and OFF', () => {
-  const old = { caps: { perTxSats: 800, perSessionSats: 3000, per24hSats: 6000, maxOutputs: 2, maxFeeSats: 150 }, allowlist: [TEST_A, 'bob@handcash.io'], frozen: null };
+  const old = { caps: { perTxSats: 800, perSessionSats: 3000, per24hSats: 6000, maxOutputs: 2, maxFeeSats: 150 }, allowlist: [TEST_A, TEST_B], frozen: null };
   const c = sanitizePolicyConfig(old);
   assert.deepEqual(c.nets.test.caps, old.caps);
-  assert.deepEqual(c.nets.test.allowlist, [TEST_A, 'bob@handcash.io']);
+  assert.deepEqual(c.nets.test.allowlist, [TEST_A, TEST_B]);
   assert.deepEqual(c.nets.main, { caps: { ...NET.main.defaultCaps }, allowlist: [] });
   assert.equal(c.mainnetEnabled, false);
   assert.deepEqual(c.caps, old.caps, 'the mirror reads the testnet limits');
@@ -83,7 +83,7 @@ test('migration: the old fields are read only while `nets` is absent, so they ne
   assert.equal(both.nets.test.caps.perTxSats, 700);
   assert.deepEqual(both.nets.test.allowlist, [TEST_B]);
   const mixed = sanitizePolicyConfig({ allowlist: [MAIN_A, TEST_A, 'x@y.io'] });
-  assert.deepEqual(mixed.nets.test.allowlist, [TEST_A, 'x@y.io'], 'a mainnet address cannot ride in on the testnet list');
+  assert.deepEqual(mixed.nets.test.allowlist, [TEST_A], 'a mainnet address cannot ride in on the testnet list, and a token or paymail is not a testnet address (B6)');
 });
 
 test('migration: the file is rewritten in the new shape (version 2) on the next save, and the result loads to the same limits', () => {
@@ -213,8 +213,8 @@ test('C29: allowlists are per network; an empty mainnet list denies even when th
   const { e: e3 } = engine();
   e3.setAllowlist([MAIN_B], 'main');
   assert.deepEqual(e3.config().nets.main.allowlist, [MAIN_B]); assert.deepEqual(e3.config().nets.test.allowlist, [TEST_A, TEST_B]);
-  e3.setAllowlist([TEST_A, 'Bob@HandCash.io']);
-  assert.deepEqual(e3.config().nets.test.allowlist, [TEST_A, 'bob@handcash.io']); assert.deepEqual(e3.config().nets.main.allowlist, [MAIN_B]);
+  e3.setAllowlist([TEST_A]);
+  assert.deepEqual(e3.config().nets.test.allowlist, [TEST_A]); assert.deepEqual(e3.config().nets.main.allowlist, [MAIN_B]);
   const ev: PolicyEvent[] = []; const e4 = new PolicyEngine({ onEvent: (x) => ev.push(x) });
   e4.setAllowlist([MAIN_A], 'main'); e4.setCaps({ perTxSats: 500 }, 'main');
   assert.deepEqual(ev.map((x) => x.type === 'allowlist' || x.type === 'caps' ? [x.type, x.net] : x.type), [['allowlist', 'main'], ['caps', 'main']], 'events say which network changed');
@@ -225,15 +225,18 @@ test('C29: allowlists are per network; an empty mainnet list denies even when th
 test('C30: setAllowlist refuses an address of the other network, and mainnet takes valid mainnet addresses only; the size limits are per network', () => {
   const { e } = engine();
   assert.throws(() => e.setAllowlist([TEST_A], 'main'), /not a valid mainnet address/);
-  assert.throws(() => e.setAllowlist([MAIN_A], 'test'), /mainnet address: it cannot go on the testnet list/);
+  assert.throws(() => e.setAllowlist([MAIN_A], 'test'), /not a valid testnet address/);
   assert.throws(() => e.setAllowlist([mkAddr(0, 0x33, true)], 'main'), /not a valid mainnet address/, 'a typo with a bad checksum is not accepted for real funds');
   assert.throws(() => e.setAllowlist(['bob@handcash.io'], 'main'), PolicyError, 'a paymail is not a mainnet recipient in this version');
-  assert.deepEqual(e.setAllowlist(['bob@handcash.io', 'mtestAddressAlice1111111111111111'], 'test'), ['bob@handcash.io', 'mtestAddressAlice1111111111111111'], 'testnet keeps its older, looser rule for non-address tokens');
+  assert.throws(() => e.setAllowlist(['bob@handcash.io'], 'test'), /not a valid testnet address/, 'B6: testnet takes valid testnet addresses only: a paymail or a token is refused');
+  assert.throws(() => e.setAllowlist(['mtestAddressAlice1111111111111111'], 'test'), PolicyError);
+  assert.throws(() => e.setAllowlist([mkAddr(0x6f, 0x33, true)], 'test'), PolicyError, 'B6: a testnet address with a bad checksum is refused');
+  assert.deepEqual(e.setAllowlist([TEST_A, TEST_B], 'test'), [TEST_A, TEST_B]);
   const ten = Array.from({ length: 10 }, (_, i) => mkAddr(0, i + 1)); const eleven = [...ten, mkAddr(0, 99)];
   assert.equal(e.setAllowlist(ten, 'main').length, 10);
   assert.throws(() => e.setAllowlist(eleven, 'main'), /at most 10 recipients/);
-  assert.equal(e.setAllowlist(Array.from({ length: 50 }, (_, i) => `t${String(i).padStart(3, '0')}@x.io`), 'test').length, 50);
-  assert.throws(() => e.setAllowlist(Array.from({ length: 51 }, (_, i) => `t${String(i).padStart(3, '0')}@x.io`), 'test'), /at most 50 recipients/);
+  assert.equal(e.setAllowlist(Array.from({ length: 50 }, (_, i) => mkAddr(0x6f, i + 1)), 'test').length, 50);
+  assert.throws(() => e.setAllowlist(Array.from({ length: 51 }, (_, i) => mkAddr(0x6f, i + 1)), 'test'), /at most 50 recipients/);
   // a file cannot smuggle one in either
   const f = sanitizePolicyConfig({ nets: { main: { allowlist: [TEST_A, mkAddr(0, 5, true), MAIN_A, 'bob@handcash.io', ...eleven] }, test: { allowlist: [MAIN_B, TEST_B] } } });
   assert.deepEqual(f.nets.main.allowlist, [MAIN_A, ...ten.slice(0, 9)], 'only valid mainnet addresses, at most 10');
@@ -249,7 +252,9 @@ test('C30: a recipient of the wrong network or an invalid address is refused wit
   }
   const t = e.evaluate(req({ to: MAIN_A }));
   assert.equal(t.verdict, 'deny'); assert.ok(t.codes.includes('address-network-mismatch') && t.codes.includes('not-allowlisted'));
-  assert.equal(e.evaluate(req({ to: 'mtestAddressAlice1111111111111111' })).codes.includes('address-network-mismatch'), false, 'testnet still accepts other short tokens if they are on its list');
+  for (const to of ['mtestAddressAlice1111111111111111', 'alice@example.com', mkAddr(0x6f, 0x11, true)]) { // B6: on testnet too, the recipient must be a valid TESTNET address
+    const t2 = e.evaluate(req({ to })); assert.equal(t2.verdict, 'deny', to); assert.ok(t2.codes.includes('address-network-mismatch'), to);
+  }
   const ok = e.evaluate(req({ network: 'main', to: MAIN_B })); assert.equal(ok.verdict, 'needs_approval');
   assert.equal(ok.card!.outputs[0]!.addressNetwork, 'main'); assert.equal(ok.card!.outputs[0]!.allowlisted, true);
   assert.equal(e.evaluate(req({ to: TEST_B })).card!.outputs[0]!.addressNetwork, 'test');

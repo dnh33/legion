@@ -15,7 +15,7 @@
  *    that only one of them fits under. Anything slow (a wallet call) happens AFTER the reservation, and a reservation counts against the
  *    caps until it is settled, denied, expired or resolved by a human.
  *  - Caps (per transaction, per session, rolling 24 h), a recipient allowlist, a maximum number of outputs and a fee ceiling. Defaults are
- *    tiny and every value is clamped to HARD_CAPS, which only a code change can raise (a hand-edited policy file cannot).
+ *    tiny and every value is clamped to its network's hard caps (`NET[net].hardCaps`), which only a code change can raise (a hand-edited policy file cannot).
  *  - Live funds need arming: `armedUntil` lives in memory only, expires (both a monotonic and a wall clock must agree it is still
  *    valid), and is gone after a restart. One arm covers exactly one mainnet spend: the approval that uses it also consumes it.
  *  - Freeze denies everything pending, disarms, and stays until a person unfreezes it. An approved-but-unsettled spend becomes
@@ -37,13 +37,13 @@ import type { Caps, Net } from './networks.js';
 export type { Caps, Net } from './networks.js';
 export type WalletNet = Net | 'unknown';
 
-/** Tiny on purpose: 1,000 sats is a fraction of a cent. These two are the TESTNET values; each network's own live in networks.ts (`NET[net]`). */
-export const DEFAULT_CAPS: Readonly<Caps> = NET.test.defaultCaps;
-/** The ceiling of every testnet cap. Only a code change raises it: a policy file or an API call is clamped (and refused) above it. */
-export const HARD_CAPS: Readonly<Caps> = NET.test.hardCaps;
+/** Tiny on purpose: 1,000 sats is a fraction of a cent. TESTNET values only (named so, so nobody reaches for them on a mainnet path); use `NET[net].defaultCaps` for a network chosen at run time. */
+export const TESTNET_DEFAULT_CAPS: Readonly<Caps> = NET.test.defaultCaps;
+/** The ceiling of every TESTNET cap. Only a code change raises it: a policy file or an API call is clamped (and refused) above it. Mainnet's are `NET.main.hardCaps`. */
+export const TESTNET_HARD_CAPS: Readonly<Caps> = NET.test.hardCaps;
 export const MAX_MONEY_SATS = 2_100_000_000_000_000;
-/** The testnet allowlist size; mainnet's is `NET.main.maxAllowlist`. */
-export const MAX_ALLOWLIST = NET.test.maxAllowlist;
+/** The TESTNET allowlist size; mainnet's is `NET.main.maxAllowlist`. */
+export const TESTNET_MAX_ALLOWLIST = NET.test.maxAllowlist;
 export const MAX_ARM_MINUTES = 60;
 export const ARM_CHOICES_MINUTES = [5, 15, 30, 60] as const;
 /** A card nobody answered in this time is denied. */
@@ -196,10 +196,10 @@ export type PolicyEvent =
   | { type: 'mainnet'; enabled: boolean; reason: string }
   | { type: 'voided'; reason: string; ids: string[]; net: Net | 'all' }
   | { type: 'decision'; requestId: string; verdict: Verdict; reasons: string[]; duplicate: boolean; agentId: string; taskId: string; totalSats: number; network: Net }
-  | { type: 'approved'; requestId: string; totalSats: number }
-  | { type: 'settled'; requestId: string; outcome: string; sats: number | null }
-  | { type: 'expired'; requestId: string }
-  | { type: 'resolved'; requestId: string; outcome: string };
+  | { type: 'approved'; requestId: string; totalSats: number; net: LedgerNet }
+  | { type: 'settled'; requestId: string; outcome: string; sats: number | null; net: LedgerNet }
+  | { type: 'expired'; requestId: string; net: LedgerNet }
+  | { type: 'resolved'; requestId: string; outcome: string; net: LedgerNet };
 
 export interface NetUsage { sessionSats: number; last24hSats: number; reservedSats: number }
 export interface NetSnapshot { caps: Caps; hardCaps: Caps; allowlist: string[]; usage: NetUsage; label: string }
@@ -262,11 +262,11 @@ export function validateCaps(c: Partial<Caps>, base?: Caps, net: Net = 'test'): 
 /**
  * Whether a recipient may be on `net`'s allowlist. A recipient that is a valid address of the OTHER network never may (a testnet list
  * holding a mainnet address would pay real money the first time the wallet claims testnet). Mainnet is stricter: only a valid mainnet
- * address (a typo with a bad checksum would otherwise sit in the list unnoticed). Testnet keeps accepting other short tokens, as before.
+ * address (a typo with a bad checksum would otherwise sit in the list unnoticed). Testnet is the same: only a valid testnet address (a paymail or a token is not a base58check address, so it never matches either list).
  */
 export function recipientFitsNet(net: Net, recipient: string): boolean {
   const an = addressNet(recipient);
-  return net === 'main' ? an === 'main' : an !== 'main';
+  return an === net;
 }
 
 const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v);
@@ -291,7 +291,7 @@ function sanitizeNet(net: Net, raw: unknown): NetConfig {
 
 /**
  * What a policy file says, reduced to something safe: unknown fields dropped, caps clamped to each network's hard ceiling, allowlists
- * re-validated per network, `mainnetEnabled` true only when it is exactly `true`.
+ * re-validated per network, `mainnetEnabled` true only when it is exactly `true` in a file of the current shape (a legacy-shaped file never enables it).
  * Versioned one-way migration: a file with a `nets` object is the current shape. A file WITHOUT one (every file written before mainnet
  * existed) holds testnet limits at the top level: they load as `nets.test`, mainnet loads at its defaults and OFF. The old top-level fields are
  * read only when `nets` is absent, so they can never override a choice made later; the file is written in the new shape on the next owner change.
@@ -307,7 +307,7 @@ export function sanitizePolicyConfig(raw: unknown): PolicyConfig {
   let frozen: FrozenInfo | null = null;
   const f = o.frozen;
   if (f && typeof f === 'object' && !Array.isArray(f)) frozen = { at: safeText((f as { at?: unknown }).at, 40), reason: safeText((f as { reason?: unknown }).reason, 160) || 'frozen' };
-  return buildPolicyConfig(nets, frozen, o.mainnetEnabled === true);
+  return buildPolicyConfig(nets, frozen, hasNets && o.mainnetEnabled === true); // a legacy-shaped file (no `nets`) never loads mainnet on
 }
 
 export const POLICY_FILE_VERSION = 2;
@@ -349,6 +349,8 @@ export interface PolicyOptions {
 }
 
 /** Does a record of network `rec` count against `net`'s limits? A record of an unrecognised network counts against both (never under-count). */
+/** The network a record counts against, as an event or a ledger line says it. */
+const recNet = (r: { network: Net; netInvalid?: boolean }): LedgerNet => (r.netInvalid ? 'invalid' : r.network);
 const applies = (rec: LedgerNet | undefined, net: Net): boolean => rec === 'invalid' || (rec ?? 'test') === net;
 
 export class PolicyEngine {
@@ -358,6 +360,8 @@ export class PolicyEngine {
   private armedUntilWall: number | null = null;
   private armedUntilMono: number | null = null;
   private mainnetOffHook: ((reason: string) => void) | null = null;
+  /** The restart seed turned the switch off in memory; the hook (registered later) must still save that. */
+  private seedOffPending: string | null = null;
   private readonly requests = new Map<string, Record_>();
   private ledger: LedgerRecord[];
   private readonly clock: Clock;
@@ -374,24 +378,37 @@ export class PolicyEngine {
     const now = this.clock.wall();
     let seeds: unknown[] = [];
     try { seeds = Array.isArray(o.unknown) ? [...o.unknown] : []; } catch { seeds = []; } // hostile input: a bad list is dropped, never thrown
-    for (const u0 of seeds) {
-      try {
-      if (!u0 || typeof u0 !== 'object') continue;
-      const g = u0 as { requestId?: unknown; agentId?: unknown; totalSats?: unknown; net?: unknown };
-      const u = { requestId: g.requestId, agentId: g.agentId, totalSats: g.totalSats, net: g.net }; // each field read once
-      if (typeof u.requestId !== 'string' || !REQUEST_ID.test(u.requestId) || !isSats(u.totalSats)) continue;
-      const dup = this.requests.get(u.requestId);
-      if (dup) { if (dup.hash === '' && dup.status === 'unknown' && u.totalSats > dup.totalSats) dup.totalSats = u.totalSats; continue; } // a repeated id keeps the LARGER amount
-      const net = parseNet(u.net);
-      // an earlier mainnet spend with no known outcome: the switch starts OFF whatever the file said (the owner resolves it, then turns it on again)
-      if (net !== 'test') this.mainnetOn = false;
-      const decision: Decision = { verdict: 'deny', requestId: u.requestId, reasons: ['an earlier session left this spend without a known outcome'], codes: ['unknown-outcome-pending'], requiredConfirmations: ['approve'] };
-      this.requests.set(u.requestId, {
-        requestId: u.requestId, hash: '', status: 'unknown', agentId: safeId(u.agentId), taskId: '', network: net === 'test' ? 'test' : 'main', ...(net === 'invalid' ? { netInvalid: true } : {}), totalSats: u.totalSats,
+    const putUnknown = (id: string, agent: unknown, totalSats: number, net: LedgerNet, why: string) => {
+      const decision: Decision = { verdict: 'deny', requestId: id, reasons: [why], codes: ['unknown-outcome-pending'], requiredConfirmations: ['approve'] };
+      this.requests.set(id, {
+        requestId: id, hash: '', status: 'unknown', agentId: safeId(agent), taskId: '', network: net === 'test' ? 'test' : 'main', ...(net === 'invalid' ? { netInvalid: true } : {}), totalSats,
         createdAt: now, expiresAt: 0, settledAt: now, decision, required: Object.freeze(['approve'] as Confirmation[]),
       });
-      } catch { /* a throwing entry is dropped */ }
+    };
+    let bad = 0;
+    // an entry that cannot be read is never dropped: it becomes a placeholder unknown (on the stricter side, mainnet switched off), so the block it stood for stays
+    // until the owner resolves it (`invalid-seed-N`). Only an entry that is not even an object has nothing to keep, and it gets the same placeholder.
+    const placeholder = (agent: unknown, sats: unknown) => { putUnknown(`invalid-seed-${bad++}`, agent, isSats(sats) ? sats : 0, 'invalid', 'an earlier session left a spend without a known outcome, and its record could not be read'); this.seedMainnetOff(); };
+    for (const u0 of seeds) {
+      try {
+        if (!u0 || typeof u0 !== 'object') { placeholder(undefined, 0); continue; }
+        const g = u0 as { requestId?: unknown; agentId?: unknown; totalSats?: unknown; net?: unknown };
+        const u = { requestId: g.requestId, agentId: g.agentId, totalSats: g.totalSats, net: g.net }; // each field read once
+        if (typeof u.requestId !== 'string' || !REQUEST_ID.test(u.requestId) || !isSats(u.totalSats)) { placeholder(u.agentId, u.totalSats); continue; }
+        const dup = this.requests.get(u.requestId);
+        if (dup) { if (dup.hash === '' && dup.status === 'unknown' && u.totalSats > dup.totalSats) dup.totalSats = u.totalSats; continue; } // a repeated id keeps the LARGER amount
+        const net = parseNet(u.net);
+        // an earlier mainnet spend with no known outcome: the switch starts OFF whatever the file said (the owner resolves it, then turns it on again)
+        if (net !== 'test') this.seedMainnetOff();
+        putUnknown(u.requestId, u.agentId, u.totalSats, net, 'an earlier session left this spend without a known outcome');
+      } catch { try { placeholder(undefined, 0); } catch { /* nothing more can be kept */ } }
     }
+  }
+
+  private seedMainnetOff(): void {
+    if (!this.mainnetOn) return;
+    this.mainnetOn = false;
+    this.seedOffPending = 'an earlier mainnet spend has no known outcome';
   }
 
   // ---------------------------------------------------------------- time, arming, freezing
@@ -411,8 +428,8 @@ export class PolicyEngine {
     }
     let mainUnknown = false;
     for (const r of this.requests.values()) {
-      if (r.status === 'pending' && wall >= r.expiresAt) { r.status = 'expired'; r.settledAt = wall; this.emit({ type: 'expired', requestId: r.requestId }); }
-      else if (r.status === 'approved' && wall >= (r.approvedAt ?? 0) + EXEC_TTL_MS) { r.status = 'unknown'; r.settledAt = wall; mainUnknown ||= r.network === 'main'; this.emit({ type: 'settled', requestId: r.requestId, outcome: 'unknown', sats: null }); }
+      if (r.status === 'pending' && wall >= r.expiresAt) { r.status = 'expired'; r.settledAt = wall; this.emit({ type: 'expired', requestId: r.requestId, net: recNet(r) }); }
+      else if (r.status === 'approved' && wall >= (r.approvedAt ?? 0) + EXEC_TTL_MS) { r.status = 'unknown'; r.settledAt = wall; mainUnknown ||= r.network === 'main'; this.emit({ type: 'settled', requestId: r.requestId, outcome: 'unknown', sats: null, net: recNet(r) }); }
     }
     if (mainUnknown) this.mainnetOff('a mainnet spend has an unknown outcome');
   }
@@ -499,7 +516,11 @@ export class PolicyEngine {
   }
 
   /** Registers what runs after the switch goes from on to off (the module saves the policy file and writes the audit line). One hook; a later call replaces it. */
-  setMainnetOffHook(hook: (reason: string) => void): void { this.mainnetOffHook = hook; }
+  setMainnetOffHook(hook: (reason: string) => void): void {
+    this.mainnetOffHook = hook;
+    // a restart seed switched it off before any hook existed: run it now, so the file and the audit log say off too
+    if (this.seedOffPending) { const why = this.seedOffPending; this.seedOffPending = null; try { hook(why); } catch { /* saving must not undo a safety step */ } }
+  }
 
   /** Denies every PENDING card (of one network, or all) and frees its reservation. Approved spends are not touched: they are mid-flight and belong to the spend path. Returns the ids. */
   voidPending(reason = 'voided', net?: Net): string[] {
@@ -523,7 +544,7 @@ export class PolicyEngine {
     return { ...this.nets[net].caps };
   }
 
-  /** Replaces the allowlist of ONE network (default testnet). An entry that is a valid address of the other network is refused, and mainnet takes valid mainnet addresses only. */
+  /** Replaces the allowlist of ONE network (default testnet). Each network's list takes valid addresses of that network only. */
   setAllowlist(list: unknown, net: Net = 'test'): string[] {
     const max = NET[net].maxAllowlist;
     const items: unknown[] | null = Array.isArray(list) ? [...list] : null; // copied once: what is checked is what is stored
@@ -532,7 +553,7 @@ export class PolicyEngine {
     for (const a of items) {
       const n = normalizeRecipient(typeof a === 'string' ? a.trim() : a); // the owner's input is trimmed once, here; a transaction's recipient never is
       if (!n) throw new PolicyError('a recipient must be 3 to 120 characters of letters, digits and . _ @ : + -');
-      if (!recipientFitsNet(net, n)) throw new PolicyError(net === 'main' ? `${safeText(n, 48)} is not a valid mainnet address` : `${safeText(n, 48)} is a mainnet address: it cannot go on the testnet list`);
+      if (!recipientFitsNet(net, n)) throw new PolicyError(net === 'main' ? `${safeText(n, 48)} is not a valid mainnet address` : `${safeText(n, 48)} is not a valid testnet address (a mainnet address cannot go on the testnet list)`);
       out.add(n);
     }
     this.nets[net].allowlist = [...out];
@@ -550,7 +571,7 @@ export class PolicyEngine {
   }
   private reserved(net: Net): number {
     let n = 0;
-    for (const r of this.requests.values()) if (RESERVING.has(r.status) && applies(r.netInvalid ? 'invalid' : r.network, net)) n += r.totalSats;
+    for (const r of this.requests.values()) if (RESERVING.has(r.status) && applies(recNet(r), net)) n += r.totalSats;
     return n;
   }
   private sessionSats(net: Net): number {
@@ -616,9 +637,10 @@ export class PolicyEngine {
       if (cfg.allowlist.length && !cfg.allowlist.includes(normalizeRecipient(o.recipient) ?? '')) no('not-allowlisted', `recipient ${safeText(o.recipient, 48)} is not on the allowlist`);
       // the version byte of the recipient must be this network's (on mainnet the recipient must be a valid address at all)
       const an = addressNet(o.recipient);
-      if (an === null ? net === 'main' : an !== net) no('address-network-mismatch', `recipient ${safeText(o.recipient, 48)} is not a ${net === 'main' ? 'mainnet' : 'testnet'} address`);
+      if (an !== net) no('address-network-mismatch', `recipient ${safeText(o.recipient, 48)} is not a ${net === 'main' ? 'mainnet' : 'testnet'} address`);
     }
-    if (payments.length > cfg.caps.maxOutputs) no('too-many-outputs', `${payments.length} payment outputs, the limit is ${cfg.caps.maxOutputs}`);
+    // mainnet: exactly one payment, whatever the caps say (the hard ceiling is 1 as well; this does not rely on it)
+    if (payments.length > (net === 'main' ? Math.min(1, cfg.caps.maxOutputs) : cfg.caps.maxOutputs)) no('too-many-outputs', `${payments.length} payment outputs, the limit is ${net === 'main' ? Math.min(1, cfg.caps.maxOutputs) : cfg.caps.maxOutputs}`);
     if (tx.feeSats > cfg.caps.maxFeeSats) no('fee-too-high', `fee ${tx.feeSats} sats is above the ceiling of ${cfg.caps.maxFeeSats}`);
     if (total > cfg.caps.perTxSats) no('over-cap', `${total} sats is above the per-transaction cap of ${cfg.caps.perTxSats}`);
     const wall = this.clock.wall();
@@ -680,6 +702,8 @@ export class PolicyEngine {
     }
     if (!ok) p.push('every output needs a recipient and a whole number of sats above zero');
     if (change > 1) p.push('more than one change output');
+    // the engine does not trust the decoder's labels alone: a transaction with no payment output (everything flagged change) is refused (mainnet's "exactly one" is checked in evaluate)
+    if (ok && d.outputs.length - change < 1) p.push('a transaction needs at least one payment output');
     if (ok && isSats(d.feeSats) && isSats(d.inputSats) && sum + d.feeSats !== d.inputSats) p.push('the amounts do not add up (inputs must equal outputs plus fee)');
     return p;
   }
@@ -744,8 +768,22 @@ export class PolicyEngine {
     if (walletNetwork !== r.network) { r.status = 'denied'; r.settledAt = this.clock.wall(); return { ok: false, reason: 'the wallet is no longer on the network this card was made for' }; }
     r.status = 'approved'; r.approvedAt = this.clock.wall();
     if (r.network === 'main') this.disarm('the one mainnet spend this arm covers was approved');
-    this.emit({ type: 'approved', requestId, totalSats: r.totalSats });
+    this.emit({ type: 'approved', requestId, totalSats: r.totalSats, net: recNet(r) });
     return { ok: true, totalSats: r.totalSats };
+  }
+
+  /**
+   * The spend path asks this immediately before it signs: the request is approved, the chain is not frozen, and for mainnet the switch is
+   * still on (the owner may have pressed Disable between the approval and now). False = do not sign. Read-only apart from the sweep (an
+   * overdue approval turns unknown there, which is also false).
+   */
+  canSign(requestId: string): boolean {
+    this.sweep();
+    const r = this.requests.get(requestId);
+    if (!r || r.status !== 'approved') return false;
+    if (this.frozen) return false;
+    if (r.network === 'main' && (r.netInvalid || !this.mainnetOn)) return false;
+    return true;
   }
 
   /** The human (or a timeout) says no. Releases the reservation. */
@@ -770,13 +808,13 @@ export class PolicyEngine {
     try { kind = outcome.kind; sats = (outcome as { sats?: unknown }).sats; } catch { kind = 'unknown'; sats = undefined; }
     const wall = this.clock.wall();
     r.settledAt = wall;
-    const unknown = (reason: string) => { r.status = 'unknown'; this.emit({ type: 'settled', requestId, outcome: 'unknown', sats: null }); if (r.network === 'main') this.mainnetOff('a mainnet spend has an unknown outcome'); return { ok: false, reason }; };
-    if (kind === 'failed') { r.status = 'failed'; this.emit({ type: 'settled', requestId, outcome: 'failed', sats: null }); return { ok: true }; }
+    const unknown = (reason: string) => { r.status = 'unknown'; this.emit({ type: 'settled', requestId, outcome: 'unknown', sats: null, net: recNet(r) }); if (r.network === 'main') this.mainnetOff('a mainnet spend has an unknown outcome'); return { ok: false, reason }; };
+    if (kind === 'failed') { r.status = 'failed'; this.emit({ type: 'settled', requestId, outcome: 'failed', sats: null, net: recNet(r) }); return { ok: true }; }
     if (kind === 'unknown') { unknown(''); return { ok: true }; }
     if (kind !== 'executed' || !isSats(sats)) return unknown('the reported amount is not a number of sats');
     r.status = 'executed'; r.actualSats = sats;
-    this.ledger.push({ requestId, sats, at: wall, session: this.sessionId, net: r.netInvalid ? 'invalid' : r.network });
-    this.emit({ type: 'settled', requestId, outcome: 'executed', sats });
+    this.ledger.push({ requestId, sats, at: wall, session: this.sessionId, net: recNet(r) });
+    this.emit({ type: 'settled', requestId, outcome: 'executed', sats, net: recNet(r) });
     if (sats !== r.totalSats) {
       this.freeze(`the amount sent (${sats} sats) is not the amount approved (${r.totalSats} sats)`);
       if (r.network === 'main') this.mainnetOff('the amount sent on mainnet is not the amount approved');
@@ -794,11 +832,11 @@ export class PolicyEngine {
     const wall = this.clock.wall();
     if (kind === 'sent') {
       if (!isSats(sats)) return false;
-      r.status = 'executed'; r.actualSats = sats; this.ledger.push({ requestId, sats, at: wall, session: this.sessionId, net: r.netInvalid ? 'invalid' : r.network });
+      r.status = 'executed'; r.actualSats = sats; this.ledger.push({ requestId, sats, at: wall, session: this.sessionId, net: recNet(r) });
     } else if (kind === 'not-sent') r.status = 'failed';
     else return false;
     r.settledAt = wall;
-    this.emit({ type: 'resolved', requestId, outcome: String(kind) });
+    this.emit({ type: 'resolved', requestId, outcome: String(kind), net: recNet(r) });
     return true;
   }
 
@@ -828,7 +866,7 @@ export class PolicyEngine {
       caps: { ...nets.test.caps }, hardCaps: { ...nets.test.hardCaps }, allowlist: [...nets.test.allowlist],
       usage: { ...nets.test.usage, invalidNetRecords: this.ledger.filter((r) => r.net === 'invalid').length + live.filter((r) => r.netInvalid).length },
       pending: live.filter((r) => r.status === 'pending' || r.status === 'approved').map((r) => ({ requestId: r.requestId, status: r.status, agentId: r.agentId, totalSats: r.totalSats, expiresAt: r.expiresAt, network: r.network })),
-      unknown: live.filter((r) => r.status === 'unknown').map((r) => ({ requestId: r.requestId, agentId: r.agentId, totalSats: r.totalSats, net: r.netInvalid ? 'invalid' : r.network })),
+      unknown: live.filter((r) => r.status === 'unknown').map((r) => ({ requestId: r.requestId, agentId: r.agentId, totalSats: r.totalSats, net: recNet(r) })),
     };
   }
 }

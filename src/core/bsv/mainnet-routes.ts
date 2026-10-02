@@ -43,12 +43,14 @@ const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 
 export function registerMainnetRoutes(add: RouteAdder, deps: MainnetRouteDeps): void {
   const { policy } = deps;
   let ownerAction = false;
-  let lastSaved = true;
+  /** The result of the save the hook did on the latest on -> off change (null = the hook did not run). */
+  let hookSaved: boolean | null = null;
   // every on -> off change, whoever caused it, is saved and logged here; a failed save freezes (in memory) rather than leave the file saying "on"
   policy.setMainnetOffHook((reason) => {
-    lastSaved = deps.persist();
-    deps.note(ownerAction ? 'owner' : 'legion', 'policy', 'mainnet-off', reason, { saved: lastSaved });
-    if (!lastSaved) policy.freeze('the mainnet switch could not be saved, so the policy file may still say it is on');
+    const saved = deps.persist();
+    hookSaved = saved;
+    deps.note(ownerAction ? 'owner' : 'legion', 'policy', 'mainnet-off', reason, { saved });
+    if (!saved) policy.freeze('the mainnet switch could not be saved, so the policy file may still say it is on');
   });
 
   add('POST', MAINNET_ROUTE, ({ req, body }) => {
@@ -57,9 +59,16 @@ export function registerMainnetRoutes(add: RouteAdder, deps: MainnetRouteDeps): 
     if (!enabled) {
       // the safer direction: admin secret only (the gate), no dialog, available whatever else is going on
       deps.checkPolicyFile();
-      ownerAction = true;
+      ownerAction = true; hookSaved = null;
       try { policy.mainnetOff('switched off by the owner'); } finally { ownerAction = false; }
-      return { ...(deps.view() as object), persisted: lastSaved };
+      // Disable always writes the file and reports THAT result, even when the switch was already off in memory (the file may still say on)
+      let persisted = hookSaved as boolean | null; // set by the hook above
+      if (persisted === null) {
+        persisted = deps.persist();
+        deps.note('owner', 'policy', 'mainnet-off', 'switched off by the owner (it was already off in memory; the file was written again)', { saved: persisted });
+        if (!persisted) policy.freeze('the mainnet switch could not be saved, so the policy file may still say it is on');
+      }
+      return { ...(deps.view() as object), persisted };
     }
     deps.requireNative(req);
     deps.checkPolicyFile();

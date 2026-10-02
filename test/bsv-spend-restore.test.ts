@@ -12,12 +12,13 @@ import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { createSdkMcpServer, tool } from '@anthropic-ai/claude-agent-sdk';
 import { AuditLog } from '../src/core/bsv/audit.js';
 import type { AuditEntry } from '../src/core/bsv/audit.js';
-import { DEFAULT_CAPS, ledgerFromAudit, PolicyEngine } from '../src/core/bsv/policy.js';
+import { TESTNET_DEFAULT_CAPS, ledgerFromAudit, PolicyEngine } from '../src/core/bsv/policy.js';
 import type { SpendRequest } from '../src/core/bsv/policy.js';
 import { buildBsvStatusServer, renderWalletStatus } from '../src/core/bsv/wallet-tool.js';
 import { toWalletStatus } from '../src/core/bsv/wallet-probe.js';
+import { mkAddr } from './bsv-net-helpers.js';
 
-const ALICE = 'mtestAddressAlice1111111111111111';
+const ALICE = mkAddr(0x6f, 0x11);
 const NOW = Date.parse('2026-10-02T12:00:00.000Z');
 
 function logAt() {
@@ -34,10 +35,10 @@ function restoreUnknown(log: AuditLog): Array<{ requestId: string; agentId: stri
   const cleared = new Set(log.verifiedEntries((e) => e.tool === 'bsv_spend_request' && ['executed', 'failed', 'resolved'].includes(e.decision)).map((e) => String(e.fields.requestId)));
   return started.filter((e) => !cleared.has(String(e.fields.requestId))).map((e) => ({ requestId: String(e.fields.requestId), agentId: e.agent, totalSats: Number(e.fields.totalSats) }));
 }
-const engineFrom = (unknown: ReturnType<typeof restoreUnknown>) => new PolicyEngine({ clock: { wall: () => NOW, mono: () => 1 }, sessionId: 's2', unknown, config: { caps: { ...DEFAULT_CAPS }, allowlist: [ALICE], frozen: null } });
+const engineFrom = (unknown: ReturnType<typeof restoreUnknown>) => new PolicyEngine({ clock: { wall: () => NOW, mono: () => 1 }, sessionId: 's2', unknown, config: { caps: { ...TESTNET_DEFAULT_CAPS }, allowlist: [ALICE], frozen: null } });
 const req = (id: string): SpendRequest => ({
   requestId: id, network: 'test', walletNetwork: 'test', agentId: 'assayer', taskId: 'task-1', reason: 'x', tainted: false,
-  decoded: { inputSats: 4620, outputs: [{ recipient: ALICE, sats: 600 }, { recipient: 'mtestChange', sats: 4000, change: true }], feeSats: 20 },
+  decoded: { inputSats: 4620, outputs: [{ recipient: ALICE, sats: 600 }, { recipient: mkAddr(0x6f, 0x44), sats: 4000, change: true }], feeSats: 20 },
 });
 const executing = (log: AuditLog, id: string, sats = 620) => log.append({ agent: 'assayer', task: 't1', tool: 'bsv_spend_request', decision: 'executing', fields: { requestId: id, totalSats: sats } });
 
@@ -84,7 +85,7 @@ test('restore: duplicate executed lines for one request count once in the 24 h w
   log.append({ agent: 'legion', tool: 'spend-policy', decision: 'executed', fields: { requestId: 'req-restore-08', sats: 400 } });
   const rec = ledgerFromAudit(log.entries((e: AuditEntry) => e.decision === 'executed'));
   assert.equal(rec.reduce((a, r) => a + r.sats, 0), 1000);
-  const e = new PolicyEngine({ clock: { wall: () => NOW, mono: () => 1 }, ledger: rec, config: { caps: { ...DEFAULT_CAPS }, allowlist: [ALICE], frozen: null } });
+  const e = new PolicyEngine({ clock: { wall: () => NOW, mono: () => 1 }, ledger: rec, config: { caps: { ...TESTNET_DEFAULT_CAPS }, allowlist: [ALICE], frozen: null } });
   assert.equal(e.snapshot().usage.last24hSats, 1000);
 });
 

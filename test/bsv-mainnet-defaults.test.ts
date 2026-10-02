@@ -66,7 +66,9 @@ test('C25: the default is false on every path that does not read an explicit tru
   assert.equal(new PolicyEngine().config().mainnetEnabled, false);
   assert.equal(new PolicyEngine().snapshot().mainnetEnabled, false);
   for (const raw of [undefined, null, {}, [], 'on', 1, { mainnetEnabled: 'true' }, { mainnetEnabled: 1 }, { mainnetEnabled: {} }, { mainnetEnabled: [true] }, { mainnet: true }, { nets: { main: { enabled: true } } }]) assert.equal(sanitizePolicyConfig(raw).mainnetEnabled, false, JSON.stringify(raw));
-  assert.equal(sanitizePolicyConfig({ mainnetEnabled: true }).mainnetEnabled, true, 'only the exact boolean');
+  assert.equal(sanitizePolicyConfig({ nets: {}, mainnetEnabled: true }).mainnetEnabled, true, 'only the exact boolean, in a file of the current shape');
+  assert.equal(sanitizePolicyConfig({ mainnetEnabled: true }).mainnetEnabled, false, 'B7: a legacy-shaped file (no nets) never loads mainnet on');
+  assert.equal(sanitizePolicyConfig({ caps: {}, allowlist: [], mainnetEnabled: true, frozen: null }).mainnetEnabled, false, 'B7: whatever else the legacy shape holds'); 
   const u = untrustedConfig('why');
   assert.equal(u.mainnetEnabled, false); assert.equal(u.frozen?.reason, 'why');
   assert.deepEqual(u.nets.main, { caps: { ...NET.main.defaultCaps }, allowlist: [] }); assert.deepEqual(u.nets.test, { caps: { ...NET.test.defaultCaps }, allowlist: [] });
@@ -210,8 +212,9 @@ test('C27: DISABLE needs no dialog and no native secret, works while frozen or w
   assert.equal(off.status, 200); assert.equal(off.body.mainnetEnabled, false); assert.equal(off.body.armed, false); assert.equal(off.body.persisted, true);
   assert.equal(r.policy.isArmed(), false); assert.equal(saved(r).mainnetEnabled, false);
   assert.deepEqual(r.notes.map((n) => n.slice(0, 3)), [['owner', 'policy', 'mainnet-off']]);
-  assert.equal((await r.call({ enabled: false }, { ...AUTH })).status, 200, 'idempotent');
-  assert.equal(r.notes.length, 1);
+  const again = await r.call({ enabled: false }, { ...AUTH });
+  assert.equal(again.status, 200, 'idempotent'); assert.equal(again.body.persisted, true, 'B5: a repeated Disable writes the file again and reports that result');
+  assert.equal(r.notes.filter((n) => n[2] === 'mainnet-off').length, 2, 'and logs it');
   const fz = await rig({ on: true, frozen: true }); fz.flags.bsv = false;
   assert.equal((await fz.call({ enabled: false }, { ...AUTH })).status, 200); assert.equal(fz.policy.mainnetEnabled, false);
   assert.equal(saved(fz).mainnetEnabled, false);
@@ -248,7 +251,7 @@ test('C33: a switch-off that cannot be saved freezes the chain instead of leavin
 // ------------------------------------------------------------------ C35: ships off, and the words say so without overclaiming
 
 test('C35: the sentences Legion shows about mainnet say it is OFF until the owner turns it on, scope the claim to Legion\'s own code, and never say it refuses mainnet or is testnet only', () => {
-  assert.match(MAINNET_WARNING, /Mainnet spending is off in Legion's own code until you turn it on/);
+  assert.match(MAINNET_WARNING, /needs the mainnet switch \(off by default\)/);
   assert.match(MAINNET_WARNING, /wallet's own prompt/);
   const dir = join(process.cwd(), 'src', 'core', 'bsv');
   for (const f of readdirSync(dir).filter((n) => n.endsWith('.ts'))) {
