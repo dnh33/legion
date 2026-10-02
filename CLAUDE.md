@@ -1,6 +1,6 @@
 # Working on Legion (instructions for coding agents)
 
-Legion is a local, Claude-only multi-agent desktop app: Electron shell, Node/TypeScript core on `127.0.0.1:4747`, React UI. Read `docs/ARCHITECTURE.md` first, then the doc for the area you touch (`docs/BLENDER.md`, `docs/BSV-MODE.md`, `docs/BSV-WALLET-DESIGN.md`, `docs/CHAT.md`, `docs/LIBRARY.md`, `docs/VM-NOTES.md`, `SECURITY.md`). Plans for work in flight are in `claude/plan-*.md`; the living tracker is `claude/legion-release-tracker.md`; checks that need the owner's Windows PC are in `claude/tracker-pc-checks.md`.
+Legion is a local, Claude-only multi-agent desktop app: Electron shell, Node/TypeScript core on `127.0.0.1:4747`, React UI. Read `docs/ARCHITECTURE.md` first, then the doc for the area you touch (`docs/BLENDER.md`, `docs/BSV-MODE.md`, `docs/BSV-WALLET-DESIGN.md`, `docs/CHAT.md`, `docs/LIBRARY.md`, `docs/VM-NOTES.md`, `SECURITY.md`). To test anything, read `docs/TESTING.md` first (a fake-backed harness lets you test end to end with no real Claude, boat.dev, wallet or Blender; `docs/TESTING-BSV.md` and `docs/TESTING-BLENDER.md` for those areas). Plans for work in flight are in `claude/plan-*.md`; the living tracker is `claude/legion-release-tracker.md`; checks that need the owner's Windows PC are in `claude/tracker-pc-checks.md`.
 
 ## If you run in a cloud session
 

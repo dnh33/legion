@@ -247,5 +247,73 @@ Default stance: "not fixed". The builder's report is never the proof.
 The text below is the real output of the commands on the commit named, in a Linux cloud container (Node 22), not hand-written. Re-run to refresh.
 
 <!-- VERIFIED-OUTPUT-START -->
-(filled in below)
+Commit: the tip of `claude/test-harness` when this section was written (parent `792a0b3`, base `integration/v1` `1ed80f8`). Node v22.22.0, Linux container.
+
+**The gate** (`npm ci && npm run build:ts && npm test && npm run typecheck && npm run build:ui`, fresh `node_modules` and `dist`, all five exit codes 0, `npm ci` reported 0 vulnerabilities):
+
+```
+# tests 1441
+# suites 5
+# pass 1439
+# fail 0
+# cancelled 0
+# skipped 2
+# todo 0
+```
+
+The count includes the 3 tests in `harness-smoke`. The 2 skips are the real-PowerShell tests ("no PowerShell on this machine; the Windows CI job runs these"). Not run here: Windows, real Electron, real Claude, real boat.dev, a real wallet, real Blender.
+
+**All scenarios** (`npm run harness -- scenarios`, a fresh stack per scenario, exit code 0):
+
+```
+core-task-run                PASS  10 checks    930 ms
+approval-card-flow           PASS  12 checks    920 ms
+rooms-bot-room-request       PASS  10 checks   1044 ms
+mcp-token-limits             PASS  27 checks   1055 ms
+library-capture-taint        PASS   8 checks    927 ms
+boat-lazy-key-probe          PASS   4 checks   3008 ms
+vm-start-stop                PASS   7 checks  20093 ms
+bsv-readonly                 PASS  17 checks   2200 ms
+bsv-policy-tamper            PASS   9 checks   2520 ms
+blender-off-and-fake-exe     PASS   6 checks    996 ms
+harness-guards               PASS   6 checks    824 ms
+=> ok=true passed=11 failed=0
+```
+
+**Smoke test** (`npm run harness:smoke`; it starts a stack, calls `status` and `call`, runs `core-task-run` and `mcp-token-limits` in it, stops it, then asserts the supervisor and core pids are gone, the temp folder is gone and no 64-hex value is in the handle, config or logs; `ls <tmpdir>/legion-harness-*` afterwards: nothing):
+
+```
+ok 1 - harness: start, run two scenarios, stop; no process and no temp folder is left; no 64-hex secret on disk
+ok 2 - harness: the harness core entry composes the same modules as src/bin/legion-core.ts
+ok 3 - harness: nothing the harness adds names the real wallet port except the refusal guard
+# tests 3
+# pass 3
+# fail 0
+# cancelled 0
+# skipped 0
+```
+
+**Scratch mutations of the product code** (edit one line in `src/`, rebuild, run the scenario, expect FAIL, `git checkout -- <file>`, rebuild, all green again; `git status -- src` clean afterwards). Each line is `mutation  scenario  result  first failed check`:
+
+- M1 `src/core/admin.ts`: add `POST /api/approvals/:id` to the token's client list.
+- M2 `src/core/engine.ts`: tasks started by the token get ceiling `full` instead of `ask`.
+- M3 `src/core/comms/hub.ts`: a denied room request goes ahead (`if (false) throw`).
+- M4 `src/core/engine.ts`: `taintsRun` returns false for every tool.
+- M5 `src/core/vm-manager.ts`: `startReaper` runs the key probe at start.
+- M6 `src/core/bsv/index.ts`: the native-secret comparison is removed.
+- M7 `src/core/bsv/index.ts`: the policy-file fingerprint check returns early.
+
+```
+M1-token-may-answer-approvals approval-card-flow FAIL check failed: token-only caller is refused ({"actual":200,"expected":403})
+M1-token-may-answer-approvals rooms-bot-room-request FAIL check failed: token cannot answer ({"actual":200,"expected":403})
+M1-token-may-answer-approvals mcp-token-limits FAIL check failed: POST /api/approvals/apr_none refuses the token ({"actual":400,"expected":403})
+M2-token-task-ceiling-full mcp-token-limits FAIL check failed: origin is the MCP origin with the ask ceiling ({"actual":["mcp","full"],"expected":["mcp","ask"]})
+M3 rooms-bot-room-request FAIL check failed: bot was told the user did not approve ({
+M4 library-capture-taint FAIL check failed: clean run is not tainted, the WebFetch run is ([null,null])
+M5 boat-lazy-key-probe FAIL check failed: zero boat.dev requests after core start ({"actual":[{"method":"GET","path":"/me"},{"method":"GET","path":"/sandboxes"},{"method":"POST","p
+M6 bsv-readonly FAIL check failed: admin alone cannot connect ({"reachable":true,"authenticated":true,"network":"test","version":"1.2.3","height":1234567,"checkedAt":"2026-10
+M7 bsv-policy-tamper FAIL check failed: the next policy read freezes the chain (null)
+```
+
+Seven scenarios were shown red by a product mutation. Two weak spots were found and fixed on the way: `mcp-token-limits` stayed green under M1 until it also tried `POST /api/approvals/...` with the token, and the drift check in `harness-smoke` stayed green when a module was dropped from the list until it compared the `const modules = [...]` line. The three smoke assertions were then each shown red by a scratch mutation of the harness itself: a 64-hex value added to the handle file, the temp folder cleanup removed from both the supervisor and `stop`, and `blender` dropped from the harness core's module list (all three: `harness-smoke` red; harness files reverted).
 <!-- VERIFIED-OUTPUT-END -->
