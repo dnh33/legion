@@ -11,7 +11,7 @@ const NEW_IDS = ['inquisitor', 'scribe', 'archivist', 'sentinel', 'forgemaster',
 const tmp = () => mkdtempSync(join(tmpdir(), 'legion-roster-'));
 const words = (s: string) => s.trim().split(/\s+/).length;
 
-/** Snapshot of the three frozen defaults, taken from the git HEAD version of src/core/store.ts (before the roster). */
+/** Snapshot of the three frozen defaults, taken from the git HEAD version of src/core/store.ts (before the roster). One deliberate change since: Builder's VM size is 'default' (a free boat.dev trial refuses 'large'). */
 const FROZEN_SNAPSHOT = 
 [
   {
@@ -41,7 +41,7 @@ const FROZEN_SNAPSHOT =
     "systemPrompt": "You write, run and debug code. Make small, verifiable changes and run tests before reporting done.\nPrefer your cloud VM for untrusted code, heavy installs, long builds and GUI/browser work.\nStop the VM when you are finished with it.",
     "vm": {
       "enabled": true,
-      "size": "large",
+      "size": "default",
       "idleStopMinutes": 15
     },
     "mcpServers": [

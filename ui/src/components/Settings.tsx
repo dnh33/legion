@@ -1,7 +1,7 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import type { McpServerEntry, SettingsPatch, SettingsView } from '../../../src/shared/types';
 import { api, base, openExternal, token } from '../api';
-import { closeSettings, errText, loadSettings, saveSettings, setSettingsSection as setSection, toast, useStore, type SettingsSection } from '../store';
+import { checkBoat, closeSettings, errText, loadSettings, saveSettings, setSettingsSection as setSection, toast, useStore, type SettingsSection } from '../store';
 import { copyText } from '../util';
 import { Icon } from './icons';
 
@@ -126,8 +126,15 @@ function ClaudeSection({ s }: { s: SettingsView }) {
 
 /* ---------------- boat.dev ---------------- */
 type BoatStatus = { kind: 'checking' | 'ok' | 'bad' | 'none'; detail?: string };
+const rateText = (n?: number) => (typeof n === 'number' ? String(n) : '');
 function BoatSection({ s }: { s: SettingsView }) {
   const b = s.boat;
+  const health = useStore((st) => st.boatHealth);
+  const [rates, setRates] = useState({ small: rateText(b.rates.small), default: rateText(b.rates.default), large: rateText(b.rates.large) });
+  const [currency, setCurrency] = useState(b.currency);
+  const [checking, setChecking] = useState(false);
+  useEffect(() => { setRates({ small: rateText(b.rates.small), default: rateText(b.rates.default), large: rateText(b.rates.large) }); setCurrency(b.currency); }, [b.rates.small, b.rates.default, b.rates.large, b.currency]);
+  const ratesDirty = rates.small !== rateText(b.rates.small) || rates.default !== rateText(b.rates.default) || rates.large !== rateText(b.rates.large) || currency !== b.currency;
   const [key, setKey] = useState('');
   const [show, setShow] = useState(false);
   const [url, setUrl] = useState(b.baseUrl);
@@ -136,11 +143,11 @@ function BoatSection({ s }: { s: SettingsView }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [confirmRm, setConfirmRm] = useState(false);
-  const [testNote, setTestNote] = useState<{ ok: boolean; text: string } | null>(null);
+  const [testNote, setTestNote] = useState<{ ok: boolean; text: string; warnings?: string[] } | null>(null);
 
   const check = async (k?: string) => {
     setTesting(true);
-    try { const r = await api.testBoat(k, url.trim() || undefined); if (!k) setStatus({ kind: r.ok ? 'ok' : 'bad', detail: r.detail }); setTestNote({ ok: r.ok, text: r.detail }); return r; }
+    try { const r = await api.testBoat(k, url.trim() || undefined); if (!k) setStatus({ kind: r.ok ? 'ok' : 'bad', detail: r.detail }); setTestNote({ ok: r.ok, text: r.detail, warnings: r.warnings }); return r; }
     catch (e) { setTestNote({ ok: false, text: errText(e) }); if (!k) setStatus({ kind: 'bad', detail: errText(e) }); return null; }
     finally { setTesting(false); }
   };
@@ -150,6 +157,12 @@ function BoatSection({ s }: { s: SettingsView }) {
     setBusy(true); setError(null);
     try {
       const patch: SettingsPatch = { boat: { ...(key.trim() ? { apiKey: key.trim() } : {}), ...(url !== b.baseUrl ? { baseUrl: url.trim() } : {}) } };
+      if (ratesDirty) {
+        const num = (t: string): number | null => (t.trim() === '' ? null : Number(t.replace(',', '.')));
+        const r = { small: num(rates.small), default: num(rates.default), large: num(rates.large) };
+        if (Object.values(r).some((v) => v !== null && !(Number.isFinite(v) && v > 0))) throw new Error('Hourly prices must be positive numbers, or empty for no estimate.');
+        patch.boat = { ...patch.boat, rates: r, currency: currency.trim() };
+      }
       await saveSettings(patch); setKey(''); setTestNote(null);
     } catch (e) { setError(errText(e)); }
     setBusy(false);
@@ -159,7 +172,8 @@ function BoatSection({ s }: { s: SettingsView }) {
     try { await saveSettings({ boat: { apiKey: null } }); setConfirmRm(false); setTestNote(null); } catch (e) { setError(errText(e)); }
     setBusy(false);
   };
-  const dirty = key.trim() !== '' || url !== b.baseUrl;
+  const dirty = key.trim() !== '' || url !== b.baseUrl || ratesDirty;
+  const recheck = async () => { setChecking(true); await checkBoat(); setChecking(false); };
   const line = status.kind === 'ok' ? `Connected \u00b7 key ${b.apiKeyHint ?? ''}` : status.kind === 'checking' ? 'Checking the saved key\u2026' : status.kind === 'bad' ? `Key ${b.apiKeyHint ?? ''} saved, but boat.dev did not accept it` : 'Not set up';
 
   return (
@@ -180,6 +194,38 @@ function BoatSection({ s }: { s: SettingsView }) {
           </div>
         </Field>
         {testNote && <div className={`set-test ${testNote.ok ? 'ok' : 'bad'}`} role="status"><Icon name={testNote.ok ? 'check' : 'x'} size={13} /> {testNote.text}{key.trim() ? (testNote.ok ? ' Press Save to keep it.' : '') : ''}</div>}
+        {testNote?.warnings?.map((w) => <div key={w} className="set-test warn" role="status"><Icon name="shield" size={13} /> {w}</div>)}
+        {b.apiKeySet && (
+          <div className="set-perms" aria-label="What this key can do">
+            <div className="set-perms-head"><b>Key permissions</b>
+              <button type="button" className="link-btn" onClick={() => void recheck()} disabled={checking}>{checking ? 'Checking\u2026' : health?.checkedAt ? 'Check again' : 'Check now'}</button>
+            </div>
+            {!health?.checkedAt && <p className="muted-s">Not checked yet. Checking only reads and asks about a VM that does not exist; it never creates one.</p>}
+            {health?.forbidden.map((f) => (
+              <p key={f.action} className="set-perm bad"><Icon name="x" size={13} /> <span>This key cannot <code>{f.action}</code>. Create a full-access key in boat.dev and paste it above.</span></p>
+            ))}
+            {health?.checkedAt && health.forbidden.length === 0 && (
+              <p className="set-perm ok"><Icon name="check" size={13} /> <span>boat.dev did not refuse any action at the last check ({new Date(health.checkedAt).toLocaleTimeString()}). A real call can still be refused; if so, it shows up here.</span></p>
+            )}
+            {health?.claude.state === 'not_configured' && (
+              <p className="set-perm warn"><Icon name="shield" size={13} /> <span>Claude is not configured on boat.dev: open the <button type="button" className="link-btn" onClick={() => openExternal('https://boat.dev/')}>Agents page</button> in your dashboard. Until then the vm_claude tool is off.</span></p>
+            )}
+            {health?.trial.limited && (
+              <p className="set-perm warn"><Icon name="shield" size={13} /> <span>Free trial: the Large VM size is not available. Agents set to Large use Default instead.</span></p>
+            )}
+          </div>
+        )}
+        <div className="set-rates">
+          <div className="set-label">Cost estimate (optional)</div>
+          <div className="set-hint">Legion shows how long a VM ran. To also see an estimate, type your hourly price per size from your boat.dev plan. Leave empty for none. Legion never assumes a price.</div>
+          <div className="set-inline">
+            {(['small', 'default', 'large'] as const).map((k) => (
+              <label key={k} className="set-rate"><span>{k[0]!.toUpperCase() + k.slice(1)} / hour</span>
+                <input inputMode="decimal" value={rates[k]} onChange={(e) => setRates((r) => ({ ...r, [k]: e.target.value }))} placeholder="none" spellCheck={false} /></label>
+            ))}
+            <label className="set-rate"><span>Currency</span><input value={currency} maxLength={12} onChange={(e) => setCurrency(e.target.value)} placeholder="e.g. USD" spellCheck={false} /></label>
+          </div>
+        </div>
         <details className="set-adv">
           <summary>Advanced</summary>
           <Field id="boat-url" label="API base URL" hint="Only change this for a self-hosted or staging boat.dev."><input id="boat-url" value={url} onChange={(e) => setUrl(e.target.value)} spellCheck={false} /></Field>
@@ -191,7 +237,7 @@ function BoatSection({ s }: { s: SettingsView }) {
             ? <><span className="muted-s">Remove the key? VMs stop working until you add one.</span><button type="button" className="btn danger" onClick={() => void remove()} disabled={busy}>Yes, remove</button><button type="button" className="btn-ghost" onClick={() => setConfirmRm(false)}>Keep</button></>
             : <button type="button" className="btn-ghost danger" onClick={() => setConfirmRm(true)}><Icon name="trash" size={13} /> Remove key</button>)}
         </div>
-        <SaveBar dirty={dirty} busy={busy} error={error} onSave={() => void save()} onReset={() => { setKey(''); setUrl(b.baseUrl); setError(null); setTestNote(null); }} />
+        <SaveBar dirty={dirty} busy={busy} error={error} onSave={() => void save()} onReset={() => { setKey(''); setUrl(b.baseUrl); setRates({ small: rateText(b.rates.small), default: rateText(b.rates.default), large: rateText(b.rates.large) }); setCurrency(b.currency); setError(null); setTestNote(null); }} />
       </div>
     </div>
   );

@@ -22,6 +22,12 @@ export function AgentEditor({ id }: { id: string | null }) {
   const opts = models.some((m) => m.value === model) || model === 'auto' ? models : [...models, { value: model, displayName: model, description: '' }];
   const known = [...grouped.current, ...grouped.more].some((m) => m.value === model) || model === 'auto';
   const desc = model === 'auto' ? AUTO_INFO : opts.find((m) => m.value === model)?.description;
+  const trial = useStore((s) => s.boatHealth?.trial.limited === true);
+  const sizeNote = size === 'default'
+    ? 'Default works on every boat.dev plan. Changes apply the next time the VM is started.'
+    : trial
+      ? `Your boat.dev account is on a free trial, which does not allow ${size === 'large' ? 'Large' : 'this size'}. Legion will use Default and tell you.`
+      : 'Bigger sizes need a paid boat.dev plan. On a free trial Legion falls back to Default and tells you.';
   const [busy, setBusy] = useState(false);
   const [confirmDel, setConfirmDel] = useState(false);
 
@@ -72,7 +78,12 @@ export function AgentEditor({ id }: { id: string | null }) {
           <legend>Computer (boat.dev VM)</legend>
           <label className="check-row"><input type="checkbox" checked={vmOn} onChange={(e) => setVmOn(e.target.checked)} /> Let this agent start a VM on demand</label>
           <div className="row" style={{ opacity: vmOn ? 1 : 0.5 }}>
-            <label className="grow">Size<select disabled={!vmOn} value={size} onChange={(e) => setSize(e.target.value as VmSize)}><option value="small">Small</option><option value="default">Default</option><option value="large">Large</option></select></label>
+            <label className="grow">Size
+              <select disabled={!vmOn} value={size} onChange={(e) => setSize(e.target.value as VmSize)} aria-describedby="vm-size-note">
+                <option value="small">Small</option><option value="default">Default (works on every plan)</option><option value="large">Large (paid plan)</option>
+              </select>
+              <span className="field-note" id="vm-size-note">{sizeNote}</span>
+            </label>
             <label className="grow">Stop after idle (min)<input disabled={!vmOn} type="number" min={1} value={idle} onChange={(e) => setIdle(Number(e.target.value))} /></label>
           </div>
         </fieldset>

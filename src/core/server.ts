@@ -56,7 +56,7 @@ const APPROVALS: ApprovalMode[] = ['ask', 'auto-edits', 'full'];
 const VM_SIZES: VmSize[] = ['small', 'default', 'large'];
 
 const VM_STATUS: Record<VmError['code'], number> = {
-  not_configured: 503, disabled: 400, not_running: 409, unknown_agent: 404, boat: 502,
+  not_configured: 503, disabled: 400, not_running: 409, unknown_agent: 404, boat: 502, claude_not_configured: 409,
 };
 
 function allowedOrigin(origin: string | undefined): boolean {
@@ -192,6 +192,7 @@ export function createServer(ctx: CoreContext): Server {
     vms: ctx.store.listVms().filter((v) => agentIdVisible(ctx, v.agentId)),
     approvals: ctx.approvals.pending().filter((a) => agentIdVisible(ctx, a.agentId)),
     boatConfigured: ctx.boatConfigured(),
+    ...(ctx.vms.health ? { boat: ctx.vms.health.view() } : {}),
     auth: ctx.config.claude.auth,
   }));
   route('GET', '/api/config', () => redactConfig(ctx.config));
@@ -321,7 +322,15 @@ export function createServer(ctx: CoreContext): Server {
   // ---- vms -------------------------------------------------------------
   route('GET', '/api/vms', () => ctx.store.listVms());
   route('POST', '/api/vms/:agentId/start', ({ params }) => { mustBeRunnable(params[0]); return ctx.vms.ensureRunning(params[0]); });
-  route('POST', '/api/vms/:agentId/stop', ({ params }) => ctx.vms.stop(params[0]));
+  /** The VmRecord (what the UI stores) plus `stopped`, `message` and `usage`. With no sandbox: 200, stopped:false, message "No sandbox to stop". */
+  route('POST', '/api/vms/:agentId/stop', async ({ params }) => {
+    const r: any = await ctx.vms.stop(params[0]);
+    return r && typeof r === 'object' && r.vm ? { ...r.vm, stopped: r.stopped, message: r.message, usage: r.usage } : r;
+  });
+  route('GET', '/api/vms/:agentId/usage', ({ params }) => ctx.vms.usage(params[0]));
+  /** Re-probe what the boat.dev key may do (cheap reads and not-found probes; never creates a sandbox). */
+  route('POST', '/api/boat/check', () => ctx.vms.health.probe());
+  route('GET', '/api/boat/health', () => ctx.vms.health.view());
   route('POST', '/api/vms/:agentId/exec', ({ params, body }) => {
     mustBeRunnable(params[0]);
     if (!isObj(body)) throw new HttpError(400, 'JSON object body required');

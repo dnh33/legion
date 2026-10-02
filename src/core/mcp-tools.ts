@@ -218,17 +218,18 @@ export function buildLegionMcpServer(ctx: CoreContext): McpServer {
     description:
       'Manage the on-demand boat.dev cloud VM belonging to an agent (only agents with VM enabled; needs boat.dev configured in Legion). ' +
       'Actions: "status" (current state: none/provisioning/running/archived/…), "start" (create or resume and wait until ready; billing runs while it is up), ' +
-      '"stop" (snapshot and stop; billing pauses), "exec" (run a shell `command` inside the VM, auto-starts it; returns exitCode/stdout/stderr), ' +
+      '"stop" (snapshot and stop; billing pauses; says so plainly when there was nothing to stop), "usage" (how long the VM has run this time and today; a money estimate only when the user set an hourly rate), "exec" (run a shell `command` inside the VM, auto-starts it; returns exitCode/stdout/stderr), ' +
       '"desktop" (get a secret streaming URL for the VM\'s desktop — give it to the user, do not share). Legion also stops idle VMs automatically.',
     inputSchema: {
       agent: z.string().describe('Agent id or name.'),
-      action: z.enum(['status', 'start', 'stop', 'exec', 'desktop']),
+      action: z.enum(['status', 'start', 'stop', 'exec', 'desktop', 'usage']),
       command: z.string().optional().describe('Shell command; required for action "exec".'),
     },
-  }, safe(async (a: { agent: string; action: 'status' | 'start' | 'stop' | 'exec' | 'desktop'; command?: string }) => {
+  }, safe(async (a: { agent: string; action: 'status' | 'start' | 'stop' | 'exec' | 'desktop' | 'usage'; command?: string }) => {
     const agent = needAgent(ctx, a.agent);
     switch (a.action) {
       case 'status': return json(ctx.vms.status(agent.id));
+      case 'usage': return json(ctx.vms.usage(agent.id));
       case 'start': return json(await ctx.vms.ensureRunning(agent.id));
       case 'stop': return json(await ctx.vms.stop(agent.id));
       case 'desktop': return ok(await ctx.vms.desktopUrl(agent.id));

@@ -1,6 +1,6 @@
 import type {
   SettingsView, SettingsPatch,
-  AgentProfile, ApprovalRequest, Catalog, ChatMessage, DoctorCheck, LegionConfig, LegionEvent, ModelChoice, StateSnapshot, Task, VmRecord,
+  AgentProfile, ApprovalRequest, BoatHealthView, Catalog, ChatMessage, DoctorCheck, LegionConfig, LegionEvent, ModelChoice, StateSnapshot, Task, VmRecord,
 } from '../../src/shared/types';
 
 declare global {
@@ -78,7 +78,7 @@ export const api = {
   state: (archived = false) => request<StateSnapshot>('GET', `/api/state${archived ? '?archived=1' : ''}`),
   settings: () => request<SettingsView>('GET', '/api/settings'),
   patchSettings: (p: SettingsPatch) => request<SettingsView>('PATCH', '/api/settings', p),
-  testBoat: (apiKey?: string, baseUrl?: string) => request<{ ok: boolean; detail: string }>('POST', '/api/settings/boat/test', { ...(apiKey ? { apiKey } : {}), ...(baseUrl ? { baseUrl } : {}) }),
+  testBoat: (apiKey?: string, baseUrl?: string) => request<{ ok: boolean; detail: string; warnings?: string[] }>('POST', '/api/settings/boat/test', { ...(apiKey ? { apiKey } : {}), ...(baseUrl ? { baseUrl } : {}) }),
   patchTask: (id: string, b: { archived?: boolean; title?: string }) => request<Task>('PATCH', `/api/tasks/${encodeURIComponent(id)}`, b),
   deleteTask: (id: string) => request<{ ok: true }>('DELETE', `/api/tasks/${encodeURIComponent(id)}`),
   config: () => request<Partial<LegionConfig>>('GET', '/api/config'),
@@ -92,7 +92,8 @@ export const api = {
   cancelTask: (id: string) => request<{ ok: boolean }>('POST', `/api/tasks/${encodeURIComponent(id)}/cancel`),
   vms: () => request<VmRecord[]>('GET', '/api/vms'),
   startVm: (agentId: string) => request<VmRecord>('POST', `/api/vms/${encodeURIComponent(agentId)}/start`),
-  stopVm: (agentId: string) => request<VmRecord>('POST', `/api/vms/${encodeURIComponent(agentId)}/stop`),
+  checkBoat: () => request<BoatHealthView>('POST', '/api/boat/check'),
+  stopVm: (agentId: string) => request<VmRecord & { stopped?: boolean; message?: string }>('POST', `/api/vms/${encodeURIComponent(agentId)}/stop`),
   exec: (agentId: string, command: string) =>
     request<{ exitCode: number; stdout: string; stderr: string }>('POST', `/api/vms/${encodeURIComponent(agentId)}/exec`, { command }),
   desktop: (agentId: string) => request<{ url: string }>('POST', `/api/vms/${encodeURIComponent(agentId)}/desktop`),

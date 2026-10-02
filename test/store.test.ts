@@ -17,7 +17,7 @@ test('seedDefaults creates the three agents, is idempotent and keeps edits', () 
   s.seedDefaults(join(dir, 'workspaces'));
   const ids = s.listAgents().map((a) => a.id).filter((id) => ['builder', 'scout', 'zealot'].includes(id)).sort();
   assert.deepEqual(ids, ['builder', 'scout', 'zealot']);
-  assert.equal(s.getAgent('builder')!.vm.size, 'large');
+  assert.equal(s.getAgent('builder')!.vm.size, 'default', 'Builder no longer defaults to large (free trials refuse it)');
   assert.equal(s.getAgent('scout')!.vm.enabled, false);
   assert.equal(s.getAgent('scout')!.model, 'sonnet');
   assert.equal(s.getAgent('zealot')!.approval, 'auto-edits');
@@ -86,7 +86,7 @@ test('getVm returns default record; deleteAgent removes agent and vm', () => {
   const v = s.getVm('builder');
   assert.equal(v.state, 'none');
   assert.equal(v.sandboxId, null);
-  assert.equal(v.size, 'large');
+  assert.equal(v.size, 'default');
   assert.equal(s.getVm('ghost').size, 'default');
   s.upsertVm({ ...v, sandboxId: 'bx_2' });
   assert.equal(s.deleteAgent('builder'), true);

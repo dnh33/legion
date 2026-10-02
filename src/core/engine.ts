@@ -91,7 +91,7 @@ export const LEGION_PREAMBLE = [
   'Use ask when you need the answer before you can continue; it blocks and returns their final message.',
   'Use tell for long or parallel work: it returns at once and their answer arrives later as a new message in your task.',
   'Do not use SendMessage or ListAgents; they do not reach Legion agents. Keep messages short and self-contained.',
-  'You may have mcp__legion__vm_* tools (vm_start, vm_exec, vm_write_file, vm_read_file, vm_claude, vm_desktop, vm_stop)',
+  'You may have mcp__legion__vm_* tools (vm_start, vm_exec, vm_write_file, vm_read_file, vm_claude, vm_desktop, vm_stop, vm_usage)',
   'for an on-demand cloud VM that costs money while running. Start it only when needed',
   '(untrusted code, long jobs, GUI/browser work, heavy installs) and stop it with vm_stop when done.',
   'vm_claude hands a whole task to Claude Code inside the VM, which can also drive the VM desktop/browser.',
@@ -481,6 +481,7 @@ export class Engine {
     out.legion = buildAgentToolsServer({
       agentId: agent.id, taskId, vms: this.vms, bridge: this.bridge,
       vmEnabled: !!agent.vm?.enabled && this.boatConfigured(),
+      claudeAvailable: this.vms.claudeAvailable?.() ?? true, // vm_claude is hidden while Claude is known not to be set up on boat.dev
     });
     const moduleJob: ModuleJob = {
       taskId, ...(job.origin ? { origin: job.origin, ceiling: job.origin.approvalCeiling } : {}),

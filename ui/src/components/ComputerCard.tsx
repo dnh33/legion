@@ -2,13 +2,27 @@ import { useEffect, useRef, useState } from 'react';
 import { api, openExternal } from '../api';
 import { openEditor, openSettings, toast, useStore, vmAction } from '../store';
 import { clip, vmIsLive, vmLabel, vmTone } from '../util';
+import { usageLine, vmUsage } from '../../../src/shared/vm-usage';
 import { Icon } from './icons';
+
+/** Re-render every 30 s while `on` so the "up for" line moves. A timer, not an animation. */
+function useNow(on: boolean): number {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (!on) return;
+    setNow(Date.now());
+    const t = window.setInterval(() => setNow(Date.now()), 30_000);
+    return () => window.clearInterval(t);
+  }, [on]);
+  return now;
+}
 
 export function ComputerCard() {
   const agentId = useStore((s) => s.selectedAgentId);
   const agent = useStore((s) => s.agents.find((a) => a.id === s.selectedAgentId));
   const vm = useStore((s) => s.vms[s.selectedAgentId]);
   const boat = useStore((s) => s.boatConfigured);
+  const health = useStore((s) => s.boatHealth);
   const state = vm?.state ?? 'none';
   const live = vmIsLive(state);
   const transition = state === 'provisioning' || state === 'archiving';
@@ -19,6 +33,7 @@ export function ComputerCard() {
   const [busy, setBusy] = useState(false);
   const agentRef = useRef(agentId);
   agentRef.current = agentId;
+  const now = useNow(live);
 
   // live preview: poll every 2.5s while the VM is up and the window is visible
   useEffect(() => {
@@ -56,6 +71,10 @@ export function ComputerCard() {
 
   if (!agent) return null;
   const blocked = !enabled ? null : !boat ? 'boat' : null;
+  const usage = vm ? vmUsage(vm, now, health?.rates, health?.currency ?? '') : null;
+  const showUsage = enabled && boat && usage && (usage.running || usage.todaySeconds > 0);
+  const refused = health?.forbidden ?? [];
+  const claudeOff = health?.claude.state === 'not_configured';
 
   return (
     <section className="card computer">
@@ -84,6 +103,23 @@ export function ComputerCard() {
             <button className="btn-ghost sm" onClick={() => openSettings('boat')}>Add key in Settings</button></div>
         </div>
       )}
+      {enabled && boat && vm?.notice && state !== 'error' && (
+        <div className="vm-note warn"><Icon name="shield" size={14} /><div><b>{vm.requestedSize ? `Running at ${vm.size} size` : 'Note'}</b>{vm.notice}</div></div>
+      )}
+      {enabled && boat && refused.length > 0 && (
+        <div className="vm-note warn">
+          <Icon name="shield" size={14} />
+          <div><b>This boat.dev key is limited</b>It cannot {refused.map((f) => f.action).join(', ')}. Create a full-access key in boat.dev and paste it in Settings.
+            <button className="btn-ghost sm" onClick={() => openSettings('boat')}>Open boat.dev settings</button></div>
+        </div>
+      )}
+      {enabled && boat && claudeOff && (
+        <div className="vm-note">
+          <Icon name="monitor" size={14} />
+          <div><b>Claude is not configured on boat.dev</b>Open the Agents page in your boat.dev dashboard to connect it. Until then the vm_claude tool is off.
+            <button className="btn-ghost sm" onClick={() => openExternal('https://boat.dev/')}>Open boat.dev</button></div>
+        </div>
+      )}
       {enabled && boat && state === 'provisioning' && (
         <div className="vm-note"><span className="spin" /><div>Booting the VM. Usually under a minute.</div></div>
       )}
@@ -97,6 +133,12 @@ export function ComputerCard() {
         <div className="vm-note">
           <Icon name="monitor" size={14} />
           <div>{state === 'none' ? `No VM yet. It starts when ${clip(agent.name, 28)} needs a computer, or press Start.` : 'Stopped. Snapshot kept, billing paused.'}</div>
+        </div>
+      )}
+
+      {showUsage && usage && (
+        <div className="vm-usage" title="Measured by Legion from ready to stop. boat.dev's own billing may differ.">
+          <span>{usageLine(usage)}</span>{usage.estimate && <em>estimate</em>}
         </div>
       )}
 

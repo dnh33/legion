@@ -7,6 +7,7 @@ import type { SDKUserMessage } from '@anthropic-ai/claude-agent-sdk';
 import { configPath } from '../shared/config.js';
 import type { DoctorCheck, LegionConfig } from '../shared/types.js';
 import type { BoatClient } from './boat.js';
+import { CLAUDE_NOT_CONFIGURED, type BoatHealth } from './boat-health.js';
 import { buildChildEnv } from './engine.js';
 import type { QueryFn } from './engine.js';
 
@@ -54,7 +55,7 @@ async function probeClaude(config: LegionConfig, queryFn: QueryFn, timeoutMs: nu
   }
 }
 
-export async function runDoctor(deps: { config: LegionConfig; getBoat: () => BoatClient | null; queryFn?: QueryFn; probeTimeoutMs?: number }): Promise<DoctorCheck[]> {
+export async function runDoctor(deps: { config: LegionConfig; getBoat: () => BoatClient | null; health?: BoatHealth; queryFn?: QueryFn; probeTimeoutMs?: number }): Promise<DoctorCheck[]> {
   const { config } = deps;
   const queryFn = deps.queryFn ?? realQuery;
   const checks: DoctorCheck[] = [];
@@ -88,8 +89,20 @@ export async function runDoctor(deps: { config: LegionConfig; getBoat: () => Boa
     const boat = deps.getBoat();
     if (!boat) return { ok: true, detail: 'Not configured (agent VMs disabled)', fix: 'Open Settings → boat.dev to add a key and enable VMs' };
     await boat.me();
-    return { ok: true, detail: 'Connected' };
+    const health = deps.health;
+    if (!health) return { ok: true, detail: 'Connected' };
+    if (!health.view().checkedAt) await health.probe(); // first look at what this key may do
+    const v = health.view();
+    if (v.forbidden.length) {
+      const what = v.forbidden.map((f) => f.action).join(', ');
+      return { ok: false, detail: `Connected, but this boat.dev API key cannot do: ${what}`, fix: 'Create a full-access key in boat.dev and paste it in Settings → boat.dev' };
+    }
+    return { ok: true, detail: v.trial.limited ? 'Connected (free trial: larger VM sizes are not available, Legion uses Default)' : 'Connected' };
   }).then((c) => (c.ok ? c : { ...c, fix: c.fix ?? 'Open Settings → boat.dev to check the key' })));
+
+  if (deps.getBoat() && deps.health?.claudeMissing()) {
+    checks.push({ id: 'boat-claude', label: 'Claude on boat.dev', ok: true, detail: CLAUDE_NOT_CONFIGURED, fix: 'Open the Agents page in your boat.dev dashboard and connect Claude' });
+  }
 
   checks.push(await safe('workspace', 'Workspace directory', () => {
     mkdirSync(config.workspaceDir, { recursive: true });
