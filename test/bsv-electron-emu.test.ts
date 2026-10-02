@@ -153,11 +153,16 @@ test('emu spend: a forged card, an unlisted id, a foreign frame or another sende
   assert.equal(r.forgedPosts, 0);
 });
 
-test('emu spend: a main-network card is refused and denied without a dialog; deny is dialog-free; resolve is a native three-button dialog', { skip }, async () => {
+test('emu spend: a main card the facts do not allow is refused and denied without a dialog; deny is dialog-free; resolve is a native three-button dialog', { skip }, async () => {
   const r = await spend();
   assert.equal(r.mainnet.ok, false);
   assert.equal(r.mainnetDialogs, 0);
   assert.deepEqual(r.mainnetBodies, [{ decision: 'deny' }]);
+  assert.equal(r.forgedNet.ok, false, 'a main card with the TESTNET label is refused even when the facts allow mainnet');
+  assert.equal(r.forgedNetDialogs, 0);
+  assert.equal(r.mainAllowed.ok, true, 'a main card the core\'s facts allow (enabled and armed) gets its dialog');
+  assert.deepEqual(r.mainAllowedDialog, ['An agent asks to pay 0.00000600 BSV (600 sat) on LIVE FUNDS (main network).']);
+  assert.deepEqual(r.mainAllowedBodies, [{ decision: 'approve', cardHash: '6'.repeat(64), confirmations: ['approve'] }]);
   assert.equal(r.deny.ok, true);
   assert.equal(r.denyDialogs, 0);
   assert.equal(r.resolve.ok, true);

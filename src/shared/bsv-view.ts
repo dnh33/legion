@@ -35,7 +35,12 @@ export interface PolicyView {
   usage: { sessionSats: number; last24hSats: number; reservedSats: number };
   pending: Array<{ requestId: string; totalSats: number }>;
   unknown: Array<{ requestId: string; totalSats: number }>;
-  network: 'testnet';
+  /** What the core calls its default network; the spend networks are `spendNetworks`. Not assumed to be testnet. */
+  network?: string;
+  /** The networks the spend tool may use, when the core says (absent = test only). */
+  spendNetworks?: Array<'test' | 'main'>;
+  /** Mainnet switch and arm state. Absent = off. No mainnet UI reads more than this yet. */
+  mainnet?: { enabled: boolean; armed: boolean };
   nativeAvailable: boolean;
   /** The Assayer has the testnet spend tool (a boolean from the core; a false or missing value is shown as not available). */
   spendTools: boolean;
@@ -114,6 +119,12 @@ export function overlayModel(i: { enabled: boolean; policy: PolicyView | null; w
     return { mode: 'testnet', mainnetWarning, showFreeze: false, tiers: [['WALLET ON MAINNET', 'Legion stays on testnet'], ['WALLET ON MAINNET']], pill: { kind: 'mainnet', text: MAINNET_SENTENCE } };
   }
   return { mode: 'testnet', mainnetWarning: false, showFreeze: false, tiers: [['TESTNET \u00b7 knowledge mode', ...(second ? [second] : [])], ['TESTNET', ...(second ? [second] : [])], ['TESTNET']], pill: null };
+}
+
+/** Mainnet state from the policy answer: off unless the core says both fields are exactly true-or-false booleans. */
+export function mainnetState(p: Pick<PolicyView, 'mainnet'> | null | undefined): { enabled: boolean; armed: boolean } {
+  const m = p?.mainnet;
+  return { enabled: !!m && m.enabled === true, armed: !!m && m.enabled === true && m.armed === true };
 }
 
 /** Short form of a request id for a list row (an id, not an address: addresses are never abbreviated). */

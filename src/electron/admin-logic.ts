@@ -327,8 +327,11 @@ export function trustedSender(frameUrl: unknown, uiUrl: string): boolean {
 // /api/bsv/spend/pending), checks it again here, words two native dialogs from it and sends the card hash it read, never one from the window.
 // ---------------------------------------------------------------------------------------------------------------------------------
 
-/** A standard testnet P2PKH address: base58, version byte 0x6f (always starts with m or n). Shown in full, never abbreviated. */
-const TESTNET_ADDRESS_RE = /^[mn][1-9A-HJ-NP-Za-km-z]{25,34}$/;
+/** A standard P2PKH address in full (never abbreviated): testnet starts with m or n (version 0x6f), mainnet with 1 (version 0x00). */
+const ADDRESS_RE = { test: /^[mn][1-9A-HJ-NP-Za-km-z]{25,34}$/, main: /^1[1-9A-HJ-NP-Za-km-z]{25,34}$/ } as const;
+/** The only labels a card of each network may carry: a label that does not match its network is a forged or confused card. */
+export const NET_LABEL = { test: 'TESTNET', main: 'LIVE FUNDS (main network)' } as const;
+export type SpendNet = keyof typeof NET_LABEL;
 const SPEND_CONFIRMATIONS = ['approve', 'untrusted-content'] as const;
 type SpendConfirmation = (typeof SPEND_CONFIRMATIONS)[number];
 
@@ -338,6 +341,8 @@ export const SPEND_CHANGE_NOTE = 'Unverifiable change: the wallet says this outp
 /** A card main accepts, rebuilt from only the fields main reads: nothing is passed through. */
 export interface SpendCard {
   requestId: string;
+  network: SpendNet;
+  networkLabel: string;
   hash: string;
   agentId: string;
   purpose: string;
@@ -356,19 +361,22 @@ const nat = (v: unknown): v is number => typeof v === 'number' && Number.isSafeI
 const isRec = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v);
 
 /**
- * Strict read of one card from the core. Anything that is not exactly a testnet, one-payment card Legion's own code could have made is
- * refused: a main-network card, a second payment, a data output, a recipient that is not a plain testnet address, an unknown confirmation.
+ * Strict read of one card from the core. Anything that is not exactly a one-payment card Legion's own code could have made is refused: an
+ * unknown network, a label that does not match its network, a second payment, a data output, a recipient that is not a plain P2PKH address
+ * of the card's network, an unknown confirmation. Whether the network is ALLOWED right now is a separate check (`netAllowed`).
  */
 export function parseSpendCard(raw: unknown): SpendCardParse {
   if (!isRec(raw)) return { ok: false, reason: 'the card was not readable' };
-  if (raw.network !== 'test') return { ok: false, reason: 'the card is not for the test network' };
+  if (raw.network !== 'test' && raw.network !== 'main') return { ok: false, reason: 'the card names no known network' };
+  const net: SpendNet = raw.network;
+  if (raw.networkLabel !== NET_LABEL[net]) return { ok: false, reason: 'the card\'s network label does not match its network' };
   if (typeof raw.requestId !== 'string' || !REQUEST_ID_RE.test(raw.requestId)) return { ok: false, reason: 'the card has no valid request id' };
   if (typeof raw.hash !== 'string' || !/^[0-9a-f]{64}$/.test(raw.hash)) return { ok: false, reason: 'the card has no valid hash' };
   const outs = raw.outputs;
   if (!Array.isArray(outs) || outs.length < 1 || outs.length > 2) return { ok: false, reason: 'the card does not list one payment and at most one change output' };
   let payment: SpendCard['payment'] | undefined; let change: SpendCard['change'] = null;
   for (const o of outs) {
-    if (!isRec(o) || typeof o.recipient !== 'string' || !TESTNET_ADDRESS_RE.test(o.recipient) || !nat(o.sats) || o.sats < 1) return { ok: false, reason: 'an output is not a plain testnet payment' };
+    if (!isRec(o) || typeof o.recipient !== 'string' || !ADDRESS_RE[net].test(o.recipient) || !nat(o.sats) || o.sats < 1) return { ok: false, reason: 'an output is not a plain payment to an address of the card\'s network' };
     if (o.kind === 'payment' && !payment) payment = { recipient: o.recipient, sats: o.sats };
     else if (o.kind === 'change' && !change) change = { recipient: o.recipient, sats: o.sats };
     else return { ok: false, reason: 'the card lists an unexpected output' };
@@ -383,7 +391,7 @@ export function parseSpendCard(raw: unknown): SpendCardParse {
   return {
     ok: true,
     card: {
-      requestId: raw.requestId, hash: raw.hash, agentId: dialogText(raw.agentId, 64), purpose: dialogText(raw.purpose, 200), payment, change,
+      requestId: raw.requestId, network: net, networkLabel: NET_LABEL[net], hash: raw.hash, agentId: dialogText(raw.agentId, 64), purpose: dialogText(raw.purpose, 200), payment, change,
       feeSats: fee, totalSats: raw.totalSpendSats, remaining: { perTxSats: rem.perTxSats, perSessionSats: rem.perSessionSats, per24hSats: rem.per24hSats },
       warnings: (Array.isArray(raw.warnings) ? raw.warnings : []).filter((w): w is string => typeof w === 'string').slice(0, 3).map((w) => dialogText(w, 200)),
       confirmations,
@@ -398,6 +406,14 @@ export function parseSpendUnknown(raw: unknown): SpendUnknown | undefined {
   return { requestId: raw.requestId, totalSats: raw.totalSats, agentId: dialogText(raw.agentId, 64), txid: typeof raw.txid === 'string' && /^[0-9a-f]{64}$/.test(raw.txid) ? raw.txid : null };
 }
 
+/** What main may let through right now, read from the core's policy facts: the test network always, the main network only while it is enabled AND armed. Absent or malformed = refuse. */
+export function netAllowed(net: SpendNet, facts: unknown): boolean {
+  if (net === 'test') return true;
+  if (!isRec(facts)) return false;
+  const nested = isRec(facts.mainnet) ? facts.mainnet : {};
+  return (facts.mainnetEnabled === true && facts.armed === true) || (nested.enabled === true && nested.armed === true);
+}
+
 export interface SpendDialog { type: 'warning' | 'question'; title: string; message: string; detail: string; buttons: string[]; defaultId: 0; cancelId: 0; noLink: true }
 const spendDialog = (d: Omit<SpendDialog, 'defaultId' | 'cancelId' | 'noLink'>): SpendDialog => ({ ...d, defaultId: 0, cancelId: 0, noLink: true });
 
@@ -407,7 +423,7 @@ export function spendReviewDialog(c: SpendCard, caps?: Partial<Record<CapKey, nu
     `Amount: ${satsText(c.payment.sats)}`,
     'Recipient (full address, check every character):',
     c.payment.recipient,
-    'Network: TESTNET',
+    `Network: ${c.networkLabel}`,
     `Network fee: ${satsText(c.feeSats)}`,
     ...(c.change ? [`Extra output: ${satsText(c.change.sats)} to ${c.change.recipient}`, SPEND_CHANGE_NOTE] : []),
     `Total leaving the wallet: ${satsText(c.totalSats)}`,
@@ -422,8 +438,8 @@ export function spendReviewDialog(c: SpendCard, caps?: Partial<Record<CapKey, nu
     'An agent\'s ordinary tools (a shell, a web fetch) are not covered by these checks.',
   ].filter((l, i, a) => l !== '' || (i > 0 && a[i - 1] !== '') );
   return spendDialog({
-    type: 'warning', title: 'Approve a TESTNET payment?',
-    message: `An agent asks to pay ${satsText(c.payment.sats)} on TESTNET.`,
+    type: 'warning', title: `Approve a ${c.networkLabel} payment?`,
+    message: `An agent asks to pay ${satsText(c.payment.sats)} on ${c.networkLabel}.`,
     detail: lines.join('\n'), buttons: ['Cancel', 'Approve this payment'],
   });
 }
@@ -508,7 +524,9 @@ export function createSpendNative(deps: SpendDeps) {
     const card = parsed.card;
     let caps: Partial<Record<CapKey, number>> | undefined;
     const pol = await deps.core('GET', '/api/bsv/policy');
-    if (pol?.status === 200 && isRec(pol.json) && isRec(pol.json.caps)) caps = pol.json.caps as Partial<Record<CapKey, number>>;
+    const facts = pol?.status === 200 ? pol.json : undefined;
+    if (isRec(facts) && isRec(facts.caps)) caps = facts.caps as Partial<Record<CapKey, number>>;
+    if (!netAllowed(card.network, facts)) { await deny(id); return { ok: false, error: `Refused and denied: the core's policy does not allow ${card.networkLabel} requests right now.` }; }
     if ((await ask(spendReviewDialog(card, caps))) !== 1) { await deny(id); return { ok: false, cancelled: true }; }
     const confirmations: string[] = ['approve'];
     if (card.confirmations.includes('untrusted-content')) {
@@ -517,9 +535,11 @@ export function createSpendNative(deps: SpendDeps) {
     }
     // The hash sent is the one main read before the dialogs, and only if the card is still exactly that card now.
     const again = await readPending();
+    const pol2 = await deps.core('GET', '/api/bsv/policy');
+    if (!netAllowed(card.network, pol2?.status === 200 ? pol2.json : undefined)) { await deny(id); return { ok: false, error: 'The policy changed while the dialog was open. Nothing was approved.' }; }
     const raw2 = again ? find(again.cards, id) : undefined;
     const parsed2 = raw2 ? parseSpendCard(raw2) : undefined;
-    if (!parsed2 || !parsed2.ok || parsed2.card.hash !== card.hash) {
+    if (!parsed2 || !parsed2.ok || parsed2.card.hash !== card.hash || parsed2.card.network !== card.network) {
       if (parsed2) await deny(id);
       return { ok: false, error: 'The request changed or expired while the dialog was open. Nothing was approved.' };
     }

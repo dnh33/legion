@@ -8,7 +8,7 @@ import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
-  BSV_POLL_MS, auditLine, formatCountdown, heightText, overlayModel, remainingMs, safeLine, shouldPoll, spendModel, walletHeadline,
+  BSV_POLL_MS, auditLine, formatCountdown, heightText, overlayModel, mainnetState, remainingMs, safeLine, shouldPoll, spendModel, walletHeadline,
   type AuditView, type PolicyView, type WalletView,
 } from '../src/shared/bsv-view.js';
 import type { WalletStatus } from '../src/core/bsv/wallet-probe.js';
@@ -243,4 +243,14 @@ test('perf: the spend section adds no timer, no animation and no request of its 
   assert.match(panel, /changePolicy\(\{ kind: 'spend-resolve', requestId: r\.requestId \}\)/);
   assert.doesNotMatch(panel, /cardHash|X-Legion/);
   for (const f of readdirSync(UI).filter((n) => /\.tsx?$/.test(n))) assert.doesNotMatch(stripComments(read(f)), /\/api\/bsv\/spend\//, `${f}: the window never calls the spend routes`);
+});
+
+test('mainnet view state: absent means off; both fields must be exactly true to read as armed; nothing is built on it yet', () => {
+  assert.deepEqual(mainnetState(null), { enabled: false, armed: false });
+  assert.deepEqual(mainnetState(policy()), { enabled: false, armed: false });
+  assert.deepEqual(mainnetState(policy({ mainnet: { enabled: false, armed: true } })), { enabled: false, armed: false });
+  assert.deepEqual(mainnetState(policy({ mainnet: { enabled: true, armed: false } })), { enabled: true, armed: false });
+  assert.deepEqual(mainnetState(policy({ mainnet: { enabled: true, armed: true } })), { enabled: true, armed: true });
+  assert.deepEqual(mainnetState(policy({ mainnet: { enabled: 'yes', armed: true } as never })), { enabled: false, armed: false });
+  assert.doesNotMatch(readFileSync(new URL('../../src/shared/bsv-view.ts', import.meta.url), 'utf8'), /network: 'testnet'/, 'the view type no longer hard-codes the network');
 });

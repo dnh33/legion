@@ -222,8 +222,8 @@ try {
     __t.createWindow(false);
     const ADMIN = __t.adminSecret; const NATIVE = __t.nativeSecret;
     const ID = (c) => c.repeat(40); const PAY = 'mipcBbFg9gMiCh81Kj8tqqdgoZub1ZJRfn';
-    const mk = (id, over = {}) => ({ requestId: ID(id), network: 'test', agentId: 'assayer', taskId: 't', purpose: 'p', outputs: [{ index: 0, recipient: PAY, sats: 600, kind: 'payment' }], fee: { sats: 12 }, totalSpendSats: 612, remaining: { perTxSats: 388, perSessionSats: 4388, per24hSats: 9388 }, warnings: [], requiredConfirmations: ['approve'], createdAt: 1, expiresAt: 2, hash: '1'.repeat(64), ...over });
-    const fake = { on: true, cards: [], unknown: [], log: [] };
+    const mk = (id, over = {}) => ({ requestId: ID(id), network: 'test', networkLabel: 'TESTNET', agentId: 'assayer', taskId: 't', purpose: 'p', outputs: [{ index: 0, recipient: PAY, sats: 600, kind: 'payment' }], fee: { sats: 12 }, totalSpendSats: 612, remaining: { perTxSats: 388, perSessionSats: 4388, per24hSats: 9388 }, warnings: [], requiredConfirmations: ['approve'], createdAt: 1, expiresAt: 2, hash: '1'.repeat(64), ...over });
+    const fake = { facts: {}, on: true, cards: [], unknown: [], log: [] };
     const srv = await new Promise((res) => {
       const s = http.createServer((q, r) => {
         let body = ''; q.on('data', (d) => { body += d; });
@@ -234,7 +234,7 @@ try {
           const send = (st, j) => { r.statusCode = st; r.end(JSON.stringify(j)); };
           if (hdr.admin !== ADMIN) return send(403, { error: 'admin_required' });
           if (u.pathname === '/api/bsv') return send(200, { enabled: fake.on });
-          if (u.pathname === '/api/bsv/policy') return send(200, { caps: { perTxSats: 1000, perSessionSats: 5000, per24hSats: 10000 }, nativeAvailable: true });
+          if (u.pathname === '/api/bsv/policy') return send(200, { caps: { perTxSats: 1000, perSessionSats: 5000, per24hSats: 10000 }, nativeAvailable: true, ...fake.facts });
           if (u.pathname === '/api/bsv/spend/pending') return send(200, { cards: fake.cards, unknown: fake.unknown });
           if (q.method === 'POST' && /^\/api\/bsv\/spend\/[0-9a-f]{40}\/(decision|resolve)$/.test(u.pathname)) {
             if (hdr.native !== NATIVE) return send(403, { error: 'native_required' });
@@ -279,9 +279,19 @@ try {
     out.noFrame = await ipc({ kind: 'spend-deny', requestId: ID('e') }, { senderFrame: undefined });
     out.forgedDialogs = globalThis.__dialogs.length; out.forgedPosts = posts().length;
     // 7. a main-network card: refused, denied, no dialog
-    fake.cards = [mk('9', { network: 'main' })]; reset(); globalThis.__dialogAnswers = [1, 1];
+    const MAINPAY = '1BoatSLRHtKNngkdXEeobR76b53LETtpyT';
+    const mm = (id, over = {}) => mk(id, { network: 'main', networkLabel: 'LIVE FUNDS (main network)', outputs: [{ index: 0, recipient: MAINPAY, sats: 600, kind: 'payment' }], ...over });
+    fake.cards = [mm('9')]; reset(); globalThis.__dialogAnswers = [1, 1];
     out.mainnet = await ipc({ kind: 'spend-review', requestId: ID('9') });
     out.mainnetDialogs = globalThis.__dialogs.length; out.mainnetBodies = posts().map((l) => l.body);
+    // a forged network label, and a main card the facts do allow
+    fake.cards = [mk('9', { network: 'main' })]; fake.facts = { mainnetEnabled: true, armed: true }; reset(); globalThis.__dialogAnswers = [1, 1];
+    out.forgedNet = await ipc({ kind: 'spend-review', requestId: ID('9') });
+    out.forgedNetDialogs = globalThis.__dialogs.length;
+    fake.cards = [mm('9', { hash: '6'.repeat(64) })]; reset(); globalThis.__dialogAnswers = [1];
+    out.mainAllowed = await ipc({ kind: 'spend-review', requestId: ID('9') });
+    out.mainAllowedDialog = globalThis.__dialogs.map((d) => d.message); out.mainAllowedBodies = posts().map((l) => l.body);
+    fake.facts = {};
     // 8. deny is dialog-free; resolve is native
     fake.cards = [mk('5')]; fake.unknown = [{ requestId: ID('6'), totalSats: 321, agentId: 'assayer' }]; reset();
     out.deny = await ipc({ kind: 'spend-deny', requestId: ID('5') }); out.denyDialogs = globalThis.__dialogs.length;
