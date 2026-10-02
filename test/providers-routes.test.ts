@@ -82,6 +82,11 @@ test('C4 a key is stored only in providers/keys.json (0600), never in config.jso
   assert.equal(mine.keySet, true); assert.equal(mine.keyHint, '…' + FAKE_KEY.slice(-4)); assert.equal(mine.keyMatchesAddress, true);
   assert.equal(readFileSync(configPath, 'utf8').includes(FAKE_KEY), false, 'config.json');
   assert.equal(readFileSync(configPath, 'utf8').includes('"claude"'), true, 'the rest of config.json is kept');
+  // every later write of the providers part of config.json (limits, entry edits) must not pick the key up either
+  assert.equal((await call('PUT', '/api/providers/limits', { maxTurns: 41 })).status, 200);
+  assert.equal((await call('PUT', '/api/providers/mine', { models: ['m1'] })).status, 200);
+  assert.equal(readFileSync(configPath, 'utf8').includes(FAKE_KEY), false, 'config.json after later writes');
+  assert.equal(readFileSync(configPath, 'utf8').includes(FAKE_KEY.slice(-8)), false, 'not even a part of it');
   assert.equal(JSON.parse(readFileSync(keyFileFor(dir), 'utf8')).keys.mine.key, FAKE_KEY);
   if (process.platform !== 'win32') assert.equal(statSync(keyFileFor(dir)).mode & 0o077, 0);
   assert.equal((await (await call('GET', '/api/providers')).text()).includes(FAKE_KEY), false, 'GET /api/providers');

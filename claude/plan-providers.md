@@ -176,7 +176,7 @@ Mutation = a temporary edit of the production code, run, seen red, reverted. I r
 | C2 | A provider failure never falls back to Claude or another provider | `providers-engine`: server 500, `queryFn` 0 calls, task is `error` | add a fallback call in the hook |
 | C3 | A bot, room or override cannot switch provider (either direction), including via `auto` | `providers-cap`, `providers-engine` | drop the provider check in `overrideAllowed` / the clamp |
 | C4 | A saved key appears nowhere except `keys.json` (0600): not in config.json, settings view, state, providers view, SSE capture, task messages, error text, tool results, audit, store files | `providers-secrets` sets a marker-shaped fake key, greps every artefact | write the key into config; leave the key in a 401 error text |
-| C4b | A provider key in the core's env is not passed to Claude's child env | `providers-secrets` | copy provider vars into `buildChildEnv` |
+| C4b | Legion never puts a stored provider key into a child process environment (weak test: it only shows `buildChildEnv` adds nothing; env vars the owner already has are passed through exactly as before, so an `OPENAI_API_KEY` in the owner's own environment still reaches Claude's tools) | `providers-secrets` | none meaningful: the property holds because no code path reads `keys.json` for an env |
 | C5 | `redact()` removes configured keys (prefixed or not) and `sk-` shapes from every stored string | `providers-secrets` | skip the `exact` list |
 | C6 | Key and endpoint changes need admin AND native; changing the origin deletes the key; no native secret = locked | `providers-routes` | drop the native check; keep the key on origin change |
 | C7 | https required except loopback; userinfo, other schemes, private literals refused; keyless only on loopback | `providers-http` | allow `http:` for any host |
@@ -234,3 +234,46 @@ Legion currently says Claude-only in public text. Replace after the owner's real
 ## 17. Owner-only real-PC checks
 
 Written to `claude/tracker-pc-checks-providers.md` in the intake row format (class `spends-money` or `account` where a key is typed; none for local servers; downloads for installing Ollama or LM Studio). Short list: PV-01 OpenAI key, one short task and one tool call; PV-02 OpenRouter key, a model with `/` in its id; PV-03 a local Ollama (or LM Studio) with a tool-capable model, keyless; PV-04 a custom endpoint (https) and the refusal of an `http://` remote host; PV-05 the native key dialog on Windows (cancel keeps the old key; confirm saves; the window never shows the key again); PV-06 key removed, endpoint changed (key deleted); PV-07 a provider agent asked to use `vm_exec` as a token client (card appears, nothing runs on deny); PV-08 token counts and "cost unknown" against the real response; PV-09 a Responses-only model (expected: a plain provider error); PV-10 turn cap and cancel on a slow real stream; PV-11 downgrade check on the installed older build. No check may be marked passed in any doc until its result is recorded in the plan.
+
+## 18. Build status and deviations from this plan (written after the build)
+
+Built and green against fake servers on Linux: the seam, `openai-compat` chat completions (stream, JSON fallback, usage, retries for `stream_options`, tools and one 429), the guarded http client, key store, tool loop, routes, native key and address confirmation (`src/electron/provider-ipc.ts` plus a hook of about 10 lines in `main.ts` and 4 in `preload.cjs`), Settings, Providers, the two model pickers and the thread header. Tests: `test/providers-*.test.ts` (config, http, engine, tools, routes, secrets, native, ui, tripwire, wording) with `test/providers-fakes.ts` and `test/providers-harness.ts`.
+
+Deviations (each is deliberate; the plan text above is the intent, this is what exists):
+1. **Model values for a deleted provider.** `resolve` treats a prefix as a provider when it is configured OR is a preset id (`openai`, `openrouter`, `ollama`, `lmstudio`, `vllm`). A deleted custom provider's id is not remembered, so such an agent's model string goes down the Claude path and fails with the SDK's unknown-model error (nothing is sent anywhere). The caps (`model-cap.ts`, the engine clamp) treat any lowercase `word:` prefix other than `arn:` as provider-shaped, whether or not it is configured.
+2. **Native confirmation covers keys and address changes only** (address, private-network allowance, "no key"). Turning a provider on or off, model lists, prices and run limits need only the admin key. The key is also deleted when the address moves to another origin.
+3. **Model value length.** The HTTP validator (`MODEL_RE`) now allows `/` (OpenRouter ids); the 80-character limit is unchanged, so a longer id cannot be set. The `/model` prefix in a message still cannot carry `/`.
+4. **Streamed deltas are shown as received.** Stored text, tool results and errors are redacted (exact keys, `sk-` shapes); the live `message.delta` stream is not, because a key could be split across deltas. A provider has no way to know the key, so this only matters if the provider echoes it.
+5. **Allowlist is by path.** `test/bsv-scan.ts` has no content hash in this tree; one `ALLOWLIST` entry (`src/core/providers/http.ts`, kind `fetch`) was added and `providers-tripwire.test.ts` pins it to exactly that file. No scan rule changed.
+6. **Not built:** CLI adapters, Responses API, an OS keychain, provider-reported cost, a badge on the agent rail (the agent editor and thread header say it), a one-shot "start tainted" option, room-meter accounting for unknown cost.
+7. **The room budget is not enforced for provider agents** with unknown cost (stated in the panel).
+
+### Mutation results (a temporary edit to the production code, run, seen red, reverted)
+
+| Control | Mutation (file) | Red test(s) |
+|---|---|---|
+| C1 | engine resolves `'fake:' + model` | providers-engine C1, provider run |
+| C2 | fall through to Claude after a provider error | providers-engine C2, C19 |
+| C3 | drop the provider check in `overrideAllowed`; disable the clamp (both directions); drop the MCP guard | providers-engine C3 |
+| C4 | a persist that adds the keys to config.json; `redact` returns its input | providers-routes C4; providers-secrets |
+| C5 | `scrubSecrets` without the exact list | providers-secrets |
+| C6 | no native check on address change / key save; key kept on origin change; dialog result ignored; key put in dialog text | providers-routes C6 x3; providers-native x2 |
+| C7 | allow `http:` for any host; private literal without the flag; keyless anywhere | providers-config, providers-http |
+| C8 | `redirect: 'follow'` | providers-http C8 |
+| C9 | no idle timeout | providers-http (file times out) |
+| C10 | stream cap off; body cap off | providers-http C10 |
+| C11 | key sent for any origin (http and key store) | providers-http C11; providers-config |
+| C12 | run the first offered tool for any unknown name | providers-tools C12 |
+| C13 | authorize always allows | providers-tools C13 |
+| C14 | no `noteToolUse` | providers-tools C13/C14 |
+| C15 | tool output appended to the system prompt | providers-tools C15 |
+| C16 | turn cap, per-turn cap, repeated-failure guard each removed | providers-tools C16 |
+| C17 | abort listener removed | providers-engine C17; providers-http |
+| C18 | default price | providers-engine usage test |
+| C19 | `kind: 'cli'` accepted; keyless widened | providers-config |
+| C20 | `GET /api/providers` on the client route list | providers-routes C20 |
+| C21 | MCP create-agent guard removed | providers-routes C21 |
+| C22 | an overclaim in a preset note | providers-wording |
+| C23 | `fetch` in another providers file | providers-tripwire, bsv-tripwire |
+| C24 | tool results not stored | providers-tools, providers-engine history |
+| in flight | limit 400 instead of 4 | providers-http |
