@@ -68,3 +68,10 @@ Cloud agent (claude.ai web surface) + independent reviewer; may run in parallel 
 ## Blender local-first: plan approved (2026-10-02)
 
 Plan: `claude/plan-blender-local-first.md` (decisions in its section 10). Order: Step 0 (types/config/ports) -> 3 builders in parallel (runner+exports | routing+guard+pin | UI+setup+docs) -> integration -> Linux + Windows gate -> real-Blender run on the PC -> independent reviewer. Cloud via claude.ai web surface. Assumed, not confirmed: task folder location, min Blender 3.0, no job-object limits.
+
+## Branches on GitHub (dnh33/legion, private)
+
+- `main` = default branch (created 2026-10-02 from `integration/v1`; `rel2` history is underneath). Only moved by fast-forward from `integration/v1` after the full Windows + Linux gate passes.
+- `integration/v1` = working integration branch (all merges land here first).
+- `claude/*` = cloud builder/reviewer branches (never deleted; reviews are `claude/review-*`). `rel2` = the original bundle branch, kept as is.
+- Full local backup bundle: `D:/bots/legion-backup-20261002.bundle` (all branches at 2026-10-02 13:18).
