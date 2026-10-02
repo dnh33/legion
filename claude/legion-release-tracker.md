@@ -42,3 +42,10 @@ Cloud work runs on the claude.ai/code web surface (credits). Branches live in pr
 - `scrubSecrets` (src/core) is already quadratic for the `token`, `secret_eq` and `http` shapes: about 0.1 s at 20k chars, 1.7 s at 80k. Found by the Windows R3.4 scaling test; tests hold those shapes to "no worse than now". Candidate fix: linear scan.
 - Real-PC checks: see `tracker-pc-checks.md`.
 - Cloud sessions run on the claude.ai web surface (credits); API routine route is not to be used (see memory).
+
+## Open item: R6.1 replay-fidelity test flakes on Windows (2026-10-02)
+
+`test/library-review-integrity.test.ts` "R6.1 replay fidelity" failed intermittently on Windows (1 of the original baseline, 1 of 3 gate runs): "seed 3 step 299: reloaded graph differs from live", nodes and edges equal, diff list empty. Never failed on Linux (1368/1368).
+- Investigated by a local agent for about 45 minutes (worktree `D:/bots/legion-wt-r61`, branch `fix/r61-replay`): no failing sample reproduced; the test was instrumented to print which part differs.
+- Hypothesis (from reading `src/core/kg/graph.ts`): search score = BM25 x recency factor from `this.now()` (wall clock), rounded to 4 decimals; the test builds the live and the reloaded Graph without an injected `now`, so searches run at different moments. If true it is a test timing problem, not a replay bug. Sent to the agent for a 5 minute test.
+- Status until proven: **unverified**. The Library's "restart equals live" guarantee must be reported as not confirmed on Windows.
