@@ -134,9 +134,10 @@ test('P7: pushSse sends events, drops message.delta for a reader that is not dra
 });
 
 async function stalledReader(m: Awaited<ReturnType<typeof mount>>) {
-  const sock = connect({ host: '127.0.0.1', port: Number(new URL(m.srv.base).port) });
+  const port = Number(new URL(m.srv.base).port);
+  const sock = connect({ host: '127.0.0.1', port });
   await new Promise<void>((r) => sock.once('connect', () => r()));
-  sock.write(`GET /api/events HTTP/1.1\r\nHost: x\r\nAuthorization: ${AUTH.Authorization}\r\nX-Legion-Admin: ${AUTH['X-Legion-Admin']}\r\n\r\n`);
+  sock.write(`GET /api/events HTTP/1.1\r\nHost: 127.0.0.1:${port}\r\nAuthorization: ${AUTH.Authorization}\r\nX-Legion-Admin: ${AUTH['X-Legion-Admin']}\r\n\r\n`);
   await wait(100);
   sock.pause(); // a frozen renderer: reads nothing
   const st = { closed: false, bytes: 0 };
