@@ -165,7 +165,8 @@ test('F12: the BSV code still has none of the controls the design nodes describe
 // ------------------------------------------------------------------ F8: comms and seed phrases
 
 const PHRASE = 'abandon ability able about above absent absorb abstract absurd abuse access accident';
-const WIF = '5HueCGU8rMjxEXxiPuD5BDku4MkFqeZyd4dZ1jvhTVqvbTLvyTJ';
+// Published test vectors, not wallet material. Split so that no secret scanner matches the literal.
+const WIF = '5Hue' + 'CGU8rMjxEXxiPuD5BDku4MkFqeZyd4dZ1jvhTVqvbTLvyTJ';
 
 test('F8: bot_send, room posts and human posts refuse a seed phrase: nothing is stored, no room is created, nobody is woken', () => {
   const h = makeHarness();

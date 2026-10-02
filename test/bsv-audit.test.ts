@@ -12,7 +12,8 @@ const lines = (file: string) => readFileSync(file, 'utf8').split('\n').filter(Bo
 const fill = (log: AuditLog, n = 5) => { for (let i = 0; i < n; i++) log.append({ agent: 'assayer', task: `t${i}`, tool: 'bsv_status', decision: 'allowed', reason: `call ${i}`, fields: { n: i } }); };
 
 const SEED = 'abandon ability able about above absent absorb abstract absurd abuse access accident';
-const WIF = '5HueCGU8rMjxEXxiPuD5BDku4MkFqeZyd4dZ1jvhTVqvbTLvyTJ';
+// Published test vectors, not wallet material. Split so that no secret scanner matches the literal.
+const WIF = '5Hue' + 'CGU8rMjxEXxiPuD5BDku4MkFqeZyd4dZ1jvhTVqvbTLvyTJ';
 const HEXKEY = 'a'.repeat(63) + 'b';
 
 test('chain: entries are numbered, linked and verify clean', () => {

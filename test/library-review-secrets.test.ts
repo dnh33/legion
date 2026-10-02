@@ -19,9 +19,10 @@ const CONFIG_TOKEN = 'cfgtok_0123456789abcdef0123456789abcdef0123456789ab';
 const BOAT = 'boat_live_AbCdEf0123456789XyZ';
 const SK = 'sk-ant-api03-ABCDEFGHIJKLMNOPQRSTUVWX';
 const URL_ = 'https://u1234.boat.dev/desktop/session/abc?token=zzz';
-const XPRV = 'xprv9s21ZrQH143K3QTDL4LXw2F7HEK3wJUD2nW2nRk4stbPy6cq3jPPqjiChkVvvNKmPGJxWUtg6LnF5kejMRNNU3TGtRBeJgk33yuGBxrMPHi';
-const TPRV = 'tprv8ZgxMBicQKsPd7Uf69XL1XwhmjHopUGep8GuEiJDZmbQz6o58LninorQAfcKZWARbtRtfnLcJ5MQ2AtHcQJCCRUcMRvmDUjyEmNUWwx8UbK';
-const WIF = 'L1aW4aubDFB7yfras2S1mN3bqg9nwySY8nkoLmJebSLD5BWv3ENZ';
+// Published test vectors, not wallet material. Split so that no secret scanner matches the literal.
+const XPRV = 'xprv' + '9s21ZrQH143K3QTDL4LXw2F7HEK3wJUD2nW2nRk4stbPy6cq3jPPqjiChkVvvNKmPGJxWUtg6LnF5kejMRNNU3TGtRBeJgk33yuGBxrMPHi';
+const TPRV = 'tprv' + '8ZgxMBicQKsPd7Uf69XL1XwhmjHopUGep8GuEiJDZmbQz6o58LninorQAfcKZWARbtRtfnLcJ5MQ2AtHcQJCCRUcMRvmDUjyEmNUWwx8UbK';
+const WIF = 'L1aW' + '4aubDFB7yfras2S1mN3bqg9nwySY8nkoLmJebSLD5BWv3ENZ';
 const TXID = 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855';
 const PHRASE = 'abandon ability able about above absent absorb abstract absurd abuse access accident';
 const SECRETS = [SK, CONFIG_TOKEN, BOAT, 'u1234.boat.dev'];

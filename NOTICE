@@ -12,7 +12,7 @@ live VM screen preview captured via a shell screenshot command. No source code w
 Runtime dependencies (installed from npm, not bundled in this repository)
 -------------------------------------------------------------------------
 - Claude Agent SDK (@anthropic-ai/claude-agent-sdk). Copyright Anthropic, PBC. Use of the SDK, and of Claude
-  Code through it, is subject to Anthropic's terms: https://www.anthropic.com/legal
+  Code through it, is subject to Anthropic's terms: https://code.claude.com/docs/en/legal-and-compliance
   The SDK is not open source. Legion does not include it: npm downloads it onto your machine when you install.
   Do not re-bundle it into a binary release of Legion without Anthropic's permission.
   Legion is an independent project. It is not affiliated with, sponsored by or endorsed by Anthropic.
