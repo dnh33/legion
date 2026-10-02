@@ -6,7 +6,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { writeConfigFile } from '../../shared/config.js';
-import { defaultBlenderConfig, mirrorSandbox, modeFromSandbox, normalizeBlender } from '../../shared/blender.js';
+import { defaultBlenderConfig, effectiveMode, mirrorSandbox, modeFromSandbox, normalizeBlender } from '../../shared/blender.js';
 import type { BlenderBackendKind, BlenderMode, BlenderConfig, BlenderEntry, ServerSetupInfo } from '../../shared/blender.js';
 import type { LegionConfig } from '../../shared/types.js';
 
@@ -51,7 +51,10 @@ export class BlenderState {
     if (patch.enabled !== undefined) next.enabled = patch.enabled;
     if (patch.backend !== undefined) next.backend = patch.backend;
     // saving a mode is the only thing that writes the `mode` key; the legacy `sandbox` key is mirrored so a downgrade still opens
-    const mode = patch.mode ?? (patch.sandbox !== undefined ? modeFromSandbox(patch.sandbox) : undefined);
+    let mode = patch.mode ?? (patch.sandbox !== undefined ? modeFromSandbox(patch.sandbox) : undefined);
+    // Switching the bridge on is a choice made on this version: record the mode in force (derived from the legacy key) so the upgrade notice,
+    // which means "enabled before this version and never chose a mode", is not shown to someone who just turned it on.
+    if (mode === undefined && patch.enabled === true && !this.cfg.enabled && this.cfg.mode === undefined) mode = effectiveMode(this.cfg);
     if (mode !== undefined) { next.mode = mode; next.sandbox = mirrorSandbox(mode); }
     if (patch.port !== undefined) next.port = patch.port;
     if (patch.installPath !== undefined) { if (patch.installPath === null || !patch.installPath.trim()) delete next.installPath; else next.installPath = patch.installPath.trim(); }

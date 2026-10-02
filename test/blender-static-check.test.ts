@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { checkScript, describeFindings, pathProblem, scriptHash, MAX_SCRIPT_BYTES, ALLOWED_MODULES } from '../src/core/blender/static-check.js';
+import { checkScript, countLines, describeFindings, pathProblem, scriptHash, MAX_SCRIPT_BYTES, ALLOWED_MODULES } from '../src/core/blender/static-check.js';
 
 const DIR = '/home/u/.legion/ws/sculptor/blender-exports';
 const WINDIR = 'C:\\Users\\Dan\\.legion\\ws\\sculptor\\blender-exports';
@@ -507,4 +507,19 @@ test('nit: the checker is linear time: a ~56 KB keyword-heavy script is checked 
   const t1 = performance.now();
   checkScript(nest, { allowedDirs: [DIR] });
   assert.ok(performance.now() - t1 < 1000);
+});
+
+test('C20: countLines and checkScript.lines: a trailing newline is not a line; every line break kind counts', () => {
+  assert.equal(countLines('a\nb\n'), 2);
+  assert.equal(countLines('a\nb'), 2);
+  assert.equal(countLines('\n'), 1);
+  assert.equal(countLines(''), 1);
+  assert.equal(countLines('a\r\nb\r\n'), 2);
+  assert.equal(countLines('a\rb'), 2, 'a lone CR is a break');
+  assert.equal(countLines('a\n\n'), 2, 'only ONE trailing empty piece is dropped');
+  assert.equal(checkScript('import bpy\nprint(1)\n', { allowedDirs: [] }).lines, 2);
+  assert.equal(checkScript('import bpy\nprint(1)', { allowedDirs: [] }).lines, 2);
+  assert.equal(checkScript('import bpy\r\nprint(1)\r\n', { allowedDirs: [] }).lines, 2);
+  // findings still point at the right physical line (the check keeps its own line table)
+  assert.equal(checkScript('import bpy\nimport os\n', { allowedDirs: [] }).findings[0]!.line, 2);
 });

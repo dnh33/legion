@@ -29,7 +29,7 @@ function fakeIo(over: Partial<{ downloadSha: string; blenderOut: string; launche
       if (args[0] === 'lock') { if (over.lockFails) return { code: 1, stdout: '', stderr: 'no index' }; log.locked = true; return { code: 0, stdout: '', stderr: '' }; }
       return { code: 0, stdout: 'uv 0.5', stderr: '' };
     },
-    download: async (url, dest, opts) => { if (over.throwDownload) throw new Error('offline'); log.downloads.push({ url, dest, maxBytes: opts.maxBytes }); return { sha256: over.downloadSha ?? PINNED, bytes: 1234 }; },
+    download: async (url, dest, opts) => { if (over.throwDownload) throw new Error('offline'); log.downloads.push({ url, dest, maxBytes: opts.maxBytes }); return { sha256: over.downloadSha ?? (url === defaultBlenderConfig().advanced.community.addonUrl ? defaultBlenderConfig().advanced.community.sha256 : PINNED), bytes: 1234 }; },
     extract: async () => undefined,
     mkdirp: () => undefined,
     writeText: (p, t) => { log.writes.set(p, t); },
@@ -302,4 +302,19 @@ test('real download: redirects are followed only to public https hosts', async (
 
 test('real download: an HTTP error is a readable failure', async () => {
   await assert.rejects(withFetch(() => new Response('no', { status: 404 }), () => createRealIo().download('https://example.org/a', join(tmp(), 'a'), { maxBytes: 100 })), /HTTP 404/);
+});
+
+test('C21: the community add-on download is checked against the pinned sha256; one changed byte is refused, nothing is installed, the record is untouched', async () => {
+  const cfg = defaultBlenderConfig();
+  const pin = cfg.advanced.community.sha256;
+  assert.match(pin, /^[0-9a-f]{64}$/);
+  // a fake "download" whose bytes differ by one in the last hex digit
+  const flipped = pin.slice(0, -1) + (pin.endsWith('0') ? '1' : '0');
+  const { io, log } = fakeIo({ downloadSha: flipped });
+  const r = await setupLive(io, cfg, '/data', install('4.2.1'), 'community');
+  assert.equal(r.ok, false);
+  assert.equal(r.addonInstalled, false);
+  assert.equal(r.info, undefined, 'no trusted-download record is produced for a refused file');
+  assert.match(r.steps.find((s) => s.step === 'download')!.detail, /does not match|refus/i);
+  assert.equal(log.downloads.length, 1);
 });

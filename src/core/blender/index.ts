@@ -7,8 +7,8 @@
  */
 import type { McpServerConfig } from '@anthropic-ai/claude-agent-sdk';
 import { join } from 'node:path';
-import { BLENDER_EXEC_TOOL, BLENDER_SERVER_NAME, BLENDER_SOCKET_NOTICE, SCULPTOR_ID } from '../../shared/blender.js';
-import type { BlenderBackendKind, BlenderConfig, BlenderInstall, BlenderLight, BlenderSetupResult, BlenderStatusView, BlenderTestResult, BlenderSetupStep } from '../../shared/blender.js';
+import { BLENDER_EXEC_TOOL, BLENDER_SERVER_NAME, BLENDER_SOCKET_NOTICE, BLENDER_UPGRADE_NOTICE, BLENDER_MODES, effectiveMode, SCULPTOR_ID } from '../../shared/blender.js';
+import type { BlenderBackendKind, BlenderMode, BlenderConfig, BlenderInstall, BlenderLight, BlenderSetupResult, BlenderStatusView, BlenderTestResult, BlenderSetupStep } from '../../shared/blender.js';
 import type { AgentProfile } from '../../shared/types.js';
 import { HttpError } from '../server.js';
 import type { CoreModule, ModuleDeps, ModuleJob } from '../modules.js';
@@ -21,6 +21,7 @@ import { OfficialBackend } from './backends/official.js';
 import { chooseBackend, detectInstalls, pickInstall } from './detect.js';
 import { BlenderGuard } from './guard.js';
 import type { GuardDeps } from './guard.js';
+import type { LocalPort } from './ports.js';
 import { SandboxRunner } from './sandbox.js';
 import type { SandboxPort, VmPort } from './sandbox.js';
 import { launchBlender, setupLive, testConnection } from './setup.js';
@@ -38,6 +39,11 @@ export interface BlenderModuleOptions {
   vms?: VmPort;
   boatConfigured?: () => boolean;
   sandbox?: SandboxPort;
+  /**
+   * The headless-Blender runner (LocalRunner, local.ts). INTEGRATION: the production wiring `new LocalRunner(...)` is added where local.ts lands (Builder 1);
+   * until then nothing is injected here and local mode reports "not available in this build" instead of guessing.
+   */
+  local?: LocalPort;
   makeBackend?: (kind: BlenderBackendKind, cfg: BlenderConfig) => BlenderBackend;
   probe?: (host: string, port: number) => Promise<boolean>;
   backup?: GuardDeps['backup'];
@@ -51,7 +57,7 @@ const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 
 
 export const SCULPTOR_PREAMBLE_ON = [
   'The Blender bridge is on. Your tools are mcp__legion_blender__blender_exec, _inspect, _screenshot, _docs and _status.',
-  'Call blender_status first: it says whether the sandbox VM and live Blender are reachable. Scripts default to the sandbox; use mode "live" only when the user asked to work in their open Blender.',
+  'Call blender_status first: it says where the next script goes. With the default setting (Automatic) a script runs in a background Blender on this computer when Blender is found, otherwise in the cloud VM; use mode "vm" to ask for the VM and mode "live" only when the user asked to work in their open Blender (the card then says LIVE). Settings can restrict the place, and a mode they forbid is refused, not redirected.',
   'Every script is checked and shown to the user in full; a denied or blocked script did not run. Read the finished result with blender_screenshot before you call it done.',
 ].join('\n');
 export const SCULPTOR_PREAMBLE_OFF = 'The Blender bridge is switched off in Settings (Blender), so you have no Blender tools. Plan and explain; tell the user to turn it on if they want you to build.';
@@ -123,36 +129,56 @@ export function createBlenderModule(deps: ModuleDeps, opts: BlenderModuleOptions
     const selected = c.enabled ? pickInstall(installs) : undefined;
     const socketOpen = c.enabled ? await probe(c.host, c.port).catch(() => false) : false;
     const sbAgent = sculptor();
+    const mode = effectiveMode(c);
     const rd = !c.enabled ? { ready: false, note: 'The bridge is off.' }
-      : c.sandbox === 'off' ? { ready: false, note: 'The sandbox is switched off in Settings.' }
+      : mode === 'live' ? { ready: false, note: 'The cloud VM is switched off in Settings.' }
         : !sandbox ? { ready: false, note: 'The sandbox is not available in this build.' }
           : !sbAgent ? { ready: false, note: 'The Sculptor agent does not exist.' }
             : sandbox.readiness(sbAgent);
+    const lr = !c.enabled ? { ready: false, note: 'The bridge is off.' }
+      : !opts.local ? { ready: false, note: 'Local Blender is not available in this build.' }
+        : !sbAgent ? { ready: false, note: 'The Sculptor agent does not exist.' }
+          : opts.local.readiness(sbAgent);
     const rec = state.setup;
     const setupDone = choice.kind === 'official' ? !!c.entry && rec.addonInstalledFor === 'official' : choice.kind === 'community' ? rec.addonInstalledFor === 'community' : false;
     const connected = !!backend?.isConnected();
     const liveUsable = choice.kind !== null && (connected || (socketOpen && (choice.kind === 'community' || !!c.entry)));
+    const busy = c.enabled ? guard.busyView() : null;
+    const vmAllowed = mode === 'auto' || mode === 'vm';
+    const localAllowed = mode === 'auto' || mode === 'local';
     let light: BlenderLight;
     let summary: string;
     if (!c.enabled) { light = 'off'; summary = 'Blender bridge is off.'; }
     else if (socketOpen && lastError && !connected) { light = 'error'; summary = lastError.slice(0, 200); }
-    else if (liveUsable) { light = 'connected'; summary = `Blender is reachable (${choice.kind} backend${selected ? `, Blender ${selected.version}` : ''}).${rd.ready ? ' Sandbox VM ready.' : ''}`; }
-    else if (rd.ready && c.sandbox !== 'off') { light = 'sandbox'; summary = selected ? `Sandbox VM ready; live Blender ${selected.version} is not connected.` : 'Sandbox VM ready; no Blender found on this computer.'; }
+    else if (busy) { light = 'busy'; summary = busy.mode === 'live' && busy.kind === 'timed-out' ? 'A live script timed out and may still be running in Blender.' : 'Running a script.'; }
+    else if (liveUsable && (mode === 'live' || (mode === 'auto' && !lr.ready && !rd.ready))) { light = 'connected'; summary = `Blender is reachable (${choice.kind} backend${selected ? `, Blender ${selected.version}` : ''}).`; }
+    else if (lr.ready && localAllowed) { light = 'local'; summary = `Scripts run in the background on this computer${selected ? ` (Blender ${selected.version})` : ''}.${rd.ready && mode === 'auto' ? ' Cloud VM ready.' : ''}`; }
+    else if (rd.ready && vmAllowed) { light = 'sandbox'; summary = selected ? `Sandbox VM ready; live Blender ${selected.version} is not connected.` : 'Sandbox VM ready; no Blender found on this computer.'; }
     else if (!selected) { light = 'not-found'; summary = 'Blender was not found on this computer.'; }
     else if (!choice.kind) { light = 'error'; summary = choice.reason; }
     else if (!setupDone) { light = 'needs-setup'; summary = `Blender ${selected.version} found. Press Set up to install the add-on.`; }
     else { light = 'disconnected'; summary = `Blender ${selected.version} found, but its add-on is not listening on port ${c.port}. Open Blender or press Launch.`; }
     const notices: string[] = [];
-    if (c.enabled && choice.kind && c.sandbox !== 'vm') notices.push(BLENDER_SOCKET_NOTICE);
+    // the add-on socket matters only where live Blender is in play: mode live, or Automatic with a reachable live backend (never for local- or VM-only)
+    if (c.enabled && choice.kind && (mode === 'live' || (mode === 'auto' && liveUsable))) notices.push(BLENDER_SOCKET_NOTICE);
+    // an install that turned the bridge on before this version and never saved a mode now has Automatic mean "this computer first"
+    if (c.enabled && c.mode === undefined && mode === 'auto') notices.push(BLENDER_UPGRADE_NOTICE);
     if (c.enabled) {
       const av = refresh || !auditVerdict ? checkAudit() : auditVerdict;
       if (!av.ok) notices.push(`Audit log: ${av.note}`);
       if (audit.failures > 0) notices.push(`${audit.failures} audit record(s) could not be written this session; scripts that need a record were not run.`);
     }
+    const next = c.enabled && sbAgent ? guard.routeNow(sbAgent) : null;
+    const nextRun = !c.enabled ? 'The bridge is off.' : !next ? 'The Sculptor agent does not exist.'
+      : 'error' in next ? next.error
+        : next.mode === 'local' ? `On this computer${selected ? ` (Blender ${selected.version})` : ''}.`
+          : next.mode === 'sandbox' ? `In the cloud VM${next.note ? ` (${next.note.replace(/\.$/, '')})` : ''}.` : 'In your open Blender (a LIVE card).';
     return {
       enabled: c.enabled, light, summary, backendChoice: c.backend, chosenBackend: choice.kind, backendReason: choice.reason,
       installs, ...(selected ? { selected } : {}), connected, socketOpen, sandbox: c.sandbox,
-      sandboxReady: rd.ready, sandboxNote: rd.note, host: c.host, port: c.port, setup: rec,
+      sandboxReady: rd.ready, sandboxNote: rd.note, mode, localReady: lr.ready, localNote: lr.note, nextRun,
+      busy: busy ? { since: busy.since, hash12: busy.hash12, mode: busy.mode } : null,
+      host: c.host, port: c.port, setup: rec,
       ...(lastError ? { lastError } : {}), ...(notices.length ? { notices } : {}), lastCheckedAt: new Date().toISOString(), stats: { ...guard.stats },
     };
   }
@@ -169,7 +195,7 @@ export function createBlenderModule(deps: ModuleDeps, opts: BlenderModuleOptions
   }
 
   const guard = new BlenderGuard({
-    config: cfg, dataDir: deps.dataDir, approvals: deps.approvals, getBackend, ...(sandbox ? { sandbox } : {}),
+    config: cfg, dataDir: deps.dataDir, approvals: deps.approvals, getBackend, ...(sandbox ? { sandbox } : {}), ...(opts.local ? { local: opts.local } : {}),
     secrets: () => liveSecrets(deps.config),
     exportDirFor: (a) => join(a.cwd || join(deps.config.workspaceDir, a.id), 'blender-exports'),
     workspaceOf: (a) => a.cwd || join(deps.config.workspaceDir, a.id),
@@ -178,11 +204,16 @@ export function createBlenderModule(deps: ModuleDeps, opts: BlenderModuleOptions
 
   const statusText = (a: AgentProfile): string => {
     const c = cfg();
+    const next = guard.routeNow(a);
+    const busy = guard.busyView();
     const lines = [
-      `Blender bridge: ${c.enabled ? 'on' : 'off'}. Sandbox setting: ${c.sandbox}.`,
+      `Blender bridge: ${c.enabled ? 'on' : 'off'}. Where scripts run (Settings): ${effectiveMode(c)}.`,
+      `The next script goes to: ${'error' in next ? `nowhere (${next.error})` : next.mode === 'local' ? 'Blender on this computer, in the background' : next.mode === 'sandbox' ? `the cloud VM${next.note ? ` (${next.note})` : ''}` : 'your open Blender (the user sees a LIVE card)'}.`,
+      `This computer: ${opts.local ? opts.local.readiness(a).note : 'local Blender is not available in this build'}.`,
+      `Cloud VM: ${sandbox ? sandbox.readiness(a).note : 'not available'}.`,
       `Live backend: ${backend?.isConnected() ? `${backend.kind} (connected)` : 'not connected (it connects when a live call is made)'}.`,
-      `Sandbox VM: ${sandbox ? sandbox.readiness(a).note : 'not available'}.`,
-      `Live export folder: ${join(a.cwd || join(deps.config.workspaceDir, a.id), 'blender-exports')}. Sandbox exports come back to <workspace>/blender-exports/<task>/.`,
+      ...(busy ? [`Busy: a ${busy.mode} script has been running since ${busy.since}${busy.kind === 'timed-out' ? ' and timed out; it may still be running' : ''}. Live reads are refused meanwhile; local reads wait their turn.`] : []),
+      `Live export folder: ${join(a.cwd || join(deps.config.workspaceDir, a.id), 'blender-exports')}. Exports from local and VM runs come back to <workspace>/blender-exports/<task>/.`,
       `Scripts this session: ${guard.stats.approved} approved, ${guard.stats.denied} denied, ${guard.stats.blocked} blocked by the safety check.`,
     ];
     return lines.join('\n');
@@ -196,6 +227,7 @@ export function createBlenderModule(deps: ModuleDeps, opts: BlenderModuleOptions
     const p: BlenderPatch = {};
     if ('enabled' in body) { if (typeof body.enabled !== 'boolean') throw new HttpError(400, 'enabled must be true or false'); p.enabled = body.enabled; }
     if ('backend' in body) { if (body.backend !== 'auto' && body.backend !== 'official' && body.backend !== 'community') throw new HttpError(400, 'backend must be auto, official or community'); p.backend = body.backend; }
+    if ('mode' in body) { if (!BLENDER_MODES.includes(body.mode as BlenderMode)) throw new HttpError(400, 'mode must be auto, local, vm or live'); p.mode = body.mode as BlenderMode; }
     if ('sandbox' in body) { if (body.sandbox !== 'off' && body.sandbox !== 'vm' && body.sandbox !== 'auto') throw new HttpError(400, 'sandbox must be off, vm or auto'); p.sandbox = body.sandbox; }
     if ('port' in body) { if (typeof body.port !== 'number' || !Number.isInteger(body.port) || body.port < 1024 || body.port > 65535) throw new HttpError(400, 'port must be a whole number from 1024 to 65535'); p.port = body.port; }
     if ('installPath' in body) {
@@ -220,7 +252,7 @@ export function createBlenderModule(deps: ModuleDeps, opts: BlenderModuleOptions
         try { state.recordSetup({ kind: choice.kind, ...(r.info ? { info: r.info } : {}), ...(r.entry ? { entry: r.entry } : {}), addonInstalled: r.addonInstalled, retrust }); } catch (e) { steps.push({ step: 'save', ok: false, detail: `Could not save the setup result: ${e instanceof Error ? e.message : String(e)}` }); }
       }
     }
-    if (target !== 'live' && cfg().sandbox !== 'off') {
+    if (target !== 'live' && effectiveMode(cfg()) !== 'live') {
       const a = sculptor();
       if (!sandbox || !a) steps.push({ step: 'sandbox', ok: false, detail: 'The sandbox needs the Sculptor agent and a boat.dev API key.' });
       else steps.push(...await sandbox.setup(a));
@@ -239,7 +271,7 @@ export function createBlenderModule(deps: ModuleDeps, opts: BlenderModuleOptions
     if (!cfg().enabled) return { ok: false, steps: [{ step: 'enabled', ok: false, detail: 'Turn the Blender bridge on first.' }], status: await status() };
     await detect(true);
     const r = await testConnection(probe, cfg(), getBackend);
-    const sb = sandbox && sculptor() && cfg().sandbox !== 'off' ? sandbox.readiness(sculptor()!) : null;
+    const sb = sandbox && sculptor() && effectiveMode(cfg()) !== 'live' ? sandbox.readiness(sculptor()!) : null;
     const steps = [...r.steps, ...(sb ? [{ step: 'sandbox', ok: sb.ready, detail: sb.note }] : [])];
     const live = r.ok;
     if (!live) lastError = r.steps.find((s) => !s.ok)?.detail; else lastError = undefined;

@@ -72,7 +72,7 @@ export interface BlenderAdvanced {
     tools: BlenderToolMap;
   };
   community: {
-    /** Raw add-on file. Default: the upstream addon.py on the main branch (a moving target: no tag or commit could be looked up when this was written; pin sha256 below). */
+    /** Raw add-on file. Default: the upstream addon.py at ONE commit (the project has no tags or releases), so the URL never moves; sha256 below pins its bytes. */
     addonUrl: string;
     /** As for the official server: empty = trusted on first use, a changed download is refused until re-trusted. */
     sha256: string;
@@ -118,6 +118,19 @@ export interface BlenderConfig {
 export const LOCAL_MIN_TIMEOUT_S = 10;
 export const LOCAL_MAX_TIMEOUT_S = 900;
 
+/** The community add-on as pinned by this version (a 40-hex commit in the URL, and the sha256 of addon.py at that commit). */
+export const COMMUNITY_PIN_URL = 'https://raw.githubusercontent.com/ahujasid/mcp-for-blender/91cd735cc09fc75551de3347ebc7afdd69f3492e/addon.py';
+export const COMMUNITY_PIN_SHA256 = 'eb0facf69781a30e69792532087d8d41c6a14fcd323353250abe7988ee297fa5';
+/** The old default (a moving branch, no hash). A stored config that still holds exactly this pair never chose it, so it moves to the pin; any other pair is the user's and stays. */
+const OLD_COMMUNITY_URL = 'https://raw.githubusercontent.com/ahujasid/blender-mcp/main/addon.py';
+
+/** Lines in a script as a person counts them: a trailing newline does not add a line (same rule as the card's splitScriptLines). `""` is 1. */
+export function countLines(s: string): number {
+  const n = s.split(/\r\n|\r|\n/);
+  if (n.length > 1 && n[n.length - 1] === '') n.pop();
+  return n.length;
+}
+
 export const DEFAULT_ADVANCED: BlenderAdvanced = {
   local: { timeoutSeconds: 120, maxTaskBytes: 500 * 1024 * 1024, maxOutputBytes: 4 * 1024 * 1024, extraWriteDirs: [], guard: 'block', args: [] },
   official: {
@@ -130,8 +143,12 @@ export const DEFAULT_ADVANCED: BlenderAdvanced = {
     tools: { exec: 'execute_blender_code', execArg: 'code', inspect: 'get_objects_summary', objectInfo: 'get_object_detail_summary', screenshot: 'get_screenshot_of_window_as_image', docs: 'search_api_docs' },
   },
   community: {
-    addonUrl: 'https://raw.githubusercontent.com/ahujasid/blender-mcp/main/addon.py',
-    sha256: '',
+    // Pinned 2026-10-02 to the newest commit that touched addon.py (project moved to ahujasid/mcp-for-blender; no tags or releases exist).
+    // TODO OWNER PC: the sha256 below was taken from fetched metadata in a sandboxed session and has NOT been reproduced yet. Before release run, in PowerShell:
+    //   curl.exe -sSL <addonUrl> -o addon.py; (Get-FileHash addon.py -Algorithm SHA256).Hash.ToLower()
+    // and compare. If it differs, take the PC's value and re-check `git log -1 -- addon.py` on a clone first. See claude/plan-blender-local-first.md section 5.2.
+    addonUrl: COMMUNITY_PIN_URL,
+    sha256: COMMUNITY_PIN_SHA256,
     commands: { exec: 'execute_code', inspect: 'get_scene_info', objectInfo: 'get_object_info', screenshot: 'get_viewport_screenshot' },
     startExpr: 'import bpy; bpy.ops.blendermcp.start_server()',
   },
@@ -178,6 +195,15 @@ const hex = (v: unknown, dflt = ''): string => {
   // an explicitly empty value means "no pin" (trust on first use, with a re-trust prompt on change); anything malformed keeps the default
   return v.trim() === '' ? '' : dflt;
 };
+
+/** The add-on source and its pin. An explicit empty sha256 means "no pin" (trust on first use); the old unpinned default is upgraded to the pin. */
+function communityPin(com: Record<string, unknown>, d: BlenderAdvanced['community']): { addonUrl: string; sha256: string } {
+  const addonUrl = httpsUrl(com.addonUrl, d.addonUrl);
+  // the pinned hash is the default only for the pinned URL; another address with no hash of its own is trust-on-first-use, never checked against the wrong file
+  const sha256 = hex(com.sha256, addonUrl === d.addonUrl ? d.sha256 : '');
+  if (addonUrl === OLD_COMMUNITY_URL && sha256 === '') return { addonUrl: d.addonUrl, sha256: d.sha256 };
+  return { addonUrl, sha256 };
+}
 
 const normEntry = (v: unknown): BlenderEntry | undefined => {
   if (!isObj(v) || typeof v.command !== 'string' || !v.command.trim() || v.command.length > 500 || /\0/.test(v.command)) return undefined;
@@ -243,7 +269,7 @@ export function normalizeBlender(v: unknown): BlenderConfig {
         },
       },
       community: {
-        addonUrl: httpsUrl(com.addonUrl, d.advanced.community.addonUrl), sha256: hex(com.sha256),
+        ...communityPin(com, d.advanced.community),
         commands: {
           exec: toolName(isObj(com.commands) ? com.commands.exec : undefined, d.advanced.community.commands.exec),
           inspect: toolName(isObj(com.commands) ? com.commands.inspect : undefined, d.advanced.community.commands.inspect),
@@ -331,8 +357,11 @@ export interface BlenderTestResult { ok: boolean; steps: BlenderSetupStep[]; sta
 export const BLENDER_SOCKET_NOTICE =
   'While the add-on\'s server is running in Blender, any program on this computer can send code to its port (127.0.0.1) without Legion\'s approval card: the add-on has no password and Legion cannot add one. Stop the server (or close Blender) when you are not using the bridge, and do not give a Bash tool to an agent that reads untrusted content.';
 
+/** Shown in Settings and the Ops card while an install that enabled the bridge before this version has never saved a mode (it disappears once any mode is saved). */
+export const BLENDER_UPGRADE_NOTICE = 'Scripts now run in Blender on this computer by default when it is found. Pick Cloud VM to keep the old behaviour.';
+
 /** Words shown next to the Set up button and in docs/BLENDER.md. Kept here so UI and docs say the same thing. */
 export const BLENDER_LICENSE_NOTE =
   'The official Blender Lab MCP server is GPL-3.0-or-later; Legion is MIT. Legion never bundles or copies it: it is downloaded from its official source only when you press Set up, and stays a separate program Legion talks to over a socket or stdio.';
 export const BLENDER_SAFETY_NOTE =
-  'Blender runs scripts without any guards. Agents never get the raw execute tool through Legion: every script is checked, shown to you in full and needs your OK, the .blend is backed up before the first live script of a run, and by default scripts run in a cloud VM instead of your machine. The check is a filter, not a sandbox: read the script before you approve it. The add-on socket in Blender has no password, so a local program can bypass the card (see the notice on the Blender card).';
+  'Blender runs scripts without any guards. Agents never get the raw execute tool through Legion: every script is checked, shown to you in full and needs your OK. By default, when Blender is found, a script runs in a background Blender on this computer with your Windows user\'s rights: the controls are your OK on the full script, the scene backup and the audit log, and Legion\'s check is a filter, not a sandbox, so read the script before you approve it. Choose the cloud VM to keep scripts away from this computer. In your open Blender (live), the add-on socket has no password, so a local program can bypass the card (see the notice on the Blender card).';

@@ -150,7 +150,7 @@ function overrideCandidates(env: DetectEnv, installPath: string): Candidate[] {
   const p = env.platform;
   const trimmed = installPath.trim().replace(/^"|"$/g, '');
   const folder = trimmed.split(/[\\/]/).filter(Boolean).pop() ?? '';
-  const asFile = /blender(\.exe)?$/i.test(trimmed) || /\.app\/Contents\/MacOS\/Blender$/i.test(trimmed);
+  const asFile = /blender(-launcher)?(\.exe)?$/i.test(trimmed) || /\.app\/Contents\/MacOS\/Blender$/i.test(trimmed);
   const list: Candidate[] = [];
   if (asFile) list.push({ path: trimmed, source: 'config', folderName: trimmed.replace(/[\\/][^\\/]+$/, '').split(/[\\/]/).pop() });
   else {
@@ -183,9 +183,13 @@ export async function detectInstalls(env: DetectEnv, installPath?: string): Prom
     if (seen.has(k)) continue;
     seen.add(k);
     if (!env.exists(c.path)) continue;
+    // blender-launcher.exe starts Blender detached: no stdout, no exit code, so a headless run could never be read. Only the real executable counts.
+    if (/blender-launcher(\.exe)?$/i.test(c.path.trim())) continue;
     let version: string | null = null;
     let guessed = false;
     const r = await env.run(c.path, ['--version'], 15_000).catch(() => null);
+    // a build that exits 0 but prints nothing for --version is a launcher or a wrapper, not something whose output Legion can read
+    if (r && r.code === 0 && !`${r.stdout}${r.stderr}`.trim()) continue;
     if (r && r.code === 0) version = parseVersionOutput(r.stdout);
     if (!version) { version = (c.folderName ? versionFromName(c.folderName) : null) ?? versionFromName(c.path); guessed = version !== null; }
     found.push({ path: c.path, version: version ?? '0.0.0', source: c.source, ...(guessed || !version ? { versionGuessed: true } : {}) });
