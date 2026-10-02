@@ -692,7 +692,12 @@ export class Engine {
   private async runProvider(job: Job, agent: AgentProfile, pr: ResolvedModel, prompt: string, act: Active): Promise<Outcome> {
     const taskId = job.taskId;
     const servers: ProviderHost['servers'] = {};
-    for (const [name, cfg] of Object.entries(this.buildMcpServers(agent, job, act))) if (cfg.type === 'sdk') servers[name] = cfg;
+    const external: NonNullable<ProviderHost['external']> = {};
+    for (const [name, cfg] of Object.entries(this.buildMcpServers(agent, job, act))) {
+      if (cfg.type === 'sdk') servers[name] = cfg;
+      else if (cfg.type === 'http' || cfg.type === 'sse') external[name] = { type: cfg.type, url: cfg.url, ...(cfg.headers ? { headers: cfg.headers } : {}) };
+      else if (cfg.type === 'stdio' || cfg.type === undefined) external[name] = { command: (cfg as { command: string }).command, ...((cfg as { args?: string[] }).args ? { args: (cfg as { args?: string[] }).args } : {}), ...((cfg as { env?: Record<string, string> }).env ? { env: (cfg as { env?: Record<string, string> }).env } : {}) };
+    }
     const decide = this.toolDecider(job, agent);
     const host: ProviderHost = {
       taskId, agentName: agent.name, signal: act.ac.signal, cancelled: () => act.cancelled || act.ac.signal.aborted,
@@ -701,7 +706,7 @@ export class Engine {
         + (agent.systemPrompt ? '\n\n' + agent.systemPrompt : '')
         + `\n\nYou are running on ${pr.model} through ${pr.entry?.label ?? pr.providerId}. You have only the tools listed in this request; you have no file, shell or web tools of your own.`,
       prompt, stored: this.store.listMessages(taskId),
-      servers,
+      servers, external,
       authorize: decide,
       noteToolUse: (name, id, input) => this.noteToolUse(job, act, name, id, input),
       onDelta: (text) => this.bus.emit({ type: 'message.delta', taskId, text }),

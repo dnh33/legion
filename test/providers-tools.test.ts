@@ -23,17 +23,6 @@ test('the model is offered exactly the in-process Legion tools, as mcp__<server>
   } finally { await f.close(); }
 });
 
-test('external MCP servers from Settings are not offered to a provider model (only in-process servers)', async () => {
-  const f = await startFake((_r, res) => replyText(res, 'ok'));
-  try {
-    const h = setup(f, { agent: { mcpServers: ['*'] } });
-    h.config.mcpServers = { ext: { type: 'http', url: 'https://mcp.example/x' }, local: { command: 'node', args: ['x.js'] } } as any;
-    await run(h);
-    const names = (f.requests[0]!.body.tools as any[]).map((t) => t.function.name);
-    assert.equal(names.some((n) => n.includes('ext') || n.includes('local')), false);
-  } finally { await f.close(); }
-});
-
 test('C12 a tool the model was not offered runs nothing: Bash, an unknown server, a made-up tool', async () => {
   let n = 0;
   const f = await startFake((_r, res) => {

@@ -1,5 +1,6 @@
 /** Shared types for the provider seam: config entries, the adapter and the host the engine hands it. */
 import type { McpSdkServerConfigWithInstance } from '@anthropic-ai/claude-agent-sdk';
+import type { ExternalServerConfig } from './external-mcp.js';
 
 export interface ProviderPrice {
   /** Dollars per million input tokens, typed by the owner. Legion ships none. */
@@ -68,6 +69,8 @@ export interface ProviderHost {
   stored: Array<{ role: string; text: string; toolName?: string; toolUseId?: string; resultFor?: string }>;
   /** In-process tool servers only (type 'sdk'). External stdio/http/sse servers are never offered. */
   servers: Record<string, McpSdkServerConfigWithInstance>;
+  /** The MCP servers the owner enabled for this agent in Settings (stdio, http, sse), reached by Legion's own client with stricter rules. */
+  external?: Record<string, ExternalServerConfig>;
   authorize(toolName: string, input: Record<string, unknown>): Promise<{ allow: boolean; message?: string }>;
   noteToolUse(toolName: string, toolUseId: string, input: unknown): void;
   onDelta(text: string): void;

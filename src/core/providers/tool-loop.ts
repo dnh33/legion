@@ -6,6 +6,7 @@
  */
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
+import { connectExternal } from './external-mcp.js';
 import { chatTurn } from './openai-compat.js';
 import type { ChatTurnResult } from './openai-compat.js';
 import { ProviderHttpError } from './http.js';
@@ -25,7 +26,9 @@ export interface ToolSet { offered: Map<string, Offered>; specs: ChatToolSpec[];
 type Connectable = { connect(t: unknown): Promise<void>; close?(): Promise<void> };
 
 /** Connects a client to each in-process server and lists its tools as `mcp__<server>__<tool>` (the names every Legion module already knows). */
-export async function connectTools(servers: ProviderHost['servers'], notice: (t: string) => void): Promise<ToolSet> {
+export const MAX_OFFERED_TOOLS = 128;
+
+export async function connectTools(servers: ProviderHost['servers'], notice: (t: string) => void, external: NonNullable<ProviderHost['external']> = {}): Promise<ToolSet> {
   const offered = new Map<string, Offered>();
   const specs: ChatToolSpec[] = [];
   const clients: Client[] = [];
@@ -50,9 +53,27 @@ export async function connectTools(servers: ProviderHost['servers'], notice: (t:
       notice(`Tools of "${serverName}" are not available in this run: ${e instanceof Error ? e.message.slice(0, 160) : 'could not start'}.`);
     }
   }
+  const closers: Array<() => Promise<void>> = [];
+  for (const [serverName, cfg] of Object.entries(external)) {
+    try {
+      const conn = await connectExternal(serverName, cfg);
+      closers.push(() => conn.close());
+      const listed = await conn.client.listTools();
+      for (const t of listed.tools) {
+        const name = `mcp__${serverName}__${t.name}`;
+        if (!FN_NAME.test(name)) { notice(`Tool ${name.slice(0, 80)} is not offered to this model (its name is not allowed).`); continue; }
+        if (specs.length >= MAX_OFFERED_TOOLS) { notice(`More than ${MAX_OFFERED_TOOLS} tools are available; the rest are not offered to this model.`); break; }
+        offered.set(name, { client: conn.client, remote: t.name });
+        specs.push({ type: 'function', function: { name, description: (t.description ?? '').slice(0, 1000), parameters: t.inputSchema ?? { type: 'object', properties: {} } } });
+      }
+    } catch (e) {
+      notice(`The MCP server "${serverName}" is not available in this run: ${e instanceof Error ? e.message.slice(0, 160) : 'could not start'}.`);
+    }
+  }
   return {
     offered, specs,
     async close() {
+      for (const c of closers) { try { await c(); } catch { /* ignore */ } }
       for (const c of clients) { try { await c.close(); } catch { /* ignore */ } }
       for (const s of servs) { try { await s.close?.(); } catch { /* ignore */ } }
     },
@@ -115,7 +136,7 @@ export async function runToolLoop(host: ProviderHost, target: ProviderTarget, mo
     if (r.usage) usage = { inputTokens: (usage?.inputTokens ?? 0) + r.usage.inputTokens, outputTokens: (usage?.outputTokens ?? 0) + r.usage.outputTokens };
     else res.usageUnknown = true;
   };
-  const tools = await connectTools(host.servers, host.onNotice);
+  const tools = await connectTools(host.servers, host.onNotice, host.external);
   const used = new Set<string>();
   const fails = new Map<string, number>();
   let noticedRefused = false;
