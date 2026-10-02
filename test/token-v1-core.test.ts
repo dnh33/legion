@@ -132,7 +132,8 @@ test('a real core started with the secret on stdin: admin works with the header 
     // nothing on disk: config.json, core.log, the graph, every file the core wrote under LEGION_HOME
     const files = filesUnder(core.home);
     assert.ok(files.some((f) => f.endsWith('config.json')));
-    const leaks = files.filter((f) => readFileSync(f).includes(SECRET));
+    // the core is still running: its atomic writes (state.json.tmp, then rename) can remove a file between the listing and the read
+    const leaks = files.filter((f) => { try { return readFileSync(f).includes(SECRET); } catch (e) { if ((e as NodeJS.ErrnoException).code === 'ENOENT') return false; throw e; } });
     assert.deepEqual(leaks, [], 'the admin secret must not be in any file under LEGION_HOME');
     // Linux: the process environment and command line (a same-user bot can read both)
     if (existsSync(`/proc/${core.child.pid}/environ`)) {
