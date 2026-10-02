@@ -5,7 +5,9 @@ import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { defaultBlenderConfig, normalizeBlender } from './blender.js';
 import type { BlenderConfig } from './blender.js';
+import { MAX_ROOM_BUDGET_USD } from './comms.js';
 import type { LegionConfig } from './types.js';
+export { MAX_ROOM_BUDGET_USD };
 
 export const VERSION = '0.1.0';
 
@@ -39,8 +41,6 @@ export type CoreConfig = LegionConfig & { bsv: BsvConfig; comms: CommsConfig; bl
 
 /** The least a room's budget can be (below it one turn cannot fit). The hub, the settings dialogs and the bot-room limits all use it. */
 export const MIN_ROOM_BUDGET_USD = 0.05;
-/** The most any room budget can be, however it is set (human, bot or config). */
-export const MAX_ROOM_BUDGET_USD = 10_000;
 
 export const DEFAULT_COMMS: CommsConfig = { botRoomMaxMembers: 6, botRoomDefaultBudgetUsd: null, botRoomMaxBudgetUsd: null, turnCostFloorUsd: 0.02 };
 

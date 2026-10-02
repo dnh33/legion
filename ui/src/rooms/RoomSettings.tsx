@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import type { Room, RoomGuards, RoomStrategy } from '../../../src/shared/comms';
-import { MAX_ROOM_BUDGET_USD } from '../../../src/shared/config';
+import { MAX_ROOM_BUDGET_USD } from '../../../src/shared/comms';
 import { Icon } from '../components/icons';
 import { Face } from './Stack';
 import { useStore } from '../store';

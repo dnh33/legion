@@ -1,7 +1,6 @@
 import { useMemo, useState } from 'react';
 import type { RoomStrategy } from '../../../src/shared/comms';
-import { DEFAULT_GUARDS } from '../../../src/shared/comms';
-import { MAX_ROOM_BUDGET_USD } from '../../../src/shared/config';
+import { DEFAULT_GUARDS, MAX_ROOM_BUDGET_USD } from '../../../src/shared/comms';
 import { Face } from './Stack';
 import { useStore } from '../store';
 import { Dialog } from './Dialog';

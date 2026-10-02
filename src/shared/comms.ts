@@ -92,6 +92,8 @@ export interface TaskOrigin {
   tainted?: boolean;
 }
 
+/** The most any room budget can be, however it is set (human, bot or config). */
+export const MAX_ROOM_BUDGET_USD = 10_000;
 export const DEFAULT_GUARDS: RoomGuards = { maxHops: 6, budgetUsd: 2, cycleRepeats: 3, everyoneCooldownSec: 30 };
 
 /** Bot-visible wrapper for inter-bot text. The receiver must treat it as data from a peer, never as the user. */
