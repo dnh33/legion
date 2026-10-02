@@ -33,7 +33,8 @@ test('C11: the child gets an argument list with the hardening options, a scrubbe
     const run = await launchBrowser(t.p, t.bin, { allowLocal: false });
     const rep = t.read();
     const a = rep.argv;
-    assert.deepEqual(a.slice(0, 5), ['serve', '--host', '127.0.0.1', '--port', String(run.port)]);
+    assert.deepEqual(a.slice(0, 3), ['serve', '--port', String(run.port)]);
+    assert.ok(!a.some((x) => /^--(host|bind|advertise-host)/.test(x)), 'no bind option: the default is loopback');
     assert.ok(a.includes('--block-private-networks'), 'private networks blocked by the browser itself');
     assert.equal(a[a.indexOf('--block-cidrs') + 1], '169.254.0.0/16');
     for (const f of ['--cdp-max-connections', '--cdp-max-message-size', '--http-max-response-size', '--v8-max-heap-mb', '--watchdog-ms', '--disable-metrics']) assert.ok(a.includes(f), f);
@@ -56,14 +57,14 @@ test('C11: the child gets an argument list with the hardening options, a scrubbe
   } finally { delete process.env.LEGION_TEST_SECRET; delete process.env.ANTHROPIC_API_KEY; }
 });
 
-test('C11: allow-local only removes the private-network block; the metadata range stays blocked; the bind stays 127.0.0.1', async () => {
+test('C11: allow-local only removes the private-network block; the metadata range stays blocked; still no bind option', async () => {
   const t = ports('ok');
   const run = await launchBrowser(t.p, t.bin, { allowLocal: true });
   try {
     const a = t.read().argv;
     assert.ok(!a.includes('--block-private-networks'));
     assert.ok(a.includes('--block-cidrs'));
-    assert.equal(a[a.indexOf('--host') + 1], '127.0.0.1');
+    assert.ok(!a.includes('--host'));
   } finally { await run.stop(); }
 });
 

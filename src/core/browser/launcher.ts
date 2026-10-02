@@ -52,7 +52,8 @@ export function buildBrowserEnv(platform: NodeJS.Platform, host: NodeJS.ProcessE
 /** The fixed hardening options (plan section 1). `allowLocal` only removes the private-network block; the metadata range stays blocked. */
 export function buildBrowserArgs(port: number, allowLocal: boolean): string[] {
   return [
-    'serve', '--host', '127.0.0.1', '--port', String(port),
+    // no bind option on purpose: `serve` listens on 127.0.0.1 by default (its help text says so), and the repo's loopback source scan refuses any host or bind option in src/
+    'serve', '--port', String(port),
     '--cdp-max-connections', '2', '--cdp-max-message-size', String(BROWSER_LIMITS.cdpMessageBytes),
     '--http-max-response-size', String(BROWSER_LIMITS.responseBytes), '--http-timeout', '15000', '--http-connect-timeout', '8000',
     '--v8-max-heap-mb', String(BROWSER_LIMITS.v8HeapMb), '--watchdog-ms', String(BROWSER_LIMITS.watchdogMs), '--disable-metrics',
