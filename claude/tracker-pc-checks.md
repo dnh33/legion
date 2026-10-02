@@ -1,4 +1,26 @@
-# Checks that need the real Windows PC (collected from reviewer reports)
+# Checks that need the real Windows PC: INTAKE list (collected from reviewer reports)
+
+**Master:** [`claude/real-pc-test-plan.md`](real-pc-test-plan.md) (machine twin `scripts/harness/pc-checks.json`, summary `node scripts/harness/pc-report.mjs <results.json>`). It holds every check with steps, expected observation, evidence, safety class, run order and rollback. Results are recorded there. This file stays as the **intake list**: any agent that finds something only a real PC can verify appends a numbered row here (rule in `CLAUDE.md`, "Real-PC checks"), and it is merged into the plan with its source at the next refresh. Never mark a feature verified in docs or the changelog until its plan check says `pass`.
+
+Row format for new intake: `id | area | preconditions | exact steps | expected observation | evidence to capture | safety class (none, downloads, spends-money, native-dialog, real-wallet, real-funds, account) | source`.
+
+## Where the old ids went (all of them are in the plan)
+
+| Old id | Plan id | | Old id | Plan id |
+|---|---|---|---|---|
+| P1 | INST-01, INST-02 | | K1 | VM-01, VM-02 |
+| P2 | INST-03 | | U1 | APP-09, VM-06 |
+| P3 | INST-04 | | R1 | CHAT-01 |
+| P4 | INST-05 | | Blender B1 | BLND-01 |
+| P5 | INST-06 | | B2 / B3 / B4 / B5 | BLND-03 / 04 / 05 / 06 |
+| P6 | INST-07, INST-16 | | B6 / B7 / B8 | BLND-07 / 08 / 09 |
+| P7 | INST-08 | | B9 / B10 / B11 | BLND-12 / 13 / 19, 20 |
+| P8 | INST-09 | | BSV V0 to V12 | BSVT-00 to BSVT-12 |
+| P9 | INST-10 | | BSV R0 to R11 | BSVM-01 to BSVM-12 |
+| P10 | INST-11 | | M1 / M2 / M3 | MCP-01 / 02 / 04 |
+| handoff line (section 6.2/6.3) | APP-01 to 03, APP-10 to 12, MCP-07, VM-05, PERF-04 | | | |
+
+Plan ids are written `PC-<AREA>-<nn>`. The tables below are the original intake text, unchanged. (The Blender rows B1 to B11 live only on `claude/review-blender-merged` so far; they are already in the plan.)
 
 Source: `review/release-packaging-review.md` section 5 (branch `claude/review-release-packaging`) and `review/mcp-isolation-review.md`. Cloud reviewers ran Linux only; none of these is proven yet. Update the State column as each is run on this PC.
 
