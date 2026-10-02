@@ -42,6 +42,8 @@ export interface BrowserModuleOptions {
   chromiumIo?: ChromiumIo;
   platform?: NodeJS.Platform;
   hostEnv?: NodeJS.ProcessEnv;
+  /** Test seam only: the address the check page requests to prove the guard refuses it (production uses a cloud-metadata address). */
+  checkProbe?: string;
 }
 
 const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v);
@@ -117,7 +119,7 @@ export function createBrowserModule(deps: ModuleDeps, opts: BrowserModuleOptions
     try { free = manager.reserve(); } catch (e) { steps.push({ step: 'start', ok: false, detail: e instanceof Error ? e.message : String(e) }); return done(false, label); }
     const nonce = randomBytes(8).toString('hex');
     const url = `https://legion-check.invalid/${nonce}`;
-    const probe = `http://169.254.169.254/legion-check-${nonce}`;
+    const probe = opts.checkProbe ?? `http://169.254.169.254/legion-check-${nonce}`;
     const html = `<!doctype html><html><head><meta charset="utf-8"><title>Legion browser check</title></head><body><p>Legion browser check</p><p id="js">js-pending</p><script>document.getElementById('js').textContent='js-ok';</script><img src="${probe}" alt=""></body></html>`;
     const session = new BrowserSession({ ...sessionDeps(() => () => undefined), internal: { url, html, probe }, approveOrigin: async () => true });
     try {

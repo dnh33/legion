@@ -32,7 +32,7 @@ const until = async (cond: () => boolean, ms = 5000): Promise<boolean> => { cons
 const fsOf = (files: string[], dirs: Record<string, string[]> = {}): ChromiumIo => ({ exists: (p) => files.includes(p), readDir: (p) => dirs[p] ?? [] });
 const EDGE_IO = fsOf([EDGE], { [EDGE_DIR]: ['120.0.2210.91', 'msedge.exe'] });
 
-function rig(o: { mode?: string; limits?: Record<string, number>; nativeSecret?: string | null; io?: ChromiumIo; platform?: NodeJS.Platform } = {}) {
+function rig(o: { mode?: string; limits?: Record<string, number>; nativeSecret?: string | null; io?: ChromiumIo; platform?: NodeJS.Platform; checkProbe?: string } = {}) {
   const dataDir = mkdtempSync(join(tmpdir(), 'br-mod-'));
   const reportBase = join(dataDir, 'report');
   const pages = join(dataDir, 'pages.json');
@@ -45,7 +45,7 @@ function rig(o: { mode?: string; limits?: Record<string, number>; nativeSecret?:
   const reports: string[] = [];
   const launchPorts: LaunchPorts = { ...base, proc: { spawn(req) { const rep = `${reportBase}-${reports.length + 1}.json`; reports.push(rep); return base.proc.spawn({ ...req, file: process.execPath, prefixArgs: [FAKE_CHR, rep, o.mode ?? 'ok', pages] }); }, kill: base.proc.kill } };
   const deps = { config: { authToken: 'tok-12345678' }, bus, approvals, dataDir } as unknown as ModuleDeps;
-  const mod = createBrowserModule(deps, { launchPorts, resolve: DNS, limits: o.limits, platform: o.platform ?? 'win32', hostEnv: WINENV, chromiumIo: o.io ?? EDGE_IO, ...(o.nativeSecret === null ? {} : { nativeSecret: o.nativeSecret ?? NATIVE }) });
+  const mod = createBrowserModule(deps, { launchPorts, resolve: DNS, limits: o.limits, platform: o.platform ?? 'win32', hostEnv: WINENV, chromiumIo: o.io ?? EDGE_IO, ...(o.checkProbe ? { checkProbe: o.checkProbe } : {}), ...(o.nativeSecret === null ? {} : { nativeSecret: o.nativeSecret ?? NATIVE }) });
   const routes = new Map<string, Handler>();
   mod.routes!((m, p, h) => { routes.set(`${m} ${p}`, h); });
   const call = async (key: string, body?: unknown, headers: Record<string, string> = {}) => (routes.get(key)!({ req: { headers }, body, url: new URL('http://x/'), params: [], res: {} } as never));
@@ -264,5 +264,16 @@ test('"Open test page": failures are reported plainly: no browser, JavaScript no
   assert.equal(bad.result.ok, false);
   assert.equal(bad.result.steps.find((s) => s.step === 'javascript')!.ok, false);
   assert.equal(bad.status.lastRun!.ok, false);
+  assert.equal(await until(() => !alive(r.pidOf(0))), true);
+});
+
+test('"Open test page": if the guard did let the deliberate forbidden request through, the check says so and fails (do not use the browser tool)', async () => {
+  // a public address the guard correctly allows stands in for a guard that stopped working
+  const r = rig({ checkProbe: 'https://93.184.216.34/legion-check' });
+  const out = await r.call('POST /api/browser/check') as { result: BrowserCheckResult; status: BrowserStatusView };
+  assert.equal(out.result.ok, false);
+  const guard = out.result.steps.find((x) => x.step === 'guard') ?? out.result.steps.find((x) => x.step === 'start');
+  assert.equal(guard!.ok, false);
+  assert.equal(out.status.lastRun!.ok, false);
   assert.equal(await until(() => !alive(r.pidOf(0))), true);
 });
