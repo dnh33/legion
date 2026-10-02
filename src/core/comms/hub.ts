@@ -15,7 +15,8 @@ import { OVERRIDE_MODELS } from '../bridge.js';
 import type { EventBus } from '../bus.js';
 import { RoomStore } from './rooms.js';
 import type { HubState, TaskMapEntry } from './rooms.js';
-import { overrideAllowed, overrideRefusal } from '../model-cap.js';
+import { isProviderValue, overrideAllowed, overrideRefusal } from '../model-cap.js';
+import type { LeadChoiceDecision, LeadChoiceQuery } from '../model-cap.js';
 import { cardText, clip, containsSeedPhrase, cycleHash, neutralizeTags, safeName, scrubSecrets } from './scrub.js';
 
 // ------------------------------------------------------------------ public types
@@ -23,6 +24,8 @@ import { cardText, clip, containsSeedPhrase, cycleHash, neutralizeTags, safeName
 export interface HubEngine {
   startTask(p: { agentId: string; prompt: string; source: TaskSource; model?: ModelChoice; modelOverrideBy?: string; continueTaskId?: string; origin?: TaskOrigin; tainted?: boolean }): Task;
   cancel(taskId: string): boolean;
+  /** Whether the owner allowed a lead to choose this provider choice for this agent (Settings, Providers, Lead choices). */
+  leadMayChoose?(p: LeadChoiceQuery): LeadChoiceDecision;
 }
 export interface HubStore {
   getAgent(id: string): AgentProfile | undefined;
@@ -112,6 +115,7 @@ interface Meta { ceiling: ApprovalMode; humanChain: boolean; auto: boolean; tain
 /** The model alias a bot asked for, checked (the tool layer also checks it against the catalog). */
 function cleanModel(v: unknown): string | undefined {
   if (v === undefined || v === null) return undefined;
+  if (isProviderValue(typeof v === 'string' ? v.trim() : v)) return (v as string).trim(); // a provider choice: the owner's list decides, in checkModelFor
   const m = typeof v === 'string' ? v.trim().toLowerCase() : '';
   if (!(OVERRIDE_MODELS as readonly string[]).includes(m)) throw new CommsError(400, `model must be one of: ${OVERRIDE_MODELS.join(', ')}`);
   return m;
@@ -430,7 +434,7 @@ export class CommsHub {
     const plan = this.plan(room, from, t, { auto: false });
     const again = this.repeatOf(room, sender.id, t, plan.explicit, 'chat');
     if (again) return { ...clone(again), duplicate: true };
-    this.checkModelFor(plan.wake, model);
+    this.checkModelFor(plan.wake, model, sender.id, run.tainted);
     const msg = this.post(room, { from, to: plan.explicit, kind: 'chat', text: t, ...(replyTo ? { replyTo } : {}), hop: ctx.hop + 1, ...(run.tainted ? { tainted: true } : {}), ...(model ? { model } : {}) });
     this.notePost(room, sender.id, msg);
     this.awaitAnswer(sender.id, room.id, peer.id);
@@ -452,7 +456,7 @@ export class CommsHub {
     const body = missing.length ? `${missing.map((id) => '@' + this.nameOf(id)).join(' ')} ${t}` : t;
     const again = this.repeatOf(room, fromId, body, plan.explicit, 'chat');
     if (again) return { ...clone(again), duplicate: true };
-    this.checkModelFor(plan.wake, model);
+    this.checkModelFor(plan.wake, model, fromId, run.tainted);
     const msg = this.post(room, { from, to: plan.explicit, kind: 'chat', text: body, hop: ctx.hop + 1, ...(run.tainted ? { tainted: true } : {}), ...(model ? { model } : {}) });
     this.notePost(room, fromId, msg);
     const viaParam = (Array.isArray(mention) ? mention : mention ? [mention] : []).map((m) => '@' + m.replace(/^@/, '')).join(' ');
@@ -1283,10 +1287,16 @@ export class CommsHub {
   }
 
   /** A per-task model on a post is capped at each woken bot's own setting (model-cap.ts), so a message cannot upgrade a peer to something dearer than its owner chose. */
-  private checkModelFor(wakeIds: string[], model: string | undefined): void {
+  private checkModelFor(wakeIds: string[], model: string | undefined, fromId?: string, tainted?: boolean): void {
     if (!model) return;
     for (const id of wakeIds) {
       const a = this.agents.getAgent(id);
+      if (a && isProviderValue(model) && model !== a.model) {
+        const d = this.engine.leadMayChoose?.({ leadId: fromId ?? '', ...(tainted ? { leadTainted: true } : {}), target: a, value: model });
+        if (!d) throw new CommsError(400, 'Provider choices are not available here. Leave model out.');
+        if (!d.ok) throw new CommsError(400, d.reason ?? 'That provider choice is not allowed.');
+        continue;
+      }
       if (a && !overrideAllowed(a.model, model)) throw new CommsError(400, overrideRefusal(a.name, a.model, model));
     }
   }

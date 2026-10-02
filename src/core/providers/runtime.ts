@@ -122,6 +122,25 @@ export class ProviderRuntime {
     return true;
   }
 
+  /**
+   * May a lead agent run `q.target` on the provider choice `q.value` (a per-task choice made through ask/tell/room posts)? Only when the
+   * owner allowed it: the value is on that agent's Lead choices list, or its provider is marked lead-selectable (both are changed only with
+   * admin plus native confirmation). Never a CLI. A lead that has touched outside content cannot pick a provider whose runs start tainted
+   * (a custom remote endpoint the owner has not marked trusted), so injected text cannot steer work to an endpoint nobody vouched for.
+   */
+  leadDecision(q: { target: { id: string; name: string }; value: string; leadTainted?: boolean }): { ok: boolean; reason?: string } {
+    const fix = 'Allow it in Settings, Providers, Lead choices.';
+    const no = (reason: string) => ({ ok: false, reason });
+    const r = this.resolve(q.value);
+    if (!r?.entry) return no(`"${q.value}" is not a provider that is set up, so ${q.target.name} cannot run on it. Leave model out, or ask the user to set it up in Settings, Providers.`);
+    if (r.entry.kind === 'cli') return no(`"${r.entry.label}" runs a program on this computer and only the user can start it, in the Legion app. Leave model out.`);
+    if (!r.entry.enabled) return no(`The provider "${r.entry.label}" is turned off. Leave model out, or ask the user to turn it on in Settings, Providers.`);
+    const listed = (this.cfg.leadChoices[q.target.id] ?? []).includes(q.value);
+    if (!listed && r.entry.leadSelectable !== true) return no(`${q.target.name} can only run on "${q.value}" if the user allows leads to choose it. ${fix}`);
+    if (q.leadTainted && this.startsTainted(r)) return no(`You have read outside content in this task, and "${r.entry.label}" is an endpoint the user has not marked trusted, so you cannot send work to it. Leave model out, or ask the user to mark it trusted in Settings, Providers.`);
+    return { ok: true };
+  }
+
   private target(id: string, entry: ProviderEntry): ProviderTarget {
     const ep = checkEndpoint(entry.baseUrl, { allowPrivate: entry.allowPrivateNetwork === true });
     const origin = ep.ok ? ep.origin : '';

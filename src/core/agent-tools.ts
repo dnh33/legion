@@ -5,6 +5,7 @@ import { z } from 'zod';
 import { usageLine } from '../shared/vm-usage.js';
 import { VmError, type VmManager } from './vm-manager.js';
 import { OVERRIDE_MODELS } from './bridge.js';
+import { PROVIDER_VALUE_RE } from './model-cap.js';
 import type { Bridge } from './bridge.js';
 import { CLAUDE_NOT_CONFIGURED } from './boat-health.js';
 import { buildVmCliCommand, formatVmCliResult, VM_CLI_MODEL_RE } from './providers/vm-cli.js';
@@ -41,8 +42,8 @@ export interface AgentToolsCtx {
 }
 
 /** Optional per-task model for ask/tell/bot_send/room_post: a lead can say "use Haiku for this". It applies to that task only; it never changes approvals. */
-export const modelParam = z.enum(OVERRIDE_MODELS).optional()
-  .describe('Optional model for this one task: sonnet, opus, haiku or auto. Omit to use the agent\'s own setting. Applies to this task only; it does not change what the agent is allowed to do.');
+export const modelParam = z.union([z.enum(OVERRIDE_MODELS), z.string().regex(PROVIDER_VALUE_RE)]).optional()
+  .describe('Optional model for this one task: sonnet, opus, haiku or auto, or a provider choice written provider:model that the owner allowed you to choose for that agent in Settings (anything else is refused). Omit to use the agent\'s own setting. Applies to this task only; it does not change what the agent is allowed to do.');
 
 /** Bridge tools only: agents / ask / tell. */
 function bridgeTools(ctx: AgentToolsCtx) {

@@ -147,7 +147,7 @@ export interface Task {
   archived?: boolean;
   requestedModel: ModelChoice;
   /** Set when another bot picked the model for this task through `ask`/`tell` (or a room message): who, and which. Applies to that task's run only; a later message that asks for none clears it. Never changes approvals. */
-  modelOverride?: { model: ModelChoice; by: string };
+  modelOverride?: { model: ModelChoice; by: string; /** A provider choice the owner allowed leads to make (Settings, Providers, Lead choices). Set by the engine only. */ allowedInSettings?: boolean };
   /** Model used for the latest run; set when the run starts. */
   model?: ConcreteModel;
   /** Id of the model provider the latest run used (absent: Claude). */

@@ -1,5 +1,6 @@
 /** Agent-to-agent bridge: lets any Legion agent message any other agent (ask = wait, tell = async reply). */
-import { overrideAllowed, overrideRefusal } from './model-cap.js';
+import { isProviderValue, overrideAllowed, overrideRefusal } from './model-cap.js';
+import type { LeadChoiceDecision, LeadChoiceQuery } from './model-cap.js';
 import type { AgentProfile, Catalog, ModelChoice, Task, TaskSource } from '../shared/types.js';
 import type { TaskOrigin } from '../shared/comms.js';
 import type { EventBus } from './bus.js';
@@ -33,6 +34,8 @@ export interface BridgeEngine {
   isTainted?(taskId: string): boolean;
   /** Marks a live or stored task tainted (a tainted peer's result just reached it). */
   markTainted?(taskId: string): void;
+  /** Whether the owner allowed a lead to choose this provider choice for this agent (Settings, Providers, Lead choices). */
+  leadMayChoose?(p: LeadChoiceQuery): LeadChoiceDecision;
 }
 
 export class BridgeError extends Error {
@@ -111,6 +114,7 @@ export class Bridge {
    */
   async resolveModel(v: unknown): Promise<ModelChoice | undefined> {
     if (v === undefined || v === null) return undefined;
+    if (isProviderValue(typeof v === 'string' ? v.trim() : v)) return (v as string).trim(); // a provider choice: the owner's list decides, in checkCeiling
     const m = typeof v === 'string' ? v.trim().toLowerCase() : '';
     if (!(OVERRIDE_MODELS as readonly string[]).includes(m)) throw new BridgeError(`model must be one of: ${OVERRIDE_MODELS.join(', ')}`);
     if (m === 'auto' || !this.catalog) return m;
@@ -126,20 +130,28 @@ export class Bridge {
   /** The synchronous half of resolveModel, for callers that cannot await (Bridge.ask/tell guard themselves with it). */
   private checkModel(v: unknown): ModelChoice | undefined {
     if (v === undefined || v === null) return undefined;
+    if (isProviderValue(typeof v === 'string' ? v.trim() : v)) return (v as string).trim();
     const m = typeof v === 'string' ? v.trim().toLowerCase() : '';
     if (!(OVERRIDE_MODELS as readonly string[]).includes(m)) throw new BridgeError(`model must be one of: ${OVERRIDE_MODELS.join(', ')}`);
     return m;
   }
 
   /** A per-task model is capped at the target agent's own setting (see model-cap.ts): a lead cannot upgrade a peer to something dearer than its owner chose. */
-  private checkCeiling(target: AgentProfile, model: ModelChoice | undefined): void {
+  private checkCeiling(target: AgentProfile, model: ModelChoice | undefined, caller?: Task): void {
+    if (model && isProviderValue(model) && model !== target.model) {
+      // a provider choice moves the target's data to another provider: only what the owner allowed for this agent (the engine decides again when the run starts)
+      const d = this.engine.leadMayChoose?.({ leadId: caller?.agentId ?? '', ...(caller ? { leadTaskId: caller.id } : {}), target, value: model });
+      if (!d) throw new BridgeError(`Provider choices are not available here. Leave model out.`);
+      if (!d.ok) throw new BridgeError(d.reason ?? 'That provider choice is not allowed.');
+      return;
+    }
     if (model && !overrideAllowed(target.model, model)) throw new BridgeError(overrideRefusal(target.name, target.model, model));
   }
 
   async ask(callerTaskId: string, agentRef: string, message: string, opts: { fresh?: boolean; timeoutSeconds?: number; model?: ModelChoice } = {}) {
     const model = this.checkModel(opts.model);
     const { caller, target, hop } = this.resolve(callerTaskId, agentRef, message, 'ask');
-    this.checkCeiling(target, model);
+    this.checkCeiling(target, model, caller);
     const { taskId, done } = this.deliver(caller, target, message, !!opts.fresh, hop, model);
     this.waiting.set(callerTaskId, (this.waiting.get(callerTaskId) ?? 0) + 1);
     let set = this.pendingAsks.get(callerTaskId);
@@ -175,7 +187,7 @@ export class Bridge {
   tell(callerTaskId: string, agentRef: string, message: string, opts: { fresh?: boolean; model?: ModelChoice } = {}): { taskId: string } {
     const model = this.checkModel(opts.model);
     const { caller, target, hop } = this.resolve(callerTaskId, agentRef, message, 'tell');
-    this.checkCeiling(target, model);
+    this.checkCeiling(target, model, caller);
     const { taskId, done } = this.deliver(caller, target, message, !!opts.fresh, hop, model);
     void done.then((r) => {
       const t = r.task ?? this.store.getTask(taskId);

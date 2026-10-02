@@ -14,6 +14,7 @@ import { ProviderHttpError } from './http.js';
 import { PROVIDER_PRESETS } from './presets.js';
 import { PROVIDER_ID_RE } from './config.js';
 import { isStdioEntry, stdioFingerprint } from './stdio-allow.js';
+import { isProviderValue, providerOf } from '../model-cap.js';
 import type { ProviderRuntime } from './runtime.js';
 import type { ProviderEntry } from './types.js';
 
@@ -86,6 +87,26 @@ export function createProvidersModule(opts: ProvidersModuleOpts): CoreModule {
           if (!isStdioEntry(entry)) throw new HttpError(404, 'No local (stdio) MCP server with that name in Settings.');
           cfg().stdioMcpAllow[name] = stdioFingerprint(entry);
         } else delete cfg().stdioMcpAllow[name];
+        persist();
+        return runtime.view();
+      });
+
+      // The provider:model values a lead agent may choose for one sub-agent. Adding any value needs the native secret (the app's dialog named
+      // the agent and the values); removing needs admin only. No bot or token client reaches this route (admin-only, default deny).
+      add('PUT', '/api/provider-lead/:agentId', ({ req, params, body }) => {
+        const agentId = decodeURIComponent(params[0]!);
+        if (!/^[A-Za-z0-9_-]{1,64}$/.test(agentId)) throw new HttpError(400, 'Not a valid agent id.');
+        if (!isObj(body) || !Array.isArray(body.choices) || body.choices.length > 50) throw new HttpError(400, 'choices (a list of provider:model values) is required');
+        const next: string[] = [];
+        for (const v of body.choices) {
+          if (!isProviderValue(v)) throw new HttpError(400, `"${String(v).slice(0, 60)}" is not a provider:model value.`);
+          const e = effective(providerOf(v)!);
+          if (!e || e.kind !== 'openai-compat') throw new HttpError(400, `"${v}" does not name a provider that talks to an endpoint.`);
+          if (!next.includes(v)) next.push(v);
+        }
+        const before = cfg().leadChoices[agentId] ?? [];
+        if (next.some((v) => !before.includes(v))) requireNative(req);
+        if (next.length) cfg().leadChoices[agentId] = next; else delete cfg().leadChoices[agentId];
         persist();
         return runtime.view();
       });

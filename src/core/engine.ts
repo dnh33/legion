@@ -14,7 +14,7 @@ import type { CoreModule, ModuleJob, PreambleContext, TaskEndOutcome } from './m
 import type { TaskOrigin } from '../shared/comms.js';
 import type { ApprovalBroker } from './approvals.js';
 import type { EventBus } from './bus.js';
-import { modelRank, overrideAllowed, overrideRefusal, rankModel } from './model-cap.js';
+import { isProviderValue, modelRank, overrideAllowed, overrideRefusal, rankModel } from './model-cap.js';
 import { routeModel, shouldEscalate } from './router.js';
 import type { Store } from './store.js';
 import { buildAgentToolsServer } from './agent-tools.js';
@@ -24,6 +24,7 @@ import type { VmManager } from './vm-manager.js';
 import { isSelfMcpUrl, McpStatusTracker, selfMcpNames } from './mcp-status.js';
 import type { McpStatusView } from '../shared/types.js';
 import { providerPrefix } from './providers/runtime.js';
+import type { LeadChoiceDecision, LeadChoiceQuery } from './model-cap.js';
 import type { ProviderRuntime } from './providers/runtime.js';
 import type { ProviderHost, ResolvedModel } from './providers/types.js';
 
@@ -205,7 +206,12 @@ export class Engine {
       throw new EngineError('Provider models can only be chosen in the Legion app. This agent runs on its own setting; leave model out.', 400);
     }
     const overriding = !!p.modelOverrideBy && !!p.model;
-    if (overriding && !overrideAllowed(agent.model, p.model)) throw new EngineError(overrideRefusal(agent.name, agent.model, p.model!), 400);
+    // a lead's provider choice: only what the owner allowed for this agent (Settings, Providers, Lead choices); everything else follows the cap rule as before
+    const leadProvider = overriding && isProviderValue(p.model) && p.model !== agent.model;
+    if (leadProvider) {
+      const d = this.leadMayChoose({ leadId: p.modelOverrideBy!, ...(p.bridge?.parentTaskId ? { leadTaskId: p.bridge.parentTaskId } : {}), ...(origin?.tainted || p.tainted ? { leadTainted: true } : {}), target: agent, value: p.model! });
+      if (!d.ok) throw new EngineError(d.reason ?? 'That provider choice is not allowed.', 400);
+    } else if (overriding && !overrideAllowed(agent.model, p.model)) throw new EngineError(overrideRefusal(agent.name, agent.model, p.model!), 400);
     let task: Task;
     let priorModel: ConcreteModel | undefined;
     if (p.continueTaskId) {
@@ -220,7 +226,7 @@ export class Engine {
       task = this.saveTask({
         ...prev, status: 'queued', source: p.source,
         requestedModel: p.model ?? (prev.modelOverride && !keepOverride ? agent.model : prev.requestedModel),
-        modelOverride: overriding ? { model: p.model!, by: p.modelOverrideBy! } : keepOverride ? prev.modelOverride : undefined,
+        modelOverride: overriding ? { model: p.model!, by: p.modelOverrideBy!, ...(leadProvider ? { allowedInSettings: true } : {}) } : keepOverride ? prev.modelOverride : undefined,
         result: undefined, error: undefined,
         ...(viaBridge ? { fromAgentId: p.bridge!.fromAgentId, parentTaskId: p.bridge!.parentTaskId } : {}),
         bridgeHop: p.bridge ? p.bridge.hop ?? 0 : undefined,
@@ -238,12 +244,13 @@ export class Engine {
         status: 'queued', source: p.source,
         ...(p.bridge ? { fromAgentId: p.bridge.fromAgentId, parentTaskId: p.bridge.parentTaskId, bridgeHop: p.bridge.hop ?? 0 } : {}),
         requestedModel: p.model ?? agent.model, createdAt: now, updatedAt: now,
-        ...(overriding ? { modelOverride: { model: p.model!, by: p.modelOverrideBy! } } : {}),
+        ...(overriding ? { modelOverride: { model: p.model!, by: p.modelOverrideBy!, ...(leadProvider ? { allowedInSettings: true } : {}) } } : {}),
         ...(origin ? { origin } : {}),
         ...(tainted ? { tainted: true } : {}),
       });
     }
     this.addMessage(task.id, 'user', prompt, undefined, p.bridge?.fromAgentId);
+    if (leadProvider) this.addMessage(task.id, 'system', `This task runs on ${p.model}, chosen by ${this.store.getAgent(p.modelOverrideBy!)?.name ?? p.modelOverrideBy}. You allowed that choice in Settings, Providers, Lead choices.`);
     this.queue.push({
       taskId: task.id, agentId: agent.id, prompt, choice: task.requestedModel, priorModel,
       header: p.bridge?.header, fromAgentId: p.bridge?.fromAgentId, parentTaskId: p.bridge && !p.bridge.reply ? p.bridge.parentTaskId : undefined,
@@ -282,6 +289,13 @@ export class Engine {
     if (a?.tainted) return true;
     const t = this.store.getTask(taskId);
     return !!t && (t.tainted === true || t.origin?.tainted === true);
+  }
+
+  /** Whether the owner allowed a lead to run `target` on the provider choice `value` (see ProviderRuntime.leadDecision). The lead's own taint is read here, never taken from the caller. */
+  leadMayChoose(q: LeadChoiceQuery): LeadChoiceDecision {
+    if (!this.providers) return { ok: false, reason: 'Provider choices are not set up. Leave model out.' };
+    const tainted = q.leadTainted === true || (!!q.leadTaskId && this.isTainted(q.leadTaskId));
+    return this.providers.leadDecision({ target: q.target, value: q.value, leadTainted: tainted });
   }
 
   /** Marks a task tainted: live runs flip at once, stored tasks keep it for later runs. */
@@ -468,7 +482,11 @@ export class Engine {
     // A model a bot picked (per-task override, or a /opus prefix in a bot's message) never goes above the agent's own setting.
     const picked = this.store.getTask(job.taskId)?.modelOverride || (job.origin && decision.reason.startsWith('prefix'));
     const provAgent = providerPrefix(agent.model);
-    if (picked && provAgent && decision.model !== agent.model) {
+    const ov = this.store.getTask(job.taskId)?.modelOverride;
+    // a provider choice the owner allowed leads to make is checked again now (the list may have changed since it was queued)
+    const authorised = !!ov?.allowedInSettings && decision.model === ov.model && this.leadMayChoose({ leadId: ov.by, ...(job.origin?.tainted ? { leadTainted: true } : {}), ...(job.parentTaskId ? { leadTaskId: job.parentTaskId } : {}), target: agent, value: ov.model }).ok;
+    if (authorised) { /* the owner's list decided: no clamp */ }
+    else if (picked && provAgent && decision.model !== agent.model) {
       // a bot's pick never moves a provider agent to another model or to Claude (that would send the owner's data somewhere else)
       decision = { ...decision, model: agent.model, reason: `${decision.reason}, kept on ${agent.name}'s own provider setting` };
     } else if (picked && !provAgent && providerPrefix(decision.model)) {
