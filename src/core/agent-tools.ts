@@ -3,6 +3,7 @@ import { createSdkMcpServer, tool } from '@anthropic-ai/claude-agent-sdk';
 import type { McpSdkServerConfigWithInstance } from '@anthropic-ai/claude-agent-sdk';
 import { z } from 'zod';
 import type { VmManager } from './vm-manager.js';
+import { OVERRIDE_MODELS } from './bridge.js';
 import type { Bridge } from './bridge.js';
 
 const MAX_CHARS = 12_000;
@@ -34,6 +35,10 @@ export interface AgentToolsCtx {
   bridge: Bridge;
 }
 
+/** Optional per-task model for ask/tell/bot_send/room_post: a lead can say "use Haiku for this". It applies to that task only; it never changes approvals. */
+export const modelParam = z.enum(OVERRIDE_MODELS).optional()
+  .describe('Optional model for this one task: sonnet, opus, haiku or auto. Omit to use the agent\'s own setting. Applies to this task only; it does not change what the agent is allowed to do.');
+
 /** Bridge tools only: agents / ask / tell. */
 function bridgeTools(ctx: AgentToolsCtx) {
   const { bridge, agentId, taskId } = ctx;
@@ -57,14 +62,15 @@ function bridgeTools(ctx: AgentToolsCtx) {
       message: z.string().min(1),
       fresh: z.boolean().optional().describe('Start a new thread instead of continuing the existing one'),
       timeoutSeconds: z.number().positive().max(3600).optional().describe('Default 600'),
+      model: modelParam,
     },
-    (a) => guard(() => bridge.ask(taskId, a.agent, a.message, { fresh: a.fresh, timeoutSeconds: a.timeoutSeconds })),
+    (a) => guard(async () => bridge.ask(taskId, a.agent, a.message, { fresh: a.fresh, timeoutSeconds: a.timeoutSeconds, model: await bridge.resolveModel(a.model) })),
   );
   const tell = tool(
     'tell',
     'Send a message to another Legion agent without waiting. Its answer arrives later as a new message in your task. Use for long or parallel work.',
-    { agent: z.string().describe('Agent id or name'), message: z.string().min(1), fresh: z.boolean().optional() },
-    (a) => guard(() => bridge.tell(taskId, a.agent, a.message, { fresh: a.fresh })),
+    { agent: z.string().describe('Agent id or name'), message: z.string().min(1), fresh: z.boolean().optional(), model: modelParam },
+    (a) => guard(async () => bridge.tell(taskId, a.agent, a.message, { fresh: a.fresh, model: await bridge.resolveModel(a.model) })),
   );
   return [agents, ask, tell];
 }

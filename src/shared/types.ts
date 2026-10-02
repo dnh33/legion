@@ -88,6 +88,8 @@ export interface Task {
   /** Hidden from tabs and Recent tasks (closed by the user). Still stored and resumable. */
   archived?: boolean;
   requestedModel: ModelChoice;
+  /** Set when another bot picked the model for this task through `ask`/`tell` (or a room message): who, and which. Applies to that task's run only; a later message that asks for none clears it. Never changes approvals. */
+  modelOverride?: { model: ModelChoice; by: string };
   /** Model used for the latest run; set when the run starts. */
   model?: ConcreteModel;
   /** True if the router escalated sonnet → opus during this task. */

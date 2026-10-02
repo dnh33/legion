@@ -1,5 +1,5 @@
 /** Agent-to-agent bridge: lets any Legion agent message any other agent (ask = wait, tell = async reply). */
-import type { AgentProfile, ModelChoice, Task, TaskSource } from '../shared/types.js';
+import type { AgentProfile, Catalog, ModelChoice, Task, TaskSource } from '../shared/types.js';
 import type { TaskOrigin } from '../shared/comms.js';
 import type { EventBus } from './bus.js';
 import type { Store } from './store.js';
@@ -9,12 +9,16 @@ export const MAX_HOP = 6;
 export const RESULT_MAX_CHARS = 4000;
 export const RATE_LIMIT = 30;
 export const RATE_WINDOW_MS = 10 * 60 * 1000;
+/** The per-task model a lead may ask for through `ask`, `tell`, `bot_send` and `room_post`. */
+export const OVERRIDE_MODELS = ['sonnet', 'opus', 'haiku', 'auto'] as const;
 const clampTimeout = (v: unknown, def = 600) => (typeof v === 'number' && Number.isFinite(v) ? Math.min(3600, Math.max(1, v)) : def);
 
 export interface BridgeStartParams {
   agentId: string; prompt: string; source: TaskSource; model?: ModelChoice; continueTaskId?: string;
   /** Set by the rooms module: approval ceiling inherited from the waking bot. */
   origin?: TaskOrigin;
+  /** Set with `model` when another bot chose the model for this run only (`ask`/`tell`, room messages). The engine records it on the task and drops it at the next message that asks for none. */
+  modelOverrideBy?: string;
   /** The prompt carries text from a tainted source (for example room history written by a tainted bot): the task starts tainted. */
   tainted?: boolean;
   /** `fromTaskId` (replies only) is the task whose result this message carries, so its taint can follow it. */
@@ -44,6 +48,8 @@ interface QueueItem {
   fromTaskId?: string;
   /** Bridge hop of the run this message starts (caller's hop + 1). */
   hop: number;
+  /** Model the caller asked for, for this message's run only. */
+  model?: ModelChoice;
   /** Called with the final task when this item's own run ends; or with an error if it could not start. */
   settle?: (r: { task?: Task; error?: Error }) => void;
 }
@@ -68,6 +74,8 @@ export class Bridge {
   private readonly now: () => number;
   /** Hides agents that are switched off (e.g. `requires: 'bsv'` while BSV mode is off). Set by the composition root. */
   isVisible: (a: AgentProfile) => boolean = () => true;
+  /** The account's model catalog (cached, probed without a model call). Set by the composition root; without it only the alias list limits `model`. */
+  catalog?: () => Promise<Catalog>;
 
   constructor(deps: { store: Store; bus: EventBus; engine: BridgeEngine; now?: () => number }) {
     this.store = deps.store; this.bus = deps.bus; this.engine = deps.engine;
@@ -96,9 +104,36 @@ export class Bridge {
     return lines.length ? lines.join('\n') : 'No other agents.';
   }
 
-  async ask(callerTaskId: string, agentRef: string, message: string, opts: { fresh?: boolean; timeoutSeconds?: number } = {}) {
+  /**
+   * Validates a lead's per-task model: one of sonnet, opus, haiku, auto (case and padding forgiven), and, when the catalog can be
+   * read, one the account offers. An unreadable catalog never vetoes. Returns the normalised alias, or undefined for none.
+   */
+  async resolveModel(v: unknown): Promise<ModelChoice | undefined> {
+    if (v === undefined || v === null) return undefined;
+    const m = typeof v === 'string' ? v.trim().toLowerCase() : '';
+    if (!(OVERRIDE_MODELS as readonly string[]).includes(m)) throw new BridgeError(`model must be one of: ${OVERRIDE_MODELS.join(', ')}`);
+    if (m === 'auto' || !this.catalog) return m;
+    let c: Catalog | undefined;
+    try { c = await this.catalog(); } catch { return m; }
+    if (!c || c.error || c.models.length === 0) return m;
+    if (!c.models.some((x) => [x.value, x.displayName, x.resolvedModel ?? ''].some((s) => s.toLowerCase().includes(m)))) {
+      throw new BridgeError(`Model "${m}" is not offered on this account (available: ${c.models.map((x) => x.value).join(', ')}).`);
+    }
+    return m;
+  }
+
+  /** The synchronous half of resolveModel, for callers that cannot await (Bridge.ask/tell guard themselves with it). */
+  private checkModel(v: unknown): ModelChoice | undefined {
+    if (v === undefined || v === null) return undefined;
+    const m = typeof v === 'string' ? v.trim().toLowerCase() : '';
+    if (!(OVERRIDE_MODELS as readonly string[]).includes(m)) throw new BridgeError(`model must be one of: ${OVERRIDE_MODELS.join(', ')}`);
+    return m;
+  }
+
+  async ask(callerTaskId: string, agentRef: string, message: string, opts: { fresh?: boolean; timeoutSeconds?: number; model?: ModelChoice } = {}) {
+    const model = this.checkModel(opts.model);
     const { caller, target, hop } = this.resolve(callerTaskId, agentRef, message, 'ask');
-    const { taskId, done } = this.deliver(caller, target, message, !!opts.fresh, hop);
+    const { taskId, done } = this.deliver(caller, target, message, !!opts.fresh, hop, model);
     this.waiting.set(callerTaskId, (this.waiting.get(callerTaskId) ?? 0) + 1);
     let set = this.pendingAsks.get(callerTaskId);
     if (!set) { set = new Set(); this.pendingAsks.set(callerTaskId, set); }
@@ -130,9 +165,10 @@ export class Bridge {
     }
   }
 
-  tell(callerTaskId: string, agentRef: string, message: string, opts: { fresh?: boolean } = {}): { taskId: string } {
+  tell(callerTaskId: string, agentRef: string, message: string, opts: { fresh?: boolean; model?: ModelChoice } = {}): { taskId: string } {
+    const model = this.checkModel(opts.model);
     const { caller, target, hop } = this.resolve(callerTaskId, agentRef, message, 'tell');
-    const { taskId, done } = this.deliver(caller, target, message, !!opts.fresh, hop);
+    const { taskId, done } = this.deliver(caller, target, message, !!opts.fresh, hop, model);
     void done.then((r) => {
       const t = r.task ?? this.store.getTask(taskId);
       const body = r.error ? `(failed) ${r.error.message}` : t?.status === 'done' ? (t.result ?? '') : `(${t?.status ?? 'gone'}) ${t?.error ?? ''}`.trim();
@@ -219,9 +255,9 @@ export class Bridge {
   }
 
   /** Deliver a message to the pair thread (or a new task). `done` resolves when THIS message's run has finished. */
-  private deliver(caller: Task, target: AgentProfile, message: string, fresh: boolean, hop: number): { taskId: string; done: Promise<{ task?: Task; error?: Error }> } {
+  private deliver(caller: Task, target: AgentProfile, message: string, fresh: boolean, hop: number, model?: ModelChoice): { taskId: string; done: Promise<{ task?: Task; error?: Error }> } {
     const thread = fresh ? undefined : this.findPair(caller.agentId, target.id);
-    const item: QueueItem = { message, fromAgentId: caller.agentId, parentTaskId: caller.id, reply: false, hop };
+    const item: QueueItem = { message, fromAgentId: caller.agentId, parentTaskId: caller.id, reply: false, hop, ...(model ? { model } : {}) };
     if (thread && !thread.archived && isLive(thread)) {
       const done = new Promise<{ task?: Task; error?: Error }>((res) => { item.settle = res; });
       this.enqueue(thread.id, item);
@@ -238,6 +274,7 @@ export class Bridge {
       : `[From ${caller?.name ?? item.fromAgentId} (Legion agent) via the bridge. Reply with just what they need; your final message is returned to them.]`;
     return this.engine.startTask({
       agentId, prompt: item.message, source, continueTaskId,
+      ...(item.model ? { model: item.model, modelOverrideBy: item.fromAgentId } : {}),
       bridge: { fromAgentId: item.fromAgentId, parentTaskId: item.parentTaskId, header, reply: item.reply, hop: item.hop, ...(item.fromTaskId ? { fromTaskId: item.fromTaskId } : {}) },
     });
   }

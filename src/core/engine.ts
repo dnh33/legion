@@ -177,6 +177,7 @@ export class Engine {
     // Taint follows the chain: a tainted waking bot, or a tainted peer's reply, taints this task for good.
     const tainted = !!p.tainted || !!origin?.tainted || (!!p.bridge?.reply && !!p.bridge.fromTaskId && this.isTainted(p.bridge.fromTaskId));
 
+    const overriding = !!p.modelOverrideBy && !!p.model;
     let task: Task;
     let priorModel: ConcreteModel | undefined;
     if (p.continueTaskId) {
@@ -186,8 +187,12 @@ export class Engine {
       if (prev.agentId !== agent.id) throw new EngineError('Task belongs to a different agent', 400);
       priorModel = prev.model;
       const viaBridge = p.bridge && !p.bridge.reply;
+      // A model another bot chose lasts for that run only: a later message that asks for none (and is not a reply landing in the caller's own task) goes back to the agent's setting.
+      const keepOverride = !!p.bridge?.reply;
       task = this.saveTask({
-        ...prev, status: 'queued', source: p.source, requestedModel: p.model ?? prev.requestedModel,
+        ...prev, status: 'queued', source: p.source,
+        requestedModel: p.model ?? (prev.modelOverride && !keepOverride ? agent.model : prev.requestedModel),
+        modelOverride: overriding ? { model: p.model!, by: p.modelOverrideBy! } : keepOverride ? prev.modelOverride : undefined,
         result: undefined, error: undefined,
         ...(viaBridge ? { fromAgentId: p.bridge!.fromAgentId, parentTaskId: p.bridge!.parentTaskId } : {}),
         bridgeHop: p.bridge ? p.bridge.hop ?? 0 : undefined,
@@ -205,6 +210,7 @@ export class Engine {
         status: 'queued', source: p.source,
         ...(p.bridge ? { fromAgentId: p.bridge.fromAgentId, parentTaskId: p.bridge.parentTaskId, bridgeHop: p.bridge.hop ?? 0 } : {}),
         requestedModel: p.model ?? agent.model, createdAt: now, updatedAt: now,
+        ...(overriding ? { modelOverride: { model: p.model!, by: p.modelOverrideBy! } } : {}),
         ...(origin ? { origin } : {}),
         ...(tainted ? { tainted: true } : {}),
       });
