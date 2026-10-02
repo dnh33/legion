@@ -1,0 +1,236 @@
+# Plan: multi-provider support (OpenAI, Codex models, OpenRouter, OpenCode-style and custom endpoints)
+
+Branch `claude/providers` (from `integration/v1`). Owner decision 2026-10-02: build in v0.2.0, planned and built in one session, isolated from the BSV, Blender and docs sessions. Status of this plan: approved to build. Nothing here is verified against a real provider; only the owner's real-key checks (last section) can show that.
+
+## 0. What changes, what does not
+
+Claude stays the default and its code path is untouched. A provider run is a second, separate path that is chosen only when an agent's model value names a configured provider (`<providerId>:<model>`, for example `openrouter:anthropic/claude-sonnet-4.5` or `ollama:llama3.1`). Every agent that exists today keeps `model: "auto" | "sonnet" | ...` and runs exactly as before. All existing tests must pass unchanged; any edit to an existing test file is a defect in this work.
+
+Files I will touch outside new files, and why (each a few lines; none in `src/core/bsv`, `src/core/blender`, `test/bsv-*`, `test/blender-*`, `test/hedge-*`, README, docs/BSV, docs/BLENDER, `test/bsv-scan.ts` rules):
+
+| File | Change |
+|---|---|
+| `src/core/engine.ts` | optional `providers` dep; one early branch in `runOnce`; one method that builds the host object; the `canUseTool` closure moved into a private method so both paths call the same code (behaviour-neutral); a clamp after `routeModel` |
+| `src/core/model-cap.ts` | `overrideAllowed` refuses a request whose provider differs from the agent's; provider-prefixed ids are ranked by exact match only |
+| `src/shared/config.ts` | `providers` in `CoreConfig`, `normalizeProviders` called from `loadConfig`, `redactConfig` covers it |
+| `src/shared/types.ts` | additive optional fields on `Task` (`provider`, `tokenUsage`) |
+| `src/bin/legion-core.ts` | construct the runtime, pass it to the engine |
+| `src/core/server.ts` | register the provider routes through the module route hook (a `CoreModule`, no server.ts edit if possible) |
+| `src/core/mcp-tools.ts` | `legion_create_agent` / `legion_run` refuse provider models for token clients (C21) |
+| `test/bsv-scan.ts` | ONE new `ALLOWLIST` entry (path, kinds, reason). No rule changes. In this tree the allowlist is by file path with a written reason; there is no content hash, so "pinned hash" means the exact path and kinds, and a test that nothing else under `src/core/providers/` is allowed |
+| `src/electron/provider-ipc.ts` (new) + 3 lines in `main.ts`/`preload.cjs` | native-confirmed key/endpoint changes (section 5). The three-line hook is its own last commit so the orchestrator can re-apply it if the BSV UI branch conflicts |
+| `ui/src/settings` area | one import and one panel entry in `Settings.tsx`; the rest is new files under `ui/src/providers/` |
+| `CHANGELOG.md` | a new "Providers" heading under `[Unreleased]` |
+
+## 1. The provider seam
+
+New directory `src/core/providers/`:
+
+- `types.ts`: `ProviderEntry` (config), `ProviderAdapter`, `ProviderHost` (what the engine hands an adapter), normalized stream events.
+- `config.ts`: `normalizeProviders(raw)`. Shape: `providers: { version: 1, entries: Record<id, ProviderEntry>, maxTurns, maxToolCallsPerTurn }`. `ProviderEntry = { kind: 'openai-compat', label, baseUrl, enabled, models?: string[], keyless?: boolean, allowPrivateNetwork?: boolean, prices?: { [model]: { inputPerMTok, outputPerMTok } } }`. Ids are `[a-z][a-z0-9-]{1,31}`, never `claude`, never `legion`. `kind: 'cli'` is reserved and refused (section 3.3).
+- `presets.ts`: data only (no network use): OpenAI, OpenRouter, Ollama, LM Studio, vLLM and a blank Custom, each with a base URL, a "needs key" flag and a few suggested model ids. Suggestions are labelled suggestions; the owner can type any id.
+- `secrets.ts`: key store (section 5).
+- `http.ts`: the ONLY file that uses `fetch` (section 6).
+- `openai-compat.ts`: the adapter (section 3.1).
+- `tool-loop.ts`: Legion's own tool loop (section 4).
+- `runtime.ts`: `ProviderRuntime`: `resolve(model)`, `clamp`, `assertModelAllowed`, `run`, `status`, `listModels`.
+- `routes.ts`: HTTP routes as a `CoreModule` (admin only).
+
+Selection: `parseProviderModel(value)` returns `{ providerId, model }` when `value` matches `^([a-z][a-z0-9-]{1,31}):(.+)$` AND `providerId` is a registered entry; anything else (including a value with a colon that names no provider) is the Claude path exactly as today. The existing router already passes any non-`auto` choice through, so `agent.model = "openai:gpt-4.1"` reaches `runOnce` as the decided model with no router change.
+
+The engine hook in `runOnce`:
+
+```ts
+const pr = this.providers?.resolve(model);
+if (pr) return runProviderTurn(this.providerHost(job, agent, act, prompt), pr);
+```
+
+Provider runs skip the Claude-only parts of `execute` that cannot match: escalation only triggers for the alias `sonnet`, so a provider model never escalates. A provider failure ends the task as an error; Legion never retries it on Claude or on another provider (C2): that would send the owner's data to a service they did not choose for that agent.
+
+Who may choose a provider (confused-deputy rule, C3, C21):
+- The owner in the app (admin) may set any agent's model to a provider model, and may type `/model provider:model` in their own message.
+- A model chosen by anyone else (a bot through `ask`/`tell`/`room_post`, a room wake, an MCP client) may never move a run to a different provider than the agent's own setting, in either direction. `overrideAllowed` returns false when the providers differ; for the same provider only the identical model id is allowed (no price ordering is known). After `routeModel`, a clamp resets any bot-picked or overridden decision whose provider differs from the agent's to the agent's own model, which also covers an override of `auto` on a provider agent.
+- Token clients (Claude Code, Cowork, curl via `/mcp` or `POST /api/tasks`) cannot set a provider model on `legion_create_agent`, `legion_run` or `POST /api/tasks` (400 with a plain sentence). They can still run an agent the owner already configured for a provider, under the existing `ask` ceiling.
+
+## 2. Adapters: what is built and what is not
+
+| Adapter | Built in this session | How |
+|---|---|---|
+| OpenAI (API key) | yes, against a fake server | `openai-compat`, `https://api.openai.com/v1`, chat completions |
+| OpenRouter | yes, against a fake server | same adapter, `https://openrouter.ai/api/v1`; model ids contain `/` |
+| Custom endpoint | yes | same adapter, owner-typed base URL |
+| Ollama, LM Studio, vLLM (local) | yes, against a fake server | same adapter on `http://127.0.0.1:<port>/v1` or `localhost`; keyless allowed |
+| Codex | models only | The OpenAI API models that accept chat completions work through the OpenAI entry. Models that are Responses-only will fail with the provider's own error shown plainly. The `codex` CLI and a ChatGPT-subscription login are NOT supported (see 3.3) |
+| OpenCode | not built | see 3.3. Anything the owner runs that speaks the OpenAI chat-completions dialect (for example a local gateway) works as a Custom endpoint |
+| Responses API | not built | `wire: 'chat'` is the only value accepted; `'responses'` is reserved. Reason: chat completions is the one dialect OpenAI, OpenRouter, Ollama, LM Studio and vLLM all serve; a second dialect doubles the parser and test surface for no new capability in v1 |
+
+### 3.1 The OpenAI-compatible adapter
+
+`POST {baseUrl}/chat/completions` with `stream: true` and `stream_options: { include_usage: true }`; if the endpoint answers 400 for `stream_options` the adapter retries ONCE without it (some local servers reject it). Request: `model`, `messages` (system, user, assistant with `tool_calls`, `tool`), `tools` (function schemas), `tool_choice: "auto"`. Parser: SSE `data:` lines, `[DONE]`, text deltas into the existing `message.delta` bus event, `tool_calls` deltas accumulated by index, `finish_reason`, `usage`. A server that ignores `stream` and returns one JSON body is handled (same caps). Non-2xx: the provider's `error.message` (clipped, key-redacted) is the task error; 401/403/429 are named plainly ("the provider refused the key", "rate limited") and never escalate or retry beyond one 429 with the `Retry-After` value capped at 20 seconds.
+
+What Legion does NOT assume: that a model supports tool calls. If a first request with tools returns a 400 mentioning tools, the run continues without tools and the task shows "this model did not accept tools: it can answer but cannot use Legion's tools" (a visible system message, not silent). Parallel tool calls are executed sequentially in the order received.
+
+### 3.2 Per-agent choice
+
+`AgentProfile.model` already is a free string. The picker writes `provider:model`. No new agent field, so downgrade is clean (section 11). The Task records `provider` (id) and `model` for display.
+
+### 3.3 Codex and OpenCode as CLI adapters: decision
+
+Not built. The question was "only if their non-interactive modes make that safe". Reasons, stated as my judgement, not as a test result:
+1. Both are agents with their own shell and file tools. Run non-interactively they would act outside Legion's `ApprovalBroker`, taint tracking and audit chain; Legion could only constrain them with the CLI's own sandbox flags, whose behaviour I cannot verify here (no CLI installed, no network downloads without the owner's go-ahead, no Windows).
+2. Subscription login for either would mean Legion starting a process that reads the owner's CLI credential store. Legion's rule for Claude is that it never reads those credentials; the same rule would apply.
+3. A child process may only be spawned in a file the tripwire lists; adding one is a deliberate review, not a side effect of a feature.
+The seam leaves room: `kind: 'cli'` is reserved and refused by `normalizeProviders` with the sentence "CLI providers are not available in this version". Before one is built it must: be listed in the tripwire; use the existing spawn-port pattern (argument list, no shell, scrubbed env, PID-tree kill); run with the CLI's own tools disabled or read-only, proven by an owner-PC check; and treat everything it returns as tainted outside content. Owner-visible limit: no ChatGPT-subscription or Codex-CLI login in v1.
+
+## 4. Legion's own tool loop for non-Claude providers
+
+A provider model has none of Claude Code's built-in tools: no Read, Write, Edit, Bash, Glob, Grep, WebFetch, WebSearch, TodoWrite, Task, Skill, no slash commands, no session resume, no context compaction, no claude.ai connectors. It gets only Legion's in-process tool servers for the run, built by the same `buildMcpServers` the Claude path uses, filtered to `type: 'sdk'` entries: `legion` (agents, ask, tell, and vm_* when the agent's VM is enabled), `legion_comms`, `legion_kg`, `legion_blender` and the BSV status tool for an agent that requires BSV, each exactly as registered today. User-configured external MCP servers (stdio/http/sse from Settings) are NOT offered: they need a spawn or a second egress path (section 6).
+
+Mechanics: for each in-process server instance, an MCP `Client` connects over an in-memory linked transport pair (no socket, no process). `listTools` gives the JSON Schema; names are exposed to the model as `mcp__<server>__<tool>` mapped to OpenAI function names `<server>__<tool>` (the API restricts characters) and mapped back, so `isLegionTool`, `needsApproval`, `taintsRun` and every module's `onToolUse` see exactly the names they see for Claude.
+
+Per tool call, in this order (the same order as Claude's PreToolUse then canUseTool):
+1. The requested name must be in the offered set; otherwise the model gets an error result and nothing runs (C12). A hallucinated `Bash` is not a shell.
+2. Arguments must be valid JSON within a size cap (C16); otherwise an error result.
+3. `noteToolUse` (taint, workspace taint, module `onToolUse`) BEFORE execution (C14).
+4. `authorize(toolName, input)` is the same function Claude's `canUseTool` uses: effective approval mode, ceiling, `needsApproval(mode, tool, { capped })`, `ApprovalBroker.request`, 10-minute timeout, the same denial messages (C13).
+5. Call the tool on the in-process server. The tool's own gates (BSV native dialogs and policy, Blender approval card and guard, kg quotas, comms scrub and hub rules) are inside the handlers and are untouched. Admin-only HTTP routes are not reachable from the loop at all: it holds no token.
+6. The result goes back to the model as a `tool` message only, text clipped to the existing tool-result limits, stored with `clipToolResult` like Claude's (C15). Tool text never enters the system prompt and is never given an instruction role.
+
+Limits (config, with caps): `maxTurns` default 40 (cap 200), 16 tool calls per model turn, 64 KiB arguments, 12,000 chars per tool result handed back. A repeated identical failing call three times ends the run with an error ("the model kept repeating a failing tool call").
+
+Session memory: no provider session id. A continued task rebuilds the conversation from the stored messages (user, assistant, tool call and clipped result pairs), newest 40 messages and at most 60,000 characters, dropping the oldest whole turns first. A continued task therefore remembers less than a resumed Claude session; the UI says so.
+
+The system prompt is `LEGION_PREAMBLE` + module preambles + the agent's own system prompt + one provider line: "You are running on <model> through <provider>. You have only the tools listed in this request; you have no file, shell or web tools of your own."
+
+### What each provider cannot do versus Claude (shown in the UI, in these words or shorter)
+
+- no file editing, shell, web search or fetch of its own (it can use VM tools if the agent has a VM, and kg/comms/Blender/BSV status through Legion);
+- no Claude Code skills, plugins, slash commands, sub-agents, plan mode or claude.ai connectors;
+- no MCP servers you added in Settings (Legion's own tools only);
+- shorter memory when a task is continued;
+- tool use is only as reliable as the model: some models, especially small local ones, cannot call tools at all;
+- cost is shown only when the provider returns token counts and you entered prices.
+
+## 5. API keys
+
+- Entry: Settings, Providers, a password field per provider. The renderer sends the key to the Electron main process over a new IPC channel (`legion:provider-key`, handled in `src/electron/provider-ipc.ts`). Main shows a native confirmation dialog worded from facts it reads itself from the core (provider label, host, "save key" / "remove key", never the key), then calls `PUT /api/providers/:id/key` with the admin secret AND the native secret. The window never has the native secret. A core that was not started by the app (no native secret) refuses key and endpoint changes (same rule as BSV policy).
+- Endpoint binding (the exfiltration control): a key is stored with the origin (scheme, host, port) it was saved for. Changing `baseUrl` to a different origin deletes the stored key, and changing an endpoint is itself a native-confirmed change (C6). So a compromised window cannot point a key at its own server. Adding a custom non-loopback endpoint shows the host in the dialog.
+- Storage: `<dataDir>/providers/keys.json`, written with the same atomic 0600 writer as config.json (`writeConfigFile`), a map `id -> { key, origin }`. Never in `config.json`, the repo, SSE, `GET /api/settings`, `GET /api/state`, `GET /api/providers` (which returns `keySet` and a 4-character hint like the existing secrets), logs, task messages, tool results, error text or the audit chain (C4). Honest limit: this is the same protection class as `config.json` today: other local users are kept out, a process running as the same user is not. No OS keychain in v1 (Electron `safeStorage` lives in the main process and would need the key to cross to the core; listed under Later).
+- Process environment: provider keys are never put in any child process's env. `buildChildEnv` already drops the bearer token; a test asserts a provider key set in `process.env` of the core is not copied to Claude's env either (C4b).
+- `OPENAI_API_KEY` or `OPENROUTER_API_KEY` in the environment are NOT read (Claude's path reads `ANTHROPIC_API_KEY` only for `api-key` mode; for providers the owner types the key once, on purpose).
+- Redaction: `scrubSecrets` already has the `sk-...` rule (it matches OpenAI and `sk-or-v1-...` shapes) and an `exact` list. Every string the provider layer stores or emits (errors, provider messages, tool text) goes through one `redact()` that applies `scrubSecrets` with the configured keys as `exact`, which also covers key formats without a prefix (C5).
+- Keyless is allowed only for loopback endpoints (C7).
+
+## 6. Network egress (the one new network file: `src/core/providers/http.ts`)
+
+The tripwire is by file. The new file is added to `ALLOWLIST` with kind `fetch` and the reason "model provider client: only hosts of providers the owner configured and enabled; https required except loopback; no redirects". Because the tripwire checks files, not destinations, the destination rules are enforced in code and proven by the tests below. A `fetch`-allowed file may contain no non-loopback `http(s)://` literal, so the preset URLs live in `presets.ts`, which has no network use.
+
+Rules, all in `guardedRequest` (the only place a request is made):
+1. The URL must be `baseUrl + path` of an enabled entry; a model, a tool or a task can never supply a URL. Userinfo (`user:pass@`), a fragment, any scheme except `https:`, and `http:` for anything but `localhost`, `127.0.0.1` and `[::1]` are refused (C7).
+2. A literal private, link-local or unique-local IP host (10/8, 172.16/12, 192.168/16, 169.254/16, fc00::/7) is refused unless the entry has `allowPrivateNetwork: true`, which only a native-confirmed change can set. Not covered: a hostname that resolves to a private address (no DNS check; DNS rebinding is out of scope and said so).
+3. `redirect: 'manual'`: any 3xx is an error naming the status, and the `Location` is not followed or even fetched (C8). So the Authorization header can only ever reach the configured origin (C11).
+4. Authorization is `Bearer <key>` only when the entry has a key; never sent on a request whose origin differs from the one the key is bound to (C11).
+5. Timeouts: connect-to-headers 30 s, idle between stream chunks 60 s, whole request 10 min; cancel aborts the socket (C9, C17).
+6. Size caps: request body 2 MiB; non-stream response 8 MiB; streamed text 4 MiB total; one SSE line 1 MiB; model list 1 MiB; a breach aborts the request with a plain error (C10).
+7. Only `Content-Type: application/json` or `text/event-stream` responses are parsed.
+8. Concurrency: at most 4 provider requests in flight in total (same as the engine's concurrency).
+9. Owner-initiated model listing (`GET {base}/models`, button "Refresh models") uses the same function and caps. No call is made at startup, no background probes, no telemetry.
+
+## 7. Taint and trust
+
+- Everything a non-Claude model returns is model output: it is stored as an `assistant` message like Claude's, never executed except as a tool request that passes steps 1 to 5 of section 4, and never treated as instructions from a higher-trust source by any module.
+- Tool results that bring outside content (`taintsRun` is unchanged: the VM tools taint, Legion's in-process tools do not) taint the run exactly as today, through the same `noteToolUse`, and the task keeps `tainted` after the run (C14). Origin taint, bridge taint and the approval ceiling are the engine's and apply the same way.
+- The provider's own response is NOT counted as outside content by itself (owner decision: same treatment as Claude). Recorded as a point for the independent reviewer: a custom endpoint is a server Legion knows nothing about, so a stricter rule (start every non-Claude run tainted) is a one-line change if the reviewer wants it.
+- Provider-run text that reaches other agents (ask/tell/rooms) goes through the same comms path, so the same scrub and taint wrapping apply.
+
+## 8. Cost and tokens
+
+- Where the API returns `usage` (`prompt_tokens`, `completion_tokens`), the Task records `tokenUsage: { inputTokens, outputTokens }`, summed over the run. If the API returns none, the Task records `tokenUsage: { unknown: true }`.
+- `costUsd` is touched only when the owner entered prices for that model (`prices` in the provider entry: dollars per million input and output tokens, typed by the owner, empty by default). With no price the cost is "unknown" in the UI and `costUsd` is left as it is. Legion ships no price table and never infers one (C18). OpenRouter's returned cost is not used in v1 (it would be a provider-reported number; listed under Later).
+- Room budgets (`budgetUsd`, default none) meter known costs only. A provider run with unknown cost adds nothing to a room's meter, so a budgeted room can exceed its budget through provider agents; the Providers panel and the room settings say so in one sentence. The default spend limit stays none.
+
+## 9. UI
+
+- Settings, Providers panel (new `ui/src/providers/`): a row per preset plus Custom; status text from facts only: "No key", "Key saved", "Not tested", "Last test: ok / failed: <reason>", "Local, no key needed". A "Test" button does one `GET /models` (owner-initiated). The panel never says a provider "works", "is supported" or "is verified"; it says what Legion did ("Legion's own test request was accepted at 14:02") and carries the list from section 4 ("What this provider cannot do").
+- Per-agent model picker: the existing Claude choices first, then a group per enabled provider with its listed or suggested models and a free-text id. A provider agent shows a badge with the provider label; the agent card says "Runs outside Claude: Legion's own tools only".
+- Chat header and task view show `provider:model`, token counts when known, and "cost unknown".
+- Errors are the provider's own message, clipped and redacted. No mascot art is touched.
+
+## 10. Failure modes (each handled and tested against fakes)
+
+Provider unreachable, connection reset mid-stream, stalled stream, 401/403, 429 with and without `Retry-After`, 5xx, malformed JSON, malformed SSE, stream ends without `[DONE]`, tool call with broken JSON arguments, tool call naming an unknown tool, model that never stops calling tools (turn cap), oversized body, redirect, the model rejecting `tools` or `stream_options`, cancel while streaming, cancel while an approval is pending, agent pointing at a deleted or disabled provider (error before any request, naming the setting to fix), key removed mid-run (next request fails cleanly), model id empty.
+
+## 11. Config migration and downgrade
+
+- Upgrade: `config.json` without `providers` loads as `{ version: 1, entries: {} }`; nothing is written until the owner saves a provider. No agent, task or message needs migration. No one-time migration runs, so none can override a later manual choice.
+- Normalization is the Blender/BSV pattern: whatever the file holds is reduced to the accepted shape on load (bad numbers clamped, unknown kinds dropped with a notice in the Providers panel, a `kind: 'cli'` entry refused).
+- Downgrade to a version without providers: unknown config keys are preserved by the merge-and-save path (a test round-trips them); `keys.json` is ignored; an agent still set to `provider:model` makes the old Claude path fail loudly with the SDK's unknown-model error, so nothing is sent to a wrong service. The panel says this under "Going back to an older version".
+
+## 12. Controls (each has a test and a mutation that must turn it red)
+
+Mutation = a temporary edit of the production code, run, seen red, reverted. I record the exact edit and the failing test name in the final report.
+
+| # | Control | Test (all new, `test/providers-*.test.ts`) | Mutation that must go red |
+|---|---|---|---|
+| C1 | A Claude agent never reaches the provider path or network, with providers configured | `providers-engine`: fake `queryFn` called, fake server sees 0 requests | `resolve` returns a provider for any model |
+| C2 | A provider failure never falls back to Claude or another provider | `providers-engine`: server 500, `queryFn` 0 calls, task is `error` | add a fallback call in the hook |
+| C3 | A bot, room or override cannot switch provider (either direction), including via `auto` | `providers-cap`, `providers-engine` | drop the provider check in `overrideAllowed` / the clamp |
+| C4 | A saved key appears nowhere except `keys.json` (0600): not in config.json, settings view, state, providers view, SSE capture, task messages, error text, tool results, audit, store files | `providers-secrets` sets a marker-shaped fake key, greps every artefact | write the key into config; leave the key in a 401 error text |
+| C4b | A provider key in the core's env is not passed to Claude's child env | `providers-secrets` | copy provider vars into `buildChildEnv` |
+| C5 | `redact()` removes configured keys (prefixed or not) and `sk-` shapes from every stored string | `providers-secrets` | skip the `exact` list |
+| C6 | Key and endpoint changes need admin AND native; changing the origin deletes the key; no native secret = locked | `providers-routes` | drop the native check; keep the key on origin change |
+| C7 | https required except loopback; userinfo, other schemes, private literals refused; keyless only on loopback | `providers-http` | allow `http:` for any host |
+| C8 | A redirect is never followed, and a second server sees 0 requests | `providers-http` (two fake servers) | `redirect: 'follow'` |
+| C9 | Header timeout, idle timeout, total timeout end the run in bounded time | `providers-http` with short test timeouts | remove the idle timer |
+| C10 | Body, stream, line and list caps abort cleanly | `providers-http` | raise a cap to infinity |
+| C11 | Authorization reaches only the bound origin; never on a mismatched origin | `providers-http`, `providers-routes` | send the header regardless of origin |
+| C12 | Only the offered in-process tools can run; `Bash`, an unknown name and an external-MCP name are errors that execute nothing | `providers-tools` | accept any requested name |
+| C13 | The tool path uses the same approvals: modes, ceiling, capped carded tools (`vm_exec`), deny and timeout results | `providers-tools` with a fake VM manager | skip `authorize` |
+| C14 | `noteToolUse` runs before the tool: a tainting tool taints the run and the stored task | `providers-tools` | call `noteToolUse` after, or never |
+| C15 | Tool results go back only as `tool` messages, never into the system prompt; clipped | `providers-tools` inspects the request the fake server received | move results into the system message |
+| C16 | Turn cap, per-turn call cap, argument cap, broken-JSON handling, repeated-failure guard | `providers-tools` | remove the turn cap |
+| C17 | Cancel aborts the HTTP request, cancels pending approvals, and no tool runs after cancel | `providers-engine` | ignore the abort signal |
+| C18 | Tokens recorded when returned; cost only from owner-entered prices; no default price | `providers-usage` | add a default price |
+| C19 | Config normalization: bad input clamped, `cli` refused, unknown provider id gives a clear error before any request, unknown keys round-trip | `providers-config` | accept `kind: 'cli'` |
+| C20 | All `/api/providers/*` routes are admin-only; the bearer token gets 403 | `providers-routes` (the existing gate test also runs) | add a route to the client list |
+| C21 | A token client cannot set a provider model on create or run | `providers-routes`, `mcp` | remove the check in `mcp-tools` |
+| C22 | UI and doc strings carry no verification claim and no banned phrase | `providers-wording` (reads `hedge-phrases.ts`, does not edit it) | add "verified" to a status string |
+| C23 | Tripwire: only `http.ts` may use the network; nothing under `providers/` spawns a process; the new allowlist entry is exactly one file; no non-loopback URL literal in `http.ts` | `providers-tripwire` + the existing `bsv-tripwire*` and `bsv-hedge` tests unchanged and green | add `fetch` to `openai-compat.ts` |
+| C24 | Provider runs keep the audit and mascot behaviour of Claude runs (messages, `tool` rows with `resultFor`, mascot moods, task status) | `providers-engine` | skip `addMessage` for tool results |
+
+## 13. Test method
+
+Tests first, per area. Fake servers are `node:http` on `127.0.0.1` with port 0, written in `test/providers-fakes.ts` (a scripted chat-completions server: SSE, JSON, tool-call scripts, stall, redirect, oversize, 401, 429, usage on/off, captures every request body and header). No real provider, no real key (test keys are made from two pieces so the existing secret scanners match nothing), no contact with the owner's wallet port. The test runner is the existing `node --test "dist/test/*.test.js"`. Windows lessons applied: `fileURLToPath`, no file symlinks, `Path`/`PATH` case, no kill-by-name.
+
+## 14. Order of work (small commits, pushed as I go)
+
+1. This plan (pushed first).
+2. `config.ts`, `presets.ts`, `secrets.ts` + tests (C4, C5, C19).
+3. `http.ts` + allowlist entry + tests (C7 to C11, C23).
+4. `openai-compat.ts` + usage + tests (C9, C10, C18).
+5. `tool-loop.ts` + engine hook + `model-cap` + tests (C1 to C3, C12 to C17, C24).
+6. Routes, native key IPC, `mcp-tools` check + tests (C6, C20, C21).
+7. UI panel and picker; wording test (C22).
+8. CHANGELOG "Providers", `claude/tracker-pc-checks-providers.md`, gates, mutation pass, final report.
+
+## 15. Not in this plan (Later)
+
+CLI adapters (Codex, OpenCode); the Responses API; OS keychain storage; provider-reported cost (OpenRouter); external MCP servers for provider runs; streaming tool-argument display; per-provider rate limiting beyond the global 4 in flight; vision and image inputs; start-tainted option for custom endpoints.
+
+## 16. Wording changes for the orchestrator (README and docs are NOT edited by this session)
+
+Legion currently says Claude-only in public text. Replace after the owner's real-key checks pass; until then use the "built, not yet tried with a real key" form.
+
+- `README.md:7` tagline: **"A local multi-agent bot for your desktop, built around Claude, with a VM for every agent when it needs one."**
+- `README.md:19`: **"Legion is built around Claude. Every agent runs on a Claude model through the Claude Agent SDK unless you choose otherwise: an agent can instead use an OpenAI-compatible endpoint (OpenAI, OpenRouter, a local server such as Ollama or LM Studio, or one you type in). Those agents get Legion's own tools only, not Claude Code's file, shell or web tools. Provider support has been tested against Legion's own fake servers; it has not been tried against the real services yet."** After the owner's checks pass, replace the last sentence with the check ids that passed.
+- `README.md:71`: add after the first sentence: **"Provider API keys are typed once in Settings, confirmed in a native dialog, and stored in a separate file in your Legion data folder; Legion never reads keys from your environment or from other tools' credential files."**
+- `README.md:223` (Later): **"CLI agents such as Codex and OpenCode, and signing in with a ChatGPT subscription. Legion reaches other models through OpenAI-compatible HTTP endpoints only."**
+- `docs/ARCHITECTURE.md:5`: **"Legion is a local, personal multi-agent bot built around Claude. It runs on one machine for one user. Agents run on Claude through the Claude Agent SDK by default; an agent may instead run on an OpenAI-compatible endpoint through Legion's own tool loop (see docs/PROVIDERS.md, to be written from this plan)."** It targets Windows first and also runs on macOS and Linux.
+- `CLAUDE.md` line 3 and the "Decisions already made" sentence "Claude-only in v1 (Codex/ChatGPT listed under "Later")": **"Claude is the default and the full-featured path. Other providers are OpenAI-compatible HTTP endpoints only (v0.2.0, plan in claude/plan-providers.md); Codex and OpenCode as CLI agents are Later."**
+- `SECURITY.md`: add a short section: **"Provider keys and egress. Legion's own code sends a provider key only to the https (or loopback) origin the key was saved for, follows no redirects, and stores keys in a separate owner-only file. This is Legion's own network client; it does not stop a provider from logging what you send it. An agent on a provider has Legion's tools only and the same approval cards."**
+- Website brief (`legion-site`): replace any "Claude-only" with the README:19 sentence; keep "tested against fakes" until a check passes.
+- New `docs/PROVIDERS.md` (docs session): derive from sections 3 to 9 of this plan.
+
+## 17. Owner-only real-PC checks
+
+Written to `claude/tracker-pc-checks-providers.md` in the intake row format (class `spends-money` or `account` where a key is typed; none for local servers; downloads for installing Ollama or LM Studio). Short list: PV-01 OpenAI key, one short task and one tool call; PV-02 OpenRouter key, a model with `/` in its id; PV-03 a local Ollama (or LM Studio) with a tool-capable model, keyless; PV-04 a custom endpoint (https) and the refusal of an `http://` remote host; PV-05 the native key dialog on Windows (cancel keeps the old key; confirm saves; the window never shows the key again); PV-06 key removed, endpoint changed (key deleted); PV-07 a provider agent asked to use `vm_exec` as a token client (card appears, nothing runs on deny); PV-08 token counts and "cost unknown" against the real response; PV-09 a Responses-only model (expected: a plain provider error); PV-10 turn cap and cancel on a slow real stream; PV-11 downgrade check on the installed older build. No check may be marked passed in any doc until its result is recorded in the plan.
