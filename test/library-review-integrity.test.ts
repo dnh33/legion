@@ -21,7 +21,11 @@ test('R6.1 replay fidelity: after a long random mix of human / clean / ask-woken
   for (const seed of [1, 2, 3, 4, 5]) {
     const r = rng(seed * 7919);
     const dir = mkdtempSync(join(tmpdir(), 'rev-i-'));
-    const g = new Graph({ dir, compactMinBytes: 20_000 });
+    // Writes use the real clock; the comparison below freezes it. search() multiplies BM25 by a recency decay and rounds to 4 decimals,
+    // so two search runs a few ms apart (live vs reloaded) can straddle a rounding boundary (1.28525000 vs 1.28524999) with identical data.
+    let frozen: number | null = null;
+    const now = () => new Date(frozen ?? Date.now());
+    const g = new Graph({ dir, compactMinBytes: 20_000, now });
     let task = 0;
     const clean = () => agentActor('alpha', { taskId: `T${++task}`, taint: () => false });
     const askw = () => agentActor('beta', { taskId: `T${++task}`, origin: { roomId: 'r', fromAgentId: 'alpha', hop: 1, approvalCeiling: 'ask' } });
@@ -63,13 +67,18 @@ test('R6.1 replay fidelity: after a long random mix of human / clean / ask-woken
         }
       });
       if (i % 100 === 99) {
-        const live = JSON.stringify({ s: snap(g), q: searches(g), inbox: g.inbox(HUMAN).map((x) => [x.id, x.kind]) });
-        const g2 = new Graph({ dir });
-        const re = JSON.stringify({ s: snap(g2), q: searches(g2), inbox: g2.inbox(HUMAN).map((x) => [x.id, x.kind]) });
-        if (live !== re) {
-          const A = snap(g); const B = snap(g2);
-          const diff = (A.nodes as KgNode[]).filter((n, k) => JSON.stringify(n) !== JSON.stringify((B.nodes as KgNode[])[k])).slice(0, 2).map((n) => JSON.stringify(n));
-          assert.fail(`seed ${seed} step ${i}: reloaded graph differs from live. nodes ${A.nodes.length}/${B.nodes.length} edges ${A.edges.length}/${B.edges.length}; first diffs: ${diff.join(' | ')}`);
+        const view = (x: Graph) => ({ s: snap(x), q: searches(x), inbox: x.inbox(HUMAN).map((r) => [r.id, r.kind]) });
+        frozen = Date.now();
+        const lv = view(g);
+        const rv = view(new Graph({ dir, now }));
+        frozen = null;
+        if (JSON.stringify(lv) !== JSON.stringify(rv)) {
+          const parts: Array<[string, unknown[], unknown[]]> = [['nodes', lv.s.nodes, rv.s.nodes], ['edges', lv.s.edges, rv.s.edges], ['search', lv.q, rv.q], ['inbox', lv.inbox, rv.inbox]];
+          const bad = parts.filter(([, x, y]) => JSON.stringify(x) !== JSON.stringify(y)).map(([name, x, y]) => {
+            const k = x.findIndex((v, j) => JSON.stringify(v) !== JSON.stringify(y[j]));
+            return `${name}[${k}] live=${JSON.stringify(x[k])} reloaded=${JSON.stringify(y[k])}`;
+          });
+          assert.fail(`seed ${seed} step ${i}: reloaded graph differs from live. nodes ${lv.s.nodes.length}/${rv.s.nodes.length} edges ${lv.s.edges.length}/${rv.s.edges.length}; ${bad.join(' || ') || 'only a non-listed field differs'}`);
         }
       }
     }
