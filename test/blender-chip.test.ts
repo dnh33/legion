@@ -166,7 +166,7 @@ test('source: one write path. Settings and the chip both use saveBlenderConfig; 
   assert.ok(!/confirm\(|window\.prompt|showModal/.test(settings.slice(settings.indexOf('function BlenderSection'), settings.indexOf('function ConnectionsSection'))), 'Settings asks no confirmation for the switch, so the chip needs none');
 });
 
-test('source: mounted in the title bar right after the BSV chip (BSV's narrow-window slot draws over what sits before it) and before Doctor; focus ring and narrow-window rules exist', () => {
+test('source: mounted in the title bar right after the BSV chip (its narrow-window slot draws over what sits before it) and before Doctor; focus ring and narrow-window rules exist', () => {
   const tb = read('ui/src/components/TitleBar.tsx');
   assert.ok(tb.indexOf('<BlenderChip />') > 0 && tb.indexOf('<BsvChip />') < tb.indexOf('<BlenderChip />') && tb.indexOf('<BlenderChip />') < tb.indexOf('className={`tb-doctor'));
   const css = read('ui/src/blender/blender.css');
