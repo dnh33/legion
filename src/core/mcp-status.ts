@@ -50,9 +50,14 @@ interface Seen { name: string; status: string; source?: string; error?: string }
 const STATES: McpServerState[] = ['connected', 'failed', 'needs-auth', 'pending', 'disabled'];
 const toState = (s: string): McpServerState => (STATES as string[]).includes(s) ? s as McpServerState : 'unknown';
 
-/** Server error text is untrusted: one short line, no control characters. */
+/** Server error text is untrusted: URLs, key-like query params and Bearer tokens are masked, then one short line, no control characters. */
 export function plainError(raw: string | undefined): string {
-  return (raw ?? '').replace(/[\u0000-\u001f\u007f]+/g, ' ').trim().slice(0, 160);
+  return (raw ?? '')
+    .replace(/[\u0000-\u001f\u007f]+/g, ' ')
+    .replace(/\b(Bearer|Basic)\s+[^\s,;"')]+/gi, '$1 [redacted]')
+    .replace(/([?&;]|\b)(access[_-]?token|api[_-]?key|token|key|auth|secret|password)=[^&\s"')]*/gi, '$1$2=[redacted]')
+    .replace(/\b[a-z][a-z0-9+.-]*:\/\/[^\s"')<>]+/gi, '[url]')
+    .trim().slice(0, 160);
 }
 
 export function describeState(state: McpServerState, error?: string): string {

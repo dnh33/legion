@@ -15,7 +15,7 @@ import type { QueryFn } from '../src/core/engine.js';
 import { getCatalog } from '../src/core/catalog.js';
 import { runDoctor } from '../src/core/doctor.js';
 import { isClientRoute } from '../src/core/admin.js';
-import { isSelfMcpUrl } from '../src/core/mcp-status.js';
+import { isSelfMcpUrl, plainError } from '../src/core/mcp-status.js';
 import { validatePatch } from '../src/core/settings.js';
 import { defaultConfig } from '../src/shared/config.js';
 import type { AgentProfile, LegionConfig } from '../src/shared/types.js';
@@ -244,6 +244,14 @@ test('status view: failed and needs-auth get a plain message; server error text 
   assert.equal(by.b!.state, 'needs-auth');
   assert.match(by.b!.message, /sign-in/);
   assert.equal(by.c!.state, 'not-seen');
+});
+
+test('F3: plainError masks URLs, key-like query params and Bearer tokens', () => {
+  const e = plainError('connect failed: https://api.example.com/mcp?api_key=SECRETKEY123&x=1 refused; retry wss://h.example/s?token=abc999 Authorization: Bearer sk-live-777 key=plainsecret');
+  assert.doesNotMatch(e, /SECRETKEY123|abc999|sk-live-777|plainsecret|api\.example|h\.example/);
+  assert.match(e, /^connect failed: \[url\]/);
+  assert.equal(plainError('spawn x ENOENT'), 'spawn x ENOENT');
+  assert.equal(plainError(undefined), '');
 });
 
 test('copy: the inheritMcp text claims only what Legion\'s own code does (no absolutes)', () => {
