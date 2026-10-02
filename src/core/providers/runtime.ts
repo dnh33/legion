@@ -10,6 +10,7 @@ import { PROVIDER_ID_RE } from './config.js';
 import type { ProviderKeys } from './secrets.js';
 import { runToolLoop } from './tool-loop.js';
 import { TokenLedger } from './usage.js';
+import { providersExperimental } from './flag.js';
 import { createProcessPort } from './proc.js';
 import type { ProcessPort } from './proc.js';
 import { runCli } from './cli.js';
@@ -22,7 +23,7 @@ import { isStdioEntry, stdioCommandLine, stdioFingerprint } from './stdio-allow.
 
 export interface RuntimeDeps {
   /** Live: Settings edits replace `providers` on this object. */
-  config: { providers: ProvidersConfig; mcpServers?: Record<string, McpServerEntry>; workspaceDir?: string };
+  config: { providers: ProvidersConfig; mcpServers?: Record<string, McpServerEntry>; workspaceDir?: string; experimental?: { providers?: boolean } };
   /** Legion's data folder (a CLI run may not work inside it, except in an agent's workspace). */
   dataDir?: string;
   /** Tests only. */
@@ -68,6 +69,8 @@ export class ProviderRuntime {
   constructor(readonly deps: RuntimeDeps) { this.usage = new TokenLedger(deps.usageFile, deps.now); }
 
   private get cfg(): ProvidersConfig { return this.deps.config.providers; }
+  /** config.experimental.providers is true (the second pass's surfaces are on). */
+  get experimental(): boolean { return providersExperimental(this.deps.config); }
   get keys(): ProviderKeys { return this.deps.keys; }
   config(): ProvidersConfig { return this.cfg; }
 
@@ -92,6 +95,7 @@ export class ProviderRuntime {
   /** The stdio servers in Settings with their provider-run state, for the Providers panel and the native dialog. */
   stdioServers(): Array<{ name: string; commandLine: string; allowed: boolean; changedSinceAllowed: boolean }> {
     const out: Array<{ name: string; commandLine: string; allowed: boolean; changedSinceAllowed: boolean }> = [];
+    if (!this.experimental) return out;
     for (const [name, e] of Object.entries(this.deps.config.mcpServers ?? {})) {
       if (!isStdioEntry(e)) continue;
       const has = this.cfg.stdioMcpAllow[name] !== undefined;
@@ -130,6 +134,7 @@ export class ProviderRuntime {
   leadDecision(q: { target: { id: string; name: string }; value: string; leadTainted?: boolean }): { ok: boolean; reason?: string } {
     const fix = 'Allow it in Settings, Providers, Lead choices.';
     const no = (reason: string) => ({ ok: false, reason });
+    if (!this.experimental) return no('A per-task provider choice is not available in this version. Leave model out.');
     const r = this.resolve(q.value);
     if (!r?.entry) return no(`"${q.value}" is not a provider that is set up, so ${q.target.name} cannot run on it. Leave model out, or ask the user to set it up in Settings, Providers.`);
     if (r.entry.kind === 'cli') return no(`"${r.entry.label}" runs a program on this computer and only the user can start it, in the Legion app. Leave model out.`);
@@ -158,6 +163,7 @@ export class ProviderRuntime {
 
   async run(host: ProviderHost, r: ResolvedModel): Promise<ProviderRunResult & { costUsd?: number }> {
     if (r.entry?.kind === 'cli') {
+      if (!this.experimental) return { subtype: 'error_during_execution', isError: true, errorText: 'CLI providers are not available in this version.', turns: 0, usageUnknown: true };
       if (!r.entry.enabled) return { subtype: 'error_during_execution', isError: true, errorText: `The provider "${r.entry.label}" is turned off. Turn it on in Settings, Providers.`, turns: 0, usageUnknown: true };
       return runCli(host, r.providerId, r.entry, r.model, {
         port: this.deps.cliPort ?? createProcessPort(), redact: (s) => this.redact(s),
@@ -209,18 +215,20 @@ export class ProviderRuntime {
         keySet: this.deps.keys.has(id), ...(this.deps.keys.has(id) ? { keyHint: this.deps.keys.hint(id) } : {}), keyMatchesAddress: st.keyMatches,
         wire: e.wire === 'responses' ? 'responses' : 'chat', keyless: e.keyless === true, allowPrivateNetwork: e.allowPrivateNetwork === true, loopback: ep.ok && ep.loopback, models,
         hasPrices: !!e.prices && Object.keys(e.prices).length > 0, status: st.text, ...(t ? { lastTest: t } : {}),
-        kind: e.kind, trusted: e.trusted === true, startsTainted: this.startsTainted({ providerId: id, model: '', entry: e }), leadSelectable: e.leadSelectable === true,
-        ...(e.tokenCapPerTask ? { tokenCapPerTask: e.tokenCapPerTask } : {}), ...(e.tokenCapPerDay ? { tokenCapPerDay: e.tokenCapPerDay } : {}),
-        tokensToday: this.usage.today(id),
-        ...(e.kind === 'cli' ? { cli: e.cli, executable: e.executable, sandbox: e.sandbox ?? 'read-only', allowedAgents: e.allowedAgents ?? [], timeoutSeconds: e.timeoutSeconds ?? 900 } : {}),
+        ...(this.experimental ? {
+          kind: e.kind, trusted: e.trusted === true, startsTainted: this.startsTainted({ providerId: id, model: '', entry: e }), leadSelectable: e.leadSelectable === true,
+          ...(e.tokenCapPerTask ? { tokenCapPerTask: e.tokenCapPerTask } : {}), ...(e.tokenCapPerDay ? { tokenCapPerDay: e.tokenCapPerDay } : {}),
+          tokensToday: this.usage.today(id),
+          ...(e.kind === 'cli' ? { cli: e.cli, executable: e.executable, sandbox: e.sandbox ?? 'read-only', allowedAgents: e.allowedAgents ?? [], timeoutSeconds: e.timeoutSeconds ?? 900 } : {}),
+        } : {}),
       };
     };
     for (const p of PROVIDER_PRESETS) {
       const e = this.cfg.entries[p.id] ?? p.entry;
       out.push(mk(p.id, e, { needsKey: p.needsKey, note: p.note })); seen.add(p.id);
     }
-    for (const [id, e] of Object.entries(this.cfg.entries)) if (!seen.has(id)) out.push(mk(id, e));
-    return { providers: out, maxTurns: this.cfg.maxTurns, maxToolCallsPerTurn: this.cfg.maxToolCallsPerTurn, dropped: this.cfg.dropped ?? [], cannotDo: PROVIDER_LIMITS_TEXT, stdioServers: this.stdioServers(), leadChoices: this.cfg.leadChoices, roomBudgetNote: ROOM_BUDGET_NOTE, cliWarning: CLI_WARNING };
+    for (const [id, e] of Object.entries(this.cfg.entries)) if (!seen.has(id) && (e.kind !== 'cli' || this.experimental)) out.push(mk(id, e));
+    return { providers: out, maxTurns: this.cfg.maxTurns, maxToolCallsPerTurn: this.cfg.maxToolCallsPerTurn, dropped: this.cfg.dropped ?? [], cannotDo: PROVIDER_LIMITS_TEXT, experimental: this.experimental, stdioServers: this.stdioServers(), leadChoices: this.experimental ? this.cfg.leadChoices : {}, roomBudgetNote: this.experimental ? ROOM_BUDGET_NOTE : '', cliWarning: this.experimental ? CLI_WARNING : '' };
   }
 
   private entryFor(id: string): ProviderEntry {

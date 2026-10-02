@@ -81,7 +81,7 @@ export function AgentEditor({ id }: { id: string | null }) {
             </select>
           </label>
         </div>
-        <label className="check-row"><input type="checkbox" checked={delegateOnly} onChange={(e) => setDelegateOnly(e.target.checked)} /> Delegate only: this agent cannot use its own Bash, Write or Edit; its work goes to the agents it asks <span className="field-note">(Claude agents; off by default)</span></label>
+        {provView?.experimental === true && <label className="check-row"><input type="checkbox" checked={delegateOnly} onChange={(e) => setDelegateOnly(e.target.checked)} /> Delegate only: this agent cannot use its own Bash, Write or Edit; its work goes to the agents it asks <span className="field-note">(Claude agents; off by default)</span></label>}
         <fieldset>
           <legend>Computer (boat.dev VM)</legend>
           <label className="check-row"><input type="checkbox" checked={vmOn} onChange={(e) => setVmOn(e.target.checked)} /> Let this agent start a VM on demand</label>

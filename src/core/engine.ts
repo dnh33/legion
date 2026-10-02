@@ -17,13 +17,14 @@ import type { EventBus } from './bus.js';
 import { isProviderValue, modelRank, overrideAllowed, overrideRefusal, rankModel } from './model-cap.js';
 import { routeModel, shouldEscalate } from './router.js';
 import type { Store } from './store.js';
-import { buildAgentToolsServer } from './agent-tools.js';
+import { setProviderChoices, buildAgentToolsServer } from './agent-tools.js';
 import { Bridge } from './bridge.js';
 import type { BridgeStartParams } from './bridge.js';
 import type { VmManager } from './vm-manager.js';
 import { isSelfMcpUrl, McpStatusTracker, selfMcpNames } from './mcp-status.js';
 import type { McpStatusView } from '../shared/types.js';
 import { providerPrefix } from './providers/runtime.js';
+import { providersExperimental } from './providers/flag.js';
 import type { LeadChoiceDecision, LeadChoiceQuery } from './model-cap.js';
 import type { ProviderRuntime } from './providers/runtime.js';
 import type { ProviderHost, ResolvedModel } from './providers/types.js';
@@ -552,7 +553,10 @@ export class Engine {
       else out[name] = { type: 'stdio', command: entry.command, ...(entry.args ? { args: entry.args } : {}), ...(entry.env ? { env: entry.env } : {}) };
     }
     // Every agent gets the in-process `legion` server (bridge tools; plus vm_* when a VM is enabled).
+    const exp = providersExperimental(this.config);
+    setProviderChoices(exp); // experimental: the per-task model parameter also takes a provider choice (read by the tool builders below)
     out.legion = buildAgentToolsServer({
+      vmCli: exp,
       agentId: agent.id, taskId, vms: this.vms, bridge: this.bridge,
       vmEnabled: !!agent.vm?.enabled && this.boatConfigured(),
       claudeAvailable: this.vms.claudeAvailable?.() ?? true, // vm_claude is hidden while Claude is known not to be set up on boat.dev
@@ -679,7 +683,7 @@ export class Engine {
       // Off (default): only the servers above, asks the CLI to ignore user/project/local MCP config and plugins. claude.ai connectors are asked off in buildChildEnv and in `settings`.
       ...(this.config.claude.inheritMcp === true ? {} : { strictMcpConfig: true }),
       // delegate-only (optional, per agent): no own shell or file edits, so the work goes to the agents it delegates to
-      disallowedTools: ['SendMessage', 'ListAgents', ...(agent.delegateOnly === true ? DELEGATE_ONLY_DISALLOWED : []), ...this.moduleDisallowed(agent)],
+      disallowedTools: ['SendMessage', 'ListAgents', ...(agent.delegateOnly === true && providersExperimental(this.config) ? DELEGATE_ONLY_DISALLOWED : []), ...this.moduleDisallowed(agent)],
       maxTurns: this.config.claude.maxTurns,
       includePartialMessages: true,
       abortController: act.ac,

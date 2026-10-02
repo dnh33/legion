@@ -1,4 +1,5 @@
 /** Local HTTP API + SSE + MCP endpoint. */
+import { providersExperimental } from './providers/flag.js';
 import { createServer as createHttpServer } from 'node:http';
 import type { IncomingMessage, Server, ServerResponse } from 'node:http';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
@@ -232,7 +233,7 @@ export function createServer(ctx: CoreContext): Server {
       approval: f.approval ?? 'ask',
       mcpServers: f.mcpServers ?? ['*'],
       ...(f.cwd ? { cwd: f.cwd } : {}),
-      ...(f.delegateOnly ? { delegateOnly: true } : {}),
+      ...(f.delegateOnly && providersExperimental(ctx.config) ? { delegateOnly: true } : {}),
       createdAt: now, updatedAt: now,
     };
     const saved = ctx.store.upsertAgent(agent);
@@ -255,7 +256,7 @@ export function createServer(ctx: CoreContext): Server {
       ...(f.approval ? { approval: f.approval } : {}),
       ...(f.mcpServers ? { mcpServers: f.mcpServers } : {}),
       ...(f.cwd !== undefined ? { cwd: f.cwd || undefined } : {}),
-      ...(f.delegateOnly !== undefined ? { delegateOnly: f.delegateOnly || undefined } : {}),
+      ...(f.delegateOnly !== undefined && providersExperimental(ctx.config) ? { delegateOnly: f.delegateOnly || undefined } : {}),
       vm: { ...cur.vm, ...f.vm },
       id: cur.id, createdAt: cur.createdAt, updatedAt: nowIso(),
     };

@@ -44,6 +44,8 @@ export interface Opts {
   approvalTimeoutMs?: number;
   /** What the fake VM's exec answers (default: echo the command). */
   vmExec?: (cmd: string) => { exitCode: number; stdout?: string; stderr?: string };
+  /** Default true here (these tests are about the experimental surfaces); pass false to test with the flag off. */
+  experimental?: boolean;
   claude?: (params: any) => AsyncGenerator<any, void>;
   /** Extra runtime dependencies (a fake CLI port, a home folder, a clock). */
   runtimeDeps?: Partial<import('../src/core/providers/runtime.js').RuntimeDeps>;
@@ -56,7 +58,8 @@ export function setup(fake: Fake, o: Opts = {}) {
   const bus = new EventBus();
   const events: LegionEvent[] = [];
   bus.on((e) => events.push(e));
-  const config = defaultConfig();
+  const config: any = defaultConfig();
+  if (o.experimental !== false) config.experimental = { providers: true };
   config.workspaceDir = join(mkdtempSync(join(tmpdir(), 'legion-prov-')), 'ws');
   config.providers = provCfg(o.noEntry ? {} : { fake: entryFor(fake, o.entry) });
   if (o.maxTurns) config.providers.maxTurns = o.maxTurns;

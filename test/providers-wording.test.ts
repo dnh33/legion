@@ -62,7 +62,7 @@ test('C22 (pass 2) the shared hedge list and the "verified"/"safe" claims are ab
 test('A4 the room header shows the one-sentence budget note whenever a room has a budget, and the sentence says what the meter does not count', async () => {
   const { ROOM_BUDGET_NOTE } = await import('../src/shared/providers-view.js');
   const header = readFileSync(join(repoRoot, 'ui/src/rooms/RoomHeader.tsx'), 'utf8');
-  assert.match(header, /g\.budgetUsd !== null && <span className="rm-hint" data-testid="room-budget-note">\{ROOM_BUDGET_NOTE\}<\/span>/);
+  assert.match(header, /providersOn && g\.budgetUsd !== null && <span className="rm-hint" data-testid="room-budget-note">\{ROOM_BUDGET_NOTE\}<\/span>/);
   assert.match(ROOM_BUDGET_NOTE, /counts only costs Legion knows/); assert.match(ROOM_BUDGET_NOTE, /another provider adds nothing/);
   assert.equal(ROOM_BUDGET_NOTE.split(/[.!?](?:\s|$)/).filter(Boolean).length, 1, 'one sentence');
 });

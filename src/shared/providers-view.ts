@@ -5,8 +5,9 @@ export interface ProviderView {
   wire: 'chat' | 'responses';
   loopback: boolean; models: string[]; hasPrices: boolean;
   status: string;
-  kind: 'openai-compat' | 'cli'; trusted: boolean; startsTainted: boolean; leadSelectable: boolean;
-  tokenCapPerTask?: number; tokenCapPerDay?: number; tokensToday: number;
+  /** The next fields are present only when config.experimental.providers is true. */
+  kind?: 'openai-compat' | 'cli'; trusted?: boolean; startsTainted?: boolean; leadSelectable?: boolean;
+  tokenCapPerTask?: number; tokenCapPerDay?: number; tokensToday?: number;
   cli?: 'codex' | 'opencode'; executable?: string; sandbox?: 'read-only' | 'workspace-write'; allowedAgents?: string[]; timeoutSeconds?: number;
   lastTest?: { at: string; ok: boolean; detail: string };
 }
@@ -15,6 +16,8 @@ export interface ProvidersView { providers: ProviderView[]; maxTurns: number; ma
   /** Per sub-agent id: the provider:model values a lead may choose. */
   leadChoices: Record<string, string[]>;
   roomBudgetNote: string; cliWarning: string;
+  /** config.experimental.providers is true: only then do the second pass's panels, tools and routes exist. */
+  experimental: boolean;
   stdioServers: Array<{ name: string; commandLine: string; allowed: boolean; changedSinceAllowed: boolean }>;
 }
 

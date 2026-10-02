@@ -4,6 +4,7 @@ import { parseProviderChange, providerChange } from '../src/electron/provider-ip
 import type { ProviderIpcDeps } from '../src/electron/provider-ipc.js';
 
 const VIEW = {
+  experimental: true,
   providers: [{ id: 'mine', label: 'Mine', baseUrl: 'https://old.example.com/v1', kind: 'openai-compat' }, { id: 'codexcli', label: 'Codex CLI', baseUrl: '', kind: 'cli', executable: '/usr/bin/codex', sandbox: 'read-only' }],
   stdioServers: [{ name: 'tool', commandLine: '/usr/bin/tool --flag "a b"    (env: TOKEN_NAME)', allowed: false }],
 };

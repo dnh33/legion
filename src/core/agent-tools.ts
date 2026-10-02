@@ -34,6 +34,8 @@ export interface AgentToolsCtx {
   /** The task this run belongs to (the caller for ask/tell). */
   taskId: string;
   vms: VmManager;
+  /** Experimental (config.experimental.providers): also offer vm_cli. */
+  vmCli?: boolean;
   /** Offer the vm_* tools (agent.vm.enabled && boat configured). */
   vmEnabled: boolean;
   /** False while Claude is known not to be set up on boat.dev: vm_claude is left out of the tool list (default true). */
@@ -42,8 +44,20 @@ export interface AgentToolsCtx {
 }
 
 /** Optional per-task model for ask/tell/bot_send/room_post: a lead can say "use Haiku for this". It applies to that task only; it never changes approvals. */
-export const modelParam = z.union([z.enum(OVERRIDE_MODELS), z.string().regex(PROVIDER_VALUE_RE)]).optional()
-  .describe('Optional model for this one task: sonnet, opus, haiku or auto, or a provider choice written provider:model that the owner allowed you to choose for that agent in Settings (anything else is refused). Omit to use the agent\'s own setting. Applies to this task only; it does not change what the agent is allowed to do.');
+export const modelParam = z.enum(OVERRIDE_MODELS).optional()
+  .describe('Optional model for this one task: sonnet, opus, haiku or auto. Omit to use the agent\'s own setting. Applies to this task only; it does not change what the agent is allowed to do.');
+
+/**
+ * Experimental (config.experimental.providers): a lead may also name a `provider:model` value the owner allowed for that agent. The engine sets
+ * this just before it builds an agent's tool servers; with it off the schema is exactly the plain one above.
+ */
+let providerChoicesOn = false;
+export function setProviderChoices(on: boolean): void { providerChoicesOn = on; }
+export function modelParamFor() {
+  if (!providerChoicesOn) return modelParam;
+  return z.union([z.enum(OVERRIDE_MODELS), z.string().regex(PROVIDER_VALUE_RE)]).optional()
+    .describe('Optional model for this one task: sonnet, opus, haiku or auto, or a provider choice written provider:model that the owner allowed you to choose for that agent in Settings (anything else is refused). Omit to use the agent\'s own setting. Applies to this task only; it does not change what the agent is allowed to do.');
+}
 
 /** Bridge tools only: agents / ask / tell. */
 function bridgeTools(ctx: AgentToolsCtx) {
@@ -68,14 +82,14 @@ function bridgeTools(ctx: AgentToolsCtx) {
       message: z.string().min(1),
       fresh: z.boolean().optional().describe('Start a new thread instead of continuing the existing one'),
       timeoutSeconds: z.number().positive().max(3600).optional().describe('Default 600'),
-      model: modelParam,
+      model: modelParamFor(),
     },
     (a) => guard(async () => bridge.ask(taskId, a.agent, a.message, { fresh: a.fresh, timeoutSeconds: a.timeoutSeconds, model: await bridge.resolveModel(a.model) })),
   );
   const tell = tool(
     'tell',
     'Send a message to another Legion agent without waiting. Its answer arrives later as a new message in your task. Use for long or parallel work.',
-    { agent: z.string().describe('Agent id or name'), message: z.string().min(1), fresh: z.boolean().optional(), model: modelParam },
+    { agent: z.string().describe('Agent id or name'), message: z.string().min(1), fresh: z.boolean().optional(), model: modelParamFor() },
     (a) => guard(async () => bridge.tell(taskId, a.agent, a.message, { fresh: a.fresh, model: await bridge.resolveModel(a.model) })),
   );
   return [agents, ask, tell];
@@ -216,6 +230,6 @@ export function buildAgentToolsServer(ctx: AgentToolsCtx): McpSdkServerConfigWit
     name: 'legion',
     version: '0.1.0',
     alwaysLoad: true, // never deferred behind ToolSearch: agents call mcp__legion__* directly
-    tools: [...bridgeTools(ctx), ...(ctx.vmEnabled ? [vmStart, vmExec, vmWriteFile, vmReadFile, ...(ctx.claudeAvailable === false ? [] : [vmClaude]), vmCli, vmDesktop, vmStop, vmUsage] : [])],
+    tools: [...bridgeTools(ctx), ...(ctx.vmEnabled ? [vmStart, vmExec, vmWriteFile, vmReadFile, ...(ctx.claudeAvailable === false ? [] : [vmClaude]), ...(ctx.vmCli === true ? [vmCli] : []), vmDesktop, vmStop, vmUsage] : [])],
   });
 }

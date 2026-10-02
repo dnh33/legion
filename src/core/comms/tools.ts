@@ -10,7 +10,7 @@ import { CommsError } from './hub.js';
 import type { CommsHub, SenderRun } from './hub.js';
 import type { TaskOrigin } from '../../shared/comms.js';
 import type { ApprovalMode, ModelChoice } from '../../shared/types.js';
-import { modelParam } from '../agent-tools.js';
+import { modelParamFor } from '../agent-tools.js';
 
 type ToolResult = { content: { type: 'text'; text: string }[]; isError?: boolean };
 const ok = (text: string): ToolResult => ({ content: [{ type: 'text', text }] });
@@ -45,7 +45,7 @@ export function buildCommsToolsServer(
       to: z.string().describe('Bot id or name (see bot_list)'),
       text: z.string().describe('The message. Be self-contained: the other bot has no access to your context.'),
       replyTo: z.string().optional().describe('Id of the message you are answering'),
-      model: modelParam,
+      model: modelParamFor(),
     },
     (a) => guard(async () => {
       const model = a.model !== undefined && resolveModel ? await resolveModel(a.model) : a.model;
@@ -62,7 +62,7 @@ export function buildCommsToolsServer(
       room: z.string().describe('Room id or name (see room_list)'),
       text: z.string().describe('The message'),
       mention: z.union([z.string(), z.array(z.string())]).optional().describe('Bot id(s) or name(s) to wake in addition to @mentions in the text'),
-      model: modelParam,
+      model: modelParamFor(),
     },
     (a) => guard(async () => {
       const model = a.model !== undefined && resolveModel ? await resolveModel(a.model) : a.model;

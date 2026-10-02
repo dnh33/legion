@@ -25,6 +25,9 @@ const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 
 export function createProvidersModule(opts: ProvidersModuleOpts): CoreModule {
   const { runtime } = opts;
   const cfg = () => runtime.config();
+  /** The second pass's routes and fields exist only with config.experimental.providers; otherwise they answer as if they were not there. */
+  const needExperimental = (): void => { if (!runtime.experimental) throw new HttpError(404, 'Not found'); };
+  const NEW_FIELDS = ['kind', 'trusted', 'tokenCapPerTask', 'tokenCapPerDay', 'leadSelectable', 'cli', 'executable', 'sandbox', 'allowedAgents', 'timeoutSeconds'];
 
   const requireNative = (req: { headers?: Record<string, string | string[] | undefined> } | undefined): void => {
     if (!opts.nativeSecret) throw new HttpError(403, 'native_unavailable: this change needs the Legion app window (this core was not started by it)');
@@ -78,6 +81,7 @@ export function createProvidersModule(opts: ProvidersModuleOpts): CoreModule {
       // Allow or stop allowing one Settings stdio MCP server for provider runs. Allowing needs the native secret (the app's dialog showed the
       // command line); the fingerprint is computed here from the server's current entry, never taken from the request. Stopping needs admin only.
       add('PUT', '/api/provider-mcp/:name', ({ req, params, body }) => {
+        needExperimental();
         const name = decodeURIComponent(params[0]!);
         if (!/^[A-Za-z0-9_.-]{1,64}$/.test(name)) throw new HttpError(400, 'Not a valid server name.');
         if (!isObj(body) || typeof body.allow !== 'boolean') throw new HttpError(400, 'allow (true or false) is required');
@@ -94,6 +98,7 @@ export function createProvidersModule(opts: ProvidersModuleOpts): CoreModule {
       // The provider:model values a lead agent may choose for one sub-agent. Adding any value needs the native secret (the app's dialog named
       // the agent and the values); removing needs admin only. No bot or token client reaches this route (admin-only, default deny).
       add('PUT', '/api/provider-lead/:agentId', ({ req, params, body }) => {
+        needExperimental();
         const agentId = decodeURIComponent(params[0]!);
         if (!/^[A-Za-z0-9_-]{1,64}$/.test(agentId)) throw new HttpError(400, 'Not a valid agent id.');
         if (!isObj(body) || !Array.isArray(body.choices) || body.choices.length > 50) throw new HttpError(400, 'choices (a list of provider:model values) is required');
@@ -116,6 +121,7 @@ export function createProvidersModule(opts: ProvidersModuleOpts): CoreModule {
         if (!isObj(body)) throw new HttpError(400, 'JSON object body required');
         const before = effective(id);
         const picked = pick(body);
+        if (!runtime.experimental && (NEW_FIELDS.some((k) => k in picked) || before?.kind === 'cli')) throw new HttpError(404, 'Not found');
         if (before && picked.kind !== undefined && picked.kind !== before.kind) throw new HttpError(400, 'A provider keeps its kind; add a new provider instead.');
         const kind = before?.kind ?? (picked.kind === 'cli' ? 'cli' : 'openai-compat');
         const merged = { ...(before ?? {}), ...picked };
@@ -152,7 +158,7 @@ export function createProvidersModule(opts: ProvidersModuleOpts): CoreModule {
         if (!isObj(body)) throw new HttpError(400, 'JSON object body required');
         const e = effective(id);
         if (!e) throw new HttpError(404, 'Unknown provider');
-        if (e.kind === 'cli') throw new HttpError(400, 'A CLI provider has no key in Legion: sign in to the CLI yourself, outside Legion.');
+        if (e.kind === 'cli') throw new HttpError(runtime.experimental ? 400 : 404, 'A CLI provider has no key in Legion: sign in to the CLI yourself, outside Legion.');
         const ep = checkEndpoint(e.baseUrl, { allowPrivate: e.allowPrivateNetwork === true });
         if (!ep.ok) throw new HttpError(400, ep.reason);
         try { runtime.keys.set(id, body.key, ep.origin); } catch (err) { throw new HttpError(400, err instanceof Error ? err.message : 'Invalid key'); }

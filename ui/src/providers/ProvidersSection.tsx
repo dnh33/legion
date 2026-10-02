@@ -13,6 +13,7 @@ function ProviderCard({ p }: { p: ProviderView }) {
   const [model, setModel] = useState('');
   const [addr, setAddr] = useState(p.baseUrl);
   const [editAddr, setEditAddr] = useState(false);
+  const exp = useProviders((s) => s.view?.experimental === true);
   const mine = busy === p.id;
   const submitKey = async () => { const k = key; setKey(''); if (k.trim()) await saveKey(p.id, k.trim()); };
   return (
@@ -49,6 +50,7 @@ function ProviderCard({ p }: { p: ProviderView }) {
           {p.keySet && <button type="button" className="btn-ghost sm" disabled={!!busy} onClick={() => void removeKey(p.id)}>Remove key</button>}
         </form>
       )}
+      {exp && <>
       <p className="prov-status" data-testid={`taint-${p.id}`}>
         {p.startsTainted
           ? 'Runs on this provider start marked as touching outside content (tainted): it is a custom endpoint Legion knows nothing about.'
@@ -60,9 +62,10 @@ function ProviderCard({ p }: { p: ProviderView }) {
       <div className="prov-row">
         <label>Token limit per task<input type="number" min={1} defaultValue={p.tokenCapPerTask ?? ''} placeholder="No limit" onBlur={(e) => { const v = e.target.value.trim(); void saveEntry(p.id, { tokenCapPerTask: v ? Number(v) : null }); }} /></label>
         <label>Token limit per day<input type="number" min={1} defaultValue={p.tokenCapPerDay ?? ''} placeholder="No limit" onBlur={(e) => { const v = e.target.value.trim(); void saveEntry(p.id, { tokenCapPerDay: v ? Number(v) : null }); }} /></label>
-        <span className="field-note">{p.tokensToday.toLocaleString()} tokens counted today. Counts come from what the provider returns, or an estimate (characters divided by 4) when it returns none. A model turn already running can pass the limit; the next one is not started.</span>
+        <span className="field-note">{(p.tokensToday ?? 0).toLocaleString()} tokens counted today. Counts come from what the provider returns, or an estimate (characters divided by 4) when it returns none. A model turn already running can pass the limit; the next one is not started.</span>
       </div>
       <label className="check-row"><input type="checkbox" checked={p.leadSelectable} disabled={!!busy} onChange={(e) => void saveEntry(p.id, { leadSelectable: e.target.checked })} /> Lead agents may run any agent on any model of this provider (off by default; asks you to confirm)</label>
+      </>}
       <div className="prov-row">
         <button type="button" className="btn-ghost sm" disabled={!!busy} onClick={() => void testProvider(p.id)}>{mine ? 'Working…' : 'Test'}</button>
         <button type="button" className="btn-ghost sm" disabled={!!busy} onClick={() => void refreshModels(p.id)}>Refresh models</button>
@@ -219,9 +222,7 @@ export function ProvidersSection() {
         {view.dropped.length > 0 && <div className="set-error" role="status">Some saved providers were ignored: {view.dropped.join('; ')}</div>}
         {view.providers.map((p) => (p.kind === 'cli' ? <CliCard key={p.id} p={p} /> : <ProviderCard key={p.id} p={p} />))}
         <AddCustom />
-        <AddCli />
-        <StdioServers />
-        <LeadChoices />
+        {view.experimental && <><AddCli /><StdioServers /><LeadChoices /></>}
         <fieldset className="prov-add">
           <legend>Run limits for provider agents</legend>
           <div className="prov-row">

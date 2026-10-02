@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { Room } from '../../../src/shared/comms';
 import { ROOM_BUDGET_NOTE } from '../../../src/shared/providers-view';
+import { loadProviders, useProviders } from '../providers/providersStore';
 import type { AgentProfile } from '../../../src/shared/types';
 import { Icon } from '../components/icons';
 import { Face } from './Stack';
@@ -63,6 +64,8 @@ function ExportMenu({ roomId }: { roomId: string }) {
 export function RoomHeader({ room, agents, live, offline, narrow, onList }: {
   room: Room; agents: AgentProfile[]; live: Record<string, LiveState>; offline: boolean; narrow: boolean; onList: () => void;
 }) {
+  const providersOn = useProviders((x) => x.view?.experimental === true);
+  useEffect(() => { void loadProviders(); }, []);
   const nm = (id: string) => agents.find((a) => a.id === id)?.name ?? id;
   const act = new Map(activeIn(live, room).map((a) => [a.agentId, a.state]));
   const [freezing, setFreezing] = useState(false);
@@ -108,7 +111,7 @@ export function RoomHeader({ room, agents, live, offline, narrow, onList }: {
           <Meter label="Hops" value={room.hopsSinceHuman} max={g.maxHops} text={`${room.hopsSinceHuman}/${g.maxHops}`} title={`${room.hopsSinceHuman} of ${g.maxHops} bot-to-bot hops since your last message`} />
           <Meter label="Cost" value={room.costUsd} max={g.budgetUsd} text={g.budgetUsd === null ? `${fmtCost(room.costUsd)} · No limit` : `${fmtCost(room.costUsd)} / ${fmtBudget(g.budgetUsd)}`} title={g.budgetUsd === null ? `${fmtCost(room.costUsd)} spent; this room has no spend limit` : `${fmtCost(room.costUsd)} spent of the ${fmtBudget(g.budgetUsd)} room budget`} />
         </div>
-        {g.budgetUsd !== null && <span className="rm-hint" data-testid="room-budget-note">{ROOM_BUDGET_NOTE}</span>}
+        {providersOn && g.budgetUsd !== null && <span className="rm-hint" data-testid="room-budget-note">{ROOM_BUDGET_NOTE}</span>}
       </div>
     </header>
   );

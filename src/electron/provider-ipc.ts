@@ -60,6 +60,10 @@ export async function providerChange(raw: unknown, deps: ProviderIpcDeps): Promi
   if (!ch) return { ok: false, error: 'That request was not understood.' };
   const cur = await deps.call('GET', '/api/providers');
   if (!cur || cur.status !== 200) return { ok: false, error: 'Legion could not reach its own core. Restart Legion.' };
+  // the second pass's changes exist only with config.experimental.providers (read from the core's own answer, never from the window)
+  const patchKeys = ch.kind === 'entry' ? Object.keys(ch.patch) : [];
+  const isNew = ch.kind === 'mcp-stdio' || ch.kind === 'lead' || patchKeys.some((k) => ['kind', 'cli', 'executable', 'sandbox', 'allowedAgents', 'timeoutSeconds', 'trusted', 'leadSelectable'].includes(k));
+  if (isNew && cur.json?.experimental !== true) return { ok: false, error: 'That setting is not available in this version.' };
   let title: string; let message: string; let detail: string; let confirmLabel: string; let route: string; let body: unknown;
   if (ch.kind === 'mcp-stdio') {
     const srv = (cur.json?.stdioServers as Array<Record<string, unknown>> | undefined)?.find((s) => s.name === ch.name);
