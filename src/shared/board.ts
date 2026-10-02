@@ -6,8 +6,8 @@ export const BOARD_STATUSES = ['backlog', 'doing', 'review', 'done', 'blocked'] 
 export type BoardStatus = typeof BOARD_STATUSES[number];
 export const BOARD_PRIORITIES = ['low', 'normal', 'high'] as const;
 export type BoardPriority = typeof BOARD_PRIORITIES[number];
-/** What a bot may set on an item assigned to it. Never `done` (only the owner closes work), never `backlog`. */
-export const BOT_STATUSES = ['doing', 'review', 'blocked'] as const;
+/** What a member agent may set. Never `done`: only the owner closes work. */
+export const BOT_STATUSES = ['backlog', 'doing', 'review', 'blocked'] as const;
 
 export type BoardActor =
   | { kind: 'owner' }
@@ -53,12 +53,12 @@ export const BOARD_LIMITS = {
   labels: 5, labelChars: 24, taskLinks: 20, roomLinks: 10, previewChars: 1_000,
   /** Bot proposals: this many per agent and project in the window. */
   proposalsPerWindow: 5, proposalWindowMs: 10 * 60_000,
-  /** Every bot write (propose + update_own) per agent. */
-  botWritesPerWindow: 40,
+  /** Every bot write (create, propose, update) per agent. */
+  botWritesPerWindow: 40, botCreatesPerWindow: 10, botDeletesPerWindow: 3,
   fileBytes: 4 * 1024 * 1024,
 } as const;
 
 export const WORK_ITEM_ID_RE = /^wi_[a-f0-9]{12}$/;
 export const COLUMN_LABEL: Record<BoardStatus, string> = { backlog: 'Backlog', doing: 'Doing', review: 'Review', done: 'Done', blocked: 'Blocked' };
 
-export interface BoardView { items: WorkItem[]; inbox: WorkItem[]; archived: boolean }
+export interface BoardView { items: WorkItem[]; inbox: WorkItem[]; archived: boolean; /** The member agent that may ask to delete (the owner approves each one). */ leader?: string }

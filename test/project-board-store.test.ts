@@ -102,28 +102,96 @@ test('C4 proposals: secrets refused or redacted; rate limit per agent and window
   s.propose(P, 'scout', { title: 'after the window' }, run);
 });
 
-test('C5 bot update_own: only its own assigned live items, only doing/review/blocked, never done, never from done, nothing else writable', () => {
+test('C5 agent edits: any member edits any open item; never done; owner-assigned items take notes only; text edits clear trust; a bad field changes nothing', () => {
   const s = new BoardStore(dir(), () => 0);
   const mine = s.create(P, { title: 'mine', assignee: { kind: 'agent', id: 'scout' }, description: 'orig' });
   const theirs = s.create(P, { title: 'theirs', assignee: { kind: 'agent', id: 'zealot' } });
-  const none = s.create(P, { title: 'unassigned' });
-  const u = s.botUpdate(P, 'scout', mine.id, { status: 'doing', note: 'started' }, { taskId: 'task_1', tainted: false, roomId: 'room_0123456789ab' });
+  const free = s.create(P, { title: 'free' });
+  const owners = s.create(P, { title: 'owner task', assignee: { kind: 'owner' } });
+  const u = s.botUpdate(P, 'scout', mine.id, { status: 'doing', note: 'started', priority: 'high', labels: ['x'], due: '2026-12-01' }, { taskId: 'task_1', tainted: false, roomId: 'room_0123456789ab' });
   assert.equal(u.status, 'doing'); assert.deepEqual(u.taskIds, ['task_1']); assert.deepEqual(u.roomIds, ['room_0123456789ab']);
-  assert.equal(u.description, 'orig'); assert.equal(u.title, 'mine'); assert.deepEqual(u.assignee, { kind: 'agent', id: 'scout' });
+  assert.equal(u.priority, 'high'); assert.deepEqual(u.labels, ['x']); assert.equal(u.due, '2026-12-01');
+  assert.equal(u.trust, 'human', 'a status change is not a text edit');
   assert.ok(u.activity.some((a) => a.kind === 'note' && a.text === 'started' && a.by.kind === 'agent'));
-  for (const bad of ['done', 'backlog', 'wip']) code(() => s.botUpdate(P, 'scout', mine.id, { status: bad }, run), 403, /doing, review or blocked/);
-  code(() => s.botUpdate(P, 'scout', theirs.id, { note: 'x' }, run), 404); code(() => s.botUpdate(P, 'scout', none.id, { note: 'x' }, run), 404);
+  // another member's item, and a free one: claim, retitle, move
+  const t = s.botUpdate(P, 'scout', theirs.id, { title: 'theirs, renamed', assignee: { kind: 'agent', id: 'scout' }, status: 'review' }, run);
+  assert.equal(t.title, 'theirs, renamed'); assert.equal(t.trust, 'untrusted', 'agent text: not reviewed by the owner'); assert.deepEqual(t.assignee, { kind: 'agent', id: 'scout' });
+  assert.equal(s.botUpdate(P, 'zealot', free.id, { description: 'new text', status: 'backlog', index: 0 }, run).description, 'new text');
+  // done and owner-assigned limits
+  for (const bad of ['done', 'wip']) code(() => s.botUpdate(P, 'scout', mine.id, { status: bad }, run), bad === 'done' ? 403 : 400);
+  code(() => s.botUpdate(P, 'scout', mine.id, { assignee: { kind: 'owner' } }, run), 403, /owner/);
+  code(() => s.botUpdate(P, 'scout', owners.id, { status: 'doing' }, run), 403, /assigned to the owner/);
+  code(() => s.botUpdate(P, 'scout', owners.id, { title: 'mine now' }, run), 403);
+  assert.equal(s.botUpdate(P, 'scout', owners.id, { note: 'fyi' }, run).activity.at(-1)!.text, 'fyi', 'a note on an owner item is fine');
   code(() => s.botUpdate(P, 'scout', mine.id, {}, run), 400); code(() => s.botUpdate(P, 'outsider', mine.id, { note: 'x' }, run), 403);
+  const before = JSON.stringify(s.get(PID, mine.id));
+  code(() => s.botUpdate(P, 'scout', mine.id, { title: 'ok', priority: 'urgent' }, run), 400);
+  assert.equal(JSON.stringify(s.get(PID, mine.id)), before, 'nothing applied when one field is bad');
   const prop = s.propose(P, 'scout', { title: 'p' }, run);
-  code(() => s.botUpdate(P, 'scout', prop.id, { note: 'x' }, run), 404);
+  code(() => s.botUpdate(P, 'scout', prop.id, { note: 'x' }, run), 404, undefined);
   s.patch(P, mine.id, { status: 'done' });
   code(() => s.botUpdate(P, 'scout', mine.id, { status: 'doing' }, run), 409, /closed/);
   s.patch(P, mine.id, { status: 'review' });
   assert.equal(s.botUpdate(P, 'scout', mine.id, { note: 'n'.repeat(900) }, { tainted: true }).activity.at(-1)!.text.length, BOARD_LIMITS.noteChars);
   assert.deepEqual(s.get(PID, mine.id)!.activity.at(-1)!.by, { kind: 'agent', id: 'scout', tainted: true });
-  // an id from another project is not found
+  // an item of another project is not found
   const other: ProjectRef = { id: 'proj_bbbbbbbbbbbb', members: ['scout'], status: 'active' };
   code(() => s.botUpdate(other, 'scout', mine.id, { note: 'x' }, run), 404);
+});
+
+test('C5 a tainted run may edit and move but not assign; a trusted owner item keeps trust through a status move', () => {
+  const s = new BoardStore(dir(), () => 0);
+  const i = s.create(P, { title: 'x' });
+  code(() => s.botUpdate(P, 'scout', i.id, { assignee: { kind: 'agent', id: 'scout' } }, { tainted: true }), 403, /outside content/);
+  assert.equal(s.botUpdate(P, 'scout', i.id, { status: 'doing' }, { tainted: true }).trust, 'human');
+});
+
+test('C5 agent create: live, untrusted, no done, no owner assignee, tainted cannot assign, rate limited', () => {
+  const clock = { now: 0 };
+  const s = new BoardStore(dir(), () => clock.now);
+  const i = s.botCreate(P, 'scout', { title: 'New', description: 'd', status: 'doing', assignee: { kind: 'agent', id: 'zealot' }, due: '2026-12-01', labels: ['a'] }, run);
+  assert.equal(i.proposal, undefined); assert.equal(i.trust, 'untrusted'); assert.equal(i.status, 'doing'); assert.deepEqual(i.createdBy, { kind: 'agent', id: 'scout' });
+  assert.equal(s.view(P).items.length, 1);
+  code(() => s.botCreate(P, 'scout', { title: 'x', status: 'done' }, run), 403); code(() => s.botCreate(P, 'scout', { title: 'x', assignee: { kind: 'owner' } }, run), 403);
+  code(() => s.botCreate(P, 'scout', { title: 'x', assignee: { kind: 'agent', id: 'zealot' } }, { tainted: true }), 403);
+  code(() => s.botCreate(P, 'outsider', { title: 'x' }, run), 403); code(() => s.botCreate(P, 'scout', { title: 'k', description: '-----BEGIN PRIVATE KEY-----' }, run), 400);
+  assert.equal(s.botCreate(P, 'scout', { title: 'tainted ok' }, { tainted: true }).createdBy.kind, 'agent');
+  for (let k = 0; k < BOARD_LIMITS.botCreatesPerWindow - 2; k++) s.botCreate(P, 'scout', { title: `c${k}` }, run);
+  code(() => s.botCreate(P, 'scout', { title: 'over' }, run), 429, /at most 10/);
+  clock.now += BOARD_LIMITS.proposalWindowMs + 1;
+  s.botCreate(P, 'scout', { title: 'after the window' }, run);
+});
+
+test('C6 delete: only the owner-chosen leader, never tainted, never done or owner items; the check counts requests; a removed leader loses it', () => {
+  const clock = { now: 0 };
+  const s = new BoardStore(dir(), () => clock.now);
+  const a = s.create(P, { title: 'a' }); const b = s.create(P, { title: 'b' }); const d = s.create(P, { title: 'done', status: 'done' }); const o = s.create(P, { title: 'o', assignee: { kind: 'owner' } });
+  code(() => s.checkBotDelete(P, 'scout', a.id, run), 403, /leader/);
+  code(() => s.setLeader(P, 'ghost'), 400); assert.equal(s.leaderOf(P), undefined);
+  s.setLeader(P, 'scout'); assert.equal(s.leaderOf(P), 'scout'); assert.equal(s.view(P).leader, 'scout');
+  code(() => s.checkBotDelete(P, 'zealot', a.id, run), 403, /leader/);
+  code(() => s.checkBotDelete(P, 'scout', a.id, { tainted: true }), 403, /outside content/);
+  code(() => s.checkBotDelete(P, 'scout', d.id, run), 403, /Done/); code(() => s.checkBotDelete(P, 'scout', o.id, run), 403, /owner/);
+  code(() => s.checkBotDelete(P, 'scout', 'wi_000000000000', run), 404);
+  s.botDelete(P, 'scout', a.id, run);
+  assert.equal(s.get(PID, a.id), undefined); assert.deepEqual(s.view(P).items.filter((i) => i.status === 'backlog').map((i) => `${i.title}:${i.order}`), ['b:0', 'o:1']);
+  for (let k = 0; k < BOARD_LIMITS.botDeletesPerWindow; k++) s.checkBotDelete(P, 'scout', b.id, run, true);
+  code(() => s.checkBotDelete(P, 'scout', b.id, run, true), 429, /At most 3/);
+  // the leader is no longer a member: the power goes with the membership
+  assert.equal(s.leaderOf({ ...P, members: ['zealot'] }), undefined);
+  code(() => s.checkBotDelete({ ...P, members: ['zealot'] }, 'scout', b.id, run), 403);
+  s.setLeader(P, null); assert.equal(s.leaderOf(P), undefined);
+});
+
+test('C13 the leader setting survives reload and compaction', () => {
+  const d = dir();
+  const s = new BoardStore(d);
+  s.create(P, { title: 'x' }); s.setLeader(P, 'zealot');
+  assert.equal(new BoardStore(d).leaderOf(P), 'zealot');
+  s.compact((s as any).board(PID));
+  assert.equal(new BoardStore(d).leaderOf(P), 'zealot');
+  s.setLeader(P, null);
+  assert.equal(new BoardStore(d).leaderOf(P), undefined);
 });
 
 test('runs: beginRun links and moves to doing; endRun goes to review or blocked, never done, and respects an owner move', () => {

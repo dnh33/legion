@@ -43,3 +43,7 @@
   .bd-card[draggable="true"] { cursor: default; }
 }
 @media (prefers-reduced-motion: reduce) { .bd * { transition: none !important; animation: none !important; } }
+.bd-leader { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: flex-end; }
+.bd-leader label { display: flex; flex-direction: column; gap: 3px; font-size: 12px; color: var(--muted); }
+.bd-leader select { background: var(--surface-2); border: 1px solid var(--line-strong); border-radius: var(--r-sm); padding: 5px 8px; color: var(--text); font-size: 13px; min-height: 30px; }
+.bd-leader select:focus-visible { outline: 2px solid var(--accent-line); outline-offset: 2px; }

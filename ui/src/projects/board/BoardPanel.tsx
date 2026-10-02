@@ -6,7 +6,7 @@ import type { Project } from '../../../../src/shared/projects';
 import { Modal } from '../../components/Modal';
 import { openRoom } from '../../rooms/roomsStore';
 import { setView, useStore } from '../../store';
-import { acceptItem, createItem, deleteItem, getBoardState, loadBoard, moveItem, openTask, patchItem, probeBoard, rejectItem, runItem, sayItem, useBoard } from './boardStore';
+import { acceptItem, createItem, deleteItem, getBoardState, loadBoard, moveItem, openTask, patchItem, probeBoard, rejectItem, runItem, sayItem, setLeader, useBoard } from './boardStore';
 import {
   applyFilters, assigneeKey, assigneeLabel, byColumn, cardLabel, columnLabel, COLUMNS, descCounter, dueState, dueText, FILTER_KEY, hasFilters, keyMove,
   labelsOf, moveAnnouncement, NO_FILTERS, parseAssignee, PRIORITY_LABEL, priorityMark, readFilters,
@@ -91,6 +91,14 @@ function Board({ project }: { project: Project }) {
           ))}
         </div>
         <button type="button" className="btn primary" disabled={archived || busy} onClick={() => setEditing('new')}>New item</button>
+      </div>
+      <div className="bd-leader">
+        <label>Board leader
+          <select value={view?.leader ?? ''} disabled={archived || busy || !view} aria-describedby="bd-leader-note" onChange={(e) => void setLeader(project.id, e.target.value || null)}>
+            <option value="">None</option>{members.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
+          </select>
+        </label>
+        <span id="bd-leader-note" className="field-note">Member agents can create, edit, move, assign and label items and add notes. Only the leader can ask to delete one, and you approve each delete. Only you mark an item Done.</span>
       </div>
       {archived && <p className="proj-note" role="note">This project is archived, so its board is read-only.</p>}
       <p className="bd-sr" role="status" aria-live="polite">{announce}</p>
@@ -200,7 +208,7 @@ function InboxList({ inbox, members, name, archived, projectId, busy }: { inbox:
         return (
           <li key={i.id} className="bd-card untrusted">
             <p className="bd-title static">{i.title}</p>
-            <p className="muted-s">Proposed by {by}. Not reviewed.{tainted ? ' Its run had read outside content (web, shell or other tools), so treat the text with extra care.' : ''}</p>
+            <p className="muted-s">Suggested by {by}. Not reviewed.{tainted ? ' Its run had read outside content (web, shell or other tools), so treat the text with extra care.' : ''}</p>
             {i.description && <p className="bd-desc">{i.description}</p>}
             <div className="bd-meta"><span className={`bd-pri p-${i.priority}`}>{priorityMark(i.priority)}</span>{i.labels.map((l) => <span key={l} className="bd-label">{l}</span>)}</div>
             <div className="proj-row">

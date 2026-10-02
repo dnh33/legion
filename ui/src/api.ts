@@ -103,6 +103,7 @@ export const api = {
   patchProject: (id: string, b: { name?: string; instructions?: string; status?: 'active' | 'archived' }) => request<Project>('PATCH', `/api/projects/${encodeURIComponent(id)}`, b),
   boardProbe: () => request<{ enabled: true }>('GET', '/api/board'),
   boardView: (pid: string) => request<BoardView>('GET', `/api/projects/${encodeURIComponent(pid)}/board`),
+  boardLeader: (pid: string, leader: string | null) => request<BoardView>('PUT', `/api/projects/${encodeURIComponent(pid)}/board/leader`, { leader }),
   boardCreate: (pid: string, b: Record<string, unknown>) => request<WorkItem>('POST', `/api/projects/${encodeURIComponent(pid)}/board/items`, b),
   boardPatch: (pid: string, id: string, b: Record<string, unknown>) => request<WorkItem>('PATCH', `/api/projects/${encodeURIComponent(pid)}/board/items/${encodeURIComponent(id)}`, b),
   boardMove: (pid: string, id: string, status: BoardStatus, index: number) => request<WorkItem>('POST', `/api/projects/${encodeURIComponent(pid)}/board/items/${encodeURIComponent(id)}/move`, { status, index }),

@@ -48,7 +48,7 @@ export function createBoardModule(deps: ModuleDeps, opts: BoardModuleOpts): Core
     mcpServers: (agent, job): Record<string, McpServerConfig> => {
       // no project (or not an active one this agent belongs to) = no board tool at all
       if (!job?.projectId || !projects.forRun(job.projectId, agent.id)) return {};
-      return { legion_board: buildBoardToolsServer(agent.id, { board, projects, onChange: changed }, job) };
+      return { legion_board: buildBoardToolsServer(agent.id, { board, projects, onChange: changed, askOwner: (r) => deps.approvals.request(r.taskId, r.agentId, `mcp__legion_board__${r.tool}`, r.input, r.origin, { summary: r.summary }) }, job) };
     },
     preamble: (agent, ctx) => (ctx?.projectId && projects.forRun(ctx.projectId, agent.id) ? BOARD_PREAMBLE : ''),
     onTaskEnd: (task, _agent, outcome) => {
@@ -58,6 +58,7 @@ export function createBoardModule(deps: ModuleDeps, opts: BoardModuleOpts): Core
     },
     routes: (add) => {
       add('GET', '/api/board', () => ({ enabled: true, limits: BOARD_LIMITS }));
+      add('PUT', '/api/projects/:id/board/leader', (c) => { const p = proj(c.params[0]); const b = body(c); wrap(() => board.setLeader(p, b.leader)); return out(p.id, wrap(() => board.view(proj(p.id)))); });
       add('GET', '/api/projects/:id/board', (c) => wrap(() => board.view(proj(c.params[0]))));
       add('POST', '/api/projects/:id/board/items', (c) => { const p = proj(c.params[0]); return out(p.id, wrap(() => board.create(p, body(c)))); }, 201);
       add('PATCH', '/api/projects/:id/board/items/:iid', (c) => { const p = proj(c.params[0]); return out(p.id, wrap(() => board.patch(p, c.params[1]!, body(c)))); });

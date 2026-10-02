@@ -50,7 +50,7 @@ test('C2 every board route needs the admin header; none is on the client list', 
   const x = await boot(true);
   try {
     const id = x.p.id; const wi = 'wi_aaaaaaaaaaaa';
-    for (const [m, path] of [['GET', '/api/board'], ['GET', `/api/projects/${id}/board`], ['POST', `/api/projects/${id}/board/items`], ['PATCH', `/api/projects/${id}/board/items/${wi}`], ['POST', `/api/projects/${id}/board/items/${wi}/move`], ['DELETE', `/api/projects/${id}/board/items/${wi}`], ['POST', `/api/projects/${id}/board/items/${wi}/accept`], ['POST', `/api/projects/${id}/board/items/${wi}/reject`], ['POST', `/api/projects/${id}/board/items/${wi}/run`]] as const) {
+    for (const [m, path] of [['GET', '/api/board'], ['GET', `/api/projects/${id}/board`], ['POST', `/api/projects/${id}/board/items`], ['PATCH', `/api/projects/${id}/board/items/${wi}`], ['POST', `/api/projects/${id}/board/items/${wi}/move`], ['DELETE', `/api/projects/${id}/board/items/${wi}`], ['POST', `/api/projects/${id}/board/items/${wi}/accept`], ['POST', `/api/projects/${id}/board/items/${wi}/reject`], ['POST', `/api/projects/${id}/board/items/${wi}/run`], ['PUT', `/api/projects/${id}/board/leader`]] as const) {
       assert.equal(isClientRoute(m, path), false, `${m} ${path} must not be a client route`);
       assert.equal((await fetch(x.base + path, { method: m, headers: { ...asClient, ...J }, body: m === 'GET' ? undefined : '{}' })).status, 403, `${m} ${path} token only`);
       assert.equal((await fetch(x.base + path, { method: m, body: m === 'GET' ? undefined : '{}' })).status, 401, `${m} ${path} nothing`);
@@ -79,6 +79,18 @@ test('owner CRUD over HTTP, validation errors as 400, archived board is read-onl
     assert.equal((await x.call('GET', base)).status, 200);
     x.projects.update(x.p.id, { status: 'active' });
     assert.equal((await x.call('DELETE', `${base}/items/${item.id}`)).status, 200);
+  } finally { await x.close(); }
+});
+
+test('C6 the board leader is set by the owner over the admin route: members only, null clears, shown in the view', async () => {
+  const x = await boot(true);
+  try {
+    const base = `/api/projects/${x.p.id}/board`;
+    assert.equal((await x.call('PUT', `${base}/leader`, { leader: 'scout' })).status, 400, 'scout is not a member');
+    const ok: any = await (await x.call('PUT', `${base}/leader`, { leader: 'zealot' })).json();
+    assert.equal(ok.leader, 'zealot'); assert.equal(((await (await x.call('GET', base)).json()) as any).leader, 'zealot');
+    assert.equal(((await (await x.call('PUT', `${base}/leader`, { leader: null })).json()) as any).leader, undefined);
+    assert.equal((await x.call('PUT', `${base}/leader`, {})).status, 400);
   } finally { await x.close(); }
 });
 

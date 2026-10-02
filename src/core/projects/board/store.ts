@@ -122,6 +122,8 @@ class Board {
   readonly extras = new Map<string, Record<string, unknown>>();
   /** Lines written by a later build (v > 1): kept and written back on compaction. */
   foreign: string[] = [];
+  /** The member agent that may ask to delete items (each delete still needs the owner's approval card). Owner-set; none by default. */
+  leader: string | undefined;
   lines = 0;
   constructor(readonly file: string, readonly projectId: string) {}
 }
@@ -130,6 +132,8 @@ export class BoardStore {
   private readonly boards = new Map<string, Board>();
   private readonly proposals = new Map<string, number[]>();
   private readonly botWrites = new Map<string, number[]>();
+  private readonly creates = new Map<string, number[]>();
+  private readonly deletes = new Map<string, number[]>();
 
   constructor(private readonly dir: string, private readonly clock: () => number = Date.now) {}
 
@@ -155,6 +159,7 @@ export class BoardStore {
         try { rec = JSON.parse(line); } catch { continue; } // a torn last line, or damage: that line only is skipped
         if (!isObj(rec)) continue;
         if (typeof rec.v === 'number' && rec.v > 1) { b.foreign.push(line); continue; }
+        if (rec.kind === 'meta') { b.leader = typeof rec.leader === 'string' && rec.leader ? clip(rec.leader, 64) : undefined; continue; }
         if (rec.kind === 'delete' && typeof rec.id === 'string') { b.items.delete(rec.id); b.extras.delete(rec.id); continue; }
         if (rec.kind === 'item') {
           const r = loadItem(rec.item, b.projectId);
@@ -162,7 +167,7 @@ export class BoardStore {
         }
       }
     } catch {
-      b.items.clear(); b.extras.clear(); b.foreign = []; b.lines = 0;
+      b.items.clear(); b.extras.clear(); b.foreign = []; b.leader = undefined; b.lines = 0;
       try { renameSync(b.file, b.file + '.corrupt-' + Date.now()); } catch { /* ignore */ }
     }
   }
@@ -186,6 +191,7 @@ export class BoardStore {
     const at = nowIso();
     const text = [
       ...b.foreign,
+      ...(b.leader ? [JSON.stringify({ v: 1, kind: 'meta', at, leader: b.leader })] : []),
       ...[...b.items.values()].map((i) => JSON.stringify({ v: 1, kind: 'item', at, item: { ...(b.extras.get(i.id) ?? {}), ...i } })),
     ].join('\n') + '\n';
     const tmp = b.file + '.tmp';
@@ -195,7 +201,7 @@ export class BoardStore {
         const code = (e as NodeJS.ErrnoException).code;
         if (code === 'EPERM' || code === 'EEXIST') { unlinkSync(b.file); renameSync(tmp, b.file); } else throw e;
       }
-      b.lines = b.items.size + b.foreign.length;
+      b.lines = b.items.size + b.foreign.length + (b.leader ? 1 : 0);
     } catch { try { unlinkSync(tmp); } catch { /* ignore */ } }
   }
 
@@ -208,7 +214,20 @@ export class BoardStore {
     const b = this.board(proj.id);
     const items = BOARD_STATUSES.flatMap((s) => this.column(b, s)).map((i) => structuredClone(i));
     const inbox = [...b.items.values()].filter((i) => i.proposal).sort((x, y) => x.createdAt.localeCompare(y.createdAt)).map((i) => structuredClone(i));
-    return { items, inbox, archived: proj.status === 'archived' };
+    return { items, inbox, archived: proj.status === 'archived', ...(this.leaderOf(proj) ? { leader: this.leaderOf(proj) } : {}) };
+  }
+  /** The leader, if still a member of the project. */
+  leaderOf(proj: ProjectRef): string | undefined {
+    const l = this.board(proj.id).leader;
+    return l && proj.members.includes(l) ? l : undefined;
+  }
+  /** Owner only (the route is admin-gated). A leader can only ask to delete; every delete still needs the owner's approval card. */
+  setLeader(proj: ProjectRef, agentId: unknown): ProjectRef & { leader?: string } {
+    const b = this.writable(proj);
+    if (agentId !== null && (typeof agentId !== 'string' || !proj.members.includes(agentId))) throw new BoardError(400, 'The leader must be a member agent of this project, or null for none.');
+    b.leader = agentId === null ? undefined : agentId;
+    this.append(b, { v: 1, kind: 'meta', at: nowIso(), leader: b.leader ?? null });
+    return { ...proj, ...(b.leader ? { leader: b.leader } : {}) };
   }
   /** One item of this project (an id from another project is simply not found). */
   get(pid: string, id: string): WorkItem | undefined {
@@ -396,38 +415,126 @@ export class BoardStore {
     this.drop(b, id);
   }
 
-  // ------------------------------------------------------------------ bot update of its own item
+  // ------------------------------------------------------------------ agent writes (members of the project)
 
-  /** A member bot changes the status or adds a note on an item assigned to it. Nothing else about an item is writable by a bot. */
-  botUpdate(proj: ProjectRef, agentId: string, id: string, u: { status?: unknown; note?: unknown }, run: { taskId?: string; tainted: boolean; roomId?: string }): WorkItem {
+  /** Moves an item to a column position and keeps both columns dense. */
+  private place(b: Board, i: WorkItem, status: BoardStatus, index: number | undefined, by: BoardActor): void {
+    const from = i.status;
+    const target = this.column(b, status).filter((x) => x.id !== i.id);
+    const at = index === undefined ? (from === status ? Math.max(0, this.column(b, status).findIndex((x) => x.id === i.id)) : target.length) : Math.max(0, Math.min(index, target.length));
+    target.splice(at, 0, i);
+    if (from !== status) { this.note(i, by, 'status', `${from} → ${status}`); i.status = status; }
+    this.touch(i, by);
+    target.forEach((x, n) => { if (x.order !== n || x.id === i.id) { x.order = n; this.save(b, x); } });
+    if (from !== status) this.renumber(b, from);
+  }
+  private botBy(agentId: string, run: { tainted: boolean }): BoardActor { return { kind: 'agent', id: agentId, ...(run.tainted ? { tainted: true } : {}) }; }
+  private botAssignee(v: unknown, proj: ProjectRef, run: { tainted: boolean }): BoardAssignee | null {
+    if (run.tainted) throw new BoardError(403, 'This run touched outside content (web, shell or external tools), so it may not assign items. Ask the owner.');
+    if (isObj(v) && v.kind === 'owner') throw new BoardError(403, 'Only the owner can assign an item to themselves.');
+    return cleanAssignee(v, proj);
+  }
+
+  /** A member agent creates a live item. Its text is the agent's, so the item is `untrusted` (a run on it is capped) until the owner marks it reviewed. */
+  botCreate(proj: ProjectRef, agentId: string, input: { title?: unknown; description?: unknown; status?: unknown; priority?: unknown; labels?: unknown; due?: unknown; assignee?: unknown }, run: { tainted: boolean }): WorkItem {
+    const b = this.writable(proj);
+    if (!proj.members.includes(agentId)) throw new BoardError(403, 'Only a member of this project can create items.');
+    const title = botText(cleanTitle(input.title), 'The title');
+    const description = input.description === undefined ? '' : botText(cleanDescription(input.description), 'The description');
+    const status = input.status === undefined ? 'backlog' : cleanStatus(input.status);
+    if (!BOT_STATUSES.includes(status as never)) throw new BoardError(403, 'An agent can create items in backlog, doing, review or blocked. Only the owner puts an item in done.');
+    const priority = input.priority === undefined ? 'normal' : cleanPriority(input.priority);
+    const labels = input.labels === undefined ? [] : cleanLabels(input.labels);
+    const due = input.due === undefined ? undefined : cleanDue(input.due);
+    const assignee = input.assignee === undefined ? null : this.botAssignee(input.assignee, proj, run);
+    if (b.items.size >= BOARD_LIMITS.itemsPerProject) throw new BoardError(409, 'The board is full; the owner has to clear items first.');
+    this.tick(this.botWrites, agentId, BOARD_LIMITS.botWritesPerWindow, BOARD_LIMITS.proposalWindowMs, 'Too many board writes from you in a short time. Wait a few minutes.');
+    this.tick(this.creates, `${proj.id}|${agentId}`, BOARD_LIMITS.botCreatesPerWindow, BOARD_LIMITS.proposalWindowMs, `You may create at most ${BOARD_LIMITS.botCreatesPerWindow} items per ${BOARD_LIMITS.proposalWindowMs / 60000} minutes. Put the rest in one item.`);
+    const by = this.botBy(agentId, run);
+    const now = nowIso();
+    let id = '';
+    do { id = newId('wi'); } while (b.items.has(id));
+    const item: WorkItem = {
+      id, projectId: proj.id, title, description, status, assignee, ...(due ? { due } : {}), priority, labels, order: this.atEnd(b, status),
+      createdBy: by, updatedBy: by, createdAt: now, updatedAt: now, trust: 'untrusted', taskIds: [], roomIds: [], activity: [],
+    };
+    this.note(item, by, 'created', run.tainted ? 'Created by an agent whose run touched outside content' : 'Created by an agent');
+    b.items.set(id, item);
+    this.save(b, item);
+    return structuredClone(item);
+  }
+
+  /**
+   * A member agent edits an item of its project: title, description, priority, labels, due date, status (not done), position, assignee
+   * (not to the owner, not from a tainted run) and notes. Items assigned to the owner take notes only. Done items are closed.
+   * Editing the text makes it the agent's text, so the item becomes `untrusted` (a run on it is capped until the owner marks it reviewed).
+   */
+  botUpdate(proj: ProjectRef, agentId: string, id: string, u: { status?: unknown; index?: unknown; note?: unknown; title?: unknown; description?: unknown; priority?: unknown; labels?: unknown; due?: unknown; assignee?: unknown }, run: { taskId?: string; tainted: boolean; roomId?: string }): WorkItem {
     const b = this.writable(proj);
     if (!proj.members.includes(agentId)) throw new BoardError(403, 'Only a member of this project can update its items.');
     const i = b.items.get(id);
-    // an item of another project, an Inbox proposal and an item assigned to someone else all look the same: not yours
-    if (!i || i.proposal || i.assignee?.kind !== 'agent' || i.assignee.id !== agentId) throw new BoardError(404, `No item "${clip(String(id), 40)}" is assigned to you in this project.`);
-    if (u.status === undefined && u.note === undefined) throw new BoardError(400, 'Give a status, a note, or both.');
-    if (i.status === 'done') throw new BoardError(409, 'The owner already closed this item. Propose a new item if more work is needed.');
+    if (!i || i.proposal) throw new BoardError(404, `No item "${clip(String(id), 40)}" on this project's board.`);
+    const fields = ['status', 'index', 'title', 'description', 'priority', 'labels', 'due', 'assignee'] as const;
+    const touching = fields.filter((f) => u[f] !== undefined);
+    if (touching.length === 0 && u.note === undefined) throw new BoardError(400, 'Give a note or a field to change.');
+    if (i.status === 'done') throw new BoardError(409, 'The owner already closed this item. Create a new item if more work is needed.');
+    if (i.assignee?.kind === 'owner' && touching.length) throw new BoardError(403, 'This item is assigned to the owner. You can add a note; the owner changes the item.');
+    // validate everything first so a bad field leaves the item untouched
     let status: BoardStatus | undefined;
     if (u.status !== undefined) {
-      if (!BOT_STATUSES.includes(u.status as never)) throw new BoardError(403, `You can set doing, review or blocked. Only the owner marks an item done${u.status === 'done' ? ' (move it to review instead)' : ''}.`);
-      status = u.status as BoardStatus;
+      status = cleanStatus(u.status);
+      if (!BOT_STATUSES.includes(status as never)) throw new BoardError(403, 'You can set backlog, doing, review or blocked. Only the owner marks an item done (move it to review instead).');
     }
+    if (u.index !== undefined && (typeof u.index !== 'number' || !Number.isInteger(u.index))) throw new BoardError(400, 'index must be an integer');
+    const next = {
+      title: u.title === undefined ? undefined : botText(cleanTitle(u.title), 'The title'),
+      description: u.description === undefined ? undefined : botText(cleanDescription(u.description), 'The description'),
+      priority: u.priority === undefined ? undefined : cleanPriority(u.priority),
+      labels: u.labels === undefined ? undefined : cleanLabels(u.labels),
+      due: u.due === undefined ? undefined : (cleanDue(u.due) ?? null),
+      assignee: u.assignee === undefined ? undefined : this.botAssignee(u.assignee, proj, run),
+    };
     let note: string | undefined;
     if (u.note !== undefined) {
       if (typeof u.note !== 'string' || !u.note.trim()) throw new BoardError(400, 'note must be text');
       note = botText(clip(cleanText(u.note).trim(), BOARD_LIMITS.noteChars), 'The note');
     }
     this.tick(this.botWrites, agentId, BOARD_LIMITS.botWritesPerWindow, BOARD_LIMITS.proposalWindowMs, 'Too many board writes from you in a short time. Wait a few minutes.');
-    const by: BoardActor = { kind: 'agent', id: agentId, ...(run.tainted ? { tainted: true } : {}) };
-    const from = i.status;
-    if (status && status !== from) { this.note(i, by, 'status', `${from} → ${status}`); i.status = status; i.order = this.atEnd(b, status, i.id); }
+    const by = this.botBy(agentId, run);
+    let text = false;
+    if (next.title !== undefined && next.title !== i.title) { i.title = next.title; text = true; this.note(i, by, 'edit', 'Title changed'); }
+    if (next.description !== undefined && next.description !== i.description) { i.description = next.description; text = true; this.note(i, by, 'edit', 'Description changed'); }
+    if (text && i.trust !== 'untrusted') { i.trust = 'untrusted'; this.note(i, by, 'review', 'Text now includes an agent\'s edit: not reviewed'); }
+    if (next.priority !== undefined && next.priority !== i.priority) { i.priority = next.priority; this.note(i, by, 'edit', `Priority ${next.priority}`); }
+    if (next.labels !== undefined) i.labels = next.labels;
+    if (next.due !== undefined) { if (next.due) i.due = next.due; else delete i.due; this.note(i, by, 'edit', next.due ? `Due ${next.due}` : 'Due date cleared'); }
+    if (next.assignee !== undefined) { i.assignee = next.assignee; this.note(i, by, 'assign', next.assignee ? `Assigned to ${next.assignee.kind === 'agent' ? next.assignee.id : 'the owner'}` : 'Unassigned'); }
     if (note) this.note(i, by, 'note', note);
     if (run.taskId && !i.taskIds.includes(run.taskId)) i.taskIds = [...i.taskIds, run.taskId].slice(-BOARD_LIMITS.taskLinks);
     if (run.roomId && /^room_[a-f0-9]{12}$/.test(run.roomId) && !i.roomIds.includes(run.roomId) && i.roomIds.length < BOARD_LIMITS.roomLinks) i.roomIds = [...i.roomIds, run.roomId];
-    this.touch(i, by);
-    this.save(b, i);
-    if (status && status !== from) this.renumber(b, from);
+    if (status !== undefined || u.index !== undefined) this.place(b, i, status ?? i.status, u.index as number | undefined, by);
+    else { this.touch(i, by); this.save(b, i); }
     return structuredClone(i);
+  }
+
+  /** What a delete by `agentId` would remove, or an error. No side effect unless `count` (counts one request against the rate limit). */
+  checkBotDelete(proj: ProjectRef, agentId: string, id: string, run: { tainted: boolean }, count = false): WorkItem {
+    const b = this.writable(proj);
+    if (!proj.members.includes(agentId) || this.leaderOf(proj) !== agentId) throw new BoardError(403, 'Only the project\'s board leader can ask to delete an item, and the owner approves each one. You can set the status to blocked and leave a note instead.');
+    if (run.tainted) throw new BoardError(403, 'This run touched outside content (web, shell or external tools), so it may not delete items. Ask the owner.');
+    const i = b.items.get(id);
+    if (!i || i.proposal) throw new BoardError(404, `No item "${clip(String(id), 40)}" on this project's board.`);
+    if (i.status === 'done') throw new BoardError(403, 'Done items are the owner\'s record. Only the owner deletes them.');
+    if (i.assignee?.kind === 'owner') throw new BoardError(403, 'This item is assigned to the owner. Only the owner deletes it.');
+    if (count) this.tick(this.deletes, agentId, BOARD_LIMITS.botDeletesPerWindow, BOARD_LIMITS.proposalWindowMs, `At most ${BOARD_LIMITS.botDeletesPerWindow} delete requests per ${BOARD_LIMITS.proposalWindowMs / 60000} minutes.`);
+    return structuredClone(i);
+  }
+  /** Called only after the owner allowed the card. Checks again: the board may have changed while the card was open. */
+  botDelete(proj: ProjectRef, agentId: string, id: string, run: { tainted: boolean }): void {
+    const i = this.checkBotDelete(proj, agentId, id, run);
+    const b = this.board(proj.id);
+    this.drop(b, id);
+    this.renumber(b, i.status);
   }
 
   // ------------------------------------------------------------------ runs

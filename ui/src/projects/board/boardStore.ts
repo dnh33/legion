@@ -36,6 +36,7 @@ export const createItem = (pid: string, b: Record<string, unknown>) => act(pid, 
 export const patchItem = (pid: string, id: string, b: Record<string, unknown>) => act(pid, () => api.boardPatch(pid, id, b));
 export const deleteItem = (pid: string, id: string) => act(pid, () => api.boardDelete(pid, id));
 export const acceptItem = (pid: string, id: string, b: Record<string, unknown>) => act(pid, () => api.boardAccept(pid, id, b));
+export const setLeader = (pid: string, leader: string | null) => act(pid, () => api.boardLeader(pid, leader));
 export const rejectItem = (pid: string, id: string) => act(pid, () => api.boardReject(pid, id));
 
 /** Pointer and keyboard moves both end here: the card jumps at once, the core confirms (or the board reloads and the card snaps back). */
