@@ -125,8 +125,8 @@ test('F9/F12: the status node says the Assayer is an ordinary agent with normal 
   const { BSV_PREAMBLE } = await import('../src/core/bsv/index.js');
   assert.doesNotMatch(BSV_PREAMBLE, /nothing here can sign/i);
   assert.match(BSV_PREAMBLE, /\[Design\]/, 'the preamble points at the marker readers will actually see');
-  assert.match(BSV_PREAMBLE, /mcp__legion_bsv__bsv_status/, 'the preamble names the one wallet tool');
-  assert.match(BSV_PREAMBLE, /Legion has no tool that signs, sends, reads balances or holds funds/);
+  assert.match(BSV_PREAMBLE, /mcp__legion_bsv__bsv_status/, 'the preamble names the status tool and the spend tool');
+  assert.match(BSV_PREAMBLE, /Legion's own tools cannot read balances or hold funds/);
   assert.equal(BSV_PREAMBLE.split('\n').length, 4);
 });
 

@@ -31,7 +31,7 @@ test('emu bsv: the window\'s admin secret, a guessed native secret, the admin se
   assert.equal(r.ensure, null);
   assert.deepEqual(r.bootstrapKeys, ['admin', 'baseUrl', 'platform', 'token'], 'the window is handed no native secret');
   assert.equal(r.bsvOn, 200);
-  assert.deepEqual(r.p0, { armed: false, frozen: null, nativeAvailable: true, spendTools: false });
+  assert.deepEqual(r.p0, { armed: false, frozen: null, nativeAvailable: true, spendTools: true });
   assert.equal(r.armAdminOnly, 403);
   assert.equal(r.armGuessedNative, 403);
   assert.equal(r.armAdminAsNative, 403);

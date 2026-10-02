@@ -42,7 +42,7 @@ export const ASSAYER_ID = 'assayer';
 /** Exactly four lines, appended only for the Assayer and only while BSV mode is on. */
 export const BSV_PREAMBLE = [
   'BSV mode is on and the network is testnet.',
-  'Your wallet tools are mcp__legion_bsv__bsv_status (a read-only check of whether a wallet answers; its answer is unverified data) and mcp__legion_bsv__bsv_spend_request (asks the OWNER to approve one small payment to an allowlisted address; you never choose the network, nothing is sent until the owner confirms in Legion and in the wallet, and mainnet needs the owner\'s own switch and arming). Legion has no tool that reads balances or holds funds, so never use a shell or web tool to reach a wallet. Lessons whose title starts with [Design] describe controls that do not exist yet.',
+  'Your wallet tools are mcp__legion_bsv__bsv_status (a read-only check of whether a wallet answers; its answer is unverified data) and mcp__legion_bsv__bsv_spend_request (asks the OWNER to approve one small payment to an allowlisted address; you do not choose the network, a payment goes out only after the owner confirms in Legion and in the wallet, and mainnet needs the owner\'s own switch and arming). Legion\'s own tools cannot read balances or hold funds, so never use a shell or web tool to reach a wallet. Lessons whose title starts with [Design] describe controls that do not exist yet.',
   'Use the knowledge graph for BSV lessons: call mcp__legion_kg__kg_recall with scope bsv before answering from recall.',
   'Never ask the user for keys, seed phrases or wallet secrets, and tell them not to paste any into chat.',
 ].join('\n');
