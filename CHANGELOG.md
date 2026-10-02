@@ -4,6 +4,17 @@ All notable changes are recorded here. The format follows [Keep a Changelog](htt
 
 ## [Unreleased]
 
+### Changed
+
+- **Blender: scripts now run on this computer by default when Blender is found.** New setting `blender.mode` (`auto`, `local`, `vm`, `live`) replaces the three-way `sandbox` setting; the old key is still read and written alongside it. Existing installs on `auto` switch to local-first, and Settings shows an upgrade notice until you save a mode. A local script runs with your Windows user's rights; Legion's check is a filter, not a sandbox. Settings, Blender has a four-way "Where scripts run" choice with a "Next script runs" line, and the add-on socket notice shows only for the live path.
+
+### Added
+
+- **Blender local headless mode** (see [docs/BLENDER.md](docs/BLENDER.md)): `blender -b` on this computer in a per-task scene with a backup before each run, the same full-script card (badge "On this PC", no one-key Allow), the audit log and quarantined exports; `mode:"local"` on the Blender tools. A busy light ("Running a script") shows while a Blender script runs. Not yet tried with a real Blender on Windows.
+- **Blender: the official add-on is installed as an extension** (`extension build`, `repo-list`, `install-file`, `extension list`), with the by-hand route named when a step fails. Not yet tried on a real Blender 5.1 or later.
+- **Blender: the community add-on is pinned to a commit and sha256.** The project moved to `ahujasid/mcp-for-blender` and has no tags. The hash is still to be reproduced on the owner's PC.
+- A wording test for Blender text (`test/blender-hedge.test.ts`) that shares its banned phrases with the BSV one.
+
 ## [0.2.0] - 2026-10-02
 
 ### Changed

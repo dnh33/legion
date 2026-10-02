@@ -1,0 +1,128 @@
+/**
+ * Wording check for the Blender screens, code strings and docs (plan section 4, control C22). The BSV hedge test only scans BSV files, so Blender text
+ * was unprotected. Rules:
+ *  1. The shared banned list (test/hedge-phrases.ts): guarantee, tamper-proof, cannot be bypassed, fully safe, ...
+ *  2. (a) a sentence about local mode ("this computer", "on this PC", "local mode") that says "sandbox" must also say "not a sandbox" or "no sandbox";
+ *     (b) such a sentence never calls local mode safe, secure, isolated or protected;
+ *     (c) a claim about what Legion's runner stops or blocks names its scope ("Legion's own" runner or code, and "Python" or "script's code") and is
+ *         followed, in the same or the next sentence, by a limit ("not", "only", "does not", "cannot").
+ *  3. Required statements: "filter, not a sandbox", "your Windows user", and "not yet tried" until the real-Blender run is recorded in the tracker.
+ * A self-test proves the rules catch the overclaims they exist for, and that adding one to a real source turns the scan red.
+ */
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { readdirSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { lex } from './bsv-scan.js';
+import { BANNED } from './hedge-phrases.js';
+
+const REPO = fileURLToPath(new URL('../../', import.meta.url));
+const read = (rel: string) => readFileSync(join(REPO, rel), 'utf8');
+const dirFiles = (rel: string, re: RegExp) => readdirSync(join(REPO, rel)).filter((n) => re.test(n)).map((n) => `${rel}/${n}`);
+
+interface Src { name: string; text: string; code: boolean }
+
+const blenderSection = (): string => {
+  const t = read('ui/src/components/Settings.tsx');
+  const a = t.indexOf('/* ---------------- Blender');
+  const b = t.indexOf('function ConnectionsSection');
+  assert.ok(a > 0 && b > a, 'Blender section of Settings.tsx found');
+  return t.slice(a, b);
+};
+const mdLines = (rel: string, re: RegExp): string => read(rel).split('\n').filter((l) => re.test(l)).join('\n');
+
+const SOURCES = (): Src[] => [
+  ...dirFiles('ui/src/blender', /\.(tsx?|css)$/).map((f) => ({ name: f, text: read(f), code: /\.tsx?$/.test(f) })),
+  { name: 'ui/src/components/Settings.tsx (Blender section)', text: blenderSection(), code: true },
+  { name: 'src/shared/blender.ts', text: read('src/shared/blender.ts'), code: true },
+  ...dirFiles('src/core/blender', /\.ts$/).map((f) => ({ name: f, text: read(f), code: true })),
+  { name: 'docs/BLENDER.md', text: read('docs/BLENDER.md'), code: false },
+  { name: 'SECURITY.md (Blender lines)', text: mdLines('SECURITY.md', /Blender/i), code: false },
+  { name: 'CHANGELOG.md (Blender lines)', text: mdLines('CHANGELOG.md', /Blender/i), code: false },
+];
+
+/** What a person reads: in code, strings and JSX text with comments removed; in docs, the text. */
+const readable = (s: Src): string => (s.code ? lex(s.text).kept : s.text);
+const sentences = (t: string): string[] => t.split(/(?<=[.!?])\s+|\n+/).map((x) => x.trim()).filter(Boolean);
+
+const LOCALISH = /\blocal (mode|run|script|blender)|\bthis (computer|pc)\b|\bon this pc\b|\bheadless\b|\bin the background\b/i;
+const VMISH = /\b(vm|cloud|boat\.dev|live blender|open blender|live card)\b/i;
+const NOT_SANDBOX = /\b(not a sandbox|no sandbox|not sandboxed|is no sandbox)\b/i;
+const POSITIVE = /(?<!\bnot )(?<!\bnot a )(?<!\bno )(?<!\bun)\b(safe|safely|secure|securely|isolated|protected)\b/i;
+const SCOPE = /legion[’']?s (own|runner)/i;
+const SCOPE2 = /\bpython\b|script[’']?s code/i;
+const LIMIT = /\b(not|only|does not|doesn't|cannot|no)\b/i;
+/** A claim about what Legion's runner or guard stops. */
+const BLOCKS = /\b(runner|write guard|network guard)\b[^.]*\b(stops?|blocks?|prevents?|denies)\b|\b(stops?|blocks?|prevents?|denies)\b[^.]*\b(writing files|writes? (files )?outside|network connections?|sockets?)\b/i;
+/** A sentence that only says what the thing does not do is not a claim. */
+const NEGATED_ONLY = /\b(not|never|no) (a |an )?(stop|block|prevent|sandbox)/i;
+
+export function scan(sources: Src[]): string[] {
+  const hits: string[] = [];
+  for (const s of sources) {
+    for (const line of s.text.split('\n')) for (const [what, re] of BANNED) if (re.test(line)) hits.push(`${s.name}: ${what}: ${line.trim().slice(0, 160)}`);
+    const ss = sentences(readable(s));
+    ss.forEach((sent, i) => {
+      const local = LOCALISH.test(sent) && !VMISH.test(sent);
+      if (local && /sandbox/i.test(sent) && !NOT_SANDBOX.test(sent)) hits.push(`${s.name}: (a) local text says sandbox without "not a sandbox": ${sent.slice(0, 160)}`);
+      if (local && POSITIVE.test(sent)) hits.push(`${s.name}: (b) local text calls it safe/secure/isolated/protected: ${sent.slice(0, 160)}`);
+      if (BLOCKS.test(sent) && !NEGATED_ONLY.test(sent) && !VMISH.test(sent)) {
+        const near = `${sent} ${ss[i + 1] ?? ''}`;
+        if (!SCOPE.test(sent) || !SCOPE2.test(sent)) hits.push(`${s.name}: (c) a claim about what the runner blocks lacks its scope ("Legion's own ..." and "Python"/"script's code"): ${sent.slice(0, 160)}`);
+        else if (!LIMIT.test(near.replace(sent.match(SCOPE)![0], ''))) hits.push(`${s.name}: (c) a claim about what the runner blocks has no limit next to it: ${sent.slice(0, 160)}`);
+      }
+    });
+  }
+  return hits;
+}
+
+const PC_RUN_RECORDED = (): boolean => /BLENDER LOCAL PC RUN RECORDED/.test(read('claude/tracker-pc-checks.md'));
+
+test('blender hedge: no banned absolute and no unscoped claim in the Blender screens, strings and docs', () => {
+  assert.deepEqual(scan(SOURCES()), []);
+});
+
+test('blender hedge: the required statements are present', () => {
+  const ui = SOURCES().filter((s) => s.name.startsWith('ui/src/')).map(readable).join('\n');
+  const docs = read('docs/BLENDER.md');
+  for (const [name, text] of [['the UI copy', ui], ['docs/BLENDER.md', docs]] as const) {
+    assert.match(text, /filter, not a sandbox/i, `${name} says "filter, not a sandbox"`);
+    assert.match(text, /your Windows user|your user\b/i, `${name} says a local script runs with your user's rights`);
+  }
+  if (!PC_RUN_RECORDED()) {
+    assert.match(ui, /not yet tried on a real VM/i, 'the UI keeps the cloud VM "not yet tried" note');
+    assert.match(ui, /not yet tried with a real Blender on Windows/i, 'the UI keeps the local-mode "not yet tried" note');
+    assert.match(docs, /not yet tried/i, 'docs/BLENDER.md keeps "not yet tried"');
+  }
+});
+
+test('blender hedge: the rules catch the overclaims they exist for and pass the real wording', () => {
+  const src = (text: string): Src => ({ name: 'sample', text, code: false });
+  const bad = [
+    'Local mode is sandboxed and safe.',
+    'Scripts on this computer run in a sandbox.',
+    'Headless Blender on this PC is isolated from your files.',
+    'Local mode cannot be bypassed.',
+    'The runner blocks writes outside the task folder.',
+    "Legion's own runner stops Python code from writing files outside the task folder.",
+    'Local scripts are 100% safe.',
+  ];
+  for (const t of bad) assert.ok(scan([src(t)]).length > 0, `should be caught: ${t}`);
+  const good = [
+    "On this computer a script runs with your Windows user's rights: Legion's check is a filter, not a sandbox.",
+    "Legion's own runner also stops the script's Python code from writing files outside the task folder. It sees Python-level events only.",
+    'The cloud VM is a sandbox away from this computer.',
+    'Local mode is not yet tried with a real Blender on Windows.',
+  ];
+  for (const t of good) assert.deepEqual(scan([src(t)]), [], `should pass: ${t}`);
+});
+
+test('blender hedge: adding an overclaim to a real source turns the scan red', () => {
+  const real = SOURCES();
+  assert.deepEqual(scan(real), []);
+  for (const [i, extra] of ['Local mode is sandboxed and safe.', 'The audit log cannot be bypassed.'].entries()) {
+    const mutated = real.map((s) => (s.name === 'docs/BLENDER.md' ? { ...s, text: `${s.text}\n\n${extra}\n` } : s));
+    assert.ok(scan(mutated).length > 0, `mutation ${i} is caught`);
+  }
+});

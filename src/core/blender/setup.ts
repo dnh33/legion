@@ -95,6 +95,73 @@ async function installAddonHeadless(io: BlenderIo, install: BlenderInstall, work
   return step('addon', false, `Blender ran but the add-on did not enable (exit ${r.code}): ${tail || 'no output'}. You can install ${src} by hand (Edit, Preferences, Add-ons, Install from disk).`);
 }
 
+/** The Blender build that makes "extension" commands needs the manifest next to the add-on's code; its presence is how the extension path is chosen. */
+export const EXTENSION_MANIFEST = 'blender_manifest.toml';
+const tailOf = (r: RunResult, n = 4): string => (r.stderr || r.stdout).trim().split('\n').slice(-n).join(' | ').slice(0, 400);
+const BY_HAND = 'You can install the add-on by hand: Blender, Edit, Preferences, Get Extensions, Install from Disk, and pick the zip.';
+
+/** Reads `key = "value"` from the top of a manifest (text match; Legion needs only id and version, and a wrong read becomes a failed step). */
+export const manifestValue = (text: string, key: string): string | undefined => new RegExp(`^${key}\\s*=\\s*"([^"\\r\\n]*)"`, 'm').exec(text)?.[1];
+
+/**
+ * Picks the id of a local, user-owned extension repository from the text of `extension repo-list`. UNVERIFIED format (needs the PC): blocks that start
+ * with an `id:` line are expected; a block that mentions a remote URL is skipped. Prefers `user_default`. Returns undefined when none is found.
+ */
+export function parseLocalRepoId(out: string): string | undefined {
+  const blocks: Array<{ id: string; text: string }> = [];
+  for (const line of out.split(/\r?\n/)) {
+    const m = /^([A-Za-z0-9_.-]+):\s*$/.exec(line.trim());
+    if (m && !/^\s/.test(line)) blocks.push({ id: m[1]!, text: '' });
+    else if (blocks.length) blocks[blocks.length - 1]!.text += `${line}\n`;
+  }
+  const local = blocks.filter((b) => !/https?:\/\//i.test(b.text));
+  return (local.find((b) => b.id === 'user_default') ?? local[0])?.id;
+}
+
+/**
+ * The official add-on is a Blender EXTENSION (blender_manifest.toml), not a legacy add-on: build the zip, make sure a local repo exists, install the
+ * zip into it and enabled, then read `extension list` back. Every command is `blender --factory-startup --command extension ...` (global flags
+ * before --command, which takes the rest of the arguments) and no shell. The first failure stops the rest. Argument names are from Blender's manual;
+ * how they behave on a real 5.1 is not yet tried (docs/BLENDER.md).
+ */
+async function installExtension(io: BlenderIo, install: BlenderInstall, root: string, addonSrc: string, manifest: string): Promise<{ steps: BlenderSetupStep[]; ok: boolean }> {
+  const steps: BlenderSetupStep[] = [];
+  const fail = (name: string, detail: string) => { steps.push(step(name, false, `${detail} ${BY_HAND}`)); return { steps, ok: false }; };
+  const ext = async (args: string[], ms = 120_000): Promise<RunResult | null> => io.run(install.path, ['--factory-startup', '--command', 'extension', ...args], ms);
+  const version = manifestValue(manifest, 'version') ?? '0';
+  const id = manifestValue(manifest, 'id') ?? 'mcp';
+  const zip = join(root, `${id}-${version}.zip`);
+  io.mkdirp(root);
+
+  const b = await ext(['build', '--source-dir', addonSrc, '--output-filepath', zip]);
+  if (!b) return fail('ext-build', `Could not start Blender at ${install.path}.`);
+  if (b.code !== 0 || !io.exists(zip)) return fail('ext-build', `Building the extension zip failed (exit ${b.code}): ${tailOf(b) || 'no output'}.`);
+  steps.push(step('ext-build', true, `Built ${zip} from ${addonSrc}.`));
+
+  const l = await ext(['repo-list'], 60_000);
+  if (!l) return fail('ext-repo', 'Could not ask Blender for its extension repositories.');
+  let repo = l.code === 0 ? parseLocalRepoId(l.stdout) : undefined;
+  if (repo) steps.push(step('ext-repo', true, `Using the local extension repository "${repo}".`));
+  else {
+    const dir = join(root, 'extensions');
+    io.mkdirp(dir);
+    const a = await ext(['repo-add', '--name', 'Legion', '--directory', dir, 'legion_local'], 60_000);
+    if (!a || a.code !== 0) return fail('ext-repo', `No local extension repository was found and one could not be added${a ? ` (exit ${a.code}): ${tailOf(a)}` : ''}.`);
+    repo = 'legion_local';
+    steps.push(step('ext-repo', true, `Added a local extension repository "legion_local" at ${dir}.`));
+  }
+
+  const i = await ext(['install-file', '-r', repo, '--enable', zip]);
+  if (!i || i.code !== 0) return fail('ext-install', `Installing ${zip} failed${i ? ` (exit ${i.code}): ${tailOf(i)}` : ''}.`);
+  steps.push(step('ext-install', true, `Installed ${id} ${version} into "${repo}" and asked Blender to enable it.`));
+
+  const v = await ext(['list'], 60_000);
+  const listed = !!v && v.code === 0 && new RegExp(`(^|[^A-Za-z0-9_])${id.replace(/[^A-Za-z0-9_]/g, '')}([^A-Za-z0-9_]|$)`, 'm').test(v.stdout) && v.stdout.includes(version);
+  if (!listed) return fail('verify', `The extension list does not show ${id} ${version} after the install${v ? `: ${tailOf(v, 3) || 'no output'}` : ''}.`);
+  steps.push(step('verify', true, `Blender lists ${id} ${version}. Its module name is bl_ext.${repo}.${id}. Start the add-on's server from its sidebar panel in Blender, then press Test. Not yet tried on a real Blender 5.1 or later: check it there.`));
+  return { steps, ok: true };
+}
+
 interface HashVerdict { ok: boolean; detail: string; changed?: boolean }
 
 /**
@@ -168,9 +235,16 @@ export async function setupLive(io: BlenderIo, cfg: BlenderConfig, dataDir: stri
       return out(false);
     }
     const info: ServerSetupInfo = { url: adv.sourceUrl, sha256: d.sha256, at: io.now().toISOString(), license: 'GPL-3.0-or-later' };
-    const a = await installAddonHeadless(io, install, root, addonSrc, moduleNameFor(adv.addonPath.split(/[\\/]/).filter(Boolean).pop() ?? 'legion_blender_lab'));
-    steps.push(a);
-    if (!a.ok) return out(false, { info });
+    const manifest = io.readText(join(addonSrc, EXTENSION_MANIFEST)) ?? (io.exists(join(addonSrc, EXTENSION_MANIFEST)) ? '' : undefined);
+    if (manifest !== undefined) {
+      const x = await installExtension(io, install, root, addonSrc, manifest);
+      steps.push(...x.steps);
+      if (!x.ok) return out(false, { info });
+    } else {
+      const a = await installAddonHeadless(io, install, root, addonSrc, moduleNameFor(adv.addonPath.split(/[\\/]/).filter(Boolean).pop() ?? 'legion_blender_lab'));
+      steps.push(a);
+      if (!a.ok) return out(false, { info });
+    }
     const v = { serverDir, host: cfg.host, port: cfg.port };
     const entry: BlenderEntry = { command: adv.command, args: adv.args.map((x) => subst(x, v)), env: Object.fromEntries(Object.entries(adv.env).map(([k, x]) => [k, subst(x, v)])), serverDir, at: io.now().toISOString() };
     const probe = await io.run(entry.command, ['--version'], 15_000);
