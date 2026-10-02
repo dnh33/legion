@@ -86,6 +86,8 @@ export function client(handle) {
     wallet: () => control(handle, '/fakes/wallet'),
     walletState: (patch) => control(handle, '/fakes/wallet/state', patch),
     walletClear: () => control(handle, '/fakes/wallet/clear', {}),
+    /** Read, write or list a file inside the stack's temp LEGION_HOME (emulates a hand edit). */
+    homeFile: (op, path, content) => control(handle, '/home-file', { op, path, content }),
     restartCore: (configPatch) => control(handle, '/restart-core', { configPatch }),
     async until(fn, ms = 15000, what = 'condition') {
       const end = Date.now() + ms;

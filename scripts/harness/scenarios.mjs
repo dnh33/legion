@@ -303,6 +303,34 @@ scenario({
 
 // ---------------------------------------------------------------------------------------------------------------------------------
 scenario({
+  name: 'bsv-policy-tamper',
+  proves: ['A BSV policy change made with admin + native is saved to bsv/policy.json and recorded in the hash-chained audit log.',
+    'A hand edit of that file (caps raised to a large value) is noticed on the next policy read: the chain freezes, the edited file is kept aside as evidence, the caps in force stay the recorded ones, and the audit log gets a file-tampered line. It stays frozen after a core restart.'],
+  doesNotProve: ['Protection against a program that rewrites the policy file AND the audit log AND its head anchor consistently (docs/BSV-MODE.md lists this as a residual), or any real wallet behaviour.'],
+  async run(h, t) {
+    await h.resetModel();
+    t.eq('BSV on', (await h.call('POST', '/api/bsv', { enabled: true })).json.enabled, true);
+    const set = await h.call('POST', '/api/bsv/policy/caps', { perTxSats: 500 }, 'native');
+    t.ok('caps change accepted with native', set.status === 200 && set.json.caps.perTxSats === 500, set.json);
+    const file = JSON.parse((await h.homeFile('read', 'bsv/policy.json')).content);
+    t.eq('the file holds the new cap', file.caps.perTxSats, 500);
+    file.caps.perTxSats = 900000;
+    await h.homeFile('write', 'bsv/policy.json', JSON.stringify(file));
+    const view = (await h.call('GET', '/api/bsv/policy')).json;
+    t.ok('the next policy read freezes the chain', !!view.frozen && /outside Legion/.test(view.frozen.reason), view.frozen);
+    t.eq('the cap in force is still the recorded one', view.caps.perTxSats, 500);
+    t.ok('the edited file was kept as evidence', (await h.homeFile('list', 'bsv')).files.some((n) => n.startsWith('policy.json.tampered-')));
+    const audit = (await h.call('GET', '/api/bsv/audit')).json;
+    t.ok('the audit log has a file-tampered line', audit.entries.some((e) => e.decision === 'file-tampered'), audit.entries.map((e) => e.decision));
+    await h.restartCore();
+    const again = (await h.call('GET', '/api/bsv/policy')).json;
+    t.ok('still frozen after a restart, cap unchanged', !!again.frozen && again.caps.perTxSats === 500, again);
+    t.eq('unfreeze needs native (admin alone is refused)', (await h.call('POST', '/api/bsv/policy/unfreeze', {}, 'admin')).status, 403);
+  },
+});
+
+// ---------------------------------------------------------------------------------------------------------------------------------
+scenario({
   name: 'blender-off-and-fake-exe',
   proves: ['The Blender bridge is off by default, admin-only, and the in-process legion_blender server is not given to a normal agent.',
     'The fake `blender` executable answers --version and records a --background --python call without running it (the base for the future local headless mode).'],

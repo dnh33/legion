@@ -10,11 +10,11 @@
  */
 import { spawn } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
-import { chmodSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { createServer, request as httpRequest } from 'node:http';
 import { createServer as createNetServer } from 'node:net';
 import { tmpdir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { dirname, join, resolve, sep } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { startFakeWallet } from './fake-wallet.mjs';
 
@@ -144,6 +144,14 @@ const control = createServer(async (req, res) => {
       await startCore();
       writeHandle();
       return send(200, { ok: true, port: corePort, pid: core.pid });
+    }
+    if (url.pathname === '/home-file') {
+      // read or replace a file inside the temp LEGION_HOME (to emulate a hand edit); anything that resolves outside it is refused
+      const target = resolve(home, String(body.path ?? ''));
+      if (target !== home && !target.startsWith(home + sep)) return send(400, { error: 'path is outside the harness home' });
+      if (body.op === 'write') { writeFileSync(target, String(body.content ?? '')); return send(200, { ok: true }); }
+      if (body.op === 'list') return send(200, { files: readdirSync(target) });
+      return send(200, { content: readFileSync(target, 'utf8') });
     }
     if (url.pathname === '/stop') { send(200, { ok: true }); void shutdown(); return undefined; }
     return send(404, { error: 'unknown control route' });
