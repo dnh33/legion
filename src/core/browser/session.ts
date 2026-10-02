@@ -62,6 +62,7 @@ export class BrowserSession {
     this.starting = (async () => {
       await this.teardown(false);
       const run = await this.d.launch();
+      if (this.ended) { await run.stop().catch(() => undefined); throw new SessionRefusal('This browser was closed while it was starting.'); }
       this.run = run; this.cdp = run.cdp;
       run.cdp.onClose(() => { this.cdp = null; this.targetId = null; this.sessionId = null; });
       void run.exited.then(() => { if (this.run === run) { this.cdp = null; this.targetId = null; this.sessionId = null; } });
@@ -100,6 +101,8 @@ export class BrowserSession {
       await cdp.send('Network.enable', {}, { sessionId: a.sessionId }).catch(() => undefined);
       this.interception = await cdp.send('Fetch.enable', { patterns: [{ urlPattern: '*' }] }, { sessionId: a.sessionId }).then(() => true, () => false);
       await cdp.send('Target.setDiscoverTargets', { discover: true }).catch(() => undefined);
+      // local addresses are on and the browser's own private-network block is off: without request interception nothing stops a request before it is sent
+      if (this.d.guard().allowLocal && !this.interception) { await this.resetPage(); throw new SessionRefusal('Local addresses are enabled but this browser build cannot filter requests, so no page was opened. Turn local addresses off or use a build that supports request interception.'); }
     }
     return { cdp, sid: this.sessionId as string };
   }
@@ -109,11 +112,11 @@ export class BrowserSession {
   private hostVerdict(url: string, document: boolean): Promise<string | null> {
     // address rules for every request; the domain list only for documents (a page may load images from any CDN)
     const g: GuardOptions = document ? this.d.guard() : { ...this.d.guard(), allowDomains: [] };
-    const key = `${document ? 'd' : 's'}|${url.split(/[?#]/)[0]}`;
+    const key = `${document ? 'd' : 's'}|${JSON.stringify(g)}|${url.split(/[?#]/)[0]}`;
     const cached = this.hostVerdicts.get(key);
     if (cached) return cached;
     // a page's own image or script whose name does not resolve is not a reason to refuse the page; a document that does not resolve is
-    const p = checkUrlResolved(url, g, this.d.resolve).then((v) => (v.ok || (!document && /could not be resolved/.test(v.reason)) ? null : v.reason), () => 'the address could not be checked');
+    const p = checkUrlResolved(url, g, this.d.resolve).then((v) => (v.ok || (!document && !g.allowLocal && /could not be resolved/.test(v.reason)) ? null : v.reason), () => 'the address could not be checked');
     if (this.hostVerdicts.size > 500) this.hostVerdicts.clear();
     this.hostVerdicts.set(key, p);
     return p;
@@ -240,8 +243,15 @@ export class BrowserSession {
     return this.verifyLanding(cdp, sid, null);
   }
 
-  async text(selector?: string): Promise<{ text: string; url: string; found: boolean }> {
+  /** Reads must not trust the last check: the page may have moved on its own (meta refresh, a timer) since open(). */
+  private async recheck(): Promise<{ cdp: CdpPort; sid: string }> {
     const { cdp, sid } = await this.livePage();
+    await this.verifyLanding(cdp, sid, (await this.view(cdp, sid)).url);
+    return { cdp, sid };
+  }
+
+  async text(selector?: string): Promise<{ text: string; url: string; found: boolean }> {
+    const { cdp, sid } = await this.recheck();
     const sel = selector && selector.trim() ? selector.trim().slice(0, this.lim.selectorChars) : null;
     const expr = sel
       ? `(()=>{const e=document.querySelector(${strLit(sel)});if(!e)return null;return String(e.innerText||e.textContent||"").slice(0,${this.lim.textChars * 2})})()`
@@ -251,7 +261,7 @@ export class BrowserSession {
   }
 
   async links(): Promise<Array<{ text: string; href: string }>> {
-    const { cdp, sid } = await this.livePage();
+    const { cdp, sid } = await this.recheck();
     const v = await this.evalValue(cdp, sid, `Array.from(document.querySelectorAll("a[href]")).slice(0,${this.lim.links}).map(a=>({text:String(a.textContent||"").trim().replace(/\\s+/g," ").slice(0,120),href:String(a.href||"").slice(0,${this.lim.linkChars})}))`);
     return Array.isArray(v) ? v.filter((x): x is { text: string; href: string } => !!x && typeof x.href === 'string').slice(0, this.lim.links).map((x) => ({ text: String(x.text ?? ''), href: x.href })) : [];
   }
@@ -279,6 +289,16 @@ export class BrowserSession {
     const info = await this.evalValue(cdp, sid, `(()=>{const e=document.querySelector(${strLit(selector.slice(0, this.lim.selectorChars))});if(!e)return {found:false};return {found:true,type:String(e.type||""),name:String(e.name||"")+" "+String(e.id||"")+" "+String(e.getAttribute("autocomplete")||"")}})()`) as { found?: boolean; type?: string; name?: string } | undefined;
     if (!info?.found) return { typed: false, view: await this.view(cdp, sid) };
     if (info.type?.toLowerCase() === 'password' || /pass(word|wd)|current-password|new-password|one-time-code/i.test(info.name ?? '')) throw new SessionRefusal('Refused: Legion does not type into password fields. Ask the user to do that themselves.');
+    if (submit) {
+      // the form's target is checked, and a new site is asked about, BEFORE the typed text is sent anywhere
+      const act = await this.evalValue(cdp, sid, `(()=>{const e=document.querySelector(${strLit(selector.slice(0, this.lim.selectorChars))});const f=e&&e.form;return f?String(f.action||location.href):""})()`);
+      if (typeof act === 'string' && act) {
+        const ok = await checkUrlResolved(act, this.d.guard(), this.d.resolve);
+        if (!ok.ok) throw new SessionRefusal(`Refused: that form sends to ${shortUrl(act)}: ${ok.reason}. Nothing was typed or sent.`);
+        const o = safeOrigin(act);
+        if (o && !this.origins.has(o)) { if (!(await this.d.approveOrigin(o, act))) throw new SessionRefusal(`Not approved: the form sends to ${o}. Nothing was typed or sent.`); this.origins.add(o); }
+      }
+    }
     this.violation = null; this.hops = 0; this.checks = [];
     await this.evalValue(cdp, sid, `(()=>{const e=document.querySelector(${strLit(selector.slice(0, this.lim.selectorChars))});if(!e)return;e.focus();e.value=${strLit(text.slice(0, this.lim.typeChars))};e.dispatchEvent(new Event("input",{bubbles:true}));e.dispatchEvent(new Event("change",{bubbles:true}));${submit ? 'const f=e.form;if(f){if(f.requestSubmit)f.requestSubmit();else f.submit()}' : ''}})()`);
     if (submit) await this.settle(Math.min(this.lim.navigationMs, 3000));

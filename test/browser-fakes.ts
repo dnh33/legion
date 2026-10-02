@@ -17,6 +17,8 @@ export interface FakeElement {
   goes?: string;
   /** A button that navigates by script (no href). */
   clickGoes?: string;
+  /** The element sits in a form that sends here. */
+  formAction?: string;
 }
 export interface FakePage {
   title?: string;
@@ -35,6 +37,8 @@ export interface FakeCdpOptions {
   noFetch?: boolean;
   /** Target.createTarget opens an extra tab on every navigation (a popup). */
   popup?: boolean;
+  /** A build that sends no Network or navigation events: only the final address can show where the page ended up. */
+  quiet?: boolean;
   /** Every command is answered with this CDP error. */
   errorFor?: Record<string, string>;
   /** Replies with a message of this many bytes to Runtime.evaluate. */
@@ -105,7 +109,7 @@ export async function startFakeCdp(o: FakeCdpOptions, port = 0): Promise<FakeCdp
     const paused = new Map<string, () => void>();
     let reqN = 0;
     const send = (m: unknown) => { try { socket.write(frame(JSON.stringify(m))); } catch { /* closed */ } };
-    const event = (method: string, params: unknown) => send({ method, params, sessionId: 'S1' });
+    const event = (method: string, params: unknown) => { if (o.quiet && /^(Network\.|Page\.frameNavigated)/.test(method)) return; send({ method, params, sessionId: 'S1' }); };
     const reply = (id: number, result: unknown) => send({ id, result });
 
     const dom = (): vm.Context => {
@@ -113,7 +117,7 @@ export async function startFakeCdp(o: FakeCdpOptions, port = 0): Promise<FakeCdp
       const els = p.elements ?? {};
       const mk = (sel: string, e: FakeElement) => ({
         innerText: e.text ?? '', textContent: e.text ?? '', href: e.href ?? '', type: e.type ?? '', name: e.name ?? '', id: '', value: '',
-        form: null, focus() { /* noop */ }, dispatchEvent() { return true; }, getAttribute() { return ''; },
+        form: e.formAction ? { action: e.formAction, requestSubmit: () => { void navigate(e.formAction!); } } : null, focus() { /* noop */ }, dispatchEvent() { return true; }, getAttribute() { return ''; },
         click: () => { const to = e.goes ?? e.clickGoes; if (to) void navigate(to); },
         closest: (s: string) => (s === 'a[href]' && e.href ? { href: e.goes ?? e.href } : null),
         _sel: sel,

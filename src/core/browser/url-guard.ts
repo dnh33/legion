@@ -71,13 +71,13 @@ function parseV6(h: string): number[] | null {
 
 function classV4(b: number[]): AddressClass {
   const [a, c] = [b[0]!, b[1]!];
-  if (a === 169 && c === 254 && b[2] === 169 && b[3] === 254) return 'metadata';
+  if (a === 169 && c === 254 && ((b[2] === 169 && b[3] === 254) || (b[2] === 170 && b[3] === 2))) return 'metadata'; // cloud metadata (incl. the ECS task address)
   if (a === 127) return 'loopback';
   if (a === 10 || (a === 172 && c >= 16 && c <= 31) || (a === 192 && c === 168)) return 'private';
   if (a === 169 && c === 254) return 'linklocal';
   if (a === 100 && c >= 64 && c <= 127) return 'cgnat';
   // 0.0.0.0/8, 192.0.0.0/24, 198.18.0.0/15, 192.0.2/24 doc ranges, multicast and the rest of 224+
-  if (a === 0 || a >= 224 || (a === 192 && c === 0 && b[2] === 0) || (a === 198 && (c === 18 || c === 19)) || (a === 192 && c === 0 && b[2] === 2)) return 'reserved';
+  if (a === 0 || a >= 224 || (a === 192 && c === 0 && b[2] === 0) || (a === 198 && (c === 18 || c === 19)) || (a === 192 && c === 0 && b[2] === 2) || (a === 198 && c === 51 && b[2] === 100) || (a === 203 && c === 0 && b[2] === 113)) return 'reserved';
   return 'public';
 }
 
@@ -95,6 +95,14 @@ export function classifyAddress(ip: string): AddressClass {
   if ((allZeroTo(5) && (g[5] === 0xffff || g[5] === 0)) || (g[0] === 0x64 && g[1] === 0xff9b && g.slice(2, 6).every((x) => x === 0))) {
     return classV4([g[6]! >> 8, g[6]! & 255, g[7]! >> 8, g[7]! & 255]);
   }
+  // 6to4 (2002:AABB:CCDD::) carries an IPv4 address; SIIT (::ffff:0:a.b.c.d) too
+  if (g[0] === 0x2002) return classV4([g[1]! >> 8, g[1]! & 255, g[2]! >> 8, g[2]! & 255]);
+  if (allZeroTo(4) && g[4] === 0xffff && g[5] === 0) return classV4([g[6]! >> 8, g[6]! & 255, g[7]! >> 8, g[7]! & 255]);
+  if (g[0] === 0x64 && g[1] === 0xff9b) return 'reserved'; // 64:ff9b:1::/48 local-use NAT64
+  if (g[0] === 0x2001 && g[1] === 0) return 'reserved'; // Teredo
+  if (g[0] === 0x100 && g.slice(1, 4).every((x) => x === 0)) return 'reserved'; // discard-only 100::/64
+  if (g[0] === 0xfd00 && g[1] === 0x0ec2) return 'metadata'; // AWS IPv6 metadata fd00:ec2::254
+  if ((g[0]! & 0xffc0) === 0xfec0) return 'private'; // deprecated site-local fec0::/10
   if ((g[0]! & 0xfe00) === 0xfc00) return 'private'; // fc00::/7
   if ((g[0]! & 0xffc0) === 0xfe80) return 'linklocal'; // fe80::/10
   if ((g[0]! & 0xff00) === 0xff00) return 'reserved'; // multicast

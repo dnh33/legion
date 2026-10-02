@@ -167,3 +167,65 @@ test('close stops the process once and a closed session does not restart', async
   await assert.rejects(r.session.open('https://a.test/'), /closed/);
   await r.fake.close();
 });
+
+test('C5: with a build that sends no navigation events, the final address check still refuses a bad landing', async () => {
+  const r = await rig({ quiet: true, noFetch: true, pages: { 'https://a.test/': { redirectTo: 'http://10.0.0.5/x' }, 'http://10.0.0.5/x': { title: 'SECRET', text: 'internal' } } });
+  try { await assert.rejects(r.session.open('https://a.test/'), (e: Error) => e instanceof SessionRefusal && /10\.0\.0\.5/.test(e.message) && !/SECRET|internal/.test(e.message)); } finally { await r.done(); }
+});
+
+test('closing during launch stops the process that was starting (no orphan)', async () => {
+  const fake = await startFakeCdp({ pages: {} });
+  let stops = 0;
+  let release!: () => void;
+  const gate = new Promise<void>((r) => { release = r; });
+  const session = new BrowserSession({
+    guard: () => ({}), resolve: DNS, approveOrigin: async () => true,
+    async launch(): Promise<RunningBrowser> { await gate; const cdp = await connectCdp(`ws://127.0.0.1:${fake.port}`); return { cdp, pid: undefined, port: fake.port, args: [], exited: new Promise(() => undefined), stop: async () => { stops++; cdp.close(); } }; },
+  });
+  const opening = session.open('https://a.test/').catch((e: Error) => e);
+  await new Promise((r) => setTimeout(r, 30));
+  await session.close();
+  release();
+  const res = await opening;
+  assert.ok(res instanceof SessionRefusal);
+  assert.equal(stops, 1, 'the browser that finished starting after the close was stopped');
+  await fake.close();
+});
+
+test('reads re-check the address: a page that moves itself after open() is refused before its text is returned', async () => {
+  const r = await rig({ quiet: true, noFetch: true, pages: { 'https://a.test/': { text: 'fine' }, 'http://10.0.0.7/': { text: 'INTERNAL' } } });
+  try {
+    await r.session.open('https://a.test/');
+    r.fake.state.url = 'http://10.0.0.7/'; // a timer or meta refresh moved the page
+    await assert.rejects(r.session.text(), (e: Error) => e instanceof SessionRefusal && !/INTERNAL/.test(e.message));
+  } finally { await r.done(); }
+});
+
+test('allow-local without request interception opens nothing', async () => {
+  const r = await rig({ noFetch: true, pages: { 'https://a.test/': { text: 'x' } } }, { guard: () => ({ allowLocal: true, localPorts: [8080] }) });
+  try { await assert.rejects(r.session.open('https://a.test/'), /cannot filter requests/); assert.equal(r.fake.sent.filter((m) => m.method === 'Page.navigate' && m.params.url !== 'about:blank').length, 0); } finally { await r.done(); }
+});
+
+test('a form submit is checked and asked about BEFORE the text is sent', async () => {
+  const mk = (action: string) => ({ 'https://a.test/': { text: 'A', elements: { '#q': { type: 'text', name: 'q', formAction: action } } }, 'https://b.test/s': { title: 'Results', text: 'R' } });
+  const wrote = (r: { fake: FakeCdp }) => r.fake.sent.filter((m) => m.method === 'Runtime.evaluate' && /e\.value=/.test(String(m.params.expression))).length;
+  let r = await rig({ pages: mk('https://b.test/s') }, { approve: () => false });
+  try {
+    await r.session.open('https://a.test/');
+    await assert.rejects(r.session.type('#q', 'secret words', true), /Nothing was typed or sent/);
+    assert.equal(wrote(r), 0, 'the text never reached the page');
+  } finally { await r.done(); }
+  r = await rig({ pages: mk('http://192.168.0.9/post') });
+  try {
+    await r.session.open('https://a.test/');
+    await assert.rejects(r.session.type('#q', 'secret words', true), /Nothing was typed or sent/);
+    assert.equal(wrote(r), 0);
+  } finally { await r.done(); }
+  r = await rig({ pages: mk('https://b.test/s') }, { approve: () => true });
+  try {
+    await r.session.open('https://a.test/');
+    const t = await r.session.type('#q', 'hello', true);
+    assert.equal(t.view.url, 'https://b.test/s');
+    assert.equal(wrote(r), 1);
+  } finally { await r.done(); }
+});

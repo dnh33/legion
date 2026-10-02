@@ -65,7 +65,10 @@ export function createBrowserModule(deps: ModuleDeps, opts: BrowserModuleOptions
     }
     const m = readManaged(getPorts, deps.dataDir);
     if (!m) return { error: process.platform === 'win32' ? 'Lightpanda has no Windows build. Install it inside WSL and set the launcher in Settings, Browser.' : 'Lightpanda is not installed for Legion. Use Get Lightpanda in Settings, Browser, or point Legion at your own copy.' };
-    if (!(await verifyManaged(getPorts, m))) return { error: 'The Lightpanda file Legion fetched no longer matches its recorded hash, so it was not started. Fetch it again in Settings, Browser.' };
+    // the file must match the hash in code (or the owner's recorded one), not only the record next to it
+    const pin = pins.find((x) => x.platform === platformKey());
+    const want = pin ? effectiveSha(pin, c.managedSha256) : '';
+    if (!want || m.sha256 !== want || !(await verifyManaged(getPorts, m))) return { error: 'The Lightpanda file Legion fetched no longer matches its recorded hash, so it was not started. Fetch it again in Settings, Browser.' };
     return { kind: 'managed', ref: { file: m.path, prefixArgs: [], wsl: false } };
   }
 
@@ -129,8 +132,10 @@ export function createBrowserModule(deps: ModuleDeps, opts: BrowserModuleOptions
     onTaskEnd(task: Task, _agent: AgentProfile, _o: TaskEndOutcome) { void manager.end(task.id).catch(() => undefined); },
     routes(add) {
       add('GET', '/api/browser', () => statusFor());
-      add('POST', '/api/browser/config', ({ body }) => {
+      add('POST', '/api/browser/config', ({ req, body }) => {
         if (!isObj(body)) throw new HttpError(400, 'expected an object');
+        // choosing which program Legion starts (or its launcher arguments, or the hash it trusts) is code execution: the app's confirmation dialog is required
+        if ('binaryPath' in body || 'launcherArgs' in body || 'managedSha256' in body) needNative(req);
         const patch: Partial<BrowserConfig> = {};
         if ('enabled' in body) { if (typeof body.enabled !== 'boolean') throw new HttpError(400, 'enabled must be true or false'); patch.enabled = body.enabled; }
         if ('binaryPath' in body) { if (body.binaryPath !== null && typeof body.binaryPath !== 'string') throw new HttpError(400, 'binaryPath must be text'); patch.binaryPath = body.binaryPath === null || body.binaryPath === '' ? undefined : body.binaryPath as string; }
@@ -159,11 +164,13 @@ export function createBrowserModule(deps: ModuleDeps, opts: BrowserModuleOptions
       add('POST', '/api/browser/test', async () => {
         const b = await binary();
         if ('error' in b) return { ok: false, detail: b.error };
+        let free: () => void;
+        try { free = manager.reserve(); } catch (e) { return { ok: false, detail: e instanceof Error ? e.message : String(e) }; }
         let run;
-        try { run = await launchBrowser(ports, b.ref, { allowLocal: false }); } catch (e) { return { ok: false, detail: e instanceof Error ? e.message : String(e) }; }
+        try { run = await launchBrowser(ports, b.ref, { allowLocal: false }); } catch (e) { free(); return { ok: false, detail: e instanceof Error ? e.message : String(e) }; }
         try { await run.cdp.send('Target.getTargets'); return { ok: true, detail: 'Lightpanda started with Legion\'s safety options and answered on 127.0.0.1.' }; }
         catch (e) { return { ok: false, detail: `It started but did not answer: ${e instanceof Error ? e.message : String(e)}` }; }
-        finally { await run.stop().catch(() => undefined); }
+        finally { await run.stop().catch(() => undefined); free(); }
       });
       // Native only (the app's confirmation dialog): local addresses, on listed ports, until the next restart. Port-list entries are 1..65535.
       add('POST', '/api/browser/local', ({ req, body }) => {

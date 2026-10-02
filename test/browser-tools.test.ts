@@ -152,7 +152,7 @@ test('C9: a click that lands on a new site asks (ask mode) and the denial closes
   const pages = { ...PAGES, 'https://a.test/': { ...PAGES['https://a.test/']!, elements: { '#go': { href: 'https://b.test/', goes: 'https://b.test/' } } } };
   const fake = await startFakeCdp({ pages });
   const bus = new EventBus(); const approvals = new ApprovalBroker(bus); const summaries: string[] = [];
-  bus.on((e) => { if (e.type === 'approval.requested') { summaries.push(e.approval.summary); setImmediate(() => approvals.resolve(e.approval.id, !/moved to a new site/.test(e.approval.summary))); } });
+  bus.on((e) => { if (e.type === 'approval.requested') { summaries.push(e.approval.summary); setImmediate(() => approvals.resolve(e.approval.id, !/click or script moved/.test(e.approval.summary))); } });
   const manager: BrowserManager = new BrowserManager((taskId) => new BrowserSession({ guard: () => ({}), resolve: DNS, approveOrigin: async (o, u) => (await manager.peek(taskId)?.approveOrigin?.(o, u)) ?? false, async launch() { const cdp = await connectCdp(`ws://127.0.0.1:${fake.port}`); return { cdp, pid: undefined, port: fake.port, args: [], exited: new Promise(() => undefined), stop: async () => { cdp.close(); } }; } }));
   const cfg = buildBrowserServer(agent('worker', { approval: 'ask' }), { taskId: 't', taint: () => true, markTainted: () => undefined }, { manager, guard: () => ({}), resolve: DNS, approvals, secrets: () => [], statusLine: () => '' });
   const [ct, st] = InMemoryTransport.createLinkedPair(); await cfg.instance.connect(st);
@@ -162,7 +162,7 @@ test('C9: a click that lands on a new site asks (ask mode) and the denial closes
     await call('browser_open', { url: 'https://a.test/' });
     const res = await call('browser_click', { selector: '#go' });
     assert.equal(res.isError, true); assert.match(res.text, /Not approved/); assert.doesNotMatch(res.text, /B page/);
-    assert.ok(summaries.some((s) => /moved to a new site: https:\/\/b\.test/.test(s)));
+    assert.ok(summaries.some((s) => /click or script moved the page to a new site: https:\/\/b\.test/.test(s)));
   } finally { await manager.disposeAll(); await client.close(); await fake.close(); }
 });
 

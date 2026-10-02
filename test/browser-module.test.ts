@@ -101,7 +101,7 @@ test('config route validates, normalises and persists (domains cleaned, junk dro
 
 test('full stack: enabled module, a fake lightpanda process, a page read, and the run ending kills the process', async () => {
   const r = rig();
-  await r.call('POST /api/browser/config', { enabled: true, binaryPath: 'fake-lightpanda' });
+  await r.call('POST /api/browser/config', { enabled: true, binaryPath: 'fake-lightpanda' }, { 'x-legion-native': NATIVE });
   const t = await tools(r);
   try {
     assert.match(r.mod.preamble!(agent('w')), /untrusted|stranger/i);
@@ -120,7 +120,7 @@ test('full stack: enabled module, a fake lightpanda process, a page read, and th
 
 test('C12: idle timeout and wall timeout stop the process; dispose stops all of them', async () => {
   let r = rig({ limits: { idleMs: 400, wallMs: 60_000 } });
-  await r.call('POST /api/browser/config', { enabled: true, binaryPath: 'fake-lightpanda' });
+  await r.call('POST /api/browser/config', { enabled: true, binaryPath: 'fake-lightpanda' }, { 'x-legion-native': NATIVE });
   let t = await tools(r);
   await t.call('browser_open', { url: 'https://a.test/' });
   let pid = r.pidOf(0);
@@ -128,7 +128,7 @@ test('C12: idle timeout and wall timeout stop the process; dispose stops all of 
   await t.client.close(); await r.mod.dispose!();
 
   r = rig({ limits: { idleMs: 60_000, wallMs: 500 } });
-  await r.call('POST /api/browser/config', { enabled: true, binaryPath: 'fake-lightpanda' });
+  await r.call('POST /api/browser/config', { enabled: true, binaryPath: 'fake-lightpanda' }, { 'x-legion-native': NATIVE });
   t = await tools(r);
   await t.call('browser_open', { url: 'https://a.test/' });
   pid = r.pidOf(0);
@@ -136,7 +136,7 @@ test('C12: idle timeout and wall timeout stop the process; dispose stops all of 
   await t.client.close(); await r.mod.dispose!();
 
   r = rig();
-  await r.call('POST /api/browser/config', { enabled: true, binaryPath: 'fake-lightpanda' });
+  await r.call('POST /api/browser/config', { enabled: true, binaryPath: 'fake-lightpanda' }, { 'x-legion-native': NATIVE });
   t = await tools(r, 'task_a'); const t2 = await tools(r, 'task_b');
   await t.call('browser_open', { url: 'https://a.test/' }); await t2.call('browser_open', { url: 'https://a.test/' });
   const pids = [r.pidOf(0), r.pidOf(1)];
@@ -147,7 +147,7 @@ test('C12: idle timeout and wall timeout stop the process; dispose stops all of 
 
 test('C12: at most N browsers run at once; the next run is told to wait and no extra process starts', async () => {
   const r = rig({ limits: { maxProcesses: 1 } });
-  await r.call('POST /api/browser/config', { enabled: true, binaryPath: 'fake-lightpanda' });
+  await r.call('POST /api/browser/config', { enabled: true, binaryPath: 'fake-lightpanda' }, { 'x-legion-native': NATIVE });
   const a = await tools(r, 'task_a'); const b = await tools(r, 'task_b');
   try {
     assert.equal((await a.call('browser_open', { url: 'https://a.test/' })).isError, false);
@@ -168,7 +168,7 @@ test('failure: no binary configured and the safety-option rejection come back as
   assert.equal(r.spawned(), 0);
   await t.client.close(); await r.mod.dispose!();
   r = rig({ mode: 'reject' });
-  await r.call('POST /api/browser/config', { enabled: true, binaryPath: 'fake-lightpanda' });
+  await r.call('POST /api/browser/config', { enabled: true, binaryPath: 'fake-lightpanda' }, { 'x-legion-native': NATIVE });
   t = await tools(r);
   const rej = await t.call('browser_open', { url: 'https://a.test/' });
   assert.equal(rej.isError, true); assert.match(rej.text, /rejected a required safety option/);
@@ -177,11 +177,11 @@ test('failure: no binary configured and the safety-option rejection come back as
 
 test('the test route starts the program with the safety options and reports plainly', async () => {
   let r = rig();
-  await r.call('POST /api/browser/config', { enabled: true, binaryPath: 'fake-lightpanda' });
+  await r.call('POST /api/browser/config', { enabled: true, binaryPath: 'fake-lightpanda' }, { 'x-legion-native': NATIVE });
   assert.equal(((await r.call('POST /api/browser/test')) as { ok: boolean }).ok, true);
   assert.equal(await until(() => !alive(r.pidOf(0))), true);
   r = rig({ mode: 'reject' });
-  await r.call('POST /api/browser/config', { enabled: true, binaryPath: 'fake-lightpanda' });
+  await r.call('POST /api/browser/config', { enabled: true, binaryPath: 'fake-lightpanda' }, { 'x-legion-native': NATIVE });
   const bad = (await r.call('POST /api/browser/test')) as { ok: boolean; detail: string };
   assert.equal(bad.ok, false); assert.match(bad.detail, /safety option/);
 });

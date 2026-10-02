@@ -79,3 +79,10 @@ test('C4: a name that resolves to a bad address is refused (every record is chec
   assert.equal((await checkUrlResolved('http://wallet.test:8080/', { allowLocal: true, localPorts: [8080] }, r)).ok, true);
   assert.equal(checkResolved(new URL('https://x.test/'), [], {}).ok, false);
 });
+
+test('C2: tunnelled and special IPv6 spellings, documentation ranges and extra metadata addresses are refused', () => {
+  const bad = ['http://[2002:7f00:1::]/', 'http://[2002:0a00:0001::]/', 'http://[2002:a9fe:a9fe::1]/', 'http://[::ffff:0:7f00:1]/', 'http://[64:ff9b:1::1]/', 'http://[fec0::1]/', 'http://[2001:0:4136:e378:8000:63bf:3fff:fdd2]/', 'http://[100::1]/', 'http://198.51.100.7/', 'http://203.0.113.9/', 'http://169.254.170.2/', 'http://[fd00:ec2::254]/'];
+  for (const u of bad) assert.equal(ok(u), false, u);
+  for (const u of ['http://[2002:7f00:1::]:3321/', 'http://[::ffff:0:7f00:1]:3321/']) assert.equal(ok(u, { allowLocal: true, localPorts: [3321] }), false, u);
+  assert.equal(ok('https://[2002:5db8:d822::1]/'), true, '6to4 of a public IPv4 stays public');
+});

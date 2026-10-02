@@ -56,7 +56,7 @@ export function buildBrowserServer(agent: AgentProfile, job: ModuleJob | undefin
   const guarded = <A>(fn: (a: A) => Promise<ToolResult>) => async (a: A): Promise<ToolResult> => {
     taint();
     const e = d.manager.entry(taskId);
-    e.approveOrigin = async (o, u) => (mode() === 'full' ? true : ask('browser_open', `The page moved to a new site: ${o}. This task already read outside content.`, { url: u.slice(0, 300), newSite: o }));
+    e.approveOrigin = async (o, u) => (mode() === 'full' ? true : ask('browser_open', `A click or script moved the page to a new site: ${o}. That request may already have been made; saying no closes the page and returns none of its content. This task already read outside content.`, { url: u.slice(0, 300), newSite: o }));
     const run = e.queue.then(() => fn(a), () => fn(a));
     e.queue = run.catch(() => undefined);
     try { return await run; } catch (err) { return failure(err); }
@@ -64,7 +64,7 @@ export function buildBrowserServer(agent: AgentProfile, job: ModuleJob | undefin
 
   const failure = (err: unknown): ToolResult => {
     if (err instanceof SessionRefusal) return text(wrapPage({ url: '', kind: 'notice', text: err.message, max: 600, secrets: d.secrets() }), true);
-    if (err instanceof LaunchError) return text(`The browser could not start: ${clip(err.message, 400)}\nTell the user to check Settings, Browser.`, true);
+    if (err instanceof LaunchError) return text(wrapPage({ url: '', kind: 'launch-error', text: err.message, max: 500, secrets: d.secrets() }) + '\nThe browser could not start. Tell the user to check Settings, Browser.', true);
     if (err instanceof CdpError || err instanceof PageScriptError) return text(wrapPage({ url: '', kind: 'browser-error', text: err.message, max: 600, secrets: d.secrets() }), true);
     return text(wrapPage({ url: '', kind: 'internal-error', text: err instanceof Error ? err.message : String(err), max: 400, secrets: d.secrets() }), true);
   };
@@ -154,6 +154,7 @@ export function buildBrowserServer(agent: AgentProfile, job: ModuleJob | undefin
       const e = d.manager.entry(taskId);
       if (!e.firstUseApproved) return text('Open a page first (browser_open).', true);
       if (mode() !== 'full') {
+        if (a.expression.length > 300) return text('That script is too long to show in full on the approval card (limit 300 characters unless the agent runs in full mode). Use a shorter expression.', true);
         const ok = await ask('browser_eval', `Run a script in the open page: ${clip(a.expression, 300)}`, { expression: a.expression.slice(0, BROWSER_LIMITS.evalExprChars) });
         if (!ok) return text('The user did not approve running that script. Nothing ran.', true);
       }
