@@ -15,7 +15,7 @@ function Row({ room, selected, onPick }: { room: Room; selected: boolean; onPick
   const busy = activeIn(live, room).length > 0;
   const paused = room.paused;
   const names = room.members.map((m) => agentName(agents, m)).join(', ');
-  const label = `${room.name}, ${room.kind === 'dm' ? 'direct message' : `${room.members.length} bots`}${paused ? `, paused: ${PAUSE_LABEL[paused.reason]}` : ''}${unread ? ', unread' : ''}${busy ? ', bots active' : ''}`;
+  const label = `${room.name}, ${room.kind === 'dm' ? 'direct message' : `${room.members.length} bots`}${paused ? `, paused: ${PAUSE_LABEL[paused.reason]}` : ''}${room.createdBy ? `, created by ${agentName(agents, room.createdBy)}` : ''}${unread ? ', unread' : ''}${busy ? ', bots active' : ''}`;
   return (
     <button type="button" className={`rm-row${selected ? ' sel' : ''}${unread ? ' unread' : ''}`} onClick={onPick} aria-current={selected ? 'true' : undefined} aria-label={label}
       title={paused ? `${PAUSE_LABEL[paused.reason]}${paused.detail ? `: ${paused.detail}` : ''}` : names}>
@@ -26,6 +26,7 @@ function Row({ room, selected, onPick }: { room: Room; selected: boolean; onPick
           {unread && <i className="rm-dot" aria-hidden="true" />}
           {busy && <i className="pip pip-busy" aria-hidden="true" />}
           {paused && <span className="rm-pill warn">{PAUSE_LABEL[paused.reason]}</span>}
+          {room.createdBy && <span className="rm-pill" title={`${agentName(agents, room.createdBy)} created this room, with your approval`}>by {agentName(agents, room.createdBy)}</span>}
         </span>
         <span className="rm-row-sub">
           <span className="rm-row-names">{names}</span>

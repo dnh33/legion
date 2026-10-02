@@ -211,3 +211,34 @@ test('E: an identical handoff twice is delivered once; a handoff to a different 
   assert.notEqual(c.id, a.id);
   assert.equal(h.hub.getRoom(room.id).lead, 'builder');
 });
+
+// ================================================================ B (rooms side): a sender can pick the model for the woken bot's turn
+
+test('B: bot_send and room_post can ask for a model; it reaches the engine for that turn and shows in the transcript line', () => {
+  const h = makeHarness();
+  const room = h.room(['zealot', 'scout', 'builder']);
+  const dm = h.hub.botSend('zealot', 'scout', 'quick check please', undefined, SENDER, { model: 'Haiku' });
+  assert.equal(dm.model, 'haiku', 'normalised');
+  assert.equal(h.engine.last('scout').model, 'haiku');
+  assert.equal(h.engine.last('scout').modelOverrideBy, 'zealot');
+  const post = h.hub.roomPost('zealot', room.id, '@builder run the tests', undefined, SENDER, { model: 'opus' });
+  assert.equal(h.messages(room.id).find((m) => m.id === post.id)!.model, 'opus', 'stored with the message (the room transcript line)');
+  assert.equal(h.engine.last('builder').model, 'opus');
+  assert.match(h.hub.roomRead('scout', room.id).text, /<bot-message [^>]*model="opus"/);
+  const md = h.hub.exportRoom(room.id, 'md') as string;
+  assert.match(md, /asked for opus/);
+  // without a model nothing is recorded or passed
+  const plain = h.hub.roomPost('zealot', room.id, '@scout and you?', undefined, SENDER);
+  assert.equal(h.messages(room.id).find((m) => m.id === plain.id)!.model, undefined);
+  assert.equal(h.engine.last('scout').model, undefined);
+  assert.equal(h.engine.last('scout').modelOverrideBy, undefined);
+});
+
+test('B: a model that is not sonnet, opus, haiku or auto is refused in rooms too, and the model does not change the ceiling the wake carries', () => {
+  const h = makeHarness();
+  const room = h.room(['zealot', 'scout']);
+  assert.throws(() => h.hub.roomPost('zealot', room.id, '@scout hi', undefined, SENDER, { model: 'gpt-5' }), /model must be one of: sonnet, opus, haiku, auto/);
+  assert.equal(h.engine.starts.length, 0);
+  h.hub.roomPost('zealot', room.id, '@scout hi', undefined, { ceiling: 'ask' }, { model: 'opus' });
+  assert.equal(h.engine.last('scout').origin?.approvalCeiling, 'ask');
+});

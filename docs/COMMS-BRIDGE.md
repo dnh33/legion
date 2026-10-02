@@ -2,7 +2,7 @@
 
 Goal: on par with Grok Bot's group chats and bot-to-bot messaging, and ahead of it on guard rails. Research: see the project doc `claude/legion-comms-research.md` (Grok Bot: 2 to 6 bot group chats, `@mention`, `@everyone`, async bot-to-bot handoffs, approval cards in the transcript, shared computer with no security boundary, no documented loop or budget guards).
 
-Stated assumptions (decided without the owner, easy to change): mention-only default; plain human messages go to the room lead; max 6 bots per group; all rooms persist in JSONL; cost shown per room; no auto-start of VMs; bot messages carry no approval authority.
+Stated assumptions (decided without the owner, easy to change): mention-only default; plain human messages go to the room lead; max 6 bots per group (bots included: rooms a bot creates or grows hold at most `comms.botRoomMaxMembers`, default 6); all rooms persist in JSONL; cost shown per room; no auto-start of VMs; bot messages carry no approval authority.
 
 ## Concepts
 - **Room**: a group chat (2 to 6 bots plus the human) or a DM (exactly 2 bots, created on demand by `bot_send`). Types in `src/shared/comms.ts` (do not change them without the integration lead).
@@ -16,10 +16,11 @@ Stated assumptions (decided without the owner, easy to change): mention-only def
 
 ## Guards (all enforced in code, not prompts)
 1. `maxHops` bot-to-bot hops since the last human message (default 6): the room pauses with reason `max-hops`.
-2. `budgetUsd` cumulative cost cap (default 2 USD): reason `budget`, checked before every wake.
+2. `budgetUsd` cumulative cost cap (default 2 USD): reason `budget`, checked BEFORE every wake. The room pauses when the spend so far is already at the budget, or when one more turn would take it over: the next turn is estimated as the dearest of the room's last 4 turns (at least `comms.turnCostFloorUsd`, default $0.02), and turns that are running right now each reserve the same amount (their cost only shows when they finish). The guard note then says "paused before the next turn would exceed it" and gives the estimate. The same check runs before an inbox flush. (Earlier versions checked only the money already spent, so the room paused after overshooting: $2.43 on a $2.00 budget.)
 3. Cycle: the same (sender, recipient) with near-identical normalised text (lowercase, collapse whitespace, strip punctuation; compare by hash) `cycleRepeats` times (default 3): reason `cycle`.
 4. Freeze: `POST /api/rooms/:id/freeze` pauses the room, cancels its running woken tasks, and drops its inboxes. `resume` clears the pause and counters.
 5. A paused room still stores human messages but wakes nobody until resumed.
+6. Chatter stops. A bot that calls `handoff` has passed the thread on: what it still says at the end of that turn is dropped when it repeats what it already posted and otherwise stored but wakes nobody; an answer to a handoff does not wake the bot that handed off (it can still use `room_post` on purpose). Repeats are suppressed: the same words by the same bot (mentions, case and punctuation ignored, or 90% of the same words in a text of four or more words) are one message inside one wake, or to the same recipients inside 60 seconds while nobody else has spoken. A suppressed repeat is neither stored nor woken nor counted by the cycle guard, and the tool answers `duplicate: true`. A re-ask after somebody answered is not suppressed: the cycle guard watches those.
 Every trip posts a `guard` system message explaining why and how to resume.
 
 ## Trust and approvals (confused deputy)
@@ -32,12 +33,21 @@ Every trip posts a `guard` system message explaining why and how to resume.
 
 ## Tools (in-process MCP server named `legion_comms`, given to every agent; tools are auto-approved)
 - `bot_list()` -> bots with id, name, description, state (idle / working / waiting) and which rooms you share.
-- `bot_send({ to, text, replyTo? })` -> async DM (creates a `dm` room if needed); returns the message id immediately (does not wait for the reply). Rejects self-send, unknown bots, and sends from a paused room.
-- `room_post({ room, text, mention? })` -> post into a group room you belong to.
+- `bot_send({ to, text, replyTo?, model? })` -> async DM (creates a `dm` room if needed); returns the message id immediately (does not wait for the reply). Rejects self-send, unknown bots, and sends from a paused room.
+- `room_post({ room, text, mention?, model? })` -> post into a group room you belong to. `model` (sonnet, opus, haiku, auto) is the model the woken bot runs this turn on; it never changes approvals.
 - `room_read({ room, limit?, sinceId? })` -> recent messages (bot-visible form, wrapped), max 8,000 chars.
 - `room_list()` -> rooms you belong to with unread counts.
 - `handoff({ room, to, summary })` -> passes ownership: posts a `handoff` message, sets the room lead to `to` for this thread, wakes `to`.
+- `room_create({ name, members[], lead?, budgetUsd? })`, `room_add_member({ room, member })`, `room_remove_member({ room, member })` -> ask the user to create a room or change its members. See "Rooms a bot asks for" below.
 Tool results never contain other bots' credentials, VM URLs or task internals.
+
+## Rooms a bot asks for (decision record)
+Zealot's real-use report: bots could not create a group room or add members. The decision keeps the trust model (rooms hold the human's text; bots are untrusted peers) and gives bots the verb, not the authority:
+- **A card, awaited in the tool handler.** Every request validates first (no card for an invalid one), then shows the user "`<bot>` wants to create the room X with A, B, C" (or add / remove) as an ordinary approval card (tool `mcp__legion_comms__room_create` etc., written-out summary, labelled "Room request"). The tool call waits for the answer. The wait lives in the handler, not in `canUseTool`, so an agent set to `full`, a run under an `ask` ceiling and a tainted run all get the same card. A decline, a cancelled task, 10 minutes without an answer, a missing approver or an approver that throws all end the same way: nothing was changed, and the bot is told not to ask again. A run that has touched outside content is flagged on the card. Only the Legion app (admin) answers cards; the MCP token cannot.
+- **Caps (config.json `comms`).** `botRoomMaxMembers` (default 6, never above the 6 that every room is limited to; the creator counts), `botRoomDefaultBudgetUsd` (default 1), `botRoomMaxBudgetUsd` (default 5; a larger request is refused, not clamped). Guards are the ordinary ones (6 hops, 3 repeats, 30 s `@everyone`), so the hop, cycle and pre-wake budget guards stop a bot-made room like any other. A bot can grow a room only up to the same member cap. No more than 5 room requests per bot per 10 minutes, answered or not.
+- **Marked and owned by the human.** The room carries `createdBy` (shown as "by Zealot" in the list, "created by Zealot" in the header, a note in settings, a first system message, the export, and `room_list`). Only the user can delete it (`DELETE /api/rooms/:id` is admin only and no bot tool deletes, archives, or changes guards or budget) and the user keeps every control the New room dialog gives.
+- **No new power to wake.** Members of a bot-made room are woken by the same rules as any other, and every wake is capped by the strictest of the sender's mode, the woken tasks it runs and its own run's ceiling. A bot could already wake any bot with `bot_send`; a room only lets it speak to several at once.
+- **Re-checked after the card.** If the room, the bot's membership or an agent changed while the card was open, the request is validated again and fails cleanly instead of half-applying.
 
 ## HTTP API (bearer auth, under /api)
 `GET /api/rooms`, `POST /api/rooms {name, members, strategy?, guards?}`, `GET /api/rooms/:id` (room + last 200 messages), `PATCH /api/rooms/:id {name?, strategy?, lead?, guards?}`, `DELETE /api/rooms/:id`, `POST /api/rooms/:id/members {add?: string[], remove?: string[]}`, `POST /api/rooms/:id/messages {text}` (human), `POST /api/rooms/:id/freeze`, `POST /api/rooms/:id/resume`, `GET /api/rooms/:id/export?format=md|json`, `GET /api/rooms/search?q=`. Validation errors are HttpError 400, unknown ids 404.

@@ -14,7 +14,39 @@ export const VERSION = '0.1.0';
  * do not care about BSV are unaffected.
  */
 export interface BsvConfig { enabled: boolean; network: 'testnet' }
-export type CoreConfig = LegionConfig & { bsv: BsvConfig };
+/**
+ * Limits for rooms and room membership that a BOT asks for (`room_create`, `room_add_member`, always behind a human approval card).
+ * Edited in config.json under "comms"; values outside their range are pulled back on load.
+ */
+export interface CommsConfig {
+  /** Most members a room a bot creates (or grows) may have, 2 to 6 (the same ceiling the New room dialog has). Default 6. */
+  botRoomMaxMembers: number;
+  /** Budget in USD for a bot-created room that names none. Default 1. */
+  botRoomDefaultBudgetUsd: number;
+  /** Highest budget a bot may ask for. Default 5. A human can raise a room's budget later in its settings. */
+  botRoomMaxBudgetUsd: number;
+  /** What one turn is assumed to cost in a room with no turn history, for the budget guard that stops BEFORE a wake. Default 0.02. */
+  turnCostFloorUsd: number;
+}
+export type CoreConfig = LegionConfig & { bsv: BsvConfig; comms: CommsConfig };
+
+export const DEFAULT_COMMS: CommsConfig = { botRoomMaxMembers: 6, botRoomDefaultBudgetUsd: 1, botRoomMaxBudgetUsd: 5, turnCostFloorUsd: 0.02 };
+
+/** Whatever the file held under "comms", reduced to numbers inside their ranges (defaults for anything missing or wrong). */
+export function normalizeComms(v: unknown): CommsConfig {
+  const o = (v && typeof v === 'object' ? v : {}) as Record<string, unknown>;
+  const num = (k: keyof CommsConfig, lo: number, hi: number, int = false): number => {
+    const x = o[k];
+    return typeof x === 'number' && Number.isFinite(x) && x >= lo && x <= hi && (!int || Number.isInteger(x)) ? x : DEFAULT_COMMS[k];
+  };
+  const max = num('botRoomMaxBudgetUsd', 0.01, 10_000);
+  return {
+    botRoomMaxMembers: num('botRoomMaxMembers', 2, 6, true),
+    botRoomMaxBudgetUsd: max,
+    botRoomDefaultBudgetUsd: Math.min(num('botRoomDefaultBudgetUsd', 0.01, 10_000), max),
+    turnCostFloorUsd: num('turnCostFloorUsd', 0, 10),
+  };
+}
 
 /** %USERPROFILE%\.legion on Windows, ~/.legion elsewhere. Override with LEGION_HOME. */
 export function dataDir(): string {
@@ -40,6 +72,7 @@ export function defaultConfig(): CoreConfig {
     boat: { baseUrl: 'https://boat.dev/api/v1' },
     mcpServers: {},
     bsv: { enabled: false, network: 'testnet' },
+    comms: { ...DEFAULT_COMMS },
   };
 }
 
@@ -73,6 +106,7 @@ export function loadConfig(): CoreConfig {
     saveConfig(cfg);
   }
   cfg.bsv = normalizeBsv(cfg.bsv);
+  cfg.comms = normalizeComms(cfg.comms);
   if (process.env.LEGION_PORT) cfg.port = Number(process.env.LEGION_PORT);
   if (!cfg.boat.apiKey && process.env.BOAT_API_KEY) cfg.boat.apiKey = process.env.BOAT_API_KEY;
   if (cfg.claude.auth === 'api-key' && !cfg.claude.apiKey && process.env.ANTHROPIC_API_KEY) {

@@ -84,6 +84,7 @@ export function RoomSettings({ room }: { room: Room }) {
       </>}>
       <form className="form" onSubmit={(e) => { e.preventDefault(); void save(); }}>
         <label>Name<input data-autofocus value={name} maxLength={90} onChange={(e) => setName(e.target.value)} autoComplete="off" /></label>
+        {room.createdBy && <p className="field-note" role="note">Created by {nm(room.createdBy)}, with your approval. Bots can ask to add or remove members (you get a card each time); only you can change the guards or delete the room.</p>}
 
         <fieldset className="rm-fs">
           <legend>Members <span className="rm-count">{members.length} of {MAX}</span></legend>

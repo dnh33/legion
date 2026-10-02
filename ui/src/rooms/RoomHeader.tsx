@@ -75,6 +75,7 @@ export function RoomHeader({ room, agents, live, offline, narrow, onList }: {
           <h1 title={room.name}>{room.name}</h1>
           <span className="rm-sub">
             {room.kind === 'dm' ? 'Direct message' : `${room.members.length} bots`} {'·'} {STRATEGY_INFO[room.strategy].label} {'·'} lead {nm(room.lead)}
+            {room.createdBy && <span className="rm-pill" title="You approved this room. Only you can delete it.">created by {nm(room.createdBy)}</span>}
             {paused && <span className="rm-pill warn">{PAUSE_LABEL[paused.reason]}</span>}
           </span>
         </div>

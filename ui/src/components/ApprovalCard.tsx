@@ -23,10 +23,14 @@ function Origin({ o, inRoomView }: { o: NonNullable<ApprovalRequest['origin']>; 
   );
 }
 
+/** The card head: a room request reads as such, every other tool by its short name. */
+const ROOM_REQUEST = /^mcp__legion_comms__room_(create|add_member|remove_member)$/;
+const cardTool = (name: string): string => (ROOM_REQUEST.test(name) ? 'Room request' : shortTool(name));
+
 export function ApprovalCard({ a }: { a: ApprovalRequest }) {
   const inRoomView = useStore((s) => s.view === 'rooms');
   return (
-    <div className="approval" tabIndex={0} role="group" aria-label={`Approval needed for ${shortTool(a.toolName)}`}
+    <div className="approval" tabIndex={0} role="group" aria-label={`Approval needed for ${cardTool(a.toolName)}`}
       onKeyDown={(e) => {
         if (e.ctrlKey || e.metaKey || e.altKey) return;
         if (e.key === 'a' || e.key === 'A') { e.preventDefault(); void decide(a.id, true); }
@@ -35,7 +39,7 @@ export function ApprovalCard({ a }: { a: ApprovalRequest }) {
       <div className="approval-head">
         <Icon name="shield" size={14} />
         <span>Needs your OK</span>
-        <b className="approval-tool">{shortTool(a.toolName)}</b>
+        <b className="approval-tool">{cardTool(a.toolName)}</b>
       </div>
       {a.origin && <Origin o={a.origin} inRoomView={inRoomView} />}
       <pre className="approval-sum">{a.summary}</pre>

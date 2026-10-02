@@ -24,11 +24,11 @@ async function as(h: Harness, agentId: string) {
 }
 
 describe('legion_comms MCP tools (in-process client)', () => {
-  it('lists exactly the six tools with real descriptions', async () => {
+  it('lists exactly the nine tools with real descriptions', async () => {
     const h = makeHarness();
     const { client, close } = await as(h, 'zealot');
     const { tools } = await client.listTools();
-    assert.deepEqual(tools.map((t) => t.name).sort(), ['bot_list', 'bot_send', 'handoff', 'room_list', 'room_post', 'room_read']);
+    assert.deepEqual(tools.map((t) => t.name).sort(), ['bot_list', 'bot_send', 'handoff', 'room_add_member', 'room_create', 'room_list', 'room_post', 'room_read', 'room_remove_member']);
     for (const t of tools) assert.ok((t.description ?? '').length > 40, t.name);
     await close();
   });
@@ -53,6 +53,26 @@ describe('legion_comms MCP tools (in-process client)', () => {
     assert.equal(h.engine.last('zealot').agentId, 'zealot');
     await close();
     await mod.dispose!();
+  });
+
+  it('bot_send and room_post take an optional model (sonnet, opus, haiku, auto); the engine gets it for that turn only', async () => {
+    const h = makeHarness();
+    const room = h.room(['zealot', 'scout']);
+    const { client, close } = await as(h, 'zealot');
+    const { tools } = await client.listTools();
+    for (const n of ['bot_send', 'room_post']) {
+      const schema: any = tools.find((t) => t.name === n)!.inputSchema;
+      assert.deepEqual(schema.properties.model.enum, ['sonnet', 'opus', 'haiku', 'auto'], n);
+      assert.ok(!(schema.required ?? []).includes('model'), n);
+    }
+    const r: any = await client.callTool({ name: 'bot_send', arguments: { to: 'scout', text: 'quick one', model: 'haiku' } });
+    assert.equal(r.isError, undefined);
+    assert.equal(h.engine.last('scout').model, 'haiku');
+    const p: any = await client.callTool({ name: 'room_post', arguments: { room: room.id, text: '@builder hmm', mention: 'scout', model: 'opus' } });
+    assert.equal(p.isError, undefined);
+    const bad: any = await client.callTool({ name: 'bot_send', arguments: { to: 'scout', text: 'x', model: 'gpt-5' } }).catch((e) => ({ isError: true, content: [{ text: String(e) }] }));
+    assert.equal(bad.isError, true);
+    await close();
   });
 
   it('bot_list: other bots with state and shared rooms, nothing else', async () => {

@@ -6,6 +6,11 @@ All notable changes are recorded here. The format follows [Keep a Changelog](htt
 
 ### Added
 
+- **Rooms and comms, round 2** (Zealot's real-use report and the New room bug).
+  - **Per-task model for delegation.** `ask`, `tell`, `bot_send` and `room_post` take an optional `model` (`sonnet`, `opus`, `haiku`, `auto`; checked against the account's catalog when it can be read). It applies to that one task, is recorded on the task (`modelOverride`, a chip on the task tab and in Recent tasks) and on the room message (shown in the transcript and the export), and never changes approvals.
+  - **Bots can ask for rooms.** New tools `room_create`, `room_add_member` and `room_remove_member`. Each shows you a card ("Zealot wants to create room X with A, B, C") that the tool waits for inside its handler, so no approval mode skips it. Rooms a bot creates are marked "created by <bot>", capped (config.json `comms`: members, default and maximum budget), start with the ordinary guards, and only you can delete them. Decision record in docs/COMMS-BRIDGE.md.
+  - **Budget guard acts before the next turn.** A room used to pause after overshooting (observed: paused at $2.43 on a $2.00 budget). It now estimates the next turn (the dearest of the last 4, at least $0.02, plus turns already running) and pauses first, saying "paused before the next turn would exceed it".
+  - **Handoff chatter stops.** A bot that hands off no longer wakes anyone with the rest of its turn, an answer to a handoff does not bounce back, and the same words twice by the same bot (inside one wake, or within 60 s while nobody answered) are stored once; the tools report `duplicate: true`.
 - **Muster of ten more premade bots** (Inquisitor, Scribe, Archivist, Sentinel, Forgemaster, Exorcist, Preceptor, Herald, Assayer, Sculptor), each with a hand-painted, animated bust and portrait that follows the mascot layer contract, a persona (quips and idle verbs) and a role prompt. Seeded after Zealot, Builder and Scout, which are never changed. The Relic stays byte-identical.
 - **Rooms** (comms bridge): group chats of 2 to 6 bots plus you, bot-to-bot direct messages, mention / manager / round-robin / all strategies, and guards for hops, budget, cycles and `@everyone`, with freeze and resume. Tools `bot_list`, `bot_send`, `room_post`, `room_read`, `room_list` and `handoff`. Messages from a bot carry no approval: a woken bot never runs looser than the strictest sender on the chain.
 - **Lattice** (knowledge graph): a shared, traversable graph with search, neighbours, paths, recall and lint, Markdown vault import and export, and `kg_*` tools for every bot, plus a graph view.
@@ -24,6 +29,7 @@ All notable changes are recorded here. The format follows [Keep a Changelog](htt
 
 ### Fixed
 
+- **Typing in the New room dialog lost focus after one letter** (it jumped to the Close button, and a space then closed the dialog). The shared `Modal` re-ran its focus effect on every render because callers pass an inline `onClose`; it now runs once, prefers `[data-autofocus]`, and puts Close last. The same pattern fixed the autofocus of Room settings, New agent and the Library note dialogs. Check: `test-perf/ui-app/check-dialog-focus.mjs`.
 - The Assayer stayed reachable while BSV mode was off through `legion_run`, `legion_continue` and `legion_vm` (including `exec`), and the error text named it; the same lookup now refuses it as an unknown agent, and the HTTP routes that start a task or drive the VM of a hidden agent answer 404.
 - A plain re-seed of the BSV pack (the Lattice button, or toggling BSV off and on) overwrote human edits of pack nodes, and a human note written to scope `bsv` first stopped the pack from ever loading.
 
