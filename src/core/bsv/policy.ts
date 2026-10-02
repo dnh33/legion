@@ -260,7 +260,9 @@ export class PolicyEngine {
     this.sessionId = o.sessionId ?? `s${Math.floor(this.clock.wall())}`;
     const now = this.clock.wall();
     for (const u of o.unknown ?? []) {
-      if (!u || typeof u.requestId !== 'string' || !REQUEST_ID.test(u.requestId) || !isSats(u.totalSats) || this.requests.has(u.requestId)) continue;
+      if (!u || typeof u.requestId !== 'string' || !REQUEST_ID.test(u.requestId) || !isSats(u.totalSats)) continue;
+      const dup = this.requests.get(u.requestId);
+      if (dup) { if (dup.hash === '' && dup.status === 'unknown' && u.totalSats > dup.totalSats) dup.totalSats = u.totalSats; continue; } // a repeated id keeps the LARGER amount
       const decision: Decision = { verdict: 'deny', requestId: u.requestId, reasons: ['an earlier session left this spend without a known outcome'], requiredConfirmations: ['approve'] };
       this.requests.set(u.requestId, {
         requestId: u.requestId, hash: '', status: 'unknown', agentId: safeId(u.agentId), taskId: '', network: u.net === 'main' ? 'main' : 'test', totalSats: u.totalSats,
@@ -616,15 +618,20 @@ export class PolicyEngine {
 /** The executed spends in an audit log (decision "executed" with a numeric `sats` field), for rebuilding the rolling window after a restart. */
 export function ledgerFromAudit(entries: ReadonlyArray<{ decision: string; ts: string; fields: Record<string, unknown> }>): LedgerRecord[] {
   const out: LedgerRecord[] = [];
-  // one spend can be written more than once (the spend path and the engine's event each record it): a request id counts once, the first line wins
-  const seen = new Set<string>();
+  // one spend can be written more than once (the spend path and the engine's event each record it): a request id counts once, and when the
+  // lines disagree the LARGER amount wins (a spend cap must never under-count)
+  const seen = new Map<string, number>();
   for (const e of entries) {
     if (e.decision !== 'executed') continue;
     const sats = e.fields.sats; const at = Date.parse(e.ts);
     if (!isSats(sats) || !Number.isFinite(at)) continue;
     const id = e.fields.requestId;
     const net: Net = e.fields.net === 'main' ? 'main' : 'test'; // a line without `net` is a testnet line
-    if (typeof id === 'string') { const k = `${net}:${id}`; if (seen.has(k)) continue; seen.add(k); }
+    if (typeof id === 'string') {
+      const k = `${net}:${id}`; const at0 = seen.get(k);
+      if (at0 !== undefined) { if (sats > out[at0]!.sats) out[at0] = { requestId: id, sats, at, net }; continue; }
+      seen.set(k, out.length);
+    }
     out.push({ requestId: typeof id === 'string' ? id : 'audit', sats, at, net });
   }
   // ordered by the time of the spend, never by where the line sits in the file (a rotated or restored file is not in time order)

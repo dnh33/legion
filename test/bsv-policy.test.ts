@@ -640,3 +640,17 @@ test('net: a legacy record or audit line without net loads as testnet; the same 
   const e = new PolicyEngine({ unknown: [{ requestId: 'req-net-0002', agentId: 'a', totalSats: 10 }, { requestId: 'req-net-0003', agentId: 'a', totalSats: 10, net: 'main' }] });
   assert.equal(e.snapshot().unknown.length, 2);
 });
+
+test('F2: a repeated request id with different amounts keeps the LARGER one, in either order (audit rebuild and unknown seed)', () => {
+  const t = '2026-10-02T10:00:00.000Z';
+  const line = (sats: number) => ({ decision: 'executed', ts: t, fields: { requestId: 'req-dupamt-1', sats } });
+  for (const order of [[1, 900], [900, 1]]) {
+    const rec = ledgerFromAudit(order.map(line));
+    assert.equal(rec.length, 1);
+    assert.equal(rec[0]!.sats, 900, `ledger order ${order}`);
+    const e = new PolicyEngine({ unknown: order.map((n) => ({ requestId: 'req-dupamt-2', agentId: 'a', totalSats: n })) });
+    assert.equal(e.snapshot().unknown.length, 1);
+    assert.equal(e.snapshot().unknown[0]!.totalSats, 900, `seed order ${order}`);
+    assert.equal(e.snapshot().usage.reservedSats, 900);
+  }
+});
