@@ -129,7 +129,8 @@ test('R3.4 secret scrubbing and key detection scale linearly on hostile inputs (
   for (const name of Object.keys(small)) {
     const t1 = Math.max(median(small[name]!), 2);
     const t4 = median(big[name]!);
-    if (t4 / t1 > 8) slow.push(`${name}: ${t1.toFixed(1)} ms at ${N} chars, ${t4.toFixed(1)} ms at ${4 * N} (x${(t4 / t1).toFixed(1)}; linear is x4, quadratic x16)`);
+    // a ratio of two millisecond timings is noise: only call it slow when the big input also takes a visible time (the old quadratic shapes took 1.7 s here)
+    if (t4 / t1 > 8 && t4 > 150) slow.push(`${name}: ${t1.toFixed(1)} ms at ${N} chars, ${t4.toFixed(1)} ms at ${4 * N} (x${(t4 / t1).toFixed(1)}; linear is x4, quadratic x16)`);
   }
   assert.deepEqual(slow, []);
 });
