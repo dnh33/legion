@@ -332,7 +332,7 @@ interface Flow {
   net?: Net;
   tainted: boolean;
   status: SpendStatus; codes: ReasonCode[]; txid?: string; totalSats?: number;
-  phase: 'building' | 'card' | 'in-wallet' | 'over';
+  phase: 'building' | 'card' | 'in-wallet' | 'closing' | 'over';
   reference?: string; aborted: boolean;
   card?: ApprovalCard;
   /** What the owner approved: the payment and (at most) one wallet-claimed change output. */
@@ -691,6 +691,7 @@ export function createSpendService(deps: SpendDeps): SpendService {
       liveOff(f, 'the wallet signed something other than the card on mainnet');
       return finalize(f, 'executed', ['signed-mismatch'], { txid, evidence: { mismatch: true } });
     }
+    f.phase = 'closing'; // the engine already says executed: a tick during the probe below must not read that as "ended without us"
     // after the answer: a network flip is evidence that the signature may not be on the network the card named (Legion cannot see it in the bytes)
     const after = await probe.check({ fresh: true });
     if (after.connected && after.network !== net) {

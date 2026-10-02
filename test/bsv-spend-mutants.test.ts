@@ -43,6 +43,7 @@ const MUTANTS: Mutant[] = [
   { id: 'M25', control: 'C5 outputs above inputs', scenario: 'decoder-rejects-bad-values', edits: [E('spend.js', 'if (outSats > inputSats)\n            return null;', '')] },
   { id: 'M26', control: 'C5 a zero-sat output', scenario: 'decoder-rejects-bad-values', edits: [E('spend.js', 'if (sats < 1)', 'if (false)')] },
   { id: 'M27', control: 'C5 a repeated transaction', scenario: 'decoder-rejects-bad-values', edits: [E('spend.js', 'if (byId.has(t.txid))', 'if (false)')] },
+  { id: 'M29', control: 'C13 a tick while the post-sign probe runs does not rewrite an executed spend', scenario: 'testnet-happy-path', edits: [E('spend.js', "f.phase = 'closing';", 'void 0;')] },
   { id: 'M28', control: 'C22 the 24 h window is rebuilt per network from the audit log', scenario: 'mainnet-end-to-end-with-restart', edits: [E('policy.js', 'const net = parseNet(e.fields.net);', "const net = 'test';")] },
 ];
 

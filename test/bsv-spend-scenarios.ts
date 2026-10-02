@@ -141,7 +141,9 @@ S('testnet-happy-path', async (M) => {
     assert.equal(card.totalSpendSats, 620); assert.equal(card.fee.sats, 20);
     assert.deepEqual(card.outputs.map((x: any) => x.kind), ['payment', 'change']);
     assert.equal((await r.approve(first.requestId)).status, 200);
+    for (let i = 0; i < 40; i++) { await r.cards(); await new Promise((x) => setTimeout(x, 3)); } // every cards() call is a tick: none may misread a finished spend
     await r.settle();
+    assert.equal(r.bsv.spend.statusOf(first.requestId).status, 'executed');
     assert.equal(create(r), 1, 'one build for the request');
     assert.equal(sign(r), 1); assert.equal(r.w.aborted.length, 0);
     const ex = lines(r, 'executed').find((l) => l.tool === 'bsv_spend_request');
