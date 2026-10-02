@@ -4,7 +4,7 @@ import { openRoom, useRoomName } from '../rooms/roomsStore';
 import { decide, useStore } from '../store';
 import { shortTool } from '../util';
 import { BlenderBadge, BlenderBody, blenderView, isBlenderExec } from '../blender/BlenderApproval';
-import { GET_BLENDER_TOOL } from '../../../src/shared/blender';
+import { BLENDER_ASSET_TOOL, GET_BLENDER_TOOL } from '../../../src/shared/blender';
 import { Icon } from './icons';
 
 /** "Asked by Zealot in Launch crew, hop 2": shown when a bot woken inside a room needs approval. */
@@ -27,13 +27,13 @@ function Origin({ o, inRoomView }: { o: NonNullable<ApprovalRequest['origin']>; 
 
 /** The card head: a room request reads as such, every other tool by its short name. */
 const ROOM_REQUEST = /^mcp__legion_comms__room_(create|add_member|remove_member)$/;
-const cardTool = (name: string): string => (ROOM_REQUEST.test(name) ? 'Room request' : name === GET_BLENDER_TOOL ? 'Download Blender' : shortTool(name));
+const cardTool = (name: string): string => (ROOM_REQUEST.test(name) ? 'Room request' : name === GET_BLENDER_TOOL ? 'Download Blender' : name === BLENDER_ASSET_TOOL ? 'Download asset' : shortTool(name));
 
 export function ApprovalCard({ a }: { a: ApprovalRequest }) {
   const inRoomView = useStore((s) => s.view === 'rooms');
   const bl = isBlenderExec(a);
   // a download is allowed by clicking, after reading the card: no one-key approve there either
-  const noKey = bl || a.toolName === GET_BLENDER_TOOL;
+  const noKey = bl || a.toolName === GET_BLENDER_TOOL || a.toolName === BLENDER_ASSET_TOOL;
   const bmode = bl ? blenderView(a).mode : 'sandbox';
   const live = bmode === 'live';
   return (
