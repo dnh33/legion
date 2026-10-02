@@ -26,7 +26,7 @@ const freePort = (): Promise<number> => new Promise((res, rej) => {
 });
 const coreJs = new URL('../src/bin/legion-core.js', import.meta.url).pathname;
 
-test('K1: a real core with a boat.dev key makes ZERO boat.dev calls at start; Settings opening probes once, a second open is cached, Check again asks again', async () => {
+test('K1: a real core with a boat.dev key runs no key-permission probe at start (no stored VMs, so zero calls); Settings opening probes once, a second open is cached, Check again asks again', async () => {
   const fb = await fake();
   const home = mkdtempSync(join(tmpdir(), 'legion-k1-'));
   writeFileSync(join(home, 'config.json'), JSON.stringify({ boat: { apiKey: KEY, baseUrl: fb.baseUrl } }));
