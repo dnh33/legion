@@ -75,7 +75,7 @@ const api = readFileSync(new URL('../../ui/src/api.ts', import.meta.url), 'utf8'
 test('wiring (source guard): secret generated per core spawn, written to the stdin pipe only, bootstrap uses the verified value', () => {
   assert.match(main, /randomBytes\(32\)\.toString\('hex'\)/);
   assert.match(main, /stdio: \['pipe', out, out\]/);
-  assert.match(main, /child\.stdin\?\.end\(secret \+ '\\n'\)/);
+  assert.match(main, /child\.stdin\?\.end\(secret \+ '\\n' \+ native \+ '\\n'\)/, 'admin secret line, then the native secret line (BSV policy), both over stdin only');
   assert.match(main, /LEGION_ADMIN_STDIN: '1'/);
   assert.ok(!/env: \{[^}]*secret/.test(main), 'the secret is not put in the child environment');
   assert.match(main, /spawn\(nodeBin, \[coreEntry\]/, 'argv is the entry file only');

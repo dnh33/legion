@@ -6,7 +6,7 @@ import { closeSync, existsSync, mkdirSync, openSync, readFileSync } from 'node:f
 import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { adminForRenderer, coreAction, coreIsBusy, killPlan, listenerCommands, listenerPids, type CoreHealth } from './admin-logic.js';
+import { adminForRenderer, bsvConfirmation, bsvPreflight, coreAction, coreIsBusy, dialogText, killPlan, listenerCommands, listenerPids, parseBsvAction, trustedSender, type BsvAction, type BsvPolicyFacts, type CoreHealth } from './admin-logic.js';
 
 const here = dirname(fileURLToPath(import.meta.url)); // <root>/dist/src/electron
 const root = resolve(here, '..', '..', '..');
@@ -43,6 +43,13 @@ let booting = true;
 let splash: BrowserWindow | null = null;
 /** Per-launch admin secret of the core child we spawned (memory only: stdin pipe to the child, IPC to our own renderer; never env, argv or disk). */
 let adminSecret: string | undefined;
+/**
+ * Per-launch NATIVE secret (second stdin line, memory only). Unlike the admin secret it is never given to the renderer: the core demands it
+ * for every change to BSV policy state, so only this process, after its own confirmation dialog, can make one.
+ */
+let nativeSecret: string | undefined;
+/** True while a BSV confirmation dialog is open: a second request waits for the person, it does not stack dialogs. */
+let bsvDialogOpen = false;
 /** What `legion:bootstrap` hands to the renderer: set only after /health proved the core on the port is our child and holds the secret. */
 let rendererAdmin: string | undefined;
 /**
@@ -139,6 +146,7 @@ async function spawnCore(port: number): Promise<string | null> {
     let failure: string | null = null;
     // A fresh secret for every core we start (a tray restart rotates it). It goes over the stdin pipe only.
     const secret = randomBytes(32).toString('hex');
+    const native = randomBytes(32).toString('hex');
     const child = spawn(nodeBin, [coreEntry], {
       cwd: root,
       stdio: ['pipe', out, out],
@@ -150,9 +158,10 @@ async function spawnCore(port: number): Promise<string | null> {
     });
     coreProc = child;
     adminSecret = secret;
+    nativeSecret = native;
     rendererAdmin = undefined;
     child.stdin?.on('error', () => undefined);
-    child.stdin?.end(secret + '\n');
+    child.stdin?.end(secret + '\n' + native + '\n');
     child.on('error', (err: NodeJS.ErrnoException) => {
       coreProc = null;
       failure = err.code === 'ENOENT'
@@ -160,7 +169,7 @@ async function spawnCore(port: number): Promise<string | null> {
         : `Could not start core: ${err.message || err}`;
     });
     child.on('exit', (code) => {
-      if (coreProc === child) { coreProc = null; adminSecret = undefined; rendererAdmin = undefined; }
+      if (coreProc === child) { coreProc = null; adminSecret = undefined; nativeSecret = undefined; rendererAdmin = undefined; }
       if (!failure) failure = `Core exited (code ${code}). See core.log.`;
     });
     await new Promise((r) => setTimeout(r, 200));
@@ -223,6 +232,7 @@ async function ensureCore(): Promise<string | null> {
 async function killCore(): Promise<void> {
   rendererAdmin = undefined;
   adminSecret = undefined;
+  nativeSecret = undefined;
   const c = coreProc;
   coreProc = null;
   if (!c || c.exitCode !== null || c.signalCode !== null) return;
@@ -241,6 +251,58 @@ async function restartCore(): Promise<void> {
   const err = await ensureCore();
   if (err) dialog.showErrorBox('Could not restart Legion Core', err);
   win?.webContents.reload();
+}
+
+/** A request to our own core, with the admin secret (and the native secret when asked). undefined = we hold no proven core of our own. */
+async function ownCoreCall(method: 'GET' | 'POST', route: string, body?: unknown, native = false): Promise<{ status: number; json: any } | undefined> {
+  const live = !!coreProc && coreProc.exitCode === null;
+  if (!live || !adminSecret || !rendererAdmin || !pinned) return undefined; // only a core that proved it holds our secret ever sees it
+  const headers: Record<string, string> = { 'X-Legion-Admin': adminSecret };
+  if (native) { if (!nativeSecret) return undefined; headers['X-Legion-Native'] = nativeSecret; }
+  if (body !== undefined) headers['Content-Type'] = 'application/json';
+  try {
+    const r = await fetch(`http://127.0.0.1:${pinned.port}${route}`, { method, headers, body: body === undefined ? undefined : JSON.stringify(body), signal: AbortSignal.timeout(5000) });
+    return { status: r.status, json: await r.json().catch(() => ({})) };
+  } catch { return undefined; }
+}
+
+export interface BsvChangeResult { ok: boolean; error?: string; cancelled?: boolean; view?: unknown }
+
+/**
+ * One BSV policy change, from the window (IPC) or the tray. The action was parsed strictly; main reads the current policy from the core
+ * itself, words the native dialog from that, and only after "confirm" calls the core with the native secret. Changes that only make things
+ * safer (freeze, disarm) skip the dialog. A dialog is never stacked: if one is open, the new request is refused.
+ */
+async function bsvPolicyChange(raw: unknown): Promise<BsvChangeResult> {
+  const action: BsvAction | undefined = parseBsvAction(raw);
+  if (!action) return { ok: false, error: 'That request was not understood.' };
+  const current = await ownCoreCall('GET', '/api/bsv/policy');
+  if (!current || current.status !== 200) return { ok: false, error: 'Legion could not reach its own core to change BSV policy. Restart Legion.' };
+  const facts = current.json as BsvPolicyFacts;
+  if (facts.nativeAvailable !== true) return { ok: false, error: 'This core was not started by the Legion app, so policy changes are locked.' };
+  const refusal = bsvPreflight(action, facts);
+  if (refusal) return { ok: false, error: refusal };
+  let walletLine = '';
+  if (action.kind === 'arm') {
+    const w = await ownCoreCall('GET', '/api/bsv/wallet?cached=1');
+    const j = w?.json as { message?: unknown } | undefined;
+    walletLine = j && typeof j.message === 'string' ? `Wallet check: ${dialogText(j.message, 200)}` : '';
+  }
+  const c = bsvConfirmation(action, facts, walletLine);
+  if (c.needsDialog) {
+    if (bsvDialogOpen) return { ok: false, error: 'A confirmation is already open. Answer it first.' };
+    bsvDialogOpen = true;
+    try {
+      const opts = { type: c.type, title: c.title, message: c.message, detail: c.detail, buttons: [...c.buttons], defaultId: 0, cancelId: 0, noLink: true };
+      const r = win && !win.isDestroyed() && win.isVisible() ? await dialog.showMessageBox(win, opts) : await dialog.showMessageBox(opts);
+      if (r.response !== 1) return { ok: false, cancelled: true };
+    } finally { bsvDialogOpen = false; }
+  }
+  const res = await ownCoreCall('POST', c.route, c.body, true);
+  if (!res) return { ok: false, error: 'Legion could not reach its own core.' };
+  win?.webContents.send('legion:bsv-changed');
+  if (res.status !== 200) return { ok: false, error: dialogText((res.json as { error?: unknown })?.error, 300) || `The core refused the change (${res.status}).` };
+  return { ok: true, view: res.json };
 }
 
 function showWindow(): void {
@@ -375,6 +437,7 @@ function createTray(): void {
   tray.setToolTip('Legion');
   tray.setContextMenu(Menu.buildFromTemplate([
     { label: 'Show Legion', click: showWindow },
+    { label: 'Freeze BSV chain', click: () => void bsvPolicyChange({ kind: 'freeze' }) },
     { label: 'Restart core', click: () => void restartCore() },
     { label: 'Open data folder', click: () => void shell.openPath(dataDir()) },
     { type: 'separator' },
@@ -396,6 +459,12 @@ if (!app.requestSingleInstanceLock()) {
     // `admin` is the per-launch secret, only while our own child is alive and has proved (HMAC challenge) that it holds it.
     const live = !!coreProc && coreProc.exitCode === null;
     e.returnValue = { baseUrl: `http://127.0.0.1:${port}`, token, admin: live ? rendererAdmin ?? '' : '', platform: process.platform };
+  });
+  ipcMain.handle('legion:bsv-policy', async (e, raw: unknown): Promise<BsvChangeResult> => {
+    // Only our own window page may ask: not a frame that navigated elsewhere, not another window.
+    const frameUrl = (e as { senderFrame?: { url?: string } }).senderFrame?.url;
+    if (!win || win.isDestroyed() || (e as { sender?: unknown }).sender !== win.webContents || !trustedSender(frameUrl, uiUrl)) return { ok: false, error: 'Refused: not the Legion window.' };
+    try { return await bsvPolicyChange(raw); } catch { return { ok: false, error: 'The change failed.' }; }
   });
   ipcMain.handle('legion:open-external', (_e, url: unknown) => {
     if (typeof url === 'string' && isHttp(url)) { void shell.openExternal(url); return true; }

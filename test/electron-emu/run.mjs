@@ -24,7 +24,7 @@ if (scenario === 'shim') {
 const dist = resolve('dist/src/electron');
 const emu = join(dist, `main_emu_${process.pid}.js`);
 const src = readFileSync(join(dist, 'main.js'), 'utf8').replace(/\n\/\/# sourceMappingURL=.*$/m, '');
-writeFileSync(emu, src + '\nexport const __t = { ensureCore, killCore, restartCore, getHealth, get coreProc() { return coreProc; }, get adminSecret() { return adminSecret; } };\n');
+writeFileSync(emu, src + '\nexport const __t = { ensureCore, killCore, restartCore, getHealth, createWindow, uiUrl, get win() { return win; }, get coreProc() { return coreProc; }, get adminSecret() { return adminSecret; }, get nativeSecret() { return nativeSecret; } };\n');
 const { __t } = await import(emu);
 const seen = []; const servers = [];
 const rogue = (port, healthBody) => new Promise((res) => {
@@ -127,6 +127,92 @@ try {
     const walk = (d) => { for (const e of readdirSync(d, { withFileTypes: true })) { const p = join(d, e.name); if (e.isDirectory()) walk(p); else if (has(readFileSync(p, 'utf8'))) files.push(p); } };
     walk(home);
     out.filesWithSecret = files;
+    const N = __t.nativeSecret;
+    out.nativeLen = N?.length ?? 0;
+    out.nativeDiffersFromAdmin = !!N && N !== S;
+    const hasN = (x) => !!N && x.includes(N);
+    out.nativeInCmdline = hasN(readFileSync(`/proc/${pid}/cmdline`, 'utf8'));
+    out.nativeInEnviron = hasN(readFileSync(`/proc/${pid}/environ`, 'utf8'));
+    out.nativeInCoreLog = hasN(readFileSync(join(home, 'core.log'), 'utf8'));
+    out.nativeInBootstrap = JSON.stringify(b).includes(N ?? 'x');
+    const nfiles = [];
+    const walkN = (d) => { for (const e of readdirSync(d, { withFileTypes: true })) { const p = join(d, e.name); if (e.isDirectory()) walkN(p); else if (hasN(readFileSync(p, 'utf8'))) nfiles.push(p); } };
+    walkN(home);
+    out.nativeFiles = nfiles;
+  }
+  if (scenario === 'bsv') {
+    out.ensure = await __t.ensureCore();
+    __t.createWindow(false);
+    const b = bootstrap();
+    const base = b.baseUrl;
+    const A = { 'X-Legion-Admin': b.admin, 'Content-Type': 'application/json' };
+    const call = async (method, path, body, headers = A) => { const r = await fetch(base + path, { method, headers, body: body === undefined ? undefined : JSON.stringify(body) }); return { status: r.status, json: await r.json().catch(() => ({})) }; };
+    const policy = async () => (await call('GET', '/api/bsv/policy')).json;
+    const ipc = (raw, over = {}) => globalThis.__handle['legion:bsv-policy']({ sender: __t.win.webContents, senderFrame: { url: __t.uiUrl }, ...over }, raw);
+    const dialogs = () => globalThis.__dialogs.filter((d) => d.defaultId === 0 && d.buttons?.length === 2);
+    out.bootstrapKeys = Object.keys(b).sort();
+    out.bsvOn = (await call('POST', '/api/bsv', { enabled: true })).status;
+    out.p0 = (({ armed, frozen, nativeAvailable, spendTools }) => ({ armed, frozen, nativeAvailable, spendTools }))(await policy());
+    // the window's own secret is not enough, with no native header or a guessed one
+    out.armAdminOnly = (await call('POST', '/api/bsv/policy/arm', { minutes: 5 })).status;
+    out.armGuessedNative = (await call('POST', '/api/bsv/policy/arm', { minutes: 5 }, { ...A, 'X-Legion-Native': 'f'.repeat(64) })).status;
+    out.armAdminAsNative = (await call('POST', '/api/bsv/policy/arm', { minutes: 5 }, { ...A, 'X-Legion-Native': b.admin })).status;
+    out.armTokenOnly = (await call('POST', '/api/bsv/policy/arm', { minutes: 5 }, { Authorization: 'Bearer ' + b.token, 'Content-Type': 'application/json' })).status;
+    out.stillDisarmed = (await policy()).armed === false;
+    // 1. the person cancels: nothing changes, the dialog was worded by main, Cancel is the default
+    globalThis.__dialogs.length = 0; globalThis.__dialogAnswer = 0;
+    out.cancelled = await ipc({ kind: 'arm', minutes: 5 });
+    out.cancelDialog = dialogs().map((d) => ({ title: d.title, message: d.message, buttons: d.buttons, defaultId: d.defaultId, cancelId: d.cancelId, type: d.type, detail: d.detail }));
+    out.armedAfterCancel = (await policy()).armed;
+    // 2. the person confirms
+    globalThis.__dialogAnswer = 1; globalThis.__dialogs.length = 0; globalThis.__sent.length = 0;
+    out.confirmed = await ipc({ kind: 'arm', minutes: 5 });
+    out.armedAfterConfirm = (await policy()).armed;
+    out.sentChanged = globalThis.__sent.includes('legion:bsv-changed');
+    // 3. a window that sends something odd, or is not our window, gets no dialog at all
+    globalThis.__dialogs.length = 0;
+    out.badKind = await ipc({ kind: 'arm', minutes: 7 });
+    out.badExtra = await ipc({ kind: 'freeze', reason: 'x'.repeat(10) });
+    out.badProto = await ipc(JSON.parse('{"kind":"caps","caps":{"__proto__":{"perTxSats":1},"perTxSats":1}}'));
+    out.badString = await ipc('arm');
+    out.wrongSender = await ipc({ kind: 'arm', minutes: 5 }, { sender: {} });
+    out.wrongFrame = await ipc({ kind: 'arm', minutes: 5 }, { senderFrame: { url: 'https://evil.example/' } });
+    out.noFrame = await ipc({ kind: 'arm', minutes: 5 }, { senderFrame: undefined });
+    out.dialogsForBad = globalThis.__dialogs.length;
+    // 4. freeze is one click and needs no dialog; it disarms; unfreeze asks, and asks again if cancelled
+    globalThis.__dialogs.length = 0;
+    out.froze = await ipc({ kind: 'freeze' });
+    const pf = await policy();
+    out.afterFreeze = { frozen: !!pf.frozen, armed: pf.armed };
+    out.dialogsForFreeze = globalThis.__dialogs.length;
+    globalThis.__dialogAnswer = 0;
+    out.unfreezeCancelled = await ipc({ kind: 'unfreeze' });
+    out.stillFrozen = !!(await policy()).frozen;
+    out.armWhileFrozen = (await (async () => { globalThis.__dialogAnswer = 1; return ipc({ kind: 'arm', minutes: 5 }); })());
+    out.armedWhileFrozen = (await policy()).armed;
+    out.unfreezeDialog = dialogs().map((d) => d.message);
+    out.dialogsBeforeUnfreeze = globalThis.__dialogs.length;
+    out.unfreezeOk = await ipc({ kind: 'unfreeze' });
+    out.afterUnfreeze = { frozen: !!(await policy()).frozen, armed: (await policy()).armed };
+    // 5. caps: the dialog quotes the change, a value above the hard ceiling is refused by the core
+    globalThis.__dialogs.length = 0; globalThis.__dialogAnswer = 1;
+    out.capsOk = await ipc({ kind: 'caps', caps: { perTxSats: 500 } });
+    out.capsAfter = (await policy()).caps.perTxSats;
+    out.capsDialogDetail = dialogs().map((d) => d.detail)[0] ?? null;
+    out.capsTooBig = await ipc({ kind: 'caps', caps: { perTxSats: 999_999_999 } });
+    out.capsAfterTooBig = (await policy()).caps.perTxSats;
+    // 6. dialogs do not stack
+    globalThis.__dialogs.length = 0; globalThis.__dialogDelay = 400;
+    const first = ipc({ kind: 'arm', minutes: 15 });
+    await wait(80);
+    out.second = await ipc({ kind: 'arm', minutes: 5 });
+    out.firstDone = await first;
+    out.dialogsStacked = globalThis.__dialogs.length;
+    globalThis.__dialogDelay = 0;
+    // 7. the audit log recorded all of it
+    const a = (await call('GET', '/api/bsv/audit?limit=50')).json;
+    out.auditDecisions = a.entries.map((e) => `${e.tool}:${e.decision}`);
+    out.auditOk = (await policy()).audit.ok;
   }
 } catch (e) { out.error = String(e?.stack ?? e); }
 await cleanup();
