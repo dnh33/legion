@@ -22,7 +22,7 @@ Owner-side rules that shape it (from CLAUDE.md and the Projects plan): owner-onl
 
 ## 2. Data model (`src/shared/board.ts`)
 
-`WorkItem`: `id` (`wi_<10 hex>`), `projectId`, `title` (1-120, one line), `description` (<= 2,000, clipped), `status` (`backlog | doing | review | done | blocked`), `assignee` (`null | {kind:'owner'} | {kind:'agent', id}`; an object because an agent id could be the word "owner"), `due` (`YYYY-MM-DD` or absent), `priority` (`low | normal | high`), `labels` (<= 5, each 1-24 chars of `a-z0-9 -`), `order` (integer, position inside its status column), `createdBy` / `updatedBy` (`Actor`), `createdAt`, `updatedAt`, `trust` (`human | untrusted`), `proposal` (`{suggestedAssignee?}` present only while the item waits in the Inbox), `taskIds` (<= 20), `roomIds` (<= 10), `activeRun` (task id while a Run-this-item run is live), `lastRun` (`{taskId, status, endedAt, tainted, preview <= 1,000}`), `activity` (<= 30 entries, each `{at, by, kind, text <= 200}`).
+`WorkItem`: `id` (`wi_<12 hex>`), `projectId`, `title` (1-120, one line), `description` (<= 2,000, clipped), `status` (`backlog | doing | review | done | blocked`), `assignee` (`null | {kind:'owner'} | {kind:'agent', id}`; an object because an agent id could be the word "owner"), `due` (`YYYY-MM-DD` or absent), `priority` (`low | normal | high`), `labels` (<= 5, each 1-24 chars of `a-z0-9 -`), `order` (integer, position inside its status column), `createdBy` / `updatedBy` (`Actor`), `createdAt`, `updatedAt`, `trust` (`human | untrusted`), `proposal` (`{suggestedAssignee?}` present only while the item waits in the Inbox), `taskIds` (<= 20), `roomIds` (<= 10), `activeRun` (task id while a Run-this-item run is live), `lastRun` (`{taskId, status, endedAt, tainted, preview <= 1,000}`), `activity` (<= 20 entries, each `{at, by, kind, text <= 500}`).
 `Actor`: `{kind:'owner'} | {kind:'agent', id, tainted?} | {kind:'system'}`.
 
 Limits: 200 items per project (Inbox included), Inbox <= 30 per project and <= 8 per agent, text sizes as above, board file <= 4 MB (larger = treated as corrupt: renamed, empty board).
@@ -115,7 +115,7 @@ No board action needs the native secret: none widens authority (assignment only 
 
 ## 9. Hooks outside new files (all additive)
 
-`src/shared/config.ts` (flag), `src/bin/legion-core.ts` (build the store + module only when the flag is on), `src/shared/types.ts` (`board.updated` event), `src/core/server.ts` (`board?` in context, `board.` admin-only prefix), `src/core/mcp-tools.ts` (one call to register `legion_board_read`), `ui/src/api.ts`, `ui/src/projects/ProjectView.tsx` (mounts the tab strip), `ui/src/store.ts` (event case), `docs/` (a short section, kept scoped).
+`src/shared/config.ts` (flag), `src/bin/legion-core.ts` (build the store + module only when the flag is on), `scripts/harness/core-entry.mjs` (the harness test requires it to mirror the composition root), `src/shared/types.ts` (`board.updated` event), `src/core/server.ts` (`board?` in context, `board.` admin-only prefix), `src/core/mcp-tools.ts` (one call to register `legion_board_read`), `ui/src/api.ts`, `ui/src/projects/ProjectView.tsx` (mounts the tab strip), `ui/src/store.ts` (event case), `docs/` (a short section, kept scoped).
 
 ## 10. Documented fact / assumption / unknown
 
@@ -132,7 +132,23 @@ No board action needs the native secret: none widens authority (assignment only 
 
 `claude/tracker-pc-checks-board.md`.
 
-## 12. Known limits (kept honest, to be updated at the end)
+## 12. Result (built 2026-10-02, not run on Windows)
+
+Gates: `npm ci && npm run build:ts && node --test "dist/test/*.test.js"`: 1,992 tests, 1,989 pass, 0 fail, 3 skipped (the 3 skips were there before). `npm run typecheck` and `npm run build:ui` exit 0. New test files: `project-board-{flag,store,tools,http,run,ui}.test.ts` (about 40 tests). Every control C1..C17 was mutated (about 25 mutations) and each turned its test red, except one equivalent mutant: removing the redundant `tainted: true` from a capped run changes nothing because the run's `origin.tainted` already taints it. Tripwire, hedge, key-literal and harness tests stay as they were; the only edit to a shared script is the mirror in `scripts/harness/core-entry.mjs`.
+Rendered in headless Chromium (real core, flag on, seeded board): 1440 and 960 px with the full app, 390 px with the app shell hidden (the Electron window has a 960 px minimum, so the shell itself is not built for 390), light and dark, Board / List / Inbox / item dialog; no horizontal page scroll; a keyboard Alt+Right move was announced in the live region, kept focus and persisted.
+
+## 13. Known limits (kept honest)
+
+- No board action is checked against what an allowed agent tool can do: Legion's own code decides who may write the board, not what a run does.
+- A compromised app window holds the admin key and could edit or delete items and click "Run this item"; the run still goes through the approval cards. A bot's text the owner accepted unedited runs under the `ask` ceiling, but once the owner presses "Mark as reviewed" it runs with the agent's own setting.
+- `Mark as reviewed` is one click for the whole item (title and description together).
+- Room links are not checked for existence (shape only); the UI offers none yet except those a bot's own room run added.
+- Appending one line per change is not a transaction: a crash mid-line loses at most that line (skipped on load). Compaction is tmp + rename; Windows rename-over-open-file and antivirus behaviour are unverified.
+- The 5 columns are fixed; there is no WIP limit, no sub-items, no comments, no schedules or auto-run (Later).
+- Pointer drag-and-drop is not touch-tested; touch and narrow screens use the "Move to" select.
+- A task cancelled by the owner while an item is `doing` moves the item to Blocked, not back to Backlog.
+- The activity trail keeps the newest 20 entries per item.
+- A tainted bot's note is stored with a taint mark and shown as plain text; it is not blocked.
 
 - The board stores and shows; Legion's own code does not stop an allowed agent tool from doing things the approval mode permits.
 - Room links are not checked for existence by the core (the UI only offers rooms of the project).
