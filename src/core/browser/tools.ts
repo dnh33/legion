@@ -88,7 +88,7 @@ export function buildBrowserServer(agent: AgentProfile, job: ModuleJob | undefin
         if (!ok) return text('The user did not approve that site. Nothing was opened.', true);
       }
       const view = await e.session.open(v.url.href);
-      return text(wrapPage({ url: view.url, kind: 'page-info', text: `Title: ${view.title}\nAddress: ${view.url}`, max: 1000, secrets: d.secrets() }));
+      return text(wrapPage({ url: view.url, kind: 'page-info', text: `Title: ${view.title}\nAddress: ${view.url}`, max: 1000, secrets: d.secrets(), extra: `Browser: ${e.session.engineLabel || 'starting'}.` }));
     }),
   );
 
