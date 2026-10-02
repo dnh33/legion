@@ -317,6 +317,8 @@ test('C21: the community add-on download is checked against the pinned sha256; o
   assert.equal(r.info, undefined, 'no trusted-download record is produced for a refused file');
   assert.match(r.steps.find((s) => s.step === 'download')!.detail, /does not match|refus/i);
   assert.equal(log.downloads.length, 1);
+});
+
 /* ---- official add-on as an EXTENSION (plan 5.1): scripted fake io.run, exact argv per step ---- */
 
 const MANIFEST = 'schema_version = "1.0.0"\nid = "mcp"\nversion = "1.0.3"\ntype = "add-on"\nblender_version_min = "5.1.0"\n';
