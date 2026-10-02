@@ -1,5 +1,5 @@
 /**
- * Project board module (experimental: built only when config.json says experimental.projectBoard = true).
+ * Project board module (experimental: built only when its experimental config switch is on).
  * Owner routes are admin-only by the gate's default deny. The board never executes anything by itself; "Run this item" is the owner's click.
  */
 import type { McpServerConfig } from '@anthropic-ai/claude-agent-sdk';

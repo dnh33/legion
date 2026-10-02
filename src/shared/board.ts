@@ -1,6 +1,6 @@
 /**
  * Legion — project board contract (see claude/plan-project-board.md). Work items inside a Project. Experimental: only served when
- * config.json says experimental.projectBoard = true. The board stores and shows; it never executes anything by itself.
+ * its experimental config switch is on. The board stores and shows; it never executes anything by itself.
  */
 export const BOARD_STATUSES = ['backlog', 'doing', 'review', 'done', 'blocked'] as const;
 export type BoardStatus = typeof BOARD_STATUSES[number];
