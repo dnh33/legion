@@ -340,3 +340,21 @@ Status: built, OFF by default (config `blender.both`, Settings "Use both backend
 | `blender --python-expr` can set `bpy.context.scene.blendermcp_port` before the server starts | assumption | B17a |
 | Official server marks read-only tools with `readOnlyHint` | assumption (MCP spec annotation, set by the server) | B17c lists what the real server offers |
 | blenderwright details | summarised page text only (WebFetch summaries) | https://github.com/HoldMyBeer-gg/blenderwright (README, pyproject.toml, addon/handlers/code_exec.py, file_ops.py, sculpting.py, src/blenderwright/validators.py); licence file and tags not read |
+
+## 16. Research: the best tooling for an AI to use Blender (owner request, 2026-10-02)
+
+Looked up through web search and fetchable pages (blender.org, docs.blender.org, projects.blender.org, download.blender.org, mcpservers.org were blocked from this session, so official pages are quoted through search excerpts and GitHub issues; marked "via excerpt").
+
+| Fact | Source |
+|---|---|
+| The official Blender Lab MCP server is "deliberately small": `execute_blender_code`, blend-file summaries, documentation search, screenshots, renders to a path. It lacks Poly Haven tools and structured node tools | https://github.com/MAX-786/claude-3d-harness/issues/7 (a user comparing it with other servers) |
+| Per Blender's own page it has 26 tools: code execution, blend-file summaries (datablocks, missing files, linked libraries), object and collection summaries, area or whole-window screenshots, viewport navigation, thumbnail and viewport renders, and two search tools over bundled copies of the Python API reference and the manual. GPL-3.0-or-later, Blender 5.1+, v1.0.0 on 2026-04-27, v1.0.3 current | https://www.blender.org/lab/mcp-server/ (via search excerpt), https://projects.blender.org/lab/blender_mcp |
+| The official server runs LLM code in Blender "without any guards" and recommends a VM | same excerpts |
+| Anthropic's Claude Blender connector exposes the full Python API to Claude (code execution in your scene) | https://digitalproduction.com/2026/04/30/anthropic-funds-blender-ships-claude-connector/ (via excerpt) |
+| Blender's Python API does have real brush strokes: `bpy.ops.sculpt.brush_stroke(stroke=..., mode=...)` takes a collection of `OperatorStrokeElement`, in sculpt mode, normally with a context override | https://docs.blender.org/api/current/bpy.ops.sculpt.html (via excerpt; the page itself was blocked). Not tried in Legion |
+| Sculpt tools in blenderwright (8), blend-ai (164 tools) and mcp-blender (218 tools, AGPL-3.0) configure sculpting (brush, remesh, multires, symmetry, dyntopo, `stroke_method`); none documents applying strokes | https://github.com/HoldMyBeer-gg/blenderwright, https://github.com/RFingAdam/mcp-blender, plus the read-only review in section 15 |
+| hifipushie: an MIT MCP server built for an LLM to sculpt creatures: skeleton plus SDF blobs, "strokes" that displace the skin along paths (its own engine, not Blender brushes), clay renders from headless Blender with world-unit rulers, silhouette comparison scores, checkpoints and revert, OBJ export. 386 commits, 0 stars, needs Blender 4.1+ and Python 3.12+ | https://github.com/joeleaver/hifipushie |
+| Community add-on `ahujasid/mcp-for-blender`: about 29.8k stars, 36 tools, Blender 3.0+ | https://github.com/ahujasid/blender-mcp |
+| Independent write-ups: an AI works best with a screenshot after every step; blind code runs degrade after 3 to 4 steps | https://www.mindstudio.ai/blog/claude-blender-mcp-real-world-performance, https://mcp-for-blender.com/concepts/capabilities (via excerpts) |
+
+Conclusions for Legion: (1) base = the official server (code execution + screenshots + summaries + docs) in live mode, and Legion's own local runner for headless work; more tools add review surface, not capability, because everything reduces to `bpy`. (2) For sculpting, brush strokes are reachable through `bpy.ops.sculpt.brush_stroke` from `blender_exec` in live Blender, so the Sculptor needs a tested recipe, not another MCP (follow-up, needs a real Blender). (3) For organic creatures the AI-native approach is hifipushie's skeleton/SDF/displacement-strokes with measured clay renders: worth a prototype behind the same guard, not integrated now.
