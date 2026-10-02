@@ -7,7 +7,7 @@ import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { initUpdater, recoverAtStart } from './updater-main.js';
-import { adminForRenderer, bsvConfirmation, bsvPreflight, coreAction, coreIsBusy, dialogText, killPlan, listenerCommands, listenerPids, parseBsvAction, trustedSender, type BsvAction, type BsvPolicyFacts, type CoreHealth } from './admin-logic.js';
+import { adminForRenderer, bsvConfirmation, bsvPreflight, coreAction, coreIsBusy, createSpendNative, dialogText, isSpendAction, killPlan, listenerCommands, listenerPids, netChangeProblem, parseBsvAction, SPEND_POLL_MS, trustedSender, type BsvAction, type BsvPolicyFacts, type CoreHealth } from './admin-logic.js';
 import { makeConfirm, providerChange } from './provider-ipc.js';
 import { coreStartHint, resolveCoreLaunch } from './resolve-node.js';
 import { projectChange } from './project-ipc.js';
@@ -272,6 +272,29 @@ async function ownCoreCall(method: 'GET' | 'POST' | 'PUT', route: string, body?:
   } catch { return undefined; }
 }
 
+/**
+ * Spend reviews. Main polls the core's pending route itself (only while BSV mode is on), reads each card from the core, words the native
+ * dialogs from it and sends the core the hash it read. The window can only name a request id. One dialog at a time (the lock is shared with
+ * every other confirmation), in the order the cards arrived.
+ */
+const spendNative = createSpendNative({
+  core: (method, route, body, native) => ownCoreCall(method, route, body, native),
+  dialog: async (opts) => {
+    // a hidden or closed window must not hide the question: without a visible parent the dialog is shown on its own
+    const r = win && !win.isDestroyed() && win.isVisible() ? await dialog.showMessageBox(win, { ...opts, buttons: [...opts.buttons] }) : await dialog.showMessageBox({ ...opts, buttons: [...opts.buttons] });
+    return r.response;
+  },
+  acquire: () => { if (bsvDialogOpen) return false; bsvDialogOpen = true; return true; },
+  release: () => { bsvDialogOpen = false; },
+  changed: () => { try { if (win && !win.isDestroyed()) win.webContents.send('legion:bsv-changed'); } catch { /* the window is gone */ } },
+  bsvOn: async () => { const r = await ownCoreCall('GET', '/api/bsv'); return r?.status === 200 && (r.json as { enabled?: unknown } | undefined)?.enabled === true; },
+});
+let spendTimer: ReturnType<typeof setInterval> | undefined;
+function startSpendPoll(): void {
+  if (spendTimer) return;
+  spendTimer = setInterval(() => { void spendNative.tick().catch(() => undefined); }, SPEND_POLL_MS);
+}
+
 export interface BsvChangeResult { ok: boolean; error?: string; cancelled?: boolean; view?: unknown }
 
 /**
@@ -282,6 +305,11 @@ export interface BsvChangeResult { ok: boolean; error?: string; cancelled?: bool
 async function bsvPolicyChange(raw: unknown): Promise<BsvChangeResult> {
   const action: BsvAction | undefined = parseBsvAction(raw);
   if (!action) return { ok: false, error: 'That request was not understood.' };
+  if (isSpendAction(action)) {
+    // the id is all the window gave; the card, the hash and every word in the dialog come from the core, read here
+    const res = action.kind === 'spend-review' ? await spendNative.review(action.requestId) : action.kind === 'spend-deny' ? await spendNative.deny(action.requestId) : await spendNative.resolve(action.requestId);
+    return res;
+  }
   const current = await ownCoreCall('GET', '/api/bsv/policy');
   if (!current || current.status !== 200) return { ok: false, error: 'Legion could not reach its own core to change BSV policy. Restart Legion.' };
   const facts = current.json as BsvPolicyFacts;
@@ -308,6 +336,8 @@ async function bsvPolicyChange(raw: unknown): Promise<BsvChangeResult> {
   if (!res) return { ok: false, error: 'Legion could not reach its own core.' };
   win?.webContents.send('legion:bsv-changed');
   if (res.status !== 200) return { ok: false, error: dialogText((res.json as { error?: unknown })?.error, 300) || `The core refused the change (${res.status}).` };
+  const problem = netChangeProblem(action, res.json); // the confirmed network is the one that changed
+  if (problem) return { ok: false, error: problem };
   return { ok: true, view: res.json };
 }
 
@@ -429,6 +459,7 @@ async function boot(): Promise<void> {
   if (splash && !splash.isDestroyed()) { splash.removeAllListeners('closed'); splash.destroy(); }
   splash = null;
   if (!tray) createTray();
+  startSpendPoll();
   const mainWin = win as BrowserWindow | null;
   mainWin?.show();
   mainWin?.focus();
@@ -492,7 +523,7 @@ if (!app.requestSingleInstanceLock()) {
   });
 
   app.on('before-quit', () => { quitting = true; });
-  app.on('will-quit', () => { void killCore(); });
+  app.on('will-quit', () => { if (spendTimer) clearInterval(spendTimer); spendTimer = undefined; void killCore(); });
   app.on('window-all-closed', () => { /* stay in tray */ });
   app.on('activate', () => showWindow());
 
