@@ -43,7 +43,44 @@ const SOURCES = (): Src[] => [
 ];
 
 /** What a person reads: in code, strings and JSX text with comments removed; in docs, the text. */
-const readable = (s: Src): string => (s.code ? lex(s.text).kept : s.text);
+const MODE_VALUE = /^(sandbox|live|local|vm|auto|block|log)$/;
+/** Code: only string literals and JSX text, one per line so each is its own sentence; bare mode-value literals are identifiers, not prose. */
+export function literals(src: string): string {
+  const { kept, code } = lex(src);
+  const out: string[] = [];
+  const push = (raw: string) => {
+    const t = raw.replace(/\\(['"`\\])/g, '$1').replace(/\s+/g, ' ').trim();
+    if (t && !MODE_VALUE.test(t)) out.push(t);
+  };
+  let i = 0;
+  // Walk code; at a quote read the literal, recursing into template ${...} so nested templates stay separate literals.
+  const walk = (untilBrace: boolean): void => {
+    let depth = 0;
+    while (i < kept.length) {
+      const c = kept[i]!;
+      if (c === "'" || c === '"') {
+        let j = i + 1;
+        while (j < kept.length && kept[j] !== c && kept[j] !== '\n') j += kept[j] === '\\' ? 2 : 1;
+        push(kept.slice(i + 1, j)); i = j + 1; continue;
+      }
+      if (c === '`') {
+        i++; let seg = '';
+        while (i < kept.length && kept[i] !== '`') {
+          if (kept[i] === '\\') { seg += kept.slice(i, i + 2); i += 2; continue; }
+          if (kept[i] === '$' && kept[i + 1] === '{') { push(seg); seg = ''; i += 2; walk(true); continue; }
+          seg += kept[i++];
+        }
+        push(seg); i++; continue;
+      }
+      if (untilBrace) { if (c === '{') depth++; else if (c === '}') { if (depth === 0) { i++; return; } depth--; } }
+      i++;
+    }
+  };
+  walk(false);
+  for (const m of code.matchAll(/>([^<>{}();=]*[A-Za-z][^<>{}();=]*)</g)) push(m[1]!);
+  return out.join('\n');
+}
+const readable = (s: Src): string => (s.code ? literals(s.text) : s.text);
 const sentences = (t: string): string[] => t.split(/(?<=[.!?])\s+|\n+/).map((x) => x.trim()).filter(Boolean);
 
 const LOCALISH = /\blocal (mode|run|script|blender)|\bthis (computer|pc)\b|\bon this pc\b|\bheadless\b|\bin the background\b/i;
@@ -116,6 +153,26 @@ test('blender hedge: the rules catch the overclaims they exist for and pass the 
     'Local mode is not yet tried with a real Blender on Windows.',
   ];
   for (const t of good) assert.deepEqual(scan([src(t)]), [], `should pass: ${t}`);
+});
+
+test('blender hedge: the scan judges prose, not code', () => {
+  const code = (text: string): Src => ({ name: 'sample.ts', text, code: true });
+  const bad = [
+    "const label = 'Local mode is sandboxed and safe.';",
+    "const msg = 'The runner blocks all network access.';",
+    "const msg = 'Runs isolated on this computer.';",
+    'export const C = () => <p>Local mode is sandboxed and safe.</p>;',
+  ];
+  for (const t of bad) assert.ok(scan([code(t)]).length > 0, `should be caught in code: ${t}`);
+  assert.ok(scan([{ name: 'sample.md', text: 'This cannot be bypassed.', code: false }]).length > 0, 'doc overclaim is caught');
+  assert.ok(scan([{ name: 'sample.md', text: 'Runs isolated on this computer.', code: false }]).length > 0, 'doc "isolated" is caught');
+  const good = [
+    "if (want === 'sandbox' || want === 'live') return { error: 'Settings restrict scripts to Blender on this computer.' };",
+    "const t = next.mode === 'local' ? 'Blender on this computer, in the background' : next.mode === 'sandbox' ? 'the cloud VM' : 'live';",
+    "export function buildArgs(i: { runner: string; guard: 'block' | 'log'; mode: 'local' | 'vm' | 'auto' }): string[] { return []; }",
+    `const note = "Legion's own runner stops the script's Python code from opening network connections; it is not a sandbox.";`,
+  ];
+  for (const t of good) assert.deepEqual(scan([code(t)]), [], `should stay green: ${t}`);
 });
 
 test('blender hedge: adding an overclaim to a real source turns the scan red', () => {
