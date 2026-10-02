@@ -66,8 +66,9 @@ test('every dialog: Cancel is first (the default and the Escape button), the con
     assert.equal(c.buttons[0], 'Cancel');
     assert.notEqual(c.buttons[1], 'OK');
     assert.ok(c.title.length > 0 && c.message.length > 0);
-    assert.match(c.detail, /no spend tool/, a.kind);
-    assert.match(c.detail, /policy state only/, a.kind);
+    assert.match(c.detail, /ordinary tools/, a.kind);
+    assert.match(c.detail, /changes Legion's policy state/, a.kind);
+    assert.doesNotMatch(c.detail, /no spend tool|policy state only/i, `${a.kind}: the old unscoped claim is gone`);
     assert.doesNotMatch(c.detail + c.message, /funds will|will send|can spend your|enable spending|trading|profit/i, a.kind);
   }
   const arm = bsvConfirmation({ kind: 'arm', minutes: 15 }, facts, 'Wallet check: x');

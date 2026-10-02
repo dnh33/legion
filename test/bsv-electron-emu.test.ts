@@ -1,6 +1,6 @@
 /**
  * BSV arming and freezing, end to end up to policy state: the real compiled Electron main.js (electron stubbed) driving a REAL spawned core.
- * The scenario lives in test/electron-emu/run.mjs ('bsv' and 'hygiene'). Nothing here can spend: there is no spend tool.
+ * The scenario lives in test/electron-emu/run.mjs ('bsv' and 'hygiene'). The core here is real; the spend routes are covered with a fake core in bsv-spend-native.test.ts.
  * NOT covered: a real Electron dialog on a real desktop (the stub records the options main passes and answers cancel or confirm).
  */
 import test from 'node:test';
@@ -31,7 +31,7 @@ test('emu bsv: the window\'s admin secret, a guessed native secret, the admin se
   assert.equal(r.ensure, null);
   assert.deepEqual(r.bootstrapKeys, ['admin', 'baseUrl', 'platform', 'token'], 'the window is handed no native secret');
   assert.equal(r.bsvOn, 200);
-  assert.deepEqual(r.p0, { armed: false, frozen: null, nativeAvailable: true, spendTools: false });
+  assert.deepEqual({ ...r.p0, spendTools: typeof r.p0.spendTools }, { armed: false, frozen: null, nativeAvailable: true, spendTools: 'boolean' });
   assert.equal(r.armAdminOnly, 403);
   assert.equal(r.armGuessedNative, 403);
   assert.equal(r.armAdminAsNative, 403);
@@ -50,7 +50,8 @@ test('emu bsv: cancelling the native dialog changes nothing; confirming arms; th
   assert.equal(d.defaultId, 0);
   assert.equal(d.cancelId, 0);
   assert.equal(d.type, 'warning');
-  assert.match(d.detail, /no spend tool/);
+  assert.match(d.detail, /ordinary tools/);
+  assert.doesNotMatch(d.detail, /no spend tool/);
   assert.match(d.detail, /Per transaction: 0\.00001000 BSV \(1,000 sat\)/, 'the limits come from the core, not the window');
   // T5: mainnet is OFF by default, so the core refuses to arm until the owner has switched it on. The window has no "enable mainnet" step yet
   // (the T3 second pass adds the dialog); then this test arms again with the switch on and the old assertions (ok, armed, refresh event) come back.
@@ -111,4 +112,71 @@ test('emu hygiene: the native secret is 64 hex chars, differs from the admin sec
   assert.equal(r.nativeInCoreLog, false);
   assert.equal(r.nativeInBootstrap, false);
   assert.deepEqual(r.nativeFiles, []);
+});
+
+// ---- spend review through the real compiled main (a FAKE core plays the spend routes; the real spend service is another task's)
+let spendMemo: Promise<any> | undefined;
+const spend = () => (spendMemo ??= runScenario('spend'));
+const ID = (c: string) => c.repeat(40);
+
+test('emu spend: Cancel denies with both secrets from main; the dialog is worded from the core\'s card, Cancel is the default and Escape button', { skip }, async () => {
+  const r = await spend();
+  assert.equal(r.ensure, null);
+  assert.deepEqual(r.cancel, { ok: false, cancelled: true });
+  assert.equal(r.cancelDialog.length, 1);
+  const d = r.cancelDialog[0];
+  assert.deepEqual(d.buttons, ['Cancel', 'Approve this payment']);
+  assert.equal(d.defaultId, 0); assert.equal(d.cancelId, 0); assert.equal(d.type, 'warning');
+  assert.match(d.detail, /mipcBbFg9gMiCh81Kj8tqqdgoZub1ZJRfn/);
+  assert.match(d.detail, /Network: TESTNET/);
+  assert.match(d.detail, /Limits: per transaction 0\.00001000 BSV \(1,000 sat\)/, 'the caps are read from the core');
+  assert.deepEqual(r.cancelPosts, [{ path: '/api/bsv/spend/ID/decision', body: { decision: 'deny' }, adminOk: true, nativeOk: true }]);
+  assert.equal(r.windowDirectDecision, 403, 'the window\'s admin secret alone cannot decide');
+});
+
+test('emu spend: a closed window (the dialog fails) denies; approve sends the hash the core served; untrusted content needs two dialogs', { skip }, async () => {
+  const r = await spend();
+  assert.deepEqual(r.closed, { ok: false, cancelled: true });
+  assert.deepEqual(r.closedBodies, [{ decision: 'deny' }]);
+  assert.equal(r.approve.ok, true);
+  assert.deepEqual(r.approveBodies, [{ decision: 'approve', cardHash: '7'.repeat(64), confirmations: ['approve'] }]);
+  assert.equal(r.untrusted.ok, true);
+  assert.equal(r.untrustedDialogs, 2);
+  assert.deepEqual(r.untrustedBodies, [{ decision: 'approve', cardHash: '8'.repeat(64), confirmations: ['approve', 'untrusted-content'] }]);
+});
+
+test('emu spend: a forged card, an unlisted id, a foreign frame or another sender all get no dialog and no call to the core', { skip }, async () => {
+  const r = await spend();
+  assert.deepEqual(r.forgedExtra, { ok: false, error: 'That request was not understood.' });
+  assert.equal(r.forgedUnlisted.ok, false);
+  for (const k of ['foreignFrame', 'foreignSender', 'noFrame']) assert.deepEqual(r[k], { ok: false, error: 'Refused: not the Legion window.' }, k);
+  assert.equal(r.forgedDialogs, 0);
+  assert.equal(r.forgedPosts, 0);
+});
+
+test('emu spend: a main card the facts do not allow is refused and denied without a dialog; deny is dialog-free; resolve is a native three-button dialog', { skip }, async () => {
+  const r = await spend();
+  assert.equal(r.mainnet.ok, false);
+  assert.equal(r.mainnetDialogs, 0);
+  assert.deepEqual(r.mainnetBodies, [{ decision: 'deny' }]);
+  assert.equal(r.forgedNet.ok, false, 'a main card with the TESTNET label is refused even when the facts allow mainnet');
+  assert.equal(r.forgedNetDialogs, 0);
+  assert.equal(r.mainAllowed.ok, true, 'a main card the core\'s facts allow (enabled and armed) gets its dialog');
+  assert.deepEqual(r.mainAllowedDialog, ['An agent asks to pay 0.00000600 BSV (600 sat) on LIVE FUNDS (main network).']);
+  assert.deepEqual(r.mainAllowedBodies, [{ decision: 'approve', cardHash: '6'.repeat(64), confirmations: ['approve'] }]);
+  assert.equal(r.deny.ok, true);
+  assert.equal(r.denyDialogs, 0);
+  assert.equal(r.resolve.ok, true);
+  assert.deepEqual(r.resolveDialog, [{ message: 'Was the payment of 0.00000321 BSV (321 sat) sent?', buttons: ['Cancel', 'It was NOT sent', 'It WAS sent'], defaultId: 0, cancelId: 0 }]);
+  assert.deepEqual(r.resolveBodies, [{ outcome: 'sent' }]);
+});
+
+test('emu spend: no poll of the pending route while BSV is off; with it on, dialogs open one at a time, oldest card first; a policy dialog cannot open over a spend dialog', { skip }, async () => {
+  const r = await spend();
+  assert.equal(r.offPendingReads, 0);
+  assert.equal(r.offDialogs, 0);
+  assert.equal(r.onDialogs, 2);
+  assert.deepEqual(r.onOrder, [ID('1')[0], ID('2')[0]]);
+  assert.equal(r.armWhileSpend.ok, false);
+  assert.match(r.armWhileSpend.error, /already open/);
 });

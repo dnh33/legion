@@ -35,9 +35,15 @@ export interface PolicyView {
   usage: { sessionSats: number; last24hSats: number; reservedSats: number };
   pending: Array<{ requestId: string; totalSats: number }>;
   unknown: Array<{ requestId: string; totalSats: number }>;
-  network: 'testnet';
+  /** What the core calls its default network; the spend networks are `spendNetworks`. Not assumed to be testnet. */
+  network?: string;
+  /** The networks the spend tool may use, when the core says (absent = test only). */
+  spendNetworks?: Array<'test' | 'main'>;
+  /** Mainnet switch and arm state. Absent = off. No mainnet UI reads more than this yet. */
+  mainnet?: { enabled: boolean; armed: boolean };
   nativeAvailable: boolean;
-  spendTools: false;
+  /** The Assayer has the testnet spend tool (a boolean from the core; a false or missing value is shown as not available). */
+  spendTools: boolean;
   armChoicesMinutes: number[];
   audit: { ok: boolean; entries: number; reason?: string };
 }
@@ -59,7 +65,7 @@ export interface OverlayModel {
   /** Title-bar text, longest first (the overlay picks the longest that fits). */
   tiers: string[][];
   /** The wording the pill shows, or null for no pill. */
-  pill: { kind: 'armed' | 'pending' | 'frozen' | 'mainnet'; text: string } | null;
+  pill: { kind: 'armed' | 'pending' | 'frozen' | 'mainnet' | 'unknown'; text: string } | null;
 }
 
 export const MAINNET_SENTENCE = 'The wallet is on MAINNET; Legion is in testnet knowledge mode; Legion will not use it.';
@@ -102,15 +108,46 @@ export function overlayModel(i: { enabled: boolean; policy: PolicyView | null; w
   if (armed) {
     return {
       mode: 'armed', mainnetWarning, showFreeze,
-      tiers: [['LIVE FUNDS ARMED', 'policy only: no spend tool'], ['LIVE FUNDS ARMED'], ['LIVE']],
+      tiers: [['LIVE FUNDS ARMED', 'policy only'], ['LIVE FUNDS ARMED'], ['LIVE']],
       pill: { kind: 'armed', text: 'LIVE FUNDS armed' },
     };
   }
+  const unknown = (p?.unknown.length ?? 0);
+  if (unknown > 0) return { mode: 'testnet', mainnetWarning, showFreeze: false, tiers: [['TESTNET', `${unknown} unknown outcome`], ['TESTNET']], pill: { kind: 'unknown', text: `${unknown} request${unknown === 1 ? '' : 's'} with an unknown outcome. Open Details to resolve ${unknown === 1 ? 'it' : 'them'}.` } };
   if (pending > 0) return { mode: 'testnet', mainnetWarning, showFreeze, tiers: [['TESTNET', `${pending} pending`]], pill: { kind: 'pending', text: `${pending} request${pending === 1 ? '' : 's'} pending` } };
   if (mainnetWarning) {
     return { mode: 'testnet', mainnetWarning, showFreeze: false, tiers: [['WALLET ON MAINNET', 'Legion stays on testnet'], ['WALLET ON MAINNET']], pill: { kind: 'mainnet', text: MAINNET_SENTENCE } };
   }
   return { mode: 'testnet', mainnetWarning: false, showFreeze: false, tiers: [['TESTNET \u00b7 knowledge mode', ...(second ? [second] : [])], ['TESTNET', ...(second ? [second] : [])], ['TESTNET']], pill: null };
+}
+
+/** Mainnet state from the policy answer: off unless the core says both fields are exactly true-or-false booleans. */
+export function mainnetState(p: Pick<PolicyView, 'mainnet'> | null | undefined): { enabled: boolean; armed: boolean } {
+  const m = p?.mainnet;
+  return { enabled: !!m && m.enabled === true, armed: !!m && m.enabled === true && m.armed === true };
+}
+
+/** Short form of a request id for a list row (an id, not an address: addresses are never abbreviated). */
+export const shortId = (id: unknown): string => (typeof id === 'string' ? id.replace(/[^0-9a-f]/g, '').slice(0, 8) : '');
+
+export interface SpendRow { requestId: string; label: string }
+export interface SpendModel {
+  /** One sentence about the tool itself. */
+  headline: string;
+  pending: SpendRow[];
+  unknown: SpendRow[];
+}
+
+/** What the panel's spend section shows, from the policy answer only. Requests are answered in main's native dialogs, never here. */
+export function spendModel(p: { spendTools: boolean; pending: PolicyView['pending']; unknown: PolicyView['unknown'] }): SpendModel {
+  const sat = (n: number) => `${(Number.isSafeInteger(n) && n >= 0 ? n : 0).toLocaleString('en-US')} sat`;
+  return {
+    headline: p.spendTools
+      ? 'The Assayer has one tool that can ask your wallet to build and sign a TESTNET payment. Every request opens a native confirmation, and your wallet then shows its own prompt.'
+      : 'The testnet spend tool is not available to the Assayer in this core.',
+    pending: p.pending.map((r) => ({ requestId: r.requestId, label: `Request ${shortId(r.requestId)}: ${sat(r.totalSats)} waiting for your answer` })),
+    unknown: p.unknown.map((r) => ({ requestId: r.requestId, label: `Request ${shortId(r.requestId)}: ${sat(r.totalSats)}, outcome unknown. Check your wallet's history, then resolve it.` })),
+  };
 }
 
 /** One calm headline for the wallet row of the panel. */
