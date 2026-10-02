@@ -21,7 +21,7 @@ import { cardText, clip, containsSeedPhrase, cycleHash, neutralizeTags, safeName
 // ------------------------------------------------------------------ public types
 
 export interface HubEngine {
-  startTask(p: { agentId: string; prompt: string; source: TaskSource; model?: ModelChoice; modelOverrideBy?: string; continueTaskId?: string; origin?: TaskOrigin; tainted?: boolean }): Task;
+  startTask(p: { agentId: string; prompt: string; source: TaskSource; model?: ModelChoice; modelOverrideBy?: string; continueTaskId?: string; origin?: TaskOrigin; tainted?: boolean; projectId?: string | null }): Task;
   cancel(taskId: string): boolean;
 }
 export interface HubStore {
@@ -62,6 +62,8 @@ export interface HubOptions {
   comms?: Partial<CommsConfig>;
   /** Asks the user. Without one every bot room request is refused ("no way to ask"). */
   approve?: RoomApprover;
+  /** Projects (read only): lets a room belong to one, and keeps its members inside the project's. Absent: rooms have no project. */
+  projects?: { get(id: string): { name: string; status: string; members: string[] } | undefined };
 }
 
 /** Thrown for caller mistakes; carries the HTTP status the route layer should use. */
@@ -81,8 +83,8 @@ export interface RoomInfo {
   /** Name of the bot that created the room (the user's own rooms have none). */
   createdBy?: string;
 }
-export interface CreateRoomInput { name: string; members: string[]; strategy?: RoomStrategy; lead?: string; guards?: Partial<RoomGuards> }
-export interface PatchRoomInput { name?: string; strategy?: RoomStrategy; lead?: string; guards?: Partial<RoomGuards> }
+export interface CreateRoomInput { name: string; members: string[]; strategy?: RoomStrategy; lead?: string; guards?: Partial<RoomGuards>; /** Owner only (the HTTP route); a bot's room_create never sets it. */ projectId?: string }
+export interface PatchRoomInput { name?: string; strategy?: RoomStrategy; lead?: string; guards?: Partial<RoomGuards>; /** null clears it. */ projectId?: string | null }
 
 export const MAX_TEXT = 20_000;
 export const ROOM_READ_MAX_CHARS = 8_000;
@@ -173,6 +175,7 @@ export class CommsHub {
   /** Human messages that arrived while a room was stopped on its budget, replayed on resume. In memory only: a restart forgets them (they are still in the transcript). */
   private readonly held = new Map<string, Array<{ botId: string; d: Delivery }>>();
   private readonly agents: HubStore;
+  private readonly projects?: HubOptions['projects'];
   private readonly bus: EventBus;
   private readonly rooms: RoomStore;
   private readonly now: () => number;
@@ -203,6 +206,7 @@ export class CommsHub {
     this.now = o.now ?? Date.now;
     this.comms = { ...DEFAULT_COMMS, ...(o.comms ?? {}) };
     this.approve = o.approve;
+    this.projects = o.projects;
     const floor = o.turnCostFloorUsd ?? o.comms?.turnCostFloorUsd;
     this.turnFloor = typeof floor === 'number' && floor >= 0 ? floor : DEFAULT_TURN_FLOOR_USD;
     this.rooms = new RoomStore(o.dataDir);
@@ -237,10 +241,11 @@ export class CommsHub {
     const lead = input.lead === undefined ? members[0]! : (this.resolveAgent(input.lead)?.id ?? input.lead);
     if (!members.includes(lead)) throw new CommsError(400, 'lead must be a member');
     if (input.strategy !== undefined && !STRATEGIES.includes(input.strategy)) throw new CommsError(400, `strategy must be one of: ${STRATEGIES.join(', ')}`);
+    const projectId = input.projectId === undefined ? undefined : this.checkProject(input.projectId, members);
     const now = nowIso();
     const room: Room = {
       id: newId('room'), kind: 'group', name, members, lead, strategy: input.strategy ?? 'mention',
-      guards: mergeGuards(DEFAULT_GUARDS, input.guards), costUsd: 0, hopsSinceHuman: 0, ...(createdBy ? { createdBy } : {}), createdAt: now, updatedAt: now,
+      guards: mergeGuards(DEFAULT_GUARDS, input.guards), costUsd: 0, hopsSinceHuman: 0, ...(createdBy ? { createdBy } : {}), ...(projectId ? { projectId } : {}), createdAt: now, updatedAt: now,
     };
     this.commit(room);
     return clone(room);
@@ -259,8 +264,22 @@ export class CommsHub {
       room.lead = lead;
     }
     if (patch.guards !== undefined) room.guards = mergeGuards(room.guards, patch.guards);
+    if (patch.projectId !== undefined) {
+      const pid = patch.projectId === null ? undefined : this.checkProject(patch.projectId, room.members);
+      if (pid) room.projectId = pid; else delete room.projectId;
+    }
     this.commit(room);
     return clone(room);
+  }
+
+  /** A room belongs to a project only if the project exists, is active, and every member of the room is a member of the project. Returns the id. */
+  private checkProject(projectId: string, members: string[]): string {
+    const p = this.projects?.get(projectId);
+    if (!p) throw new CommsError(404, `Unknown project "${projectId}"`);
+    if (p.status !== 'active') throw new CommsError(409, `Project "${p.name}" is archived`);
+    const outside = members.filter((m) => !p.members.includes(m));
+    if (outside.length) throw new CommsError(400, `${outside.map((m) => this.nameOf(m)).join(', ')} ${outside.length === 1 ? 'is' : 'are'} not in project "${p.name}". Add them to the project first (it needs your confirmation in the app).`);
+    return projectId;
   }
 
   deleteRoom(id: string): void {
@@ -284,6 +303,7 @@ export class CommsHub {
     if (room.kind === 'dm') throw new CommsError(400, 'The members of a direct message cannot be changed');
     const remove = unique(change.remove ?? []);
     const add = this.cleanMembers(change.add ?? []).filter((m) => !room.members.includes(m));
+    if (room.projectId && add.length) this.checkProject(room.projectId, add);
     for (const m of remove) if (!room.members.includes(m)) throw new CommsError(400, `"${m}" is not a member`);
     const next = [...room.members.filter((m) => !remove.includes(m)), ...add];
     if (next.length < 2 || next.length > MAX_MEMBERS) throw new CommsError(400, `A group needs 2 to ${MAX_MEMBERS} bots`);
@@ -665,6 +685,7 @@ export class CommsHub {
     if (op === 'add') {
       if (room.members.includes(target.id)) throw new CommsError(400, `${target.name} is already in this room.`);
       if (room.members.length >= max) throw new CommsError(400, `A bot can grow a room to at most ${max} bots; this one has ${room.members.length}. Ask the user.`);
+      if (room.projectId) this.checkProject(room.projectId, [target.id]);
     } else {
       if (!room.members.includes(target.id)) throw new CommsError(400, `${target.name} is not in this room.`);
       if (target.id === sender.id) throw new CommsError(400, 'You cannot remove yourself; ask the user, or hand the thread off.');
@@ -850,6 +871,8 @@ export class CommsHub {
       try {
         task = this.engine.startTask({
           agentId: botId, prompt, source: 'bot',
+          // the room's project (the engine still requires this bot to be a member); null clears one a continued task still carries
+          ...(this.projects ? { projectId: room.projectId ?? null } : {}),
           ...(continueId ? { continueTaskId: continueId } : {}),
           ...(asked ? { model: asked.msg.model!, modelOverrideBy: (asked.msg.from as { agentId: string }).agentId } : {}),
           ...(origin ? { origin } : {}),

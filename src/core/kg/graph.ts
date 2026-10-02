@@ -14,6 +14,7 @@ import type {
   KgActivityRow, KgEdge, KgInboxRow, KgLintLite, KgLintReport, KgNode, KgNodeType, KgOrigin, KgScope, KgSearchHit, KgSource, KgStatus,
   KgSubgraph, KgTrust,
 } from '../../shared/kg.js';
+import { projectIdOfScope, projectScope } from '../../shared/projects.js';
 import { newId, nowIso } from '../../shared/util.js';
 import { findForbiddenSecretInField, scrubSecrets } from '../comms/scrub.js';
 import { ActivityLog, ACTIVITY_DAYS } from './activity.js';
@@ -121,6 +122,8 @@ const BULK_DELETES = 5;
 const BULK_WINDOW_MS = 10 * 60_000;
 const TRUST_RANK: Record<KgTrust, number> = { untrusted: 0, agent: 1, human: 2 };
 const minTrust = (a: KgTrust, b: KgTrust): KgTrust => (TRUST_RANK[a] <= TRUST_RANK[b] ? a : b);
+/** Score factor for the running project's own notes in search and recall. */
+export const PROJECT_BOOST = 1.5;
 const K1 = 1.2;
 const B = 0.75;
 
@@ -130,6 +133,8 @@ interface CleanFields {
 }
 
 const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v);
+/** Scopes several runs read (the shared scope, and a project's): writes there follow the shared rules (held, proposals), unlike a private scope. */
+const isSharedLike = (scope: KgScope): boolean => scope === 'shared' || projectIdOfScope(scope) !== undefined;
 export const isScope = (v: unknown): v is KgScope => v === 'shared' || v === 'bsv' || (typeof v === 'string' && SCOPE_RE.test(v));
 const normTitle = (t: string): string => oneLine(t).toLowerCase();
 
@@ -230,12 +235,17 @@ export class Graph {
   canSee(actor: Actor, scope: KgScope): boolean {
     if (scope === 'shared') return true;
     if (scope === 'bsv') return this.bsvOn();
+    // a project's notes: the owner, and runs that belong to that project (the engine sets actor.projectId, never a tool argument)
+    const pid = projectIdOfScope(scope);
+    if (pid !== undefined) return actor.kind === 'agent' ? actor.projectId === pid : true;
     return actor.kind === 'agent' ? scope === `agent:${actor.id}` : true;
   }
 
   canWrite(actor: Actor, scope: KgScope): boolean {
     if (scope === 'shared') return true;
     if (actor.kind !== 'agent') return true;
+    const pid = projectIdOfScope(scope);
+    if (pid !== undefined) return actor.projectId === pid;
     return scope === `agent:${actor.id}`;
   }
 
@@ -352,7 +362,9 @@ export class Graph {
       if (opts.type !== undefined && n.type !== opts.type) continue;
       if (wantTags.length && !wantTags.every((t) => n.tags.includes(t))) continue;
       // recall v2: BM25 x recency x confidence x trust; a retired node, when asked for, counts for a third
-      ranked.push({ n, score: Math.round(score * rankFactor(n, nowMs) * (inactive ? 0.3 : 1) * 10_000) / 10_000, inactive });
+      // a run inside a project prefers that project's own notes over equal shared ones (other projects' notes were already filtered out by canSeeNode)
+      const mine = actor.kind === 'agent' && actor.projectId !== undefined && n.scope === projectScope(actor.projectId) ? PROJECT_BOOST : 1;
+      ranked.push({ n, score: Math.round(score * rankFactor(n, nowMs) * mine * (inactive ? 0.3 : 1) * 10_000) / 10_000, inactive });
     }
     ranked.sort((a, b) => b.score - a.score || b.n.updatedAt.localeCompare(a.n.updatedAt) || a.n.id.localeCompare(b.n.id));
     return ranked.slice(0, limit).map(({ n, score, inactive }): KgSearchHit => ({
@@ -658,14 +670,14 @@ export class Graph {
     const askWoken = isAskCapped(agent);
     // A run capped at "ask" (started by an MCP client, or woken by one) may be carrying text somebody else planted. Its shared notes wait in
     // the Inbox for you; its private notes (no human sees them first) are stored untrusted, which keeps them out of the next run's briefing.
-    const trust: KgTrust = tainted || (askWoken && scope !== 'shared') || untrustedFlag ? 'untrusted' : actor.kind === 'human' ? 'human' : 'agent';
+    const trust: KgTrust = tainted || (askWoken && !isSharedLike(scope)) || untrustedFlag ? 'untrusted' : actor.kind === 'human' ? 'human' : 'agent';
     const archivist = agent?.id === ARCHIVIST_ID;
-    const hold = !!agent && scope === 'shared' && (tainted || askWoken || archivist);
+    const hold = !!agent && isSharedLike(scope) && (tainted || askWoken || archivist);
     const origin: KgOrigin | undefined = agent?.taskId
       ? { taskId: agent.taskId, tainted, ...(agent.origin?.fromAgentId ? { via: agent.origin.fromAgentId } : {}) }
       : undefined;
     const notes: string[] = [];
-    if (askWoken && !tainted && scope !== 'shared') notes.push('This run was started by an MCP client or another bot under "ask" approvals, so what you write here is stored as untrusted and is not shown in the next run\'s briefing.');
+    if (askWoken && !tainted && !isSharedLike(scope)) notes.push('This run was started by an MCP client or another bot under "ask" approvals, so what you write here is stored as untrusted and is not shown in the next run\'s briefing.');
     if (tainted) notes.push('This run touched outside content (web, shell or external tools), so what you write is stored as untrusted' + (hold ? ' and shared notes wait for the human to accept them.' : '.'));
     else if (hold && askWoken) notes.push('This run was started by another bot under "ask" approvals, so shared notes wait for the human to accept them.');
     else if (hold) notes.push('You are the Archivist: you flag and propose, you never decide. Shared notes you write wait for the human to accept them.');
@@ -801,7 +813,7 @@ export class Graph {
     }
     const existingTrust = trustOf(existing);
     const heldEdit = opts.held === true && statusOf(existing) !== 'pending';
-    if ((w.agent && existing.scope === 'shared') || heldEdit) {
+    if ((w.agent && isSharedLike(existing.scope)) || heldEdit) {
       const ownedByRun = !!w.agent?.taskId && existing.origin?.taskId === w.agent.taskId;
       // A bot never rewrites a human's note, and a held run never rewrites someone else's: it proposes a copy.
       if (heldEdit || existingTrust === 'human' || (w.hold && !ownedByRun)) {
@@ -832,7 +844,7 @@ export class Graph {
       // an agent edit can only keep or lower trust, and records which run last touched the node
       next.trust = minTrust(existingTrust, w.trust);
       if (w.origin) next.origin = { ...w.origin, tainted: w.origin.tainted || existing.origin?.tainted === true };
-      if (w.hold && existing.scope === 'shared' && statusOf(existing) === 'active') {
+      if (w.hold && isSharedLike(existing.scope) && statusOf(existing) === 'active') {
         // A live note this run wrote while it was still clean, rewritten after the run turned tainted: the rewrite goes to the
         // inbox under the same id, and the clean version stays live as a copy (with the same links) until the human decides, so
         // rejecting the rewrite loses nothing and other bots do not lose the note meanwhile.
@@ -1318,7 +1330,7 @@ export class Graph {
   private editMode(actor: Actor, n: KgNode): 'direct' | 'proposal' | 'forbidden' {
     if (actor.kind !== 'agent') return 'direct';
     if (!this.canWrite(actor, n.scope) || n.id.startsWith(WM_PREFIX)) return 'forbidden';
-    if (n.scope !== 'shared') return 'direct';
+    if (!isSharedLike(n.scope)) return 'direct';
     const w = this.writeCtx(actor, n.scope, false);
     const ownedByRun = !!actor.taskId && n.origin?.taskId === actor.taskId;
     return trustOf(n) === 'human' || (w.hold && (!ownedByRun || statusOf(n) === 'active')) ? 'proposal' : 'direct';
@@ -1524,7 +1536,7 @@ export class Graph {
     if (mode === 'forbidden') throw new KgError('forbidden', `You may not replace "${old.id}" (scope ${old.scope}).`);
     const g = this.guard();
     const asBot = actor.kind === 'agent';
-    const direct = !asBot || (mode === 'direct' && statusOf(nw) === 'active' && !(old.scope === 'shared' && effectiveTrust(nw) === 'untrusted'));
+    const direct = !asBot || (mode === 'direct' && statusOf(nw) === 'active' && !(isSharedLike(old.scope) && effectiveTrust(nw) === 'untrusted'));
     if (direct) {
       if (!asBot) this.requireNotPending(nw);
       const ops = this.supersedeOps(old, nw, actorName(actor));
@@ -1568,7 +1580,7 @@ export class Graph {
     if (modes.includes('forbidden')) throw new KgError('forbidden', `You may not change one of these notes (scope ${keep.scope}).`);
     const g = this.guard();
     const asBot = actor.kind === 'agent';
-    const untrustedIntoTrusted = asBot && keep.scope === 'shared' && effectiveTrust(keep) === 'untrusted' && drops.some((d) => effectiveTrust(d) !== 'untrusted');
+    const untrustedIntoTrusted = asBot && isSharedLike(keep.scope) && effectiveTrust(keep) === 'untrusted' && drops.some((d) => effectiveTrust(d) !== 'untrusted');
     const direct = !asBot || (modes.every((m) => m === 'direct') && !untrustedIntoTrusted && [keep, ...drops].every((n) => statusOf(n) === 'active'));
     if (direct) {
       const { ops } = this.mergeOps(actor, keep, drops, actorName(actor));
@@ -1788,8 +1800,8 @@ export class Graph {
    * trigger notes, the titles of the best recall hits that are trusted and live, and how many of its notes await review.
    * Pure and synchronous. Nothing from a tainted run, an untrusted source or a pending note can appear here.
    */
-  briefingParts(agentId: string, opts: { projectKey?: string; prompt?: string } = {}): BriefingParts {
-    const me = agentActor(agentId);
+  briefingParts(agentId: string, opts: { projectKey?: string; prompt?: string; projectId?: string } = {}): BriefingParts {
+    const me = agentActor(agentId, opts.projectId ? { projectId: opts.projectId } : {});
     const clean = (n: KgNode): boolean => statusOf(n) === 'active' && effectiveTrust(n) !== 'untrusted' && n.origin?.tainted !== true;
     let wm: string | undefined;
     const w = this.nodes.get(wmId(agentId));

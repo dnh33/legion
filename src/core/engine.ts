@@ -26,6 +26,9 @@ import type { McpStatusView } from '../shared/types.js';
 import { providerPrefix } from './providers/runtime.js';
 import type { ProviderRuntime } from './providers/runtime.js';
 import type { ProviderHost, ResolvedModel } from './providers/types.js';
+import type { Project } from '../shared/projects.js';
+import { projectSection } from './projects/prompt.js';
+import type { ProjectStore } from './projects/store.js';
 
 export type QueryFn = typeof sdkQuery;
 
@@ -41,6 +44,8 @@ export interface EngineDeps {
   taintedPaths?: TaintedPaths;
   /** Other model providers (OpenAI-compatible endpoints). Absent: every run is a Claude run, exactly as before. */
   providers?: ProviderRuntime;
+  /** Projects (src/core/projects). Absent: no task has a project and nothing about projects is interpreted. */
+  projects?: ProjectStore;
 }
 
 /**
@@ -165,6 +170,7 @@ export class Engine {
   private readonly maxConcurrent: number;
   private readonly taintedPaths: TaintedPaths;
   private readonly providers?: ProviderRuntime;
+  private readonly projects?: ProjectStore;
   private readonly queue: Job[] = [];
   private readonly active = new Map<string, Active>();
   private idleTimer: ReturnType<typeof setTimeout> | undefined;
@@ -180,6 +186,7 @@ export class Engine {
     this.maxConcurrent = Math.max(1, deps.maxConcurrent ?? 4);
     this.modules = deps.modules ?? [];
     this.providers = deps.providers;
+    this.projects = deps.projects;
     this.taintedPaths = deps.taintedPaths ?? new TaintedPaths(join(deps.config.workspaceDir, '.tainted-paths.json'));
     this.bridge = new Bridge({ store: this.store, bus: this.bus, engine: this });
   }
@@ -212,6 +219,7 @@ export class Engine {
       if (!prev) throw new EngineError(`Unknown task: ${p.continueTaskId}`, 404);
       if (prev.status === 'queued' || prev.status === 'running') throw new EngineError('Task is still running', 409);
       if (prev.agentId !== agent.id) throw new EngineError('Task belongs to a different agent', 400);
+      const projectId = this.pickProject(p, agent, prev);
       priorModel = prev.model;
       const viaBridge = p.bridge && !p.bridge.reply;
       // A model another bot chose lasts for that run only: a later message that asks for none (and is not a reply landing in the caller's own task) goes back to the agent's setting.
@@ -221,6 +229,7 @@ export class Engine {
         requestedModel: p.model ?? (prev.modelOverride && !keepOverride ? agent.model : prev.requestedModel),
         modelOverride: overriding ? { model: p.model!, by: p.modelOverrideBy! } : keepOverride ? prev.modelOverride : undefined,
         result: undefined, error: undefined,
+        ...(this.projects ? { projectId } : {}),
         ...(viaBridge ? { fromAgentId: p.bridge!.fromAgentId, parentTaskId: p.bridge!.parentTaskId } : {}),
         bridgeHop: p.bridge ? p.bridge.hop ?? 0 : undefined,
         // A human continuing a task clears any bot-origin ceiling; a bridge reply keeps the task's own.
@@ -231,6 +240,7 @@ export class Engine {
       const now = nowIso();
       const base = prompt.replace(/^\s*\/(opus|sonnet)\b\s*/i, '') || prompt;
       const callerName = p.bridge ? (this.store.getAgent(p.bridge.fromAgentId)?.name ?? p.bridge.fromAgentId) : '';
+      const projectId = this.pickProject(p, agent, undefined);
       task = this.saveTask({
         id: newId('task'), agentId: agent.id,
         title: p.bridge ? `${callerName}: ${base.replace(/\s+/g, ' ').trim().slice(0, 50)}` : titleFrom(base),
@@ -239,6 +249,7 @@ export class Engine {
         requestedModel: p.model ?? agent.model, createdAt: now, updatedAt: now,
         ...(overriding ? { modelOverride: { model: p.model!, by: p.modelOverrideBy! } } : {}),
         ...(origin ? { origin } : {}),
+        ...(projectId ? { projectId } : {}),
         ...(tainted ? { tainted: true } : {}),
       });
     }
@@ -250,6 +261,39 @@ export class Engine {
     });
     queueMicrotask(() => this.pump());
     return { ...task };
+  }
+
+  /**
+   * The project a new or continued task belongs to. Only the app (source 'ui', admin) and a room's own wake (source 'bot') may name one;
+   * a bridge run (ask/tell) inherits its caller's task's project; an MCP or CLI client never picks. The agent must be a member and the
+   * project active. The app gets an error for a bad pick; a room or bridge run just starts without the project. Continuing keeps the
+   * task's project unless the app or the room says otherwise. `undefined` = no project.
+   */
+  private pickProject(p: BridgeStartParams, agent: AgentProfile, prev: Task | undefined): string | undefined {
+    if (!this.projects) {
+      if (p.source === 'ui' && typeof p.projectId === 'string') throw new EngineError('Projects are not available in this core', 400);
+      return prev?.projectId;
+    }
+    let want: string | undefined;
+    let named = false;
+    if ((p.source === 'ui' || p.source === 'bot') && p.projectId !== undefined) { want = p.projectId ?? undefined; named = true; }
+    else if (prev) want = prev.projectId;
+    else if (p.bridge && !p.bridge.reply && p.bridge.parentTaskId) want = this.store.getTask(p.bridge.parentTaskId)?.projectId;
+    if (!want) return undefined;
+    const pr = this.projects.get(want);
+    if (pr && pr.status === 'archived') {
+      if (p.source === 'ui' || (prev && !named)) throw new EngineError(`Project "${pr.name}" is archived. Unarchive it to start or continue a task in it.`, 409);
+      return undefined;
+    }
+    if (pr && pr.members.includes(agent.id)) return want;
+    if (p.source === 'ui' && named) throw new EngineError(pr ? `${agent.name} is not a member of project "${pr.name}"` : `Unknown project: ${want}`, 400);
+    return undefined;
+  }
+
+  /** The project this task's run belongs to right now (active, agent is a member), else undefined. Checked at every run. */
+  private projectOf(taskId: string, agentId: string): Project | undefined {
+    if (!this.projects) return undefined;
+    return this.projects.forRun(this.store.getTask(taskId)?.projectId, agentId);
   }
 
   /**
@@ -517,6 +561,7 @@ export class Engine {
 
   private buildMcpServers(agent: AgentProfile, job: Job, act: Active): Record<string, McpServerConfig> {
     const taskId = job.taskId;
+    const pid = this.projectOf(taskId, agent.id)?.id;
     const out: Record<string, McpServerConfig> = {};
     const wanted = agent.mcpServers ?? [];
     const all = wanted.includes('*');
@@ -539,6 +584,7 @@ export class Engine {
       taskId, ...(job.origin ? { origin: job.origin, ceiling: job.origin.approvalCeiling } : {}),
       taint: () => act.tainted || job.origin?.tainted === true,
       markTainted: () => { act.tainted = true; },
+      ...(pid ? { projectId: pid } : {}),
     };
     for (const m of this.modules) {
       try { Object.assign(out, m.mcpServers?.(agent, moduleJob) ?? {}); } catch { /* a broken module must not break runs */ }
@@ -636,15 +682,21 @@ export class Engine {
   private buildOptions(job: Job, agent: AgentProfile, model: ConcreteModel, act: Active, prompt: string, resume?: string): Options {
     const cwd = agent.cwd || join(this.config.workspaceDir, agent.id);
     mkdirSync(cwd, { recursive: true });
+    // the project (if any) adds text AFTER everything else and one extra folder: its own, and only its own
+    const project = this.projectOf(job.taskId, agent.id);
+    let projectFolder: string | undefined;
+    if (project) { try { mkdirSync(project.folder, { recursive: true }); projectFolder = project.folder; } catch { /* no folder this run: the instructions still apply */ } }
     const options: Options = {
       model,
       cwd,
       systemPrompt: {
         type: 'preset', preset: 'claude_code',
         append: LEGION_PREAMBLE.replace('{name}', agent.name)
-          + this.modulePreamble(agent, { prompt, taskId: job.taskId, ...(job.origin ? { origin: job.origin } : {}), tainted: act.tainted || job.origin?.tainted === true })
-          + (agent.systemPrompt ? '\n\n' + agent.systemPrompt : ''),
+          + this.modulePreamble(agent, { prompt, taskId: job.taskId, ...(job.origin ? { origin: job.origin } : {}), tainted: act.tainted || job.origin?.tainted === true, ...(project ? { projectId: project.id } : {}) })
+          + (agent.systemPrompt ? '\n\n' + agent.systemPrompt : '')
+          + (project ? '\n\n' + projectSection({ name: project.name, instructions: project.instructions, folder: project.folder }) : ''),
       },
+      ...(projectFolder ? { additionalDirectories: [projectFolder] } : {}),
       settingSources: this.config.claude.inheritClaudeCodeSettings ? ['user', 'project', 'local'] : [],
       mcpServers: this.buildMcpServers(agent, job, act),
       // Off (default): only the servers above, asks the CLI to ignore user/project/local MCP config and plugins. claude.ai connectors are asked off in buildChildEnv and in `settings`.

@@ -44,6 +44,8 @@ export interface Room {
   hopsSinceHuman: number;
   /** Agent id of the bot that created this room (`room_create`, after the user approved it). Absent for rooms the user made. Only the user can delete the room. */
   createdBy?: string;
+  /** The project this room belongs to (absent: none). Set by the owner only; every member must be a member of the project. */
+  projectId?: string;
   createdAt: string;
   updatedAt: string;
 }
