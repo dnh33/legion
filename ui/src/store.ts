@@ -3,6 +3,7 @@ import type {
   AgentProfile, ApprovalRequest, BoatHealthView, Catalog, SettingsPatch, SettingsView, ChatMessage, DoctorCheck, LegionEvent, MascotMood, ModelChoice, StateSnapshot, Task, VmRecord,
 } from '../../src/shared/types';
 import { api, subscribe, ApiError, type ConnStatus } from './api';
+import { incomingWins } from './chat/tasksync';
 
 export type RelicState = 'idle' | 'listening' | 'thinking' | 'hacking' | 'awaiting' | 'victory' | 'error' | 'sleeping' | 'annoyed';
 
@@ -85,6 +86,8 @@ export function setState(p: Partial<AppState> | ((s: AppState) => Partial<AppSta
   listeners.forEach((l) => l());
 }
 function sub(l: () => void) { listeners.add(l); return () => { listeners.delete(l); }; }
+/** Plain subscription to every store write (for non-React code such as the message queue runner). Keep the callback cheap. */
+export const subscribeStore = sub;
 
 export function useStore<T>(selector: (s: AppState) => T): T {
   return useSyncExternalStore(sub, () => selector(state));
@@ -109,6 +112,12 @@ function upsertTask(tasks: Task[], t: Task): Task[] {
   const i = tasks.findIndex((x) => x.id === t.id);
   if (i === -1) return [t, ...tasks];
   const next = tasks.slice(); next[i] = t; return next;
+}
+
+/** Like upsertTask, but never replaces a task with an older snapshot (an HTTP response can arrive after the events that followed it). */
+function upsertTaskIfNewer(tasks: Task[], t: Task): Task[] {
+  const cur = tasks.find((x) => x.id === t.id);
+  return cur && !incomingWins(cur, t) ? tasks : upsertTask(tasks, t);
 }
 
 export function tasksForAgent(s: AppState, agentId: string) {
@@ -145,7 +154,12 @@ function flushDeltas() {
 }
 const flushDeltasFor = (taskId: string) => { if (pendingDelta[taskId] !== undefined) flushDeltas(); };
 
+const eventTaps = new Set<(e: LegionEvent) => void>();
+/** Observe every event BEFORE the store handles it (the queue prunes on task.deleted / agent.deleted and still sees the old state). */
+export function tapEvents(fn: (e: LegionEvent) => void): () => void { eventTaps.add(fn); return () => { eventTaps.delete(fn); }; }
+
 export function handleEvent(e: LegionEvent) {
+  eventTaps.forEach((t) => { try { t(e); } catch { /* a tap never breaks the store */ } });
   switch (e.type) {
     case 'task.updated': {
       if (e.task.status === 'done' || e.task.status === 'error' || e.task.status === 'cancelled') flushDeltasFor(e.task.id);
@@ -286,7 +300,7 @@ export async function loadTask(id: string, force = false) {
       const live = s.messages[id] ?? [];
       const ids = new Set(messages.map((m) => m.id));
       const merged = [...messages, ...live.filter((m) => !ids.has(m.id) && !m.id.startsWith('tmp-'))];
-      return { messages: { ...s.messages, [id]: merged }, tasks: upsertTask(s.tasks, task) };
+      return { messages: { ...s.messages, [id]: merged }, tasks: upsertTaskIfNewer(s.tasks, task) };
     });
   } catch (e) { toast(errText(e), 'error'); }
 }
@@ -334,12 +348,18 @@ export async function loadCatalog(force = false) {
   }
 }
 
-export async function sendPrompt(prompt: string): Promise<boolean> {
+export type SendResult = { ok: true; task: Task } | { ok: false; status: number; message: string };
+
+/**
+ * Sends a prompt to a given thread (a task to continue, or null for a new task of `agentId`). The composer uses it for the selected thread; the
+ * message queue uses it for any thread, so it never reads the selection. `select` moves the view to the task the send created/continued.
+ */
+export async function sendPromptTo(target: { agentId: string; taskId: string | null }, prompt: string, opts: { model?: ModelChoice; select?: boolean } = {}): Promise<SendResult> {
   const s = getState();
   const text = prompt.trim();
-  if (!text) return false;
-  const cont = s.selectedTaskId ? s.tasks.find((t) => t.id === s.selectedTaskId) : undefined;
-  const body = { agentId: s.selectedAgentId, prompt: text, model: effectiveModel(s), ...(cont ? { continueTaskId: cont.id } : {}) };
+  if (!text) return { ok: false, status: 400, message: 'Prompt is empty' };
+  const cont = target.taskId ? s.tasks.find((t) => t.id === target.taskId) : undefined;
+  const body = { agentId: target.agentId, prompt: text, model: opts.model ?? effectiveModel(s), ...(cont ? { continueTaskId: cont.id } : {}) };
   // optimistic echo for follow-ups (replaced when the real user message arrives)
   if (cont) {
     const tmp: ChatMessage = { id: 'tmp-' + Date.now(), taskId: cont.id, role: 'user', text, at: new Date().toISOString() };
@@ -348,16 +368,23 @@ export async function sendPrompt(prompt: string): Promise<boolean> {
   try {
     const task = await api.createTask(body);
     setState((st) => ({
-      tasks: upsertTask(st.tasks, task), selectedTaskId: task.id, selectedAgentId: task.agentId,
+      tasks: upsertTaskIfNewer(st.tasks, task),
+      ...(opts.select === false ? {} : { selectedTaskId: task.id, selectedAgentId: task.agentId }),
       messages: st.messages[task.id] ? st.messages : { ...st.messages, [task.id]: [] },
     }));
     if (!cont) void loadTask(task.id, true);
-    return true;
+    return { ok: true, task };
   } catch (e) {
     if (cont) setState((st) => ({ messages: { ...st.messages, [cont.id]: (st.messages[cont.id] ?? []).filter((m) => !m.id.startsWith('tmp-')) } }));
-    toast(errText(e), 'error');
-    return false;
+    return { ok: false, status: e instanceof ApiError ? e.status : 0, message: errText(e) };
   }
+}
+
+export async function sendPrompt(prompt: string): Promise<boolean> {
+  const s = getState();
+  const r = await sendPromptTo({ agentId: s.selectedAgentId, taskId: s.selectedTaskId }, prompt, { select: true });
+  if (!r.ok) { if (r.message !== 'Prompt is empty') toast(r.message, 'error'); return false; }
+  return true;
 }
 
 export async function cancelSelected() {

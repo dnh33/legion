@@ -1,5 +1,6 @@
 import { memo } from 'react';
 import type { AgentProfile, ChatMessage, Task } from '../../../src/shared/types';
+import { CopyMenu } from './CopyMenu';
 import { Markdown } from './Markdown';
 import { modelLabel } from '../models';
 import { selectTask, useStore } from '../store';
@@ -35,6 +36,7 @@ function MessageViewImpl({ m, agent, task, streaming }: { m: Pick<ChatMessage, '
         <ModelTag task={task} />
       </div>
       <Markdown text={m.text} caret={streaming} />
+      {!streaming && m.text.trim() !== '' && <CopyMenu text={m.text} />}
     </div>
   );
 }

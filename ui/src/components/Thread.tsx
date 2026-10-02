@@ -132,7 +132,7 @@ export function Thread() {
                   {lastUser && <button className="btn sm" onClick={() => void sendPrompt(lastUser.text)}>Retry</button>}
                 </div>
               )}
-              {task?.status === 'cancelled' && <div className="msg system">Cancelled</div>}
+              {task?.status === 'cancelled' && !(messages[messages.length - 1]?.role === 'system' && messages[messages.length - 1]?.text === 'Cancelled') && <div className="msg system">Cancelled</div>}
               <div className="thread-pad" />
             </>
           )}

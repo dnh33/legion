@@ -38,6 +38,8 @@ Claude Code and Cowork can drive Legion too, over MCP.
 - **A VM per agent, on demand.** Agents start, use and stop their own boat.dev VM. You get a live screen preview and an "Open desktop" link. Idle VMs stop on their own so billing pauses.
 - **Inline approvals.** Per agent, choose `ask`, `auto-edits` or `full`. Risky tool calls show up as Allow/Deny cards in the thread. Press `A` or `D`.
 - **Slash commands and a model picker** in the composer.
+- **A message queue.** While an agent works, Enter queues your next messages (in order, shown above the composer); Ctrl+Enter interrupts the run and sends now. A stop, a failure or a reload pauses the queue instead of sending on its own. See [docs/CHAT.md](docs/CHAT.md).
+- **Copy menu** under every reply: copy as Markdown or as plain text.
 - **Orchestration over MCP.** Claude Code connects over HTTP; Cowork and Claude Desktop connect over a stdio bridge.
 - **Doctor.** A built-in check of Node, config, Claude sign-in, boat.dev and the workspace, with a fix for each failure.
 - **A hand-painted animated mascot**, The Relic, that reacts to what your agents are doing.
@@ -195,6 +197,7 @@ The data directory holds `config.json`, `state.json`, `messages/`, `workspaces/<
 | `Ctrl+K` | Command palette |
 | `Ctrl+N` | New task |
 | `Ctrl+M` | Model picker |
+| `Enter` / `Ctrl+Enter` | Send. While the agent works: queue / interrupt and send now |
 | `Ctrl+.` | Toggle the Ops panel |
 | `Alt+1` to `Alt+9` | Switch agent |
 | `A` / `D` | Allow / Deny the focused approval |
