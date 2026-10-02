@@ -213,7 +213,7 @@ test('C13: network, programs and native libraries are refused while the script r
     `attempt("url", lambda: urllib.request.urlopen("http://127.0.0.1:${port}/", timeout=2))`,
     `attempt("popen", lambda: subprocess.Popen([${py(python!)}, ${py(touch)}]))`,
     `attempt("system", lambda: os.system(${py(`"${python}" "${touch}"`)}))`,
-    'attempt("dlopen", lambda: ctypes.CDLL(None))',
+    `attempt("dlopen", lambda: ctypes.CDLL(${process.platform === 'win32' ? "'kernel32'" : 'None'}))`,
     '',
   ].join('\n');
   const o = runScript(r, script);

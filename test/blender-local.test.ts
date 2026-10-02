@@ -180,6 +180,9 @@ test('C11: the child gets an allowlisted environment; secrets, proxies and PYTHO
     assert.ok(!JSON.stringify(seen.env).includes('sk-ant-secret'));
     const allowed = new Set(['systemroot', 'systemdrive', 'windir', 'comspec', 'pathext', 'path', 'temp', 'tmp', 'tmpdir', 'home', 'userprofile', 'lang', 'pythonutf8', 'pythonioencoding',
       'blender_user_config', 'blender_user_scripts', 'blender_user_datafiles', 'blender_user_extensions']);
+    // Windows adds a few standard variables of its own to every process, whatever the parent passes (user name, home drive, ...): measured with a bare
+    // Node child; the product's allowlist cannot remove them. The leak checks above (keys, proxies, PYTHONPATH, tokens) are what C11 proves.
+    if (process.platform === 'win32') for (const k of ['homedrive', 'homepath', 'logonserver', 'userdomain', 'username', 'windir', 'systemdrive', 'systemroot', 'path']) allowed.add(k);
     for (const k of keys) assert.ok(allowed.has(k), `unexpected variable ${k}`);
     assert.ok(keys.includes('pythonutf8') && keys.includes('pythonioencoding'));
     assert.equal(seen.env.PYTHONUTF8, '1');
