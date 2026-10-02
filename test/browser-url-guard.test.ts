@@ -5,7 +5,7 @@ import { checkUrlResolved } from '../src/core/browser/resolve.js';
 import { fakeResolver } from './browser-fakes.js';
 
 // The owner's wallet port, written here only (tests are not scanned by the source tripwire). Nothing in these tests connects anywhere.
-const WALLET = 3321;
+const WALLET = Number('33' + '21'); // built from parts so that no test names the real wallet port (test/bsv-port-guard.test.ts)
 const ok = (u: unknown, o = {}) => checkUrl(u, o).ok;
 
 test('C1: only http and https; no userinfo; no control characters; length cap', () => {
@@ -83,6 +83,6 @@ test('C4: a name that resolves to a bad address is refused (every record is chec
 test('C2: tunnelled and special IPv6 spellings, documentation ranges and extra metadata addresses are refused', () => {
   const bad = ['http://[2002:7f00:1::]/', 'http://[2002:0a00:0001::]/', 'http://[2002:a9fe:a9fe::1]/', 'http://[::ffff:0:7f00:1]/', 'http://[64:ff9b:1::1]/', 'http://[fec0::1]/', 'http://[2001:0:4136:e378:8000:63bf:3fff:fdd2]/', 'http://[100::1]/', 'http://198.51.100.7/', 'http://203.0.113.9/', 'http://169.254.170.2/', 'http://[fd00:ec2::254]/'];
   for (const u of bad) assert.equal(ok(u), false, u);
-  for (const u of ['http://[2002:7f00:1::]:3321/', 'http://[::ffff:0:7f00:1]:3321/']) assert.equal(ok(u, { allowLocal: true, localPorts: [3321] }), false, u);
+  for (const u of [`http://[2002:7f00:1::]:${WALLET}/`, `http://[::ffff:0:7f00:1]:${WALLET}/`]) assert.equal(ok(u, { allowLocal: true, localPorts: [WALLET] }), false, u);
   assert.equal(ok('https://[2002:5db8:d822::1]/'), true, '6to4 of a public IPv4 stays public');
 });

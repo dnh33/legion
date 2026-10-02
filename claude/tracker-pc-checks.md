@@ -178,5 +178,6 @@ ABORT at once (Freeze, Disable mainnet, no retry, record) if: a dialog differs f
 | ND11 | Title bar note count (owner's real graph; read it, change nothing): with BSV mode on the bar shows `<n> BSV notes`, with `(pack 157)` when n differs; the panel's Knowledge notes section gives the line `bundled pack: 157 notes (version 7); in your graph: n; removed or merged by you or a bot: a; added by you: b; missing: c`. Check a, b, c against what you remember doing (deleting, merging, adding notes). Turn the core off or block it: the bar must say `BSV notes: unknown`, never 0. If `missing` is above 0, press `Restore N missing bundled notes` and confirm the number rises by N and edited notes keep your text. | todo |
 
 
+
 ## Browser tool (Lightpanda) - see claude/tracker-pc-checks-browser.md for the full steps (BR1 to BR14)
 Safety classes: BR2 downloads; BR3-BR8 none (a harmless public page you control); BR12 native dialog; BR13 none. Nothing in this section was run in the cloud session; do not call the browser tool verified until each is recorded as passed.

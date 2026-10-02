@@ -68,7 +68,7 @@ export function connectCdp(url: string, o: ConnectOptions = {}): Promise<CdpPort
     };
     const connectTimer = setTimeout(() => { shut('connect timeout'); reject(new CdpError('The browser did not accept a connection in time.')); }, o.connectTimeoutMs ?? 2000);
     ws.addEventListener('open', () => { clearTimeout(connectTimer); resolve(port); });
-    ws.addEventListener('error', () => { if (!closed) { clearTimeout(connectTimer); shut('error'); reject(new CdpError('Could not connect to the browser.')); } });
+    ws.addEventListener('error', () => { if (!closed) { clearTimeout(connectTimer); shut('The browser connection was closed after an error.'); reject(new CdpError('Could not connect to the browser.')); } });
     ws.addEventListener('close', () => { clearTimeout(connectTimer); shut('The browser closed the connection.'); reject(new CdpError('The browser closed the connection.')); });
     ws.addEventListener('message', (ev: MessageEvent) => {
       const data = ev.data;
