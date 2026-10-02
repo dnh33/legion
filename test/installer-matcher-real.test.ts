@@ -68,7 +68,7 @@ for (const exe of shells) {
       ];
       writeFiles(dir, { 'procs.json': JSON.stringify(procs) });
       const body = [
-        `$procs = @(Get-Content -Raw -LiteralPath ${q(join(dir, 'procs.json'))} | ConvertFrom-Json)`,
+        `$procs = @(Get-Content -Raw -LiteralPath ${q(join(dir, 'procs.json'))} | ConvertFrom-Json | ForEach-Object { $_ })`,
         `$found = @(Select-LegionProcesses -Processes $procs -SelfPid 0)`,
         `@{ pids = @($found | ForEach-Object { $_.ProcessId }) } | ConvertTo-Json -Compress`,
       ].join('\n');
@@ -127,7 +127,7 @@ for (const exe of shells) {
       ];
       writeFiles(dir, { 'procs.json': JSON.stringify(procs) });
       const body = [
-        `$procs = @(Get-Content -Raw -LiteralPath ${q(join(dir, 'procs.json'))} | ConvertFrom-Json)`,
+        `$procs = @(Get-Content -Raw -LiteralPath ${q(join(dir, 'procs.json'))} | ConvertFrom-Json | ForEach-Object { $_ })`,
         `$anc = @(Get-AncestorPids -Processes $procs -StartPid 50)`,
         `$loop = @(Get-AncestorPids -Processes $procs -StartPid 60)`,
         `$none = @(Get-AncestorPids -Processes $procs -StartPid 999)`,

@@ -112,7 +112,7 @@ for (const exe of shells) test(`process matcher: only Legion processes, from any
     assert.ok(existsSync(lib));
     writeFileSync(script, [
       `. '${lib.replace(/'/g, "''")}'`,
-      `$procs = @(Get-Content -Raw -LiteralPath '${casesFile.replace(/'/g, "''")}' | ConvertFrom-Json)`,
+      `$procs = @(Get-Content -Raw -LiteralPath '${casesFile.replace(/'/g, "''")}' | ConvertFrom-Json | ForEach-Object { $_ })`,
       `$check = { param($r) $r -notlike '*other-app*' }`,
       `$all = @(Select-LegionProcesses -Processes $procs -SelfPid 99 -RootCheck $check)`,
       `$one = @(Select-LegionProcesses -Processes $procs -SelfPid 99 -RootCheck $check -OnlyUnder 'C:\\Users\\a\\AppData\\Local\\Programs\\Legion')`,
