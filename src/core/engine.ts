@@ -691,6 +691,8 @@ export class Engine {
   /** One run on a non-Claude provider (the seam into src/core/providers). Never falls back to Claude: a failure is the task's error. */
   private async runProvider(job: Job, agent: AgentProfile, pr: ResolvedModel, prompt: string, act: Active): Promise<Outcome> {
     const taskId = job.taskId;
+    // A custom remote endpoint (or a CLI) is a server Legion knows nothing about: the run starts tainted, before any prompt or tool, and the task keeps it.
+    if (this.providers!.startsTainted(pr) && !act.tainted) { act.tainted = true; this.patchTask(taskId, { tainted: true }); }
     const servers: ProviderHost['servers'] = {};
     const external: NonNullable<ProviderHost['external']> = {};
     const skippedStdio: string[] = [];
