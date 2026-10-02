@@ -12,14 +12,18 @@ const RULES: Array<{ re: RegExp; to: string | ((...m: string[]) => string); hex?
   // PEM private key blocks
   { re: /-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?(?:-----END [A-Z ]*PRIVATE KEY-----|$)/g, to: '[redacted-private-key]' },
   // boat.dev (desktop streaming) URLs, any scheme, any subdomain
-  { re: /\b(?:https?|wss?):\/\/[^\s"'<>)\]]*\bboat\.dev\b[^\s"'<>)\]]*/gi, to: '[redacted-url]' },
+  // The two URL rules take the whole URL run once and then test it (a greedy scan with a trailing keyword restarted at every "http://" is quadratic on
+  // hostile input; a later start is a suffix of the first one's run, so testing the run once is equivalent).
+  { re: /\b(?:https?|wss?):\/\/[^\s"'<>)\]]*/gi, to: (m: string) => (/\bboat\.dev\b/i.test(m.slice(m.indexOf('://') + 3)) ? '[redacted-url]' : m) },
   // boat.dev hosts without a scheme
   { re: /(?<![\w@./-])(?:(?:[a-z0-9-]+\.)+boat\.dev(?:\/[^\s"'<>)\]]*)?|boat\.dev\/[^\s"'<>)\]]+)/gi, to: '[redacted-url]' },
   // any URL that is itself a desktop link or carries a credential in its query string
-  { re: /\bhttps?:\/\/[^\s"'<>)\]]*(?:\/desktop\b|[?&](?:token|access_token|key|api_key|apikey|secret|sig|signature|auth)=)[^\s"'<>)\]]*/gi, to: '[redacted-url]' },
+  { re: /\bhttps?:\/\/[^\s"'<>)\]]*/gi, to: (m: string) => (/\/desktop\b|[?&](?:token|access_token|key|api_key|apikey|secret|sig|signature|auth)=/i.test(m.slice(m.indexOf('://') + 3)) ? '[redacted-url]' : m) },
   // KEY=value / key: value assignments for secret-looking names (keeps the name)
   {
-    re: /(\b[A-Za-z0-9_]*(?:api[_-]?key|secret|token|password|passwd|private[_-]?key)[A-Za-z0-9_]*["']?\s*[:=]\s*["']?)(?!\d+(?![\w]))[^\s"',;]{6,}/gi,
+    // The name (a word run containing a keyword) is matched inside an atomic lookahead (`(?=(...))\2`): once the first keyword is found the
+    // run (a hyphen counts only inside "api-key" / "private-key") is taken whole and never re-scanned for a later keyword, which keeps hostile input like "tokentoken..." linear instead of quadratic.
+    re: /(\b(?=((?:[A-Za-z0-9_]|(?<=api|private)-(?=key))*?(?:api[_-]?key|secret|token|password|passwd|private[_-]?key)(?:[A-Za-z0-9_]|(?<=api|private)-(?=key))*))\2["']?\s*[:=]\s*["']?)(?!\d+(?![\w]))[^\s"',;]{6,}/gi,
     to: (_m: string, pre: string) => `${pre}[redacted]`,
   },
   // Authorization bearer tokens (must look like a token: digit or token punctuation inside)

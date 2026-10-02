@@ -249,7 +249,7 @@ Vulnerability reporting is covered in [SECURITY.md](../SECURITY.md).
 
 ## Tests
 
-`node:test` with `node:assert/strict`, in `test/*.test.ts`. They use fakes for the SDK `query`, boat.dev and the clock, so they need no network and make no Claude calls. `npm test` builds the TypeScript and runs `dist/test/*.test.js`.
+`node:test` with `node:assert/strict`, in `test/*.test.ts`. They use fakes for the SDK `query`, boat.dev and the clock, so they need no network and make no Claude calls. `npm test` builds the TypeScript and runs `dist/test/*.test.js`. For the product-to-test map, the gate, the fake-backed end-to-end harness (`scripts/harness/`) and what only a person can verify, see [TESTING.md](TESTING.md).
 
 ## Round 5 contracts
 
