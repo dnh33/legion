@@ -111,10 +111,14 @@ test('R3.4 secret scrubbing and key detection are not super-linear on hostile 20
   };
   const slow: string[] = [];
   for (const [name, s] of Object.entries(cases)) {
-    const t0 = performance.now();
-    scrubSecrets(s, { keepHex: true, exact: ['abcdefghijkl'] });
-    findForbiddenSecret(s);
-    const ms = performance.now() - t0;
+    // best of three: a super-linear scrub is slow every time, a busy CPU (this file runs beside ~100 others) only some of the time
+    let ms = Infinity;
+    for (let k = 0; k < 3; k++) {
+      const t0 = performance.now();
+      scrubSecrets(s, { keepHex: true, exact: ['abcdefghijkl'] });
+      findForbiddenSecret(s);
+      ms = Math.min(ms, performance.now() - t0);
+    }
     if (ms > 400) slow.push(`${name}: ${Math.round(ms)} ms`);
   }
   assert.deepEqual(slow, []);
