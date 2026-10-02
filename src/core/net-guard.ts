@@ -74,7 +74,7 @@ export function checkRequest(req: ReqLike, port: number): GuardDecision {
     const m = (req.method ?? 'GET').toUpperCase();
     if (site === 'none') {
       if (m !== 'GET' && m !== 'HEAD') return { ok: false, status: 403, error: 'browser_request_refused' };
-    } else if (origin === undefined) {
+    } else if (origin === undefined && !(typeof ua === 'string' && ELECTRON_UA.test(ua))) {
       return { ok: false, status: 403, error: 'browser_request_refused' };
     }
   }

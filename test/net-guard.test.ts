@@ -59,6 +59,8 @@ describe('net-guard: address and header rules (pure)', () => {
     assert.equal(r({ 'sec-fetch-site': 'same-origin' }, 'POST').ok, true);
     assert.equal(r({ 'sec-fetch-site': 'none' }, 'POST').ok, false);
     assert.equal(r({ 'sec-fetch-site': 'none' }).ok, true);
+    assert.equal(r({ 'sec-fetch-site': 'cross-site', 'user-agent': ELECTRON_UA }).ok, true);   // the app window, if it ever omits Origin
+    assert.equal(r({ 'sec-fetch-site': 'cross-site', 'user-agent': CHROME_UA }).ok, false);
     assert.equal(r({}, 'POST').ok, true);                                                  // curl / stdio proxy: no browser headers
   });
   it('dropNonLoopback destroys the socket of a non-loopback peer only', () => {
@@ -111,6 +113,17 @@ describe('net-guard: the real core server', () => {
     }
     // the DNS-rebinding shape: the browser's Host is the attacker's name, even with the right token
     assert.equal((await raw(base, '/api/state', H({ host: `rebind.attacker.test:${port}` }))).status, 421);
+  });
+  it('duplicate Host headers and an absolute-URI request line cannot smuggle a good Host past the check', async () => {
+    const net = await import('node:net');
+    const send = (head: string) => new Promise<string>((resolve) => {
+      const s = net.connect({ host: '127.0.0.1', port }, () => s.write(head));
+      let b = ''; s.on('data', (d) => { b += d; }); s.on('close', () => resolve(b)); setTimeout(() => { s.destroy(); }, 800);
+    });
+    const dup = await send(`GET /api/state HTTP/1.1\r\nHost: evil.example\r\nHost: 127.0.0.1:${port}\r\nAuthorization: Bearer ${TOKEN}\r\nConnection: close\r\n\r\n`);
+    assert.ok(!/^HTTP\/1\.1 200/.test(dup), dup.slice(0, 40));
+    const abs = await send(`GET http://evil.example/api/state HTTP/1.1\r\nHost: evil.example\r\nAuthorization: Bearer ${TOKEN}\r\nConnection: close\r\n\r\n`);
+    assert.ok(/^HTTP\/1\.1 421/.test(abs), abs.slice(0, 40));
   });
   it('no Host header (HTTP/1.0 style) is refused', async () => {
     const r = await new Promise<number>((resolve, reject) => {
