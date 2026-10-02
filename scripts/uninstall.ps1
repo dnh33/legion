@@ -10,11 +10,11 @@ param(
   [switch]$DryRun
 )
 $ErrorActionPreference = 'Stop'
+# uninstall.cmd copies this script and the helper into one temp folder; a source checkout has the helper in lib\.
+$procLib = Join-Path $PSScriptRoot 'legion-procs.ps1'
+if (-not (Test-Path -LiteralPath $procLib)) { $procLib = Join-Path $PSScriptRoot 'lib\legion-procs.ps1' }
+. $procLib
 function Say($m, $c = 'Gray') { Write-Host $m -ForegroundColor $c }
-function Test-Under($path, $dir) {
-  if ([string]::IsNullOrEmpty($path)) { return $false }
-  return $path.StartsWith(($dir.TrimEnd('\') + '\'), [System.StringComparison]::OrdinalIgnoreCase)
-}
 
 try {
   if ([string]::IsNullOrWhiteSpace($InstallDir)) { $InstallDir = Join-Path $env:LOCALAPPDATA 'Programs\Legion' }
@@ -47,29 +47,27 @@ try {
     }
   }
 
-  # Stop running processes
+  # Stop this install's running processes (matched by what they are, stopped by PID; nothing else is touched)
   $procs = @()
-  try {
-    foreach ($p in (Get-CimInstance Win32_Process -ErrorAction Stop)) {
-      if ($p.Name -ieq 'electron.exe' -and (Test-Under $p.ExecutablePath $InstallDir)) { $procs += $p }
-      elseif ($p.Name -ieq 'node.exe' -and $p.CommandLine -and
-              $p.CommandLine.IndexOf('legion-core.js', [System.StringComparison]::OrdinalIgnoreCase) -ge 0 -and
-              $p.CommandLine.IndexOf($InstallDir, [System.StringComparison]::OrdinalIgnoreCase) -ge 0) { $procs += $p }
+  try { $procs = @(Select-LegionProcesses -Processes @(Get-CimInstance Win32_Process -ErrorAction Stop) -OnlyUnder $InstallDir -SelfPid $PID) }
+  catch { Say "  (could not list processes: $($_.Exception.Message))" 'Yellow' }
+  if ($procs.Count -gt 0) {
+    if ($DryRun) { Say "  (dry run) stop PID $(($procs | ForEach-Object { $_.ProcessId }) -join ', ')" 'DarkGray' }
+    else {
+      $left = @(Stop-LegionProcesses -Found $procs)
+      if ($left.Count -gt 0) { throw "Could not stop Legion (PID $($left -join ', ')); close it and run uninstall again." }
     }
-  } catch { Say "  (could not list processes: $($_.Exception.Message))" 'Yellow' }
-  foreach ($p in $procs) {
-    if ($DryRun) { Say "  (dry run) stop PID $($p.ProcessId)" 'DarkGray' }
-    else { Stop-Process -Id $p.ProcessId -Force -ErrorAction SilentlyContinue }
   }
-  if ($procs.Count -gt 0 -and -not $DryRun) { Start-Sleep -Seconds 2 }
 
-  # Shortcuts
+  # Shortcuts (desktop and Start menu). A Legion.lnk that points at another install is left alone.
   $links = @((Join-Path ([Environment]::GetFolderPath('Desktop')) 'Legion.lnk'),
              (Join-Path ([Environment]::GetFolderPath('Programs')) 'Legion.lnk'))
   foreach ($l in $links) {
-    if (Test-Path $l) {
-      if ($DryRun) { Say "  (dry run) remove $l" 'DarkGray' } else { Remove-Item -LiteralPath $l -Force; Say "  removed $l" }
-    }
+    if (-not (Test-Path -LiteralPath $l)) { continue }
+    $target = ''
+    try { $target = (New-Object -ComObject WScript.Shell).CreateShortcut($l).TargetPath } catch { $target = '' }
+    if ($target -and -not (Test-PathUnder $target $InstallDir)) { Say "  kept $l (it points to $target, not to this install)" 'Yellow'; continue }
+    if ($DryRun) { Say "  (dry run) remove $l" 'DarkGray' } else { Remove-Item -LiteralPath $l -Force; Say "  removed $l" }
   }
 
   # Install folder
