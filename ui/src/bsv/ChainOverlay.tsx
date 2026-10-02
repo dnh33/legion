@@ -9,7 +9,7 @@ import './bsv.css';
 const CONFIRM_LINES = [
   'Turns on: the Assayer in the rail and the BSV knowledge pack.',
   'Testnet mode, shown by a calm cyan line along the title bar.',
-  'The Assayer gets one read-only check that asks a wallet on this computer which network it claims. Legion\'s own code can ask a wallet to build and sign one TESTNET payment, only after you confirm it in a native dialog, and holds no keys. Never paste a seed phrase.',
+  'The Assayer gets one read-only check that asks a wallet on this computer which network it claims. Legion\'s own code can ask a wallet to build and sign one payment, only after you confirm it in native dialogs, and holds no keys. Mainnet (real funds) is off by default; only you can switch it on. Never paste a seed phrase.',
   'Approvals and settings need this window. A bot that runs shell commands as you could still read your files or reach your wallet directly: a VM or a separate account is the real wall.',
   'Turn it off any time with the BSV switch in the title bar.',
 ];

@@ -180,10 +180,12 @@ export async function loadAudit(reset: boolean): Promise<void> {
 
 export type PolicyAction =
   | { kind: 'arm'; minutes: number } | { kind: 'disarm' } | { kind: 'freeze' } | { kind: 'unfreeze' }
+  | { kind: 'mainnet-enable' } | { kind: 'mainnet-disable' }
+  | { kind: 'caps'; net?: 'test' | 'main'; caps: Partial<Record<'perTxSats' | 'perSessionSats' | 'per24hSats' | 'maxOutputs' | 'maxFeeSats', number>> } | { kind: 'allowlist'; net?: 'test' | 'main'; list: string[] }
   | { kind: 'spend-review'; requestId: string } | { kind: 'spend-deny'; requestId: string } | { kind: 'spend-resolve'; requestId: string };
 
 const DONE_TOAST: Record<PolicyAction['kind'], string> = {
-  arm: 'LIVE FUNDS armed (policy state only: a mainnet request is still refused by the spend tool)', disarm: 'Disarmed', freeze: 'BSV chain frozen', unfreeze: 'BSV chain unfrozen',
+  arm: 'LIVE FUNDS armed for one mainnet spend', 'mainnet-enable': 'Mainnet switched on (not armed)', 'mainnet-disable': 'Mainnet switched off', caps: 'Limits changed', allowlist: 'Recipient list replaced', disarm: 'Disarmed', freeze: 'BSV chain frozen', unfreeze: 'BSV chain unfrozen',
   'spend-review': 'Your answer was sent to the core.', 'spend-deny': 'Request denied.', 'spend-resolve': 'Outcome recorded.',
 };
 

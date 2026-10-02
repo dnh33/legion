@@ -108,3 +108,8 @@
 .bsv-confirm { margin: 0; padding: 0; list-style: none; display: grid; gap: 10px; }
 .bsv-confirm li { position: relative; padding-left: 16px; color: var(--text-2); font-size: 13px; line-height: 1.5; }
 .bsv-confirm li::before { content: ''; position: absolute; left: 2px; top: .62em; width: 6px; height: 6px; border-radius: 50%; background: var(--chain); }
+.bsv-badge{display:inline-block;padding:1px 8px;margin-right:6px;border-radius:999px;font-size:11px;font-weight:600;letter-spacing:.04em;border:1px solid currentColor}
+.bsv-badge[data-net="main"]{color:#d9892b}
+.bsv-net{margin:10px 0;padding-top:6px;border-top:1px solid rgba(128,128,128,.25)}
+.bsv-net h4{margin:0 0 4px;font-size:12px;letter-spacing:.04em}
+textarea.bsv-input{flex:1;resize:vertical}

@@ -8,7 +8,7 @@ import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
-  BSV_POLL_MS, auditLine, formatCountdown, heightText, overlayModel, mainnetState, remainingMs, safeLine, shouldPoll, spendModel, walletHeadline,
+  BSV_POLL_MS, MAINNET_ON_SENTENCE, MAINNET_SENTENCE, auditLine, formatCountdown, heightText, overlayModel, mainnetState, netRows, remainingMs, safeLine, shouldPoll, spendModel, walletHeadline,
   type AuditView, type PolicyView, type WalletView,
 } from '../src/shared/bsv-view.js';
 import type { WalletStatus } from '../src/core/bsv/wallet-probe.js';
@@ -79,7 +79,7 @@ test('overlay: armed shows the amber state, the pill and the Freeze button; an e
   assert.equal(m.mode, 'armed');
   assert.equal(m.showFreeze, true);
   assert.equal(m.pill?.kind, 'armed');
-  assert.deepEqual(m.tiers[0], ['LIVE FUNDS ARMED', 'policy only']);
+  assert.deepEqual(m.tiers[0], ['LIVE FUNDS ARMED', 'one mainnet spend']);
   const gone = model({ policy: policy({ armed: true, armedUntil: NOW - 1 }) });
   assert.equal(gone.mode, 'testnet');
   assert.equal(gone.showFreeze, false);
@@ -210,7 +210,7 @@ const ID2 = 'b'.repeat(40);
 
 test('spend view: spendTools is a boolean; pending and unknown requests are listed with a short id and the sats, never an address', () => {
   const on = spendModel(policy({ spendTools: true, pending: [{ requestId: ID1, totalSats: 612 }], unknown: [{ requestId: ID2, totalSats: 1000 }] }));
-  assert.match(on.headline, /one tool that can ask your wallet to build and sign a TESTNET payment/);
+  assert.match(on.headline, /one tool that can ask your wallet to build and sign a payment: on the test network after your confirmation, and on the main network only while mainnet is switched on and armed/);
   assert.match(on.headline, /native confirmation/);
   assert.deepEqual(on.pending, [{ requestId: ID1, label: 'Request aaaaaaaa: 612 sat waiting for your answer' }]);
   assert.equal(on.unknown.length, 1);
@@ -253,4 +253,42 @@ test('mainnet view state: absent means off; both fields must be exactly true to 
   assert.deepEqual(mainnetState(policy({ mainnet: { enabled: true, armed: true } })), { enabled: true, armed: true });
   assert.deepEqual(mainnetState(policy({ mainnet: { enabled: 'yes', armed: true } as never })), { enabled: false, armed: false });
   assert.doesNotMatch(readFileSync(new URL('../../src/shared/bsv-view.ts', import.meta.url), 'utf8'), /network: 'testnet'/, 'the view type no longer hard-codes the network');
+});
+
+test('mainnet state from the core\'s own shape: mainnetEnabled exactly true; armed needs the switch on; a conflicting nested field cannot turn it on', () => {
+  assert.deepEqual(mainnetState(policy({ mainnetEnabled: true, armed: true })), { enabled: true, armed: true });
+  assert.deepEqual(mainnetState(policy({ mainnetEnabled: true, armed: false })), { enabled: true, armed: false });
+  assert.deepEqual(mainnetState(policy({ mainnetEnabled: false, armed: true })), { enabled: false, armed: false }, 'armed without the switch reads as off');
+  assert.deepEqual(mainnetState(policy({ mainnetEnabled: 'true' as never, armed: true })), { enabled: false, armed: false });
+  assert.deepEqual(mainnetState(policy({ mainnetEnabled: false, mainnet: { enabled: true, armed: true } })), { enabled: false, armed: false });
+});
+
+test('netRows: the test row always; a main row only when the core reports mainnet limits; the two never share numbers', () => {
+  const a = netRows(policy());
+  assert.deepEqual(a.map((r) => r.net), ['test'], 'an older core: no invented mainnet row');
+  const mc = { ...caps, perTxSats: 7 };
+  const b = netRows(policy({ nets: { test: { caps, allowlist: ['t'] }, main: { caps: mc, allowlist: [] } } }));
+  assert.deepEqual(b.map((r) => [r.net, r.label, r.caps.perTxSats]), [['test', 'TESTNET', caps.perTxSats], ['main', 'MAINNET (LIVE FUNDS)', 7]]);
+  assert.deepEqual(b[0]!.allowlist, ['t']); assert.deepEqual(b[1]!.allowlist, []);
+});
+
+test('overlay: mainnet switched on but not armed shows MAINNET ON; a wallet on mainnet with the switch on does not say Legion will not use it; with the switch off the old sentence stays', () => {
+  const on = model({ policy: policy({ mainnetEnabled: true }) });
+  assert.deepEqual(on.tiers[0], ['MAINNET ON', 'not armed']);
+  assert.equal(on.showFreeze, false);
+  const w = wallet({ condition: 'mainnet-warning', network: 'main' });
+  assert.equal(model({ wallet: w, policy: policy({ mainnetEnabled: true }) }).pill?.text, MAINNET_ON_SENTENCE);
+  assert.equal(model({ wallet: w, policy: policy() }).pill?.text, MAINNET_SENTENCE);
+  assert.doesNotMatch(MAINNET_ON_SENTENCE, /will not use it|cannot|safe|verified/i);
+  assert.match(MAINNET_ON_SENTENCE, /Each spend still needs Arm, your confirmations and the wallet's own prompt/);
+});
+
+test('panel: the mainnet switch is off by default in wording, the arm control is disabled without it, and the panel never sends a native header', () => {
+  const panel = readFileSync(new URL('../../ui/src/bsv/BsvPanel.tsx', import.meta.url), 'utf8');
+  assert.match(panel, /Mainnet is switched OFF \(the default\)/);
+  assert.match(panel, /!p\.frozen \|\| !mn\.enabled/, 'Arm needs the switch');
+  assert.match(panel, /kind: 'mainnet-enable'/); assert.match(panel, /kind: 'mainnet-disable'/);
+  assert.doesNotMatch(panel, /X-Legion-Native|nativeSecret|\/api\/bsv\/policy/, 'every change goes through the app bridge');
+  assert.doesNotMatch(panel, /\bsafe\b|verified with|cannot be bypassed|risk-free|production-ready/i); // ("Log verified" is the audit chain, not funds)
+  assert.match(panel, /has not been checked with real funds/);
 });

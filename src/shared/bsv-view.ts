@@ -21,6 +21,7 @@ export interface WalletView {
   message: string;
 }
 
+export interface NetView { caps: PolicyCaps; hardCaps?: PolicyCaps; allowlist: string[]; usage?: { sessionSats: number; last24hSats: number; reservedSats: number }; label?: string }
 export interface PolicyCaps { perTxSats: number; perSessionSats: number; per24hSats: number; maxOutputs: number; maxFeeSats: number }
 
 /** GET /api/bsv/policy (a subset). */
@@ -33,16 +34,20 @@ export interface PolicyView {
   hardCaps: PolicyCaps;
   allowlist: string[];
   usage: { sessionSats: number; last24hSats: number; reservedSats: number };
-  pending: Array<{ requestId: string; totalSats: number }>;
-  unknown: Array<{ requestId: string; totalSats: number }>;
+  pending: Array<{ requestId: string; totalSats: number; network?: 'test' | 'main' }>;
+  unknown: Array<{ requestId: string; totalSats: number; net?: string }>;
   /** What the core calls its default network; the spend networks are `spendNetworks`. Not assumed to be testnet. */
   network?: string;
   /** The networks the spend tool may use, when the core says (absent = test only). */
   spendNetworks?: Array<'test' | 'main'>;
-  /** Mainnet switch and arm state. Absent = off. No mainnet UI reads more than this yet. */
+  /** The mainnet switch as the core reports it (`mainnetEnabled`). Absent or anything but exactly true = off. */
+  mainnetEnabled?: boolean;
+  /** Older shape of the same fact. */
   mainnet?: { enabled: boolean; armed: boolean };
+  /** Per network: limits, hard ceilings, allowlist, usage. Absent on a core older than the per-network policy (then only `caps` and `allowlist`, the test network's). */
+  nets?: Partial<Record<'test' | 'main', NetView>>;
   nativeAvailable: boolean;
-  /** The Assayer has the testnet spend tool (a boolean from the core; a false or missing value is shown as not available). */
+  /** The Assayer has the spend tool (a boolean from the core; a false or missing value is shown as not available). */
   spendTools: boolean;
   armChoicesMinutes: number[];
   audit: { ok: boolean; entries: number; reason?: string };
@@ -69,6 +74,8 @@ export interface OverlayModel {
 }
 
 export const MAINNET_SENTENCE = 'The wallet is on MAINNET; Legion is in testnet knowledge mode; Legion will not use it.';
+/** The same warning once the owner has switched mainnet on: it must not say Legion will not use it. */
+export const MAINNET_ON_SENTENCE = 'The wallet says it is on MAINNET and mainnet is switched on in Legion. Each spend still needs Arm, your confirmations and the wallet\'s own prompt.';
 
 /** Whole seconds to mm:ss (h:mm:ss from an hour). Negative and junk give 00:00. */
 export function formatCountdown(ms: number): string {
@@ -108,23 +115,40 @@ export function overlayModel(i: { enabled: boolean; policy: PolicyView | null; w
   if (armed) {
     return {
       mode: 'armed', mainnetWarning, showFreeze,
-      tiers: [['LIVE FUNDS ARMED', 'policy only'], ['LIVE FUNDS ARMED'], ['LIVE']],
+      tiers: [['LIVE FUNDS ARMED', 'one mainnet spend'], ['LIVE FUNDS ARMED'], ['LIVE']],
       pill: { kind: 'armed', text: 'LIVE FUNDS armed' },
     };
   }
   const unknown = (p?.unknown.length ?? 0);
   if (unknown > 0) return { mode: 'testnet', mainnetWarning, showFreeze: false, tiers: [['TESTNET', `${unknown} unknown outcome`], ['TESTNET']], pill: { kind: 'unknown', text: `${unknown} request${unknown === 1 ? '' : 's'} with an unknown outcome. Open Details to resolve ${unknown === 1 ? 'it' : 'them'}.` } };
   if (pending > 0) return { mode: 'testnet', mainnetWarning, showFreeze, tiers: [['TESTNET', `${pending} pending`]], pill: { kind: 'pending', text: `${pending} request${pending === 1 ? '' : 's'} pending` } };
+  const mainOn = mainnetState(p).enabled;
   if (mainnetWarning) {
-    return { mode: 'testnet', mainnetWarning, showFreeze: false, tiers: [['WALLET ON MAINNET', 'Legion stays on testnet'], ['WALLET ON MAINNET']], pill: { kind: 'mainnet', text: MAINNET_SENTENCE } };
+    return mainOn
+      ? { mode: 'testnet', mainnetWarning, showFreeze: false, tiers: [['WALLET ON MAINNET', 'mainnet ON, not armed'], ['WALLET ON MAINNET']], pill: { kind: 'mainnet', text: MAINNET_ON_SENTENCE } }
+      : { mode: 'testnet', mainnetWarning, showFreeze: false, tiers: [['WALLET ON MAINNET', 'Legion stays on testnet'], ['WALLET ON MAINNET']], pill: { kind: 'mainnet', text: MAINNET_SENTENCE } };
   }
+  if (mainOn) return { mode: 'testnet', mainnetWarning: false, showFreeze: false, tiers: [['MAINNET ON', 'not armed'], ['MAINNET ON']], pill: null };
   return { mode: 'testnet', mainnetWarning: false, showFreeze: false, tiers: [['TESTNET \u00b7 knowledge mode', ...(second ? [second] : [])], ['TESTNET', ...(second ? [second] : [])], ['TESTNET']], pill: null };
 }
 
-/** Mainnet state from the policy answer: off unless the core says both fields are exactly true-or-false booleans. */
-export function mainnetState(p: Pick<PolicyView, 'mainnet'> | null | undefined): { enabled: boolean; armed: boolean } {
-  const m = p?.mainnet;
-  return { enabled: !!m && m.enabled === true, armed: !!m && m.enabled === true && m.armed === true };
+/** Mainnet state from the policy answer: the switch is on only if the core says exactly `true`; armed needs the switch on and `armed` exactly true. */
+export function mainnetState(p: Pick<PolicyView, 'mainnet' | 'mainnetEnabled' | 'armed'> | null | undefined): { enabled: boolean; armed: boolean } {
+  if (!p) return { enabled: false, armed: false };
+  const enabled = p.mainnetEnabled !== undefined ? p.mainnetEnabled === true : !!p.mainnet && p.mainnet.enabled === true;
+  const armed = enabled && (p.mainnet ? p.mainnet.armed === true : p.armed === true);
+  return { enabled, armed };
+}
+
+export interface NetRow { net: 'test' | 'main'; label: string; caps: PolicyCaps; hardCaps?: PolicyCaps; allowlist: string[]; usage?: NetView['usage'] }
+/** The two networks' limits, mainnet first-class. A core without per-network answers gives the test row from the old top-level fields and NO main row. */
+export function netRows(p: PolicyView): NetRow[] {
+  const rows: NetRow[] = [];
+  const t = p.nets?.test;
+  rows.push({ net: 'test', label: 'TESTNET', caps: t?.caps ?? p.caps, hardCaps: t?.hardCaps ?? p.hardCaps, allowlist: t?.allowlist ?? p.allowlist, usage: t?.usage ?? p.usage });
+  const m = p.nets?.main;
+  if (m) rows.push({ net: 'main', label: 'MAINNET (LIVE FUNDS)', caps: m.caps, hardCaps: m.hardCaps, allowlist: m.allowlist, usage: m.usage });
+  return rows;
 }
 
 /** Short form of a request id for a list row (an id, not an address: addresses are never abbreviated). */
@@ -143,8 +167,8 @@ export function spendModel(p: { spendTools: boolean; pending: PolicyView['pendin
   const sat = (n: number) => `${(Number.isSafeInteger(n) && n >= 0 ? n : 0).toLocaleString('en-US')} sat`;
   return {
     headline: p.spendTools
-      ? 'The Assayer has one tool that can ask your wallet to build and sign a TESTNET payment. Every request opens a native confirmation, and your wallet then shows its own prompt.'
-      : 'The testnet spend tool is not available to the Assayer in this core.',
+      ? 'The Assayer has one tool that can ask your wallet to build and sign a payment: on the test network after your confirmation, and on the main network only while mainnet is switched on and armed. Every request opens native confirmations, and your wallet then shows its own prompt.'
+      : 'The spend tool is not available to the Assayer in this core.',
     pending: p.pending.map((r) => ({ requestId: r.requestId, label: `Request ${shortId(r.requestId)}: ${sat(r.totalSats)} waiting for your answer` })),
     unknown: p.unknown.map((r) => ({ requestId: r.requestId, label: `Request ${shortId(r.requestId)}: ${sat(r.totalSats)}, outcome unknown. Check your wallet's history, then resolve it.` })),
   };

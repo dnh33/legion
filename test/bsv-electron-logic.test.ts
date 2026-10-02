@@ -6,7 +6,9 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { BSV_ARM_CHOICES_MINUTES, bsvConfirmation, bsvPreflight, dialogText, parseBsvAction, satsText, trustedSender } from '../src/electron/admin-logic.js';
-import { ARM_CHOICES_MINUTES, TESTNET_DEFAULT_CAPS } from '../src/core/bsv/policy.js';
+import { ARM_CHOICES_MINUTES } from '../src/core/bsv/policy.js';
+import { NET } from '../src/core/bsv/networks.js';
+import { MAIN_A, TEST_A, TEST_B } from './bsv-net-helpers.js';
 
 const UI = 'file:///opt/legion/dist-ui/index.html';
 
@@ -14,13 +16,13 @@ test('arm choices in Electron are exactly the core\'s list', () => {
   assert.deepEqual([...BSV_ARM_CHOICES_MINUTES], [...ARM_CHOICES_MINUTES]);
 });
 
-test('parseBsvAction: only the six known actions with exactly their fields', () => {
+test('parseBsvAction: only the known actions with exactly their fields', () => {
   assert.deepEqual(parseBsvAction({ kind: 'arm', minutes: 15 }), { kind: 'arm', minutes: 15 });
   assert.deepEqual(parseBsvAction({ kind: 'disarm' }), { kind: 'disarm' });
   assert.deepEqual(parseBsvAction({ kind: 'freeze' }), { kind: 'freeze' });
   assert.deepEqual(parseBsvAction({ kind: 'unfreeze' }), { kind: 'unfreeze' });
   assert.deepEqual(parseBsvAction({ kind: 'caps', caps: { perTxSats: 500, maxOutputs: 2 } }), { kind: 'caps', caps: { perTxSats: 500, maxOutputs: 2 } });
-  assert.deepEqual(parseBsvAction({ kind: 'allowlist', list: ['mxabc123', 'Bob@Example.com'] }), { kind: 'allowlist', list: ['mxabc123', 'Bob@Example.com'] });
+  assert.deepEqual(parseBsvAction({ kind: 'allowlist', list: [TEST_A, TEST_B] }), { kind: 'allowlist', list: [TEST_A, TEST_B] });
   assert.deepEqual(parseBsvAction({ kind: 'allowlist', list: [] }), { kind: 'allowlist', list: [] });
 });
 
@@ -32,14 +34,16 @@ test('parseBsvAction: refuses everything else (types, extra keys, odd minutes, p
     { kind: 'caps' }, { kind: 'caps', caps: {} }, { kind: 'caps', caps: [] }, { kind: 'caps', caps: { perTxSats: -1 } }, { kind: 'caps', caps: { perTxSats: 1.5 } }, { kind: 'caps', caps: { perTxSats: '5' } },
     { kind: 'caps', caps: { perTxSats: Number.MAX_SAFE_INTEGER + 2 } }, { kind: 'caps', caps: { unknownCap: 1 } }, { kind: 'caps', caps: { perTxSats: 1 }, extra: 1 },
     JSON.parse('{"kind":"caps","caps":{"__proto__":{"perTxSats":1}}}'), JSON.parse('{"kind":"caps","caps":{"constructor":1}}'),
-    { kind: 'allowlist' }, { kind: 'allowlist', list: 'abc' }, { kind: 'allowlist', list: ['a b c'] }, { kind: 'allowlist', list: [' abc'] }, { kind: 'allowlist', list: ['ab'] }, { kind: 'allowlist', list: [5] },
+    { kind: 'allowlist', list: ['Bob@Example.com'] }, { kind: 'allowlist', list: ['mxabc123'] }, { kind: 'allowlist', list: [MAIN_A] }, { kind: 'allowlist' }, { kind: 'allowlist', list: 'abc' }, { kind: 'allowlist', list: ['a b c'] }, { kind: 'allowlist', list: [' abc'] }, { kind: 'allowlist', list: ['ab'] }, { kind: 'allowlist', list: [5] },
     { kind: 'allowlist', list: ['abc\ndef'] }, { kind: 'allowlist', list: Array.from({ length: 51 }, (_, i) => `addr${i}x`) }, { kind: 'allowlist', list: ['x'.repeat(121)] },
     Object.create({ kind: 'freeze' }), Object.assign(Object.create(null), { kind: 'freeze' }),
   ];
   for (const b of bad) assert.equal(parseBsvAction(b), undefined, JSON.stringify(b));
 });
 
-test('only arm, unfreeze, caps and allowlist show a native dialog; freeze and disarm (they only make things safer) do not', () => {
+test('only arm, mainnet-enable, unfreeze, caps and allowlist show a native dialog; freeze, disarm and mainnet-disable (they only make things safer) do not', () => {
+  assert.equal(bsvConfirmation({ kind: 'mainnet-enable' }).needsDialog, true);
+  assert.equal(bsvConfirmation({ kind: 'mainnet-disable' }).needsDialog, false);
   assert.equal(bsvConfirmation({ kind: 'arm', minutes: 5 }).needsDialog, true);
   assert.equal(bsvConfirmation({ kind: 'unfreeze' }).needsDialog, true);
   assert.equal(bsvConfirmation({ kind: 'caps', caps: { perTxSats: 1 } }).needsDialog, true);
@@ -59,7 +63,7 @@ test('each action maps to exactly its core route and body', () => {
 });
 
 test('every dialog: Cancel is first (the default and the Escape button), the confirm button names the action, and nothing claims spending works', () => {
-  const facts = { caps: { ...TESTNET_DEFAULT_CAPS }, allowlist: ['abc'], frozen: { reason: 'the audit log failed verification' }, pending: [1], unknown: [1, 2] };
+  const facts = { caps: { ...NET.test.defaultCaps }, nets: { main: { caps: { ...NET.main.defaultCaps } }, test: { caps: { ...NET.test.defaultCaps } } }, allowlist: ['abc'], mainnetEnabled: true, frozen: { reason: 'the audit log failed verification' }, pending: [1], unknown: [1, 2] };
   const acts: Array<Parameters<typeof bsvConfirmation>[0]> = [{ kind: 'arm', minutes: 5 }, { kind: 'unfreeze' }, { kind: 'caps', caps: { perTxSats: 5 } }, { kind: 'allowlist', list: ['abc'] }];
   for (const a of acts) {
     const c = bsvConfirmation(a, facts, 'Wallet check: wallet is on MAINNET.');
@@ -76,11 +80,13 @@ test('every dialog: Cancel is first (the default and the Escape button), the con
   assert.match(arm.message, /LIVE FUNDS/);
   assert.match(arm.message, /15 minutes/);
   assert.equal(arm.buttons[1], 'Arm for 15 minutes');
-  for (const line of ['Per transaction: 0.00001000 BSV (1,000 sat)', 'Per session: 0.00005000 BSV (5,000 sat)', 'Per rolling 24 hours: 0.00010000 BSV (10,000 sat)', 'Max outputs: 3', 'Fee ceiling: 0.00000200 BSV (200 sat)']) assert.ok(arm.detail.includes(line), line);
+  // the arm dialog quotes the MAINNET limits (arming applies to mainnet only)
+  for (const line of ['Per transaction: 0.00001000 BSV (1,000 sat)', 'Per session: 0.00002000 BSV (2,000 sat)', 'Per rolling 24 hours: 0.00005000 BSV (5,000 sat)', 'Max outputs: 1', 'Fee ceiling: 0.00000100 BSV (100 sat)']) assert.ok(arm.detail.includes(line), line);
   const un = bsvConfirmation({ kind: 'unfreeze' }, facts);
   assert.match(un.detail, /audit log failed verification/);
   assert.match(un.detail, /2 earlier request/);
   assert.match(un.detail, /Unfreezing does not arm mainnet/);
+  assert.match(arm.detail, /Mainnet limits that apply/);
 });
 
 test('dialog text from the core is one short printable line: control, bidi and zero-width characters are removed', () => {
@@ -109,8 +115,8 @@ test('satsText: integer maths, BSV with eight decimals and the satoshi count; ju
 });
 
 test('preflight: no dialog is shown for an arm that the core would refuse because the chain is frozen', () => {
-  assert.match(bsvPreflight({ kind: 'arm', minutes: 5 }, { frozen: { reason: 'x' } }) ?? '', /frozen/);
-  assert.equal(bsvPreflight({ kind: 'arm', minutes: 5 }, { frozen: null }), undefined);
+  assert.match(bsvPreflight({ kind: 'arm', minutes: 5 }, { mainnetEnabled: true, frozen: { reason: 'x' } }) ?? '', /frozen/);
+  assert.equal(bsvPreflight({ kind: 'arm', minutes: 5 }, { mainnetEnabled: true, frozen: null }), undefined);
   assert.equal(bsvPreflight({ kind: 'unfreeze' }, { frozen: { reason: 'x' } }), undefined);
   assert.equal(bsvPreflight({ kind: 'freeze' }, { frozen: { reason: 'x' } }), undefined);
 });
@@ -151,7 +157,7 @@ test('main.ts: the policy IPC handler checks the sender window and frame URL fir
   assert.ok(fn.indexOf('parseBsvAction(raw)') < fn.indexOf('showMessageBox'), 'parse before dialog');
   assert.ok(fn.indexOf('showMessageBox') < fn.indexOf("ownCoreCall('POST', c.route, c.body, true)"), 'dialog before the native call');
   assert.equal((main.match(/'X-Legion-Native'/g) ?? []).length, 1, 'one place sends the native header');
-  assert.match(fn, /defaultId: 0, cancelId: 0/);
+  assert.match(fn, /defaultId: 0, cancelId: 0/); // policy dialogs: Cancel is button 0
   assert.match(fn, /bsvDialogOpen/);
   assert.match(main, /live \|\| !adminSecret \|\| !rendererAdmin \|\| !pinned/, 'only a proven core of our own');
 });

@@ -1,8 +1,8 @@
 import { useState } from 'react';
 import { Modal } from '../components/Modal';
 import { request } from '../api';
-import { auditLine, formatCountdown, heightText, remainingMs, safeLine, spendModel, walletHeadline } from '../../../src/shared/bsv-view';
-import type { PolicyView } from '../../../src/shared/bsv-view';
+import { auditLine, formatCountdown, heightText, mainnetState, netRows, remainingMs, safeLine, spendModel, walletHeadline } from '../../../src/shared/bsv-view';
+import type { NetRow, PolicyView } from '../../../src/shared/bsv-view';
 import { toast } from '../store';
 import { canChangePolicy, changePolicy, checkWallet, closeBsvPanel, connectWallet, disconnectWallet, loadAudit, useBsv } from './bsvStore';
 import './bsv.css';
@@ -41,31 +41,40 @@ function WalletSection() {
 }
 
 function ArmSection({ p }: { p: PolicyView }) {
-  const [minutes, setMinutes] = useState(15);
+  const [minutes, setMinutes] = useState(5);
   const changing = useBsv((s) => s.changing);
   const bridge = canChangePolicy();
+  const mn = mainnetState(p);
   const left = remainingMs(p, Date.now());
-  const armed = p.armed && left > 0 && !p.frozen;
+  const armed = mn.armed && left > 0 && !p.frozen;
   const choices = p.armChoicesMinutes.length ? p.armChoicesMinutes : [5, 15, 30, 60];
   return (
     <section className="bsv-sec" aria-labelledby="bsv-h-live">
-      <h3 id="bsv-h-live">Live funds</h3>
+      <h3 id="bsv-h-live">Live funds (mainnet)</h3>
+      <p className={`bsv-line${mn.enabled ? ' warn' : ''}`} data-mainnet={mn.enabled ? 'on' : 'off'}>
+        {mn.enabled ? 'Mainnet is switched ON. It is off by default.' : 'Mainnet is switched OFF (the default). No request on the main network is considered.'}
+      </p>
+      <div className="bsv-row">
+        {mn.enabled
+          ? <button type="button" className="btn-ghost" disabled={!bridge || changing} onClick={() => void changePolicy({ kind: 'mainnet-disable' })}>Switch mainnet off</button>
+          : <button type="button" className="btn" disabled={!bridge || !p.nativeAvailable || changing || !!p.frozen} onClick={() => void changePolicy({ kind: 'mainnet-enable' })}>Allow mainnet&hellip;</button>}
+      </div>
       <p className={`bsv-line${armed ? ' live' : ''}`} data-armed={armed ? '1' : '0'}>
-        {p.frozen ? `Frozen: ${safeLine(p.frozen.reason, 160) || 'no reason recorded'}.` : armed ? `Armed, ${formatCountdown(left)} left. Disarms by itself at zero and when Legion restarts.` : 'Disarmed. Testnet knowledge mode.'}
+        {p.frozen ? `Frozen: ${safeLine(p.frozen.reason, 160) || 'no reason recorded'}.` : armed ? `Armed for ONE mainnet spend, ${formatCountdown(left)} left. Disarms by itself at zero, after one approved spend, and when Legion restarts.` : mn.enabled ? 'Not armed. A mainnet request needs Arm first.' : 'Disarmed.'}
       </p>
       {!p.nativeAvailable && <p className="bsv-fine">This core was not started by the Legion app, so policy changes are locked. Restart Legion from the tray menu.</p>}
-      {!bridge && <p className="bsv-fine">This window has no app bridge (a browser tab?). Open the Legion app to arm, disarm or freeze.</p>}
+      {!bridge && <p className="bsv-fine">This window has no app bridge (a browser tab?). Open the Legion app to change this.</p>}
       <div className="bsv-row" role="group" aria-label="Arm for how long">
         {choices.map((m) => <button key={m} type="button" className={`bsv-chip${m === minutes ? ' on' : ''}`} aria-pressed={m === minutes} onClick={() => setMinutes(m)}>{m} min</button>)}
       </div>
       <div className="bsv-row">
-        <button type="button" className="btn bsv-arm" disabled={!bridge || !p.nativeAvailable || changing || !!p.frozen} onClick={() => void changePolicy({ kind: 'arm', minutes })}>Arm LIVE FUNDS&hellip;</button>
+        <button type="button" className="btn bsv-arm" disabled={!bridge || !p.nativeAvailable || changing || !!p.frozen || !mn.enabled} onClick={() => void changePolicy({ kind: 'arm', minutes })}>Arm LIVE FUNDS&hellip;</button>
         <button type="button" className="btn-ghost" disabled={!bridge || changing || !p.armed} onClick={() => void changePolicy({ kind: 'disarm' })}>Disarm</button>
         {p.frozen
           ? <button type="button" className="btn" disabled={!bridge || !p.nativeAvailable || changing} onClick={() => void changePolicy({ kind: 'unfreeze' })}>Unfreeze&hellip;</button>
           : <button type="button" className="btn-ghost bsv-freeze-btn" disabled={!bridge || changing} onClick={() => void changePolicy({ kind: 'freeze' })}>Freeze chain</button>}
       </div>
-      <p className="bsv-fine">Arming and unfreezing open a native confirmation from the app, which this window cannot answer for you. Freeze and Disarm act at once. Arming changes Legion&apos;s policy state only. <b>Testnet spends do not need Arm</b>, and the spend tool refuses a mainnet request in this version.</p>
+      <p className="bsv-fine">Allowing mainnet, arming and unfreezing open a native confirmation from the app, which this window cannot answer for you. Switching mainnet off, Disarm and Freeze act at once. Arming covers exactly one mainnet spend, and each spend still needs your dialogs and then your wallet&apos;s own prompt, which is the last gate. <b>Testnet spends do not need Arm.</b> Legion&apos;s mainnet path has not been checked with real funds.</p>
     </section>
   );
 }
@@ -76,7 +85,7 @@ function SpendSection({ p }: { p: PolicyView }) {
   const m = spendModel(p);
   return (
     <section className="bsv-sec" aria-labelledby="bsv-h-spend">
-      <h3 id="bsv-h-spend">Requests from the Assayer (testnet)</h3>
+      <h3 id="bsv-h-spend">Requests from the Assayer</h3>
       <p className="bsv-line" data-spend={p.spendTools ? 'on' : 'off'}>{m.headline}</p>
       {m.pending.length === 0 && m.unknown.length === 0 && <p className="bsv-fine">Nothing is waiting for your answer.</p>}
       {m.pending.map((r) => (
@@ -97,19 +106,50 @@ function SpendSection({ p }: { p: PolicyView }) {
   );
 }
 
+const CAP_FIELDS = [['perTxSats', 'Per transaction'], ['perSessionSats', 'Per session'], ['per24hSats', 'Per rolling 24 hours']] as const;
+
+function NetLimits({ row, p }: { row: NetRow; p: PolicyView }) {
+  const changing = useBsv((s) => s.changing);
+  const bridge = canChangePolicy();
+  const [edit, setEdit] = useState<Record<string, string>>({});
+  const [list, setList] = useState('');
+  const main = row.net === 'main';
+  const can = bridge && p.nativeAvailable && !changing;
+  const changed = CAP_FIELDS.filter(([k]) => edit[k] !== undefined && edit[k] !== '' && Number(edit[k]) !== row.caps[k]);
+  const lines = list.split('\n').map((l) => l.trim()).filter(Boolean);
+  return (
+    <div className="bsv-net" data-net={row.net}>
+      <h4>{row.label}{main && !mainnetState(p).enabled ? ' (switched off)' : ''}</h4>
+      <dl className="bsv-kv">
+        <dt>Per transaction</dt><dd>{sats(row.caps.perTxSats)}</dd>
+        <dt>Per session</dt><dd>{sats(row.caps.perSessionSats)}{row.usage ? <> <span className="bsv-dim">(used {sats(row.usage.sessionSats)})</span></> : null}</dd>
+        <dt>Per rolling 24 hours</dt><dd>{sats(row.caps.per24hSats)}{row.usage ? <> <span className="bsv-dim">(used {sats(row.usage.last24hSats)})</span></> : null}</dd>
+        <dt>Max outputs</dt><dd>{row.caps.maxOutputs}</dd>
+        <dt>Fee ceiling</dt><dd>{sats(row.caps.maxFeeSats)}</dd>
+        <dt>Recipient allowlist</dt><dd>{row.allowlist.length ? `${row.allowlist.length} address${row.allowlist.length === 1 ? '' : 'es'}` : 'empty: no recipient is allowed'}</dd>
+      </dl>
+      {row.allowlist.length > 0 && <ul className="bsv-fine" aria-label={`${row.label} allowlist`}>{row.allowlist.map((a) => <li key={a}>{safeLine(a, 120)}</li>)}</ul>}
+      <div className="bsv-row" role="group" aria-label={`${row.label} limits`}>
+        {CAP_FIELDS.map(([k, label]) => (
+          <input key={k} className="bsv-input" type="number" min={0} inputMode="numeric" aria-label={`${row.label} ${label.toLowerCase()} (sat)`} placeholder={`${label} (sat)`} value={edit[k] ?? ''} onChange={(e) => setEdit({ ...edit, [k]: e.target.value })} disabled={!can} />
+        ))}
+        <button type="button" className="btn-ghost" disabled={!can || changed.length === 0} onClick={() => { const caps: Record<string, number> = {}; for (const [k] of changed) caps[k] = Number(edit[k]); void changePolicy({ kind: 'caps', ...(main ? { net: 'main' as const } : {}), caps }).then(() => setEdit({})); }}>Change limits&hellip;</button>
+      </div>
+      <div className="bsv-row">
+        <textarea className="bsv-input" rows={2} spellCheck={false} autoComplete="off" aria-label={`${row.label} allowlist, one address per line`} placeholder={`${main ? 'Mainnet' : 'Testnet'} addresses, one per line (replaces the list)`} value={list} onChange={(e) => setList(e.target.value)} disabled={!can} />
+        <button type="button" className="btn-ghost" disabled={!can} onClick={() => void changePolicy({ kind: 'allowlist', ...(main ? { net: 'main' as const } : {}), list: lines }).then(() => setList(''))}>Replace list&hellip;</button>
+      </div>
+    </div>
+  );
+}
+
 function LimitsSection({ p }: { p: PolicyView }) {
   return (
     <section className="bsv-sec" aria-labelledby="bsv-h-limits">
-      <h3 id="bsv-h-limits">Limits</h3>
-      <dl className="bsv-kv">
-        <dt>Per transaction</dt><dd>{sats(p.caps.perTxSats)}</dd>
-        <dt>Per session</dt><dd>{sats(p.caps.perSessionSats)} <span className="bsv-dim">(used {sats(p.usage.sessionSats)})</span></dd>
-        <dt>Per rolling 24 hours</dt><dd>{sats(p.caps.per24hSats)} <span className="bsv-dim">(used {sats(p.usage.last24hSats)})</span></dd>
-        <dt>Max outputs</dt><dd>{p.caps.maxOutputs}</dd>
-        <dt>Fee ceiling</dt><dd>{sats(p.caps.maxFeeSats)}</dd>
-        <dt>Recipient allowlist</dt><dd>{p.allowlist.length ? `${p.allowlist.length} address${p.allowlist.length === 1 ? '' : 'es'}` : 'empty: no recipient is allowed'}</dd>
-      </dl>
-      <p className="bsv-fine">Defaults are tiny and hard ceilings are written in code. The limits are enforced by a tested policy engine that the testnet spend tool consults for every request. Changing them is possible only from the app after a native confirmation; the form for it is not built yet.</p>
+      <h3 id="bsv-h-limits">Limits and recipients, per network</h3>
+      {netRows(p).map((row) => <NetLimits key={row.net} row={row} p={p} />)}
+      {!p.nets?.main && <p className="bsv-fine">This core reports no mainnet limits.</p>}
+      <p className="bsv-fine">Each network has its own limits, recipient list and usage: testnet use never counts against mainnet. Defaults are tiny and hard ceilings are written in code. A change opens a native confirmation that names the network; a recipient must be a valid address of that network. The numbers shown are what the core reports.</p>
     </section>
   );
 }
@@ -162,10 +202,11 @@ function ActivitySection({ verifiedEntries, policyOk, policyReason }: { verified
 /** The BSV panel: wallet status, live-funds arming and freeze, limits and the activity log. Static: nothing animates, nothing polls. */
 export function BsvPanel() {
   const p = useBsv((s) => s.policy);
+  const mn = mainnetState(p);
   return (
     <Modal title="BSV mode" width={640} onClose={closeBsvPanel} footer={<><span style={{ flex: 1 }} /><button type="button" className="btn-ghost" data-autofocus onClick={closeBsvPanel}>Close</button></>}>
       <div className="bsv-panel">
-        <p className="bsv-lead">Testnet mode. The Assayer can explain, draft and review, can ask whether a wallet is there, and can ask for one testnet payment. <b>{'Legion\'s own code holds no keys: a payment needs your confirmation in a native dialog and then your wallet\'s own prompt.'}</b> An agent&apos;s ordinary tools (a shell, a web fetch) are outside that statement: they are limited by their own approval cards, not by anything on this panel.</p>
+        <p className="bsv-lead"><span className="bsv-badge" data-net={mn.enabled ? 'main' : 'test'}>{mn.enabled ? (mn.armed ? 'MAINNET ARMED' : 'MAINNET ON, not armed') : 'TESTNET'}</span> The Assayer can explain, draft and review, can ask whether a wallet is there, and can ask for one payment. <b>{'Legion\'s own code holds no keys: a payment needs your confirmation in native dialogs and then your wallet\'s own prompt.'}</b> An agent&apos;s ordinary tools (a shell, web access) are outside that statement: they are limited by their own approval cards, not by anything on this panel.</p>
         <WalletSection />
         {p && <SpendSection p={p} />}
         {p ? <ArmSection p={p} /> : <section className="bsv-sec"><h3>Live funds</h3><p className="bsv-line">Loading policy&hellip;</p></section>}

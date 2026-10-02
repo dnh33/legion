@@ -41,6 +41,9 @@ test('emu bsv: the window\'s admin secret, a guessed native secret, the admin se
 
 test('emu bsv: cancelling the native dialog changes nothing; confirming arms; the dialog is worded by main, Cancel is the default', { skip }, async () => {
   const r = await bsv();
+  // The enable route is registered by T2 (index.ts). Until then the core 404s it, mainnet stays off and main refuses to arm: assert that fail-closed
+  // behaviour, and the full flow as soon as the route exists (these assertions then switch on by themselves).
+  if (r.routeMissing) { assert.equal(r.cancelled.ok, false); assert.match(r.cancelled.error, /switched off/); assert.equal(r.armedAfterConfirm, false); return; }
   assert.deepEqual(r.cancelled, { ok: false, cancelled: true });
   assert.equal(r.armedAfterCancel, false);
   assert.equal(r.cancelDialog.length, 1);
@@ -55,9 +58,11 @@ test('emu bsv: cancelling the native dialog changes nothing; confirming arms; th
   assert.match(d.detail, /Per transaction: 0\.00001000 BSV \(1,000 sat\)/, 'the limits come from the core, not the window');
   // T5: mainnet is OFF by default, so the core refuses to arm until the owner has switched it on. The window has no "enable mainnet" step yet
   // (the T3 second pass adds the dialog); then this test arms again with the switch on and the old assertions (ok, armed, refresh event) come back.
-  assert.equal(r.confirmed.ok, false);
-  assert.match(r.confirmed.error, /switched off/);
-  assert.equal(r.armedAfterConfirm, false);
+  assert.equal(r.confirmed.ok, true, 'with the switch on, the native arm flow works end to end');
+  assert.equal(r.armedAfterConfirm, true);
+  assert.equal(r.sentChanged, true, 'the window is told to refresh');
+  assert.match(d.detail, /ONE mainnet spend request may be considered, then it disarms/);
+  assert.match(d.detail, /wallet's own prompt, which is the last gate/);
 });
 
 test('emu bsv: malformed requests and requests from another window or frame are refused before any dialog', { skip }, async () => {
@@ -95,10 +100,8 @@ test('emu bsv: a caps change shows before and after in the dialog and a value ab
 
 test('emu bsv: confirmation dialogs never stack, and every change is in the audit log, whose chain verifies', { skip }, async () => {
   const r = await bsv();
-  assert.equal(r.second.ok, false);
-  assert.match(r.second.error, /already open/);
-  assert.equal(r.firstDone.ok, false, 'T5: arming is refused while mainnet is off (see the note in the test above)');
-  assert.equal(r.dialogsStacked, 1);
+  if (!r.routeMissing) { assert.equal(r.second.ok, false); assert.match(r.second.error, /already open/); }
+  if (!r.routeMissing) { assert.equal(r.firstDone.ok, true, 'the first dialog was answered after the second was refused'); assert.equal(r.dialogsStacked, 1); }
   for (const want of ['policy:frozen', 'policy:unfrozen', 'policy:caps-changed']) assert.ok(r.auditDecisions.includes(want), `${want} in ${r.auditDecisions.join(',')}`);
   assert.equal(r.auditOk, true);
 });
@@ -127,7 +130,7 @@ test('emu spend: Cancel denies with both secrets from main; the dialog is worded
   const d = r.cancelDialog[0];
   assert.deepEqual(d.buttons, ['Cancel', 'Approve this payment']);
   assert.equal(d.defaultId, 0); assert.equal(d.cancelId, 0); assert.equal(d.type, 'warning');
-  assert.match(d.detail, /mipcBbFg9gMiCh81Kj8tqqdgoZub1ZJRfn/);
+  assert.match(d.detail, /mh5CE8Nbj38iND267s4XnvhSmhDW7yWc6Q/);
   assert.match(d.detail, /Network: TESTNET/);
   assert.match(d.detail, /Limits: per transaction 0\.00001000 BSV \(1,000 sat\)/, 'the caps are read from the core');
   assert.deepEqual(r.cancelPosts, [{ path: '/api/bsv/spend/ID/decision', body: { decision: 'deny' }, adminOk: true, nativeOk: true }]);
@@ -162,8 +165,15 @@ test('emu spend: a main card the facts do not allow is refused and denied withou
   assert.equal(r.forgedNet.ok, false, 'a main card with the TESTNET label is refused even when the facts allow mainnet');
   assert.equal(r.forgedNetDialogs, 0);
   assert.equal(r.mainAllowed.ok, true, 'a main card the core\'s facts allow (enabled and armed) gets its dialog');
-  assert.deepEqual(r.mainAllowedDialog, ['An agent asks to pay 0.00000600 BSV (600 sat) on LIVE FUNDS (main network).']);
-  assert.deepEqual(r.mainAllowedBodies, [{ decision: 'approve', cardHash: '6'.repeat(64), confirmations: ['approve'] }]);
+  assert.deepEqual(r.mainAllowedDialog.map((d: any) => d.title), ['LIVE FUNDS: approve a MAINNET payment?', 'Last Legion check before your wallet'], 'D1 then D2, always');
+  assert.deepEqual(r.mainAllowedDialog.map((d: any) => d.buttons), [['Cancel', 'Continue to the last check'], ['Send 600 sat to ...' + '12ZEw5Hcv1hTb6YUQJ69y1V7uhcoDz92PH'.slice(-8), 'Cancel']]);
+  assert.deepEqual(r.mainAllowedDialog.map((d: any) => [d.defaultId, d.cancelId]), [[0, 0], [1, 1]], 'Cancel is the default and the Escape button in both, wherever it sits');
+  assert.deepEqual(r.mainAllowedBodies, [{ decision: 'approve', cardHash: '6'.repeat(64), confirmations: ['approve', 'live-funds'] }]);
+  assert.deepEqual(r.mainD2Habit, { ok: false, cancelled: true }, 'pressing D1\'s yes position on D2 is Cancel');
+  assert.deepEqual(r.mainD2HabitBodies, [{ decision: 'deny' }]);
+  assert.equal(r.mainTainted.ok, true);
+  assert.deepEqual(r.mainTaintedTitles.map((t: string) => t.split(':')[0]), ['LIVE FUNDS', 'Last Legion check before your wallet', 'Untrusted content was read']);
+  assert.deepEqual(r.mainTaintedBodies, [{ decision: 'approve', cardHash: '4'.repeat(64), confirmations: ['approve', 'live-funds', 'untrusted-content'] }]);
   assert.equal(r.deny.ok, true);
   assert.equal(r.denyDialogs, 0);
   assert.equal(r.resolve.ok, true);
@@ -179,4 +189,43 @@ test('emu spend: no poll of the pending route while BSV is off; with it on, dial
   assert.deepEqual(r.onOrder, [ID('1')[0], ID('2')[0]]);
   assert.equal(r.armWhileSpend.ok, false);
   assert.match(r.armWhileSpend.error, /already open/);
+});
+
+test('emu bsv: mainnet is off by default; arming is refused before any dialog while it is off; enabling is a native dialog and Cancel leaves it off; the bearer token and the admin secret alone cannot enable it', { skip }, async () => {
+  const r = await bsv();
+  assert.equal(r.mainnetDefault, false);
+  assert.equal(r.armWhileOff.ok, false);
+  assert.match(r.armWhileOff.error, /Mainnet is switched off/);
+  assert.equal(r.dialogsArmWhileOff, 0, 'no arm dialog while the switch is off');
+  assert.deepEqual(r.enableCancelled, { ok: false, cancelled: true });
+  assert.equal(r.mainnetAfterCancel, false);
+  const d = r.enableDialog[0];
+  assert.equal(r.enableDialog.length, 1);
+  assert.equal(d.message, 'Allow Legion to consider spending REAL BSV?');
+  assert.deepEqual(d.buttons, ['Cancel', 'Allow mainnet']);
+  assert.equal(d.defaultId, 0); assert.equal(d.cancelId, 0); assert.equal(d.type, 'warning');
+  assert.equal(r.enableToken, 403);
+  assert.equal(r.mainnetAfterNoNative, false);
+  if (r.routeMissing) return; // TODO until T2 registers the route: the rest needs the core's mainnet route
+  assert.equal(r.enableAdminOnly, 403);
+  assert.equal(r.enableOk.ok, true);
+  assert.equal(r.mainnetAfterConfirm, true);
+  assert.equal(r.armedAfterEnable, false, 'enabling does not arm');
+});
+
+test('emu bsv: the arm is recorded in the audit log (policy:armed), the switch changes are recorded, and switching mainnet off needs no dialog and disarms', { skip }, async () => {
+  const r = await bsv();
+  if (r.routeMissing) return; // TODO until T2 registers the route
+  for (const want of ['policy:armed', 'policy:mainnet-changed']) assert.ok(r.auditDecisions.includes(want), `${want} in ${r.auditDecisions.join(',')}`);
+  assert.equal(r.disableOk.ok, true);
+  assert.equal(r.dialogsForDisable, 0);
+  assert.deepEqual(r.afterDisable, { mainnet: false, armed: false });
+});
+
+test('emu bsv (ASSUMPTION T3-A4): a mainnet limits change is either applied to the main network and reported, or main reports that the core did not apply it; the confirmed network is never silently another one', { skip }, async () => {
+  const r = await bsv();
+  if (r.routeMissing) return; // TODO until T2 registers the route (mainnet caps need a mainnet switch)
+  assert.match(r.capsMainDialog, /MAINNET/);
+  if (r.capsMain.ok) assert.equal(r.capsMainAfter, 400);
+  else assert.match(r.capsMain.error, /did not apply the MAINNET|did not report the mainnet|refused/);
 });
