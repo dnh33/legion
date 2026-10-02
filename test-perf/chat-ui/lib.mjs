@@ -13,7 +13,7 @@ export async function openPage(env, { width = 1280, height = 860, scheme = 'dark
   const page = await ctx.newPage();
   const errs = [];
   page.on('pageerror', (e) => errs.push(e.message));
-  page.on('console', (m) => { if (m.type() === 'error' && !/status of 404/.test(m.text())) errs.push('console: ' + m.text()); }); // 404 = /api/bsv, the harness has no BSV module
+  page.on('console', (m) => { if (m.type() === 'error' && !/status of (404|409|500)/.test(m.text())) errs.push('console: ' + m.text()); }); // 404 = /api/bsv (the harness has no BSV module); 409/500 are the scripted failures in queue.mjs
   await page.goto(env.uiUrl);
   await page.waitForSelector('.titlebar');
   await page.waitForSelector('textarea[aria-label="Message"]');

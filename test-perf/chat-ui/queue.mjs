@@ -269,6 +269,43 @@ try {
     await idle();
   });
 
+  await check('a queued message whose send fails stays queued and holds the queue with the reason; Resume retries', async () => {
+    await newThread();
+    await typeEnter(page, '[slow:2500] run9'); await busy();
+    await q('will fail once', 'after the failure'); await queueN(2);
+    let failures = 0;
+    await page.route('**/api/tasks', (route) => {
+      if (route.request().method() === 'POST' && failures === 0) { failures++; return route.fulfill({ status: 500, contentType: 'application/json', body: JSON.stringify({ error: 'scripted server failure' }) }); }
+      return route.continue();
+    });
+    await until(() => holdBanner().count(), 8000, 'hold after failed send');
+    assert.match(await holdBanner().innerText(), /scripted server failure/);
+    assert.equal(await queueCount(page), 2, 'nothing lost');
+    await sleep(800);
+    assert.ok(!prompts().includes('will fail once'));
+    await page.unroute('**/api/tasks');
+    await page.getByRole('button', { name: 'Resume' }).click();
+    await until(() => prompts().includes('after the failure'), 8000, 'resumed');
+    await idle();
+    assert.deepEqual(after('will fail once'), ['will fail once', 'after the failure']);
+  });
+
+  await check('a 409 "still running" from the core (event ordering) is retried, not treated as a failure', async () => {
+    await newThread();
+    await typeEnter(page, '[slow:2500] run10'); await busy();
+    await q('retry me'); await queueN(1);
+    let conflicts = 0;
+    await page.route('**/api/tasks', (route) => {
+      if (route.request().method() === 'POST' && conflicts < 2) { conflicts++; return route.fulfill({ status: 409, contentType: 'application/json', body: JSON.stringify({ error: 'Task is still running' }) }); }
+      return route.continue();
+    });
+    await until(() => prompts().includes('retry me'), 10000, 'sent after retries');
+    await page.unroute('**/api/tasks');
+    assert.equal(conflicts, 2);
+    assert.equal(await holdBanner().count(), 0);
+    await idle();
+  });
+
   await check('thread state: no page errors', async () => { assert.deepEqual(errs, []); });
 } finally {
   console.log('page errors:', errs);

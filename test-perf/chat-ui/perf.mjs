@@ -34,6 +34,12 @@ out.streaming50 = await measure(async () => {
 });
 env.bus.emit({ type: 'message.delta', taskId: tid, text: '' });
 await sleep(500);
+if (process.env.HELD_QUEUE) {
+  // idle cost with a held queue on screen (restored after a reload): no timers or animation may run for it
+  await page.evaluate((tid) => sessionStorage.setItem('legion.queue.v1', JSON.stringify({ v: 1, threads: { ['t:' + tid]: { items: ['one', 'two', 'three'].map((t, i) => ({ id: 'q' + i, text: t + ' queued message', model: 'auto', at: i })), hold: null } } })), tid);
+  await page.reload(); await page.waitForSelector('[data-testid="queue-strip"]'); await sleep(1200);
+  out.idleHeldQueue = await measure(() => sleep(6000));
+}
 console.log(JSON.stringify(out));
 if (errs.length) console.log('page errors', errs);
 await browser.close(); await env.stop();
