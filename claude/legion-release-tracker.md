@@ -92,3 +92,8 @@ State:
 - Owner actions pending: enable Windows Sandbox (admin PowerShell `Enable-WindowsOptionalFeature -Online -FeatureName Containers-DisposableClientVM -All` + restart); in the sandbox the owner installs BSV Desktop in testnet mode, creates the wallet and gets testnet coins (the agent does not create accounts or passwords); reproduce the community add-on sha256 on the PC.
 - Open items: R6.1 flake (mitigated, unproven); scrubSecrets quadratic on 3 shapes; VPS sync of Aetherkeep (ssh timed out); Aetherkeep notes written 2026-10-02 (`06-projects/legion-v0.2.0-release-2026-10-02.md` etc.).
 - Never: touch the owner's own BSV wallet (127.0.0.1:3321) with any automation; commit secrets; force-push or delete branches; overwrite an earlier delivery folder.
+
+## Review plan (owner request 2026-10-02): cloud review with Anthropic's code review
+
+- Per-branch independent adversarial reviewers (cloud, claude.ai/code web surface, defensive framing, mutation checks) stay: they know the controls.
+- Added gate: `/code-review ultra` (multi-agent cloud review) on a pull request. It is user-triggered and billed: the orchestrating agent cannot launch it. Plan: open PR `integration/v1` -> `main` on dnh33/legion after the BSV work (T1, T5, T2, T3 second pass) is merged, owner runs `/code-review ultra <PR#>` from a Claude Code session started in `D:/bots/legion-dev` (needs a git repo); again on the final integration before `main` moves. `--post` only if the owner wants findings on the PR. Billing source (cloud credits vs plan limit) unknown: check the confirmation prompt. Fallback if the cyber safeguard stops it on BSV/Blender code: the defensive-framing reviewers.
