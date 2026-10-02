@@ -22,7 +22,7 @@ Cloud work runs on the claude.ai/code web surface (credits). Branches live in pr
 
 | ID | Item | State |
 |---|---|---|
-| W0 | Windows baseline: 1300 pass / 27 fail / 41 skip of 1368 | triage running locally (branch `fix/windows-baseline` in `D:ots\legion-wt-win`, 4 commits so far) |
+| W0 | Windows baseline: 1300 pass / 27 fail / 41 skip of 1368 | triage running locally (branch `fix/windows-baseline` in `D:/bots/legion-wt-win`, 4 commits so far) |
 | A | MCP isolation (`claude/mcp-isolation`) | built; review = SHIP AFTER FIXES (F1 connector setting, F2b self-guard, F3 error redaction, F5 copy); fix session running |
 | R1 K1 U1 | Rooms no default spend limit, lazy key probe, Builder reset (`claude/rooms-probe-upgrade`) | built (3 commits); independent review running |
 | B | Packaging + public audit (`claude/release-packaging`) | built; review = SHIP AFTER FIXES (F1 matcher can kill other Electron, F2 -Yes /MIR into any dir, audit text errors, F4 pause); fix session running. Needs real-Windows pass afterwards (review sec. 5) |
