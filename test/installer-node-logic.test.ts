@@ -74,5 +74,5 @@ test('the Electron shell starts the core with Legion\'s own Node when setup inst
   assert.equal(resolveNodeBin(root, {}, have(exe)), 'node', 'no marker: not Legion\'s, not used');
   assert.equal(resolveNodeBin(root, {}, have(marker)), 'node');
   assert.equal(resolveNodeBin(root, {}, have()), 'node');
-  assert.match(read('src/electron/main.ts'), /resolveNodeBin\(root\)/);
+  assert.match(read('src/electron/main.ts'), /resolveCoreLaunch\(root\)/);
 });
