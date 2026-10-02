@@ -26,7 +26,7 @@ test('C6 the window\'s request is parsed strictly: unknown kinds, bad ids, bad k
   assert.equal(parseProviderChange({ kind: 'key', id: 'mine', key: 'short' }), undefined);
   assert.equal(parseProviderChange({ kind: 'key', id: 'mine', key: 'has a space in it 123' }), undefined);
   assert.equal(parseProviderChange({ kind: 'wipe', id: 'mine' }), undefined);
-  assert.equal(parseProviderChange({ kind: 'entry', id: 'mine', patch: { baseUrl: 'https://x.example/v1', kind: 'cli' } }), undefined);
+  assert.equal(parseProviderChange({ kind: 'entry', id: 'mine', patch: { baseUrl: 'https://x.example/v1', surprise: 1 } }), undefined);
   assert.deepEqual(parseProviderChange({ kind: 'entry', id: 'mine', patch: { baseUrl: 'https://x.example/v1' } }), { kind: 'entry', id: 'mine', patch: { baseUrl: 'https://x.example/v1' } });
 });
 

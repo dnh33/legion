@@ -16,7 +16,7 @@ import { runCli } from './cli.js';
 import { homedir } from 'node:os';
 import type { ProviderEntry, ProviderHost, ProviderRunResult, ProvidersConfig, ResolvedModel } from './types.js';
 import type { ProviderView, ProvidersView } from '../../shared/providers-view.js';
-import { ROOM_BUDGET_NOTE } from '../../shared/providers-view.js';
+import { CLI_WARNING, ROOM_BUDGET_NOTE } from '../../shared/providers-view.js';
 import type { McpServerEntry } from '../../shared/types.js';
 import { isStdioEntry, stdioCommandLine, stdioFingerprint } from './stdio-allow.js';
 
@@ -52,8 +52,7 @@ export const PROVIDER_LIMITS_TEXT: string[] = [
 ];
 
 export { ROOM_BUDGET_NOTE };
-/** The plain-words warning for a CLI agent (also shown in the native dialog). */
-export const CLI_WARNING = 'This runs a program (Codex or OpenCode) on this computer with its own shell and file tools. Legion cannot see or stop its individual actions: they are outside Legion\'s per-tool approvals and taint tracking. Its sandbox flag is that program\'s own promise, not a Legion control. Sign in to it yourself, outside Legion; Legion never reads or copies its login.';
+export { CLI_WARNING };
 
 /** `<provider>:<model>` shape check only (a Bedrock ARN is not one). Whether the provider exists is the runtime's business. */
 const PREFIX_RE = /^([a-z][a-z0-9-]{1,31}):(.+)$/;

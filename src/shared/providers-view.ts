@@ -20,3 +20,6 @@ export interface ProvidersView { providers: ProviderView[]; maxTurns: number; ma
 
 /** One sentence the room UI shows under a room budget: the meter counts only costs Legion knows. */
 export const ROOM_BUDGET_NOTE = 'This budget counts only costs Legion knows: a run on another provider adds nothing unless you entered prices for that model, so the room can go over it.';
+
+/** The plain-words warning for a CLI agent (Codex, OpenCode) on this computer; shown in Settings and in the native dialog. */
+export const CLI_WARNING = 'This runs a program (Codex or OpenCode) on this computer with its own shell and file tools. Legion cannot see or stop its individual actions: they are outside Legion\'s per-tool approvals and taint tracking. Its sandbox flag is that program\'s own promise, not a Legion control. Sign in to it yourself, outside Legion; Legion never reads or copies its login.';
