@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import type { Room, RoomGuards, RoomStrategy } from '../../../src/shared/comms';
+import { MAX_ROOM_BUDGET_USD } from '../../../src/shared/config';
 import { Icon } from '../components/icons';
 import { Face } from './Stack';
 import { useStore } from '../store';
@@ -35,14 +36,14 @@ export function RoomSettings({ room }: { room: Room }) {
   const nHops = num(maxHops, 1, 100, true);
   // An empty box means no spend limit (null); anything else must be an amount in range.
   const budgetBlank = budget.trim() === '';
-  const budgetBad = !budgetBlank && num(budget, 0.05, 10_000, false) === null;
-  const nBudget: number | null = budgetBlank ? null : num(budget, 0.05, 10_000, false);
+  const budgetBad = !budgetBlank && num(budget, 0.05, MAX_ROOM_BUDGET_USD, false) === null;
+  const nBudget: number | null = budgetBlank ? null : num(budget, 0.05, MAX_ROOM_BUDGET_USD, false);
   const nCycle = num(cycle, 2, 50, true);
   const nCool = num(cool, 0, 86_400, false);
   const nameOk = name.trim().length > 0 && name.trim().length <= 80;
   const membersOk = members.length >= 2 && members.length <= MAX;
   const bad = !nameOk ? 'Name is required (80 characters max).' : !membersOk ? 'A group needs 2 to 6 agents.'
-    : nHops === null ? 'Max hops: whole number, 1 to 100.' : budgetBad ? 'Budget: $0.05 to $10,000, or leave it empty for no limit.'
+    : nHops === null ? 'Max hops: whole number, 1 to 100.' : budgetBad ? `Budget: $0.05 to $${MAX_ROOM_BUDGET_USD.toLocaleString('en-US')}, or leave it empty for no limit.`
     : nCycle === null ? 'Repeats: whole number, 2 to 50.' : nCool === null ? 'Cooldown: 0 to 86,400 seconds.' : '';
 
   const added = members.filter((m) => !room.members.includes(m));

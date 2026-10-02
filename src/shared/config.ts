@@ -39,6 +39,8 @@ export type CoreConfig = LegionConfig & { bsv: BsvConfig; comms: CommsConfig; bl
 
 /** The least a room's budget can be (below it one turn cannot fit). The hub, the settings dialogs and the bot-room limits all use it. */
 export const MIN_ROOM_BUDGET_USD = 0.05;
+/** The most any room budget can be, however it is set (human, bot or config). */
+export const MAX_ROOM_BUDGET_USD = 10_000;
 
 export const DEFAULT_COMMS: CommsConfig = { botRoomMaxMembers: 6, botRoomDefaultBudgetUsd: null, botRoomMaxBudgetUsd: null, turnCostFloorUsd: 0.02 };
 
@@ -52,7 +54,7 @@ export function normalizeComms(v: unknown): CommsConfig {
   /** A USD amount in range, or null (no limit) for anything else, including a missing value. */
   const usd = (k: 'botRoomDefaultBudgetUsd' | 'botRoomMaxBudgetUsd'): number | null => {
     const x = o[k];
-    return typeof x === 'number' && Number.isFinite(x) && x >= MIN_ROOM_BUDGET_USD && x <= 10_000 ? x : null;
+    return typeof x === 'number' && Number.isFinite(x) && x >= MIN_ROOM_BUDGET_USD && x <= MAX_ROOM_BUDGET_USD ? x : null;
   };
   const max = usd('botRoomMaxBudgetUsd');
   const def = usd('botRoomDefaultBudgetUsd');

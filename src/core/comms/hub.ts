@@ -7,7 +7,7 @@ import type {
   Room, RoomGuards, RoomKind, RoomMessage, RoomMessageKind, RoomPauseReason, RoomSender, RoomStrategy, TaskOrigin, CommsState,
 } from '../../shared/comms.js';
 import type { AgentProfile, ApprovalMode, ApprovalRequest, LegionEvent, ModelChoice, Task, TaskSource } from '../../shared/types.js';
-import { DEFAULT_COMMS, MIN_ROOM_BUDGET_USD } from '../../shared/config.js';
+import { DEFAULT_COMMS, MAX_ROOM_BUDGET_USD, MIN_ROOM_BUDGET_USD } from '../../shared/config.js';
 import type { CommsConfig } from '../../shared/config.js';
 import { newId, nowIso } from '../../shared/util.js';
 import { stricterMode } from '../approvals.js';
@@ -65,7 +65,7 @@ export interface HubOptions {
 }
 
 /** Thrown for caller mistakes; carries the HTTP status the route layer should use. */
-export { MIN_ROOM_BUDGET_USD };
+export { MIN_ROOM_BUDGET_USD, MAX_ROOM_BUDGET_USD };
 /** Human messages held while a room is paused for budget, per room (the transcript keeps them anyway; this is only what gets replayed). */
 const HELD_CAP = 20;
 
@@ -162,7 +162,7 @@ export function mergeGuards(base: RoomGuards, patch: Partial<RoomGuards> | undef
   const allowed = new Set(['maxHops', 'budgetUsd', 'cycleRepeats', 'everyoneCooldownSec']);
   for (const k of Object.keys(patch)) if (!allowed.has(k)) throw new CommsError(400, `Unknown guard "${k}"`);
   if (patch.maxHops !== undefined) out.maxHops = num(patch.maxHops, 'maxHops', 1, 100, true);
-  if (patch.budgetUsd !== undefined) out.budgetUsd = patch.budgetUsd === null ? null : num(patch.budgetUsd, 'budgetUsd', MIN_ROOM_BUDGET_USD, 10_000, false);
+  if (patch.budgetUsd !== undefined) out.budgetUsd = patch.budgetUsd === null ? null : num(patch.budgetUsd, 'budgetUsd', MIN_ROOM_BUDGET_USD, MAX_ROOM_BUDGET_USD, false);
   if (patch.cycleRepeats !== undefined) out.cycleRepeats = num(patch.cycleRepeats, 'cycleRepeats', 2, 50, true);
   if (patch.everyoneCooldownSec !== undefined) out.everyoneCooldownSec = num(patch.everyoneCooldownSec, 'everyoneCooldownSec', 0, 86_400, false);
   return out;
@@ -625,7 +625,7 @@ export class CommsHub {
     if (plan.members.length < 2 || plan.members.length > max) stale(`The limit for a room a bot creates is now ${max} bots`);
     if (!plan.members.includes(plan.lead) || !plan.members.includes(sender.id)) stale('The members changed');
     const cap = this.comms.botRoomMaxBudgetUsd;
-    if (plan.budgetUsd !== null && (plan.budgetUsd < MIN_ROOM_BUDGET_USD || (cap !== null && plan.budgetUsd > cap))) stale(`The budget limit for a room a bot creates is now $${(cap ?? MIN_ROOM_BUDGET_USD).toFixed(2)}`);
+    if (plan.budgetUsd !== null && (plan.budgetUsd < MIN_ROOM_BUDGET_USD || plan.budgetUsd > MAX_ROOM_BUDGET_USD || (cap !== null && plan.budgetUsd > cap))) stale(`The budget limit for a room a bot creates is now $${(cap ?? MIN_ROOM_BUDGET_USD).toFixed(2)}`);
   }
 
   /** What a membership card was shown: if the room differs when the user answers, the request is void. */
@@ -646,6 +646,7 @@ export class CommsHub {
     if (input.budgetUsd !== undefined) {
       const b = input.budgetUsd;
       if (typeof b !== 'number' || !Number.isFinite(b) || b < MIN_ROOM_BUDGET_USD) throw new CommsError(400, `budgetUsd must be a number of at least ${MIN_ROOM_BUDGET_USD}`);
+      if (b > MAX_ROOM_BUDGET_USD) throw new CommsError(400, `budgetUsd must be at most $${MAX_ROOM_BUDGET_USD} (the same limit as every room)`);
       const cap = this.comms.botRoomMaxBudgetUsd;
       if (cap !== null && b > cap) throw new CommsError(400, `budgetUsd must be at most $${cap.toFixed(2)} for a room a bot creates (the user can raise it later).`);
       budgetUsd = b;

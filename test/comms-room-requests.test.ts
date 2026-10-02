@@ -14,7 +14,7 @@ import { ApprovalBroker } from '../src/core/approvals.js';
 import { createCommsModule } from '../src/core/comms/index.js';
 import { buildCommsToolsServer } from '../src/core/comms/tools.js';
 import type { ModuleDeps } from '../src/core/modules.js';
-import { normalizeComms } from '../src/shared/config.js';
+import { MAX_ROOM_BUDGET_USD, normalizeComms } from '../src/shared/config.js';
 import type { RoomRequest } from '../src/core/comms/hub.js';
 import { makeHarness } from './comms-fakes.test.js';
 import { AUTH, asClient } from './helpers-c.js';
@@ -553,4 +553,26 @@ test('R1: a bot that names a budget still gets the 0.05 minimum; an optional cei
   assert.match(a.seen[0]!.summary, /Budget: \$500\.00/);
   a.answer(true);
   assert.equal((await p).guards.budgetUsd, 500, 'no default ceiling');
+});
+
+test('B1: a bot-named budget above the room maximum is refused up front, before any card; the maximum itself still works', async () => {
+  const a = approver();
+  const h = makeHarness({ hub: { approve: a.approve } });
+  for (const budgetUsd of [1e9, 10001]) {
+    await assert.rejects(h.hub.botCreateRoom('zealot', { name: 'Big', members: ['scout'], budgetUsd }, ctx()), /budgetUsd must be at most \$10000/);
+  }
+  assert.equal(a.seen.length, 0, 'no card for a budget that could not be created');
+  const p = h.hub.botCreateRoom('zealot', { name: 'Max', members: ['scout'], budgetUsd: MAX_ROOM_BUDGET_USD }, ctx());
+  await tick(); a.answer(true);
+  assert.equal((await p).guards.budgetUsd, 10000);
+});
+
+test('B1: the re-check at approval time also refuses a budget above the maximum', () => {
+  const h = makeHarness();
+  const recheck = (h.hub as unknown as { recheckRoomPlan(s: unknown, p: unknown): void }).recheckRoomPlan.bind(h.hub);
+  const sender = h.agents.get("zealot")!;
+  const plan = (budgetUsd: number | null) => ({ name: 'X', members: ['zealot', 'scout'], lead: 'zealot', budgetUsd });
+  assert.throws(() => recheck(sender, plan(1e9)), /nothing was created/);
+  assert.doesNotThrow(() => recheck(sender, plan(10000)));
+  assert.doesNotThrow(() => recheck(sender, plan(null)));
 });
