@@ -581,7 +581,7 @@ export class BlenderGuard {
     // downloaded content is outside content: the run is tainted from here on, whatever happens next
     try { job?.markTainted?.(); } catch { /* bookkeeping must not block the result */ }
     const started = Date.now();
-    const fetched = await this.d.assets!.fetch(plan, dir);
+    const fetched = await this.d.assets!.retrieve(plan, dir);
     if (!fetched.ok || !fetched.manifest) {
       this.audit({ ...base, decision: 'completed', ok: false, summary: fetched.problems.join('; ').slice(0, 280), durationMs: Date.now() - started });
       return this.wrapOutput({ ok: false, text: `The download was not kept: ${fetched.problems.join('; ')}`, images: [] }, 'live', job);

@@ -137,14 +137,14 @@ export function importScript(plan: AssetPlan, dir: string): string {
     'w = sc.world or bpy.data.worlds.new("World")',
     'sc.world = w',
     'w.use_nodes = True',
-    'nt = w.node_tree',
-    'nt.nodes.clear()',
-    'env = nt.nodes.new("ShaderNodeTexEnvironment")',
+    'tree = w.node_tree',
+    'tree.nodes.clear()',
+    'env = tree.nodes.new("ShaderNodeTexEnvironment")',
     `env.image = bpy.data.images.load(${p})`,
-    'bg = nt.nodes.new("ShaderNodeBackground")',
-    'out = nt.nodes.new("ShaderNodeOutputWorld")',
-    'nt.links.new(env.outputs["Color"], bg.inputs["Color"])',
-    'nt.links.new(bg.outputs["Background"], out.inputs["Surface"])',
+    'bg = tree.nodes.new("ShaderNodeBackground")',
+    'out = tree.nodes.new("ShaderNodeOutputWorld")',
+    'tree.links.new(env.outputs["Color"], bg.inputs["Color"])',
+    'tree.links.new(bg.outputs["Background"], out.inputs["Surface"])',
     `print("set HDRI world", ${JSON.stringify(plan.id)})`,
     '',
   ].join('\n');
@@ -206,7 +206,7 @@ export interface AssetPort {
   readonly sources: readonly AssetSource[];
   search(source: AssetSource, q: { kind: AssetKind; query?: string; category?: string; limit?: number }): Promise<{ ok: boolean; text: string }>;
   plan(source: AssetSource, q: { id: string; kind: AssetKind; resolution: string }): Promise<{ ok: true; plan: AssetPlan } | { ok: false; error: string }>;
-  fetch(plan: AssetPlan, dir: string): Promise<FetchResult>;
+  retrieve(plan: AssetPlan, dir: string): Promise<FetchResult>;
 }
 
 export class PolyHavenAssets implements AssetPort {
@@ -242,5 +242,5 @@ export class PolyHavenAssets implements AssetPort {
     } catch (e) { return { ok: false, error: e instanceof AssetError ? e.message : `Poly Haven could not be reached: ${e instanceof Error ? e.message : String(e)}` }; }
   }
 
-  fetch(plan: AssetPlan, dir: string): Promise<FetchResult> { return fetchPlan(this.net, plan, dir, this.now); }
+  retrieve(plan: AssetPlan, dir: string): Promise<FetchResult> { return fetchPlan(this.net, plan, dir, this.now); }
 }

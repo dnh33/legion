@@ -31,7 +31,7 @@ import { FakeLocal } from './blender-local-fakes.js';
 const closers: Array<() => Promise<void>> = [];
 after(async () => { for (const c of closers) await c().catch(() => undefined); });
 
-interface Opts { enabled?: boolean; installs?: string[]; socketOpen?: boolean; mcpServers?: Record<string, any>; sandboxReady?: boolean; withSandbox?: boolean; unpinned?: boolean; localReady?: boolean; realLocal?: boolean; raw?: Record<string, unknown>; getPorts?: GetBlenderPorts; managedPin?: ManagedPin }
+interface Opts { enabled?: boolean; installs?: string[]; socketOpen?: boolean; mcpServers?: Record<string, any>; sandboxReady?: boolean; withSandbox?: boolean; unpinned?: boolean; localReady?: boolean; realLocal?: boolean; raw?: Record<string, unknown>; getPorts?: GetBlenderPorts; managedPin?: ManagedPin; request?: (host: string, port: number, payload: unknown, opts: { timeoutMs: number }) => Promise<unknown> }
 
 function fakeIo(versions: string[]): { io: BlenderIo; downloads: string[]; hash: { value?: string } } {
   const downloads: string[] = [];
@@ -86,6 +86,7 @@ async function mount(o: Opts = {}) {
     io, boatConfigured: () => true, backup: async () => ({ ok: true }), probe: async () => o.socketOpen ?? false,
     makeBackend: (k) => { kinds.push(k); return backend; },
     ...(o.withSandbox === false ? {} : { sandbox }),
+    ...(o.request ? { request: o.request } : {}),
     ...(o.getPorts ? { getPorts: o.getPorts } : {}), ...(o.managedPin ? { managedPin: o.managedPin } : {}),
   };
   const mod = createBlenderModule({ config, store, bus, engine, approvals, dataDir, bsvEnabled: () => false }, opts);
@@ -566,4 +567,59 @@ test('B5: the Sculptor preamble says when to use local, the VM and live, and tha
   assert.match(p, /in one line which place you chose and why/);
   assert.match(p, /ask the user in chat/);
   assert.match(p, /cannot change Settings/);
+});
+
+// ---------------------------------------------------------------- both backends at once: settings route, fail-closed test, flag off = one backend
+test('both: the switch and the asset sources are admin-only settings, default OFF; unsupported sources are listed with a reason and cannot be switched on', async () => {
+  const m = await mount({ installs: ['5.1.0'] });
+  const st0 = (await m.http('GET', '/api/blender')).json;
+  assert.equal(st0.both.enabled, false);
+  assert.match(st0.both.note, /Off: one live backend at a time/);
+  assert.deepEqual(st0.both.assets.filter((a: any) => a.enabled), []);
+  assert.deepEqual(st0.both.assets.filter((a: any) => !a.supported).map((a: any) => a.source).sort(), ['hunyuan3d', 'hyper3d', 'polypizza', 'sketchfab', 'tripo']);
+  assert.equal((await m.http('POST', '/api/blender/config', { both: true }, asClient)).status, 403, 'a token-only caller cannot turn it on');
+  assert.equal((await m.http('POST', '/api/blender/config', { assets: { polyhaven: true } }, asClient)).status, 403);
+  assert.equal((await m.http('GET', '/api/blender')).json.both.enabled, false);
+  assert.equal((await m.http('POST', '/api/blender/config', { both: 'yes' })).status, 400);
+  assert.equal((await m.http('POST', '/api/blender/config', { assets: { sketchfab: true } })).status, 400);
+  assert.equal((await m.http('POST', '/api/blender/config', { assets: { polyhaven: 'yes' } })).status, 400);
+  const on = await m.http('POST', '/api/blender/config', { both: true, assets: { polyhaven: true } });
+  assert.equal(on.json.both.enabled, true);
+  assert.equal(on.json.both.assets.find((a: any) => a.source === 'polyhaven').enabled, true);
+  assert.ok(on.json.notices.some((n: string) => /Use both backends at once is on.*neither has a password/.test(n)));
+  const saved = JSON.parse(readFileSync(m.configPath, 'utf8')).blender;
+  assert.equal(saved.both, true);
+  assert.deepEqual(saved.assets, { polyhaven: true });
+  const off = await m.http('POST', '/api/blender/config', { both: false });
+  assert.equal(off.json.both.enabled, false);
+  assert.equal(JSON.parse(readFileSync(m.configPath, 'utf8')).blender.both, undefined);
+});
+
+test('both: with the switch on, a wrong backend on the community port stops Test connection (fail closed, plain message); with it off the same fake is never asked', async () => {
+  const asked: number[] = [];
+  const request = async (_h: string, port: number) => { asked.push(port); return { status: 'success', result: { hello: 'not blender' } }; };
+  const m2 = await mount({ installs: ['5.1.0'], socketOpen: true, request, raw: { entry: { command: 'x', args: [], env: {}, serverDir: '/s', at: 't' }, both: true } });
+  const t = await m2.http('POST', '/api/blender/test', {});
+  assert.equal(t.json.ok, false);
+  assert.match(JSON.stringify(t.json.steps), /does not answer like the community add-on/);
+  assert.ok(asked.includes(9877), 'the community port was identified');
+  assert.equal(m2.kinds.filter((k) => k === 'official').length >= 1, true, 'the main backend is the official one');
+  const st = (await m2.http('GET', '/api/blender')).json;
+  assert.match(st.both.note, /Community add-on, port 9877: Something is listening on port 9877 but it does not answer like the community add-on/);
+
+  const before = asked.length;
+  const m1 = await mount({ installs: ['5.1.0'], socketOpen: true, request, raw: { entry: { command: 'x', args: [], env: {}, serverDir: '/s', at: 't' } } });
+  await m1.http('POST', '/api/blender/test', {});
+  assert.equal(asked.length, before, 'flag off: no identity requests, one backend as before');
+});
+
+test('both: the Sculptor preamble mentions the merged list and asset rules only when the switch is on; asset text follows the source switch', async () => {
+  const off = await mount({ installs: ['5.1.0'] });
+  const sc = off.store.getAgent('sculptor')!;
+  assert.doesNotMatch(off.mod.preamble!(sc), /blender_tools|Poly Haven/);
+  const on = await mount({ installs: ['5.1.0'], raw: { both: true } });
+  assert.match(on.mod.preamble!(sc), /blender_tools for the merged list/);
+  assert.match(on.mod.preamble!(sc), /Asset downloads are off/);
+  const withAssets = await mount({ installs: ['5.1.0'], raw: { both: true, assets: { polyhaven: true } } });
+  assert.match(withAssets.mod.preamble!(sc), /Poly Haven downloads are on.*approve each download on a card/);
 });

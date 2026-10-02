@@ -122,6 +122,35 @@ Question: can the Sculptor use both, for the largest tool surface? Findings:
 
 Decision (the safe option): **keep one live backend at a time**, which is what ships. Do not run both on one port. Using both is a documented follow-up, not wired, because it cannot be tested without a real Blender: it needs two ports in config (one per backend), two backend connections, a merged tool surface with the community-only asset tools (Poly Haven and similar, which make outbound connections from Blender) kept behind their own approval, a rule for which backend runs `execute` (one, never both), and a PC test with both add-ons enabled and a netstat check that two different ports listen.
 
+## Use both backends at once (off by default)
+
+Settings, Blender, "Use both backends at once" (`blender.both`). With it off, exactly one live backend is used, as before. With it on, the **official Blender Lab MCP is the main backend** and the **community add-on is a second source of read-only extras**; the Sculptor sees one merged tool list. Not yet tried with a real Blender (PC check B17).
+
+**Ports.** The official add-on uses the Blender port setting (default 9876); the community add-on uses `blender.advanced.both.communityPort` (default 9877). They must differ. Legion never relies on `SO_REUSEADDR` (on Windows it can let two servers share one port without an error). Press Launch in both mode and Legion probes that both ports are free, starts Blender with `BLENDER_MCP_PORT` for the official add-on and a fixed expression that sets the community add-on's port and starts its server (whether the official add-on reads that variable is unverified: if not, set its port in its sidebar panel). Before any use Legion identifies each port: the community add-on must answer its `get_addon_info` handshake; the community add-on answering on the official port, or anything else on the community port, stops the connection with a plain message. A community add-on that is just not running only disables its extras.
+
+**What is NOT protected.** Both add-on sockets have no password: any program on this computer can send code to either port without Legion's card. The identity check tells the two add-ons apart; it does not authenticate a caller. A program that takes a port between the check and the connection still wins that race. The official server's own read-only labels are trusted.
+
+**Tool-by-tool routing.** One code-execution path only (the main backend's); the second backend's `execute_code` is never offered.
+
+| Tool | Backend | Note |
+|---|---|---|
+| `blender_exec` | official | the community add-on's execute_code is NOT offered; same static check, card, audit and busy rules |
+| `blender_inspect` | official | the scene summary and one-object detail |
+| `blender_screenshot` | official | the viewport image |
+| `blender_docs` | official | API docs search; the community add-on has none |
+| `blender_status` | legion | where scripts go, which add-on answers on which port, which extras are available |
+| `blender_tools` | legion | the merged list of extra read-only tools (source:name) |
+| `blender_tool official:<name>` | official | only tools the official server marks read-only that take no code, path, file or address |
+| `blender_tool community:node_type` | community | describe_node_type; hidden when the official server has an equivalent |
+| `blender_tool community:api_lookup` | community | bpy_api_lookup; hidden when the official server has an equivalent |
+| `blender_tool community:scene_snapshot` | community | get_world_state_snapshot; hidden when the official server has an equivalent |
+| `blender_tool community:scene_items` | community | list_scene_items; hidden when the official server has an equivalent |
+| `blender_asset_search / blender_asset_get` | legion | Legion fetches Poly Haven itself (card, hash, quarantine, taint); the add-on's own download, generator, export, telemetry and premium commands are never offered |
+
+**Asset downloads (outside content).** Every source is off until you switch it on in Settings. Only Poly Haven is offered. The community add-on downloads and imports inside Blender, where Legion cannot place the file, record a hash or limit its size (it also appends `.blend` models, which can carry code), so Legion does the fetching itself: a read-only listing, then a card naming what, where from and how big; nothing is fetched before Allow; the run counts as tainted from then on; files go only to `<data dir>/blender/assets/<task>/<asset>/` (outside your workspace), as plain names with a glTF, `.bin`, image or HDRI extension (never `.blend`, scripts or archives), at most 25 MB per file, 100 MB and 40 files in total, checked against the API's md5 with the sha256 and size written to `manifest.json`, and imported by Legion's own fixed script. No downloaded script is run. What this does not prove: that Poly Haven's files are benign (the md5 comes from the same API), and a malformed glTF or image can still trouble Blender's importers. Sketchfab, Hyper3D, Poly Pizza, Hunyuan3D and Tripo are not available (they need your keys inside the add-on and import inside Blender). The Poly Haven file host comes from the API's answers and must end in `polyhaven.com` or `polyhaven.org`: **TODO OWNER PC** confirm it on a real download.
+
+**A third backend, blenderwright (read-only review, not integrated).** Verdict: needs work. Its add-on socket has no authentication and allows several clients, its code-execution tool is a blocklist filter (not a sandbox), its file handlers do no path validation of their own, and its eight "sculpting" tools set up sculpt mode and brushes but cannot make a stroke. Details and sources are in `claude/plan-blender-local-first.md` section 15.
+
 ## Safety model
 
 What happens to every `blender_exec` call, in this order:
@@ -213,4 +242,4 @@ This was built and tested without Blender, a real boat.dev key or a network. Wha
 
 ## Files
 
-`src/core/blender/`: `static-check.ts` (the filter), `guard.ts` (the tool server and the steps above), `audit.ts` (chain plus head anchor), `fs-safe.ts` (no-follow file helpers), `backend.ts` plus `backends/community.ts` and `backends/official.ts`, `sandbox.ts` (VM runner), `local.ts` (the local runner), `exports.ts` (export copy-back rules shared by both runners), `ports.ts` (the runner and process interfaces), `detect.ts` (pure detection, prefers the managed copy), `get-blender.ts` (the managed download, pure over ports), `zip.ts` (the strict zip reader), `setup.ts` and `system.ts` (setup logic and the only real side effects), `state.ts` (config and setup record), `index.ts` (the module, routes and status). Shared contract: `src/shared/blender.ts`. UI: `ui/src/blender/` and the Blender section of Settings. Tests: `test/blender-*.test.ts`.
+`src/core/blender/`: `static-check.ts` (the filter), `guard.ts` (the tool server and the steps above), `audit.ts` (chain plus head anchor), `fs-safe.ts` (no-follow file helpers), `backend.ts` plus `backends/community.ts` and `backends/official.ts`, `sandbox.ts` (VM runner), `local.ts` (the local runner), `exports.ts` (export copy-back rules shared by both runners), `ports.ts` (the runner and process interfaces), `detect.ts` (pure detection, prefers the managed copy), `both.ts` (both-backends mode: ports, identity, merged list), `assets.ts` (Poly Haven fetch, plan and import script), `get-blender.ts` (the managed download, pure over ports), `zip.ts` (the strict zip reader), `setup.ts` and `system.ts` (setup logic and the only real side effects), `state.ts` (config and setup record), `index.ts` (the module, routes and status). Shared contract: `src/shared/blender.ts`. UI: `ui/src/blender/` and the Blender section of Settings. Tests: `test/blender-*.test.ts`.

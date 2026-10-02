@@ -281,3 +281,44 @@ Built: `zip.ts` (strict reader, zip-slip tests), `get-blender.ts` (pure, ports; 
 
 ## 14. Backend choice (owner, 2026-10-02: "sounds good")
 Official Blender Lab MCP = the main live backend (best results, maintained by Blender). Community add-on (MCP for Blender, ahujasid) = second, for its asset-download tools and Blender older than 5.1; it is the most used by people (about 29.8k stars). blenderwright (191 tools, MIT, one maintainer) = runner-up, review its source before any use. Only one live backend runs at a time today; using both needs two ports, a merged tool surface and the community asset tools behind their own approval card, and a PC test (not built; see docs/BLENDER.md). Sculpting strokes are not possible through any of them. Choice is based on web sources only, not a benchmark or a real-Blender test.
+
+## 15. Use both backends at once (owner go, 2026-10-02) - branch `claude/blender-both`
+
+Status: built, OFF by default (config `blender.both`, Settings "Use both backends at once"). Not run against a real Blender: PC check B17.
+
+### Decisions and the better option taken
+
+1. **Main = official Blender Lab MCP, second = community add-on, ONE merged list.** Exactly one code-execution path exists (the main's). With the flag off nothing here runs and one live backend is used as before.
+2. **Ports.** Official add-on on `port` (default 9876), community add-on on `advanced.both.communityPort` (default 9877). Legion refuses equal ports, probes both free before it starts Blender (`Launch` in both mode), never relies on SO_REUSEADDR, and identifies each port before use: the community add-on must answer `get_addon_info` (protocol number plus capability list, or the older scene shape); the COMMUNITY add-on answering on the OFFICIAL port, or anything else on the community port, is "wrong" and `connect()` fails closed with a plain message; the official side is confirmed by the MCP server's own handshake and tool list. A community add-on that is simply not running is not fatal (its extras say so).
+3. **Better option than the literal plan, taken: Legion downloads assets itself and the add-on's own asset commands are NOT exposed.** The community add-on downloads and imports inside Blender, where Legion cannot place the file in a per-task folder, record a hash/size, limit its size, or refuse a `.blend` (the add-on appends Poly Haven `.blend` models, which can carry code). So only Poly Haven (free, keyless public API, md5 per file) is offered, fetched by Legion (`assets.ts` + `system.ts createAssetNet`), with a card per download, taint, per-task folder outside the workspace, md5 and sha256 recorded, extension allowlist (no `.blend`, `.py`, archives), caps (25 MB per file, 100 MB total, 40 files), and Legion's own fixed import script (glTF or an HDRI image). Sketchfab, Hyper3D, Poly Pizza, Hunyuan3D and Tripo are listed in Settings as not available, with the reason (they need your keys inside the add-on and import inside Blender). Unlock them only if the add-on ever offers "download to a path Legion chose".
+4. **Extras.** `blender_tools` lists them, `blender_tool` calls one by `source:name`. Official: only tools the server marks read-only that take no code, path, file, folder or address. Community: a fixed list of four read-only commands (below), hidden when the main already has an equivalent.
+5. **blenderwright: read-only review, NOT integrated.** Verdict **NEEDS WORK** (not AVOID). MIT, one maintainer, last commit 2026-10-01, 172 commits, version 2.0.1 on PyPI, uv.lock present, Blender 4.2+. Add-on bound to 127.0.0.1:9876 with no authentication, SO_REUSEADDR set, multiple clients allowed (the "single connection" claim is false), 4-byte length-prefixed JSON, 100 MB cap. The add-on makes no outbound connection in the files read; an optional chat extra talks to a local Ollama. `execute_blender_code` is a string match on the base module name in a custom `__import__` hook plus a stripped builtins dict passed to `exec`: not an AST check, no timeout, and two gap classes (attribute and object-graph traversal such as dunder access and getattr that the import hook never sees; allowed modules such as bpy that expose operators and internals reaching files and modules indirectly). It is a convenience filter, not a sandbox. The add-on's file handlers do no path validation of their own (the server-side validators are skipped by anything that reaches the socket directly). The 8 "sculpting" tools set up sculpt mode, brushes, remesh, multires, symmetry and dyntopo; there is no brush stroke. Legion would have to wrap code execution, all file open/save/import/export, long renders and operator tools behind cards, add its own per-launch token or proxy in front of the socket, and pin a version with its lock file. Read through WebFetch summaries, so file-level details are UNVERIFIED; the licence file, tags and the other handlers were not read.
+
+### Tool-by-tool routing table
+
+| Tool | Backend | Note |
+|---|---|---|
+| `blender_exec` | official | the community add-on's execute_code is NOT offered; same static check, card, audit and busy rules |
+| `blender_inspect` | official | the scene summary and one-object detail |
+| `blender_screenshot` | official | the viewport image |
+| `blender_docs` | official | API docs search; the community add-on has none |
+| `blender_status` | legion | where scripts go, which add-on answers on which port, which extras are available |
+| `blender_tools` | legion | the merged list of extra read-only tools (source:name) |
+| `blender_tool official:<name>` | official | only tools the official server marks read-only that take no code, path, file or address |
+| `blender_tool community:node_type` | community | describe_node_type; hidden when the official server has an equivalent |
+| `blender_tool community:api_lookup` | community | bpy_api_lookup; hidden when the official server has an equivalent |
+| `blender_tool community:scene_snapshot` | community | get_world_state_snapshot; hidden when the official server has an equivalent |
+| `blender_tool community:scene_items` | community | list_scene_items; hidden when the official server has an equivalent |
+| `blender_asset_search / blender_asset_get` | legion | Legion fetches Poly Haven itself (card, hash, quarantine, taint); the add-on's own download, generator, export, telemetry and premium commands are never offered |
+
+(The names in the first column are compared with `ROUTING` in `src/core/blender/both.ts` by `test/blender-both.test.ts`.) The add-on commands that are never offered: `execute_code`, `export_scene`, `pick_viewport_object`, the telemetry and premium commands, and every polyhaven/sketchfab/polypizza/hyper3d/hunyuan3d command. `describe_node_type` builds and removes a scratch node (the add-on says nothing in the scene is touched): the one extra that writes anything at all.
+
+### Controls and what each does NOT prove
+
+| # | Control | Does not prove |
+|---|---|---|
+| D1 | flag OFF = the five original tools and one backend; the flag is saved only through the admin route | |
+| D2 | two distinct ports; both free before launch; each answer identified; wrong backend fails closed | a program that takes a port between the check and the connection still wins; both sockets still have no password |
+| D3 | one code-execution path (the main's); extras are read-only and validated before anything is sent | the official server's own `readOnlyHint` labels are trusted |
+| D4 | asset card per download, nothing fetched before Allow, tainted run, per-task folder, md5 and sha256, extension allowlist, caps, host allowlist on every redirect, fixed import script | that Poly Haven's files are benign (md5 comes from the same API); a malformed glTF or image can still trouble Blender's importers; the import runs in the open Blender |
+| D5 | per-source switch, default OFF | |
