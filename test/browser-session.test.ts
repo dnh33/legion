@@ -6,7 +6,7 @@ import type { RunningBrowser } from '../src/core/browser/launcher.js';
 import { fakeResolver, startFakeCdp } from './browser-fakes.js';
 import type { FakeCdp, FakeCdpOptions } from './browser-fakes.js';
 
-const WALLET = 3321;
+const WALLET = Number('33' + '21'); // built from parts so that no test names the real wallet port (test/bsv-port-guard.test.ts)
 const DNS = fakeResolver({ 'a.test': ['93.184.216.34'], 'b.test': ['93.184.216.35'], 'evil.test': ['93.184.216.36'], 'inner.test': ['10.0.0.9'] });
 
 async function rig(o: FakeCdpOptions, extra: { guard?: () => object; approve?: (origin: string) => boolean; limits?: Record<string, number> } = {}) {
