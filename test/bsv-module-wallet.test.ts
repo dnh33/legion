@@ -219,7 +219,8 @@ test('arm: with both secrets it arms for a listed duration only; invalid duratio
   assert.equal(ok.status, 200);
   assert.equal(ok.body.armed, true);
   assert.ok(ok.body.remainingMs > 14 * 60_000 && ok.body.remainingMs <= 15 * 60_000);
-  assert.equal(ok.body.spendTools, false);
+  assert.equal(ok.body.spendTools, true);
+  assert.deepEqual(ok.body.mainnet, { enabled: true, armed: true });
   assert.equal(ok.body.network, 'testnet');
   assert.equal(ok.body.nativeAvailable, true);
   assert.equal((await s.call('GET', '/api/bsv/policy')).body.armed, true);

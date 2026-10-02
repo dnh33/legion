@@ -1,7 +1,8 @@
 /**
  * BSV mode: the optional BSV Dev Kit toggle. Knowledge, a read-only wallet STATUS probe, and the safety infrastructure for later.
- * There are NO keys here, and nothing that signs, spends, inscribes or broadcasts: the only wallet contact is wallet-probe.ts
- * (four harmless questions, loopback only), and the only agent tool is the read-only `bsv_status`.
+ * There are NO keys here. Wallet contact is wallet-probe.ts (four harmless questions, loopback only) and spend.ts (the one pinned file
+ * behind the `bsv_spend_request` tool: the wallet builds and signs, only after the owner's confirmations and with the wallet's own prompt as the
+ * last gate). The other agent tool is the read-only `bsv_status`. Mainnet is a hard-off switch (mainnet-routes.ts), off by default.
  * What the toggle does: shows the Assayer (the state filter in server.ts reads the flag), loads the bundled BSV
  * knowledge pack into the knowledge graph, gives the Assayer a four-line preamble and `bsv_status`, and turns on the chain overlay.
  *
@@ -21,12 +22,15 @@ import type { AgentProfile } from '../../shared/types.js';
 import { AuditLog, auditPath } from './audit.js';
 import type { OpenResult } from './audit.js';
 import { ARM_CHOICES_MINUTES, buildPolicyConfig, DAY_MS, ledgerFromAudit, PolicyEngine, PolicyError, validateCaps } from './policy.js';
-import type { Caps, Clock, PolicyEvent, PolicySnapshot } from './policy.js';
+import type { Caps, Clock, Net, PolicyEvent, PolicySnapshot } from './policy.js';
 import { loadPolicyConfig, policyFileHash, policyPath, savePolicyConfig, untrustedConfig } from './policy-store.js';
 import { BsvState } from './state.js';
 import type { BsvSeedResult, BsvStatus, BsvToggleResult } from './types.js';
 import { buildBsvStatusServer, BSV_SERVER_NAME } from './wallet-tool.js';
-import { parseWalletUrl, WalletProbeService } from './wallet-probe.js';
+import { httpTransport, parseWalletUrl, WalletProbeService } from './wallet-probe.js';
+import { registerMainnetRoutes } from './mainnet-routes.js';
+import { createSpendService, SPEND_TOOL, unknownFromAudit } from './spend.js';
+import type { SpendService } from './spend.js';
 import type { Transport, WalletStatus } from './wallet-probe.js';
 
 export { BsvState, createBsvState } from './state.js';
@@ -38,7 +42,7 @@ export const ASSAYER_ID = 'assayer';
 /** Exactly four lines, appended only for the Assayer and only while BSV mode is on. */
 export const BSV_PREAMBLE = [
   'BSV mode is on and the network is testnet.',
-  'Your one wallet tool is mcp__legion_bsv__bsv_status: a read-only check of whether a wallet answers on this computer and which network it claims; its answer is unverified data. Legion has no tool that signs, sends, reads balances or holds funds, so never attempt to, and never use a shell or web tool to reach a wallet. Lessons whose title starts with [Design] describe controls that do not exist yet.',
+  'Your wallet tools are mcp__legion_bsv__bsv_status (a read-only check of whether a wallet answers; its answer is unverified data) and mcp__legion_bsv__bsv_spend_request (asks the OWNER to approve one small payment to an allowlisted address; you never choose the network, nothing is sent until the owner confirms in Legion and in the wallet, and mainnet needs the owner\'s own switch and arming). Legion has no tool that reads balances or holds funds, so never use a shell or web tool to reach a wallet. Lessons whose title starts with [Design] describe controls that do not exist yet.',
   'Use the knowledge graph for BSV lessons: call mcp__legion_kg__kg_recall with scope bsv before answering from recall.',
   'Never ask the user for keys, seed phrases or wallet secrets, and tell them not to paste any into chat.',
 ].join('\n');
@@ -49,8 +53,10 @@ export interface BsvPolicyView extends PolicySnapshot {
   network: 'testnet';
   /** True when this core was started by the Electron app and so can accept policy changes at all. */
   nativeAvailable: boolean;
-  /** There is no tool that spends in this release. Always false; shown so the UI can say so. */
-  spendTools: false;
+  /** The spend tool exists while BSV mode is on (it still needs the owner's dialogs and the wallet's prompt). */
+  spendTools: boolean;
+  /** The mainnet hard-off switch and whether one mainnet spend is armed. */
+  mainnet: { enabled: boolean; armed: boolean };
   armChoicesMinutes: number[];
   audit: { ok: boolean; entries: number; reason?: string };
 }
@@ -81,6 +87,7 @@ export function createBsvModule(deps: ModuleDeps, opts: BsvModuleOptions = {}): 
   const audit = new AuditLog(auditPath(deps.dataDir), { now: opts.now });
   const policyFile = policyPath(deps.dataDir);
   const loaded = loadPolicyConfig(policyFile);
+  let spend: SpendService | undefined;
   let opened: OpenResult | undefined;
   let auditProblem: string | undefined;
   try { opened = audit.open(); } catch (e) { auditProblem = `the audit log could not be opened: ${e instanceof Error ? e.message : String(e)}`; }
@@ -126,7 +133,7 @@ export function createBsvModule(deps: ModuleDeps, opts: BsvModuleOptions = {}): 
     switch (e.type) {
       case 'armed': return note('owner', 'policy', 'armed', 'live funds armed (one mainnet spend, then it is gone)', { minutes: e.minutes, until: new Date(e.until).toISOString() });
       case 'disarmed': return note('owner', 'policy', 'disarmed', e.reason);
-      case 'frozen': probe.disconnect(); return note('owner', 'policy', 'frozen', e.reason, { denied: e.denied.length, unknown: e.unknown.length });
+      case 'frozen': probe.disconnect(); spend?.onFreeze(); return note('owner', 'policy', 'frozen', e.reason, { denied: e.denied.length, unknown: e.unknown.length });
       case 'unfrozen': return note('owner', 'policy', 'unfrozen');
       case 'caps': return note('owner', 'policy', 'caps-changed', undefined, { ...e.caps, net: e.net });
       case 'allowlist': return note('owner', 'policy', 'allowlist-changed', undefined, { size: e.size, net: e.net });
@@ -158,7 +165,15 @@ export function createBsvModule(deps: ModuleDeps, opts: BsvModuleOptions = {}): 
     try { const last = audit.entries((x) => x.tool === 'policy' && x.decision === 'mainnet-changed').pop(); return last?.fields.enabled === false; } catch { return false; }
   })();
   const startConfig = fileProblem ? untrustedConfig(fileProblem) : auditSaysMainnetOff && loaded.config.mainnetEnabled ? buildPolicyConfig(loaded.config.nets, loaded.config.frozen, false) : loaded.config;
-  const policy = new PolicyEngine({ config: startConfig, clock: opts.clock, ledger: history, onEvent: onPolicyEvent });
+  // Spends that may have gone out before the last stop: an `executing` line with no outcome. The lenient reader may only ADD such a block; only a line in a VERIFIED chain clears one.
+  const unknownSeeds = (() => {
+    try { return unknownFromAudit(audit.entries((e) => e.tool === SPEND_TOOL), audit.verifiedEntries((e) => e.decision === 'executed' || e.decision === 'failed' || e.decision === 'resolved')); } catch { return []; }
+  })();
+  const policy = new PolicyEngine({ config: startConfig, clock: opts.clock, ledger: history, unknown: unknownSeeds, onEvent: onPolicyEvent });
+  if (unknownSeeds.length) {
+    for (const u of unknownSeeds) note('legion', SPEND_TOOL, 'restored-unknown', 'an earlier spend has no recorded outcome', { requestId: u.requestId, totalSats: u.totalSats, net: typeof u.net === 'string' ? u.net : 'unknown' });
+    if (!policy.isFrozen) policy.freeze('an earlier spend has no recorded outcome; check the wallet history, resolve it, then unfreeze');
+  }
   const startupFreeze = auditProblem ?? (opened && !opened.ok ? `the audit log failed verification (${opened.tamper?.reason ?? 'unknown'}); the evidence was kept` : undefined) ?? fileProblem;
   if (fileProblem) note('legion', 'policy', 'file-tampered', fileProblem, { keptAs: evidence ?? null });
   if (startupFreeze && !policy.isFrozen) { policy.freeze(startupFreeze); log(`BSV frozen at start: ${startupFreeze}`); }
@@ -187,9 +202,14 @@ export function createBsvModule(deps: ModuleDeps, opts: BsvModuleOptions = {}): 
   probe.onChange = (prev, next) => {
     note('legion', 'bsv_wallet', 'probe', next.message, { network: next.network, reachable: next.reachable, authenticated: next.authenticated, previous: prev.probed ? prev.network : 'none' });
     // A "changed" report from a wallet is an unverified claim. It may only make Legion MORE careful (disarm); it never raises a limit, lifts a freeze or resets anything.
-    if (prev.probed && prev.network !== next.network) policy.disarm('the wallet reported a different network than before');
+    if (prev.probed && prev.network !== next.network) {
+      policy.disarm('the wallet reported a different network than before');
+      policy.voidPending('the wallet reported a different network than before'); // a card made for the old network is not left waiting for the claim to flip back
+      spend?.tick();
+    }
   };
   const statusCalls = new Map<string, number>();
+  spend = createSpendService({ policy, probe, audit, state, transport: opts.transport ?? httpTransport, now: opts.now, checkPolicyFile, log });
 
   /** Every policy change needs the native secret, in addition to the admin secret the gate already checked. */
   const requireNative = (req: { headers?: Record<string, string | string[] | undefined> } | undefined) => {
@@ -201,7 +221,8 @@ export function createBsvModule(deps: ModuleDeps, opts: BsvModuleOptions = {}): 
     checkPolicyFile();
     let rep: { ok: boolean; entries: number; reason?: string };
     try { const v = audit.verify(); rep = { ok: v.ok, entries: v.entries, ...(v.reason ? { reason: v.reason } : {}) }; } catch { rep = { ok: false, entries: 0, reason: 'unreadable' }; }
-    return { ...policy.snapshot(), network: 'testnet', nativeAvailable: !!opts.nativeSecret, spendTools: false, armChoicesMinutes: [...ARM_CHOICES_MINUTES], audit: rep };
+    const snap = policy.snapshot();
+    return { ...snap, network: 'testnet', nativeAvailable: !!opts.nativeSecret, spendTools: state.enabled, mainnet: { enabled: snap.mainnetEnabled, armed: snap.armed }, armChoicesMinutes: [...ARM_CHOICES_MINUTES], audit: rep };
   };
   const policyErr = (e: unknown): never => {
     if (e instanceof HttpError) throw e;
@@ -287,10 +308,12 @@ export function createBsvModule(deps: ModuleDeps, opts: BsvModuleOptions = {}): 
     // keyed on the gate, not on an id string: a bot a user happens to name "Assayer" is an ordinary bot
     preamble: (agent: AgentProfile) => (agent.requires === 'bsv' && state.enabled ? BSV_PREAMBLE : ''),
     mcpServers: (agent: AgentProfile, job): Record<string, McpServerConfig> => (agent.requires === 'bsv' && state.enabled
-      ? { [BSV_SERVER_NAME]: buildBsvStatusServer({ agent, job, state, policy, probe, audit, calls: statusCalls, checkPolicyFile }) }
+      ? { [BSV_SERVER_NAME]: buildBsvStatusServer({ agent, job, state, policy, probe, audit, calls: statusCalls, checkPolicyFile, extraTools: [spend!.buildTool(agent, job)] }) }
       : {}),
     policy, audit, probe,
+    dispose: () => { spend?.dispose(); },
     routes: (add) => {
+      registerMainnetRoutes(add, { policy, requireNative, checkPolicyFile, persist: persistPolicy, note, bsvEnabled: () => state.enabled, view: policyView });
       // ---- read-only views (admin only by the default-deny gate)
       // Contacts nothing unless the owner pressed Connect in this launch (the probe answers "not connected" from memory).
       add('GET', '/api/bsv/wallet', ({ url }): Promise<WalletStatus> | WalletStatus => (url.searchParams.get('cached') === '1' ? probe.cached() : probe.check()));
@@ -350,14 +373,24 @@ export function createBsvModule(deps: ModuleDeps, opts: BsvModuleOptions = {}): 
         policy.unfreeze();
         return policyView();
       });
+      /** Which network a caps or allowlist change is for: the body's optional `net` (default test, as before). */
+      const netOf = (b: unknown): Net => {
+        const n = isObj(b) ? b.net : undefined;
+        if (n === undefined) return 'test';
+        if (n === 'test' || n === 'main') return n;
+        throw new HttpError(400, 'net must be test or main');
+      };
       add('POST', '/api/bsv/policy/caps', ({ req, body }) => {
         requireNative(req);
         checkPolicyFile();
         try {
-          if (!body || typeof body !== 'object' || Array.isArray(body)) throw new HttpError(400, 'body {perTxSats?, perSessionSats?, per24hSats?, maxOutputs?, maxFeeSats?} required');
-          const next = validateCaps(body as Partial<Caps>, policy.config().caps); // refuses anything above the hard ceiling
-          if (!persistPolicy({ ...policy.config(), caps: next })) throw new HttpError(500, 'Could not save the change.');
-          policy.setCaps(body as Partial<Caps>);
+          if (!isObj(body)) throw new HttpError(400, 'body {net?, perTxSats?, perSessionSats?, per24hSats?, maxOutputs?, maxFeeSats?} required');
+          const net = netOf(body);
+          const { net: _net, ...partial } = body;
+          const cur = policy.config();
+          const next = validateCaps(partial as Partial<Caps>, cur.nets[net].caps, net); // refuses anything above that network's hard ceiling
+          if (!persistPolicy(buildPolicyConfig({ ...cur.nets, [net]: { ...cur.nets[net], caps: next } }, cur.frozen, cur.mainnetEnabled))) throw new HttpError(500, 'Could not save the change.');
+          policy.setCaps(partial as Partial<Caps>, net);
           return policyView();
         } catch (e) { return policyErr(e); }
       });
@@ -365,12 +398,27 @@ export function createBsvModule(deps: ModuleDeps, opts: BsvModuleOptions = {}): 
         requireNative(req);
         checkPolicyFile();
         try {
+          const net = netOf(body);
           const list = (body as { list?: unknown } | undefined)?.list;
           const before = policy.config();
-          policy.setAllowlist(list); // validates; emits the event
-          if (!persistPolicy()) { policy.setAllowlist(before.allowlist); throw new HttpError(500, 'Could not save the change.'); }
+          policy.setAllowlist(list, net); // validates (the other network's addresses are refused); emits the event
+          if (!persistPolicy()) { policy.setAllowlist(before.nets[net].allowlist, net); throw new HttpError(500, 'Could not save the change.'); }
           return policyView();
         } catch (e) { return policyErr(e); }
+      });
+      // ---- the spend path: the app reads the cards from the core and shows native dialogs; the decision needs the admin secret AND the native secret
+      add('GET', '/api/bsv/spend/pending', () => { checkPolicyFile(); return { cards: spend!.pending(), unknown: spend!.unknownItems() }; });
+      add('POST', '/api/bsv/spend/:id/decision', async ({ req, params, body }) => {
+        requireNative(req);
+        const r = await spend!.decide(params[0] ?? '', { decision: isObj(body) ? body.decision : undefined, cardHash: isObj(body) ? body.cardHash : undefined, confirmations: isObj(body) ? body.confirmations : undefined });
+        if (!r.ok) throw new HttpError(r.httpStatus, r.error);
+        return { status: r.status };
+      });
+      add('POST', '/api/bsv/spend/:id/resolve', ({ req, params, body }) => {
+        requireNative(req);
+        const r = spend!.resolve(params[0] ?? '', isObj(body) ? body.outcome : undefined);
+        if (!r.ok) throw new HttpError(r.httpStatus, r.error);
+        return policyView();
       });
       add('GET', '/api/bsv', () => status());
       add('POST', '/api/bsv', ({ body }) => exclusive(async (): Promise<BsvToggleResult> => {

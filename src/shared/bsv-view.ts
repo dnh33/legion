@@ -37,7 +37,7 @@ export interface PolicyView {
   unknown: Array<{ requestId: string; totalSats: number }>;
   network: 'testnet';
   nativeAvailable: boolean;
-  spendTools: false;
+  spendTools: boolean;
   armChoicesMinutes: number[];
   audit: { ok: boolean; entries: number; reason?: string };
 }
