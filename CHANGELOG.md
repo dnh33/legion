@@ -4,6 +4,10 @@ All notable changes are recorded here. The format follows [Keep a Changelog](htt
 
 ## [Unreleased]
 
+### Changed
+
+- **Rooms a bot creates have no spend limit by default.** `botRoomDefaultBudgetUsd` and `botRoomMaxBudgetUsd` in `config.json` `comms` now default to none (`null`; the old defaults were $1 and $5). The member cap stays 6. A bot may still name `budgetUsd` (at least $0.05; capped only if you set a maximum), and you can add, raise or remove a budget in room settings at any time (an empty box means no limit; the API takes `guards.budgetUsd: null`). The budget guard that runs before a bot is woken simply does not fire for a room with no budget; the hop and cycle guards are unchanged. The `room_create` card says "No spend limit" in plain words. Existing rooms keep their budget; the Cost meter shows "No limit" for a room without one. Because nothing caps the cost of such a room, set a budget if you want one.
+
 ### Added
 
 - **Markdown tables in chat replies.** GitHub-style tables (header row, a `|---|:--:|--:|` delimiter row with alignment colons, body rows) are drawn as a real, accessible `<table>` (column headers, a labelled scrollable region) instead of raw `| a | b |` lines. Escaped pipes (`\|`) and pipes inside `code` spans stay in their cell, short rows are padded and long ones cut, and without a delimiter row it is still plain text. A table is capped at 200 columns (a wider header is plain text) and 5,000 rows (the rest follows as plain lines). The parser stays linear (5,000-row and 2,000-cell cases are in the worker-timeout tests). **Copy as Markdown** is still the original source; **Copy as plain text** gives one line per row with tab-separated cells.

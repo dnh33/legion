@@ -114,12 +114,12 @@ export function buildCommsToolsServer(
   const ctx = () => ({ ...(run?.taskId ? { taskId: run.taskId } : {}), ...(run?.taint() ? { tainted: true } : {}), ...(run?.origin ? { origin: run.origin } : {}) });
   const roomCreate = tool(
     'room_create',
-    'Ask the user to create a group room with other bots. The user sees a card ("<you> wants to create room X with A, B, C") and must allow it; this call waits for the answer (up to 10 minutes). You are always a member; at most 6 bots; the room has a budget (default $1, at most $5) and the usual hop and cycle guards. The room is marked as created by you and only the user can delete it. If the user denies, do not ask again.',
+    'Ask the user to create a group room with other bots. The user sees a card ("<you> wants to create room X with A, B, C") and must allow it; this call waits for the answer (up to 10 minutes). You are always a member; at most 6 bots; the room has NO spend limit unless you name budgetUsd (the user can set, raise or remove a limit in room settings; the card tells the user when there is none) and it has the usual hop and cycle guards. The room is marked as created by you and only the user can delete it. If the user denies, do not ask again.',
     {
       name: z.string().describe('Room name (at most 80 characters)'),
       members: z.array(z.string()).min(1).max(8).describe('Bot ids or names to add (you are added automatically)'),
       lead: z.string().optional().describe('Member who answers when nobody is named; default: you'),
-      budgetUsd: z.number().positive().optional().describe('Room budget in USD; default and ceiling come from the user\'s config'),
+      budgetUsd: z.number().positive().optional().describe('Optional room budget in USD (at least 0.05). Leave it out for no spend limit; the user can add or change one later.'),
     },
     (a) => guard(async () => {
       const r = await hub.botCreateRoom(agentId, { name: a.name, members: a.members, lead: a.lead, budgetUsd: a.budgetUsd }, ctx());

@@ -17,8 +17,8 @@ export type RoomKind = 'group' | 'dm';
 export interface RoomGuards {
   /** Max consecutive bot-to-bot hops after the last human message. Default 6. */
   maxHops: number;
-  /** Hard stop for the room's cumulative bot cost in USD. Default 2. */
-  budgetUsd: number;
+  /** Hard stop for the room's cumulative bot cost in USD. Default 2. `null` = no spend limit (rooms a bot creates start this way; a human can set one any time). */
+  budgetUsd: number | null;
   /** Same sender->recipient with near-identical text this many times trips the cycle guard. Default 3. */
   cycleRepeats: number;
   /** Minimum seconds between @everyone broadcasts. Default 30. */

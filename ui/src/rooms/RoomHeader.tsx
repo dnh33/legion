@@ -8,11 +8,11 @@ import './rooms.css';
 import { activeIn, exportRoom, freezeRoom, PAUSE_LABEL, resumeRoom, setSettingsOpen, type LiveState } from './roomsStore';
 import { fmtBudget, fmtCost, STRATEGY_INFO } from './roomsUtil';
 
-function Meter({ label, value, max, text, title }: { label: string; value: number; max: number; text: string; title: string }) {
-  const pct = max > 0 ? Math.min(100, (value / max) * 100) : 0;
+function Meter({ label, value, max, text, title }: { label: string; value: number; max: number | null; text: string; title: string }) {
+  const pct = max !== null && max > 0 ? Math.min(100, (value / max) * 100) : 0;
   const tone = pct >= 100 ? 'full' : pct >= 70 ? 'hot' : '';
   return (
-    <div className={`rm-meter ${tone}`} title={title} role="meter" aria-label={label} aria-valuemin={0} aria-valuemax={max} aria-valuenow={Math.min(value, max)} aria-valuetext={text}>
+    <div className={`rm-meter ${tone}`} title={title} role="meter" aria-label={label} aria-valuemin={0} aria-valuemax={max ?? undefined} aria-valuenow={max === null ? value : Math.min(value, max)} aria-valuetext={text}>
       <span className="rm-meter-l">{label}</span>
       <span className="rm-meter-bar"><i style={{ width: `${pct}%` }} /></span>
       <span className="rm-meter-v">{text}</span>
@@ -105,7 +105,7 @@ export function RoomHeader({ room, agents, live, offline, narrow, onList }: {
         </ul>
         <div className="rm-meters">
           <Meter label="Hops" value={room.hopsSinceHuman} max={g.maxHops} text={`${room.hopsSinceHuman}/${g.maxHops}`} title={`${room.hopsSinceHuman} of ${g.maxHops} bot-to-bot hops since your last message`} />
-          <Meter label="Cost" value={room.costUsd} max={g.budgetUsd} text={`${fmtCost(room.costUsd)} / ${fmtBudget(g.budgetUsd)}`} title={`${fmtCost(room.costUsd)} spent of the ${fmtBudget(g.budgetUsd)} room budget`} />
+          <Meter label="Cost" value={room.costUsd} max={g.budgetUsd} text={g.budgetUsd === null ? `${fmtCost(room.costUsd)} · No limit` : `${fmtCost(room.costUsd)} / ${fmtBudget(g.budgetUsd)}`} title={g.budgetUsd === null ? `${fmtCost(room.costUsd)} spent; this room has no spend limit` : `${fmtCost(room.costUsd)} spent of the ${fmtBudget(g.budgetUsd)} room budget`} />
         </div>
       </div>
     </header>

@@ -28,10 +28,10 @@ export interface BsvConfig {
 export interface CommsConfig {
   /** Most members a room a bot creates (or grows) may have, 2 to 6 (the same ceiling the New room dialog has). Default 6. */
   botRoomMaxMembers: number;
-  /** Budget in USD for a bot-created room that names none. Default 1. */
-  botRoomDefaultBudgetUsd: number;
-  /** Highest budget a bot may ask for. Default 5. A human can raise a room's budget later in its settings. */
-  botRoomMaxBudgetUsd: number;
+  /** Budget in USD for a bot-created room that names none. Default none (null = no spend limit). */
+  botRoomDefaultBudgetUsd: number | null;
+  /** Highest budget a bot may ask for. Default none (null = no ceiling; a bot-named budget is still at least $0.05). */
+  botRoomMaxBudgetUsd: number | null;
   /** What one turn is assumed to cost in a room with no turn history, for the budget guard that stops BEFORE a wake. Default 0.02. */
   turnCostFloorUsd: number;
 }
@@ -40,20 +40,26 @@ export type CoreConfig = LegionConfig & { bsv: BsvConfig; comms: CommsConfig; bl
 /** The least a room's budget can be (below it one turn cannot fit). The hub, the settings dialogs and the bot-room limits all use it. */
 export const MIN_ROOM_BUDGET_USD = 0.05;
 
-export const DEFAULT_COMMS: CommsConfig = { botRoomMaxMembers: 6, botRoomDefaultBudgetUsd: 1, botRoomMaxBudgetUsd: 5, turnCostFloorUsd: 0.02 };
+export const DEFAULT_COMMS: CommsConfig = { botRoomMaxMembers: 6, botRoomDefaultBudgetUsd: null, botRoomMaxBudgetUsd: null, turnCostFloorUsd: 0.02 };
 
 /** Whatever the file held under "comms", reduced to numbers inside their ranges (defaults for anything missing or wrong). */
 export function normalizeComms(v: unknown): CommsConfig {
   const o = (v && typeof v === 'object' ? v : {}) as Record<string, unknown>;
-  const num = (k: keyof CommsConfig, lo: number, hi: number, int = false): number => {
+  const num = (k: 'botRoomMaxMembers' | 'turnCostFloorUsd', lo: number, hi: number, int = false): number => {
     const x = o[k];
     return typeof x === 'number' && Number.isFinite(x) && x >= lo && x <= hi && (!int || Number.isInteger(x)) ? x : DEFAULT_COMMS[k];
   };
-  const max = num('botRoomMaxBudgetUsd', MIN_ROOM_BUDGET_USD, 10_000);
+  /** A USD amount in range, or null (no limit) for anything else, including a missing value. */
+  const usd = (k: 'botRoomDefaultBudgetUsd' | 'botRoomMaxBudgetUsd'): number | null => {
+    const x = o[k];
+    return typeof x === 'number' && Number.isFinite(x) && x >= MIN_ROOM_BUDGET_USD && x <= 10_000 ? x : null;
+  };
+  const max = usd('botRoomMaxBudgetUsd');
+  const def = usd('botRoomDefaultBudgetUsd');
   return {
     botRoomMaxMembers: num('botRoomMaxMembers', 2, 6, true),
     botRoomMaxBudgetUsd: max,
-    botRoomDefaultBudgetUsd: Math.min(num('botRoomDefaultBudgetUsd', MIN_ROOM_BUDGET_USD, 10_000), max),
+    botRoomDefaultBudgetUsd: def !== null && max !== null ? Math.min(def, max) : def,
     turnCostFloorUsd: num('turnCostFloorUsd', 0, 10),
   };
 }

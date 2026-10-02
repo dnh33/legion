@@ -2,7 +2,7 @@ import type { Room, RoomPauseReason, RoomStrategy } from '../../../src/shared/co
 import type { AgentProfile } from '../../../src/shared/types';
 
 export const fmtCost = (n: number | undefined): string => (n == null ? '' : n === 0 ? '$0.00' : n < 0.01 ? '<$0.01' : `$${n.toFixed(2)}`);
-export const fmtBudget = (n: number): string => (n >= 100 ? `$${Math.round(n)}` : `$${n.toFixed(2)}`);
+export const fmtBudget = (n: number | null): string => (n === null ? 'No limit' : n >= 100 ? `$${Math.round(n)}` : `$${n.toFixed(2)}`);
 
 export const clock = (iso: string): string => {
   const d = new Date(iso);
