@@ -25,9 +25,9 @@ export type { ProviderView, ProvidersView } from '../../shared/providers-view.js
 
 /** What a provider-run agent cannot do, in the words the UI shows. */
 export const PROVIDER_LIMITS_TEXT: string[] = [
-  'No file editing, shell, web search or web fetch of its own (Legion\'s own tools only: agents, kg, comms, Blender, BSV status, and the VM tools when the agent has a VM).',
+  'No file editing, shell, web search or web fetch of its own. It gets Legion\'s own tools (agents, kg, comms, Blender, BSV status, and the VM tools when the agent has a VM) and the MCP servers you enabled for the agent.',
   'No Claude Code skills, plugins, slash commands, sub-agents, plan mode or claude.ai connectors.',
-  'None of the MCP servers you added in Settings.',
+  'Your MCP servers run under stricter rules than for Claude: an approval card for each tool call (unless the agent is on full access), the run counts as touching outside content, a local server starts with a small environment instead of Legion\'s own, and a server address must be https or this computer.',
   'A continued task remembers less than a resumed Claude session (the newest messages only).',
   'Tool use is only as reliable as the model; some models, especially small local ones, cannot call tools at all.',
   'Cost is shown only when the provider returns token counts and you entered prices; otherwise it is unknown.',

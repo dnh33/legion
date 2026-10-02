@@ -11,7 +11,7 @@ export function ModelPicker({ model, agentName, onClose }: { model: string; agen
   const { current, more, fallback } = groupModels(catalog);
   const [showMore, setShowMore] = useState(() => more.some((m) => m.value === model));
   const provGroups = providerModelGroups(useProviders((x) => x.view));
-  const provItems = provGroups.flatMap((g) => g.models.map((m) => ({ value: `${g.id}:${m}`, displayName: m, description: `${g.label}, not Claude: Legion's own tools only` })));
+  const provItems = provGroups.flatMap((g) => g.models.map((m) => ({ value: `${g.id}:${m}`, displayName: m, description: `${g.label}, not Claude: Legion's tools and your MCP servers only` })));
   const claudeItems = [{ value: 'auto', displayName: 'Auto', description: AUTO_INFO }, ...current, ...(showMore ? more : [])];
   const items = [...claudeItems, ...provItems];
   const cur = Math.max(0, items.findIndex((m) => m.value === model));
