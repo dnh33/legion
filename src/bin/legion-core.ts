@@ -45,6 +45,8 @@ async function main() {
   const vms = new VmManager({ store, bus, getBoat, boatConfig: () => config.boat });
   const approvals = new ApprovalBroker(bus);
   const engine = new Engine({ store, bus, vms, approvals, config, boatConfigured });
+  // lets ask/tell check a per-task model against what the account offers
+  engine.bridge.catalog = () => getCatalog({ config });
   let stopReaper: () => void = () => {};
   const restartReaper = () => {
     stopReaper(); stopReaper = boatConfigured() ? vms.startReaper() : () => {};

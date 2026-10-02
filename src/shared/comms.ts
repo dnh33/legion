@@ -42,6 +42,8 @@ export interface Room {
   /** Running totals. */
   costUsd: number;
   hopsSinceHuman: number;
+  /** Agent id of the bot that created this room (`room_create`, after the user approved it). Absent for rooms the user made. Only the user can delete the room. */
+  createdBy?: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -70,6 +72,8 @@ export interface RoomMessage {
   costUsd?: number;
   /** Task that produced / handled this message. */
   taskId?: string;
+  /** The model the sender asked the woken bot to use for this turn (`bot_send` / `room_post` `model`). Absent: the bot's own setting. */
+  model?: string;
   /** Written by a run that had touched outside content (or by a chain that had): a bot that reads it becomes tainted too. */
   tainted?: boolean;
 }

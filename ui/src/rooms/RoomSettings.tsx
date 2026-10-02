@@ -33,13 +33,13 @@ export function RoomSettings({ room }: { room: Room }) {
 
   const num = (v: string, lo: number, hi: number, int: boolean) => { const n = Number(v); return v.trim() !== '' && Number.isFinite(n) && n >= lo && n <= hi && (!int || Number.isInteger(n)) ? n : null; };
   const nHops = num(maxHops, 1, 100, true);
-  const nBudget = num(budget, 0.01, 10_000, false);
+  const nBudget = num(budget, 0.05, 10_000, false);
   const nCycle = num(cycle, 2, 50, true);
   const nCool = num(cool, 0, 86_400, false);
   const nameOk = name.trim().length > 0 && name.trim().length <= 80;
   const membersOk = members.length >= 2 && members.length <= MAX;
   const bad = !nameOk ? 'Name is required (80 characters max).' : !membersOk ? 'A group needs 2 to 6 agents.'
-    : nHops === null ? 'Max hops: whole number, 1 to 100.' : nBudget === null ? 'Budget: $0.01 to $10,000.'
+    : nHops === null ? 'Max hops: whole number, 1 to 100.' : nBudget === null ? 'Budget: $0.05 to $10,000.'
     : nCycle === null ? 'Repeats: whole number, 2 to 50.' : nCool === null ? 'Cooldown: 0 to 86,400 seconds.' : '';
 
   const added = members.filter((m) => !room.members.includes(m));
@@ -84,6 +84,7 @@ export function RoomSettings({ room }: { room: Room }) {
       </>}>
       <form className="form" onSubmit={(e) => { e.preventDefault(); void save(); }}>
         <label>Name<input data-autofocus value={name} maxLength={90} onChange={(e) => setName(e.target.value)} autoComplete="off" /></label>
+        {room.createdBy && <p className="field-note" role="note">Created by {nm(room.createdBy)}, with your approval. Bots can ask to add or remove members (you get a card each time); only you can change the guards or delete the room.</p>}
 
         <fieldset className="rm-fs">
           <legend>Members <span className="rm-count">{members.length} of {MAX}</span></legend>
@@ -138,7 +139,7 @@ export function RoomSettings({ room }: { room: Room }) {
               <input type="number" min={1} max={100} step={1} value={maxHops} onChange={(e) => setMaxHops(e.target.value)} aria-invalid={nHops === null} />
             </label>
             <label className="grow">Budget (USD)
-              <input type="number" min={0.01} step={0.5} value={budget} onChange={(e) => setBudget(e.target.value)} aria-invalid={nBudget === null} />
+              <input type="number" min={0.05} step={0.5} value={budget} onChange={(e) => setBudget(e.target.value)} aria-invalid={nBudget === null} />
             </label>
           </div>
           <div className="row">

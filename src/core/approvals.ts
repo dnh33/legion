@@ -64,11 +64,11 @@ export class ApprovalBroker {
   request(
     taskId: string, agentId: string, toolName: string, input: Record<string, unknown>,
     origin?: ApprovalRequest['origin'],
-    opts: { onTimeout?: () => void } = {},
+    opts: { onTimeout?: () => void; /** A written-out card text (a room request), instead of the compact JSON of the input. */ summary?: string } = {},
   ): Promise<boolean> {
     const req: ApprovalRequest = {
       id: newId('apr'), taskId, agentId, toolName,
-      summary: summarizeToolInput(toolName, input), input, at: nowIso(),
+      summary: opts.summary ?? summarizeToolInput(toolName, input), input, at: nowIso(),
       ...(origin ? { origin } : {}),
     };
     return new Promise<boolean>((resolvePromise) => {

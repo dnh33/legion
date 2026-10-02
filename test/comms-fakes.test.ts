@@ -10,7 +10,7 @@ import { join } from 'node:path';
 import { EventBus } from '../src/core/bus.js';
 import { EngineError } from '../src/core/engine.js';
 import { CommsHub } from '../src/core/comms/hub.js';
-import type { CreateRoomInput, HubEngine, HubStore } from '../src/core/comms/hub.js';
+import type { CreateRoomInput, HubEngine, HubOptions, HubStore } from '../src/core/comms/hub.js';
 import type { Room, RoomMessage, TaskOrigin } from '../src/shared/comms.js';
 import type { AgentProfile, ApprovalMode, LegionEvent, Task } from '../src/shared/types.js';
 
@@ -20,7 +20,7 @@ export const mkAgent = (id: string, name: string, approval: ApprovalMode = 'ask'
   createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z',
 });
 
-export interface StartCall { agentId: string; prompt: string; source: string; continueTaskId?: string; origin?: TaskOrigin; taskId: string }
+export interface StartCall { agentId: string; prompt: string; source: string; continueTaskId?: string; origin?: TaskOrigin; taskId: string; model?: string; modelOverrideBy?: string }
 
 export class FakeEngine implements HubEngine {
   tasks = new Map<string, Task>();
@@ -31,7 +31,7 @@ export class FakeEngine implements HubEngine {
   private n = 0;
   constructor(private readonly bus: EventBus) {}
 
-  startTask(p: { agentId: string; prompt: string; source: string; continueTaskId?: string; origin?: TaskOrigin }): Task {
+  startTask(p: { agentId: string; prompt: string; source: string; continueTaskId?: string; origin?: TaskOrigin; model?: string; modelOverrideBy?: string }): Task {
     const err = this.failNext.shift();
     if (err) throw err;
     const now = new Date().toISOString();
@@ -48,7 +48,7 @@ export class FakeEngine implements HubEngine {
       };
     }
     this.tasks.set(t.id, t);
-    this.starts.push({ agentId: p.agentId, prompt: p.prompt, source: p.source, continueTaskId: p.continueTaskId, origin: p.origin, taskId: t.id });
+    this.starts.push({ agentId: p.agentId, prompt: p.prompt, source: p.source, continueTaskId: p.continueTaskId, origin: p.origin, taskId: t.id, ...(p.model ? { model: p.model } : {}), ...(p.modelOverrideBy ? { modelOverrideBy: p.modelOverrideBy } : {}) });
     this.bus.emit({ type: 'task.updated', task: { ...t } });
     return { ...t };
   }
@@ -91,7 +91,7 @@ export const DEFAULT_AGENTS: Array<[string, string, ApprovalMode]> = [
   ['ranger', 'Ranger', 'ask'], ['warden', 'Warden', 'ask'], ['oracle', 'Oracle', 'ask'],
 ];
 
-export function makeHarness(opts: { dir?: string; agents?: Array<[string, string, ApprovalMode]> } = {}) {
+export function makeHarness(opts: { dir?: string; agents?: Array<[string, string, ApprovalMode]>; hub?: Partial<HubOptions> } = {}) {
   const dir = opts.dir ?? mkdtempSync(join(tmpdir(), 'legion-comms-'));
   const bus = new EventBus();
   const events: LegionEvent[] = [];
@@ -106,7 +106,7 @@ export function makeHarness(opts: { dir?: string; agents?: Array<[string, string
     listTasks: (_limit, agentId) => [...engine.tasks.values()].filter((t) => !agentId || t.agentId === agentId),
   };
   const clock = { t: 1_000_000 };
-  const make = () => new CommsHub({ engine, store, bus, dataDir: dir, now: () => clock.t });
+  const make = () => new CommsHub({ engine, store, bus, dataDir: dir, now: () => clock.t, ...(opts.hub ?? {}) });
   const h = {
     dir, bus, events, agents, engine, store, clock, hub: make(),
     /** A second hub over the same data dir (simulates a restart); the old one is disposed. */

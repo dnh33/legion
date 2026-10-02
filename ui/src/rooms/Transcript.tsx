@@ -4,6 +4,8 @@ import type { AgentProfile, ApprovalRequest } from '../../../src/shared/types';
 import { ApprovalCard } from '../components/ApprovalCard';
 import { Icon } from '../components/icons';
 import { Markdown } from '../components/Markdown';
+import { modelLabel } from '../models';
+import { useStore } from '../store';
 import { Face } from './Stack';
 import './rooms.css';
 import { activeIn, clearJump, useRooms, type LiveState } from './roomsStore';
@@ -83,7 +85,7 @@ export function Transcript({ room, messages, agents, approvals, live, loading, e
     for (const m of messages) {
       const dk = dayKey(m.at);
       if (dk !== prevDay) { out.push(<div key={`d-${m.id}`} className="rm-day" role="separator"><span>{dayLabel(m.at)}</span></div>); prevDay = dk; prev = undefined; }
-      const cont = !!prev && m.kind === 'chat' && prev.kind === 'chat' && !m.replyTo && m.from.kind === prev.from.kind
+      const cont = !m.model && !!prev && m.kind === 'chat' && prev.kind === 'chat' && !m.replyTo && m.from.kind === prev.from.kind
         && (m.from.kind !== 'bot' || (prev.from.kind === 'bot' && prev.from.agentId === m.from.agentId))
         && new Date(m.at).getTime() - new Date(prev.at).getTime() < 120_000;
       out.push(<Message key={m.id} m={m} cont={cont} room={room} byId={byId} nm={nm} tokens={mentionTokens} onJump={flash} />);
@@ -149,6 +151,7 @@ function Message({ m, cont, room, byId, nm, tokens, onJump }: {
   nm: (id: string) => string; tokens: string[]; onJump: (id: string) => boolean;
 }) {
   const to = m.to.filter((id) => room.members.includes(id)).map(nm);
+  const catalog = useStore((s) => s.catalog);
 
   if (m.kind === 'handoff') {
     const from = m.from.kind === 'bot' ? nm(m.from.agentId) : 'A bot';
@@ -217,6 +220,7 @@ function Message({ m, cont, room, byId, nm, tokens, onJump }: {
             <time dateTime={m.at}>{clock(m.at)}</time>
             {m.costUsd ? <Meta>{fmtCost(m.costUsd)}</Meta> : null}
             {to.length > 0 && <Meta>to {to.join(', ')}</Meta>}
+            {m.model && <span className="mtag rm-model" title={`${nm(id)} asked for this turn to run on ${m.model}`}>{modelLabel(catalog, m.model)}</span>}
           </header>
         )}
         <ReplyMark m={m} byId={byId} nm={nm} onJump={onJump} />
