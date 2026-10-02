@@ -817,3 +817,36 @@ test('B5: the audit log is a second source for "mainnet is off": a file that sti
   const s3 = await setup({ dataDir: s.dataDir, on: true });
   assert.equal(s3.bsv.policy.mainnetEnabled, true, 'the last line says on, so the file is believed');
 });
+
+test('B5 proof (second source): a file that still says mainnet ON (hash matches Legion\'s last save) while the audit log\'s last switch line says OFF loads OFF, not frozen, and is repaired', async () => {
+  const s = await setup({ on: true });
+  enableMainnet(s);
+  await s.call('POST', '/api/bsv/policy/caps', { perTxSats: 800 }); // the file says on and its hash is the last `saved` record
+  assert.equal(JSON.parse(readFileSync(policyFile(s.dataDir), 'utf8')).mainnetEnabled, true, 'control: the file says on');
+  // the crash window the control is for: the OFF line reached the log, the file save did not. The module's own save hook would normally close it, so the line is written by a second writer.
+  const w = new AuditLog(auditPath(s.dataDir)); w.open();
+  w.append({ agent: 'legion', tool: 'policy', decision: 'mainnet-changed', reason: 'a mainnet spend has an unknown outcome', fields: { enabled: false } });
+  assert.equal(JSON.parse(readFileSync(policyFile(s.dataDir), 'utf8')).mainnetEnabled, true, 'control: the file was NOT saved off');
+  const s2 = await setup({ dataDir: s.dataDir, on: true });
+  assert.equal(s2.bsv.policy.mainnetEnabled, false, 'only the audit log says off, and that is enough');
+  assert.equal(s2.bsv.policy.isFrozen, false, 'the hash matched: not a tamper, no freeze');
+  assert.equal(evidence(s.dataDir).length, 0, 'no evidence file: the policy file was believed');
+  assert.equal(JSON.parse(readFileSync(policyFile(s.dataDir), 'utf8')).mainnetEnabled, false, 'and the file is repaired');
+  assert.equal(verifyText(readFileSync(auditPath(s.dataDir), 'utf8')).ok, true, 'the log still verifies');
+});
+
+test('B5 proof (hand edit): a policy file hand-edited back to mainnetEnabled:true while the log says off loads OFF and FROZEN, and the edited file is kept as evidence', async () => {
+  const s = await setup({ on: true });
+  enableMainnet(s);
+  await s.call('POST', '/api/bsv/policy/caps', { perTxSats: 800 });
+  s.bsv.policy.mainnetOff('a mainnet spend has an unknown outcome'); // log says off and the hook saved the file off
+  const edited = JSON.parse(readFileSync(policyFile(s.dataDir), 'utf8'));
+  assert.equal(edited.mainnetEnabled, false, 'control');
+  edited.mainnetEnabled = true; // the hand edit
+  writeFileSync(policyFile(s.dataDir), JSON.stringify(edited));
+  const s2 = await setup({ dataDir: s.dataDir, on: true });
+  assert.equal(s2.bsv.policy.mainnetEnabled, false, 'a file that is not the one Legion wrote never turns mainnet on');
+  assert.equal(s2.bsv.policy.isFrozen, true, 'and the chain is frozen');
+  assert.equal(evidence(s.dataDir).length, 1, 'the edited file was kept aside');
+  assert.equal(JSON.parse(readFileSync(policyFile(s.dataDir), 'utf8')).mainnetEnabled, false, 'the file Legion wrote back says off');
+});

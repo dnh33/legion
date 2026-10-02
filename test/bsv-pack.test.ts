@@ -243,12 +243,12 @@ test('a human note written to scope bsv first no longer blocks seeding', async (
   assert.equal((await s.call('GET', '/api/kg/stats')).body.byScope.bsv, 5);
 });
 
-test('the bundled pack carries a seedHash on every node and seedVersion 7 on the index', () => {
+test('the bundled pack carries a seedHash on every node and seedVersion 8 on the index', () => {
   const { g } = bundledGraph();
   const pack = loadBsvSeed(BSV_SEED_PATH);
-  assert.equal(pack.version, 7);
+  assert.equal(pack.version, 8);
   for (const n of pack.nodes) assert.match(String(g.getNode(HUMAN, n.id)!.props?.seedHash), /^[0-9a-f]{16}$/, n.id);
-  assert.equal(g.getNode(HUMAN, 'bsv-curriculum-index')!.props!.seedVersion, 7);
+  assert.equal(g.getNode(HUMAN, 'bsv-curriculum-index')!.props!.seedVersion, 8);
   assert.equal(applySeedPack(g, pack).status, 'already-loaded');
 });
 
@@ -267,11 +267,79 @@ test('an install from before hashes: untouched nodes (even ones a system re-seed
 
   const r = applySeedPack(g, loadBsvSeed(BSV_SEED_PATH));
   assert.equal(r.status, 'upgraded');
-  assert.deepEqual([r.from, r.to], [1, 7]);
+  assert.deepEqual([r.from, r.to], [1, 8]);
   assert.deepEqual(r.skippedEdited, ['bsv-safety-spend-caps-approval']);
   assert.match(g.getNode(HUMAN, tn.id)!.body, /Association's own release page confirms/, 'the rev-2 node was never edited, so it took the folded text');
   assert.doesNotMatch(g.getNode(HUMAN, tn.id)!.body, /Update \(/);
   assert.equal(g.getNode(HUMAN, 'bsv-safety-spend-caps-approval')!.body, 'my own take on spend caps');
   assert.ok(g.getNode(HUMAN, 'bsv-wallet-choice') && g.getNode(HUMAN, 'bsv-status-today'), 'new nodes were added');
   assert.equal(applySeedPack(g, loadBsvSeed(BSV_SEED_PATH)).status, 'already-loaded');
+});
+
+// ---------------------------------------------------------------- 7. pack v8: upgrade from a real v7 install (T4)
+
+const V7_PATH = fileURLToPath(new URL('../../test/fixtures/bsv-pack-v7.json', import.meta.url));
+
+test('v8 upgrade: from the shipped v7 pack, edited notes stay, untouched notes take the new text, six new notes arrive, no id is lost, the count is exactly the bundled count plus the owner\'s own', () => {
+  const v7 = loadBsvSeed(V7_PATH);
+  const v8 = loadBsvSeed(BSV_SEED_PATH);
+  assert.equal(v7.version, 7);
+  assert.equal(v7.nodes.length, 157, 'the fixture is the pack that shipped at version 7');
+  assert.equal(v8.version, 8);
+  const v7ids = new Set(v7.nodes.map((n) => n.id));
+  const v8ids = new Set(v8.nodes.map((n) => n.id));
+  for (const id of v7ids) assert.ok(v8ids.has(id), `v8 dropped the node ${id}: an upgrade must never lose a note`);
+  const added = [...v8ids].filter((id) => !v7ids.has(id)).sort();
+  assert.deepEqual(added, ['bsv-safety-owner-checks', 'bsv-safety-real-wallet-facts', 'bsv-safety-spend-dialogs', 'bsv-safety-spend-flow', 'bsv-safety-spend-network-caps', 'bsv-safety-unknown-outcome']);
+  assert.equal(v8.nodes.length, 163);
+  assert.equal(v8.edges.length, 727);
+  const v7edges = new Set(v7.edges.map((e) => `${e.from}|${e.rel}|${e.to}`));
+  for (const e of v7.edges) assert.ok(v8.edges.some((x) => x.from === e.from && x.rel === e.rel && x.to === e.to), `v8 dropped a link ${e.from} ${e.rel} ${e.to}`);
+  assert.equal(v7edges.size, v7.edges.length);
+
+  const { g, bsv } = mkGraph();
+  bsv.on = true;
+  assert.equal(applySeedPack(g, v7).status, 'loaded');
+  const bsvCount = () => g.stats(HUMAN).byScope.bsv ?? 0;
+  assert.equal(bsvCount(), 157);
+  // the owner edits two notes (one the v8 pack rewrites, one it does not) and adds a note of their own
+  g.upsertNode(HUMAN, { id: 'bsv-status-today', body: 'MY STATUS NOTES (the owner wrote this)' });
+  g.upsertNode(HUMAN, { id: 'bsv-safety-audit-freeze', body: 'my own audit and freeze notes' });
+  g.upsertNode(HUMAN, { id: 'owner-bsv-note', title: 'My own BSV note', body: 'mine', scope: 'bsv', type: 'concept', tags: ['bsv'] });
+  assert.equal(bsvCount(), 158);
+
+  const r = applySeedPack(g, v8);
+  assert.equal(r.status, 'upgraded');
+  assert.deepEqual([r.from, r.to], [7, 8]);
+  assert.equal(r.created, 6, 'exactly the new nodes');
+  assert.deepEqual([...r.skippedEdited].sort(), ['bsv-safety-audit-freeze', 'bsv-status-today'], 'the owner\'s edits are reported and untouched');
+  assert.equal(g.getNode(HUMAN, 'bsv-status-today')!.body, 'MY STATUS NOTES (the owner wrote this)');
+  assert.equal(g.getNode(HUMAN, 'bsv-safety-audit-freeze')!.body, 'my own audit and freeze notes');
+  assert.equal(bsvCount(), 163 + 1, 'the bundled count plus the owner\'s own note, nothing lost, nothing doubled');
+  assert.ok(g.getNode(HUMAN, 'owner-bsv-note'));
+  for (const id of v8ids) assert.ok(g.getNode(HUMAN, id), `${id} is in the graph after the upgrade`);
+  // an untouched note takes the new truth (and no longer says there is no spend tool)
+  const fees = g.getNode(HUMAN, 'bsv-tx-fees')!;
+  assert.match(fees.body, /Legion's spend tool refuses a transaction whose fee/);
+  assert.doesNotMatch(fees.body, /has no spend tool/);
+  assert.equal(g.getNode(HUMAN, 'bsv-curriculum-index')!.props!.seedVersion, 8);
+  // idempotent: the same pack again writes nothing and keeps the edits
+  assert.equal(applySeedPack(g, v8).status, 'already-loaded');
+  assert.equal(g.getNode(HUMAN, 'bsv-status-today')!.body, 'MY STATUS NOTES (the owner wrote this)');
+});
+
+test('v8 upgrade: a note the owner deleted at v7 stays deleted, and no v8 note says what v7 said about having no spend tool', () => {
+  const v7 = loadBsvSeed(V7_PATH);
+  const v8 = loadBsvSeed(BSV_SEED_PATH);
+  const { g, bsv } = mkGraph();
+  bsv.on = true;
+  applySeedPack(g, v7);
+  g.deleteNode(HUMAN, 'bsv-sound-events');
+  const r = applySeedPack(g, v8);
+  assert.deepEqual(r.skippedRemoved, ['bsv-sound-events']);
+  assert.equal(g.getNode(HUMAN, 'bsv-sound-events'), undefined);
+  // what the upgrade now carries
+  const old = v7.nodes.filter((n) => /no spend tool|has no spend tool|no tool that signs|cannot sign|nothing consumes|no wallet connection beyond/i.test(n.body ?? '')).map((n) => n.id);
+  assert.ok(old.length >= 4, `the v7 pack had the old claims in ${old.length} nodes: the check is exercising something`);
+  for (const id of old) assert.doesNotMatch(v8.nodes.find((n) => n.id === id)!.body ?? '', /no spend tool|has no spend tool|no tool that signs|cannot sign|nothing consumes|no wallet connection beyond/i, `${id} still carries the old claim`);
 });
