@@ -110,7 +110,7 @@ test('B2 working folder: the home folder, a filesystem root, Legion\'s data fold
     mkdirSync(join(ctx.workspaceDir, 'a1'), { recursive: true });
     assert.equal(checkCliFolder(c.home, ctx).ok, false, 'home');
     assert.equal(checkCliFolder(tmpdir(), ctx).ok, false, 'a folder that contains home');
-    assert.equal(checkCliFolder('/', ctx).ok, false, 'root');
+    const root = checkCliFolder('/', ctx); assert.ok(!root.ok && /drive or filesystem root/.test(root.reason), 'root, by its own rule (not only because it contains home)');
     assert.equal(checkCliFolder(join(c.tmp, 'data'), ctx).ok, false, 'the data folder');
     assert.equal(checkCliFolder(ctx.workspaceDir, ctx).ok, false, 'the workspaces folder itself');
     mkdirSync(join(c.tmp, 'data', 'providers'), { recursive: true });
@@ -234,5 +234,19 @@ test('B2 the view carries the plain warning, says the run starts tainted, and a 
     assert.equal(row.kind, 'cli'); assert.equal(row.startsTainted, true); assert.deepEqual(row.allowedAgents, ['a1']);
     assert.match(v.cliWarning, /cannot see or stop/); assert.match(v.cliWarning, /outside Legion/);
     await assert.rejects(() => c.h.providers.refreshModels('cli'), /no model list/);
+  } finally { await c.done(); }
+});
+
+test('B2 a run with no way to ask for the start card is refused, never started', async () => {
+  const { runCli } = await import('../src/core/providers/cli.js');
+  const c = await cliSetup();
+  try {
+    let ran = false;
+    const folder = { home: c.home, workspaceDir: join(c.tmp, 'data', 'workspaces'), dataDir: join(c.tmp, 'data'), appRoots: [repoRoot] };
+    mkdirSync(join(folder.workspaceDir, 'a1'), { recursive: true });
+    const host: any = { taskId: 't', agentName: 'A', signal: new AbortController().signal, cancelled: () => false, prompt: 'hello', ownerStarted: true, agentId: 'a1', cwd: join(folder.workspaceDir, 'a1'), onAssistantText() {}, markTainted() {} };
+    const port = { run: async () => { ran = true; return { code: 0, signal: null, stdout: 'x', stderr: '', pid: 1 }; } };
+    const r = await runCli(host, 'cli', cliEntry(), 'default', { port, folder, redact: (s) => s });
+    assert.equal(r.isError, true); assert.equal(ran, false, 'nothing was started without an answered card');
   } finally { await c.done(); }
 });
