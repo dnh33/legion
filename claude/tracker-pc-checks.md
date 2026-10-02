@@ -179,5 +179,5 @@ ABORT at once (Freeze, Disable mainnet, no retry, record) if: a dialog differs f
 
 
 
-## Browser tool (Lightpanda) - see claude/tracker-pc-checks-browser.md for the full steps (BR1 to BR14)
+## Browser tool (Lightpanda) - see claude/tracker-pc-checks-browser.md for the full steps (BR1 to BR22; BR15-BR22 are the Chromium engine)
 Safety classes: BR2 downloads; BR3-BR8 none (a harmless public page you control); BR12 native dialog; BR13 none. Nothing in this section was run in the cloud session; do not call the browser tool verified until each is recorded as passed.
