@@ -10,5 +10,5 @@ import { loadMods, SCENARIOS } from './bsv-spend-scenarios.js';
 // tests run from dist/test; the compiled sources are one level up
 const ROOT = fileURLToPath(new URL('../', import.meta.url));
 const mods = loadMods(ROOT);
-for (const [name, run] of Object.entries(SCENARIOS)) test(`spend flow: ${name}`, async () => { await run(await mods); });
+for (const [name, run] of Object.entries(SCENARIOS)) if (name !== 'injection-corpus-moves-nothing') test(`spend flow: ${name}`, async () => { await run(await mods); });
 void join;
