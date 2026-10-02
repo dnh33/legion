@@ -144,6 +144,7 @@ export function RoomSettings({ room }: { room: Room }) {
             </label>
             <label className="grow">Budget (USD)
               <input type="number" min={0.05} step={0.5} value={budget} placeholder="No limit" onChange={(e) => setBudget(e.target.value)} aria-invalid={budgetBad} />
+              {budgetBlank && room.guards.budgetUsd !== null && <span className="rm-hint" role="status">This room will have no spend limit.</span>}
             </label>
           </div>
           <div className="row">
