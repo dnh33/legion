@@ -14,6 +14,9 @@ const install = (v = '5.1.0'): BlenderInstall => ({ path: '/opt/blender/blender'
 /** The sha256 the default configuration pins for the official archive. */
 const PINNED = defaultBlenderConfig().advanced.official.sha256;
 
+/** The fake file system speaks forward slashes; path.join gives backslashes on Windows. */
+const fwd = (p: string): string => p.replace(/\\/g, '/');
+
 function fakeIo(over: Partial<{ downloadSha: string; blenderOut: string; launcherMissing: boolean; layout: string[]; throwDownload: boolean; hasLock: boolean; lockFails: boolean; launcher: string }> = {}) {
   const log = { downloads: [] as Array<{ url: string; dest: string; maxBytes: number }>, runs: [] as Array<{ file: string; args: string[] }>, writes: new Map<string, string>(), spawned: [] as Array<{ file: string; args: string[] }>, removed: [] as string[], locked: false };
   const layout = over.layout ?? ['blender_mcp'];
@@ -32,9 +35,9 @@ function fakeIo(over: Partial<{ downloadSha: string; blenderOut: string; launche
     writeText: (p, t) => { log.writes.set(p, t); },
     readText: (p) => log.writes.get(p),
     copyFile: () => undefined,
-    exists: (p) => p.endsWith('/addon') || p.endsWith('/addon/blender_mcp_addon') || p.endsWith('legion_blender') || (p.endsWith('uv.lock') && (over.hasLock === true || log.locked)),
-    isDir: (p) => layout.some((n) => p.endsWith(`/server/${n}`)),
-    listDir: (p) => (p.endsWith('/server') ? layout : ['addon', 'pyproject.toml']),
+    exists: (q) => { const p = fwd(q); return p.endsWith('/addon') || p.endsWith('/addon/blender_mcp_addon') || p.endsWith('legion_blender') || (p.endsWith('uv.lock') && (over.hasLock === true || log.locked)); },
+    isDir: (p) => layout.some((n) => fwd(p).endsWith(`/server/${n}`)),
+    listDir: (p) => (fwd(p).endsWith('/server') ? layout : ['addon', 'pyproject.toml']),
     removeDir: (p) => { log.removed.push(p); },
     spawnDetached: (file, args) => { log.spawned.push({ file, args }); },
     now: () => new Date('2026-10-02T00:00:00Z'),

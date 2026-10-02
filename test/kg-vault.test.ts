@@ -1,11 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdirSync, readdirSync, readFileSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { Graph } from '../src/core/kg/graph.js';
 import { KgError } from '../src/core/kg/types.js';
 import { exportVault, importVault as importVaultRaw, parseFrontmatter, VAULT_MAX_FILE_BYTES, VAULT_MAX_FILES, vaultFileName } from '../src/core/kg/vault.js';
 import { KG_LIMITS } from '../src/shared/kg.js';
+import { tryLink } from './fs-links.js';
 import { ALPHA, BETA, HUMAN, logLines, mkGraph, note, tmpDir } from './kg-helpers.js';
 
 /** These tests exercise the user-initiated import (the app's route); the held-only default is covered in library-review-integrity. */
@@ -252,13 +253,15 @@ test('import never lets file content choose scope, author or trust', () => {
   assert.equal(g.search(ALPHA, 'planted').length, 1);
 });
 
-test('import enforces its limits: dot folders, symlinks, file size, body length, file count', () => {
+test('import enforces its limits: dot folders, symlinks, file size, body length, file count', (t) => {
   const { g } = mkGraph();
   const vault = tmpDir();
   const outside = tmpDir();
   write(outside, 'secret.md', '# Outside secret\n');
-  symlinkSync(join(outside, 'secret.md'), join(vault, 'link.md'));
-  symlinkSync(outside, join(vault, 'linked-dir'));
+  const fileLink = tryLink(join(outside, 'secret.md'), join(vault, 'link.md'), 'file');
+  const dirLink = tryLink(outside, join(vault, 'linked-dir'), 'dir');
+  if (!fileLink.ok) t.diagnostic('file symlink not tested: ' + fileLink.reason);
+  if (!dirLink.ok) t.diagnostic('directory link not tested: ' + dirLink.reason);
   write(vault, 'huge.md', '# Huge\n' + 'x'.repeat(VAULT_MAX_FILE_BYTES));
   write(vault, 'long-body.md', '# Long body\n' + 'x'.repeat(KG_LIMITS.bodyChars + 10));
   write(vault, 'long-title.md', '# ' + 't'.repeat(KG_LIMITS.titleChars + 1) + '\n\nbody');

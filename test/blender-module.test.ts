@@ -3,6 +3,9 @@ import assert from 'node:assert/strict';
 import { mkdirSync, mkdtempSync, readFileSync, writeFileSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+// the fake file system speaks forward slashes; path.join gives backslashes on Windows
+const fwd = (p: string): string => p.split(String.fromCharCode(92)).join('/');
+
 import test, { after } from 'node:test';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
@@ -40,7 +43,7 @@ function fakeIo(versions: string[]): { io: BlenderIo; downloads: string[]; hash:
     run: async (file, args) => (args[0] === '--version' && !paths.includes(file) ? { code: 0, stdout: 'uv 1', stderr: '' } : { code: 0, stdout: 'LEGION_ADDON_OK x /y\n', stderr: '' }),
     download: async (url) => { downloads.push(url); return { sha256: hash.value ?? (url.includes('blender_mcp') ? DEFAULT_ADVANCED.official.sha256 : 'c'.repeat(64)), bytes: 10 }; },
     extract: async () => undefined, mkdirp: () => undefined, writeText: () => undefined, readText: () => undefined, copyFile: () => undefined,
-    exists: (p) => p.endsWith('/addon') || p.endsWith('/addon/blender_mcp_addon') || paths.includes(p), isDir: (p) => p.endsWith('/server/pkg'), listDir: (p) => (p.endsWith('/server') ? ['pkg'] : ['addon']),
+    exists: (p) => fwd(p).endsWith('/addon') || fwd(p).endsWith('/addon/blender_mcp_addon') || paths.includes(p), isDir: (p) => fwd(p).endsWith('/server/pkg'), listDir: (p) => (fwd(p).endsWith('/server') ? ['pkg'] : ['addon']),
     removeDir: () => undefined, spawnDetached: () => undefined, now: () => new Date('2026-10-02T00:00:00Z'),
   };
   return { io, downloads, hash };

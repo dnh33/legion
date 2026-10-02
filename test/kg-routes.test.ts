@@ -280,12 +280,13 @@ test('module: id, 9-line preamble (5 graph lines + 4 library lines), per-agent l
 });
 
 test('module: kg.updated is emitted once per burst of writes (debounced), carrying counts and changed ids', async () => {
-  const s = await setup({ debounceMs: 60 });
+  // the four writes must all land inside one window: 60 ms is not enough for loopback HTTP + fsync on a loaded Windows box
+  const s = await setup({ debounceMs: 600 });
   const ids: string[] = [];
   for (const t of ['One', 'Two', 'Three']) ids.push((await s.call('POST', '/api/kg/nodes', { title: t })).body.node.id);
   await s.call('POST', '/api/kg/edges', { from: ids[0], to: ids[1], rel: 'relates' });
   assert.equal(s.events.filter((e) => e.type === 'kg.updated').length, 0, 'nothing is emitted inside the debounce window');
-  await new Promise((r) => setTimeout(r, 150));
+  await new Promise((r) => setTimeout(r, 900));
   const ev = s.events.filter((e) => e.type === 'kg.updated');
   assert.equal(ev.length, 1);
   const e = ev[0] as Extract<LegionEvent, { type: 'kg.updated' }>;

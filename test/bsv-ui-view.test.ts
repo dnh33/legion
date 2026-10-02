@@ -6,6 +6,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import {
   BSV_POLL_MS, auditLine, formatCountdown, heightText, overlayModel, remainingMs, safeLine, shouldPoll, walletHeadline,
   type AuditView, type PolicyView, type WalletView,
@@ -182,7 +183,7 @@ test('perf: no requestAnimationFrame, no CSS animation class, and the only timer
 test('trust: the UI changes policy only through the app bridge; it never names the native header or a policy-changing route', () => {
   const walk = (dir: URL, out: string[] = []): string[] => {
     for (const e of readdirSync(dir, { withFileTypes: true })) {
-      if (e.isDirectory()) walk(new URL(e.name + '/', dir), out); else if (/\.tsx?$/.test(e.name)) out.push(new URL(e.name, dir).pathname);
+      if (e.isDirectory()) walk(new URL(e.name + '/', dir), out); else if (/\.tsx?$/.test(e.name)) out.push(fileURLToPath(new URL(e.name, dir))); // not .pathname: that is "/D:/..." on Windows
     }
     return out;
   };

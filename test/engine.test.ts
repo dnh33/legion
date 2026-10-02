@@ -122,7 +122,9 @@ test('auth env: claude-login deletes API key vars; api-key sets it', async () =>
     await a.engine.waitFor(a.engine.startTask({ agentId: 'a1', prompt: 'x', source: 'cli' }).id, 3000);
     assert.equal('ANTHROPIC_API_KEY' in a.calls[0]!.options.env && a.calls[0]!.options.env.ANTHROPIC_API_KEY !== undefined, false);
     assert.equal(a.calls[0]!.options.env.ANTHROPIC_AUTH_TOKEN, undefined);
-    assert.equal(a.calls[0]!.options.env.PATH, process.env.PATH);
+    // the child env is a plain-object copy of process.env: on Windows its key is "Path" (plain objects are case-sensitive, process.env is not)
+    const pathKey = Object.keys(a.calls[0]!.options.env).find((k) => k.toUpperCase() === 'PATH');
+    assert.equal(a.calls[0]!.options.env[pathKey ?? 'PATH'], process.env.PATH);
 
     const b = setup(() => happy(), { config: (c) => { c.claude.auth = 'api-key'; c.claude.apiKey = 'sk-config'; c.claude.executablePath = '/bin/claude'; c.claude.inheritClaudeCodeSettings = false; } });
     await b.engine.waitFor(b.engine.startTask({ agentId: 'a1', prompt: 'x', source: 'cli' }).id, 3000);

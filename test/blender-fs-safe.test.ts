@@ -1,7 +1,7 @@
 /** S8: file helpers that do not follow links. Real temp folders and real symbolic links (skipped on Windows, where creating links needs privileges). */
 import assert from 'node:assert/strict';
 import { lstatSync, mkdirSync, readdirSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, sep } from 'node:path';
 import test from 'node:test';
 import { findLink, isInside, resolveFolder, safeWriteFile } from '../src/core/blender/fs-safe.js';
 import { tmp } from './blender-helpers.js';
@@ -29,10 +29,12 @@ test('resolveFolder: a folder that is itself a link is refused, and so is a miss
 });
 
 test('isInside: equal or below, never a sibling that shares a prefix', () => {
-  assert.equal(isInside('/a/b', '/a/b'), true);
-  assert.equal(isInside('/a/b/c', '/a/b'), true);
-  assert.equal(isInside('/a/bc', '/a/b'), false);
-  assert.equal(isInside('/a', '/a/b'), false);
+  // platform-native paths: isInside compares with the native separator (backslashes on Windows)
+  const p = (...s: string[]): string => join(sep, ...s);
+  assert.equal(isInside(p('a', 'b'), p('a', 'b')), true);
+  assert.equal(isInside(p('a', 'b', 'c'), p('a', 'b')), true);
+  assert.equal(isInside(p('a', 'bc'), p('a', 'b')), false);
+  assert.equal(isInside(p('a'), p('a', 'b')), false);
 });
 
 test('findLink: finds a link nested in the folder, none in a clean folder', { skip: !links }, () => {

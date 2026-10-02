@@ -136,7 +136,7 @@ function sourceFiles(dir: string, out: string[] = []): string[] {
   for (const f of readdirSync(dir)) {
     const p = join(dir, f);
     if (statSync(p).isDirectory()) sourceFiles(p, out);
-    else if (/\.(ts|tsx)$/.test(f)) out.push(p);
+    else if (/\.(ts|tsx)$/.test(f)) out.push(p.replace(/\\/g, '/')); // forward slashes so endsWith/includes checks hold on Windows
   }
   return out;
 }
@@ -153,7 +153,7 @@ test('F12: the BSV code still has none of the controls the design nodes describe
   for (const f of files) {
     // comments and string literals may NAME a control (the docs of what is absent); code identifiers may not
     const code = readFileSync(f, 'utf8').replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/.*$/gm, '$1').replace(/'(?:[^'\\\n]|\\.)*'|"(?:[^"\\\n]|\\.)*"|`(?:[^`\\]|\\.)*`/g, "''");
-    for (const [label, re, only] of claims) if ((!only || f.includes(only)) && re.test(code)) found.push(`${f.replace(REPO, '')}: ${label}`);
+    for (const [label, re, only] of claims) if ((!only || f.includes(only)) && re.test(code)) found.push(`${f.replace(REPO.replace(/\\/g, '/'), '')}: ${label}`);
   }
   assert.deepEqual(found, [], 'the code now has a control the pack calls design: update the pack and bsv-status-today first');
   // The ones that exist: files are there, and the pack says so with the partly-built marker

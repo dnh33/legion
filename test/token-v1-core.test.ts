@@ -11,6 +11,7 @@ import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { PassThrough } from 'node:stream';
+import { fileURLToPath } from 'node:url';
 import { ADMIN_STDIN_FLAG, healthProof, readAdminSecret, readSecretFromStream } from '../src/core/admin.js';
 import { adminForRenderer } from '../src/electron/admin-logic.js';
 import { makeFakes, start, TEST_ADMIN } from './helpers-c.js';
@@ -67,7 +68,7 @@ test('readAdminSecret: only when the flag says stdin; the flag is removed; env v
 
 // ---------------------------------------------------------------- a real spawned core
 
-const coreJs = new URL('../src/bin/legion-core.js', import.meta.url).pathname;
+const coreJs = fileURLToPath(new URL('../src/bin/legion-core.js', import.meta.url)); // not .pathname: "/D:/..." on Windows
 const freePort = (): Promise<number> => new Promise((res, rej) => {
   const s = createServer(); s.once('error', rej);
   s.listen(0, '127.0.0.1', () => { const p = (s.address() as { port: number }).port; s.close(() => res(p)); });
@@ -131,7 +132,8 @@ test('a real core started with the secret on stdin: admin works with the header 
     // nothing on disk: config.json, core.log, the graph, every file the core wrote under LEGION_HOME
     const files = filesUnder(core.home);
     assert.ok(files.some((f) => f.endsWith('config.json')));
-    const leaks = files.filter((f) => readFileSync(f).includes(SECRET));
+    // the core is still running: its atomic writes (state.json.tmp, then rename) can remove a file between the listing and the read
+    const leaks = files.filter((f) => { try { return readFileSync(f).includes(SECRET); } catch (e) { if ((e as NodeJS.ErrnoException).code === 'ENOENT') return false; throw e; } });
     assert.deepEqual(leaks, [], 'the admin secret must not be in any file under LEGION_HOME');
     // Linux: the process environment and command line (a same-user bot can read both)
     if (existsSync(`/proc/${core.child.pid}/environ`)) {
