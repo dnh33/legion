@@ -19,7 +19,7 @@ const CLI_KINDS = new Set(['codex', 'opencode']);
 const AGENT_ID_RE = /^[A-Za-z0-9_-]{1,64}$/;
 const SERVER_NAME_RE = /^[A-Za-z0-9_.-]{1,64}$/;
 /** An absolute program path (POSIX or Windows drive / UNC); a bare name is refused so nothing is looked up on PATH. */
-export const isAbsoluteProgramPath = (s: string): boolean => (/^\//.test(s) || /^[A-Za-z]:[\\/]/.test(s) || /^\\\\[^\\]/.test(s)) && !/[\u0000-\u001f"%^&|<>!`]/.test(s) && s.length <= 400;
+export const isAbsoluteProgramPath = (s: string): boolean => (/^\//.test(s) || /^[A-Za-z]:[\\/]/.test(s) || /^\\\\[^\\]/.test(s)) && !/[\u0000-\u001f"%^&|<>!`;]/.test(s) && s.length <= 400;
 const capNum = (v: unknown): number | undefined => (typeof v === 'number' && Number.isInteger(v) && v >= 1 && v <= 1_000_000_000 ? v : undefined);
 
 /** One entry, or a plain-words reason it was refused. */
