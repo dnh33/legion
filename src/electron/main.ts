@@ -7,7 +7,7 @@ import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { initUpdater, recoverAtStart } from './updater-main.js';
-import { adminForRenderer, bsvConfirmation, bsvPreflight, coreAction, coreIsBusy, createSpendNative, dialogText, isSpendAction, killPlan, listenerCommands, listenerPids, parseBsvAction, SPEND_POLL_MS, trustedSender, type BsvAction, type BsvPolicyFacts, type CoreHealth } from './admin-logic.js';
+import { adminForRenderer, bsvConfirmation, bsvPreflight, coreAction, coreIsBusy, createSpendNative, dialogText, isSpendAction, killPlan, listenerCommands, listenerPids, netChangeProblem, parseBsvAction, SPEND_POLL_MS, trustedSender, type BsvAction, type BsvPolicyFacts, type CoreHealth } from './admin-logic.js';
 import { makeConfirm, providerChange } from './provider-ipc.js';
 import { resolveNodeBin } from './resolve-node.js';
 import { projectChange } from './project-ipc.js';
@@ -336,6 +336,8 @@ async function bsvPolicyChange(raw: unknown): Promise<BsvChangeResult> {
   if (!res) return { ok: false, error: 'Legion could not reach its own core.' };
   win?.webContents.send('legion:bsv-changed');
   if (res.status !== 200) return { ok: false, error: dialogText((res.json as { error?: unknown })?.error, 300) || `The core refused the change (${res.status}).` };
+  const problem = netChangeProblem(action, res.json); // the confirmed network is the one that changed
+  if (problem) return { ok: false, error: problem };
   return { ok: true, view: res.json };
 }
 

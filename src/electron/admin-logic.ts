@@ -8,6 +8,7 @@
  */
 import { healthProof, isHexNonce } from '../core/admin.js';
 import { ARM_CHOICES_MINUTES } from '../core/bsv/policy.js';
+import { addressNet } from '../core/bsv/networks.js';
 import { parseWalletUrl } from '../core/bsv/wallet-probe.js';
 import { timingSafeEqual } from 'node:crypto';
 
@@ -128,8 +129,13 @@ export type BsvAction =
   | { kind: 'disarm' }
   | { kind: 'freeze' }
   | { kind: 'unfreeze' }
-  | { kind: 'caps'; caps: Partial<Record<CapKey, number>> }
-  | { kind: 'allowlist'; list: string[] }
+  /** `net` absent = the test network (what the core's route has always meant). Main sends `net` only for the main network. */
+  | { kind: 'caps'; net?: 'test' | 'main'; caps: Partial<Record<CapKey, number>> }
+  | { kind: 'allowlist'; net?: 'test' | 'main'; list: string[] }
+  /** Turn the mainnet switch on: a native dialog with the LIVE FUNDS warning. Off by default. */
+  | { kind: 'mainnet-enable' }
+  /** Turn it off: needs no dialog (it only makes things safer), like Freeze and Disarm. */
+  | { kind: 'mainnet-disable' }
   /** First contact with a wallet, and the only way to it: the owner typed this loopback address and pressed Connect. */
   | { kind: 'connect'; url: string }
   | { kind: 'disconnect' }
@@ -160,7 +166,7 @@ export function parseBsvAction(raw: unknown, armChoices: readonly number[] = BSV
   switch (raw.kind) {
     case 'arm':
       return only('minutes') && typeof raw.minutes === 'number' && armChoices.includes(raw.minutes) ? { kind: 'arm', minutes: raw.minutes } : undefined;
-    case 'disarm': case 'freeze': case 'unfreeze': case 'disconnect':
+    case 'disarm': case 'freeze': case 'unfreeze': case 'disconnect': case 'mainnet-enable': case 'mainnet-disable':
       return keys.length === 0 ? { kind: raw.kind } : undefined;
     case 'spend-review': case 'spend-deny': case 'spend-resolve':
       return only('requestId') && typeof raw.requestId === 'string' && REQUEST_ID_RE.test(raw.requestId) ? { kind: raw.kind, requestId: raw.requestId } : undefined;
@@ -168,7 +174,8 @@ export function parseBsvAction(raw: unknown, armChoices: readonly number[] = BSV
       // the address must already be a plain loopback http address: what the dialog shows is what main checked
       return only('url') && typeof raw.url === 'string' && parseWalletUrl(raw.url).ok ? { kind: 'connect', url: raw.url } : undefined;
     case 'caps': {
-      if (!only('caps') || !plain(raw.caps)) return undefined;
+      if (!only('caps', 'net') || !plain(raw.caps)) return undefined;
+      if (own(raw, 'net') && raw.net !== 'test' && raw.net !== 'main') return undefined;
       const caps: Partial<Record<CapKey, number>> = {};
       const entries = Object.entries(raw.caps);
       if (entries.length === 0 || entries.length > CAP_KEYS.length) return undefined;
@@ -176,16 +183,19 @@ export function parseBsvAction(raw: unknown, armChoices: readonly number[] = BSV
         if (!(CAP_KEYS as readonly string[]).includes(k) || typeof v !== 'number' || !Number.isSafeInteger(v) || v < 0) return undefined;
         caps[k as CapKey] = v;
       }
-      return { kind: 'caps', caps };
+      return { kind: 'caps', ...(raw.net ? { net: raw.net as 'test' | 'main' } : {}), caps };
     }
     case 'allowlist': {
-      if (!only('list') || !Array.isArray(raw.list) || raw.list.length > 50) return undefined;
+      if (!only('list', 'net') || !Array.isArray(raw.list) || raw.list.length > (raw.net === 'main' ? 10 : 50)) return undefined;
+      if (own(raw, 'net') && raw.net !== 'test' && raw.net !== 'main') return undefined;
+      const net: 'test' | 'main' = raw.net === 'main' ? 'main' : 'test';
       const list: string[] = [];
       for (const r of raw.list) {
-        if (typeof r !== 'string' || !/^[A-Za-z0-9._@:+-]{3,120}$/.test(r)) return undefined;
+        // the dialog quotes these: each must be a checksummed address of the list's own network (a mainnet address never lands on the test list or the reverse)
+        if (typeof r !== 'string' || addressNet(r) !== net || list.includes(r)) return undefined;
         list.push(r);
       }
-      return { kind: 'allowlist', list };
+      return { kind: 'allowlist', ...(raw.net ? { net } : {}), list };
     }
     default: return undefined;
   }
@@ -196,6 +206,10 @@ export interface BsvPolicyFacts {
   armed?: boolean; frozen?: { reason?: unknown } | null; remainingMs?: number;
   caps?: Partial<Record<CapKey, number>>; allowlist?: unknown;
   pending?: unknown; unknown?: unknown; nativeAvailable?: boolean;
+  /** The mainnet switch (off unless this is exactly true) and the per-network limits the core reports. */
+  mainnetEnabled?: boolean; nets?: Partial<Record<'test' | 'main', { caps?: Partial<Record<CapKey, number>>; allowlist?: unknown }>>;
+  /** The core says its spend tool is on offer. Only then do the dialogs say so. */
+  spendTools?: boolean;
 }
 
 export interface BsvConfirm {
@@ -227,28 +241,53 @@ export function satsText(sats: unknown): string {
 
 const CAP_LABEL: Record<CapKey, string> = { perTxSats: 'Per transaction', perSessionSats: 'Per session', per24hSats: 'Per rolling 24 hours', maxOutputs: 'Max outputs', maxFeeSats: 'Fee ceiling' };
 const capLine = (k: CapKey, v: unknown) => `${CAP_LABEL[k]}: ${k === 'maxOutputs' ? String(typeof v === 'number' ? v : 0) : satsText(v)}`;
-const NO_SPEND = 'This changes Legion\'s policy state. Legion\'s own code has one tool that asks a wallet to build and sign a TESTNET transaction; every use needs your confirmation first, and the wallet\'s own prompt follows. An agent\'s ordinary tools (a shell, a web fetch) are not covered by any of this.';
+const ORDINARY_TOOLS = 'An agent\'s ordinary tools (a shell, a web fetch) are not covered by any of this.';
+/** What a policy dialog may say about the spend tool: only what the core reports. No claim about the tool unless the core says it is on offer. */
+const noSpend = (f: BsvPolicyFacts): string => f.spendTools === true
+  ? `This changes Legion's policy state. Legion's own code has one tool that asks a wallet to build and sign a transaction: on the test network after your confirmation, and on the main network only while the mainnet switch is on and armed. The wallet's own prompt follows every time. ${ORDINARY_TOOLS}`
+  : `This changes Legion's policy state. This core does not offer the spend tool; these settings take effect once a core that does is running. ${ORDINARY_TOOLS}`;
+const netCaps = (f: BsvPolicyFacts, net: 'test' | 'main'): Partial<Record<CapKey, number>> => (f.nets?.[net]?.caps ?? (net === 'test' ? f.caps : undefined) ?? {});
+const netName = (net: 'test' | 'main') => (net === 'main' ? 'MAINNET (LIVE FUNDS)' : 'TESTNET');
 
 export function bsvConfirmation(action: BsvPolicyAction, facts: BsvPolicyFacts = {}, walletLine = ''): BsvConfirm {
   const caps = facts.caps ?? {};
   const base = { method: 'POST' as const, buttons: ['Cancel', 'OK'] as [string, string], type: 'question' as const };
   switch (action.kind) {
-    case 'arm':
+    case 'arm': {
+      const mc = netCaps(facts, 'main');
       return {
         ...base, needsDialog: true, route: '/api/bsv/policy/arm', body: { minutes: action.minutes }, type: 'warning',
         title: 'Arm LIVE FUNDS mode?',
         message: `Arm LIVE FUNDS mode for ${action.minutes} minutes?`,
         detail: [
-          'Armed mode lets Legion\'s policy engine consider mainnet requests until the time runs out, you press Freeze, or Legion restarts.',
-          NO_SPEND,
-          'Testnet spends do not need Arm. Legion\'s spend tool refuses a mainnet request in this version, and anything that could move live funds in a later version would still need its own approval card here and the wallet\'s own prompt.',
+          `ONE mainnet spend request may be considered, then it disarms. It also ends when the ${action.minutes} minutes run out, when you press Freeze or Disarm, and when Legion restarts. A shorter time is better.`,
+          'Each request still needs your confirmation dialogs here, in the order they appear, and then your wallet\'s own prompt, which is the last gate and which Legion cannot see.',
+          'Arming does not move anything by itself. Testnet spends do not need Arm.',
+          noSpend(facts),
           '',
-          'Limits that would apply:',
-          ...(['perTxSats', 'perSessionSats', 'per24hSats', 'maxOutputs', 'maxFeeSats'] as CapKey[]).map((k) => capLine(k, caps[k])),
+          'Mainnet limits that apply:',
+          ...(['perTxSats', 'perSessionSats', 'per24hSats', 'maxOutputs', 'maxFeeSats'] as CapKey[]).map((k) => capLine(k, mc[k])),
           ...(walletLine ? ['', dialogText(walletLine, 200)] : []),
         ].join('\n'),
         buttons: ['Cancel', `Arm for ${action.minutes} minutes`],
       };
+    }
+    case 'mainnet-enable':
+      return {
+        ...base, needsDialog: true, route: '/api/bsv/policy/mainnet', body: { enabled: true }, type: 'warning',
+        title: 'LIVE FUNDS: allow mainnet?',
+        message: 'Allow Legion to consider spending REAL BSV?',
+        detail: [
+          'It is off by default. Turning it on does not spend anything and does not arm anything.',
+          'Each mainnet spend still needs Arm (one spend per Arm), your confirmation dialogs here and the wallet\'s own prompt.',
+          'A mainnet unknown outcome, a mismatch after signing, an audit failure or a changed policy file turns it off again by itself. You can turn it off at any time without a dialog.',
+          'Legion\'s own mainnet path has not been checked with real funds. Use tiny amounts and read every dialog and the wallet\'s prompt.',
+          noSpend(facts),
+        ].join('\n'),
+        buttons: ['Cancel', 'Allow mainnet'],
+      };
+    case 'mainnet-disable':
+      return { ...base, needsDialog: false, route: '/api/bsv/policy/mainnet', body: { enabled: false }, title: 'Switch mainnet off', message: 'Switch mainnet off', detail: '', buttons: ['Cancel', 'Switch off'] };
     case 'unfreeze': {
       const pend = Array.isArray(facts.pending) ? facts.pending.length : 0;
       const unk = Array.isArray(facts.unknown) ? facts.unknown.length : 0;
@@ -258,29 +297,33 @@ export function bsvConfirmation(action: BsvPolicyAction, facts: BsvPolicyFacts =
         message: 'Unfreeze the BSV chain?',
         detail: [
           `It was frozen because: ${dialogText((facts.frozen as { reason?: unknown } | null | undefined)?.reason) || 'no reason recorded'}`,
-          unk > 0 ? `${unk} earlier request(s) have an unknown outcome and still count against the limits until you resolve them.` : '',
+          unk > 0 ? `${unk} earlier request(s) have an unknown outcome and still block spending until you resolve them.` : '',
           pend > 0 ? `${pend} request(s) are pending.` : '',
-          'Unfreezing does not arm mainnet.',
-          NO_SPEND,
+          'Unfreezing does not arm mainnet and does not switch it on.',
+          noSpend(facts),
         ].filter(Boolean).join('\n'),
         buttons: ['Cancel', 'Unfreeze'],
       };
     }
     case 'caps': {
-      const lines = (Object.keys(action.caps) as CapKey[]).map((k) => `${CAP_LABEL[k]}: ${k === 'maxOutputs' ? String(caps[k] ?? '?') : satsText(caps[k])}  ->  ${k === 'maxOutputs' ? String(action.caps[k]) : satsText(action.caps[k])}`);
+      const net = action.net ?? 'test';
+      const cur = netCaps(facts, net);
+      const lines = (Object.keys(action.caps) as CapKey[]).map((k) => `${CAP_LABEL[k]}: ${k === 'maxOutputs' ? String(cur[k] ?? '?') : satsText(cur[k])}  ->  ${k === 'maxOutputs' ? String(action.caps[k]) : satsText(action.caps[k])}`);
       return {
-        ...base, needsDialog: true, route: '/api/bsv/policy/caps', body: action.caps,
-        title: 'Change BSV limits?', message: 'Change the BSV spend limits?',
-        detail: [...lines, '', 'Legion refuses any value above its built-in hard ceilings.', NO_SPEND].join('\n'),
+        ...base, needsDialog: true, route: '/api/bsv/policy/caps', body: net === 'main' ? { net, ...action.caps } : action.caps, type: net === 'main' ? 'warning' : 'question',
+        title: `Change ${netName(net)} limits?`, message: `Change the ${netName(net)} spend limits?`,
+        detail: [...lines, '', 'Legion refuses any value above its built-in hard ceilings for that network.', noSpend(facts)].join('\n'),
         buttons: ['Cancel', 'Change limits'],
       };
     }
     case 'allowlist': {
-      const before = Array.isArray(facts.allowlist) ? facts.allowlist.length : 0;
+      const net = action.net ?? 'test';
+      const cur = facts.nets?.[net]?.allowlist ?? (net === 'test' ? facts.allowlist : undefined);
+      const before = Array.isArray(cur) ? cur.length : 0;
       return {
-        ...base, needsDialog: true, route: '/api/bsv/policy/allowlist', body: { list: action.list },
-        title: 'Change the BSV recipient list?', message: `Replace the recipient allowlist (${before} now, ${action.list.length} after)?`,
-        detail: [...action.list.slice(0, 12).map((r) => `  ${dialogText(r, 60)}`), action.list.length > 12 ? `  ... and ${action.list.length - 12} more` : '', '', 'Legion\'s testnet spend tool refuses a recipient that is not on this list; an empty list refuses every recipient.', NO_SPEND].filter((l, i, a) => l !== '' || a[i - 1] !== '').join('\n'),
+        ...base, needsDialog: true, route: '/api/bsv/policy/allowlist', body: net === 'main' ? { net, list: action.list } : { list: action.list }, type: net === 'main' ? 'warning' : 'question',
+        title: `Change the ${netName(net)} recipient list?`, message: `Replace the ${netName(net)} recipient allowlist (${before} now, ${action.list.length} after)?`,
+        detail: [...action.list.slice(0, 12).map((r) => `  ${r}`), action.list.length > 12 ? `  ... and ${action.list.length - 12} more` : '', '', `Legion's spend tool refuses a recipient that is not on this network's list; an empty list refuses every recipient.`, noSpend(facts)].filter((l, i, a) => l !== '' || a[i - 1] !== '').join('\n'),
         buttons: ['Cancel', 'Replace list'],
       };
     }
@@ -294,7 +337,7 @@ export function bsvConfirmation(action: BsvPolicyAction, facts: BsvPolicyFacts =
         detail: [
           `Connecting sends four read-only questions to ${shown}: its version, its network, whether it is signed in, and the block height it knows.`,
           'The connection itself does not ask for balances, outputs, addresses or keys.',
-          'Later, a testnet spend asks this same wallet to build and sign one transaction, only after you confirm it in a native dialog; the wallet then shows its own prompt.',
+          facts.spendTools === true ? 'Later, a spend asks this same wallet to build and sign one transaction, only after you confirm it in native dialogs; the wallet then shows its own prompt.' : 'This core does not offer the spend tool; Legion\'s own code asks the wallet only those four read-only questions.',
           'Whatever answers at that address is unverified: any program on this computer can listen on a port.',
           'Legion will not contact it again after you disconnect, freeze, turn BSV mode off or restart.',
         ].join('\n'),
@@ -313,6 +356,9 @@ export function bsvConfirmation(action: BsvPolicyAction, facts: BsvPolicyFacts =
 /** A reason to refuse before asking the person anything: no dialog for a change the core would refuse anyway. */
 export function bsvPreflight(action: BsvAction, facts: BsvPolicyFacts): string | undefined {
   if (action.kind === 'arm' && facts.frozen) return 'The chain is frozen. Unfreeze it first.';
+  if (action.kind === 'arm' && facts.mainnetEnabled !== true) return 'Mainnet is switched off. Turn it on first (a native confirmation); Arm only applies to mainnet.';
+  if (action.kind === 'mainnet-enable' && facts.frozen) return 'The chain is frozen. Unfreeze it first.';
+  if (action.kind === 'mainnet-enable' && facts.mainnetEnabled === true) return 'Mainnet is already switched on.';
   if (action.kind === 'connect' && facts.frozen) return 'The chain is frozen. Unfreeze it first; Legion does not contact a wallet while frozen.';
   return undefined;
 }
@@ -332,7 +378,7 @@ const ADDRESS_RE = { test: /^[mn][1-9A-HJ-NP-Za-km-z]{25,34}$/, main: /^1[1-9A-H
 /** The only labels a card of each network may carry: a label that does not match its network is a forged or confused card. */
 export const NET_LABEL = { test: 'TESTNET', main: 'LIVE FUNDS (main network)' } as const;
 export type SpendNet = keyof typeof NET_LABEL;
-const SPEND_CONFIRMATIONS = ['approve', 'untrusted-content'] as const;
+const SPEND_CONFIRMATIONS = ['approve', 'untrusted-content', 'live-funds'] as const;
 type SpendConfirmation = (typeof SPEND_CONFIRMATIONS)[number];
 
 export const SPEND_PURPOSE_NOTE = 'Written by the agent. Not checked by Legion.';
@@ -346,7 +392,7 @@ export interface SpendCard {
   hash: string;
   agentId: string;
   purpose: string;
-  payment: { recipient: string; sats: number };
+  payment: { recipient: string; sats: number; allowlisted: boolean };
   change: { recipient: string; sats: number } | null;
   feeSats: number;
   totalSats: number;
@@ -376,8 +422,12 @@ export function parseSpendCard(raw: unknown): SpendCardParse {
   if (!Array.isArray(outs) || outs.length < 1 || outs.length > 2) return { ok: false, reason: 'the card does not list one payment and at most one change output' };
   let payment: SpendCard['payment'] | undefined; let change: SpendCard['change'] = null;
   for (const o of outs) {
-    if (!isRec(o) || typeof o.recipient !== 'string' || !ADDRESS_RE[net].test(o.recipient) || !nat(o.sats) || o.sats < 1) return { ok: false, reason: 'an output is not a plain payment to an address of the card\'s network' };
-    if (o.kind === 'payment' && !payment) payment = { recipient: o.recipient, sats: o.sats };
+    // shape, then the real base58check test: the version byte AND the checksum must be the card's own network's
+    if (!isRec(o) || typeof o.recipient !== 'string' || !ADDRESS_RE[net].test(o.recipient) || addressNet(o.recipient) !== net || !nat(o.sats) || o.sats < 1) return { ok: false, reason: 'an output is not a plain payment to an address of the card\'s network' };
+    if (o.kind === 'payment' && !payment) {
+      if (o.allowlisted !== true) return { ok: false, reason: 'the card\'s payment is not on the recipient allowlist' };
+      payment = { recipient: o.recipient, sats: o.sats, allowlisted: true };
+    }
     else if (o.kind === 'change' && !change) change = { recipient: o.recipient, sats: o.sats };
     else return { ok: false, reason: 'the card lists an unexpected output' };
   }
@@ -387,6 +437,8 @@ export function parseSpendCard(raw: unknown): SpendCardParse {
   if (!nat(fee) || !nat(raw.totalSpendSats) || !nat(rem.perTxSats) || !nat(rem.perSessionSats) || !nat(rem.per24hSats)) return { ok: false, reason: 'the card amounts are not plain numbers' };
   const req = raw.requiredConfirmations;
   if (!Array.isArray(req) || !req.includes('approve') || !req.every((c) => (SPEND_CONFIRMATIONS as readonly unknown[]).includes(c))) return { ok: false, reason: 'the card asks for a confirmation main does not know' };
+  // the main network always carries the live-funds confirmation and the test network never does: a card that disagrees is forged or confused
+  if (req.includes('live-funds') !== (net === 'main')) return { ok: false, reason: 'the card\'s confirmations do not match its network' };
   const confirmations = SPEND_CONFIRMATIONS.filter((c) => req.includes(c));
   return {
     ok: true,
@@ -400,10 +452,11 @@ export function parseSpendCard(raw: unknown): SpendCardParse {
 }
 
 /** An unknown-outcome item (a spend whose result Legion could not learn). */
-export interface SpendUnknown { requestId: string; totalSats: number; agentId: string; txid: string | null }
+export interface SpendUnknown { requestId: string; totalSats: number; agentId: string; txid: string | null; net: 'test' | 'main' }
 export function parseSpendUnknown(raw: unknown): SpendUnknown | undefined {
   if (!isRec(raw) || typeof raw.requestId !== 'string' || !REQUEST_ID_RE.test(raw.requestId) || !nat(raw.totalSats)) return undefined;
-  return { requestId: raw.requestId, totalSats: raw.totalSats, agentId: dialogText(raw.agentId, 64), txid: typeof raw.txid === 'string' && /^[0-9a-f]{64}$/.test(raw.txid) ? raw.txid : null };
+  // a net that is missing is a testnet line; anything else that is not `test` is worded as the main network (the stricter side)
+  return { requestId: raw.requestId, totalSats: raw.totalSats, agentId: dialogText(raw.agentId, 64), net: raw.net === undefined || raw.net === 'test' ? 'test' : 'main', txid: typeof raw.txid === 'string' && /^[0-9a-f]{64}$/.test(raw.txid) ? raw.txid : null };
 }
 
 /** What main may let through right now, read from the core's policy facts: the test network always, the main network only while it is enabled AND armed. Absent or malformed = refuse. */
@@ -411,37 +464,72 @@ export function netAllowed(net: SpendNet, facts: unknown): boolean {
   if (net === 'test') return true;
   if (!isRec(facts)) return false;
   const nested = isRec(facts.mainnet) ? facts.mainnet : {};
-  return (facts.mainnetEnabled === true && facts.armed === true) || (nested.enabled === true && nested.armed === true);
+  // the top-level switch wins when the core states it: a nested "enabled" cannot turn on what the top level says is off
+  const enabled = facts.mainnetEnabled !== undefined ? facts.mainnetEnabled === true : nested.enabled === true;
+  const armed = facts.armed !== undefined ? facts.armed === true : nested.armed === true;
+  return enabled && armed;
 }
 
-export interface SpendDialog { type: 'warning' | 'question'; title: string; message: string; detail: string; buttons: string[]; defaultId: 0; cancelId: 0; noLink: true }
-const spendDialog = (d: Omit<SpendDialog, 'defaultId' | 'cancelId' | 'noLink'>): SpendDialog => ({ ...d, defaultId: 0, cancelId: 0, noLink: true });
+/** The dialog as Electron takes it (nothing here is passed to Electron except these fields). */
+export interface NativeDialogOptions { type: 'warning' | 'question'; title: string; message: string; detail: string; buttons: string[]; defaultId: number; cancelId: number; noLink: true }
+/** `confirmAt` is the index of the button that means "yes"; Cancel is always the default and the Escape button, wherever it sits. */
+export interface SpendDialog extends NativeDialogOptions { confirmAt: number }
+const spendDialog = (d: Omit<SpendDialog, 'defaultId' | 'cancelId' | 'noLink' | 'confirmAt'>, confirmAt = 1, cancelAt = 0): SpendDialog => ({ ...d, defaultId: cancelAt, cancelId: cancelAt, confirmAt, noLink: true });
 
-/** The first dialog. Every value is from the card main read; the purpose is the agent's own words and is labelled so. */
-export function spendReviewDialog(c: SpendCard, caps?: Partial<Record<CapKey, number>>): SpendDialog {
+const lastChars = (a: string, n = 8) => a.slice(-n);
+const left = (ms: unknown) => { const t = typeof ms === 'number' && Number.isFinite(ms) && ms > 0 ? Math.ceil(ms / 1000) : 0; return `${Math.floor(t / 60)}:${String(t % 60).padStart(2, '0')}`; };
+
+export interface ReviewContext { caps?: Partial<Record<CapKey, number>>; armRemainingMs?: number }
+/** D1, the card. Every value is from the card main read; the purpose is the agent's own words and is labelled so. Mainnet gets the LIVE FUNDS frame. */
+export function spendReviewDialog(c: SpendCard, ctx: ReviewContext | Partial<Record<CapKey, number>> = {}): SpendDialog {
+  // (a plain caps object is the first pass's call shape; the context object is the current one)
+  const x: ReviewContext = 'caps' in ctx || 'armRemainingMs' in ctx ? (ctx as ReviewContext) : { caps: ctx as Partial<Record<CapKey, number>> };
+  const main = c.network === 'main';
+  const caps = x.caps && Object.keys(x.caps).length ? x.caps : undefined;
   const lines = [
+    ...(main ? ['LIVE FUNDS: this is REAL BSV on the main network.', ''] : []),
     `Amount: ${satsText(c.payment.sats)}`,
     'Recipient (full address, check every character):',
     c.payment.recipient,
-    `Network: ${c.networkLabel}`,
+    `Network: ${main ? 'MAINNET (LIVE FUNDS). This is the wallet\'s own claim; the address checks out for this network.' : c.networkLabel}`,
+    `On your allowlist: ${c.payment.allowlisted ? 'yes' : 'no'}`,
     `Network fee: ${satsText(c.feeSats)}`,
     ...(c.change ? [`Extra output: ${satsText(c.change.sats)} to ${c.change.recipient}`, SPEND_CHANGE_NOTE] : []),
     `Total leaving the wallet: ${satsText(c.totalSats)}`,
     `Agent: ${c.agentId || 'unknown'}`,
     `Purpose (${SPEND_PURPOSE_NOTE}): ${c.purpose ? `"${c.purpose}"` : '(none)'}`,
     ...(c.warnings.length ? ['', ...c.warnings] : []),
+    ...(c.confirmations.includes('untrusted-content') ? ['', 'This run read content Legion does not trust. You will be asked once more about that.'] : []),
     '',
-    caps ? `Limits: ${(['perTxSats', 'perSessionSats', 'per24hSats'] as CapKey[]).map((k) => `${CAP_LABEL[k].toLowerCase()} ${satsText(caps[k])}`).join('; ')}` : '',
+    caps ? `${main ? 'Mainnet limits' : 'Limits'}: ${(['perTxSats', 'perSessionSats', 'per24hSats'] as CapKey[]).map((k) => `${CAP_LABEL[k].toLowerCase()} ${satsText(caps[k])}`).join('; ')}` : '',
     `Left after this request: per transaction ${satsText(c.remaining.perTxSats)}; per session ${satsText(c.remaining.perSessionSats)}; per 24 hours ${satsText(c.remaining.per24hSats)}`,
+    ...(main ? [`Armed for one spend; time left: ${left(x.armRemainingMs)}`] : []),
     '',
-    'Cancel, Escape or closing this window denies the request. Approving only lets Legion ask your wallet to build and sign it; the wallet then shows its own prompt, which is the last gate.',
-    'An agent\'s ordinary tools (a shell, a web fetch) are not covered by these checks.',
-  ].filter((l, i, a) => l !== '' || (i > 0 && a[i - 1] !== '') );
+    main ? 'This is the first of at least two dialogs. Cancel, Escape or closing this window denies the request.' : 'Cancel, Escape or closing this window denies the request. Approving only lets Legion ask your wallet to build and sign it; the wallet then shows its own prompt, which is the last gate.',
+    ORDINARY_TOOLS,
+  ].filter((l, i, a) => l !== '' || (i > 0 && a[i - 1] !== ''));
+  return spendDialog(main
+    ? { type: 'warning', title: 'LIVE FUNDS: approve a MAINNET payment?', message: `Send ${satsText(c.payment.sats)} on MAINNET?`, detail: lines.join('\n'), buttons: ['Cancel', 'Continue to the last check'] }
+    : { type: 'warning', title: `Approve a ${c.networkLabel} payment?`, message: `An agent asks to pay ${satsText(c.payment.sats)} on ${c.networkLabel}.`, detail: lines.join('\n'), buttons: ['Cancel', 'Approve this payment'] });
+}
+
+/**
+ * D2, the main network only and always: another title, the confirm button FIRST (D1 has it second, so a double click or a habit does not carry
+ * over), labelled with the amount and the last characters of the recipient. Cancel is the default and the Escape button even though it is last.
+ */
+export function spendLiveDialog(c: SpendCard): SpendDialog {
   return spendDialog({
-    type: 'warning', title: `Approve a ${c.networkLabel} payment?`,
-    message: `An agent asks to pay ${satsText(c.payment.sats)} on ${c.networkLabel}.`,
-    detail: lines.join('\n'), buttons: ['Cancel', 'Approve this payment'],
-  });
+    type: 'warning', title: 'Last Legion check before your wallet',
+    message: `LIVE FUNDS on MAINNET: ${satsText(c.payment.sats)} to`,
+    detail: [
+      c.payment.recipient,
+      '',
+      `Network: MAINNET (LIVE FUNDS). Fee ${satsText(c.feeSats)}. Total leaving the wallet: ${satsText(c.totalSats)}.`,
+      'This cannot be undone. Your wallet will show its own prompt next; that prompt is the last gate and Legion cannot see it.',
+      'Do not tick "always allow" or a spending limit in the wallet. Cancel, Escape or closing this window denies the request.',
+    ].join('\n'),
+    buttons: [`Send ${c.payment.sats.toLocaleString('en-US')} sat to ...${lastChars(c.payment.recipient)}`, 'Cancel'],
+  }, 0, 1);
 }
 
 /** The second, separate dialog, shown only when the card requires the untrusted-content confirmation. */
@@ -461,11 +549,13 @@ export function spendUntrustedDialog(c: SpendCard): SpendDialog {
 
 /** The Resolve dialog for an unknown outcome. The sats come from the item main read, never from the window. */
 export function spendResolveDialog(u: SpendUnknown): SpendDialog {
+  const main = u.net === 'main';
   return spendDialog({
-    type: 'warning', title: 'Resolve an unknown outcome',
-    message: `Was the payment of ${satsText(u.totalSats)} sent?`,
+    type: 'warning', title: main ? 'LIVE FUNDS: resolve an unknown outcome' : 'Resolve an unknown outcome',
+    message: `Was the ${main ? 'MAINNET ' : ''}payment of ${satsText(u.totalSats)} sent?`,
     detail: [
-      'Legion could not learn what happened to this request, and it stays blocked until you say. Check your wallet\'s own history first.',
+      ...(main ? ['LIVE FUNDS: this request was on the main network.'] : []),
+      'Legion could not learn what happened to this request, and every spend stays blocked until you say. Check your wallet\'s own history first.',
       `Agent: ${u.agentId || 'unknown'}`,
       ...(u.txid ? [`Transaction id the wallet reported (Legion has not checked it): ${u.txid}`] : []),
       '"It was NOT sent" frees the reserved amount. "It WAS sent" keeps it counted against the limits.',
@@ -481,7 +571,7 @@ export interface SpendDeps {
   /** A call to our own core (GET or POST; native = with the native secret). undefined = no proven core of our own. */
   core(method: 'GET' | 'POST', route: string, body?: unknown, native?: boolean): Promise<{ status: number; json: any } | undefined>;
   /** Shows a native dialog and gives the index of the pressed button. Closing it or any failure must read as 0 (Cancel). */
-  dialog(o: SpendDialog): Promise<number>;
+  dialog(o: NativeDialogOptions): Promise<number>;
   /** The one native-dialog lock shared with every other confirmation: false = a dialog is open. */
   acquire(): boolean;
   release(): void;
@@ -512,7 +602,12 @@ export function createSpendNative(deps: SpendDeps) {
   }
   const find = (list: unknown[], id: string) => list.find((c) => isRec(c) && c.requestId === id);
   const deny = async (id: string) => { await deps.core('POST', DECIDE(id), { decision: 'deny' }, true); deps.changed(); };
-  const ask = async (o: SpendDialog): Promise<number> => { try { const n = await deps.dialog(o); return typeof n === 'number' ? n : 0; } catch { return 0; } };
+  /** true only when the button that means yes was pressed. Anything else (Cancel, Escape, the window closed, a failure) is no. */
+  const confirmed = async (o: SpendDialog): Promise<boolean> => { const n = await press(o); return n === o.confirmAt; };
+  const press = async (o: SpendDialog): Promise<number> => {
+    const { confirmAt: _c, ...native } = o; // Electron gets the display fields only
+    try { const n = await deps.dialog({ ...native, buttons: [...native.buttons] }); return typeof n === 'number' ? n : o.cancelId; } catch { return o.cancelId; }
+  };
 
   async function reviewInner(id: string): Promise<SpendResult> {
     const p = await readPending();
@@ -525,12 +620,20 @@ export function createSpendNative(deps: SpendDeps) {
     let caps: Partial<Record<CapKey, number>> | undefined;
     const pol = await deps.core('GET', '/api/bsv/policy');
     const facts = pol?.status === 200 ? pol.json : undefined;
-    if (isRec(facts) && isRec(facts.caps)) caps = facts.caps as Partial<Record<CapKey, number>>;
+    const nets = isRec(facts) && isRec(facts.nets) ? facts.nets : undefined;
+    const mine = nets && isRec(nets[card.network]) ? (nets[card.network] as Record<string, unknown>).caps : isRec(facts) && card.network === 'test' ? facts.caps : undefined;
+    if (isRec(mine)) caps = mine as Partial<Record<CapKey, number>>;
     if (!netAllowed(card.network, facts)) { await deny(id); return { ok: false, error: `Refused and denied: the core's policy does not allow ${card.networkLabel} requests right now.` }; }
-    if ((await ask(spendReviewDialog(card, caps))) !== 1) { await deny(id); return { ok: false, cancelled: true }; }
+    const armRemainingMs = isRec(facts) && nat(facts.remainingMs) ? facts.remainingMs : undefined;
+    if (!(await confirmed(spendReviewDialog(card, { caps, armRemainingMs })))) { await deny(id); return { ok: false, cancelled: true }; }
     const confirmations: string[] = ['approve'];
+    // main network: the live-funds dialog is ALWAYS shown, its own press, before anything else is asked
+    if (card.confirmations.includes('live-funds')) {
+      if (!(await confirmed(spendLiveDialog(card)))) { await deny(id); return { ok: false, cancelled: true }; }
+      confirmations.push('live-funds');
+    }
     if (card.confirmations.includes('untrusted-content')) {
-      if ((await ask(spendUntrustedDialog(card))) !== 1) { await deny(id); return { ok: false, cancelled: true }; }
+      if (!(await confirmed(spendUntrustedDialog(card)))) { await deny(id); return { ok: false, cancelled: true }; }
       confirmations.push('untrusted-content');
     }
     // The hash sent is the one main read before the dialogs, and only if the card is still exactly that card now.
@@ -605,7 +708,7 @@ export function createSpendNative(deps: SpendDeps) {
         if (!p) return { ok: false, error: 'Legion could not reach its own core to read the request.' };
         const item = parseSpendUnknown(find(p.unknown, id));
         if (!item) return { ok: false, error: 'That request does not have an unknown outcome.' };
-        const r = await ask(spendResolveDialog(item));
+        const r = await press(spendResolveDialog(item));
         if (r !== 1 && r !== 2) return { ok: false, cancelled: true };
         const res = await deps.core('POST', RESOLVE(id), { outcome: r === 2 ? 'sent' : 'not-sent' }, true);
         deps.changed();
@@ -618,4 +721,26 @@ export function createSpendNative(deps: SpendDeps) {
     async idle(): Promise<void> { while (pumping) await pumping; },
     queued: (): string[] => [...queue],
   };
+}
+
+/**
+ * ASSUMPTION T3-A4 as a check: the core's caps and allowlist routes take a `net` field and apply it to that network. A core that ignores
+ * it would change the TEST network's limits while the owner confirmed MAINNET ones. So after the core says 200, main compares what the core
+ * now reports for that network with what the owner confirmed; any difference (or no per-network answer for a main change) is reported
+ * loudly and the window is told the change did not take. Returns an error sentence, or undefined when the view shows exactly the change.
+ */
+export function netChangeProblem(action: BsvAction, view: unknown): string | undefined {
+  if (action.kind !== 'caps' && action.kind !== 'allowlist') return undefined;
+  const net = action.net ?? 'test';
+  const nets = isRec(view) && isRec(view.nets) ? view.nets : undefined;
+  const mine = nets && isRec(nets[net]) ? (nets[net] as Record<string, unknown>) : undefined;
+  if (!mine) return net === 'main' ? 'The core did not report the mainnet limits back, so Legion cannot tell where your change went. Check the panel before you rely on it.' : undefined;
+  if (action.kind === 'caps') {
+    const caps = isRec(mine.caps) ? mine.caps : {};
+    for (const k of Object.keys(action.caps) as CapKey[]) if (caps[k] !== action.caps[k]) return `The core did not apply the ${netName(net)} limits as confirmed (${CAP_LABEL[k]}). Check the panel before you rely on it.`;
+  } else {
+    const l = mine.allowlist;
+    if (!Array.isArray(l) || l.length !== action.list.length || !action.list.every((a, i) => l[i] === a)) return `The core did not apply the ${netName(net)} recipient list as confirmed. Check the panel before you rely on it.`;
+  }
+  return undefined;
 }
