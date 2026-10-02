@@ -61,7 +61,7 @@ export async function browserChange(raw: unknown, deps: BrowserIpcDeps): Promise
   } else if (ch.allow) {
     title = 'Allow local addresses?'; confirmLabel = 'Allow until restart';
     message = 'Let agents open pages on this computer or your private network?';
-    detail = `Only on these ports: ${ch.ports.length ? ch.ports.join(', ') : '(none, so nothing is reachable)'}.\n\nThis lasts until Legion restarts. Pages on your own network are then reachable by an agent that read untrusted text.`;
+    detail = `Only on these ports: ${ch.ports.length ? ch.ports.join(', ') : '(none, so nothing is reachable)'}.\n\nThis lasts until Legion restarts. Pages on your own network are then reachable by an agent that read untrusted text. One port that belongs to your BSV wallet stays blocked whatever you choose here.`;
     route = '/api/browser/local'; body = { allow: true, ports: ch.ports };
   } else {
     title = 'Turn local addresses off?'; confirmLabel = 'Turn off'; message = 'Stop agents from opening pages on this computer or your private network?'; detail = 'This is the default.';
