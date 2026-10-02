@@ -1,11 +1,12 @@
 #!/usr/bin/env node
 // Builds legion-<version>-app.zip from an already BUILT tree: only the update code set, one top folder legion-<version>/, deterministic.
-// usage: node scripts/release-package.mjs --out <folder> [--root <built tree, default: this repo>] [--published-at <UTC ISO>]
+// usage: node scripts/release-package.mjs --out <folder> [--root <built tree, default: this repo>] [--published-at <UTC ISO>] [--build-info <json file>]
+// --build-info: extra fields (platform, kind, commit, ...) merged into build-info.json after version and publishedAt (build-package.mjs uses it).
 import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { args, die, loadDist, REPO, writeZip } from './lib/release-lib.mjs';
 
-const a = args(process.argv.slice(2), { out: 'v', root: 'v', 'published-at': 'v' });
+const a = args(process.argv.slice(2), { out: 'v', root: 'v', 'published-at': 'v', 'build-info': 'v' });
 if (!a.out) die('usage: node scripts/release-package.mjs --out <folder> [--root <built tree>]');
 const root = resolve(a.root ?? REPO);
 const { CODE_SET } = await loadDist('src/core/updater/apply.js');
@@ -29,7 +30,8 @@ function add(rel) {
   entries.push({ name: `${top}/${rel}`, data: readFileSync(p) });
 }
 for (const n of CODE_SET) { if (n === 'build-info.json') continue; if (existsSync(join(root, n))) add(n); }
-entries.push({ name: `${top}/build-info.json`, data: Buffer.from(JSON.stringify({ version: pkg.version, publishedAt }) + '\n') });
+const extra = a['build-info'] ? JSON.parse(readFileSync(resolve(a['build-info']), 'utf8')) : {};
+entries.push({ name: `${top}/build-info.json`, data: Buffer.from(JSON.stringify({ ...extra, version: pkg.version, publishedAt }) + '\n') });
 entries.sort((x, y) => (x.name < y.name ? -1 : x.name > y.name ? 1 : 0));
 mkdirSync(resolve(a.out), { recursive: true });
 const file = join(resolve(a.out), `legion-${pkg.version}-app.zip`);

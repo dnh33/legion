@@ -343,6 +343,8 @@ export interface SettingsView {
   port: number;
   configPath: string;
   dataDir: string;
+  /** Install folder and kind; absent when the core was started without it. A package has no system Node: its snippets run Electron in node mode. */
+  install?: { dir: string; packaged: boolean };
 }
 
 /** PATCH /api/settings body. Omitted fields are unchanged; apiKey: null clears a key. */

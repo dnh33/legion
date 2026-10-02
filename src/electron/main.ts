@@ -9,7 +9,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { initUpdater, recoverAtStart } from './updater-main.js';
 import { adminForRenderer, bsvConfirmation, bsvPreflight, coreAction, coreIsBusy, dialogText, killPlan, listenerCommands, listenerPids, parseBsvAction, trustedSender, type BsvAction, type BsvPolicyFacts, type CoreHealth } from './admin-logic.js';
 import { makeConfirm, providerChange } from './provider-ipc.js';
-import { resolveNodeBin } from './resolve-node.js';
+import { coreStartHint, resolveCoreLaunch } from './resolve-node.js';
 import { projectChange } from './project-ipc.js';
 import type { ProjectChangeResult } from './project-ipc.js';
 import type { ProviderChangeResult } from './provider-ipc.js';
@@ -145,7 +145,7 @@ async function waitPortFree(port: number, ms = 6000): Promise<boolean> {
 
 /** Returns null on success, or a human-readable error. */
 async function spawnCore(port: number): Promise<string | null> {
-  const nodeBin = resolveNodeBin(root);
+  const launch = resolveCoreLaunch(root);
   let out: number | 'ignore' = 'ignore';
   try { out = openSync(join(dataDir(), 'core.log'), 'a'); } catch { /* ignore */ }
   try {
@@ -153,14 +153,14 @@ async function spawnCore(port: number): Promise<string | null> {
     // A fresh secret for every core we start (a tray restart rotates it). It goes over the stdin pipe only.
     const secret = randomBytes(32).toString('hex');
     const native = randomBytes(32).toString('hex');
-    const child = spawn(nodeBin, [coreEntry], {
+    const child = spawn(launch.cmd, [coreEntry], {
       cwd: root,
       stdio: ['pipe', out, out],
       windowsHide: true,
       // Off Windows the core leads its own process group, so stopping it also stops anything a `node` shim started in front of it.
       detached: process.platform !== 'win32',
       // LEGION_PORT pins the port we just chose: the core listens exactly there even if config.json is edited meanwhile.
-      env: { ...process.env, LEGION_ADMIN_STDIN: '1', LEGION_PORT: String(port) },
+      env: { ...process.env, ...launch.env, LEGION_ADMIN_STDIN: '1', LEGION_PORT: String(port) },
     });
     coreProc = child;
     adminSecret = secret;
@@ -170,8 +170,8 @@ async function spawnCore(port: number): Promise<string | null> {
     child.stdin?.end(secret + '\n' + native + '\n');
     child.on('error', (err: NodeJS.ErrnoException) => {
       coreProc = null;
-      failure = err.code === 'ENOENT'
-        ? 'Node.js 20.10+ not found. Run setup.cmd again (it can install Node for Legion), or: winget install OpenJS.NodeJS.LTS (or set LEGION_NODE).'
+      failure = err.code === 'ENOENT' || (launch.mode === 'package' && ['EPERM', 'EACCES', 'UNKNOWN'].includes(err.code ?? ''))
+        ? coreStartHint(launch.mode, err.code)
         : `Could not start core: ${err.message || err}`;
     });
     child.on('exit', (code) => {

@@ -1,5 +1,10 @@
 @echo off
 cd /d "%~dp0"
+rem A prebuilt package carries its own runtime: no Node, no npm, no build.
+if exist "%~dp0runtime\electron\electron.exe" (
+  start "" "%~dp0runtime\electron\electron.exe" "%~dp0."
+  exit /b 0
+)
 where node >nul 2>nul
 if errorlevel 1 (
   echo Node.js 20+ is required. Install it with: winget install OpenJS.NodeJS.LTS

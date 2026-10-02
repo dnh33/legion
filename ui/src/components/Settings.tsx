@@ -551,8 +551,11 @@ function ConnectionsSection({ s }: { s: SettingsView }) {
   const mask = '\u2022'.repeat(12);
   const cmd = (t: string) => `claude mcp add --transport http legion ${base}/mcp --header "Authorization: Bearer ${t}"`;
   // Claude Desktop only speaks stdio, so it goes through the small bridge script that ships with Legion
-  const dir = ((s as SettingsView & { installDir?: string }).installDir ?? '%LOCALAPPDATA%/Programs/Legion').replace(/\\/g, '/').replace(/\/$/, '');
-  const json = JSON.stringify({ mcpServers: { legion: { command: 'node', args: [`${dir}/dist/src/bin/legion-mcp-stdio.js`] } } }, null, 2);
+  const dir = (s.install?.dir ?? '%LOCALAPPDATA%/Programs/Legion').replace(/\\/g, '/').replace(/\/$/, '');
+  // A prebuilt package has no system Node: the bridge runs on Legion's own Electron in node mode (the env entry switches that on).
+  const json = JSON.stringify({ mcpServers: { legion: s.install?.packaged
+    ? { command: `${dir}/runtime/electron/electron.exe`, args: [`${dir}/dist/src/bin/legion-mcp-stdio.js`], env: { ELECTRON_RUN_AS_NODE: '1' } }
+    : { command: 'node', args: [`${dir}/dist/src/bin/legion-mcp-stdio.js`] } } }, null, 2);
   return (
     <div className="set-section">
       <Head title="Connections" lead="Drive your agents from Claude Code, Claude Desktop or Cowork." />
