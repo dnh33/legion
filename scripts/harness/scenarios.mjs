@@ -142,7 +142,7 @@ scenario({
     t.eq('no bearer is 401', await s('GET', '/api/state', undefined, 'none'), 401);
     t.eq('GET /api/state', await s('GET', '/api/state', undefined, 'token'), 200);
     t.eq('GET /api/agents', await s('GET', '/api/agents', undefined, 'token'), 200);
-    for (const [m, p] of [['GET', '/api/rooms'], ['GET', '/api/settings'], ['GET', '/api/config'], ['GET', '/api/approvals'], ['GET', '/api/kg/inbox'], ['GET', '/api/bsv'], ['GET', '/api/bsv/wallet'], ['GET', '/api/blender'], ['GET', '/api/vms'], ['POST', '/api/vms/scout/start'], ['PATCH', '/api/agents/scout'], ['GET', '/api/no-such-route']]) {
+    for (const [m, p] of [['GET', '/api/rooms'], ['GET', '/api/settings'], ['GET', '/api/config'], ['GET', '/api/approvals'], ['GET', '/api/kg/inbox'], ['GET', '/api/bsv'], ['GET', '/api/bsv/wallet'], ['GET', '/api/blender'], ['GET', '/api/vms'], ['POST', '/api/vms/scout/start'], ['POST', '/api/approvals/apr_none'], ['PATCH', '/api/agents/scout'], ['GET', '/api/no-such-route']]) {
       t.eq(`${m} ${p} refuses the token`, await s(m, p, m === 'GET' ? undefined : {}, 'token'), 403);
     }
     t.eq('arm needs the native secret too (token)', await s('POST', '/api/bsv/policy/arm', { minutes: 5 }, 'token'), 403);
