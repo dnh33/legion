@@ -8,6 +8,8 @@ Each agent has `vm.enabled`, `vm.size` (`small`, `default`, `large`) and `vm.idl
 
 `default` works on every boat.dev plan. `large` needs a paid plan. On a free trial boat.dev answers `403 trial_machine_class_not_allowed`; Legion then starts the VM at `default`, shows "Running at default size" in the Computer card and keeps the configured size, so it returns to `large` on its own once the plan allows it.
 
+On upgrade from a build that seeded Builder with `large`, Legion sets Builder to `default` once (flag `builder-vm-size-default-v1` in `state.json`); a size you choose afterwards is kept.
+
 A running VM keeps its size; a changed setting applies the next time it is stopped and started (a stopped VM picks it up when it resumes).
 
 ## When a start keeps failing
