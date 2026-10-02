@@ -60,8 +60,8 @@ function ProviderCard({ p }: { p: ProviderView }) {
         <label className="check-row"><input type="checkbox" checked={p.trusted} disabled={!!busy} onChange={(e) => void saveEntry(p.id, { trusted: e.target.checked })} /> I trust this endpoint (asks you to confirm in a dialog)</label>
       )}
       <div className="prov-row">
-        <label>Token limit per task<input type="number" min={1} defaultValue={p.tokenCapPerTask ?? ''} placeholder="No limit" onBlur={(e) => { const v = e.target.value.trim(); void saveEntry(p.id, { tokenCapPerTask: v ? Number(v) : null }); }} /></label>
-        <label>Token limit per day<input type="number" min={1} defaultValue={p.tokenCapPerDay ?? ''} placeholder="No limit" onBlur={(e) => { const v = e.target.value.trim(); void saveEntry(p.id, { tokenCapPerDay: v ? Number(v) : null }); }} /></label>
+        <label>Token limit per task<input type="number" min={1} defaultValue={p.tokenCapPerTask ?? ''} placeholder="No limit" onBlur={(e) => { const v = e.target.value.trim(); if ((v ? Number(v) : undefined) !== p.tokenCapPerTask) void saveEntry(p.id, { tokenCapPerTask: v ? Number(v) : null }); }} /></label>
+        <label>Token limit per day<input type="number" min={1} defaultValue={p.tokenCapPerDay ?? ''} placeholder="No limit" onBlur={(e) => { const v = e.target.value.trim(); if ((v ? Number(v) : undefined) !== p.tokenCapPerDay) void saveEntry(p.id, { tokenCapPerDay: v ? Number(v) : null }); }} /></label>
         <span className="field-note">{(p.tokensToday ?? 0).toLocaleString()} tokens counted today. Counts come from what the provider returns, or an estimate (characters divided by 4) when it returns none. A model turn already running can pass the limit; the next one is not started.</span>
       </div>
       <label className="check-row"><input type="checkbox" checked={p.leadSelectable} disabled={!!busy} onChange={(e) => void saveEntry(p.id, { leadSelectable: e.target.checked })} /> Lead agents may run any agent on any model of this provider (off by default; asks you to confirm)</label>
@@ -91,7 +91,7 @@ function CliCard({ p }: { p: ProviderView }) {
   const toggle = (id: string, on: boolean) => { const next = new Set(allowed); if (on) next.add(id); else next.delete(id); void saveEntry(p.id, { allowedAgents: [...next] }); };
   return (
     <article className="prov-card prov-cli" aria-label={p.label}>
-      <header><div><b>{p.label}</b> <code className="prov-id">{p.id}</code> <span className="field-note">{p.cli === 'codex' ? 'Codex CLI' : 'OpenCode CLI'} on this computer</span></div>
+      <header><div><b>{p.label}</b> <code className="prov-id">{p.id}</code> <span className="field-note">runs on this computer</span></div>
         <label className="prov-switch"><input type="checkbox" checked={p.enabled} disabled={!!busy} onChange={(e) => void saveEntry(p.id, { enabled: e.target.checked })} /> {p.enabled ? 'On' : 'Off'}</label></header>
       <p className="set-error" role="note">{view?.cliWarning}</p>
       <p className="prov-status" role="status">{p.status}. Every run of it starts marked as touching outside content, and only you, in the app, can start it. You approve each start on a card showing the command, the folder and the sandbox flag.</p>
@@ -125,7 +125,7 @@ function AddCli() {
       <div className="prov-row">
         <label>Short name<input value={id} onChange={(e) => setId(e.target.value.toLowerCase())} placeholder="codexcli" spellCheck={false} /></label>
         <label>Program<select value={cli} onChange={(e) => setCli(e.target.value as 'codex' | 'opencode')}><option value="codex">Codex</option><option value="opencode">OpenCode</option></select></label>
-        <label className="grow">Full path of the program<input value={exe} onChange={(e) => setExe(e.target.value)} placeholder="C:\\Users\\you\\AppData\\Roaming\\npm\\codex.cmd" spellCheck={false} /></label>
+        <label className="grow">Full path of the program<input value={exe} onChange={(e) => setExe(e.target.value)} placeholder="C:\Users\you\AppData\Roaming\npm\codex.cmd" spellCheck={false} /></label>
         <button type="button" className="btn sm" disabled={!ok || !!busy} onClick={() => void saveEntry(id, { kind: 'cli', cli, label: cli === 'codex' ? 'Codex CLI' : 'OpenCode CLI', executable: exe.trim(), enabled: false }).then((d) => { if (d) { setId(''); setExe(''); } })}>Add (confirm in dialog)</button>
       </div>
     </fieldset>
@@ -146,7 +146,7 @@ function StdioServers() {
         <div key={m.name} className="prov-row">
           <b>{m.name}</b> <code>{m.commandLine}</code>
           {m.allowed
-            ? <button type="button" className="btn-ghost sm" disabled={!!busy} onClick={() => void stopStdio(m.name)}>Allowed: stop allowing</button>
+            ? <><span className="field-note">Allowed for provider runs.</span><button type="button" className="btn-ghost sm" disabled={!!busy} onClick={() => void stopStdio(m.name)}>Stop allowing</button></>
             : <button type="button" className="btn sm" disabled={!!busy} onClick={() => void allowStdio(m.name)}>Allow for provider runs (confirm in dialog)</button>}
           {m.changedSinceAllowed && <span className="field-note">The command changed since you allowed it, so it is off.</span>}
           {notes[`mcp:${m.name}`] && <span className="field-note">{notes[`mcp:${m.name}`]}</span>}
