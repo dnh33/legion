@@ -16,6 +16,8 @@ export class SessionRefusal extends Error {
 }
 
 export interface SessionDeps {
+  /** The engine of this run, fixed when the run's browser object is made: it never changes during a run. */
+  engine?: 'chromium' | 'lightpanda';
   launch(): Promise<RunningBrowser>;
   guard(): GuardOptions;
   resolve: Resolver;
@@ -51,6 +53,9 @@ export class BrowserSession {
   get started(): boolean { return !!this.run; }
   get hasInterception(): boolean { return this.interception; }
   get processId(): number | undefined { return this.run?.pid; }
+  /** What ran, for results and Settings ("Lightpanda", "Microsoft Edge 120.0.2210.91 (headless)"). Empty until the browser has started. */
+  get engineLabel(): string { return this.run?.label ?? ''; }
+  get engine(): 'chromium' | 'lightpanda' { return this.d.engine ?? 'lightpanda'; }
   get closedTabsBlocked(): number { return this.extraTargets; }
 
   // ------------------------------------------------------------------ start / stop
@@ -101,6 +106,13 @@ export class BrowserSession {
       await cdp.send('Network.enable', {}, { sessionId: a.sessionId }).catch(() => undefined);
       this.interception = await cdp.send('Fetch.enable', { patterns: [{ urlPattern: '*' }] }, { sessionId: a.sessionId }).then(() => true, () => false);
       await cdp.send('Target.setDiscoverTargets', { discover: true }).catch(() => undefined);
+      // the Chromium family has no private-network option of its own: every request must pass Legion's check through the Fetch domain, so a run
+      // whose interception did not start opens nothing. Downloads are denied at the browser.
+      if (this.engine === 'chromium') {
+        if (!this.interception) { await this.resetPage(); throw new SessionRefusal('This browser did not accept request interception, so no page was opened (Legion checks every request itself on this engine).'); }
+        const dl = await cdp.send('Browser.setDownloadBehavior', { behavior: 'deny' }).then(() => true, () => false);
+        if (!dl) { await this.resetPage(); throw new SessionRefusal('This browser did not accept the "deny downloads" setting, so no page was opened.'); }
+      }
       // local addresses are on and the browser's own private-network block is off: without request interception nothing stops a request before it is sent
       if (this.d.guard().allowLocal && !this.interception) { await this.resetPage(); throw new SessionRefusal('Local addresses are enabled but this browser build cannot filter requests, so no page was opened. Turn local addresses off or use a build that supports request interception.'); }
     }
@@ -136,8 +148,10 @@ export class BrowserSession {
     switch (e.method) {
       case 'Network.requestWillBeSent': {
         const url = e.params?.request?.url;
-        if (typeof url !== 'string' || url.startsWith('data:') || url.startsWith('about:')) return;
+        if (typeof url !== 'string') return;
         const isDoc = e.params?.type === 'Document';
+        if (isDoc && !/^https?:/i.test(url) && url !== ABOUT_BLANK) { this.violation ??= `a navigation to a non-web address (${shortUrl(url.split(':')[0] + ':')}) was refused`; return; }
+        if (url.startsWith('data:') || url.startsWith('about:')) return;
         if (e.params?.redirectResponse && isDoc) {
           this.hops++;
           if (this.hops > this.lim.maxRedirectHops) this.violation ??= `too many redirects (more than ${this.lim.maxRedirectHops})`;
@@ -150,7 +164,8 @@ export class BrowserSession {
         const id = e.params?.requestId; const url = e.params?.request?.url;
         if (typeof id !== 'string' || !cdp) return;
         const isDoc = e.params?.resourceType === 'Document';
-        const decide = typeof url === 'string' && !url.startsWith('data:') && !url.startsWith('about:') ? this.hostVerdict(url, isDoc) : Promise.resolve<string | null>(null);
+        const nonWebDoc = isDoc && typeof url === 'string' && !/^https?:/i.test(url) && url !== ABOUT_BLANK;
+        const decide = nonWebDoc ? Promise.resolve<string | null>('a navigation to a non-web address') : typeof url === 'string' && !url.startsWith('data:') && !url.startsWith('about:') ? this.hostVerdict(url, isDoc) : Promise.resolve<string | null>(null);
         const p = decide.then(async (bad) => {
           if (bad) { this.violation ??= `a request to ${shortUrl(String(url))} was refused: ${bad}`; await cdp.send('Fetch.failRequest', { requestId: id, errorReason: 'BlockedByClient' }, { sessionId: this.sessionId ?? undefined }).catch(() => undefined); }
           else await cdp.send('Fetch.continueRequest', { requestId: id }, { sessionId: this.sessionId ?? undefined }).catch(() => undefined);

@@ -13,9 +13,13 @@ export function normalizeConfig(raw: unknown): BrowserConfig {
   const domains = strs(o.allowDomains, 50).map((d) => d.trim().toLowerCase().replace(/^\*\./, '')).filter((d) => DOMAIN.test(d));
   const bin = typeof o.binaryPath === 'string' && o.binaryPath.length > 0 && o.binaryPath.length <= 500 && !/[\u0000-\u001f]/.test(o.binaryPath) ? o.binaryPath : undefined;
   const sha = typeof o.managedSha256 === 'string' && HEX64.test(o.managedSha256.toLowerCase()) ? o.managedSha256.toLowerCase() : undefined;
+  const engine = o.engine === 'chromium' || o.engine === 'lightpanda' ? o.engine : undefined;
+  const chromiumPath = typeof o.chromiumPath === 'string' && o.chromiumPath.length > 0 && o.chromiumPath.length <= 500 && !/[\u0000-\u001f]/.test(o.chromiumPath) ? o.chromiumPath : undefined;
   return {
     ...DEFAULT_BROWSER_CONFIG,
     enabled: o.enabled === true,
+    ...(engine ? { engine } : {}),
+    ...(chromiumPath ? { chromiumPath } : {}),
     ...(bin ? { binaryPath: bin } : {}),
     ...(bin && Array.isArray(o.launcherArgs) ? { launcherArgs: strs(o.launcherArgs, 16) } : {}),
     allowDomains: [...new Set(domains)],

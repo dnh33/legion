@@ -7,13 +7,19 @@
 import { join } from 'node:path';
 import { BROWSER_LIMITS } from '../../shared/browser.js';
 import type { ProcessPort, SpawnedProcess } from '../blender/ports.js';
+import type { BrowserEngine } from '../../shared/browser.js';
 import type { CdpPort } from './cdp.js';
+import { chromiumArgs, parseDevToolsActivePort } from './chromium.js';
 
 export interface BinaryRef { file: string; prefixArgs: string[]; /** true when the file is wsl.exe (Windows): the Linux child gets a hard wall-time wrapper. */ wsl: boolean }
 
 export interface LaunchPorts {
   proc: ProcessPort;
   connect(wsUrl: string): Promise<CdpPort>;
+  /** Reads a small text file (the Chromium family's DevToolsActivePort); undefined when it is not there. */
+  readText(path: string): string | undefined;
+  /** Joins path parts for this system (Windows: backslashes). */
+  join(...parts: string[]): string;
   mkTemp(): string;
   removeDir(p: string): void;
   randomPort(): number;
@@ -24,6 +30,9 @@ export interface LaunchPorts {
 }
 
 export interface RunningBrowser {
+  /** Which engine this is, and a short label for results and Settings ("Lightpanda", "Microsoft Edge 120.0.2210.91 (headless)"). */
+  engine?: BrowserEngine;
+  label?: string;
   cdp: CdpPort;
   pid: number | undefined;
   port: number;
@@ -39,12 +48,14 @@ const pick = (host: NodeJS.ProcessEnv, name: string): string | undefined => {
 };
 
 /** The child's COMPLETE environment: an allowlist, never a copy of process.env (so no API key or token reaches it). */
-export function buildBrowserEnv(platform: NodeJS.Platform, host: NodeJS.ProcessEnv, dir: string): Record<string, string> {
+export function buildBrowserEnv(platform: NodeJS.Platform, host: NodeJS.ProcessEnv, dir: string, engine: BrowserEngine = 'lightpanda'): Record<string, string> {
   const e: Record<string, string> = { LIGHTPANDA_DISABLE_TELEMETRY: 'true', LIGHTPANDA_DISABLE_CORE_DUMP: '1', HOME: dir, TMPDIR: dir, TEMP: dir, TMP: dir };
   if (platform === 'win32') {
     for (const n of ['SystemRoot', 'SystemDrive', 'windir', 'ComSpec', 'PATHEXT']) { const v = pick(host, n); if (v) e[n] = v; }
     e.Path = `${pick(host, 'SystemRoot') ?? 'C:\\Windows'}\\System32`;
     e.USERPROFILE = dir;
+    // the Chromium family would otherwise look for a profile in the real AppData
+    if (engine === 'chromium') { e.APPDATA = dir; e.LOCALAPPDATA = dir; }
   } else { e.PATH = '/usr/bin:/bin'; e.LANG = 'C.UTF-8'; }
   return e;
 }
@@ -63,7 +74,8 @@ export function buildBrowserArgs(port: number, allowLocal: boolean): string[] {
 
 export class LaunchError extends Error {}
 
-export async function launchBrowser(p: LaunchPorts, bin: BinaryRef, o: { allowLocal: boolean; wallMs?: number; startMs?: number }): Promise<RunningBrowser> {
+export async function launchBrowser(p: LaunchPorts, bin: BinaryRef, o: { allowLocal: boolean; wallMs?: number; startMs?: number; engine?: BrowserEngine; label?: string }): Promise<RunningBrowser> {
+  if (o.engine === 'chromium') return launchChromium(p, bin, o);
   const dir = p.mkTemp();
   const cleanup = () => { try { p.removeDir(dir); } catch { /* best effort */ } };
   let lastNote = '';
@@ -90,7 +102,7 @@ export async function launchBrowser(p: LaunchPorts, bin: BinaryRef, o: { allowLo
     if (cdp) {
       const exited = proc.exited;
       return {
-        cdp, pid: proc.pid, port, args, exited,
+        engine: 'lightpanda', label: o.label ?? 'Lightpanda', cdp, pid: proc.pid, port, args, exited,
         async stop() { try { cdp!.close(); } catch { /* closing */ } await stopProc(); cleanup(); },
       };
     }
@@ -106,4 +118,42 @@ export async function launchBrowser(p: LaunchPorts, bin: BinaryRef, o: { allowLo
   }
   cleanup();
   throw new LaunchError(`The browser did not start: ${lastNote}`.trim());
+}
+
+/**
+ * Starts a Chromium-family browser (Edge, Chrome, Brave, Chromium): argument list, no shell, the complete scrubbed environment, a fresh user data
+ * directory inside a fresh temp folder, port 0 on loopback, and the port read from the DevToolsActivePort file the browser writes. Nothing is
+ * downloaded and nothing is run to probe it. The process tree is stopped by PID; the temp folder is removed by the guarded remover only.
+ */
+async function launchChromium(p: LaunchPorts, bin: BinaryRef, o: { startMs?: number; label?: string }): Promise<RunningBrowser> {
+  const dir = p.mkTemp();
+  const profile = p.join(dir, 'profile');
+  const portFile = p.join(profile, 'DevToolsActivePort');
+  const cleanup = () => { try { p.removeDir(dir); } catch { /* best effort */ } };
+  const proc: SpawnedProcess = p.proc.spawn({ args: chromiumArgs(profile), cwd: dir, env: buildBrowserEnv(p.platform, p.hostEnv, dir, 'chromium'), maxOutputBytes: BROWSER_LIMITS.outputBytes, file: bin.file, prefixArgs: bin.prefixArgs });
+  let ended = false;
+  void proc.exited.then(() => { ended = true; });
+  const stopProc = async () => { if (proc.pid && !ended) await p.proc.kill(proc.pid).catch(() => false); };
+  const deadline = p.now() + (o.startMs ?? BROWSER_LIMITS.startTimeoutMs);
+  let cdp: CdpPort | null = null;
+  let port = 0;
+  while (p.now() < deadline && !ended && !cdp) {
+    const text = p.readText(portFile);
+    const parsed = text ? parseDevToolsActivePort(text) : null;
+    if (parsed) {
+      try { cdp = await p.connect(`ws://127.0.0.1:${parsed.port}${parsed.path}`); port = parsed.port; } catch { await p.sleep(80); }
+    } else await p.sleep(80);
+  }
+  if (cdp) {
+    return {
+      engine: 'chromium', label: o.label ?? 'Chromium (headless)', cdp, pid: proc.pid, port, args: chromiumArgs(profile), exited: proc.exited,
+      async stop() { try { cdp!.close(); } catch { /* closing */ } await stopProc(); cleanup(); },
+    };
+  }
+  const res = ended ? await proc.exited : null;
+  await stopProc();
+  cleanup();
+  if (res?.error && /not found|ENOENT|EACCES|not installed/i.test(res.error)) throw new LaunchError(`The browser program could not be started: ${res.error}`);
+  const err = (proc.stderr() || proc.stdout()).replace(/\s+/g, ' ').trim().slice(0, 200);
+  throw new LaunchError(`The browser did not start: ${ended ? `it stopped (exit ${res?.code ?? '?'}) ${err}` : 'it did not report its debugging port in time'}`.trim());
 }

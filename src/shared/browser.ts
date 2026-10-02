@@ -30,8 +30,16 @@ export const BROWSER_LIMITS = {
   outputBytes: 256 * 1024,
 } as const;
 
+export type BrowserEngine = 'chromium' | 'lightpanda';
+/** Headless mode of the Chromium family needs this major version or newer (Chrome and Edge). TODO OWNER PC: BR15 confirms on the installed Edge. */
+export const CHROMIUM_MIN_MAJOR = 109;
+
 export interface BrowserConfig {
   version: 1;
+  /** Which engine runs. Unset: Windows uses the Chromium-family browser found on the PC; elsewhere whatever is configured. Never switched during a run. */
+  engine?: BrowserEngine;
+  /** A Chromium-family executable the owner chose (Edge, Chrome, Brave, Chromium). Unset: Legion looks in the usual places. */
+  chromiumPath?: string;
   /** Off by default: no tools, no process. */
   enabled: boolean;
   /** An executable the owner chose (a path, or the launcher file such as wsl.exe). */
@@ -68,8 +76,16 @@ export const BROWSER_PINS: BrowserPin[] = [
   { id: 'nightly-macos-x64', platform: 'darwin-x64', url: 'https://github.com/lightpanda-io/browser/releases/download/nightly/lightpanda-x86_64-macos', sha256: '', approxBytes: 100 * 1024 * 1024, maxBytes: 200 * 1024 * 1024, exe: 'lightpanda', license: 'AGPL-3.0', sourceUrl: 'https://github.com/lightpanda-io/browser' },
 ];
 
+export interface ChromiumFound { name: string; path: string; version?: string; tooOld?: boolean }
+
 export interface BrowserStatusView {
   enabled: boolean;
+  /** The engine that the next run will use, and whether it was chosen or is the default. */
+  engine: BrowserEngine;
+  engineChosen: boolean;
+  chromium: ChromiumFound | null;
+  /** The places looked in when none was found (shown so the owner can set a path). */
+  chromiumTried: string[];
   /** 'managed' | 'own' | 'none' */
   binary: 'managed' | 'own' | 'none';
   binaryPath?: string;

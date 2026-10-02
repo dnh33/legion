@@ -8,7 +8,7 @@ import { BROWSER_LIMITS } from '../../shared/browser.js';
 /** The ONLY CDP methods Legion sends. No download, upload, file chooser, cookie, emulation or browser-level command is on the list. */
 export const CDP_METHODS: ReadonlySet<string> = new Set([
   'Target.createTarget', 'Target.attachToTarget', 'Target.closeTarget', 'Target.getTargets', 'Target.setDiscoverTargets',
-  'Page.enable', 'Page.navigate', 'Runtime.evaluate', 'Network.enable', 'Fetch.enable', 'Fetch.disable', 'Fetch.continueRequest', 'Fetch.failRequest',
+  'Page.enable', 'Page.navigate', 'Runtime.evaluate', 'Network.enable', 'Browser.setDownloadBehavior', 'Fetch.enable', 'Fetch.disable', 'Fetch.continueRequest', 'Fetch.failRequest',
 ]);
 
 export interface CdpEvent { method: string; params: any; sessionId?: string }

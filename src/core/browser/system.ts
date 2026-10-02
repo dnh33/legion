@@ -7,7 +7,8 @@
 import { createHash } from 'node:crypto';
 import { chmodSync, createReadStream, createWriteStream, existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { lstatSync, readdirSync, realpathSync } from 'node:fs';
+import { dirname, join, resolve as resolvePath, sep } from 'node:path';
 import { Readable, Transform } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import { randomInt } from 'node:crypto';
@@ -15,6 +16,7 @@ import { killTree, isPublicHttpsUrl, spawnManaged } from '../blender/system.js';
 import type { ProcessPort } from '../blender/ports.js';
 import { connectCdp } from './cdp.js';
 import type { GetPorts } from './get-lightpanda.js';
+import type { ChromiumIo } from './chromium.js';
 import type { LaunchPorts } from './launcher.js';
 
 const MAX_REDIRECTS = 4;
@@ -55,6 +57,8 @@ export const hashFile = (p: string): Promise<string> => new Promise((resolve, re
   createReadStream(p).on('data', (c) => h.update(c)).on('error', reject).on('end', () => resolve(h.digest('hex')));
 });
 
+export const chromiumIo = (): ChromiumIo => ({ exists: (p) => { try { return existsSync(p); } catch { return false; } }, readDir: (p) => { try { return readdirSync(p); } catch { return []; } } });
+
 export const platformKey = (): string => `${process.platform}-${process.arch}`;
 
 export function createGetPorts(): GetPorts {
@@ -83,12 +87,36 @@ export function createProcessPort(): ProcessPort {
   };
 }
 
+/** The prefix of every folder Legion makes for a run. */
+export const RUN_DIR_PREFIX = 'legion-browser-';
+
+/**
+ * Deletes a run folder ONLY if it is directly inside `root` (Legion's own temp root), carries Legion's prefix and is a real folder, not a link
+ * (a link there could point anywhere). Returns whether it was removed. A refusal leaves the folder alone.
+ */
+export function removeRunDir(dir: string, root: string = tmpdir()): boolean {
+  try {
+    const abs = resolvePath(dir);
+    const base = resolvePath(root);
+    if (!abs.startsWith(base + sep) || abs.slice(base.length + 1).includes(sep) || !abs.slice(base.length + 1).startsWith(RUN_DIR_PREFIX)) return false;
+    const st = lstatSync(abs);
+    if (st.isSymbolicLink() || !st.isDirectory()) return false;
+    // the real location must still be that same folder inside the real temp root (a link higher up, or a swapped folder, is refused)
+    const real = realpathSync(abs); const realBase = realpathSync(base);
+    if (real !== join(realBase, abs.slice(base.length + 1))) return false;
+    rmSync(abs, { recursive: true, force: true });
+    return true;
+  } catch { return false; }
+}
+
 export function createLaunchPorts(proc: ProcessPort = createProcessPort()): LaunchPorts {
   return {
     proc,
     connect: (u) => connectCdp(u, { connectTimeoutMs: 800 }),
-    mkTemp: () => mkdtempSync(join(tmpdir(), 'legion-browser-')),
-    removeDir: (p) => { rmSync(p, { recursive: true, force: true }); },
+    mkTemp: () => mkdtempSync(join(tmpdir(), RUN_DIR_PREFIX)),
+    removeDir: (p) => { removeRunDir(p); },
+    readText: (p) => { try { return readFileSync(p, 'utf8'); } catch { return undefined; } },
+    join,
     randomPort: () => randomInt(20000, 60000),
     sleep: (ms) => new Promise((r) => setTimeout(r, ms)),
     now: () => Date.now(),
