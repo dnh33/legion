@@ -77,13 +77,23 @@ test('C11: the environment builder never copies the host environment (Windows ke
   assert.equal(l.PATH, '/usr/bin:/bin');
 });
 
-test('a WSL launcher wraps the Linux program in a hard wall-time `timeout`', async () => {
-  const seen: string[][] = [];
+test('a WSL launcher puts a hard wall-time `timeout` BEFORE the Linux program, so the program does not receive it as an argument', async () => {
+  const seen: Array<{ prefix: string[]; args: string[] }> = [];
   const base = createLaunchPorts();
-  const p: LaunchPorts = { ...base, proc: { spawn(req) { seen.push(req.args); return base.proc.spawn({ ...req, file: process.execPath, prefixArgs: ['-e', 'setTimeout(()=>{},300)'] }); }, kill: base.proc.kill }, connect: async () => { throw new Error('no'); }, sleep: async () => undefined };
-  await assert.rejects(launchBrowser(p, { file: 'wsl.exe', prefixArgs: ['-e', '/home/me/lightpanda'], wsl: true }, { allowLocal: false, wallMs: 90_000, startMs: 150 }), LaunchError);
-  assert.deepEqual(seen[0]!.slice(0, 4), ['timeout', '-s', 'KILL', '90s']);
-  assert.equal(seen[0]![4], 'serve');
+  const mk = (): LaunchPorts => ({ ...base, proc: { spawn(req) { seen.push({ prefix: req.prefixArgs ?? [], args: req.args }); return base.proc.spawn({ ...req, file: process.execPath, prefixArgs: ['-e', 'setTimeout(()=>{},300)'], args: [] }); }, kill: base.proc.kill }, connect: async () => { throw new Error('no'); }, sleep: async () => undefined });
+  await assert.rejects(launchBrowser(mk(), { file: 'wsl.exe', prefixArgs: ['-d', 'Ubuntu', '-e', '/home/me/lightpanda'], wsl: true }, { allowLocal: false, wallMs: 90_000, startMs: 150 }), LaunchError);
+  assert.deepEqual(seen[0]!.prefix, ['-d', 'Ubuntu', '-e']);
+  assert.deepEqual(seen[0]!.args.slice(0, 6), ['timeout', '-s', 'KILL', '90s', '/home/me/lightpanda', 'serve']);
+  // the program is never given `timeout` as its own first argument
+  assert.notEqual(seen[0]!.args[0], '/home/me/lightpanda');
+  // no `-e`/`--`: no safe place for the wrapper, so none is added and the arguments are passed through untouched
+  seen.length = 0;
+  await assert.rejects(launchBrowser(mk(), { file: 'wsl.exe', prefixArgs: ['/home/me/lightpanda'], wsl: true }, { allowLocal: false, startMs: 150 }), LaunchError);
+  assert.deepEqual(seen[0]!.prefix, ['/home/me/lightpanda']); assert.equal(seen[0]!.args[0], 'serve');
+  // a non-WSL launcher is untouched
+  seen.length = 0;
+  await assert.rejects(launchBrowser(mk(), { file: '/opt/lightpanda', prefixArgs: [], wsl: false }, { allowLocal: false, startMs: 150 }), LaunchError);
+  assert.equal(seen[0]!.args[0], 'serve');
 });
 
 test('failure: a build that rejects the safety options is reported and NOT retried without them', async () => {
