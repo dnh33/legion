@@ -170,9 +170,11 @@ const keyOf = (path: string): string => path.replace(/\\/g, '/').toLowerCase();
  * Every Blender found, newest first. The version comes from `blender --version`; when that cannot run it comes from the folder name
  * and the entry is marked versionGuessed. The config override, when set and valid, is listed first regardless of version.
  */
-export async function detectInstalls(env: DetectEnv, installPath?: string): Promise<BlenderInstall[]> {
+export async function detectInstalls(env: DetectEnv, installPath?: string, managedPath?: string): Promise<BlenderInstall[]> {
   const cands: Candidate[] = [];
   if (installPath && installPath.trim()) cands.push(...overrideCandidates(env, installPath));
+  // the copy Legion fetched itself (get-blender.ts); the caller has already checked that it sits inside Legion's own folder
+  if (managedPath) cands.push({ path: managedPath, source: 'managed', folderName: 'Blender' });
   if (env.platform === 'win32') { cands.push(...await windowsCandidates(env)); cands.push(...windowsPathCandidates(env)); }
   else cands.push(...posixCandidates(env));
 
@@ -199,13 +201,14 @@ export async function detectInstalls(env: DetectEnv, installPath?: string): Prom
   for (const f of found) if (!byVersionPath.has(keyOf(f.path))) byVersionPath.set(keyOf(f.path), f);
   const list = [...byVersionPath.values()];
   const override = installPath ? list.find((i) => i.source === 'config') : undefined;
-  const rest = list.filter((i) => i !== override).sort((a, b) => compareVersions(b.version, a.version));
-  return override ? [override, ...rest] : rest;
+  const managed = list.find((i) => i.source === 'managed' && i !== override);
+  const rest = list.filter((i) => i !== override && i !== managed).sort((a, b) => compareVersions(b.version, a.version));
+  return [...(override ? [override] : []), ...(managed ? [managed] : []), ...rest];
 }
 
-/** The install to use: the config override when it exists, else the newest. */
+/** The install to use: the config override when it exists, else the copy Legion fetched itself, else the newest. */
 export function pickInstall(installs: BlenderInstall[]): BlenderInstall | undefined {
-  return installs.find((i) => i.source === 'config') ?? installs[0];
+  return installs.find((i) => i.source === 'config') ?? installs.find((i) => i.source === 'managed') ?? installs[0];
 }
 
 // ---------------------------------------------------------------------------------------------------------------------------------

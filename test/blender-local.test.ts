@@ -133,6 +133,10 @@ test('readiness: no Blender, too old, and ready', () => {
   assert.equal(none.readiness(agent()).ready, false);
   assert.match(none.readiness(agent()).note, /not found on this computer/);
   assert.equal(rig({ mode: 'ok' }, { version: '2.93.0' }).runner.readiness(agent()).ready, false);
+  // B4: the local minimum is 4.2 (3.0 to 4.1 still work for the live community backend, not for local runs)
+  for (const v of ['3.6.5', '4.1.1', '4.0.0']) assert.equal(rig({ mode: 'ok' }, { version: v }).runner.readiness(agent()).ready, false, v);
+  assert.match(rig({ mode: 'ok' }, { version: '4.1.1' }).runner.readiness(agent()).note, /need 4\.2\.0 or newer/);
+  for (const v of ['4.2.0', '4.5.14', '5.2.2']) assert.equal(rig({ mode: 'ok' }, { version: v }).runner.readiness(agent()).ready, true, v);
   const ok = rig({ mode: 'ok' }).runner.readiness(agent());
   assert.equal(ok.ready, true);
   assert.match(ok.note, /5\.1\.0/);

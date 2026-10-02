@@ -1,11 +1,11 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import type { McpServerEntry, McpStatusView, SettingsPatch, SettingsView } from '../../../src/shared/types';
 import { api, base, openExternal, token } from '../api';
-import { checkBoat, ensureBoatChecked, closeSettings, errText, loadSettings, saveSettings, setSettingsSection as setSection, toast, useStore, type SettingsSection } from '../store';
+import { checkBoat, ensureBoatChecked, closeSettings, decide, errText, loadSettings, saveSettings, setSettingsSection as setSection, toast, useStore, type SettingsSection } from '../store';
 import { copyText } from '../util';
-import { BLENDER_LICENSE_NOTE } from '../../../src/shared/blender';
-import { LOCAL_SAFETY_NOTE, MODE_CHOICES, NOT_TRIED_LOCAL, NOT_TRIED_VM, visibleNotices } from '../blender/copy';
-import { lightLabel, loadBlender, runBlenderLaunch, runBlenderSetup, runBlenderTest, saveBlenderConfig, useBlender } from '../blender/blenderStore';
+import { BLENDER_LICENSE_NOTE, GET_BLENDER_TOOL } from '../../../src/shared/blender';
+import { FULL_BLENDER_TEXT, GET_BLENDER_NOT_PINNED, GET_BLENDER_TEXT, LOCAL_SAFETY_NOTE, MODE_CHOICES, NOT_TRIED_LOCAL, NOT_TRIED_VM, visibleNotices } from '../blender/copy';
+import { lightLabel, loadBlender, runBlenderGet, runBlenderLaunch, runBlenderSetup, runBlenderTest, saveBlenderConfig, useBlender } from '../blender/blenderStore';
 import '../blender/blender.css';
 import { Icon } from './icons';
 
@@ -427,6 +427,7 @@ function BlenderSection() {
   const stepsTitle = useBlender((x) => x.stepsTitle);
   const error = useBlender((x) => x.error);
   const retrust = useBlender((x) => x.retrust);
+  const getApprovals = useStore((x) => x.approvals).filter((a) => a.toolName === GET_BLENDER_TOOL);
   const [port, setPort] = useState('');
   const [path, setPath] = useState('');
   useEffect(() => { void loadBlender(true); }, []);
@@ -443,6 +444,7 @@ function BlenderSection() {
   const curMode = st.mode ?? (st.sandbox === 'off' ? 'live' : st.sandbox === 'vm' ? 'vm' : 'auto');
   const liveOk = curMode === 'live' || curMode === 'auto';
   const notices = visibleNotices(st);
+  const mg = st.managed;
   return (
     <div className="set-section">
       <Head title="Blender" lead="The Sculptor can build 3D scenes in Blender. Every script is checked, shown to you in full and needs your OK. By default it runs in Blender on this computer when Blender is found." />
@@ -467,6 +469,22 @@ function BlenderSection() {
             ))}
           </div>
           <span className="set-hint" aria-live="polite">{st.nextRun ? `Next script runs: ${st.nextRun.replace(/^[Nn]ext script runs?:?\s*/, '')}` : st.sandboxReady ? 'Cloud VM is ready.' : st.sandboxNote}</span>
+        </div>
+        <div className="set-field bl-get"><span className="set-label">Blender for Legion</span>
+          {mg?.installed
+            ? <span className="set-hint">Installed for Legion: Blender {mg.installed.version} at {mg.installed.path}. Delete that folder to remove it.</span>
+            : <span className="set-hint">{GET_BLENDER_TEXT} {!mg?.supported ? 'Only available on Windows in this version.' : !mg.pinned ? GET_BLENDER_NOT_PINNED : `Blender ${mg.version} (${mg.channel}), about ${mg.approxMb} MB.`}</span>}
+          {getApprovals.map((a) => (
+            <div key={a.id} className="bl-get-card" role="group" aria-label="Approval needed for the Blender download">
+              <b>Needs your OK</b><pre>{a.summary}</pre>
+              <div className="set-actions"><button type="button" className="btn primary" onClick={() => void decide(a.id, true)}>Allow</button><button type="button" className="btn" onClick={() => void decide(a.id, false)}>Deny</button></div>
+            </div>
+          ))}
+          <div className="set-actions">
+            <button type="button" className="btn" disabled={b || off || !mg || !mg.supported || !mg.pinned || !!mg.installed || !!mg.getting} onClick={() => void runBlenderGet()}>{busy === 'get' || mg?.getting ? 'Waiting\u2026' : 'Get Blender for Legion'}</button>
+            <a className="btn-ghost" href={mg?.downloadPage ?? 'https://www.blender.org/download/'} target="_blank" rel="noopener noreferrer">Get full Blender</a>
+          </div>
+          <span className="set-hint">{FULL_BLENDER_TEXT}</span>
         </div>
         <div className="bl-note warn">{NOT_TRIED_VM} Use Test after Set up and check docs/BLENDER.md for the list of checks.</div>
         <div className="bl-note warn">{NOT_TRIED_LOCAL} Docs and PC checks: docs/BLENDER.md, claude/tracker-pc-checks.md.</div>

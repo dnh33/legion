@@ -7,12 +7,13 @@
  */
 import { execFile, spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { copyFileSync, createWriteStream, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { closeSync, copyFileSync, createReadStream, createWriteStream, existsSync, mkdirSync, openSync, readdirSync, readFileSync, readSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname } from 'node:path';
 import { Readable, Transform } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import type { BlenderIo } from './setup.js';
+import type { GetBlenderPorts } from './get-blender.js';
 import type { ProcessPort, SpawnedProcess, SpawnRequest } from './ports.js';
 import type { DetectEnv, RunResult } from './detect.js';
 import { PYTHON_UTF8_ENV } from './backend.js';
@@ -109,6 +110,35 @@ async function extract(archive: string, destDir: string): Promise<void> {
     last = r ? (r.stderr || r.stdout).trim().slice(0, 300) : `${cmd} is not installed`;
   }
   throw new Error(`Could not unpack the download: ${last}`);
+}
+
+/** The real ports of "Get Blender for Legion" (get-blender.ts). The download is the same https-only, public-host, size-capped one as Set up. */
+export function createGetBlenderPorts(): GetBlenderPorts {
+  return {
+    platform: process.platform,
+    download,
+    openZip: (file) => {
+      const fd = openSync(file, 'r');
+      const size = statSync(file).size;
+      return {
+        close: () => { try { closeSync(fd); } catch { /* ignore */ } },
+        source: {
+          size,
+          read: async (offset, length) => { const buf = Buffer.alloc(length); const n = readSync(fd, buf, 0, length, offset); return buf.subarray(0, n); },
+          stream: (start, endInclusive) => createReadStream(file, { start, end: endInclusive }),
+        },
+      };
+    },
+    sink: { mkdirp: (d) => { mkdirSync(d, { recursive: true }); }, openWrite: (f) => createWriteStream(f, { flags: 'wx' }) },
+    mkdirp: (p) => { mkdirSync(p, { recursive: true }); },
+    exists: (p) => { try { return existsSync(p); } catch { return false; } },
+    readText: (p) => { try { return readFileSync(p, 'utf8'); } catch { return undefined; } },
+    writeText: (p, t) => { mkdirSync(dirname(p), { recursive: true }); writeFileSync(p, t, 'utf8'); },
+    rename: (a, b) => { renameSync(a, b); },
+    removeDir: (p) => { rmSync(p, { recursive: true, force: true }); },
+    removeFile: (p) => { rmSync(p, { force: true }); },
+    now: () => new Date(),
+  };
 }
 
 export function createRealIo(): BlenderIo {

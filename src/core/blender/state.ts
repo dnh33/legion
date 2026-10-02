@@ -56,6 +56,8 @@ export class BlenderState {
     // which means "enabled before this version and never chose a mode", is not shown to someone who just turned it on.
     if (mode === undefined && patch.enabled === true && !this.cfg.enabled && this.cfg.mode === undefined) mode = effectiveMode(this.cfg);
     if (mode !== undefined) { next.mode = mode; next.sandbox = mirrorSandbox(mode); }
+    // an explicit choice (the first-use chooser or the Settings radio) is what ends the one-time question; switching the bridge on does not
+    if (patch.mode !== undefined || patch.sandbox !== undefined) next.modeAsked = true;
     if (patch.port !== undefined) next.port = patch.port;
     if (patch.installPath !== undefined) { if (patch.installPath === null || !patch.installPath.trim()) delete next.installPath; else next.installPath = patch.installPath.trim(); }
     return this.commit(normalizeBlender(next));

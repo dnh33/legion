@@ -88,9 +88,9 @@ test('L3: a setting this function does not know is a default-deny error, never "
   }
 });
 
-test('L4: the fallback to the VM says why local is impossible (not found vs older than 3.0)', () => {
-  const old = resolveMode('auto', undefined, { local: false, vm: true, localNote: 'Blender 2.93.0 is too old for local runs (need 3.0.0 or newer).' });
-  assert.deepEqual(old, { mode: 'sandbox', note: 'Blender 2.93.0 is too old for local runs (need 3.0.0 or newer), so the cloud VM was used.' });
+test('L4: the fallback to the VM says why local is impossible (not found vs older than 4.2)', () => {
+  const old = resolveMode('auto', undefined, { local: false, vm: true, localNote: 'Blender 2.93.0 is too old for local runs (need 4.2.0 or newer).' });
+  assert.deepEqual(old, { mode: 'sandbox', note: 'Blender 2.93.0 is too old for local runs (need 4.2.0 or newer), so the cloud VM was used.' });
   const none = resolveMode('auto', undefined, { local: false, vm: true, localNote: 'Blender was not found on this computer. Install it or set its location in Settings.' });
   assert.deepEqual(none, { mode: 'sandbox', note: 'Blender was not found on this computer, so the cloud VM was used.' });
 });
