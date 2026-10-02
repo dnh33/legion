@@ -41,6 +41,8 @@ Cowork / Desktop --stdio--> legion-mcp-stdio --->  Router      auto Sonnet/Opus 
 | `state.json` | Agents, tasks and VM records. Written debounced and atomically (temp file plus rename). A corrupt file is moved aside as `state.json.corrupt-<time>`. |
 | `messages/<taskId>.jsonl` | Append-only chat log per task. |
 | `workspaces/<agentId>/` | Default working directory for an agent's local file tools. |
+| `projects.json` | Projects (own file, so an older build's rewrite of `state.json` cannot drop them). |
+| `board/<projectId>.jsonl` | The project board: one JSON line per change, compacted with a temporary file and a rename. |
 | `core.log` | Core log. |
 
 Environment overrides: `LEGION_HOME`, `LEGION_PORT`, `LEGION_NODE`, `BOAT_API_KEY`, and `ANTHROPIC_API_KEY` (used only when `claude.auth` is `api-key`).
@@ -310,6 +312,10 @@ The ChatMessage stored in the target thread has `role:'user'`, `fromAgentId`, an
 Port changes are not editable here.
 
 `authToken` is never returned or editable. Secrets appear only as `apiKeySet` plus a hint of the last 4 chars.
+
+## Projects and the board
+
+`src/core/projects/` (`ProjectStore`, `createProjectsModule`) holds projects: owner-only routes, native confirmation for folder and member changes, a prompt section added after the agent's own prompt, and a project scope for Library notes (see `claude/plan-projects.md`). `src/core/projects/board/` is the board (`BoardStore`, `createBoardModule`, registered in `legion-core.ts` unless `features.projectBoard` is `false`): owner routes under `/api/projects/:id/board/...` (admin-only by the default-deny gate), the in-process server `legion_board` for member agents of a run's project (the project comes from the engine's `ModuleJob.projectId`, never from an argument), the read-only `legion_board_read` for token clients, `onTaskEnd` to move an item to Review or Blocked and link notes the run saved, and a preamble with a short board digest. Limits and the agent rules are in [PROJECT-BOARD.md](PROJECT-BOARD.md) and `claude/plan-project-board.md`; `board.updated` events carry no item text and go to the admin stream only.
 
 ## Blender Bridge
 

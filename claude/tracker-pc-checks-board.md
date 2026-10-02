@@ -1,8 +1,8 @@
 # Project board: checks only the owner's Windows PC can do
 
-Set `"experimental": {"projectBoard": true}` in `%USERPROFILE%\.legion\config.json`, restart Legion. Nothing here has been run on Windows.
+The board is on by default in v0.2.0; nothing to switch on. To test it off, set `"features": {"projectBoard": false}` in `%USERPROFILE%\.legion\config.json` and restart. Nothing here has been run on Windows.
 
-1. Board tab appears only with the flag on; flag off (or `"true"` as a string) = no tab, `GET /api/board` is 404.
+1. The board appears by default; with `features.projectBoard` set to `false` it is gone (no tab, `GET /api/board` is 404); with the text `"false"` it stays on.
 2. Create, edit, drag and keyboard-move items; restart Legion; the board is unchanged (`board\<proj>.jsonl`).
 3. NVDA or Narrator: card is announced with title, status, assignee, priority; `Alt+←/→` moves and the live region announces the move.
 4. Window at 390 px wide and at 150% display scale: no sideways page scroll, targets usable.

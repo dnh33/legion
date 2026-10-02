@@ -118,13 +118,13 @@ B17 (both backends at once). Area: Blender both-backends mode. Safety class: dow
 | B17e | **Downloads, owner present:** switch Poly Haven on, `blender_asset_search` for "crate" or an HDRI, then `blender_asset_get` for one small 1k HDRI: a card names the files, size and host; Deny fetches nothing (check `%APPDATA%\legion\blender\assets` is empty); Allow downloads into `%APPDATA%\legion\blender\assets\<task>\<id>\` with `manifest.json`, the world lighting changes in Blender, the run counts as tainted. Confirm the real file host (expected `dl.polyhaven.org`; record it) and that the md5 values match. Repeat once with a 1k model (glTF) and check textures load | todo |
 | B17f | Poly Haven switched OFF: `blender_asset_get` is refused before any listing; Sketchfab and Hyper3D show "Not available" in Settings and cannot be switched on | todo |
 
-## Project board (claude/plan-project-board.md; experimental, ships after 0.2.0). Safety class: none (no spend, no download)
+## Project board (claude/plan-project-board.md; in v0.2.0, on by default). Safety class: none (no spend, no download)
 
-Full steps in `claude/tracker-pc-checks-board.md`. Preconditions: `"experimental": {"projectBoard": true}` in `%USERPROFILE%\.legion\config.json`, Legion restarted, a project with two member agents.
+Full steps in `claude/tracker-pc-checks-board.md`. Preconditions: a project with two member agents (nothing to switch on).
 
 | # | Check | State |
 |---|---|---|
-| PB1 | Board tab only with the flag on (also with the value `"true"` as a string: stays hidden); `GET /api/board` is 404 with it off. Evidence: screenshot of both. | todo |
+| PB1 | The board is there by default; `features.projectBoard: false` removes it (no tab, `GET /api/board` is 404); the text `"false"` leaves it on. Evidence: screenshots. | todo |
 | PB2 | Create, edit, drag and keyboard-move (Alt+arrows) items; restart Legion; the board is unchanged. Evidence: screenshot before/after. | todo |
 | PB3 | NVDA or Narrator: a card is read with title, status, assignee, priority; the move is announced. Evidence: the screen reader's spoken text. | todo |
 | PB4 | Window at 960 px and at 150% display scale: no sideways scroll, targets usable. Evidence: screenshots. | todo |

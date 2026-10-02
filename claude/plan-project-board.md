@@ -1,6 +1,6 @@
-# Plan: Project board (after 0.2.0; own branch `claude/project-board`)
+# Plan: Project board (IN v0.2.0, on by default; branch `claude/project-board`)
 
-Branch from `integration/v1`. **Not part of 0.2.0.** Off by default behind `config.json` `experimental.projectBoard` (only the literal `true` turns it on; nothing in the app or any route writes it). With it off nothing new is built, routed, listed as an MCP tool, given to a bot or shown in the UI. New code lives in `src/core/projects/board/*`, `ui/src/projects/board/*`, `test/project-board-*.test.ts`; the hooks elsewhere are additive (listed in section 9). Nothing here has run on Windows (section 10).
+**Status (owner decision 2026-10-03): the board is part of v0.2.0 and ON by default.** The 'experimental, after 0.2.0' gate is gone. It is covered by the one independent security review, including agent access. Owner-only switch: `features.projectBoard = false` in `config.json` (only the literal `false` turns it off; no UI or route writes it; with it off nothing new is built, routed, listed as an MCP or agent tool, or shown); an old `experimental.projectBoard` entry is ignored. New code lives in `src/core/projects/board/*`, `ui/src/projects/board/*`, `test/project-board-*.test.ts`; the hooks elsewhere are additive (section 9). Merged with `origin/integration/v1` on 2026-10-03 (both module lists kept, harness mirrors the composition root). Nothing here has run on Windows (section 10).
 
 Goal: Legion feels like a project manager for the owner's agents: a small board inside a Project. Not Jira.
 
@@ -111,7 +111,7 @@ Not built (deliberate): an agent removing a link (only the owner can); a briefin
 
 | # | Control | Test | Mutation |
 |---|---|---|---|
-| C1 | Flag: only literal `true`; default false; nothing writes it; no route, tool, module, preamble or MCP tool exists with it off | `-flag` | accept `"true"`/1; register routes unconditionally; add a settings write |
+| C1 | Switch: default ON, only the literal `false` turns it off; old `experimental.projectBoard` ignored; nothing writes it; with it off no route, tool, module, preamble or MCP tool exists; harness mirrors the core | `-flag`, `-http` | default off; loose falsy turns it off; build unconditionally; honour the old key |
 | C2 | Every board route needs the admin header; token alone gets 403; none on the client list | `-http` | list a board route as a client route |
 | C3 | Owner create/edit/move/delete with validation and caps (sizes, labels, due, items, inbox) | `-store` | skip a cap |
 | C4 | Bot `propose` lands in Inbox as untrusted, never live; rate limit; per-agent and per-project caps | `-tools` | store as active; drop the limiter |
@@ -151,9 +151,9 @@ Not built (deliberate): an agent removing a link (only the owner can); a briefin
 
 `claude/tracker-pc-checks-board.md`.
 
-## 12. Result (built 2026-10-02, not run on Windows)
+## 12. Result (not run on Windows)
 
-Gates (final): 2,009 tests, 2,006 pass, 0 fail, 3 skipped (the 3 skips were there before). `npm run typecheck` and `npm run build:ui` exit 0. New test files: `project-board-{flag,store,tools,http,run,ui}.test.ts` (about 40 tests). Every control C1..C17 was mutated (about 25 mutations) and each turned its test red, except one equivalent mutant: removing the redundant `tainted: true` from a capped run changes nothing because the run's `origin.tainted` already taints it. Tripwire, hedge, key-literal and harness tests stay as they were; the only edit to a shared script is the mirror in `scripts/harness/core-entry.mjs`.
+Gates (2026-10-03, after merging `origin/integration/v1`): see section 14.
 Rendered in headless Chromium (real core, flag on, seeded board): 1440 and 960 px with the full app, 390 px with the app shell hidden (the Electron window has a 960 px minimum, so the shell itself is not built for 390), light and dark, Board / List / Inbox / item dialog; no horizontal page scroll; a keyboard Alt+Right move was announced in the live region, kept focus and persisted.
 
 ## 13. Known limits (kept honest)
@@ -172,3 +172,46 @@ Rendered in headless Chromium (real core, flag on, seeded board): 1440 and 960 p
 - The board stores and shows; Legion's own code does not stop an allowed agent tool from doing things the approval mode permits.
 - Room links are not checked for existence by the core (the UI only offers rooms of the project).
 - A compromised app window holds the admin key and could edit items; it still cannot start anything outside the approval cards.
+
+## 14. Agent access: rules now, guards, proof (2026-10-03)
+
+**Rules that apply now.**
+- *Agents may:* create items (Backlog, Doing, Review, Blocked), edit title, description, priority, labels and due date of any open item, move and reorder (not to Done), claim or assign to a member agent (or clear), add notes, link project notes of this project, suggest to the Inbox, read their own project's board.
+- *Owner only:* mark Done; assign to the owner; change items assigned to the owner (agents add notes only); change closed (Done) items; accept or reject the Inbox; mark text reviewed; run an item; choose the leader; delete Done and owner-assigned items.
+- *Delete:* the owner-chosen leader only (none by default), an owner approval card every time, re-checked after the card.
+- *Limited runs* (tainted, or started by another bot or an MCP client under `ask`): may create, edit, move and note; may not assign or delete.
+- *Due dates:* agents MAY set and clear them (not owner-only).
+
+**Guards, each with a test in `test/project-board-agent-access.test.ts` (G1..G10) and the mutation that turns it red:**
+
+| # | Guard | Mutation that must go red |
+|---|---|---|
+| G1 | Tool set is create/get/list/propose/update (+delete for the leader); no argument can name a project, trust, reviewer, run or leader; `update` cannot set `done` | offer `done` in the schema |
+| G2 | Items an agent creates are `untrusted`, tainted or not; an agent's text edit clears the owner's review; metadata edits do not; notes from tainted runs are marked | create trusted |
+| G3 | Another project is out of reach for get, update, delete (no card), notes link, list; a non-member has no board tool | (project fixed by the engine; checked in `-tools`) |
+| G4 | Done, assigning the owner, owner-assigned items and closed items are owner-only; agent paths start no run, process or request (source scan) | drop a rule |
+| G5 | What agents may do (due, priority, labels, claim, move, note) works; bad values change nothing | n/a (positive) |
+| G6 | Limited runs may not assign or delete and never reach the approval card | capped run may assign / delete; capped never detected |
+| G7 | Delete: leader only, card each time, declined deletes nothing, re-check after the card (item closed meanwhile), Done/owner items protected | skip the re-check |
+| G8 | Abuse limits: 40 board writes and 10 creates per 10 minutes, 50 open items per agent, the last 40 places reserved for the owner | remove the reserve / the open cap / the create limiter |
+| G9 | No key, seed phrase or private key by any agent text path (create, update description/note/title, propose); credential shapes redacted; run results redacted | skip the check on the description edit |
+| G10 | "Save what we learned" cannot write a secret, seed phrase or key (title or body) and redacts a credential in the stored note | (Library guard; asserted in the test) |
+
+Gaps found and fixed in this pass: agents together could fill the 200-item board (now an owner reserve and a per-agent open cap); runs started by MCP or another bot under `ask` were not limited like tainted ones (now they cannot assign or delete). The last two fixtures showed the Library's seed detector needs distinct words (a repeated-word phrase is not detected; real phrases are).
+
+**Gate (after the merge):** `npm ci && npm run build:ts && node --test "dist/test/*.test.js"`: 2,267 tests, 2,264 pass, 0 fail, 3 skipped (the skips were there before); `npm run typecheck` and `npm run build:ui` exit 0; the tripwire, hedge and harness tests pass unchanged.
+
+**Mutations (this pass):** 15 of 15 red (default-on switch: 5; agent guards: 10). Earlier passes: about 50 more, all red, one equivalent mutant (episodes are always untrusted, so the trust filter also covers the episode filter).
+
+**Not protected / still imperfect:**
+- Legion's own code makes the board checks; it does not limit what an allowed agent tool does during a run (shell, files, web) under the approval mode.
+- A compromised app window holds the admin key: it can edit or delete items, choose a leader and press Run; runs and agent deletes still go through approval cards.
+- Any member agent can reword an open item or take items assigned to other agents (by design); the activity trail shows who did what, and the owner reviews agent-written text before a full-permission run.
+- "Mark as reviewed" is one click for title and description together.
+- Agents can add note links but not remove them.
+- The rate limits are per core process and reset on restart.
+- Windows behaviour (file rename during compaction with antivirus, screen readers, touch drag) is unverified: PB1 to PB10.
+
+## 15. Website-ready paragraph
+
+**Project boards for your agents.** Open a project in Legion and you get a small board: work items that move from Backlog to Doing, Review and Done, each with an assignee, a priority, a due date and an activity trail. The agents you added to the project work the board like teammates: they create items, claim them, move them along, leave notes and link what they learn to the project's notes, which every later session in that project can find. You stay in charge: only you mark an item Done, you decide what actually runs (an agent's work lands in Review for you to check), text the agents write is marked until you have read it, and deleting needs your approval each time. The board never starts anything by itself, and there are no schedules or automations. It runs on your computer, it is on by default, and one line in your settings file turns it off. Not done yet: it has not been tried on a real Windows computer with a screen reader, there is no sub-item or comment threading, and there are no automatic rules.
