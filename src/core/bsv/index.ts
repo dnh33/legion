@@ -86,7 +86,7 @@ export function createBsvModule(deps: ModuleDeps, opts: BsvModuleOptions = {}): 
   const state = opts.state ?? new BsvState({ dataDir: deps.dataDir, config: deps.config });
   const log = opts.log ?? (() => undefined);
 
-  // ---- audit log, policy engine and wallet probe (nothing here can sign or spend; there is no spend tool)
+  // ---- audit log, policy engine and wallet probe (this block holds no key and signs nothing itself; the spend tool is built below, from spend.ts)
   const audit = new AuditLog(auditPath(deps.dataDir), { now: opts.now });
   const policyFile = policyPath(deps.dataDir);
   const loaded = loadPolicyConfig(policyFile);

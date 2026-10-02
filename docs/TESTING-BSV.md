@@ -7,7 +7,7 @@ Scope of every claim here: "Legion's own code, in this version, against fakes". 
 ## 1. Safety rules (agents and scripts)
 
 1. **Never contact the owner's real wallet.** It listens on a fixed loopback port on the owner's PC (the number is in [BSV-MODE.md](BSV-MODE.md)). No test, script, harness scenario or agent may connect to it, probe it, scan for it or configure Legion to use it. The number is refused in `src/` by the tripwire (`test/bsv-scan.ts`, `bsv-tripwire.test.ts`), and the harness adds its own refusal in `scripts/harness/fake-wallet.mjs` (the one file of the harness that names it): the fake wallet will not bind that port and `assertSafeWalletTarget()` refuses it and any non-loopback host. Do not write the number in new tests, scripts or docs; the harness smoke test fails if a harness file or a `docs/TESTING*.md` names it.
-2. **Testnet only in v1.** `BsvNetwork` is the literal `testnet`; nothing in this base can arm anything that moves funds, because no spend tool exists on it. Mainnet is a decision for later work (section 8).
+2. **No test touches a real network or a real wallet.** The knowledge mode (`BsvNetwork`) is the literal `testnet`. Legion's own code has a spend tool for testnet and mainnet (mainnet built and OFF by default, see [BSV-MODE.md](BSV-MODE.md)); every test of it runs against a fake wallet on a random loopback port, and none of it has been verified against a real wallet or with real funds until the owner's checks are recorded.
 3. **In the cloud and in CI the wallet is the fake.** Two fakes exist: the in-test `fakeWallet(behaviour)` in `test/bsv-wallet-probe.test.ts` (scripted per test, records the wire) and the harness fake `scripts/harness/fake-wallet.mjs` (a long-lived loopback server on a random port, for the stack).
 4. **A real wallet only inside a VM, with the owner present,** and only a TESTNET wallet funded with testnet coins (steps V0-V12 in the plan, section 7.2). An agent never drives that session; the owner reads the dialogs and the wallet prompts. The owner's funded host wallet is only ever used by the owner, by hand (plan section 12.6b), and not by this page's procedures.
 5. **Keys never live in Legion**; there is nothing to test that creates, stores or logs a key, and a test must never put one in a repo file, a log or a report. Use short prefixes if you must show a secret-shaped value.
@@ -19,7 +19,7 @@ Scope of every claim here: "Legion's own code, in this version, against fakes". 
 
 Exists (and is tested): the on/off toggle and the knowledge pack, the Assayer bot, the read-only `bsv_status` tool and its loopback probe of four harmless methods, the pure policy engine (caps, allowlist, arming, freeze), the hash-chained audit log with a head anchor, the policy file fingerprint, the native-secret route guard, Freeze from the bearer token, the T1 restore plumbing (`test/bsv-spend-restore.test.ts`).
 
-Does not exist yet on this base: any tool that builds, signs or sends a transaction (`bsv_spend_request`, branch work "T2"), the native spend dialogs ("T3"), mainnet support ("T5"). `GET /api/bsv/policy` reports `spendTools: false`. Everything about those is in the PENDING sections below.
+Merged since this page was first written (its sections 8.1 to 8.3 below were written before the merge and are kept as the extension points): the spend tool `bsv_spend_request` (T2), the native spend dialogs and panel (T3), per-network policy and the mainnet switch (T5). `GET /api/bsv/policy` reports `spendTools` as a boolean. Their tests are `test/bsv-spend-*.test.ts`, `test/bsv-policy-nets.test.ts`, `test/bsv-mainnet-defaults.test.ts`; the fake wallet is `test/bsv-fake-wallet.ts`. What they cannot show is in [BSV-MODE.md](BSV-MODE.md), "Not verified".
 
 ## 3. How the existing code is tested
 
@@ -92,9 +92,9 @@ Nothing on this list can be done by an agent or a cloud session.
 
 Cheap additions with the current harness: `bsv-wallet-network-claims` (wallet claims `main`, then `unknown`, then `testnet`: warning only, never raises a limit, a "changed" report disarms), `bsv-hidden-assayer` (BSV off: the Assayer is absent from `/api/state`, task start 404, `legion_run` refuses), `bsv-audit-verify` (read `/api/bsv/audit`, assert chain status after a restart with a truncated log file via `h.homeFile('write', ...)`).
 
-## 8. PENDING: sections to fill when the other branches land
+## 8. Extension points (written before the spend work merged)
 
-These are being built in other branches now (spend tool T2, native dialogs T3, mainnet T5). Do not describe them as working until they are merged on the branch you test and their scenarios pass. The extension points are fixed here so the harness work and the product work meet.
+The spend tool T2, the native dialogs T3 and mainnet T5 are merged on `integration/v1`. The harness scenarios below may still be pending; do not describe a scenario as passing until it runs on the branch you test. The extension points are fixed here so the harness work and the product work meet.
 
 ### 8.1 PENDING: spend tool (T2), `bsv_spend_request`
 
