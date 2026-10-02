@@ -808,14 +808,16 @@ export class CommsHub {
   }
 
   private pauseBudget(room: Room, stop: { estimate?: number }): void {
+    const limit = room.guards.budgetUsd;
+    if (limit === null) throw new Error('pauseBudget called for a room with no budget (budgetStop never stops one)'); // unreachable
     const how = `Raise guards.budgetUsd with PATCH /api/rooms/${room.id}, then POST /api/rooms/${room.id}/resume.`;
     if (stop.estimate === undefined) {
       this.pause(room, 'budget', `$${room.costUsd.toFixed(4)}`,
-        `Paused: the room's cost ($${room.costUsd.toFixed(2)}) reached its budget ($${(room.guards.budgetUsd ?? 0).toFixed(2)}). ${how}`);
+        `Paused: the room's cost ($${room.costUsd.toFixed(2)}) reached its budget ($${limit.toFixed(2)}). ${how}`);
       return;
     }
     this.pause(room, 'budget', `$${room.costUsd.toFixed(4)} + ~$${stop.estimate.toFixed(4)}`,
-      `Paused: the room's cost ($${room.costUsd.toFixed(2)}) is close to its budget ($${(room.guards.budgetUsd ?? 0).toFixed(2)}); paused before the next turn would exceed it (estimated next turn $${stop.estimate.toFixed(2)}). ${how}`);
+      `Paused: the room's cost ($${room.costUsd.toFixed(2)}) is close to its budget ($${limit.toFixed(2)}); paused before the next turn would exceed it (estimated next turn $${stop.estimate.toFixed(2)}). ${how}`);
   }
 
   private enqueue(key: string, room: Room, botId: string, d: Delivery): void {
