@@ -78,7 +78,7 @@ test('build: refuses names Windows or the installer would refuse (device name, o
   const dev = fakeNodeModules(); put(dev, 'badpkg/con.js', 'x');
   await assert.rejects(build({ nodeModules: dev }), /reserved device name/);
   const long = fakeNodeModules(); put(long, 'deep/' + 'a'.repeat(120) + '/' + 'b'.repeat(100) + '.js', 'x');
-  await assert.rejects(build({ nodeModules: long }), /too long for Windows/);
+  await assert.rejects(build({ nodeModules: long, selfcheck: false }), /path too long for Windows/);
 });
 
 test('build: the CLI refuses a non-Windows host (no foreign flag) and a dirty tree', async () => {
@@ -86,4 +86,14 @@ test('build: the CLI refuses a non-Windows host (no foreign flag) and a dirty tr
   const run = (...a: string[]) => spawnSync(process.execPath, [join(process.cwd(), 'scripts', 'build-package.mjs'), ...a], { encoding: 'utf8' });
   if (process.platform !== 'win32') { const r = run('--out', tmp()); assert.notEqual(r.status, 0); assert.match(r.stderr, /run it on Windows x64/); }
   const r2 = run('--out', tmp(), '--foreign'); assert.notEqual(r2.status, 0); assert.match(r2.stderr, /--foreign needs --node-modules/);
+});
+
+test('zip writer: refuses unsorted or duplicate entries, writes nothing on failure, and stores empty files', async () => {
+  const { writeZipFile } = await load('scripts/lib/zip-stream.mjs');
+  const f = join(tmp(), 'a.zip');
+  assert.throws(() => writeZipFile(f, [{ name: 'b', data: Buffer.from('1') }, { name: 'a', data: Buffer.from('2') }]), /not sorted/);
+  assert.throws(() => writeZipFile(f, [{ name: 'a', data: Buffer.from('1') }, { name: 'a', data: Buffer.from('2') }]), /not sorted/);
+  assert.equal(existsSync(f), false); assert.equal(existsSync(f + '.part'), false);
+  const w = writeZipFile(f, [{ name: 'a', data: Buffer.alloc(0) }, { name: 'b', data: Buffer.from('hello') }]);
+  const z = readFileSync(f); assert.equal(w.sha256, sha(z)); assert.equal(readZipEntry(z, 'b').toString(), 'hello'); assert.equal(readZipEntry(z, 'a').length, 0);
 });

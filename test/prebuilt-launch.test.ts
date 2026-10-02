@@ -55,6 +55,7 @@ test('launch: detectKind tells a package from a source folder and from nothing',
   const s = tmp(); put(s, 'package.json', '{}'); put(s, 'src/x.ts', ''); assert.equal(detectKind(s).kind, 'source');
   assert.equal(detectKind(tmp()).kind, 'unknown');
   const p = await fakePackage(); put(p, 'src/x.ts', ''); assert.equal(detectKind(p).kind, 'package', 'package wins even if a src folder is there');
+  assert.notEqual(detectKind(await fakePackage({ platform: 'linux-x64' })).kind, 'package', 'another platform is not a Windows package');
 });
 
 test('launch: the error text for a package names the runtime and the antivirus, not "install Node"', () => {
