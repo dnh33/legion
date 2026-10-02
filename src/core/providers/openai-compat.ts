@@ -10,6 +10,8 @@ export interface ChatTurnRequest {
   signal?: AbortSignal;
   limits?: Partial<HttpLimits>;
   onText: (delta: string) => void;
+  /** The owner's token cap leaves this many output tokens: sent as the request's output limit, and a stream that runs far past it is stopped. */
+  maxOutputTokens?: number;
 }
 export interface ChatTurnResult {
   text: string;
@@ -143,6 +145,7 @@ export async function chatTurn(target: ProviderTarget, req: ChatTurnRequest): Pr
   for (let attempt = 0; attempt < 4; attempt++) {
     const responses = target.entry.wire === 'responses';
     const body: Record<string, unknown> = { model: req.model, stream: true };
+    if (req.maxOutputTokens !== undefined) body[responses ? 'max_output_tokens' : 'max_tokens'] = Math.max(1, Math.floor(req.maxOutputTokens));
     if (responses) {
       const ri = toResponsesInput(req.messages);
       body.instructions = ri.instructions; body.input = ri.input; body.store = false;
@@ -154,18 +157,25 @@ export async function chatTurn(target: ProviderTarget, req: ChatTurnRequest): Pr
     }
     try {
       const r = await providerRequest(target, responses ? '/responses' : '/chat/completions', { method: 'POST', body, accept: 'any', signal: req.signal, limits: req.limits });
+      let streamed = 0;
+      const limitChars = req.maxOutputTokens !== undefined ? Math.max(1, req.maxOutputTokens) * 8 + 2000 : Infinity;
+      const onText = (d: string): void => {
+        streamed += d.length;
+        if (streamed > limitChars) throw new ProviderHttpError('too_large', 'The reply went past the token limit you set for this provider, so Legion stopped it.');
+        req.onText(d);
+      };
       const acc: Acc = { text: '', calls: new Map() };
       const byItem = new Map<string, number>();
       if (r.kind === 'json') {
         if (responses) feedResponsesBody(acc, byItem, r.json);
         else feed(acc, r.json, () => undefined); // a server that ignored `stream`: one body with choices[0].message
-        if (acc.text) req.onText(acc.text);
+        if (acc.text) onText(acc.text);
       } else {
         for await (const data of r.events) {
           if (data.trim() === '[DONE]') break;
           let j: unknown;
           try { j = JSON.parse(data); } catch { throw new ProviderHttpError('format', 'The provider sent a stream line Legion could not read.'); }
-          if (responses) feedResponses(acc, byItem, j, req.onText); else feed(acc, j, req.onText);
+          if (responses) feedResponses(acc, byItem, j, onText); else feed(acc, j, onText);
         }
       }
       const toolCalls: ChatToolCall[] = [...acc.calls.entries()].sort((a, b) => a[0] - b[0]).map(([, c], i) => ({

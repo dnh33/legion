@@ -138,6 +138,7 @@ export class ProviderRuntime {
     if (!r.model.trim()) return fail('No model id was given for this provider.');
     const res = await runToolLoop(host, this.target(r.providerId, r.entry), r.model, {
       maxTurns: this.cfg.maxTurns, maxToolCallsPerTurn: this.cfg.maxToolCallsPerTurn, limits: this.deps.limits, ...(this.deps.turn ? { turn: this.deps.turn } : {}),
+      cap: { ...(r.entry.tokenCapPerTask ? { perTask: r.entry.tokenCapPerTask } : {}), ...(r.entry.tokenCapPerDay ? { perDay: r.entry.tokenCapPerDay } : {}), taskBefore: host.taskTokensBefore ?? 0, dayUsed: () => this.usage.today(r.providerId), onTokens: (n) => this.usage.add(r.providerId, n), label: `"${r.entry.label}"` },
     }, (s) => this.redact(s), () => this.deps.keys.all());
     const cost = this.costOf(r, res);
     return { ...res, ...(cost !== undefined ? { costUsd: cost } : {}) };

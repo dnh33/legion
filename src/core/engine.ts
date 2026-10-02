@@ -713,6 +713,7 @@ export class Engine {
         + (agent.systemPrompt ? '\n\n' + agent.systemPrompt : '')
         + `\n\nYou are running on ${pr.model} through ${pr.entry?.label ?? pr.providerId}. You have only the tools listed in this request; you have no file, shell or web tools of your own.`,
       prompt, stored: this.store.listMessages(taskId),
+      taskTokensBefore: (this.store.getTask(taskId)?.tokenUsage?.inputTokens ?? 0) + (this.store.getTask(taskId)?.tokenUsage?.outputTokens ?? 0),
       servers, external,
       authorize: decide,
       noteToolUse: (name, id, input) => this.noteToolUse(job, act, name, id, input),

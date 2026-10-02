@@ -125,6 +125,8 @@ export interface LoopOptions {
   maxTurns: number;
   maxToolCallsPerTurn: number;
   limits?: Partial<HttpLimits>;
+  /** The owner's optional token caps for this provider. Absent: no limit. */
+  cap?: { perTask?: number; perDay?: number; taskBefore: number; dayUsed(): number; onTokens(n: number): void; label: string };
   /** Replaces `chatTurn` in tests only. */
   turn?: typeof chatTurn;
 }
@@ -137,6 +139,20 @@ export async function runToolLoop(host: ProviderHost, target: ProviderTarget, mo
     if (r.usage) usage = { inputTokens: (usage?.inputTokens ?? 0) + r.usage.inputTokens, outputTokens: (usage?.outputTokens ?? 0) + r.usage.outputTokens };
     else res.usageUnknown = true;
   };
+  const acct = opts.cap;
+  const cap = acct && (acct.perTask || acct.perDay) ? acct : undefined;
+  let runTokens = 0;
+  let estimated = false;
+  let estNoticed = false;
+  /** The tightest room left under either cap, or Infinity; and a plain sentence when none is left. */
+  const room = (): { left: number; why?: string } => {
+    if (!cap) return { left: Infinity };
+    const t = cap.perTask ? cap.perTask - (cap.taskBefore + runTokens) : Infinity;
+    const d = cap.perDay ? cap.perDay - cap.dayUsed() : Infinity;
+    if (t <= 0) return { left: 0, why: `Stopped: ${cap.label} reached the token limit you set per task (${Math.round(cap.taskBefore + runTokens)} of ${cap.perTask}${estimated ? ', partly estimated' : ''}). Raise or clear it in Settings, Providers.` };
+    if (d <= 0) return { left: 0, why: `Stopped: ${cap.label} reached the token limit you set per day (${Math.round(cap.dayUsed())} of ${cap.perDay}${estimated ? ', partly estimated' : ''}). It starts again tomorrow, or raise or clear it in Settings, Providers.` };
+    return { left: Math.min(t, d) };
+  };
   const tools = await connectTools(host.servers, host.onNotice, host.external, host.signal);
   const used = new Set<string>();
   const fails = new Map<string, number>();
@@ -146,11 +162,22 @@ export async function runToolLoop(host: ProviderHost, target: ProviderTarget, mo
     let lastText = '';
     for (let turn = 1; turn <= opts.maxTurns; turn++) {
       if (host.cancelled()) return { ...res, subtype: 'cancelled', usage };
+      const rm = room();
+      if (rm.why) { host.onNotice(rm.why); return { ...res, usage, isError: true, subtype: 'error_token_cap', errorText: rm.why }; }
       res.turns = turn;
       const sr = makeStreamRedactor(host.onDelta, redact, secrets);
       let r: ChatTurnResult;
-      try { r = await turnFn(target, { model, messages, tools: tools.specs, signal: host.signal, limits: opts.limits, onText: sr.push }); } finally { sr.flush(); }
+      try { r = await turnFn(target, { model, messages, tools: tools.specs, signal: host.signal, limits: opts.limits, onText: sr.push, ...(Number.isFinite(rm.left) ? { maxOutputTokens: rm.left } : {}) }); } finally { sr.flush(); }
       addUsage(r);
+      if (acct) {
+        let n = r.usage ? r.usage.inputTokens + r.usage.outputTokens : 0;
+        if (!r.usage) {
+          estimated = true;
+          n = Math.ceil((JSON.stringify(messages).length + r.text.length + r.toolCalls.reduce((a, c) => a + c.function.arguments.length, 0)) / 4);
+          if (cap && !estNoticed) { estNoticed = true; host.onNotice('This provider returned no token counts, so the token limit you set uses an estimate (characters divided by 4).'); }
+        }
+        runTokens += n; acct.onTokens(n);
+      }
       if (r.toolsRefused && !noticedRefused) { noticedRefused = true; host.onNotice('This model did not accept tools: it can answer, but it cannot use Legion\'s tools.'); }
       const text = redact(r.text).trim();
       if (text) { host.onAssistantText(text); lastText = text; }
