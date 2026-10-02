@@ -175,9 +175,10 @@ export class ProviderRuntime {
     if (!r.entry) return fail(`The provider "${r.providerId}" is not set up any more. Choose another model for this agent in Settings, Providers.`);
     if (!r.entry.enabled) return fail(`The provider "${r.entry.label}" is turned off. Turn it on in Settings, Providers, or choose another model for this agent.`);
     if (!r.model.trim()) return fail('No model id was given for this provider.');
+    let ledgerNoticed = false;
     const res = await runToolLoop(host, this.target(r.providerId, r.entry), r.model, {
       maxTurns: this.cfg.maxTurns, maxToolCallsPerTurn: this.cfg.maxToolCallsPerTurn, limits: this.deps.limits, ...(this.deps.turn ? { turn: this.deps.turn } : {}),
-      cap: { ...(r.entry.tokenCapPerTask ? { perTask: r.entry.tokenCapPerTask } : {}), ...(r.entry.tokenCapPerDay ? { perDay: r.entry.tokenCapPerDay } : {}), taskBefore: host.taskTokensBefore ?? 0, dayUsed: () => this.usage.today(r.providerId), onTokens: (n) => this.usage.add(r.providerId, n), label: `"${r.entry.label}"` },
+      cap: { ...(r.entry.tokenCapPerTask ? { perTask: r.entry.tokenCapPerTask } : {}), ...(r.entry.tokenCapPerDay ? { perDay: r.entry.tokenCapPerDay } : {}), taskBefore: host.taskTokensBefore ?? 0, dayUsed: () => this.usage.today(r.providerId), onTokens: (n) => { this.usage.add(r.providerId, n); if (this.usage.lastError && !ledgerNoticed) { ledgerNoticed = true; host.onNotice('Token counts could not be saved to disk, so the daily limit starts again from zero after a restart. Check that Legion\'s data folder is writable.'); } }, label: `"${r.entry.label}"` },
     }, (s) => this.redact(s), () => this.deps.keys.all());
     const cost = this.costOf(r, res);
     return { ...res, ...(cost !== undefined ? { costUsd: cost } : {}) };

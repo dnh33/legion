@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, readFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { replyText, replyTools, startFake } from './providers-fakes.js';
@@ -89,4 +89,20 @@ test('A4 the daily count is per local day, persisted without any text, and start
   assert.deepEqual(Object.keys(JSON.parse(readFileSync(file, 'utf8'))).sort(), ['counts', 'day', 'version']);
   now = new Date(2026, 5, 2, 0, 5, 0);
   assert.equal(a.today('p'), 0);
+});
+
+test('A4 (error handling) when the daily count cannot be saved the owner is told in the thread, instead of the cap silently undercounting after a restart', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'legion-usage-bad-'));
+  const blocker = join(dir, 'providers');
+  writeFileSync(blocker, 'a file where the folder should be');
+  const ledger = new TokenLedger(join(blocker, 'usage.json'));
+  ledger.add('p', 10);
+  assert.match(ledger.lastError ?? '', /\S/); assert.equal(ledger.today('p'), 10, 'counting in memory still works');
+  const f = await startFake((_r, res) => replyText(res, 'ok', U));
+  try {
+    const h = setup(f, { entry: { tokenCapPerDay: 100000 }, runtimeDeps: { usageFile: join(blocker, 'usage.json') } });
+    const t = await run(h);
+    assert.equal(t.status, 'done');
+    assert.match(sysText(h, t.id), /token counts could not be saved/i);
+  } finally { await f.close(); }
 });

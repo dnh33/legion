@@ -159,20 +159,24 @@ export async function runCli(host: ProviderHost, providerId: string, entry: Prov
   try { plan = buildCliPlan(entry, model, host.prompt, folder.dir); } catch (e) { return fail(`Not started: ${e instanceof Error ? e.message : 'the command could not be built'}`); }
   host.markTainted?.();
   // 5. the start card, every run, in every approval mode
-  const approved = host.confirmStart ? await host.confirmStart({
+  let approved = false;
+  try { approved = host.confirmStart ? await host.confirmStart({
     title: `Start ${entry.cli === 'codex' ? 'Codex' : 'OpenCode'} on this computer`,
     command: plan.display, folder: folder.dir, sandbox: entry.sandbox ?? 'read-only', sandboxFlags: plan.sandboxFlags, timeoutSeconds: entry.timeoutSeconds ?? 900,
     prompt: host.prompt.slice(0, 600),
     warning: 'This program runs its own shell and file tools. Legion cannot see or stop its individual actions, and the sandbox is the program\'s own promise. The whole run is treated as untrusted outside content.',
-  }) : false;
+  }) : false; } catch { return fail('The start card could not be shown, so nothing was started.'); }
   if (host.cancelled()) return { subtype: 'cancelled', isError: false, turns: 0, usageUnknown: true };
   if (!approved) return fail('You did not approve starting the program, so nothing was started.');
   // 6. run
   const env = cliEnv(entry.cli, plan.envExtra, deps.source ?? process.env, deps.platform);
-  const r = await deps.port.run(entry.executable, {
-    args: plan.args, cwd: folder.dir, env, maxOutputBytes: CLI_MAX_OUTPUT_BYTES, timeoutMs: (entry.timeoutSeconds ?? 900) * 1000,
-    ...(plan.stdin !== undefined ? { stdin: plan.stdin } : {}), signal: host.signal,
-  });
+  let r: Awaited<ReturnType<ProcessPort['run']>>;
+  try {
+    r = await deps.port.run(entry.executable, {
+      args: plan.args, cwd: folder.dir, env, maxOutputBytes: CLI_MAX_OUTPUT_BYTES, timeoutMs: (entry.timeoutSeconds ?? 900) * 1000,
+      ...(plan.stdin !== undefined ? { stdin: plan.stdin } : {}), signal: host.signal,
+    });
+  } catch { return fail('The program could not be run.'); }
   if (r.stoppedBy === 'cancelled' || host.cancelled()) return { subtype: 'cancelled', isError: false, turns: 1, usageUnknown: true };
   const text = deps.redact(cleanCliText(r.stdout)).trim().slice(0, CLI_MAX_TEXT_CHARS);
   if (text) host.onAssistantText(text);

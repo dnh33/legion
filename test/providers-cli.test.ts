@@ -250,3 +250,19 @@ test('B2 a run with no way to ask for the start card is refused, never started',
     assert.equal(r.isError, true); assert.equal(ran, false, 'nothing was started without an answered card');
   } finally { await c.done(); }
 });
+
+test('B2 (error handling) a process port or card request that throws becomes a plain task error: no stack, no path, nothing started twice', async () => {
+  const { runCli } = await import('../src/core/providers/cli.js');
+  const c = await cliSetup();
+  try {
+    const folder = { home: c.home, workspaceDir: join(c.tmp, 'data', 'workspaces'), dataDir: join(c.tmp, 'data'), appRoots: [repoRoot] };
+    mkdirSync(join(folder.workspaceDir, 'a1'), { recursive: true });
+    const mk = (over: Record<string, unknown>): any => ({ taskId: 't', agentName: 'A', signal: new AbortController().signal, cancelled: () => false, prompt: 'hello', ownerStarted: true, agentId: 'a1', cwd: join(folder.workspaceDir, 'a1'), onAssistantText() {}, markTainted() {}, confirmStart: async () => true, ...over });
+    const boom = new Error('EACCES: permission denied, open /secret/path/auth.json\n    at stack line');
+    const throwingPort = { run: async () => { throw boom; } };
+    const r1 = await runCli(mk({}), 'cli', cliEntry(), 'default', { port: throwingPort, folder, redact: (s) => s });
+    assert.equal(r1.isError, true); assert.doesNotMatch(r1.errorText ?? '', /secret|auth\.json|at stack|EACCES/); assert.match(r1.errorText ?? '', /could not be run/);
+    const r2 = await runCli(mk({ confirmStart: async () => { throw boom; } }), 'cli', cliEntry(), 'default', { port: { run: async () => { throw new Error('must not run'); } }, folder, redact: (s) => s });
+    assert.equal(r2.isError, true); assert.doesNotMatch(r2.errorText ?? '', /secret|auth\.json|EACCES/); assert.match(r2.errorText ?? '', /card/);
+  } finally { await c.done(); }
+});

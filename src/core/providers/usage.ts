@@ -9,6 +9,8 @@ import { writeConfigFile } from '../../shared/config.js';
 export const usageFileFor = (dataDir: string): string => join(dataDir, 'providers', 'usage.json');
 
 export class TokenLedger {
+  /** Why the last save failed, in plain words; absent when saving works. Counting in memory goes on either way. */
+  lastError?: string;
   private day = '';
   private counts: Record<string, number> = {};
   constructor(private readonly file?: string, private readonly now: () => Date = () => new Date()) { this.load(); }
@@ -26,6 +28,6 @@ export class TokenLedger {
     if (!(tokens > 0)) return;
     this.roll(); this.counts[id] = (this.counts[id] ?? 0) + Math.round(tokens);
     if (!this.file) return;
-    try { mkdirSync(dirname(this.file), { recursive: true }); writeConfigFile(this.file, JSON.stringify({ version: 1, day: this.day, counts: this.counts })); } catch { /* advisory */ }
+    try { mkdirSync(dirname(this.file), { recursive: true }); writeConfigFile(this.file, JSON.stringify({ version: 1, day: this.day, counts: this.counts })); this.lastError = undefined; } catch (e) { this.lastError = e instanceof Error ? e.message.replace(/[\r\n]+/g, ' ').slice(0, 120) : 'the file could not be written'; }
   }
 }
