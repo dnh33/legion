@@ -36,3 +36,26 @@ Source: `review/release-packaging-review.md` section 5 (branch `claude/review-re
 ## Also still open from the handoff (section 6.2/6.3)
 
 Real boat.dev checks, real Blender 5.x (official add-on is a Blender extension), tray/second-instance/title bar, Sentinel schedule firing, Forgemaster VM run, Cowork over MCP, approval-card flows end to end, BSV on a testnet wallet in a VM only, perf re-record.
+
+## Blender local-first (plan 6.2 and 6.3). Record results here; when the local run (B1-B8) passes, add the line `BLENDER LOCAL PC RUN RECORDED` below and only then remove the "not yet tried" notes
+
+Local mode, real Blender on this Windows PC (no downloads if Blender is installed):
+
+| # | Check | State |
+|---|---|---|
+| B1 | `blender.exe --version`; Settings, Blender: detection finds it and mode Automatic says "Next script runs: on this computer" | todo |
+| B2 | Cube plus GLB: approve the card; `<workspace>\blender-exports\<task>\*.glb` exists; `scene.blend` and `backups\` exist under `%APPDATA%\legion\blender\local\<task>\`. Repeat for FBX and a PNG preview (`blender_screenshot`). This is the check that the Python write guard does not break the exporters; if one is blocked, add its temp location to the guard's allowlist and record why (or set `advanced.local.guard` to `log` and say so in the docs) | todo |
+| B3 | Through the real runner with a hand-written script (below the static check): a write outside the task folder is blocked; an infinite loop is stopped at 120 s and `blender.exe` and its children are gone from Task Manager | todo |
+| B4 | A hand-written script that lists `os.environ`: no Legion or API variables | todo |
+| B5 | With the community add-on installed and `blendermcp_auto_start_server` on, a local run opens no socket on 9876 (`netstat`) | todo |
+| B6 | Path cases: user name with a space; long task path; OneDrive-redirected `Documents` as the workspace | todo |
+| B7 | Mode switch: VM and Live give the errors from the decision table in `docs/BLENDER.md`; a config file with `"sandbox":"off"` loads as live | todo |
+| B8 | Antivirus or SmartScreen prompts on the first start of the runner: note them | todo |
+
+Needs the owner present (downloads or accounts):
+
+| # | Check | State |
+|---|---|---|
+| B9 | **TODO OWNER PC:** reproduce the community add-on pin. PowerShell: `curl.exe -sSL https://raw.githubusercontent.com/ahujasid/mcp-for-blender/91cd735cc09fc75551de3347ebc7afdd69f3492e/addon.py -o addon.py; (Get-FileHash addon.py -Algorithm SHA256).Hash.ToLower()` must print `eb0facf6...97fa5` (full value `eb0facf69781a30e69792532087d8d41c6a14fcd323353250abe7988ee297fa5`). If it differs, take the PC's value and re-check `git log -1 -- addon.py` on a clone. Then run Set up for the community add-on once | todo |
+| B10 | **TODO OWNER PC:** official extension install on a real Blender 5.1+ (needs `uv`): Set up runs `ext-build`, `ext-repo`, `ext-install`, `verify`; confirm the repo id from `repo-list`, that `--enable` persists, that `install-file` accepts the built zip, and the output formats of `repo-list` and `list`; then start the server from the sidebar panel and press Test connection (the first start downloads the server's Python packages) | todo |
+| B11 | **TODO OWNER PC:** VM mode regression after the `exports.ts` refactor (needs the boat.dev key; item C covers the VM checks) | todo |
