@@ -11,6 +11,7 @@ import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { PassThrough } from 'node:stream';
+import { fileURLToPath } from 'node:url';
 import { ADMIN_STDIN_FLAG, healthProof, readAdminSecret, readSecretFromStream } from '../src/core/admin.js';
 import { adminForRenderer } from '../src/electron/admin-logic.js';
 import { makeFakes, start, TEST_ADMIN } from './helpers-c.js';
@@ -67,7 +68,7 @@ test('readAdminSecret: only when the flag says stdin; the flag is removed; env v
 
 // ---------------------------------------------------------------- a real spawned core
 
-const coreJs = new URL('../src/bin/legion-core.js', import.meta.url).pathname;
+const coreJs = fileURLToPath(new URL('../src/bin/legion-core.js', import.meta.url)); // not .pathname: "/D:/..." on Windows
 const freePort = (): Promise<number> => new Promise((res, rej) => {
   const s = createServer(); s.once('error', rej);
   s.listen(0, '127.0.0.1', () => { const p = (s.address() as { port: number }).port; s.close(() => res(p)); });
