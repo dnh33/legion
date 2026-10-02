@@ -1,12 +1,11 @@
-/** S8: file helpers that do not follow links. Real temp folders and real symbolic links (skipped on Windows, where creating links needs privileges). */
+/** S8: file helpers that do not follow links. Real temp folders and real links: symlinks on POSIX, junctions (directories) and hard links (files) on Windows, where a file symlink needs privilege. */
 import assert from 'node:assert/strict';
-import { lstatSync, mkdirSync, readdirSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs';
+import { lstatSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join, sep } from 'node:path';
 import test from 'node:test';
 import { findLink, isInside, resolveFolder, safeWriteFile } from '../src/core/blender/fs-safe.js';
 import { tmp } from './blender-helpers.js';
-
-const links = process.platform !== 'win32';
+import { fileLinkOrSkip, linkOrSkip } from './fs-links.js';
 
 test('resolveFolder: a missing folder resolves under its real parent; a file is not a folder', () => {
   const d = tmp();
@@ -16,10 +15,10 @@ test('resolveFolder: a missing folder resolves under its real parent; a file is 
   assert.equal(resolveFolder(join(d, 'f')).ok, false);
 });
 
-test('resolveFolder: a folder that is itself a link is refused, and so is a missing folder below a link that leaves the parent', { skip: !links }, () => {
+test('resolveFolder: a folder that is itself a link is refused, and so is a missing folder below a link that leaves the parent', (t) => {
   const d = tmp();
   const out = tmp('legion-out-');
-  symlinkSync(out, join(d, 'ln'));
+  if (!linkOrSkip(t, out, join(d, 'ln'), 'dir')) return;
   const r = resolveFolder(join(d, 'ln'));
   assert.equal(r.ok, false);
   // a link in the middle is resolved to its real target (which isInside then rejects for a workspace check)
@@ -37,11 +36,11 @@ test('isInside: equal or below, never a sibling that shares a prefix', () => {
   assert.equal(isInside(p('a'), p('a', 'b')), false);
 });
 
-test('findLink: finds a link nested in the folder, none in a clean folder', { skip: !links }, () => {
+test('findLink: finds a link nested in the folder, none in a clean folder', (t) => {
   const d = tmp();
   mkdirSync(join(d, 'x', 'y'), { recursive: true });
   assert.equal(findLink(d), null);
-  symlinkSync(tmp('legion-out-'), join(d, 'x', 'y', 'planted'));
+  if (!linkOrSkip(t, tmp('legion-out-'), join(d, 'x', 'y', 'planted'), 'dir')) return;
   assert.equal(findLink(d), join(d, 'x', 'y', 'planted'));
 });
 
@@ -54,22 +53,23 @@ test('safeWriteFile: writes a new file, leaves no temp file, replaces an existin
   assert.deepEqual(readdirSync(join(d, 'out')), ['a.bin']);
 });
 
-test('safeWriteFile: a link at the final name is REPLACED, the file it pointed to is untouched', { skip: !links }, () => {
+test('safeWriteFile: a link at the final name is REPLACED, the file it pointed to is untouched', (t) => {
   const d = tmp();
   const victim = join(tmp('legion-out-'), 'victim.txt');
   writeFileSync(victim, 'original');
   mkdirSync(join(d, 'out'));
-  symlinkSync(victim, join(d, 'out', 'a.bin'));
+  // a hard link where a file symlink is not allowed: the product replaces the name (temp + rename), so the victim is untouched either way
+  if (!fileLinkOrSkip(t, victim, join(d, 'out', 'a.bin'))) return;
   safeWriteFile(join(d, 'out'), 'a.bin', Buffer.from('new'));
   assert.equal(readFileSync(victim, 'utf8'), 'original');
   assert.equal(lstatSync(join(d, 'out', 'a.bin')).isSymbolicLink(), false);
   assert.equal(readFileSync(join(d, 'out', 'a.bin'), 'utf8'), 'new');
 });
 
-test('safeWriteFile: a folder that is a link is refused, and nothing is written through it', { skip: !links }, () => {
+test('safeWriteFile: a folder that is a link is refused, and nothing is written through it', (t) => {
   const d = tmp();
   const out = tmp('legion-out-');
-  symlinkSync(out, join(d, 'ln'));
+  if (!linkOrSkip(t, out, join(d, 'ln'), 'dir')) return;
   assert.throws(() => safeWriteFile(join(d, 'ln'), 'a.bin', Buffer.from('x')), /symbolic link|refusing/);
   assert.deepEqual(readdirSync(out), []);
 });
