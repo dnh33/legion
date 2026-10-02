@@ -13,6 +13,7 @@ import { dirname } from 'node:path';
 import { Readable, Transform } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import type { BlenderIo } from './setup.js';
+import type { ProcessPort, SpawnedProcess, SpawnRequest } from './ports.js';
 import type { DetectEnv, RunResult } from './detect.js';
 import { PYTHON_UTF8_ENV } from './backend.js';
 
@@ -130,5 +131,87 @@ export function createRealIo(): BlenderIo {
       child.unref();
     },
     now: () => new Date(),
+  };
+}
+
+// ---------------------------------------------------------------------------------------------------------------------------------
+// Local headless Blender: the only place that starts or stops the process for a local run (local.ts takes a ProcessPort)
+// ---------------------------------------------------------------------------------------------------------------------------------
+
+const pidAlive = (pid: number): boolean => { try { process.kill(pid, 0); return true; } catch (e) { return (e as NodeJS.ErrnoException).code === 'EPERM'; } };
+
+/**
+ * Stops a process and everything it started, by PID (never by name). Windows: `taskkill /PID <pid> /T /F` through execFile (no shell).
+ * POSIX: the child was started as a group leader (detached), so the whole group gets SIGKILL. Resolves true when the PID is gone.
+ */
+export async function killTree(pid: number): Promise<boolean> {
+  if (!Number.isInteger(pid) || pid <= 0) return false;
+  if (process.platform === 'win32') {
+    await new Promise<void>((resolve) => {
+      try { execFile('taskkill', ['/PID', String(pid), '/T', '/F'], { windowsHide: true, timeout: 15_000 }, () => resolve()); } catch { resolve(); }
+    });
+  } else {
+    try { process.kill(-pid, 'SIGKILL'); } catch { try { process.kill(pid, 'SIGKILL'); } catch { /* already gone */ } }
+  }
+  for (let i = 0; i < 50 && pidAlive(pid); i++) await new Promise((r) => setTimeout(r, 100));
+  return !pidAlive(pid);
+}
+
+/**
+ * Starts one program: argument array, shell:false, windowsHide, the COMPLETE environment given (never merged with process.env), stdout and
+ * stderr read through a counter. Above `maxOutputBytes` the process tree is killed and `exited` reports error 'output limit'.
+ */
+export function spawnManaged(file: string, req: SpawnRequest): SpawnedProcess {
+  const out: Buffer[] = [];
+  const err: Buffer[] = [];
+  let total = 0;
+  let capped = false;
+  let child: ReturnType<typeof spawn>;
+  try {
+    child = spawn(file, req.args, { cwd: req.cwd, env: req.env, shell: false, windowsHide: true, detached: process.platform !== 'win32', stdio: ['ignore', 'pipe', 'pipe'] });
+  } catch (e) {
+    return { pid: undefined, exited: Promise.resolve({ code: null, signal: null, error: e instanceof Error ? e.message : String(e) }), stdout: () => '', stderr: () => '' };
+  }
+  const take = (into: Buffer[]) => (chunk: Buffer) => {
+    if (capped) return;
+    const room = req.maxOutputBytes - total;
+    if (chunk.length > room) {
+      if (room > 0) into.push(chunk.subarray(0, room));
+      total = req.maxOutputBytes;
+      capped = true;
+      if (child.pid) void killTree(child.pid);
+      return;
+    }
+    total += chunk.length;
+    into.push(chunk);
+  };
+  child.stdout?.on('data', take(out));
+  child.stderr?.on('data', take(err));
+  const exited = new Promise<{ code: number | null; signal: string | null; error?: string }>((resolve) => {
+    let settled = false;
+    const done = (code: number | null, signal: string | null, error?: string) => {
+      if (settled) return;
+      settled = true;
+      resolve({ code, signal, ...(capped ? { error: 'output limit' } : error ? { error } : {}) });
+    };
+    child.on('error', (e) => done(null, null, e.message));
+    // 'exit' fires when the process ends; a grandchild that keeps the pipes open must not hold the result back
+    child.on('exit', (code, signal) => { const t = setTimeout(() => done(code, signal), 300); t.unref?.(); child.once('close', () => { clearTimeout(t); done(code, signal); }); });
+  });
+  return { pid: child.pid, exited, stdout: () => Buffer.concat(out).toString('utf8'), stderr: () => Buffer.concat(err).toString('utf8') };
+}
+
+/**
+ * The ProcessPort for local runs. Production spawns only the detected Blender executable; `file` and `prefixArgs` in a request are a test seam
+ * (a fake blender run as `node fake.mjs ...`) and no production caller sets them.
+ */
+export function createProcessPort(blenderExe: () => string | undefined): ProcessPort {
+  return {
+    spawn(req) {
+      const exe = req.file ?? blenderExe();
+      if (!exe) return { pid: undefined, exited: Promise.resolve({ code: null, signal: null, error: 'Blender was not found on this computer' }), stdout: () => '', stderr: () => '' };
+      return spawnManaged(exe, { args: [...(req.prefixArgs ?? []), ...req.args], cwd: req.cwd, env: req.env, maxOutputBytes: req.maxOutputBytes });
+    },
+    kill: killTree,
   };
 }
