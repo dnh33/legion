@@ -214,6 +214,8 @@
 .mx.mxs-rail.mxs-victory .fx-spark { animation: mx-burst 1.6s ease-out var(--d) 2; }
 .mx.mxs-rail.mxs-error .mx-halo-back, .mx.mxs-rail.mxs-error .mx-halo-front { animation: none; filter: saturate(.4) brightness(.8); }
 .mx.mxs-rail.mxs-sleeping .fx-z { animation: none; opacity: .85; }
+/* rail tiles are stills: whatever state they show, nothing on them animates (the stage mascot is the only live one) */
+.mx.mxs-rail, .mx.mxs-rail * { animation: none !important; transition: none !important; }
 
 /* ---------------------------------------------------------------------------------------------------
    Perf round M. The painted art inside a stage layer is about 1,900 SVG nodes. Chromium hit-tests the page after every layout (the

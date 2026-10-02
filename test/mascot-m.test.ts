@@ -227,4 +227,43 @@ test('M (DOM): the clock only runs while a SMIL state is shown, holds its place 
   await (p as unknown as { close(): Promise<void> }).close();
 });
 
+test('R (DOM): rail avatars are stills: no running animation in any state, no timers, no shared runtime, no listeners; the stage mascot still lives', { skip }, async () => {
+  const p = await openPage(STAGE_HTML);
+  const r = await p.evaluate(`(async () => {
+    const eng = await import('/engine.js'); const data = await (await fetch('/relic.json')).json();
+    let ptrListeners = 0; const add = window.addEventListener.bind(window);
+    window.addEventListener = (t, ...a) => { if (t === 'pointermove') ptrListeners++; return add(t, ...a); };
+    const host = document.getElementById('host');
+    const rail = eng.createMascot(host, data, { rail: true });
+    const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+    const out = { states: {} };
+    for (const st of ['idle', 'thinking', 'hacking', 'awaiting', 'victory', 'error', 'sleeping']) {
+      rail.setState(st); await sleep(250);
+      out.states[st] = host.getAnimations({ subtree: true }).length;
+    }
+    rail.setState('idle'); await sleep(300);
+    out.stills = host.querySelector('.mx').classList.contains('mxs-still');
+    out.runtime = eng.runtimeStats ? eng.runtimeStats() : null;
+    out.ptr = ptrListeners;
+    const x = rail.el.querySelector('.mx-layer'); out.willChange = x ? getComputedStyle(x).willChange : '';
+    rail.destroy();
+    const host2 = document.getElementById('host2');
+    const stage = eng.createMascot(host2, data, {});
+    stage.setState('thinking'); await sleep(900);
+    out.stageMotionTracks = stage.motion.tracks;
+    out.stageClock = stage.motion.hz;
+    stage.destroy();
+    return out;
+  })()`) as { states: Record<string, number>; stills: boolean; runtime: { items: number; queued: number; rafPending: boolean } | null; ptr: number; stageMotionTracks: number; stageClock: number };
+  for (const [st, n] of Object.entries(r.states)) assert.equal(n, 0, `rail ${st}: ${n} animations running (a still tile runs none)`);
+  assert.equal(r.stills, true, 'the tile is marked mxs-still');
+  assert.equal(r.runtime?.items, 0, 'a rail tile does not join the shared runtime');
+  assert.equal(r.runtime?.queued, 0, 'no blink or idle-verb timer is queued');
+  assert.equal(r.runtime?.rafPending, false, 'no pointer loop');
+  assert.equal(r.ptr, 0, 'no global pointermove listener for a rail tile');
+  assert.equal(r.stageMotionTracks, 27, 'the stage mascot still plays its motion');
+  assert.equal(r.stageClock, 12);
+  await (p as unknown as { close(): Promise<void> }).close();
+});
+
 test.after(async () => { await browser?.close(); });

@@ -555,13 +555,13 @@ export function createMascot(host, data, opts = {}) {
       loopVerb();
     }, (span[0] + Math.random() * (span[1] - span[0])) * tempo);
   }
-  if (!reduced) {
+  // Rail avatars are still pictures: no blinks, no idle verbs, no look-arounds, no pointer tracking (owner's call: only the big stage mascot of the
+  // selected agent lives; the rest of the rail is just painted tiles, so it costs nothing while it sits there). Only the stage runs this block.
+  if (!reduced && !rail) {
     loopBlink();
     if (verbsApi) loopVerb();
-    if (!rail) {
-      loopLook();
-      if (!verbsApi) loopTrick();
-    }
+    loopLook();
+    if (!verbsApi) loopTrick();
   }
 
   // pointer tracking (eyes follow the cursor anywhere on the page) + hover lean.
@@ -619,9 +619,8 @@ export function createMascot(host, data, opts = {}) {
       },
     };
     root.__mxItem = item;
-    rtJoin(item);
-    RT.io?.observe(root);
-    if (RT.hidden) root.classList.add('mxs-paused');
+    // not joined to the shared runtime on purpose: a still tile needs no pointer loop, visibility switch or observer (see the life block above)
+    root.classList.add('mxs-still');
   } else if (!reduced) {
     window.addEventListener('pointermove', onMove, { passive: true });
     document.documentElement.addEventListener('mouseleave', onLeaveDoc);
@@ -633,8 +632,10 @@ export function createMascot(host, data, opts = {}) {
     window.addEventListener('blur', onBlur);
     window.addEventListener('focus', onFocus);
   }
-  hoverHost.addEventListener('pointerenter', onEnter);
-  hoverHost.addEventListener('pointerleave', onLeave);
+  if (!rail) {
+    hoverHost.addEventListener('pointerenter', onEnter);
+    hoverHost.addEventListener('pointerleave', onLeave);
+  }
 
   // interaction: bonk + quip, double-click spin, 5 quick pokes = annoyed (stage only: rail busts live inside a button)
   const quips = opts.quips || [];
