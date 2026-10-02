@@ -8,6 +8,7 @@ import { FULL_BLENDER_TEXT, GET_BLENDER_NOT_PINNED, GET_BLENDER_TEXT, LOCAL_SAFE
 import { lightLabel, loadBlender, runBlenderGet, runBlenderLaunch, runBlenderSetup, runBlenderTest, saveBlenderConfig, useBlender } from '../blender/blenderStore';
 import '../blender/blender.css';
 import { Icon } from './icons';
+import { UpdatePanel } from './UpdatePanel';
 
 const NAV: { id: SettingsSection; label: string; hint: string }[] = [
   { id: 'claude', label: 'Claude', hint: 'Sign-in, key, runs' },
@@ -565,6 +566,7 @@ function AboutSection({ s }: { s: SettingsView }) {
           <div key={k}><dt>{k}</dt><dd><code>{v}</code>{copy && <button type="button" className="btn-ghost sm" onClick={() => void copyText(v).then((ok) => ok && toast('Copied'))}><Icon name="copy" size={12} /> Copy</button>}</dd></div>
         ))}
       </dl>
+      <UpdatePanel />
     </div>
   );
 }
