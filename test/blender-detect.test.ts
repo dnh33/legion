@@ -146,3 +146,22 @@ test('chooseBackend: official on 5.1+, community below, explicit choices honoure
   assert.equal(chooseBackend('community', inst('2.8.0')).kind, null);
   assert.match(chooseBackend('auto', inst('4.2.0', { versionGuessed: true })).reason, /folder name/);
 });
+
+test('blender-launcher.exe is never accepted: it detaches and loses stdout, so only blender.exe counts', async () => {
+  const dir = 'C:\\Program Files\\Blender Foundation\\Blender 5.1';
+  // an install path that points at the launcher
+  const launcher = `${dir}\\blender-launcher.exe`;
+  const a = await detectInstalls(fake({ files: [launcher], versions: { [launcher]: '5.1.0' } }), launcher);
+  assert.deepEqual(a, []);
+  // a folder that holds both: the real executable is found, the launcher is not
+  const real = `${dir}\\blender.exe`;
+  const b = await detectInstalls(fake({ files: [launcher, real], versions: { [real]: '5.1.0', [launcher]: '5.1.0' } }), dir);
+  assert.deepEqual(b.map((i) => i.path), [real]);
+  // PATH entries and the Program Files scan never produce the launcher name
+  const c = await detectInstalls(fake({ files: [launcher, real], dirs: { 'C:\\Program Files\\Blender Foundation': ['Blender 5.1'] }, versions: { [real]: '5.1.0' } }));
+  assert.ok(c.length >= 1 && c.every((i) => !/launcher/i.test(i.path)));
+  // an executable that exits 0 and prints nothing for --version is a wrapper, not a Blender whose output can be read
+  const silent = `${dir}\\blender.exe`;
+  const d = await detectInstalls({ ...fake({ files: [silent] }), run: async () => ({ code: 0, stdout: '', stderr: '' }) }, silent);
+  assert.deepEqual(d, []);
+});
