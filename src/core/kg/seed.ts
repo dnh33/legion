@@ -4,13 +4,14 @@
  * Every node needs a stable id, a title and at least one source; scope is forced to "bsv", author to "system".
  */
 import { createHash } from 'node:crypto';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync, statSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { KG_LIMITS } from '../../shared/kg.js';
 import type { KgNode, KgNodeType, KgSource } from '../../shared/kg.js';
 import { ENGINE_PROPS, validateLinkFields } from './graph.js';
 import type { Graph } from './graph.js';
-import { isNodeType, KgError, SYSTEM } from './types.js';
+import { statusOf } from './text.js';
+import { HUMAN, isNodeType, KgError, SYSTEM } from './types.js';
 import type { NodeInput } from './types.js';
 
 export const BSV_SEED_PATH = fileURLToPath(new URL('./seeds/bsv.json', import.meta.url));
@@ -277,4 +278,70 @@ export function applySeedPack(graph: Graph, bundled: SeedPack, opts: SeedOptions
   }
   const status = from === 0 ? 'loaded' : upgrading ? 'upgraded' : 'repaired';
   return { status, from, to: pack.version, nodes: pack.nodes.length, created, added: created, updated, edges, skippedEdited, skippedRemoved, restored: restore };
+}
+
+/**
+ * What the graph really holds in scope bsv, measured against the bundled pack by NODE ID (never by a count, never guessed). Read only.
+ * `inGraph` is what the owner has as live notes: every scope-bsv node whose status is active, pack notes and the owner's own. Retired notes
+ * (archived, superseded, or waiting for review) are listed apart, so the number moves only when a note really is added, removed or retired.
+ * The pack ids split exactly: bundled = packActive + retired + moved + removed + notLoaded.
+ */
+export interface SeedSummary {
+  bundled: { count: number; version: number };
+  /** Live (active) scope-bsv notes: the number the title bar shows. */
+  inGraph: number;
+  /** Pack notes that are live. */
+  packActive: number;
+  /** Pack notes still in the graph but archived (merged, retired or rejected), superseded or held for review: they do not count as live. */
+  retired: number;
+  /** Pack notes that still exist but outside the bsv scope (the owner moved them): not counted, and never offered for restore, so a restore cannot overwrite them. */
+  moved: number;
+  /** Pack notes absent from the graph that the owner deleted (or whose retired copy was purged): on the removal ledger, so an upgrade does not bring them back. */
+  removed: number;
+  /** Pack notes absent and not on the ledger: the pack was never loaded, or only partly. */
+  notLoaded: number;
+  /** removed + retired: "removed or merged by you or a bot". */
+  removedOrMerged: number;
+  /** Live scope-bsv notes that are not in the bundled pack (the owner's own, or kept from an older pack). */
+  added: number;
+  /** The same kind of notes, but retired. */
+  addedRetired: number;
+  /** removed + notLoaded: pack notes that are not in the graph at all. */
+  missing: number;
+  /** Their ids (what the existing restore option takes). Notes that exist nowhere in the graph only: restoring them overwrites nothing. */
+  missingIds: string[];
+  /** The version the graph's index note records (0 = none loaded). */
+  loadedVersion: number;
+}
+
+let packIdsCache: { key: string; ids: string[]; version: number } | undefined;
+function packIds(path: string): { ids: string[]; version: number } {
+  let key = path;
+  try { const st = statSync(path); key = `${path}|${st.mtimeMs}|${st.size}`; } catch { /* loadBsvSeed reports it */ }
+  if (packIdsCache?.key === key) return packIdsCache;
+  const p = loadBsvSeed(path);
+  packIdsCache = { key, ids: p.nodes.map((n) => n.id), version: p.version ?? 1 };
+  return packIdsCache;
+}
+
+export function summarizeBsvPack(graph: Graph, path: string = BSV_SEED_PATH): SeedSummary {
+  const pack = packIds(path);
+  const inPack = new Set(pack.ids);
+  const ledger = new Set(graph.seedRemoved().nodes);
+  let packActive = 0; let retired = 0; let added = 0; let addedRetired = 0;
+  const present = new Set<string>();
+  for (const n of graph.allNodes(HUMAN)) {
+    if (n.scope !== 'bsv') continue;
+    const live = statusOf(n) === 'active';
+    if (inPack.has(n.id)) { present.add(n.id); if (live) packActive++; else retired++; } else if (live) added++; else addedRetired++;
+  }
+  const absentFromBsv = pack.ids.filter((id) => !present.has(id));
+  const moved = absentFromBsv.filter((id) => !!graph.getNode(HUMAN, id)).length;
+  const missingIds = absentFromBsv.filter((id) => !graph.getNode(HUMAN, id));
+  const removed = missingIds.filter((id) => ledger.has(id)).length;
+  const index = graph.getNode(HUMAN, pack.ids.includes(BSV_INDEX_ID) ? BSV_INDEX_ID : pack.ids[0]!);
+  return {
+    bundled: { count: pack.ids.length, version: pack.version }, inGraph: packActive + added, packActive, retired, moved, removed, notLoaded: missingIds.length - removed,
+    removedOrMerged: removed + retired, added, addedRetired, missing: missingIds.length, missingIds, loadedVersion: index ? loadedVersion(index) : 0,
+  };
 }

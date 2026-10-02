@@ -68,9 +68,9 @@ test('overlay: testnet shows the network and the block height only when a testne
   assert.deepEqual(a.tiers[0], ['TESTNET · knowledge mode', 'block 1,234,567']);
   assert.equal(a.pill, null);
   assert.equal(a.showFreeze, false);
-  assert.deepEqual(model({ wallet: wallet({ condition: 'not-detected', reachable: false, height: null }) }).tiers[0], ['TESTNET · knowledge mode', '157 bsv nodes']);
-  assert.deepEqual(model({ wallet: null, knowledgeLoaded: false }).tiers[0], ['TESTNET · knowledge mode']);
-  assert.deepEqual(model({ wallet: wallet({ condition: 'unknown-network', network: 'unknown' }) }).tiers[0], ['TESTNET · knowledge mode', '157 bsv nodes'], 'no height from a wallet that did not say testnet');
+  assert.deepEqual(model({ wallet: wallet({ condition: 'not-detected', reachable: false, height: null }) }).tiers[0], ['TESTNET · knowledge mode', '157 BSV notes']);
+  assert.deepEqual(model({ wallet: null, knowledgeLoaded: false, nodes: null }).tiers[0], ['TESTNET · knowledge mode', 'BSV notes: unknown'], 'an unreadable count is unknown, not hidden and not 0');
+  assert.deepEqual(model({ wallet: wallet({ condition: 'unknown-network', network: 'unknown' }) }).tiers[0], ['TESTNET · knowledge mode', '157 BSV notes'], 'no height from a wallet that did not say testnet');
   assert.equal(model().tiers.at(-1)![0], 'TESTNET', 'the shortest tier is still honest');
 });
 

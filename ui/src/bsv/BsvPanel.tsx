@@ -1,10 +1,10 @@
 import { useState } from 'react';
 import { Modal } from '../components/Modal';
 import { request } from '../api';
-import { auditLine, formatCountdown, heightText, mainnetState, netRows, remainingMs, safeLine, spendModel, walletHeadline } from '../../../src/shared/bsv-view';
+import { auditLine, formatCountdown, heightText, knowledgeExplain, knowledgeShort, KNOWLEDGE_STALE_MS, mainnetState, netRows, remainingMs, safeLine, spendModel, walletHeadline } from '../../../src/shared/bsv-view';
 import type { NetRow, PolicyView } from '../../../src/shared/bsv-view';
 import { toast } from '../store';
-import { canChangePolicy, changePolicy, checkWallet, closeBsvPanel, connectWallet, disconnectWallet, loadAudit, useBsv } from './bsvStore';
+import { canChangePolicy, changePolicy, checkWallet, closeBsvPanel, connectWallet, disconnectWallet, loadAudit, restoreBundledNotes, useBsv } from './bsvStore';
 import './bsv.css';
 
 const sats = (n: number) => `${n.toLocaleString('en-US')} sat`;
@@ -75,6 +75,31 @@ function ArmSection({ p }: { p: PolicyView }) {
           : <button type="button" className="btn-ghost bsv-freeze-btn" disabled={!bridge || changing} onClick={() => void changePolicy({ kind: 'freeze' })}>Freeze chain</button>}
       </div>
       <p className="bsv-fine">Allowing mainnet, arming and unfreezing open a native confirmation from the app, which this window cannot answer for you. Switching mainnet off, Disarm and Freeze act at once. Arming covers exactly one mainnet spend, and each spend still needs your dialogs and then your wallet&apos;s own prompt, which is the last gate. <b>Testnet spends do not need Arm.</b> Legion&apos;s mainnet path has not been checked with real funds.</p>
+    </section>
+  );
+}
+
+function KnowledgeSection() {
+  const nodes = useBsv((s) => s.knowledgeNodes);
+  const k = useBsv((s) => s.knowledge);
+  const at = useBsv((s) => s.knowledgeAt);
+  const changing = useBsv((s) => s.changing);
+  const bridge = true; // the restore goes through the same admin-gated route the Library uses; no native secret is involved
+  const fresh = Date.now() - at <= KNOWLEDGE_STALE_MS;
+  const known = fresh && !!k && typeof nodes === 'number';
+  return (
+    <section className="bsv-sec" aria-labelledby="bsv-h-know">
+      <h3 id="bsv-h-know">Knowledge notes</h3>
+      <p className={`bsv-line${known ? '' : ' warn'}`} data-knowledge={known ? 'known' : 'unknown'}>
+        {known ? knowledgeShort(nodes, k, true) : 'BSV notes: unknown. The count could not be read just now; it is not zero.'}
+      </p>
+      {known && <p className="bsv-fine" data-knowledge-explain>{knowledgeExplain(k)}.</p>}
+      {known && k.missing > 0 && (
+        <div className="bsv-row">
+          <button type="button" className="btn" disabled={!bridge || changing} onClick={() => void restoreBundledNotes()}>Restore {k.missing} missing bundled note{k.missing === 1 ? '' : 's'}</button>
+        </div>
+      )}
+      <p className="bsv-fine">The number is live notes in the BSV scope, counted by note id against the bundled pack. Restore adds back only notes that are not in your graph at all (never loaded, or deleted); a note that exists, edited or not, is not touched. Notes that were merged or retired stay as they are: bring one back from the Library.</p>
     </section>
   );
 }
@@ -208,6 +233,7 @@ export function BsvPanel() {
       <div className="bsv-panel">
         <p className="bsv-lead"><span className="bsv-badge" data-net={mn.enabled ? 'main' : 'test'}>{mn.enabled ? (mn.armed ? 'MAINNET ARMED' : 'MAINNET ON, not armed') : 'TESTNET'}</span> The Assayer can explain, draft and review, can ask whether a wallet is there, and can ask for one payment. <b>{'Legion\'s own code holds no keys: a payment needs your confirmation in native dialogs and then your wallet\'s own prompt.'}</b> An agent&apos;s ordinary tools (a shell, web access) are outside that statement: they are limited by their own approval cards, not by anything on this panel.</p>
         <WalletSection />
+        <KnowledgeSection />
         {p && <SpendSection p={p} />}
         {p ? <ArmSection p={p} /> : <section className="bsv-sec"><h3>Live funds</h3><p className="bsv-line">Loading policy&hellip;</p></section>}
         <ActivitySection verifiedEntries={p?.audit.entries ?? 0} policyOk={p?.audit.ok ?? true} policyReason={p?.audit.reason} />

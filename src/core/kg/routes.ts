@@ -4,7 +4,7 @@ import { HttpError } from '../server.js';
 import type { Ctx, Handler } from '../server.js';
 import type { RouteAdder } from '../modules.js';
 import type { Graph } from './graph.js';
-import { applySeedPack, BSV_SEED_PATH, loadBsvSeed } from './seed.js';
+import { applySeedPack, BSV_SEED_PATH, loadBsvSeed, summarizeBsvPack } from './seed.js';
 import { HUMAN, KgError } from './types.js';
 import type { NodeInput } from './types.js';
 import { exportLibrary, exportVault, importVault } from './vault.js';
@@ -166,6 +166,12 @@ export function addKgRoutes(add: RouteAdder, d: RouteDeps): void {
     // mode "library": mirror the bots' shared notes into <dir>/legion/ only; the default exports everything into dir itself
     if (b.mode !== undefined && b.mode !== 'all' && b.mode !== 'library') throw new HttpError(400, 'mode must be "all" or "library"');
     return b.mode === 'library' ? exportLibrary(g(), dir) : exportVault(g(), HUMAN, dir);
+  }));
+
+  // READ ONLY: what the graph holds in scope bsv against the bundled pack, by node id (the title-bar number and its explanation). Writes nothing.
+  add('GET', '/api/kg/seed/bsv', wrap(() => {
+    if (!d.bsvEnabled()) throw new HttpError(409, 'BSV mode is off.');
+    return summarizeBsvPack(g(), d.seedPath ?? BSV_SEED_PATH);
   }));
 
   // body {restore:[node ids]}: bring named pack nodes back (deleted ones with their links, edited ones reset to the pack text)

@@ -73,6 +73,37 @@ export interface OverlayModel {
   pill: { kind: 'armed' | 'pending' | 'frozen' | 'mainnet' | 'unknown'; text: string } | null;
 }
 
+/** GET /api/bsv `knowledge`: the live count measured against the bundled pack by note id (see src/core/kg/seed.ts summarizeBsvPack). */
+export interface KnowledgeSummary {
+  bundled: { count: number; version: number };
+  inGraph: number; packActive: number; retired: number; moved: number; removed: number; notLoaded: number; removedOrMerged: number;
+  added: number; addedRetired: number; missing: number; missingIds: string[]; loadedVersion: number;
+}
+
+/** A count older than three polls is not shown as a number: a slow or failed read must say "unknown", never an old figure or 0. */
+export const KNOWLEDGE_STALE_MS = 3 * 60_000;
+
+/** The title-bar words. `n` is the live count (null = could not be read), `fresh` false = too old to trust. */
+export function knowledgeShort(n: number | null | undefined, k: KnowledgeSummary | null | undefined, fresh = true): string {
+  if (!fresh || typeof n !== 'number' || !Number.isSafeInteger(n) || n < 0) return 'BSV notes: unknown';
+  const word = `${n.toLocaleString('en-US')} BSV note${n === 1 ? '' : 's'}`;
+  return k && k.bundled.count !== n ? `${word} (pack ${k.bundled.count})` : word;
+}
+
+/** The explanation of the number, computed from note ids (never guessed). Empty when there is nothing to explain. */
+export function knowledgeExplain(k: KnowledgeSummary | null | undefined): string {
+  if (!k) return '';
+  const base = `bundled pack: ${k.bundled.count} notes (version ${k.bundled.version}); in your graph: ${k.inGraph}; removed or merged by you or a bot: ${k.removedOrMerged}; added by you: ${k.added}; missing: ${k.missing}`;
+  const more: string[] = [];
+  if (k.loadedVersion !== k.bundled.version) more.push(`installed pack version: ${k.loadedVersion === 0 ? 'none' : k.loadedVersion}`);
+  if (k.notLoaded > 0) more.push(`${k.notLoaded} not loaded yet`);
+  if (k.removed > 0) more.push(`${k.removed} deleted by you`);
+  if (k.moved > 0) more.push(`${k.moved} moved out of the BSV scope`);
+  if (k.retired > 0) more.push(`${k.retired} still in the graph but retired`);
+  if (k.addedRetired > 0) more.push(`${k.addedRetired} of your own retired`);
+  return more.length ? `${base} (${more.join('; ')})` : base;
+}
+
 export const MAINNET_SENTENCE = 'The wallet is on MAINNET; Legion is in testnet knowledge mode; Legion will not use it.';
 /** The same warning once the owner has switched mainnet on: it must not say Legion will not use it. */
 export const MAINNET_ON_SENTENCE = 'The wallet says it is on MAINNET and mainnet is switched on in Legion. Each spend still needs Arm, your confirmations and the wallet\'s own prompt.';
@@ -98,14 +129,14 @@ export function heightText(h: unknown): string {
 }
 
 /** The decision for the title bar, the pill and the Freeze button. `now` only matters for an armed state that has run out. */
-export function overlayModel(i: { enabled: boolean; policy: PolicyView | null; wallet: WalletView | null; nodes?: number; knowledgeLoaded?: boolean; now: number }): OverlayModel {
+export function overlayModel(i: { enabled: boolean; policy: PolicyView | null; wallet: WalletView | null; nodes?: number | null; knowledge?: KnowledgeSummary | null; knowledgeLoaded?: boolean; knowledgeAt?: number; now: number }): OverlayModel {
   if (!i.enabled) return { mode: 'off', mainnetWarning: false, showFreeze: false, tiers: [], pill: null };
   const p = i.policy;
   const mainnetWarning = i.wallet?.condition === 'mainnet-warning';
   const armed = !!p && p.armed && remainingMs(p, i.now) > 0 && !p.frozen;
   const frozen = !!p?.frozen;
   const pending = (p?.pending.length ?? 0);
-  const count = i.knowledgeLoaded && (i.nodes ?? 0) > 0 ? `${i.nodes} bsv node${i.nodes === 1 ? '' : 's'}` : '';
+  const count = knowledgeShort(i.nodes, i.knowledge, i.knowledgeAt === undefined ? true : i.now - i.knowledgeAt <= KNOWLEDGE_STALE_MS);
   const block = i.wallet?.condition === 'testnet' && heightText(i.wallet.height) ? `block ${heightText(i.wallet.height)}` : '';
   const second = block || count;
   const showFreeze = (armed || pending > 0) && !frozen;

@@ -108,10 +108,12 @@ export function ChainOverlay() {
   const panel = useBsv((s) => s.panelOpen);
   const nodes = useBsv((s) => s.knowledgeNodes);
   const loaded = useBsv((s) => s.knowledgeLoaded);
+  const knowledge = useBsv((s) => s.knowledge);
+  const knowledgeAt = useBsv((s) => s.knowledgeAt);
   const policy = useBsv((s) => s.policy);
   const wallet = useBsv((s) => s.wallet);
   const changing = useBsv((s) => s.changing);
-  const model = useMemo(() => overlayModel({ enabled: on, policy, wallet, nodes, knowledgeLoaded: loaded, now: Date.now() }), [on, policy, wallet, nodes, loaded]);
+  const model = useMemo(() => overlayModel({ enabled: on, policy, wallet, nodes, knowledge, knowledgeAt, knowledgeLoaded: loaded, now: Date.now() }), [on, policy, wallet, nodes, knowledge, knowledgeAt, loaded]);
   const slot = useTickerSlot(on, model.tiers);
   return (
     <>

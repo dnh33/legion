@@ -15,18 +15,26 @@ import { getState, refresh, selectAgent, toast } from '../store';
 import { describeSeed } from '../../../src/shared/bsv-seed';
 import type { SeedReport } from '../../../src/shared/bsv-seed';
 import { BSV_POLL_MS, shouldPoll } from '../../../src/shared/bsv-view';
-import type { AuditView, PolicyView, WalletView } from '../../../src/shared/bsv-view';
+import type { AuditView, KnowledgeSummary, PolicyView, WalletView } from '../../../src/shared/bsv-view';
 
 export interface BsvStatus {
   enabled: boolean;
   network: 'testnet';
   assayerAvailable: boolean;
   knowledgeLoaded: boolean;
-  knowledgeNodes: number;
+  /** null = unknown (the count could not be read, or is too old). Never 0 for "could not read". */
+  knowledgeNodes: number | null;
+  /** The count against the bundled pack, from the same answer (null when unknown). */
+  knowledge?: KnowledgeSummary | null;
 }
 type SeedResult = SeedReport;
 
+/** A status read slower than this is treated as failed. */
+const KNOWLEDGE_READ_TIMEOUT_MS = 10_000;
+
 export interface BsvUiState extends BsvStatus {
+  /** When the note count was last read successfully (ms). 0 = never. */
+  knowledgeAt: number;
   /** First /api/bsv answer has arrived. */
   loaded: boolean;
   /** A toggle request is in flight. */
@@ -50,7 +58,7 @@ const CONFIRMED_KEY = 'legion.bsv.confirmed';
 
 let state: BsvUiState = {
   loaded: false, busy: false, confirmOpen: false, panelOpen: false, wallet: null, policy: null, changing: false, audit: null,
-  enabled: false, network: 'testnet', assayerAvailable: false, knowledgeLoaded: false, knowledgeNodes: 0,
+  enabled: false, network: 'testnet', assayerAvailable: false, knowledgeLoaded: false, knowledgeNodes: null, knowledge: null, knowledgeAt: 0,
 };
 const listeners = new Set<() => void>();
 const set = (p: Partial<BsvUiState>) => { state = { ...state, ...p }; listeners.forEach((l) => l()); };
@@ -74,7 +82,7 @@ export async function syncAgents(): Promise<void> {
 }
 
 const pick = (s: BsvStatus): BsvStatus => ({
-  enabled: s.enabled, network: 'testnet', assayerAvailable: s.assayerAvailable, knowledgeLoaded: s.knowledgeLoaded, knowledgeNodes: s.knowledgeNodes ?? 0,
+  enabled: s.enabled, network: 'testnet', assayerAvailable: s.assayerAvailable, knowledgeLoaded: s.knowledgeLoaded, knowledgeNodes: typeof s.knowledgeNodes === 'number' ? s.knowledgeNodes : null, knowledge: s.knowledge ?? null,
 });
 
 let lastPollAt = 0;
@@ -91,15 +99,20 @@ async function loadDetails(): Promise<void> {
 export async function loadBsv(): Promise<void> {
   lastPollAt = Date.now();
   try {
-    const s = await request<BsvStatus>('GET', '/api/bsv');
+    // a slow answer is a failed answer: it must not leave an old number on screen
+    const s = await Promise.race([request<BsvStatus>('GET', '/api/bsv'), new Promise<never>((_, rej) => setTimeout(() => rej(new Error('slow')), KNOWLEDGE_READ_TIMEOUT_MS))]);
     const changedElsewhere = state.loaded && s.enabled !== state.enabled && !state.busy;
     const next = pick(s);
-    const same = state.loaded && next.enabled === state.enabled && next.assayerAvailable === state.assayerAvailable && next.knowledgeLoaded === state.knowledgeLoaded && next.knowledgeNodes === state.knowledgeNodes;
-    if (!same) set({ ...next, loaded: true });
+    const same = state.loaded && next.enabled === state.enabled && next.assayerAvailable === state.assayerAvailable && next.knowledgeLoaded === state.knowledgeLoaded && next.knowledgeNodes === state.knowledgeNodes && JSON.stringify(next.knowledge) === JSON.stringify(state.knowledge);
+    if (!same) set({ ...next, loaded: true, knowledgeAt: Date.now() });
+    else set({ knowledgeAt: Date.now() }); // still the same, and freshly read: the age of the number is what makes it trustworthy
     if (!next.enabled) { if (state.wallet || state.policy || state.panelOpen) set({ wallet: null, policy: null, panelOpen: false }); }
     else await loadDetails();
     if (changedElsewhere) await syncAgents();
-  } catch { /* offline or an older core without /api/bsv: stay off, the main connection chip already says so */ }
+  } catch {
+    // offline, slow, or an older core without /api/bsv: the main connection chip says so. A count that could not be read is UNKNOWN, not 0 and not the last number.
+    if (state.knowledgeNodes !== null || state.knowledge) set({ knowledgeNodes: null, knowledge: null, knowledgeLoaded: false });
+  }
 }
 
 /** Re-reads the policy only (after a change made through main, or a tray Freeze). */
@@ -223,7 +236,7 @@ export async function setBsv(enabled: boolean): Promise<void> {
   set({ busy: true, confirmOpen: false });
   try {
     const r = await request<BsvStatus & { seed?: SeedResult }>('POST', '/api/bsv', { enabled });
-    set({ ...pick(r), loaded: true, ...(r.enabled ? {} : { wallet: null, policy: null, panelOpen: false }) });
+    set({ ...pick(r), loaded: true, knowledgeAt: Date.now(), ...(r.enabled ? {} : { wallet: null, policy: null, panelOpen: false }) });
     if (r.enabled) void loadDetails();
     await syncAgents();
     if (enabled && r.seed && (r.seed.status === 'error' || r.seed.status === 'no-kg')) toast(`BSV mode is on, but the knowledge pack did not load: ${describeSeed(r.seed).text}`, 'error');
@@ -246,3 +259,24 @@ export function requestToggle(): void {
 }
 export function confirmEnable(): void { lsSet(CONFIRMED_KEY, '1'); void setBsv(true); }
 export function cancelConfirm(): void { set({ confirmOpen: false }); }
+
+/**
+ * Brings back bundled notes that are NOT in the graph at all (never loaded, or deleted), through the existing seed route and its existing
+ * rules (admin gate; nothing is overwritten: a note that exists is never named, so an edited note stays as it is). Retired notes are not
+ * touched here: bring those back from the Library.
+ */
+export async function restoreBundledNotes(): Promise<void> {
+  const ids = state.knowledge?.missingIds ?? [];
+  if (!ids.length) { toast('Nothing is missing.'); return; }
+  if (state.changing) return;
+  set({ changing: true });
+  try {
+    const r = await request<{ added?: number; restored?: string[]; status?: string }>('POST', '/api/kg/seed/bsv', { restore: ids });
+    toast(`Brought back ${r.restored?.length ?? r.added ?? 0} bundled note${(r.restored?.length ?? r.added ?? 0) === 1 ? '' : 's'}. Notes you edited were not touched.`);
+  } catch (e) {
+    toast(`Could not restore the notes: ${msg(e)}`, 'error');
+  } finally {
+    set({ changing: false });
+    await loadBsv();
+  }
+}

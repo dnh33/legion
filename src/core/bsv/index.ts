@@ -24,6 +24,7 @@ import { ARM_CHOICES_MINUTES, buildPolicyConfig, DAY_MS, ledgerFromAudit, Policy
 import type { Caps, Clock, PolicyEvent, PolicySnapshot } from './policy.js';
 import { loadPolicyConfig, policyFileHash, policyPath, savePolicyConfig, untrustedConfig } from './policy-store.js';
 import { BsvState } from './state.js';
+import type { SeedSummary } from '../kg/seed.js';
 import type { BsvSeedResult, BsvStatus, BsvToggleResult } from './types.js';
 import { buildBsvStatusServer, BSV_SERVER_NAME } from './wallet-tool.js';
 import { parseWalletUrl, WalletProbeService } from './wallet-probe.js';
@@ -225,17 +226,29 @@ export function createBsvModule(deps: ModuleDeps, opts: BsvModuleOptions = {}): 
   /** The agents behind the BSV gate (the seeded Assayer). Found by `requires`, not by id. */
   const gated = (): AgentProfile[] => deps.store.listAgents().filter((a) => a.requires === 'bsv');
 
-  async function bsvNodes(): Promise<number> {
-    if (!kgHandlers.size || !state.enabled) return 0;
-    try { return Number((await kgCall('GET', '/api/kg/stats')).byScope?.bsv ?? 0) || 0; } catch { return 0; }
+  /**
+   * The count behind the title bar, measured against the bundled pack by note id (GET /api/kg/seed/bsv, read only). null = it could not be read
+   * (the route failed, or the answer is not the shape we know): the UI then says "unknown", never 0 and never an old number.
+   */
+  async function knowledgeSummary(): Promise<SeedSummary | null> {
+    if (!kgHandlers.size || !state.enabled) return null;
+    try {
+      const r = await kgCall('GET', '/api/kg/seed/bsv');
+      const nat = (v: unknown): v is number => typeof v === 'number' && Number.isSafeInteger(v) && v >= 0;
+      const ok = r && typeof r === 'object' && r.bundled && nat(r.bundled.count) && nat(r.bundled.version) && ['inGraph', 'packActive', 'retired', 'moved', 'removed', 'notLoaded', 'removedOrMerged', 'added', 'addedRetired', 'missing', 'loadedVersion'].every((k) => nat(r[k])) && Array.isArray(r.missingIds) && r.missingIds.every((x: unknown) => typeof x === 'string');
+      return ok ? (r as SeedSummary) : null;
+    } catch { return null; }
   }
 
   async function status(): Promise<BsvStatus> {
-    const nodes = await bsvNodes();
+    const knowledge = await knowledgeSummary();
     return {
       enabled: state.enabled, network: state.network,
       assayerAvailable: gated().length > 0,
-      knowledgeLoaded: nodes > 0, knowledgeNodes: nodes,
+      knowledgeLoaded: !!knowledge && knowledge.inGraph > 0,
+      // off: nothing is counted (0, the panel is closed). On but unreadable: null = unknown.
+      knowledgeNodes: !state.enabled ? 0 : knowledge ? knowledge.inGraph : null,
+      knowledge,
     };
   }
 
