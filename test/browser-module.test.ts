@@ -211,3 +211,34 @@ test('C10/C16 at module level: Get Lightpanda asks first; a tampered managed fil
   assert.equal(t.ok, false); assert.match(t.detail, /no longer matches/);
   assert.ok(existsSync(join(dataDir, 'browser', 'app')));
 });
+
+test('choosing the program needs the app dialog (native secret); switching the tool on or editing sites does not', async () => {
+  const r = rig();
+  await r.call('POST /api/browser/config', { enabled: true });
+  await r.call('POST /api/browser/config', { allowDomains: ['example.com'] });
+  for (const body of [{ binaryPath: '/tmp/evil' }, { launcherArgs: ['-c', 'x'] }, { managedSha256: 'a'.repeat(64) }]) {
+    await assert.rejects(r.call('POST /api/browser/config', body), /native_required/, JSON.stringify(body));
+    await assert.rejects(r.call('POST /api/browser/config', body, { 'x-legion-native': 'wrong' }), /native_required/);
+  }
+  const st = await r.call('POST /api/browser/config', { binaryPath: '/tmp/ok' }, { 'x-legion-native': NATIVE }) as { binary: string; binaryPath?: string };
+  assert.equal(st.binary, 'own'); assert.equal(st.binaryPath, '/tmp/ok');
+});
+
+test('C16: a managed file must match the hash in code, not only the record beside it (a planted file + planted record is refused)', async () => {
+  const bytes = Buffer.from('planted program');
+  const planted = createHash('sha256').update(bytes).digest('hex');
+  const dataDir = mkdtempSync(join(tmpdir(), 'br-plant-'));
+  const app = join(dataDir, 'browser', 'app', 'test-linux-x64');
+  const { mkdirSync } = await import('node:fs');
+  mkdirSync(app, { recursive: true });
+  writeFileSync(join(app, 'lightpanda'), bytes);
+  writeFileSync(join(dataDir, 'browser', 'managed.json'), JSON.stringify({ id: 'test-linux-x64', exe: 'test-linux-x64/lightpanda', sha256: planted }));
+  const realHash = 'b'.repeat(64);
+  const pin = { id: 'test-linux-x64', platform: 'linux-x64', url: 'https://example.com/lp', sha256: realHash, approxBytes: 1, maxBytes: 10, exe: 'lightpanda', license: 'AGPL-3.0', sourceUrl: 'https://example.com' };
+  const bus = new EventBus();
+  const mod = createBrowserModule({ config: { authToken: 'x' }, bus, approvals: new ApprovalBroker(bus), dataDir } as unknown as ModuleDeps, { getPorts: { ...createGetPorts(), platformKey: 'linux-x64' }, pins: [pin], resolve: DNS });
+  const routes = new Map<string, Handler>(); mod.routes!((m, p, h) => { routes.set(`${m} ${p}`, h); });
+  await routes.get('POST /api/browser/config')!({ req: { headers: {} }, body: { enabled: true } } as never);
+  const t = await routes.get('POST /api/browser/test')!({} as never) as { ok: boolean; detail: string };
+  assert.equal(t.ok, false); assert.match(t.detail, /no longer matches/);
+});
