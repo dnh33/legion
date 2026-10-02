@@ -16,6 +16,7 @@ import { runDoctor } from '../core/doctor.js';
 import { Engine } from '../core/engine.js';
 import { createServer } from '../core/server.js';
 import { createBlenderModule } from '../core/blender/index.js';
+import { createBrowserModule } from '../core/browser/index.js';
 import { createBsvModule, createBsvState } from '../core/bsv/index.js';
 import { createCommsModule } from '../core/comms/index.js';
 import { createKnowledgeModule } from '../core/kg/index.js';
@@ -78,7 +79,7 @@ async function main() {
     root: resolve(dirname(fileURLToPath(import.meta.url)), '..', '..', '..'), nativeSecret, log,
     probes: { 'a Blender download or setup is running': async () => !!((await blender.status(false)) as { getting?: boolean }).getting },
   });
-  const modules = [kg, createCommsModule(moduleDeps), bsv, blender, createProvidersModule({ runtime: providerRuntime, configPath: configPath(), nativeSecret }), updater];
+  const modules = [kg, createCommsModule(moduleDeps), bsv, blender, createProvidersModule({ runtime: providerRuntime, configPath: configPath(), nativeSecret }), updater, createBrowserModule(moduleDeps, { nativeSecret, log })];
   engine.setModules(modules);
   const server = createServer({
     config, store, bus, engine, vms, approvals, boatConfigured, modules, bsvEnabled,
