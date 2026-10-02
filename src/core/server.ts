@@ -44,12 +44,12 @@ export class HttpError extends Error {
 }
 
 const MAX_BODY = 2 * 1024 * 1024;
-export const MODEL_RE = /^[A-Za-z0-9._:\[\]-]+$/;
+export const MODEL_RE = /^[A-Za-z0-9._:\[\]\/-]+$/;
 /** 'auto' or any non-empty string <= 80 chars of [A-Za-z0-9._:\[\]-] (alias or full model id). */
 export function parseModel(v: unknown, field = 'model'): ModelChoice | undefined {
   if (v === undefined) return undefined;
   if (typeof v !== 'string' || !v || v.length > 80 || !MODEL_RE.test(v)) {
-    throw new HttpError(400, `${field} must be 'auto' or a model name (max 80 chars, letters, digits, . _ : [ ] -)`);
+    throw new HttpError(400, `${field} must be 'auto' or a model name (max 80 chars, letters, digits, . _ : / [ ] -)`);
   }
   return v;
 }
