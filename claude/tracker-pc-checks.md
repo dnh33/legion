@@ -117,3 +117,20 @@ B17 (both backends at once). Area: Blender both-backends mode. Safety class: dow
 | B17d | A code run through the MAIN: a cube script gets the usual card (badge LIVE), runs through the official server, and the community add-on's log shows no `execute_code`. Then with the switch off (one backend at a time) a run through the community backend alone (the old behaviour) still works, so both code paths are exercised | todo |
 | B17e | **Downloads, owner present:** switch Poly Haven on, `blender_asset_search` for "crate" or an HDRI, then `blender_asset_get` for one small 1k HDRI: a card names the files, size and host; Deny fetches nothing (check `%APPDATA%\legion\blender\assets` is empty); Allow downloads into `%APPDATA%\legion\blender\assets\<task>\<id>\` with `manifest.json`, the world lighting changes in Blender, the run counts as tainted. Confirm the real file host (expected `dl.polyhaven.org`; record it) and that the md5 values match. Repeat once with a 1k model (glTF) and check textures load | todo |
 | B17f | Poly Haven switched OFF: `blender_asset_get` is refused before any listing; Sketchfab and Hyper3D show "Not available" in Settings and cannot be switched on | todo |
+
+## Project board (claude/plan-project-board.md; experimental, ships after 0.2.0). Safety class: none (no spend, no download)
+
+Full steps in `claude/tracker-pc-checks-board.md`. Preconditions: `"experimental": {"projectBoard": true}` in `%USERPROFILE%\.legion\config.json`, Legion restarted, a project with two member agents.
+
+| # | Check | State |
+|---|---|---|
+| PB1 | Board tab only with the flag on (also with the value `"true"` as a string: stays hidden); `GET /api/board` is 404 with it off. Evidence: screenshot of both. | todo |
+| PB2 | Create, edit, drag and keyboard-move (Alt+arrows) items; restart Legion; the board is unchanged. Evidence: screenshot before/after. | todo |
+| PB3 | NVDA or Narrator: a card is read with title, status, assignee, priority; the move is announced. Evidence: the screen reader's spoken text. | todo |
+| PB4 | Window at 960 px and at 150% display scale: no sideways scroll, targets usable. Evidence: screenshots. | todo |
+| PB5 | Run this item (owner-written text): normal approval cards; item goes Doing then Review with the result linked, never Done. | todo |
+| PB6 | Agent-written item: run shows the limited (ask) approvals; Mark as reviewed lifts them. | todo |
+| PB7 | Agents create/claim/move/note items; leader delete shows an approval card; Deny and Allow behave. | todo |
+| PB8 | Save what we learned: banner on Done, draft, saved note found by a run in this project, not by another project. | todo |
+| PB9 | Compaction and crash: add/delete ~300 items; kill the core by PID during a write; restart: board loads, no `.tmp` left, antivirus on. | todo |
+| PB10 | Downgrade: an older build ignores `board\`; upgrade again: items are back. | todo |
