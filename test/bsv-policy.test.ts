@@ -595,7 +595,7 @@ test('unknown option: a seeded unknown keeps its reservation, blocks every spend
   const clock = new FakeClock();
   const e = new PolicyEngine({ clock, sessionId: 's1', config: { caps: { ...DEFAULT_CAPS }, allowlist: [ALICE], frozen: null }, unknown: [{ requestId: 'old-unknown-1', agentId: 'assayer', totalSats: 700 }] });
   const s = e.snapshot();
-  assert.deepEqual(s.unknown, [{ requestId: 'old-unknown-1', agentId: 'assayer', totalSats: 700 }]);
+  assert.deepEqual(s.unknown, [{ requestId: 'old-unknown-1', agentId: 'assayer', totalSats: 700, net: 'test' }]);
   assert.equal(s.usage.reservedSats, 700, 'the reservation is kept');
   const d = e.evaluate(req());
   assert.equal(d.verdict, 'deny');
@@ -639,6 +639,7 @@ test('net: a legacy record or audit line without net loads as testnet; the same 
   assert.equal(legacy.executedRecords()[0]!.net, undefined, 'stored as given; absent means testnet');
   const e = new PolicyEngine({ unknown: [{ requestId: 'req-net-0002', agentId: 'a', totalSats: 10 }, { requestId: 'req-net-0003', agentId: 'a', totalSats: 10, net: 'main' }] });
   assert.equal(e.snapshot().unknown.length, 2);
+  assert.deepEqual(e.snapshot().unknown.map((u) => [u.requestId, u.net]), [['req-net-0002', 'test'], ['req-net-0003', 'main']], 'the seeded net is readable');
 });
 
 test('F2: a repeated request id with different amounts keeps the LARGER one, in either order (audit rebuild and unknown seed)', () => {

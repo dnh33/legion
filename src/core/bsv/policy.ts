@@ -160,7 +160,7 @@ export interface PolicySnapshot {
   allowlist: string[];
   usage: { sessionSats: number; last24hSats: number; reservedSats: number };
   pending: Array<{ requestId: string; status: RequestStatus; agentId: string; totalSats: number; expiresAt: number; network: Net }>;
-  unknown: Array<{ requestId: string; agentId: string; totalSats: number }>;
+  unknown: Array<{ requestId: string; agentId: string; totalSats: number; net: Net }>;
 }
 
 export class PolicyError extends Error { constructor(message: string) { super(message); this.name = 'PolicyError'; } }
@@ -610,7 +610,7 @@ export class PolicyEngine {
       caps: { ...this.caps }, hardCaps: { ...HARD_CAPS }, allowlist: [...this.allowlist],
       usage: { sessionSats: this.sessionSats(), last24hSats: this.executedSince(wall - DAY_MS), reservedSats: this.reserved() },
       pending: live.filter((r) => r.status === 'pending' || r.status === 'approved').map((r) => ({ requestId: r.requestId, status: r.status, agentId: r.agentId, totalSats: r.totalSats, expiresAt: r.expiresAt, network: r.network })),
-      unknown: live.filter((r) => r.status === 'unknown').map((r) => ({ requestId: r.requestId, agentId: r.agentId, totalSats: r.totalSats })),
+      unknown: live.filter((r) => r.status === 'unknown').map((r) => ({ requestId: r.requestId, agentId: r.agentId, totalSats: r.totalSats, net: r.network })),
     };
   }
 }
