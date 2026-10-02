@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Modal } from '../components/Modal';
-import { authHeaders, base } from '../api';
+import { request } from '../api';
 import { auditLine, formatCountdown, heightText, remainingMs, safeLine, walletHeadline } from '../../../src/shared/bsv-view';
 import type { PolicyView } from '../../../src/shared/bsv-view';
 import { toast } from '../store';
@@ -24,7 +24,7 @@ function WalletSection() {
         {w?.probed && w.checkedAt ? <><dt>Checked</dt><dd>{safeLine(w.checkedAt, 30)}</dd></> : null}
       </dl>
       <div className="bsv-row"><button type="button" className="btn-ghost" onClick={() => void checkWallet()}>Check now</button></div>
-      <p className="bsv-fine">Legion asks four harmless questions: version, network, signed in or not, and block height. It never reads balances, outputs, keys or addresses, and it never asks the wallet to sign or send. The answer is the wallet&apos;s own claim; any program on this computer could give it.</p>
+      <p className="bsv-fine">Legion asks four harmless questions: version, network, whether it is logged in, and block height. It never reads balances, outputs, keys or addresses, and it never asks the wallet to sign or send. The answer is the wallet&apos;s own claim; any program on this computer could give it.</p>
     </section>
   );
 }
@@ -78,9 +78,7 @@ function LimitsSection({ p }: { p: PolicyView }) {
 
 async function saveLog() {
   try {
-    const r = await fetch(`${base}/api/bsv/audit?limit=500`, { headers: authHeaders() });
-    if (!r.ok) throw new Error(`${r.status}`);
-    const j = await r.json() as { entries: unknown[] };
+    const j = await request<{ entries: unknown[] }>('GET', '/api/bsv/audit?limit=500');
     const blob = new Blob([[...j.entries].reverse().map((e) => JSON.stringify(e)).join('\n') + '\n'], { type: 'application/x-ndjson' });
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob); a.download = 'legion-bsv-audit.jsonl';
