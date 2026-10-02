@@ -265,8 +265,14 @@ export class PolicyEngine {
     this.ledger = (o.ledger ?? []).filter((r) => isSats(r.sats) && Number.isFinite(r.at)).map((r) => ({ ...r, ...(r.net === undefined ? {} : { net: parseNet(r.net) }) }));
     this.sessionId = o.sessionId ?? `s${Math.floor(this.clock.wall())}`;
     const now = this.clock.wall();
-    for (const u of o.unknown ?? []) {
-      if (!u || typeof u.requestId !== 'string' || !REQUEST_ID.test(u.requestId) || !isSats(u.totalSats)) continue;
+    let seeds: unknown[] = [];
+    try { seeds = Array.isArray(o.unknown) ? [...o.unknown] : []; } catch { seeds = []; } // hostile input: a bad list is dropped, never thrown
+    for (const u0 of seeds) {
+      try {
+      if (!u0 || typeof u0 !== 'object') continue;
+      const g = u0 as { requestId?: unknown; agentId?: unknown; totalSats?: unknown; net?: unknown };
+      const u = { requestId: g.requestId, agentId: g.agentId, totalSats: g.totalSats, net: g.net }; // each field read once
+      if (typeof u.requestId !== 'string' || !REQUEST_ID.test(u.requestId) || !isSats(u.totalSats)) continue;
       const dup = this.requests.get(u.requestId);
       if (dup) { if (dup.hash === '' && dup.status === 'unknown' && u.totalSats > dup.totalSats) dup.totalSats = u.totalSats; continue; } // a repeated id keeps the LARGER amount
       const net = parseNet(u.net);
@@ -275,6 +281,7 @@ export class PolicyEngine {
         requestId: u.requestId, hash: '', status: 'unknown', agentId: safeId(u.agentId), taskId: '', network: net === 'test' ? 'test' : 'main', ...(net === 'invalid' ? { netInvalid: true } : {}), totalSats: u.totalSats,
         createdAt: now, expiresAt: 0, settledAt: now, decision, required: Object.freeze(['approve'] as Confirmation[]),
       });
+      } catch { /* a throwing entry is dropped */ }
     }
   }
 

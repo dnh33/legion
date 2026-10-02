@@ -687,3 +687,15 @@ test('F5: the live ledger line from settle(executed) and resolveUnknown("sent") 
   for (const id of ['req-res-0001', 'req-res-0002', 'req-res-0003']) assert.equal(u.resolveUnknown(id, { kind: 'sent', sats: 5 }), true);
   assert.deepEqual(u.executedRecords().map((r) => r.net), ['main', 'invalid', 'test']);
 });
+
+test('F6: the constructor does not throw on hostile unknown input; bad entries are dropped and good ones kept', () => {
+  const hostile = { get requestId(): string { throw new Error('boom'); }, agentId: 'a', totalSats: 5 };
+  const badTotal = { requestId: 'req-hostile-2', agentId: 'a', get totalSats(): number { throw new Error('boom'); } };
+  const badAgent = { requestId: 'req-hostile-3', get agentId(): string { throw new Error('boom'); }, totalSats: 5 };
+  const proxy = new Proxy([], { get() { throw new Error('boom'); } });
+  for (const bad of [123, 'abc', {}, { [Symbol.iterator]: 1 }, new Set([1]), null, proxy, { length: 1, 0: {} }]) assert.doesNotThrow(() => new PolicyEngine({ unknown: bad as never }));
+  let e!: PolicyEngine;
+  assert.doesNotThrow(() => { e = new PolicyEngine({ unknown: [hostile, badTotal, badAgent, null, 7, 'x', { requestId: 'req-good-0001', agentId: 'a', totalSats: 9 }] as never }); });
+  assert.deepEqual(e.snapshot().unknown.map((u) => u.requestId), ['req-good-0001']);
+  assert.equal(e.snapshot().usage.reservedSats, 9);
+});
