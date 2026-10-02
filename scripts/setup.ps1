@@ -183,17 +183,26 @@ try {
     }
     $unCmd = @(
       '@echo off',
-      'rem Removes Legion (shortcuts + install folder). Add /purge to also delete %USERPROFILE%\.legion data.',
+      'rem Removes Legion (shortcuts + install folder). Add /purge to also delete your Legion data (%USERPROFILE%\.legion).',
       'setlocal',
       'set "PURGE="',
       'if /i "%~1"=="/purge" set "PURGE=-Purge"',
       'set "TMPU=%TEMP%\legion-uninstall"',
-      'if not exist "%TMPU%" mkdir "%TMPU%"',
+      'if exist "%TMPU%" rd /s /q "%TMPU%" >nul 2>&1',
+      'mkdir "%TMPU%"',
       'copy /y "%~dp0scripts\uninstall.ps1" "%TMPU%\uninstall.ps1" >nul',
+      'if errorlevel 1 goto copyfail',
       'copy /y "%~dp0scripts\lib\legion-procs.ps1" "%TMPU%\legion-procs.ps1" >nul',
-      'if errorlevel 1 (echo Could not copy the uninstall script. & pause & exit /b 1)',
-      'powershell -NoProfile -ExecutionPolicy Bypass -File "%TMPU%\uninstall.ps1" -InstallDir "%~dp0." %PURGE%',
-      'pause'
+      'if errorlevel 1 goto copyfail',
+      'rem One line on purpose: uninstall deletes this very file, and cmd must not read another line from it afterwards.',
+      'powershell -NoProfile -ExecutionPolicy Bypass -File "%TMPU%\uninstall.ps1" -InstallDir "%~dp0." %PURGE% & cd /d "%TEMP%" & rd /s /q "%TMPU%" >nul 2>&1 & pause & exit /b 0',
+      ':copyfail',
+      'echo Could not copy the uninstall script from "%~dp0scripts". Nothing was removed.',
+      'echo Run setup.cmd again from your Legion source folder, then run uninstall.cmd again.',
+      'cd /d "%TEMP%"',
+      'rd /s /q "%TMPU%" >nul 2>&1',
+      'pause',
+      'exit /b 1'
     ) -join "`r`n"
     [System.IO.File]::WriteAllText((Join-Path $InstallDir 'uninstall.cmd'), $unCmd + "`r`n", (New-Object System.Text.ASCIIEncoding))
     Say "  $InstallDir\uninstall.cmd" 'Green'

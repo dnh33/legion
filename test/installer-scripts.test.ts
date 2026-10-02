@@ -63,8 +63,9 @@ test('setup creates Desktop and Start-menu shortcuts pointing into the install d
   assert.match(s, /\$s\.Arguments = '"' \+ \$InstallDir \+ '"'/);
   assert.match(s, /\$s\.WorkingDirectory = \$InstallDir/);
   const u = read('scripts/uninstall.ps1');
-  assert.match(u, /GetFolderPath\('Desktop'\)\) 'Legion\.lnk'/);
-  assert.match(u, /GetFolderPath\('Programs'\)\) 'Legion\.lnk'/);
+  assert.match(u, /foreach \(\$sf in @\('Desktop', 'Programs'\)\)/);
+  assert.match(u, /GetFolderPath\(\$sf\)/);
+  assert.match(u, /Join-Path \$folder 'Legion\.lnk'/);
   assert.match(u, /Remove-Item -LiteralPath \$l -Force/);
   assert.match(u, /Remove-Item -LiteralPath \$InstallDir -Recurse -Force/);
   assert.match(u, /does not look like a Legion install; refusing/);

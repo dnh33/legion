@@ -177,3 +177,24 @@ function Get-InstallDirVerdict {
   if (Test-LegionPackage $full) { return [pscustomobject]@{ Ok = $true; Reason = 'the folder is an existing Legion install (package.json name is legion) and will be updated'; Path = $full } }
   return [pscustomobject]@{ Ok = $false; Reason = 'the folder is not empty and is not a Legion install (no package.json named legion); setup would delete its other contents. Pick a new or empty folder'; Path = $full }
 }
+
+# Decides whether uninstall -Purge may delete the data folder. Returns @{ Ok; Reason; Path }.
+# Refuses a drive root, the user profile folder (or a parent of it), and - when the folder came from LEGION_HOME rather than the
+# default %USERPROFILE%\.legion - any folder without Legion's config.json (so a mistyped LEGION_HOME cannot delete a foreign folder).
+function Get-PurgeVerdict {
+  param([string]$DataDir, [string]$UserProfile = '', [bool]$FromEnv = $false)
+  if ([string]::IsNullOrWhiteSpace($DataDir)) { return [pscustomobject]@{ Ok = $false; Reason = 'no data folder'; Path = '' } }
+  if (Test-DriveRoot $DataDir) { return [pscustomobject]@{ Ok = $false; Reason = 'that is a drive root'; Path = $DataDir } }
+  $full = Get-TrimmedFullPath $DataDir
+  if (Test-DriveRoot $full) { return [pscustomobject]@{ Ok = $false; Reason = 'that is a drive root'; Path = $full } }
+  if (-not [string]::IsNullOrWhiteSpace($UserProfile)) {
+    $up = $UserProfile
+    try { $up = Get-TrimmedFullPath $UserProfile } catch { $up = $UserProfile }
+    if (Test-PathUnder $up $full) { return [pscustomobject]@{ Ok = $false; Reason = "that is, or contains, your user profile folder ($up)"; Path = $full } }
+  }
+  if (-not (Test-Path -LiteralPath $full -PathType Container)) { return [pscustomobject]@{ Ok = $true; Reason = 'the folder does not exist'; Path = $full } }
+  if ($FromEnv -and -not (Test-Path -LiteralPath (Join-Path $full 'config.json') -PathType Leaf)) {
+    return [pscustomobject]@{ Ok = $false; Reason = 'LEGION_HOME points to a folder without Legion''s config.json, so it is not deleted'; Path = $full }
+  }
+  return [pscustomobject]@{ Ok = $true; Reason = 'looks like Legion data'; Path = $full }
+}
