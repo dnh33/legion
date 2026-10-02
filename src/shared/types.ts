@@ -214,7 +214,8 @@ export type LegionEvent =
   | { type: 'comms.state'; agentId: string; state: CommsState; roomId?: string; peerId?: string }
   | { type: 'kg.updated'; nodeCount: number; edgeCount: number; changed?: string[] }
   | { type: 'blender.status'; status: BlenderStatusView }
-  | { type: 'project.updated'; project: Project };
+  | { type: 'project.updated'; project: Project }
+  | { type: 'board.updated'; projectId: string };
 
 /** A tool call waiting for the user's decision. Auto-denied after 10 minutes. */
 export interface ApprovalRequest {

@@ -40,9 +40,10 @@ export interface CommsConfig {
   turnCostFloorUsd: number;
 }
 /** Switches for work that is built but not part of a release yet. Set only by editing config.json (no UI, no route writes it). */
-export interface ExperimentalConfig { providers: boolean }
+export interface ExperimentalConfig { providers: boolean; projectBoard: boolean }
 export function normalizeExperimental(v: unknown): ExperimentalConfig {
-  return { providers: !!v && typeof v === 'object' && (v as { providers?: unknown }).providers === true };
+  const o = (v && typeof v === 'object' ? v : {}) as { providers?: unknown; projectBoard?: unknown };
+  return { providers: o.providers === true, projectBoard: o.projectBoard === true };
 }
 
 export type CoreConfig = LegionConfig & { bsv: BsvConfig; comms: CommsConfig; blender: BlenderConfig; providers: ProvidersConfig; experimental: ExperimentalConfig };
@@ -102,7 +103,7 @@ export function defaultConfig(): CoreConfig {
     comms: { ...DEFAULT_COMMS },
     blender: defaultBlenderConfig(),
     providers: { ...DEFAULT_PROVIDERS, entries: {} },
-    experimental: { providers: false },
+    experimental: { providers: false, projectBoard: false },
   };
 }
 

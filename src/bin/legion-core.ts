@@ -22,6 +22,7 @@ import { createCommsModule } from '../core/comms/index.js';
 import { createKnowledgeModule } from '../core/kg/index.js';
 import { createUpdaterModule } from '../core/updater/index.js';
 import { createProjectsModule, ProjectStore } from '../core/projects/index.js';
+import { BoardStore, createBoardModule } from '../core/projects/board/index.js';
 import type { ModuleDeps } from '../core/modules.js';
 import { Store } from '../core/store.js';
 import { isPackageInstall } from '../electron/resolve-node.js';
@@ -86,13 +87,16 @@ async function main() {
     probes: { 'a Blender download or setup is running': async () => !!((await blender.status(false)) as { getting?: boolean }).getting },
   });
   const providersModules = providerRuntime ? [createProvidersModule({ runtime: providerRuntime, configPath: configPath(), nativeSecret })] : [];
-  const modules = [kg, createCommsModule(moduleDeps, { projects }), createProjectsModule(moduleDeps, { projects, nativeSecret }), bsv, blender, ...providersModules, updater];
+  // project board (built but not released: off unless config.json says experimental.projectBoard = true; then it has its own files under <dataDir>/board)
+  const board = config.experimental.projectBoard ? new BoardStore(join(dataDir(), 'board')) : undefined;
+  const boardModules = board ? [createBoardModule(moduleDeps, { projects, board })] : [];
+  const modules = [kg, createCommsModule(moduleDeps, { projects }), createProjectsModule(moduleDeps, { projects, nativeSecret }), ...boardModules, bsv, blender, ...providersModules, updater];
   engine.setModules(modules);
   const server = createServer({
     config, store, bus, engine, vms, approvals, boatConfigured, modules, bsvEnabled,
     doctor: () => runDoctor({ config, getBoat, health: vms.health }),
     catalog: (force) => getCatalog({ config }, { force }),
-    settings, adminSecret, projects,
+    settings, adminSecret, projects, ...(board ? { board } : {}),
   });
 
   restartReaper();
