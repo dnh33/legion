@@ -1,5 +1,6 @@
-/** Types of the BSV mode v0 module (knowledge and visibility only). */
+/** Types of the BSV mode module. */
 
+/** Legion's knowledge mode. It is always testnet; the network a spend is for is `Net` (networks.ts) and comes from the wallet's own claim at request time. */
 export type BsvNetwork = 'testnet';
 
 export type BsvSeedStatus = 'loaded' | 'upgraded' | 'repaired' | 'already-loaded' | 'no-kg' | 'error';
@@ -40,4 +41,15 @@ export interface BsvStatus {
 /** POST /api/bsv response: the status plus what the knowledge-pack load did (only when switching or staying on). */
 export interface BsvToggleResult extends BsvStatus {
   seed?: BsvSeedResult;
+}
+
+/** The mainnet hard-off switch as a view shows it (the switch lives in the policy file; arming is memory only and covers one spend). */
+export interface MainnetState {
+  enabled: boolean;
+  armed: boolean;
+}
+
+/** POST /api/bsv/policy/mainnet body (only `enabled`; an extra key is refused). */
+export interface MainnetToggleBody {
+  enabled: boolean;
 }

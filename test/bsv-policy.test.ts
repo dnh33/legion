@@ -7,19 +7,8 @@ import {
 } from '../src/core/bsv/policy.js';
 import type { Clock, PolicyEvent, SpendRequest } from '../src/core/bsv/policy.js';
 import { NET } from '../src/core/bsv/networks.js';
-import { createHash } from 'node:crypto';
+import { mkAddr } from './bsv-net-helpers.js';
 
-/** A base58check P2PKH address from a fixed 20-byte pattern (no key behind it), built here so the test does not lean on the decoder it checks. */
-export function mkAddr(version: number, fill: number): string {
-  const body = Buffer.concat([Buffer.from([version]), Buffer.alloc(20, fill)]);
-  const sum = createHash('sha256').update(createHash('sha256').update(body).digest()).digest().subarray(0, 4);
-  const all = Buffer.concat([body, sum]);
-  const A = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
-  let n = BigInt('0x' + all.toString('hex')); let out = '';
-  while (n > 0n) { out = A[Number(n % 58n)]! + out; n /= 58n; }
-  for (const b of all) { if (b === 0) out = '1' + out; else break; }
-  return out;
-}
 const MAIN = mkAddr(0x00, 0x11);
 
 const ALICE = 'mtestAddressAlice1111111111111111';

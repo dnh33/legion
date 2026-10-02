@@ -460,6 +460,7 @@ export class PolicyEngine {
     if (this.frozen) throw new PolicyError('the chain is frozen: unfreeze it first');
     if (this.mainnetOn) return;
     this.mainnetOn = true;
+    this.disarm('mainnet switched on: arming starts from zero'); // an arm from before the switch (it was refused, but never rely on that) cannot carry over
     this.emit({ type: 'mainnet', enabled: true, reason: 'switched on by the owner' });
   }
 
