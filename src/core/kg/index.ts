@@ -118,7 +118,7 @@ export function createKnowledgeModule(deps: ModuleDeps, opts: KnowledgeModuleOpt
     mcpServers: (agent, job) => {
       const run: RunContext = job
         ? {
-          taskId: job.taskId, ...(job.origin ? { origin: job.origin } : {}), ...(job.ceiling ? { ceiling: job.ceiling } : {}), taint: job.taint, quota: quotaFor(job.taskId),
+          taskId: job.taskId, ...(job.origin ? { origin: job.origin } : {}), ...(job.ceiling ? { ceiling: job.ceiling } : {}), taint: job.taint, quota: quotaFor(job.taskId), ...(job.projectId ? { projectId: job.projectId } : {}),
           saved: () => { captured.add(job.taskId); if (captured.size > 500) captured.delete(captured.values().next().value as string); },
         }
         : {};
@@ -141,7 +141,7 @@ export function createKnowledgeModule(deps: ModuleDeps, opts: KnowledgeModuleOpt
       if (!ctx) return KG_PREAMBLE;
       try {
         const parts = getGraph().briefingParts(agent.id, {
-          projectKey: basename(agent.cwd || join(deps.config.workspaceDir, agent.id)), prompt: ctx.prompt.slice(0, 500),
+          projectKey: basename(agent.cwd || join(deps.config.workspaceDir, agent.id)), prompt: ctx.prompt.slice(0, 500), ...(ctx.projectId ? { projectId: ctx.projectId } : {}),
         });
         const briefing = renderBriefing(parts);
         return briefing ? `${KG_PREAMBLE}\n\n${briefing}` : KG_PREAMBLE;

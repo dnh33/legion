@@ -15,10 +15,10 @@ const root = join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'dist', '
 const load = (p) => import(pathToFileURL(join(root, p)).href);
 
 const [{ dataDir, configPath, loadConfig, VERSION }, { readLaunchSecrets }, { ApprovalBroker }, { EventBus }, { makeBoatGetter, SettingsService }, { Engine }, { createServer },
-  { createBlenderModule }, { createBsvModule, createBsvState }, { createCommsModule }, { createKnowledgeModule }, { Store }, { VmManager }, { ProviderRuntime }, { ProviderKeys, keyFileFor }, { createProvidersModule }, { createUpdaterModule }] = await Promise.all([
+  { createBlenderModule }, { createBsvModule, createBsvState }, { createCommsModule }, { createKnowledgeModule }, { Store }, { VmManager }, { ProviderRuntime }, { ProviderKeys, keyFileFor }, { createProvidersModule }, { createUpdaterModule }, { createProjectsModule, ProjectStore }] = await Promise.all([
   load('shared/config.js'), load('core/admin.js'), load('core/approvals.js'), load('core/bus.js'), load('core/settings.js'), load('core/engine.js'), load('core/server.js'),
   load('core/blender/index.js'), load('core/bsv/index.js'), load('core/comms/index.js'), load('core/kg/index.js'), load('core/store.js'), load('core/vm-manager.js'),
-  load('core/providers/runtime.js'), load('core/providers/secrets.js'), load('core/providers/routes.js'), load('core/updater/index.js'),
+  load('core/providers/runtime.js'), load('core/providers/secrets.js'), load('core/providers/routes.js'), load('core/updater/index.js'), load('core/projects/index.js'),
 ]);
 
 const log = (...a) => process.stderr.write(`[harness-core] ${a.join(' ')}\n`);
@@ -36,7 +36,8 @@ const vms = new VmManager({ store, bus, getBoat, boatConfig: () => config.boat }
 const approvals = new ApprovalBroker(bus);
 const model = createFakeModel();
 const providerRuntime = config.experimental.providers ? new ProviderRuntime({ config, keys: new ProviderKeys(keyFileFor(dataDir())) }) : undefined;
-const engine = new Engine({ store, bus, vms, approvals, config, boatConfigured, ...(providerRuntime ? { providers: providerRuntime } : {}), queryFn: model.queryFn });
+const projects = new ProjectStore(dataDir(), config.workspaceDir);
+const engine = new Engine({ store, bus, vms, approvals, config, boatConfigured, projects, ...(providerRuntime ? { providers: providerRuntime } : {}), queryFn: model.queryFn });
 const fakeCatalog = async () => ({ commands: [{ name: 'cost', description: 'Show cost', argumentHint: '' }], models: [{ value: 'sonnet', displayName: 'Sonnet (harness)', description: 'fake' }, { value: 'opus', displayName: 'Opus (harness)', description: 'fake' }], fetchedAt: new Date().toISOString() });
 engine.bridge.catalog = fakeCatalog;
 let stopReaper = () => {};
@@ -55,13 +56,13 @@ const blender = createBlenderModule(moduleDeps, { vms, boatConfigured, log });
 // the updater has no signing key in this tree, so it stays off and makes no request
 const updater = createUpdaterModule(moduleDeps, { root: join(dirname(fileURLToPath(import.meta.url)), '..', '..'), nativeSecret, log, probes: {} });
 const providersModules = providerRuntime ? [createProvidersModule({ runtime: providerRuntime, configPath: configPath(), nativeSecret })] : [];
-const modules = [kg, createCommsModule(moduleDeps), bsv, blender, ...providersModules, updater];
+const modules = [kg, createCommsModule(moduleDeps, { projects }), createProjectsModule(moduleDeps, { projects, nativeSecret }), bsv, blender, ...providersModules, updater];
 engine.setModules(modules);
 const server = createServer({
   config, store, bus, engine, vms, approvals, boatConfigured, modules, bsvEnabled,
   doctor: async () => [{ id: 'harness', label: 'Harness', ok: true, detail: 'scripted model, fake boat.dev' }],
   catalog: fakeCatalog,
-  settings, adminSecret,
+  settings, adminSecret, projects,
 });
 restartReaper();
 server.on('error', (err) => { log('server error', err.code ?? err); process.exit(err.code === 'EADDRINUSE' ? 3 : 1); });

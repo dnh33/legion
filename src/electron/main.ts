@@ -10,6 +10,8 @@ import { initUpdater, recoverAtStart } from './updater-main.js';
 import { adminForRenderer, bsvConfirmation, bsvPreflight, coreAction, coreIsBusy, dialogText, killPlan, listenerCommands, listenerPids, parseBsvAction, trustedSender, type BsvAction, type BsvPolicyFacts, type CoreHealth } from './admin-logic.js';
 import { makeConfirm, providerChange } from './provider-ipc.js';
 import { resolveNodeBin } from './resolve-node.js';
+import { projectChange } from './project-ipc.js';
+import type { ProjectChangeResult } from './project-ipc.js';
 import type { ProviderChangeResult } from './provider-ipc.js';
 
 const here = dirname(fileURLToPath(import.meta.url)); // <root>/dist/src/electron
@@ -474,6 +476,15 @@ if (!app.requestSingleInstanceLock()) {
     const frameUrl = (e as { senderFrame?: { url?: string } }).senderFrame?.url;
     if (!win || win.isDestroyed() || (e as { sender?: unknown }).sender !== win.webContents || !trustedSender(frameUrl, uiUrl)) return { ok: false, error: 'Refused: not the Legion window.' };
     try { return await providerChange(raw, { call: ownCoreCall, confirm: makeConfirm(dialog, () => win) }); } catch { return { ok: false, error: 'The change failed.' }; }
+  });
+  ipcMain.handle('legion:project-change', async (e, raw: unknown): Promise<ProjectChangeResult> => {
+    const frameUrl = (e as { senderFrame?: { url?: string } }).senderFrame?.url;
+    if (!win || win.isDestroyed() || (e as { sender?: unknown }).sender !== win.webContents || !trustedSender(frameUrl, uiUrl)) return { ok: false, error: 'Refused: not the Legion window.' };
+    const pickFolder = async (start?: string): Promise<string | undefined> => {
+      const r = await dialog.showOpenDialog(win!, { title: 'Choose the project folder', defaultPath: start, properties: ['openDirectory', 'createDirectory'] });
+      return r.canceled ? undefined : r.filePaths[0];
+    };
+    try { return await projectChange(raw, { call: ownCoreCall, confirm: makeConfirm(dialog, () => win), pickFolder }); } catch { return { ok: false, error: 'The change failed.' }; }
   });
   ipcMain.handle('legion:open-external', (_e, url: unknown) => {
     if (typeof url === 'string' && isHttp(url)) { void shell.openExternal(url); return true; }

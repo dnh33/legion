@@ -56,13 +56,13 @@ export function addCommsRoutes(add: RouteAdder, hub: CommsHub): void {
     const members = strList(b.members, 'members');
     if (!members) throw new HttpError(400, 'members is required');
     return hub.createRoom({
-      name: b.name, members, strategy: strategy(b.strategy), lead: optStr(b.lead, 'lead'), guards: guards(b.guards),
+      name: b.name, members, strategy: strategy(b.strategy), lead: optStr(b.lead, 'lead'), guards: guards(b.guards), projectId: optStr(b.projectId, 'projectId'),
     });
   }), 201);
   add('GET', '/api/rooms/:id', wrap(({ params }) => hub.roomWithMessages(params[0]!, 200)));
   add('PATCH', '/api/rooms/:id', wrap((c) => {
     const b = body(c);
-    return hub.updateRoom(c.params[0]!, { name: optStr(b.name, 'name'), strategy: strategy(b.strategy), lead: optStr(b.lead, 'lead'), guards: guards(b.guards) });
+    return hub.updateRoom(c.params[0]!, { name: optStr(b.name, 'name'), strategy: strategy(b.strategy), lead: optStr(b.lead, 'lead'), guards: guards(b.guards), projectId: b.projectId === null ? null : optStr(b.projectId, 'projectId') });
   }));
   add('DELETE', '/api/rooms/:id', wrap(({ params }) => { hub.deleteRoom(params[0]!); return { ok: true }; }));
   add('POST', '/api/rooms/:id/members', wrap((c) => {

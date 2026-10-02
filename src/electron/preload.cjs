@@ -27,6 +27,10 @@ contextBridge.exposeInMainWorld('legion', {
   providerChange(change) {
     return ipcRenderer.invoke('legion:provider-change', change);
   },
+  // Project folder and member changes: main shows the native confirmation (and the folder chooser) and holds the native secret.
+  projectChange(change) {
+    return ipcRenderer.invoke('legion:project-change', change);
+  },
   // The updater's "Restart now": main shows its own native confirmation naming what will stop, then drains and swaps.
   updateRestartNow() {
     return ipcRenderer.invoke('legion:update-restart-now');

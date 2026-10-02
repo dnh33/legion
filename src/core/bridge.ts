@@ -22,6 +22,11 @@ export interface BridgeStartParams {
   modelOverrideBy?: string;
   /** The prompt carries text from a tainted source (for example room history written by a tainted bot): the task starts tainted. */
   tainted?: boolean;
+  /**
+   * The project of the task, when the caller may name one: the app (source 'ui') and a room's own wake (source 'bot'). `null` clears it.
+   * Every other source (MCP, ask/tell, cli) is ignored here: a bridge run inherits its caller's project inside the engine, only for members.
+   */
+  projectId?: string | null;
   /** `fromTaskId` (replies only) is the task whose result this message carries, so its taint can follow it. */
   bridge?: { fromAgentId: string; parentTaskId?: string; header?: string; reply?: boolean; hop?: number; fromTaskId?: string };
 }

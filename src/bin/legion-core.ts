@@ -21,6 +21,7 @@ import { createBsvModule, createBsvState } from '../core/bsv/index.js';
 import { createCommsModule } from '../core/comms/index.js';
 import { createKnowledgeModule } from '../core/kg/index.js';
 import { createUpdaterModule } from '../core/updater/index.js';
+import { createProjectsModule, ProjectStore } from '../core/projects/index.js';
 import type { ModuleDeps } from '../core/modules.js';
 import { Store } from '../core/store.js';
 import { VmManager } from '../core/vm-manager.js';
@@ -55,7 +56,9 @@ async function main() {
   // other model providers (OpenAI-compatible endpoints); keys live in <dataDir>/providers/keys.json, never in config.json
   // built but not released (v0.2.1): off unless config.json says experimental.providers = true, then no provider code runs at all
   const providerRuntime = config.experimental.providers ? new ProviderRuntime({ config, keys: new ProviderKeys(keyFileFor(dataDir())) }) : undefined;
-  const engine = new Engine({ store, bus, vms, approvals, config, boatConfigured, ...(providerRuntime ? { providers: providerRuntime } : {}) });
+  // projects (owner-only groups of tasks, rooms, notes; own file <dataDir>/projects.json)
+  const projects = new ProjectStore(dataDir(), config.workspaceDir);
+  const engine = new Engine({ store, bus, vms, approvals, config, boatConfigured, projects, ...(providerRuntime ? { providers: providerRuntime } : {}) });
   // lets ask/tell check a per-task model against what the account offers
   engine.bridge.catalog = () => getCatalog({ config });
   let stopReaper: () => void = () => {};
@@ -81,13 +84,13 @@ async function main() {
     probes: { 'a Blender download or setup is running': async () => !!((await blender.status(false)) as { getting?: boolean }).getting },
   });
   const providersModules = providerRuntime ? [createProvidersModule({ runtime: providerRuntime, configPath: configPath(), nativeSecret })] : [];
-  const modules = [kg, createCommsModule(moduleDeps), bsv, blender, ...providersModules, updater];
+  const modules = [kg, createCommsModule(moduleDeps, { projects }), createProjectsModule(moduleDeps, { projects, nativeSecret }), bsv, blender, ...providersModules, updater];
   engine.setModules(modules);
   const server = createServer({
     config, store, bus, engine, vms, approvals, boatConfigured, modules, bsvEnabled,
     doctor: () => runDoctor({ config, getBoat, health: vms.health }),
     catalog: (force) => getCatalog({ config }, { force }),
-    settings, adminSecret,
+    settings, adminSecret, projects,
   });
 
   restartReaper();
@@ -112,6 +115,7 @@ async function main() {
     for (const id of engine.running()) engine.cancel(id);
     server.close();
     await store.flush();
+    await projects.flush();
     process.exit(0);
   };
   process.on('SIGINT', () => void shutdown('SIGINT'));

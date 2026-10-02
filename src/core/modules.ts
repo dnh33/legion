@@ -20,6 +20,8 @@ export interface ModuleJob {
   taint(): boolean;
   /** Flags the run as tainted from now on (a tool just handed it text a tainted bot wrote, e.g. room_read). Sticky. */
   markTainted?(): void;
+  /** The project this run belongs to, resolved by the engine (active project, agent is a member). Never taken from a tool argument. */
+  projectId?: string;
 }
 
 /** What the engine tells a module while it builds a run's system prompt. */
@@ -30,6 +32,8 @@ export interface PreambleContext {
   origin?: TaskOrigin;
   /** Taint at prompt-build time: true when the task, or the chain that woke it, is already tainted. */
   tainted: boolean;
+  /** The run's project (same rules as ModuleJob.projectId). */
+  projectId?: string;
 }
 
 /** How a run ended, as the engine reports it to onTaskEnd. */
