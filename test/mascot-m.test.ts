@@ -8,7 +8,7 @@
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
@@ -64,7 +64,10 @@ let browser: { newPage(o?: object): Promise<Page>; close(): Promise<void> } | nu
 let why = '';
 try {
   const lp = (await import(pathToFileURL(join(ROOT, 'scripts', 'lib', 'load-playwright.mjs')).href)) as { launchChromium(o?: object): Promise<typeof browser> };
-  process.env.PLAYWRIGHT_PATH ||= '/opt/node-tools/node_modules/playwright';
+  // Resolution (load-playwright.mjs): an installed `playwright` package first, else $PLAYWRIGHT_PATH. The old CI image keeps one at
+  // /opt/node-tools; that path is only offered where it exists, so Windows and a normal checkout fall through to the skip reason.
+  const legacy = '/opt/node-tools/node_modules/playwright';
+  if (!process.env.PLAYWRIGHT_PATH && existsSync(legacy)) process.env.PLAYWRIGHT_PATH = legacy;
   browser = await lp.launchChromium({});
 } catch (e) { why = `Playwright or Chromium not available: ${(e as Error).message.split('\n')[0]}`; }
 const skip = browser ? false : why;
