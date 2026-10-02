@@ -113,4 +113,20 @@ test('C the list is checked again when the run starts: a choice withdrawn after 
   } finally { await w.f.close(); }
 });
 
+test('C the engine itself refuses an unlisted provider choice from a bot (not only the bridge pre-check), whichever way the task is started', async () => {
+  const w = await world();
+  try {
+    const e = w.h.engine as any;
+    const start = () => e.startTask({ agentId: 'sub', prompt: 'x', source: 'bot', model: 'fake:m1', modelOverrideBy: 'lead', bridge: { fromAgentId: 'lead', parentTaskId: 'lt', hop: 1 } });
+    assert.throws(start, /Lead choices/);
+    assert.equal(w.subTasks().length, 0);
+    w.h.config.providers.leadChoices.sub = ['fake:m1'];
+    assert.equal((await w.h.engine.waitFor(start().id, 8000)).status, 'done');
+    // a bot may still name a provider choice that equals the agent's own setting (nothing moves)
+    const same = setup(w.f, { agent: { id: 'sub', name: 'Sub', model: 'fake:m1', approval: 'full' } });
+    same.store.agents.set('lead', mkAgent({ id: 'lead', name: 'Lead', model: 'sonnet' }));
+    assert.doesNotThrow(() => (same.engine as any).startTask({ agentId: 'sub', prompt: 'x', source: 'bot', model: 'fake:m1', modelOverrideBy: 'lead', bridge: { fromAgentId: 'lead', hop: 1 } }));
+  } finally { await w.f.close(); }
+});
+
 void until;
