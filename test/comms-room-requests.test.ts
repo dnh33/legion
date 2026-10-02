@@ -576,3 +576,17 @@ test('B1: the re-check at approval time also refuses a budget above the maximum'
   assert.doesNotThrow(() => recheck(sender, plan(10000)));
   assert.doesNotThrow(() => recheck(sender, plan(null)));
 });
+
+test('B2: with a ceiling configured and no budget named, the room gets the ceiling (or the default clamped to it), not no limit', async () => {
+  const a = approver();
+  const h = makeHarness({ hub: { approve: a.approve, comms: { botRoomMaxMembers: 6, botRoomDefaultBudgetUsd: null, botRoomMaxBudgetUsd: 2, turnCostFloorUsd: 0.02 } } });
+  const p = h.hub.botCreateRoom('zealot', { name: 'Capped', members: ['scout'] }, ctx());
+  await tick();
+  assert.match(a.seen[0]!.summary, /Budget: \$2\.00/);
+  a.answer(true);
+  assert.equal((await p).guards.budgetUsd, 2);
+  const h2 = makeHarness({ hub: { approve: a.approve, comms: { botRoomMaxMembers: 6, botRoomDefaultBudgetUsd: 9, botRoomMaxBudgetUsd: 3, turnCostFloorUsd: 0.02 } } });
+  const q = h2.hub.botCreateRoom('zealot', { name: 'Clamped', members: ['scout'] }, ctx());
+  await tick(); a.answer(true, 1);
+  assert.equal((await q).guards.budgetUsd, 3);
+});

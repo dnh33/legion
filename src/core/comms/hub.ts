@@ -642,12 +642,13 @@ export class CommsHub {
     if (members.length > max) throw new CommsError(400, `A room a bot creates holds at most ${max} bots including you (you named ${members.length}). Name fewer bots.`);
     const lead = input.lead === undefined ? sender.id : (this.resolveAgent(input.lead)?.id ?? input.lead);
     if (!members.includes(lead)) throw new CommsError(400, 'lead must be one of the members');
-    let budgetUsd: number | null = this.comms.botRoomDefaultBudgetUsd;
+    const cap = this.comms.botRoomMaxBudgetUsd;
+    // A configured ceiling also covers a bot that names no budget: it gets the default (clamped to the ceiling) or the ceiling itself, never no limit.
+    let budgetUsd: number | null = cap === null ? this.comms.botRoomDefaultBudgetUsd : Math.min(this.comms.botRoomDefaultBudgetUsd ?? cap, cap);
     if (input.budgetUsd !== undefined) {
       const b = input.budgetUsd;
       if (typeof b !== 'number' || !Number.isFinite(b) || b < MIN_ROOM_BUDGET_USD) throw new CommsError(400, `budgetUsd must be a number of at least ${MIN_ROOM_BUDGET_USD}`);
       if (b > MAX_ROOM_BUDGET_USD) throw new CommsError(400, `budgetUsd must be at most $${MAX_ROOM_BUDGET_USD} (the same limit as every room)`);
-      const cap = this.comms.botRoomMaxBudgetUsd;
       if (cap !== null && b > cap) throw new CommsError(400, `budgetUsd must be at most $${cap.toFixed(2)} for a room a bot creates (the user can raise it later).`);
       budgetUsd = b;
     }
