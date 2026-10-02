@@ -530,3 +530,174 @@ test('C26 (engine part): the network is one of two literals; anything else (a lo
   assert.equal(w.verdict, 'deny'); assert.match(w.reasons.join(), /wallet network is not valid/);
   assert.equal(e.snapshot().nets.test.usage.reservedSats + e.snapshot().nets.main.usage.reservedSats, 0);
 });
+
+// ================================================================== review fixes (B1-B8 and the surviving mutants)
+
+import { createHash } from 'node:crypto';
+import { CARD_TTL_MS, requestHash } from '../src/core/bsv/policy.js';
+
+const B58X = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
+const b58 = (all: Buffer): string => {
+  let n = BigInt('0x' + all.toString('hex')); let out = '';
+  while (n > 0n) { out = B58X[Number(n % 58n)]! + out; n /= 58n; }
+  for (const b of all) { if (b === 0) out = '1' + out; else break; }
+  return out;
+};
+const dsha4 = (b: Buffer): Buffer => createHash('sha256').update(createHash('sha256').update(b).digest()).digest().subarray(0, 4);
+
+test('C30i: a base58check string that decodes to the wrong LENGTH is not an address, whatever its checksum says', () => {
+  const h = Buffer.alloc(20, 0x11);
+  const first21 = Buffer.concat([Buffer.from([0x00]), h]);
+  // 26 bytes: version + hash + checksum over the first 21 bytes + one extra byte (35 characters: inside any string-length gate)
+  const v26 = b58(Buffer.concat([first21, dsha4(first21), Buffer.from([0x07])]));
+  assert.equal(v26.length, 35, 'inside the length gate, so only the decoded-length check can refuse it');
+  assert.equal(decodeAddress(v26), null); assert.equal(addressNet(v26), null);
+  // 26 bytes whose checksum is valid for a 22-byte payload (a well-formed base58check string of the wrong payload size)
+  const p22 = Buffer.concat([first21, Buffer.from([0x07])]);
+  const w26 = b58(Buffer.concat([p22, dsha4(p22)]));
+  assert.equal(decodeAddress(w26), null);
+  // 24 bytes: one byte short
+  const p20 = Buffer.concat([Buffer.from([0x00]), Buffer.alloc(19, 0x11)]);
+  assert.equal(decodeAddress(b58(Buffer.concat([p20, dsha4(p20)]))), null);
+  // and the engine never lets one onto a list or through a request
+  const e = engine().e; e.arm(5);
+  assert.throws(() => e.setAllowlist([v26], 'main'), PolicyError);
+  assert.equal(e.evaluate(req({ network: 'main', to: v26 })).verdict, 'deny');
+  assert.ok(decodeAddress(mkAddr(0, 0x11)), 'control: the 25-byte one decodes');
+});
+
+test('B1: approved, settled, expired and resolved events carry the network of the record (test, main, and invalid for a seeded unreadable one)', () => {
+  const { e, events, clock } = engine(); e.arm(5);
+  const netOf = (t: string) => events.filter((x) => x.type === t).map((x) => (x as { net: string }).net);
+  const m = e.evaluate(req({ network: 'main' })); e.approve(m.requestId, approveInput(m.card!, 'main')); e.settle(m.requestId, { kind: 'executed', sats: 620 });
+  const t = e.evaluate(req()); e.approve(t.requestId, approveInput(t.card!)); e.settle(t.requestId, { kind: 'failed' });
+  assert.deepEqual(netOf('approved'), ['main', 'test']); assert.deepEqual(netOf('settled'), ['main', 'test']);
+  e.setMainnetEnabled(true); e.arm(5);
+  const x = e.evaluate(req({ network: 'main', pay: 100 })); e.approve(x.requestId, approveInput(x.card!, 'main')); e.settle(x.requestId, { kind: 'unknown' });
+  assert.equal(netOf('settled').at(-1), 'main', 'an unknown outcome on mainnet says main');
+  e.resolveUnknown(x.requestId, { kind: 'not-sent' });
+  assert.deepEqual(netOf('resolved'), ['main']);
+  e.setMainnetEnabled(true); e.arm(5); const p = e.evaluate(req({ network: 'main', pay: 50 })); const q = e.evaluate(req({ pay: 60 })); clock.advance(CARD_TTL_MS + 1); e.sweep();
+  assert.deepEqual(netOf('expired').sort(), ['main', 'test']);
+  assert.ok(p.verdict === 'needs_approval' && q.verdict === 'needs_approval');
+  const ev2: PolicyEvent[] = [];
+  const e2 = new PolicyEngine({ onEvent: (x2) => ev2.push(x2), unknown: [{ requestId: 'seed-bad-net1', agentId: 'a', totalSats: 5, net: 'MAIN' }] });
+  e2.resolveUnknown('seed-bad-net1', { kind: 'not-sent' });
+  assert.equal((ev2.find((x2) => x2.type === 'resolved') as { net: string }).net, 'invalid');
+});
+
+test('B2: a transaction with no payment output is refused (bad-request) on both networks; mainnet allows exactly one payment even if its caps said more', () => {
+  for (const network of ['test', 'main'] as const) {
+    const { e } = engine(); e.arm(5);
+    const r = req({ network });
+    r.decoded = { inputSats: 4_020, outputs: [{ recipient: 'anything-at-all', sats: 4_000, change: true }], feeSats: 20 };
+    const d = e.evaluate(r);
+    assert.equal(d.verdict, 'deny', network); assert.deepEqual(d.codes, ['bad-request'], network);
+    assert.equal(e.snapshot().nets[network].usage.reservedSats, 0, 'nothing reserved');
+  }
+  // mainnet: two payments are refused even when the file asks for more (the hard ceiling for mainnet maxOutputs is 1)
+  const e = new PolicyEngine({ config: { nets: { test: { caps: { ...NET.test.defaultCaps }, allowlist: [] }, main: { caps: { ...NET.main.defaultCaps, maxOutputs: 5 }, allowlist: [MAIN_A, MAIN_B] } }, frozen: null, mainnetEnabled: true } });
+  assert.equal(e.config().nets.main.caps.maxOutputs, 1); e.arm(5);
+  const two = req({ network: 'main' });
+  two.decoded = { inputSats: 820, outputs: [{ recipient: MAIN_A, sats: 400 }, { recipient: MAIN_B, sats: 400 }], feeSats: 20 };
+  assert.ok(e.evaluate(two).codes.includes('too-many-outputs'));
+});
+
+test('B3: canSign is true only for an approved request, on an unfrozen chain, and for mainnet only while the switch is on (Disable between approve and sign)', () => {
+  const { e } = engine(); e.arm(5);
+  const d = e.evaluate(req({ network: 'main' }));
+  assert.equal(e.canSign(d.requestId), false, 'pending is not approved');
+  e.approve(d.requestId, approveInput(d.card!, 'main'));
+  assert.equal(e.canSign(d.requestId), true);
+  assert.equal(e.canSign('nope-nope-nope'), false);
+  e.mainnetOff('the owner pressed Disable');
+  assert.equal(e.status(d.requestId), 'approved', 'the engine leaves the approved record alone (mid-flight)');
+  assert.equal(e.canSign(d.requestId), false, 'but it may not be signed any more');
+  // testnet: not tied to the mainnet switch, but frozen and settled both stop it
+  const { e: e2 } = engine();
+  const t = e2.evaluate(req()); e2.approve(t.requestId, approveInput(t.card!));
+  e2.mainnetOff('x'); assert.equal(e2.canSign(t.requestId), true, 'a testnet spend does not depend on the mainnet switch');
+  e2.freeze('x'); assert.equal(e2.canSign(t.requestId), false, 'frozen (and the approved record is now unknown)');
+  const { e: e3 } = engine(); const u = e3.evaluate(req()); e3.approve(u.requestId, approveInput(u.card!)); e3.settle(u.requestId, { kind: 'failed' });
+  assert.equal(e3.canSign(u.requestId), false, 'a settled one is never signed again');
+  const { e: e4, clock } = engine(); const w = e4.evaluate(req()); e4.approve(w.requestId, approveInput(w.card!)); clock.advance(EXEC_TTL_MS + 1);
+  assert.equal(e4.canSign(w.requestId), false, 'an overdue approval has become unknown');
+});
+
+test('B8: a restart seed that cannot be read becomes a placeholder unknown that blocks both networks and switches mainnet off; the owner can resolve it', () => {
+  for (const bad of [{ requestId: 'short', agentId: 'a', totalSats: 5 }, { requestId: 'seed-ok-0001', agentId: 'a', totalSats: 1.5 }, { requestId: 'seed-ok-0002', agentId: 'a', totalSats: -1 }, null, 7]) {
+    const e = new PolicyEngine({ config: { nets: { test: { caps: { ...NET.test.defaultCaps }, allowlist: [TEST_A] }, main: { caps: { ...NET.main.defaultCaps }, allowlist: [MAIN_A] } }, frozen: null, mainnetEnabled: true }, unknown: [bad] as never });
+    assert.equal(e.snapshot().unknown.length, 1, JSON.stringify(bad));
+    assert.equal(e.mainnetEnabled, false, 'the stricter side');
+    assert.ok(e.evaluate(req()).codes.includes('unknown-outcome-pending'));
+    const id = e.snapshot().unknown[0]!.requestId;
+    assert.equal(e.resolveUnknown(id, { kind: 'not-sent' }), true, 'the owner can clear it');
+    assert.equal(e.evaluate(req()).verdict, 'needs_approval');
+  }
+});
+
+test('H1/H2: the request hash binds the network and the untrusted-content flag', () => {
+  const r = req(); const base = requestHash(r);
+  assert.notEqual(requestHash({ ...r, network: 'main' }), base, 'H1: net');
+  assert.notEqual(requestHash({ ...r, tainted: true }), base, 'H2: tainted');
+  assert.equal(requestHash({ ...r }), base);
+  // and through the engine: the same id with the other net or flag is a different request
+  const { e } = engine();
+  e.evaluate(r);
+  assert.deepEqual(e.evaluate({ ...r, tainted: true }).codes, ['bad-request']);
+  assert.deepEqual(e.evaluate({ ...r, network: 'main', walletNetwork: 'main' }).codes, ['bad-request']);
+});
+
+test('T9: setMainnetEnabled takes exactly true or false; anything else throws and changes nothing', () => {
+  const { e } = engine({ mainnet: false });
+  for (const v of ['yes', 'true', 1, 0, null, undefined, {}, []]) { assert.throws(() => e.setMainnetEnabled(v as never), PolicyError, String(v)); assert.equal(e.mainnetEnabled, false); }
+  e.setMainnetEnabled(true); assert.equal(e.mainnetEnabled, true);
+  e.setMainnetEnabled(false); assert.equal(e.mainnetEnabled, false);
+});
+
+test('T11: a card is still live one ms before its time limit and expired at the limit (and cannot be approved then)', () => {
+  const { e, clock } = engine();
+  const d = e.evaluate(req()); const expires = d.card!.expiresAt;
+  assert.equal(expires - d.card!.createdAt, CARD_TTL_MS);
+  clock.w = expires - 1; assert.equal(e.status(d.requestId), 'pending');
+  clock.w = expires; assert.equal(e.status(d.requestId), 'expired');
+  assert.equal(e.approve(d.requestId, approveInput(d.card!)).ok, false);
+});
+
+test('T12: a spend exactly 24 h old no longer counts against the rolling cap; one ms younger still does', () => {
+  const clock = new FakeClock(); const at = clock.w - DAY_MS;
+  for (const [dt, counts] of [[1, true], [0, false]] as const) {
+    const { e } = engine({ clock, ledger: [{ requestId: 'old-spend-1', sats: 4_000, at: at + dt, net: 'main' }] });
+    assert.equal(e.snapshot().nets.main.usage.last24hSats, counts ? 4_000 : 0, `age ${DAY_MS - dt}`);
+  }
+  // per network: the same record on testnet counts there and not on mainnet
+  const { e } = engine({ clock, ledger: [{ requestId: 'old-spend-2', sats: 700, at: clock.w - 1000, net: 'test' }] });
+  assert.equal(e.snapshot().nets.test.usage.last24hSats, 700); assert.equal(e.snapshot().nets.main.usage.last24hSats, 0);
+});
+
+test('T3: voidPending of one network leaves the other network\'s pending cards and any seeded unknown alone', () => {
+  const { e } = engine(); e.arm(5);
+  const m = e.evaluate(req({ network: 'main' })); const t = e.evaluate(req());
+  assert.deepEqual(e.voidPending('x', 'main'), [m.requestId]);
+  assert.equal(e.status(m.requestId), 'denied'); assert.equal(e.status(t.requestId), 'pending');
+  const e2 = new PolicyEngine({ unknown: [{ requestId: 'seed-void-001', agentId: 'a', totalSats: 5, net: 'weird' }] });
+  assert.deepEqual(e2.voidPending('x', 'main'), []); assert.equal(e2.status('seed-void-001'), 'unknown');
+  assert.deepEqual(e.voidPending('all'), [t.requestId]);
+});
+
+test('B6/B7: testnet recipients must be valid testnet addresses; a legacy-shaped file never enables mainnet', () => {
+  const { e } = engine();
+  for (const to of ['alice@example.com', mkAddr(0x00, 0x11, true), mkAddr(0x05, 0x11), MAIN_A]) assert.throws(() => e.setAllowlist([to], 'test'), PolicyError, to);
+  assert.deepEqual(sanitizePolicyConfig({ allowlist: [TEST_A, 'alice@example.com', MAIN_A] }).nets.test.allowlist, [TEST_A]);
+  assert.equal(sanitizePolicyConfig({ caps: {}, mainnetEnabled: true }).mainnetEnabled, false);
+  assert.equal(new PolicyEngine({ config: { mainnetEnabled: true } as never }).mainnetEnabled, false);
+});
+
+test('B5 (engine part): a restart seed that switches mainnet off tells the hook when it is registered, once', () => {
+  const e = new PolicyEngine({ config: { nets: { test: { caps: { ...NET.test.defaultCaps }, allowlist: [] }, main: { caps: { ...NET.main.defaultCaps }, allowlist: [MAIN_A] } }, frozen: null, mainnetEnabled: true }, unknown: [{ requestId: 'seed-main-001', agentId: 'a', totalSats: 5, net: 'main' }] });
+  assert.equal(e.mainnetEnabled, false);
+  const calls: string[] = []; e.setMainnetOffHook((w) => calls.push(w));
+  assert.equal(calls.length, 1); e.setMainnetOffHook((w) => calls.push(w)); assert.equal(calls.length, 1, 'once');
+  const quiet = new PolicyEngine({ unknown: [{ requestId: 'seed-test-001', agentId: 'a', totalSats: 5 }] });
+  let n = 0; quiet.setMainnetOffHook(() => { n++; }); assert.equal(n, 0, 'a testnet seed does not touch the switch');
+});

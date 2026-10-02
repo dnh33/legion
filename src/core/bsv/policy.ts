@@ -639,8 +639,7 @@ export class PolicyEngine {
       const an = addressNet(o.recipient);
       if (an !== net) no('address-network-mismatch', `recipient ${safeText(o.recipient, 48)} is not a ${net === 'main' ? 'mainnet' : 'testnet'} address`);
     }
-    // mainnet: exactly one payment, whatever the caps say (the hard ceiling is 1 as well; this does not rely on it)
-    if (payments.length > (net === 'main' ? Math.min(1, cfg.caps.maxOutputs) : cfg.caps.maxOutputs)) no('too-many-outputs', `${payments.length} payment outputs, the limit is ${net === 'main' ? Math.min(1, cfg.caps.maxOutputs) : cfg.caps.maxOutputs}`);
+    if (payments.length > cfg.caps.maxOutputs) no('too-many-outputs', `${payments.length} payment outputs, the limit is ${cfg.caps.maxOutputs}`);
     if (tx.feeSats > cfg.caps.maxFeeSats) no('fee-too-high', `fee ${tx.feeSats} sats is above the ceiling of ${cfg.caps.maxFeeSats}`);
     if (total > cfg.caps.perTxSats) no('over-cap', `${total} sats is above the per-transaction cap of ${cfg.caps.perTxSats}`);
     const wall = this.clock.wall();
