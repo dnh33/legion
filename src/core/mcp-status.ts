@@ -76,6 +76,9 @@ export function describeState(state: McpServerState, error?: string): string {
 export class McpStatusTracker {
   private seen: Seen[] = [];
   private at: string | undefined;
+  private notice: string | undefined;
+
+  setNotice(text: string): void { this.notice = text; }
 
   /** `servers` is the `mcp_servers` list of a system/init message (or mcpServerStatus() output); error text only comes from the latter. */
   record(servers: unknown, at: string): void {
@@ -88,6 +91,7 @@ export class McpStatusTracker {
     }
     this.seen = out;
     this.at = at;
+    this.notice = undefined;
   }
 
   /** Merge details (errors) learned from mcpServerStatus() into the current snapshot without moving its time. */
@@ -117,6 +121,6 @@ export class McpStatusTracker {
       const state = toState(s.status);
       rows.push({ name: s.name, state, origin: s.source ?? 'unknown', message: describeState(state, s.error) });
     }
-    return { inheritMcp: inherit, ...(this.at ? { lastRunAt: this.at } : {}), servers: rows };
+    return { inheritMcp: inherit, ...(this.at ? { lastRunAt: this.at } : {}), ...(this.notice ? { notice: this.notice } : {}), servers: rows };
   }
 }

@@ -254,12 +254,24 @@ test('F3: plainError masks URLs, key-like query params and Bearer tokens', () =>
   assert.equal(plainError(undefined), '');
 });
 
+test('F6: a failed switch-off of an inherited self server shows a one-line notice; a new run clears it', async () => {
+  const s = setup(async function* () { yield init({ mcp_servers: [{ name: 'loop', status: 'connected', source: 'user' }] }); await new Promise((r) => setTimeout(r, 30)); yield ok; },
+    (c) => { c.claude.inheritMcp = true; },
+    { mcpServerStatus: async () => [{ name: 'loop', status: 'connected', source: 'user', config: { type: 'http', url: 'http://127.0.0.1:4747/mcp' } }], toggleMcpServer: async () => { throw new Error('nope'); } });
+  await run(s);
+  await new Promise((r) => setTimeout(r, 60));
+  assert.match(s.engine.mcpStatus().notice ?? '', /Could not switch off "loop"/);
+});
+
 test('copy: the inheritMcp text claims only what Legion\'s own code does (no absolutes)', () => {
-  const ui = readFileSync(join(REPO, 'ui/src/components/Settings.tsx'), 'utf8').split('\n').filter((l) => /inheritMcp|claude\.ai connectors|Read-only; it updates|Legion's own code asks/.test(l)).join('\n');
+  const ui = readFileSync(join(REPO, 'ui/src/components/Settings.tsx'), 'utf8').split('\n').filter((l) => /inheritMcp|claude\.ai connectors|Read-only; it |Legion's own code asks|Legion asks Claude Code|Inherit my Claude Code settings|function McpStatus|Status on the most recent run/.test(l)).join('\n');
   const sec = readFileSync(join(REPO, 'SECURITY.md'), 'utf8').split('\n').filter((l) => /inheritMcp/.test(l)).join('\n');
   assert.match(ui, /Legion's own code/);
   assert.match(sec, /Legion's own code/);
   const banned = /\bguarantee[sd]?\b|\bimpossible\b|\bcannot be (bypassed|forged|changed|disabled|tampered with|edited|spoofed|faked|hacked)\b|\b(no one|nobody) can\b|\b100 ?%|\bfully (secure|safe|protected|isolated)\b|\bforever\b|\bnever (connects|loads)\b/i;
+  assert.match(ui, /Legion asks Claude Code to load only its own tools/, 'the status hint is scanned');
+  assert.doesNotMatch(ui, /\bOnly Legion's own tools\b[^.]*\bare loaded/);
+  assert.match(ui, /separate and applies whichever way/);
   assert.doesNotMatch(ui, banned);
   assert.doesNotMatch(sec, banned);
 });

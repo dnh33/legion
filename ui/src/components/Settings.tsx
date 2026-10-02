@@ -123,7 +123,7 @@ function ClaudeSection({ s }: { s: SettingsView }) {
           <input id="claude-turns" className="narrow" inputMode="numeric" value={turns} onChange={(e) => setTurns(e.target.value.replace(/[^\d]/g, ''))} />
         </Field>
         <label className="set-check"><input type="checkbox" checked={inherit} onChange={(e) => setInherit(e.target.checked)} />
-          <span><b>Inherit my Claude Code settings</b><em>Agents also read your user and project settings, hooks and CLAUDE.md, like Claude Code in a terminal.</em></span></label>
+          <span><b>Inherit my Claude Code settings</b><em>Agents also read your user and project settings, hooks and CLAUDE.md, like Claude Code in a terminal. The MCP choice below is separate and applies whichever way this is set.</em></span></label>
         <label className="set-check"><input type="checkbox" checked={inheritMcp} onChange={(e) => setInheritMcp(e.target.checked)} />
           <span><b>Also load MCP servers and claude.ai connectors from my Claude Code setup</b><em>Off by default. When off, Legion asks Claude Code to use only Legion's own tools and the servers you add under MCP servers, and not to load claude.ai connectors. Turning it on brings back the servers and connectors you use in Claude Code, which connect again on every run. This only changes what Legion's own code asks Claude Code to load; it does not limit what an agent's ordinary tools, such as a shell, can reach.</em></span></label>
       </div>
@@ -313,8 +313,9 @@ function McpStatus({ s }: { s: SettingsView }) {
   useEffect(load, [JSON.stringify(s.claude.inheritMcp)]);
   return (
     <div className="set-card mcp-status">
-      <div className="set-field"><span className="set-label">Status on the last run</span>
-        <span className="set-hint">{s.claude.inheritMcp ? 'Servers from your Claude Code setup are included.' : 'Only Legion\'s own tools and the servers below are loaded.'} Read-only; it updates when an agent starts a run.</span>
+      <div className="set-field"><span className="set-label">Status on the most recent run</span>
+        <span className="set-hint">{s.claude.inheritMcp ? 'Servers from your Claude Code setup are included.' : 'Legion asks Claude Code to load only its own tools and the servers below.'} Read-only; it shows the most recent run only, and updates when an agent starts a run, so with several agents running it is whichever started last.</span>
+        {st?.notice && <span className="set-hint" role="status">{st.notice}</span>}
         {err && <span className="set-hint" role="alert">Could not read the status: {err}</span>}
         <ul className="mcp-list">
           {(st?.servers ?? []).map((v) => (

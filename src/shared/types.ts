@@ -353,6 +353,8 @@ export interface McpStatusView {
   inheritMcp: boolean;
   /** ISO time of the run the states come from; absent until a run has started since Legion started. */
   lastRunAt?: string;
+  /** One line when Legion could not switch off an inherited server that points back at itself (inherit on only). */
+  notice?: string;
   servers: Array<{
     name: string;
     state: McpServerState;

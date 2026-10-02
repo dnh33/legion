@@ -599,7 +599,7 @@ export class Engine {
       },
       settingSources: this.config.claude.inheritClaudeCodeSettings ? ['user', 'project', 'local'] : [],
       mcpServers: this.buildMcpServers(agent, job, act),
-      // Off (default): only the servers above, nothing from user/project/local MCP config or plugins. claude.ai connectors are switched off in buildChildEnv.
+      // Off (default): only the servers above, asks the CLI to ignore user/project/local MCP config and plugins. claude.ai connectors are asked off in buildChildEnv and in `settings`.
       ...(this.config.claude.inheritMcp === true ? {} : { strictMcpConfig: true }),
       disallowedTools: ['SendMessage', 'ListAgents', ...this.moduleDisallowed(agent)],
       maxTurns: this.config.claude.maxTurns,
@@ -704,7 +704,9 @@ export class Engine {
       if (!inherit || typeof q.toggleMcpServer !== 'function' || !Array.isArray(full)) return;
       for (const s of full) {
         if (s?.source === 'sdk' || typeof s?.name !== 'string') continue;
-        if (s.name === 'legion' || isSelfMcpUrl(s.config?.url, this.config.port, { headers: s.config?.headers, authToken: this.config.authToken })) await q.toggleMcpServer(s.name, false);
+        if (s.name === 'legion' || isSelfMcpUrl(s.config?.url, this.config.port, { headers: s.config?.headers, authToken: this.config.authToken })) {
+          try { await q.toggleMcpServer(s.name, false); } catch { this.mcpTracker.setNotice(`Could not switch off "${s.name}", which points back at Legion. It stays connected for this run.`); }
+        }
       }
     })().catch(() => undefined);
   }
