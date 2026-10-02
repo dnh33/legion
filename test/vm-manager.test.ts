@@ -52,7 +52,7 @@ test('create -> ready -> exec -> stop, emits vm.updated and uses ttl + name', as
   const r = await vm.exec('zealot', 'echo hi');
   assert.equal(r.stdout, 'hi');
   const stopped = await vm.stop('zealot');
-  assert.equal(stopped.state, 'archived');
+  assert.equal(stopped.vm.state, 'archived');
   assert.equal(store.getVm('zealot').state, 'archived');
   const states = events.filter((e) => e.type === 'vm.updated').map((e) => (e as any).vm.state);
   assert.ok(states.includes('provisioning') && states.includes('ready') && states.includes('archiving') && states.at(-1) === 'archived');
@@ -94,7 +94,7 @@ test('concurrent ensureRunning shares one creation', async () => {
   assert.equal(boat.createArgs.length, 1);
   assert.equal(a.sandboxId, b.sandboxId);
   assert.equal(c.sandboxId, a.sandboxId);
-  assert.equal(boat.createArgs[0].type, 'large');
+  assert.equal(boat.createArgs[0].type, 'default');
 });
 
 test('error codes: unknown_agent, not_configured, disabled', async () => {

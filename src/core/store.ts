@@ -106,7 +106,7 @@ export class Store {
         id: 'builder', name: 'Builder', emoji: '⌘', model: 'auto', approval: 'full',
         description: 'Coding and building; prefers its VM for risky work.',
         systemPrompt: 'You write, run and debug code. Make small, verifiable changes and run tests before reporting done.\nPrefer your cloud VM for untrusted code, heavy installs, long builds and GUI/browser work.\nStop the VM when you are finished with it.',
-        vm: { enabled: true, size: 'large', idleStopMinutes: 15 }, mcpServers: ['*'],
+        vm: { enabled: true, size: 'default', idleStopMinutes: 15 }, mcpServers: ['*'], // 'large' only when the user picks it: free trials refuse it
       },
       {
         id: 'scout', name: 'Scout', emoji: '◎', model: 'sonnet', approval: 'ask',

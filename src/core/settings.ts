@@ -2,6 +2,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { writeConfigFile } from '../shared/config.js';
 import type { LegionConfig, McpServerEntry, SettingsPatch, SettingsView } from '../shared/types.js';
+import { sanitizeRates } from '../shared/vm-usage.js';
 import { BoatClient } from './boat.js';
 import type { EventBus } from './bus.js';
 
@@ -17,7 +18,7 @@ export interface SettingsDeps {
   /** Called after boat key/baseUrl changed (rebuild client happens lazily via getBoat; this restarts the reaper). */
   onBoatChange?: () => void;
   /** Test hook. */
-  makeBoat?: (o: { apiKey: string; baseUrl: string }) => Pick<BoatClient, 'me'>;
+  makeBoat?: (o: { apiKey: string; baseUrl: string }) => Pick<BoatClient, 'me'> & Partial<Pick<BoatClient, 'checkKey'>>;
 }
 
 const MASK = '••••';
@@ -106,6 +107,21 @@ export function validatePatch(raw: unknown, current?: Record<string, McpServerEn
     const b = raw.boat, o: NonNullable<SettingsPatch['boat']> = {};
     if (b.apiKey !== undefined) o.apiKey = secret(b.apiKey, 'boat.apiKey');
     if (b.baseUrl !== undefined) o.baseUrl = httpUrl(b.baseUrl, 'boat.baseUrl').replace(/\/+$/, '');
+    if (b.rates !== undefined) {
+      if (b.rates !== null && !isObj(b.rates)) throw new SettingsError('boat.rates must be an object');
+      const r: Record<string, number> = {};
+      for (const [k, v] of Object.entries(b.rates ?? {})) {
+        if (!['small', 'default', 'large'].includes(k)) throw new SettingsError(`boat.rates.${k} is not a VM size (small, default, large)`);
+        if (v === null || v === undefined || v === '') continue; // empty = no rate for that size
+        if (typeof v !== 'number' || !Number.isFinite(v) || v <= 0 || v > 100000) throw new SettingsError(`boat.rates.${k} must be a positive number (your hourly price)`);
+        r[k] = v;
+      }
+      (o as any).rates = Object.keys(r).length ? r : null; // null removes the key from config.json
+    }
+    if (b.currency !== undefined) {
+      if (b.currency !== null && (typeof b.currency !== 'string' || b.currency.length > 12)) throw new SettingsError('boat.currency must be a short text (e.g. "USD")');
+      (o as any).currency = b.currency ? (b.currency as string).trim() : null;
+    }
     out.boat = o;
   }
   if (raw.mcpServers !== undefined) {
@@ -136,7 +152,10 @@ export class SettingsService {
         ...(c.claude.executablePath ? { executablePath: c.claude.executablePath } : {}),
         inheritClaudeCodeSettings: c.claude.inheritClaudeCodeSettings, maxTurns: c.claude.maxTurns,
       },
-      boat: { apiKeySet: !!c.boat.apiKey, ...(c.boat.apiKey ? { apiKeyHint: hint(c.boat.apiKey) } : {}), baseUrl: c.boat.baseUrl },
+      boat: {
+        apiKeySet: !!c.boat.apiKey, ...(c.boat.apiKey ? { apiKeyHint: hint(c.boat.apiKey) } : {}), baseUrl: c.boat.baseUrl,
+        rates: sanitizeRates(c.boat.rates), currency: typeof c.boat.currency === 'string' ? c.boat.currency : '',
+      },
       mcpServers: Object.fromEntries(Object.entries(c.mcpServers ?? {}).map(([k, v]) => [k, maskEntry(v)])),
       port: c.port, configPath: this.deps.configPath, dataDir: this.deps.dataDir,
     };
@@ -176,17 +195,29 @@ export class SettingsService {
     return view;
   }
 
-  /** Tests the given key (or the saved one) with GET /me. Never stores anything. */
-  async testBoat(apiKey?: unknown, baseUrl?: unknown): Promise<{ ok: boolean; detail: string }> {
+  /**
+   * Tests the given key (or the saved one): GET /me, then the permission probe (cheap reads and actions aimed at a sandbox id that cannot exist;
+   * never creates a sandbox). `warnings` are plain sentences for the UI. Never stores anything.
+   */
+  async testBoat(apiKey?: unknown, baseUrl?: unknown): Promise<{ ok: boolean; detail: string; warnings?: string[] }> {
     if (apiKey !== undefined && apiKey !== null && (typeof apiKey !== 'string')) throw new SettingsError('apiKey must be a string');
     const base = baseUrl === undefined || baseUrl === null || baseUrl === '' ? this.deps.config.boat.baseUrl : httpUrl(baseUrl, 'baseUrl').replace(/\/+$/, '');
     const key = (typeof apiKey === 'string' && apiKey.trim()) || this.deps.config.boat.apiKey;
     if (!key) return { ok: false, detail: 'No boat.dev API key set' };
     try {
       const make = this.deps.makeBoat ?? ((o) => new BoatClient(o));
-      const me: any = await make({ apiKey: key, baseUrl: base }).me();
+      const client = make({ apiKey: key, baseUrl: base });
+      const me: any = await client.me();
       const who = me && typeof me === 'object' ? (me.email ?? me.name ?? me.username) : undefined;
-      return { ok: true, detail: who ? `Connected as ${who}` : 'Connected' };
+      const warnings: string[] = [];
+      if (typeof client.checkKey === 'function') {
+        const probe = await client.checkKey();
+        for (const o of probe.ops) {
+          if (o.status === 'forbidden') warnings.push(`This boat.dev API key cannot ${o.action ?? o.op}: create a full-access key in boat.dev and paste it here.`);
+        }
+        if (probe.claude === 'not_configured') warnings.push('Claude is not configured on boat.dev: open the Agents page in your boat.dev dashboard. Until then vm_claude cannot run.');
+      }
+      return { ok: true, detail: who ? `Connected as ${who}` : 'Connected', ...(warnings.length ? { warnings } : {}) };
     } catch (e) {
       return { ok: false, detail: e instanceof Error ? e.message : String(e) };
     }

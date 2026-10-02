@@ -7,8 +7,37 @@ export interface BoatSandbox { id: string; state: string; type?: string; name?: 
 export interface ExecResult { exitCode: number; stdout: string; stderr: string }
 
 export class BoatError extends Error {
-  constructor(message: string, public readonly status: number, public readonly code?: string) { super(message); this.name = 'BoatError'; }
+  constructor(message: string, public readonly status: number, public readonly code?: string, public readonly action?: string) { super(message); this.name = 'BoatError'; }
 }
+
+/** boat.dev error codes Legion gives a precise message for (seen in real use). */
+export const BOAT_CODE = {
+  keyActionForbidden: 'api_key_action_forbidden',
+  trialMachineClass: 'trial_machine_class_not_allowed',
+  providerNotConfigured: 'provider_not_configured',
+} as const;
+
+/** Why a probe call gave no verdict. Only `auth` says anything about the key; the others are about the network, the limiter or boat.dev. */
+export type ProbeFailure = 'auth' | 'network' | 'rate_limit' | 'server' | 'other';
+export function failureKind(e: unknown): ProbeFailure {
+  if (!(e instanceof BoatError)) return 'other';
+  if (e.status === 401) return 'auth';
+  if (e.status === 0 || e.code === 'network') return 'network';
+  if (e.status === 429) return 'rate_limit';
+  if (e.status >= 500) return 'server';
+  return 'other';
+}
+
+/** Outcome of probing what the API key may do. 'allowed' only means boat.dev did not refuse it. */
+export type ProbeStatus = 'allowed' | 'forbidden' | 'unknown';
+export interface BoatProbe {
+  me: { ok: boolean; detail: string; kind?: ProbeFailure };
+  ops: Array<{ op: string; status: ProbeStatus; action?: string; reason?: ProbeFailure }>;
+  claude: 'configured' | 'not_configured' | 'unknown';
+}
+
+/** An id no sandbox can have: the action probes aim at it so they can never touch (or create) a real sandbox. */
+const PROBE_SANDBOX_ID = 'bx_legion_probe_does_not_exist';
 
 export interface BoatClientOptions { apiKey: string; baseUrl: string; fetchImpl?: typeof fetch; pollMs?: number }
 
@@ -33,6 +62,48 @@ export class BoatClient {
   }
 
   me(): Promise<unknown> { return this.req('GET', '/me'); }
+
+  /** Cheap read: GET /sandboxes?limit=1. Used by the key probe, never creates anything. */
+  async list(limit = 1): Promise<unknown> { return this.req('GET', '/sandboxes', { query: { limit: String(limit) } }); }
+
+  /**
+   * Finds out what this key is refused, without creating a real sandbox. boat.dev has no permission-introspection endpoint that we know of,
+   * so: GET /me, a cheap list, then each action aimed at a sandbox id that cannot exist. A key without the action is refused with
+   * api_key_action_forbidden before any lookup; a key with it gets "not found" (or similar), which counts as "not refused".
+   * Never throws; every failure becomes 'unknown'.
+   */
+  async checkKey(): Promise<BoatProbe> {
+    const out: BoatProbe = { me: { ok: false, detail: '' }, ops: [], claude: 'unknown' };
+    const id = enc(PROBE_SANDBOX_ID);
+    const steps: Array<[string, () => Promise<unknown>]> = [
+      ['list VMs', () => this.list(1)],
+      ['stop', () => this.req('POST', `/sandboxes/${id}/stop`, { body: {}, timeoutMs: 15_000 })],
+      ['resume', () => this.req('POST', `/sandboxes/${id}/resume`, { body: {}, timeoutMs: 15_000 })],
+      ['run commands', () => this.req('POST', `/sandboxes/${id}/commands`, { body: { command: 'true', timeoutSeconds: 1 }, timeoutMs: 15_000 })],
+      ['read and write files', () => this.req('GET', `/sandboxes/${id}/files`, { query: { path: '/', encoding: 'utf8' }, timeoutMs: 15_000 })],
+      ['prompt Claude', () => this.req('POST', `/sandboxes/${id}/prompt`, { body: { provider: 'claude', prompt: 'probe', new: true }, timeoutMs: 15_000 })],
+    ];
+    const unknownRest = (from: number, reason: ProbeFailure) => { for (const [op] of steps.slice(from)) out.ops.push({ op, status: 'unknown', reason }); };
+    try { await this.me(); out.me = { ok: true, detail: 'Connected' }; } catch (e) {
+      const kind = failureKind(e);
+      out.me = { ok: false, detail: e instanceof Error ? e.message : String(e), kind };
+      // A rejected key, a dead network, a limiter or a server error: nothing more can be learned, and none of them (but the first) is about the key.
+      if (kind === 'auth' || kind === 'network' || kind === 'rate_limit' || kind === 'server') { if (kind !== 'auth') unknownRest(0, kind); return out; }
+    }
+    for (let i = 0; i < steps.length; i++) {
+      const [op, run] = steps[i]!;
+      try { await run(); out.ops.push({ op, status: 'allowed' }); } catch (e) {
+        if (e instanceof BoatError && e.code === BOAT_CODE.keyActionForbidden) { out.ops.push({ op, status: 'forbidden', ...(e.action ? { action: e.action } : {}) }); continue; }
+        if (e instanceof BoatError && e.code === BOAT_CODE.providerNotConfigured && op === 'prompt Claude') { out.claude = 'not_configured'; out.ops.push({ op, status: 'allowed' }); continue; }
+        const kind = failureKind(e);
+        // 400/404/409/422 on the impossible id: boat.dev looked at the request and did not refuse the key. Anything else gives no verdict.
+        if (e instanceof BoatError && kind === 'other' && [400, 404, 409, 422].includes(e.status)) { out.ops.push({ op, status: 'allowed' }); continue; }
+        out.ops.push({ op, status: 'unknown', reason: kind });
+        if (kind === 'rate_limit' || kind === 'auth') { unknownRest(i + 1, kind); break; } // stop hammering a limiter / a rejected key
+      }
+    }
+    return out;
+  }
 
   /** POST /sandboxes with Idempotency-Key header. */
   async create(p: { type?: VmSize; ttlSeconds?: number | null; env?: Record<string, string>; name?: string; idempotencyKey?: string }): Promise<BoatSandbox> {
@@ -186,7 +257,7 @@ export class BoatClient {
     try {
       resp = await this.fetchImpl(url, { method, headers, body, signal: AbortSignal.timeout(o.timeoutMs ?? 60_000) });
     } catch (e) {
-      throw new BoatError(`Could not reach boat.dev (${method} ${path}): ${(e as Error).message}`, 0, 'network');
+      throw new BoatError(this.scrub(`Could not reach boat.dev (${method} ${path}): ${(e as Error).message}`), 0, 'network');
     }
     const raw = await resp.text();
     let json: Json = {};
@@ -196,17 +267,48 @@ export class BoatClient {
       const errObj = isObj(json.error) ? json.error : {};
       const code = typeof json.code === 'string' ? json.code : typeof errObj.code === 'string' ? errObj.code : undefined;
       const msg = (typeof json.message === 'string' && json.message) || (typeof errObj.message === 'string' && errObj.message) || (typeof json.error === 'string' && json.error) || raw.slice(0, 300) || resp.statusText || 'request failed';
-      throw new BoatError(explain(status, msg, code, method, path), status, code);
+      const clean = this.scrub(msg);
+      throw new BoatError(explain(status, clean, code, method, path), status, code, code === BOAT_CODE.keyActionForbidden ? forbiddenAction(clean) : undefined);
     }
     return json;
   }
+
+  /** Never let the API key leak through an error message (boat.dev could echo it back). */
+  private scrub(text: string): string {
+    return this.apiKey ? text.split(this.apiKey).join('***') : text;
+  }
+}
+
+/** "This API key cannot perform sandbox.resume" -> "sandbox.resume". */
+export function forbiddenAction(msg: string): string | undefined {
+  return /cannot (?:perform|do|call|use)\s+['"`]?([A-Za-z0-9_.:-]+)/i.exec(msg)?.[1];
+}
+
+const ACTION_LABELS: Record<string, string> = {
+  create: 'create a VM', resume: 'resume a stopped VM', stop: 'stop a VM', get: 'read a VM', list: 'list VMs', update: 'rename or change a VM',
+  commands: 'run commands', exec: 'run commands', command: 'run commands', files: 'read and write files', prompt: 'prompt Claude in a VM', desktop: 'open the desktop',
+};
+function actionLabel(action: string | undefined): string {
+  if (!action) return 'do this';
+  const tail = action.split('.').pop() ?? action;
+  const label = ACTION_LABELS[tail];
+  return label ? `${action} (${label})` : action;
 }
 
 function explain(status: number, msg: string, code: string | undefined, method: string, path: string): string {
   const tag = `${method} ${path} -> ${status}${code ? ' ' + code : ''}`;
+  if (code === BOAT_CODE.keyActionForbidden) {
+    return `This boat.dev API key cannot ${actionLabel(forbiddenAction(msg))}: create a full-access key in boat.dev and paste it in Settings \u2192 boat.dev. [${tag}] ${msg}`;
+  }
+  if (code === BOAT_CODE.trialMachineClass) {
+    return `This boat.dev account is on a free trial, which does not allow that VM size. Use the Default size (or upgrade the plan on boat.dev). [${tag}] ${msg}`;
+  }
+  if (code === BOAT_CODE.providerNotConfigured) {
+    return `Claude is not configured on boat.dev: open the Agents page in your boat.dev dashboard and connect Claude, then try again. [${tag}] ${msg}`;
+  }
   if (status === 401) return `boat.dev API key rejected (401). Open Settings → boat.dev to check the key. [${tag}] ${msg}`;
   if (status === 402) return `boat.dev says this account cannot run sandboxes right now (402): check billing and usage limits on your boat.dev dashboard. [${tag}] ${msg}`;
-  if (status === 403) return `boat.dev refused this request (403), likely a plan/limit or permission issue: check billing and limits on your boat.dev dashboard. [${tag}] ${msg}`;
+  if (status === 403) return `boat.dev refused this request (403): a plan limit or a missing permission on the API key. [${tag}] ${msg}`;
   if (status === 429) return `boat.dev rate limit hit (429); try again shortly. [${tag}] ${msg}`;
   if (status === 404) return `boat.dev resource not found (404). [${tag}] ${msg}`;
   return `boat.dev error (${status}): ${msg} [${tag}]`;

@@ -64,10 +64,67 @@ export interface VmRecord {
   agentId: string;
   sandboxId: string | null;
   state: VmState;
+  /** The size the sandbox actually has (or was last asked for). May differ from the agent's configured size, see requestedSize. */
   size: VmSize;
   lastUsedAt: string | null;  // ISO, last vm_* activity
   createdAt: string | null;
   error?: string;
+  /** Set when `size` is not what the agent is configured for (e.g. a free trial refused 'large'), so the record is not mistaken for stale. */
+  requestedSize?: VmSize;
+  /** Plain-words note for the user and the agent about the last start (trial fallback, a configured size that applies later). Cleared on the next clean start. */
+  notice?: string;
+  /** ISO time the VM became usable in the current run; null/absent while it is not running. Basis of the runtime counters. */
+  runStartedAt?: string | null;
+  /** Local calendar day (YYYY-MM-DD) that `usageSeconds` counts, and the seconds of finished runs on that day. */
+  usageDay?: string;
+  usageSeconds?: number;
+}
+
+/** What Legion measured for one agent's VM: uptime from "ready" to "stop requested" (boat.dev's own billing may differ). */
+export interface VmUsage {
+  running: boolean;
+  /** Seconds since this run started (0 when not running). */
+  runtimeSeconds: number;
+  /** Seconds the VM was up today (local day), finished runs plus the one in progress. */
+  todaySeconds: number;
+  /** Only present when a per-size hourly rate is configured (boat.rates) and the rates are fresh. Always an estimate. */
+  estimate?: { amount: number; currency: string; perHour: number; basis: string };
+  /** Set instead of `estimate` when the rates this was computed from are older than the refresh TTL: the cost is unknown, not "the last known figure". */
+  estimateNote?: string;
+}
+
+/** Result of stopping a VM; `stopped` is false when there was nothing to stop (not an error). */
+export interface VmStopResult {
+  ok: true;
+  stopped: boolean;
+  /** True when boat.dev was asked afterwards and `vm.state` is what it reported; false when it could not be asked. */
+  verified: boolean;
+  message: string;
+  vm: VmRecord;
+  usage: VmUsage;
+}
+
+/** What the boat.dev API key and account are known to allow, from probes and from real calls. Never contains the key. */
+export interface BoatHealthView {
+  /** When this view was produced (ISO). A copy older than a few minutes is stale: do not show rates from it as current. */
+  asOf: string;
+  configured: boolean;
+  checkedAt: string | null;
+  /** The key was accepted by GET /me at the last check (null: not checked, or the check could not tell: see keyProblem). */
+  keyOk: boolean | null;
+  /** Why the last check could not give a verdict about the key or an action: a rejected key is `auth`; `network`, `rate_limit` and `server` say nothing about the key. */
+  keyProblem?: { kind: 'auth' | 'network' | 'rate_limit' | 'server' | 'other'; message: string };
+  /** Actions boat.dev refused for this key (e.g. 'sandbox.resume'). */
+  forbidden: Array<{ action: string; op: string; at: string }>;
+  /** What the probe found out about each operation: 'allowed' means "not refused", not a guarantee. */
+  probes: Array<{ op: string; status: 'allowed' | 'forbidden' | 'unknown'; reason?: 'auth' | 'network' | 'rate_limit' | 'server' | 'other' }>;
+  /** Whether the VM-side Claude Code is set up on the boat.dev Agents page. */
+  claude: { state: 'configured' | 'not_configured' | 'unknown'; message?: string; at?: string };
+  /** The account is on a free trial that refuses bigger machine classes (learned from a refused create). */
+  trial: { limited: boolean; message?: string; at?: string };
+  /** Hourly rates used for estimates, in `currency`. Empty = no estimates. */
+  rates: { small?: number; default?: number; large?: number };
+  currency: string;
 }
 
 export type TaskStatus = 'queued' | 'running' | 'done' | 'error' | 'cancelled';
@@ -133,6 +190,7 @@ export type LegionEvent =
   | { type: 'message'; message: ChatMessage }
   | { type: 'message.delta'; taskId: string; text: string }   // streaming assistant text chunk
   | { type: 'vm.updated'; vm: VmRecord }
+  | { type: 'boat.health'; health: BoatHealthView }
   | { type: 'agent.updated'; agent: AgentProfile }
   | { type: 'agent.deleted'; agentId: string }
   | { type: 'task.deleted'; taskId: string }
@@ -191,6 +249,10 @@ export interface LegionConfig {
   boat: {
     apiKey?: string;               // or env BOAT_API_KEY
     baseUrl: string;               // https://boat.dev/api/v1
+    /** Optional hourly price per VM size, in your currency, used only to label usage estimates. Empty by default: Legion never guesses prices. */
+    rates?: { small?: number; default?: number; large?: number };
+    /** Label for the rates, e.g. "USD" or "kr". */
+    currency?: string;
   };
   /** Extra MCP servers Legion hands to agents (by name). */
   mcpServers: Record<string, McpServerEntry>;
@@ -204,6 +266,7 @@ export interface StateSnapshot {
   vms: VmRecord[];
   approvals: ApprovalRequest[];   // pending
   boatConfigured: boolean;
+  boat?: BoatHealthView;
   auth: LegionConfig['claude']['auth'];
 }
 
@@ -255,6 +318,8 @@ export interface SettingsView {
     apiKeySet: boolean;
     apiKeyHint?: string;
     baseUrl: string;
+    rates: { small?: number; default?: number; large?: number };
+    currency: string;
   };
   mcpServers: Record<string, McpServerEntry>;
   port: number;
@@ -265,6 +330,6 @@ export interface SettingsView {
 /** PATCH /api/settings body. Omitted fields are unchanged; apiKey: null clears a key. */
 export interface SettingsPatch {
   claude?: { auth?: 'claude-login' | 'api-key'; apiKey?: string | null; executablePath?: string | null; inheritClaudeCodeSettings?: boolean; maxTurns?: number };
-  boat?: { apiKey?: string | null; baseUrl?: string };
+  boat?: { apiKey?: string | null; baseUrl?: string; rates?: { small?: number | null; default?: number | null; large?: number | null }; currency?: string };
   mcpServers?: Record<string, McpServerEntry>;
 }

@@ -2,8 +2,10 @@
 import { createSdkMcpServer, tool } from '@anthropic-ai/claude-agent-sdk';
 import type { McpSdkServerConfigWithInstance } from '@anthropic-ai/claude-agent-sdk';
 import { z } from 'zod';
-import type { VmManager } from './vm-manager.js';
+import { usageLine } from '../shared/vm-usage.js';
+import { VmError, type VmManager } from './vm-manager.js';
 import type { Bridge } from './bridge.js';
+import { CLAUDE_NOT_CONFIGURED } from './boat-health.js';
 
 const MAX_CHARS = 12_000;
 
@@ -31,6 +33,8 @@ export interface AgentToolsCtx {
   vms: VmManager;
   /** Offer the vm_* tools (agent.vm.enabled && boat configured). */
   vmEnabled: boolean;
+  /** False while Claude is known not to be set up on boat.dev: vm_claude is left out of the tool list (default true). */
+  claudeAvailable?: boolean;
   bridge: Bridge;
 }
 
@@ -86,7 +90,12 @@ export function buildAgentToolsServer(ctx: AgentToolsCtx): McpSdkServerConfigWit
     'vm_start',
     "Create or resume this agent's on-demand cloud VM and wait until it is ready. Start it only when needed (untrusted code, long jobs, GUI/browser work, heavy installs).",
     {},
-    () => run(async () => JSON.stringify(await vms.ensureRunning(agentId), null, 2)),
+    () => run(async () => {
+      const vm = await vms.ensureRunning(agentId);
+      const notes = [vm.notice, ctx.claudeAvailable === false ? `vm_claude is not offered right now. ${CLAUDE_NOT_CONFIGURED}` : undefined].filter(Boolean);
+      const usage = vms.usage(agentId);
+      return JSON.stringify({ ...vm, usage, usageSummary: usageLine(usage), ...(notes.length ? { notes } : {}) }, null, 2);
+    }),
   );
 
   const vmExec = tool(
@@ -100,7 +109,7 @@ export function buildAgentToolsServer(ctx: AgentToolsCtx): McpSdkServerConfigWit
     (args) => run(async () => {
       await vms.ensureRunning(agentId);
       const r = await vms.exec(agentId, args.command, { cwd: args.cwd, timeoutSeconds: args.timeoutSeconds });
-      return `exit code: ${r.exitCode}\n--- stdout ---\n${truncateTail(r.stdout ?? '')}\n--- stderr ---\n${truncateTail(r.stderr ?? '')}`;
+      return `exit code: ${r.exitCode}\n--- stdout ---\n${truncateTail(r.stdout ?? '')}\n--- stderr ---\n${truncateTail(r.stderr ?? '')}\n--- vm usage ---\n${usageLine(vms.usage(agentId))}`;
     }),
   );
 
@@ -133,7 +142,9 @@ export function buildAgentToolsServer(ctx: AgentToolsCtx): McpSdkServerConfigWit
       model: z.enum(['sonnet', 'opus']).optional(),
     },
     (args) => run(async () => {
-      await vms.ensureRunning(agentId);
+      // Gate again at call time: the tool list was fixed when this run started, but Claude may have been found unconfigured since.
+      // Say so before any VM is started (vms.claude() starts it itself once it is allowed to).
+      if (!vms.claudeAvailable()) throw new VmError(CLAUDE_NOT_CONFIGURED, 'claude_not_configured');
       return truncateTail(await vms.claude(agentId, args.prompt, { model: args.model }));
     }),
   );
@@ -152,13 +163,32 @@ export function buildAgentToolsServer(ctx: AgentToolsCtx): McpSdkServerConfigWit
     'vm_stop',
     "Stop this agent's VM and snapshot it (billing pauses). Do this when you no longer need the VM.",
     {},
-    () => run(async () => JSON.stringify(await vms.stop(agentId), null, 2), { touch: false }),
+    () => run(async () => {
+      const r = await vms.stop(agentId);
+      return JSON.stringify({ ok: r.ok, stopped: r.stopped, verified: r.verified, message: r.message, state: r.vm.state, size: r.vm.size, usage: r.usage, usageSummary: usageLine(r.usage) }, null, 2);
+    }, { touch: false }),
+  );
+
+  const vmUsage = tool(
+    'vm_usage',
+    "Read-only: how long this agent's VM has run (this run, and total today) and its state. A money figure appears only as an estimate and only when the user configured an hourly rate. Never starts the VM.",
+    {},
+    () => run(async () => {
+      const vm = vms.status(agentId);
+      const usage = vms.usage(agentId);
+      const claude = vms.health.view().claude;
+      return JSON.stringify({
+        state: vm.state, size: vm.size, ...(vm.notice ? { notice: vm.notice } : {}), usage, usageSummary: usageLine(usage),
+        note: 'Runtime is measured by Legion from ready to stop; boat.dev billing may differ. No price is assumed: estimates need a configured hourly rate.',
+        vm_claude: claude.state === 'not_configured' ? claude.message : 'available',
+      }, null, 2);
+    }, { touch: false }),
   );
 
   return createSdkMcpServer({
     name: 'legion',
     version: '0.1.0',
     alwaysLoad: true, // never deferred behind ToolSearch: agents call mcp__legion__* directly
-    tools: [...bridgeTools(ctx), ...(ctx.vmEnabled ? [vmStart, vmExec, vmWriteFile, vmReadFile, vmClaude, vmDesktop, vmStop] : [])],
+    tools: [...bridgeTools(ctx), ...(ctx.vmEnabled ? [vmStart, vmExec, vmWriteFile, vmReadFile, ...(ctx.claudeAvailable === false ? [] : [vmClaude]), vmDesktop, vmStop, vmUsage] : [])],
   });
 }

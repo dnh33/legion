@@ -1,6 +1,6 @@
 import { useSyncExternalStore } from 'react';
 import type {
-  AgentProfile, ApprovalRequest, Catalog, SettingsPatch, SettingsView, ChatMessage, DoctorCheck, LegionEvent, MascotMood, ModelChoice, StateSnapshot, Task, VmRecord,
+  AgentProfile, ApprovalRequest, BoatHealthView, Catalog, SettingsPatch, SettingsView, ChatMessage, DoctorCheck, LegionEvent, MascotMood, ModelChoice, StateSnapshot, Task, VmRecord,
 } from '../../src/shared/types';
 import { api, subscribe, ApiError, type ConnStatus } from './api';
 
@@ -18,6 +18,8 @@ export interface AppState {
   version: string;
   auth: StateSnapshot['auth'];
   boatConfigured: boolean;
+  /** What is known about the boat.dev key and account (refused actions, trial limits, Claude setup, rates). */
+  boatHealth: BoatHealthView | null;
   agents: AgentProfile[];
   tasks: Task[];
   vms: Record<string, VmRecord>;
@@ -62,7 +64,7 @@ const initialTheme = ((): 'dark' | 'light' => {
 })();
 
 let state: AppState = {
-  loaded: false, conn: 'connecting', version: '', auth: 'claude-login', boatConfigured: false,
+  loaded: false, conn: 'connecting', version: '', auth: 'claude-login', boatConfigured: false, boatHealth: null,
   agents: [], tasks: [], vms: {}, approvals: [], messages: {}, streaming: {},
   mascot: { mood: 'idle', at: Date.now() }, doctor: null, doctorLoading: false,
   selectedAgentId: 'zealot', selectedTaskId: null, modelOverride: null,
@@ -187,6 +189,9 @@ export function handleEvent(e: LegionEvent) {
     case 'vm.updated':
       setState((s) => ({ vms: { ...s.vms, [e.vm.agentId]: e.vm } }));
       break;
+    case 'boat.health':
+      setState({ boatHealth: e.health });
+      break;
     case 'agent.updated':
       setState((s) => {
         const i = s.agents.findIndex((a) => a.id === e.agent.id);
@@ -226,7 +231,7 @@ export async function refresh() {
       const sel = snap.agents.some((a) => a.id === s.selectedAgentId) ? s.selectedAgentId : (snap.agents[0]?.id ?? 'zealot');
       const first = !s.loaded;
       return {
-        loaded: true, version: snap.version, auth: snap.auth, boatConfigured: snap.boatConfigured,
+        loaded: true, version: snap.version, auth: snap.auth, boatConfigured: snap.boatConfigured, boatHealth: snap.boat ?? s.boatHealth,
         agents: snap.agents, tasks: snap.tasks, vms, approvals: dedupeById(snap.approvals),
         selectedAgentId: sel,
         selectedTaskId: first ? null : s.selectedTaskId,
@@ -370,8 +375,11 @@ export async function vmAction(agentId: string, action: 'start' | 'stop') {
   const cur = getState().vms[agentId];
   setState((s) => ({ vms: { ...s.vms, [agentId]: { ...(cur ?? { agentId, sandboxId: null, size: 'default', lastUsedAt: null, createdAt: null }), state: action === 'start' ? 'provisioning' : 'archiving' } } }));
   try {
-    const vm = action === 'start' ? await api.startVm(agentId) : await api.stopVm(agentId);
+    const res = action === 'start' ? await api.startVm(agentId) : await api.stopVm(agentId);
+    const { stopped, message, usage: _usage, ...vm } = res as VmRecord & { stopped?: boolean; message?: string; usage?: unknown };
     setState((s) => ({ vms: { ...s.vms, [agentId]: vm } }));
+    if (action === 'stop' && stopped === false && message) toast(message, 'info'); // e.g. "No sandbox to stop"
+    if (action === 'start' && vm.requestedSize) toast(`Running at ${vm.size} size, not ${vm.requestedSize}. See the Computer card.`, 'info');
   } catch (e) {
     toast(errText(e), 'error');
     setState((s) => {
@@ -490,3 +498,16 @@ export async function saveSettings(patch: SettingsPatch, quiet = false): Promise
 export { errText };
 
 export const setView = (view: AppState['view']) => setState({ view });
+
+/** Re-probe what the boat.dev key may do (cheap reads; never creates a VM). The result also arrives as a boat.health event. */
+export async function checkBoat(): Promise<BoatHealthView | null> {
+  try { const h = await api.checkBoat(); setState({ boatHealth: h }); return h; } catch (e) { toast(errText(e), 'error'); return null; }
+}
+
+/** Re-read the boat.dev health (admin only) when the cached copy is older than `olderThanMs`; the prices in it are not trusted past the TTL. */
+export function refreshBoatHealth(olderThanMs: number): void {
+  const h = getState().boatHealth;
+  if (!h || Object.keys(h.rates).length === 0) return; // a copy without prices (token-only view, or none set) has nothing to go stale
+  if (Date.now() - Date.parse(h.asOf) < olderThanMs) return;
+  api.boatHealth().then((fresh) => setState({ boatHealth: fresh }), () => undefined);
+}

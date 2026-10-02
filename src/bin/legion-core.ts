@@ -42,11 +42,16 @@ async function main() {
   const getBoat = makeBoatGetter(config);
   const boatConfigured = () => !!config.boat.apiKey;
 
-  const vms = new VmManager({ store, bus, getBoat });
+  const vms = new VmManager({ store, bus, getBoat, boatConfig: () => config.boat });
   const approvals = new ApprovalBroker(bus);
   const engine = new Engine({ store, bus, vms, approvals, config, boatConfigured });
   let stopReaper: () => void = () => {};
-  const restartReaper = () => { stopReaper(); stopReaper = boatConfigured() ? vms.startReaper() : () => {}; };
+  const restartReaper = () => {
+    stopReaper(); stopReaper = boatConfigured() ? vms.startReaper() : () => {};
+    // A new key knows nothing yet: forget the old key's findings and look again in the background (cheap reads, never creates a sandbox).
+    vms.health.reset();
+    if (boatConfigured()) void vms.health.probe().catch(() => undefined);
+  };
   const settings = new SettingsService({ config, bus, configPath: configPath(), dataDir: dataDir(), onBoatChange: restartReaper });
   // BSV mode v0 (knowledge and visibility only; no wallet). The flag lives in config.json under "bsv".
   const bsvState = createBsvState({ dataDir: dataDir(), config });
@@ -59,7 +64,7 @@ async function main() {
   engine.setModules(modules);
   const server = createServer({
     config, store, bus, engine, vms, approvals, boatConfigured, modules, bsvEnabled,
-    doctor: () => runDoctor({ config, getBoat }),
+    doctor: () => runDoctor({ config, getBoat, health: vms.health }),
     catalog: (force) => getCatalog({ config }, { force }),
     settings, adminSecret,
   });
