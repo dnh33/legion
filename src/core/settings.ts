@@ -5,6 +5,7 @@ import type { LegionConfig, McpServerEntry, SettingsPatch, SettingsView } from '
 import { sanitizeRates } from '../shared/vm-usage.js';
 import { BoatClient } from './boat.js';
 import type { EventBus } from './bus.js';
+import { isSelfMcpUrl } from './mcp-status.js';
 
 export class SettingsError extends Error {
   constructor(message: string, public readonly status = 400) { super(message); this.name = 'SettingsError'; }
@@ -96,6 +97,10 @@ export function validatePatch(raw: unknown, current?: Record<string, McpServerEn
       if (typeof c.inheritClaudeCodeSettings !== 'boolean') throw new SettingsError('claude.inheritClaudeCodeSettings must be a boolean');
       o.inheritClaudeCodeSettings = c.inheritClaudeCodeSettings;
     }
+    if (c.inheritMcp !== undefined) {
+      if (typeof c.inheritMcp !== 'boolean') throw new SettingsError('claude.inheritMcp must be a boolean');
+      o.inheritMcp = c.inheritMcp;
+    }
     if (c.maxTurns !== undefined) {
       if (typeof c.maxTurns !== 'number' || !Number.isInteger(c.maxTurns) || c.maxTurns < 1 || c.maxTurns > 1000) throw new SettingsError('claude.maxTurns must be an integer 1-1000');
       o.maxTurns = c.maxTurns;
@@ -150,7 +155,7 @@ export class SettingsService {
       claude: {
         auth: c.claude.auth, apiKeySet: !!c.claude.apiKey, ...(c.claude.apiKey ? { apiKeyHint: hint(c.claude.apiKey) } : {}),
         ...(c.claude.executablePath ? { executablePath: c.claude.executablePath } : {}),
-        inheritClaudeCodeSettings: c.claude.inheritClaudeCodeSettings, maxTurns: c.claude.maxTurns,
+        inheritClaudeCodeSettings: c.claude.inheritClaudeCodeSettings, inheritMcp: c.claude.inheritMcp === true, maxTurns: c.claude.maxTurns,
       },
       boat: {
         apiKeySet: !!c.boat.apiKey, ...(c.boat.apiKey ? { apiKeyHint: hint(c.boat.apiKey) } : {}), baseUrl: c.boat.baseUrl,
@@ -164,6 +169,9 @@ export class SettingsService {
   patch(raw: unknown): SettingsView {
     const p = validatePatch(raw, this.deps.config.mcpServers);
     const cfg = this.deps.config;
+    for (const [name, e] of Object.entries(p.mcpServers ?? {})) {
+      if ((e.type === 'http' || e.type === 'sse') && isSelfMcpUrl(e.url, cfg.port, { headers: e.headers, authToken: cfg.authToken })) throw new SettingsError(`mcpServers.${name} points at Legion's own /mcp endpoint. Agents already have Legion's tools; adding it again would loop.`);
+    }
     // Apply to the on-disk JSON (not the in-memory config) so env-derived values are never persisted.
     let disk: any = {};
     if (existsSync(this.deps.configPath)) {

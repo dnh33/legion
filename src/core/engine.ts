@@ -2,7 +2,7 @@
 import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { query as realQuery } from '@anthropic-ai/claude-agent-sdk';
-import type { McpServerConfig, Options, Query, query as sdkQuery } from '@anthropic-ai/claude-agent-sdk';
+import type { McpServerConfig, Options, Query, Settings, query as sdkQuery } from '@anthropic-ai/claude-agent-sdk';
 import type {
   AgentProfile, ApprovalMode, ChatMessage, ConcreteModel, LegionConfig, MascotMood, MessageRole, ModelChoice, Task, TaskSource,
 } from '../shared/types.js';
@@ -21,6 +21,8 @@ import { buildAgentToolsServer } from './agent-tools.js';
 import { Bridge } from './bridge.js';
 import type { BridgeStartParams } from './bridge.js';
 import type { VmManager } from './vm-manager.js';
+import { isSelfMcpUrl, McpStatusTracker, selfMcpNames } from './mcp-status.js';
+import type { McpStatusView } from '../shared/types.js';
 
 export type QueryFn = typeof sdkQuery;
 
@@ -103,7 +105,15 @@ export const LEGION_PREAMBLE = [
  * Child-process env. Built from process.env only; Legion never reads credential files.
  * claude-login: API key vars removed so the signed-in account is used. api-key: key from config.
  */
-export function buildChildEnv(config: LegionConfig): Record<string, string | undefined> {
+/**
+ * Second layer for "no claude.ai connectors": the SDK `settings` flag layer (`--settings`). `disableClaudeAiConnectors` is any-source-true,
+ * so a project or user settings file inherited by this run cannot turn it back off. Absent when the owner turned inheritMcp on (probes: always set).
+ */
+export function connectorSettings(config: LegionConfig, opts?: { probe?: boolean }): { settings?: Settings } {
+  return config.claude.inheritMcp !== true || opts?.probe ? { settings: { disableClaudeAiConnectors: true } } : {};
+}
+
+export function buildChildEnv(config: LegionConfig, opts?: { probe?: boolean }): Record<string, string | undefined> {
   const env: Record<string, string | undefined> = scrubHostSessionEnv({ ...process.env });
   // the bearer token opens every human-only route: whatever put it in this process's environment, it must not reach a bot's
   if (config.authToken.length >= 8) for (const [k, v] of Object.entries(env)) if (typeof v === 'string' && v.toLowerCase().includes(config.authToken.toLowerCase())) delete env[k];
@@ -113,6 +123,9 @@ export function buildChildEnv(config: LegionConfig): Record<string, string | und
     delete env.ANTHROPIC_API_KEY;
     delete env.ANTHROPIC_AUTH_TOKEN;
   }
+  // claude.ai connectors (the account's own MCP servers) load only when the owner turned on claude.inheritMcp. A probe never needs them.
+  // The SDK's bundled CLI reads ENABLE_CLAUDEAI_MCP_SERVERS and treats false/0/no/off as "do not load them".
+  if (config.claude.inheritMcp !== true || opts?.probe) env.ENABLE_CLAUDEAI_MCP_SERVERS = 'false';
   return env;
 }
 
@@ -151,6 +164,7 @@ export class Engine {
   private idleTimer: ReturnType<typeof setTimeout> | undefined;
   readonly bridge: Bridge;
   private modules: CoreModule[];
+  private readonly mcpTracker = new McpStatusTracker();
 
   constructor(deps: EngineDeps) {
     this.store = deps.store; this.bus = deps.bus; this.vms = deps.vms; this.approvals = deps.approvals;
@@ -480,13 +494,19 @@ export class Engine {
     }
   }
 
+  /** Read-only: the MCP servers the latest run saw and their state (Settings -> MCP). */
+  mcpStatus(): McpStatusView { return this.mcpTracker.view(this.config); }
+
   private buildMcpServers(agent: AgentProfile, job: Job, act: Active): Record<string, McpServerConfig> {
     const taskId = job.taskId;
     const out: Record<string, McpServerConfig> = {};
     const wanted = agent.mcpServers ?? [];
     const all = wanted.includes('*');
+    // A Settings entry that points back at Legion's own /mcp (hand-edited config) would connect an agent to its own Legion: skip it.
+    const self = new Set(selfMcpNames(this.config));
     for (const [name, entry] of Object.entries(this.config.mcpServers ?? {})) {
       if (!all && !wanted.includes(name)) continue;
+      if (self.has(name)) continue;
       if (entry.type === 'http') out[name] = { type: 'http', url: entry.url, ...(entry.headers ? { headers: entry.headers } : {}) };
       else if (entry.type === 'sse') out[name] = { type: 'sse', url: entry.url, ...(entry.headers ? { headers: entry.headers } : {}) };
       else out[name] = { type: 'stdio', command: entry.command, ...(entry.args ? { args: entry.args } : {}), ...(entry.env ? { env: entry.env } : {}) };
@@ -579,11 +599,14 @@ export class Engine {
       },
       settingSources: this.config.claude.inheritClaudeCodeSettings ? ['user', 'project', 'local'] : [],
       mcpServers: this.buildMcpServers(agent, job, act),
+      // Off (default): only the servers above, asks the CLI to ignore user/project/local MCP config and plugins. claude.ai connectors are asked off in buildChildEnv and in `settings`.
+      ...(this.config.claude.inheritMcp === true ? {} : { strictMcpConfig: true }),
       disallowedTools: ['SendMessage', 'ListAgents', ...this.moduleDisallowed(agent)],
       maxTurns: this.config.claude.maxTurns,
       includePartialMessages: true,
       abortController: act.ac,
       env: buildChildEnv(this.config),
+      ...connectorSettings(this.config),
       // Runs before every tool executes (also in bypass mode), so taint is set before the tool can act on outside content.
       hooks: {
         PreToolUse: [{
@@ -663,6 +686,31 @@ export class Engine {
     return outcome ?? { subtype: 'error_during_execution', isError: true, errorText: 'Claude ended without producing a result' };
   }
 
+  /**
+   * Remember which MCP servers the run started with. With claude.inheritMcp on, a server inherited from Claude Code that is Legion's own
+   * /mcp (for example `claude mcp add legion http://127.0.0.1:<port>/mcp`) is switched off for this run, so an agent never talks to Legion through Legion.
+   * Best effort and read-only otherwise: a failure here never touches the run.
+   */
+  private noteMcpInit(act: Active, servers: unknown): void {
+    this.mcpTracker.record(servers, nowIso());
+    const q = act.q as any;
+    const inherit = this.config.claude.inheritMcp === true;
+    const list = Array.isArray(servers) ? servers as Array<{ name?: unknown; status?: unknown }> : [];
+    const trouble = list.some((s) => s.status === 'failed' || s.status === 'needs-auth');
+    if (!q || typeof q.mcpServerStatus !== 'function' || !(inherit || trouble)) return;
+    void (async () => {
+      const full = await q.mcpServerStatus();
+      this.mcpTracker.addDetails(full);
+      if (!inherit || typeof q.toggleMcpServer !== 'function' || !Array.isArray(full)) return;
+      for (const s of full) {
+        if (s?.source === 'sdk' || typeof s?.name !== 'string') continue;
+        if (s.name === 'legion' || isSelfMcpUrl(s.config?.url, this.config.port, { headers: s.config?.headers, authToken: this.config.authToken })) {
+          try { await q.toggleMcpServer(s.name, false); } catch { this.mcpTracker.setNotice(`Could not switch off "${s.name}", which points back at Legion. It stays connected for this run.`); }
+        }
+      }
+    })().catch(() => undefined);
+  }
+
   /** Process one SDK message; returns an Outcome for `result` messages. */
   private handleMessage(job: Job, act: Active, msg: any): Outcome | undefined {
     const taskId = job.taskId;
@@ -670,6 +718,7 @@ export class Engine {
       case 'system': {
         if (msg.subtype === 'init' && typeof msg.session_id === 'string') {
           this.patchTask(taskId, { sessionId: msg.session_id });
+          this.noteMcpInit(act, msg.mcp_servers);
         } else if (msg.subtype === 'local_command_output' && typeof msg.content === 'string' && msg.content.trim()) {
           // Output of a slash command Claude Code ran locally (/cost, /context, ...), shown as an assistant message.
           this.addMessage(taskId, 'assistant', msg.content);

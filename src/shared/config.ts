@@ -77,6 +77,7 @@ export function defaultConfig(): CoreConfig {
     claude: {
       auth: 'claude-login',
       inheritClaudeCodeSettings: true,
+      inheritMcp: false,
       maxTurns: 40,
     },
     boat: { baseUrl: 'https://boat.dev/api/v1' },

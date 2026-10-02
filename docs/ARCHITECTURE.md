@@ -68,6 +68,7 @@ JSON over `127.0.0.1:<port>` (default 4747). Implemented in `src/core/server.ts`
 | GET | `/api/config` | none | config with secrets redacted |
 | GET | `/api/doctor` | none | `DoctorCheck[]` |
 | GET | `/api/catalog?refresh=1` | none | `Catalog` (slash commands and models) |
+| GET | `/api/mcp/status` | none | `McpStatusView`: per server `state` (`connected`, `failed`, `needs-auth`, `pending`, `disabled`, `not-seen`), `origin` and a plain `message`, from the latest run. Read-only, admin only (not on the client list, so the default-deny gate answers 403 to the MCP token). |
 | GET | `/api/agents` | none | `AgentProfile[]` |
 | POST | `/api/agents` | `Partial<AgentProfile> & {name}` | `AgentProfile` (201). The id is the slugified name, suffixed if taken. |
 | PATCH | `/api/agents/:id` | `Partial<AgentProfile>` | `AgentProfile` |
@@ -136,12 +137,13 @@ Every `vm_*` call resets the VM's idle timer.
   - `resume: task.sessionId` for follow-ups;
   - `systemPrompt: {type:'preset', preset:'claude_code', append: preamble + agent.systemPrompt}`;
   - `settingSources: ['user','project','local']` when `claude.inheritClaudeCodeSettings` is true, otherwise `[]`;
-  - `mcpServers`: the agent's selected entries from `config.mcpServers`, plus the `legion` VM tools when available;
+  - `mcpServers`: the agent's selected entries from `config.mcpServers`, plus the `legion` VM tools when available. An entry that points at Legion's own `/mcp` (loopback, this port) is skipped, and Settings refuses to save one;
+  - `strictMcpConfig: true` unless `claude.inheritMcp` is on (default off): the Claude Code process then ignores MCP servers from user, project and local settings, `.mcp.json` and plugins, and uses only the `mcpServers` above. `buildChildEnv` also sets `ENABLE_CLAUDEAI_MCP_SERVERS=false` so claude.ai connectors are not loaded (both names checked against `@anthropic-ai/claude-agent-sdk` 0.3.285 and its bundled CLI 2.1.285: the option is in `sdk.d.ts`, and the CLI reads the env var, treating `false`, `0`, `no` and `off` as off). The catalog probe and the Doctor probe are strict with connectors off whatever `inheritMcp` says. `settingSources` and every other inherited setting are unchanged by this switch. The SDK `plugins` option only adds local plugin directories; Legion does not pass it;
   - approvals: mode `full` uses `bypassPermissions`; `ask` and `auto-edits` use the default permission mode with a `canUseTool` callback that goes through the approval broker;
   - `maxTurns`, `includePartialMessages: true`, an `AbortController`, and a scrubbed child environment (see Security);
   - `pathToClaudeCodeExecutable` when `claude.executablePath` is set.
 - Stream handling:
-  - `system/init` stores the session id on the task.
+  - `system/init` stores the session id on the task and records its `mcp_servers` list in an in-memory `McpStatusTracker` (`src/core/mcp-status.ts`). When a server is `failed` or `needs-auth`, or `inheritMcp` is on, the engine also calls the query's `mcpServerStatus()` once for the error text. With `inheritMcp` on, an inherited server whose source is not `sdk` and that is named `legion` or points at Legion's own `/mcp` (for example after `claude mcp add legion http://127.0.0.1:4747/mcp`) is switched off for that run with `toggleMcpServer(name, false)`, so an agent never reaches Legion through Legion. Best effort: a failure there never touches the run.
   - `stream_event` text deltas become `message.delta` events.
   - `assistant` messages become one assistant `ChatMessage`; `tool_use` blocks become `tool` messages whose text is the compact JSON input, at most 500 characters.
   - `system/local_command_output` (from slash commands such as `/cost`) becomes an assistant message.
@@ -302,7 +304,7 @@ The ChatMessage stored in the target thread has `role:'user'`, `fromAgentId`, an
 
 **Applied live, no restart:**
 - boat key/baseUrl: rebuild the BoatClient and start or stop the VM reaper;
-- claude auth/apiKey/executablePath/inherit/maxTurns: used from the next run;
+- claude auth/apiKey/executablePath/inherit/inheritMcp/maxTurns: used from the next run;
 - mcpServers: from the next run.
 
 Port changes are not editable here.

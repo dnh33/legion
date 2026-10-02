@@ -247,6 +247,11 @@ export interface LegionConfig {
     executablePath?: string;
     /** Load your Claude Code user/project settings → inherits your MCP servers & claude.ai connectors. */
     inheritClaudeCodeSettings: boolean;
+    /**
+     * Default false. Off: a run gets only Legion's own MCP server plus the servers enabled in Settings -> MCP (strict MCP config), and
+     * claude.ai connectors are not loaded. On: a run also gets the MCP servers and claude.ai connectors from your Claude Code setup.
+     */
+    inheritMcp: boolean;
     /** Max agentic turns per run before the router escalates / stops. */
     maxTurns: number;
   };
@@ -316,6 +321,7 @@ export interface SettingsView {
     apiKeyHint?: string;           // e.g. "…a3f9"
     executablePath?: string;
     inheritClaudeCodeSettings: boolean;
+    inheritMcp: boolean;
     maxTurns: number;
   };
   boat: {
@@ -333,7 +339,28 @@ export interface SettingsView {
 
 /** PATCH /api/settings body. Omitted fields are unchanged; apiKey: null clears a key. */
 export interface SettingsPatch {
-  claude?: { auth?: 'claude-login' | 'api-key'; apiKey?: string | null; executablePath?: string | null; inheritClaudeCodeSettings?: boolean; maxTurns?: number };
+  claude?: { auth?: 'claude-login' | 'api-key'; apiKey?: string | null; executablePath?: string | null; inheritClaudeCodeSettings?: boolean; inheritMcp?: boolean; maxTurns?: number };
   boat?: { apiKey?: string | null; baseUrl?: string; rates?: { small?: number | null; default?: number | null; large?: number | null }; currency?: string };
   mcpServers?: Record<string, McpServerEntry>;
+}
+
+/** State of one MCP server on the most recent run, as the Claude Code process reported it. */
+export type McpServerState = 'connected' | 'failed' | 'needs-auth' | 'pending' | 'disabled' | 'not-seen' | 'unknown';
+
+/** GET /api/mcp/status (admin only). Read-only: it reports, it never connects, reconnects or changes anything. */
+export interface McpStatusView {
+  /** Mirrors claude.inheritMcp at the time of the request. */
+  inheritMcp: boolean;
+  /** ISO time of the run the states come from; absent until a run has started since Legion started. */
+  lastRunAt?: string;
+  /** One line when Legion could not switch off an inherited server that points back at itself (inherit on only). */
+  notice?: string;
+  servers: Array<{
+    name: string;
+    state: McpServerState;
+    /** Where the definition came from: legion (Legion's own), settings (Settings -> MCP), module, or a Claude Code scope (user, project, local, claudeai, plugin...). */
+    origin: string;
+    /** A plain sentence for the owner. Never raw server output. */
+    message: string;
+  }>;
 }
