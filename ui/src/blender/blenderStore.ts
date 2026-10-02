@@ -19,9 +19,12 @@ export interface BlenderUiState {
   error: string | null;
   /** Set when Set up found a download that differs from the one trusted before: the UI offers "Trust the new download". */
   retrust: BlenderBackendKind | null;
+  /** The last GET /api/blender failed (offline, or an older core). `absent`: the core answered 404, so it has no Blender module. */
+  failed: boolean;
+  absent: boolean;
 }
 
-let state: BlenderUiState = { status: null, loaded: false, busy: null, steps: [], stepsTitle: '', error: null, retrust: null };
+let state: BlenderUiState = { status: null, loaded: false, busy: null, steps: [], stepsTitle: '', error: null, retrust: null, failed: false, absent: false };
 const listeners = new Set<() => void>();
 const set = (p: Partial<BlenderUiState>) => { state = { ...state, ...p }; listeners.forEach((l) => l()); };
 const sub = (l: () => void) => { listeners.add(l); return () => { listeners.delete(l); }; };
@@ -31,10 +34,10 @@ const msg = (e: unknown) => (e instanceof ApiError || e instanceof Error ? e.mes
 
 export const BLENDER_POLL_MS = 30_000;
 
-export function setBlenderStatus(status: BlenderStatusView): void { set({ status, loaded: true }); }
+export function setBlenderStatus(status: BlenderStatusView): void { set({ status, loaded: true, failed: false, absent: false }); }
 
 export async function loadBlender(refresh = false): Promise<void> {
-  try { set({ status: await request<BlenderStatusView>('GET', `/api/blender${refresh ? '?refresh=1' : ''}`), loaded: true }); } catch { /* an older core without the route, or offline: the card stays hidden */ }
+  try { set({ status: await request<BlenderStatusView>('GET', `/api/blender${refresh ? '?refresh=1' : ''}`), loaded: true, failed: false, absent: false }); } catch (e) { /* an older core without the route, or offline: the card stays hidden; the title-bar chip reads these two flags */ set({ failed: true, absent: e instanceof ApiError && e.status === 404 }); }
 }
 
 let started = false;
@@ -52,7 +55,7 @@ async function act<T extends { status: BlenderStatusView; steps: BlenderSetupSte
   set({ busy, error: null, steps: [], stepsTitle: title, retrust: null });
   try {
     const r = await fn();
-    set({ status: r.status, steps: r.steps, loaded: true, retrust: (r as { retrustRequired?: BlenderBackendKind }).retrustRequired ?? null });
+    set({ status: r.status, steps: r.steps, loaded: true, failed: false, absent: false, retrust: (r as { retrustRequired?: BlenderBackendKind }).retrustRequired ?? null });
     return r;
   } catch (e) { set({ error: msg(e) }); return null; } finally { set({ busy: null }); }
 }
@@ -60,7 +63,7 @@ async function act<T extends { status: BlenderStatusView; steps: BlenderSetupSte
 export async function saveBlenderConfig(patch: { both?: boolean; assets?: { polyhaven?: boolean }; enabled?: boolean; backend?: 'auto' | 'official' | 'community'; mode?: BlenderMode; sandbox?: 'off' | 'vm' | 'auto'; port?: number; installPath?: string | null }): Promise<void> {
   if (state.busy) return;
   set({ busy: 'config', error: null });
-  try { set({ status: await request<BlenderStatusView>('POST', '/api/blender/config', patch), loaded: true }); } catch (e) { set({ error: msg(e) }); } finally { set({ busy: null }); }
+  try { set({ status: await request<BlenderStatusView>('POST', '/api/blender/config', patch), loaded: true, failed: false, absent: false }); } catch (e) { set({ error: msg(e) }); } finally { set({ busy: null }); }
 }
 export const runBlenderSetup = (target: 'live' | 'sandbox' | 'both' = 'both', retrust = false) => act('setup', retrust ? 'Set up (new download trusted)' : 'Set up', () => request<BlenderSetupResult>('POST', '/api/blender/setup', { target, ...(retrust ? { retrust: true } : {}) }));
 export const runBlenderTest = () => act('test', 'Connection test', () => request<BlenderTestResult>('POST', '/api/blender/test', {}));
@@ -68,17 +71,4 @@ export const runBlenderTest = () => act('test', 'Connection test', () => request
 export const runBlenderGet = () => act('get', 'Get Blender for Legion', () => request<{ ok: boolean; steps: BlenderSetupStep[]; status: BlenderStatusView }>('POST', '/api/blender/get', {}));
 export const runBlenderLaunch = () => act('launch', 'Launch', () => request<{ ok: boolean; steps: BlenderSetupStep[]; status: BlenderStatusView }>('POST', '/api/blender/launch', {}));
 
-/** Label and tone for the status light (shared by the Ops card and Settings so they always say the same). */
-export function lightLabel(l: BlenderStatusView['light']): { label: string; tone: 'on' | 'bad' | 'off' | 'warn' } {
-  switch (l) {
-    case 'connected': return { label: 'Connected', tone: 'on' };
-    case 'sandbox': return { label: 'VM ready', tone: 'on' };
-    case 'local': return { label: 'Local ready', tone: 'on' };
-    case 'busy': return { label: 'Running a script', tone: 'warn' };
-    case 'disconnected': return { label: 'Not listening', tone: 'warn' };
-    case 'needs-setup': return { label: 'Needs setup', tone: 'warn' };
-    case 'not-found': return { label: 'Not found', tone: 'bad' };
-    case 'error': return { label: 'Problem', tone: 'bad' };
-    default: return { label: 'Off', tone: 'off' };
-  }
-}
+export { lightLabel } from './chipModel';

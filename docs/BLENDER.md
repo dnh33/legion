@@ -37,6 +37,10 @@ Downloads are https only, from public hosts only, with a size cap.
 
 The official Blender Lab MCP server is **GPL-3.0-or-later**. Legion is MIT. Legion never bundles or copies it: it is downloaded from its official source only when you press Set up, lives in `<data dir>/blender/official/`, and stays a separate program that Legion talks to over stdio and a socket. The community add-on is MIT and is handled the same way (downloaded on request, not shipped). Get a proper licence check before you redistribute a build that includes any downloaded component.
 
+## The title-bar chip
+
+A small Blender chip sits in the title bar, right of the BSV chip and left of Doctor (`ui/src/blender/BlenderChip.tsx`). It has a status button and a switch. The button shows the light from the same status as Settings (Off, Blender not found with a **Get Blender** link, Ready: this computer, Ready: cloud VM, Live Blender connected, Needs setup, Blender is running a script, and so on) and opens Settings, Blender; it never starts the download, which keeps its own approval card. The switch is the same `blender.enabled` setting as the Settings switch and calls the same function (`saveBlenderConfig`) and the same admin route, so it asks nothing more and nothing less. If the status is unknown or the last request failed, the chip says "Blender: unknown", locks the switch and shows no old state; an older core without the Blender module shows no chip. Below 1280 px wide the words are dropped first; the dot, the switch and the tooltips stay. The wording is built by `ui/src/blender/chipModel.ts` and tested in `test/blender-chip.test.ts`. Not yet looked at in the real app on Windows (see claude/tracker-pc-checks.md, B17).
+
 ## Local mode
 
 Local mode runs `blender -b` on this computer against a per-task `scene.blend`, wrapped by Legion's own runner. **A local script runs with your Windows user's rights. Legion's check is a filter, not a sandbox.** The controls that matter are your OK on the full script, the scene backup and the audit log.
