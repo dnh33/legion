@@ -25,14 +25,14 @@ export function NewRoomDialog() {
   const lead = picked.includes(leadPick) ? leadPick : (picked[0] ?? '');
   const hops = Number(maxHops); const usd = Number(budget);
   const hopsOk = Number.isInteger(hops) && hops >= 1 && hops <= 100;
-  const usdOk = Number.isFinite(usd) && usd >= 0.01 && usd <= 10_000;
+  const usdOk = Number.isFinite(usd) && usd >= 0.05 && usd <= 10_000;
   const nameOk = name.trim().length > 0 && name.trim().length <= 80;
   const valid = nameOk && picked.length >= 2 && picked.length <= MAX && hopsOk && usdOk;
   const why = useMemo(() => {
     if (!nameOk) return name.trim().length > 80 ? 'Name is limited to 80 characters.' : 'Give the room a name.';
     if (picked.length < 2) return 'Pick at least two agents.';
     if (!hopsOk) return 'Max hops must be a whole number from 1 to 100.';
-    if (!usdOk) return 'Budget must be between $0.01 and $10,000.';
+    if (!usdOk) return 'Budget must be between $0.05 and $10,000.';
     return '';
   }, [nameOk, name, picked.length, hopsOk, usdOk]);
 
@@ -110,7 +110,7 @@ export function NewRoomDialog() {
             <span className="field-note">Bot replies before a pause.</span>
           </label>
           <label className="grow">Budget (USD)
-            <input type="number" min={0.01} step={0.5} value={budget} onChange={(e) => setBudget(e.target.value)} aria-invalid={!usdOk} />
+            <input type="number" min={0.05} step={0.5} value={budget} onChange={(e) => setBudget(e.target.value)} aria-invalid={!usdOk} />
             <span className="field-note">Room pauses when spent.</span>
           </label>
         </div>

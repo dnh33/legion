@@ -58,6 +58,7 @@ describe('legion_comms MCP tools (in-process client)', () => {
   it('bot_send and room_post take an optional model (sonnet, opus, haiku, auto); the engine gets it for that turn only', async () => {
     const h = makeHarness();
     const room = h.room(['zealot', 'scout']);
+    h.agents.get('scout')!.model = 'opus';   // a per-task model is capped at the target's own setting
     const { client, close } = await as(h, 'zealot');
     const { tools } = await client.listTools();
     for (const n of ['bot_send', 'room_post']) {
@@ -72,6 +73,10 @@ describe('legion_comms MCP tools (in-process client)', () => {
     assert.equal(p.isError, undefined);
     const bad: any = await client.callTool({ name: 'bot_send', arguments: { to: 'scout', text: 'x', model: 'gpt-5' } }).catch((e) => ({ isError: true, content: [{ text: String(e) }] }));
     assert.equal(bad.isError, true);
+    h.agents.get('scout')!.model = 'sonnet';
+    const capped: any = await client.callTool({ name: 'bot_send', arguments: { to: 'scout', text: 'think hard', model: 'opus' } });
+    assert.equal(capped.isError, true);
+    assert.match(text(capped), /above Scout's own model setting/);
     await close();
   });
 

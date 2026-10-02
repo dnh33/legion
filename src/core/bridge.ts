@@ -1,4 +1,5 @@
 /** Agent-to-agent bridge: lets any Legion agent message any other agent (ask = wait, tell = async reply). */
+import { overrideAllowed, overrideRefusal } from './model-cap.js';
 import type { AgentProfile, Catalog, ModelChoice, Task, TaskSource } from '../shared/types.js';
 import type { TaskOrigin } from '../shared/comms.js';
 import type { EventBus } from './bus.js';
@@ -130,9 +131,15 @@ export class Bridge {
     return m;
   }
 
+  /** A per-task model is capped at the target agent's own setting (see model-cap.ts): a lead cannot upgrade a peer to something dearer than its owner chose. */
+  private checkCeiling(target: AgentProfile, model: ModelChoice | undefined): void {
+    if (model && !overrideAllowed(target.model, model)) throw new BridgeError(overrideRefusal(target.name, target.model, model));
+  }
+
   async ask(callerTaskId: string, agentRef: string, message: string, opts: { fresh?: boolean; timeoutSeconds?: number; model?: ModelChoice } = {}) {
     const model = this.checkModel(opts.model);
     const { caller, target, hop } = this.resolve(callerTaskId, agentRef, message, 'ask');
+    this.checkCeiling(target, model);
     const { taskId, done } = this.deliver(caller, target, message, !!opts.fresh, hop, model);
     this.waiting.set(callerTaskId, (this.waiting.get(callerTaskId) ?? 0) + 1);
     let set = this.pendingAsks.get(callerTaskId);
@@ -168,6 +175,7 @@ export class Bridge {
   tell(callerTaskId: string, agentRef: string, message: string, opts: { fresh?: boolean; model?: ModelChoice } = {}): { taskId: string } {
     const model = this.checkModel(opts.model);
     const { caller, target, hop } = this.resolve(callerTaskId, agentRef, message, 'tell');
+    this.checkCeiling(target, model);
     const { taskId, done } = this.deliver(caller, target, message, !!opts.fresh, hop, model);
     void done.then((r) => {
       const t = r.task ?? this.store.getTask(taskId);

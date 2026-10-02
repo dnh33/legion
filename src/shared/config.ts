@@ -30,6 +30,9 @@ export interface CommsConfig {
 }
 export type CoreConfig = LegionConfig & { bsv: BsvConfig; comms: CommsConfig };
 
+/** The least a room's budget can be (below it one turn cannot fit). The hub, the settings dialogs and the bot-room limits all use it. */
+export const MIN_ROOM_BUDGET_USD = 0.05;
+
 export const DEFAULT_COMMS: CommsConfig = { botRoomMaxMembers: 6, botRoomDefaultBudgetUsd: 1, botRoomMaxBudgetUsd: 5, turnCostFloorUsd: 0.02 };
 
 /** Whatever the file held under "comms", reduced to numbers inside their ranges (defaults for anything missing or wrong). */
@@ -39,11 +42,11 @@ export function normalizeComms(v: unknown): CommsConfig {
     const x = o[k];
     return typeof x === 'number' && Number.isFinite(x) && x >= lo && x <= hi && (!int || Number.isInteger(x)) ? x : DEFAULT_COMMS[k];
   };
-  const max = num('botRoomMaxBudgetUsd', 0.01, 10_000);
+  const max = num('botRoomMaxBudgetUsd', MIN_ROOM_BUDGET_USD, 10_000);
   return {
     botRoomMaxMembers: num('botRoomMaxMembers', 2, 6, true),
     botRoomMaxBudgetUsd: max,
-    botRoomDefaultBudgetUsd: Math.min(num('botRoomDefaultBudgetUsd', 0.01, 10_000), max),
+    botRoomDefaultBudgetUsd: Math.min(num('botRoomDefaultBudgetUsd', MIN_ROOM_BUDGET_USD, 10_000), max),
     turnCostFloorUsd: num('turnCostFloorUsd', 0, 10),
   };
 }

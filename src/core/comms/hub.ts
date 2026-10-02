@@ -7,7 +7,7 @@ import type {
   Room, RoomGuards, RoomKind, RoomMessage, RoomMessageKind, RoomPauseReason, RoomSender, RoomStrategy, TaskOrigin, CommsState,
 } from '../../shared/comms.js';
 import type { AgentProfile, ApprovalMode, ApprovalRequest, LegionEvent, ModelChoice, Task, TaskSource } from '../../shared/types.js';
-import { DEFAULT_COMMS } from '../../shared/config.js';
+import { DEFAULT_COMMS, MIN_ROOM_BUDGET_USD } from '../../shared/config.js';
 import type { CommsConfig } from '../../shared/config.js';
 import { newId, nowIso } from '../../shared/util.js';
 import { stricterMode } from '../approvals.js';
@@ -15,7 +15,8 @@ import { OVERRIDE_MODELS } from '../bridge.js';
 import type { EventBus } from '../bus.js';
 import { RoomStore } from './rooms.js';
 import type { HubState, TaskMapEntry } from './rooms.js';
-import { clip, containsSeedPhrase, cycleHash, dupText, neutralizeTags, nearDuplicate, safeName, scrubSecrets } from './scrub.js';
+import { overrideAllowed, overrideRefusal } from '../model-cap.js';
+import { cardText, clip, containsSeedPhrase, cycleHash, neutralizeTags, safeName, scrubSecrets } from './scrub.js';
 
 // ------------------------------------------------------------------ public types
 
@@ -64,6 +65,10 @@ export interface HubOptions {
 }
 
 /** Thrown for caller mistakes; carries the HTTP status the route layer should use. */
+export { MIN_ROOM_BUDGET_USD };
+/** Human messages held while a room is paused for budget, per room (the transcript keeps them anyway; this is only what gets replayed). */
+const HELD_CAP = 20;
+
 export class CommsError extends Error {
   constructor(public readonly status: 400 | 404 | 409, message: string) { super(message); this.name = 'CommsError'; }
 }
@@ -126,8 +131,8 @@ interface Wake {
   external: boolean; cancelled: boolean; speaking: boolean; lastCost: number;
   /** The bot called `handoff` during this wake: the thread belongs to someone else now, so its final answer wakes nobody. */
   handedOff?: boolean;
-  /** dupText of what this bot posted during the wake (tools and handoff): its final answer repeating one of them is dropped. */
-  posted?: Array<{ text: string; id: string }>;
+  /** Exactly what this bot posted during the wake (tools and handoff), with its recipients: its final answer repeating one of them word for word is dropped. */
+  posted?: Array<{ text: string; to: string; id: string }>;
   /** Bots that handed off to this one in the delivered batch: this wake's final answer does not wake them back. */
   handoffFrom?: string[];
 }
@@ -157,7 +162,7 @@ export function mergeGuards(base: RoomGuards, patch: Partial<RoomGuards> | undef
   const allowed = new Set(['maxHops', 'budgetUsd', 'cycleRepeats', 'everyoneCooldownSec']);
   for (const k of Object.keys(patch)) if (!allowed.has(k)) throw new CommsError(400, `Unknown guard "${k}"`);
   if (patch.maxHops !== undefined) out.maxHops = num(patch.maxHops, 'maxHops', 1, 100, true);
-  if (patch.budgetUsd !== undefined) out.budgetUsd = num(patch.budgetUsd, 'budgetUsd', 0.01, 10_000, false);
+  if (patch.budgetUsd !== undefined) out.budgetUsd = num(patch.budgetUsd, 'budgetUsd', MIN_ROOM_BUDGET_USD, 10_000, false);
   if (patch.cycleRepeats !== undefined) out.cycleRepeats = num(patch.cycleRepeats, 'cycleRepeats', 2, 50, true);
   if (patch.everyoneCooldownSec !== undefined) out.everyoneCooldownSec = num(patch.everyoneCooldownSec, 'everyoneCooldownSec', 0, 86_400, false);
   return out;
@@ -165,6 +170,8 @@ export function mergeGuards(base: RoomGuards, patch: Partial<RoomGuards> | undef
 
 export class CommsHub {
   private readonly engine: HubEngine;
+  /** Human messages that arrived while a room was stopped on its budget, replayed on resume. In memory only: a restart forgets them (they are still in the transcript). */
+  private readonly held = new Map<string, Array<{ botId: string; d: Delivery }>>();
   private readonly agents: HubStore;
   private readonly bus: EventBus;
   private readonly rooms: RoomStore;
@@ -260,6 +267,7 @@ export class CommsHub {
     const room = this.mustRoom(id);
     this.cancelRoomWork(room, () => true);
     this.cycles.delete(room.id);
+    this.held.delete(room.id);
     this.everyoneAt.delete(room.id);
     for (const key of [...this.recent.keys()]) if (key.startsWith(room.id + '|')) this.recent.delete(key);
     for (const key of Object.keys(this.state.tasks)) if (key.startsWith(room.id + '|')) delete this.state.tasks[key];
@@ -342,7 +350,10 @@ export class CommsHub {
     delete room.paused;
     room.hopsSinceHuman = 0;
     this.cycles.delete(room.id);
-    this.post(room, { from: { kind: 'system' }, kind: 'note', hop: 0, text: 'Room resumed. Counters were reset.' });
+    const held = this.held.get(room.id) ?? [];
+    this.held.delete(room.id);
+    this.post(room, { from: { kind: 'system' }, kind: 'note', hop: 0, text: held.length ? `Room resumed. Counters were reset. Delivering ${held.length} message${held.length === 1 ? '' : 's'} that arrived while it was paused.` : 'Room resumed. Counters were reset.' });
+    for (const h of held) this.deliver(room, h.botId, h.d); // the budget guard runs again: still short of money means paused again, with these kept
     return clone(room);
   }
 
@@ -419,6 +430,7 @@ export class CommsHub {
     const plan = this.plan(room, from, t, { auto: false });
     const again = this.repeatOf(room, sender.id, t, plan.explicit, 'chat');
     if (again) return { ...clone(again), duplicate: true };
+    this.checkModelFor(plan.wake, model);
     const msg = this.post(room, { from, to: plan.explicit, kind: 'chat', text: t, ...(replyTo ? { replyTo } : {}), hop: ctx.hop + 1, ...(run.tainted ? { tainted: true } : {}), ...(model ? { model } : {}) });
     this.notePost(room, sender.id, msg);
     this.awaitAnswer(sender.id, room.id, peer.id);
@@ -436,10 +448,11 @@ export class CommsHub {
     const ctx = this.senderContext(fromId);
     const from: RoomSender = { kind: 'bot', agentId: fromId };
     const plan = this.plan(room, from, t, { auto: false, extra });
-    const again = this.repeatOf(room, fromId, t, plan.explicit, 'chat');
-    if (again) return { ...clone(again), duplicate: true };
     const missing = extra.filter((id) => !new RegExp(`(?<![\\w@.-])@${escapeRe(this.nameOf(id))}(?![\\w-])`, 'i').test(t));
     const body = missing.length ? `${missing.map((id) => '@' + this.nameOf(id)).join(' ')} ${t}` : t;
+    const again = this.repeatOf(room, fromId, body, plan.explicit, 'chat');
+    if (again) return { ...clone(again), duplicate: true };
+    this.checkModelFor(plan.wake, model);
     const msg = this.post(room, { from, to: plan.explicit, kind: 'chat', text: body, hop: ctx.hop + 1, ...(run.tainted ? { tainted: true } : {}), ...(model ? { model } : {}) });
     this.notePost(room, fromId, msg);
     const viaParam = (Array.isArray(mention) ? mention : mention ? [mention] : []).map((m) => '@' + m.replace(/^@/, '')).join(' ');
@@ -454,7 +467,10 @@ export class CommsHub {
     const target = this.resolveMember(room, toRef);
     if (!target) throw new CommsError(400, `"${toRef}" is not a member of this room`);
     if (target === fromId) throw new CommsError(400, 'You cannot hand off to yourself');
-    const t = this.cleanText(summary);
+    const said = this.cleanText(summary);
+    // A handoff names its receiver explicitly: the stored message always opens with @Receiver, so the wake is an explicit mention (never implied by the room's strategy or lead).
+    const named = new RegExp(`(?<![\\w@.-])@${escapeRe(this.nameOf(target))}(?![\\w-])`, 'i').test(said) || this.mentionsIn(room, said).includes(target);
+    const t = named ? said : `@${this.nameOf(target)} ${said}`;
     const ctx = this.senderContext(fromId);
     // the same handoff again while it is still in effect (the target already leads) is one handoff
     const again = room.lead === target ? this.repeatOf(room, fromId, t, [target], 'handoff') : undefined;
@@ -535,16 +551,19 @@ export class CommsHub {
     const sender = this.agents.getAgent(fromId);
     if (!sender || !this.visible(sender)) throw new CommsError(404, `Unknown bot "${fromId}"`);
     const plan = this.planBotRoom(sender, input);
+    const who = cardText(sender.name, 40);
     const lines = [
-      `${sender.name} wants to create the room "${clip(plan.name, 60)}" with ${plan.members.map((m) => this.nameOf(m)).join(', ')}.`,
-      `Lead: ${this.nameOf(plan.lead)}. Budget: $${plan.budgetUsd.toFixed(2)} (the room pauses when it is spent), ${DEFAULT_GUARDS.maxHops} bot-to-bot hops at most.`,
+      `${who} asks to create a room. The name below is the bot's text, not Legion's: ${cardText(plan.name, 60)}`,
+      `Members: ${plan.members.map((m) => cardText(this.nameOf(m), 40)).join(', ')}. Lead: ${cardText(this.nameOf(plan.lead), 40)}.`,
+      `Budget: $${plan.budgetUsd.toFixed(2)} (the room pauses when it is spent), ${DEFAULT_GUARDS.maxHops} bot-to-bot hops at most.`,
       ...(ctx.tainted ? ['This run has read outside content (web, shell or an external tool); check the request carefully.'] : []),
       'Only you can delete the room later. Deny to stop it.',
     ];
     await this.askUser(sender, 'room_create', lines.join('\n'), { name: plan.name, members: plan.members, lead: plan.lead, budgetUsd: plan.budgetUsd }, ctx);
-    // the world may have changed while the card was open: check again, then create
-    const again = this.planBotRoom(sender, input);
-    const room = this.createRoom({ name: again.name, members: again.members, lead: again.lead, guards: { budgetUsd: again.budgetUsd } }, sender.id);
+    // Approval applies exactly the plan the card showed. The world may have changed while it was open, so the same plan is checked again
+    // (bots still there, the caps and budget limits as they are now); if it no longer fits, nothing is created, rather than something else.
+    this.recheckRoomPlan(sender, plan);
+    const room = this.createRoom({ name: plan.name, members: plan.members, lead: plan.lead, guards: { budgetUsd: plan.budgetUsd } }, sender.id);
     const live = this.mustRoom(room.id);
     this.post(live, { from: { kind: 'system' }, kind: 'note', hop: 0, text: `Room created by ${sender.name}; you approved it. Only you can delete it.` });
     return clone(live);
@@ -556,14 +575,16 @@ export class CommsHub {
     if (!sender) throw new CommsError(404, `Unknown bot "${fromId}"`);
     const room = this.memberRoom(fromId, roomRef);
     const target = this.checkMembership(room, sender, 'add', memberRef);
+    const shown = this.roomSnapshot(room);
     const lines = [
-      `${sender.name} wants to add ${target.name} to the room "${clip(room.name, 60)}" (now: ${room.members.map((m) => this.nameOf(m)).join(', ')}).`,
+      `${cardText(sender.name, 40)} asks to add ${cardText(target.name, 40)} to a room named: ${cardText(room.name, 60)}\nNow in it: ${room.members.map((m) => cardText(this.nameOf(m), 40)).join(', ')}.`,
       ...(ctx.tainted ? ['This run has read outside content (web, shell or an external tool); check the request carefully.'] : []),
-      `${target.name} will see the room's messages from now on.`,
+      `${cardText(target.name, 40)} will see the room's messages from now on.`,
     ];
     await this.askUser(sender, 'room_add_member', lines.join('\n'), { room: room.id, member: target.id }, ctx);
     const cur = this.mustRoom(room.id);
     if (!cur.members.includes(sender.id)) throw new CommsError(409, `You are no longer a member of "${cur.name}".`);
+    if (this.roomSnapshot(cur) !== shown) throw new CommsError(409, 'The room changed (name, members or lead) while the request was open, so nothing was changed. Ask again if you still want it.');
     this.checkMembership(cur, sender, 'add', target.id);
     const updated = this.updateMembers(cur.id, { add: [target.id] });
     this.post(this.mustRoom(cur.id), { from: { kind: 'system' }, kind: 'note', hop: 0, text: `${sender.name} added ${target.name}; you approved it.` });
@@ -576,23 +597,43 @@ export class CommsHub {
     if (!sender) throw new CommsError(404, `Unknown bot "${fromId}"`);
     const room = this.memberRoom(fromId, roomRef);
     const target = this.checkMembership(room, sender, 'remove', memberRef);
+    const shown = this.roomSnapshot(room);
     const lines = [
-      `${sender.name} wants to remove ${target.name} from the room "${clip(room.name, 60)}" (now: ${room.members.map((m) => this.nameOf(m)).join(', ')}).`,
+      `${cardText(sender.name, 40)} asks to remove ${cardText(target.name, 40)} from a room named: ${cardText(room.name, 60)}\nNow in it: ${room.members.map((m) => cardText(this.nameOf(m), 40)).join(', ')}.`,
       ...(ctx.tainted ? ['This run has read outside content (web, shell or an external tool); check the request carefully.'] : []),
-      `${target.name}'s running work in this room will be cancelled.`,
+      `${cardText(target.name, 40)}'s running work in this room will be cancelled.`,
     ];
     await this.askUser(sender, 'room_remove_member', lines.join('\n'), { room: room.id, member: target.id }, ctx);
     const cur = this.mustRoom(room.id);
     if (!cur.members.includes(sender.id)) throw new CommsError(409, `You are no longer a member of "${cur.name}".`);
+    if (this.roomSnapshot(cur) !== shown) throw new CommsError(409, 'The room changed (name, members or lead) while the request was open, so nothing was changed. Ask again if you still want it.');
     this.checkMembership(cur, sender, 'remove', target.id);
     const updated = this.updateMembers(cur.id, { remove: [target.id] });
     this.post(this.mustRoom(cur.id), { from: { kind: 'system' }, kind: 'note', hop: 0, text: `${sender.name} removed ${target.name}; you approved it.` });
     return updated;
   }
 
+  /** The frozen plan of an approved room_create, checked again against the world as it is now. */
+  private recheckRoomPlan(sender: AgentProfile, plan: { name: string; members: string[]; lead: string; budgetUsd: number }): void {
+    const stale = (why: string): never => { throw new CommsError(409, `${why} since you were asked, so nothing was created. Ask again if you still want it.`); };
+    if (!this.agents.getAgent(sender.id)) stale('You no longer exist');
+    for (const id of plan.members) {
+      const a = this.agents.getAgent(id);
+      if (!a || !this.visible(a)) stale(`${this.nameOf(id)} is no longer available`);
+    }
+    const max = Math.min(this.comms.botRoomMaxMembers, MAX_MEMBERS);
+    if (plan.members.length < 2 || plan.members.length > max) stale(`The limit for a room a bot creates is now ${max} bots`);
+    if (!plan.members.includes(plan.lead) || !plan.members.includes(sender.id)) stale('The members changed');
+    if (plan.budgetUsd < MIN_ROOM_BUDGET_USD || plan.budgetUsd > this.comms.botRoomMaxBudgetUsd) stale(`The budget limit for a room a bot creates is now $${this.comms.botRoomMaxBudgetUsd.toFixed(2)}`);
+  }
+
+  /** What a membership card was shown: if the room differs when the user answers, the request is void. */
+  private roomSnapshot(room: Room): string { return JSON.stringify([room.name, [...room.members].sort(), room.lead]); }
+
   /** Validates a bot's room_create input into what would be created. */
   private planBotRoom(sender: AgentProfile, input: { name: string; members: string[]; lead?: string; budgetUsd?: number }): { name: string; members: string[]; lead: string; budgetUsd: number } {
-    const name = this.cleanName(input?.name);
+    const name = cardText(this.cleanName(input?.name), 60);
+    if (!name) throw new CommsError(400, 'name must contain letters or digits');
     const asked = this.cleanMembers(input?.members);
     const members = unique([sender.id, ...asked]);
     const max = Math.min(this.comms.botRoomMaxMembers, MAX_MEMBERS);
@@ -603,7 +644,7 @@ export class CommsHub {
     let budgetUsd = this.comms.botRoomDefaultBudgetUsd;
     if (input.budgetUsd !== undefined) {
       const b = input.budgetUsd;
-      if (typeof b !== 'number' || !Number.isFinite(b) || b < 0.01) throw new CommsError(400, 'budgetUsd must be a number of at least 0.01');
+      if (typeof b !== 'number' || !Number.isFinite(b) || b < MIN_ROOM_BUDGET_USD) throw new CommsError(400, `budgetUsd must be a number of at least ${MIN_ROOM_BUDGET_USD}`);
       if (b > this.comms.botRoomMaxBudgetUsd) throw new CommsError(400, `budgetUsd must be at most $${this.comms.botRoomMaxBudgetUsd.toFixed(2)} for a room a bot creates (the user can raise it later).`);
       budgetUsd = b;
     }
@@ -642,7 +683,7 @@ export class CommsHub {
     let allowed = false;
     try {
       allowed = await this.approve({
-        taskId: ctx.taskId, agentId: sender.id, tool, summary: clip(summary, 400), input,
+        taskId: ctx.taskId, agentId: sender.id, tool, summary: clip(summary, 700), input,
         ...(ctx.origin ? { origin: { roomId: ctx.origin.roomId, fromAgentId: ctx.origin.fromAgentId, hop: ctx.origin.hop } } : {}),
       });
     } catch { allowed = false; }
@@ -684,7 +725,8 @@ export class CommsHub {
   /** Guards that apply to a stored message, then delivery to each recipient. */
   private dispatch(room: Room, msg: RoomMessage, wake: string[], meta: Meta): void {
     const ids = unique(wake).filter((id) => room.members.includes(id) && !(msg.from.kind === 'bot' && msg.from.agentId === id));
-    if (room.paused || ids.length === 0) return;
+    if (room.paused) { if (room.paused.reason === 'budget') for (const id of ids) this.hold(room, id, { msg, ceiling: meta.ceiling, humanChain: meta.humanChain, ...(meta.tainted ? { tainted: true } : {}) }); return; }
+    if (ids.length === 0) return;
     if (msg.from.kind === 'bot') {
       const sender = msg.from.agentId;
       // 1. hop limit
@@ -714,10 +756,11 @@ export class CommsHub {
   }
 
   private deliver(room: Room, botId: string, d: Delivery): void {
-    if (room.paused || !room.members.includes(botId)) return;
+    if (!room.members.includes(botId)) return;
+    if (room.paused) { if (room.paused.reason === 'budget') this.hold(room, botId, d); return; }
     // 2. budget, checked before every wake
     const stop = this.budgetStop(room);
-    if (stop) { this.pauseBudget(room, stop); return; }
+    if (stop) { this.hold(room, botId, d); this.pauseBudget(room, stop); return; }
     const key = keyOf(room.id, botId);
     if (this.busy.has(key)) { this.enqueue(key, room, botId, d); return; }
     this.startWake(room, botId, [d]);
@@ -729,9 +772,10 @@ export class CommsHub {
    * their cost only shows when they finish.
    */
   private budgetStop(room: Room): { estimate?: number } | undefined {
-    const budget = room.guards.budgetUsd;
+    const budget = Math.max(room.guards.budgetUsd, MIN_ROOM_BUDGET_USD); // a stored $0 or negative budget cannot wedge the room
     if (room.costUsd >= budget) return {};
     const running = [...this.busy.values()].filter((w) => w.roomId === room.id && !w.external && !w.cancelled).length;
+    if (room.costUsd === 0 && running === 0) return undefined; // nothing spent yet: the first turn always gets to run
     const estimate = this.turnEstimate(room);
     if (room.costUsd + estimate * (running + 1) > budget + 1e-9) return { estimate };
     return undefined;
@@ -746,6 +790,16 @@ export class CommsHub {
       if (typeof c === 'number' && c > 0) costs.push(c);
     }
     return Math.max(this.turnFloor, ...costs);
+  }
+
+  /** A human's message that a budget stop kept from waking its bot: keep it to replay on resume (bots' own chatter is not worth replaying). */
+  private hold(room: Room, botId: string, d: Delivery): void {
+    if (d.msg.from.kind !== 'human') return;
+    const q = this.held.get(room.id) ?? [];
+    if (q.some((h) => h.botId === botId && h.d.msg.id === d.msg.id)) return;
+    q.push({ botId, d });
+    while (q.length > HELD_CAP) q.shift();
+    this.held.set(room.id, q);
   }
 
   private pauseBudget(room: Room, stop: { estimate?: number }): void {
@@ -918,8 +972,11 @@ export class CommsHub {
         });
         this.notePost(room, w.botId, msg);
         this.noteBotEveryone(room, w.botId, result);
-        // a bot that handed the thread off ends its chain here; an answer to a handoff does not bounce back to the one who handed off
-        const wake = w.handedOff ? [] : plan.wake.filter((id) => !w.handoffFrom?.includes(id));
+        // A completed handoff ends the chatter. The bot that handed the thread off wakes nobody with the rest of its turn. A bot answering a
+        // handoff wakes only bots it @mentions by name (not the room's implicit routes: the DM peer, the manager lead), and never the one that handed off.
+        const wake = w.handedOff ? []
+          : w.handoffFrom?.length ? this.mentionsIn(room, result).filter((id) => id !== w.botId && !w.handoffFrom!.includes(id))
+          : plan.wake;
         this.dispatch(room, msg, wake, { ceiling, humanChain: w.humanChain, auto: true, ...(task.tainted ? { tainted: true } : {}) });
       }
     } else if (task.status === 'error') {
@@ -954,7 +1011,12 @@ export class CommsHub {
   private pause(room: Room, reason: RoomPauseReason, detail: string | undefined, text: string): void {
     if (room.paused && reason !== 'frozen') return; // already stopped; do not repeat the explanation
     room.paused = { reason, at: nowIso(), ...(detail ? { detail } : {}) };
-    for (const m of room.members) this.inbox.delete(keyOf(room.id, m));
+    for (const m of room.members) {
+      const key = keyOf(room.id, m);
+      if (reason === 'budget') for (const d of this.inbox.get(key) ?? []) this.hold(room, m, d);
+      this.inbox.delete(key);
+    }
+    if (reason === 'frozen') this.held.delete(room.id);
     this.dropAwaitingForRoom(room.id);
     this.post(room, { from: { kind: 'system' }, kind: 'guard', text, hop: 0 });
   }
@@ -1027,25 +1089,25 @@ export class CommsHub {
   }
 
   /**
-   * The earlier message when `text` is the same words this bot already posted: during this wake (any recipient), or to the same
-   * recipients within DUP_WINDOW_MS provided nobody else has spoken since (a re-ask after an answer is the cycle guard's business). A handoff only repeats an earlier handoff to the same bot. `wake` is passed when the wake is already over.
+   * The earlier message when this is exactly what the bot already posted to the same recipients: word for word (after the same
+   * secret scrub every stored text gets, and trimming; case and punctuation count), during this wake, or within DUP_WINDOW_MS
+   * provided nobody else has spoken since (a re-ask after an answer is the cycle guard's business). A handoff only repeats an earlier
+   * handoff to the same bot. Anything that differs, even by a character, is a different message. `wake` is passed when the wake is already over.
    */
   private repeatOf(room: Room, botId: string, text: string, to: string[], kind: RoomMessageKind, wake?: Wake): RoomMessage | undefined {
-    const d = dupText(text);
-    if (!d) return undefined;
-    const find = (id: string): RoomMessage | undefined => this.rooms.messages(room.id).find((m) => m.id === id);
+    const exact = scrubSecrets(text, { keepHex: true }).trim();
+    if (!exact) return undefined;
+    const toKey = [...to].sort().join(',');
+    const all = this.rooms.messages(room.id);
     const w = wake ?? this.activeWake(room.id, botId);
     if (kind !== 'handoff') {
-      const hit = w?.posted?.find((p) => nearDuplicate(p.text, d));
-      const msg = hit && find(hit.id);
+      const hit = w?.posted?.find((p) => p.text === exact && p.to === toKey);
+      const msg = hit && all.find((m) => m.id === hit.id);
       if (msg) return msg;
     }
-    const toKey = [...to].sort().join(',');
     const now = this.now();
     for (const r of this.recent.get(keyOf(room.id, botId)) ?? []) {
-      if (now - r.at >= DUP_WINDOW_MS || r.to !== toKey || (kind === 'handoff' && r.kind !== 'handoff')) continue;
-      if (!nearDuplicate(r.text, d)) continue;
-      const all = this.rooms.messages(room.id);
+      if (now - r.at >= DUP_WINDOW_MS || r.to !== toKey || r.text !== exact || (kind === 'handoff' && r.kind !== 'handoff')) continue;
       const at = all.findIndex((m) => m.id === r.id);
       if (at < 0) continue;
       // Somebody answered in between: it is a re-ask, not an echo. The cycle guard watches those; do not hide them here.
@@ -1057,15 +1119,16 @@ export class CommsHub {
 
   /** Remembers what a bot just posted (for repeat suppression) and adds it to its running wake. */
   private notePost(room: Room, botId: string, msg: RoomMessage): void {
-    const text = dupText(msg.text);
+    const text = msg.text.trim();
     if (!text) return;
+    const to = [...msg.to].sort().join(',');
     const key = keyOf(room.id, botId);
     const list = this.recent.get(key) ?? [];
-    list.push({ text, to: [...msg.to].sort().join(','), kind: msg.kind, at: this.now(), id: msg.id });
+    list.push({ text, to, kind: msg.kind, at: this.now(), id: msg.id });
     while (list.length > RECENT_POSTS) list.shift();
     this.recent.set(key, list);
     const w = this.activeWake(room.id, botId);
-    if (w) (w.posted ??= []).push({ text, id: msg.id });
+    if (w) (w.posted ??= []).push({ text, to, id: msg.id });
   }
 
   // ---- awaiting (waiting-bot state)
@@ -1210,6 +1273,15 @@ export class CommsHub {
     // a seed phrase is refused outright (the same detector the knowledge graph uses), never stored or woken into a bot; key-shaped strings are redacted
     if (containsSeedPhrase(v)) throw new CommsError(400, 'That message looks like it contains a seed phrase (a 12 or 24 word recovery phrase). Messages never carry one, so nothing was sent. Remove it and send again.');
     return scrubSecrets(v.trim(), { keepHex: true });
+  }
+
+  /** A per-task model on a post is capped at each woken bot's own setting (model-cap.ts), so a message cannot upgrade a peer to something dearer than its owner chose. */
+  private checkModelFor(wakeIds: string[], model: string | undefined): void {
+    if (!model) return;
+    for (const id of wakeIds) {
+      const a = this.agents.getAgent(id);
+      if (a && !overrideAllowed(a.model, model)) throw new CommsError(400, overrideRefusal(a.name, a.model, model));
+    }
   }
 
   private nameOf(id: string): string { return this.agents.getAgent(id)?.name ?? id; }

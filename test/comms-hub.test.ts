@@ -607,7 +607,7 @@ test('handoff posts a handoff message, makes the target the lead and wakes it', 
   assert.equal(m.kind, 'handoff');
   assert.deepEqual(m.to, ['builder']);
   assert.equal(h.hub.getRoom(room.id).lead, 'builder');
-  assert.match(h.engine.last('builder').prompt, /Handoff: you now lead this room\. Design is done/);
+  assert.match(h.engine.last('builder').prompt, /Handoff: you now lead this room\. @Builder Design is done/);
   assert.equal(h.engine.last('builder').origin!.fromAgentId, 'zealot');
   h.hub.postHuman(room.id, 'where are we?');
   assert.equal(h.engine.startsFor('builder').length, 1, 'plain messages now go to the new lead (queued while busy)');

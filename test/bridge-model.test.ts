@@ -26,7 +26,7 @@ const ok = (text: string, sid: string) => ({ type: 'result', subtype: 'success',
 function setup(script: Script, maxConcurrent = 1) {
   const dir = mkdtempSync(join(tmpdir(), 'legion-br-'));
   const store = new Store(dir);
-  for (const [id, name] of [['zealot', 'Zealot'], ['builder', 'Builder'], ['scout', 'Scout'], ['worker', 'Worker']]) store.upsertAgent(mkAgent(id!, name!));
+  for (const [id, name] of [['zealot', 'Zealot'], ['builder', 'Builder'], ['scout', 'Scout'], ['worker', 'Worker']]) store.upsertAgent({ ...mkAgent(id!, name!), ...(id === 'builder' ? { model: 'opus' } : {}) }); // builder is fixed to opus so a lead may ask it for any model; the others are sonnet (cap tests below)
   const bus = new EventBus();
   const config = defaultConfig();
   config.workspaceDir = join(dir, 'ws');
@@ -93,11 +93,11 @@ test('B: the override applies to that task only: the next ask on the same thread
     yield ok('done', 'z1');
   })(), 2);
   await s.engine.waitFor(s.engine.startTask({ agentId: 'zealot', prompt: 'go', source: 'ui' }).id, 5000);
-  assert.deepEqual([0, 1, 2, 3].map((n) => modelOf(s, 'builder', n)), ['haiku', 'sonnet', 'opus', 'sonnet']);
+  assert.deepEqual([0, 1, 2, 3].map((n) => modelOf(s, 'builder', n)), ['haiku', 'opus', 'opus', 'opus']);
   assert.equal(seen[0].json.taskId, seen[1].json.taskId, 'one pair thread');
   const t = s.store.getTask(seen[1].json.taskId)!;
   assert.equal(t.modelOverride, undefined, 'cleared once a later message did not ask for one');
-  assert.equal(t.requestedModel, 'sonnet');
+  assert.equal(t.requestedModel, 'opus');
 });
 
 test('B: "auto" is an override too (let the router decide even for an agent fixed to opus)', async () => {
@@ -218,5 +218,64 @@ test('B: a message queued behind a busy thread keeps its own model for its own r
     return undefined;
   }, 3);
   await s.engine.waitFor(s.engine.startTask({ agentId: 'zealot', prompt: 'go', source: 'ui' }).id, 5000);
-  assert.deepEqual([modelOf(s, 'builder', 0), modelOf(s, 'builder', 1)], ['sonnet', 'haiku']);
+  assert.deepEqual([modelOf(s, 'builder', 0), modelOf(s, 'builder', 1)], ['opus', 'haiku']);
+});
+
+// ---------------------------------------------------------------- fix round: the per-task model is capped at the target's own setting
+
+test('B cap: a lead cannot ask a sonnet or auto agent for opus (ask and tell); haiku and sonnet and auto are fine; nothing starts when refused', async () => {
+  const seen: Record<string, any> = {};
+  const s = setup((c) => c.agent !== 'zealot' ? undefined : (async function* () {
+    yield init('z1');
+    s.store.upsertAgent({ ...s.store.getAgent('worker')!, model: 'auto' });
+    seen.askSonnet = await callTool(c.options, 'ask', { agent: 'scout', message: 'a', model: 'opus' });
+    seen.tellAuto = await callTool(c.options, 'tell', { agent: 'worker', message: 'b', model: 'opus' });
+    seen.okHaiku = await callTool(c.options, 'ask', { agent: 'scout', message: 'c', model: 'haiku', fresh: true });
+    seen.okSonnet = await callTool(c.options, 'ask', { agent: 'worker', message: 'd', model: 'sonnet', fresh: true });
+    seen.okAuto = await callTool(c.options, 'ask', { agent: 'scout', message: 'e', model: 'auto', fresh: true });
+    yield ok('done', 'z1');
+  })(), 3);
+  await s.engine.waitFor(s.engine.startTask({ agentId: 'zealot', prompt: 'go', source: 'ui' }).id, 5000);
+  for (const k of ['askSonnet', 'tellAuto']) {
+    assert.equal(seen[k].isError, true, k);
+    assert.match(seen[k].text, /above .* own model setting/);
+  }
+  assert.equal(seen.okHaiku.isError, undefined);
+  assert.equal(seen.okSonnet.isError, undefined);
+  assert.equal(seen.okAuto.isError, undefined);
+  assert.equal(modelOf(s, 'scout', 0), 'haiku', 'the refused opus ask never reached the SDK');
+  assert.equal(s.calls.filter((c) => c.agent === 'scout' || c.agent === 'worker').length, 3, 'only the three allowed asks ran');
+});
+
+test('B cap: the engine refuses an over-ceiling override on its own (a caller that skips the bridge check)', async () => {
+  const s = setup(() => undefined);
+  assert.throws(() => s.engine.startTask({ agentId: 'scout', prompt: 'x', source: 'agent', model: 'opus', modelOverrideBy: 'zealot' }), /above Scout's own model setting/);
+  assert.doesNotThrow(() => s.engine.startTask({ agentId: 'builder', prompt: 'x', source: 'agent', model: 'opus', modelOverrideBy: 'zealot' }));
+});
+
+test('B cap: an auto override, or a /opus prefix in a bot\'s message, is clamped to the agent\'s ceiling; a human\'s own prefix is not', async () => {
+  const s = setup(() => undefined, 3);
+  const long = 'x'.repeat(2000); // the router would pick opus for this
+  const a = s.engine.startTask({ agentId: 'scout', prompt: long, source: 'agent', model: 'auto', modelOverrideBy: 'zealot' });
+  await s.engine.waitFor(a.id, 5000);
+  assert.equal(modelOf(s, 'scout', 0), 'sonnet', 'auto asked by a bot on a sonnet agent never routes up to opus');
+  const b = s.engine.startTask({ agentId: 'worker', prompt: '/opus do the thing', source: 'agent', bridge: { fromAgentId: 'zealot', parentTaskId: 'nope', hop: 1 } as any,
+    origin: { roomId: 'agent-bridge', fromAgentId: 'zealot', hop: 1, approvalCeiling: 'ask' } as any });
+  await s.engine.waitFor(b.id, 5000);
+  assert.equal(modelOf(s, 'worker', 0), 'sonnet', 'a bot cannot smuggle /opus into its message');
+  const h = s.engine.startTask({ agentId: 'scout', prompt: '/opus do the thing', source: 'ui' });
+  await s.engine.waitFor(h.id, 5000);
+  assert.equal(modelOf(s, 'scout', 1), 'opus', 'the human typing /opus is the owner choosing it');
+});
+
+test('B cap: an override task on a sonnet agent does not escalate to opus on failure (an opus agent may)', async () => {
+  const err = (text: string) => (async function* () { yield init('e'); yield { type: 'result', subtype: 'error_max_turns', is_error: true, errors: [text], total_cost_usd: 0, num_turns: 9, session_id: 'e' }; })();
+  const s = setup((c) => c.agent === 'scout' || c.agent === 'builder' ? err('too many turns') : undefined, 3);
+  const a = s.engine.startTask({ agentId: 'scout', prompt: 'x', source: 'agent', model: 'sonnet', modelOverrideBy: 'zealot' });
+  await s.engine.waitFor(a.id, 5000);
+  assert.equal(s.calls.filter((c) => c.agent === 'scout').length, 1, 'no second run on opus');
+  assert.equal(s.store.getTask(a.id)!.escalated, undefined);
+  const b = s.engine.startTask({ agentId: 'builder', prompt: 'x', source: 'agent', model: 'sonnet', modelOverrideBy: 'zealot' });
+  await s.engine.waitFor(b.id, 5000);
+  assert.equal(s.calls.filter((c) => c.agent === 'builder').length, 2, 'an opus agent keeps the normal sonnet to opus retry');
 });

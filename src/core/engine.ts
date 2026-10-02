@@ -14,6 +14,7 @@ import type { CoreModule, ModuleJob, PreambleContext, TaskEndOutcome } from './m
 import type { TaskOrigin } from '../shared/comms.js';
 import type { ApprovalBroker } from './approvals.js';
 import type { EventBus } from './bus.js';
+import { modelRank, overrideAllowed, overrideRefusal, rankModel } from './model-cap.js';
 import { routeModel, shouldEscalate } from './router.js';
 import type { Store } from './store.js';
 import { buildAgentToolsServer } from './agent-tools.js';
@@ -178,6 +179,7 @@ export class Engine {
     const tainted = !!p.tainted || !!origin?.tainted || (!!p.bridge?.reply && !!p.bridge.fromTaskId && this.isTainted(p.bridge.fromTaskId));
 
     const overriding = !!p.modelOverrideBy && !!p.model;
+    if (overriding && !overrideAllowed(agent.model, p.model)) throw new EngineError(overrideRefusal(agent.name, agent.model, p.model!), 400);
     let task: Task;
     let priorModel: ConcreteModel | undefined;
     if (p.continueTaskId) {
@@ -436,7 +438,13 @@ export class Engine {
   private async execute(job: Job, act: Active): Promise<void> {
     const agent = this.store.getAgent(job.agentId);
     if (!agent) throw new Error(`Agent ${job.agentId} no longer exists`);
-    const decision = routeModel(job.prompt, job.choice, { priorModel: job.priorModel });
+    let decision = routeModel(job.prompt, job.choice, { priorModel: job.priorModel });
+    // A model a bot picked (per-task override, or a /opus prefix in a bot's message) never goes above the agent's own setting.
+    const picked = this.store.getTask(job.taskId)?.modelOverride || (job.origin && decision.reason.startsWith('prefix'));
+    if (picked && modelRank(decision.model) > modelRank(agent.model)) {
+      const capped = rankModel(modelRank(agent.model));
+      decision = { ...decision, model: capped, reason: `${decision.reason}, capped at ${capped} (${agent.name}'s own setting)` };
+    }
     let model = decision.model;
     const first = this.patchTask(job.taskId, { status: 'running', model, error: undefined });
     if (!first) throw new Error('Task disappeared');
@@ -449,7 +457,7 @@ export class Engine {
 
     const cur = this.store.getTask(job.taskId);
     if (
-      model === 'sonnet' && !cur?.escalated && outcome.isError &&
+      model === 'sonnet' && !cur?.escalated && outcome.isError && !(cur?.modelOverride && modelRank(agent.model) < 3) &&
       shouldEscalate({ model, subtype: outcome.subtype, isError: outcome.isError, errorText: outcome.errorText })
     ) {
       const reason = outcome.errorText ? `${outcome.subtype}: ${outcome.errorText.slice(0, 160)}` : outcome.subtype;

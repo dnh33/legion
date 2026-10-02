@@ -60,12 +60,76 @@ test('D: cheap turns keep going while the next one fits', () => {
   assert.equal(h.engine.startsFor('zealot').length, 3, 'no wake after the pause');
 });
 
-test('D: with no history a small floor still stops a room whose budget is below one turn', () => {
+test('D: a $0, negative or below-minimum budget is refused at the door, and a stored one cannot wedge the room', () => {
   const h = makeHarness();
-  const room = h.room(['zealot', 'scout'], { guards: { budgetUsd: 0.01 } });
+  for (const bad of [0, -1, 0.01, 0.049]) {
+    assert.throws(() => h.room(['zealot', 'scout'], { guards: { budgetUsd: bad } }), /guards\.budgetUsd must be a number between 0\.05 and 10000/, String(bad));
+  }
+  const room = h.room(['zealot', 'scout'], { guards: { budgetUsd: 0.05 } });
+  assert.throws(() => h.hub.updateRoom(room.id, { guards: { budgetUsd: 0 } }), /between 0\.05/);
+  assert.throws(() => h.hub.updateRoom(room.id, { guards: { budgetUsd: -5 } }), /between 0\.05/);
+  // a room file written by hand or by an older build with a $0 budget still gets its first turn (the floor applies at the guard too)
+  (h.hub as any).mustRoom(room.id).guards.budgetUsd = 0;
   h.hub.postHuman(room.id, '@zealot hi');
-  assert.equal(h.engine.startsFor('zealot').length, 0, 'nothing woke: even a first turn would exceed $0.01');
+  assert.equal(h.engine.startsFor('zealot').length, 1, 'the first turn runs');
+  assert.equal(h.hub.getRoom(room.id).paused, undefined);
+});
+
+test('D: the first turn of a room with nothing spent always runs, even when the turn estimate is above the budget', () => {
+  const h = makeHarness({ hub: { comms: { botRoomMaxMembers: 6, botRoomDefaultBudgetUsd: 1, botRoomMaxBudgetUsd: 5, turnCostFloorUsd: 0.5 } } });
+  const room = h.room(['zealot', 'scout'], { guards: { budgetUsd: 0.05 } });
+  h.hub.postHuman(room.id, '@zealot hi');
+  assert.equal(h.engine.startsFor('zealot').length, 1, 'not wedged at birth');
+  reply(h, 'zealot', 'hello', 0.2);
+  h.hub.postHuman(room.id, '@zealot again');
+  assert.equal(h.hub.getRoom(room.id).paused?.reason, 'budget', 'after money was spent the guard applies as usual');
+});
+
+test('D: a human message that a budget stop kept from waking its bot is held and delivered on resume (also one sent while paused)', () => {
+  const h = makeHarness();
+  const room = h.room(['zealot', 'scout'], { guards: { budgetUsd: 0.05 } });
+  h.hub.postHuman(room.id, '@zealot first');
+  reply(h, 'zealot', 'ok', 0.2);                                   // over budget now
+  h.hub.postHuman(room.id, '@scout IMPORTANT-ONE');               // trips the stop: not delivered, but kept
   assert.equal(h.hub.getRoom(room.id).paused?.reason, 'budget');
+  assert.equal(h.engine.startsFor('scout').length, 0);
+  h.hub.postHuman(room.id, '@zealot IMPORTANT-TWO');              // sent while paused
+  assert.equal(h.engine.startsFor('zealot').length, 1);
+  h.hub.updateRoom(room.id, { guards: { budgetUsd: 5 } });
+  h.hub.resume(room.id);
+  assert.equal(h.engine.startsFor('scout').length, 1, 'IMPORTANT-ONE reached scout');
+  assert.match(h.engine.last('scout').prompt, /IMPORTANT-ONE/);
+  assert.equal(h.engine.startsFor('zealot').length, 2, 'IMPORTANT-TWO reached zealot');
+  assert.match(h.engine.last('zealot').prompt, /IMPORTANT-TWO/);
+  assert.match(h.texts(room.id).join('\n'), /Delivering 2 messages that arrived while it was paused/);
+  // nothing is delivered twice by a second resume
+  h.hub.resume(room.id);
+  assert.equal(h.engine.startsFor('scout').length, 1);
+});
+
+test('D: still short of money at resume pauses again and keeps the held message; a freeze drops it', () => {
+  const h = makeHarness();
+  const room = h.room(['zealot', 'scout'], { guards: { budgetUsd: 0.05 } });
+  h.hub.postHuman(room.id, '@zealot first');
+  reply(h, 'zealot', 'ok', 0.2);
+  h.hub.postHuman(room.id, '@scout KEEP-ME');
+  h.hub.resume(room.id);                                                      // budget unchanged
+  assert.equal(h.hub.getRoom(room.id).paused?.reason, 'budget');
+  assert.equal(h.engine.startsFor('scout').length, 0);
+  h.hub.updateRoom(room.id, { guards: { budgetUsd: 5 } });
+  h.hub.resume(room.id);
+  assert.equal(h.engine.startsFor('scout').length, 1);
+  assert.match(h.engine.last('scout').prompt, /KEEP-ME/);
+  // a freeze is deliberate: what was held is dropped, not replayed later
+  const r2 = h.room(['builder', 'scout'], { guards: { budgetUsd: 0.05 } });
+  h.hub.postHuman(r2.id, '@builder go');
+  reply(h, 'builder', 'ok', 0.2);
+  h.hub.postHuman(r2.id, '@scout HELD-THEN-FROZEN');
+  h.hub.freeze(r2.id);
+  h.hub.updateRoom(r2.id, { guards: { budgetUsd: 5 } });
+  const before = h.engine.startsFor('scout').length;
+  h.hub.resume(r2.id);
+  assert.equal(h.engine.startsFor('scout').length, before);
 });
 
 test('D: wakes that are already running are reserved for, so a broadcast cannot start more turns than the budget covers', () => {
@@ -159,7 +223,7 @@ test('E: the same post twice in one wake is stored once and the tool says so', (
   const room = h.room(['zealot', 'scout']);
   h.hub.postHuman(room.id, '@scout report');
   const a = h.hub.roomPost('scout', room.id, 'LEAD-TEST-1', undefined, SENDER);
-  const b = h.hub.roomPost('scout', room.id, 'lead test 1!', undefined, SENDER);
+  const b = h.hub.roomPost('scout', room.id, 'LEAD-TEST-1', undefined, SENDER);
   assert.equal(b.id, a.id, 'the earlier message is returned');
   assert.equal((b as { duplicate?: boolean }).duplicate, true);
   assert.equal(botMsgs(h, room.id, 'scout').length, 1);
@@ -167,19 +231,33 @@ test('E: the same post twice in one wake is stored once and the tool says so', (
   assert.equal(botMsgs(h, room.id, 'scout').length, 1, 'the auto-post of the final answer is suppressed too');
 });
 
-test('E: a near-duplicate by the same bot inside the window is suppressed, outside it is allowed, other recipients are not duplicates', () => {
+test('E: only an exact repeat to the same recipients inside the window is suppressed; similar, prefix or reworded messages are real messages', () => {
   const h = makeHarness();
   const room = h.room(['zealot', 'scout', 'builder'], { guards: { maxHops: 50, cycleRepeats: 50 } });
   const first = h.hub.roomPost('scout', room.id, '@zealot the build is green', undefined, SENDER);
-  const near = h.hub.roomPost('scout', room.id, '@zealot The build is green!!', undefined, SENDER);
-  assert.equal(near.id, first.id);
+  const exact = h.hub.roomPost('scout', room.id, '@zealot the build is green', undefined, SENDER);
+  assert.equal(exact.id, first.id, 'exactly the same words to the same bot');
+  for (const text of ['@zealot The build is green!!', '@zealot the build is green.', '@zealot the build is green on step 3', '@zealot the build', '@zealot the build is green, and tests pass', '@zealot the build is GREEN']) {
+    const m = h.hub.roomPost('scout', room.id, text, undefined, SENDER);
+    assert.notEqual(m.id, first.id, `"${text}" is its own message`);
+  }
   const other = h.hub.roomPost('scout', room.id, '@builder the build is green', undefined, SENDER);
   assert.notEqual(other.id, first.id, 'a different recipient is a different message');
+  const again = h.hub.roomPost('scout', room.id, '@builder the build is green', undefined, SENDER);
+  assert.equal(again.id, other.id);
   h.clock.t += 61_000;
   const later = h.hub.roomPost('scout', room.id, '@zealot the build is green', undefined, SENDER);
   assert.notEqual(later.id, first.id, 'after the window the same words are allowed again');
-  const different = h.hub.roomPost('scout', room.id, '@zealot the deploy failed on step 3', undefined, SENDER);
-  assert.notEqual(different.id, later.id);
+});
+
+test('E: a message that differs only in what it quotes is not eaten (two reports that share a long prefix)', () => {
+  const h = makeHarness();
+  const room = h.room(['zealot', 'scout']);
+  const head = 'Test run finished: the suite has the following failures and the details are listed below, ';
+  const a = h.hub.roomPost('scout', room.id, '@zealot ' + head + 'test A failed', undefined, SENDER);
+  const b = h.hub.roomPost('scout', room.id, '@zealot ' + head + 'test B failed', undefined, SENDER);
+  assert.notEqual(a.id, b.id);
+  assert.equal(botMsgs(h, room.id, 'scout').length, 2);
 });
 
 test('E: a suppressed duplicate wakes nobody and does not count toward the cycle guard', () => {
@@ -195,18 +273,22 @@ test('E: a suppressed duplicate wakes nobody and does not count toward the cycle
 test('E: a DM bot_send repeated word for word is stored once', () => {
   const h = makeHarness();
   const a = h.hub.botSend('scout', 'zealot', 'status of LEAD-TEST-1?', undefined, SENDER);
-  const b = h.hub.botSend('scout', 'zealot', 'Status of LEAD-TEST-1', undefined, SENDER);
+  const b = h.hub.botSend('scout', 'zealot', 'status of LEAD-TEST-1?', undefined, SENDER);
   assert.equal(b.id, a.id);
   assert.equal(h.engine.startsFor('zealot').length, 1);
+  const c = h.hub.botSend('scout', 'zealot', 'Status of LEAD-TEST-1', undefined, SENDER);
+  assert.notEqual(c.id, a.id, 'not word for word, so a message of its own');
 });
 
 test('E: an identical handoff twice is delivered once; a handoff to a different bot is not a duplicate', () => {
   const h = makeHarness();
   const room = h.room(['zealot', 'scout', 'builder']);
   const a = h.hub.handoff('zealot', room.id, 'scout', 'You lead now', SENDER);
-  const b = h.hub.handoff('zealot', room.id, 'scout', 'you lead now.', SENDER);
+  const b = h.hub.handoff('zealot', room.id, 'scout', 'You lead now', SENDER);
   assert.equal(b.id, a.id);
   assert.equal(h.engine.startsFor('scout').length, 1);
+  const reworded = h.hub.handoff('zealot', room.id, 'scout', 'you lead now.', SENDER);
+  assert.notEqual(reworded.id, a.id, 'reworded is not identical');
   const c = h.hub.handoff('zealot', room.id, 'builder', 'You lead now', SENDER);
   assert.notEqual(c.id, a.id);
   assert.equal(h.hub.getRoom(room.id).lead, 'builder');
@@ -216,6 +298,7 @@ test('E: an identical handoff twice is delivered once; a handoff to a different 
 
 test('B: bot_send and room_post can ask for a model; it reaches the engine for that turn and shows in the transcript line', () => {
   const h = makeHarness();
+  h.agents.get('builder')!.model = 'opus';   // an agent fixed to opus may be asked for opus; an auto or sonnet one may not (cap test below)
   const room = h.room(['zealot', 'scout', 'builder']);
   const dm = h.hub.botSend('zealot', 'scout', 'quick check please', undefined, SENDER, { model: 'Haiku' });
   assert.equal(dm.model, 'haiku', 'normalised');
@@ -237,8 +320,51 @@ test('B: bot_send and room_post can ask for a model; it reaches the engine for t
 test('B: a model that is not sonnet, opus, haiku or auto is refused in rooms too, and the model does not change the ceiling the wake carries', () => {
   const h = makeHarness();
   const room = h.room(['zealot', 'scout']);
+  h.agents.get('scout')!.model = 'opus';
   assert.throws(() => h.hub.roomPost('zealot', room.id, '@scout hi', undefined, SENDER, { model: 'gpt-5' }), /model must be one of: sonnet, opus, haiku, auto/);
   assert.equal(h.engine.starts.length, 0);
   h.hub.roomPost('zealot', room.id, '@scout hi', undefined, { ceiling: 'ask' }, { model: 'opus' });
   assert.equal(h.engine.last('scout').origin?.approvalCeiling, 'ask');
+});
+
+test('B cap: a post cannot ask a sonnet or auto bot for opus; nothing is posted or woken; haiku, sonnet and auto pass', () => {
+  const h = makeHarness();
+  const room = h.room(['zealot', 'scout', 'builder']);
+  h.agents.get('builder')!.model = 'sonnet';                       // scout stays 'auto'
+  for (const to of ['scout', 'builder']) {
+    assert.throws(() => h.hub.roomPost('zealot', room.id, `@${to} think hard`, undefined, SENDER, { model: 'opus' }), /above .* own model setting/, to);
+    assert.throws(() => h.hub.botSend('zealot', to, 'think hard', undefined, SENDER, { model: 'opus' }), /above .* own model setting/, to);
+  }
+  assert.equal(h.engine.starts.length, 0, 'nobody was woken');
+  assert.equal(botMsgs(h, room.id).length, 0, 'nothing was posted');
+  for (const model of ['haiku', 'sonnet', 'auto']) h.hub.roomPost('zealot', room.id, `@scout hi ${model}`, undefined, SENDER, { model });
+  assert.equal(h.engine.startsFor('scout').length, 1, 'the later ones queue behind the first wake');
+  // two addressees, one over its ceiling: the whole post is refused
+  h.agents.get('builder')!.model = 'opus';
+  assert.throws(() => h.hub.roomPost('zealot', room.id, '@scout @builder hi', undefined, SENDER, { model: 'opus' }), /above .* own model setting/, 'scout (auto) is addressed too');
+});
+
+// ================================================================ E: handoff needs an explicit @mention
+
+test('E: a handoff always names its receiver: text without @Name gets it added, text that has it is left as written', () => {
+  const h = makeHarness();
+  const room = h.room(['zealot', 'scout', 'builder']);
+  const a = h.hub.handoff('zealot', room.id, 'scout', 'Please take the lead', SENDER);
+  assert.match(a.text, /^@Scout Please take the lead/);
+  const b = h.hub.handoff('scout', room.id, 'builder', 'Over to @Builder for the tests', SENDER);
+  assert.equal(b.text, 'Over to @Builder for the tests');
+  assert.deepEqual(a.to, ['scout']);
+  assert.deepEqual(b.to, ['builder']);
+});
+
+test('E: the receiving run wakes only bots it names with @; a handoff that names nobody else ends the chatter', () => {
+  const h = makeHarness();
+  const room = h.room(['zealot', 'scout', 'builder']);
+  h.hub.postHuman(room.id, '@zealot go');
+  h.hub.handoff('zealot', room.id, 'scout', 'You lead now', SENDER);
+  reply(h, 'zealot', 'ok');
+  reply(h, 'scout', 'Done. Builder and Zealot know the details already.');    // names nobody with @
+  assert.equal(h.engine.startsFor('builder').length, 0);
+  assert.equal(h.engine.startsFor('zealot').length, 1, 'the sender of the handoff is not woken back');
+  assert.equal(h.hub.getRoom(room.id).paused, undefined);
 });

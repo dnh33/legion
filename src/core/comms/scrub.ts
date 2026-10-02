@@ -228,20 +228,17 @@ export function normaliseForCycle(text: string): string {
   return text.toLowerCase().replace(/[^\p{L}\p{N}\s]/gu, ' ').replace(/\s+/g, ' ').trim();
 }
 
-/** Text compared for "the same message again": @mentions and punctuation do not count, case does not, whitespace collapses. */
-export function dupText(text: string): string {
-  return normaliseForCycle(text.replace(/(?<![\w@.-])@[\p{L}\p{N}_.-]+/gu, ' ')).slice(0, 4000);
-}
-
-/** Equal after dupText, or (for texts of at least four words) sharing at least 90% of their distinct words. Both inputs are dupText output. */
-export function nearDuplicate(a: string, b: string): boolean {
-  if (!a || !b) return false;
-  if (a === b) return true;
-  const A = new Set(a.split(' ')); const B = new Set(b.split(' '));
-  if (A.size < 4 || B.size < 4) return false;
-  let both = 0;
-  for (const w of A) if (B.has(w)) both++;
-  return both / (A.size + B.size - both) >= 0.9;
+/**
+ * A bot-supplied string (a room name) on its way into an approval card or a stored room name: one line, no control, bidi or
+ * zero-width characters, no markup characters, whitespace collapsed, at most `max` characters. The user reads it as a quoted value
+ * the bot chose, so it cannot add lines, fake a label or pose as Legion's own text.
+ */
+export function cardText(s: string, max = 80): string {
+  const flat = String(s ?? '')
+    .replace(/[\u0000-\u001f\u007f-\u009f\u00ad\u200b-\u200f\u2028-\u202e\u2060-\u2064\u2066-\u2069\ufeff]/g, ' ')
+    .replace(/[<>`"\\*_~|[\]{}#]/g, ' ')
+    .replace(/\s+/g, ' ').trim();
+  return clip(flat, max);
 }
 
 export function cycleHash(text: string): string {

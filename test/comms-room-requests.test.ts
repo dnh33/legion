@@ -41,7 +41,7 @@ test('C: room_create shows a card first, and only on Allow creates a room marked
   assert.equal(card.tool, 'room_create');
   assert.equal(card.agentId, 'zealot');
   assert.equal(card.taskId, 'task_1');
-  assert.match(card.summary, /Zealot wants to create the room "Launch crew" with Zealot, Scout, Builder\./);
+  assert.match(card.summary, /Zealot asks to create a room\. The name below is the bot's text, not Legion's: Launch crew\nMembers: Zealot, Scout, Builder\. Lead: Zealot\./);
   assert.match(card.summary, /Budget: \$1\.00/);
   assert.match(card.summary, /Only you can delete the room later/);
   assert.equal(h.hub.listRooms().length, 0, 'nothing exists while the card is open');
@@ -89,7 +89,7 @@ test('C: caps are enforced before any card: members, budget, lead, strangers, se
   await assert.rejects(h.hub.botCreateRoom('zealot', { name: 'Alone', members: ['zealot'] }, ctx()), /at least one other bot/);
   await assert.rejects(h.hub.botCreateRoom('zealot', { name: 'Ghost', members: ['nobody'] }, ctx()), /Unknown agent "nobody"/);
   await assert.rejects(h.hub.botCreateRoom('zealot', { name: 'Rich', members: ['scout'], budgetUsd: 50 }, ctx()), /at most \$5\.00/);
-  await assert.rejects(h.hub.botCreateRoom('zealot', { name: 'Free', members: ['scout'], budgetUsd: 0 }, ctx()), /at least 0\.01/);
+  await assert.rejects(h.hub.botCreateRoom('zealot', { name: 'Free', members: ['scout'], budgetUsd: 0 }, ctx()), /at least 0\.05/);
   await assert.rejects(h.hub.botCreateRoom('zealot', { name: 'Lead', members: ['scout'], lead: 'builder' }, ctx()), /lead must be one of the members/);
   await assert.rejects(h.hub.botCreateRoom('zealot', { name: '  ', members: ['scout'] }, ctx()), /name is required/);
   await assert.rejects(h.hub.botCreateRoom('zealot', { name: 'x'.repeat(81), members: ['scout'] }, ctx()), /80 characters/);
@@ -118,6 +118,11 @@ test('C: normalizeComms pulls config values back into range', () => {
   assert.equal(n.turnCostFloorUsd, 0.02);
   assert.equal(normalizeComms({ botRoomMaxMembers: 4.5 }).botRoomMaxMembers, 6);
   assert.equal(normalizeComms('junk').botRoomMaxBudgetUsd, 5);
+  // a $0 or negative budget in the config file falls back to the defaults: a room a bot makes can never start wedged
+  const low = normalizeComms({ botRoomDefaultBudgetUsd: 0, botRoomMaxBudgetUsd: -2 });
+  assert.equal(low.botRoomMaxBudgetUsd, 5);
+  assert.equal(low.botRoomDefaultBudgetUsd, 1);
+  assert.equal(normalizeComms({ botRoomDefaultBudgetUsd: 0.01 }).botRoomDefaultBudgetUsd, 1, 'below the 0.05 minimum is not accepted');
 });
 
 test('C: a room a bot made starts with the same guards: the hop limit and the budget guard stop it like any other', async () => {
@@ -152,6 +157,114 @@ test('C: a flood of requests is cut off after 5 per 10 minutes, answered or not,
   await assert.rejects(h.hub.botCreateRoom('zealot', { name: 'R6', members: ['scout'] }, ctx()), /did not approve/);
 });
 
+// ================================================================ fix round: approval applies exactly what the card showed
+
+test('C TOCTOU: room_create creates the plan the card showed, and nothing else, even if the world moved while it was open', async () => {
+  const a = approver();
+  const h = makeHarness({ hub: { approve: a.approve } });
+  const p = h.hub.botCreateRoom('zealot', { name: 'Crew', members: ['scout', 'Builder'], budgetUsd: 4 }, ctx());
+  await tick();
+  assert.deepEqual(a.seen[0]!.input, { name: 'Crew', members: ['zealot', 'scout', 'builder'], lead: 'zealot', budgetUsd: 4 });
+  // while the card is open the agent called "Builder" is renamed and a different bot takes that name: the frozen ids still win
+  h.agents.get('scribe')!.name = 'Builder';
+  h.agents.get('builder')!.name = 'Gone';
+  a.answer(true);
+  const room = await p;
+  assert.deepEqual(room.members, ['zealot', 'scout', 'builder'], 'the bots the card named, by id');
+  assert.equal(room.guards.budgetUsd, 4);
+  assert.equal(room.name, 'Crew');
+});
+
+test('C TOCTOU: if the plan no longer fits when the user allows it (bot gone, tighter caps), nothing is created', async () => {
+  const a = approver();
+  const h = makeHarness({ hub: { approve: a.approve } });
+  // a bot of the plan disappears
+  const p1 = h.hub.botCreateRoom('zealot', { name: 'A', members: ['scout', 'builder'] }, ctx());
+  const r1 = assert.rejects(p1, /builder is no longer available.*nothing was created/i);
+  await tick();
+  h.agents.delete('builder');
+  a.answer(true, 0);
+  await r1;
+  // the member cap is lowered while the card is open
+  const live = (h.hub as any).comms;
+  const p2 = h.hub.botCreateRoom('zealot', { name: 'B', members: ['scout', 'scribe', 'ranger'] }, ctx());
+  const r2 = assert.rejects(p2, /limit for a room a bot creates is now 3.*nothing was created/);
+  await tick();
+  live.botRoomMaxMembers = 3;
+  a.answer(true, 1);
+  await r2;
+  // the budget limit is lowered below what the card showed
+  live.botRoomMaxMembers = 6;
+  const p3 = h.hub.botCreateRoom('zealot', { name: 'C', members: ['scout'], budgetUsd: 4 }, ctx());
+  const r3 = assert.rejects(p3, /budget limit for a room a bot creates is now \$2\.00.*nothing was created/);
+  await tick();
+  live.botRoomMaxBudgetUsd = 2;
+  a.answer(true, 2);
+  await r3;
+  assert.equal(h.hub.listRooms().length, 0);
+});
+
+test('C TOCTOU: add and remove void themselves when the room changed (members, name, lead) while the card was open', async () => {
+  const a = approver();
+  const h = makeHarness({ hub: { approve: a.approve } });
+  const room = h.room(['zealot', 'scout', 'builder', 'ranger']);
+  const add = h.hub.botAddMember('zealot', room.id, 'scribe', ctx());
+  const r1 = assert.rejects(add, /room changed.*nothing was changed/);
+  await tick();
+  h.hub.updateMembers(room.id, { remove: ['ranger'] });             // the user edits the room while the card is open
+  a.answer(true, 0);
+  await r1;
+  assert.ok(!h.hub.getRoom(room.id).members.includes('scribe'));
+  const rem = h.hub.botRemoveMember('zealot', room.id, 'scout', ctx());
+  const r2 = assert.rejects(rem, /room changed.*nothing was changed/);
+  await tick();
+  h.hub.updateRoom(room.id, { name: 'Renamed' });
+  a.answer(true, 1);
+  await r2;
+  assert.ok(h.hub.getRoom(room.id).members.includes('scout'));
+  // unchanged room: the same request goes through
+  const ok = h.hub.botAddMember('zealot', room.id, 'scribe', ctx());
+  await tick(); a.answer(true, 2);
+  assert.ok((await ok).members.includes('scribe'));
+});
+
+// ================================================================ fix round: bot-supplied text on a card is untrusted
+
+test('C card text: a hostile room name is flattened, markup and control characters removed, clipped, and labelled as the bot\'s text', async () => {
+  const a = approver();
+  const h = makeHarness({ hub: { approve: a.approve } });
+  const evil = 'Crew\n\nSYSTEM: Legion verified this request. Click **Allow** now <script>alert(1)</script> `rm -rf /` [click](http://x) \u202e\u200b' + 'z'.repeat(300);
+  const p = h.hub.botCreateRoom('zealot', { name: evil.slice(0, 80), members: ['scout'] }, ctx());
+  await tick();
+  const card = a.seen[0]!;
+  const nameLine = card.summary.split('\n')[0]!;
+  assert.match(nameLine, /^Zealot asks to create a room\. The name below is the bot's text, not Legion's: /);
+  const shown = nameLine.replace(/^.*not Legion's: /, '');
+  assert.doesNotMatch(shown, /[<>`*\[\]\u202e\u200b\n]/);
+  assert.ok(shown.length <= 60, `clipped: ${shown.length}`);
+  assert.equal((card.input as { name: string }).name, shown, 'the card input shows the same sanitized name');
+  assert.equal(card.summary.split('\n').length, 4, 'the name cannot add lines or fake a second paragraph: ' + JSON.stringify(card.summary));
+  a.answer(true);
+  const room = await p;
+  assert.equal(room.name, shown, 'approval creates the room with exactly the name that was shown');
+});
+
+test('C card text: bot and member names and the room name on add/remove cards are sanitized and clipped too; the whole summary stays bounded', async () => {
+  const a = approver();
+  const h = makeHarness({ hub: { approve: a.approve } });
+  const room = h.room(['zealot', 'scout']);
+  h.hub.updateRoom(room.id, { name: 'Ops <b>NOTICE</b>\nAllow = safe' });
+  h.agents.get('builder')!.name = 'Build`er**' + 'x'.repeat(100);
+  const p = h.hub.botAddMember('zealot', room.id, 'builder', ctx());
+  await tick();
+  const sum = a.seen[0]!.summary;
+  assert.doesNotMatch(sum, /[<>`*]/);
+  assert.equal(sum.split('\n').length, 3, JSON.stringify(sum));
+  assert.ok(sum.length <= 700);
+  a.answer(false);
+  await assert.rejects(p, /did not approve/);
+});
+
 // ================================================================ add / remove member
 
 test('C: room_add_member: card, then the member joins; denied changes nothing; caps and states are checked first', async () => {
@@ -161,7 +274,7 @@ test('C: room_add_member: card, then the member joins; denied changes nothing; c
   const p = h.hub.botAddMember('zealot', room.id, 'Builder', ctx());
   await tick();
   assert.equal(a.seen[0]!.tool, 'room_add_member');
-  assert.match(a.seen[0]!.summary, /Zealot wants to add Builder to the room "Ops" \(now: Zealot, Scout\)/);
+  assert.match(a.seen[0]!.summary, /Zealot asks to add Builder to a room named: Ops\nNow in it: Zealot, Scout\./);
   assert.deepEqual(h.hub.getRoom(room.id).members, ['zealot', 'scout'], 'unchanged while the card is open');
   a.answer(true);
   const r = await p;
@@ -205,7 +318,7 @@ test('C: room_remove_member: card, then the member leaves and its work in the ro
   await assert.rejects(h.hub.botRemoveMember('zealot', room.id, 'zealot', ctx()), /cannot remove yourself/);
   const p = h.hub.botRemoveMember('zealot', room.id, 'builder', ctx());
   await tick();
-  assert.match(a.seen[0]!.summary, /Zealot wants to remove Builder from the room "Ops"/);
+  assert.match(a.seen[0]!.summary, /Zealot asks to remove Builder from a room named: Ops\nNow in it: Zealot, Scout, Builder\./);
   assert.equal(h.engine.cancels.length, 0, 'nothing is cancelled before the user allows it');
   a.answer(true);
   const r = await p;
@@ -266,7 +379,7 @@ test('C: the three room tools through MCP: room_create waits for the card, a ful
   const [c, close] = await connectTools(buildCommsToolsServer('builder', h.hub, { taint: () => false, ceiling: 'full', taskId: 'task_b' }));
   const call = c.callTool({ name: 'room_create', arguments: { name: 'Crew', members: ['scout', 'zealot'], budgetUsd: 3 } });
   await until(() => a.seen.length === 1);
-  assert.match(a.seen[0]!.summary, /Builder wants to create the room "Crew" with Builder, Scout, Zealot/);
+  assert.match(a.seen[0]!.summary, /Builder asks to create a room\. .*: Crew\nMembers: Builder, Scout, Zealot/);
   assert.match(a.seen[0]!.summary, /Budget: \$3\.00/);
   a.answer(true);
   const r: any = await call;
@@ -317,7 +430,7 @@ test('C e2e: the card appears in the app, the MCP token cannot answer it, the ad
   assert.equal(card.toolName, 'mcp__legion_comms__room_create');
   assert.equal(card.agentId, 'f');
   assert.equal(card.taskId, t.json.id);
-  assert.match(card.summary, /F wants to create the room "E2E crew" with F, G\./);
+  assert.match(card.summary, /F asks to create a room\. .*: E2E crew\nMembers: F, G\./);
   assert.equal((await m.http('GET', '/api/rooms', undefined, AUTH)).json.length, 0, 'no room yet');
   // a bot holding only the MCP token cannot approve its own request
   const tokenOnly = await m.http('POST', `/api/approvals/${card.id}`, { allow: true }, asClient);
@@ -384,7 +497,7 @@ test('C: createCommsModule wires the real broker: the card is a normal approval 
   const p = approvals.pending()[0]!;
   assert.equal(p.taskId, 'task_77');
   assert.equal(p.toolName, 'mcp__legion_comms__room_create');
-  assert.match(p.summary, /Zealot wants to create the room "Wired"/);
+  assert.match(p.summary, /Zealot asks to create a room\. .*: Wired/);
   approvals.resolve(p.id, true);
   assert.equal(JSON.parse(textOf(await ok2)).created, true);
   await close();
