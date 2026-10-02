@@ -101,6 +101,10 @@ export function ProvidersSection() {
           <ul>{view.cannotDo.map((t) => <li key={t}>{t}</li>)}</ul>
           <p className="field-note">Provider support has been built and tested against Legion's own fake servers. It has not been tried against the real services yet; a failed request shows the provider's own message.</p>
         </details>
+        <details className="prov-limits">
+          <summary>Planner plus executor: one way to use two models</summary>
+          <p className="field-note">Keep your lead agent on Claude (Auto, Sonnet or Opus) for planning. Create a second agent on a provider model, give it a VM, and describe it ("runs commands in its VM"). Tell the lead to plan and then ask that agent to carry out the steps. The executor keeps the model you set; a lead can pick a Claude model for a Claude agent with the model option on ask, but it cannot move an agent to another provider. The executor works in its own VM and workspace and answers in text.</p>
+        </details>
         {view.dropped.length > 0 && <div className="set-error" role="status">Some saved providers were ignored: {view.dropped.join('; ')}</div>}
         {view.providers.map((p) => <ProviderCard key={p.id} p={p} />)}
         <AddCustom />

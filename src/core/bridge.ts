@@ -100,7 +100,9 @@ export class Bridge {
       const tasks = this.store.listTasks(500, a.id, true);
       const status = tasks.some((t) => t.status === 'running') ? 'working' : tasks.some((t) => t.status === 'queued') ? 'queued' : 'idle';
       const thread = this.findPair(callerAgentId, a.id) ? 'thread' : 'no-thread';
-      lines.push(`${a.id} | ${a.name} | ${a.description.slice(0, 80)} | ${status} | ${thread}`);
+      // the model is shown so a lead can tell which agent runs on a provider (`ask` cannot change that; it can only pick Claude models for Claude agents)
+      const model = /^[a-z][a-z0-9-]{1,31}:./.test(a.model) && !a.model.startsWith('arn:') ? `${a.model.slice(0, 60)} (provider, not Claude)` : (a.model || 'auto').slice(0, 40);
+      lines.push(`${a.id} | ${a.name} | ${a.description.slice(0, 80)} | ${model} | ${status} | ${thread}`);
     }
     return lines.length ? lines.join('\n') : 'No other agents.';
   }

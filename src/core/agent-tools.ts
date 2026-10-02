@@ -54,7 +54,7 @@ function bridgeTools(ctx: AgentToolsCtx) {
   };
   const agents = tool(
     'agents',
-    'List the other Legion agents (id, role, status) and whether you already have a thread with each.',
+    'List the other Legion agents (id, name, description, model, status) and whether you already have a thread with each. An agent on a provider model keeps it: to use it, ask that agent by name.',
     {},
     () => guard(() => bridge.list(agentId)),
   );
