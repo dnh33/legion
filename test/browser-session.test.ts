@@ -329,3 +329,16 @@ test('E6: each guard path works on its own: with only the Fetch domain reporting
     try { await assert.rejects(r.session.open('https://a.test/'), (e: Error) => e instanceof SessionRefusal && !/SECRET|LEAK/.test(e.message), `fetch only: ${to}`); assert.ok(r.fake.blocked.length >= 1, 'failed at the browser'); } finally { await r.done(); }
   }
 });
+
+test('E10: a session WITH a check page answers only its exact URL: a remote page that sends the visitor to another name under the same domain gets nothing from Legion', async () => {
+  const fake = await startFakeCdp({ pages: { 'https://a.test/': { redirectTo: 'https://legion-check.invalid/other' } } });
+  const inner = { url: 'https://legion-check.invalid/abc123', probe: 'http://169.254.169.254/legion-check-abc123', html: '<html><head><title>Legion browser check</title></head><body>FORGED-OK</body></html>' };
+  const session = new BrowserSession({
+    guard: () => ({}), resolve: DNS, approveOrigin: async () => true, internal: inner,
+    async launch(): Promise<RunningBrowser> { const cdp = await connectCdp(`ws://127.0.0.1:${fake.port}`); return { cdp, pid: undefined, port: fake.port, args: [], exited: new Promise(() => undefined), stop: async () => { cdp.close(); } }; },
+  });
+  try {
+    await assert.rejects(session.open('https://a.test/'), (e: Error) => e instanceof SessionRefusal && !/FORGED/.test(e.message));
+    assert.deepEqual(fake.fulfilled, [], 'nothing was answered by Legion');
+  } finally { await session.close(); await fake.close(); }
+});
