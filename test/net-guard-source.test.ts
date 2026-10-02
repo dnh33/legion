@@ -22,6 +22,12 @@ function walk(dir: string, rel = ''): string[] {
 const files = ['src', 'ui/src'].flatMap((d) => walk(root, d));
 const text = (f: string) => readFileSync(join(root, f), 'utf8').replace(/\/\*[\s\S]*?\*\/|(^|[^:\\])\/\/[^\n]*/g, '$1');
 const GUARD = 'src/core/net-guard.ts';
+/**
+ * The ONE file that may start a Chromium-family browser with a debugging port, and the ONE exact switch it may name (port 0, on loopback by the browser's own
+ * default, reported back through DevToolsActivePort). Any other debugging switch in that file, and any debugging switch anywhere else, is still refused.
+ */
+export const CHROMIUM_LAUNCH_FILE = 'src/core/browser/chromium.ts';
+export const CHROMIUM_ALLOWED_SWITCH = "'--remote-debugging-port=0'";
 
 /** Returns problems found in one file's text. Exported to the mutation test below. */
 export function listenProblems(file: string, src: string): string[] {
@@ -37,7 +43,8 @@ export function listenProblems(file: string, src: string): string[] {
   }
   if (/\.listen\s*\(\s*\{/.test(src)) p.push(`${file}: listen with an options object`);
   if (/\b(?:new\s+)?(?:net|http|https|tls|dgram|http2)\.(?:Server|createServer|createSocket)\b|\bcreateSecureServer\b|\bnew\s+(?:WebSocketServer|Server)\s*\(\s*\{[^}]*port/.test(src)) p.push(`${file}: creates a server by another route`);
-  if (/--inspect|--remote-debugging|remote-debugging-port|inspector\.open|\binspector\b\s*\./.test(src)) p.push(`${file}: opens a debugger port`);
+  const dbgSrc = file === CHROMIUM_LAUNCH_FILE ? src.split(CHROMIUM_ALLOWED_SWITCH).join("''") : src;
+  if (/--inspect|--remote-debugging|remote-debugging-port|inspector\.open|\binspector\b\s*\./.test(dbgSrc)) p.push(`${file}: opens a debugger port`);
   if (/process\.env\.(?:LEGION_HOST|HOST|BIND|BIND_ADDRESS|LISTEN)\b|--host\b|--bind\b/.test(src)) p.push(`${file}: reads a host or bind setting`);
   return p;
 }
@@ -73,5 +80,16 @@ describe('loopback-only: source scan', () => {
     assert.equal(listenProblems('src/x.ts', "const a = ['--inspect=0.0.0.0:9229']").length > 0, true);
     assert.equal(listenProblems(GUARD, "server.listen(port, host)").length > 0, true);
     assert.deepEqual(listenProblems(GUARD, "server.listen(port, LOOPBACK_HOST)"), []);
+  });
+  it('the Chromium launcher exception is exactly one file and one switch', () => {
+    const ok = "const a = ['--remote-debugging-port=0']";
+    assert.deepEqual(listenProblems(CHROMIUM_LAUNCH_FILE, ok), []);
+    assert.equal(listenProblems('src/x.ts', ok).length > 0, true, 'any other file is still refused');
+    assert.equal(listenProblems(CHROMIUM_LAUNCH_FILE, "const a = ['--remote-debugging-port=9222']").length > 0, true, 'a fixed port is refused');
+    assert.equal(listenProblems(CHROMIUM_LAUNCH_FILE, "const a = ['--remote-debugging-port=0', '--remote-debugging-address=0.0.0.0']").length > 0, true, 'a bind address is refused');
+    assert.equal(listenProblems(CHROMIUM_LAUNCH_FILE, "const a = ['--remote-debugging-pipe', '--remote-debugging-port=0']").length > 0, true);
+    assert.equal(listenProblems(CHROMIUM_LAUNCH_FILE, "const a = ['--inspect=0.0.0.0:9229']").length > 0, true);
+    assert.equal(listenProblems(CHROMIUM_LAUNCH_FILE, "const a = ['--remote-debugging-port=0']; server.listen(1)").length > 0, true, 'listening is still refused');
+    assert.equal(listenProblems(CHROMIUM_LAUNCH_FILE, "const a = ['--remote-debugging-port=0', '--host', 'x']").length > 0, true);
   });
 });
