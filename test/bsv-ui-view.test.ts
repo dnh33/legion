@@ -8,7 +8,7 @@ import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
-  BSV_POLL_MS, auditLine, formatCountdown, heightText, overlayModel, remainingMs, safeLine, shouldPoll, walletHeadline,
+  BSV_POLL_MS, auditLine, formatCountdown, heightText, overlayModel, remainingMs, safeLine, shouldPoll, spendModel, walletHeadline,
   type AuditView, type PolicyView, type WalletView,
 } from '../src/shared/bsv-view.js';
 import type { WalletStatus } from '../src/core/bsv/wallet-probe.js';
@@ -79,7 +79,7 @@ test('overlay: armed shows the amber state, the pill and the Freeze button; an e
   assert.equal(m.mode, 'armed');
   assert.equal(m.showFreeze, true);
   assert.equal(m.pill?.kind, 'armed');
-  assert.deepEqual(m.tiers[0], ['LIVE FUNDS ARMED', 'policy only: no spend tool']);
+  assert.deepEqual(m.tiers[0], ['LIVE FUNDS ARMED', 'policy only']);
   const gone = model({ policy: policy({ armed: true, armedUntil: NOW - 1 }) });
   assert.equal(gone.mode, 'testnet');
   assert.equal(gone.showFreeze, false);
@@ -195,8 +195,52 @@ test('trust: the UI changes policy only through the app bridge; it never names t
   assert.match(read('bsvStore.ts'), /window\.legion\?\.bsvPolicy/);
 });
 
-test('trust: the panel says there is no spend tool, and never offers a spend, send or sign button', () => {
+test('trust: the panel scopes its claims to Legion\'s own code, says testnet spends need a native dialog, and never offers a spend, send or sign button', () => {
   const panel = read('BsvPanel.tsx');
-  assert.match(panel, /Legion has no spend tool in this version/);
+  assert.doesNotMatch(panel, /has no spend tool/);
+  assert.match(panel, /Legion&apos;s own code|Legion\\'s own code/);
+  assert.match(panel, /Review&hellip;/);
+  assert.match(panel, /Resolve&hellip;/);
+  assert.match(panel, /ordinary tools/);
   assert.doesNotMatch(stripComments(panel), />\s*(Send|Spend|Sign|Pay|Broadcast|Inscribe)\b/i);
+});
+
+const ID1 = 'a'.repeat(40);
+const ID2 = 'b'.repeat(40);
+
+test('spend view: spendTools is a boolean; pending and unknown requests are listed with a short id and the sats, never an address', () => {
+  const on = spendModel(policy({ spendTools: true, pending: [{ requestId: ID1, totalSats: 612 }], unknown: [{ requestId: ID2, totalSats: 1000 }] }));
+  assert.match(on.headline, /one tool that can ask your wallet to build and sign a TESTNET payment/);
+  assert.match(on.headline, /native confirmation/);
+  assert.deepEqual(on.pending, [{ requestId: ID1, label: 'Request aaaaaaaa: 612 sat waiting for your answer' }]);
+  assert.equal(on.unknown.length, 1);
+  assert.match(on.unknown[0]!.label, /outcome unknown/);
+  assert.match(on.unknown[0]!.label, /1,000 sat/);
+  const off = spendModel(policy({ spendTools: false }));
+  assert.match(off.headline, /not available/);
+  assert.deepEqual([off.pending, off.unknown], [[], []]);
+  for (const bad of [Number.NaN, -5, 1.5, Number.MAX_SAFE_INTEGER + 2]) assert.match(spendModel(policy({ pending: [{ requestId: ID1, totalSats: bad }] })).pending[0]!.label, /: 0 sat waiting/);
+  assert.doesNotMatch(spendModel(policy({ pending: [{ requestId: 'x<script>'.padEnd(40, 'z'), totalSats: 1 }] })).pending[0]!.label, /[<>]/);
+});
+
+test('overlay: an unknown outcome shows its own pill (no Freeze button), and it ranks above a pending request', () => {
+  const m = model({ policy: policy({ unknown: [{ requestId: ID2, totalSats: 5 }], pending: [{ requestId: ID1, totalSats: 5 }] }) });
+  assert.equal(m.pill?.kind, 'unknown');
+  assert.match(m.pill?.text ?? '', /1 request with an unknown outcome/);
+  assert.equal(m.showFreeze, false);
+  assert.equal(model({ policy: policy({ pending: [{ requestId: ID1, totalSats: 5 }] }) }).pill?.kind, 'pending');
+  assert.equal(model({ policy: policy({ frozen: { reason: 'x' }, unknown: [{ requestId: ID2, totalSats: 5 }] }) }).pill?.kind, 'frozen');
+});
+
+test('perf: the spend section adds no timer, no animation and no request of its own; requests are named to main by id only', () => {
+  const whole = stripComments(read('BsvPanel.tsx'));
+  const panel = whole.slice(whole.indexOf('function SpendSection'), whole.indexOf('function LimitsSection'));
+  assert.ok(panel.length > 500);
+  assert.doesNotMatch(panel, /setInterval|setTimeout|requestAnimationFrame|useEffect/);
+  assert.doesNotMatch(panel, /request<[^>]*>\('(GET|POST)', '\/api\/bsv\/spend/);
+  assert.match(panel, /changePolicy\(\{ kind: 'spend-review', requestId: r\.requestId \}\)/);
+  assert.match(panel, /changePolicy\(\{ kind: 'spend-deny', requestId: r\.requestId \}\)/);
+  assert.match(panel, /changePolicy\(\{ kind: 'spend-resolve', requestId: r\.requestId \}\)/);
+  assert.doesNotMatch(panel, /cardHash|X-Legion/);
+  for (const f of readdirSync(UI).filter((n) => /\.tsx?$/.test(n))) assert.doesNotMatch(stripComments(read(f)), /\/api\/bsv\/spend\//, `${f}: the window never calls the spend routes`);
 });

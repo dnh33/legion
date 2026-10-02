@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Modal } from '../components/Modal';
 import { request } from '../api';
-import { auditLine, formatCountdown, heightText, remainingMs, safeLine, walletHeadline } from '../../../src/shared/bsv-view';
+import { auditLine, formatCountdown, heightText, remainingMs, safeLine, spendModel, walletHeadline } from '../../../src/shared/bsv-view';
 import type { PolicyView } from '../../../src/shared/bsv-view';
 import { toast } from '../store';
 import { canChangePolicy, changePolicy, checkWallet, closeBsvPanel, connectWallet, disconnectWallet, loadAudit, useBsv } from './bsvStore';
@@ -65,7 +65,34 @@ function ArmSection({ p }: { p: PolicyView }) {
           ? <button type="button" className="btn" disabled={!bridge || !p.nativeAvailable || changing} onClick={() => void changePolicy({ kind: 'unfreeze' })}>Unfreeze&hellip;</button>
           : <button type="button" className="btn-ghost bsv-freeze-btn" disabled={!bridge || changing} onClick={() => void changePolicy({ kind: 'freeze' })}>Freeze chain</button>}
       </div>
-      <p className="bsv-fine">Arming and unfreezing open a native confirmation from the app, which this window cannot answer for you. Freeze and Disarm act at once. <b>Legion has no spend tool in this version</b>: arming changes Legion&apos;s policy state and nothing else.</p>
+      <p className="bsv-fine">Arming and unfreezing open a native confirmation from the app, which this window cannot answer for you. Freeze and Disarm act at once. Arming changes Legion&apos;s policy state only. <b>Testnet spends do not need Arm</b>, and the spend tool refuses a mainnet request in this version.</p>
+    </section>
+  );
+}
+
+function SpendSection({ p }: { p: PolicyView }) {
+  const changing = useBsv((s) => s.changing);
+  const bridge = canChangePolicy();
+  const m = spendModel(p);
+  return (
+    <section className="bsv-sec" aria-labelledby="bsv-h-spend">
+      <h3 id="bsv-h-spend">Requests from the Assayer (testnet)</h3>
+      <p className="bsv-line" data-spend={p.spendTools ? 'on' : 'off'}>{m.headline}</p>
+      {m.pending.length === 0 && m.unknown.length === 0 && <p className="bsv-fine">Nothing is waiting for your answer.</p>}
+      {m.pending.map((r) => (
+        <div className="bsv-row" key={r.requestId} data-spend-pending={r.requestId}>
+          <span className="bsv-line">{r.label}</span>
+          <button type="button" className="btn" disabled={!bridge || changing} onClick={() => void changePolicy({ kind: 'spend-review', requestId: r.requestId })}>Review&hellip;</button>
+          <button type="button" className="btn-ghost" disabled={!bridge || changing} onClick={() => void changePolicy({ kind: 'spend-deny', requestId: r.requestId })}>Deny</button>
+        </div>
+      ))}
+      {m.unknown.map((r) => (
+        <div className="bsv-row" key={r.requestId} data-spend-unknown={r.requestId}>
+          <span className="bsv-line warn">{r.label}</span>
+          <button type="button" className="btn" disabled={!bridge || changing} onClick={() => void changePolicy({ kind: 'spend-resolve', requestId: r.requestId })}>Resolve&hellip;</button>
+        </div>
+      ))}
+      <p className="bsv-fine">The amount, the full recipient address, the network and the fee are shown only in a native dialog that the app words from what the core reports; this window cannot answer it for you. A request nobody answers expires by itself. An unknown outcome blocks every spend until you resolve it.</p>
     </section>
   );
 }
@@ -82,7 +109,7 @@ function LimitsSection({ p }: { p: PolicyView }) {
         <dt>Fee ceiling</dt><dd>{sats(p.caps.maxFeeSats)}</dd>
         <dt>Recipient allowlist</dt><dd>{p.allowlist.length ? `${p.allowlist.length} address${p.allowlist.length === 1 ? '' : 'es'}` : 'empty: no recipient is allowed'}</dd>
       </dl>
-      <p className="bsv-fine">Defaults are tiny and hard ceilings are written in code. The limits are enforced by a tested policy engine that nothing uses yet, because there is no spend tool. Changing them is possible only from the app after a native confirmation; the form for it is not built yet.</p>
+      <p className="bsv-fine">Defaults are tiny and hard ceilings are written in code. The limits are enforced by a tested policy engine that the testnet spend tool consults for every request. Changing them is possible only from the app after a native confirmation; the form for it is not built yet.</p>
     </section>
   );
 }
@@ -138,8 +165,9 @@ export function BsvPanel() {
   return (
     <Modal title="BSV mode" width={640} onClose={closeBsvPanel} footer={<><span style={{ flex: 1 }} /><button type="button" className="btn-ghost" data-autofocus onClick={closeBsvPanel}>Close</button></>}>
       <div className="bsv-panel">
-        <p className="bsv-lead">Testnet knowledge mode. The Assayer can explain, draft and review, and can ask whether a wallet is there. <b>{'Legion\'s own code has no way to sign, send or hold funds in this version.'}</b> A human does every wallet step in their own wallet. An agent&apos;s ordinary tools (a shell, a web fetch) are outside that statement: they are limited by their own approval cards, not by anything on this panel.</p>
+        <p className="bsv-lead">Testnet mode. The Assayer can explain, draft and review, can ask whether a wallet is there, and can ask for one testnet payment. <b>{'Legion\'s own code holds no keys: a payment needs your confirmation in a native dialog and then your wallet\'s own prompt.'}</b> An agent&apos;s ordinary tools (a shell, a web fetch) are outside that statement: they are limited by their own approval cards, not by anything on this panel.</p>
         <WalletSection />
+        {p && <SpendSection p={p} />}
         {p ? <ArmSection p={p} /> : <section className="bsv-sec"><h3>Live funds</h3><p className="bsv-line">Loading policy&hellip;</p></section>}
         <ActivitySection verifiedEntries={p?.audit.entries ?? 0} policyOk={p?.audit.ok ?? true} policyReason={p?.audit.reason} />
         {p && <LimitsSection p={p} />}

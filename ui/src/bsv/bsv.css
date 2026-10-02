@@ -60,6 +60,7 @@
 .bsv-pill.armed .bsv-pill-text b { color: var(--live); letter-spacing: .06em; }
 .bsv-pill.mainnet { border-color: var(--live); background: color-mix(in srgb, var(--live) 10%, var(--surface)); }
 .bsv-pill.frozen { color: var(--text-2); }
+.bsv-pill.unknown { border-color: var(--live); }
 .bsv-count { font: 600 13px/1 var(--font-mono); font-variant-numeric: tabular-nums; color: var(--live); }
 .bsv-pill button { height: 26px; padding: 0 12px; border-radius: 13px; font-size: 12px; font-weight: 600; cursor: pointer; }
 .bsv-freeze { background: var(--live); color: var(--live-ink); border: 1px solid transparent; }

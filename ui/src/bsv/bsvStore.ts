@@ -1,10 +1,11 @@
 /**
- * Store for BSV mode (testnet knowledge mode, a read-only wallet status check, policy state and an audit log; there is no spend tool).
+ * Store for BSV mode (testnet mode, a read-only wallet status check, policy state, the list of pending and unknown spend requests, and an audit log).
  * Own tiny external store, same pattern as the main store. Talks to GET/POST /api/bsv, GET /api/bsv/wallet, GET /api/bsv/policy and
  * GET /api/bsv/audit. Policy CHANGES (arm, freeze, ...) never go through this file's requests: they go through the Electron bridge
  * (window.legion.bsvPolicy), whose main process shows a native confirmation and holds the secret the core demands.
  *
- * Performance rules (a requirement, tested by source guards): no continuous animation anywhere in the BSV UI; the only timers are the
+ * Spend requests are answered in main's native dialogs; this file only names a request id to main (review, deny, resolve). Performance rules
+ * (a requirement, tested by source guards): no continuous animation anywhere in the BSV UI; the only timers are the
  * 60 s status poll (runs only while the window is visible AND focused, and only re-renders when an answer actually changed) and the
  * once-per-second countdown in ChainOverlay while mainnet is armed.
  */
@@ -44,7 +45,7 @@ export interface BsvUiState extends BsvStatus {
   audit: { entries: AuditView[]; total: number; ok: boolean; reason?: string; more: boolean; loading: boolean; error?: string } | null;
 }
 
-export const BSV_TIP = 'BSV Dev Kit: testnet knowledge mode. No spend tool.';
+export const BSV_TIP = 'BSV Dev Kit: testnet mode. Spends need your confirmation.';
 const CONFIRMED_KEY = 'legion.bsv.confirmed';
 
 let state: BsvUiState = {
@@ -178,14 +179,20 @@ export async function loadAudit(reset: boolean): Promise<void> {
 // ---- policy changes: through the Electron bridge only
 
 export type PolicyAction =
-  | { kind: 'arm'; minutes: number } | { kind: 'disarm' } | { kind: 'freeze' } | { kind: 'unfreeze' };
+  | { kind: 'arm'; minutes: number } | { kind: 'disarm' } | { kind: 'freeze' } | { kind: 'unfreeze' }
+  | { kind: 'spend-review'; requestId: string } | { kind: 'spend-deny'; requestId: string } | { kind: 'spend-resolve'; requestId: string };
+
+const DONE_TOAST: Record<PolicyAction['kind'], string> = {
+  arm: 'LIVE FUNDS armed (policy state only: a mainnet request is still refused by the spend tool)', disarm: 'Disarmed', freeze: 'BSV chain frozen', unfreeze: 'BSV chain unfrozen',
+  'spend-review': 'Your answer was sent to the core.', 'spend-deny': 'Request denied.', 'spend-resolve': 'Outcome recorded.',
+};
 
 /** True in the Legion app (the shell exposes the bridge). A browser tab has none: it can look, not change. */
 export const canChangePolicy = (): boolean => typeof window !== 'undefined' && typeof window.legion?.bsvPolicy === 'function';
 
 /**
  * Asks main to make a change. Main parses it, shows the NATIVE confirmation where one is due, and calls the core with a secret this
- * window never holds. Nothing here can spend: Legion has no spend tool.
+ * window never holds. A spend request is named by its id only: main reads the card from the core and words its own dialogs.
  */
 export async function changePolicy(action: PolicyAction): Promise<void> {
   const bridge = window.legion?.bsvPolicy;
@@ -195,8 +202,8 @@ export async function changePolicy(action: PolicyAction): Promise<void> {
   try {
     const r = await bridge(action);
     if (r.ok) {
-      if (r.view) set({ policy: r.view as PolicyView });
-      toast(action.kind === 'arm' ? 'LIVE FUNDS armed (policy only: Legion has no spend tool)' : action.kind === 'disarm' ? 'Disarmed' : action.kind === 'freeze' ? 'BSV chain frozen' : 'BSV chain unfrozen');
+      if (r.view && !action.kind.startsWith('spend-')) set({ policy: r.view as PolicyView });
+      toast(DONE_TOAST[action.kind]);
     } else if (!r.cancelled) {
       toast(r.error ?? 'The change was refused.', 'error');
     }
