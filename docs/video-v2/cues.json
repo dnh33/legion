@@ -1,585 +1,585 @@
 {
- "duration": 105,
- "fps": 30,
- "bpm": 96,
- "sections": [
-  {
-   "name": "cold",
-   "start": 0,
-   "end": 5
-  },
-  {
-   "name": "awaken",
-   "start": 5,
-   "end": 10
-  },
-  {
-   "name": "muster",
-   "start": 10,
-   "end": 17.5
-  },
-  {
-   "name": "approvals",
-   "start": 17.5,
-   "end": 25
-  },
-  {
-   "name": "rooms",
-   "start": 25,
-   "end": 27.5
-  },
-  {
-   "name": "library",
-   "start": 27.5,
-   "end": 35
-  },
-  {
-   "name": "projects",
-   "start": 35,
-   "end": 50
-  },
-  {
-   "name": "vm",
-   "start": 50,
-   "end": 60
-  },
-  {
-   "name": "bsv",
-   "start": 60,
-   "end": 67.5
-  },
-  {
-   "name": "blender",
-   "start": 67.5,
-   "end": 75
-  },
-  {
-   "name": "install",
-   "start": 75,
-   "end": 82.5
-  },
-  {
-   "name": "next",
-   "start": 82.5,
-   "end": 95
-  },
-  {
-   "name": "end",
-   "start": 95,
-   "end": 105
-  }
- ],
- "events": [
-  {
-   "t": 0.625,
-   "name": "caption",
-   "id": "l1"
-  },
-  {
-   "t": 3.125,
-   "name": "caption",
-   "id": "l2"
-  },
-  {
-   "t": 6.875,
-   "name": "caption",
-   "id": "sub"
-  },
-  {
-   "t": 10.625,
-   "name": "relic_slot",
-   "n": 1
-  },
-  {
-   "t": 10.938,
-   "name": "roster",
-   "n": 2
-  },
-  {
-   "t": 11.25,
-   "name": "roster",
-   "n": 3
-  },
-  {
-   "t": 11.563,
-   "name": "roster",
-   "n": 4
-  },
-  {
-   "t": 11.875,
-   "name": "roster",
-   "n": 5
-  },
-  {
-   "t": 12.188,
-   "name": "roster",
-   "n": 6
-  },
-  {
-   "t": 12.5,
-   "name": "roster",
-   "n": 7
-  },
-  {
-   "t": 12.813,
-   "name": "roster",
-   "n": 8
-  },
-  {
-   "t": 13.125,
-   "name": "roster",
-   "n": 9
-  },
-  {
-   "t": 13.438,
-   "name": "roster",
-   "n": 10
-  },
-  {
-   "t": 13.75,
-   "name": "caption",
-   "id": "must"
-  },
-  {
-   "t": 13.75,
-   "name": "roster",
-   "n": 11
-  },
-  {
-   "t": 14.063,
-   "name": "roster",
-   "n": 12
-  },
-  {
-   "t": 14.375,
-   "name": "roster",
-   "n": 13
-  },
-  {
-   "t": 18.125,
-   "name": "caption",
-   "id": "appr"
-  },
-  {
-   "t": 19.375,
-   "name": "mark",
-   "id": "approval"
-  },
-  {
-   "t": 22.25,
-   "name": "caption",
-   "id": "taint"
-  },
-  {
-   "t": 23.75,
-   "name": "mark",
-   "id": "inbox"
-  },
-  {
-   "t": 25.25,
-   "name": "caption",
-   "id": "room"
-  },
-  {
-   "t": 27.875,
-   "name": "caption",
-   "id": "lat"
-  },
-  {
-   "t": 32.125,
-   "name": "caption",
-   "id": "acc"
-  },
-  {
-   "t": 33.125,
-   "name": "mark",
-   "id": "inbox2"
-  },
-  {
-   "t": 35.188,
-   "name": "caption",
-   "id": "proj"
-  },
-  {
-   "t": 37.75,
-   "name": "caption",
-   "id": "brd"
-  },
-  {
-   "t": 38.438,
-   "name": "chip",
-   "id": "c-board"
-  },
-  {
-   "t": 39.375,
-   "name": "mark",
-   "id": "boardA"
-  },
-  {
-   "t": 41.563,
-   "name": "caption",
-   "id": "grd"
-  },
-  {
-   "t": 42.188,
-   "name": "mark",
-   "id": "boardB"
-  },
-  {
-   "t": 45.25,
-   "name": "caption",
-   "id": "pm"
-  },
-  {
-   "t": 45.625,
-   "name": "mark",
-   "id": "pmem"
-  },
-  {
-   "t": 47.813,
-   "name": "caption",
-   "id": "mem"
-  },
-  {
-   "t": 50.313,
-   "name": "caption",
-   "id": "vm"
-  },
-  {
-   "t": 54.375,
-   "name": "caption",
-   "id": "mcp"
-  },
-  {
-   "t": 54.375,
-   "name": "vox_line",
-   "n": 1
-  },
-  {
-   "t": 55.625,
-   "name": "vox_line",
-   "n": 2
-  },
-  {
-   "t": 56.125,
-   "name": "vox_ok"
-  },
-  {
-   "t": 56.25,
-   "name": "vox_line",
-   "n": 3
-  },
-  {
-   "t": 56.75,
-   "name": "vox_ok"
-  },
-  {
-   "t": 56.875,
-   "name": "vox_line",
-   "n": 4
-  },
-  {
-   "t": 57.375,
-   "name": "vox_ok"
-  },
-  {
-   "t": 57.5,
-   "name": "vox_line",
-   "n": 5
-  },
-  {
-   "t": 59.125,
-   "name": "vox_line",
-   "n": 6
-  },
-  {
-   "t": 59.438,
-   "name": "vox_line",
-   "n": 7
-  },
-  {
-   "t": 59.625,
-   "name": "vox_ok"
-  },
-  {
-   "t": 60.313,
-   "name": "caption",
-   "id": "bsv1"
-  },
-  {
-   "t": 62.5,
-   "name": "chip",
-   "id": "c-bsv"
-  },
-  {
-   "t": 64.375,
-   "name": "caption",
-   "id": "bsv2"
-  },
-  {
-   "t": 67.813,
-   "name": "caption",
-   "id": "bl1"
-  },
-  {
-   "t": 68.75,
-   "name": "chip",
-   "id": "c-bl"
-  },
-  {
-   "t": 72.125,
-   "name": "caption",
-   "id": "bl2"
-  },
-  {
-   "t": 75.188,
-   "name": "caption",
-   "id": "rtA"
-  },
-  {
-   "t": 75.625,
-   "name": "chip",
-   "id": "c-pkg"
-  },
-  {
-   "t": 75.938,
-   "name": "caption",
-   "id": "rtB"
-  },
-  {
-   "t": 77.813,
-   "name": "caption",
-   "id": "upd"
-  },
-  {
-   "t": 78.125,
-   "name": "chip",
-   "id": "c-upd"
-  },
-  {
-   "t": 80.125,
-   "name": "caption",
-   "id": "loop"
-  },
-  {
-   "t": 83.125,
-   "name": "next_head"
-  },
-  {
-   "t": 83.75,
-   "name": "next_card",
-   "id": "n1"
-  },
-  {
-   "t": 85.15,
-   "name": "next_card",
-   "id": "n2"
-  },
-  {
-   "t": 88.25,
-   "name": "next_card",
-   "id": "n3"
-  },
-  {
-   "t": 89.75,
-   "name": "next_card",
-   "id": "n4"
-  },
-  {
-   "t": 91.35,
-   "name": "next_card",
-   "id": "n5"
-  },
-  {
-   "t": 93,
-   "name": "next_card",
-   "id": "n6"
-  },
-  {
-   "t": 94.375,
-   "name": "silence"
-  },
-  {
-   "t": 95,
-   "name": "victory"
-  },
-  {
-   "t": 95.625,
-   "name": "wm_draw"
-  },
-  {
-   "t": 97.5,
-   "name": "wm_fill"
-  },
-  {
-   "t": 98.438,
-   "name": "tag"
-  },
-  {
-   "t": 101.25,
-   "name": "sigil"
-  },
-  {
-   "t": 103.75,
-   "name": "fade_out"
-  },
-  {
-   "t": 105,
-   "name": "end"
-  }
- ],
- "typing": [
-  {
-   "start": 54.375,
-   "end": 54.875,
-   "chars": 34
-  },
-  {
-   "start": 55.625,
-   "end": 56.125,
-   "chars": 33
-  },
-  {
-   "start": 56.25,
-   "end": 56.75,
-   "chars": 34
-  },
-  {
-   "start": 56.875,
-   "end": 57.375,
-   "chars": 34
-  },
-  {
-   "start": 57.5,
-   "end": 58.4,
-   "chars": 43
-  },
-  {
-   "start": 59.125,
-   "end": 59.625,
-   "chars": 25
-  },
-  {
-   "start": 59.438,
-   "end": 59.888,
-   "chars": 35
-  }
- ],
- "cuts": [
-  {
-   "id": "cold>awaken",
-   "t": 5,
-   "kind": "dissolve"
-  },
-  {
-   "id": "awaken>muster",
-   "t": 10,
-   "kind": "match"
-  },
-  {
-   "id": "muster>approval",
-   "t": 17.5,
-   "kind": "dissolve"
-  },
-  {
-   "id": "approval>inbox",
-   "t": 21.875,
-   "kind": "hard"
-  },
-  {
-   "id": "inbox>rooms",
-   "t": 25,
-   "kind": "dissolve"
-  },
-  {
-   "id": "rooms>lattice",
-   "t": 27.5,
-   "kind": "dissolve"
-  },
-  {
-   "id": "lattice>inbox2",
-   "t": 31.875,
-   "kind": "hard"
-  },
-  {
-   "id": "inbox2>projects",
-   "t": 35,
-   "kind": "dissolve"
-  },
-  {
-   "id": "projects>boardA",
-   "t": 37.5,
-   "kind": "hard"
-  },
-  {
-   "id": "boardA>boardB",
-   "t": 41.25,
-   "kind": "hard"
-  },
-  {
-   "id": "boardB>pmem",
-   "t": 44.375,
-   "kind": "hard"
-  },
-  {
-   "id": "pmem>digest",
-   "t": 47.5,
-   "kind": "hard"
-  },
-  {
-   "id": "digest>vm",
-   "t": 50,
-   "kind": "dissolve"
-  },
-  {
-   "id": "vm>term",
-   "t": 53.75,
-   "kind": "hard"
-  },
-  {
-   "id": "term>bsvA",
-   "t": 60,
-   "kind": "dissolve"
-  },
-  {
-   "id": "bsvA>bsvB",
-   "t": 63.75,
-   "kind": "hard"
-  },
-  {
-   "id": "bsvB>blA",
-   "t": 67.5,
-   "kind": "dissolve"
-  },
-  {
-   "id": "blA>blB",
-   "t": 71.875,
-   "kind": "hard"
-  },
-  {
-   "id": "blB>routes",
-   "t": 75,
-   "kind": "dissolve"
-  },
-  {
-   "id": "routes>upd",
-   "t": 77.5,
-   "kind": "hard"
-  },
-  {
-   "id": "upd>loop",
-   "t": 80,
-   "kind": "hard"
-  },
-  {
-   "id": "loop>next",
-   "t": 82.5,
-   "kind": "dissolve"
-  },
-  {
-   "id": "next>end",
-   "t": 95,
-   "kind": "hard"
-  }
- ]
+  "duration": 105,
+  "fps": 30,
+  "bpm": 96,
+  "sections": [
+    {
+      "name": "cold",
+      "start": 0,
+      "end": 5
+    },
+    {
+      "name": "awaken",
+      "start": 5,
+      "end": 10
+    },
+    {
+      "name": "muster",
+      "start": 10,
+      "end": 17.5
+    },
+    {
+      "name": "approvals",
+      "start": 17.5,
+      "end": 25
+    },
+    {
+      "name": "rooms",
+      "start": 25,
+      "end": 27.5
+    },
+    {
+      "name": "library",
+      "start": 27.5,
+      "end": 35
+    },
+    {
+      "name": "projects",
+      "start": 35,
+      "end": 50
+    },
+    {
+      "name": "vm",
+      "start": 50,
+      "end": 60
+    },
+    {
+      "name": "bsv",
+      "start": 60,
+      "end": 67.5
+    },
+    {
+      "name": "blender",
+      "start": 67.5,
+      "end": 75
+    },
+    {
+      "name": "install",
+      "start": 75,
+      "end": 82.5
+    },
+    {
+      "name": "next",
+      "start": 82.5,
+      "end": 95
+    },
+    {
+      "name": "end",
+      "start": 95,
+      "end": 105
+    }
+  ],
+  "events": [
+    {
+      "t": 0.625,
+      "name": "caption",
+      "id": "l1"
+    },
+    {
+      "t": 3.125,
+      "name": "caption",
+      "id": "l2"
+    },
+    {
+      "t": 6.875,
+      "name": "caption",
+      "id": "sub"
+    },
+    {
+      "t": 10.625,
+      "name": "relic_slot",
+      "n": 1
+    },
+    {
+      "t": 10.938,
+      "name": "roster",
+      "n": 2
+    },
+    {
+      "t": 11.25,
+      "name": "roster",
+      "n": 3
+    },
+    {
+      "t": 11.563,
+      "name": "roster",
+      "n": 4
+    },
+    {
+      "t": 11.875,
+      "name": "roster",
+      "n": 5
+    },
+    {
+      "t": 12.188,
+      "name": "roster",
+      "n": 6
+    },
+    {
+      "t": 12.5,
+      "name": "roster",
+      "n": 7
+    },
+    {
+      "t": 12.813,
+      "name": "roster",
+      "n": 8
+    },
+    {
+      "t": 13.125,
+      "name": "roster",
+      "n": 9
+    },
+    {
+      "t": 13.438,
+      "name": "roster",
+      "n": 10
+    },
+    {
+      "t": 13.75,
+      "name": "caption",
+      "id": "must"
+    },
+    {
+      "t": 13.75,
+      "name": "roster",
+      "n": 11
+    },
+    {
+      "t": 14.063,
+      "name": "roster",
+      "n": 12
+    },
+    {
+      "t": 14.375,
+      "name": "roster",
+      "n": 13
+    },
+    {
+      "t": 18.125,
+      "name": "caption",
+      "id": "appr"
+    },
+    {
+      "t": 19.375,
+      "name": "mark",
+      "id": "approval"
+    },
+    {
+      "t": 22.25,
+      "name": "caption",
+      "id": "taint"
+    },
+    {
+      "t": 23.75,
+      "name": "mark",
+      "id": "inbox"
+    },
+    {
+      "t": 25.25,
+      "name": "caption",
+      "id": "room"
+    },
+    {
+      "t": 27.875,
+      "name": "caption",
+      "id": "lat"
+    },
+    {
+      "t": 32.125,
+      "name": "caption",
+      "id": "acc"
+    },
+    {
+      "t": 33.125,
+      "name": "mark",
+      "id": "inbox2"
+    },
+    {
+      "t": 35.188,
+      "name": "caption",
+      "id": "proj"
+    },
+    {
+      "t": 37.75,
+      "name": "caption",
+      "id": "brd"
+    },
+    {
+      "t": 38.438,
+      "name": "chip",
+      "id": "c-board"
+    },
+    {
+      "t": 39.375,
+      "name": "mark",
+      "id": "boardA"
+    },
+    {
+      "t": 41.563,
+      "name": "caption",
+      "id": "grd"
+    },
+    {
+      "t": 42.188,
+      "name": "mark",
+      "id": "boardB"
+    },
+    {
+      "t": 45.25,
+      "name": "caption",
+      "id": "pm"
+    },
+    {
+      "t": 45.625,
+      "name": "mark",
+      "id": "pmem"
+    },
+    {
+      "t": 47.813,
+      "name": "caption",
+      "id": "mem"
+    },
+    {
+      "t": 50.313,
+      "name": "caption",
+      "id": "vm"
+    },
+    {
+      "t": 54.375,
+      "name": "caption",
+      "id": "mcp"
+    },
+    {
+      "t": 54.375,
+      "name": "vox_line",
+      "n": 1
+    },
+    {
+      "t": 55.625,
+      "name": "vox_line",
+      "n": 2
+    },
+    {
+      "t": 56.125,
+      "name": "vox_ok"
+    },
+    {
+      "t": 56.25,
+      "name": "vox_line",
+      "n": 3
+    },
+    {
+      "t": 56.75,
+      "name": "vox_ok"
+    },
+    {
+      "t": 56.875,
+      "name": "vox_line",
+      "n": 4
+    },
+    {
+      "t": 57.375,
+      "name": "vox_ok"
+    },
+    {
+      "t": 57.5,
+      "name": "vox_line",
+      "n": 5
+    },
+    {
+      "t": 59.125,
+      "name": "vox_line",
+      "n": 6
+    },
+    {
+      "t": 59.438,
+      "name": "vox_line",
+      "n": 7
+    },
+    {
+      "t": 59.625,
+      "name": "vox_ok"
+    },
+    {
+      "t": 60.313,
+      "name": "caption",
+      "id": "bsv1"
+    },
+    {
+      "t": 62.5,
+      "name": "chip",
+      "id": "c-bsv"
+    },
+    {
+      "t": 64.375,
+      "name": "caption",
+      "id": "bsv2"
+    },
+    {
+      "t": 67.813,
+      "name": "caption",
+      "id": "bl1"
+    },
+    {
+      "t": 68.75,
+      "name": "chip",
+      "id": "c-bl"
+    },
+    {
+      "t": 72.125,
+      "name": "caption",
+      "id": "bl2"
+    },
+    {
+      "t": 75.188,
+      "name": "caption",
+      "id": "rtA"
+    },
+    {
+      "t": 75.625,
+      "name": "chip",
+      "id": "c-pkg"
+    },
+    {
+      "t": 75.938,
+      "name": "caption",
+      "id": "rtB"
+    },
+    {
+      "t": 77.813,
+      "name": "caption",
+      "id": "upd"
+    },
+    {
+      "t": 78.125,
+      "name": "chip",
+      "id": "c-upd"
+    },
+    {
+      "t": 80.125,
+      "name": "caption",
+      "id": "loop"
+    },
+    {
+      "t": 83.125,
+      "name": "next_head"
+    },
+    {
+      "t": 83.75,
+      "name": "next_card",
+      "id": "n1"
+    },
+    {
+      "t": 85.15,
+      "name": "next_card",
+      "id": "n2"
+    },
+    {
+      "t": 88.25,
+      "name": "next_card",
+      "id": "n3"
+    },
+    {
+      "t": 89.75,
+      "name": "next_card",
+      "id": "n4"
+    },
+    {
+      "t": 91.35,
+      "name": "next_card",
+      "id": "n5"
+    },
+    {
+      "t": 93,
+      "name": "next_card",
+      "id": "n6"
+    },
+    {
+      "t": 94.375,
+      "name": "silence"
+    },
+    {
+      "t": 95,
+      "name": "victory"
+    },
+    {
+      "t": 95.625,
+      "name": "wm_draw"
+    },
+    {
+      "t": 97.5,
+      "name": "wm_fill"
+    },
+    {
+      "t": 98.438,
+      "name": "tag"
+    },
+    {
+      "t": 101.25,
+      "name": "sigil"
+    },
+    {
+      "t": 103.75,
+      "name": "fade_out"
+    },
+    {
+      "t": 105,
+      "name": "end"
+    }
+  ],
+  "typing": [
+    {
+      "start": 54.375,
+      "end": 54.875,
+      "chars": 34
+    },
+    {
+      "start": 55.625,
+      "end": 56.125,
+      "chars": 33
+    },
+    {
+      "start": 56.25,
+      "end": 56.75,
+      "chars": 34
+    },
+    {
+      "start": 56.875,
+      "end": 57.375,
+      "chars": 34
+    },
+    {
+      "start": 57.5,
+      "end": 58.4,
+      "chars": 43
+    },
+    {
+      "start": 59.125,
+      "end": 59.625,
+      "chars": 25
+    },
+    {
+      "start": 59.438,
+      "end": 59.888,
+      "chars": 35
+    }
+  ],
+  "cuts": [
+    {
+      "id": "cold>awaken",
+      "t": 5,
+      "kind": "dissolve"
+    },
+    {
+      "id": "awaken>muster",
+      "t": 10,
+      "kind": "match"
+    },
+    {
+      "id": "muster>approval",
+      "t": 17.5,
+      "kind": "dissolve"
+    },
+    {
+      "id": "approval>inbox",
+      "t": 21.875,
+      "kind": "hard"
+    },
+    {
+      "id": "inbox>rooms",
+      "t": 25,
+      "kind": "dissolve"
+    },
+    {
+      "id": "rooms>lattice",
+      "t": 27.5,
+      "kind": "dissolve"
+    },
+    {
+      "id": "lattice>inbox2",
+      "t": 31.875,
+      "kind": "hard"
+    },
+    {
+      "id": "inbox2>projects",
+      "t": 35,
+      "kind": "dissolve"
+    },
+    {
+      "id": "projects>boardA",
+      "t": 37.5,
+      "kind": "hard"
+    },
+    {
+      "id": "boardA>boardB",
+      "t": 41.25,
+      "kind": "hard"
+    },
+    {
+      "id": "boardB>pmem",
+      "t": 44.375,
+      "kind": "hard"
+    },
+    {
+      "id": "pmem>digest",
+      "t": 47.5,
+      "kind": "hard"
+    },
+    {
+      "id": "digest>vm",
+      "t": 50,
+      "kind": "dissolve"
+    },
+    {
+      "id": "vm>term",
+      "t": 53.75,
+      "kind": "hard"
+    },
+    {
+      "id": "term>bsvA",
+      "t": 60,
+      "kind": "dissolve"
+    },
+    {
+      "id": "bsvA>bsvB",
+      "t": 63.75,
+      "kind": "hard"
+    },
+    {
+      "id": "bsvB>blA",
+      "t": 67.5,
+      "kind": "dissolve"
+    },
+    {
+      "id": "blA>blB",
+      "t": 71.875,
+      "kind": "hard"
+    },
+    {
+      "id": "blB>routes",
+      "t": 75,
+      "kind": "dissolve"
+    },
+    {
+      "id": "routes>upd",
+      "t": 77.5,
+      "kind": "hard"
+    },
+    {
+      "id": "upd>loop",
+      "t": 80,
+      "kind": "hard"
+    },
+    {
+      "id": "loop>next",
+      "t": 82.5,
+      "kind": "dissolve"
+    },
+    {
+      "id": "next>end",
+      "t": 95,
+      "kind": "hard"
+    }
+  ]
 }
