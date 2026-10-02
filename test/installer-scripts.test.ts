@@ -5,6 +5,7 @@ import { mkdtempSync, readFileSync, writeFileSync, existsSync, rmSync } from 'no
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { allPowerShells } from './ps-helpers.js';
 
 // The Windows installer cannot run here. These tests pin its contract (static) and, where a PowerShell exists
 // (always on the Windows CI runner), run the pure process-matching logic for real.
@@ -79,20 +80,13 @@ test('uninstall.cmd (written by setup) ships the helper next to the copied scrip
   assert.match(read('scripts/uninstall.ps1'), /legion-procs\.ps1/);
 });
 
-function findPowerShell(): string | null {
-  for (const exe of ['pwsh', 'powershell']) {
-    const r = spawnSync(exe, ['-NoProfile', '-Command', 'exit 0'], { encoding: 'utf8' });
-    if (!r.error && r.status === 0) return exe;
-  }
-  return null;
-}
-
 interface P { ProcessId: number; Name: string; ExecutablePath: string | null; CommandLine: string | null }
 const ps = (id: number, name: string, exe: string | null, cmd: string | null): P => ({ ProcessId: id, Name: name, ExecutablePath: exe, CommandLine: cmd });
 
-test('process matcher: only Legion processes, from any folder (runs in real PowerShell when available)', (t) => {
-  const exe = findPowerShell();
-  if (!exe) { t.skip('no PowerShell on this machine; runs on the Windows CI runner'); return; }
+// Runs once per PowerShell on the machine: Windows PowerShell 5.1 ("powershell", what users run) and PowerShell 7 ("pwsh").
+const shells = allPowerShells();
+if (shells.length === 0) test('process matcher (real PowerShell)', (t) => { t.skip('no PowerShell on this machine; the Windows CI runner has both'); });
+for (const exe of shells) test(`process matcher: only Legion processes, from any folder (real ${exe})`, () => {
   const dir = mkdtempSync(join(tmpdir(), 'legion-ps-'));
   try {
     const procs: P[] = [

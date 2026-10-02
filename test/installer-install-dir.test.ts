@@ -135,3 +135,20 @@ test('F2 guard is wired in before robocopy and the old Test-Under helper is gone
   assert.doesNotMatch(s, /Test-Under\b/);
   assert.doesNotMatch(s, /TrimEnd\('\\'\)/, 'no bare TrimEnd of a backslash that turns C:\\ into C:');
 });
+
+test('setup.ps1 checks a bare drive letter as typed, before GetFullPath can turn "C:" into the current folder', () => {
+  const s = readFileSync(join(repoRoot, 'scripts', 'setup.ps1'), 'utf8').replace(/\r\n/g, '\n');
+  const iRoot = s.indexOf('if (Test-DriveRoot $InstallDir)');
+  const iFull = s.indexOf('$InstallDir = Get-TrimmedFullPath $InstallDir');
+  assert.ok(iRoot > 0 && iFull > iRoot);
+});
+
+for (const exe of shells) {
+  test(`setup.ps1 refuses "C:" and "C:\\" as typed (${exe})`, () => {
+    for (const target of ['C:', 'C:\\', 'c:/']) {
+      const r = spawnSync(exe, ['-NoProfile', '-File', join(repoRoot, 'scripts', 'setup.ps1'), '-DryRun', '-Yes', '-InstallDir', target], { encoding: 'utf8' });
+      assert.equal(r.status, 1, `${target}: ${r.stdout}${r.stderr}`);
+      assert.match(`${r.stdout}${r.stderr}`, /drive root/);
+    }
+  });
+}

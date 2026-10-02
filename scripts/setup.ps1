@@ -51,6 +51,8 @@ try {
     if ([string]::IsNullOrWhiteSpace($env:LOCALAPPDATA)) { Fail 'LOCALAPPDATA is not set; pass -InstallDir.' }
     $InstallDir = Join-Path $env:LOCALAPPDATA 'Programs\Legion'
   }
+  # "C:" and "C:\" are checked as typed: GetFullPath turns a bare "C:" into the current folder of that drive.
+  if (Test-DriveRoot $InstallDir) { Fail "Refusing to install into '$InstallDir': that is a drive root." }
   $InstallDir = Get-TrimmedFullPath $InstallDir
   $inPlace = $src.Equals($InstallDir, [System.StringComparison]::OrdinalIgnoreCase)
 
