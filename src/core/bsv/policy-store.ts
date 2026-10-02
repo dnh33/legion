@@ -11,7 +11,7 @@
 import { createHash } from 'node:crypto';
 import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import { buildPolicyConfig, sanitizePolicyConfig } from './policy.js';
+import { buildPolicyConfig, policyFileShape, sanitizePolicyConfig } from './policy.js';
 import type { PolicyConfig } from './policy.js';
 
 export const policyPath = (dataDir: string): string => join(dataDir, 'bsv', 'policy.json');
@@ -49,29 +49,11 @@ export function untrustedConfig(reason: string): PolicyConfig {
 }
 const unreadableConfig = (): PolicyConfig => untrustedConfig('the policy file could not be read');
 
-export const POLICY_FILE_VERSION = 2;
-
-/**
- * What is written: the current shape, run through sanitizePolicyConfig so the file never holds more than the engine would load.
- * An OWN `caps` or `allowlist` on `cfg` (not the prototype mirror that config() offers) is a caller written before there were two networks,
- * changing the testnet limits with `{...config(), caps}`; it is applied to `nets.test` and nothing else.
- */
-function fileShape(cfg: Partial<PolicyConfig>): Record<string, unknown> {
-  if (!cfg.nets) { const old = sanitizePolicyConfig(cfg); return { version: POLICY_FILE_VERSION, nets: old.nets, mainnetEnabled: old.mainnetEnabled, frozen: old.frozen }; } // a legacy-shaped object
-  const own = (k: string) => Object.prototype.hasOwnProperty.call(cfg, k);
-  const legacy = cfg;
-  const clean = sanitizePolicyConfig({
-    nets: { test: { caps: own('caps') ? legacy.caps : cfg.nets.test.caps, allowlist: own('allowlist') ? legacy.allowlist : cfg.nets.test.allowlist }, main: cfg.nets.main },
-    frozen: cfg.frozen ?? null, mainnetEnabled: cfg.mainnetEnabled === true,
-  });
-  return { version: POLICY_FILE_VERSION, nets: clean.nets, mainnetEnabled: clean.mainnetEnabled, frozen: clean.frozen };
-}
-
 /** Writes through a temporary file and a rename, so a crash leaves the old file or the new one, never half of one. Throws on failure. Returns the sha256 of what was written. */
 export function savePolicyConfig(file: string, cfg: Partial<PolicyConfig>): string {
   mkdirSync(dirname(file), { recursive: true });
   const tmp = `${file}.tmp-${process.pid}`;
-  const text = JSON.stringify(fileShape(cfg), null, 2);
+  const text = JSON.stringify(policyFileShape(cfg), null, 2);
   writeFileSync(tmp, text, { mode: 0o600 });
   renameSync(tmp, file);
   try { chmodSync(file, 0o600); } catch { /* not supported everywhere */ }

@@ -310,6 +310,23 @@ export function sanitizePolicyConfig(raw: unknown): PolicyConfig {
   return buildPolicyConfig(nets, frozen, o.mainnetEnabled === true);
 }
 
+export const POLICY_FILE_VERSION = 2;
+
+/**
+ * What is written to the policy file: the current shape, run through sanitizePolicyConfig so the file never holds more than the engine
+ * would load. An OWN `caps` or `allowlist` on `cfg` (not the prototype mirror that config() offers) is a caller written before there were
+ * two networks, changing the testnet limits with `{...config(), caps}`; it is applied to the testnet entry and nothing else.
+ */
+export function policyFileShape(cfg: Partial<PolicyConfig>): Record<string, unknown> {
+  const done = (c: PolicyConfig) => ({ version: POLICY_FILE_VERSION, nets: c.nets, mainnetEnabled: c.mainnetEnabled, frozen: c.frozen });
+  if (!cfg.nets) return done(sanitizePolicyConfig(cfg)); // a legacy-shaped object
+  const own = (k: string) => Object.prototype.hasOwnProperty.call(cfg, k);
+  return done(sanitizePolicyConfig({
+    nets: { test: { caps: own('caps') ? cfg.caps : cfg.nets.test.caps, allowlist: own('allowlist') ? cfg.allowlist : cfg.nets.test.allowlist }, main: cfg.nets.main },
+    frozen: cfg.frozen ?? null, mainnetEnabled: cfg.mainnetEnabled === true,
+  }));
+}
+
 /** The sha256 that binds a card (and so an approval) to the exact request. */
 export function requestHash(r: SpendRequest): string {
   return createHash('sha256').update(JSON.stringify({
