@@ -56,3 +56,11 @@ Cloud work runs on the claude.ai/code web surface (credits). Branches live in pr
 1. Back up `~/.claude.json` to `~/.claude/backups/2026-10-02-legion-mcp/` with RESTORE.md.
 2. `claude mcp add --scope user legion -- node "%LOCALAPPDATA%\Programs\Legion\dist\srcin\legion-mcp-stdio.js"` (stdio bridge reads the token itself; no token in the Claude config).
 3. Verify tools list, then a one-line Haiku task. Token class cannot approve cards, accept notes or change settings. Remove with `claude mcp remove legion`.
+
+## Item G: GitHub-ready docs and current screenshots (owner request 2026-10-02) - runs LAST, after BSV and Blender are merged
+
+Cloud agent (claude.ai web surface) + independent reviewer; may run in parallel with the final Windows gate and the install.
+- README, SECURITY, CONTRIBUTING, NOTICE, CHANGELOG: every claim checked against the code; features list current (queue, copy menu, tables, rooms incl. no default spend limit, MCP isolation, lazy key probe, Blender local-first + VM + live, BSV read-only + testnet tool, VM usage); Claude-only stated plainly, Codex/ChatGPT under "Later".
+- Repo hygiene: CHANGELOG compare links say `OWNER/legion` (placeholder) -> `dnh33/legion`; package.json `repository`/`bugs`/`homepage`; issue templates; security policy + private vulnerability reporting; repo description and topics; note to enable secret scanning + push protection; the Dependabot branches in the private repo.
+- Screenshots: regenerate ALL of `docs/images/*` and `docs/screenshots/*` from the built UI (mock server, demo data), light and dark, at README sizes; read each at full resolution; before/after side by side; Zealot art photographed only, never edited. Fallback if the cloud has no browser: capture on the PC with the Playwright harnesses under `test-perf/`.
+- Reviewer checks docs against code and images against the real UI.
