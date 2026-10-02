@@ -26,6 +26,8 @@ export const ALLOWLIST: Allow = {
   'ui/src/rooms/roomsStore.ts': { kinds: ['fetch'], reason: 'downloads a room export from the local core' },
   'src/core/blender/static-check.ts': { kinds: ['decode'], reason: 'the Blender script safety check decodes Python string escapes (\\x41, \\u0041) so it reads literal file paths and attribute names the way Python would' },
   'src/core/blender/tcp.ts': { kinds: ['socket-module'], reason: 'the Blender bridge talks to the add-on socket on 127.0.0.1 only (isLoopbackHost is checked before every connect; the config normalizer refuses any other host)' },
+  'src/core/blender/sandbox.ts': { kinds: ['decode'], reason: 'the sandbox runner decodes base64 file contents that boat.dev returns for binary exports (GLB, PNG) before they are written to the task workspace; the bytes are never interpreted' },
+  'src/core/blender/system.ts': { kinds: ['fetch', 'child-process'], reason: 'Blender setup, only when the Set up / Test / Launch button is pressed: one https download of the backend from the address in blender.advanced (public https hosts only), and starting Blender, tar or reg as child processes' },
   'src/core/comms/scrub.ts': { kinds: ['decode'], reason: 'the secret detector decodes base64 and rot13 candidates to find seed phrases hidden in them' },
 };
 

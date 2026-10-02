@@ -1,0 +1,133 @@
+/**
+ * The real side effects of Blender setup, in one file so tests can replace all of them (setup.ts only sees the BlenderIo interface):
+ * file system, `reg query`, running programs, an https download with a size cap, extracting an archive, starting Blender detached.
+ * Nothing here runs unless the user pressed a button (Set up, Test, Launch) or the Blender settings page asked for a status.
+ * This file is on the BSV tripwire allowlist for fetch and child-process; the URL that is downloaded always comes from config
+ * (advanced.*), is https only, and a redirect may only go to another public https host.
+ */
+import { execFile, spawn } from 'node:child_process';
+import { createHash } from 'node:crypto';
+import { copyFileSync, createWriteStream, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { homedir } from 'node:os';
+import { dirname } from 'node:path';
+import { Readable, Transform } from 'node:stream';
+import { pipeline } from 'node:stream/promises';
+import type { BlenderIo } from './setup.js';
+import type { DetectEnv, RunResult } from './detect.js';
+
+/** https only, and not a loopback or private address: a download must never be pointed at the user's own network. */
+export function isPublicHttpsUrl(raw: string): boolean {
+  let u: URL;
+  try { u = new URL(raw); } catch { return false; }
+  if (u.protocol !== 'https:' || u.username || u.password) return false;
+  const h = u.hostname.toLowerCase().replace(/^\[|\]$/g, '');
+  if (!h || h === 'localhost' || h.endsWith('.localhost') || h.endsWith('.local') || h.endsWith('.internal')) return false;
+  if (h.includes(':')) return false; // IPv6 literals are not needed for a download
+  const m = /^(\d+)\.(\d+)\.(\d+)\.(\d+)$/.exec(h);
+  if (m) {
+    const [a, b] = [Number(m[1]), Number(m[2])];
+    if (a === 10 || a === 127 || a === 0 || (a === 169 && b === 254) || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168) || a >= 224) return false;
+  }
+  return true;
+}
+
+function run(file: string, args: string[], timeoutMs: number, opts: { cwd?: string; env?: Record<string, string> } = {}): Promise<RunResult | null> {
+  return new Promise((resolve) => {
+    try {
+      execFile(file, args, { timeout: timeoutMs, windowsHide: true, maxBuffer: 4 * 1024 * 1024, cwd: opts.cwd, env: opts.env ? { ...process.env, ...opts.env } : process.env }, (err, stdout, stderr) => {
+        if (err && (err as NodeJS.ErrnoException).code === 'ENOENT') { resolve(null); return; }
+        const code = err ? (typeof (err as { code?: unknown }).code === 'number' ? (err as unknown as { code: number }).code : 1) : 0;
+        resolve({ code, stdout: String(stdout), stderr: String(stderr) });
+      });
+    } catch { resolve(null); }
+  });
+}
+
+export function realDetectEnv(): DetectEnv {
+  return {
+    platform: process.platform,
+    env: process.env,
+    home: homedir(),
+    exists: (p) => { try { return existsSync(p); } catch { return false; } },
+    readDir: (p) => { try { return readdirSync(p); } catch { return []; } },
+    readText: (p) => { try { return readFileSync(p, 'utf8'); } catch { return undefined; } },
+    registryQuery: process.platform === 'win32'
+      ? async (key) => { const r = await run('reg', ['query', key, '/s'], 8000); return r && r.code === 0 ? r.stdout : undefined; }
+      : undefined,
+    run,
+  };
+}
+
+const MAX_REDIRECTS = 4;
+
+async function download(url: string, dest: string, opts: { maxBytes: number }): Promise<{ sha256: string; bytes: number }> {
+  let current = url;
+  for (let hop = 0; ; hop++) {
+    if (!isPublicHttpsUrl(current)) throw new Error('Refusing to download: the address must be https and public.');
+    const res = await fetch(current, { redirect: 'manual', signal: AbortSignal.timeout(10 * 60_000), headers: { 'user-agent': 'Legion-Blender-Setup' } });
+    if (res.status >= 300 && res.status < 400) {
+      const loc = res.headers.get('location');
+      if (!loc || hop >= MAX_REDIRECTS) throw new Error('Too many redirects while downloading.');
+      current = new URL(loc, current).toString();
+      continue;
+    }
+    if (!res.ok || !res.body) throw new Error(`The download failed: HTTP ${res.status}`);
+    const len = Number(res.headers.get('content-length') ?? 0);
+    if (len > opts.maxBytes) throw new Error(`The download is ${Math.round(len / 1e6)} MB, more than the ${Math.round(opts.maxBytes / 1e6)} MB limit.`);
+    mkdirSync(dirname(dest), { recursive: true });
+    const part = `${dest}.part`;
+    const hash = createHash('sha256');
+    let bytes = 0;
+    const counter = new Transform({
+      transform(chunk: Buffer, _enc, cb) {
+        bytes += chunk.length;
+        if (bytes > opts.maxBytes) { cb(new Error('The download is larger than the size limit.')); return; }
+        hash.update(chunk);
+        cb(null, chunk);
+      },
+    });
+    try {
+      await pipeline(Readable.fromWeb(res.body as never), counter, createWriteStream(part));
+    } catch (e) { try { rmSync(part, { force: true }); } catch { /* ignore */ } throw e; }
+    renameSync(part, dest);
+    return { sha256: hash.digest('hex'), bytes };
+  }
+}
+
+async function extract(archive: string, destDir: string): Promise<void> {
+  mkdirSync(destDir, { recursive: true });
+  // bsdtar (Windows 10+, macOS) reads zip and tar; GNU tar needs unzip for zip. Both refuse paths that climb out of destDir.
+  const attempts: Array<[string, string[]]> = /\.zip$/i.test(archive)
+    ? [['tar', ['-xf', archive, '-C', destDir]], ['unzip', ['-o', '-q', archive, '-d', destDir]]]
+    : [['tar', ['-xf', archive, '-C', destDir]]];
+  let last = '';
+  for (const [cmd, args] of attempts) {
+    const r = await run(cmd, args, 120_000);
+    if (r && r.code === 0) return;
+    last = r ? (r.stderr || r.stdout).trim().slice(0, 300) : `${cmd} is not installed`;
+  }
+  throw new Error(`Could not unpack the download: ${last}`);
+}
+
+export function createRealIo(): BlenderIo {
+  return {
+    detect: realDetectEnv(),
+    run,
+    download,
+    extract,
+    mkdirp: (p) => { mkdirSync(p, { recursive: true }); },
+    writeText: (p, t) => { mkdirSync(dirname(p), { recursive: true }); writeFileSync(p, t, 'utf8'); },
+    readText: (p) => { try { return readFileSync(p, 'utf8'); } catch { return undefined; } },
+    copyFile: (a, b) => { mkdirSync(dirname(b), { recursive: true }); copyFileSync(a, b); },
+    exists: (p) => { try { return existsSync(p); } catch { return false; } },
+    isDir: (p) => { try { return statSync(p).isDirectory(); } catch { return false; } },
+    listDir: (p) => { try { return readdirSync(p); } catch { return []; } },
+    removeDir: (p) => { rmSync(p, { recursive: true, force: true }); },
+    spawnDetached: (file, args, env) => {
+      const child = spawn(file, args, { detached: true, stdio: 'ignore', windowsHide: false, env: { ...process.env, ...env } });
+      child.on('error', () => undefined);
+      child.unref();
+    },
+    now: () => new Date(),
+  };
+}
