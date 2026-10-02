@@ -91,7 +91,7 @@ export function makeFakes() {
   const dir = mkdtempSync(join(tmpdir(), 'legion-set-'));
   const config: CoreContext['config'] = {
     port: 0, authToken: TOKEN, workspaceDir: '/x',
-    claude: { auth: 'claude-login', inheritClaudeCodeSettings: true, maxTurns: 5 },
+    claude: { auth: 'claude-login', inheritClaudeCodeSettings: true, inheritMcp: false, maxTurns: 5 },
     boat: { baseUrl: 'https://boat.test', apiKey: 'secret-key-abcd' }, mcpServers: {},
   };
   const boatChanges: number[] = [];

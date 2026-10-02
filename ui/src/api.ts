@@ -1,5 +1,5 @@
 import type {
-  SettingsView, SettingsPatch,
+  SettingsView, SettingsPatch, McpStatusView,
   AgentProfile, ApprovalRequest, BoatHealthView, Catalog, ChatMessage, DoctorCheck, LegionConfig, LegionEvent, ModelChoice, StateSnapshot, Task, VmRecord,
 } from '../../src/shared/types';
 
@@ -89,6 +89,7 @@ export const api = {
   config: () => request<Partial<LegionConfig>>('GET', '/api/config'),
   catalog: (refresh = false) => request<Catalog>('GET', `/api/catalog${refresh ? '?refresh=1' : ''}`),
   doctor: () => request<DoctorCheck[]>('GET', '/api/doctor'),
+  mcpStatus: () => request<McpStatusView>('GET', '/api/mcp/status'),
   createAgent: (a: NewAgent) => request<AgentProfile>('POST', '/api/agents', a),
   patchAgent: (id: string, a: Partial<AgentProfile>) => request<AgentProfile>('PATCH', `/api/agents/${encodeURIComponent(id)}`, a),
   deleteAgent: (id: string) => request<{ ok: true }>('DELETE', `/api/agents/${encodeURIComponent(id)}`),

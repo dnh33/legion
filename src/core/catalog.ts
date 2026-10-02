@@ -47,7 +47,7 @@ async function probe(deps: CatalogDeps, now: () => number): Promise<Catalog> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
     const options: Parameters<QueryFn>[0]['options'] = {
-      cwd: tmpdir(), env: buildChildEnv(deps.config), abortController: ac,
+      cwd: tmpdir(), env: buildChildEnv(deps.config, { probe: true }), abortController: ac,
       settingSources: deps.config.claude.inheritClaudeCodeSettings ? ['user', 'project', 'local'] : [],
       // Only the command and model lists are wanted: do not connect (and tear down) every inherited MCP server for it.
       strictMcpConfig: true,

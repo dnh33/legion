@@ -180,7 +180,8 @@ Type `/` in the composer to open the menu. Commands that Legion does not handle 
 | `authToken` | The MCP-client token (Claude Code, Cowork, curl): `/mcp`, state reads, start and cancel tasks, event stream. Generated for you; keep it private. It cannot approve or change settings; the per-launch admin secret that does is never stored. Tasks it starts run under an `ask` ceiling and cannot write working memory or trusted notes. |
 | `workspaceDir` | Where agent working directories live. Default `<data dir>/workspaces`. |
 | `claude.auth` | `claude-login` (default, your Claude Code account) or `api-key` (with `claude.apiKey`). |
-| `claude.inheritClaudeCodeSettings` | Load your Claude Code user and project settings, MCP servers and connectors. Default `true`. |
+| `claude.inheritClaudeCodeSettings` | Load your Claude Code user and project settings, hooks and CLAUDE.md. Default `true`. |
+| `claude.inheritMcp` | Also load the MCP servers, plugins' MCP servers and claude.ai connectors from your Claude Code setup. Default `false`: a run gets Legion's own server and the servers listed in Settings -> MCP. |
 | `claude.executablePath` | Path to your own `claude` binary. By default the one bundled with the SDK is used. |
 | `claude.maxTurns` | Turn cap per run. Default `40`. |
 | `boat.apiKey`, `boat.baseUrl` | boat.dev access. `BOAT_API_KEY` also works. |

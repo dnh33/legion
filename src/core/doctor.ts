@@ -31,7 +31,7 @@ async function probeClaude(config: LegionConfig, queryFn: QueryFn, timeoutMs: nu
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
     const options: Parameters<QueryFn>[0]['options'] = {
-      cwd: tmpdir(), settingSources: [], env: buildChildEnv(config), abortController: ac,
+      cwd: tmpdir(), settingSources: [], strictMcpConfig: true, env: buildChildEnv(config, { probe: true }), abortController: ac,
     };
     if (config.claude.executablePath) options.pathToClaudeCodeExecutable = config.claude.executablePath;
     q = queryFn({ prompt: input(), options });
