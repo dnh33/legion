@@ -4,6 +4,7 @@ import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { defaultConfig, loadConfig, normalizeBsv, redactConfig } from '../src/shared/config.js';
+import { createBsvState } from '../src/core/bsv/state.js';
 
 function withHome<T>(fn: (dir: string) => T): T {
   const dir = mkdtempSync(join(tmpdir(), 'legion-bsvcfg-'));
@@ -59,3 +60,24 @@ test('redactConfig stays valid: secrets hidden, bsv passes through', () => {
   assert.deepEqual(r.bsv, { enabled: true, network: 'testnet' });
   assert.equal(JSON.stringify(r).includes('secret'), false);
 });
+
+test('a hand-edited bsv.walletUrl in config.json is ignored at load; Connect sets it in memory only and nothing writes it back', () => withHome((dir) => {
+  const url = 'http://127.0.0.1:45009';
+  writeFileSync(join(dir, 'config.json'), JSON.stringify({ port: 1, bsv: { enabled: true, network: 'testnet', walletUrl: url } }));
+  const cfg = loadConfig();
+  const state = createBsvState({ dataDir: dir, config: cfg });
+  assert.equal(state.enabled, true, 'the enabled flag is still read');
+  assert.equal(state.walletUrl, undefined, 'the address is not');
+  state.setWalletUrl('http://127.0.0.1:45010');
+  assert.equal(state.walletUrl, 'http://127.0.0.1:45010');
+  assert.equal(createBsvState({ dataDir: dir, config: loadConfig() }).walletUrl, undefined, 'a restart forgets it: the owner types it again');
+  state.set(false);
+  assert.deepEqual(JSON.parse(readFileSync(join(dir, 'config.json'), 'utf8')).bsv, { enabled: false, network: 'testnet' }, 'toggling rewrites the bsv key without any address');
+}));
+
+test('the bsv.json fallback file cannot carry a wallet address either', () => withHome((dir) => {
+  writeFileSync(join(dir, 'bsv.json'), JSON.stringify({ enabled: true, network: 'testnet', walletUrl: 'http://127.0.0.1:45011' }));
+  const state = createBsvState({ dataDir: dir });
+  assert.equal(state.enabled, true);
+  assert.equal(state.walletUrl, undefined);
+}));

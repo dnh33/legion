@@ -218,7 +218,7 @@ test('ledgerFromAudit rebuilds executed spends from audit entries and ignores ev
     { decision: 'executed', ts: '2026-10-02T10:02:00.000Z', fields: { sats: -5 } },
     { decision: 'executed', ts: '2026-10-02T10:03:00.000Z', fields: { sats: '12' } },
   ]);
-  assert.deepEqual(recs, [{ requestId: 'r1', sats: 700, at: Date.parse('2026-10-02T10:00:00.000Z') }]);
+  assert.deepEqual(recs, [{ requestId: 'r1', sats: 700, at: Date.parse('2026-10-02T10:00:00.000Z'), net: 'test' }]);
 });
 
 // ------------------------------------------------------------------ the shape of a transaction
@@ -587,4 +587,115 @@ test('an observer that throws cannot break the policy', () => {
 test('fmtBsv uses integer maths', () => {
   assert.equal(fmtBsv(0), '0.00000000'); assert.equal(fmtBsv(1), '0.00000001'); assert.equal(fmtBsv(123456789), '1.23456789'); assert.equal(fmtBsv(2_100_000_000_000_000), '21000000.00000000');
   assert.equal(DAY_MS, 86_400_000);
+});
+
+// ---------------------------------------------------------------- seeded unknown outcomes (restore from the audit log)
+
+test('unknown option: a seeded unknown keeps its reservation, blocks every spend and the engine still has no allow verdict', () => {
+  const clock = new FakeClock();
+  const e = new PolicyEngine({ clock, sessionId: 's1', config: { caps: { ...DEFAULT_CAPS }, allowlist: [ALICE], frozen: null }, unknown: [{ requestId: 'old-unknown-1', agentId: 'assayer', totalSats: 700 }] });
+  const s = e.snapshot();
+  assert.deepEqual(s.unknown, [{ requestId: 'old-unknown-1', agentId: 'assayer', totalSats: 700, net: 'test' }]);
+  assert.equal(s.usage.reservedSats, 700, 'the reservation is kept');
+  const d = e.evaluate(req());
+  assert.equal(d.verdict, 'deny');
+  assert.match(d.reasons.join(' '), /unknown outcome/);
+  assert.equal(e.status('old-unknown-1'), 'unknown');
+  clock.advance(DAY_MS * 2);
+  assert.equal(e.status('old-unknown-1'), 'unknown', 'time never clears it');
+  assert.equal(e.approve('old-unknown-1', { cardHash: '', confirmations: ['approve'], walletNetwork: 'test' }).ok, false, 'it cannot be approved');
+  assert.equal(e.settle('old-unknown-1', { kind: 'executed', sats: 700 }).ok, false, 'it cannot be settled');
+  assert.equal(e.resolveUnknown('old-unknown-1', { kind: 'not-sent' }), true, 'only the owner resolution clears it');
+  assert.equal(e.snapshot().usage.reservedSats, 0);
+  assert.equal(e.evaluate(req()).verdict, 'needs_approval');
+});
+
+test('unknown option: a seeded reservation counts against the caps; bad entries are dropped; resolving "sent" moves it into the ledger', () => {
+  const e = new PolicyEngine({ clock: new FakeClock(), sessionId: 's1', config: { caps: { ...DEFAULT_CAPS }, allowlist: [ALICE], frozen: null }, unknown: [
+    { requestId: 'short', agentId: 'a', totalSats: 1 }, { requestId: 'old-unknown-2', agentId: 'a', totalSats: -5 }, { requestId: 'old-unknown-3', agentId: 'a', totalSats: 0.5 },
+    { requestId: 'old-unknown-4', agentId: 'a', totalSats: 900 }, { requestId: 'old-unknown-4', agentId: 'a', totalSats: 5 },
+  ] });
+  assert.deepEqual(e.snapshot().unknown.map((u) => [u.requestId, u.totalSats]), [['old-unknown-4', 900]]);
+  assert.equal(e.resolveUnknown('old-unknown-4', { kind: 'sent', sats: 900 }), true);
+  assert.equal(e.snapshot().usage.last24hSats, 900);
+});
+
+test('ledgerFromAudit: duplicate executed lines for one request id count once; lines without an id and distinct ids all count', () => {
+  const line = (requestId: unknown, sats: number, ts: string) => ({ decision: 'executed', ts, fields: requestId === undefined ? { sats } : { requestId, sats } });
+  const t = '2026-10-02T10:00:00.000Z';
+  const rec = ledgerFromAudit([line('req-aaaaaaaa', 600, t), line('req-aaaaaaaa', 600, '2026-10-02T10:00:01.000Z'), line('req-bbbbbbbb', 300, t), line(undefined, 100, t), line(undefined, 100, t)]);
+  assert.equal(rec.length, 4);
+  assert.equal(rec.reduce((a, r) => a + r.sats, 0), 600 + 300 + 100 + 100);
+  const e = new PolicyEngine({ clock: { wall: () => Date.parse('2026-10-02T11:00:00.000Z'), mono: () => 1 }, ledger: rec, config: { caps: { ...DEFAULT_CAPS }, allowlist: [ALICE], frozen: null } });
+  assert.equal(e.snapshot().usage.last24hSats, 1100, 'the 24 h window sees one 600 sat spend, not two');
+});
+
+test('net: a legacy record or audit line without net loads as testnet; the same request id on two nets is not deduped; the unknown seed carries net', () => {
+  const t = '2026-10-02T10:00:00.000Z';
+  const line = (fields: Record<string, unknown>) => ({ decision: 'executed', ts: t, fields });
+  const rec = ledgerFromAudit([line({ requestId: 'req-net-0001', sats: 100 }), line({ requestId: 'req-net-0001', sats: 100, net: 'test' }), line({ requestId: 'req-net-0001', sats: 100, net: 'main' }), line({ requestId: 'req-net-0001', sats: 100, net: 'main' })]);
+  assert.deepEqual(rec.map((r) => r.net), ['test', 'main'], 'legacy and explicit test dedupe to one; main stays separate');
+  const legacy = new PolicyEngine({ clock: { wall: () => Date.parse(t), mono: () => 1 }, ledger: [{ requestId: 'old', sats: 5, at: Date.parse(t) }] });
+  assert.equal(legacy.executedRecords()[0]!.net, undefined, 'stored as given; absent means testnet');
+  const e = new PolicyEngine({ unknown: [{ requestId: 'req-net-0002', agentId: 'a', totalSats: 10 }, { requestId: 'req-net-0003', agentId: 'a', totalSats: 10, net: 'main' }] });
+  assert.equal(e.snapshot().unknown.length, 2);
+  assert.deepEqual(e.snapshot().unknown.map((u) => [u.requestId, u.net]), [['req-net-0002', 'test'], ['req-net-0003', 'main']], 'the seeded net is readable');
+});
+
+test('F2: a repeated request id with different amounts keeps the LARGER one, in either order (audit rebuild and unknown seed)', () => {
+  const t = '2026-10-02T10:00:00.000Z';
+  const line = (sats: number) => ({ decision: 'executed', ts: t, fields: { requestId: 'req-dupamt-1', sats } });
+  for (const order of [[1, 900], [900, 1]]) {
+    const rec = ledgerFromAudit(order.map(line));
+    assert.equal(rec.length, 1);
+    assert.equal(rec[0]!.sats, 900, `ledger order ${order}`);
+    const e = new PolicyEngine({ unknown: order.map((n) => ({ requestId: 'req-dupamt-2', agentId: 'a', totalSats: n })) });
+    assert.equal(e.snapshot().unknown.length, 1);
+    assert.equal(e.snapshot().unknown[0]!.totalSats, 900, `seed order ${order}`);
+    assert.equal(e.snapshot().usage.reservedSats, 900);
+  }
+});
+
+test('F4: only a MISSING net is legacy testnet; a present but unrecognised net is flagged invalid, still counted, and shown', () => {
+  const t = '2026-10-02T10:00:00.000Z';
+  const clock = { wall: () => Date.parse(t) + 1000, mono: () => 1 };
+  const line = (net: unknown, sats: number, id: string) => ({ decision: 'executed', ts: t, fields: { requestId: id, sats, ...(net === undefined ? {} : { net }) } });
+  const bad = ['MAIN', 'mainnet', 'garbage', '', null, 5];
+  const rec = ledgerFromAudit([line(undefined, 1, 'req-legacy-1'), ...bad.map((n, i) => line(n, 10, `req-bad-000${i}`))]);
+  assert.equal(rec[0]!.net, 'test');
+  assert.deepEqual(rec.slice(1).map((r) => r.net), bad.map(() => 'invalid'));
+  const e = new PolicyEngine({ clock, ledger: rec, unknown: [{ requestId: 'req-unk-0001', agentId: 'a', totalSats: 7, net: 'MAIN' }, { requestId: 'req-unk-0002', agentId: 'a', totalSats: 7 }] });
+  const s = e.snapshot();
+  assert.equal(s.usage.last24hSats, 1 + 10 * bad.length, 'an invalid-net spend still counts against the window');
+  assert.equal(s.usage.invalidNetRecords, bad.length + 1, 'and is surfaced');
+  assert.deepEqual(s.unknown.map((u) => u.net), ['invalid', 'test']);
+  assert.ok(e.executedRecords().filter((r) => r.net === 'test').length === 1, 'none of them is treated as testnet');
+  // a live record handed to the constructor with a bad net is flagged too; a missing one is left as is
+  const e2 = new PolicyEngine({ clock, ledger: [{ requestId: 'x', sats: 3, at: Date.parse(t), net: 'MAIN' as never }, { requestId: 'y', sats: 3, at: Date.parse(t) }] });
+  assert.deepEqual(e2.executedRecords().map((r) => r.net), ['invalid', undefined]);
+});
+
+test('F5: the live ledger line from settle(executed) and resolveUnknown("sent") carries the net of the request record', () => {
+  const { e } = engine();
+  e.arm(60);
+  const m = e.evaluate(req({ network: 'main', walletNetwork: 'main' })); e.approve(m.requestId, approveInput(m.card!, 'main'));
+  e.settle(m.requestId, { kind: 'executed', sats: 620 });
+  const t = e.evaluate(req()); e.approve(t.requestId, approveInput(t.card!));
+  e.settle(t.requestId, { kind: 'executed', sats: 620 });
+  assert.deepEqual(e.executedRecords().map((r) => r.net), ['main', 'test']);
+  const u = new PolicyEngine({ unknown: [{ requestId: 'req-res-0001', agentId: 'a', totalSats: 5, net: 'main' }, { requestId: 'req-res-0002', agentId: 'a', totalSats: 5, net: 'weird' }, { requestId: 'req-res-0003', agentId: 'a', totalSats: 5 }] });
+  for (const id of ['req-res-0001', 'req-res-0002', 'req-res-0003']) assert.equal(u.resolveUnknown(id, { kind: 'sent', sats: 5 }), true);
+  assert.deepEqual(u.executedRecords().map((r) => r.net), ['main', 'invalid', 'test']);
+});
+
+test('F6: the constructor does not throw on hostile unknown input; bad entries are dropped and good ones kept', () => {
+  const hostile = { get requestId(): string { throw new Error('boom'); }, agentId: 'a', totalSats: 5 };
+  const badTotal = { requestId: 'req-hostile-2', agentId: 'a', get totalSats(): number { throw new Error('boom'); } };
+  const badAgent = { requestId: 'req-hostile-3', get agentId(): string { throw new Error('boom'); }, totalSats: 5 };
+  const proxy = new Proxy([], { get() { throw new Error('boom'); } });
+  for (const bad of [123, 'abc', {}, { [Symbol.iterator]: 1 }, new Set([1]), null, proxy, { length: 1, 0: {} }]) assert.doesNotThrow(() => new PolicyEngine({ unknown: bad as never }));
+  let e!: PolicyEngine;
+  assert.doesNotThrow(() => { e = new PolicyEngine({ unknown: [hostile, badTotal, badAgent, null, 7, 'x', { requestId: 'req-good-0001', agentId: 'a', totalSats: 9 }] as never }); });
+  assert.deepEqual(e.snapshot().unknown.map((u) => u.requestId), ['req-good-0001']);
+  assert.equal(e.snapshot().usage.reservedSats, 9);
 });
