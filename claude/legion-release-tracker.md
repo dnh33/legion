@@ -45,10 +45,11 @@ Cloud work runs on the claude.ai/code web surface (credits). Branches live in pr
 
 ## Open item: R6.1 replay-fidelity test flakes on Windows (2026-10-02)
 
-`test/library-review-integrity.test.ts` "R6.1 replay fidelity" failed intermittently on Windows (1 of the original baseline, 1 of 3 gate runs): "seed 3 step 299: reloaded graph differs from live", nodes and edges equal, diff list empty. Never failed on Linux (1368/1368).
-- Investigated by a local agent for about 45 minutes (worktree `D:/bots/legion-wt-r61`, branch `fix/r61-replay`): no failing sample reproduced; the test was instrumented to print which part differs.
-- Hypothesis (from reading `src/core/kg/graph.ts`): search score = BM25 x recency factor from `this.now()` (wall clock), rounded to 4 decimals; the test builds the live and the reloaded Graph without an injected `now`, so searches run at different moments. If true it is a test timing problem, not a replay bug. Sent to the agent for a 5 minute test.
-- Status until proven: **unverified**. The Library's "restart equals live" guarantee must be reported as not confirmed on Windows.
+`test/library-review-integrity.test.ts` "R6.1 replay fidelity" failed intermittently on Windows (1 of the original baseline, 1 of 3 gate runs): "seed 3 step 299: reloaded graph differs from live", nodes and edges equal, diff list empty. Never failed on Linux.
+- A local agent hunted it for about 50 minutes without reproducing a failure, then was stopped (owner decision).
+- Likely cause, from reading `src/core/kg/graph.ts`: search score = BM25 x recency factor from `this.now()` (wall clock), rounded to 4 decimals; the test searched the live and the reloaded Graph at different moments, so a score can straddle a rounding boundary with identical data. A test timing problem, not (as far as known) a replay bug.
+- Mitigation merged (`a88d595`): the comparison now pins one instant for both Graphs and the failure message names the differing part (nodes/edges/search/inbox). 10 of 10 runs pass on Windows afterwards.
+- **Not proven:** the failure was never reproduced before the change, and no mutation check (does the test still catch a real replay break?) was done. Report the Library's "restart equals live" guarantee as *not confirmed on Windows*. If R6.1 fails again, the new message says which part differs.
 
 ## After install: Legion MCP for Claude Code (owner approved 2026-10-02, user scope)
 
