@@ -117,7 +117,7 @@ export function createBrowserModule(deps: ModuleDeps, opts: BrowserModuleOptions
       if (!cfg().enabled) return {};
       return {
         legion_browser: buildBrowserServer(agent, job, {
-          manager, guard, resolve, approvals: deps.approvals, secrets: () => liveSecrets(deps.config),
+          manager, guard, resolve, approvals: deps.approvals, secrets: () => liveSecrets(deps.config), modeOf: (id) => { try { return deps.store?.getAgent(id)?.approval; } catch { return undefined; } },
           statusLine: (taskId) => {
             const e = manager.peek(taskId);
             return `Browser tool: on. Page open: ${e?.session.started ? 'yes' : 'no'}. Reads text only (no screenshots). Redirect/request interception: ${e?.session.started ? (e.session.hasInterception ? 'on' : 'not available in this build (private addresses are still blocked by the browser\'s own option)') : 'unknown until a page is opened'}. Local addresses: ${local.allow ? 'allowed on listed ports' : 'refused'}. Allowed domains: ${cfg().allowDomains.length ? cfg().allowDomains.join(', ') : 'any public site'}.`;

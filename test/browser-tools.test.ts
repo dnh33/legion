@@ -26,7 +26,7 @@ const PAGES: Record<string, FakePage> = {
   'https://b.test/': { title: 'B', text: 'B page' },
 };
 
-async function rig(mode: ApprovalMode = 'ask', over: { ceiling?: ApprovalMode; answer?: (a: ApprovalRequest) => boolean } = {}) {
+async function rig(mode: ApprovalMode = 'ask', over: { ceiling?: ApprovalMode; answer?: (a: ApprovalRequest) => boolean; live?: { mode: ApprovalMode } } = {}) {
   const fake = await startFakeCdp({ pages: PAGES });
   const bus = new EventBus();
   const approvals = new ApprovalBroker(bus);
@@ -51,7 +51,7 @@ async function rig(mode: ApprovalMode = 'ask', over: { ceiling?: ApprovalMode; a
   }));
   const job: ModuleJob = { taskId: 'task_1', taint: () => tainted.n > 0, markTainted: () => { tainted.n++; }, ...(over.ceiling ? { ceiling: over.ceiling } : {}) };
   const cfg = buildBrowserServer(agent('worker', { approval: mode }), job, {
-    manager, guard: () => ({}), resolve: DNS, approvals, secrets: () => [], statusLine: () => 'status',
+    manager, guard: () => ({}), resolve: DNS, approvals, secrets: () => [], statusLine: () => 'status', ...(over.live ? { modeOf: () => over.live!.mode } : {}),
   });
   const [ct, st] = InMemoryTransport.createLinkedPair();
   await cfg.instance.connect(st);
@@ -222,5 +222,18 @@ test('C12: browser_close and the run ending stop the process; a new call after c
     assert.equal(r.cards.length, 2, 'a new browser asks again');
     await r.manager.end('task_1');
     assert.equal(r.manager.has('task_1'), false);
+  } finally { await r.done(); }
+});
+
+test('C9: the approval mode is read live: an agent switched from full to ask mid-run gets cards again', async () => {
+  const live = { mode: 'full' as ApprovalMode };
+  const r = await rig('full', { live });
+  try {
+    await r.call('browser_open', { url: 'https://a.test/' });
+    await r.call('browser_open', { url: 'https://b.test/' });
+    assert.equal(r.cards.length, 1, 'full: no card for the new site');
+    live.mode = 'ask';
+    await r.call('browser_eval', { expression: '1' });
+    assert.equal(r.cards.length, 2, 'after the switch to ask the script needs a card');
   } finally { await r.done(); }
 });

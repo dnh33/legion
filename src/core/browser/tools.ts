@@ -29,6 +29,8 @@ export interface BrowserToolDeps {
   resolve: Resolver;
   approvals: Pick<ApprovalBroker, 'request'>;
   secrets(): string[];
+  /** The agent's approval mode as the store holds it NOW (the engine re-reads it on every call; a snapshot from the start of the run could be looser than a later change). */
+  modeOf?(agentId: string): ApprovalMode | undefined;
   /** One line of Legion-authored status for browser_status (no page content in it). */
   statusLine(taskId: string): string;
 }
@@ -43,7 +45,7 @@ export const BROWSER_PREAMBLE_ON = [
 
 export function buildBrowserServer(agent: AgentProfile, job: ModuleJob | undefined, d: BrowserToolDeps): McpSdkServerConfigWithInstance {
   const taskId = job?.taskId ?? 'no-task';
-  const mode = (): ApprovalMode => (job?.ceiling ? stricterMode(agent.approval, job.ceiling) : agent.approval);
+  const mode = (): ApprovalMode => { const m = d.modeOf?.(agent.id) ?? agent.approval; return job?.ceiling ? stricterMode(m, job.ceiling) : m; };
   const origin = job?.origin ? { roomId: job.origin.roomId, fromAgentId: job.origin.fromAgentId, hop: job.origin.hop } : undefined;
   const taint = () => { try { job?.markTainted?.(); } catch { /* never block a call on bookkeeping */ } };
   const ask = (name: string, summary: string, input: Record<string, unknown>): Promise<boolean> =>
