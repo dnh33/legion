@@ -59,14 +59,17 @@ async function setup(o: { dataDir?: string; on?: boolean; native?: string | null
   return { ...f, state, bsv, dataDir, srv, wal, call, adminOnly };
 }
 
+/** The owner's Connect (the window asks main, main asks the core with the native secret). The wallet is the fake transport: no socket is ever opened. */
+const WALLET_URL = 'http://127.0.0.1:45001';
+const connectWallet = (s: Awaited<ReturnType<typeof setup>>, url: string = WALLET_URL) => s.call('POST', '/api/bsv/wallet/connect', { url });
 const policyFile = (d: string) => join(d, 'bsv', 'policy.json');
 const auditLines = (d: string) => readFileSync(join(d, 'bsv', 'audit.jsonl'), 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l));
 
 // ---------------------------------------------------------------- who can reach what
 
-test('gate: a bearer token alone (the MCP-client class) reaches none of the BSV wallet, policy or audit routes, not even with the native header', async () => {
+test('gate: a bearer token alone (the MCP-client class) reaches none of the BSV wallet, policy or audit routes, not even with the native header; the one exception is Freeze, which only makes things safer', async () => {
   const s = await setup({ on: true });
-  for (const [m, p, b] of [['GET', '/api/bsv/wallet'], ['GET', '/api/bsv/policy'], ['GET', '/api/bsv/audit'], ['POST', '/api/bsv/policy/arm', { minutes: 5 }], ['POST', '/api/bsv/policy/freeze', {}], ['POST', '/api/bsv/policy/unfreeze', {}], ['POST', '/api/bsv/policy/caps', { perTxSats: 5 }], ['POST', '/api/bsv/policy/allowlist', { list: [] }], ['POST', '/api/bsv/policy/disarm', {}]] as Array<[string, string, unknown?]>) {
+  for (const [m, p, b] of [['GET', '/api/bsv/wallet'], ['GET', '/api/bsv/policy'], ['GET', '/api/bsv/audit'], ['POST', '/api/bsv/policy/arm', { minutes: 5 }], ['POST', '/api/bsv/policy/unfreeze', {}], ['POST', '/api/bsv/policy/caps', { perTxSats: 5 }], ['POST', '/api/bsv/policy/allowlist', { list: [] }], ['POST', '/api/bsv/policy/disarm', {}], ['POST', '/api/bsv/wallet/connect', { url: WALLET_URL }], ['POST', '/api/bsv/wallet/disconnect', {}]] as Array<[string, string, unknown?]>) {
     for (const headers of [{ ...asClient }, { ...asClient, 'X-Legion-Native': NATIVE }]) {
       const r = await s.call(m, p, b, headers);
       assert.equal(r.status, 403, `${m} ${p}`);
@@ -75,11 +78,16 @@ test('gate: a bearer token alone (the MCP-client class) reaches none of the BSV 
   assert.equal(s.wal.w.calls.length, 0, 'the wallet was never contacted');
   assert.equal(s.bsv.policy.isArmed(), false);
   assert.equal(s.bsv.policy.isFrozen, false);
+  // Freeze is open to the bearer token (a core with no app window can still be stopped) and changes nothing but "stopped"
+  const fr = await s.call('POST', '/api/bsv/policy/freeze', {}, { ...asClient });
+  assert.equal(fr.status, 200);
+  assert.equal(s.bsv.policy.isFrozen, true);
+  assert.equal(s.wal.w.calls.length, 0);
 });
 
 test('native: with the admin secret but WITHOUT the native secret every policy change is refused and changes nothing (a compromised window cannot arm)', async () => {
   const s = await setup({ on: true });
-  for (const [p, b] of [['/api/bsv/policy/arm', { minutes: 5 }], ['/api/bsv/policy/disarm', {}], ['/api/bsv/policy/freeze', {}], ['/api/bsv/policy/unfreeze', {}], ['/api/bsv/policy/caps', { perTxSats: 5 }], ['/api/bsv/policy/allowlist', { list: ['abc-address-1'] }]] as Array<[string, unknown]>) {
+  for (const [p, b] of [['/api/bsv/policy/arm', { minutes: 5 }], ['/api/bsv/policy/disarm', {}], ['/api/bsv/policy/unfreeze', {}], ['/api/bsv/policy/caps', { perTxSats: 5 }], ['/api/bsv/policy/allowlist', { list: ['abc-address-1'] }], ['/api/bsv/wallet/connect', { url: WALLET_URL }]] as Array<[string, unknown]>) {
     const none = await s.call('POST', p, b, s.adminOnly);
     assert.equal(none.status, 403, p);
     assert.match(none.body.error, /native_confirmation_required/);
@@ -93,6 +101,10 @@ test('native: with the admin secret but WITHOUT the native secret every policy c
   assert.deepEqual(s.bsv.policy.config().caps, DEFAULT_CAPS);
   assert.deepEqual(s.bsv.policy.config().allowlist, []);
   assert.ok(!existsSync(policyFile(s.dataDir)), 'nothing was saved');
+  assert.equal(s.wal.w.calls.length, 0, 'and no wallet was contacted');
+  // Freeze needs no native proof: it only stops things (admin secret alone is enough from the window)
+  assert.equal((await s.call('POST', '/api/bsv/policy/freeze', {}, s.adminOnly)).status, 200);
+  assert.equal(s.bsv.policy.isFrozen, true);
 });
 
 test('native: a core that was not started by the app (no native secret) refuses every policy change, even with the right-looking header', async () => {
@@ -101,20 +113,30 @@ test('native: a core that was not started by the app (no native secret) refuses 
   assert.equal(r.status, 403);
   assert.match(r.body.error, /native_unavailable/);
   assert.equal((await s.call('GET', '/api/bsv/policy')).body.nativeAvailable, false);
-  assert.equal((await s.call('POST', '/api/bsv/policy/freeze', {}, { ...AUTH, 'X-Legion-Native': '' })).status, 403);
+  assert.equal((await s.call('POST', '/api/bsv/wallet/connect', { url: WALLET_URL }, { ...AUTH, 'X-Legion-Native': NATIVE })).status, 403);
+  assert.equal(s.wal.w.calls.length, 0);
+  // freeze works on a core the app did not start (headless): it needs no native proof
+  assert.equal((await s.call('POST', '/api/bsv/policy/freeze', {}, { ...AUTH, 'X-Legion-Native': '' })).status, 200);
+  assert.equal(s.bsv.policy.isFrozen, true);
 });
 
 // ---------------------------------------------------------------- the wallet route
 
-test('wallet: nothing is contacted while BSV mode is off; once on, one probe asks exactly the four allowlisted methods', async () => {
+test('wallet: nothing is contacted while BSV mode is off, nor when it is on until Connect; then one probe asks exactly the four allowlisted methods', async () => {
   const s = await setup({ on: false });
   const off = await s.call('GET', '/api/bsv/wallet');
   assert.equal(off.status, 200);
   assert.equal(off.body.probed, false);
   assert.equal(off.body.condition, 'off');
   assert.equal(s.wal.w.calls.length, 0);
+  assert.equal((await connectWallet(s)).status, 409, 'BSV mode off: Connect is refused');
   assert.equal((await s.call('POST', '/api/bsv', { enabled: true })).status, 200);
-  const on = await s.call('GET', '/api/bsv/wallet');
+  // on, but nobody pressed Connect and no address is set: no contact at all, however often it is asked
+  for (let i = 0; i < 3; i++) { const idle = await s.call('GET', '/api/bsv/wallet'); assert.equal(idle.body.condition, 'not-configured'); assert.equal(idle.body.probed, false); assert.equal(idle.body.connected, false); }
+  assert.equal(s.wal.w.calls.length, 0);
+  const on = await connectWallet(s);
+  assert.equal(on.status, 200);
+  assert.equal(on.body.connected, true);
   assert.equal(on.body.reachable, true);
   assert.equal(on.body.network, 'test');
   assert.equal(on.body.condition, 'testnet');
@@ -123,28 +145,35 @@ test('wallet: nothing is contacted while BSV mode is off; once on, one probe ask
   assert.deepEqual(s.wal.w.calls.map((c) => c.path), ['/getVersion', '/getNetwork', '/isAuthenticated', '/getHeight']);
   assert.equal((await s.call('GET', '/api/bsv/wallet?cached=1')).body.network, 'test');
   assert.equal(s.wal.w.calls.length, 4, 'cached=1 never contacts the wallet');
+  assert.equal(s.state.walletUrl, WALLET_URL, 'the address the owner typed is kept');
   await s.call('POST', '/api/bsv', { enabled: false });
   assert.equal((await s.call('GET', '/api/bsv/wallet')).body.probed, false);
+  assert.equal(s.wal.w.calls.length, 4);
+  // turning the mode back on starts DISCONNECTED: the address is remembered, the contact is not
+  await s.call('POST', '/api/bsv', { enabled: true });
+  const again = await s.call('GET', '/api/bsv/wallet');
+  assert.equal(again.body.condition, 'not-connected');
+  assert.equal(again.body.connected, false);
   assert.equal(s.wal.w.calls.length, 4);
 });
 
 test('wallet: a wallet on the main network is a warning; the audit log gets one line for the change, not one per poll', async () => {
   const s = await setup({ on: true, net: 'mainnet' });
-  const r = await s.call('GET', '/api/bsv/wallet');
+  const r = await connectWallet(s);
   assert.equal(r.body.network, 'main');
   assert.equal(r.body.condition, 'mainnet-warning');
   assert.equal(r.body.message, 'The wallet is on MAINNET; Legion is in testnet knowledge mode; Legion will not use it.');
   for (let i = 0; i < 4; i++) await s.call('GET', '/api/bsv/wallet');
-  assert.equal(auditLines(s.dataDir).filter((e) => e.tool === 'bsv_wallet').length, 1);
+  assert.equal(auditLines(s.dataDir).filter((e) => e.tool === 'bsv_wallet' && e.decision === 'probe').length, 1);
   s.wal.w.net = 'testnet';
   await s.call('GET', '/api/bsv/wallet');
-  assert.equal(auditLines(s.dataDir).filter((e) => e.tool === 'bsv_wallet').length, 2);
+  assert.equal(auditLines(s.dataDir).filter((e) => e.tool === 'bsv_wallet' && e.decision === 'probe').length, 2);
 });
 
 test('wallet: an unreachable wallet is "not detected"; the configured URL is validated (a non-loopback URL in config.json is never contacted)', async () => {
   const s = await setup({ on: true });
   s.wal.w.fail = true;
-  const r = await s.call('GET', '/api/bsv/wallet');
+  const r = await connectWallet(s);
   assert.equal(r.body.reachable, false);
   assert.equal(r.body.condition, 'not-detected');
   // a config.json edit pointing the probe at another machine
@@ -155,8 +184,15 @@ test('wallet: an unreachable wallet is "not detected"; the configured URL is val
   const wal = fakeWallet();
   const mod = createBsvModule({ config: f.ctx.config, store: f.ctx.store, bus: f.bus, engine: f.ctx.engine, approvals: f.ctx.approvals, dataDir: d, bsvEnabled: () => true }, { state, transport: wal.transport });
   const st = await mod.probe.check();
-  assert.equal(st.condition, 'rejected-url');
+  assert.equal(st.condition, 'not-connected', 'even a perfectly good address is not contacted before Connect');
+  assert.equal(mod.probe.connect().ok, false, 'and Connect itself refuses an address that is not loopback');
+  assert.equal((await mod.probe.check()).condition, 'not-connected');
   assert.equal(wal.w.calls.length, 0);
+  // the Connect route refuses it too, with a reason, before anything is saved or sent
+  const s2 = await setup({ on: true });
+  for (const bad of ['http://203.0.113.7:3321', 'https://127.0.0.1:4444', 'http://user:pw@127.0.0.1:4444', 'http://127.0.0.1:4444/x', 'http://example.com', 'nope', '', 5, null]) assert.equal((await connectWallet(s2, bad as never)).status, 400, String(bad));
+  assert.equal(s2.wal.w.calls.length, 0);
+  assert.equal(s2.state.walletUrl, undefined, 'a refused address is not kept');
 });
 
 test('walletUrl survives toggling BSV mode (the toggle rewrites only the bsv key and keeps the url)', async () => {
@@ -242,11 +278,12 @@ test('caps and allowlist: validated, hard-capped, saved; a hand-edited policy fi
   assert.equal((await s.call('POST', '/api/bsv/policy/allowlist', { list: 'nope' })).status, 409);
   const al = await s.call('POST', '/api/bsv/policy/allowlist', { list: ['mtestAddressAlice1111111111111111', 'Bob@HandCash.io'] });
   assert.deepEqual(al.body.allowlist, ['mtestAddressAlice1111111111111111', 'bob@handcash.io']);
-  // a same-user process edits the file to raise everything
+  // a same-user process edits the file to raise everything: the next start does not trust it (see test/bsv-fix-round.test.ts for the full story)
   writeFileSync(policyFile(s.dataDir), JSON.stringify({ caps: { perTxSats: 9e15, perSessionSats: 9e15, per24hSats: 9e15, maxOutputs: 9e9, maxFeeSats: 9e15 }, allowlist: ['evil-address-1', '../x'] }));
   const s2 = await setup({ dataDir: s.dataDir, on: true });
-  assert.deepEqual(s2.bsv.policy.config().caps, HARD_CAPS);
-  assert.deepEqual(s2.bsv.policy.config().allowlist, ['evil-address-1'], 'the ceiling holds; the allowlist is the owner\'s to re-check (a documented residual)');
+  assert.equal(s2.bsv.policy.isFrozen, true);
+  assert.deepEqual(s2.bsv.policy.config().caps, DEFAULT_CAPS, 'the edited caps are not used at all');
+  assert.deepEqual(s2.bsv.policy.config().allowlist, [], 'neither is the edited allowlist');
 });
 
 test('an unreadable policy file loads FROZEN, not as defaults', async () => {
@@ -262,7 +299,7 @@ test('an unreadable policy file loads FROZEN, not as defaults', async () => {
 
 test('audit: policy changes and wallet probes are logged by the owner/agent name, the reader route returns them newest first with the chain check', async () => {
   const s = await setup({ on: true });
-  await s.call('GET', '/api/bsv/wallet');
+  await connectWallet(s);
   await s.call('POST', '/api/bsv/policy/arm', { minutes: 5 });
   await s.call('POST', '/api/bsv/policy/disarm', {});
   const r = await s.call('GET', '/api/bsv/audit?limit=50');
@@ -323,6 +360,8 @@ test('tool: only the gated agent, only while BSV is on, exactly one tool, read-o
 
 test('tool: the answer is wrapped as untrusted data, holds only whitelisted fields, taints the run, and the wallet gets only the four methods', async () => {
   const s = await setup({ on: true });
+  await connectWallet(s);
+  s.wal.w.calls.length = 0;
   let marked = 0;
   const job = { taskId: 'task-9', taint: () => false, markTainted: () => { marked++; } };
   const client = await connect(s.bsv.mcpServers!(s.agents.get('assayer')!, job).legion_bsv as McpSdkServerConfigWithInstance);
@@ -363,6 +402,7 @@ test('tool: refused while BSV is off, while frozen, and after too many calls in 
   assert.match(textOf(fr), /frozen/);
   assert.equal(s.wal.w.calls.length, 0);
   s.bsv.policy.unfreeze();
+  assert.equal((await connectWallet(s)).status, 200, 'a freeze disconnects the wallet: the owner connects again');
   let lastErr = 0;
   for (let i = 0; i < 9; i++) { const r: any = await c.callTool({ name: 'bsv_status', arguments: {} }); if (r.isError) lastErr++; }
   assert.equal(lastErr, 3, 'six answers per task, then it stops');
@@ -387,7 +427,7 @@ test('preamble: four lines, describes bsv_status truthfully, still no spend tool
   assert.match(BSV_PREAMBLE, /mcp__legion_bsv__bsv_status/);
   assert.match(BSV_PREAMBLE, /read-only/);
   assert.match(BSV_PREAMBLE, /unverified/);
-  assert.match(BSV_PREAMBLE, /Nothing in Legion signs, sends, reads balances or holds funds/);
+  assert.match(BSV_PREAMBLE, /Legion has no tool that signs, sends, reads balances or holds funds/);
   assert.match(BSV_PREAMBLE, /Never ask the user for keys, seed phrases/);
   assert.doesNotMatch(BSV_PREAMBLE, /you can (sign|spend|send|broadcast)/i);
 });

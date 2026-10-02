@@ -3,11 +3,13 @@
  * title-bar overlay, the panel and the tests use the same text and the same decisions. Nothing here talks to a wallet or can spend.
  */
 
-export type WalletCondition = 'off' | 'rejected-url' | 'not-detected' | 'testnet' | 'mainnet-warning' | 'unknown-network';
+export type WalletCondition = 'off' | 'not-configured' | 'not-connected' | 'rejected-url' | 'not-detected' | 'testnet' | 'mainnet-warning' | 'unknown-network';
 
 /** GET /api/bsv/wallet (a subset: the UI never needs the wire log). */
 export interface WalletView {
   probed: boolean;
+  /** The owner pressed Connect in this launch. */
+  connected: boolean;
   reachable: boolean;
   authenticated: boolean;
   network: 'main' | 'test' | 'unknown';
@@ -95,7 +97,7 @@ export function overlayModel(i: { enabled: boolean; policy: PolicyView | null; w
   const second = block || count;
   const showFreeze = (armed || pending > 0) && !frozen;
   if (frozen) {
-    return { mode: 'frozen', mainnetWarning, showFreeze: false, tiers: [['BSV FROZEN', 'nothing can proceed'], ['BSV FROZEN']], pill: { kind: 'frozen', text: 'The BSV chain is frozen.' } };
+    return { mode: 'frozen', mainnetWarning, showFreeze: false, tiers: [['BSV FROZEN', 'BSV tools stopped'], ['BSV FROZEN']], pill: { kind: 'frozen', text: 'The BSV chain is frozen.' } };
   }
   if (armed) {
     return {
@@ -114,14 +116,16 @@ export function overlayModel(i: { enabled: boolean; policy: PolicyView | null; w
 /** One calm headline for the wallet row of the panel. */
 export function walletHeadline(w: WalletView | null, enabled: boolean): string {
   if (!enabled) return 'BSV mode is off, so the wallet is not checked.';
-  if (!w || !w.probed) return 'Not checked yet.';
+  if (!w) return 'Not connected. Legion has not contacted any wallet.';
   switch (w.condition) {
+    case 'not-configured': return 'No wallet address is set. Type the address of your wallet and press Connect. Until then Legion contacts nothing.';
+    case 'not-connected': return 'Not connected. Legion has not contacted a wallet in this session and will not until you press Connect.';
     case 'mainnet-warning': return `MAINNET: ${MAINNET_SENTENCE}${w.authenticated ? '' : ' It reports that it is not signed in.'}`;
     case 'testnet': return `Answers as a testnet wallet${w.version ? `, version ${safeLine(w.version, 40)}` : ''}${heightText(w.height) ? `, block ${heightText(w.height)}` : ''}${w.authenticated ? '' : ', not signed in'}. This is the wallet's own claim.`;
     case 'unknown-network': return 'Something answered but did not say which network it is on. Legion will not use it.';
     case 'rejected-url': return 'The configured wallet address is not a loopback address, so Legion did not contact it.';
     case 'not-detected': return 'No wallet answered.';
-    default: return 'Not checked.';
+    default: return w.probed ? 'Not checked.' : 'Not checked yet.';
   }
 }
 

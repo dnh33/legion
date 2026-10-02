@@ -4,7 +4,10 @@
  *
  * Each line carries its sequence number, the hash of the previous line and its own hash: sha256(prev + "\n" + canonical(entry)).
  * `verify()` recomputes the chain. The process also remembers the head (last seq and hash) it wrote, so cutting lines off the END of
- * the file during a run is caught too (a restart forgets the head: a truncated tail across restarts is a documented residual).
+ * the file during a run is caught too. Across restarts the head is kept in a small anchor file next to the log (`audit.jsonl.head`,
+ * written after every append): a log that ends earlier than the anchor says, was emptied, or ends in a different entry is reported on the
+ * next open (the chain carries on and says so in its own first line). The anchor is a second copy of one hash, not a vault: a program that
+ * can write both files can still rewrite both, and that is a documented residual.
  *
  * What goes in: who (agent, task), what (tool), the decision, a short reason and a few primitive, redacted fields. What never goes in:
  * a key, a seed phrase, a WIF, or free text that could forge a log line. Every string is stripped of control characters and line
@@ -12,12 +15,12 @@
  * "[redacted-secret]"; keys that sound like secrets lose their value. Nested objects are dropped, not serialised.
  */
 import { createHash } from 'node:crypto';
-import { appendFileSync, closeSync, existsSync, mkdirSync, openSync, readFileSync, readSync, renameSync, statSync, writeFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { appendFileSync, chmodSync, closeSync, existsSync, mkdirSync, openSync, readdirSync, readFileSync, readSync, renameSync, statSync, writeFileSync } from 'node:fs';
+import { basename, dirname, join } from 'node:path';
 import { findForbiddenSecret, scrubSecrets } from '../comms/scrub.js';
 
 export const GENESIS = '0'.repeat(64);
-export const AUDIT_LIMITS = { text: 200, name: 80, fields: 16, entryBytes: 4096, rotateBytes: 4 * 1024 * 1024 } as const;
+export const AUDIT_LIMITS = { text: 200, name: 80, fields: 16, entryBytes: 4096, rotateBytes: 4 * 1024 * 1024, scanFiles: 64, scanFileBytes: 8 * 1024 * 1024, scanBytes: 48 * 1024 * 1024 } as const;
 
 export type AuditValue = string | number | boolean | null;
 
@@ -164,7 +167,7 @@ export interface OpenResult {
   /** The chain on disk was intact (or there was none). */
   ok: boolean;
   /** When it was not: what was wrong and where the evidence was moved to (the log carries on in a fresh file). */
-  tamper?: { reason: string; brokenAt?: number; movedTo: string };
+  tamper?: { reason: string; brokenAt?: number; /** The evidence file, when the log itself was moved aside (a broken chain). Not set when only the head anchor disagreed. */ movedTo?: string };
 }
 
 export class AuditLog {
@@ -185,19 +188,130 @@ export class AuditLog {
    */
   open(): OpenResult {
     mkdirSync(dirname(this.file), { recursive: true });
-    if (!existsSync(this.file)) { this.known = true; return { ok: true }; }
-    const rep = verifyText(readFileSync(this.file, 'utf8'));
-    if (rep.ok) {
-      if (rep.lastSeq !== null) { this.headSeq = rep.lastSeq; this.headHash = rep.lastHash!; this.firstSeq = rep.firstSeq ?? null; }
-      this.known = true;
-      if (rep.torn) this.sealTornTail();
-      return { ok: true };
+    const text = existsSync(this.file) ? readFileSync(this.file, 'utf8') : '';
+    const rep = verifyText(text);
+    if (!rep.ok) {
+      const movedTo = `${this.file}.broken-${this.now()}`;
+      renameSync(this.file, movedTo);
+      this.headSeq = -1; this.headHash = GENESIS; this.known = true; this.firstSeq = null;
+      this.append({ agent: 'legion', tool: 'audit', decision: 'chain-restart', reason: `previous log failed verification: ${rep.reason ?? 'unknown'}`, fields: { brokenAt: rep.brokenAt ?? null, kept: movedTo.split(/[\\/]/).pop() } });
+      return { ok: false, tamper: { reason: rep.reason ?? 'unknown', brokenAt: rep.brokenAt, movedTo } };
     }
-    const movedTo = `${this.file}.broken-${this.now()}`;
-    renameSync(this.file, movedTo);
-    this.headSeq = -1; this.headHash = GENESIS; this.known = true;
-    this.append({ agent: 'legion', tool: 'audit', decision: 'chain-restart', reason: `previous log failed verification: ${rep.reason ?? 'unknown'}`, fields: { brokenAt: rep.brokenAt ?? null, kept: movedTo.split(/[\\/]/).pop() } });
-    return { ok: false, tamper: { reason: rep.reason ?? 'unknown', brokenAt: rep.brokenAt, movedTo } };
+    // The chain in the file is intact (or there is none). Where does it end, and is that where the anchor says it should?
+    let tail: { seq: number; hash: string } | null = rep.lastSeq !== null ? { seq: rep.lastSeq, hash: rep.lastHash! } : null;
+    // an empty file is what rotation leaves behind: the head is then the last entry of the newest archive
+    if (!tail) tail = this.newestArchiveHead();
+    const anchor = this.readAnchor();
+    let problem: string | undefined;
+    if (anchor.state === 'bad') problem = 'the head anchor file could not be read';
+    else if (anchor.state === 'missing') { if (tail) problem = 'the head anchor file is missing although the log has entries'; }
+    else if (!tail) problem = `the log is missing or empty, but the head anchor records entries up to ${anchor.seq}`;
+    else if (tail.seq < anchor.seq) problem = `the log ends at entry ${tail.seq}, but the head anchor records ${anchor.seq}: the end of the log was cut off`;
+    else if (tail.seq === anchor.seq && tail.hash !== anchor.hash) problem = `the last entry of the log is not the one the head anchor records (entry ${anchor.seq} was replaced)`;
+    else if (tail.seq > anchor.seq && !this.holds(rep.parsed, anchor.seq, anchor.hash)) problem = `the entry the head anchor records (${anchor.seq}) is not in the log`;
+
+    if (tail) { this.headSeq = tail.seq; this.headHash = tail.hash; this.firstSeq = rep.lastSeq !== null ? (rep.firstSeq ?? null) : null; }
+    this.known = true;
+    if (rep.torn) this.sealTornTail();
+    if (!problem) { if (anchor.state !== 'ok' || !tail || tail.seq !== anchor.seq) this.writeAnchor(); return { ok: true }; }
+    // the log carries on from what is on disk, and its own next line says what was found (the evidence is the line plus the anchor values)
+    this.append({ agent: 'legion', tool: 'audit', decision: 'head-mismatch', reason: problem, fields: { anchorSeq: anchor.state === 'ok' ? anchor.seq : null, fileSeq: tail?.seq ?? null } });
+    return { ok: false, tamper: { reason: problem, brokenAt: tail ? tail.seq + 1 : 0 } };
+  }
+
+  // ---- the head anchor: one small file, written after every append (never before, so a crash mid-append cannot look like a cut)
+  private get anchorFile(): string { return `${this.file}.head`; }
+
+  private readAnchor(): { state: 'ok'; seq: number; hash: string } | { state: 'missing' } | { state: 'bad' } {
+    if (!existsSync(this.anchorFile)) return { state: 'missing' };
+    try {
+      const j = JSON.parse(readFileSync(this.anchorFile, 'utf8')) as { v?: unknown; seq?: unknown; hash?: unknown };
+      if (j && j.v === 1 && Number.isSafeInteger(j.seq) && (j.seq as number) >= 0 && typeof j.hash === 'string' && HEX64.test(j.hash)) return { state: 'ok', seq: j.seq as number, hash: j.hash };
+    } catch { /* falls through */ }
+    return { state: 'bad' };
+  }
+
+  private writeAnchor(): void {
+    if (this.headSeq < 0) return;
+    try {
+      const tmp = `${this.anchorFile}.tmp-${process.pid}`;
+      writeFileSync(tmp, JSON.stringify({ v: 1, seq: this.headSeq, hash: this.headHash }), { mode: 0o600 });
+      renameSync(tmp, this.anchorFile);
+      try { chmodSync(this.anchorFile, 0o600); } catch { /* not supported everywhere */ }
+    } catch { /* the next append writes it again; a missing anchor is reported at the next open */ }
+  }
+
+  /** Does the log hold entry `seq` with this hash? The entry may be in the file, or be the last line of the newest archive (a rotation just happened). */
+  private holds(entries: readonly AuditEntry[], seq: number, hash: string): boolean {
+    if (entries.some((e) => e.seq === seq && e.hash === hash)) return true;
+    const a = this.newestArchiveHead();
+    return !!a && a.seq === seq && a.hash === hash;
+  }
+
+  /** The files rotated out of the log, newest (highest sequence number) first. */
+  private archives(): string[] {
+    try {
+      const base = basename(this.file);
+      const re = new RegExp('^' + base.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\.(\\d{1,12})$');
+      return readdirSync(dirname(this.file)).map((n) => ({ n, m: re.exec(n) })).filter((x): x is { n: string; m: RegExpExecArray } => !!x.m)
+        .sort((a, b) => Number(b.m[1]) - Number(a.m[1])).map((x) => join(dirname(this.file), x.n));
+    } catch { return []; }
+  }
+
+  private newestArchiveHead(): { seq: number; hash: string } | null {
+    for (const f of this.archives().slice(0, 3)) {
+      try {
+        const r = verifyText(readFileSync(f, 'utf8'));
+        if (r.ok && r.lastSeq !== null) return { seq: r.lastSeq, hash: r.lastHash! };
+      } catch { /* try the next one */ }
+    }
+    return null;
+  }
+
+  /** Every file that can hold audit lines: the log, its archives, and the evidence of broken chains, newest first. */
+  private allFiles(): string[] {
+    const dir = dirname(this.file);
+    let broken: Array<{ f: string; t: number }> = [];
+    try {
+      const re = new RegExp('^' + basename(this.file).replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\.broken-(\\d{1,16})$');
+      broken = readdirSync(dir).map((n) => ({ n, m: re.exec(n) })).filter((x): x is { n: string; m: RegExpExecArray } => !!x.m).map((x) => ({ f: join(dir, x.n), t: Number(x.m[1]) }));
+    } catch { /* no directory yet */ }
+    broken.sort((a, b) => b.t - a.t);
+    return [this.file, ...this.archives(), ...broken.map((b) => b.f)].slice(0, AUDIT_LIMITS.scanFiles);
+  }
+
+  /**
+   * Entries of ALL the log's files (current, rotated, and kept evidence of a broken chain), read leniently: a line that parses as an
+   * entry counts, whether or not the chain around it verifies (a forged extra line can only make a limit stricter). Bounded in bytes and
+   * files. Sorted by the time written in the entry, oldest first, not by where the line sits in a file. `sinceMs` drops older entries.
+   */
+  entries(filter: (e: AuditEntry) => boolean = () => true, sinceMs = 0): AuditEntry[] {
+    const seen = new Set<string>();
+    const out: AuditEntry[] = [];
+    let budget = AUDIT_LIMITS.scanBytes;
+    for (const f of this.allFiles()) {
+      if (budget <= 0) break;
+      let text = '';
+      try {
+        const size = statSync(f).size;
+        const take = Math.min(size, AUDIT_LIMITS.scanFileBytes, budget);
+        const fd = openSync(f, 'r');
+        try { const b = Buffer.alloc(take); readSync(fd, b, 0, take, size - take); text = b.toString('utf8'); } finally { closeSync(fd); }
+        budget -= take;
+        if (take < size) text = text.slice(text.indexOf('\n') + 1); // the first line of a window is cut: drop it
+      } catch { continue; }
+      for (const line of text.split('\n')) {
+        if (!line) continue;
+        let j: unknown;
+        try { j = JSON.parse(line); } catch { continue; }
+        if (!isEntry(j) || seen.has(j.hash)) continue;
+        seen.add(j.hash);
+        const at = Date.parse(j.ts);
+        if (sinceMs && !(at >= sinceMs)) continue;
+        if (filter(j)) out.push(j);
+      }
+    }
+    return out.sort((a, b) => (Date.parse(a.ts) || 0) - (Date.parse(b.ts) || 0) || a.seq - b.seq);
   }
 
   /** A torn last line stays in the file (it is evidence of a crash) but the next entry must start on a new line. */
@@ -229,6 +343,7 @@ export class AuditLog {
     appendFileSync(this.file, line, { mode: 0o600 });
     this.headSeq = entry.seq; this.headHash = entry.hash;
     if (this.firstSeq === null) this.firstSeq = entry.seq;
+    this.writeAnchor();
     return entry;
   }
 

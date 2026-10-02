@@ -18,10 +18,10 @@ const files = DIRS.flatMap((d) => readdirSync(d).filter((f) => /\.(ts|tsx)$/.tes
 
 test('BSV v0 has files to guard', () => { assert.ok(files.length >= 3); });
 
-/** The two files that hash with node:crypto (sha256 only: the audit chain and the card/request binding). No key, signature or cipher code anywhere. */
-const HASHING = ['src/core/bsv/audit.ts', 'src/core/bsv/policy.ts'];
+/** The three files that hash with node:crypto (sha256 only: the audit chain, the card/request binding and the policy file's fingerprint). No key, signature or cipher code anywhere. */
+const HASHING = ['src/core/bsv/audit.ts', 'src/core/bsv/policy.ts', 'src/core/bsv/policy-store.ts'];
 
-test('BSV code imports nothing wallet, crypto or chain related (node:crypto only in the two hashing files, and only createHash)', () => {
+test('BSV code imports nothing wallet, crypto or chain related (node:crypto only in the three hashing files, and only createHash)', () => {
   const bad = /from\s+['"]@bsv\/|from\s+['"](?:bsv|bsv-mcp|bitcoinjs-lib|elliptic|tiny-secp256k1|ethers|@noble\/[^'"]*|@scure\/[^'"]*)['"]/;
   const crypto = /from\s+['"](?:node:)?crypto['"]|require\(\s*['"](?:node:)?crypto['"]\s*\)/;
   for (const f of files) {

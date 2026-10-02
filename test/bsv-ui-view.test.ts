@@ -27,7 +27,7 @@ const policy = (over: Partial<PolicyView> = {}): PolicyView => ({
   pending: [], unknown: [], network: 'testnet', nativeAvailable: true, spendTools: false, armChoicesMinutes: [5, 15, 30, 60], audit: { ok: true, entries: 3 }, ...over,
 });
 const wallet = (over: Partial<WalletView> = {}): WalletView => ({
-  probed: true, reachable: true, authenticated: true, network: 'test', version: '1.2.3', height: 1234567, checkedAt: '2026-10-02T00:00:00.000Z', url: 'http://127.0.0.1:3321', condition: 'testnet', message: 'm', ...over,
+  probed: true, connected: true, reachable: true, authenticated: true, network: 'test', version: '1.2.3', height: 1234567, checkedAt: '2026-10-02T00:00:00.000Z', url: '127.0.0.1:45001', condition: 'testnet', message: 'm', ...over,
 });
 const model = (over: Partial<Parameters<typeof overlayModel>[0]> = {}) => overlayModel({ enabled: true, policy: policy(), wallet: wallet(), nodes: 157, knowledgeLoaded: true, now: NOW, ...over });
 
@@ -113,7 +113,9 @@ test('overlay: a wallet on mainnet while Legion is on testnet is a warning with 
 
 test('walletHeadline: honest wording for every condition, and the wallet\'s words are cleaned', () => {
   assert.match(walletHeadline(null, false), /off/);
-  assert.match(walletHeadline(null, true), /Not checked/);
+  assert.match(walletHeadline(null, true), /Not connected.*has not contacted any wallet/);
+  assert.match(walletHeadline(wallet({ probed: false, connected: false, condition: 'not-configured' }), true), /No wallet address is set.*press Connect.*contacts nothing/);
+  assert.match(walletHeadline(wallet({ probed: false, connected: false, condition: 'not-connected' }), true), /Not connected.*until you press Connect/);
   assert.match(walletHeadline(wallet({ condition: 'mainnet-warning' }), true), /^MAINNET: The wallet is on MAINNET; Legion is in testnet knowledge mode; Legion will not use it\./);
   assert.match(walletHeadline(wallet(), true), /testnet wallet, version 1\.2\.3, block 1,234,567.*own claim/);
   assert.match(walletHeadline(wallet({ authenticated: false }), true), /not signed in/);

@@ -129,8 +129,8 @@ test('open: a broken chain is moved aside as evidence and a fresh log starts wit
   const next = new AuditLog(file);
   const r = next.open();
   assert.equal(r.ok, false);
-  assert.ok(r.tamper && existsSync(r.tamper.movedTo), 'the evidence file is kept');
-  assert.equal(readFileSync(r.tamper!.movedTo, 'utf8'), ls.join('\n') + '\n', 'untouched');
+  assert.ok(r.tamper && existsSync(r.tamper.movedTo!), 'the evidence file is kept');
+  assert.equal(readFileSync(r.tamper!.movedTo!, 'utf8'), ls.join('\n') + '\n', 'untouched');
   assert.equal(next.verify().ok, true);
   const first = JSON.parse(lines(file)[0]!);
   assert.equal(first.decision, 'chain-restart');

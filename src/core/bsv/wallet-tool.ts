@@ -48,6 +48,8 @@ export interface BsvToolDeps {
   audit: AuditLog;
   /** Per-task call counts (shared across the servers built for one run). */
   calls: Map<string, number>;
+  /** Freezes the chain if the policy file changed outside Legion. Run before anything else is decided. */
+  checkPolicyFile?: () => void;
 }
 
 export function buildBsvStatusServer(d: BsvToolDeps): McpSdkServerConfigWithInstance {
@@ -64,6 +66,7 @@ export function buildBsvStatusServer(d: BsvToolDeps): McpSdkServerConfigWithInst
       try {
         if (!d.state.enabled) { note('denied', 'bsv mode is off'); return text('BSV mode is off, so the wallet status is not available.', true); }
         if (d.agent.requires !== 'bsv') { note('denied', 'agent is not the gated BSV agent'); return text('This tool is only available to the Assayer.', true); }
+        try { d.checkPolicyFile?.(); } catch { /* a failed check must not turn into a contact: the frozen test below still runs */ }
         if (d.policy.isFrozen) { note('denied', 'chain is frozen'); return text('The chain is frozen by the owner, so Legion is not contacting the wallet. Ask the owner to unfreeze it.', true); }
         const key = taskId ?? 'no-task';
         const n = (d.calls.get(key) ?? 0) + 1;
@@ -72,6 +75,7 @@ export function buildBsvStatusServer(d: BsvToolDeps): McpSdkServerConfigWithInst
         if (n > MAX_STATUS_CALLS_PER_TASK) { note('denied', 'too many status calls in one task'); return text(`The wallet status was already read ${MAX_STATUS_CALLS_PER_TASK} times in this task. Use the last answer.`, true); }
         d.job?.markTainted?.(); // the answer comes from another program: the run is tainted from here on (the engine also taints by tool name)
         const w = await d.probe.check();
+        if (!w.connected) { note('denied', 'the owner has not connected a wallet in this session', { condition: w.condition }); return text(renderWalletStatus(w)); }
         note('allowed', undefined, { network: w.network, reachable: w.reachable, authenticated: w.authenticated, height: w.height, condition: w.condition });
         return text(renderWalletStatus(w));
       } catch (e) {

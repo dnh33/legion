@@ -106,7 +106,37 @@ export async function loadPolicy(): Promise<void> {
   try { const p = await request<PolicyView>('GET', '/api/bsv/policy'); if (!samePolicy(state.policy, p)) set({ policy: p }); } catch { /* keep what is shown */ }
 }
 
-/** The "Check now" button: asks the wallet again (the core limits how often it really does). */
+/**
+ * The Connect button: the ONLY way Legion first contacts a wallet. Main shows a native dialog that names the address, then asks the core
+ * (which refuses anything but a loopback address). The address is typed by the owner; there is no default.
+ */
+export async function connectWallet(url: string): Promise<void> {
+  const bridge = window.legion?.bsvPolicy;
+  if (!bridge) { toast('Open the Legion app to connect a wallet.', 'error'); return; }
+  if (state.changing) return;
+  set({ changing: true });
+  try {
+    const r = await bridge({ kind: 'connect', url: url.trim() });
+    if (r.ok) { if (r.view) set({ wallet: r.view as WalletView }); toast('Connected. Legion asked the wallet its status.'); }
+    else if (!r.cancelled) toast(r.error ?? 'Could not connect.', 'error');
+  } catch (e) { toast(`Could not connect: ${msg(e)}`, 'error'); } finally {
+    set({ changing: false });
+    void loadDetails();
+    if (state.panelOpen) void loadAudit(true);
+  }
+}
+
+export async function disconnectWallet(): Promise<void> {
+  const bridge = window.legion?.bsvPolicy;
+  if (!bridge || state.changing) return;
+  set({ changing: true });
+  try {
+    const r = await bridge({ kind: 'disconnect' });
+    if (r.ok) { if (r.view) set({ wallet: r.view as WalletView }); toast('Disconnected. Legion will not contact the wallet.'); } else if (!r.cancelled) toast(r.error ?? 'Could not disconnect.', 'error');
+  } catch (e) { toast(`Could not disconnect: ${msg(e)}`, 'error'); } finally { set({ changing: false }); void loadDetails(); }
+}
+
+/** The "Check now" button: asks the wallet again (the core limits how often it really does, and asks nothing until Connect was pressed). */
 export async function checkWallet(): Promise<void> {
   try { const w = await request<WalletView>('GET', '/api/bsv/wallet'); if (!sameWallet(state.wallet, w)) set({ wallet: w }); } catch (e) { toast(`Could not check the wallet: ${msg(e)}`, 'error'); }
 }
@@ -166,7 +196,7 @@ export async function changePolicy(action: PolicyAction): Promise<void> {
     const r = await bridge(action);
     if (r.ok) {
       if (r.view) set({ policy: r.view as PolicyView });
-      toast(action.kind === 'arm' ? 'LIVE FUNDS armed (policy only: nothing can spend)' : action.kind === 'disarm' ? 'Disarmed' : action.kind === 'freeze' ? 'BSV chain frozen' : 'BSV chain unfrozen');
+      toast(action.kind === 'arm' ? 'LIVE FUNDS armed (policy only: Legion has no spend tool)' : action.kind === 'disarm' ? 'Disarmed' : action.kind === 'freeze' ? 'BSV chain frozen' : 'BSV chain unfrozen');
     } else if (!r.cancelled) {
       toast(r.error ?? 'The change was refused.', 'error');
     }

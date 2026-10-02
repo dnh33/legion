@@ -30,6 +30,18 @@ export class BsvState {
   get walletUrl(): string | undefined { return this.url; }
   readonly network = 'testnet' as const;
 
+  /**
+   * The address the owner typed for the wallet. Kept in memory first (the owner just confirmed it), then saved with the flag. Throws when it
+   * cannot be saved; the address stays in effect for this launch. There is no default address anywhere.
+   */
+  setWalletUrl(url: string): void {
+    this.url = url;
+    const next: BsvConfig = { enabled: this.on, network: 'testnet', walletUrl: url };
+    const cfg = this.opts.config as { bsv?: BsvConfig } | undefined;
+    if (cfg) cfg.bsv = next;
+    this.persist(next);
+  }
+
   /** Returns true when the flag changed. Throws (and keeps the old value) when it cannot be saved. */
   set(enabled: boolean): boolean {
     if (enabled === this.on) return false;

@@ -124,8 +124,14 @@ interface Record_ {
   requestId: string; hash: string; status: RequestStatus; agentId: string; taskId: string; network: Net;
   /** Payments plus fee. */
   totalSats: number; createdAt: number; expiresAt: number; approvedAt?: number; settledAt?: number; actualSats?: number;
+  /** The stored answer. Never handed out: callers get a deep copy (see `copyDecision`). */
   decision: Decision;
+  /** The confirmations the card needs, frozen at creation and kept apart from `decision`, so nothing a caller holds can lower the bar. */
+  required: readonly Confirmation[];
 }
+
+/** A deep copy that shares nothing with the original: a caller may do what it likes with it. */
+function copyDecision(d: Decision): Decision { return structuredClone(d); }
 
 export interface LedgerRecord { requestId: string; sats: number; at: number; session?: string }
 
@@ -300,7 +306,7 @@ export class PolicyEngine {
     this.armedUntilWall = null; this.armedUntilMono = null;
     const was = this.frozen;
     this.frozen = was ?? { at: new Date(wall).toISOString(), reason: safeText(reason, 160) || 'frozen' };
-    this.emit({ type: 'frozen', reason: this.frozen.reason, denied, unknown });
+    this.emit({ type: 'frozen', reason: this.frozen.reason, denied: [...denied], unknown: [...unknown] });
     return { denied, unknown };
   }
 
@@ -315,15 +321,16 @@ export class PolicyEngine {
   // ---------------------------------------------------------------- the settings (the module calls these only behind admin + native)
 
   setCaps(partial: Partial<Caps>): Caps {
-    this.caps = validateCaps(partial, this.caps);
+    this.caps = validateCaps({ ...partial }, this.caps); // the caller's object is copied; nothing it keeps can change the stored caps
     this.emit({ type: 'caps', caps: { ...this.caps } });
     return { ...this.caps };
   }
 
   setAllowlist(list: unknown): string[] {
-    if (!Array.isArray(list) || list.length > MAX_ALLOWLIST) throw new PolicyError(`the allowlist is a list of at most ${MAX_ALLOWLIST} recipients`);
+    const items: unknown[] | null = Array.isArray(list) ? [...list] : null; // copied once: what is checked is what is stored
+    if (!items || items.length > MAX_ALLOWLIST) throw new PolicyError(`the allowlist is a list of at most ${MAX_ALLOWLIST} recipients`);
     const out = new Set<string>();
-    for (const a of list) {
+    for (const a of items) {
       const n = normalizeRecipient(typeof a === 'string' ? a.trim() : a); // the owner's input is trimmed once, here; a transaction's recipient never is
       if (!n) throw new PolicyError('a recipient must be 3 to 120 characters of letters, digits and . _ @ : + -');
       out.add(n);
@@ -358,7 +365,9 @@ export class PolicyEngine {
 
   evaluate(req: SpendRequest): Decision {
     // whatever is wrong with the request object (a getter that throws, a proxy, a cyclic structure), the answer is a denial, never an exception
-    try { return this.evaluateChecked(req); } catch {
+    // The request is copied ONCE, here, and only the copy is read from now on: a caller that keeps a reference (or a getter that answers
+    // differently each time it is read) cannot change what was checked after the check, nor what the card and the hash were built from.
+    try { return this.evaluateChecked(structuredClone(req)); } catch {
       let id = '';
       try { id = typeof req?.requestId === 'string' && REQUEST_ID.test(req.requestId) ? req.requestId : ''; } catch { /* unreadable */ }
       return { verdict: 'deny', requestId: id, reasons: ['the request could not be read safely'], requiredConfirmations: ['approve'] };
@@ -380,7 +389,7 @@ export class PolicyEngine {
     if (seen) {
       if (seen.hash !== hash) return deny(['request id was already used with different content']);
       // the same request again: same answer, no second reservation. Once it has been acted on, it can never be accepted again.
-      if (seen.status === 'pending' || seen.decision.verdict === 'deny') return { ...seen.decision, duplicate: true };
+      if (seen.status === 'pending' || seen.decision.verdict === 'deny') return { ...copyDecision(seen.decision), duplicate: true };
       return { verdict: 'deny', requestId, reasons: [`this request id was already used (status: ${seen.status}); a new request needs a new id`], duplicate: true, requiredConfirmations: ['approve'] };
     }
 
@@ -415,10 +424,10 @@ export class PolicyEngine {
     const decision: Decision = { verdict: 'needs_approval', requestId, reasons: [], requiredConfirmations: required, card };
     this.requests.set(requestId, {
       requestId, hash, status: 'pending', agentId: req.agentId, taskId: req.taskId, network: req.network, totalSats: total,
-      createdAt: card.createdAt, expiresAt: card.expiresAt, decision,
+      createdAt: card.createdAt, expiresAt: card.expiresAt, decision, required: Object.freeze([...required]),
     });
     this.emit({ type: 'decision', requestId, verdict: 'needs_approval', reasons: [], duplicate: false, agentId: safeId(req.agentId), taskId: safeId(req.taskId), totalSats: total, network: req.network });
-    return decision;
+    return copyDecision(decision);
   }
 
   private recordDeny(req: SpendRequest, reasons: string[], required: Confirmation[] = ['approve']): Decision {
@@ -430,7 +439,7 @@ export class PolicyEngine {
     if (REQUEST_ID.test(requestId) && !this.requests.has(requestId)) {
       let hash = '';
       try { hash = requestHash(req); } catch { hash = ''; }
-      if (hash) this.requests.set(requestId, { requestId, hash, status: 'denied', agentId: safeId(req.agentId), taskId: safeId(req.taskId), network: req.network === 'main' ? 'main' : 'test', totalSats: 0, createdAt: this.clock.wall(), expiresAt: 0, decision });
+      if (hash) this.requests.set(requestId, { requestId, hash, status: 'denied', agentId: safeId(req.agentId), taskId: safeId(req.taskId), network: req.network === 'main' ? 'main' : 'test', totalSats: 0, createdAt: this.clock.wall(), expiresAt: 0, decision: copyDecision(decision), required: Object.freeze([...required]) });
     }
     this.emit({ type: 'decision', requestId: safeId(requestId), verdict: 'deny', reasons: reasons.slice(0, 8).map((r) => safeText(r, 160)), duplicate: false, agentId: safeId(req?.agentId), taskId: safeId(req?.taskId), totalSats: total, network: req?.network === 'main' ? 'main' : 'test' });
     return decision;
@@ -501,14 +510,19 @@ export class PolicyEngine {
     const r = this.requests.get(requestId);
     if (!r) return { ok: false, reason: 'unknown request' };
     if (r.status !== 'pending') return { ok: false, reason: `this request is ${r.status}, not waiting for approval` };
+    // the answer is read ONCE into plain values (a getter or a proxy cannot say yes to the check and something else to the use)
+    let cardHash: unknown; let have: Set<string>; let walletNetwork: unknown;
+    try {
+      cardHash = input.cardHash; walletNetwork = input.walletNetwork;
+      const given: unknown = input.confirmations; // one read
+      have = new Set(Array.isArray(given) ? [...given].filter((c): c is string => typeof c === 'string') : []);
+    } catch { return { ok: false, reason: 'the answer could not be read safely' }; }
     if (this.frozen) { r.status = 'denied'; r.settledAt = this.clock.wall(); return { ok: false, reason: 'the chain is frozen' }; }
-    if (input.cardHash !== r.hash || r.decision.card?.hash !== r.hash) return { ok: false, reason: 'the card changed: approve what is on screen' };
-    const need = r.decision.requiredConfirmations;
-    const have = new Set(input.confirmations);
-    const missing = need.filter((c) => !have.has(c));
+    if (cardHash !== r.hash) return { ok: false, reason: 'the card changed: approve what is on screen' };
+    const missing = r.required.filter((c) => !have.has(c));
     if (missing.length) return { ok: false, reason: `missing confirmation: ${missing.join(', ')}` };
     if (this.hasUnknown()) return { ok: false, reason: 'an earlier spend has an unknown outcome' };
-    if (input.walletNetwork !== r.network) return { ok: false, reason: 'the wallet is no longer on the network this card was made for' };
+    if (walletNetwork !== r.network) return { ok: false, reason: 'the wallet is no longer on the network this card was made for' };
     if (r.network === 'main' && !this.armedUntilWall) { r.status = 'denied'; r.settledAt = this.clock.wall(); return { ok: false, reason: 'live funds are no longer armed' }; }
     r.status = 'approved'; r.approvedAt = this.clock.wall();
     this.emit({ type: 'approved', requestId, totalSats: r.totalSats });
@@ -531,15 +545,18 @@ export class PolicyEngine {
     this.sweep();
     const r = this.requests.get(requestId);
     if (!r || r.status !== 'approved') return { ok: false, reason: 'not an approved request' };
+    // read once: the amount that is checked is the amount that is recorded
+    let kind: unknown; let sats: unknown;
+    try { kind = outcome.kind; sats = (outcome as { sats?: unknown }).sats; } catch { kind = 'unknown'; sats = undefined; }
     const wall = this.clock.wall();
     r.settledAt = wall;
-    if (outcome.kind === 'failed') { r.status = 'failed'; this.emit({ type: 'settled', requestId, outcome: 'failed', sats: null }); return { ok: true }; }
-    if (outcome.kind === 'unknown') { r.status = 'unknown'; this.emit({ type: 'settled', requestId, outcome: 'unknown', sats: null }); return { ok: true }; }
-    if (!isSats(outcome.sats)) { r.status = 'unknown'; this.emit({ type: 'settled', requestId, outcome: 'unknown', sats: null }); return { ok: false, reason: 'the reported amount is not a number of sats' }; }
-    r.status = 'executed'; r.actualSats = outcome.sats;
-    this.ledger.push({ requestId, sats: outcome.sats, at: wall, session: this.sessionId });
-    this.emit({ type: 'settled', requestId, outcome: 'executed', sats: outcome.sats });
-    if (outcome.sats !== r.totalSats) { this.freeze(`the amount sent (${outcome.sats} sats) is not the amount approved (${r.totalSats} sats)`); return { ok: true, reason: 'mismatch: frozen' }; }
+    if (kind === 'failed') { r.status = 'failed'; this.emit({ type: 'settled', requestId, outcome: 'failed', sats: null }); return { ok: true }; }
+    if (kind === 'unknown') { r.status = 'unknown'; this.emit({ type: 'settled', requestId, outcome: 'unknown', sats: null }); return { ok: true }; }
+    if (kind !== 'executed' || !isSats(sats)) { r.status = 'unknown'; this.emit({ type: 'settled', requestId, outcome: 'unknown', sats: null }); return { ok: false, reason: 'the reported amount is not a number of sats' }; }
+    r.status = 'executed'; r.actualSats = sats;
+    this.ledger.push({ requestId, sats, at: wall, session: this.sessionId });
+    this.emit({ type: 'settled', requestId, outcome: 'executed', sats });
+    if (sats !== r.totalSats) { this.freeze(`the amount sent (${sats} sats) is not the amount approved (${r.totalSats} sats)`); return { ok: true, reason: 'mismatch: frozen' }; }
     return { ok: true };
   }
 
@@ -547,13 +564,16 @@ export class PolicyEngine {
   resolveUnknown(requestId: string, outcome: { kind: 'sent'; sats: number } | { kind: 'not-sent' }): boolean {
     const r = this.requests.get(requestId);
     if (!r || r.status !== 'unknown') return false;
+    let kind: unknown; let sats: unknown;
+    try { kind = outcome.kind; sats = (outcome as { sats?: unknown }).sats; } catch { return false; }
     const wall = this.clock.wall();
-    if (outcome.kind === 'sent') {
-      if (!isSats(outcome.sats)) return false;
-      r.status = 'executed'; r.actualSats = outcome.sats; this.ledger.push({ requestId, sats: outcome.sats, at: wall, session: this.sessionId });
-    } else r.status = 'failed';
+    if (kind === 'sent') {
+      if (!isSats(sats)) return false;
+      r.status = 'executed'; r.actualSats = sats; this.ledger.push({ requestId, sats, at: wall, session: this.sessionId });
+    } else if (kind === 'not-sent') r.status = 'failed';
+    else return false;
     r.settledAt = wall;
-    this.emit({ type: 'resolved', requestId, outcome: outcome.kind });
+    this.emit({ type: 'resolved', requestId, outcome: String(kind) });
     return true;
   }
 
@@ -588,5 +608,6 @@ export function ledgerFromAudit(entries: ReadonlyArray<{ decision: string; ts: s
     const sats = e.fields.sats; const at = Date.parse(e.ts);
     if (isSats(sats) && Number.isFinite(at)) out.push({ requestId: typeof e.fields.requestId === 'string' ? e.fields.requestId : 'audit', sats, at });
   }
-  return out;
+  // ordered by the time of the spend, never by where the line sits in the file (a rotated or restored file is not in time order)
+  return out.sort((a, b) => a.at - b.at);
 }

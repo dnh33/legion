@@ -54,6 +54,9 @@ const CLIENT_ROUTES: Array<[string, RegExp]> = [
   ['GET', /^\/api\/tasks\/[^/]+(\/wait)?\/?$/],
   ['POST', /^\/api\/tasks\/?$/],
   ['POST', /^\/api\/tasks\/[^/]+\/cancel\/?$/],
+  // BSV freeze only makes Legion safer (it denies, disarms and stops wallet contact), so a core with no app window can still be frozen with the bearer token.
+  // Nothing that loosens BSV policy is here.
+  ['POST', /^\/api\/bsv\/policy\/freeze\/?$/],
 ];
 export function isClientRoute(method: string, path: string): boolean {
   return CLIENT_ROUTES.some(([m, re]) => m === method && re.test(path));

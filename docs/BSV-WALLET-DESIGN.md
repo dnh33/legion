@@ -20,11 +20,11 @@ Each rung adds a tool name, an allowlist entry in `test/bsv-scan.ts`, and a new 
 
 | Part | File | What it does | Tests |
 |---|---|---|---|
-| Status probe | `src/core/bsv/wallet-probe.ts` | The only file that names wallet methods or the wallet port. Four methods, loopback only, no redirects, 1.5 s per call, 4 s total, 4 KiB body, one real probe per 5 s, single flight | `bsv-wallet-probe.test.ts` (fake wallet on a random port; the wire is asserted) |
+| Status probe | `src/core/bsv/wallet-probe.ts` | The only file that names wallet methods. Four methods, loopback only, no redirects, 1.5 s per call, 4 s total, 4 KiB body, one real probe per 5 s, single flight. No default address, and nothing is contacted until the owner presses Connect (in memory only). A version is shown only if it is valid semver | `bsv-wallet-probe.test.ts` (fake wallet on a random port; the wire is asserted) |
 | Status tool | `src/core/bsv/wallet-tool.ts` | `bsv_status`, MCP server `legion_bsv`, Assayer only, six calls per task, result is untrusted text | `bsv-module-wallet.test.ts` |
 | Policy engine | `src/core/bsv/policy.ts` | Caps, allowlist, output and fee limits, expiring arming, freeze, idempotent ids, injection guard, decoded approval card. Pure and synchronous. No "allow" verdict | `bsv-policy.test.ts` |
-| Audit log | `src/core/bsv/audit.ts` | Append-only JSONL, SHA-256 chain, torn-tail tolerant, rotation, redaction | `bsv-audit.test.ts` |
-| Native confirmation | `src/electron/main.ts`, `admin-logic.ts` | Arm, unfreeze, limits and allowlist need a dialog worded by the Electron main process and a secret the window never holds | `bsv-electron-logic.test.ts`, `bsv-electron-emu.test.ts` (real core, stubbed Electron) |
+| Audit log | `src/core/bsv/audit.ts` | Append-only JSONL, SHA-256 chain, head anchor file, torn-tail tolerant, rotation that keeps the chain, redaction, a bounded reader over every log file for the time-ordered 24-hour ledger | `bsv-audit.test.ts` |
+| Native confirmation | `src/electron/main.ts`, `admin-logic.ts` | Arm, unfreeze, limits, allowlist and Connect need a dialog worded by the Electron main process and a secret the window never holds; Freeze, Disarm and Disconnect do not | `bsv-electron-logic.test.ts`, `bsv-electron-emu.test.ts` (real core, stubbed Electron) |
 | Static UI | `ui/src/bsv/`, `src/shared/bsv-view.ts` | No animation, 60 s focused-only poll, countdown only while armed, Freeze button, panel, Activity list | `bsv-ui-view.test.ts` |
 | Tripwire | `test/bsv-scan.ts` | Wallet method names only in the probe file, only the four allowlisted names; any new network or process user fails until listed | `bsv-tripwire.test.ts`, `bsv-review-tripwire.test.ts` (plant cases) |
 
@@ -132,12 +132,12 @@ Actors and entry points:
 | A funded mainnet wallet on the owner's PC | Legion is testnet only; a mainnet answer gives a warning and Legion refuses to use it; no balance or output reads exist today | Any local program, including a bot with a shell, can call the wallet directly. The wallet's permission prompts and a small float are the defence |
 | Probe retargeted by editing `config.json` (`bsv.walletUrl`) | Loopback only, no path or redirect, harmless fixed body; the URL is read when the core starts | A bot with file access can point four POSTs of `{}` at another loopback service. Low impact; the owner can lock the file |
 | Clock tricks against the arming expiry | Monotonic and wall clock must both agree | A suspended machine may make the monotonic clock lag; the earlier end wins, so it fails safe |
-| Audit log tampering | Hash chain, in-memory head, first-sequence detection, startup verification, freeze on failure | Tamper-evident, not tamper-proof: a same-user program can rewrite the whole file and every hash |
+| Audit log tampering | Hash chain, in-memory head, head anchor file (catches a cut-off, emptied or replaced log at the next start), first-sequence detection, startup verification, freeze on failure | Tamper-evident, not tamper-proof: a same-user program can rewrite the whole file and every hash |
 | Log growth or disk-full | Rotation, torn-tail tolerance | Disk full stops appends; policy changes then fail closed |
 
 ## 6. What each safeguard is for (one line each)
 
-- Loopback-only, harmless-methods-only probe: nothing the Assayer can say makes Legion reveal keys or move funds.
+- Loopback-only, harmless-methods-only probe: nothing the Assayer says can make Legion's own code reveal keys or move funds (its ordinary tools, a shell or a web fetch, are outside that and rest on their approval cards).
 - No "allow" verdict: every spend is a human decision; there is no code path to an automatic spend.
 - Hard ceilings in code: a hand-edited file or a hostile route cannot raise a cap.
 - Allowlist: a prompt-injected recipient is refused before any card.
@@ -151,9 +151,13 @@ Actors and entry points:
 - The tripwire: a new wallet-shaped capability fails the build until someone writes down why.
 - Static UI: the controls stay cheap enough to leave on and always visible.
 
+### Changes after the independent review (fix round 1)
+
+The review found no path that moves funds, and listed nine things to fix; each has a test. (1) The policy file is fingerprinted: its SHA-256 is recorded in the audit log on every Legion write, and a file that differs, has no record, or is unreadable loads as default limits, an empty allowlist and frozen (kept aside as evidence), and freezes a running core before the next read or change. (2) Text that claimed more than the code gives was rewritten, and a hedge check scans the panel, the dialogs and the docs. (3) The audit log has a head anchor; the rolling 24-hour window is rebuilt from every log file by entry time. (4) There is no default wallet address; the first contact is the owner's Connect, confirmed in a native dialog, in memory only. (5) A "changed" report from the wallet can only disarm. (6) The tripwire folds escapes and string tricks and refuses computed calls, `eval`, `Function`, `Reflect` and look-alike letters inside the BSV code. (7) A wallet version must be valid semver. (8) The policy engine copies everything on the way in and the stored decision on the way out. (9) Freeze works on a core with no app window (bearer token, because it can only stop things).
+
 ## 7. Residual risks the owner is accepting today
 
-1. A program running as the owner can read the secrets from memory, click the dialogs, rewrite the log, and call the wallet directly. Legion does not sit in front of port 3321.
+1. A program running as the owner can read the secrets from memory, click the dialogs, rewrite the log together with its anchor and the policy file's recorded hash, and call the wallet directly. Legion does not sit in front of port 3321.
 2. The wallet's behaviour is unverified (section 11). Legion's safety does not depend on it, but its usefulness does.
 3. The Assayer, like any agent, has the normal Claude tools. In `full` mode it can run shell commands without a prompt. BSV mode does not change that.
 4. Caps are only as good as the allowlist and the owner's reading of a card.
@@ -181,7 +185,7 @@ To add before rung 2 or 3 ships (each is a release gate; one failing adversarial
 - Off by default; the BSV toggle hides the Assayer and disarms.
 - Freeze in the pill, panel and tray.
 - Deleting the new tool file removes the capability; the tripwire then goes quiet about it.
-- Pack version 6 says in plain words what exists; the Assayer's preamble names its one tool and says it never asks for keys.
+- Pack version 7 says in plain words what exists; the Assayer's preamble names its one tool and says it never asks for keys.
 
 ## 10. What would make me refuse to build rung 3
 
@@ -205,7 +209,7 @@ Answer these before rung 2 or 3 is built. My default is in brackets.
 1. Do you want rung 2 (approved reads) at all, or is "is the wallet there and on which network" enough? [Skip rung 2 unless you want the Assayer to check for testnet coins.]
 2. For rung 3, should the owner's approval be a native dialog (robust against a compromised window) or an in-window card (easier to read, longer text)? [Native dialog showing the decoded card.]
 3. Which testnet wallet will you use to verify the real prompts: BSV Desktop in testnet mode inside a VM, or a separate OS account? [A VM. Never the funded wallet.]
-4. Initial recipient allowlist: which testnet addresses or paymails? [Empty, so nothing can be sent until you add one.]
+4. Initial recipient allowlist: which testnet addresses or paymails? [Empty, so the policy engine would refuse every recipient until you add one.]
 5. Are the default caps right for testnet exercises (1,000 sat per transaction, 5,000 per session, 10,000 per 24 hours)? [Yes.]
 6. Should Freeze and Disarm stay dialog-free (one click) while Arm, Unfreeze and limits need the native dialog? [Yes.]
 7. Is a 120-second card timeout and a 300-second execution window right? [Yes.]

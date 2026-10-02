@@ -85,6 +85,8 @@
 .bsv-kv dd { margin: 0; color: var(--text); overflow-wrap: anywhere; }
 .bsv-chip { height: 26px; padding: 0 12px; border-radius: 13px; border: 1px solid var(--line-strong); background: transparent; color: var(--text-2); font: 600 12px/1 var(--font-mono); cursor: pointer; }
 .bsv-chip.on { border-color: var(--live); color: var(--live); background: var(--live-soft); }
+.bsv-input { flex: 1 1 200px; min-width: 0; height: 30px; padding: 0 10px; border-radius: 6px; border: 1px solid var(--line-strong); background: transparent; color: var(--text); font: 500 12px/1 var(--font-mono); }
+.bsv-input:disabled { opacity: 0.6; }
 .bsv-arm { border-color: var(--live); color: var(--live); }
 .bsv-arm:hover:not(:disabled) { background: var(--live-soft); }
 .bsv-freeze-btn { border-color: var(--line-strong); }

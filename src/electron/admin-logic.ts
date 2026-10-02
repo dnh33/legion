@@ -8,6 +8,7 @@
  */
 import { healthProof, isHexNonce } from '../core/admin.js';
 import { ARM_CHOICES_MINUTES } from '../core/bsv/policy.js';
+import { parseWalletUrl } from '../core/bsv/wallet-probe.js';
 import { timingSafeEqual } from 'node:crypto';
 
 export interface CoreHealth { ok?: boolean; version?: string; pid?: number; admin?: boolean; proof?: string }
@@ -128,7 +129,10 @@ export type BsvAction =
   | { kind: 'freeze' }
   | { kind: 'unfreeze' }
   | { kind: 'caps'; caps: Partial<Record<CapKey, number>> }
-  | { kind: 'allowlist'; list: string[] };
+  | { kind: 'allowlist'; list: string[] }
+  /** First contact with a wallet, and the only way to it: the owner typed this loopback address and pressed Connect. */
+  | { kind: 'connect'; url: string }
+  | { kind: 'disconnect' };
 
 const own = (o: object, k: string) => Object.prototype.hasOwnProperty.call(o, k);
 const plain = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v) && Object.getPrototypeOf(v) === Object.prototype;
@@ -144,8 +148,11 @@ export function parseBsvAction(raw: unknown, armChoices: readonly number[] = BSV
   switch (raw.kind) {
     case 'arm':
       return only('minutes') && typeof raw.minutes === 'number' && armChoices.includes(raw.minutes) ? { kind: 'arm', minutes: raw.minutes } : undefined;
-    case 'disarm': case 'freeze': case 'unfreeze':
+    case 'disarm': case 'freeze': case 'unfreeze': case 'disconnect':
       return keys.length === 0 ? { kind: raw.kind } : undefined;
+    case 'connect':
+      // the address must already be a plain loopback http address: what the dialog shows is what main checked
+      return only('url') && typeof raw.url === 'string' && parseWalletUrl(raw.url).ok ? { kind: 'connect', url: raw.url } : undefined;
     case 'caps': {
       if (!only('caps') || !plain(raw.caps)) return undefined;
       const caps: Partial<Record<CapKey, number>> = {};
@@ -206,7 +213,7 @@ export function satsText(sats: unknown): string {
 
 const CAP_LABEL: Record<CapKey, string> = { perTxSats: 'Per transaction', perSessionSats: 'Per session', per24hSats: 'Per rolling 24 hours', maxOutputs: 'Max outputs', maxFeeSats: 'Fee ceiling' };
 const capLine = (k: CapKey, v: unknown) => `${CAP_LABEL[k]}: ${k === 'maxOutputs' ? String(typeof v === 'number' ? v : 0) : satsText(v)}`;
-const NO_SPEND = 'Nothing in this version of Legion can sign, send or spend: there is no spend tool. This changes Legion\'s policy state only.';
+const NO_SPEND = 'Legion has no spend tool in this version, so this changes Legion\'s policy state only. An agent\'s ordinary tools (a shell, a web fetch) are not covered by it.';
 
 export function bsvConfirmation(action: BsvAction, facts: BsvPolicyFacts = {}, walletLine = ''): BsvConfirm {
   const caps = facts.caps ?? {};
@@ -259,10 +266,28 @@ export function bsvConfirmation(action: BsvAction, facts: BsvPolicyFacts = {}, w
       return {
         ...base, needsDialog: true, route: '/api/bsv/policy/allowlist', body: { list: action.list },
         title: 'Change the BSV recipient list?', message: `Replace the recipient allowlist (${before} now, ${action.list.length} after)?`,
-        detail: [...action.list.slice(0, 12).map((r) => `  ${dialogText(r, 60)}`), action.list.length > 12 ? `  ... and ${action.list.length - 12} more` : '', '', 'Only addresses on this list could ever receive a payment.', NO_SPEND].filter((l, i, a) => l !== '' || a[i - 1] !== '').join('\n'),
+        detail: [...action.list.slice(0, 12).map((r) => `  ${dialogText(r, 60)}`), action.list.length > 12 ? `  ... and ${action.list.length - 12} more` : '', '', 'Once a spend tool exists, the policy engine will refuse any recipient that is not on this list. Today no tool uses it.', NO_SPEND].filter((l, i, a) => l !== '' || a[i - 1] !== '').join('\n'),
         buttons: ['Cancel', 'Replace list'],
       };
     }
+    case 'connect': {
+      const t = parseWalletUrl(action.url);
+      const shown = t.ok ? t.display : 'an address that was refused';
+      return {
+        ...base, needsDialog: true, route: '/api/bsv/wallet/connect', body: { url: action.url }, type: 'warning',
+        title: 'Connect to a wallet?',
+        message: `Connect to the program listening at ${shown} on this computer?`,
+        detail: [
+          `Legion will send four read-only questions to ${shown}: its version, its network, whether it is signed in, and the block height it knows.`,
+          'It does not ask for balances, outputs, addresses or keys, and nothing in this version of Legion can sign or spend.',
+          'Whatever answers at that address is unverified: any program on this computer can listen on a port.',
+          'Legion will not contact it again after you disconnect, freeze, turn BSV mode off or restart.',
+        ].join('\n'),
+        buttons: ['Cancel', 'Connect'],
+      };
+    }
+    case 'disconnect':
+      return { ...base, needsDialog: false, route: '/api/bsv/wallet/disconnect', body: {}, title: 'Disconnect', message: 'Disconnect', detail: '', buttons: ['Cancel', 'Disconnect'] };
     case 'freeze':
       return { ...base, needsDialog: false, route: '/api/bsv/policy/freeze', body: { reason: 'frozen by the owner' }, title: 'Freeze', message: 'Freeze', detail: '', buttons: ['Cancel', 'Freeze'] };
     case 'disarm':
@@ -273,6 +298,7 @@ export function bsvConfirmation(action: BsvAction, facts: BsvPolicyFacts = {}, w
 /** A reason to refuse before asking the person anything: no dialog for a change the core would refuse anyway. */
 export function bsvPreflight(action: BsvAction, facts: BsvPolicyFacts): string | undefined {
   if (action.kind === 'arm' && facts.frozen) return 'The chain is frozen. Unfreeze it first.';
+  if (action.kind === 'connect' && facts.frozen) return 'The chain is frozen. Unfreeze it first; Legion does not contact a wallet while frozen.';
   return undefined;
 }
 

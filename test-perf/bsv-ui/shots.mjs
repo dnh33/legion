@@ -26,7 +26,7 @@ const walletServer = http.createServer((req, res) => {
     wallet.calls.push(`${req.method} ${req.url} ${b}`);
     const m = (req.url || '').slice(1);
     const j = (o) => { res.writeHead(200, { 'content-type': 'application/json' }); res.end(JSON.stringify(o)); };
-    if (m === 'getVersion') return j({ version: 'fake-wallet 0.0.1' });
+    if (m === 'getVersion') return j({ version: '0.0.1' });
     if (m === 'getNetwork') return j({ network: wallet.network });
     if (m === 'isAuthenticated') return j({ authenticated: true });
     if (m === 'getHeight') return j({ height: wallet.height });
@@ -40,7 +40,7 @@ if (walletPort === 3321) throw new Error('refusing to run: the fake wallet lande
 fs.rmSync(HOME, { recursive: true, force: true });
 fs.mkdirSync(HOME, { recursive: true });
 const PORT = 48400 + Math.floor(Math.random() * 400);
-fs.writeFileSync(path.join(HOME, 'config.json'), JSON.stringify({ port: PORT, authToken: TOKEN, bsv: { enabled: true, network: 'testnet', walletUrl: `http://127.0.0.1:${walletPort}` } }));
+fs.writeFileSync(path.join(HOME, 'config.json'), JSON.stringify({ port: PORT, authToken: TOKEN, bsv: { enabled: true, network: 'testnet' } }));  // no address: there is no default, the panel's Connect sets it
 const core = spawn('node', [path.join(REPO, 'dist/src/bin/legion-core.js')], { env: { ...process.env, LEGION_HOME: HOME, LEGION_PORT: String(PORT), LEGION_ADMIN_STDIN: '1' }, stdio: ['pipe', 'ignore', 'ignore'] });
 core.stdin.end(ADMIN + '\n' + NATIVE + '\n');
 const base = `http://127.0.0.1:${PORT}`;
@@ -57,7 +57,7 @@ const uiUrl = `http://127.0.0.1:${PORT + 1000}/index.html`;
 
 const H = (native) => ({ Authorization: `Bearer ${TOKEN}`, 'X-Legion-Admin': ADMIN, 'Content-Type': 'application/json', ...(native ? { 'X-Legion-Native': NATIVE } : {}) });
 const call = async (method, p, body, native = false) => { const r = await fetch(base + p, { method, headers: H(native), body: body === undefined ? undefined : JSON.stringify(body) }); return { status: r.status, json: await r.json().catch(() => ({})) }; };
-const routes = { arm: ['/api/bsv/policy/arm', (a) => ({ minutes: a.minutes })], disarm: ['/api/bsv/policy/disarm', () => ({})], freeze: ['/api/bsv/policy/freeze', () => ({ reason: 'frozen by the owner' })], unfreeze: ['/api/bsv/policy/unfreeze', () => ({})] };
+const routes = { arm: ['/api/bsv/policy/arm', (a) => ({ minutes: a.minutes })], disarm: ['/api/bsv/policy/disarm', () => ({})], freeze: ['/api/bsv/policy/freeze', () => ({ reason: 'frozen by the owner' })], unfreeze: ['/api/bsv/policy/unfreeze', () => ({})], connect: ['/api/bsv/wallet/connect', (a) => ({ url: a.url })], disconnect: ['/api/bsv/wallet/disconnect', () => ({})] };
 const bridgeLog = [];
 
 const results = {};
@@ -66,6 +66,7 @@ try {
   browser = await launchChromium();
   for (const scheme of ['dark', 'light']) {
     await call('POST', '/api/bsv/policy/disarm', {}, true); await call('POST', '/api/bsv/policy/unfreeze', {}, true);
+    await call('POST', '/api/bsv/wallet/disconnect', {}, false); // every pass starts disconnected, like a launch
     wallet.network = 'testnet';
     const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 }, deviceScaleFactor: 1, colorScheme: scheme });
     await ctx.exposeFunction('__bsvBridge', async (a) => { bridgeLog.push(a.kind); const r = routes[a.kind]; if (!r) return { ok: false, error: 'unknown' }; const x = await call('POST', r[0], r[1](a), true); return x.status === 200 ? { ok: true, view: x.json } : { ok: false, error: x.json.error }; });
@@ -95,6 +96,14 @@ try {
 
     await page.getByRole('button', { name: 'Open the BSV panel' }).click();
     await page.waitForSelector('.bsv-panel'); await page.waitForTimeout(500);
+    // first contact: nothing is contacted until the owner types the address and presses Connect
+    R.walletCallsBeforeConnect = wallet.calls.length;
+    R.panelNotConnected = await page.locator('[data-wallet]').innerText();
+    await shot('2a-panel-not-connected');
+    await page.getByLabel('Wallet address on this computer').fill(`http://127.0.0.1:${walletPort}`);
+    await page.getByRole('button', { name: /^Connect/ }).click();
+    await page.waitForFunction(() => document.querySelector('[data-wallet]')?.getAttribute('data-wallet') === 'testnet', null, { timeout: 8000 });
+    await page.waitForTimeout(400);
     await shot('2-panel-testnet');
     R.panelWallet = await page.locator('[data-wallet]').innerText();
     R.animsPanel = await anims();
@@ -127,6 +136,7 @@ try {
     // a wallet on mainnet while Legion is on testnet
     await call('POST', '/api/bsv/policy/unfreeze', {}, true);
     wallet.network = 'main';
+    await call('POST', '/api/bsv/wallet/connect', { url: `http://127.0.0.1:${walletPort}` }, true); // the freeze disconnected it: the owner connects again
     await page.reload(); await page.waitForSelector('.bsv-pill', { timeout: 15000 }); await page.waitForTimeout(600);
     await shot('6-wallet-mainnet');
     R.mainnetPill = await page.locator('.bsv-pill').innerText();

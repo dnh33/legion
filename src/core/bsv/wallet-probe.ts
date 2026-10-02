@@ -12,7 +12,8 @@
  *    no path, no query). `localhost` is connected as the literal 127.0.0.1, so a name lookup can never move the probe to another machine.
  *  - no redirects are followed, no keep-alive, one request per method, never a retry; the whole probe has a hard deadline.
  *  - a response is read through a 4 KB cap, must be HTTP 200 and a JSON object, and only whitelisted fields of the right type survive.
- *    The raw body is never kept, logged or returned. `version` is a short token of [A-Za-z0-9._+-] or it is dropped (no text channel).
+ *    The raw body is never kept, logged or returned. `version` is a semantic version (1.2.3, with an optional -prerelease and +build) or it is dropped (no text channel).
+ *  - there is no default address and no contact until the owner presses Connect (in memory only: every launch starts disconnected).
  *  - the answer is an unverified claim: any program on the computer can listen on that port.
  *
  * What is NOT verified (no real wallet was contacted while building this): whether BSV Desktop answers these four methods without a
@@ -25,7 +26,9 @@ import http from 'node:http';
 export const PROBE_METHODS = ['getVersion', 'getNetwork', 'isAuthenticated', 'getHeight'] as const;
 export type ProbeMethod = typeof PROBE_METHODS[number];
 
-export const DEFAULT_WALLET_URL = 'http://127.0.0.1:3321';
+// There is NO default wallet address. The owner types the address of the wallet they want Legion to ask, and the first contact happens
+// only when they press Connect in the app window (see WalletProbeService.connect). A built-in address would mean every Legion on every
+// computer knocks on a well-known port as soon as BSV mode is on.
 /** The originator Legion declares (a DNS-style name, as BRC-100 wallets expect). Self-declared: it proves nothing to the wallet. */
 export const PROBE_ORIGIN = 'http://legion.local';
 
@@ -120,7 +123,10 @@ export const httpTransport: Transport = (r) => new Promise<WireResponse>((resolv
 
 // ------------------------------------------------------------------ parsing: whitelisted fields of the right type, nothing else
 
-const VERSION_RE = /^[A-Za-z0-9][A-Za-z0-9._+-]{0,39}$/;
+/** The semver.org grammar, nothing looser: MAJOR.MINOR.PATCH with optional -prerelease and +build. No leading "v", no spaces, no free text. */
+const SEMVER_RE = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-((?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\.(?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*))*))?(?:\+([0-9a-zA-Z-]+(?:\.[0-9a-zA-Z-]+)*))?$/;
+/** A wallet's version string as Legion will show it: valid semver of at most 64 characters, or null. */
+export function readVersion(v: unknown): string | null { return typeof v === 'string' && v.length <= 64 && SEMVER_RE.test(v) ? v : null; }
 const isPlainObject = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v);
 
 function parseBody(body: string): Record<string, unknown> | null {
@@ -139,7 +145,7 @@ export function readNetwork(v: unknown): WalletNetwork {
 // ------------------------------------------------------------------ the probe
 
 export interface ProbeOptions {
-  /** Defaults to DEFAULT_WALLET_URL. */
+  /** Required: with no URL nothing is sent (the answer is `rejected-url`). */
   url?: string;
   transport?: Transport;
   /** Can only NARROW PROBE_METHODS: names outside it are dropped before anything is sent. */
@@ -158,7 +164,7 @@ export async function probeWallet(opts: ProbeOptions = {}): Promise<WalletProbeR
   const out: WalletProbeResult = { reachable: false, authenticated: false, network: 'unknown', version: null, height: null, checkedAt: '', sent: [] };
   const finish = (error?: ProbeError): WalletProbeResult => { out.checkedAt = new Date(now()).toISOString(); if (error) out.error = error; return out; };
 
-  const target = parseWalletUrl(opts.url ?? DEFAULT_WALLET_URL);
+  const target = parseWalletUrl(opts.url);
   if (!target.ok) return finish('rejected-url');
   const wanted = opts.methods === undefined ? [...PROBE_METHODS] : PROBE_METHODS.filter((m) => opts.methods!.includes(m));
   if (!wanted.length) return finish('no-methods');
@@ -193,7 +199,7 @@ export async function probeWallet(opts: ProbeOptions = {}): Promise<WalletProbeR
     let good = false;
     switch (method) {
       case 'getVersion':
-        if (typeof body.version === 'string') { good = true; out.version = VERSION_RE.test(body.version) ? body.version : null; }
+        if (typeof body.version === 'string') { good = true; out.version = readVersion(body.version); }
         break;
       case 'getNetwork':
         if (typeof body.network === 'string') { good = true; out.network = readNetwork(body.network); }
@@ -213,12 +219,14 @@ export async function probeWallet(opts: ProbeOptions = {}): Promise<WalletProbeR
 
 // ------------------------------------------------------------------ what the answer means for Legion (pure)
 
-export type WalletCondition = 'off' | 'rejected-url' | 'not-detected' | 'testnet' | 'mainnet-warning' | 'unknown-network';
+export type WalletCondition = 'off' | 'not-configured' | 'not-connected' | 'rejected-url' | 'not-detected' | 'testnet' | 'mainnet-warning' | 'unknown-network';
 
 export interface WalletStatus extends WalletProbeResult {
-  /** False while BSV mode is off or before the first probe: nothing was contacted. */
+  /** False while BSV mode is off, before the owner pressed Connect, or before the first probe: nothing was contacted. */
   probed: boolean;
-  /** Where Legion looked (host and port only). */
+  /** The owner pressed Connect in this launch (in memory only). */
+  connected: boolean;
+  /** Where Legion looks (host and port only); empty when no address is set. */
   url: string;
   /** Legion's own mode. Always testnet in this release. */
   legionNetwork: 'testnet';
@@ -229,8 +237,14 @@ export interface WalletStatus extends WalletProbeResult {
 
 export const MAINNET_WARNING = 'The wallet is on MAINNET; Legion is in testnet knowledge mode; Legion will not use it.';
 
-export function describeWallet(r: WalletProbeResult | null, url: string): { condition: WalletCondition; message: string } {
-  if (!r) return { condition: 'off', message: 'Wallet not checked.' };
+export type WalletIdle = 'off' | 'not-configured' | 'not-connected';
+
+export function describeWallet(r: WalletProbeResult | null, url: string, idle: WalletIdle = 'off'): { condition: WalletCondition; message: string } {
+  if (!r) {
+    if (idle === 'not-configured') return { condition: 'not-configured', message: 'No wallet address is set. Type the address of your wallet and press Connect; until then Legion contacts nothing.' };
+    if (idle === 'not-connected') return { condition: 'not-connected', message: `Not connected. Legion has not contacted ${url || 'a wallet'} in this session and will not until you press Connect.` };
+    return { condition: 'off', message: 'Wallet not checked.' };
+  }
   if (r.error === 'rejected-url') return { condition: 'rejected-url', message: 'The configured wallet URL is not a loopback address, so Legion did not contact it.' };
   if (!r.reachable) return { condition: 'not-detected', message: `No BRC-100 wallet answered at ${url}.` };
   const locked = r.authenticated ? '' : ' It reports that it is not signed in.';
@@ -239,15 +253,15 @@ export function describeWallet(r: WalletProbeResult | null, url: string): { cond
   return { condition: 'unknown-network', message: `A program at ${url} answered but did not say which network it is on; Legion will not use it.${locked}` };
 }
 
-export function toWalletStatus(r: WalletProbeResult | null, url: string): WalletStatus {
+export function toWalletStatus(r: WalletProbeResult | null, url: string, idle: WalletIdle = 'off', connected = false): WalletStatus {
   const base: WalletProbeResult = r ?? { reachable: false, authenticated: false, network: 'unknown', version: null, height: null, checkedAt: '', sent: [] };
-  return { ...base, probed: !!r, url, legionNetwork: 'testnet', ...describeWallet(r, url) };
+  return { ...base, probed: !!r, connected, url, legionNetwork: 'testnet', ...describeWallet(r, url, idle) };
 }
 
 // ------------------------------------------------------------------ the service: single flight, no storms, nothing while off
 
 export interface WalletProbeServiceOptions {
-  /** The configured wallet URL (undefined = the default). Read at every probe, so a config change is picked up. */
+  /** The configured wallet URL (undefined = none set, and then nothing is ever contacted). Read at every probe, so a config change is picked up. */
   getUrl: () => string | undefined;
   /** Probing happens only while this is true (BSV mode on). */
   enabled: () => boolean;
@@ -265,29 +279,58 @@ export class WalletProbeService {
   private last: WalletProbeResult | null = null;
   private lastAt = 0;
   private lastUrl = '';
-  /** Fired with (previous, next) after a probe whose network, reachability or sign-in changed. The module writes one audit line for it. */
+  /** In memory only. False at every launch: the wallet is never contacted until the owner presses Connect. */
+  private connectedFlag = false;
+  /** Fired with (previous, next) after a probe whose network, reachability or sign-in changed. The module writes one audit line for it. It is
+   *  a notification: the module may only TIGHTEN (disarm) because of it, never raise a limit or reset anything. */
   onChange?: (prev: WalletStatus, next: WalletStatus) => void;
 
   constructor(private readonly o: WalletProbeServiceOptions) {}
 
   private now(): number { return (this.o.now ?? Date.now)(); }
 
-  private url(): string {
-    const p = parseWalletUrl(this.o.getUrl() ?? DEFAULT_WALLET_URL);
-    return p.ok ? p.display : 'the configured address';
+  private target(): { url: string; ok: boolean; set: boolean } {
+    const raw = this.o.getUrl();
+    if (!raw) return { url: '', ok: false, set: false };
+    const p = parseWalletUrl(raw);
+    return { url: p.ok ? p.display : 'the configured address', ok: p.ok, set: true };
   }
 
-  /** The last answer without contacting anything (null-state when BSV mode is off). */
+  get connected(): boolean { return this.connectedFlag; }
+
+  private idle(): WalletIdle {
+    if (!this.o.enabled()) return 'off';
+    const t = this.target();
+    if (!t.set) return 'not-configured';
+    return this.connectedFlag ? 'off' : 'not-connected';
+  }
+
+  /** The last answer without contacting anything. */
   cached(): WalletStatus {
-    if (!this.o.enabled()) return toWalletStatus(null, this.url());
-    return toWalletStatus(this.last, this.last ? this.lastUrl : this.url());
+    const t = this.target();
+    if (!this.o.enabled() || !this.connectedFlag) return toWalletStatus(null, t.url, this.idle(), this.o.enabled() && this.connectedFlag);
+    return toWalletStatus(this.last, this.last ? this.lastUrl : t.url, 'off', true);
   }
 
-  /** Probes now (or returns the answer of the last few seconds). Never throws, never retries, one probe at a time. */
-  check(): Promise<WalletStatus> {
-    if (!this.o.enabled()) return Promise.resolve(toWalletStatus(null, this.url()));
+  /** The owner pressed Connect for this address. Validates it (loopback only) and allows probing; contacts nothing by itself. */
+  connect(): { ok: true } | { ok: false; reason: string } {
+    const raw = this.o.getUrl();
+    if (!raw) return { ok: false, reason: 'no wallet address is set' };
+    const p = parseWalletUrl(raw);
+    if (!p.ok) return { ok: false, reason: p.reason };
+    this.last = null; this.lastAt = 0;
+    this.connectedFlag = true;
+    return { ok: true };
+  }
+
+  /** Stop asking. Used by Disconnect, a freeze, and BSV mode being turned off. */
+  disconnect(): void { this.connectedFlag = false; this.last = null; this.lastAt = 0; }
+
+  /** Probes now (or returns the answer of the last few seconds). Never throws, never retries, one probe at a time. Contacts nothing until `connect()`. */
+  check(opts: { fresh?: boolean } = {}): Promise<WalletStatus> {
+    if (!this.o.enabled() || !this.connectedFlag || !this.target().ok) return Promise.resolve(this.cached());
     const minMs = this.o.minIntervalMs ?? PROBE_LIMITS.minIntervalMs;
-    if (this.last && this.now() - this.lastAt < minMs && !this.inflight) return Promise.resolve(this.cached());
+    if (!opts.fresh && this.last && this.now() - this.lastAt < minMs && !this.inflight) return Promise.resolve(this.cached());
     if (this.inflight) return this.inflight;
     const run = (async (): Promise<WalletStatus> => {
       const prev = this.cached();
@@ -297,9 +340,11 @@ export class WalletProbeService {
       } catch {
         r = { reachable: false, authenticated: false, network: 'unknown', version: null, height: null, checkedAt: new Date(this.now()).toISOString(), error: 'network', sent: [] };
       }
+      // the owner may have disconnected (or turned the mode off) while the probe was in flight: that answer is dropped, not stored
+      if (!this.connectedFlag || !this.o.enabled()) return this.cached();
       this.last = r;
       this.lastAt = this.now();
-      this.lastUrl = this.url();
+      this.lastUrl = this.target().url;
       const next = this.cached();
       if (!prev.probed || prev.reachable !== next.reachable || prev.network !== next.network || prev.authenticated !== next.authenticated) {
         try { this.onChange?.(prev, next); } catch { /* a logging failure must not break the probe */ }
@@ -310,6 +355,6 @@ export class WalletProbeService {
     return run;
   }
 
-  /** Forget the last answer (BSV mode turned off): the next check asks again. */
+  /** Forget the last answer: the next check asks again. */
   reset(): void { this.last = null; this.lastAt = 0; }
 }
