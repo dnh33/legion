@@ -37,6 +37,8 @@ export interface FakeCdpOptions {
   noFetch?: boolean;
   /** Target.createTarget opens an extra tab on every navigation (a popup). */
   popup?: boolean;
+  /** Only the Fetch domain reports requests: no Network.* events and no frameNavigated (so each guard path can be proven on its own). */
+  fetchOnly?: boolean;
   /** The fake page's script does not run (the check page then reports JavaScript as not working). */
   noJs?: boolean;
   /** A build that sends no Network or navigation events: only the final address can show where the page ended up. */
@@ -113,7 +115,7 @@ export async function startFakeCdp(o: FakeCdpOptions, port = 0): Promise<FakeCdp
     const paused = new Map<string, () => void>();
     let reqN = 0;
     const send = (m: unknown) => { try { socket.write(frame(JSON.stringify(m))); } catch { /* closed */ } };
-    const event = (method: string, params: unknown) => { if (o.quiet && /^(Network\.|Page\.frameNavigated)/.test(method)) return; send({ method, params, sessionId: 'S1' }); };
+    const event = (method: string, params: unknown) => { if ((o.quiet || o.fetchOnly) && /^(Network\.|Page\.frameNavigated)/.test(method)) return; send({ method, params, sessionId: 'S1' }); };
     const reply = (id: number, result: unknown) => send({ id, result });
 
     const dom = (): vm.Context => {

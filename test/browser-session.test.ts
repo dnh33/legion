@@ -322,3 +322,10 @@ test('E10: if the guard did let the forbidden request through, the check fails (
   });
   try { await assert.rejects(session.open(url), /let the check page/); assert.equal(session.probeBlocked, false); } finally { await session.close(); await fake.close(); }
 });
+
+test('E6: each guard path works on its own: with only the Fetch domain reporting, a non-web document and a private redirect are still refused; with only Network events reporting the same', async () => {
+  for (const to of ['file:///etc/passwd', 'data:text/html,x', 'http://10.0.0.5/admin']) {
+    const r = await rig({ fetchOnly: true, pages: { 'https://a.test/': { redirectTo: to }, [to]: { title: 'SECRET', text: 'LEAK' } } });
+    try { await assert.rejects(r.session.open('https://a.test/'), (e: Error) => e instanceof SessionRefusal && !/SECRET|LEAK/.test(e.message), `fetch only: ${to}`); assert.ok(r.fake.blocked.length >= 1, 'failed at the browser'); } finally { await r.done(); }
+  }
+});
