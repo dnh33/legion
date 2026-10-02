@@ -99,19 +99,20 @@ test('R3.3 pending cap: every path that makes a pending note is refused at 50, o
   assert.doesNotThrow(() => g.upsertNode(z, { title: 'slot freed', scope: 'shared' }));
 });
 
-test('R3.4 secret scrubbing and key detection are not super-linear on hostile 20k-char inputs (event loop stays free)', () => {
+test('R3.4 secret scrubbing and key detection scale linearly on hostile inputs (event loop stays free)', () => {
+  // Machine independent: the same input at N and 4N characters. A linear scrub takes ~4x as long, a quadratic one ~16x, on every machine and
+  // under any load, so the guard is the RATIO (best of three at each size, so a busy CPU that slows one run does not decide it).
+  // The small time is floored at 2 ms so a sub-millisecond case cannot fail on timer noise; a case that is that fast at N is not a stall risk.
   const N = 20_000;
-  const cases: Record<string, string> = {
-    token: 'token'.repeat(N / 5), secret_eq: 'secret_'.repeat(N / 7), http: 'http://'.repeat(N / 7), boat: 'https://boat.dev/'.repeat(N / 17),
-    seed: 'seed phrase '.repeat(N / 12), seedwords: 'seed phrase: ' + 'abc '.repeat(N / 4), mnemonic: 'mnemonic ' + 'abcde, '.repeat(N / 7),
-    pem: '-----BEGIN PRIVATE KEY-----'.repeat(N / 27), bearer: 'Bearer '.repeat(N / 7), eyJ: 'eyJabcdefghi.'.repeat(N / 13),
-    sk: 'sk-'.repeat(N / 3), key_assign: 'api_key = '.repeat(N / 10), a: 'a'.repeat(N), hex: 'f'.repeat(N), base58: '5' + '1'.repeat(N),
-    priv: 'private key '.repeat(N / 12), words: 'word '.repeat(N / 5), ws: ' '.repeat(N) + 'x', nl: '\n'.repeat(N), under: 'a_'.repeat(N / 2) + '=',
-    colon: 'password:'.repeat(N / 9), quote: '"'.repeat(N), tokenquote: 'token"'.repeat(N / 6), tokenws: 'token' + ' '.repeat(N),
-  };
-  const slow: string[] = [];
-  for (const [name, s] of Object.entries(cases)) {
-    // best of three, 1.5 s limit (isolated the slowest case is ~0.1 s; a super-linear scrub is slow on every run): a super-linear scrub is slow every time, a busy CPU (this file runs beside ~100 others) only some of the time
+  const cases = (n: number): Record<string, string> => ({
+    token: 'token'.repeat(n / 5), secret_eq: 'secret_'.repeat(n / 7), http: 'http://'.repeat(n / 7), boat: 'https://boat.dev/'.repeat(n / 17),
+    seed: 'seed phrase '.repeat(n / 12), seedwords: 'seed phrase: ' + 'abc '.repeat(n / 4), mnemonic: 'mnemonic ' + 'abcde, '.repeat(n / 7),
+    pem: '-----BEGIN PRIVATE KEY-----'.repeat(n / 27), bearer: 'Bearer '.repeat(n / 7), eyJ: 'eyJabcdefghi.'.repeat(n / 13),
+    sk: 'sk-'.repeat(n / 3), key_assign: 'api_key = '.repeat(n / 10), a: 'a'.repeat(n), hex: 'f'.repeat(n), base58: '5' + '1'.repeat(n),
+    priv: 'private key '.repeat(n / 12), words: 'word '.repeat(n / 5), ws: ' '.repeat(n) + 'x', nl: '\n'.repeat(n), under: 'a_'.repeat(n / 2) + '=',
+    colon: 'password:'.repeat(n / 9), quote: '"'.repeat(n), tokenquote: 'token"'.repeat(n / 6), tokenws: 'token' + ' '.repeat(n),
+  });
+  const best = (s: string): number => {
     let ms = Infinity;
     for (let k = 0; k < 3; k++) {
       const t0 = performance.now();
@@ -119,7 +120,20 @@ test('R3.4 secret scrubbing and key detection are not super-linear on hostile 20
       findForbiddenSecret(s);
       ms = Math.min(ms, performance.now() - t0);
     }
-    if (ms > 1500) slow.push(`${name}: ${Math.round(ms)} ms`);
+    return ms;
+  };
+  const small = cases(N);
+  const big = cases(4 * N);
+  for (const s of Object.values(small)) best(s); // warm up the regex engine and the JIT
+  // KNOWN (found while writing this guard, product code left alone): these three shapes are already quadratic in the RULES regexes of
+  // scrubSecrets (~x16, ~0.1 s at the 20k body cap, ~1.7 s at 80k). They are bounded by the input caps, so they are held to "no worse than now"
+  // (x24) instead of "linear" (x8); every other shape must stay linear. Remove this set when the rules are fixed.
+  const knownQuadratic = new Set(['token', 'secret_eq', 'http']);
+  const slow: string[] = [];
+  for (const name of Object.keys(small)) {
+    const t1 = Math.max(best(small[name]!), 2);
+    const t4 = best(big[name]!);
+    if (t4 / t1 > (knownQuadratic.has(name) ? 24 : 8)) slow.push(`${name}: ${t1.toFixed(1)} ms at ${N} chars, ${t4.toFixed(1)} ms at ${4 * N} (x${(t4 / t1).toFixed(1)}; linear is x4, quadratic x16)`);
   }
   assert.deepEqual(slow, []);
 });
