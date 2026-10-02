@@ -1,0 +1,540 @@
+{
+ "duration": 100,
+ "fps": 30,
+ "bpm": 96,
+ "sections": [
+  {
+   "name": "cold",
+   "start": 0,
+   "end": 5
+  },
+  {
+   "name": "awaken",
+   "start": 5,
+   "end": 10
+  },
+  {
+   "name": "muster",
+   "start": 10,
+   "end": 17.5
+  },
+  {
+   "name": "approvals",
+   "start": 17.5,
+   "end": 25
+  },
+  {
+   "name": "rooms",
+   "start": 25,
+   "end": 27.5
+  },
+  {
+   "name": "library",
+   "start": 27.5,
+   "end": 35
+  },
+  {
+   "name": "projects",
+   "start": 35,
+   "end": 45
+  },
+  {
+   "name": "vm",
+   "start": 45,
+   "end": 55
+  },
+  {
+   "name": "bsv",
+   "start": 55,
+   "end": 62.5
+  },
+  {
+   "name": "blender",
+   "start": 62.5,
+   "end": 70
+  },
+  {
+   "name": "install",
+   "start": 70,
+   "end": 77.5
+  },
+  {
+   "name": "next",
+   "start": 77.5,
+   "end": 90
+  },
+  {
+   "name": "end",
+   "start": 90,
+   "end": 100
+  }
+ ],
+ "events": [
+  {
+   "t": 0.625,
+   "name": "caption",
+   "id": "l1"
+  },
+  {
+   "t": 3.125,
+   "name": "caption",
+   "id": "l2"
+  },
+  {
+   "t": 6.875,
+   "name": "caption",
+   "id": "sub"
+  },
+  {
+   "t": 10.625,
+   "name": "relic_slot",
+   "n": 1
+  },
+  {
+   "t": 10.938,
+   "name": "roster",
+   "n": 2
+  },
+  {
+   "t": 11.25,
+   "name": "roster",
+   "n": 3
+  },
+  {
+   "t": 11.563,
+   "name": "roster",
+   "n": 4
+  },
+  {
+   "t": 11.875,
+   "name": "roster",
+   "n": 5
+  },
+  {
+   "t": 12.188,
+   "name": "roster",
+   "n": 6
+  },
+  {
+   "t": 12.5,
+   "name": "roster",
+   "n": 7
+  },
+  {
+   "t": 12.813,
+   "name": "roster",
+   "n": 8
+  },
+  {
+   "t": 13.125,
+   "name": "roster",
+   "n": 9
+  },
+  {
+   "t": 13.438,
+   "name": "roster",
+   "n": 10
+  },
+  {
+   "t": 13.75,
+   "name": "caption",
+   "id": "must"
+  },
+  {
+   "t": 13.75,
+   "name": "roster",
+   "n": 11
+  },
+  {
+   "t": 14.063,
+   "name": "roster",
+   "n": 12
+  },
+  {
+   "t": 14.375,
+   "name": "roster",
+   "n": 13
+  },
+  {
+   "t": 18.125,
+   "name": "caption",
+   "id": "appr"
+  },
+  {
+   "t": 19.375,
+   "name": "mark",
+   "id": "approval"
+  },
+  {
+   "t": 22.25,
+   "name": "caption",
+   "id": "taint"
+  },
+  {
+   "t": 23.75,
+   "name": "mark",
+   "id": "inbox"
+  },
+  {
+   "t": 25.25,
+   "name": "caption",
+   "id": "room"
+  },
+  {
+   "t": 27.875,
+   "name": "caption",
+   "id": "lat"
+  },
+  {
+   "t": 32.125,
+   "name": "caption",
+   "id": "acc"
+  },
+  {
+   "t": 33.125,
+   "name": "mark",
+   "id": "inbox2"
+  },
+  {
+   "t": 35.375,
+   "name": "caption",
+   "id": "proj"
+  },
+  {
+   "t": 39.688,
+   "name": "caption",
+   "id": "pnote"
+  },
+  {
+   "t": 41.25,
+   "name": "mark",
+   "id": "pnote"
+  },
+  {
+   "t": 45.313,
+   "name": "caption",
+   "id": "vm"
+  },
+  {
+   "t": 49.375,
+   "name": "caption",
+   "id": "mcp"
+  },
+  {
+   "t": 49.375,
+   "name": "vox_line",
+   "n": 1
+  },
+  {
+   "t": 50.625,
+   "name": "vox_line",
+   "n": 2
+  },
+  {
+   "t": 51.125,
+   "name": "vox_ok"
+  },
+  {
+   "t": 51.25,
+   "name": "vox_line",
+   "n": 3
+  },
+  {
+   "t": 51.75,
+   "name": "vox_ok"
+  },
+  {
+   "t": 51.875,
+   "name": "vox_line",
+   "n": 4
+  },
+  {
+   "t": 52.375,
+   "name": "vox_ok"
+  },
+  {
+   "t": 52.5,
+   "name": "vox_line",
+   "n": 5
+  },
+  {
+   "t": 54.125,
+   "name": "vox_line",
+   "n": 6
+  },
+  {
+   "t": 54.438,
+   "name": "vox_line",
+   "n": 7
+  },
+  {
+   "t": 54.625,
+   "name": "vox_ok"
+  },
+  {
+   "t": 55.313,
+   "name": "caption",
+   "id": "bsv1"
+  },
+  {
+   "t": 57.5,
+   "name": "chip",
+   "id": "c-bsv"
+  },
+  {
+   "t": 59.375,
+   "name": "caption",
+   "id": "bsv2"
+  },
+  {
+   "t": 62.813,
+   "name": "caption",
+   "id": "bl1"
+  },
+  {
+   "t": 63.75,
+   "name": "chip",
+   "id": "c-bl"
+  },
+  {
+   "t": 67.125,
+   "name": "caption",
+   "id": "bl2"
+  },
+  {
+   "t": 70.188,
+   "name": "caption",
+   "id": "rtA"
+  },
+  {
+   "t": 70.625,
+   "name": "chip",
+   "id": "c-pkg"
+  },
+  {
+   "t": 70.938,
+   "name": "caption",
+   "id": "rtB"
+  },
+  {
+   "t": 72.813,
+   "name": "caption",
+   "id": "upd"
+  },
+  {
+   "t": 73.125,
+   "name": "chip",
+   "id": "c-upd"
+  },
+  {
+   "t": 75.125,
+   "name": "caption",
+   "id": "loop"
+  },
+  {
+   "t": 78.125,
+   "name": "next_head"
+  },
+  {
+   "t": 78.75,
+   "name": "next_card",
+   "id": "n1"
+  },
+  {
+   "t": 80.1,
+   "name": "next_card",
+   "id": "n2"
+  },
+  {
+   "t": 83.3,
+   "name": "next_card",
+   "id": "n3"
+  },
+  {
+   "t": 85.4,
+   "name": "next_card",
+   "id": "n4"
+  },
+  {
+   "t": 86.8,
+   "name": "next_card",
+   "id": "n5"
+  },
+  {
+   "t": 88.2,
+   "name": "next_card",
+   "id": "n6"
+  },
+  {
+   "t": 89.375,
+   "name": "silence"
+  },
+  {
+   "t": 90,
+   "name": "victory"
+  },
+  {
+   "t": 90.625,
+   "name": "wm_draw"
+  },
+  {
+   "t": 92.5,
+   "name": "wm_fill"
+  },
+  {
+   "t": 93.438,
+   "name": "tag"
+  },
+  {
+   "t": 96.25,
+   "name": "sigil"
+  },
+  {
+   "t": 98.75,
+   "name": "fade_out"
+  },
+  {
+   "t": 100,
+   "name": "end"
+  }
+ ],
+ "typing": [
+  {
+   "start": 49.375,
+   "end": 49.875,
+   "chars": 34
+  },
+  {
+   "start": 50.625,
+   "end": 51.125,
+   "chars": 33
+  },
+  {
+   "start": 51.25,
+   "end": 51.75,
+   "chars": 34
+  },
+  {
+   "start": 51.875,
+   "end": 52.375,
+   "chars": 34
+  },
+  {
+   "start": 52.5,
+   "end": 53.4,
+   "chars": 43
+  },
+  {
+   "start": 54.125,
+   "end": 54.625,
+   "chars": 25
+  },
+  {
+   "start": 54.438,
+   "end": 54.888,
+   "chars": 35
+  }
+ ],
+ "cuts": [
+  {
+   "id": "cold>awaken",
+   "t": 5,
+   "kind": "dissolve"
+  },
+  {
+   "id": "awaken>muster",
+   "t": 10,
+   "kind": "match"
+  },
+  {
+   "id": "muster>approval",
+   "t": 17.5,
+   "kind": "dissolve"
+  },
+  {
+   "id": "approval>inbox",
+   "t": 21.875,
+   "kind": "hard"
+  },
+  {
+   "id": "inbox>rooms",
+   "t": 25,
+   "kind": "dissolve"
+  },
+  {
+   "id": "rooms>lattice",
+   "t": 27.5,
+   "kind": "dissolve"
+  },
+  {
+   "id": "lattice>inbox2",
+   "t": 31.875,
+   "kind": "hard"
+  },
+  {
+   "id": "inbox2>projects",
+   "t": 35,
+   "kind": "dissolve"
+  },
+  {
+   "id": "projects>pnote",
+   "t": 39.375,
+   "kind": "hard"
+  },
+  {
+   "id": "pnote>vm",
+   "t": 45,
+   "kind": "dissolve"
+  },
+  {
+   "id": "vm>term",
+   "t": 48.75,
+   "kind": "hard"
+  },
+  {
+   "id": "term>bsvA",
+   "t": 55,
+   "kind": "dissolve"
+  },
+  {
+   "id": "bsvA>bsvB",
+   "t": 58.75,
+   "kind": "hard"
+  },
+  {
+   "id": "bsvB>blA",
+   "t": 62.5,
+   "kind": "dissolve"
+  },
+  {
+   "id": "blA>blB",
+   "t": 66.875,
+   "kind": "hard"
+  },
+  {
+   "id": "blB>routes",
+   "t": 70,
+   "kind": "dissolve"
+  },
+  {
+   "id": "routes>upd",
+   "t": 72.5,
+   "kind": "hard"
+  },
+  {
+   "id": "upd>loop",
+   "t": 75,
+   "kind": "hard"
+  },
+  {
+   "id": "loop>next",
+   "t": 77.5,
+   "kind": "dissolve"
+  },
+  {
+   "id": "next>end",
+   "t": 90,
+   "kind": "hard"
+  }
+ ]
+}

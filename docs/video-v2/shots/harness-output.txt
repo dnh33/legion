@@ -1,0 +1,50 @@
+{
+  "ok": true,
+  "passed": 3,
+  "failed": 0,
+  "results": [
+    {
+      "name": "core-task-run",
+      "status": "PASS",
+      "ms": 1017,
+      "checks": 10,
+      "proves": [
+        "A task started over HTTP runs through the real Engine and a scripted model, and ends done with the scripted result, cost and chat messages.",
+        "A read-only tool in an `ask` agent needs no card; the run is in default permission mode with a canUseTool gate.",
+        "The run makes zero boat.dev calls and zero wallet calls."
+      ],
+      "doesNotProve": [
+        "Anything about the real Claude Agent SDK, real model behaviour, real tool execution (tools other than Legion's own are not executed) or real cost."
+      ]
+    },
+    {
+      "name": "approval-card-flow",
+      "status": "PASS",
+      "ms": 891,
+      "checks": 12,
+      "proves": [
+        "A Bash call from an `ask` agent stops on an approval card whose summary is the command, until someone answers.",
+        "The MCP-class token cannot answer the card (403) and the card stays pending; the admin caller can.",
+        "Allow lets the run continue (the tool result is returned to the script); Deny returns \"The user denied this action.\" and the task still finishes."
+      ],
+      "doesNotProve": [
+        "The card UI, the A/D keys, the 10-minute auto-deny timer, or that a real Claude Code process honours the denial."
+      ]
+    },
+    {
+      "name": "mcp-token-limits",
+      "status": "PASS",
+      "ms": 935,
+      "checks": 27,
+      "proves": [
+        "With only the MCP-class bearer token, the short client list works (state, agents, start a task) and everything else answers 403 admin_required, including unknown paths (default deny) and the BSV policy changes.",
+        "No bearer at all is 401; /health is open and says only whether a secret exists.",
+        "A task started with the token alone carries origin {roomId:\"mcp\", approvalCeiling:\"ask\"}, so even a `full` agent runs in default mode with approval cards.",
+        "Freeze is the one BSV policy route the token can reach."
+      ],
+      "doesNotProve": [
+        "Anything about a process that can read Legion's memory or files as the same OS user (SECURITY.md lists that residual), or about /mcp tool calls over the MCP transport (test/mcp*.test.ts)."
+      ]
+    }
+  ]
+}
