@@ -1,0 +1,3796 @@
+{
+  "schema": 1,
+  "title": "Legion real-PC test plan",
+  "updated": "2026-10-02",
+  "masterDocument": "claude/real-pc-test-plan.md",
+  "evidenceRoot": "%USERPROFILE%\\legion-pc-run\\<yyyymmdd>\\ (outside the repo; never commit evidence that contains a token, key or .legion data)",
+  "areas": [
+    {
+      "id": "INST",
+      "name": "Installer",
+      "gate": "G1",
+      "rollback": "Run uninstall.cmd (no /purge) in every test install folder; delete throwaway source copies, the foreign test folder and the fake Electron project; restore %USERPROFILE%\\.legion from the G0 backup; undo any PATH or network change; stop any test node process by PID."
+    },
+    {
+      "id": "APP",
+      "name": "Core and app shell",
+      "gate": "G2",
+      "rollback": "Quit Legion from the tray; stop the port listener by PID; delete LEGION_HOME copies and test agents; restore %USERPROFILE%\\.legion from the G0 backup; re-enable the network adapter; reset the Doctor-breaking change (re-enter the boat.dev key)."
+    },
+    {
+      "id": "CHAT",
+      "name": "Chat, Rooms and Library",
+      "gate": "G3",
+      "rollback": "Delete test rooms, test agents and test Library notes (Inbox reject or Undo); remove exported vault folders; restore the data backup if settings were changed."
+    },
+    {
+      "id": "MCP",
+      "name": "MCP",
+      "gate": "G3",
+      "rollback": "Run `claude mcp remove legion`; restore ~/.claude.json from the backup made in MCP-05; remove the redact-test server and any Claude Desktop config entry; untick MCP inheritance if you ticked it; delete the throwaway project folder."
+    },
+    {
+      "id": "VM",
+      "name": "VM and boat.dev",
+      "gate": "G4",
+      "rollback": "Stop every VM from the Computer card and confirm in the boat.dev dashboard that nothing is running; restore Settings, boat.dev, API base URL and remove the cost-estimate rates; stop the logging listener."
+    },
+    {
+      "id": "BLND",
+      "name": "Blender (local, live, VM, managed, extension)",
+      "gate": "G5",
+      "rollback": "Delete the test task folders under %APPDATA%\\legion\\blender\\local\\ and the test exports; set the bridge back to its previous state; remove the community add-on or extension and any managed Blender copy only if installed for this run; kill test processes by PID only; stop VM Blender runs and the VM."
+    },
+    {
+      "id": "BSVT",
+      "name": "BSV testnet wallet in a VM",
+      "gate": "G8",
+      "rollback": "Freeze, Disarm and Disconnect in the BSV panel; delete the testnet VM and its wallet; nothing is ever configured on the host; a broadcast testnet transaction cannot be undone and has no value."
+    },
+    {
+      "id": "BSVM",
+      "name": "BSV mainnet real funds",
+      "gate": "G11",
+      "rollback": "R11: Disable mainnet, Disarm, Disconnect. Keep the audit log. A sent transaction cannot be undone; read the wallet history before anything else after any abort."
+    },
+    {
+      "id": "WEB",
+      "name": "Website and public install",
+      "gate": "G10",
+      "rollback": "Uninstall the test install (uninstall.cmd); no other state changes."
+    },
+    {
+      "id": "PERF",
+      "name": "Perf and regression",
+      "gate": "G9",
+      "rollback": "Delete scratch output folders and temp homes the scripts created; restore any power-plan change."
+    }
+  ],
+  "gates": [
+    {
+      "id": "G0",
+      "name": "Pre-flight",
+      "rule": "Owner confirms: which PC, Windows version, the build under test (commit), that nothing below runs against the owner's own funded wallet, and where evidence goes. Back up %USERPROFILE%\\.legion and ~/.claude.json first."
+    },
+    {
+      "id": "G1",
+      "name": "Installer",
+      "rule": "Run first. Everything else needs an installed build. INST-10 must pass before G2."
+    },
+    {
+      "id": "G2",
+      "name": "Core and app shell",
+      "rule": "Needs a launching app (INST-10). Nothing in G3 to G11 starts until APP-01 to APP-03 pass or the owner accepts the failure in writing."
+    },
+    {
+      "id": "G3",
+      "name": "Chat, Rooms, Library, MCP",
+      "rule": "Needs the owner's Claude sign-in (account class). Uses a little of the owner's Claude quota."
+    },
+    {
+      "id": "G4",
+      "name": "VM and boat.dev",
+      "rule": "spends-money: needs the owner's explicit go and the boat.dev key. Stop the VM at the end of every check."
+    },
+    {
+      "id": "G5",
+      "name": "Blender local and live (no downloads)",
+      "rule": "Needs a real Blender already installed. No downloads: checks with class downloads wait for G6."
+    },
+    {
+      "id": "G6",
+      "name": "Downloads",
+      "rule": "Only with the owner's explicit go, one download at a time. Covers add-on pin, extension install, managed Blender, npm ci."
+    },
+    {
+      "id": "G7",
+      "name": "Blender in the VM",
+      "rule": "spends-money and downloads inside the VM: owner go, boat.dev key."
+    },
+    {
+      "id": "G8",
+      "name": "BSV testnet VM",
+      "rule": "real-wallet class: only inside the throwaway testnet VM, owner present at the keyboard, an agent never drives it. Never the owner's own wallet."
+    },
+    {
+      "id": "G9",
+      "name": "Perf and regression",
+      "rule": "On an idle PC, after G2. Can run any time after that; do not run while other checks are in progress."
+    },
+    {
+      "id": "G10",
+      "name": "Website and public install",
+      "rule": "Only after the product repo is public and the site is deployed."
+    },
+    {
+      "id": "G11",
+      "name": "BSV mainnet real funds",
+      "rule": "LAST. real-funds class: owner present, says go, does every step by hand with the wallet's own UI. Needs BSVT-00 to BSVT-23 recorded and the independent review signed off."
+    }
+  ],
+  "checks": [
+    {
+      "id": "PC-INST-01",
+      "area": "INST",
+      "title": "Double-click setup.cmd: window stays open on success and on a forced failure",
+      "source": [
+        "claude/tracker-pc-checks.md P1",
+        "review/release-packaging-review.md section 5 item 1"
+      ],
+      "inferred": false,
+      "preconditions": "Windows 10 or 11 with Windows PowerShell 5.1 (powershell.exe, not pwsh). Unpacked source folder. Node installed for the success run. A second run with Node hidden from PATH (open a cmd window, run `set PATH=C:\\Windows\\System32` first) or with `npm ci` made to fail (disconnect the network) for the failure run.",
+      "steps": [
+        "Success run: double-click setup.cmd in Explorer. Answer the prompts.",
+        "Failure run: from a cmd window with the reduced PATH, run setup.cmd, or double-click it with the network off after Node is found.",
+        "Note whether the window stays open at the end of each run and whether the message can be read."
+      ],
+      "expected": "On success the window stays open with a \"done\" style message (setup.cmd pauses). On failure it stays open with an error that names what failed. Neither run closes the window before it can be read.",
+      "evidence": "PC-INST-01-success.png, PC-INST-01-failure.png (window text visible); copy of the console text to PC-INST-01.log.",
+      "safety": "downloads",
+      "automation": "owner-must-be-present",
+      "depends": [],
+      "gate": "G1",
+      "result": {
+        "status": "not-run",
+        "date": null,
+        "evidence": null
+      }
+    },
+    {
+      "id": "PC-INST-02",
+      "area": "INST",
+      "title": "Double-click setup-yes.cmd: closes on success, stays open with a message on failure",
+      "source": [
+        "claude/tracker-pc-checks.md P1",
+        "review/release-packaging-review.md F4"
+      ],
+      "inferred": false,
+      "preconditions": "As INST-01. setup-yes.cmd is the unattended entry point (-Yes).",
+      "steps": [
+        "Double-click setup-yes.cmd with everything in order and watch the window.",
+        "Repeat with Node hidden from PATH or the network off so a step fails (double-click, not from an open cmd window)."
+      ],
+      "expected": "Success: the window closes by itself and Legion starts. Failure: the window stays open, prints \"Legion setup failed (exit code N)\" and waits for a key (the single `pause` after the redirect test).",
+      "evidence": "PC-INST-02-failure.png showing the failure message and the pause prompt; PC-INST-02.log.",
+      "safety": "downloads",
+      "automation": "owner-must-be-present",
+      "depends": [],
+      "gate": "G1",
+      "result": {
+        "status": "not-run",
+        "date": null,
+        "evidence": null
+      }
+    },
+    {
+      "id": "PC-INST-03",
+      "area": "INST",
+      "title": "Redirected input: setup never waits for a keypress",
+      "source": [
+        "claude/tracker-pc-checks.md P2",
+        "review/release-packaging-review.md section 5 item 2"
+      ],
+      "inferred": false,
+      "preconditions": "cmd window in the source folder. A way to run with no console (Task Scheduler one-shot task) is optional.",
+      "steps": [
+        "Run `setup.cmd < nul`.",
+        "Run `echo | setup.cmd`.",
+        "Run `cmd /c setup-yes.cmd -DryRun -NoLaunch` from a cmd window with output piped to a file.",
+        "Optional: create a Task Scheduler task running `cmd /c setup-yes.cmd -DryRun -NoLaunch` and run it."
+      ],
+      "expected": "None of the runs blocks on Read-Host or `pause`; each ends by itself. [Console]::IsInputRedirected gives the same answer in every case (no run waits).",
+      "evidence": "PC-INST-03.log with the exit code of each run and the wall-clock time.",
+      "safety": "none",
+      "automation": "command-only",
+      "depends": [],
+      "gate": "G1",
+      "result": {
+        "status": "not-run",
+        "date": null,
+        "evidence": null
+      }
+    },
+    {
+      "id": "PC-INST-04",
+      "area": "INST",
+      "title": "Process matcher stops only Legion processes",
+      "source": [
+        "claude/tracker-pc-checks.md P3",
+        "review/release-packaging-review.md F1, F9, section 5 item 3"
+      ],
+      "inferred": false,
+      "preconditions": "A build installed and running (INST-10). Four extra programs started first: (a) Legion running from the install folder, (b) a Legion source checkout on another drive with its own electron.exe running, (c) an unrelated Electron app whose folder has src\\electron\\main.ts and package.json with another name, (d) VS Code and a plain `node` dev server open. Use harmless sample apps only.",
+      "steps": [
+        "List the candidate PIDs with `Get-CimInstance Win32_Process | Where-Object { $_.Name -match \"electron|node\" } | Select ProcessId,Name,CommandLine`.",
+        "Run `setup.cmd -DryRun` and read which PIDs it says it would stop.",
+        "Run `setup-yes.cmd -NoLaunch` and compare the list of surviving PIDs."
+      ],
+      "expected": "Only Legion's own PIDs (install folder and the source checkout of Legion, both with package name legion) are listed and stopped. The unrelated Electron app, VS Code and the node dev server keep running.",
+      "evidence": "PC-INST-04-before.txt and PC-INST-04-after.txt (PID lists), PC-INST-04.log (setup output).",
+      "safety": "none",
+      "automation": "owner-must-be-present",
+      "depends": [
+        "PC-INST-10"
+      ],
+      "gate": "G1",
+      "result": {
+        "status": "not-run",
+        "date": null,
+        "evidence": null
+      }
+    },
+    {
+      "id": "PC-INST-05",
+      "area": "INST",
+      "title": "Install to a path with spaces and non-ASCII characters",
+      "source": [
+        "claude/tracker-pc-checks.md P4",
+        "review/release-packaging-review.md section 5 item 4"
+      ],
+      "inferred": false,
+      "preconditions": "Windows PowerShell 5.1. A folder such as C:\\Users\\Zoë Ørsted\\Legion Test (create it, or use a user account with such a name).",
+      "steps": [
+        "Run `setup-yes.cmd -InstallDir \"C:\\Users\\Zoë Ørsted\\Legion Test\" -NoLaunch` from a source folder that also has a space in its path.",
+        "Open the Desktop and Start-menu shortcuts and start Legion from each.",
+        "Run uninstall.cmd from the install folder."
+      ],
+      "expected": "Install, shortcuts, launch and uninstall all work. %~dp0 is not garbled by the OEM code page (no \"path not found\" errors).",
+      "evidence": "PC-INST-05.log, PC-INST-05-shortcut.png (the shortcut Target field).",
+      "safety": "downloads",
+      "automation": "command-only",
+      "depends": [],
+      "gate": "G1",
+      "result": {
+        "status": "not-run",
+        "date": null,
+        "evidence": null
+      }
+    },
+    {
+      "id": "PC-INST-06",
+      "area": "INST",
+      "title": "Dangerous -InstallDir values are refused (drive root, foreign folder, user profile)",
+      "source": [
+        "claude/tracker-pc-checks.md P5",
+        "review/release-packaging-review.md F2, section 5 item 5"
+      ],
+      "inferred": false,
+      "preconditions": "A throwaway foreign folder with a file `keep.txt` in it. Use -DryRun first for every target.",
+      "steps": [
+        "Run `powershell -NoProfile -ExecutionPolicy Bypass -File scripts\\setup.ps1 -DryRun -Yes -NoLaunch -InstallDir <target>` for each target: `C:\\`, `C:`, the foreign folder, `%USERPROFILE%`, `%USERPROFILE%\\.legion`.",
+        "Check the foreign folder afterwards."
+      ],
+      "expected": "Every target exits non-zero with a refusal and prints the resolved path. Nothing is deleted (keep.txt still there). A missing folder, an empty folder or an existing Legion install is accepted.",
+      "evidence": "PC-INST-06.log (exit code per target), listing of the foreign folder after.",
+      "safety": "none",
+      "automation": "command-only",
+      "depends": [],
+      "gate": "G1",
+      "result": {
+        "status": "not-run",
+        "date": null,
+        "evidence": null
+      }
+    },
+    {
+      "id": "PC-INST-07",
+      "area": "INST",
+      "title": "Uninstall: shortcuts, install folder and data folder behave as documented",
+      "source": [
+        "claude/tracker-pc-checks.md P6",
+        "review/release-packaging-review.md section 5 item 6",
+        "README.md Install (uninstall paragraph)"
+      ],
+      "inferred": false,
+      "preconditions": "A working install. Desktop redirected into OneDrive on the test account if possible. A second Legion shortcut pointing at another install folder.",
+      "steps": [
+        "Run uninstall.cmd in the install folder (no /purge).",
+        "Check Desktop (including the OneDrive Desktop), Start menu, the install folder and %USERPROFILE%\\.legion.",
+        "Reinstall, then run `uninstall.cmd /purge` and answer the confirmation."
+      ],
+      "expected": "Shortcuts that point at this install go; the shortcut that points at another install stays. Install folder is removed. %USERPROFILE%\\.legion is intact without /purge and deleted (after you confirm) with /purge.",
+      "evidence": "PC-INST-07-before.txt and PC-INST-07-after.txt (directory listings), PC-INST-07.log.",
+      "safety": "none",
+      "automation": "command-only",
+      "depends": [
+        "PC-INST-10"
+      ],
+      "gate": "G1",
+      "result": {
+        "status": "not-run",
+        "date": null,
+        "evidence": null
+      }
+    },
+    {
+      "id": "PC-INST-08",
+      "area": "INST",
+      "title": "CRLF line endings survive ZIP download and git clone",
+      "source": [
+        "claude/tracker-pc-checks.md P7",
+        "review/release-packaging-review.md section 5 item 7"
+      ],
+      "inferred": false,
+      "preconditions": "Git for Windows with `core.autocrlf=input`. The repo (or a ZIP of it) once it is reachable for the owner.",
+      "steps": [
+        "Download the repo ZIP and unpack it; run `Format-Hex -Path setup.cmd -Count 400` or check with `(Get-Content -Raw setup.cmd) -match \"\\r\\n\"`.",
+        "Run `git -c core.autocrlf=input clone <repo> clone-test` and check setup.cmd, setup-yes.cmd, uninstall templates and scripts\\*.ps1 the same way.",
+        "Double-click setup.cmd from each copy."
+      ],
+      "expected": "All .cmd and .ps1 files have CRLF in the working tree in both cases (the index stores LF, .gitattributes converts) and run without \"is not recognized\" line-ending errors.",
+      "evidence": "PC-INST-08.log (match results per file).",
+      "safety": "none",
+      "automation": "command-only",
+      "depends": [],
+      "gate": "G1",
+      "result": {
+        "status": "not-run",
+        "date": null,
+        "evidence": null
+      }
+    },
+    {
+      "id": "PC-INST-09",
+      "area": "INST",
+      "title": "SmartScreen and antivirus behaviour on the unsigned .cmd files",
+      "source": [
+        "claude/tracker-pc-checks.md P8",
+        "review/release-packaging-review.md section 5 item 8",
+        "README.md status block (unsigned, expect prompts)"
+      ],
+      "inferred": false,
+      "preconditions": "Default Windows Security and SmartScreen settings. File arrives via browser download (Mark of the Web) and also via git clone.",
+      "steps": [
+        "Download the ZIP in a browser, unpack, double-click setup.cmd.",
+        "Note every prompt: SmartScreen, Defender, any third-party AV."
+      ],
+      "expected": "RECORD ONLY: which prompts appear and whether \"Run anyway\" lets setup finish. README already says to expect prompts. Anything that deletes or quarantines a file is a FAIL for the owner to triage.",
+      "evidence": "PC-INST-09-prompt-1.png ...; Defender protection history excerpt.",
+      "safety": "none",
+      "automation": "owner-must-be-present",
+      "depends": [],
+      "gate": "G1",
+      "result": {
+        "status": "not-run",
+        "date": null,
+        "evidence": null
+      }
+    },
+    {
+      "id": "PC-INST-10",
+      "area": "INST",
+      "title": "Fresh npm ci and build on Windows, launch from the shortcut with the real Electron binary",
+      "source": [
+        "claude/tracker-pc-checks.md P9",
+        "review/release-packaging-review.md section 5 item 9"
+      ],
+      "inferred": false,
+      "preconditions": "No earlier Legion install, or a clean install folder. Network on (npm and the Electron download). Owner gives the go for downloads.",
+      "steps": [
+        "Double-click setup.cmd (or run setup-yes.cmd) from a fresh source copy.",
+        "When it finishes, start Legion from the Desktop shortcut. Then close it and start `start-legion.cmd` in the install folder.",
+        "Open Doctor (title bar chip or type /doctor)."
+      ],
+      "expected": "npm ci, build and the Electron download finish; the window opens; Doctor lists Node, config, Claude sign-in, boat.dev and workspace. Both launchers open the same app.",
+      "evidence": "PC-INST-10.log (setup output tail), PC-INST-10-window.png, PC-INST-10-doctor.png.",
+      "safety": "downloads",
+      "automation": "owner-must-be-present",
+      "depends": [],
+      "gate": "G1",
+      "result": {
+        "status": "not-run",
+        "date": null,
+        "evidence": null
+      }
+    },
+    {
+      "id": "PC-INST-11",
+      "area": "INST",
+      "title": "Setup run from inside a Legion agent does not kill its own ancestor",
+      "source": [
+        "claude/tracker-pc-checks.md P10",
+        "review/release-packaging-review.md F6"
+      ],
+      "inferred": false,
+      "preconditions": "Installed Legion running. An agent with approval mode `ask` or `full` that can run shell commands. Owner present to approve the card.",
+      "steps": [
+        "In the app, ask the agent to run `setup-yes.cmd -DryRun -NoLaunch` from a source folder and then (second run) `setup-yes.cmd -NoLaunch`.",
+        "Watch whether the app window and the core stay up and whether the run finishes."
+      ],
+      "expected": "Setup excludes the whole ancestor chain: the Legion process that launched it keeps running and the update completes. If the ancestor is stopped, that is a FAIL (review F6).",
+      "evidence": "PC-INST-11.log (PID list before and after), PC-INST-11.png.",
+      "safety": "none",
+      "automation": "owner-must-be-present",
+      "depends": [
+        "PC-INST-10"
+      ],
+      "gate": "G1",
+      "result": {
+        "status": "not-run",
+        "date": null,
+        "evidence": null
+      }
+    },
+    {
+      "id": "PC-INST-12",
+      "area": "INST",
+      "title": "Setup under powershell -NonInteractive and when not user-interactive",
+      "source": [
+        "review/release-packaging-review.md F7"
+      ],
+      "inferred": true,
+      "inferredNote": "From review finding F7 (low); the tracker list did not include it.",
+      "preconditions": "cmd window in the source folder; Legion running (so setup has a question to ask).",
+      "steps": [
+        "Run `powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -File scripts\\setup.ps1 -DryRun -NoLaunch`.",
+        "Run the same without -DryRun but WITHOUT -Yes while Legion is running, with input redirected (`< nul`)."
+      ],
+      "expected": "Setup does not fail with a raw Read-Host exception; either it takes the documented default (stops Legion) or says what to do. README says input redirected takes the default.",
+      "evidence": "PC-INST-12.log.",
+      "safety": "none",
+      "automation": "command-only",
+      "depends": [
+        "PC-INST-10"
+      ],
+      "gate": "G1",
+      "result": {
+        "status": "not-run",
+        "date": null,
+        "evidence": null
+      }
+    },
+    {
+      "id": "PC-INST-13",
+      "area": "INST",
+      "title": "Uninstall edges: partial update, in-place install from a checkout, -Purge target",
+      "source": [
+        "review/release-packaging-review.md F8"
+      ],
+      "inferred": true,
+      "inferredNote": "From review finding F8 (low); not in the tracker list. Run only against throwaway copies.",
+      "preconditions": "Throwaway source checkout copy (with a .git folder) used for an in-place install; a throwaway LEGION_HOME folder.",
+      "steps": [
+        "Install from the checkout with -InstallDir pointing at the checkout itself (in-place), then run uninstall.cmd -DryRun and read what it would delete.",
+        "Set LEGION_HOME to a throwaway folder and run `uninstall.cmd /purge -DryRun`; read the target.",
+        "Delete scripts\\lib\\legion-procs.ps1 from a copied install and run uninstall.cmd."
+      ],
+      "expected": "RECORD: whether an in-place install deletes the whole checkout including .git (documented risk), whether -Purge deletes whatever LEGION_HOME names without a marker check, and whether a missing helper gives a readable message instead of a raw PowerShell error.",
+      "evidence": "PC-INST-13.log.",
+      "safety": "none",
+      "automation": "command-only",
+      "depends": [
+        "PC-INST-10"
+      ],
+      "gate": "G1",
+      "result": {
+        "status": "not-run",
+        "date": null,
+        "evidence": null
+      }
+    },
+    {
+      "id": "PC-INST-14",
+      "area": "INST",
+      "title": "Real Windows PowerShell 5.1: parse the scripts and run the matcher helpers on a throwaway node.exe",
+      "source": [
+        "review/release-packaging-review.md F5, section 0 (5.1 never run in the review)"
+      ],
+      "inferred": false,
+      "preconditions": "powershell.exe 5.1 (`$PSVersionTable.PSVersion` shows 5.x). Note: the repo CI job \"installer (Windows PowerShell 5.1)\" covers part of this on a GitHub runner, which is not the owner's PC.",
+      "steps": [
+        "Run `powershell -NoProfile -Command \"[System.Management.Automation.Language.Parser]::ParseFile('scripts\\setup.ps1',[ref]$null,[ref]$e) | Out-Null; $e.Count\"` for setup.ps1, uninstall.ps1 and scripts\\lib\\legion-procs.ps1.",
+        "Start a throwaway `node -e \"setInterval(()=>{},1e3)\"` from a folder with a fake package.json named `legion` and the entry-point files, dot-source legion-procs.ps1 and call Select-LegionProcesses and Stop-LegionProcesses on it."
+      ],
+      "expected": "0 parse errors for all three scripts. The throwaway process is matched and stopped by PID; a second throwaway node process outside that folder is untouched.",
+      "evidence": "PC-INST-14.log.",
+      "safety": "none",
+      "automation": "command-only",
+      "depends": [],
+      "gate": "G1",
+      "result": {
+        "status": "not-run",
+        "date": null,
+        "evidence": null
+      }
+    },
+    {
+      "id": "PC-INST-15",
+      "area": "INST",
+      "title": "Update in place: setup again from a newer source asks before stopping a running Legion and keeps data",
+      "source": [
+        "README.md Install (update paragraph)"
+      ],
+      "inferred": false,
+      "preconditions": "A working install with Legion running and some data in %USERPROFILE%\\.legion (an agent, a task).",
+      "steps": [
+        "Run setup.cmd again from a source folder (touch a file so it differs). Read the \"Stop it now?\" question; answer no once, then yes.",
+        "After the update, open the app."
+      ],
+      "expected": "On a console it asks before stopping (default yes only when input is redirected). After the update the app starts and the agent and task history are still there; config.json auth token is unchanged.",
+      "evidence": "PC-INST-15.log, PC-INST-15-after.png.",
+      "safety": "downloads",
+      "automation": "owner-must-be-present",
+      "depends": [
+        "PC-INST-10"
+      ],
+      "gate": "G1",
+      "result": {
+        "status": "not-run",
+        "date": null,
+        "evidence": null
+      }
+    },
+    {
+      "id": "PC-INST-16",
+      "area": "INST",
+      "title": "Desktop shortcut is created when Desktop is redirected into OneDrive",
+      "source": [
+        "claude/tracker-pc-checks.md P6 (OneDrive-redirected Desktop)",
+        "task brief: OneDrive-redirected folders"
+      ],
+      "inferred": true,
+      "inferredNote": "The install side of the OneDrive case is inferred from P6 (which checks removal).",
+      "preconditions": "Windows account with Known Folder Move on, so [Environment]::GetFolderPath(\"Desktop\") is under OneDrive.",
+      "steps": [
+        "Run `[Environment]::GetFolderPath(\"Desktop\")` and note the path.",
+        "Install; look for the Legion shortcut on that Desktop and in the Start menu."
+      ],
+      "expected": "The shortcut is created in the redirected Desktop folder (not only in C:\\Users\\<name>\\Desktop) and launches Legion.",
+      "evidence": "PC-INST-16.log (the path), PC-INST-16.png.",
+      "safety": "downloads",
+      "automation": "owner-must-be-present",
+      "depends": [],
+      "gate": "G1",
+      "result": {
+        "status": "not-run",
+        "date": null,
+        "evidence": null
+      }
+    },
+    {
+      "id": "PC-APP-01",
+      "area": "APP",
+      "title": "Tray icon: close hides to tray, menu items work, Quit stops only a core the app started",
+      "source": [
+        "claude/legion-release-tracker.md handoff (tray/second-instance/title bar)",
+        "docs/ARCHITECTURE.md Electron shell"
+      ],
+      "inferred": false,
+      "preconditions": "Installed Legion launched from the shortcut (the app starts its own core).",
+      "steps": [
+        "Click the window close button. Check the tray (notification area, maybe under the ^ arrow).",
+        "Right-click the tray icon. Expect the items Show Legion, Freeze BSV chain, Restart core, Open data folder, Quit.",
+        "Choose Show Legion; then choose Open data folder.",
+        "Choose Quit. Check in Task Manager that the core node process ended.",
+        "Start `node dist\\src\\bin\\legion-core.js` by hand first, then launch the app; choose Quit; check the hand-started core is still running."
+      ],
+      "expected": "Close hides to the tray. Show Legion restores the window. Open data folder opens %USERPROFILE%\\.legion. Quit stops the core only when the app started it.",
+      "evidence": "PC-APP-01-tray-menu.png, PC-APP-01.log (process lists after each Quit).",
+      "safety": "none",
+      "automation": "computer-use-ok",
+      "depends": [
+        "PC-INST-10"
+      ],
+      "gate": "G2",
+      "result": {
+        "status": "not-run",
+        "date": null,
+        "evidence": null
+      }
+    },
+    {
+      "id": "PC-APP-02",
+      "area": "APP",
+      "title": "Second instance: starting Legion again focuses the running window",
+      "source": [
+        "claude/legion-release-tracker.md handoff (tray/second-instance/title bar)",
+        "docs/ARCHITECTURE.md (single-instance lock)"
+      ],
+      "inferred": false,
+      "preconditions": "Legion running, once with the window visible and once hidden in the tray.",
+      "steps": [
+        "Double-click the Desktop shortcut again while the window is visible.",
+        "Hide the window to the tray; double-click the shortcut again."
+      ],
+      "expected": "No second window or second core appears; the existing window comes to the front (also from the tray). Task Manager shows one Legion Electron process tree.",
+      "evidence": "PC-APP-02.log (process count), PC-APP-02.png.",
+      "safety": "none",
+      "automation": "computer-use-ok",
+      "depends": [
+        "PC-INST-10"
+      ],
+      "gate": "G2",
+      "result": {
+        "status": "not-run",
+        "date": null,
+        "evidence": null
+      }
+    },
+    {
+      "id": "PC-APP-03",
+      "area": "APP",
+      "title": "Title bar: hidden bar with overlay controls, no overlap at 1440 px, minimum size",
+      "source": [
+        "claude/legion-release-tracker.md handoff (tray/second-instance/title bar)",
+        "CHANGELOG.md (Title bar crowding)",
+        "docs/ARCHITECTURE.md (1280x820, minimum 960x600)"
+      ],
+      "inferred": false,
+      "preconditions": "Legion running. Doctor chip in its longer state (\"1 to fix\") if you can produce it (for example remove the boat.dev key). BSV mode on shows the ticker.",
+      "steps": [
+        "Drag the window by the title bar; minimise, maximise and close with the overlay controls.",
+        "Resize to about 1440 px wide with BSV mode on and the Doctor chip at \"1 to fix\"; look at the Chat / Rooms / Library tabs and the ticker.",
+        "Shrink the window towards 960x600.",
+        "Repeat on Windows 10 and Windows 11 if both are available."
+      ],
+      "expected": "Drag, min/max/close work. At 1440 px the ticker does not draw over the view tabs, search box or right-hand icons. The window cannot go below 960x600 and every title-bar button stays clickable.",
+      "evidence": "PC-APP-03-1440.png, PC-APP-03-960.png.",
+      "safety": "none",
+      "automation": "computer-use-ok",
+      "depends": [
+        "PC-INST-10"
+      ],
+      "gate": "G2",
+      "result": {
+        "status": "not-run",
+        "date": null,
+        "evidence": null
+      }
+    },
+    {
+      "id": "PC-APP-04",
+      "area": "APP",
+      "title": "Port 4747 already taken: Legion says so, does not kill the squatter",
+      "source": [
+        "SECURITY.md (port squatting row)"
+      ],
+      "inferred": true,
+      "inferredNote": "Behaviour taken from SECURITY.md; exact UI text not read.",
+      "preconditions": "Legion not running. Any harmless local listener on 127.0.0.1:4747 (for example `node -e \"require('net').createServer().listen(4747,'127.0.0.1')\"`).",
+      "steps": [
+        "Start the listener. Launch Legion from the shortcut.",
+        "Read the message. Check the listener is still running afterwards.",
+        "Stop the listener and launch Legion again."
+      ],
+      "expected": "Legion reports that it cannot start because the port is in use (it will not run until you stop the other program) and does not kill the unrelated process. After the listener stops, Legion starts normally.",
+      "evidence": "PC-APP-04.png (message), PC-APP-04.log.",
+      "safety": "none",
+      "automation": "command-only",
+      "depends": [
+        "PC-INST-10"
+      ],
+      "gate": "G2",
+      "result": {
+        "status": "not-run",
+        "date": null,
+        "evidence": null
+      }
+    },
+    {
+      "id": "PC-APP-05",
+      "area": "APP",
+      "title": "Restart core from the tray: window reloads, admin features still work, secret rotated",
+      "source": [
+        "docs/ARCHITECTURE.md Electron shell (tray Restart core rotates the admin secret)"
+      ],
+      "inferred": false,
+      "preconditions": "Legion running with the window open on Settings.",
+      "steps": [
+        "Tray menu, Restart core.",
+        "When the window reloads, change a harmless setting in Settings (for example toggle and restore a checkbox) and save.",
+        "Open the Doctor."
+      ],
+      "expected": "The window reloads and the saved change goes through (admin works after the restart). No \"admin_required\" error appears.",
+      "evidence": "PC-APP-05.png, core.log excerpt (no secret values) in PC-APP-05.log.",
+      "safety": "none",
+      "automation": "computer-use-ok",
+      "depends": [
+        "PC-APP-01"
+      ],
+      "gate": "G2",
+      "result": {
+        "status": "not-run",
+        "date": null,
+        "evidence": null
+      }
+    },
+    {
+      "id": "PC-APP-06",
+      "area": "APP",
+      "title": "Doctor lists every check with a fix, on the real machine",
+      "source": [
+        "README.md (Doctor)",
+        "claude/legion-release-tracker.md handoff"
+      ],
+      "inferred": false,
+      "preconditions": "Installed Legion; Claude signed in or an API key set; boat.dev key optional.",
+      "steps": [
+        "Open Doctor from the title bar or type /doctor.",
+        "Read each row: Node version, config, Claude sign-in (email), boat.dev, workspace.",
+        "Break one thing on purpose (clear the boat.dev key) and re-run."
+      ],
+      "expected": "Each row shows ok or a fix. The broken row shows a fix text; the chip count updates. Opening Doctor makes no boat.dev call before you ask for it (see VM-01).",
+      "evidence": "PC-APP-06-ok.png, PC-APP-06-broken.png.",
+      "safety": "account",
+      "automation": "computer-use-ok",
+      "depends": [
+        "PC-INST-10"
+      ],
+      "gate": "G2",
+      "result": {
+        "status": "not-run",
+        "date": null,
+        "evidence": null
+      }
+    },
+    {
+      "id": "PC-APP-07",
+      "area": "APP",
+      "title": "First launch: config.json with a fresh token; no secret in logs",
+      "source": [
+        "README.md (first launch creates config.json)",
+        "CLAUDE.md hard rules (no tokens in logs)"
+      ],
+      "inferred": false,
+      "preconditions": "No %USERPROFILE%\\.legion yet (back it up first).",
+      "steps": [
+        "Launch Legion once. Look at %USERPROFILE%\\.legion.",
+        "Search core.log and other *.log for the token value (do not print the token: load it in a variable and use Select-String -Quiet)."
+      ],
+      "expected": "config.json exists with an authToken; the token string is not found in any log. Only the first 4 characters may appear in your evidence.",
+      "evidence": "PC-APP-07.log with True/False per log file, no token text.",
+      "safety": "none",
+      "automation": "command-only",
+      "depends": [
+        "PC-INST-10"
+      ],
+      "gate": "G2",
+      "result": {
+        "status": "not-run",
+        "date": null,
+        "evidence": null
+      }
+    },
+    {
+      "id": "PC-APP-08",
+      "area": "APP",
+      "title": "Data and workspace under a profile name with spaces and non-ASCII characters",
+      "source": [
+        "task brief: paths with spaces/non-ASCII"
+      ],
+      "inferred": true,
+      "inferredNote": "No source states it fails; checked because the installer path case (INST-05) is a known risk.",
+      "preconditions": "A Windows account whose profile folder contains a space and a non-ASCII letter (for example Zoë Ørsted).",
+      "steps": [
+        "Launch Legion as that user, create an agent with a working directory under the profile, run a task that writes a file there.",
+        "Open Library and the Doctor."
+      ],
+      "expected": "config.json, state and logs are written under the profile\\.legion folder; the task writes its file; no mojibake in paths shown in the UI; Doctor workspace check passes.",
+      "evidence": "PC-APP-08.png, PC-APP-08.log.",
+      "safety": "account",
+      "automation": "owner-must-be-present",
+      "depends": [
+        "PC-INST-10"
+      ],
+      "gate": "G2",
+      "result": {
+        "status": "not-run",
+        "date": null,
+        "evidence": null
+      }
+    },
+    {
+      "id": "PC-APP-09",
+      "area": "APP",
+      "title": "Upgrade from the previous build: Builder VM size reset to default once",
+      "source": [
+        "claude/tracker-pc-checks.md U1",
+        "review/rooms-probe-upgrade-review.md section U1",
+        "CHANGELOG.md (Upgrade: Builder's VM size is reset)"
+      ],
+      "inferred": false,
+      "preconditions": "A copy of a state.json from the v6-5 build with Builder on `large` and no `migrations` flag (back up the real %USERPROFILE%\\.legion first; test in a copy via LEGION_HOME).",
+      "steps": [
+        "Start the new build against that data. Open Builder's settings.",
+        "Set Builder to `large` by hand. Restart the core (tray, Restart core).",
+        "Open state.json and read `migrations`."
+      ],
+      "expected": "First start: Builder shows `default` and migrations contains \"builder-vm-size-default-v1\". The manual `large` choice is kept on the next start; the migration never runs again. Another agent set to `large` was not changed.",
+      "evidence": "PC-APP-09.log (state.json migrations field and Builder vm.size before/after).",
+      "safety": "none",
+      "automation": "command-only",
+      "depends": [
+        "PC-INST-10"
+      ],
+      "gate": "G2",
+      "result": {
+        "status": "not-run",
+        "date": null,
+        "evidence": null
+      }
+    },
+    {
+      "id": "PC-APP-10",
+      "area": "APP",
+      "title": "Claude sign-in and a first real run",
+      "source": [
+        "claude/legion-release-tracker.md handoff (approval-card flows end to end)",
+        "README.md Settings"
+      ],
+      "inferred": false,
+      "preconditions": "Owner signed in to Claude Code on this PC (or an API key set in Settings). Uses a few tokens: pick the Haiku model.",
+      "steps": [
+        "Open Settings, Claude; read the sign-in state.",
+        "Select Zealot, choose a small model, send \"reply with the word ok\"."
+      ],
+      "expected": "The run streams a reply and ends; the task appears under recent tasks with a cost. No credential is shown on screen.",
+      "evidence": "PC-APP-10.png (no key visible).",
+      "safety": "account",
+      "automation": "owner-must-be-present",
+      "depends": [
+        "PC-INST-10"
+      ],
+      "gate": "G2",
+      "result": {
+        "status": "not-run",
+        "date": null,
+        "evidence": null
+      }
+    },
+    {
+      "id": "PC-APP-11",
+      "area": "APP",
+      "title": "Approval cards end to end: Allow, Deny, keyboard A and D, ask/auto-edits/full",
+      "source": [
+        "claude/legion-release-tracker.md handoff (approval-card flows end to end)",
+        "README.md (Inline approvals)"
+      ],
+      "inferred": false,
+      "preconditions": "APP-10 passed. An agent in `ask` mode with a throwaway working directory.",
+      "steps": [
+        "Ask the agent to create a file in the working directory. When the Allow/Deny card appears press A.",
+        "Ask it to delete that file; press D.",
+        "Switch the agent to `auto-edits`, repeat the create; then to `full`.",
+        "Leave one card unanswered for the timeout period (10 minutes) if time allows."
+      ],
+      "expected": "A allows, D denies and the agent is told so. auto-edits and full skip cards for edits as described. An unanswered card ends with the agent told nobody answered.",
+      "evidence": "PC-APP-11-card.png, PC-APP-11-after.png.",
+      "safety": "account",
+      "automation": "computer-use-ok",
+      "depends": [
+        "PC-APP-10"
+      ],
+      "gate": "G2",
+      "result": {
+        "status": "not-run",
+        "date": null,
+        "evidence": null
+      }
+    },
+    {
+      "id": "PC-APP-12",
+      "area": "APP",
+      "title": "Sentinel scheduled routine fires unattended",
+      "source": [
+        "claude/legion-release-tracker.md handoff (Sentinel schedule)"
+      ],
+      "inferred": true,
+      "inferredNote": "The handoff names it, but no scheduler code was found in src/ (only the Sentinel persona text mentions routines). The owner must say how the routine is meant to be set up before this can be run.",
+      "preconditions": "Owner decides what \"a Sentinel schedule\" is (a Claude Code routine, Task Scheduler call to the MCP bridge, or an in-app feature) and sets it up.",
+      "steps": [
+        "Set up the smallest routine (a check every few minutes) and leave the PC idle.",
+        "Check that it fired at the expected time with the window hidden to the tray, and that it stopped when expected."
+      ],
+      "expected": "The routine fires by itself at the set time and produces a task visible in Legion. If it needs a VM, the VM is stopped when idle.",
+      "evidence": "PC-APP-12.log (times fired), screenshot of the task list.",
+      "safety": "account",
+      "automation": "owner-must-be-present",
+      "depends": [
+        "PC-APP-10"
+      ],
+      "gate": "G2",
+      "result": {
+        "status": "not-run",
+        "date": null,
+        "evidence": null
+      }
+    },
+    {
+      "id": "PC-APP-13",
+      "area": "APP",
+      "title": "Works offline: bundled fonts and UI render without a network",
+      "source": [
+        "README.md (fonts bundled so it works offline)"
+      ],
+      "inferred": true,
+      "inferredNote": "Taken from the README claim; not listed as a check by any agent.",
+      "preconditions": "Installed Legion. Disconnect Wi-Fi or disable the adapter.",
+      "steps": [
+        "Start Legion with the network off. Look at the title bar font (Grenze Gotisch for the wordmark), body and mono text."
+      ],
+      "expected": "The UI loads and all three bundled font families render (no fallback serif/sans swap, no missing glyph boxes). Runs fail with a network error, not a blank UI.",
+      "evidence": "PC-APP-13.png.",
+      "safety": "none",
+      "automation": "computer-use-ok",
+      "depends": [
+        "PC-INST-10"
+      ],
+      "gate": "G2",
+      "result": {
+        "status": "not-run",
+        "date": null,
+        "evidence": null
+      }
+    },
+    {
+      "id": "PC-APP-14",
+      "area": "APP",
+      "title": "Renderer bridge in the real sandboxed preload (window.legion)",
+      "source": [
+        "docs/BSV-WALLET-DESIGN.md section 11 (preload survives a real sandbox)",
+        "docs/ARCHITECTURE.md (preload exposes window.legion)"
+      ],
+      "inferred": true,
+      "inferredNote": "Opening DevTools in the packaged build may be disabled; use `npm run app` from a source checkout if so.",
+      "preconditions": "Legion running; DevTools reachable (Ctrl+Shift+I) in a source checkout run with `npm run app`.",
+      "steps": [
+        "In the DevTools console evaluate `Object.keys(window.legion)` and `window.legion.platform`.",
+        "Evaluate `typeof window.legion.bsvPolicy`."
+      ],
+      "expected": "Keys are baseUrl, token, admin, platform, openExternal (and bsvPolicy once the BSV bridge is built). admin is non-empty only while Legion's own core child is alive. Do not copy the token into evidence.",
+      "evidence": "PC-APP-14.png with token and admin values hidden.",
+      "safety": "none",
+      "automation": "computer-use-ok",
+      "depends": [
+        "PC-INST-10"
+      ],
+      "gate": "G2",
+      "result": {
+        "status": "not-run",
+        "date": null,
+        "evidence": null
+      }
+    },
+    {
+      "id": "PC-CHAT-01",
+      "area": "CHAT",
+      "title": "Bot-created room with no budget: card says no spend limit, running cost visible",
+      "source": [
+        "claude/tracker-pc-checks.md R1",
+        "review/rooms-probe-upgrade-review.md R1 checks",
+        "claude/legion-release-tracker.md decision 4"
+      ],
+      "inferred": false,
+      "preconditions": "APP-10 passed. Two agents. Owner at the keyboard. Use a small model.",
+      "steps": [
+        "Ask Zealot to create a room with Scout using room_create and no budget.",
+        "Read the approval card; Allow it.",
+        "Open the room header and the room settings."
+      ],
+      "expected": "The card says there is no spend limit (not $1 or $5). The room header meter shows running cost with no maximum; settings Budget box shows the placeholder \"No limit\". Member cap 6 still applies.",
+      "evidence": "PC-CHAT-01-card.png, PC-CHAT-01-header.png.",
+      "safety": "account",
+      "automation": "computer-use-ok",
+      "depends": [
+        "PC-APP-10"
+      ],
+      "gate": "G3",
+      "result": {
+        "status": "not-run",
+        "date": null,
+        "evidence": null
+      }
+    },
+    {
+      "id": "PC-CHAT-02",
+      "area": "CHAT",
+      "title": "Room budget edge cases in the real UI: remove a limit, add one, resume after a budget pause",
+      "source": [
+        "review/rooms-probe-upgrade-review.md polish P1, P2"
+      ],
+      "inferred": true,
+      "inferredNote": "Polish findings of the rooms review; behaviour already unit-tested, the wording is what needs eyes.",
+      "preconditions": "A room from CHAT-01 or a human-made room with a $0.05 budget.",
+      "steps": [
+        "Let the room hit its budget so it pauses (post a message that wakes a bot).",
+        "In room settings clear the Budget box and Save; read the pause pill; Resume.",
+        "Add a limit back."
+      ],
+      "expected": "Readable wording (the review flagged \"spent $x of its No limit limit\" as a wording bug); Resume works after the limit is removed; clearing the box on a room that had a limit is clear about the result.",
+      "evidence": "PC-CHAT-02-pill.png.",
+      "safety": "account",
+      "automation": "computer-use-ok",
+      "depends": [
+        "PC-CHAT-01"
+      ],
+      "gate": "G3",
+      "result": {
+        "status": "not-run",
+        "date": null,
+        "evidence": null
+      }
+    },
+    {
+      "id": "PC-CHAT-03",
+      "area": "CHAT",
+      "title": "Rooms with real bots: freeze stops work, guards stop loops",
+      "source": [
+        "README.md Rooms",
+        "docs/COMMS-BRIDGE.md"
+      ],
+      "inferred": true,
+      "inferredNote": "No agent listed it as unverified; added because rooms are driven by real model output that fakes cannot reproduce.",
+      "preconditions": "A room with 3 bots on a small model and a small budget.",
+      "steps": [
+        "Send a message with @everyone-style wake and let bots answer each other.",
+        "Press Freeze while a bot is running.",
+        "Resume."
+      ],
+      "expected": "Freeze cancels running work and bots stop waking; messages are saved; Resume continues. Hop, cycle and budget guards end a back-and-forth by themselves.",
+      "evidence": "PC-CHAT-03.png.",
+      "safety": "account",
+      "automation": "computer-use-ok",
+      "depends": [
+        "PC-APP-10"
+      ],
+      "gate": "G3",
+      "result": {
+        "status": "not-run",
+        "date": null,
+        "evidence": null
+      }
+    },
+    {
+      "id": "PC-CHAT-04",
+      "area": "CHAT",
+      "title": "Copy menu puts real Markdown and plain text on the Windows clipboard",
+      "source": [
+        "docs/CHAT.md Copy menu"
+      ],
+      "inferred": true,
+      "inferredNote": "Unit tests cover the formatting; the real clipboard in Electron is not covered.",
+      "preconditions": "A reply that contains a Markdown table and a code block.",
+      "steps": [
+        "Hover the reply; click Markdown under it; paste into Notepad.",
+        "Click Plain text; paste again."
+      ],
+      "expected": "Markdown keeps the table source; plain text gives tab-separated rows; no stray HTML.",
+      "evidence": "PC-CHAT-04.png of both pastes.",
+      "safety": "none",
+      "automation": "computer-use-ok",
+      "depends": [
+        "PC-APP-10"
+      ],
+      "gate": "G3",
+      "result": {
+        "status": "not-run",
+        "date": null,
+        "evidence": null
+      }
+    },
+    {
+      "id": "PC-CHAT-05",
+      "area": "CHAT",
+      "title": "Message queue with a real run: Enter queues, Ctrl+Enter interrupts, stop pauses the queue",
+      "source": [
+        "docs/CHAT.md Message queue"
+      ],
+      "inferred": true,
+      "inferredNote": "Logic is unit-tested; timing with a real streaming run is not.",
+      "preconditions": "APP-10 passed. A prompt that makes the agent work for about 20 seconds.",
+      "steps": [
+        "While it runs, type two messages and press Enter after each (they queue).",
+        "Press Ctrl+Enter with a third message.",
+        "Press Stop during a later run and reload the window."
+      ],
+      "expected": "Enter queues in order and shows the strip above the composer; Ctrl+Enter cancels the run and sends now with the rest still queued; a stop or reload pauses the queue instead of sending on its own.",
+      "evidence": "PC-CHAT-05-queue.png.",
+      "safety": "account",
+      "automation": "computer-use-ok",
+      "depends": [
+        "PC-APP-10"
+      ],
+      "gate": "G3",
+      "result": {
+        "status": "not-run",
+        "date": null,
+        "evidence": null
+      }
+    },
+    {
+      "id": "PC-CHAT-06",
+      "area": "CHAT",
+      "title": "Library Inbox with a real run: accept and reject a note; restart keeps the same graph",
+      "source": [
+        "claude/legion-release-tracker.md R6.1 open item",
+        "docs/LIBRARY.md"
+      ],
+      "inferred": false,
+      "preconditions": "APP-10 passed.",
+      "steps": [
+        "Ask an agent to save a note to the Library. Open Library, Inbox; accept one note, reject another.",
+        "Restart the core (tray) and reopen Library."
+      ],
+      "expected": "Accepted note is in the graph; rejected is gone; after restart the graph, edges and search results are identical. This is the user-visible form of the \"restart equals live\" guarantee that is NOT confirmed on Windows (see PERF-03).",
+      "evidence": "PC-CHAT-06-before.png, PC-CHAT-06-after.png.",
+      "safety": "account",
+      "automation": "computer-use-ok",
+      "depends": [
+        "PC-APP-10"
+      ],
+      "gate": "G3",
+      "result": {
+        "status": "not-run",
+        "date": null,
+        "evidence": null
+      }
+    },
+    {
+      "id": "PC-CHAT-07",
+      "area": "CHAT",
+      "title": "Library export to a vault folder on Windows (OneDrive path, link refusal, Undo)",
+      "source": [
+        "docs/LIBRARY.md (export refuses to write through a link; Undo open 7 days)"
+      ],
+      "inferred": true,
+      "inferredNote": "Link and path behaviour is tested with junctions in unit tests; a real OneDrive-synced vault was not.",
+      "preconditions": "A throwaway vault folder, once under OneDrive and once containing a junction named legion (mklink /J) pointing outside.",
+      "steps": [
+        "Library: export the shared notes to the OneDrive vault folder; open the files.",
+        "Export into the folder that contains the junction.",
+        "In Activity click Undo on one bot write."
+      ],
+      "expected": "Files appear under <vault>\\legion\\<type>\\ as Markdown; export refuses to write through the junction and says so; nothing outside <vault>\\legion\\ is touched; Undo works.",
+      "evidence": "PC-CHAT-07.png, PC-CHAT-07.log (listings).",
+      "safety": "none",
+      "automation": "owner-must-be-present",
+      "depends": [
+        "PC-APP-10"
+      ],
+      "gate": "G3",
+      "result": {
+        "status": "not-run",
+        "date": null,
+        "evidence": null
+      }
+    },
+    {
+      "id": "PC-MCP-01",
+      "area": "MCP",
+      "title": "inheritMcp off: no claude.ai connectors or user MCP servers connect, even with a settings env block",
+      "source": [
+        "claude/tracker-pc-checks.md M1",
+        "review/mcp-isolation-review.md F1"
+      ],
+      "inferred": false,
+      "preconditions": "Real claude.ai connectors enabled on the owner's account. `claude.inheritMcp` off (default). A throwaway project folder whose .claude/settings.json has an `env` block setting ENABLE_CLAUDEAI_MCP_SERVERS to \"true\". Fix under test: settings.disableClaudeAiConnectors passed by Legion.",
+      "steps": [
+        "Point an agent's working directory at the throwaway project; run a one-line task.",
+        "Open Settings, MCP: read the status panel for the run.",
+        "Check the connector servers' own logs or dashboards for a connection from that time."
+      ],
+      "expected": "The status panel lists only Legion's own server and servers added under Settings, MCP; no claude.ai connector is connected and none logged a session. If a connector connects, that is a FAIL (review F1: the env-only switch can be undone by inherited settings).",
+      "evidence": "PC-MCP-01-status.png and the connector log excerpt (redacted).",
+      "safety": "account",
+      "automation": "owner-must-be-present",
+      "depends": [
+        "PC-APP-10"
+      ],
+      "gate": "G3",
+      "result": {
+        "status": "not-run",
+        "date": null,
+        "evidence": null
+      }
+    },
+    {
+      "id": "PC-MCP-02",
+      "area": "MCP",
+      "title": "inheritMcp on with a registered Legion server: self-server switched off, no loop",
+      "source": [
+        "claude/tracker-pc-checks.md M2",
+        "review/mcp-isolation-review.md F6"
+      ],
+      "inferred": false,
+      "preconditions": "`claude mcp add legion http://127.0.0.1:4747/mcp` (or stdio) configured in Claude Code. Settings, Claude: tick the MCP inheritance option.",
+      "steps": [
+        "Run a one-line task.",
+        "Read the MCP status panel."
+      ],
+      "expected": "Legion's own /mcp entry from the inherited config is shown as switched off after init; the run ends; no task starts tasks recursively.",
+      "evidence": "PC-MCP-02-status.png.",
+      "safety": "account",
+      "automation": "owner-must-be-present",
+      "depends": [
+        "PC-MCP-05"
+      ],
+      "gate": "G3",
+      "result": {
+        "status": "not-run",
+        "date": null,
+        "evidence": null
+      }
+    },
+    {
+      "id": "PC-MCP-03",
+      "area": "MCP",
+      "title": "Loopback aliases of the self-server on Windows (127.0.0.2, ::ffff:127.0.0.1, localhost.)",
+      "source": [
+        "review/mcp-isolation-review.md F2b"
+      ],
+      "inferred": true,
+      "inferredNote": "Review says macOS/Windows 127/8 behaviour differs from Linux; expected result unknown.",
+      "preconditions": "Legion core running.",
+      "steps": [
+        "Run `Test-NetConnection 127.0.0.2 -Port 4747` and open http://[::ffff:127.0.0.1]:4747/health and http://localhost.:4747/health in a browser or with curl.exe -s."
+      ],
+      "expected": "RECORD which aliases reach the core on Windows. Any alias that reaches it is a spelling the self-MCP guard (isSelfMcpUrl) must also catch.",
+      "evidence": "PC-MCP-03.log.",
+      "safety": "none",
+      "automation": "command-only",
+      "depends": [
+        "PC-INST-10"
+      ],
+      "gate": "G3",
+      "result": {
+        "status": "not-run",
+        "date": null,
+        "evidence": null
+      }
+    },
+    {
+      "id": "PC-MCP-04",
+      "area": "MCP",
+      "title": "A broken plugin MCP server in the owner's Claude setup is shown as theirs, not Legion's",
+      "source": [
+        "claude/tracker-pc-checks.md M3"
+      ],
+      "inferred": false,
+      "preconditions": "The owner's Claude setup has the failing server `plugin:data:definite` (ENDPOINT_NOT_FOUND). inheritMcp on.",
+      "steps": [
+        "Run a task with MCP inheritance on and read the status panel.",
+        "Tell the owner what it shows."
+      ],
+      "expected": "The server appears as failed with its own error and origin; Legion is not blamed. Note only: nothing for Legion to fix.",
+      "evidence": "PC-MCP-04.png.",
+      "safety": "account",
+      "automation": "owner-only",
+      "depends": [
+        "PC-MCP-02"
+      ],
+      "gate": "G3",
+      "result": {
+        "status": "not-run",
+        "date": null,
+        "evidence": null
+      }
+    },
+    {
+      "id": "PC-MCP-05",
+      "area": "MCP",
+      "title": "Register the Legion MCP stdio bridge in Claude Code (user scope), list tools, one Haiku task",
+      "source": [
+        "claude/legion-release-tracker.md After install: Legion MCP for Claude Code",
+        "README.md Orchestrate"
+      ],
+      "inferred": false,
+      "preconditions": "Legion installed (INST-10). Owner approved user-scope registration. NOTE: the tracker text shows the path as `dist\\srcin\\...` (a lost backslash); the real file is dist\\src\\bin\\legion-mcp-stdio.js.",
+      "steps": [
+        "Back up ~/.claude.json to ~/.claude/backups/<date>-legion-mcp/ and write a RESTORE.md there.",
+        "Run `claude mcp add --scope user legion -- node \"%LOCALAPPDATA%\\Programs\\Legion\\dist\\src\\bin\\legion-mcp-stdio.js\"`.",
+        "Run `claude mcp list` and, in a Claude Code session, list the legion tools (legion_list_agents, legion_models, legion_create_agent, legion_run, legion_continue, legion_status, legion_cancel, legion_vm, legion_recent_tasks).",
+        "Ask Claude Code to use legion_run with Zealot on Haiku: \"reply ok\"."
+      ],
+      "expected": "The nine tools are listed; the task runs and its result comes back. The Claude config holds no token (the bridge reads it itself). Rollback: `claude mcp remove legion` and restore the backup.",
+      "evidence": "PC-MCP-05.log (claude mcp list output), PC-MCP-05.png.",
+      "safety": "account",
+      "automation": "owner-must-be-present",
+      "depends": [
+        "PC-INST-10",
+        "PC-APP-10"
+      ],
+      "gate": "G3",
+      "result": {
+        "status": "not-run",
+        "date": null,
+        "evidence": null
+      }
+    },
+    {
+      "id": "PC-MCP-06",
+      "area": "MCP",
+      "title": "MCP token class cannot approve, accept notes or change settings",
+      "source": [
+        "claude/legion-release-tracker.md After install (token class cannot approve cards...)",
+        "README.md Orchestrate"
+      ],
+      "inferred": false,
+      "preconditions": "Legion running. Read the token into a PowerShell variable without printing it (`$t=(Get-Content $env:USERPROFILE\\.legion\\config.json -Raw | ConvertFrom-Json).authToken`).",
+      "steps": [
+        "With curl.exe call `GET /api/state` with `Authorization: Bearer $t` (expect 200).",
+        "Call `GET /api/config`, `POST /api/approvals/<any id>` and `GET /api/bsv/policy` with the same header (print only the HTTP status)."
+      ],
+      "expected": "/api/state is 200; the other routes return 401 or 403 (admin_required). Evidence shows status codes only, never the token.",
+      "evidence": "PC-MCP-06.log (status codes).",
+      "safety": "none",
+      "automation": "command-only",
+      "depends": [
+        "PC-INST-10"
+      ],
+      "gate": "G3",
+      "result": {
+        "status": "not-run",
+        "date": null,
+        "evidence": null
+      }
+    },
+    {
+      "id": "PC-MCP-07",
+      "area": "MCP",
+      "title": "Cowork and Claude Desktop over the stdio bridge",
+      "source": [
+        "claude/legion-release-tracker.md handoff (Cowork over MCP)",
+        "README.md Orchestrate"
+      ],
+      "inferred": false,
+      "preconditions": "Claude Desktop or Cowork installed and signed in. Owner present.",
+      "steps": [
+        "Run `npm run mcp-config` in the install folder (do not paste its token into evidence).",
+        "Add the stdio snippet to claude_desktop_config.json under mcpServers; restart Claude Desktop.",
+        "Ask it to call legion_list_agents, then legion_run with a Haiku one-liner."
+      ],
+      "expected": "The tools show up and answer. If the app was closed, the bridge starts Core headless (see MCP-08).",
+      "evidence": "PC-MCP-07.png.",
+      "safety": "account",
+      "automation": "owner-must-be-present",
+      "depends": [
+        "PC-INST-10"
+      ],
+      "gate": "G3",
+      "result": {
+        "status": "not-run",
+        "date": null,
+        "evidence": null
+      }
+    },
+    {
+      "id": "PC-MCP-08",
+      "area": "MCP",
+      "title": "The stdio bridge starts Core headless when the app is closed, and the app adopts it",
+      "source": [
+        "docs/ARCHITECTURE.md (legion-mcp-stdio starts Core headless)"
+      ],
+      "inferred": true,
+      "inferredNote": "ARCHITECTURE states it; nobody listed it as verified on Windows.",
+      "preconditions": "Legion fully quit (tray, Quit). No core on port 4747.",
+      "steps": [
+        "Call the bridge from Claude Code (MCP-05) so it starts Core.",
+        "Check Task Manager for a headless core node process; then launch the Legion app."
+      ],
+      "expected": "A headless core starts and answers; the app starts and uses it (one core). Quit of the app does not stop a core it did not start.",
+      "evidence": "PC-MCP-08.log (process list).",
+      "safety": "account",
+      "automation": "owner-must-be-present",
+      "depends": [
+        "PC-MCP-05"
+      ],
+      "gate": "G3",
+      "result": {
+        "status": "not-run",
+        "date": null,
+        "evidence": null
+      }
+    },
+    {
+      "id": "PC-MCP-09",
+      "area": "MCP",
+      "title": "MCP status panel does not show URLs or tokens from a failing server",
+      "source": [
+        "review/mcp-isolation-review.md F3"
+      ],
+      "inferred": true,
+      "inferredNote": "Finding F3 (low-medium) with a fix suggested; run after the fix.",
+      "preconditions": "Settings, MCP: add a remote server named `redact-test` with URL `https://127.0.0.1:9/mcp?token=EXAMPLE0000` (a refused port).",
+      "steps": [
+        "Run a one-line task. Read the status panel entry for redact-test.",
+        "Remove the server again."
+      ],
+      "expected": "The error text shows no query string or token (URL reduced to its origin or [url]). If `token=...` is visible, that is a FAIL.",
+      "evidence": "PC-MCP-09.png.",
+      "safety": "none",
+      "automation": "computer-use-ok",
+      "depends": [
+        "PC-APP-10"
+      ],
+      "gate": "G3",
+      "result": {
+        "status": "not-run",
+        "date": null,
+        "evidence": null
+      }
+    },
+    {
+      "id": "PC-VM-01",
+      "area": "VM",
+      "title": "Core start makes zero boat.dev key-probe calls",
+      "source": [
+        "claude/tracker-pc-checks.md K1",
+        "review/rooms-probe-upgrade-review.md K1",
+        "claude/legion-release-tracker.md decision 3"
+      ],
+      "inferred": false,
+      "preconditions": "boat.dev key saved in Settings. To count calls without trusting Legion: set Settings, boat.dev, \"API base URL\" to a local logging listener (any small Node http server on 127.0.0.1 that logs every request path) and restore it afterwards. If the owner has stored VMs, expect one lookup per stored VM at start (review K1-F1).",
+      "steps": [
+        "Quit Legion. Start the logging listener. Launch Legion; wait 60 seconds without opening Settings or starting a VM.",
+        "Read the listener log."
+      ],
+      "expected": "No permission-probe requests (about 8 calls) at start. With no stored VMs the log is empty; with N stored VMs at most N lookups from the state refresh.",
+      "evidence": "PC-VM-01.log (request paths only, no key header).",
+      "safety": "account",
+      "automation": "command-only",
+      "depends": [
+        "PC-APP-10"
+      ],
+      "gate": "G4",
+      "result": {
+        "status": "not-run",
+        "date": null,
+        "evidence": null
+      }
+    },
+    {
+      "id": "PC-VM-02",
+      "area": "VM",
+      "title": "The key probe runs once: on first Settings, boat.dev open or first VM use; Check again repeats it",
+      "source": [
+        "claude/tracker-pc-checks.md K1",
+        "review/rooms-probe-upgrade-review.md K1 (race, re-open, reset on key change)"
+      ],
+      "inferred": false,
+      "preconditions": "Same logging listener as VM-01 (probe results will show errors; that is fine, the count is what matters).",
+      "steps": [
+        "Open Settings, boat.dev: count requests. Close and reopen Settings: count again.",
+        "Click Check again: count again.",
+        "Save a changed key: count again."
+      ],
+      "expected": "First open: one probe (about 8 requests). Second open: no new requests. Check again: a new probe. A changed key forgets the old findings and probes once. Saving a key probes at once (review K1-F2: owner to confirm that is wanted).",
+      "evidence": "PC-VM-02.log (counts per step).",
+      "safety": "account",
+      "automation": "command-only",
+      "depends": [
+        "PC-VM-01"
+      ],
+      "gate": "G4",
+      "result": {
+        "status": "not-run",
+        "date": null,
+        "evidence": null
+      }
+    },
+    {
+      "id": "PC-VM-03",
+      "area": "VM",
+      "title": "Settings, boat.dev permission panel shows the real key's abilities and never creates a VM",
+      "source": [
+        "docs/VM-NOTES.md",
+        "ui Settings (What this key can do)"
+      ],
+      "inferred": false,
+      "preconditions": "Real boat.dev key (free trial and, if available, paid).",
+      "steps": [
+        "Open Settings, boat.dev; read \"What this key can do\" and the refused-actions list.",
+        "Check the boat.dev dashboard for new sandboxes."
+      ],
+      "expected": "The panel reports the key's abilities; no sandbox was created (\"it reads and asks about a VM that does not exist\"). Prices and probe results are visible only in the app window, not to an MCP token.",
+      "evidence": "PC-VM-03.png, dashboard screenshot.",
+      "safety": "account",
+      "automation": "owner-must-be-present",
+      "depends": [
+        "PC-VM-02"
+      ],
+      "gate": "G4",
+      "result": {
+        "status": "not-run",
+        "date": null,
+        "evidence": null
+      }
+    },
+    {
+      "id": "PC-VM-04",
+      "area": "VM",
+      "title": "Real boat.dev error bodies and probe ordering",
+      "source": [
+        "docs/VM-NOTES.md \"Not verified against the real boat.dev\""
+      ],
+      "inferred": false,
+      "preconditions": "A real key in each state you can produce: Claude not configured on boat.dev; a trial account asking for a large VM.",
+      "steps": [
+        "Open Settings, boat.dev with a key whose account has no Claude connected.",
+        "Ask Builder to start a VM at size `large` on a trial account (if you have one)."
+      ],
+      "expected": "Messages match the three known bodies (provider_not_configured, api_key_action_forbidden, trial_machine_class_not_allowed); RECORD whether provider_not_configured is answered before any sandbox lookup (the doc says only a fake covers this).",
+      "evidence": "PC-VM-04.png, error text copied to PC-VM-04.log (key removed).",
+      "safety": "account",
+      "automation": "owner-only",
+      "depends": [
+        "PC-VM-02"
+      ],
+      "gate": "G4",
+      "result": {
+        "status": "not-run",
+        "date": null,
+        "evidence": null
+      }
+    },
+    {
+      "id": "PC-VM-05",
+      "area": "VM",
+      "title": "Forgemaster VM run: start, exec, preview, Open desktop, stop",
+      "source": [
+        "claude/legion-release-tracker.md handoff (Forgemaster VM run, real boat.dev checks)",
+        "claude/legion-release-tracker.md item C"
+      ],
+      "inferred": false,
+      "preconditions": "boat.dev key set and permitted. Owner says go (a VM is billed). Forgemaster agent with approval `ask`.",
+      "steps": [
+        "Ask Forgemaster to start its VM and run `uname -a`.",
+        "Look at the Computer card: state, live screen preview, Open desktop link; click Open desktop.",
+        "Ask it to stop the VM; check the boat.dev dashboard."
+      ],
+      "expected": "The VM starts, the command output returns, the preview shows the screen, Open desktop opens the VM desktop in the browser, and stop ends billing (dashboard shows stopped).",
+      "evidence": "PC-VM-05-card.png, PC-VM-05-dashboard.png.",
+      "safety": "spends-money",
+      "automation": "owner-must-be-present",
+      "depends": [
+        "PC-VM-02"
+      ],
+      "gate": "G4",
+      "result": {
+        "status": "not-run",
+        "date": null,
+        "evidence": null
+      }
+    },
+    {
+      "id": "PC-VM-06",
+      "area": "VM",
+      "title": "Builder at size `default` starts on a real account after the upgrade",
+      "source": [
+        "claude/tracker-pc-checks.md U1",
+        "CHANGELOG.md (Builder reset)"
+      ],
+      "inferred": false,
+      "preconditions": "APP-09 passed. A free trial account if possible (it refuses `large`).",
+      "steps": [
+        "Ask Builder to start its VM; run `echo ok`; stop it."
+      ],
+      "expected": "The VM starts with no trial_machine_class_not_allowed error.",
+      "evidence": "PC-VM-06.png.",
+      "safety": "spends-money",
+      "automation": "owner-must-be-present",
+      "depends": [
+        "PC-APP-09",
+        "PC-VM-02"
+      ],
+      "gate": "G4",
+      "result": {
+        "status": "not-run",
+        "date": null,
+        "evidence": null
+      }
+    },
+    {
+      "id": "PC-VM-07",
+      "area": "VM",
+      "title": "VM usage counters and the optional cost estimate against the dashboard",
+      "source": [
+        "docs/VM-NOTES.md (vm_usage, cost estimate)"
+      ],
+      "inferred": true,
+      "inferredNote": "VM-NOTES says the numbers are Legion's own uptime measure, not boat.dev's bill; the comparison is the check.",
+      "preconditions": "A VM run from VM-05. Settings, boat.dev, Cost estimate: enter an hourly price and a currency label.",
+      "steps": [
+        "Read the Computer card usage line (this run, today).",
+        "Compare with the dashboard uptime for the same run.",
+        "Wait 10 minutes with the dashboard unreachable (offline) and re-read the estimate."
+      ],
+      "expected": "Runtime and today counters are close to the dashboard uptime; the estimate equals uptime x the entered rate and is labelled an estimate; after 10 minutes without a fresh copy it reads \"cost unknown\".",
+      "evidence": "PC-VM-07.png.",
+      "safety": "spends-money",
+      "automation": "owner-must-be-present",
+      "depends": [
+        "PC-VM-05"
+      ],
+      "gate": "G4",
+      "result": {
+        "status": "not-run",
+        "date": null,
+        "evidence": null
+      }
+    },
+    {
+      "id": "PC-VM-08",
+      "area": "VM",
+      "title": "Idle VMs stop on their own so billing pauses",
+      "source": [
+        "README.md (Idle VMs stop on their own)"
+      ],
+      "inferred": true,
+      "inferredNote": "README claim; idle window length not read from code.",
+      "preconditions": "A running VM from VM-05, left alone. Owner says go (billing continues until it stops).",
+      "steps": [
+        "Leave the VM idle; check the Computer card and the dashboard at intervals up to the documented idle time."
+      ],
+      "expected": "The VM is stopped by Legion's reaper after the idle period and the dashboard agrees.",
+      "evidence": "PC-VM-08.png (before, after).",
+      "safety": "spends-money",
+      "automation": "owner-must-be-present",
+      "depends": [
+        "PC-VM-05"
+      ],
+      "gate": "G4",
+      "result": {
+        "status": "not-run",
+        "date": null,
+        "evidence": null
+      }
+    },
+    {
+      "id": "PC-VM-09",
+      "area": "VM",
+      "title": "vm_claude runs Claude inside the VM",
+      "source": [
+        "src/core/boat-health.ts (message: Claude is not configured on boat.dev ... vm_claude cannot run)"
+      ],
+      "inferred": true,
+      "inferredNote": "The positive path is not described as verified anywhere; added from the code message.",
+      "preconditions": "boat.dev account with Claude connected on its Agents page.",
+      "steps": [
+        "Ask an agent to use vm_claude with the task \"print the current directory\"."
+      ],
+      "expected": "The VM-side Claude answers and the result returns to the thread; the VM is stopped after.",
+      "evidence": "PC-VM-09.png.",
+      "safety": "spends-money",
+      "automation": "owner-must-be-present",
+      "depends": [
+        "PC-VM-05"
+      ],
+      "gate": "G4",
+      "result": {
+        "status": "not-run",
+        "date": null,
+        "evidence": null
+      }
+    },
+    {
+      "id": "PC-BLND-01",
+      "area": "BLND",
+      "title": "Local mode: Blender is detected and Automatic says \"Next script runs: on this computer\"",
+      "source": [
+        "claude/tracker-pc-checks.md B1",
+        "claude/plan-blender-local-first.md 6.2 item 1",
+        "review/blender-merged-review.md section 6 item 1"
+      ],
+      "inferred": false,
+      "preconditions": "A real Blender (3.0 or newer) installed, bridge enabled in Settings, Blender. Branch with local mode merged (merge/blender).",
+      "steps": [
+        "Run `& \"C:\\Program Files\\Blender Foundation\\Blender <ver>\\blender.exe\" --version` (use the real install path).",
+        "Open Settings, Blender; look at the detection line and the \"Where scripts run\" choice (Automatic)."
+      ],
+      "expected": "Detection finds the install and version; Automatic reads \"Next script runs: on this computer\". If the status says local is not available in this build, that is review blocker B1 (local runner not wired): FAIL.",
+      "evidence": "PC-BLND-01.png, PC-BLND-01.log (--version output).",
+      "safety": "none",
+      "automation": "computer-use-ok",
+      "depends": [
+        "PC-APP-10"
+      ],
+      "gate": "G5",
+      "result": {
+        "status": "not-run",
+        "date": null,
+        "evidence": null
+      }
+    },
+    {
+      "id": "PC-BLND-02",
+      "area": "BLND",
+      "title": "First script after a fresh core start runs locally, not in the VM",
+      "source": [
+        "review/blender-merged-review.md B1 (detect is async; first call could route to the VM)"
+      ],
+      "inferred": true,
+      "inferredNote": "Review blocker B1 note about async detection; run after the fix.",
+      "preconditions": "Blender installed; boat.dev key set (so the VM is a possible fallback); mode Automatic; core freshly restarted.",
+      "steps": [
+        "Restart the core (tray, Restart core). Do NOT open Settings, Blender.",
+        "Ask the Sculptor for a cube. Read the approval card badge."
+      ],
+      "expected": "The card shows \"On this PC\" (local), not the VM. Local is ready without a prior status call.",
+      "evidence": "PC-BLND-02-card.png.",
+      "safety": "none",
+      "automation": "computer-use-ok",
+      "depends": [
+        "PC-BLND-01"
+      ],
+      "gate": "G5",
+      "result": {
+        "status": "not-run",
+        "date": null,
+        "evidence": null
+      }
+    },
+    {
+      "id": "PC-BLND-03",
+      "area": "BLND",
+      "title": "Cube plus GLB, FBX and PNG preview through the real runner; write guard does not break the exporters",
+      "source": [
+        "claude/tracker-pc-checks.md B2",
+        "claude/plan-blender-local-first.md 6.2 item 2",
+        "review/blender-merged-review.md section 6 item 1"
+      ],
+      "inferred": false,
+      "preconditions": "BLND-01 passed. Workspace folder chosen.",
+      "steps": [
+        "Ask the Sculptor for a cube exported as GLB; read the whole script on the card; Allow.",
+        "Repeat for FBX and for a preview (blender_screenshot).",
+        "Look in <workspace>\\blender-exports\\<task>\\ and in %APPDATA%\\legion\\blender\\local\\<task>\\."
+      ],
+      "expected": "*.glb, *.fbx and the PNG exist in blender-exports; scene.blend and backups\\ exist only under %APPDATA%\\legion\\blender\\local\\<task>\\; no .blend is in blender-exports (a .blend is quarantined as .untrusted). If an exporter is blocked by the Python write guard, record its temp location and add it to the guard allowlist (or set advanced.local.guard to log and say so).",
+      "evidence": "PC-BLND-03.log (directory listings), PC-BLND-03-card.png, the PNG preview.",
+      "safety": "none",
+      "automation": "computer-use-ok",
+      "depends": [
+        "PC-BLND-01"
+      ],
+      "gate": "G5",
+      "result": {
+        "status": "not-run",
+        "date": null,
+        "evidence": null
+      }
+    },
+    {
+      "id": "PC-BLND-04",
+      "area": "BLND",
+      "title": "A write outside the task folder is blocked; an infinite loop is killed at 120 s with no blender.exe left",
+      "source": [
+        "claude/tracker-pc-checks.md B3",
+        "claude/plan-blender-local-first.md 6.2 item 3",
+        "review/blender-merged-review.md section 6 item 2"
+      ],
+      "inferred": false,
+      "preconditions": "A hand-written script file calling the runner directly (bypassing the static check), kept under the scratch folder; a second one that loops forever. Defensive test of Legion's own controls only.",
+      "steps": [
+        "Run the first script via the runner: it tries to write one file outside the task folder.",
+        "Run the loop script; open Task Manager, Details tab, watch blender.exe at 0 s and at 125 s.",
+        "After the kill, check for child processes (`Get-CimInstance Win32_Process | ? ParentProcessId -eq <pid>`)."
+      ],
+      "expected": "The outside write is refused (guard). The loop is stopped at about 120 s and neither blender.exe nor children remain (taskkill /T). The tool says it may still be running only if the kill failed.",
+      "evidence": "PC-BLND-04.log, Task Manager screenshots PC-BLND-04-t0.png and PC-BLND-04-t125.png.",
+      "safety": "none",
+      "automation": "owner-must-be-present",
+      "depends": [
+        "PC-BLND-03"
+      ],
+      "gate": "G5",
+      "result": {
+        "status": "not-run",
+        "date": null,
+        "evidence": null
+      }
+    },
+    {
+      "id": "PC-BLND-05",
+      "area": "BLND",
+      "title": "The script's environment has no Legion or API variables",
+      "source": [
+        "claude/tracker-pc-checks.md B4",
+        "claude/plan-blender-local-first.md 6.2 item 4"
+      ],
+      "inferred": false,
+      "preconditions": "As BLND-04. Set a dummy variable `LEGION_TEST_MARK=1` and a fake `ANTHROPIC_API_KEY=not-a-key` in the shell that starts Legion.",
+      "steps": [
+        "Run a hand-written script through the runner that prints sorted os.environ keys to a file inside the task folder."
+      ],
+      "expected": "The key list contains only the allowed set (PATH, HOME/USERPROFILE-style OS variables, TEMP/TMP, BLENDER_USER_*, UTF-8 vars); neither LEGION_TEST_MARK nor ANTHROPIC_API_KEY nor proxy variables are present. Keys only, no values in evidence.",
+      "evidence": "PC-BLND-05.log (key names only).",
+      "safety": "none",
+      "automation": "command-only",
+      "depends": [
+        "PC-BLND-03"
+      ],
+      "gate": "G5",
+      "result": {
+        "status": "not-run",
+        "date": null,
+        "evidence": null
+      }
+    },
+    {
+      "id": "PC-BLND-06",
+      "area": "BLND",
+      "title": "A local run opens no socket on 9876 even with the community add-on auto-start on",
+      "source": [
+        "claude/tracker-pc-checks.md B5",
+        "claude/plan-blender-local-first.md 6.2 item 5",
+        "review/blender-merged-review.md section 6 item 4 (--factory-startup keeps add-ons out)"
+      ],
+      "inferred": false,
+      "preconditions": "The community add-on installed with `blendermcp_auto_start_server` on (see BLND-12 for the install). A long-running script (sleep 30 s) via the runner.",
+      "steps": [
+        "During the run execute `netstat -ano | findstr :9876`.",
+        "Run `blender.exe --help` and check that BLENDER_USER_* variable names are accepted (listed under Environment Variables)."
+      ],
+      "expected": "No listener on 9876 while the local run is going; BLENDER_USER_* names appear in the help output.",
+      "evidence": "PC-BLND-06.log.",
+      "safety": "downloads",
+      "automation": "command-only",
+      "depends": [
+        "PC-BLND-03",
+        "PC-BLND-12"
+      ],
+      "gate": "G6",
+      "result": {
+        "status": "not-run",
+        "date": null,
+        "evidence": null
+      }
+    },
+    {
+      "id": "PC-BLND-07",
+      "area": "BLND",
+      "title": "Path cases: user name with a space, long task path, OneDrive-redirected Documents, 8.3 names, junctions",
+      "source": [
+        "claude/tracker-pc-checks.md B6",
+        "claude/plan-blender-local-first.md 6.2 item 6",
+        "review/blender-merged-review.md section 6 item 3"
+      ],
+      "inferred": false,
+      "preconditions": "A test account or folders: C:\\Users\\Zoë Ørsted style name; a workspace under OneDrive\\Documents; a task id producing a path near 200 characters; a junction made with `mklink /J` inside a throwaway task folder.",
+      "steps": [
+        "Run BLND-03 with the workspace on OneDrive Documents; then with a profile name that has a space and non-ASCII letters.",
+        "Ask for a task whose folder path is near the 200-character refusal limit.",
+        "Inside a throwaway task folder create a junction to a folder outside; run a script that tries to write through it."
+      ],
+      "expected": "Runs succeed with spaces, non-ASCII and OneDrive paths; the over-long path is refused with a clear message; writing through a junction to the outside is refused (guard resolves real paths; 8.3 names do not bypass it).",
+      "evidence": "PC-BLND-07.log.",
+      "safety": "none",
+      "automation": "owner-must-be-present",
+      "depends": [
+        "PC-BLND-03"
+      ],
+      "gate": "G5",
+      "result": {
+        "status": "not-run",
+        "date": null,
+        "evidence": null
+      }
+    },
+    {
+      "id": "PC-BLND-08",
+      "area": "BLND",
+      "title": "Mode switch: VM and Live give the documented errors; legacy \"sandbox\":\"off\" loads as live; upgrade notice",
+      "source": [
+        "claude/tracker-pc-checks.md B7",
+        "claude/plan-blender-local-first.md 6.2 item 7",
+        "review/blender-merged-review.md (upgrade notice section)"
+      ],
+      "inferred": false,
+      "preconditions": "Copy of an old config.json containing `\"blender\": {\"enabled\": true, \"sandbox\": \"off\"}` with no `mode` key (use a LEGION_HOME copy).",
+      "steps": [
+        "Start with the old config. Read Settings, Blender: the mode and any upgrade notice.",
+        "Set \"Where scripts run\" to the VM with no boat.dev key; ask for a cube. Set it to Live with no Blender socket; ask again.",
+        "Compare each error with the decision table in docs/BLENDER.md."
+      ],
+      "expected": "\"sandbox\":\"off\" is read as Live; the upgrade notice shows once for an upgraded config with no saved mode and not for a fresh enable; VM without a key and Live without a socket give the stated errors and start nothing.",
+      "evidence": "PC-BLND-08.png (each error), PC-BLND-08.log.",
+      "safety": "none",
+      "automation": "computer-use-ok",
+      "depends": [
+        "PC-BLND-01"
+      ],
+      "gate": "G5",
+      "result": {
+        "status": "not-run",
+        "date": null,
+        "evidence": null
+      }
+    },
+    {
+      "id": "PC-BLND-09",
+      "area": "BLND",
+      "title": "Antivirus or SmartScreen prompts on the first start of the local runner",
+      "source": [
+        "claude/tracker-pc-checks.md B8",
+        "claude/plan-blender-local-first.md 6.2 item 8",
+        "review/blender-merged-review.md section 6 item 8"
+      ],
+      "inferred": false,
+      "preconditions": "A first local run on a PC where blender.exe has not been started by Legion before.",
+      "steps": [
+        "Run BLND-03 and watch for SmartScreen, Defender or third-party AV prompts.",
+        "Also install Blender with the Windows launcher present (blender-launcher.exe next to blender.exe) and check which exe detection picks."
+      ],
+      "expected": "RECORD prompts only. Detection must pick blender.exe and reject blender-launcher.exe.",
+      "evidence": "PC-BLND-09.png, PC-BLND-09.log.",
+      "safety": "none",
+      "automation": "owner-must-be-present",
+      "depends": [
+        "PC-BLND-03"
+      ],
+      "gate": "G5",
+      "result": {
+        "status": "not-run",
+        "date": null,
+        "evidence": null
+      }
+    },
+    {
+      "id": "PC-BLND-10",
+      "area": "BLND",
+      "title": "Blender starts without APPDATA/LOCALAPPDATA and the variables Windows adds are recorded",
+      "source": [
+        "review/blender-merged-review.md section 6 item 5"
+      ],
+      "inferred": false,
+      "preconditions": "As BLND-05.",
+      "steps": [
+        "Run the runner's environment through a script that dumps its variable names (as BLND-05) and compare with the documented allow-list.",
+        "Confirm Blender itself starts and the run finishes."
+      ],
+      "expected": "Blender runs with the minimal environment; the variables Windows adds (SystemRoot etc.) are only OS-supplied ones; no secret-shaped name appears.",
+      "evidence": "PC-BLND-10.log (names only).",
+      "safety": "none",
+      "automation": "command-only",
+      "depends": [
+        "PC-BLND-05"
+      ],
+      "gate": "G5",
+      "result": {
+        "status": "not-run",
+        "date": null,
+        "evidence": null
+      }
+    },
+    {
+      "id": "PC-BLND-11",
+      "area": "BLND",
+      "title": "Task folder growth: tmp and backups are cleaned or capped; a large scene is not refused forever",
+      "source": [
+        "review/blender-merged-review.md M3"
+      ],
+      "inferred": true,
+      "inferredNote": "Review medium finding; run after the fix, with modest sizes (do not fill the disk).",
+      "preconditions": "A task with a scene of about 100 MB (add a high-poly mesh) and free disk of at least 2 GB.",
+      "steps": [
+        "Run six successive edits on the same task; check size of tmp\\ and backups\\ in the task folder after each.",
+        "Try to run once the folder passes the 500 MB cap."
+      ],
+      "expected": "tmp\\ is emptied after each run; at most 5 backups are kept; when over the cap the refusal tells where the folder is and how to clear it (or a Clear button exists).",
+      "evidence": "PC-BLND-11.log (sizes).",
+      "safety": "none",
+      "automation": "command-only",
+      "depends": [
+        "PC-BLND-03"
+      ],
+      "gate": "G5",
+      "result": {
+        "status": "not-run",
+        "date": null,
+        "evidence": null
+      }
+    },
+    {
+      "id": "PC-BLND-12",
+      "area": "BLND",
+      "title": "Community add-on: reproduce the pinned sha256 and run Set up once",
+      "source": [
+        "claude/tracker-pc-checks.md B9",
+        "claude/plan-blender-local-first.md 6.3",
+        "docs/BLENDER.md Not verified yet (community backend, Windows)",
+        "review/blender-merged-review.md section 6 item 7"
+      ],
+      "inferred": false,
+      "preconditions": "TODO OWNER PC. Owner present and says go for the download. PowerShell 5.1.",
+      "steps": [
+        "Run `curl.exe -sSL https://raw.githubusercontent.com/ahujasid/mcp-for-blender/91cd735cc09fc75551de3347ebc7afdd69f3492e/addon.py -o addon.py`.",
+        "Run `(Get-FileHash addon.py -Algorithm SHA256).Hash.ToLower()` and compare with the value in docs/BLENDER.md (starts eb0facf6, ends 97fa5).",
+        "If it differs, record the PC's value and re-check `git log -1 -- addon.py` on a clone of the add-on repo.",
+        "In Settings, Blender press Set up for the community add-on once; then Launch."
+      ],
+      "expected": "The hash matches the pin. Set up installs the add-on into the user's Blender add-ons folder and enables it; Launch opens the socket (startExpr) without a click inside Blender; Test succeeds. Windows specifics: tar -xf on a .zip and a detached start work.",
+      "evidence": "PC-BLND-12.log (hash value, Set up output).",
+      "safety": "downloads",
+      "automation": "owner-must-be-present",
+      "depends": [
+        "PC-BLND-01"
+      ],
+      "gate": "G6",
+      "result": {
+        "status": "not-run",
+        "date": null,
+        "evidence": null
+      }
+    },
+    {
+      "id": "PC-BLND-13",
+      "area": "BLND",
+      "title": "Official extension install on a real Blender 5.1+ and Test connection",
+      "source": [
+        "claude/tracker-pc-checks.md B10",
+        "claude/plan-blender-local-first.md 6.3",
+        "docs/BLENDER.md Not verified yet (official backend)",
+        "review/blender-merged-review.md M5, section 6 item 6"
+      ],
+      "inferred": false,
+      "preconditions": "TODO OWNER PC. Blender 5.1 or newer, `uv` installed, network on, owner says go.",
+      "steps": [
+        "Settings, Blender, Set up (official): watch ext-build, ext-repo, ext-install, verify.",
+        "Check the repo id with `blender.exe --command extension repo-list` and that `--enable` persists after a Blender restart.",
+        "Open Blender, start the server from the sidebar panel, press Test connection (first start downloads the server's Python packages).",
+        "Note the exact output formats of `repo-list` and `extension list`."
+      ],
+      "expected": "The built zip installs through install-file; the extension shows enabled; verify matches the right extension and version, not any line containing \"mcp\"; Test connection passes and a scene read works. If it fails, install through Blender's own Install from Disk and record the reason.",
+      "evidence": "PC-BLND-13.log (command outputs), PC-BLND-13.png (Test result).",
+      "safety": "downloads",
+      "automation": "owner-must-be-present",
+      "depends": [
+        "PC-BLND-01"
+      ],
+      "gate": "G6",
+      "result": {
+        "status": "not-run",
+        "date": null,
+        "evidence": null
+      }
+    },
+    {
+      "id": "PC-BLND-14",
+      "area": "BLND",
+      "title": "Official backend: connect refuses without an execute tool; tool-name matching against the real server",
+      "source": [
+        "docs/BLENDER.md Not verified yet (official backend tool names)"
+      ],
+      "inferred": true,
+      "inferredNote": "Stated as unverified in docs/BLENDER.md; steps are the obvious way to see it.",
+      "preconditions": "BLND-13 passed; backend official, mode Live.",
+      "steps": [
+        "Ask the Sculptor to read the scene (blender_inspect) and run a trivial script in Live mode after reading the card.",
+        "Read the status panel for the matched tool names."
+      ],
+      "expected": "Legion matches the real server's tools by name or readOnlyHint and runs; if no execute tool is found it refuses to connect and says why.",
+      "evidence": "PC-BLND-14.png.",
+      "safety": "none",
+      "automation": "owner-must-be-present",
+      "depends": [
+        "PC-BLND-13"
+      ],
+      "gate": "G6",
+      "result": {
+        "status": "not-run",
+        "date": null,
+        "evidence": null
+      }
+    },
+    {
+      "id": "PC-BLND-15",
+      "area": "BLND",
+      "title": "Live mode against the community add-on in an open Blender",
+      "source": [
+        "docs/BLENDER.md Not verified yet (community protocol, startExpr)",
+        "docs/TESTING-BLENDER.md section 4"
+      ],
+      "inferred": false,
+      "preconditions": "BLND-12 passed; Blender open with a throwaway scene. Never run on a Blender that holds work you care about (the add-on socket has no password).",
+      "steps": [
+        "Mode Live. Ask the Sculptor for a cube. Read the approval card (full script) and Allow.",
+        "Ask for a screenshot."
+      ],
+      "expected": "Command names and the JSON protocol match the real add-on; the cube appears in the open Blender; the backup `.blend` is written before the change; screenshot returns.",
+      "evidence": "PC-BLND-15.png.",
+      "safety": "none",
+      "automation": "owner-must-be-present",
+      "depends": [
+        "PC-BLND-12"
+      ],
+      "gate": "G6",
+      "result": {
+        "status": "not-run",
+        "date": null,
+        "evidence": null
+      }
+    },
+    {
+      "id": "PC-BLND-16",
+      "area": "BLND",
+      "title": "Approval card readability for a long script (human judgement)",
+      "source": [
+        "docs/BLENDER.md Other (size of a script the card can show)",
+        "docs/TESTING-BLENDER.md human-only judgement"
+      ],
+      "inferred": false,
+      "preconditions": "A script of about 400 lines that passes the static check, containing a hidden character (zero-width) on one line.",
+      "steps": [
+        "Have the Sculptor submit it; read the card: line numbers, scrolling, the hidden-character marker, the bot's purpose text labelled \"not checked\"."
+      ],
+      "expected": "The whole script can be read before clicking; line numbers and the hidden-character warning show; only D works from the keyboard for a Blender card (no A shortcut).",
+      "evidence": "PC-BLND-16.png.",
+      "safety": "none",
+      "automation": "owner-only",
+      "depends": [
+        "PC-BLND-03"
+      ],
+      "gate": "G5",
+      "result": {
+        "status": "not-run",
+        "date": null,
+        "evidence": null
+      }
+    },
+    {
+      "id": "PC-BLND-17",
+      "area": "BLND",
+      "title": "Managed Blender: \"Get Blender for Legion\" pinned download, hash check, detection prefers it",
+      "source": [
+        "claude/plan-blender-local-first.md section 11 (B4)"
+      ],
+      "inferred": true,
+      "inferredNote": "Planned feature, not merged on this base. Run only if the build under test has the button; otherwise record \"not applicable on this build\".",
+      "preconditions": "Owner says go for a download of a few hundred MB. A build with the button. Disk space of 2 GB.",
+      "steps": [
+        "Settings, Blender: click Get Blender for Legion; read the licence text and source link it shows; confirm the download.",
+        "After extraction check <dataDir>\\blender\\app\\<version>\\ and that detection now lists the managed copy first.",
+        "Click Open the Blender download page and read the winget command shown as text.",
+        "Repeat with a deliberately wrong hash if a test hook exists (otherwise skip)."
+      ],
+      "expected": "One pinned official portable build is downloaded and the sha256 verified; licence text is kept in the folder; the user's own Blender install is untouched; the winget command is shown but never run; a hash mismatch installs nothing.",
+      "evidence": "PC-BLND-17.png, PC-BLND-17.log (folder listing, hash).",
+      "safety": "downloads",
+      "automation": "owner-must-be-present",
+      "depends": [
+        "PC-BLND-01"
+      ],
+      "gate": "G6",
+      "result": {
+        "status": "not-run",
+        "date": null,
+        "evidence": null
+      }
+    },
+    {
+      "id": "PC-BLND-18",
+      "area": "BLND",
+      "title": "First-use chooser on the first Blender card: This computer / Cloud VM / Decide each time",
+      "source": [
+        "claude/plan-blender-local-first.md section 12 (B5)"
+      ],
+      "inferred": true,
+      "inferredNote": "Planned feature, not merged on this base; run only if present.",
+      "preconditions": "Blender enabled, no mode ever saved (fresh config).",
+      "steps": [
+        "Ask the Sculptor for a cube; look at the first card for the one-time chooser; click This computer.",
+        "Ask again."
+      ],
+      "expected": "The chooser shows once; the choice is saved as mode and clears the upgrade notice; the second card has no chooser; Allow/Deny work regardless.",
+      "evidence": "PC-BLND-18.png.",
+      "safety": "none",
+      "automation": "computer-use-ok",
+      "depends": [
+        "PC-BLND-01"
+      ],
+      "gate": "G5",
+      "result": {
+        "status": "not-run",
+        "date": null,
+        "evidence": null
+      }
+    },
+    {
+      "id": "PC-BLND-19",
+      "area": "BLND",
+      "title": "VM: Set up downloads and starts headless Blender for Linux in the boat.dev VM",
+      "source": [
+        "docs/BLENDER.md Sandbox on a real boat.dev VM item 1",
+        "docs/TESTING-BLENDER.md section 4",
+        "claude/tracker-pc-checks.md B11"
+      ],
+      "inferred": false,
+      "preconditions": "boat.dev key, owner go for VM spend and the download inside the VM; Sculptor VM.",
+      "steps": [
+        "Settings, Blender, Set up (VM); read the result; in the VM run `blender --version`."
+      ],
+      "expected": "Blender 5.1 downloads, unpacks and starts; missing shared libraries (libGL, libXi, libXxf86vm, libXfixes, libXrender) are named if they fail.",
+      "evidence": "PC-BLND-19.png, PC-BLND-19.log.",
+      "safety": "spends-money",
+      "automation": "owner-must-be-present",
+      "depends": [
+        "PC-VM-05"
+      ],
+      "gate": "G7",
+      "result": {
+        "status": "not-run",
+        "date": null,
+        "evidence": null
+      }
+    },
+    {
+      "id": "PC-BLND-20",
+      "area": "BLND",
+      "title": "VM: cube plus GLB comes back to blender-exports with the binary intact (also the exports.ts regression)",
+      "source": [
+        "docs/BLENDER.md Sandbox item 2",
+        "claude/tracker-pc-checks.md B11"
+      ],
+      "inferred": false,
+      "preconditions": "BLND-19 passed.",
+      "steps": [
+        "Mode VM. Ask for a cube exported as GLB; Allow.",
+        "Open the GLB in a viewer or compare its size and header (`glTF`) in PowerShell."
+      ],
+      "expected": "The file is in <workspace>\\blender-exports\\<task>\\ and valid (boat's file API returned base64 binary correctly); the VM-mode path still works after the exports.ts refactor.",
+      "evidence": "PC-BLND-20.log (size, first 4 bytes).",
+      "safety": "spends-money",
+      "automation": "owner-must-be-present",
+      "depends": [
+        "PC-BLND-19"
+      ],
+      "gate": "G7",
+      "result": {
+        "status": "not-run",
+        "date": null,
+        "evidence": null
+      }
+    },
+    {
+      "id": "PC-BLND-21",
+      "area": "BLND",
+      "title": "VM: blender_screenshot renders a Cycles CPU preview within the timeout",
+      "source": [
+        "docs/BLENDER.md Sandbox item 3"
+      ],
+      "inferred": false,
+      "preconditions": "BLND-19 passed.",
+      "steps": [
+        "Ask for a preview of a cube; time it."
+      ],
+      "expected": "An 8-sample Cycles CPU preview returns within the timeout; record the time.",
+      "evidence": "PC-BLND-21.png, time in PC-BLND-21.log.",
+      "safety": "spends-money",
+      "automation": "owner-must-be-present",
+      "depends": [
+        "PC-BLND-19"
+      ],
+      "gate": "G7",
+      "result": {
+        "status": "not-run",
+        "date": null,
+        "evidence": null
+      }
+    },
+    {
+      "id": "PC-BLND-22",
+      "area": "BLND",
+      "title": "VM: the 600-second command limit and what happens at it",
+      "source": [
+        "docs/BLENDER.md Sandbox item 4"
+      ],
+      "inferred": false,
+      "preconditions": "BLND-19 passed. Owner accepts VM billing for about 12 minutes.",
+      "steps": [
+        "Run a hand-written script that sleeps 700 s through the VM runner."
+      ],
+      "expected": "RECORD: the command ends at the limit with a clear message; nothing hangs; the VM is left in a known state.",
+      "evidence": "PC-BLND-22.log.",
+      "safety": "spends-money",
+      "automation": "owner-must-be-present",
+      "depends": [
+        "PC-BLND-19"
+      ],
+      "gate": "G7",
+      "result": {
+        "status": "not-run",
+        "date": null,
+        "evidence": null
+      }
+    },
+    {
+      "id": "PC-BLND-23",
+      "area": "BLND",
+      "title": "VM: two tasks keep separate scene.blend files; a second script sees the first one's result",
+      "source": [
+        "docs/BLENDER.md Sandbox item 5"
+      ],
+      "inferred": false,
+      "preconditions": "BLND-19 passed.",
+      "steps": [
+        "In task A add a cube; in task B add a sphere; in task A run a script that lists objects; in B the same."
+      ],
+      "expected": "Task A lists only its cube (plus defaults), task B only its sphere; within a task the second script sees the first script's objects.",
+      "evidence": "PC-BLND-23.log.",
+      "safety": "spends-money",
+      "automation": "owner-must-be-present",
+      "depends": [
+        "PC-BLND-19"
+      ],
+      "gate": "G7",
+      "result": {
+        "status": "not-run",
+        "date": null,
+        "evidence": null
+      }
+    },
+    {
+      "id": "PC-BSVT-00",
+      "area": "BSVT",
+      "title": "V0: build the isolated testnet VM and prove the host wallet is not reachable from it",
+      "source": [
+        "claude/plan-bsv-rung3.md 7.2 V0",
+        "claude/legion-release-tracker.md BSV scope change (Windows Sandbox not enabled)"
+      ],
+      "inferred": false,
+      "preconditions": "Owner at the keyboard. Windows Sandbox or a VM. Enabling Windows Sandbox needs an administrator PowerShell and a restart: `Enable-WindowsOptionalFeature -Online -FeatureName Containers-DisposableClientVM -All`. BSV Desktop installed, set to TESTNET, wallet created and testnet coins obtained by the owner by hand (agents create no accounts or passwords).",
+      "steps": [
+        "Build Legion from the reviewed commit inside the VM. No port forwarding to the host.",
+        "Inside the VM try to connect to the host machine's address on the wallet's usual port (see docs/BSV-MODE.md for the number; connect only from the VM and only to see it FAIL).",
+        "Check the VM's BSV Desktop network setting reads testnet."
+      ],
+      "expected": "The host's own wallet is NOT reachable from the VM. The VM wallet is on testnet and funded with testnet coins. Nothing below is ever run on the host.",
+      "evidence": "PC-BSVT-00.png (VM wallet network), PC-BSVT-00.log (connection refused/timeout).",
+      "safety": "real-wallet",
+      "automation": "owner-only",
+      "depends": [
+        "PC-INST-10"
+      ],
+      "gate": "G8",
+      "result": {
+        "status": "not-run",
+        "date": null,
+        "evidence": null
+      }
+    },
+    {
+      "id": "PC-BSVT-01",
+      "area": "BSVT",
+      "title": "V1 (gate before the spend module): ask the wallet for an unsigned transaction; nothing is prompted or broadcast",
+      "source": [
+        "claude/plan-bsv-rung3.md 7.2 V1",
+        "claude/plan-bsv-rung3.md section 3 U1, U2, U7, U8"
+      ],
+      "inferred": false,
+      "preconditions": "BSVT-00 passed. Throwaway testnet wallet. By hand, no Legion code.",
+      "steps": [
+        "Using the wallet's own tooling or a small script run by the owner against the VM wallet, call createAction with signAndProcess false.",
+        "Save a scrubbed sample (encoding, parents present, change shape, address version byte) as test fixture input for the decoder."
+      ],
+      "expected": "The wallet returns a signable object with a reference, shows NO prompt and broadcasts nothing (U1). Record the tx encoding (BEEF or atomic BEEF; bytes, hex or base64) (U2), that change is one standard P2PKH output (U7) and the testnet address version byte (U8). If V1 fails: STOP and report (design section 10).",
+      "evidence": "PC-BSVT-01.log (scrubbed sample, no keys).",
+      "safety": "real-wallet",
+      "automation": "owner-only",
+      "depends": [
+        "PC-BSVT-00"
+      ],
+      "gate": "G8",
+      "result": {
+        "status": "not-run",
+        "date": null,
+        "evidence": null
+      }
+    },
+    {
+      "id": "PC-BSVT-02",
+      "area": "BSVT",
+      "title": "V2 (gate): abort the unsigned reference; coins are spendable again",
+      "source": [
+        "claude/plan-bsv-rung3.md 7.2 V2",
+        "claude/plan-bsv-rung3.md U3"
+      ],
+      "inferred": false,
+      "preconditions": "BSVT-01 produced a reference.",
+      "steps": [
+        "Call abortAction for that reference, then create another unsigned transaction for the same amount."
+      ],
+      "expected": "abortAction releases the locked inputs (U3): the second request succeeds. If not, STOP and report.",
+      "evidence": "PC-BSVT-02.log.",
+      "safety": "real-wallet",
+      "automation": "owner-only",
+      "depends": [
+        "PC-BSVT-01"
+      ],
+      "gate": "G8",
+      "result": {
+        "status": "not-run",
+        "date": null,
+        "evidence": null
+      }
+    },
+    {
+      "id": "PC-BSVT-03",
+      "area": "BSVT",
+      "title": "V3 and status probe: connect to the VM wallet, bsv_status shows testnet, reachable, signed in",
+      "source": [
+        "claude/plan-bsv-rung3.md 7.2 V3",
+        "claude/plan-bsv-rung3.md U8",
+        "docs/BSV-MODE.md Not verified",
+        "docs/BSV-WALLET-DESIGN.md section 11"
+      ],
+      "inferred": false,
+      "preconditions": "Spend-capable build running in the VM; BSV mode on.",
+      "steps": [
+        "Open the BSV panel, type the wallet address, press Connect (a native confirmation appears; confirm).",
+        "Ask the Assayer to run bsv_status.",
+        "Watch the VM wallet for any permission prompt during the four status calls (getVersion, getNetwork, isAuthenticated, getHeight)."
+      ],
+      "expected": "testnet, reachable, signed in, version and height shown. RECORD: whether any status call prompted in the wallet, what the prompts said, the real response shapes (an unexpected shape must read as \"network unknown\", never testnet), whether network switching needs a wallet restart, and which origin rules apply.",
+      "evidence": "PC-BSVT-03.png, PC-BSVT-03.log (response shapes, scrubbed).",
+      "safety": "real-wallet",
+      "automation": "owner-only",
+      "depends": [
+        "PC-BSVT-00"
+      ],
+      "gate": "G8",
+      "result": {
+        "status": "not-run",
+        "date": null,
+        "evidence": null
+      }
+    },
+    {
+      "id": "PC-BSVT-04",
+      "area": "BSVT",
+      "title": "V4: allowlist one testnet address through the native dialog",
+      "source": [
+        "claude/plan-bsv-rung3.md 7.2 V4"
+      ],
+      "inferred": false,
+      "preconditions": "BSVT-03 passed.",
+      "steps": [
+        "In the BSV panel add the VM wallet's second address to the recipient allowlist; read the native dialog; confirm."
+      ],
+      "expected": "A native dialog names the address; the list is saved only after confirm; Cancel saves nothing.",
+      "evidence": "PC-BSVT-04.png (dialog).",
+      "safety": "native-dialog",
+      "automation": "owner-only",
+      "depends": [
+        "PC-BSVT-03"
+      ],
+      "gate": "G8",
+      "result": {
+        "status": "not-run",
+        "date": null,
+        "evidence": null
+      }
+    },
+    {
+      "id": "PC-BSVT-05",
+      "area": "BSVT",
+      "title": "V5: request 600 sat: dialog 1 and dialog 2, then the wallet's own prompt, then a txid",
+      "source": [
+        "claude/plan-bsv-rung3.md 7.2 V5",
+        "claude/plan-bsv-rung3.md U4, U5, U10"
+      ],
+      "inferred": false,
+      "preconditions": "BSVT-04 passed. Window visible.",
+      "steps": [
+        "Ask the Assayer for 600 sat to the allowlisted address.",
+        "Read dialog 1: amount 600 sat, FULL address, TESTNET, fee, caps. Confirm. Read dialog 2 (untrusted content). Confirm.",
+        "Only now should the wallet show its prompt; approve it there.",
+        "Open the txid in a testnet block explorer in a browser."
+      ],
+      "expected": "Dialog 1 matches the request exactly; dialog 2 is a separate press; the wallet prompt appears only after both; a 64-hex txid is returned; the explorer shows one 600 sat output plus change. RECORD the real wallet prompt wording and the real Electron dialog look (wording, default button Cancel, focus, hidden-window case) (U10).",
+      "evidence": "PC-BSVT-05-d1.png, PC-BSVT-05-d2.png, PC-BSVT-05-wallet.png, PC-BSVT-05-explorer.png.",
+      "safety": "native-dialog",
+      "automation": "owner-only",
+      "depends": [
+        "PC-BSVT-04"
+      ],
+      "gate": "G8",
+      "result": {
+        "status": "not-run",
+        "date": null,
+        "evidence": null
+      }
+    },
+    {
+      "id": "PC-BSVT-06",
+      "area": "BSVT",
+      "title": "V6: a second request right after prompts the wallet again (no standing grant)",
+      "source": [
+        "claude/plan-bsv-rung3.md 7.2 V6",
+        "claude/plan-bsv-rung3.md U4"
+      ],
+      "inferred": false,
+      "preconditions": "BSVT-05 passed.",
+      "steps": [
+        "Immediately ask for another spend and confirm both Legion dialogs.",
+        "Watch the wallet."
+      ],
+      "expected": "The wallet prompts again. If a persistent-permission option (\"always allow\", monthly limit) is offered, DECLINE it and record it; if it cannot be avoided report a blocker (design section 10).",
+      "evidence": "PC-BSVT-06.png.",
+      "safety": "native-dialog",
+      "automation": "owner-only",
+      "depends": [
+        "PC-BSVT-05"
+      ],
+      "gate": "G8",
+      "result": {
+        "status": "not-run",
+        "date": null,
+        "evidence": null
+      }
+    },
+    {
+      "id": "PC-BSVT-07",
+      "area": "BSVT",
+      "title": "V7: Cancel at Legion's dialog: no wallet prompt, reservation freed",
+      "source": [
+        "claude/plan-bsv-rung3.md 7.2 V7",
+        "claude/plan-bsv-rung3.md U3"
+      ],
+      "inferred": false,
+      "preconditions": "BSVT-05 passed.",
+      "steps": [
+        "Ask for a spend; press Cancel in dialog 1; ask again for the same amount."
+      ],
+      "expected": "No wallet prompt on the cancelled request; the reservation is released (abort released the coins) so the next identical request proceeds.",
+      "evidence": "PC-BSVT-07.png.",
+      "safety": "native-dialog",
+      "automation": "owner-only",
+      "depends": [
+        "PC-BSVT-05"
+      ],
+      "gate": "G8",
+      "result": {
+        "status": "not-run",
+        "date": null,
+        "evidence": null
+      }
+    },
+    {
+      "id": "PC-BSVT-08",
+      "area": "BSVT",
+      "title": "V8: Deny at the wallet's prompt: record what the wallet returns; Legion shows unknown",
+      "source": [
+        "claude/plan-bsv-rung3.md 7.2 V8",
+        "claude/plan-bsv-rung3.md U6"
+      ],
+      "inferred": false,
+      "preconditions": "BSVT-05 passed.",
+      "steps": [
+        "Ask for a spend; confirm both Legion dialogs; press Deny in the WALLET.",
+        "Read Legion's status; resolve the unknown outcome in the native dialog after reading the wallet history."
+      ],
+      "expected": "Legion shows unknown (unless a reviewed mapping exists) and blocks further spends until you resolve it natively. RECORD exactly what the wallet returned on Deny (U6).",
+      "evidence": "PC-BSVT-08.png, PC-BSVT-08.log (wallet reply, scrubbed).",
+      "safety": "native-dialog",
+      "automation": "owner-only",
+      "depends": [
+        "PC-BSVT-05"
+      ],
+      "gate": "G8",
+      "result": {
+        "status": "not-run",
+        "date": null,
+        "evidence": null
+      }
+    },
+    {
+      "id": "PC-BSVT-09",
+      "area": "BSVT",
+      "title": "V9: kill the wallet during its prompt: unknown, still blocked after a Legion restart",
+      "source": [
+        "claude/plan-bsv-rung3.md 7.2 V9",
+        "claude/plan-bsv-rung3.md C12"
+      ],
+      "inferred": false,
+      "preconditions": "BSVT-05 passed. Kill by PID only (never by name pattern).",
+      "steps": [
+        "Start a spend and confirm both dialogs; while the wallet prompt is showing end the wallet process by its PID.",
+        "Restart Legion; try another spend.",
+        "Resolve the unknown natively; try again."
+      ],
+      "expected": "unknown; after restart spends are still blocked (the unknown outcome is rebuilt from the audit); after the native resolve spends work again.",
+      "evidence": "PC-BSVT-09.png, PC-BSVT-09.log.",
+      "safety": "native-dialog",
+      "automation": "owner-only",
+      "depends": [
+        "PC-BSVT-05"
+      ],
+      "gate": "G8",
+      "result": {
+        "status": "not-run",
+        "date": null,
+        "evidence": null
+      }
+    },
+    {
+      "id": "PC-BSVT-10",
+      "area": "BSVT",
+      "title": "V10: over-cap amount and a non-allowlisted address are denied before any dialog",
+      "source": [
+        "claude/plan-bsv-rung3.md 7.2 V10"
+      ],
+      "inferred": false,
+      "preconditions": "BSVT-04 passed.",
+      "steps": [
+        "Ask for 1,001 sat to the allowlisted address; ask for 600 sat to a different address."
+      ],
+      "expected": "Both are denied before any dialog; the wallet shows nothing.",
+      "evidence": "PC-BSVT-10.png.",
+      "safety": "real-wallet",
+      "automation": "owner-only",
+      "depends": [
+        "PC-BSVT-04"
+      ],
+      "gate": "G8",
+      "result": {
+        "status": "not-run",
+        "date": null,
+        "evidence": null
+      }
+    },
+    {
+      "id": "PC-BSVT-11",
+      "area": "BSVT",
+      "title": "V11: Freeze while dialog 1 is open: the answer is refused, no wallet prompt",
+      "source": [
+        "claude/plan-bsv-rung3.md 7.2 V11"
+      ],
+      "inferred": false,
+      "preconditions": "BSVT-05 passed.",
+      "steps": [
+        "Ask for a spend; with dialog 1 showing use the tray item Freeze BSV chain (or Freeze chain in the panel); then answer the dialog."
+      ],
+      "expected": "The answer is refused; no wallet prompt appears. Freeze and Disarm need no dialog (one click).",
+      "evidence": "PC-BSVT-11.png.",
+      "safety": "native-dialog",
+      "automation": "owner-only",
+      "depends": [
+        "PC-BSVT-05"
+      ],
+      "gate": "G8",
+      "result": {
+        "status": "not-run",
+        "date": null,
+        "evidence": null
+      }
+    },
+    {
+      "id": "PC-BSVT-12",
+      "area": "BSVT",
+      "title": "V12: a hand-edited bsv.walletUrl in config.json is ignored",
+      "source": [
+        "claude/plan-bsv-rung3.md 7.2 V12",
+        "review/bsv-t1-review.md P3"
+      ],
+      "inferred": false,
+      "preconditions": "BSVT-03 passed.",
+      "steps": [
+        "Quit Legion, edit bsv.walletUrl in config.json to another loopback address, start Legion."
+      ],
+      "expected": "The edited address is not contacted; the panel asks for Connect again.",
+      "evidence": "PC-BSVT-12.png.",
+      "safety": "real-wallet",
+      "automation": "owner-only",
+      "depends": [
+        "PC-BSVT-03"
+      ],
+      "gate": "G8",
+      "result": {
+        "status": "not-run",
+        "date": null,
+        "evidence": null
+      }
+    },
+    {
+      "id": "PC-BSVT-13",
+      "area": "BSVT",
+      "title": "Record the real wallet prompt wording and any persistent-permission option",
+      "source": [
+        "claude/plan-bsv-rung3.md 7.2 (Also record)",
+        "docs/BSV-WALLET-DESIGN.md section 10 stop condition"
+      ],
+      "inferred": false,
+      "preconditions": "BSVT-05 to BSVT-08 in progress.",
+      "steps": [
+        "Photograph each wallet prompt; read every checkbox and button."
+      ],
+      "expected": "Wording copied into the docs; no \"always allow\"/monthly limit is ticked. If silent prompts or persistent grants exist, STOP and report that rung 3 should wait.",
+      "evidence": "PC-BSVT-13.png set.",
+      "safety": "real-wallet",
+      "automation": "owner-only",
+      "depends": [
+        "PC-BSVT-05"
+      ],
+      "gate": "G8",
+      "result": {
+        "status": "not-run",
+        "date": null,
+        "evidence": null
+      }
+    },
+    {
+      "id": "PC-BSVT-14",
+      "area": "BSVT",
+      "title": "U9: a spend left unanswered past 100 s returns pending, and the flow still finishes",
+      "source": [
+        "claude/plan-bsv-rung3.md section 3 U9",
+        "claude/plan-bsv-rung3.md 2.2"
+      ],
+      "inferred": true,
+      "inferredNote": "U9 is listed as unverified; the observation is the one the plan gives.",
+      "preconditions": "BSVT-05 passed.",
+      "steps": [
+        "Ask for a spend and wait 110 seconds before touching dialog 1.",
+        "Re-call the same request with the same key; then answer the dialogs."
+      ],
+      "expected": "The tool returns pending-owner after about 100 s; the same key returns the current state; the flow completes when answered.",
+      "evidence": "PC-BSVT-14.log.",
+      "safety": "native-dialog",
+      "automation": "owner-only",
+      "depends": [
+        "PC-BSVT-05"
+      ],
+      "gate": "G8",
+      "result": {
+        "status": "not-run",
+        "date": null,
+        "evidence": null
+      }
+    },
+    {
+      "id": "PC-BSVT-15",
+      "area": "BSVT",
+      "title": "Native dialogs for policy changes: Connect, Arm, Unfreeze, caps and allowlist; Freeze and Disarm need none",
+      "source": [
+        "docs/BSV-MODE.md (the interface)",
+        "docs/BSV-WALLET-DESIGN.md section 11 (Electron dialogs on a real desktop)"
+      ],
+      "inferred": false,
+      "preconditions": "BSVT-03 passed.",
+      "steps": [
+        "Do each action in the BSV panel; photograph the dialog; press Cancel and Escape once each."
+      ],
+      "expected": "Each of Connect, allowlist, caps, Arm and Unfreeze shows a native dialog that defaults to Cancel; Cancel and Escape change nothing; Freeze and Disarm act with one click.",
+      "evidence": "PC-BSVT-15-<action>.png.",
+      "safety": "native-dialog",
+      "automation": "owner-only",
+      "depends": [
+        "PC-BSVT-03"
+      ],
+      "gate": "G8",
+      "result": {
+        "status": "not-run",
+        "date": null,
+        "evidence": null
+      }
+    },
+    {
+      "id": "PC-BSVT-16",
+      "area": "BSVT",
+      "title": "Dialogs with the window hidden to the tray, and Windows taskkill/netstat behaviour",
+      "source": [
+        "docs/BSV-WALLET-DESIGN.md section 11 (Windows specifics)"
+      ],
+      "inferred": false,
+      "preconditions": "BSVT-05 prerequisites.",
+      "steps": [
+        "Start a spend request, hide the window to the tray, and see where the dialog appears and whether it can be answered.",
+        "Check `netstat -ano` for the core's port and that taskkill by PID ends Legion's core."
+      ],
+      "expected": "The dialog is still visible and answerable (or the request times out safely); netstat and taskkill behave as the notes assume.",
+      "evidence": "PC-BSVT-16.png, PC-BSVT-16.log.",
+      "safety": "native-dialog",
+      "automation": "owner-only",
+      "depends": [
+        "PC-BSVT-05"
+      ],
+      "gate": "G8",
+      "result": {
+        "status": "not-run",
+        "date": null,
+        "evidence": null
+      }
+    },
+    {
+      "id": "PC-BSVT-17",
+      "area": "BSVT",
+      "title": "window.legion.bsvPolicy survives the real sandboxed preload",
+      "source": [
+        "docs/BSV-WALLET-DESIGN.md section 11"
+      ],
+      "inferred": false,
+      "preconditions": "A real Electron build with the BSV bridge.",
+      "steps": [
+        "In DevTools (source checkout run) evaluate `typeof window.legion.bsvPolicy`, then perform one Cancel-only action from the panel."
+      ],
+      "expected": "The bridge exists in the real preload exactly as the emulation shows; actions reach the native dialog code.",
+      "evidence": "PC-BSVT-17.png.",
+      "safety": "none",
+      "automation": "computer-use-ok",
+      "depends": [
+        "PC-APP-14"
+      ],
+      "gate": "G8",
+      "result": {
+        "status": "not-run",
+        "date": null,
+        "evidence": null
+      }
+    },
+    {
+      "id": "PC-BSVT-18",
+      "area": "BSVT",
+      "title": "BSV panel and title-bar display on a real GPU: TESTNET readout, block height, static UI",
+      "source": [
+        "docs/BSV-MODE.md (the interface)",
+        "test/bsv-ui-view.test.ts (static by design)"
+      ],
+      "inferred": true,
+      "inferredNote": "Visual claim from the docs; unit tests only cover the view logic.",
+      "preconditions": "BSVT-03 passed.",
+      "steps": [
+        "Look at the title bar line, the readout (TESTNET, block N), the panel and the Activity list; leave it 2 minutes and watch for animation."
+      ],
+      "expected": "A calm cyan line and text readout; nothing animates; the status poll updates only when an answer changes; Activity shows the audit verification status; Save log as file works.",
+      "evidence": "PC-BSVT-18.png.",
+      "safety": "real-wallet",
+      "automation": "owner-only",
+      "depends": [
+        "PC-BSVT-03"
+      ],
+      "gate": "G8",
+      "result": {
+        "status": "not-run",
+        "date": null,
+        "evidence": null
+      }
+    },
+    {
+      "id": "PC-BSVT-19",
+      "area": "BSVT",
+      "title": "Kill Legion mid-spend: restart keeps the unknown outcome and quarantines a torn audit line",
+      "source": [
+        "review/bsv-t1-review.md gap hunt (torn last audit line)",
+        "claude/plan-bsv-rung3.md C12"
+      ],
+      "inferred": true,
+      "inferredNote": "Review describes the behaviour from tests on Linux; Windows file behaviour after a hard kill is the new part.",
+      "preconditions": "BSVT-05 passed. Kill by PID only.",
+      "steps": [
+        "Start a spend, confirm both dialogs, end Legion's core process while the wallet prompt is showing; restart.",
+        "Open the BSV panel Activity list."
+      ],
+      "expected": "The spend shows unknown and spends stay blocked; the audit log verifies (a torn last line is reported and the file quarantined on the next append).",
+      "evidence": "PC-BSVT-19.png, PC-BSVT-19.log.",
+      "safety": "native-dialog",
+      "automation": "owner-only",
+      "depends": [
+        "PC-BSVT-05"
+      ],
+      "gate": "G8",
+      "result": {
+        "status": "not-run",
+        "date": null,
+        "evidence": null
+      }
+    },
+    {
+      "id": "PC-BSVT-20",
+      "area": "BSVT",
+      "title": "Same wallet product port check: does BSV Desktop and the HandCash BRC wallet use the same port (VM only)",
+      "source": [
+        "docs/BSV-WALLET-DESIGN.md section 11 (port question)"
+      ],
+      "inferred": true,
+      "inferredNote": "A documented open question; only answerable by installing both wallets in the VM.",
+      "preconditions": "BSVT-00 VM; owner installs a second wallet inside the VM only if wanted.",
+      "steps": [
+        "In the VM run `netstat -ano | findstr LISTEN` with each wallet running and note its port."
+      ],
+      "expected": "RECORD the ports. Docs say both use the same port (unconfirmed).",
+      "evidence": "PC-BSVT-20.log.",
+      "safety": "real-wallet",
+      "automation": "owner-only",
+      "depends": [
+        "PC-BSVT-00"
+      ],
+      "gate": "G8",
+      "result": {
+        "status": "not-run",
+        "date": null,
+        "evidence": null
+      }
+    },
+    {
+      "id": "PC-BSVT-21",
+      "area": "BSVT",
+      "title": "Testnet runs request a spend only when the owner started them in the app",
+      "source": [
+        "claude/plan-bsv-rung3.md 9 open question 2",
+        "claude/legion-release-tracker.md BSV scope change"
+      ],
+      "inferred": true,
+      "inferredNote": "Decision made; the observation with a real MCP-started or room-woken run is not listed anywhere.",
+      "preconditions": "BSVT-04 passed; an MCP client (Claude Code) registered (MCP-05).",
+      "steps": [
+        "From Claude Code start an Assayer run through legion_run that asks for a spend.",
+        "Then ask in a room so a bot wakes the Assayer to request one."
+      ],
+      "expected": "Both are refused (denied) with no dialog and no wallet contact.",
+      "evidence": "PC-BSVT-21.png.",
+      "safety": "real-wallet",
+      "automation": "owner-only",
+      "depends": [
+        "PC-BSVT-04",
+        "PC-MCP-05"
+      ],
+      "gate": "G8",
+      "result": {
+        "status": "not-run",
+        "date": null,
+        "evidence": null
+      }
+    },
+    {
+      "id": "PC-BSVT-22",
+      "area": "BSVT",
+      "title": "A wallet claiming mainnet is warned about and refused while Legion's mainnet switch is off",
+      "source": [
+        "claude/plan-bsv-rung3.md 12.6a (flip tests only prove Legion's gates)",
+        "docs/BSV-MODE.md (mainnet wallet shows the warning pill)"
+      ],
+      "inferred": true,
+      "inferredNote": "Needs a mainnet-configured wallet; do it only with a second, EMPTY mainnet wallet inside the VM (never the owner's funded wallet).",
+      "preconditions": "BSVT-00 VM with a second, empty wallet set to mainnet. No funds.",
+      "steps": [
+        "Connect Legion to the empty mainnet wallet; run bsv_status; request a spend."
+      ],
+      "expected": "A warning pill appears; the request is denied as mainnet-disabled with no wallet prompt and an audit denied line naming the network.",
+      "evidence": "PC-BSVT-22.png.",
+      "safety": "real-wallet",
+      "automation": "owner-only",
+      "depends": [
+        "PC-BSVT-05"
+      ],
+      "gate": "G8",
+      "result": {
+        "status": "not-run",
+        "date": null,
+        "evidence": null
+      }
+    },
+    {
+      "id": "PC-BSVT-23",
+      "area": "BSVT",
+      "title": "Record dated results of V0-V12 in the tracker and mark the unverified list U1-U14 confirmed or open",
+      "source": [
+        "claude/plan-bsv-rung3.md 7.2 (results go to tracker)",
+        "claude/plan-bsv-rung3.md 10 (docs mark U1-U10 confirmed or open)"
+      ],
+      "inferred": false,
+      "preconditions": "BSVT-00 to BSVT-22 run.",
+      "steps": [
+        "Update this plan's result fields and claude/tracker-pc-checks.md; list U1-U10 as confirmed or open in docs/BSV-MODE.md \"Not verified\"."
+      ],
+      "expected": "Every U item has a recorded status; docs say \"has not been verified with real funds\" until BSVM is recorded.",
+      "evidence": "The updated results file.",
+      "safety": "none",
+      "automation": "owner-only",
+      "depends": [
+        "PC-BSVT-12"
+      ],
+      "gate": "G8",
+      "result": {
+        "status": "not-run",
+        "date": null,
+        "evidence": null
+      }
+    },
+    {
+      "id": "PC-BSVM-00",
+      "area": "BSVM",
+      "title": "R preconditions: V1-V12 passed, review signed off, reviewed commit, own mainnet address",
+      "source": [
+        "claude/plan-bsv-rung3.md 12.6b (preconditions)",
+        "claude/legion-release-tracker.md BSV scope change"
+      ],
+      "inferred": false,
+      "preconditions": "OWNER ONLY, BY HAND, NEVER SCRIPTED, NEVER BY AN AGENT. Owner says \"go\" in this session. No agent drives the keyboard.",
+      "steps": [
+        "Record that BSVT-01 to BSVT-12 passed and the independent review signed off the spend module, per-network policy and the dialogs.",
+        "Build Legion from the reviewed commit.",
+        "Have a second mainnet receive address of the OWNER'S OWN ready (net cost is then only the fee). Amount: 200 sat (0.00000200 BSV); mainnet caps at defaults."
+      ],
+      "expected": "All preconditions are written down with the commit id before anything else starts.",
+      "evidence": "PC-BSVM-00.txt (commit id, who watched).",
+      "safety": "real-funds",
+      "automation": "owner-only",
+      "depends": [
+        "PC-BSVT-12"
+      ],
+      "gate": "G11",
+      "result": {
+        "status": "not-run",
+        "date": null,
+        "evidence": null
+      }
+    },
+    {
+      "id": "PC-BSVM-01",
+      "area": "BSVM",
+      "title": "R0: note balance and history; Legion shows the switch OFF and not armed",
+      "source": [
+        "claude/plan-bsv-rung3.md 12.6b R0"
+      ],
+      "inferred": false,
+      "preconditions": "PC-BSVM-00 recorded.",
+      "steps": [
+        "In the wallet's own UI note the balance and history.",
+        "Open Legion's BSV panel."
+      ],
+      "expected": "Mainnet switch OFF, not armed.",
+      "evidence": "PC-BSVM-01.png.",
+      "safety": "real-funds",
+      "automation": "owner-only",
+      "depends": [
+        "PC-BSVM-00"
+      ],
+      "gate": "G11",
+      "result": {
+        "status": "not-run",
+        "date": null,
+        "evidence": null
+      }
+    },
+    {
+      "id": "PC-BSVM-02",
+      "area": "BSVM",
+      "title": "R1: connect to the real wallet and ask for 200 sat: denied mainnet-disabled, no wallet prompt",
+      "source": [
+        "claude/plan-bsv-rung3.md 12.6b R1"
+      ],
+      "inferred": false,
+      "preconditions": "PC-BSVM-01.",
+      "steps": [
+        "In the panel use Connect with the real wallet's address (typed by the owner; confirm the native dialog).",
+        "Ask the Assayer for 200 sat."
+      ],
+      "expected": "Denied mainnet-disabled; NO wallet prompt; the audit shows a denied line with net main.",
+      "evidence": "PC-BSVM-02.png.",
+      "safety": "real-funds",
+      "automation": "owner-only",
+      "depends": [
+        "PC-BSVM-01"
+      ],
+      "gate": "G11",
+      "result": {
+        "status": "not-run",
+        "date": null,
+        "evidence": null
+      }
+    },
+    {
+      "id": "PC-BSVM-03",
+      "area": "BSVM",
+      "title": "R2: enable mainnet through the native dialog",
+      "source": [
+        "claude/plan-bsv-rung3.md 12.6b R2"
+      ],
+      "inferred": false,
+      "preconditions": "PC-BSVM-02.",
+      "steps": [
+        "Enable mainnet; read the dialog; confirm."
+      ],
+      "expected": "Panel: enabled, not armed.",
+      "evidence": "PC-BSVM-03.png.",
+      "safety": "real-funds",
+      "automation": "owner-only",
+      "depends": [
+        "PC-BSVM-02"
+      ],
+      "gate": "G11",
+      "result": {
+        "status": "not-run",
+        "date": null,
+        "evidence": null
+      }
+    },
+    {
+      "id": "PC-BSVM-04",
+      "area": "BSVM",
+      "title": "R3: allowlist the own address on the mainnet list; ask again: denied not-armed",
+      "source": [
+        "claude/plan-bsv-rung3.md 12.6b R3"
+      ],
+      "inferred": false,
+      "preconditions": "PC-BSVM-03.",
+      "steps": [
+        "Add the own mainnet address to the mainnet allowlist (native dialog); ask for 200 sat again."
+      ],
+      "expected": "Denied not-armed; no wallet prompt.",
+      "evidence": "PC-BSVM-04.png.",
+      "safety": "real-funds",
+      "automation": "owner-only",
+      "depends": [
+        "PC-BSVM-03"
+      ],
+      "gate": "G11",
+      "result": {
+        "status": "not-run",
+        "date": null,
+        "evidence": null
+      }
+    },
+    {
+      "id": "PC-BSVM-05",
+      "area": "BSVM",
+      "title": "R4: Arm for 5 minutes; compare dialogs character by character against the wallet",
+      "source": [
+        "claude/plan-bsv-rung3.md 12.6b R4"
+      ],
+      "inferred": false,
+      "preconditions": "PC-BSVM-04.",
+      "steps": [
+        "Arm for 5 minutes (read the LIVE FUNDS dialog); ask again.",
+        "Compare D1 and D2 (and D3 if tainted): amount, network word, the FULL address character by character against the wallet, and the caps."
+      ],
+      "expected": "The dialogs match the table exactly. ABORT at once (Freeze, Disable, no retry, record) if the amount, the network word or any character of the address differs.",
+      "evidence": "PC-BSVM-05.png set.",
+      "safety": "real-funds",
+      "automation": "owner-only",
+      "depends": [
+        "PC-BSVM-04"
+      ],
+      "gate": "G11",
+      "result": {
+        "status": "not-run",
+        "date": null,
+        "evidence": null
+      }
+    },
+    {
+      "id": "PC-BSVM-06",
+      "area": "BSVM",
+      "title": "R5: Cancel on dialog 2: declined, no wallet prompt, still armed",
+      "source": [
+        "claude/plan-bsv-rung3.md 12.6b R5"
+      ],
+      "inferred": false,
+      "preconditions": "PC-BSVM-05.",
+      "steps": [
+        "Press Cancel on D2."
+      ],
+      "expected": "Declined; no wallet prompt; reservation freed; still armed.",
+      "evidence": "PC-BSVM-06.png.",
+      "safety": "real-funds",
+      "automation": "owner-only",
+      "depends": [
+        "PC-BSVM-05"
+      ],
+      "gate": "G11",
+      "result": {
+        "status": "not-run",
+        "date": null,
+        "evidence": null
+      }
+    },
+    {
+      "id": "PC-BSVM-07",
+      "area": "BSVM",
+      "title": "R6: confirm D1 and D2; the wallet shows its own prompt (200 sat, recipient, ONE payment output)",
+      "source": [
+        "claude/plan-bsv-rung3.md 12.6b R6",
+        "claude/plan-bsv-rung3.md U13"
+      ],
+      "inferred": false,
+      "preconditions": "PC-BSVM-06.",
+      "steps": [
+        "Ask again; confirm D1 and D2; read the wallet prompt; approve there only if all match."
+      ],
+      "expected": "The wallet prompt appears after both dialogs and shows 200 sat, the recipient and exactly one payment output. ABORT if the prompt comes earlier, shows another amount or recipient or more outputs, offers \"always allow\" or a monthly limit (do not tick it), or does not appear at all (U13).",
+      "evidence": "PC-BSVM-07.png.",
+      "safety": "real-funds",
+      "automation": "owner-only",
+      "depends": [
+        "PC-BSVM-06"
+      ],
+      "gate": "G11",
+      "result": {
+        "status": "not-run",
+        "date": null,
+        "evidence": null
+      }
+    },
+    {
+      "id": "PC-BSVM-08",
+      "area": "BSVM",
+      "title": "R7: read the result; the txid and the explorer show 200 sat to the own address; balance fell by the fee only",
+      "source": [
+        "claude/plan-bsv-rung3.md 12.6b R7",
+        "claude/plan-bsv-rung3.md U14"
+      ],
+      "inferred": false,
+      "preconditions": "PC-BSVM-07.",
+      "steps": [
+        "Read the returned txid (64 hex); open it in a mainnet explorer in a browser; compare the wallet balance."
+      ],
+      "expected": "One 200 sat output to the own address plus change; balance fell by the fee only; fee at most 100 sat. RECORD the real fee (U14).",
+      "evidence": "PC-BSVM-08.png (txid shortened to a prefix).",
+      "safety": "real-funds",
+      "automation": "owner-only",
+      "depends": [
+        "PC-BSVM-07"
+      ],
+      "gate": "G11",
+      "result": {
+        "status": "not-run",
+        "date": null,
+        "evidence": null
+      }
+    },
+    {
+      "id": "PC-BSVM-09",
+      "area": "BSVM",
+      "title": "R8: ask once more: denied not-armed (one arm, one spend)",
+      "source": [
+        "claude/plan-bsv-rung3.md 12.6b R8"
+      ],
+      "inferred": false,
+      "preconditions": "PC-BSVM-08.",
+      "steps": [
+        "Ask for 200 sat again."
+      ],
+      "expected": "Denied not-armed; no wallet prompt.",
+      "evidence": "PC-BSVM-09.png.",
+      "safety": "real-funds",
+      "automation": "owner-only",
+      "depends": [
+        "PC-BSVM-08"
+      ],
+      "gate": "G11",
+      "result": {
+        "status": "not-run",
+        "date": null,
+        "evidence": null
+      }
+    },
+    {
+      "id": "PC-BSVM-10",
+      "area": "BSVM",
+      "title": "R9: Decline in the WALLET: unknown, switch goes off (auto-off), resolve natively",
+      "source": [
+        "claude/plan-bsv-rung3.md 12.6b R9"
+      ],
+      "inferred": false,
+      "preconditions": "PC-BSVM-09.",
+      "steps": [
+        "Arm, ask, confirm D1 and D2, then Decline in the wallet.",
+        "Read the wallet history and resolve in Legion (\"NOT sent\")."
+      ],
+      "expected": "Legion shows unknown and the mainnet switch is off.",
+      "evidence": "PC-BSVM-10.png.",
+      "safety": "real-funds",
+      "automation": "owner-only",
+      "depends": [
+        "PC-BSVM-09"
+      ],
+      "gate": "G11",
+      "result": {
+        "status": "not-run",
+        "date": null,
+        "evidence": null
+      }
+    },
+    {
+      "id": "PC-BSVM-11",
+      "area": "BSVM",
+      "title": "R10: Freeze while dialog 1 is open: refused, no wallet prompt",
+      "source": [
+        "claude/plan-bsv-rung3.md 12.6b R10"
+      ],
+      "inferred": false,
+      "preconditions": "PC-BSVM-10.",
+      "steps": [
+        "Enable, arm, ask; press Freeze while D1 is open; answer D1."
+      ],
+      "expected": "The dialog answer is refused; no wallet prompt.",
+      "evidence": "PC-BSVM-11.png.",
+      "safety": "real-funds",
+      "automation": "owner-only",
+      "depends": [
+        "PC-BSVM-10"
+      ],
+      "gate": "G11",
+      "result": {
+        "status": "not-run",
+        "date": null,
+        "evidence": null
+      }
+    },
+    {
+      "id": "PC-BSVM-12",
+      "area": "BSVM",
+      "title": "R11: Disable mainnet, Disarm, Disconnect; record dated results",
+      "source": [
+        "claude/plan-bsv-rung3.md 12.6b R11"
+      ],
+      "inferred": false,
+      "preconditions": "PC-BSVM-11.",
+      "steps": [
+        "Disable mainnet, Disarm, Disconnect.",
+        "Read the audit lines for R1 to R10 and record dated results in claude/tracker-pc-checks.md and in this plan."
+      ],
+      "expected": "Panel shows off. Until R0-R11 are recorded every document says \"has not been verified with real funds\".",
+      "evidence": "PC-BSVM-12.txt.",
+      "safety": "real-funds",
+      "automation": "owner-only",
+      "depends": [
+        "PC-BSVM-11"
+      ],
+      "gate": "G11",
+      "result": {
+        "status": "not-run",
+        "date": null,
+        "evidence": null
+      }
+    },
+    {
+      "id": "PC-BSVM-13",
+      "area": "BSVM",
+      "title": "Record U11 (mainnet network string), U12 (unsigned tx shape and P2PKH change), U13 (prompt every time), U14 (fee levels)",
+      "source": [
+        "claude/plan-bsv-rung3.md section 12 (U11 to U14)"
+      ],
+      "inferred": false,
+      "preconditions": "While doing R1 to R8.",
+      "steps": [
+        "Note the wallet's mainnet network string answer, the shape of the unsigned transaction and change, whether the wallet prompted every time, and the fee."
+      ],
+      "expected": "Each of U11 to U14 is marked confirmed or open; the mainnet fee ceiling is revisited from the real fee.",
+      "evidence": "PC-BSVM-13.txt.",
+      "safety": "real-funds",
+      "automation": "owner-only",
+      "depends": [
+        "PC-BSVM-08"
+      ],
+      "gate": "G11",
+      "result": {
+        "status": "not-run",
+        "date": null,
+        "evidence": null
+      }
+    },
+    {
+      "id": "PC-WEB-01",
+      "area": "WEB",
+      "title": "The install command on the site works on a clean Windows PC once the repo is public",
+      "source": [
+        "claude/legion-release-tracker.md Website (install command must be re-verified once the repo is public)"
+      ],
+      "inferred": false,
+      "preconditions": "Product repo public, site deployed. A clean Windows 10/11 user or VM with Node installed and no earlier Legion. Owner go for downloads.",
+      "steps": [
+        "Copy the install command from the site hero exactly as shown. Paste it into the shell the site names.",
+        "After it finishes launch Legion from the new shortcut; open Doctor."
+      ],
+      "expected": "The command installs the build the README describes, with no placeholder text (such as OWNER) and no step missing. The Instructions and GitHub links work.",
+      "evidence": "PC-WEB-01.png, PC-WEB-01.log.",
+      "safety": "downloads",
+      "automation": "owner-must-be-present",
+      "depends": [
+        "PC-INST-10"
+      ],
+      "gate": "G10",
+      "result": {
+        "status": "not-run",
+        "date": null,
+        "evidence": null
+      }
+    },
+    {
+      "id": "PC-WEB-02",
+      "area": "WEB",
+      "title": "Install from a downloaded ZIP of the public repo and from git clone",
+      "source": [
+        "claude/legion-release-tracker.md Website",
+        "claude/tracker-pc-checks.md P7"
+      ],
+      "inferred": false,
+      "preconditions": "Public repo.",
+      "steps": [
+        "Download ZIP; unpack; double-click setup.cmd. Then `git clone` and run setup.cmd from the clone."
+      ],
+      "expected": "Both routes install (see INST-08 for line endings; INST-09 for prompts).",
+      "evidence": "PC-WEB-02.log.",
+      "safety": "downloads",
+      "automation": "owner-must-be-present",
+      "depends": [
+        "PC-INST-08"
+      ],
+      "gate": "G10",
+      "result": {
+        "status": "not-run",
+        "date": null,
+        "evidence": null
+      }
+    },
+    {
+      "id": "PC-WEB-03",
+      "area": "WEB",
+      "title": "Public repo links and package metadata have no OWNER placeholder",
+      "source": [
+        "package.json (homepage, repository, bugs say OWNER on integration/v1)",
+        "claude/legion-release-tracker.md item G"
+      ],
+      "inferred": true,
+      "inferredNote": "Not a PC-only check; recorded so it is not lost: package.json on integration/v1 still shows OWNER/legion until the docs branch merges.",
+      "preconditions": "Docs branch merged.",
+      "steps": [
+        "Run `Select-String -Path package.json,README.md,CHANGELOG.md -Pattern \"OWNER/\"`.",
+        "Click the README badges and CHANGELOG compare links."
+      ],
+      "expected": "No OWNER/ placeholders; all links resolve to dnh33/legion (or the final public name).",
+      "evidence": "PC-WEB-03.log.",
+      "safety": "none",
+      "automation": "command-only",
+      "depends": [],
+      "gate": "G10",
+      "result": {
+        "status": "not-run",
+        "date": null,
+        "evidence": null
+      }
+    },
+    {
+      "id": "PC-WEB-04",
+      "area": "WEB",
+      "title": "Public repo settings: secret scanning and push protection on, private vulnerability reporting enabled",
+      "source": [
+        "claude/tracker-public-audit.md (go public after: secret scanning)",
+        "claude/legion-release-tracker.md item G"
+      ],
+      "inferred": false,
+      "preconditions": "Owner logged in to GitHub.",
+      "steps": [
+        "Settings, Code security: enable secret scanning and push protection and private vulnerability reporting."
+      ],
+      "expected": "All three show enabled. Owner decides the BSV pack NOTICE wording (L5) and accepts H4/H5 before going public.",
+      "evidence": "PC-WEB-04.png.",
+      "safety": "account",
+      "automation": "owner-only",
+      "depends": [],
+      "gate": "G10",
+      "result": {
+        "status": "not-run",
+        "date": null,
+        "evidence": null
+      }
+    },
+    {
+      "id": "PC-WEB-05",
+      "area": "WEB",
+      "title": "Deployed site: Lighthouse score at least 95 and the screenshots are the current UI",
+      "source": [
+        "claude/legion-release-tracker.md Website (Lighthouse >= 95; screenshots swappable after item G phase 2)"
+      ],
+      "inferred": false,
+      "preconditions": "Site deployed; Chrome.",
+      "steps": [
+        "Run Lighthouse (Chrome DevTools) on desktop and mobile for the home page; compare the site screenshots with the real UI."
+      ],
+      "expected": "Performance, accessibility, best practices and SEO at least 95; screenshots match the shipped UI.",
+      "evidence": "PC-WEB-05.png (Lighthouse), PC-WEB-05-shots.png.",
+      "safety": "none",
+      "automation": "computer-use-ok",
+      "depends": [],
+      "gate": "G10",
+      "result": {
+        "status": "not-run",
+        "date": null,
+        "evidence": null
+      }
+    },
+    {
+      "id": "PC-PERF-01",
+      "area": "PERF",
+      "title": "Full gate on Windows: npm ci, build:ts, test, typecheck, build:ui with exact counts",
+      "source": [
+        "CLAUDE.md Gates",
+        "claude/legion-release-tracker.md W0 and status updates (reference 1552 tests / 1517 pass / 0 fail / 35 skip)"
+      ],
+      "inferred": false,
+      "preconditions": "Clean checkout of the build under test; owner go for npm ci downloads. PowerShell present so the \"real PowerShell\" tests run instead of skipping.",
+      "steps": [
+        "Run `npm ci; npm run build:ts; npm test; npm run typecheck; npm run build:ui` and capture the summary lines."
+      ],
+      "expected": "All commands exit 0. Record tests / pass / fail / skipped and which tests skipped and why.",
+      "evidence": "PC-PERF-01.log (summary lines).",
+      "safety": "downloads",
+      "automation": "command-only",
+      "depends": [],
+      "gate": "G9",
+      "result": {
+        "status": "not-run",
+        "date": null,
+        "evidence": null
+      }
+    },
+    {
+      "id": "PC-PERF-02",
+      "area": "PERF",
+      "title": "R6.1 replay fidelity test, repeated, to see whether the flake is gone",
+      "source": [
+        "claude/legion-release-tracker.md Open item R6.1"
+      ],
+      "inferred": false,
+      "preconditions": "Built tree (npm run build:ts).",
+      "steps": [
+        "Run `1..30 | ForEach-Object { node --test dist/test/library-review-integrity.test.js; $LASTEXITCODE }` and count non-zero exits."
+      ],
+      "expected": "30 of 30 pass. A failure prints which part differs (nodes, edges, search, inbox). Then run one scratch mutation of the replay code and confirm the test goes red (the mutation check was never done), and revert.",
+      "evidence": "PC-PERF-02.log.",
+      "safety": "none",
+      "automation": "command-only",
+      "depends": [
+        "PC-PERF-01"
+      ],
+      "gate": "G9",
+      "result": {
+        "status": "not-run",
+        "date": null,
+        "evidence": null
+      }
+    },
+    {
+      "id": "PC-PERF-03",
+      "area": "PERF",
+      "title": "kg-routes test, repeated on Windows",
+      "source": [
+        "task brief (R6.1/kg-routes flakes)"
+      ],
+      "inferred": true,
+      "inferredNote": "The brief names a kg-routes flake; no document in the repo describes it. Check test/kg-routes.test.ts and the Windows baseline notes.",
+      "preconditions": "Built tree.",
+      "steps": [
+        "Run `1..30 | ForEach-Object { node --test dist/test/kg-routes.test.js; $LASTEXITCODE }`."
+      ],
+      "expected": "30 of 30 pass; any failure is recorded with its message.",
+      "evidence": "PC-PERF-03.log.",
+      "safety": "none",
+      "automation": "command-only",
+      "depends": [
+        "PC-PERF-01"
+      ],
+      "gate": "G9",
+      "result": {
+        "status": "not-run",
+        "date": null,
+        "evidence": null
+      }
+    },
+    {
+      "id": "PC-PERF-04",
+      "area": "PERF",
+      "title": "Perf re-record on the PC: core bench, UI idle and mascot cost, chat, lattice, with the busy ring on",
+      "source": [
+        "claude/legion-release-tracker.md handoff (perf re-record)",
+        "claude/legion-release-tracker.md decision 6 (busy ring: re-measure in the sweep)"
+      ],
+      "inferred": false,
+      "preconditions": "Idle PC on AC power, no other apps. The scripts in test-perf/ use Linux paths (/tmp/m, /opt/node-tools) and need Playwright: adapt paths first and note every change. Never point them at a real wallet (they refuse that port).",
+      "steps": [
+        "`node test-perf/core/bench.mjs` with DIST set to the built dist.",
+        "Run test-perf/ui-app/mascot-perf.mjs, idle-busy checks (idle-alive.mjs, smoke.mjs), test-perf/chat-ui/perf.mjs and test-perf/lattice/measure.mjs against the installed build's dist and dist-ui.",
+        "Compare with the numbers in test-perf/ui-app/results/*.txt."
+      ],
+      "expected": "RECORD numbers; flag any metric worse than the stored results by more than 20 percent (INFERRED threshold). The busy ring on rail avatars stays acceptable.",
+      "evidence": "PC-PERF-04.json (script outputs).",
+      "safety": "none",
+      "automation": "command-only",
+      "depends": [
+        "PC-INST-10"
+      ],
+      "gate": "G9",
+      "result": {
+        "status": "not-run",
+        "date": null,
+        "evidence": null
+      }
+    },
+    {
+      "id": "PC-PERF-05",
+      "area": "PERF",
+      "title": "scrubSecrets timing on Windows for the token, secret_eq and http shapes",
+      "source": [
+        "claude/legion-release-tracker.md Follow-ups (scrubSecrets quadratic: 0.1 s at 20k chars, 1.7 s at 80k)"
+      ],
+      "inferred": false,
+      "preconditions": "Built tree.",
+      "steps": [
+        "Run the Windows R3.4 scaling test (`node --test dist/test/library-review2-scrub.test.js dist/test/comms-scrub.test.js`) and, if a timing print exists, record the 20k and 80k character times."
+      ],
+      "expected": "Tests pass; record times so the planned linear-scan fix can be compared.",
+      "evidence": "PC-PERF-05.log.",
+      "safety": "none",
+      "automation": "command-only",
+      "depends": [
+        "PC-PERF-01"
+      ],
+      "gate": "G9",
+      "result": {
+        "status": "not-run",
+        "date": null,
+        "evidence": null
+      }
+    },
+    {
+      "id": "PC-PERF-06",
+      "area": "PERF",
+      "title": "Regenerate docs screenshots on the PC if the cloud has no browser",
+      "source": [
+        "claude/legion-release-tracker.md item G (fallback: capture on the PC with the Playwright harnesses under test-perf/)"
+      ],
+      "inferred": true,
+      "inferredNote": "Conditional on the cloud having no browser; item G phase 2 is not done on this base.",
+      "preconditions": "Only if item G phase 2 could not do it. The Zealot art is photographed only, never edited.",
+      "steps": [
+        "Run the screenshot scripts (test-perf/ui-app/titlebar-shots.mjs, vm-shots.mjs, chat-ui/shots.mjs, bsv-ui/shots.mjs) into a scratch folder; compare with docs/images and docs/screenshots at full size."
+      ],
+      "expected": "Light and dark screenshots match the real UI at README sizes.",
+      "evidence": "PC-PERF-06 folder of PNGs.",
+      "safety": "none",
+      "automation": "computer-use-ok",
+      "depends": [
+        "PC-INST-10"
+      ],
+      "gate": "G9",
+      "result": {
+        "status": "not-run",
+        "date": null,
+        "evidence": null
+      }
+    },
+    {
+      "id": "PC-PERF-07",
+      "area": "PERF",
+      "title": "Idle CPU/GPU of the real Electron app with the mascot animating",
+      "source": [
+        "docs/MASCOT-NOTES.md",
+        "test-perf/ui-app (idle-busy, draws, smil checks)"
+      ],
+      "inferred": true,
+      "inferredNote": "The perf scripts measure headless Chromium; the real Electron window on a real GPU is not covered.",
+      "preconditions": "Installed app, window visible and focused, then hidden to tray.",
+      "steps": [
+        "Open Task Manager, Details; read the CPU and GPU engine columns of the Legion Electron processes for 60 s with the window visible, minimised and hidden."
+      ],
+      "expected": "RECORD figures; idle should be near zero while hidden and low while visible; the BSV UI adds no animation.",
+      "evidence": "PC-PERF-07.png.",
+      "safety": "none",
+      "automation": "computer-use-ok",
+      "depends": [
+        "PC-INST-10"
+      ],
+      "gate": "G9",
+      "result": {
+        "status": "not-run",
+        "date": null,
+        "evidence": null
+      }
+    }
+  ],
+  "sourcesScanned": [
+    {
+      "path": "claude/tracker-pc-checks.md",
+      "covered": "P1-P10, M1-M3, K1, U1, R1, handoff line (also the Blender B1-B11 variant on origin/claude/review-blender-merged)"
+    },
+    {
+      "path": "claude/legion-release-tracker.md",
+      "covered": "decisions, handoff list, R6.1 flake, scrubSecrets follow-up, Legion MCP registration, website, BSV scope, status updates"
+    },
+    {
+      "path": "claude/plan-bsv-rung3.md",
+      "covered": "section 3 (U1-U10), 7.2 (V0-V12), 12 (U11-U14, R0-R11), 13"
+    },
+    {
+      "path": "claude/plan-blender-local-first.md",
+      "covered": "6.2, 6.3, 11 (B4 managed Blender), 12 (B5 chooser)"
+    },
+    {
+      "path": "claude/tracker-public-audit.md",
+      "covered": "public-repo owner steps (secret scanning, L5)"
+    },
+    {
+      "path": "claude/release-notes-skeleton.md",
+      "covered": "unverified statements in the draft notes"
+    },
+    {
+      "path": "origin/claude/review-release-packaging: review/release-packaging-review.md",
+      "covered": "F1-F9, section 5"
+    },
+    {
+      "path": "origin/claude/review-mcp-isolation: review/mcp-isolation-review.md",
+      "covered": "F1-F5, self-MCP variants"
+    },
+    {
+      "path": "origin/claude/review-rooms-probe-upgrade: review/rooms-probe-upgrade-review.md",
+      "covered": "R1, K1, U1, polish"
+    },
+    {
+      "path": "origin/claude/review-blender-merged: review/blender-merged-review.md",
+      "covered": "B1, M1-M5, L1-L9, section 6"
+    },
+    {
+      "path": "origin/claude/review-bsv-t1: review/bsv-t1-review.md",
+      "covered": "F1, gap hunt, polish"
+    },
+    {
+      "path": "origin/claude/test-harness: docs/TESTING.md, TESTING-BLENDER.md, TESTING-BSV.md",
+      "covered": "what only a real PC can verify, owner-only lists"
+    },
+    {
+      "path": "docs/BLENDER.md",
+      "covered": "Not verified yet"
+    },
+    {
+      "path": "docs/BSV-MODE.md",
+      "covered": "Not verified, interface"
+    },
+    {
+      "path": "docs/BSV-WALLET-DESIGN.md",
+      "covered": "section 10, 11, 12"
+    },
+    {
+      "path": "docs/VM-NOTES.md",
+      "covered": "Not verified against the real boat.dev"
+    },
+    {
+      "path": "docs/ARCHITECTURE.md",
+      "covered": "Electron shell, MCP bridge, UI"
+    },
+    {
+      "path": "docs/CHAT.md, LIBRARY.md, COMMS-BRIDGE.md, KG-NOTES.md, KNOWLEDGE-GRAPH.md, LATTICE-UI-NOTES.md, MASCOT-NOTES.md, ROOMS-UI-NOTES.md, COMMS-NOTES.md",
+      "covered": "grepped for not verified, Windows, real-device claims; only CHAT and LIBRARY gave checks"
+    },
+    {
+      "path": "SECURITY.md, README.md, CHANGELOG.md, CONTRIBUTING.md",
+      "covered": "status block, install, unverified statements, claims"
+    },
+    {
+      "path": "src/ and ui/src code comments and messages",
+      "covered": "grepped for UNVERIFIED, TODO OWNER PC, \"not yet tried\" (sandbox.ts, Settings.tsx, shared/blender.ts)"
+    },
+    {
+      "path": "scripts/setup.ps1, setup.cmd, setup-yes.cmd, .github/workflows/ci.yml",
+      "covered": "read for what the Windows CI job already covers"
+    },
+    {
+      "path": "test-perf/**",
+      "covered": "read headers for commands and Linux-only paths"
+    },
+    {
+      "path": "origin/claude/bsv-t5-mainnet, bsv-t1-plumbing, bsv-t3-native-ui, blender-b1..b3, docs-release-ready-1, mcp-isolation, release-packaging, rooms-probe-upgrade",
+      "covered": "branch lists only; no review report exists for bsv-t5-mainnet, bsv-t3-native-ui or docs-release-ready-1 yet"
+    }
+  ]
+}
