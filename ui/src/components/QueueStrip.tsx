@@ -42,7 +42,7 @@ export const QueueStrip = memo(function QueueStrip({ qkey, waiting }: { qkey: st
             {q.hold === 'error' && <>Queue paused: {q.error ? q.error : 'the run failed'}.</>}
             {q.hold === 'restored' && <>Restored after reload. Nothing is sent until you resume.</>}
           </span>
-          <button type="button" className="btn-ghost sm" onClick={() => resumeQueue(qkey)}>Resume</button>
+          <button type="button" className="btn-ghost sm q-resume" onClick={() => resumeQueue(qkey)}>Resume</button>
           <button type="button" className="btn-ghost sm danger" onClick={() => clearQueue(qkey)}>Clear</button>
         </div>
       )}

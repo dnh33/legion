@@ -141,7 +141,7 @@ export function Composer() {
           </button>
           <span className="composer-hint">
             {busy
-              ? <span className="hint-long" data-testid="composer-hint"><kbd>Enter</kbd> queues <kbd>Ctrl+Enter</kbd> interrupts <kbd>Shift+Enter</kbd> newline </span>
+              ? <span className="hint-long" data-testid="composer-hint"><kbd>Enter</kbd> queues <kbd>Ctrl+Enter</kbd> interrupts </span>
               : <span className="hint-long"><kbd>Enter</kbd> send <kbd>Shift Enter</kbd> newline </span>}
             <kbd>/</kbd> commands</span>
           <span className="spacer" />

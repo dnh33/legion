@@ -1,33 +1,24 @@
 import { Fragment, useState, type ReactNode } from 'react';
 import { openExternal } from '../api';
+import { parseMarkdown, tokenizeInline } from '../chat/mdparse';
 import { copyText } from '../util';
 import { Icon } from './icons';
 
 /* Markdown-lite: paragraphs, headings, lists, fenced code, **bold**, *em*, `code`, [text](url).
    Everything is emitted as React elements (auto-escaped); no raw HTML. */
 
-const INLINE = /(`[^`\n]+`)|(\*\*[^*\n]+\*\*)|(\[[^\]\n]+\]\(https?:\/\/[^)\s]+\))|(\bhttps?:\/\/[^\s<)]+)|(\*[^*\s][^*\n]*\*)/g;
-
 function inline(text: string, key: string): ReactNode[] {
   const out: ReactNode[] = [];
-  let last = 0; let i = 0;
-  for (const m of text.matchAll(INLINE)) {
-    const idx = m.index ?? 0;
-    if (idx > last) out.push(text.slice(last, idx));
-    const tok = m[0]; const k = `${key}-${i++}`;
-    if (m[1]) out.push(<code key={k} className="md-code">{tok.slice(1, -1)}</code>);
-    else if (m[2]) out.push(<strong key={k}>{tok.slice(2, -2)}</strong>);
-    else if (m[3]) {
-      const mm = /^\[([^\]]+)\]\((.+)\)$/.exec(tok)!;
-      out.push(<Link key={k} href={mm[2]}>{mm[1]}</Link>);
-    } else if (m[4]) {
-      const url = tok.replace(/[.,;:!?]+$/, '');
-      out.push(<Link key={k} href={url}>{url}</Link>);
-      if (url.length < tok.length) out.push(tok.slice(url.length));
-    } else if (m[5]) out.push(<em key={k}>{tok.slice(1, -1)}</em>);
-    last = idx + tok.length;
+  let i = 0;
+  for (const t of tokenizeInline(text)) {
+    const k = `${key}-${i}`;
+    if (t.t === 'text') { out.push(t.v); continue; }
+    i++;
+    if (t.t === 'code') out.push(<code key={k} className="md-code">{t.v}</code>);
+    else if (t.t === 'strong') out.push(<strong key={k}>{t.v}</strong>);
+    else if (t.t === 'em') out.push(<em key={k}>{t.v}</em>);
+    else out.push(<Link key={k} href={t.href}>{t.text}</Link>);
   }
-  if (last < text.length) out.push(text.slice(last));
   return out;
 }
 
@@ -53,48 +44,8 @@ function CodeBlock({ lang, code }: { lang: string; code: string }) {
   );
 }
 
-type Block =
-  | { t: 'p'; lines: string[] }
-  | { t: 'h'; level: number; text: string }
-  | { t: 'ul' | 'ol'; items: string[] }
-  | { t: 'code'; lang: string; code: string };
-
-function parse(src: string): Block[] {
-  const lines = src.replace(/\r\n/g, '\n').split('\n');
-  const blocks: Block[] = [];
-  let i = 0;
-  while (i < lines.length) {
-    const line = lines[i];
-    const fence = /^\s*```\s*([\w+-]*)\s*$/.exec(line);
-    if (fence) {
-      const buf: string[] = []; i++;
-      while (i < lines.length && !/^\s*```\s*$/.test(lines[i])) buf.push(lines[i++]);
-      i++;
-      blocks.push({ t: 'code', lang: fence[1], code: buf.join('\n') });
-      continue;
-    }
-    if (!line.trim()) { i++; continue; }
-    const h = /^(#{1,4})\s+(.*)$/.exec(line);
-    if (h) { blocks.push({ t: 'h', level: h[1].length, text: h[2] }); i++; continue; }
-    if (/^\s*[-*]\s+/.test(line)) {
-      const items: string[] = [];
-      while (i < lines.length && /^\s*[-*]\s+/.test(lines[i])) items.push(lines[i++].replace(/^\s*[-*]\s+/, ''));
-      blocks.push({ t: 'ul', items }); continue;
-    }
-    if (/^\s*\d+[.)]\s+/.test(line)) {
-      const items: string[] = [];
-      while (i < lines.length && /^\s*\d+[.)]\s+/.test(lines[i])) items.push(lines[i++].replace(/^\s*\d+[.)]\s+/, ''));
-      blocks.push({ t: 'ol', items }); continue;
-    }
-    const buf: string[] = [];
-    while (i < lines.length && lines[i].trim() && !/^\s*```/.test(lines[i]) && !/^(#{1,4})\s+/.test(lines[i]) && !/^\s*([-*]|\d+[.)])\s+/.test(lines[i])) buf.push(lines[i++]);
-    blocks.push({ t: 'p', lines: buf });
-  }
-  return blocks;
-}
-
 export function Markdown({ text, caret }: { text: string; caret?: boolean }) {
-  const blocks = parse(text);
+  const blocks = parseMarkdown(text);
   return (
     <div className="md">
       {blocks.map((b, bi) => {

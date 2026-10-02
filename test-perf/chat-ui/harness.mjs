@@ -8,7 +8,8 @@
 // The fake SDK answers by marker in the prompt text:
 //   [slow:N]      works for N ms (default 1500), streaming a few text deltas; stops at once when interrupted
 //   [approval]    asks for approval of a Bash call (agent "careful" has approval=ask), then finishes when answered
-//   [error]       ends with an error result
+//   [error]       ends with an error result (after the delay when combined with [slow])
+//   [tool]        runs a (fake) Bash tool call with a result, then answers 'Used a tool.'
 //   [md]          answers with a rich markdown reply (heading, bold, list, link, code block) for the copy tests
 //   anything else answers immediately: "echo: <prompt>"
 // Safety: the data dir is /tmp/m/wt-chat-home-<port>, removed on stop; the core listens on 127.0.0.1 only.
@@ -75,6 +76,7 @@ export async function startFake({ ui, repo, port = 48600, agents } = {}) {
         const end = Date.now() + ms;
         while (Date.now() < end && !signal?.aborted) { await sleep(Math.min(100, end - Date.now()), signal); if (!signal?.aborted) yield delta('.'); }
         if (signal?.aborted) return;
+        if (prompt.includes('[error]')) { yield { type: 'result', subtype: 'error_during_execution', is_error: true, errors: ['scripted failure'], total_cost_usd: 0, num_turns: 1, session_id: id }; return; }
         yield { type: 'assistant', message: { content: [{ type: 'text', text: `slow done: ${prompt}` }] } };
         yield result(`slow done: ${prompt}`); return;
       }
@@ -84,6 +86,11 @@ export async function startFake({ ui, repo, port = 48600, agents } = {}) {
         yield { type: 'assistant', message: { content: [{ type: 'text', text }] } }; yield result(text); return;
       }
       if (prompt.includes('[error]')) { yield { type: 'result', subtype: 'error_during_execution', is_error: true, errors: ['scripted failure'], total_cost_usd: 0, num_turns: 1, session_id: id }; return; }
+      if (prompt.includes('[tool]')) {
+        yield { type: 'assistant', message: { content: [{ type: 'tool_use', id: 'tu1', name: 'Bash', input: { command: 'ls -la /secret-tool-input' } }] } };
+        yield { type: 'user', message: { content: [{ type: 'tool_result', tool_use_id: 'tu1', content: 'TOOL-OUTPUT-MARKER' }] } };
+        yield { type: 'assistant', message: { content: [{ type: 'text', text: 'Used a tool.' }] } }; yield result('Used a tool.'); return;
+      }
       if (prompt.includes('[md]')) { yield { type: 'assistant', message: { content: [{ type: 'text', text: MD_REPLY }] } }; yield result(MD_REPLY); return; }
       const text = `echo: ${prompt}`;
       yield { type: 'assistant', message: { content: [{ type: 'text', text }] } }; yield result(text);
