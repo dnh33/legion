@@ -11,7 +11,8 @@ export const load = (rel: string): Promise<any> => import(pathToFileURL(join(REP
 export const lib = () => load('scripts/lib/package-lib.mjs');
 export const installer = () => load('scripts/package-install.mjs');
 
-export const FAKE_ELECTRON = '#!/bin/sh\nexec node "$@"\n';
+// refuses to run unless started in node mode, like the real electron.exe would otherwise open a window
+export const FAKE_ELECTRON = '#!/bin/sh\n[ "$ELECTRON_RUN_AS_NODE" = 1 ] || { echo "not in node mode" >&2; exit 9; }\nexec node "$@"\n';
 export const FAKE_CLAUDE = '#!/bin/sh\necho "2.1.285 (fake)"\n';
 
 /** The real installer files a package carries, copied from this repo (dist must be built). */

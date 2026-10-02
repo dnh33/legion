@@ -117,6 +117,7 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
   const a = args(process.argv.slice(2), { out: 'v', 'skip-build': 'flag', 'allow-dirty': 'flag', 'published-at': 'v', 'keep-work': 'flag', 'no-selfcheck': 'flag', foreign: 'flag', 'node-modules': 'v', 'electron-dist': 'v', 'electron-version': 'v', root: 'v', commit: 'v' });
   if (!a.out) die('usage: node scripts/build-package.mjs --out <folder> [--skip-build] [--allow-dirty] [--published-at <UTC ISO>]');
   if (!a.foreign && !(process.platform === 'win32' && process.arch === 'x64')) die('this builds the Windows x64 package: run it on Windows x64 (the Windows Electron and claude.exe come from the dependency install).');
+  if (resolve(a.out) === REPO || resolve(a.out).startsWith(REPO + (process.platform === 'win32' ? '\\' : '/'))) die('--out must be outside the repository (the output would dirty the tree and could end up in the package)');
   const nodeVer = process.versions.node.split('.').map(Number);
   if (nodeVer[0] < 20 || (nodeVer[0] === 20 && nodeVer[1] < 10)) die('Node 20.10 or newer is needed to build');
   const dirty = a.foreign ? false : git(['status', '--porcelain']) !== '';

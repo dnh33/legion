@@ -154,3 +154,23 @@ test('install: lstat sanity - the fake package really has no links (guards the f
   const src = await fakePackage();
   assert.equal(lstatSync(join(src, 'runtime', 'electron', 'electron.exe')).isSymbolicLink(), false);
 });
+
+test('install: refuses a git checkout, too little disk space (before copying), and a link where a top-level folder should be; a spare copy holding a link is left, not deleted', async () => {
+  const { installPackage } = await installer();
+  const src = await fakePackage();
+  const co = tmp(); put(co, 'package.json', '{"name":"legion"}'); put(co, '.git/config', '');
+  await assert.rejects(installPackage({ src, dest: co, smoke: ok }), (e: any) => e.code === 'unsafe-dest' && /git checkout/.test(e.message));
+  const d2 = join(tmp(), 'L');
+  await assert.rejects(installPackage({ src, dest: d2, smoke: ok, freeBytes: () => 10 }), (e: any) => e.code === 'disk');
+  assert.equal(existsSync(join(d2, '.update')), false, 'nothing staged');
+  if (process.platform === 'win32') return;
+  const d3 = join(tmp(), 'L'); await installPackage({ src, dest: d3, smoke: ok });
+  const other = tmp(); put(other, 'keep.txt', 'mine');
+  rmSync(join(d3, 'node_modules'), { recursive: true }); symlinkSync(other, join(d3, 'node_modules'));
+  await assert.rejects(installPackage({ src: await fakePackage({ version: '0.9.1' }), dest: d3, smoke: ok }), (e: any) => e.code === 'unsafe-dest' && /is a link/.test(e.message));
+  assert.equal(readFileSync(join(other, 'keep.txt'), 'utf8'), 'mine');
+  rmSync(join(d3, 'node_modules')); mkdirSync(join(d3, 'node_modules')); symlinkSync(other, join(d3, 'node_modules', 'inner'));
+  await installPackage({ src: await fakePackage({ version: '0.9.2' }), dest: d3, smoke: ok });
+  assert.equal(readFileSync(join(other, 'keep.txt'), 'utf8'), 'mine', 'a link target is never followed');
+  assert.ok(existsSync(join(d3, '.update', 'prev')), 'the spare copy with a link in it is left in place');
+});

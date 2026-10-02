@@ -167,6 +167,7 @@ try {
       if ($pkgTemp) { Remove-TreeNoFollow $pkgTemp }
       if (-not $pr.Ok) { Write-Host ''; Write-Host "ERROR: $($pr.Message)" -ForegroundColor Red; exit $(if ($pr.Code -gt 0) { $pr.Code } else { 1 }) }
       Say 'Package installed and checked.' 'Green'
+      if (-not $inPlace -and -not $pkgTemp) { Say "  (You can delete the folder you unpacked: $src. It is no longer needed.)" 'DarkGray' }
     }
   } else {
   # 3) Copy the source

@@ -4,7 +4,7 @@
 // It checks the unpacked package against its file list while copying (what is installed is what was hashed), swaps it in with the updater's own
 // journaled swap/rollback, runs a smoke test of the installed runtime and the bundled claude.exe, and keeps nothing it does not own.
 // Exit codes: 0 installed, 2 not a usable package or a refused folder, 3 a file was blocked, removed or failed to run, 1 anything else.
-import { chmodSync, createReadStream, createWriteStream, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, realpathSync, statSync } from 'node:fs';
+import { chmodSync, createReadStream, createWriteStream, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, realpathSync, rmSync, statSync, statfsSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import { dirname, join, parse, resolve, sep } from 'node:path';
@@ -18,7 +18,11 @@ export class InstallError extends Error {
 }
 const BLOCKED_CODES = new Set(['EPERM', 'EACCES', 'EBUSY', 'UNKNOWN', 'ENOENT', 'EIO', 'EMFILE']);
 
-const under = (parent, child) => { const p = resolve(parent), c = resolve(child); return c === p || c.startsWith(p.endsWith(sep) ? p : p + sep); };
+const under = (parent, child) => {
+  let p = resolve(parent), c = resolve(child);
+  if (process.platform === 'win32') { p = p.toLowerCase(); c = c.toLowerCase(); }
+  return c === p || c.startsWith(p.endsWith(sep) ? p : p + sep);
+};
 const real = (p) => { try { return realpathSync(p); } catch { return resolve(p); } };
 
 function copyHashed(from, to, size, sha256, mode) {
@@ -72,9 +76,10 @@ export function checkSourceTree(src, topNames) {
 export function checkDest(src, dest, dataDirs) {
   const full = resolve(dest);
   if (parse(full).root === full || /^[A-Za-z]:[\\/]?$/.test(dest)) throw new InstallError('unsafe-dest', `refusing to install into ${dest}: that is a drive root`);
-  for (const d of dataDirs.filter(Boolean)) if (under(d, full) || under(full, d)) throw new InstallError('unsafe-dest', `refusing to install into ${full}: it is, contains or sits inside the Legion data folder (${d})`);
+  for (const d of dataDirs.filter(Boolean)) if (under(d, full) || under(full, d) || under(real(d), real(full)) || under(real(full), real(d))) throw new InstallError('unsafe-dest', `refusing to install into ${full}: it is, contains or sits inside the Legion data folder (${d})`);
   if (existsSync(full)) {
     if (lstatSync(full).isSymbolicLink()) throw new InstallError('unsafe-dest', `refusing to install through a link: ${full}`);
+    if (existsSync(join(full, '.git'))) throw new InstallError('unsafe-dest', `${full} is a git checkout; install the package into a different folder`);
     if (!statSync(full).isDirectory()) throw new InstallError('unsafe-dest', `${full} is a file, not a folder`);
     const kids = readdirSync(full).filter((n) => n !== '.update');
     if (kids.length) {
@@ -89,13 +94,23 @@ export function checkDest(src, dest, dataDirs) {
   return { full, inPlace };
 }
 
+/** The folder itself or its closest parent that exists (the install folder may be several levels new). */
+function nearestExisting(p) { let d = resolve(p); while (!existsSync(d) && dirname(d) !== d) d = dirname(d); return d; }
+
+function hasLink(dir) {
+  if (!existsSync(dir)) return false;
+  for (const n of readdirSync(dir)) { const p = join(dir, n); const st = lstatSync(p); if (st.isSymbolicLink()) return true; if (st.isDirectory() && hasLink(p)) return true; }
+  return false;
+}
+
 /** The installed runtime must start and the bundled claude.exe must run. Returns null when fine, else the file that failed. */
 export function realSmoke(dest) {
   const electron = join(dest, ...ELECTRON_REL.split('/'));
   const r = spawnSync(electron, ['-e', 'process.stdout.write("legion-node-ok")'], { env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' }, timeout: 30_000, windowsHide: true, encoding: 'utf8' });
   if (r.error || r.status !== 0 || !String(r.stdout).includes('legion-node-ok')) return ELECTRON_REL;
   const claude = join(dest, ...CLAUDE_REL.split('/'));
-  const c = spawnSync(claude, ['--version'], { timeout: 90_000, windowsHide: true, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
+  const cenv = { ...process.env }; delete cenv.ELECTRON_RUN_AS_NODE;
+  const c = spawnSync(claude, ['--version'], { env: cenv, timeout: 90_000, windowsHide: true, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
   if (c.error || c.status !== 0) return CLAUDE_REL;
   return null;
 }
@@ -125,6 +140,9 @@ export async function installPackage(opts) {
     return { version: info.version, from: info.version, files: files.length, bytes, inPlace: true };
   }
 
+  const free = (opts.freeBytes ?? ((d) => { const f = statfsSync(d); return Number(f.bavail) * Number(f.bsize); }))(nearestExisting(dest));
+  if (free < bytes * 1.1) throw new InstallError('disk', `not enough free space: about ${Math.ceil((bytes * 1.1) / 1e6)} MB are needed on the install drive`);
+  for (const n of topNames) { try { if (lstatSync(join(dest, n)).isSymbolicLink()) throw new InstallError('unsafe-dest', `${join(dest, n)} is a link; refusing to replace it`); } catch (e) { if (e instanceof InstallError) throw e; } }
   mkdirSync(dest, { recursive: true });
   const upDir = join(dest, '.update');
   if (existsSync(upDir) && (lstatSync(upDir).isSymbolicLink() || !lstatSync(upDir).isDirectory())) throw new InstallError('unsafe-dest', 'the .update folder is not a plain folder');
@@ -151,7 +169,8 @@ export async function installPackage(opts) {
       throw new InstallError('smoke', blockedMessage(bad) + ' The previous version was put back.', bad);
     }
     markCommitted(dest);
-    try { removeOwned(dest, join(upDir, 'prev')); } catch { /* it is only a spare copy */ }
+    if (prev === '0.0.0') { try { rmSync(join(upDir, 'outcome.json'), { force: true }); } catch { /* cosmetic */ } }
+    try { if (!hasLink(join(upDir, 'prev'))) removeOwned(dest, join(upDir, 'prev')); else log('left .update\\prev in place: it holds a link'); } catch { /* it is only a spare copy */ }
     return { version: info.version, from: prev, files: files.length, bytes, inPlace: false };
   } finally {
     try { removeOwned(dest, join(upDir, 'staging')); } catch { /* leftovers are inside .update */ }

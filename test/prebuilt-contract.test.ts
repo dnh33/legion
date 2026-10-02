@@ -60,7 +60,7 @@ test('contract: shortcuts of a package target runtime\\electron\\electron.exe wi
 });
 
 test('contract: start-legion.cmd starts a package without Node or npm, and still serves a source tree as before', () => {
-  const t = read('start-legion.cmd'); const pk = t.indexOf('runtime\\electron\\electron.exe');
+  const t = read('start-legion.cmd'); assert.match(t, /if exist "%~dp0runtime\\electron\\electron\.exe" \(/); const pk = t.indexOf('runtime\\electron\\electron.exe');
   assert.ok(pk > 0 && pk < t.indexOf('where node'), 'package branch first');
   assert.match(t.slice(0, t.indexOf('where node')), /exit \/b 0/); assert.match(t, /npm run build/);
 });

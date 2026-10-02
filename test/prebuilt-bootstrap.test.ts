@@ -128,7 +128,7 @@ for (const exe of shells) {
       const no = await snippet(exe, dir, GET({ url, sha: p.sha, ask: false, temp: dir }), e);
       assert.equal(no.json?.ok, false); assert.equal(no.json.asked, 1); assert.equal(fake.hits.length, 0, 'no download after a no');
       const quiet = await snippet(exe, dir, GET({ url, sha: p.sha, inter: false, temp: dir }), e);
-      assert.equal(quiet.json?.ok, false); assert.equal(fake.hits.length, 0, 'no terminal, no -Yes: no download');
+      assert.equal(quiet.json?.ok, false); assert.equal(quiet.json.asked, 0, 'nobody to ask'); assert.equal(fake.hits.length, 0, 'no terminal, no -Yes: no download');
       const nosha = await snippet(exe, dir, GET({ url, yes: true, temp: dir }), e);
       assert.equal(nosha.json?.ok, false); assert.match(nosha.json.message, /needs -PackageSha256/); assert.equal(fake.hits.length, 0);
       const evil = await snippet(exe, dir, GET({ url: 'https://evil.example/x/legion-0.9.0-win-x64.zip', sha: p.sha, yes: true, temp: dir }), e);
@@ -159,7 +159,7 @@ for (const exe of shells) {
     const cases: Array<[string, Buffer]> = [
       ['escape', makeZip([{ name: 'legion-0.9.0/../../evil.txt', data: Buffer.from('x') }, { name: 'legion-0.9.0/a', data: Buffer.from('x') }])],
       ['absolute', makeZip([{ name: '/etc/evil.txt', data: Buffer.from('x') }])],
-      ['two tops', makeZip([{ name: 'legion-0.9.0/a', data: Buffer.from('x') }, { name: 'legion-0.9.1/b', data: Buffer.from('x') }])],
+      ['two tops', makeZip([{ name: 'legion-0.9.0/build-info.json', data: Buffer.from('{"kind":"package","platform":"win32-x64"}') }, { name: 'legion-0.9.0/runtime/electron/electron.exe', data: Buffer.from('x') }, { name: 'legion-0.9.1/b', data: Buffer.from('x') }])],
       ['not a package', makeZip([{ name: 'legion-0.9.0/package.json', data: Buffer.from('{}') }])],
     ];
     for (const [name, zip] of cases) {
