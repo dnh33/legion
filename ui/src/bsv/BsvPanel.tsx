@@ -24,7 +24,7 @@ function WalletSection() {
         {w?.probed && w.checkedAt ? <><dt>Checked</dt><dd>{safeLine(w.checkedAt, 30)}</dd></> : null}
       </dl>
       <div className="bsv-row"><button type="button" className="btn-ghost" onClick={() => void checkWallet()}>Check now</button></div>
-      <p className="bsv-fine">Legion asks four harmless questions: version, network, whether it is logged in, and block height. It never reads balances, outputs, keys or addresses, and it never asks the wallet to sign or send. The answer is the wallet&apos;s own claim; any program on this computer could give it.</p>
+      <p className="bsv-fine">Legion asks four harmless questions: version, network, whether it is logged in, and block height. It never reads balances, outputs, keys or addresses, and it never asks the wallet to do anything on your behalf. The answer is the wallet&apos;s own claim; any program on this computer could give it.</p>
     </section>
   );
 }
@@ -127,7 +127,7 @@ export function BsvPanel() {
   return (
     <Modal title="BSV mode" width={640} onClose={closeBsvPanel} footer={<><span style={{ flex: 1 }} /><button type="button" className="btn-ghost" data-autofocus onClick={closeBsvPanel}>Close</button></>}>
       <div className="bsv-panel">
-        <p className="bsv-lead">Testnet knowledge mode. The Assayer can explain, draft and review, and can ask whether a wallet is there. <b>Nothing in Legion signs, sends or holds funds.</b> A human does every wallet step in their own wallet.</p>
+        <p className="bsv-lead">Testnet knowledge mode. The Assayer can explain, draft and review, and can ask whether a wallet is there. <b>{'Nothing in Legion signs, sends or holds funds.'}</b> A human does every wallet step in their own wallet.</p>
         <WalletSection />
         {p ? <ArmSection p={p} /> : <section className="bsv-sec"><h3>Live funds</h3><p className="bsv-line">Loading policy&hellip;</p></section>}
         <ActivitySection verifiedEntries={p?.audit.entries ?? 0} policyOk={p?.audit.ok ?? true} policyReason={p?.audit.reason} />
