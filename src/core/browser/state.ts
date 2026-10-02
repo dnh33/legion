@@ -4,23 +4,15 @@ import { dirname, join } from 'node:path';
 import { DEFAULT_BROWSER_CONFIG } from '../../shared/browser.js';
 import type { BrowserConfig } from '../../shared/browser.js';
 
-const HEX64 = /^[0-9a-f]{64}$/;
 const DOMAIN = /^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)+$/;
 
+/** Reads only the fields this version knows; anything else in an older file is ignored and dropped on the next save. */
 export function normalizeConfig(raw: unknown): BrowserConfig {
   const o = raw && typeof raw === 'object' && !Array.isArray(raw) ? (raw as Record<string, unknown>) : {};
   const strs = (v: unknown, max: number): string[] => (Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string' && x.length > 0 && x.length <= 500 && !/[\u0000-\u001f]/.test(x)).slice(0, max) : []);
   const domains = strs(o.allowDomains, 50).map((d) => d.trim().toLowerCase().replace(/^\*\./, '')).filter((d) => DOMAIN.test(d));
-  const bin = typeof o.binaryPath === 'string' && o.binaryPath.length > 0 && o.binaryPath.length <= 500 && !/[\u0000-\u001f]/.test(o.binaryPath) ? o.binaryPath : undefined;
-  const sha = typeof o.managedSha256 === 'string' && HEX64.test(o.managedSha256.toLowerCase()) ? o.managedSha256.toLowerCase() : undefined;
-  return {
-    ...DEFAULT_BROWSER_CONFIG,
-    enabled: o.enabled === true,
-    ...(bin ? { binaryPath: bin } : {}),
-    ...(bin && Array.isArray(o.launcherArgs) ? { launcherArgs: strs(o.launcherArgs, 16) } : {}),
-    allowDomains: [...new Set(domains)],
-    ...(sha ? { managedSha256: sha } : {}),
-  };
+  const chromiumPath = typeof o.chromiumPath === 'string' && o.chromiumPath.length > 0 && o.chromiumPath.length <= 500 && !/[\u0000-\u001f]/.test(o.chromiumPath) ? o.chromiumPath : undefined;
+  return { ...DEFAULT_BROWSER_CONFIG, enabled: o.enabled === true, ...(chromiumPath ? { chromiumPath } : {}), allowDomains: [...new Set(domains)] };
 }
 
 export class BrowserState {

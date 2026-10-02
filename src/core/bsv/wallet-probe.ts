@@ -125,8 +125,10 @@ export const httpTransport: Transport = (r) => new Promise<WireResponse>((resolv
 
 /** The semver.org grammar, nothing looser: MAJOR.MINOR.PATCH with optional -prerelease and +build. No leading "v", no spaces, no free text. */
 const SEMVER_RE = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-((?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\.(?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*))*))?(?:\+([0-9a-zA-Z-]+(?:\.[0-9a-zA-Z-]+)*))?$/;
-/** A wallet's version string as Legion will show it: valid semver of at most 64 characters, or null. */
-export function readVersion(v: unknown): string | null { return typeof v === 'string' && v.length <= 64 && SEMVER_RE.test(v) ? v : null; }
+/** A short vendor token then semver, as the real BSV Desktop reports ("wallet-brc100-1.0.0"): lower-case token of at most 32 characters, a dash, MAJOR.MINOR.PATCH, optional -pre (letters, digits, dots, dashes). Nothing else. */
+const TOKEN_VERSION_RE = /^[a-z][a-z0-9-]{0,31}-(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-[0-9a-z]+(?:\.[0-9a-z]+)*)?$/;
+/** A wallet's version string as Legion will show it: valid semver, or a short safe token followed by semver, at most 64 characters, or null. */
+export function readVersion(v: unknown): string | null { return typeof v === 'string' && v.length <= 64 && (SEMVER_RE.test(v) || TOKEN_VERSION_RE.test(v)) ? v : null; }
 const isPlainObject = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v);
 
 function parseBody(body: string): Record<string, unknown> | null {

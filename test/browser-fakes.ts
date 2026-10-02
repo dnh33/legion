@@ -37,6 +37,12 @@ export interface FakeCdpOptions {
   noFetch?: boolean;
   /** Target.createTarget opens an extra tab on every navigation (a popup). */
   popup?: boolean;
+  /** Only the Fetch domain reports requests: no Network.* events and no frameNavigated (so each guard path can be proven on its own). */
+  fetchOnly?: boolean;
+  /** Only this WebSocket path is accepted (a real browser serves its endpoint only at /devtools/browser/<guid>). */
+  onlyPath?: string;
+  /** The fake page's script does not run (the check page then reports JavaScript as not working). */
+  noJs?: boolean;
   /** A build that sends no Network or navigation events: only the final address can show where the page ended up. */
   quiet?: boolean;
   /** Every command is answered with this CDP error. */
@@ -84,14 +90,16 @@ export interface FakeCdp {
   sent: Array<{ method: string; params: any }>;
   connections: number;
   blocked: string[];
+  fulfilled: string[];
   state: { url: string; targets: number };
   setPages(p: Record<string, FakePage>): void;
 }
 
 export async function startFakeCdp(o: FakeCdpOptions, port = 0): Promise<FakeCdp> {
-  let pages = o.pages;
+  let pages: Record<string, FakePage> = { ...o.pages };
   const sent: Array<{ method: string; params: any }> = [];
   const blocked: string[] = [];
+  const fulfilled: string[] = [];
   const state = { url: 'about:blank', targets: 0 };
   let connections = 0;
   const sockets = new Set<Socket>();
@@ -100,6 +108,7 @@ export async function startFakeCdp(o: FakeCdpOptions, port = 0): Promise<FakeCdp
   server.on('upgrade', (req: IncomingMessage, socket: Socket) => {
     const key = req.headers['sec-websocket-key'];
     if (typeof key !== 'string') { socket.destroy(); return; }
+    if (o.onlyPath !== undefined && req.url !== o.onlyPath) { socket.write('HTTP/1.1 404 Not Found\r\nConnection: close\r\n\r\n'); socket.destroy(); return; }
     socket.write(`HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: ${createHash('sha1').update(key + GUID).digest('base64')}\r\n\r\n`);
     sockets.add(socket); connections++;
     socket.on('close', () => sockets.delete(socket));
@@ -109,7 +118,7 @@ export async function startFakeCdp(o: FakeCdpOptions, port = 0): Promise<FakeCdp
     const paused = new Map<string, () => void>();
     let reqN = 0;
     const send = (m: unknown) => { try { socket.write(frame(JSON.stringify(m))); } catch { /* closed */ } };
-    const event = (method: string, params: unknown) => { if (o.quiet && /^(Network\.|Page\.frameNavigated)/.test(method)) return; send({ method, params, sessionId: 'S1' }); };
+    const event = (method: string, params: unknown) => { if ((o.quiet || o.fetchOnly) && /^(Network\.|Page\.frameNavigated)/.test(method)) return; send({ method, params, sessionId: 'S1' }); };
     const reply = (id: number, result: unknown) => send({ id, result });
 
     const dom = (): vm.Context => {
@@ -141,7 +150,7 @@ export async function startFakeCdp(o: FakeCdpOptions, port = 0): Promise<FakeCdp
         state.url = cur;
         const page = pages[cur];
         event('Network.requestWillBeSent', { requestId: `r${++reqN}`, type: 'Document', request: { url: cur }, ...(hop > 0 ? { redirectResponse: { status: 302 } } : {}) });
-        if (interception) {
+        if (interception && !o.quiet) {
           await new Promise<void>((resolve) => { const id = `p${reqN}`; paused.set(id, resolve); event('Fetch.requestPaused', { requestId: id, request: { url: cur }, resourceType: 'Document' }); });
         }
         if (!page?.redirectTo) break;
@@ -151,7 +160,7 @@ export async function startFakeCdp(o: FakeCdpOptions, port = 0): Promise<FakeCdp
       const page = pages[cur] ?? {};
       for (const s of page.subrequests ?? []) {
         event('Network.requestWillBeSent', { requestId: `r${++reqN}`, type: 'Image', request: { url: s } });
-        if (interception) await new Promise<void>((resolve) => { const id = `p${reqN}`; paused.set(id, resolve); event('Fetch.requestPaused', { requestId: id, request: { url: s }, resourceType: 'Image' }); });
+        if (interception && !o.quiet) await new Promise<void>((resolve) => { const id = `p${reqN}`; paused.set(id, resolve); event('Fetch.requestPaused', { requestId: id, request: { url: s }, resourceType: 'Image' }); });
       }
       if (o.popup) { state.targets++; send({ method: 'Target.targetCreated', params: { targetInfo: { targetId: `X${state.targets}` } } }); }
       event('Page.frameNavigated', { frame: { id: 'F1', url: cur } });
@@ -176,6 +185,17 @@ export async function startFakeCdp(o: FakeCdpOptions, port = 0): Promise<FakeCdp
           case 'Target.closeTarget': reply(m.id, { success: true }); break;
           case 'Fetch.enable': if (o.noFetch) send({ id: m.id, error: { code: -32601, message: 'Fetch.enable wasn\'t found' } }); else { interception = true; reply(m.id, {}); } break;
           case 'Fetch.continueRequest': { const r = paused.get(m.params.requestId); paused.delete(m.params.requestId); reply(m.id, {}); r?.(); break; }
+          case 'Fetch.fulfillRequest': {
+            // Legion answered a request itself (its own check page): remember the page so the fake DOM can read it
+            const r = paused.get(m.params.requestId); paused.delete(m.params.requestId);
+            const html = Buffer.from(String(m.params.body ?? ''), 'base64').toString('utf8');
+            const title = /<title>([^<]*)<\/title>/.exec(html)?.[1] ?? '';
+            const subs = [...html.matchAll(/<img src="([^"]+)"/g)].map((x) => x[1]!);
+            const hasJs = /<script>/.test(html);
+            pages[state.url] = { title, text: html.replace(/<script>[\s\S]*?<\/script>/g, '').replace(/<[^>]+>/g, ' ').replace(/js-pending/, hasJs && !o.noJs ? 'js-ok' : 'js-pending').replace(/\s+/g, ' ').trim(), subrequests: subs, elements: { '#js': { text: hasJs && !o.noJs ? 'js-ok' : 'js-pending' } } };
+            fulfilled.push(state.url);
+            reply(m.id, {}); r?.(); break;
+          }
           case 'Fetch.failRequest': { const r = paused.get(m.params.requestId); paused.delete(m.params.requestId); blocked.push(String(m.params.requestId)); reply(m.id, {}); r?.(); break; }
           case 'Page.navigate': {
             const url = String(m.params.url);
@@ -203,7 +223,7 @@ export async function startFakeCdp(o: FakeCdpOptions, port = 0): Promise<FakeCdp
   const addr = server.address();
   const actual = typeof addr === 'object' && addr ? addr.port : port;
   return {
-    port: actual, sent, blocked, state,
+    port: actual, sent, blocked, fulfilled, state,
     get connections() { return connections; },
     setPages(p) { pages = p; },
     close: () => new Promise<void>((resolve) => { for (const s of sockets) s.destroy(); server.close(() => resolve()); }),

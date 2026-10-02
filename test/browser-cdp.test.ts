@@ -13,7 +13,7 @@ test('C13: a command that is not on the list is never sent', async () => {
   const fake = await startFakeCdp({ pages: {} });
   const cdp = await connectCdp(`ws://127.0.0.1:${fake.port}`);
   try {
-    for (const m of ['Page.setDownloadBehavior', 'Browser.close', 'Network.setCookies', 'Network.getAllCookies', 'DOM.setFileInputFiles', 'Page.captureScreenshot', 'Emulation.setGeolocationOverride', 'Browser.setDownloadBehavior', 'Input.dispatchKeyEvent', 'Storage.clearDataForOrigin', 'Page.printToPDF']) {
+    for (const m of ['Page.setDownloadBehavior', 'Browser.close', 'Browser.setPermission', 'Browser.grantPermissions', 'Network.setCookies', 'Network.getAllCookies', 'DOM.setFileInputFiles', 'Page.captureScreenshot', 'Emulation.setGeolocationOverride', 'Input.dispatchKeyEvent', 'Storage.clearDataForOrigin', 'Page.printToPDF']) {
       assert.ok(!CDP_METHODS.has(m), m);
       await assert.rejects(cdp.send(m), /does not send/, m);
     }
