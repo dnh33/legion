@@ -93,7 +93,7 @@ export class OfficialBackend implements BlenderBackend {
         const { tools } = await client.listTools();
         const t = this.cfg.advanced.official.tools;
         const exec = resolveTool('exec', tools, t.exec);
-        if (!exec) { await client.close().catch(() => undefined); throw new Error(`The Blender MCP server started but offers no code-execution tool (tools: ${tools.map((x) => x.name).join(', ') || 'none'}). Check advanced.official.tools in config.json.`); }
+        if (!exec) { await client.close().catch(() => undefined); throw new Error(`The Blender MCP server started but offers no code-execution tool. Tools it offers: ${tools.map((x) => x.name).join(', ') || 'none'}. Check advanced.official.tools in config.json.`); }
         this.tools = tools;
         this.names = {
           exec, inspect: resolveTool('inspect', tools, t.inspect), screenshot: resolveTool('screenshot', tools, t.screenshot), docs: resolveTool('docs', tools, t.docs),
@@ -126,29 +126,29 @@ export class OfficialBackend implements BlenderBackend {
     }
   }
 
-  private tool(role: Role): McpToolInfo | undefined { return this.tools.find((t) => t.name === this.names[role]); }
+  private infoFor(role: Role): McpToolInfo | undefined { return this.tools.find((t) => t.name === this.names[role]); }
 
   async exec(script: string, opts: { timeoutMs?: number } = {}): Promise<BackendResult> {
     await this.connect();
-    const arg = resolveArg(this.tool('exec'), this.cfg.advanced.official.tools.execArg);
+    const arg = resolveArg(this.infoFor('exec'), this.cfg.advanced.official.tools.execArg);
     return this.call('exec', { [arg]: script }, opts.timeoutMs ?? 120_000);
   }
   async inspect(o: { object?: string }): Promise<BackendResult> {
     await this.connect();
-    const tool = this.tool('inspect');
+    const tool = this.infoFor('inspect');
     const props = tool?.inputSchema?.properties ?? {};
     const nameArg = Object.keys(props).find((k) => /name|object/i.test(k));
     return this.call('inspect', o.object && nameArg ? { [nameArg]: o.object } : {}, 30_000);
   }
   async screenshot(o: { maxSize?: number }): Promise<BackendResult> {
     await this.connect();
-    const props = this.tool('screenshot')?.inputSchema?.properties ?? {};
+    const props = this.infoFor('screenshot')?.inputSchema?.properties ?? {};
     const sizeArg = Object.keys(props).find((k) => /size|width/i.test(k));
     return this.call('screenshot', o.maxSize && sizeArg ? { [sizeArg]: o.maxSize } : {}, 60_000);
   }
   async docs(query: string): Promise<BackendResult> {
     await this.connect();
-    const arg = resolveArg(this.tool('docs'), 'query');
+    const arg = resolveArg(this.infoFor('docs'), 'query');
     return this.call('docs', { [arg]: query }, 30_000);
   }
 }
