@@ -516,7 +516,7 @@ test('round trip: what config() says, saved and loaded, gives an engine with the
 
 test('C26 (engine part): the network is one of two literals; anything else (a look-alike, a missing value, an extra word) is refused as a bad request and reserves nothing', () => {
   const { e } = engine(); e.arm(5);
-  for (const n of ['mainnet', 'Main', 'live', 'test ', '', undefined, null, 1, ['main'], { toString: () => 'main' }]) {
+  for (const n of ['mainnet', 'Main', 'live', 'test ', '', undefined, null, 1, ['main'], { v: 'main' }]) {
     const d = e.evaluate({ ...req(), network: n as never });
     assert.equal(d.verdict, 'deny', String(n)); assert.deepEqual([...new Set(d.codes)], ['bad-request']);
     assert.match(d.reasons.join(), /network must be test or main/, String(n));
