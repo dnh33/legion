@@ -140,7 +140,7 @@ describe('VM fixes over HTTP', () => {
   it('R7: boat health, key check and usage are admin-only; a token-only client gets 403 and a stripped /api/state and event stream', async () => {
     const tokenOnly = { Authorization: AUTH.Authorization!, 'Content-Type': 'application/json' };
     const asClient = (path: string, init: RequestInit = {}) => fetch(base + path, { ...init, headers: tokenOnly });
-    for (const [m, p] of [['GET', '/api/boat/health'], ['POST', '/api/boat/check'], ['GET', '/api/vms/zealot/usage'], ['POST', '/api/settings/boat/test']] as const) {
+    for (const [m, p] of [['GET', '/api/boat/health'], ['POST', '/api/boat/check'], ['POST', '/api/boat/ensure'], ['GET', '/api/vms/zealot/usage'], ['POST', '/api/settings/boat/test']] as const) {
       const r = await asClient(p, { method: m, body: m === 'POST' ? '{}' : undefined });
       assert.equal(r.status, 403, `${m} ${p}`);
     }

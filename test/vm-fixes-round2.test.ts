@@ -107,6 +107,7 @@ test('R3: the health view carries asOf (the time it was produced), so a holder c
 // ---- 2. serialised start / stop --------------------------------------------------------------------------------------------------
 test('R2: a stop issued while a start is still creating the VM waits for it and then really stops it (no "No sandbox to stop")', async () => {
   const s = await setup();
+  await s.vm.health.ensure(); s.fb.requests.length = 0; // the first-use key probe is lazy (K1); do it up front so it does not mix into the calls counted below
   let release!: () => void;
   const held = new Promise<void>((r) => { release = r; });
   s.fb.gate = (m, p) => (m === 'POST' && p === '/sandboxes' ? held : undefined);
@@ -128,6 +129,7 @@ test('R2: a stop issued while a start is still creating the VM waits for it and 
 
 test('R2: a start requested after a stop waits for that stop (and resumes), instead of joining the earlier start', async () => {
   const s = await setup();
+  await s.vm.health.ensure(); s.fb.requests.length = 0; // the first-use key probe is lazy (K1); do it up front so it does not mix into the calls counted below
   await s.vm.ensureRunning('zealot');
   const stop = s.vm.stop('zealot');
   const again = s.vm.ensureRunning('zealot');
@@ -140,6 +142,7 @@ test('R2: a start requested after a stop waits for that stop (and resumes), inst
 
 test('R2: two concurrent stops send one stop; the second says the VM is already stopped', async () => {
   const s = await setup();
+  await s.vm.health.ensure(); s.fb.requests.length = 0; // the first-use key probe is lazy (K1); do it up front so it does not mix into the calls counted below
   await s.vm.ensureRunning('zealot');
   const [a, b] = await Promise.all([s.vm.stop('zealot'), s.vm.stop('zealot')]);
   assert.deepEqual([a.stopped, b.stopped], [true, false]);

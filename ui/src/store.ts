@@ -530,6 +530,10 @@ export { errText };
 export const setView = (view: AppState['view']) => setState({ view });
 
 /** Re-probe what the boat.dev key may do (cheap reads; never creates a VM). The result also arrives as a boat.health event. */
+/** Settings, boat.dev opened: the first look at what the key may do (once; later opens answer from the core's cache). */
+export async function ensureBoatChecked(): Promise<void> {
+  try { setState({ boatHealth: await api.ensureBoat() }); } catch { /* the manual Check again button reports errors */ }
+}
 export async function checkBoat(): Promise<BoatHealthView | null> {
   try { const h = await api.checkBoat(); setState({ boatHealth: h }); return h; } catch (e) { toast(errText(e), 'error'); return null; }
 }

@@ -6,6 +6,8 @@ All notable changes are recorded here. The format follows [Keep a Changelog](htt
 
 ### Changed
 
+- **The boat.dev key probe is lazy.** The permission probe (about 8 calls) no longer runs when the core starts. It runs once on the first VM use or when Settings, boat.dev opens (`POST /api/boat/ensure`, admin only; cached until the key changes), and **Check again** still asks again. Saving a new key probes it as before.
+
 - **Rooms a bot creates have no spend limit by default.** `botRoomDefaultBudgetUsd` and `botRoomMaxBudgetUsd` in `config.json` `comms` now default to none (`null`; the old defaults were $1 and $5). The member cap stays 6. A bot may still name `budgetUsd` (at least $0.05; capped only if you set a maximum), and you can add, raise or remove a budget in room settings at any time (an empty box means no limit; the API takes `guards.budgetUsd: null`). The budget guard that runs before a bot is woken simply does not fire for a room with no budget; the hop and cycle guards are unchanged. The `room_create` card says "No spend limit" in plain words. Existing rooms keep their budget; the Cost meter shows "No limit" for a room without one. Because nothing caps the cost of such a room, set a budget if you want one.
 
 ### Added

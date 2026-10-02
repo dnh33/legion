@@ -98,6 +98,7 @@ export const api = {
   vms: () => request<VmRecord[]>('GET', '/api/vms'),
   startVm: (agentId: string) => request<VmRecord>('POST', `/api/vms/${encodeURIComponent(agentId)}/start`),
   boatHealth: () => request<BoatHealthView>('GET', '/api/boat/health'),
+  ensureBoat: () => request<BoatHealthView>('POST', '/api/boat/ensure'),
   checkBoat: () => request<BoatHealthView>('POST', '/api/boat/check'),
   stopVm: (agentId: string) => request<VmRecord & { stopped?: boolean; message?: string }>('POST', `/api/vms/${encodeURIComponent(agentId)}/stop`),
   exec: (agentId: string, command: string) =>

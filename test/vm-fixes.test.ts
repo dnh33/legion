@@ -73,6 +73,7 @@ test('bug 1: a free trial refuses large -> Builder falls back to default, the re
 
 test('bug 1: resume of an archived VM also falls back when the trial refuses the configured size', async () => {
   const s = await setup();
+  await s.vm.health.ensure(); s.fb.requests.length = 0; // the first-use key probe is lazy (K1); do it up front so it does not mix into the calls counted below
   await s.vm.ensureRunning('builder'); // default
   await s.vm.stop('builder');
   s.fb.trial = true;
@@ -187,6 +188,7 @@ test('bug 3: a failed start leaves {sandboxId null, state error}; vm_stop clears
 
 test('bug 3: stopping a VM that is already stopped is also a plain no-op; a real stop says stopped:true', async () => {
   const s = await setup();
+  await s.vm.health.ensure(); s.fb.requests.length = 0; // the first-use key probe is lazy (K1); do it up front so it does not mix into the calls counted below
   await s.vm.ensureRunning('zealot');
   const a = await s.vm.stop('zealot');
   assert.equal(a.stopped, true);

@@ -334,6 +334,8 @@ export function createServer(ctx: CoreContext): Server {
   route('GET', '/api/vms/:agentId/usage', ({ params }) => ctx.vms.usage(params[0]));
   /** Admin-only (not in CLIENT_ROUTES, so the gate answers a token-only caller 403): these show what the key was probed for and the user's prices. Re-probe = cheap reads and not-found probes; never creates a sandbox. */
   route('POST', '/api/boat/check', () => ctx.vms.health.probe());
+  /** Lazy first look: probes only if this key was never probed (Settings, boat.dev calls it when opened); otherwise answers from the cache. */
+  route('POST', '/api/boat/ensure', () => ctx.vms.health.ensure());
   route('GET', '/api/boat/health', () => ctx.vms.health.view());
   route('POST', '/api/vms/:agentId/exec', ({ params, body }) => {
     mustBeRunnable(params[0]);

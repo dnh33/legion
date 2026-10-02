@@ -138,6 +138,16 @@ export class BoatHealth {
     if (changed) this.emit();
   }
 
+  /**
+   * Lazy first look: runs the key probe only if this key has never been probed (and none is running), then answers from the cache.
+   * Called on the first VM use and when Settings, boat.dev opens, never at core start. The manual re-check (`probe`) always asks again.
+   */
+  ensure(): Promise<BoatHealthView> {
+    const cur = this.sync();
+    if (!cur || this.checkedAt !== null || this.probing) return this.probing ?? Promise.resolve(this.view());
+    return this.probe();
+  }
+
   /** Run the key probe now (shared between concurrent callers). Never throws. */
   probe(): Promise<BoatHealthView> {
     this.sync();

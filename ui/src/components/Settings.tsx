@@ -1,7 +1,7 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import type { McpServerEntry, SettingsPatch, SettingsView } from '../../../src/shared/types';
 import { api, base, openExternal, token } from '../api';
-import { checkBoat, closeSettings, errText, loadSettings, saveSettings, setSettingsSection as setSection, toast, useStore, type SettingsSection } from '../store';
+import { checkBoat, ensureBoatChecked, closeSettings, errText, loadSettings, saveSettings, setSettingsSection as setSection, toast, useStore, type SettingsSection } from '../store';
 import { copyText } from '../util';
 import { BLENDER_LICENSE_NOTE, BLENDER_SAFETY_NOTE } from '../../../src/shared/blender';
 import { lightLabel, loadBlender, runBlenderLaunch, runBlenderSetup, runBlenderTest, saveBlenderConfig, useBlender } from '../blender/blenderStore';
@@ -138,6 +138,7 @@ function BoatSection({ s }: { s: SettingsView }) {
   const [rates, setRates] = useState({ small: rateText(b.rates.small), default: rateText(b.rates.default), large: rateText(b.rates.large) });
   const [currency, setCurrency] = useState(b.currency);
   const [checking, setChecking] = useState(false);
+  useEffect(() => { if (b.apiKeySet) void ensureBoatChecked(); }, [b.apiKeySet]);
   useEffect(() => { setRates({ small: rateText(b.rates.small), default: rateText(b.rates.default), large: rateText(b.rates.large) }); setCurrency(b.currency); }, [b.rates.small, b.rates.default, b.rates.large, b.currency]);
   const ratesDirty = rates.small !== rateText(b.rates.small) || rates.default !== rateText(b.rates.default) || rates.large !== rateText(b.rates.large) || currency !== b.currency;
   const [key, setKey] = useState('');
