@@ -40,19 +40,14 @@ function Invoke-Native($what, [scriptblock]$cmd) {
   & $cmd
   if ($LASTEXITCODE -ne 0) { Fail "$what failed (exit code $LASTEXITCODE)." }
 }
-function Test-Under($path, $dir) {
-  if ([string]::IsNullOrEmpty($path)) { return $false }
-  $d = $dir.TrimEnd('\') + '\'
-  return $path.StartsWith($d, [System.StringComparison]::OrdinalIgnoreCase)
-}
 
 try {
-  $src = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path.TrimEnd('\')
+  $src = Get-TrimmedFullPath (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
   if ([string]::IsNullOrWhiteSpace($InstallDir)) {
     if ([string]::IsNullOrWhiteSpace($env:LOCALAPPDATA)) { Fail 'LOCALAPPDATA is not set; pass -InstallDir.' }
     $InstallDir = Join-Path $env:LOCALAPPDATA 'Programs\Legion'
   }
-  $InstallDir = [System.IO.Path]::GetFullPath($InstallDir).TrimEnd('\')
+  $InstallDir = Get-TrimmedFullPath $InstallDir
   $inPlace = $src.Equals($InstallDir, [System.StringComparison]::OrdinalIgnoreCase)
 
   Say "Legion setup" 'Green'
@@ -60,9 +55,15 @@ try {
   Say "  install: $InstallDir"
   if ($DryRun) { Say '  (dry run - nothing will be changed)' 'Yellow' }
 
-  if (-not $inPlace -and ((Test-Under $InstallDir $src) -or (Test-Under $src $InstallDir))) {
+  if (-not $inPlace -and ((Test-PathUnder $InstallDir $src) -or (Test-PathUnder $src $InstallDir))) {
     Fail 'The install folder and the source folder must not be inside each other.'
   }
+
+  # robocopy /MIR below deletes everything in the target that is not in the source, so only a new, empty or already-Legion folder is allowed.
+  $dataDir = if ($env:LEGION_HOME) { $env:LEGION_HOME } else { Join-Path $env:USERPROFILE '.legion' }
+  $verdict = Get-InstallDirVerdict -Dir $InstallDir -UserProfile $env:USERPROFILE -DataDir $dataDir -LegionHome $env:LEGION_HOME
+  Say "  install dir check: $(if ($verdict.Ok) { 'OK' } else { 'REFUSED' }) - $($verdict.Reason)" $(if ($verdict.Ok) { 'DarkGray' } else { 'Red' })
+  if (-not $verdict.Ok) { Fail "Refusing to install into '$($verdict.Path)': $($verdict.Reason)." }
 
   # 1) Node >= 20, npm
   Step 'Checking Node.js'

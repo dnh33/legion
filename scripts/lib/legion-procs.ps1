@@ -9,9 +9,31 @@
 function Test-PathUnder {
   param([string]$Path, [string]$Dir)
   if ([string]::IsNullOrEmpty($Path) -or [string]::IsNullOrEmpty($Dir)) { return $false }
-  $d = $Dir.TrimEnd('\') + '\'
-  return $Path.StartsWith($d, [System.StringComparison]::OrdinalIgnoreCase) -or
-         ($Path.TrimEnd('\')).Equals($Dir.TrimEnd('\'), [System.StringComparison]::OrdinalIgnoreCase)
+  $p = $Path.Replace('/', '\')
+  $dd = $Dir.Replace('/', '\').TrimEnd('\')
+  $d = $dd + '\'
+  return $p.StartsWith($d, [System.StringComparison]::OrdinalIgnoreCase) -or
+         ($p.TrimEnd('\')).Equals($dd, [System.StringComparison]::OrdinalIgnoreCase)
+}
+
+# GetFullPath, minus a trailing separator - but a drive root keeps its backslash ("C:\" stays "C:\", never the drive-relative "C:").
+function Get-TrimmedFullPath {
+  param([string]$Path)
+  $full = [System.IO.Path]::GetFullPath($Path)
+  $root = [System.IO.Path]::GetPathRoot($full)
+  $t = $full.TrimEnd('\', '/')
+  if ($t.Length -lt $root.Length) { return $root }
+  return $t
+}
+
+# True for "C:", "C:\", "c:/" and for whatever the host calls a filesystem root.
+function Test-DriveRoot {
+  param([string]$Path)
+  if ([string]::IsNullOrEmpty($Path)) { return $false }
+  if ($Path -match '^[A-Za-z]:[\\/]*$') { return $true }
+  $r = ''
+  try { $r = [System.IO.Path]::GetPathRoot($Path) } catch { $r = '' }
+  return (-not [string]::IsNullOrEmpty($r)) -and ($Path.TrimEnd('\', '/') -ieq $r.TrimEnd('\', '/'))
 }
 
 # Joins path parts one at a time, so the result is right whatever the separator of the host is.
@@ -95,4 +117,38 @@ function Stop-LegionProcesses {
     Start-Sleep -Milliseconds 300
   } while ((Get-Date) -lt $deadline)
   return @($alive | ForEach-Object { $_.ProcessId })
+}
+
+# Decides whether setup may mirror (robocopy /MIR, which DELETES everything else in the target) into -Dir.
+# Returns @{ Ok; Reason; Path }. Refuses: a drive root, the user profile folder (or a folder that contains it), the Legion data folder or
+# LEGION_HOME (or a folder that contains them or sits inside the data folder), a file, and any non-empty folder that is not already
+# a Legion install (package.json named legion). A missing or empty folder is fine.
+function Get-InstallDirVerdict {
+  param([string]$Dir, [string]$UserProfile = '', [string]$DataDir = '', [string]$LegionHome = '')
+  if ([string]::IsNullOrWhiteSpace($Dir)) { return [pscustomobject]@{ Ok = $false; Reason = 'no install folder given'; Path = '' } }
+  if (Test-DriveRoot $Dir) { return [pscustomobject]@{ Ok = $false; Reason = 'that is a drive root'; Path = $Dir } }
+  $full = Get-TrimmedFullPath $Dir
+  if (Test-DriveRoot $full) { return [pscustomobject]@{ Ok = $false; Reason = 'that is a drive root'; Path = $full } }
+
+  $guards = @(
+    @{ Label = 'your user profile folder'; Path = $UserProfile; AlsoInside = $false },
+    @{ Label = 'the Legion data folder'; Path = $DataDir; AlsoInside = $true },
+    @{ Label = 'LEGION_HOME'; Path = $LegionHome; AlsoInside = $true }
+  )
+  foreach ($g in $guards) {
+    if ([string]::IsNullOrWhiteSpace($g.Path)) { continue }
+    $gp = $g.Path
+    try { $gp = Get-TrimmedFullPath $g.Path } catch { $gp = $g.Path }
+    if (Test-PathUnder $gp $full) { return [pscustomobject]@{ Ok = $false; Reason = "that is, or contains, $($g.Label) ($gp)"; Path = $full } }
+    if ($g.AlsoInside -and (Test-PathUnder $full $gp)) { return [pscustomobject]@{ Ok = $false; Reason = "that is inside $($g.Label) ($gp)"; Path = $full } }
+  }
+
+  if (Test-Path -LiteralPath $full -PathType Leaf) { return [pscustomobject]@{ Ok = $false; Reason = 'that is a file, not a folder'; Path = $full } }
+  if (-not (Test-Path -LiteralPath $full -PathType Container)) { return [pscustomobject]@{ Ok = $true; Reason = 'the folder does not exist yet and will be created'; Path = $full } }
+  $kids = @()
+  try { $kids = @(Get-ChildItem -LiteralPath $full -Force -ErrorAction Stop) }
+  catch { return [pscustomobject]@{ Ok = $false; Reason = "the folder cannot be read ($($_.Exception.Message))"; Path = $full } }
+  if ($kids.Count -eq 0) { return [pscustomobject]@{ Ok = $true; Reason = 'the folder is empty'; Path = $full } }
+  if (Test-LegionPackage $full) { return [pscustomobject]@{ Ok = $true; Reason = 'the folder is an existing Legion install (package.json name is legion) and will be updated'; Path = $full } }
+  return [pscustomobject]@{ Ok = $false; Reason = 'the folder is not empty and is not a Legion install (no package.json named legion); setup would delete its other contents. Pick a new or empty folder'; Path = $full }
 }
