@@ -130,7 +130,7 @@ Actors and entry points:
 | Stolen MCP token | Opens only client routes; no BSV route | None for BSV |
 | Same-user malware | Nothing in Legion can stop it (it can read memory, edit files, click dialogs, rewrite the audit log, call the wallet on 3321) | Real. Only a VM or a separate OS account stops it, and the wallet's own prompts are the last gate |
 | A funded mainnet wallet on the owner's PC | Legion is testnet only; a mainnet answer gives a warning and Legion refuses to use it; no balance or output reads exist today | Any local program, including a bot with a shell, can call the wallet directly. The wallet's permission prompts and a small float are the defence |
-| Probe retargeted by editing `config.json` (`bsv.walletUrl`) | Loopback only, no path or redirect, harmless fixed body; the URL is read when the core starts | A bot with file access can point four POSTs of `{}` at another loopback service. Low impact; the owner can lock the file |
+| Probe retargeted by editing `config.json` (`bsv.walletUrl`) | Loopback only, no path or redirect, harmless fixed body; no default address; nothing is contacted until the owner presses Connect, and the native dialog names the address that will be used | A bot with file access can change the saved address, and the owner may confirm it without looking: four POSTs of `{}` then go to another loopback service. Low impact |
 | Clock tricks against the arming expiry | Monotonic and wall clock must both agree | A suspended machine may make the monotonic clock lag; the earlier end wins, so it fails safe |
 | Audit log tampering | Hash chain, in-memory head, head anchor file (catches a cut-off, emptied or replaced log at the next start), first-sequence detection, startup verification, freeze on failure | Tamper-evident, not tamper-proof: a same-user program can rewrite the whole file and every hash |
 | Log growth or disk-full | Rotation, torn-tail tolerance | Disk full stops appends; policy changes then fail closed |
@@ -165,7 +165,7 @@ The review found no path that moves funds, and listed nine things to fix; each h
 
 ## 8. Test plan and adversarial corpus
 
-Already built (counts at the time of writing: probe 21, audit 17, policy 45, module 20, Electron logic 13, Electron emulation 7, UI view 15, plus the tripwire plant cases): the probe against a fake wallet that records the wire; caps and races in the policy engine; chain tamper detection; native-secret gating through a real core; dialog cancel and confirm; a UI source guard that fails on animation or extra timers.
+Already built (the full suite is 963 tests after fix round 1; main groups: probe, audit with the anchor and ledger, policy with clone-on-entry, module routes, Connect, policy-file tamper, Electron logic and emulation, UI view, the hedge check, and the tripwire plant cases): the probe against a fake wallet that records the wire; caps and races in the policy engine; chain tamper detection; native-secret gating through a real core; dialog cancel and confirm; a UI source guard that fails on animation or extra timers.
 
 To add before rung 2 or 3 ships (each is a release gate; one failing adversarial test blocks release; the Inquisitor reviews independently):
 
@@ -216,5 +216,5 @@ Answer these before rung 2 or 3 is built. My default is in brackets.
 8. Do you accept "unknown outcome blocks all spends until you resolve it" even when it is annoying? [Yes.]
 9. Should the Assayer be allowed to run `bsv_status` without an approval card (today it needs one in ask mode, because the tool is not on Legion's trusted list)? [Keep the card until you have seen it used.]
 10. Mainnet: confirm that nothing in rung 3 may ever touch mainnet, and that mainnet needs a separate review and document. [Confirmed.]
-11. Should `bsv.walletUrl` be editable only from the app (so a bot with file access cannot retarget the probe)? [Yes, if it is cheap.]
+11. `bsv.walletUrl` is now set only by the owner's Connect (typed in the panel, named in a native dialog) and is never contacted before it. Do you also want the app to ignore a `walletUrl` edited in `config.json`, so that only Connect can set it? [Yes, if it is cheap.]
 12. A same-user process is out of scope for these controls. Do you want a setup guide for a separate OS account or a VM for the Assayer? [Yes, as a later step.]
