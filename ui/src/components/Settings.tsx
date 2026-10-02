@@ -4,7 +4,7 @@ import { api, base, openExternal, token } from '../api';
 import { checkBoat, ensureBoatChecked, closeSettings, decide, errText, loadSettings, saveSettings, setSettingsSection as setSection, toast, useStore, type SettingsSection } from '../store';
 import { copyText } from '../util';
 import { BLENDER_LICENSE_NOTE, GET_BLENDER_TOOL } from '../../../src/shared/blender';
-import { FULL_BLENDER_TEXT, GET_BLENDER_NOT_PINNED, GET_BLENDER_TEXT, LOCAL_SAFETY_NOTE, MODE_CHOICES, NOT_TRIED_LOCAL, NOT_TRIED_VM, visibleNotices } from '../blender/copy';
+import { ASSETS_TEXT, ASSETS_TITLE, BOTH_TEXT, BOTH_TITLE, FULL_BLENDER_TEXT, GET_BLENDER_NOT_PINNED, GET_BLENDER_TEXT, LOCAL_SAFETY_NOTE, MODE_CHOICES, NOT_TRIED_LOCAL, NOT_TRIED_VM, visibleNotices } from '../blender/copy';
 import { lightLabel, loadBlender, runBlenderGet, runBlenderLaunch, runBlenderSetup, runBlenderTest, saveBlenderConfig, useBlender } from '../blender/blenderStore';
 import '../blender/blender.css';
 import { ProvidersSection } from '../providers/ProvidersSection';
@@ -479,6 +479,20 @@ function BlenderSection() {
             ))}
           </div>
           <span className="set-hint" aria-live="polite">{st.nextRun ? `Next script runs: ${st.nextRun.replace(/^[Nn]ext script runs?:?\s*/, '')}` : st.sandboxReady ? 'Cloud VM is ready.' : st.sandboxNote}</span>
+        </div>
+        <div className="set-field">
+          <label className="set-check"><input type="checkbox" checked={st.both?.enabled === true} disabled={b || off} onChange={(e) => void saveBlenderConfig({ both: e.target.checked })} />
+            <span><b>{BOTH_TITLE}</b><em>{BOTH_TEXT}</em></span></label>
+          {st.both && st.both.enabled && <span className="set-hint" aria-live="polite">{st.both.note}{st.both.extras.length ? ` Extra tools: ${st.both.extras.join(', ')}.` : ''}</span>}
+          {st.both && st.both.enabled && (
+            <div className="bl-assets" role="group" aria-label={ASSETS_TITLE}>
+              <b>{ASSETS_TITLE}</b><span className="set-hint">{ASSETS_TEXT}</span>
+              {st.both.assets.map((a) => (
+                <label key={a.source} className="set-check"><input type="checkbox" checked={a.enabled} disabled={b || off || !a.supported} onChange={(e) => void saveBlenderConfig({ assets: { polyhaven: e.target.checked } })} />
+                  <span><b>{a.source === 'polyhaven' ? 'Poly Haven (HDRIs and models, free)' : a.source}</b>{!a.supported && <em>Not available: {a.reason}.</em>}</span></label>
+              ))}
+            </div>
+          )}
         </div>
         <div className="set-field bl-get"><span className="set-label">Blender for Legion</span>
           {mg?.installed

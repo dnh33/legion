@@ -13,6 +13,7 @@ import { BLENDER_LICENSE_NOTE, OFFICIAL_MIN_VERSION } from '../../shared/blender
 import type { BlenderBackendKind, BlenderInstall } from '../../shared/blender.js';
 import type { BlenderBackend } from './backend.js';
 import { versionAtLeast } from './detect.js';
+import { bothPorts, ensureFreePorts } from './both.js';
 import type { DetectEnv, RunResult } from './detect.js';
 
 /** Every side effect of setup. The real one is system.ts. */
@@ -346,3 +347,21 @@ export function launchBlender(io: BlenderIo, cfg: BlenderConfig, install: Blende
   } catch (e) { return step('launch', false, e instanceof Error ? e.message : String(e)); }
 }
 
+
+/**
+ * Starts Blender with BOTH add-on servers on their own ports (Use both backends at once). Both ports must be free first (nothing may answer on them),
+ * Blender gets BLENDER_MCP_PORT for the official add-on, and a fixed expression sets the community add-on's per-scene port and starts its server.
+ * UNVERIFIED (needs a real Blender, check B17): that the official add-on reads BLENDER_MCP_PORT, and that the scene exists when the expression runs.
+ * If either assumption is wrong the identity check at connect time says which port answers what, and the owner sets the official port in its panel.
+ */
+export async function launchBoth(io: BlenderIo, cfg: BlenderConfig, install: BlenderInstall | undefined, probe: (host: string, port: number) => Promise<boolean>): Promise<BlenderSetupStep> {
+  if (!install) return step('launch', false, 'Blender was not found.');
+  const p = bothPorts(cfg);
+  if (!p.ok) return step('launch', false, p.error);
+  const free = await ensureFreePorts(cfg.host, p.ports, probe);
+  if (!free.ok) return step('launch', false, free.error);
+  try {
+    io.spawnDetached(install.path, ['--python-expr', `import bpy; bpy.context.scene.blendermcp_port = ${p.ports.community}; bpy.ops.blendermcp.start_server()`], { BLENDER_MCP_PORT: String(p.ports.official), BLENDER_MCP_HOST: cfg.host });
+    return step('launch', true, `Started Blender ${install.version}: the community add-on is asked to open port ${p.ports.community}; start the official add-on's server from its sidebar panel on port ${p.ports.official}. Then press Test connection.`);
+  } catch (e) { return step('launch', false, e instanceof Error ? e.message : String(e)); }
+}

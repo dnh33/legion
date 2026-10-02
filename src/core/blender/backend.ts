@@ -14,6 +14,9 @@ export interface BackendResult {
   timedOut?: boolean;
 }
 
+/** One entry of the merged tool list: where it comes from, what it takes, what it does. */
+export interface ExtraTool { name: string; source: 'official' | 'community'; description: string; args: Record<string, string> }
+
 export interface BlenderBackend {
   readonly kind: BlenderBackendKind;
   /** Opens the connection if it is not open (idempotent). Throws a plain-language Error when Blender or the add-on is not reachable. */
@@ -24,6 +27,10 @@ export interface BlenderBackend {
   inspect(opts: { object?: string }): Promise<BackendResult>;
   screenshot(opts: { maxSize?: number }): Promise<BackendResult>;
   docs(query: string): Promise<BackendResult>;
+  /** Extra read-only tools beyond inspect/screenshot/docs, each named "<source>:<name>" (only the merged backend of "Use both backends at once" has any). */
+  catalog?(): ExtraTool[];
+  /** Calls one catalog tool. The name must be in the catalog and the arguments are validated against it; nothing else can be reached through this. */
+  callExtra?(name: string, args: Record<string, unknown>): Promise<BackendResult>;
   /** Tool names the server offers (official backend only); for the status view. */
   toolNames?(): string[];
   close(): Promise<void>;

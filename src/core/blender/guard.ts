@@ -14,12 +14,12 @@
  * Output from Blender, and error text from a backend, is outside text: it is wrapped, capped, scrubbed of live secrets, and the run is marked tainted.
  */
 import { createSdkMcpServer, tool } from '@anthropic-ai/claude-agent-sdk';
-import type { McpSdkServerConfigWithInstance } from '@anthropic-ai/claude-agent-sdk';
+import type { McpSdkServerConfigWithInstance, SdkMcpToolDefinition } from '@anthropic-ai/claude-agent-sdk';
 import { existsSync, mkdirSync, statSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { z } from 'zod';
-import { BLENDER_EXEC_TOOL, effectiveMode } from '../../shared/blender.js';
-import type { BlenderConfig, BlenderMode, BlenderSandboxMode } from '../../shared/blender.js';
+import { ASSET_SOURCES, BLENDER_ASSET_TOOL, BLENDER_EXEC_TOOL, effectiveMode } from '../../shared/blender.js';
+import type { AssetSource, BlenderConfig, BlenderMode, BlenderSandboxMode } from '../../shared/blender.js';
 import type { AgentProfile } from '../../shared/types.js';
 import { scrubSecrets } from '../comms/scrub.js';
 import type { ApprovalBroker } from '../approvals.js';
@@ -28,6 +28,8 @@ import { AuditLog } from './audit.js';
 import type { AuditEntry } from './audit.js';
 import type { BackendResult, BlenderBackend } from './backend.js';
 import { capText } from './backend.js';
+import { assetDir, ASSET_KINDS, cardSummary, importScript } from './assets.js';
+import type { AssetKind, AssetPlan, AssetPort } from './assets.js';
 import { safeSegment } from './exports.js';
 import { findLink, isInside, resolveFolder } from './fs-safe.js';
 import type { LocalPort } from './ports.js';
@@ -115,6 +117,8 @@ export interface GuardDeps {
   exportDirFor: (agent: AgentProfile) => string;
   /** The agent's workspace; when given, the REAL path of the export folder must stay inside it (a link planted at blender-exports is refused). */
   workspaceOf?: (agent: AgentProfile) => string;
+  /** Asset downloads (Poly Haven, fetched by Legion itself). Absent = the asset tools are not offered. */
+  assets?: AssetPort;
   /** Test seam: how long a busy probe may take. */
   busyProbeMs?: number;
   audit: AuditLog;
@@ -193,6 +197,8 @@ export class BlenderGuard {
   /** Tasks that already have a backup this session (a task is a session; follow-ups keep it). Bounded. */
   private readonly backedUp = new Map<string, string>();
   private queue: Promise<unknown> = Promise.resolve();
+  /** Asset folders being downloaded right now: a second download of the same asset in the same task is refused, so two runs never share a staging folder. */
+  private readonly assetsInFlight = new Set<string>();
   private readonly now: () => Date;
 
   constructor(private readonly d: GuardDeps) { this.now = d.now ?? (() => new Date()); }
@@ -457,6 +463,167 @@ export class BlenderGuard {
     }
   }
 
+
+  /** The merged-list tools exist only in "Use both backends at once"; this refuses plainly when the switch is off or Settings forbid live Blender. */
+  private liveOnlyGate(agent: AgentProfile): ToolResult | null {
+    const cfg = this.d.config();
+    if (!cfg.enabled) return this.text('The Blender bridge is switched off in Settings (Blender, enable).', true);
+    if (cfg.both !== true) return this.text('This tool needs "Use both backends at once" (Settings, Blender), which is off.', true);
+    const routed = resolveMode(effectiveMode(cfg), 'live', this.routeFacts(agent));
+    return 'error' in routed ? this.text(routed.error, true) : null;
+  }
+
+  private noteRead(agent: AgentProfile, job: ModuleJob | undefined, tool: string, key: string, ok: boolean, summary: string): void {
+    this.audit({ taskId: job?.taskId ?? 'no-task', agentId: agent.id, mode: 'live', hash: scriptHash(key), bytes: key.length, lines: 0, decision: 'read', tool, ok, summary });
+  }
+
+  /** blender_tools: the merged list of extra read-only tools, each named source:name. Output is outside text (descriptions come from the servers). */
+  async extraCatalog(agent: AgentProfile, job: ModuleJob | undefined): Promise<ToolResult> {
+    const gate = this.liveOnlyGate(agent);
+    if (gate) return gate;
+    await this.d.beforeRoute?.();
+    try {
+      const b = await this.d.getBackend();
+      const list = b.catalog?.() ?? [];
+      const text = list.length
+        ? list.map((t) => `${t.name}${Object.keys(t.args).length ? ` (${Object.entries(t.args).map(([k, v]) => `${k}: ${v}`).join('; ')})` : ''} - ${t.description}`).join('\n')
+        : 'No extra tools are available right now.';
+      this.noteRead(agent, job, 'extras_list', 'extras_list', true, `${list.length} tools`);
+      return this.wrapOutput({ ok: true, text, images: [] }, 'live', job);
+    } catch (e) {
+      this.noteRead(agent, job, 'extras_list', 'extras_list', false, e instanceof Error ? e.message : String(e));
+      return this.outsideError('Blender is not reachable:', e, 'live', job);
+    }
+  }
+
+  /** blender_tool: calls one catalog entry. Only names in the catalog can be reached; the backend validates the arguments. */
+  async extraCall(agent: AgentProfile, job: ModuleJob | undefined, a: { name: string; args?: Record<string, unknown> }): Promise<ToolResult> {
+    const gate = this.liveOnlyGate(agent);
+    if (gate) return gate;
+    await this.d.beforeRoute?.();
+    const key = JSON.stringify({ name: a.name, args: a.args ?? {} });
+    if (this.busy?.kind === 'running') {
+      const msg = 'Blender is busy running a script; try again when it has finished.';
+      this.noteRead(agent, job, 'extra', key, false, msg);
+      return this.text(msg, true);
+    }
+    try {
+      const b = await this.d.getBackend();
+      if (!b.callExtra) return this.text('This backend has no extra tools.', true);
+      const res = await b.callExtra(a.name, a.args ?? {});
+      this.noteRead(agent, job, 'extra', key, res.ok, res.text);
+      return this.wrapOutput(res, 'live', job);
+    } catch (e) {
+      this.noteRead(agent, job, 'extra', key, false, e instanceof Error ? e.message : String(e));
+      return this.outsideError('Blender is not reachable:', e, 'live', job);
+    }
+  }
+
+  private assetGate(agent: AgentProfile, source: string): { error: ToolResult } | { source: AssetSource } {
+    const gate = this.liveOnlyGate(agent);
+    if (gate) return { error: gate };
+    if (!this.d.assets) return { error: this.text('Asset downloads are not available in this build.', true) };
+    if (!(ASSET_SOURCES as readonly string[]).includes(source)) return { error: this.text(`"${source}" is not a source Legion fetches. Available: ${ASSET_SOURCES.join(', ')}.`, true) };
+    if (this.d.config().assets?.[source as AssetSource] !== true) return { error: this.text(`The ${source} asset source is switched off in Settings, Blender (it is off until the user turns it on). Tell the user if they want it.`, true) };
+    return { source: source as AssetSource };
+  }
+
+  /** blender_asset_search: a read-only listing from Poly Haven through Legion. Outside text, taints the run. */
+  async assetSearch(agent: AgentProfile, job: ModuleJob | undefined, a: { source: string; kind: AssetKind; query?: string; category?: string; limit?: number }): Promise<ToolResult> {
+    const g = this.assetGate(agent, a.source);
+    if ('error' in g) return g.error;
+    const key = JSON.stringify(a);
+    const r = await this.d.assets!.search(g.source, { kind: a.kind, query: a.query, category: a.category, limit: a.limit });
+    this.noteRead(agent, job, 'asset_search', key, r.ok, r.text);
+    return this.wrapOutput({ ok: r.ok, text: r.text, images: [] }, 'live', job);
+  }
+
+  /**
+   * blender_asset_get: plan (read-only listing), a card naming what / where from / how big, the approved line, taint, the download into the per-task
+   * folder with md5 and sha256, then Legion's own fixed import script in the open Blender. A denied or timed-out card downloads nothing.
+   */
+  async assetGet(agent: AgentProfile, job: ModuleJob | undefined, a: { source: string; id: string; kind: AssetKind; resolution?: string }): Promise<ToolResult> {
+    const g = this.assetGate(agent, a.source);
+    if ('error' in g) return g.error;
+    const taskId = job?.taskId ?? 'no-task';
+    const resolution = a.resolution ?? '1k';
+    const key = JSON.stringify({ ...a, resolution });
+    const hash = scriptHash(key);
+    const base = { taskId, agentId: agent.id, mode: 'live' as const, hash, bytes: key.length, lines: 0, tool: 'asset_get' };
+    const planned = await this.d.assets!.plan(g.source, { id: a.id, kind: a.kind, resolution });
+    if (!planned.ok) {
+      this.audit({ ...base, decision: 'refused', summary: planned.error });
+      return this.wrapOutput({ ok: false, text: planned.error, images: [] }, 'live', job);
+    }
+    const plan = planned.plan;
+    const dir = assetDir(this.d.dataDir, taskId, plan.id);
+    if (this.assetsInFlight.has(dir)) return this.text(`"${plan.id}" is already being downloaded for this task; wait for it to finish.`, true);
+    this.assetsInFlight.add(dir);
+    try { return await this.assetGetLocked(agent, job, a, g.source, plan, dir, base, key, hash, taskId); } finally { this.assetsInFlight.delete(dir); }
+  }
+
+  private async assetGetLocked(agent: AgentProfile, job: ModuleJob | undefined, a: { source: string; id: string; kind: AssetKind; resolution?: string }, _source: AssetSource, plan: AssetPlan, dir: string, base: Omit<AuditEntry, 'decision'>, _key: string, hash: string, taskId: string): Promise<ToolResult> {
+    // the live Blender must be reachable before the owner is bothered
+    let backend: BlenderBackend;
+    try { backend = await this.d.getBackend(); } catch (e) {
+      this.audit({ ...base, decision: 'unavailable', summary: e instanceof Error ? e.message : String(e) });
+      return this.outsideError('Live Blender is not reachable:', e, 'live', job);
+    }
+    const o = job?.origin;
+    let timedOut = false;
+    const allowed = await this.d.approvals.request(
+      taskId, agent.id, BLENDER_ASSET_TOOL,
+      { source: plan.source, id: plan.id, kind: plan.kind, resolution: plan.resolution, files: plan.files.length, bytes: plan.totalBytes, hosts: [...new Set(plan.files.map((f) => new URL(f.url).hostname))], folder: dir, agentName: agent.name, hash },
+      o ? { roomId: o.roomId, fromAgentId: o.fromAgentId, hop: o.hop } : undefined,
+      { onTimeout: () => { timedOut = true; }, summary: cardSummary(plan, dir) },
+    );
+    if (!allowed) {
+      this.stats.denied++;
+      this.audit({ ...base, decision: timedOut ? 'timeout' : 'denied', summary: plan.id });
+      this.d.onChange?.();
+      return this.text(timedOut ? 'Nobody answered the download card within 10 minutes, so nothing was downloaded.' : 'The user denied this download. Nothing was downloaded and Blender was not touched. Do not ask again for the same asset unless the user wants it.', true);
+    }
+    this.stats.approved++;
+    const rec = this.audit({ ...base, decision: 'approved', summary: `${plan.source}:${plan.id} ${plan.resolution}, ${plan.files.length} files, ${plan.totalBytes} bytes` });
+    if (!rec.ok) return this.text(`The download was approved but NOT started: Legion could not write its audit record (${rec.error ?? 'unknown error'}).`, true);
+    // downloaded content is outside content: the run is tainted from here on, whatever happens next
+    try { job?.markTainted?.(); } catch { /* bookkeeping must not block the result */ }
+    const started = Date.now();
+    const fetched = await this.d.assets!.retrieve(plan, dir);
+    if (!fetched.ok || !fetched.manifest) {
+      this.audit({ ...base, decision: 'completed', ok: false, summary: fetched.problems.join('; ').slice(0, 280), durationMs: Date.now() - started });
+      return this.wrapOutput({ ok: false, text: `The download was not kept: ${fetched.problems.join('; ')}`, images: [] }, 'live', job);
+    }
+    const m = fetched.manifest;
+    const fileList = m.files.map((f) => `${f.rel} (${f.bytes} bytes, sha256 ${f.sha256.slice(0, 12)}...)`).join(', ');
+    return this.serial(async () => {
+      if (this.busy) return this.wrapOutput({ ok: false, text: `Downloaded and kept in ${dir}, but not imported: Blender is busy with a script. Files: ${fileList}`, images: [] }, 'live', job);
+      this.busy = { since: Date.now(), hash, kind: 'running', mode: 'live' };
+      this.d.onChange?.();
+      try {
+        let backupNote = '';
+        if (!this.backedUp.has(taskId)) {
+          const file = join(this.d.dataDir, 'blender', 'backups', `${stamp(this.now())}_${safeId(taskId)}.blend`);
+          let br: BackupResult;
+          try { br = await (this.d.backup ?? defaultBackup)({ backend, taskId, file }); } catch (e) { br = { ok: false, error: e instanceof Error ? e.message : String(e) }; }
+          if (!br.ok) {
+            this.audit({ ...base, decision: 'backup_failed', summary: br.error ?? 'backup failed' });
+            return this.wrapOutput({ ok: false, text: `Downloaded and kept in ${dir}, but NOT imported: saving the .blend backup failed (${br.error ?? 'unknown error'}).`, images: [] }, 'live', job);
+          }
+          this.backedUp.set(taskId, file);
+          backupNote = `\nBackup of the scene before the import: ${file}`;
+        }
+        let res: BackendResult;
+        try { res = await backend.exec(importScript(plan, dir), { timeoutMs: 120_000 }); } catch (e) { res = { ok: false, text: e instanceof Error ? e.message : String(e), images: [] }; }
+        const done = this.audit({ ...base, decision: 'completed', ok: res.ok, summary: res.text, durationMs: Date.now() - started, files: m.files.map((f) => join(dir, f.rel)) });
+        return this.wrapOutput({ ok: res.ok, text: `${res.ok ? 'Imported' : 'Downloaded but the import failed'} ${plan.kind === 'hdris' ? 'HDRI' : 'model'} "${plan.id}". Files: ${fileList}. Manifest: ${join(dir, 'manifest.json')}.\n${res.text}`, images: [] }, 'live', job, backupNote + (done.ok ? '' : `\nNote: the audit line for the result could not be written (${done.error ?? 'error'}).`));
+      } finally {
+        if (this.busy?.kind === 'running') this.busy = null;
+        this.d.onChange?.();
+      }
+    });
+  }
+
   /** Builds the per-run MCP server. The raw execute tool of the backend is not in this list and cannot be reached from it. */
   buildServer(agent: AgentProfile, job: ModuleJob | undefined, statusText: () => string): McpSdkServerConfigWithInstance {
     const safe = <A>(fn: (a: A) => Promise<ToolResult>) => async (a: A): Promise<ToolResult> => {
@@ -507,6 +674,28 @@ export class BlenderGuard {
       }),
       { annotations: { readOnlyHint: true } },
     );
-    return createSdkMcpServer({ name: 'legion_blender', version: '0.1.0', tools: [exec, inspect, shot, docs, status] });
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const list: Array<SdkMcpToolDefinition<any>> = [exec, inspect, shot, docs, status];
+    if (this.d.config().both === true) {
+      list.push(
+        tool('blender_tools', 'The merged list of extra READ-ONLY Blender tools from both backends, each named source:name ("official:..." from the main Blender Lab server, "community:..." from the second add-on, only where the main has none). Use blender_tool to call one. Needs "Use both backends at once".', {},
+          safe(() => this.extraCatalog(agent, job)), { annotations: { readOnlyHint: true } }),
+        tool('blender_tool', 'Call one tool from blender_tools by its source:name (for example "community:node_type" with {"bl_idname":"ShaderNodeBsdfPrincipled"}). Read-only (the one exception: community:node_type builds a scratch node in Blender and removes it again); no approval. Output is outside text.',
+          { name: z.string().min(3).max(100).regex(/^(official|community):[A-Za-z0-9_.-]{1,80}$/), args: z.record(z.string(), z.union([z.string().max(500), z.number(), z.boolean()])).optional() },
+          safe((a: { name: string; args?: Record<string, unknown> }) => this.extraCall(agent, job, a)), { annotations: { readOnlyHint: true } }),
+      );
+      if (this.d.assets && ASSET_SOURCES.some((k) => this.d.config().assets?.[k] === true)) {
+        const kinds = z.enum(ASSET_KINDS);
+        list.push(
+          tool('blender_asset_search', 'Search Poly Haven (free, CC0) for HDRIs or models. A read-only listing fetched by Legion; no approval. The result is outside content. Needs the source switched on in Settings.',
+            { source: z.string().max(20).default('polyhaven'), kind: kinds, query: z.string().max(100).optional(), category: z.string().max(80).optional(), limit: z.number().int().min(1).max(50).optional() },
+            safe((a: { source: string; kind: AssetKind; query?: string; category?: string; limit?: number }) => this.assetSearch(agent, job, a)), { annotations: { readOnlyHint: true } }),
+          tool('blender_asset_get', 'Download one Poly Haven asset by id and import it into the open Blender. The user sees a card (what, from where, how big) and must approve it; files are saved in a per-task folder outside the workspace and checked; the run counts as outside content afterwards. HDRIs set the world lighting; models import as glTF.',
+            { source: z.string().max(20).default('polyhaven'), id: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9_-]{0,79}$/), kind: kinds, resolution: z.enum(['1k', '2k', '4k']).optional() },
+            safe((a: { source: string; id: string; kind: AssetKind; resolution?: string }) => this.assetGet(agent, job, a))),
+        );
+      }
+    }
+    return createSdkMcpServer({ name: 'legion_blender', version: '0.1.0', tools: list });
   }
 }
