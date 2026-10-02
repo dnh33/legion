@@ -13,7 +13,7 @@ const ids = new Set(seed.nodes.map((n) => n.id));
 const words = (s: string) => s.trim().split(/\s+/).length;
 
 test('bsv seed parses with the expected envelope and size', () => {
-  assert.equal(seed.version, 5);
+  assert.equal(seed.version, 6);
   assert.ok(!Number.isNaN(Date.parse(seed.generatedAt)));
   assert.ok(Array.isArray(seed.nodes) && Array.isArray(seed.edges));
   assert.ok(seed.nodes.length >= 45 && seed.nodes.length <= 220, `node count ${seed.nodes.length}`);
@@ -47,7 +47,7 @@ test('every bsv node is scoped, sourced, sized and attributed to the system', ()
     assert.ok(n.title.length > 0 && n.title.length <= KG_LIMITS.titleChars, `${n.id} title length`);
     assert.ok(n.body.length > 0 && n.body.length <= KG_LIMITS.bodyChars, `${n.id} body length`);
     const w = words(n.body);
-    assert.ok(w >= 55 && w <= 240, `${n.id} body has ${w} words`);
+    assert.ok(w >= 55 && w <= (n.id === 'bsv-status-today' ? 420 : 250), `${n.id} body has ${w} words`);
     assert.ok(n.tags.includes('bsv'), `${n.id} missing bsv tag`);
     assert.ok(typeof n.confidence === 'number' && n.confidence >= 0.6 && n.confidence <= 0.9, `${n.id} confidence`);
     assert.ok(!Number.isNaN(Date.parse(n.createdAt)) && !Number.isNaN(Date.parse(n.updatedAt)), `${n.id} dates`);
@@ -167,7 +167,7 @@ const byIdMap = new Map(seed.nodes.map((n) => [n.id, n]));
 
 test('truthful pack: every built:false node starts with the design marker, has confidence 0.6, and the set is not empty', () => {
   const design = seed.nodes.filter((n) => n.props?.built === false);
-  assert.ok(design.length >= 12, `only ${design.length} design nodes`);
+  assert.ok(design.length >= 6, `only ${design.length} design nodes`);
   for (const n of design) {
     assert.ok(n.body.startsWith(MARKER), `${n.id} is built:false but does not start with the marker`);
     assert.equal(n.confidence, 0.6, `${n.id} confidence`);
@@ -175,10 +175,34 @@ test('truthful pack: every built:false node starts with the design marker, has c
   // and the other way round: the marker is only ever used together with built:false
   for (const n of seed.nodes.filter((x) => x.body.startsWith(MARKER))) assert.equal(n.props?.built, false, `${n.id} has the marker but not built:false`);
   // the controls that do not exist today are all marked
-  for (const id of ['bsv-safety-spend-caps-approval', 'bsv-safety-audit-freeze', 'bsv-safety-mainnet-armed-native', 'bsv-safety-external-wallet',
-    'bsv-safety-vm-boundary', 'bsv-safety-overview', 'bsv-safety-untrusted-chain-data', 'bsv-mod-safety', 'bsv-mod-wallets', 'bsv-desktop-wallet', 'bsv-src-legion-kit', 'bsv-wallet-choice']) {
+  for (const id of ['bsv-safety-vm-boundary', 'bsv-mod-wallets', 'bsv-desktop-wallet', 'bsv-src-legion-kit', 'bsv-wallet-choice']) {
     assert.equal(byIdMap.get(id)!.props?.built, false, `${id} must be marked built:false`);
   }
+});
+
+const PARTLY = ['bsv-safety-spend-caps-approval', 'bsv-safety-audit-freeze', 'bsv-safety-mainnet-armed-native', 'bsv-safety-external-wallet', 'bsv-safety-overview', 'bsv-safety-untrusted-chain-data', 'bsv-mod-safety'];
+
+test('truthful pack (v6): controls that now exist in part are marked built:"partly", say what is built and what is not, and never use the design marker', () => {
+  const partly = seed.nodes.filter((n) => n.props?.built === 'partly');
+  assert.deepEqual(partly.map((n) => n.id).sort(), [...PARTLY].sort());
+  for (const n of partly) {
+    assert.match(n.title, /^\[Partly built\] \S/, n.id);
+    assert.ok(n.body.startsWith('Partly built: some of this exists, the rest is design.\n'), `${n.id}: first line`);
+    assert.ok(!n.body.startsWith(MARKER), `${n.id} must not use the design marker`);
+    assert.match(n.body, /Built today/, `${n.id} says what is built`);
+    assert.match(n.body, /Not built/, `${n.id} says what is not built`);
+    assert.ok(n.tags.includes('partly-built') && !n.tags.includes('design'), `${n.id}: tags`);
+    assert.ok((n.confidence ?? 1) <= 0.7, `${n.id}: confidence`);
+  }
+});
+
+test('truthful pack (v6): nothing claims that spending, signing, balance reads or a spend tool exist', () => {
+  for (const n of seed.nodes) {
+    assert.doesNotMatch(n.body, /Legion (can|will) (sign|spend|broadcast) /i, n.id);
+    assert.doesNotMatch(n.body, /\b(spend works|spending works|the spend tool (is|exists)|Legion holds (your )?keys)\b/i, n.id);
+  }
+  const s = byIdMap.get('bsv-status-today')!.body;
+  for (const phrase of [/no signing/, /no broadcasting/, /no balance reads/, /no spend tool/, /no key handling/]) assert.match(s, phrase);
 });
 
 test('truthful pack: no body claims a control that does not exist (one-click Freeze, "the owner has", "is awaited inside")', () => {
@@ -189,7 +213,7 @@ test('truthful pack: a node that is not marked as design never describes a missi
   // Phrases that only make sense for the wallet phase. They may appear in design nodes and in the status node (which says they do not exist).
   const unbuilt = /approval card|plan card|spend card|approval broker|one-click|Freeze control|armed network|Arm mainnet action|native confirmation|per-session|rolling 24|Legion-owned|bsv wrapper|release gate|tool handler|Only the Assayer gets/i;
   for (const n of seed.nodes) {
-    if (n.props?.built === false || n.id === 'bsv-status-today') continue;
+    if (n.props?.built === false || n.props?.built === 'partly' || n.id === 'bsv-status-today') continue;
     assert.doesNotMatch(n.body, unbuilt, `${n.id} describes an unbuilt control without the design marker`);
   }
 });
@@ -198,8 +222,8 @@ test('status node: says what BSV mode is today, is reachable from the index, eve
   const s = byIdMap.get('bsv-status-today');
   assert.ok(s, 'bsv-status-today exists');
   assert.equal(s!.type, 'lesson');
-  assert.notEqual(s!.props?.built, false, 'the status node is the truth, not a design');
-  for (const phrase of [/testnet only/i, /knowledge only|read-only knowledge pack/i, /no wallet/, /no spend caps/, /no Freeze/, /no approval card/, /advisory bot with no BSV tools/, /shell commands and file edits wait for your approval/, /Bots cannot edit this pack's notes or links/]) assert.match(s!.body, phrase);
+  assert.equal(s!.props?.built, undefined, 'the status node is the truth, not a design');
+  for (const phrase of [/testnet knowledge mode/i, /read-only knowledge pack/i, /bsv_status/, /read-only check/, /no wallet connection beyond that status check/, /no spend approval card/, /Nothing in Legion signs or sends BSV/, /native confirmation dialog/, /advisory bot whose only BSV tool is that read-only status check/, /shell commands and file edits wait for your approval/, /Bots cannot edit this pack's notes or links/]) assert.match(s!.body, phrase);
   const rel = (from: string, to: string, rels = ['relates', 'part_of', 'depends_on']) => seed.edges.some((e) => e.from === from && e.to === to && rels.includes(e.rel));
   assert.ok(rel('bsv-curriculum-index', 'bsv-status-today'), 'index links to it');
   for (const hub of ['safety', 'foundations', 'wallets', 'network', 'ordinals', 'identity', 'sdks', 'extras']) assert.ok(rel(`bsv-mod-${hub}`, 'bsv-status-today'), `hub ${hub} links to it`);
