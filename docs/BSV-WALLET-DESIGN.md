@@ -1,6 +1,6 @@
 # BSV wallet design, version 1: for owner review
 
-Status: a proposal. Nothing in this document beyond rung 1 is built, and nothing beyond rung 1 ships until the owner has answered the questions in section 12. Written for Daniel (the owner) to read in one sitting; it says what is verified, what is guessed, and what can still go wrong.
+Status, 2026-10-02: written as a proposal, now partly superseded. Rung 3 is BUILT, merged and tested against fake wallets only (testnet AND mainnet capability, mainnet behind a hard-off switch that ships OFF); it has NOT been verified against a real wallet or with real funds until the owner's checks (V1 to V12, R0 to R11, ND1 to ND11) are recorded in `claude/tracker-pc-checks.md`. The built design, its assumptions (`A1` to `A12`) and the mainnet amendment are in `claude/plan-bsv-rung3.md`; what the code does is in `docs/BSV-MODE.md`, section Spend. This document keeps the original reasoning, so where it says "proposed" or "design only" for rung 3 or mainnet, read it as history. Rung 2 (approved reads) is not built. Written for Daniel (the owner) to read in one sitting; it says what is verified, what is guessed, and what can still go wrong.
 
 Plain summary: Legion's BSV mode today can ask a wallet "are you there, and which network are you on?" and nothing else. The controls that a spending phase would need (caps, allowlist, expiring arming, freeze, a tamper-evident log, confirmation that comes from outside the window) are built and tested, but connected to nothing. This document proposes two more rungs, human-approved reads and a manual testnet-only spend, and lists everything that could go wrong with them.
 
@@ -11,8 +11,8 @@ Plain summary: Legion's BSV mode today can ask a wallet "are you there, and whic
 | 0 | Read the knowledge pack and explain BSV | Built (v0) |
 | 1 | `bsv_status`: ask a loopback wallet four harmless questions (version, network, signed in, block height) | Built (this release) |
 | 2 | Human-approved reads: one card per read, for example "total of spendable outputs" | Design only |
-| 3 | Manual testnet spend: a two-stage flow, Legion's card first, then the wallet's own prompt | Design only |
-| 4 | Anything on mainnet | Not designed. A separate review. Today "arming" is a policy state that nothing consumes |
+| 3 | Manual testnet spend: a two-stage flow, Legion's card first, then the wallet's own prompt | Built and merged, tested against fake wallets only; not verified against a real wallet (order of steps differs from section 4: the wallet builds the unsigned transaction first, Legion decodes it, then the dialogs, then signing) |
+| 4 | Mainnet | Built behind a hard-off switch that ships OFF (`claude/plan-bsv-rung3.md` section 12): per-network limits, one Arm per spend, an extra LIVE FUNDS dialog. Not verified with real funds; the owner's check R0 to R11 comes first |
 
 Each rung adds a tool name, an allowlist entry in `test/bsv-scan.ts`, and a new owner review. The tripwire fails the build if wallet vocabulary appears anywhere else, so a rung cannot arrive by accident.
 
@@ -80,7 +80,7 @@ After the wallet answers, Legion records the transaction id, settles the reserva
 
 Unknown outcome: a spend that was approved but not settled in 300 s (or interrupted by a restart or a freeze) is "unknown" and blocks every new spend until the owner resolves it with a native confirmation. There is no automatic retry anywhere (a wallet may have broadcast before the timeout).
 
-Mainnet: not designed here. If rung 3 is ever extended, the arming state would be required in addition, and the card would say LIVE FUNDS. That needs its own document and review.
+Mainnet: when this section was written it was not designed. It has since been designed and built as an amendment (`claude/plan-bsv-rung3.md` section 12): a hard-off switch (off by default), Arm for each spend, a card and dialogs that say LIVE FUNDS, per-network limits and allowlists, and the rule that an unknown outcome blocks both networks. The order of steps changed: the wallet is asked for an UNSIGNED transaction first (so Legion can decode the fee), then the dialogs, then the signing call.
 
 ### The approval card
 
@@ -193,6 +193,8 @@ If BSV Desktop's own prompts turn out to be silent for the methods Legion needs 
 
 ## 11. What is unverified
 
+Seen by hand, read-only, on the owner's own BSV Desktop (2026-10-02, no Legion code involved): `getVersion` answers `wallet-brc100-1.0.0` (not semver), `getNetwork` answers `mainnet`, the four status methods answer HTTP 200 with a JSON body labelled `text/html` and show no prompt. The BRC-100 text says `createAction` with signing off returns `{tx (Atomic BEEF), reference}` with no fee or change fields (Legion decodes the BEEF itself), and says nothing about prompts or decline codes. Everything else in this list is still open, and the spend assumptions `U1` to `U14` (plan sections 3, 12 and 15) are settled only by the owner's checks V1 to V12 and R0 to R11.
+
 - BSV Desktop's behaviour: whether `getVersion`, `getNetwork`, `isAuthenticated` and `getHeight` prompt; what its permission prompts say; which origin rules apply (the origin is self-declared, so any local process can claim `legion.local`); whether the response shapes match Legion's parser (an unexpected shape is read as "network unknown", never as testnet).
 - Whether BSV Desktop and the HandCash BRC wallet really both use port 3321 (the pack says so).
 - How the wallet reports a testnet configuration and whether switching networks needs a restart.
@@ -200,11 +202,11 @@ If BSV Desktop's own prompts turn out to be silent for the methods Legion needs 
 - That `window.legion.bsvPolicy` survives a real sandboxed preload exactly as the emulation shows.
 - Windows specifics (dialog behaviour with a hidden window, `taskkill`, `netstat`).
 
-Legion has never been pointed at the real wallet. Every test uses a fake loopback server on a random port.
+Legion's code, tests and agents have never been pointed at the real wallet. Every test uses a fake loopback server on a random port.
 
 ## 12. Questions for the owner
 
-Answer these before rung 2 or 3 is built. My default is in brackets.
+Answered on 2026-10-02 (recorded in `claude/plan-bsv-rung3.md` sections 11 and 13 and in `claude/legion-release-tracker.md`; answers taken at the recommended defaults are marked there as assumed, not confirmed): arm applies to mainnet only; a run started by another bot, a room or an MCP client may not request a spend; one unattributed extra P2PKH output is accepted as wallet change and shown as wallet-claimed; no fallback to "sign first"; testnet and mainnet P2PKH recipients, one payment output; mainnet is IN scope, built, reviewed and OFF by default; `bsv.walletUrl` in `config.json` is ignored. Question 10 below ("nothing may touch mainnet") was REVERSED by the owner on 2026-10-02. The original list, with its defaults, is kept as history. My default is in brackets.
 
 1. Do you want rung 2 (approved reads) at all, or is "is the wallet there and on which network" enough? [Skip rung 2 unless you want the Assayer to check for testnet coins.]
 2. For rung 3, should the owner's approval be a native dialog (robust against a compromised window) or an in-window card (easier to read, longer text)? [Native dialog showing the decoded card.]
