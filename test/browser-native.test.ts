@@ -70,12 +70,12 @@ test('N5: failure paths: no core, a core refusal, one dialog at a time', async (
 
 test('N6: the window never holds the native secret: main.ts registers the handler, checks the sender, and the preload only forwards', () => {
   const root = fileURLToPath(new URL('../../', import.meta.url));
-  const main = readFileSync(root + 'src/electron/main.ts', 'utf8');
+  const main = readFileSync(root + 'src/electron/main.ts', 'utf8').replace(/\r\n/g, '\n');
   const i = main.indexOf("'legion:browser-change'");
   assert.ok(i > 0);
   const block = main.slice(i, i + 700);
   assert.match(block, /trustedSender\(frameUrl, uiUrl\)/); assert.match(block, /sender !== win\.webContents/); assert.match(block, /browserChange\(raw, \{ call: ownCoreCall, confirm: makeConfirm\(dialog/);
-  const pre = readFileSync(root + 'src/electron/preload.cjs', 'utf8');
+  const pre = readFileSync(root + 'src/electron/preload.cjs', 'utf8').replace(/\r\n/g, '\n');
   assert.match(pre, /browserChange\(change\) \{\s*return ipcRenderer\.invoke\('legion:browser-change', change\);/);
   assert.doesNotMatch(pre, /nativeSecret|X-Legion-Native/i);
 });

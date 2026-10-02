@@ -87,7 +87,7 @@ test('one engine only: the engine list has one entry, and no Lightpanda, WSL, la
   try { assert.deepEqual((await t.client.listTools()).tools.map((x) => x.name).sort(), ['browser_click', 'browser_close', 'browser_eval', 'browser_links', 'browser_open', 'browser_status', 'browser_text', 'browser_type']); } finally { await t.client.close(); }
   // nothing under src/ or ui/src names it, and the UI source has no download or launcher control
   const walk = (rel: string, out: string[] = []): string[] => { for (const n of readdirSync(join(REPO, rel))) { const q = `${rel}/${n}`; if (n === 'node_modules' || n === 'dist' || n === 'seeds') continue; if (statSync(join(REPO, q)).isDirectory()) walk(q, out); else if (/\.(ts|tsx|js|cjs|mjs|css)$/.test(n)) out.push(q); } return out; };
-  const hits = [...walk('src'), ...walk('ui/src')].filter((f) => /lightpanda/i.test(readFileSync(join(REPO, f), 'utf8')));
+  const hits = [...walk('src'), ...walk('ui/src')].filter((f) => /lightpanda/i.test(readFileSync(join(REPO, f), 'utf8').replace(/\r\n/g, '\n')));
   assert.deepEqual(hits, []);
   const ui = readFileSync(join(REPO, 'ui/src/browser/BrowserSection.tsx'), 'utf8').replace(/\r\n/g, '\n');
   assert.doesNotMatch(ui, /lightpanda|\bwsl\b|launcher|managedSha|binaryPath|Get \w+ for Legion|>\s*Download/i);
