@@ -78,3 +78,13 @@ test('safeWriteFile: names with separators or a NUL are refused', () => {
   const d = tmp();
   for (const bad of ['../x', 'a/b', 'a\\b', 'a\0b']) assert.throws(() => safeWriteFile(d, bad, Buffer.from('x')), /unsafe/, JSON.stringify(bad));
 });
+
+test('L1: findLink fails CLOSED: hitting the entry or depth limit, or an unreadable folder, reports a place instead of "no link"', () => {
+  const d = tmp();
+  for (let i = 0; i < 6; i++) writeFileSync(join(d, `f${i}`), 'x');
+  assert.equal(findLink(d, 4, 3) === null, false, 'entry limit hit');
+  const deep = join(d, 'a', 'b', 'c');
+  mkdirSync(deep, { recursive: true });
+  assert.equal(findLink(join(d, 'a'), 1, 3000) === null, false, 'depth limit hit');
+  assert.equal(findLink(join(d, 'a'), 4, 3000), null, 'within the limits and clean: null');
+});

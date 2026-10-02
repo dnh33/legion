@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import test from 'node:test';
 import { defaultBlenderConfig } from '../src/shared/blender.js';
 import type { BlenderInstall } from '../src/shared/blender.js';
-import { addonInstallPy, checkHash, launchBlender, moduleNameFor, pyExprForFile, setupLive, testConnection } from '../src/core/blender/setup.js';
+import { addonInstallPy, extensionListed, checkHash, launchBlender, moduleNameFor, pyExprForFile, setupLive, testConnection } from '../src/core/blender/setup.js';
 import type { BlenderIo } from '../src/core/blender/setup.js';
 import { isPublicHttpsUrl } from '../src/core/blender/system.js';
 import { FakeBackend } from './blender-helpers.js';
@@ -29,7 +29,7 @@ function fakeIo(over: Partial<{ downloadSha: string; blenderOut: string; launche
       if (args[0] === 'lock') { if (over.lockFails) return { code: 1, stdout: '', stderr: 'no index' }; log.locked = true; return { code: 0, stdout: '', stderr: '' }; }
       return { code: 0, stdout: 'uv 0.5', stderr: '' };
     },
-    download: async (url, dest, opts) => { if (over.throwDownload) throw new Error('offline'); log.downloads.push({ url, dest, maxBytes: opts.maxBytes }); return { sha256: over.downloadSha ?? PINNED, bytes: 1234 }; },
+    download: async (url, dest, opts) => { if (over.throwDownload) throw new Error('offline'); log.downloads.push({ url, dest, maxBytes: opts.maxBytes }); return { sha256: over.downloadSha ?? (url === defaultBlenderConfig().advanced.community.addonUrl ? defaultBlenderConfig().advanced.community.sha256 : PINNED), bytes: 1234 }; },
     extract: async () => undefined,
     mkdirp: () => undefined,
     writeText: (p, t) => { log.writes.set(p, t); },
@@ -302,4 +302,157 @@ test('real download: redirects are followed only to public https hosts', async (
 
 test('real download: an HTTP error is a readable failure', async () => {
   await assert.rejects(withFetch(() => new Response('no', { status: 404 }), () => createRealIo().download('https://example.org/a', join(tmp(), 'a'), { maxBytes: 100 })), /HTTP 404/);
+});
+
+test('C21: the community add-on download is checked against the pinned sha256; one changed byte is refused, nothing is installed, the record is untouched', async () => {
+  const cfg = defaultBlenderConfig();
+  const pin = cfg.advanced.community.sha256;
+  assert.match(pin, /^[0-9a-f]{64}$/);
+  // a fake "download" whose bytes differ by one in the last hex digit
+  const flipped = pin.slice(0, -1) + (pin.endsWith('0') ? '1' : '0');
+  const { io, log } = fakeIo({ downloadSha: flipped });
+  const r = await setupLive(io, cfg, '/data', install('4.2.1'), 'community');
+  assert.equal(r.ok, false);
+  assert.equal(r.addonInstalled, false);
+  assert.equal(r.info, undefined, 'no trusted-download record is produced for a refused file');
+  assert.match(r.steps.find((s) => s.step === 'download')!.detail, /does not match|refus/i);
+  assert.equal(log.downloads.length, 1);
+});
+
+/* ---- official add-on as an EXTENSION (plan 5.1): scripted fake io.run, exact argv per step ---- */
+
+const MANIFEST = 'schema_version = "1.0.0"\nid = "mcp"\nversion = "1.0.3"\ntype = "add-on"\nblender_version_min = "5.1.0"\n';
+const EXT = (...a: string[]): string[] => ['--factory-startup', '--command', 'extension', ...a];
+
+/** A fake Blender that answers `extension ...` commands from a script of canned outputs, and records every call. */
+function extIo(over: Partial<{ buildCode: number; noZip: boolean; repoList: string; repoAddCode: number; installCode: number; list: string; manifest: boolean }> = {}) {
+  const base = fakeIo();
+  const calls: Array<{ file: string; args: string[] }> = [];
+  let built = false;
+  const hasManifest = over.manifest !== false;
+  const io: BlenderIo = {
+    ...base.io,
+    exists: (q) => {
+      const p = fwd(q);
+      if (p.endsWith('blender_manifest.toml')) return hasManifest;
+      if (p.endsWith('.zip') && p.includes('/mcp-')) return built && !over.noZip;
+      return base.io.exists(q);
+    },
+    readText: (q) => (fwd(q).endsWith('blender_manifest.toml') && hasManifest ? MANIFEST : base.io.readText(q)),
+    run: async (file, args) => {
+      calls.push({ file, args });
+      if (file !== install().path || args[1] !== '--command') return base.io.run(file, args, 0);
+      const sub = args[3];
+      if (sub === 'build') { built = true; return { code: over.buildCode ?? 0, stdout: 'built', stderr: over.buildCode ? 'manifest error: bad field' : '' }; }
+      if (sub === 'repo-list') return { code: 0, stdout: over.repoList ?? 'user_default:\n  name: "User Default"\n  directory: "/home/u/ext"\n', stderr: '' };
+      if (sub === 'repo-add') return { code: over.repoAddCode ?? 0, stdout: '', stderr: '' };
+      if (sub === 'install-file') return { code: over.installCode ?? 0, stdout: 'installed', stderr: '' };
+      if (sub === 'list') return { code: 0, stdout: over.list ?? 'user_default:\n  mcp: Blender MCP (1.0.3) [enabled]\n', stderr: '' };
+      return { code: 1, stdout: '', stderr: 'unknown' };
+    },
+  };
+  return { io, calls, log: base.log };
+}
+const extCalls = (calls: Array<{ file: string; args: string[] }>) => calls.filter((c) => c.file === install().path);
+
+test('extension install: exact argv per step, in order; step names; recorded only after the list shows it', async () => {
+  const { io, calls } = extIo();
+  const cfg = defaultBlenderConfig();
+  const r = await setupLive(io, cfg, '/data', install(), 'official');
+  assert.equal(r.ok, true, JSON.stringify(r.steps));
+  assert.deepEqual(r.steps.map((s) => s.step), ['blender', 'license', 'download', 'unpack', 'ext-build', 'ext-repo', 'ext-install', 'verify', 'launcher', 'lock', 'config']);
+  const zip = join('/data', 'blender', 'official', 'mcp-1.0.3.zip');
+  const src = join('/data', 'blender', 'official', 'server', 'blender_mcp', cfg.advanced.official.addonPath);
+  const b = extCalls(calls);
+  assert.deepEqual(b.map((c) => c.args), [
+    EXT('build', '--source-dir', src, '--output-filepath', zip),
+    EXT('repo-list'),
+    EXT('install-file', '-r', 'user_default', '--enable', zip),
+    EXT('list'),
+  ]);
+  assert.ok(b.every((c) => c.args.indexOf('--factory-startup') < c.args.indexOf('--command')), 'global flags come before --command');
+  assert.ok(!b.some((c) => c.args.includes('-b') || c.args.includes('--python-expr')), 'the legacy add-on folder install is not used');
+  assert.match(r.steps.find((s) => s.step === 'verify')!.detail, /bl_ext\.user_default\.mcp/);
+  assert.equal(r.addonInstalled, true);
+});
+
+test('extension install: no local repo -> repo-add with the Legion repo, then install into it', async () => {
+  const { io, calls } = extIo({ repoList: 'blender_org:\n  name: "Blender"\n  remote_url: "https://extensions.blender.org/api/v1/extensions/"\n', list: 'legion_local:\n  mcp (1.0.3) enabled\n' });
+  const r = await setupLive(io, defaultBlenderConfig(), '/data', install(), 'official');
+  assert.equal(r.ok, true, JSON.stringify(r.steps));
+  const subs = extCalls(calls).map((c) => c.args[3]);
+  assert.deepEqual(subs, ['build', 'repo-list', 'repo-add', 'install-file', 'list']);
+  const add = extCalls(calls)[2]!.args;
+  assert.deepEqual(add, EXT('repo-add', '--name', 'Legion', '--directory', join('/data', 'blender', 'official', 'extensions'), 'legion_local'));
+  assert.deepEqual(extCalls(calls)[3]!.args.slice(4, 6), ['-r', 'legion_local']);
+});
+
+test('extension install: a failed build stops the rest (no repo, install or list call) and names the by-hand route', async () => {
+  const { io, calls } = extIo({ buildCode: 2 });
+  const r = await setupLive(io, defaultBlenderConfig(), '/data', install(), 'official');
+  assert.equal(r.ok, false);
+  assert.deepEqual(extCalls(calls).map((c) => c.args[3]), ['build']);
+  const last = r.steps.at(-1)!;
+  assert.equal(last.step, 'ext-build');
+  assert.match(last.detail, /bad field/);
+  assert.match(last.detail, /Install from Disk/);
+  assert.equal(r.addonInstalled, false);
+  assert.ok(!r.steps.some((s) => s.step === 'launcher'), 'later steps do not run');
+});
+
+test('extension install: a build that exits 0 but leaves no zip is a failed step; so is a failed install; verify must see the extension', async () => {
+  const noZip = await setupLive(extIo({ noZip: true }).io, defaultBlenderConfig(), '/data', install(), 'official');
+  assert.equal(noZip.ok, false);
+  assert.equal(noZip.steps.at(-1)!.step, 'ext-build');
+  const bad = extIo({ installCode: 1 });
+  const r = await setupLive(bad.io, defaultBlenderConfig(), '/data', install(), 'official');
+  assert.equal(r.ok, false);
+  assert.equal(r.steps.at(-1)!.step, 'ext-install');
+  assert.ok(!extCalls(bad.calls).some((c) => c.args[3] === 'list'), 'no verify after a failed install');
+  const missing = await setupLive(extIo({ list: 'user_default:\n  other (9.9)\n' }).io, defaultBlenderConfig(), '/data', install(), 'official');
+  assert.equal(missing.ok, false);
+  assert.equal(missing.steps.at(-1)!.step, 'verify');
+  assert.equal(missing.addonInstalled, false, 'not recorded as installed when the list does not show it');
+});
+
+test('community setup keeps the legacy add-on folder path (no extension commands)', async () => {
+  const { io, calls } = extIo();
+  const r = await setupLive(io, defaultBlenderConfig(), '/data', install('4.2.1'), 'community');
+  assert.equal(r.ok, true, JSON.stringify(r.steps));
+  assert.deepEqual(r.steps.map((s) => s.step), ['blender', 'license', 'download', 'addon', 'config']);
+  const b = extCalls(calls);
+  assert.equal(b.length, 1);
+  assert.deepEqual(b[0]!.args.slice(0, 3), ['-b', '--factory-startup', '--python-expr']);
+  assert.ok(!b.some((c) => c.args.includes('--command')));
+});
+
+test('official add-on without a manifest still takes the legacy path', async () => {
+  const { io, calls } = extIo({ manifest: false });
+  const r = await setupLive(io, defaultBlenderConfig(), '/data', install(), 'official');
+  assert.equal(r.ok, true, JSON.stringify(r.steps));
+  assert.ok(r.steps.some((s) => s.step === 'addon') && !r.steps.some((s) => s.step.startsWith('ext-')));
+  assert.ok(!extCalls(calls).some((c) => c.args.includes('--command')));
+});
+
+test('M5: the extension verify step needs THIS extension at THIS version AND enabled (pure parser)', () => {
+  const ok = (out: string) => extensionListed(out, 'mcp', '1.0.3');
+  assert.deepEqual(ok('user_default:\n  mcp: Blender MCP (1.0.3) [enabled]\n'), { listed: true, enabled: true });
+  assert.deepEqual(ok('user_default:\n  mcp (1.0.3)\n    status: enabled\n'), { listed: true, enabled: true }, 'the state may sit on an indented line under the entry');
+  assert.deepEqual(ok('user_default:\n  mcp (1.0.3) [disabled]\n'), { listed: true, enabled: false });
+  assert.deepEqual(ok('user_default:\n  mcp (1.0.3) not enabled\n'), { listed: true, enabled: false });
+  assert.equal(ok('user_default:\n  other (1.0.3) [enabled]\n').enabled, false, 'another extension with the same version string does not count');
+  assert.equal(ok('user_default:\n  other (9.9) [enabled]\n  mcp-helper (2.0)\n  note: the mcp protocol 1.0.3 is enabled\n').enabled, false, 'the word mcp elsewhere does not count');
+  assert.equal(ok('user_default:\n  mcp (1.0.30) [enabled]\n').enabled, false, 'a longer version is not this version');
+  assert.equal(ok('user_default:\n  mcp (11.0.3) [enabled]\n').enabled, false);
+  assert.equal(ok('user_default:\n  other (1.0.3)\n    status: enabled\n  mcp (2.0.0)\n').enabled, false, 'the enabled line of the neighbour is not ours');
+});
+
+test('M5: setup fails (and records nothing) when the list shows the extension only as disabled, or enabled at another version', async () => {
+  for (const list of ['user_default:\n  mcp: Blender MCP (1.0.3) [disabled]\n', 'user_default:\n  mcp: Blender MCP (1.0.2) [enabled]\n', 'user_default:\n  other (1.0.3) [enabled]\n']) {
+    const r = await setupLive(extIo({ list }).io, defaultBlenderConfig(), '/data', install(), 'official');
+    assert.equal(r.ok, false, list);
+    assert.equal(r.steps.at(-1)!.step, 'verify');
+    assert.equal(r.addonInstalled, false);
+  }
+  assert.match((await setupLive(extIo({ list: 'user_default:\n  mcp (1.0.3) [disabled]\n' }).io, defaultBlenderConfig(), '/data', install(), 'official')).steps.at(-1)!.detail, /not as enabled/);
 });

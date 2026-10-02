@@ -74,8 +74,8 @@ function setup() {
 
 test('pure helpers: shell quoting, task folder names, run command template', () => {
   assert.equal(shq("a'b"), `'a'\\''b'`);
-  assert.equal(safeSegment('../../etc/passwd'), '______etc_passwd');
-  assert.equal(safeSegment(''), 'task');
+  assert.match(safeSegment('../../etc/passwd'), /^______etc_passwd-[0-9a-f]{8}$/);
+  assert.match(safeSegment(''), /^task-[0-9a-f]{8}$/);
   assert.equal(renderRunCommand('{blender} -b --python {runner} -- {workdir}', { blender: '/b l/blender', runner: '/r.py', workdir: "/w'x" }), `'/b l/blender' -b --python '/r.py' -- '/w'\\''x'`);
 });
 
@@ -97,10 +97,10 @@ test('run: executes the script in the (stub) Blender, returns its output and bri
   assert.match(r.text, /hello from __main__/);
   assert.equal(r.files.length, 1);
   assert.equal(r.files[0]!.name, 'cube.glb');
-  assert.equal(r.files[0]!.path, join(s.ws, 'blender-exports', 'task_9', 'cube.glb'));
+  assert.equal(r.files[0]!.path, join(s.ws, 'blender-exports', safeSegment('task_9'), 'cube.glb'));
   assert.equal(readFileSync(r.files[0]!.path, 'utf8'), 'glTF-bytes');
   assert.match(r.text, /exports in your workspace/);
-  assert.ok(existsSync(join(s.root, 'legion-blender', 'work', 'task_9', 'scene.blend')), 'scene is kept per task');
+  assert.ok(existsSync(join(s.root, 'legion-blender', 'work', safeSegment('task_9'), 'scene.blend')), 'scene is kept per task');
 });
 
 test('run: a script error is reported with its traceback and ok=false, and the scene is still saved', { skip: !can && why }, async () => {
@@ -127,7 +127,7 @@ test('run: only known extensions, plain names, and size/count limits come back',
   ].join('\n');
   const r = await s.sb.run({ agent: s.a, taskId: 't3', script });
   assert.deepEqual(r.files.map((f) => f.name), ['ok.png']);
-  assert.ok(!existsSync(join(s.ws, 'blender-exports', 't3', 'evil.sh')));
+  assert.ok(!existsSync(join(s.ws, 'blender-exports', safeSegment('t3'), 'evil.sh')));
 });
 
 test('run: at most 20 files come back', { skip: !can && why }, async () => {
@@ -141,7 +141,7 @@ test('run: a task id cannot climb out of the work folder or the workspace', { sk
   const r = await s.sb.run({ agent: s.a, taskId: '../../x', script: 'import os\nopen(os.path.join(LEGION_EXPORT_DIR, "a.png"), "wb").write(b"p")\n' });
   assert.equal(r.ok, true, r.text);
   assert.ok(r.files[0]!.path.startsWith(join(s.ws, 'blender-exports') + '/'));
-  assert.ok(existsSync(join(s.root, 'legion-blender', 'work', '______x', 'scene.blend')));
+  assert.ok(existsSync(join(s.root, 'legion-blender', 'work', safeSegment('../../x'), 'scene.blend')));
 });
 
 test('inspect: a failing fixed script comes back as a failed result, never a throw', { skip: !can && why }, async () => {
@@ -207,10 +207,10 @@ test('S2: a .blend export is quarantined (never in the live export folder), name
   assert.equal(r.ok, true, r.text);
   const blend = r.files.find((f) => f.name === 'scene2.blend')!;
   assert.equal(blend.quarantined, true);
-  assert.equal(blend.path, join(s.ws, 'blender-quarantine', 'tq', 'scene2.blend.untrusted'));
+  assert.equal(blend.path, join(s.ws, 'blender-quarantine', safeSegment('tq'), 'scene2.blend.untrusted'));
   assert.equal(readFileSync(blend.path, 'utf8'), 'BLEND-with-code');
-  assert.ok(!existsSync(join(s.ws, 'blender-exports', 'tq', 'scene2.blend')), 'not in the export folder');
-  assert.ok(!existsSync(join(s.ws, 'blender-exports', 'tq', 'scene2.blend.untrusted')));
+  assert.ok(!existsSync(join(s.ws, 'blender-exports', safeSegment('tq'), 'scene2.blend')), 'not in the export folder');
+  assert.ok(!existsSync(join(s.ws, 'blender-exports', safeSegment('tq'), 'scene2.blend.untrusted')));
   assert.match(r.text, /QUARANTINED/);
   assert.match(r.text, /runnable code/);
   assert.ok(!r.text.split('\n').find((l) => l.startsWith('exports in your workspace'))?.includes('.blend'), 'the plain export line does not list the .blend');
@@ -225,7 +225,7 @@ test('S3: every run has its own script and result file, and nothing is left behi
   assert.equal(runCmds.length, 2);
   const ids = runCmds.map((c) => /'([0-9a-f]{16})' '[0-9a-f]{64}'/.exec(c)?.[1]);
   assert.ok(ids[0] && ids[1] && ids[0] !== ids[1], `run ids differ: ${ids.join(' ')}`);
-  const work = join(s.root, 'legion-blender', 'work', 'tu');
+  const work = join(s.root, 'legion-blender', 'work', safeSegment('tu'));
   const left = readdirSync(work).filter((n) => /^(script|result)-/.test(n));
   assert.deepEqual(left, [], 'no script or result file stays behind');
   assert.ok(!existsSync(join(work, 'script.py')) && !existsSync(join(work, 'result.json')), 'the old shared file names are not used');
@@ -278,7 +278,7 @@ test('S8: a link planted in place of the host export folder is refused and nothi
   const s = setup();
   const outside = tmp('legion-outside-');
   mkdirSync(join(s.ws, 'blender-exports'), { recursive: true });
-  if (!linkOrSkip(tc, outside, join(s.ws, 'blender-exports', 'ts'), 'dir')) return;
+  if (!linkOrSkip(tc, outside, join(s.ws, 'blender-exports', safeSegment('ts')), 'dir')) return;
   const r = await s.sb.run({ agent: s.a, taskId: 'ts', script: 'import os\nopen(os.path.join(LEGION_EXPORT_DIR, "cube.glb"), "wb").write(b"data")\n' });
   assert.deepEqual(readdirSync(outside), [], 'nothing was written into the folder the link points to');
   assert.equal(r.files.length, 0);
@@ -290,7 +290,7 @@ test('S8: a link planted at the FINAL file name is replaced, not written through
   const outside = tmp('legion-outside-');
   const victim = join(outside, 'victim.txt');
   writeFileSync(victim, 'original');
-  const dest = join(s.ws, 'blender-exports', 'tn');
+  const dest = join(s.ws, 'blender-exports', safeSegment('tn'));
   mkdirSync(dest, { recursive: true });
   if (!fileLinkOrSkip(tc, victim, join(dest, 'cube.glb'))) return;
   const r = await s.sb.run({ agent: s.a, taskId: 'tn', script: 'import os\nopen(os.path.join(LEGION_EXPORT_DIR, "cube.glb"), "wb").write(b"new-bytes")\n' });

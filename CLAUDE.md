@@ -10,6 +10,10 @@ Legion is a local, Claude-only multi-agent desktop app: Electron shell, Node/Typ
 - No long `sleep` chains: wait with a monitor/until-loop on a condition.
 - You cannot run Windows. Say what you could not verify; do not imply it passed.
 
+## Real-PC checks (standing rule for every agent)
+
+You cannot run Windows, a real Blender, a real wallet, Electron's native dialogs or the owner's real accounts in a cloud sandbox. Anything you could not verify for that reason is NOT "done": append it as a numbered check to `claude/tracker-pc-checks.md` (id, area, preconditions, exact steps, expected observation, evidence to capture, safety class: spends money / downloads / real wallet / native dialog / none) and list it in your report under "Needs a real PC". These checks become the real-PC test run (computer-use or by hand), see `claude/real-pc-test-plan.md`. Never mark such a feature verified in docs or the changelog until its check is recorded as passed.
+
 ## Gates (run before you say done)
 
 `npm ci && npm run build:ts && npm test && npm run typecheck && npm run build:ui`. Report exact counts. A builder's own report is never the proof: an independent reviewer re-runs everything and tries to refute it (default "not fixed"). Every new test needs a negative: show by a temporary scratch mutation of the code, then revert, that it fails.

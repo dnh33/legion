@@ -1,4 +1,26 @@
-# Checks that need the real Windows PC (collected from reviewer reports)
+# Checks that need the real Windows PC: INTAKE list (collected from reviewer reports)
+
+**Master:** [`claude/real-pc-test-plan.md`](real-pc-test-plan.md) (machine twin `scripts/harness/pc-checks.json`, summary `node scripts/harness/pc-report.mjs <results.json>`). It holds every check with steps, expected observation, evidence, safety class, run order and rollback. Results are recorded there. This file stays as the **intake list**: any agent that finds something only a real PC can verify appends a numbered row here (rule in `CLAUDE.md`, "Real-PC checks"), and it is merged into the plan with its source at the next refresh. Never mark a feature verified in docs or the changelog until its plan check says `pass`.
+
+Row format for new intake: `id | area | preconditions | exact steps | expected observation | evidence to capture | safety class (none, downloads, spends-money, native-dialog, real-wallet, real-funds, account) | source`.
+
+## Where the old ids went (all of them are in the plan)
+
+| Old id | Plan id | | Old id | Plan id |
+|---|---|---|---|---|
+| P1 | INST-01, INST-02 | | K1 | VM-01, VM-02 |
+| P2 | INST-03 | | U1 | APP-09, VM-06 |
+| P3 | INST-04 | | R1 | CHAT-01 |
+| P4 | INST-05 | | Blender B1 | BLND-01 |
+| P5 | INST-06 | | B2 / B3 / B4 / B5 | BLND-03 / 04 / 05 / 06 |
+| P6 | INST-07, INST-16 | | B6 / B7 / B8 | BLND-07 / 08 / 09 |
+| P7 | INST-08 | | B9 / B10 / B11 | BLND-12 / 13 / 19, 20 |
+| P8 | INST-09 | | BSV V0 to V12 | BSVT-00 to BSVT-12 |
+| P9 | INST-10 | | BSV R0 to R11 | BSVM-01 to BSVM-12 |
+| P10 | INST-11 | | M1 / M2 / M3 | MCP-01 / 02 / 04 |
+| handoff line (section 6.2/6.3) | APP-01 to 03, APP-10 to 12, MCP-07, VM-05, PERF-04 | | | |
+
+Plan ids are written `PC-<AREA>-<nn>`. The tables below are the original intake text, unchanged. (The Blender rows B1 to B11 live only on `claude/review-blender-merged` so far; they are already in the plan.)
 
 Source: `review/release-packaging-review.md` section 5 (branch `claude/review-release-packaging`) and `review/mcp-isolation-review.md`. Cloud reviewers ran Linux only; none of these is proven yet. Update the State column as each is run on this PC.
 
@@ -36,3 +58,28 @@ Source: `review/release-packaging-review.md` section 5 (branch `claude/review-re
 ## Also still open from the handoff (section 6.2/6.3)
 
 Real boat.dev checks, real Blender 5.x (official add-on is a Blender extension), tray/second-instance/title bar, Sentinel schedule firing, Forgemaster VM run, Cowork over MCP, approval-card flows end to end, BSV on a testnet wallet in a VM only, perf re-record.
+
+## Blender local-first (plan 6.2 and 6.3). Record results here; when the local run (B1-B8) passes, add the line `BLENDER LOCAL PC RUN RECORDED` below and only then remove the "not yet tried" notes
+
+Local mode, real Blender on this Windows PC (no downloads if Blender is installed):
+
+| # | Check | State |
+|---|---|---|
+| B1 | `blender.exe --version`; Settings, Blender: detection finds it and mode Automatic says "Next script runs: on this computer" | todo |
+| B2 | Cube plus GLB: approve the card; `<workspace>\blender-exports\<task>\*.glb` exists; `scene.blend` and `backups\` exist under `%APPDATA%\legion\blender\local\<task>\`. Repeat for FBX and a PNG preview (`blender_screenshot`). This is the check that the Python write guard does not break the exporters; if one is blocked, add its temp location to the guard's allowlist and record why (or set `advanced.local.guard` to `log` and say so in the docs) | todo |
+| B3 | Through the real runner with a hand-written script (below the static check): a write outside the task folder is blocked; an infinite loop is stopped at 120 s and `blender.exe` and its children are gone from Task Manager | todo |
+| B4 | A hand-written script that lists `os.environ`: no Legion or API variables | todo |
+| B5 | With the community add-on installed and `blendermcp_auto_start_server` on, a local run opens no socket on 9876 (`netstat`) | todo |
+| B6 | Path cases: user name with a space; long task path; OneDrive-redirected `Documents` as the workspace | todo |
+| B7 | Mode switch: VM and Live give the errors from the decision table in `docs/BLENDER.md`; a config file with `"sandbox":"off"` loads as live | todo |
+| B8 | Antivirus or SmartScreen prompts on the first start of the runner: note them | todo |
+
+Needs the owner present (downloads or accounts):
+
+| # | Check | State |
+|---|---|---|
+| B9 | **TODO OWNER PC:** reproduce the community add-on pin. PowerShell: `curl.exe -sSL https://raw.githubusercontent.com/ahujasid/mcp-for-blender/91cd735cc09fc75551de3347ebc7afdd69f3492e/addon.py -o addon.py; (Get-FileHash addon.py -Algorithm SHA256).Hash.ToLower()` must print `eb0facf6...97fa5` (full value `eb0facf69781a30e69792532087d8d41c6a14fcd323353250abe7988ee297fa5`). If it differs, take the PC's value and re-check `git log -1 -- addon.py` on a clone. Then run Set up for the community add-on once | todo |
+| B10 | **TODO OWNER PC:** official extension install on a real Blender 5.1+ (needs `uv`): Set up runs `ext-build`, `ext-repo`, `ext-install`, `verify`; confirm the repo id from `repo-list`, that `--enable` persists, that `install-file` accepts the built zip, and the output formats of `repo-list` and `list`; then start the server from the sidebar panel and press Test connection (the first start downloads the server's Python packages) | todo |
+| B11 | **TODO OWNER PC:** VM mode regression after the `exports.ts` refactor (needs the boat.dev key; item C covers the VM checks) | todo |
+
+- Extension verify (setup.ts `extensionListed`): the real `extension list` layout is not known. The step now needs the entry line to start with the id, show the exact version and an `enabled` marker (same line or indented lines under it). Check on the PC with Blender 5.1+ that a real list passes; if the layout differs, adjust the parser, do not loosen it to "the word appears".

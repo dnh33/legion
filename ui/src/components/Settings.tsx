@@ -3,7 +3,8 @@ import type { McpServerEntry, McpStatusView, SettingsPatch, SettingsView } from 
 import { api, base, openExternal, token } from '../api';
 import { checkBoat, ensureBoatChecked, closeSettings, errText, loadSettings, saveSettings, setSettingsSection as setSection, toast, useStore, type SettingsSection } from '../store';
 import { copyText } from '../util';
-import { BLENDER_LICENSE_NOTE, BLENDER_SAFETY_NOTE } from '../../../src/shared/blender';
+import { BLENDER_LICENSE_NOTE } from '../../../src/shared/blender';
+import { LOCAL_SAFETY_NOTE, MODE_CHOICES, NOT_TRIED_LOCAL, NOT_TRIED_VM, visibleNotices } from '../blender/copy';
 import { lightLabel, loadBlender, runBlenderLaunch, runBlenderSetup, runBlenderTest, saveBlenderConfig, useBlender } from '../blender/blenderStore';
 import '../blender/blender.css';
 import { Icon } from './icons';
@@ -439,9 +440,12 @@ function BlenderSection() {
   const portDirty = port !== String(st.port);
   const portOk = Number.isInteger(portNum) && portNum >= 1024 && portNum <= 65535;
   const pathDirty = path.trim() !== '';
+  const curMode = st.mode ?? (st.sandbox === 'off' ? 'live' : st.sandbox === 'vm' ? 'vm' : 'auto');
+  const liveOk = curMode === 'live' || curMode === 'auto';
+  const notices = visibleNotices(st);
   return (
     <div className="set-section">
-      <Head title="Blender" lead="The Sculptor can build 3D scenes in Blender. Every script is checked, shown to you in full and needs your OK; by default it runs in a cloud VM, not on this computer." />
+      <Head title="Blender" lead="The Sculptor can build 3D scenes in Blender. Every script is checked, shown to you in full and needs your OK. By default it runs in Blender on this computer when Blender is found." />
       <div className="set-card">
         <div className={`set-status st-${dot}`} role="status"><i className="set-dot" /><b>{label}</b><span className="muted-s">{st.summary}</span></div>
         <label className="set-check"><input type="checkbox" checked={st.enabled} disabled={b} onChange={(e) => void saveBlenderConfig({ enabled: e.target.checked })} />
@@ -455,14 +459,17 @@ function BlenderSection() {
           <span className="set-hint">{off ? 'Auto uses the official Blender Lab MCP for Blender 5.1+, and the community MCP for older versions.' : st.backendReason}</span>
         </div>
         <div className="set-field"><span className="set-label">Where scripts run</span>
-          <div className="seg" role="radiogroup" aria-label="Where scripts run">
-            {([['auto', 'Sandbox first'], ['vm', 'Sandbox only'], ['off', 'Live only']] as const).map(([k, t]) => (
-              <button key={k} type="button" role="radio" aria-checked={st.sandbox === k} disabled={b || off} className={st.sandbox === k ? 'on' : ''} onClick={() => void saveBlenderConfig({ sandbox: k })}>{t}</button>
+          <div className="bl-modes" role="radiogroup" aria-label="Where scripts run">
+            {MODE_CHOICES.map((c) => (
+              <button key={c.mode} type="button" role="radio" aria-checked={curMode === c.mode} disabled={b || off} className={`bl-mode${curMode === c.mode ? ' on' : ''}`} onClick={() => void saveBlenderConfig({ mode: c.mode })}>
+                <b>{c.title}</b><span>{c.text}</span>
+              </button>
             ))}
           </div>
-          <span className="set-hint">Sandbox = headless Blender in the Sculptor's boat.dev VM; only exported files come back. Live = your open Blender, each script shown as a LIVE card. {st.sandboxReady ? 'Sandbox is ready.' : st.sandboxNote}</span>
+          <span className="set-hint" aria-live="polite">{st.nextRun ? `Next script runs: ${st.nextRun.replace(/^[Nn]ext script runs?:?\s*/, '')}` : st.sandboxReady ? 'Cloud VM is ready.' : st.sandboxNote}</span>
         </div>
-        <div className="bl-note warn"><b>Sandbox mode is unverified.</b> It has not been tried on a real boat.dev VM yet (Blender in the VM, rendering, file return). Use Test after Set up and check docs/BLENDER.md for the list of checks.</div>
+        <div className="bl-note warn">{NOT_TRIED_VM} Use Test after Set up and check docs/BLENDER.md for the list of checks.</div>
+        <div className="bl-note warn">{NOT_TRIED_LOCAL} Docs and PC checks: docs/BLENDER.md, claude/tracker-pc-checks.md.</div>
         <div className="set-actions">
           <button type="button" className="btn primary" disabled={b || off} onClick={() => void runBlenderSetup('both')}>{busy === 'setup' ? 'Setting up\u2026' : 'Set up'}</button>
           <button type="button" className="btn" disabled={b || off} onClick={() => void runBlenderTest()}>{busy === 'test' ? 'Testing\u2026' : 'Test connection'}</button>
@@ -475,7 +482,7 @@ function BlenderSection() {
           <div className="bl-note warn" role="alert"><b>The {retrust} download changed.</b> It is not the file you trusted before, so nothing was installed or replaced. If you expected an update, accept it; if not, leave it and check the source.
             <div className="set-actions"><button type="button" className="btn" disabled={b} onClick={() => void runBlenderSetup('both', true)}>Trust the new download</button></div></div>
         )}
-        {st.notices && st.notices.length > 0 && <ul className="bl-notices" aria-label="Limits and warnings">{st.notices.map((n, i) => <li key={i}>{n}</li>)}</ul>}
+        {notices.length > 0 && <ul className="bl-notices" aria-label="Limits and warnings">{notices.map((n, i) => <li key={i}>{n}</li>)}</ul>}
         {steps.length > 0 && (
           <div className="set-field"><span className="set-label">{stepsTitle}</span>
             <ul className="bl-steps">{steps.map((x, i) => <li key={i} className={x.ok ? 'ok' : 'bad'}><Icon name={x.ok ? 'check' : 'x'} size={13} /><span><b>{x.step}</b>{x.detail}</span></li>)}</ul>
@@ -491,10 +498,10 @@ function BlenderSection() {
           </div>
           <details className="set-adv">
             <summary>Advanced</summary>
-            <Field id="bl-port" label="Add-on port" hint="The port Blender's add-on listens on (this computer only). Default 9876.">
+            <Field id="bl-port" label="My open Blender: add-on port" hint={`The port Blender's add-on listens on (this computer only). Default 9876.${liveOk ? '' : ' Not used while scripts are set to run on this computer or in the cloud VM.'}`}>
               <div className="set-inline">
-                <input id="bl-port" className="narrow" inputMode="numeric" value={port} onChange={(e) => setPort(e.target.value.replace(/[^\d]/g, ''))} />
-                <button type="button" className="btn" disabled={b || !portDirty || !portOk} onClick={() => void saveBlenderConfig({ port: portNum })}>Save port</button>
+                <input id="bl-port" className="narrow" inputMode="numeric" disabled={!liveOk} value={port} onChange={(e) => setPort(e.target.value.replace(/[^\d]/g, ''))} />
+                <button type="button" className="btn" disabled={b || !liveOk || !portDirty || !portOk} onClick={() => void saveBlenderConfig({ port: portNum })}>Save port</button>
               </div>
             </Field>
             <Field id="bl-path" label="Blender location" hint="Only if detection misses your install: the blender executable or its folder. Leave empty to keep the current choice.">
@@ -507,7 +514,7 @@ function BlenderSection() {
           </details>
         </div>
       )}
-      <div className="bl-note"><b>Safety.</b> {BLENDER_SAFETY_NOTE}</div>
+      <div className="bl-note"><b>Safety.</b> {LOCAL_SAFETY_NOTE}</div>
       <div className="bl-note"><b>Licence.</b> {BLENDER_LICENSE_NOTE}</div>
     </div>
   );

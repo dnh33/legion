@@ -15,8 +15,9 @@ import { taintsRun } from '../src/core/engine.js';
 import { needsApproval } from '../src/core/approvals.js';
 import { WalletProbeError } from '../src/core/bsv/wallet-probe.js';
 import type { Transport, WireRequest } from '../src/core/bsv/wallet-probe.js';
-import { DEFAULT_CAPS, HARD_CAPS } from '../src/core/bsv/policy.js';
+import { TESTNET_DEFAULT_CAPS, TESTNET_HARD_CAPS } from '../src/core/bsv/policy.js';
 import { AUTH, asClient, makeFakes, mkAgent, start } from './helpers-c.js';
+import { mkAddr } from './bsv-net-helpers.js';
 
 const NATIVE = 'native-secret-0123456789abcdef0123456789';
 const closers: Array<() => Promise<void>> = [];
@@ -98,7 +99,7 @@ test('native: with the admin secret but WITHOUT the native secret every policy c
   }
   assert.equal(s.bsv.policy.isArmed(), false);
   assert.equal(s.bsv.policy.isFrozen, false);
-  assert.deepEqual(s.bsv.policy.config().caps, DEFAULT_CAPS);
+  assert.deepEqual(s.bsv.policy.config().caps, TESTNET_DEFAULT_CAPS);
   assert.deepEqual(s.bsv.policy.config().allowlist, []);
   assert.ok(!existsSync(policyFile(s.dataDir)), 'nothing was saved');
   assert.equal(s.wal.w.calls.length, 0, 'and no wallet was contacted');
@@ -162,7 +163,7 @@ test('wallet: a wallet on the main network is a warning; the audit log gets one 
   const r = await connectWallet(s);
   assert.equal(r.body.network, 'main');
   assert.equal(r.body.condition, 'mainnet-warning');
-  assert.equal(r.body.message, 'The wallet is on MAINNET; Legion is in testnet knowledge mode; Legion will not use it.');
+  assert.equal(r.body.message, "The wallet says it is on MAINNET (real funds). In Legion's own code a mainnet spend needs the mainnet switch (off by default), Arm, your confirmations and the wallet's own prompt.");
   for (let i = 0; i < 4; i++) await s.call('GET', '/api/bsv/wallet');
   assert.equal(auditLines(s.dataDir).filter((e) => e.tool === 'bsv_wallet' && e.decision === 'probe').length, 1);
   s.wal.w.net = 'testnet';
@@ -211,6 +212,8 @@ test('arm: with both secrets it arms for a listed duration only; invalid duratio
   const off = await setup({ on: false });
   assert.equal((await off.call('POST', '/api/bsv/policy/arm', { minutes: 5 })).status, 409, 'BSV mode off');
   const s = await setup({ on: true });
+  assert.equal((await s.call('POST', '/api/bsv/policy/arm', { minutes: 5 })).status, 409, 'arming is refused while the mainnet switch is off (the default)');
+  s.bsv.policy.setMainnetEnabled(true);
   for (const bad of [{}, { minutes: 7 }, { minutes: '5' }, { minutes: -1 }, { minutes: 1000 }, { minutes: 1.5 }, { minutes: null }]) assert.equal((await s.call('POST', '/api/bsv/policy/arm', bad)).status, 400, JSON.stringify(bad));
   const ok = await s.call('POST', '/api/bsv/policy/arm', { minutes: 15 });
   assert.equal(ok.status, 200);
@@ -233,6 +236,7 @@ test('arm: with both secrets it arms for a listed duration only; invalid duratio
 
 test('turning BSV mode off disarms', async () => {
   const s = await setup({ on: true });
+  s.bsv.policy.setMainnetEnabled(true); // arming needs the mainnet switch
   await s.call('POST', '/api/bsv/policy/arm', { minutes: 5 });
   assert.equal(s.bsv.policy.isArmed(), true);
   await s.call('POST', '/api/bsv', { enabled: false });
@@ -241,11 +245,12 @@ test('turning BSV mode off disarms', async () => {
 
 test('freeze: denies pending cards, disarms, is saved, survives a restart, and only unfreeze (with both secrets) clears it', async () => {
   const s = await setup({ on: true });
-  await s.call('POST', '/api/bsv/policy/allowlist', { list: ['mtestAddressAlice1111111111111111'] });
+  await s.call('POST', '/api/bsv/policy/allowlist', { list: [mkAddr(0x6f, 0x11)] });
+  s.bsv.policy.setMainnetEnabled(true); // arming needs the mainnet switch
   await s.call('POST', '/api/bsv/policy/arm', { minutes: 30 });
   const d = s.bsv.policy.evaluate({
     requestId: 'req-test-0001', network: 'test', walletNetwork: 'test', agentId: 'assayer', taskId: 't1', reason: 'x', tainted: false,
-    decoded: { inputSats: 700, outputs: [{ recipient: 'mtestAddressAlice1111111111111111', sats: 600 }], feeSats: 100 },
+    decoded: { inputSats: 700, outputs: [{ recipient: mkAddr(0x6f, 0x11), sats: 600 }], feeSats: 100 },
   });
   assert.equal(d.verdict, 'needs_approval');
   const fr = await s.call('POST', '/api/bsv/policy/freeze', { reason: 'owner pressed Freeze' });
@@ -268,22 +273,23 @@ test('freeze: denies pending cards, disarms, is saved, survives a restart, and o
 
 test('caps and allowlist: validated, hard-capped, saved; a hand-edited policy file cannot raise a cap past the ceiling', async () => {
   const s = await setup({ on: true });
-  const tooBig = await s.call('POST', '/api/bsv/policy/caps', { perTxSats: HARD_CAPS.perTxSats + 1, perSessionSats: HARD_CAPS.perSessionSats });
+  const tooBig = await s.call('POST', '/api/bsv/policy/caps', { perTxSats: TESTNET_HARD_CAPS.perTxSats + 1, perSessionSats: TESTNET_HARD_CAPS.perSessionSats });
   assert.equal(tooBig.status, 409);
-  assert.deepEqual(s.bsv.policy.config().caps, DEFAULT_CAPS);
+  assert.deepEqual(s.bsv.policy.config().caps, TESTNET_DEFAULT_CAPS);
   assert.equal((await s.call('POST', '/api/bsv/policy/caps', { bogus: 1 })).status, 409);
   assert.equal((await s.call('POST', '/api/bsv/policy/caps', [1, 2])).status, 400);
   assert.equal((await s.call('POST', '/api/bsv/policy/caps', { perTxSats: 800 })).body.caps.perTxSats, 800);
-  assert.equal(JSON.parse(readFileSync(policyFile(s.dataDir), 'utf8')).caps.perTxSats, 800);
+  assert.equal(JSON.parse(readFileSync(policyFile(s.dataDir), 'utf8')).nets.test.caps.perTxSats, 800);
   assert.equal((await s.call('POST', '/api/bsv/policy/allowlist', { list: ['has space'] })).status, 409);
   assert.equal((await s.call('POST', '/api/bsv/policy/allowlist', { list: 'nope' })).status, 409);
-  const al = await s.call('POST', '/api/bsv/policy/allowlist', { list: ['mtestAddressAlice1111111111111111', 'Bob@HandCash.io'] });
-  assert.deepEqual(al.body.allowlist, ['mtestAddressAlice1111111111111111', 'bob@handcash.io']);
+  const al = await s.call('POST', '/api/bsv/policy/allowlist', { list: [mkAddr(0x6f, 0x11), mkAddr(0x6f, 0x33)] });
+  assert.deepEqual(al.body.allowlist, [mkAddr(0x6f, 0x11), mkAddr(0x6f, 0x33)]);
+  assert.equal((await s.call('POST', '/api/bsv/policy/allowlist', { list: ['Bob@HandCash.io'] })).status, 409, 'a paymail is not a testnet address'); // B6
   // a same-user process edits the file to raise everything: the next start does not trust it (see test/bsv-fix-round.test.ts for the full story)
-  writeFileSync(policyFile(s.dataDir), JSON.stringify({ caps: { perTxSats: 9e15, perSessionSats: 9e15, per24hSats: 9e15, maxOutputs: 9e9, maxFeeSats: 9e15 }, allowlist: ['evil-address-1', '../x'] }));
+  writeFileSync(policyFile(s.dataDir), JSON.stringify({ caps: { perTxSats: 9e15, perSessionSats: 9e15, per24hSats: 9e15, maxOutputs: 9e9, maxFeeSats: 9e15 }, allowlist: [mkAddr(0x6f, 0x99), '../x'] }));
   const s2 = await setup({ dataDir: s.dataDir, on: true });
   assert.equal(s2.bsv.policy.isFrozen, true);
-  assert.deepEqual(s2.bsv.policy.config().caps, DEFAULT_CAPS, 'the edited caps are not used at all');
+  assert.deepEqual(s2.bsv.policy.config().caps, TESTNET_DEFAULT_CAPS, 'the edited caps are not used at all');
   assert.deepEqual(s2.bsv.policy.config().allowlist, [], 'neither is the edited allowlist');
 });
 
@@ -301,6 +307,7 @@ test('an unreadable policy file loads FROZEN, not as defaults', async () => {
 test('audit: policy changes and wallet probes are logged by the owner/agent name, the reader route returns them newest first with the chain check', async () => {
   const s = await setup({ on: true });
   await connectWallet(s);
+  s.bsv.policy.setMainnetEnabled(true); // arming needs the mainnet switch
   await s.call('POST', '/api/bsv/policy/arm', { minutes: 5 });
   await s.call('POST', '/api/bsv/policy/disarm', {});
   const r = await s.call('GET', '/api/bsv/audit?limit=50');
@@ -318,11 +325,12 @@ test('audit: policy changes and wallet probes are logged by the owner/agent name
 
 test('audit: tampering with the log is detected by the reader and, at the next start, freezes the chain and keeps the evidence', async () => {
   const s = await setup({ on: true });
+  s.bsv.policy.setMainnetEnabled(true); // arming needs the mainnet switch
   await s.call('POST', '/api/bsv/policy/arm', { minutes: 5 });
   await s.call('POST', '/api/bsv/policy/disarm', {});
   const f = join(s.dataDir, 'bsv', 'audit.jsonl');
   const lines = readFileSync(f, 'utf8').split('\n').filter(Boolean);
-  lines[0] = lines[0]!.replace('"owner"', '"someone"');
+  lines[0] = lines[0]!.replace(/"agent":"[a-z]+"/, '"agent":"someone"'); // whatever the first line is (the switch change is the first one now)
   writeFileSync(f, lines.join('\n') + '\n');
   const live = await s.call('GET', '/api/bsv/audit');
   assert.equal(live.body.verify.ok, false);
@@ -418,7 +426,7 @@ test('tool: an agent cannot reach the policy: it has no argument, no other tool,
   const r: any = await client.callTool({ name: 'bsv_status', arguments: { minutes: 15, arm: true, freeze: false, caps: { perTxSats: 1 } } }).catch((e) => ({ isError: true, error: String(e) }));
   void r;
   assert.equal(s.bsv.policy.isArmed(), false);
-  assert.deepEqual(s.bsv.policy.config().caps, DEFAULT_CAPS);
+  assert.deepEqual(s.bsv.policy.config().caps, TESTNET_DEFAULT_CAPS);
   const unknown: any = await client.callTool({ name: 'bsv_arm', arguments: {} }).catch((e) => ({ isError: true, error: String(e) }));
   assert.equal(unknown.isError, true);
 });

@@ -6,7 +6,7 @@
  */
 import { useSyncExternalStore } from 'react';
 import { ApiError, request } from '../api';
-import type { BlenderBackendKind, BlenderSetupResult, BlenderSetupStep, BlenderStatusView, BlenderTestResult } from '../../../src/shared/blender';
+import type { BlenderBackendKind, BlenderMode, BlenderSetupResult, BlenderSetupStep, BlenderStatusView, BlenderTestResult } from '../../../src/shared/blender';
 
 export type BlenderBusy = 'config' | 'setup' | 'test' | 'launch' | null;
 export interface BlenderUiState {
@@ -57,7 +57,7 @@ async function act<T extends { status: BlenderStatusView; steps: BlenderSetupSte
   } catch (e) { set({ error: msg(e) }); return null; } finally { set({ busy: null }); }
 }
 
-export async function saveBlenderConfig(patch: { enabled?: boolean; backend?: 'auto' | 'official' | 'community'; sandbox?: 'off' | 'vm' | 'auto'; port?: number; installPath?: string | null }): Promise<void> {
+export async function saveBlenderConfig(patch: { enabled?: boolean; backend?: 'auto' | 'official' | 'community'; mode?: BlenderMode; sandbox?: 'off' | 'vm' | 'auto'; port?: number; installPath?: string | null }): Promise<void> {
   if (state.busy) return;
   set({ busy: 'config', error: null });
   try { set({ status: await request<BlenderStatusView>('POST', '/api/blender/config', patch), loaded: true }); } catch (e) { set({ error: msg(e) }); } finally { set({ busy: null }); }
@@ -70,7 +70,9 @@ export const runBlenderLaunch = () => act('launch', 'Launch', () => request<{ ok
 export function lightLabel(l: BlenderStatusView['light']): { label: string; tone: 'on' | 'bad' | 'off' | 'warn' } {
   switch (l) {
     case 'connected': return { label: 'Connected', tone: 'on' };
-    case 'sandbox': return { label: 'Sandbox ready', tone: 'on' };
+    case 'sandbox': return { label: 'VM ready', tone: 'on' };
+    case 'local': return { label: 'Local ready', tone: 'on' };
+    case 'busy': return { label: 'Running a script', tone: 'warn' };
     case 'disconnected': return { label: 'Not listening', tone: 'warn' };
     case 'needs-setup': return { label: 'Needs setup', tone: 'warn' };
     case 'not-found': return { label: 'Not found', tone: 'bad' };

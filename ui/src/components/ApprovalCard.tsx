@@ -31,9 +31,10 @@ const cardTool = (name: string): string => (ROOM_REQUEST.test(name) ? 'Room requ
 export function ApprovalCard({ a }: { a: ApprovalRequest }) {
   const inRoomView = useStore((s) => s.view === 'rooms');
   const bl = isBlenderExec(a);
-  const live = bl && blenderView(a).live;
+  const bmode = bl ? blenderView(a).mode : 'sandbox';
+  const live = bmode === 'live';
   return (
-    <div className={`approval${bl ? ` blender${live ? ' is-live' : ''}` : ''}`} tabIndex={0} role="group" aria-label={`Approval needed for ${cardTool(a.toolName)}`}
+    <div className={`approval${bl ? ` blender${live ? ' is-live' : bmode === 'local' ? ' is-local' : ''}` : ''}`} tabIndex={0} role="group" aria-label={`Approval needed for ${cardTool(a.toolName)}`}
       onKeyDown={(e) => {
         if (e.ctrlKey || e.metaKey || e.altKey) return;
         // a Blender script is allowed by clicking, after reading it: no one-key approve
@@ -44,7 +45,7 @@ export function ApprovalCard({ a }: { a: ApprovalRequest }) {
         <Icon name="shield" size={14} />
         <span>Needs your OK</span>
         <b className="approval-tool">{cardTool(a.toolName)}</b>
-        {bl && <BlenderBadge live={live} />}
+        {bl && <BlenderBadge mode={bmode} />}
       </div>
       {a.origin && <Origin o={a.origin} inRoomView={inRoomView} />}
       {bl ? <BlenderBody a={a} /> : <pre className="approval-sum">{a.summary}</pre>}

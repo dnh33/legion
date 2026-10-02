@@ -228,14 +228,14 @@ export interface WalletStatus extends WalletProbeResult {
   connected: boolean;
   /** Where Legion looks (host and port only); empty when no address is set. */
   url: string;
-  /** Legion's own mode. Always testnet in this release. */
+  /** Legion's knowledge mode, which is testnet. It is not the spend network: that is whatever the wallet claims at the moment of a request, and mainnet spending is off unless the owner switched it on. */
   legionNetwork: 'testnet';
   condition: WalletCondition;
   /** One calm sentence for the UI and the tool result. */
   message: string;
 }
 
-export const MAINNET_WARNING = 'The wallet is on MAINNET; Legion is in testnet knowledge mode; Legion will not use it.';
+export const MAINNET_WARNING = "The wallet says it is on MAINNET (real funds). In Legion's own code a mainnet spend needs the mainnet switch (off by default), Arm, your confirmations and the wallet's own prompt.";
 
 export type WalletIdle = 'off' | 'not-configured' | 'not-connected';
 
