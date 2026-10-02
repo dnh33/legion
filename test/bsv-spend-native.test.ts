@@ -260,6 +260,7 @@ test('network gate: the test network is always allowed; a main card is allowed o
   assert.match((await refused({})).error ?? '', /does not allow LIVE FUNDS \(main network\)/);
   await refused({ mainnetEnabled: true }); await refused({ armed: true }); await refused({ mainnetEnabled: true, armed: false }); await refused({ mainnetEnabled: false, armed: true });
   await refused({ mainnetEnabled: 'true', armed: 1 }); await refused({ mainnet: { enabled: true, armed: false } }); await refused({ mainnet: { enabled: 'yes', armed: true } });
+  await refused({ mainnetEnabled: false, armed: true, mainnet: { enabled: true, armed: true } }); await refused({ mainnetEnabled: true, armed: false, mainnet: { enabled: true, armed: true } });
   await refused('not json facts'); await refused({ mainnetEnabled: true, armed: true }, 500); await refused({ mainnetEnabled: true, armed: true }, 404);
   // allowed: the dialog is worded from the card's own network and label, and the hash is the one read
   for (const facts of [{ mainnetEnabled: true, armed: true }, { mainnet: { enabled: true, armed: true } }]) {
@@ -659,6 +660,16 @@ test('netChangeProblem (ASSUMPTION T3-A4): a core that applied a main change to 
   assert.match(netChangeProblem({ kind: 'allowlist', list: [TEST_A] }, { nets: { test: { allowlist: [] } } }) ?? '', /TESTNET/);
   assert.equal(netChangeProblem({ kind: 'caps', caps: { perTxSats: 5 } }, { caps: { perTxSats: 5 } }), undefined, 'an older core with no per-network answer: test changes are as before');
   assert.equal(netChangeProblem({ kind: 'freeze' }, {}), undefined);
+});
+
+test('each mainnet change maps to its route and carries the net; a test change carries none (what the core always took)', () => {
+  const r = (a: Parameters<typeof bsvConfirmation>[0]) => { const c = bsvConfirmation(a, {}); return [c.route, c.body]; };
+  assert.deepEqual(r({ kind: 'caps', net: 'main', caps: { perTxSats: 5 } }), ['/api/bsv/policy/caps', { net: 'main', perTxSats: 5 }]);
+  assert.deepEqual(r({ kind: 'caps', caps: { perTxSats: 5 } }), ['/api/bsv/policy/caps', { perTxSats: 5 }]);
+  assert.deepEqual(r({ kind: 'allowlist', net: 'main', list: [MAIN_A] }), ['/api/bsv/policy/allowlist', { net: 'main', list: [MAIN_A] }]);
+  assert.deepEqual(r({ kind: 'allowlist', list: [TEST_A] }), ['/api/bsv/policy/allowlist', { list: [TEST_A] }]);
+  assert.match(bsvConfirmation({ kind: 'caps', net: 'main', caps: { perTxSats: 5 } }, {}).title, /MAINNET/);
+  assert.match(bsvConfirmation({ kind: 'allowlist', net: 'main', list: [MAIN_A] }, {}).detail, new RegExp(MAIN_A), 'the full address is in the dialog');
 });
 
 test('main.ts: the mainnet kinds go through the same dialog path, and the result of a limits change is checked against what was confirmed', () => {
