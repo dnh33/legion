@@ -70,7 +70,8 @@ test('harness: the harness core entry composes the same modules as src/bin/legio
 test('harness: nothing the harness adds names the real wallet port except the refusal guard', () => {
   const files = [...readdirSync(join(root, 'scripts', 'harness')).filter((n) => /\.mjs$/.test(n)).map((n) => `scripts/harness/${n}`),
     ...readdirSync(join(root, 'docs')).filter((n) => /^TESTING.*\.md$/.test(n)).map((n) => `docs/${n}`)];
-  const hits = files.filter((f) => /\b3321\b/.test(readFileSync(join(root, f), 'utf8')));
+  const port = new RegExp(`\\b${33}${21}\\b`); // built from parts so that this file does not name the port either
+  const hits = files.filter((f) => port.test(readFileSync(join(root, f), 'utf8')));
   // the guard in the fake wallet is the one place that names it (that is how it can refuse it)
   assert.deepEqual(hits, ['scripts/harness/fake-wallet.mjs'], 'only the refusal guard may name the port');
 });
