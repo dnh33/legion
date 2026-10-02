@@ -9,6 +9,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { initUpdater, recoverAtStart } from './updater-main.js';
 import { adminForRenderer, bsvConfirmation, bsvPreflight, coreAction, coreIsBusy, dialogText, killPlan, listenerCommands, listenerPids, parseBsvAction, trustedSender, type BsvAction, type BsvPolicyFacts, type CoreHealth } from './admin-logic.js';
 import { makeConfirm, providerChange } from './provider-ipc.js';
+import { resolveNodeBin } from './resolve-node.js';
 import type { ProviderChangeResult } from './provider-ipc.js';
 
 const here = dirname(fileURLToPath(import.meta.url)); // <root>/dist/src/electron
@@ -142,7 +143,7 @@ async function waitPortFree(port: number, ms = 6000): Promise<boolean> {
 
 /** Returns null on success, or a human-readable error. */
 async function spawnCore(port: number): Promise<string | null> {
-  const nodeBin = process.env.LEGION_NODE || 'node';
+  const nodeBin = resolveNodeBin(root);
   let out: number | 'ignore' = 'ignore';
   try { out = openSync(join(dataDir(), 'core.log'), 'a'); } catch { /* ignore */ }
   try {
@@ -168,7 +169,7 @@ async function spawnCore(port: number): Promise<string | null> {
     child.on('error', (err: NodeJS.ErrnoException) => {
       coreProc = null;
       failure = err.code === 'ENOENT'
-        ? 'Node.js 20+ not found on PATH. Install: winget install OpenJS.NodeJS.LTS (or set LEGION_NODE).'
+        ? 'Node.js 20.10+ not found. Run setup.cmd again (it can install Node for Legion), or: winget install OpenJS.NodeJS.LTS (or set LEGION_NODE).'
         : `Could not start core: ${err.message || err}`;
     });
     child.on('exit', (code) => {
