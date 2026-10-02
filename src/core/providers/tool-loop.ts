@@ -8,6 +8,7 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { connectExternal } from './external-mcp.js';
 import { chatTurn } from './openai-compat.js';
+import { makeStreamRedactor } from './stream-redact.js';
 import type { ChatTurnResult } from './openai-compat.js';
 import { ProviderHttpError } from './http.js';
 import type { HttpLimits, ProviderTarget } from './http.js';
@@ -28,7 +29,7 @@ type Connectable = { connect(t: unknown): Promise<void>; close?(): Promise<void>
 /** Connects a client to each in-process server and lists its tools as `mcp__<server>__<tool>` (the names every Legion module already knows). */
 export const MAX_OFFERED_TOOLS = 128;
 
-export async function connectTools(servers: ProviderHost['servers'], notice: (t: string) => void, external: NonNullable<ProviderHost['external']> = {}): Promise<ToolSet> {
+export async function connectTools(servers: ProviderHost['servers'], notice: (t: string) => void, external: NonNullable<ProviderHost['external']> = {}, signal?: AbortSignal): Promise<ToolSet> {
   const offered = new Map<string, Offered>();
   const specs: ChatToolSpec[] = [];
   const clients: Client[] = [];
@@ -56,7 +57,7 @@ export async function connectTools(servers: ProviderHost['servers'], notice: (t:
   const closers: Array<() => Promise<void>> = [];
   for (const [serverName, cfg] of Object.entries(external)) {
     try {
-      const conn = await connectExternal(serverName, cfg);
+      const conn = await connectExternal(serverName, cfg, signal ? { signal } : {});
       closers.push(() => conn.close());
       const listed = await conn.client.listTools();
       for (const t of listed.tools) {
@@ -128,7 +129,7 @@ export interface LoopOptions {
   turn?: typeof chatTurn;
 }
 
-export async function runToolLoop(host: ProviderHost, target: ProviderTarget, model: string, opts: LoopOptions, redact: (s: string) => string): Promise<ProviderRunResult> {
+export async function runToolLoop(host: ProviderHost, target: ProviderTarget, model: string, opts: LoopOptions, redact: (s: string) => string, secrets: () => string[] = () => []): Promise<ProviderRunResult> {
   const turnFn = opts.turn ?? chatTurn;
   const res: ProviderRunResult = { subtype: 'success', isError: false, turns: 0, usageUnknown: false };
   let usage: TokenUsage | undefined;
@@ -136,7 +137,7 @@ export async function runToolLoop(host: ProviderHost, target: ProviderTarget, mo
     if (r.usage) usage = { inputTokens: (usage?.inputTokens ?? 0) + r.usage.inputTokens, outputTokens: (usage?.outputTokens ?? 0) + r.usage.outputTokens };
     else res.usageUnknown = true;
   };
-  const tools = await connectTools(host.servers, host.onNotice, host.external);
+  const tools = await connectTools(host.servers, host.onNotice, host.external, host.signal);
   const used = new Set<string>();
   const fails = new Map<string, number>();
   let noticedRefused = false;
@@ -146,7 +147,9 @@ export async function runToolLoop(host: ProviderHost, target: ProviderTarget, mo
     for (let turn = 1; turn <= opts.maxTurns; turn++) {
       if (host.cancelled()) return { ...res, subtype: 'cancelled', usage };
       res.turns = turn;
-      const r = await turnFn(target, { model, messages, tools: tools.specs, signal: host.signal, limits: opts.limits, onText: host.onDelta });
+      const sr = makeStreamRedactor(host.onDelta, redact, secrets);
+      let r: ChatTurnResult;
+      try { r = await turnFn(target, { model, messages, tools: tools.specs, signal: host.signal, limits: opts.limits, onText: sr.push }); } finally { sr.flush(); }
       addUsage(r);
       if (r.toolsRefused && !noticedRefused) { noticedRefused = true; host.onNotice('This model did not accept tools: it can answer, but it cannot use Legion\'s tools.'); }
       const text = redact(r.text).trim();

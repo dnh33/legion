@@ -29,7 +29,7 @@ test('C7 private-network literals need the owner-confirmed flag; hostnames are n
 });
 
 test('C19 normalizeProviders: clamps, drops bad entries, refuses cli and a non-chat wire, keyless only where it is safe', () => {
-  assert.deepEqual(normalizeProviders(undefined), { version: 1, entries: {}, maxTurns: 40, maxToolCallsPerTurn: 16 });
+  assert.deepEqual(normalizeProviders(undefined), { version: 1, entries: {}, maxTurns: 40, maxToolCallsPerTurn: 16, stdioMcpAllow: {}, leadChoices: {} });
   const n = normalizeProviders({
     maxTurns: 9999, maxToolCallsPerTurn: 0,
     entries: {

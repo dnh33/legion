@@ -13,6 +13,7 @@ import { checkEndpoint } from './endpoint.js';
 import { ProviderHttpError } from './http.js';
 import { PROVIDER_PRESETS } from './presets.js';
 import { PROVIDER_ID_RE } from './config.js';
+import { isStdioEntry, stdioFingerprint } from './stdio-allow.js';
 import type { ProviderRuntime } from './runtime.js';
 import type { ProviderEntry } from './types.js';
 
@@ -43,7 +44,7 @@ export function createProvidersModule(opts: ProvidersModuleOpts): CoreModule {
       try { const j = JSON.parse(readFileSync(opts.configPath, 'utf8')); if (isObj(j)) disk = j; } catch { throw new HttpError(500, 'config.json is unreadable; fix or delete it first'); }
     }
     const c = cfg();
-    disk.providers = { version: 1, entries: c.entries, maxTurns: c.maxTurns, maxToolCallsPerTurn: c.maxToolCallsPerTurn };
+    disk.providers = { version: 1, entries: c.entries, maxTurns: c.maxTurns, maxToolCallsPerTurn: c.maxToolCallsPerTurn, stdioMcpAllow: c.stdioMcpAllow, leadChoices: c.leadChoices };
     try { writeConfigFile(opts.configPath, JSON.stringify(disk, null, 2)); } catch (e) { throw new HttpError(500, `Could not write config: ${e instanceof Error ? e.message : String(e)}`); }
     try { opts.onChange?.(); } catch { /* advisory */ }
   };
@@ -73,18 +74,41 @@ export function createProvidersModule(opts: ProvidersModuleOpts): CoreModule {
         return runtime.view();
       });
 
+      // Allow or stop allowing one Settings stdio MCP server for provider runs. Allowing needs the native secret (the app's dialog showed the
+      // command line); the fingerprint is computed here from the server's current entry, never taken from the request. Stopping needs admin only.
+      add('PUT', '/api/provider-mcp/:name', ({ req, params, body }) => {
+        const name = decodeURIComponent(params[0]!);
+        if (!/^[A-Za-z0-9_.-]{1,64}$/.test(name)) throw new HttpError(400, 'Not a valid server name.');
+        if (!isObj(body) || typeof body.allow !== 'boolean') throw new HttpError(400, 'allow (true or false) is required');
+        if (body.allow) {
+          requireNative(req);
+          const entry = runtime.deps.config.mcpServers?.[name];
+          if (!isStdioEntry(entry)) throw new HttpError(404, 'No local (stdio) MCP server with that name in Settings.');
+          cfg().stdioMcpAllow[name] = stdioFingerprint(entry);
+        } else delete cfg().stdioMcpAllow[name];
+        persist();
+        return runtime.view();
+      });
+
       add('PUT', '/api/providers/:id', ({ req, params, body }) => {
         const id = mustId(params[0]!);
         if (!isObj(body)) throw new HttpError(400, 'JSON object body required');
         const before = effective(id);
-        const merged = { ...(before ?? {}), ...pick(body) };
-        const r = normalizeEntry(id, { kind: 'openai-compat', ...merged });
+        const picked = pick(body);
+        if (before && picked.kind !== undefined && picked.kind !== before.kind) throw new HttpError(400, 'A provider keeps its kind; add a new provider instead.');
+        const kind = before?.kind ?? (picked.kind === 'cli' ? 'cli' : 'openai-compat');
+        const merged = { ...(before ?? {}), ...picked };
+        const r = normalizeEntry(id, { ...merged, kind });
         if ('reason' in r) throw new HttpError(400, r.reason);
         const next = r.entry;
         const addressChanged = !before || next.baseUrl !== before.baseUrl;
         const widened = (next.allowPrivateNetwork === true && before?.allowPrivateNetwork !== true) || (next.keyless === true && before?.keyless !== true);
-        if (addressChanged || widened) requireNative(req);
-        if (before && addressChanged) {
+        // relaxations: taint off for a custom endpoint, lead-selectable on; any change to a CLI entry (program, sandbox, who may run it, on/off)
+        const relaxed = (next.trusted === true && before?.trusted !== true) || (next.leadSelectable === true && before?.leadSelectable !== true);
+        if (next.kind === 'cli' && !before && next.enabled) throw new HttpError(400, 'Add the CLI turned off first; enable it for an agent in a second, confirmed step.');
+        const onlyTurnedOff = !!before && next.enabled === false && JSON.stringify({ ...next, enabled: true }) === JSON.stringify({ ...before, enabled: true });
+        if (addressChanged || widened || relaxed || (next.kind === 'cli' && !onlyTurnedOff)) requireNative(req);
+        if (before && addressChanged && next.kind !== 'cli') {
           const ep = checkEndpoint(next.baseUrl, { allowPrivate: next.allowPrivateNetwork === true });
           if (ep.ok) runtime.keys.dropIfOriginDiffers(id, ep.origin); // a key saved for the old address is deleted, not carried over
         }
@@ -107,6 +131,7 @@ export function createProvidersModule(opts: ProvidersModuleOpts): CoreModule {
         if (!isObj(body)) throw new HttpError(400, 'JSON object body required');
         const e = effective(id);
         if (!e) throw new HttpError(404, 'Unknown provider');
+        if (e.kind === 'cli') throw new HttpError(400, 'A CLI provider has no key in Legion: sign in to the CLI yourself, outside Legion.');
         const ep = checkEndpoint(e.baseUrl, { allowPrivate: e.allowPrivateNetwork === true });
         if (!ep.ok) throw new HttpError(400, ep.reason);
         try { runtime.keys.set(id, body.key, ep.origin); } catch (err) { throw new HttpError(400, err instanceof Error ? err.message : 'Invalid key'); }
@@ -127,6 +152,6 @@ export function createProvidersModule(opts: ProvidersModuleOpts): CoreModule {
 /** Only the fields a PUT may set; anything else in the body is ignored. */
 function pick(b: Record<string, unknown>): Record<string, unknown> {
   const out: Record<string, unknown> = {};
-  for (const k of ['label', 'baseUrl', 'enabled', 'keyless', 'allowPrivateNetwork', 'models', 'prices', 'wire']) if (b[k] !== undefined) out[k] = b[k];
+  for (const k of ['kind', 'label', 'baseUrl', 'enabled', 'keyless', 'allowPrivateNetwork', 'models', 'prices', 'wire', 'trusted', 'tokenCapPerTask', 'tokenCapPerDay', 'leadSelectable', 'cli', 'executable', 'sandbox', 'allowedAgents', 'timeoutSeconds']) if (b[k] !== undefined) out[k] = b[k];
   return out;
 }

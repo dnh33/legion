@@ -693,11 +693,16 @@ export class Engine {
     const taskId = job.taskId;
     const servers: ProviderHost['servers'] = {};
     const external: NonNullable<ProviderHost['external']> = {};
+    const skippedStdio: string[] = [];
     for (const [name, cfg] of Object.entries(this.buildMcpServers(agent, job, act))) {
       if (cfg.type === 'sdk') servers[name] = cfg;
       else if (cfg.type === 'http' || cfg.type === 'sse') external[name] = { type: cfg.type, url: cfg.url, ...(cfg.headers ? { headers: cfg.headers } : {}) };
-      else if (cfg.type === 'stdio' || cfg.type === undefined) external[name] = { command: (cfg as { command: string }).command, ...((cfg as { args?: string[] }).args ? { args: (cfg as { args?: string[] }).args } : {}), ...((cfg as { env?: Record<string, string> }).env ? { env: (cfg as { env?: Record<string, string> }).env } : {}) };
+      else if ((cfg.type === 'stdio' || cfg.type === undefined) && !this.providers!.stdioAllowed(name, this.config.mcpServers?.[name])) {
+        // starting the owner's own command from a provider run needs a separate, native-confirmed opt-in bound to its exact command line
+        skippedStdio.push(name);
+      } else if (cfg.type === 'stdio' || cfg.type === undefined) external[name] = { command: (cfg as { command: string }).command, ...((cfg as { args?: string[] }).args ? { args: (cfg as { args?: string[] }).args } : {}), ...((cfg as { env?: Record<string, string> }).env ? { env: (cfg as { env?: Record<string, string> }).env } : {}) };
     }
+    for (const n of skippedStdio) this.addMessage(taskId, 'system', `The MCP server "${n}" starts a program on this computer and is not allowed for provider runs. To allow it, use Settings, Providers, Local MCP servers (it asks you to confirm the command line).`);
     const decide = this.toolDecider(job, agent);
     const host: ProviderHost = {
       taskId, agentName: agent.name, signal: act.ac.signal, cancelled: () => act.cancelled || act.ac.signal.aborted,

@@ -68,7 +68,7 @@ export const jsonReply = (res: ServerResponse, status: number, obj: unknown, hea
 };
 
 export const entryFor = (f: Fake, over: Partial<ProviderEntry> = {}): ProviderEntry => ({ kind: 'openai-compat', label: 'Fake', baseUrl: f.url, enabled: true, keyless: true, ...over });
-export const provCfg = (entries: Record<string, ProviderEntry>): ProvidersConfig => ({ version: 1, entries, maxTurns: 40, maxToolCallsPerTurn: 16 });
+export const provCfg = (entries: Record<string, ProviderEntry>): ProvidersConfig => ({ version: 1, entries, maxTurns: 40, maxToolCallsPerTurn: 16, stdioMcpAllow: {}, leadChoices: {} });
 export const memKeys = (dir: string): ProviderKeys => new ProviderKeys(`${dir}/providers/keys.json`);
 
 /** A Responses-API stream: named events as `data:` lines (the type is inside the JSON). */

@@ -9,16 +9,26 @@ import { PRESET_IDS, PROVIDER_PRESETS } from './presets.js';
 import { PROVIDER_ID_RE } from './config.js';
 import type { ProviderKeys } from './secrets.js';
 import { runToolLoop } from './tool-loop.js';
+import { TokenLedger } from './usage.js';
+import type { ProcessPort } from './proc.js';
 import type { ProviderEntry, ProviderHost, ProviderRunResult, ProvidersConfig, ResolvedModel } from './types.js';
 import type { ProviderView, ProvidersView } from '../../shared/providers-view.js';
+import type { McpServerEntry } from '../../shared/types.js';
+import { isStdioEntry, stdioCommandLine, stdioFingerprint } from './stdio-allow.js';
 
 export interface RuntimeDeps {
   /** Live: Settings edits replace `providers` on this object. */
-  config: { providers: ProvidersConfig };
+  config: { providers: ProvidersConfig; mcpServers?: Record<string, McpServerEntry> };
   keys: ProviderKeys;
   /** Tests only. */
   limits?: Partial<HttpLimits>;
   turn?: typeof chatTurn;
+  /** Where the per-day token counts are kept (absent: in memory only). */
+  usageFile?: string;
+  /** Tests only: the clock. */
+  now?: () => Date;
+  /** Tests only: the process port a CLI run uses. */
+  cliPort?: ProcessPort;
 }
 
 export type { ProviderView, ProvidersView } from '../../shared/providers-view.js';
@@ -33,6 +43,11 @@ export const PROVIDER_LIMITS_TEXT: string[] = [
   'Cost is shown only when the provider returns token counts and you entered prices; otherwise it is unknown.',
 ];
 
+/** One sentence the room UI shows: room budgets count only costs Legion knows. */
+export const ROOM_BUDGET_NOTE = 'A room budget counts only costs Legion knows: a run on another provider adds nothing to the meter unless you entered prices for that model, so a budgeted room can go over its budget.';
+/** The plain-words warning for a CLI agent (also shown in the native dialog). */
+export const CLI_WARNING = 'This runs a program (Codex or OpenCode) on this computer with its own shell and file tools. Legion cannot see or stop its individual actions: they are outside Legion\'s per-tool approvals and taint tracking. Its sandbox flag is that program\'s own promise, not a Legion control. Sign in to it yourself, outside Legion; Legion never reads or copies its login.';
+
 /** `<provider>:<model>` shape check only (a Bedrock ARN is not one). Whether the provider exists is the runtime's business. */
 const PREFIX_RE = /^([a-z][a-z0-9-]{1,31}):(.+)$/;
 export function providerPrefix(model: string | undefined): string | undefined {
@@ -43,7 +58,8 @@ export function providerPrefix(model: string | undefined): string | undefined {
 export class ProviderRuntime {
   private readonly tests = new Map<string, { at: string; ok: boolean; detail: string }>();
   private readonly fetched = new Map<string, string[]>();
-  constructor(private readonly deps: RuntimeDeps) {}
+  readonly usage: TokenLedger;
+  constructor(readonly deps: RuntimeDeps) { this.usage = new TokenLedger(deps.usageFile, deps.now); }
 
   private get cfg(): ProvidersConfig { return this.deps.config.providers; }
   get keys(): ProviderKeys { return this.deps.keys; }
@@ -62,8 +78,42 @@ export class ProviderRuntime {
     return { providerId: id, model: m[2]!, ...(entry ? { entry } : {}) };
   }
 
+  /** True only when the owner confirmed this stdio server's exact current command line for provider runs. */
+  stdioAllowed(name: string, entry: McpServerEntry | undefined): boolean {
+    return isStdioEntry(entry) && this.cfg.stdioMcpAllow[name] === stdioFingerprint(entry);
+  }
+
+  /** The stdio servers in Settings with their provider-run state, for the Providers panel and the native dialog. */
+  stdioServers(): Array<{ name: string; commandLine: string; allowed: boolean; changedSinceAllowed: boolean }> {
+    const out: Array<{ name: string; commandLine: string; allowed: boolean; changedSinceAllowed: boolean }> = [];
+    for (const [name, e] of Object.entries(this.deps.config.mcpServers ?? {})) {
+      if (!isStdioEntry(e)) continue;
+      const has = this.cfg.stdioMcpAllow[name] !== undefined;
+      const allowed = this.stdioAllowed(name, e);
+      out.push({ name, commandLine: this.redact(stdioCommandLine(e)), allowed, changedSinceAllowed: has && !allowed });
+    }
+    return out;
+  }
+
   /** True when `model` names a provider (configured, preset, or just provider-shaped): used by the caps that keep a bot on the owner's provider. */
   isProviderModel(model: string | undefined): boolean { return providerPrefix(model) !== undefined; }
+
+  /**
+   * Whether a run on this provider starts tainted. A CLI always does. A custom endpoint (not a preset's own address, not this computer)
+   * does unless the owner relaxed it (admin plus native confirmation). A preset at its own address, and a loopback address, do not.
+   */
+  startsTainted(r: ResolvedModel): boolean {
+    const e = r.entry;
+    if (!e) return false;
+    if (e.kind === 'cli') return true;
+    if (e.trusted === true) return false;
+    const ep = checkEndpoint(e.baseUrl, { allowPrivate: e.allowPrivateNetwork === true });
+    if (!ep.ok) return true;
+    if (ep.loopback) return false;
+    const preset = PROVIDER_PRESETS.find((p) => p.id === r.providerId);
+    if (preset) { const pe = checkEndpoint(preset.entry.baseUrl); return !(pe.ok && pe.origin === ep.origin); }
+    return true;
+  }
 
   private target(id: string, entry: ProviderEntry): ProviderTarget {
     const ep = checkEndpoint(entry.baseUrl, { allowPrivate: entry.allowPrivateNetwork === true });
@@ -88,7 +138,7 @@ export class ProviderRuntime {
     if (!r.model.trim()) return fail('No model id was given for this provider.');
     const res = await runToolLoop(host, this.target(r.providerId, r.entry), r.model, {
       maxTurns: this.cfg.maxTurns, maxToolCallsPerTurn: this.cfg.maxToolCallsPerTurn, limits: this.deps.limits, ...(this.deps.turn ? { turn: this.deps.turn } : {}),
-    }, (s) => this.redact(s));
+    }, (s) => this.redact(s), () => this.deps.keys.all());
     const cost = this.costOf(r, res);
     return { ...res, ...(cost !== undefined ? { costUsd: cost } : {}) };
   }
@@ -96,6 +146,7 @@ export class ProviderRuntime {
   // ------------------------------------------------------------ Settings views and owner-initiated calls
 
   private entryStatus(id: string, e: ProviderEntry): { text: string; keyMatches: boolean } {
+    if (e.kind === 'cli') return { text: [e.enabled ? 'On' : 'Off', (e.allowedAgents?.length ?? 0) ? `Enabled for ${e.allowedAgents!.length} agent(s)` : 'Not enabled for any agent', 'Runs outside Legion\'s controls'].join('. '), keyMatches: false };
     const ep = checkEndpoint(e.baseUrl, { allowPrivate: e.allowPrivateNetwork === true });
     const keySet = this.deps.keys.has(id);
     const keyMatches = ep.ok && this.deps.keys.get(id, ep.origin) !== undefined;
@@ -115,7 +166,7 @@ export class ProviderRuntime {
     const seen = new Set<string>();
     const mk = (id: string, e: ProviderEntry, preset?: { needsKey: boolean; note: string }): ProviderView => {
       const st = this.entryStatus(id, e);
-      const ep = checkEndpoint(e.baseUrl, { allowPrivate: e.allowPrivateNetwork === true });
+      const ep = e.kind === 'cli' ? { ok: false as const, reason: '' } : checkEndpoint(e.baseUrl, { allowPrivate: e.allowPrivateNetwork === true });
       const t = this.tests.get(id);
       const models = [...new Set([...(e.models ?? []), ...(this.fetched.get(id) ?? [])])];
       return {
@@ -124,6 +175,10 @@ export class ProviderRuntime {
         keySet: this.deps.keys.has(id), ...(this.deps.keys.has(id) ? { keyHint: this.deps.keys.hint(id) } : {}), keyMatchesAddress: st.keyMatches,
         wire: e.wire === 'responses' ? 'responses' : 'chat', keyless: e.keyless === true, allowPrivateNetwork: e.allowPrivateNetwork === true, loopback: ep.ok && ep.loopback, models,
         hasPrices: !!e.prices && Object.keys(e.prices).length > 0, status: st.text, ...(t ? { lastTest: t } : {}),
+        kind: e.kind, trusted: e.trusted === true, startsTainted: this.startsTainted({ providerId: id, model: '', entry: e }), leadSelectable: e.leadSelectable === true,
+        ...(e.tokenCapPerTask ? { tokenCapPerTask: e.tokenCapPerTask } : {}), ...(e.tokenCapPerDay ? { tokenCapPerDay: e.tokenCapPerDay } : {}),
+        tokensToday: this.usage.today(id),
+        ...(e.kind === 'cli' ? { cli: e.cli, executable: e.executable, sandbox: e.sandbox ?? 'read-only', allowedAgents: e.allowedAgents ?? [], timeoutSeconds: e.timeoutSeconds ?? 900 } : {}),
       };
     };
     for (const p of PROVIDER_PRESETS) {
@@ -131,7 +186,7 @@ export class ProviderRuntime {
       out.push(mk(p.id, e, { needsKey: p.needsKey, note: p.note })); seen.add(p.id);
     }
     for (const [id, e] of Object.entries(this.cfg.entries)) if (!seen.has(id)) out.push(mk(id, e));
-    return { providers: out, maxTurns: this.cfg.maxTurns, maxToolCallsPerTurn: this.cfg.maxToolCallsPerTurn, dropped: this.cfg.dropped ?? [], cannotDo: PROVIDER_LIMITS_TEXT };
+    return { providers: out, maxTurns: this.cfg.maxTurns, maxToolCallsPerTurn: this.cfg.maxToolCallsPerTurn, dropped: this.cfg.dropped ?? [], cannotDo: PROVIDER_LIMITS_TEXT, stdioServers: this.stdioServers(), leadChoices: this.cfg.leadChoices, roomBudgetNote: ROOM_BUDGET_NOTE, cliWarning: CLI_WARNING };
   }
 
   private entryFor(id: string): ProviderEntry {
