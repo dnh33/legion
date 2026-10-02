@@ -54,23 +54,36 @@ Events `board.updated` (`{projectId}` only, no text) go to the admin stream only
 MCP (token client): read-only `legion_board_read` (`list`, `get`), registered only when the flag is on. **No** token write route or tool exists.
 Bot tool `legion_board` (in-process, per run): `list`, `get`, `propose`, `update_own`. Only offered when the run has a project (resolved by the engine, never an argument).
 
-## 5. Authority matrix
+## 5. Authority matrix (revised 2026-10-02: agents are the team, the board is their shared workspace)
 
-| action | owner (app, admin header) | bot, member of the item's project | token client (MCP/curl) |
+Design stance: guards exist against bad things spreading (taint, secrets, runaway runs, unreviewed text getting full permissions), not to rank agents below the owner. A member agent works the board like a teammate.
+
+| action | owner (app, admin header) | member agent (in-process `legion_board`) | token client (MCP/curl) |
 |---|---|---|---|
-| list / get items | yes | yes (own project only; Inbox hidden except own pending count) | read-only, no activity text, no Inbox |
-| create item live | yes | **no** (propose only) | no |
-| propose (Inbox, untrusted) | n/a | yes, rate limited, caps | no |
-| edit text, due, priority, labels | yes | no | no |
-| change status | any, including `done` | only items **assigned to it**, only to `doing / review / blocked`, never `done`, never from `done` | no |
-| add a note (activity) | yes | own assigned items, <= 500 chars, flagged if the run is tainted | no |
-| assign / reassign | yes | no | no |
-| delete | yes | no | no |
-| accept / reject Inbox | yes | no | no |
-| run an item | yes | no | no |
-| touch another project | owner yes | no (project fixed by the engine) | n/a |
+| list / get items | yes | yes (own project only) | read-only (`legion_board_read`), no activity, no Inbox |
+| create a live item | yes | **yes** (backlog/doing/review/blocked; rate limited; item is `untrusted` until the owner marks it reviewed) | no |
+| suggest an item to the Inbox (`propose`) | n/a | yes | no |
+| edit title, description, priority, labels, due | yes | **yes**, any open item (a text edit makes the item `untrusted`) | no |
+| move / reorder | any column | **yes**, to backlog/doing/review/blocked | no |
+| assign / claim | yes | **yes** to a member agent or unassigned; never to the owner; not from a tainted run | no |
+| note | yes | **yes** (<= 500 chars) | no |
+| mark **Done** | yes | **no** (the owner's review gate; a finished run lands in Review) | no |
+| items assigned to the owner | yes | notes only | no |
+| delete | yes | **leader only**, and the owner sees an approval card for every delete; never from a tainted run, never Done items or owner-assigned items; 3 requests / 10 min | no |
+| choose the leader | yes (`PUT .../board/leader`, admin) | no | no |
+| accept / reject Inbox, run an item | yes | no | no |
+| touch another project | yes | no (project fixed by the engine) | n/a |
 
-No board action needs the native secret: none widens authority (assignment only names an existing member; running goes through the normal approval cards). Say so in the UI help text; do not claim more.
+Why this is safe enough: nothing a member does can start a run (the owner's click does), approvals and the `ask` ceiling for agent-written text are unchanged, the delete is behind a card, and a tainted run cannot assign or delete. Token clients stay read-only because they carry no agent identity (a leader or member cannot be told apart from any local process holding the token).
+The leader is a per-project setting (none by default, so by default only the owner can delete), stored in the board file; if the leader leaves the project the power goes with the membership. No native confirmation: choosing a leader grants only "may ask", and every delete still needs the card.
+
+## 5b. The project as a context layer (Cowork-style)
+
+Projects already scope Library notes (`agent:project.<id>`): the owner and runs of that project see them, recall boosts them. Added with the board:
+- **Episodes in the project scope.** A project run's automatic episode (long or costly tasks) is written to the project's scope, not the agent's private one, so other agents and later sessions in the project find what was done. They stay `untrusted` leads; any other run keeps its private episode (`kg/graph.ts` `recordEpisode` takes an optional project id, `kg/index.ts` passes the task's).
+- **Board digest in the run's prompt.** `<legion-board-digest>`: counts per column, what is assigned to this agent, what others have in progress; titles only, <= 900 chars, data-labelled. A new session picks up where the last stopped.
+- **Project-memory habit.** The board preamble tells agents to save what is worth keeping as a project note (`kg_capture` with scope `project`) and name its id in their note on the item.
+Not built: auto-linking notes to items, a "save what we learned" button on Done, a briefing that lists project notes always (recall surfaces them when relevant).
 
 ## 6. Run this item
 
@@ -99,8 +112,8 @@ No board action needs the native secret: none widens authority (assignment only 
 | C2 | Every board route needs the admin header; token alone gets 403; none on the client list | `-http` | list a board route as a client route |
 | C3 | Owner create/edit/move/delete with validation and caps (sizes, labels, due, items, inbox) | `-store` | skip a cap |
 | C4 | Bot `propose` lands in Inbox as untrusted, never live; rate limit; per-agent and per-project caps | `-tools` | store as active; drop the limiter |
-| C5 | Bot `update_own`: only own assigned items, only doing/review/blocked, never done, not from done, no field edits; note clipped | `-tools` | allow `done`; allow another's item |
-| C6 | Bot cannot delete, reassign, change due, accept, or touch another project; project comes from the engine job, not an argument; no project = no tool | `-tools` | read project from args |
+| C5 | Agent edits: any member edits any open item; never `done`, never from done; owner-assigned items take notes only; text edits clear trust; no assigning the owner; tainted cannot assign; bad field changes nothing | `-store`, `-tools` | allow `done`; drop the owner-item rule; keep trust on text edit |
+| C6 | Delete: only the owner-chosen leader, owner approval card each time, never tainted/Done/owner items, rate limited; leader tool only offered to the leader; project comes from the engine, not an argument; no project = no tool | `-store`, `-tools`, `-http` | skip the leader check; skip the card; offer the tool to all |
 | C7 | Tainted run: proposals and notes carry the taint mark; accepted untrusted item stays `untrusted` until the owner marks reviewed; bulk accept does not exist | `-tools` | clear trust on accept |
 | C8 | Run: starts through the project path as the owner, links the task, moves to doing; untrusted text runs tainted + `ask` ceiling | `-run` | drop the ceiling |
 | C9 | Run end: -> review (done), blocked (error/cancel), never done; owner-moved item not overridden; result clipped and taint-flagged | `-run` | move to done |
@@ -111,6 +124,7 @@ No board action needs the native secret: none widens authority (assignment only 
 | C14 | Archived project: board read-only | `-store`, `-http` | ignore status |
 | C15 | Order: moves keep a dense order per column; keyboard/pointer moves share one pure function | `-store`, `-ui` | skip renumber |
 | C16 | UI logic (filters, move targets, keyboard) and accessible names/live region in the sources | `-ui` | remove a label |
+| C18 | Project as context: episodes in project scope (members only), board digest capped and neutralised, preamble only for members of active projects | `-kg` | always-private episodes; uncap the digest |
 | C17 | Tripwire, hedge, key-literal tests stay green; no child process or network code added (scan of new files) | existing + `-flag` | add `fetch(` |
 
 ## 9. Hooks outside new files (all additive)
@@ -134,13 +148,13 @@ No board action needs the native secret: none widens authority (assignment only 
 
 ## 12. Result (built 2026-10-02, not run on Windows)
 
-Gates: `npm ci && npm run build:ts && node --test "dist/test/*.test.js"`: 1,992 tests, 1,989 pass, 0 fail, 3 skipped (the 3 skips were there before). `npm run typecheck` and `npm run build:ui` exit 0. New test files: `project-board-{flag,store,tools,http,run,ui}.test.ts` (about 40 tests). Every control C1..C17 was mutated (about 25 mutations) and each turned its test red, except one equivalent mutant: removing the redundant `tainted: true` from a capped run changes nothing because the run's `origin.tainted` already taints it. Tripwire, hedge, key-literal and harness tests stay as they were; the only edit to a shared script is the mirror in `scripts/harness/core-entry.mjs`.
+Gates (final): 2,002 tests, 1,999 pass, 0 fail, 3 skipped (the 3 skips were there before). `npm run typecheck` and `npm run build:ui` exit 0. New test files: `project-board-{flag,store,tools,http,run,ui}.test.ts` (about 40 tests). Every control C1..C17 was mutated (about 25 mutations) and each turned its test red, except one equivalent mutant: removing the redundant `tainted: true` from a capped run changes nothing because the run's `origin.tainted` already taints it. Tripwire, hedge, key-literal and harness tests stay as they were; the only edit to a shared script is the mirror in `scripts/harness/core-entry.mjs`.
 Rendered in headless Chromium (real core, flag on, seeded board): 1440 and 960 px with the full app, 390 px with the app shell hidden (the Electron window has a 960 px minimum, so the shell itself is not built for 390), light and dark, Board / List / Inbox / item dialog; no horizontal page scroll; a keyboard Alt+Right move was announced in the live region, kept focus and persisted.
 
 ## 13. Known limits (kept honest)
 
 - No board action is checked against what an allowed agent tool can do: Legion's own code decides who may write the board, not what a run does.
-- A compromised app window holds the admin key and could edit or delete items and click "Run this item"; the run still goes through the approval cards. A bot's text the owner accepted unedited runs under the `ask` ceiling, but once the owner presses "Mark as reviewed" it runs with the agent's own setting.
+- A compromised app window holds the admin key and could edit or delete items, choose a leader and click "Run this item"; the run and every agent delete still go through approval cards. A bot's text the owner accepted unedited runs under the `ask` ceiling, but once the owner presses "Mark as reviewed" it runs with the agent's own setting.
 - `Mark as reviewed` is one click for the whole item (title and description together).
 - Room links are not checked for existence (shape only); the UI offers none yet except those a bot's own room run added.
 - Appending one line per change is not a transaction: a crash mid-line loses at most that line (skipped on load). Compaction is tmp + rename; Windows rename-over-open-file and antivirus behaviour are unverified.
