@@ -70,9 +70,13 @@ export async function launchBrowser(p: LaunchPorts, bin: BinaryRef, o: { allowLo
     const port = p.randomPort();
     const args = buildBrowserArgs(port, o.allowLocal);
     const wall = Math.ceil((o.wallMs ?? BROWSER_LIMITS.wallMs) / 1000);
-    // a Linux child inside WSL is not reached by taskkill on wsl.exe for sure, so it gets its own hard wall time
-    const lead = bin.wsl ? ['timeout', '-s', 'KILL', `${wall}s`] : [];
-    const proc: SpawnedProcess = p.proc.spawn({ args: [...lead, ...args], cwd: dir, env: buildBrowserEnv(p.platform, p.hostEnv, dir), maxOutputBytes: BROWSER_LIMITS.outputBytes, file: bin.file, prefixArgs: bin.prefixArgs });
+    // a Linux child inside WSL is not reached by taskkill on wsl.exe for sure, so it gets its own hard wall time: `timeout` goes BEFORE the program
+    // (wsl.exe [options] -e timeout -s KILL Ns /path/lightpanda serve ...). Without a `-e` or `--` in the launcher arguments there is no safe place for it.
+    const cut = bin.wsl ? bin.prefixArgs.findIndex((a) => a === '-e' || a === '--' || a === '--exec') : -1;
+    const prefix = cut >= 0 ? bin.prefixArgs.slice(0, cut + 1) : bin.prefixArgs;
+    const program = cut >= 0 ? bin.prefixArgs.slice(cut + 1) : [];
+    const lead = cut >= 0 ? ['timeout', '-s', 'KILL', `${wall}s`] : [];
+    const proc: SpawnedProcess = p.proc.spawn({ args: [...lead, ...program, ...args], cwd: dir, env: buildBrowserEnv(p.platform, p.hostEnv, dir), maxOutputBytes: BROWSER_LIMITS.outputBytes, file: bin.file, prefixArgs: prefix });
     let ended = false;
     void proc.exited.then(() => { ended = true; });
     const stopProc = async () => { if (proc.pid && !ended) await p.proc.kill(proc.pid).catch(() => false); };
