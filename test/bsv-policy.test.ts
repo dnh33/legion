@@ -655,3 +655,22 @@ test('F2: a repeated request id with different amounts keeps the LARGER one, in 
     assert.equal(e.snapshot().usage.reservedSats, 900);
   }
 });
+
+test('F4: only a MISSING net is legacy testnet; a present but unrecognised net is flagged invalid, still counted, and shown', () => {
+  const t = '2026-10-02T10:00:00.000Z';
+  const clock = { wall: () => Date.parse(t) + 1000, mono: () => 1 };
+  const line = (net: unknown, sats: number, id: string) => ({ decision: 'executed', ts: t, fields: { requestId: id, sats, ...(net === undefined ? {} : { net }) } });
+  const bad = ['MAIN', 'mainnet', 'garbage', '', null, 5];
+  const rec = ledgerFromAudit([line(undefined, 1, 'req-legacy-1'), ...bad.map((n, i) => line(n, 10, `req-bad-000${i}`))]);
+  assert.equal(rec[0]!.net, 'test');
+  assert.deepEqual(rec.slice(1).map((r) => r.net), bad.map(() => 'invalid'));
+  const e = new PolicyEngine({ clock, ledger: rec, unknown: [{ requestId: 'req-unk-0001', agentId: 'a', totalSats: 7, net: 'MAIN' }, { requestId: 'req-unk-0002', agentId: 'a', totalSats: 7 }] });
+  const s = e.snapshot();
+  assert.equal(s.usage.last24hSats, 1 + 10 * bad.length, 'an invalid-net spend still counts against the window');
+  assert.equal(s.usage.invalidNetRecords, bad.length + 1, 'and is surfaced');
+  assert.deepEqual(s.unknown.map((u) => u.net), ['invalid', 'test']);
+  assert.ok(e.executedRecords().filter((r) => r.net === 'test').length === 1, 'none of them is treated as testnet');
+  // a live record handed to the constructor with a bad net is flagged too; a missing one is left as is
+  const e2 = new PolicyEngine({ clock, ledger: [{ requestId: 'x', sats: 3, at: Date.parse(t), net: 'MAIN' as never }, { requestId: 'y', sats: 3, at: Date.parse(t) }] });
+  assert.deepEqual(e2.executedRecords().map((r) => r.net), ['invalid', undefined]);
+});

@@ -122,6 +122,8 @@ const RESERVING: ReadonlySet<RequestStatus> = new Set(['pending', 'approved', 'u
 
 interface Record_ {
   requestId: string; hash: string; status: RequestStatus; agentId: string; taskId: string; network: Net;
+  /** Set only on a seeded unknown record whose net was present but unrecognised (`network` is then `main`, the stricter side). */
+  netInvalid?: boolean;
   /** Payments plus fee. */
   totalSats: number; createdAt: number; expiresAt: number; approvedAt?: number; settledAt?: number; actualSats?: number;
   /** The stored answer. Never handed out: callers get a deep copy (see `copyDecision`). */
@@ -134,7 +136,11 @@ interface Record_ {
 function copyDecision(d: Decision): Decision { return structuredClone(d); }
 
 /** `net` is the network the spend was on; a record without it is a testnet record (older logs never wrote it). */
-export interface LedgerRecord { requestId: string; sats: number; at: number; session?: string; net?: Net }
+export interface LedgerRecord { requestId: string; sats: number; at: number; session?: string; net?: LedgerNet }
+/** `invalid` marks a net value that is present but not `test` or `main`: it is counted (never dropped) and shown, never treated as testnet. */
+export type LedgerNet = Net | 'invalid';
+/** A MISSING net is a legacy testnet line; a present but unrecognised one is `invalid`. */
+function parseNet(v: unknown): LedgerNet { return v === undefined ? 'test' : v === 'test' || v === 'main' ? v : 'invalid'; }
 
 export type PolicyEvent =
   | { type: 'armed'; until: number; minutes: number }
@@ -158,9 +164,9 @@ export interface PolicySnapshot {
   caps: Caps;
   hardCaps: Caps;
   allowlist: string[];
-  usage: { sessionSats: number; last24hSats: number; reservedSats: number };
+  usage: { sessionSats: number; last24hSats: number; reservedSats: number; invalidNetRecords: number };
   pending: Array<{ requestId: string; status: RequestStatus; agentId: string; totalSats: number; expiresAt: number; network: Net }>;
-  unknown: Array<{ requestId: string; agentId: string; totalSats: number; net: Net }>;
+  unknown: Array<{ requestId: string; agentId: string; totalSats: number; net: LedgerNet }>;
 }
 
 export class PolicyError extends Error { constructor(message: string) { super(message); this.name = 'PolicyError'; } }
@@ -236,7 +242,7 @@ export interface PolicyOptions {
   sessionId?: string;
   /** Spends an earlier session left without an outcome (rebuilt from the audit log by the module). Each becomes an `unknown` record: it keeps
    *  its reservation, blocks every new spend, and is cleared only by `resolveUnknown`. This is not an "allow": nothing here loosens a check. */
-  unknown?: Array<{ requestId: string; agentId: string; totalSats: number; net?: Net }>;
+  unknown?: Array<{ requestId: string; agentId: string; totalSats: number; net?: unknown }>;
 }
 
 export class PolicyEngine {
@@ -256,16 +262,17 @@ export class PolicyEngine {
     this.caps = cfg.caps; this.allowlist = cfg.allowlist; this.frozen = cfg.frozen;
     this.clock = o.clock ?? systemClock;
     this.emit = (e) => { try { o.onEvent?.(e); } catch { /* an observer must not break the policy */ } };
-    this.ledger = (o.ledger ?? []).filter((r) => isSats(r.sats) && Number.isFinite(r.at)).map((r) => ({ ...r }));
+    this.ledger = (o.ledger ?? []).filter((r) => isSats(r.sats) && Number.isFinite(r.at)).map((r) => ({ ...r, ...(r.net === undefined ? {} : { net: parseNet(r.net) }) }));
     this.sessionId = o.sessionId ?? `s${Math.floor(this.clock.wall())}`;
     const now = this.clock.wall();
     for (const u of o.unknown ?? []) {
       if (!u || typeof u.requestId !== 'string' || !REQUEST_ID.test(u.requestId) || !isSats(u.totalSats)) continue;
       const dup = this.requests.get(u.requestId);
       if (dup) { if (dup.hash === '' && dup.status === 'unknown' && u.totalSats > dup.totalSats) dup.totalSats = u.totalSats; continue; } // a repeated id keeps the LARGER amount
+      const net = parseNet(u.net);
       const decision: Decision = { verdict: 'deny', requestId: u.requestId, reasons: ['an earlier session left this spend without a known outcome'], requiredConfirmations: ['approve'] };
       this.requests.set(u.requestId, {
-        requestId: u.requestId, hash: '', status: 'unknown', agentId: safeId(u.agentId), taskId: '', network: u.net === 'main' ? 'main' : 'test', totalSats: u.totalSats,
+        requestId: u.requestId, hash: '', status: 'unknown', agentId: safeId(u.agentId), taskId: '', network: net === 'test' ? 'test' : 'main', ...(net === 'invalid' ? { netInvalid: true } : {}), totalSats: u.totalSats,
         createdAt: now, expiresAt: 0, settledAt: now, decision, required: Object.freeze(['approve'] as Confirmation[]),
       });
     }
@@ -608,9 +615,9 @@ export class PolicyEngine {
       armedUntil: this.armedUntilWall,
       remainingMs: this.armedUntilWall === null ? 0 : Math.max(0, Math.min(this.armedUntilWall - wall, (this.armedUntilMono as number) - this.clock.mono())),
       caps: { ...this.caps }, hardCaps: { ...HARD_CAPS }, allowlist: [...this.allowlist],
-      usage: { sessionSats: this.sessionSats(), last24hSats: this.executedSince(wall - DAY_MS), reservedSats: this.reserved() },
+      usage: { sessionSats: this.sessionSats(), last24hSats: this.executedSince(wall - DAY_MS), reservedSats: this.reserved(), invalidNetRecords: this.ledger.filter((r) => r.net === 'invalid').length + live.filter((r) => r.netInvalid).length },
       pending: live.filter((r) => r.status === 'pending' || r.status === 'approved').map((r) => ({ requestId: r.requestId, status: r.status, agentId: r.agentId, totalSats: r.totalSats, expiresAt: r.expiresAt, network: r.network })),
-      unknown: live.filter((r) => r.status === 'unknown').map((r) => ({ requestId: r.requestId, agentId: r.agentId, totalSats: r.totalSats, net: r.network })),
+      unknown: live.filter((r) => r.status === 'unknown').map((r) => ({ requestId: r.requestId, agentId: r.agentId, totalSats: r.totalSats, net: r.netInvalid ? 'invalid' : r.network })),
     };
   }
 }
@@ -626,7 +633,7 @@ export function ledgerFromAudit(entries: ReadonlyArray<{ decision: string; ts: s
     const sats = e.fields.sats; const at = Date.parse(e.ts);
     if (!isSats(sats) || !Number.isFinite(at)) continue;
     const id = e.fields.requestId;
-    const net: Net = e.fields.net === 'main' ? 'main' : 'test'; // a line without `net` is a testnet line
+    const net = parseNet(e.fields.net); // a line without `net` is a testnet line; a present but unrecognised value is `invalid`
     if (typeof id === 'string') {
       const k = `${net}:${id}`; const at0 = seen.get(k);
       if (at0 !== undefined) { if (sats > out[at0]!.sats) out[at0] = { requestId: id, sats, at, net }; continue; }
