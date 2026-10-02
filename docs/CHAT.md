@@ -42,6 +42,9 @@ While a queue is held and the agent is idle, a fresh Enter sends right away; the
 - A message long enough to matter is shown clipped in the list (160 characters) and sent whole.
 - Ctrl+Enter only cancels the thread's own run. If only another source is busy (a room task), it just sends now and leaves that task alone.
 - The cancel goes through the normal cancel path; the interrupted run shows "Cancelled" and the new message continues the same task (and session) once the old run has unwound. No engine change was needed.
+- **IME**: while an input method is composing (Japanese, Chinese, Korean), Enter only confirms the candidate text. It never sends, queues, interrupts or saves a queue edit (`isComposing`, plus keyCode 229 for Safari's confirming Enter).
+- **Deleted tasks and agents** take their queues with them, in memory and in `sessionStorage`; nothing is ever sent to a dead task or comes back after a reload.
+- **A failed send gives the text back.** If Enter or Ctrl+Enter cannot send (offline, refused), the message returns to the input; whatever you typed meanwhile stays after it. A queued message that fails to send stays in the queue and holds it.
 - If the core says "still running" for a moment after our copy says idle (event ordering), the send is retried a few times before the queue is held.
 
 ### Implementation
@@ -49,7 +52,7 @@ While a queue is held and the agent is idle, a fresh Enter sends right away; the
 - `queue.ts`: a pure state machine (enqueue, dequeue on run end, override lock, pause, resume, clear, edit, rekey, persistence round trip with sanitising). `busy.ts`: the busy rules. Both are unit-tested (`test/chat-queue.test.ts`).
 - `queueStore.ts`: a store of its own (queue changes never write to the main app store), `sessionStorage` persistence, and the runner. The runner listens to every store write but returns after three reference comparisons unless `tasks`, `approvals` or `loaded` changed, so streaming costs nothing extra. No timers, except the retry after a 409.
 - The composer keeps its text in local state; the queue strip is memoised on two strings, so typing never re-renders it.
-- `store.ts`: `sendPromptTo(target, prompt, opts)` sends to any thread (the queue sends to threads you are not looking at); `sendPrompt` is now a thin wrapper. A task row from an HTTP response is never allowed to replace a newer one (`upsertTaskIfNewer`): a fast run's events could otherwise be overwritten by the older "queued" snapshot, leaving the UI busy forever.
+- `store.ts`: `sendPromptTo(target, prompt, opts)` sends to any thread (the queue sends to threads you are not looking at); `sendPrompt` is now a thin wrapper. A task row from an HTTP response is never allowed to replace a newer one (`upsertTaskIfNewer`, rule in `tasksync.ts`): a fast run's events could otherwise be overwritten by the older "queued" snapshot, leaving the UI busy forever. When both rows carry the same millisecond, the more advanced lifecycle state (queued, then running, then an end state) is kept, so a tie can never move a finished task back to running.
 
 ## Copy menu
 
@@ -61,8 +64,8 @@ Under every finished assistant reply: **Markdown** and **Plain text** (with a co
 - A short "Copied Markdown" / "Copied text" note appears next to the buttons for about two seconds. No animation or transition.
 - It uses `navigator.clipboard` and falls back to a hidden textarea with `execCommand('copy')` (focus returns to the button). The code blocks keep their own Copy button.
 - Menu state is local to the small `CopyMenu` component, and the message view stays memoised, so using the menu never re-renders the thread.
-- `mdparse.ts` is the one Markdown parser: `Markdown.tsx` draws its blocks, `plaintext.ts` flattens the same blocks, so the two cannot drift apart (`test/chat-copy.test.ts`).
+- `mdparse.ts` is the one Markdown parser: `Markdown.tsx` draws its blocks, `plaintext.ts` flattens the same blocks, so the two cannot drift apart (`test/chat-copy.test.ts`). It is linear: every parse step advances at least one line, fence lines are read without regex backtracking, link text and addresses are length-bounded, and a single line over 20,000 characters is shown as plain text. An odd fence line such as ```` ```js title=x ```` is ordinary text (it used to stall the parser). `test/chat-mdparse.test.ts` feeds pathological inputs to a worker thread that is killed after a few seconds.
 
 ## Proof
 
-`test-perf/chat-ui/` drives the real built UI with Playwright against a real core (real engine, real HTTP server) whose Claude SDK is scripted (`harness.mjs`): `queue.mjs` (18 checks: order and auto-send, Ctrl+Enter, pause on stop, resume and clear, edit and remove, approval hold, failed run, room-busy, reload restore, limits, slash commands, long messages), `copy.mjs` (11 checks: both variants on the real clipboard, keyboard, touch, fallback, light and dark), `perf.mjs` (typing, streaming and idle cost). Run `node test-perf/chat-ui/queue.mjs [dist-ui dir]`; Playwright is found through `PLAYWRIGHT_PATH`. The data directory is under `/tmp/m/wt-chat-home-<port>` and is removed on exit.
+`test-perf/chat-ui/` drives the real built UI with Playwright against a real core (real engine, real HTTP server) whose Claude SDK is scripted (`harness.mjs`): `queue.mjs` (25 checks: order and auto-send, Ctrl+Enter, pause on stop, resume and clear, edit and remove, approval hold, failed run, failed send, 409 retry, room-busy, reload restore, limits, slash commands, long messages, IME, deleted task and agent, text restored after a failed send), `copy.mjs` (11 checks: both variants on the real clipboard, keyboard, touch, fallback, light and dark), `perf.mjs` (typing, streaming and idle cost). Run `node test-perf/chat-ui/queue.mjs [dist-ui dir]`; Playwright is found through `PLAYWRIGHT_PATH`. The data directory is under `/tmp/m/wt-chat-home-<port>` and is removed on exit.

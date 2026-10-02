@@ -3,6 +3,7 @@ import type {
   AgentProfile, ApprovalRequest, Catalog, SettingsPatch, SettingsView, ChatMessage, DoctorCheck, LegionEvent, MascotMood, ModelChoice, StateSnapshot, Task, VmRecord,
 } from '../../src/shared/types';
 import { api, subscribe, ApiError, type ConnStatus } from './api';
+import { incomingWins } from './chat/tasksync';
 
 export type RelicState = 'idle' | 'listening' | 'thinking' | 'hacking' | 'awaiting' | 'victory' | 'error' | 'sleeping' | 'annoyed';
 
@@ -114,7 +115,7 @@ function upsertTask(tasks: Task[], t: Task): Task[] {
 /** Like upsertTask, but never replaces a task with an older snapshot (an HTTP response can arrive after the events that followed it). */
 function upsertTaskIfNewer(tasks: Task[], t: Task): Task[] {
   const cur = tasks.find((x) => x.id === t.id);
-  return cur && cur.updatedAt > t.updatedAt ? tasks : upsertTask(tasks, t);
+  return cur && !incomingWins(cur, t) ? tasks : upsertTask(tasks, t);
 }
 
 export function tasksForAgent(s: AppState, agentId: string) {
@@ -151,7 +152,12 @@ function flushDeltas() {
 }
 const flushDeltasFor = (taskId: string) => { if (pendingDelta[taskId] !== undefined) flushDeltas(); };
 
+const eventTaps = new Set<(e: LegionEvent) => void>();
+/** Observe every event BEFORE the store handles it (the queue prunes on task.deleted / agent.deleted and still sees the old state). */
+export function tapEvents(fn: (e: LegionEvent) => void): () => void { eventTaps.add(fn); return () => { eventTaps.delete(fn); }; }
+
 export function handleEvent(e: LegionEvent) {
+  eventTaps.forEach((t) => { try { t(e); } catch { /* a tap never breaks the store */ } });
   switch (e.type) {
     case 'task.updated': {
       if (e.task.status === 'done' || e.task.status === 'error' || e.task.status === 'cancelled') flushDeltasFor(e.task.id);

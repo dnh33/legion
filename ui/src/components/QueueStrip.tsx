@@ -1,4 +1,5 @@
 import { memo, useEffect, useRef, useState } from 'react';
+import { isImeKey } from '../chat/ime';
 import { clearQueue, editQueued, removeQueued, resumeQueue, sendQueuedNow, useThreadQueue } from '../chat/queueStore';
 import { Icon } from './icons';
 
@@ -57,8 +58,9 @@ export const QueueStrip = memo(function QueueStrip({ qkey, waiting }: { qkey: st
                   onChange={(e) => setDraft(e.target.value)}
                   onBlur={() => save(it.id)}
                   onKeyDown={(e) => {
+                    if (isImeKey(e.nativeEvent)) return;
                     if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); skipSave.current = true; setEditing(null); }
-                    else if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); save(it.id); }
+                    else if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); save(it.id); }
                   }} />
               ) : (
                 <button type="button" className="q-text" disabled={inFlight} title={`${it.text.slice(0, 600)}${it.text.length > 600 ? '…' : ''}\n\nClick to edit`}

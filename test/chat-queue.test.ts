@@ -293,3 +293,73 @@ test('busy: the same agent working for a room, an agent call or MCP counts; the 
   assert.equal(busyReason('z', null, [task('r1', 'z', 'queued', 'bot')], []), 'other', 'the New task view of a busy agent');
   assert.equal(busyReason('z', null, [], []), null);
 });
+
+// ---------------------------------------------------------------- HTTP snapshot vs event stream
+
+import { incomingWins } from '../ui/src/chat/tasksync.js';
+const row = (updatedAt: string, status: Task['status']) => ({ updatedAt, status });
+const T1 = '2026-10-02T10:00:00.100Z', T2 = '2026-10-02T10:00:00.101Z';
+
+test('task snapshots: no row yet takes the answer; a later updatedAt wins either way', () => {
+  assert.equal(incomingWins(undefined, row(T1, 'queued')), true);
+  assert.equal(incomingWins(row(T1, 'running'), row(T2, 'done')), true);
+  assert.equal(incomingWins(row(T2, 'done'), row(T1, 'queued')), false, 'an older answer never replaces a newer row');
+});
+
+test('task snapshots: the same millisecond keeps the more advanced state, so a late "queued" answer cannot undo a finished run', () => {
+  assert.equal(incomingWins(row(T1, 'done'), row(T1, 'queued')), false);
+  assert.equal(incomingWins(row(T1, 'error'), row(T1, 'running')), false);
+  assert.equal(incomingWins(row(T1, 'cancelled'), row(T1, 'queued')), false);
+  assert.equal(incomingWins(row(T1, 'running'), row(T1, 'queued')), false);
+  assert.equal(incomingWins(row(T1, 'queued'), row(T1, 'running')), true, 'the answer is further along');
+  assert.equal(incomingWins(row(T1, 'queued'), row(T1, 'done')), true);
+  assert.equal(incomingWins(row(T1, 'done'), row(T1, 'done')), true, 'same state: take the answer');
+  assert.equal(incomingWins(row(T1, 'done'), row(T1, 'error')), true, 'end states are peers');
+});
+
+// ---------------------------------------------------------------- deleted tasks and agents
+
+import { pruneAgent, pruneTask } from '../ui/src/chat/queue.js';
+
+test('a deleted task takes its queue with it (and a held or in-flight one too); other threads stay', () => {
+  let s = add(emptyState, 'a1', 't:a'); s = add(s, 'a2', 't:a'); s = add(s, 'b1', 't:b');
+  const began = beginSend(s, 't:a')!; s = began.state;
+  s = pruneTask(s, 'a');
+  assert.equal(queueOf(s, 't:a'), undefined);
+  assert.deepEqual(texts(s, 't:b'), ['b1']);
+  assert.equal(finishSend(s, 't:a', began.item.id, true), s, 'a send that finishes after the delete changes nothing');
+  assert.equal(pruneTask(s, 'nope'), s, 'unknown id: same state');
+  const persisted = restore(serialize(s));
+  assert.equal(queueOf(persisted, 't:a'), undefined, 'nothing comes back after a reload');
+});
+
+test('a deleted agent takes its New task queue and the queues of its tasks', () => {
+  let s = add(emptyState, 'n', 'n:scout'); s = add(s, 't1', 't:s1'); s = add(s, 't2', 't:s2'); s = add(s, 'keep', 't:z1'); s = add(s, 'keep too', 'n:zealot');
+  s = pruneAgent(s, 'scout', ['s1', 's2']);
+  assert.deepEqual(Object.keys(s.threads).sort(), ['n:zealot', 't:z1']);
+});
+
+// ---------------------------------------------------------------- IME
+
+import { isImeKey } from '../ui/src/chat/ime.js';
+
+test('IME: a key while composing (Chromium) or the Safari keyCode 229 Enter after compositionend is not a send', () => {
+  assert.equal(isImeKey({ isComposing: true, keyCode: 13 }), true);
+  assert.equal(isImeKey({ isComposing: false, keyCode: 229 }), true);
+  assert.equal(isImeKey({ keyCode: 229 }), true);
+  assert.equal(isImeKey({ isComposing: false, keyCode: 13 }), false);
+  assert.equal(isImeKey({}), false);
+});
+
+// ---------------------------------------------------------------- failed send gives the text back
+
+import { restoreDraft } from '../ui/src/chat/draft.js';
+
+test('restoreDraft: a message that failed to send comes back, and what was typed meanwhile is kept after it', () => {
+  assert.equal(restoreDraft('', 'urgent fix'), 'urgent fix');
+  assert.equal(restoreDraft('   ', 'urgent fix'), 'urgent fix');
+  assert.equal(restoreDraft('next thought', 'urgent fix'), 'urgent fix\nnext thought');
+  assert.equal(restoreDraft('urgent fix', 'urgent fix'), 'urgent fix', 'no doubling');
+  assert.equal(restoreDraft('urgent fix\nmore', 'urgent fix'), 'urgent fix\nmore');
+  assert.equal(restoreDraft('', 'multi\nline'), 'multi\nline');
+});

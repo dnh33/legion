@@ -198,6 +198,15 @@ export function prune(s: QState, keep: (key: string) => boolean): QState {
   return changed ? { threads } : s;
 }
 
+/** The task is gone (deleted): its queue goes with it, so nothing can be sent to a dead task or reappear after a reload. */
+export const pruneTask = (s: QState, taskId: string): QState => prune(s, (k) => k !== `t:${taskId}`);
+/** The agent is gone: its New task queue and the queues of all its tasks (`taskIds`, looked up before the agent left the store) go. */
+export function pruneAgent(s: QState, agentId: string, taskIds: Iterable<string>): QState {
+  const dead = new Set<string>([`n:${agentId}`]);
+  for (const id of taskIds) dead.add(`t:${id}`);
+  return prune(s, (k) => !dead.has(k));
+}
+
 /* ---------- persistence ---------- */
 
 /** Only items and holds are stored. What was in flight is not (see restore): the owner decides about it after a reload. */

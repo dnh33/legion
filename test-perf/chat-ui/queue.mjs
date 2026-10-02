@@ -309,6 +309,86 @@ try {
     await idle();
   });
 
+  await check('IME: Enter while composing (isComposing, or Safari keyCode 229 after compositionend) neither sends nor queues; a real Enter does', async () => {
+    await newThread();
+    const fire = (init) => composer(page).evaluate((el, init) => { const ev = new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true, ...init }); el.dispatchEvent(ev); return ev.defaultPrevented; }, init);
+    await composer(page).fill('ime idle text');
+    const n0 = prompts().length;
+    for (const init of [{ isComposing: true, keyCode: 229 }, { isComposing: false, keyCode: 229 }, { isComposing: true, ctrlKey: true }]) assert.equal(await fire(init), false, 'not handled: ' + JSON.stringify(init));
+    await sleep(400);
+    assert.equal(prompts().length, n0, 'nothing sent');
+    assert.equal(await composer(page).inputValue(), 'ime idle text');
+    await composer(page).press('Enter');
+    await until(() => prompts().includes('ime idle text'), 4000, 'real Enter sends');
+    await idle();
+    // busy: same, nothing queues
+    await typeEnter(page, '[slow:3000] ime busy'); await busy();
+    await composer(page).fill('ime queued text');
+    for (const init of [{ isComposing: true, keyCode: 229 }, { isComposing: false, keyCode: 229 }]) await fire(init);
+    await sleep(300);
+    assert.equal(await queueCount(page), 0, 'nothing queued while composing');
+    assert.equal(await composer(page).inputValue(), 'ime queued text');
+    await composer(page).press('Enter'); await queueN(1);
+    await composer(page).fill(''); await until(() => prompts().includes('ime queued text'), 12000, 'drained'); await idle();
+  });
+
+  await check('deleting a task removes its queue (storage too) and nothing is sent to it', async () => {
+    await newThread();
+    await typeEnter(page, '[slow:6000] delete-me run'); await busy();
+    await q('dead 1', 'dead 2'); await queueN(2);
+    await stopBtn().click(); await until(() => holdBanner().count(), 3000, 'pause');
+    await idle();
+    const id = env.store.listTasks(200).find((t) => t.title.includes('delete-me')).id;
+    const r = await fetch(`${env.base}/api/tasks/${id}`, { method: 'DELETE', headers: { Authorization: `Bearer ${env.token}`, 'X-Legion-Admin': env.admin } });
+    assert.equal(r.status, 200);
+    await until(async () => (await page.evaluate(() => sessionStorage.getItem('legion.queue.v1'))) === null, 4000, 'queue storage cleared');
+    await sleep(500);
+    assert.ok(!prompts().includes('dead 1') && !prompts().includes('dead 2'));
+    await page.reload(); await page.waitForSelector('textarea[aria-label="Message"]'); await sleep(500);
+    assert.equal(await page.locator('[data-testid="queue-strip"]').count(), 0, 'nothing restored');
+  });
+
+  await check('deleting an agent removes its queues', async () => {
+    const hdr = { Authorization: `Bearer ${env.token}`, 'X-Legion-Admin': env.admin, 'Content-Type': 'application/json' };
+    const created = await (await fetch(`${env.base}/api/agents`, { method: 'POST', headers: hdr, body: JSON.stringify({ name: 'Temp', approval: 'full' }) })).json();
+    await page.locator('.agent', { hasText: 'Temp' }).click(); await newThread();
+    await typeEnter(page, '[slow:6000] temp run'); await busy();
+    await q('temp queued'); await queueN(1);
+    assert.ok(await page.evaluate(() => (sessionStorage.getItem('legion.queue.v1') || '').includes('temp queued')));
+    const r = await fetch(`${env.base}/api/agents/${created.id}`, { method: 'DELETE', headers: hdr });
+    assert.equal(r.status, 200);
+    await until(async () => (await page.evaluate(() => sessionStorage.getItem('legion.queue.v1'))) === null, 4000, 'queue storage cleared');
+    for (const t of env.store.listTasks(200)) if (t.agentId === created.id) env.engine.cancel(t.id);
+    await page.locator('.agent', { hasText: 'Zealot' }).click();
+  });
+
+  await check('a failed Ctrl+Enter gives the text back, and keeps what was typed meanwhile', async () => {
+    await newThread();
+    await typeEnter(page, '[slow:6000] run11'); await busy();
+    await page.route('**/api/tasks', async (route) => {
+      if (route.request().method() !== 'POST') return route.continue();
+      await sleep(600);
+      return route.fulfill({ status: 500, contentType: 'application/json', body: JSON.stringify({ error: 'interrupt send failed' }) });
+    });
+    await typeEnter(page, 'urgent now', 'Control+Enter');
+    await until(async () => (await composer(page).inputValue()) === '', 2000, 'input cleared while sending');
+    await composer(page).fill('typed meanwhile');
+    await until(async () => (await composer(page).inputValue()).startsWith('urgent now'), 5000, 'text restored');
+    assert.equal(await composer(page).inputValue(), 'urgent now\ntyped meanwhile');
+    await page.unroute('**/api/tasks');
+    await composer(page).fill('');
+    await idle();
+  });
+
+  await check('a failed plain send gives the text back too', async () => {
+    await newThread();
+    await page.route('**/api/tasks', (route) => (route.request().method() === 'POST' ? route.fulfill({ status: 500, contentType: 'application/json', body: JSON.stringify({ error: 'nope' }) }) : route.continue()));
+    await typeEnter(page, 'plain send that fails');
+    await until(async () => (await composer(page).inputValue()) === 'plain send that fails', 4000, 'restored');
+    await page.unroute('**/api/tasks');
+    await composer(page).fill('');
+  });
+
   await check('thread state: no page errors', async () => { assert.deepEqual(errs, []); });
 } finally {
   console.log('page errors:', errs);

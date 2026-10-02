@@ -9,7 +9,7 @@
 import { useSyncExternalStore } from 'react';
 import type { ModelChoice, Task } from '../../../src/shared/types';
 import { api } from '../api';
-import { getState, sendPromptTo, subscribeStore, toast } from '../store';
+import { getState, sendPromptTo, subscribeStore, tapEvents, toast } from '../store';
 import { busyReason } from './busy';
 import * as Q from './queue';
 
@@ -217,6 +217,11 @@ export function startQueueRunner() {
   started = true;
   let tasks = getState().tasks, approvals = getState().approvals, loaded = getState().loaded;
   observe(tasks);
+  // a deleted task or agent takes its queues with it
+  tapEvents((e) => {
+    if (e.type === 'task.deleted') { prevStatus.delete(e.taskId); overrides.delete(e.taskId); set(Q.pruneTask(qs, e.taskId)); }
+    else if (e.type === 'agent.deleted') set(Q.pruneAgent(qs, e.agentId, getState().tasks.filter((t) => t.agentId === e.agentId).map((t) => t.id)));
+  });
   subscribeStore(() => {
     const s = getState();
     if (s.tasks === tasks && s.approvals === approvals && s.loaded === loaded) return;

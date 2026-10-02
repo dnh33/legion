@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { busyLabel, busyReason } from '../chat/busy';
+import { restoreDraft } from '../chat/draft';
+import { isImeKey } from '../chat/ime';
 import { queueOf, shouldQueue, threadKey } from '../chat/queue';
 import { enqueueMessage, getQueue, interruptAndSend, pauseQueue, startQueueRunner, takeLastQueued, useThreadQueue } from '../chat/queueStore';
 import { buildMenu, isCostly, parseSlash, runLegionCommand, LEGION_COMMANDS, type MenuItem } from '../commands';
@@ -86,7 +88,7 @@ export function Composer() {
     if (mode === 'interrupt' && (why || (q && q.items.length > 0))) {
       setText('');
       const ok = await interruptAndSend(aId, tId, raw, effectiveModel(st));
-      if (!ok) setText((cur) => (cur.trim() ? cur : raw));
+      if (!ok) setText((cur) => restoreDraft(cur, raw));
       return;
     }
     if (shouldQueue(q, !!why)) {
@@ -95,7 +97,7 @@ export function Composer() {
     }
     setText('');
     const ok = await sendPrompt(raw);
-    if (!ok) setText(raw);
+    if (!ok) setText((cur) => restoreDraft(cur, raw));
   };
 
   const accept = (m: MenuItem, viaEnter: boolean) => {
@@ -108,14 +110,15 @@ export function Composer() {
   };
 
   const onKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (isImeKey(e.nativeEvent)) return; // the IME owns this key (Enter confirms its candidate text)
     if (menuOpen && items.length) {
       if (e.key === 'ArrowDown') { e.preventDefault(); setSel((n) => (n + 1) % items.length); return; }
       if (e.key === 'ArrowUp') { e.preventDefault(); setSel((n) => (n - 1 + items.length) % items.length); return; }
       if (e.key === 'Tab' && !e.shiftKey) { e.preventDefault(); accept(items[Math.min(sel, items.length - 1)], false); return; }
-      if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); accept(items[Math.min(sel, items.length - 1)], true); return; }
+      if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); accept(items[Math.min(sel, items.length - 1)], true); return; }
     }
     if (menuOpen && e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); setDismissed(true); return; }
-    if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); void submit(text, e.ctrlKey || e.metaKey ? 'interrupt' : 'send'); return; }
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void submit(text, e.ctrlKey || e.metaKey ? 'interrupt' : 'send'); return; }
     // Up in an empty composer pulls the last queued message back for editing
     if (e.key === 'ArrowUp' && !text && !e.shiftKey && !e.ctrlKey && !e.metaKey && !e.altKey && (thread?.items.length ?? 0) > 0) {
       const back = takeLastQueued(qkey);
