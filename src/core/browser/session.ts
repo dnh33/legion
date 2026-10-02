@@ -16,6 +16,11 @@ export class SessionRefusal extends Error {
 }
 
 export interface SessionDeps {
+  /**
+   * A page Legion answers itself (the Settings "Open test page" check): requests to `url` are answered with `html` through the interception, so no
+   * network and no server is involved; requests to `probe` must be refused by the guard (they are failed, never sent, and counted).
+   */
+  internal?: { url: string; html: string; probe: string };
   launch(): Promise<RunningBrowser>;
   guard(): GuardOptions;
   resolve: Resolver;
@@ -51,6 +56,11 @@ export class BrowserSession {
   get started(): boolean { return !!this.run; }
   get hasInterception(): boolean { return this.interception; }
   get processId(): number | undefined { return this.run?.pid; }
+  /** What ran, for results and Settings ("Microsoft Edge 120.0.2210.91 (headless)"). Empty until the browser has started. */
+  get engineLabel(): string { return this.run?.label ?? ''; }
+  /** True once the built-in check page saw its probe request refused by the guard. */
+  get probeBlocked(): boolean { return this.probeRefused; }
+  private probeRefused = false;
   get closedTabsBlocked(): number { return this.extraTargets; }
 
   // ------------------------------------------------------------------ start / stop
@@ -101,8 +111,11 @@ export class BrowserSession {
       await cdp.send('Network.enable', {}, { sessionId: a.sessionId }).catch(() => undefined);
       this.interception = await cdp.send('Fetch.enable', { patterns: [{ urlPattern: '*' }] }, { sessionId: a.sessionId }).then(() => true, () => false);
       await cdp.send('Target.setDiscoverTargets', { discover: true }).catch(() => undefined);
-      // local addresses are on and the browser's own private-network block is off: without request interception nothing stops a request before it is sent
-      if (this.d.guard().allowLocal && !this.interception) { await this.resetPage(); throw new SessionRefusal('Local addresses are enabled but this browser build cannot filter requests, so no page was opened. Turn local addresses off or use a build that supports request interception.'); }
+      // the Chromium family has no private-network option of its own: every request must pass Legion's check through the Fetch domain, so a run
+      // whose interception did not start opens nothing. Downloads are denied at the browser.
+      if (!this.interception) { await this.resetPage(); throw new SessionRefusal('This browser did not accept request interception, so no page was opened (Legion checks every request itself).'); }
+      const dl = await cdp.send('Browser.setDownloadBehavior', { behavior: 'deny' }).then(() => true, () => false);
+      if (!dl) { await this.resetPage(); throw new SessionRefusal('This browser did not accept the "deny downloads" setting, so no page was opened.'); }
     }
     return { cdp, sid: this.sessionId as string };
   }
@@ -111,6 +124,7 @@ export class BrowserSession {
 
   private hostVerdict(url: string, document: boolean): Promise<string | null> {
     // address rules for every request; the domain list only for documents (a page may load images from any CDN)
+    if (this.d.internal && url === this.d.internal.url) return Promise.resolve(null);
     const g: GuardOptions = document ? this.d.guard() : { ...this.d.guard(), allowDomains: [] };
     const key = `${document ? 'd' : 's'}|${JSON.stringify(g)}|${url.split(/[?#]/)[0]}`;
     const cached = this.hostVerdicts.get(key);
@@ -136,8 +150,11 @@ export class BrowserSession {
     switch (e.method) {
       case 'Network.requestWillBeSent': {
         const url = e.params?.request?.url;
-        if (typeof url !== 'string' || url.startsWith('data:') || url.startsWith('about:')) return;
+        if (typeof url !== 'string') return;
         const isDoc = e.params?.type === 'Document';
+        if (this.d.internal && (url === this.d.internal.url || url === this.d.internal.probe)) return;
+        if (isDoc && !/^https?:/i.test(url) && url !== ABOUT_BLANK) { this.violation ??= `a navigation to a non-web address (${shortUrl(url.split(':')[0] + ':')}) was refused`; return; }
+        if (url.startsWith('data:') || url.startsWith('about:')) return;
         if (e.params?.redirectResponse && isDoc) {
           this.hops++;
           if (this.hops > this.lim.maxRedirectHops) this.violation ??= `too many redirects (more than ${this.lim.maxRedirectHops})`;
@@ -150,7 +167,23 @@ export class BrowserSession {
         const id = e.params?.requestId; const url = e.params?.request?.url;
         if (typeof id !== 'string' || !cdp) return;
         const isDoc = e.params?.resourceType === 'Document';
-        const decide = typeof url === 'string' && !url.startsWith('data:') && !url.startsWith('about:') ? this.hostVerdict(url, isDoc) : Promise.resolve<string | null>(null);
+        const inner = this.d.internal;
+        if (inner && typeof url === 'string' && isDoc && url === inner.url) {
+          // Legion answers its own check page: no request leaves the browser
+          this.checks.push(cdp.send('Fetch.fulfillRequest', { requestId: id, responseCode: 200, responseHeaders: [{ name: 'Content-Type', value: 'text/html; charset=utf-8' }], body: Buffer.from(inner.html, 'utf8').toString('base64') }, { sessionId: this.sessionId ?? undefined }).then(() => undefined, () => undefined));
+          return;
+        }
+        if (inner && typeof url === 'string' && url === inner.probe) {
+          // the check page's deliberate request to a forbidden address: it must be refused by the guard; it is failed here and never sent
+          this.checks.push(this.hostVerdict(url, false).then(async (bad) => {
+            this.probeRefused = !!bad;
+            if (bad) await cdp.send('Fetch.failRequest', { requestId: id, errorReason: 'BlockedByClient' }, { sessionId: this.sessionId ?? undefined }).catch(() => undefined);
+            else { this.violation ??= 'the guard let the check page\'s forbidden request through'; await cdp.send('Fetch.failRequest', { requestId: id, errorReason: 'BlockedByClient' }, { sessionId: this.sessionId ?? undefined }).catch(() => undefined); }
+          }));
+          return;
+        }
+        const nonWebDoc = isDoc && typeof url === 'string' && !/^https?:/i.test(url) && url !== ABOUT_BLANK;
+        const decide = nonWebDoc ? Promise.resolve<string | null>('a navigation to a non-web address') : typeof url === 'string' && !url.startsWith('data:') && !url.startsWith('about:') ? this.hostVerdict(url, isDoc) : Promise.resolve<string | null>(null);
         const p = decide.then(async (bad) => {
           if (bad) { this.violation ??= `a request to ${shortUrl(String(url))} was refused: ${bad}`; await cdp.send('Fetch.failRequest', { requestId: id, errorReason: 'BlockedByClient' }, { sessionId: this.sessionId ?? undefined }).catch(() => undefined); }
           else await cdp.send('Fetch.continueRequest', { requestId: id }, { sessionId: this.sessionId ?? undefined }).catch(() => undefined);
@@ -205,7 +238,7 @@ export class BrowserSession {
   private async verifyLanding(cdp: CdpPort, sid: string, before: string | null): Promise<PageView> {
     await this.settle(0);
     const v = await this.view(cdp, sid);
-    if (!this.violation && v.url && v.url !== ABOUT_BLANK) {
+    if (!this.violation && v.url && v.url !== ABOUT_BLANK && !(this.d.internal && v.url === this.d.internal.url)) {
       const fin = await checkUrlResolved(v.url, this.d.guard(), this.d.resolve);
       if (!fin.ok) this.violation = `the page ended up at ${shortUrl(v.url)}: ${fin.reason}`;
     }
@@ -214,7 +247,7 @@ export class BrowserSession {
       await this.resetPage();
       throw new SessionRefusal(`Refused: ${why}. The page was closed and none of its content was returned.`);
     }
-    if (v.url && v.url !== before) {
+    if (v.url && v.url !== before && !(this.d.internal && v.url === this.d.internal.url)) {
       const origin = safeOrigin(v.url);
       if (origin && !this.origins.has(origin)) {
         const ok = await this.d.approveOrigin(origin, v.url);
