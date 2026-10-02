@@ -7,6 +7,8 @@ import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { adminForRenderer, bsvConfirmation, bsvPreflight, coreAction, coreIsBusy, dialogText, killPlan, listenerCommands, listenerPids, parseBsvAction, trustedSender, type BsvAction, type BsvPolicyFacts, type CoreHealth } from './admin-logic.js';
+import { makeConfirm, providerChange } from './provider-ipc.js';
+import type { ProviderChangeResult } from './provider-ipc.js';
 
 const here = dirname(fileURLToPath(import.meta.url)); // <root>/dist/src/electron
 const root = resolve(here, '..', '..', '..');
@@ -254,7 +256,7 @@ async function restartCore(): Promise<void> {
 }
 
 /** A request to our own core, with the admin secret (and the native secret when asked). undefined = we hold no proven core of our own. */
-async function ownCoreCall(method: 'GET' | 'POST', route: string, body?: unknown, native = false): Promise<{ status: number; json: any } | undefined> {
+async function ownCoreCall(method: 'GET' | 'POST' | 'PUT', route: string, body?: unknown, native = false): Promise<{ status: number; json: any } | undefined> {
   const live = !!coreProc && coreProc.exitCode === null;
   if (!live || !adminSecret || !rendererAdmin || !pinned) return undefined; // only a core that proved it holds our secret ever sees it
   const headers: Record<string, string> = { 'X-Legion-Admin': adminSecret };
@@ -465,6 +467,11 @@ if (!app.requestSingleInstanceLock()) {
     const frameUrl = (e as { senderFrame?: { url?: string } }).senderFrame?.url;
     if (!win || win.isDestroyed() || (e as { sender?: unknown }).sender !== win.webContents || !trustedSender(frameUrl, uiUrl)) return { ok: false, error: 'Refused: not the Legion window.' };
     try { return await bsvPolicyChange(raw); } catch { return { ok: false, error: 'The change failed.' }; }
+  });
+  ipcMain.handle('legion:provider-change', async (e, raw: unknown): Promise<ProviderChangeResult> => {
+    const frameUrl = (e as { senderFrame?: { url?: string } }).senderFrame?.url;
+    if (!win || win.isDestroyed() || (e as { sender?: unknown }).sender !== win.webContents || !trustedSender(frameUrl, uiUrl)) return { ok: false, error: 'Refused: not the Legion window.' };
+    try { return await providerChange(raw, { call: ownCoreCall, confirm: makeConfirm(dialog, () => win) }); } catch { return { ok: false, error: 'The change failed.' }; }
   });
   ipcMain.handle('legion:open-external', (_e, url: unknown) => {
     if (typeof url === 'string' && isHttp(url)) { void shell.openExternal(url); return true; }

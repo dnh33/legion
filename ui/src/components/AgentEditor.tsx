@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import type { AgentProfile, ApprovalMode, ModelChoice, VmSize } from '../../../src/shared/types';
 import { AUTO_INFO, groupModels, modelList } from '../models';
 import { loadCatalog, removeAgent, saveAgent, useStore } from '../store';
+import { providerModelGroups, loadProviders, useProviders } from '../providers/providersStore';
 import { Modal } from './Modal';
 
 export function AgentEditor({ id }: { id: string | null }) {
@@ -16,11 +17,14 @@ export function AgentEditor({ id }: { id: string | null }) {
   const [size, setSize] = useState<VmSize>(existing?.vm.size ?? 'default');
   const [idle, setIdle] = useState(existing?.vm.idleStopMinutes ?? 15);
   const catalog = useStore((s) => s.catalog);
-  useEffect(() => { if (!catalog) void loadCatalog(); }, []);
+  useEffect(() => { if (!catalog) void loadCatalog(); void loadProviders(); }, []);
+  const provView = useProviders((x) => x.view);
+  const provGroups = providerModelGroups(provView);
+  const onProvider = /^[a-z][a-z0-9-]{1,31}:./.test(model) && !model.startsWith('arn:');
   const { models, fallback } = modelList(catalog);
   const grouped = groupModels(catalog);
   const opts = models.some((m) => m.value === model) || model === 'auto' ? models : [...models, { value: model, displayName: model, description: '' }];
-  const known = [...grouped.current, ...grouped.more].some((m) => m.value === model) || model === 'auto';
+  const known = [...grouped.current, ...grouped.more].some((m) => m.value === model) || model === 'auto' || provGroups.some((g) => g.models.some((m) => `${g.id}:${m}` === model));
   const desc = model === 'auto' ? AUTO_INFO : opts.find((m) => m.value === model)?.description;
   const trial = useStore((s) => s.boatHealth?.trial.limited === true);
   const sizeNote = size === 'default'
@@ -65,7 +69,9 @@ export function AgentEditor({ id }: { id: string | null }) {
               {!known && <option value={model}>{model}</option>}
               <optgroup label={grouped.more.length ? 'Current models' : 'Models'}>{grouped.current.map((m) => <option key={m.value} value={m.value}>{m.displayName}</option>)}</optgroup>
               {grouped.more.length > 0 && <optgroup label="More models">{grouped.more.map((m) => <option key={m.value} value={m.value}>{m.displayName}</option>)}</optgroup>}
+              {provGroups.map((g) => <optgroup key={g.id} label={`${g.label} (not Claude)`}>{g.models.map((m) => <option key={`${g.id}:${m}`} value={`${g.id}:${m}`}>{m}</option>)}</optgroup>)}
             </select>
+            {onProvider && <span className="field-note">Runs outside Claude, on {provView?.providers.find((x) => model.startsWith(x.id + ':'))?.label ?? 'a provider'}: Legion's own tools only, no file, shell or web tools. See Settings, Providers.</span>}
             <span className="field-note">{desc}{fallback && catalog?.error ? ' Couldn\u2019t load the full model list from Claude Code.' : ''}</span>
           </label>
           <label className="grow">Approvals

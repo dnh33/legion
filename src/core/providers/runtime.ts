@@ -10,6 +10,7 @@ import { PROVIDER_ID_RE } from './config.js';
 import type { ProviderKeys } from './secrets.js';
 import { runToolLoop } from './tool-loop.js';
 import type { ProviderEntry, ProviderHost, ProviderRunResult, ProvidersConfig, ResolvedModel } from './types.js';
+import type { ProviderView, ProvidersView } from '../../shared/providers-view.js';
 
 export interface RuntimeDeps {
   /** Live: Settings edits replace `providers` on this object. */
@@ -20,14 +21,7 @@ export interface RuntimeDeps {
   turn?: typeof chatTurn;
 }
 
-export interface ProviderView {
-  id: string; label: string; baseUrl: string; enabled: boolean; preset: boolean; needsKey: boolean; note?: string;
-  keySet: boolean; keyHint?: string; keyMatchesAddress: boolean; keyless: boolean; allowPrivateNetwork: boolean;
-  loopback: boolean; models: string[]; hasPrices: boolean;
-  status: string;
-  lastTest?: { at: string; ok: boolean; detail: string };
-}
-export interface ProvidersView { providers: ProviderView[]; maxTurns: number; maxToolCallsPerTurn: number; dropped: string[]; cannotDo: string[]; }
+export type { ProviderView, ProvidersView } from '../../shared/providers-view.js';
 
 /** What a provider-run agent cannot do, in the words the UI shows. */
 export const PROVIDER_LIMITS_TEXT: string[] = [

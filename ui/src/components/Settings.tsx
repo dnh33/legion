@@ -7,10 +7,12 @@ import { BLENDER_LICENSE_NOTE } from '../../../src/shared/blender';
 import { LOCAL_SAFETY_NOTE, MODE_CHOICES, NOT_TRIED_LOCAL, NOT_TRIED_VM, visibleNotices } from '../blender/copy';
 import { lightLabel, loadBlender, runBlenderLaunch, runBlenderSetup, runBlenderTest, saveBlenderConfig, useBlender } from '../blender/blenderStore';
 import '../blender/blender.css';
+import { ProvidersSection } from '../providers/ProvidersSection';
 import { Icon } from './icons';
 
 const NAV: { id: SettingsSection; label: string; hint: string }[] = [
   { id: 'claude', label: 'Claude', hint: 'Sign-in, key, runs' },
+  { id: 'providers', label: 'Providers', hint: 'Other models, optional' },
   { id: 'boat', label: 'boat.dev (VMs)', hint: 'Cloud computers' },
   { id: 'mcp', label: 'MCP servers', hint: 'Extra tools for agents' },
   { id: 'blender', label: 'Blender', hint: 'Build 3D with the Sculptor' },
@@ -37,6 +39,7 @@ export function SettingsPanel() {
         <div className="set-body">
           {!settings ? <div className="set-loading"><span className="spin" /> Loading settings{'…'}</div> : (
             section === 'claude' ? <ClaudeSection s={settings} />
+              : section === 'providers' ? <ProvidersSection />
               : section === 'boat' ? <BoatSection s={settings} />
                 : section === 'mcp' ? <McpSection s={settings} />
                   : section === 'blender' ? <BlenderSection />

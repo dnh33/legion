@@ -1,4 +1,5 @@
 import type { Catalog, CatalogModel } from '../../src/shared/types';
+import { providerModelLabel } from './providers/providersStore';
 
 /** Shown when Claude Code's model list is unavailable, so the picker is never empty. */
 export const FALLBACK_MODELS: CatalogModel[] = [
@@ -46,6 +47,8 @@ const norm = (x: string) => x.toLowerCase().replace(/[^a-z0-9.]+/g, '');
 export function modelLabel(c: Catalog | null, value: string | undefined): string {
   if (!value) return '';
   if (value === 'auto') return 'Auto';
+  const viaProvider = providerModelLabel(value);
+  if (viaProvider) return viaProvider;
   const v = norm(value);
   const hit = c?.models.find((m) => norm(m.value) === v || (m.resolvedModel && norm(m.resolvedModel) === v) || norm(m.displayName) === v);
   if (hit) return hit.displayName;
@@ -54,7 +57,7 @@ export function modelLabel(c: Catalog | null, value: string | undefined): string
   return value.charAt(0).toUpperCase() + value.slice(1);
 }
 
-const VALID = /^[A-Za-z0-9._:[\]-]{1,80}$/;
+const VALID = /^[A-Za-z0-9._:/[\]-]{1,80}$/;
 /** Resolves user input (value, display name or alias) to a model choice, or null if it cannot be one. */
 export function resolveModel(c: Catalog | null, input: string): string | null {
   const t = input.trim();
