@@ -25,7 +25,7 @@ Living tracker for the v1 release. Updated 2026-10-02 by Claude Code on the PC. 
 | R1 | Room spend limit defaults to none (hub budget guard must accept "no budget"; member cap 6 unchanged) | todo |
 | K1 | Lazy key probe | todo |
 | U1 | Builder → `default` on upgrade | todo |
-| B | Packaging: setup-yes.cmd / non-blocking setup, version, CHANGELOG, README, licences; **public-repo audit** (no secrets, licence/NOTICE) | todo |
+| B | Packaging: setup-yes.cmd / non-blocking setup, version, CHANGELOG, README, licences; **public-repo audit** (no secrets, licence/NOTICE) | branch `claude/release-packaging`: audit done (`tracker-public-audit.md`: no secrets, no rewrite needed; owner decision on unverified BSV-pack sources), installer + docs + NOTICE done; version bump and CHANGELOG finalise still open; real-PC installer check open |
 | C | boat.dev + Blender real-system verification (owner present) | todo |
 | D | Blender follow-ups (pin add-on, extension install path, busy-while-running, line counts) | todo |
 | E | Real-PC sweep (§6.2) | todo |
