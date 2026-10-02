@@ -386,3 +386,21 @@ test('service: onChange fires for a new network or a lost wallet, not for an unc
   await svc.check(); await svc.check();
   assert.deepEqual(changes, ['unknown->test', 'test->main']);
 });
+
+test('connectedUrl: the address only while connected, enabled and loopback; never before Connect, after Disconnect or while off', async () => {
+  let on = true;
+  let url: string | undefined = 'http://127.0.0.1:45012';
+  const svc = new WalletProbeService({ getUrl: () => url, enabled: () => on, transport: async () => ({ status: 200, body: '{}' }) });
+  assert.equal(svc.connectedUrl, undefined, 'configured but not connected');
+  assert.equal(svc.connect().ok, true);
+  assert.equal(svc.connectedUrl, 'http://127.0.0.1:45012');
+  on = false;
+  assert.equal(svc.connectedUrl, undefined, 'BSV mode off');
+  on = true;
+  url = 'http://203.0.113.7:3000';
+  assert.equal(svc.connectedUrl, undefined, 'a non-loopback address is never handed out');
+  url = 'http://127.0.0.1:45012';
+  svc.disconnect();
+  assert.equal(svc.connectedUrl, undefined, 'after Disconnect');
+  assert.deepEqual([...PROBE_METHODS], ['getVersion', 'getNetwork', 'isAuthenticated', 'getHeight'], 'the probe method list is unchanged');
+});

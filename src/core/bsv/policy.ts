@@ -233,6 +233,9 @@ export interface PolicyOptions {
   /** Executed spends from earlier sessions (rebuilt from the audit log), so a restart does not reset the rolling 24 h cap. */
   ledger?: LedgerRecord[];
   sessionId?: string;
+  /** Spends an earlier session left without an outcome (rebuilt from the audit log by the module). Each becomes an `unknown` record: it keeps
+   *  its reservation, blocks every new spend, and is cleared only by `resolveUnknown`. This is not an "allow": nothing here loosens a check. */
+  unknown?: Array<{ requestId: string; agentId: string; totalSats: number }>;
 }
 
 export class PolicyEngine {
@@ -254,6 +257,15 @@ export class PolicyEngine {
     this.emit = (e) => { try { o.onEvent?.(e); } catch { /* an observer must not break the policy */ } };
     this.ledger = (o.ledger ?? []).filter((r) => isSats(r.sats) && Number.isFinite(r.at)).map((r) => ({ ...r }));
     this.sessionId = o.sessionId ?? `s${Math.floor(this.clock.wall())}`;
+    const now = this.clock.wall();
+    for (const u of o.unknown ?? []) {
+      if (!u || typeof u.requestId !== 'string' || !REQUEST_ID.test(u.requestId) || !isSats(u.totalSats) || this.requests.has(u.requestId)) continue;
+      const decision: Decision = { verdict: 'deny', requestId: u.requestId, reasons: ['an earlier session left this spend without a known outcome'], requiredConfirmations: ['approve'] };
+      this.requests.set(u.requestId, {
+        requestId: u.requestId, hash: '', status: 'unknown', agentId: safeId(u.agentId), taskId: '', network: 'test', totalSats: u.totalSats,
+        createdAt: now, expiresAt: 0, settledAt: now, decision, required: Object.freeze(['approve'] as Confirmation[]),
+      });
+    }
   }
 
   // ---------------------------------------------------------------- time, arming, freezing
@@ -603,10 +615,15 @@ export class PolicyEngine {
 /** The executed spends in an audit log (decision "executed" with a numeric `sats` field), for rebuilding the rolling window after a restart. */
 export function ledgerFromAudit(entries: ReadonlyArray<{ decision: string; ts: string; fields: Record<string, unknown> }>): LedgerRecord[] {
   const out: LedgerRecord[] = [];
+  // one spend can be written more than once (the spend path and the engine's event each record it): a request id counts once, the first line wins
+  const seen = new Set<string>();
   for (const e of entries) {
     if (e.decision !== 'executed') continue;
     const sats = e.fields.sats; const at = Date.parse(e.ts);
-    if (isSats(sats) && Number.isFinite(at)) out.push({ requestId: typeof e.fields.requestId === 'string' ? e.fields.requestId : 'audit', sats, at });
+    if (!isSats(sats) || !Number.isFinite(at)) continue;
+    const id = e.fields.requestId;
+    if (typeof id === 'string') { if (seen.has(id)) continue; seen.add(id); }
+    out.push({ requestId: typeof id === 'string' ? id : 'audit', sats, at });
   }
   // ordered by the time of the spend, never by where the line sits in the file (a rotated or restored file is not in time order)
   return out.sort((a, b) => a.at - b.at);

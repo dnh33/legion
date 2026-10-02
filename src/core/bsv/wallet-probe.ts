@@ -298,6 +298,13 @@ export class WalletProbeService {
 
   get connected(): boolean { return this.connectedFlag; }
 
+  /** The address Legion may talk to: the configured URL, only while the owner is connected, BSV mode is on and the address is loopback. Otherwise undefined. */
+  get connectedUrl(): string | undefined {
+    if (!this.connectedFlag || !this.o.enabled()) return undefined;
+    const raw = this.o.getUrl();
+    return raw && parseWalletUrl(raw).ok ? raw : undefined;
+  }
+
   private idle(): WalletIdle {
     if (!this.o.enabled()) return 'off';
     const t = this.target();

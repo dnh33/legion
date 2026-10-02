@@ -22,30 +22,25 @@ export class BsvState {
     const fromConfig = (opts.config as { bsv?: unknown } | undefined)?.bsv;
     const norm = fromConfig !== undefined ? normalizeBsv(fromConfig) : this.readFallback();
     this.on = norm.enabled;
-    this.url = norm.walletUrl;
+    // A wallet address in config.json is NOT read: a hand-edited file must not choose where Legion connects. Only Connect sets it, in memory.
+    this.url = undefined;
   }
 
   get enabled(): boolean { return this.on; }
-  /** The configured wallet URL for the status probe (loopback is enforced by the probe, not here). */
+  /** The wallet URL the owner typed in this launch (memory only; never read from disk). Loopback is enforced by the probe, not here. */
   get walletUrl(): string | undefined { return this.url; }
   readonly network = 'testnet' as const;
 
   /**
-   * The address the owner typed for the wallet. Kept in memory first (the owner just confirmed it), then saved with the flag. Throws when it
-   * cannot be saved; the address stays in effect for this launch. There is no default address anywhere.
+   * The address the owner typed for the wallet, kept in memory for this launch only (never written to disk, never read back from it).
+   * There is no default address anywhere.
    */
-  setWalletUrl(url: string): void {
-    this.url = url;
-    const next: BsvConfig = { enabled: this.on, network: 'testnet', walletUrl: url };
-    const cfg = this.opts.config as { bsv?: BsvConfig } | undefined;
-    if (cfg) cfg.bsv = next;
-    this.persist(next);
-  }
+  setWalletUrl(url: string): void { this.url = url; }
 
   /** Returns true when the flag changed. Throws (and keeps the old value) when it cannot be saved. */
   set(enabled: boolean): boolean {
     if (enabled === this.on) return false;
-    const next: BsvConfig = { enabled, network: 'testnet', ...(this.url ? { walletUrl: this.url } : {}) };
+    const next: BsvConfig = { enabled, network: 'testnet' };
     this.persist(next);
     this.on = enabled;
     const cfg = this.opts.config as { bsv?: BsvConfig } | undefined;

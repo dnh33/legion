@@ -542,7 +542,7 @@ test('4: there is no default wallet address anywhere: the probe exports none, a 
   const transport: Transport = async (r) => { calls.push(r); return { status: 200, body: '{}' }; };
   const r = await probeModule.probeWallet({ transport });
   assert.equal(r.error, 'rejected-url'); assert.deepEqual(r.sent, []);
-  // an address saved in config.json by an earlier Connect is remembered, but a restart does not contact it
+  // a wallet address in config.json (hand-edited, or left by an older version) is IGNORED: only Connect sets an address, in memory
   const dir = mkdtempSync(join(tmpdir(), 'legion-bsvfix-'));
   writeFileSync(join(dir, 'config.json'), JSON.stringify({ bsv: { enabled: true, network: 'testnet', walletUrl: WALLET_URL } }));
   const f = makeFakes();
@@ -551,9 +551,19 @@ test('4: there is no default wallet address anywhere: the probe exports none, a 
   const mod = createBsvModule({ config: f.ctx.config, store: f.ctx.store, bus: f.bus, engine: f.ctx.engine, approvals: f.ctx.approvals, dataDir: dir, bsvEnabled: () => true }, { state, transport: wal.transport, probeMinIntervalMs: 0 });
   await mod.start();
   for (let i = 0; i < 3; i++) await mod.probe.check();
-  assert.equal(wal.w.calls.length, 0, 'enabled, address saved, still nothing is contacted until Connect');
-  assert.equal(mod.probe.cached().condition, 'not-connected');
-  assert.equal(mod.probe.cached().url, '127.0.0.1:45001');
+  assert.equal(wal.w.calls.length, 0, 'enabled, a hand-edited address in config.json, still nothing is contacted');
+  assert.equal(state.walletUrl, undefined, 'the hand-edited address was not read');
+  assert.equal(mod.probe.connect().ok, false, 'Connect has no address to use until the owner types one');
+  assert.equal(mod.probe.connectedUrl, undefined);
+  for (let i = 0; i < 3; i++) await mod.probe.check();
+  assert.equal(wal.w.calls.length, 0, 'zero requests until the owner sets an address and presses Connect');
+  assert.equal(mod.probe.cached().condition, 'not-configured');
+  state.setWalletUrl('http://127.0.0.1:45002');
+  assert.equal(mod.probe.connect().ok, true);
+  assert.equal(mod.probe.connectedUrl, 'http://127.0.0.1:45002');
+  await mod.probe.check();
+  assert.ok(wal.w.calls.length > 0, 'after Connect the typed address is used');
+  assert.equal(JSON.parse(readFileSync(join(dir, 'config.json'), 'utf8')).bsv.walletUrl, WALLET_URL, 'and the typed address is never written back over the file');
 });
 
 test('4: bsv_status before Connect contacts nothing and says so; after Connect it asks the four questions', async () => {

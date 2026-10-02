@@ -588,3 +588,44 @@ test('fmtBsv uses integer maths', () => {
   assert.equal(fmtBsv(0), '0.00000000'); assert.equal(fmtBsv(1), '0.00000001'); assert.equal(fmtBsv(123456789), '1.23456789'); assert.equal(fmtBsv(2_100_000_000_000_000), '21000000.00000000');
   assert.equal(DAY_MS, 86_400_000);
 });
+
+// ---------------------------------------------------------------- seeded unknown outcomes (restore from the audit log)
+
+test('unknown option: a seeded unknown keeps its reservation, blocks every spend and the engine still has no allow verdict', () => {
+  const clock = new FakeClock();
+  const e = new PolicyEngine({ clock, sessionId: 's1', config: { caps: { ...DEFAULT_CAPS }, allowlist: [ALICE], frozen: null }, unknown: [{ requestId: 'old-unknown-1', agentId: 'assayer', totalSats: 700 }] });
+  const s = e.snapshot();
+  assert.deepEqual(s.unknown, [{ requestId: 'old-unknown-1', agentId: 'assayer', totalSats: 700 }]);
+  assert.equal(s.usage.reservedSats, 700, 'the reservation is kept');
+  const d = e.evaluate(req());
+  assert.equal(d.verdict, 'deny');
+  assert.match(d.reasons.join(' '), /unknown outcome/);
+  assert.equal(e.status('old-unknown-1'), 'unknown');
+  clock.advance(DAY_MS * 2);
+  assert.equal(e.status('old-unknown-1'), 'unknown', 'time never clears it');
+  assert.equal(e.approve('old-unknown-1', { cardHash: '', confirmations: ['approve'], walletNetwork: 'test' }).ok, false, 'it cannot be approved');
+  assert.equal(e.settle('old-unknown-1', { kind: 'executed', sats: 700 }).ok, false, 'it cannot be settled');
+  assert.equal(e.resolveUnknown('old-unknown-1', { kind: 'not-sent' }), true, 'only the owner resolution clears it');
+  assert.equal(e.snapshot().usage.reservedSats, 0);
+  assert.equal(e.evaluate(req()).verdict, 'needs_approval');
+});
+
+test('unknown option: a seeded reservation counts against the caps; bad entries are dropped; resolving "sent" moves it into the ledger', () => {
+  const e = new PolicyEngine({ clock: new FakeClock(), sessionId: 's1', config: { caps: { ...DEFAULT_CAPS }, allowlist: [ALICE], frozen: null }, unknown: [
+    { requestId: 'short', agentId: 'a', totalSats: 1 }, { requestId: 'old-unknown-2', agentId: 'a', totalSats: -5 }, { requestId: 'old-unknown-3', agentId: 'a', totalSats: 0.5 },
+    { requestId: 'old-unknown-4', agentId: 'a', totalSats: 900 }, { requestId: 'old-unknown-4', agentId: 'a', totalSats: 5 },
+  ] });
+  assert.deepEqual(e.snapshot().unknown.map((u) => [u.requestId, u.totalSats]), [['old-unknown-4', 900]]);
+  assert.equal(e.resolveUnknown('old-unknown-4', { kind: 'sent', sats: 900 }), true);
+  assert.equal(e.snapshot().usage.last24hSats, 900);
+});
+
+test('ledgerFromAudit: duplicate executed lines for one request id count once; lines without an id and distinct ids all count', () => {
+  const line = (requestId: unknown, sats: number, ts: string) => ({ decision: 'executed', ts, fields: requestId === undefined ? { sats } : { requestId, sats } });
+  const t = '2026-10-02T10:00:00.000Z';
+  const rec = ledgerFromAudit([line('req-aaaaaaaa', 600, t), line('req-aaaaaaaa', 600, '2026-10-02T10:00:01.000Z'), line('req-bbbbbbbb', 300, t), line(undefined, 100, t), line(undefined, 100, t)]);
+  assert.equal(rec.length, 4);
+  assert.equal(rec.reduce((a, r) => a + r.sats, 0), 600 + 300 + 100 + 100);
+  const e = new PolicyEngine({ clock: { wall: () => Date.parse('2026-10-02T11:00:00.000Z'), mono: () => 1 }, ledger: rec, config: { caps: { ...DEFAULT_CAPS }, allowlist: [ALICE], frozen: null } });
+  assert.equal(e.snapshot().usage.last24hSats, 1100, 'the 24 h window sees one 600 sat spend, not two');
+});
