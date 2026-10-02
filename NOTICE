@@ -51,9 +51,11 @@ lists its sources and what we recorded about their licence in its `sources` fiel
 b-open-io/1sat-university (CC BY 4.0, https://creativecommons.org/licenses/by/4.0/; attribution: the 1Sat
 University authors, https://github.com/b-open-io/1sat-university; summarised and adapted), documentation and
 code from the BSV Association and bsv-blockchain repositories (Open BSV License, a modified MIT whose grant is
-limited to the BSV blockchain and its testnets) and BRC standards (bsv.brc.dev). Some sources had no licence we
-could read; for those the pack states the fact in fresh words and copies no text. Legion includes no code from any
-of these projects. Trademarks belong to their owners.
+limited to the BSV blockchain and its testnets) and BRC standards (bsv.brc.dev). The licence status of some
+sources was not established: for many notes the licence we could read was missing or unverified, as the `sources`
+field of each note records. The notes are written in our own words from public documentation; we did not
+check every note against its source word for word. If you are a rights holder and want a note changed or removed,
+please open an issue. Legion includes no code from any of these projects. Trademarks belong to their owners.
 
 Fonts (bundled in ui/src/fonts/)
 --------------------------------
