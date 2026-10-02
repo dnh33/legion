@@ -42,6 +42,7 @@ export function buildCommsToolsServer(agentId: string, hub: CommsHub, run?: { ta
     },
     (a) => guard(() => {
       const m = hub.botSend(agentId, a.to, a.text, a.replyTo, sender());
+      if (m.duplicate) return json({ messageId: m.id, roomId: m.roomId, duplicate: true, note: 'You already sent this message a moment ago; it was not sent again.' });
       return json({ messageId: m.id, roomId: m.roomId, hop: m.hop, note: 'Delivered asynchronously; the answer will arrive as a message from that bot.' });
     }),
   );
@@ -56,6 +57,7 @@ export function buildCommsToolsServer(agentId: string, hub: CommsHub, run?: { ta
     },
     (a) => guard(() => {
       const m = hub.roomPost(agentId, a.room, a.text, a.mention, sender());
+      if (m.duplicate) return json({ messageId: m.id, roomId: m.roomId, duplicate: true, note: 'You already posted this a moment ago; it was not posted again.' });
       return json({ messageId: m.id, roomId: m.roomId, hop: m.hop, to: m.to });
     }),
   );
@@ -93,7 +95,8 @@ export function buildCommsToolsServer(agentId: string, hub: CommsHub, run?: { ta
     },
     (a) => guard(() => {
       const m = hub.handoff(agentId, a.room, a.to, a.summary, sender());
-      return json({ messageId: m.id, roomId: m.roomId, hop: m.hop, newLead: m.to[0] });
+      if (m.duplicate) return json({ messageId: m.id, roomId: m.roomId, duplicate: true, newLead: m.to[0], note: 'This handoff was already made a moment ago; nothing was sent again.' });
+      return json({ messageId: m.id, roomId: m.roomId, hop: m.hop, newLead: m.to[0], note: 'Handed off. Your final answer in this turn will not wake anyone; end your turn now.' });
     }),
   );
 

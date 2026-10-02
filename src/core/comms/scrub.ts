@@ -228,6 +228,22 @@ export function normaliseForCycle(text: string): string {
   return text.toLowerCase().replace(/[^\p{L}\p{N}\s]/gu, ' ').replace(/\s+/g, ' ').trim();
 }
 
+/** Text compared for "the same message again": @mentions and punctuation do not count, case does not, whitespace collapses. */
+export function dupText(text: string): string {
+  return normaliseForCycle(text.replace(/(?<![\w@.-])@[\p{L}\p{N}_.-]+/gu, ' ')).slice(0, 4000);
+}
+
+/** Equal after dupText, or (for texts of at least four words) sharing at least 90% of their distinct words. Both inputs are dupText output. */
+export function nearDuplicate(a: string, b: string): boolean {
+  if (!a || !b) return false;
+  if (a === b) return true;
+  const A = new Set(a.split(' ')); const B = new Set(b.split(' '));
+  if (A.size < 4 || B.size < 4) return false;
+  let both = 0;
+  for (const w of A) if (B.has(w)) both++;
+  return both / (A.size + B.size - both) >= 0.9;
+}
+
 export function cycleHash(text: string): string {
   return createHash('sha1').update(normaliseForCycle(text)).digest('hex');
 }

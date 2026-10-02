@@ -12,7 +12,7 @@ import { stricterMode } from '../approvals.js';
 import type { EventBus } from '../bus.js';
 import { RoomStore } from './rooms.js';
 import type { HubState, TaskMapEntry } from './rooms.js';
-import { clip, containsSeedPhrase, cycleHash, neutralizeTags, safeName, scrubSecrets } from './scrub.js';
+import { clip, containsSeedPhrase, cycleHash, dupText, neutralizeTags, nearDuplicate, safeName, scrubSecrets } from './scrub.js';
 
 // ------------------------------------------------------------------ public types
 
@@ -35,6 +35,8 @@ export interface HubOptions {
   isVisible?: (a: AgentProfile) => boolean;
   /** Injected for tests (cooldowns). */
   now?: () => number;
+  /** What a turn is assumed to cost in a room that has no turn history yet (USD). Default 0.02. */
+  turnCostFloorUsd?: number;
 }
 
 /** Thrown for caller mistakes; carries the HTTP status the route layer should use. */
@@ -55,6 +57,12 @@ export const MAX_TEXT = 20_000;
 export const ROOM_READ_MAX_CHARS = 8_000;
 const MAX_MEMBERS = 6;
 const INBOX_CAP = 50;
+/** The next turn is estimated as the dearest of this room's last turns. */
+const TURN_HISTORY = 4;
+const DEFAULT_TURN_FLOOR_USD = 0.02;
+/** The same words by the same bot in the same room inside this window are one message. */
+const DUP_WINDOW_MS = 60_000;
+const RECENT_POSTS = 6;
 const STRATEGIES: RoomStrategy[] = ['mention', 'manager', 'round-robin', 'all'];
 /** A woken bot answers exactly this to stay silent (prevents DM ping-pong). */
 const NO_REPLY = /^\W*no[_ -]?reply\W*$/i;
@@ -76,7 +84,16 @@ interface Wake {
   hop: number; triggerId: string; ceiling: ApprovalMode; humanChain: boolean;
   /** True when the task was already live before this wake (409): only its completion matters. */
   external: boolean; cancelled: boolean; speaking: boolean; lastCost: number;
+  /** The bot called `handoff` during this wake: the thread belongs to someone else now, so its final answer wakes nobody. */
+  handedOff?: boolean;
+  /** dupText of what this bot posted during the wake (tools and handoff): its final answer repeating one of them is dropped. */
+  posted?: Array<{ text: string; id: string }>;
+  /** Bots that handed off to this one in the delivered batch: this wake's final answer does not wake them back. */
+  handoffFrom?: string[];
 }
+interface RecentPost { text: string; to: string; kind: RoomMessageKind; at: number; id: string }
+/** What bot_send / room_post / handoff hand back: the stored message, or the earlier one when this was a repeat. */
+export type PostResult = RoomMessage & { duplicate?: true };
 
 const LIVE = (s: Task['status']): boolean => s === 'queued' || s === 'running';
 const keyOf = (roomId: string, agentId: string): string => `${roomId}|${agentId}`;
@@ -120,6 +137,9 @@ export class CommsHub {
   private readonly cycles = new Map<string, Map<string, number>>();
   /** agentId -> (roomId -> peerId): DMs sent that have no answer yet. */
   private readonly awaiting = new Map<string, Map<string, string>>();
+  /** `${roomId}|${botId}` -> its latest posts (repeat suppression). */
+  private readonly recent = new Map<string, RecentPost[]>();
+  private readonly turnFloor: number;
   private readonly off: () => void;
 
   private readonly visible: (a: AgentProfile) => boolean;
@@ -130,6 +150,7 @@ export class CommsHub {
     this.agents = o.store;
     this.bus = o.bus;
     this.now = o.now ?? Date.now;
+    this.turnFloor = typeof o.turnCostFloorUsd === 'number' && o.turnCostFloorUsd >= 0 ? o.turnCostFloorUsd : DEFAULT_TURN_FLOOR_USD;
     this.rooms = new RoomStore(o.dataDir);
     this.state = this.rooms.loadState();
     // Restart: inboxes start empty (they are in-memory only) and hop counters reset.
@@ -193,6 +214,7 @@ export class CommsHub {
     this.cancelRoomWork(room, () => true);
     this.cycles.delete(room.id);
     this.everyoneAt.delete(room.id);
+    for (const key of [...this.recent.keys()]) if (key.startsWith(room.id + '|')) this.recent.delete(key);
     for (const key of Object.keys(this.state.tasks)) if (key.startsWith(room.id + '|')) delete this.state.tasks[key];
     for (const key of Object.keys(this.state.reads)) if (key.startsWith(room.id + '|')) delete this.state.reads[key];
     delete this.state.rr[room.id];
@@ -324,7 +346,7 @@ export class CommsHub {
   }
 
   /** Async DM: creates the dm room if needed, stores the message, wakes the peer. Returns the stored message. */
-  botSend(fromId: string, toRef: string, text: string, replyTo?: string, run: SenderRun = {}): RoomMessage {
+  botSend(fromId: string, toRef: string, text: string, replyTo?: string, run: SenderRun = {}): PostResult {
     const sender = this.agents.getAgent(fromId);
     if (!sender) throw new CommsError(404, `Unknown bot "${fromId}"`);
     const peer = this.resolveAgent(toRef);
@@ -345,13 +367,16 @@ export class CommsHub {
     const ctx = this.senderContext(sender.id);
     const from: RoomSender = { kind: 'bot', agentId: sender.id };
     const plan = this.plan(room, from, t, { auto: false });
+    const again = this.repeatOf(room, sender.id, t, plan.explicit, 'chat');
+    if (again) return { ...clone(again), duplicate: true };
     const msg = this.post(room, { from, to: plan.explicit, kind: 'chat', text: t, ...(replyTo ? { replyTo } : {}), hop: ctx.hop + 1, ...(run.tainted ? { tainted: true } : {}) });
+    this.notePost(room, sender.id, msg);
     this.awaitAnswer(sender.id, room.id, peer.id);
     this.dispatch(room, msg, plan.wake, { ceiling: this.sendCeiling(ctx, run), humanChain: ctx.humanChain, auto: false, ...(run.tainted ? { tainted: true } : {}) });
     return clone(msg);
   }
 
-  roomPost(fromId: string, roomRef: string, text: string, mention?: string | string[], run: SenderRun = {}): RoomMessage {
+  roomPost(fromId: string, roomRef: string, text: string, mention?: string | string[], run: SenderRun = {}): PostResult {
     const room = this.memberRoom(fromId, roomRef);
     if (room.kind === 'dm') throw new CommsError(400, 'That is a direct message; use bot_send to message the other bot.');
     if (room.paused) throw new CommsError(409, `The room is paused (${room.paused.reason}); a human must resume it.`);
@@ -360,16 +385,19 @@ export class CommsHub {
     const ctx = this.senderContext(fromId);
     const from: RoomSender = { kind: 'bot', agentId: fromId };
     const plan = this.plan(room, from, t, { auto: false, extra });
+    const again = this.repeatOf(room, fromId, t, plan.explicit, 'chat');
+    if (again) return { ...clone(again), duplicate: true };
     const missing = extra.filter((id) => !new RegExp(`(?<![\\w@.-])@${escapeRe(this.nameOf(id))}(?![\\w-])`, 'i').test(t));
     const body = missing.length ? `${missing.map((id) => '@' + this.nameOf(id)).join(' ')} ${t}` : t;
     const msg = this.post(room, { from, to: plan.explicit, kind: 'chat', text: body, hop: ctx.hop + 1, ...(run.tainted ? { tainted: true } : {}) });
+    this.notePost(room, fromId, msg);
     const viaParam = (Array.isArray(mention) ? mention : mention ? [mention] : []).map((m) => '@' + m.replace(/^@/, '')).join(' ');
     this.noteBotEveryone(room, fromId, `${t} ${viaParam}`);
     this.dispatch(room, msg, plan.wake, { ceiling: this.sendCeiling(ctx, run), humanChain: ctx.humanChain, auto: false, ...(run.tainted ? { tainted: true } : {}) });
     return clone(msg);
   }
 
-  handoff(fromId: string, roomRef: string, toRef: string, summary: string, run: SenderRun = {}): RoomMessage {
+  handoff(fromId: string, roomRef: string, toRef: string, summary: string, run: SenderRun = {}): PostResult {
     const room = this.memberRoom(fromId, roomRef);
     if (room.paused) throw new CommsError(409, `The room is paused (${room.paused.reason}); a human must resume it.`);
     const target = this.resolveMember(room, toRef);
@@ -377,8 +405,15 @@ export class CommsHub {
     if (target === fromId) throw new CommsError(400, 'You cannot hand off to yourself');
     const t = this.cleanText(summary);
     const ctx = this.senderContext(fromId);
+    // the same handoff again while it is still in effect (the target already leads) is one handoff
+    const again = room.lead === target ? this.repeatOf(room, fromId, t, [target], 'handoff') : undefined;
+    if (again) return { ...clone(again), duplicate: true };
     room.lead = target;
     const msg = this.post(room, { from: { kind: 'bot', agentId: fromId }, to: [target], kind: 'handoff', text: t, hop: ctx.hop + 1, ...(run.tainted ? { tainted: true } : {}) });
+    this.notePost(room, fromId, msg);
+    // the thread is the receiver's now: whatever this run still says at the end of its turn wakes nobody
+    const mine = this.activeWake(room.id, fromId);
+    if (mine) mine.handedOff = true;
     this.dispatch(room, msg, [target], { ceiling: this.sendCeiling(ctx, run), humanChain: ctx.humanChain, auto: false, ...(run.tainted ? { tainted: true } : {}) });
     return clone(msg);
   }
@@ -496,16 +531,47 @@ export class CommsHub {
   private deliver(room: Room, botId: string, d: Delivery): void {
     if (room.paused || !room.members.includes(botId)) return;
     // 2. budget, checked before every wake
-    if (this.overBudget(room)) { this.pauseBudget(room); return; }
+    const stop = this.budgetStop(room);
+    if (stop) { this.pauseBudget(room, stop); return; }
     const key = keyOf(room.id, botId);
     if (this.busy.has(key)) { this.enqueue(key, room, botId, d); return; }
     this.startWake(room, botId, [d]);
   }
 
-  private overBudget(room: Room): boolean { return room.costUsd >= room.guards.budgetUsd; }
-  private pauseBudget(room: Room): void {
-    this.pause(room, 'budget', `$${room.costUsd.toFixed(4)}`,
-      `Paused: the room's cost ($${room.costUsd.toFixed(2)}) reached its budget ($${room.guards.budgetUsd.toFixed(2)}). Raise guards.budgetUsd with PATCH /api/rooms/${room.id}, then POST /api/rooms/${room.id}/resume.`);
+  /**
+   * Budget guard, checked before a bot is woken (never after): stop when the money spent is already at the budget, or when
+   * one more turn at the estimate would take the room over it. Turns that are running right now are counted too, because
+   * their cost only shows when they finish.
+   */
+  private budgetStop(room: Room): { estimate?: number } | undefined {
+    const budget = room.guards.budgetUsd;
+    if (room.costUsd >= budget) return {};
+    const running = [...this.busy.values()].filter((w) => w.roomId === room.id && !w.external && !w.cancelled).length;
+    const estimate = this.turnEstimate(room);
+    if (room.costUsd + estimate * (running + 1) > budget + 1e-9) return { estimate };
+    return undefined;
+  }
+
+  /** The next turn is assumed to cost as much as the dearest of this room's last few turns, and never less than the floor. */
+  private turnEstimate(room: Room): number {
+    const all = this.rooms.messages(room.id);
+    const costs: number[] = [];
+    for (let i = all.length - 1; i >= 0 && costs.length < TURN_HISTORY; i--) {
+      const c = all[i]!.costUsd;
+      if (typeof c === 'number' && c > 0) costs.push(c);
+    }
+    return Math.max(this.turnFloor, ...costs);
+  }
+
+  private pauseBudget(room: Room, stop: { estimate?: number }): void {
+    const how = `Raise guards.budgetUsd with PATCH /api/rooms/${room.id}, then POST /api/rooms/${room.id}/resume.`;
+    if (stop.estimate === undefined) {
+      this.pause(room, 'budget', `$${room.costUsd.toFixed(4)}`,
+        `Paused: the room's cost ($${room.costUsd.toFixed(2)}) reached its budget ($${room.guards.budgetUsd.toFixed(2)}). ${how}`);
+      return;
+    }
+    this.pause(room, 'budget', `$${room.costUsd.toFixed(4)} + ~$${stop.estimate.toFixed(4)}`,
+      `Paused: the room's cost ($${room.costUsd.toFixed(2)}) is close to its budget ($${room.guards.budgetUsd.toFixed(2)}); paused before the next turn would exceed it (estimated next turn $${stop.estimate.toFixed(2)}). ${how}`);
   }
 
   private enqueue(key: string, room: Room, botId: string, d: Delivery): void {
@@ -561,6 +627,7 @@ export class CommsHub {
       hop: Math.max(...batch.map((d) => d.msg.hop)), triggerId: last.msg.id,
       ceiling: origin ? origin.approvalCeiling : 'full', humanChain: batch.some((d) => d.humanChain),
       external: false, cancelled: false, speaking: false, lastCost: continued ? tm!.lastCost : 0,
+      handoffFrom: unique(batch.filter((d) => d.msg.kind === 'handoff' && d.msg.from.kind === 'bot').map((d) => (d.msg.from as { agentId: string }).agentId)),
     };
     this.state.tasks[key] = { taskId: task.id, lastCost: wake.lastCost };
     this.state.reads[key] = last.msg.id;
@@ -653,12 +720,20 @@ export class CommsHub {
       const ceiling = stricterMode(this.agentMode(w.botId), w.ceiling);
       const from: RoomSender = { kind: 'bot', agentId: w.botId };
       const plan = this.plan(room, from, result, { auto: true });
-      const msg = this.post(room, {
-        from, to: plan.explicit, kind: 'chat', text: result, replyTo: w.triggerId, hop: w.hop + 1, costUsd: delta, taskId: w.taskId,
-        ...(task.tainted ? { tainted: true } : {}),
-      });
-      this.noteBotEveryone(room, w.botId, result);
-      this.dispatch(room, msg, plan.wake, { ceiling, humanChain: w.humanChain, auto: true, ...(task.tainted ? { tainted: true } : {}) });
+      // the same words again (a tool call already posted them, or this bot just said them): nothing new to store or to wake
+      if (this.repeatOf(room, w.botId, result, plan.explicit, 'chat', w)) {
+        this.addCost(room, delta);
+      } else {
+        const msg = this.post(room, {
+          from, to: plan.explicit, kind: 'chat', text: result, replyTo: w.triggerId, hop: w.hop + 1, costUsd: delta, taskId: w.taskId,
+          ...(task.tainted ? { tainted: true } : {}),
+        });
+        this.notePost(room, w.botId, msg);
+        this.noteBotEveryone(room, w.botId, result);
+        // a bot that handed the thread off ends its chain here; an answer to a handoff does not bounce back to the one who handed off
+        const wake = w.handedOff ? [] : plan.wake.filter((id) => !w.handoffFrom?.includes(id));
+        this.dispatch(room, msg, wake, { ceiling, humanChain: w.humanChain, auto: true, ...(task.tainted ? { tainted: true } : {}) });
+      }
     } else if (task.status === 'error') {
       this.post(room, {
         from: { kind: 'system' }, kind: 'note', hop: 0, costUsd: delta, taskId: w.taskId,
@@ -678,7 +753,8 @@ export class CommsHub {
     const q = this.inbox.get(key);
     this.inbox.delete(key);
     if (q?.length && !room.paused && room.members.includes(w.botId)) {
-      if (this.overBudget(room)) { this.pauseBudget(room); this.emitState(w.botId, 'idle', room.id); return; }
+      const stop = this.budgetStop(room);
+      if (stop) { this.pauseBudget(room, stop); this.emitState(w.botId, 'idle', room.id); return; }
       this.startWake(room, w.botId, q);
       return;
     }
@@ -751,6 +827,56 @@ export class CommsHub {
 
   private peerOf(d: Delivery): string | undefined {
     return d.msg.from.kind === 'bot' ? d.msg.from.agentId : undefined;
+  }
+
+  // ---- repeat suppression
+
+  /** The live (not external, not cancelled) wake of this bot in this room, if any. */
+  private activeWake(roomId: string, botId: string): Wake | undefined {
+    const w = this.busy.get(keyOf(roomId, botId));
+    return w && !w.external && !w.cancelled ? w : undefined;
+  }
+
+  /**
+   * The earlier message when `text` is the same words this bot already posted: during this wake (any recipient), or to the same
+   * recipients within DUP_WINDOW_MS provided nobody else has spoken since (a re-ask after an answer is the cycle guard's business). A handoff only repeats an earlier handoff to the same bot. `wake` is passed when the wake is already over.
+   */
+  private repeatOf(room: Room, botId: string, text: string, to: string[], kind: RoomMessageKind, wake?: Wake): RoomMessage | undefined {
+    const d = dupText(text);
+    if (!d) return undefined;
+    const find = (id: string): RoomMessage | undefined => this.rooms.messages(room.id).find((m) => m.id === id);
+    const w = wake ?? this.activeWake(room.id, botId);
+    if (kind !== 'handoff') {
+      const hit = w?.posted?.find((p) => nearDuplicate(p.text, d));
+      const msg = hit && find(hit.id);
+      if (msg) return msg;
+    }
+    const toKey = [...to].sort().join(',');
+    const now = this.now();
+    for (const r of this.recent.get(keyOf(room.id, botId)) ?? []) {
+      if (now - r.at >= DUP_WINDOW_MS || r.to !== toKey || (kind === 'handoff' && r.kind !== 'handoff')) continue;
+      if (!nearDuplicate(r.text, d)) continue;
+      const all = this.rooms.messages(room.id);
+      const at = all.findIndex((m) => m.id === r.id);
+      if (at < 0) continue;
+      // Somebody answered in between: it is a re-ask, not an echo. The cycle guard watches those; do not hide them here.
+      if (all.slice(at + 1).some((m) => m.from.kind === 'human' || (m.from.kind === 'bot' && m.from.agentId !== botId))) continue;
+      return all[at];
+    }
+    return undefined;
+  }
+
+  /** Remembers what a bot just posted (for repeat suppression) and adds it to its running wake. */
+  private notePost(room: Room, botId: string, msg: RoomMessage): void {
+    const text = dupText(msg.text);
+    if (!text) return;
+    const key = keyOf(room.id, botId);
+    const list = this.recent.get(key) ?? [];
+    list.push({ text, to: [...msg.to].sort().join(','), kind: msg.kind, at: this.now(), id: msg.id });
+    while (list.length > RECENT_POSTS) list.shift();
+    this.recent.set(key, list);
+    const w = this.activeWake(room.id, botId);
+    if (w) (w.posted ??= []).push({ text, id: msg.id });
   }
 
   // ---- awaiting (waiting-bot state)
