@@ -83,20 +83,45 @@ function Get-LegionProcessRoot {
   return $null
 }
 
+# The chain of parent PIDs above StartPid (parent, grandparent, ...), from a list of objects with ProcessId and ParentProcessId.
+# Setup must not stop the Legion process that started it (an agent running setup from a tool call). Stops at a loop or a missing parent.
+# Returns $null for an empty chain; callers wrap the call in @().
+function Get-AncestorPids {
+  param([object[]]$Processes, [int]$StartPid)
+  $parent = @{}
+  foreach ($p in $Processes) {
+    if ($null -eq $p -or $null -eq $p.ProcessId -or $null -eq $p.ParentProcessId) { continue }
+    $parent[[int]$p.ProcessId] = [int]$p.ParentProcessId
+  }
+  $chain = @()
+  $cur = $StartPid
+  for ($i = 0; $i -lt 64; $i++) {
+    if (-not $parent.ContainsKey($cur)) { break }
+    $next = $parent[$cur]
+    if ($next -le 0 -or $next -eq $StartPid -or ($chain -contains $next)) { break }
+    $chain += $next
+    $cur = $next
+  }
+  return $chain
+}
+
 # Picks the Legion processes out of a list of objects with ProcessId, Name, ExecutablePath, CommandLine.
-# -OnlyUnder limits it to one install folder (used by the uninstaller). -SelfPid is never returned.
+# -OnlyUnder limits it to one install folder (used by the uninstaller). -SelfPid and -ExcludePids (e.g. the ancestors of this
+# script, see Get-AncestorPids) are never returned. Returns $null when nothing matches; callers wrap the call in @().
 # -RootCheck decides whether a root really is Legion (tests pass { $true }).
 function Select-LegionProcesses {
   param(
     [object[]]$Processes,
     [string]$OnlyUnder = '',
     [int]$SelfPid = 0,
+    [int[]]$ExcludePids = @(),
     [scriptblock]$RootCheck = { param($r) Test-LegionRoot $r }
   )
   $out = @()
   foreach ($p in $Processes) {
     if ($null -eq $p) { continue }
     if ([int]$p.ProcessId -eq $SelfPid) { continue }
+    if ($ExcludePids -contains [int]$p.ProcessId) { continue }
     $root = Get-LegionProcessRoot -Name $p.Name -ExePath $p.ExecutablePath -CommandLine $p.CommandLine
     if (-not $root) { continue }
     if ($OnlyUnder -and -not (Test-PathUnder $root $OnlyUnder)) { continue }

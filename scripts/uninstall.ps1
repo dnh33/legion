@@ -49,7 +49,10 @@ try {
 
   # Stop this install's running processes (matched by what they are, stopped by PID; nothing else is touched)
   $procs = @()
-  try { $procs = @(Select-LegionProcesses -Processes @(Get-CimInstance Win32_Process -ErrorAction Stop) -OnlyUnder $InstallDir -SelfPid $PID) }
+  try {
+    $all = @(Get-CimInstance Win32_Process -ErrorAction Stop)
+    $procs = @(Select-LegionProcesses -Processes $all -OnlyUnder $InstallDir -SelfPid $PID -ExcludePids @(Get-AncestorPids -Processes $all -StartPid $PID))
+  }
   catch { Say "  (could not list processes: $($_.Exception.Message))" 'Yellow' }
   if ($procs.Count -gt 0) {
     if ($DryRun) { Say "  (dry run) stop PID $(($procs | ForEach-Object { $_.ProcessId }) -join ', ')" 'DarkGray' }

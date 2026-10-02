@@ -39,7 +39,10 @@ test('setup.ps1 never blocks without a terminal, and stops Legion by PID through
   const s = read('scripts/setup.ps1');
   assert.match(s, /\[Console\]::IsInputRedirected/);
   assert.match(s, /if \(\$script:NonInteractive\) \{[^\n]*return \$default/);
-  assert.match(s, /Select-LegionProcesses -Processes \$procs -SelfPid \$PID/);
+  assert.match(s, /Select-LegionProcesses -Processes \$procs -SelfPid \$PID -ExcludePids \$ancestors/);
+  assert.match(s, /Get-AncestorPids -Processes \$procs -StartPid \$PID/);
+  assert.match(s, /\[Environment\]::UserInteractive/);
+  assert.match(s, /try \{ \$a = Read-Host/, 'Read-Host failing under -NonInteractive falls back to the default');
   assert.match(s, /Stop-LegionProcesses/);
   // not scoped to the install folder any more, and never kills by image name
   assert.doesNotMatch(s, /Test-Under \$p\.ExecutablePath \$InstallDir/);

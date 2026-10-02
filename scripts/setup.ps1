@@ -21,9 +21,10 @@ $ErrorActionPreference = 'Stop'
 
 . (Join-Path $PSScriptRoot 'lib\legion-procs.ps1')
 
-# No terminal to ask on (stdin redirected, or -NonInteractive): never block on Read-Host.
+# No terminal to ask on (stdin redirected, or not a user-interactive session): never block on Read-Host.
 $script:NonInteractive = $false
 try { $script:NonInteractive = [Console]::IsInputRedirected } catch { $script:NonInteractive = $false }
+try { if (-not [Environment]::UserInteractive) { $script:NonInteractive = $true } } catch { $script:NonInteractive = $true }
 
 function Say($m, $c = 'Gray') { Write-Host $m -ForegroundColor $c }
 function Step($m) { Write-Host ''; Write-Host "== $m" -ForegroundColor Cyan }
@@ -31,7 +32,10 @@ function Fail($m) { Write-Host ''; Write-Host "ERROR: $m" -ForegroundColor Red; 
 function Ask($q, $default) {
   if ($Yes) { return $true }
   if ($script:NonInteractive) { Say "  ($q -> $(if ($default) { 'yes' } else { 'no' }), no terminal to ask on)" 'DarkGray'; return $default }
-  $a = Read-Host "$q $(if ($default) { '[Y/n]' } else { '[y/N]' })"
+  # powershell -NonInteractive makes Read-Host throw; treat that like "no terminal" too.
+  $a = ''
+  try { $a = Read-Host "$q $(if ($default) { '[Y/n]' } else { '[y/N]' })" }
+  catch { Say "  ($q -> $(if ($default) { 'yes' } else { 'no' }), no terminal to ask on)" 'DarkGray'; return $default }
   if ([string]::IsNullOrWhiteSpace($a)) { return $default }
   return ($a -match '^[Yy]')
 }
@@ -87,7 +91,13 @@ try {
   $running = @()
   try {
     $procs = @(Get-CimInstance Win32_Process -ErrorAction Stop)
-    $running = @(Select-LegionProcesses -Processes $procs -SelfPid $PID)
+    # Never stop the processes that started this setup (e.g. an agent in Legion running setup from a tool call).
+    $ancestors = @(Get-AncestorPids -Processes $procs -StartPid $PID)
+    $running = @(Select-LegionProcesses -Processes $procs -SelfPid $PID -ExcludePids $ancestors)
+    $parents = @(Select-LegionProcesses -Processes $procs -SelfPid $PID | Where-Object { $ancestors -contains $_.ProcessId })
+    if ($parents.Count -gt 0) {
+      Say "  (leaving PID $(($parents | ForEach-Object { $_.ProcessId }) -join ', ') running: it started this setup. Close Legion yourself if the copy below reports a file in use.)" 'Yellow'
+    }
   } catch { Say "  (could not list processes: $($_.Exception.Message))" 'Yellow' }
   if ($running.Count -gt 0) {
     $roots = @($running | ForEach-Object { $_.Root } | Sort-Object -Unique)

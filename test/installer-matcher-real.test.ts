@@ -106,3 +106,41 @@ for (const exe of shells) {
 test('real PowerShell availability is reported', (t) => {
   if (shells.length === 0) t.skip('no PowerShell on this machine; the Windows CI job runs these');
 });
+
+// F6: the chain of processes that started setup is never on the kill list.
+for (const exe of shells) {
+  test(`Get-AncestorPids walks the parent chain; Select-LegionProcesses -ExcludePids keeps those PIDs off the list (${exe})`, () => {
+    const dir = tempDir();
+    try {
+      const legion = join(dir, 'Legion Real');
+      writeFiles(legion, LEGION_SRC);
+      const exePath = `${legion}\\node_modules\\electron\\dist\\electron.exe`;
+      // 50 = this setup; 40 = powershell started by an agent shell 30; 20 = Legion electron main (grandparent chain); 10 = another Legion process
+      const procs = [
+        { ProcessId: 50, ParentProcessId: 40, Name: 'powershell.exe', ExecutablePath: null, CommandLine: null },
+        { ProcessId: 40, ParentProcessId: 30, Name: 'cmd.exe', ExecutablePath: null, CommandLine: null },
+        { ProcessId: 30, ParentProcessId: 20, Name: 'node.exe', ExecutablePath: null, CommandLine: null },
+        { ProcessId: 20, ParentProcessId: 1, Name: 'electron.exe', ExecutablePath: exePath, CommandLine: 'x' },
+        { ProcessId: 10, ParentProcessId: 1, Name: 'electron.exe', ExecutablePath: exePath, CommandLine: 'x' },
+        { ProcessId: 60, ParentProcessId: 61, Name: 'a.exe', ExecutablePath: null, CommandLine: null },   // a loop 60 <-> 61
+        { ProcessId: 61, ParentProcessId: 60, Name: 'b.exe', ExecutablePath: null, CommandLine: null },
+      ];
+      writeFiles(dir, { 'procs.json': JSON.stringify(procs) });
+      const body = [
+        `$procs = @(Get-Content -Raw -LiteralPath ${q(join(dir, 'procs.json'))} | ConvertFrom-Json)`,
+        `$anc = @(Get-AncestorPids -Processes $procs -StartPid 50)`,
+        `$loop = @(Get-AncestorPids -Processes $procs -StartPid 60)`,
+        `$none = @(Get-AncestorPids -Processes $procs -StartPid 999)`,
+        `$all = @(Select-LegionProcesses -Processes $procs -SelfPid 50)`,
+        `$kept = @(Select-LegionProcesses -Processes $procs -SelfPid 50 -ExcludePids $anc)`,
+        `@{ anc = $anc; loop = $loop; none = $none; all = @($all | ForEach-Object { $_.ProcessId }); kept = @($kept | ForEach-Object { $_.ProcessId }) } | ConvertTo-Json -Compress`,
+      ].join('\n');
+      const r = runPs<{ anc: number[]; loop: number[]; none: number[]; all: number[]; kept: number[] }>(exe, body, dir);
+      assert.deepEqual(r.anc, [40, 30, 20, 1]);
+      assert.deepEqual([...r.all].sort((a, b) => a - b), [10, 20]);
+      assert.deepEqual(r.kept, [10], 'the Legion process that started setup (20) is excluded');
+      assert.deepEqual(r.loop, [61], 'a parent loop ends instead of spinning');
+      assert.deepEqual(r.none ?? [], []);
+    } finally { rmSync(dir, { recursive: true, force: true }); }
+  });
+}
