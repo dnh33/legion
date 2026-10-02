@@ -52,7 +52,7 @@ Environment overrides: `LEGION_HOME`, `LEGION_PORT`, `LEGION_NODE`, `BOAT_API_KE
 | id | name | model | approval | VM | purpose |
 |---|---|---|---|---|---|
 | `zealot` | Zealot | auto | `auto-edits` | enabled, default size | General-purpose lead. Cannot be deleted. |
-| `builder` | Builder | auto | `full` | enabled, large | Coding and building; prefers its VM for risky work. |
+| `builder` | Builder | auto | `full` | enabled, default size | Coding and building; prefers its VM for risky work. Not seeded as `large`: a free boat.dev trial refuses it. |
 | `scout` | Scout | sonnet | `ask` | disabled | Research, reading and summarising. |
 
 VM idle stop defaults to 15 minutes. `mcpServers` defaults to `['*']` (all configured servers).
@@ -78,7 +78,10 @@ JSON over `127.0.0.1:<port>` (default 4747). Implemented in `src/core/server.ts`
 | POST | `/api/tasks/:id/cancel` | none | `{ok}` |
 | GET | `/api/vms` | none | `VmRecord[]` |
 | POST | `/api/vms/:agentId/start` | none | `VmRecord` |
-| POST | `/api/vms/:agentId/stop` | none | `VmRecord` |
+| POST | `/api/vms/:agentId/stop` | none | `VmRecord` plus `stopped`, `message`, `usage`. With no sandbox: 200, `stopped:false`, `message:"No sandbox to stop…"`, and a stale `error` record goes back to `none`. |
+| GET | `/api/vms/:agentId/usage` | none | `VmUsage` (`running`, `runtimeSeconds`, `todaySeconds`, optional `estimate`) |
+| POST | `/api/boat/check` | none | `BoatHealthView`. Probes what the boat.dev key may do (reads and not-found probes; never creates a sandbox) |
+| GET | `/api/boat/health` | none | `BoatHealthView` (also in `GET /api/state` as `boat`, and as `boat.health` events) |
 | POST | `/api/vms/:agentId/exec` | `{command, cwd?, timeoutSeconds?}` | `{exitCode, stdout, stderr}` |
 | POST | `/api/vms/:agentId/desktop` | none | `{url}` (treat as a secret) |
 | GET | `/api/vms/:agentId/screenshot` | none | `{format:'jpeg', data:<base64>}`; 409 if the VM is not running |
@@ -106,19 +109,20 @@ The shared types (`AgentProfile`, `Task`, `ChatMessage`, `LegionEvent`, `VmRecor
 | `legion_continue` | `{taskId, prompt, wait?, timeoutSeconds?}`. Follow-up in the same Claude session. |
 | `legion_status` | `{taskId}`. Task plus its last 20 messages, each clipped to 2000 characters. |
 | `legion_cancel` | `{taskId}`. |
-| `legion_vm` | `{agent, action: status\|start\|stop\|exec\|desktop, command?}`. |
+| `legion_vm` | `{agent, action: status\|start\|stop\|exec\|desktop\|usage, command?}`. |
 | `legion_recent_tasks` | `{limit?=10}`. |
 
 ## Agent-side VM tools
 
 `src/core/vm-tools.ts` gives each agent an in-process SDK MCP server, also named `legion`, so the model sees tools as `mcp__legion__<name>`. It is attached only when the agent has `vm.enabled` and a boat.dev key is configured.
 
-- `vm_start`: create or resume this agent's VM and return its state.
+- `vm_start`: create or resume this agent's VM and return its state, `usage` and, when relevant, `notes` (a trial fallback, `vm_claude` unavailable).
 - `vm_exec`: run a shell command in the VM. Starts it if needed.
 - `vm_write_file` and `vm_read_file`: file access inside the VM.
-- `vm_claude`: hand a whole task to Claude Code running inside the VM (boat.dev's `claude` provider, which uses the subscription you connected on boat's Agents dashboard). That Claude Code has boat's built-in computer-use tools.
+- `vm_claude` (left out of the tool list while Claude is known not to be set up on boat.dev, see VM manager): hand a whole task to Claude Code running inside the VM (boat.dev's `claude` provider, which uses the subscription you connected on boat's Agents dashboard). That Claude Code has boat's built-in computer-use tools.
 - `vm_desktop`: return a desktop streaming URL. Treat it as a secret and tell the user to open it.
-- `vm_stop`: stop the VM and snapshot it. Billing pauses.
+- `vm_stop`: stop the VM and snapshot it. Billing pauses. With nothing to stop it answers `{ok:true, stopped:false, message:"No sandbox to stop…"}`, never an error state.
+- `vm_usage`: read-only. State, size, `runtimeSeconds` (this run) and `todaySeconds`; never starts the VM. `vm_start`, `vm_exec` and `vm_stop` results carry the same numbers.
 
 Every `vm_*` call resets the VM's idle timer.
 
@@ -192,6 +196,9 @@ A prompt starting with `/<name>` where `<name>` is not a Legion command goes to 
 - `screenshot` requires a running VM, runs an ImageMagick `import` (falling back to `scrot`) inside it, and reads the JPEG back as base64. It deliberately does not touch the idle timer: watching is not using. The UI polls it every 2.5 seconds while the Ops panel shows a running VM and the window is visible.
 - The reaper runs every minute. It refreshes stored state from boat.dev once at startup and stops VMs idle longer than their agent's `idleStopMinutes`.
 - boat.dev states map onto `VmState`: `none`, `provisioning`, `ready`, `running`, `idle`, `archiving`, `archived`, `error`.
+- **Size and plan limits.** Create and resume use the agent's configured size (`vm.size`, editable in the agent settings and by `PATCH /api/agents/:id`; `state.json` is rewritten from memory, so edits there do not stick). If boat.dev refuses a machine class on a free trial (`403 trial_machine_class_not_allowed`), Legion retries with `default`, records `size:'default'`, `requestedSize:'large'` and a plain `notice`, and remembers for an hour that the account is limited so the next start skips the failing call. A running VM is never destroyed because the setting changed: the record says when the new size applies. A failed or stale record (`error` with no sandbox, a sandbox boat.dev no longer has or reports as `error`) is never reused: the next start builds a fresh sandbox from the config.
+- **Usage.** A run starts when the VM becomes usable and ends when it stops being so (`runStartedAt`, `usageDay`, `usageSeconds` on the record; the shared maths is `src/shared/vm-usage.ts`, also used by the UI). `runtimeSeconds` is the current run, `todaySeconds` the local day's total, including a run that crosses midnight. This is uptime as Legion measured it; boat.dev bills by its own rules. Money appears only as an estimate and only when `boat.rates` (`{small?, default?, large?}` hourly prices in `boat.currency`) is set; Legion has no built-in prices.
+- **boat.dev key and account health** (`src/core/boat-health.ts`, memory only, reset when the key changes). Learned from a probe (on key save and startup, on "Check again", and in Doctor the first time) and from real failed calls: `api_key_action_forbidden` (which action the key cannot do), `provider_not_configured` (Claude not set up on the Agents page; hides `vm_claude` for 5 minutes, then Legion tries again; a later success clears it), `trial_machine_class_not_allowed`. The probe has no permission endpoint to read, so it does `GET /me`, a cheap list, and each action (stop, resume, run commands, files, prompt) aimed at a sandbox id that cannot exist: a key without the action is refused with `api_key_action_forbidden`, a key with it gets "not found". It never creates a sandbox. "Allowed" means "not refused", not a guarantee. Results show in Settings, the Computer card, Doctor and `boat.health` events. Error messages name the problem in plain words, and the API key is scrubbed from any error text.
 
 ## Doctor
 
@@ -201,7 +208,7 @@ A prompt starting with `/<name>` where `<name>` is not a Legion command goes to 
 - `config.json` exists.
 - Auth mode, and for `api-key` whether a key is present.
 - Claude sign-in: an idle query plus `accountInfo()` with a 20 second timeout. It reports the account email and subscription type, and makes no model call. The fix text is "Run `claude` in a terminal and sign in with /login".
-- boat.dev: if a key is set, `BoatClient.me()`.
+- boat.dev: if a key is set, `BoatClient.me()`, then (first time) the key probe: the check fails with the refused action names and a fix when the key lacks a permission. A separate informational `boat-claude` check appears only while Claude is known not to be set up on boat.dev.
 - The workspace directory is writable.
 
 ## Electron shell
@@ -287,7 +294,7 @@ The ChatMessage stored in the target thread has `role:'user'`, `fromAgentId`, an
 |---|---|---|---|
 | GET | /api/settings | – | `SettingsView` |
 | PATCH | /api/settings | `SettingsPatch` | `SettingsView`. Validates, writes config.json atomically, applies live, emits `settings.updated`. |
-| POST | /api/settings/boat/test | `{apiKey?: string}` | `{ok:boolean, detail:string}`. Tests the given key, or the saved one, with `GET /me`; never stores. |
+| POST | /api/settings/boat/test | `{apiKey?: string}` | `{ok:boolean, detail:string, warnings?:string[]}` (warnings: key permission and Claude-setup findings). Tests the given key, or the saved one, with `GET /me`; never stores. |
 
 **Applied live, no restart:**
 - boat key/baseUrl: rebuild the BoatClient and start or stop the VM reaper;

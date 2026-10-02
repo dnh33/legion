@@ -379,7 +379,7 @@ export async function vmAction(agentId: string, action: 'start' | 'stop') {
     const { stopped, message, usage: _usage, ...vm } = res as VmRecord & { stopped?: boolean; message?: string; usage?: unknown };
     setState((s) => ({ vms: { ...s.vms, [agentId]: vm } }));
     if (action === 'stop' && stopped === false && message) toast(message, 'info'); // e.g. "No sandbox to stop"
-    if (action === 'start' && vm.notice) toast(vm.notice, 'info');
+    if (action === 'start' && vm.requestedSize) toast(`Running at ${vm.size} size, not ${vm.requestedSize}. See the Computer card.`, 'info');
   } catch (e) {
     toast(errText(e), 'error');
     setState((s) => {

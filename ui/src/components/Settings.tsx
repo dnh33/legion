@@ -194,7 +194,7 @@ function BoatSection({ s }: { s: SettingsView }) {
           </div>
         </Field>
         {testNote && <div className={`set-test ${testNote.ok ? 'ok' : 'bad'}`} role="status"><Icon name={testNote.ok ? 'check' : 'x'} size={13} /> {testNote.text}{key.trim() ? (testNote.ok ? ' Press Save to keep it.' : '') : ''}</div>}
-        {testNote?.warnings?.map((w) => <div key={w} className="set-test warn" role="status"><Icon name="shield" size={13} /> {w}</div>)}
+        {key.trim() && testNote?.warnings?.map((w) => <div key={w} className="set-test warn" role="status"><Icon name="shield" size={13} /> {w}</div>)}
         {b.apiKeySet && (
           <div className="set-perms" aria-label="What this key can do">
             <div className="set-perms-head"><b>Key permissions</b>
