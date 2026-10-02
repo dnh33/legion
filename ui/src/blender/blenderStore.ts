@@ -55,7 +55,7 @@ async function act<T extends { status: BlenderStatusView; steps: BlenderSetupSte
   set({ busy, error: null, steps: [], stepsTitle: title, retrust: null });
   try {
     const r = await fn();
-    set({ status: r.status, steps: r.steps, loaded: true, retrust: (r as { retrustRequired?: BlenderBackendKind }).retrustRequired ?? null });
+    set({ status: r.status, steps: r.steps, loaded: true, failed: false, absent: false, retrust: (r as { retrustRequired?: BlenderBackendKind }).retrustRequired ?? null });
     return r;
   } catch (e) { set({ error: msg(e) }); return null; } finally { set({ busy: null }); }
 }
@@ -63,7 +63,7 @@ async function act<T extends { status: BlenderStatusView; steps: BlenderSetupSte
 export async function saveBlenderConfig(patch: { both?: boolean; assets?: { polyhaven?: boolean }; enabled?: boolean; backend?: 'auto' | 'official' | 'community'; mode?: BlenderMode; sandbox?: 'off' | 'vm' | 'auto'; port?: number; installPath?: string | null }): Promise<void> {
   if (state.busy) return;
   set({ busy: 'config', error: null });
-  try { set({ status: await request<BlenderStatusView>('POST', '/api/blender/config', patch), loaded: true }); } catch (e) { set({ error: msg(e) }); } finally { set({ busy: null }); }
+  try { set({ status: await request<BlenderStatusView>('POST', '/api/blender/config', patch), loaded: true, failed: false, absent: false }); } catch (e) { set({ error: msg(e) }); } finally { set({ busy: null }); }
 }
 export const runBlenderSetup = (target: 'live' | 'sandbox' | 'both' = 'both', retrust = false) => act('setup', retrust ? 'Set up (new download trusted)' : 'Set up', () => request<BlenderSetupResult>('POST', '/api/blender/setup', { target, ...(retrust ? { retrust: true } : {}) }));
 export const runBlenderTest = () => act('test', 'Connection test', () => request<BlenderTestResult>('POST', '/api/blender/test', {}));
