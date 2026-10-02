@@ -1,5 +1,6 @@
 /** Human-in-the-loop tool approvals. */
 import { BLENDER_EXEC_TOOL } from '../shared/blender.js';
+import { BROWSER_SERVER_NAME, BROWSER_TOOLS } from '../shared/browser.js';
 import type { ApprovalMode, ApprovalRequest } from '../shared/types.js';
 import { newId, nowIso } from '../shared/util.js';
 import type { EventBus } from './bus.js';
@@ -18,6 +19,12 @@ export function isLegionTool(toolName: string): boolean {
   return LEGION_TOOL_NAME.test(toolName) && !toolName.split('__').slice(2).join('__').includes('__');
 }
 
+/**
+ * The browser tool's own tools (exact names). The module asks its own cards (first page, new site, script) with the page URL in them, so the generic
+ * per-call card is not added on top. Deliberately NOT part of isLegionTool: the engine still taints the run on the first call.
+ */
+const BROWSER_TOOL_NAMES: ReadonlySet<string> = new Set(BROWSER_TOOLS.map((t) => `mcp__${BROWSER_SERVER_NAME}__${t}`));
+
 const MODE_RANK: Record<ApprovalMode, number> = { ask: 0, 'auto-edits': 1, full: 2 };
 /** The stricter (less permissive) of two approval modes. */
 export function stricterMode(a: ApprovalMode, b: ApprovalMode): ApprovalMode {
@@ -33,6 +40,7 @@ const CAPPED_CARDED = new Set(['mcp__legion__vm_exec', 'mcp__legion__vm_claude',
  */
 export function needsApproval(mode: ApprovalMode, toolName: string, opts: { capped?: boolean } = {}): boolean {
   if (opts.capped && CAPPED_CARDED.has(toolName)) return true;
+  if (BROWSER_TOOL_NAMES.has(toolName)) return false;
   if (mode === 'full') return false;
   if (READ_ONLY.has(toolName) || isLegionTool(toolName)) return false;
   if (EDIT_TOOLS.has(toolName)) return mode === 'ask';

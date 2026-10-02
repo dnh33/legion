@@ -1,0 +1,9 @@
+/* Settings: browser tool. App tokens only; nothing animates. */
+.brw { margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--line); display: flex; flex-direction: column; gap: 8px; }
+.brw h4 { margin: 0; font-size: 13px; font-weight: 600; color: var(--text); }
+.brw p { margin: 0; font-size: 12.5px; color: var(--text-2); line-height: 1.45; }
+.brw .brw-muted { color: var(--muted); }
+.brw .brw-err { color: var(--danger); }
+.brw .brw-note { color: var(--text-2); }
+.brw-row, .brw-actions { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.brw-row input[type='text'], .brw-row input:not([type]) { flex: 1 1 200px; min-width: 0; }
