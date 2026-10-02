@@ -754,7 +754,7 @@ test('local: the card says local and shows the full script; the local runner (no
   assert.equal(c.script, GOOD_SCRIPT);
   assert.equal(c.hash, scriptHash(GOOD_SCRIPT));
   assert.match(String(c.where), /this computer/);
-  assert.match(String(c.exportDir), /blender[\\/]local[\\/]task_1[\\/]exports$/);
+  assert.match(String(c.exportDir), /blender[\\/]local[\\/]task_1-[0-9a-f]{8}[\\/]exports$/);
   assert.equal(local.runs.length, 1);
   assert.equal(local.runs[0]!.script, GOOD_SCRIPT);
   assert.equal(local.runs[0]!.hash, scriptHash(GOOD_SCRIPT));
@@ -886,7 +886,7 @@ test('C18 through the guard: Automatic goes local, then VM with a note when Blen
   const a = await t.call('blender_exec', { script: GOOD_SCRIPT });
   assert.equal(r.cards.at(-1)!.input.mode, 'local');
   assert.equal(a.isError, false);
-  local.ready = { ready: false, note: 'no Blender' };
+  local.ready = { ready: false, note: 'Blender was not found on this computer. Install it or set its location in Settings.' };
   const b = await t.call('blender_exec', { script: GOOD_SCRIPT });
   assert.equal(r.cards.at(-1)!.input.mode, 'sandbox');
   assert.match(b.text, /not found on this computer, so the cloud VM was used/);

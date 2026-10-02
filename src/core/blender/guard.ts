@@ -28,6 +28,7 @@ import { AuditLog } from './audit.js';
 import type { AuditEntry } from './audit.js';
 import type { BackendResult, BlenderBackend } from './backend.js';
 import { capText } from './backend.js';
+import { safeSegment } from './exports.js';
 import { findLink, isInside, resolveFolder } from './fs-safe.js';
 import type { LocalPort } from './ports.js';
 import type { SandboxPort } from './sandbox.js';
@@ -59,7 +60,7 @@ export function resolveMode(setting: BlenderMode | BlenderSandboxMode, requested
     if (want === 'local') return facts.local ? { mode: 'local' } : { error: `${NO_LOCAL}.` };
     if (want === 'sandbox') return facts.vm ? { mode: 'sandbox' } : { error: `${noVm(facts)}.` };
     if (facts.local) return { mode: 'local' };
-    if (facts.vm) return { mode: 'sandbox', note: 'Blender was not found on this computer, so the cloud VM was used.' };
+    if (facts.vm) return { mode: 'sandbox', note: `${(facts.localNote ?? NO_LOCAL).split(/\.\s/)[0]!.replace(/\.$/, '')}, so the cloud VM was used.` };
     return { error: 'No Blender on this computer and the cloud VM is not set up. Tell the user to install Blender or set boat.dev up in Settings.' };
   }
   if (mode === 'local') {
@@ -70,8 +71,12 @@ export function resolveMode(setting: BlenderMode | BlenderSandboxMode, requested
     if (want === 'local' || want === 'live') return { error: 'Settings restrict scripts to the cloud VM.' };
     return facts.vm ? { mode: 'sandbox' } : { error: `${noVm(facts)}.` };
   }
-  if (want === 'local' || want === 'sandbox') return { error: 'Settings restrict scripts to your open Blender.' };
-  return { mode: 'live' };
+  if (mode === 'live') {
+    if (want === 'local' || want === 'sandbox') return { error: 'Settings restrict scripts to your open Blender.' };
+    return { mode: 'live' };
+  }
+  // default-deny: a setting this function does not know is an error, never the loosest place
+  return { error: `Unknown Blender setting ${JSON.stringify(String(setting)).slice(0, 40)}; nothing was run. Choose where scripts run in Settings, Blender.` };
 }
 
 /** Python that runs the agent's (already checked and approved) script with LEGION_EXPORT_DIR defined. Legion's own code, not the agent's. */
@@ -155,9 +160,6 @@ export function liveExportFolder(exportDir: string, workspace: string | undefine
   if (link) return { ok: false, error: `The export folder holds a symbolic link (${link}); a script could be made to write through it. Remove the link and try again.` };
   return { ok: true, dir: r.dir };
 }
-
-/** Same segment rule as the runners (sandbox.ts safeSegment): the task folder name on disk. */
-const taskSegment = (id: string): string => id.replace(/[^A-Za-z0-9_-]/g, '_').slice(0, 60) || 'task';
 
 /** The tool description for blender_exec, by where a script goes right now (null = nowhere yet). The `//name` sentence is for the VM only. */
 export function execDescription(eff: RunMode | null): string {
@@ -262,7 +264,7 @@ export class BlenderGuard {
   }
 
   private localRoot(): string { return join(this.d.dataDir, 'blender', 'local'); }
-  private localExportDir(taskId: string): string { return this.d.localExportDir ? this.d.localExportDir(taskId) : join(this.localRoot(), taskSegment(taskId), 'exports'); }
+  private localExportDir(taskId: string): string { return this.d.localExportDir ? this.d.localExportDir(taskId) : join(this.localRoot(), safeSegment(taskId), 'exports'); }
 
   /** blender_exec. Never throws. */
   async exec(agent: AgentProfile, job: ModuleJob | undefined, args: { script: string; purpose?: string; mode?: RequestedMode }): Promise<ToolResult> {

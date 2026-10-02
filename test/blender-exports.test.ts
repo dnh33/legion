@@ -21,10 +21,10 @@ test('only known extensions and plain names come back; .blend is set aside as <n
   assert.deepEqual(r.files.map((f) => f.name).sort(), ['a b.obj', 'a.glb', 'b.PNG', 'x.blend']);
   const blend = r.files.find((f) => f.name === 'x.blend')!;
   assert.equal(blend.quarantined, true);
-  assert.equal(blend.path, join(ws, 'blender-quarantine', 'tk', 'x.blend' + QUARANTINE_SUFFIX));
-  assert.equal(existsSync(join(ws, 'blender-exports', 'tk', 'x.blend')), false);
-  assert.equal(existsSync(join(ws, 'blender-exports', 'tk', 'x.blend' + QUARANTINE_SUFFIX)), false);
-  assert.deepEqual(readdirSync(join(ws, 'blender-exports', 'tk')).sort(), ['a b.obj', 'a.glb', 'b.PNG']);
+  assert.equal(blend.path, join(ws, 'blender-quarantine', safeSegment('tk'), 'x.blend' + QUARANTINE_SUFFIX));
+  assert.equal(existsSync(join(ws, 'blender-exports', safeSegment('tk'), 'x.blend')), false);
+  assert.equal(existsSync(join(ws, 'blender-exports', safeSegment('tk'), 'x.blend' + QUARANTINE_SUFFIX)), false);
+  assert.deepEqual(readdirSync(join(ws, 'blender-exports', safeSegment('tk'))).sort(), ['a b.obj', 'a.glb', 'b.PNG']);
   assert.equal(r.files.filter((f) => !f.quarantined).every((f) => f.quarantined === undefined), true);
 });
 
@@ -43,7 +43,7 @@ test('a task id cannot climb out of the export folder', async () => {
   const ws = tmp('legion-bl-ex-');
   const r = await collectExports({ workspace: ws, taskId: '../../x', ...src({ 'a.png': 'p' }) });
   assert.equal(r.files[0]!.path, join(ws, 'blender-exports', safeSegment('../../x'), 'a.png'));
-  assert.equal(safeSegment(''), 'task');
+  assert.match(safeSegment(''), /^task-[0-9a-f]{8}$/);
 });
 
 test('a link planted in the workspace export or quarantine folder stops the copy and nothing is written through it', async (t) => {
@@ -51,12 +51,12 @@ test('a link planted in the workspace export or quarantine folder stops the copy
   const outside = tmp('legion-bl-out-');
   mkdirSync(join(ws, 'blender-exports'), { recursive: true });
   mkdirSync(join(ws, 'blender-quarantine'), { recursive: true });
-  if (!linkOrSkip(t, outside, join(ws, 'blender-exports', 'tl'), 'dir')) return;
+  if (!linkOrSkip(t, outside, join(ws, 'blender-exports', safeSegment('tl')), 'dir')) return;
   const r = await collectExports({ workspace: ws, taskId: 'tl', ...src({ 'a.png': 'p' }) });
   assert.deepEqual(r.files, []);
   assert.match(r.problems.join('\n'), /Exports were not copied/);
   assert.deepEqual(readdirSync(outside), []);
-  if (!linkOrSkip(t, outside, join(ws, 'blender-quarantine', 'tl'), 'dir')) return;
+  if (!linkOrSkip(t, outside, join(ws, 'blender-quarantine', safeSegment('tl')), 'dir')) return;
   const q = await collectExports({ workspace: ws, taskId: 'tl', ...src({ 'q.blend': 'B' }) });
   assert.deepEqual(q.files, []);
   assert.deepEqual(readdirSync(outside), []);
@@ -65,12 +65,12 @@ test('a link planted in the workspace export or quarantine folder stops the copy
 test('a link planted INSIDE the real destination folder also stops the copy', async (t) => {
   const ws = tmp('legion-bl-ex-');
   const outside = tmp('legion-bl-out-');
-  mkdirSync(join(ws, 'blender-exports', 'tn'), { recursive: true });
-  if (!linkOrSkip(t, outside, join(ws, 'blender-exports', 'tn', 'sub'), 'dir')) return;
+  mkdirSync(join(ws, 'blender-exports', safeSegment('tn')), { recursive: true });
+  if (!linkOrSkip(t, outside, join(ws, 'blender-exports', safeSegment('tn'), 'sub'), 'dir')) return;
   const r = await collectExports({ workspace: ws, taskId: 'tn', ...src({ 'a.png': 'p' }) });
   assert.deepEqual(r.files, []);
   assert.match(r.problems.join('\n'), /symbolic link/);
-  assert.equal(existsSync(join(ws, 'blender-exports', 'tn', 'a.png')), false);
+  assert.equal(existsSync(join(ws, 'blender-exports', safeSegment('tn'), 'a.png')), false);
 });
 
 test('a listing that fails returns nothing and does not throw; a read that fails is reported for that file only', async () => {
@@ -108,9 +108,23 @@ test('the VM runner uses the same rules (in-memory VM, no bash needed)', async (
   const r = await sb.run({ agent: agent(), taskId: 'tv', script: 'print(1)\n' });
   assert.equal(r.ok, true, r.text);
   assert.deepEqual(r.files.map((f) => f.name).sort(), ['cube.glb', 'x.blend']);
-  assert.equal(readFileSync(join(ws, 'blender-exports', 'tv', 'cube.glb'), 'utf8'), 'glTF');
-  assert.equal(r.files.find((f) => f.name === 'x.blend')!.path, join(ws, 'blender-quarantine', 'tv', 'x.blend.untrusted'));
-  assert.equal(existsSync(join(ws, 'blender-exports', 'tv', 'x.blend')), false);
+  assert.equal(readFileSync(join(ws, 'blender-exports', safeSegment('tv'), 'cube.glb'), 'utf8'), 'glTF');
+  assert.equal(r.files.find((f) => f.name === 'x.blend')!.path, join(ws, 'blender-quarantine', safeSegment('tv'), 'x.blend.untrusted'));
+  assert.equal(existsSync(join(ws, 'blender-exports', safeSegment('tv'), 'x.blend')), false);
   assert.match(r.text, /QUARANTINED/);
   writeFileSync(join(ws, 'keep'), '');
+});
+
+test('L2: ids that sanitise to the same text, or share a long prefix, get different folders', () => {
+  assert.notEqual(safeSegment('a/b'), safeSegment('a_b'));
+  assert.notEqual(safeSegment('x'.repeat(80) + '1'), safeSegment('x'.repeat(80) + '2'));
+  assert.equal(safeSegment('same'), safeSegment('same'));
+  assert.ok(safeSegment('a'.repeat(500)).length <= 49);
+});
+
+test('L7: Windows device names are refused as export names, with or without an extension; ordinary names stay', async () => {
+  const ws = tmp('legion-bl-ex-');
+  const names = ['CON.png', 'con.glb', 'NUL', 'Prn.obj', 'AUX.png', 'COM1.png', 'lpt9.glb', 'com5.stl', 'good.png', 'console.png', 'COM10.png', 'a b.obj', 'trail.'];
+  const r = await collectExports({ workspace: ws, taskId: 'dev', ...src(Object.fromEntries(names.map((n) => [n, 'x']))) });
+  assert.deepEqual(r.files.map((f) => f.name).sort(), ['COM10.png', 'a b.obj', 'console.png', 'good.png']);
 });

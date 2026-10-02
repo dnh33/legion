@@ -10,6 +10,7 @@ import { join } from 'node:path';
 import test from 'node:test';
 import { defaultBlenderConfig } from '../src/shared/blender.js';
 import type { BlenderConfig } from '../src/shared/blender.js';
+import { safeSegment } from '../src/core/blender/exports.js';
 import { LOCAL_RUNNER_PY, LocalRunner, buildArgs, buildEnv } from '../src/core/blender/local.js';
 import type { LocalDeps } from '../src/core/blender/local.js';
 import type { ProcessPort, SpawnRequest, SpawnedProcess } from '../src/core/blender/ports.js';
@@ -109,7 +110,7 @@ function rig(plan: Plan, o: { dataName?: string; deps?: Partial<LocalDeps>; cfg?
     install: () => ({ path: join(base, 'Blender 5.1', 'blender.exe'), version: o.version ?? '5.1.0' }), ...o.deps,
   });
   const root = join(data, 'blender', 'local');
-  return { runner, port, data, ws, base, cfg, a: agent(), root, task: (id) => join(root, id) };
+  return { runner, port, data, ws, base, cfg, a: agent(), root, task: (id) => join(root, safeSegment(id)) };
 }
 const req = (r: Rig, script = 'print(1)\n', taskId = 't1', timeoutMs = 20_000) => ({ agent: r.a, taskId, script, hash: scriptHash(script), timeoutMs });
 const sleep = (ms: number) => new Promise((res) => setTimeout(res, ms));
@@ -153,7 +154,7 @@ test('run: exact argument list, cwd is the task folder, the runner file is Legio
   assert.equal(s.cwd, task);
   assert.equal(readFileSync(runnerPy, 'utf8'), LOCAL_RUNNER_PY);
   assert.equal(res.files.length, 1);
-  assert.equal(res.files[0]!.path, join(r.ws, 'blender-exports', 't1', 'cube.glb'));
+  assert.equal(res.files[0]!.path, join(r.ws, 'blender-exports', safeSegment('t1'), 'cube.glb'));
   assert.equal(readFileSync(res.files[0]!.path, 'utf8'), 'glTF-bytes');
   assert.match(res.text, /exports in your workspace/);
   assert.equal(readFileSync(join(task, 'scene.blend'), 'utf8'), 'BLEND', 'the scene is kept per task');
@@ -399,7 +400,7 @@ test('C16: a task id cannot climb out of the local folder', async () => {
   const r = rig({ mode: 'ok' });
   const res = await r.runner.run(req(r, 'print(1)\n', '../../escape'));
   assert.equal(res.ok, true, res.text);
-  assert.ok(existsSync(join(r.root, '______escape', 'scene.blend')));
+  assert.ok(existsSync(join(r.root, safeSegment('../../escape'), 'scene.blend')));
   assert.equal(existsSync(join(r.data, 'escape')), false);
   assert.equal(existsSync(join(r.base, 'escape')), false);
 });
@@ -409,7 +410,7 @@ test('a task whose id is "home" or "runner" cannot touch the shared home folder 
   await r.runner.run(req(r, 'print(1)\n', 'home'));
   await r.runner.run(req(r, 'print(1)\n', 'runner'));
   assert.equal(readFileSync(join(r.root, 'runner.py'), 'utf8'), LOCAL_RUNNER_PY);
-  assert.ok(existsSync(join(r.root, 'home')) && existsSync(join(r.root, 'home.d')));
+  assert.ok(existsSync(join(r.root, safeSegment('home'))) && existsSync(join(r.root, 'home.d')), 'the task folders carry a hash suffix, so they are never the shared names');
 });
 
 test('paths with a space and a non-ASCII letter work (data folder, Blender folder)', async () => {
@@ -436,11 +437,11 @@ test('C10: exports go through the shared rules: .blend is quarantined, bad names
   assert.deepEqual(res.files.map((f) => f.name).sort(), ['ok.glb', 'scene2.blend']);
   const blend = res.files.find((f) => f.name === 'scene2.blend')!;
   assert.equal(blend.quarantined, true);
-  assert.equal(blend.path, join(r.ws, 'blender-quarantine', 'tq', 'scene2.blend.untrusted'));
-  assert.equal(existsSync(join(r.ws, 'blender-exports', 'tq', 'scene2.blend')), false);
-  assert.equal(existsSync(join(r.ws, 'blender-exports', 'tq', 'scene2.blend.untrusted')), false);
+  assert.equal(blend.path, join(r.ws, 'blender-quarantine', safeSegment('tq'), 'scene2.blend.untrusted'));
+  assert.equal(existsSync(join(r.ws, 'blender-exports', safeSegment('tq'), 'scene2.blend')), false);
+  assert.equal(existsSync(join(r.ws, 'blender-exports', safeSegment('tq'), 'scene2.blend.untrusted')), false);
   assert.match(res.text, /QUARANTINED/);
-  assert.equal(existsSync(join(r.ws, 'blender-exports', 'tq', 'evil.sh')), false);
+  assert.equal(existsSync(join(r.ws, 'blender-exports', safeSegment('tq'), 'evil.sh')), false);
   // the same file is not copied again by the next run
   const again = await r.runner.run(req(r, 'print(2)\n', 'tq'));
   assert.equal(again.files.length, 2, 'the fake wrote them again, so they come back once each');
@@ -465,7 +466,7 @@ test('C10: a link the script planted inside exports/ during the run stops the co
   if (existsSync(join(r.task('t1'), 'nolink.txt'))) { t.skip('cannot create a link here (needs symlink privilege)'); return; }
   assert.deepEqual(res.files, []);
   assert.match(res.text, /symbolic link/);
-  assert.equal(existsSync(join(r.ws, 'blender-exports', 't1', 'secret.png')), false);
+  assert.equal(existsSync(join(r.ws, 'blender-exports', safeSegment('t1'), 'secret.png')), false);
   assert.equal(readFileSync(join(outside, 'secret.png'), 'utf8'), 'SECRET', 'the folder it pointed to was not emptied');
 });
 
@@ -473,7 +474,7 @@ test('C10: a link planted in the workspace export folder stops the copy', async 
   const r = rig({ mode: 'ok', exports: { 'a.png': 'p' } });
   mkdirSync(join(r.ws, 'blender-exports'), { recursive: true });
   const outside = tmp('legion-bl-out-');
-  if (!linkOrSkip(t, outside, join(r.ws, 'blender-exports', 'ts'), 'dir')) return;
+  if (!linkOrSkip(t, outside, join(r.ws, 'blender-exports', safeSegment('ts')), 'dir')) return;
   const res = await r.runner.run(req(r, 'print(1)\n', 'ts'));
   assert.equal(res.files.length, 0);
   assert.deepEqual(readdirSync(outside), []);

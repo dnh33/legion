@@ -80,3 +80,17 @@ test('error texts are plain sentences for the agent', () => {
   // a VM note that already ends in a full stop does not double it
   assert.deepEqual(resolveMode('vm', undefined, F(false, false, 'The Sculptor agent does not exist.')), { error: 'The cloud VM is not ready: The Sculptor agent does not exist.' });
 });
+
+test('L3: a setting this function does not know is a default-deny error, never "live"', () => {
+  for (const req of [undefined, 'local', 'vm', 'live'] as const) {
+    const r = resolveMode('sandboxed-typo' as unknown as BlenderMode, req, F(true, true));
+    assert.ok('error' in r, `request ${req} must be refused, got ${JSON.stringify(r)}`);
+  }
+});
+
+test('L4: the fallback to the VM says why local is impossible (not found vs older than 3.0)', () => {
+  const old = resolveMode('auto', undefined, { local: false, vm: true, localNote: 'Blender 2.93.0 is too old for local runs (need 3.0.0 or newer).' });
+  assert.deepEqual(old, { mode: 'sandbox', note: 'Blender 2.93.0 is too old for local runs (need 3.0.0 or newer), so the cloud VM was used.' });
+  const none = resolveMode('auto', undefined, { local: false, vm: true, localNote: 'Blender was not found on this computer. Install it or set its location in Settings.' });
+  assert.deepEqual(none, { mode: 'sandbox', note: 'Blender was not found on this computer, so the cloud VM was used.' });
+});

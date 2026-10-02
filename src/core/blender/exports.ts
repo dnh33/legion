@@ -4,6 +4,7 @@
  * inside the workspace with no links planted in them, files are written without following links, and a .blend (which can carry
  * runnable code) is set aside in <workspace>/blender-quarantine/<task>/<name>.blend.untrusted, never in blender-exports.
  */
+import { createHash } from 'node:crypto';
 import { basename, dirname, join } from 'node:path';
 import { findLink, isInside, resolveFolder, safeWriteFile } from './fs-safe.js';
 
@@ -13,10 +14,14 @@ export const QUARANTINE_EXT = new Set(['blend']);
 export const QUARANTINE_SUFFIX = '.untrusted';
 export const MAX_EXPORT_BYTES = 15 * 1024 * 1024;
 export const MAX_EXPORT_FILES = 20;
-export const SAFE_NAME = /^[A-Za-z0-9][A-Za-z0-9._ -]{0,100}$/;
+/** Plain names only. Windows device names (CON, PRN, AUX, NUL, COM1-9, LPT1-9, with or without an extension) are refused, and so is a name ending in a dot or space. */
+export const SAFE_NAME = /^(?!(?:CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])(?:\.|$))[A-Za-z0-9](?:[A-Za-z0-9._ -]{0,99}[A-Za-z0-9_-])?$/i;
 
-/** Folder segment for a task id: letters, digits, dash, underscore only. */
-export const safeSegment = (id: string): string => id.replace(/[^A-Za-z0-9_-]/g, '_').slice(0, 60) || 'task';
+/**
+ * Folder segment for a task id: up to 40 letters, digits, dash or underscore, then a short hash of the FULL id, so two ids that sanitise to the
+ * same text (a/b and a_b, or long ids sharing a prefix) never share a folder. The one function for every task folder (local, VM and guard).
+ */
+export const safeSegment = (id: string): string => `${id.replace(/[^A-Za-z0-9_-]/g, '_').slice(0, 40) || 'task'}-${createHash('sha256').update(id, 'utf8').digest('hex').slice(0, 8)}`;
 
 export interface ExportedFile { name: string; path: string; bytes: number; quarantined?: boolean }
 
