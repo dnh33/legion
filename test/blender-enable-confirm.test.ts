@@ -34,7 +34,8 @@ async function load(): Promise<{ h: H; cleanup: () => void }> {
       contents: `import { createElement } from 'react'; import { renderToStaticMarkup } from 'react-dom/server';
         import * as store from ${JSON.stringify(join(REPO, 'ui/src/blender/blenderStore.ts'))};
         import { EnableBlenderDialog } from ${JSON.stringify(join(REPO, 'ui/src/blender/EnableBlenderDialog.tsx'))};
-        import { BlenderChip } from ${JSON.stringify(join(REPO, 'ui/src/blender/BlenderChip.tsx'))};
+        import { BlenderPopover } from ${JSON.stringify(join(REPO, 'ui/src/blender/BlenderChip.tsx'))};
+        import { chipModel } from ${JSON.stringify(join(REPO, 'ui/src/blender/chipModel.ts'))};
         const g = globalThis; g.__req = []; g.__btns = []; g.__modal = null; g.__listeners = new Set();
         const st = (enabled) => ({ enabled, light: enabled ? 'local' : 'off' });
         export const h = {
@@ -43,7 +44,7 @@ async function load(): Promise<{ h: H; cleanup: () => void }> {
           requestEnableBlender: store.requestEnableBlender, cancelEnableBlender: store.cancelEnableBlender, confirmEnableBlender: store.confirmEnableBlender,
           requests: () => g.__req,
           renderDialog: () => { g.__btns = []; g.__modal = null; const html = renderToStaticMarkup(createElement(EnableBlenderDialog)); return { html, modal: g.__modal, buttons: g.__btns }; },
-          renderChip: () => { g.__btns = []; renderToStaticMarkup(createElement(BlenderChip)); return { buttons: g.__btns }; },
+          renderChip: () => { g.__btns = []; const s = store.getBlender(); const m = chipModel({ status: s.status, loaded: s.loaded, failed: s.failed, absent: s.absent, busy: s.busy !== null }); renderToStaticMarkup(createElement(BlenderPopover, { m, onSettings: () => {} })); return { buttons: g.__btns }; },
           reset: () => { g.__req.length = 0; store.cancelEnableBlender(); },
         };`,
     },
@@ -132,7 +133,7 @@ test('Confirm writes once, through saveBlenderConfig({ enabled: true }) (POST /a
   } finally { cleanup(); }
 });
 
-test('both entry points ask: the chip switch and the Settings checkbox never write ON by themselves; OFF needs no dialog', async () => {
+test('both entry points ask: the chip popover switch and the Settings checkbox never write ON by themselves; OFF needs no dialog', async () => {
   const { h, cleanup } = await load();
   try {
     h.setStatus(false); h.reset();

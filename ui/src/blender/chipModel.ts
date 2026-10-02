@@ -42,11 +42,11 @@ export interface ChipModel {
   enabled: boolean;
   /** The full status sentence (tooltip and screen readers). */
   label: string;
-  /** The visible text on a wide window. */
-  text: string;
-  /** What the status button does: always opens Settings at the Blender section. */
+  /** The button in the popover; it only opens Settings at the Blender section (it never downloads). */
+  settingsText: string;
+  /** What that button is for. */
   action: 'settings' | 'get' | 'setup';
-  /** The status button's accessible name. */
+  /** The pill's accessible name. */
   actionLabel: string;
   title: string;
   switchDisabled: boolean;
@@ -58,8 +58,8 @@ const KNOWN: ReadonlySet<string> = new Set<BlenderLight>(['off', 'not-found', 'n
 
 export function chipModel(i: ChipInput): ChipModel {
   const unknown = (): ChipModel => ({
-    visible: true, tone: 'unknown', enabled: false, label: BLENDER_UNKNOWN, text: BLENDER_UNKNOWN, action: 'settings',
-    actionLabel: `${BLENDER_UNKNOWN}. Open Blender settings`, title: `${BLENDER_UNKNOWN}. ${BLENDER_CHIP_TIP}`, switchDisabled: true, announce: false,
+    visible: true, tone: 'unknown', enabled: false, label: BLENDER_UNKNOWN, settingsText: 'Open Blender settings', action: 'settings',
+    actionLabel: `${BLENDER_UNKNOWN}. Blender menu`, title: `${BLENDER_UNKNOWN}. ${BLENDER_CHIP_TIP}`, switchDisabled: true, announce: false,
   });
   if (i.absent) return { ...unknown(), visible: false };
   const st = i.status;
@@ -67,21 +67,21 @@ export function chipModel(i: ChipInput): ChipModel {
   // an off bridge says Off whatever the light says
   const light: BlenderLight = st.enabled ? st.light : 'off';
   const ver = st.selected?.version ? `, Blender ${st.selected.version}` : '';
-  let label: string; let text: string; let action: ChipModel['action'] = 'settings'; let actionLabel: string;
+  let label: string; let action: ChipModel['action'] = 'settings';
   switch (light) {
-    case 'off': label = 'Blender: Off'; text = 'Off'; actionLabel = 'Blender is off. Open Blender settings'; break;
-    case 'not-found': label = 'Blender not found'; text = 'Get Blender'; action = 'get'; actionLabel = 'Blender not found. Get Blender: opens Settings, Blender'; break;
-    case 'local': label = `Ready: this computer${ver}`; text = 'Ready: this computer'; actionLabel = `${label}. Open Blender settings`; break;
-    case 'sandbox': label = 'Ready: cloud VM'; text = label; actionLabel = `${label}. Open Blender settings`; break;
-    case 'connected': label = 'Live Blender connected'; text = label; actionLabel = `${label}. Open Blender settings`; break;
-    case 'needs-setup': label = 'Blender needs setup'; text = 'Needs setup'; action = 'setup'; actionLabel = 'Blender needs setup. Open Blender settings'; break;
-    case 'busy': label = 'Blender is running a script'; text = 'Running a script'; actionLabel = `${label}. Open Blender settings`; break;
-    case 'disconnected': label = 'Blender is not listening'; text = 'Not listening'; actionLabel = `${label}. Open Blender settings`; break;
-    default: label = 'Blender has a problem'; text = 'Problem'; actionLabel = `${label}. Open Blender settings`; break;
+    case 'off': label = 'Blender: Off'; break;
+    case 'not-found': label = 'Blender not found'; action = 'get'; break;
+    case 'local': label = `Ready: this computer${ver}`; break;
+    case 'sandbox': label = 'Ready: cloud VM'; break;
+    case 'connected': label = 'Live Blender connected'; break;
+    case 'needs-setup': label = 'Blender needs setup'; action = 'setup'; break;
+    case 'busy': label = 'Blender is running a script'; break;
+    case 'disconnected': label = 'Blender is not listening'; break;
+    default: label = 'Blender has a problem'; break;
   }
   const tone: ChipTone = light === 'off' ? 'off' : lightLabel(light).tone === 'on' ? 'on' : lightLabel(light).tone === 'bad' ? 'bad' : 'warn';
   return {
-    visible: true, tone, enabled: st.enabled, label, text, action, actionLabel, title: `${label}. ${BLENDER_CHIP_TIP}`,
+    visible: true, tone, enabled: st.enabled, label, settingsText: action === 'get' ? 'Get Blender' : action === 'setup' ? 'Set up in Settings' : 'Open Blender settings', action, actionLabel: `${label}. Blender menu`, title: `${label}. ${BLENDER_CHIP_TIP}`,
     switchDisabled: i.busy || !i.loaded, announce: light !== 'busy',
   };
 }
