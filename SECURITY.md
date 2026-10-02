@@ -51,7 +51,7 @@ A short index of the limits written out above and in `docs/`. Checked against th
 | Library safety rules | Seed-phrase detection is English BIP-39 only; taint tracking follows file tools only; imports of a vault a bot wrote into become your notes. | above, `docs/LIBRARY.md` |
 | Inherited Claude Code setup | By default agents load your Claude Code settings, MCP servers and connectors (`claude.inheritClaudeCodeSettings`). The owner has decided to make MCP inheritance opt-in; not shipped yet. | `README.md`, `docs/ARCHITECTURE.md` |
 | Agents run code | `full` approval removes prompts for that agent. Use VMs for untrusted work. | above |
-| Installer | `setup.cmd` copies the source, runs `npm ci` (downloads packages and the Electron binary, so it trusts npm and its network path) and builds on your machine. It is unsigned. It stops only Legion's own processes, by PID. Only run it on a source folder you trust. | `README.md` |
+| Installer | `setup.cmd` copies the source, runs `npm ci` (downloads packages and the Electron binary, so it trusts npm and its network path) and builds on your machine. It is unsigned. It stops Legion's own processes by PID (matched by install folder and package name, not by program name) and refuses to mirror into a folder that is not empty and not a Legion install. This is checked by tests and has not yet been run on a wide range of Windows machines. Only run it on a source folder you trust. | `README.md` |
 | Not hosted | Legion is a personal local tool. Do not expose it to a network or share it between users. | above |
 
 Reports about these boundaries (for example an authentication bypass, a way to reach the API from a web page, or a secret leaking into logs or API responses) are in scope.

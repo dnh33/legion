@@ -93,8 +93,8 @@ Setup installs Legion for your user on the C drive, in `%LOCALAPPDATA%\Programs\
 
 - `-InstallDir "C:\Some\Folder"` installs somewhere else.
 - `-DryRun` shows what would happen without changing anything.
-- `-Yes` asks no questions: it stops a running Legion, installs and launches. `setup-yes.cmd` is the same as a double-click, and it does not wait for a key. Setup also never waits when it is run from a script (input redirected).
-- Run setup again from a newer source folder to update in place. It asks before stopping a running Legion (only Legion's own processes, wherever its folder is; other Node or Electron programs are left alone).
+- `-Yes` asks no questions: it stops a running Legion, installs and launches. `setup-yes.cmd` is the same as a double-click; it closes by itself when it succeeds and keeps the window open with a message if it fails (never when input is redirected). Setup also never waits when it is run from a script (input redirected).
+- Run setup again from a newer source folder to update in place. It asks before stopping a running Legion, unless input is redirected (a script or CI), where it takes the default and stops it. Legion's own code is matched by install folder and package name (`package.json` named `legion` with Legion's entry points), wherever that folder is, and stopped by process ID; it never stops by program name, and it leaves the process that started setup alone. It refuses to install over a folder that is not empty and not already a Legion install.
 
 To launch, use the shortcuts or `start-legion.cmd` in the install folder. To uninstall, run `uninstall.cmd` in the install folder; it removes the install folder and the Desktop and Start-menu shortcuts. Your data in `%USERPROFILE%\.legion` is kept; add `/purge` to delete it too (you will be asked to confirm).
 
