@@ -70,7 +70,7 @@ const auditLines = (d: string) => readFileSync(join(d, 'bsv', 'audit.jsonl'), 'u
 
 test('gate: a bearer token alone (the MCP-client class) reaches none of the BSV wallet, policy or audit routes, not even with the native header; the one exception is Freeze, which only makes things safer', async () => {
   const s = await setup({ on: true });
-  for (const [m, p, b] of [['GET', '/api/bsv/wallet'], ['GET', '/api/bsv/policy'], ['GET', '/api/bsv/audit'], ['POST', '/api/bsv/policy/arm', { minutes: 5 }], ['POST', '/api/bsv/policy/unfreeze', {}], ['POST', '/api/bsv/policy/caps', { perTxSats: 5 }], ['POST', '/api/bsv/policy/allowlist', { list: [] }], ['POST', '/api/bsv/policy/disarm', {}], ['POST', '/api/bsv/wallet/connect', { url: WALLET_URL }], ['POST', '/api/bsv/wallet/disconnect', {}]] as Array<[string, string, unknown?]>) {
+  for (const [m, p, b] of [['GET', '/api/bsv/wallet'], ['GET', '/api/bsv/policy'], ['GET', '/api/bsv/audit'], ['POST', '/api/bsv/policy/arm', { minutes: 5 }], ['POST', '/api/bsv/policy/unfreeze', {}], ['POST', '/api/bsv/policy/caps', { perTxSats: 5 }], ['POST', '/api/bsv/policy/allowlist', { list: [] }], ['POST', '/api/bsv/policy/disarm', {}], ['POST', '/api/bsv/wallet/connect', { url: WALLET_URL }], ['POST', '/api/bsv/wallet/disconnect', {}], ['GET', '/api/bsv/spend/pending'], ['POST', '/api/bsv/spend/abc/decision', { decision: 'deny' }], ['POST', '/api/bsv/spend/abc/resolve', { outcome: 'not-sent' }], ['POST', '/api/bsv/policy/mainnet', { enabled: false }]] as Array<[string, string, unknown?]>) {
     for (const headers of [{ ...asClient }, { ...asClient, 'X-Legion-Native': NATIVE }]) {
       const r = await s.call(m, p, b, headers);
       assert.equal(r.status, 403, `${m} ${p}`);
