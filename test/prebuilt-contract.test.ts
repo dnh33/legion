@@ -10,7 +10,8 @@ import { swapIn } from '../src/core/updater/apply.js';
 import { builtTree, fakeElectronDist, fakeNodeModules, installer, load, lib, put, REPO, sha, tmp } from './prebuilt-helpers.js';
 import { defaultConfig } from '../src/shared/config.js';
 
-const read = (rel: string): string => readFileSync(join(REPO, ...rel.split('/')), 'utf8');
+// a Windows checkout of the .ps1 files has CRLF line endings; the contracts below search for LF, so read as LF text
+const read = (rel: string): string => readFileSync(join(REPO, ...rel.split('/')), 'utf8').replace(/\r\n/g, '\n');
 const setup = read('scripts/setup.ps1'); const boot = read('scripts/lib/package-bootstrap.ps1');
 const between = (s: string, a: string, b: string): string => { const i = s.indexOf(a); const j = s.indexOf(b, i + a.length); assert.ok(i >= 0 && j > i, `markers ${a} .. ${b}`); return s.slice(i, j); };
 
