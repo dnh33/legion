@@ -42,6 +42,9 @@ export type Role = keyof typeof PATTERNS;
 const isCli = (n: string): boolean => /_for_cli|cli$|^cli_|headless|batch/i.test(n);
 /** A string argument that carries code or a command: a tool with one is never a card-free tool. */
 const CODE_ARG = /^(code|script|python|source|expression|command|cmd|statement)$/i;
+/** A string argument that names a file, folder or address: a read-only tool that takes one could still be pointed at the user's disk or the network. */
+const LOCATION_ARG = /(path|file|dir|folder|url|uri|link|href)/i;
+export const takesLocation = (t: McpToolInfo): boolean => Object.keys(t.inputSchema?.properties ?? {}).some((k) => LOCATION_ARG.test(k));
 const takesCode = (t: McpToolInfo): boolean => Object.entries(t.inputSchema?.properties ?? {}).some(([k, v]) => CODE_ARG.test(k) && (v?.type === undefined || v.type === 'string'));
 
 /** Picks the server tool for a role. Pure; exported for tests. `execName` is the tool chosen for exec (a card-free role may never be that tool). */
@@ -149,6 +152,33 @@ export class OfficialBackend implements BlenderBackend {
       return fail(timedOut
         ? `The Blender server did not answer in time (${msg}). What was sent may STILL BE RUNNING in Blender; nothing was cancelled.`
         : `The Blender server did not answer: ${msg}`, timedOut);
+    }
+  }
+
+  /**
+   * Read-only tools the server offers beyond the ones Legion maps (inspect, object detail, screenshot, docs): only tools the server itself marks
+   * readOnlyHint, never the exec tool, never one that takes code, a path, a file or an address. Names are matched against the real list at call time.
+   */
+  extraTools(): McpToolInfo[] {
+    const mapped = new Set(Object.values(this.names));
+    return this.tools.filter((t) => t.annotations?.readOnlyHint === true && !mapped.has(t.name) && !isCli(t.name) && !takesCode(t) && !takesLocation(t));
+  }
+
+  /** Calls one of extraTools(). Unknown names, unknown argument names and non-plain values are refused here, before the server is asked. */
+  async callExtra(name: string, args: Record<string, unknown>): Promise<BackendResult> {
+    await this.connect();
+    const t = this.extraTools().find((x) => x.name === name);
+    if (!t) return fail(`"${name}" is not one of the read-only tools this Blender server offers.`);
+    const props = t.inputSchema?.properties ?? {};
+    const clean: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(args)) {
+      if (!(k in props)) return fail(`"${name}" has no argument "${k}". It takes: ${Object.keys(props).join(', ') || 'nothing'}.`);
+      if (!(typeof v === 'string' ? v.length <= 500 : typeof v === 'number' ? Number.isFinite(v) : typeof v === 'boolean')) return fail(`Argument "${k}" must be a short string, a number or true/false.`);
+      clean[k] = v;
+    }
+    try { return contentToResult(await this.client!.callTool({ name, arguments: clean }, undefined, { timeout: 60_000 })); } catch (e) {
+      await this.close();
+      return fail(`The Blender server did not answer: ${e instanceof Error ? e.message : String(e)}`);
     }
   }
 

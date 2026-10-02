@@ -38,6 +38,34 @@ export function looksLikeAddon(value: unknown): boolean {
   return isObj(value) && typeof value.object_count === 'number' && Array.isArray(value.objects);
 }
 
+/**
+ * The community add-on's read-only commands Legion offers as extras in "Use both backends at once" (names in the merged list are `community:<key>`).
+ * Fixed list: the add-on's own command, how its arguments are checked, and a pattern that, when the official server already has a tool for the same
+ * job, hides this one (the main backend's tool wins). The add-on's code-execution, export, asset, telemetry and premium commands are NOT here.
+ * `describe_node_type` builds a throwaway node in a scratch tree and removes it (the add-on says nothing in the scene is touched): it is the one entry that writes anything at all.
+ */
+export interface CommunityExtra { key: string; command: string; description: string; args: Record<string, string>; check: (a: Record<string, unknown>) => Record<string, unknown> | string; officialHas: RegExp }
+const str = (v: unknown, re: RegExp, max: number): string | undefined => (typeof v === 'string' && v.length > 0 && v.length <= max && re.test(v) ? v : undefined);
+export const COMMUNITY_EXTRAS: readonly CommunityExtra[] = [
+  { key: 'node_type', command: 'describe_node_type', description: 'Socket and property schema of a node type (for example ShaderNodeBsdfPrincipled), so you do not guess socket names. Builds and removes a scratch node.', args: { bl_idname: 'node type id, letters, digits and underscores' },
+    check: (a) => { const v = str(a.bl_idname, /^[A-Za-z][A-Za-z0-9_]{0,79}$/, 80); return v ? { bl_idname: v } : 'bl_idname must be a node type id such as ShaderNodeBsdfPrincipled'; }, officialHas: /node.*(type|schema|describe)|describe.*node/i },
+  { key: 'api_lookup', command: 'bpy_api_lookup', description: 'Structured Blender Python API reference: a type, property, function or operator (for example Object.ray_cast or bpy.ops.mesh.primitive_cube_add).', args: { query: 'API name' },
+    check: (a) => { const v = str(a.query, /^[A-Za-z0-9_. ]{1,120}$/, 120); return v ? { query: v } : 'query must be an API name of letters, digits, dots and underscores'; }, officialHas: /(api|bpy|rna).*(lookup|reference|search|doc)|(search|lookup).*(api|bpy)/i },
+  { key: 'scene_snapshot', command: 'get_world_state_snapshot', description: 'Compact snapshot of the scene: selection and objects, no mesh or shader detail.', args: {}, check: () => ({}), officialHas: /(world|scene).*(state|snapshot)/i },
+  { key: 'scene_items', command: 'list_scene_items', description: 'Objects, materials and collections whose names contain a text.', args: { query: 'text to match (optional)', limit: 'how many, 1 to 100 (optional)' },
+    check: (a) => {
+      const q = a.query === undefined ? '' : str(a.query, /^[^\u0000-\u001f]{0,100}$/, 100);
+      if (q === undefined) return 'query must be short plain text';
+      const l = a.limit === undefined ? 30 : typeof a.limit === 'number' && Number.isInteger(a.limit) && a.limit >= 1 && a.limit <= 100 ? a.limit : undefined;
+      return l === undefined ? 'limit must be a whole number from 1 to 100' : { query: q, limit: l };
+    }, officialHas: /(list|find|search).*(scene|object|item)/i },
+];
+
+/** True for the add-on's get_addon_info answer ({name, addon_version, protocol_version, ...}). Used to tell the community add-on from anything else on a port. */
+export function looksLikeAddonInfo(value: unknown): boolean {
+  return isObj(value) && typeof value.name === 'string' && typeof value.protocol_version === 'number' && Array.isArray(value.capabilities);
+}
+
 export class CommunityBackend implements BlenderBackend {
   readonly kind = 'community' as const;
   private connected = false;
@@ -137,6 +165,18 @@ export class CommunityBackend implements BlenderBackend {
         if (!data.length) return fail('The screenshot was empty');
         return ok(isObj(r.value) && typeof r.value.width === 'number' ? `viewport ${r.value.width}x${r.value.height}` : 'viewport screenshot', [{ mime: 'image/png', data: data.toString('base64') }]);
       } finally { await this.remove(file).catch(() => undefined); }
+    });
+  }
+
+  /** One of COMMUNITY_EXTRAS by key. Identified first (like exec), arguments checked, output capped. */
+  async callExtraByKey(key: string, args: Record<string, unknown>): Promise<BackendResult> {
+    const ex = COMMUNITY_EXTRAS.find((e) => e.key === key);
+    if (!ex) return fail(`"community:${key}" is not one of the tools Legion offers from the community add-on.`);
+    const checked = ex.check(args);
+    if (typeof checked === 'string') return fail(checked);
+    return this.lease(true, 30_000, async () => {
+      const r = await this.call(ex.command, checked, 30_000);
+      return r.ok ? ok(capText(this.asText(r.value))) : fail(capText(r.message), r.timedOut === true);
     });
   }
 

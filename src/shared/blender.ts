@@ -46,6 +46,29 @@ export const MANAGED_BLENDER = {
 } as const;
 /** The official download page, for people who want the full Blender (opened in the browser; Legion downloads nothing from it). */
 export const BLENDER_DOWNLOAD_PAGE = 'https://www.blender.org/download/';
+/**
+ * "Use both backends at once" (plan section 15). The official Blender Lab MCP is the MAIN backend, the community add-on the SECOND. Each add-on listens on its
+ * own port: the official one on `port`, the community one on advanced.both.communityPort. Legion never relies on SO_REUSEADDR: both ports are probed before
+ * anything is started and each answer is identified before it is used.
+ */
+export const DEFAULT_COMMUNITY_PORT = 9877;
+/** Asset sources Legion can fetch itself (it downloads, hashes and files the result; the add-on's own downloads happen inside Blender, where Legion cannot). */
+export const ASSET_SOURCES = ['polyhaven'] as const;
+export type AssetSource = typeof ASSET_SOURCES[number];
+/** Sources the community add-on offers that Legion does NOT use, and why (shown in Settings and docs). */
+export const ASSET_SOURCES_UNSUPPORTED: Readonly<Record<string, string>> = {
+  sketchfab: 'needs your account token inside the add-on, and the add-on downloads and imports inside Blender, where Legion cannot place, hash or limit the file',
+  hyper3d: 'a paid generator that needs your key inside the add-on and imports inside Blender, where Legion cannot place, hash or limit the file',
+  polypizza: 'the add-on downloads and imports inside Blender, where Legion cannot place, hash or limit the file',
+  hunyuan3d: 'a generator that needs your key inside the add-on and imports inside Blender, where Legion cannot place, hash or limit the file',
+  tripo: 'a paid premium generator inside the add-on, and the add-on imports inside Blender, where Legion cannot place, hash or limit the file',
+};
+/** Hosts (and their subdomains) a Poly Haven fetch may talk to. api.polyhaven.com is the API base the pinned add-on uses; file hosts come from the API's answers and must end in one of these. TODO OWNER PC: confirm the file host on a real download. */
+export const POLYHAVEN_HOSTS: readonly string[] = ['polyhaven.com', 'polyhaven.org'];
+export const POLYHAVEN_API = 'https://api.polyhaven.com';
+/** Tool name of the approval card for an asset download. */
+export const BLENDER_ASSET_TOOL = 'mcp__legion_blender__blender_asset_get';
+
 /** Tool name of the approval card for the managed download (not an agent tool: only the Settings route asks). */
 export const GET_BLENDER_TOOL = 'legion_get_blender';
 
@@ -79,6 +102,10 @@ export interface BlenderToolMap {
 export type BlenderLocalGuard = 'block' | 'log';
 
 export interface BlenderAdvanced {
+  both: {
+    /** Port of the community add-on when "Use both backends at once" is on (the official add-on uses `port`). Must differ from `port`. */
+    communityPort: number;
+  };
   managed: {
     /** sha256 (64 hex) for the pinned managed build, used only while MANAGED_BLENDER.sha256 is empty. Empty = the download is refused. */
     sha256: string;
@@ -147,6 +174,10 @@ export interface BlenderConfig {
   installPath?: string;
   /** Where scripts run. ABSENT until the user saves a choice (then the legacy `sandbox` key decides, see effectiveMode). */
   mode?: BlenderMode;
+  /** "Use both backends at once". OFF unless the owner turns it on; with it off exactly one live backend is used, as before. */
+  both?: boolean;
+  /** Per-source switch for asset downloads (the Sculptor's blender_asset_* tools). Every source is OFF until switched on here. */
+  assets?: Partial<Record<AssetSource, boolean>>;
   /** True once the user chose where scripts run (the first-use chooser or the Settings radio). Enabling the bridge alone does not set it. */
   modeAsked?: boolean;
   /** Legacy mirror of `mode` (auto/local -> auto, vm -> vm, live -> off). Always written alongside `mode`. */
@@ -173,6 +204,7 @@ export function countLines(s: string): number {
 }
 
 export const DEFAULT_ADVANCED: BlenderAdvanced = {
+  both: { communityPort: DEFAULT_COMMUNITY_PORT },
   managed: { sha256: '' },
   local: { timeoutSeconds: 120, maxTaskBytes: 500 * 1024 * 1024, maxOutputBytes: 4 * 1024 * 1024, extraWriteDirs: [], guard: 'block', args: [] },
   official: {
@@ -272,6 +304,7 @@ export function normalizeBlender(v: unknown): BlenderConfig {
   const vm = isObj(adv.vm) ? adv.vm : {};
   const loc = isObj(adv.local) ? adv.local : {};
   const man = isObj(adv.managed) ? adv.managed : {};
+  const both = isObj(adv.both) ? adv.both : {};
   const dl = d.advanced.local;
   const int = (x: unknown, def: number, lo: number, hi: number): number => (typeof x === 'number' && Number.isFinite(x) ? Math.min(hi, Math.max(lo, Math.round(x))) : def);
   const mode = BLENDER_MODES.includes(v.mode as BlenderMode) ? (v.mode as BlenderMode) : undefined;
@@ -289,9 +322,12 @@ export function normalizeBlender(v: unknown): BlenderConfig {
     ...(typeof v.installPath === 'string' && v.installPath.trim() && v.installPath.length <= 1000 && !/\0/.test(v.installPath) ? { installPath: v.installPath.trim() } : {}),
     ...(mode ? { mode } : {}),
     ...(v.modeAsked === true ? { modeAsked: true } : {}),
+    ...(v.both === true ? { both: true } : {}),
+    ...(isObj(v.assets) && ASSET_SOURCES.some((k) => v.assets && (v.assets as Record<string, unknown>)[k] === true) ? { assets: Object.fromEntries(ASSET_SOURCES.map((k) => [k, (v.assets as Record<string, unknown>)[k] === true])) as Partial<Record<AssetSource, boolean>> } : {}),
     sandbox: mode ? mirrorSandbox(mode) : legacy,
     ...(normEntry(v.entry) ? { entry: normEntry(v.entry)! } : {}),
     advanced: {
+      both: { communityPort: typeof both.communityPort === 'number' && Number.isInteger(both.communityPort) && both.communityPort >= 1024 && both.communityPort <= 65535 ? both.communityPort : DEFAULT_COMMUNITY_PORT },
       managed: { sha256: hex(man.sha256, '') },
       local: {
         timeoutSeconds: int(loc.timeoutSeconds, dl.timeoutSeconds, LOCAL_MIN_TIMEOUT_S, LOCAL_MAX_TIMEOUT_S),
@@ -374,6 +410,17 @@ export interface BlenderStatusView {
   nextRun?: string;
   /** The user has not yet chosen where scripts run: the first approval card carries a one-time chooser. */
   modeAsked?: boolean;
+  /** "Use both backends at once": the switch, the ports and what each side answered at the last check. */
+  both?: {
+    enabled: boolean;
+    officialPort: number;
+    communityPort: number;
+    /** Plain sentence: what is verified, or why it is not. */
+    note: string;
+    /** Names (source:name) of the extra tools the Sculptor can call right now. */
+    extras: string[];
+    assets: Array<{ source: string; enabled: boolean; supported: boolean; reason?: string }>;
+  };
   /** The Legion-managed headless Blender (Settings, "Get Blender for Legion"). */
   managed?: {
     installed: { version: string; path: string; sha256: string; at: string } | null;
@@ -417,6 +464,10 @@ export interface BlenderTestResult { ok: boolean; steps: BlenderSetupStep[]; sta
 /** True of both backends today: the add-on in Blender opens a local socket with no password (checked in the v1.0.3 official source and the community addon.py). */
 export const BLENDER_SOCKET_NOTICE =
   'While the add-on\'s server is running in Blender, any program on this computer can send code to its port (127.0.0.1) without Legion\'s approval card: the add-on has no password and Legion cannot add one. Stop the server (or close Blender) when you are not using the bridge, and do not give a Bash tool to an agent that reads untrusted content.';
+
+/** Shown while "Use both backends at once" is on: two sockets, neither with a password. */
+export const BLENDER_BOTH_NOTICE =
+  'Use both backends at once is on: two add-on servers are listening in Blender, one per port, and neither has a password. Any program on this computer can send code to either port without Legion\'s approval card. Legion checks which add-on answers on which port, but that identifies the server; it does not authenticate a caller. Stop the servers (or close Blender) when you are not using the bridge.';
 
 /** Shown in Settings and the Ops card while an install that enabled the bridge before this version has never saved a mode (it disappears once any mode is saved). */
 export const BLENDER_UPGRADE_NOTICE = 'Scripts now run in Blender on this computer by default when it is found. Pick Cloud VM to keep the old behaviour.';

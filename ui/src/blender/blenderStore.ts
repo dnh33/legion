@@ -57,7 +57,7 @@ async function act<T extends { status: BlenderStatusView; steps: BlenderSetupSte
   } catch (e) { set({ error: msg(e) }); return null; } finally { set({ busy: null }); }
 }
 
-export async function saveBlenderConfig(patch: { enabled?: boolean; backend?: 'auto' | 'official' | 'community'; mode?: BlenderMode; sandbox?: 'off' | 'vm' | 'auto'; port?: number; installPath?: string | null }): Promise<void> {
+export async function saveBlenderConfig(patch: { both?: boolean; assets?: { polyhaven?: boolean }; enabled?: boolean; backend?: 'auto' | 'official' | 'community'; mode?: BlenderMode; sandbox?: 'off' | 'vm' | 'auto'; port?: number; installPath?: string | null }): Promise<void> {
   if (state.busy) return;
   set({ busy: 'config', error: null });
   try { set({ status: await request<BlenderStatusView>('POST', '/api/blender/config', patch), loaded: true }); } catch (e) { set({ error: msg(e) }); } finally { set({ busy: null }); }

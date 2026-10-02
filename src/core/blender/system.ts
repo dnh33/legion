@@ -14,6 +14,8 @@ import { Readable, Transform } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import type { BlenderIo } from './setup.js';
 import type { GetBlenderPorts } from './get-blender.js';
+import { polyhavenUrlOk } from './assets.js';
+import type { AssetNet } from './assets.js';
 import type { ProcessPort, SpawnedProcess, SpawnRequest } from './ports.js';
 import type { DetectEnv, RunResult } from './detect.js';
 import { PYTHON_UTF8_ENV } from './backend.js';
@@ -63,10 +65,10 @@ export function realDetectEnv(): DetectEnv {
 
 const MAX_REDIRECTS = 4;
 
-async function download(url: string, dest: string, opts: { maxBytes: number }): Promise<{ sha256: string; bytes: number }> {
+async function download(url: string, dest: string, opts: { maxBytes: number; urlOk?: (url: string) => boolean }): Promise<{ sha256: string; bytes: number }> {
   let current = url;
   for (let hop = 0; ; hop++) {
-    if (!isPublicHttpsUrl(current)) throw new Error('Refusing to download: the address must be https and public.');
+    if (!isPublicHttpsUrl(current) || (opts.urlOk && !opts.urlOk(current))) throw new Error('Refusing to download: the address must be https, public and on the expected host.');
     const res = await fetch(current, { redirect: 'manual', signal: AbortSignal.timeout(10 * 60_000), headers: { 'user-agent': 'Legion-Blender-Setup' } });
     if (res.status >= 300 && res.status < 400) {
       const loc = res.headers.get('location');
@@ -110,6 +112,30 @@ async function extract(archive: string, destDir: string): Promise<void> {
     last = r ? (r.stderr || r.stdout).trim().slice(0, 300) : `${cmd} is not installed`;
   }
   throw new Error(`Could not unpack the download: ${last}`);
+}
+
+/**
+ * The real network side of asset downloads (assets.ts holds the logic): Poly Haven only, https only, a host allowlist checked on every redirect hop,
+ * a 5 MB cap on the JSON listings and the same size-capped file download as Set up. Runs only when the Sculptor's asset tool was approved on a card
+ * (a search is a read-only listing and needs the source switched on in Settings).
+ */
+export function createAssetNet(): AssetNet {
+  return {
+    getJson: async (url) => {
+      let current = url;
+      for (let hop = 0; hop <= MAX_REDIRECTS; hop++) {
+        if (!isPublicHttpsUrl(current) || !polyhavenUrlOk(current)) throw new Error('Refusing to fetch: the address must be https and on a Poly Haven host.');
+        const res = await fetch(current, { redirect: 'manual', signal: AbortSignal.timeout(30_000), headers: { 'user-agent': 'Legion-Blender-Assets', accept: 'application/json' } });
+        if (res.status >= 300 && res.status < 400) { const loc = res.headers.get('location'); if (!loc) throw new Error('Poly Haven redirected without an address.'); current = new URL(loc, current).toString(); continue; }
+        if (!res.ok) throw new Error(`Poly Haven answered HTTP ${res.status}`);
+        const text = await res.text();
+        if (text.length > 5 * 1024 * 1024) throw new Error('Poly Haven sent a listing larger than the 5 MB limit.');
+        return JSON.parse(text) as unknown;
+      }
+      throw new Error('Too many redirects.');
+    },
+    download: (url, dest, o) => download(url, dest, { maxBytes: o.maxBytes, urlOk: polyhavenUrlOk }),
+  };
 }
 
 /** The real ports of "Get Blender for Legion" (get-blender.ts). The download is the same https-only, public-host, size-capped one as Set up. */

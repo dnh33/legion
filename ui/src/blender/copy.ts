@@ -49,3 +49,10 @@ export const CHOOSER_OPTIONS: ReadonlyArray<{ mode: BlenderMode; label: string }
 ];
 /** The choice to highlight: this computer when Blender is found, else the cloud VM when it is ready, else Automatic. */
 export const chooserDefault = (st: Pick<BlenderStatusView, 'localReady' | 'sandboxReady'>): BlenderMode => (st.localReady ? 'local' : st.sandboxReady ? 'vm' : 'auto');
+
+/** "Use both backends at once" (Settings, Blender). Off until switched on; it says what it adds and what it does not protect. */
+export const BOTH_TITLE = 'Use both backends at once';
+export const BOTH_TEXT =
+  'The official Blender Lab server is the main backend and runs your scripts; the community add-on is added as a second source of read-only extras. Each add-on gets its own port, Legion checks which one answers where, and the Sculptor sees one merged tool list. Both add-on sockets have no password, so any program on this computer can reach either port. Off by default; not yet tried with a real Blender.';
+export const ASSETS_TITLE = 'Asset downloads (outside content)';
+export const ASSETS_TEXT = 'Legion fetches the asset itself, shows a card (what, from where, how big) for every download, keeps the files in a per-task folder outside your workspace, checks them against Poly Haven’s md5 and counts the run as outside content afterwards. Every source is off until you switch it on. No downloaded script is run.';
