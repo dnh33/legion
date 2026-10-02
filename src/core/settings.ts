@@ -170,7 +170,7 @@ export class SettingsService {
     const p = validatePatch(raw, this.deps.config.mcpServers);
     const cfg = this.deps.config;
     for (const [name, e] of Object.entries(p.mcpServers ?? {})) {
-      if ((e.type === 'http' || e.type === 'sse') && isSelfMcpUrl(e.url, cfg.port)) throw new SettingsError(`mcpServers.${name} points at Legion's own /mcp endpoint. Agents already have Legion's tools; adding it again would loop.`);
+      if ((e.type === 'http' || e.type === 'sse') && isSelfMcpUrl(e.url, cfg.port, { headers: e.headers, authToken: cfg.authToken })) throw new SettingsError(`mcpServers.${name} points at Legion's own /mcp endpoint. Agents already have Legion's tools; adding it again would loop.`);
     }
     // Apply to the on-disk JSON (not the in-memory config) so env-derived values are never persisted.
     let disk: any = {};

@@ -4,14 +4,36 @@
  */
 import type { LegionConfig, McpServerState, McpStatusView } from '../shared/types.js';
 
-const LOOPBACK = new Set(['127.0.0.1', 'localhost', '::1', '[::1]', '0.0.0.0', '[::]']);
+/** Hostname (WHATWG-normalised, so 127.1, 2130706433 and long IPv6 forms are already canonical) that resolves to this machine by spelling alone. */
+function isLoopbackHost(raw: string): boolean {
+  let h = raw.toLowerCase();
+  if (h.startsWith('[') && h.endsWith(']')) h = h.slice(1, -1);
+  h = h.replace(/\.+$/, ''); // `localhost.` is the same name
+  if (h === 'localhost' || h.endsWith('.localhost') || h === '::1' || h === '::' || h === '0.0.0.0') return true;
+  if (/^127\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(h)) return true; // all of 127.0.0.0/8
+  // IPv4-mapped IPv6: URL turns ::ffff:127.0.0.1 into ::ffff:7f00:1
+  const m = /^::ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})$/.exec(h);
+  if (m) { const hi = parseInt(m[1]!, 16); return hi >> 8 === 127 || (hi === 0 && parseInt(m[2]!, 16) === 0); }
+  return false;
+}
 
-/** True when `url` is Legion's own MCP endpoint (loopback host, this core's port, path /mcp). A server like that would hand an agent its own Legion. */
-export function isSelfMcpUrl(url: unknown, port: number): boolean {
+/** True when an Authorization header carries Legion's own token: that entry reaches Legion whatever host it names. */
+function carriesOwnToken(headers: unknown, authToken: unknown): boolean {
+  if (typeof authToken !== 'string' || authToken.length < 8 || !headers || typeof headers !== 'object') return false;
+  return Object.entries(headers as Record<string, unknown>).some(([k, v]) => k.toLowerCase() === 'authorization' && typeof v === 'string' && v.includes(authToken));
+}
+
+/**
+ * True when `url` is Legion's own MCP endpoint: a loopback spelling of this core's port at path /mcp, or (when `own` is given) any entry whose
+ * Authorization header carries Legion's own token. A server like that would hand an agent its own Legion. String-based: stdio bridges and
+ * DNS names that merely resolve to loopback are not detected.
+ */
+export function isSelfMcpUrl(url: unknown, port: number, own?: { headers?: unknown; authToken?: unknown }): boolean {
+  if (own && carriesOwnToken(own.headers, own.authToken)) return true;
   if (typeof url !== 'string') return false;
   let u: URL;
   try { u = new URL(url); } catch { return false; }
-  if (!LOOPBACK.has(u.hostname.toLowerCase())) return false;
+  if (!isLoopbackHost(u.hostname)) return false;
   const p = u.port ? Number(u.port) : (u.protocol === 'https:' ? 443 : 80);
   return p === port && u.pathname.replace(/\/+$/, '') === '/mcp';
 }
@@ -19,7 +41,7 @@ export function isSelfMcpUrl(url: unknown, port: number): boolean {
 /** Settings -> MCP entries that would point back at Legion itself (hand-edited config.json; the Settings route refuses them). */
 export function selfMcpNames(config: LegionConfig): string[] {
   return Object.entries(config.mcpServers ?? {})
-    .filter(([, e]) => (e.type === 'http' || e.type === 'sse') && isSelfMcpUrl(e.url, config.port))
+    .filter(([, e]) => (e.type === 'http' || e.type === 'sse') && isSelfMcpUrl(e.url, config.port, { headers: e.headers, authToken: config.authToken }))
     .map(([name]) => name);
 }
 

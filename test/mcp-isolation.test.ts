@@ -148,6 +148,24 @@ test('self guard: Legion\'s own /mcp url is recognised; other urls and ports are
   for (const u of ['http://127.0.0.1:4748/mcp', 'http://127.0.0.1:4747/other', 'https://mcp.example.com/mcp', 'nope', undefined]) assert.equal(isSelfMcpUrl(u, 4747), false, String(u));
 });
 
+test('self guard: loopback aliases from the review table, and an entry carrying Legion\'s own token', () => {
+  for (const u of ['http://127.0.0.2:4747/mcp', 'http://127.255.0.9:4747/mcp', 'http://127.1:4747/mcp', 'http://2130706433:4747/mcp', 'http://[::ffff:127.0.0.1]:4747/mcp', 'http://[::ffff:7f00:1]:4747/mcp',
+    'http://localhost.:4747/mcp', 'http://foo.localhost:4747/mcp', 'http://LOCALHOST:4747/mcp', 'http://0.0.0.0:4747/mcp', 'http://[::]:4747/mcp', 'http://[0:0:0:0:0:0:0:1]:4747/mcp',
+    'http://user:pw@127.0.0.1:4747/mcp', 'http://127.0.0.1:04747/mcp', 'http://127.0.0.1:4747/./mcp', 'http://127.0.0.1:4747/x/../mcp']) assert.equal(isSelfMcpUrl(u, 4747), true, u);
+  for (const u of ['http://128.0.0.1:4747/mcp', 'http://[::ffff:8.8.8.8]:4747/mcp', 'http://notlocalhost:4747/mcp', 'http://localhost.example.com:4747/mcp', 'http://127.0.0.1.nip.io:4747/mcp', 'http://127.0.0.1:4747/MCP']) assert.equal(isSelfMcpUrl(u, 4747), false, u);
+  const tok = 'tok-abcdef123456';
+  assert.equal(isSelfMcpUrl('https://tunnel.example/anything', 4747, { headers: { authorization: `Bearer ${tok}` }, authToken: tok }), true, 'own token, any host');
+  assert.equal(isSelfMcpUrl('https://tunnel.example/mcp', 4747, { headers: { Authorization: 'Bearer other-token-xyz' }, authToken: tok }), false);
+  assert.equal(isSelfMcpUrl('https://tunnel.example/mcp', 4747, { headers: { 'X-Note': tok }, authToken: tok }), false, 'only the Authorization header counts');
+  assert.equal(isSelfMcpUrl('https://tunnel.example/mcp', 4747, { headers: { Authorization: 'Bearer abc' }, authToken: 'abc' }), false, 'a short token is not matched');
+});
+
+test('self guard: an entry with Legion\'s token is refused by Settings and not handed to a run', async () => {
+  const s = setup(async function* () { yield init(); yield ok; }, (c) => { c.mcpServers = { tun: { type: 'http', url: 'https://t.example/x', headers: { Authorization: `Bearer ${c.authToken}` } }, fine: { type: 'http', url: 'https://x.example/mcp' } }; });
+  await run(s);
+  assert.deepEqual(Object.keys(s.calls[0]!.options.mcpServers).sort(), ['fine', 'legion']);
+});
+
 test('self guard: Settings refuses a server that points at Legion, and a hand-edited one is never handed to a run', async () => {
   const m = await mount();
   const r = await m.http('PATCH', '/api/settings', { mcpServers: { loop: { type: 'http', url: 'http://127.0.0.1:4747/mcp' } } }, AUTH);

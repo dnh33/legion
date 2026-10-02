@@ -704,7 +704,7 @@ export class Engine {
       if (!inherit || typeof q.toggleMcpServer !== 'function' || !Array.isArray(full)) return;
       for (const s of full) {
         if (s?.source === 'sdk' || typeof s?.name !== 'string') continue;
-        if (s.name === 'legion' || isSelfMcpUrl(s.config?.url, this.config.port)) await q.toggleMcpServer(s.name, false);
+        if (s.name === 'legion' || isSelfMcpUrl(s.config?.url, this.config.port, { headers: s.config?.headers, authToken: this.config.authToken })) await q.toggleMcpServer(s.name, false);
       }
     })().catch(() => undefined);
   }
