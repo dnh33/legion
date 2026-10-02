@@ -76,9 +76,9 @@ test('settings: the view carries install info only when the core passes it; the 
 
 test('swap: a full-package install may name node_modules and runtime, never .update, a path, or a dot name; a failed swap puts node_modules back', async () => {
   const dest = tmp('prebuilt-sw-'); const staged = tmp('prebuilt-st-');
-  for (const bad of ['..', '.', 'a/b', 'a\\b', 'C:x', '.update', '']) await assert.rejects(swapIn({ installDir: dest, stagedDir: staged, from: '1', to: '2', names: [bad] }), /refusing to swap|incomplete/, bad || '(empty)');
-  put(dest, 'package.json', '{"v":1}'); put(dest, 'dist/a.js', 'old'); put(dest, 'node_modules/old/i.js', 'old');
-  put(staged, 'package.json', '{"v":2}'); put(staged, 'dist/a.js', 'new'); put(staged, 'node_modules/new/i.js', 'new');
+  put(staged, 'package.json', '{"v":2}'); put(staged, 'dist/a.js', 'new');
+  for (const bad of ['..', '.', 'a/b', 'a\\b', 'C:x', '.update', '']) await assert.rejects(swapIn({ installDir: dest, stagedDir: staged, from: '1', to: '2', names: ['dist', 'package.json', bad] }), /refusing to swap/, bad || '(empty)');
+  put(dest, 'package.json', '{"v":1}'); put(dest, 'dist/a.js', 'old'); put(dest, 'node_modules/old/i.js', 'old'); put(staged, 'node_modules/new/i.js', 'new');
   await assert.rejects(swapIn({ installDir: dest, stagedDir: staged, from: '1', to: '2', names: ['dist', 'package.json', 'node_modules'], retryMs: 10, step: (l) => { if (l === 'before-install:node_modules') throw new Error('boom'); } }), /boom/);
   assert.equal(readFileSync(join(dest, 'node_modules/old/i.js'), 'utf8'), 'old'); assert.equal(readFileSync(join(dest, 'dist/a.js'), 'utf8'), 'old'); assert.equal(readFileSync(join(dest, 'package.json'), 'utf8'), '{"v":1}');
 });

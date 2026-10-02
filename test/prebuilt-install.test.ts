@@ -71,17 +71,19 @@ test('install: refuses a drive-style root, a foreign non-empty folder, a link, a
 
 test('install: a package that does not match its file list is refused before anything is installed (changed byte, missing file, extra file, link, stray top-level name)', async () => {
   const { installPackage } = await installer();
-  const cases: Array<[string, (src: string) => void, string]> = [
-    ['changed byte', (s) => put(s, 'dist/src/bin/legion-core.js', '// c0re'), 'incomplete'],
-    ['missing file', (s) => { rmSync(join(s, 'dist-ui', 'index.html')); }, 'blocked'],
-    ['extra file', (s) => put(s, 'dist/src/evil.js', 'x'), 'incomplete'],
-    ['stray top-level', (s) => put(s, 'evil.exe', 'x'), 'incomplete'],
+  const cases: Array<[string, (src: string) => void, string, boolean]> = [
+    ['changed byte', (s) => put(s, 'dist/src/bin/legion-core.js', '// c0re'), 'incomplete', false],
+    ['missing file', (s) => { rmSync(join(s, 'dist-ui', 'index.html')); }, 'blocked', true],
+    ['extra file', (s) => put(s, 'dist/src/evil.js', 'x'), 'incomplete', true],
+    ['stray top-level file', (s) => put(s, 'evil.exe', 'x'), 'incomplete', true],
+    ['stray empty top-level folder', (s) => mkdirSync(join(s, 'evil')), 'incomplete', true],
   ];
-  if (process.platform !== 'win32') cases.push(['link', (s) => symlinkSync('/etc/passwd', join(s, 'assets', 'l')), 'incomplete']);
-  for (const [name, mutate, code] of cases) {
+  if (process.platform !== 'win32') cases.push(['link', (s) => symlinkSync('/etc/passwd', join(s, 'assets', 'l')), 'incomplete', true]);
+  for (const [name, mutate, code, early] of cases) {
     const src = await fakePackage(); mutate(src); const dest = join(tmp(), 'Legion');
     await assert.rejects(installPackage({ src, dest, smoke: ok }), (e: any) => e.code === code, name);
     assert.equal(existsSync(join(dest, 'package.json')), false, `${name}: nothing installed`);
+    if (early) assert.equal(existsSync(join(dest, '.update')), false, `${name}: refused before anything was staged`);
   }
 });
 
@@ -135,13 +137,15 @@ test('install: a package for another platform or a source folder is not a packag
 });
 
 test('install: the file list is parsed strictly (traversal, device names, duplicates, unknown top-level names, bad hashes)', async () => {
-  const { parseFilesList, packageTopNames } = await lib();
+  const { parseFilesList, packageTopNames, isSafeRel } = await lib();
   const top = packageTopNames(['dist', 'package.json']);
   const f = (path: string, extra: object = {}) => JSON.stringify({ schema: 1, files: [{ path, size: 1, sha256: 'a'.repeat(64), ...extra }] });
   assert.equal(parseFilesList(f('dist/a.js'), top).length, 1);
   for (const bad of ['../x', '/abs', 'dist\\a', 'dist/../a', 'C:/x', 'dist/con.js', 'dist/a.', 'evil/a.js', 'dist//a']) assert.throws(() => parseFilesList(f(bad), top), /./, bad);
+  for (const bad of ['../x', '/abs', 'dist\\a', 'dist/../a', 'C:/x', 'dist/con.js', 'dist/a.', 'dist//a', 'dist/a b ', 'dist/a\0b', 'dist/a?b', 'dist/./a', '']) assert.equal(typeof isSafeRel(bad), 'string', `isSafeRel should refuse ${JSON.stringify(bad)}`);
+  for (const good of ['dist/a.js', 'node_modules/@anthropic-ai/x/claude.exe', 'a b/c d.txt']) assert.equal(isSafeRel(good), null, good);
   assert.throws(() => parseFilesList(f('dist/a.js', { sha256: 'xyz' }), top));
-  assert.throws(() => parseFilesList(JSON.stringify({ schema: 1, files: [{ path: 'dist/a', size: 1, sha256: 'a'.repeat(64) }, { path: 'DIST/A', size: 1, sha256: 'a'.repeat(64) }] }), top));
+  assert.throws(() => parseFilesList(JSON.stringify({ schema: 1, files: [{ path: 'dist/a', size: 1, sha256: 'a'.repeat(64) }, { path: 'dist/A', size: 1, sha256: 'a'.repeat(64) }] }), top));
   assert.throws(() => parseFilesList(f('dist/' + 'x'.repeat(250)), top));
   assert.throws(() => parseFilesList('{', top));
 });
