@@ -1,0 +1,68 @@
+# Chat: message queue and copy menu
+
+UI notes for the composer and the message list. Code: `ui/src/chat/` (pure logic), `ui/src/components/Composer.tsx`, `QueueStrip.tsx`, `CopyMenu.tsx`.
+
+## Message queue
+
+While an agent is working, **Enter queues** your message instead of refusing it. Queue as many as you like (in order); when the run ends the next one is sent by itself.
+
+| Key | Agent idle | Agent busy |
+|---|---|---|
+| `Enter` | send | queue |
+| `Ctrl+Enter` (`Cmd+Enter`) | send | **interrupt**: cancel the current run, send this message now, the rest of the queue stays queued behind it |
+| `Shift+Enter` | newline | newline |
+| `Up` in an empty input | | pull the last queued message back into the input |
+
+The queue is a list above the composer: a count badge, one line per message (click to edit it in place; `Enter` saves, `Esc` cancels), a "send now" button (same as Ctrl+Enter for that message), a remove button, and the state ("Waiting for the current run to finish", "Sending", "Paused"). A **Queue** button next to Stop does the same as Enter for mouse and touch users.
+
+### What counts as busy
+
+- the thread's own run is queued or running;
+- an approval card for the thread is waiting (the run is paused on you, which still counts as running: the queue holds);
+- the same agent is busy with a task that did not start in this window: a room, an agent-to-agent call, an MCP client. Your own other tab of the same agent does **not** count, so running two tabs in parallel works as before.
+
+A "thread" is a task. Each task has its own queue, and every agent keeps its queues while you look at another agent (they keep sending in the background). The New task view of a busy agent has a queue too; it becomes the new task's queue after its first message.
+
+### When the queue stops by itself (hold)
+
+Nothing is ever sent "silently" after something went wrong. The queue pauses and shows a banner with **Resume** and **Clear**:
+
+- **You stopped the run** (Stop button, the task menu, or another window): `Queue paused: you stopped the run`.
+- **The run failed**: the error text is shown.
+- **Sending a queued message failed** (offline, refused): the message stays in the queue.
+- **After a reload**: the queue comes back from `sessionStorage` (it survives a window reload, not an app restart) but held: `Restored after reload`. Nothing goes out until you press Resume.
+
+While a queue is held and the agent is idle, a fresh Enter sends right away; the held messages are not touched.
+
+### Limits and details
+
+- 20 messages per thread, 50,000 characters per message. The 21st message is refused with a visible message and stays in the input.
+- A queued message keeps the model that was selected when you queued it.
+- Slash commands: `/opus text`, `/sonnet text` and Claude Code commands queue and send like any message. Commands Legion runs itself (`/new`, `/agent`, `/vm`, `/doctor`, a bare `/model`) still run at once, they are not queued.
+- A message long enough to matter is shown clipped in the list (160 characters) and sent whole.
+- Ctrl+Enter only cancels the thread's own run. If only another source is busy (a room task), it just sends now and leaves that task alone.
+- The cancel goes through the normal cancel path; the interrupted run shows "Cancelled" and the new message continues the same task (and session) once the old run has unwound. No engine change was needed.
+- If the core says "still running" for a moment after our copy says idle (event ordering), the send is retried a few times before the queue is held.
+
+### Implementation
+
+- `queue.ts`: a pure state machine (enqueue, dequeue on run end, override lock, pause, resume, clear, edit, rekey, persistence round trip with sanitising). `busy.ts`: the busy rules. Both are unit-tested (`test/chat-queue.test.ts`).
+- `queueStore.ts`: a store of its own (queue changes never write to the main app store), `sessionStorage` persistence, and the runner. The runner listens to every store write but returns after three reference comparisons unless `tasks`, `approvals` or `loaded` changed, so streaming costs nothing extra. No timers, except the retry after a 409.
+- The composer keeps its text in local state; the queue strip is memoised on two strings, so typing never re-renders it.
+- `store.ts`: `sendPromptTo(target, prompt, opts)` sends to any thread (the queue sends to threads you are not looking at); `sendPrompt` is now a thin wrapper. A task row from an HTTP response is never allowed to replace a newer one (`upsertTaskIfNewer`): a fast run's events could otherwise be overwritten by the older "queued" snapshot, leaving the UI busy forever.
+
+## Copy menu
+
+Under every finished assistant reply: **Markdown** and **Plain text** (with a copy icon). It shows on hover or keyboard focus of the message, is always visible on touch screens, and is always in the DOM, so Tab reaches it.
+
+- **Copy as Markdown**: the message's own source text, exactly as the model wrote it.
+- **Copy as plain text**: what the bubble shows, without the syntax. Headings, bold, italic and inline code lose their markers; `[text](url)` becomes `text (url)`; lists keep their structure (`- item`, `1. item`); code blocks become plain lines (no fences, indentation kept); a line break stays a line break.
+- Tool chips and tool output are never included, only the message's own text. A streaming reply has no menu until it is complete.
+- A short "Copied Markdown" / "Copied text" note appears next to the buttons for about two seconds. No animation or transition.
+- It uses `navigator.clipboard` and falls back to a hidden textarea with `execCommand('copy')` (focus returns to the button). The code blocks keep their own Copy button.
+- Menu state is local to the small `CopyMenu` component, and the message view stays memoised, so using the menu never re-renders the thread.
+- `mdparse.ts` is the one Markdown parser: `Markdown.tsx` draws its blocks, `plaintext.ts` flattens the same blocks, so the two cannot drift apart (`test/chat-copy.test.ts`).
+
+## Proof
+
+`test-perf/chat-ui/` drives the real built UI with Playwright against a real core (real engine, real HTTP server) whose Claude SDK is scripted (`harness.mjs`): `queue.mjs` (18 checks: order and auto-send, Ctrl+Enter, pause on stop, resume and clear, edit and remove, approval hold, failed run, room-busy, reload restore, limits, slash commands, long messages), `copy.mjs` (11 checks: both variants on the real clipboard, keyboard, touch, fallback, light and dark), `perf.mjs` (typing, streaming and idle cost). Run `node test-perf/chat-ui/queue.mjs [dist-ui dir]`; Playwright is found through `PLAYWRIGHT_PATH`. The data directory is under `/tmp/m/wt-chat-home-<port>` and is removed on exit.

@@ -9,3 +9,4 @@ docs/video/*.mp4
 docs/video/frames/
 docs/video/score.wav
 __pycache__/
+test-perf/chat-ui/shots/
