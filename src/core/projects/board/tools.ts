@@ -21,7 +21,7 @@ const fail = (e: unknown): ToolResult => ({ content: [{ type: 'text', text: `Err
 /** `askOwner` shows the owner an approval card and resolves with the answer (false: declined or no answer). */
 export type AskOwner = (r: { taskId: string; agentId: string; tool: string; summary: string; input: Record<string, unknown>; origin?: ModuleJob['origin'] }) => Promise<boolean>;
 
-export function buildBoardToolsServer(agentId: string, deps: { board: BoardStore; projects: ProjectStore; onChange?: (projectId: string) => void; askOwner?: AskOwner; notes?: BoardNotes }, job: Pick<ModuleJob, 'projectId' | 'taskId' | 'taint' | 'origin'>): McpSdkServerConfigWithInstance {
+export function buildBoardToolsServer(agentId: string, deps: { board: BoardStore; projects: ProjectStore; onChange?: (projectId: string) => void; askOwner?: AskOwner; notes?: BoardNotes }, job: Pick<ModuleJob, 'projectId' | 'taskId' | 'taint' | 'origin' | 'ceiling'>): McpSdkServerConfigWithInstance {
   /** The run's project, looked up again at every call (archive and membership changes apply at once). */
   const scope = () => {
     const p = deps.projects.forRun(job.projectId, agentId);
@@ -29,7 +29,10 @@ export function buildBoardToolsServer(agentId: string, deps: { board: BoardStore
     return p;
   };
   const guard = (fn: () => ToolResult): ToolResult => { try { return fn(); } catch (e) { return fail(e); } };
-  const runInfo = () => ({ taskId: job.taskId, tainted: job.taint(), ...(job.origin?.roomId ? { roomId: job.origin.roomId } : {}) });
+  /** A run another bot or an MCP client started under `ask` approvals is limited like a tainted one (it may not assign or delete). */
+  const capped = (): boolean => (job.ceiling ?? job.origin?.approvalCeiling) === 'ask' && job.origin !== undefined;
+  const run = () => ({ tainted: job.taint(), capped: capped() });
+  const runInfo = () => ({ taskId: job.taskId, ...run(), ...(job.origin?.roomId ? { roomId: job.origin.roomId } : {}) });
 
   const list = tool('list', 'List the work items of this project\'s board (id, title, status, priority, assignee, due, labels). Items assigned to you are marked.',
     { status: z.enum(BOARD_STATUSES).optional() },
@@ -53,7 +56,7 @@ export function buildBoardToolsServer(agentId: string, deps: { board: BoardStore
     },
     async (a) => guard(() => {
       const p = scope();
-      const i = deps.board.propose(p, agentId, a, { tainted: job.taint() });
+      const i = deps.board.propose(p, agentId, a, run());
       deps.onChange?.(p.id);
       return json({ proposed: true, id: i.id, note: 'It is in the owner\'s Inbox. You cannot start it or change it; the owner may accept, edit or reject it.' });
     }));
@@ -65,7 +68,7 @@ export function buildBoardToolsServer(agentId: string, deps: { board: BoardStore
     async (a) => guard(() => {
       const p = scope();
       const { assignee, ...rest } = a;
-      const i = deps.board.botCreate(p, agentId, { ...rest, ...(assignee !== undefined ? { assignee: { kind: 'agent', id: assignee } } : {}) }, { tainted: job.taint() });
+      const i = deps.board.botCreate(p, agentId, { ...rest, ...(assignee !== undefined ? { assignee: { kind: 'agent', id: assignee } } : {}) }, run());
       deps.onChange?.(p.id);
       return json({ created: true, id: i.id, status: i.status });
     }));
@@ -88,12 +91,12 @@ export function buildBoardToolsServer(agentId: string, deps: { board: BoardStore
     async (a) => {
       try {
         const p = scope();
-        const item = deps.board.checkBotDelete(p, agentId, a.id, { tainted: job.taint() }, true);
+        const item = deps.board.checkBotDelete(p, agentId, a.id, run(), true);
         if (!deps.askOwner || !job.taskId) throw new BoardError(409, 'There is no way to ask the owner from here, so nothing was deleted.');
         const summary = `${cardText(agentId, 40)} wants to delete the work item "${cardText(item.title, 80)}" from project "${cardText(p.name ?? p.id, 60)}". It will be gone for good.`;
         const allowed = await deps.askOwner({ taskId: job.taskId, agentId, tool: 'delete', summary, input: { id: item.id }, ...(job.origin ? { origin: job.origin } : {}) });
         if (!allowed) throw new BoardError(409, 'The owner did not approve this (declined, or no answer in time). Nothing was deleted. Do not ask again unless the owner says so.');
-        deps.board.botDelete(p, agentId, a.id, { tainted: job.taint() });
+        deps.board.botDelete(p, agentId, a.id, run());
         deps.onChange?.(p.id);
         return json({ deleted: true, id: item.id });
       } catch (e) { return fail(e); }

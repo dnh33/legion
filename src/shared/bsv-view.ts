@@ -21,6 +21,7 @@ export interface WalletView {
   message: string;
 }
 
+export interface NetView { caps: PolicyCaps; hardCaps?: PolicyCaps; allowlist: string[]; usage?: { sessionSats: number; last24hSats: number; reservedSats: number }; label?: string }
 export interface PolicyCaps { perTxSats: number; perSessionSats: number; per24hSats: number; maxOutputs: number; maxFeeSats: number }
 
 /** GET /api/bsv/policy (a subset). */
@@ -33,11 +34,21 @@ export interface PolicyView {
   hardCaps: PolicyCaps;
   allowlist: string[];
   usage: { sessionSats: number; last24hSats: number; reservedSats: number };
-  pending: Array<{ requestId: string; totalSats: number }>;
-  unknown: Array<{ requestId: string; totalSats: number }>;
-  network: 'testnet';
+  pending: Array<{ requestId: string; totalSats: number; network?: 'test' | 'main' }>;
+  unknown: Array<{ requestId: string; totalSats: number; net?: string }>;
+  /** What the core calls its default network; the spend networks are `spendNetworks`. Not assumed to be testnet. */
+  network?: string;
+  /** The networks the spend tool may use, when the core says (absent = test only). */
+  spendNetworks?: Array<'test' | 'main'>;
+  /** The mainnet switch as the core reports it (`mainnetEnabled`). Absent or anything but exactly true = off. */
+  mainnetEnabled?: boolean;
+  /** Older shape of the same fact. */
+  mainnet?: { enabled: boolean; armed: boolean };
+  /** Per network: limits, hard ceilings, allowlist, usage. Absent on a core older than the per-network policy (then only `caps` and `allowlist`, the test network's). */
+  nets?: Partial<Record<'test' | 'main', NetView>>;
   nativeAvailable: boolean;
-  spendTools: false;
+  /** The Assayer has the spend tool (a boolean from the core; a false or missing value is shown as not available). */
+  spendTools: boolean;
   armChoicesMinutes: number[];
   audit: { ok: boolean; entries: number; reason?: string };
 }
@@ -59,10 +70,43 @@ export interface OverlayModel {
   /** Title-bar text, longest first (the overlay picks the longest that fits). */
   tiers: string[][];
   /** The wording the pill shows, or null for no pill. */
-  pill: { kind: 'armed' | 'pending' | 'frozen' | 'mainnet'; text: string } | null;
+  pill: { kind: 'armed' | 'pending' | 'frozen' | 'mainnet' | 'unknown'; text: string } | null;
+}
+
+/** GET /api/bsv `knowledge`: the live count measured against the bundled pack by note id (see src/core/kg/seed.ts summarizeBsvPack). */
+export interface KnowledgeSummary {
+  bundled: { count: number; version: number };
+  inGraph: number; packActive: number; retired: number; moved: number; removed: number; notLoaded: number; removedOrMerged: number;
+  added: number; addedRetired: number; missing: number; missingIds: string[]; loadedVersion: number;
+}
+
+/** A count older than three polls is not shown as a number: a slow or failed read must say "unknown", never an old figure or 0. */
+export const KNOWLEDGE_STALE_MS = 3 * 60_000;
+
+/** The title-bar words. `n` is the live count (null = could not be read), `fresh` false = too old to trust. */
+export function knowledgeShort(n: number | null | undefined, k: KnowledgeSummary | null | undefined, fresh = true): string {
+  if (!fresh || typeof n !== 'number' || !Number.isSafeInteger(n) || n < 0) return 'BSV notes: unknown';
+  const word = `${n.toLocaleString('en-US')} BSV note${n === 1 ? '' : 's'}`;
+  return k && k.bundled.count !== n ? `${word} (pack ${k.bundled.count})` : word;
+}
+
+/** The explanation of the number, computed from note ids (never guessed). Empty when there is nothing to explain. */
+export function knowledgeExplain(k: KnowledgeSummary | null | undefined): string {
+  if (!k) return '';
+  const base = `bundled pack: ${k.bundled.count} notes (version ${k.bundled.version}); in your graph: ${k.inGraph}; removed or merged by you or a bot: ${k.removedOrMerged}; added by you: ${k.added}; missing: ${k.missing}`;
+  const more: string[] = [];
+  if (k.loadedVersion !== k.bundled.version) more.push(`installed pack version: ${k.loadedVersion === 0 ? 'none' : k.loadedVersion}`);
+  if (k.notLoaded > 0) more.push(`${k.notLoaded} not loaded yet`);
+  if (k.removed > 0) more.push(`${k.removed} deleted by you`);
+  if (k.moved > 0) more.push(`${k.moved} moved out of the BSV scope`);
+  if (k.retired > 0) more.push(`${k.retired} still in the graph but retired`);
+  if (k.addedRetired > 0) more.push(`${k.addedRetired} of your own retired`);
+  return more.length ? `${base} (${more.join('; ')})` : base;
 }
 
 export const MAINNET_SENTENCE = 'The wallet is on MAINNET; Legion is in testnet knowledge mode; Legion will not use it.';
+/** The same warning once the owner has switched mainnet on: it must not say Legion will not use it. */
+export const MAINNET_ON_SENTENCE = 'The wallet says it is on MAINNET and mainnet is switched on in Legion. Each spend still needs Arm, your confirmations and the wallet\'s own prompt.';
 
 /** Whole seconds to mm:ss (h:mm:ss from an hour). Negative and junk give 00:00. */
 export function formatCountdown(ms: number): string {
@@ -85,14 +129,14 @@ export function heightText(h: unknown): string {
 }
 
 /** The decision for the title bar, the pill and the Freeze button. `now` only matters for an armed state that has run out. */
-export function overlayModel(i: { enabled: boolean; policy: PolicyView | null; wallet: WalletView | null; nodes?: number; knowledgeLoaded?: boolean; now: number }): OverlayModel {
+export function overlayModel(i: { enabled: boolean; policy: PolicyView | null; wallet: WalletView | null; nodes?: number | null; knowledge?: KnowledgeSummary | null; knowledgeLoaded?: boolean; knowledgeAt?: number; now: number }): OverlayModel {
   if (!i.enabled) return { mode: 'off', mainnetWarning: false, showFreeze: false, tiers: [], pill: null };
   const p = i.policy;
   const mainnetWarning = i.wallet?.condition === 'mainnet-warning';
   const armed = !!p && p.armed && remainingMs(p, i.now) > 0 && !p.frozen;
   const frozen = !!p?.frozen;
   const pending = (p?.pending.length ?? 0);
-  const count = i.knowledgeLoaded && (i.nodes ?? 0) > 0 ? `${i.nodes} bsv node${i.nodes === 1 ? '' : 's'}` : '';
+  const count = knowledgeShort(i.nodes, i.knowledge, i.knowledgeAt === undefined ? true : i.now - i.knowledgeAt <= KNOWLEDGE_STALE_MS);
   const block = i.wallet?.condition === 'testnet' && heightText(i.wallet.height) ? `block ${heightText(i.wallet.height)}` : '';
   const second = block || count;
   const showFreeze = (armed || pending > 0) && !frozen;
@@ -102,15 +146,63 @@ export function overlayModel(i: { enabled: boolean; policy: PolicyView | null; w
   if (armed) {
     return {
       mode: 'armed', mainnetWarning, showFreeze,
-      tiers: [['LIVE FUNDS ARMED', 'policy only: no spend tool'], ['LIVE FUNDS ARMED'], ['LIVE']],
+      tiers: [['LIVE FUNDS ARMED', 'one mainnet spend'], ['LIVE FUNDS ARMED'], ['LIVE']],
       pill: { kind: 'armed', text: 'LIVE FUNDS armed' },
     };
   }
+  const unknown = (p?.unknown.length ?? 0);
+  if (unknown > 0) return { mode: 'testnet', mainnetWarning, showFreeze: false, tiers: [['TESTNET', `${unknown} unknown outcome`], ['TESTNET']], pill: { kind: 'unknown', text: `${unknown} request${unknown === 1 ? '' : 's'} with an unknown outcome. Open Details to resolve ${unknown === 1 ? 'it' : 'them'}.` } };
   if (pending > 0) return { mode: 'testnet', mainnetWarning, showFreeze, tiers: [['TESTNET', `${pending} pending`]], pill: { kind: 'pending', text: `${pending} request${pending === 1 ? '' : 's'} pending` } };
+  const mainOn = mainnetState(p).enabled;
   if (mainnetWarning) {
-    return { mode: 'testnet', mainnetWarning, showFreeze: false, tiers: [['WALLET ON MAINNET', 'Legion stays on testnet'], ['WALLET ON MAINNET']], pill: { kind: 'mainnet', text: MAINNET_SENTENCE } };
+    return mainOn
+      ? { mode: 'testnet', mainnetWarning, showFreeze: false, tiers: [['WALLET ON MAINNET', 'mainnet ON, not armed'], ['WALLET ON MAINNET']], pill: { kind: 'mainnet', text: MAINNET_ON_SENTENCE } }
+      : { mode: 'testnet', mainnetWarning, showFreeze: false, tiers: [['WALLET ON MAINNET', 'Legion stays on testnet'], ['WALLET ON MAINNET']], pill: { kind: 'mainnet', text: MAINNET_SENTENCE } };
   }
+  if (mainOn) return { mode: 'testnet', mainnetWarning: false, showFreeze: false, tiers: [['MAINNET ON', 'not armed'], ['MAINNET ON']], pill: null };
   return { mode: 'testnet', mainnetWarning: false, showFreeze: false, tiers: [['TESTNET \u00b7 knowledge mode', ...(second ? [second] : [])], ['TESTNET', ...(second ? [second] : [])], ['TESTNET']], pill: null };
+}
+
+/** Mainnet state from the policy answer: the switch is on only if the core says exactly `true`; armed needs the switch on and `armed` exactly true. */
+export function mainnetState(p: Pick<PolicyView, 'mainnet' | 'mainnetEnabled' | 'armed'> | null | undefined): { enabled: boolean; armed: boolean } {
+  if (!p) return { enabled: false, armed: false };
+  const enabled = p.mainnetEnabled !== undefined ? p.mainnetEnabled === true : !!p.mainnet && p.mainnet.enabled === true;
+  const armed = enabled && (p.mainnet ? p.mainnet.armed === true : p.armed === true);
+  return { enabled, armed };
+}
+
+export interface NetRow { net: 'test' | 'main'; label: string; caps: PolicyCaps; hardCaps?: PolicyCaps; allowlist: string[]; usage?: NetView['usage'] }
+/** The two networks' limits, mainnet first-class. A core without per-network answers gives the test row from the old top-level fields and NO main row. */
+export function netRows(p: PolicyView): NetRow[] {
+  const rows: NetRow[] = [];
+  const t = p.nets?.test;
+  rows.push({ net: 'test', label: 'TESTNET', caps: t?.caps ?? p.caps, hardCaps: t?.hardCaps ?? p.hardCaps, allowlist: t?.allowlist ?? p.allowlist, usage: t?.usage ?? p.usage });
+  const m = p.nets?.main;
+  if (m) rows.push({ net: 'main', label: 'MAINNET (LIVE FUNDS)', caps: m.caps, hardCaps: m.hardCaps, allowlist: m.allowlist, usage: m.usage });
+  return rows;
+}
+
+/** Short form of a request id for a list row (an id, not an address: addresses are never abbreviated). */
+export const shortId = (id: unknown): string => (typeof id === 'string' ? id.replace(/[^0-9a-f]/g, '').slice(0, 8) : '');
+
+export interface SpendRow { requestId: string; label: string }
+export interface SpendModel {
+  /** One sentence about the tool itself. */
+  headline: string;
+  pending: SpendRow[];
+  unknown: SpendRow[];
+}
+
+/** What the panel's spend section shows, from the policy answer only. Requests are answered in main's native dialogs, never here. */
+export function spendModel(p: { spendTools: boolean; pending: PolicyView['pending']; unknown: PolicyView['unknown'] }): SpendModel {
+  const sat = (n: number) => `${(Number.isSafeInteger(n) && n >= 0 ? n : 0).toLocaleString('en-US')} sat`;
+  return {
+    headline: p.spendTools
+      ? 'The Assayer has one tool that can ask your wallet to build and sign a payment: on the test network after your confirmation, and on the main network only while mainnet is switched on and armed. Every request opens native confirmations, and your wallet then shows its own prompt.'
+      : 'The spend tool is not available to the Assayer in this core.',
+    pending: p.pending.map((r) => ({ requestId: r.requestId, label: `Request ${shortId(r.requestId)}: ${sat(r.totalSats)} waiting for your answer` })),
+    unknown: p.unknown.map((r) => ({ requestId: r.requestId, label: `Request ${shortId(r.requestId)}: ${sat(r.totalSats)}, outcome unknown. Check your wallet's history, then resolve it.` })),
+  };
 }
 
 /** One calm headline for the wallet row of the panel. */

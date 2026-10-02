@@ -21,6 +21,8 @@ export interface Caps { perTxSats: number; perSessionSats: number; per24hSats: n
 export interface NetInfo {
   /** What the owner reads in a dialog or on a card. */
   readonly label: string;
+  /** True when a spend on this network moves real money (the spend path asks this instead of naming a network). */
+  readonly liveFunds: boolean;
   /** The first byte of a base58check P2PKH address on this network. */
   readonly versionByte: number;
   /** Tiny on purpose. */
@@ -36,6 +38,7 @@ const caps = (c: Caps): Readonly<Caps> => Object.freeze({ ...c });
 export const NET: Readonly<Record<Net, NetInfo>> = Object.freeze({
   test: Object.freeze({
     label: 'TESTNET',
+    liveFunds: false,
     versionByte: 0x6f,
     defaultCaps: caps({ perTxSats: 1_000, perSessionSats: 5_000, per24hSats: 10_000, maxOutputs: 3, maxFeeSats: 200 }),
     hardCaps: caps({ perTxSats: 1_000_000, perSessionSats: 5_000_000, per24hSats: 10_000_000, maxOutputs: 10, maxFeeSats: 10_000 }),
@@ -43,6 +46,7 @@ export const NET: Readonly<Record<Net, NetInfo>> = Object.freeze({
   }),
   main: Object.freeze({
     label: 'LIVE FUNDS (main network)',
+    liveFunds: true,
     versionByte: 0x00,
     // lower than testnet on purpose: real money, and one payment output per spend
     defaultCaps: caps({ perTxSats: 1_000, perSessionSats: 2_000, per24hSats: 5_000, maxOutputs: 1, maxFeeSats: 100 }),

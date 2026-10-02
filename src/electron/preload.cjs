@@ -31,6 +31,10 @@ contextBridge.exposeInMainWorld('legion', {
   projectChange(change) {
     return ipcRenderer.invoke('legion:project-change', change);
   },
+  // Browser tool: choosing the Lightpanda program, its hash, and local addresses. Main shows the native confirmation and holds the native secret.
+  browserChange(change) {
+    return ipcRenderer.invoke('legion:browser-change', change);
+  },
   // The updater's "Restart now": main shows its own native confirmation naming what will stop, then drains and swaps.
   updateRestartNow() {
     return ipcRenderer.invoke('legion:update-restart-now');

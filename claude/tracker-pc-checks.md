@@ -134,3 +134,65 @@ Full steps in `claude/tracker-pc-checks-board.md`. Preconditions: `"experimental
 | PB8 | Save what we learned: banner on Done, draft, saved note found by a run in this project, not by another project. | todo |
 | PB9 | Compaction and crash: add/delete ~300 items; kill the core by PID during a write; restart: board loads, no `.tmp` left, antivirus on. | todo |
 | PB10 | Downgrade: an older build ignores `board\`; upgrade again: items are back. | todo |
+## BSV spend tool (T2, branch `claude/bsv-t2-spend`): owner-only wallet checks. Nothing here was run: the build used fakes only
+Each assumption A1..A12 of `claude/plan-bsv-rung3.md` section 15 is a named failing-closed check in `src/core/bsv/spend.ts`; the row that proves it on a real wallet is below. If a real wallet contradicts one, the spend path refuses (fails closed) and the owner is told; release is gated on these rows, not on the build. Plan ids in `claude/real-pc-test-plan.md`: V = BSVT, R = BSVM.
+
+### V1 to V12: a SEPARATE TESTNET wallet (BSV Desktop switched to its testnet database, or a VM), owner present. Never the funded mainnet wallet
+Setup V0: the wallet app in testnet mode with testnet coins from a faucet; Legion built from the reviewed commit; confirm in Legion's BSV panel that the wallet claims a TESTNET network before anything else.
+
+| # | Owner action | Expected observation | Assumption it proves | State |
+|---|---|---|---|---|
+| V1 | By hand (no Legion code): ask the wallet for an unsigned transaction (`createAction` with `options.signAndProcess:false`, one P2PKH output to a second testnet address of the wallet itself); save a scrubbed copy of the answer | `signableTransaction {tx, reference}` and NO txid; no wallet prompt; nothing broadcast. Note: encoding of `tx` (byte array or hex), whether the parent transactions are inside the BEEF, number and kind of extra outputs (change) | A1 A2 A3 A4 | todo |
+| V2 | By hand: `abortAction` with that `reference` | `{aborted:true}`; the locked coins are spendable again; a second `abortAction` with the same reference fails cleanly | A5 | todo |
+| V3 | Connect to the wallet in Legion, run `bsv_status` | testnet, reachable, signed in; the version string is shown as the wallet says it when it is semver or a short token followed by semver (the real BSV Desktop says `wallet-brc100-1.0.0`; F-W1 is fixed in `readVersion`, tests with the real string and hostile ones in `test/bsv-wallet-probe.test.ts`); anything longer or with other characters shows as unknown | A9 A12 | todo |
+| V4 | Panel: put one testnet address (the wallet's second address) on the TESTNET allowlist | native dialog; list saved | | todo |
+| V5 | Assayer asks for 600 sat to that address | card: 600 sat, FULL address, TESTNET, fee, caps; second dialog (untrusted content) because `bsv_status` taints the run; the wallet's own prompt appears only after both; a txid comes back; open it in a testnet explorer (Legion does not check it) | A6 A7 A10 A11 | todo |
+| V6 | A second request right after | the wallet prompts AGAIN (no standing grant for the originator `legion.local`) | A6 | todo |
+| V7 | Cancel at Legion's dialog | no wallet prompt; reservation freed; the wallet's coins are not locked (abort worked); a following request for the same amount works | A5 | todo |
+| V8 | Decline in the WALLET's prompt | record exactly what the wallet sends back (HTTP status, JSON `code`); Legion shows `unknown` (expected) until a reviewed mapping exists; resolve it natively ("it was NOT sent") | A8 | todo |
+| V9 | Kill the wallet during its prompt, then restart Legion | `unknown`; after the restart still blocked and frozen; resolve natively, unfreeze; spends work again | A8 | todo |
+| V10 | Request 1,001 sat; request a non-allowlisted address | denied before any dialog; the wallet is not asked to build anything | | todo |
+| V11 | Freeze while the card dialog is open | the dialog answer is refused; no wallet prompt | | todo |
+| V12 | Hand-edit `bsv.walletUrl` in `config.json`, restart | not used; the panel asks for Connect | | todo |
+
+Also record: the wallet prompt's wording (for the docs), whether a "remember / always allow" option appears (must be declined; if it cannot be avoided, that is a blocker), whether the wallet adds more than one change output, and the fee level it chooses (sets the mainnet fee ceiling, A11).
+
+### R0 to R11: the owner's real-funds check, BY HAND, tiny amounts, owner at the keyboard. Never scripted, never by an agent
+Preconditions: V1..V12 passed; independent review of the spend module, per-network policy and the dialogs signed off; Legion built from the reviewed commit; a second mainnet address of the owner's OWN (so the net cost is the fee). Amount 200 sat, mainnet caps at defaults. Until R0..R11 are recorded every document says "has not been verified with real funds".
+
+| # | Owner action | Expected observation | State |
+|---|---|---|---|
+| R0 | Note the wallet balance and history; open Legion's BSV panel | Mainnet switch OFF, not armed | todo |
+| R1 | Connect to the real wallet; ask the Assayer for 200 sat | Denied `mainnet-disabled`; NO wallet prompt; audit `denied` with `net` main; the wallet's call log shows only the four read-only questions | todo |
+| R2 | Enable mainnet, read the dialog, confirm | Panel: enabled, not armed | todo |
+| R3 | Allowlist the own address on the MAINNET list; ask again | Denied `not-armed`; no wallet prompt | todo |
+| R4 | Arm 5 minutes (read the dialog); ask again | D1 then D2 (D3 if tainted); compare amount, network word, FULL address (character by character against the wallet) and caps with this table | todo |
+| R5 | Press Cancel on D2 | `declined`; no wallet prompt; reservation freed; still armed | todo |
+| R6 | Ask again, confirm D1 and D2 | The wallet shows its OWN prompt: 200 sat, the recipient, ONE payment output; approve there only if all match | todo |
+| R7 | Read the result | txid returned; check it in a mainnet explorer in a browser (Legion does not): one 200 sat output to the own address plus change; the balance fell by the fee only | todo |
+| R8 | Ask once more | Denied `not-armed` (one arm, one spend); no wallet prompt | todo |
+| R9 | Arm, ask, confirm D1 and D2, then Decline in the WALLET | Legion shows `unknown`; the switch is off (auto-off); read the wallet history and resolve natively ("NOT sent") | todo |
+| R10 | Enable, arm, ask; Freeze while D1 is open | Dialog answer refused; no wallet prompt | todo |
+| R11 | Disable mainnet, Disarm, Disconnect | Panel shows off; read the audit lines for R1..R10 and record dated results here | todo |
+
+ABORT at once (Freeze, Disable mainnet, no retry, record) if: a dialog differs from the table in amount, network word or one character of the address; the wallet prompt comes before D1 and D2 are answered, shows another amount or recipient or more than one payment output, offers "always allow" or a monthly limit (do not tick it), or does not appear at all in R6 (assumption A6); the fee shown exceeds 100 sat; Legion returns any status other than the expected one; a second prompt appears; the txid is not 64 hex or the explorer shows anything unexpected. After an abort read the wallet history before anything else.
+
+## BSV native dialogs and panel (T3 second pass; claude/plan-bsv-rung3.md section 15). Safety class: funds-adjacent (no spend is made by these checks; use the harness or a throwaway testnet setup, never the funded wallet, until the real-funds checks R0-R11)
+
+| # | Check | State |
+|---|---|---|
+| ND1 | Any Legion BSV dialog (Arm, Allow mainnet, D1): press Escape. The request is denied (nothing changes, audit shows a denial). Repeat by closing the dialog with the window X. (T3-A1) | todo |
+| ND2 | D2 ("Last Legion check before your wallet"): press Escape, press the X, and press Enter without moving: each is Cancel and denies. (T3-A1, T3-A2) | todo |
+| ND3 | Button positions as built: D1 and Arm and Allow mainnet show `Cancel` on the LEFT and the confirm on the right, with Cancel focused. D2 shows the confirm button (`Send N sat to ...XXXXXXXX`) FIRST and `Cancel` LAST with Cancel focused. Note on a screenshot if Windows reorders them (command-link style must be absent: `noLink`). (T3-A2) | todo |
+| ND4 | Full recipient address shown on its own line in D1 and D2, never abbreviated; the last 8 characters on the D2 button match the end of the address; the text is readable at 125% and 150% display scaling and is not cut off. | todo |
+| ND5 | Panel, mainnet OFF by default on a fresh data folder: badge says TESTNET, the Arm button is disabled, `Allow mainnet...` opens the LIVE FUNDS dialog (Cancel default); Cancel leaves it off; confirming turns it on and the badge says `MAINNET ON, not armed`; `Switch mainnet off` acts with no dialog. (T3-A8) | todo |
+| ND6 | Arm dialog: wording says ONE mainnet spend, shows the mainnet limits, 5 minutes preselected; after arming the countdown runs and the badge says MAINNET ARMED; Disarm and Freeze work at once; the audit log shows `armed`. | todo |
+| ND7 | With a stand-in spend card (harness fake core) on mainnet: D1, then D2, then (tainted run) D3, in that order, one at a time; Cancel at each denies and the amber state stays only while armed. | todo |
+| ND8 | Per-network limits and recipient lists: change a testnet cap, then a mainnet cap; the dialog names the network; the panel shows the change on THAT network only and the other network's numbers are unchanged. (T3-A3, T3-A4) | todo |
+| ND9 | Mainnet allowlist: a testnet address and a bad-checksum address are refused before any dialog; a valid mainnet address (full, never abbreviated) is shown in the dialog. (T3-A6) | todo |
+| ND10 | Real core with T2 merged, fake or throwaway-testnet wallet only: a spend request shows the dialogs, and the WALLET's own prompt appears only after the last one; nothing appears before. If the wallet shows no prompt of its own, stop: that is the U13 abort. (T3-A5, T3-A7) | todo |
+| ND11 | Title bar note count (owner's real graph; read it, change nothing): with BSV mode on the bar shows `<n> BSV notes`, with `(pack 163)` when n differs; the panel's Knowledge notes section gives the line `bundled pack: 163 notes (version 8); in your graph: n; removed or merged by you or a bot: a; added by you: b; missing: c`. Check a, b, c against what you remember doing (deleting, merging, adding notes). Turn the core off or block it: the bar must say `BSV notes: unknown`, never 0. If `missing` is above 0, press `Restore N missing bundled notes` and confirm the number rises by N and edited notes keep your text. | todo |
+| ND12 | **Docs against the running app** (owner, no spend, nothing is sent): open `docs/BSV-MODE.md`, section Spend, and read it next to the app. For each line, say true, false or cannot tell. (a) The input fields, the status words and the reason codes match what the Assayer's tool answers (ask for a request with a `network` field in it: it must be denied `extra-input`). (b) D1, D2 (mainnet only), D3 and Resolve: the title, the buttons, which one is the default, Escape and closing the box, and the order D1, D2, D3 are what the section says. (c) The limits table: open the panel's limits and allowlists and compare every default (testnet 1,000 / 5,000 / 10,000 sat, fee ceiling 200; mainnet 1,000 / 2,000 / 5,000 sat, fee ceiling 100; both allowlists empty on a fresh data folder). (d) Mainnet is OFF on a fresh data folder; Arm is refused while it is off. (e) The panel never shows an amount, address or fee for a spend (only the native dialogs do). (f) The title bar and Knowledge section say `163` and `version 8`. (g) The "Not verified" list: every item is still unrecorded here until its V, R or ND row above says otherwise. (h) The real-wallet box (`wallet-brc100-1.0.0`, `mainnet`, JSON labelled `text/html`, no prompt for the four read-only methods) matches the Connect result on your own wallet (read-only, same as V0). Any sentence that is false: write it down and tell the reviewer; do not edit the docs to match the app without saying so. When R0 to R11 are all recorded as passed, add one line `BSV REAL-FUNDS CHECK RECORDED` (with the date) to this file: only then does `test/bsv-hedge.test.ts` stop asserting that no text says the tool was verified with real funds, and the docs must then be rewritten with a dated, scoped sentence (never "safe"). | todo |
+
+## Browser tool (Lightpanda) - see claude/tracker-pc-checks-browser.md for the full steps (BR1 to BR14)
+Safety classes: BR2 downloads; BR3-BR8 none (a harmless public page you control); BR12 native dialog; BR13 none. Nothing in this section was run in the cloud session; do not call the browser tool verified until each is recorded as passed.

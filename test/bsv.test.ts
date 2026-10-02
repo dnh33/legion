@@ -103,7 +103,7 @@ test('GET /api/bsv reports the status shape; POST validates the body', async () 
   const s = await setup();
   const g = await s.call('GET', '/api/bsv');
   assert.equal(g.status, 200);
-  assert.deepEqual(g.body, { enabled: false, network: 'testnet', assayerAvailable: true, knowledgeLoaded: false, knowledgeNodes: 0 });
+  assert.deepEqual(g.body, { enabled: false, network: 'testnet', assayerAvailable: true, knowledgeLoaded: false, knowledgeNodes: 0, knowledge: null });
   for (const bad of [undefined, {}, { enabled: 'true' }, { enabled: 1 }, { enabled: null }, [true], 'on', { on: true }]) {
     const r = await s.call('POST', '/api/bsv', bad as any);
     assert.equal(r.status, 400, JSON.stringify(bad));
@@ -177,7 +177,7 @@ test('without a knowledge graph module the toggle still works and reports no-kg'
   const r = await s.call('POST', '/api/bsv', { enabled: true });
   assert.equal(r.status, 200);
   assert.deepEqual(r.body.seed, { status: 'no-kg' });
-  assert.equal(r.body.knowledgeNodes, 0);
+  assert.equal(r.body.knowledgeNodes, null, 'on but no knowledge module: the count is unknown, not 0');
 });
 
 test('the flag persists in config.json (only the bsv key changes) and survives a restart', async () => {

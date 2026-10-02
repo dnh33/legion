@@ -14,6 +14,9 @@ export class BoardError extends Error {
 
 /** The part of a project the store needs; the caller reads it from the ProjectStore at the moment of the call. */
 export type ProjectRef = Pick<Project, 'id' | 'members' | 'status'>;
+/** What the store knows about the run an agent write comes from. `tainted`: it touched outside content. `capped`: another bot or an MCP client started it under `ask` approvals. Either one limits what it may do. */
+export interface BotRun { tainted: boolean; capped?: boolean }
+const LIMITED_RUN = 'This run is limited: it touched outside content (web, shell or external tools), or another bot or an MCP client started it under "ask" approvals.';
 
 const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v);
 const oneLine = (s: string): string => s.replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029\u202a-\u202e\u2066-\u2069]/g, ' ').replace(/\s+/g, ' ').trim();
@@ -453,15 +456,15 @@ export class BoardStore {
     target.forEach((x, n) => { if (x.order !== n || x.id === i.id) { x.order = n; this.save(b, x); } });
     if (from !== status) this.renumber(b, from);
   }
-  private botBy(agentId: string, run: { tainted: boolean }): BoardActor { return { kind: 'agent', id: agentId, ...(run.tainted ? { tainted: true } : {}) }; }
-  private botAssignee(v: unknown, proj: ProjectRef, run: { tainted: boolean }): BoardAssignee | null {
-    if (run.tainted) throw new BoardError(403, 'This run touched outside content (web, shell or external tools), so it may not assign items. Ask the owner.');
+  private botBy(agentId: string, run: BotRun): BoardActor { return { kind: 'agent', id: agentId, ...(run.tainted ? { tainted: true } : {}) }; }
+  private botAssignee(v: unknown, proj: ProjectRef, run: BotRun): BoardAssignee | null {
+    if (run.tainted || run.capped) throw new BoardError(403, LIMITED_RUN + ' It may not assign items. Ask the owner.');
     if (isObj(v) && v.kind === 'owner') throw new BoardError(403, 'Only the owner can assign an item to themselves.');
     return cleanAssignee(v, proj);
   }
 
   /** A member agent creates a live item. Its text is the agent's, so the item is `untrusted` (a run on it is capped) until the owner marks it reviewed. */
-  botCreate(proj: ProjectRef, agentId: string, input: { title?: unknown; description?: unknown; status?: unknown; priority?: unknown; labels?: unknown; due?: unknown; assignee?: unknown }, run: { tainted: boolean }): WorkItem {
+  botCreate(proj: ProjectRef, agentId: string, input: { title?: unknown; description?: unknown; status?: unknown; priority?: unknown; labels?: unknown; due?: unknown; assignee?: unknown }, run: BotRun): WorkItem {
     const b = this.writable(proj);
     if (!proj.members.includes(agentId)) throw new BoardError(403, 'Only a member of this project can create items.');
     const title = botText(cleanTitle(input.title), 'The title');
@@ -472,7 +475,8 @@ export class BoardStore {
     const labels = input.labels === undefined ? [] : cleanLabels(input.labels);
     const due = input.due === undefined ? undefined : cleanDue(input.due);
     const assignee = input.assignee === undefined ? null : this.botAssignee(input.assignee, proj, run);
-    if (b.items.size >= BOARD_LIMITS.itemsPerProject) throw new BoardError(409, 'The board is full; the owner has to clear items first.');
+    if (b.items.size >= BOARD_LIMITS.itemsPerProject - BOARD_LIMITS.botReserve) throw new BoardError(409, 'The board is nearly full (the last places are kept for the owner). Close or merge items instead of adding more, or ask the owner to clear finished ones.');
+    if ([...b.items.values()].filter((x) => x.createdBy.kind === 'agent' && x.createdBy.id === agentId && x.status !== 'done' && !x.proposal).length >= BOARD_LIMITS.botOpenPerAgent) throw new BoardError(409, `You already have ${BOARD_LIMITS.botOpenPerAgent} open items you created. Finish or update those first.`);
     this.tick(this.botWrites, agentId, BOARD_LIMITS.botWritesPerWindow, BOARD_LIMITS.proposalWindowMs, 'Too many board writes from you in a short time. Wait a few minutes.');
     this.tick(this.creates, `${proj.id}|${agentId}`, BOARD_LIMITS.botCreatesPerWindow, BOARD_LIMITS.proposalWindowMs, `You may create at most ${BOARD_LIMITS.botCreatesPerWindow} items per ${BOARD_LIMITS.proposalWindowMs / 60000} minutes. Put the rest in one item.`);
     const by = this.botBy(agentId, run);
@@ -494,7 +498,7 @@ export class BoardStore {
    * (not to the owner, not from a tainted run) and notes. Items assigned to the owner take notes only. Done items are closed.
    * Editing the text makes it the agent's text, so the item becomes `untrusted` (a run on it is capped until the owner marks it reviewed).
    */
-  botUpdate(proj: ProjectRef, agentId: string, id: string, u: { status?: unknown; index?: unknown; note?: unknown; title?: unknown; description?: unknown; priority?: unknown; labels?: unknown; due?: unknown; assignee?: unknown; noteIds?: unknown }, run: { taskId?: string; tainted: boolean; roomId?: string }): WorkItem {
+  botUpdate(proj: ProjectRef, agentId: string, id: string, u: { status?: unknown; index?: unknown; note?: unknown; title?: unknown; description?: unknown; priority?: unknown; labels?: unknown; due?: unknown; assignee?: unknown; noteIds?: unknown }, run: BotRun & { taskId?: string; roomId?: string }): WorkItem {
     const b = this.writable(proj);
     if (!proj.members.includes(agentId)) throw new BoardError(403, 'Only a member of this project can update its items.');
     const i = b.items.get(id);
@@ -545,10 +549,10 @@ export class BoardStore {
   }
 
   /** What a delete by `agentId` would remove, or an error. No side effect unless `count` (counts one request against the rate limit). */
-  checkBotDelete(proj: ProjectRef, agentId: string, id: string, run: { tainted: boolean }, count = false): WorkItem {
+  checkBotDelete(proj: ProjectRef, agentId: string, id: string, run: BotRun, count = false): WorkItem {
     const b = this.writable(proj);
     if (!proj.members.includes(agentId) || this.leaderOf(proj) !== agentId) throw new BoardError(403, 'Only the project\'s board leader can ask to delete an item, and the owner approves each one. You can set the status to blocked and leave a note instead.');
-    if (run.tainted) throw new BoardError(403, 'This run touched outside content (web, shell or external tools), so it may not delete items. Ask the owner.');
+    if (run.tainted || run.capped) throw new BoardError(403, LIMITED_RUN + ' It may not delete items. Ask the owner.');
     const i = b.items.get(id);
     if (!i || i.proposal) throw new BoardError(404, `No item "${clip(String(id), 40)}" on this project's board.`);
     if (i.status === 'done') throw new BoardError(403, 'Done items are the owner\'s record. Only the owner deletes them.');
@@ -557,7 +561,7 @@ export class BoardStore {
     return structuredClone(i);
   }
   /** Called only after the owner allowed the card. Checks again: the board may have changed while the card was open. */
-  botDelete(proj: ProjectRef, agentId: string, id: string, run: { tainted: boolean }): void {
+  botDelete(proj: ProjectRef, agentId: string, id: string, run: BotRun): void {
     const i = this.checkBotDelete(proj, agentId, id, run);
     const b = this.board(proj.id);
     this.drop(b, id);

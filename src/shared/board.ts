@@ -1,6 +1,6 @@
 /**
- * Legion — project board contract (see claude/plan-project-board.md). Work items inside a Project. Experimental: only served when
- * its experimental config switch is on. The board stores and shows; it never executes anything by itself.
+ * Legion — project board contract (see claude/plan-project-board.md). Work items inside a Project. On by default; only served unless its feature switch in config.json is false.
+ * The board stores and shows; it never executes anything by itself.
  */
 export const BOARD_STATUSES = ['backlog', 'doing', 'review', 'done', 'blocked'] as const;
 export type BoardStatus = typeof BOARD_STATUSES[number];
@@ -57,6 +57,8 @@ export const BOARD_LIMITS = {
   proposalsPerWindow: 5, proposalWindowMs: 10 * 60_000,
   /** Every bot write (create, propose, update) per agent. */
   botWritesPerWindow: 40, botCreatesPerWindow: 10, botDeletesPerWindow: 3,
+  /** Items an agent may create while the board has fewer than itemsPerProject - botReserve items (the rest is the owner's room), and open items one agent may have created. */
+  botReserve: 40, botOpenPerAgent: 50,
   fileBytes: 4 * 1024 * 1024,
 } as const;
 

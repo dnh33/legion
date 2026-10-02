@@ -17,6 +17,7 @@ import { Engine } from '../core/engine.js';
 import { createServer } from '../core/server.js';
 import { listenLoopback } from '../core/net-guard.js';
 import { createBlenderModule } from '../core/blender/index.js';
+import { createBrowserModule } from '../core/browser/index.js';
 import { createBsvModule, createBsvState } from '../core/bsv/index.js';
 import { createCommsModule } from '../core/comms/index.js';
 import { createKnowledgeModule } from '../core/kg/index.js';
@@ -87,10 +88,10 @@ async function main() {
     probes: { 'a Blender download or setup is running': async () => !!((await blender.status(false)) as { getting?: boolean }).getting },
   });
   const providersModules = providerRuntime ? [createProvidersModule({ runtime: providerRuntime, configPath: configPath(), nativeSecret })] : [];
-  // project board (built but not released: off unless config.json says experimental.projectBoard = true; then it has its own files under <dataDir>/board)
-  const board = config.experimental.projectBoard ? new BoardStore(join(dataDir(), 'board')) : undefined;
+  // project board: ON by default (owner decision 2026-10-03). Only the literal `false` under "features.projectBoard" in config.json turns it off; then none of it is built (no files, routes, tools or screen).
+  const board = config.features.projectBoard ? new BoardStore(join(dataDir(), 'board')) : undefined;
   const boardModules = board ? [createBoardModule(moduleDeps, { projects, board, notes: graphNotes(() => kg.graph()) })] : [];
-  const modules = [kg, createCommsModule(moduleDeps, { projects }), createProjectsModule(moduleDeps, { projects, nativeSecret }), ...boardModules, bsv, blender, ...providersModules, updater];
+  const modules = [kg, createCommsModule(moduleDeps, { projects }), createProjectsModule(moduleDeps, { projects, nativeSecret }), ...boardModules, bsv, blender, ...providersModules, updater, createBrowserModule(moduleDeps, { nativeSecret, log })];
   engine.setModules(modules);
   const server = createServer({
     config, store, bus, engine, vms, approvals, boatConfigured, modules, bsvEnabled,

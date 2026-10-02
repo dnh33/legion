@@ -70,7 +70,7 @@ const auditLines = (d: string) => readFileSync(join(d, 'bsv', 'audit.jsonl'), 'u
 
 test('gate: a bearer token alone (the MCP-client class) reaches none of the BSV wallet, policy or audit routes, not even with the native header; the one exception is Freeze, which only makes things safer', async () => {
   const s = await setup({ on: true });
-  for (const [m, p, b] of [['GET', '/api/bsv/wallet'], ['GET', '/api/bsv/policy'], ['GET', '/api/bsv/audit'], ['POST', '/api/bsv/policy/arm', { minutes: 5 }], ['POST', '/api/bsv/policy/unfreeze', {}], ['POST', '/api/bsv/policy/caps', { perTxSats: 5 }], ['POST', '/api/bsv/policy/allowlist', { list: [] }], ['POST', '/api/bsv/policy/disarm', {}], ['POST', '/api/bsv/wallet/connect', { url: WALLET_URL }], ['POST', '/api/bsv/wallet/disconnect', {}]] as Array<[string, string, unknown?]>) {
+  for (const [m, p, b] of [['GET', '/api/bsv/wallet'], ['GET', '/api/bsv/policy'], ['GET', '/api/bsv/audit'], ['POST', '/api/bsv/policy/arm', { minutes: 5 }], ['POST', '/api/bsv/policy/unfreeze', {}], ['POST', '/api/bsv/policy/caps', { perTxSats: 5 }], ['POST', '/api/bsv/policy/allowlist', { list: [] }], ['POST', '/api/bsv/policy/disarm', {}], ['POST', '/api/bsv/wallet/connect', { url: WALLET_URL }], ['POST', '/api/bsv/wallet/disconnect', {}], ['GET', '/api/bsv/spend/pending'], ['POST', '/api/bsv/spend/abc/decision', { decision: 'deny' }], ['POST', '/api/bsv/spend/abc/resolve', { outcome: 'not-sent' }], ['POST', '/api/bsv/policy/mainnet', { enabled: false }]] as Array<[string, string, unknown?]>) {
     for (const headers of [{ ...asClient }, { ...asClient, 'X-Legion-Native': NATIVE }]) {
       const r = await s.call(m, p, b, headers);
       assert.equal(r.status, 403, `${m} ${p}`);
@@ -219,7 +219,8 @@ test('arm: with both secrets it arms for a listed duration only; invalid duratio
   assert.equal(ok.status, 200);
   assert.equal(ok.body.armed, true);
   assert.ok(ok.body.remainingMs > 14 * 60_000 && ok.body.remainingMs <= 15 * 60_000);
-  assert.equal(ok.body.spendTools, false);
+  assert.equal(ok.body.spendTools, true);
+  assert.deepEqual(ok.body.mainnet, { enabled: true, armed: true });
   assert.equal(ok.body.network, 'testnet');
   assert.equal(ok.body.nativeAvailable, true);
   assert.equal((await s.call('GET', '/api/bsv/policy')).body.armed, true);
@@ -352,7 +353,7 @@ async function connect(server: McpSdkServerConfigWithInstance) {
 }
 const textOf = (r: any): string => (r.content as Array<{ text: string }>).map((c) => c.text).join('\n');
 
-test('tool: only the gated agent, only while BSV is on, exactly one tool, read-only', async () => {
+test('tool: only the gated agent, only while BSV is on, exactly two tools (status read-only, spend not)', async () => {
   const s = await setup({ on: false });
   const assayer = s.agents.get('assayer')!;
   assert.deepEqual(s.bsv.mcpServers!(assayer), {}, 'off');
@@ -362,9 +363,10 @@ test('tool: only the gated agent, only while BSV is on, exactly one tool, read-o
   assert.deepEqual(s.bsv.mcpServers!({ ...mkAgent('assayer'), name: 'Assayer' }), {}, 'a bot that is merely named Assayer, without the gate, gets nothing');
   const client = await connect(s.bsv.mcpServers!(assayer).legion_bsv as McpSdkServerConfigWithInstance);
   const { tools } = await client.listTools();
-  assert.deepEqual(tools.map((t) => t.name), ['bsv_status']);
+  assert.deepEqual(tools.map((t) => t.name), ['bsv_status', 'bsv_spend_request']);
   assert.equal(tools[0]!.annotations?.readOnlyHint, true);
-  assert.deepEqual(tools[0]!.inputSchema.properties ?? {}, {}, 'it takes no arguments: nothing an agent writes can steer it');
+  assert.deepEqual(tools[0]!.inputSchema.properties ?? {}, {}, 'the status tool takes no arguments: nothing an agent writes can steer it');
+  assert.deepEqual(Object.keys(tools[1]!.inputSchema.properties ?? {}).filter((k) => ['requestKey', 'recipient', 'sats', 'purpose'].includes(k)).sort(), ['purpose', 'recipient', 'requestKey', 'sats']);
 });
 
 test('tool: the answer is wrapped as untrusted data, holds only whitelisted fields, taints the run, and the wallet gets only the four methods', async () => {
@@ -431,12 +433,14 @@ test('tool: an agent cannot reach the policy: it has no argument, no other tool,
   assert.equal(unknown.isError, true);
 });
 
-test('preamble: four lines, describes bsv_status truthfully, still no spend tools and never asks for keys', async () => {
+test('preamble: four lines, describes both tools truthfully (the spend tool only asks the owner) and never asks for keys', async () => {
   assert.equal(BSV_PREAMBLE.split('\n').length, 4);
   assert.match(BSV_PREAMBLE, /mcp__legion_bsv__bsv_status/);
   assert.match(BSV_PREAMBLE, /read-only/);
+  assert.match(BSV_PREAMBLE, /mcp__legion_bsv__bsv_spend_request/);
+  assert.match(BSV_PREAMBLE, /a payment goes out only after the owner confirms/);
   assert.match(BSV_PREAMBLE, /unverified/);
-  assert.match(BSV_PREAMBLE, /Legion has no tool that signs, sends, reads balances or holds funds/);
+  assert.match(BSV_PREAMBLE, /Legion's own tools cannot read balances or hold funds/);
   assert.match(BSV_PREAMBLE, /Never ask the user for keys, seed phrases/);
   assert.doesNotMatch(BSV_PREAMBLE, /you can (sign|spend|send|broadcast)/i);
 });
