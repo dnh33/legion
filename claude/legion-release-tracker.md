@@ -64,3 +64,7 @@ Cloud agent (claude.ai web surface) + independent reviewer; may run in parallel 
 - Repo hygiene: CHANGELOG compare links say `OWNER/legion` (placeholder) -> `dnh33/legion`; package.json `repository`/`bugs`/`homepage`; issue templates; security policy + private vulnerability reporting; repo description and topics; note to enable secret scanning + push protection; the Dependabot branches in the private repo.
 - Screenshots: regenerate ALL of `docs/images/*` and `docs/screenshots/*` from the built UI (mock server, demo data), light and dark, at README sizes; read each at full resolution; before/after side by side; Zealot art photographed only, never edited. Fallback if the cloud has no browser: capture on the PC with the Playwright harnesses under `test-perf/`.
 - Reviewer checks docs against code and images against the real UI.
+
+## Blender local-first: plan approved (2026-10-02)
+
+Plan: `claude/plan-blender-local-first.md` (decisions in its section 10). Order: Step 0 (types/config/ports) -> 3 builders in parallel (runner+exports | routing+guard+pin | UI+setup+docs) -> integration -> Linux + Windows gate -> real-Blender run on the PC -> independent reviewer. Cloud via claude.ai web surface. Assumed, not confirmed: task folder location, min Blender 3.0, no job-object limits.
