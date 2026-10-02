@@ -138,3 +138,28 @@ Differences from the plan, and why:
 Still NOT protected (beyond section 6): a popup opened by a page loads unguarded until Legion closes it (needs the real browser to measure); a program that can write `<dataDir>/browser/config.json` (an agent with a shell) can change `enabled`/`binaryPath` for the next start: that agent could already run code on this PC, but the file has no integrity check; the DNS-rebinding limit; the download has a small window between hash check and rename (same-user attacker only).
 
 Follow-ups for others (files not touched here): (1) `approvals.ts`: add `mcp__legion_browser__` to `LEGION_TOOL_PREFIXES` and the name regex so only the module's own cards appear in ask mode; (2) `src/electron/main.ts` + preload: native dialog IPC for `POST /api/browser/config` (program fields) and `POST /api/browser/local`; (3) docs/BROWSER.md and the README sentence in section 8; (4) register an updater busy probe if a browser run should block an update; (5) `claude/real-pc-test-plan.md`: add BR1-BR11.
+
+## 10. Facts: documented / assumed / unknown (owner rule: research first)
+
+Sources read as text on 2026-10-02: README `https://github.com/lightpanda-io/browser/blob/main/README.md`; `src/Config.zig` (https://github.com/lightpanda-io/browser/blob/main/src/Config.zig); the CLI help text `src/help.zon` (https://github.com/lightpanda-io/browser/blob/main/src/help.zon); LICENSE (AGPL-3.0). The docs site lightpanda.io was not reachable from this session (proxy 403), and the `src/cdp/**` source path I guessed returned 404, so CDP method coverage is NOT documented here. The Releases page text was only seen through the README (tag `nightly`).
+
+| Item | Status | Source or check |
+|---|---|---|
+| No native Windows binary; WSL2 or Docker | documented | README, "For Windows + WSL2" |
+| Linux glibc x86_64/aarch64, macOS x86_64/aarch64; assets `lightpanda-x86_64-linux`, `lightpanda-aarch64-linux`, `lightpanda-aarch64-macos`, `lightpanda-x86_64-macos` under tag `nightly` | documented (names from README commands) | README "Download from the nightly builds" |
+| No numbered release / no published checksum file | assumption (I saw only `nightly`) | owner: open the Releases page; BR2 |
+| Licence AGPL-3.0 | documented | LICENSE |
+| `serve` = CDP server, `--host` default `127.0.0.1`, `--port` default 9222 | documented | help.zon `--host`, `--port` |
+| `--block-private-networks`: "Block HTTP requests to private/internal IP addresses after DNS resolution" (default false); `--block-cidrs <CIDR>` repeatable, `-` prefix exempts | documented | help.zon lines ~377-390 |
+| `--cdp-max-connections` (default 16), `--cdp-max-message-size` (default 1 MB), `--http-max-response-size` (default 1 GiB), `--v8-max-heap-mb`, `--watchdog-ms` (default 30000; closes the CDP connection when JS stalls), `--disable-metrics` (a Prometheus `/metrics` endpoint is exposed by default) | documented | help.zon |
+| `--load-resources` default: no sub-resources requested (iframes, images, stylesheets, workers off); XHR/fetch from page scripts still run | documented | help.zon `--load-resources`, README status list |
+| `--cookie-jar` is write-only on exit; `--http-cache-dir` omitted = no caching; neither is passed by Legion | documented | help.zon |
+| `--http-session-timeout` applies to WebDriver only | documented. CORRECTION: Legion no longer passes it | help.zon |
+| Telemetry on by default, off with `LIGHTPANDA_DISABLE_TELEMETRY=true`; `LIGHTPANDA_DISABLE_CORE_DUMP` | documented | README "Telemetry", "Core dumps" |
+| Cookies are held in process memory | documented in part (README "Cookies"; in-memory-only is an assumption) | BR10 |
+| The pinned build accepts every flag above | assumption (flags read from `main`, not from a release) | `lightpanda serve --help` on the chosen build; the `/api/browser/test` route runs it with Legion's flags and fails closed (BR1) |
+| CDP methods used (`Target.*`, `Page.navigate`, `Runtime.evaluate`, `Network.enable`) are answered | unknown (source path for the CDP domains not found; README shows `createBrowserContext`/`goto`/`evaluate` through Puppeteer) | BR3, BR8 |
+| `Fetch.enable` request interception | unknown | README lists "Network interception"; BR8. Legion degrades: no interception = reads re-check the address, allow-local refuses to open |
+| `--block-private-networks` stops a DNS-rebinding answer | assumption from "after DNS resolution" | BR7 |
+| Kill of a WSL child from Windows | unknown | BR4 |
+| Which flags the engine's SDK tool-permission hook runs for unknown MCP tool names | read from `src/core/engine.ts` / `approvals.ts` in this repo | `needsApproval`, `taintsRun` |

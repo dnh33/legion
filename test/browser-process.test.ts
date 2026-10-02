@@ -36,7 +36,7 @@ test('C11: the child gets an argument list with the hardening options, a scrubbe
     assert.deepEqual(a.slice(0, 5), ['serve', '--host', '127.0.0.1', '--port', String(run.port)]);
     assert.ok(a.includes('--block-private-networks'), 'private networks blocked by the browser itself');
     assert.equal(a[a.indexOf('--block-cidrs') + 1], '169.254.0.0/16');
-    for (const f of ['--cdp-max-connections', '--cdp-max-message-size', '--http-max-response-size', '--v8-max-heap-mb', '--watchdog-ms', '--http-session-timeout', '--disable-metrics']) assert.ok(a.includes(f), f);
+    for (const f of ['--cdp-max-connections', '--cdp-max-message-size', '--http-max-response-size', '--v8-max-heap-mb', '--watchdog-ms', '--disable-metrics']) assert.ok(a.includes(f), f);
     for (const bad of ['--cookie-jar', '--cookie', '--http-cache-dir', '--http-proxy', '--insecure-disable-tls-host-verification', '--host 0.0.0.0']) assert.ok(!a.join(' ').includes(bad), bad);
     assert.ok(run.port >= 20000 && run.port < 60000);
     // the environment is built from an allowlist

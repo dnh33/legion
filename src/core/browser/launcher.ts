@@ -54,7 +54,7 @@ export function buildBrowserArgs(port: number, allowLocal: boolean): string[] {
   return [
     'serve', '--host', '127.0.0.1', '--port', String(port),
     '--cdp-max-connections', '2', '--cdp-max-message-size', String(BROWSER_LIMITS.cdpMessageBytes),
-    '--http-max-response-size', String(BROWSER_LIMITS.responseBytes), '--http-timeout', '15000', '--http-connect-timeout', '8000', '--http-session-timeout', '300',
+    '--http-max-response-size', String(BROWSER_LIMITS.responseBytes), '--http-timeout', '15000', '--http-connect-timeout', '8000',
     '--v8-max-heap-mb', String(BROWSER_LIMITS.v8HeapMb), '--watchdog-ms', String(BROWSER_LIMITS.watchdogMs), '--disable-metrics',
     ...(allowLocal ? [] : ['--block-private-networks']), '--block-cidrs', '169.254.0.0/16',
   ];
