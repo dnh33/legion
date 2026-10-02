@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { query as realQuery } from '@anthropic-ai/claude-agent-sdk';
 import type { SDKUserMessage } from '@anthropic-ai/claude-agent-sdk';
 import type { Catalog, CatalogCommand, CatalogModel, LegionConfig } from '../shared/types.js';
-import { buildChildEnv } from './engine.js';
+import { buildChildEnv, connectorSettings } from './engine.js';
 import type { QueryFn } from './engine.js';
 
 export const CATALOG_TTL_MS = 10 * 60 * 1000;
@@ -50,7 +50,7 @@ async function probe(deps: CatalogDeps, now: () => number): Promise<Catalog> {
       cwd: tmpdir(), env: buildChildEnv(deps.config, { probe: true }), abortController: ac,
       settingSources: deps.config.claude.inheritClaudeCodeSettings ? ['user', 'project', 'local'] : [],
       // Only the command and model lists are wanted: do not connect (and tear down) every inherited MCP server for it.
-      strictMcpConfig: true,
+      strictMcpConfig: true, ...connectorSettings(deps.config, { probe: true }),
     };
     if (deps.config.claude.executablePath) options.pathToClaudeCodeExecutable = deps.config.claude.executablePath;
     q = queryFn({ prompt: input(), options });

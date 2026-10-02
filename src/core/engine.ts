@@ -2,7 +2,7 @@
 import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { query as realQuery } from '@anthropic-ai/claude-agent-sdk';
-import type { McpServerConfig, Options, Query, query as sdkQuery } from '@anthropic-ai/claude-agent-sdk';
+import type { McpServerConfig, Options, Query, Settings, query as sdkQuery } from '@anthropic-ai/claude-agent-sdk';
 import type {
   AgentProfile, ApprovalMode, ChatMessage, ConcreteModel, LegionConfig, MascotMood, MessageRole, ModelChoice, Task, TaskSource,
 } from '../shared/types.js';
@@ -105,6 +105,14 @@ export const LEGION_PREAMBLE = [
  * Child-process env. Built from process.env only; Legion never reads credential files.
  * claude-login: API key vars removed so the signed-in account is used. api-key: key from config.
  */
+/**
+ * Second layer for "no claude.ai connectors": the SDK `settings` flag layer (`--settings`). `disableClaudeAiConnectors` is any-source-true,
+ * so a project or user settings file inherited by this run cannot turn it back off. Absent when the owner turned inheritMcp on (probes: always set).
+ */
+export function connectorSettings(config: LegionConfig, opts?: { probe?: boolean }): { settings?: Settings } {
+  return config.claude.inheritMcp !== true || opts?.probe ? { settings: { disableClaudeAiConnectors: true } } : {};
+}
+
 export function buildChildEnv(config: LegionConfig, opts?: { probe?: boolean }): Record<string, string | undefined> {
   const env: Record<string, string | undefined> = scrubHostSessionEnv({ ...process.env });
   // the bearer token opens every human-only route: whatever put it in this process's environment, it must not reach a bot's
@@ -598,6 +606,7 @@ export class Engine {
       includePartialMessages: true,
       abortController: act.ac,
       env: buildChildEnv(this.config),
+      ...connectorSettings(this.config),
       // Runs before every tool executes (also in bypass mode), so taint is set before the tool can act on outside content.
       hooks: {
         PreToolUse: [{

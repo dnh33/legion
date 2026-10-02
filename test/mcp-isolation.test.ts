@@ -95,6 +95,27 @@ test('off: the strict flag is on the retry (escalation) query too', async () => 
   for (const c of s.calls) { assert.equal(c.options.strictMcpConfig, true); assert.equal(c.options.env.ENABLE_CLAUDEAI_MCP_SERVERS, 'false'); }
 });
 
+test('F1: SDK settings.disableClaudeAiConnectors is set on the run and on the retry when inheritMcp is off', async () => {
+  const s = setup(async function* (n) { yield init(); yield n === 0 ? maxTurns : ok; });
+  await run(s);
+  assert.equal(s.calls.length, 2);
+  for (const c of s.calls) assert.deepEqual(c.options.settings, { disableClaudeAiConnectors: true });
+});
+
+test('F1: catalog probe and doctor probe carry settings.disableClaudeAiConnectors whichever way inheritMcp is set', async () => {
+  for (const inherit of [false, true]) {
+    const config = defaultConfig(); config.claude.inheritMcp = inherit;
+    let seen: any;
+    const q = { supportedCommands: async () => [], supportedModels: async () => [], accountInfo: async () => ({ email: 'a@b.c' }), interrupt: async () => undefined, close: () => undefined };
+    const queryFn = ((p: any) => { seen = p.options; return q; }) as unknown as QueryFn;
+    await getCatalog({ config, queryFn });
+    assert.deepEqual(seen.settings, { disableClaudeAiConnectors: true });
+    seen = undefined;
+    await runDoctor({ config, getBoat: () => null, queryFn });
+    assert.deepEqual(seen.settings, { disableClaudeAiConnectors: true });
+  }
+});
+
 test('on: today\'s behaviour (no strict flag, connectors not forced off)', async () => {
   const save = process.env.ENABLE_CLAUDEAI_MCP_SERVERS; delete process.env.ENABLE_CLAUDEAI_MCP_SERVERS;
   try {
@@ -102,6 +123,7 @@ test('on: today\'s behaviour (no strict flag, connectors not forced off)', async
     await run(s);
     const o = s.calls[0]!.options;
     assert.equal(o.strictMcpConfig, undefined);
+    assert.equal(o.settings, undefined);
     assert.equal(o.env.ENABLE_CLAUDEAI_MCP_SERVERS, undefined);
     assert.deepEqual(o.settingSources, ['user', 'project', 'local']);
   } finally { if (save !== undefined) process.env.ENABLE_CLAUDEAI_MCP_SERVERS = save; }

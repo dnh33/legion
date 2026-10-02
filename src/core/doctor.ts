@@ -8,7 +8,7 @@ import { configPath } from '../shared/config.js';
 import type { DoctorCheck, LegionConfig } from '../shared/types.js';
 import type { BoatClient } from './boat.js';
 import { CLAUDE_NOT_CONFIGURED, type BoatHealth } from './boat-health.js';
-import { buildChildEnv } from './engine.js';
+import { buildChildEnv, connectorSettings } from './engine.js';
 import type { QueryFn } from './engine.js';
 
 const SIGN_IN_FIX = 'Run `claude` in a terminal and sign in with /login';
@@ -31,7 +31,7 @@ async function probeClaude(config: LegionConfig, queryFn: QueryFn, timeoutMs: nu
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
     const options: Parameters<QueryFn>[0]['options'] = {
-      cwd: tmpdir(), settingSources: [], strictMcpConfig: true, env: buildChildEnv(config, { probe: true }), abortController: ac,
+      cwd: tmpdir(), settingSources: [], strictMcpConfig: true, env: buildChildEnv(config, { probe: true }), ...connectorSettings(config, { probe: true }), abortController: ac,
     };
     if (config.claude.executablePath) options.pathToClaudeCodeExecutable = config.claude.executablePath;
     q = queryFn({ prompt: input(), options });
