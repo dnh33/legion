@@ -3,6 +3,7 @@
  * Every module, the HTTP API, the MCP tools and the UI speak these types.
  */
 import type { Room, RoomMessage, CommsState, TaskOrigin } from './comms.js';
+import type { BlenderStatusView } from './blender.js';
 
 /** What the user picks per agent/task. 'auto' lets the router decide. */
 export type ModelChoice = 'auto' | string;
@@ -144,7 +145,8 @@ export type LegionEvent =
   | { type: 'room.deleted'; roomId: string }
   | { type: 'room.message'; message: RoomMessage }
   | { type: 'comms.state'; agentId: string; state: CommsState; roomId?: string; peerId?: string }
-  | { type: 'kg.updated'; nodeCount: number; edgeCount: number; changed?: string[] };
+  | { type: 'kg.updated'; nodeCount: number; edgeCount: number; changed?: string[] }
+  | { type: 'blender.status'; status: BlenderStatusView };
 
 /** A tool call waiting for the user's decision. Auto-denied after 10 minutes. */
 export interface ApprovalRequest {

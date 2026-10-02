@@ -3,6 +3,8 @@ import { randomBytes } from 'node:crypto';
 import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
+import { defaultBlenderConfig, normalizeBlender } from './blender.js';
+import type { BlenderConfig } from './blender.js';
 import type { LegionConfig } from './types.js';
 
 export const VERSION = '0.1.0';
@@ -14,7 +16,7 @@ export const VERSION = '0.1.0';
  * do not care about BSV are unaffected.
  */
 export interface BsvConfig { enabled: boolean; network: 'testnet' }
-export type CoreConfig = LegionConfig & { bsv: BsvConfig };
+export type CoreConfig = LegionConfig & { bsv: BsvConfig; blender: BlenderConfig };
 
 /** %USERPROFILE%\.legion on Windows, ~/.legion elsewhere. Override with LEGION_HOME. */
 export function dataDir(): string {
@@ -40,6 +42,7 @@ export function defaultConfig(): CoreConfig {
     boat: { baseUrl: 'https://boat.dev/api/v1' },
     mcpServers: {},
     bsv: { enabled: false, network: 'testnet' },
+    blender: defaultBlenderConfig(),
   };
 }
 
@@ -73,6 +76,7 @@ export function loadConfig(): CoreConfig {
     saveConfig(cfg);
   }
   cfg.bsv = normalizeBsv(cfg.bsv);
+  cfg.blender = normalizeBlender(cfg.blender);
   if (process.env.LEGION_PORT) cfg.port = Number(process.env.LEGION_PORT);
   if (!cfg.boat.apiKey && process.env.BOAT_API_KEY) cfg.boat.apiKey = process.env.BOAT_API_KEY;
   if (cfg.claude.auth === 'api-key' && !cfg.claude.apiKey && process.env.ANTHROPIC_API_KEY) {

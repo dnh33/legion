@@ -1,4 +1,5 @@
 /** Human-in-the-loop tool approvals. */
+import { BLENDER_EXEC_TOOL } from '../shared/blender.js';
 import type { ApprovalMode, ApprovalRequest } from '../shared/types.js';
 import { newId, nowIso } from '../shared/util.js';
 import type { EventBus } from './bus.js';
@@ -6,9 +7,9 @@ import type { EventBus } from './bus.js';
 const READ_ONLY = new Set(['Read', 'Glob', 'Grep', 'LS', 'WebSearch', 'WebFetch', 'TodoWrite', 'Task', 'Agent']);
 const EDIT_TOOLS = new Set(['Write', 'Edit', 'MultiEdit', 'NotebookEdit']);
 
-/** Legion's own in-process MCP servers: vm tools, the comms bridge and the knowledge graph. */
-export const LEGION_TOOL_PREFIXES = ['mcp__legion__', 'mcp__legion_comms__', 'mcp__legion_kg__'];
-const LEGION_TOOL_NAME = /^mcp__legion(?:_comms|_kg)?__[a-z][a-z0-9_]*$/;
+/** Legion's own in-process MCP servers: vm tools, the comms bridge, the knowledge graph and the guarded Blender bridge (it asks for its own approval inside the tool). */
+export const LEGION_TOOL_PREFIXES = ['mcp__legion__', 'mcp__legion_comms__', 'mcp__legion_kg__', 'mcp__legion_blender__'];
+const LEGION_TOOL_NAME = /^mcp__legion(?:_comms|_kg|_blender)?__[a-z][a-z0-9_]*$/;
 /**
  * One of Legion's own in-process tools: the exact server name, then a plain tool name. A prefix test alone also matches
  * "mcp__legion__x__run", a tool of some other server that happens to be called "legion__x"; its tool part holds "__".
@@ -49,6 +50,11 @@ export function summarizeToolInput(toolName: string, input: Record<string, unkno
   const cap = (s: string) => (s.length > 400 ? s.slice(0, 399) + '…' : s);
   if (toolName === 'Bash' && typeof input?.command === 'string') return cap(input.command);
   if ((toolName === 'Write' || toolName === 'Edit') && typeof input?.file_path === 'string') return cap(input.file_path);
+  if (toolName === BLENDER_EXEC_TOOL && typeof input?.script === 'string') {
+    const lines = input.script.split('\n');
+    const first = lines.find((l) => l.trim() && !l.trim().startsWith('#'))?.trim() ?? '';
+    return cap(`Blender script (${input.mode === 'live' ? 'LIVE' : 'sandbox'}, ${lines.length} lines): ${first}`);
+  }
   return compactJson(input ?? {}, 400);
 }
 

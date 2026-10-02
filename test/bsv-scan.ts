@@ -24,6 +24,7 @@ export const ALLOWLIST: Allow = {
   'src/bin/legion-mcp-stdio.ts': { kinds: ['fetch', 'child-process'], reason: 'the stdio MCP proxy: talks only to the local core on 127.0.0.1 and starts that core (node dist/src/bin/legion-core.js) when it is not running' },
   'ui/src/api.ts': { kinds: ['fetch'], reason: "the UI's client of the local core (fetch and EventSource on the core base URL)" },
   'ui/src/rooms/roomsStore.ts': { kinds: ['fetch'], reason: 'downloads a room export from the local core' },
+  'src/core/blender/static-check.ts': { kinds: ['decode'], reason: 'the Blender script safety check decodes Python string escapes (\\x41, \\u0041) so it reads literal file paths and attribute names the way Python would' },
   'src/core/comms/scrub.ts': { kinds: ['decode'], reason: 'the secret detector decodes base64 and rot13 candidates to find seed phrases hidden in them' },
 };
 
