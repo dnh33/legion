@@ -44,10 +44,15 @@ const SOURCES = (): Src[] => [
 
 /** What a person reads: in code, strings and JSX text with comments removed; in docs, the text. */
 const MODE_VALUE = /^(sandbox|live|local|vm|auto|block|log)$/;
-/** Code: only string literals and JSX text, one per line so each is its own sentence; bare mode-value literals are identifiers, not prose. */
+/**
+ * Code: string literals and JSX text, each as its own line, AND the joined text of literals that are one sentence in the source:
+ * "a " + "b" (concatenation) and a template literal with ${} in the middle. Judging only the halves let a split-up overclaim through.
+ * Bare mode-value literals are identifiers, not prose.
+ */
 export function literals(src: string): string {
   const { kept, code } = lex(src);
   const out: string[] = [];
+  const units: Array<{ text: string; s: number; e: number }> = [];
   const push = (raw: string) => {
     const t = raw.replace(/\\(['"`\\])/g, '$1').replace(/\s+/g, ' ').trim();
     if (t && !MODE_VALUE.test(t)) out.push(t);
@@ -59,31 +64,49 @@ export function literals(src: string): string {
     while (i < kept.length) {
       const c = kept[i]!;
       if (c === "'" || c === '"') {
+        const s0 = i;
         let j = i + 1;
         while (j < kept.length && kept[j] !== c && kept[j] !== '\n') j += kept[j] === '\\' ? 2 : 1;
-        push(kept.slice(i + 1, j)); i = j + 1; continue;
+        const text = kept.slice(i + 1, j);
+        push(text); units.push({ text, s: s0, e: j + 1 }); i = j + 1; continue;
       }
       if (c === '`') {
+        const s0 = i;
         i++; let seg = '';
+        const segs: string[] = [];
         while (i < kept.length && kept[i] !== '`') {
           if (kept[i] === '\\') { seg += kept.slice(i, i + 2); i += 2; continue; }
-          if (kept[i] === '$' && kept[i + 1] === '{') { push(seg); seg = ''; i += 2; walk(true); continue; }
+          if (kept[i] === '$' && kept[i + 1] === '{') { push(seg); segs.push(seg); seg = ''; i += 2; walk(true); continue; }
           seg += kept[i++];
         }
-        push(seg); i++; continue;
+        push(seg); segs.push(seg); i++;
+        if (segs.length > 1) push(segs.join(' '));
+        units.push({ text: segs.join(' '), s: s0, e: i }); continue;
       }
       if (untilBrace) { if (c === '{') depth++; else if (c === '}') { if (depth === 0) { i++; return; } depth--; } }
       i++;
     }
   };
   walk(false);
-  for (const m of code.matchAll(/>([^<>{}();=]*[A-Za-z][^<>{}();=]*)</g)) push(m[1]!);
+  // literals joined with + are one sentence
+  units.sort((x, y) => x.s - y.s);
+  let group: string[] = [];
+  let end = -1;
+  const flush = () => { if (group.length > 1) push(group.join('')); group = []; };
+  for (const u of units) {
+    if (group.length && u.s >= end && /^\s*\+\s*$/.test(kept.slice(end, u.s))) group.push(u.text); else { flush(); group = [u.text]; }
+    end = u.e;
+  }
+  flush();
+  for (const m of code.matchAll(/>([^<>{}]*[A-Za-z][^<>{}]*)</g)) push(m[1]!);
   return out.join('\n');
 }
 const readable = (s: Src): string => (s.code ? literals(s.text) : s.text);
 const sentences = (t: string): string[] => t.split(/(?<=[.!?])\s+|\n+/).map((x) => x.trim()).filter(Boolean);
 
 const LOCALISH = /\blocal (mode|run|script|blender)|\bthis (computer|pc)\b|\bon this pc\b|\bheadless\b|\bin the background\b/i;
+/** Words that name local mode itself (bare "this computer" and "headless" also appear in sentences about the VM: "away from this computer"). */
+const STRONG_LOCAL = /\blocal (mode|run|script|blender)|\bin the background\b|\bon this (pc|computer)\b/i;
 const VMISH = /\b(vm|cloud|boat\.dev|live blender|open blender|live card)\b/i;
 const NOT_SANDBOX = /\b(not a sandbox|no sandbox|not sandboxed|is no sandbox)\b/i;
 const POSITIVE = /(?<!\bnot )(?<!\bnot a )(?<!\bno )(?<!\bun)\b(safe|safely|secure|securely|isolated|protected)\b/i;
@@ -101,9 +124,12 @@ export function scan(sources: Src[]): string[] {
     for (const line of s.text.split('\n')) for (const [what, re] of BANNED) if (re.test(line)) hits.push(`${s.name}: ${what}: ${line.trim().slice(0, 160)}`);
     const ss = sentences(readable(s));
     ss.forEach((sent, i) => {
-      const local = LOCALISH.test(sent) && !VMISH.test(sent);
-      if (local && /sandbox/i.test(sent) && !NOT_SANDBOX.test(sent)) hits.push(`${s.name}: (a) local text says sandbox without "not a sandbox": ${sent.slice(0, 160)}`);
-      if (local && POSITIVE.test(sent)) hits.push(`${s.name}: (b) local text calls it safe/secure/isolated/protected: ${sent.slice(0, 160)}`);
+      // a sentence that names the VM is judged clause by clause: only a clause that is about the VM alone is exempt, "Unlike the cloud VM, local mode ... is a safe sandbox" is not
+      for (const clause of sent.split(/[;,:]|\b(?:unlike|whereas|while)\b/i)) {
+        const local = VMISH.test(clause) ? STRONG_LOCAL.test(clause) : LOCALISH.test(clause);
+        if (local && /sandbox/i.test(clause) && !NOT_SANDBOX.test(clause)) hits.push(`${s.name}: (a) local text says sandbox without "not a sandbox": ${sent.slice(0, 160)}`);
+        if (local && POSITIVE.test(clause)) hits.push(`${s.name}: (b) local text calls it safe/secure/isolated/protected: ${sent.slice(0, 160)}`);
+      }
       if (BLOCKS.test(sent) && !NEGATED_ONLY.test(sent) && !VMISH.test(sent)) {
         const near = `${sent} ${ss[i + 1] ?? ''}`;
         if (!SCOPE.test(sent) || !SCOPE2.test(sent)) hits.push(`${s.name}: (c) a claim about what the runner blocks lacks its scope ("Legion's own ..." and "Python"/"script's code"): ${sent.slice(0, 160)}`);
@@ -162,8 +188,19 @@ test('blender hedge: the scan judges prose, not code', () => {
     "const msg = 'The runner blocks all network access.';",
     "const msg = 'Runs isolated on this computer.';",
     'export const C = () => <p>Local mode is sandboxed and safe.</p>;',
+    // M4 review cases: H6 concatenation, H7 JSX text with ( ) ; =, H9 template with ${}
+    "const m = 'Local mode runs on this computer ' + 'in a sandbox that is safe.';",
+    'export const C = () => <p>Local mode on this computer is sandboxed (safe).</p>;',
+    'export const C = () => <p>Local mode on this computer is a sandbox; it is safe = true.</p>;',
+    'const m = `Local mode runs on this computer ${x} in a sandbox that is safe.`;',
+    "const m = 'Local mode runs on this computer ' +\n  'in a sandbox that is safe.';",
   ];
   for (const t of bad) assert.ok(scan([code(t)]).length > 0, `should be caught in code: ${t}`);
+  // M4 H10: naming the VM must not exempt a sentence that calls local mode a safe sandbox (docs and code)
+  for (const t of ['Unlike the cloud VM, local mode on this computer is a safe sandbox.', 'The cloud VM is a sandbox and local mode on this computer is a sandbox too.']) {
+    assert.ok(scan([{ name: 'sample.md', text: t, code: false }]).length > 0, `doc: ${t}`);
+    assert.ok(scan([code(`const m = ${JSON.stringify(t)};`)]).length > 0, `code: ${t}`);
+  }
   assert.ok(scan([{ name: 'sample.md', text: 'This cannot be bypassed.', code: false }]).length > 0, 'doc overclaim is caught');
   assert.ok(scan([{ name: 'sample.md', text: 'Runs isolated on this computer.', code: false }]).length > 0, 'doc "isolated" is caught');
   const good = [
@@ -172,7 +209,15 @@ test('blender hedge: the scan judges prose, not code', () => {
     "export function buildArgs(i: { runner: string; guard: 'block' | 'log'; mode: 'local' | 'vm' | 'auto' }): string[] { return []; }",
     `const note = "Legion's own runner stops the script's Python code from opening network connections; it is not a sandbox.";`,
   ];
+  // sentences that are fine stay fine when split with + or a template, and a VM sentence that only says what local mode is not
+  good.push(
+    "const m = 'The cloud VM is a sandbox ' + 'away from this computer.';",
+    "const m = 'Local mode on this computer is ' + 'not a sandbox.';",
+    'const m = `Local mode on this computer is ${x} filter, not a sandbox.`;',
+    'export const C = () => <p>Local mode (on this computer) is a filter, not a sandbox.</p>;',
+  );
   for (const t of good) assert.deepEqual(scan([code(t)]), [], `should stay green: ${t}`);
+  for (const t of ['The cloud VM is a sandbox, away from this computer.', 'Unlike local mode, which is not a sandbox, the cloud VM is a sandbox.', 'The cloud VM is a sandbox; local mode is not.']) assert.deepEqual(scan([{ name: 'sample.md', text: t, code: false }]), [], `doc should pass: ${t}`);
 });
 
 test('blender hedge: adding an overclaim to a real source turns the scan red', () => {
