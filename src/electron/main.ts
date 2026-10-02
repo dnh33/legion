@@ -11,6 +11,7 @@ import { adminForRenderer, bsvConfirmation, bsvPreflight, coreAction, coreIsBusy
 import { makeConfirm, providerChange } from './provider-ipc.js';
 import { coreStartHint, resolveCoreLaunch } from './resolve-node.js';
 import { projectChange } from './project-ipc.js';
+import { browserChange } from './browser-ipc.js';
 import type { ProjectChangeResult } from './project-ipc.js';
 import type { ProviderChangeResult } from './provider-ipc.js';
 
@@ -485,6 +486,11 @@ if (!app.requestSingleInstanceLock()) {
       return r.canceled ? undefined : r.filePaths[0];
     };
     try { return await projectChange(raw, { call: ownCoreCall, confirm: makeConfirm(dialog, () => win), pickFolder }); } catch { return { ok: false, error: 'The change failed.' }; }
+  });
+  ipcMain.handle('legion:browser-change', async (e, raw: unknown) => {
+    const frameUrl = (e as { senderFrame?: { url?: string } }).senderFrame?.url;
+    if (!win || win.isDestroyed() || (e as { sender?: unknown }).sender !== win.webContents || !trustedSender(frameUrl, uiUrl)) return { ok: false, error: 'Refused: not the Legion window.' };
+    try { return await browserChange(raw, { call: ownCoreCall, confirm: makeConfirm(dialog, () => win) }); } catch { return { ok: false, error: 'The change failed.' }; }
   });
   ipcMain.handle('legion:open-external', (_e, url: unknown) => {
     if (typeof url === 'string' && isHttp(url)) { void shell.openExternal(url); return true; }

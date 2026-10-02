@@ -15,11 +15,19 @@ export function BrowserSection() {
   const [domains, setDomains] = useState('');
   const [path, setPath] = useState('');
   const [args, setArgs] = useState('');
+  const [ports, setPorts] = useState('');
   const load = useCallback(async () => {
     try { const s = await request<BrowserStatusView>('GET', '/api/browser'); setSt(s); setDomains((d) => d || s.allowDomains.join(', ')); } catch (e) { setErr(errText(e)); }
   }, []);
   useEffect(() => { void load(); }, [load]);
   const act = async (fn: () => Promise<unknown>) => { setBusy(true); setErr(null); setNote(null); try { await fn(); } catch (e) { setErr(errText(e)); } finally { setBusy(false); void load(); } };
+  // Program, hash and local-address changes go through the app window's native confirmation (the window never holds the secret).
+  const native = (change: Record<string, unknown>) => act(async () => {
+    const fn = (window as unknown as { legion?: { browserChange?: (c: unknown) => Promise<{ ok: boolean; error?: string; cancelled?: boolean }> } }).legion?.browserChange;
+    if (!fn) throw new Error('This needs the Legion app window (it shows a confirmation dialog). Open Legion from its shortcut.');
+    const r = await fn(change);
+    if (r.cancelled) setNote('Cancelled. Nothing changed.'); else if (!r.ok) throw new Error(r.error ?? 'The change failed.');
+  });
   const save = (patch: Record<string, unknown>) => act(async () => { setSt(await request<BrowserStatusView>('POST', '/api/browser/config', patch)); });
   if (!st) return <div className="brw">{err ? <p className="brw-err" role="alert">{err}</p> : <p className="brw-muted">Loading{'…'}</p>}</div>;
   return (
@@ -39,12 +47,17 @@ export function BrowserSection() {
       <div className="brw-row">
         <input value={path} onChange={(e) => setPath(e.target.value)} placeholder={st.binaryPath ?? 'Path to lightpanda (or wsl.exe)'} aria-label="Program path" spellCheck={false} />
         <input value={args} onChange={(e) => setArgs(e.target.value)} placeholder="Launcher arguments (optional), space separated" aria-label="Launcher arguments" spellCheck={false} />
-        <button type="button" className="btn-ghost sm" disabled={busy || !path.trim()} onClick={() => void save({ binaryPath: path.trim(), launcherArgs: args.trim() ? args.trim().split(/\s+/) : [] }).then(() => setPath(''))}>Use this program</button>
+        <button type="button" className="btn-ghost sm" disabled={busy || !path.trim()} title="Asks you to confirm in a dialog" onClick={() => void native({ kind: 'program', binaryPath: path.trim(), launcherArgs: args.trim() ? args.trim().split(/\s+/) : [] }).then(() => setPath(''))}>Use this program</button>
         <button type="button" className="btn-ghost sm" disabled={busy || st.binary === 'none'} onClick={() => void act(async () => { const r = await request<{ ok: boolean; detail: string }>('POST', '/api/browser/test'); setNote(r.detail); })}>Test</button>
       </div>
       <div className="brw-row">
         <input value={domains} onChange={(e) => setDomains(e.target.value)} placeholder="Only these sites (optional): example.com, docs.org" aria-label="Allowed sites" spellCheck={false} />
         <button type="button" className="btn-ghost sm" disabled={busy} onClick={() => void save({ allowDomains: domains.split(/[\s,]+/).filter(Boolean) })}>Save sites</button>
+      </div>
+      <div className="brw-row">
+        <input value={ports} onChange={(e) => setPorts(e.target.value)} placeholder="Local ports to allow (optional), e.g. 8080, 3000" aria-label="Local ports" spellCheck={false} />
+        <button type="button" className="btn-ghost sm" disabled={busy || !ports.trim()} onClick={() => void native({ kind: 'local', allow: true, ports: ports.split(/[\s,]+/).filter(Boolean).map(Number) })}>Allow local addresses (until restart)</button>
+        {st.allowLocal && <button type="button" className="btn-ghost sm" disabled={busy} onClick={() => void native({ kind: 'local', allow: false })}>Turn off</button>}
       </div>
       <p className="brw-muted">Not protected: anything else on this computer can reach the browser's local port while a task runs; a page's own scripts run inside Lightpanda; Legion cannot stop a redirect or page request to a public site the browser makes itself.</p>
       {note && <p className="brw-note" role="status">{note}</p>}

@@ -11,6 +11,7 @@ declare global {
       /** BSV policy changes: main shows its own native confirmation and calls the core with a secret this window never holds. */
       bsvPolicy?(action: unknown): Promise<{ ok: boolean; error?: string; cancelled?: boolean; view?: unknown }>;
       providerChange?(change: unknown): Promise<{ ok: boolean; error?: string; cancelled?: boolean; view?: unknown }>;
+      browserChange?(change: unknown): Promise<{ ok: boolean; error?: string; cancelled?: boolean; view?: unknown }>;
       onBsvChanged?(cb: () => void): () => void;
       /** Project folder and member changes: main shows the native confirmation (and the folder chooser) and calls the core with a secret this window never holds. */
       projectChange?(change: unknown): Promise<{ ok: boolean; error?: string; cancelled?: boolean; view?: unknown }>;
