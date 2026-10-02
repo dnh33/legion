@@ -136,4 +136,50 @@ describe('VM fixes over HTTP', () => {
     assert.deepEqual([cleared.boat.rates, cleared.boat.currency], [{}, '']);
     assert.equal(JSON.parse(readFileSync(join(dir, 'config.json'), 'utf8')).boat.rates, undefined);
   });
+
+  it('R7: boat health, key check and usage are admin-only; a token-only client gets 403 and a stripped /api/state and event stream', async () => {
+    const tokenOnly = { Authorization: AUTH.Authorization!, 'Content-Type': 'application/json' };
+    const asClient = (path: string, init: RequestInit = {}) => fetch(base + path, { ...init, headers: tokenOnly });
+    for (const [m, p] of [['GET', '/api/boat/health'], ['POST', '/api/boat/check'], ['GET', '/api/vms/zealot/usage'], ['POST', '/api/settings/boat/test']] as const) {
+      const r = await asClient(p, { method: m, body: m === 'POST' ? '{}' : undefined });
+      assert.equal(r.status, 403, `${m} ${p}`);
+    }
+    // give the account prices and a key that cannot resume, so there is something to hide
+    fb.forbidden.add('resume');
+    await json('/api/settings', { method: 'PATCH', body: JSON.stringify({ boat: { rates: { default: 0.6, large: 2.4 }, currency: 'DKK' } }) });
+    await json('/api/boat/check', { method: 'POST' });
+    const admin = (await json('/api/state')).boat;
+    assert.deepEqual(admin.rates, { default: 0.6, large: 2.4 });
+    assert.equal(admin.forbidden.length, 1);
+    assert.ok(admin.probes.length > 0);
+    const client = (await (await asClient('/api/state')).json() as any).boat;
+    assert.deepEqual([client.rates, client.currency, client.probes, client.forbidden, client.checkedAt, client.keyOk], [{}, '', [], [], null, null]);
+    assert.equal(client.configured, true);
+    assert.equal(typeof client.asOf, 'string');
+    assert.ok(!/0\.6|2\.4|DKK|resume/.test(JSON.stringify(client)), JSON.stringify(client));
+    // event streams: the app window gets the full view, a token-only stream the stripped one
+    const readEvent = async (headers: Record<string, string>): Promise<string> => {
+      const ac = new AbortController();
+      const sse = await fetch(base + '/api/events', { headers, signal: ac.signal });
+      await json('/api/boat/check', { method: 'POST' });
+      const reader = sse.body!.getReader();
+      const dec = new TextDecoder();
+      let buf = '';
+      const deadline = Date.now() + 3000;
+      while (!buf.includes('boat.health') && Date.now() < deadline) {
+        const { value, done } = await Promise.race([reader.read(), new Promise<{ value?: Uint8Array; done: boolean }>((r) => setTimeout(() => r({ done: true }), 500))]);
+        if (value) buf += dec.decode(value);
+        if (done) break;
+      }
+      ac.abort();
+      return buf;
+    };
+    const forAdmin = await readEvent(AUTH);
+    assert.match(forAdmin, /"rates":\{"default":0\.6/);
+    const forClient = await readEvent({ Authorization: AUTH.Authorization! });
+    assert.match(forClient, /boat\.health/);
+    assert.ok(!/0\.6|2\.4|DKK|resume/.test(forClient), forClient);
+    fb.forbidden.clear();
+    await json('/api/settings', { method: 'PATCH', body: JSON.stringify({ boat: { rates: {}, currency: '' } }) });
+  });
 });

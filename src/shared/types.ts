@@ -87,14 +87,18 @@ export interface VmUsage {
   runtimeSeconds: number;
   /** Seconds the VM was up today (local day), finished runs plus the one in progress. */
   todaySeconds: number;
-  /** Only present when a per-size hourly rate is configured (boat.rates). Always an estimate. */
+  /** Only present when a per-size hourly rate is configured (boat.rates) and the rates are fresh. Always an estimate. */
   estimate?: { amount: number; currency: string; perHour: number; basis: string };
+  /** Set instead of `estimate` when the rates this was computed from are older than the refresh TTL: the cost is unknown, not "the last known figure". */
+  estimateNote?: string;
 }
 
 /** Result of stopping a VM; `stopped` is false when there was nothing to stop (not an error). */
 export interface VmStopResult {
   ok: true;
   stopped: boolean;
+  /** True when boat.dev was asked afterwards and `vm.state` is what it reported; false when it could not be asked. */
+  verified: boolean;
   message: string;
   vm: VmRecord;
   usage: VmUsage;
@@ -102,14 +106,18 @@ export interface VmStopResult {
 
 /** What the boat.dev API key and account are known to allow, from probes and from real calls. Never contains the key. */
 export interface BoatHealthView {
+  /** When this view was produced (ISO). A copy older than a few minutes is stale: do not show rates from it as current. */
+  asOf: string;
   configured: boolean;
   checkedAt: string | null;
-  /** The key was accepted by GET /me at the last check (null: not checked). */
+  /** The key was accepted by GET /me at the last check (null: not checked, or the check could not tell: see keyProblem). */
   keyOk: boolean | null;
+  /** Why the last check could not give a verdict about the key or an action: a rejected key is `auth`; `network`, `rate_limit` and `server` say nothing about the key. */
+  keyProblem?: { kind: 'auth' | 'network' | 'rate_limit' | 'server' | 'other'; message: string };
   /** Actions boat.dev refused for this key (e.g. 'sandbox.resume'). */
   forbidden: Array<{ action: string; op: string; at: string }>;
   /** What the probe found out about each operation: 'allowed' means "not refused", not a guarantee. */
-  probes: Array<{ op: string; status: 'allowed' | 'forbidden' | 'unknown' }>;
+  probes: Array<{ op: string; status: 'allowed' | 'forbidden' | 'unknown'; reason?: 'auth' | 'network' | 'rate_limit' | 'server' | 'other' }>;
   /** Whether the VM-side Claude Code is set up on the boat.dev Agents page. */
   claude: { state: 'configured' | 'not_configured' | 'unknown'; message?: string; at?: string };
   /** The account is on a free trial that refuses bigger machine classes (learned from a refused create). */

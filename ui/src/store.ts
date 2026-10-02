@@ -503,3 +503,11 @@ export const setView = (view: AppState['view']) => setState({ view });
 export async function checkBoat(): Promise<BoatHealthView | null> {
   try { const h = await api.checkBoat(); setState({ boatHealth: h }); return h; } catch (e) { toast(errText(e), 'error'); return null; }
 }
+
+/** Re-read the boat.dev health (admin only) when the cached copy is older than `olderThanMs`; the prices in it are not trusted past the TTL. */
+export function refreshBoatHealth(olderThanMs: number): void {
+  const h = getState().boatHealth;
+  if (!h || Object.keys(h.rates).length === 0) return; // a copy without prices (token-only view, or none set) has nothing to go stale
+  if (Date.now() - Date.parse(h.asOf) < olderThanMs) return;
+  api.boatHealth().then((fresh) => setState({ boatHealth: fresh }), () => undefined);
+}

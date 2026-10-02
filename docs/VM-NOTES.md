@@ -20,13 +20,17 @@ Press **Start** (or **Retry**) in the Computer card, or let the agent call `vm_s
 | This boat.dev account is on a free trial… | The size is not allowed on a trial | Use Default, or upgrade |
 | Claude is not configured on boat.dev | `vm_claude` needs Claude connected on boat.dev's Agents page | Connect it there; the tool returns by itself within 5 minutes (or press Check again in Settings) |
 
-Settings, boat.dev shows **Key permissions** with a **Check again** button. The check only reads and asks about a sandbox id that cannot exist, so it never creates a VM or costs money. "Not refused" means boat.dev did not refuse the action at that moment; a real call can still be refused, and then it appears in the same list.
+If `vm_stop` says boat.dev still reports the VM up, or that it could not confirm, the stop request was sent but the VM may still be running and billing: check the Computer card or the boat.dev dashboard, or call stop again. A start and a stop for the same agent never overlap; a stop during a start waits for the start to finish and then stops it.
+
+Settings, boat.dev shows **Key permissions** with a **Check again** button. The check only reads and asks about a sandbox id that cannot exist, so it never creates a VM or costs money. "Not refused" means boat.dev did not refuse the action at that moment; a real call can still be refused, and then it appears in the same list. If boat.dev cannot be reached, is rate limiting or has a server error, the check says so and gives no verdict on the key (only a rejected key is reported as rejected). Pasting a different key, or removing it, starts the findings over.
 
 ## Usage and cost
 
 `vm_start`, `vm_exec` and `vm_stop` return `runtimeSeconds` (the current run) and `todaySeconds` (the local day, all runs). `vm_usage` returns the same without touching the VM. The Computer card shows one line. The numbers are Legion's own uptime measure (ready to stop), not boat.dev's bill.
 
-Legion has no built-in prices. To see an estimate, enter your hourly price per size and a currency label in Settings, boat.dev, Cost estimate (stored as `boat.rates` and `boat.currency` in `config.json`). Estimates are labelled as such and use today's uptime times the rate of the VM's size.
+Legion has no built-in prices. To see an estimate, enter your hourly price per size and a currency label in Settings, boat.dev, Cost estimate (stored as `boat.rates` and `boat.currency` in `config.json`). Estimates are labelled as such and use today's uptime times the rate of the VM's size. The prices are read from your config each time; the app keeps a copy for display and does not use it past 10 minutes old: the cost then reads "cost unknown" until a fresh copy arrives.
+
+Only the app window (admin) sees the prices, the key probe results and the refused-action list; an MCP-class token gets `configured`, whether Claude is set up and whether the account is on a trial, nothing more.
 
 ## Not verified against the real boat.dev
 

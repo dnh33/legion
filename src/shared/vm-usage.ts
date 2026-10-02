@@ -51,14 +51,23 @@ export function closeRun(rec: VmRecord, end: number): Pick<VmRecord, 'runStarted
   return { runStartedAt: null, usageDay: localDay(end), usageSeconds: base + add };
 }
 
-export function vmUsage(rec: VmRecord, now: number, rates?: VmRates, currency = ''): VmUsage {
+/** A cached copy of the boat rates older than this is not used for a cost figure (the cost shows as unknown instead). */
+export const RATES_TTL_MS = 10 * 60_000;
+
+/**
+ * `ratesAsOf` is when the rates were last read from the source of truth (the core's config). Omit it when the rates were just read
+ * (the core). A UI holding a cached copy passes the copy's time: past RATES_TTL_MS no estimate is produced, only `estimateNote`.
+ */
+export function vmUsage(rec: VmRecord, now: number, rates?: VmRates, currency = '', ratesAsOf?: number): VmUsage {
   const start = rec.runStartedAt ? Date.parse(rec.runStartedAt) : NaN;
   const running = vmRecordIsLive(rec) && !Number.isNaN(start);
   const runtimeSeconds = running ? Math.max(0, Math.round((now - start) / 1000)) : 0;
   const todaySeconds = closedToday(rec, now) + (running ? secondsOnDayOf(start, now) : 0);
   const usage: VmUsage = { running, runtimeSeconds, todaySeconds };
   const perHour = rates?.[rec.size as VmSize];
-  if (typeof perHour === 'number' && perHour > 0) {
+  if (typeof perHour === 'number' && perHour > 0 && ratesAsOf !== undefined && !(now - ratesAsOf <= RATES_TTL_MS)) {
+    usage.estimateNote = `cost unknown: the prices were last refreshed ${fmtDuration(Math.max(0, (now - ratesAsOf) / 1000))} ago`;
+  } else if (typeof perHour === 'number' && perHour > 0) {
     usage.estimate = {
       amount: Math.round((todaySeconds / 3600) * perHour * 100) / 100,
       currency, perHour,
@@ -82,4 +91,27 @@ export function usageLine(u: VmUsage): string {
   const parts = [u.running ? `this run ${fmtDuration(u.runtimeSeconds)}` : 'not running', `today ${fmtDuration(u.todaySeconds)}`];
   if (u.estimate) parts.push(`est. ${u.estimate.amount.toFixed(2)}${u.estimate.currency ? ' ' + u.estimate.currency : ''}`);
   return parts.join(' · ');
+}
+
+/**
+ * Memo for vmUsage: the same record, rates and second give the same answer without recomputing (the UI renders often, tools call per
+ * result). One entry per agent; an entry is reused only while every input that matters is identical.
+ */
+export function createUsageMemo(max = 64) {
+  const cache = new Map<string, { key: string; value: VmUsage }>();
+  const stats = { computed: 0, hits: 0 };
+  function usage(rec: VmRecord, now: number, rates?: VmRates, currency = '', ratesAsOf?: number): VmUsage {
+    const stale = ratesAsOf !== undefined && !(now - ratesAsOf <= RATES_TTL_MS);
+    const key = [rec.state, rec.size, rec.runStartedAt ?? '', rec.usageDay ?? '', rec.usageSeconds ?? '', Math.floor(now / 1000),
+      JSON.stringify(rates ?? {}), currency, stale ? 'stale' : 'fresh'].join('|');
+    const hit = cache.get(rec.agentId);
+    if (hit && hit.key === key) { stats.hits++; return hit.value; }
+    const value = vmUsage(rec, now, rates, currency, ratesAsOf);
+    stats.computed++;
+    cache.delete(rec.agentId);
+    cache.set(rec.agentId, { key, value });
+    if (cache.size > max) cache.delete(cache.keys().next().value as string);
+    return value;
+  }
+  return Object.assign(usage, { stats });
 }

@@ -201,10 +201,13 @@ function BoatSection({ s }: { s: SettingsView }) {
               <button type="button" className="link-btn" onClick={() => void recheck()} disabled={checking}>{checking ? 'Checking\u2026' : health?.checkedAt ? 'Check again' : 'Check now'}</button>
             </div>
             {!health?.checkedAt && <p className="muted-s">Not checked yet. Checking only reads and asks about a VM that does not exist; it never creates one.</p>}
+            {health?.keyProblem && (
+              <p className="set-perm warn"><Icon name="shield" size={13} /> <span>{health.keyProblem.kind === 'auth' ? 'boat.dev rejected this key.' : `Could not check the key (${{ network: 'cannot reach boat.dev', rate_limit: 'boat.dev is rate limiting', server: 'boat.dev had a server error', other: 'unexpected answer' }[health.keyProblem.kind]}). That says nothing about the key; try again later.`}</span></p>
+            )}
             {health?.forbidden.map((f) => (
               <p key={f.action} className="set-perm bad"><Icon name="x" size={13} /> <span>This key cannot <code>{f.action}</code>. Create a full-access key in boat.dev and paste it above.</span></p>
             ))}
-            {health?.checkedAt && health.forbidden.length === 0 && (
+            {health?.checkedAt && health.forbidden.length === 0 && !health.keyProblem && (
               <p className="set-perm ok"><Icon name="check" size={13} /> <span>boat.dev did not refuse any action at the last check ({new Date(health.checkedAt).toLocaleTimeString()}). A real call can still be refused; if so, it shows up here.</span></p>
             )}
             {health?.claude.state === 'not_configured' && (

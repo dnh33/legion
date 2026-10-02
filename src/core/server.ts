@@ -21,6 +21,7 @@ import type { VmManager } from './vm-manager.js';
 import type { CoreModule } from './modules.js';
 import { agentIdVisible, agentVisible, taskVisible } from './visibility.js';
 import { pushSse } from './sse.js';
+import { publicBoatHealth } from './boat-health.js';
 
 export interface CoreContext {
   config: LegionConfig; store: Store; bus: EventBus; engine: Engine; vms: VmManager; approvals: ApprovalBroker;
@@ -184,7 +185,9 @@ export function createServer(ctx: CoreContext): Server {
   };
 
   // ---- read-only -------------------------------------------------------
-  route('GET', '/api/state', ({ url }): StateSnapshot => ({
+  /** True for the app window (it holds the admin secret); false for an MCP-class token. */
+  const isAdminReq = (req: unknown): boolean => !!(req as { legionAdmin?: boolean }).legionAdmin;
+  route('GET', '/api/state', ({ url, req }): StateSnapshot => ({
     version: VERSION,
     agents: ctx.store.listAgents().filter(visible),
     // the list leaves out each task's final text (up to 2 KB x 200): GET /api/tasks/:id has it, and task.updated events carry the whole task
@@ -192,7 +195,8 @@ export function createServer(ctx: CoreContext): Server {
     vms: ctx.store.listVms().filter((v) => agentIdVisible(ctx, v.agentId)),
     approvals: ctx.approvals.pending().filter((a) => agentIdVisible(ctx, a.agentId)),
     boatConfigured: ctx.boatConfigured(),
-    ...(ctx.vms.health ? { boat: ctx.vms.health.view() } : {}),
+    // A token-only client gets whether things work, never the user's prices or what the key was probed for.
+    ...(ctx.vms.health ? { boat: isAdminReq(req) ? ctx.vms.health.view() : publicBoatHealth(ctx.vms.health.view()) } : {}),
     auth: ctx.config.claude.auth,
   }));
   route('GET', '/api/config', () => redactConfig(ctx.config));
@@ -325,10 +329,10 @@ export function createServer(ctx: CoreContext): Server {
   /** The VmRecord (what the UI stores) plus `stopped`, `message` and `usage`. With no sandbox: 200, stopped:false, message "No sandbox to stop". */
   route('POST', '/api/vms/:agentId/stop', async ({ params }) => {
     const r: any = await ctx.vms.stop(params[0]);
-    return r && typeof r === 'object' && r.vm ? { ...r.vm, stopped: r.stopped, message: r.message, usage: r.usage } : r;
+    return r && typeof r === 'object' && r.vm ? { ...r.vm, stopped: r.stopped, verified: r.verified, message: r.message, usage: r.usage } : r;
   });
   route('GET', '/api/vms/:agentId/usage', ({ params }) => ctx.vms.usage(params[0]));
-  /** Re-probe what the boat.dev key may do (cheap reads and not-found probes; never creates a sandbox). */
+  /** Admin-only (not in CLIENT_ROUTES, so the gate answers a token-only caller 403): these show what the key was probed for and the user's prices. Re-probe = cheap reads and not-found probes; never creates a sandbox. */
   route('POST', '/api/boat/check', () => ctx.vms.health.probe());
   route('GET', '/api/boat/health', () => ctx.vms.health.view());
   route('POST', '/api/vms/:agentId/exec', ({ params, body }) => {
@@ -387,7 +391,7 @@ export function createServer(ctx: CoreContext): Server {
     const off = ctx.bus.on((ev: LegionEvent) => {
       if (!eventShown(ev)) return; // hidden agents must not leak through the event stream
       if (!admin && adminOnlyEvent(ev)) return;
-      pushSse(res, ev);
+      pushSse(res, !admin && ev.type === 'boat.health' ? { type: 'boat.health', health: publicBoatHealth(ev.health) } : ev);
     });
     const hb = setInterval(() => { if (!res.writableNeedDrain) res.write(': hb\n\n'); }, 15000);
     let closed = false;

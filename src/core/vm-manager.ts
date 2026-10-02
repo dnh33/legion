@@ -1,7 +1,7 @@
 /** Per-agent on-demand VM lifecycle. */
 import type { ConcreteModel, LegionConfig, VmRecord, VmSize, VmState, VmStopResult, VmUsage } from '../shared/types.js';
 import { sleep } from '../shared/util.js';
-import { closeRun, vmUsage } from '../shared/vm-usage.js';
+import { closeRun, createUsageMemo } from '../shared/vm-usage.js';
 import { BOAT_CODE, BoatError, type BoatClient, type BoatSandbox, type ExecResult } from './boat.js';
 import { BoatHealth, CLAUDE_NOT_CONFIGURED, TRIAL_NOTE } from './boat-health.js';
 import type { EventBus } from './bus.js';
@@ -17,6 +17,9 @@ export interface VmManagerDeps {
   health?: BoatHealth;
   /** Live config.boat (hourly rates for usage estimates). */
   boatConfig?: () => LegionConfig['boat'] | undefined;
+  /** How often and how many times stop() asks boat.dev whether the snapshot finished (default 1000 ms, 20 times). Tests shrink it. */
+  stopPollMs?: number;
+  stopPollTries?: number;
 }
 
 const VM_SIZES: ReadonlySet<string> = new Set(['small', 'default', 'large']);
@@ -43,9 +46,16 @@ export class VmManager {
   private readonly now: () => number;
   private readonly inflight = new Map<string, Promise<VmRecord>>();
   private readonly conversations = new Map<string, { sandboxId: string; conversationId: string }>();
+  /** Per-agent queue: a start, a stop and a later start never overlap, so a stop cannot misjudge a start that is still in flight. */
+  private readonly tail = new Map<string, Promise<void>>();
+  private readonly usageMemo = createUsageMemo();
+  private readonly stopPollMs: number;
+  private readonly stopPollTries: number;
   readonly health: BoatHealth;
 
   constructor(deps: VmManagerDeps) {
+    this.stopPollMs = deps.stopPollMs ?? 1000;
+    this.stopPollTries = deps.stopPollTries ?? 20;
     this.store = deps.store;
     this.bus = deps.bus;
     this.getBoat = deps.getBoat;
@@ -57,8 +67,8 @@ export class VmManager {
 
   /** Runtime counters for this agent's VM (Legion-measured uptime; an estimate in money only when a rate is configured). */
   usage(agentId: string): VmUsage {
-    const { rates, currency } = this.health.rates();
-    return vmUsage(this.store.getVm(agentId), this.now(), rates, currency);
+    const { rates, currency } = this.health.rates(); // read live from the config on every call: never a cached copy
+    return this.usageMemo(this.store.getVm(agentId), this.now(), rates, currency);
   }
 
   /** False while Claude is known not to be set up on boat.dev: the vm_claude tool is left out of the agent's tool list. */
@@ -68,16 +78,35 @@ export class VmManager {
   ensureRunning(agentId: string): Promise<VmRecord> {
     const existing = this.inflight.get(agentId);
     if (existing) return existing;
-    const p = this.doEnsure(agentId).finally(() => { this.inflight.delete(agentId); });
+    const p: Promise<VmRecord> = this.enqueue(agentId, () => this.doEnsure(agentId)).finally(() => { if (this.inflight.get(agentId) === p) this.inflight.delete(agentId); });
     this.inflight.set(agentId, p);
     return p;
   }
 
-  /** Stop and snapshot. With nothing to stop this is a plain "nothing to stop" result, never an error state. */
-  async stop(agentId: string): Promise<VmStopResult> {
+  /** Runs `fn` after everything already queued for this agent (a failure of an earlier step does not stop the queue). */
+  private enqueue<T>(agentId: string, fn: () => Promise<T>): Promise<T> {
+    const prev = this.tail.get(agentId) ?? Promise.resolve();
+    const run = prev.then(fn);
+    const t = run.then(() => undefined, () => undefined);
+    this.tail.set(agentId, t);
+    void t.then(() => { if (this.tail.get(agentId) === t) this.tail.delete(agentId); });
+    return run;
+  }
+
+  /**
+   * Stop and snapshot. Queued behind any start or stop already in flight for this agent, so it never declares "already stopped" or
+   * "nothing to stop" while a start is still creating the VM. With nothing to stop this is a plain "nothing to stop" result, never an
+   * error state. After the request it asks boat.dev what state the VM is really in and reports that.
+   */
+  stop(agentId: string): Promise<VmStopResult> {
+    this.inflight.delete(agentId); // a start requested from now on waits behind this stop instead of joining an earlier start
+    return this.enqueue(agentId, () => this.doStop(agentId));
+  }
+
+  private async doStop(agentId: string): Promise<VmStopResult> {
     const boat = this.requireBoat();
     let rec = this.store.getVm(agentId);
-    const done = (stopped: boolean, message: string, vm: VmRecord): VmStopResult => ({ ok: true, stopped, message, vm, usage: this.usage(agentId) });
+    const done = (stopped: boolean, message: string, vm: VmRecord, verified = true): VmStopResult => ({ ok: true, stopped, verified, message, vm, usage: this.usage(agentId) });
     if (!rec.sandboxId) {
       const hadFailure = rec.state === 'error' || !!rec.error;
       // A failed start leaves an 'error' record with no sandbox: there is nothing behind it, so it goes back to 'none'.
@@ -101,17 +130,31 @@ export class VmManager {
       throw this.wrap(e);
     }
     this.health.noteOk('stop');
+    const before = rec; // the record as it was while the VM was up, to put back if boat.dev says it is still up
     this.save({ ...rec, state: 'archiving', error: undefined });
-    // Best effort: wait briefly for the snapshot to finish so the UI shows 'archived'.
-    for (let i = 0; i < 20; i++) {
+    // Ask boat.dev what really happened (the snapshot takes a moment), and report that rather than assuming the request worked.
+    let real: VmState | null = null;
+    let askError: unknown;
+    for (let i = 0; i < this.stopPollTries; i++) {
       try {
-        const sb = await boat.get(id);
-        const st = mapBoatState(sb.state);
-        if (st === 'archived' || st === 'error') return done(true, 'VM stopped (snapshot kept, billing paused).', this.save({ ...this.store.getVm(agentId), state: st }));
-      } catch { break; }
-      await sleep(1000);
+        real = mapBoatState((await boat.get(id)).state);
+        if (real === 'archived' || real === 'error') break;
+      } catch (e) {
+        if (e instanceof BoatError && e.status === 404) { real = 'none'; break; }
+        askError = e; real = null; break;
+      }
+      if (i < this.stopPollTries - 1) await sleep(this.stopPollMs);
     }
-    return done(true, 'VM stop requested (snapshot in progress, billing pauses when it finishes).', this.store.getVm(agentId));
+    if (real === 'archived') return done(true, 'VM stopped (snapshot kept, billing paused).', this.save({ ...this.store.getVm(agentId), state: 'archived' }));
+    if (real === 'none') return done(true, 'The VM is gone from boat.dev (nothing is billing). The record was cleared.', this.save({ ...this.store.getVm(agentId), sandboxId: null, state: 'none' }));
+    if (real === 'error') return done(false, "boat.dev reports the VM in an error state after the stop request. Check it in the boat.dev dashboard.", this.save({ ...this.store.getVm(agentId), state: 'error', error: 'boat.dev reported an error state after the stop request' }));
+    if (real && LIVE_STATES.has(real)) {
+      const back = this.save({ ...before, state: real, error: undefined });
+      return done(false, `boat.dev still reports the VM as '${real}' after the stop request, so it may still be billing. Try again, or stop it in the boat.dev dashboard.`, back);
+    }
+    if (real === 'archiving' || real === 'provisioning') return done(true, 'VM stop requested; boat.dev is still saving the snapshot (billing pauses when it finishes).', this.store.getVm(agentId));
+    const why = askError instanceof Error ? askError.message : 'no answer';
+    return done(true, `VM stop requested, but boat.dev could not be asked to confirm it (${why}). Check the state before relying on it.`, this.store.getVm(agentId), false);
   }
 
   async exec(agentId: string, command: string, opts?: { cwd?: string; timeoutSeconds?: number }): Promise<ExecResult> {
@@ -193,7 +236,7 @@ export class VmManager {
     const now = this.now();
     for (const rec of this.store.listVms()) {
       if (!rec.sandboxId || !LIVE_STATES.has(rec.state)) continue;
-      if (this.inflight.has(rec.agentId)) continue;
+      if (this.inflight.has(rec.agentId) || this.tail.has(rec.agentId)) continue;
       const minutes = this.store.getAgent(rec.agentId)?.vm.idleStopMinutes ?? 15;
       const last = Date.parse(rec.lastUsedAt ?? rec.createdAt ?? '');
       if (Number.isNaN(last)) continue;

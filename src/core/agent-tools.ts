@@ -3,7 +3,7 @@ import { createSdkMcpServer, tool } from '@anthropic-ai/claude-agent-sdk';
 import type { McpSdkServerConfigWithInstance } from '@anthropic-ai/claude-agent-sdk';
 import { z } from 'zod';
 import { usageLine } from '../shared/vm-usage.js';
-import type { VmManager } from './vm-manager.js';
+import { VmError, type VmManager } from './vm-manager.js';
 import type { Bridge } from './bridge.js';
 import { CLAUDE_NOT_CONFIGURED } from './boat-health.js';
 
@@ -142,7 +142,9 @@ export function buildAgentToolsServer(ctx: AgentToolsCtx): McpSdkServerConfigWit
       model: z.enum(['sonnet', 'opus']).optional(),
     },
     (args) => run(async () => {
-      await vms.ensureRunning(agentId);
+      // Gate again at call time: the tool list was fixed when this run started, but Claude may have been found unconfigured since.
+      // Say so before any VM is started (vms.claude() starts it itself once it is allowed to).
+      if (!vms.claudeAvailable()) throw new VmError(CLAUDE_NOT_CONFIGURED, 'claude_not_configured');
       return truncateTail(await vms.claude(agentId, args.prompt, { model: args.model }));
     }),
   );
@@ -163,7 +165,7 @@ export function buildAgentToolsServer(ctx: AgentToolsCtx): McpSdkServerConfigWit
     {},
     () => run(async () => {
       const r = await vms.stop(agentId);
-      return JSON.stringify({ ok: r.ok, stopped: r.stopped, message: r.message, state: r.vm.state, size: r.vm.size, usage: r.usage, usageSummary: usageLine(r.usage) }, null, 2);
+      return JSON.stringify({ ok: r.ok, stopped: r.stopped, verified: r.verified, message: r.message, state: r.vm.state, size: r.vm.size, usage: r.usage, usageSummary: usageLine(r.usage) }, null, 2);
     }, { touch: false }),
   );
 

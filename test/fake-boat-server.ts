@@ -16,6 +16,17 @@ export class FakeBoatServer {
   providerFirst = false;
   /** Put the bearer key into every error message (a hostile or sloppy server). */
   echoKey = false;
+  /** boat.dev ignores stop: the sandbox stays in its live state. */
+  stopSticks = false;
+  /** After stop, GET reports 'archiving' this many times before 'archived'. */
+  archiveGets = 0;
+  /** GET /sandboxes/:id answers 500 (boat.dev unreachable for the post-stop check). */
+  failGets = false;
+  /** Awaited before a request is handled (lets a test hold a call in flight). */
+  gate?: (method: string, path: string) => Promise<void> | undefined;
+  /** Answers a request itself (status + json) instead of the normal routes. */
+  override?: (method: string, path: string) => [number, unknown] | undefined;
+  private archivingLeft = new Map<string, number>();
   requests: FakeReq[] = [];
   server!: Server;
   baseUrl = '';
@@ -24,13 +35,14 @@ export class FakeBoatServer {
     this.server = createServer((req, res) => {
       let raw = '';
       req.on('data', (c) => { raw += c; });
-      req.on('end', () => {
+      req.on('end', async () => {
         const u = new URL(req.url ?? '/', 'http://x');
         const path = u.pathname.replace(/^\/api\/v1/, '');
         let body: any; try { body = raw ? JSON.parse(raw) : undefined; } catch { body = undefined; }
         const auth = String(req.headers.authorization ?? '');
         this.requests.push({ method: req.method ?? 'GET', path, body, auth });
-        const [status, json] = this.handle(req.method ?? 'GET', path, body, auth);
+        await this.gate?.(req.method ?? 'GET', path);
+        const [status, json] = this.override?.(req.method ?? 'GET', path) ?? this.handle(req.method ?? 'GET', path, body, auth);
         res.writeHead(status, { 'content-type': 'application/json' });
         res.end(JSON.stringify(json));
       });
@@ -67,9 +79,14 @@ export class FakeBoatServer {
     const id = m[1], rest = m[2] ?? '';
     const sb = this.sandboxes.get(id);
     const missing = () => this.err(404, 'not_found', `sandbox ${id} not found`, auth);
+    if (method === 'GET' && rest === '' && this.failGets) return this.err(500, 'internal', 'boat.dev is having a bad day', auth);
+    if (method === 'GET' && rest === '' && sb && sb.state === 'archived' && (this.archivingLeft.get(id) ?? 0) > 0) {
+      this.archivingLeft.set(id, (this.archivingLeft.get(id) ?? 0) - 1);
+      return [200, { ok: true, sandbox: { id, state: 'archiving', type: sb.type } }];
+    }
     if (method === 'GET' && rest === '') return sb ? [200, { ok: true, sandbox: { id, state: sb.state, type: sb.type, name: sb.name } }] : missing();
     if (method === 'PATCH' && rest === '') { if (!sb) return missing(); sb.name = body?.name ?? sb.name; return [200, { ok: true, sandbox: { id, state: sb.state, type: sb.type, name: sb.name } }]; }
-    if (method === 'POST' && rest === 'stop') { const d = this.deny('stop', auth); if (d) return d; if (!sb) return missing(); sb.state = 'archived'; return [202, { ok: true }]; }
+    if (method === 'POST' && rest === 'stop') { const d = this.deny('stop', auth); if (d) return d; if (!sb) return missing(); if (!this.stopSticks) { sb.state = 'archived'; this.archivingLeft.set(id, this.archiveGets); } return [202, { ok: true }]; }
     if (method === 'POST' && rest === 'resume') {
       const d = this.deny('resume', auth); if (d) return d;
       if (!sb) return missing();

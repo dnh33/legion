@@ -1,8 +1,8 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { api, openExternal } from '../api';
-import { openEditor, openSettings, toast, useStore, vmAction } from '../store';
+import { openEditor, openSettings, refreshBoatHealth, toast, useStore, vmAction } from '../store';
 import { clip, vmIsLive, vmLabel, vmTone } from '../util';
-import { usageLine, vmUsage } from '../../../src/shared/vm-usage';
+import { RATES_TTL_MS, usageLine, vmUsage } from '../../../src/shared/vm-usage';
 import { Icon } from './icons';
 
 /** Re-render every 30 s while `on` so the "up for" line moves. A timer, not an animation. */
@@ -11,7 +11,7 @@ function useNow(on: boolean): number {
   useEffect(() => {
     if (!on) return;
     setNow(Date.now());
-    const t = window.setInterval(() => setNow(Date.now()), 30_000);
+    const t = window.setInterval(() => { setNow(Date.now()); refreshBoatHealth(RATES_TTL_MS / 2); }, 30_000);
     return () => window.clearInterval(t);
   }, [on]);
   return now;
@@ -33,7 +33,7 @@ export function ComputerCard() {
   const [busy, setBusy] = useState(false);
   const agentRef = useRef(agentId);
   agentRef.current = agentId;
-  const now = useNow(live);
+  const now = useNow(enabled && boat);
 
   // live preview: poll every 2.5s while the VM is up and the window is visible
   useEffect(() => {
@@ -69,9 +69,12 @@ export function ComputerCard() {
     try { const r = await api.desktop(agentId); openExternal(r.url); } catch (e) { toast(e instanceof Error ? e.message : 'Could not open desktop', 'error'); }
   };
 
+  // Memoised: the card re-renders often, the numbers only change with the record, the 30 s tick or the prices. The prices come from a
+  // cached copy (health): past the TTL they are not used, the cost shows as unknown until a fresh copy arrives.
+  const ratesAsOf = health ? Date.parse(health.asOf) : undefined;
+  const usage = useMemo(() => (vm ? vmUsage(vm, now, health?.rates, health?.currency ?? '', Number.isNaN(ratesAsOf) ? undefined : ratesAsOf) : null), [vm, now, health?.rates, health?.currency, ratesAsOf]);
   if (!agent) return null;
   const blocked = !enabled ? null : !boat ? 'boat' : null;
-  const usage = vm ? vmUsage(vm, now, health?.rates, health?.currency ?? '') : null;
   const showUsage = enabled && boat && usage && (usage.running || usage.todaySeconds > 0);
   const refused = health?.forbidden ?? [];
   const claudeOff = health?.claude.state === 'not_configured';
@@ -138,7 +141,7 @@ export function ComputerCard() {
 
       {showUsage && usage && (
         <div className="vm-usage" title="Measured by Legion from ready to stop. boat.dev's own billing may differ.">
-          <span>{usageLine(usage)}</span>{usage.estimate && <em>estimate</em>}
+          <span>{usageLine(usage)}</span>{usage.estimate && <em>estimate</em>}{usage.estimateNote && <em title={usage.estimateNote}>cost unknown</em>}
         </div>
       )}
 

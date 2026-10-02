@@ -17,11 +17,22 @@ export const BOAT_CODE = {
   providerNotConfigured: 'provider_not_configured',
 } as const;
 
+/** Why a probe call gave no verdict. Only `auth` says anything about the key; the others are about the network, the limiter or boat.dev. */
+export type ProbeFailure = 'auth' | 'network' | 'rate_limit' | 'server' | 'other';
+export function failureKind(e: unknown): ProbeFailure {
+  if (!(e instanceof BoatError)) return 'other';
+  if (e.status === 401) return 'auth';
+  if (e.status === 0 || e.code === 'network') return 'network';
+  if (e.status === 429) return 'rate_limit';
+  if (e.status >= 500) return 'server';
+  return 'other';
+}
+
 /** Outcome of probing what the API key may do. 'allowed' only means boat.dev did not refuse it. */
 export type ProbeStatus = 'allowed' | 'forbidden' | 'unknown';
 export interface BoatProbe {
-  me: { ok: boolean; detail: string };
-  ops: Array<{ op: string; status: ProbeStatus; action?: string }>;
+  me: { ok: boolean; detail: string; kind?: ProbeFailure };
+  ops: Array<{ op: string; status: ProbeStatus; action?: string; reason?: ProbeFailure }>;
   claude: 'configured' | 'not_configured' | 'unknown';
 }
 
@@ -63,18 +74,6 @@ export class BoatClient {
    */
   async checkKey(): Promise<BoatProbe> {
     const out: BoatProbe = { me: { ok: false, detail: '' }, ops: [], claude: 'unknown' };
-    try { await this.me(); out.me = { ok: true, detail: 'Connected' }; } catch (e) {
-      out.me = { ok: false, detail: e instanceof Error ? e.message : String(e) };
-      if (e instanceof BoatError && e.status === 401) return out;
-    }
-    const classify = (e: unknown): { status: ProbeStatus; action?: string; code?: string } => {
-      if (e instanceof BoatError) {
-        if (e.code === BOAT_CODE.keyActionForbidden) return { status: 'forbidden', action: e.action, code: e.code };
-        if (e.status === 401 || e.status === 0 || e.status >= 500) return { status: 'unknown', code: e.code };
-        return { status: 'allowed', code: e.code };
-      }
-      return { status: 'unknown' };
-    };
     const id = enc(PROBE_SANDBOX_ID);
     const steps: Array<[string, () => Promise<unknown>]> = [
       ['list VMs', () => this.list(1)],
@@ -84,11 +83,23 @@ export class BoatClient {
       ['read and write files', () => this.req('GET', `/sandboxes/${id}/files`, { query: { path: '/', encoding: 'utf8' }, timeoutMs: 15_000 })],
       ['prompt Claude', () => this.req('POST', `/sandboxes/${id}/prompt`, { body: { provider: 'claude', prompt: 'probe', new: true }, timeoutMs: 15_000 })],
     ];
-    for (const [op, run] of steps) {
+    const unknownRest = (from: number, reason: ProbeFailure) => { for (const [op] of steps.slice(from)) out.ops.push({ op, status: 'unknown', reason }); };
+    try { await this.me(); out.me = { ok: true, detail: 'Connected' }; } catch (e) {
+      const kind = failureKind(e);
+      out.me = { ok: false, detail: e instanceof Error ? e.message : String(e), kind };
+      // A rejected key, a dead network, a limiter or a server error: nothing more can be learned, and none of them (but the first) is about the key.
+      if (kind === 'auth' || kind === 'network' || kind === 'rate_limit' || kind === 'server') { if (kind !== 'auth') unknownRest(0, kind); return out; }
+    }
+    for (let i = 0; i < steps.length; i++) {
+      const [op, run] = steps[i]!;
       try { await run(); out.ops.push({ op, status: 'allowed' }); } catch (e) {
-        const c = classify(e);
-        out.ops.push({ op, status: c.status, ...(c.action ? { action: c.action } : {}) });
-        if (op === 'prompt Claude' && c.code === BOAT_CODE.providerNotConfigured) out.claude = 'not_configured';
+        if (e instanceof BoatError && e.code === BOAT_CODE.keyActionForbidden) { out.ops.push({ op, status: 'forbidden', ...(e.action ? { action: e.action } : {}) }); continue; }
+        if (e instanceof BoatError && e.code === BOAT_CODE.providerNotConfigured && op === 'prompt Claude') { out.claude = 'not_configured'; out.ops.push({ op, status: 'allowed' }); continue; }
+        const kind = failureKind(e);
+        // 400/404/409/422 on the impossible id: boat.dev looked at the request and did not refuse the key. Anything else gives no verdict.
+        if (e instanceof BoatError && kind === 'other' && [400, 404, 409, 422].includes(e.status)) { out.ops.push({ op, status: 'allowed' }); continue; }
+        out.ops.push({ op, status: 'unknown', reason: kind });
+        if (kind === 'rate_limit' || kind === 'auth') { unknownRest(i + 1, kind); break; } // stop hammering a limiter / a rejected key
       }
     }
     return out;
