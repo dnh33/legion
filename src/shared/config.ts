@@ -9,7 +9,7 @@ import { MAX_ROOM_BUDGET_USD } from './comms.js';
 import type { LegionConfig } from './types.js';
 export { MAX_ROOM_BUDGET_USD };
 
-export const VERSION = '0.1.0';
+export const VERSION = '0.2.0';
 
 /**
  * Optional BSV Dev Kit toggle (knowledge and visibility only: no wallet, no keys, no funds).

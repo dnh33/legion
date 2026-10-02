@@ -1,6 +1,6 @@
 {
   "name": "legion",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "A local, Claude-native multi-agent desktop bot with on-demand boat.dev VMs and a hand-painted mascot",
   "license": "MIT",
   "keywords": [

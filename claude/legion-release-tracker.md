@@ -14,7 +14,7 @@ Living tracker for the v1 release. Updated 2026-10-02 by Claude Code on the PC. 
 | 6 | Busy ring on rail avatars | Keep; re-measure perf in the sweep | confirmed |
 | 7 | Queue busy rule | Current behaviour (`docs/CHAT.md`) is right | confirmed |
 | 8 | Claude only in v1 | Codex/ChatGPT listed under "Later" | confirmed |
-| 9 | Release | Public repo (version/installer not stated: assumed 0.1.0, robocopy installer fixed to be non-blocking, unsigned) | version/installer **assumed, not confirmed**; public repo confirmed |
+| 9 | Release | Public repo; version 0.2.0 (confirmed 2026-10-02); robocopy installer fixed to be non-blocking, unsigned | public repo + version confirmed; installer type/signing **assumed, not confirmed** |
 
 ## Work items (updated 2026-10-02 09:17)
 
@@ -34,5 +34,5 @@ Cloud work runs on the claude.ai/code web surface (credits). Branches live in pr
 ## Open owner decisions
 
 - DECIDED 2026-10-02: BSV knowledge pack: soften NOTICE to "written in our own words from public documentation; licence status of some sources not established", ship pack unchanged (91 of 157 nodes only unverified/no-licence sources; 24 cite private `legion-specs` docs). To apply after the packaging fix session lands.
-- Release version/installer assumed 0.1.0 + robocopy installer, unsigned (assumed, not confirmed).
+- Installer type: robocopy installer, unsigned (assumed, not confirmed). Version 0.2.0 confirmed.
 - Weekly Claude usage at ~98% (resets Mon Oct 5 01:00): cloud sessions may stall.
