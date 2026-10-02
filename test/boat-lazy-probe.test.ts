@@ -6,6 +6,7 @@ import { mkdtempSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { ADMIN_STDIN_FLAG } from '../src/core/admin.js';
 import { BoatClient } from '../src/core/boat.js';
 import { BoatHealth } from '../src/core/boat-health.js';
@@ -24,7 +25,7 @@ const freePort = (): Promise<number> => new Promise((res, rej) => {
   const s = createServer(); s.once('error', rej);
   s.listen(0, '127.0.0.1', () => { const p = (s.address() as { port: number }).port; s.close(() => res(p)); });
 });
-const coreJs = new URL('../src/bin/legion-core.js', import.meta.url).pathname;
+const coreJs = fileURLToPath(new URL('../src/bin/legion-core.js', import.meta.url));
 
 test('K1: a real core with a boat.dev key runs no key-permission probe at start (no stored VMs, so zero calls); Settings opening probes once, a second open is cached, Check again asks again', async () => {
   const fb = await fake();
