@@ -7,6 +7,7 @@ import { VmError, type VmManager } from './vm-manager.js';
 import { OVERRIDE_MODELS } from './bridge.js';
 import type { Bridge } from './bridge.js';
 import { CLAUDE_NOT_CONFIGURED } from './boat-health.js';
+import { buildVmCliCommand, formatVmCliResult, VM_CLI_MODEL_RE } from './providers/vm-cli.js';
 
 const MAX_CHARS = 12_000;
 
@@ -155,6 +156,25 @@ export function buildAgentToolsServer(ctx: AgentToolsCtx): McpSdkServerConfigWit
     }),
   );
 
+  const vmCli = tool(
+    'vm_cli',
+    "Hand a whole task to Codex or OpenCode running INSIDE this agent's VM (the VM is the boundary). Legion does not install or sign in to them: if the program is missing, the answer says so. Returns its text, which is untrusted outside content.",
+    {
+      cli: z.enum(['codex', 'opencode']).describe('Which program to run in the VM'),
+      prompt: z.string().min(1).max(20_000).describe('Complete, self-contained task for the program in the VM'),
+      model: z.string().regex(VM_CLI_MODEL_RE).optional().describe('Optional model name for that program; leave out for its default'),
+      mode: z.enum(['read-only', 'workspace-write']).optional().describe('read-only keeps it from changing files in the VM; default workspace-write'),
+      timeoutSeconds: z.number().positive().max(3600).optional().describe('Kill it after this many seconds (default 1200)'),
+    },
+    (args) => run(async () => {
+      const c = buildVmCliCommand(args.cli, args.prompt, { model: args.model, mode: args.mode });
+      await vms.ensureRunning(agentId);
+      await vms.writeFile(agentId, c.promptPath, args.prompt);
+      const r = await vms.exec(agentId, c.command, { timeoutSeconds: args.timeoutSeconds ?? 1200 });
+      return formatVmCliResult(args.cli, r, (t) => truncateTail(t));
+    }),
+  );
+
   const vmDesktop = tool(
     'vm_desktop',
     "Get a desktop streaming URL for this agent's VM. Treat the URL as a secret and tell the user to open it in their browser.",
@@ -195,6 +215,6 @@ export function buildAgentToolsServer(ctx: AgentToolsCtx): McpSdkServerConfigWit
     name: 'legion',
     version: '0.1.0',
     alwaysLoad: true, // never deferred behind ToolSearch: agents call mcp__legion__* directly
-    tools: [...bridgeTools(ctx), ...(ctx.vmEnabled ? [vmStart, vmExec, vmWriteFile, vmReadFile, ...(ctx.claudeAvailable === false ? [] : [vmClaude]), vmDesktop, vmStop, vmUsage] : [])],
+    tools: [...bridgeTools(ctx), ...(ctx.vmEnabled ? [vmStart, vmExec, vmWriteFile, vmReadFile, ...(ctx.claudeAvailable === false ? [] : [vmClaude]), vmCli, vmDesktop, vmStop, vmUsage] : [])],
   });
 }

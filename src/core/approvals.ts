@@ -25,7 +25,9 @@ export function stricterMode(a: ApprovalMode, b: ApprovalMode): ApprovalMode {
 }
 
 /** VM tools that burn billing or hand a whole task to another Claude inside the VM. A run capped by another party (an MCP client, or a bot woken by one) needs a card for these. */
-const CAPPED_CARDED = new Set(['mcp__legion__vm_exec', 'mcp__legion__vm_claude', 'mcp__legion__vm_desktop']);
+const CAPPED_CARDED = new Set(['mcp__legion__vm_exec', 'mcp__legion__vm_claude', 'mcp__legion__vm_cli', 'mcp__legion__vm_desktop']);
+/** Legion's own tool that hands a task to another agent program in the VM: a card in every mode except full access (and for any capped run). */
+const CARDED_UNLESS_FULL = new Set(['mcp__legion__vm_cli']);
 
 /**
  * `capped`: the run has an approval ceiling from someone else (it came from an MCP client or was woken by another bot). Then vm_exec,
@@ -34,6 +36,7 @@ const CAPPED_CARDED = new Set(['mcp__legion__vm_exec', 'mcp__legion__vm_claude',
 export function needsApproval(mode: ApprovalMode, toolName: string, opts: { capped?: boolean } = {}): boolean {
   if (opts.capped && CAPPED_CARDED.has(toolName)) return true;
   if (mode === 'full') return false;
+  if (CARDED_UNLESS_FULL.has(toolName)) return true;
   if (READ_ONLY.has(toolName) || isLegionTool(toolName)) return false;
   if (EDIT_TOOLS.has(toolName)) return mode === 'ask';
   // Bash, other mcp__*, and unknown tools
@@ -50,6 +53,10 @@ export function summarizeToolInput(toolName: string, input: Record<string, unkno
   const cap = (s: string) => (s.length > 400 ? s.slice(0, 399) + '…' : s);
   if (toolName === 'Bash' && typeof input?.command === 'string') return cap(input.command);
   if ((toolName === 'Write' || toolName === 'Edit') && typeof input?.file_path === 'string') return cap(input.file_path);
+  if (toolName === 'mcp__legion__vm_cli') {
+    const i = input as { cli?: string; prompt?: string; mode?: string };
+    return cap(`Run ${i.cli ?? 'a CLI'} (${i.mode ?? 'workspace-write'}) inside this agent's VM: ${String(i.prompt ?? '').replace(/\s+/g, ' ')}`);
+  }
   if (toolName === 'LegionCliStart') {
     const i = input as { title?: string; command?: string; folder?: string; sandbox?: string };
     return cap(`${i.title ?? 'Start a CLI program'}: ${i.command ?? ''} | folder: ${i.folder ?? ''} | sandbox: ${i.sandbox ?? ''}. It runs its own shell and file tools outside Legion's approvals.`);

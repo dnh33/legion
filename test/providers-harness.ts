@@ -42,6 +42,8 @@ export interface Opts {
   limits?: Partial<HttpLimits>;
   turn?: typeof chatTurn;
   approvalTimeoutMs?: number;
+  /** What the fake VM's exec answers (default: echo the command). */
+  vmExec?: (cmd: string) => { exitCode: number; stdout?: string; stderr?: string };
   claude?: (params: any) => AsyncGenerator<any, void>;
   /** Extra runtime dependencies (a fake CLI port, a home folder, a clock). */
   runtimeDeps?: Partial<import('../src/core/providers/runtime.js').RuntimeDeps>;
@@ -69,13 +71,15 @@ export function setup(fake: Fake, o: Opts = {}) {
     return Object.assign(gen, { interrupt: async () => undefined, close: () => undefined });
   }) as unknown as QueryFn;
   const vmCalls: string[] = [];
+  const vmFiles: Record<string, string> = {};
   const vms = {
     touch() {}, ensureRunning: async () => ({}),
-    exec: async (_id: string, cmd: string) => { vmCalls.push(cmd); return { exitCode: 0, stdout: 'vm says: ' + cmd, stderr: '' }; },
+    exec: async (_id: string, cmd: string) => { vmCalls.push(cmd); return o.vmExec ? o.vmExec(cmd) : { exitCode: 0, stdout: 'vm says: ' + cmd, stderr: '' }; },
+    writeFile: async (_id: string, path: string, content: string) => { vmCalls.push('write ' + path); vmFiles[path] = content; },
     usage: () => ({ secondsThisRun: 0, secondsToday: 0 }), status: () => ({ state: 'running', size: 'default' }), claudeAvailable: () => false,
   } as any;
   const engine = new Engine({ store: store as any, bus, vms, approvals, config, queryFn, boatConfigured: () => !!o.vm, providers });
-  return { store, bus, events, config, approvals, claudeCalls, vmCalls, engine, agent, providers, keys };
+  return { store, bus, events, config, approvals, claudeCalls, vmCalls, vmFiles, engine, agent, providers, keys };
 }
 
 export const until = async (cond: () => boolean, ms = 5000): Promise<void> => {
