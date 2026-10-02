@@ -25,11 +25,12 @@ import { BLENDER_EXEC_TOOL, DEFAULT_ADVANCED } from '../src/shared/blender.js';
 import { init, ok } from './library-fakes.js';
 import { asClient, AUTH, start, TOKEN } from './helpers-c.js';
 import { agent, FakeBackend, FakeSandbox } from './blender-helpers.js';
+import { FakeLocal } from './blender-local-fakes.js';
 
 const closers: Array<() => Promise<void>> = [];
 after(async () => { for (const c of closers) await c().catch(() => undefined); });
 
-interface Opts { enabled?: boolean; installs?: string[]; socketOpen?: boolean; mcpServers?: Record<string, any>; sandboxReady?: boolean; withSandbox?: boolean; unpinned?: boolean }
+interface Opts { enabled?: boolean; installs?: string[]; socketOpen?: boolean; mcpServers?: Record<string, any>; sandboxReady?: boolean; withSandbox?: boolean; unpinned?: boolean; localReady?: boolean; realLocal?: boolean; raw?: Record<string, unknown> }
 
 function fakeIo(versions: string[]): { io: BlenderIo; downloads: string[]; hash: { value?: string } } {
   const downloads: string[] = [];
@@ -54,7 +55,7 @@ async function mount(o: Opts = {}) {
   const dataDir = join(dir, 'data');
   mkdirSync(dataDir, { recursive: true });
   const configPath = join(dataDir, 'config.json');
-  const raw = { port: 4747, authToken: TOKEN, workspaceDir: join(dir, 'ws'), claude: { auth: 'claude-login', inheritClaudeCodeSettings: true, maxTurns: 40 }, boat: { baseUrl: 'https://boat.test', apiKey: 'boat-secret-key-12345' }, mcpServers: o.mcpServers ?? {}, blender: { enabled: o.enabled ?? true, ...(o.unpinned ? { advanced: { official: { sha256: '' } } } : {}) } };
+  const raw = { port: 4747, authToken: TOKEN, workspaceDir: join(dir, 'ws'), claude: { auth: 'claude-login', inheritClaudeCodeSettings: true, maxTurns: 40 }, boat: { baseUrl: 'https://boat.test', apiKey: 'boat-secret-key-12345' }, mcpServers: o.mcpServers ?? {}, blender: { enabled: o.enabled ?? true, ...(o.raw ?? {}), ...(o.unpinned ? { advanced: { official: { sha256: '' } } } : {}) } };
   writeFileSync(configPath, JSON.stringify(raw, null, 2));
   const store = new Store(dir);
   store.seedDefaults(join(dir, 'ws'));
@@ -75,8 +76,12 @@ async function mount(o: Opts = {}) {
   const backend = new FakeBackend();
   const sandbox = new FakeSandbox();
   sandbox.ready = { ready: o.sandboxReady ?? false, note: o.sandboxReady ? 'sandbox ok' : 'no key' };
+  const local = new FakeLocal();
+  local.ready = { ready: o.localReady ?? false, note: o.localReady ? 'Blender found' : 'no Blender' };
   const kinds: string[] = [];
   const opts: BlenderModuleOptions = {
+    // the production default builds a real LocalRunner; these status tests pin the local fact unless they ask for it
+    ...(o.realLocal ? {} : { local }),
     io, boatConfigured: () => true, backup: async () => ({ ok: true }), probe: async () => o.socketOpen ?? false,
     makeBackend: (k) => { kinds.push(k); return backend; },
     ...(o.withSandbox === false ? {} : { sandbox }),
@@ -96,7 +101,7 @@ async function mount(o: Opts = {}) {
   };
   const close = async () => { await mod.dispose?.(); await srv.close(); };
   closers.push(close);
-  return { dir, dataDir, configPath, store, bus, engine, approvals, calls, mod, srv, http, events, downloads, sandbox, backend, kinds, config, close, hash };
+  return { local, dir, dataDir, configPath, store, bus, engine, approvals, calls, mod, srv, http, events, downloads, sandbox, backend, kinds, config, close, hash };
 }
 
 const runAgent = async (m: Awaited<ReturnType<typeof mount>>, id: string) => {
@@ -291,11 +296,19 @@ test('S5: the state store itself refuses to replace a trusted hash from the same
 });
 
 test('B3: the status view carries the add-on socket notice (and says so next to the audit verdict) while the bridge can use a live backend', async () => {
-  const m = await mount({ installs: ['5.1.0'] });
+  const m = await mount({ installs: ['4.2.1'], socketOpen: true });
   const r = await m.http('GET', '/api/blender?refresh=1');
   assert.equal(r.status, 200, r.text);
   assert.ok(Array.isArray(r.json.notices), JSON.stringify(r.json));
   assert.ok(r.json.notices.some((n: string) => /any program on this computer/.test(n)), r.json.notices.join('|'));
+  // the socket notice is about live Blender only: not shown when scripts are restricted to this computer or to the VM
+  for (const mode of ['local', 'vm']) {
+    await m.http('POST', '/api/blender/config', { mode });
+    const v = await m.http('GET', '/api/blender?refresh=1');
+    assert.equal((v.json.notices ?? []).some((n: string) => /any program on this computer/.test(n)), false, mode);
+  }
+  await m.http('POST', '/api/blender/config', { mode: 'live' });
+  assert.ok(((await m.http('GET', '/api/blender?refresh=1')).json.notices ?? []).some((n: string) => /any program on this computer/.test(n)));
 });
 
 test('setup is refused while the bridge is off', async () => {
@@ -344,3 +357,109 @@ test('without a sandbox port the view says so and the light never claims the san
 });
 
 void agent;
+
+test('C19 module: an install that enabled the bridge before the mode key existed gets the upgrade notice in the status view until any mode is saved; the mirror is written with it', async () => {
+  const NOTICE = /Scripts now run in Blender on this computer by default when it is found\. Pick Cloud VM to keep the old behaviour\./;
+  const m = await mount({ installs: ['5.1.0'], raw: { sandbox: 'auto' } });
+  const a = (await m.http('GET', '/api/blender?refresh=1')).json;
+  assert.ok((a.notices as string[]).some((n) => NOTICE.test(n)), JSON.stringify(a.notices));
+  assert.equal(a.mode, 'auto');
+  // an unrelated save does not clear it, and writes no mode key
+  await m.http('POST', '/api/blender/config', { port: 9877 });
+  assert.equal('mode' in JSON.parse(readFileSync(m.configPath, 'utf8')).blender, false);
+  assert.ok(((await m.http('GET', '/api/blender?refresh=1')).json.notices as string[]).some((n) => NOTICE.test(n)));
+  // saving a mode (here the same one) clears it, writes mode and mirrors the legacy key
+  const saved = (await m.http('POST', '/api/blender/config', { mode: 'vm' })).json;
+  assert.equal((saved.notices ?? []).some((n: string) => NOTICE.test(n)), false);
+  const file = JSON.parse(readFileSync(m.configPath, 'utf8')).blender;
+  assert.equal(file.mode, 'vm');
+  assert.equal(file.sandbox, 'vm');
+  assert.equal((await m.http('GET', '/api/blender?refresh=1')).json.mode, 'vm');
+});
+
+test('C19 module: no upgrade notice for a bridge that is off, for installs whose legacy setting already restricts the place, or for one turned on just now; legacy "off" means live', async () => {
+  const NOTICE = /Scripts now run in Blender on this computer/;
+  const has = async (m: Awaited<ReturnType<typeof mount>>) => ((await m.http('GET', '/api/blender?refresh=1')).json.notices ?? []).some((n: string) => NOTICE.test(n));
+  assert.equal(await has(await mount({ enabled: false, raw: { sandbox: 'auto' } })), false);
+  assert.equal(await has(await mount({ raw: { sandbox: 'vm' } })), false);
+  const off = await mount({ raw: { sandbox: 'off' } });
+  assert.equal(await has(off), false);
+  const v = (await off.http('GET', '/api/blender?refresh=1')).json;
+  assert.equal(v.mode, 'live', 'the legacy "off" is the old name of live, never local');
+  assert.match(v.nextRun, /open Blender/);
+  // turning the bridge on from Settings records the mode in force, so a fresh install never sees the upgrade notice
+  const fresh = await mount({ enabled: false });
+  await fresh.http('POST', '/api/blender/config', { enabled: true });
+  assert.equal(JSON.parse(readFileSync(fresh.configPath, 'utf8')).blender.mode, 'auto');
+  assert.equal(await has(fresh), false);
+});
+
+test('status: lights local and busy, localReady, nextRun and busy field follow the mode and the runners', async () => {
+  const light = async (o: Parameters<typeof mount>[0]) => (await (await mount(o)).http('GET', '/api/blender?refresh=1')).json;
+  const a = await light({ installs: ['5.1.0'], localReady: true, raw: { mode: 'auto' } });
+  assert.equal(a.light, 'local');
+  assert.equal(a.localReady, true);
+  assert.equal(a.busy, null);
+  assert.match(a.nextRun, /^On this computer \(Blender 5\.1\.0\)/);
+  // local-only with nothing found: not a VM light
+  const b = await light({ installs: [], localReady: false, sandboxReady: true, raw: { mode: 'local' } });
+  assert.equal(b.light, 'not-found');
+  assert.match(b.nextRun, /Blender was not found on this computer/);
+  // Automatic falls to the VM light and says so in nextRun
+  const c = await light({ installs: [], localReady: false, sandboxReady: true, raw: { mode: 'auto' } });
+  assert.equal(c.light, 'sandbox');
+  assert.match(c.nextRun, /cloud VM/);
+  // VM-only does not claim a local light even when Blender is there
+  const d = await light({ installs: ['5.1.0'], localReady: true, sandboxReady: true, raw: { mode: 'vm' } });
+  assert.equal(d.light, 'sandbox');
+  assert.equal(d.localReady, true);
+  assert.match(d.nextRun, /cloud VM/);
+  // nothing injected: the production LocalRunner reads the detected install (see blender-production-wiring.test.ts for the full path)
+  const e = await light({ installs: ['5.1.0'], realLocal: true, raw: { mode: 'auto' } });
+  assert.equal(e.localReady, true);
+  assert.match(e.localNote, /Blender 5\.1\.0/);
+});
+
+test('status: the busy light and field appear while a script runs through the module and go away afterwards', async () => {
+  const m = await mount({ installs: ['5.1.0'], localReady: true, raw: { mode: 'local' } });
+  const sc = m.store.getAgent('sculptor')!;
+  let release: () => void = () => undefined;
+  m.local.onRun = () => new Promise<void>((res) => { release = res; });
+  const server = m.mod.mcpServers!(sc, { taskId: 't1' } as never)['legion_blender'] as { instance: { connect: (t: unknown) => Promise<void> } };
+  const [ct, st] = InMemoryTransport.createLinkedPair();
+  await server.instance.connect(st);
+  const client = new Client({ name: 'x', version: '0' });
+  await client.connect(ct);
+  m.bus.on((e) => { if (e.type === 'approval.requested') setImmediate(() => m.approvals.resolve(e.approval.id, true)); });
+  const run = client.callTool({ name: 'blender_exec', arguments: { script: 'import bpy\nprint(1)\n' } });
+  for (let i = 0; i < 200 && m.local.runs.length < 1; i++) await new Promise((x) => setTimeout(x, 10));
+  const during = (await m.http('GET', '/api/blender?refresh=1')).json;
+  assert.equal(during.light, 'busy');
+  assert.equal(during.busy.mode, 'local');
+  assert.match(during.busy.hash12, /^[0-9a-f]{12}$/);
+  release();
+  await run;
+  const after = (await m.http('GET', '/api/blender?refresh=1')).json;
+  assert.equal(after.busy, null);
+  assert.equal(after.light, 'local');
+  await client.close();
+});
+
+test('the Sculptor preamble and blender_status describe the decision table, not "scripts default to the sandbox"', async () => {
+  const m = await mount({ installs: ['5.1.0'], localReady: true, raw: { mode: 'auto' } });
+  const sc = m.store.getAgent('sculptor')!;
+  const pre = m.mod.preamble!(sc);
+  assert.doesNotMatch(pre, /default to the sandbox/);
+  assert.match(pre, /Automatic/);
+  assert.match(pre, /this computer/);
+  assert.match(pre, /not redirected/);
+});
+
+test('config route: accepts mode (and still the legacy sandbox key), rejects junk', async () => {
+  const m = await mount({ installs: ['5.1.0'] });
+  assert.equal((await m.http('POST', '/api/blender/config', { mode: 'nope' })).status, 400);
+  assert.equal((await m.http('POST', '/api/blender/config', { mode: 'off' })).status, 400, 'off is a legacy alias, not a mode');
+  assert.equal((await m.http('POST', '/api/blender/config', { mode: 'local' })).json.mode, 'local');
+  assert.equal(JSON.parse(readFileSync(m.configPath, 'utf8')).blender.sandbox, 'auto');
+  assert.equal((await m.http('POST', '/api/blender/config', { sandbox: 'off' })).json.mode, 'live');
+});

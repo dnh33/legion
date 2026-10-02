@@ -6,14 +6,14 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { writeConfigFile } from '../../shared/config.js';
-import { defaultBlenderConfig, normalizeBlender } from '../../shared/blender.js';
-import type { BlenderBackendKind, BlenderConfig, BlenderEntry, ServerSetupInfo } from '../../shared/blender.js';
+import { defaultBlenderConfig, effectiveMode, mirrorSandbox, modeFromSandbox, normalizeBlender } from '../../shared/blender.js';
+import type { BlenderBackendKind, BlenderMode, BlenderConfig, BlenderEntry, ServerSetupInfo } from '../../shared/blender.js';
 import type { LegionConfig } from '../../shared/types.js';
 
 export interface SetupRecord { official: ServerSetupInfo | null; community: ServerSetupInfo | null; addonInstalledFor: BlenderBackendKind | null }
 
 /** What the settings route may change. Everything else (advanced, entry, host) is written by Setup or by hand in config.json. */
-export interface BlenderPatch { enabled?: boolean; backend?: BlenderConfig['backend']; sandbox?: BlenderConfig['sandbox']; port?: number; installPath?: string | null }
+export interface BlenderPatch { enabled?: boolean; backend?: BlenderConfig['backend']; mode?: BlenderMode; sandbox?: BlenderConfig['sandbox']; port?: number; installPath?: string | null }
 
 const isInfo = (v: unknown): v is ServerSetupInfo => !!v && typeof v === 'object' && typeof (v as ServerSetupInfo).url === 'string' && typeof (v as ServerSetupInfo).sha256 === 'string';
 
@@ -50,7 +50,12 @@ export class BlenderState {
     const next: BlenderConfig = { ...this.cfg };
     if (patch.enabled !== undefined) next.enabled = patch.enabled;
     if (patch.backend !== undefined) next.backend = patch.backend;
-    if (patch.sandbox !== undefined) next.sandbox = patch.sandbox;
+    // saving a mode is the only thing that writes the `mode` key; the legacy `sandbox` key is mirrored so a downgrade still opens
+    let mode = patch.mode ?? (patch.sandbox !== undefined ? modeFromSandbox(patch.sandbox) : undefined);
+    // Switching the bridge on is a choice made on this version: record the mode in force (derived from the legacy key) so the upgrade notice,
+    // which means "enabled before this version and never chose a mode", is not shown to someone who just turned it on.
+    if (mode === undefined && patch.enabled === true && !this.cfg.enabled && this.cfg.mode === undefined) mode = effectiveMode(this.cfg);
+    if (mode !== undefined) { next.mode = mode; next.sandbox = mirrorSandbox(mode); }
     if (patch.port !== undefined) next.port = patch.port;
     if (patch.installPath !== undefined) { if (patch.installPath === null || !patch.installPath.trim()) delete next.installPath; else next.installPath = patch.installPath.trim(); }
     return this.commit(normalizeBlender(next));
