@@ -123,3 +123,17 @@ Effort (builder + independent reviewer + Windows gate): text fixes S2-S5 0.5 day
 2. Assayer taint rule (3.7): is "bsv_status taints the run, so every spend carries the extra confirmation" intended? I will write neither version into a prompt until the BSV owner says.
 3. Browser for all 13 bots, or hidden from some (Herald)? Default: all, with Herald's "do not submit" line in its block.
 4. Is a scheduler for Sentinel planned? If not, the block says checks run only while a task is running.
+
+## 8. Owner answers (Phase 1 approved) and what they change
+
+1. Two persona lines get one-sentence factual edits (Sculptor: scripts run on this computer by default when Blender is found, in the cloud VM otherwise, and the pre-script backup is live-only; Assayer: you never choose the network, mainnet is hard-off and only the owner's switch and arming can enable it). Every other persona stays byte-identical; the snapshot test pins the new hashes. The block covers existing installs, whose stored personas do not update.
+2. Taint rule confirmed intended: the Assayer's block says plainly that `bsv_status` taints the run and untrusted content needs a second native dialog on the spend card. No numbers.
+3. Browser for all 13 bots. Herald's block: may open, read and list links; must not type, click or evaluate. Other bots may submit forms, each such action needing a card in ask mode. One line for all: notes written after browsing wait in the owner's Inbox.
+4. Sentinel block: "checks run only while a task is running; scheduled runs are planned, not available yet". Sentinel persona untouched.
+
+## 9. 0.2.1 ideas (not in 0.2.0)
+
+- A Knowledge Graph button that runs an audit agent to refresh stale notes from current docs. Needs design first: sources, taint, approvals, cost.
+- The Sentinel scheduler (scheduled runs).
+
+PHASE 2 starts from the new `origin/integration/v1` after the browser work merges: S2 to S5 plus README/ARCHITECTURE lines T4 did not fix, the generated block, the four tests with negatives, then gate and report.
