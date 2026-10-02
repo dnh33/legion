@@ -39,7 +39,7 @@ What the harness does not do for Blender yet: turn the bridge on and run `blende
 npm run build:ts
 node --test dist/test/blender-guard.test.js dist/test/blender-module.test.js      # guard and wiring
 node --test dist/test/blender-sandbox.test.js                                     # needs bash and python3 (POSIX)
-npm run harness -- scenarios blender-off-and-fake-exe
+npm run --silent harness -- scenarios blender-off-and-fake-exe
 ```
 
 Using the fake `blender` by hand:

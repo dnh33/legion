@@ -5,9 +5,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const root = fileURLToPath(new URL('../../', import.meta.url));
 const cli = join(root, 'scripts', 'harness', 'legion-harness.mjs');
@@ -74,4 +75,42 @@ test('harness: nothing the harness adds names the real wallet port except the re
   const hits = files.filter((f) => port.test(readFileSync(join(root, f), 'utf8')));
   // the guard in the fake wallet is the one place that names it (that is how it can refuse it)
   assert.deepEqual(hits, ['scripts/harness/fake-wallet.mjs'], 'only the refusal guard may name the port');
+});
+
+// ---- harness self-tests (review findings 1, 3, 5) ----
+const lib = (name: string) => import(pathToFileURL(join(root, 'scripts', 'harness', name)).href);
+
+test('harness runner: a scenario with zero checks FAILS, and so does one whose cleanup left a process or folder', async () => {
+  const { judgeScenario } = await lib('scenarios.mjs');
+  assert.equal(judgeScenario({ name: 'x', checks: 3, ms: 1 }).status, 'PASS');
+  const zero = judgeScenario({ name: 'x', checks: 0, ms: 1 });
+  assert.equal(zero.status, 'FAIL'); assert.match(zero.error, /zero checks/);
+  assert.equal(judgeScenario({ name: 'x', checks: 3, ms: 1, cleanup: { pidsAlive: [123], dirLeft: false } }).status, 'FAIL');
+  assert.equal(judgeScenario({ name: 'x', checks: 3, ms: 1, cleanup: { pidsAlive: [], dirLeft: true } }).status, 'FAIL');
+  assert.equal(judgeScenario({ name: 'x', checks: 3, ms: 1, cleanup: { pidsAlive: [], dirLeft: false } }).status, 'PASS');
+  assert.equal(judgeScenario({ name: 'x', checks: 3, ms: 1, error: 'boom' }).status, 'FAIL');
+});
+
+test('harness core env: an allowlist; a planted token-like variable does not reach the core, the basics do', async () => {
+  const { coreEnv } = await lib('core-env.mjs');
+  const planted = { GITHUB_TOKEN: 'ghp_planted', MY_SECRET_KEY: 'x', AWS_SECRET_ACCESS_KEY: 'y', ANTHROPIC_API_KEY: 'z', PATH: '/bin', Path: 'C:\\x', SystemRoot: 'C:\\Windows', TEMP: '/t', HOME: '/h' };
+  const env = coreEnv(planted, { LEGION_HOME: '/lh' });
+  for (const k of ['GITHUB_TOKEN', 'MY_SECRET_KEY', 'AWS_SECRET_ACCESS_KEY', 'ANTHROPIC_API_KEY']) assert.equal(k in env, false, k);
+  assert.deepEqual([env.PATH, env.Path, env.SystemRoot, env.TEMP, env.HOME, env.LEGION_HOME], ['/bin', 'C:\\x', 'C:\\Windows', '/t', '/h', '/lh']);
+});
+
+test('harness sweep: removes only dead, marked legion-harness-* folders; never an alive one, an unmarked one or a foreign one', async () => {
+  const { sweepDeadHarnessDirs, MARKER_FILE } = await lib('lib.mjs');
+  const base = mkdtempSync(join(tmpdir(), 'sweep-test-'));
+  try {
+    const mk = (name: string, marker?: object) => { const d = join(base, name); mkdirSync(d); if (marker) writeFileSync(join(d, MARKER_FILE), JSON.stringify(marker)); return d; };
+    const deadPid = spawnSync(process.execPath, ['-e', '0']).pid as number; // exited, so not alive
+    const dead = mk('legion-harness-dead', { harness: true, supervisorPid: deadPid });
+    const live = mk('legion-harness-live', { harness: true, supervisorPid: process.pid });
+    const unmarked = mk('legion-harness-nomarker');
+    const wrongMarker = mk('legion-harness-wrong', { harness: false, supervisorPid: deadPid });
+    const foreign = mk('other-dir', { harness: true, supervisorPid: deadPid });
+    assert.deepEqual(sweepDeadHarnessDirs(base), [dead]);
+    assert.deepEqual([existsSync(dead), existsSync(live), existsSync(unmarked), existsSync(wrongMarker), existsSync(foreign)], [false, true, true, true, true]);
+  } finally { rmSync(base, { recursive: true, force: true }); }
 });

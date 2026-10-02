@@ -17,6 +17,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join, resolve, sep } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { startFakeWallet } from './fake-wallet.mjs';
+import { coreEnv } from './core-env.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const repo = join(here, '..', '..');
@@ -55,8 +56,7 @@ async function startCore() {
   nativeSecret = hex(32);
   for (let attempt = 0; attempt < 4; attempt++) {
     corePort = await freePort();
-    const env = { ...process.env, LEGION_HOME: home, LEGION_PORT: String(corePort), LEGION_ADMIN_STDIN: '1' };
-    for (const k of Object.keys(env)) if (/^(ANTHROPIC_|BOAT_API_KEY|CLAUDE)/.test(k)) delete env[k];
+    const env = coreEnv(process.env, { LEGION_HOME: home, LEGION_PORT: String(corePort), LEGION_ADMIN_STDIN: '1' });
     const child = spawn(process.execPath, [join(here, 'core-entry.mjs')], { env, stdio: ['pipe', 'ignore', 'pipe', 'ipc'], windowsHide: true });
     child.stderr.on('data', (d) => { try { writeFileSync(logFd, d, { flag: 'a' }); } catch { /* ignore */ } });
     child.stdin.on('error', () => undefined);

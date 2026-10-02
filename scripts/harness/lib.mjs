@@ -1,6 +1,6 @@
 /** Shared client code for the harness CLI, the scenarios and the smoke test: start/stop a stack and talk to its control server. No dependencies. */
 import { spawn } from 'node:child_process';
-import { existsSync, mkdtempSync, openSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, openSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { basename, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -8,6 +8,7 @@ import { fileURLToPath } from 'node:url';
 export const here = dirname(fileURLToPath(import.meta.url));
 export const repoRoot = join(here, '..', '..');
 export const DIR_PREFIX = 'legion-harness-';
+export const MARKER_FILE = 'harness-marker.json';
 export const pointerFile = () => join(tmpdir(), 'legion-harness-current.json');
 export const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 export const isAlive = (pid) => { if (!pid) return false; try { process.kill(pid, 0); return true; } catch (e) { return e?.code === 'EPERM'; } };
@@ -18,13 +19,35 @@ export function assertBuilt() {
   }
 }
 
+/**
+ * Removes temp folders a crashed supervisor left behind. Only a folder that (a) is named legion-harness-*, (b) carries our marker file with a
+ * recorded supervisor pid and (c) whose recorded pid is no longer alive. Never kills anything, never matches by process name.
+ * @returns {string[]} the folders removed
+ */
+export function sweepDeadHarnessDirs(root = tmpdir()) {
+  const removed = [];
+  let names = []; try { names = readdirSync(root); } catch { return removed; }
+  for (const n of names) {
+    if (!n.startsWith(DIR_PREFIX)) continue;
+    const dir = join(root, n);
+    try {
+      const m = JSON.parse(readFileSync(join(dir, MARKER_FILE), 'utf8'));
+      if (m?.harness !== true || !Number.isInteger(m.supervisorPid) || isAlive(m.supervisorPid)) continue;
+      rmSync(dir, { recursive: true, force: true }); removed.push(dir);
+    } catch { /* no marker, unreadable or not ours: leave it */ }
+  }
+  return removed;
+}
+
 /** Starts a detached stack and resolves with its handle (the content of handle.json, including the control token: keep it in memory). */
 export async function startHarness({ timeoutMs = 45000 } = {}) {
   assertBuilt();
+  sweepDeadHarnessDirs();
   const harnessDir = mkdtempSync(join(tmpdir(), DIR_PREFIX));
   const out = openSync(join(harnessDir, 'supervisor.log'), 'a');
   const child = spawn(process.execPath, [join(here, 'stack.mjs'), harnessDir], { detached: true, stdio: ['ignore', out, out], windowsHide: true, cwd: tmpdir() });
   child.unref();
+  writeFileSync(join(harnessDir, MARKER_FILE), JSON.stringify({ harness: true, supervisorPid: child.pid }));
   const handleFile = join(harnessDir, 'handle.json');
   const end = Date.now() + timeoutMs;
   while (!existsSync(handleFile)) {

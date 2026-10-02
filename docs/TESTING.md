@@ -89,13 +89,13 @@ Never run `node --test` on the `.ts` files, and never edit `dist/` by hand: it i
 
 ```bash
 npm run build:ts
-npm run harness -- scenarios --list          # what each scenario proves and does NOT prove
-npm run harness -- scenarios                 # all scenarios, a fresh stack each, JSON result, exit 1 on any FAIL
-npm run harness -- scenarios approval-card-flow rooms-bot-room-request
+npm run --silent harness -- scenarios --list          # what each scenario proves and does NOT prove
+npm run --silent harness -- scenarios                 # all scenarios, a fresh stack each, JSON result, exit 1 on any FAIL
+npm run --silent harness -- scenarios approval-card-flow rooms-bot-room-request
 npm run harness:smoke                        # the smoke test (also part of npm test)
 ```
 
-`npm run harness -- <args>` is `node scripts/harness/legion-harness.mjs <args>`. Details in section 4.
+`npm run --silent harness -- <args>` is `node scripts/harness/legion-harness.mjs <args>`. Details in section 4.
 
 ## 4. The harness (`scripts/harness/`)
 
@@ -118,14 +118,16 @@ Zero dependencies (Node ESM). Needs `dist/` (`npm run build:ts`) because it runs
 node scripts/harness/legion-harness.mjs start
 ```
 
-prints one JSON handle (base URL, handle file path, pids, temp folder, fake addresses) and returns; the stack keeps running detached. It is a **real core process** with a temp `LEGION_HOME`, a random loopback port, and the per-launch admin secret and native secret written to its stdin exactly as the Electron main process does (`LEGION_ADMIN_STDIN=1`, line 1 admin, line 2 native, pipe closed). The secrets live only in the memory of the supervisor and the core: never in a file, env var, argv or log, and never printed. The handle file (`<tmp>/legion-harness-XXXX/handle.json`) holds the control token of the harness itself, not a Legion secret. A pointer to the latest handle is kept at `<os tmpdir>/legion-harness-current.json` so later commands need no `--handle` (pass `--no-pointer` to `start` to skip it, `--handle <file>` or `LEGION_HARNESS_HANDLE` to pick one).
+prints one JSON handle (base URL, handle file path, pids, temp folder, fake addresses) and returns; the stack keeps running detached. It is a **real core process** with a temp `LEGION_HOME`, a random loopback port, and the per-launch admin secret and native secret written to its stdin exactly as the Electron main process does (`LEGION_ADMIN_STDIN=1`, line 1 admin, line 2 native, pipe closed). The secrets live only in the memory of the supervisor and the core: never in a file, env var, argv or log, and never printed. The handle file (`<tmp>/legion-harness-XXXX/handle.json`) holds the control token of the harness itself, not a Legion secret. A pointer to the latest handle is kept at `<os tmpdir>/legion-harness-current.json` so later commands need no `--handle` (**for parallel runs always pass `--no-pointer` to `start` and address each stack with `--handle <file>`**: the pointer is last-writer-wins, so a command without `--handle` hits the latest stack; to skip it, `--handle <file>` or `LEGION_HARNESS_HANDLE` to pick one).
 
 | Command | What it does |
 |---|---|
 | `status` | JSON: core pid/port/alive, whether it holds both secrets, request counts at the fakes. |
 | `call METHOD PATH [JSON] [--auth A]` | One request to the core. The supervisor adds the credentials for the auth class `A`: `admin` (default, bearer + admin: the app window), `token` (bearer only: an MCP client), `none`, `admin-only` (admin without bearer), `native` (bearer + admin + native: what Electron main sends after its dialog). Prints `{status, json}`. |
 | `stop` | Asks the supervisor to shut the core and the fakes down and delete the temp folder; if anything is still alive it kills the **recorded pids** (never by name), then removes the folder. Exit 1 if a pid or the folder is left. |
-| `scenarios [names] [--list] [--verbose] [--handle F]` | Runs scenarios. Without `--handle`, each gets its own fresh stack that is stopped afterwards. With `--handle` they share that stack. Prints JSON `{ok, passed, failed, results:[{name,status,ms,checks,error?}]}`; `--verbose` adds `proves`/`doesNotProve`; exit code 1 on any FAIL. |
+| `scenarios [names] [--list] [--verbose] [--handle F]` | Runs scenarios. Without `--handle`, each gets its own fresh stack that is stopped afterwards. With `--handle` they share that stack. Prints JSON `{ok, passed, failed, results:[{name,status,ms,checks,error?}]}` (a scenario with zero checks, or one whose cleanup left a process or folder, is a FAIL); `--verbose` adds `proves`/`doesNotProve`; exit code 1 on any FAIL. |
+
+**Crash cleanup.** If a supervisor is killed hard (`kill -9`, power loss) its `<tmp>/legion-harness-*` folder stays. The next `start` (and every scenario run, which starts stacks) sweeps such folders: it removes only a folder that is named `legion-harness-*`, carries the `harness-marker.json` file the harness writes with the supervisor pid, and whose recorded pid is no longer alive. It never kills anything and never matches by process name; a folder without the marker, or whose supervisor is alive, is left alone. **Environment.** The core gets an allowlist of the caller's variables (PATH/Path, HOME/USERPROFILE, TMP/TEMP/TMPDIR, the Windows standard variables, locale) plus the `LEGION_*` ones the harness sets; other secrets in your shell (cloud or CI tokens) do not reach it (`scripts/harness/core-env.mjs`). **Runner floor.** A scenario FAILs if it ran zero checks or if stopping its stack left a process or folder behind.
 
 `call` examples:
 
@@ -162,7 +164,7 @@ Safety properties of the harness itself (checked by `harness-smoke` and the `har
 
 ## 5. Scenarios
 
-Run `npm run harness -- scenarios --list` for the authoritative proves / does-not-prove text. Summary:
+Run `npm run --silent harness -- scenarios --list` for the authoritative proves / does-not-prove text. Summary:
 
 | Scenario | Proves (Legion's own code, in the fake setting) | Does NOT prove |
 |---|---|---|
@@ -263,7 +265,7 @@ Commit: the tip of `claude/test-harness` when this section was written (parent `
 
 The count includes the 3 tests in `harness-smoke`. The 2 skips are the real-PowerShell tests ("no PowerShell on this machine; the Windows CI job runs these"). Not run here: Windows, real Electron, real Claude, real boat.dev, a real wallet, real Blender.
 
-**All scenarios** (`npm run harness -- scenarios`, a fresh stack per scenario, exit code 0):
+**All scenarios** (`npm run --silent harness -- scenarios`, a fresh stack per scenario, exit code 0):
 
 ```
 core-task-run                PASS  10 checks    930 ms

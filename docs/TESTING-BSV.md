@@ -47,7 +47,7 @@ What the harness gives that the in-process tests do not: the same controls throu
 
 ```bash
 npm run build:ts
-npm run harness -- scenarios bsv-readonly bsv-policy-tamper mcp-token-limits
+npm run --silent harness -- scenarios bsv-readonly bsv-policy-tamper mcp-token-limits
 ```
 
 By hand, with a long-lived stack (`H="node scripts/harness/legion-harness.mjs"`):

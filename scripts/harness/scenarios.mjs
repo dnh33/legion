@@ -267,7 +267,7 @@ scenario({
     const adminOnly = await h.call('POST', '/api/bsv/wallet/connect', { url: wurl }, 'admin');
     t.ok('admin alone cannot connect', adminOnly.status === 403 && /native/.test(adminOnly.json.error), adminOnly.json);
     t.eq('still no contact', (await h.wallet()).seen.length, 0);
-    const bad = await h.call('POST', '/api/bsv/wallet/connect', { url: 'http://example.com:8080' }, 'native');
+    const bad = await h.call('POST', '/api/bsv/wallet/connect', { url: 'http://wallet.example.invalid:8080' }, 'native');
     t.eq('non-loopback refused', bad.status, 400);
     t.eq('refused address caused zero contact', (await h.wallet()).seen.length, 0);
     const ok = await h.call('POST', '/api/bsv/wallet/connect', { url: wurl }, 'native');
@@ -361,7 +361,7 @@ scenario({
     let threw = false;
     try { await startFakeWallet({ port: FORBIDDEN_PORT }); } catch { threw = true; }
     t.ok('binding the forbidden port is refused', threw);
-    for (const bad of ['http://192.168.1.5:8080', `http://127.0.0.1:${FORBIDDEN_PORT}`, `http://localhost:${FORBIDDEN_PORT}`, 'http://example.com:9']) {
+    for (const bad of ['http://192.168.1.5:8080', `http://127.0.0.1:${FORBIDDEN_PORT}`, `http://localhost:${FORBIDDEN_PORT}`, 'http://example.invalid:9']) {
       let refused = false; try { assertSafeWalletTarget(bad); } catch { refused = true; }
       t.ok(`target refused: ${bad.replace(/:\d+$/, ':<port>')}`, refused);
     }
@@ -372,6 +372,16 @@ scenario({
 });
 
 // ---------------------------------------------------------------------------------------------------------------------------------
+/**
+ * A scenario passes only if it did not throw, ran at least one check, and left no process or temp folder behind.
+ * Exported so the harness self-test can feed it a zero-check run and a dirty cleanup.
+ */
+export function judgeScenario({ name, error, checks, cleanup, ms, ...extra }) {
+  const leftover = !!cleanup && (cleanup.pidsAlive.length > 0 || cleanup.dirLeft);
+  const problem = error ?? (checks === 0 ? 'scenario ran zero checks (a scenario that asserts nothing proves nothing)' : leftover ? 'cleanup left a process or temp folder behind' : undefined);
+  return { name, status: problem ? 'FAIL' : 'PASS', ms, checks, ...(problem ? { error: problem } : {}), ...(leftover ? { cleanup } : {}), ...extra };
+}
+
 /** Runs scenarios. With `shared` (a handle) they run in that stack; otherwise each gets a fresh stack that is stopped afterwards. */
 export async function runScenarios(names, shared, { verbose = false } = {}) {
   const results = [];
@@ -386,11 +396,7 @@ export async function runScenarios(names, shared, { verbose = false } = {}) {
     } catch (e) { error = String(e?.message ?? e); }
     let cleanup;
     if (own && handle) cleanup = await stopHarness(handle);
-    results.push({
-      name, status: error ? 'FAIL' : 'PASS', ms: Date.now() - started, checks: t.checks.length, ...(error ? { error } : {}),
-      ...(cleanup && (cleanup.pidsAlive.length || cleanup.dirLeft) ? { cleanup } : {}),
-      ...(verbose ? { proves: sc.proves, doesNotProve: sc.doesNotProve } : {}),
-    });
+    results.push(judgeScenario({ name, error, checks: t.checks.length, cleanup, ms: Date.now() - started, ...(verbose ? { proves: sc.proves, doesNotProve: sc.doesNotProve } : {}) }));
   }
   const failed = results.filter((r) => r.status === 'FAIL').length;
   return { ok: failed === 0, passed: results.length - failed, failed, results };
