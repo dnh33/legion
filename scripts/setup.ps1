@@ -6,6 +6,8 @@
   builds, creates Desktop + Start-menu shortcuts and writes uninstall.cmd. Re-running updates in place.
 .PARAMETER InstallDir  Target folder (default: %LOCALAPPDATA%\Programs\Legion).
 .PARAMETER Yes         Don't ask questions (stops a running Legion, launches at the end).
+                 Setup is also non-blocking, with the same defaults, when input is redirected (a script, CI,
+                 a pipe); in that case it does not launch Legion at the end unless -Yes is given too.
 .PARAMETER NoLaunch    Don't offer to launch at the end.
 .PARAMETER DryRun      Print what would happen and change nothing.
 #>
@@ -17,12 +19,23 @@ param(
 )
 $ErrorActionPreference = 'Stop'
 
+. (Join-Path $PSScriptRoot 'lib\legion-procs.ps1')
+
+# No terminal to ask on (stdin redirected, or not a user-interactive session): never block on Read-Host.
+$script:NonInteractive = $false
+try { $script:NonInteractive = [Console]::IsInputRedirected } catch { $script:NonInteractive = $false }
+try { if (-not [Environment]::UserInteractive) { $script:NonInteractive = $true } } catch { $script:NonInteractive = $true }
+
 function Say($m, $c = 'Gray') { Write-Host $m -ForegroundColor $c }
 function Step($m) { Write-Host ''; Write-Host "== $m" -ForegroundColor Cyan }
 function Fail($m) { Write-Host ''; Write-Host "ERROR: $m" -ForegroundColor Red; exit 1 }
 function Ask($q, $default) {
   if ($Yes) { return $true }
-  $a = Read-Host "$q $(if ($default) { '[Y/n]' } else { '[y/N]' })"
+  if ($script:NonInteractive) { Say "  ($q -> $(if ($default) { 'yes' } else { 'no' }), no terminal to ask on)" 'DarkGray'; return $default }
+  # powershell -NonInteractive makes Read-Host throw; treat that like "no terminal" too.
+  $a = ''
+  try { $a = Read-Host "$q $(if ($default) { '[Y/n]' } else { '[y/N]' })" }
+  catch { Say "  ($q -> $(if ($default) { 'yes' } else { 'no' }), no terminal to ask on)" 'DarkGray'; return $default }
   if ([string]::IsNullOrWhiteSpace($a)) { return $default }
   return ($a -match '^[Yy]')
 }
@@ -31,19 +44,16 @@ function Invoke-Native($what, [scriptblock]$cmd) {
   & $cmd
   if ($LASTEXITCODE -ne 0) { Fail "$what failed (exit code $LASTEXITCODE)." }
 }
-function Test-Under($path, $dir) {
-  if ([string]::IsNullOrEmpty($path)) { return $false }
-  $d = $dir.TrimEnd('\') + '\'
-  return $path.StartsWith($d, [System.StringComparison]::OrdinalIgnoreCase)
-}
 
 try {
-  $src = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path.TrimEnd('\')
+  $src = Get-TrimmedFullPath (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
   if ([string]::IsNullOrWhiteSpace($InstallDir)) {
     if ([string]::IsNullOrWhiteSpace($env:LOCALAPPDATA)) { Fail 'LOCALAPPDATA is not set; pass -InstallDir.' }
     $InstallDir = Join-Path $env:LOCALAPPDATA 'Programs\Legion'
   }
-  $InstallDir = [System.IO.Path]::GetFullPath($InstallDir).TrimEnd('\')
+  # "C:" and "C:\" are checked as typed: GetFullPath turns a bare "C:" into the current folder of that drive.
+  if (Test-DriveRoot $InstallDir) { Fail "Refusing to install into '$InstallDir': that is a drive root." }
+  $InstallDir = Get-TrimmedFullPath $InstallDir
   $inPlace = $src.Equals($InstallDir, [System.StringComparison]::OrdinalIgnoreCase)
 
   Say "Legion setup" 'Green'
@@ -51,9 +61,15 @@ try {
   Say "  install: $InstallDir"
   if ($DryRun) { Say '  (dry run - nothing will be changed)' 'Yellow' }
 
-  if (-not $inPlace -and ((Test-Under $InstallDir $src) -or (Test-Under $src $InstallDir))) {
+  if (-not $inPlace -and ((Test-PathUnder $InstallDir $src) -or (Test-PathUnder $src $InstallDir))) {
     Fail 'The install folder and the source folder must not be inside each other.'
   }
+
+  # robocopy /MIR below deletes everything in the target that is not in the source, so only a new, empty or already-Legion folder is allowed.
+  $dataDir = if ($env:LEGION_HOME) { $env:LEGION_HOME } else { Join-Path $env:USERPROFILE '.legion' }
+  $verdict = Get-InstallDirVerdict -Dir $InstallDir -UserProfile $env:USERPROFILE -DataDir $dataDir -LegionHome $env:LEGION_HOME
+  Say "  install dir check: $(if ($verdict.Ok) { 'OK' } else { 'REFUSED' }) - $($verdict.Reason)" $(if ($verdict.Ok) { 'DarkGray' } else { 'Red' })
+  if (-not $verdict.Ok) { Fail "Refusing to install into '$($verdict.Path)': $($verdict.Reason)." }
 
   # 1) Node >= 20, npm
   Step 'Checking Node.js'
@@ -71,24 +87,27 @@ try {
   if (-not (Get-Command npm -ErrorAction SilentlyContinue)) { Fail 'npm was not found on PATH (it ships with Node.js; reinstall Node).' }
   Say "Node $ver OK" 'Green'
 
-  # 2) Stop a running Legion that lives in the install dir
+  # 2) Stop a running Legion, from any folder (it holds the port, the data folder and the files being replaced).
+  #    Matched by what it is (see scripts\lib\legion-procs.ps1) and stopped by PID. Other node/electron programs are never touched.
   Step 'Checking for a running Legion'
   $running = @()
   try {
-    $procs = Get-CimInstance Win32_Process -ErrorAction Stop
-    foreach ($p in $procs) {
-      if ($p.Name -ieq 'electron.exe' -and (Test-Under $p.ExecutablePath $InstallDir)) { $running += $p }
-      elseif ($p.Name -ieq 'node.exe' -and $p.CommandLine -and
-              $p.CommandLine.IndexOf('legion-core.js', [System.StringComparison]::OrdinalIgnoreCase) -ge 0 -and
-              $p.CommandLine.IndexOf($InstallDir, [System.StringComparison]::OrdinalIgnoreCase) -ge 0) { $running += $p }
+    $procs = @(Get-CimInstance Win32_Process -ErrorAction Stop)
+    # Never stop the processes that started this setup (e.g. an agent in Legion running setup from a tool call).
+    $ancestors = @(Get-AncestorPids -Processes $procs -StartPid $PID)
+    $running = @(Select-LegionProcesses -Processes $procs -SelfPid $PID -ExcludePids $ancestors)
+    $parents = @(Select-LegionProcesses -Processes $procs -SelfPid $PID | Where-Object { $ancestors -contains $_.ProcessId })
+    if ($parents.Count -gt 0) {
+      Say "  (leaving PID $(($parents | ForEach-Object { $_.ProcessId }) -join ', ') running: it started this setup. Close Legion yourself if the copy below reports a file in use.)" 'Yellow'
     }
   } catch { Say "  (could not list processes: $($_.Exception.Message))" 'Yellow' }
   if ($running.Count -gt 0) {
-    Say "Legion is running ($($running.Count) process(es)) from $InstallDir." 'Yellow'
-    if ($DryRun) { Say '  (dry run) would stop them' 'DarkGray' }
+    $roots = @($running | ForEach-Object { $_.Root } | Sort-Object -Unique)
+    Say "Legion is running ($($running.Count) process(es)) from: $($roots -join ', ')" 'Yellow'
+    if ($DryRun) { Say "  (dry run) would stop PID $(($running | ForEach-Object { $_.ProcessId }) -join ', ')" 'DarkGray' }
     elseif (Ask 'Stop it now so the update can proceed?' $true) {
-      foreach ($p in $running) { Stop-Process -Id $p.ProcessId -Force -ErrorAction SilentlyContinue }
-      Start-Sleep -Seconds 2
+      $left = @(Stop-LegionProcesses -Found $running)
+      if ($left.Count -gt 0) { Fail "Could not stop Legion (PID $($left -join ', ')). Close it from the tray icon and run setup again." }
       Say 'Stopped.' 'Green'
     } else { Fail 'Close Legion and run setup again.' }
   } else { Say 'Not running.' 'Green' }
@@ -166,14 +185,26 @@ try {
     }
     $unCmd = @(
       '@echo off',
-      'rem Removes Legion (shortcuts + install folder). Add /purge to also delete %USERPROFILE%\.legion data.',
+      'rem Removes Legion (shortcuts + install folder). Add /purge to also delete your Legion data (%USERPROFILE%\.legion).',
       'setlocal',
       'set "PURGE="',
       'if /i "%~1"=="/purge" set "PURGE=-Purge"',
-      'copy /y "%~dp0scripts\uninstall.ps1" "%TEMP%\legion-uninstall.ps1" >nul',
-      'if errorlevel 1 (echo Could not copy the uninstall script. & pause & exit /b 1)',
-      'powershell -NoProfile -ExecutionPolicy Bypass -File "%TEMP%\legion-uninstall.ps1" -InstallDir "%~dp0." %PURGE%',
-      'pause'
+      'set "TMPU=%TEMP%\legion-uninstall"',
+      'if exist "%TMPU%" rd /s /q "%TMPU%" >nul 2>&1',
+      'mkdir "%TMPU%"',
+      'copy /y "%~dp0scripts\uninstall.ps1" "%TMPU%\uninstall.ps1" >nul',
+      'if errorlevel 1 goto copyfail',
+      'copy /y "%~dp0scripts\lib\legion-procs.ps1" "%TMPU%\legion-procs.ps1" >nul',
+      'if errorlevel 1 goto copyfail',
+      'rem One line on purpose: uninstall deletes this very file, and cmd must not read another line from it afterwards.',
+      'powershell -NoProfile -ExecutionPolicy Bypass -File "%TMPU%\uninstall.ps1" -InstallDir "%~dp0." %PURGE% & cd /d "%TEMP%" & rd /s /q "%TMPU%" >nul 2>&1 & pause & exit /b 0',
+      ':copyfail',
+      'echo Could not copy the uninstall script from "%~dp0scripts". Nothing was removed.',
+      'echo Run setup.cmd again from your Legion source folder, then run uninstall.cmd again.',
+      'cd /d "%TEMP%"',
+      'rd /s /q "%TMPU%" >nul 2>&1',
+      'pause',
+      'exit /b 1'
     ) -join "`r`n"
     [System.IO.File]::WriteAllText((Join-Path $InstallDir 'uninstall.cmd'), $unCmd + "`r`n", (New-Object System.Text.ASCIIEncoding))
     Say "  $InstallDir\uninstall.cmd" 'Green'
@@ -192,7 +223,7 @@ try {
   Say '     (the token exists after the first launch)'
   Say '  Uninstall: run uninstall.cmd in the install folder (add /purge to delete your data too).'
 
-  if (-not $NoLaunch -and -not $DryRun) {
+  if (-not $NoLaunch -and -not $DryRun -and -not ($script:NonInteractive -and -not $Yes)) {
     Write-Host ''
     if (Ask 'Launch Legion now?' $true) {
       Start-Process -FilePath $electron -ArgumentList ('"' + $InstallDir + '"') -WorkingDirectory $InstallDir

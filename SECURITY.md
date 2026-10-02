@@ -32,4 +32,26 @@ Under the cap a run also cannot write working memory (`kg_wm_set` is refused), a
 - **Agents run code.** Approval modes (`ask`, `auto-edits`, `full`) control what an agent may do on your machine without asking. `full` disables prompts for that agent. Use VMs for untrusted work.
 - **Renderer.** The Electron window is sandboxed with context isolation and no Node integration.
 
+## Known limits at a glance
+
+A short index of the limits written out above and in `docs/`. Checked against those documents on 2026-10-02; the documents are the detail, this table is not a substitute for them.
+
+| Limit | Plain version | Detail |
+|---|---|---|
+| Same-user processes | A program running as your OS user can read Legion's memory, edit its files, click Allow, read `config.json` and `~/.claude`. Only a VM or a separate OS account stops that. | above, `docs/ARCHITECTURE.md` |
+| Keys in `config.json` | `boat.apiKey` (and the Claude API key in `api-key` mode) are plaintext; an agent's Read tool can read them without a card. | above |
+| MCP token is a password | Holder can run agents under the `ask` ceiling, read room text via tasks, and `exec` in a VM-enabled agent's VM through `legion_vm` without a Legion card. | above |
+| Headless core has no admin | Cowork-only use: approvals for agents that need them time out after 10 minutes unless the app is opened. | above |
+| Port squatting | Another local process can take the port first (denial of service, and it sees the MCP token). | above |
+| Bot-made rooms | Each needs your card; a card you allow without reading is allowed. Today a bot-made room has a default budget (`botRoomDefaultBudgetUsd`, 1) and a cap (5); the owner has decided to change the default to no spend limit (member cap stays 6). Update this row when that lands. | above, `docs/COMMS-BRIDGE.md` |
+| BSV wallet | Legion's own code has no spend tool in this version. A program on your computer can call your wallet on `127.0.0.1:3321` directly; the wallet's own prompt is the last gate. Not verified against a real wallet. | above, `docs/BSV-MODE.md`, `docs/BSV-WALLET-DESIGN.md` |
+| BSV audit log | Tamper-evident, not tamper-proof. | `docs/BSV-MODE.md` |
+| Blender add-on socket | No password on `127.0.0.1:9876`; any local program can send Python to it while the add-on's server runs. The static script check is a filter, not a sandbox. | above, `docs/BLENDER.md` |
+| Downloaded Blender parts | Official server (GPL-3.0-or-later) pinned by tag and sha256; community add-on is an unpinned branch, trusted on first use. DNS rebinding on the download host is not checked. | above, `docs/BLENDER.md` |
+| Library safety rules | Seed-phrase detection is English BIP-39 only; taint tracking follows file tools only; imports of a vault a bot wrote into become your notes. | above, `docs/LIBRARY.md` |
+| Inherited Claude Code setup | By default agents load your Claude Code settings, MCP servers and connectors (`claude.inheritClaudeCodeSettings`). The owner has decided to make MCP inheritance opt-in; not shipped yet. | `README.md`, `docs/ARCHITECTURE.md` |
+| Agents run code | `full` approval removes prompts for that agent. Use VMs for untrusted work. | above |
+| Installer | `setup.cmd` copies the source, runs `npm ci` (downloads packages and the Electron binary, so it trusts npm and its network path) and builds on your machine. It is unsigned. It stops Legion's own processes by PID (matched by install folder and package name, not by program name) and refuses to mirror into a folder that is not empty and not a Legion install. This is checked by tests and has not yet been run on a wide range of Windows machines. Only run it on a source folder you trust. | `README.md` |
+| Not hosted | Legion is a personal local tool. Do not expose it to a network or share it between users. | above |
+
 Reports about these boundaries (for example an authentication bypass, a way to reach the API from a web page, or a secret leaking into logs or API responses) are in scope.

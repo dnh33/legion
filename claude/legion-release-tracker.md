@@ -22,10 +22,10 @@ Cloud work runs on the claude.ai/code web surface (credits). Branches live in pr
 
 | ID | Item | State |
 |---|---|---|
-| W0 | Windows baseline: 1300 pass / 27 fail / 41 skip of 1368 | triage running locally (branch `fix/windows-baseline` in `D:/bots/legion-wt-win`, 4 commits so far) |
-| A | MCP isolation (`claude/mcp-isolation`) | built; review = SHIP AFTER FIXES (F1 connector setting, F2b self-guard, F3 error redaction, F5 copy); fix session running |
-| R1 K1 U1 | Rooms no default spend limit, lazy key probe, Builder reset (`claude/rooms-probe-upgrade`) | built (3 commits); independent review running |
-| B | Packaging + public audit (`claude/release-packaging`) | built; review = SHIP AFTER FIXES (F1 matcher can kill other Electron, F2 -Yes /MIR into any dir, audit text errors, F4 pause); fix session running. Needs real-Windows pass afterwards (review sec. 5) |
+| W0 | Windows baseline: 1300 pass / 27 fail / 41 skip of 1368 | DONE: 27 test-side fixes, 1368 tests / 1327 pass / 0 fail / 41 skip on Windows, no product bug; independent review running (branch `fix/windows-baseline`) |
+| A | MCP isolation (`claude/mcp-isolation`) | reviewed (SHIP AFTER FIXES), all 4 fix commits landed, 1387/1387; merged into integration/v1; real-PC check M1/M2 open |
+| R1 K1 U1 | Rooms no default spend limit, lazy key probe, Builder reset (`claude/rooms-probe-upgrade`) | built; review = SHIP AFTER FIXES (B1 budget >10000, B2 operator ceiling bypass, K1-F1 doc wording); fix session running (claude web) |
+| B | Packaging + public audit (`claude/release-packaging`) | reviewed (SHIP AFTER FIXES), all 8 fixes landed, 1392/1392 with PowerShell; merged into integration/v1; NOT run on Windows yet: see tracker-pc-checks.md P1-P10; version bump + CHANGELOG finalise still open |
 | C | boat.dev + Blender real-system verification (owner present) | todo |
 | D | Blender follow-ups | todo |
 | E | Real-PC sweep (section 6.2) | todo |

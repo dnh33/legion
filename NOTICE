@@ -12,17 +12,48 @@ live VM screen preview captured via a shell screenshot command. No source code w
 Runtime dependencies (installed from npm, not bundled in this repository)
 -------------------------------------------------------------------------
 - Claude Agent SDK (@anthropic-ai/claude-agent-sdk). Copyright Anthropic, PBC. Use of the SDK, and of Claude
-  Code through it, is subject to Anthropic's terms: https://www.anthropic.com/legal
+  Code through it, is subject to Anthropic's terms: https://code.claude.com/docs/en/legal-and-compliance
+  The SDK is not open source. Legion does not include it: npm downloads it onto your machine when you install.
+  Do not re-bundle it into a binary release of Legion without Anthropic's permission.
   Legion is an independent project. It is not affiliated with, sponsored by or endorsed by Anthropic.
 - Model Context Protocol TypeScript SDK (@modelcontextprotocol/sdk). Copyright the Model Context Protocol contributors.
   MIT License. https://github.com/modelcontextprotocol/typescript-sdk
-- zod, React, Vite, Electron and TypeScript are used under their own licences (MIT).
-  Their licence texts ship inside each package in node_modules.
+- zod, React, Vite and Electron are used under their own licences (MIT). TypeScript is Apache-2.0 and is a
+  development tool only. Other packages in the dependency tree are MIT, ISC, BSD-2/3-Clause, Apache-2.0 or
+  Unlicense, and none is copyleft. Their licence texts ship inside each package in node_modules.
+- Electron downloads its own binary (Chromium, V8 and others) into node_modules at install time. Its licence files
+  (LICENSE and LICENSES.chromium.html) ship with that download. Nothing from it is stored in this repository.
+- If you ever distribute a prebuilt Legion (installer or archive), include the licence notices of every bundled
+  package, including those compiled into the UI bundle (React and others, MIT).
 
 Third-party services
 --------------------
 boat.dev provides the optional per-agent cloud VMs. Legion calls its public REST API with your own API key.
 boat.dev is a separate service with its own terms. No boat.dev documentation or code is included here.
+
+Blender components (downloaded on request, never bundled)
+---------------------------------------------------------
+Legion's optional Blender bridge downloads its parts only when you press Set up in Settings. None is in this
+repository or its history.
+- Blender Lab MCP server (official). GPL-3.0-or-later. Downloaded from its official source (a pinned release
+  archive with a pinned sha256) into your Legion data folder. It stays a separate program that Legion talks to
+  over stdio and a local socket. Legion's own code is not a derivative of it and remains MIT.
+- Community Blender MCP add-on. MIT. Downloaded from its upstream address (trust on first use) and installed into
+  your own Blender.
+- Blender itself (GPL) is only downloaded inside your own cloud VM, if you choose the VM sandbox.
+Get a proper licence check before you redistribute a build that includes any of these downloads.
+See docs/BLENDER.md.
+
+BSV knowledge pack (src/core/kg/seeds/bsv.json)
+-----------------------------------------------
+The optional BSV pack is Legion-written text that summarises public documentation, in our own words. Each note
+lists its sources and what we recorded about their licence in its `sources` field. Material used includes
+b-open-io/1sat-university (CC BY 4.0, https://creativecommons.org/licenses/by/4.0/; attribution: the 1Sat
+University authors, https://github.com/b-open-io/1sat-university; summarised and adapted), documentation and
+code from the BSV Association and bsv-blockchain repositories (Open BSV License, a modified MIT whose grant is
+limited to the BSV blockchain and its testnets) and BRC standards (bsv.brc.dev). Some sources had no licence we
+could read; for those the pack states the fact in fresh words and copies no text. Legion includes no code from any
+of these projects. Trademarks belong to their owners.
 
 Fonts (bundled in ui/src/fonts/)
 --------------------------------
