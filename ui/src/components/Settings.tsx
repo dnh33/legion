@@ -10,6 +10,7 @@ import '../blender/blender.css';
 import { ProvidersSection } from '../providers/ProvidersSection';
 import { Icon } from './icons';
 import { UpdatePanel } from './UpdatePanel';
+import { BrowserSection } from '../browser/BrowserSection';
 
 const NAV: { id: SettingsSection; label: string; hint: string }[] = [
   { id: 'claude', label: 'Claude', hint: 'Sign-in, key, runs' },
@@ -570,6 +571,7 @@ function AboutSection({ s }: { s: SettingsView }) {
         ))}
       </dl>
       <UpdatePanel />
+      <BrowserSection />
     </div>
   );
 }
