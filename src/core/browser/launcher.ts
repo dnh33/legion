@@ -106,15 +106,16 @@ export async function launchBrowser(p: LaunchPorts, bin: BinaryRef, o: { allowLo
         async stop() { try { cdp!.close(); } catch { /* closing */ } await stopProc(); cleanup(); },
       };
     }
-    const res = ended ? await proc.exited : null;
+    const wasEnded = ended; // before the kill below makes it true
+    const res = wasEnded ? await proc.exited : null;
     await stopProc();
     const err = (proc.stderr() || proc.stdout()).replace(/\s+/g, ' ').trim().slice(0, 200);
     if (res?.error && /not found|ENOENT|EACCES|not installed/i.test(res.error)) { cleanup(); throw new LaunchError(`The browser program could not be started: ${res.error}`); }
-    if (ended && (res?.code ?? 1) !== 0 && p.now() < deadline && /unknown|invalid|unrecognized|usage|option|argument/i.test(err)) {
+    if (wasEnded && (res?.code ?? 1) !== 0 && p.now() < deadline && /unknown|invalid|unrecognized|usage|option|argument/i.test(err)) {
       cleanup();
       throw new LaunchError(`This Lightpanda build rejected a required safety option and was not started without it. ${err}`.trim());
     }
-    lastNote = ended ? `it stopped (exit ${res?.code ?? '?'}) ${err}` : 'it did not start listening in time';
+    lastNote = wasEnded ? `it stopped (exit ${res?.code ?? '?'}) ${err}` : 'it did not start listening in time';
   }
   cleanup();
   throw new LaunchError(`The browser did not start: ${lastNote}`.trim());
@@ -150,10 +151,11 @@ async function launchChromium(p: LaunchPorts, bin: BinaryRef, o: { startMs?: num
       async stop() { try { cdp!.close(); } catch { /* closing */ } await stopProc(); cleanup(); },
     };
   }
-  const res = ended ? await proc.exited : null;
+  const wasEnded = ended; // before the kill below makes it true
+  const res = wasEnded ? await proc.exited : null;
   await stopProc();
   cleanup();
   if (res?.error && /not found|ENOENT|EACCES|not installed/i.test(res.error)) throw new LaunchError(`The browser program could not be started: ${res.error}`);
   const err = (proc.stderr() || proc.stdout()).replace(/\s+/g, ' ').trim().slice(0, 200);
-  throw new LaunchError(`The browser did not start: ${ended ? `it stopped (exit ${res?.code ?? '?'}) ${err}` : 'it did not report its debugging port in time'}`.trim());
+  throw new LaunchError(`The browser did not start: ${wasEnded ? `it stopped (exit ${res?.code ?? '?'}) ${err}` : 'it did not report its debugging port in time'}`.trim());
 }
