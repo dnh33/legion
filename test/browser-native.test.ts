@@ -94,3 +94,22 @@ test('N6: the window never holds the native secret: main.ts registers the handle
   assert.match(pre, /browserChange\(change\) \{\s*return ipcRenderer\.invoke\('legion:browser-change', change\);/);
   assert.doesNotMatch(pre, /nativeSecret|X-Legion-Native/i);
 });
+
+test('N7: choosing the Edge/Chrome path goes through the same native dialog (and clearing it too); the path is parsed strictly', async () => {
+  assert.equal(parseBrowserChange({ kind: 'chromium', path: 'a\nb' }), undefined);
+  assert.equal(parseBrowserChange({ kind: 'chromium', path: '' }), undefined);
+  assert.equal(parseBrowserChange({ kind: 'chromium' }), undefined);
+  assert.deepEqual(parseBrowserChange({ kind: 'chromium', path: null }), { kind: 'chromium', path: null });
+  const edge = 'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe';
+  const { d, calls, dialogs } = deps();
+  assert.equal((await browserChange({ kind: 'chromium', path: edge }, d)).ok, true);
+  assert.match(dialogs[0]!.detail, /Program Files \(x86\)/); assert.match(dialogs[0]!.detail, /headless/); assert.match(dialogs[0]!.detail, /your user rights/);
+  const post = calls.find((c) => c.method === 'POST')!;
+  assert.equal(post.route, '/api/browser/config'); assert.equal(post.native, true); assert.deepEqual(post.body, { chromiumPath: edge });
+  const off = deps();
+  assert.equal((await browserChange({ kind: 'chromium', path: null }, off.d)).ok, true);
+  assert.deepEqual(off.calls.find((c) => c.method === 'POST')!.body, { chromiumPath: null });
+  const cancel = deps({ confirm: false });
+  assert.equal((await browserChange({ kind: 'chromium', path: edge }, cancel.d)).cancelled, true);
+  assert.equal(cancel.calls.some((c) => c.method === 'POST'), false);
+});

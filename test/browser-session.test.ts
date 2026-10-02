@@ -9,11 +9,12 @@ import type { FakeCdp, FakeCdpOptions } from './browser-fakes.js';
 const WALLET = Number('33' + '21'); // built from parts so that no test names the real wallet port (test/bsv-port-guard.test.ts)
 const DNS = fakeResolver({ 'a.test': ['93.184.216.34'], 'b.test': ['93.184.216.35'], 'evil.test': ['93.184.216.36'], 'inner.test': ['10.0.0.9'] });
 
-async function rig(o: FakeCdpOptions, extra: { guard?: () => object; approve?: (origin: string) => boolean; limits?: Record<string, number> } = {}) {
+async function rig(o: FakeCdpOptions, extra: { guard?: () => object; approve?: (origin: string) => boolean; limits?: Record<string, number>; engine?: 'chromium' | 'lightpanda' } = {}) {
   const fake = await startFakeCdp(o);
   let stopped = 0;
   const approved: string[] = [];
   const session = new BrowserSession({
+    ...(extra.engine ? { engine: extra.engine } : {}),
     guard: () => (extra.guard?.() ?? {}),
     resolve: DNS,
     limits: extra.limits,
@@ -237,5 +238,60 @@ test('a cached verdict does not outlive a settings change: local addresses turne
     assert.equal((await r.session.open('https://a.test/')).url, 'https://a.test/');
     local.on = false;
     await assert.rejects(r.session.open('https://a.test/'), SessionRefusal);
+  } finally { await r.done(); }
+});
+
+// ------------------------------------------------------------------ the Chromium-family engine (same driver, same guards, plus what that engine needs)
+
+test('E6: on the Chromium engine request interception is required: without it nothing is opened; with it downloads are denied at the browser', async () => {
+  let r = await rig({ noFetch: true, pages: { 'https://a.test/': { text: 'x' } } }, { engine: 'chromium' });
+  try {
+    await assert.rejects(r.session.open('https://a.test/'), /did not accept request interception/);
+    assert.equal(r.fake.sent.filter((m) => m.method === 'Page.navigate' && m.params.url !== 'about:blank').length, 0);
+  } finally { await r.done(); }
+  r = await rig({ pages: { 'https://a.test/': { title: 'T', text: 'x' } } }, { engine: 'chromium' });
+  try {
+    assert.equal((await r.session.open('https://a.test/')).title, 'T');
+    const dl = r.fake.sent.filter((m) => m.method === 'Browser.setDownloadBehavior');
+    assert.equal(dl.length, 1); assert.equal(dl[0]!.params.behavior, 'deny');
+    assert.ok(!('downloadPath' in dl[0]!.params));
+  } finally { await r.done(); }
+  r = await rig({ pages: { 'https://a.test/': { text: 'x' } }, errorFor: { 'Browser.setDownloadBehavior': 'not supported' } }, { engine: 'chromium' });
+  try { await assert.rejects(r.session.open('https://a.test/'), /deny downloads/); } finally { await r.done(); }
+  // Lightpanda does not get these requirements (it has its own options)
+  r = await rig({ noFetch: true, pages: { 'https://a.test/': { text: 'x' } } }, { engine: 'lightpanda' });
+  try { assert.equal((await r.session.open('https://a.test/')).url, 'https://a.test/'); assert.equal(r.fake.sent.filter((m) => m.method === 'Browser.setDownloadBehavior').length, 0); } finally { await r.done(); }
+});
+
+test('E6: navigations to file:, data:, javascript: and chrome: documents are refused on the Chromium engine, with no content', async () => {
+  for (const to of ['file:///etc/passwd', 'data:text/html,<p>LEAK</p>', 'javascript:alert(1)', 'chrome://settings', 'blob:https://a.test/x', 'ftp://a.test/x']) {
+    const r = await rig({ pages: { 'https://a.test/': { redirectTo: to }, [to]: { title: 'SECRET', text: 'LEAK' } } }, { engine: 'chromium' });
+    try { await assert.rejects(r.session.open('https://a.test/'), (e: Error) => e instanceof SessionRefusal && !/SECRET|LEAK/.test(e.message), to); } finally { await r.done(); }
+  }
+});
+
+test('E6: the same guards hold on the Chromium engine: private and metadata redirects, the protected port, the domain list, sub-resources, hop cap', async () => {
+  for (const to of ['http://10.0.0.5/admin', 'http://169.254.169.254/latest/meta-data/', `http://127.0.0.1:${WALLET}/`, `http://localhost:${WALLET}/`, 'https://inner.test/']) {
+    const r = await rig({ pages: { 'https://a.test/': { redirectTo: to }, [to]: { text: 'LEAK' } } }, { engine: 'chromium', guard: () => (to.includes(`:${WALLET}`) ? { allowLocal: true, localPorts: [WALLET, 80, 443] } : {}) });
+    try { await assert.rejects(r.session.open('https://a.test/'), SessionRefusal, to); assert.ok(r.fake.blocked.length >= 1, 'the request was failed at the browser (Fetch.failRequest)'); } finally { await r.done(); }
+  }
+  let r = await rig({ pages: { 'https://a.test/': { redirectTo: 'https://evil.test/' }, 'https://evil.test/': { text: 'E' } } }, { engine: 'chromium', guard: () => ({ allowDomains: ['a.test', 'b.test'] }) });
+  try { await assert.rejects(r.session.open('https://a.test/'), /allowed domain list/); } finally { await r.done(); }
+  r = await rig({ pages: { 'https://a.test/': { text: 'x', subrequests: ['http://192.168.1.1/pixel.gif'] } } }, { engine: 'chromium' });
+  try { await assert.rejects(r.session.open('https://a.test/'), SessionRefusal); assert.ok(r.fake.blocked.length >= 1); } finally { await r.done(); }
+  const pages: Record<string, { redirectTo?: string; text?: string }> = {};
+  for (let i = 0; i < 12; i++) pages[`https://a.test/${i}`] = { redirectTo: `https://a.test/${i + 1}` };
+  pages['https://a.test/12'] = { text: 'end' };
+  r = await rig({ pages }, { engine: 'chromium' });
+  try { await assert.rejects(r.session.open('https://a.test/0'), /too many redirects/); } finally { await r.done(); }
+});
+
+test('E6: on the Chromium engine a popup is closed at once and the label of the engine is available for results', async () => {
+  const r = await rig({ popup: true, pages: { 'https://a.test/': { text: 'x' } } }, { engine: 'chromium' });
+  try {
+    await r.session.open('https://a.test/');
+    await new Promise((res) => setTimeout(res, 50));
+    assert.ok(r.session.closedTabsBlocked >= 1);
+    assert.equal(r.session.engine, 'chromium');
   } finally { await r.done(); }
 });

@@ -14,6 +14,7 @@ export interface BrowserIpcDeps {
 }
 export type BrowserChange =
   | { kind: 'program'; binaryPath: string; launcherArgs: string[] }
+  | { kind: 'chromium'; path: string | null }
   | { kind: 'hash'; sha256: string }
   | { kind: 'local'; allow: boolean; ports: number[] };
 export interface BrowserChangeResult { ok: boolean; error?: string; cancelled?: boolean; view?: unknown }
@@ -29,6 +30,10 @@ export function parseBrowserChange(raw: unknown): BrowserChange | undefined {
     const args = raw.launcherArgs === undefined ? [] : raw.launcherArgs;
     if (!Array.isArray(args) || args.length > 16 || args.some((a) => !plain(a, 500))) return undefined;
     return { kind: 'program', binaryPath: raw.binaryPath, launcherArgs: args as string[] };
+  }
+  if (raw.kind === 'chromium') {
+    if (raw.path === null) return { kind: 'chromium', path: null };
+    return plain(raw.path, 500) ? { kind: 'chromium', path: raw.path } : undefined;
   }
   if (raw.kind === 'hash') return typeof raw.sha256 === 'string' && /^[0-9a-fA-F]{64}$/.test(raw.sha256) ? { kind: 'hash', sha256: raw.sha256.toLowerCase() } : undefined;
   if (raw.kind === 'local') {
@@ -53,6 +58,11 @@ export async function browserChange(raw: unknown, deps: BrowserIpcDeps): Promise
     message = 'Let Legion start this program when an agent opens a web page?';
     detail = `Program: ${dialogLine(ch.binaryPath, 200)}${ch.launcherArgs.length ? `\nArguments: ${dialogLine(ch.launcherArgs.join(' '), 300)}` : ''}\n\nLegion will run it on this computer with your user rights, once for each task that opens a page, whenever the browser tool is switched on. Only continue if you chose this program yourself.`;
     route = '/api/browser/config'; body = { binaryPath: ch.binaryPath, launcherArgs: ch.launcherArgs };
+  } else if (ch.kind === 'chromium') {
+    title = ch.path ? 'Run this browser for the browser tool?' : 'Go back to the automatic browser?'; confirmLabel = ch.path ? 'Allow this browser' : 'Use automatic';
+    message = ch.path ? 'Let Legion start this browser program when an agent opens a web page?' : 'Let Legion look for Microsoft Edge or Chrome itself again?';
+    detail = ch.path ? `Program: ${dialogLine(ch.path, 300)}\n\nLegion will start it hidden (headless) on this computer with your user rights, in a fresh empty profile, once for each task that opens a page. Only continue if you chose this program yourself.` : 'Legion looks in the usual install places for Microsoft Edge, Google Chrome or Brave.';
+    route = '/api/browser/config'; body = { chromiumPath: ch.path };
   } else if (ch.kind === 'hash') {
     title = 'Trust this download hash?'; confirmLabel = 'Trust this hash';
     message = 'Record the checksum Legion will accept for the Lightpanda download?';

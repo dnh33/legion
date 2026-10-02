@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const dir = join(fileURLToPath(new URL('../../', import.meta.url)), 'src', 'core', 'browser');
-const files = readdirSync(dir).filter((f) => f.endsWith('.ts')).map((f) => [f, readFileSync(join(dir, f), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '')] as const);
+const files = readdirSync(dir).filter((f) => f.endsWith('.ts')).map((f) => [f, readFileSync(join(dir, f), 'utf8').replace(/\r\n/g, '\n').replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '')] as const);
 const only = (re: RegExp): string[] => files.filter(([, s]) => re.test(s)).map(([f]) => f).sort();
 
 test('C18: WebSocket only in cdp.ts; fetch only in system.ts; DNS only in resolve.ts; no file here spawns a process or opens a socket or listens', () => {
@@ -26,4 +26,12 @@ test('C18: the only process this tool starts goes through the shared process por
   assert.match(sys, /spawnManaged/);
   const cdp = files.find(([f]) => f === 'cdp.ts')![1];
   assert.ok(cdp.indexOf('isLoopbackWsUrl(url)') > 0 && cdp.indexOf('isLoopbackWsUrl(url)') < cdp.indexOf('new WebSocket'));
+});
+
+test('C18: only chromium.ts names a browser debugging switch, only once and only as port 0; no file here binds a host or passes a fixed debugging port', () => {
+  assert.deepEqual(only(/remote-debugging/), ['chromium.ts']);
+  const chromium = files.find(([f]) => f === 'chromium.ts')![1];
+  assert.equal((chromium.match(/remote-debugging/g) ?? []).length, 1);
+  assert.match(chromium, /'--remote-debugging-port=0'/);
+  assert.deepEqual(only(/--host\b|--bind\b|--remote-debugging-address/), []);
 });

@@ -16,6 +16,7 @@ export function BrowserSection() {
   const [path, setPath] = useState('');
   const [args, setArgs] = useState('');
   const [ports, setPorts] = useState('');
+  const [chrPath, setChrPath] = useState('');
   const load = useCallback(async () => {
     try { const s = await request<BrowserStatusView>('GET', '/api/browser'); setSt(s); setDomains((d) => d || s.allowDomains.join(', ')); } catch (e) { setErr(errText(e)); }
   }, []);
@@ -34,6 +35,17 @@ export function BrowserSection() {
     <div className="brw" aria-label="Browser">
       <h4>Browser (Lightpanda)</h4>
       <p className="brw-muted">Lets agents read web pages as text without a VM, using Lightpanda, a small separate program (AGPL-3.0; Legion does not include it). It runs on this computer for one task at a time. It does not draw pages or take screenshots. Every page is treated as untrusted text; the first page and each new site ask you first.</p>
+      <div className="brw-row" role="radiogroup" aria-label="Browser engine">
+        <span className="brw-muted">Engine{st.engineChosen ? '' : ' (automatic)'}:</span>
+        <label><input type="radio" name="brw-engine" checked={st.engine === 'chromium'} disabled={busy} onChange={() => void save({ engine: 'chromium' })} /> Edge / Chrome (hidden window, no download)</label>
+        <label><input type="radio" name="brw-engine" checked={st.engine === 'lightpanda'} disabled={busy} onChange={() => void save({ engine: 'lightpanda' })} /> Lightpanda (lighter, text only, no Windows build)</label>
+        {st.engineChosen && <button type="button" className="btn-ghost sm" disabled={busy} onClick={() => void save({ engine: null })}>Automatic</button>}
+      </div>
+      <p className="brw-muted">{st.chromium ? `Found: ${st.chromium.name}${st.chromium.version ? ` ${st.chromium.version}` : ''} at ${st.chromium.path}${st.chromium.tooOld ? ' (too old for headless mode)' : ''}.` : `No Edge, Chrome or Brave found. Looked in: ${st.chromiumTried.slice(0, 3).join('; ')}.`} An engine never changes while a task's browser is open, and each page result names the engine that ran.</p>
+      <div className="brw-row">
+        <input value={chrPath} onChange={(e) => setChrPath(e.target.value)} placeholder="Path to msedge.exe, chrome.exe or brave.exe (optional)" aria-label="Browser path" spellCheck={false} />
+        <button type="button" className="btn-ghost sm" disabled={busy || !chrPath.trim()} title="Asks you to confirm in a dialog" onClick={() => void native({ kind: 'chromium', path: chrPath.trim() }).then(() => setChrPath(''))}>Use this browser</button>
+      </div>
       <label className="brw-row"><input type="checkbox" checked={st.enabled} disabled={busy} onChange={(e) => void save({ enabled: e.target.checked })} /> Let agents browse the web {st.enabled ? '(on)' : '(off)'}</label>
       <p className="brw-muted">{st.note}</p>
       <p className="brw-muted">Program: {st.binary === 'none' ? 'not set up' : `${st.binary === 'managed' ? 'fetched by Legion' : 'your own'} ${st.binaryPath ?? ''}`}. Browsers running now: {st.running}. Local addresses: {st.allowLocal ? 'allowed on listed ports until restart' : 'refused'}.</p>
