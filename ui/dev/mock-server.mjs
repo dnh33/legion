@@ -92,7 +92,7 @@ function makeDb(flags) {
     ],
     t5: [
       { id: 'c1', taskId: 't5', role: 'user', text: 'Show me the deploy client code', at: ago(200) },
-      { id: 'c2', taskId: 't5', role: 'assistant', at: ago(199), text: 'Here it is. An unbroken identifier also appears: `' + 'superlongidentifier_'.repeat(8) + '`.\n\n```ts\n' + LONG_LINE + '\nconsole.log(result.status);\n```\n\nAnd a table-ish list:\n1. Build\n2. Push\n3. Deploy\n\n# A top heading\n## Second level\nDone.' },
+      { id: 'c2', taskId: 't5', role: 'assistant', at: ago(199), text: 'Here it is. An unbroken identifier also appears: `' + 'superlongidentifier_'.repeat(8) + '`.\n\n```ts\n' + LONG_LINE + '\nconsole.log(result.status);\n```\n\nA real table:\n\n| Step | Command | Time | Notes |\n|:--|:--|--:|:-:|\n| Build | `npm run build` | 12.4 s | **ok** |\n| Test | `npm test \\| tail -40` | 98 s | see [log](https://example.com/log) |\n| Deploy | `./deploy.sh --env production --wait` | 3 s | a long note that wraps because the column is capped at a sensible width and must not push the page sideways |\n| Short |\n\nAnd a table-ish list:\n1. Build\n2. Push\n3. Deploy\n\n# A top heading\n## Second level\nDone.' },
     ],
     t6: [],
     t7: [

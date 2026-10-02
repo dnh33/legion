@@ -5,6 +5,7 @@
  *  - a link [text](url) becomes "text (url)" so the address is not lost; a bare URL stays itself
  *  - lists keep their structure: "- item" and "1. item" (numbered from 1, as drawn)
  *  - code blocks become their plain lines (no fences, no language tag), indentation kept
+ *  - a table becomes one line per row (header first) with the cells separated by tabs, so it pastes into a spreadsheet
  *  - a line break inside a paragraph stays a line break; blocks are separated by one blank line
  */
 import { parseMarkdown, tokenizeInline } from './mdparse.js';
@@ -23,6 +24,7 @@ export function markdownToPlainText(md: string): string {
   for (const b of parseMarkdown(md)) {
     switch (b.t) {
       case 'code': parts.push(b.code); break;
+      case 'table': parts.push([b.head, ...b.rows].map((r) => r.map(plainInline).join('\t')).join('\n')); break;
       case 'h': parts.push(plainInline(b.text)); break;
       case 'ul': parts.push(b.items.map((it) => `- ${plainInline(it)}`).join('\n')); break;
       case 'ol': parts.push(b.items.map((it, i) => `${i + 1}. ${plainInline(it)}`).join('\n')); break;

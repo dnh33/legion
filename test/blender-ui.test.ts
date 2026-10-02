@@ -34,6 +34,23 @@ test('the card splits lines like Python and the checker: \\r\\n, a lone \\r and 
   assert.equal(h.splitScriptLines(script)[finding.line - 1], 'import os');
 });
 
+test('a trailing line break does not add an empty numbered row, and finding numbers still match', () => {
+  const h = helpers();
+  assert.deepEqual(h.splitScriptLines('a\nb\nc\n'), ['a', 'b', 'c']);
+  assert.deepEqual(h.splitScriptLines('a\r\nb\r\nc\r\n'), ['a', 'b', 'c']);
+  assert.deepEqual(h.splitScriptLines('a\rb\r'), ['a', 'b']);
+  assert.deepEqual(h.splitScriptLines('a\n\n'), ['a', '']); // a real blank last line is still shown
+  assert.deepEqual(h.splitScriptLines('a'), ['a']);
+  assert.deepEqual(h.splitScriptLines(''), ['']);
+  assert.deepEqual(h.splitScriptLines('\n'), ['']);
+  const script = 'import bpy\r\nimport os\r\nx = 1\r\n';
+  const finding = checkScript(script, { allowedDirs: [] }).findings.find((f) => f.rule === 'import')!;
+  assert.ok(finding);
+  const lines = h.splitScriptLines(script);
+  assert.equal(lines.length, 3);
+  assert.equal(lines[finding.line - 1], 'import os');
+});
+
 test('hidden and bidirectional characters are shown as visible markers, bidi ones flagged', () => {
   const h = helpers();
   const parts = h.lineParts('a‮b​c');

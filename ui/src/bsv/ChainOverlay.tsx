@@ -34,7 +34,10 @@ type Ticker = { left: number; width: number; lines: string[] } | null;
 /**
  * Where the ticker sits: centred in the free gap between the search box and the right-hand controls.
  * Measured, never laid out: the overlay is position:fixed and does not touch the header's own layout.
- * `tiers` are the candidate texts, longest first; the first that fits is shown.
+ * `tiers` are the candidate texts, longest first; the first that fits is shown, none fits = no ticker.
+ * The gap changes whenever the search box or the right-hand cluster changes width, and that happens without the title bar itself
+ * resizing (the Doctor chip grows to "1 to fix" once its checks come back, a badge appears, a label changes), so all three are observed,
+ * not just the bar. A stale measurement used to leave the ticker drawn over the view tabs.
  */
 function useTickerSlot(active: boolean, tiers: string[][]): Ticker {
   const [slot, setSlot] = useState<Ticker>(null);
@@ -45,23 +48,27 @@ function useTickerSlot(active: boolean, tiers: string[][]): Ticker {
       const search = document.querySelector('.tb-search')?.getBoundingClientRect();
       const right = document.querySelector('.tb-right')?.getBoundingClientRect();
       if (!search || !right) { setSlot(null); return; }
-      const left = search.right + 14;
-      const width = right.left - 14 - left;
-      const CH = 6.2; // ~ advance of the 9.5px monospace face plus letter spacing
-      const fits = (lines: string[]) => width >= Math.max(...lines.map((t) => t.length)) * CH;
+      const left = Math.round(search.right + TICKER_GAP);
+      const width = Math.floor(right.left - TICKER_GAP - left);
+      const fits = (lines: string[]) => width >= Math.max(...lines.map((t) => t.length)) * TICKER_CH;
       const lines = tiers.find(fits);
-      setSlot(lines ? { left, width, lines } : null);
+      const next: Ticker = lines ? { left, width, lines } : null;
+      // same slot = same state object, so a resize that changes nothing here causes no render
+      setSlot((cur) => (cur === next || (cur && next && cur.left === next.left && cur.width === next.width && cur.lines === next.lines) ? cur : next));
     };
     measure();
     const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(measure) : null;
-    const bar = document.querySelector('.titlebar');
-    if (ro && bar) ro.observe(bar);
+    if (ro) for (const sel of ['.titlebar', '.tb-search', '.tb-right']) { const el = document.querySelector(sel); if (el) ro.observe(el); }
     window.addEventListener('resize', measure);
+    void document.fonts?.ready.then(measure); // the text and the controls change width once the web fonts arrive
     return () => { ro?.disconnect(); window.removeEventListener('resize', measure); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [active, key]);
   return slot;
 }
+/** Breathing room kept on both sides of the ticker, and the width of one character of the 9.5px monospace face (plus letter spacing), rounded up. */
+const TICKER_GAP = 16;
+const TICKER_CH = 6.4;
 
 /**
  * The armed countdown: the ONLY timer in the BSV UI besides the 60 s status poll. It ticks once a second, only while mainnet is armed

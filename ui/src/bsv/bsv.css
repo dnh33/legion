@@ -42,7 +42,8 @@
 /* ---- chain overlay: fixed, confined to the 40px title bar, never intercepts the pointer. STATIC. ---- */
 .chain-overlay { position: fixed; left: 0; right: 0; top: 0; height: 40px; z-index: 10; pointer-events: none; overflow: hidden; }
 .chain-line { position: absolute; left: 0; right: 0; bottom: 0; height: 2px; background: color-mix(in srgb, var(--chain) 70%, transparent); }
-.chain-ticker { position: absolute; top: 0; height: 39px; display: flex; flex-direction: column; justify-content: center; align-items: center; gap: 2px; overflow: hidden; white-space: nowrap; font: 500 9.5px/1 var(--font-mono); letter-spacing: .04em; color: var(--chain); opacity: .95; }
+.chain-ticker { position: absolute; top: 0; height: 39px; display: flex; flex-direction: column; justify-content: center; align-items: stretch; gap: 2px; overflow: hidden; white-space: nowrap; font: 500 9.5px/1 var(--font-mono); letter-spacing: .04em; color: var(--chain); opacity: .95; }
+.chain-ticker span { min-width: 0; overflow: hidden; text-overflow: ellipsis; text-align: center; } /* backstop: if a measurement is ever a frame late the text is clipped inside its slot, it never spills over the controls */
 .chain-ticker span:first-child { font-weight: 700; }
 .chain-ticker span + span { opacity: .8; }
 .chain-overlay[data-chain='armed'] .chain-line, .chain-overlay[data-warn='1'] .chain-line { background: var(--live); }

@@ -21,7 +21,13 @@ export function blenderView(a: ApprovalRequest): View {
  * The same line breaks Python uses (and the static check counts with): \r\n, a lone \r and \n. Splitting here, and not on \n alone, keeps the
  * numbers in the gutter equal to the line numbers in the check's findings; a lone \r would otherwise hide a line.
  */
-export const splitScriptLines = (script: string): string[] => script.split(/\r\n|\r|\n/);
+export const splitScriptLines = (script: string): string[] => {
+  const lines = script.split(/\r\n|\r|\n/);
+  // A final line break ends the last line, it does not start a new one: "a\nb\n" is two lines, not three (no empty numbered row at the end).
+  // Numbers of the lines that remain are untouched, so they still equal the line numbers in the check's findings.
+  if (lines.length > 1 && lines[lines.length - 1] === '') lines.pop();
+  return lines;
+};
 
 /** Characters that make text on a screen differ from the text Python reads, or that cannot be seen at all. Shown as visible markers. */
 const HIDDEN = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f\u0085\u00ad\u061c\u180e\u200b-\u200f\u2028\u2029\u202a-\u202e\u2060-\u206f\ufeff]/g;

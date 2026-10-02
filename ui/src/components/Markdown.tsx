@@ -1,10 +1,10 @@
-import { Fragment, useState, type ReactNode } from 'react';
+import { Fragment, useState, type CSSProperties, type ReactNode } from 'react';
 import { openExternal } from '../api';
-import { parseMarkdown, tokenizeInline } from '../chat/mdparse';
+import { parseMarkdown, tokenizeInline, type Block } from '../chat/mdparse';
 import { copyText } from '../util';
 import { Icon } from './icons';
 
-/* Markdown-lite: paragraphs, headings, lists, fenced code, **bold**, *em*, `code`, [text](url).
+/* Markdown-lite: paragraphs, headings, lists, fenced code, tables, **bold**, *em*, `code`, [text](url).
    Everything is emitted as React elements (auto-escaped); no raw HTML. */
 
 function inline(text: string, key: string): ReactNode[] {
@@ -44,6 +44,18 @@ function CodeBlock({ lang, code }: { lang: string; code: string }) {
   );
 }
 
+function Table({ b, bi }: { b: Extract<Block, { t: 'table' }>; bi: number }) {
+  const al = (c: number): CSSProperties | undefined => (b.align[c] ? { textAlign: b.align[c]! } : undefined);
+  return (
+    <div className="md-table-wrap" role="region" aria-label={`Table, ${b.head.length} columns, ${b.rows.length} rows`} tabIndex={0}>
+      <table className="md-table">
+        <thead><tr>{b.head.map((h, c) => <th key={c} scope="col" style={al(c)}>{inline(h, `th${bi}-${c}`)}</th>)}</tr></thead>
+        <tbody>{b.rows.map((r, ri) => <tr key={ri}>{r.map((cell, c) => <td key={c} style={al(c)}>{inline(cell, `td${bi}-${ri}-${c}`)}</td>)}</tr>)}</tbody>
+      </table>
+    </div>
+  );
+}
+
 export function Markdown({ text, caret }: { text: string; caret?: boolean }) {
   const blocks = parseMarkdown(text);
   return (
@@ -53,6 +65,7 @@ export function Markdown({ text, caret }: { text: string; caret?: boolean }) {
         const tail = caret && last ? <span className="caret" aria-hidden="true" /> : null;
         switch (b.t) {
           case 'code': return <Fragment key={bi}><CodeBlock lang={b.lang} code={b.code} />{tail}</Fragment>;
+          case 'table': return <Fragment key={bi}><Table b={b} bi={bi} />{tail}</Fragment>;
           case 'h': return <p key={bi} className={`md-h md-h${b.level}`}>{inline(b.text, `h${bi}`)}{tail}</p>;
           case 'ul':
           case 'ol': {

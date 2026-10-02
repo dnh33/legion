@@ -169,6 +169,15 @@ kbd { font-size: 10.5px; line-height: 1; padding: 3px 5px; border: 1px solid var
 .md-code { font-size: 12px; padding: 1px 5px; border-radius: 5px; background: var(--code-bg); border: 1px solid var(--line); color: var(--text-2); }
 .md-link { color: var(--text); text-decoration: none; border-bottom: 1px solid var(--faint); transition: border-color var(--t) var(--ease); }
 .md-link:hover { border-bottom-color: var(--text); }
+.md-table-wrap { max-width: 100%; overflow-x: auto; margin: 0 0 10px; border: 1px solid var(--line); border-radius: var(--r); background: var(--code-bg); }
+.md-table-wrap:focus-visible { outline: 2px solid var(--line-strong); outline-offset: 2px; }
+.md-table { border-collapse: collapse; width: max-content; min-width: 100%; font-size: 12.5px; line-height: 1.45; font-variant-numeric: tabular-nums; }
+.md-table th, .md-table td { padding: 5px 12px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; overflow-wrap: normal; word-break: normal; max-width: 46ch; }
+.md-table th + th, .md-table td + td { border-left: 1px solid var(--line); }
+.md-table thead th { background: var(--surface-2); color: var(--text); font-weight: 650; white-space: nowrap; }
+.md-table td { color: var(--text-2); }
+.md-table tbody tr:last-child td { border-bottom: 0; }
+.md-table tbody tr:hover td { background: var(--surface); }
 .codeblock { border: 1px solid var(--line); background: var(--code-bg); border-radius: var(--r); overflow: hidden; margin: 0 0 10px; }
 .codeblock-bar { display: flex; align-items: center; justify-content: space-between; padding: 2px 6px 2px 12px; border-bottom: 1px solid var(--line); color: var(--muted); font: 11px var(--font-mono); }
 .codeblock pre { margin: 0; padding: 10px 12px; overflow-x: auto; font-size: 12px; line-height: 1.55; }
@@ -353,7 +362,7 @@ kbd { font-size: 10.5px; line-height: 1; padding: 3px 5px; border: 1px solid var
 .toast .n { flex: none; margin-left: 2px; color: var(--muted); font-variant-numeric: tabular-nums; }
 @keyframes rise2 { from { opacity: 0; transform: translateY(8px); } }
 
-@media (max-width: 1100px) { .tb-search { flex: none; width: 30px; padding: 0; justify-content: center; } .tb-search span, .tb-search kbd { display: none; } .tb-brand { flex: 1; } .tb-ver { display: none; } .app { --rail-w: 208px; --ops-w: 288px; } .tb-brand { width: auto; } .hint-long { display: none; } }
+@media (max-width: 1100px) { .tb-search { flex: none; width: 30px; padding: 0; justify-content: center; } .tb-search span, .tb-search kbd { display: none; } .tb-brand { flex: none; width: 128px; } .tb-ver { display: none; } .app { --rail-w: 208px; --ops-w: 288px; } .hint-long { display: none; } }
 @media (max-height: 700px) { .screen { aspect-ratio: 16 / 7; } .computer-meta { display: none; } .recent-card { min-height: 84px; } .mascot-stage { padding: 8px 0 8px; } .ops-inner { gap: 8px; padding: 10px 12px; } }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; } }
 
