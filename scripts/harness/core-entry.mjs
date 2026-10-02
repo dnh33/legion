@@ -35,8 +35,8 @@ const boatConfigured = () => !!config.boat.apiKey;
 const vms = new VmManager({ store, bus, getBoat, boatConfig: () => config.boat });
 const approvals = new ApprovalBroker(bus);
 const model = createFakeModel();
-const providerRuntime = new ProviderRuntime({ config, keys: new ProviderKeys(keyFileFor(dataDir())) });
-const engine = new Engine({ store, bus, vms, approvals, config, boatConfigured, providers: providerRuntime, queryFn: model.queryFn });
+const providerRuntime = config.experimental.providers ? new ProviderRuntime({ config, keys: new ProviderKeys(keyFileFor(dataDir())) }) : undefined;
+const engine = new Engine({ store, bus, vms, approvals, config, boatConfigured, ...(providerRuntime ? { providers: providerRuntime } : {}), queryFn: model.queryFn });
 const fakeCatalog = async () => ({ commands: [{ name: 'cost', description: 'Show cost', argumentHint: '' }], models: [{ value: 'sonnet', displayName: 'Sonnet (harness)', description: 'fake' }, { value: 'opus', displayName: 'Opus (harness)', description: 'fake' }], fetchedAt: new Date().toISOString() });
 engine.bridge.catalog = fakeCatalog;
 let stopReaper = () => {};
@@ -54,7 +54,8 @@ const bsv = createBsvModule(moduleDeps, { state: bsvState, kg, log, nativeSecret
 const blender = createBlenderModule(moduleDeps, { vms, boatConfigured, log });
 // the updater has no signing key in this tree, so it stays off and makes no request
 const updater = createUpdaterModule(moduleDeps, { root: join(dirname(fileURLToPath(import.meta.url)), '..', '..'), nativeSecret, log, probes: {} });
-const modules = [kg, createCommsModule(moduleDeps), bsv, blender, createProvidersModule({ runtime: providerRuntime, configPath: configPath(), nativeSecret }), updater];
+const providersModules = providerRuntime ? [createProvidersModule({ runtime: providerRuntime, configPath: configPath(), nativeSecret })] : [];
+const modules = [kg, createCommsModule(moduleDeps), bsv, blender, ...providersModules, updater];
 engine.setModules(modules);
 const server = createServer({
   config, store, bus, engine, vms, approvals, boatConfigured, modules, bsvEnabled,

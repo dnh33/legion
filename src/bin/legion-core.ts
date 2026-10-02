@@ -52,8 +52,9 @@ async function main() {
   const vms = new VmManager({ store, bus, getBoat, boatConfig: () => config.boat });
   const approvals = new ApprovalBroker(bus);
   // other model providers (OpenAI-compatible endpoints); keys live in <dataDir>/providers/keys.json, never in config.json
-  const providerRuntime = new ProviderRuntime({ config, keys: new ProviderKeys(keyFileFor(dataDir())) });
-  const engine = new Engine({ store, bus, vms, approvals, config, boatConfigured, providers: providerRuntime });
+  // built but not released (v0.2.1): off unless config.json says experimental.providers = true, then no provider code runs at all
+  const providerRuntime = config.experimental.providers ? new ProviderRuntime({ config, keys: new ProviderKeys(keyFileFor(dataDir())) }) : undefined;
+  const engine = new Engine({ store, bus, vms, approvals, config, boatConfigured, ...(providerRuntime ? { providers: providerRuntime } : {}) });
   // lets ask/tell check a per-task model against what the account offers
   engine.bridge.catalog = () => getCatalog({ config });
   let stopReaper: () => void = () => {};
@@ -78,7 +79,8 @@ async function main() {
     root: resolve(dirname(fileURLToPath(import.meta.url)), '..', '..', '..'), nativeSecret, log,
     probes: { 'a Blender download or setup is running': async () => !!((await blender.status(false)) as { getting?: boolean }).getting },
   });
-  const modules = [kg, createCommsModule(moduleDeps), bsv, blender, createProvidersModule({ runtime: providerRuntime, configPath: configPath(), nativeSecret }), updater];
+  const providersModules = providerRuntime ? [createProvidersModule({ runtime: providerRuntime, configPath: configPath(), nativeSecret })] : [];
+  const modules = [kg, createCommsModule(moduleDeps), bsv, blender, ...providersModules, updater];
   engine.setModules(modules);
   const server = createServer({
     config, store, bus, engine, vms, approvals, boatConfigured, modules, bsvEnabled,

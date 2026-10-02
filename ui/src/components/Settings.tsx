@@ -8,6 +8,7 @@ import { FULL_BLENDER_TEXT, GET_BLENDER_NOT_PINNED, GET_BLENDER_TEXT, LOCAL_SAFE
 import { lightLabel, loadBlender, runBlenderGet, runBlenderLaunch, runBlenderSetup, runBlenderTest, saveBlenderConfig, useBlender } from '../blender/blenderStore';
 import '../blender/blender.css';
 import { ProvidersSection } from '../providers/ProvidersSection';
+import { loadProviders, useProviders } from '../providers/providersStore';
 import { Icon } from './icons';
 import { UpdatePanel } from './UpdatePanel';
 
@@ -25,12 +26,16 @@ export function SettingsPanel() {
   const section = useStore((s) => s.settingsSection);
   const settings = useStore((s) => s.settings);
   useEffect(() => { if (!settings) void loadSettings(); }, []);
+  // Providers are not part of this release: the tab shows only when the core serves the provider routes (config.json experimental.providers)
+  const provView = useProviders((x) => x.view);
+  useEffect(() => { void loadProviders(); }, []);
+  const nav = provView ? NAV : NAV.filter((n) => n.id !== 'providers');
   return (
     <section className="settings" aria-label="Settings">
       <nav className="set-nav" aria-label="Settings sections">
         <button className="set-back" onClick={closeSettings} aria-label="Back to chat" title="Back to chat (Esc)"><Icon name="chevron" size={13} /> <span>Back to chat</span></button>
         <h2>Settings</h2>
-        {NAV.map((n) => (
+        {nav.map((n) => (
           <button key={n.id} className={`set-link${section === n.id ? ' sel' : ''}`} aria-current={section === n.id} onClick={() => setSection(n.id)}>
             <b>{n.label}</b><span>{n.hint}</span>
           </button>
