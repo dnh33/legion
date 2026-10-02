@@ -237,3 +237,17 @@ test('C9: the approval mode is read live: an agent switched from full to ask mid
     assert.equal(r.cards.length, 2, 'after the switch to ask the script needs a card');
   } finally { await r.done(); }
 });
+
+test('C9: a script too long for the approval card is refused outright (no card, no run) unless the agent is full', async () => {
+  const long = '1+' + '1+'.repeat(200) + '1';
+  let r = await rig('ask');
+  try {
+    await r.call('browser_open', { url: 'https://a.test/' });
+    const res = await r.call('browser_eval', { expression: long });
+    assert.equal(res.isError, true); assert.match(res.text, /too long to show/);
+    assert.equal(r.cards.length, 1, 'only the first-page card');
+    assert.equal(r.fake.sent.filter((m) => m.method === 'Runtime.evaluate' && String(m.params.expression).includes('1+1+1+1+1+1')).length, 0, 'it never reached the browser');
+  } finally { await r.done(); }
+  r = await rig('full');
+  try { await r.call('browser_open', { url: 'https://a.test/' }); assert.equal((await r.call('browser_eval', { expression: long })).isError, false); } finally { await r.done(); }
+});
