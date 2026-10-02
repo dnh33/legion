@@ -32,7 +32,7 @@ const NATIVE_H = { ...AUTH, ...J, 'X-Legion-Native': NATIVE };
 
 test('C1 every project route is admin-only: not on the client list, the token alone gets 403, no token 401', async () => {
   const id = 'proj_0123456789ab';
-  for (const [m, p] of [['GET', '/api/projects'], ['GET', `/api/projects/${id}`], ['POST', '/api/projects'], ['PATCH', `/api/projects/${id}`], ['PUT', `/api/projects/${id}/members`], ['PUT', `/api/projects/${id}/folder`]] as const) {
+  for (const [m, p] of [['GET', '/api/projects'], ['GET', `/api/projects/${id}`], ['POST', '/api/projects'], ['PATCH', `/api/projects/${id}`], ['PUT', `/api/projects/${id}/members`], ['PUT', `/api/projects/${id}/folder`], ['PATCH', '/api/rooms/room_x'], ['POST', '/api/rooms']] as const) {
     assert.equal(isClientRoute(m, p), false, `${m} ${p}`);
     assert.equal((await fetch(base + p, { method: m, headers: { ...asClient, ...J }, body: m === 'GET' ? undefined : '{}' })).status, 403, `${m} ${p} token only`);
     assert.equal((await fetch(base + p, { method: m, body: m === 'GET' ? undefined : '{}' })).status, 401, `${m} ${p} nothing`);

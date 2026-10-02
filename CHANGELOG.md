@@ -4,6 +4,10 @@ All notable changes are recorded here. The format follows [Keep a Changelog](htt
 
 ## [Unreleased]
 
+### Projects
+
+- **Projects (minimal).** A project groups one job: shared instructions, a folder, member agents, and its tasks and rooms. A task started in a project gets the instructions added to the agent's prompt (labelled, after the agent's own, never able to change approvals) and the project folder as an extra readable and writable directory. Library notes can be scoped to a project (`project` scope in the tools): a project's runs prefer its notes and never see another project's. Only you, in the app, can create or edit a project; changing its folder or members shows a native confirmation. Bots, rooms, `ask`/`tell` and MCP clients can use a project but cannot create or change one or move work into it; MCP gets read-only `legion_projects`. Old data is unchanged. Plan and controls: `claude/plan-projects.md`; PC checks: `claude/tracker-pc-checks-projects.md`.
+
 ### Changed
 
 - **Blender: the minimum Blender for local runs is now 4.2** (was 3.0). Older builds are listed but refused for local runs; the live community backend still accepts 3.0 and newer.

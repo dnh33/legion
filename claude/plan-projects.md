@@ -145,3 +145,7 @@ See `claude/tracker-pc-checks-projects.md`.
 - On an older build, project notes are hidden from bots (kept, owner-visible); tasks and rooms show without a project.
 - Removing a member leaves old tasks in place; that agent's next run in them has no project context.
 - A project room's transcript is not scoped to the project; membership is the control.
+- The agent's own private memory (working memory, auto episodes, `private` notes) is the agent's, not the project's: a run in project B can read what the same agent wrote privately during project A. Project notes (scope `project`) are the separated store. A bot may also write `shared` from inside a project (the default); that is the same as before.
+- A project folder is checked when it is set (symlinks and junctions resolved then). A link swapped in later is not re-checked.
+- The app window holds the admin key, so a compromised window could edit a project's name, instructions and status (not its folder or members, which need the native secret). Instructions cannot change approvals.
+- Provider-run parity, room transcripts and member removal are as listed above.
