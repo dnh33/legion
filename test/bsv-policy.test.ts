@@ -6,6 +6,21 @@ import {
   PolicyEngine, PolicyError, sanitizePolicyConfig, validateCaps,
 } from '../src/core/bsv/policy.js';
 import type { Clock, PolicyEvent, SpendRequest } from '../src/core/bsv/policy.js';
+import { NET } from '../src/core/bsv/networks.js';
+import { createHash } from 'node:crypto';
+
+/** A base58check P2PKH address from a fixed 20-byte pattern (no key behind it), built here so the test does not lean on the decoder it checks. */
+export function mkAddr(version: number, fill: number): string {
+  const body = Buffer.concat([Buffer.from([version]), Buffer.alloc(20, fill)]);
+  const sum = createHash('sha256').update(createHash('sha256').update(body).digest()).digest().subarray(0, 4);
+  const all = Buffer.concat([body, sum]);
+  const A = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
+  let n = BigInt('0x' + all.toString('hex')); let out = '';
+  while (n > 0n) { out = A[Number(n % 58n)]! + out; n /= 58n; }
+  for (const b of all) { if (b === 0) out = '1' + out; else break; }
+  return out;
+}
+const MAIN = mkAddr(0x00, 0x11);
 
 const ALICE = 'mtestAddressAlice1111111111111111';
 const BOB = 'bob@handcash.io';
@@ -17,12 +32,13 @@ class FakeClock implements Clock {
   advance(ms: number) { this.w += ms; this.m += ms; }
 }
 
-function engine(o: { allow?: string[]; clock?: FakeClock; caps?: Partial<typeof DEFAULT_CAPS>; ledger?: Array<{ requestId: string; sats: number; at: number }> } = {}) {
+/** The engine these tests were written for: the mainnet switch is ON (arming is refused while it is off; the default-off behaviour has its own tests in bsv-mainnet-defaults.test.ts and bsv-policy-nets.test.ts). */
+function engine(o: { allow?: string[]; clock?: FakeClock; caps?: Partial<typeof DEFAULT_CAPS>; ledger?: Array<{ requestId: string; sats: number; at: number }>; mainnet?: boolean } = {}) {
   const clock = o.clock ?? new FakeClock();
   const events: PolicyEvent[] = [];
   const e = new PolicyEngine({
     clock, sessionId: 'sess1', ledger: o.ledger, onEvent: (ev) => events.push(ev),
-    config: { caps: { ...DEFAULT_CAPS, ...o.caps }, allowlist: o.allow ?? [ALICE, BOB], frozen: null },
+    config: { nets: { test: { caps: { ...DEFAULT_CAPS, ...o.caps }, allowlist: o.allow ?? [ALICE, BOB] }, main: { caps: { ...NET.main.defaultCaps }, allowlist: [MAIN] } }, frozen: null, mainnetEnabled: o.mainnet ?? true },
   });
   return { e, clock, events };
 }
@@ -31,7 +47,8 @@ let n = 0;
 /** A balanced, allowlisted 600-sat payment with a 20-sat fee and change, unless overridden. */
 function req(over: Partial<SpendRequest> & { pay?: number; fee?: number; to?: string } = {}): SpendRequest {
   const pay = over.pay ?? 600; const fee = over.fee ?? 20;
-  const { pay: _p, fee: _f, to, ...rest } = over;
+  const { pay: _p, fee: _f, to: to0, ...rest } = over;
+  const to = to0 ?? (over.network === 'main' ? MAIN : undefined);
   return {
     requestId: `req-${String(++n).padStart(6, '0')}`, network: 'test', walletNetwork: 'test', agentId: 'assayer', taskId: 'task-1',
     reason: 'pay the faucet back', tainted: false,
@@ -314,7 +331,7 @@ test('arming expires on the monotonic clock even if the wall clock is set back, 
   const { e: e3 } = engine();
   e3.arm(60);
   assert.equal(new PolicyEngine({ config: e3.config() }).isArmed(), false, 'a new engine from the saved config is not armed');
-  assert.deepEqual(Object.keys(e3.config()).sort(), ['allowlist', 'caps', 'frozen'], 'armedUntil is not part of what is saved');
+  assert.deepEqual(Object.keys(e3.config()).sort(), ['frozen', 'mainnetEnabled', 'nets'], 'armedUntil is not part of what is saved');
 });
 
 test('arm() takes whole minutes from 1 to the maximum, and nothing else', () => {
@@ -398,8 +415,13 @@ test('approve: needs the card hash, every required confirmation, an unfrozen cha
   const d = e.evaluate(req());
   assert.equal(e.approve(d.requestId, { cardHash: 'f'.repeat(64), confirmations: ['approve'], walletNetwork: 'test' }).ok, false, 'wrong hash');
   assert.equal(e.approve(d.requestId, { cardHash: d.card!.hash, confirmations: [], walletNetwork: 'test' }).ok, false, 'no confirmation');
-  assert.equal(e.approve(d.requestId, { cardHash: d.card!.hash, confirmations: ['approve'], walletNetwork: 'main' }).ok, false, 'wallet moved to the main network');
-  assert.equal(e.approve(d.requestId, { cardHash: d.card!.hash, confirmations: ['approve'], walletNetwork: 'unknown' }).ok, false);
+  // a wallet that now claims another network (or none) voids the card: it is not left waiting for the claim to flip back
+  for (const wn of ['main', 'unknown'] as const) {
+    const v = e.evaluate(req());
+    assert.equal(e.approve(v.requestId, { cardHash: v.card!.hash, confirmations: ['approve'], walletNetwork: wn }).ok, false, `wallet claims ${wn}`);
+    assert.equal(e.status(v.requestId), 'denied', 'the card is void');
+    assert.equal(e.approve(v.requestId, approveInput(v.card!)).ok, false, 'and stays void when the claim flips back');
+  }
   assert.equal(e.approve('no-such-id', { cardHash: d.card!.hash, confirmations: ['approve'], walletNetwork: 'test' }).ok, false);
   const ok = e.approve(d.requestId, approveInput(d.card!));
   assert.deepEqual(ok, { ok: true, totalSats: 620 });
@@ -580,7 +602,7 @@ test('events: decisions carry ids and totals, never the card text or the agent-w
 });
 
 test('an observer that throws cannot break the policy', () => {
-  const e = new PolicyEngine({ config: { caps: { ...DEFAULT_CAPS }, allowlist: [ALICE], frozen: null }, onEvent: () => { throw new Error('observer down'); } });
+  const e = new PolicyEngine({ config: { caps: { ...DEFAULT_CAPS }, allowlist: [ALICE], frozen: null, mainnetEnabled: true }, onEvent: () => { throw new Error('observer down'); } });
   assert.doesNotThrow(() => { e.arm(5); e.freeze('x'); e.unfreeze(); e.evaluate(req()); });
 });
 

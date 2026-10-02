@@ -432,15 +432,16 @@ test('1: a hand-edited policy file (raised limits, an extra recipient) loads as 
   const s = await setup({ on: true });
   await s.call('POST', '/api/bsv/policy/caps', { perTxSats: 800 });
   const edited = JSON.parse(readFileSync(policyFile(s.dataDir), 'utf8'));
-  edited.caps.perTxSats = 5000; edited.caps.perSessionSats = 5_000_000; edited.allowlist = ['evil-address-1'];
+  edited.nets.test.caps.perTxSats = 5000; edited.nets.test.caps.perSessionSats = 5_000_000; edited.nets.test.allowlist = ['evil-address-1']; edited.mainnetEnabled = true;
   writeFileSync(policyFile(s.dataDir), JSON.stringify(edited, null, 2));
   const s2 = await setup({ dataDir: s.dataDir, on: true });
   assert.equal(s2.bsv.policy.isFrozen, true);
   assert.match(s2.bsv.policy.config().frozen!.reason, /changed outside Legion/);
   assert.deepEqual(s2.bsv.policy.config().caps, DEFAULT_CAPS, 'the edited limits are not used, and neither are Legion\'s earlier ones: the owner sets them again');
   assert.deepEqual(s2.bsv.policy.config().allowlist, []);
+  assert.equal(s2.bsv.policy.mainnetEnabled, false, 'a hand-edited mainnetEnabled:true is not used: the file is untrusted, so the switch is off');
   assert.equal(evidence(s.dataDir).length, 1);
-  assert.deepEqual(JSON.parse(readFileSync(join(s.dataDir, 'bsv', evidence(s.dataDir)[0]!), 'utf8')).caps.perTxSats, 5000, 'the edited file is kept as it was');
+  assert.deepEqual(JSON.parse(readFileSync(join(s.dataDir, 'bsv', evidence(s.dataDir)[0]!), 'utf8')).nets.test.caps.perTxSats, 5000, 'the edited file is kept as it was');
   assert.ok(auditLines(s.dataDir).some((e) => e.tool === 'policy' && e.decision === 'file-tampered'));
   // what is on disk now is Legion's own frozen file, so it stays frozen after yet another restart, and unfreezing is the owner's act (native)
   const s3 = await setup({ dataDir: s.dataDir, on: true });
@@ -481,7 +482,7 @@ test('1: while running, a changed file freezes the chain before anything reads o
   await connectWallet(s);
   const callsBefore = s.wal.w.calls.length;
   const mine = readFileSync(policyFile(s.dataDir), 'utf8');
-  const edited = JSON.parse(mine); edited.caps.perTxSats = 5000; edited.frozen = null;
+  const edited = JSON.parse(mine); edited.nets.test.caps.perTxSats = 5000; edited.frozen = null;
   writeFileSync(policyFile(s.dataDir), JSON.stringify(edited));
   // the tool is the first thing to notice
   const tool = await mcpClient(s.bsv.mcpServers!(s.agents.get('assayer')!, { taskId: 'task-1', taint: () => false }).legion_bsv as McpSdkServerConfigWithInstance);
@@ -492,7 +493,7 @@ test('1: while running, a changed file freezes the chain before anything reads o
   assert.equal(s.bsv.policy.isFrozen, true);
   assert.match(s.bsv.policy.config().frozen!.reason, /changed outside Legion while it was running/);
   assert.equal(s.bsv.policy.config().caps.perTxSats, 800, 'in memory Legion still has the owner\'s real limits');
-  assert.equal(JSON.parse(readFileSync(policyFile(s.dataDir), 'utf8')).caps.perTxSats, 800, 'and wrote them back over the foreign file');
+  assert.equal(JSON.parse(readFileSync(policyFile(s.dataDir), 'utf8')).nets.test.caps.perTxSats, 800, 'and wrote them back over the foreign file');
   assert.equal(evidence(s.dataDir).length, 1);
   assert.ok(auditLines(s.dataDir).some((e) => e.decision === 'file-tampered'));
   assert.equal((await s.call('GET', '/api/bsv/wallet?cached=1')).body.connected, false, 'a freeze disconnects the wallet');
@@ -632,6 +633,7 @@ test('5: a wallet that reports a different network can only DISARM; limits, allo
   await s.call('POST', '/api/bsv/policy/caps', { perTxSats: 800 });
   await s.call('POST', '/api/bsv/policy/allowlist', { list: [ALICE] });
   await connectWallet(s);
+  s.bsv.policy.setMainnetEnabled(true); // arming needs the mainnet switch on
   await s.call('POST', '/api/bsv/policy/arm', { minutes: 15 });
   const d = s.bsv.policy.evaluate(req());
   assert.equal(d.verdict, 'needs_approval');

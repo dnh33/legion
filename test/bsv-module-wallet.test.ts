@@ -162,7 +162,7 @@ test('wallet: a wallet on the main network is a warning; the audit log gets one 
   const r = await connectWallet(s);
   assert.equal(r.body.network, 'main');
   assert.equal(r.body.condition, 'mainnet-warning');
-  assert.equal(r.body.message, 'The wallet is on MAINNET; Legion is in testnet knowledge mode; Legion will not use it.');
+  assert.equal(r.body.message, "The wallet says it is on MAINNET (real funds). Mainnet spending is off in Legion's own code until you turn it on; each spend then needs Arm, your confirmations and the wallet's own prompt.");
   for (let i = 0; i < 4; i++) await s.call('GET', '/api/bsv/wallet');
   assert.equal(auditLines(s.dataDir).filter((e) => e.tool === 'bsv_wallet' && e.decision === 'probe').length, 1);
   s.wal.w.net = 'testnet';
@@ -211,6 +211,8 @@ test('arm: with both secrets it arms for a listed duration only; invalid duratio
   const off = await setup({ on: false });
   assert.equal((await off.call('POST', '/api/bsv/policy/arm', { minutes: 5 })).status, 409, 'BSV mode off');
   const s = await setup({ on: true });
+  assert.equal((await s.call('POST', '/api/bsv/policy/arm', { minutes: 5 })).status, 409, 'arming is refused while the mainnet switch is off (the default)');
+  s.bsv.policy.setMainnetEnabled(true);
   for (const bad of [{}, { minutes: 7 }, { minutes: '5' }, { minutes: -1 }, { minutes: 1000 }, { minutes: 1.5 }, { minutes: null }]) assert.equal((await s.call('POST', '/api/bsv/policy/arm', bad)).status, 400, JSON.stringify(bad));
   const ok = await s.call('POST', '/api/bsv/policy/arm', { minutes: 15 });
   assert.equal(ok.status, 200);
@@ -233,6 +235,7 @@ test('arm: with both secrets it arms for a listed duration only; invalid duratio
 
 test('turning BSV mode off disarms', async () => {
   const s = await setup({ on: true });
+  s.bsv.policy.setMainnetEnabled(true); // arming needs the mainnet switch
   await s.call('POST', '/api/bsv/policy/arm', { minutes: 5 });
   assert.equal(s.bsv.policy.isArmed(), true);
   await s.call('POST', '/api/bsv', { enabled: false });
@@ -242,6 +245,7 @@ test('turning BSV mode off disarms', async () => {
 test('freeze: denies pending cards, disarms, is saved, survives a restart, and only unfreeze (with both secrets) clears it', async () => {
   const s = await setup({ on: true });
   await s.call('POST', '/api/bsv/policy/allowlist', { list: ['mtestAddressAlice1111111111111111'] });
+  s.bsv.policy.setMainnetEnabled(true); // arming needs the mainnet switch
   await s.call('POST', '/api/bsv/policy/arm', { minutes: 30 });
   const d = s.bsv.policy.evaluate({
     requestId: 'req-test-0001', network: 'test', walletNetwork: 'test', agentId: 'assayer', taskId: 't1', reason: 'x', tainted: false,
@@ -274,7 +278,7 @@ test('caps and allowlist: validated, hard-capped, saved; a hand-edited policy fi
   assert.equal((await s.call('POST', '/api/bsv/policy/caps', { bogus: 1 })).status, 409);
   assert.equal((await s.call('POST', '/api/bsv/policy/caps', [1, 2])).status, 400);
   assert.equal((await s.call('POST', '/api/bsv/policy/caps', { perTxSats: 800 })).body.caps.perTxSats, 800);
-  assert.equal(JSON.parse(readFileSync(policyFile(s.dataDir), 'utf8')).caps.perTxSats, 800);
+  assert.equal(JSON.parse(readFileSync(policyFile(s.dataDir), 'utf8')).nets.test.caps.perTxSats, 800);
   assert.equal((await s.call('POST', '/api/bsv/policy/allowlist', { list: ['has space'] })).status, 409);
   assert.equal((await s.call('POST', '/api/bsv/policy/allowlist', { list: 'nope' })).status, 409);
   const al = await s.call('POST', '/api/bsv/policy/allowlist', { list: ['mtestAddressAlice1111111111111111', 'Bob@HandCash.io'] });
@@ -301,6 +305,7 @@ test('an unreadable policy file loads FROZEN, not as defaults', async () => {
 test('audit: policy changes and wallet probes are logged by the owner/agent name, the reader route returns them newest first with the chain check', async () => {
   const s = await setup({ on: true });
   await connectWallet(s);
+  s.bsv.policy.setMainnetEnabled(true); // arming needs the mainnet switch
   await s.call('POST', '/api/bsv/policy/arm', { minutes: 5 });
   await s.call('POST', '/api/bsv/policy/disarm', {});
   const r = await s.call('GET', '/api/bsv/audit?limit=50');
@@ -318,6 +323,7 @@ test('audit: policy changes and wallet probes are logged by the owner/agent name
 
 test('audit: tampering with the log is detected by the reader and, at the next start, freezes the chain and keeps the evidence', async () => {
   const s = await setup({ on: true });
+  s.bsv.policy.setMainnetEnabled(true); // arming needs the mainnet switch
   await s.call('POST', '/api/bsv/policy/arm', { minutes: 5 });
   await s.call('POST', '/api/bsv/policy/disarm', {});
   const f = join(s.dataDir, 'bsv', 'audit.jsonl');
