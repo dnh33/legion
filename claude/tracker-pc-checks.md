@@ -107,3 +107,7 @@ B4/B5 (managed Blender, chooser). Downloads: the owner present and a go for each
 
 ## V0 result (2026-10-02 night, orchestrator by hand, owner's BSV Desktop at 127.0.0.1:3321, read-only, scratch script outside the repo)
 POST /getVersion -> 200 {"version":"wallet-brc100-1.0.0"} (78 ms); /getNetwork -> {"network":"mainnet"} (8 ms); /isAuthenticated -> {"authenticated":true} (5 ms); /getHeight -> {"height":969369} (470 ms). No permission prompt appeared (the owner was present). Content-Type of every reply is text/html; charset=utf-8 although the body is JSON (Legion's probe does not check the content type: OK, keep it that way). FINDINGS: (F-W1) the real version string is NOT semver: readVersion() in src/core/bsv/wallet-probe.ts returns null for it (SEMVER_RE), so Legion shows the version as unknown; reachable stays true; harmless but wrong: accept a short safe token like [a-z0-9-]+-\d+\.\d+\.\d+ or show the clipped raw string (fix in T5-owned file wallet-probe.ts, tests included). (F-W2) the real network string is "mainnet": readNetwork maps it to main, correct. The owner's wallet is MAINNET, so a testnet spend cannot be tested against it; the network-mismatch refusal can.
+
+
+## Browser tool (Lightpanda) - see claude/tracker-pc-checks-browser.md for the full steps (BR1 to BR13)
+Safety classes: BR2 downloads; BR3-BR8 none (a harmless public page you control); BR12 native dialog; BR13 none. Nothing in this section was run in the cloud session; do not call the browser tool verified until each is recorded as passed.

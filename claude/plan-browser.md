@@ -137,7 +137,7 @@ Differences from the plan, and why:
 
 Still NOT protected (beyond section 6): a popup opened by a page loads unguarded until Legion closes it (needs the real browser to measure); a program that can write `<dataDir>/browser/config.json` (an agent with a shell) can change `enabled`/`binaryPath` for the next start: that agent could already run code on this PC, but the file has no integrity check; the DNS-rebinding limit; the download has a small window between hash check and rename (same-user attacker only).
 
-Follow-ups for others (files not touched here): (1) `approvals.ts`: add `mcp__legion_browser__` to `LEGION_TOOL_PREFIXES` and the name regex so only the module's own cards appear in ask mode; (2) `src/electron/main.ts` + preload: native dialog IPC for `POST /api/browser/config` (program fields) and `POST /api/browser/local`; (3) docs/BROWSER.md and the README sentence in section 8; (4) register an updater busy probe if a browser run should block an update; (5) `claude/real-pc-test-plan.md`: add BR1-BR11.
+Done after the orchestrator's steer: (1) `approvals.ts` skips the generic per-call card for the eight exact browser tool names (not by prefix; `isLegionTool` is unchanged on purpose, so the engine still taints the run on the first call); in ask mode this also means click/type inside an already-approved site are no longer carded, which is the plan's intent; (2) `src/electron/browser-ipc.ts` + one registration in `main.ts` + `browserChange` in `preload.cjs`: the native dialog (Cancel is the default button) for choosing the program, the trusted hash and local addresses; the window never holds the native secret. Still follow-ups for others: (3) docs/BROWSER.md and the README sentence in section 8; (4) register an updater busy probe if a browser run should block an update; (5) `claude/real-pc-test-plan.md`: add BR1-BR11.
 
 ## 10. Facts: documented / assumed / unknown (owner rule: research first)
 
@@ -163,3 +163,20 @@ Sources read as text on 2026-10-02: README `https://github.com/lightpanda-io/bro
 | `--block-private-networks` stops a DNS-rebinding answer | assumption from "after DNS resolution" | BR7 |
 | Kill of a WSL child from Windows | unknown | BR4 |
 | Which flags the engine's SDK tool-permission hook runs for unknown MCP tool names | read from `src/core/engine.ts` / `approvals.ts` in this repo | `needsApproval`, `taintsRun` |
+
+
+## 11. For the owner: what it takes to use this on your Windows PC
+
+**Honest summary.** Lightpanda has no native Windows build, so on your PC it runs inside WSL (a small Linux inside Windows). It is licensed AGPL-3.0: Legion never bundles or modifies it, it only starts it as a separate program that you (or a download you approved) put on disk, and talks to it over a local socket. For us that means we ship no Lightpanda code and no binary in this repo, and the download card names the licence and source. If you ever want to ship it inside the Legion installer, get legal advice first: that changes the position. The only release that exists today is a rolling `nightly`, which has no stable checksum, so no hash is recorded in code and **Legion downloads nothing until you record one**. Until you do the steps below, the browser tool stays off and nothing is fetched.
+
+**Exact steps (about 15 minutes, once):**
+1. Install WSL2 if you do not have it: in an administrator terminal run `wsl --install`, restart, and open the Ubuntu app once to finish its setup.
+2. In the Ubuntu terminal: `curl -L -o lightpanda https://github.com/lightpanda-io/browser/releases/download/nightly/lightpanda-x86_64-linux && chmod +x lightpanda` (put it in your home folder).
+3. Check it runs and accepts Legion's options: `./lightpanda serve --help` and look for `--block-private-networks`, `--block-cidrs`, `--cdp-max-message-size`, `--v8-max-heap-mb`, `--watchdog-ms`, `--disable-metrics`. If any is missing, stop: Legion will refuse to use that build (it never retries without them).
+4. Note its checksum: `sha256sum lightpanda`. (Only needed if you want Legion's "Get Lightpanda" to manage the file on Linux or macOS; on Windows you point at your own copy and Legion does not hash it.)
+5. In Legion, Settings, About, Browser: type the program `wsl.exe` and the arguments `-d Ubuntu -e /home/<you>/lightpanda`, press "Use this program", and confirm the dialog (Cancel is the default). Then press Test: it should say Lightpanda started with Legion's safety options.
+6. Switch "Let agents browse the web" on. The first page of every task, every new site, and every script will ask you first.
+7. Optional: enter the sites agents may visit ("Only these sites").
+8. Check BR3 to BR8 in `claude/tracker-pc-checks-browser.md` once, by hand, before you trust it on real work.
+
+On Linux or macOS the same works with the file path as the program and no arguments, and "Get Lightpanda for Legion" becomes usable after you record a hash (step 4) in the setting `managedSha256`.
