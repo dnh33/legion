@@ -1,30 +1,30 @@
 /**
- * The browser module (Lightpanda). OFF by default. When switched on in Settings every agent gets the in-process `legion_browser` tools; each run
- * gets its own Lightpanda process on 127.0.0.1, started on its first page and stopped when the run ends. Plan: claude/plan-browser.md.
- * Admin routes (default-deny, not in the MCP client list): GET /api/browser, POST /api/browser/{config,get,test,local}. "Allow local addresses"
- * needs the app's native confirmation and lives in memory only (it is off after every restart).
+ * The browser module. OFF by default. When switched on in Settings every agent gets the in-process `legion_browser` tools; each run gets its own
+ * headless Chromium-family browser (Microsoft Edge, Google Chrome or Brave, already on this computer; nothing is downloaded), started on its first page
+ * and stopped when the run ends. Every request passes Legion's own checks through the CDP Fetch domain. Plan: claude/plan-browser.md.
+ * Admin routes (default-deny, not in the MCP client list): GET /api/browser, POST /api/browser/{config,check,local}. Choosing the browser program and
+ * "allow local addresses" need the app's native confirmation; allow-local lives in memory only (it is off after every restart).
  */
+import { randomBytes } from 'node:crypto';
 import type { McpServerConfig } from '@anthropic-ai/claude-agent-sdk';
-import { basename } from 'node:path';
-import { BROWSER_LIMITS, BROWSER_PINS, CHROMIUM_MIN_MAJOR } from '../../shared/browser.js';
-import type { BrowserConfig, BrowserEngine, BrowserPin, BrowserStatusView, ChromiumFound } from '../../shared/browser.js';
+import { BROWSER_LIMITS, CHROMIUM_MIN_MAJOR } from '../../shared/browser.js';
+import type { BrowserCheckResult, BrowserConfig, BrowserStatusView, ChromiumFound } from '../../shared/browser.js';
 import type { AgentProfile, Task } from '../../shared/types.js';
 import { NATIVE_HEADER, safeEqual } from '../admin.js';
 import { liveSecrets } from '../kg/index.js';
 import type { CoreModule, ModuleDeps, ModuleJob, TaskEndOutcome } from '../modules.js';
 import { HttpError } from '../server.js';
+import { chromiumEngine } from './chromium.js';
+import type { ChromiumIo } from './chromium.js';
+import type { BrowserEngineDef } from './engine.js';
+import { LaunchError } from './launcher.js';
+import type { LaunchPorts } from './launcher.js';
 import { BrowserManager } from './manager.js';
-import { BrowserSession } from './session.js';
-import { getLightpanda, readManaged, verifyManaged, effectiveSha } from './get-lightpanda.js';
-import type { GetPorts } from './get-lightpanda.js';
-import { launchBrowser, LaunchError } from './launcher.js';
-import type { BinaryRef, LaunchPorts } from './launcher.js';
 import { lookupAll } from './resolve.js';
 import type { Resolver } from './resolve.js';
+import { BrowserSession, SessionRefusal } from './session.js';
 import { BrowserState } from './state.js';
-import { chromiumIo as realChromiumIo, createGetPorts, createLaunchPorts, platformKey } from './system.js';
-import { detectChromium } from './chromium.js';
-import type { ChromiumIo } from './chromium.js';
+import { chromiumIo as realChromiumIo, createLaunchPorts } from './system.js';
 import { BROWSER_PREAMBLE_ON, buildBrowserServer } from './tools.js';
 import type { GuardOptions } from './url-guard.js';
 
@@ -34,115 +34,122 @@ export interface BrowserModuleOptions {
   state?: BrowserState;
   /** Test seams. Production passes none of them. */
   launchPorts?: LaunchPorts;
-  getPorts?: GetPorts;
   resolve?: Resolver;
-  pins?: BrowserPin[];
-  /** Test seams for the Chromium-family engine: the file system view, the platform and the environment used to look for Edge/Chrome. */
-  chromiumIo?: ChromiumIo;
-  platform?: NodeJS.Platform;
-  hostEnv?: NodeJS.ProcessEnv;
   limits?: Partial<typeof BROWSER_LIMITS>;
   nativeSecret?: string;
   log?: (m: string) => void;
+  /** The file system view, platform and environment used to look for Edge/Chrome. */
+  chromiumIo?: ChromiumIo;
+  platform?: NodeJS.Platform;
+  hostEnv?: NodeJS.ProcessEnv;
 }
 
 const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v);
+const ISOLATION_NOTE = 'The browser runs on this computer with your user rights, in a fresh empty profile. A cloud VM is the only isolated way to browse: use the VM live view when you need that.';
 
-export function createBrowserModule(deps: ModuleDeps, opts: BrowserModuleOptions = {}): CoreModule & { state: BrowserState; manager: BrowserManager } {
+export function createBrowserModule(deps: ModuleDeps, opts: BrowserModuleOptions = {}): CoreModule & { state: BrowserState; manager: BrowserManager; engines: BrowserEngineDef[] } {
   const log = opts.log ?? (() => undefined);
   const state = opts.state ?? new BrowserState(deps.dataDir);
   const cfg = (): BrowserConfig => state.config;
   const ports = opts.launchPorts ?? createLaunchPorts();
-  const getPorts = opts.getPorts ?? createGetPorts();
   const resolve = opts.resolve ?? lookupAll;
-  const pins = opts.pins ?? BROWSER_PINS;
   // In memory only: not written anywhere, so a file edit cannot turn it on and a restart turns it off.
   let local: { allow: boolean; ports: number[] } = { allow: false, ports: [] };
-  let getting = false;
+  let lastRun: BrowserStatusView['lastRun'];
 
   const guard = (): GuardOptions => ({ allowLocal: local.allow, localPorts: local.ports, allowDomains: cfg().allowDomains });
 
-  // ---- engines. The engine of a run is fixed when the run's browser object is made and never changes during the run.
-  const platform = opts.platform ?? process.platform;
-  const cio = opts.chromiumIo ?? realChromiumIo();
-  const hostEnv = opts.hostEnv ?? process.env;
+  // ---- the one engine
+  const engine = chromiumEngine({ io: opts.chromiumIo ?? realChromiumIo(), platform: opts.platform ?? process.platform, env: opts.hostEnv ?? process.env, userPath: () => cfg().chromiumPath });
+  const engines = [engine];
   let detected: { at: number; key: string; v: { found: ChromiumFound | null; tried: string[] } } | null = null;
-  const chromium = (): { found: ChromiumFound | null; tried: string[] } => {
+  const detect = (): { found: ChromiumFound | null; tried: string[] } => {
     const key = cfg().chromiumPath ?? '';
-    if (!detected || detected.key !== key || Date.now() - detected.at > 30_000) detected = { at: Date.now(), key, v: detectChromium(cio, platform, hostEnv, cfg().chromiumPath) };
+    if (!detected || detected.key !== key || Date.now() - detected.at > 30_000) detected = { at: Date.now(), key, v: engine.detect() };
     return detected.v;
   };
-  /** Chosen engine, else: Windows uses the Chromium-family browser on the PC; elsewhere whatever is configured (Lightpanda if set up, else a Chromium found). */
-  const engineNow = (): { engine: BrowserEngine; chosen: boolean } => {
-    const c = cfg();
-    if (c.engine) return { engine: c.engine, chosen: true };
-    if (platform === 'win32') return { engine: 'chromium', chosen: false };
-    const lightpandaSetUp = !!c.binaryPath || !!readManaged(getPorts, deps.dataDir);
-    return { engine: lightpandaSetUp ? 'lightpanda' : chromium().found ? 'chromium' : 'lightpanda', chosen: false };
+  const labelOf = (f: ChromiumFound): string => `${f.name}${f.version ? ` ${f.version}` : ''} (headless)`;
+  /** The browser to start, or a plain reason it cannot be. */
+  const usable = (): { found: ChromiumFound } | { error: string } => {
+    const { found, tried } = detect();
+    if (!found) return { error: cfg().chromiumPath ? `The browser you chose (${cfg().chromiumPath}) was not found. Choose another path or clear it in Settings, Browser.` : `No Edge or Chrome found: install one or set a path in Settings, Browser. (Looked in: ${tried.slice(0, 4).join('; ')}.)` };
+    if (found.tooOld) return { error: `${found.name} ${found.version} is too old for headless mode (it needs version ${CHROMIUM_MIN_MAJOR} or newer). Update it or choose another browser.` };
+    return { found };
   };
-  const chromiumLabel = (f: ChromiumFound): string => `${f.name}${f.version ? ` ${f.version}` : ''} (headless)`;
-  async function chromiumBinary(): Promise<{ ref: BinaryRef; label: string } | { error: string }> {
-    const { found, tried } = chromium();
-    if (!found) return { error: cfg().chromiumPath ? `The browser you chose (${cfg().chromiumPath}) was not found.` : `No Chromium-family browser (Microsoft Edge, Google Chrome, Brave) was found on this computer. Looked in: ${tried.slice(0, 4).join('; ')}. Install one or choose its path in Settings, Browser.` };
-    if (found.tooOld) return { error: `${found.name} ${found.version} is too old for headless mode (needs version ${CHROMIUM_MIN_MAJOR} or newer). Update it or choose another browser.` };
-    return { ref: { file: found.path, prefixArgs: [], wsl: false }, label: chromiumLabel(found) };
-  }
+  const noteRun = (ok: boolean, browser: string, note: string): void => { lastRun = { at: new Date().toISOString(), ok, browser, note: note.slice(0, 200) }; };
 
-  /** The program to start, or null. The owner's own path wins; else the managed copy, which must still match its recorded hash. */
-  async function binary(): Promise<{ ref: BinaryRef; kind: 'own' | 'managed' } | { error: string }> {
-    const c = cfg();
-    if (c.binaryPath) {
-      const base = basename(c.binaryPath).toLowerCase();
-      return { kind: 'own', ref: { file: c.binaryPath, prefixArgs: c.launcherArgs ?? [], wsl: base === 'wsl.exe' || base === 'wsl' } };
-    }
-    const m = readManaged(getPorts, deps.dataDir);
-    if (!m) return { error: process.platform === 'win32' ? 'Lightpanda has no Windows build. Install it inside WSL and set the launcher in Settings, Browser.' : 'Lightpanda is not installed for Legion. Use Get Lightpanda in Settings, Browser, or point Legion at your own copy.' };
-    // the file must match the hash in code (or the owner's recorded one), not only the record next to it
-    const pin = pins.find((x) => x.platform === platformKey());
-    const want = pin ? effectiveSha(pin, c.managedSha256) : '';
-    if (!want || m.sha256 !== want || !(await verifyManaged(getPorts, m))) return { error: 'The Lightpanda file Legion fetched no longer matches its recorded hash, so it was not started. Fetch it again in Settings, Browser.' };
-    return { kind: 'managed', ref: { file: m.path, prefixArgs: [], wsl: false } };
-  }
-
-  const manager: BrowserManager = new BrowserManager((taskId, reserve) => { const engine = engineNow().engine; return new BrowserSession({
-    engine,
+  const sessionDeps = (reserve: () => () => void) => ({
     guard,
     resolve,
     limits: opts.limits,
-    approveOrigin: async (o, u): Promise<boolean> => (await manager.peek(taskId)?.approveOrigin?.(o, u)) ?? false,
     async launch() {
-      // the engine was fixed when this run's browser object was made; there is no fallback to the other one
-      const b = engine === 'chromium' ? await chromiumBinary() : await binary();
-      if ('error' in b) throw new LaunchError(b.error);
+      const u = usable();
+      if ('error' in u) { noteRun(false, '', u.error); throw new LaunchError(u.error); }
       const free = (() => { try { return reserve(); } catch (e) { throw new LaunchError(e instanceof Error ? e.message : String(e)); } })();
       try {
-        const run = await launchBrowser(ports, b.ref, { allowLocal: local.allow, engine, ...('label' in b ? { label: b.label } : {}), ...(opts.limits?.wallMs ? { wallMs: opts.limits.wallMs } : {}), ...(opts.limits?.startTimeoutMs ? { startMs: opts.limits.startTimeoutMs } : {}) });
+        const run = await engine.launch(ports, u.found, { allowLocal: local.allow, label: labelOf(u.found), ...(opts.limits?.startTimeoutMs ? { startMs: opts.limits.startTimeoutMs } : {}) });
+        noteRun(true, run.label ?? labelOf(u.found), 'Started for a task.');
         const stop = run.stop.bind(run);
         void run.exited.then(() => free());
         return { ...run, stop: async () => { try { await stop(); } finally { free(); } } };
-      } catch (e) { free(); throw e; }
+      } catch (e) { free(); noteRun(false, labelOf(u.found), e instanceof Error ? e.message : String(e)); throw e; }
     },
-  }); }, opts.limits);
+  });
+
+  const manager: BrowserManager = new BrowserManager((taskId, reserve) => new BrowserSession({
+    ...sessionDeps(reserve),
+    approveOrigin: async (o, u): Promise<boolean> => (await manager.peek(taskId)?.approveOrigin?.(o, u)) ?? false,
+  }), opts.limits);
+
+  /**
+   * "Open test page": starts the browser, loads a harmless page that Legion answers itself through the interception (no server, no network), checks the
+   * page loaded, its JavaScript ran, and that the guard refuses a deliberate request to a forbidden address. Always stops the browser.
+   */
+  async function check(): Promise<BrowserCheckResult> {
+    const steps: BrowserCheckResult['steps'] = [];
+    const at = new Date().toISOString();
+    const done = (ok: boolean, browser?: string): BrowserCheckResult => { noteRun(ok, browser ?? '', steps.filter((s) => !s.ok).map((s) => s.detail).join(' ') || 'The check page worked.'); return { ok, at, ...(browser ? { browser } : {}), steps }; };
+    const u = usable();
+    if ('error' in u) { steps.push({ step: 'browser', ok: false, detail: u.error }); return done(false); }
+    const label = labelOf(u.found);
+    steps.push({ step: 'browser', ok: true, detail: `Found ${label} at ${u.found.path}.` });
+    let free: () => void;
+    try { free = manager.reserve(); } catch (e) { steps.push({ step: 'start', ok: false, detail: e instanceof Error ? e.message : String(e) }); return done(false, label); }
+    const nonce = randomBytes(8).toString('hex');
+    const url = `https://legion-check.invalid/${nonce}`;
+    const probe = `http://169.254.169.254/legion-check-${nonce}`;
+    const html = `<!doctype html><html><head><meta charset="utf-8"><title>Legion browser check</title></head><body><p>Legion browser check</p><p id="js">js-pending</p><script>document.getElementById('js').textContent='js-ok';</script><img src="${probe}" alt=""></body></html>`;
+    const session = new BrowserSession({ ...sessionDeps(() => () => undefined), internal: { url, html, probe }, approveOrigin: async () => true });
+    try {
+      let view;
+      try { view = await session.open(url); } catch (e) {
+        steps.push({ step: 'start', ok: false, detail: e instanceof LaunchError || e instanceof SessionRefusal || e instanceof Error ? e.message : String(e) });
+        return done(false, label);
+      }
+      steps.push({ step: 'start', ok: true, detail: 'The browser started and answered.' });
+      steps.push({ step: 'load', ok: view.title === 'Legion browser check', detail: view.title === 'Legion browser check' ? 'The test page loaded.' : 'The test page did not load as expected.' });
+      let js = false;
+      try { js = (await session.text('#js')).text.trim() === 'js-ok'; } catch { js = false; }
+      steps.push({ step: 'javascript', ok: js, detail: js ? 'JavaScript ran in the page.' : 'JavaScript did not run in the page.' });
+      steps.push({ step: 'guard', ok: session.probeBlocked, detail: session.probeBlocked ? 'A request to a forbidden address (a cloud metadata address) was refused by Legion\'s guard and never sent.' : 'The guard did NOT refuse the forbidden request: do not use the browser tool.' });
+    } finally { await session.close().catch(() => undefined); free(); }
+    return done(steps.every((s) => s.ok), label);
+  }
 
   const statusFor = (): BrowserStatusView => {
     const c = cfg();
-    const m = readManaged(getPorts, deps.dataDir);
-    const pin = pins.find((p) => p.platform === platformKey());
-    const binaryKind = c.binaryPath ? 'own' : m ? 'managed' : 'none';
+    const d = detect();
+    const note = !d.found
+      ? (c.chromiumPath ? `The browser you chose (${c.chromiumPath}) was not found.` : 'No Edge or Chrome found: install one or set a path.')
+      : d.found.tooOld ? `${d.found.name} ${d.found.version} is too old for headless mode (needs ${CHROMIUM_MIN_MAJOR} or newer).`
+        : `Pages are read with ${labelOf(d.found)}. Nothing is downloaded. Every request is checked by Legion first, every page is treated as untrusted text, and the first page and each new site ask you first. ${ISOLATION_NOTE}`;
     return {
-      enabled: c.enabled, engine: engineNow().engine, engineChosen: engineNow().chosen, chromium: chromium().found, chromiumTried: chromium().tried.slice(0, 8), binary: binaryKind, ...(c.binaryPath ? { binaryPath: c.binaryPath } : m ? { binaryPath: m.path } : {}),
-      platform: platformKey(), needsLauncher: process.platform === 'win32',
-      allowDomains: c.allowDomains, allowLocal: local.allow, running: manager.running(), getting,
-      pin: pin ? { id: pin.id, url: pin.url, sha256Known: !!effectiveSha(pin, c.managedSha256), license: pin.license, approxMb: Math.round(pin.approxBytes / (1024 * 1024)) } : null,
-      note: engineNow().engine === 'chromium'
-        ? (chromium().found ? (chromium().found!.tooOld ? `${chromium().found!.name} is too old for headless mode. Update it or choose another browser.` : `Pages are read with ${chromiumLabel(chromium().found!)} on this computer: nothing is downloaded. It runs with your user rights, in a fresh empty profile, and every request is checked by Legion first. Every page is treated as untrusted; the first page and each new site ask you first.`) : 'No Chromium-family browser was found. Install Microsoft Edge or Google Chrome, or choose a path below.')
-        : binaryKind === 'none'
-        ? (process.platform === 'win32' ? 'Lightpanda has no Windows build: install it inside WSL and set the launcher (wsl.exe and its arguments) here.' : 'Lightpanda is not installed for Legion yet.')
-        : 'Agents read pages as text only: no screenshots. Every page is treated as untrusted. The first page and each new site ask you first.',
+      enabled: c.enabled, engines: engines.map((e) => ({ id: e.id, label: e.label })), browser: d.found, tried: d.tried.slice(0, 8),
+      ...(c.chromiumPath ? { chosenPath: c.chromiumPath } : {}),
+      allowDomains: c.allowDomains, allowLocal: local.allow, running: manager.running(), platform: opts.platform ?? process.platform,
+      ...(lastRun ? { lastRun } : {}), note,
     };
   };
-  // No bus event on purpose: the Settings panel reads GET /api/browser, so nothing about this tool is pushed to non-admin event listeners.
-  const emit = (): void => undefined;
 
   const needNative = (req: unknown): void => {
     const h = (req as { headers?: Record<string, string | string[] | undefined> }).headers?.[NATIVE_HEADER];
@@ -151,7 +158,7 @@ export function createBrowserModule(deps: ModuleDeps, opts: BrowserModuleOptions
   };
 
   return {
-    id: 'browser', state, manager,
+    id: 'browser', state, manager, engines,
     mcpServers(agent: AgentProfile, job?: ModuleJob): Record<string, McpServerConfig> {
       if (!cfg().enabled) return {};
       return {
@@ -159,7 +166,8 @@ export function createBrowserModule(deps: ModuleDeps, opts: BrowserModuleOptions
           manager, guard, resolve, approvals: deps.approvals, secrets: () => liveSecrets(deps.config), modeOf: (id) => { try { return deps.store?.getAgent(id)?.approval; } catch { return undefined; } },
           statusLine: (taskId) => {
             const e = manager.peek(taskId);
-            return `Browser tool: on. Engine: ${e?.session.engineLabel || (e?.session.engine === 'chromium' ? 'Chromium-family browser' : e?.session.engine === 'lightpanda' ? 'Lightpanda' : engineNow().engine)}. Page open: ${e?.session.started ? 'yes' : 'no'}. Reads text only (no screenshots). Redirect/request interception: ${e?.session.started ? (e.session.hasInterception ? 'on' : 'not available in this build (private addresses are still blocked by the browser\'s own option)') : 'unknown until a page is opened'}. Local addresses: ${local.allow ? 'allowed on listed ports' : 'refused'}. Allowed domains: ${cfg().allowDomains.length ? cfg().allowDomains.join(', ') : 'any public site'}.`;
+            const d = detect();
+            return `Browser tool: on. Browser: ${e?.session.engineLabel || (d.found ? labelOf(d.found) : 'none found')}. Page open: ${e?.session.started ? 'yes' : 'no'}. Reads text only (no screenshots). Every request is checked by Legion before it is sent. Local addresses: ${local.allow ? 'allowed on listed ports' : 'refused'}. Allowed domains: ${cfg().allowDomains.length ? cfg().allowDomains.join(', ') : 'any public site'}.`;
           },
         }),
       };
@@ -170,47 +178,18 @@ export function createBrowserModule(deps: ModuleDeps, opts: BrowserModuleOptions
       add('GET', '/api/browser', () => statusFor());
       add('POST', '/api/browser/config', ({ req, body }) => {
         if (!isObj(body)) throw new HttpError(400, 'expected an object');
-        // choosing which program Legion starts (or its launcher arguments, or the hash it trusts) is code execution: the app's confirmation dialog is required
-        if ('binaryPath' in body || 'launcherArgs' in body || 'managedSha256' in body || 'chromiumPath' in body) needNative(req);
+        // choosing which program Legion starts is code execution: the app's confirmation dialog is required
+        if ('chromiumPath' in body) needNative(req);
         const patch: Partial<BrowserConfig> = {};
         if ('enabled' in body) { if (typeof body.enabled !== 'boolean') throw new HttpError(400, 'enabled must be true or false'); patch.enabled = body.enabled; }
-        if ('engine' in body) { if (body.engine !== null && body.engine !== 'chromium' && body.engine !== 'lightpanda') throw new HttpError(400, 'engine must be chromium, lightpanda or null'); patch.engine = body.engine === null ? undefined : body.engine as BrowserEngine; }
         if ('chromiumPath' in body) { if (body.chromiumPath !== null && typeof body.chromiumPath !== 'string') throw new HttpError(400, 'chromiumPath must be text'); patch.chromiumPath = body.chromiumPath === null || body.chromiumPath === '' ? undefined : body.chromiumPath as string; }
-        if ('binaryPath' in body) { if (body.binaryPath !== null && typeof body.binaryPath !== 'string') throw new HttpError(400, 'binaryPath must be text'); patch.binaryPath = body.binaryPath === null || body.binaryPath === '' ? undefined : body.binaryPath as string; }
-        if ('launcherArgs' in body) { if (!Array.isArray(body.launcherArgs) || body.launcherArgs.some((x) => typeof x !== 'string')) throw new HttpError(400, 'launcherArgs must be a list of text'); patch.launcherArgs = body.launcherArgs as string[]; }
         if ('allowDomains' in body) { if (!Array.isArray(body.allowDomains) || body.allowDomains.some((x) => typeof x !== 'string')) throw new HttpError(400, 'allowDomains must be a list of text'); patch.allowDomains = body.allowDomains as string[]; }
-        if ('managedSha256' in body) { if (typeof body.managedSha256 !== 'string') throw new HttpError(400, 'managedSha256 must be text'); patch.managedSha256 = body.managedSha256; }
         try { state.update(patch); } catch (e) { throw new HttpError(500, `Could not save the browser settings: ${e instanceof Error ? e.message : String(e)}`); }
-        emit();
+        detected = null;
         return statusFor();
       });
-      // Admin only by default-deny. Needs the owner's click AND an approval card; an agent has no way to call it.
-      add('POST', '/api/browser/get', async () => {
-        if (getting) throw new HttpError(409, 'A Lightpanda download is already waiting for approval or running.');
-        getting = true; emit();
-        try {
-          const r = await getLightpanda(getPorts, {
-            dataDir: deps.dataDir, ...(cfg().managedSha256 ? { cfgSha: cfg().managedSha256 } : {}), pins,
-            approve: (a) => deps.approvals.request('browser-get', 'browser', 'browser_get_lightpanda', { ...a }, undefined, { summary: a.summary }),
-          });
-          getting = false;
-          emit();
-          return { ok: r.ok, steps: r.steps, status: statusFor() };
-        } finally { if (getting) { getting = false; emit(); } }
-      });
-      // Starts the program, connects, asks for the list of pages, stops it. Shows the owner whether the build works with the options Legion needs.
-      add('POST', '/api/browser/test', async () => {
-        const eng = engineNow().engine;
-        const b = eng === 'chromium' ? await chromiumBinary() : await binary();
-        if ('error' in b) return { ok: false, detail: b.error };
-        let free: () => void;
-        try { free = manager.reserve(); } catch (e) { return { ok: false, detail: e instanceof Error ? e.message : String(e) }; }
-        let run;
-        try { run = await launchBrowser(ports, b.ref, { allowLocal: false, engine: eng, ...('label' in b ? { label: b.label } : {}) }); } catch (e) { free(); return { ok: false, detail: e instanceof Error ? e.message : String(e) }; }
-        try { await run.cdp.send('Target.getTargets'); return { ok: true, detail: `${run.label ?? 'The browser'} started with Legion's safety options and answered on 127.0.0.1.` }; }
-        catch (e) { return { ok: false, detail: `It started but did not answer: ${e instanceof Error ? e.message : String(e)}` }; }
-        finally { await run.stop().catch(() => undefined); free(); }
-      });
+      // "Open test page": admin only, started by the owner's click.
+      add('POST', '/api/browser/check', async () => ({ result: await check(), status: statusFor() }));
       // Native only (the app's confirmation dialog): local addresses, on listed ports, until the next restart. Port-list entries are 1..65535.
       add('POST', '/api/browser/local', ({ req, body }) => {
         needNative(req);
@@ -219,7 +198,6 @@ export function createBrowserModule(deps: ModuleDeps, opts: BrowserModuleOptions
         if (list.length > 20 || list.some((x) => !Number.isInteger(x) || (x as number) < 1 || (x as number) > 65535)) throw new HttpError(400, 'ports must be a list of up to 20 port numbers');
         local = body.allow ? { allow: true, ports: list as number[] } : { allow: false, ports: [] };
         log(`browser: local addresses ${local.allow ? 'allowed' : 'refused'}`);
-        emit();
         return statusFor();
       });
     },

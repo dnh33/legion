@@ -1,28 +1,25 @@
 import { useCallback, useEffect, useState } from 'react';
 import { request } from '../api';
 import { errText } from '../store';
-import type { BrowserStatusView } from '../../../src/shared/browser';
+import type { BrowserCheckResult, BrowserStatusView } from '../../../src/shared/browser';
 import './browser.css';
 
-interface GetResult { ok: boolean; steps: Array<{ step: string; ok: boolean; detail: string }>; status: BrowserStatusView }
-
-/** Settings: the browser tool (Lightpanda). All text from the core is shown as plain text. */
+/** Settings: the browser tool (headless Edge or Chrome already on this computer). All text from the core is shown as plain text. */
 export function BrowserSection() {
   const [st, setSt] = useState<BrowserStatusView | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [note, setNote] = useState<string | null>(null);
+  const [check, setCheck] = useState<BrowserCheckResult | null>(null);
   const [busy, setBusy] = useState(false);
   const [domains, setDomains] = useState('');
   const [path, setPath] = useState('');
-  const [args, setArgs] = useState('');
   const [ports, setPorts] = useState('');
-  const [chrPath, setChrPath] = useState('');
   const load = useCallback(async () => {
     try { const s = await request<BrowserStatusView>('GET', '/api/browser'); setSt(s); setDomains((d) => d || s.allowDomains.join(', ')); } catch (e) { setErr(errText(e)); }
   }, []);
   useEffect(() => { void load(); }, [load]);
   const act = async (fn: () => Promise<unknown>) => { setBusy(true); setErr(null); setNote(null); try { await fn(); } catch (e) { setErr(errText(e)); } finally { setBusy(false); void load(); } };
-  // Program, hash and local-address changes go through the app window's native confirmation (the window never holds the secret).
+  // The browser program and local-address changes go through the app window's native confirmation (the window never holds the secret).
   const native = (change: Record<string, unknown>) => act(async () => {
     const fn = (window as unknown as { legion?: { browserChange?: (c: unknown) => Promise<{ ok: boolean; error?: string; cancelled?: boolean }> } }).legion?.browserChange;
     if (!fn) throw new Error('This needs the Legion app window (it shows a confirmation dialog). Open Legion from its shortcut.');
@@ -31,36 +28,32 @@ export function BrowserSection() {
   });
   const save = (patch: Record<string, unknown>) => act(async () => { setSt(await request<BrowserStatusView>('POST', '/api/browser/config', patch)); });
   if (!st) return <div className="brw">{err ? <p className="brw-err" role="alert">{err}</p> : <p className="brw-muted">Loading{'…'}</p>}</div>;
+  const b = st.browser;
   return (
     <div className="brw" aria-label="Browser">
-      <h4>Browser (Lightpanda)</h4>
-      <p className="brw-muted">Lets agents read web pages as text without a VM, using Lightpanda, a small separate program (AGPL-3.0; Legion does not include it). It runs on this computer for one task at a time. It does not draw pages or take screenshots. Every page is treated as untrusted text; the first page and each new site ask you first.</p>
-      <div className="brw-row" role="radiogroup" aria-label="Browser engine">
-        <span className="brw-muted">Engine{st.engineChosen ? '' : ' (automatic)'}:</span>
-        <label><input type="radio" name="brw-engine" checked={st.engine === 'chromium'} disabled={busy} onChange={() => void save({ engine: 'chromium' })} /> Edge / Chrome (hidden window, no download)</label>
-        <label><input type="radio" name="brw-engine" checked={st.engine === 'lightpanda'} disabled={busy} onChange={() => void save({ engine: 'lightpanda' })} /> Lightpanda (lighter, text only, no Windows build)</label>
-        {st.engineChosen && <button type="button" className="btn-ghost sm" disabled={busy} onClick={() => void save({ engine: null })}>Automatic</button>}
-      </div>
-      <p className="brw-muted">{st.chromium ? `Found: ${st.chromium.name}${st.chromium.version ? ` ${st.chromium.version}` : ''} at ${st.chromium.path}${st.chromium.tooOld ? ' (too old for headless mode)' : ''}.` : `No Edge, Chrome or Brave found. Looked in: ${st.chromiumTried.slice(0, 3).join('; ')}.`} An engine never changes while a task's browser is open, and each page result names the engine that ran.</p>
-      <div className="brw-row">
-        <input value={chrPath} onChange={(e) => setChrPath(e.target.value)} placeholder="Path to msedge.exe, chrome.exe or brave.exe (optional)" aria-label="Browser path" spellCheck={false} />
-        <button type="button" className="btn-ghost sm" disabled={busy || !chrPath.trim()} title="Asks you to confirm in a dialog" onClick={() => void native({ kind: 'chromium', path: chrPath.trim() }).then(() => setChrPath(''))}>Use this browser</button>
-      </div>
+      <h4>Browser</h4>
+      <p className="brw-muted">Lets agents read web pages as text. It uses Microsoft Edge or Google Chrome, already on this computer, in a hidden window: nothing is downloaded. It does not draw pages for you or take screenshots. Every page is treated as untrusted text; the first page, each new site and each script ask you first. The browser runs with your user rights: a cloud VM is the only isolated way to browse (use the VM live view for that).</p>
       <label className="brw-row"><input type="checkbox" checked={st.enabled} disabled={busy} onChange={(e) => void save({ enabled: e.target.checked })} /> Let agents browse the web {st.enabled ? '(on)' : '(off)'}</label>
-      <p className="brw-muted">{st.note}</p>
-      <p className="brw-muted">Program: {st.binary === 'none' ? 'not set up' : `${st.binary === 'managed' ? 'fetched by Legion' : 'your own'} ${st.binaryPath ?? ''}`}. Browsers running now: {st.running}. Local addresses: {st.allowLocal ? 'allowed on listed ports until restart' : 'refused'}.</p>
-      {st.pin && !st.needsLauncher && (
-        <div className="brw-actions">
-          <button type="button" className="btn-ghost sm" disabled={busy || st.getting || !st.pin.sha256Known} onClick={() => void act(async () => { const r = await request<GetResult>('POST', '/api/browser/get'); setNote(r.steps.map((s) => s.detail).join(' ')); })}>Get Lightpanda for Legion (about {st.pin.approxMb} MB, you approve first)</button>
-          {!st.pin.sha256Known && <span className="brw-muted">No hash is recorded for this build yet, so Legion will not download it. You can point to your own copy below.</span>}
-        </div>
+      <ul className="brw-engines" aria-label="Browser engine">
+        {st.engines.map((e) => <li key={e.id}><b>Engine:</b> {e.label}</li>)}
+      </ul>
+      <p className={b && !b.tooOld ? 'brw-muted' : 'brw-err'} role="status">
+        {b ? `Browser: ${b.name}${b.version ? ` ${b.version}` : ' (version unknown)'} at ${b.path}${b.tooOld ? ' (too old for headless mode: update it)' : ''}.` : `No Edge or Chrome found: install one or set a path. Looked in: ${st.tried.slice(0, 3).join('; ')}.`}
+      </p>
+      <p className="brw-muted">{st.lastRun ? `Last run: ${st.lastRun.at.replace('T', ' ').slice(0, 19)}, ${st.lastRun.ok ? 'worked' : 'failed'}${st.lastRun.browser ? ` (${st.lastRun.browser})` : ''}. ${st.lastRun.ok ? '' : st.lastRun.note}` : 'Last run: never.'} Running now: {st.running}.</p>
+      <div className="brw-actions">
+        <button type="button" className="btn-ghost sm" disabled={busy || !b} onClick={() => void act(async () => { const r = await request<{ result: BrowserCheckResult; status: BrowserStatusView }>('POST', '/api/browser/check'); setCheck(r.result); setSt(r.status); })}>Open test page</button>
+        <span className="brw-muted">Starts the browser once and loads a harmless page that Legion itself provides (no network).</span>
+      </div>
+      {check && (
+        <ul className="brw-check" role="status" aria-label="Test page result">
+          {check.steps.map((s) => <li key={s.step} className={s.ok ? 'brw-ok' : 'brw-err'}>{s.ok ? 'OK' : 'Failed'}: {s.detail}</li>)}
+        </ul>
       )}
-      {st.needsLauncher && <p className="brw-muted">Lightpanda has no Windows build. Install it inside WSL, then enter <code>wsl.exe</code> below with arguments such as <code>-e /home/you/lightpanda</code>.</p>}
       <div className="brw-row">
-        <input value={path} onChange={(e) => setPath(e.target.value)} placeholder={st.binaryPath ?? 'Path to lightpanda (or wsl.exe)'} aria-label="Program path" spellCheck={false} />
-        <input value={args} onChange={(e) => setArgs(e.target.value)} placeholder="Launcher arguments (optional), space separated" aria-label="Launcher arguments" spellCheck={false} />
-        <button type="button" className="btn-ghost sm" disabled={busy || !path.trim()} title="Asks you to confirm in a dialog" onClick={() => void native({ kind: 'program', binaryPath: path.trim(), launcherArgs: args.trim() ? args.trim().split(/\s+/) : [] }).then(() => setPath(''))}>Use this program</button>
-        <button type="button" className="btn-ghost sm" disabled={busy || st.binary === 'none'} onClick={() => void act(async () => { const r = await request<{ ok: boolean; detail: string }>('POST', '/api/browser/test'); setNote(r.detail); })}>Test</button>
+        <input value={path} onChange={(e) => setPath(e.target.value)} placeholder={st.chosenPath ?? 'Path to msedge.exe, chrome.exe or brave.exe (optional)'} aria-label="Browser path" spellCheck={false} />
+        <button type="button" className="btn-ghost sm" disabled={busy || !path.trim()} title="Asks you to confirm in a dialog" onClick={() => void native({ kind: 'chromium', path: path.trim() }).then(() => setPath(''))}>Use this browser</button>
+        {st.chosenPath && <button type="button" className="btn-ghost sm" disabled={busy} onClick={() => void native({ kind: 'chromium', path: null })}>Automatic</button>}
       </div>
       <div className="brw-row">
         <input value={domains} onChange={(e) => setDomains(e.target.value)} placeholder="Only these sites (optional): example.com, docs.org" aria-label="Allowed sites" spellCheck={false} />
@@ -71,7 +64,7 @@ export function BrowserSection() {
         <button type="button" className="btn-ghost sm" disabled={busy || !ports.trim()} onClick={() => void native({ kind: 'local', allow: true, ports: ports.split(/[\s,]+/).filter(Boolean).map(Number) })}>Allow local addresses (until restart)</button>
         {st.allowLocal && <button type="button" className="btn-ghost sm" disabled={busy} onClick={() => void native({ kind: 'local', allow: false })}>Turn off</button>}
       </div>
-      <p className="brw-muted">Not protected: anything else on this computer can reach the browser's local port while a task runs; a page's own scripts run inside Lightpanda; Legion cannot stop a redirect or page request to a public site the browser makes itself.</p>
+      <p className="brw-muted">Not protected: anything else on this computer can reach the browser's local debugging port while a task runs; the browser can resolve a name differently from Legion's check; sockets and WebRTC a page opens are not claimed to be checked.</p>
       {note && <p className="brw-note" role="status">{note}</p>}
       {err && <p className="brw-err" role="alert">{err}</p>}
     </div>

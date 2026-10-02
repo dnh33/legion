@@ -9,12 +9,11 @@ import type { FakeCdp, FakeCdpOptions } from './browser-fakes.js';
 const WALLET = Number('33' + '21'); // built from parts so that no test names the real wallet port (test/bsv-port-guard.test.ts)
 const DNS = fakeResolver({ 'a.test': ['93.184.216.34'], 'b.test': ['93.184.216.35'], 'evil.test': ['93.184.216.36'], 'inner.test': ['10.0.0.9'] });
 
-async function rig(o: FakeCdpOptions, extra: { guard?: () => object; approve?: (origin: string) => boolean; limits?: Record<string, number>; engine?: 'chromium' | 'lightpanda' } = {}) {
+async function rig(o: FakeCdpOptions, extra: { guard?: () => object; approve?: (origin: string) => boolean; limits?: Record<string, number> } = {}) {
   const fake = await startFakeCdp(o);
   let stopped = 0;
   const approved: string[] = [];
   const session = new BrowserSession({
-    ...(extra.engine ? { engine: extra.engine } : {}),
     guard: () => (extra.guard?.() ?? {}),
     resolve: DNS,
     limits: extra.limits,
@@ -69,14 +68,12 @@ test('C6: the domain list refuses a redirect to another site; subresources to ot
   } finally { await r.done(); }
 });
 
-test('C5: with request interception a subresource to a private address is failed at the browser; without it the page is still refused', async () => {
-  for (const noFetch of [false, true]) {
-    const r = await rig({ noFetch, pages: { 'https://a.test/': { text: 'x', subrequests: ['http://192.168.1.1/pixel.gif'] } } });
-    try {
-      await assert.rejects(r.session.open('https://a.test/'), SessionRefusal);
-      if (!noFetch) assert.ok(r.fake.blocked.length >= 1, 'Fetch.failRequest was sent');
-    } finally { await r.done(); }
-  }
+test('C5: a sub-resource to a private address is failed at the browser before it is sent, and the page is refused', async () => {
+  const r = await rig({ pages: { 'https://a.test/': { text: 'x', subrequests: ['http://192.168.1.1/pixel.gif'] } } });
+  try {
+    await assert.rejects(r.session.open('https://a.test/'), SessionRefusal);
+    assert.ok(r.fake.blocked.length >= 1, 'Fetch.failRequest was sent');
+  } finally { await r.done(); }
 });
 
 test('C14: a popup tab is closed at once (one page per run)', async () => {
@@ -170,7 +167,7 @@ test('close stops the process once and a closed session does not restart', async
 });
 
 test('C5: with a build that sends no navigation events, the final address check still refuses a bad landing', async () => {
-  const r = await rig({ quiet: true, noFetch: true, pages: { 'https://a.test/': { redirectTo: 'http://10.0.0.5/x' }, 'http://10.0.0.5/x': { title: 'SECRET', text: 'internal' } } });
+  const r = await rig({ quiet: true, pages: { 'https://a.test/': { redirectTo: 'http://10.0.0.5/x' }, 'http://10.0.0.5/x': { title: 'SECRET', text: 'internal' } } });
   try { await assert.rejects(r.session.open('https://a.test/'), (e: Error) => e instanceof SessionRefusal && /10\.0\.0\.5/.test(e.message) && !/SECRET|internal/.test(e.message)); } finally { await r.done(); }
 });
 
@@ -194,17 +191,12 @@ test('closing during launch stops the process that was starting (no orphan)', as
 });
 
 test('reads re-check the address: a page that moves itself after open() is refused before its text is returned', async () => {
-  const r = await rig({ quiet: true, noFetch: true, pages: { 'https://a.test/': { text: 'fine' }, 'http://10.0.0.7/': { text: 'INTERNAL' } } });
+  const r = await rig({ quiet: true, pages: { 'https://a.test/': { text: 'fine' }, 'http://10.0.0.7/': { text: 'INTERNAL' } } });
   try {
     await r.session.open('https://a.test/');
     r.fake.state.url = 'http://10.0.0.7/'; // a timer or meta refresh moved the page
     await assert.rejects(r.session.text(), (e: Error) => e instanceof SessionRefusal && !/INTERNAL/.test(e.message));
   } finally { await r.done(); }
-});
-
-test('allow-local without request interception opens nothing', async () => {
-  const r = await rig({ noFetch: true, pages: { 'https://a.test/': { text: 'x' } } }, { guard: () => ({ allowLocal: true, localPorts: [8080] }) });
-  try { await assert.rejects(r.session.open('https://a.test/'), /cannot filter requests/); assert.equal(r.fake.sent.filter((m) => m.method === 'Page.navigate' && m.params.url !== 'about:blank').length, 0); } finally { await r.done(); }
 });
 
 test('a form submit is checked and asked about BEFORE the text is sent', async () => {
@@ -243,55 +235,90 @@ test('a cached verdict does not outlive a settings change: local addresses turne
 
 // ------------------------------------------------------------------ the Chromium-family engine (same driver, same guards, plus what that engine needs)
 
-test('E6: on the Chromium engine request interception is required: without it nothing is opened; with it downloads are denied at the browser', async () => {
-  let r = await rig({ noFetch: true, pages: { 'https://a.test/': { text: 'x' } } }, { engine: 'chromium' });
+test('E6: request interception is required: without it nothing is opened; with it downloads are denied at the browser', async () => {
+  let r = await rig({ noFetch: true, pages: { 'https://a.test/': { text: 'x' } } });
   try {
     await assert.rejects(r.session.open('https://a.test/'), /did not accept request interception/);
     assert.equal(r.fake.sent.filter((m) => m.method === 'Page.navigate' && m.params.url !== 'about:blank').length, 0);
   } finally { await r.done(); }
-  r = await rig({ pages: { 'https://a.test/': { title: 'T', text: 'x' } } }, { engine: 'chromium' });
+  r = await rig({ pages: { 'https://a.test/': { title: 'T', text: 'x' } } });
   try {
     assert.equal((await r.session.open('https://a.test/')).title, 'T');
     const dl = r.fake.sent.filter((m) => m.method === 'Browser.setDownloadBehavior');
     assert.equal(dl.length, 1); assert.equal(dl[0]!.params.behavior, 'deny');
     assert.ok(!('downloadPath' in dl[0]!.params));
   } finally { await r.done(); }
-  r = await rig({ pages: { 'https://a.test/': { text: 'x' } }, errorFor: { 'Browser.setDownloadBehavior': 'not supported' } }, { engine: 'chromium' });
+  r = await rig({ pages: { 'https://a.test/': { text: 'x' } }, errorFor: { 'Browser.setDownloadBehavior': 'not supported' } });
   try { await assert.rejects(r.session.open('https://a.test/'), /deny downloads/); } finally { await r.done(); }
-  // Lightpanda does not get these requirements (it has its own options)
-  r = await rig({ noFetch: true, pages: { 'https://a.test/': { text: 'x' } } }, { engine: 'lightpanda' });
-  try { assert.equal((await r.session.open('https://a.test/')).url, 'https://a.test/'); assert.equal(r.fake.sent.filter((m) => m.method === 'Browser.setDownloadBehavior').length, 0); } finally { await r.done(); }
 });
 
 test('E6: navigations to file:, data:, javascript: and chrome: documents are refused on the Chromium engine, with no content', async () => {
   for (const to of ['file:///etc/passwd', 'data:text/html,<p>LEAK</p>', 'javascript:alert(1)', 'chrome://settings', 'blob:https://a.test/x', 'ftp://a.test/x']) {
-    const r = await rig({ pages: { 'https://a.test/': { redirectTo: to }, [to]: { title: 'SECRET', text: 'LEAK' } } }, { engine: 'chromium' });
+    const r = await rig({ pages: { 'https://a.test/': { redirectTo: to }, [to]: { title: 'SECRET', text: 'LEAK' } } });
     try { await assert.rejects(r.session.open('https://a.test/'), (e: Error) => e instanceof SessionRefusal && !/SECRET|LEAK/.test(e.message), to); } finally { await r.done(); }
   }
 });
 
 test('E6: the same guards hold on the Chromium engine: private and metadata redirects, the protected port, the domain list, sub-resources, hop cap', async () => {
   for (const to of ['http://10.0.0.5/admin', 'http://169.254.169.254/latest/meta-data/', `http://127.0.0.1:${WALLET}/`, `http://localhost:${WALLET}/`, 'https://inner.test/']) {
-    const r = await rig({ pages: { 'https://a.test/': { redirectTo: to }, [to]: { text: 'LEAK' } } }, { engine: 'chromium', guard: () => (to.includes(`:${WALLET}`) ? { allowLocal: true, localPorts: [WALLET, 80, 443] } : {}) });
+    const r = await rig({ pages: { 'https://a.test/': { redirectTo: to }, [to]: { text: 'LEAK' } } }, { guard: () => (to.includes(`:${WALLET}`) ? { allowLocal: true, localPorts: [WALLET, 80, 443] } : {}) });
     try { await assert.rejects(r.session.open('https://a.test/'), SessionRefusal, to); assert.ok(r.fake.blocked.length >= 1, 'the request was failed at the browser (Fetch.failRequest)'); } finally { await r.done(); }
   }
-  let r = await rig({ pages: { 'https://a.test/': { redirectTo: 'https://evil.test/' }, 'https://evil.test/': { text: 'E' } } }, { engine: 'chromium', guard: () => ({ allowDomains: ['a.test', 'b.test'] }) });
+  let r = await rig({ pages: { 'https://a.test/': { redirectTo: 'https://evil.test/' }, 'https://evil.test/': { text: 'E' } } }, { guard: () => ({ allowDomains: ['a.test', 'b.test'] }) });
   try { await assert.rejects(r.session.open('https://a.test/'), /allowed domain list/); } finally { await r.done(); }
-  r = await rig({ pages: { 'https://a.test/': { text: 'x', subrequests: ['http://192.168.1.1/pixel.gif'] } } }, { engine: 'chromium' });
+  r = await rig({ pages: { 'https://a.test/': { text: 'x', subrequests: ['http://192.168.1.1/pixel.gif'] } } });
   try { await assert.rejects(r.session.open('https://a.test/'), SessionRefusal); assert.ok(r.fake.blocked.length >= 1); } finally { await r.done(); }
   const pages: Record<string, { redirectTo?: string; text?: string }> = {};
   for (let i = 0; i < 12; i++) pages[`https://a.test/${i}`] = { redirectTo: `https://a.test/${i + 1}` };
   pages['https://a.test/12'] = { text: 'end' };
-  r = await rig({ pages }, { engine: 'chromium' });
+  r = await rig({ pages });
   try { await assert.rejects(r.session.open('https://a.test/0'), /too many redirects/); } finally { await r.done(); }
 });
 
-test('E6: on the Chromium engine a popup is closed at once and the label of the engine is available for results', async () => {
-  const r = await rig({ popup: true, pages: { 'https://a.test/': { text: 'x' } } }, { engine: 'chromium' });
+test('E6: a popup is closed at once', async () => {
+  const r = await rig({ popup: true, pages: { 'https://a.test/': { text: 'x' } } });
   try {
     await r.session.open('https://a.test/');
     await new Promise((res) => setTimeout(res, 50));
     assert.ok(r.session.closedTabsBlocked >= 1);
-    assert.equal(r.session.engine, 'chromium');
   } finally { await r.done(); }
+});
+
+// ------------------------------------------------------------------ the built-in check page (Settings, "Open test page")
+test('E10: the check page is answered by Legion through the interception (nothing is requested from a network), runs its script, and its forbidden request is refused by the guard', async () => {
+  const fake = await startFakeCdp({ pages: {} });
+  const url = 'https://legion-check.invalid/abc123';
+  const probe = 'http://169.254.169.254/legion-check-abc123';
+  const html = `<!doctype html><html><head><title>Legion browser check</title></head><body><p id="js">js-pending</p><script>document.getElementById('js').textContent='js-ok';</script><img src="${probe}" alt=""></body></html>`;
+  const session = new BrowserSession({
+    guard: () => ({}), resolve: DNS, approveOrigin: async () => true, internal: { url, html, probe },
+    async launch(): Promise<RunningBrowser> { const cdp = await connectCdp(`ws://127.0.0.1:${fake.port}`); return { cdp, pid: undefined, port: fake.port, args: [], exited: new Promise(() => undefined), stop: async () => { cdp.close(); } }; },
+  });
+  try {
+    const v = await session.open(url);
+    assert.equal(v.title, 'Legion browser check');
+    assert.equal((await session.text('#js')).text, 'js-ok');
+    assert.equal(session.probeBlocked, true);
+    assert.deepEqual(fake.fulfilled, [url], 'Legion answered its own page');
+    assert.ok(fake.blocked.length >= 1, 'the forbidden request was failed before it was sent');
+  } finally { await session.close(); await fake.close(); }
+});
+
+test('E10: only the exact check URL is answered by Legion; any other address under that name, or a page that sends the visitor there, is an ordinary refused address', async () => {
+  const r = await rig({ pages: { 'https://a.test/': { redirectTo: 'https://legion-check.invalid/other' }, 'https://legion-check.invalid/other': { title: 'FORGED', text: 'FORGED' } } });
+  try { await assert.rejects(r.session.open('https://a.test/'), (e: Error) => e instanceof SessionRefusal && !/FORGED/.test(e.message)); assert.deepEqual(r.fake.fulfilled, []); } finally { await r.done(); }
+  // and a session without an internal page never fulfils anything, even for that name
+  const r2 = await rig({ pages: { 'https://legion-check.invalid/abc123': { title: 'X', text: 'X' } } });
+  try { await assert.rejects(r2.session.open('https://legion-check.invalid/abc123')); assert.deepEqual(r2.fake.fulfilled, []); } finally { await r2.done(); }
+});
+
+test('E10: if the guard did let the forbidden request through, the check fails (the page is refused)', async () => {
+  const fake = await startFakeCdp({ pages: {} });
+  const url = 'https://legion-check.invalid/n1'; const probe = 'https://93.184.216.34/legion-check-n1'; // a public address: the guard (correctly) allows it, so the check must fail
+  const html = `<html><head><title>Legion browser check</title></head><body><img src="${probe}"></body></html>`;
+  const session = new BrowserSession({
+    guard: () => ({}), resolve: DNS, approveOrigin: async () => true, internal: { url, html, probe },
+    async launch(): Promise<RunningBrowser> { const cdp = await connectCdp(`ws://127.0.0.1:${fake.port}`); return { cdp, pid: undefined, port: fake.port, args: [], exited: new Promise(() => undefined), stop: async () => { cdp.close(); } }; },
+  });
+  try { await assert.rejects(session.open(url), /let the check page/); assert.equal(session.probeBlocked, false); } finally { await session.close(); await fake.close(); }
 });

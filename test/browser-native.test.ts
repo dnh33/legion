@@ -22,33 +22,21 @@ function deps(over: { confirm?: boolean; coreDown?: boolean; status?: number } =
 
 test('N1: the window\'s request is parsed strictly', () => {
   assert.equal(parseBrowserChange(null), undefined);
-  assert.equal(parseBrowserChange({ kind: 'program' }), undefined);
-  assert.equal(parseBrowserChange({ kind: 'program', binaryPath: 'a\nb' }), undefined);
-  assert.equal(parseBrowserChange({ kind: 'program', binaryPath: 'x'.repeat(501) }), undefined);
-  assert.equal(parseBrowserChange({ kind: 'program', binaryPath: 'wsl.exe', launcherArgs: 'nope' }), undefined);
-  assert.equal(parseBrowserChange({ kind: 'program', binaryPath: 'wsl.exe', launcherArgs: new Array(17).fill('a') }), undefined);
-  assert.equal(parseBrowserChange({ kind: 'hash', sha256: 'abc' }), undefined);
+  assert.equal(parseBrowserChange({ kind: 'program', binaryPath: 'x' }), undefined, 'there is no program or launcher choice any more');
+  assert.equal(parseBrowserChange({ kind: 'hash', sha256: 'a'.repeat(64) }), undefined, 'there is no download hash any more');
+  assert.equal(parseBrowserChange({ kind: 'chromium', path: 'a\nb' }), undefined);
+  assert.equal(parseBrowserChange({ kind: 'chromium', path: 'x'.repeat(501) }), undefined);
+  assert.equal(parseBrowserChange({ kind: 'chromium', path: '' }), undefined);
+  assert.equal(parseBrowserChange({ kind: 'chromium' }), undefined);
   assert.equal(parseBrowserChange({ kind: 'local', allow: 'yes' }), undefined);
   assert.equal(parseBrowserChange({ kind: 'local', allow: true, ports: [0] }), undefined);
   assert.equal(parseBrowserChange({ kind: 'local', allow: true, ports: [70000] }), undefined);
   assert.equal(parseBrowserChange({ kind: 'wipe' }), undefined);
-  assert.deepEqual(parseBrowserChange({ kind: 'program', binaryPath: 'wsl.exe', launcherArgs: ['-e', '/home/me/lightpanda'] }), { kind: 'program', binaryPath: 'wsl.exe', launcherArgs: ['-e', '/home/me/lightpanda'] });
+  assert.deepEqual(parseBrowserChange({ kind: 'chromium', path: null }), { kind: 'chromium', path: null });
 });
 
-test('N2: choosing the program: a native dialog names it, and only after Confirm is the core called, with the native secret', async () => {
-  const { d, calls, dialogs } = deps();
-  const r = await browserChange({ kind: 'program', binaryPath: 'wsl.exe', launcherArgs: ['-e', '/home/me/lightpanda'] }, d);
-  assert.equal(r.ok, true);
-  assert.equal(dialogs.length, 1);
-  assert.match(dialogs[0]!.detail, /wsl\.exe/); assert.match(dialogs[0]!.detail, /\/home\/me\/lightpanda/); assert.match(dialogs[0]!.detail, /your user rights/);
-  const post = calls.find((c) => c.method === 'POST')!;
-  assert.equal(post.route, '/api/browser/config'); assert.equal(post.native, true);
-  assert.deepEqual(post.body, { binaryPath: 'wsl.exe', launcherArgs: ['-e', '/home/me/lightpanda'] });
-  assert.equal(calls.filter((c) => c.native).length, 1, 'only the write carries the native secret');
-});
-
-test('N3: Cancel changes nothing: the core is never asked to write', async () => {
-  for (const change of [{ kind: 'program', binaryPath: 'x' }, { kind: 'hash', sha256: 'a'.repeat(64) }, { kind: 'local', allow: true, ports: [8080] }]) {
+test('N2: Cancel changes nothing: the core is never asked to write', async () => {
+  for (const change of [{ kind: 'chromium', path: 'C:\\Program Files\\X\\chrome.exe' }, { kind: 'local', allow: true, ports: [8080] }]) {
     const { d, calls } = deps({ confirm: false });
     const r = await browserChange(change, d);
     assert.equal(r.ok, false); assert.equal(r.cancelled, true);
@@ -62,23 +50,20 @@ test('N4: allow-local names the ports, says it lasts until restart and keeps the
   assert.match(dialogs[0]!.detail, /8080, 3000/); assert.match(dialogs[0]!.detail, /until Legion restarts/); assert.match(dialogs[0]!.detail, /wallet stays blocked/);
   assert.deepEqual(calls.find((c) => c.method === 'POST')!.body, { allow: true, ports: [8080, 3000] });
   assert.equal(calls.find((c) => c.method === 'POST')!.route, '/api/browser/local');
+  assert.equal(calls.filter((c) => c.native).length, 1, 'only the write carries the native secret');
   const off = deps();
   assert.equal((await browserChange({ kind: 'local', allow: false }, off.d)).ok, true);
   assert.deepEqual(off.calls.find((c) => c.method === 'POST')!.body, { allow: false, ports: [] });
 });
 
-test('N5: the hash change shows the full value; failure paths: no core, a core refusal, one dialog at a time', async () => {
-  const h = 'ab'.repeat(32);
-  const a = deps();
-  await browserChange({ kind: 'hash', sha256: h.toUpperCase() }, a.d);
-  assert.match(a.dialogs[0]!.detail, new RegExp(h));
-  assert.equal((await browserChange({ kind: 'program', binaryPath: 'x' }, deps({ coreDown: true }).d)).ok, false);
-  assert.match((await browserChange({ kind: 'program', binaryPath: 'x' }, deps({ status: 403 }).d)).error ?? '', /refused by core/);
+test('N5: failure paths: no core, a core refusal, one dialog at a time', async () => {
+  assert.equal((await browserChange({ kind: 'chromium', path: 'x' }, deps({ coreDown: true }).d)).ok, false);
+  assert.match((await browserChange({ kind: 'chromium', path: 'x' }, deps({ status: 403 }).d)).error ?? '', /refused by core/);
   let release: (v: boolean) => void = () => undefined;
   const slow = deps(); slow.d.confirm = () => new Promise<boolean>((r) => { release = r; });
-  const first = browserChange({ kind: 'program', binaryPath: 'x' }, slow.d);
+  const first = browserChange({ kind: 'chromium', path: 'x' }, slow.d);
   await new Promise((r) => setTimeout(r, 20));
-  const second = await browserChange({ kind: 'program', binaryPath: 'y' }, deps().d);
+  const second = await browserChange({ kind: 'chromium', path: 'y' }, deps().d);
   assert.match(second.error ?? '', /already open/);
   release(false); await first;
 });

@@ -1,15 +1,18 @@
 /**
  * The Chromium-family engine (Microsoft Edge, Google Chrome, Brave, Chromium): where to find one, how to start it, how to read the port it chose.
+ * This is the one engine Legion ships (see engine.ts for the interface a later engine would implement).
  * Pure: the file system is an injected interface, so it is tested with Windows-style paths on any system. Legion never runs a browser just to
  * probe it: the version comes from the install folder names, and a browser Legion cannot date is accepted with a note.
  *
- * Documented (see claude/plan-browser-engines.md section 10): with --remote-debugging-port=0 the browser listens on 127.0.0.1, prints
+ * Documented (see claude/plan-browser.md section on facts): with --remote-debugging-port=0 the browser listens on 127.0.0.1, prints
  * "DevTools listening on ws://127.0.0.1:<port>/devtools/browser/<guid>" and writes "<port>\n/devtools/browser/<guid>" to DevToolsActivePort in
  * the user data directory (chromium/content/browser/devtools/devtools_http_handler.cc, chrome/browser/devtools/remote_debugging_server.cc).
  */
 import { posix, win32 } from 'node:path';
 import { CHROMIUM_MIN_MAJOR } from '../../shared/browser.js';
 import type { ChromiumFound } from '../../shared/browser.js';
+import type { BrowserEngineDef } from './engine.js';
+import { launchBrowser } from './launcher.js';
 
 export interface ChromiumIo {
   exists(path: string): boolean;
@@ -112,4 +115,14 @@ export function parseDevToolsActivePort(text: string): { port: number; path: str
   if (port < 1 || port > 65535) return null;
   if (!/^\/devtools\/browser\/[A-Za-z0-9-]{8,64}$/.test(lines[1]!)) return null;
   return { port, path: lines[1]! };
+}
+
+/** The engine definition the module registers: detect (never runs the browser) and launch. */
+export function chromiumEngine(o: { io: ChromiumIo; platform: NodeJS.Platform; env: NodeJS.ProcessEnv; userPath: () => string | undefined }): BrowserEngineDef {
+  return {
+    id: 'chromium',
+    label: 'Microsoft Edge, Google Chrome or Brave (already on this computer)',
+    detect: () => detectChromium(o.io, o.platform, o.env, o.userPath()),
+    launch: (ports, found, opts) => launchBrowser(ports, found, opts),
+  };
 }

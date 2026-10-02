@@ -9,10 +9,10 @@ const dir = join(fileURLToPath(new URL('../../', import.meta.url)), 'src', 'core
 const files = readdirSync(dir).filter((f) => f.endsWith('.ts')).map((f) => [f, readFileSync(join(dir, f), 'utf8').replace(/\r\n/g, '\n').replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '')] as const);
 const only = (re: RegExp): string[] => files.filter(([, s]) => re.test(s)).map(([f]) => f).sort();
 
-test('C18: WebSocket only in cdp.ts; fetch only in system.ts; DNS only in resolve.ts; no file here spawns a process or opens a socket or listens', () => {
+test('C18: WebSocket only in cdp.ts; no network fetch anywhere here (nothing is downloaded); DNS only in resolve.ts; no file here spawns a process or opens a socket or listens', () => {
   assert.ok(files.length >= 10);
   assert.deepEqual(only(/\bnew WebSocket\b|\bWebSocket\(/), ['cdp.ts']);
-  assert.deepEqual(only(/\bfetch\(/), ['system.ts']);
+  assert.deepEqual(only(/\bfetch\(/), []);
   assert.deepEqual(only(/node:dns/), ['resolve.ts']);
   assert.deepEqual(only(/node:child_process|\bexecFile?\(|\bexecSync\(|\bspawnSync\(|\bfork\(/), []);
   assert.deepEqual(only(/node:net\b|node:tls|node:dgram|node:http2?\b|node:https\b/), []);

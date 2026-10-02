@@ -4,32 +4,34 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, symlinkSync, writeFil
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { LaunchError, launchBrowser } from '../src/core/browser/launcher.js';
+import { LaunchError, buildBrowserEnv, launchBrowser } from '../src/core/browser/launcher.js';
 import type { LaunchPorts } from '../src/core/browser/launcher.js';
-import { RUN_DIR_PREFIX, createLaunchPorts, removeRunDir } from '../src/core/browser/system.js';
+import { RUN_DIR_PREFIX, createLaunchPorts, createProcessPort, removeRunDir } from '../src/core/browser/system.js';
 
 const FAKE = fileURLToPath(new URL('./browser-fake-chromium.js', import.meta.url));
 const alive = (pid: number): boolean => { try { process.kill(pid, 0); return true; } catch (e) { return (e as NodeJS.ErrnoException).code === 'EPERM'; } };
 const until = async (cond: () => boolean, ms = 4000): Promise<boolean> => { const end = Date.now() + ms; while (Date.now() < end) { if (cond()) return true; await new Promise((r) => setTimeout(r, 40)); } return cond(); };
 
+/** The real process port, but the program is `node fake-chromium.js <report> <mode> <pages> <chrome arguments>` (never a real browser). */
 function rig(mode: string, over: Partial<LaunchPorts> = {}) {
   const dir = mkdtempSync(join(tmpdir(), 'br-chr-'));
   const report = join(dir, 'report.json');
   const pages = join(dir, 'pages.json');
   writeFileSync(pages, JSON.stringify({ 'https://a.test/': { title: 'T', text: 'x' } }));
-  const p: LaunchPorts = { ...createLaunchPorts(), ...over };
-  const bin = { file: process.execPath, prefixArgs: [FAKE, report, mode, pages], wsl: false };
+  const base = createLaunchPorts();
+  const p: LaunchPorts = { ...base, proc: { spawn(req) { return base.proc.spawn({ ...req, file: process.execPath, prefixArgs: [FAKE, report, mode, pages] }); }, kill: base.proc.kill }, ...over };
+  const found = { path: join(dir, 'msedge.exe') };
   const read = () => JSON.parse(readFileSync(report, 'utf8')) as { argv: string[]; env: Record<string, string>; cwd: string; pid: number; userDataDir: string };
-  return { p, bin, read };
+  return { p, found, read, base };
 }
 
 test('E4: a Chromium-family browser is started with its arguments, a scrubbed environment and a fresh profile; the port comes from DevToolsActivePort; stop() kills the process and removes the folder', async () => {
   process.env.LEGION_TEST_SECRET = 'sk-ant-api03-THISMUSTNEVERREACHTHECHILD0123456789';
   try {
     const t = rig('ok');
-    const run = await launchBrowser(t.p, t.bin, { allowLocal: false, engine: 'chromium', label: 'Fake Edge 120.0.0.0 (headless)' });
+    const run = await launchBrowser(t.p, t.found, { label: 'Fake Edge 120.0.0.0 (headless)' });
     const rep = t.read();
-    assert.equal(run.engine, 'chromium'); assert.equal(run.label, 'Fake Edge 120.0.0.0 (headless)');
+    assert.equal(run.label, 'Fake Edge 120.0.0.0 (headless)');
     assert.ok(rep.argv.includes('--headless=new') && rep.argv.includes('--remote-debugging-port=0'));
     assert.ok(!rep.argv.includes('--no-sandbox'));
     // a fresh profile inside the run folder, which is inside the system temp folder and carries Legion's prefix
@@ -38,7 +40,7 @@ test('E4: a Chromium-family browser is started with its arguments, a scrubbed en
     assert.deepEqual(await run.cdp.send('Target.getTargets'), { targetInfos: [] });
     // scrubbed environment
     assert.ok(!('LEGION_TEST_SECRET' in rep.env));
-    assert.equal(rep.env.LIGHTPANDA_DISABLE_TELEMETRY, 'true');
+    assert.ok(!Object.keys(rep.env).some((k) => /key|token|secret/i.test(k)));
     assert.equal(run.pid, rep.pid);
     await run.stop();
     assert.equal(await until(() => !alive(rep.pid)), true, 'process gone');
@@ -49,39 +51,51 @@ test('E4: a Chromium-family browser is started with its arguments, a scrubbed en
 
 test('E4: a DevToolsActivePort file with CRLF line endings works', async () => {
   const t = rig('crlf');
-  const run = await launchBrowser(t.p, t.bin, { allowLocal: false, engine: 'chromium' });
+  const run = await launchBrowser(t.p, t.found);
   try { assert.deepEqual(await run.cdp.send('Target.getTargets'), { targetInfos: [] }); } finally { await run.stop(); }
 });
 
-test('E4: on Windows the profile and app-data folders point into the run folder, never the real AppData', async () => {
+test('E4: on Windows the profile and app-data folders point into the run folder, never the real AppData, and no host variable is copied', async () => {
   const seen: Array<Record<string, string>> = [];
-  const base = createLaunchPorts();
   const t = rig('never');
-  const p: LaunchPorts = { ...t.p, platform: 'win32', hostEnv: { SystemRoot: 'C:\\Windows', APPDATA: 'C:\\Users\\Real\\AppData\\Roaming', LOCALAPPDATA: 'C:\\Users\\Real\\AppData\\Local', OPENAI_API_KEY: 'sk-1' } as NodeJS.ProcessEnv,
-    proc: { spawn(req) { seen.push(req.env); return base.proc.spawn({ ...req, file: process.execPath, prefixArgs: ['-e', 'setTimeout(()=>{},300)'], args: [] }); }, kill: base.proc.kill }, sleep: async () => undefined };
-  await assert.rejects(launchBrowser(p, t.bin, { allowLocal: false, engine: 'chromium', startMs: 100 }), LaunchError);
+  const p: LaunchPorts = { ...t.p, platform: 'win32', hostEnv: { SystemRoot: 'C:\\Windows', APPDATA: 'C:\\Users\\Real\\AppData\\Roaming', LOCALAPPDATA: 'C:\\Users\\Real\\AppData\\Local', OPENAI_API_KEY: 'sk-1', PATH: 'C:\\evil' } as NodeJS.ProcessEnv,
+    proc: { spawn(req) { seen.push(req.env); return t.base.proc.spawn({ ...req, file: process.execPath, prefixArgs: ['-e', 'setTimeout(()=>{},300)'], args: [] }); }, kill: t.base.proc.kill }, sleep: async () => undefined };
+  await assert.rejects(launchBrowser(p, t.found, { startMs: 100 }), LaunchError);
   const env = seen[0]!;
   assert.ok(env.APPDATA && !env.APPDATA.includes('Real') && env.LOCALAPPDATA && !env.LOCALAPPDATA.includes('Real'));
   assert.equal(env.APPDATA, env.LOCALAPPDATA); assert.equal(env.SystemRoot, 'C:\\Windows');
   assert.ok(!('OPENAI_API_KEY' in env));
+  assert.equal(env.Path, 'C:\\Windows\\System32', 'a fixed system path, not the host PATH');
+  const l = buildBrowserEnv('linux', { SECRET_TOKEN: 'abc' } as NodeJS.ProcessEnv, '/tmp/run1');
+  assert.deepEqual(Object.keys(l).sort(), ['HOME', 'LANG', 'PATH', 'TEMP', 'TMP', 'TMPDIR']);
+});
+
+test('the process port starts only the file it is given, with no shell: a shell metacharacter in an argument stays an argument', async () => {
+  const proc = createProcessPort();
+  const dir = mkdtempSync(join(tmpdir(), 'br-shell-'));
+  const marker = join(dir, 'pwned');
+  const pr = proc.spawn({ args: ['-e', 'console.log(process.argv.slice(1).join("|"))', `; touch ${marker}`, '$(touch ' + marker + ')'], cwd: dir, env: { PATH: '/usr/bin:/bin' }, maxOutputBytes: 10_000, file: process.execPath });
+  await pr.exited;
+  assert.equal(existsSync(marker), false);
+  assert.match(pr.stdout(), /touch/);
 });
 
 test('E4: failures: never reports a port, a bad path in the port file, a missing program, a crash', async () => {
   let t = rig('never'); let cwd = '';
   const mk = t.p.mkTemp; t.p.mkTemp = () => (cwd = mk());
-  await assert.rejects(launchBrowser(t.p, t.bin, { allowLocal: false, engine: 'chromium', startMs: 600 }), (e: Error) => e instanceof LaunchError && /did not report its debugging port/.test(e.message));
+  await assert.rejects(launchBrowser(t.p, t.found, { startMs: 600 }), (e: Error) => e instanceof LaunchError && /did not report its debugging port/.test(e.message));
   assert.equal(await until(() => !alive(t.read().pid)), true, 'the stuck browser was killed');
   assert.equal(existsSync(cwd), false);
 
   t = rig('badpath');
-  await assert.rejects(launchBrowser(t.p, t.bin, { allowLocal: false, engine: 'chromium', startMs: 600 }), LaunchError);
+  await assert.rejects(launchBrowser(t.p, t.found, { startMs: 600 }), LaunchError);
   assert.equal(await until(() => !alive(t.read().pid)), true, 'a port file that does not name the browser endpoint is never connected to');
 
   t = rig('ok');
-  await assert.rejects(launchBrowser(t.p, { file: join(tmpdir(), 'no-such-browser-xyz.exe'), prefixArgs: [], wsl: false }, { allowLocal: false, engine: 'chromium', startMs: 800 }), (e: Error) => e instanceof LaunchError && /could not be started/.test(e.message));
+  await assert.rejects(launchBrowser(createLaunchPorts(), { path: join(tmpdir(), 'no-such-browser-xyz.exe') }, { startMs: 800 }), (e: Error) => e instanceof LaunchError && /could not be started/.test(e.message));
 
   t = rig('crash');
-  const run = await launchBrowser(t.p, t.bin, { allowLocal: false, engine: 'chromium' });
+  const run = await launchBrowser(t.p, t.found);
   await Promise.race([run.exited, new Promise((r) => setTimeout(r, 4000))]);
   assert.equal(await until(() => !alive(run.pid!)), true);
   await run.stop();
