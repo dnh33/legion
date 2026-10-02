@@ -39,7 +39,7 @@ const nextA = b(31), nextZ = b(36);
 for (const s of SHOTS) if (s.in < nextZ && s.out > nextA) fail(`UI shot ${s.id} overlaps the NEXT block (planned items get text cards only)`);
 for (const slot of new Set(CAPS.map((c) => c.slot))) {
   const L = CAPS.filter((c) => c.slot === slot).sort((x, y) => x.a - y.a);
-  for (let i = 1; i < L.length; i++) if (L[i].a < L[i - 1].b) fail(`captions overlap in slot ${slot}: ${L[i - 1].id} / ${L[i].id}`);
+  for (let i = 1; i < L.length; i++) if (L[i].a - L[i - 1].b < 0.7) fail(`captions overlap (fades included) in slot ${slot}: ${L[i - 1].id} / ${L[i].id} gap ${(L[i].a - L[i - 1].b).toFixed(2)}s`);
 }
 console.log(`${Math.abs(T.dur - 100) < 1e-6 ? 'ok  ' : 'NOTE'} duration ${T.dur}s`);
 process.exit(bad ? 1 : 0);

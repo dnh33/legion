@@ -24,26 +24,26 @@ export const S = {
   vm: [18, 22], bsv: [22, 25], blender: [25, 28], install: [28, 31], next: [31, 36], end: [36, 40],
 };
 export const KICKER = {
-  muster: 'THE MUSTER', approvals: 'APPROVALS AND TRUST', rooms: 'ROOMS', library: 'THE LIBRARY AND THE LATTICE', projects: 'PROJECTS',
+  approvals: 'APPROVALS AND TRUST', rooms: 'ROOMS', library: 'THE LIBRARY AND THE LATTICE', projects: 'PROJECTS',
   vm: 'CLOUD VMS AND MCP', bsv: 'BSV MODE', blender: 'BLENDER', install: 'INSTALL, UPDATE, TEST',
 };
 
 // ---- real-UI shots. img = file in docs/video-v2/shots/. cam keys: [t, zoom, cx, cy] (cx, cy = point of the shot in the middle of the frame, 0..1).
 // marks: rings drawn on real UI elements [t, fx, fy]. Targets are set after reading each screenshot at full size. ----
 export const SHOTS = [
-  { id: 'approval', img: 'app-approval.png', in: b(7), out: b(8, 3), cam: [[b(7), 1, .5, .5], [b(7, 2), 1.55, .55, .62], [b(8, 3), 1.6, .56, .64]], marks: [[b(7, 3), .56, .66]] },
-  { id: 'inbox', img: 'library-inbox.png', in: b(8, 3), out: b(10), cam: [[b(8, 3), 1, .5, .5], [b(9, 1), 1.5, .45, .35], [b(10), 1.55, .45, .38]], marks: [[b(9, 2), .45, .3]] },
-  { id: 'rooms', img: 'rooms.png', in: b(10), out: b(11), cam: [[b(10), 1, .5, .5], [b(11), 1.2, .55, .5]], marks: [] },
-  { id: 'lattice', img: 'library-lattice.png', in: b(11), out: b(12, 3), cam: [[b(11), 1, .5, .5], [b(12, 3), 1.35, .5, .5]], marks: [] },
-  { id: 'inbox2', img: 'library-inbox.png', in: b(12, 3), out: b(14), cam: [[b(12, 3), 1.5, .5, .3], [b(14), 1.6, .48, .34]], marks: [[b(13, 1), .48, .3]] },
-  { id: 'projects', img: 'projects.png', in: b(14), out: b(15, 3), cam: [[b(14), 1, .5, .5], [b(15, 3), 1.3, .45, .45]], marks: [] },
-  { id: 'pnote', img: 'library-project-note.png', in: b(15, 3), out: b(18), cam: [[b(15, 3), 1, .5, .5], [b(17), 1.45, .55, .4], [b(18), 1.5, .55, .4]], marks: [[b(16, 2), .55, .35]] },
-  { id: 'vmpanel', img: 'app-approval.png', in: b(18), out: b(19, 2), cam: [[b(18), 1.6, .8, .45], [b(19, 2), 1.75, .82, .5]], marks: [] },
-  { id: 'bsvA', img: 'bsv-status.png', in: b(22), out: b(23, 2), cam: [[b(22), 1, .5, .5], [b(23, 2), 1.3, .5, .4]], marks: [] },
-  { id: 'bsvB', img: 'bsv-spend.png', in: b(23, 2), out: b(25), cam: [[b(23, 2), 1.15, .5, .5], [b(25), 1.45, .5, .55]], marks: [] },
-  { id: 'blA', img: 'blender-chooser.png', in: b(25), out: b(26, 3), cam: [[b(25), 1, .5, .5], [b(26, 3), 1.35, .5, .5]], marks: [] },
-  { id: 'blB', img: 'blender-get.png', in: b(26, 3), out: b(28), cam: [[b(26, 3), 1.1, .5, .5], [b(28), 1.4, .5, .55]], marks: [] },
-  { id: 'upd', img: 'update-panel.png', in: b(29), out: b(30), cam: [[b(29), 1.2, .5, .5], [b(30), 1.5, .5, .5]], marks: [] },
+  { id: 'approval', img: 'app-approval.png', in: b(7), out: b(8, 3), cam: [[b(7), 1, .5, .5], [b(7, 2), 1.55, .47, .57]], marks: [[b(7, 3), .233, .54]] },
+  { id: 'inbox', img: 'library-inbox.png', in: b(8, 3), out: b(10), cam: [[b(8, 3), 1, .5, .5], [b(9, 1), 1.4, .58, .37], [b(10), 1.45, .58, .37]], marks: [[b(9, 2), .835, .18]] },
+  { id: 'rooms', img: 'rooms.png', in: b(10), out: b(11), cam: [[b(10), 1, .5, .5], [b(11), 1.25, .6, .5]], marks: [] },
+  { id: 'lattice', img: 'library-lattice.png', in: b(11), out: b(12, 3), cam: [[b(11), 1, .5, .5], [b(12, 3), 1.3, .55, .5]], marks: [] },
+  { id: 'inbox2', img: 'library-inbox.png', in: b(12, 3), out: b(14), cam: [[b(12, 3), 1.5, .45, .4], [b(14), 1.6, .4, .38]], marks: [[b(13, 1), .29, .37]] },
+  { id: 'projects', img: 'projects.png', in: b(14), out: b(15, 3), cam: [[b(14), 1, .5, .5], [b(15, 3), 1.45, .32, .45]], marks: [] },
+  { id: 'pnote', img: 'library-project-note.png', in: b(15, 3), out: b(18), cam: [[b(15, 3), 1, .5, .5], [b(17), 1.75, .71, .3], [b(18), 1.8, .71, .3]], marks: [[b(16, 2), .87, .11]] },
+  { id: 'vmpanel', img: 'app-approval.png', in: b(18), out: b(19, 2), cam: [[b(18), 1.5, .72, .45], [b(19, 2), 1.9, .75, .42]], marks: [] },
+  { id: 'bsvA', img: 'bsv-status.png', in: b(22), out: b(23, 2), cam: [[b(22), 1, .5, .5], [b(23, 2), 1.5, .5, .34]], marks: [] },
+  { id: 'bsvB', img: 'bsv-spend.png', in: b(23, 2), out: b(25), cam: [[b(23, 2), 1.2, .5, .42], [b(25), 1.7, .5, .36]], marks: [] },
+  { id: 'blA', img: 'blender-chooser.png', in: b(25), out: b(26, 3), cam: [[b(25), 1, .5, .5], [b(26, 3), 1.6, .42, .45]], marks: [] },
+  { id: 'blB', img: 'blender-get.png', in: b(26, 3), out: b(28), cam: [[b(26, 3), 1.1, .5, .5], [b(28), 1.5, .55, .55]], marks: [] },
+  { id: 'upd', img: 'update-panel.png', in: b(29), out: b(30), cam: [[b(29), 1.05, .5, .5], [b(30), 1.35, .5, .5]], marks: [] },
 ];
 
 // ---- captions. slot 'col' = right-hand column beside a UI shot; 'mid' = centred; a..b = fully visible window (fades are inside +- .35 s) ----
@@ -70,6 +70,11 @@ export const CAPS = [
   { id: 'upd', slot: 'col', k: 'install', text: 'Updates only when you click.', a: b(29, .5), b: b(29, 3.7) },
   { id: 'loop', slot: 'loopcap', text: 'Listens here only. Testable with fakes.', a: b(30, .2), b: b(30, 3.9) },
 ];
+// Captions in one slot must not share a frame, fades included (0.35 s each side): trim an earlier caption's end so the gap is 0.72 s.
+for (const slot of new Set(CAPS.map((c) => c.slot))) {
+  const L = CAPS.filter((c) => c.slot === slot).sort((x, y) => x.a - y.a);
+  for (let i = 1; i < L.length; i++) if (L[i].a - L[i - 1].b < 0.72) L[i - 1].b = +(L[i].a - 0.72).toFixed(3);
+}
 // each chip belongs to its scene; "not tried" chips are mandatory for BUILT-NOT-TRIED scenes (check.mjs)
 export const CHIPS = [
   { id: 'c-bsv', slot: 'col', text: 'Built against fakes. Not tried with real funds.', a: b(23, 0), b: b(24, 3.7), needs: 'F12' },
@@ -133,7 +138,7 @@ export const T = {
   relic: [
     [0, 960, 400, 600, 0], [b(1, 3.6), 960, 400, 600, 0], [b(2, 2), 960, 400, 600, 1], [b(3, 3.6), 960, 400, 600, 1],
     [b(4, 1.2), 174, 300, 270, 1], [b(6, 3.5), 174, 300, 270, 1],                            // into Zealot's place in the muster grid
-    [b(7, 1.5), 1650, 830, 380, 1], [b(31), 1650, 830, 380, 1], [b(31, 3), 1530, 520, 520, 1],
+    [b(7, 1.5), 1650, 850, 340, 1], [b(31), 1650, 850, 340, 1], [b(31, 3), 1530, 520, 520, 1],
     [b(35, 3), 1530, 520, 520, .0], [b(36), 960, 400, 640, 1], [b(37), 960, 400, 640, 1], [b(38, 2), 960, 250, 420, 1], [200, 960, 250, 420, 1],
   ],
   states: [[0, 'sleeping'], [b(2, 2), 'idle'], [b(4), 'thinking'], [b(7), 'awaiting'], [b(8, 3), 'idle'], [b(11), 'thinking'], [b(14), 'idle'], [b(18, 1), 'hacking'], [b(22), 'awaiting'],

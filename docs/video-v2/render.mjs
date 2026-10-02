@@ -24,8 +24,11 @@ const TMP = process.env.VIDEO_TMP || path.join(os.tmpdir(), 'legion-video-v2');
 
 async function loadPlaywright() {
   try { return { pw: await import('playwright'), opts: {} }; } catch { /* fall through */ }
-  const p = '/tmp/claude-0/pw/node_modules/playwright/index.mjs';
-  return { pw: await import(p), opts: { executablePath: '/opt/pw-browsers/chromium' } };
+  const hint = process.env.PLAYWRIGHT_PATH;
+  if (!hint) throw new Error('Playwright not found: npm i --no-save playwright, or set PLAYWRIGHT_PATH to a playwright package folder');
+  const entry = ['index.mjs', 'index.js'].map((f) => path.join(hint, f)).find((f) => fs.existsSync(f));
+  const opts = process.env.CHROMIUM_PATH ? { executablePath: process.env.CHROMIUM_PATH } : {};
+  return { pw: await import(entry), opts };
 }
 
 const MIME = { '.html': 'text/html', '.js': 'text/javascript', '.mjs': 'text/javascript', '.css': 'text/css', '.json': 'application/json', '.png': 'image/png', '.woff2': 'font/woff2', '.svg': 'image/svg+xml', '.txt': 'text/plain', '.jpg': 'image/jpeg' };
@@ -44,7 +47,8 @@ async function openPage(browser, port, gif = false) {
   page.on('pageerror', (e) => console.error('page error:', e.message));
   await page.goto(`http://127.0.0.1:${port}/docs/video-v2/trailer.html${gif ? '?gif=1' : ''}`);
   await page.waitForFunction('window.__ready === true', null, { timeout: 60000 });
-  const txt = await page.evaluate(() => document.body.innerText);
+  // the painted mascots carry their own code-scroll text (art, untouchable); check only our own elements
+  const txt = await page.evaluate(() => { const c = document.body.cloneNode(true); c.querySelectorAll('.mx,svg,canvas,script').forEach((e) => e.remove()); document.body.appendChild(c); const t = c.innerText; c.remove(); return t; });
   for (const bad of ['OWNER', 'TODO', 'lorem', '(harness output missing)']) if (txt.includes(bad)) throw new Error(`placeholder "${bad}" on screen`);
   return page;
 }

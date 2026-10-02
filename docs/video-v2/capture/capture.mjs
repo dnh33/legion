@@ -103,11 +103,12 @@ async function main() {
 
   // ---- 3 + 2: lattice, inbox
   if (on('library-lattice') || on('library-inbox') || on('library-project-note')) {
-    const { ctx, page, errors } = await openPage(s);
+    const { ctx, page, errors } = await openPage(s, { ops: false });
+    const fit = async () => { await page.getByRole('button', { name: 'Fit to view' }).click(); await sleep(1500); };
     await page.getByRole('tab', { name: /^Library/ }).click(); await sleep(1500);
     if (on('library-lattice')) {
       await page.getByText('Retry only idempotent calls', { exact: true }).first().click();
-      await sleep(1500);
+      await sleep(1200); await fit();
       await page.mouse.move(1000, 520); await sleep(500);
       await page.screenshot({ path: join(out, 'library-lattice.png') }); console.log('wrote library-lattice.png');
     }
@@ -118,8 +119,7 @@ async function main() {
     }
     if (on('library-project-note')) {
       await page.getByPlaceholder('Search the Lattice').fill('Sessions last'); await sleep(1200);
-      await shot(page, '_explore-pnote-search');
-      await page.getByText('Sessions last 8 hours on shared computers').first().click(); await sleep(1500);
+      await page.getByText('Sessions last 8 hours on shared computers').first().click(); await sleep(1200); await fit();
       await shot(page, 'library-project-note');
     }
     console.log('errors', errors);
@@ -156,7 +156,11 @@ async function main() {
     }
     if (on('update-panel')) {
       await page.locator('.set-nav').getByText('About', { exact: true }).click(); await sleep(1500);
-      await shot(page, 'update-panel');
+      // crop to the Updates panel only (the rest of About shows temp-folder paths and the Browser card)
+      const box = await page.locator('.upd').boundingBox();
+      await page.mouse.move(1, 1); await sleep(300);
+      await page.screenshot({ path: join(out, 'update-panel.png'), clip: { x: Math.max(0, box.x - 32), y: Math.max(0, box.y - 28), width: Math.min(1440 - box.x + 32, box.width + 64), height: box.height + 56 } });
+      console.log('wrote update-panel.png');
     }
     console.log('errors', errors);
     await ctx.close();
@@ -193,9 +197,8 @@ async function main() {
   if (on('app-approval')) await approvalShot(s, 'app-approval');
 }
 
-/** A task thread with tool chips and a PENDING approval card from an `ask` agent; the VM is started so the Computer panel has a state to show. */
+/** A task thread with tool chips and a PENDING approval card from an `ask` agent. The VM is NOT started: the fake boat.dev cannot serve a desktop picture, so the panel would show a broken image. */
 async function approvalShot(s, name) {
-  await s.call('POST', '/api/vms/forgemaster/start').catch(() => undefined);
   const prompt = 'Run the tests and fix whatever fails';
   const t = await runTask(s, 'forgemaster', prompt, [
     { say: 'I will look at the test setup first, then run the suite.' },
@@ -224,7 +227,11 @@ async function bsvStack() {
   if (on('bsv-status') || on('bsv-spend')) {
     const { ctx, page, errors } = await openPage(s);
     await page.getByRole('button', { name: 'Open the BSV panel' }).click(); await sleep(2000);
-    await shot(page, '_explore-bsv');
+    if (on('bsv-status')) await shot(page, 'bsv-status');
+    if (on('bsv-spend')) {
+      await page.locator('#bsv-h-spend').evaluate((el) => el.scrollIntoView({ block: 'start' })); await sleep(600);
+      await shot(page, 'bsv-spend');
+    }
     console.log('errors', errors);
     await ctx.close();
   }

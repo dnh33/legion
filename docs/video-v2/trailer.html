@@ -101,6 +101,7 @@ canvas,svg.full{position:absolute;left:0;top:0;width:1920px;height:1080px}
 .capc{font:700 66px/1.1 var(--disp);color:var(--parch);text-align:center;text-shadow:0 4px 28px #000}
 .chipw{font:600 21px/1.35 var(--mono);color:#ffe1a0;border:1px solid rgba(255,204,102,.65);padding:11px 15px;background:rgba(255,204,102,.08);border-radius:4px;text-shadow:0 0 12px rgba(255,204,102,.3)}
 .uiframe{position:absolute;left:60px;top:140px}
+.cam{position:absolute;left:0;top:0;width:1280px;height:800px;transform-origin:0 0}.cam img{position:absolute;left:0;width:1280px;display:block}
 .uiframe>.inner{width:1280px;height:800px}
 .uiframe>.inner::after{content:"";position:absolute;inset:0;box-shadow:inset 0 0 40px 18px #050607;pointer-events:none}
 .mark{fill:none;stroke:var(--phos);stroke-width:3}
@@ -119,7 +120,7 @@ canvas,svg.full{position:absolute;left:0;top:0;width:1920px;height:1080px}
 .nts{font:600 46px/1.2 var(--disp);color:#9fb3c0}
 .nidx{font:600 22px/1 var(--mono);color:#5f7684;letter-spacing:.2em}
 .loopbig{font:700 120px/1 var(--mono);color:var(--phos);text-shadow:0 0 30px rgba(124,255,178,.4)}
-.hbody{padding:20px 26px;font:400 22px/34px var(--mono);color:#b9c2cf;white-space:pre;height:430px;background:linear-gradient(#07090b,#05070a)}
+.hbody{padding:18px 26px;font:400 22px/32px var(--mono);color:#b9c2cf;white-space:pre;height:300px;overflow:hidden;background:linear-gradient(#07090b,#05070a)}
 .hbody .gr{color:var(--phos)}
 .tagb{font:600 56px/1 var(--mono);letter-spacing:.18em;color:#b9f5d2;text-shadow:0 0 24px rgba(124,255,178,.35)}
 
@@ -226,7 +227,7 @@ canvas,svg.full{position:absolute;left:0;top:0;width:1920px;height:1080px}
   <div id="loopw" class="abs hide" style="left:0;top:0;width:1920px;height:1080px">
     <div class="abs loopbig" style="left:110px;top:300px">127.0.0.1</div>
     <div id="loopcap" class="abs cap" style="left:110px;top:470px;width:700px">Listens here only. Testable with fakes.</div>
-    <div id="harn" class="frame term" style="left:880px;top:250px"><div class="inner" style="width:860px"><div class="thead"><span>HARNESS · FAKE MODEL, WALLET, BLENDER</span></div><div id="hbody" class="hbody"></div></div><i class="cn a"></i><i class="cn b"></i><i class="cn c"></i><i class="cn d"></i></div>
+    <div id="harn" class="frame term" style="left:880px;top:230px"><div class="inner" style="width:860px"><div class="thead"><span>HARNESS · FAKE MODEL, WALLET, BLENDER</span></div><div id="hbody" class="hbody"></div></div><i class="cn a"></i><i class="cn b"></i><i class="cn c"></i><i class="cn d"></i></div>
   </div>
 
   <!-- NEXT -->
@@ -317,7 +318,7 @@ await Promise.all(ROSTER.map(async ([id, name, role], i) => {
   const lab = document.createElement('div'); lab.className = 'bn hide'; lab.style.left = (g.x - 131) + 'px'; lab.style.top = (g.y + 128) + 'px';
   lab.innerHTML = `<b>${name}</b><span>${role}</span>`; $('muster').appendChild(lab);
   if (i === 0) { bustHosts.push({ i, lab, g }); return; }
-  const host = document.createElement('div'); host.className = 'bust hide'; host.style.left = (g.x - 115) + 'px'; host.style.top = (g.y - 120) + 'px'; $('muster').appendChild(host);
+  const host = document.createElement('div'); host.className = 'bust hide'; host.style.left = (g.x - 115) + 'px'; host.style.bottom = (1080 - (g.y + 118)) + 'px'; $('muster').appendChild(host);
   const data = await (await fetch(`../../ui/src/mascot/data/${id}.json`)).json();
   const persona = await (await fetch(`../../ui/src/mascot/personas/${id}.json`)).json();
   const m = createMascot(host, data, { rail: true, cropRail: persona.cropRail || data.cropRail, persona, quips: [], annoyedQuip: '' });
@@ -330,8 +331,8 @@ bustHosts.sort((a, b) => a.i - b.i);
 const FW = 1280, FH = 800, FX = 60, FY = 140;
 const shotEls = SHOTS.map((s) => {
   const d = document.createElement('div'); d.className = 'frame uiframe hide';
-  d.innerHTML = `<div class="inner"><img src="./shots/${s.img}"></div><i class="cn a"></i><i class="cn b"></i><i class="cn c"></i><i class="cn d"></i>`;
-  $('shots').appendChild(d); return { s, d, img: d.querySelector('img') };
+  d.innerHTML = `<div class="inner"><div class="cam"><img src="./shots/${s.img}"></div></div><i class="cn a"></i><i class="cn b"></i><i class="cn c"></i><i class="cn d"></i>`;
+  $('shots').appendChild(d); return { s, d, img: d.querySelector('.cam'), im: d.querySelector('img') };
 });
 $('marks').innerHTML = SHOTS.flatMap((s, si) => s.marks.map((_, mi) => `<circle class="mark" id="mk${si}_${mi}" r="10" opacity="0"/>`)).join('');
 function camState(s, t) { const [z, cx, cy] = keysAt(t, s.cam); return { z, cx, cy }; }
@@ -347,7 +348,7 @@ const kickEls = {};
 for (const [id, name] of Object.entries(KICKER)) { const d = document.createElement('div'); d.className = 'col k hide'; d.style.top = '198px'; d.textContent = name; $('cols').appendChild(d); kickEls[id] = d; }
 const chipEls = CHIPS.map((c) => {
   let d;
-  if (c.slot === 'col') { d = document.createElement('div'); d.className = 'col chipw hide'; d.style.top = '610px'; d.style.width = '440px'; d.textContent = c.text; $('cols').appendChild(d); }
+  if (c.slot === 'col') { d = document.createElement('div'); d.className = 'col chipw hide'; d.style.top = '540px'; d.style.width = '440px'; d.textContent = c.text; $('cols').appendChild(d); }
   else d = $('chipA');
   return { c, d };
 });
@@ -453,7 +454,7 @@ function drawLog(t) {
 }
 /* ---- harness output: the real stdout captured from `legion-harness.mjs scenarios` (shots/harness-output.txt), trimmed ---- */
 let HLINES = ['(harness output missing)'];
-try { const r = await fetch('./shots/harness-output.txt'); if (r.ok) HLINES = (await r.text()).split('\n').map((l) => l.replace(/\s+$/, '')).filter(Boolean).map((l) => l.slice(0, 54)).slice(0, 12); } catch { /* shown as missing, render refuses placeholders */ }
+try { const r = await fetch('./shots/harness-output.txt'); if (r.ok) HLINES = (await r.text()).split('\n').map((l) => l.replace(/\s+$/, '')).filter((l) => l && !l.startsWith('#')).map((l) => l.trim().slice(0, 50)).slice(0, 9); } catch { /* shown as missing, render refuses placeholders */ }
 function drawHarness(t, a) {
   const n = Math.floor(clamp((t - a) * 9, 0, HLINES.length));
   $('hbody').innerHTML = HLINES.slice(0, n).map((l) => esc(l).replace(/(PASS|"ok": true|true)/g, '<span class="gr">$1</span>')).join('\n');
@@ -569,6 +570,7 @@ await document.fonts.load('700 100px "Grenze Gotisch"'); await document.fonts.lo
 await document.fonts.load('600 20px "IBM Plex Sans"'); await document.fonts.load('500 20px "IBM Plex Sans"');
 await document.fonts.load('400 20px "JetBrains Mono"'); await document.fonts.load('600 20px "JetBrains Mono"');
 await Promise.all([...document.images].map((i) => i.decode().catch(() => {})));
+for (const e of shotEls) { const ar = e.im.naturalWidth / e.im.naturalHeight; e.im.style.height = (FW / ar) + 'px'; e.im.style.top = ((FH - FW / ar) / 2) + 'px'; }
 window.render(0);
 window.__ready = true;
 
