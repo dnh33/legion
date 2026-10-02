@@ -49,3 +49,9 @@ Cloud work runs on the claude.ai/code web surface (credits). Branches live in pr
 - Investigated by a local agent for about 45 minutes (worktree `D:/bots/legion-wt-r61`, branch `fix/r61-replay`): no failing sample reproduced; the test was instrumented to print which part differs.
 - Hypothesis (from reading `src/core/kg/graph.ts`): search score = BM25 x recency factor from `this.now()` (wall clock), rounded to 4 decimals; the test builds the live and the reloaded Graph without an injected `now`, so searches run at different moments. If true it is a test timing problem, not a replay bug. Sent to the agent for a 5 minute test.
 - Status until proven: **unverified**. The Library's "restart equals live" guarantee must be reported as not confirmed on Windows.
+
+## After install: Legion MCP for Claude Code (owner approved 2026-10-02, user scope)
+
+1. Back up `~/.claude.json` to `~/.claude/backups/2026-10-02-legion-mcp/` with RESTORE.md.
+2. `claude mcp add --scope user legion -- node "%LOCALAPPDATA%\Programs\Legion\dist\srcin\legion-mcp-stdio.js"` (stdio bridge reads the token itself; no token in the Claude config).
+3. Verify tools list, then a one-line Haiku task. Token class cannot approve cards, accept notes or change settings. Remove with `claude mcp remove legion`.
