@@ -195,6 +195,11 @@ test('bug 3: stopping a VM that is already stopped is also a plain no-op; a real
   assert.equal(b.stopped, false);
   assert.match(b.message, /already stopped/);
   assert.equal(s.fb.count('POST', /\/stop$/), 1);
+  // the record says archived but boat.dev has it running (resumed from the dashboard): stop really stops it
+  s.fb.sandboxes.get('bx_1')!.state = 'ready';
+  const c = await s.vm.stop('zealot');
+  assert.equal(c.stopped, true);
+  assert.equal(s.fb.count('POST', /\/stop$/), 2);
 });
 
 // ---- 4. key permissions ---------------------------------------------------------------------------------------------------------

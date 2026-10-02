@@ -84,8 +84,13 @@ export class VmManager {
       if (hadFailure) rec = this.save({ ...rec, state: 'none', error: undefined, notice: undefined });
       return done(false, `No sandbox to stop: ${agentId} has no VM right now.${hadFailure ? ' (Its last start failed; that failure is cleared.)' : ''}`, rec);
     }
-    if (rec.state === 'archived') return done(false, 'The VM is already stopped (snapshot kept, not billed).', rec);
     const id = rec.sandboxId;
+    if (rec.state === 'archived') {
+      // The record says stopped: confirm with boat.dev before saying so (someone may have resumed it from the dashboard, and it would be billing).
+      let up = false;
+      try { up = LIVE_STATES.has(mapBoatState((await boat.get(id)).state)); } catch { /* unreachable or gone: treat as stopped */ }
+      if (!up) return done(false, 'The VM is already stopped (snapshot kept, not billed).', rec);
+    }
     try {
       await boat.stop(id);
     } catch (e) {
