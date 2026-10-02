@@ -191,3 +191,15 @@ test('C13 many writes compact the log on their own', () => {
   assert.equal(new BoardStore(d).get(PID, i.id)!.description, 'v399');
   appendFileSync(join(d, `${PID}.jsonl`), '');
 });
+
+test('C3 the Inbox holds at most 30 proposals per project', () => {
+  const clock = { now: 0 };
+  const members = ['m1', 'm2', 'm3', 'm4', 'm5', 'm6'];
+  const PX: ProjectRef = { id: PID, members, status: 'active' };
+  const s = new BoardStore(dir(), () => clock.now);
+  let n = 0;
+  for (const m of members) for (let k = 0; k < 5; k++, n++) { clock.now = n * 11 * 60_000; s.propose(PX, m, { title: `${m}-${k}` }, run); }
+  assert.equal(s.view(PX).inbox.length, BOARD_LIMITS.inboxPerProject);
+  clock.now += 99 * 60_000;
+  code(() => s.propose(PX, 'm1', { title: 'one more' }, run), 409, /already holds 30/);
+});
