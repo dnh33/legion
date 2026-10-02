@@ -25,6 +25,7 @@ export const ALLOWLIST: Allow = {
   'ui/src/api.ts': { kinds: ['fetch'], reason: "the UI's client of the local core (fetch and EventSource on the core base URL)" },
   'ui/src/rooms/roomsStore.ts': { kinds: ['fetch'], reason: 'downloads a room export from the local core' },
   'src/core/blender/static-check.ts': { kinds: ['decode'], reason: 'the Blender script safety check decodes Python string escapes (\\x41, \\u0041) so it reads literal file paths and attribute names the way Python would' },
+  'src/core/blender/tcp.ts': { kinds: ['socket-module'], reason: 'the Blender bridge talks to the add-on socket on 127.0.0.1 only (isLoopbackHost is checked before every connect; the config normalizer refuses any other host)' },
   'src/core/comms/scrub.ts': { kinds: ['decode'], reason: 'the secret detector decodes base64 and rot13 candidates to find seed phrases hidden in them' },
 };
 
