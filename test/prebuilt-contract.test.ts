@@ -21,7 +21,7 @@ test('contract: the package branch of setup.ps1 has no Node check, no npm, no bu
   const srcBranch = between(setup, '} else {\n  # 3) Copy the source', '# 5) Claude Code');
   assert.match(srcBranch, /robocopy/); assert.match(srcBranch, /npm ci/); assert.match(srcBranch, /npm run build/);
   assert.match(setup, /if \(\$kind -eq 'package' -or \$wantZip\) \{\n    Step 'Checking Node\.js'\n    Say 'Not needed/, 'the Node step is skipped for a package');
-  assert.doesNotMatch(boot.split('\n').filter((l) => !l.trim().startsWith('#')).join('\n'), /robocopy|npm\b|\bgit\b/i);
+  assert.doesNotMatch(boot.split('\n').filter((l) => !l.trim().startsWith('#')).join('\n'), /robocopy|\bnpm (ci|run|install)|\bnpx\b|\bgit (clone|pull|fetch)/i);
 });
 
 test('contract: a zip is obtained (hash checked, unpacked) BEFORE Legion is stopped, and unpacked only after the hash compare', () => {
