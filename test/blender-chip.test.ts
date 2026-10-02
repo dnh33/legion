@@ -116,7 +116,8 @@ async function loadChip(): Promise<{ render: RenderFn; cleanup: () => void }> {
         b.onLoad({ filter: /^store-stub$/, namespace: 'stub' }, () => ({ loader: 'js', contents: `export const openSettings = (s) => { globalThis.__calls.push(['openSettings', s]); };` }));
         b.onLoad({ filter: /^blender-stub$/, namespace: 'stub' }, () => ({ loader: 'js', contents: `
           export const useBlender = (sel) => sel(globalThis.__st);
-          export const saveBlenderConfig = async (p) => { globalThis.__calls.push(['saveBlenderConfig', p]); };` }));
+          export const saveBlenderConfig = async (p) => { globalThis.__calls.push(['saveBlenderConfig', p]); };
+          export const requestEnableBlender = () => { globalThis.__calls.push(['requestEnableBlender']); };` }));
       },
     }],
   });
@@ -128,12 +129,12 @@ async function loadChip(): Promise<{ render: RenderFn; cleanup: () => void }> {
 }
 const uiState = (st: unknown, over: Record<string, unknown> = {}) => ({ status: st, loaded: true, busy: null, error: null, failed: false, absent: false, ...over });
 
-test('the chip switch calls saveBlenderConfig({ enabled }) - the same function as the Settings switch - and opens Settings, Blender from the status button', async () => {
+test('the chip switch asks first when turning ON (requestEnableBlender), writes saveBlenderConfig({ enabled: false }) when turning OFF, and the status button opens Settings, Blender from the status button', async () => {
   const { render, cleanup } = await loadChip();
   try {
     const off = render(uiState(status('off', { enabled: false })));
     off.buttons.find((b) => b.role === 'switch')!.onClick!();
-    assert.deepEqual(off.calls, [['saveBlenderConfig', { enabled: true }]]);
+    assert.deepEqual(off.calls, [['requestEnableBlender']]); // ON opens the dialog first and writes nothing
     const on = render(uiState(status('local', { selected: v510 })));
     on.buttons.find((b) => b.role === 'switch')!.onClick!();
     assert.deepEqual(on.calls, [['saveBlenderConfig', { enabled: false }]]);
@@ -156,14 +157,13 @@ test('the chip switch calls saveBlenderConfig({ enabled }) - the same function a
   } finally { cleanup(); }
 });
 
-test('source: one write path. Settings and the chip both use saveBlenderConfig; the chip has no request of its own', () => {
+test('source: one write path. Settings and the chip both go through requestEnableBlender; the chip has no request of its own', () => {
   const chip = read('ui/src/blender/BlenderChip.tsx');
   const settings = read('ui/src/components/Settings.tsx');
-  assert.match(settings, /saveBlenderConfig\(\{ enabled: e\.target\.checked \}\)/);
-  assert.match(chip, /saveBlenderConfig\(\{ enabled: !m\.enabled \}\)/);
+  assert.match(settings, /if \(e\.target\.checked\) requestEnableBlender\(\); else void saveBlenderConfig\(\{ enabled: false \}\)/);
+  assert.match(chip, /if \(m\.enabled\) void saveBlenderConfig\(\{ enabled: false \}\); else requestEnableBlender\(\)/);
   assert.match(chip, /import \{[^}]*saveBlenderConfig[^}]*\} from '\.\/blenderStore'/);
   assert.ok(!/\brequest\(|\bfetch\(|runBlenderGet|runBlenderSetup|runBlenderLaunch|XMLHttpRequest/.test(chip), 'the chip never calls the core itself and never starts a download');
-  assert.ok(!/confirm\(|window\.prompt|showModal/.test(settings.slice(settings.indexOf('function BlenderSection'), settings.indexOf('function ConnectionsSection'))), 'Settings asks no confirmation for the switch, so the chip needs none');
 });
 
 test('source: mounted in the title bar right after the BSV chip (its narrow-window slot draws over what sits before it) and before Doctor; focus ring and narrow-window rules exist', () => {

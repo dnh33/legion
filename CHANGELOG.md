@@ -6,7 +6,7 @@ All notable changes are recorded here. The format follows [Keep a Changelog](htt
 
 ### Blender
 
-- **Added: a Blender chip in the title bar**, next to the BSV chip: a status light with a short label taken only from real status ("Blender: unknown" when the status is unknown or failed), a switch for `blender.enabled` that uses the same function as the Settings switch, and a link to Settings, Blender ("Get Blender" when none is found; it does not download). No chip with an older core that has no Blender module. Not yet looked at in the real app (B17 in `claude/tracker-pc-checks.md`).
+- **Added: a Blender chip in the title bar**, next to the BSV chip: a status light with a short label taken only from real status ("Blender: unknown" when the status is unknown or failed), a switch for `blender.enabled`, and a link to Settings, Blender ("Get Blender" when none is found; it does not download). No chip with an older core that has no Blender module. **Turning Blender ON now asks first**, from the chip and from Settings (one shared dialog, "Turn on Blender?", Cancel is the default); turning it off asks nothing. Not yet looked at in the real app (B17 in `claude/tracker-pc-checks.md`).
 
 ### BSV
 

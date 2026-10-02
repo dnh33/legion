@@ -1,12 +1,12 @@
 import { useEffect, useRef, useState } from 'react';
 import { openSettings } from '../store';
-import { saveBlenderConfig, useBlender } from './blenderStore';
+import { requestEnableBlender, saveBlenderConfig, useBlender } from './blenderStore';
 import { BLENDER_CHIP_TIP, chipModel } from './chipModel';
 import './blender.css';
 
 /**
  * Title-bar chip for the Blender bridge: a status button (opens Settings, Blender; "Get Blender" only opens Settings, it never downloads)
- * and the enable switch. The switch calls saveBlenderConfig({ enabled }), the same function and the same admin route as the Settings switch.
+ * and the enable switch. Turning ON calls requestEnableBlender (the "Turn on Blender?" dialog, shared with Settings; the write is saveBlenderConfig after Confirm); turning OFF calls saveBlenderConfig directly, as Settings does.
  * Renders nothing when the core has no Blender module. Sits in .tb-right next to the BSV chip.
  */
 export function BlenderChip() {
@@ -35,7 +35,7 @@ export function BlenderChip() {
       <button
         type="button" role="switch" aria-checked={m.enabled} aria-label="Blender bridge"
         className={`tb-bl-switch${m.enabled ? ' on' : ''}`} title={BLENDER_CHIP_TIP} disabled={m.switchDisabled} data-error={error ? '1' : undefined}
-        onClick={() => void saveBlenderConfig({ enabled: !m.enabled })}
+        onClick={() => { if (m.enabled) void saveBlenderConfig({ enabled: false }); else requestEnableBlender(); }}
       >
         <span className="tb-bl-label">Blender</span>
         <i className="tb-bl-track" aria-hidden="true" />

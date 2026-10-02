@@ -22,9 +22,11 @@ export interface BlenderUiState {
   /** The last GET /api/blender failed (offline, or an older core). `absent`: the core answered 404, so it has no Blender module. */
   failed: boolean;
   absent: boolean;
+  /** The "Turn on Blender?" dialog is open. */
+  confirmOpen: boolean;
 }
 
-let state: BlenderUiState = { status: null, loaded: false, busy: null, steps: [], stepsTitle: '', error: null, retrust: null, failed: false, absent: false };
+let state: BlenderUiState = { status: null, loaded: false, busy: null, steps: [], stepsTitle: '', error: null, retrust: null, failed: false, absent: false, confirmOpen: false };
 const listeners = new Set<() => void>();
 const set = (p: Partial<BlenderUiState>) => { state = { ...state, ...p }; listeners.forEach((l) => l()); };
 const sub = (l: () => void) => { listeners.add(l); return () => { listeners.delete(l); }; };
@@ -72,3 +74,18 @@ export const runBlenderGet = () => act('get', 'Get Blender for Legion', () => re
 export const runBlenderLaunch = () => act('launch', 'Launch', () => request<{ ok: boolean; steps: BlenderSetupStep[]; status: BlenderStatusView }>('POST', '/api/blender/launch', {}));
 
 export { lightLabel } from './chipModel';
+
+/**
+ * The one way to turn Blender ON from the UI (title-bar chip and Settings both call it): it opens the "Turn on Blender?" dialog and writes nothing.
+ * Only confirmEnableBlender writes, through saveBlenderConfig. Turning OFF needs no dialog: callers use saveBlenderConfig({ enabled: false }).
+ */
+export function requestEnableBlender(): void {
+  if (state.busy || state.status?.enabled) return;
+  set({ confirmOpen: true });
+}
+export function cancelEnableBlender(): void { set({ confirmOpen: false }); }
+export function confirmEnableBlender(): void {
+  if (!state.confirmOpen) return;
+  set({ confirmOpen: false });
+  void saveBlenderConfig({ enabled: true });
+}

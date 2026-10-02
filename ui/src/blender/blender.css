@@ -91,3 +91,4 @@
   .tb-bl-text, .tb-bl-label { display: none; }
   .tb-bl-status { padding: 0 8px; }
 }
+.bl-enable-text { margin: 0; color: var(--text-2); font-size: 13px; line-height: 1.5; }

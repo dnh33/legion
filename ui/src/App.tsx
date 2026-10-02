@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { initBlender } from './blender/blenderStore';
+import { EnableBlenderDialog } from './blender/EnableBlenderDialog';
 import { initBsv } from './bsv/bsvStore';
 import { ChainOverlay } from './bsv/ChainOverlay';
 import { AgentEditor } from './components/AgentEditor';
@@ -102,6 +103,7 @@ export function App() {
       <TaskMenu />
       <Toasts />
       <ChainOverlay />
+      <EnableBlenderDialog />
     </div>
   );
 }
