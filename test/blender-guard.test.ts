@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync, spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, readFileSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { BLENDER_EXEC_TOOL } from '../src/shared/blender.js';
 import { summarizeToolInput } from '../src/core/approvals.js';
@@ -9,6 +9,8 @@ import { AuditLog, verifyAudit } from '../src/core/blender/audit.js';
 import { backupScript, cleanPurpose, resolveMode, wrapLive } from '../src/core/blender/guard.js';
 import { scriptHash } from '../src/core/blender/static-check.js';
 import { agent, connectTools, GOOD_SCRIPT, rig, tmp } from './blender-helpers.js';
+import { linkOrSkip } from './fs-links.js';
+import { PYTHON_UTF8_ENV } from '../src/core/blender/backend.js';
 
 const RAW_TOOL_NAMES = ['execute_blender_code', 'execute_python', 'execute_code', 'execute_blender_code_for_cli', 'blender_execute', 'run_python'];
 
@@ -469,7 +471,8 @@ test('wrapLive: defines LEGION_EXPORT_DIR, keeps __name__ == "__main__" and line
   const script = 'import bpy\nprint("dir", LEGION_EXPORT_DIR)\nprint("name", __name__)\nprint("üñí \\u2028 \'\\"\' \\\\")\nraise ValueError("boom at line 5")\n';
   const exportDir = process.platform === 'win32' ? 'C:\\Users\\Dan\\ws\\blender-exports' : '/tmp/ws "q"/blender-exports';
   writeFileSync(join(dir, 'w.py'), wrapLive(script, exportDir));
-  const r = spawnSync('python3', [join(dir, 'w.py')], { env: { ...process.env, PYTHONPATH: dir }, encoding: 'utf8' });
+  // the script prints U+2028: run it the way Legion starts Python (UTF-8 forced), not under the machine's ANSI code page
+  const r = spawnSync('python3', [join(dir, 'w.py')], { env: { ...process.env, ...PYTHON_UTF8_ENV, PYTHONPATH: dir }, encoding: 'utf8' });
   assert.match(r.stdout, new RegExp(`dir ${exportDir.replace(/[\\.*+?^${}()|[\]]/g, '\\$&')}`));
   assert.match(r.stdout, /name __main__/);
   assert.match(r.stderr, /File "<legion-script>", line 5, in <module>/);
@@ -667,14 +670,12 @@ test('S7: a script with bidi controls never reaches a card', async () => {
   await t.close();
 });
 
-const linkOk = process.platform !== 'win32';
-
-test('S8: a live export folder that is a symbolic link to somewhere else is refused before any card', { skip: !linkOk }, async () => {
+test('S8: a live export folder that is a symbolic link to somewhere else is refused before any card', async (tc) => {
   const r = rig();
   const outside = tmp('legion-outside-');
   const ws = join(r.dataDir, 'ws', 'sculptor');
   mkdirSync(ws, { recursive: true });
-  symlinkSync(outside, join(ws, 'blender-exports'));
+  if (!linkOrSkip(tc, outside, join(ws, 'blender-exports'), 'dir')) return;
   const t = await connectTools(r);
   const res = await t.call('blender_exec', { script: GOOD_SCRIPT, mode: 'live' });
   assert.equal(res.isError, true);
@@ -685,12 +686,12 @@ test('S8: a live export folder that is a symbolic link to somewhere else is refu
   await t.close();
 });
 
-test('S8: a link planted INSIDE the live export folder is refused too, and a normal folder passes (the card shows the real path)', { skip: !linkOk }, async () => {
+test('S8: a link planted INSIDE the live export folder is refused too, and a normal folder passes (the card shows the real path)', async (tc) => {
   const r = rig();
   const outside = tmp('legion-outside-');
   const dir = join(r.dataDir, 'ws', 'sculptor', 'blender-exports');
   mkdirSync(dir, { recursive: true });
-  symlinkSync(outside, join(dir, 'planted'));
+  if (!linkOrSkip(tc, outside, join(dir, 'planted'), 'dir')) return;
   const t = await connectTools(r);
   const bad = await t.call('blender_exec', { script: GOOD_SCRIPT, mode: 'live' });
   assert.equal(bad.isError, true);

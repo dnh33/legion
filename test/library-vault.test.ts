@@ -4,13 +4,14 @@
 import test, { after } from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { cpSync, existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { join, relative } from 'node:path';
 import { createKnowledgeModule } from '../src/core/kg/index.js';
 import { agentActor, HUMAN } from '../src/core/kg/types.js';
 import { exportLibrary, exportVault, importVault as importVaultRaw, inlineTags, isLibraryExportable, parseFrontmatter, vaultFileName } from '../src/core/kg/vault.js';
 import { makeFakes, start, TOKEN, AUTH } from './helpers-c.js';
 import { mkGraph, tmpDir } from './kg-helpers.js';
+import { fileLinkOrSkip, linkOrSkip } from './fs-links.js';
 
 /** These tests exercise the user-initiated import (the app's route); the held-only default is covered in library-review-integrity. */
 const importVault = (g: Parameters<typeof importVaultRaw>[0], dir: string, actor?: Parameters<typeof importVaultRaw>[2]) =>
@@ -176,17 +177,17 @@ test('import never reads the legion/ mirror back (no loop, no relabelling bot no
   assert.equal(f.g.getNode(HUMAN, f.good.id)!.trust, 'agent');
 });
 
-test('exportLibrary refuses to write through a legion/ link', () => {
+test('exportLibrary refuses to write through a legion/ link', (t) => {
   const { g } = mkGraph();
   g.upsertNode(bot('alpha'), { title: 'Bot note', type: 'pattern' });
   const vault = tmpDir();
   const outside = tmpDir();
-  try { symlinkSync(outside, join(vault, 'legion')); } catch { return; /* no symlinks on this platform */ }
+  if (!linkOrSkip(t, outside, join(vault, 'legion'), 'dir')) return; // a junction on Windows
   assert.throws(() => exportLibrary(g, vault), /not write through it/);
   assert.deepEqual(readdirSync(outside), []);
 });
 
-test('exportLibrary never writes through a leaf symlink inside legion/ (skips only where symlinks are unsupported)', (t) => {
+test('exportLibrary never writes through a leaf symlink inside legion/ (a hard link where file symlinks need privilege)', (t) => {
   const { g } = mkGraph();
   const n = g.upsertNode(bot('alpha'), { title: 'Bot note', type: 'pattern' }).node;
   const vault = tmpDir();
@@ -195,7 +196,8 @@ test('exportLibrary never writes through a leaf symlink inside legion/ (skips on
   const outsideDir = tmpDir();
   const target = join(outsideDir, 'precious.txt');
   writeFileSync(target, 'PRECIOUS');
-  try { rmSync(leaf); symlinkSync(target, leaf); } catch (e) { t.skip(`symlinks are not supported here: ${(e as Error).message}`); return; }
+  rmSync(leaf);
+  if (!fileLinkOrSkip(t, target, leaf)) return;
   g.upsertNode(bot('alpha'), { id: n.id, body: 'changed so the file is rewritten' });
   exportLibrary(g, vault);
   assert.equal(readFileSync(target, 'utf8'), 'PRECIOUS', 'the file the link pointed at is untouched');

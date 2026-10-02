@@ -1,9 +1,9 @@
 /** Adversarial review, category 5 (secrets, vault export/import) and 4 (HTTP routes). Asserts the SECURE behaviour. */
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
-import { tmpdir, userInfo } from 'node:os';
+import { homedir, tmpdir } from 'node:os';
 import { join, resolve, sep } from 'node:path';
 import { tryFileLinkOrHard, tryLink } from './fs-links.js';
 import { Graph } from '../src/core/kg/graph.js';
@@ -289,21 +289,38 @@ test('R4.3 residual (documented): the bearer token is not in the child env but s
   const env = buildChildEnv(cfg);
   assert.ok(!Object.values(env).some((v) => v === cfg.authToken), 'bearer token must not be in the child process environment');
   assert.ok(!Object.values(env).some((v) => typeof v === 'string' && v.includes(cfg.authToken)));
-  const home = mkdtempSync(join(tmpdir(), 'lhome-'));
+  // On Windows the config inherits the ACL of the directory it is created in, so the home is made under the profile (where the real
+  // default %USERPROFILE%\.legion lives), not under %TEMP%, whose ACL a sandbox or CI image may widen and which says nothing about the product.
+  const home = mkdtempSync(join(process.platform === 'win32' ? homedir() : tmpdir(), 'lhome-'));
+  t.after(() => { try { rmSync(home, { recursive: true, force: true }); } catch { /* best effort */ } });
   process.env.LEGION_HOME = home;
   return import('../src/shared/config.js').then((m) => {
     m.loadConfig();
     if (process.platform === 'win32') {
-      // Windows has no 0600: the file's privacy is its ACL. Every principal on it must be the owner, SYSTEM or Administrators
-      // (matched by prefix so a localised group name still counts); Everyone, Users or Authenticated Users must not be there.
-      const cfgPath = m.configPath();
-      const acl = spawnSync('icacls', [cfgPath], { encoding: 'utf8' });
-      if (acl.status !== 0) return t.skip('icacls is not available: cannot read the ACL');
-      const me = userInfo().username.toLowerCase();
-      const principals = [...acl.stdout.replace(cfgPath, '').matchAll(/^\s*(.+?):\(/gm)].map((x) => x[1]!.trim());
-      assert.ok(principals.length > 0, 'could not read any ACE from icacls: ' + acl.stdout);
-      const stray = principals.filter((p) => !(p.toLowerCase().endsWith('\\' + me) || /^NT AUTHORITY\\SYSTEM$/i.test(p) || /^BUILTIN\\Administrat/i.test(p) || /^CREATOR OWNER$/i.test(p) || /^S-1-5-21-(\d+-){3}\d{4,}$/.test(p) /* an account SID that does not resolve to a name (RID >= 1000: a user, not a broad group) */));
-      assert.deepEqual(stray, [], 'config.json (holds authToken, claude and boat keys) is readable by principals other than the owner, SYSTEM and Administrators');
+      // Windows has no 0600 and the product sets no mode or ACL there: config.json simply inherits the ACL of the profile directory it is
+      // created in. What this proves: the file's allow-ACEs, resolved to SIDs (so a localised group name or an unresolvable account can
+      // not slip through), are only the file owner, SYSTEM (S-1-5-18) and Administrators (S-1-5-32-544), i.e. no Everyone, Users or
+      // Authenticated Users read access. What it does not prove: that the product protects the file (it does not; a custom LEGION_HOME
+      // under a shared directory would inherit a broader ACL), nor that those three principals are the only ones able to read it
+      // (backup operators, take-ownership and SeBackupPrivilege are outside an ACL check). The check tool is part of the test, so
+      // a missing PowerShell fails instead of skipping.
+      const ps = [
+        '$a = [System.IO.File]::GetAccessControl($env:LEGION_ACL_PATH)',
+        '$o = $a.GetOwner([System.Security.Principal.SecurityIdentifier]).Value',
+        // An allow ACE counts if it grants anything beyond Synchronize, ReadAttributes, ReadPermissions and ExecuteFile (0x1200A0),
+        // i.e. any way to read, write, append, delete or change the file; a bare traverse/synchronize grant cannot read the token.
+        "$e = @($a.GetAccessRules($true, $true, [System.Security.Principal.SecurityIdentifier]) | Where-Object { $_.AccessControlType -eq 'Allow' -and (([int64]$_.FileSystemRights -band 0xFFFFFFFF) -band (-bnot 0x1200A0)) -ne 0 } | ForEach-Object { $_.IdentityReference.Value })",
+        '@{ owner = $o; allow = $e } | ConvertTo-Json -Compress',
+      ].join('; ');
+      const acl = spawnSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', ps], { encoding: 'utf8', env: { ...process.env, LEGION_ACL_PATH: m.configPath() } });
+      assert.equal(acl.status, 0, 'the ACL check needs Windows PowerShell and it failed to run: ' + String(acl.error ?? acl.stderr));
+      const got = JSON.parse(acl.stdout) as { owner: string; allow: string | string[] };
+      const allow = Array.isArray(got.allow) ? got.allow : [got.allow];
+      assert.match(got.owner, /^S-1-5-/, 'could not read the file owner SID: ' + acl.stdout);
+      assert.ok(allow.length > 0, 'could not read any allow ACE: ' + acl.stdout);
+      const permitted = new Set([got.owner, 'S-1-5-18', 'S-1-5-32-544']);
+      const stray = allow.filter((sid) => !permitted.has(sid));
+      assert.deepEqual(stray, [], 'config.json (holds authToken, claude and boat keys) is readable by SIDs other than the owner, SYSTEM and Administrators');
       return;
     }
     const mode = lstatSync(m.configPath()).mode & 0o777;

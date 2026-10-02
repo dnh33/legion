@@ -29,6 +29,13 @@ export interface BlenderBackend {
   close(): Promise<void>;
 }
 
+/**
+ * Every Python program Legion starts for Blender (the MCP server, `blender --python-expr`, the GUI) gets these two. On Windows Python writes
+ * stdout/stderr in the ANSI code page (cp1252), so a script or a reply that holds U+2028, an emoji or any other character outside it raises
+ * UnicodeEncodeError and the run fails for a reason the user cannot see. UTF-8 mode also makes open() default to UTF-8. Legion reads the output as UTF-8.
+ */
+export const PYTHON_UTF8_ENV: Readonly<Record<string, string>> = Object.freeze({ PYTHONUTF8: '1', PYTHONIOENCODING: 'utf-8' });
+
 export const ok = (text: string, images: BackendImage[] = []): BackendResult => ({ ok: true, text, images });
 export const fail = (text: string, timedOut = false): BackendResult => ({ ok: false, text, images: [], ...(timedOut ? { timedOut: true } : {}) });
 

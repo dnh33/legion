@@ -14,6 +14,7 @@ import { Readable, Transform } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import type { BlenderIo } from './setup.js';
 import type { DetectEnv, RunResult } from './detect.js';
+import { PYTHON_UTF8_ENV } from './backend.js';
 
 /** https only, and not a loopback or private address: a download must never be pointed at the user's own network. */
 export function isPublicHttpsUrl(raw: string): boolean {
@@ -34,7 +35,7 @@ export function isPublicHttpsUrl(raw: string): boolean {
 function run(file: string, args: string[], timeoutMs: number, opts: { cwd?: string; env?: Record<string, string> } = {}): Promise<RunResult | null> {
   return new Promise((resolve) => {
     try {
-      execFile(file, args, { timeout: timeoutMs, windowsHide: true, maxBuffer: 4 * 1024 * 1024, cwd: opts.cwd, env: opts.env ? { ...process.env, ...opts.env } : process.env }, (err, stdout, stderr) => {
+      execFile(file, args, { timeout: timeoutMs, windowsHide: true, maxBuffer: 4 * 1024 * 1024, cwd: opts.cwd, env: { ...process.env, ...opts.env, ...PYTHON_UTF8_ENV }, encoding: 'utf8' }, (err, stdout, stderr) => {
         if (err && (err as NodeJS.ErrnoException).code === 'ENOENT') { resolve(null); return; }
         const code = err ? (typeof (err as { code?: unknown }).code === 'number' ? (err as unknown as { code: number }).code : 1) : 0;
         resolve({ code, stdout: String(stdout), stderr: String(stderr) });
@@ -124,7 +125,7 @@ export function createRealIo(): BlenderIo {
     listDir: (p) => { try { return readdirSync(p); } catch { return []; } },
     removeDir: (p) => { rmSync(p, { recursive: true, force: true }); },
     spawnDetached: (file, args, env) => {
-      const child = spawn(file, args, { detached: true, stdio: 'ignore', windowsHide: false, env: { ...process.env, ...env } });
+      const child = spawn(file, args, { detached: true, stdio: 'ignore', windowsHide: false, env: { ...process.env, ...env, ...PYTHON_UTF8_ENV } });
       child.on('error', () => undefined);
       child.unref();
     },

@@ -14,7 +14,7 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport, getDefaultEnvironment } from '@modelcontextprotocol/sdk/client/stdio.js';
 import type { BlenderConfig, BlenderEntry } from '../../../shared/blender.js';
 import type { BackendImage, BackendResult, BlenderBackend } from '../backend.js';
-import { capText, fail, ok } from '../backend.js';
+import { capText, fail, ok, PYTHON_UTF8_ENV } from '../backend.js';
 
 export interface McpToolInfo { name: string; description?: string; annotations?: { readOnlyHint?: boolean; destructiveHint?: boolean }; inputSchema?: { properties?: Record<string, { type?: string }>; required?: string[] } }
 /** The part of the MCP SDK Client this backend uses; tests pass a fake. */
@@ -183,8 +183,13 @@ export class OfficialBackend implements BlenderBackend {
   }
 }
 
+/** The environment of the MCP server process: the SDK's safe defaults, the configured variables, then UTF-8 for Python (not overridable). */
+export function serverEnv(launchEnv: Record<string, string>): Record<string, string> {
+  return { ...getDefaultEnvironment(), ...launchEnv, ...PYTHON_UTF8_ENV };
+}
+
 async function defaultConnect(launch: { command: string; args: string[]; env: Record<string, string> }): Promise<McpLike> {
-  const transport = new StdioClientTransport({ command: launch.command, args: launch.args, env: { ...getDefaultEnvironment(), ...launch.env }, stderr: 'ignore' });
+  const transport = new StdioClientTransport({ command: launch.command, args: launch.args, env: serverEnv(launch.env), stderr: 'ignore' });
   const client = new Client({ name: 'legion-blender', version: '0.1.0' }, { capabilities: {} });
   await client.connect(transport);
   return client as unknown as McpLike;
