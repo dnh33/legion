@@ -121,3 +121,54 @@ export async function readAdminSecret(env: NodeJS.ProcessEnv, stdin: NodeJS.Read
   delete env[ADMIN_STDIN_FLAG];
   return readSecretFromStream(stdin);
 }
+
+/** The two per-launch secrets the Electron main process hands its core: `admin` (also given to the app window) and `native` (never given to the window). */
+export interface LaunchSecrets { admin?: string; native?: string }
+export const NATIVE_HEADER = 'x-legion-native';
+
+/**
+ * Reads up to two secret lines from the stdin pipe: the admin secret, then the NATIVE secret. The native secret is held by the Electron
+ * main process only (the app window never sees it); the core demands it, in addition to the admin secret, for every change to BSV policy
+ * state, so that a compromised window cannot arm or unfreeze on its own: the change has to come from main, after its confirmation dialog.
+ * A missing or short second line leaves `native` undefined (policy changes then stay closed). After the first line the reader waits at
+ * most `followMs` for the second.
+ */
+export function readSecretsFromStream(stream: NodeJS.ReadableStream, timeoutMs = 5000, followMs = 400): Promise<LaunchSecrets> {
+  return new Promise((resolve) => {
+    let buf = '';
+    let done = false;
+    let timer: ReturnType<typeof setTimeout> | undefined = setTimeout(() => finish(), timeoutMs);
+    let follow: ReturnType<typeof setTimeout> | undefined;
+    const finish = () => {
+      if (done) return;
+      done = true;
+      if (timer) clearTimeout(timer);
+      if (follow) clearTimeout(follow);
+      stream.removeListener('data', onData);
+      stream.removeListener('end', finish);
+      stream.removeListener('error', finish);
+      try { stream.pause(); } catch { /* ignore */ }
+      const parts = buf.split('\n').map((l) => l.trim());
+      buf = '';
+      const ok = (v: string | undefined) => (v && v.length >= MIN_ADMIN_SECRET_LENGTH ? v : undefined);
+      resolve({ admin: ok(parts[0]), native: ok(parts[1]) });
+    };
+    const onData = (c: Buffer | string) => {
+      buf += typeof c === 'string' ? c : c.toString('utf8');
+      const lines = buf.split('\n');
+      if (lines.length >= 3) finish(); // two complete lines
+      else if (lines.length === 2 && !follow) follow = setTimeout(finish, followMs);
+    };
+    stream.on('data', onData);
+    stream.on('end', finish);
+    stream.on('error', finish);
+    try { (stream as { resume?: () => void }).resume?.(); } catch { /* ignore */ }
+  });
+}
+
+/** Core start: like readAdminSecret, but also takes the native secret (second line). */
+export async function readLaunchSecrets(env: NodeJS.ProcessEnv, stdin: NodeJS.ReadableStream): Promise<LaunchSecrets> {
+  if (env[ADMIN_STDIN_FLAG] !== '1') return {};
+  delete env[ADMIN_STDIN_FLAG];
+  return readSecretsFromStream(stdin);
+}

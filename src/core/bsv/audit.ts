@@ -61,7 +61,7 @@ export interface VerifyReport {
 // ------------------------------------------------------------------ redaction
 
 const CONTROL = /[\u0000-\u001f\u007f-\u009f\u200b-\u200f\u2028-\u202e\u2060-\u2064\ufeff]/g;
-const SECRETISH_KEY = /seed|mnemonic|wif|priv|secret|passw|passphrase|xprv|token|credential|api[_-]?key|signing/i;
+const SECRETISH_KEY = new RegExp('seed|mnemonic|wif|priv|secret|passw|passphrase|xprv|token|credential|api[_-]?key|signing', 'i');
 
 /** One line of safe text: no control or bidi characters, no line breaks, secrets scrubbed, capped. */
 export function safeText(v: unknown, max: number = AUDIT_LIMITS.text): string {

@@ -13,8 +13,15 @@
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 
-export type Kind = 'fetch' | 'socket-module' | 'inbound-http' | 'child-process' | 'decode';
+export type Kind = 'fetch' | 'socket-module' | 'inbound-http' | 'loopback-http-client' | 'child-process' | 'decode';
 export type Allow = Record<string, { kinds: Kind[]; reason: string }>;
+
+/** The ONLY file that may contain wallet method names (the four read-only ones), and the default wallet port. */
+export const PROBE_FILE = 'src/core/bsv/wallet-probe.ts';
+/** The read-only wallet methods the probe may name. Anything else wallet-shaped fails the build, in every file including the probe. */
+export const PROBE_METHOD_ALLOWLIST = ['getVersion', 'getNetwork', 'isAuthenticated', 'getHeight'] as const;
+/** The one wallet-shaped tool name an agent may have (status only), and the only file that may register it. */
+export const ALLOWED_WALLETY_TOOLS: Record<string, string> = { bsv_status: 'src/core/bsv/wallet-tool.ts' };
 
 /** Path (from the repo root, forward slashes) -> what that file may do and why. Anything else fails. */
 export const ALLOWLIST: Allow = {
@@ -25,7 +32,9 @@ export const ALLOWLIST: Allow = {
   'ui/src/api.ts': { kinds: ['fetch'], reason: "the UI's client of the local core (fetch and EventSource on the core base URL)" },
   'ui/src/rooms/roomsStore.ts': { kinds: ['fetch'], reason: 'downloads a room export from the local core' },
   'src/core/comms/scrub.ts': { kinds: ['decode'], reason: 'the secret detector decodes base64 and rot13 candidates to find seed phrases hidden in them' },
+  [PROBE_FILE]: { kinds: ['loopback-http-client'], reason: 'the read-only wallet STATUS probe: one POST per allowlisted method to a loopback address, never a server, never another host (rules below)' },
 };
+
 
 const ROOTS = ['src', 'ui/src'];
 const CODE = /\.(ts|tsx|js|jsx|mjs|cjs)$/;
@@ -141,8 +150,19 @@ export function joinLiterals(src: string): string {
 
 // ------------------------------------------------------------------ the rules
 
-/** Names that no source may contain anywhere (comments included, spelled in pieces included). */
-const FORBIDDEN = /(?<![\w.])3321(?!\w)|walletclient|httpwalletjson|@bsv\/sdk|createaction/i;
+/** Names that no source may contain anywhere (comments included, spelled in pieces included). The wallet port is allowed in the probe file only. */
+const FORBIDDEN = /walletclient|httpwalletjson|@bsv\/sdk|createaction/i;
+const WALLET_PORT = /(?<![\w.])3321(?!\w)/;
+/**
+ * Every other BRC-100 method name that can sign, spend, reveal a balance, a key, a certificate or an address, or that blocks on the wallet's
+ * own UI. Forbidden everywhere, the probe file included (the probe's own documentation lives in docs/BSV-WALLET-DESIGN.md). The generic
+ * names encrypt/decrypt/createHmac/verifyHmac are not scanned: node:crypto and the UI have the same words; the probe cannot send them anyway
+ * (its method list is checked at the point of use and on the wire by test/bsv-wallet-probe.test.ts).
+ */
+const WALLET_METHODS_FORBIDDEN = /\b(?:signAction|abortAction|internalizeAction|listActions|listOutputs|relinquishOutput|getPublicKey|revealCounterpartyKeyLinkage|revealSpecificKeyLinkage|createSignature|verifySignature|acquireCertificate|listCertificates|proveCertificate|relinquishCertificate|discoverByIdentityKey|discoverByAttributes|waitForAuthentication|getHeaderForHeight)\b/i;
+/** A quoted camelCase name shaped like a wallet method (get/is/create/sign/...): outside the probe the four read-only names fail as quoted strings, inside it only they pass. */
+const METHOD_SHAPED = /^(?:get|is|create|sign|abort|internalize|list|relinquish|reveal|verify|acquire|prove|discover|wait|encrypt|decrypt)[A-Z][A-Za-z]{2,40}$/;
+const FOUR = new Set<string>(PROBE_METHOD_ALLOWLIST);
 /** Globals that reach the network; a string literal naming one is a computed-access attempt. */
 const NET_GLOBAL_NAME = /['"`](?:fetch|XMLHttpRequest|WebSocket|EventSource)['"`]/;
 const COMPUTED_GLOBAL = /\b(?:globalThis|global|window|self)\s*\[|\bReflect\s*\.\s*get\s*\(\s*(?:globalThis|global|window|self)\b/;
@@ -157,7 +177,8 @@ const TOOL_CALL = /(?:\bregisterTool|\.tool|(?<![\w.$])tool)\s*\(/g;
 const TOOL_LITERAL = /^(?:\bregisterTool|\.tool|tool)\s*\(\s*(?:'([^'\\\n]*)'|"([^"\\\n]*)")\s*,/;
 /** A tool name is split into words; any of these as a whole word makes it wallet-shaped ("alarm", "design", "payload" are fine). */
 const WALLETY = new Set(['wallet', 'bsv', 'spend', 'spending', 'pay', 'payment', 'payments', 'payout', 'sign', 'signing', 'broadcast', 'createaction', 'arm', 'armed', 'freeze', 'mainnet']);
-const LOOPBACK = /^(?:127\.0\.0\.1|localhost|\[::1\])$/;
+/** Loopback hosts, plus `legion.local`: the originator name Legion declares to a wallet (an Origin header value, never a place it connects to). */
+const LOOPBACK = /^(?:127\.0\.0\.1|localhost|\[::1\]|legion\.local)$/;
 
 /** Scans `root`/src and `root`/ui/src. `allow` defaults to ALLOWLIST. */
 export function scanTree(root: string, allow: Allow = ALLOWLIST): ScanResult {
@@ -179,6 +200,16 @@ export function scanTree(root: string, allow: Allow = ALLOWLIST): ScanResult {
     // names that never belong anywhere (comments included)
     const tok = FORBIDDEN.exec(joinedRaw);
     if (tok) bad(`contains ${tok[0]}`);
+    const meth = WALLET_METHODS_FORBIDDEN.exec(joinedRaw);
+    if (meth) bad(`contains the wallet method name ${meth[0]} (only the four read-only status methods may exist, and only in ${PROBE_FILE})`);
+    const port = WALLET_PORT.exec(joinedRaw);
+    if (port && f !== PROBE_FILE) bad(`contains ${port[0]} (the wallet port belongs in ${PROBE_FILE} only)`);
+    // quoted method-shaped strings: outside the probe none of the four may appear; inside it nothing but the four
+    for (const m of joinedKept.matchAll(/(['"`])([A-Za-z]{5,48})\1/g)) {
+      const w = m[2]!;
+      if (!METHOD_SHAPED.test(w)) continue;
+      if (f === PROBE_FILE ? !FOUR.has(w) : FOUR.has(w)) bad(`names the wallet method "${w}" in a string${f === PROBE_FILE ? ' (the probe may name only ' + PROBE_METHOD_ALLOWLIST.join(', ') + ')' : ` (wallet method names belong in ${PROBE_FILE} only)`}`);
+    }
 
     // network globals: aliases, computed access, names in strings
     const ident = NET_IDENT.exec(code);
@@ -213,17 +244,23 @@ export function scanTree(root: string, allow: Allow = ALLOWLIST): ScanResult {
       const name = lit?.[1] ?? lit?.[2];
       if (name === undefined) { bad('tool name is not a string literal, so it cannot be checked'); continue; }
       toolNames.push(name);
-      if (name.split(/[_\-.]/).some((w) => WALLETY.has(w.toLowerCase()))) bad(`registers a wallet-like tool name: ${name}`);
+      if (name.split(/[_\-.]/).some((w) => WALLETY.has(w.toLowerCase())) && ALLOWED_WALLETY_TOOLS[name] !== f) bad(`registers a wallet-like tool name: ${name}`);
     }
 
     // allowlist: each kind a file uses must be allowed for that file; a file that may fetch may only reach loopback hosts
     for (const [kind, detail] of used) {
       if (allowed.has(kind)) { matched.add(`${f}#${kind}`); continue; }
+      // the probe's HTTP client: node:http is fine in a file that is allowed to be a loopback client, as long as it never listens
+      if (kind === 'inbound-http' && allowed.has('loopback-http-client')) {
+        matched.add(`${f}#loopback-http-client`);
+        if (/\bcreateServer\b/.test(code)) bad('a loopback http client may not create a server');
+        continue;
+      }
       const what = kind === 'fetch' ? `outbound network access via ${detail}` : kind === 'socket-module' ? detail
         : kind === 'inbound-http' ? `imports node:http (inbound-http)` : kind === 'child-process' ? `imports node:child_process (child-process)` : `string decoding (${detail}) that can hide a name`;
       bad(`${what}; not on the allowlist for "${kind}" (test/bsv-scan.ts)`);
     }
-    if (allowed.has('fetch')) {
+    if (allowed.has('fetch') || allowed.has('loopback-http-client')) {
       for (const m of kept.matchAll(/https?:\/\/([^\/'"`\s:${}]+)/g)) if (!LOOPBACK.test(m[1]!)) bad(`non-loopback host ${m[1]} in a file that may only reach the local core`);
     }
   }

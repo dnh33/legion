@@ -51,7 +51,7 @@ test('G7: a user bot named Assayer, with the hidden agent present and BSV off, g
   const r = await s.call('POST', '/api/agents', { name: 'Assayer' });
   assert.equal(r.status, 201);
   assert.notEqual(r.body.id, 'assayer');
-  assert.doesNotMatch(r.body.id, /-\d+$/, 'a numeric suffix would show that the id was taken');
+  assert.doesNotMatch(r.body.id, /-\d{1,2}$/, 'a counter suffix (-2, -3) would show that the id was taken (a random 5-character suffix may be all digits)');
   assert.match(r.body.id, /^assayer-[a-z0-9]{4,8}$/);
   assert.equal(r.body.name, 'Assayer');
   assert.equal(r.body.requires, undefined);

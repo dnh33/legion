@@ -12,6 +12,7 @@ import type { LegionConfig } from '../../shared/types.js';
 
 export class BsvState {
   private on: boolean;
+  private url: string | undefined;
   private readonly configFile: string;
   private readonly fallbackFile: string;
 
@@ -19,24 +20,29 @@ export class BsvState {
     this.configFile = join(opts.dataDir, 'config.json');
     this.fallbackFile = join(opts.dataDir, 'bsv.json');
     const fromConfig = (opts.config as { bsv?: unknown } | undefined)?.bsv;
-    this.on = fromConfig !== undefined ? normalizeBsv(fromConfig).enabled : this.readFallback();
+    const norm = fromConfig !== undefined ? normalizeBsv(fromConfig) : this.readFallback();
+    this.on = norm.enabled;
+    this.url = norm.walletUrl;
   }
 
   get enabled(): boolean { return this.on; }
+  /** The configured wallet URL for the status probe (loopback is enforced by the probe, not here). */
+  get walletUrl(): string | undefined { return this.url; }
   readonly network = 'testnet' as const;
 
   /** Returns true when the flag changed. Throws (and keeps the old value) when it cannot be saved. */
   set(enabled: boolean): boolean {
     if (enabled === this.on) return false;
-    this.persist({ enabled, network: 'testnet' });
+    const next: BsvConfig = { enabled, network: 'testnet', ...(this.url ? { walletUrl: this.url } : {}) };
+    this.persist(next);
     this.on = enabled;
     const cfg = this.opts.config as { bsv?: BsvConfig } | undefined;
-    if (cfg) cfg.bsv = { enabled, network: 'testnet' };
+    if (cfg) cfg.bsv = next;
     return true;
   }
 
-  private readFallback(): boolean {
-    try { return existsSync(this.fallbackFile) ? normalizeBsv(JSON.parse(readFileSync(this.fallbackFile, 'utf8'))).enabled : false; } catch { return false; }
+  private readFallback(): BsvConfig {
+    try { return existsSync(this.fallbackFile) ? normalizeBsv(JSON.parse(readFileSync(this.fallbackFile, 'utf8'))) : normalizeBsv(undefined); } catch { return normalizeBsv(undefined); }
   }
 
   private persist(bsv: BsvConfig): void {
