@@ -112,7 +112,8 @@ export class BrowserSession {
     const key = `${document ? 'd' : 's'}|${url.split(/[?#]/)[0]}`;
     const cached = this.hostVerdicts.get(key);
     if (cached) return cached;
-    const p = checkUrlResolved(url, g, this.d.resolve).then((v) => (v.ok ? null : v.reason), () => 'the address could not be checked');
+    // a page's own image or script whose name does not resolve is not a reason to refuse the page; a document that does not resolve is
+    const p = checkUrlResolved(url, g, this.d.resolve).then((v) => (v.ok || (!document && /could not be resolved/.test(v.reason)) ? null : v.reason), () => 'the address could not be checked');
     if (this.hostVerdicts.size > 500) this.hostVerdicts.clear();
     this.hostVerdicts.set(key, p);
     return p;
@@ -234,9 +235,9 @@ export class BrowserSession {
       throw new SessionRefusal(`The page did not load: ${nav.errorText.slice(0, 120)}`);
     }
     await this.settle(this.lim.navigationMs);
-    const v = await this.verifyLanding(cdp, sid, null);
+    // the caller already asked about this origin; a redirect to ANOTHER origin is asked about in verifyLanding
     if (origin) this.origins.add(origin);
-    return v;
+    return this.verifyLanding(cdp, sid, null);
   }
 
   async text(selector?: string): Promise<{ text: string; url: string; found: boolean }> {

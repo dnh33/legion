@@ -62,7 +62,7 @@ export function buildBrowserArgs(port: number, allowLocal: boolean): string[] {
 
 export class LaunchError extends Error {}
 
-export async function launchBrowser(p: LaunchPorts, bin: BinaryRef, o: { allowLocal: boolean; wallMs?: number }): Promise<RunningBrowser> {
+export async function launchBrowser(p: LaunchPorts, bin: BinaryRef, o: { allowLocal: boolean; wallMs?: number; startMs?: number }): Promise<RunningBrowser> {
   const dir = p.mkTemp();
   const cleanup = () => { try { p.removeDir(dir); } catch { /* best effort */ } };
   let lastNote = '';
@@ -76,7 +76,8 @@ export async function launchBrowser(p: LaunchPorts, bin: BinaryRef, o: { allowLo
     let ended = false;
     void proc.exited.then(() => { ended = true; });
     const stopProc = async () => { if (proc.pid && !ended) await p.proc.kill(proc.pid).catch(() => false); };
-    const deadline = p.now() + BROWSER_LIMITS.startTimeoutMs;
+    const startMs = o.startMs ?? BROWSER_LIMITS.startTimeoutMs;
+    const deadline = p.now() + startMs;
     let cdp: CdpPort | null = null;
     while (p.now() < deadline && !ended && !cdp) {
       try { cdp = await p.connect(`ws://127.0.0.1:${port}`); } catch { await p.sleep(60); }
@@ -92,7 +93,7 @@ export async function launchBrowser(p: LaunchPorts, bin: BinaryRef, o: { allowLo
     await stopProc();
     const err = (proc.stderr() || proc.stdout()).replace(/\s+/g, ' ').trim().slice(0, 200);
     if (res?.error && /not found|ENOENT|EACCES|not installed/i.test(res.error)) { cleanup(); throw new LaunchError(`The browser program could not be started: ${res.error}`); }
-    if (ended && (res?.code ?? 1) !== 0 && p.now() - (deadline - BROWSER_LIMITS.startTimeoutMs) < BROWSER_LIMITS.startTimeoutMs && /unknown|invalid|unrecognized|usage|option|argument/i.test(err)) {
+    if (ended && (res?.code ?? 1) !== 0 && p.now() < deadline && /unknown|invalid|unrecognized|usage|option|argument/i.test(err)) {
       cleanup();
       throw new LaunchError(`This Lightpanda build rejected a required safety option and was not started without it. ${err}`.trim());
     }

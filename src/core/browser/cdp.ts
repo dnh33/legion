@@ -25,7 +25,7 @@ export class CdpError extends Error {
 }
 
 /** Only ws://127.0.0.1:<port>[/path]. Not "localhost" (it may resolve elsewhere), not an IPv6 literal, not another host. */
-export const isLoopbackWsUrl = (u: string): boolean => /^ws:\/\/127\.0\.0\.1:[1-9]\d{1,4}(\/[A-Za-z0-9_\-./]*)?$/.test(u) && Number(/:(\d+)/.exec(u.slice(5))![1]) <= 65535;
+export const isLoopbackWsUrl = (u: string): boolean => !u.includes('..') && /^ws:\/\/127\.0\.0\.1:[1-9]\d{1,4}(\/[A-Za-z0-9_\-./]*)?$/.test(u) && Number(/:(\d+)/.exec(u.slice(5))![1]) <= 65535;
 
 export interface ConnectOptions { maxMessageBytes?: number; connectTimeoutMs?: number; defaultTimeoutMs?: number }
 

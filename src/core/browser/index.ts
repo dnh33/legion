@@ -79,7 +79,7 @@ export function createBrowserModule(deps: ModuleDeps, opts: BrowserModuleOptions
       if ('error' in b) throw new LaunchError(b.error);
       const free = (() => { try { return reserve(); } catch (e) { throw new LaunchError(e instanceof Error ? e.message : String(e)); } })();
       try {
-        const run = await launchBrowser(ports, b.ref, { allowLocal: local.allow, ...(opts.limits?.wallMs ? { wallMs: opts.limits.wallMs } : {}) });
+        const run = await launchBrowser(ports, b.ref, { allowLocal: local.allow, ...(opts.limits?.wallMs ? { wallMs: opts.limits.wallMs } : {}), ...(opts.limits?.startTimeoutMs ? { startMs: opts.limits.startTimeoutMs } : {}) });
         const stop = run.stop.bind(run);
         void run.exited.then(() => free());
         return { ...run, stop: async () => { try { await stop(); } finally { free(); } } };
