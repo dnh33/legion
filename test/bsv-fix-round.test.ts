@@ -643,9 +643,9 @@ test('5: a wallet that reports a different network can only DISARM; limits, allo
   await s.call('GET', '/api/bsv/wallet'); // the probe sees the change
   const mid = s.bsv.policy.snapshot();
   assert.equal(mid.armed, false, 'tightened: disarmed');
-  assert.deepEqual({ ...mid, armed: true, armedUntil: before.armedUntil, remainingMs: before.remainingMs }, { ...before, usage: mid.usage, pending: mid.pending }, 'nothing else changed');
+  assert.deepEqual({ ...mid, armed: true, armedUntil: before.armedUntil, remainingMs: before.remainingMs }, { ...before, usage: mid.usage, pending: mid.pending, nets: mid.nets }, 'nothing else changed (a card for the old network is voided: its reservation is released)');
   assert.deepEqual(mid.caps, before.caps); assert.deepEqual(mid.allowlist, before.allowlist); assert.equal(mid.frozen, null);
-  assert.equal(s.bsv.policy.status(d.requestId), 'pending', 'a pending card is neither approved nor cleared by it');
+  assert.equal(s.bsv.policy.status(d.requestId), 'denied', 'a pending card made for the old network is voided, never approved');
   s.wal.w.net = 'testnet';
   await s.call('GET', '/api/bsv/wallet');
   const after = s.bsv.policy.snapshot();
@@ -674,7 +674,7 @@ test('5: fields a wallet adds to its answers (a "changed" flag, limits, "raise" 
   // and nothing in the module's source feeds a probe result to anything that loosens: the only policy call in the onChange handler is disarm
   const src = readFileSync(join(process.cwd(), 'src/core/bsv/index.ts'), 'utf8');
   const handler = /probe\.onChange = [\s\S]*?\n  \};/.exec(src)![0];
-  assert.deepEqual([...handler.matchAll(/policy\.(\w+)\(/g)].map((m) => m[1]), ['disarm']);
+  assert.deepEqual([...handler.matchAll(/policy\.(\w+)\(/g)].map((m) => m[1]), ['disarm', 'voidPending']);
 });
 
 // ================================================================== 9. Freeze without Electron
@@ -806,8 +806,8 @@ test('B5: the audit log is a second source for "mainnet is off": a file that sti
   const s = await setup({ on: true });
   enableMainnet(s);
   await s.call('POST', '/api/bsv/policy/caps', { perTxSats: 800 }); // file says on
-  s.bsv.policy.mainnetOff('a mainnet spend has an unknown outcome'); // memory off, audit line written; nothing registered here saves the file
-  assert.equal(JSON.parse(readFileSync(policyFile(s.dataDir), 'utf8')).mainnetEnabled, true, 'precondition: the file still says on');
+  s.bsv.policy.mainnetOff('a mainnet spend has an unknown outcome'); // memory off, audit line written, and (the module registers the route hook) the file is saved off at once
+  assert.equal(JSON.parse(readFileSync(policyFile(s.dataDir), 'utf8')).mainnetEnabled, false, 'the hook saved the switch off at once (T5 finding B5, wired by the module)');
   const s2 = await setup({ dataDir: s.dataDir, on: true });
   assert.equal(s2.bsv.policy.mainnetEnabled, false, 'the log says off, so it loads off');
   assert.equal(s2.bsv.policy.isFrozen, false, 'not a tamper: no freeze');
