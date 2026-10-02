@@ -211,6 +211,9 @@ try {
     await until(() => prompts().includes('z-queued'), 12000, 'z-queued sent while Scout selected');
     await page.locator('.agent', { hasText: 'Zealot' }).click();
     await idle();
+    // coming back, the thread shows its whole history including the message the queue sent in the background
+    const b = await userBubbles(page);
+    assert.ok(b.includes('[slow:4000] z-run') && b.includes('z-queued'), JSON.stringify(b));
   });
 
   await check('reload: the queue comes back HELD and nothing is sent until Resume', async () => {

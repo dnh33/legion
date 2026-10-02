@@ -75,8 +75,11 @@ export const pauseQueue = (key: string) => { set(Q.pause(qs, key, 'cancelled'));
 
 /* ---------- sending ---------- */
 const inflight = new Map<string, Promise<void>>();
-/** Tasks whose coming 'cancelled' status is our own Ctrl+Enter, not a stop by the owner. */
-const overrides = new Set<string>();
+/** Tasks whose coming 'cancelled' status is our own Ctrl+Enter, not a stop by the owner (task id -> expiry, so a flag whose event never came cannot excuse a later stop). */
+const overrides = new Map<string, number>();
+const OVERRIDE_TTL_MS = 15_000;
+const markOverride = (taskId: string) => { overrides.set(taskId, Date.now() + OVERRIDE_TTL_MS); };
+const takeOverride = (taskId: string): boolean => { const exp = overrides.get(taskId); overrides.delete(taskId); return exp !== undefined && Date.now() < exp; };
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
 function targetOf(key: string): { agentId: string; taskId: string | null } | null {
@@ -144,7 +147,7 @@ export async function interruptAndSend(agentId: string, taskId: string | null, t
     const st = getState();
     const live = taskId ? busyReason(agentId, taskId, st.tasks, st.approvals) : null;
     if (live === 'run' || live === 'approval') {
-      overrides.add(taskId!);
+      markOverride(taskId!);
       try { const c = await api.cancelTask(taskId!); if (!c.ok) overrides.delete(taskId!); }
       catch (e) { overrides.delete(taskId!); throw e; }
     }
@@ -173,7 +176,7 @@ export async function sendQueuedNow(key: string, itemId: string): Promise<void> 
       const st = getState();
       const live = at.taskId ? busyReason(at.agentId, at.taskId, st.tasks, st.approvals) : null;
       if (live === 'run' || live === 'approval') {
-        overrides.add(at.taskId!);
+        markOverride(at.taskId!);
         try { const c = await api.cancelTask(at.taskId!); if (!c.ok) overrides.delete(at.taskId!); } catch (e) { overrides.delete(at.taskId!); throw e; }
       }
       const r = await sendPromptTo(at, item.text, { model: item.model, select: true });
@@ -199,7 +202,7 @@ function observe(tasks: readonly Task[]) {
     if (prev === undefined || prev === t.status || !isLive(prev)) continue;
     const key = Q.threadKey(t.agentId, t.id);
     if (t.status === 'cancelled') {
-      const ours = overrides.delete(t.id);
+      const ours = takeOverride(t.id);
       if (qs.threads[key]) set(Q.cancelObserved(qs, key, ours));
     } else if (t.status === 'error') {
       if (qs.threads[key]) set(Q.failureObserved(qs, key, t.error));

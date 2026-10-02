@@ -30,7 +30,7 @@ export function Composer() {
   const agent = agents.find((a) => a.id === agentId);
   const running = task?.status === 'running' || task?.status === 'queued';
   // busy: own run, an approval waiting, or the agent working for a room / agent call. Enter queues while busy.
-  const busy = busyReason(agentId, taskId, tasks, approvals);
+  const busy = useMemo(() => busyReason(agentId, taskId, tasks, approvals), [agentId, taskId, tasks, approvals]);
   const qkey = threadKey(agentId, taskId);
   const thread = useThreadQueue(qkey);
   const agentName = clip(agent?.name ?? 'Legion', 26);
