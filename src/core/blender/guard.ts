@@ -103,6 +103,8 @@ export interface GuardDeps {
   local?: LocalPort;
   /** Where a local task's exports folder is (must match the runner's). Default <dataDir>/blender/local/<task>/exports. */
   localExportDir?: (taskId: string) => string;
+  /** Awaited before a route is chosen: the facts are synchronous, so whatever they depend on (Blender detection) must be fresh first. */
+  beforeRoute?: () => Promise<void>;
   secrets: () => string[];
   /** Live export folder for an agent (inside its workspace). */
   exportDirFor: (agent: AgentProfile) => string;
@@ -269,6 +271,7 @@ export class BlenderGuard {
     const script = args.script;
     const hash = scriptHash(script);
     if (!cfg.enabled) return this.text('The Blender bridge is switched off in Settings (Blender, enable).', true);
+    await this.d.beforeRoute?.();
     const routed = resolveMode(effectiveMode(cfg), args.mode, this.routeFacts(agent));
     if ('error' in routed) return this.text(routed.error, true);
     const mode = routed.mode;
@@ -421,6 +424,7 @@ export class BlenderGuard {
     const taskId = job?.taskId ?? 'no-task';
     if (!cfg.enabled) return this.text('The Blender bridge is switched off in Settings (Blender, enable).', true);
     // docs come from the live server only (neither local nor the VM has a docs search)
+    await this.d.beforeRoute?.();
     const routed: Route = kind === 'docs' ? { mode: 'live' } : resolveMode(effectiveMode(cfg), args.mode, this.routeFacts(agent));
     if ('error' in routed) return this.text(routed.error, true);
     const key = JSON.stringify({ kind, object: args.object ?? null, maxSize: args.maxSize ?? null, query: args.query ?? null });
@@ -495,6 +499,7 @@ export class BlenderGuard {
       'Which Blender you can reach right now: where the next script goes, live backend and version, local and cloud VM readiness, the export folders, and what the user has to do if something is missing.',
       {},
       safe(async () => {
+        await this.d.beforeRoute?.();
         this.audit({ taskId: job?.taskId ?? 'no-task', agentId: agent.id, mode: 'live', hash: scriptHash('status'), bytes: 0, lines: 0, decision: 'read', tool: 'status', ok: true });
         return this.text(statusText());
       }),

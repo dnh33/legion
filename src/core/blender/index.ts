@@ -22,13 +22,14 @@ import { chooseBackend, detectInstalls, pickInstall } from './detect.js';
 import { BlenderGuard } from './guard.js';
 import type { GuardDeps } from './guard.js';
 import type { LocalPort } from './ports.js';
+import { LocalRunner } from './local.js';
 import { SandboxRunner } from './sandbox.js';
 import type { SandboxPort, VmPort } from './sandbox.js';
 import { launchBlender, setupLive, testConnection } from './setup.js';
 import type { BlenderIo } from './setup.js';
 import { BlenderState } from './state.js';
 import type { BlenderPatch } from './state.js';
-import { createRealIo } from './system.js';
+import { createProcessPort, createRealIo } from './system.js';
 import { tcpProbe } from './tcp.js';
 
 export { BlenderState } from './state.js';
@@ -39,10 +40,7 @@ export interface BlenderModuleOptions {
   vms?: VmPort;
   boatConfigured?: () => boolean;
   sandbox?: SandboxPort;
-  /**
-   * The headless-Blender runner (LocalRunner, local.ts). INTEGRATION: the production wiring `new LocalRunner(...)` is added where local.ts lands (Builder 1);
-   * until then nothing is injected here and local mode reports "not available in this build" instead of guessing.
-   */
+  /** Test seam: a stand-in for the headless-Blender runner. Production passes nothing and gets a LocalRunner (below); never set it in src/. */
   local?: LocalPort;
   makeBackend?: (kind: BlenderBackendKind, cfg: BlenderConfig) => BlenderBackend;
   probe?: (host: string, port: number) => Promise<boolean>;
@@ -76,6 +74,7 @@ export function createBlenderModule(deps: ModuleDeps, opts: BlenderModuleOptions
       workspaceOf: (a) => a.cwd || join(deps.config.workspaceDir, a.id),
     })
     : undefined);
+  const workspaceOf = (a: AgentProfile): string => a.cwd || join(deps.config.workspaceDir, a.id);
   const audit = new AuditLog(deps.dataDir, () => liveSecrets(deps.config));
   const cfg = (): BlenderConfig => state.config;
   let auditVerdict: AuditVerdict | null = null;
@@ -86,15 +85,34 @@ export function createBlenderModule(deps: ModuleDeps, opts: BlenderModuleOptions
   let installs: BlenderInstall[] = [];
   let detectedAt = 0;
   let detectKey = '';
+  let detecting: Promise<BlenderInstall[]> | null = null;
   async function detect(force = false): Promise<BlenderInstall[]> {
     const key = cfg().installPath ?? '';
     if (!force && detectedAt && Date.now() - detectedAt < DETECT_TTL_MS && key === detectKey) return installs;
-    try { installs = await detectInstalls(io.detect, cfg().installPath); } catch (e) { log(`blender detection failed: ${e instanceof Error ? e.message : String(e)}`); installs = []; }
-    detectedAt = Date.now();
-    detectKey = key;
-    return installs;
+    if (detecting && !force && key === detectKey) return detecting;
+    const run = (async () => {
+      try { installs = await detectInstalls(io.detect, cfg().installPath); } catch (e) { log(`blender detection failed: ${e instanceof Error ? e.message : String(e)}`); installs = []; }
+      detectedAt = Date.now();
+      detectKey = key;
+      return installs;
+    })();
+    detecting = run;
+    try { return await run; } finally { if (detecting === run) detecting = null; }
   }
   const choose = () => chooseBackend(cfg().backend, pickInstall(installs));
+
+  // ---- the headless runner on this computer. Production default: a LocalRunner over the real process port (system.ts holds the only spawn).
+  // The routing facts are synchronous but detection is async, so the guard awaits `ready()` before it routes (see GuardDeps.beforeRoute).
+  const ownLocal: LocalRunner | undefined = opts.local ? undefined : new LocalRunner({
+    proc: createProcessPort(() => pickInstall(installs)?.path),
+    config: cfg,
+    install: () => pickInstall(installs),
+    dataDir: deps.dataDir,
+    workspaceOf,
+  });
+  const local: LocalPort | undefined = opts.local ?? ownLocal;
+  const ready = async (): Promise<void> => { if (cfg().enabled) await detect(); };
+  if (cfg().enabled) void detect().catch(() => undefined);
 
   // ---- live backend (one at a time; rebuilt when the settings that shape it change)
   let backend: BlenderBackend | null = null;
@@ -136,9 +154,9 @@ export function createBlenderModule(deps: ModuleDeps, opts: BlenderModuleOptions
           : !sbAgent ? { ready: false, note: 'The Sculptor agent does not exist.' }
             : sandbox.readiness(sbAgent);
     const lr = !c.enabled ? { ready: false, note: 'The bridge is off.' }
-      : !opts.local ? { ready: false, note: 'Local Blender is not available in this build.' }
+      : !local ? { ready: false, note: 'Local Blender is not available in this build.' }
         : !sbAgent ? { ready: false, note: 'The Sculptor agent does not exist.' }
-          : opts.local.readiness(sbAgent);
+          : local.readiness(sbAgent);
     const rec = state.setup;
     const setupDone = choice.kind === 'official' ? !!c.entry && rec.addonInstalledFor === 'official' : choice.kind === 'community' ? rec.addonInstalledFor === 'community' : false;
     const connected = !!backend?.isConnected();
@@ -195,10 +213,10 @@ export function createBlenderModule(deps: ModuleDeps, opts: BlenderModuleOptions
   }
 
   const guard = new BlenderGuard({
-    config: cfg, dataDir: deps.dataDir, approvals: deps.approvals, getBackend, ...(sandbox ? { sandbox } : {}), ...(opts.local ? { local: opts.local } : {}),
+    config: cfg, dataDir: deps.dataDir, approvals: deps.approvals, getBackend, ...(sandbox ? { sandbox } : {}), ...(local ? { local } : {}), beforeRoute: ready,
     secrets: () => liveSecrets(deps.config),
     exportDirFor: (a) => join(a.cwd || join(deps.config.workspaceDir, a.id), 'blender-exports'),
-    workspaceOf: (a) => a.cwd || join(deps.config.workspaceDir, a.id),
+    workspaceOf,
     audit, ...(opts.backup ? { backup: opts.backup } : {}), onChange: emitStatus,
   });
 
@@ -209,7 +227,7 @@ export function createBlenderModule(deps: ModuleDeps, opts: BlenderModuleOptions
     const lines = [
       `Blender bridge: ${c.enabled ? 'on' : 'off'}. Where scripts run (Settings): ${effectiveMode(c)}.`,
       `The next script goes to: ${'error' in next ? `nowhere (${next.error})` : next.mode === 'local' ? 'Blender on this computer, in the background' : next.mode === 'sandbox' ? `the cloud VM${next.note ? ` (${next.note})` : ''}` : 'your open Blender (the user sees a LIVE card)'}.`,
-      `This computer: ${opts.local ? opts.local.readiness(a).note : 'local Blender is not available in this build'}.`,
+      `This computer: ${local ? local.readiness(a).note : 'local Blender is not available in this build'}.`,
       `Cloud VM: ${sandbox ? sandbox.readiness(a).note : 'not available'}.`,
       `Live backend: ${backend?.isConnected() ? `${backend.kind} (connected)` : 'not connected (it connects when a live call is made)'}.`,
       ...(busy ? [`Busy: a ${busy.mode} script has been running since ${busy.since}${busy.kind === 'timed-out' ? ' and timed out; it may still be running' : ''}. Live reads are refused meanwhile; local reads wait their turn.`] : []),
@@ -326,6 +344,10 @@ export function createBlenderModule(deps: ModuleDeps, opts: BlenderModuleOptions
         return { ok: step.ok, steps: [step], status: await status(true) };
       }));
     },
-    async dispose() { const b = backend; backend = null; await b?.close().catch(() => undefined); },
+    async dispose() {
+      const b = backend; backend = null;
+      await ownLocal?.dispose().catch(() => undefined);
+      await b?.close().catch(() => undefined);
+    },
   };
 }

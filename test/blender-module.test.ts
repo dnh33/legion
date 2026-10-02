@@ -30,7 +30,7 @@ import { FakeLocal } from './blender-local-fakes.js';
 const closers: Array<() => Promise<void>> = [];
 after(async () => { for (const c of closers) await c().catch(() => undefined); });
 
-interface Opts { enabled?: boolean; installs?: string[]; socketOpen?: boolean; mcpServers?: Record<string, any>; sandboxReady?: boolean; withSandbox?: boolean; unpinned?: boolean; localReady?: boolean; raw?: Record<string, unknown> }
+interface Opts { enabled?: boolean; installs?: string[]; socketOpen?: boolean; mcpServers?: Record<string, any>; sandboxReady?: boolean; withSandbox?: boolean; unpinned?: boolean; localReady?: boolean; realLocal?: boolean; raw?: Record<string, unknown> }
 
 function fakeIo(versions: string[]): { io: BlenderIo; downloads: string[]; hash: { value?: string } } {
   const downloads: string[] = [];
@@ -80,7 +80,8 @@ async function mount(o: Opts = {}) {
   local.ready = { ready: o.localReady ?? false, note: o.localReady ? 'Blender found' : 'no Blender' };
   const kinds: string[] = [];
   const opts: BlenderModuleOptions = {
-    ...(o.localReady === undefined ? {} : { local }),
+    // the production default builds a real LocalRunner; these status tests pin the local fact unless they ask for it
+    ...(o.realLocal ? {} : { local }),
     io, boatConfigured: () => true, backup: async () => ({ ok: true }), probe: async () => o.socketOpen ?? false,
     makeBackend: (k) => { kinds.push(k); return backend; },
     ...(o.withSandbox === false ? {} : { sandbox }),
@@ -413,10 +414,10 @@ test('status: lights local and busy, localReady, nextRun and busy field follow t
   assert.equal(d.light, 'sandbox');
   assert.equal(d.localReady, true);
   assert.match(d.nextRun, /cloud VM/);
-  // no local runner built in: not available, never guessed
-  const e = await light({ installs: ['5.1.0'], raw: { mode: 'auto' } });
-  assert.equal(e.localReady, false);
-  assert.match(e.localNote, /not available in this build/);
+  // nothing injected: the production LocalRunner reads the detected install (see blender-production-wiring.test.ts for the full path)
+  const e = await light({ installs: ['5.1.0'], realLocal: true, raw: { mode: 'auto' } });
+  assert.equal(e.localReady, true);
+  assert.match(e.localNote, /Blender 5\.1\.0/);
 });
 
 test('status: the busy light and field appear while a script runs through the module and go away afterwards', async () => {

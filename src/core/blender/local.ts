@@ -276,7 +276,9 @@ interface Prepared { task: string; exportsDir: string; home: string; blender: st
 export class LocalRunner implements LocalPort {
   private chain: Promise<unknown> = Promise.resolve();
   private runnerWritten = false;
-  private current: number | undefined;
+  /** The child in flight. Kept until its exit is confirmed (also through a timeout or output-cap kill), so dispose() can still stop it. */
+  private current: { pid: number; exited: Promise<unknown> } | undefined;
+  private disposed = false;
   private stuck: number | undefined;
   constructor(private readonly d: LocalDeps) {}
 
@@ -300,10 +302,13 @@ export class LocalRunner implements LocalPort {
     return { ready: true, note: `Scripts run in Blender ${inst.version} in the background on this computer (not yet tried with a real Blender on Windows).` };
   }
 
-  /** Kills a running child (core exit). */
+  /** Core exit: refuse new runs, kill the running child's tree by PID and wait (bounded) for it to exit. */
   async dispose(): Promise<void> {
-    const pid = this.current;
-    if (pid) await this.d.proc.kill(pid).catch(() => false);
+    this.disposed = true;
+    const c = this.current;
+    if (!c) return;
+    await this.d.proc.kill(c.pid).catch(() => false);
+    await Promise.race([c.exited.catch(() => undefined), new Promise((r) => { const t = setTimeout(r, this.d.stopWaitMs ?? STOP_WAIT_MS); t.unref?.(); })]);
   }
 
   /** C16: the task folder, resolved to real paths, no links anywhere in it, under the size cap. */
@@ -357,6 +362,7 @@ export class LocalRunner implements LocalPort {
   private async execute(req: { agent: AgentProfile; taskId: string; script: string; hash: string; timeoutMs?: number }, o: { readonly: boolean; withBackup: boolean }): Promise<
     { kind: 'refused'; text: string } | { kind: 'ran'; p: Prepared; runId: string; ok: boolean; output: string; timedOut: boolean; backup?: string; violations: string[] }
   > {
+    if (this.disposed) return { kind: 'refused', text: 'Legion is shutting down; no new local run starts.' };
     const rd = this.readiness(req.agent);
     if (!rd.ready) return { kind: 'refused', text: rd.note };
     const inst = this.d.install()!;
@@ -384,12 +390,11 @@ export class LocalRunner implements LocalPort {
       const args = buildArgs({ runner, taskDir: p.task, runId, hash: req.hash, readonly: o.readonly, guard: cfg.guard, extraWriteDirs: cfg.extraWriteDirs, userArgs: cfg.args });
       const env = buildEnv({ platform: this.d.platform ?? process.platform, host: this.d.hostEnv ?? process.env, blenderDir: dirname(inst.path), taskDir: p.task, homeDir: p.home });
       const proc = this.d.proc.spawn({ args, cwd: p.task, env, maxOutputBytes: cfg.maxOutputBytes });
-      this.current = proc.pid;
+      if (proc.pid !== undefined) this.current = { pid: proc.pid, exited: proc.exited };
       let timer: ReturnType<typeof setTimeout> | undefined;
       const timeout = new Promise<'timeout'>((res) => { timer = setTimeout(() => res('timeout'), timeoutMs); });
       const first = await Promise.race([proc.exited, timeout]);
       clearTimeout(timer);
-      this.current = undefined;
       if (first === 'timeout') {
         // C14: stop the whole process tree by PID, then wait a short while to see it gone
         if (proc.pid) await this.d.proc.kill(proc.pid).catch(() => false);
