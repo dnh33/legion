@@ -81,3 +81,15 @@ test('the bsv.json fallback file cannot carry a wallet address either', () => wi
   assert.equal(state.enabled, true);
   assert.equal(state.walletUrl, undefined);
 }));
+
+test('config.json cannot carry the mainnet switch or a spend network: the bsv key keeps only enabled and the knowledge-mode network, whatever else is written there', () => withHome((dir) => {
+  const sneaky = { enabled: true, network: 'mainnet', mainnetEnabled: true, mainnet: true, spendNetwork: 'main', spend: { mainnet: true }, nets: { main: { enabled: true } } };
+  assert.deepEqual(normalizeBsv(sneaky), { enabled: true, network: 'testnet' });
+  writeFileSync(join(dir, 'config.json'), JSON.stringify({ bsv: sneaky }));
+  assert.deepEqual(loadConfig().bsv, { enabled: true, network: 'testnet' });
+  const state = createBsvState({ dataDir: dir, config: loadConfig() });
+  assert.equal(state.enabled, true);
+  assert.equal(state.network, 'testnet');
+  state.set(false); state.set(true);
+  assert.deepEqual(loadConfig().bsv, { enabled: true, network: 'testnet' }, 'a toggle and a reload still read nothing else from that key (the switch lives only in the fingerprinted policy file)');
+}));

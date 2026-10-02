@@ -20,7 +20,7 @@ import type { CoreModule, ModuleDeps } from '../modules.js';
 import type { AgentProfile } from '../../shared/types.js';
 import { AuditLog, auditPath } from './audit.js';
 import type { OpenResult } from './audit.js';
-import { ARM_CHOICES_MINUTES, DAY_MS, ledgerFromAudit, PolicyEngine, PolicyError, validateCaps } from './policy.js';
+import { ARM_CHOICES_MINUTES, buildPolicyConfig, DAY_MS, ledgerFromAudit, PolicyEngine, PolicyError, validateCaps } from './policy.js';
 import type { Caps, Clock, PolicyEvent, PolicySnapshot } from './policy.js';
 import { loadPolicyConfig, policyFileHash, policyPath, savePolicyConfig, untrustedConfig } from './policy-store.js';
 import { BsvState } from './state.js';
@@ -124,17 +124,20 @@ export function createBsvModule(deps: ModuleDeps, opts: BsvModuleOptions = {}): 
   };
   const onPolicyEvent = (e: PolicyEvent) => {
     switch (e.type) {
-      case 'armed': return note('owner', 'policy', 'armed', 'live funds armed (nothing in this version can spend)', { minutes: e.minutes, until: new Date(e.until).toISOString() });
+      case 'armed': return note('owner', 'policy', 'armed', 'live funds armed (one mainnet spend, then it is gone)', { minutes: e.minutes, until: new Date(e.until).toISOString() });
       case 'disarmed': return note('owner', 'policy', 'disarmed', e.reason);
       case 'frozen': probe.disconnect(); return note('owner', 'policy', 'frozen', e.reason, { denied: e.denied.length, unknown: e.unknown.length });
       case 'unfrozen': return note('owner', 'policy', 'unfrozen');
-      case 'caps': return note('owner', 'policy', 'caps-changed', undefined, { ...e.caps });
-      case 'allowlist': return note('owner', 'policy', 'allowlist-changed', undefined, { size: e.size });
+      case 'caps': return note('owner', 'policy', 'caps-changed', undefined, { ...e.caps, net: e.net });
+      case 'allowlist': return note('owner', 'policy', 'allowlist-changed', undefined, { size: e.size, net: e.net });
+      // the switch itself, written at the moment of the change (before any save): read at start as a second source for "mainnet is off"
+      case 'mainnet': return note('legion', 'policy', 'mainnet-changed', e.reason, { enabled: e.enabled });
+      case 'voided': return note('legion', 'policy', 'voided', e.reason, { count: e.ids.length, ids: e.ids.slice(0, 20), net: e.net });
       case 'decision': return note(e.agentId, 'spend-policy', e.verdict === 'deny' ? 'denied' : 'needs-approval', e.reasons.join('; ') || undefined, { requestId: e.requestId, totalSats: e.totalSats, network: e.network, duplicate: e.duplicate }, e.taskId);
-      case 'approved': return note('owner', 'spend-policy', 'approved', undefined, { requestId: e.requestId, totalSats: e.totalSats });
-      case 'settled': return note('legion', 'spend-policy', e.outcome === 'executed' ? 'executed' : e.outcome, undefined, { requestId: e.requestId, sats: e.sats });
-      case 'expired': return note('legion', 'spend-policy', 'expired', undefined, { requestId: e.requestId });
-      case 'resolved': return note('owner', 'spend-policy', 'resolved', undefined, { requestId: e.requestId, outcome: e.outcome });
+      case 'approved': return note('owner', 'spend-policy', 'approved', undefined, { requestId: e.requestId, totalSats: e.totalSats, net: e.net });
+      case 'settled': return note('legion', 'spend-policy', e.outcome === 'executed' ? 'executed' : e.outcome, undefined, { requestId: e.requestId, sats: e.sats, net: e.net });
+      case 'expired': return note('legion', 'spend-policy', 'expired', undefined, { requestId: e.requestId, net: e.net });
+      case 'resolved': return note('owner', 'spend-policy', 'resolved', undefined, { requestId: e.requestId, outcome: e.outcome, net: e.net });
     }
   };
   // The rolling 24 h window is rebuilt from the audit log by TIME (every file of the log, newest to oldest, bounded), not from the last N lines:
@@ -150,11 +153,16 @@ export function createBsvModule(deps: ModuleDeps, opts: BsvModuleOptions = {}): 
     : loaded.hash === null && lastPolicyHash !== null ? 'the policy file is missing although Legion saved one'
     : undefined;
   const evidence = fileProblem && loaded.hash !== null ? keepEvidence() : undefined;
-  const policy = new PolicyEngine({ config: fileProblem ? untrustedConfig(fileProblem) : loaded.config, clock: opts.clock, ledger: history, onEvent: onPolicyEvent });
+  // second source for the switch: the last `mainnet-changed` line in the log. If it says OFF, a file that still says on (a save that failed, a crash before one) loads off.
+  const auditSaysMainnetOff = (() => {
+    try { const last = audit.entries((x) => x.tool === 'policy' && x.decision === 'mainnet-changed').pop(); return last?.fields.enabled === false; } catch { return false; }
+  })();
+  const startConfig = fileProblem ? untrustedConfig(fileProblem) : auditSaysMainnetOff && loaded.config.mainnetEnabled ? buildPolicyConfig(loaded.config.nets, loaded.config.frozen, false) : loaded.config;
+  const policy = new PolicyEngine({ config: startConfig, clock: opts.clock, ledger: history, onEvent: onPolicyEvent });
   const startupFreeze = auditProblem ?? (opened && !opened.ok ? `the audit log failed verification (${opened.tamper?.reason ?? 'unknown'}); the evidence was kept` : undefined) ?? fileProblem;
   if (fileProblem) note('legion', 'policy', 'file-tampered', fileProblem, { keptAs: evidence ?? null });
   if (startupFreeze && !policy.isFrozen) { policy.freeze(startupFreeze); log(`BSV frozen at start: ${startupFreeze}`); }
-  if (startupFreeze) persistPolicy();
+  if (startupFreeze || (auditSaysMainnetOff && loaded.config.mainnetEnabled)) persistPolicy(); // the second case repairs a file that still says mainnet is on
 
   /**
    * Runs before anything reads or changes the policy at run time: if the file on disk is not the one Legion last wrote, the chain freezes now,
@@ -169,6 +177,7 @@ export function createBsvModule(deps: ModuleDeps, opts: BsvModuleOptions = {}): 
       if (now === lastPolicyHash) return;
       const why = now === null ? 'the policy file was removed while Legion was running' : now === undefined ? 'the policy file can no longer be read' : 'the policy file changed outside Legion while it was running';
       const kept = keepEvidence();
+      policy.mainnetOff(`the policy file was tampered with (${why})`); // the switch lives in that file: it goes off before the freeze, and an Unfreeze does not bring it back
       policy.freeze(why);
       note('legion', 'policy', 'file-tampered', why, { keptAs: kept ?? null });
       persistPolicy();

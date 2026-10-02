@@ -52,10 +52,11 @@ test('emu bsv: cancelling the native dialog changes nothing; confirming arms; th
   assert.equal(d.type, 'warning');
   assert.match(d.detail, /no spend tool/);
   assert.match(d.detail, /Per transaction: 0\.00001000 BSV \(1,000 sat\)/, 'the limits come from the core, not the window');
-  assert.equal(r.confirmed.ok, true);
-  assert.equal(r.confirmed.view.armed, true);
-  assert.equal(r.armedAfterConfirm, true);
-  assert.equal(r.sentChanged, true, 'the window is told to refresh');
+  // T5: mainnet is OFF by default, so the core refuses to arm until the owner has switched it on. The window has no "enable mainnet" step yet
+  // (the T3 second pass adds the dialog); then this test arms again with the switch on and the old assertions (ok, armed, refresh event) come back.
+  assert.equal(r.confirmed.ok, false);
+  assert.match(r.confirmed.error, /switched off/);
+  assert.equal(r.armedAfterConfirm, false);
 });
 
 test('emu bsv: malformed requests and requests from another window or frame are refused before any dialog', { skip }, async () => {
@@ -95,9 +96,9 @@ test('emu bsv: confirmation dialogs never stack, and every change is in the audi
   const r = await bsv();
   assert.equal(r.second.ok, false);
   assert.match(r.second.error, /already open/);
-  assert.equal(r.firstDone.ok, true);
+  assert.equal(r.firstDone.ok, false, 'T5: arming is refused while mainnet is off (see the note in the test above)');
   assert.equal(r.dialogsStacked, 1);
-  for (const want of ['policy:armed', 'policy:frozen', 'policy:unfrozen', 'policy:caps-changed']) assert.ok(r.auditDecisions.includes(want), `${want} in ${r.auditDecisions.join(',')}`);
+  for (const want of ['policy:frozen', 'policy:unfrozen', 'policy:caps-changed']) assert.ok(r.auditDecisions.includes(want), `${want} in ${r.auditDecisions.join(',')}`);
   assert.equal(r.auditOk, true);
 });
 

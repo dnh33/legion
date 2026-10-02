@@ -6,7 +6,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { BSV_ARM_CHOICES_MINUTES, bsvConfirmation, bsvPreflight, dialogText, parseBsvAction, satsText, trustedSender } from '../src/electron/admin-logic.js';
-import { ARM_CHOICES_MINUTES, DEFAULT_CAPS } from '../src/core/bsv/policy.js';
+import { ARM_CHOICES_MINUTES, TESTNET_DEFAULT_CAPS } from '../src/core/bsv/policy.js';
 
 const UI = 'file:///opt/legion/dist-ui/index.html';
 
@@ -59,7 +59,7 @@ test('each action maps to exactly its core route and body', () => {
 });
 
 test('every dialog: Cancel is first (the default and the Escape button), the confirm button names the action, and nothing claims spending works', () => {
-  const facts = { caps: { ...DEFAULT_CAPS }, allowlist: ['abc'], frozen: { reason: 'the audit log failed verification' }, pending: [1], unknown: [1, 2] };
+  const facts = { caps: { ...TESTNET_DEFAULT_CAPS }, allowlist: ['abc'], frozen: { reason: 'the audit log failed verification' }, pending: [1], unknown: [1, 2] };
   const acts: Array<Parameters<typeof bsvConfirmation>[0]> = [{ kind: 'arm', minutes: 5 }, { kind: 'unfreeze' }, { kind: 'caps', caps: { perTxSats: 5 } }, { kind: 'allowlist', list: ['abc'] }];
   for (const a of acts) {
     const c = bsvConfirmation(a, facts, 'Wallet check: wallet is on MAINNET.');
