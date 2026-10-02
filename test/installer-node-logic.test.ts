@@ -20,13 +20,14 @@ test('the Node version truth: the script minimum equals package.json engines, an
   assert.doesNotMatch(read('scripts/setup.ps1'), /\[int\]\(\$ver\.Split/, 'the old major-only "20+" check is gone');
 });
 
-test('every URL in the setup scripts names only nodejs.org (the Node download); the test loopback is the only other host', () => {
-  const allowed = new Set(['nodejs.org', '127.0.0.1']);
+test('every URL in the setup scripts names only nodejs.org (the Node download) or, for the prebuilt package, github.com in the package files only; the test loopback is the only other host', () => {
+  const allowed = new Set(['nodejs.org', '127.0.0.1', 'github.com']);
   const seen = new Map<string, string[]>();
   for (const f of PS_FILES) for (const m of read(f).matchAll(/https?:\/\/([A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+)/g)) { const h = m[1]!.toLowerCase(); seen.set(h, [...(seen.get(h) ?? []), f]); }
   for (const [h, files] of seen) assert.ok(allowed.has(h), `unexpected host ${h} in ${files.join(', ')}`);
   assert.ok(seen.has('nodejs.org'));
   for (const f of seen.get('nodejs.org')!) assert.ok(['scripts/lib/node-bootstrap.ps1', 'scripts/setup.ps1'].includes(f), `nodejs.org in ${f}`);
+  for (const f of seen.get('github.com') ?? []) assert.ok(['scripts/lib/package-bootstrap.ps1', 'scripts/setup.ps1'].includes(f), `github.com in ${f}`);
   const nb = read('scripts/lib/node-bootstrap.ps1');
   assert.match(nb, /MaxRedirects 0/, 'nodejs.org downloads refuse every redirect');
   assert.doesNotMatch(nb, /MaxRedirects [1-9]/);

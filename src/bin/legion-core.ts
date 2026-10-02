@@ -24,6 +24,7 @@ import { createUpdaterModule } from '../core/updater/index.js';
 import { createProjectsModule, ProjectStore } from '../core/projects/index.js';
 import type { ModuleDeps } from '../core/modules.js';
 import { Store } from '../core/store.js';
+import { isPackageInstall } from '../electron/resolve-node.js';
 import { VmManager } from '../core/vm-manager.js';
 
 const logFile = join(dataDir(), 'core.log');
@@ -69,7 +70,8 @@ async function main() {
     vms.health.reset();
     if (keyChanged && boatConfigured()) void vms.health.probe().catch(() => undefined);
   };
-  const settings = new SettingsService({ config, bus, configPath: configPath(), dataDir: dataDir(), onBoatChange: () => restartReaper(true) });
+  const installRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
+  const settings = new SettingsService({ config, bus, configPath: configPath(), dataDir: dataDir(), install: { dir: installRoot, packaged: isPackageInstall(installRoot) }, onBoatChange: () => restartReaper(true) });
   // BSV mode v0 (knowledge and visibility only; no wallet). The flag lives in config.json under "bsv".
   const bsvState = createBsvState({ dataDir: dataDir(), config });
   const bsvEnabled = () => bsvState.enabled;
@@ -80,7 +82,7 @@ async function main() {
   const blender = createBlenderModule(moduleDeps, { vms, boatConfigured, log });
   // In-app updates (plan: claude/plan-updater.md): checks and stages a signed release; main applies it when the core is idle. No overrides are passed here.
   const updater = createUpdaterModule(moduleDeps, {
-    root: resolve(dirname(fileURLToPath(import.meta.url)), '..', '..', '..'), nativeSecret, log,
+    root: installRoot, nativeSecret, log,
     probes: { 'a Blender download or setup is running': async () => !!((await blender.status(false)) as { getting?: boolean }).getting },
   });
   const providersModules = providerRuntime ? [createProvidersModule({ runtime: providerRuntime, configPath: configPath(), nativeSecret })] : [];

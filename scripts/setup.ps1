@@ -11,6 +11,13 @@
 .PARAMETER NoLaunch    Don't offer to launch at the end.
 .PARAMETER DryRun      Print what would happen and change nothing.
 .PARAMETER NodeOnly    Only make sure a usable Node.js exists (system, or Legion's own copy in <install>\runtime\node), then stop.
+.PARAMETER PackagePath Install from this prebuilt package zip (legion-<version>-win-x64.zip). Needs -PackageSha256, or a SHA256SUMS.txt next to the zip.
+.PARAMETER PackageUrl  Download the prebuilt package from a GitHub release address (https://github.com/dnh33/legion/releases/download/v<version>/legion-<version>-win-x64.zip)
+                       after a yes (-Yes = yes). Needs -PackageSha256. Hash is checked before anything is unpacked.
+.PARAMETER PackageSha256 The SHA-256 of the package zip, from the release page.
+
+A PREBUILT PACKAGE (a folder with build-info.json of kind package and runtime\electron\electron.exe, or a zip of one) needs no Node.js, no npm and no build:
+setup copies it with the package's own scripts\package-install.mjs (run on the package's own electron.exe). A source folder works as before.
 
 Node.js: needs 20.10 or newer (package.json engines). If there is none, setup asks once and then downloads the pinned Node 24 LTS
 from nodejs.org into <install>\runtime\node (no admin, no system PATH change). -Yes is the go-ahead for that download.
@@ -20,13 +27,17 @@ param(
   [switch]$Yes,
   [switch]$NoLaunch,
   [switch]$DryRun,
-  [switch]$NodeOnly
+  [switch]$NodeOnly,
+  [string]$PackagePath = '',
+  [string]$PackageUrl = '',
+  [string]$PackageSha256 = ''
 )
 $ErrorActionPreference = 'Stop'
 
 . (Join-Path $PSScriptRoot 'lib\legion-procs.ps1')
 . (Join-Path $PSScriptRoot 'lib\safe-io.ps1')
 . (Join-Path $PSScriptRoot 'lib\node-bootstrap.ps1')
+. (Join-Path $PSScriptRoot 'lib\package-bootstrap.ps1')
 
 # No terminal to ask on (stdin redirected, or not a user-interactive session): never block on Read-Host.
 $script:NonInteractive = $false
@@ -61,10 +72,21 @@ try {
   # "C:" and "C:\" are checked as typed: GetFullPath turns a bare "C:" into the current folder of that drive.
   if (Test-DriveRoot $InstallDir) { Fail "Refusing to install into '$InstallDir': that is a drive root." }
   $InstallDir = Get-TrimmedFullPath $InstallDir
+  # What are we installing from? A prebuilt package folder, a zip of one (a file, or an address), or a source folder (a developer checkout or a source zip).
+  $kind = Get-LegionFolderKind $src
+  $pkgTemp = ''
+  $wantZip = (-not [string]::IsNullOrWhiteSpace($PackagePath)) -or (-not [string]::IsNullOrWhiteSpace($PackageUrl))
+  if (-not $wantZip -and $kind -ne 'package' -and -not (Test-Path -LiteralPath (Join-Path $src 'src') -PathType Container)) {
+    # an installer kit: setup.cmd and scripts\ with exactly one legion-<version>-win-x64.zip next to them (never a source checkout)
+    $zips = @(Get-ChildItem -LiteralPath $src -Filter 'legion-*-win-x64.zip' -File -ErrorAction SilentlyContinue)
+    if ($zips.Count -eq 1) { $PackagePath = $zips[0].FullName; $wantZip = $true }
+  }
   $inPlace = $src.Equals($InstallDir, [System.StringComparison]::OrdinalIgnoreCase)
 
   Say "Legion setup" 'Green'
-  Say "  source : $src"
+  if ($wantZip) {
+    Say "  source : a package zip ($(if ($PackageUrl) { 'download' } else { $PackagePath }))"
+  } else { Say "  source : $src ($kind)" }
   Say "  install: $InstallDir"
   if ($DryRun) { Say '  (dry run - nothing will be changed)' 'Yellow' }
 
@@ -79,6 +101,11 @@ try {
   if (-not $verdict.Ok) { Fail "Refusing to install into '$($verdict.Path)': $($verdict.Reason)." }
 
   # 1) Node.js (20.10+ by package.json engines): a good system Node, else Legion's own pinned copy (asked once, downloaded from nodejs.org).
+  if ($kind -eq 'package' -or $wantZip) {
+    Step 'Checking Node.js'
+    Say 'Not needed: this is a prebuilt package, it brings its own runtime.' 'Green'
+    if ($NodeOnly) { Say 'Nothing to do (-NodeOnly).' 'Green'; exit 0 }
+  } else {
   Step 'Checking Node.js'
   $nodeRes = Initialize-LegionNode -InstallDir $InstallDir -DryRun:$DryRun `
     -Ask { param($q, $d) Ask $q $d } -Say { param($m, $c) Say $m $c }
@@ -89,6 +116,20 @@ try {
   }
   if (-not $DryRun -and -not (Get-Command npm -ErrorAction SilentlyContinue)) { Fail 'npm was not found on PATH (it ships with Node.js; reinstall Node).' }
   if ($NodeOnly) { Say 'Node.js is ready.' 'Green'; exit 0 }
+  }
+
+  # 1b) A zip: get it (after a yes, hash checked before unpacking), unpack it safely, and continue from the unpacked folder.
+  if ($wantZip) {
+    Step 'Getting the Legion package'
+    if ($DryRun) { Say '  (dry run) would check the package against its SHA-256, unpack it safely and install it' 'DarkGray' }
+    else {
+      $g = Get-LegionPackageFolder -PackagePath $PackagePath -PackageUrl $PackageUrl -Sha256 $PackageSha256 `
+        -Ask { param($q, $d) Ask $q $d } -Say { param($m, $c) Say $m $c } -AssumeYes ([bool]$Yes) -Interactive (-not $script:NonInteractive)
+      if (-not $g.Ok) { Fail $g.Message }
+      $src = $g.Dir; $pkgTemp = $g.Temp; $kind = 'package'
+      Say "  package checked and unpacked: $src" 'Green'
+    }
+  }
 
   # 2) Stop a running Legion, from any folder (it holds the port, the data folder and the files being replaced).
   #    Matched by what it is (see scripts\lib\legion-procs.ps1) and stopped by PID. Other node/electron programs are never touched.
@@ -115,6 +156,19 @@ try {
     } else { Fail 'Close Legion and run setup again.' }
   } else { Say 'Not running.' 'Green' }
 
+  if ($kind -eq 'package' -or $wantZip) {
+    # PACKAGE: no copy with robocopy, no npm, no build. The package's own installer checks, copies and swaps (see scripts\package-install.mjs).
+    Step 'Installing the package'
+    $electron = Join-Path $InstallDir 'runtime\electron\electron.exe'
+    if ($DryRun) { Say "  (dry run) would install the package into $InstallDir" 'DarkGray' }
+    else {
+      $dataDirs = @($dataDir, (Join-Path $env:USERPROFILE '.legion'))
+      $pr = Install-LegionPackageFolder -Src $src -InstallDir $InstallDir -DataDirs $dataDirs -Say { param($m, $c) Say $m $c }
+      if ($pkgTemp) { Remove-TreeNoFollow $pkgTemp }
+      if (-not $pr.Ok) { Write-Host ''; Write-Host "ERROR: $($pr.Message)" -ForegroundColor Red; exit $(if ($pr.Code -gt 0) { $pr.Code } else { 1 }) }
+      Say 'Package installed and checked.' 'Green'
+    }
+  } else {
   # 3) Copy the source
   Step 'Copying files'
   if ($inPlace) {
@@ -158,11 +212,14 @@ try {
   } finally {
     if (-not $DryRun) { Pop-Location }
   }
+  }
 
   # 5) Claude Code (informational)
   Step 'Claude Code'
   if (Get-Command claude -ErrorAction SilentlyContinue) {
     Say 'claude CLI found. Legion uses the Claude sign-in of Claude Code; if not signed in yet, run `claude` and then /login.' 'Green'
+  } elseif ($kind -eq 'package') {
+    Say "claude CLI not found on PATH (informational). Legion has Claude Code built in: run `"$InstallDir\scripts\legion-claude.cmd`" and type /login once." 'Yellow'
   } else {
     Say 'claude CLI not found on PATH (informational). Legion uses the Claude sign-in of Claude Code; install it, run `claude`, then /login.' 'Yellow'
   }
@@ -224,8 +281,11 @@ try {
   Say '  1. Launch Legion from the desktop / Start menu shortcut. The first run creates %USERPROFILE%\.legion\config.json.'
   Say '  2. Get a boat.dev API key and put it in config.json under boat.apiKey (or set BOAT_API_KEY).'
   Say '  3. Hook Legion into Claude Code (prints the command with your real token):'
-  Say "       cd `"$InstallDir`""
-  Say '       npm run mcp-config'
+  if ($kind -eq 'package') { Say "       `"$InstallDir\scripts\legion-mcp-config.cmd`"" }
+  else {
+    Say "       cd `"$InstallDir`""
+    Say '       npm run mcp-config'
+  }
   Say '     (the token exists after the first launch)'
   Say '  Uninstall: run uninstall.cmd in the install folder (add /purge to delete your data too).'
 

@@ -1,5 +1,5 @@
 /** Fixtures for the prebuilt-package tests: a fake package tree (fake electron, fake claude), loaders for the plain .mjs scripts. Not a test file. */
-import { chmodSync, mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -14,6 +14,11 @@ export const installer = () => load('scripts/package-install.mjs');
 export const FAKE_ELECTRON = '#!/bin/sh\nexec node "$@"\n';
 export const FAKE_CLAUDE = '#!/bin/sh\necho "2.1.285 (fake)"\n';
 
+/** The real installer files a package carries, copied from this repo (dist must be built). */
+export function putInstaller(root: string): void {
+  for (const f of ['scripts/package-install.mjs', 'scripts/lib/release-lib.mjs', 'scripts/lib/package-lib.mjs', 'dist/src/core/updater/apply.js']) put(root, f, readFileSync(join(REPO, ...f.split('/'))));
+}
+
 export function put(root: string, rel: string, body: string | Buffer, exec = false): void {
   const p = join(root, ...rel.split('/'));
   mkdirSync(dirname(p), { recursive: true });
@@ -21,13 +26,14 @@ export function put(root: string, rel: string, body: string | Buffer, exec = fal
   if (exec) chmodSync(p, 0o755);
 }
 
-export interface FakePkgOpts { version?: string; claude?: string; extra?: Record<string, string>; skipList?: boolean; platform?: string }
+export interface FakePkgOpts { version?: string; claude?: string; extra?: Record<string, string>; skipList?: boolean; platform?: string; /** Put the real installer scripts and apply.js in, so the package can install itself (PowerShell and in-package runs). */ installer?: boolean }
 /** A complete fake package folder with PACKAGE-FILES.json (built by the real makeFilesList). */
 export async function fakePackage(opts: FakePkgOpts = {}): Promise<string> {
   const v = opts.version ?? '0.9.0';
   const root = tmp('prebuilt-pkg-');
-  put(root, 'package.json', JSON.stringify({ name: 'legion', version: v }));
+  put(root, 'package.json', JSON.stringify({ name: 'legion', version: v, type: 'module' }));
   put(root, 'package-lock.json', '{"lockfileVersion":3}\n');
+  if (opts.installer) putInstaller(root);
   put(root, 'build-info.json', JSON.stringify({ version: v, publishedAt: '2026-10-20T10:00:00Z', builtAt: '2026-10-20T10:00:00Z', commit: 'abc1234', platform: opts.platform ?? 'win32-x64', kind: 'package' }));
   put(root, 'dist/src/electron/main.js', `// main ${v}`);
   put(root, 'dist/src/bin/legion-core.js', '// core');
@@ -54,7 +60,7 @@ export const sha = (b: Buffer | string): string => createHash('sha256').update(b
 /** A tiny BUILT tree (what release-package.mjs wants) with package.json version v. */
 export function builtTree(version = '0.9.0', electron = '44.5.1'): string {
   const r = tmp('prebuilt-tree-');
-  put(r, 'package.json', JSON.stringify({ name: 'legion', version }));
+  put(r, 'package.json', JSON.stringify({ name: 'legion', version, type: 'module' })); putInstaller(r);
   put(r, 'package-lock.json', JSON.stringify({ lockfileVersion: 3, packages: { 'node_modules/electron': { version: electron } } }));
   put(r, 'dist/src/electron/main.js', 'm'); put(r, 'dist/src/bin/legion-core.js', 'c'); put(r, 'dist/test/a.test.js', 'EXCLUDED');
   put(r, 'dist-ui/index.html', '<html>'); put(r, 'assets/icon.ico', 'i'); put(r, 'scripts/setup.ps1', 's'); put(r, 'NOTICE', 'n'); put(r, 'LICENSE', 'l');
