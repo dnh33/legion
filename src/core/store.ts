@@ -15,7 +15,7 @@ const MIGRATIONS: Array<{ id: string; run: (agents: Map<string, AgentProfile>) =
     id: 'builder-vm-size-default-v1',
     run: (agents) => {
       const b = agents.get('builder');
-      if (!b || b.vm.size !== 'large') return false;
+      if (!b || b.vm?.size !== 'large') return false;
       b.vm = { ...b.vm, size: 'default' };
       return true;
     },

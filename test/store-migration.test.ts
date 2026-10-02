@@ -64,3 +64,15 @@ test('U1: a state already on default, or without a Builder, just gets the flag',
   await s.flush();
   assert.deepEqual(onDisk(dir).migrations, [ID]);
 });
+
+test('U1: an agent entry with no vm object does not crash the migration', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'legion-mig-'));
+  oldState(dir);
+  const raw = JSON.parse(readFileSync(join(dir, 'state.json'), 'utf8')) as { agents: Array<Record<string, unknown>> };
+  delete raw.agents.find((a) => a.id === 'builder')!.vm;
+  writeFileSync(join(dir, 'state.json'), JSON.stringify(raw));
+  const s = new Store(dir);
+  assert.ok(s.getAgent('builder'), 'the store loaded');
+  await s.flush();
+  assert.deepEqual(onDisk(dir).migrations, [ID]);
+});
