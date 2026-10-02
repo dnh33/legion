@@ -6,12 +6,13 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import test from 'node:test';
 import { PYTHON_UTF8_ENV } from '../src/core/blender/backend.js';
 import { serverEnv } from '../src/core/blender/backends/official.js';
 import { wrapLive } from '../src/core/blender/guard.js';
-import { createRealIo } from '../src/core/blender/system.js';
+import { buildEnv } from '../src/core/blender/local.js';
+import { createProcessPort, createRealIo } from '../src/core/blender/system.js';
 import { tmp } from './blender-helpers.js';
 
 const python = ['python3', 'python'].find((c) => { try { execFileSync(c, ['--version'], { stdio: 'ignore' }); return true; } catch { return false; } });
@@ -57,4 +58,22 @@ test('spawnDetached(): the started program has the UTF-8 variables too, whatever
     await new Promise((r) => setTimeout(r, 200));
   });
   assert.equal(readFileSync(out, 'utf8'), '1|utf-8');
+});
+
+test('the local runner\'s child environment forces UTF-8 for Python whatever the parent had, and its output is read as UTF-8', { skip: !python && 'python is not installed' }, async () => {
+  const dir = tmp();
+  const exe = execFileSync(python!, ['-c', 'import sys; print(sys.executable)'], { encoding: 'utf8' }).trim();
+  const env = await underCp1252(async () => buildEnv({ platform: process.platform, host: process.env, blenderDir: dirname(exe), taskDir: dir, homeDir: join(dir, 'home') }));
+  assert.equal(env.PYTHONUTF8, '1');
+  assert.equal(env.PYTHONIOENCODING, 'utf-8');
+  writeFileSync(join(dir, 'p.py'), `print(${JSON.stringify(SPICY)})\n`);
+  // control: the same program under the simulated cp1252 locale fails without the product's variables
+  const bare = await underCp1252(async () => { try { execFileSync(python!, [join(dir, 'p.py')], { env: { ...process.env }, stdio: 'pipe' }); return 0; } catch { return 1; } });
+  assert.equal(bare, 1, 'the simulated cp1252 locale must break a bare python (otherwise this test proves nothing)');
+  // python is found by absolute path; on Windows it needs its own folder on Path, which buildEnv puts there
+  const port = createProcessPort(() => undefined);
+  const p = await underCp1252(async () => port.spawn({ file: exe, args: [join(dir, 'p.py')], cwd: dir, env: { ...env, ...(process.platform === 'win32' ? { Path: `${dirname(exe)};${process.env.SystemRoot ?? 'C:\\Windows'}\\System32` } : {}) }, maxOutputBytes: 1 << 20 }));
+  const exit = await p.exited;
+  assert.equal(exit.code, 0, p.stderr());
+  assert.ok(p.stdout().includes(SPICY), JSON.stringify(p.stdout()));
 });
