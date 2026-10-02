@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import type { Room } from '../../../src/shared/comms';
+import { ROOM_BUDGET_NOTE } from '../../../src/shared/providers-view';
 import type { AgentProfile } from '../../../src/shared/types';
 import { Icon } from '../components/icons';
 import { Face } from './Stack';
@@ -107,6 +108,7 @@ export function RoomHeader({ room, agents, live, offline, narrow, onList }: {
           <Meter label="Hops" value={room.hopsSinceHuman} max={g.maxHops} text={`${room.hopsSinceHuman}/${g.maxHops}`} title={`${room.hopsSinceHuman} of ${g.maxHops} bot-to-bot hops since your last message`} />
           <Meter label="Cost" value={room.costUsd} max={g.budgetUsd} text={g.budgetUsd === null ? `${fmtCost(room.costUsd)} · No limit` : `${fmtCost(room.costUsd)} / ${fmtBudget(g.budgetUsd)}`} title={g.budgetUsd === null ? `${fmtCost(room.costUsd)} spent; this room has no spend limit` : `${fmtCost(room.costUsd)} spent of the ${fmtBudget(g.budgetUsd)} room budget`} />
         </div>
+        {g.budgetUsd !== null && <span className="rm-hint" data-testid="room-budget-note">{ROOM_BUDGET_NOTE}</span>}
       </div>
     </header>
   );

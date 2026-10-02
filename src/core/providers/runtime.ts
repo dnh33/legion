@@ -13,6 +13,7 @@ import { TokenLedger } from './usage.js';
 import type { ProcessPort } from './proc.js';
 import type { ProviderEntry, ProviderHost, ProviderRunResult, ProvidersConfig, ResolvedModel } from './types.js';
 import type { ProviderView, ProvidersView } from '../../shared/providers-view.js';
+import { ROOM_BUDGET_NOTE } from '../../shared/providers-view.js';
 import type { McpServerEntry } from '../../shared/types.js';
 import { isStdioEntry, stdioCommandLine, stdioFingerprint } from './stdio-allow.js';
 
@@ -43,8 +44,7 @@ export const PROVIDER_LIMITS_TEXT: string[] = [
   'Cost is shown only when the provider returns token counts and you entered prices; otherwise it is unknown.',
 ];
 
-/** One sentence the room UI shows: room budgets count only costs Legion knows. */
-export const ROOM_BUDGET_NOTE = 'A room budget counts only costs Legion knows: a run on another provider adds nothing to the meter unless you entered prices for that model, so a budgeted room can go over its budget.';
+export { ROOM_BUDGET_NOTE };
 /** The plain-words warning for a CLI agent (also shown in the native dialog). */
 export const CLI_WARNING = 'This runs a program (Codex or OpenCode) on this computer with its own shell and file tools. Legion cannot see or stop its individual actions: they are outside Legion\'s per-tool approvals and taint tracking. Its sandbox flag is that program\'s own promise, not a Legion control. Sign in to it yourself, outside Legion; Legion never reads or copies its login.';
 

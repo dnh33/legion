@@ -17,3 +17,6 @@ export interface ProvidersView { providers: ProviderView[]; maxTurns: number; ma
   roomBudgetNote: string; cliWarning: string;
   stdioServers: Array<{ name: string; commandLine: string; allowed: boolean; changedSinceAllowed: boolean }>;
 }
+
+/** One sentence the room UI shows under a room budget: the meter counts only costs Legion knows. */
+export const ROOM_BUDGET_NOTE = 'This budget counts only costs Legion knows: a run on another provider adds nothing unless you entered prices for that model, so the room can go over it.';
