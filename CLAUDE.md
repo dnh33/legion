@@ -17,7 +17,7 @@ Legion is a local, Claude-only multi-agent desktop app: Electron shell, Node/Typ
 ## Hard rules (do not weaken to make something pass)
 
 - Admin gate (default-deny HTTP; the MCP bearer token reaches only the short client list), the per-launch native secret for BSV policy changes, taint wrapping of external content, and the tripwire and hedge tests (`test/bsv-scan.ts`, `test/bsv-tripwire*.test.ts`, `test/bsv-hedge.test.ts`) stay as they are. Child processes may be spawned only in files the tripwire lists.
-- Never contact the owner's own BSV wallet port (the number is forbidden in source by test) from tests, scripts or agents. BSV work is testnet only and keys never live in Legion; every spend is a manual, native confirmation.
+- Never contact the owner's own BSV wallet port (the number is forbidden in source by test) from tests, scripts or agents. Keys never live in Legion; every spend is a manual, native confirmation. The owner's own funded wallet is only ever used by the owner by hand, with the owner present, for the real-funds check.
 - No keys, tokens or `.legion` data in the repo, logs or reports. Redact any secret-shaped value to a short prefix.
 - The mascot art (Zealot and the other painted busts) is untouchable: effects and logic only, never repaint.
 - Do not create accounts, passwords or CAPTCHAs. Downloads and anything that spends money need the owner's explicit go-ahead.
@@ -25,7 +25,7 @@ Legion is a local, Claude-only multi-agent desktop app: Electron shell, Node/Typ
 
 ## Decisions already made (do not re-ask)
 
-Claude-only in v1 (Codex/ChatGPT listed under "Later"). Version 0.2.0. Public repo after the history audit. MCP isolation: `claude.inheritMcp` default off, strict MCP config. Bot-created rooms: member cap 6, no default spend limit. Key probe runs lazily. Builder VM size resets to `default` once on upgrade. BSV: testnet only in v1, native dialog for every spend, empty recipient allowlist, caps 1,000 sat/tx, 5,000/session, 10,000/24 h, unknown outcome blocks all spends until resolved, mainnet out of v1, only runs started by the owner in the app may request a spend. Blender: local-first (headless Blender on the PC by default when found), VM and live as options. Details and the assumed-not-confirmed items are in the tracker and the plans.
+Claude-only in v1 (Codex/ChatGPT listed under "Later"). Version 0.2.0. Public repo after the history audit. MCP isolation: `claude.inheritMcp` default off, strict MCP config. Bot-created rooms: member cap 6, no default spend limit. Key probe runs lazily. Builder VM size resets to `default` once on upgrade. BSV: spend tool with BOTH testnet and mainnet capability in v0.2.0 (mainnet hard-off by default, enabled only by a native-confirmed policy change plus Arm, and not called verified until the owner's real-funds check is recorded), native dialog for every spend, empty recipient allowlist, caps 1,000 sat/tx, 5,000/session, 10,000/24 h, unknown outcome blocks all spends until resolved, only runs started by the owner in the app may request a spend. Blender: local-first (headless Blender on the PC by default when found), VM and live as options. Details and the assumed-not-confirmed items are in the tracker and the plans.
 
 ## Lessons from earlier work on this codebase
 

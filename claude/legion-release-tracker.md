@@ -75,3 +75,8 @@ Plan: `claude/plan-blender-local-first.md` (decisions in its section 10). Order:
 - `integration/v1` = working integration branch (all merges land here first).
 - `claude/*` = cloud builder/reviewer branches (never deleted; reviews are `claude/review-*`). `rel2` = the original bundle branch, kept as is.
 - Full local backup bundle: `D:/bots/legion-backup-20261002.bundle` (all branches at 2026-10-02 13:18).
+
+## BSV scope change (owner, 2026-10-02): mainnet capability IN v0.2.0
+
+Earlier decision "mainnet out of v1" is replaced: the spend tool is built and independently reviewed with BOTH testnet and mainnet capability before v0.2.0. Mainnet stays hard-off by default (native-confirmed policy change + Arm + LIVE FUNDS dialogs), and is not called verified until the owner's own real-funds check (tiny amount, owner present) is recorded. Plan amendment: `claude/plan-bsv-rung3.md` section 12 (in progress). T1 and T3 were started against the testnet-only plan and are revisited by the amendment; T2 (spend module) has not started and builds both networks from the start.
+Wallet environment for the first read-only checks (V1/V2): separate testnet environment (owner chose option 1). Windows Sandbox is NOT enabled on this PC (WindowsSandbox.exe missing, session not elevated): enabling needs an administrator PowerShell (`Enable-WindowsOptionalFeature -Online -FeatureName Containers-DisposableClientVM -All`) and a restart; BSV Desktop install, wallet creation and testnet coins are done by the owner by hand.
