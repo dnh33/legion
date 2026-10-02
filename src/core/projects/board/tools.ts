@@ -10,6 +10,7 @@ import type { ModuleJob } from '../../modules.js';
 import type { ProjectStore } from '../store.js';
 import { cardText } from '../../comms/scrub.js';
 import { DATA_NOTE, itemForBot } from './prompt.js';
+import type { BoardNotes } from './notes.js';
 import { BoardError } from './store.js';
 import type { BoardStore } from './store.js';
 
@@ -20,7 +21,7 @@ const fail = (e: unknown): ToolResult => ({ content: [{ type: 'text', text: `Err
 /** `askOwner` shows the owner an approval card and resolves with the answer (false: declined or no answer). */
 export type AskOwner = (r: { taskId: string; agentId: string; tool: string; summary: string; input: Record<string, unknown>; origin?: ModuleJob['origin'] }) => Promise<boolean>;
 
-export function buildBoardToolsServer(agentId: string, deps: { board: BoardStore; projects: ProjectStore; onChange?: (projectId: string) => void; askOwner?: AskOwner }, job: Pick<ModuleJob, 'projectId' | 'taskId' | 'taint' | 'origin'>): McpSdkServerConfigWithInstance {
+export function buildBoardToolsServer(agentId: string, deps: { board: BoardStore; projects: ProjectStore; onChange?: (projectId: string) => void; askOwner?: AskOwner; notes?: BoardNotes }, job: Pick<ModuleJob, 'projectId' | 'taskId' | 'taint' | 'origin'>): McpSdkServerConfigWithInstance {
   /** The run's project, looked up again at every call (archive and membership changes apply at once). */
   const scope = () => {
     const p = deps.projects.forRun(job.projectId, agentId);
@@ -70,13 +71,14 @@ export function buildBoardToolsServer(agentId: string, deps: { board: BoardStore
     }));
   const update = tool('update', 'Change a work item of this project: title, description, priority, labels, due date, status (backlog, doing, review, blocked; never done), position in its column, assignee (a member agent or null; not the owner), and/or add a short note (what you did, what is left). Items assigned to the owner take notes only; done items are closed. Editing the text marks the item as not reviewed by the owner.',
     {
-      id: z.string(), note: z.string().optional(), status: z.enum(BOT_STATUSES).optional(), index: z.number().int().optional().describe('Position in the column, 0 = top.'),
+      id: z.string(), note: z.string().optional(), noteIds: z.array(z.string()).optional().describe('Ids of project notes (saved with kg_capture scope "project") that belong to this item. They are linked; nothing is copied.'), status: z.enum(BOT_STATUSES).optional(), index: z.number().int().optional().describe('Position in the column, 0 = top.'),
       title: z.string().optional(), description: z.string().optional(), priority: priorityEnum.optional(), labels: labelsArg,
       due: z.string().nullable().optional().describe('YYYY-MM-DD, or null to clear.'), assignee: z.string().nullable().optional().describe('A member agent id, or null to unassign.'),
     },
     async (a) => guard(() => {
       const p = scope();
       const { id, assignee, ...rest } = a;
+      for (const n of rest.noteIds ?? []) if (!deps.notes?.has(n, p.id)) throw new BoardError(400, `"${n.slice(0, 40)}" is not a note in this project's Library. Save it with kg_capture (scope "project") first, then link it.`);
       const i = deps.board.botUpdate(p, agentId, id, { ...rest, ...(assignee !== undefined ? { assignee: assignee === null ? null : { kind: 'agent', id: assignee } } : {}) }, runInfo());
       deps.onChange?.(p.id);
       return json({ updated: true, id: i.id, status: i.status });

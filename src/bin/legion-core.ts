@@ -22,7 +22,7 @@ import { createCommsModule } from '../core/comms/index.js';
 import { createKnowledgeModule } from '../core/kg/index.js';
 import { createUpdaterModule } from '../core/updater/index.js';
 import { createProjectsModule, ProjectStore } from '../core/projects/index.js';
-import { BoardStore, createBoardModule } from '../core/projects/board/index.js';
+import { BoardStore, createBoardModule, graphNotes } from '../core/projects/board/index.js';
 import type { ModuleDeps } from '../core/modules.js';
 import { Store } from '../core/store.js';
 import { isPackageInstall } from '../electron/resolve-node.js';
@@ -89,7 +89,7 @@ async function main() {
   const providersModules = providerRuntime ? [createProvidersModule({ runtime: providerRuntime, configPath: configPath(), nativeSecret })] : [];
   // project board (built but not released: off unless config.json says experimental.projectBoard = true; then it has its own files under <dataDir>/board)
   const board = config.experimental.projectBoard ? new BoardStore(join(dataDir(), 'board')) : undefined;
-  const boardModules = board ? [createBoardModule(moduleDeps, { projects, board })] : [];
+  const boardModules = board ? [createBoardModule(moduleDeps, { projects, board, notes: graphNotes(() => kg.graph()) })] : [];
   const modules = [kg, createCommsModule(moduleDeps, { projects }), createProjectsModule(moduleDeps, { projects, nativeSecret }), ...boardModules, bsv, blender, ...providersModules, updater];
   engine.setModules(modules);
   const server = createServer({

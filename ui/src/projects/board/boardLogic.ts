@@ -106,3 +106,19 @@ export function readFilters(raw: string | null): Filters {
     };
   } catch { return NO_FILTERS; }
 }
+
+const clipTo = (s: string, n: number): string => (s.length > n ? s.slice(0, n - 1) + '\u2026' : s);
+/**
+ * A starting text for "Save what we learned": what the last run said and what the agents noted on the item. The owner edits it before it is saved:
+ * agent text is only a draft here, and a run that read outside content is flagged in the dialog.
+ */
+export function learnDraft(i: WorkItem, name: (id: string) => string): { title: string; body: string } {
+  const notes = i.activity.filter((a) => a.kind === 'note' && a.by.kind === 'agent').slice(-6).map((a) => `- ${a.by.kind === 'agent' ? name(a.by.id) : ''}: ${a.text.replace(/\s+/g, ' ').trim()}`);
+  const parts = [`Item: ${i.title}`];
+  if (i.lastRun?.preview) parts.push(`What the last run reported:\n${i.lastRun.preview.trim()}`);
+  if (notes.length) parts.push(`Notes from the agents:\n${notes.join('\n')}`);
+  parts.push('What we learned:\n- ');
+  return { title: clipTo(`${i.title}: what we learned`, 120), body: clipTo(parts.join('\n\n'), 4000) };
+}
+/** Offer the note when an item has just been closed and has none yet. */
+export const shouldOfferNote = (before: BoardStatus, after: BoardStatus, noteCount: number): boolean => after === 'done' && before !== 'done' && noteCount === 0;

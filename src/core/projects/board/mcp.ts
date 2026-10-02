@@ -13,7 +13,7 @@ export function registerBoardRead(server: McpServer, deps: { board: BoardStore; 
   const shape = (i: ReturnType<BoardStore['get']> & object, full: boolean) => ({
     id: i.id, title: neutralise(i.title), status: i.status, priority: i.priority, labels: i.labels, ...(i.due ? { due: i.due } : {}),
     assignee: !i.assignee ? null : i.assignee.kind === 'owner' ? 'owner' : deps.agentVisible(i.assignee.id) ? i.assignee.id : null,
-    ...(i.trust === 'untrusted' ? { untrustedText: true } : {}), ...(full ? { description: neutralise(clip(i.description, 1000)) } : {}),
+    ...(i.trust === 'untrusted' ? { untrustedText: true } : {}), ...(full ? { description: neutralise(clip(i.description, 1000)), ...(i.noteIds.length ? { noteIds: i.noteIds } : {}) } : {}),
   });
   server.registerTool('legion_board_read', {
     title: 'Project board (read only)',

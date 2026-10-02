@@ -42,7 +42,7 @@ test('C18 the briefing of a project run can surface the project episode; a run o
 
 const item = (id: string, status: WorkItem['status'], over: Partial<WorkItem> = {}): WorkItem => ({
   id, projectId: P1, title: id, description: '', status, assignee: null, priority: 'normal', labels: [], order: 0, createdBy: { kind: 'owner' }, updatedBy: { kind: 'owner' },
-  createdAt: '', updatedAt: '', trust: 'human', taskIds: [], roomIds: [], activity: [], ...over,
+  createdAt: '', updatedAt: '', trust: 'human', taskIds: [], roomIds: [], noteIds: [], activity: [], ...over,
 });
 
 test('C18 the board digest: counts, what is assigned to this agent, what others have in progress; capped; titles are data with our tags neutralised', () => {

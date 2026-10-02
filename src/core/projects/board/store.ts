@@ -1,7 +1,7 @@
 /** Project board store: one JSONL log per project (<dataDir>/board/<projectId>.jsonl). See claude/plan-project-board.md. */
 import { appendFileSync, existsSync, mkdirSync, readFileSync, renameSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { BOARD_LIMITS, BOARD_PRIORITIES, BOARD_STATUSES, BOT_STATUSES, WORK_ITEM_ID_RE } from '../../../shared/board.js';
+import { BOARD_LIMITS, BOARD_PRIORITIES, BOARD_STATUSES, BOT_STATUSES, NOTE_ID_RE, WORK_ITEM_ID_RE } from '../../../shared/board.js';
 import type { ActivityEntry, BoardActor, BoardAssignee, BoardPriority, BoardStatus, BoardView, WorkItem } from '../../../shared/board.js';
 import { PROJECT_ID_RE } from '../../../shared/projects.js';
 import type { Project } from '../../../shared/projects.js';
@@ -77,7 +77,7 @@ export function botText(s: string, what: string): string {
   return scrubSecrets(s, { keepHex: true });
 }
 
-const KNOWN = new Set(['id', 'projectId', 'title', 'description', 'status', 'assignee', 'due', 'priority', 'labels', 'order', 'createdBy', 'updatedBy', 'createdAt', 'updatedAt', 'trust', 'proposal', 'taskIds', 'roomIds', 'activeRun', 'lastRun', 'activity']);
+const KNOWN = new Set(['id', 'projectId', 'title', 'description', 'status', 'assignee', 'due', 'priority', 'labels', 'order', 'createdBy', 'updatedBy', 'createdAt', 'updatedAt', 'trust', 'proposal', 'taskIds', 'roomIds', 'noteIds', 'activeRun', 'lastRun', 'activity']);
 
 const asActor = (v: unknown): BoardActor => {
   if (isObj(v) && v.kind === 'owner') return { kind: 'owner' };
@@ -109,7 +109,7 @@ function loadItem(raw: unknown, projectId: string): { item: WorkItem; extra: Rec
     // anything that is not plainly "human" is untrusted: a damaged or foreign value never widens trust
     trust: raw.trust === 'human' ? 'human' : 'untrusted',
     ...(isObj(raw.proposal) ? { proposal: { ...(typeof raw.proposal.suggestedAssignee === 'string' ? { suggestedAssignee: clip(raw.proposal.suggestedAssignee, 64) } : {}) } } : {}),
-    taskIds: strArr(raw.taskIds, BOARD_LIMITS.taskLinks), roomIds: strArr(raw.roomIds, BOARD_LIMITS.roomLinks),
+    taskIds: strArr(raw.taskIds, BOARD_LIMITS.taskLinks), roomIds: strArr(raw.roomIds, BOARD_LIMITS.roomLinks), noteIds: strArr(raw.noteIds, BOARD_LIMITS.noteLinks, 80).filter((n) => NOTE_ID_RE.test(n)),
     ...(typeof raw.activeRun === 'string' ? { activeRun: clip(raw.activeRun, 64) } : {}),
     ...(isObj(lr) && typeof lr.taskId === 'string' ? { lastRun: { taskId: clip(lr.taskId, 64), status: clip(String(lr.status ?? ''), 20), endedAt: typeof lr.endedAt === 'string' ? lr.endedAt : now, tainted: lr.tainted === true, preview: clip(typeof lr.preview === 'string' ? lr.preview : '', BOARD_LIMITS.previewChars) } } : {}),
     activity: Array.isArray(raw.activity) ? raw.activity.filter(isObj).slice(-BOARD_LIMITS.activityEntries).map((e) => ({ at: typeof e.at === 'string' ? e.at : now, by: asActor(e.by), kind: clip(String(e.kind ?? 'note'), 20), text: clip(String(e.text ?? ''), BOARD_LIMITS.noteChars) })) : [],
@@ -278,7 +278,7 @@ export class BoardStore {
       id, projectId: proj.id, title: cleanTitle(input.title), description: input.description === undefined ? '' : cleanDescription(input.description),
       status, assignee: input.assignee === undefined ? null : cleanAssignee(input.assignee, proj), ...(due ? { due } : {}),
       priority: input.priority === undefined ? 'normal' : cleanPriority(input.priority), labels: input.labels === undefined ? [] : cleanLabels(input.labels),
-      order: this.atEnd(b, status), createdBy: by, updatedBy: by, createdAt: now, updatedAt: now, trust: 'human', taskIds: [], roomIds: [], activity: [],
+      order: this.atEnd(b, status), createdBy: by, updatedBy: by, createdAt: now, updatedAt: now, trust: 'human', taskIds: [], roomIds: [], noteIds: [], activity: [],
     };
     this.note(item, by, 'created', 'Created');
     b.items.set(id, item);
@@ -287,7 +287,7 @@ export class BoardStore {
   }
 
   /** The owner's edits. `trust: 'human'` is "I have read this text". */
-  patch(proj: ProjectRef, id: string, p: { title?: unknown; description?: unknown; status?: unknown; assignee?: unknown; due?: unknown; priority?: unknown; labels?: unknown; trust?: unknown; roomIds?: unknown }): WorkItem {
+  patch(proj: ProjectRef, id: string, p: { title?: unknown; description?: unknown; status?: unknown; assignee?: unknown; due?: unknown; priority?: unknown; labels?: unknown; trust?: unknown; roomIds?: unknown; noteIds?: unknown }): WorkItem {
     const b = this.writable(proj);
     const i = this.must(b, id);
     const by: BoardActor = { kind: 'owner' };
@@ -301,6 +301,7 @@ export class BoardStore {
       labels: p.labels === undefined ? undefined : cleanLabels(p.labels),
       status: p.status === undefined ? undefined : cleanStatus(p.status),
       roomIds: p.roomIds === undefined ? undefined : this.cleanRooms(p.roomIds),
+      noteIds: p.noteIds === undefined ? undefined : this.cleanNotes(p.noteIds),
     };
     if (p.trust !== undefined && p.trust !== 'human') throw new BoardError(400, 'trust can only be set to "human" (the owner has reviewed the text)');
     if (next.status !== undefined && i.proposal) throw new BoardError(409, 'Accept this proposal before moving it.');
@@ -311,6 +312,7 @@ export class BoardStore {
     if (next.priority !== undefined && next.priority !== i.priority) { i.priority = next.priority; this.note(i, by, 'edit', `Priority ${next.priority}`); }
     if (next.labels !== undefined) i.labels = next.labels;
     if (next.roomIds !== undefined) i.roomIds = next.roomIds;
+    if (next.noteIds !== undefined) i.noteIds = next.noteIds;
     if (p.trust === 'human' && i.trust !== 'human') { i.trust = 'human'; this.note(i, by, 'review', 'The owner reviewed the text'); }
     const moved = next.status !== undefined && next.status !== i.status;
     if (moved) {
@@ -330,6 +332,29 @@ export class BoardStore {
     if (!Array.isArray(v) || v.some((x) => typeof x !== 'string' || !/^room_[a-f0-9]{12}$/.test(x))) throw new BoardError(400, 'roomIds must be room ids');
     if (v.length > BOARD_LIMITS.roomLinks) throw new BoardError(400, `at most ${BOARD_LIMITS.roomLinks} linked rooms`);
     return [...new Set(v as string[])];
+  }
+
+  cleanNotes(v: unknown): string[] {
+    if (!Array.isArray(v) || v.some((x) => typeof x !== 'string' || !NOTE_ID_RE.test(x))) throw new BoardError(400, 'noteIds must be Library note ids');
+    if (v.length > BOARD_LIMITS.noteLinks) throw new BoardError(400, `at most ${BOARD_LIMITS.noteLinks} linked notes`);
+    return [...new Set(v as string[])];
+  }
+
+  /** Adds Library note links to an item (the caller has checked that the notes exist in this project). Keeps the newest few. */
+  linkNotes(pid: string, id: string, noteIds: string[], by: BoardActor): WorkItem | undefined {
+    const b = this.board(pid);
+    const i = b.items.get(id);
+    const add = noteIds.filter((n) => NOTE_ID_RE.test(n) && !i?.noteIds.includes(n));
+    if (!i || !add.length) return i ? structuredClone(i) : undefined;
+    i.noteIds = [...i.noteIds, ...add].slice(-BOARD_LIMITS.noteLinks);
+    this.note(i, by, 'note-link', `Linked ${add.length === 1 ? 'a project note' : `${add.length} project notes`}`);
+    this.touch(i, by);
+    this.save(b, i);
+    return structuredClone(i);
+  }
+  /** The items of this project that a task worked on (a Run-this-item run, or a task an agent named in an update). */
+  itemsForTask(pid: string, taskId: string): WorkItem[] {
+    return [...this.board(pid).items.values()].filter((i) => !i.proposal && i.taskIds.includes(taskId)).map((i) => structuredClone(i));
   }
 
   /** Move to a column at a position (owner; pointer and keyboard moves both end here). Keeps both columns dense. */
@@ -386,7 +411,7 @@ export class BoardStore {
     const item: WorkItem = {
       id, projectId: proj.id, title, description, status: 'backlog', assignee: null, priority, labels, order: 0,
       createdBy: by, updatedBy: by, createdAt: now, updatedAt: now, trust: 'untrusted',
-      proposal: { ...(sug ? { suggestedAssignee: sug } : {}) }, taskIds: [], roomIds: [], activity: [],
+      proposal: { ...(sug ? { suggestedAssignee: sug } : {}) }, taskIds: [], roomIds: [], noteIds: [], activity: [],
     };
     this.note(item, by, 'proposed', run.tainted ? 'Proposed by an agent whose run touched outside content' : 'Proposed by an agent');
     b.items.set(id, item);
@@ -456,7 +481,7 @@ export class BoardStore {
     do { id = newId('wi'); } while (b.items.has(id));
     const item: WorkItem = {
       id, projectId: proj.id, title, description, status, assignee, ...(due ? { due } : {}), priority, labels, order: this.atEnd(b, status),
-      createdBy: by, updatedBy: by, createdAt: now, updatedAt: now, trust: 'untrusted', taskIds: [], roomIds: [], activity: [],
+      createdBy: by, updatedBy: by, createdAt: now, updatedAt: now, trust: 'untrusted', taskIds: [], roomIds: [], noteIds: [], activity: [],
     };
     this.note(item, by, 'created', run.tainted ? 'Created by an agent whose run touched outside content' : 'Created by an agent');
     b.items.set(id, item);
@@ -469,14 +494,14 @@ export class BoardStore {
    * (not to the owner, not from a tainted run) and notes. Items assigned to the owner take notes only. Done items are closed.
    * Editing the text makes it the agent's text, so the item becomes `untrusted` (a run on it is capped until the owner marks it reviewed).
    */
-  botUpdate(proj: ProjectRef, agentId: string, id: string, u: { status?: unknown; index?: unknown; note?: unknown; title?: unknown; description?: unknown; priority?: unknown; labels?: unknown; due?: unknown; assignee?: unknown }, run: { taskId?: string; tainted: boolean; roomId?: string }): WorkItem {
+  botUpdate(proj: ProjectRef, agentId: string, id: string, u: { status?: unknown; index?: unknown; note?: unknown; title?: unknown; description?: unknown; priority?: unknown; labels?: unknown; due?: unknown; assignee?: unknown; noteIds?: unknown }, run: { taskId?: string; tainted: boolean; roomId?: string }): WorkItem {
     const b = this.writable(proj);
     if (!proj.members.includes(agentId)) throw new BoardError(403, 'Only a member of this project can update its items.');
     const i = b.items.get(id);
     if (!i || i.proposal) throw new BoardError(404, `No item "${clip(String(id), 40)}" on this project's board.`);
     const fields = ['status', 'index', 'title', 'description', 'priority', 'labels', 'due', 'assignee'] as const;
     const touching = fields.filter((f) => u[f] !== undefined);
-    if (touching.length === 0 && u.note === undefined) throw new BoardError(400, 'Give a note or a field to change.');
+    if (touching.length === 0 && u.note === undefined && u.noteIds === undefined) throw new BoardError(400, 'Give a note or a field to change.');
     if (i.status === 'done') throw new BoardError(409, 'The owner already closed this item. Create a new item if more work is needed.');
     if (i.assignee?.kind === 'owner' && touching.length) throw new BoardError(403, 'This item is assigned to the owner. You can add a note; the owner changes the item.');
     // validate everything first so a bad field leaves the item untouched
@@ -485,6 +510,7 @@ export class BoardStore {
       status = cleanStatus(u.status);
       if (!BOT_STATUSES.includes(status as never)) throw new BoardError(403, 'You can set backlog, doing, review or blocked. Only the owner marks an item done (move it to review instead).');
     }
+    const noteIds = u.noteIds === undefined ? undefined : this.cleanNotes(u.noteIds);
     if (u.index !== undefined && (typeof u.index !== 'number' || !Number.isInteger(u.index))) throw new BoardError(400, 'index must be an integer');
     const next = {
       title: u.title === undefined ? undefined : botText(cleanTitle(u.title), 'The title'),
@@ -510,6 +536,7 @@ export class BoardStore {
     if (next.due !== undefined) { if (next.due) i.due = next.due; else delete i.due; this.note(i, by, 'edit', next.due ? `Due ${next.due}` : 'Due date cleared'); }
     if (next.assignee !== undefined) { i.assignee = next.assignee; this.note(i, by, 'assign', next.assignee ? `Assigned to ${next.assignee.kind === 'agent' ? next.assignee.id : 'the owner'}` : 'Unassigned'); }
     if (note) this.note(i, by, 'note', note);
+    if (noteIds?.length) { const add = noteIds.filter((n) => !i.noteIds.includes(n)); if (add.length) { i.noteIds = [...i.noteIds, ...add].slice(-BOARD_LIMITS.noteLinks); this.note(i, by, 'note-link', `Linked ${add.length} project note${add.length === 1 ? '' : 's'}`); } }
     if (run.taskId && !i.taskIds.includes(run.taskId)) i.taskIds = [...i.taskIds, run.taskId].slice(-BOARD_LIMITS.taskLinks);
     if (run.roomId && /^room_[a-f0-9]{12}$/.test(run.roomId) && !i.roomIds.includes(run.roomId) && i.roomIds.length < BOARD_LIMITS.roomLinks) i.roomIds = [...i.roomIds, run.roomId];
     if (status !== undefined || u.index !== undefined) this.place(b, i, status ?? i.status, u.index as number | undefined, by);

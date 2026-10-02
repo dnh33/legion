@@ -4,12 +4,14 @@ import { BOARD_LIMITS } from '../../../../src/shared/board';
 import type { BoardStatus, WorkItem } from '../../../../src/shared/board';
 import type { Project } from '../../../../src/shared/projects';
 import { Modal } from '../../components/Modal';
+import { focusNode } from '../../graph/graphStore';
+import { api } from '../../api';
 import { openRoom } from '../../rooms/roomsStore';
 import { setView, useStore } from '../../store';
 import { acceptItem, createItem, deleteItem, getBoardState, loadBoard, moveItem, openTask, patchItem, probeBoard, rejectItem, runItem, sayItem, setLeader, useBoard } from './boardStore';
 import {
   applyFilters, assigneeKey, assigneeLabel, byColumn, cardLabel, columnLabel, COLUMNS, descCounter, dueState, dueText, FILTER_KEY, hasFilters, keyMove,
-  labelsOf, moveAnnouncement, NO_FILTERS, parseAssignee, PRIORITY_LABEL, priorityMark, readFilters,
+  labelsOf, learnDraft, moveAnnouncement, shouldOfferNote, NO_FILTERS, parseAssignee, PRIORITY_LABEL, priorityMark, readFilters,
 } from './boardLogic';
 import type { Filters } from './boardLogic';
 import './board.css';
@@ -32,6 +34,9 @@ function Board({ project }: { project: Project }) {
   const [tab, setTab] = useState<Tab>('board');
   const [filters, setFilters] = useState<Filters>(() => { try { return readFilters(localStorage.getItem(FILTER_KEY(project.id))); } catch { return NO_FILTERS; } });
   const [editing, setEditing] = useState<WorkItem | 'new' | null>(null);
+  const [learn, setLearn] = useState(false);
+  /** An item the owner just closed that has no note yet: offer to save what was learned (a banner, focus is not taken). */
+  const [offer, setOffer] = useState<{ id: string; title: string } | null>(null);
   const focusId = useRef<string | null>(null);
   const archived = project.status === 'archived';
   const name = (id: string): string => agents.find((a) => a.id === id)?.name ?? id;
@@ -59,6 +64,7 @@ function Board({ project }: { project: Project }) {
   const members = project.members.map((id) => ({ id, name: name(id) }));
   const mv = (i: WorkItem, status: BoardStatus, index: number) => {
     const count = byColumn(all)[status].filter((x) => x.id !== i.id).length + 1;
+    if (shouldOfferNote(i.status, status, i.noteIds.length)) setOffer({ id: i.id, title: i.title });
     focusId.current = i.id;
     void moveItem(project.id, i.id, status, index, moveAnnouncement(i.title, status, index, count));
   };
@@ -102,6 +108,13 @@ function Board({ project }: { project: Project }) {
       </div>
       {archived && <p className="proj-note" role="note">This project is archived, so its board is read-only.</p>}
       <p className="bd-sr" role="status" aria-live="polite">{announce}</p>
+      {offer && (
+        <div className="bd-offer" role="region" aria-label="Save what we learned">
+          <span>&ldquo;{offer.title}&rdquo; is done. Save what you learned as a project note, so the agents and later sessions have it?</span>
+          <button type="button" className="btn" onClick={() => { const it = all.find((x) => x.id === offer.id); if (it) { setLearn(true); setEditing(it); } setOffer(null); }}>Save what we learned</button>
+          <button type="button" className="btn-ghost" onClick={() => setOffer(null)}>Not now</button>
+        </div>
+      )}
 
       {tab !== 'inbox' && (
         <form className="bd-filters" role="search" aria-label="Filter items" onSubmit={(e) => e.preventDefault()}>
@@ -191,7 +204,7 @@ function Board({ project }: { project: Project }) {
         )}
       </div>
 
-      {editing && <ItemDialog key={editing === 'new' ? 'new' : editing.id} project={project} item={editing === 'new' ? null : (view?.items.find((x) => x.id === editing.id) ?? editing)} members={members} name={name} archived={archived} onClose={() => setEditing(null)} />}
+      {editing && <ItemDialog key={editing === 'new' ? 'new' : editing.id} startLearn={learn} onOffer={(i) => setOffer(i)} project={project} item={editing === 'new' ? null : (view?.items.find((x) => x.id === editing.id) ?? editing)} members={members} name={name} archived={archived} onClose={() => { setEditing(null); setLearn(false); }} />}
     </section>
   );
 }
@@ -227,7 +240,7 @@ function InboxList({ inbox, members, name, archived, projectId, busy }: { inbox:
   );
 }
 
-function ItemDialog({ project, item, members, name, archived, onClose }: { project: Project; item: WorkItem | null; members: Array<{ id: string; name: string }>; name: (id: string) => string; archived: boolean; onClose: () => void }) {
+function ItemDialog({ project, item, members, name, archived, onClose, startLearn, onOffer }: { startLearn: boolean; onOffer: (i: { id: string; title: string }) => void; project: Project; item: WorkItem | null; members: Array<{ id: string; name: string }>; name: (id: string) => string; archived: boolean; onClose: () => void }) {
   const [title, setTitle] = useState(item?.title ?? '');
   const [desc, setDesc] = useState(item?.description ?? '');
   const [status, setStatus] = useState<BoardStatus>(item?.status ?? 'backlog');
@@ -236,7 +249,13 @@ function ItemDialog({ project, item, members, name, archived, onClose }: { proje
   const [due, setDue] = useState(item?.due ?? '');
   const [labels, setLabels] = useState(item?.labels.join(', ') ?? '');
   const [sure, setSure] = useState(false);
+  const [learnOpen, setLearnOpen] = useState(startLearn);
+  const draft = useMemo(() => (item ? learnDraft(item, name) : { title: '', body: '' }), [item?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  const [lTitle, setLTitle] = useState(draft.title);
+  const [lBody, setLBody] = useState(draft.body);
+  const [titles, setTitles] = useState<Record<string, string>>({});
   const busy = useBoard((s) => s.busy);
+  useEffect(() => { for (const id of item?.noteIds ?? []) if (!(id in titles)) void api.boardNoteTitle(project.id, id).then((r) => setTitles((t) => ({ ...t, [id]: r.title })), () => setTitles((t) => ({ ...t, [id]: '(note not found)' }))); }, [item?.noteIds.join(',')]); // eslint-disable-line react-hooks/exhaustive-deps
   const counter = descCounter(desc);
   const labelList = labels.split(',').map((l) => l.trim()).filter(Boolean);
   const canRun = !!item && !item.proposal && !archived && item.assignee?.kind === 'agent' && project.members.includes(item.assignee.id) && !item.activeRun;
@@ -244,6 +263,7 @@ function ItemDialog({ project, item, members, name, archived, onClose }: { proje
 
   const save = async () => {
     const r = item ? await patchItem(project.id, item.id, body()) : await createItem(project.id, { ...body(), due: due || undefined });
+    if (r && item && status === 'done' && shouldOfferNote(item.status, status, item.noteIds.length)) onOffer({ id: item.id, title: title.trim() });
     if (r) { sayItem(item ? 'Item saved.' : 'Item created.'); onClose(); }
   };
   return (
@@ -275,6 +295,28 @@ function ItemDialog({ project, item, members, name, archived, onClose }: { proje
         {item && (
           <>
             {item.lastRun && <p className="muted-s">Last run {item.lastRun.status}{item.lastRun.tainted ? ' (it read outside content)' : ''}: {item.lastRun.preview || 'no text'}</p>}
+            {item.noteIds.length > 0 && (
+              <div>
+                <h4 className="bd-h4">Project notes</h4>
+                <ul className="proj-list">
+                  {item.noteIds.map((n) => <li key={n}><button type="button" className="proj-link" onClick={() => { onClose(); setView('graph'); setTimeout(() => void focusNode(n), 0); }}>{titles[n] ?? n}</button></li>)}
+                </ul>
+              </div>
+            )}
+            {!archived && !item.proposal && (item.status === 'done' || item.status === 'review') && (
+              learnOpen ? (
+                <div className="bd-learn">
+                  <h4 className="bd-h4">Save what we learned</h4>
+                  <p className="field-note">Saved as a project note: the agents on this project and later sessions find it in the Library, other projects do not.{item.lastRun?.tainted ? ' The last run read outside content (web, shell or other tools): check the text before you save it.' : ''} Agent text below is only a draft.</p>
+                  <label>Note title<input value={lTitle} maxLength={120} onChange={(e) => setLTitle(e.target.value)} /></label>
+                  <label>Note<textarea rows={8} value={lBody} onChange={(e) => setLBody(e.target.value)} /></label>
+                  <div className="bd-actions">
+                    <button type="button" className="btn primary" disabled={busy || !lTitle.trim() || !lBody.trim()} onClick={() => void api.boardNote(project.id, item.id, { title: lTitle.trim(), body: lBody }).then(async () => { sayItem('Project note saved and linked.'); await loadBoard(project.id); setLearnOpen(false); }, (e: Error) => sayItem(`The note was not saved: ${e.message}`))}>Save note</button>
+                    <button type="button" className="btn-ghost" onClick={() => setLearnOpen(false)}>Cancel</button>
+                  </div>
+                </div>
+              ) : <div><button type="button" className="btn" onClick={() => setLearnOpen(true)}>Save what we learned&hellip;</button></div>
+            )}
             {(item.taskIds.length > 0 || item.roomIds.length > 0) && (
               <div>
                 <h4 className="bd-h4">Linked work</h4>

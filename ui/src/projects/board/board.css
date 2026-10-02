@@ -47,3 +47,8 @@
 .bd-leader label { display: flex; flex-direction: column; gap: 3px; font-size: 12px; color: var(--muted); }
 .bd-leader select { background: var(--surface-2); border: 1px solid var(--line-strong); border-radius: var(--r-sm); padding: 5px 8px; color: var(--text); font-size: 13px; min-height: 30px; }
 .bd-leader select:focus-visible { outline: 2px solid var(--accent-line); outline-offset: 2px; }
+.bd-offer { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; padding: 8px 12px; border: 1px solid var(--line-strong); border-left: 3px solid var(--accent); border-radius: var(--r-sm); background: var(--accent-soft); font-size: 13px; }
+.bd-learn { display: flex; flex-direction: column; gap: 8px; padding: 10px; border: 1px solid var(--line-strong); border-radius: var(--r-sm); background: var(--surface-2); }
+.bd-learn label { display: flex; flex-direction: column; gap: 3px; font-size: 12px; color: var(--muted); }
+.bd-learn :is(input, textarea) { background: var(--surface); border: 1px solid var(--line-strong); border-radius: var(--r-sm); padding: 5px 8px; color: var(--text); font-size: 13px; }
+.bd-learn :is(input, textarea):focus-visible, .bd-offer button:focus-visible { outline: 2px solid var(--accent-line); outline-offset: 2px; }

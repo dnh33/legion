@@ -41,6 +41,8 @@ export interface WorkItem {
   proposal?: { suggestedAssignee?: string };
   taskIds: string[];
   roomIds: string[];
+  /** Library notes about this item (project-scope note ids): linked by the owner, by an agent that names them, or automatically for notes a run saved. */
+  noteIds: string[];
   /** Task id of a "Run this item" run that has not ended yet. */
   activeRun?: string;
   lastRun?: { taskId: string; status: string; endedAt: string; tainted: boolean; preview: string };
@@ -50,7 +52,7 @@ export interface WorkItem {
 export const BOARD_LIMITS = {
   itemsPerProject: 200, inboxPerProject: 30, inboxPerAgent: 8,
   titleChars: 120, descriptionChars: 2_000, noteChars: 500, activityEntries: 20,
-  labels: 5, labelChars: 24, taskLinks: 20, roomLinks: 10, previewChars: 1_000,
+  labels: 5, labelChars: 24, taskLinks: 20, roomLinks: 10, noteLinks: 10, previewChars: 1_000,
   /** Bot proposals: this many per agent and project in the window. */
   proposalsPerWindow: 5, proposalWindowMs: 10 * 60_000,
   /** Every bot write (create, propose, update) per agent. */
@@ -58,6 +60,8 @@ export const BOARD_LIMITS = {
   fileBytes: 4 * 1024 * 1024,
 } as const;
 
+/** The shape of a Library note id (same as the graph's). */
+export const NOTE_ID_RE = /^[A-Za-z0-9_.:-]{1,80}$/;
 export const WORK_ITEM_ID_RE = /^wi_[a-f0-9]{12}$/;
 export const COLUMN_LABEL: Record<BoardStatus, string> = { backlog: 'Backlog', doing: 'Doing', review: 'Review', done: 'Done', blocked: 'Blocked' };
 

@@ -8,11 +8,11 @@ import type { WorkItem } from '../src/shared/board.js';
 import { BoardStore } from '../src/core/projects/board/store.js';
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { applyFilters, byColumn, cardLabel, descCounter, dueState, dueText, keyMove, moveAnnouncement, moveLocal, NO_FILTERS, parseAssignee, priorityMark, readFilters } from '../ui/src/projects/board/boardLogic.js';
+import { applyFilters, byColumn, cardLabel, descCounter, dueState, dueText, keyMove, learnDraft, moveAnnouncement, moveLocal, NO_FILTERS, parseAssignee, priorityMark, readFilters, shouldOfferNote } from '../ui/src/projects/board/boardLogic.js';
 
 const I = (id: string, status: WorkItem['status'], order: number, over: Partial<WorkItem> = {}): WorkItem => ({
   id, projectId: 'p', title: id, description: '', status, assignee: null, priority: 'normal', labels: [], order, createdBy: { kind: 'owner' }, updatedBy: { kind: 'owner' },
-  createdAt: '', updatedAt: '', trust: 'human', taskIds: [], roomIds: [], activity: [], ...over,
+  createdAt: '', updatedAt: '', trust: 'human', taskIds: [], roomIds: [], noteIds: [], activity: [], ...over,
 });
 const names = (items: WorkItem[], s: string) => byColumn(items)[s as 'backlog'].map((i) => `${i.id}:${i.order}`).join(',');
 
@@ -70,7 +70,7 @@ test('text, not colour alone: priority, due and the card name carry everything',
 test('C16 the sources keep the accessible names, the live region, roles and the keyboard path', () => {
   const here = dirname(fileURLToPath(import.meta.url));
   const src = readFileSync(join(here, '..', '..', 'ui', 'src', 'projects', 'board', 'BoardPanel.tsx'), 'utf8');
-  for (const needle of ['role="tablist"', 'role="tab"', 'role="tabpanel"', 'role="status" aria-live="polite"', 'aria-label={cardLabel(i, name)}', 'aria-describedby="bd-keys"', 'e.altKey', 'keyMove(', 'aria-label={`Move ${i.title} to`}', 'aria-label={`Accept ${i.title}`}', 'aria-label={`Reject ${i.title}`}', '<caption', 'scope="col"', 'scope="row"', 'aria-label="Activity trail"', 'Mark as reviewed', 'Really delete', 'role="search"']) assert.ok(src.includes(needle), `missing: ${needle}`);
+  for (const needle of ['role="tablist"', 'role="tab"', 'role="tabpanel"', 'role="status" aria-live="polite"', 'aria-label={cardLabel(i, name)}', 'aria-describedby="bd-keys"', 'e.altKey', 'keyMove(', 'aria-label={`Move ${i.title} to`}', 'aria-label={`Accept ${i.title}`}', 'aria-label={`Reject ${i.title}`}', '<caption', 'scope="col"', 'scope="row"', 'aria-label="Activity trail"', 'role="region" aria-label="Save what we learned"', 'Save what we learned', 'shouldOfferNote(', 'Project notes', 'Mark as reviewed', 'Really delete', 'role="search"']) assert.ok(src.includes(needle), `missing: ${needle}`);
   assert.ok(!/dangerouslySetInnerHTML|innerHTML/.test(src), 'item text is rendered as text only');
   const css = readFileSync(join(here, '..', '..', 'ui', 'src', 'projects', 'board', 'board.css'), 'utf8');
   assert.match(css, /focus-visible/); assert.match(css, /prefers-reduced-motion/); assert.match(css, /@media \(max-width: 760px\)/);
@@ -78,4 +78,18 @@ test('C16 the sources keep the accessible names, the live region, roles and the 
   assert.match(view, /<BoardPanel project=\{project\} \/>/);
   const panel = src.slice(src.indexOf('export function BoardPanel'), src.indexOf('function Board('));
   assert.match(panel, /enabled !== 'yes'\) return null/, 'nothing renders until the core answers the probe');
+});
+
+test('C19 Save what we learned: offered once when an item is closed without a note; the draft carries the run result and the agents\' notes, capped, and is only a draft', () => {
+  assert.equal(shouldOfferNote('review', 'done', 0), true);
+  assert.equal(shouldOfferNote('review', 'done', 1), false, 'already has a note');
+  assert.equal(shouldOfferNote('done', 'done', 0), false, 'not a new close');
+  assert.equal(shouldOfferNote('doing', 'review', 0), false);
+  const i = I('wi_000000000009', 'done', 0, { title: 'Ship pricing', lastRun: { taskId: 't', status: 'done', endedAt: '', tainted: false, preview: 'Cut the tiers to three.' },
+    activity: [{ at: '', by: { kind: 'agent', id: 'scout' }, kind: 'note', text: 'Annual toggle confused  people' }, { at: '', by: { kind: 'owner' }, kind: 'note', text: 'owner note is not an agent note' }] });
+  const d = learnDraft(i, (id) => id.toUpperCase());
+  assert.equal(d.title, 'Ship pricing: what we learned');
+  assert.match(d.body, /What the last run reported:\nCut the tiers to three\./); assert.match(d.body, /- SCOUT: Annual toggle confused people/); assert.ok(!d.body.includes('owner note'));
+  assert.match(d.body, /What we learned:\n- $/);
+  assert.ok(learnDraft(I('wi_000000000008', 'done', 0, { title: 'x'.repeat(120), lastRun: { taskId: 't', status: 'done', endedAt: '', tainted: false, preview: 'y'.repeat(9000) } }), (x) => x).body.length <= 4000);
 });
