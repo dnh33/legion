@@ -214,3 +214,149 @@ Every place that today says "no spend tool" and becomes false (found by grep; ea
 5. Testnet P2PKH recipients only, one payment output (assumed, not confirmed).
 6. Mainnet: IN SCOPE (owner decision 2026-10-02, replaces the earlier "out of v1"). Testnet AND mainnet capability must be built and independently reviewed before v0.2.0; mainnet ships disabled; the real-funds check is the owner's, by hand, tiny amounts (section 12).
 7. The owner's own BSV Desktop (127.0.0.1:3321, almost certainly mainnet with real funds) is NEVER used for V0-V12 or any test. V1/V2 need a separate testnet wallet in a separate environment. Environment choice and timing: open.
+
+## 12. Mainnet amendment (owner decision 2026-10-02)
+
+Scope change: Legion's spend tool gets BOTH testnet and mainnet capability, built and independently reviewed before v0.2.0. Mainnet ships OFF. Unchanged posture: keys never in Legion; every spend manual with native confirmation; Freeze always one click; no autonomous or scheduled spend; only a run the owner started in the app may ask (`job.origin` undefined); allowlists empty by default; no test, script or agent ever touches the owner's wallet at 127.0.0.1:3321 (C24 and the guard stay); the owner's funded wallet is used only by the owner, by hand, present, tiny amounts (12.6b). Sections 1-11 are the testnet baseline: where they conflict with this section, this section wins. New unverified items: U11 the wallet's mainnet network string (`readNetwork` maps it; anything else is `unknown`), U12 the unsigned-transaction shape and P2PKH change on mainnet, U13 the wallet prompt on mainnet (does it prompt every time, any "always allow" default), U14 realistic fee levels (sets the mainnet fee ceiling).
+
+### 12.1 Network model (fail-closed, never an agent input)
+
+Read from the code: `policy.ts` already has `Net = 'test'|'main'`, `SpendRequest.network`, `walletNetwork`, ONE global `armedUntil`, ONE caps set, ONE allowlist, ONE ledger; `evaluate` denies `main` unless armed and adds `live-funds`; `approve` re-checks `walletNetwork === r.network`; `hasUnknown()` is global; `types.ts` `BsvNetwork` is the literal `testnet` (the knowledge mode, unrelated to spending); `index.ts` already calls `policy.disarm` when the probe's network changes.
+
+| Piece | Change | File |
+|---|---|---|
+| Network table | New data-only module: frozen `NET` with per-network label ("TESTNET", "LIVE FUNDS (main network)"), P2PKH address version byte (U12), hard ceilings, default caps; `addressNet(address)`, `decodeAddress`. The only place besides policy and probe that spells `main` | `src/core/bsv/networks.ts` (new, pinned, 12.5) |
+| Hard-off switch | `PolicyConfig.mainnetEnabled: boolean`, default `false` in `sanitizePolicyConfig`, inside the fingerprinted `policy.json` (a missing, tampered or unreadable file loads `false` and frozen, as today). Engine: getter `mainnetEnabled`, `setMainnetEnabled(true)` (route only), `mainnetOff(reason)` (can only turn it off; the one setter `spend.ts` may call), `voidPending(reason)` | `policy.ts`, `policy-store.ts` |
+| Route | `POST /api/bsv/policy/mainnet` body `{enabled:boolean}`: admin + native secret, NOT on the MCP client list. Enable = native dialog (kind `mainnet-enable`, warning, Cancel default and Escape: "Allow Legion to consider spending REAL BSV? Off by default. Each spend still needs Arm, your confirmations here and the wallet's own prompt."). Disable = no dialog (safer direction, like Disarm) | `src/core/bsv/mainnet-routes.ts` (new; one registering line in `index.ts`), `admin-logic.ts` |
+| Auto-off | `mainnetOff` + disarm + freeze on: a mainnet `unknown`, a post-sign mismatch (11b), an audit failure on a mainnet request, a policy-file tamper. A plain Freeze leaves the switch as it is | `spend.ts`, `index.ts` |
+| Source of the network | The wallet's fresh probe at step 1 is pinned into the request as `network`; the agent supplies nothing (`network`, `chain`, `mainnet` keys are `extra-input`). The recipient's version byte must equal the pinned network, checked in `evaluate` (`address-network-mismatch`). The on-chain P2PKH script is identical on both networks, so Legion cannot see the network in the transaction: it rests on the wallet's claim, the version byte, per-network allowlists and the owner reading `MAINNET` in the dialog | `spend.ts`, `policy.ts`, `networks.ts` |
+| Refusal | Step 1: probe says `main`, switch off: status `denied`, code `mainnet-disabled`, audit `denied`, ZERO `createAction` (only the four probe questions went out). Switch on, not armed: `not-armed`. Probe `unknown`: `wallet-network-unknown` | `spend.ts` step 1 |
+
+Per step of the section 3 machine for mainnet (G, P, 2, 3, 6, 13 unchanged; every audit line gains a `net` field):
+
+| Step | Mainnet change |
+|---|---|
+| 1 fresh probe | Network may be `main`; then switch and arm are checked before anything else (above); `net` pinned |
+| 4 outputs | One payment plus at most one change as before; recipient version byte must equal `net`; the mainnet `maxOutputs` is 1 |
+| 5 evaluate | Per-network caps, allowlist, reservations (12.3); adds "mainnet is switched off" and the arm check; confirmations `approve`, `untrusted-content` (tainted), `live-funds` |
+| 7 dialogs | The LIVE FUNDS dialogs of 12.2, one native press per required confirmation, all inside the one 120 s card TTL |
+| 8 decide | Re-check order: frozen, switch still on, still armed, fresh probe network equals the card's network (both directions), hash, confirmations, taint, unknown. Any failure: `denied`/`declined`, `abortAction` |
+| 9 approve | `policy.approve` for `main` consumes the arm in the same synchronous step (one arm, one spend), then the strict `executing` write |
+| 10/10b sign | A fresh probe immediately before `signAction`: network differs from the card: no sign, `abortAction`, `wallet-network-changed`, `mainnetOff`. Mainnet `unknown`: also `mainnetOff` + disarm; the Resolve dialog says LIVE FUNDS |
+| 11/11b verify | Mismatch on mainnet: engine freeze (existing) plus `mainnetOff`; a probe after the answer that shows a changed network: freeze + audit `network-flip-during-sign` (Legion cannot prove which network the wallet signed on) |
+| 12 executed | Strict write carries `net`; a throw on mainnet: freeze, `mainnetOff`, `unknown` |
+| 14 resolve | Native Resolve dialog titled LIVE FUNDS for mainnet; sats still come from main's read of the card |
+| 15 restart | `restore()` seeds `unknown` with its `net`; the switch is read from the fingerprinted file (a mainnet `unknown` had already cleared it); arm is memory only, so a restart is disarmed |
+| 16 freeze | Pending cards of both networks denied, arm gone, switch untouched |
+
+### 12.2 Arm and the mainnet dialogs
+
+- Arm requires the switch on and the chain not frozen (else `PolicyError`, route 409). Choices stay 5/15/30/60 (`ARM_CHOICES_MINUTES`); the dialog preselects 5 and says shorter is better.
+- Per session and one spend: the arm lives in memory only (monotonic and wall clock, existing) and ends on restart, expiry, Disarm, freeze, BSV off, Disconnect, a probe-reported network change, `mainnetOff`, and the first approved mainnet spend (step 9). The next mainnet spend needs a new Arm dialog: one more click per spend, accepted for real funds.
+- Arm dialog (replaces `NO_SPEND` for this kind): "Arm LIVE FUNDS mode for N minutes? ONE mainnet spend request may be considered, then it disarms. Each request still needs your confirmation dialogs here and the wallet's own prompt. Limits that apply (mainnet): ...". With the switch off, main sends no dialog and the panel says "Mainnet is switched off".
+- Spend dialogs, built by main from the card main read itself, Cancel default and Escape:
+  - D1 card: "Send N sat (X BSV) on MAINNET?" with the LIVE FUNDS frame in title and message; network MAINNET (a wallet claim, version byte matches); FULL recipient, wrapped, never abbreviated; allowlisted yes; change output with its address labelled "wallet-claimed, Legion cannot verify"; fee in sat; total leaving the wallet; MAINNET caps remaining (tx, session, 24 h); arm time left; purpose labelled "Written by the agent. Not checked by Legion."; taint warning if any.
+  - D2 live funds (always, mainnet only): a second native box with another title ("Last Legion check before your wallet"), the confirm button in a different position than in D1 and labelled with the amount and the last 8 characters of the recipient ("Send 200 sat to ...Qx7Zk2Ab"), repeating network and full recipient, and "This cannot be undone. Your wallet will show its own prompt next; that prompt is the last gate and Legion cannot see it."
+  - D3 `untrusted-content` (tainted runs): the existing separate press. A clean mainnet spend is two dialogs, a tainted one three, then the wallet prompt.
+- Typed confirmation versus second dialog: second dialog. Typing needs a main-owned input window (new window code, focus and IME edge cases, a surface the stub-based emulation cannot test, a string a script can fill as easily as it clicks); a second native box reuses the tested mechanism, and the binding to this payment is the card hash plus the content-bearing button label. Residual (accepted): approval fatigue; a same-user process can click native boxes (unchanged).
+- The wallet's own prompt remains the last gate: Legion never approves it and never retries it. If the wallet does not prompt for a mainnet `signAction` (U13), that is a stop condition like design section 10: the owner aborts the real-funds check (12.6b) and no document says otherwise.
+
+### 12.3 Policy per network
+
+| Item | Testnet | Mainnet |
+|---|---|---|
+| Default caps per tx / session / 24 h | 1,000 / 5,000 / 10,000 sat (unchanged) | 1,000 / 2,000 / 5,000 sat (Q1) |
+| Payment outputs, fee ceiling | 3 (`spend.ts` sends 1), 200 sat | 1, 100 sat (revisit after U14) |
+| Hard ceilings (code only) | 1,000,000 / 5,000,000 / 10,000,000, fee 10,000 | 100,000 / 250,000 / 500,000, fee 1,000 |
+| Allowlist | up to 50, empty by default | up to 10, empty by default, own list; `setAllowlist(net, list)` refuses an entry whose version byte is the other network's |
+| Arm | not needed | needed, one spend |
+| Confirmations | approve (+ untrusted) | approve (+ untrusted) + live-funds |
+
+- Engine data: `PolicyConfig.nets: Record<Net,{caps, allowlist}>`; the legacy top-level `caps`/`allowlist` load as `nets.test`, and the file is rewritten in the new shape on the next owner change (the old file still matches its recorded hash, so no tamper alarm). `LedgerRecord.net` (absent in old audit entries = `test`); `executedSince(net)`, `sessionSats(net)`, `reserved(net)` are per network, so testnet traffic can never consume or hide mainnet headroom.
+- Unknown outcome is global: `hasUnknown()` blocks BOTH networks until the owner resolves it.
+- Wallet network flips between propose and approve: `approve` already requires `walletNetwork === r.network`, which holds for test to main and main to test; add a fresh probe before sign and one after (12.1). On a probe-reported change `index.ts` also calls `voidPending` for the old network and disarms.
+- Caps for mainnet (`POST .../caps` gains `net`) use the same native dialog; its text names the network.
+
+### 12.4 Control additions (same mutant harness as section 4)
+
+| ID | Control | Enforced in | Proving test | Mutant that must turn red |
+|---|---|---|---|---|
+| C25 | Mainnet hard-off, default off, fail-closed | `sanitizePolicyConfig`, `evaluate`, `spend.ts` step 1 | defaults: fresh install, tampered file, `mainnetEnabled:true` without a matching hash all load `false`; flow: wallet says `main`, switch off: `mainnet-disabled`, zero `createAction` | default `true`; drop the evaluate reason |
+| C26 | Network never an input | `spend.ts` G (raw keys) | flow: `network`, `chain`, `mainnet` keys denied `extra-input`; a test wallet request cannot become `main` | honour `args.network` |
+| C27 | Switch changes only through the native-confirmed route; disable is dialog-free | `mainnet-routes.ts`, `admin-logic.ts`, `main.ts` | module: bearer token and admin-only get 403 on `/policy/mainnet`; native: enable shows the warning dialog, Cancel leaves it off | drop `requireNative` |
+| C28 | Arm needed, expiring, one spend | `policy.approve`, `arm` | policy + flow: a second mainnet request after an approved one is `not-armed`; arm without the switch refused; expiry at the tick | skip the arm consume; skip the arm check |
+| C29 | Per-network caps, allowlists, reservations, ledgers | `policy.ts` | policy: testnet spends leave mainnet headroom untouched and the reverse; 100 parallel mainnet proposals fit once; hard ceiling per network | one shared ledger; reuse testnet ceilings |
+| C30 | Recipient version byte equals the pinned network | `evaluate`, `setAllowlist` | policy + flow: test address on a main wallet, main address on a test wallet, bad checksum: `address-network-mismatch`; list entry of the wrong network refused | compare the string only |
+| C31 | Network flip both ways at approve, before sign, after sign | `spend.ts` 8, 10, 11 | flow: test to main and main to test between card and approve (zero `signAction`), between approve and sign (zero `signAction`, `abortAction`), after the answer (freeze, `mainnetOff`) | drop each of the three probes |
+| C32 | Mainnet dialogs: LIVE FUNDS frame, D2 always, FULL recipient, content-bearing button, none while the switch is off | `admin-logic.ts`, `main.ts` | native + emu: dialog options asserted (default button, Escape, labels, full address, caps, network); a mainnet card is ignored while facts say off or not armed | skip D2; abbreviate the address |
+| C33 | Auto-off on unknown, mismatch, audit failure, tamper | `spend.ts`, `index.ts` | flow: each event leaves the switch false and disarmed, and the policy file shows it | skip `mainnetOff` |
+| C34 | Unknown outcome blocks both networks | `hasUnknown` | policy + audit: unknown on test blocks main and the reverse; a restart keeps it | per-network `hasUnknown` |
+| C35 | Mainnet ships off; docs do not overclaim | `policy.ts` defaults, hedge test | hedge: required statements (12.5), banned phrases; defaults test | remove the statement |
+
+### 12.5 Tripwire and hedge impact
+
+The section 5 rule "no `main`/`mainnet` literal in spend.ts" is replaced by one precise rule in `test/bsv-scan.ts`: `NET_LITERAL = /^(main|mainnet|test|testnet|live)$/i` as a quoted token, a property key (`main:`) or a member access (`.main`) is allowed ONLY in `NET_LITERAL_FILES`, each with a reason: `networks.ts` (the table), `policy.ts` (`Net` and the mainnet-only rules), `wallet-probe.ts` (`readNetwork`), `types.ts`, `index.ts` and `mainnet-routes.ts` (views, routes), `admin-logic.ts`, `src/shared/bsv-view.ts`, `ui/src/bsv/*` (display). `spend.ts`, `audit.ts` and `wallet-tool.ts` allow none: `spend.ts` takes the network as an opaque value from the probe result and looks everything up through `NET[net]`. Further rules:
+1. `networks.ts` joins the pin: `SPEND_PINS` holds `spend.ts` and `networks.ts`, same CRLF-normalised sha256, same injectable pin for rule tests; `networks.ts` imports only `node:crypto`, exports only the frozen `NET` and the two pure functions, and names no network or process module.
+2. `spend.ts` may call on the policy object only `evaluate`, `approve`, `deny`, `settle`, `resolveUnknown`, `status`, `snapshot`, `freeze`, `disarm`, `mainnetOff`, `voidPending`; naming `setMainnetEnabled`, `arm`, `unfreeze`, `setCaps` or `setAllowlist` there is reported (the agent path can only make things safer).
+3. `setMainnetEnabled` may be named only in `policy.ts` and `mainnet-routes.ts`; the route string `/api/bsv/policy/mainnet` only in `mainnet-routes.ts`, `admin-logic.ts`, `main.ts`, `index.ts` and the UI store; `mainnet-routes.ts` is a listed HTTP-route file with its reason.
+4. Plant cases (`test/bsv-spend-tripwire.test.ts`): `'main'`, `"mainnet"`, `{main: 1}`, `x.main` planted in `spend.ts` (pin injected to match), `audit.ts` and `wallet-tool.ts`: reported; `setMainnetEnabled` in `spend.ts`: reported; `networks.ts` with an import, a fetch or an extra function: reported. A default flipped in `policy.ts` is covered by C25, not by the scan.
+5. Hedge (`test/bsv-hedge.test.ts`), required in `docs/BSV-MODE.md` and `SECURITY.md`: mainnet is OFF by default and only the owner turns it on in the app; "has not been verified with real funds until the owner's check is recorded" (kept until the record exists in `claude/tracker-pc-checks.md`, then replaced by a dated, scoped sentence, never "safe"); the wallet's own prompt is the last gate on mainnet; "has never been pointed at the real, funded wallet" stays true for code, tests and agents. Banned: `risk-free`, `cannot lose`, `safe on mainnet`, `production-ready`; `verified with real funds` is banned unless the test finds the record in the tracker file. Required negatives: no scanned source says "testnet only" or "refuses mainnet".
+
+### 12.6 Tests
+
+a) Fake wallet additions (`test/bsv-fake-wallet.ts`; still loopback on a random port, `fakeTransport`, port guard unchanged): option `network: 'test'|'main'|'unknown'` for the four probe answers; `flip: {after: 'probe#n'|'createAction'|'signAction', to}` changes the claimed network at a chosen point (propose to approve, approve to sign, after sign); a mainnet wallet that answers a testnet-address request and a testnet wallet that answers a mainnet-address request; address fixtures `test/fixtures/addresses.ts` for BOTH version bytes from fixed constants (no keys), with bad-checksum and cross-network variants; `prompt: 'always'|'never'` (Legion cannot see the wallet UI, so this only proves its own gates still hold). New files: `bsv-spend-mainnet.test.ts` (flow, flips, auto-off, one-spend arm), `bsv-policy-nets.test.ts`, `bsv-mainnet-defaults.test.ts`; mainnet cases in the mutant scenarios; injection corpus strings asking to "enable mainnet" or "arm" must change nothing.
+
+b) Real-funds verification: OWNER ONLY, by hand, never scripted, never by an agent, separate from V0-V12 (which stay in a testnet VM). Preconditions, recorded first: V1-V12 passed; independent review of spend, policy-nets and the dialogs signed off; Legion built from the reviewed commit; owner at the keyboard; a mainnet receive address of the owner's OWN (a second address, so the net cost is the fee). Amount 200 sat (0.00000200 BSV), mainnet caps at defaults.
+
+| Step | Owner action | Expected observation |
+|---|---|---|
+| R0 | Note the wallet balance and history; open Legion's panel | Switch OFF, not armed |
+| R1 | Connect to the real wallet; ask the Assayer for 200 sat | Denied `mainnet-disabled`; NO wallet prompt; audit `denied` with `net` main |
+| R2 | Enable mainnet, read the dialog, confirm | Panel: enabled, not armed |
+| R3 | Allowlist the own address on the mainnet list; ask again | Denied `not-armed`; no wallet prompt |
+| R4 | Arm 5 minutes (read the dialog); ask again | D1 then D2 (D3 if tainted); compare amount, network, FULL address (character by character against the wallet) and caps with this table |
+| R5 | Press Cancel on D2 | `declined`, no wallet prompt, reservation freed, still armed |
+| R6 | Ask again, confirm D1 and D2 | The wallet shows its OWN prompt: 200 sat, the recipient, ONE payment output; approve there only if all match |
+| R7 | Read the result | txid returned; the owner checks it in a mainnet explorer in a browser (Legion does not): one 200 sat output to the own address plus change; balance fell by the fee only |
+| R8 | Ask once more | Denied `not-armed` (one arm, one spend); no wallet prompt |
+| R9 | Arm, ask, confirm D1 and D2, then Decline in the WALLET | Legion shows `unknown`, switch is off (auto-off); owner reads the wallet history and resolves natively ("NOT sent") |
+| R10 | Enable, arm, ask; Freeze while D1 is open | Dialog answer refused; no wallet prompt |
+| R11 | Disable mainnet, Disarm, Disconnect | Panel shows off; owner reads the audit lines for R1-R10 and records dated results in `claude/tracker-pc-checks.md` |
+
+Who watches what: the owner watches the dialogs, the wallet prompt, wallet balance and explorer; an independent reviewer may watch by screen share and reads the audit log afterwards (read-only); agents and scripts do nothing here. ABORT at once (Freeze, Disable, no retry, record) if: a dialog differs from the table in amount, network word or one character of the address; the wallet prompt comes before D1 and D2 are answered, shows another amount or recipient or more than one payment output, offers "always allow" or a monthly limit (do not tick it), or does not appear at all in R6 (U13); the fee shown exceeds 100 sat; Legion returns any status other than the expected one; a second prompt appears; the txid is not 64 hex or the explorer shows anything unexpected. After an abort, read the wallet history before anything else. Until R0-R11 are recorded, every document says "has not been verified with real funds".
+
+### 12.7 Work breakdown changes
+
+| Task | Status | Exactly |
+|---|---|---|
+| T1 (running) | Forward-compat only | Carry an optional `net?: Net` (default `test`) through `LedgerRecord`, the `unknown` seed option and `ledgerFromAudit` and its dedupe, so T5 need not reshape them. Not T1's: per-network engine, `describeWallet` mainnet text and `legionNetwork: 'testnet'` (T5) |
+| T2 spend module | Network-aware from the start (not yet started) | `spend.ts` takes `net` from the probe, uses `NET[net]` and `p2pkhScript(address, net)`, the reason codes of 2.2 as amended, `network` echoed from `NET[net].label`, only the policy methods of 12.5 rule 2; owns the tripwire edits of 12.5 and the fake-wallet additions of 12.6a; `index.ts` gains the registering line for `mainnet-routes.ts`, a per-network `policyView`, boolean `spendTools` and `mainnet:{enabled, armed}` |
+| T3 (running) | Second pass after T5 | Now: build the card dialog from `card.network` and `card.networkLabel`, no hard-coded TESTNET. Revisit: "main refuses any non-test card" becomes "refuse a card whose `network` the core's facts do not allow (`mainnetEnabled && armed` for main)"; `bsv-view.ts` `network: 'testnet'` becomes `spendNetworks` plus `mainnet: {enabled, armed}`; `parseBsvAction` kinds `mainnet-enable` (native dialog) and `mainnet-disable` (none); D2 and dialog sequencing in `main.ts`; Arm dialog and `NO_SPEND` reworded; `BsvPolicyFacts` gains `mainnetEnabled` and `nets`; UI: switch row, per-network caps and allowlist rows, amber frame only while armed; tests `bsv-electron-logic`, `bsv-electron-emu`, `electron-emu/run.mjs`, `bsv-ui-view`, `bsv-spend-native` |
+| T4 docs and pack | Extended | 12.8; the hedge tests of 12.5; pack nodes about mainnet stay `[Design]` or `[Partly built]` until R0-R11 are recorded |
+| T5 mainnet enablement (new; starts after T1 merges; T2 and the T3 second pass build on its API) | Owns | `src/core/bsv/networks.ts`, `policy.ts` and `policy-store.ts` (ownership passes from T1 after merge), `types.ts`, `describeWallet` strings in `wallet-probe.ts`, new `src/core/bsv/mainnet-routes.ts`; tests `bsv-policy-nets.test.ts`, `bsv-mainnet-defaults.test.ts`, plus shape updates in `bsv-policy.test.ts`, `bsv-config.test.ts`, `bsv-wallet-probe.test.ts`, `bsv-fix-round.test.ts`. Delivers per-network config, ledger and reservations, `mainnetEnabled`, `mainnetOff`, `voidPending`, arm consume, the address-network check, legacy-file migration |
+
+Order: V1/V2 gate and T1 now; T5 right after T1 merges (it is the API T2 builds on); T2 and the T3 second pass next; T4 last; independent review covers spend, policy-nets, the mainnet dialogs and the real-funds checklist before v0.2.0. Reviewer additions: the switch defaults off in a fresh data dir; `spend.ts` has no network literal and no policy setter; every mainnet row of the 12.1 table has a test and a mutant run by hand; R0-R11 reviewed before the owner uses them.
+
+### 12.8 Docs and string changes (T4 unless noted)
+
+- `docs/BSV-MODE.md`: header (no longer "testnet knowledge mode" alone); "What it does NOT do" (the sentence "`BsvNetwork` is the literal `testnet`; armed is a policy state that nothing consumes" goes); new "Spend" section: testnet flow, mainnet OFF by default and how the owner enables it, one arm one spend, dialogs, per-network limits, auto-off, unknown outcome, "has not been verified with real funds until the owner's check is recorded", "the wallet's own prompt is the last gate", tripwire pins including `networks.ts`; "Not built" and "Not verified" gain U11-U14.
+- `docs/BSV-WALLET-DESIGN.md`: ladder row 4 and the "Mainnet: not designed here" paragraph point at this design; the threat row "A funded mainnet wallet on the owner's PC" describes switch plus arm plus wallet prompt; section 10 gains the U13 stop condition; section 12 records this decision.
+- `SECURITY.md` (wallet and audit rows, "no spend tool" paragraphs), `README.md` BSV line, `docs/ARCHITECTURE.md` (route list: `/api/bsv/policy/mainnet`, spend routes): spend exists on two networks, mainnet off by default, same-user residuals unchanged, unverified with real funds.
+- `CHANGELOG.md` `[Unreleased]`: Added mainnet capability (disabled by default), `POST /api/bsv/policy/mainnet`, per-network limits; Changed arming is one spend; Security note that the first real-funds check is the owner's.
+- Strings in code: `NO_SPEND` and the arm, unfreeze, allowlist, caps and connect texts in `admin-logic.ts` (T3); `BSV_PREAMBLE` stays four lines and may say mainnet spends need the owner's switch, arm and dialogs (T2); `wallet-tool.ts` description and `renderWalletStatus`, and `MAINNET_WARNING` ("Legion will not use it" is false once enabled; becomes "Mainnet is switched off in Legion" or "armed use needs Arm") (T5); `ChainOverlay.tsx`, `BsvPanel.tsx` (T3); `seeds/bsv.json` pack version 8.
+- `claude/legion-release-tracker.md`: item F gains T5, the real-funds check R0-R11 as an owner step, and the v0.2.0 gate of Q3.
+
+### 12.9 Risks and open questions
+
+Risks (to be written in the docs): the network is the wallet's claim and the signed bytes carry no network, so a rogue local listener claiming `main` can only produce cards the owner reads, behind switch, arm, allowlist and the wallet prompt; same-user malware is unchanged (it can click native boxes or call the wallet directly); approval fatigue is higher with two or three dialogs plus a prompt (mitigated by one arm per spend, tiny caps, short TTL); `bsv_status` taints nearly every run, so D3 appears almost always; a wallet that never prompts on mainnet (U13) would leave Legion's dialogs as the only gate (stop condition); fee levels are unknown until U14; the `policy.json` per-network shape is a one-way migration (T5 keeps a test that an old file loads as testnet).
+
+Open questions (default in brackets; builders use the default unless told otherwise):
+1. Mainnet default caps lower than testnet: 1,000 / 2,000 / 5,000 sat, fee ceiling 100, hard ceilings 100,000 / 250,000 / 500,000? [Yes. Your example 1,000 / 5,000 / 10,000 is also fine but leaves more headroom per click.]
+2. One arm covers exactly ONE mainnet spend, then re-arm? [Yes. The alternative is a window of up to 60 minutes that lets several requests through.]
+3. Is v0.2.0 gated on the real-funds check R0-R11 being recorded, or may it ship with mainnet built, reviewed and OFF, saying "not verified with real funds"? [Ship with the statement; the check follows and the docs are updated.]
+4. A TAINTED run on mainnet: allow with the extra D3 dialog, or refuse outright? [Allow with D3; refusing would make mainnet unusable because `bsv_status` taints the run.]
+5. Network source: the wallet's fresh claim pinned per request, or a Legion setting `spendNetwork` the wallet must match? [Wallet claim: switch, arm, per-network allowlist and the version byte already bind it; a setting adds a knob without adding evidence.]
+
+## 13. Owner decisions on the mainnet amendment (2026-10-02)
+
+Scope: mainnet capability IS in v0.2.0 (confirmed). Answers to 12.9, taken at the recommended defaults (assumed, not confirmed; the owner can overrule): 1 lower mainnet default caps 1,000/2,000/5,000 sat, fee ceiling 100, hard ceilings 100,000/250,000/500,000 [yes]; 2 one Arm covers exactly one mainnet spend [yes]; 3 v0.2.0 ships with mainnet built, reviewed and OFF, saying "not verified with real funds" until the owner's real-funds check R0-R11 is recorded [yes]; 4 a tainted mainnet run is allowed with the extra dialog D3 [yes]; 5 the network is the wallet's fresh claim pinned per request [yes]. T5 starts after T1 merges.
