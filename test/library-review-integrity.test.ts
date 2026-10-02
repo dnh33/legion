@@ -123,15 +123,19 @@ test('R6.3 undo: a later change to a node\'s LINKS (by the human or another bot)
 
 const tick = () => { const t = Date.now(); while (Date.now() === t) { /* spin to the next millisecond */ } };
 
-test('R6.4b undo guard: two writes to one node inside the same millisecond (parallel tool calls) still make the earlier undo refuse', () => {
+test('R6.4b undo guard: two writes to one node inside the same millisecond (parallel tool calls) still make the earlier undo refuse', (t) => {
   const dir = mkdtempSync(join(tmpdir(), 'rev-i-'));
   const g = new Graph({ dir });
   const alpha = agentActor('alpha', { taskId: 'T' });
   const n = g.upsertNode(alpha, { title: 'same ms target', body: 'v0' }).node;
   let collided = 0;
   let silentlyReverted = 0;
+  // Freeze the clock so both writes get one timestamp on every platform. Spinning to a millisecond edge and hoping the next write
+  // lands in the same one only works where a write is sub-millisecond; on Windows (fsync) it never collided and the test proved nothing.
+  const base = Date.now();
+  t.mock.timers.enable({ apis: ['Date'], now: base });
   for (let i = 0; i < 300; i++) {
-    tick();
+    t.mock.timers.setTime(base + i * 10);
     g.upsertNode(alpha, { id: n.id, body: `a${i}` });
     const stamp1 = g.getNode(HUMAN, n.id)!.updatedAt;
     const u1 = g.activityFeed(HUMAN, { limit: 1 })[0]!;
@@ -140,6 +144,7 @@ test('R6.4b undo guard: two writes to one node inside the same millisecond (para
     collided++;
     try { g.undo(HUMAN, u1.id); if (g.getNode(HUMAN, n.id)!.body !== `b${i}`) silentlyReverted++; } catch { /* refused: good */ }
   }
+  t.mock.timers.reset();
   assert.ok(collided > 0, 'precondition: found same-millisecond writes');
   assert.equal(silentlyReverted, 0, `${silentlyReverted}/${collided} same-ms writes: undo of the earlier write silently reverted the later one`);
 });

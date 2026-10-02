@@ -68,7 +68,7 @@ test('R2-L2 held rewrite: the rewrite waits in the inbox as an edit, the clean t
 test('R2-G10 a live lock held by another process fails fast with a clear message, not after 5 seconds', () => {
   const dir = tmp('fx2-lock-');
   const g = new Graph({ dir });
-  writeFileSync(join(dir, 'graph.jsonl.lock'), `1 ${Date.now()}`); // pid 1 is alive and not us
+  writeFileSync(join(dir, 'graph.jsonl.lock'), `${process.ppid} ${Date.now()}`); // our parent is alive and not us (pid 1 only exists on Linux)
   const t0 = Date.now();
   assert.throws(() => g.upsertNode(agentActor('alpha', { taskId: 'T' }), { title: 'x', scope: 'shared' }), (e: unknown) => e instanceof KgError && e.code === 'unavailable' && /graph\.jsonl\.lock/.test(e.message));
   assert.ok(Date.now() - t0 < 3000, `waited ${Date.now() - t0} ms`);

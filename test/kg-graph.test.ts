@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { appendFileSync, existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { dirname } from 'node:path';
 import { Graph } from '../src/core/kg/graph.js';
 import { KgError } from '../src/core/kg/types.js';
 import { KG_LIMITS } from '../src/shared/kg.js';
@@ -89,7 +90,7 @@ test('link is idempotent, validates, and delete cascades to incident edges', () 
   assert.deepEqual(g.lint(HUMAN).danglingEdges, []);
   assert.ok(logLines(file).some((l) => l.includes('"del_edge"')));
   // survives a reload: the cascade was logged
-  const g2 = new Graph({ dir: g.file.replace(/\/graph\.jsonl$/, '') });
+  const g2 = new Graph({ dir: dirname(g.file) });
   assert.equal(g2.stats(HUMAN).edges, 0);
   assert.equal(g2.stats(HUMAN).nodes, 2);
 });

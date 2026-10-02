@@ -1,9 +1,11 @@
 /** Adversarial review, category 5 (secrets, vault export/import) and 4 (HTTP routes). Asserts the SECURE behaviour. */
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import { tmpdir, userInfo } from 'node:os';
+import { join, resolve, sep } from 'node:path';
+import { tryFileLinkOrHard, tryLink } from './fs-links.js';
 import { Graph } from '../src/core/kg/graph.js';
 import { renderBriefing } from '../src/core/kg/briefing.js';
 import { exportLibrary, exportVault, importVault } from '../src/core/kg/vault.js';
@@ -175,23 +177,23 @@ test('R5.6 exportLibrary cannot escape legion/: hostile ids/titles/types from a 
   const walk = (d: string) => { for (const e of readdirSync(d, { withFileTypes: true })) { const p = join(d, e.name); e.isDirectory() ? walk(p) : all.push(p); } };
   walk(vault);
   assert.ok(all.length >= 6);
-  for (const p of all) assert.ok(resolve(p).startsWith(lib + '/'), p);
+  for (const p of all) assert.ok(resolve(p).startsWith(lib + sep), p);
   assert.deepEqual(readdirSync(tmpdir()).filter((f) => f === 'evil' || f === 'evil2' || f === 'x'), []);
   // symlinked type folder
   const outside = mkdtempSync(join(tmpdir(), 'outside-'));
   const v2 = mkdtempSync(join(tmpdir(), 'vault-'));
   mkdirSync(join(v2, 'legion'));
-  symlinkSync(outside, join(v2, 'legion', 'note'));
+  assert.ok(tryLink(outside, join(v2, 'legion', 'note'), 'dir').ok, 'a directory link (a junction on Windows) can be made without privilege');
   assert.throws(() => exportLibrary(g, v2), /link/);
   assert.deepEqual(readdirSync(outside), []);
   // symlinked legion folder
   const v3 = mkdtempSync(join(tmpdir(), 'vault-'));
-  symlinkSync(outside, join(v3, 'legion'));
+  assert.ok(tryLink(outside, join(v3, 'legion'), 'dir').ok);
   assert.throws(() => exportLibrary(g, v3), /link/);
   assert.deepEqual(readdirSync(outside), []);
 });
 
-test('R5.7 exportLibrary does not write THROUGH a symlink planted at the target file name (arbitrary file overwrite)', () => {
+test('R5.7 exportLibrary does not write THROUGH a symlink planted at the target file name (arbitrary file overwrite)', (t) => {
   const dir = tmpDir();
   const g = new Graph({ dir });
   const n = g.upsertNode(agentActor('alpha'), { title: 'Payload note', body: 'PAYLOAD-LINE\n' }).node;
@@ -200,7 +202,9 @@ test('R5.7 exportLibrary does not write THROUGH a symlink planted at the target 
   writeFileSync(victim, 'ORIGINAL');
   mkdirSync(join(vault, 'legion', 'note'), { recursive: true });
   // a bot with a shell predicts the file name: <slug>--<id>.md
-  symlinkSync(victim, join(vault, 'legion', 'note', `payload-note--${n.id}.md`));
+  const planted = tryFileLinkOrHard(victim, join(vault, 'legion', 'note', `payload-note--${n.id}.md`));
+  if (!planted) { t.skip('no file symlink (needs privilege on Windows) and no hard link either'); return; }
+  if (planted.kind === 'hardlink') t.diagnostic('file symlinks need privilege here: planted a HARD link instead (same overwrite-in-place risk)');
   try { exportLibrary(g, vault); } catch { /* refusing is fine */ }
   assert.equal(readFileSync(victim, 'utf8'), 'ORIGINAL', 'export overwrote a file outside legion/ through a planted symlink');
 });
@@ -279,7 +283,7 @@ test('R4.2 a bot cannot reach accept/reject/undo/forget/scope-change/restore thr
   assert.equal(g.getNode(HUMAN, mine.id)!.status, 'pending');
 });
 
-test('R4.3 residual (documented): the bearer token is not in the child env but sits in a user-readable config file that a Bash-capable bot can read', () => {
+test('R4.3 residual (documented): the bearer token is not in the child env but sits in a user-readable config file that a Bash-capable bot can read', (t) => {
   const cfg = defaultConfig();
   const env = buildChildEnv(cfg);
   assert.ok(!Object.values(env).some((v) => v === cfg.authToken), 'bearer token must not be in the child process environment');
@@ -288,6 +292,19 @@ test('R4.3 residual (documented): the bearer token is not in the child env but s
   process.env.LEGION_HOME = home;
   return import('../src/shared/config.js').then((m) => {
     m.loadConfig();
+    if (process.platform === 'win32') {
+      // Windows has no 0600: the file's privacy is its ACL. Every principal on it must be the owner, SYSTEM or Administrators
+      // (matched by prefix so a localised group name still counts); Everyone, Users or Authenticated Users must not be there.
+      const cfgPath = m.configPath();
+      const acl = spawnSync('icacls', [cfgPath], { encoding: 'utf8' });
+      if (acl.status !== 0) return t.skip('icacls is not available: cannot read the ACL');
+      const me = userInfo().username.toLowerCase();
+      const principals = [...acl.stdout.replace(cfgPath, '').matchAll(/^\s*(.+?):\(/gm)].map((x) => x[1]!.trim());
+      assert.ok(principals.length > 0, 'could not read any ACE from icacls: ' + acl.stdout);
+      const stray = principals.filter((p) => !(p.toLowerCase().endsWith('\\' + me) || /^NT AUTHORITY\\SYSTEM$/i.test(p) || /^BUILTIN\\Administrat/i.test(p) || /^CREATOR OWNER$/i.test(p) || /^S-1-5-21-(\d+-){3}\d{4,}$/.test(p) /* an account SID that does not resolve to a name (RID >= 1000: a user, not a broad group) */));
+      assert.deepEqual(stray, [], 'config.json (holds authToken, claude and boat keys) is readable by principals other than the owner, SYSTEM and Administrators');
+      return;
+    }
     const mode = lstatSync(m.configPath()).mode & 0o777;
     assert.ok((mode & 0o077) === 0, `config.json (holds authToken, claude and boat keys) is mode ${mode.toString(8)}: readable by every local user and by any bot with Bash/Read`);
   });
