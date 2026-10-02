@@ -47,3 +47,33 @@ export async function fakePackage(opts: FakePkgOpts = {}): Promise<string> {
   }
   return root;
 }
+
+import { createHash } from 'node:crypto';
+export const sha = (b: Buffer | string): string => createHash('sha256').update(b).digest('hex');
+
+/** A tiny BUILT tree (what release-package.mjs wants) with package.json version v. */
+export function builtTree(version = '0.9.0', electron = '44.5.1'): string {
+  const r = tmp('prebuilt-tree-');
+  put(r, 'package.json', JSON.stringify({ name: 'legion', version }));
+  put(r, 'package-lock.json', JSON.stringify({ lockfileVersion: 3, packages: { 'node_modules/electron': { version: electron } } }));
+  put(r, 'dist/src/electron/main.js', 'm'); put(r, 'dist/src/bin/legion-core.js', 'c'); put(r, 'dist/test/a.test.js', 'EXCLUDED');
+  put(r, 'dist-ui/index.html', '<html>'); put(r, 'assets/icon.ico', 'i'); put(r, 'scripts/setup.ps1', 's'); put(r, 'NOTICE', 'n'); put(r, 'LICENSE', 'l');
+  put(r, 'setup.cmd', '@echo off\r\n'); put(r, 'src/core/a.ts', 'EXCLUDED');
+  return r;
+}
+/** A production node_modules as npm on Windows x64 would leave it, plus other platforms the build must remove. */
+export function fakeNodeModules(claude = FAKE_CLAUDE): string {
+  const r = tmp('prebuilt-nm-');
+  put(r, 'zod/index.js', 'z'); put(r, '.bin/zod.cmd', 'EXCLUDED'); put(r, '.package-lock.json', 'EXCLUDED');
+  put(r, '@anthropic-ai/claude-agent-sdk/package.json', JSON.stringify({ name: '@anthropic-ai/claude-agent-sdk', version: '0.3.285' }));
+  put(r, '@anthropic-ai/claude-agent-sdk/manifest.json', JSON.stringify({ platforms: { 'win32-x64': { binary: 'claude.exe', checksum: sha(claude), size: Buffer.byteLength(claude) } } }));
+  put(r, '@anthropic-ai/claude-agent-sdk-win32-x64/claude.exe', claude, true);
+  put(r, '@anthropic-ai/claude-agent-sdk-win32-arm64/claude.exe', 'arm', true);
+  put(r, '@anthropic-ai/claude-agent-sdk-linux-x64/claude', 'linux', true);
+  return r;
+}
+export function fakeElectronDist(): string {
+  const r = tmp('prebuilt-el-');
+  put(r, 'electron.exe', FAKE_ELECTRON, true); put(r, 'resources/default_app.asar', 'asar'); put(r, 'locales/en-US.pak', 'pak');
+  return r;
+}
