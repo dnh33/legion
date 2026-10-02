@@ -9,6 +9,7 @@ import { lightLabel, loadBlender, runBlenderGet, runBlenderLaunch, runBlenderSet
 import '../blender/blender.css';
 import { ProvidersSection } from '../providers/ProvidersSection';
 import { Icon } from './icons';
+import { UpdatePanel } from './UpdatePanel';
 
 const NAV: { id: SettingsSection; label: string; hint: string }[] = [
   { id: 'claude', label: 'Claude', hint: 'Sign-in, key, runs' },
@@ -568,6 +569,7 @@ function AboutSection({ s }: { s: SettingsView }) {
           <div key={k}><dt>{k}</dt><dd><code>{v}</code>{copy && <button type="button" className="btn-ghost sm" onClick={() => void copyText(v).then((ok) => ok && toast('Copied'))}><Icon name="copy" size={12} /> Copy</button>}</dd></div>
         ))}
       </dl>
+      <UpdatePanel />
     </div>
   );
 }

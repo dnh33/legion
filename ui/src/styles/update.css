@@ -1,0 +1,11 @@
+/* Settings, About: updates. App tokens only; nothing animates. */
+.upd { margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--line); display: flex; flex-direction: column; gap: 8px; }
+.upd h4 { margin: 0; font-size: 13px; font-weight: 600; color: var(--text); }
+.upd p { margin: 0; font-size: 12.5px; color: var(--text-2); line-height: 1.45; }
+.upd .upd-muted { color: var(--muted); }
+.upd .upd-warn { color: var(--warn); }
+.upd .upd-err { color: var(--danger); }
+.upd-card { border: 1px solid var(--line-strong); border-radius: var(--r); background: var(--surface); padding: 10px 12px; display: flex; flex-direction: column; gap: 8px; }
+.upd-notes { margin: 0; padding: 8px 10px; max-height: 180px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; background: var(--code-bg); border: 1px solid var(--line); border-radius: var(--r); font-family: var(--font-mono); font-size: 12px; }
+.upd-reasons { margin: 0; padding-left: 18px; color: var(--muted); font-size: 12px; }
+.upd-actions { display: flex; flex-wrap: wrap; gap: 6px; }

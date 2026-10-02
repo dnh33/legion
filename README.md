@@ -109,6 +109,10 @@ npm start          # builds, then opens the desktop app
 
 `npm run core` runs the headless core alone, which is enough for the MCP integration.
 
+## Updates
+
+Legion can check GitHub for a new release and tell you. It downloads and installs only after you click Update (or if you turn on "install updates automatically when idle", which is off by default), and it never restarts while a task, approval or install is in progress; a ready update waits until Legion is idle. Updates are checked against a signature made with the maintainer's key, which is built into your copy of Legion. The check is one request to github.com (it sees your IP address and the Legion version) and can be turned off in Settings, About. A git checkout is only told that a new version exists; update it with `git pull` and a rebuild. Details and limits: [docs/UPDATES.md](docs/UPDATES.md).
+
 ## First run and Doctor
 
 On first launch Legion creates `config.json` in its data directory (`%USERPROFILE%\.legion` on Windows, `~/.legion` elsewhere) with a fresh auth token. Open **Doctor** in the title bar (or type `/doctor`) to check the setup. It confirms your Node version, config, Claude sign-in (email and plan, with no model call), boat.dev key and workspace folder, and tells you how to fix anything that fails. If sign-in fails, run `claude` in a terminal and use `/login`.

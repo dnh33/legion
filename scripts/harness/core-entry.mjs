@@ -15,10 +15,10 @@ const root = join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'dist', '
 const load = (p) => import(pathToFileURL(join(root, p)).href);
 
 const [{ dataDir, configPath, loadConfig, VERSION }, { readLaunchSecrets }, { ApprovalBroker }, { EventBus }, { makeBoatGetter, SettingsService }, { Engine }, { createServer },
-  { createBlenderModule }, { createBsvModule, createBsvState }, { createCommsModule }, { createKnowledgeModule }, { Store }, { VmManager }, { ProviderRuntime }, { ProviderKeys, keyFileFor }, { createProvidersModule }] = await Promise.all([
+  { createBlenderModule }, { createBsvModule, createBsvState }, { createCommsModule }, { createKnowledgeModule }, { Store }, { VmManager }, { ProviderRuntime }, { ProviderKeys, keyFileFor }, { createProvidersModule }, { createUpdaterModule }] = await Promise.all([
   load('shared/config.js'), load('core/admin.js'), load('core/approvals.js'), load('core/bus.js'), load('core/settings.js'), load('core/engine.js'), load('core/server.js'),
   load('core/blender/index.js'), load('core/bsv/index.js'), load('core/comms/index.js'), load('core/kg/index.js'), load('core/store.js'), load('core/vm-manager.js'),
-  load('core/providers/runtime.js'), load('core/providers/secrets.js'), load('core/providers/routes.js'),
+  load('core/providers/runtime.js'), load('core/providers/secrets.js'), load('core/providers/routes.js'), load('core/updater/index.js'),
 ]);
 
 const log = (...a) => process.stderr.write(`[harness-core] ${a.join(' ')}\n`);
@@ -52,7 +52,9 @@ const moduleDeps = { config, store, bus, engine, approvals, dataDir: dataDir(), 
 const kg = createKnowledgeModule(moduleDeps);
 const bsv = createBsvModule(moduleDeps, { state: bsvState, kg, log, nativeSecret });
 const blender = createBlenderModule(moduleDeps, { vms, boatConfigured, log });
-const modules = [kg, createCommsModule(moduleDeps), bsv, blender, createProvidersModule({ runtime: providerRuntime, configPath: configPath(), nativeSecret })];
+// the updater has no signing key in this tree, so it stays off and makes no request
+const updater = createUpdaterModule(moduleDeps, { root: join(dirname(fileURLToPath(import.meta.url)), '..', '..'), nativeSecret, log, probes: {} });
+const modules = [kg, createCommsModule(moduleDeps), bsv, blender, createProvidersModule({ runtime: providerRuntime, configPath: configPath(), nativeSecret }), updater];
 engine.setModules(modules);
 const server = createServer({
   config, store, bus, engine, vms, approvals, boatConfigured, modules, bsvEnabled,

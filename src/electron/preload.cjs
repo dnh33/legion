@@ -27,6 +27,10 @@ contextBridge.exposeInMainWorld('legion', {
   providerChange(change) {
     return ipcRenderer.invoke('legion:provider-change', change);
   },
+  // The updater's "Restart now": main shows its own native confirmation naming what will stop, then drains and swaps.
+  updateRestartNow() {
+    return ipcRenderer.invoke('legion:update-restart-now');
+  },
   openExternal(url) {
     return ipcRenderer.invoke('legion:open-external', String(url));
   },
