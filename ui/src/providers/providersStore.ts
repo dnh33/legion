@@ -29,11 +29,14 @@ async function act(id: string, fn: () => Promise<ProvidersView | void>): Promise
 const setNote = (id: string, text: string) => set({ notes: { ...state.notes, [id]: text } });
 
 /** Changes that never move a key or data somewhere new need only the admin key, so they go straight to the core. */
-export const needsConfirmation = (patch: Record<string, unknown>): boolean => 'baseUrl' in patch || patch.allowPrivateNetwork === true || patch.keyless === true;
+export const needsConfirmation = (patch: Record<string, unknown>, rowKind?: 'openai-compat' | 'cli'): boolean => {
+  if (patch.kind === 'cli' || rowKind === 'cli') return !(Object.keys(patch).length === 1 && patch.enabled === false); // turning a CLI off is the safe direction
+  return 'baseUrl' in patch || patch.allowPrivateNetwork === true || patch.keyless === true || patch.trusted === true || patch.leadSelectable === true;
+};
 
 export function saveEntry(id: string, patch: Record<string, unknown>): Promise<boolean> {
   return act(id, async () => {
-    if (!needsConfirmation(patch)) return request<ProvidersView>('PUT', `/api/providers/${id}`, patch);
+    if (!needsConfirmation(patch, state.view?.providers.find((x) => x.id === id)?.kind)) return request<ProvidersView>('PUT', `/api/providers/${id}`, patch);
     const bridge = window.legion?.providerChange;
     if (!bridge) throw new Error('Changing an address needs the Legion app window (it shows a confirmation). Open the app to do this.');
     const r = await bridge({ kind: 'entry', id, patch });
@@ -51,6 +54,33 @@ export function saveKey(id: string, key: string): Promise<boolean> {
     if (r.cancelled) { setNote(id, 'Cancelled. No key was saved.'); return; }
     if (!r.ok) throw new Error(r.error ?? 'The key was not saved.');
     setNote(id, 'Key saved.');
+    await loadProviders();
+  });
+}
+
+/** Allow a local (stdio) MCP server for provider runs: the native dialog shows its command line. Stopping needs only the admin key. */
+export function allowStdio(name: string): Promise<boolean> {
+  return act(`mcp:${name}`, async () => {
+    const bridge = window.legion?.providerChange;
+    if (!bridge) throw new Error('Allowing a program to start needs the Legion app window (it shows a confirmation). Open the app to do this.');
+    const r = await bridge({ kind: 'mcp-stdio', name });
+    if (r.cancelled) { setNote(`mcp:${name}`, 'Cancelled. Nothing changed.'); return; }
+    if (!r.ok) throw new Error(r.error ?? 'The change failed.');
+    await loadProviders();
+  });
+}
+export const stopStdio = (name: string) => act(`mcp:${name}`, () => request<ProvidersView>('PUT', `/api/provider-mcp/${encodeURIComponent(name)}`, { allow: false }));
+
+/** The provider:model values a lead may choose for one agent. Adding a value is native-confirmed; removing needs only the admin key. */
+export function saveLead(agentId: string, choices: string[]): Promise<boolean> {
+  return act(`lead:${agentId}`, async () => {
+    const before = state.view?.leadChoices[agentId] ?? [];
+    if (!choices.some((c) => !before.includes(c))) return request<ProvidersView>('PUT', `/api/provider-lead/${encodeURIComponent(agentId)}`, { choices });
+    const bridge = window.legion?.providerChange;
+    if (!bridge) throw new Error('Allowing a choice needs the Legion app window (it shows a confirmation). Open the app to do this.');
+    const r = await bridge({ kind: 'lead', agentId, choices });
+    if (r.cancelled) { setNote(`lead:${agentId}`, 'Cancelled. Nothing changed.'); return; }
+    if (!r.ok) throw new Error(r.error ?? 'The change failed.');
     await loadProviders();
   });
 }

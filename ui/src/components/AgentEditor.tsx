@@ -13,6 +13,7 @@ export function AgentEditor({ id }: { id: string | null }) {
   const [systemPrompt, setSystemPrompt] = useState(existing?.systemPrompt ?? '');
   const [model, setModel] = useState<ModelChoice>(existing?.model ?? 'auto');
   const [approval, setApproval] = useState<ApprovalMode>(existing?.approval ?? 'ask');
+  const [delegateOnly, setDelegateOnly] = useState(existing?.delegateOnly === true);
   const [vmOn, setVmOn] = useState(existing?.vm.enabled ?? false);
   const [size, setSize] = useState<VmSize>(existing?.vm.size ?? 'default');
   const [idle, setIdle] = useState(existing?.vm.idleStopMinutes ?? 15);
@@ -39,7 +40,7 @@ export function AgentEditor({ id }: { id: string | null }) {
     if (!name.trim() || busy) return;
     setBusy(true);
     const body: Partial<AgentProfile> & { name: string } = {
-      name: name.trim(), emoji: emoji.trim() || '●', description: description.trim(), systemPrompt, model, approval,
+      name: name.trim(), emoji: emoji.trim() || '●', description: description.trim(), systemPrompt, model, approval, delegateOnly,
       vm: { enabled: vmOn, size, idleStopMinutes: Math.max(1, Math.round(idle) || 15) },
     };
     await saveAgent(id, body);
@@ -80,6 +81,7 @@ export function AgentEditor({ id }: { id: string | null }) {
             </select>
           </label>
         </div>
+        <label className="check-row"><input type="checkbox" checked={delegateOnly} onChange={(e) => setDelegateOnly(e.target.checked)} /> Delegate only: this agent cannot use its own Bash, Write or Edit; its work goes to the agents it asks <span className="field-note">(Claude agents; off by default)</span></label>
         <fieldset>
           <legend>Computer (boat.dev VM)</legend>
           <label className="check-row"><input type="checkbox" checked={vmOn} onChange={(e) => setVmOn(e.target.checked)} /> Let this agent start a VM on demand</label>

@@ -154,6 +154,7 @@ function parseAgentFields(b: Record<string, unknown>) {
     approval: oneOf(b.approval, 'approval', APPROVALS),
     vm: parseVm(b.vm),
     mcpServers: parseMcpServers(b.mcpServers),
+    delegateOnly: b.delegateOnly === undefined ? undefined : typeof b.delegateOnly === 'boolean' ? b.delegateOnly : (() => { throw new HttpError(400, 'delegateOnly must be true or false'); })(),
   };
 }
 
@@ -231,6 +232,7 @@ export function createServer(ctx: CoreContext): Server {
       approval: f.approval ?? 'ask',
       mcpServers: f.mcpServers ?? ['*'],
       ...(f.cwd ? { cwd: f.cwd } : {}),
+      ...(f.delegateOnly ? { delegateOnly: true } : {}),
       createdAt: now, updatedAt: now,
     };
     const saved = ctx.store.upsertAgent(agent);
@@ -253,6 +255,7 @@ export function createServer(ctx: CoreContext): Server {
       ...(f.approval ? { approval: f.approval } : {}),
       ...(f.mcpServers ? { mcpServers: f.mcpServers } : {}),
       ...(f.cwd !== undefined ? { cwd: f.cwd || undefined } : {}),
+      ...(f.delegateOnly !== undefined ? { delegateOnly: f.delegateOnly || undefined } : {}),
       vm: { ...cur.vm, ...f.vm },
       id: cur.id, createdAt: cur.createdAt, updatedAt: nowIso(),
     };

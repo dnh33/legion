@@ -52,7 +52,7 @@ test('C19 normalizeProviders: clamps, drops bad entries, refuses cli and a non-c
   assert.equal(n.entries.local!.keyless, true);
   assert.deepEqual(Object.keys(n.entries.priced!.prices!), ['m']);
   const why = (n.dropped ?? []).join(' | ');
-  assert.match(why, /CLI providers are not available/);
+  assert.match(why, /cli must be codex or opencode/);
   assert.match(why, /wire must be chat or responses/);
   assert.match(why, /http is only allowed for this computer/);
 });

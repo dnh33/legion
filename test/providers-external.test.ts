@@ -13,6 +13,10 @@ import { replyText, replyTools, startFake } from './providers-fakes.js';
 import type { FakeReq } from './providers-fakes.js';
 import { run, setup, until } from './providers-harness.js';
 import { repoRoot } from './ps-helpers.js';
+import { stdioFingerprint } from '../src/core/providers/stdio-allow.js';
+
+/** The owner's native-confirmed opt-in for starting these local servers in a provider run (default is off). */
+const allowAll = (h: { config: any }): void => { for (const [n, e] of Object.entries<any>(h.config.mcpServers)) if (!e.type || e.type === 'stdio') h.config.providers.stdioMcpAllow[n] = stdioFingerprint(e); };
 
 const FIXTURE = join(repoRoot, 'test/fixtures/fake-mcp-stdio.mjs');
 const toolMsg = (req: FakeReq, id: string): string => (req.body.messages as any[]).find((m) => m.role === 'tool' && m.tool_call_id === id)?.content ?? '';
@@ -53,6 +57,7 @@ test('a stdio server from Settings is offered, needs a card like any non-Legion 
   try {
     const h = setup(f, { agent: { approval: 'ask', mcpServers: ['ext'] } });
     h.config.mcpServers = { ext: { command: process.execPath, args: [FIXTURE], env: { OWN_VAR: 'yes', MARK_FILE: mark } } } as any;
+    allowAll(h);
     const t = h.engine.startTask({ agentId: 'a1', prompt: 'go', source: 'ui' } as any);
     await until(() => h.approvals.pending().length === 1, 15000);
     assert.equal(h.approvals.pending()[0]!.toolName, 'mcp__ext__envcheck');
@@ -78,6 +83,7 @@ test('only the servers the agent enabled are offered; a server that cannot start
     assert.equal(names(f.requests[0]!).some((x) => x.startsWith('mcp__ext__')), false);
     const star = setup(f, { agent: { mcpServers: ['*'], approval: 'full' } });
     star.config.mcpServers = { ext: { command: process.execPath, args: [FIXTURE] }, broken: { command: 'definitely-not-a-real-command-xyz' } } as any;
+    allowAll(star);
     const t = await run(star);
     assert.equal(t.status, 'done');
     assert.ok(names(f.requests[1]!).includes('mcp__ext__echo'));

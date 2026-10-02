@@ -89,6 +89,9 @@ export function taintsRun(toolName: string): boolean {
   return !CLEAN_BUILTINS.has(toolName);
 }
 
+/** What a delegate-only agent cannot use itself. Read-only tools stay. */
+export const DELEGATE_ONLY_DISALLOWED = ['Bash', 'Write', 'Edit', 'MultiEdit', 'NotebookEdit'];
+
 export class EngineError extends Error {
   constructor(message: string, public readonly status: number) { super(message); this.name = 'EngineError'; }
 }
@@ -675,7 +678,8 @@ export class Engine {
       mcpServers: this.buildMcpServers(agent, job, act),
       // Off (default): only the servers above, asks the CLI to ignore user/project/local MCP config and plugins. claude.ai connectors are asked off in buildChildEnv and in `settings`.
       ...(this.config.claude.inheritMcp === true ? {} : { strictMcpConfig: true }),
-      disallowedTools: ['SendMessage', 'ListAgents', ...this.moduleDisallowed(agent)],
+      // delegate-only (optional, per agent): no own shell or file edits, so the work goes to the agents it delegates to
+      disallowedTools: ['SendMessage', 'ListAgents', ...(agent.delegateOnly === true ? DELEGATE_ONLY_DISALLOWED : []), ...this.moduleDisallowed(agent)],
       maxTurns: this.config.claude.maxTurns,
       includePartialMessages: true,
       abortController: act.ac,

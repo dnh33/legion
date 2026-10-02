@@ -45,6 +45,8 @@ export interface AgentProfile {
   mcpServers: string[];
   /** Working directory for local file tools. Absolute. Defaults to LegionConfig.workspaceDir/<id>. */
   cwd?: string;
+  /** Optional, off by default: this agent loses its own Bash, Write, Edit and NotebookEdit so work really goes to the agents it delegates to. Applies to Claude agents; a provider agent has no such tools anyway. */
+  delegateOnly?: boolean;
   /** Hidden from lists and the rail until this optional feature is on (e.g. the Assayer needs the BSV Dev Kit). */
   requires?: 'bsv';
   createdAt: string;     // ISO

@@ -105,7 +105,7 @@ test('C3 a bot or token client cannot move a provider agent to Claude or to anot
 
 test('C17 cancel aborts the provider request and nothing runs after it', async () => {
   let closed = false;
-  const f = await startFake((_r, res) => { sseHead(res); sseSend(res, chunk({ content: 'partial' })); res.on('close', () => { closed = true; }); });
+  const f = await startFake((_r, res) => { sseHead(res); sseSend(res, chunk({ content: 'partial ' + 'x'.repeat(200) })); res.on('close', () => { closed = true; }); });
   try {
     const h = setup(f);
     const t = h.engine.startTask({ agentId: 'a1', prompt: 'slow', source: 'ui' } as any);
