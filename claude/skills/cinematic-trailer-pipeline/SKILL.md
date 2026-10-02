@@ -120,3 +120,12 @@ See the building-with-typesafe-jev skill. Send one request where the state holds
 - A chunk that starts with an MP4 header can arrive altered. Gzip the file first, split the .gz into ~9MB `.bin` chunks, commit them, then run `cat | gunzip` on the device.
 - Verify the result with sha256 against the original.
 - Deletes need permission, so move leftover chunks into `_to_delete/` and tell the owner.
+
+## 9. Lessons from Legion's second trailer (docs/video-v2)
+Read `docs/video-v2/HANDOFF.md` for the full recipe. Short version:
+- Capture screenshots from the REAL built UI against a REAL core running on the product's own fakes (harness stack + same-origin proxy + a stub of the desktop preload); never mock a screen. Drop a scene you cannot capture honestly.
+- Put UI left, copy right, mascot bottom-right; push the camera into the region each caption names; rings on real elements.
+- Put captions, chips and cards in the timeline as data and let `check.mjs` enforce reading time, caption gaps (fades included), mandatory "not tried" chips, banned words and "no UI for planned items".
+- Budget seconds before adding a scene: a 2.5 s shot cannot carry a 6-word caption plus the fade gaps.
+- Page-text placeholder scans must skip painted art that carries its own text.
+- Commit the small MP4 (re-encode to under 40 MB), the GIF, the poster and the source; the full render rebuilds with one command.
