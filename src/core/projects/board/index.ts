@@ -11,7 +11,7 @@ import type { CoreModule, ModuleDeps } from '../../modules.js';
 import { HttpError } from '../../server.js';
 import type { Ctx } from '../../server.js';
 import type { ProjectStore } from '../store.js';
-import { BOARD_PREAMBLE, runPrompt } from './prompt.js';
+import { BOARD_PREAMBLE, boardDigest, runPrompt } from './prompt.js';
 import { BoardError } from './store.js';
 import type { BoardStore } from './store.js';
 import { buildBoardToolsServer } from './tools.js';
@@ -50,7 +50,13 @@ export function createBoardModule(deps: ModuleDeps, opts: BoardModuleOpts): Core
       if (!job?.projectId || !projects.forRun(job.projectId, agent.id)) return {};
       return { legion_board: buildBoardToolsServer(agent.id, { board, projects, onChange: changed, askOwner: (r) => deps.approvals.request(r.taskId, r.agentId, `mcp__legion_board__${r.tool}`, r.input, r.origin, { summary: r.summary }) }, job) };
     },
-    preamble: (agent, ctx) => (ctx?.projectId && projects.forRun(ctx.projectId, agent.id) ? BOARD_PREAMBLE : ''),
+    preamble: (agent, ctx) => {
+      const p = ctx?.projectId ? projects.forRun(ctx.projectId, agent.id) : undefined;
+      if (!p) return '';
+      let digest = '';
+      try { digest = boardDigest(board.view(p).items, agent.id, (id) => deps.store.getAgent(id)?.name ?? id); } catch { /* the digest is a convenience */ }
+      return digest ? `${BOARD_PREAMBLE}\n${digest}` : BOARD_PREAMBLE;
+    },
     onTaskEnd: (task, _agent, outcome) => {
       if (!task.projectId) return;
       const r = board.endRun(task.projectId, task.id, { status: task.status, isError: outcome.isError, text: task.result ?? task.error ?? outcome.errorText, tainted: outcome.tainted });
