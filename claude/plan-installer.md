@@ -1,4 +1,4 @@
-# Plan: installer bootstrapper (Node on demand, no Git, optional single .exe)
+# Plan: installer bootstrapper (Node on demand, no Git). No .exe in v0.2.0
 
 Branch `claude/installer-bootstrap`, base `integration/v1`. Claims are scoped to "Legion's own scripts". Nothing here is signed; nothing is run on the owner's PC by the cloud session.
 
@@ -19,13 +19,13 @@ Branch `claude/installer-bootstrap`, base `integration/v1`. Claims are scoped to
 
 ## 3. No Git
 
-- Today setup copies from the folder it runs in, with no git. That stays; a `.git` folder is only detected by uninstall (checkout kept). Developer `git clone` path unchanged.
-- **Release-package route** (for the single .exe, which carries no source): when the folder setup runs from has no `package.json` (or `-FromRelease`), setup downloads the updater's release set from `github.com/dnh33/legion/releases/latest/download/` (`legion-update-manifest.json`, `.sig`, then `legion-<version>-app.zip`; GitHub hosts only, max 3 redirects, each hop re-validated, size caps), then the bootstrapped Node runs `scripts/lib/verify-release.mjs`: Ed25519 signature over the raw manifest bytes against keys in `release-keys.json`, strict manifest fields, zip size and sha256 equal the signed values. Only then the zip is extracted with the same safe extractor and becomes the source. After that the normal flow runs (`npm ci` with the shipped lock; a package has `dist` but no `src`, so `npm run build` is skipped). Keys: `build-setup-exe.ps1` writes `release-keys.json` from the built `dist/src/core/updater/trust.js`; an EMPTY list means the route fails closed ("this setup has no update key"), same as the updater. It also needs the repo public and a signed release to exist: until then the exe stops with a plain message. Not covered: a compromised signing key, the unsigned exe itself (first install trust).
-- Setup never runs git; npm only as `npm ci` (or `npm install` when no lock, as today).
+- Setup copies from the folder it runs in and never runs git. A user can get that folder as a plain zip download (GitHub "Download ZIP") or, later, an unpacked release package; a release package is already built (`dist`, no `src`), so setup skips `npm run build` for it. `.git` is only detected by uninstall (a checkout is kept). The developer `git clone` path is unchanged.
+- Setup runs npm only as `npm ci` (or `npm install` when there is no lock, as today).
+- Considered and dropped: fetching the signed release from inside setup. It only made sense for a single-file installer; the updater already owns the signed-manifest chain once the repo is public.
 
-## 4. Optional single file
+## 4. No .exe in v0.2.0
 
-`scripts/build-setup-exe.ps1` (owner/orchestrator on Windows, never cloud): stages a flat payload (IExpress has no sub-folders): `setup-exe-main.cmd`, `setup.ps1`, `legion-procs.ps1`, `node-bootstrap.ps1`, `verify-release.mjs`, `release-keys.json`; writes a `.sed`; runs `iexpress /N /Q`; output `Legion-Setup.exe`. The launcher rebuilds `scripts\` and `scripts\lib\` in a temp folder and runs `setup.ps1`. **The exe is UNSIGNED: Windows SmartScreen will warn ("Windows protected your PC", More info > Run anyway), antivirus may too.** No signing, no certificate, no tool that needs an account. `SETUP-EXE.md` says so, plus how to verify it.
+Owner decision (2026-10-02): **no `.exe` in v0.2.0**. No IExpress build, no `build-setup-exe.ps1`, no `SETUP-EXE.md`. The install flow is `setup.cmd` / `setup-yes.cmd` from the folder. **A signed installer or a single-file installer is Later** (it needs a code-signing certificate the owner would buy and hold, otherwise SmartScreen warns; both are out of scope here).
 
 ## 5. Uninstall
 
@@ -33,10 +33,10 @@ Branch `claude/installer-bootstrap`, base `integration/v1`. Claims are scoped to
 
 ## 6. Tests
 
-Linux (pure, always run): version compare/min, SHASUMS parse, resolve-node helper, `verify-release.mjs` (good, wrong key, tampered manifest, size/hash lie, no keys), static contract (hosts: bootstrap names only `nodejs.org` and the two github hosts, `AllowAutoRedirect = $false`, ASCII only, no `Invoke-WebRequest`, no `Invoke-Expression`, no kill by name), tripwire files untouched.
+Linux (pure, always run): version compare/min, SHASUMS parse, resolve-node helper, static contract (hosts: the scripts name only `nodejs.org` (plus the test loopback), `AllowAutoRedirect = $false`, ASCII only, no `Invoke-WebRequest`, no `Invoke-Expression`, no kill by name), tripwire files untouched.
 PowerShell tests (run where `pwsh` or `powershell` exists; the Windows CI runner always): a fake nodejs.org on `127.0.0.1` (node:http). Host override exists only as `LEGION_TEST_NODE_MIRROR` AND `LEGION_TEST_MODE=1` together, http loopback only; a test proves that WITHOUT the flag the production URL is still nodejs.org. Cases: good install, wrong sha256 (nothing installed), truncated, oversize, zip-slip, redirect refused, existing Node = no download, user says no, `-Yes` says yes, re-run idempotent, uninstall removes an owned runtime only (and not an unmarked one, and not through a junction).
-Gates: the usual. Windows-only verification (real nodejs.org, real arm64, SmartScreen, IExpress, real shortcuts) goes to `claude/tracker-pc-checks-installer.md`.
+Gates: the usual. Windows-only verification (real nodejs.org, real arm64, real shortcuts) goes to `claude/tracker-pc-checks-installer.md`.
 
 ## 7. Out of scope / not done
 
-Signing the exe, winget/MSI packaging, auto-updating Node, mainnet anything, editing README/docs, any change to bsv/blender/providers/updater source.
+Any .exe or signed installer (Later), winget/MSI packaging, auto-updating Node, mainnet anything, editing README/docs, any change to bsv/blender/providers/updater source.

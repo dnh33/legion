@@ -10,16 +10,23 @@
                  a pipe); in that case it does not launch Legion at the end unless -Yes is given too.
 .PARAMETER NoLaunch    Don't offer to launch at the end.
 .PARAMETER DryRun      Print what would happen and change nothing.
+.PARAMETER NodeOnly    Only make sure a usable Node.js exists (system, or Legion's own copy in <install>\runtime\node), then stop.
+
+Node.js: needs 20.10 or newer (package.json engines). If there is none, setup asks once and then downloads the pinned Node 24 LTS
+from nodejs.org into <install>\runtime\node (no admin, no system PATH change). -Yes is the go-ahead for that download.
 #>
 param(
   [string]$InstallDir = '',
   [switch]$Yes,
   [switch]$NoLaunch,
-  [switch]$DryRun
+  [switch]$DryRun,
+  [switch]$NodeOnly
 )
 $ErrorActionPreference = 'Stop'
 
 . (Join-Path $PSScriptRoot 'lib\legion-procs.ps1')
+. (Join-Path $PSScriptRoot 'lib\safe-io.ps1')
+. (Join-Path $PSScriptRoot 'lib\node-bootstrap.ps1')
 
 # No terminal to ask on (stdin redirected, or not a user-interactive session): never block on Read-Host.
 $script:NonInteractive = $false
@@ -71,21 +78,17 @@ try {
   Say "  install dir check: $(if ($verdict.Ok) { 'OK' } else { 'REFUSED' }) - $($verdict.Reason)" $(if ($verdict.Ok) { 'DarkGray' } else { 'Red' })
   if (-not $verdict.Ok) { Fail "Refusing to install into '$($verdict.Path)': $($verdict.Reason)." }
 
-  # 1) Node >= 20, npm
+  # 1) Node.js (20.10+ by package.json engines): a good system Node, else Legion's own pinned copy (asked once, downloaded from nodejs.org).
   Step 'Checking Node.js'
-  if (-not (Get-Command node -ErrorAction SilentlyContinue)) {
-    Say 'Node.js was not found. Install it with:' 'Red'
-    Say '  winget install OpenJS.NodeJS.LTS'
-    exit 1
+  $nodeRes = Initialize-LegionNode -InstallDir $InstallDir -DryRun:$DryRun `
+    -Ask { param($q, $d) Ask $q $d } -Say { param($m, $c) Say $m $c }
+  if (-not $nodeRes.Ok) { Say $nodeRes.Message 'Red'; exit 1 }
+  if ($nodeRes.NodeDir) {
+    # this process only: setup's npm and node come from Legion's copy; the system PATH is never changed
+    $env:PATH = $nodeRes.NodeDir + [System.IO.Path]::PathSeparator + $env:PATH
   }
-  $ver = (& node -v).TrimStart('v')
-  if ([int]($ver.Split('.')[0]) -lt 20) {
-    Say "Node $ver is too old (need 20+). Install a newer one with:" 'Red'
-    Say '  winget install OpenJS.NodeJS.LTS'
-    exit 1
-  }
-  if (-not (Get-Command npm -ErrorAction SilentlyContinue)) { Fail 'npm was not found on PATH (it ships with Node.js; reinstall Node).' }
-  Say "Node $ver OK" 'Green'
+  if (-not $DryRun -and -not (Get-Command npm -ErrorAction SilentlyContinue)) { Fail 'npm was not found on PATH (it ships with Node.js; reinstall Node).' }
+  if ($NodeOnly) { Say 'Node.js is ready.' 'Green'; exit 0 }
 
   # 2) Stop a running Legion, from any folder (it holds the port, the data folder and the files being replaced).
   #    Matched by what it is (see scripts\lib\legion-procs.ps1) and stopped by PID. Other node/electron programs are never touched.
@@ -118,7 +121,7 @@ try {
     Say 'Source is already the install folder - skipping copy.' 'Yellow'
   } else {
     if (-not $DryRun) { New-Item -ItemType Directory -Force -Path $InstallDir | Out-Null }
-    $xd = @('node_modules', 'dist', 'dist-ui', '.git', (Join-Path $src 'ui\dev\shots'), (Join-Path $src 'docs\demo'))
+    $xd = @('node_modules', 'dist', 'dist-ui', '.git', (Join-Path $InstallDir 'runtime'), (Join-Path $InstallDir '.update'), (Join-Path $src 'ui\dev\shots'), (Join-Path $src 'docs\demo'))
     $rcArgs = @($src, $InstallDir, '/MIR', '/XD') + $xd + @('/XF', 'uninstall.cmd', '/NFL', '/NDL', '/NJH', '/NJS', '/NP', '/R:2', '/W:1')
     if ($DryRun) {
       Say "  (dry run) robocopy $($rcArgs -join ' ')" 'DarkGray'
@@ -148,7 +151,10 @@ try {
     if (-not $DryRun) { Say 'Electron OK' 'Green' }
 
     Step 'Building'
-    Invoke-Native 'npm run build' { npm run build }
+    # A downloaded release package is already built (dist and dist-ui, no src folder): nothing to compile.
+    $prebuilt = (-not (Test-Path -LiteralPath (Join-Path $lockDir 'src'))) -and (Test-Path -LiteralPath (Join-Path $lockDir 'dist\src\bin\legion-core.js'))
+    if ($prebuilt) { Say 'Release package: already built, skipping the build.' 'Green' }
+    else { Invoke-Native 'npm run build' { npm run build } }
   } finally {
     if (-not $DryRun) { Pop-Location }
   }
