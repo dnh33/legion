@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { modelLabel } from '../models';
+import { inProject } from '../projects/projectsLogic';
 import { archiveTask, newTask, openTaskMenu, renameTask, selectTask, startRename, stopRename, useStore } from '../store';
 import { Icon } from './icons';
 import { cleanTitle, taskTitle } from '../util';
@@ -20,10 +21,11 @@ export function TaskSwitcher() {
   const agentId = useStore((s) => s.selectedAgentId);
   const sel = useStore((s) => s.selectedTaskId);
   const catalog = useStore((s) => s.catalog);
+  const filter = useStore((s) => s.projectFilter);
   const renaming = useStore((s) => (s.renaming?.src === 'tab' ? s.renaming.id : null));
   const MAX = 12;
   // stable order: newest-created first, so tabs never jump when a task finishes
-  const all = useMemo(() => tasks.filter((t) => t.agentId === agentId && (!t.archived || t.id === sel)).sort((a, b) => b.createdAt.localeCompare(a.createdAt) || a.id.localeCompare(b.id)), [tasks, agentId, sel]);
+  const all = useMemo(() => tasks.filter((t) => t.agentId === agentId && (!t.archived || t.id === sel) && (inProject(t, filter) || t.id === sel)).sort((a, b) => b.createdAt.localeCompare(a.createdAt) || a.id.localeCompare(b.id)), [tasks, agentId, sel, filter]);
   const mine = useMemo(() => { const head = all.slice(0, MAX); if (sel && !head.some((t) => t.id === sel)) { const s = all.find((t) => t.id === sel); if (s) head[MAX - 1] = s; } return head; }, [all, sel]);
   const rest = all.filter((t) => !mine.some((m) => m.id === t.id));
   const [more, setMore] = useState(false);

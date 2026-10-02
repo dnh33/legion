@@ -4,6 +4,7 @@ import { BustStage } from '../mascot/BustStage';
 import { hasBust } from '../mascot/busts';
 import { forceMascot, forceMascotVm, openTaskMenu, reopenTask, selectTask, setShowClosed, useStore, type RelicState } from '../store';
 import { modelLabel } from '../models';
+import { inProject } from '../projects/projectsLogic';
 import { RenameInput } from './TaskSwitcher';
 import { cleanTitle, money, relTime, taskTitle } from '../util';
 import { BlenderCard } from '../blender/BlenderCard';
@@ -41,11 +42,12 @@ export function OpsPanel() {
   const selAgent = useStore((s) => s.selectedAgentId);
   const sel = useStore((s) => s.selectedTaskId);
   const showClosed = useStore((s) => s.showClosed);
+  const projectFilter = useStore((s) => s.projectFilter);
   const renaming = useStore((s) => (s.renaming?.src === 'recent' ? s.renaming.id : null));
   const [, tick] = useState(0);
   const short = useShort();
   useEffect(() => { const t = window.setInterval(() => tick((n) => n + 1), 30000); return () => clearInterval(t); }, []);
-  const recent = tasks.filter((t) => showClosed || !t.archived).slice().sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)).slice(0, 8);
+  const recent = tasks.filter((t) => (showClosed || !t.archived) && inProject(t, projectFilter)).slice().sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)).slice(0, 8);
 
   return (
     <aside className="ops" aria-label="Ops">
