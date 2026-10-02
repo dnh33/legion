@@ -29,7 +29,7 @@ export const LOCAL_MIN_VERSION = '4.2.0';
 export const MANAGED_BLENDER = {
   version: '5.2.2',
   channel: '5.2 LTS',
-  platform: 'win32' as NodeJS.Platform,
+  platform: 'win32' as string,
   url: 'https://download.blender.org/release/Blender5.2/blender-5.2.2-windows-x64.zip',
   checksumUrl: 'https://download.blender.org/release/Blender5.2/blender-5.2.2.sha256',
   sha256: '3849d17a682cba006075aaa3f3597ecb5c9c30ec31035b2e092c53e40679b535',

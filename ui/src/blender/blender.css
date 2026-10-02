@@ -50,3 +50,9 @@
 .bl-mode b { color: var(--text-2); font-weight: 600; font-size: 12.5px; }
 .bl-mode.on { border-color: var(--accent-line); background: var(--accent-soft); }
 .bl-mode:disabled { opacity: .55; cursor: default; }
+
+.bl-chooser { display: grid; gap: 6px; margin: 8px 0; padding: 8px 10px; border: 1px solid var(--line, #3a3a3a); border-radius: 8px; }
+.bl-chooser-row { display: flex; flex-wrap: wrap; gap: 6px; }
+.bl-get { display: grid; gap: 6px; }
+.bl-get-card { display: grid; gap: 6px; padding: 8px 10px; border: 1px solid var(--line, #3a3a3a); border-radius: 8px; }
+.bl-get-card pre { white-space: pre-wrap; margin: 0; }

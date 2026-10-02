@@ -6,10 +6,13 @@ All notable changes are recorded here. The format follows [Keep a Changelog](htt
 
 ### Changed
 
+- **Blender: the minimum Blender for local runs is now 4.2** (was 3.0). Older builds are listed but refused for local runs; the live community backend still accepts 3.0 and newer.
 - **Blender: scripts now run on this computer by default when Blender is found.** New setting `blender.mode` (`auto`, `local`, `vm`, `live`) replaces the three-way `sandbox` setting; the old key is still read and written alongside it. Existing installs on `auto` switch to local-first, and Settings shows an upgrade notice until you save a mode. A local script runs with your Windows user's rights; Legion's check is a filter, not a sandbox. Settings, Blender has a four-way "Where scripts run" choice with a "Next script runs" line, and the add-on socket notice shows only for the live path.
 
 ### Added
 
+- **Blender: "Get Blender for Legion" and "Get full Blender"** (Settings, Blender). The first fetches one pinned official portable build (5.2.2 LTS, Windows x64) into Legion's own folder, only after you press the button and Allow an approval card, with the sha256 checked before anything is unpacked and a strict zip reader (zip-slip, links, size and CRC checks). The second links to the official download page; Legion downloads nothing from it. Detection prefers the managed copy; your own install is never touched. The shipped hash was given by the owner and is not yet reproduced on a PC; the address is not confirmed by a request. Not yet tried on a real PC.
+- **Blender: first-use chooser and Sculptor guidance.** The first Blender card carries a one-time "This computer / Cloud VM / My open Blender / Decide each time" question, saved through the admin settings route. The Sculptor is told when local, the VM or live fits, to say which it chose and why, and that it cannot change Settings.
 - **Blender local headless mode** (see [docs/BLENDER.md](docs/BLENDER.md)): `blender -b` on this computer in a per-task scene with a backup before each run, the same full-script card (badge "On this PC", no one-key Allow), the audit log and quarantined exports; `mode:"local"` on the Blender tools. A busy light ("Running a script") shows while a Blender script runs. Not yet tried with a real Blender on Windows.
 - **Blender: the official add-on is installed as an extension** (`extension build`, `repo-list`, `install-file`, `extension list`), with the by-hand route named when a step fails. Not yet tried on a real Blender 5.1 or later.
 - **Blender: the community add-on is pinned to a commit and sha256.** The project moved to `ahujasid/mcp-for-blender` and has no tags. The hash is still to be reproduced on the owner's PC.

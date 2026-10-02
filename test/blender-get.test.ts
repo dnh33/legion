@@ -8,7 +8,8 @@ import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFi
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
-import { deflateRawSync } from 'node:zlib';
+import { makeZip } from './zip-helpers.js';
+import type { ZEntry } from './zip-helpers.js';
 import { Readable, Writable } from 'node:stream';
 import { MANAGED_BLENDER } from '../src/shared/blender.js';
 import { detectInstalls, pickInstall } from '../src/core/blender/detect.js';
@@ -17,37 +18,6 @@ import type { GetBlenderPorts, ManagedPin } from '../src/core/blender/get-blende
 import { createGetBlenderPorts } from '../src/core/blender/system.js';
 import { crc32Update, extractZip, listEntries, safeEntryPath, targetInside, ZipError } from '../src/core/blender/zip.js';
 import type { ZipSink, ZipSource } from '../src/core/blender/zip.js';
-
-// ---------------------------------------------------------------- a tiny zip writer (stored or deflate), with the knobs the attacks need
-interface ZEntry { name: string; data?: Buffer; method?: 0 | 8; flags?: number; unixMode?: number; crc?: number; usize?: number; csize?: number }
-function makeZip(entries: ZEntry[]): Buffer {
-  const parts: Buffer[] = [];
-  const central: Buffer[] = [];
-  let off = 0;
-  for (const e of entries) {
-    const raw = e.data ?? Buffer.alloc(0);
-    const method = e.method ?? 0;
-    const body = method === 8 ? deflateRawSync(raw) : raw;
-    const name = Buffer.from(e.name, 'utf8');
-    const crc = e.crc ?? crc32Update(0, raw);
-    const csize = e.csize ?? body.length;
-    const usize = e.usize ?? raw.length;
-    const lh = Buffer.alloc(30);
-    lh.writeUInt32LE(0x04034b50, 0); lh.writeUInt16LE(20, 4); lh.writeUInt16LE(e.flags ?? 0, 6); lh.writeUInt16LE(method, 8);
-    lh.writeUInt32LE(crc, 14); lh.writeUInt32LE(csize, 18); lh.writeUInt32LE(usize, 22); lh.writeUInt16LE(name.length, 26);
-    parts.push(lh, name, body);
-    const ch = Buffer.alloc(46);
-    ch.writeUInt32LE(0x02014b50, 0); ch.writeUInt16LE(((e.unixMode ? 3 : 0) << 8) | 20, 4); ch.writeUInt16LE(20, 6); ch.writeUInt16LE(e.flags ?? 0, 8); ch.writeUInt16LE(method, 10);
-    ch.writeUInt32LE(crc, 16); ch.writeUInt32LE(csize, 20); ch.writeUInt32LE(usize, 24); ch.writeUInt16LE(name.length, 28);
-    ch.writeUInt32LE(e.unixMode ? (e.unixMode << 16) >>> 0 : 0, 38); ch.writeUInt32LE(off, 42);
-    central.push(ch, name);
-    off += lh.length + name.length + body.length;
-  }
-  const cd = Buffer.concat(central);
-  const end = Buffer.alloc(22);
-  end.writeUInt32LE(0x06054b50, 0); end.writeUInt16LE(entries.length, 8); end.writeUInt16LE(entries.length, 10); end.writeUInt32LE(cd.length, 12); end.writeUInt32LE(off, 16);
-  return Buffer.concat([...parts, cd, end]);
-}
 
 const memSource = (b: Buffer): ZipSource => ({ size: b.length, read: async (o, l) => b.subarray(o, o + l), stream: (s, e) => Readable.from([b.subarray(s, e + 1)]) });
 function memSink(): ZipSink & { files: Map<string, Buffer>; dirs: Set<string> } {
@@ -215,7 +185,10 @@ test('B4 get: the shipped pin is the x64 zip hash given by the owner, 64 lower-c
 test('B4 get: not Windows is refused without a card; an unsafe archive fails cleanly and an earlier install and record survive', async () => {
   const zip = good();
   const lin = rig(zip, { platform: 'linux' });
-  assert.equal((await getManagedBlender(lin.ports, { dataDir: lin.dir, cfgSha: '', pin: pinFor(zip), approve: async () => { throw new Error('asked'); } })).ok, false);
+  let asked = 0;
+  const linRes = await getManagedBlender(lin.ports, { dataDir: lin.dir, cfgSha: '', pin: pinFor(zip), approve: async () => { asked++; return true; } });
+  assert.equal(linRes.ok, false);
+  assert.equal(asked, 0, 'no card on a platform the build is not for');
   assert.deepEqual(lin.log, []);
 
   const r = rig(zip);
@@ -270,7 +243,7 @@ test('B4 detect: the managed copy is preferred over a normal install, but a path
   const pf = 'C:\\Program Files\\Blender Foundation\\Blender 5.1\\blender.exe';
   const mine = 'D:\\Blender\\blender.exe';
   const files = new Set([managed, pf, mine].map((f) => f.toLowerCase()));
-  const versions: Record<string, string> = { [managed]: '5.2.2', [pf]: '5.1.0', [mine]: '4.5.0' };
+  const versions: Record<string, string> = { [managed]: '5.2.2', [pf]: '6.0.0', [mine]: '4.5.0' };
   const env = {
     platform: 'win32' as const, env: { ProgramFiles: 'C:\\Program Files' }, home: 'C:\\Users\\Dan',
     exists: (p: string) => files.has(p.toLowerCase()),

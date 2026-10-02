@@ -31,3 +31,21 @@ export const showSocketNotice = (st: Pick<BlenderStatusView, 'mode' | 'sandbox' 
 };
 /** st.notices without the socket notice when it does not apply. */
 export const visibleNotices = (st: BlenderStatusView): string[] => (st.notices ?? []).filter((n) => n !== BLENDER_SOCKET_NOTICE || showSocketNotice(st));
+
+/** "Get Blender for Legion" (Settings): what the button does and does not do. */
+export const GET_BLENDER_TEXT =
+  'Legion can fetch one pinned official portable Blender for its own background runs. It is downloaded only after you press the button and approve the card, is checked against a pinned sha256 before anything is unpacked, and is kept in Legion’s own folder. A Blender you installed yourself is not touched.';
+export const FULL_BLENDER_TEXT = 'Want the full Blender app for yourself? Get it from the official download page. Legion downloads nothing from there.';
+export const GET_BLENDER_NOT_PINNED = 'The hash for this Blender build has not been recorded in this version, so Legion will not download it yet.';
+
+/** The one-time question on the first Blender card (the click is saved through the admin settings route; an agent cannot answer it). */
+export const CHOOSER_TITLE = 'Where should Blender scripts run? Asked once.';
+export const CHOOSER_TEXT = 'You can change this later in Settings, Blender. Every script still needs your OK on its own card.';
+export const CHOOSER_OPTIONS: ReadonlyArray<{ mode: BlenderMode; label: string }> = [
+  { mode: 'local', label: 'This computer' },
+  { mode: 'vm', label: 'Cloud VM' },
+  { mode: 'live', label: 'My open Blender' },
+  { mode: 'auto', label: 'Decide each time (Automatic)' },
+];
+/** The choice to highlight: this computer when Blender is found, else the cloud VM when it is ready, else Automatic. */
+export const chooserDefault = (st: Pick<BlenderStatusView, 'localReady' | 'sandboxReady'>): BlenderMode => (st.localReady ? 'local' : st.sandboxReady ? 'vm' : 'auto');

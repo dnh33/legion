@@ -8,7 +8,7 @@ import { useSyncExternalStore } from 'react';
 import { ApiError, request } from '../api';
 import type { BlenderBackendKind, BlenderMode, BlenderSetupResult, BlenderSetupStep, BlenderStatusView, BlenderTestResult } from '../../../src/shared/blender';
 
-export type BlenderBusy = 'config' | 'setup' | 'test' | 'launch' | null;
+export type BlenderBusy = 'config' | 'setup' | 'test' | 'launch' | 'get' | null;
 export interface BlenderUiState {
   status: BlenderStatusView | null;
   loaded: boolean;
@@ -64,6 +64,8 @@ export async function saveBlenderConfig(patch: { enabled?: boolean; backend?: 'a
 }
 export const runBlenderSetup = (target: 'live' | 'sandbox' | 'both' = 'both', retrust = false) => act('setup', retrust ? 'Set up (new download trusted)' : 'Set up', () => request<BlenderSetupResult>('POST', '/api/blender/setup', { target, ...(retrust ? { retrust: true } : {}) }));
 export const runBlenderTest = () => act('test', 'Connection test', () => request<BlenderTestResult>('POST', '/api/blender/test', {}));
+/** Asks the core to fetch the pinned managed Blender: it raises an approval card first (answered with Allow or Deny), and downloads only after Allow. */
+export const runBlenderGet = () => act('get', 'Get Blender for Legion', () => request<{ ok: boolean; steps: BlenderSetupStep[]; status: BlenderStatusView }>('POST', '/api/blender/get', {}));
 export const runBlenderLaunch = () => act('launch', 'Launch', () => request<{ ok: boolean; steps: BlenderSetupStep[]; status: BlenderStatusView }>('POST', '/api/blender/launch', {}));
 
 /** Label and tone for the status light (shared by the Ops card and Settings so they always say the same). */

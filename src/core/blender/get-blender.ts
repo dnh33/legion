@@ -16,7 +16,7 @@ import { extractZip } from './zip.js';
 import type { ZipSink, ZipSource } from './zip.js';
 
 export interface ManagedPin {
-  version: string; channel: string; platform: NodeJS.Platform; url: string; sha256: string; approxBytes: number; maxArchiveBytes: number;
+  version: string; channel: string; platform: string; url: string; sha256: string; approxBytes: number; maxArchiveBytes: number;
   maxUnpackedBytes: number; maxEntries: number; topDir: string; exe: string; license: string; sourceUrl: string;
 }
 

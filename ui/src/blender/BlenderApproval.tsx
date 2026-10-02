@@ -1,6 +1,7 @@
 import type { ApprovalRequest } from '../../../src/shared/types';
 import { BLENDER_EXEC_TOOL } from '../../../src/shared/blender';
 import { LOCAL_CARD_WARN, localCardExports } from './copy';
+import { ModeChooser } from './ModeChooser';
 import './blender.css';
 
 export const isBlenderExec = (a: ApprovalRequest): boolean => a.toolName === BLENDER_EXEC_TOOL && typeof a.input?.script === 'string';
@@ -65,6 +66,7 @@ export function BlenderBody({ a }: { a: ApprovalRequest }) {
   const hidden = hiddenCount(v.script);
   return (
     <>
+      <ModeChooser />
       <div className="bl-facts">
         <span>Where <b>{v.where || (v.mode === 'live' ? 'LIVE Blender on your computer' : v.mode === 'local' ? 'Blender in the background on this computer' : 'cloud VM')}</b></span>
         {v.agentName && <span>From <b>{v.agentName}</b></span>}

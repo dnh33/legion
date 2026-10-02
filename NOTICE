@@ -40,7 +40,7 @@ repository or its history.
   over stdio and a local socket. Legion's own code is not a derivative of it and remains MIT.
 - Community Blender MCP add-on. MIT. Downloaded from its upstream address (trust on first use) and installed into
   your own Blender.
-- Blender itself (GPL) is only downloaded inside your own cloud VM, if you choose the VM sandbox.
+- Blender itself (GPL-3.0-or-later) is a separate program. It is downloaded, never bundled: inside your own cloud VM if you choose the VM, and on this computer only if you press Get Blender for Legion in Settings and approve the card (one pinned official portable build, kept in Legion's data folder with its licence files and a source link). Legion never changes it.
 Get a proper licence check before you redistribute a build that includes any of these downloads.
 See docs/BLENDER.md.
 

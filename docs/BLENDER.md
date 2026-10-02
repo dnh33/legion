@@ -79,6 +79,49 @@ If the Python guard blocks a legitimate exporter on your PC, `advanced.local.gua
 
 Legion never moves a script from a stricter place to a looser one on its own (vm to local, local to live).
 
+## Getting Blender (Settings, Blender)
+
+Local mode needs a Blender on this computer. Two buttons in Settings, Blender cover that; Legion bundles no Blender.
+
+- **Get full Blender** is a link to the official download page (`https://www.blender.org/download/`). It opens in your browser. Legion downloads and installs nothing from it. Use it when you want Blender for your own work; Legion finds a normal install by itself.
+- **Get Blender for Legion** fetches ONE pinned official portable build for Legion's own background runs. It runs only when you press the button (Windows only in this version), and it needs a second yes: the core raises an approval card that names the address, size, sha256, target folder and licence, and nothing is fetched or created before you press Allow. The card is shown in Settings, Blender and, as any card, in the Sculptor's chat. No agent can start it: the route (`POST /api/blender/get`) is admin-only by default-deny, and no agent tool calls it.
+
+What Legion's own code does after Allow, in this order, stopping at the first failure: download to a temp file (https only, public hosts only, size cap); compare the sha256 with the pin **before anything is unpacked** (a mismatch deletes the file and installs nothing); unpack into a fresh staging folder with Legion's own zip reader (`zip.ts`, no `tar` or `unzip` process); check that `blender.exe` is there; move the folder into place (`<data dir>/blender/app/<version>/`) and write `<data dir>/blender/managed.json`. A failed run removes the staging folder and the archive and leaves an earlier install and its record as they were. The folder gets a `LEGION-README.txt` (version, source, hash); Blender's own licence files are inside the zip's top folder. Deleting the folder removes it; a Blender you installed yourself is never touched.
+
+The zip reader refuses, before writing a byte: absolute paths, drive letters, colons (alternate data streams), `..` segments, names ending in a dot or space, Windows device names, anything outside the one expected top folder, symbolic links, encrypted entries, methods other than stored or deflate, repeated paths (case-insensitive), a path that is both a file and a folder, zip64, more than 40,000 entries or 3 GB unpacked. While unpacking, an entry that inflates past its declared size or fails its CRC-32 stops the run. What this does not cover: it cannot judge whether the program inside is good (the sha256 pin is what ties the archive to the official file), and it does not restore file permissions or timestamps.
+
+**Detection prefers the managed copy** over a normal install; a path you set in Settings (Blender location) still wins over both. Both stay listed.
+
+### What is pinned, and where each value came from
+
+| Value | Pin | Source |
+|---|---|---|
+| Build | Blender **5.2.2 LTS**, Windows x64 portable zip (`blender-5.2.2-windows-x64.zip`, about 386 MB) | version, channel, size and date from blender.org (download page and LTS page, looked up 2026-10-02: 5.2 LTS, updated to 5.2.2 on 2026-09-15). Chosen because the official add-on needs 5.1 or newer and the docs Legion links are the 5.2 LTS manual |
+| Address | `https://download.blender.org/release/Blender5.2/blender-5.2.2-windows-x64.zip` | Blender's release naming. **Not confirmed by a request** (the build session could not reach download.blender.org); the sha256 check is what makes a wrong or swapped file fail |
+| sha256 | `3849d17a682cba006075aaa3f3597ecb5c9c30ec31035b2e092c53e40679b535` | **given by the owner in the build session (2026-10-02) as the value in Blender's checksum file** `https://download.blender.org/release/Blender5.2/blender-5.2.2.sha256`. **TODO OWNER PC:** not independently reproduced; compare it with that file or with `Get-FileHash <zip> -Algorithm SHA256` on the downloaded zip before release. The ARM64 zip has a different hash and is not pinned |
+
+The address and hash are constants in `src/shared/blender.ts` (`MANAGED_BLENDER`), not config, so editing `config.json` cannot point the download elsewhere. If the constant hash were ever empty the download is refused; `blender.advanced.managed.sha256` (64 hex) is only a fallback for that case. To renew the pin later: pick the new patch release, copy its zip line from the official checksum file, update `version`, `url`, `topDir` and `sha256` in one commit, and re-run the PC checks.
+
+### Minimum Blender for local mode is now 4.2
+
+Local runs need Blender **4.2.0 or newer** (changed from 3.0). Older builds are listed but refused for local runs with a plain note; 3.0 and newer still work for the live community backend. Reason: 4.2 is the oldest long-term-support release this project supports, and exporter and preview operator names differ in older ones.
+
+## Choosing where scripts run (first use) and what the Sculptor is told
+
+The first time a Blender approval card appears and you have not yet chosen, the card carries a one-time chooser: **This computer**, **Cloud VM**, **My open Blender**, or **Decide each time (Automatic)**. This computer is highlighted when Blender was found, otherwise the cloud VM when it is ready. The click goes through the normal settings route (admin only; a token-only caller gets 403), is saved as `blender.mode` together with a `modeAsked` flag, and ends the question and the upgrade notice. It never replaces Allow or Deny on the card. Turning the bridge on alone does not answer it. Agents never change settings: a `mode` argument on a Blender tool picks the place for that one call, is checked against the setting, and is never saved.
+
+The Sculptor's instructions say when each place fits: **local** for quick edits, your own scenes and files, previews and exports you want on this PC (it runs with your Windows user's rights, and Legion's check is a filter, not a sandbox); **cloud VM** for scripts or `.blend` files from the web or an unknown source, long or heavy jobs, when you want Blender kept away from your files, or when no Blender is installed here; **live** only when you asked it to work in your open Blender. It says which place it chose and why in one line, asks you in chat when the setting is Automatic and the choice matters, and cannot change Settings.
+
+## Community add-on and official add-on together (research, 2026-10-02)
+
+Question: can the Sculptor use both, for the largest tool surface? Findings:
+
+- **Blender itself does not make them exclusive.** The official one is an extension (`id = "mcp"`, module `bl_ext.<repo>.mcp`); the community one is a legacy add-on file (`addon.py`, operators `blendermcp.*`). Different modules, different names, so both can be installed and enabled in one Blender.
+- **The collision is the TCP port.** Each add-on opens its own listening socket inside the same Blender process. The community add-on keeps its port in a per-scene property (`blendermcp_port`, default 9876) and binds with `SO_REUSEADDR`; its auto-start skips when something already answers on that port, but a manual start does not check. On Windows `SO_REUSEADDR` can let a second program bind a port that is already in use, so two servers on the same port would not fail loudly. The official add-on's port setting could not be read here (projects.blender.org was unreachable); Legion passes the port to the official server through `BLENDER_MCP_PORT`, and its default is expected to be the same 9876. Unverified.
+- **Legion today uses exactly one live backend at a time** (`chooseBackend` returns one kind; one `host:port` in config; the backend object is rebuilt when settings change). Every script from either backend still passes the same check, card and audit.
+
+Decision (the safe option): **keep one live backend at a time**, which is what ships. Do not run both on one port. Using both is a documented follow-up, not wired, because it cannot be tested without a real Blender: it needs two ports in config (one per backend), two backend connections, a merged tool surface with the community-only asset tools (Poly Haven and similar, which make outbound connections from Blender) kept behind their own approval, a rule for which backend runs `execute` (one, never both), and a PC test with both add-ons enabled and a netstat check that two different ports listen.
+
 ## Safety model
 
 What happens to every `blender_exec` call, in this order:
@@ -160,6 +203,8 @@ This was built and tested without Blender, a real boat.dev key or a network. Wha
 
 **Local mode, on a real Blender on Windows (not yet tried).** Nothing in local mode has run against a real `blender.exe`: the tests use a stub `bpy` and a fake Blender program. To check on the PC (see `claude/tracker-pc-checks.md`): detection and the "Next script runs" hint; a cube exported as GLB, FBX and a PNG preview (this is also the check that the Python write guard does not break the exporters); a write outside the task folder is blocked; an infinite loop is stopped at the time limit and no `blender.exe` is left in Task Manager; the environment holds no Legion or API variables; no user add-on opens a socket on 9876 during a local run; paths with a space or a OneDrive-redirected Documents folder; switching the mode to VM and Live gives the errors in the table above; an old config file with `"sandbox":"off"` loads as live. Antivirus or SmartScreen prompts on the first start of the runner are noted, not handled.
 
+**Managed Blender download, on a real PC.** The download, the sha256 comparison, the unpack of the real 386 MB zip with Legion's zip reader (time, memory, antivirus on the unpacked files), `blender.exe --version` from the managed folder, a local run through it, and the approval card appearing in Settings and in the Sculptor's chat have not run against the real file. The tests use a fake download of a small zip built in the test. See `claude/tracker-pc-checks.md` (B12 to B16). The address is also unconfirmed by a request (see the pin table).
+
 **Windows.** Detection of the Program Files, Steam and registry paths, `reg query`, `tar -xf` on a `.zip`, starting Blender detached, and the add-on install into the user's Blender folder have not been run on Windows. The detection logic is tested with injected file systems.
 
 **Not fixable from Legion's side.** The add-on socket has no password (see the limit above); the audit chain is unkeyed; a link swapped between a check and a write can win a race.
@@ -168,4 +213,4 @@ This was built and tested without Blender, a real boat.dev key or a network. Wha
 
 ## Files
 
-`src/core/blender/`: `static-check.ts` (the filter), `guard.ts` (the tool server and the steps above), `audit.ts` (chain plus head anchor), `fs-safe.ts` (no-follow file helpers), `backend.ts` plus `backends/community.ts` and `backends/official.ts`, `sandbox.ts` (VM runner), `local.ts` (the local runner), `exports.ts` (export copy-back rules shared by both runners), `ports.ts` (the runner and process interfaces), `detect.ts` (pure detection), `setup.ts` and `system.ts` (setup logic and the only real side effects), `state.ts` (config and setup record), `index.ts` (the module, routes and status). Shared contract: `src/shared/blender.ts`. UI: `ui/src/blender/` and the Blender section of Settings. Tests: `test/blender-*.test.ts`.
+`src/core/blender/`: `static-check.ts` (the filter), `guard.ts` (the tool server and the steps above), `audit.ts` (chain plus head anchor), `fs-safe.ts` (no-follow file helpers), `backend.ts` plus `backends/community.ts` and `backends/official.ts`, `sandbox.ts` (VM runner), `local.ts` (the local runner), `exports.ts` (export copy-back rules shared by both runners), `ports.ts` (the runner and process interfaces), `detect.ts` (pure detection, prefers the managed copy), `get-blender.ts` (the managed download, pure over ports), `zip.ts` (the strict zip reader), `setup.ts` and `system.ts` (setup logic and the only real side effects), `state.ts` (config and setup record), `index.ts` (the module, routes and status). Shared contract: `src/shared/blender.ts`. UI: `ui/src/blender/` and the Blender section of Settings. Tests: `test/blender-*.test.ts`.
