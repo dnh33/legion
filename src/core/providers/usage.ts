@@ -3,10 +3,10 @@
  * and numbers per provider id); in memory only when no file is given. A day is the local calendar day.
  */
 import { existsSync, mkdirSync, readFileSync } from 'node:fs';
-import { dirname } from 'node:path';
+import { dirname, join } from 'node:path';
 import { writeConfigFile } from '../../shared/config.js';
 
-export const usageFileFor = (dataDir: string): string => `${dataDir.replace(/[\\/]+$/, '')}/providers/usage.json`;
+export const usageFileFor = (dataDir: string): string => join(dataDir, 'providers', 'usage.json');
 
 export class TokenLedger {
   private day = '';

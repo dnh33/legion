@@ -598,6 +598,13 @@ export class Engine {
     }
   }
 
+  /** The folder a CLI run works in: the agent's own workspace, created if needed (checkCliFolder then refuses unsafe ones). */
+  private cliCwd(agentId: string): string {
+    const d = this.agentCwd(agentId);
+    try { mkdirSync(d, { recursive: true }); } catch { /* the check reports it */ }
+    return d;
+  }
+
   private agentCwd(agentId: string): string {
     const agent = this.store.getAgent(agentId);
     return agent?.cwd || join(this.config.workspaceDir, agentId);
@@ -716,6 +723,13 @@ export class Engine {
       taskTokensBefore: (this.store.getTask(taskId)?.tokenUsage?.inputTokens ?? 0) + (this.store.getTask(taskId)?.tokenUsage?.outputTokens ?? 0),
       servers, external,
       authorize: decide,
+      agentId: agent.id,
+      cwd: pr.entry?.kind === 'cli' ? this.cliCwd(agent.id) : undefined,
+      // only the owner, in the app, may start a CLI run: never a bot, a room wake, ask/tell, a bridge reply or a token client
+      ownerStarted: !job.origin && !job.fromAgentId && this.store.getTask(taskId)?.source === 'ui',
+      markTainted: () => { act.tainted = true; },
+      // the start card of a CLI run is asked on every run in every approval mode (it is not a tool call, so the mode does not apply)
+      confirmStart: (card) => this.approvals.request(taskId, agent.id, 'LegionCliStart', card, job.origin ? { roomId: job.origin.roomId, fromAgentId: job.origin.fromAgentId, hop: job.origin.hop } : undefined, { onTimeout: () => undefined }),
       noteToolUse: (name, id, input) => this.noteToolUse(job, act, name, id, input),
       onDelta: (text) => this.bus.emit({ type: 'message.delta', taskId, text }),
       onAssistantText: (text) => { this.addMessage(taskId, 'assistant', text); },

@@ -2,6 +2,7 @@
 /** Legion Core composition root. */
 import { ProviderRuntime } from '../core/providers/runtime.js';
 import { ProviderKeys, keyFileFor } from '../core/providers/secrets.js';
+import { usageFileFor } from '../core/providers/usage.js';
 import { createProvidersModule } from '../core/providers/routes.js';
 import { appendFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -50,7 +51,7 @@ async function main() {
   const vms = new VmManager({ store, bus, getBoat, boatConfig: () => config.boat });
   const approvals = new ApprovalBroker(bus);
   // other model providers (OpenAI-compatible endpoints); keys live in <dataDir>/providers/keys.json, never in config.json
-  const providerRuntime = new ProviderRuntime({ config, keys: new ProviderKeys(keyFileFor(dataDir())) });
+  const providerRuntime = new ProviderRuntime({ config, keys: new ProviderKeys(keyFileFor(dataDir())), dataDir: dataDir(), usageFile: usageFileFor(dataDir()) });
   const engine = new Engine({ store, bus, vms, approvals, config, boatConfigured, providers: providerRuntime });
   // lets ask/tell check a per-task model against what the account offers
   engine.bridge.catalog = () => getCatalog({ config });

@@ -50,6 +50,10 @@ export function summarizeToolInput(toolName: string, input: Record<string, unkno
   const cap = (s: string) => (s.length > 400 ? s.slice(0, 399) + '…' : s);
   if (toolName === 'Bash' && typeof input?.command === 'string') return cap(input.command);
   if ((toolName === 'Write' || toolName === 'Edit') && typeof input?.file_path === 'string') return cap(input.file_path);
+  if (toolName === 'LegionCliStart') {
+    const i = input as { title?: string; command?: string; folder?: string; sandbox?: string };
+    return cap(`${i.title ?? 'Start a CLI program'}: ${i.command ?? ''} | folder: ${i.folder ?? ''} | sandbox: ${i.sandbox ?? ''}. It runs its own shell and file tools outside Legion's approvals.`);
+  }
   if (toolName === BLENDER_EXEC_TOOL && typeof input?.script === 'string') {
     const lines = input.script.split('\n');
     const first = lines.find((l) => l.trim() && !l.trim().startsWith('#'))?.trim() ?? '';

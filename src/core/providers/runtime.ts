@@ -10,7 +10,10 @@ import { PROVIDER_ID_RE } from './config.js';
 import type { ProviderKeys } from './secrets.js';
 import { runToolLoop } from './tool-loop.js';
 import { TokenLedger } from './usage.js';
+import { createProcessPort } from './proc.js';
 import type { ProcessPort } from './proc.js';
+import { runCli } from './cli.js';
+import { homedir } from 'node:os';
 import type { ProviderEntry, ProviderHost, ProviderRunResult, ProvidersConfig, ResolvedModel } from './types.js';
 import type { ProviderView, ProvidersView } from '../../shared/providers-view.js';
 import { ROOM_BUDGET_NOTE } from '../../shared/providers-view.js';
@@ -19,7 +22,11 @@ import { isStdioEntry, stdioCommandLine, stdioFingerprint } from './stdio-allow.
 
 export interface RuntimeDeps {
   /** Live: Settings edits replace `providers` on this object. */
-  config: { providers: ProvidersConfig; mcpServers?: Record<string, McpServerEntry> };
+  config: { providers: ProvidersConfig; mcpServers?: Record<string, McpServerEntry>; workspaceDir?: string };
+  /** Legion's data folder (a CLI run may not work inside it, except in an agent's workspace). */
+  dataDir?: string;
+  /** Tests only. */
+  home?: string; appRoots?: string[]; cliSource?: Record<string, string | undefined>;
   keys: ProviderKeys;
   /** Tests only. */
   limits?: Partial<HttpLimits>;
@@ -132,6 +139,14 @@ export class ProviderRuntime {
   }
 
   async run(host: ProviderHost, r: ResolvedModel): Promise<ProviderRunResult & { costUsd?: number }> {
+    if (r.entry?.kind === 'cli') {
+      if (!r.entry.enabled) return { subtype: 'error_during_execution', isError: true, errorText: `The provider "${r.entry.label}" is turned off. Turn it on in Settings, Providers.`, turns: 0, usageUnknown: true };
+      return runCli(host, r.providerId, r.entry, r.model, {
+        port: this.deps.cliPort ?? createProcessPort(), redact: (s) => this.redact(s),
+        folder: { home: this.deps.home ?? homedir(), workspaceDir: this.deps.config.workspaceDir ?? '', ...(this.deps.dataDir ? { dataDir: this.deps.dataDir } : {}), appRoots: this.deps.appRoots ?? [process.cwd()] },
+        ...(this.deps.cliSource ? { source: this.deps.cliSource } : {}),
+      });
+    }
     const fail = (errorText: string): ProviderRunResult => ({ subtype: 'error_during_execution', isError: true, errorText, turns: 0, usageUnknown: false });
     if (!r.entry) return fail(`The provider "${r.providerId}" is not set up any more. Choose another model for this agent in Settings, Providers.`);
     if (!r.entry.enabled) return fail(`The provider "${r.entry.label}" is turned off. Turn it on in Settings, Providers, or choose another model for this agent.`);
@@ -200,6 +215,7 @@ export class ProviderRuntime {
   /** Owner pressed "Refresh models": one GET /models. The ids are kept in memory for the picker. */
   async refreshModels(id: string): Promise<string[]> {
     const e = this.entryFor(id);
+    if (e.kind === 'cli') throw new ProviderHttpError('refused', 'A CLI has no model list. Type its model name, or leave it as default.');
     try {
       const ids = await listModelIds(this.target(id, { ...e, enabled: true }), this.deps.limits);
       this.fetched.set(id, ids);
