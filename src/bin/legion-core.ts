@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 /** Legion Core composition root. */
 import { appendFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { configPath, dataDir, loadConfig, scrubHostSessionEnv, VERSION } from '../shared/config.js';
 import { readLaunchSecrets } from '../core/admin.js';
 import { ApprovalBroker } from '../core/approvals.js';
@@ -15,6 +16,7 @@ import { createBlenderModule } from '../core/blender/index.js';
 import { createBsvModule, createBsvState } from '../core/bsv/index.js';
 import { createCommsModule } from '../core/comms/index.js';
 import { createKnowledgeModule } from '../core/kg/index.js';
+import { createUpdaterModule } from '../core/updater/index.js';
 import type { ModuleDeps } from '../core/modules.js';
 import { Store } from '../core/store.js';
 import { VmManager } from '../core/vm-manager.js';
@@ -66,7 +68,12 @@ async function main() {
   // (creating the BSV module also tells the engine's agent bridge to hide agents that are switched off)
   const bsv = createBsvModule(moduleDeps, { state: bsvState, kg, log, nativeSecret });
   const blender = createBlenderModule(moduleDeps, { vms, boatConfigured, log });
-  const modules = [kg, createCommsModule(moduleDeps), bsv, blender];
+  // In-app updates (plan: claude/plan-updater.md): checks and stages a signed release; main applies it when the core is idle. No overrides are passed here.
+  const updater = createUpdaterModule(moduleDeps, {
+    root: resolve(dirname(fileURLToPath(import.meta.url)), '..', '..', '..'), nativeSecret, log,
+    probes: { 'a Blender download or setup is running': async () => !!((await blender.status(false)) as { getting?: boolean }).getting },
+  });
+  const modules = [kg, createCommsModule(moduleDeps), bsv, blender, updater];
   engine.setModules(modules);
   const server = createServer({
     config, store, bus, engine, vms, approvals, boatConfigured, modules, bsvEnabled,

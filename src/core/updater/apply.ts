@@ -221,7 +221,10 @@ export function realDeps(installDir: string): ApplyDeps {
     },
     spawnApp: (r) => {
       try {
-        const c = spawn(r.cmd, r.args, { cwd: r.cwd, detached: true, stdio: 'ignore', windowsHide: false, env: { ...process.env, ...(r.env ?? {}) } });
+        // this helper runs with ELECTRON_RUN_AS_NODE=1; the app it starts must not inherit it (it would run as plain node)
+        const env: Record<string, string | undefined> = { ...process.env, ...(r.env ?? {}) };
+        delete env.ELECTRON_RUN_AS_NODE;
+        const c = spawn(r.cmd, r.args, { cwd: r.cwd, detached: true, stdio: 'ignore', windowsHide: false, env });
         c.on('error', () => undefined);
         c.unref();
         return { ...(c.pid ? { pid: c.pid } : {}) };

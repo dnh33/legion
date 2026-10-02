@@ -23,6 +23,10 @@ contextBridge.exposeInMainWorld('legion', {
     ipcRenderer.on('legion:bsv-changed', h);
     return () => ipcRenderer.removeListener('legion:bsv-changed', h);
   },
+  // The updater's "Restart now": main shows its own native confirmation naming what will stop, then drains and swaps.
+  updateRestartNow() {
+    return ipcRenderer.invoke('legion:update-restart-now');
+  },
   openExternal(url) {
     return ipcRenderer.invoke('legion:open-external', String(url));
   },

@@ -6,6 +6,7 @@ import { closeSync, existsSync, mkdirSync, openSync, readFileSync } from 'node:f
 import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { initUpdater, recoverAtStart } from './updater-main.js';
 import { adminForRenderer, bsvConfirmation, bsvPreflight, coreAction, coreIsBusy, dialogText, killPlan, listenerCommands, listenerPids, parseBsvAction, trustedSender, type BsvAction, type BsvPolicyFacts, type CoreHealth } from './admin-logic.js';
 
 const here = dirname(fileURLToPath(import.meta.url)); // <root>/dist/src/electron
@@ -477,6 +478,8 @@ if (!app.requestSingleInstanceLock()) {
   app.on('activate', () => showWindow());
 
   void app.whenReady().then(async () => {
+    await recoverAtStart(root); // finish or undo an update that was cut off, before the core starts
     await boot();
+    initUpdater({ installDir: root, ownCoreCall, getWin: () => win, uiUrl, pinnedPort: () => (pinned ?? readConfig()).port, stopCore: killCore, beginQuit: () => { quitting = true; app.quit(); } });
   });
 }
