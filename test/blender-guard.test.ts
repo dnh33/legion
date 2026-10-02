@@ -360,7 +360,8 @@ test('sandbox "vm only" refuses live; "off" refuses sandbox; read tools follow t
 test('the sandbox check allows only LEGION_EXPORT_DIR and // paths: an absolute path that would be fine live is refused there', async () => {
   const r = rig({ cfg: { sandbox: 'auto' } });
   const t = await connectTools(r);
-  const liveDir = join(r.dataDir, 'ws', 'sculptor', 'blender-exports');
+  // forward slashes: in a Python string literal a Windows "\blender-exports" is a backspace escape (the check rightly refuses that)
+  const liveDir = join(r.dataDir, 'ws', 'sculptor', 'blender-exports').replace(/\\/g, '/');
   const abs = `import bpy\nbpy.ops.export_scene.gltf(filepath="${liveDir}/a.glb")`;
   assert.equal((await t.call('blender_exec', { script: abs })).isError, true, 'sandbox: absolute host path refused');
   assert.equal((await t.call('blender_exec', { script: abs, mode: 'live' })).isError, false, 'live: inside the export folder');
