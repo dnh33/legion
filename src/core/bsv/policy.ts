@@ -576,7 +576,7 @@ export class PolicyEngine {
     if (kind === 'unknown') { r.status = 'unknown'; this.emit({ type: 'settled', requestId, outcome: 'unknown', sats: null }); return { ok: true }; }
     if (kind !== 'executed' || !isSats(sats)) { r.status = 'unknown'; this.emit({ type: 'settled', requestId, outcome: 'unknown', sats: null }); return { ok: false, reason: 'the reported amount is not a number of sats' }; }
     r.status = 'executed'; r.actualSats = sats;
-    this.ledger.push({ requestId, sats, at: wall, session: this.sessionId });
+    this.ledger.push({ requestId, sats, at: wall, session: this.sessionId, net: r.netInvalid ? 'invalid' : r.network });
     this.emit({ type: 'settled', requestId, outcome: 'executed', sats });
     if (sats !== r.totalSats) { this.freeze(`the amount sent (${sats} sats) is not the amount approved (${r.totalSats} sats)`); return { ok: true, reason: 'mismatch: frozen' }; }
     return { ok: true };
@@ -591,7 +591,7 @@ export class PolicyEngine {
     const wall = this.clock.wall();
     if (kind === 'sent') {
       if (!isSats(sats)) return false;
-      r.status = 'executed'; r.actualSats = sats; this.ledger.push({ requestId, sats, at: wall, session: this.sessionId });
+      r.status = 'executed'; r.actualSats = sats; this.ledger.push({ requestId, sats, at: wall, session: this.sessionId, net: r.netInvalid ? 'invalid' : r.network });
     } else if (kind === 'not-sent') r.status = 'failed';
     else return false;
     r.settledAt = wall;

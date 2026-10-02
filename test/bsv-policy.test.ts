@@ -674,3 +674,16 @@ test('F4: only a MISSING net is legacy testnet; a present but unrecognised net i
   const e2 = new PolicyEngine({ clock, ledger: [{ requestId: 'x', sats: 3, at: Date.parse(t), net: 'MAIN' as never }, { requestId: 'y', sats: 3, at: Date.parse(t) }] });
   assert.deepEqual(e2.executedRecords().map((r) => r.net), ['invalid', undefined]);
 });
+
+test('F5: the live ledger line from settle(executed) and resolveUnknown("sent") carries the net of the request record', () => {
+  const { e } = engine();
+  e.arm(60);
+  const m = e.evaluate(req({ network: 'main', walletNetwork: 'main' })); e.approve(m.requestId, approveInput(m.card!, 'main'));
+  e.settle(m.requestId, { kind: 'executed', sats: 620 });
+  const t = e.evaluate(req()); e.approve(t.requestId, approveInput(t.card!));
+  e.settle(t.requestId, { kind: 'executed', sats: 620 });
+  assert.deepEqual(e.executedRecords().map((r) => r.net), ['main', 'test']);
+  const u = new PolicyEngine({ unknown: [{ requestId: 'req-res-0001', agentId: 'a', totalSats: 5, net: 'main' }, { requestId: 'req-res-0002', agentId: 'a', totalSats: 5, net: 'weird' }, { requestId: 'req-res-0003', agentId: 'a', totalSats: 5 }] });
+  for (const id of ['req-res-0001', 'req-res-0002', 'req-res-0003']) assert.equal(u.resolveUnknown(id, { kind: 'sent', sats: 5 }), true);
+  assert.deepEqual(u.executedRecords().map((r) => r.net), ['main', 'invalid', 'test']);
+});
