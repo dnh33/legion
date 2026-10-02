@@ -1,5 +1,5 @@
 {
- "duration": 100,
+ "duration": 105,
  "fps": 30,
  "bpm": 96,
  "sections": [
@@ -36,37 +36,37 @@
   {
    "name": "projects",
    "start": 35,
-   "end": 45
+   "end": 50
   },
   {
    "name": "vm",
-   "start": 45,
-   "end": 55
+   "start": 50,
+   "end": 60
   },
   {
    "name": "bsv",
-   "start": 55,
-   "end": 62.5
+   "start": 60,
+   "end": 67.5
   },
   {
    "name": "blender",
-   "start": 62.5,
-   "end": 70
+   "start": 67.5,
+   "end": 75
   },
   {
    "name": "install",
-   "start": 70,
-   "end": 77.5
+   "start": 75,
+   "end": 82.5
   },
   {
    "name": "next",
-   "start": 77.5,
-   "end": 90
+   "start": 82.5,
+   "end": 95
   },
   {
    "name": "end",
-   "start": 90,
-   "end": 100
+   "start": 95,
+   "end": 105
   }
  ],
  "events": [
@@ -196,242 +196,272 @@
    "id": "inbox2"
   },
   {
-   "t": 35.375,
+   "t": 35.188,
    "name": "caption",
    "id": "proj"
   },
   {
-   "t": 39.688,
+   "t": 37.75,
    "name": "caption",
-   "id": "pnote"
+   "id": "brd"
   },
   {
-   "t": 41.25,
+   "t": 38.438,
+   "name": "chip",
+   "id": "c-board"
+  },
+  {
+   "t": 39.375,
    "name": "mark",
-   "id": "pnote"
+   "id": "boardA"
   },
   {
-   "t": 45.313,
+   "t": 41.563,
+   "name": "caption",
+   "id": "grd"
+  },
+  {
+   "t": 42.188,
+   "name": "mark",
+   "id": "boardB"
+  },
+  {
+   "t": 45.25,
+   "name": "caption",
+   "id": "pm"
+  },
+  {
+   "t": 45.625,
+   "name": "mark",
+   "id": "pmem"
+  },
+  {
+   "t": 47.813,
+   "name": "caption",
+   "id": "mem"
+  },
+  {
+   "t": 50.313,
    "name": "caption",
    "id": "vm"
   },
   {
-   "t": 49.375,
+   "t": 54.375,
    "name": "caption",
    "id": "mcp"
   },
   {
-   "t": 49.375,
+   "t": 54.375,
    "name": "vox_line",
    "n": 1
   },
   {
-   "t": 50.625,
+   "t": 55.625,
    "name": "vox_line",
    "n": 2
   },
   {
-   "t": 51.125,
+   "t": 56.125,
    "name": "vox_ok"
   },
   {
-   "t": 51.25,
+   "t": 56.25,
    "name": "vox_line",
    "n": 3
   },
   {
-   "t": 51.75,
+   "t": 56.75,
    "name": "vox_ok"
   },
   {
-   "t": 51.875,
+   "t": 56.875,
    "name": "vox_line",
    "n": 4
   },
   {
-   "t": 52.375,
+   "t": 57.375,
    "name": "vox_ok"
   },
   {
-   "t": 52.5,
+   "t": 57.5,
    "name": "vox_line",
    "n": 5
   },
   {
-   "t": 54.125,
+   "t": 59.125,
    "name": "vox_line",
    "n": 6
   },
   {
-   "t": 54.438,
+   "t": 59.438,
    "name": "vox_line",
    "n": 7
   },
   {
-   "t": 54.625,
+   "t": 59.625,
    "name": "vox_ok"
   },
   {
-   "t": 55.313,
+   "t": 60.313,
    "name": "caption",
    "id": "bsv1"
   },
   {
-   "t": 57.5,
+   "t": 62.5,
    "name": "chip",
    "id": "c-bsv"
   },
   {
-   "t": 59.375,
+   "t": 64.375,
    "name": "caption",
    "id": "bsv2"
   },
   {
-   "t": 62.813,
+   "t": 67.813,
    "name": "caption",
    "id": "bl1"
   },
   {
-   "t": 63.75,
+   "t": 68.75,
    "name": "chip",
    "id": "c-bl"
   },
   {
-   "t": 67.125,
+   "t": 72.125,
    "name": "caption",
    "id": "bl2"
   },
   {
-   "t": 70.188,
+   "t": 75.188,
    "name": "caption",
    "id": "rtA"
   },
   {
-   "t": 70.625,
+   "t": 75.625,
    "name": "chip",
    "id": "c-pkg"
   },
   {
-   "t": 70.938,
+   "t": 75.938,
    "name": "caption",
    "id": "rtB"
   },
   {
-   "t": 72.813,
+   "t": 77.813,
    "name": "caption",
    "id": "upd"
   },
   {
-   "t": 73.125,
+   "t": 78.125,
    "name": "chip",
    "id": "c-upd"
   },
   {
-   "t": 75.125,
+   "t": 80.125,
    "name": "caption",
    "id": "loop"
   },
   {
-   "t": 78.125,
+   "t": 83.125,
    "name": "next_head"
   },
   {
-   "t": 78.75,
+   "t": 83.75,
    "name": "next_card",
    "id": "n1"
   },
   {
-   "t": 80.1,
+   "t": 85.15,
    "name": "next_card",
    "id": "n2"
   },
   {
-   "t": 83.3,
+   "t": 88.25,
    "name": "next_card",
    "id": "n3"
   },
   {
-   "t": 85.4,
+   "t": 89.75,
    "name": "next_card",
    "id": "n4"
   },
   {
-   "t": 86.8,
+   "t": 91.35,
    "name": "next_card",
    "id": "n5"
   },
   {
-   "t": 88.2,
+   "t": 93,
    "name": "next_card",
    "id": "n6"
   },
   {
-   "t": 89.375,
+   "t": 94.375,
    "name": "silence"
   },
   {
-   "t": 90,
+   "t": 95,
    "name": "victory"
   },
   {
-   "t": 90.625,
+   "t": 95.625,
    "name": "wm_draw"
   },
   {
-   "t": 92.5,
+   "t": 97.5,
    "name": "wm_fill"
   },
   {
-   "t": 93.438,
+   "t": 98.438,
    "name": "tag"
   },
   {
-   "t": 96.25,
+   "t": 101.25,
    "name": "sigil"
   },
   {
-   "t": 98.75,
+   "t": 103.75,
    "name": "fade_out"
   },
   {
-   "t": 100,
+   "t": 105,
    "name": "end"
   }
  ],
  "typing": [
   {
-   "start": 49.375,
-   "end": 49.875,
+   "start": 54.375,
+   "end": 54.875,
    "chars": 34
   },
   {
-   "start": 50.625,
-   "end": 51.125,
+   "start": 55.625,
+   "end": 56.125,
    "chars": 33
   },
   {
-   "start": 51.25,
-   "end": 51.75,
+   "start": 56.25,
+   "end": 56.75,
    "chars": 34
   },
   {
-   "start": 51.875,
-   "end": 52.375,
+   "start": 56.875,
+   "end": 57.375,
    "chars": 34
   },
   {
-   "start": 52.5,
-   "end": 53.4,
+   "start": 57.5,
+   "end": 58.4,
    "chars": 43
   },
   {
-   "start": 54.125,
-   "end": 54.625,
+   "start": 59.125,
+   "end": 59.625,
    "chars": 25
   },
   {
-   "start": 54.438,
-   "end": 54.888,
+   "start": 59.438,
+   "end": 59.888,
    "chars": 35
   }
  ],
@@ -477,63 +507,78 @@
    "kind": "dissolve"
   },
   {
-   "id": "projects>pnote",
-   "t": 39.375,
+   "id": "projects>boardA",
+   "t": 37.5,
    "kind": "hard"
   },
   {
-   "id": "pnote>vm",
-   "t": 45,
+   "id": "boardA>boardB",
+   "t": 41.25,
+   "kind": "hard"
+  },
+  {
+   "id": "boardB>pmem",
+   "t": 44.375,
+   "kind": "hard"
+  },
+  {
+   "id": "pmem>digest",
+   "t": 47.5,
+   "kind": "hard"
+  },
+  {
+   "id": "digest>vm",
+   "t": 50,
    "kind": "dissolve"
   },
   {
    "id": "vm>term",
-   "t": 48.75,
+   "t": 53.75,
    "kind": "hard"
   },
   {
    "id": "term>bsvA",
-   "t": 55,
+   "t": 60,
    "kind": "dissolve"
   },
   {
    "id": "bsvA>bsvB",
-   "t": 58.75,
+   "t": 63.75,
    "kind": "hard"
   },
   {
    "id": "bsvB>blA",
-   "t": 62.5,
+   "t": 67.5,
    "kind": "dissolve"
   },
   {
    "id": "blA>blB",
-   "t": 66.875,
+   "t": 71.875,
    "kind": "hard"
   },
   {
    "id": "blB>routes",
-   "t": 70,
+   "t": 75,
    "kind": "dissolve"
   },
   {
    "id": "routes>upd",
-   "t": 72.5,
+   "t": 77.5,
    "kind": "hard"
   },
   {
    "id": "upd>loop",
-   "t": 75,
+   "t": 80,
    "kind": "hard"
   },
   {
    "id": "loop>next",
-   "t": 77.5,
+   "t": 82.5,
    "kind": "dissolve"
   },
   {
    "id": "next>end",
-   "t": 90,
+   "t": 95,
    "kind": "hard"
   }
  ]

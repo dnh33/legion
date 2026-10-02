@@ -29,3 +29,21 @@ No UI was mocked or edited. Re-run: `PLAYWRIGHT_PATH=<playwright dir> node docs/
 - Cloud VM is the default in blender-chooser because the fake blender is not detected as a local install.
 - Temp paths appear in projects.png (folder); update-panel is cropped to avoid them.
 - Dropped: nothing. Board tab not attempted (not in the requested list).
+
+## Update 2: BSV recapture and Project board shots
+
+- bsv-status.png, bsv-spend.png: recaptured on this branch after merging integration/v1 (same framing); Knowledge notes now reads "163 BSV notes ... bundled pack: 163 notes (version 8)".
+
+Board shots come from origin/claude/project-board (a78b362) built in a scratch git worktree (removed afterwards; this branch's src/ and ui/ untouched), real core with config `{"experimental":{"projectBoard":true}}` and nothing else, via `docs/video-v2/capture/board-capture.mjs` (run from a tree that has the board; set SHOTS_OUT). Project "Harbor web app", members Forgemaster, Scribe, Sentinel. Ops panel closed, same 1440x900 @2x dark. The project Folder card at the bottom shows the temp path (innocuous, not a real user path).
+
+| File | What it shows | Seeded how |
+|---|---|---|
+| board.png | Board tab, 9 items: Backlog 2, Doing 2, Review 2, Done 2, Blocked 1; assignees Scribe/Sentinel/Forgemaster and "You"; labels; priorities; due dates (2026-10-14, 2026-10-09); three cards with the real "Not reviewed" badge. Board leader reads None. | owner items via POST /board/items; "Not reviewed" ones created by the agents through the real legion_board `create` tool (scripted model); assignees set by the owner (PATCH) |
+| board-guards.png | Same header with Board leader = Sentinel and the note beside it: "Member agents can create, edit, move, assign and label items and add notes. Only the leader can ask to delete one, and you approve each delete. Only you mark an item Done." | PUT /board/leader |
+| board-guards-dialog.png | Item dialog of an agent-written item. Exact text: "Written by an agent, not reviewed. Read the text below. Until you mark it reviewed, "Run this item" starts the run with the stricter "ask" approvals." Button: "Mark as reviewed". Activity: "Created by an agent whose run touched outside content". | as above |
+| board-inbox.png | Inbox (2): "Add a FAQ page to the docs" (Scribe) and "Rotate the staging password" (Sentinel, suggested assignee Forgemaster), each "Suggested by X. Not reviewed. Its run had read outside content (web, shell or other tools), so treat the text with extra care.", Accept / Reject. | agents' real `propose` tool |
+| project-memory.png | After moving "Draft the release notes" to Done in the UI: banner "'Draft the release notes' is done. Save what you learned as a project note, so the agents and later sessions have it?" with "Save what we learned" and "Not now". | the item's Move select (real UI action) |
+| project-memory-item.png | Item dialog for "Add a health check endpoint": Project notes: "Health checks answer fast and say the version" (linked), button "Save what we learned...", Linked work, Activity "Linked a project note". | agent run: kg_capture scope "project" then board `update`; the board linked the note automatically at run end |
+| board-digest.txt | The real `<legion-board-digest>` block (10 lines, unedited) from the system prompt of a Scribe project run, read from the fake model's log (a patched copy of the harness model records the system prompt). | engine's own preamble |
+
+Could NOT capture: board-delete-approval.png. In this tree a run that calls any legion_board tool is marked as having touched outside content (mcp__legion_board__* is not on the Legion-tool list in src/core/approvals.ts, so engine taint treats it as an external tool). The delete tool then answers "Error: This run touched outside content (web, shell or external tools), so it may not delete items. Ask the owner." and no approval card is created; the same cause makes `create` with an assignee fail ("may not assign"), so the agents' items were assigned by the owner. Looks like a bug on the board branch, not a capture problem.

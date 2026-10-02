@@ -145,6 +145,7 @@ export async function startStack({ configExtra = {}, coreEntry = join(repo, 'scr
     call, stop,
     script: (match, steps) => ipc({ op: 'script', match, steps }),
     resetModel: () => ipc({ op: 'reset' }),
+    modelLog: () => ipc({ op: 'log' }),
     until: async (fn, ms = 15000, what = 'condition') => { const end = Date.now() + ms; for (;;) { const v = await fn(); if (v) return v; if (Date.now() > end) throw new Error(`timed out: ${what}`); await new Promise((r) => setTimeout(r, 50)); } },
   };
 }
