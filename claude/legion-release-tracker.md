@@ -16,17 +16,23 @@ Living tracker for the v1 release. Updated 2026-10-02 by Claude Code on the PC. 
 | 8 | Claude only in v1 | Codex/ChatGPT listed under "Later" | confirmed |
 | 9 | Release | Public repo (version/installer not stated: assumed 0.1.0, robocopy installer fixed to be non-blocking, unsigned) | version/installer **assumed, not confirmed**; public repo confirmed |
 
-## Work items
+## Work items (updated 2026-10-02 09:17)
+
+Cloud work runs on the claude.ai/code web surface (credits). Branches live in private repo dnh33/legion. Reviews are on `claude/review-*` branches (`review/*.md`).
 
 | ID | Item | State |
 |---|---|---|
-| W0 | Windows baseline (`npm ci`, build, test) | running |
-| A | MCP isolation: `inheritMcp`, strict config, `ENABLE_CLAUDEAI_MCP_SERVERS=false`, status in UI | todo |
-| R1 | Room spend limit defaults to none (hub budget guard must accept "no budget"; member cap 6 unchanged) | todo |
-| K1 | Lazy key probe | todo |
-| U1 | Builder → `default` on upgrade | todo |
-| B | Packaging: setup-yes.cmd / non-blocking setup, version, CHANGELOG, README, licences; **public-repo audit** (no secrets, licence/NOTICE) | todo |
+| W0 | Windows baseline: 1300 pass / 27 fail / 41 skip of 1368 | triage running locally (branch `fix/windows-baseline` in `D:ots\legion-wt-win`, 4 commits so far) |
+| A | MCP isolation (`claude/mcp-isolation`) | built; review = SHIP AFTER FIXES (F1 connector setting, F2b self-guard, F3 error redaction, F5 copy); fix session running |
+| R1 K1 U1 | Rooms no default spend limit, lazy key probe, Builder reset (`claude/rooms-probe-upgrade`) | built (3 commits); independent review running |
+| B | Packaging + public audit (`claude/release-packaging`) | built; review = SHIP AFTER FIXES (F1 matcher can kill other Electron, F2 -Yes /MIR into any dir, audit text errors, F4 pause); fix session running. Needs real-Windows pass afterwards (review sec. 5) |
 | C | boat.dev + Blender real-system verification (owner present) | todo |
-| D | Blender follow-ups (pin add-on, extension install path, busy-while-running, line counts) | todo |
-| E | Real-PC sweep (§6.2) | todo |
-| F | BSV rung 3 testnet tool (§6.6) | todo, after plan |
+| D | Blender follow-ups | todo |
+| E | Real-PC sweep (section 6.2) | todo |
+| F | BSV rung 3 testnet tool (section 6.6) | todo, after plan |
+
+## Open owner decisions
+
+- BSV knowledge pack licence position (review: 91 of 157 nodes have only unverified/no-licence sources; 24 cite private `legion-specs` docs).
+- Release version/installer assumed 0.1.0 + robocopy installer, unsigned (assumed, not confirmed).
+- Weekly Claude usage at ~98% (resets Mon Oct 5 01:00): cloud sessions may stall.
