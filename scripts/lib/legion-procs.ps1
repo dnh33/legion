@@ -2,6 +2,7 @@
 #
 # Legion is two kinds of process, wherever its folder is (install dir, a source checkout, an old install elsewhere):
 #   1. Electron: <root>\node_modules\electron\dist\electron.exe   (main process and its renderer/GPU helpers)
+#      or, in a prebuilt package, <root>\runtime\electron\electron.exe (which is also what runs the core, in node mode)
 #   2. Core:     node.exe running <root>\dist\src\bin\legion-core.js
 # <root> only counts when it really is a Legion folder (RootCheck). Anything else named node.exe or electron.exe
 # (VS Code, Discord, another app's Electron, your dev servers) is never matched.
@@ -74,6 +75,7 @@ function Get-LegionProcessRoot {
   param([string]$Name, [string]$ExePath, [string]$CommandLine)
   if ($Name -ieq 'electron.exe') {
     if ($ExePath -match '^(?<root>.+?)\\node_modules\\electron\\dist\\electron\.exe$') { return $Matches['root'] }
+    if ($ExePath -match '^(?<root>.+?)\\runtime\\electron\\electron\.exe$') { return $Matches['root'] }
     return $null
   }
   if ($Name -ieq 'node.exe') {

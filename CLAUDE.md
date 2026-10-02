@@ -40,3 +40,6 @@ Claude-only in v1 (Codex/ChatGPT listed under "Later"). Version 0.2.0. Public re
 - The knowledge-graph seed loader rejects licence strings over 200 chars and edges without id/createdBy/createdAt; run the full suite after merging seed changes.
 - Verify the latest tree before building on it (stale folders have caused rework).
 - Keep answers and reports short and plain; separate bugs from polish; say what is still imperfect.
+
+## Research first, ask the owner last (standing rule, 2026-10-02)
+Before you write an assumption about anything outside this repo (a wallet, Blender and its MCP add-ons, Lightpanda, GitHub or Node release formats, the Claude Agent SDK, a standard such as BRC-100), LOOK IT UP in the official documentation and source (web search and fetch if your session has them) and quote the exact source and the field names in your plan. Keep a table: documented fact (with link) / assumption (with the check that will prove it) / unknown (with the owner-only check). Do not ask the owner for a fact you can look up. Do not gate building on an owner-only step when a fake can carry the build; gate the SHIP, not the build. Never present an old note or a handoff line as 'a rule from the owner' unless the owner said it: attribute rules honestly and flag any you could not trace.
