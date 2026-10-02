@@ -9,12 +9,28 @@
  * a name assembled from data at run time, an eval, or a shell command run through a tool an agent already has. The allowlist below
  * is the whole list of files that may talk to a network or start a process, each with its reason; a new file that does so fails the
  * build until someone adds it here, on purpose.
+ *
+ * Inside the BSV areas (BSV_AREA below: src/core/bsv, ui/src/bsv, src/shared/bsv-*, the Electron admin logic) the scan is stricter about
+ * hiding: unicode and hex escapes are decoded before names are matched; literals are folded through + , concat, template parts, join,
+ * reverse, replace and slice; a quoted token shaped like a sign / spend / broadcast / inscribe identifier is refused; a computed member
+ * built from pieces, a computed CALL (x[k]()), eval, Function, Reflect, `this[...]` / globalThis[...] and look-alike (non-ASCII) letters in
+ * code are refused. None of that makes a determined author caught: it makes the casual and the clever-looking evasions fail the build.
  */
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 
-export type Kind = 'fetch' | 'socket-module' | 'inbound-http' | 'child-process' | 'decode';
+/** The code that the stricter anti-obfuscation rules apply to. */
+export const BSV_AREA = /^(?:src\/core\/bsv\/|ui\/src\/bsv\/|src\/shared\/bsv-|src\/electron\/admin-logic\.ts$)/;
+
+export type Kind = 'fetch' | 'socket-module' | 'inbound-http' | 'loopback-http-client' | 'child-process' | 'decode';
 export type Allow = Record<string, { kinds: Kind[]; reason: string }>;
+
+/** The ONLY file that may contain wallet method names (the four read-only ones), and the default wallet port. */
+export const PROBE_FILE = 'src/core/bsv/wallet-probe.ts';
+/** The read-only wallet methods the probe may name. Anything else wallet-shaped fails the build, in every file including the probe. */
+export const PROBE_METHOD_ALLOWLIST = ['getVersion', 'getNetwork', 'isAuthenticated', 'getHeight'] as const;
+/** The one wallet-shaped tool name an agent may have (status only), and the only file that may register it. */
+export const ALLOWED_WALLETY_TOOLS: Record<string, string> = { bsv_status: 'src/core/bsv/wallet-tool.ts' };
 
 /** Path (from the repo root, forward slashes) -> what that file may do and why. Anything else fails. */
 export const ALLOWLIST: Allow = {
@@ -25,7 +41,9 @@ export const ALLOWLIST: Allow = {
   'ui/src/api.ts': { kinds: ['fetch'], reason: "the UI's client of the local core (fetch and EventSource on the core base URL)" },
   'ui/src/rooms/roomsStore.ts': { kinds: ['fetch'], reason: 'downloads a room export from the local core' },
   'src/core/comms/scrub.ts': { kinds: ['decode'], reason: 'the secret detector decodes base64 and rot13 candidates to find seed phrases hidden in them' },
+  [PROBE_FILE]: { kinds: ['loopback-http-client'], reason: 'the read-only wallet STATUS probe: one POST per allowlisted method to a loopback address, never a server, never another host (rules below)' },
 };
+
 
 const ROOTS = ['src', 'ui/src'];
 const CODE = /\.(ts|tsx|js|jsx|mjs|cjs)$/;
@@ -121,31 +139,97 @@ export function lex(src: string): { kept: string; code: string } {
   return { kept, code };
 }
 
-/** Joins the ways a name is spelled in pieces, so a token check sees the name: 'a'+'b', 'a'.concat('b'), ['a','b'].join(''), `${'a'}b`. */
+/** Decodes \uXXXX, \u{X...} and \xHH escapes, so `'\u0073ign'` is read as `'sign'` (an identifier can be spelled that way too). */
+export function unescapeLiterals(src: string): string {
+  const chr = (n: number) => { try { return String.fromCodePoint(n); } catch { return ''; } };
+  return src
+    .replace(/\\u\{([0-9a-fA-F]{1,6})\}/g, (_m, h: string) => chr(parseInt(h, 16)))
+    .replace(/\\u([0-9a-fA-F]{4})/g, (_m, h: string) => chr(parseInt(h, 16)))
+    .replace(/\\x([0-9a-fA-F]{2})/g, (_m, h: string) => chr(parseInt(h, 16)));
+}
+
+/**
+ * Joins the ways a name is spelled in pieces, so a token check sees the name: 'a'+'b', 'a'.concat('b', 'c'), ['a','b'].join(''),
+ * `${'a'}b`, 'ba'.split('').reverse().join(''), 'aXb'.replace('X', ''), 'xab'.slice(1), ['a','b'][0]. Only literals are folded: what is
+ * assembled from variables is out of reach (the BSV-area rules refuse the shapes that would use it, see scanTree).
+ */
 export function joinLiterals(src: string): string {
   let s = src;
-  for (let pass = 0; pass < 6; pass++) {
+  for (let pass = 0; pass < 8; pass++) {
     const before = s;
     s = s.replace(/\$\{\s*(['"`])([^'"`\\\n]*)\1\s*\}/g, '$2');
     s = s.replace(/(['"`])\s*\+\s*(['"`])/g, '');
-    s = s.replace(/(['"`])\s*\.concat\(\s*(['"`])/g, '');
+    // 'a'.concat('b', 'c')  ->  'abc'
+    s = s.replace(/(['"`])([^'"`\\\n]*)\1\s*\.concat\(\s*((?:(['"`])[^'"`\\\n]*\4\s*,?\s*)+)\)/g, (_m, _q: string, a: string, args: string) => {
+      const parts = [...args.matchAll(/(['"`])([^'"`\\\n]*)\1/g)].map((m) => m[2]!);
+      return `"${a}${parts.join('')}"`;
+    });
     s = s.replace(/\[((?:\s*(['"`])[^'"`\\\n]*\2\s*,?)+)\]\s*(\.reverse\(\)\s*)?\.join\(\s*(['"`])([^'"`\\\n]*)\4\s*\)/g, (_m, items: string, _q: string, rev: string | undefined, _q2: string, sep: string) => {
       const parts = [...items.matchAll(/(['"`])([^'"`\\\n]*)\1/g)].map((m) => m[2]!);
       if (rev) parts.reverse();
       return `"${parts.join(sep)}"`;
+    });
+    // 'ba'.split('').reverse().join('')
+    s = s.replace(/(['"`])([^'"`\\\n]*)\1\s*\.split\(\s*(['"`])\3\s*\)\s*\.reverse\(\s*\)\s*\.join\(\s*(['"`])\4\s*\)/g, (_m, _q: string, a: string) => `"${[...a].reverse().join('')}"`);
+    // 'aXb'.replace('X', '') and replaceAll
+    s = s.replace(/(['"`])([^'"`\\\n]*)\1\s*\.replace(All)?\(\s*(['"`])([^'"`\\\n]*)\4\s*,\s*(['"`])([^'"`\\\n]*)\6\s*\)/g, (_m, _q: string, a: string, all: string | undefined, _q2: string, from: string, _q3: string, to: string) => `"${from === '' ? a : all ? a.split(from).join(to) : a.replace(from, () => to)}"`);
+    // 'xab'.slice(1) / .substring(1, 3) / .substr(1, 2)
+    s = s.replace(/(['"`])([^'"`\\\n]*)\1\s*\.(slice|substring|substr)\(\s*(\d{1,3})\s*(?:,\s*(\d{1,3})\s*)?\)/g, (_m, _q: string, a: string, fn: string, x: string, y: string | undefined) => {
+      const i = Number(x); const j = y === undefined ? undefined : Number(y);
+      return `"${fn === 'substr' ? a.substr(i, j) : a.slice(i, j)}"`;
+    });
+    // ['a', 'b'][1]
+    s = s.replace(/\[((?:\s*(['"`])[^'"`\\\n]*\2\s*,?)+)\]\s*\[\s*(\d{1,2})\s*\]/g, (_m, items: string, _q: string, idx: string) => {
+      const parts = [...items.matchAll(/(['"`])([^'"`\\\n]*)\1/g)].map((m) => m[2]!);
+      return `"${parts[Number(idx)] ?? ''}"`;
     });
     if (s === before) break;
   }
   return s;
 }
 
+/** Escapes decoded, then literals folded: the text every name rule is matched against. */
+export const normalize = (src: string): string => joinLiterals(unescapeLiterals(src));
+
 // ------------------------------------------------------------------ the rules
 
-/** Names that no source may contain anywhere (comments included, spelled in pieces included). */
-const FORBIDDEN = /(?<![\w.])3321(?!\w)|walletclient|httpwalletjson|@bsv\/sdk|createaction/i;
+/** Names that no source may contain anywhere (comments included, spelled in pieces included). The wallet port is allowed in the probe file only. */
+const FORBIDDEN = /walletclient|httpwalletjson|@bsv\/sdk|createaction/i;
+const WALLET_PORT = /(?<![\w.])3321(?!\w)/;
+/**
+ * Every other BRC-100 method name that can sign, spend, reveal a balance, a key, a certificate or an address, or that blocks on the wallet's
+ * own UI. Forbidden everywhere, the probe file included (the probe's own documentation lives in docs/BSV-WALLET-DESIGN.md). The generic
+ * names encrypt/decrypt/createHmac/verifyHmac are not scanned: node:crypto and the UI have the same words; the probe cannot send them anyway
+ * (its method list is checked at the point of use and on the wire by test/bsv-wallet-probe.test.ts).
+ */
+const WALLET_METHODS_FORBIDDEN = /\b(?:signAction|abortAction|internalizeAction|listActions|listOutputs|relinquishOutput|getPublicKey|revealCounterpartyKeyLinkage|revealSpecificKeyLinkage|createSignature|verifySignature|acquireCertificate|listCertificates|proveCertificate|relinquishCertificate|discoverByIdentityKey|discoverByAttributes|waitForAuthentication|getHeaderForHeight)\b/i;
+/** A quoted camelCase name shaped like a wallet method (get/is/create/sign/...): outside the probe the four read-only names fail as quoted strings, inside it only they pass. */
+const METHOD_SHAPED = /^(?:get|is|create|sign|abort|internalize|list|relinquish|reveal|verify|acquire|prove|discover|wait|encrypt|decrypt)[A-Z][A-Za-z]{2,40}$/;
+const FOUR = new Set<string>(PROBE_METHOD_ALLOWLIST);
 /** Globals that reach the network; a string literal naming one is a computed-access attempt. */
 const NET_GLOBAL_NAME = /['"`](?:fetch|XMLHttpRequest|WebSocket|EventSource)['"`]/;
 const COMPUTED_GLOBAL = /\b(?:globalThis|global|window|self)\s*\[|\bReflect\s*\.\s*get\s*\(\s*(?:globalThis|global|window|self)\b/;
+/** Rules over `code` (comments and string bodies removed) that apply in the BSV areas only. Each is a way to reach a name the scan cannot read. */
+const AREA_CODE_RULES: Array<[RegExp, string]> = [
+  [/\beval\s*\(/, 'eval()'],
+  [/\bnew\s+Function\b|(?<![\w.$])Function\s*\(/, 'the Function constructor'],
+  [/\bsetTimeout\s*\(\s*""|\bsetInterval\s*\(\s*""/, 'a timer given a string of code'],
+  [/\bReflect\b/, 'Reflect'],
+  [/\bwith\s*\(/, 'a with statement'],
+  [/\b(?:Object\s*\.\s*(?:getOwnPropertyDescriptors?|setPrototypeOf|defineProperty|defineProperties)|__proto__|__defineGetter__|__lookupGetter__)\b/, 'prototype or descriptor access'],
+  [/\.\s*constructor\s*[.(\[]/, 'reaching a constructor through an instance'],
+  [/\b(?:globalThis|global|window|self|this|process|module|exports|arguments)\s*\[/, 'a computed member of a global or `this`'],
+  [/\b(?:globalThis|global|window|self)\b[^;{}\n]*\)\s*\[/, 'a computed member of a cast global object'],
+  [/\]\s*\(/, 'a computed call x[k](...): the method it invokes cannot be read'],
+  [/\bimport\s*\.\s*meta\b|\brequire\s*\.\s*(?:cache|main)\b/, 'module internals'],
+  [/\b(?:vm|worker_threads)\b/, 'a code-running module'],
+];
+/** What a quoted identifier-shaped token may not be in the BSV areas. (`spend` alone is a word the policy code uses in text; as a bare property name it is not.) */
+const HIDDEN_IDENT_ANYCASE = /^(?:sign\w*|broadcast\w*|inscribe\w*|createAction|WalletClient|wif|privateKey|private_key|mnemonic|seedPhrase|xprv|spend|spending)$/i;
+const HIDDEN_IDENT_CAMEL = /^(?:spend[A-Z_]\w*|send\w*Transaction)$/;
+const HIDDEN_IDENT = { test: (w: string): boolean => HIDDEN_IDENT_ANYCASE.test(w) || HIDDEN_IDENT_CAMEL.test(w) };
+/** `file#name` pairs that are real and reviewed (none today). */
+const HIDDEN_IDENT_OK = new Set<string>();
 const NET_IDENT = /\b(?:fetch|XMLHttpRequest|WebSocket|EventSource|sendBeacon|StreamableHTTPClientTransport|SSEClientTransport|WebSocketClientTransport)\b/;
 const SOCKET_MODULE = /^(?:node:)?(?:https|http2|net|tls|dgram|dns|dns\/promises|cluster)$|^(?:undici|axios|node-fetch|cross-fetch|ws|got|superagent|request|socket\.io(?:-client)?)$/;
 const HTTP_MODULE = /^(?:node:)?http$/;
@@ -157,7 +241,8 @@ const TOOL_CALL = /(?:\bregisterTool|\.tool|(?<![\w.$])tool)\s*\(/g;
 const TOOL_LITERAL = /^(?:\bregisterTool|\.tool|tool)\s*\(\s*(?:'([^'\\\n]*)'|"([^"\\\n]*)")\s*,/;
 /** A tool name is split into words; any of these as a whole word makes it wallet-shaped ("alarm", "design", "payload" are fine). */
 const WALLETY = new Set(['wallet', 'bsv', 'spend', 'spending', 'pay', 'payment', 'payments', 'payout', 'sign', 'signing', 'broadcast', 'createaction', 'arm', 'armed', 'freeze', 'mainnet']);
-const LOOPBACK = /^(?:127\.0\.0\.1|localhost|\[::1\])$/;
+/** Loopback hosts, plus `legion.local`: the originator name Legion declares to a wallet (an Origin header value, never a place it connects to). */
+const LOOPBACK = /^(?:127\.0\.0\.1|localhost|\[::1\]|legion\.local)$/;
 
 /** Scans `root`/src and `root`/ui/src. `allow` defaults to ALLOWLIST. */
 export function scanTree(root: string, allow: Allow = ALLOWLIST): ScanResult {
@@ -170,8 +255,8 @@ export function scanTree(root: string, allow: Allow = ALLOWLIST): ScanResult {
   for (const f of files) {
     const raw = readFileSync(join(root, f), 'utf8');
     const { kept, code } = lex(raw);
-    const joinedRaw = joinLiterals(raw);
-    const joinedKept = joinLiterals(kept);
+    const joinedRaw = normalize(raw);
+    const joinedKept = normalize(kept);
     const allowed = new Set(allow[f]?.kinds ?? []);
     const used = new Map<Kind, string>();
     const bad = (m: string) => violations.push(`${f}: ${m}`);
@@ -179,6 +264,31 @@ export function scanTree(root: string, allow: Allow = ALLOWLIST): ScanResult {
     // names that never belong anywhere (comments included)
     const tok = FORBIDDEN.exec(joinedRaw);
     if (tok) bad(`contains ${tok[0]}`);
+    const meth = WALLET_METHODS_FORBIDDEN.exec(joinedRaw);
+    if (meth) bad(`contains the wallet method name ${meth[0]} (only the four read-only status methods may exist, and only in ${PROBE_FILE})`);
+    const port = WALLET_PORT.exec(joinedRaw);
+    if (port) bad(`contains ${port[0]} (there is no default wallet port: the owner types the address, so no source names one)`);
+    // quoted method-shaped strings: outside the probe none of the four may appear; inside it nothing but the four
+    for (const m of joinedKept.matchAll(/(['"`])([A-Za-z]{5,48})\1/g)) {
+      const w = m[2]!;
+      if (!METHOD_SHAPED.test(w)) continue;
+      if (f === PROBE_FILE ? !FOUR.has(w) : FOUR.has(w)) bad(`names the wallet method "${w}" in a string${f === PROBE_FILE ? ' (the probe may name only ' + PROBE_METHOD_ALLOWLIST.join(', ') + ')' : ` (wallet method names belong in ${PROBE_FILE} only)`}`);
+    }
+
+    // the BSV areas: no way of spelling a sign / spend / broadcast / inscribe name, or of reaching one at run time, that the scan cannot read
+    if (BSV_AREA.test(f)) {
+      for (const [re, what] of AREA_CODE_RULES) { const m = re.exec(code); if (m) bad(`${what} ("${m[0].slice(0, 40).replace(/\s+/g, ' ')}")`); }
+      const nonAscii = /[^\x00-\x7e]/.exec(code);
+      if (nonAscii) bad(`a non-ASCII character (U+${nonAscii[0].codePointAt(0)!.toString(16).padStart(4, '0')}) in code, outside a string or comment: look-alike letters can spell a forbidden name`);
+      // a quoted token shaped like an identifier (no spaces) that names something that signs, spends, broadcasts or inscribes. Prose strings have spaces and pass.
+      for (const m of joinedKept.matchAll(/(['"`])([A-Za-z_$][\w$]{2,60})\1/g)) {
+        if (HIDDEN_IDENT.test(m[2]!) && !HIDDEN_IDENT_OK.has(`${f}#${m[2]}`)) bad(`a quoted name "${m[2]}" that signs, spends, broadcasts or inscribes (a string used as a property or method name hides it from the identifier scan)`);
+      }
+      // a computed member built from pieces: x['si' + 'gn'], x[`${a}b`], x[parts.join('')]
+      const pieces = /(?<=[\w$)\]])\[[^\]\[\n]*(?:""[^\]\[\n]*\+|\+[^\]\[\n]*""|\.join\s*\(|\.concat\s*\(|\bString\b)[^\]\[\n]*\]/.exec(code);
+      if (pieces) bad(`a computed member built from pieces ("${pieces[0].slice(0, 40)}"): the name it reaches cannot be read`);
+      if (/(?<=[\w$)\]])\[\s*`[^`\n]*\$\{/.test(kept)) bad('a computed member built from a template literal: the name it reaches cannot be read');
+    }
 
     // network globals: aliases, computed access, names in strings
     const ident = NET_IDENT.exec(code);
@@ -213,17 +323,23 @@ export function scanTree(root: string, allow: Allow = ALLOWLIST): ScanResult {
       const name = lit?.[1] ?? lit?.[2];
       if (name === undefined) { bad('tool name is not a string literal, so it cannot be checked'); continue; }
       toolNames.push(name);
-      if (name.split(/[_\-.]/).some((w) => WALLETY.has(w.toLowerCase()))) bad(`registers a wallet-like tool name: ${name}`);
+      if (name.split(/[_\-.]/).some((w) => WALLETY.has(w.toLowerCase())) && ALLOWED_WALLETY_TOOLS[name] !== f) bad(`registers a wallet-like tool name: ${name}`);
     }
 
     // allowlist: each kind a file uses must be allowed for that file; a file that may fetch may only reach loopback hosts
     for (const [kind, detail] of used) {
       if (allowed.has(kind)) { matched.add(`${f}#${kind}`); continue; }
+      // the probe's HTTP client: node:http is fine in a file that is allowed to be a loopback client, as long as it never listens
+      if (kind === 'inbound-http' && allowed.has('loopback-http-client')) {
+        matched.add(`${f}#loopback-http-client`);
+        if (/\bcreateServer\b/.test(code)) bad('a loopback http client may not create a server');
+        continue;
+      }
       const what = kind === 'fetch' ? `outbound network access via ${detail}` : kind === 'socket-module' ? detail
         : kind === 'inbound-http' ? `imports node:http (inbound-http)` : kind === 'child-process' ? `imports node:child_process (child-process)` : `string decoding (${detail}) that can hide a name`;
       bad(`${what}; not on the allowlist for "${kind}" (test/bsv-scan.ts)`);
     }
-    if (allowed.has('fetch')) {
+    if (allowed.has('fetch') || allowed.has('loopback-http-client')) {
       for (const m of kept.matchAll(/https?:\/\/([^\/'"`\s:${}]+)/g)) if (!LOOPBACK.test(m[1]!)) bad(`non-loopback host ${m[1]} in a file that may only reach the local core`);
     }
   }

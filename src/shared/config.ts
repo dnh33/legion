@@ -13,7 +13,12 @@ export const VERSION = '0.1.0';
  * Kept here (not in types.ts) so the shared types stay frozen; LegionConfig consumers that
  * do not care about BSV are unaffected.
  */
-export interface BsvConfig { enabled: boolean; network: 'testnet' }
+export interface BsvConfig {
+  enabled: boolean;
+  network: 'testnet';
+  /** Where the wallet status probe looks (loopback only, checked again by the probe). Absent = the default. */
+  walletUrl?: string;
+}
 /**
  * Limits for rooms and room membership that a BOT asks for (`room_create`, `room_add_member`, always behind a human approval card).
  * Edited in config.json under "comms"; values outside their range are pulled back on load.
@@ -79,10 +84,13 @@ export function defaultConfig(): CoreConfig {
   };
 }
 
-/** Whatever the file held under "bsv", reduced to the one shape we accept (testnet only, boolean flag). */
+/** Whatever the file held under "bsv", reduced to the one shape we accept (testnet only, boolean flag, an optional wallet URL string). */
 export function normalizeBsv(v: unknown): BsvConfig {
   const enabled = !!v && typeof v === 'object' && (v as { enabled?: unknown }).enabled === true;
-  return { enabled, network: 'testnet' };
+  const out: BsvConfig = { enabled, network: 'testnet' };
+  const url = v && typeof v === 'object' ? (v as { walletUrl?: unknown }).walletUrl : undefined;
+  if (typeof url === 'string' && url.length > 0 && url.length <= 200) out.walletUrl = url;
+  return out;
 }
 
 /** Deep-merge loaded JSON over defaults so new fields appear after upgrades. */

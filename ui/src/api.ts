@@ -5,7 +5,12 @@ import type {
 
 declare global {
   interface Window {
-    legion?: { baseUrl: string; token: string; admin?: string; platform: string; openExternal(url: string): void };
+    legion?: {
+      baseUrl: string; token: string; admin?: string; platform: string; openExternal(url: string): void;
+      /** BSV policy changes: main shows its own native confirmation and calls the core with a secret this window never holds. */
+      bsvPolicy?(action: unknown): Promise<{ ok: boolean; error?: string; cancelled?: boolean; view?: unknown }>;
+      onBsvChanged?(cb: () => void): () => void;
+    };
   }
 }
 

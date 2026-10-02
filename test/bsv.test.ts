@@ -265,7 +265,7 @@ test('preamble: four lines, only for the assayer, only while on', async () => {
   assert.equal(p.split('\n').length, 4);
   assert.match(p, /BSV mode is on/);
   assert.match(p, /testnet/);
-  assert.match(p, /no wallet or BSV tools/);
+  assert.match(p, /mcp__legion_bsv__bsv_status/);
   assert.match(p, /kg_recall with scope bsv/);
   assert.match(p, /Never ask the user for keys, seed phrases/);
   for (const id of ['zealot', 'scout', 'builder', 'herald', 'assayer2']) assert.equal(s.bsv.preamble!(mkAgent(id)), '', id);
@@ -273,10 +273,11 @@ test('preamble: four lines, only for the assayer, only while on', async () => {
   assert.equal(s.bsv.preamble!(a), '', 'off again');
 });
 
-test('the module has no mcp servers of its own (no tools, no wallet)', async () => {
+test('the module has one mcp server, legion_bsv, for the gated agent only (a read-only status tool; wallet tests: bsv-module-wallet.test.ts)', async () => {
   const s = await setup();
   s.state.set(true);
-  assert.equal(s.bsv.mcpServers, undefined);
+  assert.deepEqual(Object.keys(s.bsv.mcpServers!(s.agents.get('assayer')!)), ['legion_bsv']);
+  assert.deepEqual(s.bsv.mcpServers!(s.agents.get('zealot')!), {});
 });
 
 // ---------------------------------------------------------------- BSV mode v1: the hidden Assayer stays hidden for every way of running it

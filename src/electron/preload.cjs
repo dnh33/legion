@@ -13,6 +13,16 @@ contextBridge.exposeInMainWorld('legion', {
   token: boot.token,
   admin: boot.admin,
   platform: boot.platform,
+  // BSV policy changes go through the main process, which shows its own native confirmation. The renderer never holds the native secret.
+  bsvPolicy(action) {
+    return ipcRenderer.invoke('legion:bsv-policy', action);
+  },
+  onBsvChanged(cb) {
+    if (typeof cb !== 'function') return () => undefined;
+    const h = () => { try { cb(); } catch (_) { /* ignore */ } };
+    ipcRenderer.on('legion:bsv-changed', h);
+    return () => ipcRenderer.removeListener('legion:bsv-changed', h);
+  },
   openExternal(url) {
     return ipcRenderer.invoke('legion:open-external', String(url));
   },

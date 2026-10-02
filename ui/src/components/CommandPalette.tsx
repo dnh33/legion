@@ -3,6 +3,7 @@ import {
   cancelSelected, closeOverlays, newTask, openDoctor, openEditor, openSettings, selectAgent, toggleMascotLab, toggleOps, toggleTheme, useStore, vmAction,
 } from '../store';
 import { vmIsLive } from '../util';
+import { openBsvPanel, useBsv } from '../bsv/bsvStore';
 
 interface Cmd { id: string; label: string; glyph?: string; hint?: string; run: () => void; group: string }
 
@@ -16,6 +17,7 @@ export function CommandPalette() {
   const agent = agents.find((a) => a.id === agentId);
   const live = vmIsLive(vms[agentId]?.state);
   const boat = useStore((s) => s.boatConfigured);
+  const bsvOn = useBsv((s) => s.enabled);
   const running = useStore((s) => s.tasks.some((t) => t.id === s.selectedTaskId && (t.status === 'running' || t.status === 'queued')));
 
   const cmds = useMemo<Cmd[]>(() => {
@@ -32,13 +34,14 @@ export function CommandPalette() {
       { id: 'settings', group: 'App', label: 'Settings', hint: 'Ctrl ,', run: () => openSettings() },
       { id: 'boatkey', group: 'App', label: 'Add or change boat.dev key', run: () => openSettings('boat') },
       { id: 'doctor', group: 'App', label: 'Open Doctor (sign-in & setup checks)', run: openDoctor },
+      ...(bsvOn ? [{ id: 'bsv', group: 'App', label: 'BSV panel (wallet, live funds, freeze, activity)', run: openBsvPanel }] : []),
       { id: 'model', group: 'App', label: 'Change model', hint: 'Ctrl M', run: () => window.dispatchEvent(new Event('legion:model-picker')) },
       { id: 'lab', group: 'App', label: 'Mascot Lab', hint: 'Ctrl Shift M', run: toggleMascotLab },
       { id: 'theme', group: 'App', label: 'Toggle theme', run: toggleTheme },
       { id: 'ops', group: 'App', label: 'Toggle Ops panel', hint: 'Ctrl .', run: toggleOps },
     );
     return c;
-  }, [agents, agent, agentId, live, boat, running]);
+  }, [agents, agent, agentId, live, boat, running, bsvOn]);
 
   const shown = useMemo(() => {
     const words = q.toLowerCase().split(/\s+/).filter(Boolean);

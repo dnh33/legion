@@ -7,6 +7,8 @@
  * and nothing that merely copies our child's public pid can pass it.
  */
 import { healthProof, isHexNonce } from '../core/admin.js';
+import { ARM_CHOICES_MINUTES } from '../core/bsv/policy.js';
+import { parseWalletUrl } from '../core/bsv/wallet-probe.js';
 import { timingSafeEqual } from 'node:crypto';
 
 export interface CoreHealth { ok?: boolean; version?: string; pid?: number; admin?: boolean; proof?: string }
@@ -109,4 +111,198 @@ export function coreAction(i: { health: CoreHealth | null | undefined; ownProof:
   if (!stoppablePid(i.health.pid, i.selfPid)) return 'blocked';
   if (!i.listeners || !i.listeners.includes(i.health.pid)) return 'blocked';
   return i.busy ? 'ask' : 'replace';
+}
+
+// ---------------------------------------------------------------------------------------------------------------------------------
+// BSV policy changes. The app window asks main (IPC); main shows a NATIVE dialog it words itself, and only then calls the core with the
+// native secret, which the window never holds. Everything below is pure so it is tested in plain node. Nothing here can spend: Legion has
+// no spend tool in this release, so these actions change policy state only.
+// ---------------------------------------------------------------------------------------------------------------------------------
+
+export const BSV_ARM_CHOICES_MINUTES: readonly number[] = ARM_CHOICES_MINUTES;
+const CAP_KEYS = ['perTxSats', 'perSessionSats', 'per24hSats', 'maxOutputs', 'maxFeeSats'] as const;
+export type CapKey = (typeof CAP_KEYS)[number];
+
+export type BsvAction =
+  | { kind: 'arm'; minutes: number }
+  | { kind: 'disarm' }
+  | { kind: 'freeze' }
+  | { kind: 'unfreeze' }
+  | { kind: 'caps'; caps: Partial<Record<CapKey, number>> }
+  | { kind: 'allowlist'; list: string[] }
+  /** First contact with a wallet, and the only way to it: the owner typed this loopback address and pressed Connect. */
+  | { kind: 'connect'; url: string }
+  | { kind: 'disconnect' };
+
+const own = (o: object, k: string) => Object.prototype.hasOwnProperty.call(o, k);
+const plain = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v) && Object.getPrototypeOf(v) === Object.prototype;
+
+/**
+ * Strict parse of what the window sent. Anything unexpected (extra keys, wrong types, a minutes value outside the fixed list, a recipient
+ * with spaces) is refused here, before any dialog, so the dialog text is always built from values main itself validated.
+ */
+export function parseBsvAction(raw: unknown, armChoices: readonly number[] = BSV_ARM_CHOICES_MINUTES): BsvAction | undefined {
+  if (!plain(raw) || typeof raw.kind !== 'string') return undefined;
+  const keys = Object.keys(raw).filter((k) => k !== 'kind');
+  const only = (...allowed: string[]) => keys.every((k) => allowed.includes(k));
+  switch (raw.kind) {
+    case 'arm':
+      return only('minutes') && typeof raw.minutes === 'number' && armChoices.includes(raw.minutes) ? { kind: 'arm', minutes: raw.minutes } : undefined;
+    case 'disarm': case 'freeze': case 'unfreeze': case 'disconnect':
+      return keys.length === 0 ? { kind: raw.kind } : undefined;
+    case 'connect':
+      // the address must already be a plain loopback http address: what the dialog shows is what main checked
+      return only('url') && typeof raw.url === 'string' && parseWalletUrl(raw.url).ok ? { kind: 'connect', url: raw.url } : undefined;
+    case 'caps': {
+      if (!only('caps') || !plain(raw.caps)) return undefined;
+      const caps: Partial<Record<CapKey, number>> = {};
+      const entries = Object.entries(raw.caps);
+      if (entries.length === 0 || entries.length > CAP_KEYS.length) return undefined;
+      for (const [k, v] of entries) {
+        if (!(CAP_KEYS as readonly string[]).includes(k) || typeof v !== 'number' || !Number.isSafeInteger(v) || v < 0) return undefined;
+        caps[k as CapKey] = v;
+      }
+      return { kind: 'caps', caps };
+    }
+    case 'allowlist': {
+      if (!only('list') || !Array.isArray(raw.list) || raw.list.length > 50) return undefined;
+      const list: string[] = [];
+      for (const r of raw.list) {
+        if (typeof r !== 'string' || !/^[A-Za-z0-9._@:+-]{3,120}$/.test(r)) return undefined;
+        list.push(r);
+      }
+      return { kind: 'allowlist', list };
+    }
+    default: return undefined;
+  }
+}
+
+/** The parts of GET /api/bsv/policy that the dialogs quote. Read by main from the core itself, never taken from the window. */
+export interface BsvPolicyFacts {
+  armed?: boolean; frozen?: { reason?: unknown } | null; remainingMs?: number;
+  caps?: Partial<Record<CapKey, number>>; allowlist?: unknown;
+  pending?: unknown; unknown?: unknown; nativeAvailable?: boolean;
+}
+
+export interface BsvConfirm {
+  /** false = no dialog (the change only makes things safer: freeze, disarm). */
+  needsDialog: boolean;
+  method: 'POST';
+  route: string;
+  body: unknown;
+  title: string;
+  message: string;
+  detail: string;
+  /** [cancel, confirm]. Cancel is the default and the Escape button. */
+  buttons: [string, string];
+  type: 'warning' | 'question';
+}
+
+/** Text from the core (a freeze reason): printable, one line, short. It is data, never markup or a command. */
+export function dialogText(s: unknown, max = 160): string {
+  const t = (typeof s === 'string' ? s : '').replace(/[\u0000-\u001f\u007f-\u009f\u200b-\u200f\u2028-\u202e\u2066-\u2069\ufeff]+/g, ' ').replace(/\s+/g, ' ').trim();
+  return t.length > max ? t.slice(0, max - 3) + '...' : t;
+}
+
+/** 123456789 -> "1.23456789 BSV (123,456,789 sat)". Integer maths only. */
+export function satsText(sats: unknown): string {
+  const n = typeof sats === 'number' && Number.isSafeInteger(sats) && sats >= 0 ? sats : 0;
+  const bsv = `${Math.floor(n / 1e8)}.${String(n % 1e8).padStart(8, '0')}`;
+  return `${bsv} BSV (${n.toLocaleString('en-US')} sat)`;
+}
+
+const CAP_LABEL: Record<CapKey, string> = { perTxSats: 'Per transaction', perSessionSats: 'Per session', per24hSats: 'Per rolling 24 hours', maxOutputs: 'Max outputs', maxFeeSats: 'Fee ceiling' };
+const capLine = (k: CapKey, v: unknown) => `${CAP_LABEL[k]}: ${k === 'maxOutputs' ? String(typeof v === 'number' ? v : 0) : satsText(v)}`;
+const NO_SPEND = 'Legion has no spend tool in this version, so this changes Legion\'s policy state only. An agent\'s ordinary tools (a shell, a web fetch) are not covered by it.';
+
+export function bsvConfirmation(action: BsvAction, facts: BsvPolicyFacts = {}, walletLine = ''): BsvConfirm {
+  const caps = facts.caps ?? {};
+  const base = { method: 'POST' as const, buttons: ['Cancel', 'OK'] as [string, string], type: 'question' as const };
+  switch (action.kind) {
+    case 'arm':
+      return {
+        ...base, needsDialog: true, route: '/api/bsv/policy/arm', body: { minutes: action.minutes }, type: 'warning',
+        title: 'Arm LIVE FUNDS mode?',
+        message: `Arm LIVE FUNDS mode for ${action.minutes} minutes?`,
+        detail: [
+          'Armed mode lets Legion\'s policy engine consider mainnet requests until the time runs out, you press Freeze, or Legion restarts.',
+          NO_SPEND,
+          'Anything that could spend in a later version would still need its own approval card here and the wallet\'s own prompt.',
+          '',
+          'Limits that would apply:',
+          ...(['perTxSats', 'perSessionSats', 'per24hSats', 'maxOutputs', 'maxFeeSats'] as CapKey[]).map((k) => capLine(k, caps[k])),
+          ...(walletLine ? ['', dialogText(walletLine, 200)] : []),
+        ].join('\n'),
+        buttons: ['Cancel', `Arm for ${action.minutes} minutes`],
+      };
+    case 'unfreeze': {
+      const pend = Array.isArray(facts.pending) ? facts.pending.length : 0;
+      const unk = Array.isArray(facts.unknown) ? facts.unknown.length : 0;
+      return {
+        ...base, needsDialog: true, route: '/api/bsv/policy/unfreeze', body: {}, type: 'warning',
+        title: 'Unfreeze the BSV chain?',
+        message: 'Unfreeze the BSV chain?',
+        detail: [
+          `It was frozen because: ${dialogText((facts.frozen as { reason?: unknown } | null | undefined)?.reason) || 'no reason recorded'}`,
+          unk > 0 ? `${unk} earlier request(s) have an unknown outcome and still count against the limits until you resolve them.` : '',
+          pend > 0 ? `${pend} request(s) are pending.` : '',
+          'Unfreezing does not arm mainnet.',
+          NO_SPEND,
+        ].filter(Boolean).join('\n'),
+        buttons: ['Cancel', 'Unfreeze'],
+      };
+    }
+    case 'caps': {
+      const lines = (Object.keys(action.caps) as CapKey[]).map((k) => `${CAP_LABEL[k]}: ${k === 'maxOutputs' ? String(caps[k] ?? '?') : satsText(caps[k])}  ->  ${k === 'maxOutputs' ? String(action.caps[k]) : satsText(action.caps[k])}`);
+      return {
+        ...base, needsDialog: true, route: '/api/bsv/policy/caps', body: action.caps,
+        title: 'Change BSV limits?', message: 'Change the BSV spend limits?',
+        detail: [...lines, '', 'Legion refuses any value above its built-in hard ceilings.', NO_SPEND].join('\n'),
+        buttons: ['Cancel', 'Change limits'],
+      };
+    }
+    case 'allowlist': {
+      const before = Array.isArray(facts.allowlist) ? facts.allowlist.length : 0;
+      return {
+        ...base, needsDialog: true, route: '/api/bsv/policy/allowlist', body: { list: action.list },
+        title: 'Change the BSV recipient list?', message: `Replace the recipient allowlist (${before} now, ${action.list.length} after)?`,
+        detail: [...action.list.slice(0, 12).map((r) => `  ${dialogText(r, 60)}`), action.list.length > 12 ? `  ... and ${action.list.length - 12} more` : '', '', 'Once a spend tool exists, the policy engine will refuse any recipient that is not on this list. Today no tool uses it.', NO_SPEND].filter((l, i, a) => l !== '' || a[i - 1] !== '').join('\n'),
+        buttons: ['Cancel', 'Replace list'],
+      };
+    }
+    case 'connect': {
+      const t = parseWalletUrl(action.url);
+      const shown = t.ok ? t.display : 'an address that was refused';
+      return {
+        ...base, needsDialog: true, route: '/api/bsv/wallet/connect', body: { url: action.url }, type: 'warning',
+        title: 'Connect to a wallet?',
+        message: `Connect to the program listening at ${shown} on this computer?`,
+        detail: [
+          `Legion will send four read-only questions to ${shown}: its version, its network, whether it is signed in, and the block height it knows.`,
+          'It does not ask for balances, outputs, addresses or keys, and nothing in this version of Legion can sign or spend.',
+          'Whatever answers at that address is unverified: any program on this computer can listen on a port.',
+          'Legion will not contact it again after you disconnect, freeze, turn BSV mode off or restart.',
+        ].join('\n'),
+        buttons: ['Cancel', 'Connect'],
+      };
+    }
+    case 'disconnect':
+      return { ...base, needsDialog: false, route: '/api/bsv/wallet/disconnect', body: {}, title: 'Disconnect', message: 'Disconnect', detail: '', buttons: ['Cancel', 'Disconnect'] };
+    case 'freeze':
+      return { ...base, needsDialog: false, route: '/api/bsv/policy/freeze', body: { reason: 'frozen by the owner' }, title: 'Freeze', message: 'Freeze', detail: '', buttons: ['Cancel', 'Freeze'] };
+    case 'disarm':
+      return { ...base, needsDialog: false, route: '/api/bsv/policy/disarm', body: {}, title: 'Disarm', message: 'Disarm', detail: '', buttons: ['Cancel', 'Disarm'] };
+  }
+}
+
+/** A reason to refuse before asking the person anything: no dialog for a change the core would refuse anyway. */
+export function bsvPreflight(action: BsvAction, facts: BsvPolicyFacts): string | undefined {
+  if (action.kind === 'arm' && facts.frozen) return 'The chain is frozen. Unfreeze it first.';
+  if (action.kind === 'connect' && facts.frozen) return 'The chain is frozen. Unfreeze it first; Legion does not contact a wallet while frozen.';
+  return undefined;
+}
+
+/** Whether an IPC message came from our own app window page: the file the window loaded, not a foreign page that navigated in. */
+export function trustedSender(frameUrl: unknown, uiUrl: string): boolean {
+  return typeof frameUrl === 'string' && (frameUrl === uiUrl || frameUrl.startsWith(uiUrl + '#') || frameUrl.startsWith(uiUrl + '?'));
 }

@@ -1,14 +1,20 @@
 /**
- * Store for BSV mode v0 (knowledge and visibility only; there is no wallet in this app).
- * Own tiny external store, same pattern as the main store. Talks to GET/POST /api/bsv.
- * The frozen event union has no "BSV changed" event, so after every toggle the UI refetches /api/state
- * (the server hides the Assayer while off) and re-reads /api/bsv every 30 s to follow changes made elsewhere.
+ * Store for BSV mode (testnet knowledge mode, a read-only wallet status check, policy state and an audit log; there is no spend tool).
+ * Own tiny external store, same pattern as the main store. Talks to GET/POST /api/bsv, GET /api/bsv/wallet, GET /api/bsv/policy and
+ * GET /api/bsv/audit. Policy CHANGES (arm, freeze, ...) never go through this file's requests: they go through the Electron bridge
+ * (window.legion.bsvPolicy), whose main process shows a native confirmation and holds the secret the core demands.
+ *
+ * Performance rules (a requirement, tested by source guards): no continuous animation anywhere in the BSV UI; the only timers are the
+ * 60 s status poll (runs only while the window is visible AND focused, and only re-renders when an answer actually changed) and the
+ * once-per-second countdown in ChainOverlay while mainnet is armed.
  */
 import { useSyncExternalStore } from 'react';
 import { ApiError, request } from '../api';
 import { getState, refresh, selectAgent, toast } from '../store';
 import { describeSeed } from '../../../src/shared/bsv-seed';
 import type { SeedReport } from '../../../src/shared/bsv-seed';
+import { BSV_POLL_MS, shouldPoll } from '../../../src/shared/bsv-view';
+import type { AuditView, PolicyView, WalletView } from '../../../src/shared/bsv-view';
 
 export interface BsvStatus {
   enabled: boolean;
@@ -26,18 +32,30 @@ export interface BsvUiState extends BsvStatus {
   busy: boolean;
   /** The first-enable confirmation dialog is open. */
   confirmOpen: boolean;
+  /** The BSV panel is open. */
+  panelOpen: boolean;
+  /** Last answer of the read-only wallet status check (null until BSV mode is on and it was asked). */
+  wallet: WalletView | null;
+  /** Last answer of GET /api/bsv/policy (null until BSV mode is on). */
+  policy: PolicyView | null;
+  /** A policy change is waiting for the native dialog or the core. */
+  changing: boolean;
+  /** The Activity list (loaded when the panel opens, on Refresh and on Older). */
+  audit: { entries: AuditView[]; total: number; ok: boolean; reason?: string; more: boolean; loading: boolean; error?: string } | null;
 }
 
-export const BSV_TIP = 'BSV Dev Kit: testnet, knowledge only. No wallet.';
+export const BSV_TIP = 'BSV Dev Kit: testnet knowledge mode. No spend tool.';
 const CONFIRMED_KEY = 'legion.bsv.confirmed';
-const POLL_MS = 30_000;
 
 let state: BsvUiState = {
-  loaded: false, busy: false, confirmOpen: false,
+  loaded: false, busy: false, confirmOpen: false, panelOpen: false, wallet: null, policy: null, changing: false, audit: null,
   enabled: false, network: 'testnet', assayerAvailable: false, knowledgeLoaded: false, knowledgeNodes: 0,
 };
 const listeners = new Set<() => void>();
 const set = (p: Partial<BsvUiState>) => { state = { ...state, ...p }; listeners.forEach((l) => l()); };
+/** Equal answers do not re-render anything: the wallet and policy are compared by what the UI shows. */
+const sameWallet = (a: WalletView | null, b: WalletView | null) => (a === b) || (!!a && !!b && a.condition === b.condition && a.network === b.network && a.height === b.height && a.authenticated === b.authenticated && a.reachable === b.reachable && a.version === b.version && a.probed === b.probed && a.message === b.message);
+const samePolicy = (a: PolicyView | null, b: PolicyView | null) => (a === b) || (!!a && !!b && JSON.stringify({ ...a, remainingMs: 0 }) === JSON.stringify({ ...b, remainingMs: 0 }));
 const sub = (l: () => void) => { listeners.add(l); return () => { listeners.delete(l); }; };
 export const getBsv = () => state;
 export function useBsv<T>(selector: (s: BsvUiState) => T): T { return useSyncExternalStore(sub, () => selector(state)); }
@@ -58,13 +76,69 @@ const pick = (s: BsvStatus): BsvStatus => ({
   enabled: s.enabled, network: 'testnet', assayerAvailable: s.assayerAvailable, knowledgeLoaded: s.knowledgeLoaded, knowledgeNodes: s.knowledgeNodes ?? 0,
 });
 
+let lastPollAt = 0;
+
+/** The read-only answers behind the overlay: policy state and the wallet status check. Only asked while BSV mode is on. */
+async function loadDetails(): Promise<void> {
+  const [policy, wallet] = await Promise.allSettled([request<PolicyView>('GET', '/api/bsv/policy'), request<WalletView>('GET', '/api/bsv/wallet')]);
+  const patch: Partial<BsvUiState> = {};
+  if (policy.status === 'fulfilled' && !samePolicy(state.policy, policy.value)) patch.policy = policy.value;
+  if (wallet.status === 'fulfilled' && !sameWallet(state.wallet, wallet.value)) patch.wallet = wallet.value;
+  if (Object.keys(patch).length) set(patch);
+}
+
 export async function loadBsv(): Promise<void> {
+  lastPollAt = Date.now();
   try {
     const s = await request<BsvStatus>('GET', '/api/bsv');
     const changedElsewhere = state.loaded && s.enabled !== state.enabled && !state.busy;
-    set({ ...pick(s), loaded: true });
+    const next = pick(s);
+    const same = state.loaded && next.enabled === state.enabled && next.assayerAvailable === state.assayerAvailable && next.knowledgeLoaded === state.knowledgeLoaded && next.knowledgeNodes === state.knowledgeNodes;
+    if (!same) set({ ...next, loaded: true });
+    if (!next.enabled) { if (state.wallet || state.policy || state.panelOpen) set({ wallet: null, policy: null, panelOpen: false }); }
+    else await loadDetails();
     if (changedElsewhere) await syncAgents();
   } catch { /* offline or an older core without /api/bsv: stay off, the main connection chip already says so */ }
+}
+
+/** Re-reads the policy only (after a change made through main, or a tray Freeze). */
+export async function loadPolicy(): Promise<void> {
+  try { const p = await request<PolicyView>('GET', '/api/bsv/policy'); if (!samePolicy(state.policy, p)) set({ policy: p }); } catch { /* keep what is shown */ }
+}
+
+/**
+ * The Connect button: the ONLY way Legion first contacts a wallet. Main shows a native dialog that names the address, then asks the core
+ * (which refuses anything but a loopback address). The address is typed by the owner; there is no default.
+ */
+export async function connectWallet(url: string): Promise<void> {
+  const bridge = window.legion?.bsvPolicy;
+  if (!bridge) { toast('Open the Legion app to connect a wallet.', 'error'); return; }
+  if (state.changing) return;
+  set({ changing: true });
+  try {
+    const r = await bridge({ kind: 'connect', url: url.trim() });
+    if (r.ok) { if (r.view) set({ wallet: r.view as WalletView }); toast('Connected. Legion asked the wallet its status.'); }
+    else if (!r.cancelled) toast(r.error ?? 'Could not connect.', 'error');
+  } catch (e) { toast(`Could not connect: ${msg(e)}`, 'error'); } finally {
+    set({ changing: false });
+    void loadDetails();
+    if (state.panelOpen) void loadAudit(true);
+  }
+}
+
+export async function disconnectWallet(): Promise<void> {
+  const bridge = window.legion?.bsvPolicy;
+  if (!bridge || state.changing) return;
+  set({ changing: true });
+  try {
+    const r = await bridge({ kind: 'disconnect' });
+    if (r.ok) { if (r.view) set({ wallet: r.view as WalletView }); toast('Disconnected. Legion will not contact the wallet.'); } else if (!r.cancelled) toast(r.error ?? 'Could not disconnect.', 'error');
+  } catch (e) { toast(`Could not disconnect: ${msg(e)}`, 'error'); } finally { set({ changing: false }); void loadDetails(); }
+}
+
+/** The "Check now" button: asks the wallet again (the core limits how often it really does, and asks nothing until Connect was pressed). */
+export async function checkWallet(): Promise<void> {
+  try { const w = await request<WalletView>('GET', '/api/bsv/wallet'); if (!sameWallet(state.wallet, w)) set({ wallet: w }); } catch (e) { toast(`Could not check the wallet: ${msg(e)}`, 'error'); }
 }
 
 let started = false;
@@ -72,8 +146,67 @@ export function initBsv(): void {
   if (started) return;
   started = true;
   void loadBsv();
-  window.setInterval(() => { if (!document.hidden) void loadBsv(); }, POLL_MS);
-  document.addEventListener('visibilitychange', () => { if (!document.hidden) void loadBsv(); });
+  const due = () => shouldPoll({ hidden: document.hidden, focused: document.hasFocus(), lastPollAt, now: Date.now() });
+  window.setInterval(() => { if (due()) void loadBsv(); }, BSV_POLL_MS);
+  const onBack = () => { if (due()) void loadBsv(); };
+  document.addEventListener('visibilitychange', onBack);
+  window.addEventListener('focus', onBack);
+  // main tells the window when a change was made through the tray or by another window action
+  try { window.legion?.onBsvChanged?.(() => { void loadPolicy(); }); } catch { /* an older shell: no bridge */ }
+}
+
+// ---- panel
+
+export function openBsvPanel(): void { set({ panelOpen: true }); void loadBsv(); void loadAudit(true); }
+export function closeBsvPanel(): void { set({ panelOpen: false }); }
+
+const AUDIT_PAGE = 40;
+/** The Activity list. `reset` loads the newest page; otherwise the next older one. Asked on demand only: there is no polling of the log. */
+export async function loadAudit(reset: boolean): Promise<void> {
+  const cur = state.audit;
+  set({ audit: { entries: reset || !cur ? [] : cur.entries, total: cur?.total ?? 0, ok: cur?.ok ?? true, reason: cur?.reason, more: false, loading: true } });
+  try {
+    const before = !reset && cur && cur.entries.length ? cur.entries[cur.entries.length - 1]!.seq : undefined;
+    const r = await request<{ entries: AuditView[]; verify: { ok: boolean; reason?: string }; total: number }>('GET', `/api/bsv/audit?limit=${AUDIT_PAGE}${before ? `&before=${before}` : ''}`);
+    const entries = [...(reset || !cur ? [] : cur.entries), ...r.entries];
+    set({ audit: { entries, total: r.total, ok: r.verify.ok, reason: r.verify.reason, more: r.entries.length === AUDIT_PAGE && entries.length < r.total, loading: false } });
+  } catch (e) {
+    set({ audit: { entries: reset || !cur ? [] : cur.entries, total: cur?.total ?? 0, ok: cur?.ok ?? true, more: false, loading: false, error: msg(e) } });
+  }
+}
+
+// ---- policy changes: through the Electron bridge only
+
+export type PolicyAction =
+  | { kind: 'arm'; minutes: number } | { kind: 'disarm' } | { kind: 'freeze' } | { kind: 'unfreeze' };
+
+/** True in the Legion app (the shell exposes the bridge). A browser tab has none: it can look, not change. */
+export const canChangePolicy = (): boolean => typeof window !== 'undefined' && typeof window.legion?.bsvPolicy === 'function';
+
+/**
+ * Asks main to make a change. Main parses it, shows the NATIVE confirmation where one is due, and calls the core with a secret this
+ * window never holds. Nothing here can spend: Legion has no spend tool.
+ */
+export async function changePolicy(action: PolicyAction): Promise<void> {
+  const bridge = window.legion?.bsvPolicy;
+  if (!bridge) { toast('Open the Legion app to change BSV policy.', 'error'); return; }
+  if (state.changing) return;
+  set({ changing: true });
+  try {
+    const r = await bridge(action);
+    if (r.ok) {
+      if (r.view) set({ policy: r.view as PolicyView });
+      toast(action.kind === 'arm' ? 'LIVE FUNDS armed (policy only: Legion has no spend tool)' : action.kind === 'disarm' ? 'Disarmed' : action.kind === 'freeze' ? 'BSV chain frozen' : 'BSV chain unfrozen');
+    } else if (!r.cancelled) {
+      toast(r.error ?? 'The change was refused.', 'error');
+    }
+  } catch (e) {
+    toast(`The change failed: ${msg(e)}`, 'error');
+  } finally {
+    set({ changing: false });
+    void loadPolicy();
+    if (state.panelOpen) void loadAudit(true);
+  }
 }
 
 export async function setBsv(enabled: boolean): Promise<void> {
@@ -81,11 +214,12 @@ export async function setBsv(enabled: boolean): Promise<void> {
   set({ busy: true, confirmOpen: false });
   try {
     const r = await request<BsvStatus & { seed?: SeedResult }>('POST', '/api/bsv', { enabled });
-    set({ ...pick(r), loaded: true });
+    set({ ...pick(r), loaded: true, ...(r.enabled ? {} : { wallet: null, policy: null, panelOpen: false }) });
+    if (r.enabled) void loadDetails();
     await syncAgents();
     if (enabled && r.seed && (r.seed.status === 'error' || r.seed.status === 'no-kg')) toast(`BSV mode is on, but the knowledge pack did not load: ${describeSeed(r.seed).text}`, 'error');
-    else if (enabled && r.seed && r.seed.status !== 'already-loaded') toast(`BSV mode on (testnet, knowledge only). ${describeSeed(r.seed).text}`); // loaded, upgraded or repaired: say what changed
-    else toast(enabled ? 'BSV mode on (testnet, knowledge only)' : 'BSV mode off');
+    else if (enabled && r.seed && r.seed.status !== 'already-loaded') toast(`BSV mode on (testnet knowledge mode). ${describeSeed(r.seed).text}`); // loaded, upgraded or repaired: say what changed
+    else toast(enabled ? 'BSV mode on (testnet knowledge mode)' : 'BSV mode off');
   } catch (e) {
     toast(`Could not change BSV mode: ${msg(e)}`, 'error');
     await loadBsv();

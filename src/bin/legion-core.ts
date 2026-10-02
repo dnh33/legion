@@ -3,7 +3,7 @@
 import { appendFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { configPath, dataDir, loadConfig, scrubHostSessionEnv, VERSION } from '../shared/config.js';
-import { readAdminSecret } from '../core/admin.js';
+import { readLaunchSecrets } from '../core/admin.js';
 import { ApprovalBroker } from '../core/approvals.js';
 import { EventBus } from '../core/bus.js';
 import { getCatalog } from '../core/catalog.js';
@@ -27,7 +27,8 @@ const log = (...a: unknown[]) => {
 
 async function main() {
   // Per-launch admin secret from the stdin pipe (Electron main only). None for a headless/bridge-started core: admin routes stay closed.
-  const adminSecret = await readAdminSecret(process.env, process.stdin);
+  // The second line is the NATIVE secret (main only, never the window): BSV policy changes need it as well.
+  const { admin: adminSecret, native: nativeSecret } = await readLaunchSecrets(process.env, process.stdin);
   // Run standalone even if launched from inside a Claude host session.
   const clean = scrubHostSessionEnv(process.env);
   for (const k of Object.keys(process.env)) if (!(k in clean)) delete process.env[k];
@@ -61,7 +62,7 @@ async function main() {
   const moduleDeps: ModuleDeps = { config, store, bus, engine, approvals, dataDir: dataDir(), bsvEnabled };
   const kg = createKnowledgeModule(moduleDeps);
   // (creating the BSV module also tells the engine's agent bridge to hide agents that are switched off)
-  const bsv = createBsvModule(moduleDeps, { state: bsvState, kg, log });
+  const bsv = createBsvModule(moduleDeps, { state: bsvState, kg, log, nativeSecret });
   const modules = [kg, createCommsModule(moduleDeps), bsv];
   engine.setModules(modules);
   const server = createServer({

@@ -1,6 +1,11 @@
-/* BSV mode v0. Chain colour is a NEW state colour, kept here on purpose (tokens.css is not touched). */
-:root { --chain: #5fd3ff; --chain-soft: color-mix(in srgb, #5fd3ff 14%, transparent); }
-:root[data-theme='light'] { --chain: #0b7aa8; --chain-soft: color-mix(in srgb, #0b7aa8 12%, transparent); }
+/*
+ * BSV mode. Chain colours are NEW state colours, kept here on purpose (tokens.css is not touched).
+ * PERFORMANCE RULE (tested by a source guard): nothing in this file animates. No @keyframes, no animation, no infinite anything.
+ * The only motion left is the 140 ms hover/toggle transition on the title-bar switch. --chain = calm cyan (testnet),
+ * --live = warm amber (LIVE FUNDS armed or a wallet on mainnet).
+ */
+:root { --chain: #5fd3ff; --chain-soft: color-mix(in srgb, #5fd3ff 14%, transparent); --live: #ffb020; --live-soft: color-mix(in srgb, #ffb020 16%, transparent); --live-ink: #1a1203; }
+:root[data-theme='light'] { --chain: #0b7aa8; --chain-soft: color-mix(in srgb, #0b7aa8 12%, transparent); --live: #c46a00; --live-soft: color-mix(in srgb, #c46a00 14%, transparent); --live-ink: #ffffff; }
 
 /* ---- title-bar switch (lives in .tb-right, left of Doctor) ---- */
 .tb-bsv { height: 26px; display: inline-flex; align-items: center; gap: 7px; padding: 0 8px; margin-right: 2px; background: transparent; border: 1px solid var(--line); border-radius: 13px; color: var(--muted); font: 600 11px/1 var(--font-mono); letter-spacing: .06em; transition: color var(--t) var(--ease), border-color var(--t) var(--ease), background var(--t) var(--ease); }
@@ -13,6 +18,12 @@
 .tb-bsv.on .tb-bsv-track { background: var(--chain-soft); border-color: color-mix(in srgb, var(--chain) 60%, transparent); }
 .tb-bsv.on .tb-bsv-track::after { transform: translateX(10px); background: var(--chain); }
 .tb-bsv:focus-visible { outline: 2px solid var(--chain); outline-offset: 2px; }
+/* panel button beside the switch (shown while the mode is on, wide windows only; the pill and the command palette reach the panel everywhere) */
+.tb-bsv-panel { height: 26px; padding: 0 9px; margin-right: 2px; background: transparent; border: 1px solid var(--line); border-radius: 13px; color: var(--chain); font: 600 11px/1 var(--font-mono); letter-spacing: .06em; cursor: pointer; }
+.tb-bsv-panel:hover { background: var(--chain-soft); border-color: var(--chain); }
+.tb-bsv-panel[data-live='1'] { color: var(--live); border-color: var(--live); }
+.tb-bsv-panel:focus-visible { outline: 2px solid var(--chain); outline-offset: 2px; }
+@media (max-width: 1279px) { .tb-bsv-panel { display: none; } }
 /*
  * Wide windows (>= 1280px): the chip is a normal item of .tb-right and the header's left side does not move.
  * Narrower windows: the search box and brand are squeezed by the width of the right-hand cluster, so the chip must add
@@ -28,24 +39,68 @@
   .conn .conn-label { visibility: hidden; }
 }
 
-/* ---- chain overlay: fixed, confined to the 40px title bar, never intercepts the pointer ---- */
+/* ---- chain overlay: fixed, confined to the 40px title bar, never intercepts the pointer. STATIC. ---- */
 .chain-overlay { position: fixed; left: 0; right: 0; top: 0; height: 40px; z-index: 10; pointer-events: none; overflow: hidden; }
-.chain-line { position: absolute; left: 0; right: 0; bottom: 0; height: 1px; background: color-mix(in srgb, var(--chain) 42%, transparent); overflow: hidden; }
-.chain-line::after { content: ''; position: absolute; top: 0; bottom: 0; left: 0; width: 30%; background: linear-gradient(90deg, transparent, var(--chain) 50%, transparent); transform: translateX(-100%); animation: chain-sweep 6s steps(52) infinite; }
-.chain-glow { position: absolute; left: 0; right: 0; bottom: 1px; height: 7px; background: linear-gradient(to top, color-mix(in srgb, var(--chain) 16%, transparent), transparent); animation: chain-breathe 6s steps(10) infinite; }
-/* Every frame of an animation is a compositor draw for the whole window, so both run stepped: the sweep at ~12 fps while it travels (it
-   rests for the last 28 % of the cycle and a rest draws nothing), the glow at 3 to 4 steps a second. They stop while the window is hidden or unfocused. */
-@keyframes chain-sweep { 0% { transform: translateX(-100%); } 72%, 100% { transform: translateX(340%); } }
-@keyframes chain-breathe { 0%, 100% { opacity: .45; } 40% { opacity: 1; } }
-.chain-ticker { position: absolute; top: 0; height: 39px; display: flex; flex-direction: column; justify-content: center; align-items: center; gap: 2px; overflow: hidden; white-space: nowrap; font: 500 9.5px/1 var(--font-mono); letter-spacing: .04em; color: var(--chain); opacity: .9; }
+.chain-line { position: absolute; left: 0; right: 0; bottom: 0; height: 2px; background: color-mix(in srgb, var(--chain) 70%, transparent); }
+.chain-ticker { position: absolute; top: 0; height: 39px; display: flex; flex-direction: column; justify-content: center; align-items: center; gap: 2px; overflow: hidden; white-space: nowrap; font: 500 9.5px/1 var(--font-mono); letter-spacing: .04em; color: var(--chain); opacity: .95; }
 .chain-ticker span:first-child { font-weight: 700; }
-.chain-ticker span + span { opacity: .75; }
-:root[data-win='away'] .chain-line::after, :root[data-win='away'] .chain-glow { animation-play-state: paused; }
-@media (prefers-reduced-motion: reduce) {
-  .chain-line::after { display: none; animation: none; }
-  .chain-line { background: color-mix(in srgb, var(--chain) 62%, transparent); }
-  .chain-glow { animation: none; opacity: .7; }
-}
+.chain-ticker span + span { opacity: .8; }
+.chain-overlay[data-chain='armed'] .chain-line, .chain-overlay[data-warn='1'] .chain-line { background: var(--live); }
+.chain-overlay[data-chain='armed'] .chain-ticker, .chain-overlay[data-warn='1'] .chain-ticker { color: var(--live); }
+.chain-overlay[data-chain='frozen'] .chain-line { background: var(--muted); }
+.chain-overlay[data-chain='frozen'] .chain-ticker { color: var(--muted); }
+
+/* ---- LIVE FUNDS frame: a static amber border around the whole window while mainnet is armed ---- */
+.live-border { position: fixed; inset: 0; z-index: 9000; pointer-events: none; box-shadow: inset 0 0 0 3px var(--live); }
+
+/* ---- the pill: armed / pending / frozen / wallet on mainnet. Static. Buttons are the only part that takes the pointer. ---- */
+.bsv-pill { position: fixed; top: 48px; left: 50%; transform: translateX(-50%); z-index: 9001; max-width: min(92vw, 760px); display: flex; align-items: center; flex-wrap: wrap; justify-content: center; gap: 8px 10px; padding: 6px 8px 6px 14px; border-radius: 999px; background: var(--surface); border: 1px solid var(--line-strong); color: var(--text); font-size: 12.5px; line-height: 1.3; box-shadow: 0 2px 10px rgba(0, 0, 0, .28); }
+.bsv-pill.armed { border: 2px solid var(--live); background: color-mix(in srgb, var(--live) 12%, var(--surface)); }
+.bsv-pill.armed .bsv-pill-text b { color: var(--live); letter-spacing: .06em; }
+.bsv-pill.mainnet { border-color: var(--live); background: color-mix(in srgb, var(--live) 10%, var(--surface)); }
+.bsv-pill.frozen { color: var(--text-2); }
+.bsv-count { font: 600 13px/1 var(--font-mono); font-variant-numeric: tabular-nums; color: var(--live); }
+.bsv-pill button { height: 26px; padding: 0 12px; border-radius: 13px; font-size: 12px; font-weight: 600; cursor: pointer; }
+.bsv-freeze { background: var(--live); color: var(--live-ink); border: 1px solid transparent; }
+.bsv-freeze:hover:not(:disabled) { filter: brightness(1.08); }
+.bsv-pill-btn { background: transparent; color: var(--text-2); border: 1px solid var(--line-strong); }
+.bsv-pill-btn:hover:not(:disabled) { background: var(--surface-3); color: var(--text); }
+.bsv-pill button:disabled { opacity: .55; cursor: progress; }
+.bsv-pill button:focus-visible, .bsv-panel button:focus-visible { outline: 2px solid var(--chain); outline-offset: 2px; }
+
+/* ---- the panel ---- */
+.bsv-panel { display: grid; gap: 14px; }
+.bsv-lead { margin: 0; color: var(--text-2); font-size: 13px; line-height: 1.55; }
+.bsv-sec { border: 1px solid var(--line); border-radius: var(--r); padding: 12px 14px; background: var(--surface-2); display: grid; gap: 8px; }
+.bsv-sec h3 { margin: 0; font: 600 11px/1 var(--font-mono); letter-spacing: .08em; text-transform: uppercase; color: var(--chain); }
+.bsv-line { margin: 0; font-size: 13px; line-height: 1.5; color: var(--text); }
+.bsv-line.warn { color: var(--live); font-weight: 600; }
+.bsv-line.live { color: var(--live); font-weight: 600; }
+.bsv-fine { margin: 0; font-size: 12px; line-height: 1.5; color: var(--muted); }
+.bsv-fine b { color: var(--text-2); }
+.bsv-dim { color: var(--muted); }
+.bsv-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.bsv-kv { margin: 0; display: grid; grid-template-columns: max-content 1fr; gap: 3px 14px; font-size: 12.5px; }
+.bsv-kv dt { color: var(--muted); }
+.bsv-kv dd { margin: 0; color: var(--text); overflow-wrap: anywhere; }
+.bsv-chip { height: 26px; padding: 0 12px; border-radius: 13px; border: 1px solid var(--line-strong); background: transparent; color: var(--text-2); font: 600 12px/1 var(--font-mono); cursor: pointer; }
+.bsv-chip.on { border-color: var(--live); color: var(--live); background: var(--live-soft); }
+.bsv-input { flex: 1 1 200px; min-width: 0; height: 30px; padding: 0 10px; border-radius: 6px; border: 1px solid var(--line-strong); background: transparent; color: var(--text); font: 500 12px/1 var(--font-mono); }
+.bsv-input:disabled { opacity: 0.6; }
+.bsv-arm { border-color: var(--live); color: var(--live); }
+.bsv-arm:hover:not(:disabled) { background: var(--live-soft); }
+.bsv-freeze-btn { border-color: var(--line-strong); }
+.bsv-panel button:disabled { opacity: .5; cursor: not-allowed; }
+.bsv-log { list-style: none; margin: 0; padding: 0; max-height: 240px; overflow: auto; border: 1px solid var(--line); border-radius: var(--r-sm); background: var(--surface); }
+.bsv-log li { display: grid; grid-template-columns: 8.4em 7em 1fr; gap: 2px 10px; padding: 6px 10px; border-bottom: 1px solid var(--line); font-size: 12px; line-height: 1.4; }
+.bsv-log li:last-child { border-bottom: 0; }
+.bsv-log-when { color: var(--muted); font-family: var(--font-mono); font-size: 11px; }
+.bsv-log-who { color: var(--text-2); overflow-wrap: anywhere; }
+.bsv-log-what { color: var(--text); font-family: var(--font-mono); font-size: 11.5px; overflow-wrap: anywhere; }
+.bsv-log-why { grid-column: 3; color: var(--muted); overflow-wrap: anywhere; }
+.bsv-log li[data-decision='denied'] .bsv-log-what, .bsv-log li[data-decision='frozen'] .bsv-log-what, .bsv-log li[data-decision='armed'] .bsv-log-what { color: var(--live); }
+.bsv-log-empty { display: block !important; color: var(--muted); }
+@media (max-width: 560px) { .bsv-log li { grid-template-columns: 1fr; } .bsv-log-why { grid-column: 1; } }
 
 /* ---- first-enable dialog ---- */
 .bsv-confirm { margin: 0; padding: 0; list-style: none; display: grid; gap: 10px; }
