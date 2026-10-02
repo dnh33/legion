@@ -33,6 +33,6 @@ Cloud work runs on the claude.ai/code web surface (credits). Branches live in pr
 
 ## Open owner decisions
 
-- BSV knowledge pack licence position (review: 91 of 157 nodes have only unverified/no-licence sources; 24 cite private `legion-specs` docs).
+- DECIDED 2026-10-02: BSV knowledge pack: soften NOTICE to "written in our own words from public documentation; licence status of some sources not established", ship pack unchanged (91 of 157 nodes only unverified/no-licence sources; 24 cite private `legion-specs` docs). To apply after the packaging fix session lands.
 - Release version/installer assumed 0.1.0 + robocopy installer, unsigned (assumed, not confirmed).
 - Weekly Claude usage at ~98% (resets Mon Oct 5 01:00): cloud sessions may stall.
