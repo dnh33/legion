@@ -71,6 +71,8 @@ export interface BsvModuleOptions {
   clock?: Clock;
   now?: () => number;
   probeMinIntervalMs?: number;
+  /** How long the spend tool waits for a final state before it answers pending-owner / pending-wallet (default 100 s; tests shorten it). */
+  spendToolWaitMs?: number;
   /** Shared with the composition root (bsvEnabled reads it). Created from deps when omitted. */
   state?: BsvState;
   /** The knowledge-graph module, when present: its HTTP route handlers are reused to load the seed and count nodes. */
@@ -79,7 +81,7 @@ export interface BsvModuleOptions {
 
 const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v);
 
-export function createBsvModule(deps: ModuleDeps, opts: BsvModuleOptions = {}): CoreModule & { state: BsvState; policy: PolicyEngine; audit: AuditLog; probe: WalletProbeService; ensureSeed: () => Promise<BsvSeedResult>; start: () => Promise<void> } {
+export function createBsvModule(deps: ModuleDeps, opts: BsvModuleOptions = {}): CoreModule & { state: BsvState; policy: PolicyEngine; audit: AuditLog; probe: WalletProbeService; spend: SpendService; ensureSeed: () => Promise<BsvSeedResult>; start: () => Promise<void> } {
   const state = opts.state ?? new BsvState({ dataDir: deps.dataDir, config: deps.config });
   const log = opts.log ?? (() => undefined);
 
@@ -209,7 +211,7 @@ export function createBsvModule(deps: ModuleDeps, opts: BsvModuleOptions = {}): 
     }
   };
   const statusCalls = new Map<string, number>();
-  spend = createSpendService({ policy, probe, audit, state, transport: opts.transport ?? httpTransport, now: opts.now, checkPolicyFile, log });
+  spend = createSpendService({ policy, probe, audit, state, transport: opts.transport ?? httpTransport, now: opts.now, toolWaitMs: opts.spendToolWaitMs, checkPolicyFile, log });
 
   /** Every policy change needs the native secret, in addition to the admin secret the gate already checked. */
   const requireNative = (req: { headers?: Record<string, string | string[] | undefined> } | undefined) => {
@@ -311,6 +313,7 @@ export function createBsvModule(deps: ModuleDeps, opts: BsvModuleOptions = {}): 
       ? { [BSV_SERVER_NAME]: buildBsvStatusServer({ agent, job, state, policy, probe, audit, calls: statusCalls, checkPolicyFile, extraTools: [spend!.buildTool(agent, job)] }) }
       : {}),
     policy, audit, probe,
+    get spend(): SpendService { return spend!; },
     dispose: () => { spend?.dispose(); },
     routes: (add) => {
       registerMainnetRoutes(add, { policy, requireNative, checkPolicyFile, persist: persistPolicy, note, bsvEnabled: () => state.enabled, view: policyView });

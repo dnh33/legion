@@ -78,6 +78,8 @@ export const SPEND_LIMITS = {
   maxPerTask: 3, maxPerWindow: 5, windowMs: 600_000, maxTx: 256 * 1024, maxIo: 100, maxTxs: 200, maxFlows: 200,
 } as const;
 
+/** Argument names that might hope to pick the network. They are refused (`extra-input`), never read. Built from the network table, so this file spells no network. */
+const NOT_INPUTS: string[] = [...Object.keys(NET), ...Object.keys(NET).map((k) => `${k}net`), 'network', 'chain', 'net'];
 const HEX64 = /^[0-9a-f]{64}$/;
 const REQUEST_KEY = /^[A-Za-z0-9_-]{8,64}$/;
 const REFERENCE = /^[A-Za-z0-9+/=_.-]{1,512}$/;
@@ -222,9 +224,10 @@ export function decodeSignable(bytes: Uint8Array): Decoded | null {
         byId.set(id, null); last = null; continue;
       }
       if (fmt > 2) return null;
+      // V2 (BRC-96): format byte, then (format 1) the BUMP index, then the raw transaction. V1 (BRC-62): raw transaction, then a has-BUMP byte and the index.
+      if (v2 && fmt === 1 && r.varint() >= nBumps) return null;
       const t = parseTx(r);
-      const hasBump = v2 ? fmt === 1 : r.u8();
-      if (hasBump === 1 || hasBump === true) { if (r.varint() >= nBumps) return null; } else if (hasBump !== 0 && hasBump !== false) return null;
+      if (!v2) { const hasBump = r.u8(); if (hasBump === 1) { if (r.varint() >= nBumps) return null; } else if (hasBump !== 0) return null; }
       if (byId.has(t.txid)) return null; // a repeated transaction
       byId.set(t.txid, t); last = t;
     }
@@ -329,7 +332,7 @@ interface Flow {
   net?: Net;
   tainted: boolean;
   status: SpendStatus; codes: ReasonCode[]; txid?: string; totalSats?: number;
-  phase: 'building' | 'card' | 'signing' | 'over';
+  phase: 'building' | 'card' | 'in-wallet' | 'over';
   reference?: string; aborted: boolean;
   card?: ApprovalCard;
   /** What the owner approved: the payment and (at most) one wallet-claimed change output. */
@@ -378,7 +381,7 @@ export function createSpendService(deps: SpendDeps): SpendService {
   };
 
   const syncTimer = (): void => {
-    const open = [...flows.values()].some((f) => f.phase === 'card' || f.phase === 'signing');
+    const open = [...flows.values()].some((f) => f.phase === 'card' || f.phase === 'in-wallet');
     if (open && !timer) { timer = setInterval(() => { try { tick(); } catch { /* a tick must not throw */ } }, 5_000); timer.unref?.(); }
     if (!open && timer) { clearInterval(timer); timer = null; }
   };
@@ -414,7 +417,7 @@ export function createSpendService(deps: SpendDeps): SpendService {
       abort(f);
       if (st === 'expired') finalize(f, 'expired', []);
       else finalize(f, 'declined', [policy.isFrozen ? 'frozen' : f.net && NET[f.net].liveFunds && !policy.mainnetEnabled ? 'mainnet-disabled' : 'wallet-network-changed']);
-    } else if (f.phase === 'signing' && st !== 'approved') {
+    } else if (f.phase === 'in-wallet' && st !== 'approved') {
       // frozen or overdue while the wallet may be signing: the outcome is unknown; a later answer is evidence only
       finalize(f, 'unknown', [policy.isFrozen ? 'frozen' : 'wallet-unreachable']);
     }
@@ -513,7 +516,7 @@ export function createSpendService(deps: SpendDeps): SpendService {
     finalize(f, 'unknown', ['wallet-signed-early'], { txid: valid });
   }
 
-  function handle(agent: AgentProfile, job: ModuleJob | undefined, raw: unknown): SpendResult {
+  function handle(agent: AgentProfile, job: ModuleJob | undefined, raw: unknown): { r: SpendResult; f?: Flow } {
     const taskId = job?.taskId ?? '';
     tick();
     try { deps.checkPolicyFile?.(); } catch { /* a failed check must not turn into a contact: the frozen test below still runs */ }
@@ -527,24 +530,24 @@ export function createSpendService(deps: SpendDeps): SpendService {
 
     // the same key: the stored state, no new wallet call (replaces a blind retry)
     const seen = id ? flows.get(id) : undefined;
-    if (seen) return seen.payloadHash === payloadHash ? view(seen) : refuse('key-reused', agent, taskId, id, seen.net);
+    if (seen) return seen.payloadHash === payloadHash ? { r: view(seen), f: seen } : { r: refuse('key-reused', agent, taskId, id, seen.net) };
 
     // ---- G: gates. Every one is synchronous and ends in a refusal with no wallet contact and no reservation.
-    if (!deps.state.enabled) return refuse('bsv-off', agent, taskId);
-    if (agent.requires !== 'bsv') return refuse('not-assayer', agent, taskId);
-    if (!job || job.origin !== undefined) return refuse('not-human-run', agent, taskId); // bridge, room and MCP-client runs never reach the spend path
-    if (policy.isFrozen) return refuse('frozen', agent, taskId);
-    if (policy.snapshot().unknown.length > 0) return refuse('unknown-outcome-pending', agent, taskId);
+    if (!deps.state.enabled) return { r: refuse('bsv-off', agent, taskId) };
+    if (agent.requires !== 'bsv') return { r: refuse('not-assayer', agent, taskId) };
+    if (!job || job.origin !== undefined) return { r: refuse('not-human-run', agent, taskId) }; // bridge, room and MCP-client runs never reach the spend path
+    if (policy.isFrozen) return { r: refuse('frozen', agent, taskId) };
+    if (policy.snapshot().unknown.length > 0) return { r: refuse('unknown-outcome-pending', agent, taskId) };
     // fields an agent might hope can pick the network: present at all = refused
-    if (['network', 'chain', 'net', 'mainnet', 'testnet'].some((k) => args[k] !== undefined)) return refuse('extra-input', agent, taskId);
-    if (!id) return refuse('extra-input', agent, taskId);
-    if (!recipient || decodeAddress(recipient) === null) return refuse('bad-recipient', agent, taskId);
-    if (typeof sats !== 'number' || !Number.isSafeInteger(sats) || sats < 1 || sats > 1_000_000 || purpose.length < 1) return refuse('extra-input', agent, taskId);
-    if (inflight) return refuse('busy', agent, taskId);
-    if ((perTask.get(taskId) ?? 0) >= SPEND_LIMITS.maxPerTask) return refuse('too-many-requests', agent, taskId);
+    if (NOT_INPUTS.some((k) => args[k] !== undefined)) return { r: refuse('extra-input', agent, taskId) };
+    if (!id) return { r: refuse('extra-input', agent, taskId) };
+    if (!recipient || decodeAddress(recipient) === null) return { r: refuse('bad-recipient', agent, taskId) };
+    if (typeof sats !== 'number' || !Number.isSafeInteger(sats) || sats < 1 || sats > 1_000_000 || purpose.length < 1) return { r: refuse('extra-input', agent, taskId) };
+    if (inflight) return { r: refuse('busy', agent, taskId) };
+    if ((perTask.get(taskId) ?? 0) >= SPEND_LIMITS.maxPerTask) return { r: refuse('too-many-requests', agent, taskId) };
     const t = clock();
     while (proposals.length && proposals[0]! < t - SPEND_LIMITS.windowMs) proposals.shift();
-    if (proposals.length >= SPEND_LIMITS.maxPerWindow) return refuse('rate-limited', agent, taskId);
+    if (proposals.length >= SPEND_LIMITS.maxPerWindow) return { r: refuse('rate-limited', agent, taskId) };
 
     // ---- P: `proposed` is written before any wallet contact; if it cannot be written, nothing happens
     let done = (): void => undefined;
@@ -555,14 +558,14 @@ export function createSpendService(deps: SpendDeps): SpendService {
     };
     try {
       audit.append({ agent: agent.id, task: taskId, tool: SPEND_TOOL, decision: 'proposed', fields: { requestId: id, net: 'unknown', sats, recipientHash: sha256(recipient).toString('hex').slice(0, 16), purposeHash: sha256(purpose).toString('hex').slice(0, 16), tainted: f.tainted } });
-    } catch { return refuse('audit-unavailable', agent, taskId); }
+    } catch { return { r: refuse('audit-unavailable', agent, taskId) }; }
     perTask.set(taskId, (perTask.get(taskId) ?? 0) + 1);
     proposals.push(t);
     inflight = id;
     flows.set(id, f); evict();
     f.status = 'pending-wallet';
     bg(propose(f, agent).catch(() => { abort(f); finalize(f, 'failed', ['build-failed']); }));
-    return view(f);
+    return { r: view(f), f };
   }
 
   // ------------------------------------------------------------ the owner's answer
@@ -613,7 +616,7 @@ export function createSpendService(deps: SpendDeps): SpendService {
         finalize(f, 'failed', ['audit-unavailable']);
         return { ok: true, status: f.status };
       }
-      f.phase = 'signing'; f.status = 'pending-wallet';
+      f.phase = 'in-wallet'; f.status = 'pending-wallet';
       syncTimer();
       bg(signPhase(f).catch(() => { reconcile(f); finalize(f, 'unknown', ['wallet-unreachable']); }));
       return { ok: true, status: f.status };
@@ -729,12 +732,11 @@ export function createSpendService(deps: SpendDeps): SpendService {
         sats: z.number().int().min(1).max(1_000_000),
         purpose: z.string().min(1).max(200),
         // not inputs: declared only so that an attempt to send one is seen and refused instead of silently dropped
-        network: z.unknown().optional(), chain: z.unknown().optional(), net: z.unknown().optional(), mainnet: z.unknown().optional(), testnet: z.unknown().optional(),
+        ...Object.fromEntries(NOT_INPUTS.map((k) => [k, z.unknown().optional()])),
       },
       async (args: Record<string, unknown>) => {
         try {
-          const first = handle(agent, job, args);
-          const f = first.requestId ? flows.get(first.requestId) : undefined;
+          const { r: first, f } = handle(agent, job, args);
           if (!f || isOver(f)) return text(renderSpendResult(first), first.status === 'denied');
           let t: ReturnType<typeof setTimeout> | undefined;
           await Promise.race([f.done, new Promise<void>((res) => { t = setTimeout(res, waitMs); t.unref?.(); })]);

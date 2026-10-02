@@ -16,7 +16,8 @@
  * built from pieces, a computed CALL (x[k]()), eval, Function, Reflect, `this[...]` / globalThis[...] and look-alike (non-ASCII) letters in
  * code are refused. None of that makes a determined author caught: it makes the casual and the clever-looking evasions fail the build.
  */
-import { readdirSync, readFileSync, statSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 
 /** The code that the stricter anti-obfuscation rules apply to. */
@@ -30,7 +31,33 @@ export const PROBE_FILE = 'src/core/bsv/wallet-probe.ts';
 /** The read-only wallet methods the probe may name. Anything else wallet-shaped fails the build, in every file including the probe. */
 export const PROBE_METHOD_ALLOWLIST = ['getVersion', 'getNetwork', 'isAuthenticated', 'getHeight'] as const;
 /** The one wallet-shaped tool name an agent may have (status only), and the only file that may register it. */
-export const ALLOWED_WALLETY_TOOLS: Record<string, string> = { bsv_status: 'src/core/bsv/wallet-tool.ts' };
+export const ALLOWED_WALLETY_TOOLS: Record<string, string> = { bsv_status: 'src/core/bsv/wallet-tool.ts', bsv_spend_request: 'src/core/bsv/spend.ts' };
+
+/** The ONE file that may name the three spend methods and register the spend tool. Its content hash is pinned (SPEND_PINS): if it differs, the file gets NO exemption. */
+export const SPEND_FILE = 'src/core/bsv/spend.ts';
+/** The network table, pinned too: the one place (besides policy and the probe) that spells a network. */
+export const NETWORKS_FILE = 'src/core/bsv/networks.ts';
+/** The only wallet method names spend.ts may quote. It may not name the probe's four (it gets the network from the probe service). */
+export const SPEND_METHOD_ALLOWLIST = ['createAction', 'signAction', 'abortAction'] as const;
+/**
+ * sha256 of the file content with CRLF normalised to LF (and .gitattributes keeps these two files LF). Updating one needs the reviewer's sign-off
+ * in the PR; `node scripts/bsv-spend-pin.mjs` prints the current values (it reads two files and nothing else).
+ */
+export const SPEND_PINS: Record<string, string> = {
+  [SPEND_FILE]: '667d35aebec04adf200eb2c05f00f241f7266dba18011c2da8ce912e4f81fcc0',
+  [NETWORKS_FILE]: '7c5153e09b10f958a0275a0ea5b535fbccd7b5a1aea418b189e8411e766338c8',
+};
+/** Files that may spell a network (main / test / live ...) in the BSV area, with the reason. spend.ts, audit.ts and wallet-tool.ts are NOT here: they take the network as an opaque value. */
+export const NET_LITERAL_STRICT_FILES = ['src/core/bsv/spend.ts', 'src/core/bsv/audit.ts', 'src/core/bsv/wallet-tool.ts'];
+/** Files that may name the mainnet switch route. */
+const MAINNET_ROUTE_FILES = /^(?:src\/core\/bsv\/(?:mainnet-routes|index)\.ts|src\/electron\/(?:admin-logic|main)\.ts|ui\/src\/bsv\/[^/]+)$/;
+/** Files that may name an importer-restricted symbol. */
+const HTTP_TRANSPORT_FILES = new Set(['src/core/bsv/wallet-probe.ts', 'src/core/bsv/index.ts', SPEND_FILE]);
+/** Policy calls the spend path may never make: it can only make things safer. */
+const SPEND_POLICY_FORBIDDEN = /\bsetMainnetEnabled\b|\bunfreeze\b|\bsetCaps\b|\bsetAllowlist\b|\.\s*arm\s*\(/;
+const NET_LITERAL_TOKEN = /(['"`])(?:main|mainnet|test|testnet|live)\1/i;
+const NET_LITERAL_KEY = /[{,]\s*(?:main|mainnet|test|testnet|live)\s*:/i;
+const NET_LITERAL_MEMBER = /\.\s*(?:main|mainnet|test|testnet|live)\b(?!\s*\()/i;
 
 /** Path (from the repo root, forward slashes) -> what that file may do and why. Anything else fails. */
 export const ALLOWLIST: Allow = {
@@ -203,7 +230,9 @@ export const normalize = (src: string): string => joinLiterals(unescapeLiterals(
 // ------------------------------------------------------------------ the rules
 
 /** Names that no source may contain anywhere (comments included, spelled in pieces included). The wallet port is allowed in the probe file only. */
-const FORBIDDEN = /walletclient|httpwalletjson|@bsv\/sdk|createaction/i;
+const FORBIDDEN = /walletclient|httpwalletjson|@bsv\/sdk/i;
+/** `createAction` is forbidden everywhere except in the pinned spend file (checked per file). */
+const CREATE_ACTION = /createaction/i;
 const WALLET_PORT = /(?<![\w.])3321(?!\w)/;
 /**
  * Every other BRC-100 method name that can sign, spend, reveal a balance, a key, a certificate or an address, or that blocks on the wallet's
@@ -211,7 +240,7 @@ const WALLET_PORT = /(?<![\w.])3321(?!\w)/;
  * names encrypt/decrypt/createHmac/verifyHmac are not scanned: node:crypto and the UI have the same words; the probe cannot send them anyway
  * (its method list is checked at the point of use and on the wire by test/bsv-wallet-probe.test.ts).
  */
-const WALLET_METHODS_FORBIDDEN = /\b(?:signAction|abortAction|internalizeAction|listActions|listOutputs|relinquishOutput|getPublicKey|revealCounterpartyKeyLinkage|revealSpecificKeyLinkage|createSignature|verifySignature|acquireCertificate|listCertificates|proveCertificate|relinquishCertificate|discoverByIdentityKey|discoverByAttributes|waitForAuthentication|getHeaderForHeight)\b/i;
+const WALLET_METHODS_FORBIDDEN = /\b(?:internalizeAction|listActions|listOutputs|relinquishOutput|getPublicKey|revealCounterpartyKeyLinkage|revealSpecificKeyLinkage|createSignature|verifySignature|acquireCertificate|listCertificates|proveCertificate|relinquishCertificate|discoverByIdentityKey|discoverByAttributes|waitForAuthentication|getHeaderForHeight)\b/i;
 /** A quoted camelCase name shaped like a wallet method (get/is/create/sign/...): outside the probe the four read-only names fail as quoted strings, inside it only they pass. */
 const METHOD_SHAPED = /^(?:get|is|create|sign|abort|internalize|list|relinquish|reveal|verify|acquire|prove|discover|wait|encrypt|decrypt)[A-Z][A-Za-z]{2,40}$/;
 const FOUR = new Set<string>(PROBE_METHOD_ALLOWLIST);
@@ -237,8 +266,9 @@ const AREA_CODE_RULES: Array<[RegExp, string]> = [
 const HIDDEN_IDENT_ANYCASE = /^(?:sign\w*|broadcast\w*|inscribe\w*|createAction|WalletClient|wif|privateKey|private_key|mnemonic|seedPhrase|xprv|spend|spending)$/i;
 const HIDDEN_IDENT_CAMEL = /^(?:spend[A-Z_]\w*|send\w*Transaction)$/;
 const HIDDEN_IDENT = { test: (w: string): boolean => HIDDEN_IDENT_ANYCASE.test(w) || HIDDEN_IDENT_CAMEL.test(w) };
-/** `file#name` pairs that are real and reviewed (none today). */
-const HIDDEN_IDENT_OK = new Set<string>();
+/** `file#name` pairs that are real and reviewed: the two spend method names in the pinned spend file. */
+const HIDDEN_IDENT_OK = new Set<string>([`${SPEND_FILE}#createAction`, `${SPEND_FILE}#signAction`]);
+const SPEND_ONLY_METHODS = /\b(?:signAction|abortAction)\b/i;
 const NET_IDENT = /\b(?:fetch|XMLHttpRequest|WebSocket|EventSource|sendBeacon|StreamableHTTPClientTransport|SSEClientTransport|WebSocketClientTransport)\b/;
 const SOCKET_MODULE = /^(?:node:)?(?:https|http2|net|tls|dgram|dns|dns\/promises|cluster)$|^(?:undici|axios|node-fetch|cross-fetch|ws|got|superagent|request|socket\.io(?:-client)?)$/;
 const HTTP_MODULE = /^(?:node:)?http$/;
@@ -253,17 +283,27 @@ const WALLETY = new Set(['wallet', 'bsv', 'spend', 'spending', 'pay', 'payment',
 /** Loopback hosts, plus `legion.local`: the originator name Legion declares to a wallet (an Origin header value, never a place it connects to). */
 const LOOPBACK = /^(?:127\.0\.0\.1|localhost|\[::1\]|legion\.local)$/;
 
-/** Scans `root`/src and `root`/ui/src. `allow` defaults to ALLOWLIST. */
-export function scanTree(root: string, allow: Allow = ALLOWLIST): ScanResult {
+const normHash = (text: string): string => createHash('sha256').update(text.replace(/\r\n/g, '\n')).digest('hex');
+
+/** Scans `root`/src and `root`/ui/src. `allow` defaults to ALLOWLIST. `opts.pins` replaces SPEND_PINS (tests prove the RULES reject a planted file even when its hash is pinned). */
+export function scanTree(root: string, allow: Allow = ALLOWLIST, opts: { pins?: Record<string, string> } = {}): ScanResult {
+  const pins = opts.pins ?? SPEND_PINS;
   const files: string[] = [];
   for (const r of ROOTS) walk(root, r, files);
   const violations: string[] = [];
   const toolNames: string[] = [];
   const matched = new Set<string>();
 
+  for (const p of Object.keys(pins)) if (!files.includes(p) || !existsSync(join(root, p))) violations.push(`${p}: pinned in SPEND_PINS but missing (a pin or tool entry with no file is a dead allowance)`);
+
   for (const f of files) {
     const raw = readFileSync(join(root, f), 'utf8');
     const { kept, code } = lex(raw);
+    // pinned files: a hash that differs from the pin means the file is unreviewed; it then gets none of the exemptions below
+    const pinned = pins[f];
+    const pinOk = pinned !== undefined && normHash(raw) === pinned;
+    if (pinned !== undefined && !pinOk) violations.push(`${f}: differs from the reviewed pin; re-review and update SPEND_PINS (sha256 ${normHash(raw).slice(0, 12)}...)`);
+    const isSpend = f === SPEND_FILE && pinOk;
     const joinedRaw = normalize(raw);
     const joinedKept = normalize(kept);
     const allowed = new Set(allow[f]?.kinds ?? []);
@@ -273,6 +313,12 @@ export function scanTree(root: string, allow: Allow = ALLOWLIST): ScanResult {
     // names that never belong anywhere (comments included)
     const tok = FORBIDDEN.exec(joinedRaw);
     if (tok) bad(`contains ${tok[0]}`);
+    if (!isSpend) {
+      const ca = CREATE_ACTION.exec(joinedRaw);
+      if (ca) bad(`contains ${ca[0]} (only the pinned spend module ${SPEND_FILE} may name it)`);
+      const so = SPEND_ONLY_METHODS.exec(joinedRaw);
+      if (so) bad(`contains the wallet method name ${so[0]} (only the pinned spend module ${SPEND_FILE} may name it)`);
+    }
     const meth = WALLET_METHODS_FORBIDDEN.exec(joinedRaw);
     if (meth) bad(`contains the wallet method name ${meth[0]} (only the four read-only status methods may exist, and only in ${PROBE_FILE})`);
     const port = WALLET_PORT.exec(joinedRaw);
@@ -281,7 +327,7 @@ export function scanTree(root: string, allow: Allow = ALLOWLIST): ScanResult {
     for (const m of joinedKept.matchAll(/(['"`])([A-Za-z]{5,48})\1/g)) {
       const w = m[2]!;
       if (!METHOD_SHAPED.test(w)) continue;
-      if (f === PROBE_FILE ? !FOUR.has(w) : FOUR.has(w)) bad(`names the wallet method "${w}" in a string${f === PROBE_FILE ? ' (the probe may name only ' + PROBE_METHOD_ALLOWLIST.join(', ') + ')' : ` (wallet method names belong in ${PROBE_FILE} only)`}`);
+      if (isSpend ? !(SPEND_METHOD_ALLOWLIST as readonly string[]).includes(w) : f === PROBE_FILE ? !FOUR.has(w) : FOUR.has(w) || (SPEND_METHOD_ALLOWLIST as readonly string[]).includes(w)) bad(`names the wallet method "${w}" in a string${f === PROBE_FILE ? ' (the probe may name only ' + PROBE_METHOD_ALLOWLIST.join(', ') + ')' : ` (wallet method names belong in ${PROBE_FILE} only)`}`);
     }
 
     // the BSV areas: no way of spelling a sign / spend / broadcast / inscribe name, or of reaching one at run time, that the scan cannot read
@@ -297,6 +343,19 @@ export function scanTree(root: string, allow: Allow = ALLOWLIST): ScanResult {
       const pieces = /(?<=[\w$)\]])\[[^\]\[\n]*(?:""[^\]\[\n]*\+|\+[^\]\[\n]*""|\.join\s*\(|\.concat\s*\(|\bString\b)[^\]\[\n]*\]/.exec(code);
       if (pieces) bad(`a computed member built from pieces ("${pieces[0].slice(0, 40)}"): the name it reaches cannot be read`);
       if (/(?<=[\w$)\]])\[\s*`[^`\n]*\$\{/.test(kept)) bad('a computed member built from a template literal: the name it reaches cannot be read');
+    }
+
+    // the network table and the spend path: opaque networks, a one-way policy API, one importer list for the transport
+    if (NET_LITERAL_STRICT_FILES.includes(f)) {
+      const lit = NET_LITERAL_TOKEN.exec(joinedKept) ?? NET_LITERAL_KEY.exec(code) ?? NET_LITERAL_MEMBER.exec(code);
+      if (lit) bad(`spells a network ("${lit[0].trim()}"): this file takes the network as an opaque value and looks everything up through NET[net]`);
+    }
+    if (f === SPEND_FILE) { const pf = SPEND_POLICY_FORBIDDEN.exec(code); if (pf) bad(`the spend path calls "${pf[0].trim()}" on the policy: it may only make things safer (evaluate, approve, deny, settle, resolveUnknown, status, snapshot, freeze, disarm, mainnetOff, voidPending, canSign)`); }
+    if (f !== 'src/core/bsv/policy.ts' && f !== 'src/core/bsv/mainnet-routes.ts' && /\bsetMainnetEnabled\b/.test(code)) bad('names setMainnetEnabled (only policy.ts and mainnet-routes.ts may)');
+    if (!MAINNET_ROUTE_FILES.test(f) && joinedKept.includes('/api/bsv/policy/mainnet')) bad('names the mainnet switch route (only mainnet-routes.ts, the Electron admin logic and main, index.ts and the UI store may)');
+    if (!HTTP_TRANSPORT_FILES.has(f) && /\bhttpTransport\b/.test(code)) bad('names httpTransport (only wallet-probe.ts, index.ts and spend.ts may)');
+    if (f === NETWORKS_FILE) {
+      for (const m of joinedKept.matchAll(/(?:\bfrom|\bimport\s*\(|\brequire\s*\(|\bimport)\s*['"`]([^'"`]+)['"`]/g)) if (m[1] !== 'node:crypto') bad(`imports ${m[1]} (the network table imports only node:crypto)`);
     }
 
     // network globals: aliases, computed access, names in strings

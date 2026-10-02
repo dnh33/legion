@@ -4,3 +4,5 @@
 *.png binary
 *.ico binary
 *.woff2 binary
+src/core/bsv/spend.ts text eol=lf
+src/core/bsv/networks.ts text eol=lf
