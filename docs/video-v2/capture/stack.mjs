@@ -27,7 +27,8 @@ const hex = (n) => randomBytes(n).toString('hex');
 const freePort = () => new Promise((res, rej) => { const s = createNetServer(); s.once('error', rej); s.listen(0, '127.0.0.1', () => { const p = s.address().port; s.close(() => res(p)); }); });
 const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.mjs': 'text/javascript', '.css': 'text/css', '.json': 'application/json', '.svg': 'image/svg+xml', '.png': 'image/png', '.woff2': 'font/woff2', '.ico': 'image/x-icon', '.jpg': 'image/jpeg', '.webp': 'image/webp' };
 
-export async function startStack({ blenderEnabled = false } = {}) {
+/** configExtra: extra top-level config.json keys (e.g. {experimental:{projectBoard:true}}); coreEntry: path of an alternative core entry (default: the harness one). */
+export async function startStack({ configExtra = {}, coreEntry = join(repo, 'scripts', 'harness', 'core-entry.mjs') } = {}) {
   if (!existsSync(join(uiDir, 'index.html'))) throw new Error('dist-ui is missing: run npm run build:ui');
   const dir = mkdtempSync(join(tmpdir(), 'legion-v2-capture-'));
   const home = join(dir, 'home');
@@ -41,7 +42,7 @@ export async function startStack({ blenderEnabled = false } = {}) {
   try { chmodSync(blenderPath, 0o755); } catch { /* windows */ }
 
   const authToken = hex(24);
-  writeFileSync(join(home, 'config.json'), JSON.stringify({ authToken, workspaceDir: join(home, 'workspaces'), boat: { baseUrl: boat.baseUrl, apiKey: 'harness-fake-boat-key' } }, null, 2), { mode: 0o600 });
+  writeFileSync(join(home, 'config.json'), JSON.stringify({ authToken, workspaceDir: join(home, 'workspaces'), boat: { baseUrl: boat.baseUrl, apiKey: 'harness-fake-boat-key' }, ...configExtra }, null, 2), { mode: 0o600 });
 
   const adminSecret = hex(32);
   const nativeSecret = hex(32);
@@ -52,7 +53,7 @@ export async function startStack({ blenderEnabled = false } = {}) {
   for (let attempt = 0; attempt < 4 && !core; attempt++) {
     corePort = await freePort();
     const env = coreEnv(process.env, { LEGION_HOME: home, LEGION_PORT: String(corePort), LEGION_ADMIN_STDIN: '1' });
-    const child = spawn(process.execPath, [join(repo, 'scripts', 'harness', 'core-entry.mjs')], { env, stdio: ['pipe', 'ignore', 'pipe', 'ipc'], windowsHide: true });
+    const child = spawn(process.execPath, [coreEntry], { env, stdio: ['pipe', 'ignore', 'pipe', 'ipc'], windowsHide: true });
     child.stderr.on('data', () => undefined);
     child.stdin.on('error', () => undefined);
     child.stdin.end(adminSecret + '\n' + nativeSecret + '\n');

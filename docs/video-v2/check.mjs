@@ -22,12 +22,11 @@ for (const c of NEXT_CARDS) {
   console.log(`${ok ? 'ok  ' : 'SHORT'} ${full.toFixed(2)}s / ${req.toFixed(2)}s  NEXT ${txt}`);
 }
 for (const c of CUTS) { const bt = c.at / BEAT, on = Math.abs(bt - Math.round(bt)) < 1e-6; if (!on) fail(`cut ${c.id} off the beat grid`); }
-const scene = { 'F12': S.bsv, 'F13': S.blender, 'F16': [b(28), b(29)], 'F18': [b(29), b(30)] };
+const scene = { 'F12': S.bsv, 'F13': S.blender, 'F16': [b(30), b(31)], 'F18': [b(31), b(32)], 'F29': [b(15), b(19)] };
 for (const [row, [a, z]] of Object.entries(scene)) {
   const ch = CHIPS.find((c) => c.needs === row);
   if (!ch) { fail(`${row}: no chip`); continue; }
-  const A = a * (a < 100 ? (row === 'F12' || row === 'F13' ? BEAT * 4 : 1) : 1);
-  const lo = row === 'F12' || row === 'F13' ? a * BEAT * 4 : a, hi = row === 'F12' || row === 'F13' ? z * BEAT * 4 : z;
+  const bars = row === 'F12' || row === 'F13'; const lo = bars ? a * BEAT * 4 : a, hi = bars ? z * BEAT * 4 : z;
   if (ch.a > lo + 2 * BEAT * 2 || ch.b < hi - BEAT * 1.5) fail(`${row}: chip "${ch.text}" does not cover its scene (${ch.a}-${ch.b} vs ${lo}-${hi})`);
   else console.log(`ok   ${row} chip covers its scene: ${ch.text}`);
 }
@@ -35,7 +34,7 @@ const BANNED = /\b(safe|safely|secure|secured|security|verified|bypass|bypassed|
 const allText = [...CAPS.map((c) => c.text), ...CHIPS.map((c) => c.text), ...NEXT_CARDS.flatMap((c) => [c.title, c.sub]), ...LOG.flatMap((L) => L.segs.map((s) => s[0]))];
 for (const t of allText) if (BANNED.test(t)) fail(`banned word in "${t}"`);
 if (/\b20\d\d\b|\bQ[1-4]\b|\bsoon\b/i.test(allText.join(' '))) fail('a date or "soon" on screen');
-const nextA = b(31), nextZ = b(36);
+const nextA = b(33), nextZ = b(38);
 for (const s of SHOTS) if (s.in < nextZ && s.out > nextA) fail(`UI shot ${s.id} overlaps the NEXT block (planned items get text cards only)`);
 for (const slot of new Set(CAPS.map((c) => c.slot))) {
   const L = CAPS.filter((c) => c.slot === slot).sort((x, y) => x.a - y.a);

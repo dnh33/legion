@@ -16,8 +16,8 @@ const ROOT = path.resolve(HERE, '../..');
 import { T, FPS, GIF_SEGMENTS, cues } from './timeline.mjs';
 const FRAMES = Math.round(FPS * T.dur);
 const GIF_FPS = Number(process.env.GIF_FPS || 12);
-const POSTER_T = Number(process.env.POSTER_T || 97.4);
-const KEYS = [3.5, 7.2, 14, 19.5, 23.5, 27, 31, 34.5, 40, 44, 48, 55, 58.5, 64, 70, 73, 76.5, 84, 87, 90.4, 97.4];
+const POSTER_T = Number(process.env.POSTER_T || 102.4);
+const KEYS = [3.5, 7.2, 14, 19.5, 23.5, 27, 31, 34.5, 39.5, 41.5, 44, 46, 48.8, 55, 59, 62, 68, 72, 76, 79, 85, 92, 95.5, 102.4];
 const args = process.argv.slice(2);
 const WORKERS = Number(process.env.WORKERS || Math.min(2, os.cpus().length));
 const TMP = process.env.VIDEO_TMP || path.join(os.tmpdir(), 'legion-video-v2');
@@ -49,7 +49,7 @@ async function openPage(browser, port, gif = false) {
   await page.waitForFunction('window.__ready === true', null, { timeout: 60000 });
   // the painted mascots carry their own code-scroll text (art, untouchable); check only our own elements
   const txt = await page.evaluate(() => { const c = document.body.cloneNode(true); c.querySelectorAll('.mx,svg,canvas,script').forEach((e) => e.remove()); document.body.appendChild(c); const t = c.innerText; c.remove(); return t; });
-  for (const bad of ['OWNER', 'TODO', 'lorem', '(harness output missing)']) if (txt.includes(bad)) throw new Error(`placeholder "${bad}" on screen`);
+  for (const bad of ['OWNER', 'TODO', 'lorem', '(harness output missing)', '(digest missing)']) if (txt.includes(bad)) throw new Error(`placeholder "${bad}" on screen`);
   return page;
 }
 // Replay every frame up to `n` without screenshots so animation "born" times match a straight render.
