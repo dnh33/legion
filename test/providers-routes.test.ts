@@ -131,7 +131,7 @@ test('limits and delete persist; unknown fields and bad values are refused', asy
   assert.equal(disk.providers.maxTurns, 12); assert.equal(disk.providers.entries.loc.baseUrl, fake.url);
   assert.equal((await call('PUT', '/api/providers/Bad_Id', { baseUrl: 'https://x.example/v1' }, H(NATIVE_H))).status, 400);
   assert.equal((await call('PUT', '/api/providers/mine', { baseUrl: 'http://remote.example/v1' }, H(NATIVE_H))).status, 400);
-  assert.equal((await call('PUT', '/api/providers/mine', { kind: 'cli', baseUrl: 'https://x.example/v1' }, H(NATIVE_H))).status, 400, 'an existing provider keeps its kind (a CLI is added as its own provider, see providers-routes2)');
+  assert.equal((await call('PUT', '/api/providers/mine', { kind: 'cli', baseUrl: 'https://x.example/v1' }, H(NATIVE_H))).status, 404, 'the CLI kind is part of the experimental surface: not there with the flag off (see providers-routes2 and providers-experimental)');
   assert.equal((await call('DELETE', '/api/providers/loc')).status, 200);
   assert.equal(JSON.parse(readFileSync(configPath, 'utf8')).providers.entries.loc, undefined);
 });
