@@ -81,6 +81,8 @@ for (const exe of shells) {
     const r = await snippet(exe, dir, body, env(dir));
     assert.equal(r.json?.good, null, r.out);
     assert.equal(r.json.bad.length, bad.length);
+    const { checkPackageUrl } = await (await import('./prebuilt-helpers.js')).lib(); // the JS mirror of the rule agrees on every input
+    assert.equal(checkPackageUrl(good), null); for (const b of bad) assert.equal(typeof checkPackageUrl(b), 'string', `JS mirror should refuse ${b}`);
     r.json.bad.forEach((x: unknown, i: number) => assert.equal(typeof x, 'string', `should be refused: ${bad[i]}`));
   });
 
