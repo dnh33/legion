@@ -1,0 +1,10 @@
+.prov-card, .prov-add, .prov-limits { border: 1px solid var(--line-strong); border-radius: var(--r-lg); padding: 14px; display: flex; flex-direction: column; gap: 8px; }
+.prov-card header { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+.prov-id { opacity: 0.6; font-size: 11px; }
+.prov-status { margin: 0; font-size: 13px; }
+.prov-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.prov-row label { display: flex; flex-direction: column; gap: 4px; font-size: 12px; }
+.prov-row .grow { flex: 1 1 220px; }
+.prov-switch { flex-direction: row !important; align-items: center; gap: 6px !important; }
+.prov-limits summary { cursor: pointer; font-weight: 600; }
+.prov-limits ul { margin: 8px 0 4px 18px; padding: 0; display: flex; flex-direction: column; gap: 4px; font-size: 13px; }

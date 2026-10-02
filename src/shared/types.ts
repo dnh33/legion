@@ -150,6 +150,10 @@ export interface Task {
   modelOverride?: { model: ModelChoice; by: string };
   /** Model used for the latest run; set when the run starts. */
   model?: ConcreteModel;
+  /** Id of the model provider the latest run used (absent: Claude). */
+  provider?: string;
+  /** Token counts a provider returned, summed over the run; `unknown` is true when a response carried none. Cost is never derived from these without prices the owner entered. */
+  tokenUsage?: { inputTokens?: number; outputTokens?: number; unknown?: boolean };
   /** True if the router escalated sonnet → opus during this task. */
   escalated?: boolean;
   /** Claude Agent SDK session id, used to resume follow-ups. */

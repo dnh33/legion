@@ -23,6 +23,9 @@ import type { BridgeStartParams } from './bridge.js';
 import type { VmManager } from './vm-manager.js';
 import { isSelfMcpUrl, McpStatusTracker, selfMcpNames } from './mcp-status.js';
 import type { McpStatusView } from '../shared/types.js';
+import { providerPrefix } from './providers/runtime.js';
+import type { ProviderRuntime } from './providers/runtime.js';
+import type { ProviderHost, ResolvedModel } from './providers/types.js';
 
 export type QueryFn = typeof sdkQuery;
 
@@ -36,6 +39,8 @@ export interface EngineDeps {
   modules?: CoreModule[];
   /** Where the list of files written by tainted runs is kept; defaults to <workspaceDir>/.tainted-paths.json. */
   taintedPaths?: TaintedPaths;
+  /** Other model providers (OpenAI-compatible endpoints). Absent: every run is a Claude run, exactly as before. */
+  providers?: ProviderRuntime;
 }
 
 /**
@@ -159,6 +164,7 @@ export class Engine {
   private readonly boatConfigured: () => boolean;
   private readonly maxConcurrent: number;
   private readonly taintedPaths: TaintedPaths;
+  private readonly providers?: ProviderRuntime;
   private readonly queue: Job[] = [];
   private readonly active = new Map<string, Active>();
   private idleTimer: ReturnType<typeof setTimeout> | undefined;
@@ -173,6 +179,7 @@ export class Engine {
     this.boatConfigured = deps.boatConfigured;
     this.maxConcurrent = Math.max(1, deps.maxConcurrent ?? 4);
     this.modules = deps.modules ?? [];
+    this.providers = deps.providers;
     this.taintedPaths = deps.taintedPaths ?? new TaintedPaths(join(deps.config.workspaceDir, '.tainted-paths.json'));
     this.bridge = new Bridge({ store: this.store, bus: this.bus, engine: this });
   }
@@ -192,6 +199,10 @@ export class Engine {
     // Taint follows the chain: a tainted waking bot, or a tainted peer's reply, taints this task for good.
     const tainted = !!p.tainted || !!origin?.tainted || (!!p.bridge?.reply && !!p.bridge.fromTaskId && this.isTainted(p.bridge.fromTaskId));
 
+    // A token client (MCP, curl) never moves a run between Claude and a provider, or between providers: that decides where the owner's data goes.
+    if (p.source === 'mcp' && p.model && (providerPrefix(p.model) || providerPrefix(agent.model)) && p.model !== agent.model) {
+      throw new EngineError('Provider models can only be chosen in the Legion app. This agent runs on its own setting; leave model out.', 400);
+    }
     const overriding = !!p.modelOverrideBy && !!p.model;
     if (overriding && !overrideAllowed(agent.model, p.model)) throw new EngineError(overrideRefusal(agent.name, agent.model, p.model!), 400);
     let task: Task;
@@ -455,7 +466,14 @@ export class Engine {
     let decision = routeModel(job.prompt, job.choice, { priorModel: job.priorModel });
     // A model a bot picked (per-task override, or a /opus prefix in a bot's message) never goes above the agent's own setting.
     const picked = this.store.getTask(job.taskId)?.modelOverride || (job.origin && decision.reason.startsWith('prefix'));
-    if (picked && modelRank(decision.model) > modelRank(agent.model)) {
+    const provAgent = providerPrefix(agent.model);
+    if (picked && provAgent && decision.model !== agent.model) {
+      // a bot's pick never moves a provider agent to another model or to Claude (that would send the owner's data somewhere else)
+      decision = { ...decision, model: agent.model, reason: `${decision.reason}, kept on ${agent.name}'s own provider setting` };
+    } else if (picked && !provAgent && providerPrefix(decision.model)) {
+      const own = rankModel(modelRank(agent.model));
+      decision = { ...decision, model: own, reason: `${decision.reason}, a bot cannot pick a provider; using ${own}` };
+    } else if (picked && modelRank(decision.model) > modelRank(agent.model)) {
       const capped = rankModel(modelRank(agent.model));
       decision = { ...decision, model: capped, reason: `${decision.reason}, capped at ${capped} (${agent.name}'s own setting)` };
     }
@@ -585,6 +603,36 @@ export class Engine {
     return agent?.cwd || join(this.config.workspaceDir, agentId);
   }
 
+  /**
+   * The approval decision for one tool call, shared by the Claude path (canUseTool) and the provider path: effective mode (never looser
+   * than the run's ceiling), then needsApproval, then a card the user answers (10 minutes, then denied).
+   */
+  private toolDecider(job: Job, agent: AgentProfile): (toolName: string, input: Record<string, unknown>) => Promise<{ allow: boolean; message?: string }> {
+    const ceiling = job.origin?.approvalCeiling;
+    const effective = (): ApprovalMode => {
+      const mode = this.store.getAgent(agent.id)?.approval ?? agent.approval;
+      return ceiling ? stricterMode(mode, ceiling) : mode;
+    };
+    return async (toolName, input) => {
+      const mode = effective();
+      if (!needsApproval(mode, toolName, { capped: job.origin?.approvalCeiling === 'ask' })) return { allow: true };
+      const o = job.origin;
+      let timedOut = false;
+      const allowed = await this.approvals.request(
+        job.taskId, agent.id, toolName, input,
+        o ? { roomId: o.roomId, fromAgentId: o.fromAgentId, hop: o.hop } : undefined,
+        { onTimeout: () => { timedOut = true; } },
+      );
+      if (allowed) return { allow: true };
+      // An MCP client started this run (Claude Code, Cowork) or woke it through a chain, so the ceiling is `ask`. Its card can only be answered in the Legion app window, so say so
+      // instead of a bare denial when nobody answered (the app is closed, or this core was started headless by the MCP bridge).
+      if (timedOut && o?.approvalCeiling === 'ask') {
+        return { allow: false, message: 'No one approved this action: it needs your OK in the Legion app window and nothing was answered within 10 minutes. Open the Legion app, then ask for it again.' };
+      }
+      return { allow: false, message: 'The user denied this action.' };
+    };
+  }
+
   private buildOptions(job: Job, agent: AgentProfile, model: ConcreteModel, act: Active, prompt: string, resume?: string): Options {
     const cwd = agent.cwd || join(this.config.workspaceDir, agent.id);
     mkdirSync(cwd, { recursive: true });
@@ -631,30 +679,68 @@ export class Engine {
       options.allowDangerouslySkipPermissions = true;
     } else {
       options.permissionMode = 'default';
+      const decide = this.toolDecider(job, agent);
       options.canUseTool = async (toolName, input) => {
-        const mode = effective();
-        if (!needsApproval(mode, toolName, { capped: job.origin?.approvalCeiling === 'ask' })) return { behavior: 'allow', updatedInput: input };
-        const o = job.origin;
-        let timedOut = false;
-        const allowed = await this.approvals.request(
-          job.taskId, agent.id, toolName, input,
-          o ? { roomId: o.roomId, fromAgentId: o.fromAgentId, hop: o.hop } : undefined,
-          { onTimeout: () => { timedOut = true; } },
-        );
-        if (allowed) return { behavior: 'allow', updatedInput: input };
-        // An MCP client started this run (Claude Code, Cowork) or woke it through a chain, so the ceiling is `ask`. Its card can only be answered in the Legion app window, so say so
-        // instead of a bare denial when nobody answered (the app is closed, or this core was started headless by the MCP bridge).
-        if (timedOut && o?.approvalCeiling === 'ask') {
-          return { behavior: 'deny', message: 'No one approved this action: it needs your OK in the Legion app window and nothing was answered within 10 minutes. Open the Legion app, then ask for it again.' };
-        }
-        return { behavior: 'deny', message: 'The user denied this action.' };
+        const d = await decide(toolName, input);
+        return d.allow ? { behavior: 'allow', updatedInput: input } : { behavior: 'deny', message: d.message ?? 'The user denied this action.' };
       };
     }
     return options;
   }
 
+  /** One run on a non-Claude provider (the seam into src/core/providers). Never falls back to Claude: a failure is the task's error. */
+  private async runProvider(job: Job, agent: AgentProfile, pr: ResolvedModel, prompt: string, act: Active): Promise<Outcome> {
+    const taskId = job.taskId;
+    const servers: ProviderHost['servers'] = {};
+    const external: NonNullable<ProviderHost['external']> = {};
+    for (const [name, cfg] of Object.entries(this.buildMcpServers(agent, job, act))) {
+      if (cfg.type === 'sdk') servers[name] = cfg;
+      else if (cfg.type === 'http' || cfg.type === 'sse') external[name] = { type: cfg.type, url: cfg.url, ...(cfg.headers ? { headers: cfg.headers } : {}) };
+      else if (cfg.type === 'stdio' || cfg.type === undefined) external[name] = { command: (cfg as { command: string }).command, ...((cfg as { args?: string[] }).args ? { args: (cfg as { args?: string[] }).args } : {}), ...((cfg as { env?: Record<string, string> }).env ? { env: (cfg as { env?: Record<string, string> }).env } : {}) };
+    }
+    const decide = this.toolDecider(job, agent);
+    const host: ProviderHost = {
+      taskId, agentName: agent.name, signal: act.ac.signal, cancelled: () => act.cancelled || act.ac.signal.aborted,
+      systemPrompt: LEGION_PREAMBLE.replace('{name}', agent.name)
+        + this.modulePreamble(agent, { prompt, taskId, ...(job.origin ? { origin: job.origin } : {}), tainted: act.tainted || job.origin?.tainted === true })
+        + (agent.systemPrompt ? '\n\n' + agent.systemPrompt : '')
+        + `\n\nYou are running on ${pr.model} through ${pr.entry?.label ?? pr.providerId}. You have only the tools listed in this request; you have no file, shell or web tools of your own.`,
+      prompt, stored: this.store.listMessages(taskId),
+      servers, external,
+      authorize: decide,
+      noteToolUse: (name, id, input) => this.noteToolUse(job, act, name, id, input),
+      onDelta: (text) => this.bus.emit({ type: 'message.delta', taskId, text }),
+      onAssistantText: (text) => { this.addMessage(taskId, 'assistant', text); },
+      onToolCall: (name, id, input) => {
+        let json: string;
+        try { json = JSON.stringify(input ?? {}); } catch { json = '{}'; }
+        if (json.length > 500) json = json.slice(0, 499) + '…';
+        this.addMessage(taskId, 'tool', json, name, undefined, { toolUseId: id });
+        this.mascot('hacking', name);
+      },
+      onToolResult: (id, text) => { if (text.trim()) this.addMessage(taskId, 'tool', clipToolResult(text), undefined, undefined, { resultFor: id }); },
+      onNotice: (text) => { this.addMessage(taskId, 'system', text); },
+    };
+    const r = await this.providers!.run(host, pr);
+    if (act.cancelled) return { subtype: 'cancelled', isError: false };
+    const cur = this.store.getTask(taskId);
+    this.patchTask(taskId, {
+      provider: pr.providerId,
+      turns: (cur?.turns ?? 0) + r.turns,
+      tokenUsage: {
+        ...(r.usage ? { inputTokens: (cur?.tokenUsage?.inputTokens ?? 0) + r.usage.inputTokens, outputTokens: (cur?.tokenUsage?.outputTokens ?? 0) + r.usage.outputTokens } : (cur?.tokenUsage ?? {})),
+        ...(r.usageUnknown || !r.usage || cur?.tokenUsage?.unknown ? { unknown: true } : {}),
+      },
+      ...(r.costUsd !== undefined ? { costUsd: (cur?.costUsd ?? 0) + r.costUsd } : {}),
+      ...(!r.isError && r.resultText !== undefined ? { result: r.resultText } : {}),
+    });
+    return { subtype: r.subtype, isError: r.isError, errorText: r.isError ? r.errorText : undefined };
+  }
+
   /** One SDK query() run. Returns the outcome of its result message; throws on SDK failure. */
   private async runOnce(job: Job, agent: AgentProfile, model: ConcreteModel, prompt: string, act: Active): Promise<Outcome> {
+    const pr = this.providers?.resolve(model);
+    if (pr) return this.runProvider(job, agent, pr, prompt, act);
     const resume = this.store.getTask(job.taskId)?.sessionId;
     const options = this.buildOptions(job, agent, model, act, prompt, resume);
     const q = this.queryFn({ prompt, options });

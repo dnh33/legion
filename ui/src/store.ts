@@ -7,7 +7,7 @@ import { incomingWins } from './chat/tasksync';
 
 export type RelicState = 'idle' | 'listening' | 'thinking' | 'hacking' | 'awaiting' | 'victory' | 'error' | 'sleeping' | 'annoyed';
 
-export type SettingsSection = 'claude' | 'boat' | 'mcp' | 'blender' | 'connections' | 'about';
+export type SettingsSection = 'claude' | 'providers' | 'boat' | 'mcp' | 'blender' | 'connections' | 'about';
 export type TaskSrc = 'tab' | 'recent';
 export interface TaskMenu { x: number; y: number; taskId: string; src: TaskSrc }
 

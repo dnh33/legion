@@ -23,6 +23,10 @@ contextBridge.exposeInMainWorld('legion', {
     ipcRenderer.on('legion:bsv-changed', h);
     return () => ipcRenderer.removeListener('legion:bsv-changed', h);
   },
+  // Provider key and address changes go through the main process too: it shows the native confirmation and holds the native secret.
+  providerChange(change) {
+    return ipcRenderer.invoke('legion:provider-change', change);
+  },
   openExternal(url) {
     return ipcRenderer.invoke('legion:open-external', String(url));
   },

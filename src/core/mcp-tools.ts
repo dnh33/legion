@@ -8,6 +8,7 @@ import { EngineError } from './engine.js';
 import type { CoreContext } from './server.js';
 import { agentVisible as agentVisibleIn, taskVisible } from './visibility.js';
 import { VmError } from './vm-manager.js';
+import { providerPrefix } from './providers/runtime.js';
 
 type ToolResult = { content: { type: 'text'; text: string }[]; isError?: boolean };
 
@@ -131,6 +132,7 @@ export function buildLegionMcpServer(ctx: CoreContext): McpServer {
       vmEnabled: z.boolean().optional().describe('Allow this agent to use an on-demand cloud VM.'),
     },
   }, safe(async (a: { name: string; description?: string; systemPrompt?: string; model?: string; vmEnabled?: boolean }) => {
+    if (providerPrefix(a.model)) return fail('Provider models can only be chosen in the Legion app. Create the agent without a model, then pick one there.');
     const taken = new Set(ctx.store.listAgents().map((x) => x.id));
     const base = slugify(a.name);
     const id = uniqueAgentId(base, taken);

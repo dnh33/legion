@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { loadCatalog, setModelChoice, useStore } from '../store';
 import { AUTO_INFO, groupModels, modelLabel } from '../models';
+import { loadProviders, providerModelGroups, useProviders } from '../providers/providersStore';
 import { Icon } from './icons';
 
 /** Composer model pill + popover. Ctrl+M (or /model) opens it. */
@@ -9,14 +10,17 @@ export function ModelPicker({ model, agentName, onClose }: { model: string; agen
   const loading = useStore((s) => s.catalogLoading);
   const { current, more, fallback } = groupModels(catalog);
   const [showMore, setShowMore] = useState(() => more.some((m) => m.value === model));
-  const items = [{ value: 'auto', displayName: 'Auto', description: AUTO_INFO }, ...current, ...(showMore ? more : [])];
+  const provGroups = providerModelGroups(useProviders((x) => x.view));
+  const provItems = provGroups.flatMap((g) => g.models.map((m) => ({ value: `${g.id}:${m}`, displayName: m, description: `${g.label}, not Claude: Legion's tools and your MCP servers only` })));
+  const claudeItems = [{ value: 'auto', displayName: 'Auto', description: AUTO_INFO }, ...current, ...(showMore ? more : [])];
+  const items = [...claudeItems, ...provItems];
   const cur = Math.max(0, items.findIndex((m) => m.value === model));
   const [i, setI] = useState(cur);
   const [edge, setEdge] = useState({ top: false, bottom: false });
   const syncEdge = () => { const el = box.current?.querySelector('.pop-list'); if (el) setEdge({ top: el.scrollTop > 2, bottom: el.scrollTop + el.clientHeight < el.scrollHeight - 2 }); };
   const box = useRef<HTMLDivElement>(null);
 
-  useEffect(() => { if (!catalog && !loading) void loadCatalog(); box.current?.focus(); }, []);
+  useEffect(() => { if (!catalog && !loading) void loadCatalog(); void loadProviders(); box.current?.focus(); }, []);
   useEffect(() => {
     const down = (e: MouseEvent) => { if (box.current && !box.current.contains(e.target as Node) && !(e.target as HTMLElement).closest('.model-pill')) onClose(); };
     document.addEventListener('mousedown', down);
@@ -45,6 +49,7 @@ export function ModelPicker({ model, agentName, onClose }: { model: string; agen
           <div key={m.value} style={{ display: 'contents' }}>
             {n === 1 && <div className="mp-group">Current models</div>}
             {showMore && n === 1 + current.length && <div className="mp-group">More models</div>}
+            {provItems.length > 0 && n === claudeItems.length && <div className="mp-group">Other providers (not Claude)</div>}
             <button type="button" role="option" aria-selected={m.value === model} className={`mp-item${n === i ? ' hl' : ''}${m.value === model ? ' cur' : ''}`}
               onMouseMove={() => setI(n)} onClick={() => pick(m.value)}>
               <span className="mp-text"><b>{m.displayName}</b><span>{m.description}</span></span>
