@@ -24,38 +24,38 @@
       "end": 25
     },
     {
-      "name": "rooms",
-      "start": 25,
-      "end": 27.5
-    },
-    {
       "name": "library",
-      "start": 27.5,
-      "end": 35
+      "start": 25,
+      "end": 32.5
     },
     {
       "name": "projects",
-      "start": 35,
-      "end": 50
+      "start": 32.5,
+      "end": 47.5
     },
     {
       "name": "vm",
-      "start": 50,
-      "end": 60
+      "start": 47.5,
+      "end": 57.5
     },
     {
       "name": "bsv",
-      "start": 60,
-      "end": 67.5
+      "start": 57.5,
+      "end": 65
     },
     {
       "name": "blender",
-      "start": 67.5,
-      "end": 75
+      "start": 65,
+      "end": 72.5
+    },
+    {
+      "name": "browser",
+      "start": 72.5,
+      "end": 77.5
     },
     {
       "name": "install",
-      "start": 75,
+      "start": 77.5,
       "end": 82.5
     },
     {
@@ -176,190 +176,195 @@
       "id": "inbox"
     },
     {
-      "t": 25.25,
-      "name": "caption",
-      "id": "room"
-    },
-    {
-      "t": 27.875,
+      "t": 25.375,
       "name": "caption",
       "id": "lat"
     },
     {
-      "t": 32.125,
+      "t": 29.625,
       "name": "caption",
       "id": "acc"
     },
     {
-      "t": 33.125,
+      "t": 30.625,
       "name": "mark",
       "id": "inbox2"
     },
     {
-      "t": 35.188,
+      "t": 32.688,
       "name": "caption",
       "id": "proj"
     },
     {
-      "t": 37.75,
+      "t": 35.25,
       "name": "caption",
       "id": "brd"
     },
     {
-      "t": 38.438,
+      "t": 35.938,
       "name": "chip",
       "id": "c-board"
     },
     {
-      "t": 39.375,
+      "t": 36.875,
       "name": "mark",
       "id": "boardA"
     },
     {
-      "t": 41.563,
+      "t": 39.063,
       "name": "caption",
       "id": "grd"
     },
     {
-      "t": 42.188,
+      "t": 39.688,
       "name": "mark",
       "id": "boardB"
     },
     {
-      "t": 45.25,
+      "t": 42.75,
       "name": "caption",
       "id": "pm"
     },
     {
-      "t": 45.625,
+      "t": 43.125,
       "name": "mark",
       "id": "pmem"
     },
     {
-      "t": 47.813,
+      "t": 45.313,
       "name": "caption",
       "id": "mem"
     },
     {
-      "t": 50.313,
+      "t": 47.813,
       "name": "caption",
       "id": "vm"
     },
     {
-      "t": 54.375,
+      "t": 51.875,
       "name": "caption",
       "id": "mcp"
     },
     {
-      "t": 54.375,
+      "t": 51.875,
       "name": "vox_line",
       "n": 1
     },
     {
-      "t": 55.625,
+      "t": 53.125,
       "name": "vox_line",
       "n": 2
     },
     {
-      "t": 56.125,
+      "t": 53.625,
       "name": "vox_ok"
     },
     {
-      "t": 56.25,
+      "t": 53.75,
       "name": "vox_line",
       "n": 3
     },
     {
-      "t": 56.75,
+      "t": 54.25,
       "name": "vox_ok"
     },
     {
-      "t": 56.875,
+      "t": 54.375,
       "name": "vox_line",
       "n": 4
     },
     {
-      "t": 57.375,
+      "t": 54.875,
       "name": "vox_ok"
     },
     {
-      "t": 57.5,
+      "t": 55,
       "name": "vox_line",
       "n": 5
     },
     {
-      "t": 59.125,
+      "t": 56.625,
       "name": "vox_line",
       "n": 6
     },
     {
-      "t": 59.438,
+      "t": 56.938,
       "name": "vox_line",
       "n": 7
     },
     {
-      "t": 59.625,
+      "t": 57.125,
       "name": "vox_ok"
     },
     {
-      "t": 60.313,
+      "t": 57.813,
       "name": "caption",
       "id": "bsv1"
     },
     {
-      "t": 62.5,
+      "t": 60,
       "name": "chip",
       "id": "c-bsv"
     },
     {
-      "t": 64.375,
+      "t": 61.875,
       "name": "caption",
       "id": "bsv2"
     },
     {
-      "t": 67.813,
+      "t": 65.313,
       "name": "caption",
       "id": "bl1"
     },
     {
-      "t": 68.75,
+      "t": 66.25,
       "name": "chip",
       "id": "c-bl"
     },
     {
-      "t": 72.125,
+      "t": 69.5,
       "name": "caption",
       "id": "bl2"
     },
     {
-      "t": 75.188,
+      "t": 72.563,
+      "name": "caption",
+      "id": "brow1"
+    },
+    {
+      "t": 73.125,
+      "name": "chip",
+      "id": "c-brow"
+    },
+    {
+      "t": 77.688,
       "name": "caption",
       "id": "rtA"
     },
     {
-      "t": 75.625,
+      "t": 78.125,
       "name": "chip",
       "id": "c-pkg"
     },
     {
-      "t": 75.938,
+      "t": 78.438,
       "name": "caption",
       "id": "rtB"
     },
     {
-      "t": 77.813,
+      "t": 80.125,
       "name": "caption",
       "id": "upd"
-    },
-    {
-      "t": 78.125,
-      "name": "chip",
-      "id": "c-upd"
     },
     {
       "t": 80.125,
       "name": "caption",
       "id": "loop"
+    },
+    {
+      "t": 80.625,
+      "name": "chip",
+      "id": "c-upd"
     },
     {
       "t": 83.125,
@@ -430,38 +435,38 @@
   ],
   "typing": [
     {
+      "start": 51.875,
+      "end": 52.375,
+      "chars": 34
+    },
+    {
+      "start": 53.125,
+      "end": 53.625,
+      "chars": 33
+    },
+    {
+      "start": 53.75,
+      "end": 54.25,
+      "chars": 34
+    },
+    {
       "start": 54.375,
       "end": 54.875,
       "chars": 34
     },
     {
-      "start": 55.625,
-      "end": 56.125,
-      "chars": 33
-    },
-    {
-      "start": 56.25,
-      "end": 56.75,
-      "chars": 34
-    },
-    {
-      "start": 56.875,
-      "end": 57.375,
-      "chars": 34
-    },
-    {
-      "start": 57.5,
-      "end": 58.4,
+      "start": 55,
+      "end": 55.9,
       "chars": 43
     },
     {
-      "start": 59.125,
-      "end": 59.625,
+      "start": 56.625,
+      "end": 57.125,
       "chars": 25
     },
     {
-      "start": 59.438,
-      "end": 59.888,
+      "start": 56.938,
+      "end": 57.388,
       "chars": 35
     }
   ],
@@ -487,94 +492,89 @@
       "kind": "hard"
     },
     {
-      "id": "inbox>rooms",
+      "id": "inbox>lattice",
       "t": 25,
       "kind": "dissolve"
     },
     {
-      "id": "rooms>lattice",
-      "t": 27.5,
-      "kind": "dissolve"
-    },
-    {
       "id": "lattice>inbox2",
-      "t": 31.875,
+      "t": 29.375,
       "kind": "hard"
     },
     {
       "id": "inbox2>projects",
-      "t": 35,
+      "t": 32.5,
       "kind": "dissolve"
     },
     {
       "id": "projects>boardA",
-      "t": 37.5,
+      "t": 35,
       "kind": "hard"
     },
     {
       "id": "boardA>boardB",
-      "t": 41.25,
+      "t": 38.75,
       "kind": "hard"
     },
     {
       "id": "boardB>pmem",
-      "t": 44.375,
+      "t": 41.875,
       "kind": "hard"
     },
     {
       "id": "pmem>digest",
-      "t": 47.5,
+      "t": 45,
       "kind": "hard"
     },
     {
       "id": "digest>vm",
-      "t": 50,
+      "t": 47.5,
       "kind": "dissolve"
     },
     {
       "id": "vm>term",
-      "t": 53.75,
+      "t": 51.25,
       "kind": "hard"
     },
     {
       "id": "term>bsvA",
-      "t": 60,
+      "t": 57.5,
       "kind": "dissolve"
     },
     {
       "id": "bsvA>bsvB",
-      "t": 63.75,
+      "t": 61.25,
       "kind": "hard"
     },
     {
       "id": "bsvB>blA",
-      "t": 67.5,
+      "t": 65,
       "kind": "dissolve"
     },
     {
       "id": "blA>blB",
-      "t": 71.875,
+      "t": 69.375,
       "kind": "hard"
     },
     {
-      "id": "blB>routes",
-      "t": 75,
+      "id": "blB>browser",
+      "t": 72.5,
+      "kind": "dissolve"
+    },
+    {
+      "id": "browser>routes",
+      "t": 77.5,
       "kind": "dissolve"
     },
     {
       "id": "routes>upd",
-      "t": 77.5,
-      "kind": "hard"
-    },
-    {
-      "id": "upd>loop",
       "t": 80,
       "kind": "hard"
     },
     {
-      "id": "loop>next",
+      "id": "upd>next",
       "t": 82.5,
-      "kind": "dissolve"
+      "kind": "hard"
     },
     {
       "id": "next>end",
