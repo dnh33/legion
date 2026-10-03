@@ -1,4 +1,4 @@
-.prov-card, .prov-add, .prov-limits { border: 1px solid var(--line-strong); border-radius: var(--r-lg); padding: 14px; display: flex; flex-direction: column; gap: 8px; }
+.prov-card, .prov-add, .prov-limits, .prov-next { border: 1px solid var(--line-strong); border-radius: var(--r-lg); padding: 14px; display: flex; flex-direction: column; gap: 8px; }
 .prov-card header { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
 .prov-id { opacity: 0.6; font-size: 11px; }
 .prov-status { margin: 0; font-size: 13px; }
@@ -9,7 +9,7 @@
 .prov-limits summary { cursor: pointer; font-weight: 600; }
 .prov-limits ul { margin: 8px 0 4px 18px; padding: 0; display: flex; flex-direction: column; gap: 4px; font-size: 13px; }
 
-.prov-next { border: 1px dashed var(--line-strong); border-radius: var(--r-lg); padding: 14px; display: flex; flex-direction: column; gap: 6px; opacity: .62; }
+.prov-next { border-style: dashed; color: var(--muted); }
 .prov-next legend { font-weight: 600; font-size: 12px; letter-spacing: .04em; color: var(--muted); }
 .prov-next .field-note { margin: 0; }
 .prov-tease { display: flex; align-items: baseline; gap: 8px; }

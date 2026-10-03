@@ -88,17 +88,17 @@ const NEXT_RELEASE: ReadonlySet<string> = new Set(['openai', 'ollama', 'lmstudio
 function ComingNext({ providers }: { providers: ProviderView[] }) {
   const codexNote = "A command-line coding agent. Its own tools run outside Legion's approval cards.";
   return (
-    <fieldset className="prov-next" disabled aria-label="Next release providers">
+    <fieldset className="prov-next" disabled>
       <legend>Next release</legend>
-      <p className="field-note">Planned, not in this release. Claude stays the default; OpenRouter is the second provider here.</p>
+      <p className="field-note">Not in this release. Claude stays the default; OpenRouter is the second provider in this release.</p>
       {providers.map((p) => (
-        <div key={p.id} className="prov-tease" aria-disabled="true">
+        <div key={p.id} className="prov-tease">
           <b>{p.label}</b>
           <span className="field-note">{p.note}</span>
           <span className="prov-badge">0.2.1</span>
         </div>
       ))}
-      <div className="prov-tease" aria-disabled="true">
+      <div className="prov-tease">
         <b>Codex</b>
         <span className="field-note">{codexNote}</span>
         <span className="prov-badge">0.2.1</span>
@@ -127,8 +127,7 @@ export function ProvidersSection() {
           <p className="field-note">Provider support has been built and tested against Legion's own fake servers. It has not been tried against the real services yet; a failed request shows the provider's own message.</p>
         </details>
         {view.dropped.length > 0 && <div className="set-error" role="status">Some saved providers were ignored: {view.dropped.join('; ')}</div>}
-        {view.providers.filter((p) => !NEXT_RELEASE.has(p.id)).map((p) => <ProviderCard key={p.id} p={p} />)}
-        <ComingNext providers={view.providers.filter((p) => NEXT_RELEASE.has(p.id))} />
+        {view.providers.filter((p) => !NEXT_RELEASE.has(p.id) || p.enabled).map((p) => <ProviderCard key={p.id} p={p} />)}
         <AddCustom />
         <fieldset className="prov-add">
           <legend>Run limits for provider agents</legend>
@@ -139,6 +138,7 @@ export function ProvidersSection() {
           </div>
           <p className="field-note">Cost is shown only when a provider returns token counts and you have entered prices. Room spend limits count known costs only, so an agent on a provider with unknown cost adds nothing to a room's meter.</p>
         </fieldset>
+        <ComingNext providers={view.providers.filter((p) => NEXT_RELEASE.has(p.id) && !p.enabled)} />
         <p className="field-note">Going back to an older Legion version: the older version ignores this page. An agent still set to a provider model will fail with a model error there; it never sends anything to a provider.</p>
       </>}
     </div>
