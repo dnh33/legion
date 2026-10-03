@@ -1,3 +1,7 @@
+> **SUPERSEDED as a source of instructions.** `integration/v1` was merged into `main` and deleted on 2026-10-03.
+> This file is kept as history. Read `claude/START-HERE.md` first, then `claude/legion-release-tracker.md`
+> (section `POST-0.2.2`). Anything below naming a branch, work order or state predates that merge.
+
 
 > Paste-in first message for the new agent: `claude/ORCHESTRATOR-TAKEOVER-PROMPT.md` (repo only).
 

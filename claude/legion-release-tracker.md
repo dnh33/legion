@@ -1,3 +1,7 @@
+> **SUPERSEDED as a source of instructions.** `integration/v1` was merged into `main` and deleted on 2026-10-03.
+> This file is kept as history. Read `claude/START-HERE.md` first, then `claude/legion-release-tracker.md`
+> (section `POST-0.2.2`). Anything below naming a branch, work order or state predates that merge.
+
 # Legion release tracker
 
 Living tracker for the v1 release. Updated 2026-10-02 by Claude Code on the PC. Big topics get their own `tracker-<topic>.md` in this folder.
@@ -719,11 +723,52 @@ the actions etc we've done in this session". Also recorded in Hermes memory. Ski
 - NOT STARTED. Needs a UX council + /kodawari. The updater ALREADY reports `progress` (`{bytes,total}`, phase `downloading`) and
   UpdatePanel renders a plain percentage — so this is a redesign of an existing surface, not new plumbing.
 
-### D5 — SKILLS IN LEGION (major feature, council required) — NOT STARTED
-- Owner: Legion has **no Skills**. Must exist before switching to Legion-on-Legion development.
-- Scope: on a par with Hermes Agent's and Claude's skills; Legion must also be able to **hook into Claude Code's skills**, so that
-  when the user has chosen Legion as the provider those are available too (Legion already has a setting of that kind).
-- Requires a council plan + /kodawari. No design committed.
+### D5 — SKILLS IN LEGION — PARKED 2026-10-04 (owner). Research findings recorded; NOT an action item yet.
+**Owner:** "park this skills feature for now... we need to plan properly a feature that allows us to do what I asked
+for in a skills feature, both on a global, project and personal levels hierarchy etc like claude and everybody else does
+it, needs to be properly researched."
+
+**Requirement as stated:** a skill system with a GLOBAL / PROJECT / PERSONAL hierarchy, like Claude Code's and everyone
+else's. Not the narrower "project-scoped only" shape first discussed.
+
+**What the research already established (do not re-derive):**
+1. **The SDK has native per-session skill selection.** `node_modules/@anthropic-ai/claude-agent-sdk/sdk.d.ts:2240-2262`:
+   `skills?: string[] | 'all'` — "This is the single place to turn skills on". `string[]` enables only the listed skills,
+   matched by SKILL.md `name` or directory name. So the CLAUDE path needs ~one line in `buildOptions`, not a loader.
+2. **Omitting `skills` is NOT "skills off"** (same doc, line 2245): the CLI's own defaults still apply. Current Legion
+   behaviour is therefore UNKNOWN — measure `'all'` cost before "fixing" anything.
+3. **It is a context filter, not a sandbox** (line 2251): unlisted skills are hidden from the model's listing and refused
+   by the Skill tool, but their files stay on disk and remain reachable via Read/Bash. For agents holding Bash this is
+   presentation, not isolation. Relevant to the threat model.
+4. **TWO runtimes, different capabilities** (engine.ts:4 `realQuery` vs engine.ts:779 `providers!.run`):
+   `providers/runtime.ts:28` — "No file editing, shell, web search or web fetch of its own", only Legion's tools + MCP.
+   `skills` is an SDK option, so it does NOTHING for a provider-model agent. **One feature cannot serve both runtimes.**
+5. **The format is identical in both libraries.** Only `name` + `description` are universal. Hermes: 120 skills, 60 use
+   `references/`, 6 `scripts/`, 11 `evals/`. Claude Code: ~148 skills, 68 `references/`, 16 `scripts/`, 11 `evals/`,
+   median description 304 chars, median body 9,335 chars, max body 88,332. Discovery is directory scanning; no manifest.
+   **So Legion needs no format, parser or loader of its own.**
+6. **Budget reality for the provider path**: no file tools means bodies cannot be fetched mid-task and must be
+   pre-injected. At median 9.3k chars/body, ~10 skills is ~93k chars before the agent does anything. Provider-model agents
+   need a far smaller per-project cap than Claude agents (guess: 3–5) — UNMEASURED.
+7. **The hierarchy the owner asked for is the open design question**: how personal / project / global precedence
+   resolves when the same skill name exists at two levels. No evidence gathered yet; that is the research to do.
+
+**Security position already taken (see also the trust analysis in this session's history):** skills cannot grant authority —
+`permissionMode` / `disallowedTools` / `canUseTool` are set in `buildOptions` before the model sees anything, so prompt text
+cannot widen them. But skills DO exercise whatever authority an agent already holds. Most dangerous case: an agent in `full`
+mode (`bypassPermissions`, engine.ts:733) following third-party skill text — no card ever appears. The control that matters is
+a hard floor on spend regardless of approval mode; that needs verifying. Signing/attestation was judged NOT worth it for a
+single-owner desktop app; provenance visibility is.
+
+### D8 — Make the repo's own orientation files stop lying (owner 2026-10-04)
+- Owner: "No other agents seem to know which branch you have turned into the main branch right now besides you."
+- **Confirmed real:** 12 docs still referenced the DELETED `integration/v1`, including the two files an agent reads first
+  to orient (`ORCHESTRATOR-HANDOFF.md`, `ORCHESTRATOR-TAKEOVER-PROMPT.md`). A separate Hermes session reasoned from
+  `D:\bots\legion` (stale v0.1.0, MIT, private) because of exactly this.
+- **Fixed:** new `claude/START-HERE.md` is the single authority (branches, which clone is real, current state, release
+  gate); SUPERSEDED banners on the three orientation files.
+- **Remaining:** the other `claude/` files (handoffs, plans, e2e report) still name `integration/v1` in their bodies.
+  They are history and are no longer the first thing an agent reads, but a repo-wide sweep is not done.
 
 ### D6 — Move Legion development INTO Legion (Legion-on-Legion)
 - Owner: "Hopefully this will be the last time we need to be in Hermes Agent and can start developing Legion from within Legion."
