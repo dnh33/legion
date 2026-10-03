@@ -1,4 +1,4 @@
-# LEGION START HERE (the one file: paste its text as the first message to the new agent)
+# LEGION START HERE (paste the text below the line as the first message to the new agent; this file lives in the repo at claude/ORCHESTRATOR-TAKEOVER-PROMPT.md)
 
 Written 2026-10-03. Paths below were checked to exist on that date (except `legion-v6-7`, the new delivery folder, and files marked "branch only"). The full plan is in `claude/ORCHESTRATOR-HANDOFF.md`.
 
@@ -7,7 +7,7 @@ Written 2026-10-03. Paths below were checked to exist on that date (except `legi
 You are taking over as ORCHESTRATOR of the Legion v0.2.0 release, in full, from the agent before you. The owner is Daniel Hjermitslev (dnh33). You work directly with git on his Windows PC. There are no cloud agent sessions to steer; you do every task yourself.
 
 ## Start here (in this order, before you change anything)
-1. Read `D:\bots\legion-dev\claude\ORCHESTRATOR-HANDOFF.md` (it lives in the repo only; the Desktop holds just this one file). Its top block is your plan: work orders WO-1 to WO-10, the gate commands, the Linux-gate route, the owner-only steps.
+1. Read `D:\bots\legion-dev\claude\ORCHESTRATOR-HANDOFF.md` (it lives in the repo). Its top block is your plan: work orders WO-1 to WO-10, the gate commands, the Linux-gate route, the owner-only steps.
 2. Read `D:\bots\legion-dev\CLAUDE.md` (repo rules) and the tracker `claude/legion-release-tracker.md`, from the section "SESSION SAVE POINT 5" down to the end.
 3. Read the per-session handoffs in `claude/handoffs/` for the area you touch (browser-engines, blender-chip, providers). The audit's handoff is on branch `claude/agent-audit` (branch only): `claude/audit-agent-instructions-HANDOFF.md`.
 4. Run `git fetch cloud --prune` and compare branch heads with the handoff.

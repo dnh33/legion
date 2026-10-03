@@ -1,5 +1,5 @@
 
-> Paste-in first message for the new agent: `claude/ORCHESTRATOR-TAKEOVER-PROMPT.md` (Desktop copy: LEGION-START-HERE.md, the only Legion file on the Desktop).
+> Paste-in first message for the new agent: `claude/ORCHESTRATOR-TAKEOVER-PROMPT.md` (repo only).
 
 # >>> HARNESS SWITCH (2026-10-03): READ THIS BLOCK FIRST. It overrides every "cloud session" step further down. <<<
 
