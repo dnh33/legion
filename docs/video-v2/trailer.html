@@ -91,6 +91,7 @@ canvas,svg.full{position:absolute;left:0;top:0;width:1920px;height:1080px}
   linear-gradient(180deg,rgba(0,0,0,.32),transparent 12%,transparent 86%,rgba(0,0,0,.5))}
 #grain{position:absolute;left:-200px;top:-200px;width:2320px;height:1480px;pointer-events:none;opacity:.07;mix-blend-mode:overlay}
 #flash{position:absolute;inset:0;background:#f2fff7;opacity:0;pointer-events:none;mix-blend-mode:screen}
+#wake{position:absolute;inset:0;opacity:0;pointer-events:none;mix-blend-mode:screen;background:radial-gradient(ellipse 48% 42% at 50% 33%,rgba(255,198,120,.95),rgba(255,148,64,.5) 42%,transparent 72%)}
 #black{position:absolute;inset:0;background:#000;pointer-events:none}
 #glitch{position:absolute;inset:0;pointer-events:none;opacity:0;mix-blend-mode:screen;background:repeating-linear-gradient(0deg,rgba(124,255,178,.16) 0 2px,transparent 2px 5px)}
 
@@ -197,11 +198,11 @@ canvas,svg.full{position:absolute;left:0;top:0;width:1920px;height:1080px}
   </svg>
   
   <div id="cool"></div>
-  <div id="l1" class="abs c l1 hide" style="top:196px">A team of Claude agents.</div>
-  <div id="l2" class="abs c l1 b hide" style="top:300px">On your own computer.</div>
+  <div id="l1" class="abs c l1 hide" style="top:196px">In the grim darkness of your backlog…</div>
+  <div id="l2" class="abs c l1 b hide" style="top:300px">…there is only work.</div>
 
   <div id="relic" class="abs"></div>
-  <div id="sub" class="abs c sub hide" style="top:772px">Legion 0.2.0. Now in beta.</div>
+  <div id="sub" class="abs c sub hide" style="top:772px">An order of Claude agents. Yours to command.</div>
   <div id="brow1" class="col cap abs hide" style="top:262px">Browse without a VM.</div>
 
   <!-- muster -->
@@ -260,6 +261,7 @@ canvas,svg.full{position:absolute;left:0;top:0;width:1920px;height:1080px}
 <div id="vig"></div>
 <div id="grain"></div>
 <div id="flash"></div>
+<div id="wake"></div>
 <div id="glitch"></div>
 <div id="black"></div>
 </div>
@@ -490,13 +492,16 @@ window.render = function (t) {
   const nextOn = vis(t, T.next.head - .3, b36 - 0);   // cool section
   const cool = nextOn;
   const candleOp = ramp(t, ...T.cold.candleIn) * (1 - sm(ramp(t, ...T.cold.candleOut)));
-  const archOp = Math.max(0, keysAt(t, [[0, 0], [b(1, 3.2), 0], [b(2, 2.4), 1], [b(4), 1], [b(4, 2), .5], [b(6, 3), .5], [b(7, .3), .2], [b(33) - .3, .2], [b(33) + .4, 0], [b(37, 3), 0], [b(38), .9], [b(39), .9], [999, .9]])[0]);
-  const rayK = keysAt(t, [[0, 0], [b(1, 3.6), 0], [b(2, 2.6), 1], [b(4), 1], [b(5), .4], [b(7), .15], [b(33), .15], [b(33, 2), 0], [b(37, 3), 0], [b(38), 1.3], [999, 1.1]])[0];
+  const wake = sm(ramp(t, T.awaken.snap, T.awaken.snap + .06)) * (1 - sm(ramp(t, T.awaken.snap + .06, T.awaken.snap + .56)));
+  const pu = sm(ramp(t, T.awaken.push[0], T.awaken.push[1])) * (1 - sm(ramp(t, T.awaken.push[1], T.awaken.push[2])));
+  $('wake').style.opacity = (.6 * wake).toFixed(3);
+  const archOp = Math.max(0, keysAt(t, [[0, 0], [b(2) - .01, 0], [b(2, .4), 1], [b(4), 1], [b(4, 2), .5], [b(6, 3), .5], [b(7, .3), .2], [b(33) - .3, .2], [b(33) + .4, 0], [b(37, 3), 0], [b(38), .9], [b(39), .9], [999, .9]])[0]);
+  const rayK = keysAt(t, [[0, 0], [b(2) - .01, 0], [b(2, .5), 1], [b(4), 1], [b(5), .4], [b(7), .15], [b(33), .15], [b(33, 2), 0], [b(37, 3), 0], [b(38), 1.3], [999, 1.1]])[0];
   drawBack(t, rel, st, candleOp, cool); show($('arch'), archOp); drawRays(t, rayK * archOp); drawFront(t, rel, .3 + .7 * ramp(t, 0, 3), cool);
   show($('cool'), cool * .9);
 
   // cold open
-  const grow = eo(ramp(t, .1, 1.7));
+  const grow = eo(ramp(t, .1, 1.7)) * (1 - .25 * sm(ramp(t, b(1, 2), b(2))));
   $('flame').setAttribute('transform', `translate(150 160) scale(${(grow * (1 + .05 * Math.sin(t * 11) + .03 * Math.sin(t * 19))).toFixed(3)} ${(grow * (1 + .09 * Math.sin(t * 8.3 + 1) + .05 * Math.sin(t * 17))).toFixed(3)}) skewX(${(Math.sin(t * 6.1) * 3.2 + Math.sin(t * 13) * 1.4).toFixed(2)}) translate(-150 -160)`);
   show($('candle'), candleOp);
   const blur = (x) => `blur(${((1 - x) * 9).toFixed(1)}px)`;
@@ -569,7 +574,7 @@ window.render = function (t) {
   $('glitch').style.opacity = (gk * .55).toFixed(3);
   $('glitch').style.transform = `translateX(${(gk * (Math.floor(t * FPS) % 2 ? 6 : -6)).toFixed(1)}px)`;
 
-  $('world').style.transform = GIF ? 'none' : `translate(${(Math.sin(t * .13) * 6).toFixed(2)}px, ${(Math.cos(t * .1) * 3).toFixed(2)}px) scale(${(1 + .03 * (t / T.dur)).toFixed(4)})`;
+  $('world').style.transform = GIF ? 'none' : `translate(${(Math.sin(t * .13) * 6).toFixed(2)}px, ${(Math.cos(t * .1) * 3 - 20 * pu).toFixed(2)}px) scale(${(1 + .03 * (t / T.dur) + .055 * pu).toFixed(4)})`;
   const fi = 1 - sm(ramp(t, 0, .35)), fo = sm(ramp(t, ...E.fadeOut));
   $('black').style.opacity = Math.max(fi, fo, window.__fade || 0).toFixed(3);
   const gr = rng(Math.floor(t * FPS) * 7919 + 1);

@@ -50,8 +50,8 @@ export const SHOTS = [
 
 // ---- captions. slot 'col' = right-hand column beside a UI shot; 'mid' = centred; a..b = fully visible window (fades are inside +- .35 s) ----
 export const CAPS = [
-  { id: 'l1', slot: 'cold1', text: 'In the grim darkness of your backlog…', a: b(0, 1), b: b(2, .4) },
-  { id: 'l2', slot: 'cold2', text: '…there is only work.', a: b(1, 1), b: b(2, .4) },
+  { id: 'l1', slot: 'cold1', text: 'In the grim darkness of your backlog…', a: b(0, 1), b: b(1, 2.4) },
+  { id: 'l2', slot: 'cold2', text: '…there is only work.', a: b(1), b: b(1, 2.4) },
   { id: 'sub', slot: 'sub', text: 'An order of Claude agents. Yours to command.', a: b(2, 3), b: b(3, 3.6) },
   { id: 'must', slot: 'mustcap', text: 'Thirteen bots. Each with its own role.', a: b(5, 2), b: b(6, 3.6) },
   { id: 'appr', slot: 'col', k: 'approvals', text: 'You approve the risky calls.', a: b(7, 1), b: b(8, 2.6) },
@@ -91,7 +91,7 @@ for (const slot of new Set(CAPS.map((c) => c.slot))) {
 export const CHIPS = [];
 
 export const NEXT_CARDS = [
-  { id: 'n1', title: 'Codex.', sub: 'The next provider.', a: 83.75, b: 85.15 },
+  { id: 'n1', title: 'Codex.', sub: 'The next provider.', a: 83.6, b: 85.15 },
   { id: 'n2', title: 'A knowledge-graph audit button.', sub: 'Refreshes stale notes.', a: 85.15, b: 88.25 },
   { id: 'n3', title: 'The Sentinel scheduler.', sub: '', a: 88.25, b: 89.75 },
   { id: 'n4', title: 'An optional lighter package.', sub: '', a: 89.75, b: 91.35 },
@@ -137,7 +137,8 @@ export const LOG = [
 
 export const T = {
   dur: b(42),
-  cold: { candleIn: [0, .9], candleOut: [b(1, 3.4), b(2, .8)] },
+  cold: { candleIn: [0, .9], candleOut: [b(1, 3.4), b(2, .2)] },
+  awaken: { snap: b(2), bloom: [b(2), b(2) + .56], archIn: b(2, .4), push: [b(2), b(2, 1), b(3)] },
   muster: { rise: b(4, 1), step: BEAT / 2, grid: b(4, 1) },
   victory: { at: b(38), flash: [b(38), b(38) + .3] },
   end: { wmDraw: [b(38, 1), b(39)], wmFill: [b(39), b(39, 2)], tag: b(39, 1.5), print: b(40), sigil: b(40, 2), fadeOut: [b(41, 2), b(42)] },
@@ -145,12 +146,12 @@ export const T = {
   term: [b(20, 2), b(23)],
   // Relic homes: centre (awakening), grid slot 1 (muster), column bottom-right (UI scenes, NEXT), centre-high (end card)
   relic: [
-    [0, 960, 400, 600, 0], [b(1, 3.6), 960, 400, 600, 0], [b(2, 2), 960, 400, 600, 1], [b(3, 3.6), 960, 400, 600, 1],
+    [0, 960, 400, 600, 0], [b(1, 3.8), 960, 400, 600, 0], [b(2), 960, 400, 600, 1], [b(3, 3.6), 960, 400, 600, 1],
     [b(4, 1.2), 174, 300, 270, 1], [b(6, 3.5), 174, 300, 270, 1],                            // into Zealot's place in the muster grid
     [b(7, 1.5), 1650, 850, 340, 1], [b(33), 1650, 850, 340, 1], [b(33, 3), 1530, 520, 520, 1],
     [b(37, 3), 1530, 520, 520, .0], [b(38), 960, 400, 640, 1], [b(39), 960, 400, 640, 1], [b(39, 2), 960, 250, 420, 1], [200, 960, 250, 420, 1],
   ],
-  states: [[0, 'sleeping'], [b(2, 2), 'idle'], [b(4), 'thinking'], [b(7), 'awaiting'], [b(8, 3), 'idle'], [b(10), 'thinking'], [b(13), 'idle'], [b(19, 1), 'hacking'], [b(23), 'awaiting'],
+  states: [[0, 'sleeping'], [b(2), 'idle'], [b(4), 'thinking'], [b(7), 'awaiting'], [b(8, 3), 'idle'], [b(10), 'thinking'], [b(13), 'idle'], [b(19, 1), 'hacking'], [b(23), 'awaiting'],
     [b(26), 'hacking'], [b(29), 'hacking'], [b(31), 'idle'], [b(38), 'victory'], [b(40), 'idle']],
 };
 

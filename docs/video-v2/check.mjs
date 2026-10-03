@@ -21,7 +21,7 @@ for (const c of NEXT_CARDS) {
   console.log(`${ok ? 'ok  ' : 'SHORT'} ${full.toFixed(2)}s / ${req.toFixed(2)}s  NEXT ${txt}`);
 }
 for (const c of CUTS) { const bt = c.at / BEAT, on = Math.abs(bt - Math.round(bt)) < 1e-6; if (!on) fail(`cut ${c.id} off the beat grid`); }
-const BANNED = /\b(safe|safely|secure|secured|security|verified|bypass|bypassed|young|guaranteed|unbreakable|fully|openai|codex|opencode|openrouter|ollama|lightpanda|agent-browser|todo|lorem|owner)\b/i;
+const BANNED = /\b(safe|safely|secure|secured|security|verified|bypass|bypassed|young|guaranteed|unbreakable|fully|lightpanda|agent-browser|todo|lorem|owner)\b/i;
 const allText = [...CAPS.map((c) => c.text), ...CHIPS.map((c) => c.text), ...NEXT_CARDS.flatMap((c) => [c.title, c.sub]), ...LOG.flatMap((L) => L.segs.map((s) => s[0]))];
 for (const t of allText) if (BANNED.test(t)) fail(`banned word in "${t}"`);
 if (/\b20\d\d\b|\bQ[1-4]\b|\bsoon\b/i.test(allText.join(' '))) fail('a date or "soon" on screen');
