@@ -15,7 +15,7 @@ export function useBoard<T>(sel: (s: BoardState) => T): T {
 const errText = (e: unknown): string => (e instanceof ApiError || e instanceof Error ? e.message : String(e));
 
 let probing: Promise<void> | null = null;
-/** `GET /api/board` answers 404 unless the board (features.projectBoard) is on: then the window shows nothing of it. */
+/** `GET /api/board` answers 404 unless the board's config switch is on: then the window shows nothing of it. */
 export function probeBoard(): Promise<void> {
   if (state.enabled !== 'unknown') return Promise.resolve();
   probing ??= api.boardProbe().then(() => set({ enabled: 'yes' }), () => set({ enabled: 'no' }));

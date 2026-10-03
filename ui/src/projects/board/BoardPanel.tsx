@@ -19,7 +19,7 @@ import './board.css';
 
 type Tab = 'board' | 'list' | 'inbox';
 
-/** The board of a project. Renders nothing at all unless the core answered the board probe (features.projectBoard is on). */
+/** The board of a project. Renders nothing at all unless the core answered the board probe (the board's config switch is on). */
 export function BoardPanel({ project }: { project: Project }) {
   const enabled = useBoard((s) => s.enabled);
   useEffect(() => { void probeBoard(); }, []);

@@ -41,7 +41,7 @@ export interface CoreContext {
   adminSecret?: string;
   /** Projects (read-only here: the MCP tool `legion_projects` lists and gets them; every change goes through the projects module's admin routes). */
   projects?: ProjectStore;
-  /** Project board (behind `features.projectBoard`): read-only for token clients through `legion_board_read`. Absent: nothing board-related exists. */
+  /** Project board (behind its config switch): read-only for token clients through `legion_board_read`. Absent: nothing board-related exists. */
   board?: BoardStore;
 }
 
