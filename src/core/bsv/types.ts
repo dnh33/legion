@@ -45,3 +45,14 @@ export interface BsvStatus {
 export interface BsvToggleResult extends BsvStatus {
   seed?: BsvSeedResult;
 }
+
+/** The mainnet hard-off switch as a view shows it (the switch lives in the policy file; arming is memory only and covers one spend). */
+export interface MainnetState {
+  enabled: boolean;
+  armed: boolean;
+}
+
+/** POST /api/bsv/policy/mainnet body (only `enabled`; an extra key is refused). */
+export interface MainnetToggleBody {
+  enabled: boolean;
+}

@@ -39,7 +39,7 @@ export interface MainnetRouteDeps {
 
 const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v);
 
-/** Registers the route and the hook that saves every switch-off; the one-line wiring in bsv/index.ts passes { policy, requireNative, checkPolicyFile, persist, note, bsvEnabled, view }. */
+/** Registers the route and the hook that saves every switch-off. T2 adds the one line in index.ts: `registerMainnetRoutes(add, { policy, requireNative, checkPolicyFile, persist: persistPolicy, note, bsvEnabled: () => state.enabled, view: policyView });` */
 export function registerMainnetRoutes(add: RouteAdder, deps: MainnetRouteDeps): void {
   const { policy } = deps;
   let ownerAction = false;
