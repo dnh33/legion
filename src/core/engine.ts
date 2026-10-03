@@ -579,7 +579,7 @@ export class Engine {
     out.legion = buildAgentToolsServer({
       agentId: agent.id, taskId, vms: this.vms, bridge: this.bridge,
       vmEnabled: !!agent.vm?.enabled && this.boatConfigured(),
-      claudeAvailable: this.vms.claudeAvailable(), // vm_claude is hidden while Claude is known not to be set up on boat.dev
+      claudeAvailable: this.vms.claudeAvailable?.() ?? true, // vm_claude is hidden while Claude is known not to be set up on boat.dev
     });
     const moduleJob: ModuleJob = {
       taskId, ...(job.origin ? { origin: job.origin, ceiling: job.origin.approvalCeiling } : {}),
