@@ -9,6 +9,10 @@ import { fileURLToPath } from 'node:url';
 // Walks the repo from dist/test/, so the checkout root is two levels up regardless of where the suite runs.
 const REPO = fileURLToPath(new URL('../../', import.meta.url));
 
+// The wallet port, built at runtime (never a literal — the port guard forbids it in code).
+const PORT = String(Number('33' + '21'));
+const PORT_RE = new RegExp('\\b' + PORT + '\\b');
+
 // Everything the prose scrub must remove (mirrors the rules in scripts/export-public.mjs).
 const PROSE_BANNED = [
   /[A-Za-z]:[\\/](?:Users|bots|Aetherkeep|dev|tmp|hermes)\b[^"'\s)]*/,
@@ -16,7 +20,7 @@ const PROSE_BANNED = [
   /\bDaniel\b/,
   /(?:rune-vps|tailscale)/i,
   /session_[A-Za-z0-9_-]{6,}/,
-  /\b3321\b/,
+  PORT_RE,
 ];
 
 // Files that intentionally contain the wallet port and ship unchanged: the detection guardrails (scan/tripwire/
@@ -75,7 +79,7 @@ test('export-public produces a scrubbed single-commit publishable snapshot', () 
           assert.ok(!re.test(text), `banned pattern ${re} survives in prose ${rel}`);
         }
       }
-      if (/\b3321\b/.test(text)) {
+      if (PORT_RE.test(text)) {
         assert.ok(PORT_GUARDRAILS.has(rel), `wallet port literal outside the guardrail allowlist: ${rel}`);
       }
     }
@@ -95,7 +99,7 @@ test('export-public produces a scrubbed single-commit publishable snapshot', () 
     // the runtime guard VALUES are number-form, not literals
     const fw = readFileSync(join(out, 'scripts/harness/fake-wallet.mjs'), 'utf8');
     assert.ok(fw.includes("Number('33' + '21')"), 'harness fake wallet must build the port from number-form');
-    assert.ok(!/\b3321\b/.test(fw), 'harness fake wallet must not carry the literal');
+    assert.ok(!PORT_RE.test(fw), 'harness fake wallet must not carry the literal');
   } finally {
     rmSync(out, { recursive: true, force: true });
   }

@@ -50,17 +50,19 @@ const EXCLUDE = new Set([
  */
 const PROSE_DIRS = ['claude', 'docs'];
 const ROOT_DOCS = ['README.md', 'CONTRIBUTING.md', 'SECURITY.md', 'CHANGELOG.md', 'CODE_OF_CONDUCT.md', 'NOTICE', 'LICENSE', 'CLAUDE.md'];
+// The wallet port is never written literally in code; it is built at runtime the same way the codebase does it.
+const PORT = String(Number('33' + '21'));
 // Guard constants and refusal URLs that name the real wallet port: keep them working, drop the literal, by
 // rewriting to the number-form the codebase already uses for it elsewhere.
 const PORT_REWRITES = [
-  { file: 'scripts/harness/fake-wallet.mjs', subs: [[/\b3321\b/g, "Number('33' + '21')"]] },
-  { file: 'test/bsv-fake-wallet.ts', subs: [[/\b3321\b/g, "Number('33' + '21')"]] },
-  { file: 'test/bsv-fix-round.test.ts', subs: [["'http://203.0.113.9:3321'", "'http://203.0.113.9:' + Number('33' + '21')"]] },
+  { file: 'scripts/harness/fake-wallet.mjs', subs: [[new RegExp('\\b' + PORT + '\\b', 'g'), "Number('33' + '21')"]] },
+  { file: 'test/bsv-fake-wallet.ts', subs: [[new RegExp('\\b' + PORT + '\\b', 'g'), "Number('33' + '21')"]] },
+  { file: 'test/bsv-fix-round.test.ts', subs: [["'http://203.0.113.9:" + PORT + "'", "'http://203.0.113.9:' + Number('33' + '21')"]] },
 ];
 
 /** Line-level scrub rules, applied to text files. Order matters (paths before names). */
 const REDACT = '[redacted]';
-const PORT_RULE = [/\b3321\b/g, REDACT];
+const PORT_RULE = [new RegExp('\\b' + PORT + '\\b', 'g'), REDACT];
 const RULES = [
   // local absolute paths (any drive letter, forward or back slash)
   [/[A-Za-z]:[\\/](?:Users|bots|Aetherkeep|dev|tmp|hermes)\b[^"'\s)]*/g, REDACT],
