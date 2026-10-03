@@ -14,10 +14,11 @@
 
 Legion is v0.2.0 and young. What is built and what is not:
 
-- **Built and covered by the automated tests** (no network, no real Claude calls): the core, the app, agents, rooms, the Lattice and Library, MCP orchestration, approvals, the Windows installer scripts.
-- **BSV mode:** read-only today (a status check of a wallet on this computer, testnet only). A testnet spend tool is planned, not built, and Legion has not been checked against a real BSV wallet.
+- **Built and covered by the automated tests** (no network, no real Claude calls): the core, the app, agents, rooms, the Lattice and Library, Projects with the work board, the browser tool, MCP orchestration, approvals, the Windows installer scripts.
+- **BSV mode:** a read-only status check of a wallet on this computer, plus one spend tool that asks the wallet to pay only after your confirmations in native dialogs (testnet and mainnet; mainnet is built and OFF until you switch it on). Tested against fake wallets only; not verified against a real wallet or with real funds yet.
 - **Blender bridge:** built, but not yet tried on a real Blender.
-- **Installer:** unsigned, and not yet run on a wide range of Windows machines. Expect SmartScreen or antivirus prompts. There are no prebuilt releases; you install from source.
+- **Installer:** unsigned, and not yet run on a wide range of Windows machines. Expect SmartScreen or antivirus prompts. There are no prebuilt releases yet (a prebuilt package is scripted and comes with the release; not built or run on Windows so far); today you install from source.
+- **The updater:** built, but off until a signing key is published and the repository is public.
 - **Claude only.** Other model providers are under [Later](#later).
 
 ## What it is
