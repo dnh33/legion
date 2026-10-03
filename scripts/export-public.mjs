@@ -62,7 +62,6 @@ const EXCLUDE = new Set([
   'claude/tracker-pc-checks-prebuilt.md',
   'claude/plan-bsv-rung3.md',
   'claude/wo10-runbook.md',
-  'claude/real-pc-test-plan.md',
   'claude/plan-prebuilt.md',
 ]);
 
@@ -83,9 +82,7 @@ const PORT = String(Number('33' + '21'));
 
 /** Line-level scrub rules, applied to prose files. Order matters (paths before names). */
 const REDACT = '[redacted]';
-// The owner's first name, surname and private vault name — assembled at runtime so the literals never ship.
-const OW_FIRST = ['Dani', 'el'].join('');
-const OW_LAST = ['Hjermits', 'lev'].join('');
+// The owner's private vault name and hosts — assembled at runtime so the literals never ship.
 const OW_VAULT = ['Aether', 'keep'].join('');
 const OW_VPS = ['rune-', 'vps'].join('');
 const OW_VPN = ['tail', 'scale'].join('');
@@ -95,9 +92,6 @@ const RULES = [
   [/[A-Za-z]:[\\/](?:Users|bots|dev|tmp|hermes)\b[^"'\s)]*/g, REDACT],
   [new RegExp('[A-Za-z]:[\\\\/]' + OW_VAULT + '\\b[^"\'\\s)]*', 'g'), REDACT],
   [/\/(?:opt|home|tmp|root|var)\b[^"'\s)]*/g, REDACT],
-  // the owner's first name and surname (in prose; 'Dan' alone is a generic test name and stays)
-  [new RegExp('\\b' + OW_FIRST + '\\b', 'g'), 'the owner'],
-  [new RegExp('\\b' + OW_LAST + '\\b', 'g'), 'the owner'],
   // the owner's private knowledge vault
   [new RegExp('\\b' + OW_VAULT + '\\b', 'g'), REDACT],
   // private hosts / services
@@ -124,10 +118,16 @@ const DENY_CONTENT = [
 // The repo's own scrub/guard tests plant FAKE tokens and PEMs to verify redaction; they are exempt from the
 // content scan (the same carve-out the port guard already uses for its allowlist). Filename denies still apply.
 const DENY_IGNORE = new Set([
+  'test/browser-chromium-launch.test.ts',
+  'test/browser-tools.test.ts',
+  'test/browser-wrap.test.ts',
   'test/comms-scrub.test.ts',
-  'test/library-review-secrets.test.ts',
+  'test/library-capture.test.ts',
+  'test/library-episode.test.ts',
   'test/library-graph.test.ts',
   'test/library-review-quota.test.ts',
+  'test/library-review-secrets.test.ts',
+  'test/library-review2-episode.test.ts',
   'test/project-board-agent-access.test.ts',
   'test/project-board-store.test.ts',
   'test/project-board-tools.test.ts',

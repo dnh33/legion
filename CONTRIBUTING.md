@@ -129,4 +129,4 @@ Checklist:
 - [ ] Docs updated (README, `docs/ARCHITECTURE.md`, `CHANGELOG.md` under "Unreleased") if behaviour changed
 - [ ] Third-party assets have a compatible licence and are listed in `NOTICE`
 
-By contributing you agree that your contribution is licensed under the [MIT License](LICENSE).
+By contributing you agree that your contribution is licensed under the [Apache License, Version 2.0](LICENSE).

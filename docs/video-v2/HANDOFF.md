@@ -47,7 +47,7 @@ To re-capture screenshots: `PLAYWRIGHT_PATH=... PLAYWRIGHT_BROWSERS_PATH=/opt/pw
 - Do not edit `docs/video/` (the first trailer).
 
 ## 5. Decisions and facts that must survive an edit
-- Beta wording is the owner's: "0.2.0 · BETA", dry and confident; never "young", "safe", "secure", "verified", "cannot be bypassed", no dates, no provider names, no "works with X", no Lightpanda, no repo URL, no "open source" claim until the owner says the repo is public (the facts file says it will be MIT).
+- Beta wording is the owner's: "0.2.0 · BETA", dry and confident; never "young", "safe", "secure", "verified", "cannot be bypassed", no dates, no provider names, no "works with X", no Lightpanda, no repo URL, no "open source" claim until the owner says the repo is public (the facts file says it will be Apache-2.0).
 - Built-not-tried scenes keep their chip for the whole scene: BSV spend ("Built against fakes. Not tried with real funds."), Blender, prebuilt package, updater, project board ("Built and tested. Not yet tried on a real PC."). `check.mjs` enforces it.
 - Project board: IN 0.2.0 per the orchestrator (owner decision), "BUILT, BEING FINALISED" until the facts file says SHIPS. Delete approval card was not captured (bug on the board branch: `mcp__legion_board__*` missing from the Legion-tool list in `src/core/approvals.ts` makes every board call count as outside content). Re-check once the board is merged and re-capture with `board-capture.mjs`; add the card if it then appears.
 - Browser tool: show only if the facts file says SHIPPED (it said IN PROGRESS at render time); ONE engine (Edge/Chrome on the PC); honest limit "a local browser runs with your rights; only a cloud VM is isolated".

@@ -35,7 +35,7 @@ Downloads are https only, from public hosts only, with a size cap.
 
 ## Licence note
 
-The official Blender Lab MCP server is **GPL-3.0-or-later**. Legion is MIT. Legion never bundles or copies it: it is downloaded from its official source only when you press Set up, lives in `<data dir>/blender/official/`, and stays a separate program that Legion talks to over stdio and a socket. The community add-on is MIT and is handled the same way (downloaded on request, not shipped). Get a proper licence check before you redistribute a build that includes any downloaded component.
+The official Blender Lab MCP server is **GPL-3.0-or-later**. Legion is Apache-2.0. Legion never bundles or copies it: it is downloaded from its official source only when you press Set up, lives in `<data dir>/blender/official/`, and stays a separate program that Legion talks to over stdio and a socket. The community add-on is MIT and is handled the same way (downloaded on request, not shipped). Get a proper licence check before you redistribute a build that includes any downloaded component.
 
 ## The title-bar chip
 

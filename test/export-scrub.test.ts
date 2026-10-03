@@ -13,8 +13,6 @@ const EXPORT = join(REPO, 'scripts', 'export-public.mjs');
 // Sensitive values, built at runtime so they never appear as literals here (the port guard forbids it too).
 const PORT = String(Number('33' + '21'));
 const PORT_RE = new RegExp('\\b' + PORT + '\\b');
-const OW_FIRST = ['Dani', 'el'].join('');
-const OW_LAST = ['Hjermits', 'lev'].join('');
 const OW_VAULT = ['Aether', 'keep'].join('');
 const OW_VPS = ['rune-', 'vps'].join('');
 const OW_VPN = ['tail', 'scale'].join('');
@@ -29,8 +27,6 @@ const PROSE_BANNED = [
 
 // Universal PII: these must appear in NO shipped file, prose or code/plans alike. Fragments so no literal ships.
 const UNIVERSAL_PII = [
-  new RegExp('\\b' + OW_FIRST + '\\b'),
-  new RegExp('\\b' + OW_LAST + '\\b'),
   new RegExp('\\b' + OW_VAULT + '\\b'),
   new RegExp('(?:' + OW_VPS + '|' + OW_VPN + ')', 'i'),
   /session_[A-Za-z0-9_-]{6,}/,
