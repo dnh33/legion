@@ -142,6 +142,6 @@ First public release.
 - **Windows installer** (`setup.cmd`) that installs per user under `%LOCALAPPDATA%\Programs\Legion`, with shortcuts, in-place updates and an uninstaller.
 - Command palette, keyboard shortcuts, task history per agent, and cost and turn tracking.
 
-[Unreleased]: https://github.com/OWNER/legion/compare/v0.2.0...HEAD
-[0.2.0]: https://github.com/OWNER/legion/compare/v0.1.0...v0.2.0
-[0.1.0]: https://github.com/OWNER/legion/releases/tag/v0.1.0
+[Unreleased]: https://github.com/dnh33/legion/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/dnh33/legion/compare/v0.1.0...v0.2.0
+[0.1.0]: https://github.com/dnh33/legion/releases/tag/v0.1.0

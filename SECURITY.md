@@ -2,11 +2,11 @@
 
 ## Supported versions
 
-Legion is young. Only the latest release on the default branch receives security fixes.
+Legion is young (v0.2.0, no prebuilt releases yet). Only the latest code on the default branch receives security fixes.
 
 ## Reporting a vulnerability
 
-Please do not open a public issue for a security problem. Use GitHub's private vulnerability reporting instead: open the **Security** tab of this repository and choose **Report a vulnerability**. Include what you found, how to reproduce it, and the impact you expect. You can expect an acknowledgement within a few days.
+Please do not open a public issue for a security problem. Use GitHub's private vulnerability reporting instead: open the **Security** tab of [dnh33/legion](https://github.com/dnh33/legion/security/advisories/new) and choose **Report a vulnerability**. Include what you found, how to reproduce it, and the impact you expect. This is a one-person project, so replies are best effort; an acknowledgement within a few days is the aim, not a promise. Never include real keys or tokens in a report.
 
 ## Threat model
 

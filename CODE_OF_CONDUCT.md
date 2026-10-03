@@ -6,4 +6,4 @@ In short: be respectful, assume good faith, give and accept feedback gracefully,
 
 ## Reporting
 
-Report unacceptable behaviour to the maintainers at **CONDUCT_EMAIL_PLACEHOLDER**. Reports are handled in confidence. Maintainers will follow the enforcement guidelines in the Contributor Covenant.
+Report unacceptable behaviour privately, not in a public issue: use GitHub's [private vulnerability reporting](https://github.com/dnh33/legion/security/advisories/new) form on this repository and start the report with "Code of Conduct". Reports are handled in confidence. Maintainers will follow the enforcement guidelines in the Contributor Covenant.

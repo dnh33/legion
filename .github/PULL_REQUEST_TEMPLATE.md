@@ -10,7 +10,7 @@
 
 - [ ] `npm run typecheck` passes
 - [ ] `npm test` passes, with tests added or updated
-- [ ] `npm run build` passes
+- [ ] `npm run build:ts` and `npm run build:ui` pass
 - [ ] No secrets, tokens, personal paths or email addresses in the diff
 - [ ] Docs updated if behaviour changed (README, `docs/ARCHITECTURE.md`, `CHANGELOG.md`)
 - [ ] Any third-party asset is licence-compatible and listed in `NOTICE`

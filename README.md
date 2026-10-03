@@ -2,13 +2,23 @@
 
 <img src="docs/images/relic.png" alt="The Relic, Legion's mascot: a war helm with a glowing green visor, a code halo and trailing data cables" width="360">
 
-# Legion
+<picture><source media="(prefers-color-scheme: dark)" srcset="docs/images/legion-wordmark-dark.svg"><img alt="Legion" src="docs/images/legion-wordmark-light.svg" width="460"></picture>
 
 **A local, Claude-only multi-agent bot for your desktop, with a VM for every agent when it needs one.**
 
-[Install](#install) · [Orchestrate over MCP](#orchestrate-from-claude-code-or-cowork) · [Architecture](docs/ARCHITECTURE.md) · [Contributing](CONTRIBUTING.md)
+[Status](#status) · [Install](#install) · [Orchestrate over MCP](#orchestrate-from-claude-code-or-cowork) · [Architecture](docs/ARCHITECTURE.md) · [Contributing](CONTRIBUTING.md)
 
 </div>
+
+## Status
+
+Legion is v0.2.0 and young. What is built and what is not:
+
+- **Built and covered by the automated tests** (no network, no real Claude calls): the core, the app, agents, rooms, the Lattice and Library, MCP orchestration, approvals, the Windows installer scripts.
+- **BSV mode:** read-only today (a status check of a wallet on this computer, testnet only). A testnet spend tool is planned, not built, and Legion has not been checked against a real BSV wallet.
+- **Blender bridge:** built, but not yet tried on a real Blender.
+- **Installer:** unsigned, and not yet run on a wide range of Windows machines. Expect SmartScreen or antivirus prompts. There are no prebuilt releases; you install from source.
+- **Claude only.** Other model providers are under [Later](#later).
 
 ## What it is
 
@@ -39,7 +49,7 @@ Claude Code and Cowork can drive Legion too, over MCP.
 - **Agents talk to each other.** Any agent can `ask` another and wait for the answer, or `tell` it and get the reply later in its own task. Pair threads resume the same session, so repeat conversations stay cheap. Hop, rate and cycle guards stop runaway loops.
 - **Settings in the app.** Claude sign-in or API key, your boat.dev key (with a Test button), MCP servers and connection snippets. Changes apply live.
 - **Auto model routing.** Each task goes to Sonnet or Opus depending on how hard it looks. If Sonnet fails or runs out of turns, Legion retries once on Opus. Or pick any model your account offers.
-- **Your Claude Code setup, inherited.** Agents pick up your Claude Code settings, MCP servers, skills, slash commands and claude.ai connectors. Add your own MCP servers in `config.json`.
+- **Your Claude Code setup, partly inherited.** Agents pick up your Claude Code settings, hooks, skills and slash commands by default. Your Claude Code MCP servers and claude.ai connectors are *not* loaded unless you turn on `claude.inheritMcp`; add the MCP servers you want agents to have in Settings or `config.json`.
 - **A VM per agent, on demand.** Agents start, use and stop their own boat.dev VM. You get a live screen preview and an "Open desktop" link. Idle VMs stop on their own so billing pauses. Legion shows how long a VM has run today, and an optional cost estimate from the hourly price you enter (see [docs/VM-NOTES.md](docs/VM-NOTES.md)).
 - **Inline approvals.** Per agent, choose `ask`, `auto-edits` or `full`. Risky tool calls show up as Allow/Deny cards in the thread. Press `A` or `D`.
 - **Slash commands and a model picker** in the composer.
@@ -75,7 +85,7 @@ Use it for yourself, on your own machine. Do not host Legion for other people, p
 
 ## Requirements
 
-- **Node.js 20.10 or newer.** The Electron app starts Legion Core with your system `node`.
+- **Node.js 20.10 or newer.** The Electron app starts Legion Core with your system `node`. CI runs on Node 22 and `.nvmrc` says 22, so 22 is the safest choice.
 - **Claude Code, signed in.** Run `claude`, then `/login`. A Claude subscription or an API key is required.
 - **Windows 10/11** is the primary target. The installer is unsigned and has had no wide testing yet; expect Windows SmartScreen or antivirus prompts for `.cmd` files. macOS and Linux work from a dev install.
 - **Optional:** a [boat.dev](https://boat.dev) account and API key for agent VMs.
@@ -102,7 +112,7 @@ To launch, use the shortcuts or `start-legion.cmd` in the install folder. To uni
 ### macOS and Linux (or any dev install)
 
 ```bash
-git clone https://github.com/OWNER/legion.git
+git clone https://github.com/dnh33/legion.git
 cd legion
 npm ci
 npm start          # builds, then opens the desktop app
@@ -131,7 +141,7 @@ Agents get `vm_start`, `vm_exec`, `vm_write_file`, `vm_read_file`, `vm_claude`, 
 
 ## Orchestrate from Claude Code or Cowork
 
-Run `npm run mcp-config` to print ready-to-paste snippets with your real token. That token is the MCP token: it lets Claude Code and Cowork run and read agents (under the `ask` approval ceiling), but it cannot approve cards, accept Library notes, change settings or touch BSV; those need the Legion app window, which holds a secret that lives only in memory.
+Run `npm run mcp-config` to print ready-to-paste snippets with your real token. That token is the MCP token: it lets Claude Code and Cowork run and read agents (under the `ask` approval ceiling), but it cannot approve cards, accept Library notes, change settings or change BSV policy (the one BSV call it can make is Freeze, which only stops things); those need the Legion app window, which holds a secret that lives only in memory.
 
 **Claude Code** (MCP over HTTP):
 
@@ -211,6 +221,7 @@ The data directory holds `config.json`, `state.json`, `messages/`, `workspaces/<
 | `Ctrl+N` | New task |
 | `Ctrl+M` | Model picker |
 | `Enter` / `Ctrl+Enter` | Send. While the agent works: queue / interrupt and send now |
+| `Ctrl+,` | Open or close Settings |
 | `Ctrl+.` | Toggle the Ops panel |
 | `Alt+1` to `Alt+9` | Switch agent |
 | `A` / `D` | Allow / Deny the focused approval |
