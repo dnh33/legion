@@ -94,7 +94,7 @@ Souls = the voice and stance in the persona: Inquisitor "default verdict NOT FIX
 
 **Rule: persona text stays byte-identical. Capability facts are produced at run time and never stored.**
 
-New `src/core/agent-facts.ts` (pure): `renderCapabilities(agent, ctx): string`, called once from `engine.buildOptions` (and the provider path), between the module preambles and the persona. Header `What you can do right now:`, 6 to 12 lines, empty lines omitted, resolved once at run start (stable across turns, no cache churn). Inputs come from the same sources that register the tools, so it cannot drift:
+New `src/core/agent-facts.ts` (pure): `renderCapabilities(agent, ctx): string`, called once from `engine.buildOptions` (NOT the provider path; providers are flag-gated off in 0.2.0), between the module preambles and the persona. Header `What you can do right now:`, 6 to 12 lines, empty lines omitted, resolved once at run start (stable across turns, no cache churn). Inputs come from the same sources that register the tools, so it cannot drift:
 - tool names: read from the server map `buildMcpServers(agent, job, act)` returns, plus `vmEnabled` and `disallowedTools`, not a typed list;
 - gates: `agent.vm.enabled && boatConfigured`, browser `enabled`, `agent.requires === 'bsv' && state.enabled`, Blender `enabled` + resolved mode + `both` + assets, policy state (mainnet hard-off or armed), approval mode and `job.ceiling`, project present, tainted;
 - other bots: `store.listAgents()` through `agentVisible` (the hidden Assayer never shows);

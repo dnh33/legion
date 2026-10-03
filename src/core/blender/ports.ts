@@ -20,7 +20,7 @@ export interface LocalRunResult {
 
 /** What the guard needs from the local runner. `hash` is the sha256 the user approved; the runner refuses a script whose bytes differ. */
 export interface LocalPort {
-  /** Blender >= 3.0 found on this computer. */
+  /** Blender >= 4.2 (the local-minimum, LOCAL_MIN_VERSION) found on this computer. */
   readiness(agent: AgentProfile): { ready: boolean; note: string };
   run(req: { agent: AgentProfile; taskId: string; script: string; hash: string; timeoutMs: number }): Promise<LocalRunResult>;
   inspect(req: { agent: AgentProfile; taskId: string; object?: string }): Promise<BackendResult>;

@@ -10,7 +10,7 @@ const EDIT_TOOLS = new Set(['Write', 'Edit', 'MultiEdit', 'NotebookEdit']);
 
 /** Legion's own in-process MCP servers: vm tools, the comms bridge, the knowledge graph, the project board and the guarded Blender bridge (it asks for its own approval inside the tool). */
 export const LEGION_TOOL_PREFIXES = ['mcp__legion__', 'mcp__legion_comms__', 'mcp__legion_kg__', 'mcp__legion_board__', 'mcp__legion_blender__'];
-const LEGION_TOOL_NAME = /^mcp__legion(?:_comms|_kg|_board|_blender)?__[a-z][a-z0-9_]*$/;
+const LEGION_TOOL_NAME = new RegExp(`^(?:${LEGION_TOOL_PREFIXES.join('|')})[a-z][a-z0-9_]*$`);
 /**
  * One of Legion's own in-process tools: the exact server name, then a plain tool name. A prefix test alone also matches
  * "mcp__legion__x__run", a tool of some other server that happens to be called "legion__x"; its tool part holds "__".

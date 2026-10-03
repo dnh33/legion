@@ -403,7 +403,7 @@ export interface BlenderStatusView {
   sandboxNote: string;
   /** The effective mode (saved, else derived from the legacy key). */
   mode?: BlenderMode;
-  /** A Blender >= 3.0 was found on this computer, so local runs can start. */
+  /** A Blender >= 4.2 (LOCAL_MIN_VERSION) was found on this computer, so local runs can start. */
   localReady?: boolean;
   localNote?: string;
   /** Plain text: where the next script goes, or why it cannot run. */
