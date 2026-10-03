@@ -678,7 +678,58 @@ the actions etc we've done in this session". Also recorded in Hermes memory. Ski
 - Check the real artifact, not the absence of errors (his "is this a dependency change tho?" found the release-blocking bug).
 
 ### NEXT
-1. [ ] **OWNER: click Update Legion in the installed 0.2.0/0.2.1 and report.** This is the entire point of 0.2.2-a.
-2. [ ] 0.2.2-b: UX council + /kodawari for the update-available notification (OPEN C); answer Zealot's proposal-vs-Forgemaster question.
-3. [ ] OPEN A: "full access" still prompts — `approvalCeiling` suspect (engine.ts:658-661); subagent route is out of OpenRouter credits.
-4. [ ] Backlog unchanged: report-a-bug, supply-chain pinning, vm_claude boat.dev config/schema, model-override beyond the three aliases, providers-2/providers/blender-chip, prebuilt bundler, Sentinel scheduler, KG-audit button, lighter package. Launch tweet drafted not posted. Site: stale screenshots, trailer slot, creator credit, provider-parity roadmap line.
+1. [ ] **Rebuild 0.2.2 with the .asar + antivirus fixes, reinstall on the owner's PC** (this unblocks D1, the install that was promised).
+2. [ ] D4 UX council + /kodawari for the update progress indicator.
+3. [ ] D5 council plan for Skills in Legion (+ Claude Code skill bridging) — required before Legion-on-Legion.
+4. [ ] D7 Zealot handoff prompt + context layer, after D5/D6.
+5. [ ] OPEN A "full access" still prompts (`approvalCeiling`, engine.ts:658-661) — subagents available again via `stealth/space-bunny-alpha` (owner changed config.yaml:167).
+6. [ ] Backlog unchanged: report-a-bug, supply-chain pinning, vm_claude boat.dev config/schema, model-override beyond the three aliases, providers-2/providers/blender-chip, prebuilt bundler, Sentinel scheduler, KG-audit button, lighter package. Launch tweet drafted not posted. Site: stale screenshots, trailer slot, creator credit, provider-parity roadmap line.
+
+## POST-0.2.2 — OWNER DIRECTIVES 2026-10-04 (recorded now; none of this was tracked before)
+
+### D1 — INSTALL 0.2.2 ON THE OWNER'S PC (promised, not yet delivered)
+- The 0.2.0 install is at `%LOCALAPPDATA%\Programs\Legion` (installed from SOURCE, so it carries `node_modules/electron`).
+- Upgrade path: `setup.ps1 -PackagePath <win-x64.zip> -PackageSha256 <hash> -Yes`. Run twice, both failed — see D2 and D3.
+- BLOCKED on D2 + D3. Both are packaging bugs in our code, neither is the owner's machine.
+
+### D2 — FIXED (needs rebuild): `.asar` breaks the installer under Electron
+- **Root cause, proved not guessed:** `listTree` (scripts/lib/package-lib.mjs) walks with `lstatSync`. Under plain node
+  `resources/default_app.asar` is a FILE. Under **Electron** — and the installer runs on `electron.exe` with
+  `ELECTRON_RUN_AS_NODE=1` (package-bootstrap.ps1:165) — Electron patches `fs`, so the same path reports `isDirectory() === true`
+  and its contents appear as children (`default_app.asar/default_app.js`). The walk descends into the archive, finds a file
+  PACKAGE-FILES.json never named, and the installer refuses the entire package.
+- **Consequence: every prebuilt package ever built was uninstallable.** The packaging path had never been exercised end to end.
+- **Fix:** in `listTree`, a name ending `.asar` is ONE opaque file; never descend, whatever the runtime's fs claims.
+- **Verified under Electron:** on disk 7124 / listed 7124, extra 0, missing 0. The real `package-install.mjs` then copied all
+  7124 files (671 MB) and stopped only on the antivirus block in D3.
+- **Test lesson:** invisible to node-based tests — it only appears on electron.exe. Packaging/installer changes must be verified
+  UNDER ELECTRON, never only under node.
+
+### D3 — FIXED (needs rebuild): stop shipping Electron's fallback app so antivirus stops blocking users
+- `resources/default_app.asar` is Electron's FALLBACK app, used only when no app is specified. Our `package.json` sets
+  `"main": "dist/src/electron/main.js"`, so it never loads — dead weight (~110 KB).
+- It is also the file heuristic scanners flag (a small script inside an archive), so shipping it can make a USER's Defender
+  quarantine it mid-install and fail the install outright.
+- **Fix:** `scripts/build-package.mjs` filters `resources/default_app.asar` out of the runtime entries, reason logged.
+- Owner asked "how do we fix that on other people's machines": an antivirus exclusion only fixes ONE machine; not shipping the
+  file fixes it for everyone. That is the fix chosen.
+
+### D4 — Progress indicator for an active update, aesthetically native to the UI
+- Owner: "some sort of progress indicator for the update when its active would be sick. Aesthetically added so it fits in our UI right."
+- NOT STARTED. Needs a UX council + /kodawari. The updater ALREADY reports `progress` (`{bytes,total}`, phase `downloading`) and
+  UpdatePanel renders a plain percentage — so this is a redesign of an existing surface, not new plumbing.
+
+### D5 — SKILLS IN LEGION (major feature, council required) — NOT STARTED
+- Owner: Legion has **no Skills**. Must exist before switching to Legion-on-Legion development.
+- Scope: on a par with Hermes Agent's and Claude's skills; Legion must also be able to **hook into Claude Code's skills**, so that
+  when the user has chosen Legion as the provider those are available too (Legion already has a setting of that kind).
+- Requires a council plan + /kodawari. No design committed.
+
+### D6 — Move Legion development INTO Legion (Legion-on-Legion)
+- Owner: "Hopefully this will be the last time we need to be in Hermes Agent and can start developing Legion from within Legion."
+- NOT STARTED. Precondition: D5 (Skills) and D7 (Zealot handoff).
+
+### D7 — Zealot takes over this role: handoff prompt + context layer
+- Owner wants a prompt that hands this job to Zealot: build a proper **context layer** with the other agents so Legion can be
+  developed from inside Legion, follow up open tasks, and run releases properly.
+- NOT STARTED. Depends on D5 + D6.

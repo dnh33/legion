@@ -75,6 +75,13 @@ export function listTree(root, skip = () => false) {
       if (skip(r)) continue;
       const st = lstatSync(a);
       if (st.isSymbolicLink()) throw new Error(`refusing a link: ${r}`);
+      // Electron patches `fs` when it runs, and under that patch an .asar ARCHIVE reports isDirectory() === true and its
+      // contents become visible as children (default_app.asar/default_app.js). The installer runs on electron.exe with
+      // ELECTRON_RUN_AS_NODE=1 (package-bootstrap.ps1), so a plain walk descends into the archive and finds a file the
+      // package list never named — which made every prebuilt package fail to install with
+      // "the package holds a file that is not on its list: runtime/electron/resources/default_app.asar/default_app.js".
+      // An .asar is an archive: list it as ONE file and never descend, whatever the runtime's fs claims about it.
+      if (/\.asar$/i.test(n)) { out.push({ rel: r, size: st.size, mode: st.mode & 0o777 }); continue; }
       if (st.isDirectory()) walk(a, r);
       else if (st.isFile()) out.push({ rel: r, size: st.size, mode: st.mode & 0o777 });
       else throw new Error(`refusing a non-file: ${r}`);
