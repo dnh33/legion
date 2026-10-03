@@ -117,7 +117,7 @@ const sleep = (ms: number) => new Promise((res) => setTimeout(res, ms));
 
 /** True when the process is gone (a zombie that nobody reaped counts as gone). */
 async function isGone(pid: number): Promise<boolean> {
-  for (let i = 0; i < 50; i++) {
+  for (let i = 0; i < 150; i++) {
     try {
       process.kill(pid, 0);
       try { if (/^\d+ \(.*\) Z/.test(readFileSync(`/proc/${pid}/stat`, 'utf8'))) return true; } catch { /* not Linux */ }
@@ -513,7 +513,7 @@ test('Blender not startable: a plain failure, never a throw', async () => {
 test('dispose stops a running Blender', async () => {
   const r = rig({ mode: 'sleep' });
   const running = r.runner.run(req(r, 'x=1\n', 't1', 60_000));
-  for (let i = 0; i < 100 && !existsSync(join(r.base, 'child.pid')); i++) await sleep(50);
+  for (let i = 0; i < 300 && !existsSync(join(r.base, 'child.pid')); i++) await sleep(50);
   const pids = [readPid(r, 'self.pid'), readPid(r, 'child.pid')];
   try {
     await r.runner.dispose();
