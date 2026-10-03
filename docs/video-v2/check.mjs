@@ -22,7 +22,7 @@ for (const c of NEXT_CARDS) {
   console.log(`${ok ? 'ok  ' : 'SHORT'} ${full.toFixed(2)}s / ${req.toFixed(2)}s  NEXT ${txt}`);
 }
 for (const c of CUTS) { const bt = c.at / BEAT, on = Math.abs(bt - Math.round(bt)) < 1e-6; if (!on) fail(`cut ${c.id} off the beat grid`); }
-const scene = { 'F12': S.bsv, 'F13': S.blender, 'F16': [b(30), b(31)], 'F18': [b(31), b(32)], 'F29': [b(15), b(19)] };
+const scene = { 'F12': S.bsv, 'F13': S.blender, 'F16': [b(31), b(32)], 'F18': [b(32), b(33)], 'F21': [b(29), b(31)], 'F29': [b(14), b(18)] };
 for (const [row, [a, z]] of Object.entries(scene)) {
   const ch = CHIPS.find((c) => c.needs === row);
   if (!ch) { fail(`${row}: no chip`); continue; }

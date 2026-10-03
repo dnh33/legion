@@ -9,7 +9,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(HERE, '../..');
@@ -28,7 +28,7 @@ async function loadPlaywright() {
   if (!hint) throw new Error('Playwright not found: npm i --no-save playwright, or set PLAYWRIGHT_PATH to a playwright package folder');
   const entry = ['index.mjs', 'index.js'].map((f) => path.join(hint, f)).find((f) => fs.existsSync(f));
   const opts = process.env.CHROMIUM_PATH ? { executablePath: process.env.CHROMIUM_PATH } : {};
-  return { pw: await import(entry), opts };
+  return { pw: await import(pathToFileURL(entry).href), opts };
 }
 
 const MIME = { '.html': 'text/html', '.js': 'text/javascript', '.mjs': 'text/javascript', '.css': 'text/css', '.json': 'application/json', '.png': 'image/png', '.woff2': 'font/woff2', '.svg': 'image/svg+xml', '.txt': 'text/plain', '.jpg': 'image/jpeg' };

@@ -46,4 +46,21 @@ Board shots come from origin/claude/project-board (a78b362) built in a scratch g
 | project-memory-item.png | Item dialog for "Add a health check endpoint": Project notes: "Health checks answer fast and say the version" (linked), button "Save what we learned...", Linked work, Activity "Linked a project note". | agent run: kg_capture scope "project" then board `update`; the board linked the note automatically at run end |
 | board-digest.txt | The real `<legion-board-digest>` block (10 lines, unedited) from the system prompt of a Scribe project run, read from the fake model's log (a patched copy of the harness model records the system prompt). | engine's own preamble |
 
-Could NOT capture: board-delete-approval.png. In this tree a run that calls any legion_board tool is marked as having touched outside content (mcp__legion_board__* is not on the Legion-tool list in src/core/approvals.ts, so engine taint treats it as an external tool). The delete tool then answers "Error: This run touched outside content (web, shell or external tools), so it may not delete items. Ask the owner." and no approval card is created; the same cause makes `create` with an assignee fail ("may not assign"), so the agents' items were assigned by the owner. Looks like a bug on the board branch, not a capture problem.
+Could NOT capture at first: board-delete-approval (see Update 3).
+
+
+## Update 3: recapture from integration/v1 (the board merged + the approvals fix)
+
+All board shots, the Settings shots and the BSV pair re-captured 2026-10-03 from `integration/v1` (board merged 2e2d611, approvals fix f726780) built in a scratch worktree, config `{}` (the board is ON by default in 0.2.0; no experimental switch). Same camera, same 1440x900 @2x dark, same fake model/wallet/Blender.
+
+| File | What it shows | Seeded how |
+|---|---|---|
+| board.png, board-inbox.png, board-guards.png, board-guards-dialog.png, project-memory.png, project-memory-item.png | same states as Update 2, now from the merged tree | same routes |
+| board-delete-card.png | **Now captured**: the delete approval card. Sentinel asks to delete "Translate the onboarding emails"; the owner card is PENDING (Allow/Deny). The approvals fix makes the board tools Legion tools, so the delete reaches the card instead of the taint refusal. Card left pending for the shot, then declined; the tool answered "The owner did not approve this." | scripted `legion_board delete` during a Sentinel run; poller stopped before the shot |
+| board-digest.txt | the same real `<legion-board-digest>` block (10 lines, unedited) from the merged tree | engine preamble, fake-model log |
+| browser.png | Settings > About > Browser card, toggle ON (enabled through the real POST /api/browser/config), detected engine, "Open test page" button | config route + real core probe of the PC's Edge/Chrome |
+| blender-get.png | re-captured on Windows: the card now shows the real Windows state (Get button enabled, pinned size/version) instead of the Linux "only available on Windows" state | bridge enabled via config |
+| update-panel.png | re-captured from the merged tree | none |
+| bsv-status.png / bsv-spend.png | re-captured; packaged knowledge notes version 8 | as before |
+
+The "capture.mjs browser" block and "board-capture.mjs" delete-card block are the script changes behind these (in this branch's docs/video-v2/capture/).

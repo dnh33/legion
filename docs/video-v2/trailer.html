@@ -202,6 +202,8 @@ canvas,svg.full{position:absolute;left:0;top:0;width:1920px;height:1080px}
 
   <div id="relic" class="abs"></div>
   <div id="sub" class="abs c sub hide" style="top:772px">Legion 0.2.0. Now in beta.</div>
+  <div id="brow1" class="abs c sub hide" style="top:772px">Browse without a VM.</div>
+  <div id="brow2" class="abs c cap hide" style="top:848px">Runs with your rights. A VM stays isolated.</div>
 
   <!-- muster -->
   <div id="muster"></div>
@@ -227,8 +229,8 @@ canvas,svg.full{position:absolute;left:0;top:0;width:1920px;height:1080px}
 
   <!-- install, update, test -->
   <div id="routes" class="abs hide" style="left:0;top:0;width:1920px;height:1080px">
-    <div id="cardA" class="card hide" style="left:110px;top:300px;width:800px;height:330px"><div class="k" style="margin-bottom:18px">THE PACKAGE ROUTE</div><b id="rtA">No Node. No Git. No npm.</b></div>
-    <div id="cardB" class="card hide" style="left:970px;top:300px;width:640px;height:330px"><div class="k" style="margin-bottom:18px">THE SOURCE ROUTE</div><b id="rtB">Or from source: setup.cmd.</b></div>
+    <div id="cardA" class="card hide" style="left:110px;top:330px;width:800px;height:220px"><div class="k" style="margin-bottom:18px">THE PACKAGE ROUTE</div><b id="rtA">No Node. No Git. No npm.</b></div>
+    <div id="cardB" class="card hide" style="left:970px;top:330px;width:640px;height:220px"><div class="k" style="margin-bottom:18px">THE SOURCE ROUTE</div><b id="rtB">Or from source: setup.cmd.</b></div>
     <div id="chipA" class="abs chipw hide" style="left:110px;top:668px;width:800px">Built by script. Not yet run on Windows.</div>
   </div>
   <div id="loopw" class="abs hide" style="left:0;top:0;width:1920px;height:1080px">
@@ -349,7 +351,7 @@ const camTx = (c) => [FW / 2 - c.z * c.cx * FW, FH / 2 - c.z * c.cy * FH];
 const capEls = CAPS.map((c) => {
   const d = document.createElement('div'); d.className = 'hide ' + (c.slot === 'col' ? 'col cap' : 'abs');
   if (c.slot === 'col') { d.style.top = '262px'; d.innerHTML = c.text; $('cols').appendChild(d); }
-  return { c, d: c.slot === 'col' ? d : $({ cold1: 'l1', cold2: 'l2', sub: 'sub', mustcap: 'mustcap', termcap: 'termcap', digest: 'digestcap', routeA: 'rtA', routeB: 'rtB', loopcap: 'loopcap' }[c.slot]) };
+  return { c, d: c.slot === 'col' ? d : $({ cold1: 'l1', cold2: 'l2', sub: 'sub', brow1: 'brow1', brow2: 'brow2', mustcap: 'mustcap', termcap: 'termcap', digest: 'digestcap', routeA: 'rtA', routeB: 'rtB', loopcap: 'loopcap' }[c.slot]) };
 });
 const kickEls = {};
 for (const [id, name] of Object.entries(KICKER)) { const d = document.createElement('div'); d.className = 'col k hide'; d.style.top = '198px'; d.textContent = name; $('cols').appendChild(d); kickEls[id] = d; }
@@ -545,10 +547,10 @@ window.render = function (t) {
   if (t > T.term[0] - .2 && t < T.term[1] + .2) drawLog(t);
 
   // board digest card
-  const dv = vis(t, b(19), b(20)); show($('digestw'), dv, up(t, b(19), 14)); if (dv > 0) drawDigest(t, b(19, .3));
+  const dv = vis(t, b(18), b(19)); show($('digestw'), dv, up(t, b(18), 14)); if (dv > 0) drawDigest(t, b(18, .3));
   // install: routes, then update (a shot), then loopback + harness
-  const ro = vis(t, b(30), b(31)); show($('routes'), ro);
-  show($('cardA'), win(t, b(30, .1), b(30, .6), b(31) , b(31) + .1), up(t, b(30, .1), 18)); show($('cardB'), win(t, b(30, 1.2), b(30, 1.8), b(31), b(31) + .1), up(t, b(30, 1.2), 18));
+  const ro = vis(t, b(31), b(32)); show($('routes'), ro);
+  show($('cardA'), win(t, b(31, .1), b(31, .6), b(32) , b(32) + .1), up(t, b(31, .1), 18)); show($('cardB'), win(t, b(31, 1.2), b(31, 1.8), b(32), b(32) + .1), up(t, b(31, 1.2), 18));
   const lo = vis(t, b(32), b(33)); show($('loopw'), lo);
   if (lo > 0) drawHarness(t, b(32, .5));
 
