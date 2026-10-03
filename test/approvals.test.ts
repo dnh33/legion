@@ -74,3 +74,18 @@ test('legion in-process tool prefixes need no approval; stricterMode picks the t
   assert.equal(stricterMode('auto-edits', 'full'), 'auto-edits');
   assert.equal(stricterMode('ask', 'ask'), 'ask');
 });
+
+test('board tools are Legion tools: no card, no taint; foreign and lookalike tools keep both', async () => {
+  const { isLegionTool } = await import('../src/core/approvals.js');
+  const { taintsRun } = await import('../src/core/engine.js');
+  for (const t of ['list', 'get', 'propose', 'create', 'update', 'delete']) {
+    const n = `mcp__legion_board__${t}`;
+    assert.equal(isLegionTool(n), true, n);
+    assert.equal(needsApproval('ask', n), false, n);
+    assert.equal(taintsRun(n), false, n);
+  }
+  assert.equal(isLegionTool('mcp__legion_board__x__run'), false);
+  assert.equal(isLegionTool('mcp__legion_boardish__list'), false);
+  assert.equal(needsApproval('ask', 'mcp__legion_other__x'), true);
+  assert.equal(taintsRun('mcp__legion_other__x'), true);
+});
