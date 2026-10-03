@@ -44,7 +44,7 @@ cd D:/bots/legion-review && git checkout main && git tag v0.2.0 && git push clou
 Stale local branches (`gate-*`, `fix/*`, `merge/*`), worktrees `legion-wt-win`, `legion-wt-winfix`, `legion-gate` (rmdir `node_modules` junction first).
 
 ## Standing rules (never relax)
-- Wallet port never written literally (tests use `Number('33'+'21')`); repo never contacts 127.0.0.1:3321; signing/spending needs owner go per action.
+- Wallet port never written literally in code or tests (tests build it as `Number('33'+'21')`); the repo never contacts the wallet; signing/spending needs the owner's go per action (amount + address).
 - No "safe/secure/verified/cannot be bypassed" claims — scope everything ("Legion's own code …").
 - bsV pinned files: no edits without the reviewer-signed pin recompute (`scripts/bsv-spend-pin.mjs`).
 - One gate at a time in `D:/bots/legion-gate`; never two concurrent (clobbers `dist/`).
