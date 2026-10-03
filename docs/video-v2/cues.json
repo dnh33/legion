@@ -201,11 +201,6 @@
       "id": "brd"
     },
     {
-      "t": 35.938,
-      "name": "chip",
-      "id": "c-board"
-    },
-    {
       "t": 36.875,
       "name": "mark",
       "id": "boardA"
@@ -302,11 +297,6 @@
       "id": "bsv1"
     },
     {
-      "t": 60,
-      "name": "chip",
-      "id": "c-bsv"
-    },
-    {
       "t": 61.875,
       "name": "caption",
       "id": "bsv2"
@@ -315,11 +305,6 @@
       "t": 65.313,
       "name": "caption",
       "id": "bl1"
-    },
-    {
-      "t": 66.25,
-      "name": "chip",
-      "id": "c-bl"
     },
     {
       "t": 69.5,
@@ -332,19 +317,9 @@
       "id": "brow1"
     },
     {
-      "t": 73.125,
-      "name": "chip",
-      "id": "c-brow"
-    },
-    {
       "t": 77.688,
       "name": "caption",
       "id": "rtA"
-    },
-    {
-      "t": 78.125,
-      "name": "chip",
-      "id": "c-pkg"
     },
     {
       "t": 78.438,
@@ -360,11 +335,6 @@
       "t": 80.125,
       "name": "caption",
       "id": "loop"
-    },
-    {
-      "t": 80.625,
-      "name": "chip",
-      "id": "c-upd"
     },
     {
       "t": 83.125,
