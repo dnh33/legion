@@ -9,7 +9,11 @@ import { createPublicKey, verify } from 'node:crypto';
 export interface UpdateKey { id: string; publicKeyPem: string }
 
 /** The owner pastes the PUBLIC key printed by scripts/release-keygen.mjs here before the first release. Never a private key. */
-export const UPDATE_KEYS: readonly UpdateKey[] = Object.freeze([]);
+export const UPDATE_KEYS: readonly UpdateKey[] = Object.freeze([
+  { id: 'k1', publicKeyPem: `-----BEGIN PUBLIC KEY-----
+MCowBQYDK2VwAyEA41Hd+3TZlF6e5uDTNY27y6GUZZ0Db50opAz7GlmONt0=
+-----END PUBLIC KEY-----` },
+]);
 
 export type VerifyResult = { ok: true; keyId: string } | { ok: false; reason: string };
 
