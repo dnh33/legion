@@ -11,6 +11,14 @@ The release now continues in a NEW harness (Hermes Agent) that works **directly 
 ## Rules in force (short; full text in section 2 below and in repo `CLAUDE.md`)
 Only the orchestrator (you) merges into `integration/v1` and `main`. Restore tag before every merge (`git tag pre-merge-<name> && git push cloud pre-merge-<name>`), `--no-ff`, never force, rebase or squash. After every merge: check removed test lines (`git diff <tag> HEAD -- test/ | grep '^-'`), run the Windows gate (below), push, update tracker/vault/memory. Never touch the BSV wallet at the port written as 33 and 21 from any code, test or agent (the orchestrator may probe it by hand, read-only first). Never write that port literally in tests (`Number('33' + '21')`). Do not disable the admin gate, native-secret flow, taint wrapping or tripwire/hedge tests; only extend hedge tests. Never write "safe", "secure", "verified" or "cannot be bypassed" about the product. No keys, tokens or `.legion` data anywhere. Zealot's art is untouchable. Do not spend money or click purchase buttons; downloads need the owner's go. Setup changes to the owner's tools: plan, back up, get a go. Plain, short, answer-first writing to the owner.
 
+
+## Per-session handoffs that exist (read the one for the area you touch)
+- In this repo (`claude/handoffs/`): `browser-engines-HANDOFF.md`, `blender-chip-HANDOFF.md`, `providers-HANDOFF.md` (0.2.1 work).
+- On unmerged branches: `claude/audit-agent-instructions-HANDOFF.md` (branch claude/agent-audit); `docs/video-v2/HANDOFF.md`, `AUDIT.md`, `BRIEF.md` (branch claude/trailer-v2-build); site repo `HANDOFF.md`.
+- NOT written (the weekly limit blocked those sessions): project board (use `claude/plan-project-board.md`, `docs/PROJECT-BOARD.md`, `claude/tracker-pc-checks-board.md` on branch claude/project-board) and the BSV and Blender build sessions. For those, the merged plans and docs are the record: `claude/plan-bsv-rung3.md`, `docs/BSV-MODE.md`, `docs/BSV-WALLET-DESIGN.md`, `docs/TESTING-BSV.md`, `claude/plan-blender-local-first.md`, `docs/BLENDER.md`, `docs/TESTING-BLENDER.md`, `claude/tracker-pc-checks.md`, plus the tracker's dated entries. Do NOT spin up cloud sessions to fetch more.
+- Docs that exist on integration/v1: ARCHITECTURE, BLENDER, BSV-MODE, BSV-WALLET-DESIGN, CHAT, COMMS-BRIDGE, KNOWLEDGE-GRAPH, LIBRARY, TESTING*, UPDATES, VM-NOTES; root: README, SECURITY, CONTRIBUTING, CHANGELOG, CLAUDE.md, LICENSE, NOTICE. `docs/PROJECT-BOARD.md` exists only on claude/project-board until it is merged.
+- Owner rule: do not fan out many agents at once (a burst of 15 sessions cost about 9 dollars in seconds). Ask first before starting more than one paid agent.
+
 ## The Windows gate (run in the worktree, never in the main clone)
 ```
 cd D:\bots\legion-gate
