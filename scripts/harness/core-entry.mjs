@@ -35,7 +35,7 @@ const boatConfigured = () => !!config.boat.apiKey;
 const vms = new VmManager({ store, bus, getBoat, boatConfig: () => config.boat });
 const approvals = new ApprovalBroker(bus);
 const model = createFakeModel();
-const providerRuntime = config.experimental.providers ? new ProviderRuntime({ config, keys: new ProviderKeys(keyFileFor(dataDir())) }) : undefined;
+const providerRuntime = config.features.providers ? new ProviderRuntime({ config, keys: new ProviderKeys(keyFileFor(dataDir())) }) : undefined;
 const projects = new ProjectStore(dataDir(), config.workspaceDir);
 const engine = new Engine({ store, bus, vms, approvals, config, boatConfigured, projects, ...(providerRuntime ? { providers: providerRuntime } : {}), queryFn: model.queryFn });
 const fakeCatalog = async () => ({ commands: [{ name: 'cost', description: 'Show cost', argumentHint: '' }], models: [{ value: 'sonnet', displayName: 'Sonnet (harness)', description: 'fake' }, { value: 'opus', displayName: 'Opus (harness)', description: 'fake' }], fetchedAt: new Date().toISOString() });

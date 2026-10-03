@@ -57,8 +57,8 @@ async function main() {
   const vms = new VmManager({ store, bus, getBoat, boatConfig: () => config.boat });
   const approvals = new ApprovalBroker(bus);
   // other model providers (OpenAI-compatible endpoints); keys live in <dataDir>/providers/keys.json, never in config.json
-  // built but not released (v0.2.1): off unless config.json says experimental.providers = true, then no provider code runs at all
-  const providerRuntime = config.experimental.providers ? new ProviderRuntime({ config, keys: new ProviderKeys(keyFileFor(dataDir())) }) : undefined;
+  // providers ship (OpenRouter on by default); off only if config.json sets features.providers = false
+  const providerRuntime = config.features.providers ? new ProviderRuntime({ config, keys: new ProviderKeys(keyFileFor(dataDir())) }) : undefined;
   // projects (owner-only groups of tasks, rooms, notes; own file <dataDir>/projects.json)
   const projects = new ProjectStore(dataDir(), config.workspaceDir);
   const engine = new Engine({ store, bus, vms, approvals, config, boatConfigured, projects, ...(providerRuntime ? { providers: providerRuntime } : {}) });

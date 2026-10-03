@@ -27,7 +27,7 @@ export function SettingsPanel() {
   const section = useStore((s) => s.settingsSection);
   const settings = useStore((s) => s.settings);
   useEffect(() => { if (!settings) void loadSettings(); }, []);
-  // Providers are not part of this release: the tab shows only when the core serves the provider routes (config.json experimental.providers)
+  // Providers ship (OpenRouter on by default); the tab shows only when the core serves the provider routes (config.json features.providers)
   const provView = useProviders((x) => x.view);
   useEffect(() => { void loadProviders(); }, []);
   const nav = provView ? NAV : NAV.filter((n) => n.id !== 'providers');

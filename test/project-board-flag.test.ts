@@ -19,9 +19,9 @@ test('C1 the board is ON by default; only the literal false turns it off', () =>
   for (const v of [undefined, null, 'x', 5, [], { other: false }]) assert.equal(normalizeFeatures(v).projectBoard, true, `features = ${JSON.stringify(v)}`);
 });
 
-test('C1 migration: the old experimental.projectBoard key is ignored (no error, no effect, either value); a later features value wins', () => {
-  assert.deepEqual(normalizeExperimental({ projectBoard: true }), { providers: false });
-  assert.deepEqual(normalizeExperimental({ projectBoard: false, providers: true }), { providers: true });
+test('C1 migration: old experimental keys are ignored (no error, no effect); a features value wins', () => {
+  assert.deepEqual(normalizeExperimental({ projectBoard: true }), {});
+  assert.deepEqual(normalizeExperimental({ projectBoard: false, providers: true }), {});
   const home = mkdtempSync(join(tmpdir(), 'legion-board-flag-'));
   const prev = process.env.LEGION_HOME;
   process.env.LEGION_HOME = home;

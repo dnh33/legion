@@ -39,22 +39,20 @@ export interface CommsConfig {
   /** What one turn is assumed to cost in a room with no turn history, for the budget guard that stops BEFORE a wake. Default 0.02. */
   turnCostFloorUsd: number;
 }
-/** Switches for work that is built but not part of a release yet. Set only by editing config.json (no UI, no route writes it). */
-export interface ExperimentalConfig { providers: boolean }
-export function normalizeExperimental(v: unknown): ExperimentalConfig {
-  // an old `projectBoard` key here (the board used to be experimental) is ignored: the board is a feature now, see FeaturesConfig
-  const o = (v && typeof v === 'object' ? v : {}) as { providers?: unknown };
-  return { providers: o.providers === true };
+/** Switches for work that is built but not part of a release yet. Set only by editing config.json (no UI, no route writes it). Empty now: providers shipped, see FeaturesConfig. */
+export interface ExperimentalConfig {}
+export function normalizeExperimental(_v: unknown): ExperimentalConfig {
+  return {};
 }
 
 /**
  * Switches for features that are ON by default. Set only by editing config.json (no UI, no route writes it). Only the literal `false` turns one off:
  * a missing key, `true`, "false" as text, 0 or anything else leaves it on.
  */
-export interface FeaturesConfig { projectBoard: boolean }
+export interface FeaturesConfig { projectBoard: boolean; providers: boolean }
 export function normalizeFeatures(v: unknown): FeaturesConfig {
-  const o = (v && typeof v === 'object' ? v : {}) as { projectBoard?: unknown };
-  return { projectBoard: o.projectBoard !== false };
+  const o = (v && typeof v === 'object' ? v : {}) as { projectBoard?: unknown; providers?: unknown };
+  return { projectBoard: o.projectBoard !== false, providers: o.providers !== false };
 }
 
 export type CoreConfig = LegionConfig & { bsv: BsvConfig; comms: CommsConfig; blender: BlenderConfig; providers: ProvidersConfig; experimental: ExperimentalConfig; features: FeaturesConfig };
@@ -114,8 +112,8 @@ export function defaultConfig(): CoreConfig {
     comms: { ...DEFAULT_COMMS },
     blender: defaultBlenderConfig(),
     providers: { ...DEFAULT_PROVIDERS, entries: {} },
-    experimental: { providers: false },
-    features: { projectBoard: true },
+    experimental: {},
+    features: { projectBoard: true, providers: true },
   };
 }
 
