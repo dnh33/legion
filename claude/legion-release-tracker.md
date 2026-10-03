@@ -434,6 +434,17 @@ After ALL work orders end (post WO-10, before the tag): one more multi-subagent 
 - slash-menu.png + model-picker.png left as-is: composer features unchanged in 0.2.0 (verified the composer/model-picker code didn't change in the merges).
 - WO-8 independent review subagent dispatched (docs + site alts + banned words + cherry-pick integrity).
 
+## 2026-10-03 WO-8 CLOSED: review in, 5 findings fixed
+- Reviewer verified: wordmark files + make-wordmark.py exist; BSV/updater/prebuilt Status lines match facts; cherry-pick preserved the Blender hedge + BSV bullet; package.json has no OWNER placeholders; assayer + lattice alts match the shots; no '157'/'171'/'no spend tool' tokens remain.
+- Fixed (README 5bd8f9a, site c3b7c41): (F2) the Status block now carries "The board and the browser tool are built and tested, not yet tried on a real PC."; (F7) "Legion is v0.2.0 and young" → "Legion is v0.2.0." (owner's no-'young' rule); (F12) bsv-panel alt no longer claims live-funds/mainnet-OFF content the shot doesn't show; (F15) the three index.astro BSV captions rewritten to what the shots really show.
+- Left on purpose (noted, not a claim): the literal tokens 'verified' (always negated: "not verified") and 'safe' (feature names "safety rules", Node "safest choice") appear in docs but assert no security guarantee — consistent with the owner's rule, which bans claims, not the word itself in negations.
+- The reviewer's "cherry-pick in progress" note was a stale read: the worktree was clean (no CHERRY_PICK_HEAD/MERGE_MSG).
+
+> ⛀ **SAVE-POINT 8 ✓** (2026-10-03, after WO-8+review / before WO-9) — records: this tracker, vault release note, memory file, todos.
+
+## 2026-10-03 WO-9 KICKOFF: open-sourcing (scrubbed snapshot, fresh history)
+- Plan: write `scripts/export-public.mjs` — a scrubbed snapshot of the repo for a NEW public repo at dnh33/legion (the owner renames + makes public). Scrub input = the security-review scrub findings + `claude/tracker-public-audit.md`: remove `claude/skills/**` (the owner's private skills), the operational leaks in claude/*.md + review/*.md (absolute paths, vault, VPS/Tailscale, session ids), owner's-first-name in docs/BSV-WALLET-DESIGN.md:3, dangling private legion-specs refs in the BSV pack prose, OWNER placeholders (already fixed in package.json). Fresh history = a single initial commit. Add a test that the scrub leaves none of the listed strings. Record the plan in the tracker's OPEN-SOURCING PLAN section. Then the WO-9 independent review.
+
 ## SAVE POINTS — convention (added 2026-10-03, owner request)
 - Save points are interleaved BETWEEN the work orders in this tracker and in the Hermes todo list (WO → SAVE-POINT → WO …). Each one is a `⛀ SAVE-POINT N` marker placed directly before the next task's entry, with what was written where.
 - Status: SAVE-POINT 1 / 2 / 5 done (markers above). SAVE-POINT 4 fires when the trailer merge lands. SAVE-POINT 7–10 fire as the remaining work orders complete.
