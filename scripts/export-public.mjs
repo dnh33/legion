@@ -61,6 +61,9 @@ const EXCLUDE = new Set([
   'claude/audit-agent-instructions-HANDOFF.md',
   'claude/tracker-pc-checks-prebuilt.md',
   'claude/plan-bsv-rung3.md',
+  'claude/wo10-runbook.md',
+  'claude/real-pc-test-plan.md',
+  'claude/plan-prebuilt.md',
 ]);
 
 /**
@@ -108,11 +111,11 @@ const RULES = [
 /** Fail-closed secret/token scan: a matching filename or content aborts the export. */
 const DENY_FILES = [
   /(^|\/)\.env(\.|$)/i, /(^|\/)\.legion($|\/)/i, /\.pem$/i, /\.key$/i, /\.p12$/i, /\.pfx$/i,
-  /id_rsa/i, /id_ed25519/i, /\.htpasswd$/i, /\.netrc$/i, /\.npmrc$/i,
+  /id_rsa/i, /id_ed25519/i, /\.htpasswd$/i, /\.netrc$/i, /\.npmrc$/i, /(^|\/)config\.json$/i,
 ];
 const DENY_CONTENT = [
   /-----BEGIN (?:[A-Z ]*)?PRIVATE KEY-----/,
-  /\b(?:sk|rk|ghp|gho|ghu|ghs|github_pat)_[A-Za-z0-9]{20,}/,
+  /\b(?:sk|rk|ghp|gho|ghu|ghs|github_pat)[_-][A-Za-z0-9-]{20,}/,
   /\bxox[baprs]-[A-Za-z0-9-]{10,}/,
   /\bAKIA[0-9A-Z]{16}\b/,
   /\bhf_[A-Za-z0-9]{20,}/,
