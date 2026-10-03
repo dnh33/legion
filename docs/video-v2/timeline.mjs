@@ -62,7 +62,7 @@ export const CAPS = [
   { id: 'brd', slot: 'col', k: 'projects', text: 'Agents work the board with you.', a: b(14, .4), b: b(15, 1.3) },
   { id: 'grd', slot: 'col', k: 'projects', text: 'You mark Done. You approve deletes.', a: b(15, 2.5), b: b(16, 2.9) },
   { id: 'pm', slot: 'col', k: 'projects', text: 'Save what you learned.', a: b(17, .4), b: b(17, 3.6) },
-  { id: 'mem', slot: 'digest', text: 'Project runs start with the board.', a: b(18, .5), b: b(18, 3.8) },
+  { id: 'mem', slot: 'digest', text: 'Project runs start with the board.', a: b(18, .5), b: b(19) },
   { id: 'vm', slot: 'col', k: 'vm', text: 'Their own cloud computer, when you want one.', a: b(19, .5), b: b(20, 2.4) },
   { id: 'mcp', slot: 'termcap', text: 'Drive it from Claude Code or Cowork.', a: b(20, 3), b: b(22, 3.6) },
   { id: 'bsv1', slot: 'col', k: 'bsv', text: 'BSV mode. Off by default.', a: b(23, .5), b: b(24, 2.2) },
