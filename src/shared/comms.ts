@@ -12,6 +12,9 @@ export type RoomStrategy =
   | 'round-robin'  // each plain human message goes to the next member in order
   | 'all';         // every member answers once (never re-triggers others)
 
+/** The one home for the strategies a room may pick; validation and creation both read this list. */
+export const ROOM_STRATEGIES: RoomStrategy[] = ['mention', 'manager', 'round-robin', 'all'];
+
 export type RoomKind = 'group' | 'dm';
 
 export interface RoomGuards {

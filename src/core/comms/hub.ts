@@ -2,7 +2,7 @@
  * CommsHub: rooms, inboxes, wakes and guards. No MCP and no HTTP in here, so it is unit-testable
  * with a fake engine (see test/comms*.test.ts). tools.ts and routes.ts are thin adapters over this class.
  */
-import { DEFAULT_GUARDS, wrapBotMessage } from '../../shared/comms.js';
+import { DEFAULT_GUARDS, ROOM_STRATEGIES, wrapBotMessage } from '../../shared/comms.js';
 import type {
   Room, RoomGuards, RoomKind, RoomMessage, RoomMessageKind, RoomPauseReason, RoomSender, RoomStrategy, TaskOrigin, CommsState,
 } from '../../shared/comms.js';
@@ -100,7 +100,7 @@ const RECENT_POSTS = 6;
 /** A bot may ask for at most this many room changes (create, add, remove) per window, answered or not: a loop must not bury the user in cards. */
 const ROOM_REQUESTS_MAX = 5;
 const ROOM_REQUESTS_WINDOW_MS = 10 * 60 * 1000;
-const STRATEGIES: RoomStrategy[] = ['mention', 'manager', 'round-robin', 'all'];
+const STRATEGIES = ROOM_STRATEGIES;
 /** A woken bot answers exactly this to stay silent (prevents DM ping-pong). */
 const NO_REPLY = /^\W*no[_ -]?reply\W*$/i;
 

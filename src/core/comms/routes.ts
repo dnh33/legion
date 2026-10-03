@@ -1,5 +1,5 @@
 /** HTTP routes of the comms bridge (bearer auth is enforced by the dispatcher). Thin adapter over CommsHub. */
-import type { RoomStrategy } from '../../shared/comms.js';
+import { ROOM_STRATEGIES, type RoomStrategy } from '../../shared/comms.js';
 import type { RouteAdder } from '../modules.js';
 import { HttpError } from '../server.js';
 import type { Ctx, Handler } from '../server.js';
@@ -7,7 +7,7 @@ import { CommsError } from './hub.js';
 import type { CommsHub, PatchRoomInput } from './hub.js';
 
 const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v);
-const STRATEGIES: RoomStrategy[] = ['mention', 'manager', 'round-robin', 'all'];
+const STRATEGIES = ROOM_STRATEGIES;
 
 function body(c: Ctx): Record<string, unknown> {
   if (!isObj(c.body)) throw new HttpError(400, 'JSON object body required');
