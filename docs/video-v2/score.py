@@ -92,9 +92,20 @@ CH = {   # root (bass), upper voicing, arpeggio cell
     'F':  (m('F', 1), [m('C', 3), m('F', 3), m('A', 3), m('C', 4)], [m('F', 3), m('C', 4), m('A', 3), m('F', 4)]),
     'D':  (m('D', 2), [m('D', 3), m('F#', 3), m('A', 3), m('D', 4)], [m('D', 4), m('A', 4), m('F#', 4), m('D', 5)]),
 }
-# one chord per bar of the 96 BPM grid: 0-3 cold/awaken on D, 4-6 muster, 7-35 i-VI-iv-V cycling, 36-39 Picardy D
-CYC = ['Dm', 'Bb', 'Gm', 'A']
-PROG = ['Dm'] * 4 + ['Dm', 'Bb', 'Gm'] + [CYC[(k - 7) % 4] for k in range(7, 36)] + ['D'] * 4
+# through-composed arc (v1-style: deliberate harmonic direction with two bright F-major lifts — projects, browser — and a V at each phrase end); NOT a loop
+PROG = (
+    ['Dm'] * 4 +                                    # cold + awaken
+    ['Dm', 'Bb', 'Gm'] +                            # muster
+    ['A', 'Dm', 'Bb', 'Gm'] +                       # approvals
+    ['A', 'Dm', 'Bb', 'Gm'] +                       # library
+    ['Dm', 'Bb', 'F'] +                             # projects (first F lift)
+    ['Dm', 'Bb', 'Gm', 'A'] +                       # vm
+    ['Dm', 'Bb', 'Gm'] +                            # bsv
+    ['Dm', 'Bb', 'F'] +                             # blender/browser (second F lift)
+    ['A', 'Dm', 'Bb'] +                             # install
+    ['Gm', 'A', 'Dm', 'Bb', 'A'] +                  # next (V on the way out)
+    ['D'] * 6                                       # victory + end (Picardy D)
+)
 NBARS = int(round(DUR / BAR))
 PROG = (PROG + ['D'] * NBARS)[:NBARS]
 
