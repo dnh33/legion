@@ -16,7 +16,7 @@ import { DRAIN_MS, FREEZE_MAX_MS, LIMITS, manifestUrl, PRODUCTION_SOURCE, SAMPLE
 import { computeBusy, QuietClock, type BusyProbe } from './idle.js';
 import { checkPolicy, ManifestError, parseManifest, type Manifest, type PolicyVerdict } from './manifest.js';
 import { fetchSmall, NetError, type FetchLike } from './net.js';
-import { stagePackage, stagedTree, StageError, type Staged } from './package.js';
+import { stagePackage, stagedTree, StageError, dependencyHash, type Staged } from './package.js';
 import { UpdaterFiles, type UpdateSettings } from './state.js';
 import { UPDATE_KEYS, verifyManifestSignature, type UpdateKey } from './trust.js';
 
@@ -90,6 +90,12 @@ export function createUpdaterModule(deps: ModuleDeps, opts: UpdaterOptions): Upd
 
   const buildInfo = (): { publishedAt?: string } => { try { const j = JSON.parse(readFileSync(join(opts.root, 'build-info.json'), 'utf8')) as { publishedAt?: unknown }; return typeof j.publishedAt === 'string' ? { publishedAt: j.publishedAt } : {}; } catch { return {}; } };
   const installedLock = (): string | undefined => sha256File(join(opts.root, 'package-lock.json'));
+  // The DEPENDENCY hash of the installed lock, not the raw file hash: the lock carries its own version field, so the raw hash
+  // changes on every release and would report "changes dependencies" for a patch that changes no dependency at all (see
+  // dependencyHash in package.ts, owner directive 2026-10-03). Returns undefined when the install has no readable lock.
+  const installedDepsHash = (): string | undefined => {
+    try { return dependencyHash(readFileSync(join(opts.root, 'package-lock.json'), 'utf8')); } catch { return undefined; }
+  };
 
   // The previous attempt's result (written by the apply helper): a rolled-back version is never offered again.
   const prior = readOutcome(opts.root);
@@ -196,20 +202,21 @@ export function createUpdaterModule(deps: ModuleDeps, opts: UpdaterOptions): Upd
       if (phase !== 'idle' && phase !== 'staged') throw new HttpError(409, 'An update is already being prepared.');
       if (staged?.version === a.version) { consent = true; return { ok: true }; }
       error = undefined;
-      if (!o.auto) {
-        phase = 'awaiting-approval';
-        const mb = Math.max(1, Math.round(a.asset.size / 1e6));
-        const summary = [`Install Legion ${a.version} (${mb} MB) from the official release on GitHub.`,
-          'It is downloaded only now, checked against the maintainer\'s signature built into this copy of Legion, and installed when no task or approval is running.',
-          `You are on ${version}. Your data folder is not touched.`].join('\n');
-        let allowed = false;
-        try { allowed = await deps.approvals.request('updater', 'legion', 'legion_update', { version: a.version, sizeMb: mb }, undefined, { summary }); } finally { if (!allowed) phase = 'idle'; }
-        if (!allowed) return { ok: false, declined: true };
-      }
+      // CONSENT. There is no approval card on either path, and that is deliberate (owner directive 2026-10-03).
+      //   - o.auto === true  -> the owner turned on "Install updates automatically when idle". That toggle carries its own
+      //     confirmation (window.confirm on the setting, UpdatePanel.tsx:83) and its label PROMISES "without asking again",
+      //     so raising a card here would contradict the UI. It is the working escape hatch for installs that predate this fix.
+      //   - anything else    -> the owner clicked Update (the button fires POST /api/update/install, index.ts:285). The click
+      //     IS the consent. Asking a second time was the double-consent bug: it stranded the panel on "Waiting for your answer
+      //     in the approvals list", pointing at a list (the agent thread, ApprovalCard) not reachable from the update panel.
+      // The card is not deleted from the codebase because `phase` still models an approval wait for the drain path; it is simply
+      // no longer reachable from install(). What still stands between a GitHub download and running code: the release SIGNATURE
+      // (verified before staging), requiresFullInstall (refuses dependency changes outright), and `consent` gating the commit
+      // (readyToApply, index.ts:184) so a staged update waits for the owner AND for Legion to be idle.
       phase = 'downloading'; progress = { bytes: 0, total: a.asset.size };
       try {
         staged = await stagePackage({
-          installDir: opts.root, source, manifest: a, version: a.version, installedLockSha256: installedLock(),
+          installDir: opts.root, source, manifest: a, version: a.version, installedDepsHash: installedDepsHash(),
           onProgress: (bytes, total) => { progress = { bytes, total }; },
           ...(opts.freeBytes ? { freeBytes: opts.freeBytes } : {}), ...(opts.fetchImpl ? { fetchImpl: opts.fetchImpl } : {}),
         });

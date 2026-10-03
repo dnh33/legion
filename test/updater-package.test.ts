@@ -5,7 +5,7 @@ import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, symlinkS
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { parseManifest } from '../src/core/updater/manifest.js';
-import { stagePackage, StageError, stagedTree } from '../src/core/updater/package.js';
+import { stagePackage, StageError, stagedTree , dependencyHash } from '../src/core/updater/package.js';
 import { assetNameFor } from '../src/core/updater/config.js';
 import { LOCK, makeKey, makeRelease, makeZip, packageFiles, sha256, startFakeServer, type Release, type ZipFile } from './updater-helpers.js';
 
@@ -13,14 +13,14 @@ const k = makeKey();
 const V = '0.2.1';
 const free = () => 10 ** 12;
 
-async function run(r: Release, o: { installedLock?: string | undefined; freeBytes?: () => number; manifestPatch?: Record<string, unknown>; serve?: Buffer } = {}) {
+async function run(r: Release, o: { installedDeps?: string | undefined; installedLock?: string | undefined; freeBytes?: () => number; manifestPatch?: Record<string, unknown>; serve?: Buffer } = {}) {
   const s = await startFakeServer(r);
   if (o.serve) { const orig = s.handler; s.handler.custom = (req, res) => { if (req.url?.includes('/releases/download/')) { res.writeHead(200, { 'content-length': o.serve!.length }); res.end(o.serve); return true; } void orig; return false; }; }
   const install = mkdtempSync(join(tmpdir(), 'upd-pkg-'));
   mkdirSync(join(install, 'dist'), { recursive: true }); writeFileSync(join(install, 'dist', 'keep.js'), 'live');
   const m = parseManifest(Buffer.from(JSON.stringify({ ...r.manifestObj, ...(o.manifestPatch ?? {}) })));
   try {
-    const out = await stagePackage({ installDir: install, source: s.source, manifest: m, version: V, installedLockSha256: 'installedLock' in o ? o.installedLock : sha256(LOCK), freeBytes: o.freeBytes ?? free });
+    const out = await stagePackage({ installDir: install, source: s.source, manifest: m, version: V, installedDepsHash: 'installedDeps' in o ? o.installedDeps : dependencyHash(LOCK), freeBytes: o.freeBytes ?? free });
     return { out, err: undefined as unknown, install, s };
   } catch (err) { return { out: undefined, err, install, s }; }
   finally { await s.close(); }
@@ -86,11 +86,31 @@ test('C9: names outside the code set (node_modules, .git, src, a dotfile) and ov
 test('C10: package.json version, lock hash, missing files and requiresFullInstall', async () => {
   assert.equal(code((await run(makeRelease(k, V, { files: packageFiles(V, { pkgVersion: '9.9.9' }) }))).err), 'content');
   const lockChanged = makeRelease(k, V, { lock: '{"changed":true}' });
-  assert.equal(code((await run(lockChanged, { installedLock: sha256(LOCK) })).err), 'full-install', 'the installed lock differs: notify only');
-  assert.equal(code((await run(makeRelease(k, V), { installedLock: undefined })).err), 'full-install', 'unreadable installed lock counts as different');
+  assert.equal(code((await run(lockChanged, { installedDeps: dependencyHash(LOCK) })).err), 'full-install', 'the installed dependencies differ: notify only');
+  assert.equal(code((await run(makeRelease(k, V), { installedDeps: undefined })).err), 'full-install', 'unreadable installed lock counts as different');
   assert.equal(code((await run(makeRelease(k, V, { requiresFullInstall: true }))).err), 'full-install');
   assert.equal(code((await run(makeRelease(k, V, { manifest: { depsSha256: 'b'.repeat(64) } }))).err), 'content', 'package lock differs from the signed one');
   assert.equal(code((await run(makeRelease(k, V, { files: packageFiles(V, { drop: ['dist/src/bin/legion-core.js'] }) }))).err), 'content');
+});
+
+// The owner's question on 2026-10-03 ("is this a dependency change though?"): bumping the release version rewrites the
+// `version` field inside package-lock.json, so the RAW lock hash changes on every single release. Comparing raw hashes made
+// every patch require a full install, which is why self-update never worked. Only the dependency CONTENT must decide.
+test('C10b: a lock that differs ONLY in its own version still self-applies; a real dependency change does not', async () => {
+  // Both locks carry the same packages map; only the version the lock records for ITSELF differs. That is exactly what npm
+  // rewrites on every release bump, and it must not read as a dependency change.
+  const base = { name: 'legion', lockfileVersion: 3, version: '0.2.1', packages: { '': { name: 'legion', version: '0.2.1' }, 'node_modules/x': { version: '1.2.3' } } };
+  const sameVersion = JSON.stringify(base);
+  const bumpedOnly = JSON.stringify({ ...base, version: '0.2.2-a', packages: { '': { name: 'legion', version: '0.2.2-a' }, 'node_modules/x': { version: '1.2.3' } } });
+  assert.notEqual(sha256(sameVersion), sha256(bumpedOnly), 'raw hashes differ, so the naive check would have failed');
+  assert.equal(dependencyHash(sameVersion), dependencyHash(bumpedOnly), 'the DEPENDENCY hash ignores the version the lock carries for itself, so a version bump self-applies');
+  const realChange = JSON.stringify({ ...base, packages: { ...base.packages, 'node_modules/new-dep': { version: '1.0.0' } } });
+  assert.notEqual(dependencyHash(sameVersion), dependencyHash(realChange), 'a real dependency change is still detected');
+  const depVersionChange = JSON.stringify({ ...base, packages: { ...base.packages, 'node_modules/x': { version: '9.9.9' } } });
+  assert.notEqual(dependencyHash(sameVersion), dependencyHash(depVersionChange), 'bumping a DEPENDENCY version is still a dependency change');
+  // And end to end: the release whose lock matches the installed dependencies, but whose lock version differs, must stage.
+  const res = await run(makeRelease(k, V, { lock: bumpedOnly }), { installedDeps: dependencyHash(sameVersion) });
+  assert.equal(res.err, undefined, 'a version-only lock difference must NOT force a full install');
 });
 
 test('C20: not enough free space is refused before any request; a connection that breaks mid-download leaves nothing', async () => {
@@ -99,10 +119,10 @@ test('C20: not enough free space is refused before any request; a connection tha
   const install = mkdtempSync(join(tmpdir(), 'upd-pkg-'));
   try {
     const m = parseManifest(r.manifest);
-    await assert.rejects(stagePackage({ installDir: install, source: s.source, manifest: m, version: V, installedLockSha256: sha256(LOCK), freeBytes: () => 10 }), (e) => e instanceof StageError && e.code === 'disk');
+    await assert.rejects(stagePackage({ installDir: install, source: s.source, manifest: m, version: V, installedDepsHash: dependencyHash(LOCK), freeBytes: () => 10 }), (e) => e instanceof StageError && e.code === 'disk');
     assert.equal(s.hits.filter((h) => h.includes('/releases/download/')).length, 0, 'no download was started');
     s.handler.custom = (req, res) => { if (req.url?.includes('/releases/download/')) { res.writeHead(200, { 'content-length': r.zip.length }); res.write(r.zip.subarray(0, 100)); setTimeout(() => res.destroy(), 20); return true; } return false; };
-    await assert.rejects(stagePackage({ installDir: install, source: s.source, manifest: m, version: V, installedLockSha256: sha256(LOCK), freeBytes: free }), (e) => e instanceof StageError && e.code === 'net');
+    await assert.rejects(stagePackage({ installDir: install, source: s.source, manifest: m, version: V, installedDepsHash: dependencyHash(LOCK), freeBytes: free }), (e) => e instanceof StageError && e.code === 'net');
     assert.equal(existsSync(join(install, '.update', 'staging', V)), false);
     assert.equal(stagedTree(install, V), null);
   } finally { await s.close(); }
@@ -115,7 +135,7 @@ test('C9: a staging folder that is a link is refused', async () => {
   try {
     mkdirSync(join(install, '.update'), { recursive: true });
     try { symlinkSync(elsewhere, join(install, '.update', 'staging'), 'dir'); } catch (e) { if ((e as NodeJS.ErrnoException).code === 'EPERM') return; throw e; }
-    await assert.rejects(stagePackage({ installDir: install, source: s.source, manifest: parseManifest(r.manifest), version: V, installedLockSha256: sha256(LOCK), freeBytes: free }), (e) => e instanceof StageError && e.code === 'unsafe');
+    await assert.rejects(stagePackage({ installDir: install, source: s.source, manifest: parseManifest(r.manifest), version: V, installedDepsHash: dependencyHash(LOCK), freeBytes: free }), (e) => e instanceof StageError && e.code === 'unsafe');
     assert.deepEqual(readdirSync(elsewhere), []);
   } finally { await s.close(); }
 });

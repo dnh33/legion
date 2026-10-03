@@ -76,3 +76,30 @@ test('C7: semver helpers are numeric and strict', () => {
   assert.equal(isPlainSemver('1.2.3-beta'), false);
   assert.throws(() => compareSemver('1.2', '1.2.3'));
 });
+
+// Lettered patch suffixes (owner directive 2026-10-03: a patch on top of an unreleased number, e.g. 0.2.2-a). These MUST
+// order the way node-semver orders a pre-release, or the updater offers downgrades and refuses legitimate updates.
+test('a lettered patch suffix is accepted; other pre-release shapes stay rejected', () => {
+  for (const v of ['0.2.2-a', '0.2.2-b', '0.2.2-z', '1.0.0-a']) assert.ok(isPlainSemver(v), `${v} should be accepted`);
+  for (const v of ['0.2.2-A', '0.2.2-', '0.2.2-ab', '0.2.2-beta.1', '0.2.2-a1', '0.2.2a', '', '0.2.2-a-b']) {
+    assert.equal(isPlainSemver(v), false, `${v} should be rejected`);
+  }
+});
+
+test('a lettered suffix sorts BELOW its own plain release and ABOVE the previous one (no downgrade, no missed update)', () => {
+  assert.ok(compareSemver('0.2.2-a', '0.2.1') > 0, '0.2.2-a must be OFFERED to someone on 0.2.1');
+  assert.ok(compareSemver('0.2.2-a', '0.2.2') < 0, 'the plain 0.2.2 must SUPERSEDE 0.2.2-a');
+  assert.ok(compareSemver('0.2.2', '0.2.2-a') > 0, 'asymmetric: plain release ranks above its own suffix');
+  assert.ok(compareSemver('0.2.2-a', '0.2.2-b') < 0, 'letters order among themselves');
+  assert.ok(compareSemver('0.2.2-b', '0.2.2-a') > 0, 'asymmetric letters');
+  assert.equal(compareSemver('0.2.2-a', '0.2.2-a'), 0, 'equal');
+  assert.ok(compareSemver('0.2.10-a', '0.2.9') > 0, 'numeric compare still wins over the suffix');
+});
+
+test('checkPolicy offers a lettered-suffix release to the previous version and refuses it as a downgrade from its own plain release', () => {
+  const now = Date.parse('2026-10-20T00:00:00Z');
+  const m = (v: string) => parseManifest(rel(v, { publishedAt: '2026-10-19T00:00:00Z' }).manifest);
+  const ctx = (v: string) => ({ running: { version: v }, nowMs: now, failedVersions: ['0.2.1'] });
+  assert.equal(checkPolicy(m('0.2.2-a'), ctx('0.2.1')).ok, true, 'offered to 0.2.1');
+  assert.equal((checkPolicy(m('0.2.2-a'), ctx('0.2.2')) as { code: string }).code, 'downgrade', 'refused to 0.2.2');
+});

@@ -178,6 +178,11 @@ export class VmManager {
     try { await this.requireBoat().writeFile(rec.sandboxId!, path, content, encoding); } catch (e) { throw this.wrap(e); } finally { this.touch(agentId); }
   }
 
+  /** The model the owner configured for this agent, for the vm_claude ceiling check in agent-tools. */
+  agentModelFor(agentId: string): string | undefined {
+    try { return this.store.getAgent(agentId)?.model; } catch { return undefined; }
+  }
+
   /** Run a whole task with Claude Code inside the VM; returns final text. */
   async claude(agentId: string, prompt: string, opts?: { model?: ConcreteModel; timeoutMs?: number }): Promise<string> {
     // Known not to work: say so before paying to start a VM.

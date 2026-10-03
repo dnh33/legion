@@ -7,7 +7,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseManifest } from '../src/core/updater/manifest.js';
-import { stagePackage } from '../src/core/updater/package.js';
+import { stagePackage, dependencyHash } from '../src/core/updater/package.js';
 import { verifyManifestSignature } from '../src/core/updater/trust.js';
 import { sha256, startFakeServer } from './updater-helpers.js';
 
@@ -81,7 +81,7 @@ test('C23: package -> manifest -> sign -> verify, and the app accepts exactly wh
   srv.handler.custom = (req, res) => { if (req.url?.includes('/releases/download/')) { const z = readFileSync(zipPath); res.writeHead(200, { 'content-length': z.length }); res.end(z); return true; } return false; };
   try {
     const install = tmp('upd-inst-');
-    const st = await stagePackage({ installDir: install, source: srv.source, manifest: man, version: '0.9.0', installedLockSha256: sha256(LOCK), freeBytes: () => 10 ** 12 });
+    const st = await stagePackage({ installDir: install, source: srv.source, manifest: man, version: '0.9.0', installedDepsHash: dependencyHash(LOCK), freeBytes: () => 10 ** 12 });
     const names = readdirSync(st.treeDir).sort();
     assert.deepEqual(names, ['NOTICE', 'assets', 'build-info.json', 'dist', 'dist-ui', 'package-lock.json', 'package.json', 'scripts']);
     assert.equal(existsSync(join(st.treeDir, 'dist', 'test')), false, 'compiled tests are not shipped');

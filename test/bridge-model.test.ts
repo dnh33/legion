@@ -66,6 +66,41 @@ const catalogOf = (...values: string[]): (() => Promise<Catalog>) => async () =>
   commands: [], fetchedAt: '', models: values.map((v) => ({ value: v, displayName: v, description: '' })),
 });
 
+// Zealot's self-report 2026-10-03: a lead passed model="sonnet" and the owner's fixed model for that agent was discarded with
+// NO trace the owner could see. The ceiling already existed (upgrades refused); the missing half was VISIBILITY. Owner decision:
+// keep the ceiling, make every applied override announce itself in the caller's thread.
+test('B: an applied override is announced in the caller thread, naming agent, configured model and the model used', async () => {
+  let asked: any;
+  const s = setup((c) => c.agent !== 'zealot' ? undefined : (async function* () {
+    yield init('z1');
+    asked = await callTool(c.options, 'ask', { agent: 'builder', message: 'count the files', model: 'haiku' });
+    yield ok('done', 'z1');
+  })(), 2);
+  const taskId = s.engine.startTask({ agentId: 'zealot', prompt: 'go', source: 'ui' }).id;
+  await s.engine.waitFor(taskId, 5000);
+  await tick();
+  // Builder is configured for opus in this rig, so haiku is an ALLOWED override (a downgrade) — exactly the silent case.
+  const messages = s.store.listMessages(taskId).map((m) => m.text).join('\n');
+  assert.match(messages, /Model override/, 'the override must be visible in the caller transcript');
+  assert.match(messages, /Builder/, 'it must name the agent whose model was overridden');
+  assert.match(messages, /opus/, 'it must state the model the owner configured');
+  assert.match(messages, /haiku/, 'it must state the model actually used');
+  assert.equal(asked.json.model, 'haiku', 'and the override still applies');
+});
+
+test('B: an override equal to the configured model is not announced (nothing was overridden)', async () => {
+  const s = setup((c) => c.agent !== 'zealot' ? undefined : (async function* () {
+    yield init('z1');
+    await callTool(c.options, 'tell', { agent: 'worker', message: 'go', model: 'sonnet' }); // Worker is already sonnet
+    yield ok('done', 'z1');
+  })(), 2);
+  const taskId = s.engine.startTask({ agentId: 'zealot', prompt: 'go', source: 'ui' }).id;
+  await s.engine.waitFor(taskId, 5000);
+  await tick();
+  const messages = s.store.listMessages(taskId).map((m) => m.text).join('\n');
+  assert.doesNotMatch(messages, /Model override/, 'a no-op override must not spam the owner');
+});
+
 test('B: ask with model "haiku" runs the target on haiku, and the task records who chose it', async () => {
   let asked: any;
   const s = setup((c) => c.agent !== 'zealot' ? undefined : (async function* () {

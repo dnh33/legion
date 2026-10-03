@@ -52,10 +52,7 @@ const task = (id: string, status: Task['status']): Task => ({ id, agentId: 'buil
 async function stagedRig(version = '0.2.1'): Promise<Rig> {
   const r = await rig(makeRelease(k, version));
   await r.mod.check(true);
-  const p = r.mod.install();
-  await waitFor(() => r.approvals.pending().length === 1);
-  r.approvals.resolve(r.approvals.pending()[0]!.id, true);
-  assert.equal((await p).ok, true);
+  assert.equal((await r.mod.install()).ok, true); // no approval card: the click is the consent
   return r;
 }
 async function waitFor(cond: () => boolean): Promise<void> { for (let i = 0; i < 200 && !cond(); i++) await new Promise((r) => setTimeout(r, 10)); assert.ok(cond(), 'timed out'); }
@@ -110,27 +107,31 @@ test('C20: offline and rate limit do not throw, change nothing, and back off', a
   assert.match((await off.mod.status()).check.lastResult!, /offline/);
 });
 
-test('C11: no download before the card is allowed; denying downloads nothing; allowing stages it', async () => {
+test('C11: clicking Update installs straight away, with no approval card (owner directive 2026-10-03)', async () => {
   const r = await rig(makeRelease(k, '0.2.1'));
   try {
     await r.mod.check(true);
+    // The click IS the consent: nothing is asked a second time, and the download starts immediately.
     const p = r.mod.install();
-    await waitFor(() => r.approvals.pending().length === 1);
-    const card = r.approvals.pending()[0]!;
-    assert.equal(card.toolName, 'legion_update');
-    assert.match(card.summary, /0\.2\.1/); assert.match(card.summary, /signature/);
-    assert.equal(hitsFor(r, '/releases/download/'), 0, 'nothing is fetched while the card is open');
-    assert.equal((await r.mod.status()).phase, 'awaiting-approval');
-    r.approvals.resolve(card.id, false);
-    assert.deepEqual(await p, { ok: false, declined: true });
-    assert.equal(hitsFor(r, '/releases/download/'), 0);
-    assert.equal((await r.mod.status()).phase, 'idle');
-    const p2 = r.mod.install(); await waitFor(() => r.approvals.pending().length === 1);
-    r.approvals.resolve(r.approvals.pending()[0]!.id, true);
-    assert.deepEqual(await p2, { ok: true });
+    assert.equal(r.approvals.pending().length, 0, 'clicking Update must not raise an approval card');
+    assert.deepEqual(await p, { ok: true });
+    assert.ok(hitsFor(r, '/releases/download/') > 0, 'the package is fetched straight after the click');
     const s = await r.mod.status();
-    assert.equal(s.staged?.version, '0.2.1'); assert.equal(s.consent, true);
-    assert.equal(hitsFor(r, '/releases/download/'), 1);
+    assert.equal(s.consent, true, 'the click records consent');
+    assert.equal(s.phase, 'staged');
+    assert.notEqual(s.phase, 'awaiting-approval', 'the update can never strand the panel on an approval wait');
+  } finally { await r.srv.close(); }
+});
+
+test('C11b: auto-install-when-idle also asks nothing, matching what the setting promises', async () => {
+  const r = await rig(makeRelease(k, '0.2.1'));
+  try {
+    await r.mod.check(true);
+    // The setting is confirmed by the owner when they turn it on, and its label says "without asking again".
+    const p = r.mod.install({ auto: true });
+    assert.equal(r.approvals.pending().length, 0, 'auto-install must not raise an approval card');
+    assert.deepEqual(await p, { ok: true });
+    assert.equal((await r.mod.status()).phase, 'staged');
   } finally { await r.srv.close(); }
 });
 test('C11: auto-install is OFF by default (a check with an update available downloads nothing); ON it stages without a card', async () => {
@@ -208,9 +209,9 @@ test('C13: a pending approval, a busy probe and a VM operation each block commit
   const r = await rig(makeRelease(k, '0.2.1'), { probes: { 'a Blender download is running': () => blender } });
   try {
     await r.mod.check(true);
-    const p = r.mod.install(); await waitFor(() => r.approvals.pending().length === 1);
-    r.approvals.resolve(r.approvals.pending()[0]!.id, true); await p;
+    await r.mod.install();
     quiet(r);
+    // A pending approval blocks the commit even after the update is staged.
     const other = r.approvals.request('t', 'a', 'Bash', {}); await waitFor(() => r.approvals.pending().length === 1);
     await assert.rejects(r.mod.commit(), /approval/);
     r.approvals.resolve(r.approvals.pending()[0]!.id, false); await other;
@@ -275,9 +276,7 @@ test('C10/C20: a release that changes dependencies is notify-only; a package who
   const lock = await rig(makeRelease(k, '0.2.1', { lock: '{"other":1}' }));
   try {
     await lock.mod.check(true);
-    const p = lock.mod.install(); await waitFor(() => lock.approvals.pending().length === 1);
-    lock.approvals.resolve(lock.approvals.pending()[0]!.id, true);
-    assert.deepEqual(await p, { ok: false });
+    assert.deepEqual(await lock.mod.install(), { ok: false }); // no card to answer any more
     const s = await lock.mod.status();
     assert.match(s.error!, /dependencies/); assert.equal(s.staged, undefined); assert.equal(s.available?.requiresFullInstall, true);
   } finally { await lock.srv.close(); }

@@ -19,7 +19,7 @@ export interface Staged { version: string; treeDir: string; zipSha256: string }
 export interface StageOptions {
   installDir: string; source: UpdateSource; manifest: Manifest; version: string;
   /** sha256 of the INSTALLED package-lock.json (undefined: unreadable, treated as a mismatch). */
-  installedLockSha256?: string;
+  installedDepsHash?: string;
   freeBytes?: (dir: string) => number;
   onProgress?: (bytes: number, total: number) => void;
   fetchImpl?: FetchLike;
@@ -55,8 +55,40 @@ function ensureStagingRoot(installDir: string): string {
   return root;
 }
 
+/**
+ * The hash that decides whether a release changes dependencies.
+ *
+ * `depsSha256` in the signed manifest is the hash of the WHOLE `package-lock.json` file, and that hash necessarily changes
+ * on every release because the file carries its own `version` field (npm rewrites it on every bump). Comparing that raw hash
+ * against the installed one therefore reported "this release changes dependencies" for EVERY patch, forcing a full reinstall
+ * and making self-update impossible in practice (owner hit exactly this on 2026-10-03).
+ *
+ * So compare the DEPENDENCY CONTENT instead: the lock with its own version fields blanked out. A release that only bumps its
+ * own version hashes identically to the installed lock and self-applies; a release that actually adds, removes or bumps a
+ * dependency still differs, and still requires a full install.
+ */
+export function dependencyHash(lockJson: string): string {
+  let parsed: unknown;
+  try { parsed = JSON.parse(lockJson); } catch { return sha256(Buffer.from(lockJson, 'utf8')); } // unparseable: fall back to the raw bytes
+  // Only the top-level lock `version` and the root package entry's `version` are the lock's own; a dependency's "version" is
+  // load-bearing and must stay in the hash.
+  return sha256(Buffer.from(JSON.stringify(strippedRoot(parsed)), 'utf8'));
+}
+
+function strippedRoot(parsed: unknown): unknown {
+  if (!parsed || typeof parsed !== 'object') return parsed;
+  const clone = structuredClone(parsed) as Record<string, unknown>;
+  delete clone.version;
+  const pkgs = clone.packages as Record<string, unknown> | undefined;
+  if (pkgs && typeof pkgs === 'object') {
+    const rootEntry = pkgs[''];
+    if (rootEntry && typeof rootEntry === 'object') { const e = { ...(rootEntry as Record<string, unknown>) }; delete e.version; pkgs[''] = e; }
+  }
+  return clone;
+}
+
 /** Content checks on the extracted tree (plan section 4, steps 8-9). Throws StageError. */
-export function checkTree(treeDir: string, m: Manifest, installedLockSha256: string | undefined): void {
+export function checkTree(treeDir: string, m: Manifest, installedDepsHash: string | undefined): void {
   for (const n of readdirSync(treeDir)) if (!CODE_SET.includes(n)) throw new StageError('content', `the package contains "${n}", which is not part of the update set`);
   for (const must of ['dist/src/electron/main.js', 'dist/src/bin/legion-core.js', 'dist-ui/index.html', 'package.json', 'package-lock.json']) {
     if (!existsSync(join(treeDir, must))) throw new StageError('content', `the package is missing ${must}`);
@@ -66,7 +98,10 @@ export function checkTree(treeDir: string, m: Manifest, installedLockSha256: str
   if (pkg.version !== m.version) throw new StageError('content', 'package.json does not carry the signed version');
   const lock = sha256(readFileSync(join(treeDir, 'package-lock.json')));
   if (lock !== m.depsSha256) throw new StageError('content', 'the dependency lock in the package differs from the signed one');
-  if (m.requiresFullInstall || installedLockSha256 !== lock) throw new StageError('full-install', 'this release changes dependencies: it needs a full install (download the source of the release and run setup.cmd)');
+  // Fail closed: if we cannot tell what the installed dependencies are, we must NOT assume they match. An unknown installed
+  // dependency hash means "treat as changed", so an unreadable install is notify-only rather than silently overwritten.
+  if (m.requiresFullInstall || installedDepsHash === undefined || installedDepsHash !== dependencyHash(readFileSync(join(treeDir, 'package-lock.json'), 'utf8')))
+    throw new StageError('full-install', 'this release changes dependencies: it needs a full install (download the source of the release and run setup.cmd)');
 }
 
 /** Downloads, verifies and extracts. Returns the staged tree, or throws StageError/NetError after removing the staging folder. */
@@ -101,7 +136,7 @@ export async function stagePackage(o: StageOptions): Promise<Staged> {
     } finally { src.close(); }
     const treeDir = join(extractTo, `legion-${o.version}`);
     walkCheck(treeDir);
-    checkTree(treeDir, m, o.installedLockSha256);
+    checkTree(treeDir, m, o.installedDepsHash);
     writeFileSync(join(work, 'stage.json'), JSON.stringify({ version: o.version, zipSha256: dl.sha256, at: Date.now() }));
     return { version: o.version, treeDir, zipSha256: dl.sha256 };
   } catch (e) {

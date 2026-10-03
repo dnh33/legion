@@ -60,7 +60,7 @@ export function UpdatePanel() {
           {!notifyOnly && !st.staged && st.phase !== 'downloading' && st.phase !== 'awaiting-approval' && (
             <button type="button" className="btn-ghost" disabled={busy} onClick={() => void act(() => request('POST', '/api/update/install'))}>Update</button>
           )}
-          {st.phase === 'awaiting-approval' && <p className="upd-muted">Waiting for your answer in the approvals list.</p>}
+          {st.phase === 'awaiting-approval' && <p className="upd-muted">Waiting for your answer on the update card.</p>}
           {st.phase === 'downloading' && <p className="upd-muted">Downloading and checking{st.progress ? ` (${Math.round((st.progress.bytes / st.progress.total) * 100)}%)` : ''}{'…'}</p>}
           {st.staged && (
             <div>

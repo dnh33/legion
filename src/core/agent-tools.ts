@@ -4,8 +4,9 @@ import type { McpSdkServerConfigWithInstance } from '@anthropic-ai/claude-agent-
 import { z } from 'zod';
 import { usageLine } from '../shared/vm-usage.js';
 import { VmError, type VmManager } from './vm-manager.js';
-import { OVERRIDE_MODELS } from './bridge.js';
+import { OVERRIDE_MODELS, BridgeError } from './bridge.js';
 import type { Bridge } from './bridge.js';
+import { overrideAllowed, overrideRefusal } from './model-cap.js';
 import { CLAUDE_NOT_CONFIGURED } from './boat-health.js';
 
 const MAX_CHARS = 12_000;
@@ -39,9 +40,15 @@ export interface AgentToolsCtx {
   bridge: Bridge;
 }
 
-/** Optional per-task model for ask/tell/bot_send/room_post: a lead can say "use Haiku for this". It applies to that task only; it never changes approvals. */
+/**
+ * Optional per-task model for ask/tell/bot_send/room_post: a lead can say "use Haiku for this".
+ *
+ * The description states the ceiling plainly, because the old wording only disclaimed authority limits and said nothing about
+ * the owner's fixed model for that agent — which read to an agent as "this is safe, it only affects the model" (Zealot's report,
+ * 2026-10-03). An applied override is also reported into the caller's thread as an event, so it cannot be silent (bridge.checkCeiling).
+ */
 export const modelParam = z.enum(OVERRIDE_MODELS).optional()
-  .describe('Optional model for this one task: sonnet, opus, haiku or auto. Omit to use the agent\'s own setting. Applies to this task only; it does not change what the agent is allowed to do.');
+  .describe('Optional model for this one task: sonnet, opus, haiku or auto. Omit to use the agent\'s own setting. If it is dearer than the model configured for that agent, the call is refused. If it is allowed but different, the override is recorded and shown to the owner. Applies to this task only; it does not change what the agent is allowed to do.');
 
 /** Bridge tools only: agents / ask / tell. */
 function bridgeTools(ctx: AgentToolsCtx) {
@@ -145,12 +152,22 @@ export function buildAgentToolsServer(ctx: AgentToolsCtx): McpSdkServerConfigWit
     "Hand a whole task to Claude Code running INSIDE this agent's VM (uses the Claude subscription connected on boat.dev). That Claude Code has boat's built-in `computer` MCP, so it can control the VM's desktop and browser. Returns its final text.",
     {
       prompt: z.string().describe('Complete, self-contained task for the VM-side Claude Code'),
-      model: z.enum(['sonnet', 'opus']).optional(),
+      // Same ceiling as ask/tell (bridge.checkCeiling -> model-cap.ts): a bot may not ask for a model dearer than the one its
+      // owner chose for it. vm_claude spends the owner's boat.dev subscription, so an ungated override here was the more
+      // expensive half of the silent-override bug (owner decision 2026-10-03).
+      model: z.enum(['sonnet', 'opus']).optional().describe('Optional model for this one task: sonnet or opus. Omit to use the agent\'s own setting. If this is dearer than the model configured for this agent, the call is refused. Applies to this one task only; it does not change what the agent is allowed to do.'),
     },
     (args) => run(async () => {
       // Gate again at call time: the tool list was fixed when this run started, but Claude may have been found unconfigured since.
       // Say so before any VM is started (vms.claude() starts it itself once it is allowed to).
       if (!vms.claudeAvailable()) throw new VmError(CLAUDE_NOT_CONFIGURED, 'claude_not_configured');
+      // Same ceiling as ask/tell: refuse a model dearer than the one the owner configured for THIS agent, so vm_claude cannot
+      // spend the owner's boat.dev subscription on a model they did not choose (owner decision 2026-10-03). Checked here, at the
+      // tool boundary, because -- unlike ask/tell -- this path has no bridge to route it through model-cap's checkCeiling.
+      if (args.model) {
+        const configured = vms.agentModelFor?.(agentId);
+        if (!overrideAllowed(configured, args.model)) throw new BridgeError(overrideRefusal('This agent', configured, args.model));
+      }
       return truncateTail(await vms.claude(agentId, args.prompt, { model: args.model }));
     }),
   );

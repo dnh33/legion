@@ -561,6 +561,17 @@ State is reconstructible from this file + Aetherkeep + the git log alone.
 - **Windows/MSYS path trap in the release scripts**: `/d/bots/...` becomes `D:\d\bots\...` inside node (`resolve()` mangles the MSYS prefix) -> `ENOENT ... D:\d\bots\legion-v0201-pkg\...`. Always pass **native** `D:/bots/...` to `release-manifest.mjs` / `release-sign.mjs`.
 - `D:/bots/legion-v6-7` (git archive) is the 0.2.0 SOURCE install path; the 0.2.1 `win-x64` zip is the prebuilt path. Do not conflate.
 
+### 0.2.1a — OWNER-BLOCKING updater UX bug (found 2026-10-03, click-test) — FIX IN 0.2.2
+- **Symptom**: owner clicked "Update Legion" in the 0.2.0 install and got a dead-end message: *"Waiting for your answer in the approvals list."* There is no approvals list reachable from the update panel, so the click-test is stuck. Owner's words: "why doesnt it just fucking update this thing."
+- **Root cause** (`src/core/updater/index.ts`): `install(o = {})` raises an approval card whenever `!o.auto` (line 199-208). The auto-install path calls `install({auto:true})` (line 140) and correctly skips the card. But the **Update button** hits `POST /api/update/install` (line 285), which calls `install()` with NO args -> falls into `!o.auto` -> spawns a card for an action the owner JUST explicitly clicked. The click itself is the consent; asking twice is the bug. `phase='awaiting-approval'` then strands the panel on `UpdatePanel.tsx:63`, which is the only place that string appears — hence "where is the approvals list?".
+- **Owner directive (verbatim)**: "when you have clicked update then it updates no reason to need an approval at this point."
+- **Fix direction**: the explicit click path must not re-ask. Distinguish *owner-clicked* from *Legion-initiated*:
+  - `POST /api/update/install` (the button) -> treat the click as consent, no card (pass the existing auto/consent path, or an explicit `ownerInitiated` flag).
+  - A card must remain ONLY for an update Legion starts on its own without a click (auto-install-when-idle after a background check, line 140, and any future autonomous trigger) — that is a genuine "no human asked for this" moment and deserves a prompt.
+  - Replace the dead-end `awaiting-approval` copy with something actionable (or make that phase unreachable from a click).
+- **Kodawari check before shipping**: do NOT simply delete the approval gate — verify the *only* remaining paths into `stagePackage` are owner-consented, and that `consent` still gates the actual commit (`readyToApply`, line 184) so a staged update cannot apply itself unattended. The signature check + idle-wait are separate controls and must stay.
+- **Tests**: updater test files assert the current card-on-click behaviour — expect to update them deliberately (change in behaviour is the point), and add one asserting click => no card, and auto-install => card.
+
 ### Next actions (owner-gated where marked)
 1. [ ] **Owner: click "Update Legion" in the installed 0.2.0 and report** — the whole point of shipping 0.2.1.
 2. [ ] 0.2.2: model-override fix (3 gaps) — needs owner go on scope + the Zealot proposal-vs-Forgemaster question.

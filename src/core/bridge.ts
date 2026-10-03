@@ -1,4 +1,5 @@
 /** Agent-to-agent bridge: lets any Legion agent message any other agent (ask = wait, tell = async reply). */
+import { randomUUID } from 'node:crypto';
 import { overrideAllowed, overrideRefusal } from './model-cap.js';
 import type { AgentProfile, Catalog, ModelChoice, Task, TaskSource } from '../shared/types.js';
 import type { TaskOrigin } from '../shared/comms.js';
@@ -140,15 +141,32 @@ export class Bridge {
     return this.normaliseModel(v);
   }
 
-  /** A per-task model is capped at the target agent's own setting (see model-cap.ts): a lead cannot upgrade a peer to something dearer than its owner chose. */
-  private checkCeiling(target: AgentProfile, model: ModelChoice | undefined): void {
-    if (model && !overrideAllowed(target.model, model)) throw new BridgeError(overrideRefusal(target.name, target.model, model));
+  /**
+   * A per-task model is capped at the target agent's own setting (see model-cap.ts): a lead cannot upgrade a peer to something
+   * dearer than its owner chose.
+   *
+   * Owner decision 2026-10-03 (after Zealot's report that a lead silently discarded the owner's fixed model for an agent):
+   * the ceiling STAYS as it is — upgrades refused, downgrades allowed — but every decision it reaches is now REPORTED.
+   * `notice` is a human-readable line describing what happened, returned so the caller can surface it; it is produced whether
+   * the override was applied, silently redundant, or refused. No override is ever silent again.
+   *
+   * NOTE on the ceiling's limits (deliberately not overclaimed): modelRank is a three-bucket guess (opus=3, haiku=1,
+   * everything else=2), so a model it cannot place is treated as mid-tier and passes. It is a cost/allocation guard for the
+   * three aliases Legion knows, NOT a general security boundary, and this function does not pretend otherwise.
+   */
+  private checkCeiling(target: AgentProfile, model: ModelChoice | undefined): string | undefined {
+    if (!model) return undefined;
+    if (!overrideAllowed(target.model, model)) throw new BridgeError(overrideRefusal(target.name, target.model, model));
+    const configured = target.model;
+    if (!configured || configured.toLowerCase() === model.toLowerCase()) return undefined; // nothing overridden
+    return `Model override: ${target.name} is configured for ${configured}, but this task runs on ${model}. The agent keeps its configured model for every other task.`;
   }
 
   async ask(callerTaskId: string, agentRef: string, message: string, opts: { fresh?: boolean; timeoutSeconds?: number; model?: ModelChoice } = {}) {
     const model = this.checkModel(opts.model);
     const { caller, target, hop } = this.resolve(callerTaskId, agentRef, message, 'ask');
-    this.checkCeiling(target, model);
+    const modelNotice = this.checkCeiling(target, model);
+    if (modelNotice) this.noteOverride(callerTaskId, target, model!, target.model);
     const { taskId, done } = this.deliver(caller, target, message, !!opts.fresh, hop, model);
     this.waiting.set(callerTaskId, (this.waiting.get(callerTaskId) ?? 0) + 1);
     let set = this.pendingAsks.get(callerTaskId);
@@ -184,7 +202,8 @@ export class Bridge {
   tell(callerTaskId: string, agentRef: string, message: string, opts: { fresh?: boolean; model?: ModelChoice } = {}): { taskId: string } {
     const model = this.checkModel(opts.model);
     const { caller, target, hop } = this.resolve(callerTaskId, agentRef, message, 'tell');
-    this.checkCeiling(target, model);
+    const modelNotice = this.checkCeiling(target, model);
+    if (modelNotice) this.noteOverride(callerTaskId, target, model!, target.model);
     const { taskId, done } = this.deliver(caller, target, message, !!opts.fresh, hop, model);
     void done.then((r) => {
       const t = r.task ?? this.store.getTask(taskId);
@@ -320,6 +339,22 @@ export class Bridge {
       item.settle?.({ error: e instanceof Error ? e : new Error(String(e)) });
       this.drain(taskId);
     }
+  }
+
+  /**
+   * Record an override in the caller's transcript so the owner can SEE it (Zealot's report: a lead discarded the owner's fixed
+   * model with no trace). This appends a message to the caller's thread — it does NOT deliver a reply and does NOT start a
+   * run, which is what deliverReply would do (it is for agent-to-agent answers, and using it here queued a second task and
+   * broke the ask's own result).
+   */
+  private noteOverride(callerTaskId: string, target: AgentProfile, model: ModelChoice, configured: string | undefined): void {
+    const caller = this.store.getTask(callerTaskId);
+    if (!caller || caller.status === 'cancelled') return;
+    const text = `Model override: ${target.name} is set to ${configured ?? 'its default'} in your configuration, but this one task runs on ${model}. Other tasks are unaffected.`;
+    try {
+      this.store.addMessage({ id: randomUUID(), taskId: callerTaskId, role: 'user', text, fromAgentId: target.id, at: new Date().toISOString() });
+      this.bus?.emit?.({ type: 'task.updated', task: caller });
+    } catch { /* the notice must never break the call */ }
   }
 
   /** Async reply from a `tell`: becomes a new user turn in the caller's task (queued if it is running). */
