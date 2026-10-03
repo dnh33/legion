@@ -63,6 +63,9 @@ kbd { font-size: 10.5px; line-height: 1; padding: 3px 5px; border: 1px solid var
 .tb-doctor:hover { color: var(--text); border-color: var(--line-strong); background: var(--surface-2); }
 .tb-doctor.bad { color: var(--warn); border-color: rgba(255, 204, 102, .35); }
 .tb-doctor b { background: var(--warn); color: #1b1300; border-radius: 8px; font-size: 10.5px; font-weight: 600; padding: 0 6px; height: 16px; line-height: 16px; white-space: nowrap; }
+/* light theme: the dark-theme amber on a brown fill is harsh; use a soft amber wash with the theme's dark amber text */
+:root[data-theme='light'] .tb-doctor.bad { border-color: rgba(143, 93, 12, .26); }
+:root[data-theme='light'] .tb-doctor b { background: rgba(183, 121, 31, .16); color: var(--warn); }
 
 /* ---------- rail ---------- */
 .rail { display: flex; flex-direction: column; min-height: 0; background: var(--bg); border-right: 1px solid var(--line); }

@@ -1,3 +1,4 @@
+import { Icon } from '../components/icons';
 import { BSV_TIP, openBsvPanel, requestToggle, useBsv } from './bsvStore';
 import './bsv.css';
 
@@ -13,6 +14,7 @@ export function BsvChip() {
         type="button" role="switch" aria-checked={on} aria-label="BSV Dev Kit"
         className={`tb-bsv${on ? ' on' : ''}`} title={BSV_TIP} disabled={busy} onClick={requestToggle}
       >
+        <Icon name="bitcoin" size={14} />
         <span className="tb-bsv-label">BSV</span>
         <i className="tb-bsv-track" aria-hidden="true" />
       </button>
