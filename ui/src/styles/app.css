@@ -53,11 +53,14 @@ kbd { font-size: 10.5px; line-height: 1; padding: 3px 5px; border: 1px solid var
 .tb-search:hover { border-color: var(--line-strong); background: var(--surface-2); }
 .tb-search span { flex: 1; text-align: left; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .tb-right { display: flex; align-items: center; gap: 4px; margin-left: auto; }
-.conn { display: inline-flex; align-items: center; gap: 7px; padding: 0 8px; color: var(--muted); font-size: 12px; }
-.conn-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--faint); }
-.conn-online .conn-dot { background: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+/* connection status: a presence dot on the logo (green online, amber connecting, red offline); the words live in the tooltip and a screen-reader line */
+.tb-mark { position: relative; display: inline-flex; flex: none; line-height: 0; }
+.tb-mark .conn-dot { position: absolute; right: -4px; bottom: -4px; width: 12px; height: 12px; border-radius: 50%; box-sizing: border-box; border: 2px solid var(--bg); }
+.tb-mark-sr { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+.conn-dot { background: var(--faint); }
+.conn-online .conn-dot { background: var(--accent); }
 .conn-connecting .conn-dot { background: var(--warn); animation: blink 1.2s ease-in-out infinite; }
-.conn-offline .conn-dot { background: var(--danger); box-shadow: 0 0 0 3px var(--danger-soft); }
+.conn-offline .conn-dot { background: var(--danger); }
 @keyframes blink { 50% { opacity: .35; } }
 .tb-doctor { height: 26px; display: inline-flex; align-items: center; gap: 6px; padding: 0 9px; background: transparent; border: 1px solid var(--line); border-radius: 13px; color: var(--muted); font-size: 12px; margin-right: 4px; transition: all var(--t) var(--ease); }
 .tb-doctor:hover { color: var(--text); border-color: var(--line-strong); background: var(--surface-2); }

@@ -32,7 +32,11 @@ export function TitleBar() {
   return (
     <header className="titlebar" style={{ paddingRight: padRight, paddingLeft: padLeft }}>
       <div className="tb-brand">
-        <RelicGlyph size={22} />
+        <span className={`tb-mark nodrag conn-${conn}`} title={connLabel}>
+          <RelicGlyph size={22} />
+          <i className="conn-dot" aria-hidden="true" />
+          <span className="tb-mark-sr" role="status">{connLabel}</span>
+        </span>
         <span className="tb-word">
           <span className="tb-name">Legion</span>
           {version && <span className="tb-ver">v{version}</span>}
@@ -54,7 +58,6 @@ export function TitleBar() {
             );
           })}
         </div>
-        <span className={`conn conn-${conn}`} title={connLabel}><i className="conn-dot" /> <span className="conn-label">{connLabel}</span></span>
         <BsvChip />
         <BlenderChip />
         <button className={`tb-doctor${bad ? ' bad' : doctor ? ' good' : ''}`} onClick={openDoctor} title={bad ? `${bad} setup check${bad === 1 ? '' : 's'} failing. Open Doctor` : doctor ? 'All required checks pass. Open Doctor' : 'Sign-in & setup checks'}>

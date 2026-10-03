@@ -26,16 +26,12 @@
 @media (max-width: 1279px) { .tb-bsv-panel { display: none; } }
 /*
  * The chip is a normal item of .tb-right at every width, so the gaps between the status dot, this chip and the Blender pill are the same 4px.
- * Narrower than 1280px the words go: 'Connected' and the BSV label are hidden (the dot and the switch keep their tooltips), which frees about
- * as much room as the chip takes, so the search box does not move.
+ * Narrower than 1280px the words go: the BSV label is hidden (the switch keeps its tooltip). The connection status is a dot on the Legion logo at every width.
  */
 .tb-bsv-slot { display: contents; }
 .tb-bsv:not(.on) .tb-bsv-label { display: none; } /* label shows only while the mode is on; tooltip + switch role explain the off state */
 @media (max-width: 1279px) {
   .tb-bsv-label { display: none; }
-  .conn .conn-label { display: none; }
-  .tb-right .conn { padding: 0 4px; }
-  .tb-right .conn-online .conn-dot { box-shadow: none; } /* the ring made the lone dot look like a button; offline keeps its red ring */
 }
 
 /* ---- chain overlay: fixed, confined to the 40px title bar, never intercepts the pointer. STATIC. ---- */
