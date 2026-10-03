@@ -7,7 +7,7 @@ import { Icon } from './icons';
 interface Bridge { verb: string; kind: 'ask' | 'tell' | 'agents'; target?: string; message?: string; result?: string; taskId?: string; list?: string[] }
 
 /** Tools that are internal noise; their chips are not shown. */
-export const HIDDEN_TOOLS = new Set(['ToolSearch']);
+const HIDDEN_TOOLS = new Set(['ToolSearch']);
 export const isHiddenTool = (name?: string) => !!name && [...HIDDEN_TOOLS].some((h) => name === h || name.endsWith('__' + h));
 /** Reads mcp__legion__ask / tell / agents tool calls into something a person can follow. */
 function bridgeResult(raw: string | undefined): string | undefined {

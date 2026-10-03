@@ -28,7 +28,6 @@ const loaders: Record<string, RawLoader> = {
 };
 
 /** Agent ids that have a painted bust. */
-export const BUST_IDS = ['zealot', ...Object.keys(loaders)];
 export const hasBust = (id: string) => id === 'zealot' || id in loaders;
 
 export interface LoadedBust { data: MascotData; persona: Persona }

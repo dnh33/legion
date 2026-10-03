@@ -8,7 +8,6 @@ export const FALLBACK_MODELS: CatalogModel[] = [
 ];
 
 export const AUTO_INFO = 'Legion picks Sonnet or Opus per task';
-export const AUTO_LABEL = 'Auto \u00b7 Legion picks Sonnet or Opus per task';
 
 export function modelList(c: Catalog | null): { models: CatalogModel[]; fallback: boolean } {
   return c && c.models.length ? { models: c.models, fallback: false } : { models: FALLBACK_MODELS, fallback: true };

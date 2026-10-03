@@ -66,7 +66,6 @@ const set = (p: Partial<BsvUiState>) => { state = { ...state, ...p }; listeners.
 const sameWallet = (a: WalletView | null, b: WalletView | null) => (a === b) || (!!a && !!b && a.condition === b.condition && a.network === b.network && a.height === b.height && a.authenticated === b.authenticated && a.reachable === b.reachable && a.version === b.version && a.probed === b.probed && a.message === b.message);
 const samePolicy = (a: PolicyView | null, b: PolicyView | null) => (a === b) || (!!a && !!b && JSON.stringify({ ...a, remainingMs: 0 }) === JSON.stringify({ ...b, remainingMs: 0 }));
 const sub = (l: () => void) => { listeners.add(l); return () => { listeners.delete(l); }; };
-export const getBsv = () => state;
 export function useBsv<T>(selector: (s: BsvUiState) => T): T { return useSyncExternalStore(sub, () => selector(state)); }
 
 function lsGet(k: string): string | null { try { return localStorage.getItem(k); } catch { return null; } }
