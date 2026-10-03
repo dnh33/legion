@@ -5,13 +5,15 @@
  *   node scripts/export-public.mjs <src-dir> <out-dir>
  *
  * Policy (see tracker-public-audit.md and the tracker's OPEN-SOURCING PLAN):
- *  - Excluded wholesale: .git, node_modules, dist, dist-ui, claude/** (private dev process: tracker, run-books,
- *    session notes, credits/usage), CLAUDE.md (the private ops doc; the owner writes a contributor one), review/**,
- *    docs/video-v2/shots/ (playwright capture intermediates). Secret-looking files FAIL the export.
+ *  - Excluded wholesale: .git, node_modules, dist, dist-ui, review/**, CLAUDE.md (the private ops doc; the owner
+ *    writes a contributor one), docs/video-v2/shots/ (playwright capture intermediates), claude/skills/** and
+ *    claude/handoffs/**, plus the operational claude run-books (the release tracker, the orchestrator
+ *    handoff/takeover prompts, the public-audit doc, release-facts, audit agent instructions). Secret-looking
+ *    files FAIL the export. The design plans, PC-check lists and reports under claude/ ship, line-scrubbed.
  *  - Line-scrubbed in PROSE only (docs/**, the root docs, .github templates): local absolute paths, the owner's
- *    first name and surname, the owner's private vault name, private hosts, cloud session ids, dollar/credit
- *    amounts, and wallet-port references. The owner's names and vault name are built from fragments at runtime,
- *    so they never appear as literals in this file.
+ *    first name and surname, the owner's private vault name, private hosts, cloud session ids, and wallet-port
+ *    references. The owner's names and vault name are built from fragments at runtime, so they never appear as
+ *    literals in this file.
  *  - Code, tests and scripts ship as-is, EXCEPT three runtime guard VALUES that name the wallet port are
  *    rewritten to the number-form the codebase already uses (Number('33'+'21')) so they keep working.
  *  - Detection guardrails ship untouched: the bsv tripwire/scan/guard tests and the BSV pack content deliberately
@@ -46,18 +48,34 @@ if (isInside(SRC, OUT)) { console.error(`refusing: out dir contains the source d
 rmSync(OUT, { recursive: true, force: true });
 mkdirSync(OUT, { recursive: true });
 
-/** Top-level paths that never ship. */
+/** Top-level paths that never ship (plus the operational claude files below). */
 const EXCLUDE = new Set([
   '.git', 'node_modules', 'dist', 'dist-ui', 'review',
-  'claude', 'CLAUDE.md', 'docs/video-v2/shots',
+  'CLAUDE.md', 'docs/video-v2/shots',
+  'claude/skills', 'claude/handoffs',
+  'claude/legion-release-tracker.md',
+  'claude/ORCHESTRATOR-HANDOFF.md',
+  'claude/ORCHESTRATOR-TAKEOVER-PROMPT.md',
+  'claude/tracker-public-audit.md',
+  'claude/release-facts-0.2.0.md',
+  'claude/audit-agent-instructions.md',
+  'claude/audit-agent-instructions-HANDOFF.md',
+  'claude/tracker-pc-checks-prebuilt.md',
+  'claude/plan-bsv-rung3.md',
 ]);
 
 /**
- * Scrub scope. Code, tests and scripts ship untouched (test fixtures with generic paths like C:\\Users\\Dan are
- * fine per tracker-public-audit H6). The line scrub applies to prose: docs/**, the root docs, .github templates.
+ * Scrub scope. Code, tests and scripts ship untouched (test fixtures with generic paths like C:\Users\Dan are
+ * fine per tracker-public-audit H6). claude/** ships byte-identical: the design plans, PC-check lists and reports
+ * the owner wants public are pinned by tests against machine files, so scrubbing them would desync the pins
+ * (their generic example paths like C:\Users\Zoë are not owner PII). The line scrub applies to docs/**, the root
+ * docs and .github templates.
  */
 const PROSE_DIRS = ['docs'];
 const ROOT_DOCS = ['README.md', 'CONTRIBUTING.md', 'SECURITY.md', 'CHANGELOG.md', 'CODE_OF_CONDUCT.md', 'NOTICE', 'LICENSE'];
+// claude/tracker-pc-checks.md is a status tracker read by tests only for marker lines; scrub its operational
+// lines (wallet/port/paths) like prose without disturbing those markers.
+const SCRUB_ALSO = ['claude/tracker-pc-checks.md'];
 // The wallet port is never written literally in code; it is built at runtime the same way the codebase does it.
 const PORT = String(Number('33' + '21'));
 // Guard constants and refusal URLs that name the real wallet port: keep them working, drop the literal, by
@@ -91,8 +109,6 @@ const RULES = [
   [new RegExp('(?:' + OW_VPS + '|' + OW_VPN + ')[^\\s"\')\\]]*', 'gi'), REDACT],
   // cloud session ids
   [/session_[A-Za-z0-9_-]{6,}/g, REDACT],
-  // dollar amounts (credit balances and similar operational figures)
-  [/\$[0-9][0-9,.]*(?:\s*(?:of|\/)\s*\$[0-9][0-9,.]*)?/g, REDACT],
   // the real wallet port, wherever prose writes it as a literal
   PORT_RULE,
 ];
@@ -137,7 +153,7 @@ function scrubFile(srcPath, dstPath) {
   let rules;
   const rw = PORT_REWRITES.find((r) => r.file === rel);
   if (rw) rules = rw.subs;
-  else if (PROSE_DIRS.some((d) => rel === d || rel.startsWith(d + '/')) || ROOT_DOCS.includes(rel) || rel.startsWith('.github/')) rules = RULES;
+  else if (PROSE_DIRS.some((d) => rel === d || rel.startsWith(d + '/')) || ROOT_DOCS.includes(rel) || rel.startsWith('.github/') || SCRUB_ALSO.includes(rel)) rules = RULES;
   else return;
   const raw = readFileSync(srcPath, 'utf8');
   let changed = 0;

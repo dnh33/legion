@@ -29,7 +29,6 @@ const PROSE_BANNED = [
   new RegExp('\\b' + OW_VAULT + '\\b'),
   new RegExp('(?:' + OW_VPS + '|' + OW_VPN + ')', 'i'),
   /session_[A-Za-z0-9_-]{6,}/,
-  /\$[0-9][0-9,.]*(?:\s*(?:of|\/)\s*\$[0-9][0-9,.]*)?/,
   PORT_RE,
 ];
 
@@ -107,9 +106,15 @@ test('export-public produces a scrubbed single-commit publishable snapshot', () 
       }
     }
 
-    // exclusions
-    for (const d of ['claude', 'CLAUDE.md', 'review', 'docs/video-v2/shots', 'node_modules', 'dist', 'dist-ui']) {
+    // exclusions: operational files and dirs never ship; the design plans/PC-check lists do (tests pin their content)
+    for (const d of ['CLAUDE.md', 'review', 'docs/video-v2/shots', 'node_modules', 'dist', 'dist-ui',
+      'claude/skills', 'claude/handoffs', 'claude/legion-release-tracker.md', 'claude/ORCHESTRATOR-HANDOFF.md',
+      'claude/ORCHESTRATOR-TAKEOVER-PROMPT.md', 'claude/tracker-public-audit.md', 'claude/release-facts-0.2.0.md',
+      'claude/tracker-pc-checks-prebuilt.md', 'claude/plan-bsv-rung3.md']) {
       assert.ok(!existsSync(join(out, d)), `${d} must not ship`);
+    }
+    for (const f of ['claude/plan-blender-local-first.md', 'claude/real-pc-test-plan.md', 'claude/tracker-pc-checks.md']) {
+      assert.ok(existsSync(join(out, f)), `${f} must ship (tests pin its content)`);
     }
     assert.ok(existsSync(join(out, '.git')), 'fresh git history expected in the snapshot');
 
