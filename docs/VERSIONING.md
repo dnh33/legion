@@ -40,6 +40,19 @@ pins both directions, because a wrong compare is a downgrade-check hole.
 Only `-a` through `-z` (one letter) are accepted. `-rc1`, `-beta.1`, `-a1`, `-ab` and uppercase
 are still rejected: a lettered patch is not a general pre-release channel.
 
+### BOOTSTRAP RULE (learned the hard way, 2026-10-04)
+
+**The release that INTRODUCES lettered-patch support must itself be a plain version.**
+
+A lettered patch can only be installed by a build that already accepts letters. An install
+predating that support rejects it outright — the manifest fails its version check with
+`rejected: the version is not a plain MAJOR.MINOR.PATCH`, **before** any download, approval or
+install attempt. Nothing on the server can fix that: the decision is made by the old binary.
+
+So the sequence is: plain `0.2.2` ships the lettered-patch support → everyone upgrades to it →
+`0.2.2-a` and later lettered patches work normally from then on. Publishing `0.2.2-a` first
+locked every existing install out of the fix that would have unblocked them.
+
 ## Why dependency changes cannot be a PATCH
 
 The manifest carries `depsSha256` (a hash of `package-lock.json`). The updater compares it

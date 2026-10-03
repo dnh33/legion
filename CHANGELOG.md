@@ -2,16 +2,14 @@
 
 All notable changes are recorded here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses [Semantic Versioning](https://semver.org/).
 
-## [0.2.2-a] - 2026-10-03
+## [0.2.2] - 2026-10-04
 
 ### Fixed
 
 - **Update button no longer asks twice.** Clicking Update installed straight away. It briefly raised an approval card that nothing in the update panel pointed to, so the update looked stuck. The click is the consent.
+- **Updates are actually checked now.** Legion checked 30 seconds after startup and then every 12 hours, so it could sit for hours without knowing a release existed. It checks on launch now.
+- **Self-update could not work at all.** Every release was treated as a dependency change, so Legion refused to install it. Fixed.
 - **Model overrides are visible.** When an agent is run on a different model than the one you set for it, that now says so in the thread. Overrides dearer than your setting were already refused; `vm_claude` now refuses them too.
-
-### If your update looks stuck
-
-Turn on **Install updates automatically when idle** in Settings → Updates, let it update, then turn it off again. Only needed for this one update.
 
 ## [0.2.1] - 2026-10-03
 
@@ -159,8 +157,8 @@ First public release.
 - **Windows installer** (`setup.cmd`) that installs per user under `%LOCALAPPDATA%\Programs\Legion`, with shortcuts, in-place updates and an uninstaller.
 - Command palette, keyboard shortcuts, task history per agent, and cost and turn tracking.
 
-[Unreleased]: https://github.com/dnh33/legion/compare/v0.2.2-a...HEAD
-[0.2.2-a]: https://github.com/dnh33/legion/compare/v0.2.1...v0.2.2-a
+[Unreleased]: https://github.com/dnh33/legion/compare/v0.2.2...HEAD
+[0.2.2]: https://github.com/dnh33/legion/compare/v0.2.1...v0.2.2
 [0.2.1]: https://github.com/dnh33/legion/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/dnh33/legion/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/dnh33/legion/releases/tag/v0.1.0
