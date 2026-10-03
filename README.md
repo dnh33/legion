@@ -30,7 +30,7 @@ Claude Code and Cowork can drive Legion too, over MCP.
 **Legion is Claude-only.** Every agent runs on a Claude model through the Claude Agent SDK. Other model providers are not supported in v1 (see [Later](#later)).
 
 <p align="center">
-  <img src="docs/images/app-dark.png" alt="Legion's main window in the dark theme: agent rail, a task thread with tool calls and an inline approval card, the mascot, a live VM preview and recent tasks" width="900">
+  <img src="docs/images/app-dark.png" alt="Legion's main window in the dark theme: agent rail, a task thread with tool calls and an inline approval card, the mascot, the Computer panel and recent tasks" width="900">
 </p>
 
 <details>
