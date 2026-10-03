@@ -428,6 +428,12 @@ After ALL work orders end (post WO-10, before the tag): one more multi-subagent 
 - Stale-claim sweep over README + docs/*.md: nothing else stale (the WO merges kept the rest current; CHANGELOG history entries are honest as history).
 - REMAINING in WO-8: the fresh screenshot set (docs/images/app-{dark,light}.png + slash-menu/model-picker; site assets/screenshots incl. the stale BSV-panel shots), then the WO-8 independent review.
 
+## 2026-10-03 WO-8 progress: fresh screenshots shipped, review running
+- Fresh captures (docs-shots.mjs, committed to the trailer branch's capture dir for reproducibility; one scripted-Assayer lesson: the harness renders {say} turns as thread messages but NOT the final {result} turn — put the substantive text in a {say}): app-dark (chat + pending Bash card), app-light (light theme, same state), assayer-bsv (Assayer reply with the current truth: read-only status + one spend tool behind native confirmations + mainnet OFF), lattice-bsv (BSV pack, 163 nodes / 727 links), bsv-panel (fake wallet + 163-pack). All five reviewed visually before shipping.
+- Docs (integration/v1): app-dark.png + app-light.png replaced, README alts matched to what the shots really show (Computer panel, not a live VM preview). Site: assayer-bsv/lattice-bsv/bsv-panel replaced; images.json alts rewritten truthfully (no more "157/171 nodes" or "no spend tool"; the title-bar node count moved into the BSV panel in the current UI, so the alt no longer claims it). Site built green + pushed to main AND claude/loving-clarke-1a7izo.
+- slash-menu.png + model-picker.png left as-is: composer features unchanged in 0.2.0 (verified the composer/model-picker code didn't change in the merges).
+- WO-8 independent review subagent dispatched (docs + site alts + banned words + cherry-pick integrity).
+
 ## SAVE POINTS — convention (added 2026-10-03, owner request)
 - Save points are interleaved BETWEEN the work orders in this tracker and in the Hermes todo list (WO → SAVE-POINT → WO …). Each one is a `⛀ SAVE-POINT N` marker placed directly before the next task's entry, with what was written where.
 - Status: SAVE-POINT 1 / 2 / 5 done (markers above). SAVE-POINT 4 fires when the trailer merge lands. SAVE-POINT 7–10 fire as the remaining work orders complete.
