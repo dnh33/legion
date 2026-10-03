@@ -1,3 +1,6 @@
+
+> Paste-in first message for the new agent: `claude/ORCHESTRATOR-TAKEOVER-PROMPT.md` (Desktop copy: LEGION-ORCHESTRATOR-TAKEOVER-PROMPT.md).
+
 # >>> HARNESS SWITCH (2026-10-03): READ THIS BLOCK FIRST. It overrides every "cloud session" step further down. <<<
 
 The release now continues in a NEW harness (Hermes Agent) that works **directly with git on this PC**. It does not use claude.ai cloud sessions, and it does not need them. Do every task below yourself, in the repo, using your own subagents if you have them. The old cloud sessions are finished or stopped; their work is on their branches (read, do not steer).

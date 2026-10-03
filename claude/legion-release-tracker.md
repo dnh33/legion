@@ -318,3 +318,6 @@ mcp__legion_board__* is missing from the Legion-tool list in src/core/approvals.
 - **Blender enable confirmation MERGED** (restore tag pre-merge-blender-chip-confirm, merge 06a8edd). It also reshaped the chip into one pill + popover (switch inside the popover). Gate: 2305 tests, 2259 pass, 1 fail, 45 skipped; the one failure is browser-module E8 (fake Edge full run), a race: 1 in 4 runs of the file alone fails at `manager.running() === 0` right after the process is gone. Known flake; fix in the review fix round.
 - **Bot audit** (claude/agent-audit 47a84e7): Phase 2 WORK IN PROGRESS, NOT GATED, NOT MERGED. Its handoff is on the branch (claude/audit-agent-instructions-HANDOFF.md). WO-1 in the handoff lists the 8 mutation checks to re-run and the remaining steps.
 - Still unmerged: project-board (6be357b; fix the mcp__legion_board__* approvals bug at merge), audit, trailer-v2-build (a9d0463), docs-release-ready-1 (d6cea12).
+
+## 2026-10-03 takeover prompt saved
+`claude/ORCHESTRATOR-TAKEOVER-PROMPT.md` (copy: Desktop LEGION-ORCHESTRATOR-TAKEOVER-PROMPT.md, vault 06-projects/legion/) is the paste-in first message for the agent taking over the orchestrator role. It points to claude/ORCHESTRATOR-HANDOFF.md. Paths in it were checked on 2026-10-03.
