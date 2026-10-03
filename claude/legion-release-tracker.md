@@ -411,6 +411,14 @@ Every work order is not "done" until an independent reviewer (a fresh subagent, 
 - **WO-7 (fix round re-check): CONFIRMED.** endRun secret-withhold is minimal + non-secret previews untouched (red-first proven by the reviewer's own revert); E8 until-wait is the correct fix (fire-and-forget manager.end, slot freed on the async path; a real leak still fails the 5s window); Blender hedge + README cohere. Fixes: two sibling comments still said local minimum ">= 3.0" → corrected to 4.2 (ports.ts, shared/blender.ts).
 - **Re-gate pending:** the approvals.ts refactor (build regex from prefixes) touches src after the last gate → one more full gate at the new tip before WO-7 is fully closed.
 
+## 2026-10-03 WO-7 CLOSED: review + fix round + re-gate all clean
+- Re-gate at `5bc8422` after the approvals refactor: **2381 tests, 2336 pass, 0 fail, 45 skipped**; typecheck + build:ui green. The approvals refactor (LEGION_TOOL_NAME built from LEGION_TOOL_PREFIXES) changes no matching behaviour — the suite confirms it.
+
+> ⛀ **SAVE-POINT 7 ✓** (2026-10-03, after WO-7+review / before WO-8) — records: this tracker, vault release note, memory file, todos.
+
+## 2026-10-03 WO-8 KICKOFF: docs phase 2, wordmark README, fresh screenshots
+- Recon: `claude/docs-release-ready-1` is stale-based (a wholesale merge would delete ~69k lines of the board/browser code that merged since). Its real contribution is 12 files (its own commits 77fefea + d6cea12 over d2e473f): docs/images/legion-wordmark-{dark,light}.svg + scripts/make-wordmark.py, README/CONTRIBUTING/SECURITY/CHANGELOG/CODE_OF_CONDUCT hygiene, .github template links, package.json homepage/repo placeholders. Plan: cherry-pick the two commits onto integration/v1 with conflict resolution that keeps integration/v1's current facts (incl. the Blender hedge), then the docs refresh for what shipped (browser, board, chip, BSV fakes-only wording, updater off, prebuilt), then fresh screenshots via the capture stack, then its own independent review.
+
 ## SAVE POINTS — convention (added 2026-10-03, owner request)
 - Save points are interleaved BETWEEN the work orders in this tracker and in the Hermes todo list (WO → SAVE-POINT → WO …). Each one is a `⛀ SAVE-POINT N` marker placed directly before the next task's entry, with what was written where.
 - Status: SAVE-POINT 1 / 2 / 5 done (markers above). SAVE-POINT 4 fires when the trailer merge lands. SAVE-POINT 7–10 fire as the remaining work orders complete.
