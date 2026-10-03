@@ -82,6 +82,31 @@ function AddCustom() {
   );
 }
 
+// 0.2.1 providers: in the core view, not shipped in this release. Teased here, never enabled.
+const NEXT_RELEASE: ReadonlySet<string> = new Set(['openai', 'ollama', 'lmstudio', 'vllm']);
+
+function ComingNext({ providers }: { providers: ProviderView[] }) {
+  const codexNote = "A command-line coding agent. Its own tools run outside Legion's approval cards.";
+  return (
+    <fieldset className="prov-next" disabled aria-label="Next release providers">
+      <legend>Next release</legend>
+      <p className="field-note">Planned, not in this release. Claude stays the default; OpenRouter is the second provider here.</p>
+      {providers.map((p) => (
+        <div key={p.id} className="prov-tease" aria-disabled="true">
+          <b>{p.label}</b>
+          <span className="field-note">{p.note}</span>
+          <span className="prov-badge">0.2.1</span>
+        </div>
+      ))}
+      <div className="prov-tease" aria-disabled="true">
+        <b>Codex</b>
+        <span className="field-note">{codexNote}</span>
+        <span className="prov-badge">0.2.1</span>
+      </div>
+    </fieldset>
+  );
+}
+
 export function ProvidersSection() {
   const view = useProviders((s) => s.view);
   const error = useProviders((s) => s.error);
@@ -102,7 +127,8 @@ export function ProvidersSection() {
           <p className="field-note">Provider support has been built and tested against Legion's own fake servers. It has not been tried against the real services yet; a failed request shows the provider's own message.</p>
         </details>
         {view.dropped.length > 0 && <div className="set-error" role="status">Some saved providers were ignored: {view.dropped.join('; ')}</div>}
-        {view.providers.map((p) => <ProviderCard key={p.id} p={p} />)}
+        {view.providers.filter((p) => !NEXT_RELEASE.has(p.id)).map((p) => <ProviderCard key={p.id} p={p} />)}
+        <ComingNext providers={view.providers.filter((p) => NEXT_RELEASE.has(p.id))} />
         <AddCustom />
         <fieldset className="prov-add">
           <legend>Run limits for provider agents</legend>
