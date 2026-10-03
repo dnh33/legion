@@ -1,4 +1,5 @@
 import type { Project } from '../../src/shared/projects';
+import type { BoardStatus, BoardView, WorkItem } from '../../src/shared/board';
 import type {
   SettingsView, SettingsPatch, McpStatusView,
   AgentProfile, ApprovalRequest, BoatHealthView, Catalog, ChatMessage, DoctorCheck, LegionConfig, LegionEvent, ModelChoice, StateSnapshot, Task, VmRecord,
@@ -101,6 +102,18 @@ export const api = {
   projects: () => request<Project[]>('GET', '/api/projects'),
   createProject: (b: { name: string; instructions?: string }) => request<Project>('POST', '/api/projects', b),
   patchProject: (id: string, b: { name?: string; instructions?: string; status?: 'active' | 'archived' }) => request<Project>('PATCH', `/api/projects/${encodeURIComponent(id)}`, b),
+  boardProbe: () => request<{ enabled: true }>('GET', '/api/board'),
+  boardView: (pid: string) => request<BoardView>('GET', `/api/projects/${encodeURIComponent(pid)}/board`),
+  boardLeader: (pid: string, leader: string | null) => request<BoardView>('PUT', `/api/projects/${encodeURIComponent(pid)}/board/leader`, { leader }),
+  boardNote: (pid: string, id: string, b: { title: string; body: string }) => request<{ item: WorkItem; note: { id: string; title: string } }>('POST', `/api/projects/${encodeURIComponent(pid)}/board/items/${encodeURIComponent(id)}/note`, b),
+  boardNoteTitle: (pid: string, nid: string) => request<{ id: string; title: string }>('GET', `/api/projects/${encodeURIComponent(pid)}/board/notes/${encodeURIComponent(nid)}`),
+  boardCreate: (pid: string, b: Record<string, unknown>) => request<WorkItem>('POST', `/api/projects/${encodeURIComponent(pid)}/board/items`, b),
+  boardPatch: (pid: string, id: string, b: Record<string, unknown>) => request<WorkItem>('PATCH', `/api/projects/${encodeURIComponent(pid)}/board/items/${encodeURIComponent(id)}`, b),
+  boardMove: (pid: string, id: string, status: BoardStatus, index: number) => request<WorkItem>('POST', `/api/projects/${encodeURIComponent(pid)}/board/items/${encodeURIComponent(id)}/move`, { status, index }),
+  boardDelete: (pid: string, id: string) => request<{ ok: true }>('DELETE', `/api/projects/${encodeURIComponent(pid)}/board/items/${encodeURIComponent(id)}`),
+  boardAccept: (pid: string, id: string, b: Record<string, unknown>) => request<WorkItem>('POST', `/api/projects/${encodeURIComponent(pid)}/board/items/${encodeURIComponent(id)}/accept`, b),
+  boardReject: (pid: string, id: string) => request<{ ok: true }>('POST', `/api/projects/${encodeURIComponent(pid)}/board/items/${encodeURIComponent(id)}/reject`, {}),
+  boardRun: (pid: string, id: string) => request<{ item: WorkItem; limited: boolean }>('POST', `/api/projects/${encodeURIComponent(pid)}/board/items/${encodeURIComponent(id)}/run`, {}),
   patchRoomProject: (roomId: string, projectId: string | null) => request<unknown>('PATCH', `/api/rooms/${encodeURIComponent(roomId)}`, { projectId }),
   createTask: (b: { agentId: string; prompt: string; model?: ModelChoice; continueTaskId?: string; projectId?: string }) => request<Task>('POST', '/api/tasks', b),
   getTask: (id: string) => request<{ task: Task; messages: ChatMessage[] }>('GET', `/api/tasks/${encodeURIComponent(id)}`),

@@ -14,7 +14,7 @@ import type {
   KgActivityRow, KgEdge, KgInboxRow, KgLintLite, KgLintReport, KgNode, KgNodeType, KgOrigin, KgScope, KgSearchHit, KgSource, KgStatus,
   KgSubgraph, KgTrust,
 } from '../../shared/kg.js';
-import { projectIdOfScope, projectScope } from '../../shared/projects.js';
+import { PROJECT_ID_RE, projectIdOfScope, projectScope } from '../../shared/projects.js';
 import { newId, nowIso } from '../../shared/util.js';
 import { findForbiddenSecretInField, scrubSecrets } from '../comms/scrub.js';
 import { ActivityLog, ACTIVITY_DAYS } from './activity.js';
@@ -1722,9 +1722,10 @@ export class Graph {
    * `episode` node (private to the agent, written by the system, its source marked untrusted because the result may
    * quote web content). Same task, same node: a follow-up run updates it. No actor quota applies (system write).
    */
-  recordEpisode(e: { taskId: string; agentId: string; title: string; status: string; turns: number; costUsd: number; prompt: string; result: string; tainted: boolean }): KgNode | undefined {
+  recordEpisode(e: { taskId: string; agentId: string; title: string; status: string; turns: number; costUsd: number; prompt: string; result: string; tainted: boolean; projectId?: string }): KgNode | undefined {
     const id = `ep:${e.taskId}`;
-    const scope = `agent:${e.agentId}` as KgScope;
+    // a run that belonged to a project leaves its episode in the project's scope, so the project's other runs (and later sessions) can find what was done; any other run keeps it private
+    const scope = (e.projectId !== undefined && PROJECT_ID_RE.test(e.projectId) ? projectScope(e.projectId) : `agent:${e.agentId}`) as KgScope;
     if (!ID_RE.test(id) || !isScope(scope) || (this.nodes.size >= KG_LIMITS.maxNodes && !this.nodes.has(id))) return undefined;
     const g = this.guard();
     const header = `Task ${e.taskId} ended ${e.status} after ${e.turns} turns, $${e.costUsd.toFixed(2)}.`;

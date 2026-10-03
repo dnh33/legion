@@ -134,6 +134,7 @@ export function createKnowledgeModule(deps: ModuleDeps, opts: KnowledgeModuleOpt
         getGraph().recordEpisode({
           taskId: task.id, agentId: agent.id, title: task.title, status: task.status, turns: task.turns ?? 0, costUsd: task.costUsd ?? 0,
           prompt: first?.text ?? task.title, result: task.result ?? task.error ?? '', tainted: task.tainted === true || task.origin?.tainted === true,
+          ...(task.projectId ? { projectId: task.projectId } : {}),
         });
       } catch { /* a failed episode must never disturb the engine */ }
     },

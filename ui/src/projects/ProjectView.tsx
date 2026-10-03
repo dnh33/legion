@@ -5,6 +5,7 @@ import { ensureRoomList, openRoom, useRooms } from '../rooms/roomsStore';
 import { newTask, selectAgent, selectTask, setView, useStore } from '../store';
 import { assignRoom, changeMembers, chooseFolder, closeProjectPage, saveProject, setProjectFilter, useDefaultFolder } from './projectsStore';
 import { assignableRooms, instructionsCounter, projectLabel, roomsOf, statusLine } from './projectsLogic';
+import { BoardPanel } from './board/BoardPanel';
 import './projects.css';
 
 export function ProjectView() {
@@ -71,6 +72,7 @@ function ProjectPage({ project }: { project: Project }) {
       {members.length === 0 && <p className="field-note" id="proj-nomem">Add a member to start a task in this project.</p>}
       {archived && <p className="proj-note" role="note">This project is archived. It starts no new tasks, and its tasks cannot be continued until you unarchive it. Nothing was deleted.</p>}
 
+      <BoardPanel project={project} />
       <div className="proj-grid">
         <section className="card proj-card" aria-labelledby="proj-h-instr">
           <h3 id="proj-h-instr">Name and instructions</h3>

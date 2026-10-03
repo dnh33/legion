@@ -42,10 +42,22 @@ export interface CommsConfig {
 /** Switches for work that is built but not part of a release yet. Set only by editing config.json (no UI, no route writes it). */
 export interface ExperimentalConfig { providers: boolean }
 export function normalizeExperimental(v: unknown): ExperimentalConfig {
-  return { providers: !!v && typeof v === 'object' && (v as { providers?: unknown }).providers === true };
+  // an old `projectBoard` key here (the board used to be experimental) is ignored: the board is a feature now, see FeaturesConfig
+  const o = (v && typeof v === 'object' ? v : {}) as { providers?: unknown };
+  return { providers: o.providers === true };
 }
 
-export type CoreConfig = LegionConfig & { bsv: BsvConfig; comms: CommsConfig; blender: BlenderConfig; providers: ProvidersConfig; experimental: ExperimentalConfig };
+/**
+ * Switches for features that are ON by default. Set only by editing config.json (no UI, no route writes it). Only the literal `false` turns one off:
+ * a missing key, `true`, "false" as text, 0 or anything else leaves it on.
+ */
+export interface FeaturesConfig { projectBoard: boolean }
+export function normalizeFeatures(v: unknown): FeaturesConfig {
+  const o = (v && typeof v === 'object' ? v : {}) as { projectBoard?: unknown };
+  return { projectBoard: o.projectBoard !== false };
+}
+
+export type CoreConfig = LegionConfig & { bsv: BsvConfig; comms: CommsConfig; blender: BlenderConfig; providers: ProvidersConfig; experimental: ExperimentalConfig; features: FeaturesConfig };
 
 /** The least a room's budget can be (below it one turn cannot fit). The hub, the settings dialogs and the bot-room limits all use it. */
 export const MIN_ROOM_BUDGET_USD = 0.05;
@@ -103,6 +115,7 @@ export function defaultConfig(): CoreConfig {
     blender: defaultBlenderConfig(),
     providers: { ...DEFAULT_PROVIDERS, entries: {} },
     experimental: { providers: false },
+    features: { projectBoard: true },
   };
 }
 
@@ -143,6 +156,7 @@ export function loadConfig(): CoreConfig {
   cfg.blender = normalizeBlender(cfg.blender);
   cfg.providers = normalizeProviders(cfg.providers);
   cfg.experimental = normalizeExperimental(cfg.experimental);
+  cfg.features = normalizeFeatures(cfg.features);
   if (process.env.LEGION_PORT) cfg.port = Number(process.env.LEGION_PORT);
   if (!cfg.boat.apiKey && process.env.BOAT_API_KEY) cfg.boat.apiKey = process.env.BOAT_API_KEY;
   if (cfg.claude.auth === 'api-key' && !cfg.claude.apiKey && process.env.ANTHROPIC_API_KEY) {

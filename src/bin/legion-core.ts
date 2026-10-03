@@ -23,6 +23,7 @@ import { createCommsModule } from '../core/comms/index.js';
 import { createKnowledgeModule } from '../core/kg/index.js';
 import { createUpdaterModule } from '../core/updater/index.js';
 import { createProjectsModule, ProjectStore } from '../core/projects/index.js';
+import { BoardStore, createBoardModule, graphNotes } from '../core/projects/board/index.js';
 import type { ModuleDeps } from '../core/modules.js';
 import { Store } from '../core/store.js';
 import { isPackageInstall } from '../electron/resolve-node.js';
@@ -87,13 +88,16 @@ async function main() {
     probes: { 'a Blender download or setup is running': async () => !!((await blender.status(false)) as { getting?: boolean }).getting },
   });
   const providersModules = providerRuntime ? [createProvidersModule({ runtime: providerRuntime, configPath: configPath(), nativeSecret })] : [];
-  const modules = [kg, createCommsModule(moduleDeps, { projects }), createProjectsModule(moduleDeps, { projects, nativeSecret }), bsv, blender, ...providersModules, updater, createBrowserModule(moduleDeps, { nativeSecret, log })];
+  // project board: ON by default (owner decision 2026-10-03). Only the literal `false` under "features.projectBoard" in config.json turns it off; then none of it is built (no files, routes, tools or screen).
+  const board = config.features.projectBoard ? new BoardStore(join(dataDir(), 'board')) : undefined;
+  const boardModules = board ? [createBoardModule(moduleDeps, { projects, board, notes: graphNotes(() => kg.graph()) })] : [];
+  const modules = [kg, createCommsModule(moduleDeps, { projects }), createProjectsModule(moduleDeps, { projects, nativeSecret }), ...boardModules, bsv, blender, ...providersModules, updater, createBrowserModule(moduleDeps, { nativeSecret, log })];
   engine.setModules(modules);
   const server = createServer({
     config, store, bus, engine, vms, approvals, boatConfigured, modules, bsvEnabled,
     doctor: () => runDoctor({ config, getBoat, health: vms.health }),
     catalog: (force) => getCatalog({ config }, { force }),
-    settings, adminSecret, projects,
+    settings, adminSecret, projects, ...(board ? { board } : {}),
   });
 
   restartReaper();
