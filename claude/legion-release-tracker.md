@@ -521,4 +521,50 @@ report-a-bug affordance (unobtrusive; help/about — topbar busy) · supply-chai
 
 ## POST-LAUNCH OPEN (2026-10-03, after v0.2.0 shipped)
 - Launch tweet drafted (humanizer + twitter-x-posts, 248 chars, 40k-backlog hook) — NOT posted yet; finalize + post when ready.
+
+## SAVE-POINT 1 — 2026-10-03, post-v0.2.1 (compaction insurance)
+State is reconstructible from this file + Aetherkeep + the git log alone.
+
+### HEAD
+`b3afab0` "release: v0.2.1 — BSV KG toggle refresh fix", tree clean, branch `main`, remote `cloud` (main only, protected: PR + 1 review, no force-push, no delete).
+
+### v0.2.1 SHIPPED (the updater test payload)
+- Tag `v0.2.1` -> `b3afab0`; release "Legion v0.2.1" is **Latest** (published 2026-10-03T21:51:48Z). 5 assets: `legion-0.2.1-win-x64.zip` (285 MB / 7125 files), `legion-0.2.1-app.zip` (2.4 MB / 383 files), `legion-update-manifest.json`, `legion-update-manifest.json.sig`, `SHA256SUMS.txt`.
+- Manifest **signed** with key `k1` (sign log: `signed with key k1`, verified). `https://github.com/dnh33/legion/releases/latest/download/legion-update-manifest.json` now serves `version 0.2.1`, asset `legion-0.2.1-app.zip`, sha256 `62563fa2...` — **the updater check path is live and working.**
+- Freshly uploaded assets return HTTP 503 for ~1 min while GitHub's CDN warms; NOT a failure. Re-check before concluding a release is broken.
+- **The BSV KG toggle fix (`a90949e`) is what 0.2.1 carries**, and it is the first real payload for the owner's in-app "Update Legion" click-test. Owner has NOT yet reported clicking it.
+- Packaged to `D:/bots/legion-v0201-pkg` (outside the repo — build-package refuses an out-dir inside the repo).
+
+### The fix that shipped in 0.2.1 (BSV KG toggle, for the record)
+- **Root cause**: the BSV toggle flipped the `bsv` scope's *visibility* but emitted only `agent.updated`, never `kg.updated`. The graph view refreshes ONLY on `kg.updated`, so its cached node list went stale (enable -> nodes missing; disable -> nodes lingering). The core filter was correct; the UI was never told to re-read.
+- Fix = `a90949e`: (1) `src/core/bsv/index.ts` — toggle emits `kg.updated` with `changed: []` (empty = "visibility flipped, do a full re-read") on BOTH directions; the module's `kg` option was narrowed to `CoreModule & { graph?: () => { counts(): {nodes,edges} } }` so the 2 existing test stubs (CoreModule, no `graph`) still compile — do NOT widen it back to `KnowledgeModule`. (2) `ui/src/graph/graphStore.ts` — `refreshFromServer` treats empty/undefined `changed` as a FULL `loadOverview()` instead of an incremental patch.
+- Regression test in `test/bsv.test.ts` ("toggling BSV mode emits kg.updated so the graph view re-reads its visibility"); bsv+kg files 55/55 green.
+
+### OPEN A — "full access" still prompts (owner-reported, live on his PC)
+- Symptom: Builder, shipped as `full`, still asks for approval for everything. Owner: "this could be broken for all agents".
+- My read: `needsApproval('full', ...)` returns `false` correctly (`src/core/approvals.ts:44`) — `full` itself is NOT broken. Suspect is **`approvalCeiling`**: `src/core/engine.ts:658-661` computes `effective = ceiling ? stricterMode(agentMode, ceiling) : agentMode`. If the run's `origin.approvalCeiling` is `ask`, a `full` agent is capped down to `ask`. A DIRECT run (hop 0, no ceiling) would be fine — so the open question is **where Builder's run got its `approvalCeiling` from** (delegation wake-up? MCP client? taint?). NOT confirmed.
+- **The subagent dispatched to nail this FAILED: HTTP 402, OpenRouter out of credits for `deepseek/deepseek-v4.1-flash` (deleg_0cfb2bfd, ~18 min, 67 api_calls).** Do NOT re-dispatch without credits. Investigate inline. Consequence: the owner's standing "delegate deepseek-v4.1-flash subagents" directive is currently unusable.
+
+### OPEN B — silent per-task `model` override (Zealot self-report, high)
+- Report: a lead's `tell(agent, message, model="sonnet")` silently discarded the owner's fixed model for that agent; nothing surfaced it.
+- **I read the implementation; the report is accurate but understates what already exists.** `src/core/agent-tools.ts:43-44` `modelParam` is a shared zod param on ask/tell (and bot_send/room_post). `src/core/bridge.ts:144-146` `checkCeiling` -> `overrideAllowed(target.model, model)` (`src/core/model-cap.ts:30-35`) ALREADY enforces an **upgrade ceiling**: a bot may not move a peer dearer than the owner's own setting (`modelRank(requested) <= modelRank(agentModel)`), and a provider-model agent may not be moved off its provider; refusals throw `BridgeError` via `overrideRefusal` (model-cap.ts:37-41).
+- **Remaining gap = 3 things, not "no gate":** (1) any ALLOWED override (including a same-rank/cheaper swap — e.g. an agent on opus silently run on sonnet) is applied with **zero** owner-visible signal: no return warning, no thread event, no log; (2) the param's `.describe()` wording ("Applies to this task only; it does not change what the agent is allowed to do.") disclaims authority but is silent about discarding the owner's fixed assignment — the exact "reassures the wrong thing" Zealot quoted; (3) **`vm_claude` (agent-tools.ts:148) has `model: z.enum(['sonnet','opus'])` with NO ceiling and NO warning** — a genuinely ungated override, and it spends the owner's boat.dev subscription, so it is the higher-severity surface.
+- Zealot's requested test: agent X on model M, delegate with model=N -> assert an owner-visible override marker, and (if gating) refusal without an owner instruction in context.
+- Zealot asks whether to file it as a board proposal or hand it to Forgemaster — **UNANSWERED, owner decision needed.**
+
+### RELEASE NUMBERING — read before the next cut
+- **v0.2.1 is already published, signed and tagged. NOT editable in place** (signature + immutability). The model-override fix therefore lands in **v0.2.2**, NOT 0.2.1.
+
+### Build/packaging pitfalls learned (cost real time)
+- **`| tail -N` on a backgrounded node build poisons it**: the pipe makes the child's stdout not-a-tty and npm's child scripts die with "stdin is not a tty" / "stdout is not a tty". Run packaging builds with a real PTY (`pty: true`) and NO output pipe. Same failure class as the trailer / `--test-concurrency` stdin artifact.
+- **`build-package.mjs` refuses a stale `dist`**: `error: dist looks older than src: rebuild before packaging` (release-package.mjs, 1 h mtime grace). After editing `src` or bumping the version, do `rm -rf dist dist-ui && npm run build` first, then package with `--skip-build` (a no-op `--skip-build` still re-runs the `.prod` scratch `npm ci`).
+- **Windows/MSYS path trap in the release scripts**: `/d/bots/...` becomes `D:\d\bots\...` inside node (`resolve()` mangles the MSYS prefix) -> `ENOENT ... D:\d\bots\legion-v0201-pkg\...`. Always pass **native** `D:/bots/...` to `release-manifest.mjs` / `release-sign.mjs`.
+- `D:/bots/legion-v6-7` (git archive) is the 0.2.0 SOURCE install path; the 0.2.1 `win-x64` zip is the prebuilt path. Do not conflate.
+
+### Next actions (owner-gated where marked)
+1. [ ] **Owner: click "Update Legion" in the installed 0.2.0 and report** — the whole point of shipping 0.2.1.
+2. [ ] 0.2.2: model-override fix (3 gaps) — needs owner go on scope + the Zealot proposal-vs-Forgemaster question.
+3. [ ] Finish the "full access"/`approvalCeiling` root cause inline (subagent route out of credits).
+4. [ ] Unchanged backlog: report-a-bug affordance, supply-chain pinning, vm_claude boat.dev config + schema (haiku rejected), model-override beyond sonnet|opus|haiku|auto (OpenRouter/deepseek/glm not exposed), providers-2/providers/blender-chip branches, prebuilt bundler, Sentinel scheduler, KG-audit button, lighter package.
+5. [ ] Launch tweet drafted, not posted. Site (owner deploys): stale screenshots + trailer slot + creator credit; the roadmap line about Claude staying the full-featured path must become provider-parity phrasing on the next site edit.
 - Site (legion-site, owner deploys): refresh stale screenshots (still "157 BSV nodes" / "no spend tool"), add the trailer slot with the v2 mp4/gif/poster (D:ots\legion-dev\docsideo-v2\), creator-credit name (owner).
