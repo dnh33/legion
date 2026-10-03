@@ -1,6 +1,6 @@
 # Testing the Blender bridge
 
-Companion to [TESTING.md](TESTING.md). What the bridge is and what protects it: [BLENDER.md](BLENDER.md). The plan for the local headless mode: [claude/plan-blender-local-first.md](../claude/plan-blender-local-first.md). This page says how the sandbox and live paths are tested today without Blender, what only real Blender on the owner's PC can show, and where the local headless mode (not on this base) plugs in.
+Companion to [TESTING.md](TESTING.md). What the bridge is and what protects it: [BLENDER.md](BLENDER.md). The plan for the local headless mode: [claude/plan-blender-local-first.md](../claude/plan-blender-local-first.md). This page says how the sandbox and live paths are tested today without Blender, what only real Blender on the owner's PC can show, and where the local headless mode (now merged into this tree; see [BLENDER.md](BLENDER.md)) plugs in.
 
 Scope of every claim: "Legion's own code, in this version, against fakes". No test here ran Blender, `bpy`, a real add-on or a real boat.dev VM. The static check is a filter, not a sandbox ([BLENDER.md](BLENDER.md), "Limits, stated plainly").
 

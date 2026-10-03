@@ -30,11 +30,12 @@ Claude Code and Cowork can drive Legion too, over MCP.
 ## Features
 
 - **Multiple agents.** Ships with Zealot (lead), Builder (coding) and Scout (research), plus ten more premade bots (see [The Muster](#the-muster)). Create your own with a name, system prompt, model, approval mode and VM settings.
+- **Projects and a board.** A project groups one job: instructions, a folder, member agents, tasks, rooms and notes. Its board holds work items the member agents can create, edit, move, claim and note, with you marking them done, approving deletes and deciding what runs (see [docs/PROJECT-BOARD.md](docs/PROJECT-BOARD.md)).
 - **Rooms.** Group chats of bots and you, with guards against runaway loops (see [Rooms](#rooms)).
 - **The Lattice and the Library.** A shared knowledge graph the bots use as long-term memory, with an Inbox where you accept or reject what they save (see [Lattice and Library](#lattice-and-library)).
 - **Rooms you can build from chat.** Bots can propose creating a room or changing its members with `room_create`, `room_add_member` and `room_remove_member`. Each one waits for an Allow card that only you can answer in the app, whatever the agent's approval mode (see [Rooms](#rooms)).
 - **BSV mode** (off by default): reveals the Assayer and a BSV knowledge pack, a read-only status check of a wallet on this computer, and one spend tool that asks the wallet to pay once you have confirmed in native dialogs (testnet and mainnet; mainnet is built and OFF until you switch it on). Tested against fake wallets only; not verified against a real wallet or with real funds yet (see [BSV mode](#bsv-mode)).
-- **Blender bridge** (off by default): the Sculptor builds 3D scenes in headless Blender inside its VM, or in your open Blender after an approval card that shows the whole script. Backends are downloaded only when you press Set up (see [docs/BLENDER.md](docs/BLENDER.md)).
+- **Blender bridge** (off by default): the Sculptor builds 3D scenes in headless Blender on this computer by default (in its cloud VM when Blender is not found), or in your open Blender after an approval card that shows the whole script. Backends are downloaded only when you press Set up. Not yet tried with a real Blender or a real VM (see [docs/BLENDER.md](docs/BLENDER.md)).
 - **Agents talk to each other.** Any agent can `ask` another and wait for the answer, or `tell` it and get the reply later in its own task. Pair threads resume the same session, so repeat conversations stay cheap. Hop, rate and cycle guards stop runaway loops.
 - **Settings in the app.** Claude sign-in or API key, your boat.dev key (with a Test button), MCP servers and connection snippets. Changes apply live.
 - **Auto model routing.** Each task goes to Sonnet or Opus depending on how hard it looks. If Sonnet fails or runs out of turns, Legion retries once on Opus. Or pick any model your account offers.
@@ -195,6 +196,7 @@ Type `/` in the composer to open the menu. Commands that Legion does not handle 
 | `claude.executablePath` | Path to your own `claude` binary. By default the one bundled with the SDK is used. |
 | `claude.maxTurns` | Turn cap per run. Default `40`. |
 | `boat.apiKey`, `boat.baseUrl` | boat.dev access. `BOAT_API_KEY` also works. |
+| `features.projectBoard` | The project board. Default on; only the literal `false` turns it off (restart Legion). Not written by the app. See [docs/PROJECT-BOARD.md](docs/PROJECT-BOARD.md). |
 | `mcpServers` | Extra MCP servers, in the same shape as Claude Code's `.mcp.json`. Agents pick them by name, or `*` for all. |
 
 Environment variables: `LEGION_HOME` (data directory), `LEGION_PORT`, `LEGION_NODE` (Node binary for the app to use), `BOAT_API_KEY`.

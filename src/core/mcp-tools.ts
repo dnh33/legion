@@ -9,6 +9,7 @@ import type { CoreContext } from './server.js';
 import { agentVisible as agentVisibleIn, taskVisible } from './visibility.js';
 import { VmError } from './vm-manager.js';
 import { providerPrefix } from './providers/runtime.js';
+import { registerBoardRead } from './projects/board/mcp.js';
 
 type ToolResult = { content: { type: 'text'; text: string }[]; isError?: boolean };
 
@@ -273,6 +274,9 @@ export function buildLegionMcpServer(ctx: CoreContext): McpServer {
     if (!p) return fail(a.id ? `Unknown project "${a.id}".` : 'action "get" requires an "id".');
     return json({ id: p.id, name: p.name, status: p.status, members: shownMembers(p.members), folder: p.folder, instructions: clip(p.instructions, 4000) });
   }));
+
+  // Experimental project board: read-only for token clients (only when the core built a board)
+  if (ctx.board && ctx.projects) registerBoardRead(server, { board: ctx.board, projects: ctx.projects, agentVisible: (id) => { const a = ctx.store.getAgent(id); return !!a && agentVisible(ctx, a); } });
 
   return server;
 }

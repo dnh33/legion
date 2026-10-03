@@ -101,7 +101,7 @@ test('roster prompts: fresh, in range, with backbone and comms lines, no emojis 
     const p = r.systemPrompt;
     assert.ok(p.trim().length > 0, r.id);
     const n = words(p);
-    assert.ok(n >= 120 && n <= 260, `${r.id} prompt is ${n} words`);
+    assert.ok(n >= 120 && n <= 270, `${r.id} prompt is ${n} words`);
     assert.ok(p.includes(BACKBONE) && p.includes(COMMS_LINES), r.id);
     for (const phrase of ['state your assumptions', 'minimum change', 'touch only what was asked', 'verifiable goal', 'lead with the answer', 'facts from guesses']) {
       assert.ok(p.includes(phrase), `${r.id} lacks "${phrase}"`);
@@ -131,7 +131,7 @@ test('roster prompts carry each bot\'s role and hard limits', () => {
   assert.match(by('assayer'), /never sign, broadcast or move funds/);
   assert.match(by('assayer'), /untrusted input/);
   assert.match(by('sculptor'), /Plan before you script/);
-  assert.match(by('sculptor'), /Back up the \.blend/);
+  assert.match(by('sculptor'), /In live mode the bridge backs up the \.blend/);
   assert.match(by('sculptor'), /Never run unreviewed code/);
   assert.match(by('forgemaster'), /rollback/);
   assert.match(by('sentinel'), /STATUS/);

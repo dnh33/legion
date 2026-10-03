@@ -24,6 +24,7 @@ import { pushSse } from './sse.js';
 import { checkRequest, dropNonLoopback, originAllowed } from './net-guard.js';
 import { publicBoatHealth } from './boat-health.js';
 import type { ProjectStore } from './projects/store.js';
+import type { BoardStore } from './projects/board/store.js';
 
 export interface CoreContext {
   config: LegionConfig; store: Store; bus: EventBus; engine: Engine; vms: VmManager; approvals: ApprovalBroker;
@@ -40,6 +41,8 @@ export interface CoreContext {
   adminSecret?: string;
   /** Projects (read-only here: the MCP tool `legion_projects` lists and gets them; every change goes through the projects module's admin routes). */
   projects?: ProjectStore;
+  /** Project board (experimental, behind its config switch): read-only for token clients through `legion_board_read`. Absent: nothing board-related exists. */
+  board?: BoardStore;
 }
 
 /** Thrown by handlers; mapped to `{error}` JSON. */
@@ -382,7 +385,7 @@ export function createServer(ctx: CoreContext): Server {
   };
 
   /** Events only the app window (admin) may see: the human's rooms and their text, bot-to-bot state, and settings (key hints). A token-only stream drops them. */
-  const adminOnlyEvent = (ev: LegionEvent): boolean => ev.type.startsWith('room.') || ev.type.startsWith('comms.') || ev.type.startsWith('settings.') || ev.type.startsWith('kg.') || ev.type.startsWith('blender.') || ev.type.startsWith('project.');
+  const adminOnlyEvent = (ev: LegionEvent): boolean => ev.type.startsWith('room.') || ev.type.startsWith('comms.') || ev.type.startsWith('settings.') || ev.type.startsWith('kg.') || ev.type.startsWith('blender.') || ev.type.startsWith('project.') || ev.type.startsWith('board.');
 
   const handleSse = (req: IncomingMessage, res: ServerResponse, admin: boolean) => {
     res.writeHead(200, {

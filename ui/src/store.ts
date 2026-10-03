@@ -223,6 +223,10 @@ export function handleEvent(e: LegionEvent) {
     case 'project.updated':
       setState((s) => (s.projects.some((p) => p.id === e.project.id) ? { projects: s.projects.map((p) => (p.id === e.project.id ? e.project : p)) } : { projects: [...s.projects, e.project] }));
       break;
+    case 'board.updated':
+      // the board panel (when mounted) re-reads; no board code is imported here
+      window.dispatchEvent(new CustomEvent('legion-board-updated', { detail: e.projectId }));
+      break;
     case 'agent.deleted':
       setState((s) => {
         const agents = s.agents.filter((a) => a.id !== e.agentId);

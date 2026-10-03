@@ -1,0 +1,54 @@
+/* Project board. Reuses the app tokens; no new colours. Priority and state are always text as well as colour. */
+.bd { display: flex; flex-direction: column; gap: 10px; border-top: 1px solid var(--line); padding-top: 12px; }
+.bd-head { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.bd-head h3 { margin: 0; font-size: 16px; }
+.bd-tabs { display: flex; gap: 2px; margin-right: auto; }
+.bd-tab { background: transparent; border: 1px solid transparent; border-bottom: 2px solid transparent; padding: 6px 12px; color: var(--muted); cursor: pointer; }
+.bd-tab.on { color: var(--text); border-bottom-color: var(--accent); }
+.bd-tab:focus-visible, .bd-title:focus-visible, .bd-card select:focus-visible, .bd-filters :is(input, select):focus-visible, .bd-form :is(input, select, textarea):focus-visible, .bd-table select:focus-visible { outline: 2px solid var(--accent-line); outline-offset: 2px; }
+.bd-sr { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+.bd-filters { display: flex; flex-wrap: wrap; gap: 8px; align-items: flex-end; }
+.bd-filters label, .bd-form label { display: flex; flex-direction: column; gap: 3px; font-size: 12px; color: var(--muted); }
+.bd-filters :is(input, select), .bd-form :is(input, select, textarea), .bd-table select, .bd-move select, .proj-inline select { background: var(--surface-2); border: 1px solid var(--line-strong); border-radius: var(--r-sm); padding: 5px 8px; color: var(--text); font-size: 13px; min-height: 30px; }
+.bd-cols { display: grid; grid-template-columns: repeat(5, minmax(150px, 1fr)); gap: 10px; align-items: start; overflow-x: auto; padding-bottom: 6px; }
+.bd-col { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r); padding: 8px; min-height: 90px; }
+.bd-col h4 { margin: 0 0 8px; font-size: 12px; letter-spacing: .06em; text-transform: uppercase; color: var(--text-2); display: flex; gap: 6px; align-items: center; }
+.bd-count { color: var(--muted); font-weight: 500; }
+.bd-blocked h4 { color: var(--danger); }
+.bd-cards, .bd-inbox { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.bd-card { background: var(--surface-2); border: 1px solid var(--line-strong); border-radius: var(--r-sm); padding: 8px; display: flex; flex-direction: column; gap: 6px; }
+.bd-card[draggable="true"] { cursor: grab; }
+.bd-card.untrusted { border-left: 3px solid var(--warn); }
+.bd-title { background: transparent; border: 0; padding: 0; text-align: left; color: var(--text); font-weight: 600; font-size: 13px; cursor: pointer; overflow-wrap: anywhere; }
+.bd-title.static { cursor: default; margin: 0; }
+.bd-meta { display: flex; flex-wrap: wrap; gap: 4px 8px; font-size: 11px; color: var(--muted); }
+.bd-pri.p-high { color: var(--danger); font-weight: 600; }
+.bd-due.d-overdue { color: var(--danger); font-weight: 600; }
+.bd-due.d-today, .bd-due.d-soon { color: var(--warn); }
+.bd-label { border: 1px solid var(--line-strong); border-radius: 10px; padding: 0 6px; }
+.bd-warn { color: var(--warn); font-weight: 600; }
+.bd-move { display: none; font-size: 11px; color: var(--muted); flex-direction: column; gap: 2px; }
+.bd-desc { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 13px; color: var(--text-2); }
+.bd-tablewrap { overflow-x: auto; }
+.bd-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.bd-table th, .bd-table td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--line); vertical-align: middle; }
+.bd-table thead th { color: var(--muted); font-weight: 600; font-size: 12px; }
+.bd-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 8px; }
+.bd-h4 { margin: 4px 0; font-size: 12px; color: var(--text-2); letter-spacing: .04em; text-transform: uppercase; }
+.bd-activity { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; max-height: 180px; overflow-y: auto; font-size: 13px; overflow-wrap: anywhere; }
+.bd-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+@media (max-width: 760px) {
+  .bd-cols { grid-template-columns: 1fr; overflow-x: visible; }
+  .bd-move { display: flex; }
+  .bd-card[draggable="true"] { cursor: default; }
+}
+@media (prefers-reduced-motion: reduce) { .bd * { transition: none !important; animation: none !important; } }
+.bd-leader { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: flex-end; }
+.bd-leader label { display: flex; flex-direction: column; gap: 3px; font-size: 12px; color: var(--muted); }
+.bd-leader select { background: var(--surface-2); border: 1px solid var(--line-strong); border-radius: var(--r-sm); padding: 5px 8px; color: var(--text); font-size: 13px; min-height: 30px; }
+.bd-leader select:focus-visible { outline: 2px solid var(--accent-line); outline-offset: 2px; }
+.bd-offer { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; padding: 8px 12px; border: 1px solid var(--line-strong); border-left: 3px solid var(--accent); border-radius: var(--r-sm); background: var(--accent-soft); font-size: 13px; }
+.bd-learn { display: flex; flex-direction: column; gap: 8px; padding: 10px; border: 1px solid var(--line-strong); border-radius: var(--r-sm); background: var(--surface-2); }
+.bd-learn label { display: flex; flex-direction: column; gap: 3px; font-size: 12px; color: var(--muted); }
+.bd-learn :is(input, textarea) { background: var(--surface); border: 1px solid var(--line-strong); border-radius: var(--r-sm); padding: 5px 8px; color: var(--text); font-size: 13px; }
+.bd-learn :is(input, textarea):focus-visible, .bd-offer button:focus-visible { outline: 2px solid var(--accent-line); outline-offset: 2px; }
