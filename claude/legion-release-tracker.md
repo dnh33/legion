@@ -572,6 +572,56 @@ State is reconstructible from this file + Aetherkeep + the git log alone.
 - **Kodawari check before shipping**: do NOT simply delete the approval gate — verify the *only* remaining paths into `stagePackage` are owner-consented, and that `consent` still gates the actual commit (`readyToApply`, line 184) so a staged update cannot apply itself unattended. The signature check + idle-wait are separate controls and must stay.
 - **Tests**: updater test files assert the current card-on-click behaviour — expect to update them deliberately (change in behaviour is the point), and add one asserting click => no card, and auto-install => card.
 
+### 0.2.2-a — SHIPPED WORK, awaiting full-suite + cut (2026-10-03)
+- **Version decision**: owner directive — "0.2.2-a". Verified BEFORE building: npm accepts a lettered suffix in `package.json`
+  AND `package-lock.json` (my earlier "npm rejects it" claim was a BROKEN test — bad flag, empty stderr, read as a rejection.
+  Never report an unverified claim as a blocker). `0.2.1-a` is impossible (a pre-release ranks below its own release, so it is
+  never offered to anyone already on 0.2.1). `0.2.2-a` ranks above 0.2.1 and below 0.2.2 → offered, and later superseded.
+- **CRITICAL FINDING (owner's question "is this a dependency change tho?" exposed it):** `depsSha256` hashed the WHOLE
+  `package-lock.json`, and npm rewrites the lock's own `version` field on EVERY release bump. So the raw hash changed on every
+  single release → `installedLockSha256 !== lock` → `requiresFullInstall` → **self-update was impossible for every patch, ever.**
+  This is why the click-test could never have passed, independent of the approval-card bug. Fixed with `dependencyHash()`
+  (src/core/updater/package.ts): hash the lock with ONLY its own version fields removed (top-level `version` + `packages[""].version`).
+  A dependency's own `version` stays in the hash, so real dep changes are still detected. Verified on the REAL lockfile: the
+  0.2.1 and 0.2.2-a locks produce an IDENTICAL dependency hash → self-applies. Parameter renamed `installedLockSha256` →
+  `installedDepsHash` (callers + tests updated).
+  - **Fail-closed preserved**: `installedDepsHash === undefined` (unreadable install) still counts as full-install. An unknown
+    installed dependency set is treated as CHANGED, never as matching.
+- **Fix A (updater double-consent)**: `install()` no longer raises an approval card on EITHER path. Clicking Update *is* the
+  consent; auto-install-when-idle already bypassed the card and its label promises "without asking again", so raising one there
+  would have contradicted the UI (I made that mistake first and corrected it — the owner's suggestion to document the auto-install
+  toggle for stuck users is in the release notes instead). Signature verification, `requiresFullInstall`, and `consent` gating the
+  commit (readyToApply) all still stand. Tests rewritten deliberately: C11 (click ⇒ no card, stages), C11b (auto ⇒ no card),
+  `stagedRig` no longer waits for a card, plus the drain/lock tests.
+- **Fix B (model override)**: ceiling KEPT as-is per owner decision ("loud + keep existing ceiling"): upgrades refused, downgrades
+  allowed. Added `noteOverride()` in bridge.ts — an applied override appends a `role:'user'` message to the CALLER's transcript
+  naming agent / configured model / model used, then emits `task.updated`. A no-op override (same model) says nothing.
+  **Do NOT use `deliverReply` for this** — it is for agent-to-agent answers and QUEUES A NEW RUN; using it broke the ask's own
+  result (`asked.json` undefined). vm_claude now enforces the same ceiling at the tool boundary via `overrideAllowed`/`overrideRefusal`
+  (it had NO gate at all and spends the owner's boat.dev subscription). Needed new `VmManager.agentModelFor()` + imports of
+  `model-cap` + `BridgeError`.
+- **Ceiling limits, documented not hidden** (`model-cap.ts:modelRank`): 3 buckets — contains `opus`=3, `haiku`=1, EVERYTHING ELSE=2.
+  So `stealth/space-bunny-alpha`, `gpt-4o`, `glm-4`, typos and unknown models all rank 2 and pass. It is a cost/allocation guard for
+  the three known aliases, NOT a security boundary. Owner asked "how does it know what a downgraded model is vs the other" — the
+  answer: by rank, and that is fail-open by design; a real redesign of `overrideAllowed` is a separate decision.
+- **Versioning protocol**: `docs/VERSIONING.md` (owner directive: "a proper versioning protocol also locked down and followed
+  for this so i never have to mention what the next version should be"). PATCH / LETTERED PATCH / MINOR / MAJOR table, the lettered
+  ordering rule, why dep changes can't be PATCH, cut procedure, pre-1.0 note.
+- **Release notes = ONE-TIME ESCAPE HATCH (owner: "explain why not in too many words... just for this one update and toggle it off
+  afterwards again right")**: "If your update looks stuck: turn on Install updates automatically when idle in Settings → Updates,
+  let it update, then turn it off again. Only needed for this one update." Verified this path needs NO code change on existing
+  installs — auto-install already bypasses the card.
+- **Tests**: updater-trust 11/11 (3 new lettered-suffix ordering tests), updater-module 17/17, bridge+bridge-model 33/33 (2 new
+  visibility tests), updater-package + release + surface green. `tsc` clean, UI typecheck clean. Commit `9885ca7`, pushed.
+- **Commit discipline lesson**: the `patch` tool's escape-drift guard caught a real mistake (a test whose parens I unbalanced, and a
+  `VERSIONING.md` heading I duplicated). Read the whole file after a structural edit instead of chaining blind patches.
+
+### OPEN C — subtle update-available notification (owner directive 2026-10-03, NEW)
+- "whenever legion finds an update or whatever, it should subtly tell the user in a toast or some other way" — owner wants a
+  UX expert council + /kodawari gates on this before it is built. NOT STARTED. Design question the council must answer: how to
+  surface it without nagging (topbar is busy; the owner already rejected a loud topbar affordance for report-a-bug), and how it
+  interacts with the "only tell me once" instinct. Owner wants it in the same update cycle.
+
 ### Next actions (owner-gated where marked)
 1. [ ] **Owner: click "Update Legion" in the installed 0.2.0 and report** — the whole point of shipping 0.2.1.
 2. [ ] 0.2.2: model-override fix (3 gaps) — needs owner go on scope + the Zealot proposal-vs-Forgemaster question.
