@@ -1,0 +1,555 @@
+{
+  "duration": 105,
+  "fps": 30,
+  "bpm": 96,
+  "sections": [
+    {
+      "name": "cold",
+      "start": 0,
+      "end": 5
+    },
+    {
+      "name": "awaken",
+      "start": 5,
+      "end": 10
+    },
+    {
+      "name": "muster",
+      "start": 10,
+      "end": 17.5
+    },
+    {
+      "name": "approvals",
+      "start": 17.5,
+      "end": 25
+    },
+    {
+      "name": "library",
+      "start": 25,
+      "end": 32.5
+    },
+    {
+      "name": "projects",
+      "start": 32.5,
+      "end": 47.5
+    },
+    {
+      "name": "vm",
+      "start": 47.5,
+      "end": 57.5
+    },
+    {
+      "name": "bsv",
+      "start": 57.5,
+      "end": 65
+    },
+    {
+      "name": "blender",
+      "start": 65,
+      "end": 72.5
+    },
+    {
+      "name": "browser",
+      "start": 72.5,
+      "end": 77.5
+    },
+    {
+      "name": "install",
+      "start": 77.5,
+      "end": 82.5
+    },
+    {
+      "name": "next",
+      "start": 82.5,
+      "end": 95
+    },
+    {
+      "name": "end",
+      "start": 95,
+      "end": 105
+    }
+  ],
+  "events": [
+    {
+      "t": 0.625,
+      "name": "caption",
+      "id": "l1"
+    },
+    {
+      "t": 3.125,
+      "name": "caption",
+      "id": "l2"
+    },
+    {
+      "t": 6.875,
+      "name": "caption",
+      "id": "sub"
+    },
+    {
+      "t": 10.625,
+      "name": "relic_slot",
+      "n": 1
+    },
+    {
+      "t": 10.938,
+      "name": "roster",
+      "n": 2
+    },
+    {
+      "t": 11.25,
+      "name": "roster",
+      "n": 3
+    },
+    {
+      "t": 11.563,
+      "name": "roster",
+      "n": 4
+    },
+    {
+      "t": 11.875,
+      "name": "roster",
+      "n": 5
+    },
+    {
+      "t": 12.188,
+      "name": "roster",
+      "n": 6
+    },
+    {
+      "t": 12.5,
+      "name": "roster",
+      "n": 7
+    },
+    {
+      "t": 12.813,
+      "name": "roster",
+      "n": 8
+    },
+    {
+      "t": 13.125,
+      "name": "roster",
+      "n": 9
+    },
+    {
+      "t": 13.438,
+      "name": "roster",
+      "n": 10
+    },
+    {
+      "t": 13.75,
+      "name": "caption",
+      "id": "must"
+    },
+    {
+      "t": 13.75,
+      "name": "roster",
+      "n": 11
+    },
+    {
+      "t": 14.063,
+      "name": "roster",
+      "n": 12
+    },
+    {
+      "t": 14.375,
+      "name": "roster",
+      "n": 13
+    },
+    {
+      "t": 18.125,
+      "name": "caption",
+      "id": "appr"
+    },
+    {
+      "t": 19.375,
+      "name": "mark",
+      "id": "approval"
+    },
+    {
+      "t": 22.25,
+      "name": "caption",
+      "id": "taint"
+    },
+    {
+      "t": 23.75,
+      "name": "mark",
+      "id": "inbox"
+    },
+    {
+      "t": 25.375,
+      "name": "caption",
+      "id": "lat"
+    },
+    {
+      "t": 29.625,
+      "name": "caption",
+      "id": "acc"
+    },
+    {
+      "t": 30.625,
+      "name": "mark",
+      "id": "inbox2"
+    },
+    {
+      "t": 32.688,
+      "name": "caption",
+      "id": "proj"
+    },
+    {
+      "t": 35.25,
+      "name": "caption",
+      "id": "brd"
+    },
+    {
+      "t": 36.875,
+      "name": "mark",
+      "id": "boardA"
+    },
+    {
+      "t": 39.063,
+      "name": "caption",
+      "id": "grd"
+    },
+    {
+      "t": 39.688,
+      "name": "mark",
+      "id": "boardB"
+    },
+    {
+      "t": 42.75,
+      "name": "caption",
+      "id": "pm"
+    },
+    {
+      "t": 43.125,
+      "name": "mark",
+      "id": "pmem"
+    },
+    {
+      "t": 45.313,
+      "name": "caption",
+      "id": "mem"
+    },
+    {
+      "t": 47.813,
+      "name": "caption",
+      "id": "vm"
+    },
+    {
+      "t": 51.875,
+      "name": "caption",
+      "id": "mcp"
+    },
+    {
+      "t": 51.875,
+      "name": "vox_line",
+      "n": 1
+    },
+    {
+      "t": 53.125,
+      "name": "vox_line",
+      "n": 2
+    },
+    {
+      "t": 53.625,
+      "name": "vox_ok"
+    },
+    {
+      "t": 53.75,
+      "name": "vox_line",
+      "n": 3
+    },
+    {
+      "t": 54.25,
+      "name": "vox_ok"
+    },
+    {
+      "t": 54.375,
+      "name": "vox_line",
+      "n": 4
+    },
+    {
+      "t": 54.875,
+      "name": "vox_ok"
+    },
+    {
+      "t": 55,
+      "name": "vox_line",
+      "n": 5
+    },
+    {
+      "t": 56.625,
+      "name": "vox_line",
+      "n": 6
+    },
+    {
+      "t": 56.938,
+      "name": "vox_line",
+      "n": 7
+    },
+    {
+      "t": 57.125,
+      "name": "vox_ok"
+    },
+    {
+      "t": 57.813,
+      "name": "caption",
+      "id": "bsv1"
+    },
+    {
+      "t": 61.875,
+      "name": "caption",
+      "id": "bsv2"
+    },
+    {
+      "t": 65.313,
+      "name": "caption",
+      "id": "bl1"
+    },
+    {
+      "t": 69.5,
+      "name": "caption",
+      "id": "bl2"
+    },
+    {
+      "t": 72.563,
+      "name": "caption",
+      "id": "brow1"
+    },
+    {
+      "t": 77.688,
+      "name": "caption",
+      "id": "rtA"
+    },
+    {
+      "t": 78.438,
+      "name": "caption",
+      "id": "rtB"
+    },
+    {
+      "t": 80.125,
+      "name": "caption",
+      "id": "upd"
+    },
+    {
+      "t": 80.125,
+      "name": "caption",
+      "id": "loop"
+    },
+    {
+      "t": 83.125,
+      "name": "next_head"
+    },
+    {
+      "t": 83.75,
+      "name": "next_card",
+      "id": "n1"
+    },
+    {
+      "t": 85.15,
+      "name": "next_card",
+      "id": "n2"
+    },
+    {
+      "t": 88.25,
+      "name": "next_card",
+      "id": "n3"
+    },
+    {
+      "t": 89.75,
+      "name": "next_card",
+      "id": "n4"
+    },
+    {
+      "t": 91.35,
+      "name": "next_card",
+      "id": "n5"
+    },
+    {
+      "t": 93,
+      "name": "next_card",
+      "id": "n6"
+    },
+    {
+      "t": 94.375,
+      "name": "silence"
+    },
+    {
+      "t": 95,
+      "name": "victory"
+    },
+    {
+      "t": 95.625,
+      "name": "wm_draw"
+    },
+    {
+      "t": 97.5,
+      "name": "wm_fill"
+    },
+    {
+      "t": 98.438,
+      "name": "tag"
+    },
+    {
+      "t": 101.25,
+      "name": "sigil"
+    },
+    {
+      "t": 103.75,
+      "name": "fade_out"
+    },
+    {
+      "t": 105,
+      "name": "end"
+    }
+  ],
+  "typing": [
+    {
+      "start": 51.875,
+      "end": 52.375,
+      "chars": 34
+    },
+    {
+      "start": 53.125,
+      "end": 53.625,
+      "chars": 33
+    },
+    {
+      "start": 53.75,
+      "end": 54.25,
+      "chars": 34
+    },
+    {
+      "start": 54.375,
+      "end": 54.875,
+      "chars": 34
+    },
+    {
+      "start": 55,
+      "end": 55.9,
+      "chars": 43
+    },
+    {
+      "start": 56.625,
+      "end": 57.125,
+      "chars": 25
+    },
+    {
+      "start": 56.938,
+      "end": 57.388,
+      "chars": 35
+    }
+  ],
+  "cuts": [
+    {
+      "id": "cold>awaken",
+      "t": 5,
+      "kind": "dissolve"
+    },
+    {
+      "id": "awaken>muster",
+      "t": 10,
+      "kind": "match"
+    },
+    {
+      "id": "muster>approval",
+      "t": 17.5,
+      "kind": "dissolve"
+    },
+    {
+      "id": "approval>inbox",
+      "t": 21.875,
+      "kind": "hard"
+    },
+    {
+      "id": "inbox>lattice",
+      "t": 25,
+      "kind": "dissolve"
+    },
+    {
+      "id": "lattice>inbox2",
+      "t": 29.375,
+      "kind": "hard"
+    },
+    {
+      "id": "inbox2>projects",
+      "t": 32.5,
+      "kind": "dissolve"
+    },
+    {
+      "id": "projects>boardA",
+      "t": 35,
+      "kind": "hard"
+    },
+    {
+      "id": "boardA>boardB",
+      "t": 38.75,
+      "kind": "hard"
+    },
+    {
+      "id": "boardB>pmem",
+      "t": 41.875,
+      "kind": "hard"
+    },
+    {
+      "id": "pmem>digest",
+      "t": 45,
+      "kind": "hard"
+    },
+    {
+      "id": "digest>vm",
+      "t": 47.5,
+      "kind": "dissolve"
+    },
+    {
+      "id": "vm>term",
+      "t": 51.25,
+      "kind": "hard"
+    },
+    {
+      "id": "term>bsvA",
+      "t": 57.5,
+      "kind": "dissolve"
+    },
+    {
+      "id": "bsvA>bsvB",
+      "t": 61.25,
+      "kind": "hard"
+    },
+    {
+      "id": "bsvB>blA",
+      "t": 65,
+      "kind": "dissolve"
+    },
+    {
+      "id": "blA>blB",
+      "t": 69.375,
+      "kind": "hard"
+    },
+    {
+      "id": "blB>browser",
+      "t": 72.5,
+      "kind": "dissolve"
+    },
+    {
+      "id": "browser>routes",
+      "t": 77.5,
+      "kind": "dissolve"
+    },
+    {
+      "id": "routes>upd",
+      "t": 80,
+      "kind": "hard"
+    },
+    {
+      "id": "upd>next",
+      "t": 82.5,
+      "kind": "hard"
+    },
+    {
+      "id": "next>end",
+      "t": 95,
+      "kind": "hard"
+    }
+  ]
+}
