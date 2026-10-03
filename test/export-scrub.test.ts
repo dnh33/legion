@@ -1,31 +1,39 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 // Walks the repo from dist/test/, so the checkout root is two levels up regardless of where the suite runs.
 const REPO = fileURLToPath(new URL('../../', import.meta.url));
+const EXPORT = join(REPO, 'scripts', 'export-public.mjs');
 
-// The wallet port, built at runtime (never a literal — the port guard forbids it in code).
+// Sensitive values, built at runtime so they never appear as literals here (the port guard forbids it too).
 const PORT = String(Number('33' + '21'));
 const PORT_RE = new RegExp('\\b' + PORT + '\\b');
+const OW_FIRST = ['Dani', 'el'].join('');
+const OW_LAST = ['Hjermits', 'lev'].join('');
+const OW_VAULT = ['Aether', 'keep'].join('');
+const OW_VPS = ['rune-', 'vps'].join('');
+const OW_VPN = ['tail', 'scale'].join('');
 
-// Everything the prose scrub must remove (mirrors the rules in scripts/export-public.mjs).
+// INDEPENDENT banned set — deliberately not copied from the exporter, so it catches leaks the scrub rules miss.
 const PROSE_BANNED = [
-  /[A-Za-z]:[\\/](?:Users|bots|Aetherkeep|dev|tmp|hermes)\b[^"'\s)]*/,
+  /[A-Za-z]:[\\/](?:Users|bots|dev|tmp|hermes)\b[^"'\s)]*/,
+  new RegExp('[A-Za-z]:[\\\\/]' + OW_VAULT + '\\b[^"\'\\s)]*'),
   /\/(?:opt|home|tmp|root|var)\b[^"'\s)]*/,
-  /\bDaniel\b/,
-  /(?:rune-vps|tailscale)/i,
+  new RegExp('\\b' + OW_FIRST + '\\b'),
+  new RegExp('\\b' + OW_LAST + '\\b'),
+  new RegExp('\\b' + OW_VAULT + '\\b'),
+  new RegExp('(?:' + OW_VPS + '|' + OW_VPN + ')', 'i'),
   /session_[A-Za-z0-9_-]{6,}/,
+  /\$[0-9][0-9,.]*(?:\s*(?:of|\/)\s*\$[0-9][0-9,.]*)?/,
   PORT_RE,
 ];
 
-// Files that intentionally contain the wallet port and ship unchanged: the detection guardrails (scan/tripwire/
-// guard/probe tests), the BSV knowledge-pack content (and the test that pins it), the perf-shot refusal guards,
-// and the export script's own pattern source. Stripping these would gut the safety the owner demands.
+// Files that intentionally contain the wallet port and ship unchanged (the detection guardrails + pack content).
 const PORT_GUARDRAILS = new Set([
   'src/core/kg/seeds/bsv.json',
   'test/bsv-module-wallet.test.ts',
@@ -38,11 +46,10 @@ const PORT_GUARDRAILS = new Set([
   'test/kg-bsv-seed.test.ts',
   'test-perf/bsv-ui/shots.mjs',
   'test-perf/ui-app/titlebar-shots.mjs',
-  'scripts/export-public.mjs',
 ]);
 
-const PROSE_ROOTS = ['claude', 'docs'];
-const PROSE_FILES = new Set(['README.md', 'CONTRIBUTING.md', 'SECURITY.md', 'CHANGELOG.md', 'CODE_OF_CONDUCT.md', 'NOTICE', 'LICENSE', 'CLAUDE.md']);
+const PROSE_ROOTS = ['docs'];
+const PROSE_FILES = new Set(['README.md', 'CONTRIBUTING.md', 'SECURITY.md', 'CHANGELOG.md', 'CODE_OF_CONDUCT.md', 'NOTICE', 'LICENSE']);
 const isProse = (rel: string) =>
   PROSE_ROOTS.some((d) => rel === d || rel.startsWith(d + '/')) ||
   PROSE_FILES.has(rel) || rel.startsWith('.github/');
@@ -59,16 +66,32 @@ function walk(dir: string, out: string[] = []): string[] {
   return out;
 }
 
+function runExport(args: string[]): { refused: string } | null {
+  try {
+    execFileSync(process.execPath, [EXPORT, ...args], { stdio: ['ignore', 'pipe', 'pipe'] });
+    return null; // succeeded — a negative test expects failure, so a null here is a test bug
+  } catch (e) {
+    const err = e as { stderr?: string; message?: string };
+    return { refused: String(err.stderr || err.message) };
+  }
+}
+
+function fixture() {
+  const d = mkdtempSync(join(tmpdir(), 'legion-fix-'));
+  writeFileSync(join(d, 'package.json'), '{"name":"fixture"}');
+  writeFileSync(join(d, 'README.md'), 'hello world');
+  return d;
+}
+
 test('export-public produces a scrubbed single-commit publishable snapshot', () => {
   const out = mkdtempSync(join(tmpdir(), 'legion-export-'));
   try {
-    execFileSync(process.execPath, [join(REPO, 'scripts/export-public.mjs'), REPO, out], { stdio: 'pipe', timeout: 180_000 });
+    assert.equal(runExport([REPO, out]), null, 'the export should succeed');
 
     // one commit, neutral identity, no history
     const identity = execFileSync('git', ['-C', out, 'log', '-1', '--format=%an <%ae>'], { encoding: 'utf8' }).trim();
     assert.equal(identity, 'Legion <legion@localhost>');
-    const commits = execFileSync('git', ['-C', out, 'rev-list', '--count', 'HEAD'], { encoding: 'utf8' }).trim();
-    assert.equal(commits, '1');
+    assert.equal(execFileSync('git', ['-C', out, 'rev-list', '--count', 'HEAD'], { encoding: 'utf8' }).trim(), '1');
 
     for (const f of walk(out)) {
       const rel = f.slice(out.length + 1).replace(/\\/g, '/');
@@ -76,7 +99,7 @@ test('export-public produces a scrubbed single-commit publishable snapshot', () 
       const text = readFileSync(f, 'utf8');
       if (isProse(rel)) {
         for (const re of PROSE_BANNED) {
-          assert.ok(!re.test(text), `banned pattern ${re} survives in prose ${rel}`);
+          assert.ok(!re.test(text), `banned pattern leaks in prose ${rel}: ${re}`);
         }
       }
       if (PORT_RE.test(text)) {
@@ -85,10 +108,9 @@ test('export-public produces a scrubbed single-commit publishable snapshot', () 
     }
 
     // exclusions
-    for (const d of ['claude/skills', 'review', 'docs/video-v2/shots', 'node_modules', 'dist', 'dist-ui']) {
+    for (const d of ['claude', 'CLAUDE.md', 'review', 'docs/video-v2/shots', 'node_modules', 'dist', 'dist-ui']) {
       assert.ok(!existsSync(join(out, d)), `${d} must not ship`);
     }
-    // the snapshot carries its own .git; the outer check only skips the top-level one
     assert.ok(existsSync(join(out, '.git')), 'fresh git history expected in the snapshot');
 
     // required files
@@ -96,11 +118,48 @@ test('export-public produces a scrubbed single-commit publishable snapshot', () 
       assert.ok(existsSync(join(out, f)), `${f} must ship`);
     }
 
-    // the runtime guard VALUES are number-form, not literals
+    // code ships byte-identical (excluding the three known number-form rewrites)
+    assert.equal(
+      readFileSync(join(out, 'src/core/bsv/wallet-probe.ts'), 'utf8'),
+      readFileSync(join(REPO, 'src/core/bsv/wallet-probe.ts'), 'utf8'),
+      'canonical code file must be byte-identical in the snapshot'
+    );
+
+    // runtime guard VALUES are number-form, not literals
     const fw = readFileSync(join(out, 'scripts/harness/fake-wallet.mjs'), 'utf8');
     assert.ok(fw.includes("Number('33' + '21')"), 'harness fake wallet must build the port from number-form');
     assert.ok(!PORT_RE.test(fw), 'harness fake wallet must not carry the literal');
   } finally {
     rmSync(out, { recursive: true, force: true });
   }
+});
+
+test('export refuses the source dir as its own out dir, or an inside out dir', () => {
+  const d = fixture();
+  try {
+    const r1 = runExport([d, d]);
+    assert.ok(r1, 'expected refusal'); assert.match(r1!.refused, /out dir is the source/);
+    const r2 = runExport([d, join(d, 'out')]);
+    assert.ok(r2, 'expected refusal'); assert.match(r2!.refused, /inside the source/);
+  } finally {
+    rmSync(d, { recursive: true, force: true });
+  }
+});
+
+test('export fails closed on a planted secret file or a planted token', () => {
+  const d1 = fixture();
+  try {
+    writeFileSync(join(d1, '.env'), 'KEY=value');
+    const r1 = runExport([d1, join(d1, '..', 'fx-env-out-' + Date.now())]);
+    assert.ok(r1, 'expected refusal'); assert.match(r1!.refused, /secret file/);
+  } finally { rmSync(d1, { recursive: true, force: true }); }
+
+  const d2 = fixture();
+  try {
+    // a fake PEM (the repo's own convention for fixtures), built from fragments so no private-key literal sits here
+    const FAKE_PEM = '-----BEGIN ' + 'PRIVATE KEY-----\nMIIEvQIBADANBgkqhkiG9w0BAQEFAASC';
+    writeFileSync(join(d2, 'notes.md'), FAKE_PEM);
+    const r2 = runExport([d2, join(d2, '..', 'fx-tok-out-' + Date.now())]);
+    assert.ok(r2, 'expected refusal'); assert.match(r2!.refused, /token or private key/);
+  } finally { rmSync(d2, { recursive: true, force: true }); }
 });
