@@ -1,7 +1,5 @@
 <div align="center">
 
-<img src="docs/images/relic.png" alt="The Relic, Legion's mascot: a war helm with a glowing green visor, a code halo and trailing data cables" width="360">
-
 <picture><source media="(prefers-color-scheme: dark)" srcset="docs/images/legion-wordmark-dark.svg"><img alt="Legion" src="docs/images/legion-wordmark-light.svg" width="460"></picture>
 
 **A local multi-agent bot for your desktop — Claude by default, plus OpenRouter for any model — with a VM for every agent when it needs one.**
