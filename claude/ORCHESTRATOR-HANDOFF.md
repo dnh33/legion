@@ -125,7 +125,7 @@ Nothing in 0.2.0 has run in the real Windows app; BSV spend tool tested against 
 # Legion v0.2.0: orchestrator takeover (written 2026-10-03, after the weekly limit hit)
 
 Read this first. It lets a new agent (Hermes) take over the orchestrator role: steer the cloud sessions, merge their branches, gate, review and ship v0.2.0.
-Older handoff (archived, ignore): D:bots_old-desktop-legion-filesegion-release-handoff.md. this file supersedes it.
+Older handoff (archived, ignore): D:\bots\_old-desktop-legion-files\LEGION-RELEASE-HANDOFF.md. This file supersedes it.
 
 Owner: Daniel Hjermitslev (dnh33). Direct. Writes in plain English. Wants short answers, answer first.
 
