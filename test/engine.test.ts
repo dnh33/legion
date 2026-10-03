@@ -103,7 +103,13 @@ test('happy path: streaming, messages, task fields, options', async () => {
   assert.equal(o.systemPrompt.preset, 'claude_code');
   assert.match(o.systemPrompt.append, /Alpha/);
   assert.match(o.systemPrompt.append, /Be nice\./);
-  assert.ok(o.systemPrompt.append.split('\n').length <= 14);
+  const append = o.systemPrompt.append as string;
+  const facts = append.indexOf('What you can do right now:');
+  const persona = append.indexOf('Be nice.');
+  assert.ok(facts >= 0, 'capability block missing');
+  assert.ok(persona > facts, 'capability block must come before the persona');
+  const n = append.split('\n').length;
+  assert.ok(n <= 18, `append is ${n} lines`);
 });
 
 test('startTask validation errors', () => {
