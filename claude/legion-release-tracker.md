@@ -403,6 +403,9 @@ mcp__legion_board__* is missing from the Legion-tool list in src/core/approvals.
 ## AUDIT/CODE-REVIEW PER WORK ORDER (owner rule 2026-10-03)
 Every work order is not "done" until an independent reviewer (a fresh subagent, not the one who did the work) has re-checked its merged diff the way the security review did: refute-first, quote file:line, default "not fixed". For WO-1..5 the review runs retroactively (see below); WO-7..10 carry their own review step. The Hermes todo list mirrors this (WO → AUDIT/REVIEW → SAVE-POINT).
 
+## FINAL REVIEW GATE (owner rule 2026-10-03, added same day)
+After ALL work orders end (post WO-10, before the tag): one more multi-subagent pass using the `code-review-excellence` skill (PR-style review of the whole `main..integration/v1` diff: architecture, correctness, security, tests, naming — 🔴 blocking / 🟡 important / 🟢 nit) plus the `kodawari` skill (claims, copy, art and numbers as-shipped, banned words, honest limits). Orchestrator triages every finding against the real code, runs a fix round, re-gates, and reports before the owner tags v0.2.0. This is separate from the owner's own `/code-review ultra` on the PR.
+
 ## 2026-10-03 independent reviews IN + fixes applied
 - **WO-1 (agent-audit): CLEAN.** Personas byte-identical except the two approved edits (exactly 2 lines vs the real parent deb87ee); capability block Claude-only + between preambles/persona; no banned words, no wallet port, no keys; test caps match. Fix: claude/audit-agent-instructions.md:97 wrongly claimed the block is on the provider path → corrected.
 - **WO-2 (board + approvals): CLEAN.** Board prefix/regex matches exactly the six board tools, lookalikes+foreign still card+taint (double-underscore guard); red-first test meaningful; module lists identical; no removed test lines; board ON by default, owner-only OFF. Fix: LEGION_TOOL_PREFIXES was a dead constant duplicating the regex → the matcher is now built from the list.
@@ -418,6 +421,12 @@ Every work order is not "done" until an independent reviewer (a fresh subagent, 
 
 ## 2026-10-03 WO-8 KICKOFF: docs phase 2, wordmark README, fresh screenshots
 - Recon: `claude/docs-release-ready-1` is stale-based (a wholesale merge would delete ~69k lines of the board/browser code that merged since). Its real contribution is 12 files (its own commits 77fefea + d6cea12 over d2e473f): docs/images/legion-wordmark-{dark,light}.svg + scripts/make-wordmark.py, README/CONTRIBUTING/SECURITY/CHANGELOG/CODE_OF_CONDUCT hygiene, .github template links, package.json homepage/repo placeholders. Plan: cherry-pick the two commits onto integration/v1 with conflict resolution that keeps integration/v1's current facts (incl. the Blender hedge), then the docs refresh for what shipped (browser, board, chip, BSV fakes-only wording, updater off, prebuilt), then fresh screenshots via the capture stack, then its own independent review.
+
+## 2026-10-03 WO-8 progress: wordmark + docs refresh applied
+- Applied via cherry-pick (restore tag `pre-merge-docs-release-ready-1` set; commits 77fefea + d6cea12, single squashed commit 1959548 — the branch itself is stale-based, so a wholesale `--no-ff` merge would have deleted the board/browser code; the tracker records this deviation and why). Conflict: README BSV/Blender bullets — the branch's copies were stale (said "no spend tool yet", Blender "inside its VM"); kept integration/v1's current facts. `claude/banner-alternatives.md` (their exploration note) was left out on purpose (claude/ docs get scrubbed at WO-9 anyway).
+- README Status block refreshed to shipped facts (commit 6fae542): board + browser added to the built list; BSV mode now says the spend tool exists with native confirmations (fakes-only); prebuilt package scripted-not-run; updater off-until-key line added.
+- Stale-claim sweep over README + docs/*.md: nothing else stale (the WO merges kept the rest current; CHANGELOG history entries are honest as history).
+- REMAINING in WO-8: the fresh screenshot set (docs/images/app-{dark,light}.png + slash-menu/model-picker; site assets/screenshots incl. the stale BSV-panel shots), then the WO-8 independent review.
 
 ## SAVE POINTS — convention (added 2026-10-03, owner request)
 - Save points are interleaved BETWEEN the work orders in this tracker and in the Hermes todo list (WO → SAVE-POINT → WO …). Each one is a `⛀ SAVE-POINT N` marker placed directly before the next task's entry, with what was written where.
