@@ -421,13 +421,13 @@ place(bell(m('D', 4), 7, 0.8), vic + BEAT, 0.20, 0.2, 0.75, 'fx')
 place(glass(m('D', 6), 2.0) + 0.5 * glass(m('F#', 6), 2.0), vic, 0.10, 0, 0.7, 'fx')
 place(lp(swell(1.4, 300, 5000)[::-1], 6000), vic, 0.08, 0, 0.6, 'fx')
 
-# ---------------------------------------------------------------- end card
+# ---------------------------------------------------------------- end card (v1-exact: forge hit on the wordmark, cadence to D)
 wd, wf = ev('wm_draw')[0], ev('wm_fill')[0]
-place(swell(wf - wd, 300, 4500), wd, 0.09, 0, 0.45, 'fx')
-place(war_drum(2.2, 130, 66, .8), wf, 0.45, 0, 0.45, 'drums')
-place(bell(m('A', 3), 6, 0.7), ev('tag')[0], 0.20, -0.2, 0.7, 'fx')
-place(bell(m('F#', 4), 6, 0.6), ev('tag')[0] + BEAT, 0.12, 0.2, 0.7, 'fx')
-place(bell(m('D', 4), 8, 0.8), ev('sigil')[0], 0.24, 0.1, 0.75, 'fx')
+place(swell(wf - wd, 300, 4500), wd, 0.10, 0, 0.45, 'fx')
+place(war_drum(2.2, 130, 42, .8), wf, 0.55, 0, 0.45, 'drums')
+place(sub(m('D', 2), 3.0, 0.005, 2.5), wf, 0.16, 0, 0.0, 'drums')
+place(bell(m('A', 3), 6, 0.7), ev('tag')[0], 0.16, -0.2, 0.7, 'fx')
+place(bell(m('D', 4), 8, 0.8), ev('sigil')[0], 0.22, 0.1, 0.75, 'fx')
 place(choir([m('D', 3), m('F#', 3), m('A', 3), m('D', 4)], end - b(NBARS - 1) + 1, attack=0.6, release=2.5), b(NBARS - 1), 0.20, 0, 0.8)
 
 # ---------------------------------------------------------------- mix: sidechain, reverb, gap, arc, master

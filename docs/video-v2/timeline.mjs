@@ -31,21 +31,21 @@ export const KICKER = {
 // ---- real-UI shots. img = file in docs/video-v2/shots/. cam keys: [t, zoom, cx, cy] (cx, cy = point of the shot in the middle of the frame, 0..1).
 // marks: rings drawn on real UI elements [t, fx, fy]. Targets are set after reading each screenshot at full size. ----
 export const SHOTS = [
-  { id: 'approval', img: 'app-approval.png', in: b(7), out: b(8, 3), cam: [[b(7), 1, .5, .5], [b(7, 2), 1.55, .47, .57]], marks: [[b(7, 3), .233, .54]] },
-  { id: 'inbox', img: 'library-inbox.png', in: b(8, 3), out: b(10), cam: [[b(8, 3), 1, .5, .5], [b(9, 1), 1.4, .58, .37], [b(10), 1.45, .58, .37]], marks: [[b(9, 2), .835, .18]] },
+  { id: 'approval', img: 'app-approval.png', in: b(7), out: b(8, 3), cam: [[b(7), 1, .5, .5], [b(7, 2), 1.4, .47, .57]], marks: [[b(7, 3), .233, .54]] },
+  { id: 'inbox', img: 'library-inbox.png', in: b(8, 3), out: b(10), cam: [[b(8, 3), 1, .5, .5], [b(9, 1), 1.4, .58, .37], [b(10), 1.4, .58, .37]], marks: [[b(9, 2), .835, .18]] },
   { id: 'lattice', img: 'library-lattice.png', in: b(10), out: b(11, 3), cam: [[b(10), 1, .5, .5], [b(11, 3), 1.3, .55, .5]], marks: [] },
-  { id: 'inbox2', img: 'library-inbox.png', in: b(11, 3), out: b(13), cam: [[b(11, 3), 1.5, .45, .4], [b(13), 1.6, .4, .38]], marks: [[b(12, 1), .29, .37]] },
-  { id: 'projects', img: 'projects.png', in: b(13), out: b(14), cam: [[b(13), 1, .5, .5], [b(14), 1.45, .32, .45]], marks: [] },
-  { id: 'boardA', img: 'board.png', in: b(14), out: b(15, 2), cam: [[b(14), 1, .5, .5], [b(15, 2), 1.35, .55, .38]], marks: [[b(14, 3), .375, .595]] },
-  { id: 'boardB', img: 'board-guards.png', in: b(15, 2), out: b(16, 3), cam: [[b(15, 2), 1.3, .5, .3], [b(16, 3), 1.8, .5, .3]], marks: [[b(15, 3.5), .22, .263]] },
-  { id: 'pmem', img: 'project-memory.png', in: b(16, 3), out: b(18), cam: [[b(16, 3), 1.2, .5, .4], [b(18), 1.6, .55, .35]], marks: [[b(17, 1), .717, .318]] },
-  { id: 'vmpanel', img: 'app-approval.png', in: b(19), out: b(20, 2), cam: [[b(19), 1.5, .72, .45], [b(20, 2), 1.9, .75, .42]], marks: [] },
-  { id: 'bsvA', img: 'bsv-status.png', in: b(23), out: b(24, 2), cam: [[b(23), 1, .5, .5], [b(24, 2), 1.5, .5, .34]], marks: [] },
-  { id: 'bsvB', img: 'bsv-spend.png', in: b(24, 2), out: b(26), cam: [[b(24, 2), 1.2, .5, .42], [b(26), 1.7, .5, .36]], marks: [] },
-  { id: 'blA', img: 'blender-chooser.png', in: b(26), out: b(27, 3), cam: [[b(26), 1, .5, .5], [b(27, 3), 1.6, .42, .45]], marks: [] },
-  { id: 'blB', img: 'blender-get.png', in: b(27, 3), out: b(29), cam: [[b(27, 3), 1.1, .5, .5], [b(29), 1.5, .55, .55]], marks: [] },
-  { id: 'browser', img: 'browser.png', in: b(29), out: b(31), cam: [[b(29), 1.2, .5, .45], [b(30), 1.5, .55, .42], [b(31), 1.6, .55, .42]], marks: [] },
-  { id: 'upd', img: 'update-panel.png', in: b(32), out: b(33), cam: [[b(32), 1.05, .5, .5], [b(33), 1.35, .5, .5]], marks: [] },
+  { id: 'inbox2', img: 'library-inbox.png', in: b(11, 3), out: b(13), cam: [[b(11, 3), 1.4, .45, .4], [b(13), 1.4, .4, .38]], marks: [[b(12, 1), .29, .37]] },
+  { id: 'projects', img: 'projects.png', in: b(13), out: b(14), cam: [[b(13), 1, .5, .5], [b(14), 1.4, .32, .45]], marks: [] },
+  { id: 'boardA', img: 'board.png', in: b(14), out: b(15, 2), cam: [[b(14), 1, .5, .5], [b(15, 2), 1.2, .5, .5]], marks: [[b(14, 3), .375, .595]] },
+  { id: 'boardB', img: 'board-guards.png', in: b(15, 2), out: b(16, 3), cam: [[b(15, 2), 1.2, .5, .5], [b(16, 3), 1.35, .5, .5]], marks: [[b(15, 3.5), .22, .263]] },
+  { id: 'pmem', img: 'project-memory.png', in: b(16, 3), out: b(18), cam: [[b(16, 3), 1.15, .5, .4], [b(18), 1.4, .55, .4]], marks: [[b(17, 1), .717, .318]] },
+  { id: 'vmpanel', img: 'app-approval.png', in: b(19), out: b(20, 2), cam: [[b(19), 1.4, .72, .45], [b(20, 2), 1.4, .72, .45]], marks: [] },
+  { id: 'bsvA', img: 'bsv-status.png', in: b(23), out: b(24, 2), cam: [[b(23), 1, .5, .5], [b(24, 2), 1.4, .5, .34]], marks: [] },
+  { id: 'bsvB', img: 'bsv-spend.png', in: b(24, 2), out: b(26), cam: [[b(24, 2), 1.2, .5, .42], [b(26), 1.4, .5, .36]], marks: [] },
+  { id: 'blA', img: 'blender-chooser.png', in: b(26), out: b(27, 3), cam: [[b(26), 1, .5, .5], [b(27, 3), 1.4, .42, .45]], marks: [] },
+  { id: 'blB', img: 'blender-get.png', in: b(27, 3), out: b(29), cam: [[b(27, 3), 1.1, .5, .5], [b(29), 1.4, .55, .55]], marks: [] },
+  { id: 'browser', img: 'browser.png', in: b(29), out: b(31), cam: [[b(29), 1.2, .5, .45], [b(30), 1.4, .55, .42], [b(31), 1.4, .55, .42]], marks: [] },
+  { id: 'upd', img: 'update-panel.png', in: b(32), out: b(33), cam: [[b(32), 1.05, .5, .5], [b(33), 1.3, .5, .5]], marks: [] },
 ];
 
 // ---- captions. slot 'col' = right-hand column beside a UI shot; 'mid' = centred; a..b = fully visible window (fades are inside +- .35 s) ----
