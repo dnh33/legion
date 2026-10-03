@@ -4,7 +4,7 @@
 
 <picture><source media="(prefers-color-scheme: dark)" srcset="docs/images/legion-wordmark-dark.svg"><img alt="Legion" src="docs/images/legion-wordmark-light.svg" width="460"></picture>
 
-**A local, Claude-only multi-agent bot for your desktop, with a VM for every agent when it needs one.**
+**A local multi-agent bot for your desktop — Claude by default, plus OpenRouter for any model — with a VM for every agent when it needs one.**
 
 [Status](#status) · [Install](#install) · [Orchestrate over MCP](#orchestrate-from-claude-code-or-cowork) · [Architecture](docs/ARCHITECTURE.md) · [Contributing](CONTRIBUTING.md)
 
@@ -19,7 +19,7 @@ Legion is v0.2.0. What is built and what is not:
 - **Blender bridge:** built, but not yet tried on a real Blender.
 - **Installer:** unsigned, and not yet run on a wide range of Windows machines. Expect SmartScreen or antivirus prompts. There are no prebuilt releases yet (a prebuilt package is scripted and comes with the release; not built or run on Windows so far); today you install from source.
 - **The updater:** built, but off until a signing key is published and the repository is public.
-- **Claude only.** Other model providers are under [Later](#later).
+- **Claude by default, plus OpenRouter.** Add your own OpenRouter key and run any model. Codex and other local/custom endpoints are under [Later](#later).
 
 ## What it is
 
@@ -27,7 +27,7 @@ Legion is a desktop app for running several Claude agents from one place. Each a
 
 Claude Code and Cowork can drive Legion too, over MCP.
 
-**Legion is Claude-only.** Every agent runs on a Claude model through the Claude Agent SDK. Other model providers are not supported in v1 (see [Later](#later)).
+**Legion runs on Claude by default.** Every existing agent runs on a Claude model through the Claude Agent SDK. OpenRouter ships in 0.2.0 as a second provider — add your own key and run any model. Codex and other local/custom endpoints are 0.2.1 (see [Later](#later)).
 
 <p align="center">
   <img src="docs/images/app-dark.png" alt="Legion's main window in the dark theme: agent rail, a task thread with tool calls and an inline approval card, the mascot, the Computer panel and recent tasks" width="900">
@@ -80,7 +80,7 @@ An optional toggle in Settings, off by default. It shows the Assayer bot, loads 
 
 ## Your Claude subscription, and Anthropic's terms
 
-Legion talks to Claude only through the official [Claude Agent SDK](https://docs.claude.com/en/docs/claude-code/sdk). By default (`claude.auth: "claude-login"`) it uses whichever account Claude Code is signed in to on your machine. Legion never reads, copies or stores your Claude credentials, and it removes `ANTHROPIC_API_KEY` from the child environment so your login is the one used. If you would rather pay by API key, set `claude.auth` to `api-key` and provide one.
+Legion talks to Claude through the official [Claude Agent SDK](https://docs.claude.com/en/docs/claude-code/sdk). By default (`claude.auth: "claude-login"`) it uses whichever account Claude Code is signed in to on your machine. Legion never reads, copies or stores your Claude credentials, and it removes `ANTHROPIC_API_KEY` from the child environment so your login is the one used. If you would rather pay by API key, set `claude.auth` to `api-key` and provide one.
 
 Use it for yourself, on your own machine. Do not host Legion for other people, put it behind a shared endpoint, or pass your subscription through it to anyone else. Anthropic's terms are the authority on what your plan allows, and they can change; read them for your plan. Legion is an independent project and is not affiliated with or endorsed by Anthropic or boat.dev.
 
@@ -238,7 +238,7 @@ The Relic is a single hand-painted SVG, split into layers and animated by a smal
 
 Not in v1, and not promised:
 
-- **Other model providers, such as Codex and ChatGPT.** Legion runs Claude only today.
+- **Codex, Ollama and other custom/local endpoints (0.2.1).** OpenRouter already ships in 0.2.0 — any model, with your own key.
 - **BSV mode: the real-wallet checks, and anything beyond one payment.** The spend tool is built (testnet and mainnet, mainnet behind a hard-off switch) and tested against fakes; the owner's by-hand checks on a real wallet come next, and wallet reads (balances), a VM boundary for wallet tools and spends by anything other than a run you started are not built (see [docs/BSV-MODE.md](docs/BSV-MODE.md) and [docs/BSV-WALLET-DESIGN.md](docs/BSV-WALLET-DESIGN.md)).
 - Signed installers and prebuilt releases. Today you install from source with `setup.cmd`.
 
