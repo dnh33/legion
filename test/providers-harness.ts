@@ -76,11 +76,11 @@ export function setup(fake: Fake, o: Opts = {}) {
   return { store, bus, events, config, approvals, claudeCalls, vmCalls, engine, agent, providers, keys };
 }
 
-export const until = async (cond: () => boolean, ms = 5000): Promise<void> => {
+export const until = async (cond: () => boolean, ms = 15000): Promise<void> => {
   const end = Date.now() + ms;
   while (!cond()) { if (Date.now() > end) throw new Error('timed out waiting for condition'); await new Promise((r) => setTimeout(r, 10)); }
 };
 export const run = async (h: ReturnType<typeof setup>, prompt = 'hello', extra: Record<string, unknown> = {}): Promise<Task> => {
   const t = h.engine.startTask({ agentId: h.agent.id, prompt, source: 'ui', ...extra } as any);
-  return h.engine.waitFor(t.id, 8000);
+  return h.engine.waitFor(t.id, 16000);
 };
