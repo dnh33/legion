@@ -28,6 +28,7 @@ import type { ProviderRuntime } from './providers/runtime.js';
 import type { ProviderHost, ResolvedModel } from './providers/types.js';
 import type { Project } from '../shared/projects.js';
 import { projectSection } from './projects/prompt.js';
+import { renderCapabilities } from './agent-facts.js';
 import type { ProjectStore } from './projects/store.js';
 
 export type QueryFn = typeof sdkQuery;
@@ -686,6 +687,7 @@ export class Engine {
     const project = this.projectOf(job.taskId, agent.id);
     let projectFolder: string | undefined;
     if (project) { try { mkdirSync(project.folder, { recursive: true }); projectFolder = project.folder; } catch { /* no folder this run: the instructions still apply */ } }
+    const servers = this.buildMcpServers(agent, job, act);
     const options: Options = {
       model,
       cwd,
@@ -693,12 +695,13 @@ export class Engine {
         type: 'preset', preset: 'claude_code',
         append: LEGION_PREAMBLE.replace('{name}', agent.name)
           + this.modulePreamble(agent, { prompt, taskId: job.taskId, ...(job.origin ? { origin: job.origin } : {}), tainted: act.tainted || job.origin?.tainted === true, ...(project ? { projectId: project.id } : {}) })
+          + '\n\n' + renderCapabilities(agent, { servers, ...(job.origin?.approvalCeiling ? { ceiling: job.origin.approvalCeiling } : {}), vmEnabledForAgent: !!agent.vm?.enabled })
           + (agent.systemPrompt ? '\n\n' + agent.systemPrompt : '')
           + (project ? '\n\n' + projectSection({ name: project.name, instructions: project.instructions, folder: project.folder }) : ''),
       },
       ...(projectFolder ? { additionalDirectories: [projectFolder] } : {}),
       settingSources: this.config.claude.inheritClaudeCodeSettings ? ['user', 'project', 'local'] : [],
-      mcpServers: this.buildMcpServers(agent, job, act),
+      mcpServers: servers,
       // Off (default): only the servers above, asks the CLI to ignore user/project/local MCP config and plugins. claude.ai connectors are asked off in buildChildEnv and in `settings`.
       ...(this.config.claude.inheritMcp === true ? {} : { strictMcpConfig: true }),
       disallowedTools: ['SendMessage', 'ListAgents', ...this.moduleDisallowed(agent)],
