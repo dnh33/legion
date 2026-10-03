@@ -638,10 +638,47 @@ State is reconstructible from this file + Aetherkeep + the git log alone.
   `scripts/lib/release-lib.mjs` and importing it in all three, so the scripts and the shipped updater cannot drift again.
 - LESSON: whenever the version grammar changes, grep the release scripts too, not just `src/`. The app and the tooling must agree.
 
-### Next actions (owner-gated where marked)
-1. [ ] **Owner: click "Update Legion" in the installed 0.2.0 and report** — the whole point of shipping 0.2.1.
-2. [ ] 0.2.2: model-override fix (3 gaps) — needs owner go on scope + the Zealot proposal-vs-Forgemaster question.
-3. [ ] Finish the "full access"/`approvalCeiling` root cause inline (subagent route out of credits).
-4. [ ] Unchanged backlog: report-a-bug affordance, supply-chain pinning, vm_claude boat.dev config + schema (haiku rejected), model-override beyond sonnet|opus|haiku|auto (OpenRouter/deepseek/glm not exposed), providers-2/providers/blender-chip branches, prebuilt bundler, Sentinel scheduler, KG-audit button, lighter package.
-5. [ ] Launch tweet drafted, not posted. Site (owner deploys): stale screenshots + trailer slot + creator credit; the roadmap line about Claude staying the full-featured path must become provider-parity phrasing on the next site edit.
-- Site (legion-site, owner deploys): refresh stale screenshots (still "157 BSV nodes" / "no spend tool"), add the trailer slot with the v2 mp4/gif/poster (D:ots\legion-dev\docsideo-v2\), creator-credit name (owner).
+## POST-RELEASE SAVE POINT — 0.2.2-a SHIPPED (2026-10-04)
+Owner directive: "after every release like this one, we run a save point for context, if we should create any skills based on
+the actions etc we've done in this session". Also recorded in Hermes memory. Skill `legion-orchestrator` gained a
+"Cutting a release" section with the verified procedure + the traps below.
+
+- **RELEASED**: `v0.2.2-a` → https://github.com/dnh33/legion/releases/tag/v0.2.2-a. Commits `9885ca7` (fixes + semver +
+  dependencyHash), `dee350f` (launch check + release-notes link), `0ee1ed9` (release scripts share one version rule).
+- **Manifest**: signed with key `k1` (release-sign.mjs verified it with the APP'S OWN verifier). Live fetch returns
+  `version 0.2.2-a`, asset `legion-0.2.2-a-app.zip` (2.4 MB), **`requiresFullInstall: false`** — the field that was blocking
+  self-update. Packages: `legion-0.2.2-a-win-x64.zip` (285 MB / 7125 files, sha256 `373fd2a4…`).
+- **Gate**: FULL suite green — 2396 tests / 2351 pass / 0 fail / 45 skipped.
+- **Purpose of this release**: prove the in-app signed self-update works. Nothing else bundled, so anything the owner finds is
+  an updater problem. 0.2.2-b takes OPEN C (update notification + UX council) and Zealot's item.
+
+### What the session actually taught (the traps)
+1. **`depsSha256` hashed the RAW lockfile.** npm rewrites the lock's own `version` on every bump → the hash changed on EVERY
+   release → `requiresFullInstall` on every patch → **self-update was structurally impossible**, independent of the approval
+   card. Fixed with `dependencyHash()`; verified on the real lock (0.2.1 and 0.2.2-a hash identically). Fail-closed preserved.
+2. **Pre-releases rank below their own release.** `0.2.1-a` can never be offered to anyone on 0.2.1. Lettered patches must
+   therefore sit on the NEXT unreleased number. Ordering pinned in `updater-trust.test.ts` both directions.
+3. **Release scripts had their own copies of the version regex** and rejected what the app accepted. Now shared via
+   `release-lib.mjs`, with a drift assertion over 9 sample versions so the copies cannot silently diverge again.
+4. **Update checks were near-useless**: first check 30 s after CORE boot (not app launch), then a 12 h interval, and
+   `lastCheckedAt` only records SUCCESS — so one network failure was indistinguishable from "checked recently" and could
+   silence updates for hours. Auto-install depends on a check happening first, so the documented escape hatch was dead too.
+   Now: launch check + 60 s poll honouring intervalHours + 15 m retry floor when no check ever succeeded.
+5. **`| tail` poisons a backgrounded npm/node build** (tty). And `npm test` clobbers `dist/` — never build while a suite runs.
+6. **I asserted an unverified blocker.** A broken npm test (bad flag, empty stderr) read as "npm rejects lettered versions" and
+   I nearly killed the version number the owner had chosen. Verify before calling something a blocker; say "unconfirmed".
+7. **`deliverReply` is not a notification channel** — it queues a new agent run and broke the `ask` result. Notices that must
+   not start work go through `store.addMessage` + a `task.updated` event.
+
+### Owner answers captured this session
+- Version numbers are MY decision (protocol in `docs/VERSIONING.md`); the owner never names one.
+- Lettered patch = one thing being verified. 0.2.2-a = updater test; 0.2.2-b = notification UX + Zealot's item.
+- Release notes stay short; the stuck-update escape hatch is a one-time toggle, explained in a few words.
+- Existing installs cannot be force-updated remotely — document the manual path instead.
+- Check the real artifact, not the absence of errors (his "is this a dependency change tho?" found the release-blocking bug).
+
+### NEXT
+1. [ ] **OWNER: click Update Legion in the installed 0.2.0/0.2.1 and report.** This is the entire point of 0.2.2-a.
+2. [ ] 0.2.2-b: UX council + /kodawari for the update-available notification (OPEN C); answer Zealot's proposal-vs-Forgemaster question.
+3. [ ] OPEN A: "full access" still prompts — `approvalCeiling` suspect (engine.ts:658-661); subagent route is out of OpenRouter credits.
+4. [ ] Backlog unchanged: report-a-bug, supply-chain pinning, vm_claude boat.dev config/schema, model-override beyond the three aliases, providers-2/providers/blender-chip, prebuilt bundler, Sentinel scheduler, KG-audit button, lighter package. Launch tweet drafted not posted. Site: stale screenshots, trailer slot, creator credit, provider-parity roadmap line.
