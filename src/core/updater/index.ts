@@ -12,7 +12,7 @@ import { safeEqual, NATIVE_HEADER } from '../admin.js';
 import type { CoreModule, ModuleDeps, RouteAdder } from '../modules.js';
 import { HttpError } from '../server.js';
 import { outcomePath, readOutcome, removeOwned, type Outcome } from './apply.js';
-import { DRAIN_MS, FREEZE_MAX_MS, LIMITS, manifestUrl, PRODUCTION_SOURCE, SAMPLE_MS, sigUrl, type UpdateSource } from './config.js';
+import { DRAIN_MS, FREEZE_MAX_MS, LIMITS, manifestUrl, POLL_MS, PRODUCTION_SOURCE, RETRY_MS, SAMPLE_MS, sigUrl, type UpdateSource } from './config.js';
 import { computeBusy, QuietClock, type BusyProbe } from './idle.js';
 import { checkPolicy, ManifestError, parseManifest, type Manifest, type PolicyVerdict } from './manifest.js';
 import { fetchSmall, NetError, type FetchLike } from './net.js';
@@ -83,6 +83,9 @@ export function createUpdaterModule(deps: ModuleDeps, opts: UpdaterOptions): Upd
   let progress: { bytes: number; total: number } | undefined;
   let nextAllowedAt = 0;
   let lastManualAt = 0;
+  // When the last automatic check was ATTEMPTED (successful or not). `lastCheckedAt` only records success, so on a fresh install —
+  // or after a network failure — there is no timestamp and the poll would otherwise retry every minute.
+  let attemptedAt = 0;
   let drainedAt = 0;
   let frozen = false;
   let freezeTimer: NodeJS.Timeout | null = null;
@@ -302,9 +305,26 @@ export function createUpdaterModule(deps: ModuleDeps, opts: UpdaterOptions): Upd
 
   if (opts.timers !== false) {
     const sample = setInterval(() => { void busyNow().catch(() => undefined); }, SAMPLE_MS); sample.unref?.(); timers.push(sample);
-    const first = setTimeout(() => { if (files.settings().checkEnabled) void module.check(false); }, 30_000); first.unref?.();
-    const every = setInterval(() => { const s = files.settings(); if (s.checkEnabled && now() - (Date.parse(files.state().lastCheckedAt ?? '') || 0) >= s.intervalHours * 3600_000) void module.check(false); }, 10 * 60_000);
-    every.unref?.(); timers.push(every, first as unknown as NodeJS.Timeout);
+    // Check ON LAUNCH. This used to be a flat 30 s after boot with the 12 h interval as the only other trigger, which meant a
+    // fresh install could sit for hours before it ever learned a release existed — and auto-install-when-idle depends on a check
+    // happening first, so the escape hatch did not work either (owner found this 2026-10-03). Now: one check shortly after start
+    // (delayed so it never competes with boot), then a 60 s poll that honours intervalHours. The launch check and the poll are
+    // spaced by RETRY_MS so a quick app restart cannot hammer github.com.
+    const first = setTimeout(() => { if (files.settings().checkEnabled) { attemptedAt = now(); void module.check(false); } }, 30_000);
+    first.unref?.(); timers.push(first as unknown as NodeJS.Timeout);
+    // The poll runs more often than intervalHours so an interval is honoured roughly on time rather than up to 10 min late.
+    // `doCheck` has no recency guard of its own (it only backs off on a 429), so the spacing is enforced HERE: without this a
+    // 60 s poll would fetch the manifest from github.com every minute. A launch check still gets its own request via `first`.
+    const every = setInterval(() => {
+      const s = files.settings();
+      if (!s.checkEnabled) return;
+      const last = Date.parse(files.state().lastCheckedAt ?? '');
+      // No check has ever succeeded (no timestamp): retry on the next poll instead of waiting out the full interval, so a
+      // transient network error cannot silence updates for hours. `attemptedAt` keeps that retry from becoming a busy loop.
+      if (Number.isFinite(last) && now() - last >= s.intervalHours * 3600_000) { void module.check(false); return; }
+      if (!Number.isFinite(last) && now() - attemptedAt >= RETRY_MS) { attemptedAt = now(); void module.check(false); }
+    }, POLL_MS);
+    every.unref?.(); timers.push(every);
   }
   return module;
 }

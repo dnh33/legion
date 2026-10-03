@@ -41,6 +41,10 @@ export const LIMITS = Object.freeze({
 });
 
 export const DEFAULTS = Object.freeze({ checkEnabled: true, autoInstallWhenIdle: false, intervalHours: 12 });
+/** How often the automatic poll runs, and the floor between two automatic attempts when no check has ever succeeded. */
+export const POLL_MS = 60_000;
+export const RETRY_MS = 15 * 60_000;
+
 /** The core must be quiet this long, and must have been up this long, before an update is applied. */
 export const QUIET_MS = 60_000;
 export const BOOT_GRACE_MS = 60_000;

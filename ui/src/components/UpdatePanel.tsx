@@ -51,7 +51,8 @@ export function UpdatePanel() {
       )}
       {a && (
         <div className="upd-card">
-          <b>Version {a.version} is available</b> <span className="upd-muted">({mb(a.size)}, published {a.publishedAt.slice(0, 10)})</span>
+          <b>Version {a.version} is available</b> <span className="upd-muted">({mb(a.size)}, published {a.publishedAt.slice(0, 10)})</span>{' '}
+          <a className="upd-muted" href={`https://github.com/dnh33/legion/releases/tag/v${a.version}`} target="_blank" rel="noreferrer noopener">Release notes</a>
           {a.notes && <pre className="upd-notes">{a.notes}</pre>}
           {notifyOnly && st.mode === 'checkout' && <p className="upd-muted">This is a git checkout. Update it yourself: <code>git pull</code>, <code>npm ci</code>, <code>npm run build</code>. Legion does not run these for you.</p>}
           {notifyOnly && st.mode !== 'checkout' && (a.requiresFullInstall
