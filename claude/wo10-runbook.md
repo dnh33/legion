@@ -6,6 +6,7 @@ Concrete commands for the release, ready to fire in order. Gated on WO-4 (traile
 - `integration/v1` green: Windows gate ~2384/0/45 (the `9ccbfb9` revert head — bsv tripwires 91/91 isolated ✓). Re-run full gate once disk is free.
 - WO-4 done: owner watched the re-rendered trailer (chips stripped) → targeted merge `docs/video-v2/**` from `claude/trailer-v2-build` into `integration/v1` (branch is 24 behind; take ONLY the video dir + its timeline/check/render/score files).
 - No `/code-review ultra` (owner 2026-10-03, $2k off the table) → I run the pre-tag review myself (code-review-excellence + kodawari + systematic-debugging + grill-with-docs + fresh deepseek subagents).
+- **Updater arming (HARD gate, before tag):** `scripts/release-keygen.mjs` → paste the PUBLIC key into `src/core/updater/trust.ts` `UPDATE_KEYS` → rebuild → ship 0.2.0 *with the key embedded*. Empty `UPDATE_KEYS` fails closed ("this build has no update key, so updates are off"), so 0.2.0 users can only apply 0.2.1 in-app if the key ships in 0.2.0. Never the private key in the repo.
 
 ## 1. PR `integration/v1 -> main`
 ```
