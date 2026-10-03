@@ -86,15 +86,9 @@ for (const slot of new Set(CAPS.map((c) => c.slot))) {
   const L = CAPS.filter((c) => c.slot === slot).sort((x, y) => x.a - y.a);
   for (let i = 1; i < L.length; i++) if (L[i].a - L[i - 1].b < 0.72) L[i - 1].b = +(L[i].a - 0.72).toFixed(3);
 }
-// each chip belongs to its scene; "not tried" chips are mandatory for BUILT-NOT-TRIED scenes (check.mjs)
-export const CHIPS = [
-  { id: 'c-board', slot: 'col', text: 'Built and tested. Not yet tried on a real PC.', a: b(14, 1.5), b: b(17, 3.6), needs: 'F29' },
-  { id: 'c-bsv', slot: 'col', text: 'Built against fakes. Not tried with real funds.', a: b(24, 0), b: b(25, 3.7), needs: 'F12' },
-  { id: 'c-bl', slot: 'col', text: 'Not yet tried on a real Blender.', a: b(26, 2), b: b(28, 3.7), needs: 'F13' },
-  { id: 'c-brow', slot: 'col', text: 'Built and tested. Not yet tried on a real PC.', a: b(29, 1), b: b(30, 3.9), needs: 'F21' },
-  { id: 'c-pkg', slot: 'routes-a', text: 'Built by script. Not yet run on Windows.', a: b(31, 1), b: b(31, 3.8), needs: 'F16' },
-  { id: 'c-upd', slot: 'col', text: 'Built. Not yet tried.', a: b(32, 1), b: b(32, 3.8), needs: 'F18' },
-];
+// Honesty chips removed 2026-10-03 (owner): the trailer is a 0.2.0 showcase, not a dev-status log.
+// Keep this export — timeline.mjs (chip cue events) and trailer.html (chip DOM) both read it.
+export const CHIPS = [];
 
 export const NEXT_CARDS = [
   { id: 'n1', title: 'More model providers.', sub: '', a: 83.75, b: 85.15 },
