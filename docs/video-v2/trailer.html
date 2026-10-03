@@ -202,8 +202,7 @@ canvas,svg.full{position:absolute;left:0;top:0;width:1920px;height:1080px}
 
   <div id="relic" class="abs"></div>
   <div id="sub" class="abs c sub hide" style="top:772px">Legion 0.2.0. Now in beta.</div>
-  <div id="brow1" class="abs c sub hide" style="top:772px">Browse without a VM.</div>
-  <div id="brow2" class="abs c cap hide" style="top:848px">Runs with your rights. A VM stays isolated.</div>
+  <div id="brow1" class="col cap abs hide" style="top:262px">Browse without a VM.</div>
 
   <!-- muster -->
   <div id="muster"></div>
@@ -224,7 +223,7 @@ canvas,svg.full{position:absolute;left:0;top:0;width:1920px;height:1080px}
   <div id="digestw" class="abs hide" style="left:0;top:0;width:1920px;height:1080px">
     <div class="k abs" style="left:1400px;top:198px">PROJECTS</div>
     <div id="digestcap" class="col cap abs" style="top:262px">Runs start with the board.</div>
-    <div class="frame term" style="left:110px;top:210px"><div class="inner" style="width:1180px"><div class="thead"><span>WHAT A PROJECT RUN STARTS WITH</span></div><div id="dbody" class="hbody" style="height:480px;font-size:21px;line-height:34px"></div></div><i class="cn a"></i><i class="cn b"></i><i class="cn c"></i><i class="cn d"></i></div>
+    <div class="frame term" style="left:110px;top:210px"><div class="inner" style="width:1180px"><div class="thead"><span>WHAT A PROJECT RUN STARTS WITH</span></div><div id="dbody" class="hbody" style="height:360px;font-size:21px;line-height:34px"></div></div><i class="cn a"></i><i class="cn b"></i><i class="cn c"></i><i class="cn d"></i></div>
   </div>
 
   <!-- install, update, test -->
@@ -351,7 +350,7 @@ const camTx = (c) => [FW / 2 - c.z * c.cx * FW, FH / 2 - c.z * c.cy * FH];
 const capEls = CAPS.map((c) => {
   const d = document.createElement('div'); d.className = 'hide ' + (c.slot === 'col' ? 'col cap' : 'abs');
   if (c.slot === 'col') { d.style.top = '262px'; d.innerHTML = c.text; $('cols').appendChild(d); }
-  return { c, d: c.slot === 'col' ? d : $({ cold1: 'l1', cold2: 'l2', sub: 'sub', brow1: 'brow1', brow2: 'brow2', mustcap: 'mustcap', termcap: 'termcap', digest: 'digestcap', routeA: 'rtA', routeB: 'rtB', loopcap: 'loopcap' }[c.slot]) };
+  return { c, d: c.slot === 'col' ? d : $({ cold1: 'l1', cold2: 'l2', sub: 'sub', brow1: 'brow1', mustcap: 'mustcap', termcap: 'termcap', digest: 'digestcap', routeA: 'rtA', routeB: 'rtB', loopcap: 'loopcap' }[c.slot]) };
 });
 const kickEls = {};
 for (const [id, name] of Object.entries(KICKER)) { const d = document.createElement('div'); d.className = 'col k hide'; d.style.top = '198px'; d.textContent = name; $('cols').appendChild(d); kickEls[id] = d; }

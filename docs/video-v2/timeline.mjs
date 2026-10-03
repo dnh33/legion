@@ -69,8 +69,8 @@ export const CAPS = [
   { id: 'bsv2', slot: 'col', k: 'bsv', text: 'A spend tool, behind your own confirmations.', a: b(24, 3), b: b(25, 3.6) },
   { id: 'bl1', slot: 'col', k: 'blender', text: 'Blender, with the Sculptor. It runs here first.', a: b(26, .5), b: b(27, 2.4) },
   { id: 'bl2', slot: 'col', k: 'blender', text: 'One pinned Blender, after you say yes.', a: b(27, 3.2), b: b(28, 3.9) },
-  { id: 'brow1', slot: 'brow1', k: 'browser', text: 'Browse without a VM.', a: b(29, .1), b: b(29, 2.8) },
-  { id: 'brow2', slot: 'brow2', k: 'browser', text: 'Runs with your rights. A VM stays isolated.', a: b(29, 3.2), b: b(31) },
+  // the honest limit ('runs with your user rights: a cloud VM is the only isolated way to browse') rides in the product's own Browser card text, visible in the shot. One hook caption only.
+  { id: 'brow1', slot: 'brow1', k: 'browser', text: 'Browse without a VM.', a: b(29, .1), b: b(31) },
   { id: 'rtA', slot: 'routeA', text: 'No Node. No Git. No npm.', a: b(31, .3), b: b(31, 3.9) },
   { id: 'rtB', slot: 'routeB', text: 'Or from source: setup.cmd.', a: b(31, 1.5), b: b(31, 3.9) },
   { id: 'upd', slot: 'col', k: 'install', text: 'Updates only when you click.', a: b(32, .2), b: b(32, 3.7) },
