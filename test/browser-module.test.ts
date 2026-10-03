@@ -173,7 +173,7 @@ test('E8: a full run (fake Edge on Windows paths): the result names the browser,
     const p = r.pidOf(0); assert.ok(alive(p)); assert.equal(r.mod.manager.running(), 1);
     r.mod.onTaskEnd!({ id: 'task_1' } as never, agent('w'), { status: 'done', isError: false, tainted: true });
     assert.equal(await until(() => !alive(p)), true, 'the browser process is gone when the run ends');
-    assert.equal(r.mod.manager.running(), 0);
+    assert.equal(await until(() => r.mod.manager.running() === 0), true, 'the browser slot is freed when the run ends');
   } finally { await r.mod.dispose!(); await t.client.close(); }
 });
 

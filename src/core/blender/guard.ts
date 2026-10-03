@@ -39,7 +39,7 @@ import { BIDI_CONTROL, checkScript, countLines, describeFindings, EXPORT_DIR_VAR
 export type { RunMode } from './ports.js';
 import type { RunMode } from './ports.js';
 
-/** What the router knows when it picks a place: `local` = a Blender >= 3.0 is on this computer; `vm` = the cloud VM can run a script now. (Whether the live add-on answers is checked at run time.) */
+/** What the router knows when it picks a place: `local` = a Blender >= 4.2 is on this computer; `vm` = the cloud VM can run a script now. (Whether the live add-on answers is checked at run time.) */
 export interface RouteFacts { local: boolean; vm: boolean; vmNote?: string; localNote?: string }
 /** What a tool call may ask for. `vm` is the agent-facing name of `sandbox`. */
 export type RequestedMode = RunMode | 'vm';

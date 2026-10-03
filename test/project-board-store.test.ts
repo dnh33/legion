@@ -194,6 +194,15 @@ test('C13 the leader setting survives reload and compaction', () => {
   assert.equal(new BoardStore(d).leaderOf(P), undefined);
 });
 
+test('endRun does not persist a seed phrase as the run preview (the run-result path obeys the same secret rule as agent text)', () => {
+  const s = new BoardStore(dir());
+  const i = s.create(P, { title: 'run me', assignee: { kind: 'agent', id: 'scout' } });
+  s.beginRun(P, i.id, 'task_1');
+  const seed = 'abandon ability able about above absent absorb abstract absurd abuse access accident';
+  const r = s.endRun(PID, 'task_1', { status: 'done', isError: false, text: `result ${seed}`, tainted: false })!;
+  assert.equal(r.lastRun!.preview, '', 'a seed phrase in the run result is withheld, not stored as the preview');
+});
+
 test('runs: beginRun links and moves to doing; endRun goes to review or blocked, never done, and respects an owner move', () => {
   const s = new BoardStore(dir());
   const i = s.create(P, { title: 'run me', assignee: { kind: 'agent', id: 'scout' } });

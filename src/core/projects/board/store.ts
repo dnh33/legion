@@ -596,7 +596,8 @@ export class BoardStore {
     const ok = r.status === 'done' && !r.isError;
     const from = i.status;
     delete i.activeRun;
-    const preview = clip(scrubSecrets(cleanText(r.text ?? ''), { keepHex: true }), BOARD_LIMITS.previewChars);
+    const raw = cleanText(r.text ?? '');
+    const preview = findForbiddenSecret(raw) ? '' : clip(scrubSecrets(raw, { keepHex: true }), BOARD_LIMITS.previewChars);
     i.lastRun = { taskId, status: clip(r.status, 20), endedAt: nowIso(), tainted: r.tainted, preview };
     this.note(i, by, 'run', ok ? 'Run finished' : `Run ended: ${r.status}`);
     if (from === 'doing') {

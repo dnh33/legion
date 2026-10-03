@@ -157,6 +157,7 @@ test('blender hedge: the required statements are present', () => {
     assert.match(ui, /not yet tried on a real VM/i, 'the UI keeps the cloud VM "not yet tried" note');
     assert.match(ui, /not yet tried with a real Blender on Windows/i, 'the UI keeps the local-mode "not yet tried" note');
     assert.match(docs, /not yet tried/i, 'docs/BLENDER.md keeps "not yet tried"');
+    assert.match(mdLines('README.md', /Blender bridge/i), /not yet tried/i, 'README keeps the Blender "not yet tried" hedge');
   }
 });
 
