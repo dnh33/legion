@@ -9,14 +9,13 @@ export interface BoardState { enabled: 'unknown' | 'yes' | 'no'; views: Record<s
 let state: BoardState = { enabled: 'unknown', views: {}, busy: false, announce: '' };
 const subs = new Set<() => void>();
 const set = (p: Partial<BoardState> | ((s: BoardState) => Partial<BoardState>)): void => { state = { ...state, ...(typeof p === 'function' ? p(state) : p) }; subs.forEach((f) => f()); };
-export const getBoardState = (): BoardState => state;
 export function useBoard<T>(sel: (s: BoardState) => T): T {
   return useSyncExternalStore((cb) => { subs.add(cb); return () => { subs.delete(cb); }; }, () => sel(state));
 }
 const errText = (e: unknown): string => (e instanceof ApiError || e instanceof Error ? e.message : String(e));
 
 let probing: Promise<void> | null = null;
-/** `GET /api/board` answers 404 unless the experimental board is on: then the window shows nothing of it. */
+/** `GET /api/board` answers 404 unless the board (features.projectBoard) is on: then the window shows nothing of it. */
 export function probeBoard(): Promise<void> {
   if (state.enabled !== 'unknown') return Promise.resolve();
   probing ??= api.boardProbe().then(() => set({ enabled: 'yes' }), () => set({ enabled: 'no' }));

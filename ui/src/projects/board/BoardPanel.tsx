@@ -9,7 +9,7 @@ import { api } from '../../api';
 import { ensureRoomList, openRoom, useRooms } from '../../rooms/roomsStore';
 import { roomsOf } from '../projectsLogic';
 import { setView, useStore } from '../../store';
-import { acceptItem, createItem, deleteItem, getBoardState, loadBoard, moveItem, openTask, patchItem, probeBoard, rejectItem, runItem, sayItem, setLeader, useBoard } from './boardStore';
+import { acceptItem, createItem, deleteItem, loadBoard, moveItem, openTask, patchItem, probeBoard, rejectItem, runItem, sayItem, setLeader, useBoard } from './boardStore';
 import {
   applyFilters, assigneeKey, assigneeLabel, byColumn, cardLabel, columnLabel, COLUMNS, descCounter, dueState, dueText, FILTER_KEY, hasFilters, keyMove,
   labelsOf, learnDraft, moveAnnouncement, shouldOfferNote, NO_FILTERS, parseAssignee, PRIORITY_LABEL, priorityMark, readFilters,
@@ -19,7 +19,7 @@ import './board.css';
 
 type Tab = 'board' | 'list' | 'inbox';
 
-/** The board of a project. Renders nothing at all unless the core answered the board probe (the experimental switch is on). */
+/** The board of a project. Renders nothing at all unless the core answered the board probe (features.projectBoard is on). */
 export function BoardPanel({ project }: { project: Project }) {
   const enabled = useBoard((s) => s.enabled);
   useEffect(() => { void probeBoard(); }, []);

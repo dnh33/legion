@@ -58,7 +58,7 @@ export function CanvasPane({ insetRight, insetLeft, onToggleLeft, leftOpen }: { 
   useEffect(() => {
     const e = new GraphEngine(canvas.current!, { onSelect: select, onExpand: (id) => void expand(id), onHover: setHover, onPick: pickPath }, opts());
     eng.current = e;
-    if (import.meta.env.DEV || new URLSearchParams(window.location.search).has('latticeDiag')) (canvas.current as unknown as { __lattice?: GraphEngine }).__lattice = e;
+    if (import.meta.env.DEV) (canvas.current as unknown as { __lattice?: GraphEngine }).__lattice = e;
     const g0 = getG().graph;
     applied.current = g0.rev;
     e.setData(g0.nodes, g0.edges);

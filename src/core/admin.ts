@@ -1,5 +1,5 @@
 /**
- * Two-secret model (token fix v1).
+ * Two-secret model.
  *
  * 1. `authToken` (config.json) is the MCP-CLIENT secret: Claude Code, Cowork and curl hold it. It opens `/mcp` and the small
  *    client route list below. It cannot approve, accept notes, change settings or touch BSV.
