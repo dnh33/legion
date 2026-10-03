@@ -1,5 +1,5 @@
 
-> Paste-in first message for the new agent: `claude/ORCHESTRATOR-TAKEOVER-PROMPT.md` (Desktop copy: LEGION-ORCHESTRATOR-TAKEOVER-PROMPT.md).
+> Paste-in first message for the new agent: `claude/ORCHESTRATOR-TAKEOVER-PROMPT.md` (Desktop copy: LEGION-START-HERE.md, the only Legion file on the Desktop).
 
 # >>> HARNESS SWITCH (2026-10-03): READ THIS BLOCK FIRST. It overrides every "cloud session" step further down. <<<
 
@@ -7,7 +7,7 @@ The release now continues in a NEW harness (Hermes Agent) that works **directly 
 
 ## Ground truth in git (nothing lives only in a chat)
 - Repo: `D:\bots\legion-dev`, remote `cloud` (github.com/dnh33/legion, private). Integration branch `integration/v1` (head at the time of writing: see `git log -1 cloud/integration/v1`; it was `7ea51ab`). Default branch `main` is untouched (`ff7afd2`).
-- This file also lives in the repo: `claude/ORCHESTRATOR-HANDOFF.md`. The tracker (`claude/legion-release-tracker.md`, section "SESSION SAVE POINT 5" and later) is the log. Update it after every change.
+- This file lives in the repo at `claude/ORCHESTRATOR-HANDOFF.md` (repo only). The tracker (`claude/legion-release-tracker.md`, section "SESSION SAVE POINT 5" and later) is the log. Update it after every change.
 - Vault (the owner's notes): `D:\Aetherkeep\06-projects\legion\` (`legion.md`, the release note, `website\`, `trailer\`). Memory file: `C:\Users\Danie\.claude\projects\C--Windows-System32\memory\legion-v0-2-0-release.md`.
 - Hermes is prepared: the Kodawari gate is in its SOUL files and five skills are installed (legion-orchestrator, kodawari, cinematic-trailer-pipeline, roast-and-council, receiving-review). Start Hermes in `D:\bots\legion-dev` so `CLAUDE.md` loads. Use the `kodawari` skill for every review.
 
