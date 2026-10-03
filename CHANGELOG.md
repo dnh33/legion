@@ -2,6 +2,12 @@
 
 All notable changes are recorded here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses [Semantic Versioning](https://semver.org/).
 
+## [0.2.1] - 2026-10-03
+
+### Fixed
+
+- **BSV mode toggle**: turning the BSV Dev Kit on or off now refreshes the knowledge-graph view. Before, the node list could stay stale after a toggle — nodes did not appear on enable, or lingered on disable — because the toggle never signalled the graph to re-read.
+
 ## [Unreleased]
 
 ### Blender
@@ -142,6 +148,7 @@ First public release.
 - **Windows installer** (`setup.cmd`) that installs per user under `%LOCALAPPDATA%\Programs\Legion`, with shortcuts, in-place updates and an uninstaller.
 - Command palette, keyboard shortcuts, task history per agent, and cost and turn tracking.
 
-[Unreleased]: https://github.com/dnh33/legion/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/dnh33/legion/compare/v0.2.1...HEAD
+[0.2.1]: https://github.com/dnh33/legion/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/dnh33/legion/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/dnh33/legion/releases/tag/v0.1.0
