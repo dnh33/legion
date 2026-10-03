@@ -8,7 +8,7 @@
 :root[data-theme='light'] { --chain: #0b7aa8; --chain-soft: color-mix(in srgb, #0b7aa8 12%, transparent); --live: #c46a00; --live-soft: color-mix(in srgb, #c46a00 14%, transparent); --live-ink: #ffffff; }
 
 /* ---- title-bar switch (lives in .tb-right, left of Doctor) ---- */
-.tb-bsv { height: 26px; display: inline-flex; align-items: center; gap: 7px; padding: 0 8px; margin-right: 2px; background: transparent; border: 1px solid var(--line); border-radius: 13px; color: var(--muted); font: 600 11px/1 var(--font-mono); letter-spacing: .06em; transition: color var(--t) var(--ease), border-color var(--t) var(--ease), background var(--t) var(--ease); }
+.tb-bsv { height: 26px; display: inline-flex; align-items: center; gap: 6px; padding: 0 9px; background: transparent; border: 1px solid var(--line); border-radius: 13px; color: var(--muted); font: 600 11px/1 var(--font-mono); letter-spacing: .06em; transition: color var(--t) var(--ease), border-color var(--t) var(--ease), background var(--t) var(--ease); }
 .tb-bsv:hover:not(:disabled) { color: var(--text); border-color: var(--line-strong); background: var(--surface-2); }
 .tb-bsv:disabled { opacity: .6; cursor: progress; }
 .tb-bsv-track { position: relative; flex: none; width: 22px; height: 12px; border-radius: 6px; background: var(--surface-3); border: 1px solid var(--line-strong); transition: background var(--t) var(--ease), border-color var(--t) var(--ease); }
@@ -25,18 +25,17 @@
 .tb-bsv-panel:focus-visible { outline: 2px solid var(--chain); outline-offset: 2px; }
 @media (max-width: 1279px) { .tb-bsv-panel { display: none; } }
 /*
- * Wide windows (>= 1280px): the chip is a normal item of .tb-right and the header's left side does not move.
- * Narrower windows: the search box and brand are squeezed by the width of the right-hand cluster, so the chip must add
- * NO width there. Its slot is a zero-width flex item (the -4px margin cancels the flex gap) and the compact switch is
- * drawn over the (now hidden, width kept) 'Connected' label; the status dot and its tooltip stay.
+ * The chip is a normal item of .tb-right at every width, so the gaps between the status dot, this chip and the Blender pill are the same 4px.
+ * Narrower than 1280px the words go: 'Connected' and the BSV label are hidden (the dot and the switch keep their tooltips), which frees about
+ * as much room as the chip takes, so the search box does not move.
  */
 .tb-bsv-slot { display: contents; }
 .tb-bsv:not(.on) .tb-bsv-label { display: none; } /* label shows only while the mode is on; tooltip + switch role explain the off state */
 @media (max-width: 1279px) {
-  .tb-bsv-slot { display: block; position: relative; flex: none; width: 0; height: 0; margin-left: -4px; }
-  .tb-bsv-slot .tb-bsv { position: absolute; right: 4px; top: -13px; margin: 0; padding: 0 8px; z-index: 1; background: var(--bg); }
   .tb-bsv-label { display: none; }
-  .conn .conn-label { visibility: hidden; }
+  .conn .conn-label { display: none; }
+  .tb-right .conn { padding: 0 4px; }
+  .tb-right .conn-online .conn-dot { box-shadow: none; } /* the ring made the lone dot look like a button; offline keeps its red ring */
 }
 
 /* ---- chain overlay: fixed, confined to the 40px title bar, never intercepts the pointer. STATIC. ---- */
