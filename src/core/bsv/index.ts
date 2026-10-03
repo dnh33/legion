@@ -76,8 +76,8 @@ export interface BsvModuleOptions {
   spendToolWaitMs?: number;
   /** Shared with the composition root (bsvEnabled reads it). Created from deps when omitted. */
   state?: BsvState;
-  /** The knowledge-graph module, when present: its HTTP route handlers are reused to load the seed and count nodes. */
-  kg?: CoreModule;
+  /** The knowledge-graph module, when present: its HTTP route handlers are reused to load the seed and count nodes, and its graph is queried to re-emit `kg.updated` when the bsv scope's visibility flips. */
+  kg?: CoreModule & { graph?: () => { counts(): { nodes: number; edges: number } } };
 }
 
 const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v);
@@ -457,6 +457,14 @@ export function createBsvModule(deps: ModuleDeps, opts: BsvModuleOptions = {}): 
           // Turning ON: tell open clients the gated agent(s) exist now. Turning OFF has no event (the frozen event union
           // has no "hidden"), so clients simply refetch /api/state; agent.deleted would be wrong here.
           if (changed) for (const a of gated()) deps.bus.emit({ type: 'agent.updated', agent: a });
+        }
+        // The bsv scope's visibility flipped (on or off): tell every kg consumer to re-read. `changed` is empty because no node
+        // changed — only which nodes are visible did.
+        if (changed && opts.kg?.graph) {
+          try {
+            const c = opts.kg.graph().counts();
+            deps.bus.emit({ type: 'kg.updated', nodeCount: c.nodes, edgeCount: c.edges, changed: [] });
+          } catch { /* the graph may not be available; the toggle already succeeded */ }
         }
         return { ...(await status()), ...(seed ? { seed } : {}) };
       }));

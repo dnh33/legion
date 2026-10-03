@@ -523,10 +523,12 @@ let liveUsers = 0;
 let unsub: (() => void) | null = null;
 /** Re-reads what the view shows (stats, canvas, detail, search, lint). Called on kg.updated and when the Library returns to the Lattice. */
 export function refreshFromServer(changed?: string[]) {
+  // no ids (a full re-read, e.g. the bsv scope's visibility flipped) or an unknown set: reload the whole view, don't patch it
+  const full = !changed || changed.length === 0;
   void request<Stats>('GET', '/api/kg/stats').then((st) => {
     const wasEmpty = (s.stats?.nodes ?? 0) === 0;
     set({ stats: st, ...bsvFrom(st), boot: 'ready', noSeeds: false });
-    if (st.nodes > 0 && (wasEmpty || vNodes.size === 0) && !overviewRunning) void loadOverview(changed ?? []);
+    if (st.nodes > 0 && (full || wasEmpty || vNodes.size === 0) && !overviewRunning) void loadOverview(changed ?? []);
   }).catch(() => {});
   // nothing of the Lattice is on screen (a Library action, with the Inbox or Activity tab open): the tab re-reads everything when it comes back
   if (liveUsers === 0) return;

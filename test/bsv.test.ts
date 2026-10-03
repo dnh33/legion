@@ -231,6 +231,15 @@ test('turning on emits agent.updated for the Assayer; turning off emits nothing 
   assert.equal(s.events.some((e) => e.type === 'agent.deleted' || e.type === 'agent.updated'), false);
 });
 
+test('toggling BSV mode emits kg.updated so the graph view re-reads its visibility', async () => {
+  const s = await setup();
+  await s.call('POST', '/api/bsv', { enabled: true });
+  assert.ok(s.events.some((e) => e.type === 'kg.updated'), 'enabling emits kg.updated');
+  s.events.length = 0;
+  await s.call('POST', '/api/bsv', { enabled: false });
+  assert.ok(s.events.some((e) => e.type === 'kg.updated'), 'disabling emits kg.updated');
+});
+
 test('the event stream does not leak the hidden Assayer', async () => {
   const s = await setup();
   const ctl = new AbortController();
