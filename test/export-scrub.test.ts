@@ -19,17 +19,21 @@ const OW_VAULT = ['Aether', 'keep'].join('');
 const OW_VPS = ['rune-', 'vps'].join('');
 const OW_VPN = ['tail', 'scale'].join('');
 
-// INDEPENDENT banned set — deliberately not copied from the exporter, so it catches leaks the scrub rules miss.
+// Prose-only banned patterns: owner-local drives/paths (generic example paths in claude/** are fine, so this is
+// scoped to the scrubbed prose, not every file).
 const PROSE_BANNED = [
   /[A-Za-z]:[\\/](?:Users|bots|dev|tmp|hermes)\b[^"'\s)]*/,
   new RegExp('[A-Za-z]:[\\\\/]' + OW_VAULT + '\\b[^"\'\\s)]*'),
   /\/(?:opt|home|tmp|root|var)\b[^"'\s)]*/,
+];
+
+// Universal PII: these must appear in NO shipped file, prose or code/plans alike. Fragments so no literal ships.
+const UNIVERSAL_PII = [
   new RegExp('\\b' + OW_FIRST + '\\b'),
   new RegExp('\\b' + OW_LAST + '\\b'),
   new RegExp('\\b' + OW_VAULT + '\\b'),
   new RegExp('(?:' + OW_VPS + '|' + OW_VPN + ')', 'i'),
   /session_[A-Za-z0-9_-]{6,}/,
-  PORT_RE,
 ];
 
 // Files that intentionally contain the wallet port and ship unchanged (the detection guardrails + pack content).
@@ -96,6 +100,9 @@ test('export-public produces a scrubbed single-commit publishable snapshot', () 
       const rel = f.slice(out.length + 1).replace(/\\/g, '/');
       if (rel === 'scrub-report.json' || !TEXT_EXT.test(f)) continue;
       const text = readFileSync(f, 'utf8');
+      for (const re of UNIVERSAL_PII) {
+        assert.ok(!re.test(text), `PII leaks in ${rel}: ${re}`);
+      }
       if (isProse(rel)) {
         for (const re of PROSE_BANNED) {
           assert.ok(!re.test(text), `banned pattern leaks in prose ${rel}: ${re}`);
