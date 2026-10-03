@@ -5,7 +5,7 @@ import { checkBoat, ensureBoatChecked, closeSettings, decide, errText, loadSetti
 import { copyText } from '../util';
 import { BLENDER_LICENSE_NOTE, GET_BLENDER_TOOL } from '../../../src/shared/blender';
 import { ASSETS_TEXT, ASSETS_TITLE, BOTH_TEXT, BOTH_TITLE, FULL_BLENDER_TEXT, GET_BLENDER_NOT_PINNED, GET_BLENDER_TEXT, LOCAL_SAFETY_NOTE, MODE_CHOICES, NOT_TRIED_LOCAL, NOT_TRIED_VM, visibleNotices } from '../blender/copy';
-import { lightLabel, loadBlender, runBlenderGet, runBlenderLaunch, runBlenderSetup, runBlenderTest, saveBlenderConfig, useBlender } from '../blender/blenderStore';
+import { lightLabel, loadBlender, runBlenderGet, runBlenderLaunch, runBlenderSetup, requestEnableBlender, runBlenderTest, saveBlenderConfig, useBlender } from '../blender/blenderStore';
 import '../blender/blender.css';
 import { ProvidersSection } from '../providers/ProvidersSection';
 import { loadProviders, useProviders } from '../providers/providersStore';
@@ -460,7 +460,7 @@ function BlenderSection() {
       <Head title="Blender" lead="The Sculptor can build 3D scenes in Blender. Every script is checked, shown to you in full and needs your OK. By default it runs in Blender on this computer when Blender is found." />
       <div className="set-card">
         <div className={`set-status st-${dot}`} role="status"><i className="set-dot" /><b>{label}</b><span className="muted-s">{st.summary}</span></div>
-        <label className="set-check"><input type="checkbox" checked={st.enabled} disabled={b} onChange={(e) => void saveBlenderConfig({ enabled: e.target.checked })} />
+        <label className="set-check"><input type="checkbox" checked={st.enabled} disabled={b} onChange={(e) => { if (e.target.checked) requestEnableBlender(); else void saveBlenderConfig({ enabled: false }); }} />
           <span><b>Turn on the Blender bridge</b><em>Off by default. Nothing is detected, downloaded or given to agents until you turn it on.</em></span></label>
         <div className="set-field"><span className="set-label">Backend</span>
           <div className="seg" role="radiogroup" aria-label="Blender backend">
