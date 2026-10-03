@@ -345,3 +345,12 @@ mcp__legion_board__* is missing from the Legion-tool list in src/core/approvals.
 - qa scripts ported to Windows: CHROME env var with the PC's Edge as default (8 scripts), file URL for contrast, tsc run through node for schema-check.
 - OWNER RULE (announced 2026-10-03): never commit render evidence (playwright screenshots, lighthouse reports) to any repo — temp folder, review, delete for good. Site .gitignore + HANDOFF.md now say so; 903 committed evidence files purged from the site repo in c6d7a87.
 - Still open on the site (owner steps or later): NEEDS-OWNER.md items 34-38 + creator credit name (owner), refreshed screenshots (the set still shows '157 BSV nodes' and 'no spend tool'), trailer slot (after WO-4). The site deploys are the owner's.
+
+## 2026-10-03 (Hermes orchestrator) WO-4 STARTED: trailer v2 fact-table check
+- Recon done (documents read: branch handoff, BRIEF.md fact table F01-F39, AUDIT.md, check.mjs, timeline.mjs). Deltas from the WO-1/WO-2 merges against the first cut (a9d0463):
+  1. Board chip 'Built and tested. Not yet tried on a real PC.' already matches the facts now that the board SHIPS — no text change; but the shots were captured from a scratch board-branch build (a78b362) WITHOUT the approvals fix, so the delete-approval card was missing. Re-capture board shots from integration/v1 (now merged + fixed) and add the card.
+  2. Browser: facts say SHIPPED; the timeline has no browser scene. Add the 'Browse without a VM' scene (BRIEF F21): honest limit on screen 'A local browser runs with your rights. Only a cloud VM is isolated.', chip style of the other SHIPPED-but-not-tried items; budget the bars (total is 42 bars / 105 s; adding 2 bars needs a matching trim or a 110 s cut).
+  3. Re-capture owed: Blender 'Get' in the Windows state, Update panel, BSV shots with pack 163/727 (none show counts on screen, but retake anyway).
+  4. Weak spots per AUDIT.md: install route cards too tall/empty, Relic overlaps wordmark cables on the end-card draw, score measured not listened (say so until listened).
+  5. BRIEF.md must be updated to the 105 s storyboard (it still describes 100 s / Variant B).
+- Environment verified on this PC: ffmpeg n9.0.1, python3 with numpy/scipy, playwright-core via the site's node_modules (PLAYWRIGHT_PATH), chromium-1228 in the ms-playwright cache.
