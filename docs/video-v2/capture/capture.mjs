@@ -193,6 +193,18 @@ async function main() {
     }
   }
 
+  // ---- browser card (About): enabled through the real config route, honest card state
+  if (on('browser')) {
+    ok(await s.call('POST', '/api/browser/config', { enabled: true }), 'browser on');
+    const { ctx, page, errors } = await openPage(s);
+    await page.locator('button[aria-label="Settings"]').click(); await sleep(900);
+    await page.locator('.set-nav').getByText('About', { exact: true }).click(); await sleep(1200);
+    await page.locator('.brw').evaluate((el) => el.scrollIntoView({ block: 'start' })); await sleep(500);
+    await shot(page, 'browser');
+    console.log('errors', errors);
+    await ctx.close();
+  }
+
   // ---- 1 app-approval (last in this stack: leaves a pending card)
   if (on('app-approval')) await approvalShot(s, 'app-approval');
 }

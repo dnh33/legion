@@ -10,8 +10,8 @@ Status: **first cut for owner feedback. The independent reviewer pass has NOT be
 - GIF 960x540, 6.7 MB (64 colours); poster-v2.png is the end card.
 
 ## Honesty decisions
-- Board: shown in 0.2.0 per the orchestrator's note, with the chip "Built and tested. Not yet tried on a real PC." Per the facts file the board is BUILT, BEING FINALISED, not merged yet. The delete approval card could not be captured: on the board branch `mcp__legion_board__*` is not on the Legion-tool list in `src/core/approvals.ts`, so any board tool call marks the run as having touched outside content, and then delete and assign are refused. That looks like a bug on that branch. The caption "You mark Done. You approve deletes." rests on `docs/PROJECT-BOARD.md` and the UI note text, not on a captured card.
-- Browser tool: not shown (facts file: IN PROGRESS).
+- Board: shown in 0.2.0 per the orchestrator's note, with the chip "Built and tested. Not yet tried on a real PC." Per the facts file the board is BUILT, BEING FINALISED, not merged yet. The delete approval card is now captured in the final cut (board-delete-card.png): the approvals bug (mcp__legion_board__* missing from the Legion-tool list in src/core/approvals.ts) was fixed at the board merge (f726780), so the delete tool reaches the approval card. The caption "You mark Done. You approve deletes." rests on `docs/PROJECT-BOARD.md` and the UI note text, not on a captured card.
+- Browser tool: shown (facts file: SHIPS IN 0.2.0, merged and gated 2026-10-03).
 - NEXT: providers (no names), knowledge-graph audit button, Sentinel scheduler, lighter package, more browser engines, real-wallet BSV checks. No dates. Lightpanda is not mentioned.
 - Digest card text is the real digest block from a fake run, unedited.
 - Screenshots show the real UI's own words, including "Log verified" in the BSV panel (camera avoids it) and the harness's fake wallet address (a random local port).

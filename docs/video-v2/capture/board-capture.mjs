@@ -1,6 +1,6 @@
 /**
- * Board shots (project board, experimental switch on). Run from a tree that HAS the board (origin/claude/project-board built in a scratch
- * worktree; see shots/MANIFEST.md). The switch is the only config change: {"experimental":{"projectBoard":true}}.
+ * Board shots (project board, ON by default in 0.2.0). Run from a tree that HAS the board (integration/v1 built in a scratch
+ * worktree; see shots/MANIFEST.md). No config change needed: the board is on by default.
  *   node docs/video-v2/capture/board-capture.mjs        (SHOTS_OUT=<dir> for the output folder)
  * Seeding: owner items through the board's HTTP routes; agent items through the real legion_board tools run by the scripted model.
  * A background poller answers Allow on the approval cards of the SEEDING runs only (it is stopped before the delete-approval shot).
@@ -48,7 +48,7 @@ const shot = async (page, name, opts = {}) => { await page.mouse.move(1, 1); awa
 
 async function main() {
   browser = await launchChromium();
-  const s = stack = await startStack({ configExtra: { experimental: { projectBoard: true } }, coreEntry: join(h, 'core-entry-cap.mjs') });
+  const s = stack = await startStack({ configExtra: {}, coreEntry: join(h, 'core-entry-cap.mjs') });
   const waitTask = (id) => s.until(async () => { const t = (await s.call('GET', `/api/tasks/${id}`)).json?.task; return t && ['done', 'error', 'cancelled'].includes(t.status) ? t : null; }, 25000, 'task');
   const run = async (agentId, prompt, steps, projectId) => {
     await s.script({ agent: agentId, promptIncludes: prompt }, steps);
@@ -80,8 +80,7 @@ async function main() {
   await run('sentinel', 'seed-sentinel', [{ say: 'Putting the sign-in review on the board.' }, T('create', { title: 'Review the sign-in change', description: 'Waiting for the test data from Forgemaster before I can finish.', status: 'blocked', priority: 'high', labels: ['security'] }), { result: 'Added the review and marked it blocked.', costUsd: 0.02 }], P.id);
   await run('forgemaster', 'seed-forge-create', [{ say: 'Adding the health check to the board.' }, T('create', { title: 'Add a health check endpoint', description: 'GET /healthz returns 200 with the build version. One test.', status: 'doing', priority: 'normal', labels: ['infra'], due: '2026-10-09' }), { result: 'Added the health check item.', costUsd: 0.02 }], P.id);
   for (const r of await s.modelLog()) for (const c of r.toolCalls) console.log(r.agent, c.tool, c.decision, String(c.text).slice(0, 160).replace(/\n/g, ' '));
-  // a run that calls a legion_board tool counts as tainted in this tree (the tool is not on the Legion-tool list), and a tainted run may not
-  // assign; so the agents create the items and the OWNER assigns them (the board's own PATCH route, as the Assignee select does)
+  // agents create the items; the OWNER assigns them through the board's own PATCH route (the Assignee select path)
   {
     const v = ok(await s.call('GET', B), 'view');
     for (const [title, who] of [['Write the setup guide', 'scribe'], ['Review the sign-in change', 'sentinel'], ['Add a health check endpoint', 'forgemaster']]) {
@@ -153,11 +152,22 @@ async function main() {
     await ctx.close();
   }
 
-  // ---- delete approval: the leader asks to delete an item; the card stays PENDING (only if the tool really gets that far)
+  // ---- delete approval: the leader asks to delete an item; the owner card stays PENDING (the approvals fix in integration/v1 lets the tool reach it)
+  clearInterval(poller); poller = null;
   const victim = (ok(await s.call('GET', B), 'view')).items.find((i) => i.title === 'Translate the onboarding emails');
   await s.script({ agent: 'sentinel', promptIncludes: 'tidy-board' }, [{ say: 'The translation item has been idle and nobody owns it. I will ask to remove it.' }, T('delete', { id: victim.id }), { result: 'Asked the owner.', costUsd: 0.01 }]);
   const task = ok(await s.call('POST', '/api/tasks', { agentId: 'sentinel', prompt: 'tidy-board: clear idle items', projectId: P.id }), 'task');
-  const end = await waitTask(task.id); // poller still answers the generic tool card
+  await s.until(async () => ((await s.call('GET', '/api/approvals')).json ?? []).length > 0, 20000, 'delete card');
+  {
+    const { ctx, page, errors } = await openPage(s);
+    await page.getByText('Sentinel', { exact: true }).first().click(); await sleep(700);
+    await page.getByText('tidy-board: clear idle items', { exact: false }).first().click().catch(() => undefined); await sleep(1800);
+    await shot(page, 'board-delete-card');
+    console.log('errors', errors);
+    await ctx.close();
+  }
+  for (const a of (await s.call('GET', '/api/approvals')).json ?? []) await s.call('POST', `/api/approvals/${a.id}`, { allow: false });
+  const end = await waitTask(task.id);
   const tr = (await s.modelLog()).filter((r) => r.prompt.includes('tidy-board')).at(-1);
   console.log('delete tool result:', tr?.toolCalls?.[0]?.text?.slice(0, 200), '| task', end.status);
   writeFileSync(join(out, '_delete-attempt.txt'), String(tr?.toolCalls?.[0]?.text ?? ''));
