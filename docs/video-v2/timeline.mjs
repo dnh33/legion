@@ -50,9 +50,9 @@ export const SHOTS = [
 
 // ---- captions. slot 'col' = right-hand column beside a UI shot; 'mid' = centred; a..b = fully visible window (fades are inside +- .35 s) ----
 export const CAPS = [
-  { id: 'l1', slot: 'cold1', text: 'A team of Claude agents.', a: b(0, 1), b: b(2, .4) },
-  { id: 'l2', slot: 'cold2', text: 'On your own computer.', a: b(1, 1), b: b(2, .4) },
-  { id: 'sub', slot: 'sub', text: 'Legion 0.2.0. Now in beta.', a: b(2, 3), b: b(3, 3.6) },
+  { id: 'l1', slot: 'cold1', text: 'In the grim darkness of your backlog…', a: b(0, 1), b: b(2, .4) },
+  { id: 'l2', slot: 'cold2', text: '…there is only work.', a: b(1, 1), b: b(2, .4) },
+  { id: 'sub', slot: 'sub', text: 'An order of Claude agents. Yours to command.', a: b(2, 3), b: b(3, 3.6) },
   { id: 'must', slot: 'mustcap', text: 'Thirteen bots. Each with its own role.', a: b(5, 2), b: b(6, 3.6) },
   { id: 'appr', slot: 'col', k: 'approvals', text: 'You approve the risky calls.', a: b(7, 1), b: b(8, 2.6) },
   { id: 'taint', slot: 'col', k: 'approvals', text: 'Web content is treated as untrusted.', a: b(8, 3.6), b: b(9, 3.6) },
@@ -91,7 +91,7 @@ for (const slot of new Set(CAPS.map((c) => c.slot))) {
 export const CHIPS = [];
 
 export const NEXT_CARDS = [
-  { id: 'n1', title: 'More model providers.', sub: '', a: 83.75, b: 85.15 },
+  { id: 'n1', title: 'Codex.', sub: 'The next provider.', a: 83.75, b: 85.15 },
   { id: 'n2', title: 'A knowledge-graph audit button.', sub: 'Refreshes stale notes.', a: 85.15, b: 88.25 },
   { id: 'n3', title: 'The Sentinel scheduler.', sub: '', a: 88.25, b: 89.75 },
   { id: 'n4', title: 'An optional lighter package.', sub: '', a: 89.75, b: 91.35 },
