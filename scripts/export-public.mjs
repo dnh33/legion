@@ -14,10 +14,9 @@
  *    first name and surname, the owner's private vault name, private hosts, cloud session ids, and wallet-port
  *    references. The owner's names and vault name are built from fragments at runtime, so they never appear as
  *    literals in this file.
- *  - Code, tests and scripts ship as-is, EXCEPT three runtime guard VALUES that name the wallet port are
- *    rewritten to the number-form the codebase already uses (Number('33'+'21')) so they keep working.
- *  - Detection guardrails ship untouched: the bsv tripwire/scan/guard tests and the BSV pack content deliberately
- *    contain the port so they can detect it — stripping them would gut the safety the owner demands (audit H3).
+ *  - Detection guardrails ship untouched: the bsv tripwire/scan/guard tests, the harness fake wallet and the BSV
+ *    pack content deliberately contain the port so they can detect it — stripping them would gut the safety the
+ *    owner demands, and their own allowlists (port-guard, bsv-scan, spend-tripwire) pin those exact files.
  *  - Refuses to run if the out dir is the source, inside it, or an ancestor of it (no self-deletion / recursion).
  *  - Fresh history: one initial commit ("Legion 0.2.0") under a neutral identity.
  *  - Writes scrub-report.json (per-file scrub counts) into the out dir root.
@@ -78,13 +77,6 @@ const ROOT_DOCS = ['README.md', 'CONTRIBUTING.md', 'SECURITY.md', 'CHANGELOG.md'
 const SCRUB_ALSO = ['claude/tracker-pc-checks.md'];
 // The wallet port is never written literally in code; it is built at runtime the same way the codebase does it.
 const PORT = String(Number('33' + '21'));
-// Guard constants and refusal URLs that name the real wallet port: keep them working, drop the literal, by
-// rewriting to the number-form the codebase already uses for it elsewhere.
-const PORT_REWRITES = [
-  { file: 'scripts/harness/fake-wallet.mjs', subs: [[new RegExp('\\b' + PORT + '\\b', 'g'), "Number('33' + '21')"]] },
-  { file: 'test/bsv-fake-wallet.ts', subs: [[new RegExp('\\b' + PORT + '\\b', 'g'), "Number('33' + '21')"]] },
-  { file: 'test/bsv-fix-round.test.ts', subs: [["'http://203.0.113.9:" + PORT + "'", "'http://203.0.113.9:' + Number('33' + '21')"]] },
-];
 
 /** Line-level scrub rules, applied to prose files. Order matters (paths before names). */
 const REDACT = '[redacted]';
@@ -151,9 +143,7 @@ function scrubFile(srcPath, dstPath) {
   const isText = TEXT_EXT.has(ext) || basename(srcPath).startsWith('.');
   if (!isText) return;
   let rules;
-  const rw = PORT_REWRITES.find((r) => r.file === rel);
-  if (rw) rules = rw.subs;
-  else if (PROSE_DIRS.some((d) => rel === d || rel.startsWith(d + '/')) || ROOT_DOCS.includes(rel) || rel.startsWith('.github/') || SCRUB_ALSO.includes(rel)) rules = RULES;
+  if (PROSE_DIRS.some((d) => rel === d || rel.startsWith(d + '/')) || ROOT_DOCS.includes(rel) || rel.startsWith('.github/') || SCRUB_ALSO.includes(rel)) rules = RULES;
   else return;
   const raw = readFileSync(srcPath, 'utf8');
   let changed = 0;

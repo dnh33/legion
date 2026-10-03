@@ -45,8 +45,11 @@ const PORT_GUARDRAILS = new Set([
   'test/bsv-scan.ts',
   'test/bsv-spend-tripwire.test.ts',
   'test/bsv-wallet-probe.test.ts',
+  'test/bsv-fix-round.test.ts',
+  'test/bsv-fake-wallet.ts',
   'test/fixtures/bsv-pack-v7.json',
   'test/kg-bsv-seed.test.ts',
+  'scripts/harness/fake-wallet.mjs',
   'test-perf/bsv-ui/shots.mjs',
   'test-perf/ui-app/titlebar-shots.mjs',
 ]);
@@ -130,17 +133,12 @@ test('export-public produces a scrubbed single-commit publishable snapshot', () 
       assert.ok(existsSync(join(out, f)), `${f} must ship`);
     }
 
-    // code ships byte-identical (excluding the three known number-form rewrites)
+    // code ships byte-identical; the guardrail files keep their port literal (their own allowlists pin them)
     assert.equal(
       readFileSync(join(out, 'src/core/bsv/wallet-probe.ts'), 'utf8'),
       readFileSync(join(REPO, 'src/core/bsv/wallet-probe.ts'), 'utf8'),
       'canonical code file must be byte-identical in the snapshot'
     );
-
-    // runtime guard VALUES are number-form, not literals
-    const fw = readFileSync(join(out, 'scripts/harness/fake-wallet.mjs'), 'utf8');
-    assert.ok(fw.includes("Number('33' + '21')"), 'harness fake wallet must build the port from number-form');
-    assert.ok(!PORT_RE.test(fw), 'harness fake wallet must not carry the literal');
   } finally {
     rmSync(out, { recursive: true, force: true });
   }
