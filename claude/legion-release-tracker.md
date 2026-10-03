@@ -394,6 +394,15 @@ mcp__legion_board__* is missing from the Legion-tool list in src/core/approvals.
 - **Blender (2 low findings):** (1) the "Turn on Blender?" confirmation is UI-ONLY — `POST /api/blender/config` accepts `enabled` via parsePatch (src/core/blender/index.ts:315) with no approval/native-secret step; an authenticated local caller can enable Blender without the popover. (2) README.md:38 describes the Blender bridge without the "not yet tried" hedge that docs/BLENDER.md carries; docs/TESTING-BLENDER.md also stale ("local mode not on this base"). No high findings.
 - Fix-round candidates so far: Blender enable confirmation (enforce server-side or scope the docs claim — decide when all 5 report), README Blender hedge, stale TESTING-BLENDER text.
 
+## 2026-10-03 WO-7 GATE CLEAN + fix round applied
+- Full gate at the fix commit `4dfbf1d`: **2381 tests, 2336 pass, 0 fail, 45 skipped**; typecheck + build:ui green. This is the first 0-fail full run — the browser E8 flake fix (until-wait on the slot) removed the last known flake.
+- Fix round (4dfbf1d): board endRun withholds seed-phrase run previews (red-first test: 16/1 fail before, 17/0 after); browser E8 test wait; Blender README hedge + the hedge scan now asserts README; stale TESTING-BLENDER text; guard.ts comment 4.2.
+- Owner decisions surfaced, NOT changed silently: Blender enable is UI-only vs server-enforced (low); dev-origins accepted in all builds (token backstop); boardDigest per-item untrusted marker (defense-in-depth); source-install npm remote-code note. Rationale for leaving: none overstate docs, all token/native-gated, all low.
+- Independent review dispatch (owner audit/code-review rule): fresh subagents re-checking WO-1 merge, WO-2 merge+fix, WO-5 site, WO-4 trailer, and this WO-7 fix round.
+
+## AUDIT/CODE-REVIEW PER WORK ORDER (owner rule 2026-10-03)
+Every work order is not "done" until an independent reviewer (a fresh subagent, not the one who did the work) has re-checked its merged diff the way the security review did: refute-first, quote file:line, default "not fixed". For WO-1..5 the review runs retroactively (see below); WO-7..10 carry their own review step. The Hermes todo list mirrors this (WO → AUDIT/REVIEW → SAVE-POINT).
+
 ## SAVE POINTS — convention (added 2026-10-03, owner request)
 - Save points are interleaved BETWEEN the work orders in this tracker and in the Hermes todo list (WO → SAVE-POINT → WO …). Each one is a `⛀ SAVE-POINT N` marker placed directly before the next task's entry, with what was written where.
 - Status: SAVE-POINT 1 / 2 / 5 done (markers above). SAVE-POINT 4 fires when the trailer merge lands. SAVE-POINT 7–10 fire as the remaining work orders complete.
