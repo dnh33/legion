@@ -333,11 +333,15 @@ mcp__legion_board__* is missing from the Legion-tool list in src/core/approvals.
 - Not verified (honest): real Claude behaviour with the block, the Edge/Chrome wording on a real PC, the provider path (no block there). Block size about 1.3 KB, about 330 tokens per run. Open: S10 Node-version README/ARCHITECTURE lines get "developer route" scoping in the docs refresh (WO-8/WO-10).
 - D:\bots\IDEA.md: the 13-bot roster line checked against src/core/roster.ts + store.ts (correct); trailing agent notes cleaned at board merge (docs/PROJECT-BOARD.md) and open-sourcing.
 
+> ⛀ **SAVE-POINT 1 ✓** (2026-10-03, after WO-1 / before WO-2) — records: tracker entry above, vault release note + decisions log, Claude memory file, orchestrator SKILL pitfalls.
+
 ## 2026-10-03 (Hermes orchestrator) WO-2 DONE: project board merged, approvals bug fixed
 - Merged cloud/claude/project-board (6be357b) with restore tag `pre-merge-project-board`; merge `2e2d611`, no conflicts (the two tracker files auto-merged keeping both sides). Board ON by default, owner-only OFF switch `features.projectBoard=false`; the two module lists remain identical (checked).
 - Fixed at the merge (commit `f726780`): `mcp__legion_board__*` added to `LEGION_TOOL_PREFIXES` and the `LEGION_TOOL_NAME` regex in src/core/approvals.ts, so board calls are Legion tools: no foreign-tool card, no run taint. New test in test/approvals.test.ts (the six board tools neither card nor taint; lookalikes and foreign tools keep both). Proven red first: before the fix the run failed at `mcp__legion_board__list`.
 - Windows gate (legion-gate @ f726780): **2380 tests, 2333 pass, 2 fail, 45 skipped**. Both fail only under the full-suite load and pass alone: bsv-spend-flow "output-check-extra-outputs" (same scenario flaked in the audit gate via the mutants control — flag for the WO-7 fix round) and vm-fixes-http R7 SSE. Removed test lines: none.
 - Both facts files now say board SHIPS ('Built and tested, not yet tried by a real user on a real PC').
+
+> ⛀ **SAVE-POINT 2 ✓** (2026-10-03, after WO-2 / before WO-5) — records: tracker entry above, vault release note, Claude memory file, todos.
 
 ## 2026-10-03 (Hermes orchestrator) WO-5 part 1 DONE: website synced to SHIPS
 - Site repo dnh33/legion-site (main ee85efc + c6d7a87, branch claude/loving-clarke-1a7izo equal): facts mirrored (board SHIPS, browser+board in the 'Built and tested, not yet tried on a real PC' bucket, board out of 'Next'), features.json chips flipped (board finalising->tested, browser progress->tested), Status cards restructured (4 cards), roadmap browser line removed, FAQ and agent-docs.ts updated (2 stale browser strings + 1 board string found and fixed).
@@ -345,6 +349,8 @@ mcp__legion_board__* is missing from the Legion-tool list in src/core/approvals.
 - qa scripts ported to Windows: CHROME env var with the PC's Edge as default (8 scripts), file URL for contrast, tsc run through node for schema-check.
 - OWNER RULE (announced 2026-10-03): never commit render evidence (playwright screenshots, lighthouse reports) to any repo — temp folder, review, delete for good. Site .gitignore + HANDOFF.md now say so; 903 committed evidence files purged from the site repo in c6d7a87.
 - Still open on the site (owner steps or later): NEEDS-OWNER.md items 34-38 + creator credit name (owner), refreshed screenshots (the set still shows '157 BSV nodes' and 'no spend tool'), trailer slot (after WO-4). The site deploys are the owner's.
+
+> ⛀ **SAVE-POINT 5 ✓** (2026-10-03, after WO-5 / before WO-4) — records: tracker entry above, vault (incl. owner render-evidence rule), site HANDOFF note, todos.
 
 ## 2026-10-03 (Hermes orchestrator) WO-4 STARTED: trailer v2 fact-table check
 - Recon done (documents read: branch handoff, BRIEF.md fact table F01-F39, AUDIT.md, check.mjs, timeline.mjs). Deltas from the WO-1/WO-2 merges against the first cut (a9d0463):
@@ -378,5 +384,12 @@ mcp__legion_board__* is missing from the Legion-tool list in src/core/approvals.
 - STILL HONEST: the score was MEASURED (-13.3 LUFS) but not LISTENED to by anyone. Say so until a human hears it.
 - State: owner watches the cut and approves → then merge claude/trailer-v2-build into integration/v1 (restore tag pre-merge-trailer). The trailer does NOT block WO-7 (code, not docs).
 
+> ⛀ **SAVE-POINT 4 — PENDING** (fires when the trailer merge completes; after WO-4 / before WO-7). Pre-merge record already in: tracker (WO-4 RENDER DONE entry above), vault, SKILL pitfalls.
+
 ## 2026-10-03 (Hermes orchestrator) WO-7 KICKOFF: security review via fresh subagents
 - Review surface: read worktree `D:\bots\legion-review` at integration/v1 (f46336f, tracker commit included). Subagents are READ-ONLY (no commits, no npm ci — static review + git-log/git show for history; refute each finding against real code, default "not fixed"). Fix round + full gate are mine, after they report.
+
+## SAVE POINTS — convention (added 2026-10-03, owner request)
+- Save points are interleaved BETWEEN the work orders in this tracker and in the Hermes todo list (WO → SAVE-POINT → WO …). Each one is a `⛀ SAVE-POINT N` marker placed directly before the next task's entry, with what was written where.
+- Status: SAVE-POINT 1 / 2 / 5 done (markers above). SAVE-POINT 4 fires when the trailer merge lands. SAVE-POINT 7–10 fire as the remaining work orders complete.
+- What a save point writes, always: this tracker (dated entry), the vault release note `D:\Aetherkeep\06-projects\legion\legion-v0.2.0-release-2026-10-02.md` + `04-claude\decisions-log.md` (commit + push, only the paths written), the orchestrator memory file `C:\Users\Danie\.claude\projects\C--Windows-System32\memory\legion-v0-2-0-release.md`, and a new pitfall/lesson in the `legion-orchestrator` SKILL where one was learned. This is what makes the state survivable across compaction.
