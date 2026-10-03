@@ -8,7 +8,7 @@ import { createHash } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import { basename, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { args, die, listZipNames, loadDist, readZipEntry, REPO } from './lib/release-lib.mjs';
+import { args, die, isReleaseVersion, listZipNames, loadDist, readZipEntry, REPO } from './lib/release-lib.mjs';
 import { CAPS, checkSdkBinary, ELECTRON_REL, FILES_LIST, isSafeRel, listTree, packageAssetName, PLATFORM, pruneSdkPlatforms, sha256File } from './lib/package-lib.mjs';
 import { writeZipFile } from './lib/zip-stream.mjs';
 
@@ -31,7 +31,7 @@ export async function buildPackage(o) {
   const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'));
   const version = pkg.version;
   const top = `legion-${version}`;
-  if (!/^\d+\.\d+\.\d+$/.test(version)) throw new Error(`package.json version "${version}" is not a plain MAJOR.MINOR.PATCH`);
+  if (!isReleaseVersion(version)) throw new Error(`package.json version "${version}" is not MAJOR.MINOR.PATCH with an optional single-letter patch suffix (e.g. 0.2.2-a)`);
   const lock = JSON.parse(readFileSync(join(root, 'package-lock.json'), 'utf8'));
   const lockElectron = lock.packages?.['node_modules/electron']?.version;
   if (!lockElectron) throw new Error('package-lock.json has no electron entry');

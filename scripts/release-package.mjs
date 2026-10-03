@@ -4,14 +4,14 @@
 // --build-info: extra fields (platform, kind, commit, ...) merged into build-info.json after version and publishedAt (build-package.mjs uses it).
 import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
-import { args, die, loadDist, REPO, writeZip } from './lib/release-lib.mjs';
+import { args, die, isReleaseVersion, loadDist, REPO, writeZip } from './lib/release-lib.mjs';
 
 const a = args(process.argv.slice(2), { out: 'v', root: 'v', 'published-at': 'v', 'build-info': 'v' });
 if (!a.out) die('usage: node scripts/release-package.mjs --out <folder> [--root <built tree>]');
 const root = resolve(a.root ?? REPO);
 const { CODE_SET } = await loadDist('src/core/updater/apply.js');
 const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'));
-if (!/^(0|[1-9]\d{0,8})\.(0|[1-9]\d{0,8})\.(0|[1-9]\d{0,8})$/.test(pkg.version)) die(`package.json version "${pkg.version}" is not a plain MAJOR.MINOR.PATCH`);
+if (!isReleaseVersion(pkg.version)) die(`package.json version "${pkg.version}" is not MAJOR.MINOR.PATCH with an optional single-letter patch suffix (e.g. 0.2.2-a)`);
 for (const must of ['dist/src/electron/main.js', 'dist/src/bin/legion-core.js', 'dist-ui/index.html', 'package-lock.json']) if (!existsSync(join(root, must))) die(`not a built tree: ${must} is missing (run npm run build first)`);
 for (const [src, built] of [['src', 'dist/src']]) if (existsSync(join(root, src)) && statSync(join(root, built)).mtimeMs + 3600_000 < latest(join(root, src))) die(`dist looks older than ${src}: rebuild before packaging`);
 const publishedAt = a['published-at'] ?? new Date().toISOString().replace(/\.\d+Z$/, 'Z');

@@ -4,16 +4,29 @@
 import { createHash } from 'node:crypto';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { basename, join, resolve } from 'node:path';
-import { args, die, listZipNames, readZipEntry } from './lib/release-lib.mjs';
+import { args, die, isReleaseVersion, listZipNames, readZipEntry } from './lib/release-lib.mjs';
 
 const a = args(process.argv.slice(2), { zip: 'v', out: 'v', notes: 'v', previous: 'v', 'requires-full-install': 'flag' });
 if (!a.zip || !a.out) die('usage: node scripts/release-manifest.mjs --zip <file> --out <folder> [--notes <file>] [--previous <manifest>] [--requires-full-install]');
 const zip = readFileSync(resolve(a.zip));
 const sha = (b) => createHash('sha256').update(b).digest('hex');
-const first = /^legion-(\d+\.\d+\.\d+)\//.exec(listZipNames(zip)[0] ?? '');
+// Read the version out of the package's own top folder. Kept as its own literal (and checked against the shared rule below)
+// because splicing VERSION_RE.source into a second regex is exactly the kind of cleverness that silently stops matching.
+// The acceptance check below is the real guard: it fails loudly if this and the app's rule ever disagree.
+const FOLDER_RE = /^legion-((?:0|[1-9]\d{0,8})\.(?:0|[1-9]\d{0,8})\.(?:0|[1-9]\d{0,8})(?:-[a-z])?)\//;
+const first = FOLDER_RE.exec(listZipNames(zip)[0] ?? '');
 if (!first) die('the zip has no legion-<version>/ folder');
 const version = first[1];
 const top = `legion-${version}`;
+// Guard the duplication above: FOLDER_RE (what the zip's top folder may be called) and the shared rule (what the app will
+// accept) must agree on exactly the same versions. If they ever drift, packaging fails HERE with a clear message instead of
+// shipping a package the updater would silently refuse.
+for (const v of ['0.2.2-a', '0.2.1', '1.0.0-a', '0.2.2-A', '0.2.2-ab', '01.2.3', '0.2.2a', '0.2.2-beta.1']) {
+  const viaFolder = FOLDER_RE.test(`legion-${v}/package.json`);
+  const viaSharedRule = isReleaseVersion(v);
+  if (viaFolder !== viaSharedRule) die(`version rule drift: FOLDER_RE says ${viaFolder} and the shared rule says ${viaSharedRule} for "${v}". Fix the regexes before packaging.`);
+}
+if (!isReleaseVersion(version)) die(`the package folder says "${version}", which this project's version rule does not accept`);
 if (basename(a.zip) !== `legion-${version}-app.zip`) die(`the file must be named legion-${version}-app.zip`);
 const pkg = JSON.parse((readZipEntry(zip, `${top}/package.json`) ?? die('package.json missing in the zip')).toString('utf8'));
 if (pkg.version !== version) die('package.json version does not match the folder name');

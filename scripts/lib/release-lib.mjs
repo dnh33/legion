@@ -19,6 +19,19 @@ export function args(argv, spec) {
 }
 export function die(msg) { console.error(`error: ${msg}`); process.exit(1); }
 
+/**
+ * The version shape Legion accepts: MAJOR.MINOR.PATCH, optionally with ONE lettered patch suffix (`0.2.2-a`).
+ *
+ * This mirrors `isPlainSemver` in src/core/updater/semver.ts, which is what the shipped app enforces. It lives here too so
+ * the release scripts and the updater cannot drift apart — when they did, the scripts rejected `0.2.2-a` as "not a plain
+ * MAJOR.MINOR.PATCH" while the app would have accepted it (owner directive 2026-10-03: "a proper versioning protocol also locked
+ * down and followed for this so i never have to mention what the next version should be").
+ *
+ * Note the dot in the suffix group is `\.` so `-a` is captured, not the whole tail.
+ */
+export const VERSION_RE = /^(0|[1-9]\d{0,8})\.(0|[1-9]\d{0,8})\.(0|[1-9]\d{0,8})(?:-([a-z]))?$/;
+export const isReleaseVersion = (v) => typeof v === 'string' && VERSION_RE.test(v);
+
 /** True when `p` is inside this repo or inside any git work tree (a folder with .git above it). */
 export function insideGitTree(p) {
   const abs = resolve(p);

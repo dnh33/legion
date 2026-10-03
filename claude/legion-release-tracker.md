@@ -622,6 +622,22 @@ State is reconstructible from this file + Aetherkeep + the git log alone.
   surface it without nagging (topbar is busy; the owner already rejected a loud topbar affordance for report-a-bug), and how it
   interacts with the "only tell me once" instinct. Owner wants it in the same update cycle.
 
+### RELEASE PLAN (owner directive 2026-10-03) — 0.2.2-a is the updater test ONLY
+- **0.2.2-a = SHIPPED, awaiting cut.** Carries ONLY the updater fixes + the model-override fix. Its single purpose: prove the
+  in-app signed self-update works end to end on the owner's PC. Nothing else is bundled, so if the click-test surfaces another
+  problem it is unmistakably an updater problem, not something else riding along.
+- **0.2.2-b = NEXT, deliberately not started.** (owner: "this should be in the 0.2.2-b then so we can see if 0.2.2-a works")
+  - OPEN C: the subtle update-available notification — needs a UX expert council + /kodawari gates FIRST, not a rushed build.
+  - Zealot's model-override item: proposal-vs-Forgemaster question is still UNANSWERED and belongs in 0.2.2-b scope.
+- Rule of thumb adopted: one lettered patch = one thing you are verifying. If 0.2.2-a is clean, 0.2.2-b takes the notification work.
+
+### Release scripts must share the version rule (found while cutting 0.2.2-a)
+- `scripts/build-package.mjs`, `scripts/release-package.mjs` and `scripts/release-manifest.mjs` each had their OWN copy of the
+  "plain MAJOR.MINOR.PATCH" regex, so packaging failed on `0.2.2-a` with `package.json version "0.2.2-a" is not a plain
+  MAJOR.MINOR.PATCH` WHILE the app's `semver.ts` accepted it. Fixed by adding `VERSION_RE` / `isReleaseVersion` to
+  `scripts/lib/release-lib.mjs` and importing it in all three, so the scripts and the shipped updater cannot drift again.
+- LESSON: whenever the version grammar changes, grep the release scripts too, not just `src/`. The app and the tooling must agree.
+
 ### Next actions (owner-gated where marked)
 1. [ ] **Owner: click "Update Legion" in the installed 0.2.0 and report** — the whole point of shipping 0.2.1.
 2. [ ] 0.2.2: model-override fix (3 gaps) — needs owner go on scope + the Zealot proposal-vs-Forgemaster question.
