@@ -518,3 +518,7 @@ After ALL work orders end (post WO-10, before the tag): one more multi-subagent 
 
 ### 0.2.1 (planned, no dates)
 report-a-bug affordance (unobtrusive; help/about — topbar busy) · supply-chain protection (pinned hashes / lockfile verification) · vm_claude: connect Claude on boat.dev + fix sonnet/opus-only schema (haiku rejected, inconsistent with ask/tell) · extend per-run model override beyond sonnet|opus|haiku|auto (OpenRouter/deepseek/glm not exposed) · providers-2 + providers + blender-chip branches (preserved) · prebuilt bundler · Sentinel scheduler · KG-audit/refresh button · lighter package.
+
+## POST-LAUNCH OPEN (2026-10-03, after v0.2.0 shipped)
+- Launch tweet drafted (humanizer + twitter-x-posts, 248 chars, 40k-backlog hook) — NOT posted yet; finalize + post when ready.
+- Site (legion-site, owner deploys): refresh stale screenshots (still "157 BSV nodes" / "no spend tool"), add the trailer slot with the v2 mp4/gif/poster (D:ots\legion-dev\docsideo-v2\), creator-credit name (owner).
