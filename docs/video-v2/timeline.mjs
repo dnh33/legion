@@ -53,6 +53,7 @@ export const CAPS = [
   { id: 'l1', slot: 'cold1', text: 'In the grim darkness of your backlog…', a: b(0, 1), b: b(1, 2.4) },
   { id: 'l2', slot: 'cold2', text: '…there is only work.', a: b(1), b: b(1, 2.4) },
   { id: 'sub', slot: 'sub', text: 'An order of Claude agents. Yours to command.', a: b(2, 3), b: b(3, 3.6) },
+  { id: 'or', slot: 'orcap', text: 'Claude by default. OpenRouter — any model, your own key.', a: b(3, 3.6), b: b(5, 1.5) },
   { id: 'must', slot: 'mustcap', text: 'Thirteen bots. Each with its own role.', a: b(5, 2), b: b(6, 3.6) },
   { id: 'appr', slot: 'col', k: 'approvals', text: 'You approve the risky calls.', a: b(7, 1), b: b(8, 2.6) },
   { id: 'taint', slot: 'col', k: 'approvals', text: 'Web content is treated as untrusted.', a: b(8, 3.6), b: b(9, 3.6) },

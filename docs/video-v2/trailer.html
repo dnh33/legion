@@ -203,6 +203,7 @@ canvas,svg.full{position:absolute;left:0;top:0;width:1920px;height:1080px}
 
   <div id="relic" class="abs"></div>
   <div id="sub" class="abs c sub hide" style="top:772px">An order of Claude agents. Yours to command.</div>
+  <div id="orcap" class="abs c sub hide" style="top:772px">Claude by default. OpenRouter — any model, your own key.</div>
   <div id="brow1" class="col cap abs hide" style="top:262px">Browse without a VM.</div>
 
   <!-- muster -->
@@ -243,14 +244,15 @@ canvas,svg.full{position:absolute;left:0;top:0;width:1920px;height:1080px}
   <div id="nextw" class="abs hide" style="left:0;top:0;width:1920px;height:1080px">
     <div class="abs nhead" style="left:160px;top:120px">NEXT · PLANNED FOR 0.2.1</div>
     <div class="abs nrule" style="left:160px;top:164px"></div>
-    <div class="abs nsub" style="left:160px;top:186px">Any model, via OpenRouter.</div>
+    <div class="abs nsub" style="left:160px;top:186px">Codex and more, next.</div>
     <div id="ncards"></div>
   </div>
 
   <!-- end -->
   <div id="end">
     <svg id="wm2" class="wm" style="top:440px" viewBox="0 0 1000 230"></svg>
-    <div id="tag" class="abs c tagb hide" style="top:700px">0.2.0 · BETA</div>
+    <div id="tag" class="abs c tagb hide" style="top:700px">0.2.0 · OPEN BETA</div>
+    <div id="beta" class="abs c tagb hide" style="top:764px">Bugs happen — every report is welcome.</div>
     <svg id="sig" class="abs hide" style="left:925px;top:790px;overflow:visible" width="70" height="84" viewBox="0 0 70 84"><g fill="none" stroke="#caa64a" stroke-width="4" stroke-linecap="round" stroke-linejoin="round" style="filter:drop-shadow(0 0 8px rgba(202,166,74,.55))">
       <path d="M35,4V80"/><path d="M19,28H51"/><path d="M3,19L12,28L3,37"/><path d="M67,19L58,28L67,37"/></g></svg>
     <div id="print" class="abs c print hide" style="top:960px"></div>
@@ -352,7 +354,7 @@ const camTx = (c) => [FW / 2 - c.z * c.cx * FW, FH / 2 - c.z * c.cy * FH];
 const capEls = CAPS.map((c) => {
   const d = document.createElement('div'); d.className = 'hide ' + (c.slot === 'col' ? 'col cap' : 'abs');
   if (c.slot === 'col') { d.style.top = '262px'; d.innerHTML = c.text; $('cols').appendChild(d); }
-  return { c, d: c.slot === 'col' ? d : $({ cold1: 'l1', cold2: 'l2', sub: 'sub', brow1: 'brow1', mustcap: 'mustcap', termcap: 'termcap', digest: 'digestcap', routeA: 'rtA', routeB: 'rtB', loopcap: 'loopcap' }[c.slot]) };
+  return { c, d: c.slot === 'col' ? d : $({ cold1: 'l1', cold2: 'l2', sub: 'sub', orcap: 'orcap', brow1: 'brow1', mustcap: 'mustcap', termcap: 'termcap', digest: 'digestcap', routeA: 'rtA', routeB: 'rtB', loopcap: 'loopcap' }[c.slot]) };
 });
 const kickEls = {};
 for (const [id, name] of Object.entries(KICKER)) { const d = document.createElement('div'); d.className = 'col k hide'; d.style.top = '198px'; d.textContent = name; $('cols').appendChild(d); kickEls[id] = d; }
@@ -568,7 +570,7 @@ window.render = function (t) {
   const E = T.end;
   drawWm($('wm2'), wm2, ramp(t, ...E.wmDraw), sm(ramp(t, ...E.wmFill)), (.8 + .2 * Math.sin(t * 2.4)) * sm(ramp(t, E.wmFill[0], E.wmFill[1] + .1)));
   const upx = (id, a) => show($(id), sm(ramp(t, a, a + .7)), `translateY(${((1 - eo(ramp(t, a, a + .9))) * 12).toFixed(1)}px)`);
-  upx('tag', E.tag); upx('sig', E.sigil); upx('print', E.print);
+  upx('tag', E.tag); upx('beta', E.tag); upx('sig', E.sigil); upx('print', E.print);
 
   let gk = 0; for (const h of HARD) { const u = t - h; if (u >= 0 && u < .14) gk = Math.max(gk, 1 - u / .14); }
   $('glitch').style.opacity = (gk * .55).toFixed(3);
