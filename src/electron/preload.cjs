@@ -23,6 +23,22 @@ contextBridge.exposeInMainWorld('legion', {
     ipcRenderer.on('legion:bsv-changed', h);
     return () => ipcRenderer.removeListener('legion:bsv-changed', h);
   },
+  // Provider key and address changes go through the main process too: it shows the native confirmation and holds the native secret.
+  providerChange(change) {
+    return ipcRenderer.invoke('legion:provider-change', change);
+  },
+  // Project folder and member changes: main shows the native confirmation (and the folder chooser) and holds the native secret.
+  projectChange(change) {
+    return ipcRenderer.invoke('legion:project-change', change);
+  },
+  // Browser tool: choosing the browser program (Edge, Chrome) and local addresses. Main shows the native confirmation and holds the native secret.
+  browserChange(change) {
+    return ipcRenderer.invoke('legion:browser-change', change);
+  },
+  // The updater's "Restart now": main shows its own native confirmation naming what will stop, then drains and swaps.
+  updateRestartNow() {
+    return ipcRenderer.invoke('legion:update-restart-now');
+  },
   openExternal(url) {
     return ipcRenderer.invoke('legion:open-external', String(url));
   },

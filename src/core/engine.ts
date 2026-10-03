@@ -23,6 +23,13 @@ import type { BridgeStartParams } from './bridge.js';
 import type { VmManager } from './vm-manager.js';
 import { isSelfMcpUrl, McpStatusTracker, selfMcpNames } from './mcp-status.js';
 import type { McpStatusView } from '../shared/types.js';
+import { providerPrefix } from './providers/runtime.js';
+import type { ProviderRuntime } from './providers/runtime.js';
+import type { ProviderHost, ResolvedModel } from './providers/types.js';
+import type { Project } from '../shared/projects.js';
+import { projectSection } from './projects/prompt.js';
+import { renderCapabilities } from './agent-facts.js';
+import type { ProjectStore } from './projects/store.js';
 
 export type QueryFn = typeof sdkQuery;
 
@@ -36,6 +43,10 @@ export interface EngineDeps {
   modules?: CoreModule[];
   /** Where the list of files written by tainted runs is kept; defaults to <workspaceDir>/.tainted-paths.json. */
   taintedPaths?: TaintedPaths;
+  /** Other model providers (OpenAI-compatible endpoints). Absent: every run is a Claude run, exactly as before. */
+  providers?: ProviderRuntime;
+  /** Projects (src/core/projects). Absent: no task has a project and nothing about projects is interpreted. */
+  projects?: ProjectStore;
 }
 
 /**
@@ -159,6 +170,8 @@ export class Engine {
   private readonly boatConfigured: () => boolean;
   private readonly maxConcurrent: number;
   private readonly taintedPaths: TaintedPaths;
+  private readonly providers?: ProviderRuntime;
+  private readonly projects?: ProjectStore;
   private readonly queue: Job[] = [];
   private readonly active = new Map<string, Active>();
   private idleTimer: ReturnType<typeof setTimeout> | undefined;
@@ -173,6 +186,8 @@ export class Engine {
     this.boatConfigured = deps.boatConfigured;
     this.maxConcurrent = Math.max(1, deps.maxConcurrent ?? 4);
     this.modules = deps.modules ?? [];
+    this.providers = deps.providers;
+    this.projects = deps.projects;
     this.taintedPaths = deps.taintedPaths ?? new TaintedPaths(join(deps.config.workspaceDir, '.tainted-paths.json'));
     this.bridge = new Bridge({ store: this.store, bus: this.bus, engine: this });
   }
@@ -192,6 +207,10 @@ export class Engine {
     // Taint follows the chain: a tainted waking bot, or a tainted peer's reply, taints this task for good.
     const tainted = !!p.tainted || !!origin?.tainted || (!!p.bridge?.reply && !!p.bridge.fromTaskId && this.isTainted(p.bridge.fromTaskId));
 
+    // A token client (MCP, curl) never moves a run between Claude and a provider, or between providers: that decides where the owner's data goes.
+    if (p.source === 'mcp' && p.model && (providerPrefix(p.model) || providerPrefix(agent.model)) && p.model !== agent.model) {
+      throw new EngineError('Provider models can only be chosen in the Legion app. This agent runs on its own setting; leave model out.', 400);
+    }
     const overriding = !!p.modelOverrideBy && !!p.model;
     if (overriding && !overrideAllowed(agent.model, p.model)) throw new EngineError(overrideRefusal(agent.name, agent.model, p.model!), 400);
     let task: Task;
@@ -201,6 +220,7 @@ export class Engine {
       if (!prev) throw new EngineError(`Unknown task: ${p.continueTaskId}`, 404);
       if (prev.status === 'queued' || prev.status === 'running') throw new EngineError('Task is still running', 409);
       if (prev.agentId !== agent.id) throw new EngineError('Task belongs to a different agent', 400);
+      const projectId = this.pickProject(p, agent, prev);
       priorModel = prev.model;
       const viaBridge = p.bridge && !p.bridge.reply;
       // A model another bot chose lasts for that run only: a later message that asks for none (and is not a reply landing in the caller's own task) goes back to the agent's setting.
@@ -210,6 +230,7 @@ export class Engine {
         requestedModel: p.model ?? (prev.modelOverride && !keepOverride ? agent.model : prev.requestedModel),
         modelOverride: overriding ? { model: p.model!, by: p.modelOverrideBy! } : keepOverride ? prev.modelOverride : undefined,
         result: undefined, error: undefined,
+        ...(this.projects ? { projectId } : {}),
         ...(viaBridge ? { fromAgentId: p.bridge!.fromAgentId, parentTaskId: p.bridge!.parentTaskId } : {}),
         bridgeHop: p.bridge ? p.bridge.hop ?? 0 : undefined,
         // A human continuing a task clears any bot-origin ceiling; a bridge reply keeps the task's own.
@@ -220,6 +241,7 @@ export class Engine {
       const now = nowIso();
       const base = prompt.replace(/^\s*\/(opus|sonnet)\b\s*/i, '') || prompt;
       const callerName = p.bridge ? (this.store.getAgent(p.bridge.fromAgentId)?.name ?? p.bridge.fromAgentId) : '';
+      const projectId = this.pickProject(p, agent, undefined);
       task = this.saveTask({
         id: newId('task'), agentId: agent.id,
         title: p.bridge ? `${callerName}: ${base.replace(/\s+/g, ' ').trim().slice(0, 50)}` : titleFrom(base),
@@ -228,6 +250,7 @@ export class Engine {
         requestedModel: p.model ?? agent.model, createdAt: now, updatedAt: now,
         ...(overriding ? { modelOverride: { model: p.model!, by: p.modelOverrideBy! } } : {}),
         ...(origin ? { origin } : {}),
+        ...(projectId ? { projectId } : {}),
         ...(tainted ? { tainted: true } : {}),
       });
     }
@@ -239,6 +262,39 @@ export class Engine {
     });
     queueMicrotask(() => this.pump());
     return { ...task };
+  }
+
+  /**
+   * The project a new or continued task belongs to. Only the app (source 'ui', admin) and a room's own wake (source 'bot') may name one;
+   * a bridge run (ask/tell) inherits its caller's task's project; an MCP or CLI client never picks. The agent must be a member and the
+   * project active. The app gets an error for a bad pick; a room or bridge run just starts without the project. Continuing keeps the
+   * task's project unless the app or the room says otherwise. `undefined` = no project.
+   */
+  private pickProject(p: BridgeStartParams, agent: AgentProfile, prev: Task | undefined): string | undefined {
+    if (!this.projects) {
+      if (p.source === 'ui' && typeof p.projectId === 'string') throw new EngineError('Projects are not available in this core', 400);
+      return prev?.projectId;
+    }
+    let want: string | undefined;
+    let named = false;
+    if ((p.source === 'ui' || p.source === 'bot') && p.projectId !== undefined) { want = p.projectId ?? undefined; named = true; }
+    else if (prev) want = prev.projectId;
+    else if (p.bridge && !p.bridge.reply && p.bridge.parentTaskId) want = this.store.getTask(p.bridge.parentTaskId)?.projectId;
+    if (!want) return undefined;
+    const pr = this.projects.get(want);
+    if (pr && pr.status === 'archived') {
+      if (p.source === 'ui' || (prev && !named)) throw new EngineError(`Project "${pr.name}" is archived. Unarchive it to start or continue a task in it.`, 409);
+      return undefined;
+    }
+    if (pr && pr.members.includes(agent.id)) return want;
+    if (p.source === 'ui' && named) throw new EngineError(pr ? `${agent.name} is not a member of project "${pr.name}"` : `Unknown project: ${want}`, 400);
+    return undefined;
+  }
+
+  /** The project this task's run belongs to right now (active, agent is a member), else undefined. Checked at every run. */
+  private projectOf(taskId: string, agentId: string): Project | undefined {
+    if (!this.projects) return undefined;
+    return this.projects.forRun(this.store.getTask(taskId)?.projectId, agentId);
   }
 
   /**
@@ -455,7 +511,14 @@ export class Engine {
     let decision = routeModel(job.prompt, job.choice, { priorModel: job.priorModel });
     // A model a bot picked (per-task override, or a /opus prefix in a bot's message) never goes above the agent's own setting.
     const picked = this.store.getTask(job.taskId)?.modelOverride || (job.origin && decision.reason.startsWith('prefix'));
-    if (picked && modelRank(decision.model) > modelRank(agent.model)) {
+    const provAgent = providerPrefix(agent.model);
+    if (picked && provAgent && decision.model !== agent.model) {
+      // a bot's pick never moves a provider agent to another model or to Claude (that would send the owner's data somewhere else)
+      decision = { ...decision, model: agent.model, reason: `${decision.reason}, kept on ${agent.name}'s own provider setting` };
+    } else if (picked && !provAgent && providerPrefix(decision.model)) {
+      const own = rankModel(modelRank(agent.model));
+      decision = { ...decision, model: own, reason: `${decision.reason}, a bot cannot pick a provider; using ${own}` };
+    } else if (picked && modelRank(decision.model) > modelRank(agent.model)) {
       const capped = rankModel(modelRank(agent.model));
       decision = { ...decision, model: capped, reason: `${decision.reason}, capped at ${capped} (${agent.name}'s own setting)` };
     }
@@ -499,6 +562,7 @@ export class Engine {
 
   private buildMcpServers(agent: AgentProfile, job: Job, act: Active): Record<string, McpServerConfig> {
     const taskId = job.taskId;
+    const pid = this.projectOf(taskId, agent.id)?.id;
     const out: Record<string, McpServerConfig> = {};
     const wanted = agent.mcpServers ?? [];
     const all = wanted.includes('*');
@@ -521,6 +585,7 @@ export class Engine {
       taskId, ...(job.origin ? { origin: job.origin, ceiling: job.origin.approvalCeiling } : {}),
       taint: () => act.tainted || job.origin?.tainted === true,
       markTainted: () => { act.tainted = true; },
+      ...(pid ? { projectId: pid } : {}),
     };
     for (const m of this.modules) {
       try { Object.assign(out, m.mcpServers?.(agent, moduleJob) ?? {}); } catch { /* a broken module must not break runs */ }
@@ -585,20 +650,58 @@ export class Engine {
     return agent?.cwd || join(this.config.workspaceDir, agentId);
   }
 
+  /**
+   * The approval decision for one tool call, shared by the Claude path (canUseTool) and the provider path: effective mode (never looser
+   * than the run's ceiling), then needsApproval, then a card the user answers (10 minutes, then denied).
+   */
+  private toolDecider(job: Job, agent: AgentProfile): (toolName: string, input: Record<string, unknown>) => Promise<{ allow: boolean; message?: string }> {
+    const ceiling = job.origin?.approvalCeiling;
+    const effective = (): ApprovalMode => {
+      const mode = this.store.getAgent(agent.id)?.approval ?? agent.approval;
+      return ceiling ? stricterMode(mode, ceiling) : mode;
+    };
+    return async (toolName, input) => {
+      const mode = effective();
+      if (!needsApproval(mode, toolName, { capped: job.origin?.approvalCeiling === 'ask' })) return { allow: true };
+      const o = job.origin;
+      let timedOut = false;
+      const allowed = await this.approvals.request(
+        job.taskId, agent.id, toolName, input,
+        o ? { roomId: o.roomId, fromAgentId: o.fromAgentId, hop: o.hop } : undefined,
+        { onTimeout: () => { timedOut = true; } },
+      );
+      if (allowed) return { allow: true };
+      // An MCP client started this run (Claude Code, Cowork) or woke it through a chain, so the ceiling is `ask`. Its card can only be answered in the Legion app window, so say so
+      // instead of a bare denial when nobody answered (the app is closed, or this core was started headless by the MCP bridge).
+      if (timedOut && o?.approvalCeiling === 'ask') {
+        return { allow: false, message: 'No one approved this action: it needs your OK in the Legion app window and nothing was answered within 10 minutes. Open the Legion app, then ask for it again.' };
+      }
+      return { allow: false, message: 'The user denied this action.' };
+    };
+  }
+
   private buildOptions(job: Job, agent: AgentProfile, model: ConcreteModel, act: Active, prompt: string, resume?: string): Options {
     const cwd = agent.cwd || join(this.config.workspaceDir, agent.id);
     mkdirSync(cwd, { recursive: true });
+    // the project (if any) adds text AFTER everything else and one extra folder: its own, and only its own
+    const project = this.projectOf(job.taskId, agent.id);
+    let projectFolder: string | undefined;
+    if (project) { try { mkdirSync(project.folder, { recursive: true }); projectFolder = project.folder; } catch { /* no folder this run: the instructions still apply */ } }
+    const servers = this.buildMcpServers(agent, job, act);
     const options: Options = {
       model,
       cwd,
       systemPrompt: {
         type: 'preset', preset: 'claude_code',
         append: LEGION_PREAMBLE.replace('{name}', agent.name)
-          + this.modulePreamble(agent, { prompt, taskId: job.taskId, ...(job.origin ? { origin: job.origin } : {}), tainted: act.tainted || job.origin?.tainted === true })
-          + (agent.systemPrompt ? '\n\n' + agent.systemPrompt : ''),
+          + this.modulePreamble(agent, { prompt, taskId: job.taskId, ...(job.origin ? { origin: job.origin } : {}), tainted: act.tainted || job.origin?.tainted === true, ...(project ? { projectId: project.id } : {}) })
+          + '\n\n' + renderCapabilities(agent, { servers, ...(job.origin?.approvalCeiling ? { ceiling: job.origin.approvalCeiling } : {}), vmEnabledForAgent: !!agent.vm?.enabled })
+          + (agent.systemPrompt ? '\n\n' + agent.systemPrompt : '')
+          + (project ? '\n\n' + projectSection({ name: project.name, instructions: project.instructions, folder: project.folder }) : ''),
       },
+      ...(projectFolder ? { additionalDirectories: [projectFolder] } : {}),
       settingSources: this.config.claude.inheritClaudeCodeSettings ? ['user', 'project', 'local'] : [],
-      mcpServers: this.buildMcpServers(agent, job, act),
+      mcpServers: servers,
       // Off (default): only the servers above, asks the CLI to ignore user/project/local MCP config and plugins. claude.ai connectors are asked off in buildChildEnv and in `settings`.
       ...(this.config.claude.inheritMcp === true ? {} : { strictMcpConfig: true }),
       disallowedTools: ['SendMessage', 'ListAgents', ...this.moduleDisallowed(agent)],
@@ -631,30 +734,68 @@ export class Engine {
       options.allowDangerouslySkipPermissions = true;
     } else {
       options.permissionMode = 'default';
+      const decide = this.toolDecider(job, agent);
       options.canUseTool = async (toolName, input) => {
-        const mode = effective();
-        if (!needsApproval(mode, toolName, { capped: job.origin?.approvalCeiling === 'ask' })) return { behavior: 'allow', updatedInput: input };
-        const o = job.origin;
-        let timedOut = false;
-        const allowed = await this.approvals.request(
-          job.taskId, agent.id, toolName, input,
-          o ? { roomId: o.roomId, fromAgentId: o.fromAgentId, hop: o.hop } : undefined,
-          { onTimeout: () => { timedOut = true; } },
-        );
-        if (allowed) return { behavior: 'allow', updatedInput: input };
-        // An MCP client started this run (Claude Code, Cowork) or woke it through a chain, so the ceiling is `ask`. Its card can only be answered in the Legion app window, so say so
-        // instead of a bare denial when nobody answered (the app is closed, or this core was started headless by the MCP bridge).
-        if (timedOut && o?.approvalCeiling === 'ask') {
-          return { behavior: 'deny', message: 'No one approved this action: it needs your OK in the Legion app window and nothing was answered within 10 minutes. Open the Legion app, then ask for it again.' };
-        }
-        return { behavior: 'deny', message: 'The user denied this action.' };
+        const d = await decide(toolName, input);
+        return d.allow ? { behavior: 'allow', updatedInput: input } : { behavior: 'deny', message: d.message ?? 'The user denied this action.' };
       };
     }
     return options;
   }
 
+  /** One run on a non-Claude provider (the seam into src/core/providers). Never falls back to Claude: a failure is the task's error. */
+  private async runProvider(job: Job, agent: AgentProfile, pr: ResolvedModel, prompt: string, act: Active): Promise<Outcome> {
+    const taskId = job.taskId;
+    const servers: ProviderHost['servers'] = {};
+    const external: NonNullable<ProviderHost['external']> = {};
+    for (const [name, cfg] of Object.entries(this.buildMcpServers(agent, job, act))) {
+      if (cfg.type === 'sdk') servers[name] = cfg;
+      else if (cfg.type === 'http' || cfg.type === 'sse') external[name] = { type: cfg.type, url: cfg.url, ...(cfg.headers ? { headers: cfg.headers } : {}) };
+      else if (cfg.type === 'stdio' || cfg.type === undefined) external[name] = { command: (cfg as { command: string }).command, ...((cfg as { args?: string[] }).args ? { args: (cfg as { args?: string[] }).args } : {}), ...((cfg as { env?: Record<string, string> }).env ? { env: (cfg as { env?: Record<string, string> }).env } : {}) };
+    }
+    const decide = this.toolDecider(job, agent);
+    const host: ProviderHost = {
+      taskId, agentName: agent.name, signal: act.ac.signal, cancelled: () => act.cancelled || act.ac.signal.aborted,
+      systemPrompt: LEGION_PREAMBLE.replace('{name}', agent.name)
+        + this.modulePreamble(agent, { prompt, taskId, ...(job.origin ? { origin: job.origin } : {}), tainted: act.tainted || job.origin?.tainted === true })
+        + (agent.systemPrompt ? '\n\n' + agent.systemPrompt : '')
+        + `\n\nYou are running on ${pr.model} through ${pr.entry?.label ?? pr.providerId}. You have only the tools listed in this request; you have no file, shell or web tools of your own.`,
+      prompt, stored: this.store.listMessages(taskId),
+      servers, external,
+      authorize: decide,
+      noteToolUse: (name, id, input) => this.noteToolUse(job, act, name, id, input),
+      onDelta: (text) => this.bus.emit({ type: 'message.delta', taskId, text }),
+      onAssistantText: (text) => { this.addMessage(taskId, 'assistant', text); },
+      onToolCall: (name, id, input) => {
+        let json: string;
+        try { json = JSON.stringify(input ?? {}); } catch { json = '{}'; }
+        if (json.length > 500) json = json.slice(0, 499) + '…';
+        this.addMessage(taskId, 'tool', json, name, undefined, { toolUseId: id });
+        this.mascot('hacking', name);
+      },
+      onToolResult: (id, text) => { if (text.trim()) this.addMessage(taskId, 'tool', clipToolResult(text), undefined, undefined, { resultFor: id }); },
+      onNotice: (text) => { this.addMessage(taskId, 'system', text); },
+    };
+    const r = await this.providers!.run(host, pr);
+    if (act.cancelled) return { subtype: 'cancelled', isError: false };
+    const cur = this.store.getTask(taskId);
+    this.patchTask(taskId, {
+      provider: pr.providerId,
+      turns: (cur?.turns ?? 0) + r.turns,
+      tokenUsage: {
+        ...(r.usage ? { inputTokens: (cur?.tokenUsage?.inputTokens ?? 0) + r.usage.inputTokens, outputTokens: (cur?.tokenUsage?.outputTokens ?? 0) + r.usage.outputTokens } : (cur?.tokenUsage ?? {})),
+        ...(r.usageUnknown || !r.usage || cur?.tokenUsage?.unknown ? { unknown: true } : {}),
+      },
+      ...(r.costUsd !== undefined ? { costUsd: (cur?.costUsd ?? 0) + r.costUsd } : {}),
+      ...(!r.isError && r.resultText !== undefined ? { result: r.resultText } : {}),
+    });
+    return { subtype: r.subtype, isError: r.isError, errorText: r.isError ? r.errorText : undefined };
+  }
+
   /** One SDK query() run. Returns the outcome of its result message; throws on SDK failure. */
   private async runOnce(job: Job, agent: AgentProfile, model: ConcreteModel, prompt: string, act: Active): Promise<Outcome> {
+    const pr = this.providers?.resolve(model);
+    if (pr) return this.runProvider(job, agent, pr, prompt, act);
     const resume = this.store.getTask(job.taskId)?.sessionId;
     const options = this.buildOptions(job, agent, model, act, prompt, resume);
     const q = this.queryFn({ prompt, options });

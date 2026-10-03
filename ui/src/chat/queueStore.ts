@@ -38,11 +38,6 @@ function set(next: Q.QState) {
 export function useThreadQueue(key: string): Q.QThread | undefined {
   return useSyncExternalStore(subQ, () => qs.threads[key]);
 }
-/** How many messages wait in all threads (for a global hint). */
-export function useQueuedTotal(): number {
-  return useSyncExternalStore(subQ, () => totalOf(qs));
-}
-const totalOf = (s: Q.QState): number => { let n = 0; for (const t of Object.values(s.threads)) n += t.items.length; return n; };
 
 let idSeq = 0;
 const newId = () => `q${Date.now().toString(36)}${(idSeq++).toString(36)}`;

@@ -11,6 +11,7 @@ import {
   CallToolRequestSchema, ListToolsRequestSchema,
 } from '@modelcontextprotocol/sdk/types.js';
 import { loadConfig, VERSION } from '../shared/config.js';
+import { coreChildEnv } from '../electron/resolve-node.js';
 
 // stdout is the protocol channel: log to stderr only.
 const log = (...a: unknown[]) => process.stderr.write(`[legion-mcp] ${a.map((x) => (x instanceof Error ? x.stack : String(x))).join(' ')}\n`);
@@ -27,7 +28,8 @@ async function ensureCore(port: number): Promise<void> {
   if (await healthy(port)) return;
   const corePath = join(dirname(fileURLToPath(import.meta.url)), 'legion-core.js');
   log(`Legion Core not reachable on :${port}; starting ${corePath}`);
-  const child = spawn(process.execPath, [corePath], { detached: true, stdio: 'ignore', windowsHide: true });
+  // started by a package's Electron in node mode: the core must be too, whatever the client's config said
+  const child = spawn(process.execPath, [corePath], { detached: true, stdio: 'ignore', windowsHide: true, env: coreChildEnv(process.env) });
   child.on('error', (e) => log('failed to spawn core', e));
   child.unref();
   const deadline = Date.now() + 15000;

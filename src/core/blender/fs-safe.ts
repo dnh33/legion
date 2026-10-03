@@ -54,19 +54,26 @@ export function isInside(child: string, root: string): boolean {
   return c === r || c.startsWith(r.endsWith(sep) ? r : r + sep);
 }
 
-/** The first symbolic link under `dir` (depth and entry limits keep this cheap), or null. */
+/**
+ * The first symbolic link under `dir`, or null when it is clean. Depth and entry limits keep this cheap, and they FAIL CLOSED: when a limit is hit, or a
+ * folder cannot be read, the result names that place (a string, so callers refuse) instead of reporting "no link".
+ */
 export function findLink(dir: string, maxDepth = 4, maxEntries = 3000): string | null {
   let seen = 0;
   const walk = (d: string, depth: number): string | null => {
     let names: string[];
-    try { names = readdirSync(d); } catch { return null; }
+    try { names = readdirSync(d); } catch { return `${d} (could not be read)`; }
     for (const n of names) {
-      if (++seen > maxEntries) return null;
+      if (++seen > maxEntries) return `${d} (more than ${maxEntries} entries; too many to check for links)`;
       const p = join(d, n);
       let st;
       try { st = lstatSync(p); } catch { continue; }
       if (st.isSymbolicLink()) return p;
-      if (st.isDirectory() && depth < maxDepth) { const hit = walk(p, depth + 1); if (hit) return hit; }
+      if (st.isDirectory()) {
+        if (depth >= maxDepth) return `${p} (nested deeper than ${maxDepth} levels; too deep to check for links)`;
+        const hit = walk(p, depth + 1);
+        if (hit) return hit;
+      }
     }
     return null;
   };

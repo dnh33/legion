@@ -101,7 +101,7 @@ test('R3.3 pending cap: every path that makes a pending note is refused at 50, o
 
 test('R3.4 secret scrubbing and key detection scale linearly on hostile inputs (event loop stays free)', () => {
   // Machine independent: the same input at N and 4N characters. A linear scrub takes ~4x as long, a quadratic one ~16x, on every machine and
-  // under any load, so the guard is the RATIO (best of three at each size, so a busy CPU that slows one run does not decide it).
+  // under any load, so the guard is the RATIO (median of three at each size: the minimum is optimistic at the small size and inflated the ratio on a loaded CPU, one slow run does not decide a median).
   // The small time is floored at 2 ms so a sub-millisecond case cannot fail on timer noise; a case that is that fast at N is not a stall risk.
   const N = 20_000;
   const cases = (n: number): Record<string, string> => ({
@@ -112,28 +112,25 @@ test('R3.4 secret scrubbing and key detection scale linearly on hostile inputs (
     priv: 'private key '.repeat(n / 12), words: 'word '.repeat(n / 5), ws: ' '.repeat(n) + 'x', nl: '\n'.repeat(n), under: 'a_'.repeat(n / 2) + '=',
     colon: 'password:'.repeat(n / 9), quote: '"'.repeat(n), tokenquote: 'token"'.repeat(n / 6), tokenws: 'token' + ' '.repeat(n),
   });
-  const best = (s: string): number => {
-    let ms = Infinity;
+  const median = (s: string): number => {
+    const runs: number[] = [];
     for (let k = 0; k < 3; k++) {
       const t0 = performance.now();
       scrubSecrets(s, { keepHex: true, exact: ['abcdefghijkl'] });
       findForbiddenSecret(s);
-      ms = Math.min(ms, performance.now() - t0);
+      runs.push(performance.now() - t0);
     }
-    return ms;
+    return runs.sort((a, b) => a - b)[1]!;
   };
   const small = cases(N);
   const big = cases(4 * N);
-  for (const s of Object.values(small)) best(s); // warm up the regex engine and the JIT
-  // KNOWN (found while writing this guard, product code left alone): these three shapes are already quadratic in the RULES regexes of
-  // scrubSecrets (~x16, ~0.1 s at the 20k body cap, ~1.7 s at 80k). They are bounded by the input caps, so they are held to "no worse than now"
-  // (x24) instead of "linear" (x8); every other shape must stay linear. Remove this set when the rules are fixed.
-  const knownQuadratic = new Set(['token', 'secret_eq', 'http']);
+  for (const s of Object.values(small)) median(s); // warm up the regex engine and the JIT
   const slow: string[] = [];
   for (const name of Object.keys(small)) {
-    const t1 = Math.max(best(small[name]!), 2);
-    const t4 = best(big[name]!);
-    if (t4 / t1 > (knownQuadratic.has(name) ? 24 : 8)) slow.push(`${name}: ${t1.toFixed(1)} ms at ${N} chars, ${t4.toFixed(1)} ms at ${4 * N} (x${(t4 / t1).toFixed(1)}; linear is x4, quadratic x16)`);
+    const t1 = Math.max(median(small[name]!), 2);
+    const t4 = median(big[name]!);
+    // a ratio of two millisecond timings is noise: only call it slow when the big input also takes a visible time (the old quadratic shapes took 1.7 s here)
+    if (t4 / t1 > 8 && t4 > 150) slow.push(`${name}: ${t1.toFixed(1)} ms at ${N} chars, ${t4.toFixed(1)} ms at ${4 * N} (x${(t4 / t1).toFixed(1)}; linear is x4, quadratic x16)`);
   }
   assert.deepEqual(slow, []);
 });

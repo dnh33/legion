@@ -1,5 +1,6 @@
 import { openSettings, useStore } from '../store';
 import { Icon } from '../components/icons';
+import { visibleNotices } from './copy';
 import { lightLabel, runBlenderLaunch, useBlender } from './blenderStore';
 import './blender.css';
 
@@ -11,7 +12,8 @@ export function BlenderCard() {
   if (!st) return null;
   if (!st.enabled && selAgent !== 'sculptor') return null;
   const { label, tone } = lightLabel(st.light);
-  const live = st.light === 'connected';
+  const live = st.connected;
+  const notices = visibleNotices(st);
 
   return (
     <section className="card computer blender-card" aria-label="Blender">
@@ -34,13 +36,15 @@ export function BlenderCard() {
           </div>
         </div>
       )}
-      {st.enabled && st.notices && st.notices.length > 0 && (
-        <ul className="bl-notices" aria-label="Limits and warnings">{st.notices.map((n, i) => <li key={i}>{n}</li>)}</ul>
+      {st.enabled && notices.length > 0 && (
+        <ul className="bl-notices" aria-label="Limits and warnings">{notices.map((n, i) => <li key={i}>{n}</li>)}</ul>
       )}
       {st.enabled && (
         <div className="bl-meta">
-          <span>Live: {live ? `${st.chosenBackend ?? ''} backend` : 'not connected'}</span>
-          <span>Sandbox: {st.sandbox === 'off' ? 'off' : st.sandboxReady ? 'ready' : 'not ready'}</span>
+          <span>Local: {st.localReady ? 'ready' : 'not found'}</span>
+          <span>Cloud VM: {st.sandbox === 'off' ? 'off' : st.sandboxReady ? 'ready' : 'not ready'}</span>
+          <span>Live: {live ? `connected (${st.chosenBackend ?? ''} backend)` : 'not connected'}</span>
+          {st.busy && <span>Running a script ({st.busy.mode === 'sandbox' ? 'cloud VM' : st.busy.mode})</span>}
           {(st.stats.approved + st.stats.denied + st.stats.blocked > 0) && <span>{st.stats.approved} ok {'·'} {st.stats.denied} denied {'·'} {st.stats.blocked} blocked</span>}
         </div>
       )}

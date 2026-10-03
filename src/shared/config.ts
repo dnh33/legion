@@ -7,6 +7,8 @@ import { defaultBlenderConfig, normalizeBlender } from './blender.js';
 import type { BlenderConfig } from './blender.js';
 import { MAX_ROOM_BUDGET_USD } from './comms.js';
 import type { LegionConfig } from './types.js';
+import { DEFAULT_PROVIDERS, normalizeProviders } from '../core/providers/config.js';
+import type { ProvidersConfig } from '../core/providers/types.js';
 export { MAX_ROOM_BUDGET_USD };
 
 export const VERSION = '0.2.0';
@@ -37,7 +39,23 @@ export interface CommsConfig {
   /** What one turn is assumed to cost in a room with no turn history, for the budget guard that stops BEFORE a wake. Default 0.02. */
   turnCostFloorUsd: number;
 }
-export type CoreConfig = LegionConfig & { bsv: BsvConfig; comms: CommsConfig; blender: BlenderConfig };
+/** Switches for work that is built but not part of a release yet. Set only by editing config.json (no UI, no route writes it). Empty now: providers shipped, see FeaturesConfig. */
+export interface ExperimentalConfig {}
+export function normalizeExperimental(_v: unknown): ExperimentalConfig {
+  return {};
+}
+
+/**
+ * Switches for features that are ON by default. Set only by editing config.json (no UI, no route writes it). Only the literal `false` turns one off:
+ * a missing key, `true`, "false" as text, 0 or anything else leaves it on.
+ */
+export interface FeaturesConfig { projectBoard: boolean; providers: boolean }
+export function normalizeFeatures(v: unknown): FeaturesConfig {
+  const o = (v && typeof v === 'object' ? v : {}) as { projectBoard?: unknown; providers?: unknown };
+  return { projectBoard: o.projectBoard !== false, providers: o.providers !== false };
+}
+
+export type CoreConfig = LegionConfig & { bsv: BsvConfig; comms: CommsConfig; blender: BlenderConfig; providers: ProvidersConfig; experimental: ExperimentalConfig; features: FeaturesConfig };
 
 /** The least a room's budget can be (below it one turn cannot fit). The hub, the settings dialogs and the bot-room limits all use it. */
 export const MIN_ROOM_BUDGET_USD = 0.05;
@@ -93,6 +111,9 @@ export function defaultConfig(): CoreConfig {
     bsv: { enabled: false, network: 'testnet' },
     comms: { ...DEFAULT_COMMS },
     blender: defaultBlenderConfig(),
+    providers: { ...DEFAULT_PROVIDERS, entries: {} },
+    experimental: {},
+    features: { projectBoard: true, providers: true },
   };
 }
 
@@ -131,6 +152,9 @@ export function loadConfig(): CoreConfig {
   cfg.bsv = normalizeBsv(cfg.bsv);
   cfg.comms = normalizeComms(cfg.comms);
   cfg.blender = normalizeBlender(cfg.blender);
+  cfg.providers = normalizeProviders(cfg.providers);
+  cfg.experimental = normalizeExperimental(cfg.experimental);
+  cfg.features = normalizeFeatures(cfg.features);
   if (process.env.LEGION_PORT) cfg.port = Number(process.env.LEGION_PORT);
   if (!cfg.boat.apiKey && process.env.BOAT_API_KEY) cfg.boat.apiKey = process.env.BOAT_API_KEY;
   if (cfg.claude.auth === 'api-key' && !cfg.claude.apiKey && process.env.ANTHROPIC_API_KEY) {

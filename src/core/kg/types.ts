@@ -18,6 +18,8 @@ export interface RunContext {
   /** True once the run touched outside content. Sticky; read at every write. */
   taint?: () => boolean;
   quota?: TaskQuota;
+  /** The project this run belongs to (engine-resolved): lets it see and write that project's notes and no other project's. */
+  projectId?: string;
   /** Called by the tool layer after kg_capture or kg_wm_set actually stored something (a refused call does not count). */
   saved?: () => void;
 }

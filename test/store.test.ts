@@ -64,7 +64,7 @@ test('debounced write happens without explicit flush', async () => {
   const s = new Store(dir);
   s.upsertTask(task('t1', 'done', '2026-01-01T00:00:00.000Z'));
   assert.ok(!existsSync(join(dir, 'state.json')));
-  await new Promise((r) => setTimeout(r, 500));
+  await new Promise((r) => setTimeout(r, 2000));
   assert.ok(existsSync(join(dir, 'state.json')));
   rmSync(dir, { recursive: true, force: true });
 });

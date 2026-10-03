@@ -19,6 +19,10 @@
  * VM sandbox exist because of those limits.
  */
 import { createHash } from 'node:crypto';
+import { countLines } from '../../shared/blender.js';
+
+/** Lines as a person counts them (a trailing newline is not a line). Defined in shared/blender.ts so the card can use the same value. */
+export { countLines };
 
 export const MAX_SCRIPT_BYTES = 100_000;
 const MAX_TOKENS = 60_000;
@@ -877,7 +881,7 @@ export function checkScript(source: string, opts: CheckOptions): CheckResult {
   const lines = source.split(/\r\n|\r|\n/);
   const bytes = Buffer.byteLength(source, 'utf8');
   const ctx: Ctx = { opts, lines, findings: [], notes: new Set(), seen: new Set() };
-  const done = (): CheckResult => ({ ok: ctx.findings.length === 0, findings: ctx.findings, notes: [...ctx.notes], lines: lines.length, bytes });
+  const done = (): CheckResult => ({ ok: ctx.findings.length === 0, findings: ctx.findings, notes: [...ctx.notes], lines: countLines(source), bytes });
   if (!source.trim()) { block(ctx, 'empty', 1, 'the script is empty'); return done(); }
   if (bytes > MAX_SCRIPT_BYTES) { block(ctx, 'size', 1, `the script is ${bytes} bytes; the limit is ${MAX_SCRIPT_BYTES}. Split it into smaller scripts`); return done(); }
   if (source.includes('\0')) { block(ctx, 'control', 1, 'the script holds a NUL character'); return done(); }

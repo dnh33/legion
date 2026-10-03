@@ -314,6 +314,38 @@ export class AuditLog {
     return out.sort((a, b) => (Date.parse(a.ts) || 0) - (Date.parse(b.ts) || 0) || a.seq - b.seq);
   }
 
+  /**
+   * Like `entries`, but only from files whose hash chain verifies in full (a file that is too large to read whole, unreadable, or broken
+   * contributes nothing; the current file must also end where this process left it). Use this, never `entries`, for anything that CLEARS or
+   * RELAXES a state (such as an unknown outcome): the lenient reader may only ever add blocks, because a forged line in a broken file
+   * must not be able to say "this was resolved".
+   */
+  verifiedEntries(filter: (e: AuditEntry) => boolean = () => true, sinceMs = 0): AuditEntry[] {
+    const seen = new Set<string>();
+    const out: AuditEntry[] = [];
+    let budget = AUDIT_LIMITS.scanBytes;
+    for (const f of this.allFiles()) {
+      if (budget <= 0) break;
+      let text = '';
+      try {
+        const size = statSync(f).size;
+        if (size > AUDIT_LIMITS.scanFileBytes || size > budget) continue; // cannot verify what is not read whole
+        text = readFileSync(f, 'utf8');
+        budget -= size;
+      } catch { continue; }
+      const rep = verifyText(text);
+      if (!rep.ok) continue;
+      if (f === this.file && this.known && this.headSeq >= 0 && rep.entries > 0 && (rep.lastSeq !== this.headSeq || rep.lastHash !== this.headHash)) continue;
+      for (const j of rep.parsed) {
+        if (seen.has(j.hash)) continue;
+        seen.add(j.hash);
+        if (sinceMs && !(Date.parse(j.ts) >= sinceMs)) continue;
+        if (filter(j)) out.push(j);
+      }
+    }
+    return out.sort((a, b) => (Date.parse(a.ts) || 0) - (Date.parse(b.ts) || 0) || a.seq - b.seq);
+  }
+
   /** A torn last line stays in the file (it is evidence of a crash) but the next entry must start on a new line. */
   private sealTornTail(): void {
     try { appendFileSync(this.file, '\n', { mode: 0o600 }); } catch { /* the next append retries the newline check */ }

@@ -1,5 +1,5 @@
 Legion
-Copyright (c) 2026 Legion contributors. Licensed under the MIT License (see LICENSE).
+Copyright 2026 Daniel Hjermitslev. Licensed under the Apache License, Version 2.0 (see LICENSE).
 
 This file lists attribution for third-party material that Legion uses or bundles.
 
@@ -37,10 +37,10 @@ Legion's optional Blender bridge downloads its parts only when you press Set up 
 repository or its history.
 - Blender Lab MCP server (official). GPL-3.0-or-later. Downloaded from its official source (a pinned release
   archive with a pinned sha256) into your Legion data folder. It stays a separate program that Legion talks to
-  over stdio and a local socket. Legion's own code is not a derivative of it and remains MIT.
+  over stdio and a local socket. Legion's own code is not a derivative of it and remains Apache-2.0.
 - Community Blender MCP add-on. MIT. Downloaded from its upstream address (trust on first use) and installed into
   your own Blender.
-- Blender itself (GPL) is only downloaded inside your own cloud VM, if you choose the VM sandbox.
+- Blender itself (GPL-3.0-or-later) is a separate program. It is downloaded, never bundled: inside your own cloud VM if you choose the VM, and on this computer only if you press Get Blender for Legion in Settings and approve the card (one pinned official portable build, kept in Legion's data folder with its licence files and a source link). Legion never changes it.
 Get a proper licence check before you redistribute a build that includes any of these downloads.
 See docs/BLENDER.md.
 
@@ -71,4 +71,4 @@ The bundled files are WOFF2 variable-font builds. The fonts are not sold by them
 Artwork
 -------
 The Relic mascot, the app icon and the other artwork under docs/art/ and assets/ are original to this project
-and are covered by the MIT License.
+and are covered by the Apache License, Version 2.0.

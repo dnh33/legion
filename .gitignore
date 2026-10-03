@@ -10,3 +10,15 @@ docs/video/frames/
 docs/video/score.wav
 __pycache__/
 test-perf/chat-ui/shots/
+/runtime/
+docs/video-v2/.tmp-render/
+docs/video/*.gif
+docs/video/*.png
+docs/video-v2/*.mp4
+docs/video-v2/*.gif
+docs/video-v2/*.png
+docs/video-v2/frames/
+docs/video-v2/score.wav
+docs/video-v2/shots/*.png
+docs/screenshots/
+docs/images/relic.png

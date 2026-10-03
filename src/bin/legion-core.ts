@@ -1,7 +1,11 @@
 #!/usr/bin/env node
 /** Legion Core composition root. */
+import { ProviderRuntime } from '../core/providers/runtime.js';
+import { ProviderKeys, keyFileFor } from '../core/providers/secrets.js';
+import { createProvidersModule } from '../core/providers/routes.js';
 import { appendFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { configPath, dataDir, loadConfig, scrubHostSessionEnv, VERSION } from '../shared/config.js';
 import { readLaunchSecrets } from '../core/admin.js';
 import { ApprovalBroker } from '../core/approvals.js';
@@ -11,12 +15,18 @@ import { makeBoatGetter, SettingsService } from '../core/settings.js';
 import { runDoctor } from '../core/doctor.js';
 import { Engine } from '../core/engine.js';
 import { createServer } from '../core/server.js';
+import { listenLoopback } from '../core/net-guard.js';
 import { createBlenderModule } from '../core/blender/index.js';
+import { createBrowserModule } from '../core/browser/index.js';
 import { createBsvModule, createBsvState } from '../core/bsv/index.js';
 import { createCommsModule } from '../core/comms/index.js';
 import { createKnowledgeModule } from '../core/kg/index.js';
+import { createUpdaterModule } from '../core/updater/index.js';
+import { createProjectsModule, ProjectStore } from '../core/projects/index.js';
+import { BoardStore, createBoardModule, graphNotes } from '../core/projects/board/index.js';
 import type { ModuleDeps } from '../core/modules.js';
 import { Store } from '../core/store.js';
+import { isPackageInstall } from '../electron/resolve-node.js';
 import { VmManager } from '../core/vm-manager.js';
 
 const logFile = join(dataDir(), 'core.log');
@@ -46,7 +56,12 @@ async function main() {
 
   const vms = new VmManager({ store, bus, getBoat, boatConfig: () => config.boat });
   const approvals = new ApprovalBroker(bus);
-  const engine = new Engine({ store, bus, vms, approvals, config, boatConfigured });
+  // other model providers (OpenAI-compatible endpoints); keys live in <dataDir>/providers/keys.json, never in config.json
+  // providers ship (OpenRouter on by default); off only if config.json sets features.providers = false
+  const providerRuntime = config.features.providers ? new ProviderRuntime({ config, keys: new ProviderKeys(keyFileFor(dataDir())) }) : undefined;
+  // projects (owner-only groups of tasks, rooms, notes; own file <dataDir>/projects.json)
+  const projects = new ProjectStore(dataDir(), config.workspaceDir);
+  const engine = new Engine({ store, bus, vms, approvals, config, boatConfigured, projects, ...(providerRuntime ? { providers: providerRuntime } : {}) });
   // lets ask/tell check a per-task model against what the account offers
   engine.bridge.catalog = () => getCatalog({ config });
   let stopReaper: () => void = () => {};
@@ -57,7 +72,8 @@ async function main() {
     vms.health.reset();
     if (keyChanged && boatConfigured()) void vms.health.probe().catch(() => undefined);
   };
-  const settings = new SettingsService({ config, bus, configPath: configPath(), dataDir: dataDir(), onBoatChange: () => restartReaper(true) });
+  const installRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
+  const settings = new SettingsService({ config, bus, configPath: configPath(), dataDir: dataDir(), install: { dir: installRoot, packaged: isPackageInstall(installRoot) }, onBoatChange: () => restartReaper(true) });
   // BSV mode v0 (knowledge and visibility only; no wallet). The flag lives in config.json under "bsv".
   const bsvState = createBsvState({ dataDir: dataDir(), config });
   const bsvEnabled = () => bsvState.enabled;
@@ -66,13 +82,22 @@ async function main() {
   // (creating the BSV module also tells the engine's agent bridge to hide agents that are switched off)
   const bsv = createBsvModule(moduleDeps, { state: bsvState, kg, log, nativeSecret });
   const blender = createBlenderModule(moduleDeps, { vms, boatConfigured, log });
-  const modules = [kg, createCommsModule(moduleDeps), bsv, blender];
+  // In-app updates (plan: claude/plan-updater.md): checks and stages a signed release; main applies it when the core is idle. No overrides are passed here.
+  const updater = createUpdaterModule(moduleDeps, {
+    root: installRoot, nativeSecret, log,
+    probes: { 'a Blender download or setup is running': async () => !!((await blender.status(false)) as { getting?: boolean }).getting },
+  });
+  const providersModules = providerRuntime ? [createProvidersModule({ runtime: providerRuntime, configPath: configPath(), nativeSecret })] : [];
+  // project board: ON by default (owner decision 2026-10-03). Only the literal `false` under "features.projectBoard" in config.json turns it off; then none of it is built (no files, routes, tools or screen).
+  const board = config.features.projectBoard ? new BoardStore(join(dataDir(), 'board')) : undefined;
+  const boardModules = board ? [createBoardModule(moduleDeps, { projects, board, notes: graphNotes(() => kg.graph()) })] : [];
+  const modules = [kg, createCommsModule(moduleDeps, { projects }), createProjectsModule(moduleDeps, { projects, nativeSecret }), ...boardModules, bsv, blender, ...providersModules, updater, createBrowserModule(moduleDeps, { nativeSecret, log })];
   engine.setModules(modules);
   const server = createServer({
     config, store, bus, engine, vms, approvals, boatConfigured, modules, bsvEnabled,
     doctor: () => runDoctor({ config, getBoat, health: vms.health }),
     catalog: (force) => getCatalog({ config }, { force }),
-    settings, adminSecret,
+    settings, adminSecret, projects, ...(board ? { board } : {}),
   });
 
   restartReaper();
@@ -84,11 +109,11 @@ async function main() {
     }
     log('server error', err);
   });
-  server.listen(config.port, '127.0.0.1', () => {
+  listenLoopback(server, config.port, () => {
     log(`Legion Core ${VERSION} on http://127.0.0.1:${config.port}  (config: ${configPath()})`);
     // BSV mode already on: bring the pack up to the bundled version without anyone toggling (never blocks, never throws)
     void bsv.start();
-  });
+  }, (addr) => { log('refusing to run: the server bound a non-loopback address', addr); process.exit(4); });
 
   const shutdown = async (sig: string) => {
     log(`shutting down (${sig})`);
@@ -97,6 +122,7 @@ async function main() {
     for (const id of engine.running()) engine.cancel(id);
     server.close();
     await store.flush();
+    await projects.flush();
     process.exit(0);
   };
   process.on('SIGINT', () => void shutdown('SIGINT'));

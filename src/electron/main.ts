@@ -6,7 +6,14 @@ import { closeSync, existsSync, mkdirSync, openSync, readFileSync } from 'node:f
 import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { adminForRenderer, bsvConfirmation, bsvPreflight, coreAction, coreIsBusy, dialogText, killPlan, listenerCommands, listenerPids, parseBsvAction, trustedSender, type BsvAction, type BsvPolicyFacts, type CoreHealth } from './admin-logic.js';
+import { initUpdater, recoverAtStart } from './updater-main.js';
+import { adminForRenderer, bsvConfirmation, bsvPreflight, coreAction, coreIsBusy, createSpendNative, dialogText, isSpendAction, killPlan, listenerCommands, listenerPids, netChangeProblem, parseBsvAction, SPEND_POLL_MS, trustedSender, type BsvAction, type BsvPolicyFacts, type CoreHealth } from './admin-logic.js';
+import { makeConfirm, providerChange } from './provider-ipc.js';
+import { coreStartHint, resolveCoreLaunch } from './resolve-node.js';
+import { projectChange } from './project-ipc.js';
+import { browserChange } from './browser-ipc.js';
+import type { ProjectChangeResult } from './project-ipc.js';
+import type { ProviderChangeResult } from './provider-ipc.js';
 
 const here = dirname(fileURLToPath(import.meta.url)); // <root>/dist/src/electron
 const root = resolve(here, '..', '..', '..');
@@ -139,7 +146,7 @@ async function waitPortFree(port: number, ms = 6000): Promise<boolean> {
 
 /** Returns null on success, or a human-readable error. */
 async function spawnCore(port: number): Promise<string | null> {
-  const nodeBin = process.env.LEGION_NODE || 'node';
+  const launch = resolveCoreLaunch(root);
   let out: number | 'ignore' = 'ignore';
   try { out = openSync(join(dataDir(), 'core.log'), 'a'); } catch { /* ignore */ }
   try {
@@ -147,14 +154,14 @@ async function spawnCore(port: number): Promise<string | null> {
     // A fresh secret for every core we start (a tray restart rotates it). It goes over the stdin pipe only.
     const secret = randomBytes(32).toString('hex');
     const native = randomBytes(32).toString('hex');
-    const child = spawn(nodeBin, [coreEntry], {
+    const child = spawn(launch.cmd, [coreEntry], {
       cwd: root,
       stdio: ['pipe', out, out],
       windowsHide: true,
       // Off Windows the core leads its own process group, so stopping it also stops anything a `node` shim started in front of it.
       detached: process.platform !== 'win32',
       // LEGION_PORT pins the port we just chose: the core listens exactly there even if config.json is edited meanwhile.
-      env: { ...process.env, LEGION_ADMIN_STDIN: '1', LEGION_PORT: String(port) },
+      env: { ...process.env, ...launch.env, LEGION_ADMIN_STDIN: '1', LEGION_PORT: String(port) },
     });
     coreProc = child;
     adminSecret = secret;
@@ -164,8 +171,8 @@ async function spawnCore(port: number): Promise<string | null> {
     child.stdin?.end(secret + '\n' + native + '\n');
     child.on('error', (err: NodeJS.ErrnoException) => {
       coreProc = null;
-      failure = err.code === 'ENOENT'
-        ? 'Node.js 20+ not found on PATH. Install: winget install OpenJS.NodeJS.LTS (or set LEGION_NODE).'
+      failure = err.code === 'ENOENT' || (launch.mode === 'package' && ['EPERM', 'EACCES', 'UNKNOWN'].includes(err.code ?? ''))
+        ? coreStartHint(launch.mode, err.code)
         : `Could not start core: ${err.message || err}`;
     });
     child.on('exit', (code) => {
@@ -254,7 +261,7 @@ async function restartCore(): Promise<void> {
 }
 
 /** A request to our own core, with the admin secret (and the native secret when asked). undefined = we hold no proven core of our own. */
-async function ownCoreCall(method: 'GET' | 'POST', route: string, body?: unknown, native = false): Promise<{ status: number; json: any } | undefined> {
+async function ownCoreCall(method: 'GET' | 'POST' | 'PUT', route: string, body?: unknown, native = false): Promise<{ status: number; json: any } | undefined> {
   const live = !!coreProc && coreProc.exitCode === null;
   if (!live || !adminSecret || !rendererAdmin || !pinned) return undefined; // only a core that proved it holds our secret ever sees it
   const headers: Record<string, string> = { 'X-Legion-Admin': adminSecret };
@@ -264,6 +271,29 @@ async function ownCoreCall(method: 'GET' | 'POST', route: string, body?: unknown
     const r = await fetch(`http://127.0.0.1:${pinned.port}${route}`, { method, headers, body: body === undefined ? undefined : JSON.stringify(body), signal: AbortSignal.timeout(5000) });
     return { status: r.status, json: await r.json().catch(() => ({})) };
   } catch { return undefined; }
+}
+
+/**
+ * Spend reviews. Main polls the core's pending route itself (only while BSV mode is on), reads each card from the core, words the native
+ * dialogs from it and sends the core the hash it read. The window can only name a request id. One dialog at a time (the lock is shared with
+ * every other confirmation), in the order the cards arrived.
+ */
+const spendNative = createSpendNative({
+  core: (method, route, body, native) => ownCoreCall(method, route, body, native),
+  dialog: async (opts) => {
+    // a hidden or closed window must not hide the question: without a visible parent the dialog is shown on its own
+    const r = win && !win.isDestroyed() && win.isVisible() ? await dialog.showMessageBox(win, { ...opts, buttons: [...opts.buttons] }) : await dialog.showMessageBox({ ...opts, buttons: [...opts.buttons] });
+    return r.response;
+  },
+  acquire: () => { if (bsvDialogOpen) return false; bsvDialogOpen = true; return true; },
+  release: () => { bsvDialogOpen = false; },
+  changed: () => { try { if (win && !win.isDestroyed()) win.webContents.send('legion:bsv-changed'); } catch { /* the window is gone */ } },
+  bsvOn: async () => { const r = await ownCoreCall('GET', '/api/bsv'); return r?.status === 200 && (r.json as { enabled?: unknown } | undefined)?.enabled === true; },
+});
+let spendTimer: ReturnType<typeof setInterval> | undefined;
+function startSpendPoll(): void {
+  if (spendTimer) return;
+  spendTimer = setInterval(() => { void spendNative.tick().catch(() => undefined); }, SPEND_POLL_MS);
 }
 
 export interface BsvChangeResult { ok: boolean; error?: string; cancelled?: boolean; view?: unknown }
@@ -276,6 +306,11 @@ export interface BsvChangeResult { ok: boolean; error?: string; cancelled?: bool
 async function bsvPolicyChange(raw: unknown): Promise<BsvChangeResult> {
   const action: BsvAction | undefined = parseBsvAction(raw);
   if (!action) return { ok: false, error: 'That request was not understood.' };
+  if (isSpendAction(action)) {
+    // the id is all the window gave; the card, the hash and every word in the dialog come from the core, read here
+    const res = action.kind === 'spend-review' ? await spendNative.review(action.requestId) : action.kind === 'spend-deny' ? await spendNative.deny(action.requestId) : await spendNative.resolve(action.requestId);
+    return res;
+  }
   const current = await ownCoreCall('GET', '/api/bsv/policy');
   if (!current || current.status !== 200) return { ok: false, error: 'Legion could not reach its own core to change BSV policy. Restart Legion.' };
   const facts = current.json as BsvPolicyFacts;
@@ -302,6 +337,8 @@ async function bsvPolicyChange(raw: unknown): Promise<BsvChangeResult> {
   if (!res) return { ok: false, error: 'Legion could not reach its own core.' };
   win?.webContents.send('legion:bsv-changed');
   if (res.status !== 200) return { ok: false, error: dialogText((res.json as { error?: unknown })?.error, 300) || `The core refused the change (${res.status}).` };
+  const problem = netChangeProblem(action, res.json); // the confirmed network is the one that changed
+  if (problem) return { ok: false, error: problem };
   return { ok: true, view: res.json };
 }
 
@@ -423,6 +460,7 @@ async function boot(): Promise<void> {
   if (splash && !splash.isDestroyed()) { splash.removeAllListeners('closed'); splash.destroy(); }
   splash = null;
   if (!tray) createTray();
+  startSpendPoll();
   const mainWin = win as BrowserWindow | null;
   mainWin?.show();
   mainWin?.focus();
@@ -466,17 +504,38 @@ if (!app.requestSingleInstanceLock()) {
     if (!win || win.isDestroyed() || (e as { sender?: unknown }).sender !== win.webContents || !trustedSender(frameUrl, uiUrl)) return { ok: false, error: 'Refused: not the Legion window.' };
     try { return await bsvPolicyChange(raw); } catch { return { ok: false, error: 'The change failed.' }; }
   });
+  ipcMain.handle('legion:provider-change', async (e, raw: unknown): Promise<ProviderChangeResult> => {
+    const frameUrl = (e as { senderFrame?: { url?: string } }).senderFrame?.url;
+    if (!win || win.isDestroyed() || (e as { sender?: unknown }).sender !== win.webContents || !trustedSender(frameUrl, uiUrl)) return { ok: false, error: 'Refused: not the Legion window.' };
+    try { return await providerChange(raw, { call: ownCoreCall, confirm: makeConfirm(dialog, () => win) }); } catch { return { ok: false, error: 'The change failed.' }; }
+  });
+  ipcMain.handle('legion:project-change', async (e, raw: unknown): Promise<ProjectChangeResult> => {
+    const frameUrl = (e as { senderFrame?: { url?: string } }).senderFrame?.url;
+    if (!win || win.isDestroyed() || (e as { sender?: unknown }).sender !== win.webContents || !trustedSender(frameUrl, uiUrl)) return { ok: false, error: 'Refused: not the Legion window.' };
+    const pickFolder = async (start?: string): Promise<string | undefined> => {
+      const r = await dialog.showOpenDialog(win!, { title: 'Choose the project folder', defaultPath: start, properties: ['openDirectory', 'createDirectory'] });
+      return r.canceled ? undefined : r.filePaths[0];
+    };
+    try { return await projectChange(raw, { call: ownCoreCall, confirm: makeConfirm(dialog, () => win), pickFolder }); } catch { return { ok: false, error: 'The change failed.' }; }
+  });
+  ipcMain.handle('legion:browser-change', async (e, raw: unknown) => {
+    const frameUrl = (e as { senderFrame?: { url?: string } }).senderFrame?.url;
+    if (!win || win.isDestroyed() || (e as { sender?: unknown }).sender !== win.webContents || !trustedSender(frameUrl, uiUrl)) return { ok: false, error: 'Refused: not the Legion window.' };
+    try { return await browserChange(raw, { call: ownCoreCall, confirm: makeConfirm(dialog, () => win) }); } catch { return { ok: false, error: 'The change failed.' }; }
+  });
   ipcMain.handle('legion:open-external', (_e, url: unknown) => {
     if (typeof url === 'string' && isHttp(url)) { void shell.openExternal(url); return true; }
     return false;
   });
 
   app.on('before-quit', () => { quitting = true; });
-  app.on('will-quit', () => { void killCore(); });
+  app.on('will-quit', () => { if (spendTimer) clearInterval(spendTimer); spendTimer = undefined; void killCore(); });
   app.on('window-all-closed', () => { /* stay in tray */ });
   app.on('activate', () => showWindow());
 
   void app.whenReady().then(async () => {
+    await recoverAtStart(root); // finish or undo an update that was cut off, before the core starts
     await boot();
+    initUpdater({ installDir: root, ownCoreCall, getWin: () => win, uiUrl, pinnedPort: () => (pinned ?? readConfig()).port, stopCore: killCore, beginQuit: () => { quitting = true; app.quit(); } });
   });
 }

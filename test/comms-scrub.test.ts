@@ -78,3 +78,22 @@ test('safeName strips attribute-breaking characters', () => {
   assert.equal(safeName('Ev"il <b>\nname'), 'Ev il b name');
   assert.equal(safeName('"""'), 'unknown');
 });
+
+test('scrubSecrets: the name rule and the two URL rules are linear on hostile repeats (was quadratic: token, secret_, http://)', () => {
+  const med = (s: string): number => { const r: number[] = []; for (let i = 0; i < 3; i++) { const t = performance.now(); scrubSecrets(s); r.push(performance.now() - t); } return r.sort((a, b) => a - b)[1]!; };
+  // A quadratic scrub is ~16x slower at 4x the input (~1.7 s at 80k chars); a linear one a few ms. An absolute bound, so no ratio noise.
+  for (const [name, unit] of [['token', 'token'], ['secret_', 'secret_'], ['http', 'http://']] as const) {
+    const big = unit.repeat(80_000 / unit.length);
+    assert.ok(med(big) < 400, `${name}: scrubSecrets took ${med(big).toFixed(0)} ms on 80000 chars`);
+  }
+});
+
+test('scrubSecrets: same output after the linear rewrite (names with hyphen keywords, URL runs, bare words)', () => {
+  assert.equal(scrubSecrets('secretapi-key=12345678abc'), 'secretapi-key=[redacted]');
+  assert.equal(scrubSecrets('x-private-key: abcdefgh1'), 'x-private-key: [redacted]');
+  assert.equal(scrubSecrets('my_token = "abcdefg1"'), 'my_token = "[redacted]"');
+  assert.equal(scrubSecrets('token=12345678'), 'token=12345678'); // an all-digit value is kept, as before
+  assert.equal(scrubSecrets('see http://x.example/a?token=abc and wss://a.boat.dev/p ok'), 'see [redacted-url] and [redacted-url] ok');
+  assert.equal(scrubSecrets('https://x.example/desktop/1'), '[redacted-url]');
+  assert.equal(scrubSecrets('https://desktop.example/page'), 'https://desktop.example/page');
+});

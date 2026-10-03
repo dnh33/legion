@@ -1,15 +1,21 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import type { McpServerEntry, McpStatusView, SettingsPatch, SettingsView } from '../../../src/shared/types';
 import { api, base, openExternal, token } from '../api';
-import { checkBoat, ensureBoatChecked, closeSettings, errText, loadSettings, saveSettings, setSettingsSection as setSection, toast, useStore, type SettingsSection } from '../store';
+import { checkBoat, ensureBoatChecked, closeSettings, decide, errText, loadSettings, saveSettings, setSettingsSection as setSection, toast, useStore, type SettingsSection } from '../store';
 import { copyText } from '../util';
-import { BLENDER_LICENSE_NOTE, BLENDER_SAFETY_NOTE } from '../../../src/shared/blender';
-import { lightLabel, loadBlender, runBlenderLaunch, runBlenderSetup, runBlenderTest, saveBlenderConfig, useBlender } from '../blender/blenderStore';
+import { BLENDER_LICENSE_NOTE, GET_BLENDER_TOOL } from '../../../src/shared/blender';
+import { ASSETS_TEXT, ASSETS_TITLE, BOTH_TEXT, BOTH_TITLE, FULL_BLENDER_TEXT, GET_BLENDER_NOT_PINNED, GET_BLENDER_TEXT, LOCAL_SAFETY_NOTE, MODE_CHOICES, NOT_TRIED_LOCAL, NOT_TRIED_VM, visibleNotices } from '../blender/copy';
+import { lightLabel, loadBlender, runBlenderGet, runBlenderLaunch, runBlenderSetup, requestEnableBlender, runBlenderTest, saveBlenderConfig, useBlender } from '../blender/blenderStore';
 import '../blender/blender.css';
+import { ProvidersSection } from '../providers/ProvidersSection';
+import { loadProviders, useProviders } from '../providers/providersStore';
 import { Icon } from './icons';
+import { UpdatePanel } from './UpdatePanel';
+import { BrowserSection } from '../browser/BrowserSection';
 
 const NAV: { id: SettingsSection; label: string; hint: string }[] = [
   { id: 'claude', label: 'Claude', hint: 'Sign-in, key, runs' },
+  { id: 'providers', label: 'Providers', hint: 'Other models, optional' },
   { id: 'boat', label: 'boat.dev (VMs)', hint: 'Cloud computers' },
   { id: 'mcp', label: 'MCP servers', hint: 'Extra tools for agents' },
   { id: 'blender', label: 'Blender', hint: 'Build 3D with the Sculptor' },
@@ -21,12 +27,16 @@ export function SettingsPanel() {
   const section = useStore((s) => s.settingsSection);
   const settings = useStore((s) => s.settings);
   useEffect(() => { if (!settings) void loadSettings(); }, []);
+  // Providers ship (OpenRouter on by default); the tab shows only when the core serves the provider routes (config.json features.providers)
+  const provView = useProviders((x) => x.view);
+  useEffect(() => { void loadProviders(); }, []);
+  const nav = provView ? NAV : NAV.filter((n) => n.id !== 'providers');
   return (
     <section className="settings" aria-label="Settings">
       <nav className="set-nav" aria-label="Settings sections">
         <button className="set-back" onClick={closeSettings} aria-label="Back to chat" title="Back to chat (Esc)"><Icon name="chevron" size={13} /> <span>Back to chat</span></button>
         <h2>Settings</h2>
-        {NAV.map((n) => (
+        {nav.map((n) => (
           <button key={n.id} className={`set-link${section === n.id ? ' sel' : ''}`} aria-current={section === n.id} onClick={() => setSection(n.id)}>
             <b>{n.label}</b><span>{n.hint}</span>
           </button>
@@ -36,6 +46,7 @@ export function SettingsPanel() {
         <div className="set-body">
           {!settings ? <div className="set-loading"><span className="spin" /> Loading settings{'…'}</div> : (
             section === 'claude' ? <ClaudeSection s={settings} />
+              : section === 'providers' ? <ProvidersSection />
               : section === 'boat' ? <BoatSection s={settings} />
                 : section === 'mcp' ? <McpSection s={settings} />
                   : section === 'blender' ? <BlenderSection />
@@ -426,6 +437,7 @@ function BlenderSection() {
   const stepsTitle = useBlender((x) => x.stepsTitle);
   const error = useBlender((x) => x.error);
   const retrust = useBlender((x) => x.retrust);
+  const getApprovals = useStore((x) => x.approvals).filter((a) => a.toolName === GET_BLENDER_TOOL);
   const [port, setPort] = useState('');
   const [path, setPath] = useState('');
   useEffect(() => { void loadBlender(true); }, []);
@@ -439,12 +451,16 @@ function BlenderSection() {
   const portDirty = port !== String(st.port);
   const portOk = Number.isInteger(portNum) && portNum >= 1024 && portNum <= 65535;
   const pathDirty = path.trim() !== '';
+  const curMode = st.mode ?? (st.sandbox === 'off' ? 'live' : st.sandbox === 'vm' ? 'vm' : 'auto');
+  const liveOk = curMode === 'live' || curMode === 'auto';
+  const notices = visibleNotices(st);
+  const mg = st.managed;
   return (
     <div className="set-section">
-      <Head title="Blender" lead="The Sculptor can build 3D scenes in Blender. Every script is checked, shown to you in full and needs your OK; by default it runs in a cloud VM, not on this computer." />
+      <Head title="Blender" lead="The Sculptor can build 3D scenes in Blender. Every script is checked, shown to you in full and needs your OK. By default it runs in Blender on this computer when Blender is found." />
       <div className="set-card">
         <div className={`set-status st-${dot}`} role="status"><i className="set-dot" /><b>{label}</b><span className="muted-s">{st.summary}</span></div>
-        <label className="set-check"><input type="checkbox" checked={st.enabled} disabled={b} onChange={(e) => void saveBlenderConfig({ enabled: e.target.checked })} />
+        <label className="set-check"><input type="checkbox" checked={st.enabled} disabled={b} onChange={(e) => { if (e.target.checked) requestEnableBlender(); else void saveBlenderConfig({ enabled: false }); }} />
           <span><b>Turn on the Blender bridge</b><em>Off by default. Nothing is detected, downloaded or given to agents until you turn it on.</em></span></label>
         <div className="set-field"><span className="set-label">Backend</span>
           <div className="seg" role="radiogroup" aria-label="Blender backend">
@@ -455,14 +471,47 @@ function BlenderSection() {
           <span className="set-hint">{off ? 'Auto uses the official Blender Lab MCP for Blender 5.1+, and the community MCP for older versions.' : st.backendReason}</span>
         </div>
         <div className="set-field"><span className="set-label">Where scripts run</span>
-          <div className="seg" role="radiogroup" aria-label="Where scripts run">
-            {([['auto', 'Sandbox first'], ['vm', 'Sandbox only'], ['off', 'Live only']] as const).map(([k, t]) => (
-              <button key={k} type="button" role="radio" aria-checked={st.sandbox === k} disabled={b || off} className={st.sandbox === k ? 'on' : ''} onClick={() => void saveBlenderConfig({ sandbox: k })}>{t}</button>
+          <div className="bl-modes" role="radiogroup" aria-label="Where scripts run">
+            {MODE_CHOICES.map((c) => (
+              <button key={c.mode} type="button" role="radio" aria-checked={curMode === c.mode} disabled={b || off} className={`bl-mode${curMode === c.mode ? ' on' : ''}`} onClick={() => void saveBlenderConfig({ mode: c.mode })}>
+                <b>{c.title}</b><span>{c.text}</span>
+              </button>
             ))}
           </div>
-          <span className="set-hint">Sandbox = headless Blender in the Sculptor's boat.dev VM; only exported files come back. Live = your open Blender, each script shown as a LIVE card. {st.sandboxReady ? 'Sandbox is ready.' : st.sandboxNote}</span>
+          <span className="set-hint" aria-live="polite">{st.nextRun ? `Next script runs: ${st.nextRun.replace(/^[Nn]ext script runs?:?\s*/, '')}` : st.sandboxReady ? 'Cloud VM is ready.' : st.sandboxNote}</span>
         </div>
-        <div className="bl-note warn"><b>Sandbox mode is unverified.</b> It has not been tried on a real boat.dev VM yet (Blender in the VM, rendering, file return). Use Test after Set up and check docs/BLENDER.md for the list of checks.</div>
+        <div className="set-field">
+          <label className="set-check"><input type="checkbox" checked={st.both?.enabled === true} disabled={b || off} onChange={(e) => void saveBlenderConfig({ both: e.target.checked })} />
+            <span><b>{BOTH_TITLE}</b><em>{BOTH_TEXT}</em></span></label>
+          {st.both && st.both.enabled && <span className="set-hint" aria-live="polite">{st.both.note}{st.both.extras.length ? ` Extra tools: ${st.both.extras.join(', ')}.` : ''}</span>}
+          {st.both && st.both.enabled && (
+            <div className="bl-assets" role="group" aria-label={ASSETS_TITLE}>
+              <b>{ASSETS_TITLE}</b><span className="set-hint">{ASSETS_TEXT}</span>
+              {st.both.assets.map((a) => (
+                <label key={a.source} className="set-check"><input type="checkbox" checked={a.enabled} disabled={b || off || !a.supported} onChange={(e) => void saveBlenderConfig({ assets: { polyhaven: e.target.checked } })} />
+                  <span><b>{a.source === 'polyhaven' ? 'Poly Haven (HDRIs and models, free)' : a.source}</b>{!a.supported && <em>Not available: {a.reason}.</em>}</span></label>
+              ))}
+            </div>
+          )}
+        </div>
+        <div className="set-field bl-get"><span className="set-label">Blender for Legion</span>
+          {mg?.installed
+            ? <span className="set-hint">Installed for Legion: Blender {mg.installed.version} at {mg.installed.path}. Delete that folder to remove it.</span>
+            : <span className="set-hint">{GET_BLENDER_TEXT} {!mg?.supported ? 'Only available on Windows in this version.' : !mg.pinned ? GET_BLENDER_NOT_PINNED : `Blender ${mg.version} (${mg.channel}), about ${mg.approxMb} MB.`}</span>}
+          {getApprovals.map((a) => (
+            <div key={a.id} className="bl-get-card" role="group" aria-label="Approval needed for the Blender download">
+              <b>Needs your OK</b><pre>{a.summary}</pre>
+              <div className="set-actions"><button type="button" className="btn primary" onClick={() => void decide(a.id, true)}>Allow</button><button type="button" className="btn" onClick={() => void decide(a.id, false)}>Deny</button></div>
+            </div>
+          ))}
+          <div className="set-actions">
+            <button type="button" className="btn" disabled={b || off || !mg || !mg.supported || !mg.pinned || !!mg.installed || !!mg.getting} onClick={() => void runBlenderGet()}>{busy === 'get' || mg?.getting ? 'Waiting\u2026' : 'Get Blender for Legion'}</button>
+            <a className="btn-ghost" href={mg?.downloadPage ?? 'https://www.blender.org/download/'} target="_blank" rel="noopener noreferrer">Get full Blender</a>
+          </div>
+          <span className="set-hint">{FULL_BLENDER_TEXT}</span>
+        </div>
+        <div className="bl-note warn">{NOT_TRIED_VM} Use Test after Set up and check docs/BLENDER.md for the list of checks.</div>
+        <div className="bl-note warn">{NOT_TRIED_LOCAL} Docs and PC checks: docs/BLENDER.md, claude/tracker-pc-checks.md.</div>
         <div className="set-actions">
           <button type="button" className="btn primary" disabled={b || off} onClick={() => void runBlenderSetup('both')}>{busy === 'setup' ? 'Setting up\u2026' : 'Set up'}</button>
           <button type="button" className="btn" disabled={b || off} onClick={() => void runBlenderTest()}>{busy === 'test' ? 'Testing\u2026' : 'Test connection'}</button>
@@ -475,7 +524,7 @@ function BlenderSection() {
           <div className="bl-note warn" role="alert"><b>The {retrust} download changed.</b> It is not the file you trusted before, so nothing was installed or replaced. If you expected an update, accept it; if not, leave it and check the source.
             <div className="set-actions"><button type="button" className="btn" disabled={b} onClick={() => void runBlenderSetup('both', true)}>Trust the new download</button></div></div>
         )}
-        {st.notices && st.notices.length > 0 && <ul className="bl-notices" aria-label="Limits and warnings">{st.notices.map((n, i) => <li key={i}>{n}</li>)}</ul>}
+        {notices.length > 0 && <ul className="bl-notices" aria-label="Limits and warnings">{notices.map((n, i) => <li key={i}>{n}</li>)}</ul>}
         {steps.length > 0 && (
           <div className="set-field"><span className="set-label">{stepsTitle}</span>
             <ul className="bl-steps">{steps.map((x, i) => <li key={i} className={x.ok ? 'ok' : 'bad'}><Icon name={x.ok ? 'check' : 'x'} size={13} /><span><b>{x.step}</b>{x.detail}</span></li>)}</ul>
@@ -491,10 +540,10 @@ function BlenderSection() {
           </div>
           <details className="set-adv">
             <summary>Advanced</summary>
-            <Field id="bl-port" label="Add-on port" hint="The port Blender's add-on listens on (this computer only). Default 9876.">
+            <Field id="bl-port" label="My open Blender: add-on port" hint={`The port Blender's add-on listens on (this computer only). Default 9876.${liveOk ? '' : ' Not used while scripts are set to run on this computer or in the cloud VM.'}`}>
               <div className="set-inline">
-                <input id="bl-port" className="narrow" inputMode="numeric" value={port} onChange={(e) => setPort(e.target.value.replace(/[^\d]/g, ''))} />
-                <button type="button" className="btn" disabled={b || !portDirty || !portOk} onClick={() => void saveBlenderConfig({ port: portNum })}>Save port</button>
+                <input id="bl-port" className="narrow" inputMode="numeric" disabled={!liveOk} value={port} onChange={(e) => setPort(e.target.value.replace(/[^\d]/g, ''))} />
+                <button type="button" className="btn" disabled={b || !liveOk || !portDirty || !portOk} onClick={() => void saveBlenderConfig({ port: portNum })}>Save port</button>
               </div>
             </Field>
             <Field id="bl-path" label="Blender location" hint="Only if detection misses your install: the blender executable or its folder. Leave empty to keep the current choice.">
@@ -507,7 +556,7 @@ function BlenderSection() {
           </details>
         </div>
       )}
-      <div className="bl-note"><b>Safety.</b> {BLENDER_SAFETY_NOTE}</div>
+      <div className="bl-note"><b>Safety.</b> {LOCAL_SAFETY_NOTE}</div>
       <div className="bl-note"><b>Licence.</b> {BLENDER_LICENSE_NOTE}</div>
     </div>
   );
@@ -517,8 +566,11 @@ function ConnectionsSection({ s }: { s: SettingsView }) {
   const mask = '\u2022'.repeat(12);
   const cmd = (t: string) => `claude mcp add --transport http legion ${base}/mcp --header "Authorization: Bearer ${t}"`;
   // Claude Desktop only speaks stdio, so it goes through the small bridge script that ships with Legion
-  const dir = ((s as SettingsView & { installDir?: string }).installDir ?? '%LOCALAPPDATA%/Programs/Legion').replace(/\\/g, '/').replace(/\/$/, '');
-  const json = JSON.stringify({ mcpServers: { legion: { command: 'node', args: [`${dir}/dist/src/bin/legion-mcp-stdio.js`] } } }, null, 2);
+  const dir = (s.install?.dir ?? '%LOCALAPPDATA%/Programs/Legion').replace(/\\/g, '/').replace(/\/$/, '');
+  // A prebuilt package has no system Node: the bridge runs on Legion's own Electron in node mode (the env entry switches that on).
+  const json = JSON.stringify({ mcpServers: { legion: s.install?.packaged
+    ? { command: `${dir}/runtime/electron/electron.exe`, args: [`${dir}/dist/src/bin/legion-mcp-stdio.js`], env: { ELECTRON_RUN_AS_NODE: '1' } }
+    : { command: 'node', args: [`${dir}/dist/src/bin/legion-mcp-stdio.js`] } } }, null, 2);
   return (
     <div className="set-section">
       <Head title="Connections" lead="Drive your agents from Claude Code, Claude Desktop or Cowork." />
@@ -540,6 +592,8 @@ function AboutSection({ s }: { s: SettingsView }) {
           <div key={k}><dt>{k}</dt><dd><code>{v}</code>{copy && <button type="button" className="btn-ghost sm" onClick={() => void copyText(v).then((ok) => ok && toast('Copied'))}><Icon name="copy" size={12} /> Copy</button>}</dd></div>
         ))}
       </dl>
+      <UpdatePanel />
+      <BrowserSection />
     </div>
   );
 }

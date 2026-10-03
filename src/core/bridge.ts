@@ -22,6 +22,11 @@ export interface BridgeStartParams {
   modelOverrideBy?: string;
   /** The prompt carries text from a tainted source (for example room history written by a tainted bot): the task starts tainted. */
   tainted?: boolean;
+  /**
+   * The project of the task, when the caller may name one: the app (source 'ui') and a room's own wake (source 'bot'). `null` clears it.
+   * Every other source (MCP, ask/tell, cli) is ignored here: a bridge run inherits its caller's project inside the engine, only for members.
+   */
+  projectId?: string | null;
   /** `fromTaskId` (replies only) is the task whose result this message carries, so its taint can follow it. */
   bridge?: { fromAgentId: string; parentTaskId?: string; header?: string; reply?: boolean; hop?: number; fromTaskId?: string };
 }
@@ -110,9 +115,8 @@ export class Bridge {
    * read, one the account offers. An unreadable catalog never vetoes. Returns the normalised alias, or undefined for none.
    */
   async resolveModel(v: unknown): Promise<ModelChoice | undefined> {
-    if (v === undefined || v === null) return undefined;
-    const m = typeof v === 'string' ? v.trim().toLowerCase() : '';
-    if (!(OVERRIDE_MODELS as readonly string[]).includes(m)) throw new BridgeError(`model must be one of: ${OVERRIDE_MODELS.join(', ')}`);
+    const m = this.normaliseModel(v);
+    if (m === undefined) return undefined;
     if (m === 'auto' || !this.catalog) return m;
     let c: Catalog | undefined;
     try { c = await this.catalog(); } catch { return m; }
@@ -123,12 +127,17 @@ export class Bridge {
     return m;
   }
 
-  /** The synchronous half of resolveModel, for callers that cannot await (Bridge.ask/tell guard themselves with it). */
-  private checkModel(v: unknown): ModelChoice | undefined {
+  /** One home for the override-model validation: undefined/null → undefined, else the trimmed lowercase alias that must be in OVERRIDE_MODELS. */
+  private normaliseModel(v: unknown): ModelChoice | undefined {
     if (v === undefined || v === null) return undefined;
     const m = typeof v === 'string' ? v.trim().toLowerCase() : '';
     if (!(OVERRIDE_MODELS as readonly string[]).includes(m)) throw new BridgeError(`model must be one of: ${OVERRIDE_MODELS.join(', ')}`);
     return m;
+  }
+
+  /** The synchronous half of resolveModel, for callers that cannot await (Bridge.ask/tell guard themselves with it). */
+  private checkModel(v: unknown): ModelChoice | undefined {
+    return this.normaliseModel(v);
   }
 
   /** A per-task model is capped at the target agent's own setting (see model-cap.ts): a lead cannot upgrade a peer to something dearer than its owner chose. */

@@ -66,7 +66,6 @@ function set(p: Partial<RoomsState> | ((s: RoomsState) => Partial<RoomsState>)) 
 }
 function sub(l: () => void) { listeners.add(l); return () => { listeners.delete(l); }; }
 export function useRooms<T>(selector: (s: RoomsState) => T): T { return useSyncExternalStore(sub, () => selector(state)); }
-export const getRooms = () => state;
 
 const errText = (e: unknown) => (e instanceof ApiError || e instanceof Error ? e.message : String(e));
 const byRecent = (a: Room, b: Room) => b.updatedAt.localeCompare(a.updatedAt);

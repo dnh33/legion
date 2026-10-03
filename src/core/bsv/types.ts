@@ -1,5 +1,7 @@
-/** Types of the BSV mode v0 module (knowledge and visibility only). */
+import type { SeedSummary } from '../kg/seed.js';
+/** Types of the BSV mode module. */
 
+/** Legion's knowledge mode. It is always testnet; the network a spend is for is `Net` (networks.ts) and comes from the wallet's own claim at request time. */
 export type BsvNetwork = 'testnet';
 
 export type BsvSeedStatus = 'loaded' | 'upgraded' | 'repaired' | 'already-loaded' | 'no-kg' | 'error';
@@ -31,13 +33,26 @@ export interface BsvStatus {
   network: BsvNetwork;
   /** The Assayer exists in the store (it is only listed while enabled). */
   assayerAvailable: boolean;
-  /** At least one bsv-scope node is visible in the knowledge graph (always false while off: the scope is hidden). */
+  /** At least one live bsv-scope note is in the knowledge graph (false while off: the scope is hidden, and false when the count is unknown). */
   knowledgeLoaded: boolean;
-  /** Number of visible bsv-scope nodes (0 while off). */
-  knowledgeNodes: number;
+  /** Number of LIVE bsv-scope notes the graph holds (0 while off). null = the count could not be read just now: show "unknown", never 0. */
+  knowledgeNodes: number | null;
+  /** The count measured against the bundled pack by note id (null while off, or when it could not be read). */
+  knowledge: SeedSummary | null;
 }
 
 /** POST /api/bsv response: the status plus what the knowledge-pack load did (only when switching or staying on). */
 export interface BsvToggleResult extends BsvStatus {
   seed?: BsvSeedResult;
+}
+
+/** The mainnet hard-off switch as a view shows it (the switch lives in the policy file; arming is memory only and covers one spend). */
+export interface MainnetState {
+  enabled: boolean;
+  armed: boolean;
+}
+
+/** POST /api/bsv/policy/mainnet body (only `enabled`; an extra key is refused). */
+export interface MainnetToggleBody {
+  enabled: boolean;
 }

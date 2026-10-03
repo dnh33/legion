@@ -1,17 +1,20 @@
 import type { ApprovalRequest } from '../../../src/shared/types';
 import { BLENDER_EXEC_TOOL } from '../../../src/shared/blender';
+import { LOCAL_CARD_WARN, localCardExports } from './copy';
+import { ModeChooser } from './ModeChooser';
 import './blender.css';
 
 export const isBlenderExec = (a: ApprovalRequest): boolean => a.toolName === BLENDER_EXEC_TOOL && typeof a.input?.script === 'string';
 
-interface View { script: string; live: boolean; agentName: string; purpose: string; notes: string[]; where: string; backup: string; exportDir: string; hash: string }
+export type CardMode = 'live' | 'local' | 'sandbox';
+interface View { script: string; live: boolean; mode: CardMode; agentName: string; purpose: string; notes: string[]; where: string; backup: string; exportDir: string; hash: string }
 
 /** Reads the card input defensively: it comes from the core, but a card must never break on an odd value. */
 export function blenderView(a: ApprovalRequest): View {
   const i = a.input as Record<string, unknown>;
   const s = (v: unknown) => (typeof v === 'string' ? v : '');
   return {
-    script: s(i.script), live: i.mode === 'live', agentName: s(i.agentName), purpose: s(i.purpose),
+    script: s(i.script), live: i.mode === 'live', mode: i.mode === 'live' ? 'live' : i.mode === 'local' ? 'local' : 'sandbox', agentName: s(i.agentName), purpose: s(i.purpose),
     notes: Array.isArray(i.notes) ? i.notes.filter((n): n is string => typeof n === 'string').slice(0, 12) : [],
     where: s(i.where), backup: s(i.backup), exportDir: s(i.exportDir), hash: s(i.hash).slice(0, 12),
   };
@@ -50,8 +53,10 @@ export function lineParts(line: string): Part[] {
 }
 export const hiddenCount = (script: string): number => (script.match(HIDDEN) ?? []).length;
 
-export function BlenderBadge({ live }: { live: boolean }) {
-  return live ? <span className="bl-badge live" title="Runs in your open Blender on this computer">Live</span> : <span className="bl-badge sandbox" title="Runs in a cloud VM, not on this computer">Sandbox</span>;
+export function BlenderBadge({ mode }: { mode: CardMode }) {
+  if (mode === 'live') return <span className="bl-badge live" title="Runs in your open Blender on this computer">Live</span>;
+  if (mode === 'local') return <span className="bl-badge local" title="Runs in a background Blender on this computer, with your Windows user's rights">On this PC</span>;
+  return <span className="bl-badge sandbox" title="Runs in a cloud VM, not on this computer">Cloud VM</span>;
 }
 
 /** The body of the approval card for blender_exec: the FULL script, wrapped (nothing hides off to the side), plus what the user needs to judge it. */
@@ -61,15 +66,18 @@ export function BlenderBody({ a }: { a: ApprovalRequest }) {
   const hidden = hiddenCount(v.script);
   return (
     <>
+      <ModeChooser />
       <div className="bl-facts">
-        <span>Where <b>{v.where || (v.live ? 'LIVE Blender on your computer' : 'sandbox VM')}</b></span>
+        <span>Where <b>{v.where || (v.mode === 'live' ? 'LIVE Blender on your computer' : v.mode === 'local' ? 'Blender in the background on this computer' : 'cloud VM')}</b></span>
         {v.agentName && <span>From <b>{v.agentName}</b></span>}
         <span><b>{lines.length}</b> lines</span>
         {v.backup && <span>Backup <b>{v.backup}</b></span>}
+        {v.mode === 'local' && !v.backup && <span>Backup <b>scene copy before this run</b></span>}
         {v.hash && <span>sha256 <b>{v.hash}</b></span>}
       </div>
       {v.purpose && <p className="bl-purpose"><span className="bl-purpose-tag">The bot{'’'}s text, not checked:</span> {v.purpose}</p>}
       {v.live && <div className="bl-live-warn"><b>Live.</b> This runs in your open Blender with your files around it. The safety check is a filter, not a sandbox: read every line before you allow it.{v.exportDir ? ` Exports go to ${v.exportDir}.` : ''}</div>}
+      {v.mode === 'local' && <div className="bl-live-warn"><b>On this PC.</b> {LOCAL_CARD_WARN}{localCardExports(v.exportDir)}</div>}
       {hidden > 0 && <div className="bl-live-warn" role="alert"><b>Hidden characters.</b> This script holds {hidden} character{hidden === 1 ? '' : 's'} you cannot normally see (zero-width, direction or line-separator marks). They are shown below as <span className="bl-hid">{'‹'}U+XXXX{'›'}</span> markers. Read the script as marked.</div>}
       <div className="bl-script" role="region" aria-label="Script to run" tabIndex={0}>
         {lines.map((line, n) => (

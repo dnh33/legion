@@ -2,14 +2,18 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  ARM_CHOICES_MINUTES, CARD_TTL_MS, DAY_MS, DEFAULT_CAPS, EXEC_TTL_MS, fmtBsv, HARD_CAPS, ledgerFromAudit, MAX_ARM_MINUTES, normalizeRecipient,
+  ARM_CHOICES_MINUTES, CARD_TTL_MS, DAY_MS, TESTNET_DEFAULT_CAPS, EXEC_TTL_MS, fmtBsv, TESTNET_HARD_CAPS, ledgerFromAudit, MAX_ARM_MINUTES, normalizeRecipient,
   PolicyEngine, PolicyError, sanitizePolicyConfig, validateCaps,
 } from '../src/core/bsv/policy.js';
 import type { Clock, PolicyEvent, SpendRequest } from '../src/core/bsv/policy.js';
+import { NET } from '../src/core/bsv/networks.js';
+import { mkAddr } from './bsv-net-helpers.js';
 
-const ALICE = 'mtestAddressAlice1111111111111111';
-const BOB = 'bob@handcash.io';
-const MALLORY = 'mtestAddressMallory11111111111111';
+const MAIN = mkAddr(0x00, 0x11);
+
+const ALICE = mkAddr(0x6f, 0x11);
+const BOB = mkAddr(0x6f, 0x33);
+const MALLORY = mkAddr(0x6f, 0x22);
 
 class FakeClock implements Clock {
   w = 1_800_000_000_000; m = 5_000;
@@ -17,12 +21,13 @@ class FakeClock implements Clock {
   advance(ms: number) { this.w += ms; this.m += ms; }
 }
 
-function engine(o: { allow?: string[]; clock?: FakeClock; caps?: Partial<typeof DEFAULT_CAPS>; ledger?: Array<{ requestId: string; sats: number; at: number }> } = {}) {
+/** The engine these tests were written for: the mainnet switch is ON (arming is refused while it is off; the default-off behaviour has its own tests in bsv-mainnet-defaults.test.ts and bsv-policy-nets.test.ts). */
+function engine(o: { allow?: string[]; clock?: FakeClock; caps?: Partial<typeof TESTNET_DEFAULT_CAPS>; ledger?: Array<{ requestId: string; sats: number; at: number }>; mainnet?: boolean } = {}) {
   const clock = o.clock ?? new FakeClock();
   const events: PolicyEvent[] = [];
   const e = new PolicyEngine({
     clock, sessionId: 'sess1', ledger: o.ledger, onEvent: (ev) => events.push(ev),
-    config: { caps: { ...DEFAULT_CAPS, ...o.caps }, allowlist: o.allow ?? [ALICE, BOB], frozen: null },
+    config: { nets: { test: { caps: { ...TESTNET_DEFAULT_CAPS, ...o.caps }, allowlist: o.allow ?? [ALICE, BOB] }, main: { caps: { ...NET.main.defaultCaps }, allowlist: [MAIN] } }, frozen: null, mainnetEnabled: o.mainnet ?? true },
   });
   return { e, clock, events };
 }
@@ -31,11 +36,12 @@ let n = 0;
 /** A balanced, allowlisted 600-sat payment with a 20-sat fee and change, unless overridden. */
 function req(over: Partial<SpendRequest> & { pay?: number; fee?: number; to?: string } = {}): SpendRequest {
   const pay = over.pay ?? 600; const fee = over.fee ?? 20;
-  const { pay: _p, fee: _f, to, ...rest } = over;
+  const { pay: _p, fee: _f, to: to0, ...rest } = over;
+  const to = to0 ?? (over.network === 'main' ? MAIN : undefined);
   return {
     requestId: `req-${String(++n).padStart(6, '0')}`, network: 'test', walletNetwork: 'test', agentId: 'assayer', taskId: 'task-1',
     reason: 'pay the faucet back', tainted: false,
-    decoded: { inputSats: pay + fee + 4000, outputs: [{ recipient: to ?? ALICE, sats: pay }, { recipient: 'mtestChange', sats: 4000, change: true }], feeSats: fee },
+    decoded: { inputSats: pay + fee + 4000, outputs: [{ recipient: to ?? ALICE, sats: pay }, { recipient: mkAddr(0x6f, 0x44), sats: 4000, change: true }], feeSats: fee },
     ...rest,
   };
 }
@@ -44,9 +50,9 @@ const approveInput = (card: { hash: string; requiredConfirmations: string[] }, w
 // ------------------------------------------------------------------ defaults and hard limits
 
 test('defaults are tiny and every cap has a hard ceiling that a file or an API call cannot exceed', () => {
-  assert.deepEqual(DEFAULT_CAPS, { perTxSats: 1000, perSessionSats: 5000, per24hSats: 10000, maxOutputs: 3, maxFeeSats: 200 });
-  for (const k of Object.keys(DEFAULT_CAPS) as Array<keyof typeof DEFAULT_CAPS>) assert.ok(DEFAULT_CAPS[k] <= HARD_CAPS[k]);
-  assert.throws(() => validateCaps({ perTxSats: HARD_CAPS.perTxSats + 1 }), PolicyError);
+  assert.deepEqual(TESTNET_DEFAULT_CAPS, { perTxSats: 1000, perSessionSats: 5000, per24hSats: 10000, maxOutputs: 3, maxFeeSats: 200 });
+  for (const k of Object.keys(TESTNET_DEFAULT_CAPS) as Array<keyof typeof TESTNET_DEFAULT_CAPS>) assert.ok(TESTNET_DEFAULT_CAPS[k] <= TESTNET_HARD_CAPS[k]);
+  assert.throws(() => validateCaps({ perTxSats: TESTNET_HARD_CAPS.perTxSats + 1 }), PolicyError);
   assert.throws(() => validateCaps({ perTxSats: -1 }), PolicyError);
   assert.throws(() => validateCaps({ perTxSats: 1.5 }), PolicyError);
   assert.throws(() => validateCaps({ perTxSats: Number.NaN }), PolicyError);
@@ -61,15 +67,15 @@ test('defaults are tiny and every cap has a hard ceiling that a file or an API c
 test('a policy file is clamped on load: raised caps, junk, prototype tricks and bad allowlist entries are neutralised', () => {
   const c = sanitizePolicyConfig({
     caps: { perTxSats: 1e15, perSessionSats: 1e15, per24hSats: 1e15, maxOutputs: 1e9, maxFeeSats: -4, extra: 1 },
-    allowlist: [ALICE, 'has space', '../../x', 7, null, ' ' + BOB, ALICE, 'x'.repeat(500), 'BOB@Handcash.IO'],
+    allowlist: [ALICE, 'has space', '../../x', 7, null, ' ' + BOB, ALICE, 'x'.repeat(500), 'BOB@Handcash.IO', MAIN],
     frozen: { at: '2026-01-01T00:00:00Z', reason: 'seed abandon ability able about above absent absorb abstract absurd abuse access accident' },
     __proto__: { polluted: true },
   });
-  assert.deepEqual(c.caps, { perTxSats: HARD_CAPS.perTxSats, perSessionSats: HARD_CAPS.perSessionSats, per24hSats: HARD_CAPS.per24hSats, maxOutputs: HARD_CAPS.maxOutputs, maxFeeSats: DEFAULT_CAPS.maxFeeSats });
-  assert.deepEqual(c.allowlist, [ALICE, 'bob@handcash.io']);
+  assert.deepEqual(c.caps, { perTxSats: TESTNET_HARD_CAPS.perTxSats, perSessionSats: TESTNET_HARD_CAPS.perSessionSats, per24hSats: TESTNET_HARD_CAPS.per24hSats, maxOutputs: TESTNET_HARD_CAPS.maxOutputs, maxFeeSats: TESTNET_DEFAULT_CAPS.maxFeeSats });
+  assert.deepEqual(c.allowlist, [ALICE], 'only valid testnet addresses survive: tokens, paymails and mainnet addresses are dropped (a leading space is not trimmed)');
   assert.equal(c.frozen?.reason, '[redacted-secret]');
   assert.equal(({} as { polluted?: boolean }).polluted, undefined);
-  assert.deepEqual(sanitizePolicyConfig(null).caps, DEFAULT_CAPS);
+  assert.deepEqual(sanitizePolicyConfig(null).caps, TESTNET_DEFAULT_CAPS);
   assert.deepEqual(sanitizePolicyConfig('x').allowlist, []);
   // an inverted order in a file is repaired, not trusted
   const inv = sanitizePolicyConfig({ caps: { perTxSats: 9000, perSessionSats: 100, per24hSats: 50 } });
@@ -155,7 +161,7 @@ test('recipient allowlist: exact match only; lookalikes, extra spaces and case t
   for (const to of [MALLORY, ALICE + 'x', ALICE.slice(0, -1), ' ' + ALICE, ALICE + ' ', ALICE.toUpperCase(), ALICE + '\n', 'alice@evil.io']) {
     assert.equal(e.evaluate(req({ to })).verdict, 'deny', JSON.stringify(to));
   }
-  assert.equal(engine().e.evaluate(req({ to: 'BOB@HANDCASH.IO' })).verdict, 'needs_approval', 'paymails ignore case');
+  assert.equal(engine({ allow: ['bob@handcash.io'] }).e.evaluate(req({ to: 'BOB@HANDCASH.IO' })).verdict, 'deny', 'a paymail is not a testnet address, even when it is on a hand-built list (B6)');
   assert.equal(normalizeRecipient(' abc'), undefined);
 });
 
@@ -218,7 +224,7 @@ test('ledgerFromAudit rebuilds executed spends from audit entries and ignores ev
     { decision: 'executed', ts: '2026-10-02T10:02:00.000Z', fields: { sats: -5 } },
     { decision: 'executed', ts: '2026-10-02T10:03:00.000Z', fields: { sats: '12' } },
   ]);
-  assert.deepEqual(recs, [{ requestId: 'r1', sats: 700, at: Date.parse('2026-10-02T10:00:00.000Z') }]);
+  assert.deepEqual(recs, [{ requestId: 'r1', sats: 700, at: Date.parse('2026-10-02T10:00:00.000Z'), net: 'test' }]);
 });
 
 // ------------------------------------------------------------------ the shape of a transaction
@@ -314,7 +320,7 @@ test('arming expires on the monotonic clock even if the wall clock is set back, 
   const { e: e3 } = engine();
   e3.arm(60);
   assert.equal(new PolicyEngine({ config: e3.config() }).isArmed(), false, 'a new engine from the saved config is not armed');
-  assert.deepEqual(Object.keys(e3.config()).sort(), ['allowlist', 'caps', 'frozen'], 'armedUntil is not part of what is saved');
+  assert.deepEqual(Object.keys(e3.config()).sort(), ['frozen', 'mainnetEnabled', 'nets'], 'armedUntil is not part of what is saved');
 });
 
 test('arm() takes whole minutes from 1 to the maximum, and nothing else', () => {
@@ -398,8 +404,13 @@ test('approve: needs the card hash, every required confirmation, an unfrozen cha
   const d = e.evaluate(req());
   assert.equal(e.approve(d.requestId, { cardHash: 'f'.repeat(64), confirmations: ['approve'], walletNetwork: 'test' }).ok, false, 'wrong hash');
   assert.equal(e.approve(d.requestId, { cardHash: d.card!.hash, confirmations: [], walletNetwork: 'test' }).ok, false, 'no confirmation');
-  assert.equal(e.approve(d.requestId, { cardHash: d.card!.hash, confirmations: ['approve'], walletNetwork: 'main' }).ok, false, 'wallet moved to the main network');
-  assert.equal(e.approve(d.requestId, { cardHash: d.card!.hash, confirmations: ['approve'], walletNetwork: 'unknown' }).ok, false);
+  // a wallet that now claims another network (or none) voids the card: it is not left waiting for the claim to flip back
+  for (const wn of ['main', 'unknown'] as const) {
+    const v = e.evaluate(req());
+    assert.equal(e.approve(v.requestId, { cardHash: v.card!.hash, confirmations: ['approve'], walletNetwork: wn }).ok, false, `wallet claims ${wn}`);
+    assert.equal(e.status(v.requestId), 'denied', 'the card is void');
+    assert.equal(e.approve(v.requestId, approveInput(v.card!)).ok, false, 'and stays void when the claim flips back');
+  }
   assert.equal(e.approve('no-such-id', { cardHash: d.card!.hash, confirmations: ['approve'], walletNetwork: 'test' }).ok, false);
   const ok = e.approve(d.requestId, approveInput(d.card!));
   assert.deepEqual(ok, { ok: true, totalSats: 620 });
@@ -550,7 +561,7 @@ test('settings: caps and the allowlist are validated and hard-capped; the saved 
   assert.deepEqual(e.setCaps({ perTxSats: 800 }).perTxSats, 800);
   assert.throws(() => e.setCaps({ perTxSats: 99_999_999 }), PolicyError);
   assert.equal(e.config().caps.perTxSats, 800, 'a rejected change changes nothing');
-  assert.deepEqual(e.setAllowlist([' ' + ALICE + ' ', ALICE, 'Carol@Example.com']), [ALICE, 'carol@example.com']);
+  assert.deepEqual(e.setAllowlist([' ' + ALICE + ' ', ALICE, BOB]), [ALICE, BOB]);
   for (const bad of [[''], ['has space'], [7], 'x', Array.from({ length: 51 }, (_v, i) => `addr-${i}-padding`), null]) assert.throws(() => e.setAllowlist(bad as never), PolicyError);
   assert.ok(events.some((x) => x.type === 'caps') && events.some((x) => x.type === 'allowlist'));
   e.arm(5);
@@ -565,7 +576,7 @@ test('snapshot: shows state for the UI and holds no secret', () => {
   assert.equal(s.armed, true);
   assert.ok(s.remainingMs > 14.9 * 60_000);
   assert.deepEqual(s.pending.map((p) => p.requestId), [d.requestId]);
-  assert.deepEqual(s.hardCaps, HARD_CAPS);
+  assert.deepEqual(s.hardCaps, TESTNET_HARD_CAPS);
   assert.equal(s.usage.reservedSats, 620);
   assert.equal(engine().e.snapshot().armedUntil, null);
 });
@@ -580,11 +591,124 @@ test('events: decisions carry ids and totals, never the card text or the agent-w
 });
 
 test('an observer that throws cannot break the policy', () => {
-  const e = new PolicyEngine({ config: { caps: { ...DEFAULT_CAPS }, allowlist: [ALICE], frozen: null }, onEvent: () => { throw new Error('observer down'); } });
-  assert.doesNotThrow(() => { e.arm(5); e.freeze('x'); e.unfreeze(); e.evaluate(req()); });
+  const e = new PolicyEngine({ config: { caps: { ...TESTNET_DEFAULT_CAPS }, allowlist: [ALICE], frozen: null }, onEvent: () => { throw new Error('observer down'); } });
+  assert.doesNotThrow(() => { e.setMainnetEnabled(true); e.arm(5); e.freeze('x'); e.unfreeze(); e.evaluate(req()); });
 });
 
 test('fmtBsv uses integer maths', () => {
   assert.equal(fmtBsv(0), '0.00000000'); assert.equal(fmtBsv(1), '0.00000001'); assert.equal(fmtBsv(123456789), '1.23456789'); assert.equal(fmtBsv(2_100_000_000_000_000), '21000000.00000000');
   assert.equal(DAY_MS, 86_400_000);
+});
+
+// ---------------------------------------------------------------- seeded unknown outcomes (restore from the audit log)
+
+test('unknown option: a seeded unknown keeps its reservation, blocks every spend and the engine still has no allow verdict', () => {
+  const clock = new FakeClock();
+  const e = new PolicyEngine({ clock, sessionId: 's1', config: { caps: { ...TESTNET_DEFAULT_CAPS }, allowlist: [ALICE], frozen: null }, unknown: [{ requestId: 'old-unknown-1', agentId: 'assayer', totalSats: 700 }] });
+  const s = e.snapshot();
+  assert.deepEqual(s.unknown, [{ requestId: 'old-unknown-1', agentId: 'assayer', totalSats: 700, net: 'test' }]);
+  assert.equal(s.usage.reservedSats, 700, 'the reservation is kept');
+  const d = e.evaluate(req());
+  assert.equal(d.verdict, 'deny');
+  assert.match(d.reasons.join(' '), /unknown outcome/);
+  assert.equal(e.status('old-unknown-1'), 'unknown');
+  clock.advance(DAY_MS * 2);
+  assert.equal(e.status('old-unknown-1'), 'unknown', 'time never clears it');
+  assert.equal(e.approve('old-unknown-1', { cardHash: '', confirmations: ['approve'], walletNetwork: 'test' }).ok, false, 'it cannot be approved');
+  assert.equal(e.settle('old-unknown-1', { kind: 'executed', sats: 700 }).ok, false, 'it cannot be settled');
+  assert.equal(e.resolveUnknown('old-unknown-1', { kind: 'not-sent' }), true, 'only the owner resolution clears it');
+  assert.equal(e.snapshot().usage.reservedSats, 0);
+  assert.equal(e.evaluate(req()).verdict, 'needs_approval');
+});
+
+test('unknown option: a seeded reservation counts against the caps; unreadable entries are kept as placeholders (B8); resolving "sent" moves it into the ledger', () => {
+  const e = new PolicyEngine({ clock: new FakeClock(), sessionId: 's1', config: { caps: { ...TESTNET_DEFAULT_CAPS }, allowlist: [ALICE], frozen: null }, unknown: [
+    { requestId: 'short', agentId: 'a', totalSats: 1 }, { requestId: 'old-unknown-2', agentId: 'a', totalSats: -5 }, { requestId: 'old-unknown-3', agentId: 'a', totalSats: 0.5 },
+    { requestId: 'old-unknown-4', agentId: 'a', totalSats: 900 }, { requestId: 'old-unknown-4', agentId: 'a', totalSats: 5 },
+  ] });
+  // B8: an unreadable entry is not dropped (that would lift the block it stood for): it becomes a placeholder unknown the owner must resolve
+  assert.deepEqual(e.snapshot().unknown.map((u) => [u.requestId, u.totalSats]), [['invalid-seed-0', 1], ['invalid-seed-1', 0], ['invalid-seed-2', 0], ['old-unknown-4', 900]]);
+  assert.equal(e.resolveUnknown('old-unknown-4', { kind: 'sent', sats: 900 }), true);
+  assert.equal(e.snapshot().usage.last24hSats, 900);
+});
+
+test('ledgerFromAudit: duplicate executed lines for one request id count once; lines without an id and distinct ids all count', () => {
+  const line = (requestId: unknown, sats: number, ts: string) => ({ decision: 'executed', ts, fields: requestId === undefined ? { sats } : { requestId, sats } });
+  const t = '2026-10-02T10:00:00.000Z';
+  const rec = ledgerFromAudit([line('req-aaaaaaaa', 600, t), line('req-aaaaaaaa', 600, '2026-10-02T10:00:01.000Z'), line('req-bbbbbbbb', 300, t), line(undefined, 100, t), line(undefined, 100, t)]);
+  assert.equal(rec.length, 4);
+  assert.equal(rec.reduce((a, r) => a + r.sats, 0), 600 + 300 + 100 + 100);
+  const e = new PolicyEngine({ clock: { wall: () => Date.parse('2026-10-02T11:00:00.000Z'), mono: () => 1 }, ledger: rec, config: { caps: { ...TESTNET_DEFAULT_CAPS }, allowlist: [ALICE], frozen: null } });
+  assert.equal(e.snapshot().usage.last24hSats, 1100, 'the 24 h window sees one 600 sat spend, not two');
+});
+
+test('net: a legacy record or audit line without net loads as testnet; the same request id on two nets is not deduped; the unknown seed carries net', () => {
+  const t = '2026-10-02T10:00:00.000Z';
+  const line = (fields: Record<string, unknown>) => ({ decision: 'executed', ts: t, fields });
+  const rec = ledgerFromAudit([line({ requestId: 'req-net-0001', sats: 100 }), line({ requestId: 'req-net-0001', sats: 100, net: 'test' }), line({ requestId: 'req-net-0001', sats: 100, net: 'main' }), line({ requestId: 'req-net-0001', sats: 100, net: 'main' })]);
+  assert.deepEqual(rec.map((r) => r.net), ['test', 'main'], 'legacy and explicit test dedupe to one; main stays separate');
+  const legacy = new PolicyEngine({ clock: { wall: () => Date.parse(t), mono: () => 1 }, ledger: [{ requestId: 'old', sats: 5, at: Date.parse(t) }] });
+  assert.equal(legacy.executedRecords()[0]!.net, undefined, 'stored as given; absent means testnet');
+  const e = new PolicyEngine({ unknown: [{ requestId: 'req-net-0002', agentId: 'a', totalSats: 10 }, { requestId: 'req-net-0003', agentId: 'a', totalSats: 10, net: 'main' }] });
+  assert.equal(e.snapshot().unknown.length, 2);
+  assert.deepEqual(e.snapshot().unknown.map((u) => [u.requestId, u.net]), [['req-net-0002', 'test'], ['req-net-0003', 'main']], 'the seeded net is readable');
+});
+
+test('F2: a repeated request id with different amounts keeps the LARGER one, in either order (audit rebuild and unknown seed)', () => {
+  const t = '2026-10-02T10:00:00.000Z';
+  const line = (sats: number) => ({ decision: 'executed', ts: t, fields: { requestId: 'req-dupamt-1', sats } });
+  for (const order of [[1, 900], [900, 1]]) {
+    const rec = ledgerFromAudit(order.map(line));
+    assert.equal(rec.length, 1);
+    assert.equal(rec[0]!.sats, 900, `ledger order ${order}`);
+    const e = new PolicyEngine({ unknown: order.map((n) => ({ requestId: 'req-dupamt-2', agentId: 'a', totalSats: n })) });
+    assert.equal(e.snapshot().unknown.length, 1);
+    assert.equal(e.snapshot().unknown[0]!.totalSats, 900, `seed order ${order}`);
+    assert.equal(e.snapshot().usage.reservedSats, 900);
+  }
+});
+
+test('F4: only a MISSING net is legacy testnet; a present but unrecognised net is flagged invalid, still counted, and shown', () => {
+  const t = '2026-10-02T10:00:00.000Z';
+  const clock = { wall: () => Date.parse(t) + 1000, mono: () => 1 };
+  const line = (net: unknown, sats: number, id: string) => ({ decision: 'executed', ts: t, fields: { requestId: id, sats, ...(net === undefined ? {} : { net }) } });
+  const bad = ['MAIN', 'mainnet', 'garbage', '', null, 5];
+  const rec = ledgerFromAudit([line(undefined, 1, 'req-legacy-1'), ...bad.map((n, i) => line(n, 10, `req-bad-000${i}`))]);
+  assert.equal(rec[0]!.net, 'test');
+  assert.deepEqual(rec.slice(1).map((r) => r.net), bad.map(() => 'invalid'));
+  const e = new PolicyEngine({ clock, ledger: rec, unknown: [{ requestId: 'req-unk-0001', agentId: 'a', totalSats: 7, net: 'MAIN' }, { requestId: 'req-unk-0002', agentId: 'a', totalSats: 7 }] });
+  const s = e.snapshot();
+  assert.equal(s.usage.last24hSats, 1 + 10 * bad.length, 'an invalid-net spend still counts against the window');
+  assert.equal(s.usage.invalidNetRecords, bad.length + 1, 'and is surfaced');
+  assert.deepEqual(s.unknown.map((u) => u.net), ['invalid', 'test']);
+  assert.ok(e.executedRecords().filter((r) => r.net === 'test').length === 1, 'none of them is treated as testnet');
+  // a live record handed to the constructor with a bad net is flagged too; a missing one is left as is
+  const e2 = new PolicyEngine({ clock, ledger: [{ requestId: 'x', sats: 3, at: Date.parse(t), net: 'MAIN' as never }, { requestId: 'y', sats: 3, at: Date.parse(t) }] });
+  assert.deepEqual(e2.executedRecords().map((r) => r.net), ['invalid', undefined]);
+});
+
+test('F5: the live ledger line from settle(executed) and resolveUnknown("sent") carries the net of the request record', () => {
+  const { e } = engine();
+  e.arm(60);
+  const m = e.evaluate(req({ network: 'main', walletNetwork: 'main' })); e.approve(m.requestId, approveInput(m.card!, 'main'));
+  e.settle(m.requestId, { kind: 'executed', sats: 620 });
+  const t = e.evaluate(req()); e.approve(t.requestId, approveInput(t.card!));
+  e.settle(t.requestId, { kind: 'executed', sats: 620 });
+  assert.deepEqual(e.executedRecords().map((r) => r.net), ['main', 'test']);
+  const u = new PolicyEngine({ unknown: [{ requestId: 'req-res-0001', agentId: 'a', totalSats: 5, net: 'main' }, { requestId: 'req-res-0002', agentId: 'a', totalSats: 5, net: 'weird' }, { requestId: 'req-res-0003', agentId: 'a', totalSats: 5 }] });
+  for (const id of ['req-res-0001', 'req-res-0002', 'req-res-0003']) assert.equal(u.resolveUnknown(id, { kind: 'sent', sats: 5 }), true);
+  assert.deepEqual(u.executedRecords().map((r) => r.net), ['main', 'invalid', 'test']);
+});
+
+test('F6: the constructor does not throw on hostile unknown input; bad entries become placeholders (B8) and good ones are kept', () => {
+  const hostile = { get requestId(): string { throw new Error('boom'); }, agentId: 'a', totalSats: 5 };
+  const badTotal = { requestId: 'req-hostile-2', agentId: 'a', get totalSats(): number { throw new Error('boom'); } };
+  const badAgent = { requestId: 'req-hostile-3', get agentId(): string { throw new Error('boom'); }, totalSats: 5 };
+  const proxy = new Proxy([], { get() { throw new Error('boom'); } });
+  for (const bad of [123, 'abc', {}, { [Symbol.iterator]: 1 }, new Set([1]), null, proxy, { length: 1, 0: {} }]) assert.doesNotThrow(() => new PolicyEngine({ unknown: bad as never }));
+  let e!: PolicyEngine;
+  assert.doesNotThrow(() => { e = new PolicyEngine({ unknown: [hostile, badTotal, badAgent, null, 7, 'x', { requestId: 'req-good-0001', agentId: 'a', totalSats: 9 }] as never }); });
+  assert.deepEqual(e.snapshot().unknown.map((u) => u.requestId).sort(), ['invalid-seed-0', 'invalid-seed-1', 'invalid-seed-2', 'invalid-seed-3', 'invalid-seed-4', 'invalid-seed-5', 'req-good-0001']);
+  assert.equal(e.snapshot().usage.reservedSats, 9, 'a placeholder reserves nothing it cannot read');
+  assert.equal(e.evaluate(req()).verdict, 'deny', 'and the block stays');
 });

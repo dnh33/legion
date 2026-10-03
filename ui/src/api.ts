@@ -1,3 +1,5 @@
+import type { Project } from '../../src/shared/projects';
+import type { BoardStatus, BoardView, WorkItem } from '../../src/shared/board';
 import type {
   SettingsView, SettingsPatch, McpStatusView,
   AgentProfile, ApprovalRequest, BoatHealthView, Catalog, ChatMessage, DoctorCheck, LegionConfig, LegionEvent, ModelChoice, StateSnapshot, Task, VmRecord,
@@ -9,7 +11,11 @@ declare global {
       baseUrl: string; token: string; admin?: string; platform: string; openExternal(url: string): void;
       /** BSV policy changes: main shows its own native confirmation and calls the core with a secret this window never holds. */
       bsvPolicy?(action: unknown): Promise<{ ok: boolean; error?: string; cancelled?: boolean; view?: unknown }>;
+      providerChange?(change: unknown): Promise<{ ok: boolean; error?: string; cancelled?: boolean; view?: unknown }>;
+      browserChange?(change: unknown): Promise<{ ok: boolean; error?: string; cancelled?: boolean; view?: unknown }>;
       onBsvChanged?(cb: () => void): () => void;
+      /** Project folder and member changes: main shows the native confirmation (and the folder chooser) and calls the core with a secret this window never holds. */
+      projectChange?(change: unknown): Promise<{ ok: boolean; error?: string; cancelled?: boolean; view?: unknown }>;
     };
   }
 }
@@ -93,7 +99,23 @@ export const api = {
   createAgent: (a: NewAgent) => request<AgentProfile>('POST', '/api/agents', a),
   patchAgent: (id: string, a: Partial<AgentProfile>) => request<AgentProfile>('PATCH', `/api/agents/${encodeURIComponent(id)}`, a),
   deleteAgent: (id: string) => request<{ ok: true }>('DELETE', `/api/agents/${encodeURIComponent(id)}`),
-  createTask: (b: { agentId: string; prompt: string; model?: ModelChoice; continueTaskId?: string }) => request<Task>('POST', '/api/tasks', b),
+  projects: () => request<Project[]>('GET', '/api/projects'),
+  createProject: (b: { name: string; instructions?: string }) => request<Project>('POST', '/api/projects', b),
+  patchProject: (id: string, b: { name?: string; instructions?: string; status?: 'active' | 'archived' }) => request<Project>('PATCH', `/api/projects/${encodeURIComponent(id)}`, b),
+  boardProbe: () => request<{ enabled: true }>('GET', '/api/board'),
+  boardView: (pid: string) => request<BoardView>('GET', `/api/projects/${encodeURIComponent(pid)}/board`),
+  boardLeader: (pid: string, leader: string | null) => request<BoardView>('PUT', `/api/projects/${encodeURIComponent(pid)}/board/leader`, { leader }),
+  boardNote: (pid: string, id: string, b: { title: string; body: string }) => request<{ item: WorkItem; note: { id: string; title: string } }>('POST', `/api/projects/${encodeURIComponent(pid)}/board/items/${encodeURIComponent(id)}/note`, b),
+  boardNoteTitle: (pid: string, nid: string) => request<{ id: string; title: string }>('GET', `/api/projects/${encodeURIComponent(pid)}/board/notes/${encodeURIComponent(nid)}`),
+  boardCreate: (pid: string, b: Record<string, unknown>) => request<WorkItem>('POST', `/api/projects/${encodeURIComponent(pid)}/board/items`, b),
+  boardPatch: (pid: string, id: string, b: Record<string, unknown>) => request<WorkItem>('PATCH', `/api/projects/${encodeURIComponent(pid)}/board/items/${encodeURIComponent(id)}`, b),
+  boardMove: (pid: string, id: string, status: BoardStatus, index: number) => request<WorkItem>('POST', `/api/projects/${encodeURIComponent(pid)}/board/items/${encodeURIComponent(id)}/move`, { status, index }),
+  boardDelete: (pid: string, id: string) => request<{ ok: true }>('DELETE', `/api/projects/${encodeURIComponent(pid)}/board/items/${encodeURIComponent(id)}`),
+  boardAccept: (pid: string, id: string, b: Record<string, unknown>) => request<WorkItem>('POST', `/api/projects/${encodeURIComponent(pid)}/board/items/${encodeURIComponent(id)}/accept`, b),
+  boardReject: (pid: string, id: string) => request<{ ok: true }>('POST', `/api/projects/${encodeURIComponent(pid)}/board/items/${encodeURIComponent(id)}/reject`, {}),
+  boardRun: (pid: string, id: string) => request<{ item: WorkItem; limited: boolean }>('POST', `/api/projects/${encodeURIComponent(pid)}/board/items/${encodeURIComponent(id)}/run`, {}),
+  patchRoomProject: (roomId: string, projectId: string | null) => request<unknown>('PATCH', `/api/rooms/${encodeURIComponent(roomId)}`, { projectId }),
+  createTask: (b: { agentId: string; prompt: string; model?: ModelChoice; continueTaskId?: string; projectId?: string }) => request<Task>('POST', '/api/tasks', b),
   getTask: (id: string) => request<{ task: Task; messages: ChatMessage[] }>('GET', `/api/tasks/${encodeURIComponent(id)}`),
   cancelTask: (id: string) => request<{ ok: boolean }>('POST', `/api/tasks/${encodeURIComponent(id)}/cancel`),
   vms: () => request<VmRecord[]>('GET', '/api/vms'),

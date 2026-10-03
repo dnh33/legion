@@ -227,3 +227,46 @@ test('empty and missing logs verify as clean and empty', () => {
   assert.equal(verifyText('').ok, true);
 });
 
+
+// ---------------------------------------------------------------- verifiedEntries: only files whose chain verifies
+
+test('verifiedEntries: an intact log gives its entries; a rotated archive that verifies is included', () => {
+  const { log } = mk(dir(), { rotateBytes: 600 });
+  fill(log, 8);
+  assert.ok(readdirSync(join(log.file, '..')).some((n) => /^audit\.jsonl\.\d+$/.test(n)), 'the log rotated');
+  const v = log.verifiedEntries();
+  assert.equal(v.length, 8);
+  assert.equal(log.entries().length, 8);
+});
+
+test('verifiedEntries: a forged line in a broken-chain file is seen by the lenient reader but never by the verified one', () => {
+  const { d, file, log } = mk();
+  log.append({ agent: 'legion', tool: 'bsv_spend_request', decision: 'executing', fields: { requestId: 'req-forge-01', totalSats: 500 } });
+  const forged = { v: 1, seq: 1, ts: '2026-10-02T12:00:00.000Z', prev: 'f'.repeat(64), agent: 'owner', task: null, tool: 'bsv_spend_request', decision: 'resolved', reason: null, fields: { requestId: 'req-forge-01', outcome: 'not-sent' }, hash: 'e'.repeat(64) };
+  appendFileSync(file, JSON.stringify(forged) + '\n');
+  const fresh = new AuditLog(file, { now: () => 1_700_000_100_000 });
+  const open = fresh.open();
+  assert.equal(open.ok, false, 'the broken chain is detected and moved aside');
+  assert.ok(fresh.entries((e) => e.decision === 'resolved').length === 1, 'the lenient reader still lists the forged line (it can only add blocks)');
+  assert.equal(fresh.verifiedEntries((e) => e.decision === 'resolved').length, 0, 'the verified reader does not');
+  assert.equal(fresh.verifiedEntries((e) => e.decision === 'executing').length, 0, 'nor anything else from the broken file');
+  assert.ok(fresh.verifiedEntries((e) => e.decision === 'chain-restart').length === 1, 'the fresh file after the restart verifies');
+  assert.ok(d);
+});
+
+test('verifiedEntries: a log that ends where this process did not leave it (a line appended from outside) is not trusted; append still throws on I/O failure', () => {
+  const { file, log } = mk();
+  fill(log, 3);
+  assert.equal(log.verifiedEntries().length, 3);
+  const last = lines(file).map((l) => JSON.parse(l)).pop();
+  const extra = { ...last, seq: last.seq + 1, prev: last.hash, decision: 'resolved' };
+  const { hash: _h, ...rest } = extra;
+  appendFileSync(file, JSON.stringify({ ...rest, hash: entryHash(rest) }) + '\n'); // a perfectly chained line added from outside
+  assert.equal(log.verifiedEntries().length, 0, 'the tail is not where this process left it');
+  // append is synchronous and throws when the file cannot be written
+  const bad = new AuditLog(join(dir(), 'bsv', 'audit.jsonl'));
+  bad.open();
+  assert.equal(bad.append({ agent: 'a', tool: 't', decision: 'x' }).seq, 0);
+  const blocked = new AuditLog(join(file, 'nested', 'audit.jsonl')); // the parent is a FILE: mkdir/append must fail
+  assert.throws(() => blocked.append({ agent: 'a', tool: 't', decision: 'x' }));
+});

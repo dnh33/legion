@@ -1,14 +1,23 @@
 <div align="center">
 
-<img src="docs/images/relic.png" alt="The Relic, Legion's mascot: a war helm with a glowing green visor, a code halo and trailing data cables" width="360">
+<picture><source media="(prefers-color-scheme: dark)" srcset="docs/images/legion-wordmark-dark.svg"><img alt="Legion" src="docs/images/legion-wordmark-light.svg" width="460"></picture>
 
-# Legion
+**A local multi-agent bot for your desktop — Claude by default, plus OpenRouter for any model — with a VM for every agent when it needs one.**
 
-**A local, Claude-only multi-agent bot for your desktop, with a VM for every agent when it needs one.**
-
-[Install](#install) · [Orchestrate over MCP](#orchestrate-from-claude-code-or-cowork) · [Architecture](docs/ARCHITECTURE.md) · [Contributing](CONTRIBUTING.md)
+[Status](#status) · [Install](#install) · [Orchestrate over MCP](#orchestrate-from-claude-code-or-cowork) · [Architecture](docs/ARCHITECTURE.md) · [Contributing](CONTRIBUTING.md)
 
 </div>
+
+## Status
+
+Legion is v0.2.0. What is built and what is not:
+
+- **Built and covered by the automated tests** (no network, no real Claude calls): the core, the app, agents, rooms, the Lattice and Library, Projects with the work board, the browser tool, MCP orchestration, approvals, the Windows installer scripts. The board and the browser tool are built and tested, not yet tried on a real PC.
+- **BSV mode:** a read-only status check of a wallet on this computer, plus one spend tool that asks the wallet to pay only after your confirmations in native dialogs (testnet and mainnet; mainnet is built and OFF until you switch it on). Tested against fake wallets only; not verified against a real wallet or with real funds yet.
+- **Blender bridge:** built, but not yet tried on a real Blender.
+- **Installer:** unsigned, and not yet run on a wide range of Windows machines. Expect SmartScreen or antivirus prompts. There are no prebuilt releases yet (a prebuilt package is scripted and comes with the release; not built or run on Windows so far); today you install from source.
+- **The updater:** built, but off until a signing key is published and the repository is public.
+- **Claude by default, plus OpenRouter.** Add your own OpenRouter key and run any model. Codex and other local/custom endpoints are under [Later](#later).
 
 ## What it is
 
@@ -16,10 +25,10 @@ Legion is a desktop app for running several Claude agents from one place. Each a
 
 Claude Code and Cowork can drive Legion too, over MCP.
 
-**Legion is Claude-only.** Every agent runs on a Claude model through the Claude Agent SDK. Other model providers are not supported in v1 (see [Later](#later)).
+**Legion runs on Claude by default.** Every existing agent runs on a Claude model through the Claude Agent SDK. OpenRouter ships in 0.2.0 as a second provider — add your own key and run any model. Codex and other local/custom endpoints are 0.2.1 (see [Later](#later)).
 
 <p align="center">
-  <img src="docs/images/app-dark.png" alt="Legion's main window in the dark theme: agent rail, a task thread with tool calls and an inline approval card, the mascot, a live VM preview and recent tasks" width="900">
+  <img src="docs/images/app-dark.png" alt="Legion's main window in the dark theme: agent rail, a task thread with tool calls and an inline approval card, the mascot, the Computer panel and recent tasks" width="900">
 </p>
 
 <details>
@@ -30,15 +39,16 @@ Claude Code and Cowork can drive Legion too, over MCP.
 ## Features
 
 - **Multiple agents.** Ships with Zealot (lead), Builder (coding) and Scout (research), plus ten more premade bots (see [The Muster](#the-muster)). Create your own with a name, system prompt, model, approval mode and VM settings.
+- **Projects and a board.** A project groups one job: instructions, a folder, member agents, tasks, rooms and notes. Its board holds work items the member agents can create, edit, move, claim and note, with you marking them done, approving deletes and deciding what runs (see [docs/PROJECT-BOARD.md](docs/PROJECT-BOARD.md)).
 - **Rooms.** Group chats of bots and you, with guards against runaway loops (see [Rooms](#rooms)).
 - **The Lattice and the Library.** A shared knowledge graph the bots use as long-term memory, with an Inbox where you accept or reject what they save (see [Lattice and Library](#lattice-and-library)).
 - **Rooms you can build from chat.** Bots can propose creating a room or changing its members with `room_create`, `room_add_member` and `room_remove_member`. Each one waits for an Allow card that only you can answer in the app, whatever the agent's approval mode (see [Rooms](#rooms)).
-- **BSV mode** (off by default, testnet): reveals the Assayer and a BSV knowledge pack, plus a read-only status check of a wallet on this computer. Legion has no spend tool yet; a testnet spend tool is planned, not built (see [BSV mode](#bsv-mode)).
-- **Blender bridge** (off by default): the Sculptor builds 3D scenes in headless Blender inside its VM, or in your open Blender after an approval card that shows the whole script. Backends are downloaded only when you press Set up (see [docs/BLENDER.md](docs/BLENDER.md)).
+- **BSV mode** (off by default): reveals the Assayer and a BSV knowledge pack, a read-only status check of a wallet on this computer, and one spend tool that asks the wallet to pay once you have confirmed in native dialogs (testnet and mainnet; mainnet is built and OFF until you switch it on). Tested against fake wallets only; not verified against a real wallet or with real funds yet (see [BSV mode](#bsv-mode)).
+- **Blender bridge** (off by default): the Sculptor builds 3D scenes in headless Blender on this computer by default (in its cloud VM when Blender is not found), or in your open Blender after an approval card that shows the whole script. Backends are downloaded only when you press Set up. Not yet tried with a real Blender or a real VM (see [docs/BLENDER.md](docs/BLENDER.md)).
 - **Agents talk to each other.** Any agent can `ask` another and wait for the answer, or `tell` it and get the reply later in its own task. Pair threads resume the same session, so repeat conversations stay cheap. Hop, rate and cycle guards stop runaway loops.
 - **Settings in the app.** Claude sign-in or API key, your boat.dev key (with a Test button), MCP servers and connection snippets. Changes apply live.
 - **Auto model routing.** Each task goes to Sonnet or Opus depending on how hard it looks. If Sonnet fails or runs out of turns, Legion retries once on Opus. Or pick any model your account offers.
-- **Your Claude Code setup, inherited.** Agents pick up your Claude Code settings, MCP servers, skills, slash commands and claude.ai connectors. Add your own MCP servers in `config.json`.
+- **Your Claude Code setup, partly inherited.** Agents pick up your Claude Code settings, hooks, skills and slash commands by default. Your Claude Code MCP servers and claude.ai connectors are *not* loaded unless you turn on `claude.inheritMcp`; add the MCP servers you want agents to have in Settings or `config.json`.
 - **A VM per agent, on demand.** Agents start, use and stop their own boat.dev VM. You get a live screen preview and an "Open desktop" link. Idle VMs stop on their own so billing pauses. Legion shows how long a VM has run today, and an optional cost estimate from the hourly price you enter (see [docs/VM-NOTES.md](docs/VM-NOTES.md)).
 - **Inline approvals.** Per agent, choose `ask`, `auto-edits` or `full`. Risky tool calls show up as Allow/Deny cards in the thread. Press `A` or `D`.
 - **Slash commands and a model picker** in the composer.
@@ -64,17 +74,17 @@ The Lattice is a shared, traversable knowledge graph (search, neighbours, paths,
 
 ## BSV mode
 
-An optional toggle in Settings, off by default, with the network fixed to testnet. It shows the Assayer bot, loads a read-only BSV knowledge pack into the Lattice and gives the Assayer a short preamble. It can also run a read-only status check of a wallet on this computer (four harmless questions to an address you type; the answer is the wallet's own claim). Legion's own code has no wallet, no key handling, no signing and no broadcasting, and no spend tool in this version; a tool for testnet spends is planned, not built. An agent's ordinary tools (a shell, a web fetch) are outside that statement and rest on their approval cards. The Assayer is an ordinary agent: in `ask` mode its shell commands and file edits need your approval, while web fetch and read-only tools run without a prompt. Legion has not been checked against a real BSV wallet. See [docs/BSV-MODE.md](docs/BSV-MODE.md) for what it is and is not.
+An optional toggle in Settings, off by default. It shows the Assayer bot, loads a read-only BSV knowledge pack into the Lattice (163 notes) and gives the Assayer a short preamble. It can run a read-only status check of a wallet on this computer (four harmless questions to an address you type; the answer is the wallet's own claim). Legion's own code also has one spend tool, `bsv_spend_request`: it asks your wallet to build a transaction, Legion decodes it itself, you read native dialogs (amount, the full address, the network, the fee, the limits left), and only then is the wallet asked to sign; the wallet's own prompt is the last gate. It works on testnet and on mainnet. **Mainnet is built behind a hard-off switch that ships OFF**: only you turn it on, in the app, and each mainnet spend needs its own Arm and an extra dialog. Limits are tiny by default and per network, the recipient list starts empty, and an outcome Legion cannot confirm blocks every spend until you resolve it. Legion's own code holds no key and does no signing or broadcasting itself. An agent's ordinary tools (a shell, a web fetch) are outside all of this and rest on their approval cards. The Assayer is an ordinary agent: in `ask` mode its shell commands and file edits need your approval, while web fetch and read-only tools run without a prompt. **The spend tool was built and tested against fake wallets only and has not been verified against a real wallet or with real funds until your checks are recorded**; Legion has never been pointed at your funded wallet by its own code, tests or agents. See [docs/BSV-MODE.md](docs/BSV-MODE.md) for what it is and is not.
 
 ## Your Claude subscription, and Anthropic's terms
 
-Legion talks to Claude only through the official [Claude Agent SDK](https://docs.claude.com/en/docs/claude-code/sdk). By default (`claude.auth: "claude-login"`) it uses whichever account Claude Code is signed in to on your machine. Legion never reads, copies or stores your Claude credentials, and it removes `ANTHROPIC_API_KEY` from the child environment so your login is the one used. If you would rather pay by API key, set `claude.auth` to `api-key` and provide one.
+Legion talks to Claude through the official [Claude Agent SDK](https://docs.claude.com/en/docs/claude-code/sdk). By default (`claude.auth: "claude-login"`) it uses whichever account Claude Code is signed in to on your machine. Legion never reads, copies or stores your Claude credentials, and it removes `ANTHROPIC_API_KEY` from the child environment so your login is the one used. If you would rather pay by API key, set `claude.auth` to `api-key` and provide one.
 
 Use it for yourself, on your own machine. Do not host Legion for other people, put it behind a shared endpoint, or pass your subscription through it to anyone else. Anthropic's terms are the authority on what your plan allows, and they can change; read them for your plan. Legion is an independent project and is not affiliated with or endorsed by Anthropic or boat.dev.
 
 ## Requirements
 
-- **Node.js 20.10 or newer.** The Electron app starts Legion Core with your system `node`.
+- **Node.js 20.10 or newer.** The Electron app starts Legion Core with your system `node`. CI runs on Node 22 and `.nvmrc` says 22, so 22 is the safest choice.
 - **Claude Code, signed in.** Run `claude`, then `/login`. A Claude subscription or an API key is required.
 - **Windows 10/11** is the primary target. The installer is unsigned and has had no wide testing yet; expect Windows SmartScreen or antivirus prompts for `.cmd` files. macOS and Linux work from a dev install.
 - **Optional:** a [boat.dev](https://boat.dev) account and API key for agent VMs.
@@ -101,13 +111,17 @@ To launch, use the shortcuts or `start-legion.cmd` in the install folder. To uni
 ### macOS and Linux (or any dev install)
 
 ```bash
-git clone https://github.com/OWNER/legion.git
+git clone https://github.com/dnh33/legion.git
 cd legion
 npm ci
 npm start          # builds, then opens the desktop app
 ```
 
 `npm run core` runs the headless core alone, which is enough for the MCP integration.
+
+## Updates
+
+Legion can check GitHub for a new release and tell you. It downloads and installs only after you click Update (or if you turn on "install updates automatically when idle", which is off by default), and it never restarts while a task, approval or install is in progress; a ready update waits until Legion is idle. Updates are checked against a signature made with the maintainer's key, which is built into your copy of Legion. The check is one request to github.com (it sees your IP address and the Legion version) and can be turned off in Settings, About. A git checkout is only told that a new version exists; update it with `git pull` and a rebuild. Details and limits: [docs/UPDATES.md](docs/UPDATES.md).
 
 ## First run and Doctor
 
@@ -126,7 +140,7 @@ Agents get `vm_start`, `vm_exec`, `vm_write_file`, `vm_read_file`, `vm_claude`, 
 
 ## Orchestrate from Claude Code or Cowork
 
-Run `npm run mcp-config` to print ready-to-paste snippets with your real token. That token is the MCP token: it lets Claude Code and Cowork run and read agents (under the `ask` approval ceiling), but it cannot approve cards, accept Library notes, change settings or touch BSV; those need the Legion app window, which holds a secret that lives only in memory.
+Run `npm run mcp-config` to print ready-to-paste snippets with your real token. That token is the MCP token: it lets Claude Code and Cowork run and read agents (under the `ask` approval ceiling), but it cannot approve cards, accept Library notes, change settings or change BSV policy (the one BSV call it can make is Freeze, which only stops things); those need the Legion app window, which holds a secret that lives only in memory.
 
 **Claude Code** (MCP over HTTP):
 
@@ -191,6 +205,7 @@ Type `/` in the composer to open the menu. Commands that Legion does not handle 
 | `claude.executablePath` | Path to your own `claude` binary. By default the one bundled with the SDK is used. |
 | `claude.maxTurns` | Turn cap per run. Default `40`. |
 | `boat.apiKey`, `boat.baseUrl` | boat.dev access. `BOAT_API_KEY` also works. |
+| `features.projectBoard` | The project board. Default on; only the literal `false` turns it off (restart Legion). Not written by the app. See [docs/PROJECT-BOARD.md](docs/PROJECT-BOARD.md). |
 | `mcpServers` | Extra MCP servers, in the same shape as Claude Code's `.mcp.json`. Agents pick them by name, or `*` for all. |
 
 Environment variables: `LEGION_HOME` (data directory), `LEGION_PORT`, `LEGION_NODE` (Node binary for the app to use), `BOAT_API_KEY`.
@@ -205,6 +220,7 @@ The data directory holds `config.json`, `state.json`, `messages/`, `workspaces/<
 | `Ctrl+N` | New task |
 | `Ctrl+M` | Model picker |
 | `Enter` / `Ctrl+Enter` | Send. While the agent works: queue / interrupt and send now |
+| `Ctrl+,` | Open or close Settings |
 | `Ctrl+.` | Toggle the Ops panel |
 | `Alt+1` to `Alt+9` | Switch agent |
 | `A` / `D` | Allow / Deny the focused approval |
@@ -220,8 +236,8 @@ The Relic is a single hand-painted SVG, split into layers and animated by a smal
 
 Not in v1, and not promised:
 
-- **Other model providers, such as Codex and ChatGPT.** Legion runs Claude only today.
-- **A testnet spend tool for BSV mode**, behind approvals (design in [docs/BSV-WALLET-DESIGN.md](docs/BSV-WALLET-DESIGN.md)).
+- **Codex, Ollama and other custom/local endpoints (0.2.1).** OpenRouter already ships in 0.2.0 — any model, with your own key.
+- **BSV mode: the real-wallet checks, and anything beyond one payment.** The spend tool is built (testnet and mainnet, mainnet behind a hard-off switch) and tested against fakes; the owner's by-hand checks on a real wallet come next, and wallet reads (balances), a VM boundary for wallet tools and spends by anything other than a run you started are not built (see [docs/BSV-MODE.md](docs/BSV-MODE.md) and [docs/BSV-WALLET-DESIGN.md](docs/BSV-WALLET-DESIGN.md)).
 - Signed installers and prebuilt releases. Today you install from source with `setup.cmd`.
 
 ## Development

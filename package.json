@@ -2,7 +2,8 @@
   "name": "legion",
   "version": "0.2.0",
   "description": "A local, Claude-native multi-agent desktop bot with on-demand boat.dev VMs and a hand-painted mascot",
-  "license": "MIT",
+  "author": "dnh33",
+  "license": "Apache-2.0",
   "keywords": [
     "claude",
     "claude-code",
@@ -17,13 +18,13 @@
     "local-first",
     "ai-agents"
   ],
-  "homepage": "https://github.com/OWNER/legion#readme",
+  "homepage": "https://github.com/dnh33/legion#readme",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/OWNER/legion.git"
+    "url": "git+https://github.com/dnh33/legion.git"
   },
   "bugs": {
-    "url": "https://github.com/OWNER/legion/issues"
+    "url": "https://github.com/dnh33/legion/issues"
   },
   "private": true,
   "type": "module",
@@ -46,7 +47,9 @@
     "start": "npm run build && electron .",
     "app": "electron .",
     "mcp-config": "node scripts/mcp-config.mjs",
-    "dev:ui": "vite --config ui/vite.config.ts"
+    "dev:ui": "vite --config ui/vite.config.ts",
+    "harness": "node scripts/harness/legion-harness.mjs",
+    "harness:smoke": "npm run build:ts && node --test dist/test/harness-smoke.test.js"
   },
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.3.285",

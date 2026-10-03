@@ -185,7 +185,7 @@ test('probe file: its method list is exactly the four read-only names, in the so
   assert.deepEqual([...PROBE_METHODS], ['getVersion', 'getNetwork', 'isAuthenticated', 'getHeight']);
   const { PROBE_METHOD_ALLOWLIST, ALLOWED_WALLETY_TOOLS, PROBE_FILE } = await import('./bsv-scan.js');
   assert.deepEqual([...PROBE_METHOD_ALLOWLIST], [...PROBE_METHODS]);
-  assert.deepEqual(ALLOWED_WALLETY_TOOLS, { bsv_status: 'src/core/bsv/wallet-tool.ts' });
+  assert.deepEqual(ALLOWED_WALLETY_TOOLS, { bsv_status: 'src/core/bsv/wallet-tool.ts', bsv_spend_request: 'src/core/bsv/spend.ts' });
   assert.equal(PROBE_FILE, 'src/core/bsv/wallet-probe.ts');
 });
 

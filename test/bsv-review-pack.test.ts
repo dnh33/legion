@@ -104,29 +104,29 @@ test('F10/F12: no unmarked node states a control Legion does not have as a prese
   assert.deepEqual(offenders, []);
   // the specific nodes the reviewer named now say what is true
   const body = (id: string) => asNode(pack.nodes.find((x) => x.id === id)!).body;
-  assert.match(body('bsv-tx-fees'), /no tool uses it yet because Legion has no spend tool/);
+  assert.match(body('bsv-tx-fees'), /Legion's spend tool refuses a transaction whose fee/);
   assert.match(body('bsv-safety-ts-stack-server-keys'), /Legion has no wallet in this version/);
   assert.match(body('bsv-safety-copy-no-key-samples'), /Legion has no wallet in this version/);
   assert.match(body('bsv-src-bsv-skills'), /no installer/);
-  assert.match(body('bsv-wallet-results-delayed-broadcast'), /none exists today/);
+  assert.match(body('bsv-wallet-results-delayed-broadcast'), /no such read exists today/);
 });
 
 test('F9/F12: the status node says the Assayer is an ordinary agent with normal tools behind approval, and the preamble no longer says nothing can sign', async () => {
   const status = asNode(pack.nodes.find((n) => n.id === 'bsv-status-today')!).body;
-  assert.match(status, /advisory bot whose only BSV tool is that read-only status check/);
+  assert.match(status, /The Assayer gets two Legion-owned tools/);
   // G2: the truth from src/core/approvals.ts: in ask mode shell and file edits wait for approval, web fetch/search and read-only tools do not
   assert.match(status, /shell commands and file edits wait for your approval/);
   assert.match(status, /web fetch, web search and read-only tools run without a prompt/);
   assert.match(status, /switch its approval to full/);
   assert.doesNotMatch(status, /web fetch\) behind your approval/);
-  assert.match(status, /Legion's own code has no tool that signs or sends BSV/);
+  assert.match(status, /Legion's own code does no key handling, no signing and no broadcasting/);
   assert.doesNotMatch(status, /answer-only/);
   assert.doesNotMatch(status, /no wallet, no key handling/, 'there is now a status probe: the node must not say there is no wallet contact');
   const { BSV_PREAMBLE } = await import('../src/core/bsv/index.js');
   assert.doesNotMatch(BSV_PREAMBLE, /nothing here can sign/i);
   assert.match(BSV_PREAMBLE, /\[Design\]/, 'the preamble points at the marker readers will actually see');
-  assert.match(BSV_PREAMBLE, /mcp__legion_bsv__bsv_status/, 'the preamble names the one wallet tool');
-  assert.match(BSV_PREAMBLE, /Legion has no tool that signs, sends, reads balances or holds funds/);
+  assert.match(BSV_PREAMBLE, /mcp__legion_bsv__bsv_status/, 'the preamble names the status tool and the spend tool');
+  assert.match(BSV_PREAMBLE, /Legion's own tools cannot read balances or hold funds/);
   assert.equal(BSV_PREAMBLE.split('\n').length, 4);
 });
 

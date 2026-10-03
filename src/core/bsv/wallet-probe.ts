@@ -125,8 +125,10 @@ export const httpTransport: Transport = (r) => new Promise<WireResponse>((resolv
 
 /** The semver.org grammar, nothing looser: MAJOR.MINOR.PATCH with optional -prerelease and +build. No leading "v", no spaces, no free text. */
 const SEMVER_RE = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-((?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\.(?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*))*))?(?:\+([0-9a-zA-Z-]+(?:\.[0-9a-zA-Z-]+)*))?$/;
-/** A wallet's version string as Legion will show it: valid semver of at most 64 characters, or null. */
-export function readVersion(v: unknown): string | null { return typeof v === 'string' && v.length <= 64 && SEMVER_RE.test(v) ? v : null; }
+/** A short vendor token then semver, as the real BSV Desktop reports ("wallet-brc100-1.0.0"): lower-case token of at most 32 characters, a dash, MAJOR.MINOR.PATCH, optional -pre (letters, digits, dots, dashes). Nothing else. */
+const TOKEN_VERSION_RE = /^[a-z][a-z0-9-]{0,31}-(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-[0-9a-z]+(?:\.[0-9a-z]+)*)?$/;
+/** A wallet's version string as Legion will show it: valid semver, or a short safe token followed by semver, at most 64 characters, or null. */
+export function readVersion(v: unknown): string | null { return typeof v === 'string' && v.length <= 64 && (SEMVER_RE.test(v) || TOKEN_VERSION_RE.test(v)) ? v : null; }
 const isPlainObject = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v);
 
 function parseBody(body: string): Record<string, unknown> | null {
@@ -228,14 +230,14 @@ export interface WalletStatus extends WalletProbeResult {
   connected: boolean;
   /** Where Legion looks (host and port only); empty when no address is set. */
   url: string;
-  /** Legion's own mode. Always testnet in this release. */
+  /** Legion's knowledge mode, which is testnet. It is not the spend network: that is whatever the wallet claims at the moment of a request, and mainnet spending is off unless the owner switched it on. */
   legionNetwork: 'testnet';
   condition: WalletCondition;
   /** One calm sentence for the UI and the tool result. */
   message: string;
 }
 
-export const MAINNET_WARNING = 'The wallet is on MAINNET; Legion is in testnet knowledge mode; Legion will not use it.';
+export const MAINNET_WARNING = "The wallet says it is on MAINNET (real funds). In Legion's own code a mainnet spend needs the mainnet switch (off by default), Arm, your confirmations and the wallet's own prompt.";
 
 export type WalletIdle = 'off' | 'not-configured' | 'not-connected';
 
@@ -297,6 +299,13 @@ export class WalletProbeService {
   }
 
   get connected(): boolean { return this.connectedFlag; }
+
+  /** The address Legion may talk to: the configured URL, only while the owner is connected, BSV mode is on and the address is loopback. Otherwise undefined. */
+  get connectedUrl(): string | undefined {
+    if (!this.connectedFlag || !this.o.enabled()) return undefined;
+    const raw = this.o.getUrl();
+    return raw && parseWalletUrl(raw).ok ? raw : undefined;
+  }
 
   private idle(): WalletIdle {
     if (!this.o.enabled()) return 'off';

@@ -33,4 +33,4 @@ Windows 10/11: unpack or clone the source, double-click `setup.cmd` (or `setup-y
 - <!-- MCP inheritance default (A) -->
 
 ### Thanks and licences
-MIT. Third-party attribution in NOTICE. Not affiliated with Anthropic or boat.dev.
+Apache-2.0. Third-party attribution in NOTICE. Not affiliated with Anthropic or boat.dev.

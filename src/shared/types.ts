@@ -4,6 +4,7 @@
  */
 import type { Room, RoomMessage, CommsState, TaskOrigin } from './comms.js';
 import type { BlenderStatusView } from './blender.js';
+import type { Project } from './projects.js';
 
 /** What the user picks per agent/task. 'auto' lets the router decide. */
 export type ModelChoice = 'auto' | string;
@@ -145,11 +146,17 @@ export interface Task {
   bridgeHop?: number;
   /** Hidden from tabs and Recent tasks (closed by the user). Still stored and resumable. */
   archived?: boolean;
+  /** The project this task belongs to (absent: none). Set only by the app, a room's own wake or an `ask`/`tell` inheriting its caller's; see claude/plan-projects.md. */
+  projectId?: string;
   requestedModel: ModelChoice;
   /** Set when another bot picked the model for this task through `ask`/`tell` (or a room message): who, and which. Applies to that task's run only; a later message that asks for none clears it. Never changes approvals. */
   modelOverride?: { model: ModelChoice; by: string };
   /** Model used for the latest run; set when the run starts. */
   model?: ConcreteModel;
+  /** Id of the model provider the latest run used (absent: Claude). */
+  provider?: string;
+  /** Token counts a provider returned, summed over the run; `unknown` is true when a response carried none. Cost is never derived from these without prices the owner entered. */
+  tokenUsage?: { inputTokens?: number; outputTokens?: number; unknown?: boolean };
   /** True if the router escalated sonnet → opus during this task. */
   escalated?: boolean;
   /** Claude Agent SDK session id, used to resume follow-ups. */
@@ -206,7 +213,9 @@ export type LegionEvent =
   | { type: 'room.message'; message: RoomMessage }
   | { type: 'comms.state'; agentId: string; state: CommsState; roomId?: string; peerId?: string }
   | { type: 'kg.updated'; nodeCount: number; edgeCount: number; changed?: string[] }
-  | { type: 'blender.status'; status: BlenderStatusView };
+  | { type: 'blender.status'; status: BlenderStatusView }
+  | { type: 'project.updated'; project: Project }
+  | { type: 'board.updated'; projectId: string };
 
 /** A tool call waiting for the user's decision. Auto-denied after 10 minutes. */
 export interface ApprovalRequest {
@@ -335,6 +344,8 @@ export interface SettingsView {
   port: number;
   configPath: string;
   dataDir: string;
+  /** Install folder and kind; absent when the core was started without it. A package has no system Node: its snippets run Electron in node mode. */
+  install?: { dir: string; packaged: boolean };
 }
 
 /** PATCH /api/settings body. Omitted fields are unchanged; apiKey: null clears a key. */

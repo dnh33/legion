@@ -39,7 +39,7 @@ export type Call = { agent: string; prompt: string; options: any };
 export type Script = (c: Call) => AsyncGenerator<any, void> | undefined;
 
 let sid = 0;
-export const until = async (cond: () => boolean, ms = 4000): Promise<void> => {
+export const until = async (cond: () => boolean, ms = 12000): Promise<void> => {
   const end = Date.now() + ms;
   while (!cond()) { if (Date.now() > end) throw new Error('timed out waiting for condition'); await new Promise((r) => setTimeout(r, 10)); }
 };

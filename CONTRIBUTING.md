@@ -4,10 +4,10 @@ Thanks for helping out. This guide covers setup, the everyday scripts, tests, st
 
 ## Setup
 
-You need Node.js 22 (see `.nvmrc`; 20.10 or newer works) and npm.
+You need Node.js 22 (see `.nvmrc`; 20.10 or newer is the supported minimum) and npm.
 
 ```bash
-git clone https://github.com/OWNER/legion.git
+git clone https://github.com/dnh33/legion.git
 cd legion
 npm ci
 ```
@@ -88,20 +88,45 @@ Every built-in agent has a hand-painted bust. The painting is never redrawn or s
 
 Golden rule: `ui/src/mascot/data/relic.json` and the Relic stage stay byte-identical (a test pins the hash).
 
+## The gate
+
+Run this before you say a change is done, and report the exact test counts in the pull request:
+
+```bash
+npm ci && npm run build:ts && npm test && npm run typecheck && npm run build:ui
+```
+
+Every new test needs a negative: temporarily break the code it covers, see the test fail, then put the code back.
+
+## Windows notes
+
+Windows is where tests break. Things that have bitten before:
+
+- Use `fileURLToPath`, never `new URL(...).pathname`.
+- Windows PowerShell 5.1 does not unroll a JSON array from `ConvertFrom-Json`; pipe it through `ForEach-Object { $_ }`.
+- File symlinks need privilege: use junctions or hard links in tests.
+- `Path` and `PATH` differ in case in the environment.
+- Never kill processes by name pattern; kill by PID.
+- Node loads each ES module once, so a running server keeps old code until you restart it.
+
+## Security issues
+
+Do not open a public issue for a vulnerability. Use private vulnerability reporting: the **Security** tab, then **Report a vulnerability** (see [SECURITY.md](SECURITY.md)). Never put keys, tokens or `.legion` data in an issue, a pull request, a log or a test fixture. A few areas have tests that guard the safety rules (`test/bsv-*.test.ts`, the admin gate); do not weaken those to make something pass.
+
 ## Pull requests
 
 1. Open an issue first for anything large, so we can agree on the approach.
 2. Branch from the default branch and keep the change focused.
-3. Run the checks below.
+3. Run the gate above.
 4. Fill in the pull request template. Include a screenshot for UI changes.
 
 Checklist:
 
 - [ ] `npm run typecheck` passes
 - [ ] `npm test` passes, with tests added or updated
-- [ ] `npm run build` passes
+- [ ] `npm run build:ts` and `npm run build:ui` pass
 - [ ] No secrets, tokens, personal paths or email addresses in the diff
 - [ ] Docs updated (README, `docs/ARCHITECTURE.md`, `CHANGELOG.md` under "Unreleased") if behaviour changed
 - [ ] Third-party assets have a compatible licence and are listed in `NOTICE`
 
-By contributing you agree that your contribution is licensed under the [MIT License](LICENSE).
+By contributing you agree that your contribution is licensed under the [Apache License, Version 2.0](LICENSE).

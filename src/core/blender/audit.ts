@@ -24,7 +24,7 @@ export type AuditDecision = 'blocked' | 'denied' | 'timeout' | 'approved' | 'com
 export interface AuditEntry {
   taskId: string;
   agentId: string;
-  mode: 'live' | 'sandbox';
+  mode: 'live' | 'sandbox' | 'local';
   hash: string;
   bytes: number;
   lines: number;

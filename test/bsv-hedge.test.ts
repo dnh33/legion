@@ -14,6 +14,7 @@ import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { lex } from './bsv-scan.js';
+import { BANNED } from './hedge-phrases.js';
 
 const REPO = fileURLToPath(new URL('../../', import.meta.url));
 const read = (rel: string) => readFileSync(join(REPO, rel), 'utf8');
@@ -31,21 +32,6 @@ const SOURCES: Array<{ name: string; text: string }> = [
   { name: 'docs/BSV-WALLET-DESIGN.md', text: read('docs/BSV-WALLET-DESIGN.md') },
   { name: 'SECURITY.md (the lines about BSV and the wallet)', text: securityBsv() },
   { name: 'CHANGELOG.md (the lines about BSV)', text: read('CHANGELOG.md').split('\n').filter((l) => /BSV|wallet/i.test(l)).join('\n') },
-];
-
-const BANNED: Array<[string, RegExp]> = [
-  ['a guarantee', /\bguarantee[sd]?\b/i],
-  ['"tamper-proof" without "not"', /(?<!not )(?<!not a )\btamper[- ]?proof\b/i],
-  ['"impossible"', /\bimpossible\b/i],
-  ['"cannot be bypassed/forged/disabled/..."', /\bcannot be (bypassed|forged|changed|disabled|tampered with|edited|spoofed|faked|hacked)\b/i],
-  ['"nothing can proceed" (a freeze stops Legion\'s BSV tools, not the machine)', /\bnothing can proceed\b/i],
-  ['"could ever receive" (the allowlist is checked by an engine no tool uses yet)', /\bcould ever receive\b/i],
-  ['"can no longer flip the switch" (reading config.json is not enough; that is all that was shown)', /\bcan no longer flip\b/i],
-  ['"no one can" / "nobody can"', /\b(no one|nobody) can\b/i],
-  ['"100%" or "fully secure/safe/protected"', /\b100 ?%|\bfully (secure|safe|protected|isolated)\b/i],
-  ['"unbreakable", "unhackable", "foolproof", "bulletproof"', /\b(unbreakable|unhackable|foolproof|bulletproof)\b/i],
-  ['"protects your funds/keys/wallet"', /\bprotects? (your )?(funds|money|keys|wallet)\b/i],
-  ['"keeps your funds safe"', /\bkeeps? (your )?(funds|money|keys)\b.{0,12}\bsafe\b/i],
 ];
 
 const NEG = /\b(nothing|no one|nobody|never|cannot|can't|can not|impossible|no way|none)\b/i;
@@ -91,4 +77,77 @@ test('hedge: the check itself catches the phrases it exists for', () => {
   for (const t of bad) assert.ok(BANNED.some(([, re]) => re.test(t)) || (NEG.test(t) && VERB.test(t) && !SCOPE.test(t)), t);
   const good = ['It is tamper-evident, not tamper-proof.', "Legion's own code has no way to sign or send in this version.", 'Legion has no spend tool in this version.'];
   for (const t of good) assert.ok(!BANNED.some(([, re]) => re.test(t)) && !(NEG.test(t) && VERB.test(t) && !SCOPE.test(t)), t);
+});
+
+// ---------------------------------------------------------------- rung 3: the spend tool exists, mainnet is built and OFF, nothing is verified with a real wallet (T4)
+
+/** BSV-only absolutes (not in the shared list, which the Blender text also uses). */
+const BSV_BANNED: Array<[string, RegExp]> = [
+  ['"risk-free"', /\brisk[- ]free\b/i],
+  ['"cannot lose" / "can\'t lose"', /\b(cannot|can'?t) lose\b/i],
+  ['"no way to overspend"', /\bno way to overspend\b/i],
+  ['"safe to spend"', /\bsafe to spend\b/i],
+  ['"safe on mainnet"', /\bsafe on mainnet\b/i],
+  ['"production-ready"', /\bproduction[- ]ready\b/i],
+];
+/** Claims that were true before the spend tool existed and are false now. Each must be gone from every scanned source. */
+const STALE: Array<[string, RegExp]> = [
+  ['"has no spend tool" / "no spend tool exists"', /\b(has|have) no spend tool\b|\bno spend tool (exists|yet|in this version)\b|\bthere is no spend tool\b/i],
+  ['"testnet only" about what Legion does', /\b(legion|bsv mode)\b[^.]{0,60}\btestnet[- ]only\b|\btestnet[- ]only in (v1|this version)\b/i],
+  ['"refuses mainnet" (it refuses it unless switched on and armed)', /\brefuses (a )?mainnet\b/i],
+  ['"mainnet is not designed" / "mainnet is out of reach"', /\bmainnet (is|stays) (not designed|out of reach|out of v1)\b/i],
+  ['"policy state that nothing consumes"', /\b(nothing consumes|nothing calls it|connected to (no tool|nothing)|policy state and nothing else)\b/i],
+];
+/** "verified with real funds" is banned until the owner's record exists; the record is one line in the PC checks file. */
+const REAL_FUNDS_RECORD = /^BSV REAL-FUNDS CHECK RECORDED\b/m;
+const realFundsRecorded = (): boolean => REAL_FUNDS_RECORD.test(read('claude/tracker-pc-checks.md'));
+const VERIFIED_CLAIM = /\b(verified|tested|checked|proven) (with|against|on) (a )?(real|live|mainnet|funded)[^.]{0,30}(funds|wallet|money|mainnet)/i;
+const unscopedVerified = (t: string): string[] => sentences(t).filter((x) => VERIFIED_CLAIM.test(x) && !/\b(not|never|until|no|nothing|only|none|without|yet|unverified)\b/i.test(x)).map((x) => x.trim().slice(0, 200));
+
+test('hedge (rung 3): no scanned source still says there is no spend tool, testnet only, or that mainnet is refused or not designed', () => {
+  const hits: string[] = [];
+  for (const src of SOURCES) for (const line of readable(src).split('\n')) for (const [what, re] of STALE) if (re.test(line)) hits.push(`${src.name}: ${what}: ${line.trim().slice(0, 160)}`);
+  assert.deepEqual(hits, []);
+});
+
+test('hedge (rung 3): BSV-only banned phrases are absent from the panel, dialogs, agent text and docs', () => {
+  const hits: string[] = [];
+  for (const src of SOURCES) for (const line of readable(src).split('\n')) for (const [what, re] of BSV_BANNED) if (re.test(line)) hits.push(`${src.name}: ${what}: ${line.trim().slice(0, 160)}`);
+  assert.deepEqual(hits, []);
+});
+
+test('hedge (rung 3): nothing says the spend tool was verified against a real wallet or with real funds until the owner\'s record is in the PC checks file', () => {
+  if (realFundsRecorded()) return; // then the sentence must be dated and scoped by whoever records it; this test stops asserting absence
+  const hits: string[] = [];
+  for (const src of SOURCES) for (const x of unscopedVerified(readable(src))) hits.push(`${src.name}: ${x}`);
+  assert.deepEqual(hits, []);
+});
+
+test('hedge (rung 3): BSV-MODE.md and SECURITY.md carry the statements whose absence would be the overclaim', () => {
+  const mode = read('docs/BSV-MODE.md');
+  const sec = read('SECURITY.md');
+  const readme = read('README.md');
+  for (const [name, text] of [['docs/BSV-MODE.md', mode], ['SECURITY.md', sec], ['README.md', readme]] as const) {
+    assert.match(text, /mainnet[^.]{0,100}(?:\bOFF\b|\boff by default\b)/, `${name}: mainnet is built and OFF by default`);
+    assert.match(text, /only (the )?(owner|you)[^.]{0,80}(turn|switch)/i, `${name}: only the owner turns mainnet on`);
+    assert.match(text, /ordinary tools/i, `${name}: an agent's ordinary tools are outside the controls`);
+  }
+  for (const [name, text] of [['docs/BSV-MODE.md', mode], ['SECURITY.md', sec]] as const) {
+    assert.match(text, /wallet'?s own prompt[^.]{0,80}last gate/i, `${name}: the wallet's own prompt is the last gate`);
+    if (!realFundsRecorded()) assert.match(text, /not (been )?verified[^.]{0,80}(real wallet|real funds)/i, `${name}: not verified against a real wallet or with real funds`);
+    assert.match(text, /fake wallets? only|fake loopback wallet|against fakes/i, `${name}: tested against fakes only`);
+  }
+  assert.match(mode, /never (been )?(pointed|talked)[^.]*real/i, 'never pointed at the real, funded wallet');
+  assert.match(readme, /not been verified against a real wallet or with real funds/i, 'README: not verified');
+  assert.match(mode, /wallet-brc100-1\.0\.0/, 'the real wallet facts box');
+  assert.match(mode, /text\/html/, 'the content type fact');
+  assert.match(mode, /no prompt/i, 'the four read-only methods showed no prompt');
+});
+
+test('hedge (rung 3): the checks catch what they exist for (and let the scoped wording through)', () => {
+  for (const t of ['Legion has no spend tool in this version.', 'There is no spend tool yet.', 'Legion BSV mode is testnet only.', 'Legion refuses mainnet.', 'Mainnet is not designed.', 'The engine is connected to nothing.']) assert.ok(STALE.some(([, re]) => re.test(t)), t);
+  for (const t of ['The spend tool is risk-free.', 'You cannot lose funds.', 'Safe on mainnet.', 'It is production-ready.', 'There is no way to overspend.']) assert.ok(BSV_BANNED.some(([, re]) => re.test(t)), t);
+  for (const t of ['The spend tool was verified with real funds.', 'It has been tested against a real wallet.']) assert.equal(unscopedVerified(t).length, 1, t);
+  for (const t of ['It has not been verified against a real wallet or with real funds.', 'Nothing is verified with a real wallet until the owner\'s checks are recorded.']) assert.equal(unscopedVerified(t).length, 0, t);
+  for (const t of ['The spend tool was built and tested against fake wallets only.', "Mainnet is built and OFF by default.", "Legion's own code has one tool that asks a wallet to build and sign a payment."]) assert.ok(!STALE.some(([, re]) => re.test(t)) && !BSV_BANNED.some(([, re]) => re.test(t)), t);
 });

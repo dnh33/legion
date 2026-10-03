@@ -1,0 +1,17 @@
+# real stdout of: node scripts/harness/legion-harness.mjs scenarios core-task-run approval-card-flow mcp-token-limits --verbose
+# trimmed: the "proves"/"doesNotProve" prose arrays are omitted (lines removed, none edited)
+  "ok": true,
+  "passed": 3,
+  "failed": 0,
+      "name": "core-task-run",
+      "status": "PASS",
+      "ms": 1017,
+      "checks": 10,
+      "name": "approval-card-flow",
+      "status": "PASS",
+      "ms": 891,
+      "checks": 12,
+      "name": "mcp-token-limits",
+      "status": "PASS",
+      "ms": 935,
+      "checks": 27,

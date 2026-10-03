@@ -12,6 +12,9 @@ export type RoomStrategy =
   | 'round-robin'  // each plain human message goes to the next member in order
   | 'all';         // every member answers once (never re-triggers others)
 
+/** The one home for the strategies a room may pick; validation and creation both read this list. */
+export const ROOM_STRATEGIES: RoomStrategy[] = ['mention', 'manager', 'round-robin', 'all'];
+
 export type RoomKind = 'group' | 'dm';
 
 export interface RoomGuards {
@@ -44,6 +47,8 @@ export interface Room {
   hopsSinceHuman: number;
   /** Agent id of the bot that created this room (`room_create`, after the user approved it). Absent for rooms the user made. Only the user can delete the room. */
   createdBy?: string;
+  /** The project this room belongs to (absent: none). Set by the owner only; every member must be a member of the project. */
+  projectId?: string;
   createdAt: string;
   updatedAt: string;
 }
