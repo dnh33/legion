@@ -822,6 +822,18 @@ because it looked largest; the owner has since ranked it first. Effort and multi
 - `0.2.2`'s `manifest.ts:23` validates via `isPlainSemver`, which **accepts** a lettered patch. Plain `0.2.2` was the
   correct bootstrap precisely because it shipped that validator.
 
+### D14 — DECIDED: git history stays as-is (owner, 2026-10-04)
+Commits `94b32bd` and `5b6c758` contain three lines naming the context engine's upstream source, a local Windows
+install path, and a licence. They are pushed to the **public** repo and are readable by anyone with the URL. The
+current files were scrubbed; the history deliberately was **not** rewritten.
+
+**Owner ruling: "No dont mess with the git history now, its harmless information thats in there right?"** Confirmed by
+scanning those commits: **zero** secrets, keys, tokens, wallet data or hashes. Exposure is a username, a standard
+app-data path, a public repo name and a licence.
+
+Rewriting was also rejected on process grounds: it requires a force-push to a public remote and rewriting release
+history, which this project's own rules forbid. **Do not reopen this.**
+
 ### D13 — OPEN: perf-l-store F1 — one node save publishes the graph twice (pre-existing on main)
 **Not fixed.** Four attempts, each reverted; `ui/src/graph/graphStore.ts` is byte-identical to `main`.
 
