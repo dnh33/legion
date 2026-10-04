@@ -69,14 +69,22 @@ const EXCLUDE = new Set([
  * Scrub scope. Code, tests and scripts ship untouched (test fixtures with generic paths like C:\Users\Dan are
  * fine per tracker-public-audit H6). claude/** ships byte-identical: the design plans, PC-check lists and reports
  * the owner wants public are pinned by tests against machine files, so scrubbing them would desync the pins
- * (their generic example paths like C:\Users\Zoë are not owner PII). The line scrub applies to docs/**, the root
- * docs and .github templates.
+ * (their generic example paths like C:\Users\Zoë are not owner PII). The line scrub applies to docs/**, claude/**,
+ * the root docs and .github templates.
  */
-const PROSE_DIRS = ['docs'];
+const PROSE_DIRS = ['docs', 'claude'];
 const ROOT_DOCS = ['README.md', 'CONTRIBUTING.md', 'SECURITY.md', 'CHANGELOG.md', 'CODE_OF_CONDUCT.md', 'NOTICE', 'LICENSE'];
-// claude/tracker-pc-checks.md is a status tracker read by tests only for marker lines; scrub its operational
-// lines (wallet/port/paths) like prose without disturbing those markers.
-const SCRUB_ALSO = ['claude/tracker-pc-checks.md'];
+// `claude/` is scrubbed as a whole, which is what the policy above says happens to it: "the design plans, PC-check
+// lists and reports under claude/ ship, line-scrubbed". Until 2026-10-04 the scrub list named docs/, the root docs and
+// .github only, with `claude/tracker-pc-checks.md` carried as a one-off exception, so every other claude/ file was
+// copied VERBATIM. That is how the owner's private vault path reached claude/SESSION-QUEUE.md and then the public
+// snapshot, and the export-scrub test caught it. The generic patterns in those plans (`/opt/...`, `D:/apps/...`) are
+// scrubbed too and that is the intended behaviour, not a loss: a public snapshot should not carry anyone's local paths,
+// real or illustrative.
+//
+// Files excluded from the snapshot outright (EXCLUDE) never reach this function, so a run-book that must not ship at
+// all is still kept out; scrubbing only decides what the files that DO ship may contain.
+const SCRUB_ALSO = [];
 // The wallet port is never written literally in code; it is built at runtime the same way the codebase does it.
 const PORT = String(Number('33' + '21'));
 
@@ -117,6 +125,12 @@ const DENY_CONTENT = [
 ];
 // The repo's own scrub/guard tests plant FAKE tokens and PEMs to verify redaction; they are exempt from the
 // content scan (the same carve-out the port guard already uses for its allowlist). Filename denies still apply.
+//
+// `test/provider-compaction.test.ts` joined this list on 2026-10-04. It plants realistic-looking key shapes
+// (`sk-abc...9jkl`, `sk-liv...ghij`) to prove the summary sanitizer strips them, which is the whole point of the
+// test: weaken the fixture until it stops matching the detector and the test stops proving anything. The trade-off is
+// the accepted one for every entry here -- a real key pasted into that file would not be caught by the export scan --
+// and it is bounded by the owner's own final secrets sweep before publishing.
 const DENY_IGNORE = new Set([
   'test/browser-chromium-launch.test.ts',
   'test/browser-tools.test.ts',
@@ -131,6 +145,7 @@ const DENY_IGNORE = new Set([
   'test/project-board-agent-access.test.ts',
   'test/project-board-store.test.ts',
   'test/project-board-tools.test.ts',
+  'test/provider-compaction.test.ts',
 ]);
 
 const TEXT_EXT = new Set(['.md', '.txt', '.json', '.jsonl', '.ts', '.tsx', '.js', '.mjs', '.cjs', '.py', '.css', '.html', '.astro', '.yml', '.yaml', '.svg', '.ps1', '.sh', '.gitignore', '.gitattributes']);
