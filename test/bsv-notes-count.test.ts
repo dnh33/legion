@@ -6,6 +6,7 @@
  * Hermetic: temp folders and the module's own routes; no wallet, no network.
  */
 import test from 'node:test';
+import { tempDir as cleanupTemp } from './tmp-cleanup.js';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { applySeedPack, loadBsvSeed, summarizeBsvPack } from '../src/core/kg/seed.js';
@@ -185,7 +186,7 @@ test('BSV mode off: the bsv scope is hidden, so the old figure has no bsv entry;
 async function statusWith(kgRoute: (() => unknown) | 'missing', enabled = true) {
   const f = makeFakes();
   f.agents.set('assayer', { ...mkAgent('assayer', 'Assayer'), requires: 'bsv' });
-  const dataDir = (await import('node:fs')).mkdtempSync((await import('node:path')).join((await import('node:os')).tmpdir(), 'legion-bsvn-'));
+  const dataDir = cleanupTemp('legion-bsvn-');
   const cfg = f.ctx.config as any; if (enabled) cfg.bsv = { enabled: true, network: 'testnet' };
   const state = createBsvState({ dataDir, config: f.ctx.config });
   const deps = { config: f.ctx.config, store: f.ctx.store, bus: f.bus, engine: f.ctx.engine, approvals: f.ctx.approvals, dataDir, bsvEnabled: () => state.enabled };

@@ -2,6 +2,7 @@
  * B4: the managed Blender download. Fake downloads only (no network), zips built in the test. Covers: zip-slip and the other unsafe-archive cases,
  * hash check before unpack, approval before any download, cleanup on failure, record validation, detection preference.
  */
+import { tempDir as cleanupTemp } from './tmp-cleanup.js';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
@@ -102,7 +103,7 @@ function pinFor(zip: Buffer, over: Partial<ManagedPin> = {}): ManagedPin {
   return { ...MANAGED_BLENDER, version: '5.2.2', topDir: TOP, sha256: sha(zip), maxEntries: 100, maxUnpackedBytes: 1024 * 1024, ...over };
 }
 function rig(zip: Buffer, o: { served?: Buffer; platform?: NodeJS.Platform } = {}) {
-  const dir = mkdtempSync(join(tmpdir(), 'legion-get-'));
+  const dir = cleanupTemp('legion-get-');
   const log: string[] = [];
   const ports = createGetBlenderPorts();
   const fake: GetBlenderPorts = {
@@ -224,7 +225,7 @@ test('B4 get: an archive without blender.exe installs nothing; a second call wit
 });
 
 test('B4 get: a tampered record that points outside the managed folder (or at a missing file) is not believed', () => {
-  const dir = mkdtempSync(join(tmpdir(), 'legion-rec-'));
+  const dir = cleanupTemp('legion-rec-');
   mkdirSync(join(dir, 'blender'), { recursive: true });
   const outside = join(dir, 'evil.exe');
   writeFileSync(outside, 'x');

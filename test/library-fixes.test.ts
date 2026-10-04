@@ -1,4 +1,5 @@
 /** Fix-round additions: seed-phrase false positives, and old logs (no rev, no begin/commit) still load. */
+import { tempDir as cleanupTemp } from './tmp-cleanup.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync, writeFileSync, mkdtempSync } from 'node:fs';
@@ -65,7 +66,7 @@ const rewrite = (file: string, fn: (l: string) => string | undefined): void => {
 };
 
 test('old logs still load: multi-op appends without begin/commit markers replay as before', () => {
-  const dir = mkdtempSync(join(tmpdir(), 'legion-fix-'));
+  const dir = cleanupTemp('legion-fix-');
   const g = new Graph({ dir });
   const a = agentActor('alpha', { taskId: 'T' });
   const nodes = ['one', 'two', 'keep'].map((t) => g.upsertNode(a, { title: `note ${t}`, body: t }).node);
@@ -81,7 +82,7 @@ test('old logs still load: multi-op appends without begin/commit markers replay 
 });
 
 test('old logs still load: nodes and activity stamps written before the revision counter existed', () => {
-  const dir = mkdtempSync(join(tmpdir(), 'legion-fix-'));
+  const dir = cleanupTemp('legion-fix-');
   const g = new Graph({ dir });
   const a = agentActor('alpha', { taskId: 'T' });
   const n = g.upsertNode(a, { title: 'old note', body: 'v1' }).node;

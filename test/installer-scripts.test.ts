@@ -1,3 +1,4 @@
+import { tempDir as cleanupTemp } from './tmp-cleanup.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
@@ -87,7 +88,7 @@ const ps = (id: number, name: string, exe: string | null, cmd: string | null): P
 const shells = allPowerShells();
 if (shells.length === 0) test('process matcher (real PowerShell)', (t) => { t.skip('no PowerShell on this machine; the Windows CI runner has both'); });
 for (const exe of shells) test(`process matcher: only Legion processes, from any folder (real ${exe})`, () => {
-  const dir = mkdtempSync(join(tmpdir(), 'legion-ps-'));
+  const dir = cleanupTemp('legion-ps-');
   try {
     const procs: P[] = [
       ps(10, 'electron.exe', 'C:\\Users\\a\\AppData\\Local\\Programs\\Legion\\node_modules\\electron\\dist\\electron.exe', '"C:\\Users\\a\\AppData\\Local\\Programs\\Legion\\node_modules\\electron\\dist\\electron.exe" "C:\\Users\\a\\AppData\\Local\\Programs\\Legion"'),

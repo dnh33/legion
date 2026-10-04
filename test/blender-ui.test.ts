@@ -82,7 +82,7 @@ const cut = (src: string, from: string, to: string): string => {
   return src.slice(a, b).replace(/export /g, '');
 };
 
-type Copy = { MODE_CHOICES: Array<{ mode: string; title: string; text: string }>; showSocketNotice: (s: Record<string, unknown>) => boolean; visibleNotices: (s: Record<string, unknown>) => string[]; NOT_TRIED_VM: string; NOT_TRIED_LOCAL: string };
+type Copy = { MODE_CHOICES: Array<{ mode: string; title: string; text: string }>; showSocketNotice: (s: Record<string, unknown>) => boolean; visibleNotices: (s: Record<string, unknown>) => string[]; NOT_TRIED_VM: string; LOCAL_MODE_NOTE: string };
 const copy = (): Copy => {
   const m = ts.transpileModule(read('ui/src/blender/copy.ts'), { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS } }).outputText;
   const exp: Record<string, unknown> = {};
@@ -105,13 +105,14 @@ test('"Where scripts run" offers four choices, recommended first, with the plain
   assert.doesNotMatch(settings, /Sandbox mode is unverified/);
 });
 
-test('two honest "not yet tried" notes are shown in Settings', () => {
+test('the cloud VM note stays; the local path states what it does', () => {
   const c = copy();
   assert.match(c.NOT_TRIED_VM, /not yet tried on a real VM/);
-  assert.match(c.NOT_TRIED_LOCAL, /not yet tried with a real Blender on Windows/);
+  assert.match(c.LOCAL_MODE_NOTE, /runs scripts with your installed Blender/);
+  assert.doesNotMatch(c.LOCAL_MODE_NOTE, /not yet tried/i);
   const settings = read('ui/src/components/Settings.tsx');
   assert.match(settings, /\{NOT_TRIED_VM\}/);
-  assert.match(settings, /\{NOT_TRIED_LOCAL\}/);
+  assert.match(settings, /\{LOCAL_MODE_NOTE\}/);
 });
 
 test('the card view reads mode local, and the badge says "On this PC"', () => {

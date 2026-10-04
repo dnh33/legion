@@ -2,6 +2,7 @@
  * The title-bar Blender chip: the view-model table (every light, plus unknown, failed and absent), the rule that the chip's switch goes through
  * the same function as the Settings switch (a real render of BlenderChip.tsx with a spy in place of the store), and the wording guards.
  */
+import { tempDir as cleanupTemp } from './tmp-cleanup.js';
 import assert from 'node:assert/strict';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
@@ -128,7 +129,7 @@ async function loadChip(): Promise<{ render: RenderFn; cleanup: () => void }> {
       },
     }],
   });
-  const dir = mkdtempSync(join(tmpdir(), 'chip-'));
+  const dir = cleanupTemp('chip-');
   const file = join(dir, 'chip.cjs');
   writeFileSync(file, r.outputFiles[0].text);
   const mod = createRequire(file)(file) as { render: RenderFn };

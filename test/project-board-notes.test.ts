@@ -1,4 +1,5 @@
 /** Notes linked to items: owner links, agent links, automatic linking at run end, and "Save what we learned" (control C19). */
+import { tempDir as cleanupTemp } from './tmp-cleanup.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtempSync } from 'node:fs';
@@ -19,7 +20,7 @@ const code = (fn: () => unknown, status: number) => assert.throws(fn, (e: unknow
 const T0 = new Date('2026-03-01T12:00:00.000Z');
 
 function setup() {
-  const root = mkdtempSync(join(tmpdir(), 'legion-board-notes-'));
+  const root = cleanupTemp('legion-board-notes-');
   const graph = new Graph({ dir: join(root, 'kg'), bsvEnabled: () => false, now: () => T0 });
   const projects = new ProjectStore(join(root, 'd'), join(root, 'w'));
   const board = new BoardStore(join(root, 'd', 'board'), () => 0);
@@ -41,7 +42,7 @@ async function tool(s: ReturnType<typeof setup>, agent: string, project: string,
 }
 
 test('C19 store: owner sets note links (shape, cap, dedupe); an agent adds; link is idempotent, capped and survives a reload', () => {
-  const d = mkdtempSync(join(tmpdir(), 'legion-board-notes2-'));
+  const d = cleanupTemp('legion-board-notes2-');
   const P: ProjectRef = { id: 'proj_aaaaaaaaaaaa', members: ['scout'], status: 'active' };
   const s = new BoardStore(d, () => 0);
   const i = s.create(P, { title: 'x', assignee: { kind: 'agent', id: 'scout' } });

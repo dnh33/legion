@@ -2,6 +2,7 @@
  * Restore plumbing for a later spend path (T1): unknown outcomes are rebuilt from the audit log and keep blocking, only a VERIFIED
  * `resolved` line can clear one, and the 24 h window counts a spend once. No wallet, no network: files in a temp dir and the pure engine.
  */
+import { tempDir as cleanupTemp } from './tmp-cleanup.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { appendFileSync, mkdtempSync } from 'node:fs';
@@ -22,7 +23,7 @@ const ALICE = mkAddr(0x6f, 0x11);
 const NOW = Date.parse('2026-10-02T12:00:00.000Z');
 
 function logAt() {
-  const d = mkdtempSync(join(tmpdir(), 'legion-restore-'));
+  const d = cleanupTemp('legion-restore-');
   const file = join(d, 'bsv', 'audit.jsonl');
   let t = NOW - 3_600_000;
   return { file, mk: () => new AuditLog(file, { now: () => (t += 1000) }) };

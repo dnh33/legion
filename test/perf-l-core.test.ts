@@ -3,6 +3,7 @@
  * for nodes it will not write and batches its writes under one lock, SSE backpressure, kg.* events are admin-only (B2),
  * Export-all then Import does not duplicate the BSV pack (B1), compact persistence, no task result in the /api/state list.
  */
+import { tempDir as cleanupTemp } from './tmp-cleanup.js';
 import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
 import fs, { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
@@ -239,7 +240,7 @@ test('B1: a vault that an older build exported WITH the pack files does not dupl
 // ------------------------------------------------------------------ P8: state
 
 test('P8: state.json is compact, and the /api/state task list leaves out the (large) result text, which GET /api/tasks/:id still has', async () => {
-  const dir = mkdtempSync(join(tmpdir(), 'legion-p8-'));
+  const dir = cleanupTemp('legion-p8-');
   const s = new Store(dir);
   s.upsertTask({ id: 't1', agentId: 'zealot', title: 't', status: 'done', source: 'ui', requestedModel: 'auto', createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z', result: 'R'.repeat(2000) });
   await s.flush();

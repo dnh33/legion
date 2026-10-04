@@ -1,4 +1,5 @@
 /** Project board over HTTP and MCP: the flag, the admin gate, run linking, token read-only view, admin-only events (C1, C2, C8, C9, C11, C12, C14). */
+import { tempDir as cleanupTemp } from './tmp-cleanup.js';
 import test, { after, before } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtempSync } from 'node:fs';
@@ -13,7 +14,7 @@ import { AUTH, asClient, makeFakes, start, TOKEN } from './helpers-c.js';
 
 const J = { 'Content-Type': 'application/json' };
 async function boot(withBoard: boolean) {
-  const root = mkdtempSync(join(tmpdir(), 'legion-board-http-'));
+  const root = cleanupTemp('legion-board-http-');
   const data = join(root, 'data');
   const projects = new ProjectStore(data, join(data, 'ws'));
   const board = new BoardStore(join(data, 'board'));

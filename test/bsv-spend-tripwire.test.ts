@@ -3,6 +3,7 @@
  * the untouched tree must be clean. Where the file's hash would otherwise fail the pin, the pin is injected to match (`opts.pins`), which proves the RULES
  * (not just the hash) reject the planted text.
  */
+import { tempDir as cleanupTemp } from './tmp-cleanup.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
@@ -15,7 +16,7 @@ import { SPEND_METHODS } from '../src/core/bsv/spend.js';
 
 const REPO = fileURLToPath(new URL('../../', import.meta.url));
 const copy = (): string => {
-  const root = mkdtempSync(join(tmpdir(), 'legion-spendwire-'));
+  const root = cleanupTemp('legion-spendwire-');
   for (const d of ['src', 'ui/src']) cpSync(join(REPO, d), join(root, d), { recursive: true, filter: (p) => !/\.(json|jsonl|png|svg|woff2?|ttf|css|md)$/.test(p) });
   return root;
 };

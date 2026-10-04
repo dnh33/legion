@@ -1,4 +1,5 @@
 /** A real Engine with the provider runtime pointed at a fake server; only the Claude query() is scripted (and counted). */
+import { tempDir as cleanupTemp } from './tmp-cleanup.js';
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -53,11 +54,11 @@ export function setup(fake: Fake, o: Opts = {}) {
   const events: LegionEvent[] = [];
   bus.on((e) => events.push(e));
   const config = defaultConfig();
-  config.workspaceDir = join(mkdtempSync(join(tmpdir(), 'legion-prov-')), 'ws');
+  config.workspaceDir = join(cleanupTemp('legion-prov-'), 'ws');
   config.providers = provCfg(o.noEntry ? {} : { fake: entryFor(fake, o.entry) });
   if (o.maxTurns) config.providers.maxTurns = o.maxTurns;
   if (o.maxToolCallsPerTurn) config.providers.maxToolCallsPerTurn = o.maxToolCallsPerTurn;
-  const keys = memKeys(mkdtempSync(join(tmpdir(), 'legion-pk-')));
+  const keys = memKeys(cleanupTemp('legion-pk-'));
   const providers = new ProviderRuntime({ config, keys, limits: o.limits, turn: o.turn });
   const approvals = new ApprovalBroker(bus, { timeoutMs: o.approvalTimeoutMs });
   const claudeCalls: any[] = [];

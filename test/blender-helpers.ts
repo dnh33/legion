@@ -1,4 +1,5 @@
 /** Fakes for the Blender bridge tests: a scriptable backend, an approvals auto-answerer, an MCP client onto the guard's tool server. */
+import { tempDir as cleanupTemp } from './tmp-cleanup.js';
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -16,7 +17,7 @@ import type { SandboxPort } from '../src/core/blender/sandbox.js';
 import type { ModuleJob } from '../src/core/modules.js';
 import type { AgentProfile, ApprovalRequest, LegionEvent } from '../src/shared/types.js';
 
-export const tmp = (p = 'legion-bl-'): string => mkdtempSync(join(tmpdir(), p));
+export const tmp = (p = 'legion-bl-'): string => cleanupTemp(p);
 
 export function agent(id = 'sculptor', over: Partial<AgentProfile> = {}): AgentProfile {
   return {

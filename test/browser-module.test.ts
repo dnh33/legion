@@ -1,3 +1,4 @@
+import { tempDir as cleanupTemp } from './tmp-cleanup.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtempSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
@@ -33,7 +34,7 @@ const fsOf = (files: string[], dirs: Record<string, string[]> = {}): ChromiumIo 
 const EDGE_IO = fsOf([EDGE], { [EDGE_DIR]: ['120.0.2210.91', 'msedge.exe'] });
 
 function rig(o: { mode?: string; limits?: Record<string, number>; nativeSecret?: string | null; io?: ChromiumIo; platform?: NodeJS.Platform; checkProbe?: string } = {}) {
-  const dataDir = mkdtempSync(join(tmpdir(), 'br-mod-'));
+  const dataDir = cleanupTemp('br-mod-');
   const reportBase = join(dataDir, 'report');
   const pages = join(dataDir, 'pages.json');
   writeFileSync(pages, JSON.stringify({ 'https://a.test/': { title: 'Home', text: 'hello from the fake' } }));

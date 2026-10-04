@@ -1,4 +1,5 @@
 /** Library notes scoped to a project (controls C10, C11, C12). */
+import { tempDir as cleanupTemp } from './tmp-cleanup.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtempSync } from 'node:fs';
@@ -15,7 +16,7 @@ import { projectScope } from '../src/shared/projects.js';
 const P1 = 'proj_aaaaaaaaaaaa';
 const P2 = 'proj_bbbbbbbbbbbb';
 const T0 = new Date('2026-03-01T12:00:00.000Z');
-const mk = () => new Graph({ dir: mkdtempSync(join(tmpdir(), 'legion-proj-kg-')), bsvEnabled: () => false, now: () => T0 });
+const mk = () => new Graph({ dir: cleanupTemp('legion-proj-kg-'), bsvEnabled: () => false, now: () => T0 });
 const inP1 = (id = 'alpha', extra: Partial<Extract<Actor, { kind: 'agent' }>> = {}) => agentActor(id, { projectId: P1, ...extra });
 const inP2 = agentActor('beta', { projectId: P2 });
 const none = agentActor('gamma');

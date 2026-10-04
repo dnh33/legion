@@ -1,4 +1,5 @@
 /** The default-on feature switch and the shape of the new code (controls C1, C17). */
+import { tempDir as cleanupTemp } from './tmp-cleanup.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtempSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
@@ -22,7 +23,7 @@ test('C1 the board is ON by default; only the literal false turns it off', () =>
 test('C1 migration: old experimental keys are ignored (no error, no effect); a features value wins', () => {
   assert.deepEqual(normalizeExperimental({ projectBoard: true }), {});
   assert.deepEqual(normalizeExperimental({ projectBoard: false, providers: true }), {});
-  const home = mkdtempSync(join(tmpdir(), 'legion-board-flag-'));
+  const home = cleanupTemp('legion-board-flag-');
   const prev = process.env.LEGION_HOME;
   process.env.LEGION_HOME = home;
   try {

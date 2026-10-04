@@ -1,4 +1,5 @@
 /** Review round 2 for the VM fixes: memoised usage, serialised start/stop, stale prices, verified stop, probe classification, call-time gating. */
+import { tempDir as cleanupTemp } from './tmp-cleanup.js';
 import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtempSync } from 'node:fs';
@@ -23,7 +24,7 @@ const sleepMs = (n: number) => new Promise((r) => setTimeout(r, n));
 async function setup(o: { rates?: LegionConfig['boat']['rates'] } = {}) {
   const fb = await new FakeBoatServer().start();
   servers.push(fb);
-  const dir = mkdtempSync(join(tmpdir(), 'legion-vmr2-'));
+  const dir = cleanupTemp('legion-vmr2-');
   const store = new Store(dir);
   store.seedDefaults(join(dir, 'w'));
   const bus = new EventBus();

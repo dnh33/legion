@@ -3,6 +3,7 @@
  * did not write leaves it false; only the native-confirmed route turns it on; turning it off needs no dialog and works whatever else is going on;
  * every automatic switch-off is saved. The wallet is always a fake transport and nothing here opens a socket to a wallet.
  */
+import { tempDir as cleanupTemp } from './tmp-cleanup.js';
 import test, { after } from 'node:test';
 import assert from 'node:assert/strict';
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
@@ -32,7 +33,7 @@ const wallet: Transport = async (r) => { if (r.path === '/never') throw new Wall
 function module_(o: { dataDir?: string } = {}) {
   const f = makeFakes();
   f.agents.set(ASSAYER_ID, { ...mkAgent(ASSAYER_ID, 'Assayer'), requires: 'bsv' });
-  const dataDir = o.dataDir ?? mkdtempSync(join(tmpdir(), 'legion-mdef-'));
+  const dataDir = o.dataDir ?? cleanupTemp('legion-mdef-');
   (f.ctx.config as any).bsv = { enabled: true, network: 'testnet' };
   const state = createBsvState({ dataDir, config: f.ctx.config });
   const deps = { config: f.ctx.config, store: f.ctx.store, bus: f.bus, engine: f.ctx.engine, approvals: f.ctx.approvals, dataDir, bsvEnabled: () => state.enabled };
@@ -72,7 +73,7 @@ test('C25: the default is false on every path that does not read an explicit tru
   const u = untrustedConfig('why');
   assert.equal(u.mainnetEnabled, false); assert.equal(u.frozen?.reason, 'why');
   assert.deepEqual(u.nets.main, { caps: { ...NET.main.defaultCaps }, allowlist: [] }); assert.deepEqual(u.nets.test, { caps: { ...NET.test.defaultCaps }, allowlist: [] });
-  const dir = mkdtempSync(join(tmpdir(), 'legion-mdef-')); const f = join(dir, 'policy.json');
+  const dir = cleanupTemp('legion-mdef-'); const f = join(dir, 'policy.json');
   assert.equal(loadPolicyConfig(f).config.mainnetEnabled, false, 'no file');
   writeFileSync(f, '{ not json'); assert.equal(loadPolicyConfig(f).config.mainnetEnabled, false); assert.equal(loadPolicyConfig(f).config.frozen !== null, true, 'unreadable: frozen');
 });
@@ -93,7 +94,7 @@ test('C25: a policy file that says mainnetEnabled:true but is not the one Legion
   assert.ok(lines(a.dataDir).some((e) => e.tool === 'policy' && e.decision === 'file-tampered'));
   assert.equal(JSON.parse(readFileSync(policyPath(a.dataDir), 'utf8')).mainnetEnabled, false, 'what is on disk now is Legion\'s own: off');
   // (2) a file created by hand on a fresh install: no record of it
-  const dir = mkdtempSync(join(tmpdir(), 'legion-mdef-')); mkdirSync(join(dir, 'bsv'), { recursive: true });
+  const dir = cleanupTemp('legion-mdef-'); mkdirSync(join(dir, 'bsv'), { recursive: true });
   writeFileSync(policyPath(dir), JSON.stringify({ version: 2, nets: { test: { caps: {}, allowlist: [] }, main: { caps: {}, allowlist: [MAIN_A] } }, mainnetEnabled: true, frozen: null }));
   const b = module_({ dataDir: dir });
   assert.equal(b.bsv.policy.isFrozen, true); assert.equal(b.bsv.policy.mainnetEnabled, false);
@@ -109,7 +110,7 @@ test('C25: a policy file that says mainnetEnabled:true but is not the one Legion
 });
 
 test('migration through the module: a policy file written by the earlier (testnet-only) Legion, with its hash in the audit log, loads as testnet limits, mainnet off, not frozen', () => {
-  const dir = mkdtempSync(join(tmpdir(), 'legion-mdef-')); mkdirSync(join(dir, 'bsv'), { recursive: true });
+  const dir = cleanupTemp('legion-mdef-'); mkdirSync(join(dir, 'bsv'), { recursive: true });
   const old = JSON.stringify({ caps: { perTxSats: 800, perSessionSats: 3000, per24hSats: 6000, maxOutputs: 2, maxFeeSats: 150 }, allowlist: [TEST_A], frozen: null }, null, 2);
   writeFileSync(policyPath(dir), old);
   const log = new AuditLog(auditPath(dir)); log.open();
@@ -126,7 +127,7 @@ test('migration through the module: a policy file written by the earlier (testne
 interface Rig { call: (body?: unknown, h?: Record<string, string>) => Promise<{ status: number; body: any }>; policy: PolicyEngine; file: string; notes: Array<[string, string, string, string?]>; flags: { bsv: boolean; save: boolean; checks: number } }
 async function rig(o: { on?: boolean; frozen?: boolean; unknown?: Array<{ requestId: string; agentId: string; totalSats: number; net?: unknown }>; fileOn?: boolean } = {}): Promise<Rig> {
   const f = makeFakes();
-  const dir = mkdtempSync(join(tmpdir(), 'legion-mroute-')); const file = join(dir, 'policy.json');
+  const dir = cleanupTemp('legion-mroute-'); const file = join(dir, 'policy.json');
   const policy = new PolicyEngine({ config: { nets: { test: { caps: { ...NET.test.defaultCaps }, allowlist: [] }, main: { caps: { ...NET.main.defaultCaps }, allowlist: [MAIN_A, MAIN_B] } }, frozen: null, mainnetEnabled: !!o.on }, ...(o.unknown ? { unknown: o.unknown } : {}) });
   if (o.fileOn) savePolicyConfig(file, { ...policy.config(), mainnetEnabled: true }); // a file that says on while memory may say off
   if (o.frozen) policy.freeze('test');

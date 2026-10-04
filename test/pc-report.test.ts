@@ -1,3 +1,4 @@
+import { tempDir as cleanupTemp } from './tmp-cleanup.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
@@ -24,7 +25,7 @@ function run(args: string[]): { code: number | null; out: string; err: string } 
   return { code: r.status, out: r.stdout, err: r.stderr };
 }
 function withResults<T>(results: unknown, fn: (file: string) => T): T {
-  const d = mkdtempSync(join(tmpdir(), 'legion-pc-report-'));
+  const d = cleanupTemp('legion-pc-report-');
   try { const f = join(d, 'results.json'); writeFileSync(f, JSON.stringify(results)); return fn(f); }
   finally { rmSync(d, { recursive: true, force: true }); }
 }

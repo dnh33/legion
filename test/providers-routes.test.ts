@@ -1,3 +1,4 @@
+import { tempDir as cleanupTemp } from './tmp-cleanup.js';
 import test, { after, before } from 'node:test';
 import assert from 'node:assert/strict';
 import { existsSync, mkdtempSync, readFileSync, statSync, writeFileSync } from 'node:fs';
@@ -15,7 +16,7 @@ import { FAKE_KEY, jsonReply, startFake } from './providers-fakes.js';
 import type { Fake } from './providers-fakes.js';
 
 const NATIVE = 'native-secret-0123456789abcdef0123456789';
-const dir = mkdtempSync(join(tmpdir(), 'legion-prov-routes-'));
+const dir = cleanupTemp('legion-prov-routes-');
 const configPath = join(dir, 'config.json');
 writeFileSync(configPath, JSON.stringify({ port: 0, authToken: TOKEN, claude: { maxTurns: 7 } }, null, 2));
 const cfg = defaultConfig();

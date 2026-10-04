@@ -1,4 +1,5 @@
 /** Board UI logic (pure) and accessible names in the sources (controls C15, C16). */
+import { tempDir as cleanupTemp } from './tmp-cleanup.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
@@ -18,7 +19,7 @@ const names = (items: WorkItem[], s: string) => byColumn(items)[s as 'backlog'].
 
 test('C15 the local move gives the same dense order as the server for the same moves', () => {
   const P = { id: 'proj_aaaaaaaaaaaa', members: [] as string[], status: 'active' as const };
-  const server = new BoardStore(mkdtempSync(join(tmpdir(), 'legion-board-ui-')));
+  const server = new BoardStore(cleanupTemp('legion-board-ui-'));
   const ids = ['a', 'b', 'c', 'd'].map((t) => server.create(P, { title: t }).id);
   let local = server.view(P).items;
   const steps: Array<[number, 'backlog' | 'doing' | 'review', number]> = [[2, 'backlog', 0], [0, 'doing', 0], [1, 'doing', 0], [3, 'review', 5], [0, 'doing', 9], [2, 'backlog', 1]];

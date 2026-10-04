@@ -1,4 +1,5 @@
 /** C8, C9, C10, C20 (staging part): hash before extraction, hostile zips, package content, disk and broken downloads. Loopback server, temp dirs. */
+import { tempDir as cleanupTemp } from './tmp-cleanup.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs';
@@ -16,7 +17,7 @@ const free = () => 10 ** 12;
 async function run(r: Release, o: { installedDeps?: string | undefined; installedLock?: string | undefined; freeBytes?: () => number; manifestPatch?: Record<string, unknown>; serve?: Buffer } = {}) {
   const s = await startFakeServer(r);
   if (o.serve) { const orig = s.handler; s.handler.custom = (req, res) => { if (req.url?.includes('/releases/download/')) { res.writeHead(200, { 'content-length': o.serve!.length }); res.end(o.serve); return true; } void orig; return false; }; }
-  const install = mkdtempSync(join(tmpdir(), 'upd-pkg-'));
+  const install = cleanupTemp('upd-pkg-');
   mkdirSync(join(install, 'dist'), { recursive: true }); writeFileSync(join(install, 'dist', 'keep.js'), 'live');
   const m = parseManifest(Buffer.from(JSON.stringify({ ...r.manifestObj, ...(o.manifestPatch ?? {}) })));
   try {
@@ -116,7 +117,7 @@ test('C10b: a lock that differs ONLY in its own version still self-applies; a re
 test('C20: not enough free space is refused before any request; a connection that breaks mid-download leaves nothing', async () => {
   const r = makeRelease(k, V);
   const s = await startFakeServer(r);
-  const install = mkdtempSync(join(tmpdir(), 'upd-pkg-'));
+  const install = cleanupTemp('upd-pkg-');
   try {
     const m = parseManifest(r.manifest);
     await assert.rejects(stagePackage({ installDir: install, source: s.source, manifest: m, version: V, installedDepsHash: dependencyHash(LOCK), freeBytes: () => 10 }), (e) => e instanceof StageError && e.code === 'disk');
@@ -130,8 +131,8 @@ test('C20: not enough free space is refused before any request; a connection tha
 test('C9: a staging folder that is a link is refused', async () => {
   const r = makeRelease(k, V);
   const s = await startFakeServer(r);
-  const install = mkdtempSync(join(tmpdir(), 'upd-pkg-'));
-  const elsewhere = mkdtempSync(join(tmpdir(), 'upd-else-'));
+  const install = cleanupTemp('upd-pkg-');
+  const elsewhere = cleanupTemp('upd-else-');
   try {
     mkdirSync(join(install, '.update'), { recursive: true });
     try { symlinkSync(elsewhere, join(install, '.update', 'staging'), 'dir'); } catch (e) { if ((e as NodeJS.ErrnoException).code === 'EPERM') return; throw e; }

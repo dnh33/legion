@@ -2,6 +2,7 @@
  * BSV v1 review fixes, part 2: the hidden Assayer, through the REAL engine, store, comms hub and HTTP/MCP servers (F3, F4).
  * "Hidden" means: while BSV mode is off nothing on any surface says the Assayer exists or what it did. Local only.
  */
+import { tempDir as cleanupTemp } from './tmp-cleanup.js';
 import test, { after } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtempSync, writeFileSync } from 'node:fs';
@@ -28,7 +29,7 @@ after(async () => { for (const c of closers) await c().catch(() => undefined); }
 const deferred = () => { let release!: () => void; const p = new Promise<void>((r) => { release = r; }); return { p, release }; };
 
 async function rig(opts: { maxConcurrent?: number } = {}) {
-  const dir = mkdtempSync(join(tmpdir(), 'legion-bsvhid-'));
+  const dir = cleanupTemp('legion-bsvhid-');
   writeFileSync(join(dir, 'config.json'), JSON.stringify({ port: 4747, authToken: 'x', workspaceDir: '/w', claude: { auth: 'claude-login', inheritClaudeCodeSettings: true, maxTurns: 40 }, boat: { baseUrl: 'https://boat.test' }, mcpServers: {} }, null, 2));
   const store = new Store(join(dir, 'store'));
   for (const a of [mkAgent('zealot', 'Zealot'), mkAgent('scout', 'Scout'), { ...mkAgent(ASSAYER_ID, 'Assayer'), requires: 'bsv' as const }]) store.upsertAgent(a);

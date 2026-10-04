@@ -1,142 +1,108 @@
 # Verifying a change actually works
 
-**The failure this prevents: a green suite that proves nothing.**
-
-On 2026-10-04 an adversarial review found that a test written to prove a compaction defect existed **passed against the
-code with the defect**. The assertion was "the run finished", and the bug did not stop the run finishing. Thirty-four
-other compaction tests were green throughout. The commit message claimed every test failed before the fix; one did not.
+**A green suite proves nothing if the test cannot fail on the bug.** An assertion of "the run finished" passed against
+code with the defect, because the defect did not stop the run finishing. Measure the discriminator, not the outcome.
 
 ## When this applies
 
 - Before claiming a change works, is safe to merge, or is ready to ship.
-- Before you write a test that is meant to catch a specific known bug.
-- When a test fails and you do not yet know why.
-- When a suite is green after a large change.
+- Before writing a test meant to catch a specific known bug.
+- When a test fails and you do not know why, or a suite is green after a large change.
 
 ## The rules
 
-**1. Measure before you theorise.** A failing assertion tells you two values differ. It never tells you which values.
-Print the thing itself — the request, the DOM, the file — not your model of it. Write a probe that imports the real
-module and runs the scenario.
+**1. Measure before you theorise.** A failing assertion says two values differ; it never says which. Print the thing
+itself — the request, the DOM, the file — not your model of it. Write a probe that imports the real module and runs the
+scenario.
 
 ```bash
-# Windows: a probe FILE, not node -e. Backticks and ${} in a nested shell string fail in ways
-# that look exactly like product bugs.
+# Windows: a probe FILE, not node -e. Backticks and ${} in a nested shell string fail
+# in ways that look exactly like product bugs.
 node probe.mjs
 ```
 
 **2. Prove your test fails without the fix.** Build the parent commit in a scratch worktree, copy the new test in, run
-it there. A test that has never been observed failing is not evidence.
+it there. A test never observed failing is not evidence.
 
 ```
-git worktree add -d a scratch folder <parent-sha>
-cd a scratch folder && npx tsc -p tsconfig.json --outDir dist-old
+git worktree add -d <scratch> <parent-sha>
+cd <scratch> && npx tsc -p tsconfig.json --outDir dist-old
 node --test dist-old/test/the-new.test.js      # must FAIL
 ```
 
-**3. Assert the discriminator, not the outcome.** "It finished" is satisfiable with the bug present. Ask: what can only
-the fixed code produce? Here it was *"the summariser was asked to compress a conversation containing a tool row"* —
-impossible for a pre-flight-only implementation, so it discriminates.
+**3. Assert the discriminator, not the outcome.** "It finished" is satisfiable with the bug present. Ask: what can
+only the fixed code produce? Assert that.
 
-**4. Never refute a finding with a helper you have not read.** I dismissed a review finding by running
-`firstConversationBreak`, which returned "valid". The finding was that the helper tracked ids in a **set**, so a row
-landing between a call and its results neither matched nor rejected. It could not see the bug it was being used to rule
-out. Before using a check as evidence: read what it inspects, and confirm it can *fail* on the input in question.
+**4. Never refute a finding with a helper you have not read.** Read what the helper inspects and confirm it can *fail*
+on the input in question. A helper that tracks ids in a **set** could not see a row landing between a call and its
+results — so it could not rule out the bug it was used against.
 
-**5. A validator with a blind spot makes every assertion that uses it decorative.** If a helper has a known gap, assert
+**5. A validator with a blind spot makes every assertion using it decorative.** If a helper has a known gap, assert
 the property directly in the new test rather than leaning on it.
 
-**6. Absence needs its own test.** The most expensive bug class here is a control or invariant that is *missing*, not
-wrong: nothing fails, nothing throws, the suite is green. When a flow has states, assert what exists **in each** — the
-update panel's staged state, the error path, the empty case.
+**6. Absence needs its own test.** The most expensive bug class is a control or invariant that is *missing*, not
+wrong: nothing fails, nothing throws, the suite is green.
 
-**7. Check states, not just the happy path.** A control that disappears on a state change is invisible to any test that
-exercises only the start.
+**7. Check states, not just the happy path.** A control that disappears on a state change is invisible to a test that
+exercises only the start. Assert what exists **in each** state — staged, error, empty.
 
-**8. Load-sensitive failures are not regressions, but prove it.** A failing set that *changes between runs* is timing.
-Check the durations, run the file in isolation, and compare against a baseline. `node --test` uses one worker per CPU
-(16 here); `--test-concurrency=4` is the honest setting for suites that spawn processes.
+**8. Load-sensitive failures are not regressions, but prove it.** A failing set that changes between runs is timing.
+Check the durations, run the file in isolation, compare against a baseline. `node --test` uses one worker per CPU;
+`--test-concurrency=4` is honest for suites that spawn processes.
 
-**9. Record what a fix cost.** If a fix broke a pre-existing test, that test was asserting something you did not
-intend. Find out what before you adapt the test — sometimes the old assertion was right.
+**9. Record what a fix cost.** If a fix broke a pre-existing test, that test asserted something you did not intend.
+Find out what before you adapt it — sometimes the old assertion was right.
 
-## Reporting
+## Two meanings must never be one flag
 
-State the counts against a baseline: "2489 tests, 3 fail — the same 3 that fail before the change", not "tests pass".
-Name the failures. If a failure is unexplained, say so and stop; do not ship around it and call it done.
-
-**If something is genuinely ambiguous, stop and say so plainly.**
-
-## The flag that was two flags
-
-The mid-run compaction had a single `compactedThisRun` meaning both *"a summary was produced"* and *"the retry was
-spent"*. Sharing them disabled the rescue retry — which is needed **precisely** when the size estimate was wrong. The
-code read correctly and the safety net was gone.
-
-The fix was a separate `hard` flag, and forcing on the routine path then sent a conversation's own tool results into a
-summary. So: **two meanings must never be one flag, however much tidier it looks.** For every boolean in a state
-machine ask what question it answers, and whether two of them could ever disagree.
+Give a state machine one boolean per question. A single `compactedThisRun` meaning both "a summary was produced" and
+"the retry was spent" disabled the rescue retry — needed precisely when the size estimate was wrong. For every
+boolean, ask what question it answers and whether two answers could ever disagree.
 
 ## Assert what would be LOST, not what was built
 
-"A summary was produced" is not a claim. *"The decision made in turn two is still in the request in turn forty"* is.
-For any feature whose failure mode is a silent omission rather than a crash, the end-to-end test must assert the
-guarantee, not the function.
-
-Checklist for such a feature:
+"A summary was produced" is not a claim. "The decision made in turn two is still in the request in turn forty" is. For
+any feature whose failure mode is a silent omission rather than a crash, the end-to-end test asserts the guarantee,
+not the function.
 
 - Drive the real thing end to end (real engine, fake provider), not the unit.
 - **Assert preconditions before the claim.** Did a compaction actually happen? An assertion over an empty transcript
-  passes forever and proves nothing. This caught a green "evidence" test that had never compacted once.
-- Write the regression test at the level of the guarantee ("a compaction always has something to summarise"), not the
-  level of the function.
-- **When a test fails, decide whether the CODE or the TEST is wrong, and say which.** Several failures here were
-  wrong premises in my own tests; fixing those is not the same as weakening them.
+  passes forever and proves nothing.
+- Write the regression test at the level of the guarantee, not the level of the function.
+- **When a test fails, decide whether the CODE or the TEST is wrong, and say which.**
+
+## Reporting
+
+State counts against a baseline: "2489 tests, 3 fail — the same 3 that fail before the change", not "tests pass". Name
+the failures. If a failure is unexplained, say so and stop; do not ship around it and call it done.
+
+## Verify a report before relaying it
+
+A subagent's report is a **self-report**. Its line numbers, its branch and its arithmetic are all claims. A report that
+has not been verified is a hypothesis with citations; relaying it as fact is the same error as shipping unverified
+code.
+
+1. **Which branch and directory did it read?** Prove it with `git rev-parse --abbrev-ref HEAD` and
+   `git worktree list`, then `git diff <branch-that-shipped> <branch-it-read> -- <files>`. An audit that read a topic
+   worktree and reported `main` line numbers is wrong the moment the branches differ.
+2. **Spot-check citations mechanically.** Extract `file:line -> token` pairs and grep each one; do not eyeball them.
+3. **Re-derive the arithmetic yourself.** A subagent that found a real bug can still quote the wrong magnitude for it.
 
 ## Windows and tooling traps that produce phantom results
 
-- **`node --test` dies instantly with "stdin is not a tty"** from a redirected/background shell. Use
-  `--test-reporter=spec`, or `npm test`. A 19-byte output file and `exit=1` is a *refusal*, not a crash.
-- **A `patch` tool that fuzzy-matches may silently reindent neighbours.** Pass `old_string` with the file's exact
-  leading whitespace, or normalise the tail with a short node script. Then `write_file` refuses with "last read with
-  offset/limit pagination" and you have lost the layout.
+- **`node --test` dying with "stdin is not a tty"** from a redirected/background shell is a *refusal*, not a crash. Use
+  `--test-reporter=spec`, or `npm test`.
+- **A fuzzy `patch` may silently reindent neighbours.** Pass the file's exact leading whitespace, or normalise the tail
+  with a short node script.
 - **A cleanup script that edits source with a regex will eat a `return`.** Remove diagnostics with a targeted patch
   and re-read the file.
 - **Use `fileURLToPath`, never `new URL(...).pathname`** — on Windows that yields `/D:/...`, the wrong drive.
-- **Never kill processes by name pattern** on the owner's machine. Kill by PID.
+- **Never kill processes by name pattern.** Kill by PID.
 
-## Do not let a review invent scope
+## Do not invent scope
 
-A council reviewing a redesign returned a cut-list (drop the architecture diagram, cut the screenshot gallery) that
-was never requested. A mockup is a sketch: absence of a section means "not drawn", never "remove it". Same for a
-review finding — fix what was asked, and raise anything else rather than folding it in silently.
+Fix what was asked and raise anything else rather than folding it in silently. A mockup is a sketch: absence of a
+section means "not drawn", never "remove it".
 
-## Do not helpfully extend a feature past the ask
-
-Copying a template was requested; filling the form fields with it was an addition, and the owner rejected it twice.
-Add capability only when asked. The exception is a **missing control on a path the owner will actually walk** — if the
-button they need does not exist, saying so is the deliverable, not a scope expansion.
-
-## Never publish a report you have not spot-checked
-
-A subagent's report is a **self-report**. Its line numbers, its branch, and its arithmetic are all claims.
-
-On 2026-10-04 a parity audit reported findings for the shipped release. It had read a **topic worktree**
-(`compaction-wt`), not `main`. 25 of 26 citations happened to be correct because the files were identical — verified by
-`git diff cloud/main <branch> -- <files>` coming back empty, which is the check that must be run *before* trusting a
-cross-branch report. One citation was wrong (`maxTurns` is config.ts:107, not :109). It also **understated** its own
-most serious finding: the `turnBudget` floor overshoots the trigger threshold by 1.9x on a 16k model; the real figure is
-**2.79x**.
-
-So, before relaying a report:
-
-1. **Which branch and which directory did it read?** Prove it with `git rev-parse --abbrev-ref HEAD` and
-   `git worktree list`, then `git diff <branch-that-shipped> <branch-it-read> -- <files>`.
-2. **Spot-check the citations mechanically.** Extract `file:line -> token` pairs and grep each one. Do not eyeball them.
-   One wrong line in a document people trust becomes a wrong fact that gets repeated — this session began with me
-   asserting the canonical repo was `legion-dev` when `legion` was `main`.
-3. **Re-derive its arithmetic yourself.** A subagent that found a real bug can still quote the wrong magnitude for it.
-   The finding survives; the number does not.
-
-**A report that has not been verified is a hypothesis with citations.** Relaying it as fact is the same error as
-shipping unverified code — and it is worse, because the citations make it look checked.
+Add capability only when asked. The exception is a **missing control on a path the owner will actually walk** — saying
+the button does not exist is the deliverable, not a scope expansion.

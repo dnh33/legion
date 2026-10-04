@@ -1,3 +1,4 @@
+import { tempDir as cleanupTemp } from './tmp-cleanup.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { appendFileSync, cpSync, existsSync, mkdtempSync, readFileSync, truncateSync, utimesSync, writeFileSync } from 'node:fs';
@@ -8,7 +9,7 @@ import { Graph } from '../src/core/kg/graph.js';
 import { agentActor, HUMAN } from '../src/core/kg/types.js';
 import { KG_LIMITS } from '../src/shared/kg.js';
 
-const tmp = (p: string) => mkdtempSync(join(tmpdir(), p));
+const tmp = (p: string) => cleanupTemp(p);
 const alpha = (t = 'T1') => agentActor('alpha', { taskId: t });
 const view = (g: Graph) => JSON.stringify(g.allNodes(HUMAN).map((n) => [n.id, n.title, n.body, n.status ?? 'active', n.supersededBy ?? '']).sort());
 

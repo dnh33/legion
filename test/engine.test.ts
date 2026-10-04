@@ -1,3 +1,4 @@
+import { tempDir as cleanupTemp } from './tmp-cleanup.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { existsSync, mkdtempSync } from 'node:fs';
@@ -39,7 +40,7 @@ function setup(script: Script, opts: { agent?: Partial<AgentProfile>; config?: (
   const events: LegionEvent[] = [];
   bus.on((e) => events.push(e));
   const config = defaultConfig();
-  config.workspaceDir = join(mkdtempSync(join(tmpdir(), 'legion-eng-')), 'ws');
+  config.workspaceDir = join(cleanupTemp('legion-eng-'), 'ws');
   opts.config?.(config);
   const approvals = new ApprovalBroker(bus, { timeoutMs: opts.approvalTimeoutMs });
   const calls: { prompt: any; options: any }[] = [];

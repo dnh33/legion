@@ -2,6 +2,7 @@
  * Shared fakes for the comms tests (engine, store, harness). Lives in a *.test.ts file only so it stays
  * inside the comms test namespace; it carries one small self-test of the fake engine.
  */
+import { tempDir as cleanupTemp } from './tmp-cleanup.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtempSync } from 'node:fs';
@@ -92,7 +93,7 @@ export const DEFAULT_AGENTS: Array<[string, string, ApprovalMode]> = [
 ];
 
 export function makeHarness(opts: { dir?: string; agents?: Array<[string, string, ApprovalMode]>; hub?: Partial<HubOptions> } = {}) {
-  const dir = opts.dir ?? mkdtempSync(join(tmpdir(), 'legion-comms-'));
+  const dir = opts.dir ?? cleanupTemp('legion-comms-');
   const bus = new EventBus();
   const events: LegionEvent[] = [];
   bus.on((e) => events.push(e));

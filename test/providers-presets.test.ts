@@ -3,6 +3,7 @@
  * model-role ids (reasoning without a GUI, and the computer-use/GUI seat). Every other preset
  * keeps the state it shipped with. No real provider is contacted.
  */
+import { tempDir as cleanupTemp } from './tmp-cleanup.js';
 import assert from 'node:assert/strict';
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -54,7 +55,7 @@ test('only OpenRouter is switched on; every other preset keeps its shipped state
 
 test('ProviderRuntime.view() exposes OpenRouter as on with both models, so the pickers offer openrouter:<id>', () => {
   const cfg = defaultConfig();
-  const keys = memKeys(mkdtempSync(join(tmpdir(), 'legion-prov-presets-')));
+  const keys = memKeys(cleanupTemp('legion-prov-presets-'));
   const view = new ProviderRuntime({ config: cfg, keys }).view();
   const or = view.providers.find((p) => p.id === 'openrouter');
   assert.ok(or, 'OpenRouter is listed');

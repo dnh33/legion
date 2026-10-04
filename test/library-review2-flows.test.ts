@@ -1,3 +1,4 @@
+import { tempDir as cleanupTemp } from './tmp-cleanup.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtempSync } from 'node:fs';
@@ -6,7 +7,7 @@ import { join } from 'node:path';
 import { Graph } from '../src/core/kg/graph.js';
 import { agentActor, HUMAN } from '../src/core/kg/types.js';
 
-const mk = () => new Graph({ dir: mkdtempSync(join(tmpdir(), 'r2f-')) });
+const mk = () => new Graph({ dir: cleanupTemp('r2f-') });
 
 test('R2-L1 legit flows: bot own-note update, human edit, human accept of tainted pending, edit-accept, bulk accept of archivist rows', () => {
   const g = mk();
@@ -55,7 +56,7 @@ test('R2-L3 a held rewrite made while the note was live: other bots meanwhile lo
 });
 
 test('R2-L4 human edit of a bot note keeps working after restart; rev strictly increases', () => {
-  const dir = mkdtempSync(join(tmpdir(), 'r2f4-'));
+  const dir = cleanupTemp('r2f4-');
   const g = new Graph({ dir });
   const bot = agentActor('alpha', { taskId: 'T1' });
   const n = g.upsertNode(bot, { title: 'rev note', body: 'a', scope: 'shared' }).node;

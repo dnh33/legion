@@ -1,3 +1,4 @@
+import { tempDir as cleanupTemp } from './tmp-cleanup.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtempSync } from 'node:fs';
@@ -24,7 +25,7 @@ let sidN = 0;
 const ok = (text: string, sid: string) => ({ type: 'result', subtype: 'success', is_error: false, result: text, total_cost_usd: 0, num_turns: 1, session_id: sid });
 
 function setup(script: Script, maxConcurrent = 1) {
-  const dir = mkdtempSync(join(tmpdir(), 'legion-br-'));
+  const dir = cleanupTemp('legion-br-');
   const store = new Store(dir);
   for (const [id, name] of [['zealot', 'Zealot'], ['builder', 'Builder'], ['scout', 'Scout'], ['worker', 'Worker']]) store.upsertAgent(mkAgent(id!, name!));
   const bus = new EventBus();

@@ -1,4 +1,5 @@
 /** C3, C11, C12, C15, C19, C20 (flow part): the module end to end against a fake release server, with a real Store and ApprovalBroker. */
+import { tempDir as cleanupTemp } from './tmp-cleanup.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
@@ -22,7 +23,7 @@ interface FakeEngine { started: unknown[]; cancelled: string[]; live: Set<string
 
 async function rig(release: Release | null, o: { version?: string; platform?: NodeJS.Platform; git?: boolean; keys?: boolean; probes?: Record<string, () => boolean> } = {}): Promise<Rig> {
   const srv = await startFakeServer(release);
-  const root = mkdtempSync(join(tmpdir(), 'upd-root-')); const data = mkdtempSync(join(tmpdir(), 'upd-data-'));
+  const root = cleanupTemp('upd-root-'); const data = cleanupTemp('upd-data-');
   writeFileSync(join(root, 'package-lock.json'), LOCK);
   if (o.git) mkdirSync(join(root, '.git'));
   const store = new Store(data);

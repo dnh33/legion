@@ -1,3 +1,4 @@
+import { tempDir as cleanupTemp } from './tmp-cleanup.js';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync } from 'node:fs';
@@ -8,7 +9,7 @@ import { ROSTER, BACKBONE, COMMS_LINES } from '../src/core/roster.js';
 
 const FROZEN_IDS = ['zealot', 'builder', 'scout'];
 const NEW_IDS = ['inquisitor', 'scribe', 'archivist', 'sentinel', 'forgemaster', 'exorcist', 'preceptor', 'herald', 'assayer', 'sculptor'];
-const tmp = () => mkdtempSync(join(tmpdir(), 'legion-roster-'));
+const tmp = () => cleanupTemp('legion-roster-');
 const words = (s: string) => s.trim().split(/\s+/).length;
 
 /** Snapshot of the three frozen defaults, taken from the git HEAD version of src/core/store.ts (before the roster). One deliberate change since: Builder's VM size is 'default' (a free boat.dev trial refuses 'large'). */

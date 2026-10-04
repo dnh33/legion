@@ -1,3 +1,4 @@
+import { tempDir as cleanupTemp } from './tmp-cleanup.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
@@ -12,7 +13,7 @@ test('makeBoatGetter: client appears when the key is set live, is rebuilt on cha
   let made = 0;
   const get = makeBoatGetter(config, () => ({ n: ++made }) as any);
   assert.equal(get(), null);
-  const dir = mkdtempSync(join(tmpdir(), 'legion-st-'));
+  const dir = cleanupTemp('legion-st-');
   const file = join(dir, 'config.json');
   writeFileSync(file, '{}');
   const svc = new SettingsService({ config, bus: new EventBus(), configPath: file, dataDir: dir });
@@ -29,7 +30,7 @@ test('makeBoatGetter: client appears when the key is set live, is rebuilt on cha
 test('patch does not persist env-derived values and writes atomically (no tmp left)', () => {
   const config = defaultConfig();
   config.boat.apiKey = 'from-env-0000'; // pretend loadConfig merged BOAT_API_KEY
-  const dir = mkdtempSync(join(tmpdir(), 'legion-st-'));
+  const dir = cleanupTemp('legion-st-');
   const file = join(dir, 'config.json');
   writeFileSync(file, JSON.stringify({ port: 4747, custom: 1 }));
   const svc = new SettingsService({ config, bus: new EventBus(), configPath: file, dataDir: dir });

@@ -29,7 +29,7 @@ export const PROVIDER_LIMITS_TEXT: string[] = [
   'No file editing, shell, web search or web fetch of its own. It gets Legion\'s own tools (agents, kg, comms, Blender, BSV status, and the VM tools when the agent has a VM) and the MCP servers you enabled for the agent.',
   'No Claude Code skills, plugins, slash commands, sub-agents, plan mode or claude.ai connectors.',
   'Your MCP servers run under stricter rules than for Claude: an approval card for each tool call (unless the agent is on full access), the run counts as touching outside content, a local server starts with a small environment instead of Legion\'s own, and a server address must be https or this computer.',
-  'A continued task remembers less than a resumed Claude session (the newest messages only).',
+  'A continued task summarises older turns instead of keeping them verbatim, so detail from much earlier in a conversation may be lost.',
   'Tool use is only as reliable as the model; some models, especially small local ones, cannot call tools at all.',
   'Cost is shown only when the provider returns token counts and you entered prices; otherwise it is unknown.',
 ];

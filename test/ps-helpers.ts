@@ -1,3 +1,4 @@
+import { tempDir as cleanupTemp } from './tmp-cleanup.js';
 import { spawn, spawnSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -21,7 +22,7 @@ export function allPowerShells(): string[] {
 export const q = (s: string): string => `'${s.replace(/'/g, "''")}'`;
 
 export function tempDir(prefix = 'legion-ps-'): string {
-  return mkdtempSync(join(tmpdir(), prefix));
+  return cleanupTemp(prefix);
 }
 
 export function writeFiles(base: string, files: Record<string, string>): void {

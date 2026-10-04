@@ -1,3 +1,4 @@
+import { tempDir as cleanupTemp } from './tmp-cleanup.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtempSync, readFileSync } from 'node:fs';
@@ -7,7 +8,7 @@ import { Graph } from '../src/core/kg/graph.js';
 import { agentActor, HUMAN } from '../src/core/kg/types.js';
 
 test('R2-A1 activity append+trim: bounded file, undone flag survives trim + restart, newest 500 kept', () => {
-  const dir = mkdtempSync(join(tmpdir(), 'r2a-'));
+  const dir = cleanupTemp('r2a-');
   const g = new Graph({ dir });
   const first = g.upsertNode(agentActor('alpha', { taskId: 'T0' }), { title: 'first', body: 'x', scope: 'shared' }).node;
   const firstRow = g.activityFeed(HUMAN, { limit: 5 })[0]!;
@@ -23,7 +24,7 @@ test('R2-A1 activity append+trim: bounded file, undone flag survives trim + rest
 });
 
 test('R2-A2 undone entry that is still within the retained window stays undone after restart', () => {
-  const dir = mkdtempSync(join(tmpdir(), 'r2a2-'));
+  const dir = cleanupTemp('r2a2-');
   const g = new Graph({ dir });
   g.upsertNode(agentActor('alpha', { taskId: 'T0' }), { title: 'one', body: 'x', scope: 'shared' });
   const row = g.activityFeed(HUMAN, { limit: 5 })[0]!;

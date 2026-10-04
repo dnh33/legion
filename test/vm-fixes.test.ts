@@ -1,4 +1,5 @@
 /** The boat.dev VM fixes from Zealot's report, end to end: real BoatClient + VmManager + agent tools against a fake boat HTTP server. */
+import { tempDir as cleanupTemp } from './tmp-cleanup.js';
 import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtempSync } from 'node:fs';
@@ -24,7 +25,7 @@ after(async () => { for (const s of servers) await s.stop(); });
 async function setup(o: { rates?: LegionConfig['boat']['rates']; currency?: string } = {}) {
   const fb = await new FakeBoatServer().start();
   servers.push(fb);
-  const dir = mkdtempSync(join(tmpdir(), 'legion-vmfix-'));
+  const dir = cleanupTemp('legion-vmfix-');
   const store = new Store(dir);
   store.seedDefaults(join(dir, 'w'));
   const bus = new EventBus();

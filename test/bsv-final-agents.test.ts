@@ -2,6 +2,7 @@
  * Final-gate review fix G7: the BSV preamble follows the gate (`requires: 'bsv'`), not the id string, and an id collision
  * never reveals the hidden agent (no "-2": a short random suffix for ANY collision). Local only.
  */
+import { tempDir as cleanupTemp } from './tmp-cleanup.js';
 import test, { after } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtempSync } from 'node:fs';
@@ -18,7 +19,7 @@ after(async () => { for (const c of closers) await c().catch(() => undefined); }
 async function setup(on: boolean) {
   const f = makeFakes();
   f.agents.set(ASSAYER_ID, { ...mkAgent(ASSAYER_ID, 'Assayer'), requires: 'bsv' });
-  const dataDir = mkdtempSync(join(tmpdir(), 'legion-bsvfin-'));
+  const dataDir = cleanupTemp('legion-bsvfin-');
   if (on) (f.ctx.config as any).bsv = { enabled: true, network: 'testnet' };
   const state = createBsvState({ dataDir, config: f.ctx.config });
   const deps = { config: f.ctx.config, store: f.ctx.store, bus: f.bus, engine: f.ctx.engine, approvals: f.ctx.approvals, dataDir, bsvEnabled: () => state.enabled };

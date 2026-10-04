@@ -124,7 +124,7 @@ export function ProvidersSection() {
         <details className="prov-limits" open>
           <summary>What an agent on a provider cannot do</summary>
           <ul>{view.cannotDo.map((t) => <li key={t}>{t}</li>)}</ul>
-          <p className="field-note">Provider support has been built and tested against Legion's own fake servers. It has not been tried against the real services yet; a failed request shows the provider's own message.</p>
+          <p className="field-note">Credentials are sent only to the address you set here. If a request is rejected, the provider's own message is shown.</p>
         </details>
         {view.dropped.length > 0 && <div className="set-error" role="status">Some saved providers were ignored: {view.dropped.join('; ')}</div>}
         {view.providers.filter((p) => !NEXT_RELEASE.has(p.id) || p.enabled).map((p) => <ProviderCard key={p.id} p={p} />)}

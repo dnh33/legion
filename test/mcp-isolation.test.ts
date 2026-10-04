@@ -2,6 +2,7 @@
  * MCP isolation: claude.inheritMcp (default off). Off = strictMcpConfig + no claude.ai connectors + only Legion's own server and the servers
  * enabled in Settings -> MCP, on every query path. Also: the read-only status route (admin only) and the guard against Legion's own /mcp.
  */
+import { tempDir as cleanupTemp } from './tmp-cleanup.js';
 import test, { after } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtempSync, readFileSync } from 'node:fs';
@@ -46,7 +47,7 @@ function setup(script: (n: number, q: any) => AsyncGenerator<any, void>, over: (
   store.agents.set('a1', agent());
   const bus = new EventBus();
   const config = defaultConfig();
-  config.workspaceDir = join(mkdtempSync(join(tmpdir(), 'legion-mcpiso-')), 'ws');
+  config.workspaceDir = join(cleanupTemp('legion-mcpiso-'), 'ws');
   over(config);
   const calls: any[] = [];
   const queryFn = ((p: any) => {

@@ -1,3 +1,4 @@
+import { tempDir as cleanupTemp } from './tmp-cleanup.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtempSync } from 'node:fs';
@@ -7,7 +8,7 @@ import { Graph } from '../src/core/kg/graph.js';
 import { HUMAN } from '../src/core/kg/types.js';
 
 test('R2-P1 episode: key / seed straddling the 300/800 cut is never stored (labelled key at cut, seed words after cut, secret beyond window)', () => {
-  const g = new Graph({ dir: mkdtempSync(join(tmpdir(), 'r2p-')), secrets: () => ['sk-live-supersecretvalue123'] });
+  const g = new Graph({ dir: cleanupTemp('r2p-'), secrets: () => ['sk-live-supersecretvalue123'] });
   const key = 'a1b2c3d4'.repeat(8);
   // a real BIP-39 test vector (the reviewer's first phrase has 4 words that are not on the official list; see library-review2-scrub)
   const P = 'army van defense carry jealous true garbage claim echo media make crunch';

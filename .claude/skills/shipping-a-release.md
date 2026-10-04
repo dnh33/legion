@@ -1,12 +1,8 @@
 # Shipping a Legion release
 
-**The rule that governs everything here, from the owner (2026-10-04):**
-
-> dont merge unless we are 100% done, and its an update that is correctly handled and is updatable in the Legion app
-> itself you hear me? note this fucking down
-
-A release is not done because the code is good and the tests pass. It is done when **a Legion that already exists can
-install it from inside itself.** Those are different claims and only the second one matters to a user.
+**A release is not done because the code is good and the tests pass. It is done when a Legion that already exists can
+install it from inside itself.** Those are different claims, and only the second matters to a user. Do not merge unless
+the update is correctly handled and updatable in the Legion app itself.
 
 ## When this applies
 
@@ -15,133 +11,117 @@ install it from inside itself.** Those are different claims and only the second 
 - Anyone asks "can users install this from inside Legion?"
 - Touching anything under `src/core/updater/` or `ui/src/components/UpdatePanel.tsx`.
 
-## What makes an update installable in-app
+## Four conditions for an in-app update
 
-Four conditions. All four, or it is not an in-app update.
+All four, or it is not an in-app update.
 
-1. **The install folder is not a git checkout.** `installMode()` returns `checkout` if `.git` exists, and auto-update
-   is permanently disabled. Check before shipping:
+1. **The install folder is not a git checkout.** `installMode()` returns `checkout` if `.git` exists and disables
+   auto-update permanently. Check before shipping:
    ```
    git -C "$LOCALAPPDATA/Programs/Legion" status
    ```
-   It must FAIL. If it prints modifications, that folder is a checkout and no release is shippable.
-
-2. **`requiresFullInstall: false`** in the signed manifest. This is the field that separates a real update from a
-   notify-only release the owner has to action by hand.
-
+   It must FAIL. If it prints modifications, that folder is a checkout and no release is shippable. Test both shapes:
+   a clone's `.git` is a directory, a worktree's is a file.
+2. **`requiresFullInstall: false`** in the signed manifest. This field separates a real update from a notify-only
+   release the owner must action by hand.
 3. **`depsSha256` matches the installed app's `dependencyHash`.** `package-lock.json` carries its own `version`, which
-   npm rewrites on every bump, so a RAW hash comparison reports "dependencies changed" for every patch and forces a
+   npm rewrites on every bump, so a raw hash comparison reports "dependencies changed" for every patch and forces a
    full install. `dependencyHash()` blanks the lock's own version fields; compare that. A version-only bump must
    produce an **identical** dependency hash.
-
-4. **The panel offers a clickable install after the download.** See the failure below — this one shipped broken.
+4. **The panel offers a clickable install after the download.** A control that renders only while a state is active
+   vanishes the moment that state changes; assert what exists in every state.
 
 ## The procedure
 
-Full detail with commands: [`docs/SHIPPING.md`](../../docs/SHIPPING.md). The order that matters:
+Full commands: [`docs/SHIPPING.md`](../../docs/SHIPPING.md). The order that matters:
 
-1. **Full suite green in the tree that will become `main`.** Focused suites are not the gate — they say nothing about
-   the other 2,400 tests. One gate at a time: `npm test` rewrites `dist/`, so a concurrent build corrupts both results.
+1. **Full suite green in the tree that will become `main`.** Focused suites are not the gate. One gate at a time:
+   `npm test` rewrites `dist/`, so a concurrent build corrupts both.
 2. **Baseline from the same tree before your change**, so "3 failures" means something next to "3 failures before".
 3. **Version in three places**: `package.json`, `src/shared/config.ts` (`VERSION`), `package-lock.json`. Confirm the
    lockfile diff is version-only.
 4. **Restore tag first**: `git tag pre-merge-<name> && git push cloud pre-merge-<name>`.
 5. **Build outside the repo**, native `D:/...` path (an MSYS `/d/...` becomes `D:\d\...` and ENOENTs).
 6. **Manifest from `app.zip`**, not the 285 MB installer zip.
-7. **Sign with the key outside every work tree.** The vault key sits inside the owner's vault's own repo and the signer
+7. **Sign with the key outside every work tree.** The vault key sits inside the owner's vault repo and the signer
    refuses it. Copy out, sign, delete the copy. Never read a key into a session — pass the path.
 8. **`release-preflight.mjs` must end "Pre-flight passed".** Do not publish over a failure.
 9. **Merge `--no-ff`.** Read every removed test line: `git diff pre-merge-<name> HEAD -- test/ | grep '^-[^-]'`.
-10. **DRAFT the release.** `gh release create --draft`, then upload all five assets. Verify the **uploaded** assets
-    before publishing: GitHub reports a `digest` per asset, and it must equal your local sha256. Then `--draft=false`.
-11. **The CDN fetch is a POST-PUBLISH check, and that is the owner's one standing objection.**
-    The owner is explicit: never publish and *then* go looking for problems. So everything that can be checked before
-    `--draft=false` MUST be, and the CDN fetch is only ever a confirmation that the published bytes are the bytes we
-    checked — never the first time anything is verified. If the CDN fetch finds a fault, the fault is in the
-    verification, because the release was already proven receivable by pre-flight and by asset-digest equality.
+10. **DRAFT the release.** `gh release create --draft`, upload all five assets, verify the **uploaded** assets
+    (GitHub reports a per-asset `digest`, and it must equal your local sha256), then `--draft=false`.
+11. **Verify from the live CDN only AFTER publishing.** A draft's assets are not publicly served —
+    `releases/download/...` returns 404 until the release is public. What a draft can prove is byte-equality via the
+    asset digest; what only the CDN proves is that an *existing install* can fetch it.
 
-    **Verify from the live CDN — AFTER publishing.** This is a post-publish check, not a pre-publish one, and the
-    distinction is not pedantic: **a draft's assets are not publicly served**, so `releases/download/...` returns 404
-    until the release is public. Verified 2026-10-04. What you can check on a draft is byte-equality via the asset
-    digest; what only the CDN can tell you is that an *existing install* can fetch it.
+## Never publish then verify
 
-## Failure modes seen here
+Check everything checkable before `--draft=false`. The CDN fetch is only ever a confirmation that the published bytes
+are the bytes you checked — never the first time anything is verified. If the CDN fetch finds a fault, the fault is in
+the verification, because the release was already proven receivable by pre-flight and by asset-digest equality.
 
-**The update panel hid its own install button (2026-10-04).** `UpdatePanel.tsx` rendered the install button only while
-`!st.staged`, so the moment the download finished the button disappeared. Users could download a release and have no
-way to install it except waiting for idle or restarting the app. Nothing was broken — a control was absent — and the
-suite was fully green. **Check every state of a flow, not just the first one.** A control that vanishes on state
-change is invisible to any test that only exercises the happy path.
+## Verify an existing install can receive it
 
-**The install folder was a git worktree (2026-10-04).** Auto-update was dead, and every push to `main` landed *inside*
-the installed app. The installer accepted it because a worktree's `package.json` is named `legion`. The guard now
-refuses any folder containing `.git` — test both shapes, because a clone's `.git` is a directory and a worktree's is a
-file.
-
-**A release had to be pulled back (2026-10-04).** Draft-first meant it took under a minute and nothing was ever
-offered as `latest`. After a rollback, **verify** — `gh release view`, asset 404, and the `releases/latest/download`
-manifest, because that last URL is what every install polls.
-
-**The rescue/compaction class of bug is the same shape.** A control or an invariant that is *absent* rather than wrong.
-See [`verifying-changes.md`](verifying-changes.md).
-
-## Verifying an update really works
-
-Local checks prove your folder is right. They do not prove an existing install can receive the release. After the
-draft is uploaded:
+Local checks prove your folder is right; they do not prove an existing install receives the release. After upload,
+fetch the live manifest:
 
 ```
 curl -sL https://github.com/dnh33/legion/releases/latest/download/legion-update-manifest.json
 ```
 
-**Into a FRESH directory — create it new, never reuse one.** This is not advice, it is the incident: on2026-10-04 a
-verification reused a directory from an earlier fetch whose first `curl` had returned 404 and written a 9-byte
-`Not Found` body over the manifest. The verifier then reported *"signature does not match"* on a release that was
-perfectly fine. A check that a previous failed attempt can contaminate is not a check. `rm -rf` the directory and
-re-create it, then fetch every file, then verify.
+**Into a FRESH directory — create it new, never reuse one.** A check that a previous failed attempt can contaminate is
+not a check: a stale 9-byte `Not Found` body once produced a false "signature does not match". `rm -rf` and re-create
+the directory, then fetch the manifest, its `.sig`, `app.zip` and `SHA256SUMS.txt`, and run `release-verify.mjs`
+**on those fetched bytes**. Confirm `version` and `requiresFullInstall: false`.
 
-Into a **fresh** directory, fetch the manifest, its `.sig`, `app.zip` and `SHA256SUMS.txt`, and run
-`release-verify.mjs` **on those fetched bytes**. Confirm `version` and `requiresFullInstall: false`.
-
-Freshly uploaded assets 503 for about a minute while the CDN warms — that is not a failure; wait and re-fetch.
+Freshly uploaded assets 503 for about a minute while the CDN warms — wait and re-fetch.
 
 If any check here is unproven, say so plainly and stop. Do not publish around it and call it done.
 
+## Rollback
+
+Publish draft-first so a bad release is never offered as `latest`. After a rollback, **verify**: `gh release view`, the
+asset 404, and the `releases/latest/download` manifest — that last URL is what every install polls.
+
 ## Do not burn version numbers
 
-One patch of real work once consumed three version numbers in a single session: a real `0.2.1`, a `0.2.2-a` that no
-existing install could take, and `0.2.2` carrying the same code so it would land. **One number per shipped state,
-proven receivable by the pre-flight gate.** A number spent on a release nobody can install is not progress. When an
-attempt fails, fix and re-cut under the SAME number if it was never published — a tag only exists once people can
-install it.
+**One number per shipped state, proven receivable by the pre-flight gate.** A number spent on a release nobody can
+install is not progress. When an attempt fails, fix and re-cut under the SAME number if it was never published — a
+tag exists only once people can install it.
 
 **A pre-release sorts BELOW its own release**, so `0.2.1-a` is never offered to anyone already on `0.2.1`. Lettered
-patches only work on the next *unreleased* number. `semver.ts` implements this and `updater-trust.test.ts` pins both
+patches work only on the next *unreleased* number. `semver.ts` implements this and `updater-trust.test.ts` pins both
 directions.
 
-**When the version grammar changes, grep `scripts/` too.** `build-package`, `release-package` and `release-manifest`
-each once carried their own copy of the version regex and rejected what the app accepted. They now share
-`VERSION_RE` / `isReleaseVersion` from `scripts/lib/release-lib.mjs`.
+**When the version grammar changes, grep `scripts/` too.** Duplicated version regexes reject what the app accepts.
+The scripts share `VERSION_RE` / `isReleaseVersion` from `scripts/lib/release-lib.mjs`.
 
-## Consent: clicking Update IS the consent
+## Clicking Update is the consent
 
 The updater raises **no approval card**, deliberately. Clicking Update is the consent, and auto-install-when-idle is
 already behind a `window.confirm` on the toggle whose label promises "without asking again" — a second card would
-contradict the UI. (There was a double-consent bug that stranded the panel pointing at an approvals list not reachable
-from the update panel.)
+contradict the UI.
 
 What still stands between a GitHub download and running code: the release **signature**, verified before staging;
 `requiresFullInstall`; and `consent` gating the commit so a staged update waits for the owner **and** for idle.
 
-For installs predating a fix, the release notes tell people to enable auto-install once, update, then disable it. You
-cannot patch someone's installed client remotely.
+You cannot patch someone's installed client remotely. For installs predating a fix, the release notes tell people to
+enable auto-install once, update, then disable it.
 
-## Release notes follow `docs/RELEASE-NOTES.md`
+## Release notes and product copy
 
-Effect, not cause. No jargon, no internals. Under ~600 characters for a patch. Every manual step as its own
-plainly-worded line. The manifest carries the notes, so the pre-flight gate covers them.
+Release notes follow `docs/RELEASE-NOTES.md`: effect, not cause; no jargon, no internals; under ~600 characters for a
+patch; every manual step as its own plainly-worded line. The manifest carries them, so the pre-flight gate covers them.
 
-## Product copy claims
+**Product copy: never put internal testing status in text a user reads.** No "tested against our own servers", no "not
+tested yet", no "not verified in the real app". That is the most unprofessional thing the product can say about itself.
 
-Never say "safe", "secure", "verified" or "cannot be bypassed". Scope them: "Legion's own code …". And **"not verified
-in the real app" stays in the copy until the real-PC run is done.**
+- **Describe the behaviour, not the development state.** "Credentials are sent only to the address you set here" is a
+  fact a user can act on.
+- **Scope a claim by what is actually scoped**, not by hedging. Never write "safe", "secure" or "cannot be bypassed"
+  absolutely.
+- **Do not apologise in the UI.** Errors state what happened and what to do; limitations belong in docs and release
+  notes.
+- **Unverified work is tracked, not shipped.** It is a blocker to fix before release or a line in the release notes —
+  never a disclaimer inside the product.
+
+Before shipping, grep the UI for the tells: *fake, mock, stub, dummy, not tested, not yet, TODO, WIP*.

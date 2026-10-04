@@ -1,3 +1,4 @@
+import { tempDir as cleanupTemp } from './tmp-cleanup.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
@@ -79,14 +80,14 @@ function runExport(args: string[]): { refused: string } | null {
 }
 
 function fixture() {
-  const d = mkdtempSync(join(tmpdir(), 'legion-fix-'));
+  const d = cleanupTemp('legion-fix-');
   writeFileSync(join(d, 'package.json'), '{"name":"fixture"}');
   writeFileSync(join(d, 'README.md'), 'hello world');
   return d;
 }
 
 test('export-public produces a scrubbed single-commit publishable snapshot', () => {
-  const out = mkdtempSync(join(tmpdir(), 'legion-export-'));
+  const out = cleanupTemp('legion-export-');
   try {
     assert.equal(runExport([REPO, out]), null, 'the export should succeed');
 

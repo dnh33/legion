@@ -5,6 +5,7 @@
  * (the wallet phase), not a drive-by. It is a static scan, not a sandbox: docs/BSV-MODE.md says what it cannot see. The scan is
  * checked against itself in bsv-review-tripwire.test.ts (every evasion the review found is planted in a copy and must be caught).
  */
+import { tempDir as cleanupTemp } from './tmp-cleanup.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtempSync, readdirSync, readFileSync, statSync } from 'node:fs';
@@ -64,7 +65,7 @@ test('tripwire: BsvNetwork stays the literal testnet and no input can make the n
       assert.equal(normalizeBsv(wrap(attempt)).network, 'testnet', JSON.stringify(attempt));
     }
   }
-  assert.equal(new BsvState({ dataDir: mkdtempSync(join(tmpdir(), 'legion-tripwire-state-')), config: { bsv: { enabled: true, network: 'mainnet' } } as never }).network, 'testnet');
+  assert.equal(new BsvState({ dataDir: cleanupTemp('legion-tripwire-state-'), config: { bsv: { enabled: true, network: 'mainnet' } } as never }).network, 'testnet');
   // The knowledge mode names no mainnet value. Mainnet exists only as the spend network, behind the hard-off switch: the files that must not spell it at all
   // (the spend path, the audit log and the status tool take the network as an opaque value) are held to that by the NET_LITERAL rule in test/bsv-scan.ts; the
   // files that may (the network table, the policy, the probe, the module's views and routes) are listed there with their reasons.

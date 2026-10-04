@@ -6,6 +6,7 @@
  *  - a tainted run, or a run another bot or an MCP client started under `ask`, may not assign or delete;
  *  - everything an agent writes as text is `untrusted` until the owner marks it reviewed.
  */
+import { tempDir as cleanupTemp } from './tmp-cleanup.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtempSync, readFileSync } from 'node:fs';
@@ -28,7 +29,7 @@ const KEY = '-----BEGIN PRIVATE KEY-----\nMIIEvQIBADANBgkqhkiG9w0BAQEFAASC\n----
 const code = (fn: () => unknown, status: number, re?: RegExp) => assert.throws(fn, (e: unknown) => e instanceof BoardError && e.status === status && (!re || re.test(e.message)), `expected BoardError ${status}`);
 
 function setup(opts: { approve?: (summary: string) => Promise<boolean> | boolean } = {}) {
-  const root = mkdtempSync(join(tmpdir(), 'legion-board-access-'));
+  const root = cleanupTemp('legion-board-access-');
   const clock = { now: 0 };
   const graph = new Graph({ dir: join(root, 'kg'), bsvEnabled: () => false, now: () => new Date('2026-03-01T12:00:00.000Z') });
   const projects = new ProjectStore(join(root, 'd'), join(root, 'w'));
@@ -175,7 +176,7 @@ test('G7 delete: leader only, an owner card each time, re-checked after the card
 
 test('G8 abuse limits: write rate, create rate, the owner\'s reserve, and open items per agent', () => {
   const clock = { now: 0 };
-  const s = new BoardStore(mkdtempSync(join(tmpdir(), 'legion-board-lim-')), () => clock.now);
+  const s = new BoardStore(cleanupTemp('legion-board-lim-'), () => clock.now);
   const members = Array.from({ length: 24 }, (_, k) => `a${k}`);
   const P: ProjectRef = { id: 'proj_aaaaaaaaaaaa', members, status: 'active' };
   const run = { tainted: false };
@@ -192,7 +193,7 @@ test('G8 abuse limits: write rate, create rate, the owner\'s reserve, and open i
   for (let k = 0; k < BOARD_LIMITS.botReserve; k++) s.create(P, { title: `owner ${k}` });
   assert.equal(s.count(P.id), BOARD_LIMITS.itemsPerProject, 'the owner still has the reserved places');
   // write rate
-  const s2 = new BoardStore(mkdtempSync(join(tmpdir(), 'legion-board-lim2-')), () => 0);
+  const s2 = new BoardStore(cleanupTemp('legion-board-lim2-'), () => 0);
   const it = s2.create(P, { title: 'x' });
   for (let k = 0; k < BOARD_LIMITS.botWritesPerWindow; k++) s2.botUpdate(P, 'a1', it.id, { note: `n${k}` }, run);
   code(() => s2.botUpdate(P, 'a1', it.id, { note: 'too many' }, run), 429, /Too many board writes/);
@@ -200,7 +201,7 @@ test('G8 abuse limits: write rate, create rate, the owner\'s reserve, and open i
 });
 
 test('G9 secrets: an agent cannot put a key, seed phrase or credential on the board by any text path', () => {
-  const s = new BoardStore(mkdtempSync(join(tmpdir(), 'legion-board-sec-')), () => 0);
+  const s = new BoardStore(cleanupTemp('legion-board-sec-'), () => 0);
   const P: ProjectRef = { id: 'proj_aaaaaaaaaaaa', members: ['scout'], status: 'active' };
   const run = { tainted: false };
   const it = s.create(P, { title: 'x', assignee: { kind: 'agent', id: 'scout' } });

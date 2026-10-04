@@ -1,3 +1,4 @@
+import { tempDir as cleanupTemp } from './tmp-cleanup.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtempSync } from 'node:fs';
@@ -9,7 +10,7 @@ import type { QueryFn } from '../src/core/engine.js';
 
 function cfg() {
   const c = defaultConfig();
-  c.workspaceDir = join(mkdtempSync(join(tmpdir(), 'legion-doc-')), 'ws');
+  c.workspaceDir = join(cleanupTemp('legion-doc-'), 'ws');
   return c;
 }
 const fakeQuery = (accountInfo: () => Promise<unknown>, seen?: { closed: number; opts?: any }): QueryFn =>

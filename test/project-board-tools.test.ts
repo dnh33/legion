@@ -1,4 +1,5 @@
 /** The bot-facing legion_board tools, driven through a real MCP client (controls C4-C7, C10). */
+import { tempDir as cleanupTemp } from './tmp-cleanup.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtempSync } from 'node:fs';
@@ -12,7 +13,7 @@ import { BoardStore } from '../src/core/projects/board/store.js';
 import { runPrompt } from '../src/core/projects/board/prompt.js';
 import { EventBus } from '../src/core/bus.js';
 
-const root = mkdtempSync(join(tmpdir(), 'legion-board-tools-'));
+const root = cleanupTemp('legion-board-tools-');
 const clock = { now: 0 };
 const projects = new ProjectStore(join(root, 'data'), join(root, 'ws'));
 const board = new BoardStore(join(root, 'data', 'board'), () => clock.now);

@@ -1,3 +1,4 @@
+import { tempDir as cleanupTemp } from './tmp-cleanup.js';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtempSync, readFileSync, existsSync, rmSync, writeFileSync } from 'node:fs';
@@ -6,7 +7,7 @@ import { join } from 'node:path';
 import { Store } from '../src/core/store.js';
 import type { ChatMessage, Task } from '../src/shared/types.js';
 
-const tmp = () => mkdtempSync(join(tmpdir(), 'legion-store-'));
+const tmp = () => cleanupTemp('legion-store-');
 const task = (id: string, status: Task['status'], updatedAt: string, agentId = 'zealot'): Task => ({
   id, agentId, title: id, status, source: 'ui', requestedModel: 'auto', createdAt: updatedAt, updatedAt,
 });

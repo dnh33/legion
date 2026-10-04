@@ -4,6 +4,7 @@
  * must test, so a mutated copy is exercised by exactly the same code. The wallet is always test/bsv-fake-wallet.ts on a random loopback
  * port (fakeTransport refuses the real wallet's port). Not a test file: the runner only loads *.test.js.
  */
+import { tempDir as cleanupTemp } from './tmp-cleanup.js';
 import assert from 'node:assert/strict';
 import { appendFileSync, mkdtempSync, readFileSync, readdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -48,7 +49,7 @@ export interface Rig {
 export async function rig(M: Mods, o: { wallet?: Partial<FakeBehaviour>; w?: FakeWallet; dataDir?: string; clock?: FakeClock; taskId?: string; native?: boolean; ownWallet?: boolean } = {}): Promise<Rig> {
   const ownWallet = o.ownWallet ?? !o.w; // a restarted rig takes over closing the wallet it was given
   const w = o.w ?? await startFakeWallet({ network: 'testnet', ...o.wallet });
-  const dataDir = o.dataDir ?? mkdtempSync(join(tmpdir(), 'legion-spend-'));
+  const dataDir = o.dataDir ?? cleanupTemp('legion-spend-');
   const clock = o.clock ?? new FakeClock();
   const config: any = { bsv: { enabled: true, network: 'testnet' } };
   const state = M.index.createBsvState({ dataDir, config });

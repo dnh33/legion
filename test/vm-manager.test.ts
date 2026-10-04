@@ -1,3 +1,4 @@
+import { tempDir as cleanupTemp } from './tmp-cleanup.js';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtempSync } from 'node:fs';
@@ -30,7 +31,7 @@ class FakeBoat {
 }
 
 function setup(opts: { boat?: FakeBoat | null; now?: { t: number } } = {}) {
-  const dir = mkdtempSync(join(tmpdir(), 'legion-vm-'));
+  const dir = cleanupTemp('legion-vm-');
   const store = new Store(dir);
   store.seedDefaults(join(dir, 'w'));
   const bus = new EventBus();

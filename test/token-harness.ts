@@ -3,6 +3,7 @@
  * every task it starts under an `ask` ceiling; the per-launch admin secret (X-Legion-Admin) is needed for everything else.
  * Real Engine, real HTTP server, real knowledge-graph, comms and BSV modules; only the SDK query is scripted.
  */
+import { tempDir as cleanupTemp } from './tmp-cleanup.js';
 import { request as httpRequest } from 'node:http';
 import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -45,7 +46,7 @@ export const until = async (cond: () => boolean, ms = 12000): Promise<void> => {
 };
 
 export async function mount(script: Script = () => undefined, o: { headless?: boolean; seeded?: boolean; approvalTimeoutMs?: number } = {}) {
-  const dir = mkdtempSync(join(tmpdir(), 'legion-tok1-'));
+  const dir = cleanupTemp('legion-tok1-');
   const dataDir = join(dir, 'data');
   mkdirSync(dataDir, { recursive: true });
   const configPath = join(dataDir, 'config.json');

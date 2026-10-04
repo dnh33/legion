@@ -283,13 +283,14 @@ export function createBlenderModule(deps: ModuleDeps, opts: BlenderModuleOptions
     assets,
     config: cfg, dataDir: deps.dataDir, approvals: deps.approvals, getBackend, ...(sandbox ? { sandbox } : {}), ...(local ? { local } : {}), beforeRoute: ready,
     secrets: () => liveSecrets(deps.config),
-    exportDirFor: (a) => join(a.cwd || join(deps.config.workspaceDir, a.id), 'blender-exports'),
+    exportDirFor: (a) => { const b = cfg().baseDir; return b ? join(b, 'exports') : join(a.cwd || join(deps.config.workspaceDir, a.id), 'blender-exports'); },
     workspaceOf,
     audit, ...(opts.backup ? { backup: opts.backup } : {}), onChange: emitStatus,
   });
 
   const statusText = (a: AgentProfile): string => {
     const c = cfg();
+    const bd = c.baseDir;
     const next = guard.routeNow(a);
     const busy = guard.busyView();
     const lines = [
@@ -300,7 +301,7 @@ export function createBlenderModule(deps: ModuleDeps, opts: BlenderModuleOptions
       ...(c.both === true ? [`Both backends: ${bothView(c).note}`, `Extra tools (blender_tools): ${bothBackend ? bothBackend.catalog().map((t) => t.name).join(', ') || 'none' : 'not checked yet'}.`] : []),
       `Live backend: ${backend?.isConnected() ? `${backend.kind} (connected)` : 'not connected (it connects when a live call is made)'}.`,
       ...(busy ? [`Busy: a ${busy.mode} script has been running since ${busy.since}${busy.kind === 'timed-out' ? ' and timed out; it may still be running' : ''}. Live reads are refused meanwhile; local reads wait their turn.`] : []),
-      `Live export folder: ${join(a.cwd || join(deps.config.workspaceDir, a.id), 'blender-exports')}. Exports from local and VM runs come back to <workspace>/blender-exports/<task>/.`,
+      `Export folder: ${bd ? join(bd, 'exports') : join(a.cwd || join(deps.config.workspaceDir, a.id), 'blender-exports')}. Exports from local and VM runs come back to ${bd ? '<base>/exports/<task>/' : '<workspace>/blender-exports/<task>/'}.`,
       `Scripts this session: ${guard.stats.approved} approved, ${guard.stats.denied} denied, ${guard.stats.blocked} blocked by the safety check.`,
     ];
     return lines.join('\n');

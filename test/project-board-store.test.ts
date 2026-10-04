@@ -1,4 +1,5 @@
 /** Project board store: owner writes, caps, order, storage and bot rules (controls C3, C4, C5, C7, C13, C14, C15). */
+import { tempDir as cleanupTemp } from './tmp-cleanup.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { appendFileSync, existsSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
@@ -10,7 +11,7 @@ import { BOARD_LIMITS } from '../src/shared/board.js';
 
 const PID = 'proj_aaaaaaaaaaaa';
 const P: ProjectRef = { id: PID, members: ['scout', 'zealot'], status: 'active' };
-const dir = () => mkdtempSync(join(tmpdir(), 'legion-board-'));
+const dir = () => cleanupTemp('legion-board-');
 const code = (fn: () => unknown, status: number, re?: RegExp) => assert.throws(fn, (e: unknown) => e instanceof BoardError && e.status === status && (!re || re.test(e.message)), `expected BoardError ${status}`);
 const run = { tainted: false };
 

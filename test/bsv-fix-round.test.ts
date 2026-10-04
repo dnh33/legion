@@ -5,6 +5,7 @@
  *  7 semver-only version (also in bsv-wallet-probe.test.ts)   8 clone on entry   9 Freeze without Electron
  * The wallet is always a fake transport; nothing here opens a socket, and nothing here may touch the owner's real wallet.
  */
+import { tempDir as cleanupTemp } from './tmp-cleanup.js';
 import test, { after } from 'node:test';
 import assert from 'node:assert/strict';
 import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
@@ -191,7 +192,7 @@ test('8: caps, allowlist and events are copies too: what a caller or an observer
 
 // ================================================================== 3. audit: recovery and time order
 
-function auditDir() { return mkdtempSync(join(tmpdir(), 'legion-bsvfix-')); }
+function auditDir() { return cleanupTemp('legion-bsvfix-'); }
 const lines = (f: string) => readFileSync(f, 'utf8').split('\n').filter(Boolean);
 
 test('3: the rolling window is ordered by the time of each spend, not by where its line sits', () => {
@@ -385,7 +386,7 @@ const fakeWallet = (net = 'testnet') => {
 async function setup(o: { dataDir?: string; on?: boolean; native?: string | null; net?: string; startNow?: () => number } = {}) {
   const f = makeFakes();
   f.agents.set(ASSAYER_ID, { ...mkAgent(ASSAYER_ID, 'Assayer'), requires: 'bsv' });
-  const dataDir = o.dataDir ?? mkdtempSync(join(tmpdir(), 'legion-bsvfix-'));
+  const dataDir = o.dataDir ?? cleanupTemp('legion-bsvfix-');
   writeFileSync(join(dataDir, 'config.json'), JSON.stringify({ port: 4747, authToken: 'on-disk-token', workspaceDir: '/w', claude: { auth: 'claude-login', inheritClaudeCodeSettings: true, maxTurns: 40 }, boat: { baseUrl: 'https://boat.test' }, mcpServers: {}, bsv: { enabled: !!o.on, network: 'testnet' } }, null, 2));
   (f.ctx.config as any).bsv = { enabled: !!o.on, network: 'testnet' };
   const state = createBsvState({ dataDir, config: f.ctx.config });
@@ -455,7 +456,7 @@ test('1: a hand-edited policy file (raised limits, an extra recipient) loads as 
 
 test('1: a policy file with no record at all (created by hand on a fresh install), a missing file Legion had saved, and an unreadable file each freeze', async () => {
   // no record
-  const d1 = mkdtempSync(join(tmpdir(), 'legion-bsvfix-')); mkdirSync(join(d1, 'bsv'), { recursive: true });
+  const d1 = cleanupTemp('legion-bsvfix-'); mkdirSync(join(d1, 'bsv'), { recursive: true });
   writeFileSync(policyFile(d1), JSON.stringify({ caps: { perTxSats: 900 }, allowlist: [mkAddr(0x6f, 0x99)], frozen: null }));
   const a = await setup({ dataDir: d1, on: true });
   assert.equal(a.bsv.policy.isFrozen, true);
@@ -545,7 +546,7 @@ test('4: there is no default wallet address anywhere: the probe exports none, a 
   const r = await probeModule.probeWallet({ transport });
   assert.equal(r.error, 'rejected-url'); assert.deepEqual(r.sent, []);
   // a wallet address in config.json (hand-edited, or left by an older version) is IGNORED: only Connect sets an address, in memory
-  const dir = mkdtempSync(join(tmpdir(), 'legion-bsvfix-'));
+  const dir = cleanupTemp('legion-bsvfix-');
   writeFileSync(join(dir, 'config.json'), JSON.stringify({ bsv: { enabled: true, network: 'testnet', walletUrl: WALLET_URL } }));
   const f = makeFakes();
   const state = createBsvState({ dataDir: dir, config: { bsv: { enabled: true, network: 'testnet', walletUrl: WALLET_URL } } as never });

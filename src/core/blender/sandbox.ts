@@ -319,7 +319,7 @@ export class SandboxRunner implements SandboxPort {
   private async fetchExports(agent: AgentProfile, taskId: string, l: Layout): Promise<{ files: SandboxRunResult['files']; problems: string[] }> {
     const ls = await this.sh(agent, `cd ${shq(l.work + '/exports')} 2>/dev/null && find . -maxdepth 1 -type f -printf '%f\\t%s\\n'`);
     return collectExports({
-      workspace: this.d.workspaceOf(agent), taskId, write: this.d.writeLocal,
+      workspace: this.d.workspaceOf(agent), taskId, write: this.d.writeLocal, exportsBaseDir: this.d.config().baseDir,
       list: () => {
         if (ls.exitCode !== 0) throw new Error('no exports folder');
         return ls.stdout.split('\n').filter(Boolean).map((line) => { const [name = '', sizeText = '0'] = line.split('\t'); return { name, bytes: Number(sizeText) }; });

@@ -2,6 +2,7 @@
  * Perf round L, Lattice store against a REAL core: the real graphStore.ts (bundled with esbuild at run time) drives request counts,
  * sequence guards, dropped links (B1), cross-chunk links (B2). Standalone: it imports nothing from the code under test except the store itself.
  */
+import { tempDir as cleanupTemp } from './tmp-cleanup.js';
 import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtempSync } from 'node:fs';
@@ -48,7 +49,7 @@ interface Store {
 }
 async function bundleStore(core: { base: string }, entry = 'ui/src/graph/graphStore.ts'): Promise<{ store: Store; fetches: string[]; setDelay: (fn: ((url: string) => number) | null) => void }> {
   const esbuild = await import(pathToFileURL(join(REPO, 'node_modules/esbuild/lib/main.js')).href);
-  const out = join(mkdtempSync(join(tmpdir(), 'legion-store-')), 'graphStore.mjs');
+  const out = join(cleanupTemp('legion-store-'), 'graphStore.mjs');
   await esbuild.build({
     entryPoints: [resolve(REPO, entry)], bundle: true, format: 'esm', platform: 'node', outfile: out, logLevel: 'error',
     define: { 'import.meta.env.DEV': 'false', 'process.env.NODE_ENV': '"production"' }, loader: { '.css': 'empty' },

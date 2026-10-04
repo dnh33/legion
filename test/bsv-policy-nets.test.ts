@@ -3,6 +3,7 @@
  * reservations and ledger; mainnet is behind a hard-off switch and a one-spend arm; the recipient's version byte must match the network;
  * a wallet that claims another network voids the card; an unknown outcome blocks both networks. The engine is pure, so everything runs on a fake clock.
  */
+import { tempDir as cleanupTemp } from './tmp-cleanup.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
@@ -87,7 +88,7 @@ test('migration: the old fields are read only while `nets` is absent, so they ne
 });
 
 test('migration: the file is rewritten in the new shape (version 2) on the next save, and the result loads to the same limits', () => {
-  const dir = mkdtempSync(join(tmpdir(), 'legion-nets-')); const f = join(dir, 'policy.json');
+  const dir = cleanupTemp('legion-nets-'); const f = join(dir, 'policy.json');
   writeFileSync(f, JSON.stringify({ caps: { perTxSats: 800 }, allowlist: [TEST_A], frozen: null }));
   const loaded = loadPolicyConfig(f);
   assert.equal(loaded.unreadable, false);
@@ -110,7 +111,7 @@ test('config(): `nets` is the truth; caps and allowlist are a prototype mirror o
   cfg.nets.main.caps.perTxSats = 1; cfg.nets.main.allowlist.push('x');
   assert.equal(e.config().nets.main.caps.perTxSats, NET.main.defaultCaps.perTxSats);
   // the spread an old route does drops the mirror; its explicit `caps` then lands on testnet only
-  const dir = mkdtempSync(join(tmpdir(), 'legion-nets-')); const f = join(dir, 'policy.json');
+  const dir = cleanupTemp('legion-nets-'); const f = join(dir, 'policy.json');
   savePolicyConfig(f, { ...e.config(), caps: validateCaps({ perTxSats: 900 }, e.config().caps) });
   const disk = loadPolicyConfig(f).config;
   assert.equal(disk.nets.test.caps.perTxSats, 900);
@@ -507,7 +508,7 @@ test('decision codes: one per failing check, in a fixed vocabulary, repeated for
 test('round trip: what config() says, saved and loaded, gives an engine with the same per-network state; the switch survives only as an explicit true', () => {
   const { e } = engine();
   e.setCaps({ perTxSats: 500 }, 'main'); e.setAllowlist([MAIN_B], 'main'); e.setCaps({ perTxSats: 700 });
-  const dir = mkdtempSync(join(tmpdir(), 'legion-nets-')); const f = join(dir, 'policy.json');
+  const dir = cleanupTemp('legion-nets-'); const f = join(dir, 'policy.json');
   savePolicyConfig(f, e.config());
   const e2 = new PolicyEngine({ config: loadPolicyConfig(f).config });
   assert.deepEqual(e2.config().nets, e.config().nets); assert.equal(e2.mainnetEnabled, true);

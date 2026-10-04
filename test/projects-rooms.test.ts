@@ -1,4 +1,5 @@
 /** Rooms that belong to a project (control C16). */
+import { tempDir as cleanupTemp } from './tmp-cleanup.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtempSync } from 'node:fs';
@@ -9,7 +10,7 @@ import type { RoomRequest } from '../src/core/comms/hub.js';
 import { makeHarness } from './comms-fakes.test.js';
 
 function setup(hub: Parameters<typeof makeHarness>[0] = {}) {
-  const root = mkdtempSync(join(tmpdir(), 'legion-proj-rooms-'));
+  const root = cleanupTemp('legion-proj-rooms-');
   const projects = new ProjectStore(join(root, 'data'), join(root, 'data', 'ws'));
   const seen: RoomRequest[] = [];
   const h = makeHarness({ ...hub, hub: { projects, approve: async (r: RoomRequest) => { seen.push(r); return true; }, ...(hub.hub ?? {}) } });

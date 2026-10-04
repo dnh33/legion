@@ -180,6 +180,8 @@ export interface BlenderConfig {
   assets?: Partial<Record<AssetSource, boolean>>;
   /** True once the user chose where scripts run (the first-use chooser or the Settings radio). Enabling the bridge alone does not set it. */
   modeAsked?: boolean;
+  /** Optional base folder for everything Blender stores: the local scene/tmp folders AND the exports copied back to you. An absolute path (e.g. D:\\blender on Windows). Empty = Legion's data folder for local runs, each agent's workspace for exports. */
+  baseDir?: string;
   /** Legacy mirror of `mode` (auto/local -> auto, vm -> vm, live -> off). Always written alongside `mode`. */
   sandbox: BlenderSandboxMode;
   /** Written by Setup. NOT an entry of config.mcpServers: those are handed to agents, and this server has a raw execute tool. */
@@ -291,6 +293,9 @@ const normEntry = (v: unknown): BlenderEntry | undefined => {
 /** True for the loopback names the bridge accepts. */
 export const isLoopbackHost = (h: string): boolean => h === '127.0.0.1' || h === 'localhost' || h === '::1';
 
+/** A Windows drive path (C:\ or C:/), a UNC path (\\server) or a POSIX absolute path. Used for blender.baseDir, which must not be relative. */
+export const ABSOLUTE_PATH = /^(?:[A-Za-z]:[\\/]|\\\\|\/)/;
+
 /**
  * Whatever the file held under "blender", reduced to the shapes we accept. Never throws. Downloads are https only; the host is loopback only
  * (a script must never be sent to another machine); unknown or malformed fields fall back to the defaults.
@@ -320,6 +325,8 @@ export function normalizeBlender(v: unknown): BlenderConfig {
     host: typeof v.host === 'string' && isLoopbackHost(v.host.trim()) ? v.host.trim() : d.host,
     port,
     ...(typeof v.installPath === 'string' && v.installPath.trim() && v.installPath.length <= 1000 && !/\0/.test(v.installPath) ? { installPath: v.installPath.trim() } : {}),
+    // Absolute only: a relative base would resolve against different working directories, so it is dropped (kept as Legion's default).
+    ...(typeof v.baseDir === 'string' && v.baseDir.trim().length > 0 && v.baseDir.length <= 1000 && !/[\0\r\n]/.test(v.baseDir) && ABSOLUTE_PATH.test(v.baseDir.trim()) ? { baseDir: v.baseDir.trim() } : {}),
     ...(mode ? { mode } : {}),
     ...(v.modeAsked === true ? { modeAsked: true } : {}),
     ...(v.both === true ? { both: true } : {}),

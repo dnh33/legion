@@ -1,4 +1,5 @@
 /** Shared fixtures for the knowledge graph tests. */
+import { tempDir as cleanupTemp } from './tmp-cleanup.js';
 import { mkdtempSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -11,7 +12,7 @@ export const ALPHA = agentActor('alpha');
 export const BETA = agentActor('beta');
 export { HUMAN };
 
-export const tmpDir = (): string => mkdtempSync(join(tmpdir(), 'legion-kg-'));
+export const tmpDir = (): string => cleanupTemp('legion-kg-');
 
 export function mkGraph(opts: Partial<GraphOptions> = {}): { g: Graph; dir: string; file: string; bsv: { on: boolean } } {
   const dir = opts.dir ?? tmpDir();

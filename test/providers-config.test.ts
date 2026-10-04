@@ -1,3 +1,4 @@
+import { tempDir as cleanupTemp } from './tmp-cleanup.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { existsSync, mkdtempSync, readFileSync, statSync } from 'node:fs';
@@ -64,7 +65,7 @@ test('C19 a fresh install has no providers and config round-trips unknown keys',
 });
 
 test('C4 keys: a separate 0600 file, bound to the origin, deleted when the origin changes; never in config', () => {
-  const dir = mkdtempSync(join(tmpdir(), 'legion-pk-'));
+  const dir = cleanupTemp('legion-pk-');
   const k = new ProviderKeys(keyFileFor(dir));
   assert.equal(k.has('openai'), false);
   assert.throws(() => k.set('openai', 'short', 'https://a.example'), /characters/);

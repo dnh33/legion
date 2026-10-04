@@ -1,4 +1,5 @@
 /** Adversarial review, category 6 (data integrity): replay, torn writes, atomicity, undo, compaction. Asserts the SECURE behaviour. */
+import { tempDir as cleanupTemp } from './tmp-cleanup.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { appendFileSync, copyFileSync, mkdtempSync, readFileSync, truncateSync, writeFileSync } from 'node:fs';
@@ -20,7 +21,7 @@ const searches = (g: Graph) => ['alpha', 'beta note', 'zebra', 'idea', 'decision
 test('R6.1 replay fidelity: after a long random mix of human / clean / ask-woken / tainted writes, accepts, rejects, undos, compaction and lint-lite, a restarted Graph equals the live one (nodes, edges, search scores, inbox)', () => {
   for (const seed of [1, 2, 3, 4, 5]) {
     const r = rng(seed * 7919);
-    const dir = mkdtempSync(join(tmpdir(), 'rev-i-'));
+    const dir = cleanupTemp('rev-i-');
     // Writes use the real clock; the comparison below freezes it. search() multiplies BM25 by a recency decay and rounds to 4 decimals,
     // so two search runs a few ms apart (live vs reloaded) can straddle a rounding boundary (1.28525000 vs 1.28524999) with identical data.
     let frozen: number | null = null;
@@ -87,7 +88,7 @@ test('R6.1 replay fidelity: after a long random mix of human / clean / ask-woken
 
 test('R6.2 torn append: a crash in the middle of a multi-line append (capture+supersede, merge) must leave a consistent graph (all or nothing)', () => {
   const build = () => {
-    const dir = mkdtempSync(join(tmpdir(), 'rev-i-'));
+    const dir = cleanupTemp('rev-i-');
     const g = new Graph({ dir });
     const a = agentActor('alpha', { taskId: 'T' });
     const nodes = ['one', 'two', 'three', 'keep'].map((t) => g.upsertNode(a, { title: `note ${t}`, body: t }).node);
@@ -104,7 +105,7 @@ test('R6.2 torn append: a crash in the middle of a multi-line append (capture+su
   assert.ok(added.length >= 6);
   const bad: string[] = [];
   for (let cut = 1; cut < added.length; cut++) {
-    const d2 = mkdtempSync(join(tmpdir(), 'rev-i-'));
+    const d2 = cleanupTemp('rev-i-');
     writeFileSync(join(d2, 'graph.jsonl'), before + added.slice(0, cut).join('\n') + '\n');
     const g2 = new Graph({ dir: d2 });
     const hid = nodes.slice(0, 3).filter((n) => g2.getNode(HUMAN, n.id)!.status === 'archived');
@@ -117,7 +118,7 @@ test('R6.2 torn append: a crash in the middle of a multi-line append (capture+su
 });
 
 test('R6.3 undo: a later change to a node\'s LINKS (by the human or another bot) is not silently wiped by undoing the node\'s creation', () => {
-  const dir = mkdtempSync(join(tmpdir(), 'rev-i-'));
+  const dir = cleanupTemp('rev-i-');
   const g = new Graph({ dir });
   const alpha = agentActor('alpha', { taskId: 'T' });
   const mine = g.upsertNode(alpha, { title: 'bot created note' }).node;
@@ -133,7 +134,7 @@ test('R6.3 undo: a later change to a node\'s LINKS (by the human or another bot)
 const tick = () => { const t = Date.now(); while (Date.now() === t) { /* spin to the next millisecond */ } };
 
 test('R6.4b undo guard: two writes to one node inside the same millisecond (parallel tool calls) still make the earlier undo refuse', (t) => {
-  const dir = mkdtempSync(join(tmpdir(), 'rev-i-'));
+  const dir = cleanupTemp('rev-i-');
   const g = new Graph({ dir });
   const alpha = agentActor('alpha', { taskId: 'T' });
   const n = g.upsertNode(alpha, { title: 'same ms target', body: 'v0' }).node;
@@ -159,7 +160,7 @@ test('R6.4b undo guard: two writes to one node inside the same millisecond (para
 });
 
 test('R6.4 undo refuses after any later edit of the same node, restores exactly otherwise (update, supersede, merge, forget, capture)', () => {
-  const dir = mkdtempSync(join(tmpdir(), 'rev-i-'));
+  const dir = cleanupTemp('rev-i-');
   const g = new Graph({ dir });
   const alpha = agentActor('alpha', { taskId: 'T' });
   const n = g.upsertNode(alpha, { title: 'undo target', body: 'v1', tags: ['a'] }).node;
@@ -186,7 +187,7 @@ test('R6.4 undo refuses after any later edit of the same node, restores exactly 
 });
 
 test('R6.5 compaction does not break Activity undo (before-images live in activity.jsonl) and keeps a snapshot', () => {
-  const dir = mkdtempSync(join(tmpdir(), 'rev-i-'));
+  const dir = cleanupTemp('rev-i-');
   const g = new Graph({ dir, compactMinBytes: 5_000 });
   const alpha = agentActor('alpha', { taskId: 'T' });
   const n = g.upsertNode(alpha, { title: 'compaction target', body: 'v0' }).node;
@@ -200,7 +201,7 @@ test('R6.5 compaction does not break Activity undo (before-images live in activi
 });
 
 test('R6.6 two Graph instances on one directory (second process, a restart before the old one exits) must not silently lose each other\'s writes', () => {
-  const dir = mkdtempSync(join(tmpdir(), 'rev-i-'));
+  const dir = cleanupTemp('rev-i-');
   const a = new Graph({ dir, compactMinBytes: 1 });
   const b = new Graph({ dir, compactMinBytes: 1 });
   a.upsertNode(HUMAN, { title: 'written by A' });
@@ -212,7 +213,7 @@ test('R6.6 two Graph instances on one directory (second process, a restart befor
 });
 
 test('R6.7 a hand-damaged or hostile log line cannot inject trust/status/origin onto a node through patch replay', () => {
-  const dir = mkdtempSync(join(tmpdir(), 'rev-i-'));
+  const dir = cleanupTemp('rev-i-');
   const g = new Graph({ dir });
   const alpha = agentActor('alpha', { taskId: 'T' });
   const n = g.upsertNode(alpha, { title: 'victim' }).node;
@@ -229,7 +230,7 @@ test('R6.7 a hand-damaged or hostile log line cannot inject trust/status/origin 
 });
 
 test('R6.8 edge relation / edge ids are not a secret channel: rel is not scrubbed (max 40 lowercase chars)', () => {
-  const dir = mkdtempSync(join(tmpdir(), 'rev-i-'));
+  const dir = cleanupTemp('rev-i-');
   const secret = 'abcdef0123456789abcdef0123456789abcdef01'; // 40 hex: a truncated bearer token
   const g = new Graph({ dir, secrets: () => [secret + '23456789'] });
   const a = agentActor('alpha', { taskId: 'T' });
@@ -241,7 +242,7 @@ test('R6.8 edge relation / edge ids are not a secret channel: rel is not scrubbe
 });
 
 test('R6.9 tombstone and pending visibility are enforced identically for every read path (get, search, recall, neighbors, subgraph, path, lint, stats)', () => {
-  const dir = mkdtempSync(join(tmpdir(), 'rev-i-'));
+  const dir = cleanupTemp('rev-i-');
   const g = new Graph({ dir });
   const alpha = agentActor('alpha', { taskId: 'T1' });
   const held = agentActor('alpha', { taskId: 'T2', taint: () => true });

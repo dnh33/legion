@@ -1,4 +1,5 @@
 /** The VM fixes through the real HTTP server: agent settings (size, enable), stop with no sandbox, trial fallback, usage, key check, rates in Settings. */
+import { tempDir as cleanupTemp } from './tmp-cleanup.js';
 import { strict as assert } from 'node:assert';
 import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -26,7 +27,7 @@ describe('VM fixes over HTTP', () => {
 
   before(async () => {
     await fb.start();
-    dir = mkdtempSync(join(tmpdir(), 'legion-vmhttp-'));
+    dir = cleanupTemp('legion-vmhttp-');
     store = new Store(dir);
     store.seedDefaults(join(dir, 'w'));
     config = defaultConfig();

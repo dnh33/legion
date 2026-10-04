@@ -1,4 +1,5 @@
 /** C16, C17, C18: the swap touches only the code set, keeps one previous, recovers from a kill at any step, rolls back an unhealthy build. */
+import { tempDir as cleanupTemp } from './tmp-cleanup.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
@@ -25,7 +26,7 @@ const OLD = { 'package.json': '{"version":"1.0.0"}', 'dist/src/electron/main.js'
 const NEW = { 'package.json': '{"version":"1.1.0"}', 'dist/src/electron/main.js': 'new-main', 'dist/src/bin/legion-core.js': 'new-core', 'dist-ui/index.html': 'new-ui', 'assets/icon.png': 'new-icon', 'node_modules/evil/x.js': 'EVIL', 'uninstall.cmd': 'EVIL-UNINSTALL', 'not-in-set.txt': 'x' };
 
 function fixture(): { install: string; staged: string; data: string; root: string } {
-  const root = mkdtempSync(join(tmpdir(), 'upd-apply-'));
+  const root = cleanupTemp('upd-apply-');
   const install = join(root, 'install'); const data = join(root, 'data');
   put(install, OLD); put(data, { 'state.json': '{"tasks":[]}', 'config.json': '{"authToken":"x"}' });
   const staged = join(install, '.update', 'staging', '1.1.0', 'x', 'legion-1.1.0');
@@ -90,7 +91,7 @@ test('C17: recoverInterrupted decisions (awaiting-health with the new build runn
   assert.equal(await recoverInterrupted(f.install, { runningVersion: '1.0.0', nowMs: j.heartbeat + 1000 }), 'none', 'the helper is still alive and deciding');
   assert.equal(await recoverInterrupted(f.install, { runningVersion: '1.0.0', nowMs: j.heartbeat + 10 * 60_000 }), 'rolled-back');
   assert.equal(snap(f.install)['dist/src/electron/main.js'], 'old-main');
-  assert.equal(await recoverInterrupted(mkdtempSync(join(tmpdir(), 'upd-empty-')), { runningVersion: '1.0.0' }), 'none');
+  assert.equal(await recoverInterrupted(cleanupTemp('upd-empty-'), { runningVersion: '1.0.0' }), 'none');
 });
 
 function deps(over: Partial<ApplyDeps> & { f: ReturnType<typeof fixture>; newHealthy: boolean }): ApplyDeps & { spawned: number; killed: number[]; state: { newUp: boolean; oldUp: boolean } } {

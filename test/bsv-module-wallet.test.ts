@@ -2,6 +2,7 @@
  * BSV module wiring for the wallet probe, the policy routes, the audit log and the bsv_status tool.
  * The wallet is a fake transport (never the real wallet port). Policy changes need the admin secret AND the native secret.
  */
+import { tempDir as cleanupTemp } from './tmp-cleanup.js';
 import test, { after } from 'node:test';
 import assert from 'node:assert/strict';
 import { existsSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
@@ -39,7 +40,7 @@ const fakeWallet = (net = 'testnet'): { w: Wallet; transport: Transport } => {
 async function setup(o: { dataDir?: string; on?: boolean; native?: string | null; net?: string } = {}) {
   const f = makeFakes();
   f.agents.set(ASSAYER_ID, { ...mkAgent(ASSAYER_ID, 'Assayer'), requires: 'bsv' });
-  const dataDir = o.dataDir ?? mkdtempSync(join(tmpdir(), 'legion-bsvw-'));
+  const dataDir = o.dataDir ?? cleanupTemp('legion-bsvw-');
   writeFileSync(join(dataDir, 'config.json'), JSON.stringify({ port: 4747, authToken: 'on-disk-token', workspaceDir: '/w', claude: { auth: 'claude-login', inheritClaudeCodeSettings: true, maxTurns: 40 }, boat: { baseUrl: 'https://boat.test' }, mcpServers: {}, bsv: { enabled: !!o.on, network: 'testnet' } }, null, 2));
   const cfg = f.ctx.config as any; cfg.bsv = { enabled: !!o.on, network: 'testnet' };
   const state = createBsvState({ dataDir, config: f.ctx.config });
@@ -178,7 +179,7 @@ test('wallet: an unreachable wallet is "not detected"; the configured URL is val
   assert.equal(r.body.reachable, false);
   assert.equal(r.body.condition, 'not-detected');
   // a config.json edit pointing the probe at another machine
-  const d = mkdtempSync(join(tmpdir(), 'legion-bsvw-'));
+  const d = cleanupTemp('legion-bsvw-');
   writeFileSync(join(d, 'config.json'), JSON.stringify({ bsv: { enabled: true, walletUrl: 'http://203.0.113.7:3321' } }));
   const f = makeFakes();
   const state = createBsvState({ dataDir: d, config: { bsv: { enabled: true, network: 'testnet', walletUrl: 'http://203.0.113.7:3321' } } as never });
@@ -197,7 +198,7 @@ test('wallet: an unreachable wallet is "not detected"; the configured URL is val
 });
 
 test('a hand-edited walletUrl is ignored (only Connect sets it); the BSV toggle rewrites bsv without it', async () => {
-  const d = mkdtempSync(join(tmpdir(), 'legion-bsvw-'));
+  const d = cleanupTemp('legion-bsvw-');
   writeFileSync(join(d, 'config.json'), JSON.stringify({ port: 1, bsv: { enabled: false, network: 'testnet', walletUrl: 'http://127.0.0.1:4444' } }));
   const state = createBsvState({ dataDir: d, config: { bsv: { enabled: false, network: 'testnet', walletUrl: 'http://127.0.0.1:4444' } } as never });
   assert.equal(state.walletUrl, undefined);

@@ -1,4 +1,5 @@
 /** Projects over HTTP and MCP: the admin gate, the native secret, read-only MCP, admin-only events (controls C1, C2, C3, C14, C15). */
+import { tempDir as cleanupTemp } from './tmp-cleanup.js';
 import test, { after, before } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtempSync } from 'node:fs';
@@ -11,7 +12,7 @@ import { createProjectsModule, ProjectStore } from '../src/core/projects/index.j
 import { AUTH, asClient, makeFakes, start, TOKEN } from './helpers-c.js';
 
 const NATIVE = 'native-secret-0123456789abcdef0123456789';
-const root = mkdtempSync(join(tmpdir(), 'legion-proj-http-'));
+const root = cleanupTemp('legion-proj-http-');
 const data = join(root, 'data');
 const projects = new ProjectStore(data, join(data, 'ws'));
 const f = makeFakes();

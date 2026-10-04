@@ -1,4 +1,5 @@
 /** Second fix round: held rewrite keeps the clean note live, lock timing, counted batches, tainted paths, Legion tool names, seed edge cases. */
+import { tempDir as cleanupTemp } from './tmp-cleanup.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { appendFileSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
@@ -12,7 +13,7 @@ import { findForbiddenSecret } from '../src/core/comms/scrub.js';
 import { BIP39_ENGLISH } from '../src/core/comms/bip39-words.js';
 import { setup, init, ok, toolUse, waitDone } from './library-fakes.js';
 
-const tmp = (p: string) => mkdtempSync(join(tmpdir(), p));
+const tmp = (p: string) => cleanupTemp(p);
 
 test('the BIP-39 list is the official one: 2048 distinct lowercase words, first and last as published', () => {
   assert.equal(BIP39_ENGLISH.length, 2048);

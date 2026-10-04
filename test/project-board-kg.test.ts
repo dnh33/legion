@@ -1,4 +1,5 @@
 /** The project as a context layer: episodes land in the project's Library scope, the board digest reaches the run, project notes are what other sessions find (control C18). */
+import { tempDir as cleanupTemp } from './tmp-cleanup.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtempSync } from 'node:fs';
@@ -14,7 +15,7 @@ import { projectScope } from '../src/shared/projects.js';
 import type { WorkItem } from '../src/shared/board.js';
 
 const P1 = 'proj_aaaaaaaaaaaa'; const P2 = 'proj_bbbbbbbbbbbb';
-const mk = () => new Graph({ dir: mkdtempSync(join(tmpdir(), 'legion-board-kg-')), bsvEnabled: () => false, now: () => new Date('2026-03-01T12:00:00.000Z') });
+const mk = () => new Graph({ dir: cleanupTemp('legion-board-kg-'), bsvEnabled: () => false, now: () => new Date('2026-03-01T12:00:00.000Z') });
 const ep = (taskId: string, extra: Record<string, unknown> = {}) => ({ taskId, agentId: 'alpha', title: 'Quasar rollout', status: 'done', turns: 12, costUsd: 0.5, prompt: 'roll out quasar', result: 'rolled out quasar to staging', tainted: false, ...extra });
 
 test('C18 an episode of a project run is stored in the project scope: other runs of that project find it, other projects and runs without a project do not', () => {
@@ -64,7 +65,7 @@ test('C18 the board digest: counts, what is assigned to this agent, what others 
 });
 
 test('C18 the run\'s prompt gets the board preamble with the digest, and the project-memory habit; only for a member of an active project', () => {
-  const root = mkdtempSync(join(tmpdir(), 'legion-board-kg2-'));
+  const root = cleanupTemp('legion-board-kg2-');
   const projects = new ProjectStore(join(root, 'd'), join(root, 'w'));
   const board = new BoardStore(join(root, 'd', 'board'));
   const P = projects.setMembers(projects.create({ name: 'P' }).id, ['alpha']);
@@ -104,7 +105,7 @@ test('C20 the briefing names the project\'s recent trusted notes (and only those
 });
 
 test('C20 the run\'s preamble carries the project notes through the module', () => {
-  const root = mkdtempSync(join(tmpdir(), 'legion-board-kg3-'));
+  const root = cleanupTemp('legion-board-kg3-');
   const g = mk();
   const projects = new ProjectStore(join(root, 'd'), join(root, 'w'));
   const P = projects.setMembers(projects.create({ name: 'P' }).id, ['alpha']);

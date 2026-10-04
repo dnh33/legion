@@ -1,4 +1,5 @@
 /** Shared fakes for server/mcp tests. */
+import { tempDir as cleanupTemp } from './tmp-cleanup.js';
 import type { AddressInfo } from 'node:net';
 import type { Server } from 'node:http';
 import { EventBus } from '../src/core/bus.js';
@@ -88,7 +89,7 @@ export function makeFakes() {
     pending: () => pending,
     resolve: (id: string, allow: boolean) => { calls.resolved.push([id, allow]); return pending.some((p) => p.id === id); },
   };
-  const dir = mkdtempSync(join(tmpdir(), 'legion-set-'));
+  const dir = cleanupTemp('legion-set-');
   const config: CoreContext['config'] = {
     port: 0, authToken: TOKEN, workspaceDir: '/x',
     claude: { auth: 'claude-login', inheritClaudeCodeSettings: true, inheritMcp: false, maxTurns: 5 },

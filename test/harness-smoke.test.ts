@@ -2,6 +2,7 @@
  * Smoke test for scripts/harness (see docs/TESTING.md): starts the harness through its CLI, runs two scenarios in it, stops it and asserts
  * that no process and no temp folder is left. It starts real child processes (a core, a supervisor), all on 127.0.0.1 with fakes.
  */
+import { tempDir as cleanupTemp } from './tmp-cleanup.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
@@ -101,7 +102,7 @@ test('harness core env: an allowlist; a planted token-like variable does not rea
 
 test('harness sweep: removes only dead, marked legion-harness-* folders; never an alive one, an unmarked one or a foreign one', async () => {
   const { sweepDeadHarnessDirs, MARKER_FILE } = await lib('lib.mjs');
-  const base = mkdtempSync(join(tmpdir(), 'sweep-test-'));
+  const base = cleanupTemp('sweep-test-');
   try {
     const mk = (name: string, marker?: object) => { const d = join(base, name); mkdirSync(d); if (marker) writeFileSync(join(d, MARKER_FILE), JSON.stringify(marker)); return d; };
     const deadPid = spawnSync(process.execPath, ['-e', '0']).pid as number; // exited, so not alive

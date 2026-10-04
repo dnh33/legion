@@ -345,6 +345,27 @@ export interface LoopOptions {
 /** The whole request, not one turn: what a single turn's tool output may add before it is clipped as a group. */
 export const MAX_TURN_TOOL_CHARS = 40_000;
 
+/** The share of the window a whole turn's tool output may spend, before the cap applies. */
+export const TURN_BUDGET_WINDOW_FRACTION = 0.12;
+/** The floor as a share of the window. Window-proportional on purpose: an absolute floor can outweigh the whole compaction threshold. */
+export const TURN_BUDGET_FLOOR_FRACTION = 0.05;
+
+/**
+ * The character budget for one turn's tool output, derived from the model's context window.
+ *
+ * The cap is absolute — no turn may add more than MAX_TURN_TOOL_CHARS. The FLOOR is window-proportional and never
+ * below one whole tool result: on a large window that keeps a single result from being clipped to nothing (the reason
+ * the floor exists), while on a small window it scales down with the window so one turn's output cannot add a
+ * multiple of the compaction threshold. The floor is capped first, because the outer `Math.max` would otherwise let a
+ * floor larger than the cap defeat the cap.
+ */
+export function turnToolBudget(contextWindow: number): number {
+  const window = Math.max(1, contextWindow);
+  const ratio = Math.floor(window * TURN_BUDGET_WINDOW_FRACTION);
+  const floor = Math.min(MAX_TURN_TOOL_CHARS, Math.max(MAX_TOOL_RESULT_CHARS, Math.floor(window * TURN_BUDGET_FLOOR_FRACTION)));
+  return Math.max(floor, Math.min(MAX_TURN_TOOL_CHARS, ratio));
+}
+
 /**
  * The newest share of a conversation a rescue keeps verbatim. The pre-flight plan derives the tail from the window, which on
  * a large-window model can be the entire conversation; a rescue that then has nothing to summarise gives up and the run dies
@@ -564,10 +585,12 @@ export async function runToolLoop(host: ProviderHost, target: ProviderTarget, mo
     }
     let messages: ChatMessage[] = [conv.system, ...withSummary(conv, summaryRow), { role: 'user', content: host.prompt }];
     let lastText = '';
-    // A whole turn's tool output may add at most this much. Scaled to the window because a fixed number is wrong at both
-    // ends: 40k is noise on a 1M-token model, and most of a small model's request. The floor matters as much as the
-    // ratio - a budget smaller than ONE result deletes that result, which is worse than any overflow.
-    const turnBudget = Math.max(MAX_TOOL_RESULT_CHARS * 2, Math.min(MAX_TURN_TOOL_CHARS, Math.floor((opts.contextWindow ?? DEFAULT_CONTEXT_WINDOW) * 0.12)));
+    // A whole turn's tool output may add at most this much, via turnToolBudget. Scaled to the window because a fixed
+    // number is wrong at both ends: 40k is noise on a 1M-token model, and most of a small model's request. The floor
+    // matters as much as the ratio - a budget smaller than ONE result deletes that result, which is worse than any
+    // overflow - but the floor must be window-proportional too, or it outweighs the whole compaction threshold on a
+    // small model. See turnToolBudget for the shape and the arithmetic at both ends.
+    const turnBudget = turnToolBudget(opts.contextWindow ?? DEFAULT_CONTEXT_WINDOW);
     let spent = 0;
     for (let turn = 1; turn <= opts.maxTurns; turn++) {
       spent = 0;

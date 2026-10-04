@@ -1,4 +1,5 @@
 /** Shared fixtures for the Library stage B tests: a real Engine with a scripted queryFn and the real knowledge module. */
+import { tempDir as cleanupTemp } from './tmp-cleanup.js';
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { basename, join } from 'node:path';
@@ -32,7 +33,7 @@ export const init = (sid: string) => ({ type: 'system', subtype: 'init', session
 export const toolUse = (name: string, id = `tu_${++sidN}`, input: unknown = {}) => ({ type: 'assistant', message: { content: [{ type: 'tool_use', id, name, input }] } });
 
 export function setup(script: Script, opts: { modules?: CoreModule[]; agents?: AgentProfile[]; kg?: KnowledgeModuleOptions } = {}) {
-  const dir = mkdtempSync(join(tmpdir(), 'legion-libb-'));
+  const dir = cleanupTemp('legion-libb-');
   const store = new Store(dir);
   for (const a of opts.agents ?? [mkAgent('alpha', 'Alpha'), mkAgent('beta', 'Beta'), mkAgent('archivist', 'Archivist', 'ask'), mkAgent('builder', 'Builder')]) store.upsertAgent(a);
   const bus = new EventBus();

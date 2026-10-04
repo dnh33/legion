@@ -128,3 +128,16 @@ test('L7: Windows device names are refused as export names, with or without an e
   const r = await collectExports({ workspace: ws, taskId: 'dev', ...src(Object.fromEntries(names.map((n) => [n, 'x']))) });
   assert.deepEqual(r.files.map((f) => f.name).sort(), ['COM10.png', 'a b.obj', 'console.png', 'good.png']);
 });
+
+test('an exports base folder moves exports and quarantine under it (created if missing), and nothing lands in the workspace', async () => {
+  const ws = tmp('legion-bl-ex-');
+  const base = join(tmp('legion-bl-base-'), 'chosen'); // does not exist yet
+  const seg = safeSegment('bk');
+  const r = await collectExports({ workspace: ws, exportsBaseDir: base, taskId: 'bk', ...src({ 'a.glb': 'g', 'x.blend': 'B' }) });
+  assert.deepEqual(r.problems, []);
+  assert.deepEqual(r.files.map((f) => f.name).sort(), ['a.glb', 'x.blend']);
+  assert.equal(r.files.find((f) => f.name === 'a.glb')!.path, join(base, 'exports', seg, 'a.glb'));
+  assert.equal(r.files.find((f) => f.name === 'x.blend')!.path, join(base, 'quarantine', seg, 'x.blend' + QUARANTINE_SUFFIX));
+  assert.equal(existsSync(join(base, 'exports', seg, 'a.glb')), true, 'the configured base folder is created on demand');
+  assert.equal(existsSync(join(ws, 'blender-exports')), false, 'nothing is written to the workspace when a base is set');
+});

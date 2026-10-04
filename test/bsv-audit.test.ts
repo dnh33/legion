@@ -1,4 +1,5 @@
 /** The BSV audit log: append-only, hash-chained, tamper-evident, and never a key or a forged line. */
+import { tempDir as cleanupTemp } from './tmp-cleanup.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { appendFileSync, existsSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
@@ -6,7 +7,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { AuditLog, AUDIT_LIMITS, entryHash, GENESIS, redactFields, safeId, safeText, verifyText } from '../src/core/bsv/audit.js';
 
-const dir = () => mkdtempSync(join(tmpdir(), 'legion-audit-'));
+const dir = () => cleanupTemp('legion-audit-');
 const mk = (d = dir(), o = {}) => ({ d, file: join(d, 'bsv', 'audit.jsonl'), log: new AuditLog(join(d, 'bsv', 'audit.jsonl'), { now: (() => { let t = 1_700_000_000_000; return () => (t += 1000); })(), ...o }) });
 const lines = (file: string) => readFileSync(file, 'utf8').split('\n').filter(Boolean);
 const fill = (log: AuditLog, n = 5) => { for (let i = 0; i < n; i++) log.append({ agent: 'assayer', task: `t${i}`, tool: 'bsv_status', decision: 'allowed', reason: `call ${i}`, fields: { n: i } }); };

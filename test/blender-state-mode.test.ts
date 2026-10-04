@@ -1,3 +1,4 @@
+import { tempDir as cleanupTemp } from './tmp-cleanup.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
@@ -7,7 +8,7 @@ import { BlenderState } from '../src/core/blender/state.js';
 import { effectiveMode } from '../src/shared/blender.js';
 
 const rig = (blender: unknown) => {
-  const dir = mkdtempSync(join(tmpdir(), 'legion-bl-mode-'));
+  const dir = cleanupTemp('legion-bl-mode-');
   writeFileSync(join(dir, 'config.json'), JSON.stringify({ blender }));
   const raw = () => (JSON.parse(readFileSync(join(dir, 'config.json'), 'utf8')) as { blender: Record<string, unknown> }).blender;
   return { dir, raw, state: new BlenderState({ dataDir: dir, config: { blender } as never }) };

@@ -1,4 +1,5 @@
 /** The Blender module wired into a real Engine, Store and HTTP server: exposure, disallowed tools, admin-only routes, status light, config persistence. */
+import { tempDir as cleanupTemp } from './tmp-cleanup.js';
 import assert from 'node:assert/strict';
 import { mkdirSync, mkdtempSync, readFileSync, writeFileSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -52,7 +53,7 @@ function fakeIo(versions: string[]): { io: BlenderIo; downloads: string[]; hash:
 }
 
 async function mount(o: Opts = {}) {
-  const dir = mkdtempSync(join(tmpdir(), 'legion-blm-'));
+  const dir = cleanupTemp('legion-blm-');
   const dataDir = join(dir, 'data');
   mkdirSync(dataDir, { recursive: true });
   const configPath = join(dataDir, 'config.json');
@@ -287,7 +288,7 @@ test('S5: setup route: a changed hash is refused (nothing replaced) until the us
 });
 
 test('S5: the state store itself refuses to replace a trusted hash from the same address without retrust', () => {
-  const dir = mkdtempSync(join(tmpdir(), 'legion-blstate-'));
+  const dir = cleanupTemp('legion-blstate-');
   writeFileSync(join(dir, 'config.json'), JSON.stringify({ blender: {} }));
   const st = new BlenderState({ dataDir: dir });
   const info = (sha256: string) => ({ url: 'https://example.org/a.zip', sha256, at: 'x', license: 'MIT' });

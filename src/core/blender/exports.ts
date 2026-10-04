@@ -5,6 +5,7 @@
  * runnable code) is set aside in <workspace>/blender-quarantine/<task>/<name>.blend.untrusted, never in blender-exports.
  */
 import { createHash } from 'node:crypto';
+import { mkdirSync } from 'node:fs';
 import { basename, dirname, join } from 'node:path';
 import { findLink, isInside, resolveFolder, safeWriteFile } from './fs-safe.js';
 
@@ -26,8 +27,14 @@ export const safeSegment = (id: string): string => `${id.replace(/[^A-Za-z0-9_-]
 export interface ExportedFile { name: string; path: string; bytes: number; quarantined?: boolean }
 
 export interface CollectRequest {
-  /** The agent's workspace folder; files land in <it>/blender-exports/<task>/ (or blender-quarantine). */
+  /** The agent's workspace folder; when no exports base is set, files land in <it>/blender-exports/<task>/ (or blender-quarantine). */
   workspace: string;
+  /**
+   * Optional configured base folder (BlenderConfig.baseDir). When set, exports and quarantine land under it (`<it>/exports/<task>/`,
+   * `<it>/quarantine/<task>/`) for every mode, and both must resolve inside it. The containment rule moves from "inside the workspace" to
+   * "inside this folder"; the real-path and no-symlink checks are unchanged.
+   */
+  exportsBaseDir?: string;
   taskId: string;
   /** Candidate files in the source (name and size). Anything may be listed; the rules below filter. */
   list: () => Promise<Array<{ name: string; bytes: number }>> | Array<{ name: string; bytes: number }>;
@@ -43,15 +50,19 @@ export async function collectExports(req: CollectRequest): Promise<{ files: Expo
   let listed: Array<{ name: string; bytes: number }>;
   try { listed = await req.list(); } catch { return { files: out, problems }; }
   const seg = safeSegment(req.taskId);
-  const dest = join(req.workspace, 'blender-exports', seg);
-  const qdest = join(req.workspace, 'blender-quarantine', seg);
+  const base = (req.exportsBaseDir ?? '').trim();
+  const dest = base ? join(base, 'exports', seg) : join(req.workspace, 'blender-exports', seg);
+  const qdest = base ? join(base, 'quarantine', seg) : join(req.workspace, 'blender-quarantine', seg);
+  const containRoot = base || req.workspace;
   const write = req.write ?? ((p: string, data: Buffer) => { safeWriteFile(dirname(p), basename(p), data); });
-  // host folders must be real folders inside the workspace, with no links planted in them
+  // host folders must be real folders inside the containment root, with no links planted in them. The destination is created when missing
+  // (a configured base folder need not exist yet); an escape or a link is still refused.
   const okDest = (dir: string): boolean => {
+    try { mkdirSync(dir, { recursive: true }); } catch { /* reported below as "not usable" */ }
     const r = resolveFolder(dir);
-    const w = resolveFolder(req.workspace);
+    const w = resolveFolder(containRoot);
     if (!r.ok || !w.ok) { problems.push(`Exports were not copied: ${r.ok ? (w.ok ? '' : w.error) : r.error}`); return false; }
-    if (!isInside(r.dir, w.dir)) { problems.push(`Exports were not copied: ${dir} resolves outside the workspace (${r.dir}).`); return false; }
+    if (!isInside(r.dir, w.dir)) { problems.push(`Exports were not copied: ${dir} resolves outside ${base ? 'the configured export folder' : 'the workspace'} (${r.dir}).`); return false; }
     const link = findLink(r.dir);
     if (link) { problems.push(`Exports were not copied: ${link} is a symbolic link.`); return false; }
     return true;

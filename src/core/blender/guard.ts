@@ -269,7 +269,7 @@ export class BlenderGuard {
     } catch { return false; } finally { if (timer) clearTimeout(timer); }
   }
 
-  private localRoot(): string { return join(this.d.dataDir, 'blender', 'local'); }
+  private localRoot(): string { const b = this.d.config().baseDir; return b ? join(b, 'local') : join(this.d.dataDir, 'blender', 'local'); }
   private localExportDir(taskId: string): string { return this.d.localExportDir ? this.d.localExportDir(taskId) : join(this.localRoot(), safeSegment(taskId), 'exports'); }
 
   /** blender_exec. Never throws. */
@@ -288,11 +288,11 @@ export class BlenderGuard {
     const cleanedPurpose = args.purpose ? cleanPurpose(args.purpose) : '';
     const purpose = cleanedPurpose ? { purpose: cleanedPurpose } : {};
 
-    // the export folder as a REAL path (no planted link), used for the check, the wrapper and the card alike. Live: inside the workspace.
-    // Local: inside the task folder under <data dir>/blender/local. Nothing is created here (no folder before the approval).
+    // the export folder as a REAL path (no planted link), used for the check, the wrapper and the card alike. Live: inside the workspace (or the
+    // configured base folder). Local: inside the task folder under <data dir>/blender/local (or <base>/local). Nothing is created here.
     let exportDir = this.d.exportDirFor(agent);
     if (mode === 'live' || mode === 'local') {
-      const ex = liveExportFolder(mode === 'local' ? this.localExportDir(taskId) : exportDir, mode === 'local' ? this.localRoot() : this.d.workspaceOf?.(agent));
+      const ex = liveExportFolder(mode === 'local' ? this.localExportDir(taskId) : exportDir, mode === 'local' ? this.localRoot() : (this.d.config().baseDir ?? this.d.workspaceOf?.(agent)));
       if (!ex.ok) {
         this.audit({ ...base, ...purpose, decision: 'refused', summary: ex.error });
         return this.text(`${ex.error} Nothing ran.`, true);

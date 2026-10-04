@@ -2,6 +2,7 @@
  * Library v1, stage A: engine-derived taint, trust, pending notes and the module seam, exercised through the real
  * Engine with a fake queryFn (acceptance A and B), plus taint following comms chains.
  */
+import { tempDir as cleanupTemp } from './tmp-cleanup.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtempSync } from 'node:fs';
@@ -37,7 +38,7 @@ const init = (sid: string) => ({ type: 'system', subtype: 'init', session_id: si
 const toolUse = (name: string, id = `tu_${++sidN}`, input: unknown = {}) => ({ type: 'assistant', message: { content: [{ type: 'tool_use', id, name, input }] } });
 
 function setup(script: Script, opts: { modules?: CoreModule[]; agents?: AgentProfile[] } = {}) {
-  const dir = mkdtempSync(join(tmpdir(), 'legion-lib-'));
+  const dir = cleanupTemp('legion-lib-');
   const store = new Store(dir);
   for (const a of opts.agents ?? [mkAgent('alpha', 'Alpha'), mkAgent('beta', 'Beta'), mkAgent('zealot', 'Zealot'), mkAgent('builder', 'Builder')]) store.upsertAgent(a);
   const bus = new EventBus();

@@ -2,6 +2,7 @@
  * BSV v1 review fixes, part 1: the pack upgrade (F1 crash safety, F6 what counts as an edit and what a human removed, F7 the restore remedy),
  * seed edges a bot cannot touch (F9) and the upgrade at core startup (F11). Local only: no model, no wallet, no network.
  */
+import { tempDir as cleanupTemp } from './tmp-cleanup.js';
 import test, { after } from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
@@ -234,7 +235,7 @@ test('F7: a node that is simply missing (lost, or added to the pack without a ve
 
 test('F7: POST /api/kg/seed/bsv {restore:[ids]} is the button-less remedy over HTTP', async () => {
   const f = makeFakes();
-  const dataDir = mkdtempSync(join(tmpdir(), 'legion-bsvrev-'));
+  const dataDir = cleanupTemp('legion-bsvrev-');
   const seedPath = join(dataDir, 'bsv.json');
   writeFileSync(seedPath, JSON.stringify(pack(1, 'v1')));
   const deps = { config: f.ctx.config, store: f.ctx.store, bus: f.bus, engine: f.ctx.engine, approvals: f.ctx.approvals, dataDir, bsvEnabled: () => true };
@@ -290,7 +291,7 @@ test('F9: a bot cannot link onto a seed node, re-link a seed edge to change its 
 test('F11: start() upgrades a pack that is already on, never throws, and does nothing while BSV mode is off', async () => {
   const f = makeFakes();
   f.agents.set(ASSAYER_ID, { ...mkAgent(ASSAYER_ID, 'Assayer'), requires: 'bsv' });
-  const dataDir = mkdtempSync(join(tmpdir(), 'legion-bsvrev-'));
+  const dataDir = cleanupTemp('legion-bsvrev-');
   writeFileSync(join(dataDir, 'config.json'), JSON.stringify({ port: 4747, authToken: 'x', workspaceDir: '/w', claude: { auth: 'claude-login', inheritClaudeCodeSettings: true, maxTurns: 40 }, boat: { baseUrl: 'https://boat.test' }, mcpServers: {} }, null, 2));
   const seedPath = join(dataDir, 'bsv.json');
   writeFileSync(seedPath, JSON.stringify(pack(1, 'v1')));

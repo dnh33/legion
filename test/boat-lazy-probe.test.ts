@@ -1,4 +1,5 @@
 /** K1: the boat.dev key probe (about 8 calls) is lazy. Core start makes none; the first look is on first VM use or when Settings, boat.dev opens, once and cached. */
+import { tempDir as cleanupTemp } from './tmp-cleanup.js';
 import test, { after } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
@@ -29,7 +30,7 @@ const coreJs = fileURLToPath(new URL('../src/bin/legion-core.js', import.meta.ur
 
 test('K1: a real core with a boat.dev key runs no key-permission probe at start (no stored VMs, so zero calls); Settings opening probes once, a second open is cached, Check again asks again', async () => {
   const fb = await fake();
-  const home = mkdtempSync(join(tmpdir(), 'legion-k1-'));
+  const home = cleanupTemp('legion-k1-');
   writeFileSync(join(home, 'config.json'), JSON.stringify({ boat: { apiKey: KEY, baseUrl: fb.baseUrl } }));
   const port = await freePort();
   const child = spawn(process.execPath, [coreJs], { env: { ...process.env, LEGION_HOME: home, LEGION_PORT: String(port), [ADMIN_STDIN_FLAG]: '1' }, stdio: ['pipe', 'ignore', 'ignore'] });
@@ -78,7 +79,7 @@ test('K1: BoatHealth.ensure probes once per key, shares a probe in flight, and s
 
 test('K1: the first VM use triggers the probe (once); nothing before it', async () => {
   const fb = await fake();
-  const dir = mkdtempSync(join(tmpdir(), 'legion-k1vm-'));
+  const dir = cleanupTemp('legion-k1vm-');
   const store = new Store(dir);
   store.seedDefaults(join(dir, 'w'));
   const boat = new BoatClient({ apiKey: KEY, baseUrl: fb.baseUrl, pollMs: 1 });

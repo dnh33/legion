@@ -1,4 +1,5 @@
 /** Adversarial review, category 3 (quota / DoS) and parts of 6 (tombstones, timers). Asserts the SECURE behaviour. */
+import { tempDir as cleanupTemp } from './tmp-cleanup.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { copyFileSync, existsSync, mkdtempSync, readdirSync, statSync } from 'node:fs';
@@ -12,7 +13,7 @@ import { scrubSecrets, findForbiddenSecret } from '../src/core/comms/scrub.js';
 import { KG_LIMITS } from '../src/shared/kg.js';
 import { connect, idOf, init, kg, ok, setup, toolUse, waitDone } from './library-fakes.js';
 
-const fresh = () => { const dir = mkdtempSync(join(tmpdir(), 'rev-q-')); return { dir, g: new Graph({ dir }) }; };
+const fresh = () => { const dir = cleanupTemp('rev-q-'); return { dir, g: new Graph({ dir }) }; };
 
 test('R3.1 per-task quota: capture, supersede, merge, link, unlink, wm_set and reads all count; parallel calls cannot exceed it', async () => {
   const { g } = fresh();
@@ -167,7 +168,7 @@ test('R3.6 lint-lite timer: dispose clears it, a late callback after dispose doe
 });
 
 test('R3.7 tombstone purge only removes nodes that were forgotten/rejected/merged/retired more than 30 days ago; live data and their live neighbours survive', () => {
-  const dir = mkdtempSync(join(tmpdir(), 'rev-q-'));
+  const dir = cleanupTemp('rev-q-');
   let offset = 0;
   const g = new Graph({ dir, now: () => new Date(Date.now() + offset) });
   const alpha = agentActor('alpha', { taskId: 'T' });
@@ -191,7 +192,7 @@ test('R3.7 tombstone purge only removes nodes that were forgotten/rejected/merge
 });
 
 test('R3.8 one bot looping across tasks can fill the graph to the node cap and block every writer including the human', () => {
-  const dir = mkdtempSync(join(tmpdir(), 'rev-q-'));
+  const dir = cleanupTemp('rev-q-');
   const prev = KG_LIMITS.maxNodes;
   (KG_LIMITS as { maxNodes: number }).maxNodes = 60;
   try {
@@ -202,7 +203,7 @@ test('R3.8 one bot looping across tasks can fill the graph to the node cap and b
 });
 
 test('R3.9 snapshot exists after a bulk delete (6+ deletes in a window), keeps at most 5, and no .pre-delete is left behind', () => {
-  const dir = mkdtempSync(join(tmpdir(), 'rev-q-'));
+  const dir = cleanupTemp('rev-q-');
   const g = new Graph({ dir });
   const alpha = agentActor('alpha');
   const ids = Array.from({ length: 7 }, (_, i) => g.upsertNode(alpha, { title: `bulk ${i}`, scope: 'agent:alpha' }).node.id);
@@ -211,6 +212,6 @@ test('R3.9 snapshot exists after a bulk delete (6+ deletes in a window), keeps a
   assert.ok(baks.length >= 1 && baks.length <= 5);
   assert.equal(existsSync(join(dir, 'graph.jsonl.pre-delete')), false);
   // the snapshot holds every note as it was BEFORE the deletes
-  const g2 = new Graph({ dir: (() => { const d = mkdtempSync(join(tmpdir(), 'rev-q-')); copyFileSync(join(dir, baks[0]!), join(d, 'graph.jsonl')); return d; })() });
+  const g2 = new Graph({ dir: (() => { const d = cleanupTemp('rev-q-'); copyFileSync(join(dir, baks[0]!), join(d, 'graph.jsonl')); return d; })() });
   assert.equal(g2.allNodes(HUMAN).filter((n) => n.status === undefined).length, 7);
 });

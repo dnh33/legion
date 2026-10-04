@@ -3,6 +3,7 @@
  * Every case here is a way the review got a wallet call past the old scan; each is planted in a temp copy and must be caught.
  * A static scan cannot stop code that is determined to hide (see docs/BSV-MODE.md); these tests pin what it DOES stop.
  */
+import { tempDir as cleanupTemp } from './tmp-cleanup.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
@@ -15,7 +16,7 @@ const REPO = fileURLToPath(new URL('../../', import.meta.url));
 
 /** A copy of the scanned trees (sources only) in a temp root, so a planted file never touches the repo. */
 function copyTrees(): string {
-  const root = mkdtempSync(join(tmpdir(), 'legion-tripwire-'));
+  const root = cleanupTemp('legion-tripwire-');
   for (const d of ['src', 'ui/src']) {
     cpSync(join(REPO, d), join(root, d), { recursive: true, filter: (p) => !/\.(json|jsonl|png|svg|woff2?|ttf|css|md)$/.test(p) });
   }

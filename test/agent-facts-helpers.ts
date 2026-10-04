@@ -1,4 +1,5 @@
 /** Builds the real in-process servers of every module (fake outside world) so the "What you can do right now" tests read real registrations. */
+import { tempDir as cleanupTemp } from './tmp-cleanup.js';
 import { mkdirSync, mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -20,7 +21,7 @@ import type { AgentProfile, ApprovalMode } from '../src/shared/types.js';
 export interface World { agents: AgentProfile[]; servers(a: AgentProfile, o?: { vm?: boolean }): Record<string, McpServerConfig>; block(a: AgentProfile, o?: { vm?: boolean; ceiling?: ApprovalMode }): string; dispose(): void }
 
 export function world(o: { bsv?: boolean; browser?: boolean; blender?: boolean; both?: boolean; polyhaven?: boolean } = {}): World {
-  const dir = mkdtempSync(join(tmpdir(), 'legion-facts-'));
+  const dir = cleanupTemp('legion-facts-');
   const dataDir = join(dir, 'data');
   mkdirSync(dataDir, { recursive: true });
   const config = defaultConfig();

@@ -169,6 +169,19 @@ test('run: exact argument list, cwd is the task folder, the runner file is Legio
   assert.deepEqual(readdirSync(join(task, 'exports')), []);
 });
 
+test('blender.baseDir: the local scene/tmp folder and the copied-back exports both move under the configured base', async () => {
+  const bd = tmp('legion-bl-base-');
+  const r = rig({ mode: 'ok', exports: { 'cube.glb': 'glTF-bytes' } }, { cfg: (c) => { c.baseDir = bd; } });
+  const res = await r.runner.run(req(r));
+  assert.equal(res.ok, true, res.text);
+  const seg = safeSegment('t1');
+  const movedRoot = join(bd, 'local');
+  assert.equal(readFileSync(join(movedRoot, 'runner.py'), 'utf8'), LOCAL_RUNNER_PY, 'the local work folder moved to the base');
+  assert.equal(readFileSync(join(movedRoot, seg, 'scene.blend'), 'utf8'), 'BLEND', 'the per-task scene lives under the base');
+  assert.equal(existsSync(join(r.data, 'blender', 'local')), false, 'nothing is written under the data folder when a base is set');
+  assert.equal(res.files[0]!.path, join(bd, 'exports', seg, 'cube.glb'), 'exports land under the base, not the workspace');
+});
+
 test('the script reaches Blender as exactly the approved bytes (UTF-8, no BOM, CRLF kept)', async () => {
   const r = rig({ mode: 'bytes' });
   const script = 'import bpy\r\nprint("café 😀")\r\n';

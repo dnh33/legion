@@ -1,3 +1,4 @@
+import { tempDir as cleanupTemp } from './tmp-cleanup.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
@@ -9,7 +10,7 @@ import { exportVault, exportLibrary, importVault, MIRROR_MARKER } from '../src/c
 import { findForbiddenSecretInField } from '../src/core/comms/scrub.js';
 import { fileLinkOrSkip } from './fs-links.js';
 
-const tmp = (p: string) => mkdtempSync(join(tmpdir(), p));
+const tmp = (p: string) => cleanupTemp(p);
 const mk = () => new Graph({ dir: tmp('r2v-g-') });
 
 test('R2-V1 regression: a human folder called Legion/ (their own project notes) anywhere in the vault is silently dropped from a human import', () => {

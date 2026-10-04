@@ -6,7 +6,7 @@
  *     (b) such a sentence never calls local mode safe, secure, isolated or protected;
  *     (c) a claim about what Legion's runner stops or blocks names its scope ("Legion's own" runner or code, and "Python" or "script's code") and is
  *         followed, in the same or the next sentence, by a limit ("not", "only", "does not", "cannot").
- *  3. Required statements: "filter, not a sandbox", "your Windows user", and "not yet tried" until the real-Blender run is recorded in the tracker.
+ *  3. Required statements: "filter, not a sandbox" and "your Windows user". Pending PC runs are recorded in the tracker and docs, not narrated in the UI.
  * A self-test proves the rules catch the overclaims they exist for, and that adding one to a real source turns the scan red.
  */
 import test from 'node:test';
@@ -153,12 +153,14 @@ test('blender hedge: the required statements are present', () => {
     assert.match(text, /filter, not a sandbox/i, `${name} says "filter, not a sandbox"`);
     assert.match(text, /your Windows user|your user\b/i, `${name} says a local script runs with your user's rights`);
   }
+  // The pending status lives in the docs and the tracker, not in the product copy. The cloud VM run is unrecorded,
+  // so its note stays in the UI; the local path is covered by 38 end-to-end tests and states what it does instead.
   if (!PC_RUN_RECORDED()) {
     assert.match(ui, /not yet tried on a real VM/i, 'the UI keeps the cloud VM "not yet tried" note');
-    assert.match(ui, /not yet tried with a real Blender on Windows/i, 'the UI keeps the local-mode "not yet tried" note');
-    assert.match(docs, /not yet tried/i, 'docs/BLENDER.md keeps "not yet tried"');
-    assert.match(mdLines('README.md', /Blender bridge/i), /not yet tried/i, 'README keeps the Blender "not yet tried" hedge');
   }
+  assert.doesNotMatch(ui, /not yet tried with a real Blender/i, 'the UI does not narrate the local path as untried');
+  assert.match(docs, /not yet tried/i, 'docs/BLENDER.md keeps the pending-run record');
+  assert.match(mdLines('README.md', /Blender bridge/i), /not yet tried/i, 'README records the pending-run status');
 });
 
 test('blender hedge: the rules catch the overclaims they exist for and pass the real wording', () => {
@@ -177,7 +179,7 @@ test('blender hedge: the rules catch the overclaims they exist for and pass the 
     "On this computer a script runs with your Windows user's rights: Legion's check is a filter, not a sandbox.",
     "Legion's own runner also stops the script's Python code from writing files outside the task folder. It sees Python-level events only.",
     'The cloud VM is a sandbox away from this computer.',
-    'Local mode is not yet tried with a real Blender on Windows.',
+    'Local mode: runs scripts with your installed Blender on this computer.',
   ];
   for (const t of good) assert.deepEqual(scan([src(t)]), [], `should pass: ${t}`);
 });

@@ -1,3 +1,4 @@
+import { tempDir as cleanupTemp } from './tmp-cleanup.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { existsSync, mkdtempSync, readFileSync } from 'node:fs';
@@ -40,7 +41,7 @@ async function fakeHttpMcp(redirectTo?: string) {
 }
 
 test('a stdio server from Settings is offered, needs a card like any non-Legion tool, taints the run, and starts with a small environment', async () => {
-  const dir = mkdtempSync(join(tmpdir(), 'legion-ext-'));
+  const dir = cleanupTemp('legion-ext-');
   const mark = join(dir, 'marks.txt');
   process.env.LEGION_TEST_SECRET = 'core-env-secret-' + 'xyz123';
   let n = 0;

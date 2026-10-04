@@ -1,3 +1,4 @@
+import { tempDir as cleanupTemp } from './tmp-cleanup.js';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
@@ -30,7 +31,7 @@ test('the Relic stylesheet and stage are untouched (new rules are appended only)
 
 const py = spawnSync('python3', ['--version']);
 test('build-mascot.py regenerates every committed json byte for byte (relic included)', { skip: py.status !== 0 && 'python3 not available' }, () => {
-  const tmp = mkdtempSync(join(tmpdir(), 'legion-mascot-'));
+  const tmp = cleanupTemp('legion-mascot-');
   try {
     mkdirSync(join(tmp, 'scripts'), { recursive: true });
     cpSync(join(ROOT, 'scripts', 'build-mascot.py'), join(tmp, 'scripts', 'build-mascot.py'));

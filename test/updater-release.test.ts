@@ -1,4 +1,5 @@
 /** C22, C23: the release scripts (package, manifest, sign, verify, keygen) and their round trip into the app's own verifier and stager. */
+import { tempDir as cleanupTemp } from './tmp-cleanup.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
@@ -13,7 +14,7 @@ import { sha256, startFakeServer } from './updater-helpers.js';
 
 const REPO = fileURLToPath(new URL('../../', import.meta.url));
 const run = (script: string, argv: string[]) => spawnSync(process.execPath, [join(REPO, 'scripts', script), ...argv], { encoding: 'utf8' });
-const tmp = (p: string) => mkdtempSync(join(tmpdir(), p));
+const tmp = (p: string) => cleanupTemp(p);
 const LOCK = '{"name":"legion","lockfileVersion":3}\n';
 
 function builtTree(version: string): string {

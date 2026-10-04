@@ -1,3 +1,4 @@
+import { tempDir as cleanupTemp } from './tmp-cleanup.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtempSync } from 'node:fs';
@@ -55,7 +56,7 @@ test('R2-S1 false negatives: layouts/labels an honest bot would plausibly write'
 });
 
 test('R2-S2 false negatives: where the phrase sits in the node (graph.upsertNode, as a clean bot)', () => {
-  const g = new Graph({ dir: mkdtempSync(join(tmpdir(), 'r2s-')) });
+  const g = new Graph({ dir: cleanupTemp('r2s-') });
   const a = agentActor('alpha', { taskId: 'T1' });
   const attempt = (name: string, input: Parameters<Graph['upsertNode']>[1]): string | undefined => {
     try { g.upsertNode(a, { scope: 'agent:alpha', ...input }); return name; } catch { return undefined; }

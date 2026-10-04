@@ -1,4 +1,5 @@
 /** Project store: limits, atomic file, corrupt file, folder rules, migration and downgrade (controls C8, C13, C18). */
+import { tempDir as cleanupTemp } from './tmp-cleanup.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
@@ -13,7 +14,7 @@ import { agentActor, HUMAN } from '../src/core/kg/types.js';
 import { slugify } from '../src/shared/util.js';
 
 const mk = () => {
-  const root = mkdtempSync(join(tmpdir(), 'legion-proj-store-'));
+  const root = cleanupTemp('legion-proj-store-');
   const data = join(root, 'data');
   const ws = join(data, 'workspaces');
   return { root, data, ws, store: new ProjectStore(data, ws) };
@@ -78,7 +79,7 @@ test('C13 old data keeps working: no projects.json is an empty list and nothing 
   await s.flush();
   assert.equal(existsSync(join(data, 'projects.json')), false, 'a read-only start writes nothing');
   // an older build's Store (which only knows its own fields) round-trips a task that carries projectId
-  const dir = mkdtempSync(join(tmpdir(), 'legion-proj-old-'));
+  const dir = cleanupTemp('legion-proj-old-');
   writeFileSync(join(dir, 'state.json'), JSON.stringify({ agents: [], vms: [], migrations: ['builder-vm-size-default-v1'], tasks: [{
     id: 't1', agentId: 'zealot', title: 'x', status: 'done', source: 'ui', requestedModel: 'auto', createdAt: 'a', updatedAt: 'b', projectId: 'proj_0123456789ab', someFutureField: { y: 2 },
   }] }));
@@ -89,7 +90,7 @@ test('C13 old data keeps working: no projects.json is an empty list and nothing 
   assert.equal(out.tasks[0].projectId, 'proj_0123456789ab');
   assert.deepEqual(out.tasks[0].someFutureField, { y: 2 });
   // rooms
-  const rd = mkdtempSync(join(tmpdir(), 'legion-proj-oldroom-'));
+  const rd = cleanupTemp('legion-proj-oldroom-');
   mkdirSync(join(rd, 'rooms'), { recursive: true });
   const room = { id: 'room_1', kind: 'group', name: 'R', members: ['a', 'b'], lead: 'a', strategy: 'mention', guards: { maxHops: 6, budgetUsd: 2, cycleRepeats: 3, everyoneCooldownSec: 30 }, costUsd: 0, hopsSinceHuman: 0, createdAt: 'a', updatedAt: 'b', projectId: 'proj_0123456789ab' };
   writeFileSync(join(rd, 'rooms', 'index.json'), JSON.stringify([room]));
@@ -109,7 +110,7 @@ test('C13 the project scope string passes the scope check an older build has and
   // agent ids come from slugify: no dot, so no agent can own a project scope
   for (const n of ['project.proj_0123456789ab', 'Project.Proj_0123456789AB', 'project proj_0123456789ab']) assert.ok(!slugify(n).includes('.'));
   // the new Graph really hides it from a bot of another project and from a bot with no project, and shows it to the owner
-  const g = new Graph({ dir: mkdtempSync(join(tmpdir(), 'legion-proj-g-')), bsvEnabled: () => false });
+  const g = new Graph({ dir: cleanupTemp('legion-proj-g-'), bsvEnabled: () => false });
   const n = g.upsertNode(HUMAN, { title: 'Project fact', body: 'fact', scope: sc }).node;
   assert.equal(n.scope, sc);
   assert.ok(g.getNode(HUMAN, n.id));

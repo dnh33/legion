@@ -1,3 +1,4 @@
+import { tempDir as cleanupTemp } from './tmp-cleanup.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import net from 'node:net';
@@ -113,7 +114,7 @@ test('community: inspect with an object name asks for object info', async () => 
 });
 
 test('community: screenshot asks Blender to write a PNG, reads it back as base64 and deletes it', async () => {
-  const dir = mkdtempSync(join(tmpdir(), 'legion-bl-shot-'));
+  const dir = cleanupTemp('legion-bl-shot-');
   const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 1, 2, 3]);
   const f = await fakeAddon((req, w) => { writeFileSync(req.params.filepath, png); w(JSON.stringify({ status: 'success', result: { success: true, width: 640, height: 360 } })); });
   try {
@@ -132,7 +133,7 @@ test('community: screenshot asks Blender to write a PNG, reads it back as base64
 test('community: screenshot where Blender wrote nothing is a failure', async () => {
   const f = await fakeAddon((req, w) => w(JSON.stringify({ status: 'success', result: {} })));
   try {
-    const r = await new CommunityBackend(cfg(f.port), { tempDir: mkdtempSync(join(tmpdir(), 'legion-bl-shot-')) }).screenshot({});
+    const r = await new CommunityBackend(cfg(f.port), { tempDir: cleanupTemp('legion-bl-shot-') }).screenshot({});
     assert.equal(r.ok, false);
   } finally { await f.close(); }
 });
@@ -334,7 +335,7 @@ test('resolveTool and resolveArg', () => {
 });
 
 test('community: a listener that does not identify itself as the add-on gets no code (B3)', async () => {
-  const dir = mkdtempSync(join(tmpdir(), 'legion-bl-shot-'));
+  const dir = cleanupTemp('legion-bl-shot-');
   const f = await fakeAddon((req, w) => w(JSON.stringify({ status: 'success', result: { executed: true, result: 'pwned' } })), { identity: false });
   try {
     const b = new CommunityBackend(cfg(f.port), { tempDir: dir });

@@ -1,4 +1,5 @@
 /** C1, C2, C3, C4, C20 (network part): policy, redirects, caps, offline and rate limits. Only loopback servers; no real host is contacted. */
+import { tempDir as cleanupTemp } from './tmp-cleanup.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtempSync, existsSync, readdirSync } from 'node:fs';
@@ -67,7 +68,7 @@ test('C4: size caps apply to the declared length and to the stream', async () =>
     };
     assert.equal(await kindOf(fetchSmall(`${s.url}/big`, s.source.policy, { maxBytes: 1000, version: '0' })), 'size');
     assert.equal(await kindOf(fetchSmall(`${s.url}/chunked`, s.source.policy, { maxBytes: 1000, version: '0' })), 'size');
-    const dir = mkdtempSync(join(tmpdir(), 'upd-net-'));
+    const dir = cleanupTemp('upd-net-');
     // package: signed size 100, server sends 5000 declared -> refused before any byte is written; chunked 6000 -> aborted, no file left
     assert.equal(await kindOf(downloadFile(`${s.url}/big`, s.source.policy, join(dir, 'a.part'), { exactSize: 100, version: '0' })), 'size');
     assert.equal(await kindOf(downloadFile(`${s.url}/chunked`, s.source.policy, join(dir, 'b.part'), { exactSize: 100, version: '0' })), 'size');
@@ -79,7 +80,7 @@ test('C4: a download that matches the signed size is hashed while streaming', as
   const r = makeRelease(k, '0.2.1');
   const s = await startFakeServer(r);
   try {
-    const dir = mkdtempSync(join(tmpdir(), 'upd-net-'));
+    const dir = cleanupTemp('upd-net-');
     const out = await downloadFile(assetUrl(s.source, '0.2.1'), s.source.policy, join(dir, 'p.zip.part'), { exactSize: r.zip.length, version: '0' });
     assert.equal(out.sha256, sha256(r.zip));
     assert.ok(existsSync(join(dir, 'p.zip.part')));

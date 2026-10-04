@@ -1,3 +1,4 @@
+import { tempDir as cleanupTemp } from './tmp-cleanup.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtempSync, statSync, writeFileSync, chmodSync } from 'node:fs';
@@ -48,7 +49,7 @@ test('R2-K1 buildChildEnv drops every env var that contains the token, in any va
 
 test('R2-K2 config.json stays 0600 after the BSV toggle rewrites it (bsv/state.ts tmp+rename with default mode)', () => {
   if (process.platform === 'win32') return;
-  const dir = mkdtempSync(join(tmpdir(), 'r2k2-'));
+  const dir = cleanupTemp('r2k2-');
   process.env.LEGION_HOME = dir;
   saveConfig(defaultConfig());
   const f = join(dir, 'config.json');

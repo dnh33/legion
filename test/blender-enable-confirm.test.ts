@@ -2,6 +2,7 @@
  * "Turn on Blender?": the confirmation before Blender is turned ON, shared by the title-bar chip and the Settings switch.
  * The store is bundled for real (only the network call is a spy); the dialog is rendered with a stand-in Modal that exposes its onClose.
  */
+import { tempDir as cleanupTemp } from './tmp-cleanup.js';
 import assert from 'node:assert/strict';
 import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
@@ -78,7 +79,7 @@ async function load(): Promise<{ h: H; cleanup: () => void }> {
       },
     }],
   });
-  const dir = mkdtempSync(join(tmpdir(), 'enable-'));
+  const dir = cleanupTemp('enable-');
   const file = join(dir, 'm.cjs');
   writeFileSync(file, r.outputFiles[0].text);
   const mod = createRequire(file)(file) as { h: H };

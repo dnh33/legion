@@ -1,4 +1,5 @@
 /** "Run this item" against the REAL engine: the ordinary project run path, the `ask` cap for unreviewed text, and the run-end hook (controls C8, C9). */
+import { tempDir as cleanupTemp } from './tmp-cleanup.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtempSync } from 'node:fs';
@@ -31,7 +32,7 @@ async function* quick(): AsyncGenerator<any, void> {
   yield { type: 'result', subtype: 'success', is_error: false, result: 'Finished the work item.', total_cost_usd: 0.01, num_turns: 1, session_id: 's1' };
 }
 function setup() {
-  const root = mkdtempSync(join(tmpdir(), 'legion-board-run-'));
+  const root = cleanupTemp('legion-board-run-');
   const store = new FakeStore(); store.agents.set('a2', mkAgent('a2'));
   const bus = new EventBus(); const config = defaultConfig(); config.workspaceDir = join(root, 'data', 'ws');
   const projects = new ProjectStore(join(root, 'data'), config.workspaceDir);

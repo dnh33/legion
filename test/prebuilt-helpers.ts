@@ -1,11 +1,12 @@
 /** Fixtures for the prebuilt-package tests: a fake package tree (fake electron, fake claude), loaders for the plain .mjs scripts. Not a test file. */
+import { tempDir as cleanupTemp } from './tmp-cleanup.js';
 import { chmodSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 export const REPO = fileURLToPath(new URL('../../', import.meta.url));
-export const tmp = (p = 'prebuilt-'): string => mkdtempSync(join(tmpdir(), p));
+export const tmp = (p = 'prebuilt-'): string => cleanupTemp(p);
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export const load = (rel: string): Promise<any> => import(pathToFileURL(join(REPO, ...rel.split('/'))).href);
 export const lib = () => load('scripts/lib/package-lib.mjs');

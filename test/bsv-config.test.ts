@@ -1,3 +1,4 @@
+import { tempDir as cleanupTemp } from './tmp-cleanup.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
@@ -7,7 +8,7 @@ import { defaultConfig, loadConfig, normalizeBsv, redactConfig } from '../src/sh
 import { createBsvState } from '../src/core/bsv/state.js';
 
 function withHome<T>(fn: (dir: string) => T): T {
-  const dir = mkdtempSync(join(tmpdir(), 'legion-bsvcfg-'));
+  const dir = cleanupTemp('legion-bsvcfg-');
   const prev = process.env.LEGION_HOME;
   process.env.LEGION_HOME = dir;
   try { return fn(dir); } finally { if (prev === undefined) delete process.env.LEGION_HOME; else process.env.LEGION_HOME = prev; }

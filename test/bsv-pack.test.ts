@@ -2,6 +2,7 @@
  * BSV mode v1: the pack is found by what it says, recall can be scoped, and a newer pack upgrades an install without ever
  * eating a human edit. Everything here is local: no model, no wallet, no network.
  */
+import { tempDir as cleanupTemp } from './tmp-cleanup.js';
 import test, { after } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtempSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
@@ -132,7 +133,7 @@ const packV2 = () => ({
 async function setup(seedPath: string) {
   const f = makeFakes();
   f.agents.set(ASSAYER_ID, { ...mkAgent(ASSAYER_ID, 'Assayer'), requires: 'bsv' });
-  const dataDir = mkdtempSync(join(tmpdir(), 'legion-bsvpack-'));
+  const dataDir = cleanupTemp('legion-bsvpack-');
   writeFileSync(join(dataDir, 'config.json'), JSON.stringify({ port: 4747, authToken: 'x', workspaceDir: '/w', claude: { auth: 'claude-login', inheritClaudeCodeSettings: true, maxTurns: 40 }, boat: { baseUrl: 'https://boat.test' }, mcpServers: {} }, null, 2));
   const state = createBsvState({ dataDir, config: f.ctx.config });
   const bsvEnabled = () => state.enabled;
@@ -153,7 +154,7 @@ async function setup(seedPath: string) {
 const getNode = async (s: Awaited<ReturnType<typeof setup>>, id: string) => (await s.call('GET', `/api/kg/nodes/${id}`)).body?.node;
 
 test('upgrade: a human edit survives, new nodes arrive, an untouched node takes the new text, nothing is deleted, version 2 is stored on the index', async () => {
-  const dir = mkdtempSync(join(tmpdir(), 'legion-bsvpack-seed-'));
+  const dir = cleanupTemp('legion-bsvpack-seed-');
   const path = join(dir, 'bsv.json');
   writeFileSync(path, JSON.stringify(packV1()));
   const s = await setup(path);
@@ -213,7 +214,7 @@ test('upgrade: a human edit survives, new nodes arrive, an untouched node takes 
 });
 
 test('upgrade: an edited index node still moves to the new version (the upgrade does not repeat), and is listed as edited', async () => {
-  const dir = mkdtempSync(join(tmpdir(), 'legion-bsvpack-seed-'));
+  const dir = cleanupTemp('legion-bsvpack-seed-');
   const path = join(dir, 'bsv.json');
   writeFileSync(path, JSON.stringify(packV1()));
   const s = await setup(path);
@@ -229,7 +230,7 @@ test('upgrade: an edited index node still moves to the new version (the upgrade 
 });
 
 test('a human note written to scope bsv first no longer blocks seeding', async () => {
-  const dir = mkdtempSync(join(tmpdir(), 'legion-bsvpack-seed-'));
+  const dir = cleanupTemp('legion-bsvpack-seed-');
   const path = join(dir, 'bsv.json');
   writeFileSync(path, JSON.stringify(packV1()));
   const s = await setup(path);

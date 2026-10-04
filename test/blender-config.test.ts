@@ -1,3 +1,4 @@
+import { tempDir as cleanupTemp } from './tmp-cleanup.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
@@ -87,7 +88,7 @@ test('entry: kept when well formed, dropped otherwise', () => {
 });
 
 test('loadConfig fills the blender section and keeps user edits', () => {
-  const home = mkdtempSync(join(tmpdir(), 'legion-bl-cfg-'));
+  const home = cleanupTemp('legion-bl-cfg-');
   const prev = process.env.LEGION_HOME;
   process.env.LEGION_HOME = home;
   try {
@@ -179,3 +180,15 @@ test('C21: an old stored default (moving branch, no hash) moves to the pin; a us
   assert.equal(normalizeBlender({ advanced: { community: { addonUrl: pin.addonUrl, sha256: 'xyz' } } }).advanced.community.sha256, pin.sha256);
 });
 const pick = (c: ReturnType<typeof normalizeBlender>) => ({ addonUrl: c.advanced.community.addonUrl, sha256: c.advanced.community.sha256 });
+
+test('blender.baseDir: an absolute folder is kept; a relative or malformed one is dropped (defaults apply)', () => {
+  assert.equal(normalizeBlender({ baseDir: 'D:\\blender' }).baseDir, 'D:\\blender');
+  assert.equal(normalizeBlender({ baseDir: 'D:/blender' }).baseDir, 'D:/blender');
+  assert.equal(normalizeBlender({ baseDir: '/mnt/blender' }).baseDir, '/mnt/blender');
+  assert.equal(normalizeBlender({ baseDir: '  D:\\blender  ' }).baseDir, 'D:\\blender', 'surrounding spaces are trimmed');
+  assert.equal(normalizeBlender({ baseDir: 'blender' }).baseDir, undefined, 'a relative path would resolve against different working directories');
+  assert.equal(normalizeBlender({ baseDir: '' }).baseDir, undefined);
+  assert.equal(normalizeBlender({ baseDir: '   ' }).baseDir, undefined);
+  assert.equal(normalizeBlender({ baseDir: 5 }).baseDir, undefined);
+  assert.equal(normalizeBlender({ baseDir: 'C:\\blender' + String.fromCharCode(10) }).baseDir, undefined, 'control characters are refused');
+});

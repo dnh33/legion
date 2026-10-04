@@ -3,6 +3,7 @@
  * To change one on purpose: edit the text, run this test, put the new hash below in the SAME commit and say why in the message.
  * (Stored personas on existing installs never update; facts that must stay true live in src/core/agent-facts.ts instead.)
  */
+import { tempDir as cleanupTemp } from './tmp-cleanup.js';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { mkdtempSync } from 'node:fs';
@@ -30,7 +31,7 @@ const PINNED: Record<string, string> = {
 const sha = (s: string): string => createHash('sha256').update(s).digest('hex');
 
 test('persona snapshot: the 13 premade personas match their pinned hashes', () => {
-  const d = mkdtempSync(join(tmpdir(), 'persona-snap-'));
+  const d = cleanupTemp('persona-snap-');
   const store = new Store(d);
   store.seedDefaults(join(d, 'ws'));
   const got = Object.fromEntries(store.listAgents().map((a) => [a.id, sha(a.systemPrompt)]));
@@ -39,7 +40,7 @@ test('persona snapshot: the 13 premade personas match their pinned hashes', () =
 });
 
 test('persona snapshot: the two facts the owner approved changing are in, the stale lines are out', () => {
-  const d = mkdtempSync(join(tmpdir(), 'persona-snap-'));
+  const d = cleanupTemp('persona-snap-');
   const store = new Store(d);
   store.seedDefaults(join(d, 'ws'));
   const text = (id: string) => store.getAgent(id)!.systemPrompt;

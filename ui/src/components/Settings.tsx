@@ -4,7 +4,7 @@ import { api, base, openExternal, token } from '../api';
 import { checkBoat, ensureBoatChecked, closeSettings, decide, errText, loadSettings, saveSettings, setSettingsSection as setSection, toast, useStore, type SettingsSection } from '../store';
 import { copyText } from '../util';
 import { BLENDER_LICENSE_NOTE, GET_BLENDER_TOOL } from '../../../src/shared/blender';
-import { ASSETS_TEXT, ASSETS_TITLE, BOTH_TEXT, BOTH_TITLE, FULL_BLENDER_TEXT, GET_BLENDER_NOT_PINNED, GET_BLENDER_TEXT, LOCAL_SAFETY_NOTE, MODE_CHOICES, NOT_TRIED_LOCAL, NOT_TRIED_VM, visibleNotices } from '../blender/copy';
+import { ASSETS_TEXT, ASSETS_TITLE, BOTH_TEXT, BOTH_TITLE, FULL_BLENDER_TEXT, GET_BLENDER_NOT_PINNED, GET_BLENDER_TEXT, LOCAL_SAFETY_NOTE, MODE_CHOICES, LOCAL_MODE_NOTE, NOT_TRIED_VM, visibleNotices } from '../blender/copy';
 import { lightLabel, loadBlender, runBlenderGet, runBlenderLaunch, runBlenderSetup, requestEnableBlender, runBlenderTest, saveBlenderConfig, useBlender } from '../blender/blenderStore';
 import '../blender/blender.css';
 import { ProvidersSection } from '../providers/ProvidersSection';
@@ -511,7 +511,7 @@ function BlenderSection() {
           <span className="set-hint">{FULL_BLENDER_TEXT}</span>
         </div>
         <div className="bl-note warn">{NOT_TRIED_VM} Use Test after Set up and check docs/BLENDER.md for the list of checks.</div>
-        <div className="bl-note warn">{NOT_TRIED_LOCAL} Docs and PC checks: docs/BLENDER.md, claude/tracker-pc-checks.md.</div>
+        <div className="bl-note">{LOCAL_MODE_NOTE}</div>
         <div className="set-actions">
           <button type="button" className="btn primary" disabled={b || off} onClick={() => void runBlenderSetup('both')}>{busy === 'setup' ? 'Setting up\u2026' : 'Set up'}</button>
           <button type="button" className="btn" disabled={b || off} onClick={() => void runBlenderTest()}>{busy === 'test' ? 'Testing\u2026' : 'Test connection'}</button>

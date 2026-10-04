@@ -1,3 +1,4 @@
+import { tempDir as cleanupTemp } from './tmp-cleanup.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs';
@@ -14,7 +15,7 @@ const until = async (cond: () => boolean, ms = 4000): Promise<boolean> => { cons
 
 /** The real process port, but the program is `node fake-chromium.js <report> <mode> <pages> <chrome arguments>` (never a real browser). */
 function rig(mode: string, over: Partial<LaunchPorts> = {}) {
-  const dir = mkdtempSync(join(tmpdir(), 'br-chr-'));
+  const dir = cleanupTemp('br-chr-');
   const report = join(dir, 'report.json');
   const pages = join(dir, 'pages.json');
   writeFileSync(pages, JSON.stringify({ 'https://a.test/': { title: 'T', text: 'x' } }));
@@ -72,7 +73,7 @@ test('E4: on Windows the profile and app-data folders point into the run folder,
 
 test('the process port starts only the file it is given, with no shell: a shell metacharacter in an argument stays an argument', async () => {
   const proc = createProcessPort();
-  const dir = mkdtempSync(join(tmpdir(), 'br-shell-'));
+  const dir = cleanupTemp('br-shell-');
   const marker = join(dir, 'pwned');
   const pr = proc.spawn({ args: ['-e', 'console.log(process.argv.slice(1).join("|"))', `; touch ${marker}`, '$(touch ' + marker + ')'], cwd: dir, env: { PATH: '/usr/bin:/bin' }, maxOutputBytes: 10_000, file: process.execPath });
   await pr.exited;
@@ -102,13 +103,13 @@ test('E4: failures: never reports a port, a bad path in the port file, a missing
 });
 
 test('E5: the run folder is removed only if it is Legion\'s own: directly inside the temp root, with the prefix, a real folder and not a link', () => {
-  const root = mkdtempSync(join(tmpdir(), 'br-root-'));
+  const root = cleanupTemp('br-root-');
   const mine = join(root, `${RUN_DIR_PREFIX}abc`); mkdirSync(mine); writeFileSync(join(mine, 'f'), 'x');
   assert.equal(removeRunDir(mine, root), true); assert.equal(existsSync(mine), false);
   // a folder without the prefix, outside the root, nested, or the root itself: refused and left alone
   const other = join(root, 'precious'); mkdirSync(other); writeFileSync(join(other, 'keep'), 'x');
   assert.equal(removeRunDir(other, root), false); assert.ok(existsSync(join(other, 'keep')));
-  const outside = mkdtempSync(join(tmpdir(), `${RUN_DIR_PREFIX}outside-`)); writeFileSync(join(outside, 'keep'), 'x');
+  const outside = cleanupTemp(`${RUN_DIR_PREFIX}outside-`); writeFileSync(join(outside, 'keep'), 'x');
   assert.equal(removeRunDir(outside, root), false); assert.ok(existsSync(join(outside, 'keep')));
   const nested = join(root, `${RUN_DIR_PREFIX}n`, 'inner'); mkdirSync(nested, { recursive: true });
   assert.equal(removeRunDir(nested, root), false); assert.ok(existsSync(nested));

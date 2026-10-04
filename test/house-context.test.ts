@@ -4,6 +4,7 @@
  * The refusals are the point of most of these. A path from a model's output is untrusted input like any other, and
  * `../../.legion/state.json` is the attack that matters here: state.json holds the bearer token.
  */
+import { tempDir as cleanupTemp } from './tmp-cleanup.js';
 import assert from 'node:assert/strict';
 import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -17,7 +18,7 @@ import {
 import { syncContext } from '../src/core/house/sync.js';
 import { MANIFEST_NAME } from '../src/core/house/trust.js';
 
-const scratch = (): string => mkdtempSync(join(tmpdir(), 'legion-house-'));
+const scratch = (): string => cleanupTemp('legion-house-');
 const roots: string[] = [];
 const track = (r: string): string => { roots.push(r); return r; };
 after(() => { for (const r of roots) { try { rmSync(r, { recursive: true, force: true }); } catch { /* ignore */ } } });

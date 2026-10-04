@@ -282,7 +282,7 @@ export class LocalRunner implements LocalPort {
   private stuck: number | undefined;
   constructor(private readonly d: LocalDeps) {}
 
-  private get root(): string { return join(this.d.dataDir, 'blender', 'local'); }
+  private get root(): string { const b = this.d.config().baseDir; return b ? join(b, 'local') : join(this.d.dataDir, 'blender', 'local'); }
   private alive(pid: number): boolean {
     if (this.d.isAlive) return this.d.isAlive(pid);
     try { process.kill(pid, 0); return true; } catch (e) { return (e as NodeJS.ErrnoException).code === 'EPERM'; }
@@ -481,7 +481,7 @@ export class LocalRunner implements LocalPort {
   private async collect(agent: AgentProfile, taskId: string, p: Prepared): Promise<{ files: LocalRunResult['files']; problems: string[] }> {
     const link = findLink(p.exportsDir);
     const res = await collectExports({
-      workspace: this.d.workspaceOf(agent), taskId, write: this.d.writeLocal,
+      workspace: this.d.workspaceOf(agent), taskId, write: this.d.writeLocal, exportsBaseDir: this.d.config().baseDir,
       list: () => {
         if (link) throw new Error('exports folder holds a link');
         const out: Array<{ name: string; bytes: number }> = [];

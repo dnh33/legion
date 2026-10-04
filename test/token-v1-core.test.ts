@@ -2,6 +2,7 @@
  * Token fix v1, the core side: /health, the stdin secret reader, and a REAL spawned core (Linux checks marked).
  * The secret must never be on disk, in the environment or in argv, and never in a response.
  */
+import { tempDir as cleanupTemp } from './tmp-cleanup.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn, type ChildProcess } from 'node:child_process';
@@ -79,7 +80,7 @@ const filesUnder = (dir: string): string[] => readdirSync(dir).flatMap((n) => {
 });
 
 async function spawnCore(o: { secret?: string; flag?: boolean }) {
-  const home = mkdtempSync(join(tmpdir(), 'legion-tok1-core-'));
+  const home = cleanupTemp('legion-tok1-core-');
   const port = await freePort();
   const child: ChildProcess = spawn(process.execPath, [coreJs], {
     env: { ...process.env, LEGION_HOME: home, LEGION_PORT: String(port), ...(o.flag ? { [ADMIN_STDIN_FLAG]: '1' } : {}) },
@@ -164,7 +165,7 @@ test('a real core started without the flag (headless, like the MCP bridge does) 
 test('a real core answers the challenge, also through a shim whose pid is not the core pid; a rogue echoing the pid cannot', async () => {
   const SECRET = randomBytes(24).toString('hex');
   // a shim: the process we spawn (like node.cmd / Volta / scoop) starts the real core as its child and passes our stdin pipe on
-  const home = mkdtempSync(join(tmpdir(), 'legion-tok1-shim-'));
+  const home = cleanupTemp('legion-tok1-shim-');
   const port = await freePort();
   const shim = spawn(process.execPath, ['-e', "require('child_process').spawn(process.execPath,[process.argv[1]],{stdio:'inherit'})", coreJs], {
     env: { ...process.env, LEGION_HOME: home, LEGION_PORT: String(port), [ADMIN_STDIN_FLAG]: '1' }, stdio: ['pipe', 'ignore', 'ignore'],

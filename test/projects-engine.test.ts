@@ -1,4 +1,5 @@
 /** Projects in the engine: who may name a project, the prompt section, the folder, taint and approvals (controls C4-C7, C9, C17). */
+import { tempDir as cleanupTemp } from './tmp-cleanup.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtempSync } from 'node:fs';
@@ -35,7 +36,7 @@ const ok = (text = 'done') => ({ type: 'result', subtype: 'success', is_error: f
 async function* quick(): AsyncGenerator<any, void> { yield { type: 'system', subtype: 'init', session_id: 's1' }; yield ok(); }
 
 function setup(script: Script = () => quick()) {
-  const root = mkdtempSync(join(tmpdir(), 'legion-proj-eng-'));
+  const root = cleanupTemp('legion-proj-eng-');
   const store = new FakeStore();
   for (const id of ['a1', 'a2', 'a3']) store.agents.set(id, mkAgent(id));
   const bus = new EventBus();
@@ -224,7 +225,7 @@ test('C9 taint follows files in a project folder exactly as in a workspace: a ta
 });
 
 test('without a projects service nothing about projects is interpreted: a task keeps an unknown projectId untouched and the app gets 400', async () => {
-  const root = mkdtempSync(join(tmpdir(), 'legion-proj-none-'));
+  const root = cleanupTemp('legion-proj-none-');
   const store = new FakeStore(); store.agents.set('a1', mkAgent('a1'));
   const bus = new EventBus();
   const config = defaultConfig(); config.workspaceDir = join(root, 'ws');

@@ -1,4 +1,5 @@
 /** U1: upgrade migration. Builder's VM size 'large' (the old seed) is reset to 'default' once; never again, never over a later manual choice. */
+import { tempDir as cleanupTemp } from './tmp-cleanup.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
@@ -9,7 +10,7 @@ import { Store } from '../src/core/store.js';
 const ID = 'builder-vm-size-default-v1';
 /** A state.json as an older build wrote it: no `migrations` field, Builder (and Scout, for contrast) on 'large'. */
 function oldState(dir: string): void {
-  const st = new Store(mkdtempSync(join(tmpdir(), 'legion-mig-seed-')));
+  const st = new Store(cleanupTemp('legion-mig-seed-'));
   st.seedDefaults(join(dir, 'w'));
   const agents = st.listAgents().map((a) => (a.id === 'builder' || a.id === 'scout' ? { ...a, vm: { ...a.vm, size: 'large' as const } } : a));
   writeFileSync(join(dir, 'state.json'), JSON.stringify({ agents, tasks: [], vms: [] }));
@@ -17,7 +18,7 @@ function oldState(dir: string): void {
 const onDisk = (dir: string) => JSON.parse(readFileSync(join(dir, 'state.json'), 'utf8')) as { agents: Array<{ id: string; vm: { size: string; enabled: boolean } }>; migrations?: string[] };
 
 test('U1: an old state file with Builder on large is reset to default on upgrade, and only Builder', async () => {
-  const dir = mkdtempSync(join(tmpdir(), 'legion-mig-'));
+  const dir = cleanupTemp('legion-mig-');
   oldState(dir);
   const s = new Store(dir);
   assert.equal(s.getAgent('builder')!.vm.size, 'default');
@@ -30,7 +31,7 @@ test('U1: an old state file with Builder on large is reset to default on upgrade
 });
 
 test('U1: it never re-applies: a later manual choice of large survives every restart', async () => {
-  const dir = mkdtempSync(join(tmpdir(), 'legion-mig-'));
+  const dir = cleanupTemp('legion-mig-');
   oldState(dir);
   const s1 = new Store(dir);
   await s1.flush();
@@ -45,7 +46,7 @@ test('U1: it never re-applies: a later manual choice of large survives every res
 });
 
 test('U1: a fresh install records the migration without touching anything, so a later large is kept', async () => {
-  const dir = mkdtempSync(join(tmpdir(), 'legion-mig-'));
+  const dir = cleanupTemp('legion-mig-');
   const s = new Store(dir);
   s.seedDefaults(join(dir, 'w'));
   assert.equal(s.getAgent('builder')!.vm.size, 'default');
@@ -57,7 +58,7 @@ test('U1: a fresh install records the migration without touching anything, so a 
 });
 
 test('U1: a state already on default, or without a Builder, just gets the flag', async () => {
-  const dir = mkdtempSync(join(tmpdir(), 'legion-mig-'));
+  const dir = cleanupTemp('legion-mig-');
   writeFileSync(join(dir, 'state.json'), JSON.stringify({ agents: [], tasks: [], vms: [] }));
   const s = new Store(dir);
   assert.equal(s.getAgent('builder'), undefined);
@@ -66,7 +67,7 @@ test('U1: a state already on default, or without a Builder, just gets the flag',
 });
 
 test('U1: an agent entry with no vm object does not crash the migration', async () => {
-  const dir = mkdtempSync(join(tmpdir(), 'legion-mig-'));
+  const dir = cleanupTemp('legion-mig-');
   oldState(dir);
   const raw = JSON.parse(readFileSync(join(dir, 'state.json'), 'utf8')) as { agents: Array<Record<string, unknown>> };
   delete raw.agents.find((a) => a.id === 'builder')!.vm;
