@@ -6,7 +6,7 @@ Extracted 2026-10-04 from the Hermes Agent source — the local checkout at
 attribution. (An earlier draft of this file said Apache-2.0. That was wrong — MIT is the licence, and it is the more
 permissive of the two for this purpose.)
 
-**The engine is 7,294 lines of Python**, and most of `context_compressor.py` (5,781 lines on its own) is plumbing
+**The reference engine is several thousand lines**, and most of `context_compressor.py` (5,781 lines on its own) is plumbing
 bound to Hermes' own message format, its own LLM client, its own session store and its own tool loop. None of that
 carries over. What is worth taking is the *behaviour* — the threshold arithmetic, the head/tail split and boundary
 alignment, the summariser prompts, the failure fallback and the anti-thrash rules — which is a few hundred lines of
@@ -15,9 +15,8 @@ logic once written in TypeScript idiom.
 So the task is **port the behaviour, not the code**. Copying 7k lines of Python line-for-line into a TypeScript
 codebase would import Hermes' architecture, not its solution.
 
-Two modules are deliberately out of scope: `micro_compaction.py` (515 lines) is off by default in Hermes and we have
-decided against it, and `native_compaction.py` (365) is server-side compaction on OpenAI Responses routes that
-OpenRouter does not offer.
+Two behaviours are deliberately out of scope: per-exchange micro-compaction, and server-side compaction on
+provider routes that Legion's own routes do not offer.
 
 This document is the reference for the implementation. It records what exists in Hermes and what we
 decided to do about it. It is not a proposal.

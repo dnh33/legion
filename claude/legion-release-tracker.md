@@ -938,7 +938,7 @@ context got rekt. We should learn from /hermes-agent and mimic it."
 - **Resume asymmetry, already documented in-code:** `runtime.ts:31` — "A continued task remembers less than a resumed Claude
   session (the newest messages only)". Provider resume = JSONL (`store.ts:103-109`, loaded `:183-196`); Claude resume =
   `sessionId` (`engine.ts:799` → `options.resume` `:723`).
-- **What Hermes does (`agent/micro_compaction.py`, read on disk):** rolling per-exchange summary rather than one-shot;
+- **What the reference implementation does (read from source on the owner's machine):** rolling per-exchange summary rather than one-shot;
   the prompt asks for "key decisions, requirements, file paths, and open questions" and to **drop resolved details**;
   **never summarise secrets** — "replace any that appear with `[REDACTED]`"; cut only on **turn boundaries**
   (`allow_split_turn=False`, `:86`) so a turn is never orphaned; off by default because rewriting the prefix breaks the
