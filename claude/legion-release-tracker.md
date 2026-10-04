@@ -847,6 +847,31 @@ because it looked largest; the owner has since ranked it first. Effort and multi
 *intent* — a background refresh versus an explicit pinned `loadOverview`. Attempt 5 tried that and the skip broke the
 race guards, so any real fix must preserve whatever B3/B6 observe about `replaceView` returning.
 
+#### Council verdict 2026-10-04 (two independent subagents, both read the real code)
+
+**Both agreed:** F1 encodes a **real requirement**, not a wrong assumption — do not relax the test. And all six
+attempts attacked the wrong layer. The store's own contract (`linkUp`'s doc, and `sameHits`/`F10` elsewhere) is that
+an unchanged view costs no render and no layout; `replaceView` breaks it by clearing and rebuilding unconditionally.
+
+**They disagree on the fix, and the difference is real:**
+
+- **Advocate** — drop `full` from `refreshFromServer`'s `loadOverview` condition; a background refresh is reconciled
+  in place by `linkUp`, and `loadOverview` is only for *building* a canvas. It correctly notes this would stop a
+  background refresh from throwing away the owner's pan/zoom, because `replaceView` forces `cam: 'fit'` and
+  `CanvasPane` re-fits and re-heats the layout.
+- **Skeptic** — keep the full re-read (it is how deletes and reorders are *detected*) but route the result through
+  `reconcileView` and publish only when **content *or* order** actually differs. Keep `replaceView`'s unconditional
+  publish for genuine rebuilds: pinned seeds, Library return, scope flip.
+
+**Recommendation: the skeptic's recipe.** The advocate's is simpler but loses real capability: nodes created elsewhere
+would stop appearing on a populated canvas until an explicit gesture, and — sharpest — the **BSV scope visibility flip
+would stop rebuilding a populated canvas**, regressing the toggle fix shipped in 0.2.1. That trade is not worth it.
+
+**Why no single-axis comparison works** (this is the whole trap): F1 and F3 jointly demand it. F1's re-read returns an
+identical view (same set, same order, same content) so it must not publish; F3's re-read returns the same set in a
+**different order** (pinned seeds first) so it must. Comparing content alone breaks F3; comparing id-sets alone breaks F1.
+Any real fix must compare **both** content and order, at the reconcile/rebuild boundary rather than inside `publish()`.
+
 **Status:** this does **not** block the `0.2.3-a` house-layer release — it is a pre-existing UI churn defect (extra
 layout and render per save, no data loss), untouched by this work. It does block a clean full-suite gate.
 
