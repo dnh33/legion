@@ -799,6 +799,29 @@ release, so `0.2.2-xyz` sorts below the shipped `0.2.2` and the updater refuses 
 
 Each release is gated and cut on its own so a bad one can be pulled without taking the others with it.
 
+#### The version ladder (verified against shipped 0.2.2 code, 2026-10-04 — do not re-derive)
+```
+0.2.3-a  house context layer      (BUILT — cut this session)
+0.2.3-b  CONTEXT COMPACTION      <-- TOP PRIORITY, first new session (owner 2026-10-04)
+0.2.3-c  effort level
+0.2.3-d  multi-folder per project
+0.2.3    later, once the four have proven themselves
+0.2.4-a  next line of work
+```
+**Owner directive 2026-10-04:** compaction is the highest priority of the remaining three and is the **first new
+session**. "The compaction engine has top priority as the next task after this." It was third in an earlier ordering
+because it looked largest; the owner has since ranked it first. Effort and multi-folder follow.
+- Verified with the shipped `src/core/updater/semver.ts`: `0.2.3-a < 0.2.3-b < 0.2.3`, and a client on `0.2.2` **or on
+  `0.2.3-a`** is offered every one of them.
+- **`0.2.2-a` is refused** — it sorts below the shipped `0.2.2` and the updater calls it a downgrade. Never letter a base
+  that has already shipped.
+- **THE RULE: never publish a bare `0.2.3` before its letters are done.** The moment plain `0.2.3` ships, `0.2.3-a` … `-d`
+  become unreachable. This is exactly how `0.2.2-a` died on 2026-10-04.
+- **Exactly one lowercase letter** per release. `isPlainSemver` rejects `0.2.3-ab` and `0.2.3-1` (verified). 26 lettered
+  patches fit under one base. Skipping a letter is fine.
+- `0.2.2`'s `manifest.ts:23` validates via `isPlainSemver`, which **accepts** a lettered patch. Plain `0.2.2` was the
+  correct bootstrap precisely because it shipped that validator.
+
 ### D13 — OPEN: perf-l-store F1 — one node save publishes the graph twice (pre-existing on main)
 **Not fixed.** Four attempts, each reverted; `ui/src/graph/graphStore.ts` is byte-identical to `main`.
 
