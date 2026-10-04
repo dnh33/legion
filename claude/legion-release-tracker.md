@@ -779,29 +779,64 @@ Both scoped against the real code on 2026-10-04; neither is started. Neither is 
 they block the **next release**.
 
 #### D10a — Effort level in the model picker
-- **Nothing carries effort today.** `grep` over `src/shared/types.ts`, `src/core/bridge.ts`, `src/core/providers/runtime.ts`
-  finds only `MascotMood`'s `'thinking'` (types.ts:195) — unrelated. So this is a new field on the model surface, not a
-  wiring job.
-- Needs: a type on the model/preset, storage, the picker UI, and **honest transport per provider** — this is the part that
-  must not be faked. `reasoning_effort` (OpenAI-style) and Anthropic thinking budgets are different shapes; a provider that
-  has no such concept must be told plainly that the level does nothing, rather than silently ignored.
-- **Open question to settle before coding:** per-model or per-task? A model preset implies per-model, but effort is usually a
-  per-call decision. Decide this first — it changes the storage shape and the UI.
+**Nothing carries effort today.** Grep over `src/shared/types.ts`, `bridge.ts`, `providers/runtime.ts` finds only `MascotMood`'s `'thinking'` — unrelated. Verified by subagent 2026-10-04 with file:line:
+
+- **There is no request-option plumbing at all.** `chatTurn` builds the body at `openai-compat.ts:145-154` with only
+  `model`, `stream`, `messages`, `stream_options`, `tools`, `tool_choice`. No `temperature`/`max_tokens`/`top_p`/
+  `reasoning`/extra body. Headers are fixed (`http.ts:141-143`). Claude SDK options (`engine.ts:691-722`) likewise carry no
+  temperature/effort/thinking/maxTokens. **So this is a new field on two paths, not a wiring job.**
+- **Where the model lives:** `ProviderEntry.models` (`providers/types.ts:12-27`); OpenRouter preset `presets.ts:9-10`.
+  Per-agent Claude model comes from the live catalog (`catalog.ts:61-64`), served `GET /api/catalog`.
+- **Picker:** `ui/src/components/ModelPicker.tsx` → `setModelChoice` (`ui/src/store.ts:350-353`) → localStorage
+  `legion.model.<agentId>` + `modelOverride` → sent as `model` in the create-task body (`store.ts:380`). Agent's own model:
+  `AgentEditor.tsx:67-75` → `PATCH /api/agents/:id` (`server.ts:146-153`, `MODEL_RE` `server.ts:54`).
+- **Dispatch fork:** `engine.ts:796-801` — `resolve(model)` returns a provider or the run goes to `buildOptions` + `queryFn`.
+  Effort must survive **both** branches or it is a lie on one of them.
+- **Decision still needed:** per-model or per-task. The picker stores per-agent; effort is usually per-call. Storage shape
+  depends on it.
+- **Honesty rule:** a provider with no effort concept must say the level does nothing, not silently ignore it.
 
 #### D10b — More than one folder per project
-- **Today it is a single string, and it is load-bearing in three places.**
+- **Today it is a single string, load-bearing in four places.**
   - `Project.folder: string` — `src/shared/projects.ts:13`, default `<workspaceDir>/projects/<id>`.
-  - Set only through a confirmed route: `PUT /api/projects/:id/folder` (`src/core/projects/index.ts:70-74`), which rejects
-    non-string/non-null and needs the native secret. A project creation also refuses `folder` outright (index.ts:50).
-  - `engine.ts:689` mkdirs it, `engine.ts:700` passes it to `projectSection(...)`, `engine.ts:702` hands it to
-    `additionalDirectories`.
-- **Change shape:** `folder: string` → `folders: string[]`, keeping `folder` as a derived first entry so nothing that reads it
-  silently changes meaning. `additionalDirectories: [projectFolder]` already takes an array, so the engine change is small.
-- **Decide first:** does the primary folder stay the agent's *working* directory, or do all folders become working directories?
-  The agent's own `cwd` is its own — the project folders are *additional* directories. Keeping the first folder as the
-  de-facto primary preserves today's behaviour and is the lower-risk reading; the owner's phrasing ("more than 1 folder on a
-  project that is referenced for agents in it") supports that.
-- Both need the same UI: the picker and the project folder editor.
+  - Native-secret-gated route `PUT /api/projects/:id/folder` (`src/core/projects/index.ts:70-74`); creation refuses
+    `folder` outright (`index.ts:50`).
+  - `engine.ts:689` mkdirs it · `engine.ts:700` passes it to `projectSection(...)` · `engine.ts:702` hands it to
+    `additionalDirectories` (already an array, so the engine change is small).
+- **Change shape:** `folder: string` → `folders: string[]`, keeping `folder` as a derived first entry so nothing that reads
+  it silently changes meaning.
+- **Decide first:** the first folder stays the agent's working directory, or all folders do. The agent's own `cwd` is
+  already its own (`engine.ts:691`) — project folders are *additional*. Keeping the first as primary preserves today's
+  behaviour and matches the owner's phrasing.
+
+### D11 — CONTEXT COMPACTION (owner 2026-10-04, biggest item). NOT STARTED.
+Owner: "we literally do not have any compaction / context features in Legion... sometimes a conversation just stops because
+context got rekt. We should learn from /hermes-agent and mimic it."
+
+**Verified state (subagent, file:line):**
+- **No compaction or summarization exists.** No token counting anywhere, no tokenizer dependency (`package.json:54-58`).
+- **Provider path already truncates — bluntly.** `buildMessages(host)` (`providers/tool-loop.ts:84-114`) returns a **tail**:
+  `HISTORY_MAX_MESSAGES = 40`, `HISTORY_MAX_CHARS = 60_000` (`tool-loop.ts:18-19`, applied `:105-112`). **Character counts,
+  not tokens.** This is the real cause of "the conversation just stops": the oldest half is dropped silently.
+- **No overflow recovery.** A context-length error becomes a plain `'status'` ProviderHttpError (`http.ts:159-162`) → rethrown
+  (`openai-compat.ts:175-188`) → task `status:'error'` (`tool-loop.ts:204-206` → `engine.ts:549-553`). Nothing detects it by
+  type. Escalation cannot help: `shouldEscalate` (`router.ts:46-51`) only fires for `'sonnet'`, which a provider model never is.
+- **Claude path is fine already** — the SDK compacts natively (`sdk.d.ts` `autoCompactThreshold`, `CompactBoundaryMessage`).
+  Legion just does not surface it in the transcript.
+- **Resume asymmetry, already documented in-code:** `runtime.ts:31` — "A continued task remembers less than a resumed Claude
+  session (the newest messages only)". Provider resume = JSONL (`store.ts:103-109`, loaded `:183-196`); Claude resume =
+  `sessionId` (`engine.ts:799` → `options.resume` `:723`).
+- **What Hermes does (`agent/micro_compaction.py`, read on disk):** rolling per-exchange summary rather than one-shot;
+  the prompt asks for "key decisions, requirements, file paths, and open questions" and to **drop resolved details**;
+  **never summarise secrets** — "replace any that appear with `[REDACTED]`"; cut only on **turn boundaries**
+  (`allow_split_turn=False`, `:86`) so a turn is never orphaned; off by default because rewriting the prefix breaks the
+  provider prompt cache. Full-size compaction lives in `agent/native_compaction.py` (server-side where supported, local
+  compressor as fallback).
+- **DESIGN DECIDED 2026-10-04 — see `docs/COMPACTION.md`.** Summary is written inline into the thread transcript as a
+  system message; originals stay untouched in the append-only JSONL (`store.ts:103-109`). NOT a KG node — that
+  rows; Legion needs no such surgery). Full Hermes spec extracted and written to `docs/COMPACTION.md`.
+- **Risk:** the only one of the four that can "pass" while silently losing work. Needs its own validation: a long
+  conversation must survive with its decisions intact.
 
 ### D9 — HOUSE CONTEXT LAYER: fix, rebase, merge (owner approved 2026-10-04: "if you truly believe in that, plan it out")
 Reviewed at `40842df` (branch `claude/context-layer`, repo now `D:\bots\legion-ctx`). Verdict was **request changes**. Nothing merged yet.
