@@ -13,7 +13,10 @@ const { CODE_SET } = await loadDist('src/core/updater/apply.js');
 const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'));
 if (!isReleaseVersion(pkg.version)) die(`package.json version "${pkg.version}" is not MAJOR.MINOR.PATCH with an optional single-letter patch suffix (e.g. 0.2.2-a)`);
 for (const must of ['dist/src/electron/main.js', 'dist/src/bin/legion-core.js', 'dist-ui/index.html', 'package-lock.json']) if (!existsSync(join(root, must))) die(`not a built tree: ${must} is missing (run npm run build first)`);
-for (const [src, built] of [['src', 'dist/src']]) if (existsSync(join(root, src)) && statSync(join(root, built)).mtimeMs + 3600_000 < latest(join(root, src))) die(`dist looks older than ${src}: rebuild before packaging`);
+// Compare the NEWEST COMPILED FILE, not the directory's own mtime. tsc rewrites files in place and never touches the
+// directory, so a perfectly fresh dist reported itself hours stale and blocked packaging with "dist looks older than
+// src". A directory mtime only moves when entries are added or removed. Found 2026-10-04 while cutting 0.2.3-a.
+for (const [src, built] of [['src', 'dist/src']]) if (existsSync(join(root, src)) && latest(join(root, built)) + 3600_000 < latest(join(root, src))) die(`dist looks older than ${src}: rebuild before packaging`);
 const publishedAt = a['published-at'] ?? new Date().toISOString().replace(/\.\d+Z$/, 'Z');
 if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/.test(publishedAt)) die('--published-at must look like 2026-10-20T10:00:00Z');
 
