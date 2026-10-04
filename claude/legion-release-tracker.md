@@ -802,8 +802,9 @@ live, and visible to the owner, so it is its own session rather than bundled wit
 
 **Shipping now: `0.2.3-d`** — the context engine, brought to parity with the reference plus the controls a user needs.
 
-1. **`0.2.3-d` (IN PROGRESS)** — compaction off switch, manual compact with a focus instruction, a context-usage readout,
-   the `/compact` command and its route. Gate: 2,574 tests, 2 known failures, 0 type errors.
+1. **`0.2.3-d` — SHIPPED, verified installable from inside Legion.** Compaction off switch, manual compact with a focus
+   instruction, a context-usage readout, the `/compact` command and its route. Gate: 2,574 tests, 2 known failures,
+   0 type errors. Pre-flight 14 ok / 0 fail. CDN bytes verified against key k1 after publishing.
 2. **Logging (NEXT)** — Legion has none today. The reference ships `~/.hermes/logs/` with rotation and a CLI reader
    (`hermes_cli/logs.py`: `tail_log`, `list_logs`, filters by level/component/time). The owner's use case is concrete:
    when something breaks locally, the log is what gets pasted to an agent.
