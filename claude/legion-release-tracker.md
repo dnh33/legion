@@ -822,6 +822,11 @@ live, and visible to the owner, so it is its own session rather than bundled wit
      `legion-context-gaps-analysis.md` and cross-linked from the pairing table. Its REPO copy is still scrubbed-and-
      shipped while reading as an internal report - rewrite or exclude.
    - **Stray:** `D:/bots/legion-ship` on disk, locked, no longer a git worktree. Empty; harmless.
+   - **KNOWN FAILING TEST, not yet on the ladder until now:** `test/perf-l-store.test.ts:164` (F1). Returning to the
+     Lattice with nothing changed publishes a new graph: `rev` goes 2 -> 3 where the test expects it unchanged.
+     The one re-read is correct; the publish is not. No wrong data and nothing lost - the graph on screen is right -
+     but it costs a layout and a re-render on every Lattice re-entry, so it reads as a flicker. Proven failing at
+     `deb5a69`, before any of the compaction or house work. Small, real, and NOT caused by anything in this session.
 
 3. **Logging (NEXT)** — Legion has none today. The reference ships `~/.hermes/logs/` with rotation and a CLI reader
    (`hermes_cli/logs.py`: `tail_log`, `list_logs`, filters by level/component/time). The owner's use case is concrete:
