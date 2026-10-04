@@ -2,6 +2,31 @@
 
 All notable changes are recorded here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses [Semantic Versioning](https://semver.org/).
 
+## [0.2.3-a] - 2026-10-04
+
+### Added
+
+- **Agents read the project's own documentation.** The house context layer serves the house rules, architecture
+  decisions, glossary and session log to every agent through in-process tools (`house_list`, `house_recall`,
+  `house_read`), instead of those files being unreachable from an agent's working directory.
+
+### Fixed
+
+- **The house layer is only trusted while it is unchanged.** The layer is copied out of the repository into the data
+  directory and served as Legion's own words. The sync now records a hash of what it shipped, and a read compares it:
+  anything edited or added since install is served wrapped and labelled `[UNTRUSTED SOURCE]`. Agents can edit this
+  repository, so without this an agent's edit to `AGENTS.md` would come back as the owner's rules. An unshipped or
+  unreadable record grants no trust.
+- **The layer ships what its index promises.** `AGENTS.md` tells every agent which documents to read; the module and the
+  sync now agree on that list, and the tests fail if a listed file is missing or if `AGENTS.md` cites a document that does
+  not exist.
+- **Recall is bounded.** Searching the layer reads within a total byte budget, a file-count cap and a depth cap, so a
+  large directory cannot crowd out the rest on every call.
+- **A provider run that returns nothing now says why.** One sentence covered four different faults; it now names the
+  output limit, an unreadable tool call, a safety stop or an early stream close. The conversation Legion sends is also
+  checked for orphaned tool results, which make an OpenAI-compatible endpoint fail mid-stream and look like a network
+  fault.
+
 ## [0.2.2] - 2026-10-04
 
 ### Fixed

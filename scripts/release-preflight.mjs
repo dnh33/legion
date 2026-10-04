@@ -61,7 +61,12 @@ try {
   if (!isPlainSemver(version)) fail(`the built updater's own isPlainSemver REJECTS "${version}"`);
   else pass('the built updater accepts this version');
   // A lettered patch must outrank the previous release, or nobody is offered it.
-  const prev = version.includes('-') ? version.split('-')[0].replace(/\.(\d+)$/, (_, p) => String(Number(p) - 1)) : null;
+  // Decrementing the patch component must keep the dot: '0.2.3'.replace(/\.(\d+)$/, '2') yields '0.22', which is not
+  // semver, so compareSemver threw and every lettered release failed this gate with a misleading "could not load the
+  // built semver module". Found 2026-10-04 while cutting 0.2.3-a.
+  const prev = version.includes('-')
+    ? version.split('-')[0].replace(/\.(\d+)$/, (_, p) => (Number(p) > 0 ? `.${Number(p) - 1}` : '.0'))
+    : null;
   if (prev && compareSemver(version, prev) <= 0) fail(`${version} does not outrank ${prev}: existing installs would NOT be offered it`);
   else if (prev) pass(`${version} outranks ${prev} (so installs on ${prev} are offered it)`);
   if (/\d-[a-z]/.test(version)) {
