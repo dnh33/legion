@@ -18,6 +18,9 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { compactionGuard, MAX_TOOL_RESULT_CHARS } from '../src/core/providers/tool-loop.js';
+import type { ChatMessage } from '../src/core/providers/types.js';
+import { applyPlan, planCompaction } from '../src/core/providers/compaction.js';
+import { firstConversationBreak } from '../src/core/providers/conversation.js';
 import { startFake, replyText, replyTools, jsonReply } from './providers-fakes.js';
 import { setup, run } from './providers-harness.js';
 
@@ -202,4 +205,89 @@ test('EVIDENCE: one turn of tool output cannot consume the whole request', async
     assert.ok(maxChars < MAX_TOOL_RESULT_CHARS * 16,
       `one turn of tool output reached ${maxChars} chars across 16 results; the per-result clip is not bounding the total`);
   } finally { await f.close(); }
+});
+
+test('EVIDENCE: a protected head never splits a tool call from its results', async () => {
+  // Found by an adversarial audit, and it was a regression I introduced. `PROTECT_FIRST` is a MESSAGE COUNT, and a count
+  // has no idea where a tool group begins: with [user, assistant{3 calls}, tool, tool, tool] a head of 3 is
+  // [user, assistant, tool], so the call keeps only its first result and the rest fall into the middle. applyPlan then
+  // emits `assistant{3 calls} | tool | SUMMARY | tool | tool` — a sequence every OpenAI-compatible endpoint rejects, with a
+  // 400 that is NOT a context-length error, so the rescue never fires and the run dies.
+  //
+  // The tail has had forward/backward alignment all along. The head had none, and that asymmetry was the entire bug.
+  const msgs: ChatMessage[] = [
+    { role: 'user', content: 'the ask' },
+    { role: 'assistant', content: null, tool_calls: [
+      { id: 'c1', type: 'function', function: { name: 't', arguments: '{}' } },
+      { id: 'c2', type: 'function', function: { name: 't', arguments: '{}' } },
+    ] },
+    { role: 'tool', content: 'result one', tool_call_id: 'c1' },
+    { role: 'tool', content: 'result two', tool_call_id: 'c2' },
+    { role: 'assistant', content: 'and then', tool_calls: [{ id: 'c3', type: 'function', function: { name: 't', arguments: '{}' } }] },
+    { role: 'tool', content: 'result three', tool_call_id: 'c3' },
+    { role: 'assistant', content: 'the final answer' },
+  ];
+  // Every protectFirst, not just the production one: the invariant is that no head may end mid-group.
+  //
+  // Checked by COUNTING rather than by calling `firstConversationBreak`, deliberately. That helper was the reason this bug
+  // survived a green suite — it tracked ids in a set, so a summary row landing between a call and its results neither matched
+  // nor rejected and it reported the conversation valid. A test that leans on the blind helper cannot fail on the code that
+  // needs catching. (The helper is fixed too, but the assertion here stands on its own.)
+  for (const protectFirst of [0, 1, 2, 3, 4, 5, 6]) {
+    const plan = planCompaction(msgs, { window: 200, protectFirst });
+    const out = applyPlan(msgs, plan, { role: 'system', content: 'SUMMARY' });
+    let open = 0;
+    let interrupted = -1;
+    for (let i = 0; i < out.length; i++) {
+      const m = out[i]!;
+      if (m.role === 'tool') open--;
+      else if (m.role === 'assistant' && m.tool_calls?.length) open = m.tool_calls.length;
+      else if (open > 0) { interrupted = i; break; }
+    }
+    assert.equal(interrupted, -1,
+      `protectFirst=${protectFirst} put a summary between a tool call and its results: ${JSON.stringify(out.map((m) => m.role))}`);
+    // And the project's own validator must agree, now that it can see this.
+    assert.equal(firstConversationBreak(out), undefined,
+      `protectFirst=${protectFirst} produced a request no endpoint accepts: ${JSON.stringify(out.map((m) => m.role))}`);
+  }
+});
+
+test('EVIDENCE: the ask is never summarised away, whatever the plan does', async () => {
+  // The second audit finding: `cut` may legally reach the end, which empties the tail, and if the most recent user message is
+  // in the middle the request becomes [system, ask, summary-of-the-ask]. The transcript's contract is that the current prompt
+  // is always re-sent by the caller, so a summary standing in for it misstates what the model was asked.
+  const msgs: ChatMessage[] = [
+    { role: 'user', content: 'the ask' },
+    { role: 'assistant', content: null, tool_calls: [{ id: 'c1', type: 'function', function: { name: 't', arguments: '{}' } }] },
+    { role: 'tool', content: 'x'.repeat(60_000), tool_call_id: 'c1' },
+  ];
+  for (const window of [1_000, 8_192, 200_000]) {
+    const plan = planCompaction(msgs, { window, protectFirst: 0, force: true });
+    const out = applyPlan(msgs, plan, { role: 'system', content: 'SUMMARY' });
+    assert.ok(out.some((m) => m.role === 'user'), `window=${window} summarised the ask away: ${JSON.stringify(out.map((m) => m.role))}`);
+  }
+});
+
+test('EVIDENCE: the newest tool results are shown to the model, not summarised away', async () => {
+  // The failure mode head-alignment first introduced, and the reason it must align FORWARD. A conversation of
+  // [user, assistant{2 calls}, tool, tool] with protectFirst 3 puts the head mid-group. Ending the head before the group
+  // instead moves the call and both results into the middle, so the model is handed a summary and never sees the two tool
+  // errors — which is precisely what C16 asserts against. Measured with the backward alignment: both errors gone.
+  const call = (id: string) => ({ id, type: 'function' as const, function: { name: 'mcp__legion__agents', arguments: '{}' } });
+  const msgs: ChatMessage[] = [
+    { role: 'user', content: 'hello' },
+    { role: 'assistant', content: null, tool_calls: [call('j'), call('big')] },
+    { role: 'tool', content: 'Error: the arguments were not a JSON object within the size limit', tool_call_id: 'j' },
+    { role: 'tool', content: 'Error: the arguments were not a JSON object within the size limit', tool_call_id: 'big' },
+  ];
+  for (const protectFirst of [2, 3, 4]) {
+    const plan = planCompaction(msgs, { window: 16_384, protectFirst });
+    const out = applyPlan(msgs, plan, { role: 'system', content: 'SUMMARY' });
+    const shown = out.filter((m) => m.role === 'tool').length;
+    const inMiddle = plan.middle.filter((m) => m.role === 'tool').length;
+    assert.equal(shown + inMiddle, 2, `protectFirst=${protectFirst} lost a tool result entirely`);
+    // Either the middle is empty (nothing to summarise, so the caller declines) or the results are verbatim in the head.
+    assert.ok(plan.middle.length === 0 || inMiddle === 0,
+      `protectFirst=${protectFirst} summarised the newest tool results; the model would never see them`);
+  }
 });

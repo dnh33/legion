@@ -215,7 +215,42 @@ export function planCompaction(msgs: readonly ChatMessage[], opts: PlanOptions):
   const tailBudget = Math.max(MIN_SUMMARY_TOKENS, opts.tailBudget ?? Math.round(usable * TAIL_MAX_WINDOW_FRACTION * (force ? 0.25 : 1)));
   const summaryBudget = opts.summaryTokens ?? Math.max(MIN_SUMMARY_TOKENS, Math.round(usable * SUMMARY_WINDOW_FRACTION * (force ? 0.5 : 1)));
   const tokensBefore = messagesTokens(msgs);
-  const headEnd = clamp(protectFirst, 0, Math.max(0, msgs.length - 1));
+  // The head must not end INSIDE a tool group.
+  //
+  // PROTECT_FIRST is a message COUNT, and a count has no idea where a tool group starts. With [user, assistant{3 calls},
+  // tool, tool, tool] a head of 3 is [user, assistant, tool] — the call keeps only its first result, the rest fall into
+  // the middle, and applyPlan emits `assistant{3 calls} | tool | SUMMARY | tool | tool`. That is not a conversation any
+  // OpenAI-compatible endpoint accepts, the 400 is not a context-length error, so the rescue never fires and the run dies.
+  // Reproduced live: the mid-run re-check produced exactly that shape on every turn.
+  //
+  // The tail has had forward/backward alignment all along; the head had none, and that asymmetry was the whole bug. So
+  // pull the head back to before the group's opener — the group then goes to the middle whole, where it is summarised.
+  let headEnd = clamp(protectFirst, 0, Math.max(0, msgs.length - 1));
+  if (headEnd > 0 && headEnd < msgs.length && msgs[headEnd]!.role === 'tool') {
+    // The head would end on a tool result whose call is still inside the head, so the summary would land between them.
+    //
+    // Align FORWARD past the whole group rather than back before it. Forward keeps the call AND its results verbatim in
+    // the head; backward moves them into the middle, where they are summarised — and for the newest results that is the
+    // loss that matters, since they are the evidence the model's next decision rests on. Backward is only correct when
+    // forward would swallow everything, so it is the fallback.
+    let end = headEnd;
+    while (end < msgs.length && msgs[end]!.role === 'tool') end++;
+    let opener = headEnd - 1;
+    while (opener >= 0 && msgs[opener]!.role === 'tool') opener--;
+    const groupOpens = opener >= 0 && msgs[opener]!.role === 'assistant' && msgs[opener]!.tool_calls?.length;
+    if (groupOpens) {
+      // Forward, always. A head that reaches the end of the conversation is fine — an empty TAIL is survivable, and
+      // `compactMessages` declines when the plan leaves nothing to summarise. Backward, by contrast, drops the group into
+      // the middle, which means the newest tool results are summarised rather than shown to the model: measured, the
+      // oversized-argument case lost both tool errors that way (C16).
+      // No backward fallback, and that is the load-bearing decision. Ending the head BEFORE the group instead would move
+      // the group's call and results into the middle, so the newest tool results get summarised rather than shown — the
+      // exact loss C16 exists to catch (measured: both tool errors disappeared from the model's view). A head that reaches
+      // the end leaves an empty middle, and an empty middle is the caller's signal to DECLINE and send unchanged, which is
+      // the safe outcome: the owner sees the provider's own error instead of a conversation that quietly lost its work.
+      headEnd = end;
+    }
+  }
 
   // The tail: walk backwards from the newest row while it fits. Always keep at least one row, or the model is left
   // with a summary and nothing to answer.
@@ -267,6 +302,30 @@ export function planCompaction(msgs: readonly ChatMessage[], opts: PlanOptions):
   // not causal coupling; it is the coupling rule defeating itself. Keep the earlier cut instead.
   const userIdx = lastUserIndex(msgs);
   if (userIdx > headEnd && userIdx < cut) { cut = userIdx; reason = 'anchored to the most recent user message'; }
+
+  // The most recent user message must survive in the tail, never in the summary.
+  //
+  // `cut` may legally reach msgs.length, which leaves the middle as the whole conversation and the tail empty — and if the
+  // ask is in that middle the request becomes `[system, user, summary]`: the model is handed a summary of a question it
+  // can no longer see. Reproduced live, `system | user | system` on every turn, because a large tool group is precisely the
+  // case where the entire conversation falls into the middle.
+  //
+  // The earlier causal-coupling rule only fires when `userIdx < cut`. Once `cut` is past the user message the rule is
+  // silent, and the message it was written to protect is the one that gets summarised. So state the invariant directly.
+  //
+  // `userIdx > headEnd`, strictly: `>=` fires when the ask is the protected head itself, and then setting cut to it drags
+  // the cut to the head clamp and empties the middle — the exact failure the strict form was written to avoid. Measured:
+  // headEnd 0, userIdx 0, cut 8 became cut 0, so the rescue had nothing to summarise and the run died.
+  //
+  // `userIdx > headEnd`, strictly: with `>=` this fires when the ask IS the protected head, sets cut to it, and drags the
+  // cut to the head clamp — emptying the middle, which is the failure the strict form exists to prevent.
+  if (userIdx > headEnd && userIdx < cut) { cut = userIdx; reason = 'kept the most recent user message in the tail'; }
+  //
+  // And when the ask IS the head (`userIdx === headEnd`) it still must not fall into the middle. Measured at window 1000
+  // with [user, assistant{1 call}, tool]: alignStartForward pushes the cut past the orphaned tool row to the very end, so
+  // the ask landed in the middle and the request became `[system, summary]` — the model asked to do something and given a
+  // summary of having been asked. Extending the protected head past the ask keeps it verbatim.
+  else if (userIdx === headEnd && headEnd < cut) { headEnd = Math.min(userIdx + 1, cut); reason = 'extended the head so the ask survives'; }
 
   cut = clamp(cut, headEnd, msgs.length);
   const middle = msgs.slice(headEnd, cut);
