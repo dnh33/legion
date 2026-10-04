@@ -221,9 +221,11 @@ test('every scrubbed tree is covered, not just docs and one hand-listed file', (
   // The bug this closes: claude/ shipped VERBATIM because the scrub list named docs/, the root docs and .github only,
   // with one claude/ file carried as an exception, so an owner-local path in a claude/ plan reached the snapshot.
   //
-  // An OWNER-LOCAL path, not a generic one: the rule deliberately redacts C:/Users, D:/bots, D:/dev, D:/tmp and
-  // D:/hermes while leaving illustrative paths like D:/apps alone, so a generic path here would prove nothing. The
-  // vault path and the owner name are covered by the tests above and by the snapshot test respectively.
+  // An OWNER-LOCAL path, not a generic one. The path rule matches a drive root followed by one of the owner-local
+  // directory names, and leaves illustrative paths alone, so a generic example path here would prove nothing.
+  // Written from fragments: this file ships in the snapshot, and code files are deliberately NOT scrubbed (they must
+  // stay byte-identical), so a literal owner-local path written here would ship. The vault path and the vault name
+  // are covered by the test above and by the snapshot test respectively.
   const LOCAL = `${'D'}:/bots/legion`;
   const src = scrubFixture({
     'claude/plan.md': `Run it from ${LOCAL} when testing.\n`,
