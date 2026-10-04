@@ -29,13 +29,29 @@ const fatVm = (h: ReturnType<typeof setup>, size: number): void => {
   (h.engine as any).vms.exec = async () => ({ exitCode: 0, stdout: 'q'.repeat(size), stderr: '' });
 };
 
-test('EVIDENCE: a run that grows past the window mid-flight still finishes', async () => {
-  // Turn after turn the conversation grows by a clipped tool result. The pre-flight check ran before any of this, so
-  // without a re-check inside the loop nothing trims it and the run ends on the provider's refusal.
+test('EVIDENCE: the window is re-checked inside the run, not only before turn 1', async () => {
+  // The first version of this test asserted only that the run finished, and it PASSED against the code before this change
+  // — verified by running it against 03315b1^. The fake never refused for size, so a conversation growing past the window
+  // simply kept going and reached the reply text either way. A test that cannot fail is decoration, and the commit
+  // message claimed otherwise. This version asserts the discriminator instead.
+  //
+  // The discriminator is whether the SUMMARISER is ever asked to compress a conversation that already contains a tool
+  // result. The pre-flight check runs before turn 1, when the conversation is just [system, user] — it cannot see tool
+  // output, so it can never produce such a call. Only the in-loop re-check can. Against the old code this count is
+  // exactly zero.
   let turn = 0;
+  let summaryCallsWithToolResult = 0;
+  let summaryCallsTotal = 0;
   const f = await startFake((req, res) => {
     const body = JSON.stringify(req.body) ?? '';
-    if (isSummaryCall(body)) { replyText(res, SUMMARY); return; }
+    if (isSummaryCall(body)) {
+      summaryCallsTotal++;
+      // The summariser's input is rendered from `middle`; if the conversation being compressed carries a tool row, this
+      // is the re-check rather than the pre-flight.
+      if (/\[tool result\]/.test(body)) summaryCallsWithToolResult++;
+      replyText(res, SUMMARY);
+      return;
+    }
     turn++;
     if (turn <= 6) { replyTools(res, [{ id: `c${turn}`, name: 'mcp__legion__vm_exec', args: { command: 'ls' } }]); return; }
     replyText(res, 'answered after growing');
@@ -44,8 +60,11 @@ test('EVIDENCE: a run that grows past the window mid-flight still finishes', asy
     const h = setup(f, { vm: true, agent: { approval: 'full' }, entry: { contextWindow: 24_000 }, maxTurns: 10 });
     fatVm(h, 40_000); // one tool result per turn, far past the per-result clip
     const t = await run(h);
-    assert.equal(t.status, 'done', 'a run that grows past the window mid-flight must still finish, not die on a refusal');
-    assert.match(t.result ?? '', /answered after growing/, 'and it reached a real answer');
+    assert.equal(t.status, 'done', 'the run must finish');
+    assert.ok(summaryCallsTotal > 0, 'the conversation was compacted at all');
+    assert.ok(summaryCallsWithToolResult > 0,
+      `no compaction ever covered tool output (${summaryCallsTotal} summariser calls, ${summaryCallsWithToolResult} of them over a tool row); ` +
+      'the window is still only checked before turn 1, so a run that grows mid-flight is never trimmed');
   } finally { await f.close(); }
 });
 
