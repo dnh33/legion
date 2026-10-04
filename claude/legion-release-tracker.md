@@ -770,6 +770,31 @@ single-owner desktop app; provenance visibility is.
 - **Remaining:** the other `claude/` files (handoffs, plans, e2e report) still name `integration/v1` in their bodies.
   They are history and are no longer the first thing an agent reads, but a repo-wide sweep is not done.
 
+### ORDERED QUEUE — the seven open items, in the order they are done (index, 2026-10-04)
+
+This is the index. The detail for each lives in its  section below, which carry the evidence and file:line.
+`claude/SESSION-QUEUE.md` is the same list written as per-session briefs; if the two ever disagree, this index and
+the  sections win, because this file is the durable record.
+
+| # | Session | What | Release | Tracker | Status |
+|---|---|---|---|---|---|
+| 1 | **S1** | House context layer | `0.2.3-a` | D9 | **Shipped, installed, running.** Close-out is the live test below |
+| 1a | S1 close-out | Live test against the installed app | — | — | **OPEN.** See below |
+| 2 | **S2** | Context compaction | `0.2.3-b` | D11 | Design complete. **Zero code.** Next session |
+| 3 | **S5b** | Full-access bot still shows a "needs your OK" card | — | D7 / below | **OPEN, LIVE — the owner is seeing it** |
+| 4 | **S3** | Effort level in the model picker | `0.2.3-c` | D10a | Design decided. **Zero code** |
+| 5 | **S4** | Multiple folders per project | `0.2.3-d` | D10b | Design decided. **Zero code** |
+| 6 | **S5** | `perf-l-store F1` — a node save publishes the graph twice | — | D13 | **OPEN.** Pre-existing, harmless, will not break the app |
+| 7 | **S6** | D1–D4 and the 0.2.1/0.2.2 backlog, copy sweep, README screenshot, Skills | — | D1–D8, D12 | **Parked, not cancelled** |
+
+**S1 close-out — the live test.** `claude/LIVE-TEST-0.2.3-a.md`, run by Zealot against the real app. The step that
+matters: an agent writes a line into `AGENTS.md`, then `house_read` must return it wrapped and labelled
+`[UNTRUSTED SOURCE]`. If it still reads as trusted, that is a serious defect — stop and report it.
+
+**S5b — the full-access card.** Owner, 2026-10-04: "it still shows when a bot has full access perms".
+`needsApproval('full', …)` is correct as written, so the suspect is **`approvalCeiling` capping a `full` agent
+down to `ask`**. Never confirmed — the earlier investigation ran out of subagent credit before isolating it. Small,
+live, and visible to the owner, so it is its own session rather than bundled with a feature.
 ### D12 — PIVOT 2026-10-04: the four features come first, one release each (owner)
 **Owner:** "if the 4 features are NOT built, then I think we should focus each one being an independent minor release or
 something, we are in beta mind you... and then when this house layer is fully verified and you have fixed and validated
