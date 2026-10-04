@@ -994,6 +994,26 @@ context got rekt. We should learn from /hermes-agent and mimic it."
 - **Risk:** the only one of the four that can "pass" while silently losing work. Needs its own validation: a long
   conversation must survive with its decisions intact.
 
+#### RELEASE PUBLISHED 2026-10-04 — `v0.2.3-b` is LIVE
+
+`gh release create v0.2.3-b` (draft first, all five assets uploaded, then `--draft=false`), assets at
+`D:/bots/legion-pkg-023b/`. Verified **from the live CDN**, not from my own disk, because that is the only check
+that answers "can a real install receive this":
+
+- `curl` the live manifest → `version 0.2.3-b`, **`requiresFullInstall: false`** — a real in-app update, not
+  notify-only. This is the field that was blocking self-update before, so it is the one that matters.
+- Live `legion-0.2.3-b-app.zip` sha256 `18d109e6…` **matches** the manifest's `asset.sha256`.
+- `node scripts/release-verify.mjs --dir <fetched live files>` → **"OK: 0.2.3-b (4 files) verifies against key k1"**.
+  The signature verifies with the app's own verifier and its own baked-in public key, which is the whole point.
+- `gh release list` shows `v0.2.3-b` as **Latest**; `0.2.3-a` and the 0.2.2 line are intact beneath it.
+- The lettered-patch preflight warning is the known bootstrap note and is correct here: installs on 0.2.2 already
+  accept letters because `0.2.2-a` shipped and `0.2.3-a` was itself a letter.
+
+**Housekeeping:** `D:/bots/_livecheck` is an empty directory with a stale OS file handle (Windows refused `rmdir`
+four times). It holds nothing — the files inside were deleted — so it is left alone rather than fought. Clear it
+at the next reboot or with `rmdir` once the handle drops.
+
+
 #### D11 STATUS 2026-10-04 — **SHIPPED as `0.2.3-b`** (merge `0f89b2b`, tag `v0.2.3-b`)
 
 **What shipped.** `src/core/providers/compaction.ts` (new, 553 lines) plus the rewired `buildMessages()`. The blind
