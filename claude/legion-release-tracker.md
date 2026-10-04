@@ -772,9 +772,9 @@ single-owner desktop app; provenance visibility is.
 
 ### ORDERED QUEUE — the seven open items, in the order they are done (index, 2026-10-04)
 
-This is the index. The detail for each lives in its  section below, which carry the evidence and file:line.
+This is the index. The detail for each lives in its `D-` section below, which carry the evidence and file:line.
 `claude/SESSION-QUEUE.md` is the same list written as per-session briefs; if the two ever disagree, this index and
-the  sections win, because this file is the durable record.
+the `D-` sections win, because this file is the durable record.
 
 | # | Session | What | Release | Tracker | Status |
 |---|---|---|---|---|---|
@@ -795,6 +795,7 @@ matters: an agent writes a line into `AGENTS.md`, then `house_read` must return 
 `needsApproval('full', …)` is correct as written, so the suspect is **`approvalCeiling` capping a `full` agent
 down to `ask`**. Never confirmed — the earlier investigation ran out of subagent credit before isolating it. Small,
 live, and visible to the owner, so it is its own session rather than bundled with a feature.
+
 ### D12 — PIVOT 2026-10-04: the four features come first, one release each (owner)
 **Owner:** "if the 4 features are NOT built, then I think we should focus each one being an independent minor release or
 something, we are in beta mind you... and then when this house layer is fully verified and you have fixed and validated
