@@ -88,6 +88,27 @@ written in TypeScript idiom. Copying 7k lines line-for-line would import Hermes'
 Out of scope by decision: `micro_compaction.py` (off by default in Hermes, and 13 agents make per-exchange
 summarising expensive here) and `native_compaction.py` (server-side OpenAI Responses compaction, which OpenRouter
 does not offer).
+
+**Second deliverable, and it is not optional: what Legion should adopt from Hermes, beyond compaction itself.**
+The point of reading 7,294 lines of someone else's solved problem is not only to copy the solution but to see where
+*our* stack is weaker. The session must produce a written findings list of gaps — behaviours Hermes has that Legion
+does not, or does worse — each with whether it applies to Legion, is already handled differently, or does not apply.
+Some already noticed while reading, to seed it rather than to limit it:
+
+- `protect_first_n` **decays to 0 after the first compaction**, so early turns do not fossilise in every future
+  summary. Legion has no compaction yet, so this is a design input rather than a bug — but it is the kind of thing
+  that is only obvious once you have read the mature implementation.
+- Inputs are **pre-redacted before the summariser call**, not only the output after it. So does our own tooling when
+  it hands agent content to a model?
+- On summary failure the conversation is **frozen and returned unchanged** (lossless), with a deterministic fallback
+  built locally from anchors when the model is unavailable.
+- A cooldown ladder (60s → 300s → 900s) and an **anti-thrash breaker** after two ineffective compactions.
+- A managed local runtime may **grow the window instead of compressing**, rather than always paying for a summary.
+- The model is told the **originals remain retrievable**, so it does not re-ask for discarded context.
+
+That list is a starting point, not the deliverable. The deliverable is what a careful reader finds after actually
+reading the code — including things about how Hermes handles provider quirks, tool loops and session bookkeeping that
+Legion will hit differently.
 The first thing a conversation does now when it outgrows the window is stop. No compaction and no token counting exist
 anywhere. Provider agents are hard-capped at `HISTORY_MAX_MESSAGES = 40` / `HISTORY_MAX_CHARS = 60_000`
 (`providers/tool-loop.ts:18-19`) — character counts, not tokens — so the oldest half of a conversation disappears with
