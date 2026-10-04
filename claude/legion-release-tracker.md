@@ -1091,6 +1091,33 @@ the 466** the docs claim. The test asserts only `> 400`, so it cannot catch this
 exists in Settings; the pattern to copy is `maxTurns` (Settings.tsx:133-135, validated :97) — a `narrow` numeric text
 input with inline range checks, mirrored server-side.
 
+#### RELEASE PUBLISHED 2026-10-04 — `v0.2.3-c`
+
+**Four fixes.** 2,502 tests, 2 failures, both pre-existing and both proven: `kg` F1 (`perf-l-store`) fails identically
+with this changeset reverted; `export-scrub` flags the owner's vault name in `claude/SESSION-QUEUE.md`, which is not in
+the release path.
+
+**The turn-budget floor.** `MAX_TOOL_RESULT_CHARS * 2` was an absolute, so it did not shrink with the window: on a 16k
+model one turn's tool output could add 8,000 est-tokens against a 2,867-token compaction threshold — a **2.79x** overshoot
+before compaction could trigger. Now `min(40k, max(12k, window * 0.05))` via the exported `turnToolBudget()`: **1.40x** at
+16k, 0.33x at 128k, 0.05x at 1M. The floor's purpose (never clip a tool result to nothing) is preserved.
+
+**Test temp cleanup.** Every `mkdtempSync` in the suite leaked its directory. `test/tmp-cleanup.ts` routes them through
+`tempDir()` and removes them at process exit. It tracks only what that process created, so it cannot delete a sibling
+test process's in-use folder under `node:test`'s parallel model.
+
+**Blender export folder.** Exports and quarantine could only land under the app data dir; `BlenderConfig.baseDir` is now
+honoured. Containment moves from "inside the workspace" to "inside that folder"; real-path and symlink checks unchanged.
+
+**Product copy.** Rewritten to state behaviour instead of development state. A new `test/product-copy.test.ts` fails the
+build if development-status language returns to the UI. `NOT_TRIED_LOCAL` renamed `LOCAL_MODE_NOTE` — the name had become
+a claim the content no longer made. The cloud VM note stays (that run has not happened) and the overclaim guards in
+`blender-hedge.test.ts` are untouched.
+
+**Verification.** Pre-flight 14 ok / 0 failures. All five uploaded assets byte-identical to local **before** publishing.
+Post-publish CDN fetch in a fresh directory: all four byte-identical, `release-verify.mjs` **OK: 0.2.3-c (5 files)
+verifies against key k1**, `requiresFullInstall: false`.
+
 #### RELEASE PUBLISHED then PULLED BACK 2026-10-04 — `v0.2.3-b`, first attempt
 
 **SUPERSEDED — read this before the entry below.** This release was published, found to be uninstallable by anyone
