@@ -2,6 +2,54 @@
 
 All notable changes are recorded here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses [Semantic Versioning](https://semver.org/).
 
+## [0.2.3-d] - 2026-10-04
+
+### Added
+
+- **Compaction can be turned off.** `CompactionSettings.enabled`, required rather than optional so a code path that
+  forgets it cannot silently leave compaction on. Honoured at every automatic gate and by the manual trigger.
+- **`/compact [focus]`** — compact a conversation on demand, with an optional instruction about what the summary should
+  weight. `POST /api/tasks/:id/compact` -> `Engine.compactTaskNow` -> `ProviderRuntime.compactNow` -> `compactNow`. The
+  summary is written by the same model, with the same settings, window and redaction as an automatic cut. Works below
+  the threshold. Reuses `askSummarizer`, so the retention guarantee, the one retry and the loss notice all apply.
+  Every decline is `{ ok: false, detail }`, never a throw.
+- **Context-usage readout** in Settings, Compaction: percentage of the window in use, labelled an estimate.
+- **Blender export folder is settable.** `BlenderConfig.baseDir` is now readable and writable through
+  `POST /api/blender/config`, absolute-only, cleared to the defaults on blank, and exposed in the status view so the
+  field prefills. It sets two derived roots — `<base>/local` and `<base>/exports` + `<base>/quarantine` — and moves the
+  containment root from the agent workspace to that folder.
+
+### Fixed
+
+- **`BlenderPatch` silently dropped `baseDir`.** `parsePatch` discarded unknown keys without a 400, so a save returned
+  200 and wrote nothing. A shipped field with no way to set it.
+- **`compactTaskNow` threw instead of declining** when no provider runtime was configured (`this.providers!`), surfacing
+  as a 500 rather than a sentence.
+- **The fake engine in `test/helpers-c.ts` omitted `compactTaskNow`**, so the route test saw `not a function` and a 500
+  where it was asserting a decline. The stub was the bug and it looked like a server bug.
+
+## [0.2.3-c] - 2026-10-04
+
+### Fixed
+
+- **The per-turn tool-output budget floor was an absolute** (`MAX_TOOL_RESULT_CHARS * 2`), so it did not shrink with the
+  model's window. On a 16k model one turn's tool output could add ~8,000 est-tokens against a 2,867-token compaction
+  threshold — a 2.79x overshoot before compaction could trigger. Now window-proportional
+  (`min(40k, max(12k, window * 0.05))` via the exported `turnToolBudget`): 1.40x at 16k, 0.33x at 128k, 0.05x at 1M.
+- **Every test that called `mkdtempSync` leaked its directory** — one run created tens of thousands under the OS temp
+  folder and nothing removed them, which is what fills a disk. `test/tmp-cleanup.ts` routes them through `tempDir()`
+  and removes them at process exit. It tracks only directories that process created, so it cannot delete a sibling test
+  process's in-use folder under `node:test`'s parallel model.
+
+### Changed
+
+- **Product copy stated development state instead of behaviour** — a provider note about being tested against fake
+  servers, a Blender note claiming local mode was untested while 38 tests cover it end to end, and a provider limits
+  line describing truncation that no longer exists. Rewritten. `test/product-copy.test.ts` now fails the build if
+  development-status language returns to the UI. The cloud VM note stays — that run has not happened — and the pending
+  PC runs live in the docs and the tracker, not the interface. `NOT_TRIED_LOCAL` renamed `LOCAL_MODE_NOTE`, because the
+  name had become a claim the content no longer made.
+
 ## [0.2.3-b] - 2026-10-04
 
 ### Added
