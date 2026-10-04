@@ -2,6 +2,9 @@
 
 **Read this before any other file in `claude/`. Several of them are historical.**
 
+Then read **`claude/SESSION-QUEUE.md`** — it is the gate: one session = one feature = one release, and the five
+save-gates that must be done before a session counts as finished.
+
 ## Branches
 
 | | |
