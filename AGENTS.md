@@ -138,7 +138,7 @@ These fail quietly, which is worse than failing loudly:
 
 ## If you are in a cloud session
 
-- Aetherkeep, the owner's private vault, is **not** available. This file, `docs/`, and `claude/` are your context. Do
+- The owner's private notes are **not** available here. This file, `docs/`, and `claude/` are your context. Do
   not stop or complain about it.
 - Your working copy disappears when the session ends. **Push your branch before you finish** (`claude/...`).
 - You cannot run Windows, a real Blender, a real wallet, Electron's native dialogs or the owner's accounts. Anything

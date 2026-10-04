@@ -57,7 +57,7 @@ Tracked as D1–D7 in the tracker. In order:
   and nearly killed a decision the owner had made. Say "unconfirmed" when it is unconfirmed.
 - Product copy never says "safe", "secure", "verified" or "cannot be bypassed". Scope the claim.
 - No keys, tokens or wallet data in the repo, in chat, or in logs.
-- After every release: save point (tracker + Aetherkeep + memory) and update the skill for whatever
+- After every release: save point (tracker + the owner's own notes + memory) and update the skill for whatever
   the session taught. That is a standing owner rule.
 
 ## Your first deliverable
