@@ -73,7 +73,36 @@ describe('provider: the conversation Legion sends is one a provider accepts', ()
     }
     const msgs = buildMessages(host(stored));
     assert.equal(firstConversationBreak(msgs), undefined, 'a 100-message tool loop must still be well-formed');
-    assert.ok(msgs.length < stored.length, 'the slice still bounds the history');
+  });
+
+  it('bounds the history by the window, not by an arbitrary message count', () => {
+    // This used to assert `msgs.length < stored.length` — that history is ALWAYS trimmed. Under compaction that is wrong:
+    // a transcript inside the model's window is sent whole, because trimming it would throw away context the model can
+    // still use. The bound is the window, so that is what is asserted here.
+    const small = [{ role: 'user', text: 'a' }, { role: 'assistant', text: 'b' }, { role: 'user', text: 'c' }];
+    assert.equal(buildMessages(host(small)).length, 4, 'system + the whole transcript + the current ask');
+
+    const big: unknown[] = [{ role: 'user', text: 'start' }];
+    for (let i = 0; i < 400; i++) {
+      big.push({ role: 'user', text: `ask ${i} ${'padding '.repeat(60)}` });
+      big.push({ role: 'assistant', text: `answer ${i} ${'padding '.repeat(60)}` });
+    }
+    big.push({ role: 'user', text: 'current' });
+
+    // Over the window but WITHOUT a summary, nothing is dropped. This is the lossless-failure rule and it is the more
+    // important half: the provider will refuse this request for size, which the owner can see, and the transcript is
+    // intact. Silently trimming it here is the behaviour this feature replaced.
+    const unsummarised = buildMessages(host(big), { window: 8_192 });
+    assert.equal(unsummarised.length, big.length + 1, 'no summary means the conversation goes out unchanged, not trimmed');
+    assert.equal(firstConversationBreak(unsummarised), undefined);
+
+    // With a summary, the middle is replaced by it and the request shrinks hard.
+    const cut = buildMessages({ stored: big as Array<{ role: string; text: string }>, prompt: 'current', systemPrompt: 'sys' }, { window: 8_192, summary: { role: 'system', content: '[compacted earlier turns]\n\n## Goal\nkeep going' } });
+    assert.ok(cut.length < 20, `an over-window conversation with a summary is cut (got ${cut.length})`);
+    assert.equal(firstConversationBreak(cut), undefined, 'and the cut is still a request an endpoint accepts');
+    // The ask is passed explicitly rather than through `host()`, which hardcodes `prompt: 'next'` — a mismatch there
+    // fails this assertion while saying nothing about the code under test.
+    assert.equal(cut[cut.length - 1]!.content, 'current', 'the current ask survives the cut');
   });
 
   it('detects an orphan, which is the failure an endpoint answers with a mid-stream error', () => {

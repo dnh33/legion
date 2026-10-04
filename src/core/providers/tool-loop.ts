@@ -11,14 +11,21 @@ import { chatTurn } from './openai-compat.js';
 import type { ChatTurnResult } from './openai-compat.js';
 import { ProviderHttpError } from './http.js';
 import type { HttpLimits, ProviderTarget } from './http.js';
+import {
+  applyPlan, clipToTokens, CompactionGuard, DEFAULT_CONTEXT_WINDOW, isContextLengthError, isSummaryMessage,
+  localFallbackSummary, messagesTokens, needsCompaction, planCompaction, PROTECT_FIRST, renderSummaryRow,
+  renderTranscript, sanitizeSummary, summaryPrompt, thresholdTokens, toolsTokens,
+} from './compaction.js';
+import type { CompactionPlan } from './compaction.js';
 import type { ChatMessage, ChatToolSpec, ProviderHost, ProviderRunResult, TokenUsage } from './types.js';
 
 export const MAX_ARG_BYTES = 64 * 1024;
 export const MAX_TOOL_RESULT_CHARS = 12_000;
-export const HISTORY_MAX_MESSAGES = 40;
-export const HISTORY_MAX_CHARS = 60_000;
 const FN_NAME = /^[A-Za-z0-9_-]{1,64}$/;
 const REPEAT_FAIL_LIMIT = 3;
+
+/** Retry state per thread: the cooldown ladder and the anti-thrash breaker. Process-wide, keyed by task. */
+export const compactionGuard = new CompactionGuard();
 
 interface Offered { client: Client; remote: string }
 export interface ToolSet { offered: Map<string, Offered>; specs: ChatToolSpec[]; close(): Promise<void> }
@@ -105,16 +112,127 @@ export function emptyAnswerReason(finish: string | undefined, turn: number): str
   return `The model returned no text and no tool calls${where} (finish reason: ${finish}).`;
 }
 
-/** The stored task as chat messages: user and assistant text, and tool calls with their results (a call without a result is dropped). */
-export function buildMessages(host: Pick<ProviderHost, 'stored' | 'prompt' | 'systemPrompt'>): ChatMessage[] {
-  let lastUser = -1;
-  for (let i = host.stored.length - 1; i >= 0; i--) if (host.stored[i]!.role === 'user') { lastUser = i; break; }
-  const prior = lastUser >= 0 ? host.stored.slice(0, lastUser) : host.stored;
+export interface BuildOptions {
+  /** The model's context window in tokens. Absent means the conservative default, which compacts early rather than late. */
+  window?: number;
+  /** The tool definitions that will travel with the request; they share the window. */
+  tools?: ChatToolSpec[];
+  /** A summary row produced for this turn. Absent means "compact, but the summary is not written yet". */
+  summary?: ChatMessage | null;
+  /** Compact even if the conversation looks like it fits: the retry after the provider refused it for size. */
+  force?: boolean;
+}
+
+/** What the transcript looks like before anything is dropped, and whether it has to be. */
+interface Conversation {
+  system: ChatMessage;
+  /** Every stored row as provider messages, including any summaries already in the transcript. */
+  all: ChatMessage[];
+  /** The newest summary already stored, or null. Its presence is what turns early-turn protection off. */
+  existing: ChatMessage | null;
+  /** The rows that come after that summary: the ground a new compaction would have to cover. */
+  afterSummary: ChatMessage[];
+  plan: CompactionPlan;
+  /** False when the whole conversation fits and can be sent as it stands. */
+  overBudget: boolean;
+}
+
+/**
+ * The stored task as chat messages, checked for the shape a provider will actually accept.
+ *
+ * Built from the whole transcript rather than a blind tail, because a blind tail is what made the oldest half of a
+ * conversation disappear with no marker. When the conversation fits it is sent whole; when it does not, it is cut into
+ * head + summary + tail. Either way a `tool` result is never separated from its call — an endpoint rejects the entire
+ * request over one orphan, and the failure arrives mid-stream looking like a network fault.
+ *
+ * The current ask is appended last and is never part of what gets summarised: it is the one message whose loss would
+ * make the model's answer wrong rather than merely thinner.
+ */
+export function buildMessages(host: Pick<ProviderHost, 'stored' | 'prompt' | 'systemPrompt'>, opts: BuildOptions = {}): ChatMessage[] {
+  return [...conversationFor(host, opts).send, { role: 'user', content: host.prompt }];
+}
+
+export interface ConversationView extends Summarisable {
+  /** The full request as it would go out: system prompt, then body. */
+  send: ChatMessage[];
+  /** The body without the system prompt, or with `summary` substituted in. */
+  body: ChatMessage[];
+  /** The system prompt Legion sends in front of everything. */
+  system: ChatMessage;
+  /** The summary already stored in this thread, if any. */
+  existing: ChatMessage | null;
+  /** The rows a new summary would have to cover. */
+  middle: ChatMessage[];
+}
+
+/**
+ * The conversation as it will be sent, without the current ask. Exported for the loop, which appends that itself.
+ *
+ * `body` is separate from `send` because the plan's indices address the conversation, not the system prompt in front of
+ * it, and conflating the two is how a summary ends up one message out of place.
+ */
+export function conversationFor(host: Pick<ProviderHost, 'stored' | 'prompt' | 'systemPrompt'>, opts: BuildOptions = {}): ConversationView {
+  const conv = readConversation(host, opts);
+  const body = withSummary(conv, opts.summary ?? conv.existing);
+  return { ...conv, body, send: [conv.system, ...body], middle: conv.afterSummary.slice(conv.plan.headEnd, conv.plan.tailStart) };
+}
+
+function readConversation(host: Pick<ProviderHost, 'stored' | 'prompt' | 'systemPrompt'>, opts: BuildOptions): Conversation {
+  const window = opts.window ?? DEFAULT_CONTEXT_WINDOW;
+  const lastUser = lastUserMessageIndex(host.stored);
+  const all = toChatMessages(lastUser >= 0 ? host.stored.slice(0, lastUser) : host.stored);
+  // The newest stored summary stands in for everything before it. Older summaries are a history of a history: they stay
+  // in the JSONL and are not sent, because re-sending them costs window for no information.
+  let summaryAt = -1;
+  for (let i = all.length - 1; i >= 0; i--) if (isSummaryMessage(all[i]!)) { summaryAt = i; break; }
+  const existing = summaryAt >= 0 ? all[summaryAt]! : null;
+  const afterSummary = summaryAt >= 0 ? all.slice(summaryAt + 1) : all;
+  // Early turns are protected on the first compaction only. After that the summary is the head, and keeping the
+  // opening turns as well would re-assert them in every future summary — stale decisions, faithfully repeated.
+  const plan = planCompaction(afterSummary, {
+    window,
+    protectFirst: existing ? 0 : PROTECT_FIRST,
+    ...(opts.force ? { force: true } : {}),
+    ...(existing ? { summaryTokens: summaryTokensOf(existing) } : {}),
+  });
+  const system: ChatMessage = { role: 'system', content: host.systemPrompt };
+  const tail: ChatMessage = { role: 'user', content: host.prompt };
+  return { system, all, existing, afterSummary, plan, overBudget: overBudget(all, afterSummary, plan, existing, system, tail, opts, window) };
+}
+
+/**
+ * Whether the request as it would be sent is over the window.
+ *
+ * Measured on the projected send rather than on the raw transcript, so a conversation that only fits *because* a summary
+ * is already in it is correctly seen as fitting — otherwise every turn after the first would re-compact, which is the
+ * thrash the breaker exists to stop.
+ */
+function overBudget(all: readonly ChatMessage[], afterSummary: readonly ChatMessage[], plan: CompactionPlan, existing: ChatMessage | null, system: ChatMessage, tail: ChatMessage, opts: BuildOptions, window: number): boolean {
+  const tools = toolsTokens(opts.tools ?? []);
+  // Measured on the projected send, with the summary this thread already carries — so a conversation that only fits
+  // *because* a summary is in it is correctly seen as fitting. Otherwise every turn after the first would re-compact,
+  // which is exactly the thrash the breaker exists to stop.
+  const conv: Conversation = { system, all: [...all], existing, afterSummary: [...afterSummary], plan, overBudget: true };
+  const body = withSummary(conv, existing);
+  return needsCompaction([...body, tail], window, tools, opts.force);
+}
+
+/** The last stored `user` message: the current ask, which `prompt` replaces. */
+function lastUserMessageIndex(stored: ProviderHost['stored']): number {
+  for (let i = stored.length - 1; i >= 0; i--) if (stored[i]!.role === 'user') return i;
+  return -1;
+}
+
+/** Stored rows as provider messages. A tool call whose result never arrived is dropped with the group. */
+function toChatMessages(prior: ProviderHost['stored']): ChatMessage[] {
   const msgs: ChatMessage[] = [];
   const open = new Set<string>();
   for (const m of prior) {
     if (m.role === 'user' && m.text) msgs.push({ role: 'user', content: m.text });
     else if (m.role === 'assistant' && m.text) msgs.push({ role: 'assistant', content: m.text });
+    // System rows are Legion's own: notices, and the compaction summary. They are carried through as system messages so
+    // the summary written into the thread by an earlier turn is found again here.
+    else if (m.role === 'system' && m.text) msgs.push({ role: 'system', content: m.text });
     else if (m.role === 'tool' && m.toolName && m.toolUseId && !m.resultFor) {
       let args = '{}';
       try { args = JSON.stringify(JSON.parse(m.text)); } catch { /* clipped when stored: the arguments are not needed again */ }
@@ -125,17 +243,70 @@ export function buildMessages(host: Pick<ProviderHost, 'stored' | 'prompt' | 'sy
       open.delete(m.resultFor);
     }
   }
-  const kept = msgs.filter((m) => !(m.tool_calls && open.has(m.tool_calls[0]!.id)));
-  // newest 40 messages and 60,000 characters; a result whose call was cut off is dropped with it
-  let start = Math.max(0, kept.length - HISTORY_MAX_MESSAGES);
-  let chars = 0;
-  for (let i = kept.length - 1; i >= start; i--) {
-    chars += (kept[i]!.content?.length ?? 0) + (kept[i]!.tool_calls ? 200 : 0);
-    if (chars > HISTORY_MAX_CHARS) { start = i + 1; break; }
+  return msgs.filter((m) => !(m.tool_calls && open.has(m.tool_calls[0]!.id)));
+}
+
+/** How many tokens the summary already sitting in the transcript claims, so a re-summary is not asked to grow it. */
+function summaryTokensOf(summary: ChatMessage): number {
+  const head = (summary.content ?? '').split('\n\n')[1] ?? '';
+  return messagesTokens([{ role: 'assistant', content: head }]);
+}
+
+/**
+ * The transcript to hand the summariser: the turns a new summary has to cover, plus the previous summary when there is
+ * one.
+ *
+ * The previous summary goes in rather than being dropped, because a second compaction in the same thread has to fold the
+ * new turns into what the first recorded — summarising the same ground from scratch would quietly discard whatever the
+ * first pass decided, and that is exactly the decision the owner cannot afford to lose.
+ */
+export function summariserInput(middle: readonly ChatMessage[], existing: ChatMessage | null): string {
+  const prior = existing ? existingSummaryBody(existing) : '';
+  const fresh = renderTranscript(middle);
+  if (!prior) return fresh;
+  return `PREVIOUS SUMMARY OF EARLIER TURNS (fold the new turns into it; keep what is still true, replace what is no longer):\n\n${prior}\n\nNEW TURNS SINCE THAT SUMMARY:\n\n${fresh}`;
+}
+
+/** The summary text without the marker header Legion wraps around it. */
+function existingSummaryBody(summary: ChatMessage): string {
+  const content = summary.content ?? '';
+  const split = content.indexOf('\n\n');
+  return split >= 0 ? content.slice(split + 2) : content;
+}
+
+/**
+ * The conversation body: what the plan keeps verbatim, with `summary` between head and tail.
+ *
+ * Three cases, and the differences are the design rather than incidental:
+ *
+ *  - over budget WITH a summary: head + summary + tail. The middle is represented, not dropped.
+ *  - over budget WITHOUT one: the whole conversation, because a request the provider refuses for size is a visible,
+ *    recoverable failure, whereas a silently shortened conversation looks like the model forgot. `compactOnce` is the
+ *    only thing that decides this; nothing else calls it with a null summary while over budget.
+ *  - under budget, but a summary already exists: the summary plus everything after it. The turns *behind* that summary
+ *    are what it stands in for — re-sending them as well would spend the window on history the model has already been
+ *    given, and would contradict the summary's own text, which tells the model those turns were compacted away.
+ *  - under budget with no summary: everything, untouched.
+ */
+
+/** What `withSummary` needs: the two conversation halves and where the cut is. */
+interface Summarisable {
+  overBudget: boolean;
+  /** Every stored row as provider messages, including any summaries already in the transcript. */
+  all: ChatMessage[];
+  /** The rows after the newest stored summary: the ground a new compaction would have to cover. */
+  afterSummary: ChatMessage[];
+  plan: CompactionPlan;
+}
+
+function withSummary(conv: Summarisable, summary: ChatMessage | null): ChatMessage[] {
+  if (summary && isSummaryMessage(summary)) {
+    // A summary already in the transcript: the history before it is represented, so it is not sent again.
+    return conv.overBudget ? applyPlan(conv.afterSummary, conv.plan, summary) : [summary, ...conv.afterSummary];
   }
-  const tail = kept.slice(start);
-  while (tail.length && (tail[0]!.role === 'tool' || tail[0]!.role === 'assistant')) tail.shift();
-  return [{ role: 'system', content: host.systemPrompt }, ...tail, { role: 'user', content: host.prompt }];
+  if (!conv.overBudget) return [...conv.all];
+  if (!summary) return [...conv.all];
+  return applyPlan(conv.afterSummary, conv.plan, summary);
 }
 
 const textOf = (r: { content?: unknown }): string => {
@@ -151,6 +322,67 @@ export interface LoopOptions {
   limits?: Partial<HttpLimits>;
   /** Replaces `chatTurn` in tests only. */
   turn?: typeof chatTurn;
+  /** The model's context window in tokens. Absent means the conservative default. */
+  contextWindow?: number;
+}
+
+/**
+ * One compaction attempt: summarise the middle, write the summary into the thread, hand back what to send.
+ *
+ * The ordering here is the whole design. If the summary cannot be produced the conversation goes out UNCHANGED — not
+ * truncated, not trimmed — because the transcript is append-only and the request will simply be refused for size, which
+ * is a recoverable failure the owner can see, whereas a silently shortened conversation looks like the model forgot.
+ * The local fallback exists for the case where we must send something smaller than we were given: it is worse than a real
+ * summary and is labelled as such, so the model does not treat extracts as history.
+ *
+ * Returns null when compaction was refused (cooldown, or the breaker), which is also "send unchanged".
+ */
+async function compactOnce(
+  turnFn: typeof chatTurn, target: ProviderTarget, model: string, opts: LoopOptions,
+  host: ProviderHost, redact: (s: string) => string, conv: ReturnType<typeof conversationFor>, force: boolean,
+): Promise<{ summary: ChatMessage | null; overBudget: boolean }> {
+  const taskId = host.taskId;
+  if (conv.middle.length === 0) return { summary: conv.existing, overBudget: conv.overBudget };
+  const blocked = compactionGuard.blockedReason(taskId);
+  if (blocked && !force) {
+    host.onNotice(blocked === 'cooldown'
+      ? 'This conversation is over the model\'s context window and Legion is waiting before trying to summarise again. Nothing was lost — the full transcript is still here.'
+      : 'Summarising this conversation twice in a row did not make it smaller, so Legion stopped trying for now. Nothing was lost — the full transcript is still here.');
+    return { summary: null, overBudget: conv.overBudget };
+  }
+  let body = '';
+  try {
+    const r = await turnFn(target, {
+      model,
+      messages: [
+        { role: 'system', content: summaryPrompt(summariserInput(conv.middle, conv.existing), conv.plan.summaryBudget) },
+        { role: 'user', content: 'Produce the summary now.' },
+      ],
+      tools: [],
+      signal: host.signal,
+      ...(opts.limits ? { limits: opts.limits } : {}),
+      onText: () => undefined,
+    });
+    body = sanitizeSummary(r.text, redact);
+  } catch (e) {
+    if (host.cancelled() || (e instanceof ProviderHttpError && e.code === 'aborted')) throw e;
+    compactionGuard.noteFailure(taskId);
+    host.onNotice('Legion could not summarise this conversation, so it was sent in full. Nothing was lost; if it no longer fits, the task will report the provider\'s own error.');
+    return { summary: null, overBudget: conv.overBudget };
+  }
+  const usedFallback = body.length < 40;
+  const summary = clipToTokens(usedFallback ? localFallbackSummary(conv.middle, conv.plan.summaryBudget) : body, conv.plan.summaryBudget);
+  const row = renderSummaryRow(summary, { dropped: conv.middle.length, fallback: usedFallback });
+  // Into the transcript, not just into this request: the next turn has to start from the same summary, and the owner has
+  // to be able to read what the model was actually told.
+  host.onNotice(row.content ?? '');
+  // Effective means the request got smaller. A summary that did not shrink anything would re-trigger the threshold on
+  // every following turn, so it counts against the breaker instead of counting as progress.
+  const ask: ChatMessage = { role: 'user', content: host.prompt };
+  const before = messagesTokens([...conv.all, ask]);
+  const after = messagesTokens([...withSummary({ ...conv, overBudget: true }, row), ask]);
+  compactionGuard.noteCompaction(taskId, after < before, usedFallback);
+  return { summary: row, overBudget: after > thresholdTokens(opts.contextWindow ?? DEFAULT_CONTEXT_WINDOW, toolsTokens([])) };
 }
 
 export async function runToolLoop(host: ProviderHost, target: ProviderTarget, model: string, opts: LoopOptions, redact: (s: string) => string): Promise<ProviderRunResult> {
@@ -166,12 +398,42 @@ export async function runToolLoop(host: ProviderHost, target: ProviderTarget, mo
   const fails = new Map<string, number>();
   let noticedRefused = false;
   try {
-    const messages = buildMessages(host);
+    const window = opts.contextWindow ?? DEFAULT_CONTEXT_WINDOW;
+    // A pre-flight check, not a rescue: at the threshold the conversation is cut before the request is made.
+    //
+    // `rescued` is its own flag and must NOT be set by the pre-flight compaction. They answer different questions: one
+    // asks "has a summary been produced", the other "has the retry been spent". Sharing a flag looks tidier and is a trap
+    // — a pre-flight compaction sets it, so the run can never retry, and the retry is needed precisely when the pre-flight
+    // check was wrong and the provider refused a conversation the estimator believed fit. That failure is invisible in
+    // testing, where the estimator is usually right, and fatal in production.
+    let conv = conversationFor(host, { window, tools: tools.specs });
+    let rescued = false;
+    let summaryRow = conv.existing;
+    if (conv.overBudget) {
+      // The summary is passed back in rather than read from `host.stored`, which is a snapshot taken before this run
+      // wrote it. Reading the snapshot would find nothing and compact the same ground again on the next turn.
+      summaryRow = (await compactOnce(turnFn, target, model, opts, host, redact, conv, false)).summary;
+    }
+    let messages: ChatMessage[] = [conv.system, ...withSummary(conv, summaryRow), { role: 'user', content: host.prompt }];
     let lastText = '';
     for (let turn = 1; turn <= opts.maxTurns; turn++) {
       if (host.cancelled()) return { ...res, subtype: 'cancelled', usage };
       res.turns = turn;
-      const r = await turnFn(target, { model, messages, tools: tools.specs, signal: host.signal, limits: opts.limits, onText: host.onDelta });
+      let r: ChatTurnResult;
+      try {
+        r = await turnFn(target, { model, messages, tools: tools.specs, signal: host.signal, limits: opts.limits, onText: host.onDelta });
+      } catch (e) {
+        // The provider refused the request for size. That is the one error worth a second attempt: compact hard and retry
+        // ONCE. Retrying without compacting fails identically, and retrying more than once turns one refusal into a loop
+        // the owner pays for.
+        if (!isContextLengthError(e) || rescued) throw e;
+        rescued = true;
+        const forced = conversationFor(host, { window, tools: tools.specs, force: true });
+        const attempt = await compactOnce(turnFn, target, model, opts, host, redact, forced, true);
+        if (!attempt.summary) throw e; // nothing smaller to send; the original error is the honest one to report
+        messages = [forced.system, ...withSummary(forced, attempt.summary), { role: 'user', content: host.prompt }];
+        r = await turnFn(target, { model, messages, tools: tools.specs, signal: host.signal, limits: opts.limits, onText: host.onDelta });
+      }
       addUsage(r);
       if (r.toolsRefused && !noticedRefused) { noticedRefused = true; host.onNotice('This model did not accept tools: it can answer, but it cannot use Legion\'s tools.'); }
       const text = redact(r.text).trim();
