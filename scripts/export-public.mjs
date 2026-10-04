@@ -67,10 +67,11 @@ const EXCLUDE = new Set([
 
 /**
  * Scrub scope. Code, tests and scripts ship untouched (test fixtures with generic paths like C:\Users\Dan are
- * fine per tracker-public-audit H6). claude/** ships byte-identical: the design plans, PC-check lists and reports
- * the owner wants public are pinned by tests against machine files, so scrubbing them would desync the pins
- * (their generic example paths like C:\Users\Zoë are not owner PII). The line scrub applies to docs/**, claude/**,
- * the root docs and .github templates.
+ * fine per tracker-public-audit H6). The line scrub applies to docs/**, claude/**, the root docs and .github
+ * templates: the design plans and PC-check lists under claude/ are worth publishing, but they name the owner's
+ * machine and vault, so the paths are replaced rather than the file dropped (see the scrub tests). Generic example
+ * paths that happen to live in those documents are not owner PII and are left alone. Only the operational files
+ * listed in EXCLUDE are not published at all.
  */
 const PROSE_DIRS = ['docs', 'claude'];
 const ROOT_DOCS = ['README.md', 'CONTRIBUTING.md', 'SECURITY.md', 'CHANGELOG.md', 'CODE_OF_CONDUCT.md', 'NOTICE', 'LICENSE'];
