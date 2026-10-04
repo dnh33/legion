@@ -9,6 +9,7 @@ import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createServer } from '../src/core/server.js';
+import { DEFAULT_COMPACTION } from '../src/shared/config.js';
 import type { CoreContext } from '../src/core/server.js';
 import type { AgentProfile, ApprovalRequest, ChatMessage, Task, VmRecord } from '../src/shared/types.js';
 
@@ -37,7 +38,7 @@ export function makeFakes() {
   const pending: ApprovalRequest[] = [];
   const bus = new EventBus();
   let n = 0;
-  const calls = { cancel: [] as string[], resolved: [] as [string, boolean][], vm: [] as string[] };
+  const calls = { cancel: [] as string[], resolved: [] as [string, boolean][], vm: [] as string[], compact: [] as string[] };
 
   const engine: any = {
     startTask(p: any) {
@@ -53,6 +54,16 @@ export function makeFakes() {
       return t;
     },
     cancel(id: string) { calls.cancel.push(id); return true; },
+    // Stubbed, not absent. When the compact route called a method this fake did not have, the handler threw
+    // "not a function" and the route test saw a 500 instead of the decline it was written to assert - the stub was
+    // the bug, and it looked like a server bug. A fake that silently omits a method turns every gap into a mystery.
+    async compactTaskNow(id: string, focus?: string) {
+      calls.compact.push(`${id}:${focus ?? ''}`);
+      const t = tasks.get(id);
+      if (!t) return { ok: false, detail: 'That task is not here any more.' };
+      if (!t.model || t.model === 'auto') return { ok: false, detail: 'This conversation has not run on a provider model yet.' };
+      return { ok: true, detail: 'Compacted (stubbed fake engine).' };
+    },
     async waitFor(id: string, ms: number) {
       const t = tasks.get(id)!;
       const end = Date.now() + ms;
@@ -93,7 +104,7 @@ export function makeFakes() {
   const config: CoreContext['config'] = {
     port: 0, authToken: TOKEN, workspaceDir: '/x',
     claude: { auth: 'claude-login', inheritClaudeCodeSettings: true, inheritMcp: false, maxTurns: 5 },
-    boat: { baseUrl: 'https://boat.test', apiKey: 'secret-key-abcd' }, mcpServers: {},
+    boat: { baseUrl: 'https://boat.test', apiKey: 'secret-key-abcd' }, mcpServers: {}, compaction: { ...DEFAULT_COMPACTION },
   };
   const boatChanges: number[] = [];
   let lastBase = '';

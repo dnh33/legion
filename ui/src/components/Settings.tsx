@@ -1,10 +1,10 @@
 import { useEffect, useState, type ReactNode } from 'react';
-import type { McpServerEntry, McpStatusView, SettingsPatch, SettingsView } from '../../../src/shared/types';
+import type { ChatMessage, CompactionSettings, McpServerEntry, McpStatusView, SettingsPatch, SettingsView } from '../../../src/shared/types';
 import { api, base, openExternal, token } from '../api';
-import { checkBoat, ensureBoatChecked, closeSettings, decide, errText, loadSettings, saveSettings, setSettingsSection as setSection, toast, useStore, type SettingsSection } from '../store';
+import { checkBoat, compactNow, ensureBoatChecked, closeSettings, decide, errText, loadSettings, resetCompaction, saveSettings, setSettingsSection as setSection, toast, useStore, type SettingsSection } from '../store';
 import { copyText } from '../util';
 import { BLENDER_LICENSE_NOTE, GET_BLENDER_TOOL } from '../../../src/shared/blender';
-import { ASSETS_TEXT, ASSETS_TITLE, BOTH_TEXT, BOTH_TITLE, FULL_BLENDER_TEXT, GET_BLENDER_NOT_PINNED, GET_BLENDER_TEXT, LOCAL_SAFETY_NOTE, MODE_CHOICES, LOCAL_MODE_NOTE, NOT_TRIED_VM, visibleNotices } from '../blender/copy';
+import { ASSETS_TEXT, ASSETS_TITLE, BOTH_TEXT, BOTH_TITLE, EXPORT_FOLDER_HINT, EXPORT_FOLDER_LABEL, FULL_BLENDER_TEXT, GET_BLENDER_NOT_PINNED, GET_BLENDER_TEXT, LOCAL_SAFETY_NOTE, MODE_CHOICES, LOCAL_MODE_NOTE, NOT_TRIED_VM, visibleNotices } from '../blender/copy';
 import { lightLabel, loadBlender, runBlenderGet, runBlenderLaunch, runBlenderSetup, requestEnableBlender, runBlenderTest, saveBlenderConfig, useBlender } from '../blender/blenderStore';
 import '../blender/blender.css';
 import { ProvidersSection } from '../providers/ProvidersSection';
@@ -19,6 +19,7 @@ const NAV: { id: SettingsSection; label: string; hint: string }[] = [
   { id: 'boat', label: 'boat.dev (VMs)', hint: 'Cloud computers' },
   { id: 'mcp', label: 'MCP servers', hint: 'Extra tools for agents' },
   { id: 'blender', label: 'Blender', hint: 'Build 3D with the Sculptor' },
+  { id: 'compaction', label: 'Compaction', hint: 'Context limits for long runs' },
   { id: 'connections', label: 'Connections', hint: 'Use Legion from Claude' },
   { id: 'about', label: 'About', hint: 'Version and folders' },
 ];
@@ -50,6 +51,7 @@ export function SettingsPanel() {
               : section === 'boat' ? <BoatSection s={settings} />
                 : section === 'mcp' ? <McpSection s={settings} />
                   : section === 'blender' ? <BlenderSection />
+                  : section === 'compaction' ? <CompactionSection s={settings} />
                   : section === 'connections' ? <ConnectionsSection s={settings} />
                     : <AboutSection s={settings} />
           )}
@@ -139,6 +141,159 @@ function ClaudeSection({ s }: { s: SettingsView }) {
           <span><b>Also load MCP servers and claude.ai connectors from my Claude Code setup</b><em>Off by default. When off, Legion asks Claude Code to use only Legion's own tools and the servers you add under MCP servers, and not to load claude.ai connectors. Turning it on brings back the servers and connectors you use in Claude Code, which connect again on every run. This only changes what Legion's own code asks Claude Code to load; it does not limit what an agent's ordinary tools, such as a shell, can reach.</em></span></label>
       </div>
       <SaveBar dirty={dirty} busy={busy} error={error} onSave={() => void save()} onReset={reset} />
+    </div>
+  );
+}
+
+/* ---------------- Compaction ---------------- */
+/**
+ * The six compaction numbers as text, so a field can hold what the user is typing before it is valid.
+ * COMPACTION_FIELDS is the one list the renderer and the save-time range check both read; `min`/`max` mirror
+ * COMPACTION_LIMITS in src/shared/config.ts, which the server enforces on PATCH (out-of-range is rejected there,
+ * never clamped), so the form can refuse the same values first and name the field.
+ */
+export interface CompactionDraft { thresholdFraction: string; tailBudgetShare: string; summaryShare: string; protectFirst: string; contextWindowOverride: string; smallWindowTokens: string }
+
+export const COMPACTION_FIELDS: ReadonlyArray<{ key: keyof CompactionDraft; label: string; hint: string; min: number; max: number; int: boolean }> = [
+  { key: 'thresholdFraction', label: 'Compaction threshold', min: 0.1, max: 0.95, int: false,
+    hint: 'How full a model’s context window may get before Legion compacts the conversation. 0.1 to 0.95; 0.5 means half full.' },
+  { key: 'tailBudgetShare', label: 'Recent messages kept', min: 0.02, max: 0.6, int: false,
+    hint: 'The most of the window the newest messages keep word for word when a compaction runs. 0.02 to 0.6.' },
+  { key: 'summaryShare', label: 'Summary size', min: 0.02, max: 0.4, int: false,
+    hint: 'How much of the window the summary of the older messages aims to take. 0.02 to 0.4.' },
+  { key: 'protectFirst', label: 'First turns protected', min: 1, max: 20, int: true,
+    hint: 'Whole turns at the start of a run kept word for word, so the opening request is never summarised. 1 to 20.' },
+  { key: 'contextWindowOverride', label: 'Context window override', min: 4096, max: 4000000, int: true,
+    hint: 'Leave empty to use each model’s own context window. A token count from 4096 to 4000000 forces one window for every provider model.' },
+  { key: 'smallWindowTokens', label: 'Small-window size', min: 4096, max: 4000000, int: true,
+    hint: 'A model window below this many tokens is treated as small and compacted later, leaving more room to work in. 4096 to 4000000.' },
+];
+
+export function compactionDraft(c: CompactionSettings): CompactionDraft {
+  return {
+    thresholdFraction: String(c.thresholdFraction),
+    tailBudgetShare: String(c.tailBudgetShare),
+    summaryShare: String(c.summaryShare),
+    protectFirst: String(c.protectFirst),
+    contextWindowOverride: c.contextWindowOverride === null ? '' : String(c.contextWindowOverride),
+    smallWindowTokens: String(c.smallWindowTokens),
+  };
+}
+
+/** One draft to a PATCH body, or a sentence naming the field and the range. Empty is allowed only for the nullable override. */
+export function compactionPatch(d: CompactionDraft): { patch?: Partial<CompactionSettings>; error?: string } {
+  const out: Record<string, number | null> = {};
+  for (const f of COMPACTION_FIELDS) {
+    const raw = d[f.key].trim();
+    if (raw === '') {
+      if (f.key === 'contextWindowOverride') { out.contextWindowOverride = null; continue; }
+      return { error: `${f.label} needs a number.` };
+    }
+    const n = Number(raw);
+    if (!Number.isFinite(n)) return { error: `${f.label} must be a number.` };
+    if (f.int && !Number.isInteger(n)) return { error: `${f.label} must be a whole number.` };
+    if (n < f.min || n > f.max) return { error: `${f.label} must be between ${f.min} and ${f.max}.` };
+    out[f.key] = n;
+  }
+  return { patch: out as Partial<CompactionSettings> };
+}
+
+/**
+ * Estimated tokens for a piece of text: four characters per token over UTF-8 bytes. A rough figure for the context
+ * readout, matching the engine's own estimator in spirit; it is not a tokenizer and the readout says so.
+ */
+export function estimateTextTokens(text: string): number {
+  if (!text) return 0;
+  const bytes = typeof TextEncoder === 'function' ? new TextEncoder().encode(text).length : text.length;
+  return Math.ceil(bytes / 4);
+}
+
+/** The window the readout falls back to when no override is set: the engine's conservative default for a model whose own window is not known here. */
+export const ASSUMED_WINDOW_TOKENS = 32_768;
+
+/** One line for the context-usage readout: the share of the window the conversation is estimated to take. */
+export function contextUsageLine(usedTokens: number, windowTokens: number): string {
+  const window = windowTokens > 0 ? windowTokens : ASSUMED_WINDOW_TOKENS;
+  const pct = Math.max(0, Math.round((usedTokens / window) * 100));
+  return `${pct}% of context used (estimate)`;
+}
+
+const NO_MESSAGES: ChatMessage[] = [];
+
+function CompactionSection({ s }: { s: SettingsView }) {
+  const c = s.compaction;
+  const [d, setD] = useState<CompactionDraft>(() => compactionDraft(c));
+  const [on, setOn] = useState(c.enabled !== false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [confirmReset, setConfirmReset] = useState(false);
+  const [focus, setFocus] = useState('');
+  const [compacting, setCompacting] = useState(false);
+  const [compactNote, setCompactNote] = useState<string | null>(null);
+  // The readout is about the open conversation: estimated tokens against the window the settings above describe.
+  const taskId = useStore((st) => st.selectedTaskId);
+  const convMessages = useStore((st) => (taskId ? st.messages[taskId] : undefined)) ?? NO_MESSAGES;
+  const usedTokens = convMessages.reduce((n, m) => n + estimateTextTokens(m.text), 0);
+  const windowTokens = c.contextWindowOverride ?? ASSUMED_WINDOW_TOKENS;
+  const reset = () => { setD(compactionDraft(c)); setOn(c.enabled !== false); setError(null); setConfirmReset(false); setFocus(''); setCompactNote(null); };
+  useEffect(() => { setD(compactionDraft(c)); setOn(c.enabled !== false); setError(null); }, [JSON.stringify(c)]);
+  const set = (k: keyof CompactionDraft, v: string) => setD((p) => ({ ...p, [k]: v }));
+  const dirty = on !== (c.enabled !== false) || JSON.stringify(d) !== JSON.stringify(compactionDraft(c));
+
+  const save = async () => {
+    const r = compactionPatch(d);
+    if (!r.patch) { setError(r.error ?? 'Check the values.'); return; }
+    setBusy(true); setError(null);
+    try { await saveSettings({ compaction: { ...r.patch, enabled: on } }); } catch (e) { setError(errText(e)); }
+    setBusy(false);
+  };
+  const restore = async () => {
+    setBusy(true); setError(null);
+    try { await resetCompaction(); setConfirmReset(false); } catch (e) { setError(errText(e)); }
+    setBusy(false);
+  };
+  const runCompact = async () => {
+    if (!taskId) { setCompactNote('Open a conversation to compact it.'); return; }
+    setCompacting(true); setCompactNote(null);
+    try { const r = await compactNow(taskId, focus.trim() || undefined); setCompactNote(r.detail); }
+    catch (e) { setCompactNote(errText(e)); }
+    setCompacting(false);
+  };
+
+  return (
+    <div className="set-section">
+      <Head title="Compaction" lead="How Legion shortens a long provider conversation before it fills the model’s context window. These values apply to provider models only; Claude runs use Claude Code’s own compaction." />
+      <div className="set-card">
+        <label className="set-check"><input type="checkbox" checked={on} onChange={(e) => setOn(e.target.checked)} />
+          <span><b>Compact long conversations</b><em>On by default. When on, Legion shortens a conversation before it fills the model's context window, so a long run keeps going. Turn it off to send the whole conversation every time.</em></span></label>
+        <div className="set-field"><span className="set-label">Context usage</span>
+          <span className="set-hint" role="status">{taskId ? contextUsageLine(usedTokens, windowTokens) : 'Open a conversation to see how much of its context window it is using.'}</span>
+          <span className="set-hint">Tokens are estimated at four characters per token. The window is the override above, or the default window when none is set.</span>
+        </div>
+        {COMPACTION_FIELDS.map((f) => (
+          <Field key={f.key} id={`compaction-${f.key}`} label={f.label} hint={f.hint}>
+            <input id={`compaction-${f.key}`} className="narrow" inputMode={f.int ? 'numeric' : 'decimal'} spellCheck={false}
+              value={d[f.key]} placeholder={f.key === 'contextWindowOverride' ? 'each model' : undefined}
+              onChange={(e) => set(f.key, e.target.value.replace(f.int ? /[^\d]/g : /[^\d.]/g, ''))} />
+          </Field>
+        ))}
+        <div className="set-field"><span className="set-label">Compact now</span>
+          <div className="set-inline">
+            <input id="compaction-focus" value={focus} onChange={(e) => setFocus(e.target.value)} placeholder="Optional focus, e.g. preserve the API decisions" spellCheck={false} aria-label="Focus instruction" disabled={!on} />
+            <button type="button" className="btn" onClick={() => void runCompact()} disabled={compacting || !taskId || !on}>{compacting ? 'Compacting…' : 'Compact now'}</button>
+          </div>
+          <span className="set-hint">{on ? 'Shortens the open conversation straight away. A focus instruction tells the summary what to keep.' : 'Compaction is off, so nothing is compacted. Turn it on above to compact this conversation.'}</span>
+          {compactNote && <span className="set-hint" role="status">{compactNote}</span>}
+        </div>
+      </div>
+      <div className="set-savebar-row">
+        <div className="set-remove">
+          {confirmReset
+            ? <><span className="muted-s">Restore every compaction value to its default?</span><button type="button" className="btn danger" onClick={() => void restore()} disabled={busy}>Yes, restore</button><button type="button" className="btn-ghost" onClick={() => setConfirmReset(false)} disabled={busy}>Keep</button></>
+            : <button type="button" className="btn-ghost" onClick={() => setConfirmReset(true)} disabled={busy}>Restore defaults</button>}
+        </div>
+        <SaveBar dirty={dirty} busy={busy} error={error} onSave={() => void save()} onReset={reset} />
+      </div>
     </div>
   );
 }
@@ -440,6 +595,9 @@ function BlenderSection() {
   const getApprovals = useStore((x) => x.approvals).filter((a) => a.toolName === GET_BLENDER_TOOL);
   const [port, setPort] = useState('');
   const [path, setPath] = useState('');
+  const [baseDir, setBaseDir] = useState('');
+  const [baseBusy, setBaseBusy] = useState(false);
+  const [baseError, setBaseError] = useState<string | null>(null);
   useEffect(() => { void loadBlender(true); }, []);
   useEffect(() => { if (st) { setPort(String(st.port)); setPath(''); } }, [st?.port]);
   if (!st) return <div className="set-section"><Head title="Blender" lead="Loading" />{error ? <div className="set-error" role="alert"><Icon name="x" size={13} /> <span>{error}</span></div> : <div className="set-loading"><span className="spin" /> Reading Blender status{'\u2026'}</div>}</div>;
@@ -451,6 +609,13 @@ function BlenderSection() {
   const portDirty = port !== String(st.port);
   const portOk = Number.isInteger(portNum) && portNum >= 1024 && portNum <= 65535;
   const pathDirty = path.trim() !== '';
+  const baseDirty = baseDir.trim() !== '';
+  const saveBaseDir = async () => {
+    setBaseBusy(true); setBaseError(null);
+    try { await api.setBlenderBaseDir(baseDir.trim()); setBaseDir(''); await loadBlender(true); }
+    catch (e) { setBaseError(errText(e)); }
+    setBaseBusy(false);
+  };
   const curMode = st.mode ?? (st.sandbox === 'off' ? 'live' : st.sandbox === 'vm' ? 'vm' : 'auto');
   const liveOk = curMode === 'live' || curMode === 'auto';
   const notices = visibleNotices(st);
@@ -551,6 +716,13 @@ function BlenderSection() {
                 <input id="bl-path" value={path} placeholder="C:\Program Files\Blender Foundation\Blender 5.1" spellCheck={false} onChange={(e) => setPath(e.target.value)} />
                 <button type="button" className="btn" disabled={b || !pathDirty} onClick={() => void saveBlenderConfig({ installPath: path.trim() })}>Use this</button>
               </div>
+            </Field>
+            <Field id="bl-base" label={EXPORT_FOLDER_LABEL} hint={EXPORT_FOLDER_HINT}>
+              <div className="set-inline">
+                <input id="bl-base" value={baseDir} placeholder="D:\Blender" spellCheck={false} onChange={(e) => setBaseDir(e.target.value)} />
+                <button type="button" className="btn" disabled={b || baseBusy || !baseDirty} onClick={() => void saveBaseDir()}>{baseBusy ? 'Saving…' : 'Use this folder'}</button>
+              </div>
+              {baseError && <span className="set-hint" role="alert">{baseError}</span>}
             </Field>
             <span className="set-hint">Download addresses, tool names and the VM run command are in config.json under blender.advanced.</span>
           </details>

@@ -1,7 +1,7 @@
 import type { CatalogCommand } from '../../src/shared/types';
 import { api, openExternal } from './api';
 import { resolveModel, modelLabel } from './models';
-import { getState, newTask, openDoctor, selectAgent, setModelChoice, toast, vmAction } from './store';
+import { compactNow, errText, getState, newTask, openDoctor, selectAgent, setModelChoice, toast, vmAction } from './store';
 
 export interface LegionCommand { name: string; description: string; argumentHint: string; /** true when it needs an argument before it can run */ needsArg: boolean; /** hidden from the empty-query list to keep it short; still found by typing */ rare?: boolean }
 
@@ -12,6 +12,7 @@ export const LEGION_COMMANDS: LegionCommand[] = [
   { name: 'opus', rare: true, description: 'Use Opus, or add a message for one-off', argumentHint: '[message]', needsArg: false },
   { name: 'sonnet', rare: true, description: 'Use Sonnet, or add a message for one-off', argumentHint: '[message]', needsArg: false },
   { name: 'vm', description: 'Control this agent’s VM', argumentHint: '<start|stop|desktop>', needsArg: true },
+  { name: 'compact', description: 'Compact this conversation now, with an optional focus', argumentHint: '[focus]', needsArg: false },
   { name: 'doctor', description: 'Open sign-in and setup checks', argumentHint: '', needsArg: false },
   { name: 'agent', description: 'Switch to another agent', argumentHint: '<name>', needsArg: true },
   { name: 'clear', description: 'Clear draft', argumentHint: '', needsArg: false },
@@ -37,6 +38,13 @@ export async function runLegionCommand(text: string): Promise<'handled' | 'send'
     case 'new': newTask(); return 'handled';
     case 'clear': return 'handled';
     case 'doctor': openDoctor(); return 'handled';
+    case 'compact': {
+      const t = s.selectedTaskId;
+      if (!t) { toast('Open a conversation to compact it.', 'error'); return 'handled'; }
+      try { const r = await compactNow(t, p.arg || undefined); toast(r.detail || 'Compaction finished'); }
+      catch (e) { toast(errText(e), 'error'); }
+      return 'handled';
+    }
     case 'opus': case 'sonnet':
       if (p.arg) return 'send';
       setModelChoice(p.name); toast(`Model set to ${modelLabel(s.catalog, p.name)}`); return 'handled';

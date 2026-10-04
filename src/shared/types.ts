@@ -237,6 +237,36 @@ export type McpServerEntry =
   | { type: 'http'; url: string; headers?: Record<string, string> }
   | { type: 'sse'; url: string; headers?: Record<string, string> };
 
+/**
+ * Context-compaction tuning for provider runs (the OpenAI-compatible path). Every field's shipped default equals
+ * the constant the code used before this block existed, so an absent block behaves exactly as before.
+ *
+ * Set in Settings -> Compaction and stored under `compaction` in config.json. Only affects runs on a provider
+ * model; Claude runs use Claude Code's own compaction and never read these.
+ */
+export interface CompactionSettings {
+  /**
+   * Off switch. Only an explicit false turns compaction off; true is the default.
+   *
+   * Required rather than optional, deliberately. An optional flag here means any future construction that forgets it
+   * compiles cleanly and silently leaves compaction ON - the failure is invisible, and the one control a user reaches
+   * for when they want it off would do nothing.
+   */
+  enabled: boolean;
+  /** Fraction of the usable window at which compaction fires. 0.1-0.95. Default 0.5. */
+  thresholdFraction: number;
+  /** Most of the window the verbatim tail may take. 0.02-0.6. Default 0.2. */
+  tailBudgetShare: number;
+  /** What a summary aims for, as a fraction of the window. 0.02-0.4. Default 0.1. */
+  summaryShare: number;
+  /** Early turns kept verbatim on the first compaction. 1-20. Default 3. */
+  protectFirst: number;
+  /** Forces one context window for every provider model, or null to derive it per model. 4096-4000000. Default null. */
+  contextWindowOverride: number | null;
+  /** Below this window a more conservative threshold applies. 4096-4000000. Default 32000. */
+  smallWindowTokens: number;
+}
+
 export interface LegionConfig {
   /** Port for the local HTTP API + MCP endpoint. Bound to 127.0.0.1 only. */
   port: number;
@@ -274,6 +304,8 @@ export interface LegionConfig {
   };
   /** Extra MCP servers Legion hands to agents (by name). */
   mcpServers: Record<string, McpServerEntry>;
+  /** Context-compaction tuning for provider runs. Stored under "compaction"; absent means the shipped defaults. */
+  compaction: CompactionSettings;
 }
 
 /** GET /api/state response */
@@ -341,6 +373,8 @@ export interface SettingsView {
     currency: string;
   };
   mcpServers: Record<string, McpServerEntry>;
+  /** Context-compaction tuning for provider runs. */
+  compaction: CompactionSettings;
   port: number;
   configPath: string;
   dataDir: string;
@@ -348,11 +382,13 @@ export interface SettingsView {
   install?: { dir: string; packaged: boolean };
 }
 
-/** PATCH /api/settings body. Omitted fields are unchanged; apiKey: null clears a key. */
+/** PATCH /api/settings body. Omitted fields are unchanged; apiKey: *** clears a key. */
 export interface SettingsPatch {
   claude?: { auth?: 'claude-login' | 'api-key'; apiKey?: string | null; executablePath?: string | null; inheritClaudeCodeSettings?: boolean; inheritMcp?: boolean; maxTurns?: number };
   boat?: { apiKey?: string | null; baseUrl?: string; rates?: { small?: number | null; default?: number | null; large?: number | null }; currency?: string };
   mcpServers?: Record<string, McpServerEntry>;
+  /** Omitted fields are unchanged; contextWindowOverride: null means "derive the window per model". */
+  compaction?: Partial<CompactionSettings>;
 }
 
 /** State of one MCP server on the most recent run, as the Claude Code process reported it. */

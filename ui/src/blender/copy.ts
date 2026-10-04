@@ -27,7 +27,7 @@ export const LOCAL_SAFETY_NOTE =
 
 export const LOCAL_CARD_WARN = 'Runs headless Blender on this computer as you. Read every line: Legion’s check is a filter, not a sandbox.';
 export const localCardExports = (exportDir: string, workspaceHint = ''): string =>
-  exportDir ? ` Exports are written to ${exportDir}${workspaceHint ? ` and then copied into ${workspaceHint}` : ' and then copied into your workspace under blender-exports'}.` : '';
+  exportDir ? ` Exports are written to ${exportDir}${workspaceHint ? ` and then copied into ${workspaceHint}` : ' and then copied into the Blender export folder (your workspace by default, or the folder set under Blender settings)'}.` : '';
 
 /** The add-on socket notice is about the live path only. */
 export const showSocketNotice = (st: Pick<BlenderStatusView, 'mode' | 'sandbox' | 'socketOpen' | 'connected'>): boolean => {
@@ -61,3 +61,8 @@ export const BOTH_TEXT =
   'The official Blender Lab server is the main backend and runs your scripts; the community add-on is added as a second source of read-only extras. Each add-on gets its own port, Legion checks which one answers where, and the Sculptor sees one merged tool list. Both add-on sockets have no password, so any program on this computer can reach either port. Off by default.';
 export const ASSETS_TITLE = 'Asset downloads (outside content)';
 export const ASSETS_TEXT = 'Legion fetches the asset itself, shows a card (what, from where, how big) for every download, keeps the files in a per-task folder outside your workspace, checks them against Poly Haven’s md5 and counts the run as outside content afterwards. Every source is off until you switch it on. No downloaded script is run. Powered by Poly Haven (polyhaven.com; the assets are CC0).';
+
+/** Settings, Blender: the one folder Blender's own files are kept under. Empty keeps Legion's defaults. */
+export const EXPORT_FOLDER_LABEL = 'Blender folder';
+export const EXPORT_FOLDER_HINT =
+  'Where Legion keeps Blender’s files. Leave it empty for the defaults. An absolute path moves both of Blender’s folders under it: local runs keep their scene, temporary files and backups in <folder>/local, and the files a script exports are copied back to <folder>/exports (a .blend is set aside in <folder>/quarantine). Exports are contained inside this folder, so a script cannot write outside it. With it empty, local scenes stay in Legion’s data folder and exports come back to the agent’s workspace. It must be an absolute path (for example D:\\Blender).';

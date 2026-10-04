@@ -8,15 +8,17 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { connectExternal } from './external-mcp.js';
 import { chatTurn } from './openai-compat.js';
-import type { ChatTurnResult } from './openai-compat.js';
+import type { ChatTurnRequest, ChatTurnResult } from './openai-compat.js';
 import { ProviderHttpError } from './http.js';
 import type { HttpLimits, ProviderTarget } from './http.js';
 import {
-  applyPlan, clipToTokens, CompactionGuard, DEFAULT_CONTEXT_WINDOW, isContextLengthError, isSummaryMessage,
+  applyPlan, carryLossNotice, CarriedItem, clipToTokens, CompactionGuard, DEFAULT_CONTEXT_WINDOW, extractCarriedItems,
+  isContextLengthError, isSummaryMessage, missingCarriedItems, MIN_SUMMARY_TOKENS,
   localFallbackSummary, messagesTokens, needsCompaction, planCompaction, PROTECT_FIRST, renderSummaryRow,
-  renderTranscript, sanitizeSummary, summaryPrompt, thresholdTokens, toolsTokens,
+  renderTranscript, sanitizeSummary, summaryPrompt, TAIL_MAX_WINDOW_FRACTION, thresholdTokens, toolsTokens, usableWindow,
 } from './compaction.js';
 import type { CompactionPlan } from './compaction.js';
+import type { CompactionSettings } from '../../shared/types.js';
 import type { ChatMessage, ChatToolSpec, ProviderHost, ProviderRunResult, TokenUsage } from './types.js';
 
 export const MAX_ARG_BYTES = 64 * 1024;
@@ -121,6 +123,8 @@ export interface BuildOptions {
   summary?: ChatMessage | null;
   /** Compact even if the conversation looks like it fits: the retry after the provider refused it for size. */
   force?: boolean;
+  /** The owner's Settings values. Absent means the shipped defaults, so every existing caller behaves exactly as before. */
+  compaction?: CompactionSettings;
 }
 
 /** What the transcript looks like before anything is dropped, and whether it has to be. */
@@ -214,7 +218,14 @@ function overBudget(all: readonly ChatMessage[], afterSummary: readonly ChatMess
   // which is exactly the thrash the breaker exists to stop.
   const conv: Conversation = { system, all: [...all], existing, afterSummary: [...afterSummary], plan, overBudget: true };
   const body = withSummary(conv, existing);
-  return needsCompaction([...body, tail], window, tools, opts.force);
+  // The off switch, honoured here first. When it is off Legion sends the whole conversation and lets the provider's
+  // own size error be the report - a user who turned this off asked for the conversation verbatim, not for a silent
+  // shortening they did not request.
+  // The off switch, honoured here first. When it is off Legion sends the whole conversation and lets the provider's
+  // own size error be the report - a user who turned this off asked for the conversation verbatim, not for a silent
+  // shortening they did not request.
+  if (opts.compaction?.enabled === false) return false;
+  return needsCompaction([...body, tail], window, tools, opts.force, opts.compaction?.thresholdFraction);
 }
 
 /** The last stored `user` message: the current ask, which `prompt` replaces. */
@@ -223,8 +234,13 @@ function lastUserMessageIndex(stored: ProviderHost['stored']): number {
   return -1;
 }
 
-/** Stored rows as provider messages. A tool call whose result never arrived is dropped with the group. */
-function toChatMessages(prior: ProviderHost['stored']): ChatMessage[] {
+/**
+ * Stored rows as provider messages. A tool call whose result never arrived is dropped with the group.
+ *
+ * Exported because a manual compact has to build the same list a run would send. Hand-mapping the two shapes here
+ * instead would be a second implementation of this rule, and the two would drift.
+ */
+export function toChatMessages(prior: ProviderHost['stored']): ChatMessage[] {
   const msgs: ChatMessage[] = [];
   const open = new Set<string>();
   for (const m of prior) {
@@ -340,6 +356,8 @@ export interface LoopOptions {
   turn?: typeof chatTurn;
   /** The model's context window in tokens. Absent means the conservative default. */
   contextWindow?: number;
+  /** The owner's Settings values for compaction. Absent = shipped defaults. */
+  compaction?: CompactionSettings;
 }
 
 /** The whole request, not one turn: what a single turn's tool output may add before it is clipped as a group. */
@@ -442,27 +460,20 @@ async function compactMessages(
   let summaryIdx = -1;
   for (let i = conv.length - 1; i >= 0; i--) if (isSummaryMessage(conv[i]!)) { summaryIdx = i; break; }
   const existing = summaryIdx >= 0 ? conv[summaryIdx]! : null;
-  let body = '';
+  let body = ''; let usedFallback = false; let missingCarried: CarriedItem[] = [];
   try {
-    const r = await turnFn(target, {
-      model,
-      messages: [
-        { role: 'system', content: summaryPrompt(summariserInput(middle, existing), plan.summaryBudget) },
-        { role: 'user', content: 'Produce the summary now.' },
-      ],
-      tools: [],
-      signal: host.signal,
-      ...(opts.limits ? { limits: opts.limits } : {}),
-      onText: () => undefined,
+    const got = await askSummarizer({
+      turnFn, target, model, transcript: summariserInput(middle, existing),
+      budgetTokens: plan.summaryBudget, middle, limits: opts.limits, signal: host.signal, redact,
     });
-    body = sanitizeSummary(r.text, redact);
+    body = got.body; usedFallback = got.usedFallback; missingCarried = got.missing;
   } catch (e) {
     if (host.cancelled() || (e instanceof ProviderHttpError && e.code === 'aborted')) throw e;
     compactionGuard.noteFailure(taskId);
     host.onNotice('Legion could not summarise this conversation, so it was sent in full. Nothing was lost; if it no longer fits, the task will report the provider\'s own error.');
     return null;
   }
-  const usedFallback = body.length < 40;
+  if (missingCarried.length) host.onNotice(carryLossNotice(missingCarried));
   const summary = clipToTokens(usedFallback ? localFallbackSummary(middle, plan.summaryBudget) : body, plan.summaryBudget);
   const row = renderSummaryRow(summary, { dropped: middle.length, fallback: usedFallback });
   host.onNotice(row.content ?? '');
@@ -519,27 +530,20 @@ async function compactOnce(
       : 'Summarising this conversation twice in a row did not make it smaller, so Legion stopped trying for now. Nothing was lost — the full transcript is still here.');
     return { summary: null, overBudget: conv.overBudget };
   }
-  let body = '';
+  let body = ''; let usedFallback = false; let missingCarried: CarriedItem[] = [];
   try {
-    const r = await turnFn(target, {
-      model,
-      messages: [
-        { role: 'system', content: summaryPrompt(summariserInput(conv.middle, conv.existing), conv.plan.summaryBudget) },
-        { role: 'user', content: 'Produce the summary now.' },
-      ],
-      tools: [],
-      signal: host.signal,
-      ...(opts.limits ? { limits: opts.limits } : {}),
-      onText: () => undefined,
+    const got = await askSummarizer({
+      turnFn, target, model, transcript: summariserInput(conv.middle, conv.existing),
+      budgetTokens: conv.plan.summaryBudget, middle: conv.middle, limits: opts.limits, signal: host.signal, redact,
     });
-    body = sanitizeSummary(r.text, redact);
+    body = got.body; usedFallback = got.usedFallback; missingCarried = got.missing;
   } catch (e) {
     if (host.cancelled() || (e instanceof ProviderHttpError && e.code === 'aborted')) throw e;
     compactionGuard.noteFailure(taskId);
     host.onNotice('Legion could not summarise this conversation, so it was sent in full. Nothing was lost; if it no longer fits, the task will report the provider\'s own error.');
     return { summary: null, overBudget: conv.overBudget };
   }
-  const usedFallback = body.length < 40;
+  if (missingCarried.length) host.onNotice(carryLossNotice(missingCarried));
   const summary = clipToTokens(usedFallback ? localFallbackSummary(conv.middle, conv.plan.summaryBudget) : body, conv.plan.summaryBudget);
   const row = renderSummaryRow(summary, { dropped: conv.middle.length, fallback: usedFallback });
   // Into the transcript, not just into this request: the next turn has to start from the same summary, and the owner has
@@ -551,7 +555,174 @@ async function compactOnce(
   const before = messagesTokens([...conv.all, ask]);
   const after = messagesTokens([...withSummary({ ...conv, overBudget: true }, row), ask]);
   compactionGuard.noteCompaction(taskId, after < before, usedFallback);
-  return { summary: row, overBudget: after > thresholdTokens(opts.contextWindow ?? DEFAULT_CONTEXT_WINDOW, toolsTokens([])) };
+  return { summary: row, overBudget: after > thresholdTokens(opts.contextWindow ?? DEFAULT_CONTEXT_WINDOW, toolsTokens([]), opts.compaction?.thresholdFraction) };
+}
+
+/**
+ * Ask the summariser for a summary of `middle`, and make sure the load-bearing items came back.
+ *
+ * One attempt names every item it must carry. If any is missing the model is asked ONCE more, naming only what it
+ * dropped, because a retry that re-sends the identical prompt returns an identical answer. What is still missing after
+ * that is recorded in the transcript rather than swallowed: a visible loss the owner can see beats a silent one, and
+ * the original turns are still in the append-only transcript either way.
+ *
+ * Both call sites used to duplicate this block, which is how they drifted apart.
+ */
+async function askSummarizer(args: {
+  turnFn: (t: ProviderTarget, req: ChatTurnRequest) => Promise<ChatTurnResult>;
+  target: ProviderTarget;
+  model: string;
+  transcript: string;
+  budgetTokens: number;
+  middle: readonly ChatMessage[];
+  /** HTTP limits for the summariser request; the same partial the run itself uses. */
+  limits?: Partial<HttpLimits>;
+  signal: AbortSignal | undefined;
+  redact: (s: string) => string;
+  /** The user's weighting hint for this summary, when the caller supplied one (manual compaction only). */
+  focus?: string;
+}): Promise<{ body: string; usedFallback: boolean; missing: CarriedItem[] }> {
+  const carried = extractCarriedItems(args.middle);
+  let missing: CarriedItem[] = [];
+  let body = '';
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const r = await args.turnFn(args.target, {
+        model: args.model,
+        messages: [
+          { role: 'system', content: summaryPrompt(args.transcript, args.budgetTokens, carried, attempt === 1 ? missing : undefined, args.focus) },
+          { role: 'user', content: 'Produce the summary now.' },
+        ],
+        tools: [],
+        signal: args.signal,
+        ...(args.limits ? { limits: args.limits } : {}),
+        onText: () => undefined,
+      } as never);
+      body = sanitizeSummary(r.text, args.redact);
+    } catch (e) {
+      throw e;
+    }
+    if (body.length < 40) return { body, usedFallback: true, missing: [] };
+    missing = missingCarriedItems(body, carried);
+    if (missing.length === 0) return { body, usedFallback: false, missing: [] };
+  }
+  return { body, usedFallback: false, missing };
+}
+
+/** What a manual compaction needs. Mirrors the pieces askSummarizer takes, plus the conversation to compact. */
+export interface CompactNowOptions {
+  /** The conversation as it would be sent, system prompt included at [0] when present. */
+  messages: ChatMessage[];
+  turnFn: (t: ProviderTarget, req: ChatTurnRequest) => Promise<ChatTurnResult>;
+  target: ProviderTarget;
+  model: string;
+  /** The model's context window in tokens. */
+  window: number;
+  /** The owner's Settings values. Absent = shipped defaults. */
+  compaction?: CompactionSettings;
+  /** What the user asked the summary to weight. Trimmed; blank is treated as absent. */
+  focus?: string;
+  redact: (s: string) => string;
+  onNotice: (t: string) => void;
+  signal?: AbortSignal;
+  limits?: Partial<HttpLimits>;
+}
+
+/** What a manual compaction produced. `messages` is the conversation to send either way. */
+export interface ManualCompaction {
+  /** The compacted conversation, or the input verbatim when no smaller summary could be produced. */
+  messages: ChatMessage[];
+  /** True when a summary row was produced and inserted. */
+  compacted: boolean;
+  /** True when the summary came from the local extract fallback rather than a model. */
+  usedFallback: boolean;
+  /** Load-bearing items the summary dropped (already reported through onNotice). */
+  missing: CarriedItem[];
+  /** Why nothing was compacted, in a sentence a user can act on. Absent when it worked. */
+  reason?: string;
+}
+
+/**
+ * The newest share of a conversation a manual compaction keeps verbatim.
+ *
+ * A manual cut must always leave a middle to summarise, but the window-derived tail budget can swallow a conversation
+ * that is UNDER the threshold — which is the whole case this entry point exists for. Capping the tail by the
+ * conversation's own size instead of by the window keeps the recent turns and guarantees summarisable ground. It is the
+ * same guarantee the rescue path needs, for the same reason: a plan with an empty middle would summarise nothing and
+ * report success while the thread grew.
+ */
+export const MANUAL_TAIL_SHARE = 0.4;
+
+/**
+ * Force-compact a conversation on demand, whatever its size.
+ *
+ * The automatic path only compacts over the threshold; this is the manual entry point the user reaches for, and it must
+ * work UNDER the threshold or it has no purpose. It reuses `askSummarizer`, so the retention guarantee, the one retry
+ * and the loss notice all still apply — there is exactly one summarisation path, and this is a second CALLER of it, not
+ * a second implementation.
+ *
+ * `focus` is the user's weighting hint, passed straight through to the summariser prompt (see `focusPromptSection`). It
+ * never enters the transcript and never becomes an instruction.
+ *
+ * Lossless on failure: if the summariser throws, or produces nothing smaller than what it replaces, the caller gets the
+ * conversation UNCHANGED. A frozen conversation is recoverable; a partially compacted one is not.
+ */
+export async function compactNow(opts: CompactNowOptions): Promise<ManualCompaction> {
+  const unchanged: ManualCompaction = { messages: opts.messages, compacted: false, usedFallback: false, missing: [] };
+  // The system prompt is Legion's, not the conversation's, so it must survive compaction intact.
+  const system = opts.messages[0]?.role === 'system' ? opts.messages[0]! : null;
+  const conv = system ? opts.messages.slice(1) : [...opts.messages];
+  if (conv.length === 0) return unchanged;
+  const convTokens = messagesTokens(conv);
+  const windowTail = Math.round(usableWindow(opts.window) * (opts.compaction?.tailBudgetShare ?? TAIL_MAX_WINDOW_FRACTION));
+  const tailBudget = Math.max(MIN_SUMMARY_TOKENS, Math.min(windowTail, Math.round(convTokens * MANUAL_TAIL_SHARE)));
+  const plan = planCompaction(conv, {
+    window: opts.window,
+    protectFirst: opts.compaction?.protectFirst ?? PROTECT_FIRST,
+    ...(opts.compaction ? { settings: opts.compaction } : {}),
+    tailBudget,
+  });
+  // An empty middle means the cut would replace nothing, so there is nothing to summarise. Say so rather than return a
+  // silent no-op: the user pressed a button and deserves to know why nothing happened.
+  if (plan.middle.length === 0) {
+    opts.onNotice('This conversation is already small enough that there is nothing to summarise, so nothing was compacted.');
+    return unchanged;
+  }
+  // The NEWEST summary, so a second manual compaction folds the new turns into what the last one recorded.
+  let summaryIdx = -1;
+  for (let i = conv.length - 1; i >= 0; i--) if (isSummaryMessage(conv[i]!)) { summaryIdx = i; break; }
+  const existing = summaryIdx >= 0 ? conv[summaryIdx]! : null;
+  const focus = (opts.focus ?? '').trim();
+  let body = ''; let usedFallback = false; let missing: CarriedItem[] = [];
+  try {
+    const got = await askSummarizer({
+      turnFn: opts.turnFn, target: opts.target, model: opts.model,
+      transcript: summariserInput(plan.middle, existing),
+      budgetTokens: plan.summaryBudget, middle: plan.middle,
+      ...(opts.limits ? { limits: opts.limits } : {}),
+      signal: opts.signal, redact: opts.redact, ...(focus ? { focus } : {}),
+    });
+    body = got.body; usedFallback = got.usedFallback; missing = got.missing;
+  } catch (e) {
+    // The lossless rule: the caller keeps its own conversation. A frozen conversation is recoverable; a partial summary
+    // is not. (A cancellation is not a failure and is re-thrown so the caller can stop.)
+    if (opts.signal?.aborted) throw e;
+    opts.onNotice('Legion could not summarise this conversation, so it was left unchanged. Nothing was lost — the full transcript is still here.');
+    return unchanged;
+  }
+  const summary = clipToTokens(usedFallback ? localFallbackSummary(plan.middle, plan.summaryBudget) : body, plan.summaryBudget);
+  const row = renderSummaryRow(summary, { dropped: plan.middle.length, fallback: usedFallback });
+  const out: ChatMessage[] = system ? [system, ...applyPlan(conv, plan, row)] : applyPlan(conv, plan, row);
+  // A summary that did not make the conversation smaller is worse than none: it costs a model call and buys nothing.
+  const after = messagesTokens(system ? out.slice(1) : out);
+  if (after >= convTokens) {
+    opts.onNotice('A summary would not have made this conversation smaller, so nothing was compacted.');
+    return unchanged;
+  }
+  if (missing.length) opts.onNotice(carryLossNotice(missing));
+  // Into the transcript, not just into this request: the caller persists this row so the next turn starts from it.
+  opts.onNotice(row.content ?? '');
+  return { messages: out, compacted: true, usedFallback, missing };
 }
 
 export async function runToolLoop(host: ProviderHost, target: ProviderTarget, model: string, opts: LoopOptions, redact: (s: string) => string): Promise<ProviderRunResult> {
@@ -696,7 +867,7 @@ export async function runToolLoop(host: ProviderHost, target: ProviderTarget, mo
       // It summarises the LIVE messages rather than the pre-run snapshot. That is the whole difference: `host.stored`
       // was captured before this run, so a compaction built from it would drop every tool result produced since — the
       // work the model just did, silently, mid-task. This is the only place that can compact the run's own work.
-      if (needsCompaction(messages, window, toolsTokens(tools.specs))) {
+      if (opts.compaction?.enabled !== false && needsCompaction(messages, window, toolsTokens(tools.specs), false, opts.compaction?.thresholdFraction)) {
         const live = await compactMessages(turnFn, target, model, opts, host, redact, messages, window, !rescued, false);
         if (live) messages = live;
       }

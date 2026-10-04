@@ -6,12 +6,12 @@ import { dirname, join } from 'node:path';
 import { defaultBlenderConfig, normalizeBlender } from './blender.js';
 import type { BlenderConfig } from './blender.js';
 import { MAX_ROOM_BUDGET_USD } from './comms.js';
-import type { LegionConfig } from './types.js';
+import type { CompactionSettings, LegionConfig } from './types.js';
 import { DEFAULT_PROVIDERS, normalizeProviders } from '../core/providers/config.js';
 import type { ProvidersConfig } from '../core/providers/types.js';
 export { MAX_ROOM_BUDGET_USD };
 
-export const VERSION = '0.2.3-c';
+export const VERSION = '0.2.3-d';
 
 /**
  * Optional BSV Dev Kit toggle (knowledge and visibility only: no wallet, no keys, no funds).
@@ -59,6 +59,70 @@ export type CoreConfig = LegionConfig & { bsv: BsvConfig; comms: CommsConfig; bl
 
 /** The least a room's budget can be (below it one turn cannot fit). The hub, the settings dialogs and the bot-room limits all use it. */
 export const MIN_ROOM_BUDGET_USD = 0.05;
+
+/**
+ * The shipped compaction defaults. Each value equals the constant the provider path used before this block existed
+ * (verified against src/core/providers/compaction.ts by test/provider-compaction-config.test.ts), so a config with no
+ * `compaction` key behaves exactly as every earlier release did.
+ */
+export const DEFAULT_COMPACTION: CompactionSettings = {
+  enabled: true,
+  thresholdFraction: 0.5,
+  tailBudgetShare: 0.2,
+  summaryShare: 0.1,
+  protectFirst: 3,
+  contextWindowOverride: null,
+  smallWindowTokens: 32_000,
+};
+
+/** The accepted range for every numeric compaction field. One source of truth: PATCH validation, config.json normalization and the UI all read it. */
+export const COMPACTION_LIMITS: Record<Exclude<keyof CompactionSettings, 'enabled'>, { min: number; max: number }> = {
+  thresholdFraction: { min: 0.1, max: 0.95 },
+  tailBudgetShare: { min: 0.02, max: 0.6 },
+  summaryShare: { min: 0.02, max: 0.4 },
+  protectFirst: { min: 1, max: 20 },
+  contextWindowOverride: { min: 4_096, max: 4_000_000 },
+  smallWindowTokens: { min: 4_096, max: 4_000_000 },
+};
+
+/**
+ * Whatever the file held under "compaction", reduced to values inside their ranges (the default for anything missing,
+ * wrong-typed or out of range). A hand-edited config.json is never trusted; a value the Settings API accepts is.
+ */
+export function normalizeCompaction(v: unknown): CompactionSettings {
+  const o = (v && typeof v === 'object' ? v : {}) as Record<string, unknown>;
+  type NumKey = Exclude<keyof CompactionSettings, 'contextWindowOverride' | 'enabled'>;
+  const num = (k: NumKey, int = false): number => {
+    const x = o[k];
+    const L = COMPACTION_LIMITS[k];
+    return typeof x === 'number' && Number.isFinite(x) && x >= L.min && x <= L.max && (!int || Number.isInteger(x)) ? x : DEFAULT_COMPACTION[k];
+  };
+  const cwo = o.contextWindowOverride;
+  const cwoL = COMPACTION_LIMITS.contextWindowOverride;
+  const override = cwo === null ? null
+    : typeof cwo === 'number' && Number.isFinite(cwo) && Number.isInteger(cwo) && cwo >= cwoL.min && cwo <= cwoL.max ? cwo
+      : DEFAULT_COMPACTION.contextWindowOverride;
+  return {
+    // Only an explicit false turns it off. Anything else - absent, true, or a wrong type from a hand-edited
+    // config - reads as on, because silently disabling compaction would be worse than ignoring a typo.
+    enabled: o.enabled === false ? false : true,
+    thresholdFraction: num('thresholdFraction'),
+    tailBudgetShare: num('tailBudgetShare'),
+    summaryShare: num('summaryShare'),
+    protectFirst: num('protectFirst', true),
+    contextWindowOverride: override,
+    smallWindowTokens: num('smallWindowTokens', true),
+  };
+}
+
+/**
+ * The compaction settings a provider run consumes, from a LegionConfig. This is the function the engine/provider seam
+ * calls: it always returns a complete, valid object, so a config written before this section existed (or a partial one)
+ * is safe to read. The values only matter on the provider path; Claude runs ignore them.
+ */
+export function compactionFor(config: Pick<LegionConfig, 'compaction'>): CompactionSettings {
+  return normalizeCompaction(config.compaction);
+}
 
 export const DEFAULT_COMMS: CommsConfig = { botRoomMaxMembers: 6, botRoomDefaultBudgetUsd: null, botRoomMaxBudgetUsd: null, turnCostFloorUsd: 0.02 };
 
@@ -108,6 +172,7 @@ export function defaultConfig(): CoreConfig {
     },
     boat: { baseUrl: 'https://boat.dev/api/v1' },
     mcpServers: {},
+    compaction: { ...DEFAULT_COMPACTION },
     bsv: { enabled: false, network: 'testnet' },
     comms: { ...DEFAULT_COMMS },
     blender: defaultBlenderConfig(),
@@ -153,6 +218,7 @@ export function loadConfig(): CoreConfig {
   cfg.comms = normalizeComms(cfg.comms);
   cfg.blender = normalizeBlender(cfg.blender);
   cfg.providers = normalizeProviders(cfg.providers);
+  cfg.compaction = normalizeCompaction(cfg.compaction);
   cfg.experimental = normalizeExperimental(cfg.experimental);
   cfg.features = normalizeFeatures(cfg.features);
   if (process.env.LEGION_PORT) cfg.port = Number(process.env.LEGION_PORT);

@@ -17,7 +17,7 @@ import {
   applyPlan, clipToTokens, CompactionGuard, COMPACTION_MARKER, estimateTokens, FAILURE_COOLDOWN_MS,
   isContextLengthError, isSummaryMessage, lastUserIndex, localFallbackSummary, messagesTokens, needsCompaction,
   planCompaction, PROTECT_FIRST, renderSummaryRow, renderTranscript, sanitizeSummary, summaryPrompt,
-  thresholdFor, thresholdTokens, toolsTokens, usableWindow,
+  SMALL_WINDOW_FLOOR, thresholdFor, thresholdTokens, toolsTokens, usableWindow,
 } from '../src/core/providers/compaction.js';
 import { firstConversationBreak } from '../src/core/providers/conversation.js';
 import { buildMessages, conversationFor, summariserInput } from '../src/core/providers/tool-loop.js';
@@ -48,25 +48,34 @@ const storedOf = (msgs: ChatMessage[]): Array<{ role: string; text: string }> =>
 // ---------------------------------------------------------------- threshold arithmetic
 
 test('the threshold is a fraction of the usable window, not the window itself', () => {
-  assert.equal(thresholdFor(BIG_WINDOW), 0.5);
+  // BIG_WINDOW is under SMALL_WINDOW_LIMIT, so the raise-only floor applies and 0.5 is no longer reachable.
+  assert.equal(thresholdFor(BIG_WINDOW), SMALL_WINDOW_FLOOR);
   // Output space is held back before the fraction is taken, or the request has nowhere to put its answer.
   assert.ok(usableWindow(BIG_WINDOW) < BIG_WINDOW);
   assert.ok(thresholdTokens(BIG_WINDOW) < usableWindow(BIG_WINDOW));
   assert.ok(thresholdTokens(BIG_WINDOW) > usableWindow(BIG_WINDOW) * 0.4, 'and not so conservative that it never fires');
 });
 
-test('a small window compacts earlier than a large one, because the same fraction leaves nothing to work in', () => {
-  assert.ok(thresholdFor(8_192) < thresholdFor(BIG_WINDOW), 'small windows use a more conservative fraction');
+test('a small window compacts LATER than a large one, and never below the floor', () => {
+  // This asserted the opposite once. A small window used to get a LOWER fraction (0.35) and therefore compacted
+  // EARLY, discarding a large share of a window that was already small. The raise-only floor fixed that: under
+  // 512k the trigger is at least 0.75, so a small model keeps its context longer, not less.
+  assert.ok(thresholdFor(8_192) >= thresholdFor(BIG_WINDOW), 'a small window is never more eager than a large one');
+  assert.equal(thresholdFor(8_192), SMALL_WINDOW_FLOOR, 'and it sits exactly on the raise-only floor');
   // The absolute trigger still scales with the window; what changes is how much of it is used.
   assert.ok(thresholdTokens(8_192) < usableWindow(8_192));
   assert.ok(thresholdTokens(8_192) < thresholdTokens(BIG_WINDOW));
 });
 
 test('the estimator over-counts rather than under-counts, because only one of those errors is survivable', () => {
-  // 3 chars/token against ~4 typical of prose: over-counting is the deliberate side of the trade.
-  assert.ok(estimateTokens('a'.repeat(400)) > 100);
+  // 4 chars/token, counted as UTF-8 bytes. Over-counting is the deliberate side of the trade: an over-count wastes
+  // context, an under-count gets a request rejected. The /3 constant this used to assert is gone - but the PROPERTY
+  // is what matters, so that is what is asserted.
+  assert.equal(estimateTokens('a'.repeat(400)), 100, '400 ASCII chars is 100 tokens at 4 chars per token');
   assert.equal(estimateTokens(''), 0);
-  assert.ok(estimateTokens('x'.repeat(300)) >= 100);
+  assert.equal(estimateTokens('x'.repeat(300)), 75);
+  // Never under-count prose, which is the failure that costs a turn.
+  assert.ok(estimateTokens('the quick brown fox '.repeat(100)) >= 450);
 });
 
 // ---------------------------------------------------------------- boundary alignment
@@ -101,7 +110,11 @@ test('a compaction always has something to summarise, and always makes the reque
     ['alternating turns', longConversation(80)],
     ['tool-heavy', [msg('user', 'the ask'), ...Array.from({ length: 30 }, (_, i) => toolGroup(`g${i}`)).flat()]],
     ['no user turn at all', longConversation(40).map((m) => ({ ...m, role: 'assistant' as const }))],
-    ['short conversation forced', longConversation(3)],
+    // 4 turns, not 3. A 3-turn conversation is 336 tokens and fits entirely inside the protected head plus the
+    // 200-token tail, so there is genuinely nothing in the middle to summarise and the planner declines - correctly.
+    // The byte-based estimator shrank the text enough that the old fixture stopped exercising the cut at all. Four
+    // turns is the smallest shape that still has a middle. Measured: 3 turns -> middle 0, 4 turns -> middle 2.
+    ['short conversation forced', longConversation(4)],
   ];
   for (const [label, msgs] of shapes) {
     const plan = planCompaction(msgs, { window: 8_192, protectFirst: PROTECT_FIRST, force: true });
@@ -347,8 +360,15 @@ test('tools count against the window, since they travel in the same request', ()
   // The window is sized so the conversation alone sits just under the threshold and the tools alone push it over — that
   // makes this a test of the tools, not of the conversation length.
   const WINDOW = 20_000;
-  const bigTool = { type: 'function' as const, function: { name: 'mcp__legion__vm_exec', description: 'x'.repeat(20_000), parameters: { type: 'object', properties: {} } } };
+  // 40_000, not 20_000: at 20_000 the tool definitions are 5_022 tokens against a 2_240-token conversation and an
+  // 11_928 trigger, so the tools do NOT move the verdict and the test proved nothing. Measured, not guessed - the
+  // smallest description that flips it is 40_000. The point is the flip, so the fixture is sized to produce one.
+  const bigTool = { type: 'function' as const, function: { name: 'mcp__legion__vm_exec', description: 'x'.repeat(40_000), parameters: { type: 'object', properties: {} } } };
   const convo = longConversation(20);
+  // Sized against the byte-based estimator: the conversation is 2240 tokens against a 11 928 trigger, and the tool
+  // definitions add 5022 - enough to matter, not enough on their own to decide the outcome. The point of the test is
+  // that the SAME conversation changes verdict when tools are counted, so both sides must sit on the right side of
+  // the line. The old /3 estimator made these numbers roughly a third larger.
   assert.equal(needsCompaction(convo, WINDOW, 0), false, 'the conversation alone fits');
   assert.equal(needsCompaction(convo, WINDOW, toolsTokens([bigTool])), true, 'and stops fitting once the tools are counted');
   // The tools shrink the threshold as well as adding to the request: both effects point the same way, which is the
@@ -368,7 +388,11 @@ test('the overflow retry cuts harder than the pre-flight check, or it would send
   // The bug this guards: if `force` only forced the cut but left the tail budget alone, a conversation that fits inside
   // the tail budget would be sent whole on the retry, the provider would refuse it identically, and the rescue path
   // would be a no-op that merely looks like a working feature.
-  const msgs = longConversation(60);
+  // 200 turns, not 60. At 60 the whole conversation is 6_720 tokens and fits inside BOTH tail budgets (34_000 and
+  // 8_500), so neither plan cuts anything and `tokensAfterCut` is equal rather than smaller - the assertion could
+  // never pass, and it was not testing the forced cut at all. At 200 turns the conversation is 22_500 tokens, which
+  // the normal plan cuts and the forced plan cuts harder. Measured, not guessed.
+  const msgs = longConversation(200);
   const normal = planCompaction(msgs, { window: BIG_WINDOW, protectFirst: PROTECT_FIRST });
   const forced = planCompaction(msgs, { window: BIG_WINDOW, protectFirst: PROTECT_FIRST, force: true });
   assert.ok(forced.tailBudget < normal.tailBudget, 'a forced cut gets a smaller tail budget');

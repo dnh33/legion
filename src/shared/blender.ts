@@ -325,6 +325,9 @@ export function normalizeBlender(v: unknown): BlenderConfig {
     host: typeof v.host === 'string' && isLoopbackHost(v.host.trim()) ? v.host.trim() : d.host,
     port,
     ...(typeof v.installPath === 'string' && v.installPath.trim() && v.installPath.length <= 1000 && !/\0/.test(v.installPath) ? { installPath: v.installPath.trim() } : {}),
+    // Absolute only: a relative base resolves against the process CWD, so the same saved value could write to a
+    // different folder on a different launch. Rejecting it here means a hand-edited config.json cannot reintroduce it.
+    ...(typeof v.baseDir === 'string' && ABSOLUTE_PATH.test(v.baseDir.trim()) && v.baseDir.length <= 1000 && !/[\0\r\n]/.test(v.baseDir) ? { baseDir: v.baseDir.trim() } : {}),
     // Absolute only: a relative base would resolve against different working directories, so it is dropped (kept as Legion's default).
     ...(typeof v.baseDir === 'string' && v.baseDir.trim().length > 0 && v.baseDir.length <= 1000 && !/[\0\r\n]/.test(v.baseDir) && ABSOLUTE_PATH.test(v.baseDir.trim()) ? { baseDir: v.baseDir.trim() } : {}),
     ...(mode ? { mode } : {}),

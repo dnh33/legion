@@ -1,7 +1,7 @@
 /** Settings API backend: validate, persist atomically to config.json, apply live. */
 import { existsSync, readFileSync } from 'node:fs';
-import { writeConfigFile } from '../shared/config.js';
-import type { LegionConfig, McpServerEntry, SettingsPatch, SettingsView } from '../shared/types.js';
+import { COMPACTION_LIMITS, DEFAULT_COMPACTION, writeConfigFile } from '../shared/config.js';
+import type { CompactionSettings, LegionConfig, McpServerEntry, SettingsPatch, SettingsView } from '../shared/types.js';
 import { sanitizeRates } from '../shared/vm-usage.js';
 import { BoatClient } from './boat.js';
 import type { EventBus } from './bus.js';
@@ -79,6 +79,14 @@ function mcpEntry(name: string, v: unknown): McpServerEntry {
   };
 }
 
+/** One compaction number: a real number (or integer) inside its range, or a 400 naming the field and the range. Never clamped. */
+function compactionNum(v: unknown, field: string, lo: number, hi: number, int = false): number {
+  if (typeof v !== 'number' || !Number.isFinite(v) || (int && !Number.isInteger(v)) || v < lo || v > hi) {
+    throw new SettingsError(`${field} must be ${int ? 'an integer' : 'a number'} between ${lo} and ${hi}`);
+  }
+  return v;
+}
+
 /** Returns a normalised patch; throws SettingsError(400) on bad input. */
 export function validatePatch(raw: unknown, current?: Record<string, McpServerEntry>): SettingsPatch {
   if (!isObj(raw)) throw new SettingsError('JSON object body required');
@@ -144,6 +152,26 @@ export function validatePatch(raw: unknown, current?: Record<string, McpServerEn
     }
     out.mcpServers = m;
   }
+  if (raw.compaction !== undefined) {
+    if (!isObj(raw.compaction)) throw new SettingsError('compaction must be an object');
+    const c = raw.compaction, o: NonNullable<SettingsPatch['compaction']> = {};
+    const L = COMPACTION_LIMITS;
+    if (c.enabled !== undefined) {
+      if (typeof c.enabled !== 'boolean') throw new SettingsError('compaction.enabled must be a boolean');
+      o.enabled = c.enabled;
+    }
+    if (c.thresholdFraction !== undefined) o.thresholdFraction = compactionNum(c.thresholdFraction, 'compaction.thresholdFraction', L.thresholdFraction.min, L.thresholdFraction.max);
+    if (c.tailBudgetShare !== undefined) o.tailBudgetShare = compactionNum(c.tailBudgetShare, 'compaction.tailBudgetShare', L.tailBudgetShare.min, L.tailBudgetShare.max);
+    if (c.summaryShare !== undefined) o.summaryShare = compactionNum(c.summaryShare, 'compaction.summaryShare', L.summaryShare.min, L.summaryShare.max);
+    if (c.protectFirst !== undefined) o.protectFirst = compactionNum(c.protectFirst, 'compaction.protectFirst', L.protectFirst.min, L.protectFirst.max, true);
+    if (c.contextWindowOverride !== undefined) {
+      // null is the "derive the window per model" value; anything else must be a whole number in range.
+      o.contextWindowOverride = c.contextWindowOverride === null ? null
+        : compactionNum(c.contextWindowOverride, 'compaction.contextWindowOverride', L.contextWindowOverride.min, L.contextWindowOverride.max, true);
+    }
+    if (c.smallWindowTokens !== undefined) o.smallWindowTokens = compactionNum(c.smallWindowTokens, 'compaction.smallWindowTokens', L.smallWindowTokens.min, L.smallWindowTokens.max, true);
+    out.compaction = o;
+  }
   return out;
 }
 
@@ -164,6 +192,7 @@ export class SettingsService {
         rates: sanitizeRates(c.boat.rates), currency: typeof c.boat.currency === 'string' ? c.boat.currency : '',
       },
       mcpServers: Object.fromEntries(Object.entries(c.mcpServers ?? {}).map(([k, v]) => [k, maskEntry(v)])),
+      compaction: { ...(c.compaction ?? DEFAULT_COMPACTION), contextWindowOverride: c.compaction?.contextWindowOverride ?? null },
       port: c.port, configPath: this.deps.configPath, dataDir: this.deps.dataDir,
       ...(this.deps.install ? { install: this.deps.install } : {}),
     };
@@ -182,7 +211,9 @@ export class SettingsService {
       if (!isObj(disk)) disk = {};
     }
     const apply = (target: any) => {
-      for (const sec of ['claude', 'boat'] as const) {
+      // THE PERSISTENCE LIST. A section not named here is written to the in-memory config only and is gone on restart.
+      // Adding a top-level settings section means adding it here; test/settings.test.ts reads config.json back from disk to prove it.
+      for (const sec of ['claude', 'boat', 'compaction'] as const) {
         const src = p[sec] as Record<string, unknown> | undefined;
         if (!src) continue;
         target[sec] = isObj(target[sec]) ? target[sec] : {};
@@ -204,6 +235,16 @@ export class SettingsService {
       try { this.deps.onBoatChange?.(); } catch { /* ignore */ }
     }
     return view;
+  }
+
+  /**
+   * POST /api/settings/compaction/reset: restore the shipped compaction defaults.
+   *
+   * Goes through patch() on purpose, so the reset is validated, persisted to config.json and applied live exactly like
+   * a hand-made edit — and so it lands in the same settings.updated event the UI already listens for.
+   */
+  resetCompaction(): SettingsView {
+    return this.patch({ compaction: { ...DEFAULT_COMPACTION } });
   }
 
   /**

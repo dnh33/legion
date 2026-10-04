@@ -2,14 +2,14 @@ import { useSyncExternalStore } from 'react';
 import type {
   AgentProfile, ApprovalRequest, BoatHealthView, Catalog, SettingsPatch, SettingsView, ChatMessage, DoctorCheck, LegionEvent, MascotMood, ModelChoice, StateSnapshot, Task, VmRecord,
 } from '../../src/shared/types';
-import { api, subscribe, ApiError, type ConnStatus } from './api';
+import { api, request, subscribe, ApiError, type ConnStatus } from './api';
 import { incomingWins } from './chat/tasksync';
 import type { Project } from '../../src/shared/projects';
 import { FILTER_KEY, inProject, newTaskProjectId } from './projects/projectsLogic';
 
 export type RelicState = 'idle' | 'listening' | 'thinking' | 'hacking' | 'awaiting' | 'victory' | 'error' | 'sleeping' | 'annoyed';
 
-export type SettingsSection = 'claude' | 'providers' | 'boat' | 'mcp' | 'blender' | 'connections' | 'about';
+export type SettingsSection = 'claude' | 'providers' | 'boat' | 'mcp' | 'blender' | 'compaction' | 'connections' | 'about';
 export type TaskSrc = 'tab' | 'recent';
 export interface TaskMenu { x: number; y: number; taskId: string; src: TaskSrc }
 
@@ -411,6 +411,14 @@ export async function cancelSelected() {
   try { await api.cancelTask(id); } catch (e) { toast(errText(e), 'error'); }
 }
 
+/**
+ * POST /api/tasks/:id/compact: compact this conversation now, optionally with a focus instruction telling the summary
+ * what to keep. Returns the engine's plain-language result; throws the server's message so the caller can show it.
+ */
+export async function compactNow(taskId: string, focus?: string): Promise<{ ok: boolean; detail: string }> {
+  return api.compactNow(taskId, focus);
+}
+
 export async function decide(id: string, allow: boolean) {
   setState((s) => ({ approvals: s.approvals.filter((a) => a.id !== id) })); // optimistic
   try { await api.decide(id, allow); } catch (e) { toast(errText(e), 'error'); void refresh(); }
@@ -538,6 +546,14 @@ export async function saveSettings(patch: SettingsPatch, quiet = false): Promise
   setState({ settings: view, boatConfigured: view.boat.apiKeySet, auth: view.claude.auth });
   if (!quiet) toast('Saved');
   void runDoctor();
+  return view;
+}
+
+/** POST /api/settings/compaction/reset: restore the shipped compaction defaults. Throws the server's message on a 403/400. */
+export async function resetCompaction(): Promise<SettingsView> {
+  const view = await request<SettingsView>('POST', '/api/settings/compaction/reset');
+  setState({ settings: view });
+  toast('Compaction reset to defaults');
   return view;
 }
 export { errText };

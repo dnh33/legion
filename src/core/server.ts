@@ -209,6 +209,8 @@ export function createServer(ctx: CoreContext): Server {
   route('GET', '/api/settings', () => ctx.settings.view());
   route('PATCH', '/api/settings', ({ body }) => ctx.settings.patch(body));
   route('POST', '/api/settings/boat/test', ({ body }) => ctx.settings.testBoat(isObj(body) ? body.apiKey : undefined, isObj(body) ? body.baseUrl : undefined));
+  // Restores the shipped compaction defaults. Admin-only by default-deny (not in admin.ts CLIENT_ROUTES), like every settings route.
+  route('POST', '/api/settings/compaction/reset', () => ctx.settings.resetCompaction());
 
   // ---- agents ----------------------------------------------------------
   route('GET', '/api/agents', () => ctx.store.listAgents().filter(visible));
@@ -326,6 +328,19 @@ export function createServer(ctx: CoreContext): Server {
   route('POST', '/api/tasks/:id/cancel', ({ params }) => {
     mustTask(params[0]);
     return { ok: ctx.engine.cancel(params[0]) };
+  });
+
+  /**
+   * Compact this conversation now. `focus` is optional and tells the summary what to weight - the user gets to say
+   * what matters before it is compressed away.
+   *
+   * Returns { ok, detail } rather than throwing on a decline: turning compaction off, a conversation too short to
+   * compact, or a provider that will not answer are ordinary outcomes the UI shows, not failures.
+   */
+  route('POST', '/api/tasks/:id/compact', async ({ params, body }) => {
+    mustTask(params[0]);
+    const focus = isObj(body) ? str(body.focus, 'focus') : undefined;
+    return ctx.engine.compactTaskNow(params[0], focus);
   });
 
   // ---- vms -------------------------------------------------------------

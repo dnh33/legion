@@ -7,7 +7,7 @@
  */
 import type { McpServerConfig } from '@anthropic-ai/claude-agent-sdk';
 import { join } from 'node:path';
-import { ASSET_SOURCES, ASSET_SOURCES_UNSUPPORTED, BLENDER_DOWNLOAD_PAGE, BLENDER_BOTH_NOTICE, BLENDER_EXEC_TOOL, BLENDER_SERVER_NAME, GET_BLENDER_TOOL, MANAGED_BLENDER, BLENDER_SOCKET_NOTICE, BLENDER_UPGRADE_NOTICE, BLENDER_MODES, effectiveMode, SCULPTOR_ID } from '../../shared/blender.js';
+import { ABSOLUTE_PATH, ASSET_SOURCES, ASSET_SOURCES_UNSUPPORTED, BLENDER_DOWNLOAD_PAGE, BLENDER_BOTH_NOTICE, BLENDER_EXEC_TOOL, BLENDER_SERVER_NAME, GET_BLENDER_TOOL, MANAGED_BLENDER, BLENDER_SOCKET_NOTICE, BLENDER_UPGRADE_NOTICE, BLENDER_MODES, effectiveMode, SCULPTOR_ID } from '../../shared/blender.js';
 import type { BlenderBackendKind, BlenderMode, BlenderConfig, BlenderInstall, BlenderLight, BlenderSetupResult, BlenderStatusView, BlenderTestResult, BlenderSetupStep } from '../../shared/blender.js';
 import type { AgentProfile } from '../../shared/types.js';
 import { HttpError } from '../server.js';
@@ -263,6 +263,8 @@ export function createBlenderModule(deps: ModuleDeps, opts: BlenderModuleOptions
       sandboxReady: rd.ready, sandboxNote: rd.note, mode, localReady: lr.ready, localNote: lr.note, nextRun,
       busy: busy ? { since: busy.since, hash12: busy.hash12, mode: busy.mode } : null,
       host: c.host, port: c.port, setup: rec,
+      // So the Settings field can prefill with what is actually in force, not an empty box.
+      ...(c.baseDir ? { baseDir: c.baseDir } : {}),
       ...(lastError ? { lastError } : {}), ...(notices.length ? { notices } : {}), lastCheckedAt: new Date().toISOString(), stats: { ...guard.stats },
     };
   }
@@ -332,6 +334,13 @@ export function createBlenderModule(deps: ModuleDeps, opts: BlenderModuleOptions
     if ('installPath' in body) {
       if (body.installPath !== null && (typeof body.installPath !== 'string' || body.installPath.length > 1000 || /[\0\r\n]/.test(body.installPath))) throw new HttpError(400, 'installPath must be a path or null');
       p.installPath = body.installPath as string | null;
+    }
+    // Absolute only. A relative base would resolve against the process CWD, so the same saved value could mean a
+    // different folder on a different launch - the setting would appear to work and quietly write somewhere else.
+    if ('baseDir' in body) {
+      const b = body.baseDir;
+      if (b !== null && (typeof b !== 'string' || b.length > 1000 || /[\0\r\n]/.test(b) || (b.trim() !== '' && !ABSOLUTE_PATH.test(b.trim())))) throw new HttpError(400, 'baseDir must be an absolute path or null');
+      p.baseDir = b as string | null;
     }
     return p;
   }

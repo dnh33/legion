@@ -26,6 +26,8 @@ import type { McpStatusView } from '../shared/types.js';
 import { providerPrefix } from './providers/runtime.js';
 import type { ProviderRuntime } from './providers/runtime.js';
 import type { ProviderHost, ResolvedModel } from './providers/types.js';
+import { messagesTokens, isSummaryMessage } from './providers/compaction.js';
+import { toChatMessages } from './providers/tool-loop.js';
 import type { Project } from '../shared/projects.js';
 import { projectSection } from './projects/prompt.js';
 import { renderCapabilities } from './agent-facts.js';
@@ -741,6 +743,52 @@ export class Engine {
       };
     }
     return options;
+  }
+
+  /**
+   * Compact a stored conversation now, on the user's request, for POST /api/tasks/:id/compact.
+   *
+   * The summary is written by the SAME model the last run used, so the compacted thread is still the same conversation
+   * rather than a new one in a different voice. The result is appended as a system row: the transcript is append-only,
+   * so the original turns stay retrievable and nothing is destroyed - which is also why a failed or declined compact
+   * simply changes nothing rather than needing an undo.
+   */
+  async compactTaskNow(taskId: string, focus?: string): Promise<{ ok: boolean; detail: string }> {
+    const task = this.store.getTask(taskId);
+    if (!task) return { ok: false, detail: 'That task is not here any more.' };
+    const model = task.model;
+    if (!model || model === 'auto') {
+      return { ok: false, detail: 'This conversation has not run on a provider model yet. Open it and send a message first, then compact.' };
+    }
+    const stored = this.store.listMessages(taskId);
+    if (stored.length < 2) return { ok: false, detail: 'There is not enough conversation here to compact yet.' };
+
+    const asMessages = toChatMessages(stored);
+    // No provider runtime means no provider model could ever have run this task, so there is nothing to summarise
+    // with. Declining is the honest answer; `this.providers!` here would throw a TypeError and surface as a 500.
+    if (!this.providers) return { ok: false, detail: 'Provider models are not available in this build.' };
+    const before = messagesTokens(asMessages);
+    const notices: string[] = [];
+    const result = await this.providers!.compactNow({
+      model,
+      messages: asMessages,
+      ...(focus && focus.trim() ? { focus: focus.trim() } : {}),
+      onNotice: (t) => { notices.push(t); },
+    });
+    for (const n of notices) this.addMessage(taskId, 'system', n);
+
+    if (!result.compacted) {
+      return { ok: false, detail: result.reason ?? 'Nothing was compacted; the conversation was left as it was.' };
+    }
+    // The summary row is what the next run reads, so it is stored like any other system row.
+    const summaryRow = result.messages.find((m) => isSummaryMessage(m));
+    if (summaryRow?.content) this.addMessage(taskId, 'system', summaryRow.content);
+    const after = messagesTokens(toChatMessages(this.store.listMessages(taskId)));
+    const lost = result.missing.length ? ` ${result.missing.length} item(s) did not survive the summary.` : '';
+    return {
+      ok: true,
+      detail: `Compacted ${before} to about ${after} estimated tokens.${lost}`,
+    };
   }
 
   /** One run on a non-Claude provider (the seam into src/core/providers). Never falls back to Claude: a failure is the task's error. */

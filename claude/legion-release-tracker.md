@@ -796,6 +796,30 @@ matters: an agent writes a line into `AGENTS.md`, then `house_read` must return 
 down to `ask`**. Never confirmed — the earlier investigation ran out of subagent credit before isolating it. Small,
 live, and visible to the owner, so it is its own session rather than bundled with a feature.
 
+### TASK LADDER — where the work is, in order (updated at every release)
+
+**Source of truth for what happens next.** Anything not listed here is not agreed work.
+
+**Shipping now: `0.2.3-d`** — the context engine, brought to parity with the reference plus the controls a user needs.
+
+1. **`0.2.3-d` (IN PROGRESS)** — compaction off switch, manual compact with a focus instruction, a context-usage readout,
+   the `/compact` command and its route. Gate: 2,574 tests, 2 known failures, 0 type errors.
+2. **Logging (NEXT)** — Legion has none today. The reference ships `~/.hermes/logs/` with rotation and a CLI reader
+   (`hermes_cli/logs.py`: `tail_log`, `list_logs`, filters by level/component/time). The owner's use case is concrete:
+   when something breaks locally, the log is what gets pasted to an agent.
+   Requirements: append-only, size-capped rotation, **redacted at write time** (NOT encrypted - an encrypted log cannot be
+   pasted into a chat, which defeats the purpose), event ids rather than prose, and a clear button in Settings.
+   Open question to settle first: whether the reference redacts at the writer or only at the display. NOT VERIFIED.
+3. **Context engine 1-to-1 (NEXT AFTER LOGGING)** — the pairing table is in the owner's vault at
+   `06-projects/legion/context-engine-1-to-1-with-hermes.md`. Scorecard: PARITY 11, AHEAD 4, GAP 19, PARTIAL 1.
+   Rule: read the reference's stated REASON before closing a gap; copying a value without its rationale is how the
+   small-window rule ended up inverted.
+
+**Known failures, both pre-existing and NOT ours:**
+- `export-public` / `export-scrub`: `claude/SESSION-QUEUE.md` contains the owner's vault name. The owner's document to
+  fix; not to be edited inside a feature commit. Not in the release path.
+- `kg` F1 (`test/perf-l-store.test.ts`): proven failing at `deb5a69`, before any of this work.
+
 ### D12 — PIVOT 2026-10-04: the four features come first, one release each (owner)
 **Owner:** "if the 4 features are NOT built, then I think we should focus each one being an independent minor release or
 something, we are in beta mind you... and then when this house layer is fully verified and you have fixed and validated

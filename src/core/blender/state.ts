@@ -13,7 +13,7 @@ import type { LegionConfig } from '../../shared/types.js';
 export interface SetupRecord { official: ServerSetupInfo | null; community: ServerSetupInfo | null; addonInstalledFor: BlenderBackendKind | null }
 
 /** What the settings route may change. Everything else (advanced, entry, host) is written by Setup or by hand in config.json. */
-export interface BlenderPatch { both?: boolean; assets?: Partial<Record<AssetSource, boolean>>; enabled?: boolean; backend?: BlenderConfig['backend']; mode?: BlenderMode; sandbox?: BlenderConfig['sandbox']; port?: number; installPath?: string | null }
+export interface BlenderPatch { both?: boolean; assets?: Partial<Record<AssetSource, boolean>>; enabled?: boolean; backend?: BlenderConfig['backend']; mode?: BlenderMode; sandbox?: BlenderConfig['sandbox']; port?: number; installPath?: string | null; baseDir?: string | null }
 
 const isInfo = (v: unknown): v is ServerSetupInfo => !!v && typeof v === 'object' && typeof (v as ServerSetupInfo).url === 'string' && typeof (v as ServerSetupInfo).sha256 === 'string';
 
@@ -62,6 +62,8 @@ export class BlenderState {
     if (patch.mode !== undefined || patch.sandbox !== undefined) next.modeAsked = true;
     if (patch.port !== undefined) next.port = patch.port;
     if (patch.installPath !== undefined) { if (patch.installPath === null || !patch.installPath.trim()) delete next.installPath; else next.installPath = patch.installPath.trim(); }
+    // The Blender folder. Cleared to undefined on blank so normalizeBlender restores the defaults rather than leaving an empty string as a base.
+    if (patch.baseDir !== undefined) { if (patch.baseDir === null || !patch.baseDir.trim()) delete next.baseDir; else next.baseDir = patch.baseDir.trim(); }
     return this.commit(normalizeBlender(next));
   }
 

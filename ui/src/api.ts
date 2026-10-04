@@ -1,5 +1,6 @@
 import type { Project } from '../../src/shared/projects';
 import type { BoardStatus, BoardView, WorkItem } from '../../src/shared/board';
+import type { BlenderStatusView } from '../../src/shared/blender';
 import type {
   SettingsView, SettingsPatch, McpStatusView,
   AgentProfile, ApprovalRequest, BoatHealthView, Catalog, ChatMessage, DoctorCheck, LegionConfig, LegionEvent, ModelChoice, StateSnapshot, Task, VmRecord,
@@ -96,6 +97,8 @@ export const api = {
   catalog: (refresh = false) => request<Catalog>('GET', `/api/catalog${refresh ? '?refresh=1' : ''}`),
   doctor: () => request<DoctorCheck[]>('GET', '/api/doctor'),
   mcpStatus: () => request<McpStatusView>('GET', '/api/mcp/status'),
+  /** POST /api/blender/config with just baseDir: the one folder Blender keeps its local scene files and copied-back exports under. Empty restores Legion's defaults. */
+  setBlenderBaseDir: (baseDir: string) => request<BlenderStatusView>('POST', '/api/blender/config', { baseDir }),
   createAgent: (a: NewAgent) => request<AgentProfile>('POST', '/api/agents', a),
   patchAgent: (id: string, a: Partial<AgentProfile>) => request<AgentProfile>('PATCH', `/api/agents/${encodeURIComponent(id)}`, a),
   deleteAgent: (id: string) => request<{ ok: true }>('DELETE', `/api/agents/${encodeURIComponent(id)}`),
@@ -118,6 +121,8 @@ export const api = {
   createTask: (b: { agentId: string; prompt: string; model?: ModelChoice; continueTaskId?: string; projectId?: string }) => request<Task>('POST', '/api/tasks', b),
   getTask: (id: string) => request<{ task: Task; messages: ChatMessage[] }>('GET', `/api/tasks/${encodeURIComponent(id)}`),
   cancelTask: (id: string) => request<{ ok: boolean }>('POST', `/api/tasks/${encodeURIComponent(id)}/cancel`),
+  /** POST /api/tasks/:id/compact: ask the engine to compact this conversation now, optionally keeping a focus instruction. */
+  compactNow: (taskId: string, focus?: string) => request<{ ok: boolean; detail: string }>('POST', `/api/tasks/${encodeURIComponent(taskId)}/compact`, focus ? { focus } : {}),
   vms: () => request<VmRecord[]>('GET', '/api/vms'),
   startVm: (agentId: string) => request<VmRecord>('POST', `/api/vms/${encodeURIComponent(agentId)}/start`),
   boatHealth: () => request<BoatHealthView>('GET', '/api/boat/health'),

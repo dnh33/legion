@@ -1,8 +1,11 @@
 /** The provider runtime: which model values mean a provider, running one provider turn for the engine, and the views Settings shows. */
 import { scrubSecrets } from '../comms/scrub.js';
 import { contextWindowFor } from './model-window.js';
-import { listModelIds } from './openai-compat.js';
-import type { chatTurn } from './openai-compat.js';
+import { compactNow, type ManualCompaction } from './tool-loop.js';
+import type { ChatMessage } from './types.js';
+import { compactionFor, DEFAULT_COMPACTION } from '../../shared/config.js';
+import type { CompactionSettings } from '../../shared/types.js';
+import { chatTurn, listModelIds } from './openai-compat.js';
 import { ProviderHttpError } from './http.js';
 import type { HttpLimits, ProviderTarget } from './http.js';
 import { checkEndpoint } from './endpoint.js';
@@ -15,7 +18,7 @@ import type { ProviderView, ProvidersView } from '../../shared/providers-view.js
 
 export interface RuntimeDeps {
   /** Live: Settings edits replace `providers` on this object. */
-  config: { providers: ProvidersConfig };
+  config: { providers: ProvidersConfig; compaction?: CompactionSettings };
   keys: ProviderKeys;
   /** Tests only. */
   limits?: Partial<HttpLimits>;
@@ -73,6 +76,35 @@ export class ProviderRuntime {
     return { entry, ...(key ? { key, keyOrigin: origin } : {}) };
   }
 
+  /**
+   * Compact a stored conversation on demand, for `POST /api/tasks/:id/compact`.
+   *
+   * A manual cut has to ask the SAME model the run uses - a summary written by a different model is a different
+   * conversation - so this goes through the same resolve/target path as `run()` rather than reaching around it. The
+   * settings, window and redaction are the ones a run would use, so a manual compact cannot be a cheaper or laxer
+   * path than the automatic one.
+   */
+  async compactNow(opts: { model: string; messages: ChatMessage[]; focus?: string; signal?: AbortSignal; onNotice?: (t: string) => void }): Promise<ManualCompaction> {
+    const r = this.resolve(opts.model);
+    if (!r?.entry) return { messages: opts.messages, compacted: false, usedFallback: false, missing: [], reason: 'Choose a provider model in Settings before compacting this conversation.' };
+    if (!r.entry.enabled) return { messages: opts.messages, compacted: false, usedFallback: false, missing: [], reason: `The provider "${r.entry.label}" is turned off.` };
+    const compaction = compactionFor({ compaction: this.deps.config.compaction ?? DEFAULT_COMPACTION });
+    if (compaction.enabled === false) return { messages: opts.messages, compacted: false, usedFallback: false, missing: [], reason: 'Compaction is turned off in Settings, Compaction.' };
+    return compactNow({
+      messages: opts.messages,
+      target: this.target(r.providerId, r.entry),
+      turnFn: this.deps.turn ?? chatTurn,
+      model: r.model,
+      window: compaction.contextWindowOverride ?? contextWindowFor(r.model, r.entry.contextWindow),
+      compaction,
+      ...(opts.focus ? { focus: opts.focus } : {}),
+      ...(opts.signal ? { signal: opts.signal } : {}),
+      limits: this.deps.limits,
+      redact: (text: string) => this.redact(text),
+      onNotice: opts.onNotice ?? (() => undefined),
+    });
+  }
+
   /** Strips the keys Legion holds and any key-shaped text from a string before it is stored or shown. */
   redact(s: string): string { return scrubSecrets(s, { exact: this.deps.keys.all() }); }
 
@@ -87,11 +119,14 @@ export class ProviderRuntime {
     if (!r.entry) return fail(`The provider "${r.providerId}" is not set up any more. Choose another model for this agent in Settings, Providers.`);
     if (!r.entry.enabled) return fail(`The provider "${r.entry.label}" is turned off. Turn it on in Settings, Providers, or choose another model for this agent.`);
     if (!r.model.trim()) return fail('No model id was given for this provider.');
+    const compaction = compactionFor({ compaction: this.deps.config.compaction ?? DEFAULT_COMPACTION });
     const res = await runToolLoop(host, this.target(r.providerId, r.entry), r.model, {
       maxTurns: this.cfg.maxTurns, maxToolCallsPerTurn: this.cfg.maxToolCallsPerTurn, limits: this.deps.limits,
       // Per MODEL, not per entry: one entry on an aggregator serves hundreds of models whose windows differ by 60x.
-      // The owner's own value for the entry still wins (a self-hosted model can differ from any catalogue).
-      contextWindow: contextWindowFor(r.model, r.entry.contextWindow),
+      // The owner's own value for the entry still wins (a self-hosted model can differ from any catalogue), and the
+      // Settings override wins over both - otherwise the Compaction page would save a value that does nothing.
+      contextWindow: compaction.contextWindowOverride ?? contextWindowFor(r.model, r.entry.contextWindow),
+      compaction,
       ...(this.deps.turn ? { turn: this.deps.turn } : {}),
     }, (s) => this.redact(s));
     const cost = this.costOf(r, res);
