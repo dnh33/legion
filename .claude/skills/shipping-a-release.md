@@ -52,7 +52,12 @@ Full detail with commands: [`docs/SHIPPING.md`](../../docs/SHIPPING.md). The ord
    refuses it. Copy out, sign, delete the copy. Never read a key into a session — pass the path.
 8. **`release-preflight.mjs` must end "Pre-flight passed".** Do not publish over a failure.
 9. **Merge `--no-ff`.** Read every removed test line: `git diff pre-merge-<name> HEAD -- test/ | grep '^-[^-]'`.
-10. **DRAFT the release.** `--draft` first, all assets uploaded, **verify from the live CDN**, then `--draft=false`.
+10. **DRAFT the release.** `gh release create --draft`, then upload all five assets. Verify the **uploaded** assets
+    before publishing: GitHub reports a `digest` per asset, and it must equal your local sha256. Then `--draft=false`.
+11. **Verify from the live CDN — AFTER publishing.** This is a post-publish check, not a pre-publish one, and the
+    distinction is not pedantic: **a draft's assets are not publicly served**, so `releases/download/...` returns 404
+    until the release is public. Verified 2026-10-04. What you can check on a draft is byte-equality via the asset
+    digest; what only the CDN can tell you is that an *existing install* can fetch it.
 
 ## Failure modes seen here
 
@@ -84,10 +89,11 @@ curl -sL https://github.com/dnh33/legion/releases/latest/download/legion-update-
 ```
 
 Into a **fresh** directory, fetch the manifest, its `.sig`, `app.zip` and `SHA256SUMS.txt`, and run
-`release-verify.mjs` **on those fetched bytes**. Confirm `version`, `requiresFullInstall: false`, and that the asset
-sha256 matches. Newly uploaded assets 503 for about a minute while the CDN warms — that is not a failure; wait.
+`release-verify.mjs` **on those fetched bytes**. Confirm `version` and `requiresFullInstall: false`.
 
-Only then `--draft=false`.
+Freshly uploaded assets 503 for about a minute while the CDN warms — that is not a failure; wait and re-fetch.
+
+If any check here is unproven, say so plainly and stop. Do not publish around it and call it done.
 
 ## Do not burn version numbers
 
