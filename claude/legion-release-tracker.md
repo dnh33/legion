@@ -770,6 +770,39 @@ single-owner desktop app; provenance visibility is.
 - **Remaining:** the other `claude/` files (handoffs, plans, e2e report) still name `integration/v1` in their bodies.
   They are history and are no longer the first thing an agent reads, but a repo-wide sweep is not done.
 
+### D10 — PRE-RELEASE FEATURES the owner wants before the next download (added 2026-10-04, NOT STARTED)
+Owner: "before we ship this as a new release or whatever that can be downloaded etc, we should add the possibility to choose
+effort level on a model in the model picker, and we should be able to add more than 1 folder on a project that is referenced
+for agents in it."
+
+Both scoped against the real code on 2026-10-04; neither is started. Neither is a blocker for merging the house layer —
+they block the **next release**.
+
+#### D10a — Effort level in the model picker
+- **Nothing carries effort today.** `grep` over `src/shared/types.ts`, `src/core/bridge.ts`, `src/core/providers/runtime.ts`
+  finds only `MascotMood`'s `'thinking'` (types.ts:195) — unrelated. So this is a new field on the model surface, not a
+  wiring job.
+- Needs: a type on the model/preset, storage, the picker UI, and **honest transport per provider** — this is the part that
+  must not be faked. `reasoning_effort` (OpenAI-style) and Anthropic thinking budgets are different shapes; a provider that
+  has no such concept must be told plainly that the level does nothing, rather than silently ignored.
+- **Open question to settle before coding:** per-model or per-task? A model preset implies per-model, but effort is usually a
+  per-call decision. Decide this first — it changes the storage shape and the UI.
+
+#### D10b — More than one folder per project
+- **Today it is a single string, and it is load-bearing in three places.**
+  - `Project.folder: string` — `src/shared/projects.ts:13`, default `<workspaceDir>/projects/<id>`.
+  - Set only through a confirmed route: `PUT /api/projects/:id/folder` (`src/core/projects/index.ts:70-74`), which rejects
+    non-string/non-null and needs the native secret. A project creation also refuses `folder` outright (index.ts:50).
+  - `engine.ts:689` mkdirs it, `engine.ts:700` passes it to `projectSection(...)`, `engine.ts:702` hands it to
+    `additionalDirectories`.
+- **Change shape:** `folder: string` → `folders: string[]`, keeping `folder` as a derived first entry so nothing that reads it
+  silently changes meaning. `additionalDirectories: [projectFolder]` already takes an array, so the engine change is small.
+- **Decide first:** does the primary folder stay the agent's *working* directory, or do all folders become working directories?
+  The agent's own `cwd` is its own — the project folders are *additional* directories. Keeping the first folder as the
+  de-facto primary preserves today's behaviour and is the lower-risk reading; the owner's phrasing ("more than 1 folder on a
+  project that is referenced for agents in it") supports that.
+- Both need the same UI: the picker and the project folder editor.
+
 ### D9 — HOUSE CONTEXT LAYER: fix, rebase, merge (owner approved 2026-10-04: "if you truly believe in that, plan it out")
 Reviewed at `40842df` (branch `claude/context-layer`, repo now `D:\bots\legion-ctx`). Verdict was **request changes**. Nothing merged yet.
 
