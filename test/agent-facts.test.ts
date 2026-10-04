@@ -83,8 +83,12 @@ test('Herald: may open, read and list links; the block forbids type, click and e
     assert.match(herald, /do not use browser_type, browser_click, browser_eval/);
     const builder = w.block(w.agents.find((a) => a.id === 'builder')!);
     assert.ok(listedFor(builder, 'legion_browser').includes('browser_type'));
-    assert.match(builder, /approval card when your mode is ask/);
+    // S5b: the sentence is mode-aware. builder is `full` here, so it is told it will NOT be asked.
+    assert.match(builder, /need an approval card in any mode but full — yours is full, so you will not be asked/);
     assert.ok(!/do not use browser_type/.test(builder));
+    // and an `ask` agent is told the opposite, so the sentence is never a lie in either direction
+    const zealot = w.block(w.agents.find((a) => a.id === 'zealot')!);
+    assert.match(zealot, /need an approval card unless your mode is full/);
   } finally { w.dispose(); }
 });
 

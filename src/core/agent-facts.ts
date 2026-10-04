@@ -67,9 +67,11 @@ export function renderCapabilities(agent: AgentProfile, ctx: FactsContext): stri
       : '- VM tools: not available to you (your VM is off).');
   }
   if (names.has('legion_browser') && names.get('legion_browser')!.length > 0) {
+    // the mode in force, computed once below and reused for the approvals line
+    const m = ctx.ceiling ? stricterMode(agent.approval, ctx.ceiling) : agent.approval;
     lines.push(draftOnly
       ? '- Notes you write after browsing wait in the owner\'s Inbox.'
-      : '- Typing, clicking and scripts in a page each need an approval card when your mode is ask. Notes you write after browsing wait in the owner\'s Inbox.');
+      : `- Typing, clicking and scripts in a page need an approval card${m === 'full' ? ' in any mode but full — yours is full, so you will not be asked' : ' unless your mode is full'}. Notes you write after browsing wait in the owner\'s Inbox.`);
   }
   if (names.has('legion_bsv')) {
     lines.push('- bsv_status contacts a wallet and counts as outside content, so it marks the run tainted. A spend request from a tainted run needs a second native dialog on the owner\'s card. You never choose the network; mainnet is off unless the owner switches it on and arms it.');

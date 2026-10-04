@@ -375,11 +375,14 @@ async function connectTools(server: McpSdkServerConfigWithInstance): Promise<[Cl
 }
 const textOf = (r: any): string => (r.content as Array<{ text: string }>).map((c) => c.text).join('\n');
 
-test('C: the three room tools through MCP: room_create waits for the card, a full-mode agent gets no shortcut, results never include more than the room view', async () => {
+test('C: the three room tools through MCP: room_create waits for the card in ask mode, and a full-mode agent gets no card at all (S5b)', async () => {
+  // S5b (owner ruling): one rule, no exceptions — in `full` no guard cards. These tools used to card a full
+  // agent too; the ask path below is what must keep carding, and the full path below is what must not.
   const a = approver();
   const h = makeHarness({ hub: { approve: a.approve } });
   assert.equal(h.agents.get('builder')!.approval, 'full');
-  const [c, close] = await connectTools(buildCommsToolsServer('builder', h.hub, { taint: () => false, ceiling: 'full', taskId: 'task_b' }));
+  const [c, close] = await connectTools(buildCommsToolsServer('builder', h.hub, { taint: () => false, ceiling: 'ask', taskId: 'task_b' }));
+  // ceiling 'ask' keeps a full agent carding: the confused-deputy guard outranks the agent's own setting
   const call = c.callTool({ name: 'room_create', arguments: { name: 'Crew', members: ['scout', 'zealot'], budgetUsd: 3 } });
   await until(() => a.seen.length === 1);
   assert.match(a.seen[0]!.summary, /Builder asks to create a room\. .*: Crew\nMembers: Builder, Scout, Zealot/);
@@ -407,6 +410,19 @@ test('C: the three room tools through MCP: room_create waits for the card, a ful
   assert.equal(bad.isError, true);
   assert.equal(a.seen.length, 3, 'a rejected request never reached the user');
   await close();
+
+  // S5b: the same agent, uncapped full mode — the room tools must not reach the owner at all.
+  const a2 = approver();
+  const h2 = makeHarness({ hub: { approve: a2.approve } });
+  const [c2, close2] = await connectTools(buildCommsToolsServer('builder', h2.hub, { taint: () => false, taskId: 'task_full' }));
+  try {
+    const out = JSON.parse(textOf(await c2.callTool({ name: 'room_create', arguments: { name: 'Quiet crew', members: ['scout'] } })));
+    assert.equal(out.created, true, 'a full agent creates its room without asking');
+    assert.equal(a2.seen.length, 0, `DEFECT: a full agent raised ${a2.seen.length} room card(s)`);
+    const add = JSON.parse(textOf(await c2.callTool({ name: 'room_add_member', arguments: { room: 'Quiet crew', member: 'scribe' } })));
+    assert.equal(add.room.members.length, 3);
+    assert.equal(a2.seen.length, 0, 'and none for growing it either');
+  } finally { await close2(); }
 });
 
 // ================================================================ end to end: real Engine, real broker, real HTTP
@@ -425,7 +441,9 @@ test('C e2e: the card appears in the app, the MCP token cannot answer it, the ad
     result = await callTool(c.options, 'legion_comms', 'room_create', { name: 'E2E crew', members: ['g'] });
     yield okMsg(result.isError ? 'failed' : 'created', 'f');
   })());
-  m.store.upsertAgent(mk('f', 'F', 'full')); m.store.upsertAgent(mk('g', 'G', 'full'));
+  // S5b: this e2e is about the card PLUMBING (who may answer), so it uses an `ask` agent. A `full` agent no
+  // longer cards at all — the unit test above covers that case.
+  m.store.upsertAgent(mk('f', 'F', 'ask')); m.store.upsertAgent(mk('g', 'G', 'ask'));
   const t = await m.http('POST', '/api/tasks', { agentId: 'f', prompt: 'make a room' }, AUTH);
   assert.equal(t.status, 201);
   await until(() => m.approvals.pending().length === 1);
@@ -463,7 +481,8 @@ test('C e2e: Deny, a cancelled task and a timeout each leave no room', async () 
       yield okMsg('x', c.agent);
     })();
   }, { approvalTimeoutMs: 400 });
-  for (const a of [mk('f', 'F', 'full'), mk('g', 'G', 'full'), mk('h', 'H', 'ask')]) m.store.upsertAgent(a);
+  // deny / cancel / timeout all need a card to exist, so these agents are `ask` (S5b: a full agent gets none).
+  for (const a of [mk('f', 'F', 'ask'), mk('g', 'G', 'ask'), mk('h', 'H', 'ask')]) m.store.upsertAgent(a);
   // deny
   await m.http('POST', '/api/tasks', { agentId: 'f', prompt: 'deny' }, AUTH);
   await until(() => m.approvals.pending().length === 1);

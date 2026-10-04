@@ -10,7 +10,7 @@ import type { AgentProfile, ApprovalMode, ApprovalRequest, LegionEvent, ModelCho
 import { DEFAULT_COMMS, MAX_ROOM_BUDGET_USD, MIN_ROOM_BUDGET_USD } from '../../shared/config.js';
 import type { CommsConfig } from '../../shared/config.js';
 import { newId, nowIso } from '../../shared/util.js';
-import { stricterMode } from '../approvals.js';
+import { stricterMode, decideGuard } from '../approvals.js';
 import { OVERRIDE_MODELS } from '../bridge.js';
 import type { EventBus } from '../bus.js';
 import { RoomStore } from './rooms.js';
@@ -45,7 +45,7 @@ export interface RoomRequest {
 /** Resolves true only when the user allowed it. Awaited inside the tool handler, never through canUseTool. */
 export type RoomApprover = (req: RoomRequest) => Promise<boolean>;
 /** Where a bot's room tool runs: the engine's view of the task using the tool. */
-export interface BotToolContext { taskId?: string; tainted?: boolean; origin?: TaskOrigin }
+export interface BotToolContext { taskId?: string; tainted?: boolean; origin?: TaskOrigin; /** The run's approval ceiling, when it has one. `full` here still cards for an agent set to ask. */ ceiling?: ApprovalMode }
 
 export interface HubOptions {
   engine: HubEngine;
@@ -694,9 +694,20 @@ export class CommsHub {
     return target;
   }
 
-  /** Rate limit, then the card. Resolves when the user allowed it; throws a CommsError otherwise (declined, unanswered, or no way to ask). */
+  /**
+   * Rate limit, then the card — unless the run is `full`, which never cards (OWNER RULE 2026-10-04: one rule, no
+   * exceptions, so a full-access bot is not asked about its own rooms). Resolves when the user allowed it; throws a
+   * CommsError otherwise (declined, unanswered, or no way to ask).
+   *
+   * `agentMode(sender.id)` re-reads the store, so promoting an agent mid-task takes effect on its next request.
+   * `ctx.origin.approvalCeiling` still wins: a run a bot or an MCP client started stays capped whatever the
+   * receiver is set to (the confused-deputy guard).
+   */
   private async askUser(sender: AgentProfile, tool: RoomRequest['tool'], summary: string, input: Record<string, unknown>, ctx: BotToolContext): Promise<void> {
-    if (!this.approve || !ctx.taskId) throw new CommsError(409, 'There is no way to ask the user for approval from here, so nothing was changed.');
+      const ceiling = ctx.ceiling ?? ctx.origin?.approvalCeiling;
+      const mode = ceiling ? stricterMode(this.agentMode(sender.id), ceiling) : this.agentMode(sender.id);
+      if (!decideGuard(mode).needsCard) return;
+      if (!this.approve || !ctx.taskId) throw new CommsError(409, 'There is no way to ask the user for approval from here, so nothing was changed.');
     const now = this.now();
     const recent = (this.roomRequests.get(sender.id) ?? []).filter((t) => now - t < ROOM_REQUESTS_WINDOW_MS);
     if (recent.length >= ROOM_REQUESTS_MAX) {

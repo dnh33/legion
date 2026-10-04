@@ -42,13 +42,26 @@ const pick = (host: NodeJS.ProcessEnv, name: string): string | undefined => {
   return k === undefined ? undefined : host[k];
 };
 
-/** The child's COMPLETE environment: an allowlist, never a copy of process.env (so no API key or token reaches it). */
+/**
+ * The child's COMPLETE environment: an allowlist, never a copy of process.env (so no API key or token reaches it).
+ *
+ * `USERPROFILE` is deliberately NOT set on Windows. Redirecting it into the run folder breaks Chromium-family
+ * browsers outright: Edge resolves its own profile through that variable and, with it pointing at a temp folder,
+ * logs "Failed to get path from PathService for key: 112" / "Can't retrieve app data directory", starts, stays
+ * alive, and then never writes DevToolsActivePort — so the launcher waits out its whole timeout and reports
+ * "The browser did not start: it did not report its debugging port in time". Verified on this machine with real
+ * Edge 154 (probe: with USERPROFILE redirected = no port file; unset or real = port file written).
+ *
+ * Nothing is lost by leaving it unset. The browser is already told exactly where to keep its data
+ * (`--user-data-dir=<fresh temp>/profile`), and APPDATA/LOCALAPPDATA still point into the run folder, so it
+ * still cannot touch the owner's real profile. Dropping USERPROFILE fixes the launch; the profile isolation the
+ * original code was after is unchanged.
+ */
 export function buildBrowserEnv(platform: NodeJS.Platform, host: NodeJS.ProcessEnv, dir: string): Record<string, string> {
   const e: Record<string, string> = { HOME: dir, TMPDIR: dir, TEMP: dir, TMP: dir };
   if (platform === 'win32') {
     for (const n of ['SystemRoot', 'SystemDrive', 'windir', 'ComSpec', 'PATHEXT']) { const v = pick(host, n); if (v) e[n] = v; }
     e.Path = `${pick(host, 'SystemRoot') ?? 'C:\\Windows'}\\System32`;
-    e.USERPROFILE = dir;
     // the browser would otherwise look for a profile in the real AppData
     e.APPDATA = dir;
     e.LOCALAPPDATA = dir;

@@ -7,6 +7,9 @@ import type { McpSdkServerConfigWithInstance } from '@anthropic-ai/claude-agent-
 import { z } from 'zod';
 import { BOARD_STATUSES, BOT_STATUSES } from '../../../shared/board.js';
 import type { ModuleJob } from '../../modules.js';
+import { decideGuard, stricterMode } from '../../approvals.js';
+import type { ModeOf } from '../../approvals.js';
+import type { ApprovalMode } from '../../../shared/types.js';
 import type { ProjectStore } from '../store.js';
 import { cardText } from '../../comms/scrub.js';
 import { DATA_NOTE, itemForBot } from './prompt.js';
@@ -21,7 +24,7 @@ const fail = (e: unknown): ToolResult => ({ content: [{ type: 'text', text: `Err
 /** `askOwner` shows the owner an approval card and resolves with the answer (false: declined or no answer). */
 export type AskOwner = (r: { taskId: string; agentId: string; tool: string; summary: string; input: Record<string, unknown>; origin?: ModuleJob['origin'] }) => Promise<boolean>;
 
-export function buildBoardToolsServer(agentId: string, deps: { board: BoardStore; projects: ProjectStore; onChange?: (projectId: string) => void; askOwner?: AskOwner; notes?: BoardNotes }, job: Pick<ModuleJob, 'projectId' | 'taskId' | 'taint' | 'origin' | 'ceiling'>): McpSdkServerConfigWithInstance {
+export function buildBoardToolsServer(agentId: string, deps: { board: BoardStore; projects: ProjectStore; onChange?: (projectId: string) => void; askOwner?: AskOwner; notes?: BoardNotes; /** The agent's LIVE approval mode from the store, so promoting it mid-task stops its cards on the next call. */ modeOf?: ModeOf }, job: Pick<ModuleJob, 'projectId' | 'taskId' | 'taint' | 'origin' | 'ceiling'>, fallbackMode: ApprovalMode = 'ask'): McpSdkServerConfigWithInstance {
   /** The run's project, looked up again at every call (archive and membership changes apply at once). */
   const scope = () => {
     const p = deps.projects.forRun(job.projectId, agentId);
@@ -31,6 +34,21 @@ export function buildBoardToolsServer(agentId: string, deps: { board: BoardStore
   const guard = (fn: () => ToolResult): ToolResult => { try { return fn(); } catch (e) { return fail(e); } };
   /** A run another bot or an MCP client started under `ask` approvals is limited like a tainted one (it may not assign or delete). */
   const capped = (): boolean => (job.ceiling ?? job.origin?.approvalCeiling) === 'ask' && job.origin !== undefined;
+  /**
+   * The one rule (OWNER RULE 2026-10-04): in `full` no guard cards. A ceiling always wins over the agent's own
+   * setting, so a run started by another bot or an MCP client still asks whatever the receiver is set to.
+   */
+  const askOwner = async (r: { tool: string; summary: string; input: Record<string, unknown> }): Promise<boolean> => {
+    const live = deps.modeOf?.(agentId);
+    const ceiling = job.ceiling ?? job.origin?.approvalCeiling;
+    const effective = ceiling ? stricterMode(live ?? fallbackMode, ceiling) : (live ?? fallbackMode);
+    if (!decideGuard(effective).needsCard) return true;
+    if (!deps.askOwner || !job.taskId) return false;
+    return deps.askOwner({
+      taskId: job.taskId, agentId, tool: r.tool, summary: r.summary, input: r.input,
+      ...(job.origin ? { origin: job.origin } : {}),
+    });
+  };
   const run = () => ({ tainted: job.taint(), capped: capped() });
   const runInfo = () => ({ taskId: job.taskId, ...run(), ...(job.origin?.roomId ? { roomId: job.origin.roomId } : {}) });
 
@@ -86,16 +104,18 @@ export function buildBoardToolsServer(agentId: string, deps: { board: BoardStore
       deps.onChange?.(p.id);
       return json({ updated: true, id: i.id, status: i.status });
     }));
-  const del = tool('delete', 'Delete a work item. Only the project\'s board leader has this tool, and the owner sees an approval card for every delete: nothing is deleted unless they allow it. Not for done items or items assigned to the owner. If it is declined, do not ask again.',
+  const del = tool('delete', 'Delete a work item. Only the project\'s board leader has this tool, and the owner sees an approval card for every delete: nothing is deleted unless they allow it — unless your run is in full mode, which never cards. Not for done items or items assigned to the owner. If it is declined, do not ask again.',
     { id: z.string() },
     async (a) => {
       try {
         const p = scope();
         const item = deps.board.checkBotDelete(p, agentId, a.id, run(), true);
-        if (!deps.askOwner || !job.taskId) throw new BoardError(409, 'There is no way to ask the owner from here, so nothing was deleted.');
         const summary = `${cardText(agentId, 40)} wants to delete the work item "${cardText(item.title, 80)}" from project "${cardText(p.name ?? p.id, 60)}". It will be gone for good.`;
-        const allowed = await deps.askOwner({ taskId: job.taskId, agentId, tool: 'delete', summary, input: { id: item.id }, ...(job.origin ? { origin: job.origin } : {}) });
-        if (!allowed) throw new BoardError(409, 'The owner did not approve this (declined, or no answer in time). Nothing was deleted. Do not ask again unless the owner says so.');
+        // askOwner (the wrapper) decides whether a card is needed at all: `full` never cards
+        const allowed = await askOwner({ tool: 'delete', summary, input: { id: item.id } });
+        if (!allowed) throw new BoardError(409, job.taskId
+          ? 'The owner did not approve this (declined, or no answer in time). Nothing was deleted. Do not ask again unless the owner says so.'
+          : 'There is no way to ask the owner from here, so nothing was deleted.');
         deps.board.botDelete(p, agentId, a.id, run());
         deps.onChange?.(p.id);
         return json({ deleted: true, id: item.id });

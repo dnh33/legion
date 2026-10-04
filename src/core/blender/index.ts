@@ -284,6 +284,8 @@ export function createBlenderModule(deps: ModuleDeps, opts: BlenderModuleOptions
   const guard = new BlenderGuard({
     assets,
     config: cfg, dataDir: deps.dataDir, approvals: deps.approvals, getBackend, ...(sandbox ? { sandbox } : {}), ...(local ? { local } : {}), beforeRoute: ready,
+    // live store read, so promoting an agent to `full` mid-task stops its cards on the next guarded call
+    modeOf: (id) => { try { return deps.store?.getAgent(id)?.approval; } catch { return undefined; } },
     secrets: () => liveSecrets(deps.config),
     exportDirFor: (a) => { const b = cfg().baseDir; return b ? join(b, 'exports') : join(a.cwd || join(deps.config.workspaceDir, a.id), 'blender-exports'); },
     workspaceOf,
