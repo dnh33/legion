@@ -817,15 +817,6 @@ inside Legion know how to work on this project", and Legion-on-Legion depends on
 3. Constraint already established: this works for **Claude-provider agents only**. Provider-model agents have no file
    tools at all (`providers/runtime.ts:28`), so they cannot edit code regardless of skills.
 4. Skills stays parked (see D5) — it is a "make it good" item, not a "get started" one.
-### D8 — Make the repo's own orientation files stop lying (owner 2026-10-04)
-- Owner: "No other agents seem to know which branch you have turned into the main branch right now besides you."
-- **Confirmed real:** 12 docs still referenced the DELETED `integration/v1`, including the two files an agent reads first
-  to orient (`ORCHESTRATOR-HANDOFF.md`, `ORCHESTRATOR-TAKEOVER-PROMPT.md`). A separate Hermes session reasoned from
-  `D:\bots\legion` (stale v0.1.0, MIT, private) because of exactly this.
-- **Fixed:** new `claude/START-HERE.md` is the single authority (branches, which clone is real, current state, release
-  gate); SUPERSEDED banners on the three orientation files.
-- **Remaining:** the other `claude/` files (handoffs, plans, e2e report) still name `integration/v1` in their bodies.
-  They are history and are no longer the first thing an agent reads, but a repo-wide sweep is not done.
 
 ### D6 — Move Legion development INTO Legion (Legion-on-Legion)
 - Owner: "Hopefully this will be the last time we need to be in Hermes Agent and can start developing Legion from within Legion."
