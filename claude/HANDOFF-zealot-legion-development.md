@@ -11,12 +11,12 @@ Legion, by you and the other agents.
 
 ## What you are inheriting
 
-- **Repository:** `dnh33/legion` (public, Apache-2.0, © Daniel Hjermitslev). Clone: `D:\bots\legion`.
+- **Repository:** `dnh33/legion` (public, Apache-2.0). Clone: `D:\bots\legion`.
   `main` is the only branch, protected: pull request + 1 approving review, no force-push, no deletion.
 - **State of record:** `claude/legion-release-tracker.md` in the repo. It is the single source of
   truth for what is done, what is open, and why. Read it before you plan anything. It has dated
   save points; the newest supersedes older ones.
-- **Owner:** Daniel Hjermitslev. Direct. Decides version numbers (via `docs/VERSIONING.md`, which
+- **Owner:** the repository owner. Direct. Decides version numbers (via `docs/VERSIONING.md`, which
   says the orchestrator picks — the owner never names one). Wants "the best it can be", not
   adequate. Hates filler and generic output.
 - **Release state:** 0.2.0, 0.2.1 and 0.2.2 are published. 0.2.2 fixed the updater (three separate

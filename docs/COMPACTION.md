@@ -6,10 +6,6 @@ The pattern is not new. Mature agent runtimes solve this, and reading one that h
 inventing a second answer. What follows is **the behaviour Legion implements**, in Legion's terms. Where a choice
 looks arbitrary the reason is given, because the next session will otherwise "fix" it back into a bug.
 
-**Provenance is deliberately not in this repository.** Legion is public. The reference implementation's name,
-licence and location are kept outside it; a session that needs them should ask the owner. Nothing about the
-algorithm depends on knowing them.
-
 ## Why Legion needs it
 
 Verified 2026-10-04: Legion has **no compaction and no token counting at all**. The provider path trims

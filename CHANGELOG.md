@@ -103,7 +103,6 @@ All notable changes are recorded here. The format follows [Keep a Changelog](htt
   is *sent*. No message is ever deleted, and if a summary cannot be produced the conversation goes out unchanged.
 - `docs/COMPACTION.md` is the design; `docs/COMPACTION-GAPS.md` records where this implementation is behind, level with
   or ahead of the mature implementations it was read from, item by item.
-- Per owner rule, no provenance of the reference implementation appears anywhere in this public repository.
 
 ## [0.2.3-a] - 2026-10-04
 

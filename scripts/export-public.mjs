@@ -53,6 +53,10 @@ const EXCLUDE = new Set([
   'CLAUDE.md', 'docs/video-v2/shots',
   'claude/skills', 'claude/handoffs',
   'claude/legion-release-tracker.md',
+  // Internal gap analysis against material we deliberately do not name in public. It is 13 references to an
+  // unnamed counterpart, so line-scrubbing cannot make it public-safe - rewriting it would gut what it is for.
+  // The owner has it in the vault as legion-context-gaps-analysis.md.
+  'docs/COMPACTION-GAPS.md',
   'claude/ORCHESTRATOR-HANDOFF.md',
   'claude/ORCHESTRATOR-TAKEOVER-PROMPT.md',
   'claude/tracker-public-audit.md',

@@ -72,14 +72,11 @@ that is a serious defect — stop and report.
 
 ## S2 — `0.2.3-b` · context compaction · **NEXT**
 
-Legion has no context compaction at all. This session builds it. The engine we are modelled on is a mature,
-open-source one that solves this problem properly; its design, thresholds, boundary rules and summariser prompts are
-the reference. Working notes for it — where it came from and under what licence — are kept **outside this
-repository**: the repository is public, and that detail does not belong in it. Ask the owner for the notes.
+Legion has no context compaction at all. This session builds it. Mature agent runtimes already solve this problem
+properly, and their published designs, thresholds, boundary rules and summariser prompts are the input to this work.
 
-**Port the behaviour, not the code.** The reference engine is several thousand lines, and most of its largest module
-is plumbing bound to its own message format, LLM client, session store and tool loop. None of that carries over.
-What is worth taking is:
+**Port the behaviour, not the code.** Those engines are large, and most of their bulk is plumbing bound to their own
+message format, LLM client, session store and tool loop. None of that carries over. What is worth taking is:
 
 - threshold arithmetic — compact at a fraction of the usable window, not at the edge, with a more conservative
   fraction for small-context models
@@ -95,7 +92,7 @@ What is worth taking is:
 Deliberately out of scope: per-exchange micro-compaction (too costly across 13 agents) and server-side compaction
 (the routes Legion uses do not offer it).
 
-**Second deliverable, not optional: where Legion is weaker.** A written list of behaviours the reference engine has
+**Second deliverable, not optional: where Legion is weaker.** A written list of behaviours established engines have
 that Legion does not, or does worse, each marked applies here / already handled differently / does not apply.
 The point of studying a solved problem is seeing where *our* stack can be better, not only borrowing its answer.
 
