@@ -129,6 +129,16 @@ A node save publishes the graph twice. The council's verdict: keep the test, fix
 compare **both content and order**. Comparing content alone breaks F3; comparing id-sets alone breaks F1. Six attempts
 failed by attacking the wrong layer; the recipe and every failed attempt are written down so none is retried blind.
 
+## S5b — open defect: a bot set to full access still gets a "needs your OK" card — **LIVE, owner is seeing it**
+
+Owner, 2026-10-04: "cause it still shows when a bot has full access perms as i mentioned earlier". Still open, never
+isolated. `needsApproval('full', …)` is correct as written, so the suspect is **`approvalCeiling` capping a `full`
+agent down to `ask`** — which would explain a card appearing for an agent the owner set to full access. That was
+never confirmed; the investigation ran out of subagent credit before isolating it.
+
+Worth doing early: it is a live annoyance the owner hits, it is small, and it is the kind of bug that makes the rest of
+the trust story hard to talk about. Do it in its own session so it does not ride along with a feature.
+
 ## S6 — parked, not cancelled
 D1–D4 (update progress indicator, report-a-bug entry point, supply-chain protection, Sentinel scheduler) and the
 0.2.1/0.2.2 backlog. **We drifted off the path promised in 0.2.1 to build these features first.** Nothing was cancelled.
