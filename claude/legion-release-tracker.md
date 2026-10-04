@@ -994,7 +994,63 @@ context got rekt. We should learn from /hermes-agent and mimic it."
 - **Risk:** the only one of the four that can "pass" while silently losing work. Needs its own validation: a long
   conversation must survive with its decisions intact.
 
-#### RELEASE PUBLISHED 2026-10-04 — `v0.2.3-b` is LIVE
+#### D11 STATUS 2026-10-04 (SECOND ATTEMPT) — shipped, then reopened by the owner, then fixed properly
+
+**What actually shipped in the first attempt, and what was wrong with it.** The compaction engine landed and 34 of its
+tests were green. It was still wrong in three ways, all found by evidence rather than by reading:
+
+1. **The window was checked once, before turn 1, and never again.** Tool output is added after that check, so a run could
+   grow past the window entirely inside itself. Measured: **one turn of eight tools reached 397,273 characters.**
+2. **The rescue rebuilt the request from `host.stored`**, a snapshot taken BEFORE the run, so a mid-run refusal restarted
+   the task and discarded the tool results the run had just produced.
+3. **Three places clipped text and disagreed about which end to keep** — `agent-tools` kept the last 12000 chars, the
+   request-side clip kept the first, `renderTranscript` kept the first 4000. A fact at the end of a verbose result reached
+   the model but never the summariser, so a compaction dropped it **silently**.
+
+**A green suite had covered this area thoroughly and proved none of it.** That is the finding that generalises.
+
+**Then an adversarial review of my own fix found two regressions I had introduced:**
+
+- `PROTECT_FIRST` is a message *count*, and a count does not know where a tool group starts, so the protected head could
+  end between a call and its results. Every endpoint rejects that, with a 400 that is **not** a context-length error, so
+  the rescue never fired and the run died.
+- The current ask could be summarised away, leaving `[system, summary]` — a summary of a question the model can no longer
+  see.
+
+**And the reason both survived a green suite: `firstConversationBreak` tracked call ids in a SET**, so a summary row
+between a call and its results neither matched nor rejected and it reported the conversation *valid*. I had used that
+helper to REFUTE the review's original claim — a refutation that was worthless because the tool could not see the bug.
+
+**Also in this release, found by the owner, not by any test:**
+
+- **The install folder was a git worktree**, so auto-update was permanently disabled *and* every push to `main` landed
+  inside the installed app. That is what made the first `0.2.3-b` unshippable.
+- **The update panel hid its own install button.** `UpdatePanel.tsx` rendered it only while `!st.staged`, so the moment
+  the download finished there was nothing left to click. Users could download a release and not install it. Nothing was
+  broken — a control was absent — and the suite was fully green.
+- **Per-model context windows.** One `contextWindow` per provider entry cannot be right for an aggregator: 466 OpenRouter
+  models span 16k–1M, and the old 32k default compacted a 1M model at 16% of capacity.
+
+**Verification, so the next session does not have to trust this entry.** Each of the six evidence tests was built against
+the pre-fix commit in a scratch worktree and confirmed to FAIL there, then pass here. The update-panel test was checked
+the same way: button removed, test failed, button restored, test passed.
+
+**Gate:** 2489 tests, 4 fail — `export-public`, `kg` F1, and two process-spawning tests that time out under 16-way
+parallel load and pass in isolation and at `--test-concurrency=4`. `kg` F1 was confirmed failing at `deb5a69`, before
+this work.
+
+#### RELEASE PUBLISHED then PULLED BACK 2026-10-04 — `v0.2.3-b`, first attempt
+
+**SUPERSEDED — read this before the entry below.** This release was published, found to be uninstallable by anyone
+whose install folder was a git checkout, and **pulled back**: the release and its tag were deleted. The live feed was
+verified serving `0.2.3-a` again. Nothing from it reached a user.
+
+The cause was not the code: `installMode()` was right and refused to self-update from inside a working copy of the
+repository. The hole was in the installer, which accepted a worktree as an existing install because a worktree's
+`package.json` is named `legion`. Fixed, with a test for both shapes (a clone's `.git` is a directory, a worktree's is a
+file). Lesson and procedure: `.claude/skills/shipping-a-release.md`.
+
+#### RELEASE PUBLISHED 2026-10-04 — `v0.2.3-b` (first attempt, since withdrawn)
 
 `gh release create v0.2.3-b` (draft first, all five assets uploaded, then `--draft=false`), assets at
 `D:/bots/legion-pkg-023b/`. Verified **from the live CDN**, not from my own disk, because that is the only check
