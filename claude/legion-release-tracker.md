@@ -834,7 +834,7 @@ live, and visible to the owner, so it is its own session rather than bundled wit
    Requirements: append-only, size-capped rotation, **redacted at write time** (NOT encrypted - an encrypted log cannot be
    pasted into a chat, which defeats the purpose), event ids rather than prose, and a clear button in Settings.
    Open question to settle first: whether the reference redacts at the writer or only at the display. NOT VERIFIED.
-3. **A real tokenizer + an honest updater check (NEXT AFTER LOGGING)** — two halves, one release.
+5. **A real tokenizer + an honest updater check (NEXT AFTER LOGGING)** — two halves, one release.
    - **Tokenizer:** add `gpt-tokenizer` (a port of OpenAI's `tiktoken`, so the BPE is the reference one). Exact for
      OpenAI-family models, a better approximation than chars/4 for the rest. Pure ESM, so it bundles into `dist/`.
      Sources: npmjs.com/package/gpt-tokenizer, pkgpulse.com token-counting comparison 2026.
@@ -853,7 +853,27 @@ live, and visible to the owner, so it is its own session rather than bundled wit
      when it is an estimate. Once the tokenizer lands, say so truthfully - and if the tokenizer is ever deferred, label
      it as an estimate the way the usage readout already is.
 
-4. **Context engine 1-to-1 (after that)** — the pairing table is in the owner's vault at
+
+4. **House lifecycle: the Archivist can curate, cleanup is not manual** — after logging, BEFORE the context engine.
+   Owner ruling 2026-10-04: an agent that can write but never delete is append-only storage, not agentic software.
+   **What already exists and is correct - do not loosen it.** `graph.ts:927` - a human deletes anything; a bot may
+   forget only its own private notes or its own pending proposal; shared notes are refused with "update it (a
+   proposal goes to the human) or tell the user"; the Archivist NEVER deletes; working memory (`wm:`) cannot be
+   forgotten by a bot at all. The house layer is read-only (`house_read`/`house_recall`/`house_list`) and must stay
+   so: an agent editing the rules it obeys is the entire threat model.
+   **The actual gap is ergonomics, not permission.** Nothing proposes retiring stale notes as a BATCH, so curation
+   is manual one note at a time. Build:
+   - `kg_sweep` - the Archivist proposes a SET of retirements with reasons; the human accepts or rejects as one
+     action. Deletion still requires the human. This is the difference between curation being usable and decorative.
+   - `kg_capture --supersedes <id>` - retires the old note when the new one lands. Cleanup in practice is
+     replacement, not deletion, and this is the path that actually gets used.
+   - Every retirement already lands in the ledger via `logActivity`; a sweep must be auditable from it.
+   - **A deep house-layer test for Zealot**: exercises read/recall/list/trust end to end, proves trust survives a
+     round trip (the one-way ratchet fix), proves a packaged install ships all 11 files, proves house reads raise no
+     card, and proves the Archivist still cannot delete. Assert the REFUSALS as hard as the successes.
+   Ship as its own letter.
+
+6. **Context engine 1-to-1 (after that)** — the pairing table is in the owner's vault at
    `06-projects/legion/context-engine-1-to-1-with-hermes.md`. Scorecard: PARITY 11, AHEAD 4, GAP 19, PARTIAL 1.
    Rule: read the reference's stated REASON before closing a gap; copying a value without its rationale is how the
    small-window rule ended up inverted. Do NOT touch logging or the tokenizer while doing this.

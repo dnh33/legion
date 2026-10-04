@@ -98,6 +98,15 @@ code.
   and re-read the file.
 - **Use `fileURLToPath`, never `new URL(...).pathname`** — on Windows that yields `/D:/...`, the wrong drive.
 - **Never kill processes by name pattern.** Kill by PID.
+- **The exit code of a redirected `node --test` is not a signal.** Identical empty output returned 0, 0, 0 and 1
+  across four runs. Trust the `ℹ pass N` / `ℹ fail N` lines or nothing.
+- **The default reporter is NOT TAP.** `grep "^not ok"` matches zero lines on a run that executed nothing, which
+  reads as a clean suite. Always grep for `^✖` and `^ℹ fail`, and require the counts to be present.
+- **The full suite exceeds one tool call.** Batch it and check each batch reports counts:
+  `ls dist/test/*.test.js | sed -n '1,40p' | tr '\n' ' ' | xargs node --test --test-reporter=spec`
+- **Never run a build and a suite concurrently.** Two writers on `dist/` produce meaningless results, and the
+  failure looks like a real test failure.
+- **Pass native `D:/...` paths to `git worktree add`.** A `/d/bots/foo` argument creates a literal `D:\d\bots\foo`.
 
 ## Do not invent scope
 
