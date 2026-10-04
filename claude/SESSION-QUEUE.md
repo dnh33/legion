@@ -69,6 +69,25 @@ matters: an agent edits `AGENTS.md`, reads it back, and it must come back `[UNTR
 that is a serious defect — stop and report.
 
 ## S2 — `0.2.3-b` · context compaction · **NEXT**
+
+**This is a port, not a from-scratch feature.** The owner is explicit: the benefit being taken is that Hermes Agent
+already built this context engine and it is open source, so Legion should fit that engine into its own stack rather
+than reinvent it. **Hermes is MIT licensed** (Nous Research), so the approach and, where useful, the code can be
+reused here with attribution.
+
+The source is on this PC already: `C:\Users\Danie\AppData\Local\hermes\hermes-agent`, a git clone of
+`NousResearch/hermes-agent`. Read it directly rather than from the web, and check the licence there rather than
+trusting a summary — an earlier draft of this repo claimed Apache-2.0 and was wrong.
+
+**But port the behaviour, not the code.** The engine is 7,294 lines of Python and most of `context_compressor.py`
+(5,781 alone) is plumbing bound to Hermes' own message format, LLM client, session store and tool loop. None of that
+carries. What is worth taking is the threshold arithmetic, the head/tail split and boundary alignment, the summariser
+prompts, the deterministic failure fallback and the anti-thrash/cooldown rules — a few hundred lines of behaviour once
+written in TypeScript idiom. Copying 7k lines line-for-line would import Hermes' architecture, not its solution.
+
+Out of scope by decision: `micro_compaction.py` (off by default in Hermes, and 13 agents make per-exchange
+summarising expensive here) and `native_compaction.py` (server-side OpenAI Responses compaction, which OpenRouter
+does not offer).
 The first thing a conversation does now when it outgrows the window is stop. No compaction and no token counting exist
 anywhere. Provider agents are hard-capped at `HISTORY_MAX_MESSAGES = 40` / `HISTORY_MAX_CHARS = 60_000`
 (`providers/tool-loop.ts:18-19`) — character counts, not tokens — so the oldest half of a conversation disappears with
