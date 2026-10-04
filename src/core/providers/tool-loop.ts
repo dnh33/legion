@@ -415,7 +415,12 @@ async function compactMessages(
   // An empty middle means the cut would replace nothing, so there is nothing to summarise.
   const middle = plan.middle;
   if (middle.length === 0) return null;
-  const existing = conv.find(isSummaryMessage) ?? null;
+  // The NEWEST summary, not the first one found. `readConversation` walks backwards for exactly this reason: after a second
+  // compaction inside one run the conversation carries two summary rows, and folding the older one in would replace a
+  // summary of a summary — losing everything the newer summary had already absorbed.
+  let summaryIdx = -1;
+  for (let i = conv.length - 1; i >= 0; i--) if (isSummaryMessage(conv[i]!)) { summaryIdx = i; break; }
+  const existing = summaryIdx >= 0 ? conv[summaryIdx]! : null;
   let body = '';
   try {
     const r = await turnFn(target, {
