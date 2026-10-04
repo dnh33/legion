@@ -8,9 +8,11 @@
  * Every path in the result is relative to the context root, because that is what `house_read` takes and what the log
  * and the `/api/house` route report. An absolute path here would be a path no tool can use.
  */
-import { copyFileSync, existsSync, mkdirSync, readdirSync, statSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, statSync } from 'node:fs';
+import { createHash } from 'node:crypto';
 import { dirname, join, resolve } from 'node:path';
 import { SHIPPED_DIRS, SHIPPED_FILES, normalisePath } from './context.js';
+import { readManifest, writeManifest } from './trust.js';
 
 export interface SyncResult {
   written: string[];
@@ -94,5 +96,21 @@ export function syncContext(repoRoot: string, dataDir: string): SyncResult {
   for (const rel of SHIPPED_FILES) {
     if (rel.endsWith('.json')) copy(rel);
   }
+
+  // Record what this app shipped, so a read can tell the app's own words from something edited since. Only files whose
+  // bytes match the repo count as shipped: a `keptNewer` file is the user's edit by definition, so it gets no entry and
+  // therefore reads as untrusted. That is the fail-closed direction, and it is the same choice ADR 0004 makes for an
+  // unreadable lockfile — a hash we do not have is never treated as a match.
+  const shipped: Record<string, string> = {};
+  const record = (rel: string): void => {
+    try {
+      shipped[normalisePath(rel)] = createHash('sha256').update(readFileSync(join(target, rel))).digest('hex');
+    } catch {
+      /* unreadable now; not shipped as far as trust is concerned */
+    }
+  };
+  for (const rel of [...res.written, ...res.unchanged]) record(rel);
+  writeManifest(target, shipped);
+
   return res;
 }
