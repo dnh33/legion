@@ -86,6 +86,40 @@ function fixture() {
   return d;
 }
 
+/**
+ * A minimal tree the exporter accepts (it insists on package.json), with one file per scrub case.
+ *
+ * The main snapshot test can only prove the scrubbers work on content the repo happens to contain, which left the
+ * bare vault-name rule unexercised: the one place the name occurs is `D:/<vault>/...`, and the local-path rule above it
+ * in RULES already redacts that, so deleting the name rule outright changed nothing the test could see. This plants the
+ * cases that no repo file contains -- the name on its own, without a drive prefix -- so each rule is load-bearing.
+ */
+function scrubFixture(files: Record<string, string>): string {
+  const d = mkdtempSync(join(tmpdir(), 'legion-scrubfix-'));
+  writeFileSync(join(d, 'package.json'), JSON.stringify({ name: 'legion', version: '0.0.0' }));
+  writeFileSync(join(d, 'README.md'), '# readme\n');
+  writeFileSync(join(d, 'LICENSE'), 'MIT\n');
+  writeFileSync(join(d, 'NOTICE'), 'notice\n');
+  for (const [rel, body] of Object.entries(files)) {
+    const abs = join(d, rel);
+    mkdirSync(join(abs, '..'), { recursive: true });
+    writeFileSync(abs, body);
+  }
+  return d;
+}
+
+/** Runs the exporter over `src` and returns the shipped copy of `rel`, or null when the export refused. */
+function scrubbedCopy(src: string, rel: string): string | null {
+  const out = mkdtempSync(join(tmpdir(), 'legion-scrubout-'));
+  try {
+    if (runExport([src, out]) !== null) return null;
+    const abs = join(out, rel);
+    return existsSync(abs) ? readFileSync(abs, 'utf8') : null;
+  } finally {
+    rmSync(out, { recursive: true, force: true });
+  }
+}
+
 test('export-public produces a scrubbed single-commit publishable snapshot', () => {
   const out = cleanupTemp('legion-export-');
   try {
@@ -130,6 +164,7 @@ test('export-public produces a scrubbed single-commit publishable snapshot', () 
       assert.ok(existsSync(join(out, f)), `${f} must ship`);
     }
 
+
     // code ships byte-identical; the guardrail files keep their port literal (their own allowlists pin them)
     assert.equal(
       readFileSync(join(out, 'src/core/bsv/wallet-probe.ts'), 'utf8'),
@@ -170,3 +205,49 @@ test('export fails closed on a planted secret file or a planted token', () => {
     assert.ok(r2, 'expected refusal'); assert.match(r2!.refused, /token or private key/);
   } finally { rmSync(d2, { recursive: true, force: true }); }
 });
+
+test('the scrub redacts a bare vault name in claude/**, the case no repo file happens to contain', () => {
+  // The path rule above it in RULES already catches `D:/<vault>/...`, so without this the bare-name rule could be
+  // deleted and the snapshot test would still pass -- it was verified that way. The name on its own, with no drive
+  // prefix, is the case only that rule covers.
+  const src = scrubFixture({ 'claude/note.md': `The narrative lives in ${OW_VAULT}.\n` });
+  const shipped = scrubbedCopy(src, 'claude/note.md');
+  assert.ok(shipped !== null, 'the export should succeed on a minimal tree');
+  assert.ok(!shipped!.includes(OW_VAULT), `the bare vault name survived the scrub: ${JSON.stringify(shipped)}`);
+  assert.ok(shipped!.includes('[redacted]'), 'and it was replaced with the redaction marker');
+  rmSync(src, { recursive: true, force: true });
+});
+
+test('every scrubbed tree is covered, not just docs and one hand-listed file', () => {
+  // The bug this closes: claude/ shipped VERBATIM because the scrub list named docs/, the root docs and .github only,
+  // with one claude/ file carried as an exception, so an owner-local path in a claude/ plan reached the snapshot.
+  //
+  // An OWNER-LOCAL path, not a generic one. The path rule matches a drive root followed by one of the owner-local
+  // directory names, and leaves illustrative paths alone, so a generic example path here would prove nothing.
+  // Written from fragments: this file ships in the snapshot, and code files are deliberately NOT scrubbed (they must
+  // stay byte-identical), so a literal owner-local path written here would ship. The vault path and the vault name
+  // are covered by the test above and by the snapshot test respectively.
+  const LOCAL = `${'D'}:/bots/legion`;
+  const src = scrubFixture({
+    'claude/plan.md': `Run it from ${LOCAL} when testing.\n`,
+    'docs/guide.md': `Also ${LOCAL} here.\n`,
+  });
+  for (const rel of ['claude/plan.md', 'docs/guide.md']) {
+    const shipped = scrubbedCopy(src, rel);
+    assert.ok(shipped !== null, `the export should succeed (${rel})`);
+    assert.ok(!shipped!.includes(LOCAL), `an owner-local path survived in ${rel}: ${JSON.stringify(shipped)}`);
+  }
+  rmSync(src, { recursive: true, force: true });
+});
+
+test('a cloud session id is redacted from a claude/ file', () => {
+  // Assembled at runtime, never written literally: this very file ships, and the snapshot test scans every shipped
+  // file for /session_[A-Za-z0-9_-]{6,}/. Writing the id out in full made the export fail on its own test source.
+  const SESSION = ['session', 'AbCdEf123456'].join('_');
+  const src = scrubFixture({ 'claude/handoff.md': `run id ${SESSION} here\n` });
+  const shipped = scrubbedCopy(src, 'claude/handoff.md');
+  assert.ok(shipped !== null, 'the export should succeed');
+  assert.ok(!shipped!.includes(SESSION), `a session id survived: ${JSON.stringify(shipped)}`);
+  rmSync(src, { recursive: true, force: true });
+});
+
