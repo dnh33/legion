@@ -828,6 +828,14 @@ live, and visible to the owner, so it is its own session rather than bundled wit
      but it costs a layout and a re-render on every Lattice re-entry, so it reads as a flicker. Proven failing at
      `deb5a69`, before any of the compaction or house work. Small, real, and NOT caused by anything in this session.
 
+2b. **`0.2.3-f` SHIPPED** — security fix found by the Zealot test. The shipped-trust manifest was built by hashing the
+   COPY in the data directory, so an agent could write its own edit's hash into it and have that edit come back
+   TRUSTED and unlabelled; entries were carried forward for `keptNewer` files, so it survived a restart. Now derived
+   from what the app SHIPS. `adopt()` also wrote into the layer, so an owner approval and an agent forgery were the
+   same file; adoption moved to the data directory. **Red-green verified** — reverting the sync turns the test red on
+   exactly that claim. Limit stated in ADR 0011: defence in depth, not a cryptographic boundary, because an agent runs
+   as the same OS user.
+
 3. **Logging (NEXT)** — Legion has none today. The reference ships `~/.hermes/logs/` with rotation and a CLI reader
    (`hermes_cli/logs.py`: `tail_log`, `list_logs`, filters by level/component/time). The owner's use case is concrete:
    when something breaks locally, the log is what gets pasted to an agent.
@@ -868,10 +876,14 @@ live, and visible to the owner, so it is its own session rather than bundled wit
    - `kg_capture --supersedes <id>` - retires the old note when the new one lands. Cleanup in practice is
      replacement, not deletion, and this is the path that actually gets used.
    - Every retirement already lands in the ledger via `logActivity`; a sweep must be auditable from it.
-   - **A deep house-layer test for Zealot**: exercises read/recall/list/trust end to end, proves trust survives a
-     round trip (the one-way ratchet fix), proves a packaged install ships all 11 files, proves house reads raise no
-     card, and proves the Archivist still cannot delete. Assert the REFUSALS as hard as the successes.
-   Ship as its own letter.
+   - **DONE, shipped as 0.2.3-f:** `test/house-zealot.test.ts`, 22 tests over the REAL built artefact rather than a
+     fixture — the only kind of test that could catch these, because a fixture cannot detect a shape the fixture got
+     wrong. It found a real hole: the shipped-trust manifest was forgeable (see 2b). The read-only and no-card
+     properties are asserted too, negatively.
+   - **STILL TO DO:** `kg_sweep` (propose a BATCH of retirements, human approves as one action) and
+     `kg_capture --supersedes <id>` (retire on replacement — how cleanup actually happens). The delete rules in
+     `graph.ts:927` stay exactly as they are.
+
 
 6. **Context engine 1-to-1 (after that)** — the pairing table is in the owner's vault at
    `06-projects/legion/context-engine-1-to-1-with-hermes.md`. Scorecard: PARITY 11, AHEAD 4, GAP 19, PARTIAL 1.
