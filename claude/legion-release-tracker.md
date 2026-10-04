@@ -779,7 +779,12 @@ Both scoped against the real code on 2026-10-04; neither is started. Neither is 
 they block the **next release**.
 
 #### D10a — Effort level in the model picker
-**Nothing carries effort today.** Grep over `src/shared/types.ts`, `bridge.ts`, `providers/runtime.ts` finds only `MascotMood`'s `'thinking'` — unrelated. Verified by subagent 2026-10-04 with file:line:
+**DECIDED 2026-10-04 (owner):** **per-task**, chosen when a task starts, **defaulting to the agent's model setting.**
+Not per-agent-only, not both. A second control at task creation is the accepted cost.
+**Consequence for the build:** the model picker keeps a per-agent default (`legion.effort.<agentId>`, mirroring
+`legion.model.<agentId>`); the create-task body carries an optional `effort` that wins when present
+(same ride-along as `modelOverride`, `ui/src/store.ts:380`). A provider with no effort concept **must say the level
+does nothing** — never silently ignore it.
 
 - **There is no request-option plumbing at all.** `chatTurn` builds the body at `openai-compat.ts:145-154` with only
   `model`, `stream`, `messages`, `stream_options`, `tools`, `tool_choice`. No `temperature`/`max_tokens`/`top_p`/
@@ -797,6 +802,8 @@ they block the **next release**.
 - **Honesty rule:** a provider with no effort concept must say the level does nothing, not silently ignore it.
 
 #### D10b — More than one folder per project
+**DECIDED 2026-10-04 (owner):** the **first folder stays the working directory**; the rest are additional folders the
+agent may read/write. Purely additive — nothing shifts silently for existing projects.
 - **Today it is a single string, load-bearing in four places.**
   - `Project.folder: string` — `src/shared/projects.ts:13`, default `<workspaceDir>/projects/<id>`.
   - Native-secret-gated route `PUT /api/projects/:id/folder` (`src/core/projects/index.ts:70-74`); creation refuses
@@ -834,7 +841,13 @@ context got rekt. We should learn from /hermes-agent and mimic it."
   compressor as fallback).
 - **DESIGN DECIDED 2026-10-04 — see `docs/COMPACTION.md`.** Summary is written inline into the thread transcript as a
   system message; originals stay untouched in the append-only JSONL (`store.ts:103-109`). NOT a KG node — that
+  would bury curated notes under machine churn. Legion rewrites nothing (Hermes rewrites its SQLite
   rows; Legion needs no such surgery). Full Hermes spec extracted and written to `docs/COMPACTION.md`.
+- **THRESHOLD DECIDED 2026-10-04 (owner): 50% of the usable window**, Hermes' proven number, **plus
+  compact-and-retry-once on a context-length error.** The retry is the actual safety net; the threshold only has to
+  usually compact before the overflow. Our estimator errs toward over-counting, so in real tokens we land slightly under
+  50% — the safe direction. One compaction per thread on threshold; **no micro-compaction** (off by default in Hermes
+  too, and 13 agents make per-exchange summarisation expensive here).
 - **Risk:** the only one of the four that can "pass" while silently losing work. Needs its own validation: a long
   conversation must survive with its decisions intact.
 
@@ -853,10 +866,12 @@ inside Legion know how to work on this project", and Legion-on-Legion depends on
    `AGENTS.md`; its own edit then comes back marked TRUSTED, while everything else an agent touches is wrapped as
    untrusted (the KG rule). The trust claim holds only on a fresh install and degrades silently — worst exactly when
    Legion-on-Legion starts.
-   **Fix:** a context file is trusted only while its bytes still match what the app shipped. `sync.ts` writes a hash
-   manifest at copy time; `readContextFile`/`recallContext` compare against it and wrap anything that has drifted
-   (reuse the existing KG `wrap.ts` untrusted wrapper). Owner edits to the layer stay trusted — they are the point of the
-   feature — but an edit that arrives through the repo/agent path does not inherit trust.
+   **Fix (owner-chosen 2026-10-04: hash manifest, over both cheaper options):** `sync.ts` writes a hash
+   manifest at copy time; `readContextFile`/`recallContext` compare against it and wrap anything that has
+   drifted as untrusted (reuse the existing KG `wrap.ts` untrusted wrapper). Chosen explicitly because it is
+   the only option correct **regardless of who edited the file or by what route**. Owner edits to the layer
+   stay trusted — they are the point of the feature — but an edit that arrives through the repo/agent path
+   does not inherit trust.
    **This is the substantial one.** It is the only fix that is more than a few lines, and it is the reason the review
    said request-changes rather than approve-with-nits.
 3. **Unbounded tree walk** (context.ts:87-106, 180-192). `recallContext` re-reads every `.md` under the root; the caps
