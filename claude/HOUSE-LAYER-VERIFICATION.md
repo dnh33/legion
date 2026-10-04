@@ -80,10 +80,29 @@ shipped, so the layer was read-only in practice to the person who owns the machi
 - **Test count differs from `main` by 6 in the other direction** (2469 vs 2475): `main` carries 6 tests from the
   compaction work merged after this branch was cut. This branch adds 30 house tests.
 
+## Verified in a real package
+
+`node scripts/release-package.mjs` — the script that builds the update zip, packing exactly `CODE_SET`:
+**409 entries** (the released 0.2.3-a had 397). `dist/context-layer` holds 12 files, **113.9 KB** total.
+No `docs/video`, no top-level `AGENTS.md`, no `claude/`.
+
+Extracted as the updater leaves it, then the module **as shipped inside that zip** run against a fresh data
+directory:
+
+| | 0.2.3-a (released) | this branch (real zip) |
+|---|---|---|
+| `sync.written` | 0 | **12** |
+| expected-but-missing | 11 | **0** |
+| layer files | 1 (the manifest) | **12** |
+| `house_read AGENTS.md` | fails | **ok · trusted · shipped** |
+| `house_recall` | 0 hits | **8 hits** |
+| `needsCard('ask')` on all 3 tools | true | **false** |
+| owner's file → approve | impossible | **adopted, unwrapped** |
+| agent edits `AGENTS.md` | untrusted | **untrusted** |
+| owner reverts | untrusted forever | **shipped** |
+
 ## Not verified here
 
-- **No real package was built.** Verified against a package-shaped tree (CODE_SET names only) and the released
-  artifact, not a freshly built `legion-*-win-x64.zip`. One build should confirm the staged layer ships.
 - **No live run.** The MCP surface was not exercised in a running Legion — `claude/LIVE-TEST-0.2.3-a.md` steps 5–7
   need a real app and a real owner.
 - **The pre-existing `export-scrub` failure is not fixed here.** It is a separate defect and should not ride along
