@@ -770,6 +770,63 @@ single-owner desktop app; provenance visibility is.
 - **Remaining:** the other `claude/` files (handoffs, plans, e2e report) still name `integration/v1` in their bodies.
   They are history and are no longer the first thing an agent reads, but a repo-wide sweep is not done.
 
+### D9 — HOUSE CONTEXT LAYER: fix, rebase, merge (owner approved 2026-10-04: "if you truly believe in that, plan it out")
+Reviewed at `40842df` (branch `claude/context-layer`, repo now `D:\bots\legion-ctx`). Verdict was **request changes**. Nothing merged yet.
+
+**Why it is worth merging at all:** it is the only copy of the feature, it is the answer to "how does an agent
+inside Legion know how to work on this project", and Legion-on-Legion depends on it. `main` does not have it.
+
+#### The three blocking fixes
+1. **`claude/skills` in `SHIPPED_DIRS` does not exist** (context.ts:33). Legion reports the folder and copies nothing.
+   **Fix:** drop the entry for now (Skills is parked) **and add a test that asserts every path in `SHIPPED_FILES` +
+   `SHIPPED_DIRS` actually exists in the repo.** The test is the real fix — it makes this class of lie impossible.
+2. **Trusted-text hole (the one that matters).** context.ts:8-10 declares the layer trusted because it is Legion's own
+   text, but `sync.ts` copies from the repo root. Once agents develop Legion from inside Legion, an agent can edit
+   `AGENTS.md`; its own edit then comes back marked TRUSTED, while everything else an agent touches is wrapped as
+   untrusted (the KG rule). The trust claim holds only on a fresh install and degrades silently — worst exactly when
+   Legion-on-Legion starts.
+   **Fix:** a context file is trusted only while its bytes still match what the app shipped. `sync.ts` writes a hash
+   manifest at copy time; `readContextFile`/`recallContext` compare against it and wrap anything that has drifted
+   (reuse the existing KG `wrap.ts` untrusted wrapper). Owner edits to the layer stay trusted — they are the point of the
+   feature — but an edit that arrives through the repo/agent path does not inherit trust.
+   **This is the substantial one.** It is the only fix that is more than a few lines, and it is the reason the review
+   said request-changes rather than approve-with-nits.
+3. **Unbounded tree walk** (context.ts:87-106, 180-192). `recallContext` re-reads every `.md` under the root; the caps
+   are per-file, not per-search.
+   **Fix:** cap recursion depth, total file count and total bytes read per `recallContext`. Add to `HOUSE_LIMITS`.
+
+#### Non-blocking, fix while in there
+- `missing` only checks `SHIPPED_FILES`, so a missing `docs/adr/` is invisible (context.ts:108). Cover `SHIPPED_DIRS` too.
+- `df` is recomputed inside the term loop (context.ts:203) — hoist it.
+
+#### Process
+1. Rebase `claude/context-layer` onto `main` **first** — it is behind and currently missing `START-HERE.md`, the tracker
+   updates and the rename. Merging as-is would regress the repo.
+2. Fix 1-3 + non-blocking, on the branch.
+3. Gate, one at a time, never overlapping (`npm test` clobbers `dist/`): `npm ci && npm run build:ts && npm test &&
+   npm run typecheck && npm run build:ui`. Report exact counts.
+4. Restore tag, `git merge --no-ff`, review every removed test line (`git diff pre-merge-<name> HEAD -- test/ | grep '^-[^-]'`).
+5. **Verify the module-list invariant**: the module list in `src/bin/legion-core.ts` and `scripts/harness/core-entry.mjs`
+   must stay identical — a module in one and not the other means the harness is testing something else.
+6. Real-PC check: an agent in Legion can `house_list` and `house_read` a shipped file (add to `claude/tracker-pc-checks.md`;
+   the harness cannot prove the MCP surface end to end).
+
+#### After the merge — Legion-on-Legion
+1. Create a Legion project whose folder is `D:\bots\legion`.
+2. Hand Zealot `claude/HANDOFF-zealot-legion-development.md`.
+3. Constraint already established: this works for **Claude-provider agents only**. Provider-model agents have no file
+   tools at all (`providers/runtime.ts:28`), so they cannot edit code regardless of skills.
+4. Skills stays parked (see D5) — it is a "make it good" item, not a "get started" one.
+### D8 — Make the repo's own orientation files stop lying (owner 2026-10-04)
+- Owner: "No other agents seem to know which branch you have turned into the main branch right now besides you."
+- **Confirmed real:** 12 docs still referenced the DELETED `integration/v1`, including the two files an agent reads first
+  to orient (`ORCHESTRATOR-HANDOFF.md`, `ORCHESTRATOR-TAKEOVER-PROMPT.md`). A separate Hermes session reasoned from
+  `D:\bots\legion` (stale v0.1.0, MIT, private) because of exactly this.
+- **Fixed:** new `claude/START-HERE.md` is the single authority (branches, which clone is real, current state, release
+  gate); SUPERSEDED banners on the three orientation files.
+- **Remaining:** the other `claude/` files (handoffs, plans, e2e report) still name `integration/v1` in their bodies.
+  They are history and are no longer the first thing an agent reads, but a repo-wide sweep is not done.
+
 ### D6 — Move Legion development INTO Legion (Legion-on-Legion)
 - Owner: "Hopefully this will be the last time we need to be in Hermes Agent and can start developing Legion from within Legion."
 - NOT STARTED. Precondition: D5 (Skills) and D7 (Zealot handoff).
