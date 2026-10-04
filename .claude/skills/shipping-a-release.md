@@ -54,7 +54,13 @@ Full detail with commands: [`docs/SHIPPING.md`](../../docs/SHIPPING.md). The ord
 9. **Merge `--no-ff`.** Read every removed test line: `git diff pre-merge-<name> HEAD -- test/ | grep '^-[^-]'`.
 10. **DRAFT the release.** `gh release create --draft`, then upload all five assets. Verify the **uploaded** assets
     before publishing: GitHub reports a `digest` per asset, and it must equal your local sha256. Then `--draft=false`.
-11. **Verify from the live CDN — AFTER publishing.** This is a post-publish check, not a pre-publish one, and the
+11. **The CDN fetch is a POST-PUBLISH check, and that is the owner's one standing objection.**
+    The owner is explicit: never publish and *then* go looking for problems. So everything that can be checked before
+    `--draft=false` MUST be, and the CDN fetch is only ever a confirmation that the published bytes are the bytes we
+    checked — never the first time anything is verified. If the CDN fetch finds a fault, the fault is in the
+    verification, because the release was already proven receivable by pre-flight and by asset-digest equality.
+
+    **Verify from the live CDN — AFTER publishing.** This is a post-publish check, not a pre-publish one, and the
     distinction is not pedantic: **a draft's assets are not publicly served**, so `releases/download/...` returns 404
     until the release is public. Verified 2026-10-04. What you can check on a draft is byte-equality via the asset
     digest; what only the CDN can tell you is that an *existing install* can fetch it.
@@ -87,6 +93,12 @@ draft is uploaded:
 ```
 curl -sL https://github.com/dnh33/legion/releases/latest/download/legion-update-manifest.json
 ```
+
+**Into a FRESH directory — create it new, never reuse one.** This is not advice, it is the incident: on2026-10-04 a
+verification reused a directory from an earlier fetch whose first `curl` had returned 404 and written a 9-byte
+`Not Found` body over the manifest. The verifier then reported *"signature does not match"* on a release that was
+perfectly fine. A check that a previous failed attempt can contaminate is not a check. `rm -rf` the directory and
+re-create it, then fetch every file, then verify.
 
 Into a **fresh** directory, fetch the manifest, its `.sig`, `app.zip` and `SHA256SUMS.txt`, and run
 `release-verify.mjs` **on those fetched bytes**. Confirm `version` and `requiresFullInstall: false`.
