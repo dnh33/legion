@@ -16,6 +16,25 @@ after(closeAll);
 const REPO = fileURLToPath(new URL('../../', import.meta.url));
 const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
+/**
+ * Wait until the store has stopped fetching, rather than for a fixed time.
+ *
+ * The graph store debounces and re-reads over several microtasks. A fixed `wait(300)` is a race: under a loaded machine
+ * a request from the previous step can land after the counter is reset, so an assertion of "exactly one re-read" sees
+ * two or three and fails on code that is correct. That is how F1 failed three times inside the full suite and passed
+ * every time on its own. Polling for quiescence is what the test actually means to say.
+ */
+const settle = async (fetches: unknown[], quiet = 150, cap = 4_000): Promise<void> => {
+  const started = Date.now();
+  let seen = fetches.length;
+  let quietSince = Date.now();
+  while (Date.now() - started < cap) {
+    await wait(25);
+    if (fetches.length !== seen) { seen = fetches.length; quietSince = Date.now(); continue; }
+    if (Date.now() - quietSince >= quiet) return;
+  }
+};
+
 // ------------------------------------------------------------------ the store, real core
 
 /** The part of graphStore.ts these tests use (the store is bundled at run time, not compiled with the core: it needs the DOM-flavoured UI tsconfig). */
@@ -120,26 +139,26 @@ test('F1: kg.updated about unrelated nodes costs no node re-read and no new grap
   const rev0 = store.getG().graph.rev, graph0 = store.getG().graph;
   fetches.length = 0;
   store.refreshFromServer(['not-on-the-canvas']);
-  await wait(300);
+  await settle(fetches);
   assert.equal(count(fetches, /^\/api\/kg\/subgraph/), 0, 'nothing on screen was touched: no subgraph read');
   assert.equal(store.getG().graph, graph0);
   fetches.length = 0;
   store.refreshFromServer([ids[5]!]);
-  await wait(300);
+  await settle(fetches);
   assert.equal(count(fetches, /^\/api\/kg\/subgraph/), 1, 'one re-read of the canvas');
   assert.equal(store.getG().graph.rev, rev0, 'nothing differed: no new graph, no layout, no render');
   assert.equal(store.getG().graph, graph0);
   // a real change publishes
   await m.http('POST', '/api/kg/nodes', { id: ids[5]!, body: 'edited on the server' }, AUTH);
   store.refreshFromServer([ids[5]!]);
-  await wait(300);
+  await settle(fetches);
   assert.equal(store.getG().graph.rev, rev0 + 1);
   assert.equal(store.getG().graph.nodes.find((n) => n.id === ids[5])!.body, 'edited on the server');
   // no changed list (the Library returning to the Lattice): a full re-read, still no publish when nothing changed
   const rev1 = store.getG().graph.rev;
   fetches.length = 0;
   store.refreshFromServer();
-  await wait(300);
+  await settle(fetches);
   assert.equal(count(fetches, /^\/api\/kg\/subgraph/), 1);
   assert.equal(store.getG().graph.rev, rev1);
   await m.close();
