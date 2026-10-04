@@ -137,7 +137,13 @@ test('C16 limits: turn cap, per-turn tool-call cap, broken arguments, repeated i
     const h = setup(b);
     const t = await run(h);
     assert.equal(t.status, 'done');
-    assert.match(toolMsg(b.requests[1]!, 'j'), /not a JSON object/); assert.match(toolMsg(b.requests[1]!, 'big'), /size limit/);
+    // Found by CONTENT, not by index. This test's claim is that the model sees both errors — not that they arrive in a
+    // particular request. A 70k-char argument makes the follow-up request genuinely oversized, so compaction now runs
+    // first and the model is called a third time. Indexing requests[1] silently tested "compaction never fired" instead,
+    // and would have gone back to passing the moment compaction was disabled.
+    const followUp = b.requests.find((r) => (r.body.messages ?? []).some((m: { role?: string; tool_call_id?: string }) => m.role === 'tool' && m.tool_call_id === 'j'));
+    assert.ok(followUp, 'the model is called again with the tool results');
+    assert.match(toolMsg(followUp!, 'j'), /not a JSON object/); assert.match(toolMsg(followUp!, 'big'), /size limit/);
   } finally { await b.close(); }
   // the same failing call three times in a row ends the run
   let r = 0;

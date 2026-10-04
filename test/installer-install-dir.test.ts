@@ -152,3 +152,35 @@ for (const exe of shells) {
     }
   });
 }
+
+// The one that actually bit (2026-10-04): the install folder was a git WORKTREE, so it had package.json named legion,
+// passed the "is this a Legion install" test, and got installed into. The app then could never update itself, and every
+// push to main landed inside the installed app. A clone has the same shape and the same failure.
+for (const exe of shells) {
+  test(`install folder verdict: REFUSES a git checkout, worktree or clone, even when it looks like a Legion install (${exe})`, () => {
+    const dir = tempDir();
+    try {
+      writeFiles(dir, {
+        // A worktree's .git is a FILE with a gitdir: line; a clone's is a directory. Both must be refused.
+        'wt/package.json': '{ "name": "legion" }',
+        'wt/dist/app.js': 'built',
+        'wt/.git': 'gitdir: D:/somewhere/.git/worktrees/wt',
+        'clone/package.json': '{ "name": "legion" }',
+        'clone/dist/app.js': 'built',
+      });
+      mkdirSync(join(dir, 'clone', '.git'), { recursive: true });
+      const body = [
+        `$p = ${q(join(dir, 'profile'))}; $d = ${q(join(dir, 'data'))}; $h = ${q(join(dir, 'home'))}`,
+        `$out = [ordered]@{}`,
+        `$out[${q('worktree')}] = Get-InstallDirVerdict -Dir ${q(join(dir, 'wt'))} -UserProfile $p -DataDir $d -LegionHome $h`,
+                `$out[${q('clone')}] = Get-InstallDirVerdict -Dir ${q(join(dir, 'clone'))} -UserProfile $p -DataDir $d -LegionHome $h`,
+        `$out | ConvertTo-Json -Compress -Depth 4`,
+      ].join('\n');
+      const r = runPs<Record<string, V>>(exe, body, dir);
+      assert.equal(r.worktree.Ok, false, 'a git worktree must never be accepted as an install folder');
+      assert.equal(r.clone.Ok, false, 'a git clone must never be accepted as an install folder');
+      assert.match(r.worktree.Reason, /git .*checkout|unable to update itself/i);
+      assert.match(r.clone.Reason, /git .*checkout|unable to update itself/i);
+    } finally { rmSync(dir, { recursive: true, force: true }); }
+  });
+}

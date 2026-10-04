@@ -8,17 +8,30 @@
 export function firstConversationBreak(
   msgs: readonly { role: string; content?: string | null; tool_call_id?: string; tool_calls?: unknown }[],
 ): string | undefined {
-  const answered = new Set<string>();
-  for (const m of msgs) {
+  // How many calls are still waiting for a result. A COUNT, not a set of names: the bug this missed was a summary row
+  // landing BETWEEN a call and its results, and a set-based walk cannot see that because the summary neither matches nor
+  // rejects — it just interrupts.
+  let open = 0;
+  for (let i = 0; i < msgs.length; i++) {
+    const m = msgs[i];
     if (m.role === 'tool') {
       const id = m.tool_call_id;
       // A tool result whose call is not in this request is an orphan and is rejected by the endpoint.
-      if (!id || !answered.has(id)) {
-        return `tool result at message ${msgs.indexOf(m)} has no matching tool_call (id ${id ?? 'none'})`;
+      if (!id || open === 0) {
+        return `tool result at message ${i} has no matching tool_call (id ${id ?? 'none'})`;
       }
-      answered.delete(id);
-    } else if (m.role === 'assistant' && Array.isArray(m.tool_calls)) {
-      for (const c of m.tool_calls as { id?: string }[]) if (c?.id) answered.add(c.id);
+      open--;
+    } else if (m.role === 'assistant' && Array.isArray(m.tool_calls) && m.tool_calls.length) {
+      if (open > 0) {
+        return `message ${i}: assistant opens ${m.tool_calls.length} tool call(s) while ${open} from an earlier call are still unanswered; ` +
+          'every call needs its results before the next non-tool row, or the endpoint rejects the whole request';
+      }
+      open = m.tool_calls.length;
+    } else if (open > 0) {
+      // A summary row here is the specific failure: it splits a call from its own results. Both the call and the results
+      // are individually findable, which is why a name-based walk called this valid.
+      return `message ${i}: a ${m.role} row interrupts ${open} unanswered tool call(s); ` +
+        'a summary must not be spliced between a tool call and its results';
     }
   }
   // A call still waiting for its result at the end is tolerated (the loop feeds results back), but an assistant that
