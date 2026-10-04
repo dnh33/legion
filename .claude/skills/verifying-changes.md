@@ -116,3 +116,27 @@ review finding — fix what was asked, and raise anything else rather than foldi
 Copying a template was requested; filling the form fields with it was an addition, and the owner rejected it twice.
 Add capability only when asked. The exception is a **missing control on a path the owner will actually walk** — if the
 button they need does not exist, saying so is the deliverable, not a scope expansion.
+
+## Never publish a report you have not spot-checked
+
+A subagent's report is a **self-report**. Its line numbers, its branch, and its arithmetic are all claims.
+
+On 2026-10-04 a parity audit reported findings for the shipped release. It had read a **topic worktree**
+(`compaction-wt`), not `main`. 25 of 26 citations happened to be correct because the files were identical — verified by
+`git diff cloud/main <branch> -- <files>` coming back empty, which is the check that must be run *before* trusting a
+cross-branch report. One citation was wrong (`maxTurns` is config.ts:107, not :109). It also **understated** its own
+most serious finding: the `turnBudget` floor overshoots the trigger threshold by 1.9x on a 16k model; the real figure is
+**2.79x**.
+
+So, before relaying a report:
+
+1. **Which branch and which directory did it read?** Prove it with `git rev-parse --abbrev-ref HEAD` and
+   `git worktree list`, then `git diff <branch-that-shipped> <branch-it-read> -- <files>`.
+2. **Spot-check the citations mechanically.** Extract `file:line -> token` pairs and grep each one. Do not eyeball them.
+   One wrong line in a document people trust becomes a wrong fact that gets repeated — this session began with me
+   asserting the canonical repo was `legion-dev` when `legion` was `main`.
+3. **Re-derive its arithmetic yourself.** A subagent that found a real bug can still quote the wrong magnitude for it.
+   The finding survives; the number does not.
+
+**A report that has not been verified is a hypothesis with citations.** Relaying it as fact is the same error as
+shipping unverified code — and it is worse, because the citations make it look checked.

@@ -22,8 +22,22 @@ work. The mechanism matters more than the outcome, because it is recognisable.
 **Never restore, stash, clean or check out a path you did not create.** "Not mine" means *leave it*, not *delete it*.
 The cost is asymmetric: a stray file costs one `git status` line; deleting one costs another session's day.
 
-**Work in a worktree, never the canonical clone.** `git worktree add D:/bots/legion-<topic> <branch>`. Read-only use
-of the canonical clone is fine; building, testing or editing in it is not, while peers are active.
+**Know which directory is which before you touch anything.** This was got wrong repeatedly in this session — by the
+owner, and by me. Verify with `git rev-parse --git-common-dir` rather than trusting a name or a memory:
+
+```
+D:/bots/legion-dev      a STANDALONE CLONE, sitting on branch claude/trailer-v2-build.
+                        NOT canonical. Nothing ships from here. Do not build, test or edit in it.
+D:/bots/legion          a WORKTREE on `main` — this is what ships and what releases are cut from.
+D:/bots/legion-<topic>  topic worktrees: git worktree add D:/bots/legion-<topic> <branch>
+```
+
+`git worktree list` run from `D:/bots/legion-dev` lists all of them, each with its branch. **Verify the branch before
+reading code for review or audit**: an audit that reads a topic worktree and reports line numbers for `main` produces
+citations that are wrong the moment the branch differs — which is how a review of the shipped release can be conducted
+against unshipped code.
+
+**Read-only use of a non-canonical clone is fine; building, testing or editing in it is not, while peers are active.**
 
 **Before declaring anything lost, run `git log --all --oneline -- <path>`.** Worktrees and stashes are not the only
 places a file lives. Concluding "unrecoverable" after checking only those is how an already-committed file gets

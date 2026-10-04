@@ -1039,6 +1039,58 @@ the same way: button removed, test failed, button restored, test passed.
 parallel load and pass in isolation and at `--test-concurrency=4`. `kg` F1 was confirmed failing at `deb5a69`, before
 this work.
 
+
+#### COMPACTION PARITY AUDIT 2026-10-04 — what the engine still lacks
+
+Audited `main` (what shipped in `0.2.3-b`) against Hermes Agent's feature set. **25 of 26 cited line numbers verified
+correct on `main`; one corrected below.** Parity: **5 MISSING, 4 PARTIAL, 0 complete.**
+
+| Item | Status |
+|---|---|
+| User-settable threshold | MISSING — `COMPACTION_THRESHOLD = 0.5`, compaction.ts:32 |
+| Keep-last-N messages | MISSING — `PROTECT_FIRST = 3`, compaction.ts:44; tail is window-derived |
+| Max summary length | MISSING — derived from `SUMMARY_WINDOW_FRACTION`, compaction.ts:41 |
+| Dedicated settings page | MISSING — nav is claude/providers/boat/mcp/blender/connections/about, Settings.tsx:16-54 |
+| Manual "compact now" | MISSING — force exists only on the overflow retry, tool-loop.ts:588 |
+| Real tokenizer counting | MISSING — `ceil(length/3)`, compaction.ts:71-73 |
+| Context-window override | PARTIAL — per provider-entry in config.json and per model from the TSV; **not per session, not in the UI** |
+| Compaction visible to user | PARTIAL — written as a transcript notice, no marker or toggle in the view |
+| Per-model settings | PARTIAL — per-model *window* only; one global threshold set |
+| Persistence + range validation | PARTIAL — the pattern exists for other settings; compaction values use none of it |
+
+**Corrected citation:** `maxTurns` default is `src/shared/config.ts:107`, not `:109` (109 is the `boat` block).
+
+**Two correctness findings, both verified by hand:**
+
+**The `turnBudget` FLOOR is unsafe, not the cap** (tool-loop.ts:570). On a 16k model:
+`max(24000, min(40000, 16384*0.12))` = **24,000 chars = 8,000 est-tokens**, against a trigger threshold of
+`16384*0.5*0.35` = **2,867 tokens** — a **2.79x** overshoot available in a *single* turn. The floor exists so a budget
+smaller than one tool result cannot delete that result, which is the right instinct, but `MAX_TOOL_RESULT_CHARS * 2` is
+an absolute and does not shrink with the window. **This is the most dangerous line in the engine.**
+
+**`ceil(length/3)` under-counts CJK by ~4.5x** (compaction.ts:71-73). Under-counting means compaction fires *late*, the
+request overflows, and the once-only rescue path absorbs it — or the run ends on the provider error. English and Danish
+are unaffected; a CJK transcript is the exposed class.
+
+**The turn-2→turn-40 test proves less than it appears** (provider-compaction.test.ts:381). It plants the decision in
+turn 1, where `PROTECT_FIRST = 3` preserves it verbatim — so it passes via **head protection** even if the summary
+captured nothing. It cannot distinguish the two mechanisms. A test that forbids head protection is needed to prove the
+summary alone retains content.
+
+**Catalog:** `SMALL_WINDOW_TOKENS = 32000` splits 466 rows into **16 models below** (3.4%) and 450 above (96.6%). Two
+4095-token rows fall under `MIN_CONTEXT_WINDOW` and are filtered at model-window.ts:34, so the usable table is **464, not
+the 466** the docs claim. The test asserts only `> 400`, so it cannot catch this.
+
+**Build order:** 1) make the tunables settable and persisted 2) the settings page 3) window-proportional budget floor
+4) manual compact-now 5) real/adaptable token counting 6) the head-protection-free retention test 7) catalog accuracy.
+
+**Settings wiring, mapped end to end:** `LegionConfig` types.ts:240-277 → default `config.ts:107` → validate
+`settings.ts:83-148` → `view()`/`patch()` settings.ts:154-207 → `GET`/`PATCH /api/settings` server.ts:209-211 →
+`SettingsPanel` Settings.tsx:26. **Persistence trap: `patch()`'s apply loop at settings.ts:185 iterates only
+`['claude','boat']` — a new top-level section is silently not persisted unless added there.** No slider or stepper
+exists in Settings; the pattern to copy is `maxTurns` (Settings.tsx:133-135, validated :97) — a `narrow` numeric text
+input with inline range checks, mirrored server-side.
+
 #### RELEASE PUBLISHED then PULLED BACK 2026-10-04 — `v0.2.3-b`, first attempt
 
 **SUPERSEDED — read this before the entry below.** This release was published, found to be uninstallable by anyone
