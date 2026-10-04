@@ -22,3 +22,9 @@ docs/video-v2/score.wav
 docs/video-v2/shots/*.png
 docs/screenshots/
 docs/images/relic.png
+
+# local full-suite log
+.testlog.txt
+
+# local full-suite logs
+.testlog2.txt

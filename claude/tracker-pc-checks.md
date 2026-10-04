@@ -198,5 +198,25 @@ ABORT at once (Freeze, Disable mainnet, no retry, record) if: a dialog differs f
 
 
 
+## House context layer (branch `fix/house-layer-packaging`, 0.2.3-a fixes). Safety class: none
+
+Four defects shipped in 0.2.3-a and are fixed here, all reproduced against the released app.zip. Proven in a real
+package built by `scripts/release-package.mjs` (409 entries; `dist/context-layer` = 12 files, 113.9 KB) with the module
+run as shipped inside it. **Not yet run in a real Legion**, so nothing here may be called verified until a row says pass.
+Full record: `claude/HOUSE-LAYER-VERIFICATION.md`.
+
+| # | Check | Expected observation | State |
+|---|---|---|---|
+| H1 | Install or update to this build over 0.2.2. Ask a Claude-provider agent (not a provider-model agent: those have no file tools) to call `house_list`. | 12 files listed, none reported missing, and neither `.shipped.json` nor `.adopted.json` appears. (0.2.3-a listed 1 file, the manifest, and reported 11 missing.) | todo |
+| H2 | `house_recall` for something specific, e.g. `"dependency hash"`. | Real hits with paths and sections. (0.2.3-a returned nothing at all on a packaged install.) | todo |
+| H3 | `house_read` on `AGENTS.md` and on `docs/adr/0010-owner-adoption.md`. | Both readable, neither wrapped, header says `shipped with Legion`. | todo |
+| H4 | **The approval-card check.** In `ask` mode, have the agent read a house file. | **No approval card appears.** Any card here is a regression: `mcp__legion_house__` was missing from the Legion-tool prefix list, so all three house tools asked permission to read a markdown file. Repeat once in `auto-edits`. | todo |
+| H5 | **The ratchet check.** Append a harmless comment line to the repo's `AGENTS.md`, then `house_read` it again. Restart Legion, read again, then revert the line and read once more. | Wrapped and `untrusted` while edited — **and `shipped` again after the revert.** Under 0.2.3-a the revert left it untrusted forever. Revert the edit afterwards. | todo |
+| H6 | **Adoption.** Put a markdown file in `%USERPROFILE%\.legion\context\`, open Settings -> House context. | The file is listed as `Not approved`; the shipped files are listed as `From Legion`. | todo |
+| H7 | Press **Approve as my rules** on that file. | It becomes `Your rules`. Ask the agent to `house_read` it: served **unwrapped**, header says your own approved file. | todo |
+| H8 | Edit that file (add a line), reopen Settings. | It is back to `Not approved` with no prompt and no button state carried over. That is the content-addressed approval working, not a bug. | todo |
+| H9 | Press **Withdraw approval** on a file Legion also shipped (`AGENTS.md`). | It stays trusted and is labelled `From Legion`: withdrawing your approval removes your approval, not the app's own bytes. | todo |
+| H10 | Restart Legion. | `house_list` unchanged; approvals survive; nothing you dropped into the context folder was deleted. | todo |
+
 ## Browser tool (built-in headless Edge/Chrome) - see claude/tracker-pc-checks-browser.md for the full steps (BR15 to BR24; the Lightpanda checks BR1-BR14 are dropped)
 Safety classes: BR15-BR20, BR22-BR24 none (a harmless page you control); BR21 native dialog. Nothing in this section was run in a cloud session; do not call the browser tool verified until each is recorded as passed.
