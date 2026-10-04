@@ -11,7 +11,7 @@ import type { McpSdkServerConfigWithInstance } from '@anthropic-ai/claude-agent-
 import { z } from 'zod';
 import type { AgentProfile } from '../../shared/types.js';
 import type { ModuleJob } from '../modules.js';
-import { HOUSE_LIMITS, HOUSE_SERVER_NAME, listContext, readContextFile, recallContext } from './context.js';
+import { HOUSE_LIMITS, HOUSE_SERVER_NAME, RECALL_LIMIT, listContext, readContextFile, recallContext } from './context.js';
 
 type ToolResult = { content: { type: 'text'; text: string }[]; isError?: boolean };
 const text = (s: string, isError = false): ToolResult => ({ content: [{ type: 'text', text: s }], ...(isError ? { isError: true } : {}) });
@@ -46,11 +46,11 @@ export function buildHouseServer(agent: AgentProfile, job: ModuleJob | undefined
         'Search the project context layer and return the matching files with the section each hit sits in. Use this before asking the user for context, and before starting work you have not done before.',
         {
           query: z.string().describe('What you want to know, in your own words. Plain words beat the exact term.'),
-          limit: z.number().int().min(1).max(HOUSE_LIMITS.recallEntries).optional(),
+          limit: z.number().int().min(1).max(RECALL_LIMIT).optional(),
         },
         async ({ query, limit }) => {
           taint();
-          const hits = recallContext(d.root(), query, limit);
+          const hits = recallContext(d.root(), query, limit ?? RECALL_LIMIT);
           if (!hits.length) {
             const { missing } = listContext(d.root());
             return text(`Nothing in the house context layer matches "${query}".` +

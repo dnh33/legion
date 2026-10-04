@@ -44,6 +44,9 @@ export const HOUSE_LIMITS = {
   maxFileBytes: 512_000,
 } as const;
 
+/** The recall cap as a plain number: `HOUSE_LIMITS` is `as const`, so its members are literal types. */
+export const RECALL_LIMIT = HOUSE_LIMITS.recallEntries;
+
 export interface ContextFile {
   /** Path relative to the context root, always with forward slashes. */
   path: string;
@@ -109,13 +112,15 @@ export function listContext(root: string): ContextListing {
   return { files, missing };
 }
 
-export interface ReadOutcome {
-  ok: true;
-  path: string;
-  text: string;
-  /** True when the file was over the read cap and only its head was returned. */
-  clipped: boolean;
-} | { ok: false; reason: 'outside' | 'absent' | 'too-large'; message: string };
+export type ReadOutcome =
+  | {
+      ok: true;
+      path: string;
+      text: string;
+      /** True when the file was over the read cap and only its head was returned. */
+      clipped: boolean;
+    }
+  | { ok: false; reason: 'outside' | 'absent' | 'too-large'; message: string };
 
 /**
  * Reads one file from the context root.
@@ -169,7 +174,7 @@ const headingOf = (line: string): string => {
  * Deliberately not the KG: this searches the owner's own text, and its ranking does not carry the recency factor that
  * made two Library comparisons disagree. What is in the house does not go stale by being old.
  */
-export function recallContext(root: string, query: string, limit = HOUSE_LIMITS.recallEntries): RecallHit[] {
+export function recallContext(root: string, query: string, limit: number = RECALL_LIMIT): RecallHit[] {
   const terms = tokenise(query);
   if (!terms.length) return [];
   const files = listContext(root).files.filter((f) => f.path.endsWith('.md') && f.bytes <= HOUSE_LIMITS.maxFileBytes);

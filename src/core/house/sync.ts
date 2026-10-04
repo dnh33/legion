@@ -2,7 +2,11 @@
  * Copies the repository's context layer into the Legion data directory, so the agents Legion runs can read it.
  *
  * The copy is one-way and never deletes: a note the user drops into `~/.legion/context/` survives every sync, because
- * a sync that removed it would be a sync that lost work. Overwrite happens only for a path the repo also has.
+ * a sync that removed it would be a sync that lost work. Overwrite happens only for a path the repo also has, and a
+ * local copy that is newer than the repo's is left alone.
+ *
+ * Every path in the result is relative to the context root, because that is what `house_read` takes and what the log
+ * and the `/api/house` route report. An absolute path here would be a path no tool can use.
  */
 import { copyFileSync, existsSync, mkdirSync, readdirSync, statSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
@@ -11,23 +15,30 @@ import { SHIPPED_DIRS, SHIPPED_FILES, normalisePath } from './context.js';
 export interface SyncResult {
   written: string[];
   skipped: string[];
-  /** True when the data copy was newer than the repo copy, so the repo's version was left alone. */
+  /** Paths where the data copy was newer than the repo copy, so the repo's version was left alone. */
   keptNewer: string[];
+  /** Paths already identical to the repo copy, so nothing was copied. */
+  unchanged: string[];
 }
 
 const MAX_COPY_BYTES = 2_000_000;
 
-/** One repo file: copy it if the target is absent, older, or byte-identical is impossible to care about. */
-function copyOne(src: string, dst: string, res: SyncResult): void {
-  const rel = normalisePath(dst);
+/** One repo file, addressed by its path inside the layer. */
+function copyOne(repoRoot: string, target: string, rel: string, res: SyncResult): void {
+  const src = join(repoRoot, rel);
+  const dst = join(target, rel);
   try {
     const st = statSync(src);
     if (!st.isFile()) { res.skipped.push(rel); return; }
     if (st.size > MAX_COPY_BYTES) { res.skipped.push(rel); return; }
     if (existsSync(dst)) {
       const dstSt = statSync(dst);
+      // copyFileSync preserves mtime, so an untouched copy has exactly the repo's mtime and size. Comparing those two
+      // makes a second sync a no-op instead of rewriting the whole layer on every start, which is what a naive
+      // "newer means changed" check gets wrong here.
+      if (dstSt.mtimeMs === st.mtimeMs && dstSt.size === st.size) { res.unchanged.push(rel); return; }
       // A newer local copy is the user's; do not overwrite it with an older repo file.
-      if (dstSt.mtimeMs > st.mtimeMs && dstSt.size !== st.size) { res.keptNewer.push(rel); return; }
+      if (dstSt.mtimeMs > st.mtimeMs) { res.keptNewer.push(rel); return; }
     }
     mkdirSync(dirname(dst), { recursive: true });
     copyFileSync(src, dst);
@@ -37,7 +48,7 @@ function copyOne(src: string, dst: string, res: SyncResult): void {
   }
 }
 
-/** Every `.md` under `dir`, relative to `root`. */
+/** Every `.md` under `dir`, relative to `root`, forward-slashed. */
 function mdFiles(root: string, dir: string, out: string[] = []): string[] {
   const abs = join(root, dir);
   let entries: string[];
@@ -66,19 +77,22 @@ function mdFiles(root: string, dir: string, out: string[] = []): string[] {
  */
 export function syncContext(repoRoot: string, dataDir: string): SyncResult {
   const target = resolve(dataDir, 'context');
-  const res: SyncResult = { written: [], skipped: [], keptNewer: [] };
+  const res: SyncResult = { written: [], skipped: [], keptNewer: [], unchanged: [] };
   if (!existsSync(repoRoot)) return res;
   mkdirSync(target, { recursive: true });
 
-  for (const rel of SHIPPED_FILES) copyOne(join(repoRoot, rel), join(target, rel), res);
+  const copy = (rel: string): void => copyOne(repoRoot, target, normalisePath(rel), res);
 
+  for (const rel of SHIPPED_FILES) copy(rel);
+
+  // Directories copied whole, because an ADR or a skill is useless without its neighbours.
   for (const dir of SHIPPED_DIRS) {
-    for (const rel of mdFiles(repoRoot, dir)) copyOne(join(repoRoot, rel), join(target, rel), res);
+    for (const rel of mdFiles(repoRoot, dir)) copy(rel);
   }
   // context/*.json is machine-readable; house_recall does not read it but house_read can, and a future tool can.
-  for (const rel of mdFiles(repoRoot, 'context')) copyOne(join(repoRoot, rel), join(target, rel), res);
+  for (const rel of mdFiles(repoRoot, 'context')) copy(rel);
   for (const rel of SHIPPED_FILES) {
-    if (rel.endsWith('.json')) copyOne(join(repoRoot, rel), join(target, rel), res);
+    if (rel.endsWith('.json')) copy(rel);
   }
   return res;
 }

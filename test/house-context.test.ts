@@ -10,8 +10,9 @@ import { tmpdir } from 'node:os';
 import { join, resolve, sep } from 'node:path';
 import { after, describe, it } from 'node:test';
 import {
-  CONTEXT_DIRNAME, HOUSE_LIMITS, HOUSE_SERVER_NAME, listContext, readContextFile, recallContext, resolveInside, syncContext,
-} from '../dist/src/core/house/context.js';
+  CONTEXT_DIRNAME, HOUSE_LIMITS, HOUSE_SERVER_NAME, listContext, readContextFile, recallContext, resolveInside,
+} from '../src/core/house/context.js';
+import { syncContext } from '../src/core/house/sync.js';
 
 const scratch = (): string => mkdtempSync(join(tmpdir(), 'legion-house-'));
 const roots: string[] = [];
@@ -45,12 +46,12 @@ function fixture(): string {
 describe('house context: listing', () => {
   it('lists every file with a forward-slash path, sorted, recursively', () => {
     const { files } = listContext(fixture());
-    const paths = files.map((f) => f.path);
+    const paths = files.map((f: { path: string }) => f.path);
     assert.deepEqual(paths, [...paths].sort(), 'not sorted');
     assert.ok(paths.includes('AGENTS.md'));
     assert.ok(paths.includes('docs/adr/0004-dependency-hash.md'));
     assert.ok(paths.includes('claude/skills/kodawari.md'));
-    assert.ok(!paths.some((p) => p.includes('\\')), 'a path kept a backslash');
+    assert.ok(!paths.some((p: string) => p.includes('\\')), 'a path kept a backslash');
   });
 
   it('reports expected files that are absent, so a broken install is visible rather than silently empty', () => {
@@ -145,7 +146,7 @@ describe('house context: recall', () => {
 
   it('finds the ADR by its subject', () => {
     const hits = recallContext(fixture(), 'dependency hash lockfile');
-    assert.ok(hits.some((h) => h.path === 'docs/adr/0004-dependency-hash.md'), 'ADR not found');
+    assert.ok(hits.some((h: { path: string }) => h.path === 'docs/adr/0004-dependency-hash.md'), 'ADR not found');
   });
 
   it('returns nothing rather than everything for a word that is not there', () => {
@@ -171,9 +172,9 @@ describe('house context: sync', () => {
     const data = track(scratch());
     const res = syncContext(repo, data);
     assert.ok(res.written.includes('AGENTS.md'));
-    assert.ok(res.written.some((p) => p.startsWith('docs/adr/')), 'the ADRs did not come across');
+    assert.ok(res.written.some((p: string) => p.startsWith('docs/adr/')), 'the ADRs did not come across');
     const { files } = listContext(join(data, CONTEXT_DIRNAME));
-    const paths = files.map((f) => f.path);
+    const paths = files.map((f: { path: string }) => f.path);
     assert.ok(paths.includes('claude/skills/kodawari.md'));
     assert.ok(!paths.includes('README.md'), 'README.md is not part of the layer and should not ship');
     assert.ok(!paths.includes('my-note.md'), 'a note in the repo root is not part of the layer');
@@ -182,10 +183,11 @@ describe('house context: sync', () => {
   it('is idempotent: a second sync copies nothing new and deletes nothing', () => {
     const repo = fixture();
     const data = track(scratch());
-    syncContext(repo, data);
+    const res0 = syncContext(repo, data);
     const before = listContext(join(data, CONTEXT_DIRNAME)).files.length;
     const second = syncContext(repo, data);
     assert.equal(second.written.length, 0, 'second sync rewrote files');
+    assert.equal(second.unchanged.length, res0.written.length, 'the unchanged set should name every copied file');
     assert.equal(listContext(join(data, CONTEXT_DIRNAME)).files.length, before);
   });
 
@@ -245,7 +247,7 @@ describe('house context: shape', () => {
 describe('house context: the failure this exists to prevent', () => {
   it('AGENTS.md is in the shipped set, so a missing index is reported rather than silently absent', () => {
     const { files, missing } = listContext(fixture());
-    const shipped = files.map((f) => f.path);
+    const shipped = files.map((f: { path: string }) => f.path);
     assert.ok(shipped.includes('AGENTS.md'));
     assert.ok(!missing.includes('AGENTS.md'));
   });

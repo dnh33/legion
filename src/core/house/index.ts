@@ -59,7 +59,7 @@ export function createHouseModule(deps: ModuleDeps, opts: HouseModuleOptions = {
     mcpServers(agent: AgentProfile, job?: ModuleJob): Record<string, McpServerConfig> {
       // Nothing to serve: do not hand out tools that would only ever return "the layer is empty".
       if (!listContext(root()).files.length) return {};
-      return { [HOUSE_SERVER_NAME]: { type: 'sdk', instance: buildHouseServer(agent, job, { root }) } } as Record<string, McpServerConfig>;
+      return { [HOUSE_SERVER_NAME]: buildHouseServer(agent, job, { root }) };
     },
 
     preamble(agent: AgentProfile): string {
@@ -77,7 +77,7 @@ export function createHouseModule(deps: ModuleDeps, opts: HouseModuleOptions = {
       // install from a working one with an empty layer.
       add('GET', '/api/house', () => {
         const { files, missing } = listContext(root());
-        return { root: root(), files, missing, synced: synced ? { written: synced.written.length, skipped: synced.skipped.length, keptNewer: synced.keptNewer.length } : null };
+        return { root: root(), files, missing, synced: synced ? { written: synced.written.length, skipped: synced.skipped.length, keptNewer: synced.keptNewer.length, unchanged: synced.unchanged.length } : null };
       }, 200);
     },
 
