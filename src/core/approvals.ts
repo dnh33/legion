@@ -35,6 +35,59 @@ export function stricterMode(a: ApprovalMode, b: ApprovalMode): ApprovalMode {
 const CAPPED_CARDED = new Set(['mcp__legion__vm_exec', 'mcp__legion__vm_claude', 'mcp__legion__vm_desktop']);
 
 /**
+ * The mode a guard must judge by, and the one place that decides whether a guard shows a card at all.
+ *
+ * OWNER RULE (2026-10-04): **one rule, no exceptions — in `full` a guard never shows a card.** Every guard in
+ * Legion goes through here, so a new guard cannot forget the mode the way four of them did (Blender exec and
+ * asset, the comms room tools and the project board all asked unconditionally, so a full-access bot still got a
+ * "Needs your OK" card; the browser module already did this correctly and was the proof the pattern was known).
+ *
+ * `modeOf` re-reads the store on EVERY call, so switching an agent from `ask` to `full` mid-task takes effect on
+ * its next guarded call. A snapshot taken at run start would keep carding a bot the owner has just promoted.
+ * `ceiling` (a run started by an MCP client or another bot) always wins over the agent's own setting — the
+ * confused-deputy guard — so a promoted-but-capped run still asks.
+ */
+export interface GuardDecision {
+  /** False when the run is `full` and uncapped: the caller must NOT ask, and must go straight to the action. */
+  needsCard: boolean;
+  /** The mode actually in force, for the reason a card was or was not shown. */
+  mode: ApprovalMode;
+}
+
+/** Reads the agent's live approval mode from the store. Returns undefined when the agent is gone. */
+export type ModeOf = (agentId: string) => ApprovalMode | undefined;
+
+/**
+ * The one function a guard calls instead of asking on its own. `ask` is called only when a card is genuinely
+ * required; a guard that skips this and calls `broker.request` directly is the bug this exists to prevent.
+ *
+ * `summary`/`input`/`origin`/`onTimeout` are forwarded untouched, so the card the owner sees is unchanged.
+ */
+export async function guardAsk(
+  opts: {
+    ceiling?: ApprovalMode;
+    /** The live store read. Omit only where no store is reachable; the agent's own setting is then used. */
+    modeOf?: ModeOf;
+    agentId: string;
+    /** The agent's setting as it stood when the run started. Used only if `modeOf` cannot answer. */
+    fallbackMode: ApprovalMode;
+    /** Shows the card and resolves with the owner's answer. Never called in `full`. */
+    ask: () => Promise<boolean>;
+  },
+): Promise<boolean> {
+  const live = opts.modeOf?.(opts.agentId);
+  const base = live ?? opts.fallbackMode;
+  const effective = opts.ceiling ? stricterMode(base, opts.ceiling) : base;
+  if (decideGuard(effective).needsCard) return opts.ask();
+  return true;
+}
+
+/** The pure half of `guardAsk`, split out so it can be asserted directly. `full` never cards. */
+export function decideGuard(mode: ApprovalMode): GuardDecision {
+  return { needsCard: mode !== 'full', mode };
+}
+
+/**
  * `capped`: the run has an approval ceiling from someone else (it came from an MCP client or was woken by another bot). Then vm_exec,
  * vm_claude and vm_desktop need a card even though they are Legion's own tools; everything else follows the mode as before.
  */

@@ -110,8 +110,10 @@ export function buildCommsToolsServer(
     }),
   );
 
-  // The three room-changing tools wait for the user's card inside the handler (never through canUseTool, so the agent's approval mode cannot skip it).
-  const ctx = () => ({ ...(run?.taskId ? { taskId: run.taskId } : {}), ...(run?.taint() ? { tainted: true } : {}), ...(run?.origin ? { origin: run.origin } : {}) });
+  // The three room-changing tools wait for the user's card inside the handler, never through canUseTool. The run's
+  // approval ceiling travels with it, because the card decision is made here (a `full` agent does not card, but a
+  // capped one still must — see hub.askUser).
+  const ctx = () => ({ ...(run?.taskId ? { taskId: run.taskId } : {}), ...(run?.taint() ? { tainted: true } : {}), ...(run?.origin ? { origin: run.origin } : {}), ...(run?.ceiling ? { ceiling: run.ceiling } : {}) });
   const roomCreate = tool(
     'room_create',
     'Ask the user to create a group room with other bots. The user sees a card ("<you> wants to create room X with A, B, C") and must allow it; this call waits for the answer (up to 10 minutes). You are always a member; at most 6 bots; the room has NO spend limit unless you name budgetUsd (the user can set, raise or remove a limit in room settings; the card tells the user when there is none) and it has the usual hop and cycle guards. The room is marked as created by you and only the user can delete it. If the user denies, do not ask again.',

@@ -165,7 +165,8 @@ test('E8: a full run (fake Edge on Windows paths): the result names the browser,
     assert.match((await t.call('browser_text')).text, /hello from the fake/);
     assert.match((await t.call('browser_status')).text, /Browser: Microsoft Edge 120\.0\.2210\.91 \(headless\)/);
     assert.ok(t.tainted.n >= 1);
-    assert.equal(r.cards.length, 1); assert.match(r.cards[0]!.summary, /Open a web page: https:\/\/a\.test\//);
+    // S5b: a `full` run gets no card at all, the first page included (one rule, no exceptions).
+    assert.equal(r.cards.length, 0, `a full run must not card; got ${r.cards.map((c) => c.summary).join(' | ')}`);
     const rep = JSON.parse(readFileSync(r.reports[0]!, 'utf8')) as { argv: string[] };
     assert.ok(rep.argv.includes('--headless=new') && !rep.argv.includes('--no-sandbox'));
     const lr = (await status(r)).lastRun!;

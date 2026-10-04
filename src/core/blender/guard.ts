@@ -23,6 +23,8 @@ import type { AssetSource, BlenderConfig, BlenderMode, BlenderSandboxMode } from
 import type { AgentProfile } from '../../shared/types.js';
 import { scrubSecrets } from '../comms/scrub.js';
 import type { ApprovalBroker } from '../approvals.js';
+import { guardAsk } from '../approvals.js';
+import type { ModeOf } from '../approvals.js';
 import type { ModuleJob } from '../modules.js';
 import { AuditLog } from './audit.js';
 import type { AuditEntry } from './audit.js';
@@ -103,6 +105,12 @@ export interface GuardDeps {
   config: () => BlenderConfig;
   dataDir: string;
   approvals: Pick<ApprovalBroker, 'request'>;
+  /**
+   * The agent's approval mode as the store holds it NOW. Read on every guarded call, so promoting an agent to
+   * `full` mid-task stops its cards on the next call. Optional: without it the agent's own setting is used.
+   * (Same seam the browser module has had since it was written.)
+   */
+  modeOf?: ModeOf;
   /** Connects (when needed) and returns the live backend; throws a plain-language error when Blender is not reachable. */
   getBackend: () => Promise<BlenderBackend>;
   sandbox?: SandboxPort;
@@ -320,21 +328,28 @@ export class BlenderGuard {
       }
     }
 
-    // 2. approval card with the full script. Awaited here.
+    // 2. approval card with the full script. Awaited here. Skipped in `full` (OWNER RULE: one rule, no exceptions);
+    // the audit record below is written either way, so no-record-no-run still holds.
     const o = job?.origin;
     let timedOut = false;
-    const allowed = await this.d.approvals.request(
-      taskId, agent.id, BLENDER_EXEC_TOOL,
-      {
-        script, mode, hash, agentName: agent.name, ...(cleanedPurpose ? { purpose: cleanedPurpose } : {}),
-        notes: check.notes, lines: check.lines,
-        where: where(mode),
-        backup: mode === 'live' ? (this.backedUp.has(taskId) ? 'already saved this task' : 'saved before this script') : mode === 'local' ? 'scene copy in the task folder before this run' : 'not needed (sandbox scene)',
-        ...(onThisComputer ? { exportDir } : {}),
-      },
-      o ? { roomId: o.roomId, fromAgentId: o.fromAgentId, hop: o.hop } : undefined,
-      { onTimeout: () => { timedOut = true; } },
-    );
+    const allowed = await guardAsk({
+      ...(job?.ceiling ? { ceiling: job.ceiling } : {}),
+      ...(this.d.modeOf ? { modeOf: this.d.modeOf } : {}),
+      agentId: agent.id,
+      fallbackMode: agent.approval,
+      ask: () => this.d.approvals.request(
+        taskId, agent.id, BLENDER_EXEC_TOOL,
+        {
+          script, mode, hash, agentName: agent.name, ...(cleanedPurpose ? { purpose: cleanedPurpose } : {}),
+          notes: check.notes, lines: check.lines,
+          where: where(mode),
+          backup: mode === 'live' ? (this.backedUp.has(taskId) ? 'already saved this task' : 'saved before this script') : mode === 'local' ? 'scene copy in the task folder before this run' : 'not needed (sandbox scene)',
+          ...(onThisComputer ? { exportDir } : {}),
+        },
+        o ? { roomId: o.roomId, fromAgentId: o.fromAgentId, hop: o.hop } : undefined,
+        { onTimeout: () => { timedOut = true; } },
+      ),
+    });
     if (!allowed) {
       this.stats.denied++;
       this.audit({ ...base, ...purpose, decision: timedOut ? 'timeout' : 'denied' });
@@ -571,12 +586,19 @@ export class BlenderGuard {
     }
     const o = job?.origin;
     let timedOut = false;
-    const allowed = await this.d.approvals.request(
-      taskId, agent.id, BLENDER_ASSET_TOOL,
-      { source: plan.source, id: plan.id, kind: plan.kind, resolution: plan.resolution, files: plan.files.length, bytes: plan.totalBytes, hosts: [...new Set(plan.files.map((f) => new URL(f.url).hostname))], folder: dir, agentName: agent.name, hash },
-      o ? { roomId: o.roomId, fromAgentId: o.fromAgentId, hop: o.hop } : undefined,
-      { onTimeout: () => { timedOut = true; }, summary: cardSummary(plan, dir) },
-    );
+    // same one rule as every other guard: no card in `full` (the record below is written either way)
+    const allowed = await guardAsk({
+      ...(job?.ceiling ? { ceiling: job.ceiling } : {}),
+      ...(this.d.modeOf ? { modeOf: this.d.modeOf } : {}),
+      agentId: agent.id,
+      fallbackMode: agent.approval,
+      ask: () => this.d.approvals.request(
+        taskId, agent.id, BLENDER_ASSET_TOOL,
+        { source: plan.source, id: plan.id, kind: plan.kind, resolution: plan.resolution, files: plan.files.length, bytes: plan.totalBytes, hosts: [...new Set(plan.files.map((f) => new URL(f.url).hostname))], folder: dir, agentName: agent.name, hash },
+        o ? { roomId: o.roomId, fromAgentId: o.fromAgentId, hop: o.hop } : undefined,
+        { onTimeout: () => { timedOut = true; }, summary: cardSummary(plan, dir) },
+      ),
+    });
     if (!allowed) {
       this.stats.denied++;
       this.audit({ ...base, decision: timedOut ? 'timeout' : 'denied', summary: plan.id });
