@@ -10,7 +10,7 @@ Concrete commands for the release, ready to fire in order. Gated on WO-4 (traile
 
 ## 1. PR `integration/v1 -> main`
 ```
-cd D:/bots/legion-review
+cd D:/bots/legion
 git tag pre-merge-release && git push cloud pre-merge-release    # restore point
 gh pr create --base main --head integration/v1 --title "Legion v0.2.0" --body "..."
 ```
@@ -26,7 +26,7 @@ git archive --format=tar cloud/integration/v1 | tar -x -C "D:/bots/legion-v6-7"
 
 ## 3. Prebuilt package (plan `claude/plan-prebuilt.md`)
 ```
-cd D:/bots/legion-review && node scripts/build-package.mjs    # ~270 MB zip, ~690 MB unpacked
+cd D:/bots/legion && node scripts/build-package.mjs    # ~270 MB zip, ~690 MB unpacked
 ```
 - Preflight: Windows x64, Node >= 20.10, clean tree. Produces `legion-0.2.0-win-x64.zip` (full) + `legion-0.2.0-app.zip` (update) + `SHA256SUMS.txt` + manifest (unsigned — key is owner's).
 - Test: unzip into a clean folder, clean data dir (`LEGION_HOME`), run `setup.cmd`, smoke-test `electron.exe` node-mode + `claude.exe --version`.
@@ -38,7 +38,7 @@ PC ids: PB1-PB10 (board), B17 (chip), BR15-BR24 (browser), V1-V12 (BSV testnet, 
 
 ## 6. Tag `v0.2.0` — **owner's go only**
 ```
-cd D:/bots/legion-review && git checkout main && git tag v0.2.0 && git push cloud v0.2.0
+cd D:/bots/legion && git checkout main && git tag v0.2.0 && git push cloud v0.2.0
 ```
 
 ## 7. Cleanup

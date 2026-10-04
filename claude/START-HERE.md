@@ -16,10 +16,14 @@ out of date. That is not a judgement call — the branch does not exist.
 ## Clones on this PC — only the first is real
 
 | Path | State |
-|---|---|
-| `D:\bots\legion-review` | **Canonical.** v0.2.2, Apache-2.0, public, in sync with `cloud`. |
+| --- | --- |
+| `D:\bots\legion` | **Canonical.** v0.2.2, Apache-2.0, public, in sync with `cloud`. Renamed from `legion-review` on 2026-10-04; the old name appears in nothing. |
 | `D:\bots\legion-ctx` | Second clone, same remote. Branch `claude/context-layer` (house context layer, commit `40842df`). |
-| `D:\bots\legion` | **STALE — v0.1.0, MIT, `private: true`.** Reading anything from it gives you facts that were true a hundred commits ago. Do not use it as a source. |
+| `D:\bots\_stale-legion-v0.1.0-20261004` | **STALE — v0.1.0, MIT, `private: true`, 87 uncommitted files.** Kept, not deleted, so nothing is lost. Its `src/core/bsv/` and `src/core/comms/` copies ARE recoverable from `main` history. Delete it once you are satisfied. |
+
+Do not use any other folder here as a source of truth. `legion-gate`, `legion-cap-wt`, `legion-wt-win`,
+`legion-wt-winfix` and `legion-dev` are linked WORKTREES of `D:\bots\legion` (detached or on old branches) — they are
+gate/checkout scratch, not clones. `legion-site` is the separate website repo.
 
 ## Current state
 

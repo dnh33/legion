@@ -11,7 +11,7 @@ Legion, by you and the other agents.
 
 ## What you are inheriting
 
-- **Repository:** `dnh33/legion` (public, Apache-2.0, © Daniel Hjermitslev). Clone: `D:\bots\legion-review`.
+- **Repository:** `dnh33/legion` (public, Apache-2.0, © Daniel Hjermitslev). Clone: `D:\bots\legion`.
   `main` is the only branch, protected: pull request + 1 approving review, no force-push, no deletion.
 - **State of record:** `claude/legion-release-tracker.md` in the repo. It is the single source of
   truth for what is done, what is open, and why. Read it before you plan anything. It has dated
