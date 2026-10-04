@@ -10,9 +10,11 @@ Legion is a local, Claude-native multi-agent desktop app: an Electron shell arou
 
 1. This file — the map and the rules.
 2. `docs/ARCHITECTURE.md` — the processes and the contracts between them.
-3. The doc for the area you touch (table below).
-4. `docs/adr/` — the decisions that are hard to reverse, and **why**. Read the relevant one before changing its area.
-5. `docs/TESTING.md` — before running anything. A fake-backed harness tests Legion end to end with no real Claude,
+3. **`.claude/skills/`** — the operational traps: shipping a release, verifying a change, multi-agent safety.
+   Read the one that matches what you are about to do. Written after shipping something wrong.
+4. The doc for the area you touch (table below).
+5. `docs/adr/` — the decisions that are hard to reverse, and **why**. Read the relevant one before changing its area.
+6. `docs/TESTING.md` — before running anything. A fake-backed harness tests Legion end to end with no real Claude,
    no boat.dev, no wallet and no Blender.
 
 `CONTEXT.md` is the glossary only. `docs/SESSION-LOG.md` is how we got here, including the mistakes.

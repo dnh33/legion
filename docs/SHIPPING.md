@@ -150,7 +150,7 @@ node scripts/release-sign.mjs --key <key.pem> --manifest D:/bots/legion-pkg-<v>/
 ```
 
 **The key must be outside every git work tree.** The vault path
-`D:\Aetherkeep\04-claude\credentials\legion-updater\legion-update-k1.key.pem` is *inside* Aetherkeep's own git repo
+`D:\the owner's vault\04-claude\credentials\legion-updater\legion-update-k1.key.pem` is *inside* the owner's vault's own git repo
 and the script refuses it. Copy to `D:\bots\_key.pem`, sign, delete the copy immediately. Never read the key into an
 agent session; pass the path.
 

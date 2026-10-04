@@ -131,6 +131,10 @@ const DENY_IGNORE = new Set([
   'test/project-board-agent-access.test.ts',
   'test/project-board-store.test.ts',
   'test/project-board-tools.test.ts',
+  // The redaction fixtures ARE the test: it asserts that a key-shaped string never survives summarisation or
+  // scrubbing, so the literals have to be real enough to trip the same patterns the product uses. Same reasoning as
+  // the fixtures above - the guard is fail-closed everywhere else.
+  'test/provider-compaction.test.ts',
 ]);
 
 const TEXT_EXT = new Set(['.md', '.txt', '.json', '.jsonl', '.ts', '.tsx', '.js', '.mjs', '.cjs', '.py', '.css', '.html', '.astro', '.yml', '.yaml', '.svg', '.ps1', '.sh', '.gitignore', '.gitattributes']);
