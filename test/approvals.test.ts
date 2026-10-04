@@ -89,3 +89,25 @@ test('board tools are Legion tools: no card, no taint; foreign and lookalike too
   assert.equal(needsApproval('ask', 'mcp__legion_other__x'), true);
   assert.equal(taintsRun('mcp__legion_other__x'), true);
 });
+
+test('house tools are Legion tools: reading your own context layer must not stop for an approval card', async () => {
+  // `mcp__legion_house__` was missing from LEGION_TOOL_PREFIXES, so every house_recall / house_read / house_list fell
+  // through to the "Bash, other mcp__*, and unknown tools" branch and raised a card -- in 'ask' AND in 'auto-edits'.
+  // An agent asking for the house rules is doing the most ordinary thing there is, and it was asking the owner for
+  // permission to read a markdown file. Measured before the fix: needsApproval('ask') === true for all three tools.
+  const { isLegionTool } = await import('../src/core/approvals.js');
+  const { taintsRun } = await import('../src/core/engine.js');
+  const { HOUSE_SERVER_NAME } = await import('../src/core/house/context.js');
+  assert.equal(HOUSE_SERVER_NAME, 'legion_house');
+  for (const t of ['house_recall', 'house_read', 'house_list']) {
+    const n = `mcp__${HOUSE_SERVER_NAME}__${t}`;
+    assert.equal(isLegionTool(n), true, `${n} must be recognised as a Legion tool`);
+    assert.equal(needsApproval('ask', n), false, `${n} must not raise a card in 'ask'`);
+    assert.equal(needsApproval('auto-edits', n), false, `${n} must not raise a card in 'auto-edits'`);
+  }
+  // A lookalike server is still foreign: the prefix must be exact, not a substring test.
+  assert.equal(isLegionTool('mcp__legion_house__x__run'), false, 'a nested tool name is not ours');
+  assert.equal(isLegionTool('mcp__legion_houseish__read'), false, 'a lookalike server is not ours');
+  assert.equal(needsApproval('ask', 'mcp__legion_houseish__read'), true, 'and it still needs a card');
+  assert.equal(taintsRun(`mcp__${HOUSE_SERVER_NAME}__house_read`), false);
+});

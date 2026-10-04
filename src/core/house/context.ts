@@ -11,7 +11,8 @@
  */
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, relative, sep } from 'node:path';
-import { isShipped, readManifest, serveFile } from './trust.js';
+import { ADOPTED_NAME, MANIFEST_NAME, readAdopted, readManifest, serveFile, trustKind } from './trust.js';
+import type { TrustKind } from './trust.js';
 
 export const HOUSE_SERVER_NAME = 'legion_house';
 
@@ -30,8 +31,18 @@ export const SHIPPED_FILES = [
   'docs/adr/README.md',
 ] as const;
 
-/** Directories copied whole, because the ADRs and skills are useless without their neighbours. */
-export const SHIPPED_DIRS = ['docs/adr', 'context', 'claude/skills'] as const;
+/** Directories copied whole, because the ADRs are useless without their neighbours. */
+export const SHIPPED_DIRS = ['docs/adr', 'context'] as const;
+
+/**
+ * Deliberately NOT shipped: `claude/skills`.
+ *
+ * It was listed here until 2026-10-04 and no packaged install ever received it, because CODE_SET does not carry the
+ * repository root (see sync.ts). Adding it back would ship the owner's personal workflow skills to every user, which
+ * `scripts/export-public.mjs` already forbids for the public repo ("claude/skills/** excluded wholesale"). Those skills
+ * belong to whoever wrote them; a user's own skills are their own files in their own context folder. If shippable skills
+ * are wanted later they need a public path of their own, not this one.
+ */
 
 /** Cap on one returned file, so a large document cannot crowd out the run's real context. */
 export const HOUSE_LIMITS = {
@@ -104,6 +115,10 @@ export function listContext(root: string): ContextListing {
       return;
     }
     for (const name of entries.sort()) {
+      // The trust manifests are bookkeeping, not content. Counting them made an EMPTY layer look populated (the shipped
+      // manifest is written on every sync), which defeated the "no files -> hand out no tools" guard in index.ts and
+      // offered the agent a readable file that exists only to be excluded from trust decisions.
+      if (name === MANIFEST_NAME || name === ADOPTED_NAME) continue;
       const full = join(dir, name);
       let st;
       try {
@@ -137,8 +152,10 @@ export type ReadOutcome =
       text: string;
       /** True when the file was over the read cap and only its head was returned. */
       clipped: boolean;
-      /** True when the bytes still match what Legion shipped; false means the file has been edited or added since. */
+      /** True when the bytes are the app's own or the owner's approved ones. False means the file needs an approval. */
       trusted: boolean;
+      /** Which of the three trust states applies, so the caller can say something more useful than a boolean. */
+      kind: TrustKind;
     }
   | { ok: false; reason: 'outside' | 'absent' | 'too-large'; message: string };
 
@@ -178,7 +195,7 @@ export function readContextFile(root: string, requested: string): ReadOutcome {
   const served = serveFile(root, rel, text);
   text = served.text;
   const clipped = text.length > HOUSE_LIMITS.toolResultChars;
-  return { ok: true, path: rel, text: clipped ? text.slice(0, HOUSE_LIMITS.toolResultChars) : text, clipped, trusted: served.trusted };
+  return { ok: true, path: rel, text: clipped ? text.slice(0, HOUSE_LIMITS.toolResultChars) : text, clipped, trusted: served.trusted, kind: served.kind };
 }
 
 export interface RecallHit {
@@ -187,8 +204,10 @@ export interface RecallHit {
   title: string;
   snippet: string;
   score: number;
-  /** False when the file is no longer the bytes Legion shipped. The snippet is then served wrapped. */
+  /** False when the file is neither the app's own bytes nor the owner's approved ones. The snippet is then served wrapped. */
   trusted: boolean;
+  /** Which of the three trust states applies to the file this hit came from. */
+  kind: TrustKind;
 }
 
 const headingOf = (line: string): string => {
@@ -230,6 +249,7 @@ export function recallContext(root: string, query: string, limit: number = RECAL
   }).filter((d): d is { path: string; lines: string[]; hay: string[]; tf: number[]; len: number } => !!d);
 
   const manifest = readManifest(root);
+  const adopted = readAdopted(root);
   const avg = docs.reduce((s, d) => s + d.len, 0) / Math.max(docs.length, 1);
   const k1 = 1.2;
   const b = 0.75;
@@ -256,11 +276,12 @@ export function recallContext(root: string, query: string, limit: number = RECAL
       const h = headingOf(d.lines[i]);
       if (h) { title = h; break; }
     }
-    const trusted = isShipped(root, d.path, manifest);
+    const kind = trustKind(root, d.path, manifest, adopted);
+    const trusted = kind !== 'untrusted';
     // Wrapped per hit rather than per file: the wrapper costs two lines, and a search that returned the app's own text
     // unlabelled next to an agent's edit would be exactly the confusion this module exists to prevent.
     const snippet = trusted ? line : `[UNTRUSTED SOURCE — edited or added since install: ${d.path}] ${line}`;
-    hits.push({ path: d.path, title: title || d.lines[idx].trim().slice(0, 60), snippet, score, trusted });
+    hits.push({ path: d.path, title: title || d.lines[idx].trim().slice(0, 60), snippet, score, trusted, kind });
   }
   return hits.sort((a, b2) => b2.score - a.score || a.path.localeCompare(b2.path)).slice(0, limit);
 }

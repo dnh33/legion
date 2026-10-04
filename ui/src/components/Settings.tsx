@@ -12,6 +12,7 @@ import { loadProviders, useProviders } from '../providers/providersStore';
 import { Icon } from './icons';
 import { UpdatePanel } from './UpdatePanel';
 import { BrowserSection } from '../browser/BrowserSection';
+import { HouseSection } from '../house/HouseSection';
 
 const NAV: { id: SettingsSection; label: string; hint: string }[] = [
   { id: 'claude', label: 'Claude', hint: 'Sign-in, key, runs' },
@@ -19,6 +20,7 @@ const NAV: { id: SettingsSection; label: string; hint: string }[] = [
   { id: 'boat', label: 'boat.dev (VMs)', hint: 'Cloud computers' },
   { id: 'mcp', label: 'MCP servers', hint: 'Extra tools for agents' },
   { id: 'blender', label: 'Blender', hint: 'Build 3D with the Sculptor' },
+  { id: 'house', label: 'House context', hint: 'What your agents read as rules' },
   { id: 'connections', label: 'Connections', hint: 'Use Legion from Claude' },
   { id: 'about', label: 'About', hint: 'Version and folders' },
 ];
@@ -50,6 +52,7 @@ export function SettingsPanel() {
               : section === 'boat' ? <BoatSection s={settings} />
                 : section === 'mcp' ? <McpSection s={settings} />
                   : section === 'blender' ? <BlenderSection />
+                    : section === 'house' ? <HouseSection />
                   : section === 'connections' ? <ConnectionsSection s={settings} />
                     : <AboutSection s={settings} />
           )}
