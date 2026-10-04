@@ -10,6 +10,7 @@ wrong. Both are needed.
 |---|---|
 | [`shipping-a-release.md`](shipping-a-release.md) | Cutting, publishing or rolling back a release; the updater will not update; anyone asks "can users install this from inside Legion?" |
 | [`verifying-changes.md`](verifying-changes.md) | Before claiming a change works, is safe to merge, or is ready to ship |
+| [`public-facing-copy.md`](public-facing-copy.md) | Writing a changelog entry, release notes, README or any UI copy a reader outside the project will see. **Read this before writing `CHANGELOG.md`** — it is scrubbed into the public snapshot |
 | [`multi-agent-safety.md`](multi-agent-safety.md) | Another agent or session may be working in the same repository; before any destructive git command |
 
 ## Why these exist

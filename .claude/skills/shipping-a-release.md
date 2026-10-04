@@ -125,3 +125,18 @@ tested yet", no "not verified in the real app". That is the most unprofessional 
   never a disclaimer inside the product.
 
 Before shipping, grep the UI for the tells: *fake, mock, stub, dummy, not tested, not yet, TODO, WIP*.
+
+### The changelog is public
+
+`CHANGELOG.md` is in `ROOT_DOCS`, so it is scrubbed into the public snapshot and read by contributors and
+passers-by — not only the owner.
+
+**Read [`public-facing-copy.md`](public-facing-copy.md) before writing the changelog entry.** It carries the
+leak-check list and the outcome-not-mechanism rule.
+
+The short form, learned the hard way on `0.2.3-e`: two entries were written and then removed because a reader who
+installed Legion gains nothing from them — a release-tooling change and an internal data-structure fix. Both belong
+in `claude/legion-release-tracker.md`, which is excluded from the export. Dropping them from the changelog loses
+nothing; publishing them advertises our own gaps.
+
+Every entry must survive one question: **does this change anything for the person reading it?**
