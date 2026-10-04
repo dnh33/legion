@@ -87,7 +87,9 @@ export class ProviderRuntime {
     if (!r.entry.enabled) return fail(`The provider "${r.entry.label}" is turned off. Turn it on in Settings, Providers, or choose another model for this agent.`);
     if (!r.model.trim()) return fail('No model id was given for this provider.');
     const res = await runToolLoop(host, this.target(r.providerId, r.entry), r.model, {
-      maxTurns: this.cfg.maxTurns, maxToolCallsPerTurn: this.cfg.maxToolCallsPerTurn, limits: this.deps.limits, ...(this.deps.turn ? { turn: this.deps.turn } : {}),
+      maxTurns: this.cfg.maxTurns, maxToolCallsPerTurn: this.cfg.maxToolCallsPerTurn, limits: this.deps.limits,
+      ...(r.entry.contextWindow !== undefined ? { contextWindow: r.entry.contextWindow } : {}),
+      ...(this.deps.turn ? { turn: this.deps.turn } : {}),
     }, (s) => this.redact(s));
     const cost = this.costOf(r, res);
     return { ...res, ...(cost !== undefined ? { costUsd: cost } : {}) };

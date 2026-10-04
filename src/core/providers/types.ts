@@ -24,6 +24,13 @@ export interface ProviderEntry {
   /** Model ids the owner listed or refreshed; suggestions only, any id may be typed. */
   models?: string[];
   prices?: Record<string, ProviderPrice>;
+  /**
+   * The model's context window in tokens, when the owner knows it. Unset means the conservative default
+   * (`DEFAULT_CONTEXT_WINDOW`), which compacts earlier than a large-window model needs — the safe direction, since
+   * over-compacting costs detail and under-compacting ends the run. Set it when a provider is being throttled by
+   * compaction that does not seem necessary.
+   */
+  contextWindow?: number;
 }
 
 export interface ProvidersConfig {

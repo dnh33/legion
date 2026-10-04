@@ -1,0 +1,7 @@
+Long conversations no longer just stop.
+
+If you kept working with an agent on a provider model and it suddenly seemed to have forgotten what you had agreed, that was the oldest half of the conversation being quietly dropped to make it fit. It now keeps a written summary of what was decided instead, and says so in the thread so you can read it.
+
+If a conversation still outgrows what the model can take, Legion summarises and tries once more rather than ending the task.
+
+Nothing is deleted. Every original message stays in the thread, exactly as before.

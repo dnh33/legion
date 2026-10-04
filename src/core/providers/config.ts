@@ -1,4 +1,5 @@
 /** Reads the "providers" part of config.json into the one shape Legion accepts. Whatever is wrong is dropped or clamped, never trusted. */
+import { MAX_CONTEXT_WINDOW, MIN_CONTEXT_WINDOW } from './compaction.js';
 import { checkEndpoint } from './endpoint.js';
 import type { ProviderEntry, ProviderPrice, ProvidersConfig } from './types.js';
 
@@ -30,12 +31,17 @@ export function normalizeEntry(id: string, v: unknown): { entry: ProviderEntry }
   if (isObj(v.prices)) for (const [m, p] of Object.entries(v.prices)) { const pp = price(p); if (pp && m.length <= 120 && Object.keys(prices).length < 200) prices[m] = pp; }
   // keyless means "no key", so it only stands where nothing secret could be sent anywhere unexpected
   const keyless = v.keyless === true && (ep.loopback || (allowPrivate && ep.privateLiteral));
+  // A window nobody can check is still clamped: too small and every turn compacts, too large and runs die on overflow.
+  const window = typeof v.contextWindow === 'number' && Number.isFinite(v.contextWindow)
+    ? Math.round(Math.min(MAX_CONTEXT_WINDOW, Math.max(MIN_CONTEXT_WINDOW, v.contextWindow)))
+    : undefined;
   return {
     entry: {
       kind: 'openai-compat', label, baseUrl: ep.url, enabled: v.enabled === true, models,
       ...(v.wire === 'responses' ? { wire: 'responses' as const } : {}),
       ...(keyless ? { keyless: true } : {}), ...(allowPrivate && ep.privateLiteral ? { allowPrivateNetwork: true } : {}),
       ...(Object.keys(prices).length ? { prices } : {}),
+      ...(window !== undefined ? { contextWindow: window } : {}),
     },
   };
 }

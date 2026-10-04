@@ -2,6 +2,38 @@
 
 All notable changes are recorded here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses [Semantic Versioning](https://semver.org/).
 
+## [0.2.3-b] - 2026-10-04
+
+### Added
+
+- **Long provider conversations keep their decisions.** The provider path had no compaction and no token counting: it
+  kept the newest 40 messages / 60,000 *characters*, so the oldest part of a conversation disappeared with no marker —
+  which is what "the conversation just stops" actually looks like. Conversations are now measured against the model's
+  context window and, past 50% of it, cut into a protected head, a written summary and a verbatim tail.
+- **Overflow is recovered rather than fatal.** A context-length refusal now triggers one compaction and one retry, so a
+  run continues instead of ending as a provider error. Escalation could not help before, because it only fires for
+  `sonnet`, which a provider model never is.
+- **A provider entry can declare its context window** (`contextWindow`, clamped). Unset means a deliberately small
+  default, which compacts earlier than a large-window model needs — over-compacting costs detail, under-compacting
+  ends the run.
+
+### Security
+
+- **The summariser cannot be injected.** Agent transcripts are full of tool output and other agents' messages, so a
+  transcript containing an instruction aimed at a model is ordinary rather than hostile. The summariser is told the
+  turns are data to summarise and never instructions to obey.
+- **Secrets are redacted twice** — forbidden in the summariser prompt *and* filtered on the returned summary. The
+  prompt alone is not treated as sufficient, because a model talked into keeping a secret will keep it.
+
+### Notes
+
+- The summary is written inline into the thread as a system message, and the model is told the original messages remain
+  in the transcript. The store is append-only JSONL, so every original already survives: compaction changes only what
+  is *sent*. No message is ever deleted, and if a summary cannot be produced the conversation goes out unchanged.
+- `docs/COMPACTION.md` is the design; `docs/COMPACTION-GAPS.md` records where this implementation is behind, level with
+  or ahead of the mature implementations it was read from, item by item.
+- Per owner rule, no provenance of the reference implementation appears anywhere in this public repository.
+
 ## [0.2.3-a] - 2026-10-04
 
 ### Added
