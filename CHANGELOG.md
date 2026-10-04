@@ -8,27 +8,22 @@ All notable changes are recorded here. The format follows [Keep a Changelog](htt
 
 - **A full-access bot no longer gets asked to approve its own work.** Four guards raised an approval card
   unconditionally — Blender exec and asset, the comms room tools and the project board — so promoting an agent to
-  full access changed nothing and it still sat waiting on "Needs your OK". The browser module already did this
-  correctly, which is why the pattern was known and simply not applied. `modeOf()` is now the single place that
-  decides, every guard routes through it, and it re-reads the store on each call, so switching an agent to full
-  takes effect on its next guarded call instead of at the next run.
-- **A packaged install now ships the context layer.** It was built into the app bundle instead of being copied at
-  runtime, so every installed copy had none of it — all eleven expected files missing. An agent installed from a
-  release had no rules to read.
-- **Reading the context layer no longer asks for permission.** House reads went through the guard as unknown tools,
-  so opening your own rules needed a click every time.
-- **Trust is no longer a one-way ratchet.** An agent's own edit came back marked trusted, so anything the agent wrote
-  was trusted forever. It now has to survive a round trip to earn trust again.
-- **The trust manifest is no longer counted as layer content** — the file that describes the layer was inside it.
-- **The public repository no longer receives the `claude/` folder verbatim.** It was copied wholesale into the public
-  snapshot, carrying private paths into a repo anyone can read. Operational files are now excluded and the rest is
-  line-scrubbed.
-- **Release pre-flight requires `--pkg`** instead of defaulting to a folder on the machine it runs on, so the gate
-  could only ever pass where it was written.
+  full access changed nothing and it still sat waiting on "Needs your OK". The browser module already behaved this
+  way, so the pattern was known and simply not applied everywhere. One rule now decides, and it re-reads your
+  setting on each call, so switching an agent to full takes effect on its next action instead of at its next run.
+- **The context layer is now present in installed copies.** It was not reaching them at all, so an agent installed
+  from a release had no rules to read.
+- **Reading the context layer no longer asks for permission.** Those reads were being treated as unknown tools, so
+  opening your own rules needed a click every time.
+- **Edits an agent makes are no longer trusted automatically.** An agent's own edit to a file came back already
+  trusted, so anything it wrote stayed trusted. It now has to survive a round trip to earn trust again, and the
+  file describing the layer is no longer treated as part of the layer's contents.
+- **The public repository no longer receives private working folders.** They were copied in wholesale, carrying
+  local paths into a repository anyone can read.
 
 ### Added
 
-- **House context settings section** — what agents read as rules, editable from Settings.
+- **House context settings section** — what your agents read as rules, editable from Settings.
 
 ## [0.2.3-d] - 2026-10-04
 
