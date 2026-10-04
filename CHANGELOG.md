@@ -2,6 +2,20 @@
 
 All notable changes are recorded here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses [Semantic Versioning](https://semver.org/).
 
+## [0.2.3-f] - 2026-10-04
+
+### Fixed
+
+- **An agent could promote its own edit to the house rules.** The layer is served to agents as trusted text, so what
+  counts as trusted is decided by a recorded hash of what the app shipped. That record could be forged: an agent that
+  edited a rules file could write the hash of its own version into the record and have it come back trusted and
+  unlabelled on the next start. Trust is now derived from what the app actually ships, so a forged record is discarded
+  the next time Legion starts. Editing a file and then reverting it by hand still restores trust on its own, with
+  nothing to re-approve.
+- **A file you approved could be marked approved by something other than you.** Your approval was recorded in the same
+  folder the agents read from, so a record written there was indistinguishable from one you made. Approvals are now
+  kept outside that folder.
+
 ## [0.2.3-e] - 2026-10-04
 
 ### Fixed

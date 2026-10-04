@@ -30,3 +30,4 @@ harder, and what someone must now remember that they did not have to before.
 Supersede rather than edit history: when a decision is reversed, write a new ADR and mark the old one
 `superseded by NNNN`. An ADR whose conclusion was reversed is still true about *that moment* — and
 knowing what we used to believe, and why we stopped, is usually the part you need.
+- [0011](0011-derive-trust-from-source.md) — derive trust from the source bytes, and keep adoption out of the layer

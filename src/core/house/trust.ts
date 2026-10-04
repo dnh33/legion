@@ -35,7 +35,7 @@
  */
 import { createHash } from 'node:crypto';
 import { readFileSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 
 /** Name of the manifest inside the context directory. Dotted so it is not prose and not a doc an agent would read. */
 export const MANIFEST_NAME = '.shipped.json';
@@ -46,6 +46,23 @@ export const MANIFEST_NAME = '.shipped.json';
  * approval. Read by `isAdopted`, never by `isShipped`, and the two answers are reported separately to the owner.
  */
 export const ADOPTED_NAME = '.adopted.json';
+
+/**
+ * Where the adoption manifest lives: the DATA directory, NOT the layer.
+ *
+ * Load-bearing, and it was a real hole. The shipped manifest is safe inside the layer only because `syncContext`
+ * re-derives every entry from the source bytes on each start. Adoption records a DECISION, and nothing in a data
+ * directory can be trusted to keep one: an agent runs as the same OS user and can write any file under `~/.legion`
+ * (`tainted-paths.ts` says so outright). Measured on the code as it stood - writing the hash of the agent's own edit
+ * into `.adopted.json` made `AGENTS.md` come back `adopted`, i.e. trusted and served UNWRAPPED. So the owner's approval
+ * and an agent's forgery were the same file, and the only difference was who wrote it last.
+ *
+ * One level up is not a tidier location, it is a different trust domain: the layer is content agents read, the data
+ * directory is the app's own state, and the owner's approval is app state. See ADR 0010.
+ *
+ * `root` is the layer throughout this module, so the parent is the data directory. No call site changes.
+ */
+const adoptedPath = (root: string): string => join(dirname(root), ADOPTED_NAME);
 
 interface Manifest {
   /** Layer-relative path -> sha256 of the bytes the decision applies to. */
@@ -105,7 +122,7 @@ export function readManifest(root: string): Manifest {
 /** The adoption manifest, or an empty one when absent or unreadable. */
 export function readAdopted(root: string): Manifest {
   try {
-    return parseManifest(readFileSync(join(root, ADOPTED_NAME), 'utf8'));
+    return parseManifest(readFileSync(adoptedPath(root), 'utf8'));
   } catch {
     return empty();
   }
@@ -123,7 +140,7 @@ export function adopt(root: string, rel: string): string | undefined {
   if (!hash) return undefined;
   const adopted = readAdopted(root);
   adopted[rel] = hash;
-  writeManifestFile(root, ADOPTED_NAME, adopted);
+  writeFileSync(adoptedPath(root), JSON.stringify(adopted, null, 2));
   return hash;
 }
 
@@ -137,7 +154,7 @@ export function unadopt(root: string, rel: string): boolean {
   const adopted = readAdopted(root);
   if (!(rel in adopted)) return false;
   delete adopted[rel];
-  writeManifestFile(root, ADOPTED_NAME, adopted);
+  writeFileSync(adoptedPath(root), JSON.stringify(adopted, null, 2));
   return true;
 }
 

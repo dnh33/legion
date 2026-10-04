@@ -149,9 +149,22 @@ export function syncContext(repoRoot: string, dataDir: string): SyncResult {
   // for a path the app itself copied (`written` / `unchanged`, below). An agent's edit to AGENTS.md is `keptNewer`, so
   // no fresh hash is taken from its new bytes, and the stale entry makes it read untrusted rather than trusted.
   const shipped: Record<string, string> = { ...readManifest(target) };
-  for (const rel of [...res.written, ...res.unchanged]) {
+  // Hash the SOURCE bytes, never the copy's. Hashing the copy is what makes the manifest forgeable: a file the sync
+  // left alone is `keptNewer`, so it is in neither `written` nor `unchanged`, so any entry it carries is one something
+  // else wrote -- and an agent that can write the context folder can write .shipped.json too. Hashing the source
+  // instead makes the manifest a function of what the app ships, which nothing in the data directory can influence:
+  //
+  //   - an agent edits AGENTS.md -> keptNewer -> the entry is the source hash, the bytes on disk differ -> untrusted
+  //   - an agent forges an entry for its own bytes -> the next sync overwrites it with the source hash -> untrusted
+  //   - the edit is reverted by hand -> the bytes match the source hash again -> trusted, with nothing to re-click
+  //
+  // The last one is the property ADR 0009 requires, and it survives precisely because the entry never depended on the
+  // edited bytes.
+  for (const rel of [...res.written, ...res.unchanged, ...res.keptNewer]) {
+    const from = src.file(rel);
+    if (!from) continue;
     try {
-      shipped[normalisePath(rel)] = createHash('sha256').update(readFileSync(join(target, rel))).digest('hex');
+      shipped[normalisePath(rel)] = createHash('sha256').update(readFileSync(from)).digest('hex');
     } catch {
       /* unreadable now; not shipped as far as trust is concerned */
     }
@@ -161,6 +174,10 @@ export function syncContext(repoRoot: string, dataDir: string): SyncResult {
     if (!existsSync(join(target, rel))) delete shipped[normalisePath(rel)];
   }
   writeManifest(target, shipped);
+
+  // Adoption is NOT written here. It is the owner's decision, so it lives in the data directory rather than the layer --
+  // see `adoptedPath` in ./trust.ts for the measured reason. Nothing in this function may reintroduce it, because a
+  // manifest an agent can write is a manifest an agent can grant itself.
 
   return res;
 }
