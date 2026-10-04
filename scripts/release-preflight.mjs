@@ -25,6 +25,19 @@ import { join, resolve } from 'node:path';
 import { args, die, isReleaseVersion, listZipNames, readZipEntry, REPO } from './lib/release-lib.mjs';
 
 const a = args(process.argv.slice(2), { version: 'v', pkg: 'v' });
+
+// --pkg is REQUIRED, with no default. It used to fall back to a hardcoded owner-local folder, which was wrong twice over:
+// it put a private path in a script that ships in the public repo, and it made a missing flag read as "release artifacts
+// missing — run build-package.mjs first" about a folder nobody named. That is precisely the misleading failure the
+// comment above the artifact checks says this gate must avoid: the owner who builds somewhere else, and every person
+// running it from the public repo, was told to re-run a build they had already run.
+if (!a.pkg) {
+  die('usage: release-preflight.mjs [--version <v>] --pkg <folder>\n'
+    + '  --pkg  the folder build-package.mjs wrote to (its --out), holding legion-<version>-app.zip,\n'
+    + '         legion-<version>-win-x64.zip, legion-update-manifest.json and the .sig\n'
+    + '  There is deliberately no default: a guessed folder reports missing artifacts for a build you may have run.');
+}
+
 const fails = [];
 const warns = [];
 const ok = [];
@@ -49,7 +62,7 @@ if (pkg.version === lock.version && configTs.includes(`VERSION = '${pkg.version}
 
 // --pkg may be either the package folder itself (…/legion-0.2.2-pkg) or its PARENT (…/legion-v022-pkg): the two are easy to
 // mix up, and a wrong guess must not read as "release artifacts missing".
-const given = resolve(a.pkg ?? 'D:/bots');
+const given = resolve(a.pkg);
 const pkgFolder = existsSync(join(given, `legion-${version}-app.zip`)) ? given : join(given, `legion-${version}-pkg`);
 
 // ------------------------------------------- 2. the shipped app can parse THIS version
