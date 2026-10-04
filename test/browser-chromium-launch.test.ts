@@ -10,7 +10,21 @@ import { RUN_DIR_PREFIX, createLaunchPorts, createProcessPort, removeRunDir } fr
 
 const FAKE = fileURLToPath(new URL('./browser-fake-chromium.js', import.meta.url));
 const alive = (pid: number): boolean => { try { process.kill(pid, 0); return true; } catch (e) { return (e as NodeJS.ErrnoException).code === 'EPERM'; } };
-const until = async (cond: () => boolean, ms = 4000): Promise<boolean> => { const end = Date.now() + ms; while (Date.now() < end) { if (cond()) return true; await new Promise((r) => setTimeout(r, 40)); } return cond(); };
+/**
+ * Poll `cond` until true or the deadline passes.
+ *
+ * `cond` is allowed to THROW, and a throw counts as "not yet": the conditions below call `t.read()`,
+ * which parses a file the child process has not necessarily written. A bare `if (cond())` let that
+ * ENOENT escape and fail the test on the first poll instead of retrying — the cause of an intermittent
+ * E4 failure that reproduced under batch load. A condition that never becomes true still fails the test,
+ * so nothing is weakened: the helper now polls, which is what its name says.
+ */
+const until = async (cond: () => boolean, ms = 4000): Promise<boolean> => {
+  const end = Date.now() + ms;
+  const ok = () => { try { return cond(); } catch { return false; } };
+  while (Date.now() < end) { if (ok()) return true; await new Promise((r) => setTimeout(r, 40)); }
+  return ok();
+};
 
 /** The real process port, but the program is `node fake-chromium.js <report> <mode> <pages> <chrome arguments>` (never a real browser). */
 function rig(mode: string, over: Partial<LaunchPorts> = {}) {
@@ -58,7 +72,7 @@ test('E4: a DevToolsActivePort file with CRLF line endings works', async () => {
 test('E4: on Windows the profile and app-data folders point into the run folder, never the real AppData, and no host variable is copied', async () => {
   const seen: Array<Record<string, string>> = [];
   const t = rig('never');
-  const p: LaunchPorts = { ...t.p, platform: 'win32', hostEnv: { SystemRoot: 'C:\\Windows', APPDATA: 'C:\\Users\\Real\\AppData\\Roaming', LOCALAPPDATA: 'C:\\Users\\Real\\AppData\\Local', OPENAI_API_KEY: 'sk-1', PATH: 'C:\\evil' } as NodeJS.ProcessEnv,
+  const p: LaunchPorts = { ...t.p, platform: 'win32', hostEnv: { SystemRoot: 'C:\\Windows', APPDATA: 'C:\\Users\\Real\\AppData\\Roaming', LOCALAPPDATA: 'C:\\Users\\Real\\AppData\\Local', USERPROFILE: 'C:\\Users\\Real', OPENAI_API_KEY: 'sk-1', PATH: 'C:\\evil' } as NodeJS.ProcessEnv,
     proc: { spawn(req) { seen.push(req.env); return t.base.proc.spawn({ ...req, file: process.execPath, prefixArgs: ['-e', 'setTimeout(()=>{},300)'], args: [] }); }, kill: t.base.proc.kill }, sleep: async () => undefined };
   await assert.rejects(launchBrowser(p, t.found, { startMs: 100 }), LaunchError);
   const env = seen[0]!;
@@ -66,8 +80,22 @@ test('E4: on Windows the profile and app-data folders point into the run folder,
   assert.equal(env.APPDATA, env.LOCALAPPDATA); assert.equal(env.SystemRoot, 'C:\\Windows');
   assert.ok(!('OPENAI_API_KEY' in env));
   assert.equal(env.Path, 'C:\\Windows\\System32', 'a fixed system path, not the host PATH');
+  // USERPROFILE must NOT be set: redirecting it into the run folder stops Edge from resolving its own paths, so
+  // it starts, stays alive and never writes DevToolsActivePort ("did not report its debugging port in time").
+  // Verified against real Edge — see the comment on buildBrowserEnv.
+  assert.ok(!('USERPROFILE' in env), 'USERPROFILE must not be redirected; it breaks Chromium launch');
+  assert.ok(!JSON.stringify(env).includes('Real'), 'no host path may leak into the child environment');
   const l = buildBrowserEnv('linux', { SECRET_TOKEN: 'abc' } as NodeJS.ProcessEnv, '/tmp/run1');
   assert.deepEqual(Object.keys(l).sort(), ['HOME', 'LANG', 'PATH', 'TEMP', 'TMP', 'TMPDIR']);
+});
+
+test('E4b: the Windows environment never carries USERPROFILE, in any host configuration', () => {
+  // The regression that broke the browser for the owner and two agents: a single wrongly-set variable.
+  for (const host of [{}, { USERPROFILE: 'C:\\Users\\Real' }, { USERPROFILE: '' }, { APPDATA: 'x', LOCALAPPDATA: 'y' }]) {
+    const env = buildBrowserEnv('win32', host as NodeJS.ProcessEnv, 'D:\\run1');
+    assert.ok(!('USERPROFILE' in env), `USERPROFILE leaked for host ${JSON.stringify(host)}`);
+    assert.equal(env.TEMP, 'D:\\run1');
+  }
 });
 
 test('the process port starts only the file it is given, with no shell: a shell metacharacter in an argument stays an argument', async () => {
