@@ -169,6 +169,23 @@ verifies the signature **with the app's own verifier and its own baked-in keys**
 `lettered patch: only installs that ALREADY support lettered versions…` (safe once any `-a` has shipped) and
 `could not determine installMode (non-fatal)`.
 
+### 7b. THE FULL SUITE MUST BE GREEN BEFORE `main` IS TOUCHED
+
+`npm test` on the merged tree, in the folder that will be `main`, with nothing else building at the time. Two
+rules that are not negotiable, both learned the hard way on 2026-10-04:
+
+- **Focused suites are not the gate.** Running the seven suites a change touches proves the change works. It says
+  nothing about the other 2,400 tests. Merging on focused evidence alone is merging on a guess.
+- **One gate at a time.** `npm test` rewrites `dist/`, so a concurrent `npm run build:ts` — from another agent,
+  a scratch worktree, or a probe script — silently corrupts both results. Two suites writing the same output
+  produce numbers that mean nothing, and the failure mode looks like flaky tests.
+
+If the full suite is still running, `main` waits. There is no cost to waiting; the cost of a red `main` is that
+every subsequent session inherits it and cannot tell whose failure it is.
+
+Record the counts, and compare them against a baseline from the same tree before the change. "3 failures" is
+only meaningful next to "3 failures before".
+
 ### 8. Merge and push
 
 ```

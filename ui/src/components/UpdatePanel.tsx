@@ -65,9 +65,10 @@ export function UpdatePanel() {
           {st.phase === 'downloading' && <p className="upd-muted">Downloading and checking{st.progress ? ` (${Math.round((st.progress.bytes / st.progress.total) * 100)}%)` : ''}{'…'}</p>}
           {st.staged && (
             <div>
-              <p><b>Update ready.</b> {st.readyToApply ? 'Installing now.' : 'Will install when Legion is idle.'}</p>
+              <p><b>Update ready.</b> {st.readyToApply ? 'Installing now.' : 'Will install when Legion is idle, or now if you use the button below.'}</p>
               {st.busy.reasons.length > 0 && <ul className="upd-reasons">{st.busy.reasons.map((r) => <li key={r}>{r}</li>)}</ul>}
               <div className="upd-actions">
+                <button type="button" className="btn-ghost" disabled={busy} onClick={() => void act(() => request('POST', '/api/update/install'))}>Update and install now</button>
                 <button type="button" className="btn-ghost" disabled={busy || !bridge().updateRestartNow} title="Shows what will stop and asks first" onClick={() => void act(async () => { const r = await bridge().updateRestartNow!(); if (!r.ok && !r.cancelled) throw new Error(r.error ?? 'The restart did not start.'); })}>Restart now{'…'}</button>
                 <button type="button" className="btn-ghost" disabled={busy} onClick={() => void act(() => request('POST', '/api/update/cancel'))}>Cancel update</button>
               </div>
