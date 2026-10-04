@@ -994,6 +994,63 @@ context got rekt. We should learn from /hermes-agent and mimic it."
 - **Risk:** the only one of the four that can "pass" while silently losing work. Needs its own validation: a long
   conversation must survive with its decisions intact.
 
+#### D11 STATUS 2026-10-04 — **SHIPPED as `0.2.3-b`** (merge `0f89b2b`, tag `v0.2.3-b`)
+
+**What shipped.** `src/core/providers/compaction.ts` (new, 553 lines) plus the rewired `buildMessages()`. The blind
+tail (`HISTORY_MAX_MESSAGES`/`HISTORY_MAX_CHARS`, both **deleted**) is replaced by head + summary + tail, gated at 50%
+of the usable window. `docs/COMPACTION.md` is the design; **`docs/COMPACTION-GAPS.md` is the second deliverable**
+(6 real gaps, 7 handled differently, 5 n/a, 4 where Legion is ahead).
+
+- **Lossless failure.** No summary => the conversation goes out **UNCHANGED**. A local fallback (paths, tools,
+  exact error text) exists for when a summary is *needed* and cannot be produced, and it says in its own text that it
+  is a set of extracts, because a model told "here is your history" when it is really extracts over-trusts it.
+- **Cooldown 60/300/900s** and an **anti-thrash breaker** at two consecutive non-shrinking compactions.
+- **Compact-and-retry-once** on a context-length error. The forced retry cuts the tail budget to a quarter and halves
+  the summary budget, because the estimator has already been proven wrong once. A retry that re-sends the same size
+  would be a no-op that looks like a working feature.
+- **Two rules that must not be skipped.** The summariser is told the turns are DATA and never instructions (agent
+  transcripts are full of them). Secrets are redacted **twice** — forbidden in the prompt AND filtered on the output,
+  because a model talked into keeping a secret will keep it.
+- **Nothing is deleted.** Append-only JSONL; compaction changes only what is *sent*. The summary goes inline into the
+  thread and the model is told the originals remain retrievable — which is true.
+- **`contextWindow`** is an optional, clamped per-provider-entry field. Unset = a deliberately small default, which
+  compacts early; over-compacting costs detail, under-compacting ends the run.
+
+**Gate.** `npm test` **2475 tests / 2426 pass / 4 fail / 45 skipped**; `npm run typecheck` exit 0; `npm run build:ui`
+ok; `release-preflight` **"Pre-flight passed"** (14 ok, 0 fail). Baseline on clean `main` the same day: **2441 / 3
+fail**, so +34 tests. All 4 failures accounted for: `export-public` and `kg` F1 are **pre-existing on clean main**
+(F1 is the six-failed-attempts defect, D13); browser-module and project-board-http are **load-sensitive and pass in
+isolation** (20/20 each). `release-preflight`'s lettered-patch warning is the known bootstrap note and is safe here:
+installs on 0.2.2 already accept letters, because `0.2.2-a` shipped.
+
+**Restore tag:** `pre-merge-compaction-0.2.3-b`. `git diff pre-merge-compaction-0.2.3-b HEAD -- test/ | grep '^-[^-]'`
+is **empty** — no test line vanished.
+
+**What surprised me (the part worth keeping).**
+1. **The evidence tests earned their place.** Two end-to-end tests through the real engine caught two bugs that every
+   unit test passed: (a) the causal-coupling rule moved the cut *forward* past a user message that was already inside
+   the protected head, so the middle came out **empty** — the thread reported a successful compaction while nothing was
+   compacted and the conversation just grew until the provider refused it; (b) one flag was shared between "a summary
+   was produced" and "the retry was spent", so the pre-flight compaction disabled the rescue retry — which is needed
+   *precisely* when the estimator was wrong. Neither is reachable from a unit test; both look like working features.
+2. **A stored summary is invisible until `toChatMessages` carries system rows.** It only mapped user/assistant/tool,
+   so a summary written by an earlier turn could never be found. Found by a test that asserted a summary was picked
+   up and got `null`.
+3. **`force` had to tighten the tail budget, not just force the cut.** Otherwise the overflow retry re-sends the same
+   size and fails identically. There is now a test that fails if `force` stops shrinking.
+4. **Provenance discipline is a real constraint, not politeness.** The public repo had to lose every mention of the
+   reference implementation, including in a gap-analysis table (`[SKILL_PRUNED]` row) I had to rewrite. One
+   straggler survived into a commit draft and was caught by a repo-wide grep before the commit.
+
+**Still open (next session, not this one).** Gap **A2** first (proactive prune of large tool results: 12k per result
+x 16 per turn can blow the window *before* summarisation is relevant), then **A1** (re-check inside a run). Full list
+and reasoning in `docs/COMPACTION-GAPS.md`.
+
+**Not done here, deliberately:** no per-model threshold (A6), no persisted cooldown/breaker state (A5 — would mean
+writing into the store, and this feature's design is that it rewrites nothing), no image-payload handling (A3 — the
+provider loop is text-only today, so the gap has not opened yet).
+
+
 ### D9 — HOUSE CONTEXT LAYER: fix, rebase, merge (owner approved 2026-10-04: "if you truly believe in that, plan it out")
 Reviewed at `40842df` (branch `claude/context-layer`, repo now `D:\bots\legion-ctx`). Verdict was **request changes**. Nothing merged yet.
 
