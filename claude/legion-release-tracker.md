@@ -770,6 +770,63 @@ single-owner desktop app; provenance visibility is.
 - **Remaining:** the other `claude/` files (handoffs, plans, e2e report) still name `integration/v1` in their bodies.
   They are history and are no longer the first thing an agent reads, but a repo-wide sweep is not done.
 
+### D12 — PIVOT 2026-10-04: the four features come first, one release each (owner)
+**Owner:** "if the 4 features are NOT built, then I think we should focus each one being an independent minor release or
+something, we are in beta mind you... and then when this house layer is fully verified and you have fixed and validated
+everything here then you save all important context etc as we do in order to make this session ready to be archived, and
+then we shall create a new session for each of the remaining features."
+
+**We drifted from the path promised in 0.2.1.** Stated plainly so nobody reads the old plan as current: D1–D4 (update
+progress indicator, report-a-bug entry point, supply-chain protection, Sentinel scheduler) and the 0.2.1/0.2.2 backlog
+are **NOT abandoned — they are parked behind these four.** Nothing in D1–D7 was closed or cancelled.
+
+**Build reality as of 2026-10-04 (correcting an earlier assumption):** of the four, **only the house layer is built.**
+Effort (D10a), multi-folder (D10b) and compaction (D11) are **designed and mapped only — zero code.** Do not read any
+tracker entry as implying they exist.
+
+**Release plan — one feature per release, not one big cut.** Supersedes the earlier "all four in 0.2.3" decision.
+Versions use a lettered patch on an **unshipped** base (`0.2.3-a`, `-b`, `-c`): a pre-release sorts *below* its own
+release, so `0.2.2-xyz` sorts below the shipped `0.2.2` and the updater refuses it as a downgrade (verified with semver
+2026-10-04). This is the same trap that made `0.2.2-a` uninstallable; see `docs/VERSIONING.md`.
+
+| Release | Contents | State |
+|---|---|---|
+| `0.2.3-a` | House context layer (D9) | built; 3 blockers fixed; mutation-verified. **Awaiting final gate.** |
+| `0.2.3-b` | Effort level (D10a) | designed only — per-task, defaults to the agent's model setting |
+| `0.2.3-c` | Multi-folder per project (D10b) | designed only — first folder stays the working directory |
+| `0.2.3-d` | Context compaction (D11) | designed only — 50% threshold, retry-once, spec in `docs/COMPACTION.md` |
+| after | D1–D4 and the 0.2.1 backlog | parked, not cancelled |
+
+Each release is gated and cut on its own so a bad one can be pulled without taking the others with it.
+
+### D13 — OPEN: perf-l-store F1 — one node save publishes the graph twice (pre-existing on main)
+**Not fixed.** Four attempts, each reverted; `ui/src/graph/graphStore.ts` is byte-identical to `main`.
+
+**What is established by instrumentation, not inference:**
+- One save fires `refreshFromServer(["note-0005"])` **twice** — the caller's own refresh, then the server's `kg.updated`.
+- The second publish comes from **`replaceView`**, not `linkUp`. Instrumented `reconcileView` shows `linkUp` behaves
+  correctly across the whole test: `changed=false, changed=true (the real edit), changed=false`.
+- So the defect is that the full re-read (`loadOverview` → `replaceView`) publishes an unchanged view, in a different
+  order, purely because the server ranks nodes.
+
+**Why each attempt failed (do not repeat these):**
+1. `replaceView` skips byte-identical content → breaks pinned-seed ordering (F3): `loadOverview([seeds])` reorders the
+   *same* nodes and must publish.
+2. Compare by id-set ignoring order → breaks F1 again, because after `linkUp` the canvas order legitimately differs.
+3. Dedupe `refreshFromServer` by changed-set signature + time window → breaks 2 tests, and would swallow a legitimate
+   second edit to the same node within the window.
+4. Skip `linkUp` when the refresh is full → breaks the full re-read entirely (0 fetches; the full path *relies* on
+   `linkUp`, not `loadOverview`).
+5. `replaceView` skips an unpinned re-read with the same id-set → breaks B1/B2/B3/B6 (deleted-link removal, late-answer
+   ordering, boot/refresh races). `replaceView` is load-bearing for more than publishing.
+
+**Next idea, untested:** the distinguishing factor between F1-step6 (must NOT publish) and F3 (must publish) is
+*intent* — a background refresh versus an explicit pinned `loadOverview`. Attempt 5 tried that and the skip broke the
+race guards, so any real fix must preserve whatever B3/B6 observe about `replaceView` returning.
+
+**Status:** this does **not** block the `0.2.3-a` house-layer release — it is a pre-existing UI churn defect (extra
+layout and render per save, no data loss), untouched by this work. It does block a clean full-suite gate.
+
 ### D10 — PRE-RELEASE FEATURES the owner wants before the next download (added 2026-10-04, NOT STARTED)
 Owner: "before we ship this as a new release or whatever that can be downloaded etc, we should add the possibility to choose
 effort level on a model in the model picker, and we should be able to add more than 1 folder on a project that is referenced
