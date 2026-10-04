@@ -805,21 +805,23 @@ live, and visible to the owner, so it is its own session rather than bundled wit
 1. **`0.2.3-d` — SHIPPED, verified installable from inside Legion.** Compaction off switch, manual compact with a focus
    instruction, a context-usage readout, the `/compact` command and its route. Gate: 2,574 tests, 2 known failures,
    0 type errors. Pre-flight 14 ok / 0 fail. CDN bytes verified against key k1 after publishing.
-2. **VERIFIED STATE 2026-10-04, session close.** On `main` AND pushed (`4cd05ea`), 22/22 tests, 0 type errors:
-   - **permission cards (S5b)** `4cd05ea` — one rule, in `full` a guard never cards. `modeOf` wired into approvals,
-     Blender, browser, project board. Fixes four guards that carded unconditionally.
-   - **vault leak (scrub)** `6a6602a` — `claude/` no longer ships verbatim into the public snapshot.
-   - **pre-flight `--pkg`** `fa4bd2d` — required instead of guessing a local folder.
-   - **NOT RELEASED.** `v0.2.3-d` is still latest and contains none of the three. They ship in the next letter.
-   - **NOT MERGED: house layer** `bd4e785` — 4 commits. Code merges CLEAN; the only 3 conflicts are
-     `claude/legion-release-tracker.md`, `scripts/copy-static.mjs`, `.gitignore` — docs and tooling, no code.
-     Resolve them keeping the D-ladder intact (`git diff | grep '^-[^-]'` must be ~0). Then it is ready to land.
+2. **VERIFIED STATE 2026-10-04, session close.** `main` == `cloud/main` at `f9f49cf`, 0 unpushed.
+   **EVERY BRANCH IS MERGED.** Nothing outstanding.
+   - Gate: **2,622 tests across 217 files, 1 failure** - the `kg` F1 already proven failing at `deb5a69`.
+     0 type errors. 0b7850 branch tip is not an ancestor but all three of its commits are; the label is stale, not the work.
+   - **permission cards (S5b)** `4cd05ea` - one rule, in `full` a guard never cards. 22/22.
+   - **house layer** `f9f49cf` - the four shipped defects: a packaged install shipped no context layer at all
+     (11/11 missing), the trust manifest counted as content, every house read raised a card, trust was a one-way
+     ratchet. Code merged clean; the only conflicts were the compaction and house SETTINGS SECTIONS, both additive,
+     kept as unions in `Settings.tsx` and `store.ts`. Both verified present in the built UI bundle.
+   - **vault leak (scrub)** `6a6602a` + `369b5f5` - `claude/` is scrubbed, not shipped verbatim.
+   - **pre-flight `--pkg`** `fa4bd2d` - required instead of guessing a local folder.
+   - **NONE OF THE ABOVE IS RELEASED.** `v0.2.3-d` is still the latest. All of it ships in the next letter.
+   - **H1-H10 UNSTARTED** - the house layer has never run in a real Legion. A PC check, not a code gap.
+   - **Also not done:** `docs/COMPACTION-GAPS.md` (the six-gap backlog for the 1-to-1 work) is now in the vault as
+     `legion-context-gaps-analysis.md` and cross-linked from the pairing table. Its REPO copy is still scrubbed-and-
+     shipped while reading as an internal report - rewrite or exclude.
    - **Stray:** `D:/bots/legion-ship` on disk, locked, no longer a git worktree. Empty; harmless.
-   - **Unverified:** H1-H10 — the house layer has NEVER run in a real Legion. PC checks needed; see
-     `claude/tracker-pc-checks.md`.
-   - **Also not done:** `docs/COMPACTION-GAPS.md` (200 lines, the 6-gap backlog for the 1-to-1 work) is NOT in the
-     vault, and its repo copy is scrubbed-and-shipped while reading as an internal report. Copy to the vault and
-     cross-link it from the pairing table.
 
 3. **Logging (NEXT)** — Legion has none today. The reference ships `~/.hermes/logs/` with rotation and a CLI reader
    (`hermes_cli/logs.py`: `tail_log`, `list_logs`, filters by level/component/time). The owner's use case is concrete:
