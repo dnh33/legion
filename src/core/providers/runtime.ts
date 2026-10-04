@@ -1,5 +1,6 @@
 /** The provider runtime: which model values mean a provider, running one provider turn for the engine, and the views Settings shows. */
 import { scrubSecrets } from '../comms/scrub.js';
+import { contextWindowFor } from './model-window.js';
 import { listModelIds } from './openai-compat.js';
 import type { chatTurn } from './openai-compat.js';
 import { ProviderHttpError } from './http.js';
@@ -88,7 +89,9 @@ export class ProviderRuntime {
     if (!r.model.trim()) return fail('No model id was given for this provider.');
     const res = await runToolLoop(host, this.target(r.providerId, r.entry), r.model, {
       maxTurns: this.cfg.maxTurns, maxToolCallsPerTurn: this.cfg.maxToolCallsPerTurn, limits: this.deps.limits,
-      ...(r.entry.contextWindow !== undefined ? { contextWindow: r.entry.contextWindow } : {}),
+      // Per MODEL, not per entry: one entry on an aggregator serves hundreds of models whose windows differ by 60x.
+      // The owner's own value for the entry still wins (a self-hosted model can differ from any catalogue).
+      contextWindow: contextWindowFor(r.model, r.entry.contextWindow),
       ...(this.deps.turn ? { turn: this.deps.turn } : {}),
     }, (s) => this.redact(s));
     const cost = this.costOf(r, res);

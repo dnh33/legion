@@ -3,6 +3,15 @@ import { cpSync, existsSync, mkdirSync, readdirSync } from 'node:fs';
 mkdirSync('dist/src/electron', { recursive: true });
 cpSync('src/electron/preload.cjs', 'dist/src/electron/preload.cjs');
 
+// Model context windows (read at runtime by src/core/providers/model-window.ts). Regenerate with
+// scripts/scrape-model-windows.mjs; the folder may not exist yet.
+if (existsSync('src/core/providers/data')) {
+  mkdirSync('dist/src/core/providers/data', { recursive: true });
+  for (const f of readdirSync('src/core/providers/data')) {
+    if (f.endsWith('.tsv')) cpSync(`src/core/providers/data/${f}`, `dist/src/core/providers/data/${f}`);
+  }
+}
+
 // Knowledge-graph seed packs (read at runtime by src/core/kg/seed.ts). The folder may not exist yet.
 if (existsSync('src/core/kg/seeds')) {
   mkdirSync('dist/src/core/kg/seeds', { recursive: true });

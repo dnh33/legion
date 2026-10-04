@@ -148,8 +148,8 @@ function Stop-LegionProcesses {
 
 # Decides whether setup may mirror (robocopy /MIR, which DELETES everything else in the target) into -Dir.
 # Returns @{ Ok; Reason; Path }. Refuses: a drive root, the user profile folder (or a folder that contains it), the Legion data folder or
-# LEGION_HOME (or a folder that contains them or sits inside the data folder), a file, and any non-empty folder that is not already
-# a Legion install (package.json named legion). A missing or empty folder is fine.
+# LEGION_HOME (or a folder that contains them or sits inside the data folder), a file, a git checkout, and any non-empty folder that is not
+# already a Legion install (package.json named legion). A missing or empty folder is fine.
 function Get-InstallDirVerdict {
   param([string]$Dir, [string]$UserProfile = '', [string]$DataDir = '', [string]$LegionHome = '')
   if ([string]::IsNullOrWhiteSpace($Dir)) { return [pscustomobject]@{ Ok = $false; Reason = 'no install folder given'; Path = '' } }
@@ -178,6 +178,17 @@ function Get-InstallDirVerdict {
   # A failed first run can leave only Legion's own marked runtime\node download behind; that still counts as empty.
   $kids = @($kids | Where-Object { -not ($_.Name -eq 'runtime' -and (Test-RuntimeOwned (Join-Path $_.FullName 'node'))) })
   if ($kids.Count -eq 0) { return [pscustomobject]@{ Ok = $true; Reason = 'the folder is empty'; Path = $full } }
+
+  # A git checkout is refused BEFORE the "is it a Legion install" test, because a worktree also has package.json named
+  # legion and would sail through it. Installing into a checkout makes the app un-updatable from inside itself: the
+  # updater sees .git and permanently reports "this is a git checkout", so the auto-update control stays dead and every
+  # push to the repository lands inside the installed app. That happened on the owner's PC on 2026-10-04.
+  $gitMarker = Join-Path $full '.git'
+  if (Test-Path -LiteralPath $gitMarker) {
+    $kind = if (Test-Path -LiteralPath $gitMarker -PathType Container) { 'clone' } else { 'worktree or submodule' }
+    return [pscustomobject]@{ Ok = $false; Reason = "that folder is a git $kind (.git is present), not an installed copy of Legion. Installing here would make the app unable to update itself. Choose an empty folder, or remove the .git marker from this one first"; Path = $full }
+  }
+
   if (Test-LegionPackage $full) { return [pscustomobject]@{ Ok = $true; Reason = 'the folder is an existing Legion install (package.json name is legion) and will be updated'; Path = $full } }
   return [pscustomobject]@{ Ok = $false; Reason = 'the folder is not empty and is not a Legion install (no package.json named legion); setup would delete its other contents. Pick a new or empty folder'; Path = $full }
 }
