@@ -42,7 +42,9 @@ Versioning is in `docs/VERSIONING.md` and the ladder is in the tracker (D12). Th
 - One release per session. Lettered patch on an **unshipped** base: `0.2.3-a`, `0.2.3-b`, …
 - **Never publish a bare `0.2.3` before its letters are done.** A pre-release sorts *below* its base, so the moment plain
   `0.2.3` ships, `0.2.3-a` … `-d` become unreachable. This is exactly how `0.2.2-a` died.
-- `node scripts/release-preflight.mjs` is mandatory and must end in **"Pre-flight passed"**. It answers the question a
+- `node scripts/release-preflight.mjs --version <v> --pkg <dir>` is mandatory and must end in **"Pre-flight passed"**
+  (`--pkg` is required and has no default: it is where `build-package.mjs --out` wrote, and a guessed folder used to report
+  "artifacts missing" about a build that had already run). It answers the question a
   test suite structurally cannot: *can an install that exists today actually receive this release?*
 - Merge with `--no-ff`, tag a restore point first, and read every removed test line:
   `git diff pre-merge-<name> HEAD -- test/ | grep '^-[^-]'`. No test may vanish silently.

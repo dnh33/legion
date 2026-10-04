@@ -38,7 +38,7 @@ gate/checkout scratch, not clones. `legion-site` is the separate website repo.
 ## Before you cut a release
 
 `docs/VERSIONING.md` is the authority and it is not optional reading. In short: the orchestrator
-picks the version number, the owner never does; and `node scripts/release-preflight.mjs` is
+picks the version number, the owner never does; and `node scripts/release-preflight.mjs --pkg <dir>` is
 mandatory before publishing. Three releases passed the whole test suite and were uninstallable
 by real users. That gate exists because of it.
 
