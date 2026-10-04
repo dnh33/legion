@@ -810,10 +810,29 @@ live, and visible to the owner, so it is its own session rather than bundled wit
    Requirements: append-only, size-capped rotation, **redacted at write time** (NOT encrypted - an encrypted log cannot be
    pasted into a chat, which defeats the purpose), event ids rather than prose, and a clear button in Settings.
    Open question to settle first: whether the reference redacts at the writer or only at the display. NOT VERIFIED.
-3. **Context engine 1-to-1 (NEXT AFTER LOGGING)** — the pairing table is in the owner's vault at
+3. **A real tokenizer + an honest updater check (NEXT AFTER LOGGING)** — two halves, one release.
+   - **Tokenizer:** add `gpt-tokenizer` (a port of OpenAI's `tiktoken`, so the BPE is the reference one). Exact for
+     OpenAI-family models, a better approximation than chars/4 for the rest. Pure ESM, so it bundles into `dist/`.
+     Sources: npmjs.com/package/gpt-tokenizer, pkgpulse.com token-counting comparison 2026.
+   - **Updater:** `apply.ts` states it never touches `node_modules`, and the update package carries ZERO node_modules
+     entries. So a dependency change has nothing to swap — the code arrives and the library does not. Today
+     `package.ts:100` throws `StageError('full-install')` because the lock changed, which is a CONSERVATIVE PROXY:
+     correct for a native module, WRONG for anything bundled at build time.
+     Fix: make the check ask "does this release need anything that is not already on disk?" rather than "did the lock
+     change?" Keep the refusal for genuine native modules. Do NOT delete the guard; make it accurate.
+   - **Test both ways:** a release adding only a BUNDLED dependency self-applies; one adding a NATIVE module still
+     refuses. That pair is the whole proof.
+   - **The reference's answer, from `main`:** `hermes update` treats dependency install as step 3 of a normal update
+     ("runs `uv pip install -e .[all]` to pick up new or changed dependencies"), and step 2 is post-pull syntax
+     validation with `git reset --hard` auto-rollback. Not a dead end, not a manual reinstall.
+   - The threshold setting currently reads as a fact about the model ("how full a model's context window may get")
+     when it is an estimate. Once the tokenizer lands, say so truthfully - and if the tokenizer is ever deferred, label
+     it as an estimate the way the usage readout already is.
+
+4. **Context engine 1-to-1 (after that)** — the pairing table is in the owner's vault at
    `06-projects/legion/context-engine-1-to-1-with-hermes.md`. Scorecard: PARITY 11, AHEAD 4, GAP 19, PARTIAL 1.
    Rule: read the reference's stated REASON before closing a gap; copying a value without its rationale is how the
-   small-window rule ended up inverted.
+   small-window rule ended up inverted. Do NOT touch logging or the tokenizer while doing this.
 
 **Known failures, both pre-existing and NOT ours:**
 - `export-public` / `export-scrub`: `claude/SESSION-QUEUE.md` contains the owner's vault name. The owner's document to
