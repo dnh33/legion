@@ -1052,3 +1052,85 @@ inside Legion know how to work on this project", and Legion-on-Legion depends on
 - Owner wants a prompt that hands this job to Zealot: build a proper **context layer** with the other agents so Legion can be
   developed from inside Legion, follow up open tasks, and run releases properly.
 - NOT STARTED. Depends on D5 + D6.
+## 2026-10-04 — House-layer defect fixes + two release-hygiene defects (branches ready, NOT merged)
+
+Appended, not inserted: nothing above this line was edited. `main` was moving throughout (three times), so this
+records the state as of `main` @ `6d3582c`. **D9 above is the same work, still open — this is the status of it.**
+**D13 already records `perf-l-store` F1 as pre-existing on `main`; re-verified below, not duplicated here.**
+
+### Three branches, all local, none merged
+
+| Branch | Fixes |
+|---|---|
+| `fix/house-layer-packaging` | the four D9 defects below, plus owner adoption (ADR 0010) |
+| `fix/export-scrub-vault-path` | the owner's vault path reaching the public snapshot |
+| `fix/release-preflight-require-pkg` | the release gate guessing a hardcoded owner-local folder |
+
+Merge order is free (no file overlap), but `fix/release-preflight-require-pkg` alone leaves `export-scrub` failing,
+because the scrub fix lives on the other branch: land both or neither. The one merge conflict and its resolution are
+recorded at the end of this entry.
+
+### D9 house layer — four defects, all reproduced against the published v0.2.3-a app.zip
+
+sha256 of the real download matched the release digest and `SHA256SUMS.txt`. 397 entries, **0 under `docs/`**.
+Running the module *as shipped inside that zip* reported `sync.written 0` and **11 of 11 expected files missing**.
+
+1. **Packaged installs shipped no layer at all.** `CODE_SET` packs `dist`, never the repository root, so the sync
+   found nothing. Fixed by staging the 110 KB of layer markdown into `dist/context-layer` (`scripts/copy-static.mjs`);
+   `dist` is already in `CODE_SET`. Adding `docs` to `CODE_SET` would have shipped **85 MB**, 66 MB of it demo video.
+2. **The trust manifest counted as content**, so `.shipped.json` alone made an empty layer look populated and defeated
+   the "no files -> hand out no tools" guard.
+3. **Every house read raised an approval card.** `mcp__legion_house__` was missing from `LEGION_TOOL_PREFIXES`, so all
+   three tools fell through to the unknown-tool branch in `ask` and `auto-edits`.
+4. **Trust was a one-way ratchet.** Rebuilding the manifest each sync dropped the entry for any edited file, so
+   reverting an edit could never restore trust. Entries are now carried forward; `isShipped` compares bytes.
+
+Also added: **owner adoption** (ADR 0010). Failing closed meant the only trusted text was text Legion shipped, so the
+owner could never make their own file a rule. Content-addressed, so editing an approved file drops it back to untrusted —
+no standing grant by path. One door (an admin-gated route); **no MCP tool adopts**. `claude/skills` removed from the
+layer: never shipped anyway, and `export-public.mjs` already excludes it.
+
+### Two defects outside the house layer
+
+- **`export-public.mjs` shipped `claude/` verbatim.** The header says those files "ship, line-scrubbed"; the code named
+  only `docs/`, the root docs and `.github`, with one `claude/` file as an exception. That is how
+  `claude/SESSION-QUEUE.md` line 29 put a private vault path into the snapshot. Fixed at the class.
+- **`release-preflight.mjs` defaulted `--pkg` to a hardcoded owner-local folder.** Two defects in one line: it put a
+  private path in a shipping script, and it made a missing flag read as "release artifacts missing — run
+  build-package.mjs first" about a folder nobody named — exactly what the comment three lines above says must not
+  happen. `--pkg` is now required, with a usage message stating there is deliberately no default.
+
+### Verification, run fresh on all three merged together over `main` @ `6d3582c`
+
+```
+npm run build:ts     ok
+npm test             2528 tests · 2480 pass · 3 fail · 45 skipped
+npm run typecheck    exit 0 (core and ui)
+npm run build:ui     built in 11.01s
+```
+
+- Negatives: **8/8** (house), **4/4** (scrub), **4/4** (preflight) mutations correctly red. One rule was found dead by
+  this — the bare vault-name redaction was unexercised because the path rule above it already caught the only
+  occurrence. A test now plants the case no repo file contains.
+- The 3 failures: `perf-l-store` F1 (**D13, reproduced on pristine `main` @ `6d3582c`**), plus `browser-chromium-launch`
+  E4 and `server.test.ts` "task archive / rename / delete", which pass when those files run alone and fail only under
+  full-suite load.
+- **A run showing 69 failures, all `ENOSPC`, proves nothing** — the disk was full and the BSV tripwire tests copy the
+  repo into `%TEMP%` on C:. C: had 54 GB free on the re-run. Read a burst of unrelated failures as a disk symptom first.
+
+### Open — nothing here is verified on a real machine
+
+**The house layer has never run in a running Legion.** `claude/tracker-pc-checks.md` rows **H1–H10** are the script,
+one per defect, written so a regression fails loudly (H4 the approval card, H5 the ratchet, H8 approval correctly
+expiring on edit). **D9 is not done until those pass.**
+
+### Merge notes for whoever lands this
+
+- **One conflict, comment-only, already resolved in `tmp/ship-check`:** `scripts/export-public.mjs` in `DENY_IGNORE`.
+  Both this work and `main` independently added `'test/provider-compaction.test.ts'` — the same row — because the
+  compaction test plants fake key shapes and tripped the fail-closed token scan. Kept `main`'s comment, dropped the
+  duplicate; the row is present exactly once. Re-merging hits this again.
+- Not independent at the test level: `fix/release-preflight-require-pkg` alone leaves `export-scrub` failing, because the
+  scrub fix lives on the other branch. Land both or neither.
+- Per `AGENTS.md` §6: PR with one approving review, no squash, merge `--no-ff`, and audit removed test lines
+  (`git diff pre-merge-<name> HEAD -- test/ | grep '^-[^-]'`).
