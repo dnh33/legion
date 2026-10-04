@@ -45,7 +45,7 @@ by real users. That gate exists because of it.
 - Never pipe a backgrounded node/npm build (`| tail` makes stdout a non-tty and npm dies).
 - Verify packaging changes **under Electron** — Electron patches `fs`, so `.asar` archives report
   `isDirectory() === true` and node-only tests pass while the real installer fails.
-- After every release: save point (tracker + Aetherkeep + memory) and update the skill for what
+- After every release: save point (tracker + the owner's own notes + memory) and update the skill for what
   the session taught.
 
 Full hard rules: `CLAUDE.md`. The cut procedure and its traps: the `legion-orchestrator` skill.

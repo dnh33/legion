@@ -80,6 +80,31 @@ export async function connectTools(servers: ProviderHost['servers'], notice: (t:
   };
 }
 
+/**
+ * Why a turn came back with neither text nor tool calls.
+ *
+ * Reported instead of a flat "empty answer" because these are different faults with different fixes: a reasoning model
+ * that spent its whole allowance thinking, a provider that cut the response at its output cap, and a provider that
+ * answered in a dialect Legion does not parse all produced the identical sentence, so the owner could not act on it.
+ * "Retrying may work" is true and useless, so it is not what this says.
+ */
+export function emptyAnswerReason(finish: string | undefined, turn: number): string {
+  const where = turn > 1 ? ` on turn ${turn}` : '';
+  if (finish === 'length') {
+    return `The model used its entire output limit${where} without producing an answer — the response was cut before any text arrived. Raise the provider's output limit, or ask for less at once.`;
+  }
+  if (finish === 'content_filter' || finish === 'safety') {
+    return `The provider stopped the response${where} for safety reasons and returned nothing.`;
+  }
+  if (finish === 'tool_calls') {
+    return `The model asked for tools${where} but Legion could not read them. This provider's tool-call format does not match what this build understands.`;
+  }
+  if (finish === undefined) {
+    return `The provider closed the stream${where} without a finish reason and without any text. The stream ended early — retrying usually works, and the provider's own log will say more.`;
+  }
+  return `The model returned no text and no tool calls${where} (finish reason: ${finish}).`;
+}
+
 /** The stored task as chat messages: user and assistant text, and tool calls with their results (a call without a result is dropped). */
 export function buildMessages(host: Pick<ProviderHost, 'stored' | 'prompt' | 'systemPrompt'>): ChatMessage[] {
   let lastUser = -1;
@@ -152,7 +177,15 @@ export async function runToolLoop(host: ProviderHost, target: ProviderTarget, mo
       const text = redact(r.text).trim();
       if (text) { host.onAssistantText(text); lastText = text; }
       if (r.toolCalls.length === 0) {
-        if (!text) return { ...res, usage, isError: true, subtype: 'error_during_execution', errorText: 'The model returned an empty answer.' };
+        // "Empty answer" used to be the whole message, which is why a real cause reached the owner as a shrug: a model
+        // that spends its whole budget reasoning, one that was cut at its output limit, and one whose tool calls Legion
+        // failed to parse all landed on the same sentence. Say which.
+        if (!text) {
+          return {
+            ...res, usage, isError: true, subtype: 'error_during_execution',
+            errorText: emptyAnswerReason(r.finishReason, res.turns),
+          };
+        }
         if (r.finishReason === 'length') host.onNotice('The reply may be cut off: the model stopped at its output limit.');
         return { ...res, usage, resultText: text };
       }

@@ -215,11 +215,15 @@ test('the module runs lint-lite on a timer: scheduled at the next 03:30 with its
 });
 
 test('the default nightly timer is unref\'d, so it never keeps the process alive', () => {
+  // Inject the clock the way the test above does. This used to read the wall clock, so it only held when the suite
+  // ran more than an hour before 03:30 — which is why a release gate run at 03:05 failed on a test that had nothing
+  // to do with the change being gated.
+  const now = new Date('2026-01-01T00:00:00Z');
   let ref: { hasRef?: () => boolean } | undefined;
   const real = global.setTimeout;
   (global as any).setTimeout = ((fn: () => void, ms: number) => { const t = real(fn, ms); if (ms > 3_600_000) ref = t; return t; }) as typeof setTimeout;
   try {
-    const s = setup(() => undefined);
+    const s = setup(() => undefined, { kg: { now: () => now } });
     s.kg.dispose!();
   } finally { (global as any).setTimeout = real; }
   assert.ok(ref, 'a long timer was armed');

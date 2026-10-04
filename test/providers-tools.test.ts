@@ -163,6 +163,9 @@ test('an empty answer is an error, not a silent success', async () => {
   const f = await startFake((_r, res) => replyText(res, ''));
   try {
     const t = await run(setup(f));
-    assert.equal(t.status, 'error'); assert.match(t.error ?? '', /empty answer/);
+    assert.equal(t.status, 'error');
+    // The contract is that an empty turn fails loudly AND says which fault it was. It used to assert the literal
+    // sentence "empty answer", which said nothing about the cause and left the owner unable to act.
+    assert.match(t.error ?? '', /no text and no tool calls|output limit|could not read them|stream ended early/);
   } finally { await f.close(); }
 });
