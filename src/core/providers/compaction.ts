@@ -144,6 +144,15 @@ export interface PlanOptions {
   force?: boolean;
   /** Compaction effort, in tokens, for the summary. */
   summaryTokens?: number;
+  /**
+   * Overrides the derived tail budget, in tokens.
+   *
+   * The tail budget normally scales with the model's window, which is wrong for a rescue on a large-window model: the whole
+   * conversation then fits inside the tail, nothing is left to summarise, and the retry has nothing smaller to send. Measured
+   * with window 200k and six messages — `tailStart` 0, empty middle, rescue declined, run dead. A caller that knows the
+   * conversation's own size can cap the tail by that instead, which guarantees there is always a middle.
+   */
+  tailBudget?: number;
 }
 
 export interface CompactionPlan {
@@ -203,7 +212,7 @@ export function planCompaction(msgs: readonly ChatMessage[], opts: PlanOptions):
   const usable = usableWindow(window);
   // Under `force` the tail is cut to a quarter of its normal budget. The estimator has already been shown to be wrong
   // once — the provider said so — so the retry has to assume it is wrong by more than the ordinary margin.
-  const tailBudget = Math.max(MIN_SUMMARY_TOKENS, Math.round(usable * TAIL_MAX_WINDOW_FRACTION * (force ? 0.25 : 1)));
+  const tailBudget = Math.max(MIN_SUMMARY_TOKENS, opts.tailBudget ?? Math.round(usable * TAIL_MAX_WINDOW_FRACTION * (force ? 0.25 : 1)));
   const summaryBudget = opts.summaryTokens ?? Math.max(MIN_SUMMARY_TOKENS, Math.round(usable * SUMMARY_WINDOW_FRACTION * (force ? 0.5 : 1)));
   const tokensBefore = messagesTokens(msgs);
   const headEnd = clamp(protectFirst, 0, Math.max(0, msgs.length - 1));
@@ -230,13 +239,34 @@ export function planCompaction(msgs: readonly ChatMessage[], opts: PlanOptions):
     if (back < cut && spent + messageTokens(msgs[back]!) <= tailBudget * 1.5) { cut = back; reason = 'pulled back to keep a tool call with its results'; }
   }
 
+  // Under `force`, keeping a group whole is the wrong trade when the group is what does not fit.
+  //
+  // Measured: a conversation whose newest tool group is 75% of itself. The tail walk cuts to 1, then the alignment above
+  // pulls BACK so the group stays whole — leaving a tail far over budget, a middle of one message, and a summary larger
+  // than what it replaced (12189 tokens before, 12729 after). The retry then fails identically, which is the one outcome
+  // the rescue exists to prevent.
+  //
+  // The provider has already said this request does not fit, so an over-budget tail is worse than a short one. So under
+  // force, if the aligned tail still exceeds its budget, the cut advances past the group: its results become summarisable
+  // ground rather than an impossible tail. Nothing is DROPPED — a `tool` row in the middle is summarised, not deleted, and
+  // the tool-pairing invariant still holds because the call and its results move together.
+  if (force && cut > headEnd && cut < msgs.length && messagesTokens(msgs.slice(cut)) > tailBudget) {
+    cut = msgs.length;
+    reason = 'forced past an over-budget tail so the retry can fit';
+  }
+
   // Causal coupling: the most recent user message must not end up in the summary while its reply sits in the tail.
   //
   // Two cases, and the order matters. Checking "is it already protected" first is what stops a compaction from
   // summarising nothing at all: forcing the cut forward from a message that is being kept verbatim anyway drags the cut
   // to the head clamp, which empties the middle — and an empty middle reports success while the conversation grows.
+  //
+  // The `userIdx > headEnd` guard is load-bearing in a tool loop. There, replies are `tool` rows, not user rows, so the only
+  // user message is the original ask at index 0 — and anchoring to it dragged the cut from 3 back to 0, emptying the middle
+  // and discarding the whole conversation on every compaction of a tool-heavy thread. A cut that would summarise NOTHING is
+  // not causal coupling; it is the coupling rule defeating itself. Keep the earlier cut instead.
   const userIdx = lastUserIndex(msgs);
-  if (userIdx >= headEnd && userIdx < cut) { cut = userIdx; reason = 'anchored to the most recent user message'; }
+  if (userIdx > headEnd && userIdx < cut) { cut = userIdx; reason = 'anchored to the most recent user message'; }
 
   cut = clamp(cut, headEnd, msgs.length);
   const middle = msgs.slice(headEnd, cut);
@@ -345,14 +375,21 @@ export function summaryPrompt(transcript: string, budgetTokens: number): string 
 /** One stored turn as a line the summariser reads. Tool rows carry their name, so tool use is summarisable at all. */
 export function renderTranscript(msgs: readonly ChatMessage[]): string {
   const out: string[] = [];
+  // The TAIL of every row, not the head — the same rule the request-side clip follows, and it has to be the same rule.
+  //
+  // These two disagreed, and the disagreement lost data: `agent-tools` keeps the last 12000 chars of a tool result, the
+  // request-side clip keeps the tail, and this renderer kept the FIRST 4000. The end of a verbose result is where the answer
+  // is, so a marker planted there reached the model in the request but never reached the summariser — and a compaction then
+  // dropped it without anything reporting a loss. One rule, applied everywhere, is the only version that cannot drift.
+  const tailOf = (s: string, n: number): string => (s.length <= n ? s : `[...${s.length - n} chars omitted]\n${s.slice(-n)}`);
   for (const m of msgs) {
-    if (m.role === 'tool') { out.push(`[tool result] ${(m.content ?? '').slice(0, 4_000)}`); continue; }
+    if (m.role === 'tool') { out.push(`[tool result] ${tailOf(m.content ?? '', 4_000)}`); continue; }
     if (m.role === 'assistant' && m.tool_calls?.length) {
-      out.push(`[assistant calling ${m.tool_calls.map((c) => c.function.name).join(', ')}] ${(m.content ?? '').slice(0, 2_000)}`);
+      out.push(`[assistant calling ${m.tool_calls.map((c) => c.function.name).join(', ')}] ${tailOf(m.content ?? '', 2_000)}`);
       continue;
     }
     const label = m.role === 'user' ? 'user' : m.role === 'system' ? 'note' : 'assistant';
-    out.push(`[${label}] ${(m.content ?? '').slice(0, 4_000)}`);
+    out.push(`[${label}] ${tailOf(m.content ?? '', 4_000)}`);
   }
   return out.join('\n\n');
 }

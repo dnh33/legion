@@ -314,7 +314,23 @@ const textOf = (r: { content?: unknown }): string => {
   const out = parts.map((p) => (p && typeof p === 'object' && (p as { type?: string }).type === 'text' ? String((p as { text?: unknown }).text ?? '') : '[non-text content left out]'));
   return out.join('\n');
 };
-const clipText = (s: string, n: number): string => (s.length > n ? s.slice(0, n) + `\n[truncated: first ${n} of ${s.length} chars]` : s);
+/**
+ * Clip a tool result to `n` characters, keeping the TAIL.
+ *
+ * The tail, not the head. `agent-tools` truncates a long tool result to its last 12000 chars because the end of a verbose
+ * result is where the answer is — the error, the row count, the last line of output. Clipping the head here undid exactly
+ * that: a result that had already been trimmed to its most useful 12000 characters was then cut back to its first 12000,
+ * which is the part the tool had already decided to throw away. The two limiters disagreed about which end mattered, and
+ * the model received the least useful half of what the tool deliberately kept.
+ *
+ * The marker text names what was dropped, because a truncated result that says nothing about being truncated reads as
+ * complete — and a model that trusts an incomplete result draws the wrong conclusion from it.
+ */
+const clipText = (s: string, n: number): string => {
+  if (s.length <= n) return s;
+  const tail = s.slice(-n);
+  return `[truncated: last ${n} of ${s.length} chars]\n${tail}`;
+};
 
 export interface LoopOptions {
   maxTurns: number;
@@ -324,6 +340,133 @@ export interface LoopOptions {
   turn?: typeof chatTurn;
   /** The model's context window in tokens. Absent means the conservative default. */
   contextWindow?: number;
+}
+
+/** The whole request, not one turn: what a single turn's tool output may add before it is clipped as a group. */
+export const MAX_TURN_TOOL_CHARS = 40_000;
+
+/**
+ * The newest share of a conversation a rescue keeps verbatim. The pre-flight plan derives the tail from the window, which on
+ * a large-window model can be the entire conversation; a rescue that then has nothing to summarise gives up and the run dies
+ * on the provider's own error. Capping the tail by conversation SIZE instead of by window guarantees there is always
+ * something to summarise, and it errs toward keeping the recent turns — which is where the work is.
+ */
+const RESCUE_TAIL_SHARE = 0.4;
+
+/**
+ * Compact the conversation as it stands RIGHT NOW, rather than as it stood when the run started.
+ *
+ * This is the function the pre-flight compaction cannot be. `host.stored` is a snapshot taken before the run, so a plan
+ * built from it covers the conversation the model was handed — not the tool output the model has produced since. On a long
+ * tool-using run those are the largest and newest turns, and dropping them is exactly the "the model forgot" failure the
+ * whole feature exists to prevent.
+ *
+ * The tail is always kept, so the most recent exchange survives verbatim; what is summarised is the older middle. Returns
+ * null when nothing smaller could be produced, which is also "send unchanged" — the transcript is append-only, so a
+ * request the provider refuses for size is a visible, recoverable failure, whereas a silently shortened conversation is not.
+ */
+async function compactMessages(
+  turnFn: typeof chatTurn, target: ProviderTarget, model: string, opts: LoopOptions,
+  host: ProviderHost, redact: (s: string) => string, live: readonly ChatMessage[], window: number, allowRetry: boolean, hard: boolean,
+): Promise<ChatMessage[] | null> {
+  const taskId = host.taskId;
+  const blocked = compactionGuard.blockedReason(taskId);
+  if (blocked) {
+    host.onNotice(blocked === 'cooldown'
+      ? 'This conversation is over the model\'s context window and Legion is waiting before trying to summarise again. Nothing was lost — the full transcript is still here.'
+      : 'Summarising this conversation twice in a row did not make it smaller, so Legion stopped trying for now. Nothing was lost — the full transcript is still here.');
+    return null;
+  }
+  // The system prompt is Legion's, not the conversation's, so it must survive compaction intact.
+  const system = live[0]?.role === 'system' ? live[0]! : { role: 'system' as const, content: host.systemPrompt };
+  const conv = live.slice(1);
+  // Plan against the LIVE conversation, and plan it HARD.
+  //
+  // The old code called `conversationFor(host)`, which re-read `host.stored` — the PRE-RUN snapshot. That is where the data
+  // loss came from: tool results this run produced are not in the snapshot, so a rescue built from it threw away the work the
+  // model had just done. Passing `messages` fixes that. `head + summary + tail` follows, so the tail — which IS the work —
+  // survives instead of being replaced by the summary alone.
+  //
+  // `force` + `protectFirst: 0` is what makes the retry actually smaller. Without them the plan protects the opening turns
+  // and gives the summary a generous budget, so after a pre-flight compaction — where `messages` is already short — the new
+  // summary came out LARGER than the two messages it replaced (measured: 1095 tokens before, 1401 after), the rescue
+  // correctly declined, and the run died on the provider's error. A rescue has already had its one chance and its whole
+  // purpose is minimum size, so it protects nothing and asks for a short summary.
+  let plan = planCompaction(conv, { window, protectFirst: hard ? 0 : PROTECT_FIRST, force: hard });
+  // A plan can still leave NO middle, because the tail budget scales with the window and on a large-window model the whole
+  // conversation counts as "recent". Measured: window 200k, six messages, tailStart 0 — nothing to summarise, so the rescue
+  // gave up and the run died.
+  //
+  // The rescue's job is to produce SOMETHING smaller, and the provider has already said this request does not fit. So when
+  // the plan protects everything, cap the tail to a fixed share of the conversation. This is the one place that overrides the
+  // plan, and it is safe because it only moves messages INTO the middle, where they are summarised rather than dropped.
+  if (hard && plan.middle.length === 0 && conv.length > 2) {
+    // A share of the conversation, not of the window. Deliberately smaller than the plan's own 1.5x slack for keeping a
+    // tool group whole: with only a few messages and one multi-call group, a loose cap lets that group claim the entire
+    // tail, the middle ends up empty, and the rescue declines. The slack exists to avoid splitting a group by a few tokens;
+    // here the provider has already refused, so keeping the group is negotiable and shrinking is not.
+    plan = planCompaction(conv, {
+      window,
+      protectFirst: 0,
+      force: true,
+      tailBudget: Math.max(1, Math.floor(messagesTokens(conv) * RESCUE_TAIL_SHARE * 0.5)),
+    });
+  }
+  // An empty middle means the cut would replace nothing, so there is nothing to summarise.
+  const middle = plan.middle;
+  if (middle.length === 0) return null;
+  const existing = conv.find(isSummaryMessage) ?? null;
+  let body = '';
+  try {
+    const r = await turnFn(target, {
+      model,
+      messages: [
+        { role: 'system', content: summaryPrompt(summariserInput(middle, existing), plan.summaryBudget) },
+        { role: 'user', content: 'Produce the summary now.' },
+      ],
+      tools: [],
+      signal: host.signal,
+      ...(opts.limits ? { limits: opts.limits } : {}),
+      onText: () => undefined,
+    });
+    body = sanitizeSummary(r.text, redact);
+  } catch (e) {
+    if (host.cancelled() || (e instanceof ProviderHttpError && e.code === 'aborted')) throw e;
+    compactionGuard.noteFailure(taskId);
+    host.onNotice('Legion could not summarise this conversation, so it was sent in full. Nothing was lost; if it no longer fits, the task will report the provider\'s own error.');
+    return null;
+  }
+  const usedFallback = body.length < 40;
+  const summary = clipToTokens(usedFallback ? localFallbackSummary(middle, plan.summaryBudget) : body, plan.summaryBudget);
+  const row = renderSummaryRow(summary, { dropped: middle.length, fallback: usedFallback });
+  host.onNotice(row.content ?? '');
+  const out: ChatMessage[] = [system, ...applyPlan(conv, plan, row)];
+  // Drop a head that ends on unanswered tool calls.
+  // The plan protects the first PROTECT_FIRST messages, and on a mid-run refusal that head is
+  // [user, assistant(tool_calls)] while the tool RESULTS fall in the middle. What goes out is then an assistant
+  // message with tool_calls and no matching tool result — a sequence every OpenAI-compatible endpoint rejects with a
+  // 400 that is NOT a context-length error, so the retry dies on it.
+  //
+  // Dropping the call loses nothing that matters: the summary covers the middle, and the results themselves are in the
+  // transcript. What it costs is the model no longer sees its own unanswered request, which is exactly right — the
+  // conversation it is being handed is a new one that begins after that work.
+  while (out.length > 1) {
+    const last = out[out.length - 1]!;
+    if (last.role !== 'assistant' || !last.tool_calls?.length) break;
+    const answered = last.tool_calls.every((c) => out.some((m) => m.role === 'tool' && m.tool_call_id === c.id));
+    if (answered) break;
+    out.pop();
+  }
+  const before = messagesTokens([...conv, { role: 'user', content: host.prompt }]);
+  const after = messagesTokens([...out, { role: 'user', content: host.prompt }]);
+  compactionGuard.noteCompaction(taskId, after < before, usedFallback);
+  // A summary that did not make the request smaller is worse than none: it costs a turn and buys nothing.
+  //
+  // This is a real limit, not a formality. On a short conversation the summary is LONGER than what it replaces — the
+  // template alone is bigger than three short messages — so there is genuinely nothing to gain and returning null is
+  // correct. The caller then rethrows the provider's own error, which is the honest outcome: a provider that refuses a
+  // request this small is refusing for a reason compaction cannot fix.
+  return after < before ? out : null;
 }
 
 /**
@@ -416,7 +559,13 @@ export async function runToolLoop(host: ProviderHost, target: ProviderTarget, mo
     }
     let messages: ChatMessage[] = [conv.system, ...withSummary(conv, summaryRow), { role: 'user', content: host.prompt }];
     let lastText = '';
+    // A whole turn's tool output may add at most this much. Scaled to the window because a fixed number is wrong at both
+    // ends: 40k is noise on a 1M-token model, and most of a small model's request. The floor matters as much as the
+    // ratio - a budget smaller than ONE result deletes that result, which is worse than any overflow.
+    const turnBudget = Math.max(MAX_TOOL_RESULT_CHARS * 2, Math.min(MAX_TURN_TOOL_CHARS, Math.floor((opts.contextWindow ?? DEFAULT_CONTEXT_WINDOW) * 0.12)));
+    let spent = 0;
     for (let turn = 1; turn <= opts.maxTurns; turn++) {
+      spent = 0;
       if (host.cancelled()) return { ...res, subtype: 'cancelled', usage };
       res.turns = turn;
       let r: ChatTurnResult;
@@ -428,10 +577,12 @@ export async function runToolLoop(host: ProviderHost, target: ProviderTarget, mo
         // the owner pays for.
         if (!isContextLengthError(e) || rescued) throw e;
         rescued = true;
-        const forced = conversationFor(host, { window, tools: tools.specs, force: true });
-        const attempt = await compactOnce(turnFn, target, model, opts, host, redact, forced, true);
-        if (!attempt.summary) throw e; // nothing smaller to send; the original error is the honest one to report
-        messages = [forced.system, ...withSummary(forced, attempt.summary), { role: 'user', content: host.prompt }];
+        // The LIVE conversation, not host.stored. On a mid-run refusal the snapshot is missing every tool result this
+        // run produced, so compacting from it and retrying restarts the task from the original question — the model is
+        // asked again for work it has already done. `messages` holds what actually happened.
+        const forced = await compactMessages(turnFn, target, model, opts, host, redact, messages, window, true, true);
+        if (!forced) throw e; // nothing smaller to send; the original error is the honest one to report
+        messages = forced;
         r = await turnFn(target, { model, messages, tools: tools.specs, signal: host.signal, limits: opts.limits, onText: host.onDelta });
       }
       addUsage(r);
@@ -451,6 +602,9 @@ export async function runToolLoop(host: ProviderHost, target: ProviderTarget, mo
         if (r.finishReason === 'length') host.onNotice('The reply may be cut off: the model stopped at its output limit.');
         return { ...res, usage, resultText: text };
       }
+      // The window was checked once, before turn 1. Everything since then is tool output the check never saw, so a run
+      // can grow past the window entirely inside itself. Checked here, on the LIVE conversation, and summarised when
+      // over — otherwise the only thing left is the rescue below, which is a failed request away.
       messages.push({ role: 'assistant', content: r.text || null, tool_calls: r.toolCalls.map((c, i) => ({ ...c, id: used.has(c.id) ? `${c.id}_${turn}_${i}` : c.id })) });
       const calls = messages[messages.length - 1]!.tool_calls!;
       for (const c of calls) used.add(c.id);
@@ -486,13 +640,37 @@ export async function runToolLoop(host: ProviderHost, target: ProviderTarget, mo
           }
         }
         const shown = redact(clipText(out.text, MAX_TOOL_RESULT_CHARS));
-        host.onToolResult(call.id, shown);
-        messages.push({ role: 'tool', content: shown || '(no output)', tool_call_id: call.id });
+        // Clipping each result is not enough: sixteen results at the cap is ~190k chars added by ONE turn, which is the
+        // overflow this whole feature exists to prevent arriving through the back door. So the turn gets its own budget
+        // and later results are clipped harder to fit inside it.
+        //
+        // Later results are cut rather than earlier ones because a turn's results are read in order, and the tail of a
+        // tool turn is the most recent evidence - the part the model's next decision rests on.
+        //
+        // `spent` is charged with what is actually SENT, not with the full length: charging the unclipped length makes
+        // the first oversized result consume the entire budget and every result after it arrives empty.
+        const room = Math.max(0, turnBudget - spent);
+        const bounded = room <= 0 ? '(this turn\u2019s tool output budget was used up; earlier results in this turn are above)'
+          : shown.length > room ? clipText(shown, room)
+          : shown;
+        spent += bounded.length;
+        host.onToolResult(call.id, bounded);
+        messages.push({ role: 'tool', content: bounded || '(no output)', tool_call_id: call.id });
         const key = `${name}\n${call.function.arguments}`;
         if (out.isError) {
           const n = (fails.get(key) ?? 0) + 1; fails.set(key, n);
           if (n >= REPEAT_FAIL_LIMIT) return { ...res, usage, isError: true, subtype: 'error_during_execution', errorText: 'The model kept repeating a failing tool call, so Legion stopped the run.' };
         } else fails.delete(key);
+      }
+      // The re-check, on the conversation as it now stands. Done here, after the results are in, because that is the
+      // first moment the growth is real.
+      //
+      // It summarises the LIVE messages rather than the pre-run snapshot. That is the whole difference: `host.stored`
+      // was captured before this run, so a compaction built from it would drop every tool result produced since — the
+      // work the model just did, silently, mid-task. This is the only place that can compact the run's own work.
+      if (needsCompaction(messages, window, toolsTokens(tools.specs))) {
+        const live = await compactMessages(turnFn, target, model, opts, host, redact, messages, window, !rescued, false);
+        if (live) messages = live;
       }
     }
     return { ...res, usage, isError: true, subtype: 'error_max_turns', errorText: `Stopped after ${opts.maxTurns} model turns without a final answer.`, ...(lastText ? { resultText: lastText } : {}) };
