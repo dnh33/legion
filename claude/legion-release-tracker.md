@@ -805,7 +805,23 @@ live, and visible to the owner, so it is its own session rather than bundled wit
 1. **`0.2.3-d` — SHIPPED, verified installable from inside Legion.** Compaction off switch, manual compact with a focus
    instruction, a context-usage readout, the `/compact` command and its route. Gate: 2,574 tests, 2 known failures,
    0 type errors. Pre-flight 14 ok / 0 fail. CDN bytes verified against key k1 after publishing.
-2. **Logging (NEXT)** — Legion has none today. The reference ships `~/.hermes/logs/` with rotation and a CLI reader
+2. **VERIFIED STATE 2026-10-04, session close.** On `main` AND pushed (`4cd05ea`), 22/22 tests, 0 type errors:
+   - **permission cards (S5b)** `4cd05ea` — one rule, in `full` a guard never cards. `modeOf` wired into approvals,
+     Blender, browser, project board. Fixes four guards that carded unconditionally.
+   - **vault leak (scrub)** `6a6602a` — `claude/` no longer ships verbatim into the public snapshot.
+   - **pre-flight `--pkg`** `fa4bd2d` — required instead of guessing a local folder.
+   - **NOT RELEASED.** `v0.2.3-d` is still latest and contains none of the three. They ship in the next letter.
+   - **NOT MERGED: house layer** `bd4e785` — 4 commits. Code merges CLEAN; the only 3 conflicts are
+     `claude/legion-release-tracker.md`, `scripts/copy-static.mjs`, `.gitignore` — docs and tooling, no code.
+     Resolve them keeping the D-ladder intact (`git diff | grep '^-[^-]'` must be ~0). Then it is ready to land.
+   - **Stray:** `D:/bots/legion-ship` on disk, locked, no longer a git worktree. Empty; harmless.
+   - **Unverified:** H1-H10 — the house layer has NEVER run in a real Legion. PC checks needed; see
+     `claude/tracker-pc-checks.md`.
+   - **Also not done:** `docs/COMPACTION-GAPS.md` (200 lines, the 6-gap backlog for the 1-to-1 work) is NOT in the
+     vault, and its repo copy is scrubbed-and-shipped while reading as an internal report. Copy to the vault and
+     cross-link it from the pairing table.
+
+3. **Logging (NEXT)** — Legion has none today. The reference ships `~/.hermes/logs/` with rotation and a CLI reader
    (`hermes_cli/logs.py`: `tail_log`, `list_logs`, filters by level/component/time). The owner's use case is concrete:
    when something breaks locally, the log is what gets pasted to an agent.
    Requirements: append-only, size-capped rotation, **redacted at write time** (NOT encrypted - an encrypted log cannot be
