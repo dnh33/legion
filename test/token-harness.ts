@@ -4,6 +4,7 @@
  * Real Engine, real HTTP server, real knowledge-graph, comms and BSV modules; only the SDK query is scripted.
  */
 import { tempDir as cleanupTemp } from './tmp-cleanup.js';
+import { initialPrompt } from '../src/core/input-channel.js';
 import { request as httpRequest } from 'node:http';
 import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -60,7 +61,7 @@ export async function mount(script: Script = () => undefined, o: { headless?: bo
   config.workspaceDir = join(dir, 'ws');
   const calls: Call[] = [];
   const queryFn = ((p: any) => {
-    const call: Call = { agent: basename(p.options.cwd), prompt: p.prompt, options: p.options };
+    const call: Call = { agent: basename(p.options.cwd), prompt: initialPrompt(p.prompt), options: p.options };
     calls.push(call);
     const id = `sess-${++sid}`;
     const gen = script(call) ?? (async function* () { yield init(id); yield ok(`${call.agent} done`, id); })();

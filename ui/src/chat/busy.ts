@@ -22,6 +22,19 @@ export function busyReason(agentId: string, taskId: string | null, tasks: readon
   return null;
 }
 
+/** A provider model id ("openai:gpt-4o"); same rule as the core's providerPrefix (an AWS "arn:" id is Claude). */
+export const isProviderModel = (m: string | undefined): boolean => !!m && /^([a-z][a-z0-9-]{1,31}):(.+)$/.test(m) && !m.startsWith('arn:');
+
+/**
+ * May this message join the thread's running Claude run (read after its current step) instead of waiting for the whole
+ * run to end? Only the thread's own running task, with nothing already in its queue (a new message never jumps ahead of
+ * queued ones), not a provider run (no live stream), and not a slash command (it would act on the run). The core has the
+ * last word: it answers 409 and the message is queued as before.
+ */
+export function canJoinRun(why: BusyReason | null, task: Pick<Task, 'status' | 'provider' | 'model'> | undefined, queued: number, text: string): boolean {
+  return why === 'run' && task?.status === 'running' && queued === 0 && !task.provider && !isProviderModel(task.model) && !text.trim().startsWith('/');
+}
+
 export const busyLabel = (r: BusyReason | null): string =>
   r === 'run' ? 'Waiting for the current run to finish'
     : r === 'approval' ? 'Waiting on an approval before it can continue'

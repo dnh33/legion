@@ -1,5 +1,6 @@
 /** Projects in the engine: who may name a project, the prompt section, the folder, taint and approvals (controls C4-C7, C9, C17). */
 import { tempDir as cleanupTemp } from './tmp-cleanup.js';
+import { initialPrompt } from '../src/core/input-channel.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtempSync } from 'node:fs';
@@ -45,7 +46,7 @@ function setup(script: Script = () => quick()) {
   const projects = new ProjectStore(join(root, 'data'), config.workspaceDir);
   const calls: Array<{ prompt: any; options: any }> = [];
   const queryFn = ((params: any) => {
-    calls.push(params);
+    calls.push({ ...params, prompt: initialPrompt(params.prompt), input: params.prompt });
     return Object.assign(script(params, calls.length - 1), { interrupt: async () => undefined, close: () => undefined, accountInfo: async () => ({}) });
   }) as unknown as QueryFn;
   const taintedPaths = new TaintedPaths(join(root, 'tp.json'));
@@ -230,7 +231,7 @@ test('without a projects service nothing about projects is interpreted: a task k
   const bus = new EventBus();
   const config = defaultConfig(); config.workspaceDir = join(root, 'ws');
   const calls: any[] = [];
-  const queryFn = ((params: any) => { calls.push(params); return Object.assign(quick(), { interrupt: async () => undefined, close: () => undefined, accountInfo: async () => ({}) }); }) as unknown as QueryFn;
+  const queryFn = ((params: any) => { calls.push({ ...params, prompt: initialPrompt(params.prompt), input: params.prompt }); return Object.assign(quick(), { interrupt: async () => undefined, close: () => undefined, accountInfo: async () => ({}) }); }) as unknown as QueryFn;
   const engine = new Engine({ store: store as any, bus, vms: {} as any, approvals: new ApprovalBroker(bus), config, queryFn, boatConfigured: () => false });
   assert.throws(() => engine.startTask({ agentId: 'a1', prompt: 'x', source: 'ui', projectId: 'proj_000000000000' }), (e: any) => e.status === 400);
   const t = await engine.waitFor(engine.startTask({ agentId: 'a1', prompt: 'x', source: 'ui' }).id, 3000);

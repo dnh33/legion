@@ -1,4 +1,5 @@
 import { tempDir as cleanupTemp } from './tmp-cleanup.js';
+import { initialPrompt } from '../src/core/input-channel.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { existsSync, mkdtempSync } from 'node:fs';
@@ -46,7 +47,7 @@ function setup(script: Script, opts: { agent?: Partial<AgentProfile>; config?: (
   const approvals = new ApprovalBroker(bus, { timeoutMs: opts.approvalTimeoutMs });
   const calls: { prompt: any; options: any }[] = [];
   const queryFn = ((params: any) => {
-    calls.push(params);
+    calls.push({ ...params, prompt: initialPrompt(params.prompt), input: params.prompt });
     const gen = script(params, calls.length - 1);
     return Object.assign(gen, { interrupt: async () => undefined, close: () => undefined, accountInfo: async () => ({}) });
   }) as unknown as QueryFn;
@@ -514,6 +515,51 @@ test('a window opened mid-run gets the live progress from the snapshot (turn, to
   release();
   await s.engine.waitFor(t.id, 3000);
   assert.deepEqual(s.engine.progressSnapshot(), {});
+});
+
+test('a message sent while a Claude run works joins that run: one query, answered after the current step, then the run ends', async () => {
+  let midRun!: () => void; const reached = new Promise<void>((r) => { midRun = r; });
+  let sent!: () => void; const pushed = new Promise<void>((r) => { sent = r; });
+  const s = setup((params) => (async function* () {
+    // read the prompt stream the way the SDK does: one message, one answer, in order
+    const it = (params.prompt as AsyncIterable<any>)[Symbol.asyncIterator]();
+    yield init('sess-live');
+    const first = await it.next();
+    yield { type: 'assistant', parent_tool_use_id: null, message: { id: 'a1', content: [{ type: 'text', text: `on it: ${first.value.message.content}` }] } };
+    midRun();
+    await pushed;
+    yield ok('first answered');
+    const second = await it.next();
+    yield { type: 'assistant', parent_tool_use_id: null, message: { id: 'a2', content: [{ type: 'text', text: `also: ${second.value.message.content}` }] } };
+    yield ok('second answered');
+    assert.equal((await it.next()).done, true, 'the engine closes the stream once every message has its answer');
+  })(), { agent: { model: 'opus' } });
+  const t = s.engine.startTask({ agentId: 'a1', prompt: 'build the page', source: 'ui' });
+  await reached;
+  const again = s.engine.startTask({ agentId: 'a1', prompt: 'and make it blue', source: 'ui', continueTaskId: t.id });
+  assert.equal(again.id, t.id);
+  sent();
+  const done = await s.engine.waitFor(t.id, 3000);
+  assert.equal(done.status, 'done');
+  assert.equal(done.result, 'second answered');
+  assert.equal(s.calls.length, 1, 'one run, not a second one after the first');
+  const rows = s.store.listMessages(t.id).filter((m) => m.role !== 'tool').map((m) => [m.role, m.text]);
+  assert.deepEqual(rows, [['user', 'build the page'], ['assistant', 'on it: build the page'], ['user', 'and make it blue'], ['assistant', 'also: and make it blue']]);
+});
+
+test('only the person\'s own plain messages join a live run; bots, MCP clients and slash commands still get 409 (the app queues them)', async () => {
+  let release!: () => void; const gate = new Promise<void>((r) => { release = r; });
+  const s = setup(() => (async function* () { yield init('sess-g'); await gate; yield ok('x'); })(), { agent: { model: 'opus' } });
+  const t = s.engine.startTask({ agentId: 'a1', prompt: 'work', source: 'ui' });
+  for (let i = 0; i < 50 && s.store.getTask(t.id)?.status !== 'running'; i++) await new Promise((r) => setTimeout(r, 5));
+  for (const p of [
+    { prompt: 'from a client', source: 'mcp' as const },
+    { prompt: '/compact', source: 'ui' as const },
+    { prompt: '/opus now', source: 'ui' as const },
+  ]) assert.throws(() => s.engine.startTask({ agentId: 'a1', continueTaskId: t.id, ...p }), (e: any) => e instanceof EngineError && e.status === 409, p.prompt);
+  release();
+  await s.engine.waitFor(t.id, 3000);
+  assert.equal(s.store.listMessages(t.id).filter((m) => m.role === 'user').length, 1, 'nothing refused was added to the thread');
 });
 
 test('a follow-up that fails before its own init is not resumable (the old session never saw it)', async () => {

@@ -96,7 +96,8 @@ export function createFakeModel() {
 
   const queryFn = (p) => {
     const agent = basename(String(p.options?.cwd ?? ''));
-    const prompt = String(p.prompt ?? '');
+    // the engine streams its prompt (an InputChannel); its first message is the request
+    const prompt = typeof p.prompt === 'string' ? p.prompt : String(p.prompt?.initialText ?? '');
     const s = pick(agent, prompt);
     const record = { n: runs.length + 1, agent, prompt, scripted: !!s, steps: s?.steps ?? [], toolCalls: [], vars: {}, defaultReply: `[harness] ${agent} done`, permissionMode: p.options?.permissionMode ?? null, hasCanUseTool: typeof p.options?.canUseTool === 'function', servers: Object.keys(p.options?.mcpServers ?? {}) };
     runs.push(record);

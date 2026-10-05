@@ -9,6 +9,7 @@ import type {
 import { newId, nowIso, titleFrom } from '../shared/util.js';
 import { scrubHostSessionEnv } from '../shared/config.js';
 import { BUDGET_LIMIT_PREFIX, CONTINUE_PROMPT, TURN_LIMIT_PREFIX, budgetCap, formatUsdLimit } from '../shared/continue.js';
+import { InputChannel } from './input-channel.js';
 import { contextTokensOf } from '../shared/context-meter.js';
 import { isLegionTool, needsApproval, stricterMode } from './approvals.js';
 import { TaintedPaths } from './tainted-paths.js';
@@ -184,6 +185,8 @@ interface Active {
   reached?: boolean;
   /** Live progress of the current run (Claude): sent as `task.progress`, never stored. */
   progress?: { startedAt: string; turn: number; maxTurns: number; tool: string | null; turnIds: Set<string>; contextTokens?: number; todos?: TodoItem[]; thinking: boolean };
+  /** The live prompt stream of the current Claude run: a message from the person while it works is pushed here. */
+  input?: InputChannel;
 }
 interface Outcome { subtype: string; isError: boolean; errorText?: string }
 
@@ -249,6 +252,7 @@ export class Engine {
     if (p.continueTaskId) {
       const prev = this.store.getTask(p.continueTaskId);
       if (!prev) throw new EngineError(`Unknown task: ${p.continueTaskId}`, 404);
+      if (prev.status === 'running') { const live = this.feedLive(p, prev, prompt); if (live) return live; }
       if (prev.status === 'queued' || prev.status === 'running') throw new EngineError('Task is still running', 409);
       if (prev.agentId !== agent.id) throw new EngineError('Task belongs to a different agent', 400);
       const projectId = this.pickProject(p, agent, prev);
@@ -435,6 +439,22 @@ export class Engine {
       if (m.role === 'user' && m.text.trim() && m.text !== CONTINUE_PROMPT) return m.text;
     }
     return undefined;
+  }
+
+  /**
+   * A message from the person to their own running Claude task joins the run: Claude reads it after its current step, in
+   * the same conversation, instead of it waiting for the whole run to end. Returns undefined (the caller answers 409 and
+   * the app queues it as before) for anything else: a bot, an MCP client or a room (their approval ceiling and taint are
+   * fixed per run), a provider run (no stream), a slash command (it would act on the run, not join it), or a run that is
+   * already closing.
+   */
+  private feedLive(p: BridgeStartParams, prev: Task, prompt: string): Task | undefined {
+    if (p.source !== 'ui' || p.bridge || p.origin || p.modelOverrideBy || prompt.startsWith('/')) return undefined;
+    const act = this.active.get(prev.id);
+    if (!act?.input || act.input.isClosed || act.cancelled) return undefined;
+    if (!act.input.push(prompt)) return undefined;
+    this.addMessage(prev.id, 'user', prompt);
+    return { ...prev };
   }
 
   /** The live progress of every running Claude run, for a client that connects mid-run (events are transient). */
@@ -960,7 +980,10 @@ export class Engine {
     if (pr) return this.runProvider(job, agent, pr, prompt, act);
     const resume = this.store.getTask(job.taskId)?.sessionId;
     const options = this.buildOptions(job, agent, model, act, prompt, resume);
-    const q = this.queryFn({ prompt, options });
+    // Streaming input: the request is the first message of a stream the person can add to while the run works.
+    const input = new InputChannel(prompt);
+    act.input = input;
+    const q = this.queryFn({ prompt: input, options });
     act.q = q;
     // each run counts its own turns (the limit is per run); the clock and the tool reset with it
     act.progress = { startedAt: nowIso(), turn: 0, maxTurns: this.config.claude.maxTurns, tool: null, turnIds: new Set(), thinking: false };
@@ -978,7 +1001,8 @@ export class Engine {
         if (next === 'aborted' || act.cancelled) return { subtype: 'cancelled', isError: false };
         if (next.done) break;
         const o = this.handleMessage(job, act, next.value as any);
-        if (o) outcome = o;
+        // each result answers one message; once none are waiting the stream closes and the run ends
+        if (o) { outcome = o; if (input.answered()) input.close(); }
       }
     } catch (e) {
       if (act.cancelled || act.ac.signal.aborted) return { subtype: 'cancelled', isError: false };
@@ -992,6 +1016,8 @@ export class Engine {
     } finally {
       // a thinking flag must never outlive its run
       if (act.progress?.thinking) { act.progress.thinking = false; this.emitProgress(job.taskId, act); }
+      input.close();
+      if (act.input === input) act.input = undefined;
       try { q.close?.(); } catch { /* ignore */ }
       try { void it.return?.(undefined)?.catch?.(() => undefined); } catch { /* ignore */ }
     }
