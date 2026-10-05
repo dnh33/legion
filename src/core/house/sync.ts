@@ -13,11 +13,11 @@
  * Every path in the result is relative to the context root, because that is what `house_read` takes and what the log
  * and the `/api/house` route report. An absolute path here would be a path no tool can use.
  */
-import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, statSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, rmdirSync, statSync, unlinkSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { dirname, join, resolve } from 'node:path';
 import { SHIPPED_DIRS, SHIPPED_FILES, normalisePath } from './context.js';
-import { readManifest, writeManifest } from './trust.js';
+import { isShipped, readManifest, writeManifest } from './trust.js';
 
 export interface SyncResult {
   written: string[];
@@ -26,6 +26,12 @@ export interface SyncResult {
   keptNewer: string[];
   /** Paths already identical to the repo copy, so nothing was copied. */
   unchanged: string[];
+  /**
+   * Paths removed because an earlier release shipped them and this one does not, and nobody had edited them.
+   * Empty on a healthy install; non-empty once, on the first sync after upgrading from a release that shipped
+   * personal skills. Never a file anyone's bytes.
+   */
+  removed: string[];
 }
 
 const MAX_COPY_BYTES = 2_000_000;
@@ -117,21 +123,23 @@ function copyOne(src: LayerSource, target: string, rel: string, res: SyncResult)
  */
 export function syncContext(repoRoot: string, dataDir: string): SyncResult {
   const target = resolve(dataDir, 'context');
-  const res: SyncResult = { written: [], skipped: [], keptNewer: [], unchanged: [] };
+  const res: SyncResult = { written: [], skipped: [], keptNewer: [], unchanged: [], removed: [] };
   const src = new LayerSource(join(repoRoot, 'dist', 'context-layer'), repoRoot);
   if (!src.any) return res;
   mkdirSync(target, { recursive: true });
 
   const copy = (rel: string): void => copyOne(src, target, normalisePath(rel), res);
+  /** Every path THIS build ships. The difference against the manifest is exactly the residue to prune. */
+  const shippedNow = new Set<string>();
 
-  for (const rel of SHIPPED_FILES) copy(rel);
+  for (const rel of SHIPPED_FILES) { shippedNow.add(normalisePath(rel)); copy(rel); }
 
   // Directories copied whole, because an ADR is useless without its neighbours.
   for (const dir of SHIPPED_DIRS) {
-    for (const rel of walk(src, dir, ['.md'])) copy(rel);
+    for (const rel of walk(src, dir, ['.md'])) { shippedNow.add(normalisePath(rel)); copy(rel); }
   }
   // context/*.json is machine-readable; house_recall does not read it but house_read can, and a future tool can.
-  for (const rel of walk(src, 'context', ['.json'])) copy(rel);
+  for (const rel of walk(src, 'context', ['.json'])) { shippedNow.add(normalisePath(rel)); copy(rel); }
 
   // Record what this app shipped, so a read can tell the app's own words from something edited since.
   //
@@ -169,9 +177,29 @@ export function syncContext(repoRoot: string, dataDir: string): SyncResult {
       /* unreadable now; not shipped as far as trust is concerned */
     }
   }
-  // A file that is gone must not keep an entry: it would look shipped to a reader that never sees the bytes.
   for (const rel of Object.keys(shipped)) {
-    if (!existsSync(join(target, rel))) delete shipped[normalisePath(rel)];
+    const key = normalisePath(rel);
+    if (!existsSync(join(target, rel))) { delete shipped[key]; continue; }
+    if (shippedNow.has(key)) continue;
+    // This build no longer ships a file an earlier one did, and the bytes on disk are STILL what the app shipped -
+    // nobody edited them. That is residue, and leaving it is not neutral: it keeps being listed to agents as the app's
+    // own words. Measured on the owner's machine: 46 files and 28 folders from a release that predates the decision not
+    // to ship personal skills, all still marked `shipped` and served unwrapped.
+    //
+    // The `isShipped` guard is the whole safety of this. If the bytes differ from what the app shipped, then the owner
+    // or an agent wrote them, and this function must not touch them - they are not residue, they are work. So the only
+    // files removed here are ones nobody could have edited, because nobody ever did.
+    if (!isShipped(target, key)) continue;
+    try {
+      unlinkSync(join(target, rel));
+      delete shipped[key];
+      res.removed.push(key);
+      // And the folders it leaves behind, deepest first. An emptied `claude/skills/anti-slop/` still shows in a
+      // listing and reads as though something were shipped there.
+      for (let dir = dirname(join(target, rel)); dir !== target && dir.startsWith(target); dir = dirname(dir)) {
+        try { if (readdirSync(dir).length > 0) break; rmdirSync(dir); } catch { break; }
+      }
+    } catch { /* leave the entry */ }
   }
   writeManifest(target, shipped);
 

@@ -2,6 +2,18 @@
 
 All notable changes are recorded here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses [Semantic Versioning](https://semver.org/).
 
+## [0.2.3-k] - 2026-10-04
+
+### Fixed
+
+- **Files from a release that no longer ships them are cleaned out of the house layer.** Copying the layer in only
+  ever added or overwrote, so anything an earlier release shipped stayed forever. On a real install that had left 46
+  files from 28 folders in place — personal workflow files from a release that predated the decision not to ship them —
+  still listed to your agents as the app's own words and served unwrapped, with no owner and no expiry. The sync now
+  removes a file it shipped once, no longer ships, and whose bytes nobody has touched.
+  **Anything you or an agent has edited is kept**, and stays marked as not approved, because the cleanup only removes
+  files whose bytes are still exactly what the app shipped — which means nobody ever wrote them.
+
 ## [0.2.3-j] - 2026-10-04
 
 ### Fixed
