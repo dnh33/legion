@@ -3,6 +3,7 @@ import { busyLabel, busyReason } from '../chat/busy';
 import { restoreDraft } from '../chat/draft';
 import { isImeKey } from '../chat/ime';
 import { queueOf, shouldQueue, threadKey } from '../chat/queue';
+import { useDraft } from '../chat/drafts';
 import { enqueueMessage, getQueue, interruptAndSend, pauseQueue, startQueueRunner, takeLastQueued, useThreadQueue } from '../chat/queueStore';
 import { buildMenu, isCostly, parseSlash, runLegionCommand, LEGION_COMMANDS, type MenuItem } from '../commands';
 import { modelLabel } from '../models';
@@ -14,7 +15,6 @@ import { QueueStrip } from './QueueStrip';
 import { SlashMenu } from './SlashMenu';
 
 export function Composer() {
-  const [text, setText] = useState('');
   const [sel, setSel] = useState(0);
   const [dismissed, setDismissed] = useState(false);
   const [picker, setPicker] = useState(false);
@@ -23,6 +23,8 @@ export function Composer() {
   const lastTyping = useRef(0);
   const agentId = useStore((s) => s.selectedAgentId);
   const taskId = useStore((s) => s.selectedTaskId);
+  // Per-thread, not component-local: switching agents used to take anything half-typed with it.
+  const [text, setText] = useDraft(agentId, taskId);
   const model = useStore(effectiveModel);
   const catalog = useStore((s) => s.catalog);
   const agents = useStore((s) => s.agents);

@@ -2,6 +2,17 @@
 
 All notable changes are recorded here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses [Semantic Versioning](https://semver.org/).
 
+## [0.2.3-l] - 2026-10-04
+
+### Fixed
+
+- **Half-typed messages survive switching agents.** The composer held its text in the component, so moving to another
+  agent — exactly when you had worked out what to say and were going somewhere to say it — took the text with it.
+  Each thread now keeps its own draft: one while you are talking to an agent, another inside each task, kept the way
+  the message queue already keys conversations. Sending clears it as before, and a send that fails still puts the text
+  back. Drafts also survive closing the app. A very long draft is capped, the oldest drafts are dropped when there is
+  no room, and if the browser refuses to store anything the composer carries on working rather than failing.
+
 ## [0.2.3-k] - 2026-10-04
 
 ### Added
