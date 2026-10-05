@@ -43,7 +43,8 @@ test('harness: start, run two scenarios, stop; no process and no temp folder is 
 
     // the per-launch secrets are not in any file the harness wrote (they are 64 hex characters; config.json's token is 48)
     const files: string[] = [];
-    const walk = (d: string) => { for (const n of readdirSync(d)) { const p = join(d, n); if (statSync(p).isDirectory()) { if (n !== 'workspaces') walk(p); } else files.push(p); } };
+    // the live core renames its .tmp files while we walk: a file that vanished between the listing and the stat holds nothing to check
+    const walk = (d: string) => { for (const n of readdirSync(d)) { const p = join(d, n); let st; try { st = statSync(p); } catch { continue; } if (st.isDirectory()) { if (n !== 'workspaces') walk(p); } else files.push(p); } };
     walk(handle.harnessDir);
     for (const f of files.filter((p) => /(handle\.json|config\.json|\.log)$/.test(p))) assert.doesNotMatch(readFileSync(f, 'utf8'), /\b[0-9a-f]{64}\b/i, `${f} holds a 64-hex value`);
   } finally {

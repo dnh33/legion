@@ -7,7 +7,7 @@ import { tempDir as cleanupTemp } from './tmp-cleanup.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { cpSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -30,6 +30,22 @@ const caught = (root: string, f: string, re: RegExp, pins = true) => {
   assert.ok(v.some((x) => x.startsWith(f) && re.test(x)), `not caught in ${f}: ${re}\n${JSON.stringify(v.filter((x) => x.startsWith(f)))}`);
 };
 
+// One copy for every plant: a fresh ~300-file copy per plant made this file over 4 minutes long. Each plant is undone in
+// `finally` and the file checked back to its exact bytes, the copy is proven clean before the first plant and again after
+// the last, so every plant still starts from a proven-clean tree.
+let sharedRoot: string | undefined;
+const shared = (): string => (sharedRoot ??= copy());
+const planted = (f: string, text: string, check: (root: string) => void, mode: 'append' | 'create' = 'append') => {
+  const root = shared();
+  const p = join(root, f);
+  const before = existsSync(p) ? readFileSync(p, 'utf8') : null;
+  if (mode === 'create') create(root, f, text); else append(root, f, text);
+  try { check(root); } finally {
+    if (before === null) rmSync(p); else writeFileSync(p, before);
+    assert.equal(existsSync(p) ? readFileSync(p, 'utf8') : null, before, `${f} was not restored exactly after the plant`);
+  }
+};
+
 test('spend tripwire: the real tree is clean with the committed pins, and the pins are the hashes of the real files', () => {
   assert.deepEqual(scanTree(REPO).violations, []);
   for (const f of [SPEND_FILE, NETWORKS_FILE]) assert.equal(hashOf(REPO, f), SPEND_PINS[f], `${f}: update SPEND_PINS with scripts/bsv-spend-pin.mjs after a review`);
@@ -38,14 +54,17 @@ test('spend tripwire: the real tree is clean with the committed pins, and the pi
   assert.deepEqual(scanTree(crlf).violations, [], 'a CRLF checkout hashes the same');
 });
 
+test('spend tripwire: the shared copy is clean before any plant', () => {
+  assert.deepEqual(scanTree(shared()).violations, []);
+});
+
 test('spend tripwire: one changed byte in spend.ts reports the pin AND grants no exemption', () => {
-  const root = copy();
-  append(root, SPEND_FILE, '// x');
-  caught(root, SPEND_FILE, /differs from the reviewed pin/, false);
-  caught(root, SPEND_FILE, /contains createAction/, false);
-  caught(root, SPEND_FILE, /abortAction/, false);
-  const n = copy(); append(n, NETWORKS_FILE, '// x');
-  caught(n, NETWORKS_FILE, /differs from the reviewed pin/, false);
+  planted(SPEND_FILE, '// x', (root) => {
+    caught(root, SPEND_FILE, /differs from the reviewed pin/, false);
+    caught(root, SPEND_FILE, /contains createAction/, false);
+    caught(root, SPEND_FILE, /abortAction/, false);
+  });
+  planted(NETWORKS_FILE, '// x', (n) => caught(n, NETWORKS_FILE, /differs from the reviewed pin/, false));
 });
 
 test('spend tripwire: the three spend method names are reported in any other file, however spelled', () => {
@@ -54,7 +73,7 @@ test('spend tripwire: the three spend method names are reported in any other fil
     ['src/core/comms/hub.ts', "const m = 'sign' + 'Action'; void m;", /signAction/], ['src/core/kg/graph.ts', 'const m = `abort${"Action"}`; void m;', /abortAction/],
     ['src/core/bsv/audit.ts', "const m = ['create', 'Action'].join(''); void m;", /createAction/i],
     ['src/core/bsv/extra.ts', "export const m = 'createAction';", /createAction/i],
-  ] as const) { const root = copy(); if (file.endsWith('extra.ts')) create(root, file, text); else append(root, file, text); caught(root, file, re); }
+  ] as const) planted(file, text, (root) => caught(root, file, re), file.endsWith('extra.ts') ? 'create' : 'append');
 });
 
 test('spend tripwire: with the pin matching, the spend file still may not name any other wallet method, the wallet port, the probe four or a network module', () => {
@@ -69,40 +88,41 @@ test('spend tripwire: with the pin matching, the spend file still may not name a
     ["declare function tool(...a: unknown[]): void; declare const n: string; tool(n, 'd', {}, async () => 1);", /tool name is not a string literal/],
     ["const t = 'bsv_status'; void t; declare function tool(...a: unknown[]): void; tool('bsv_status', 'd', {}, async () => 1);", /wallet-like tool name: bsv_status/],
   ];
-  for (const [text, re] of plants) { const root = copy(); append(root, SPEND_FILE, text); caught(root, SPEND_FILE, re); }
+  for (const [text, re] of plants) planted(SPEND_FILE, text, (root) => caught(root, SPEND_FILE, re));
 });
 
 test('spend tripwire: a network is never spelled in spend.ts, audit.ts or wallet-tool.ts (quoted, as a key or as a member)', () => {
   for (const f of [SPEND_FILE, 'src/core/bsv/audit.ts', 'src/core/bsv/wallet-tool.ts']) {
     for (const text of ["const n = 'main'; void n;", 'const n = "mainnet"; void n;', 'const n = `testnet`; void n;', 'const o = { main: 1 }; void o;', 'declare const x: { main: number }; void x.main;', "const n = 'LIVE'; void n;"]) {
-      const root = copy(); append(root, f, text); caught(root, f, /spells a network/);
+      planted(f, text, (root) => caught(root, f, /spells a network/));
     }
   }
-  const ok = copy(); append(ok, 'src/core/bsv/policy.ts', "const n = 'main'; void n;");
-  assert.deepEqual(scanTree(ok).violations, [], 'the policy and the network table may spell networks (they are listed with a reason)');
+  planted('src/core/bsv/policy.ts', "const n = 'main'; void n;", (ok) =>
+    assert.deepEqual(scanTree(ok).violations, [], 'the policy and the network table may spell networks (they are listed with a reason)'));
 });
 
 test('spend tripwire: the spend path may only make things safer: setMainnetEnabled / arm / unfreeze / setCaps / setAllowlist are reported there, and setMainnetEnabled elsewhere', () => {
   for (const text of ['declare const p: any; p.setMainnetEnabled(true);', 'declare const p: any; p.arm(5);', 'declare const p: any; p.unfreeze();', 'declare const p: any; p.setCaps({});', 'declare const p: any; p.setAllowlist([]);']) {
-    const root = copy(); append(root, SPEND_FILE, text); caught(root, SPEND_FILE, /may only make things safer|setMainnetEnabled/);
+    planted(SPEND_FILE, text, (root) => caught(root, SPEND_FILE, /may only make things safer|setMainnetEnabled/));
   }
-  const r = copy(); append(r, 'src/core/bsv/index.ts', 'declare const p: any; p.setMainnetEnabled(true);'); caught(r, 'src/core/bsv/index.ts', /setMainnetEnabled/);
+  planted('src/core/bsv/index.ts', 'declare const p: any; p.setMainnetEnabled(true);', (r) => caught(r, 'src/core/bsv/index.ts', /setMainnetEnabled/));
 });
 
 test('spend tripwire: the tool name, the transport, the mainnet route and the network table have one home each', () => {
-  { const r = copy(); append(r, 'src/core/bsv/wallet-tool.ts', "declare function tool(...a: unknown[]): void; tool('bsv_spend_request', 'd', {}, async () => 1);"); caught(r, 'src/core/bsv/wallet-tool.ts', /wallet-like tool name: bsv_spend_request/); }
-  { const r = copy(); append(r, 'src/core/bsv/policy.ts', 'declare const httpTransport: unknown; void httpTransport;'); caught(r, 'src/core/bsv/policy.ts', /httpTransport/); }
-  { const r = copy(); append(r, 'src/core/bsv/policy.ts', "const route = '/api/bsv/policy/mainnet'; void route;"); caught(r, 'src/core/bsv/policy.ts', /mainnet switch route/); }
+  planted('src/core/bsv/wallet-tool.ts', "declare function tool(...a: unknown[]): void; tool('bsv_spend_request', 'd', {}, async () => 1);", (r) => caught(r, 'src/core/bsv/wallet-tool.ts', /wallet-like tool name: bsv_spend_request/));
+  planted('src/core/bsv/policy.ts', 'declare const httpTransport: unknown; void httpTransport;', (r) => caught(r, 'src/core/bsv/policy.ts', /httpTransport/));
+  planted('src/core/bsv/policy.ts', "const route = '/api/bsv/policy/mainnet'; void route;", (r) => caught(r, 'src/core/bsv/policy.ts', /mainnet switch route/));
   for (const text of ["import { createHmac } from 'node:fs'; void createHmac;", "void fetch('http://127.0.0.1');", 'export const extra = 1;']) {
-    const r = copy(); append(r, NETWORKS_FILE, text);
-    const v = scanTree(r, undefined, { pins: pinsFor(r) }).violations.filter((x) => x.startsWith(NETWORKS_FILE));
-    if (text.startsWith('export')) assert.deepEqual(v, [], 'an extra export is a pin matter (the hash), not a rule');
-    else assert.ok(v.length > 0, text);
+    planted(NETWORKS_FILE, text, (r) => {
+      const v = scanTree(r, undefined, { pins: pinsFor(r) }).violations.filter((x) => x.startsWith(NETWORKS_FILE));
+      if (text.startsWith('export')) assert.deepEqual(v, [], 'an extra export is a pin matter (the hash), not a rule');
+      else assert.ok(v.length > 0, text);
+    });
   }
 });
 
 test('spend tripwire: a pin or a tool entry with no file is a dead allowance', () => {
-  const root = copy();
+  const root = shared();
   const v = scanTree(root, undefined, { pins: { ...pinsFor(root), 'src/core/bsv/missing.ts': 'a'.repeat(64) } }).violations;
   assert.ok(v.some((x) => /missing\.ts.*dead allowance/.test(x)), JSON.stringify(v));
 });
@@ -119,4 +139,8 @@ test('spend tripwire: package.json has no bsv, bitcoin, wallet or secp256k1 depe
   assert.deepEqual(Object.keys({ ...pkg.dependencies, ...pkg.devDependencies }).filter((d) => /^@bsv\/|bsv|bitcoin|wallet|secp256k1|ethers/i.test(d)), []);
   const specs = [...readFileSync(join(REPO, SPEND_FILE), 'utf8').matchAll(/^import .* from '([^']+)';/gm)].map((m) => m[1]).sort();
   assert.deepEqual(specs, ['../../shared/types.js', '../modules.js', './audit.js', './audit.js', './networks.js', './networks.js', './policy.js', './policy.js', './wallet-probe.js', './wallet-probe.js', '@anthropic-ai/claude-agent-sdk', '@anthropic-ai/claude-agent-sdk', 'node:crypto', 'zod']);
+});
+
+test('spend tripwire: the shared copy is clean again after every plant (nothing leaked from one plant into the next)', () => {
+  assert.deepEqual(scanTree(shared()).violations, []);
 });

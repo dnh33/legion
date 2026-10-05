@@ -1,6 +1,7 @@
 import { memo, useState } from 'react';
 import type { ChatMessage } from '../../../src/shared/types';
 import { selectTask, useStore } from '../store';
+import { todoChipLabel } from '../chat/todos';
 import { clip, shortTool, toolPreview, tryPretty } from '../util';
 import { Icon } from './icons';
 
@@ -60,11 +61,11 @@ function ToolGroupImpl({ items, results = {} }: { items: ChatMessage[]; results?
               <Icon name="chevron" size={11} />
             </button>
           );
+          const todoLabel = m.toolName === 'TodoWrite' ? todoChipLabel(m.text) : null;
           return (
           <button key={m.id} className={`chip${open === m.id ? ' open' : ''}`} onClick={() => setOpen(open === m.id ? null : m.id)} aria-expanded={open === m.id} title={m.text}>
             <Icon name="tool" size={12} />
-            <b>{shortTool(m.toolName)}</b>
-            <span>{toolPreview(m.text)}</span>
+            {todoLabel ? <b>{todoLabel}</b> : <><b>{shortTool(m.toolName)}</b><span>{toolPreview(m.text)}</span></>}
             <Icon name="chevron" size={11} />
           </button>
           );

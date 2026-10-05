@@ -1,6 +1,7 @@
 /** Settings API backend: validate, persist atomically to config.json, apply live. */
 import { existsSync, readFileSync } from 'node:fs';
 import { COMPACTION_LIMITS, DEFAULT_COMPACTION, writeConfigFile } from '../shared/config.js';
+import { budgetCap } from '../shared/continue.js';
 import type { CompactionSettings, LegionConfig, McpServerEntry, SettingsPatch, SettingsView } from '../shared/types.js';
 import { sanitizeRates } from '../shared/vm-usage.js';
 import { BoatClient } from './boat.js';
@@ -115,6 +116,15 @@ export function validatePatch(raw: unknown, current?: Record<string, McpServerEn
       if (typeof c.maxTurns !== 'number' || !Number.isInteger(c.maxTurns) || c.maxTurns < 1 || c.maxTurns > 1000) throw new SettingsError('claude.maxTurns must be an integer 1-1000');
       o.maxTurns = c.maxTurns;
     }
+    if (c.maxBudgetUsd !== undefined) {
+      // null clears the cap (the persistence loop below deletes the key); a number is whole cents, 0.05 to 1000 dollars
+      if (c.maxBudgetUsd === null) o.maxBudgetUsd = null;
+      else {
+        const v = c.maxBudgetUsd;
+        if (typeof v !== 'number' || !Number.isFinite(v) || v < 0.05 || v > 1000 || Math.abs(v * 100 - Math.round(v * 100)) > 1e-6) throw new SettingsError('claude.maxBudgetUsd must be an amount from 0.05 to 1000 dollars (whole cents), or null for no limit');
+        o.maxBudgetUsd = v;
+      }
+    }
     out.claude = o;
   }
   if (raw.boat !== undefined) {
@@ -186,6 +196,7 @@ export class SettingsService {
         auth: c.claude.auth, apiKeySet: !!c.claude.apiKey, ...(c.claude.apiKey ? { apiKeyHint: hint(c.claude.apiKey) } : {}),
         ...(c.claude.executablePath ? { executablePath: c.claude.executablePath } : {}),
         inheritClaudeCodeSettings: c.claude.inheritClaudeCodeSettings, inheritMcp: c.claude.inheritMcp === true, maxTurns: c.claude.maxTurns,
+        ...(budgetCap(c.claude.maxBudgetUsd) !== undefined ? { maxBudgetUsd: c.claude.maxBudgetUsd } : {}),
       },
       boat: {
         apiKeySet: !!c.boat.apiKey, ...(c.boat.apiKey ? { apiKeyHint: hint(c.boat.apiKey) } : {}), baseUrl: c.boat.baseUrl,

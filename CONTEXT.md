@@ -64,7 +64,7 @@ permission.
 
 ## Process
 
-**Gate** — `npm ci && npm run build:ts && npm test && npm run typecheck && npm run build:ui`. One at a
+**Gate** — `npm ci && npm run build:ts && npm run test:run && npm run typecheck:ui && npm run build:ui`. One at a
 time; the suite writes to `dist/`, so nothing else may build while it runs.
 
 **Pre-flight** — `node scripts/release-preflight.mjs`, mandatory before publishing. It answers the

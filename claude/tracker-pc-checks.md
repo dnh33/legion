@@ -236,3 +236,14 @@ Proven with the scripted model only (`test/engine.test.ts`, `test/turn-limit-con
 | TL5 | Start a long task, quit Legion mid-run, start it again. | The task shows "Legion restarted" with **Continue** (not Retry). Continue picks up the work. | todo |
 | TL6 | In a Claude task with some history, type `/compact keep the API notes`. | The thread shows a `/compact keep the API notes` message, then "Claude Code compacted this conversation. It held about Nk tokens." The toast says "Claude Code is compacting this conversation." Before 0.2.5-b, Legion caught `/compact` and answered "Choose a provider model in Settings", and Claude Code's own `/compact` could not be reached. | todo |
 | TL7 | Let a long Claude task run until Claude Code compacts by itself (or check an old long task). | A line "Claude Code compacted this conversation by itself, to make room…" appears where it happened. | todo |
+
+## 0.2.5-c: messages during a run, and the rest of the council items. Safety class: a few cents of Claude usage
+
+| # | Check | Expected observation | State |
+|---|---|---|---|
+| C1 | Start a longer Claude task. While it works, type a correction and press Enter. | The hint reads "Enter adds it to the run"; the message appears in the thread at once; Claude takes it into account after its current step, in the same run (no second run starts; the working row's turn keeps counting). | todo |
+| C2 | Same, with a provider-model agent. | The message is queued (the strip shows it) and sent when the run ends. | todo |
+| C3 | A task whose session file was deleted (or a very old one): press Continue. | "The earlier conversation could not be found, so Claude is starting a new one with your request." and the request runs fresh. | todo |
+| C4 | Settings -> Claude: spend limit $0.10; run a task that costs more. | Amber "Paused at the spend limit" card, calm mascot; Continue resumes. | todo |
+| C5 | A task that uses TodoWrite and thinks; open the window mid-run. | The checklist and "Working · turn N of 200 · tool · time · context" show at once; "Thinking" while it thinks. | todo |
+| D3 | Give Zealot a plain multi-part request ("build a landing page with a signup form and write the release note"), without saying how. Then the same inside a project whose board leader is Builder. | Zealot names the pieces, delegates them (tell, several at once), keeps a plan with owners and status, checks the answers and reports who did what. In the project: it reads the board, sees Builder leads it, and routes the work through Builder instead of running its own plan. | todo |

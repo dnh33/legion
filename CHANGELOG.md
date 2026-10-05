@@ -2,6 +2,34 @@
 
 All notable changes are recorded here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses [Semantic Versioning](https://semver.org/).
 
+## [0.2.5-c] - 2026-10-05
+
+### Added
+
+- **You can talk to a task while it works.** A message you send to a running Claude task joins that run: Claude reads
+  it after its current step, in the same conversation. Before, it waited until the whole run had finished. The composer
+  says when this applies ("Enter adds it to the run"); otherwise, as for provider models, the message is queued as before.
+- **You can see what a run is doing.** The line under a running task shows the turn against the limit, the tool it is
+  waiting on, how long it has been running and how much context is in use, and says "Thinking" while Claude thinks.
+  Claude's own task list appears as a checklist above it. Opening Legion in the middle of a run shows all of this at once.
+- **An optional spend limit per run** (Settings → Claude). A run that reaches it pauses with the work kept, like the turn
+  limit, and Continue carries on.
+- **Zealot leads the Order, whatever it is asked.** It splits a request into tasks, hands them to the agents best placed
+  for them, runs independent ones at the same time, and reports back. In a project it checks who leads the board and
+  works through that leader. Your own edits to Zealot's prompt are kept; the lead role applies on top of them.
+
+### Fixed
+
+- **A conversation that can no longer be found starts again instead of failing forever.** Retry and Continue on a task
+  whose earlier conversation was gone failed the same way every time. Now Claude starts a new conversation with your
+  request, and the thread says so.
+- **An approval card that nobody answered is no longer reported to Claude as a refusal.** It now says no one answered in
+  time, so the action was not run.
+- **A cancelled task can be continued** when its run had already started.
+- **Provider models get 200 turns per run**, up from 40, and running out of turns pauses with Continue, as it does for
+  Claude.
+- **The message when Opus takes over from Sonnet is plain English** instead of an internal error code.
+
 ## [0.2.5-b] - 2026-10-05
 
 ### Fixed

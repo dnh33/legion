@@ -1,16 +1,17 @@
 import { tempDir as cleanupTemp } from './tmp-cleanup.js';
+import { initialPrompt } from '../src/core/input-channel.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { existsSync, mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { ApprovalBroker } from '../src/core/approvals.js';
+import { ApprovalBroker, describeWait } from '../src/core/approvals.js';
 import { EventBus } from '../src/core/bus.js';
 import { Engine, EngineError } from '../src/core/engine.js';
 import type { QueryFn } from '../src/core/engine.js';
 import { buildAgentToolsServer } from '../src/core/agent-tools.js';
 import { defaultConfig } from '../src/shared/config.js';
-import { CONTINUE_PROMPT, TURN_LIMIT_PREFIX } from '../src/shared/continue.js';
+import { BUDGET_LIMIT_PREFIX, CONTINUE_PROMPT, TURN_LIMIT_PREFIX } from '../src/shared/continue.js';
 import type { AgentProfile, ChatMessage, LegionConfig, LegionEvent, Task } from '../src/shared/types.js';
 
 // ---- fakes
@@ -46,7 +47,7 @@ function setup(script: Script, opts: { agent?: Partial<AgentProfile>; config?: (
   const approvals = new ApprovalBroker(bus, { timeoutMs: opts.approvalTimeoutMs });
   const calls: { prompt: any; options: any }[] = [];
   const queryFn = ((params: any) => {
-    calls.push(params);
+    calls.push({ ...params, prompt: initialPrompt(params.prompt), input: params.prompt });
     const gen = script(params, calls.length - 1);
     return Object.assign(gen, { interrupt: async () => undefined, close: () => undefined, accountInfo: async () => ({}) });
   }) as unknown as QueryFn;
@@ -178,7 +179,9 @@ test('escalation: sonnet error_during_execution -> opus rerun with resume + syst
   assert.ok(Math.abs(done.costUsd! - 0.03) < 1e-9);
   const sys = s.store.listMessages(t.id).filter((m) => m.role === 'system');
   assert.equal(sys.length, 1);
-  assert.match(sys[0]!.text, /^Escalated to Opus: /);
+  assert.match(sys[0]!.text, /^Sonnet could not finish this \(it stopped with an error\)\. Opus is taking over the same conversation\./);
+  assert.match(sys[0]!.text, / Error: tool crashed$/, 'the underlying error stays, but last');
+  assert.doesNotMatch(sys[0]!.text, /error_during_execution|Escalated/, 'no raw subtype code in the thread');
 });
 
 test('escalation before the session started re-sends the original prompt', async () => {
@@ -333,6 +336,232 @@ test('/compact while the Claude task is running declines plainly and starts noth
   assert.equal(s.calls.length, 1);
 });
 
+test('live progress: turns count the run\'s own responses (not a subagent\'s), the tool is set on a call and cleared on its result', async () => {
+  const s = setup(() => (async function* () {
+    yield init('sess-p');
+    yield { type: 'assistant', parent_tool_use_id: null, message: { id: 'm1', content: [{ type: 'text', text: 'looking' }, { type: 'tool_use', id: 't1', name: 'Read', input: {} }] } };
+    yield { type: 'user', parent_tool_use_id: null, message: { content: [{ type: 'tool_result', tool_use_id: 't1', content: 'x' }] } };
+    // the same response arriving in a second message: still turn 1
+    yield { type: 'assistant', parent_tool_use_id: null, message: { id: 'm1', content: [{ type: 'tool_use', id: 't2', name: 'Bash', input: {} }] } };
+    // a subagent's response is not one of the run's turns
+    yield { type: 'assistant', parent_tool_use_id: 't2', message: { id: 'sub1', content: [{ type: 'text', text: 'sub' }] } };
+    yield { type: 'user', parent_tool_use_id: null, message: { content: [{ type: 'tool_result', tool_use_id: 't2', content: 'ok' }] } };
+    yield { type: 'assistant', parent_tool_use_id: null, message: { id: 'm2', content: [{ type: 'text', text: 'done' }] } };
+    yield ok('done');
+  })(), { agent: { model: 'opus' }, config: (c) => { c.claude.maxTurns = 50; } });
+  const t = s.engine.startTask({ agentId: 'a1', prompt: 'go', source: 'ui' });
+  await s.engine.waitFor(t.id, 3000);
+  const p = s.events.filter((e: any) => e.type === 'task.progress' && e.taskId === t.id).map((e: any) => e.progress);
+  assert.ok(p.length >= 4, `progress events: ${p.length}`);
+  assert.ok(p.every((x) => x.maxTurns === 50 && x.startedAt === p[0].startedAt));
+  assert.deepEqual(p.map((x) => [x.turn, x.tool]), [[0, null], [1, 'Read'], [1, null], [1, 'Bash'], [1, null], [2, null]]);
+});
+
+// What the bundled CLI returns for a resume of a session it cannot find (an error result, before any init).
+const missing = (sid: string) => err('error_during_execution', [`No conversation found with session ID: ${sid}`]);
+
+test('a resumed session that no longer exists: the task starts a new conversation once, with the follow-up, and says so', async () => {
+  const s = setup((_p, n) => (async function* () {
+    if (n === 0) { yield init('sess-gone'); yield ok('first'); return; }
+    if (n === 1) { yield missing('sess-gone'); return; }
+    yield init('sess-new'); yield ok('fresh');
+  })(), { agent: { model: 'opus' } });
+  const t = s.engine.startTask({ agentId: 'a1', prompt: 'build the thing', source: 'ui' });
+  await s.engine.waitFor(t.id, 3000);
+  s.engine.startTask({ agentId: 'a1', prompt: 'now add tests', source: 'ui', continueTaskId: t.id });
+  const done = await s.engine.waitFor(t.id, 3000);
+  assert.equal(done.status, 'done');
+  assert.equal(done.sessionId, 'sess-new');
+  assert.equal(s.calls[1]!.options.resume, 'sess-gone');
+  assert.equal(s.calls[2]!.options.resume, undefined, 'the new conversation does not resume the missing one');
+  assert.equal(s.calls[2]!.prompt, 'now add tests');
+  assert.ok(s.store.listMessages(t.id).some((m) => m.role === 'system' && /could not be found, so Claude is starting a new one/.test(m.text)));
+});
+
+test('Continue on a session that no longer exists re-sends the last real request, not the continue instruction', async () => {
+  const s = setup((_p, n) => (async function* () {
+    if (n === 0) { yield init('sess-gone'); yield err('error_max_turns'); return; }
+    if (n === 1) { yield missing('sess-gone'); return; }
+    yield init('sess-new'); yield ok('fresh');
+  })(), { agent: { model: 'opus' } });
+  const t = s.engine.startTask({ agentId: 'a1', prompt: 'the original big job', source: 'ui' });
+  await s.engine.waitFor(t.id, 3000);
+  s.engine.startTask({ agentId: 'a1', prompt: CONTINUE_PROMPT, source: 'ui', continueTaskId: t.id });
+  const done = await s.engine.waitFor(t.id, 3000);
+  assert.equal(done.status, 'done');
+  assert.equal(s.calls[2]!.prompt, 'the original big job');
+});
+
+test('an ordinary failure before init on a resumed task does not start over (only a missing session does)', async () => {
+  const s = setup((_p, n) => (async function* () {
+    if (n === 0) { yield init('sess-1'); yield ok('first'); return; }
+    yield err('error_during_execution', ['Invalid API key, please login']);
+  })(), { agent: { model: 'opus' } });
+  const t = s.engine.startTask({ agentId: 'a1', prompt: 'one', source: 'ui' });
+  await s.engine.waitFor(t.id, 3000);
+  s.engine.startTask({ agentId: 'a1', prompt: 'two', source: 'ui', continueTaskId: t.id });
+  const done = await s.engine.waitFor(t.id, 3000);
+  assert.equal(done.status, 'error');
+  assert.equal(s.calls.length, 2);
+  assert.equal(done.sessionId, 'sess-1', 'the session is kept: it was not the problem');
+});
+
+const progressOf = (s: { events: any[] }, id: string) => s.events.filter((e) => e.type === 'task.progress' && e.taskId === id).map((e) => e.progress);
+const todoCall = (id: string, todos: unknown[], parent: string | null = null) => ({ type: 'assistant', parent_tool_use_id: parent, message: { id: 'mt' + id, content: [{ type: 'tool_use', id, name: 'TodoWrite', input: { todos } }] } });
+
+test('a TodoWrite list reaches task.progress in full, clipped to 50 items of 200 characters, and the tool message is still stored', async () => {
+  const many = Array.from({ length: 60 }, (_, i) => ({ content: i === 0 ? 'x'.repeat(500) : `step ${i}`, status: i < 2 ? 'completed' : i === 2 ? 'in_progress' : 'pending', activeForm: `Doing ${i}` }));
+  const s = setup(() => (async function* () {
+    yield init('sess-todo');
+    yield todoCall('td1', [{ content: 'one', status: 'in_progress', activeForm: 'Doing one' }]);
+    yield todoCall('td2', many);
+    yield ok('done');
+  })(), { agent: { model: 'opus' } });
+  const t = s.engine.startTask({ agentId: 'a1', prompt: 'go', source: 'ui' });
+  await s.engine.waitFor(t.id, 3000);
+  const withTodos = progressOf(s, t.id).filter((p) => p.todos);
+  assert.equal(withTodos.length, 2);
+  assert.deepEqual(withTodos[0].todos, [{ content: 'one', status: 'in_progress', activeForm: 'Doing one' }]);
+  const last = withTodos[1].todos;
+  assert.equal(last.length, 50);
+  assert.equal(last[0].content.length, 200);
+  assert.ok(last[0].content.endsWith('…'));
+  assert.deepEqual(last[3], { content: 'step 3', status: 'pending', activeForm: 'Doing 3' });
+  assert.equal(last[2].status, 'in_progress');
+  const stored = s.store.listMessages(t.id).filter((m: any) => m.toolName === 'TodoWrite');
+  assert.equal(stored.length, 2);
+  assert.ok(stored[1].text.length <= 500);
+});
+
+test('a subagent\'s TodoWrite is not the run\'s checklist', async () => {
+  const s = setup(() => (async function* () {
+    yield init('sess-todo2');
+    yield todoCall('td1', [{ content: 'mine', status: 'pending', activeForm: 'Mine' }]);
+    yield todoCall('td2', [{ content: 'theirs', status: 'pending', activeForm: 'Theirs' }], 'task-1');
+    yield { type: 'assistant', parent_tool_use_id: null, message: { id: 'm9', content: [{ type: 'text', text: 'next' }] } };
+    yield ok('done');
+  })(), { agent: { model: 'opus' } });
+  const t = s.engine.startTask({ agentId: 'a1', prompt: 'go', source: 'ui' });
+  await s.engine.waitFor(t.id, 3000);
+  const all = progressOf(s, t.id).filter((p) => p.todos).map((p) => p.todos.map((x: any) => x.content));
+  assert.ok(all.length >= 1);
+  assert.ok(all.every((l) => l.length === 1 && l[0] === 'mine'), JSON.stringify(all));
+  assert.equal(progressOf(s, t.id).at(-1).todos[0].content, 'mine');
+});
+
+const blockStart = (type: string, parent: string | null = null) => ({ type: 'stream_event', parent_tool_use_id: parent, event: { type: 'content_block_start', index: 0, content_block: { type, ...(type === 'thinking' ? { thinking: '' } : {}) } } });
+const blockStop = (parent: string | null = null) => ({ type: 'stream_event', parent_tool_use_id: parent, event: { type: 'content_block_stop', index: 0 } });
+
+test('thinking is on from a thinking block\'s start to its stop, never for other blocks or a subagent, and no thinking text is stored', async () => {
+  let atStop: unknown[] = [];   // what the run had sent by the time the block's stop was handled
+  const s: ReturnType<typeof setup> = setup(() => (async function* () {
+    yield init('sess-think');
+    yield blockStart('text');
+    yield blockStop();
+    yield blockStart('thinking');
+    yield { type: 'stream_event', parent_tool_use_id: null, event: { type: 'content_block_delta', index: 0, delta: { type: 'thinking_delta', thinking: 'SECRET-THOUGHT' } } };
+    yield blockStop();
+    atStop = s.events.filter((e: any) => e.type === 'task.progress').map((e: any) => e.progress.thinking);
+    yield blockStart('thinking', 'sub-1');
+    yield blockStop('sub-1');
+    yield ok('done');
+  })(), { agent: { model: 'opus' } });
+  const t = s.engine.startTask({ agentId: 'a1', prompt: 'go', source: 'ui' });
+  await s.engine.waitFor(t.id, 3000);
+  assert.deepEqual(atStop, [false, true, false]);   // off at the stop itself, not only at the run's end
+  assert.deepEqual(progressOf(s, t.id).map((p) => p.thinking), [false, true, false]);
+  assert.ok(!JSON.stringify([...s.store.listMessages(t.id), ...s.events]).includes('SECRET-THOUGHT'));
+});
+
+test('a thinking flag cannot stick: an assistant message clears it, and so does the end of the run', async () => {
+  const a = setup(() => (async function* () {
+    yield init('sess-think2');
+    yield blockStart('thinking');
+    yield { type: 'assistant', parent_tool_use_id: null, message: { id: 'm1', content: [{ type: 'text', text: 'hi' }] } };
+    yield ok('done');
+  })(), { agent: { model: 'opus' } });
+  const ta = a.engine.startTask({ agentId: 'a1', prompt: 'go', source: 'ui' });
+  await a.engine.waitFor(ta.id, 3000);
+  const pa = progressOf(a, ta.id);
+  assert.deepEqual(pa.map((p) => p.thinking), [false, true, false]);
+  assert.equal(pa[2].turn, 1);   // cleared by the assistant message itself, not later
+
+  // the stream just ends inside a thinking block (no stop, no assistant message): the run's end clears it
+  const b = setup(() => (async function* () {
+    yield init('sess-think3');
+    yield blockStart('thinking');
+  })(), { agent: { model: 'opus' } });
+  const tb = b.engine.startTask({ agentId: 'a1', prompt: 'go', source: 'ui' });
+  await b.engine.waitFor(tb.id, 3000);
+  assert.deepEqual(progressOf(b, tb.id).map((p) => p.thinking), [false, true, false]);
+});
+
+test('a window opened mid-run gets the live progress from the snapshot (turn, tool, checklist), and nothing once the run ends', async () => {
+  let release!: () => void;
+  const gate = new Promise<void>((r) => { release = r; });
+  const s = setup(() => (async function* () {
+    yield init('sess-snap');
+    yield { type: 'assistant', parent_tool_use_id: null, message: { id: 'm1', content: [{ type: 'tool_use', id: 'tw', name: 'TodoWrite', input: { todos: [{ content: 'step one', status: 'in_progress', activeForm: 'Doing step one' }] } }, { type: 'tool_use', id: 'g1', name: 'Grep', input: {} }] } };
+    await gate;
+    yield ok('done');
+  })(), { agent: { model: 'opus' }, config: (c) => { c.claude.maxTurns = 30; } });
+  const t = s.engine.startTask({ agentId: 'a1', prompt: 'go', source: 'ui' });
+  for (let i = 0; i < 100 && !s.engine.progressSnapshot()[t.id]?.turn; i++) await new Promise((r) => setTimeout(r, 5));
+  const snap = s.engine.progressSnapshot()[t.id]!;
+  assert.equal(snap.turn, 1);
+  assert.equal(snap.maxTurns, 30);
+  assert.equal(snap.tool, 'Grep');
+  assert.deepEqual(snap.todos, [{ content: 'step one', status: 'in_progress', activeForm: 'Doing step one' }]);
+  release();
+  await s.engine.waitFor(t.id, 3000);
+  assert.deepEqual(s.engine.progressSnapshot(), {});
+});
+
+test('a message sent while a Claude run works joins that run: one query, answered after the current step, then the run ends', async () => {
+  let midRun!: () => void; const reached = new Promise<void>((r) => { midRun = r; });
+  let sent!: () => void; const pushed = new Promise<void>((r) => { sent = r; });
+  const s = setup((params) => (async function* () {
+    // read the prompt stream the way the SDK does: one message, one answer, in order
+    const it = (params.prompt as AsyncIterable<any>)[Symbol.asyncIterator]();
+    yield init('sess-live');
+    const first = await it.next();
+    yield { type: 'assistant', parent_tool_use_id: null, message: { id: 'a1', content: [{ type: 'text', text: `on it: ${first.value.message.content}` }] } };
+    midRun();
+    await pushed;
+    yield ok('first answered');
+    const second = await it.next();
+    yield { type: 'assistant', parent_tool_use_id: null, message: { id: 'a2', content: [{ type: 'text', text: `also: ${second.value.message.content}` }] } };
+    yield ok('second answered');
+    assert.equal((await it.next()).done, true, 'the engine closes the stream once every message has its answer');
+  })(), { agent: { model: 'opus' } });
+  const t = s.engine.startTask({ agentId: 'a1', prompt: 'build the page', source: 'ui' });
+  await reached;
+  const again = s.engine.startTask({ agentId: 'a1', prompt: 'and make it blue', source: 'ui', continueTaskId: t.id });
+  assert.equal(again.id, t.id);
+  sent();
+  const done = await s.engine.waitFor(t.id, 3000);
+  assert.equal(done.status, 'done');
+  assert.equal(done.result, 'second answered');
+  assert.equal(s.calls.length, 1, 'one run, not a second one after the first');
+  const rows = s.store.listMessages(t.id).filter((m) => m.role !== 'tool').map((m) => [m.role, m.text]);
+  assert.deepEqual(rows, [['user', 'build the page'], ['assistant', 'on it: build the page'], ['user', 'and make it blue'], ['assistant', 'also: and make it blue']]);
+});
+
+test('only the person\'s own plain messages join a live run; bots, MCP clients and slash commands still get 409 (the app queues them)', async () => {
+  let release!: () => void; const gate = new Promise<void>((r) => { release = r; });
+  const s = setup(() => (async function* () { yield init('sess-g'); await gate; yield ok('x'); })(), { agent: { model: 'opus' } });
+  const t = s.engine.startTask({ agentId: 'a1', prompt: 'work', source: 'ui' });
+  for (let i = 0; i < 50 && s.store.getTask(t.id)?.status !== 'running'; i++) await new Promise((r) => setTimeout(r, 5));
+  for (const p of [
+    { prompt: 'from a client', source: 'mcp' as const },
+    { prompt: '/compact', source: 'ui' as const },
+    { prompt: '/opus now', source: 'ui' as const },
+  ]) assert.throws(() => s.engine.startTask({ agentId: 'a1', continueTaskId: t.id, ...p }), (e: any) => e instanceof EngineError && e.status === 409, p.prompt);
+  release();
+  await s.engine.waitFor(t.id, 3000);
+  assert.equal(s.store.listMessages(t.id).filter((m) => m.role === 'user').length, 1, 'nothing refused was added to the thread');
+});
+
 test('a follow-up that fails before its own init is not resumable (the old session never saw it)', async () => {
   const s = setup((_p, n) => (async function* () {
     if (n === 0) { yield init('sess-old'); yield ok('first'); return; }
@@ -433,6 +662,31 @@ test('approvals via canUseTool: allow, deny, auto-allowed, timeout', async () =>
   assert.equal((await o.canUseTool('mcp__other__x', {}, sig)).behavior, 'deny'); // times out after 40ms
 });
 
+test('B4: an unanswered approval card is not reported to the model as a user denial', async () => {
+  const s = setup(() => happy(), { agent: { approval: 'ask' }, approvalTimeoutMs: 40 });
+  await s.engine.waitFor(s.engine.startTask({ agentId: 'a1', prompt: 'x', source: 'ui' }).id, 3000);
+  await new Promise((r) => setTimeout(r, 10)); // the run's cleanup cancels cards of its task; let it finish before we ask
+  const o = s.calls[0]!.options;
+  const sig = { signal: new AbortController().signal };
+  const timedOut = await o.canUseTool('Bash', { command: 'ls' }, sig); // nobody answers: 40ms
+  assert.equal(timedOut.behavior, 'deny');
+  assert.equal(timedOut.message, 'No one answered the approval request within 1 second, so this action was not run. Ask again later or continue without it.');
+  assert.doesNotMatch(timedOut.message, /user denied/);
+  // a real denial still says so
+  const d = o.canUseTool('Bash', { command: 'rm' }, sig);
+  s.approvals.resolve(s.approvals.pending()[0]!.id, false);
+  assert.equal((await d).message, 'The user denied this action.');
+});
+
+test('B4: the timeout message names the real broker wait', async () => {
+  const s = setup(() => happy(), { agent: { approval: 'ask' } }); // default broker timeout
+  await s.engine.waitFor(s.engine.startTask({ agentId: 'a1', prompt: 'x', source: 'ui' }).id, 3000);
+  assert.equal(s.approvals.timeoutWait, '10 minutes');
+  assert.equal(describeWait(60_000), '1 minute');
+  assert.equal(describeWait(150_000), '3 minutes');
+  assert.equal(describeWait(5_000), '5 seconds');
+});
+
 test('concurrency cap and FIFO queue', async () => {
   const gates: (() => void)[] = [];
   const s = setup(() => (async function* () {
@@ -452,6 +706,25 @@ test('concurrency cap and FIFO queue', async () => {
   assert.equal(s.calls[2]!.prompt, 'p3');
   gates[1]!(); gates[2]!();
   for (const id of ids) assert.equal((await s.engine.waitFor(id, 3000)).status, 'done');
+});
+
+test('cancel after init leaves the task resumable (Continue picks up the session); cancel before init leaves it unset', async () => {
+  const after = setup(() => (async function* () { yield init('sess-x'); await new Promise<void>(() => undefined); })());
+  const a = after.engine.startTask({ agentId: 'a1', prompt: 'x', source: 'ui' });
+  await new Promise((r) => setTimeout(r, 30));
+  assert.equal(after.engine.cancel(a.id), true);
+  const doneA = await after.engine.waitFor(a.id, 3000);
+  assert.equal(doneA.status, 'cancelled');
+  assert.equal(doneA.sessionId, 'sess-x');
+  assert.equal(doneA.resumable, true);
+  const before = setup(() => (async function* () { await new Promise<void>(() => undefined); yield init('sess-y'); })());
+  const b = before.engine.startTask({ agentId: 'a1', prompt: 'x', source: 'ui' });
+  await new Promise((r) => setTimeout(r, 30));
+  assert.equal(before.engine.cancel(b.id), true);
+  const doneB = await before.engine.waitFor(b.id, 3000);
+  assert.equal(doneB.status, 'cancelled');
+  assert.equal(doneB.sessionId, undefined);
+  assert.equal(doneB.resumable, undefined);
 });
 
 test('cancelling a queued task removes it from the queue', async () => {
@@ -611,4 +884,65 @@ test('bot-origin task with a full ceiling keeps the receiver bypass mode; human 
   const t = s.engine.startTask({ agentId: 'a1', prompt: 'x', source: 'bot', origin: { roomId: 'r', fromAgentId: 'builder', hop: 1, approvalCeiling: 'full' } });
   await s.engine.waitFor(t.id, 3000);
   assert.equal(s.calls[0]!.options.permissionMode, 'bypassPermissions');
+});
+
+// ---- spend limit (claude.maxBudgetUsd) and the context meter
+test('spend limit: maxBudgetUsd is passed to the SDK when set, and absent when not', async () => {
+  const withCap = setup(() => happy(), { config: (c) => { c.claude.maxBudgetUsd = 2.5; } });
+  await withCap.engine.waitFor(withCap.engine.startTask({ agentId: 'a1', prompt: 'x', source: 'ui' }).id, 3000);
+  assert.equal(withCap.calls[0]!.options.maxBudgetUsd, 2.5);
+  const none = setup(() => happy());
+  await none.engine.waitFor(none.engine.startTask({ agentId: 'a1', prompt: 'x', source: 'ui' }).id, 3000);
+  assert.ok(!('maxBudgetUsd' in none.calls[0]!.options), 'no cap configured, none passed');
+  // a hand-edited bad value in config.json is no cap, not a crash or a zero budget
+  const bad = setup(() => happy(), { config: (c) => { (c.claude as any).maxBudgetUsd = 'lots'; } });
+  await bad.engine.waitFor(bad.engine.startTask({ agentId: 'a1', prompt: 'x', source: 'ui' }).id, 3000);
+  assert.ok(!('maxBudgetUsd' in bad.calls[0]!.options));
+});
+
+test('spend limit: error_max_budget_usd pauses like the turn limit (error, resumable, calm mascot, one short history line) and Continue resumes', async () => {
+  const s = setup((_p, n) => (async function* () {
+    yield init('sess-b');
+    if (n === 0) yield err('error_max_budget_usd'); else yield ok('finished');
+  })(), { agent: { model: 'opus' }, config: (c) => { c.claude.maxBudgetUsd = 5; } });
+  const t = s.engine.startTask({ agentId: 'a1', prompt: 'big job', source: 'ui' });
+  const stopped = await s.engine.waitFor(t.id, 3000);
+  assert.equal(stopped.status, 'error');
+  assert.equal(stopped.resumable, true);
+  assert.ok(stopped.error!.startsWith(BUDGET_LIMIT_PREFIX));
+  assert.match(stopped.error!, /\(\$5 this run\)/);
+  assert.doesNotMatch(stopped.error!, /Press|button|Settings/);
+  assert.deepEqual(s.store.listMessages(t.id).filter((m) => m.role === 'system').map((m) => m.text), ['Paused at the spend limit ($5 this run).']);
+  const moods = s.events.filter((e: any) => e.type === 'mascot').map((e: any) => [e.mood, e.note]);
+  assert.ok(!moods.some(([m]) => m === 'error'), JSON.stringify(moods));
+  assert.ok(moods.some(([m, n]) => m === 'idle' && n === 'paused at the spend limit'), JSON.stringify(moods));
+  s.engine.startTask({ agentId: 'a1', prompt: CONTINUE_PROMPT, source: 'ui', continueTaskId: t.id });
+  const done = await s.engine.waitFor(t.id, 3000);
+  assert.equal(done.status, 'done');
+  assert.equal(s.calls[1]!.options.resume, 'sess-b');
+  assert.equal(s.calls[1]!.prompt, CONTINUE_PROMPT);
+});
+
+test('spend limit: sonnet at the spend limit pauses on sonnet, with no Opus escalation', async () => {
+  const s = setup(() => (async function* () { yield init('sess-sb'); yield err('error_max_budget_usd'); })(), { agent: { model: 'sonnet' }, config: (c) => { c.claude.maxBudgetUsd = 0.5; } });
+  const done = await s.engine.waitFor(s.engine.startTask({ agentId: 'a1', prompt: 'long job', source: 'ui' }).id, 3000);
+  assert.equal(s.calls.length, 1);
+  assert.equal(done.escalated, undefined);
+  assert.equal(done.model, 'sonnet');
+  assert.equal(done.resumable, true);
+  assert.match(done.error!, /\(\$0\.50 this run\)/);
+});
+
+test('context meter: task.progress carries the context after the latest top-level response, and a subagent does not move it', async () => {
+  const withUsage = (id: string, usage: any, parent?: string) => ({ type: 'assistant', parent_tool_use_id: parent ?? null, message: { id, usage, content: [{ type: 'text', text: 'ok' }] } });
+  const s = setup(() => (async function* () {
+    yield init();
+    yield withUsage('m1', { input_tokens: 10, cache_read_input_tokens: 50_000, cache_creation_input_tokens: 2_000, output_tokens: 999 });
+    yield withUsage('sub', { input_tokens: 5, cache_read_input_tokens: 900_000 }, 'toolu_x');
+    yield withUsage('m2', { input_tokens: 20, cache_read_input_tokens: 80_000, cache_creation_input_tokens: 4_000 });
+    yield ok('done');
+  })(), { agent: { model: 'opus' } });
+  await s.engine.waitFor(s.engine.startTask({ agentId: 'a1', prompt: 'x', source: 'ui' }).id, 3000);
+  const seen = s.events.filter((e: any) => e.type === 'task.progress').map((e: any) => e.progress.contextTokens);
+  assert.deepEqual(seen, [undefined, 52_010, 84_020], 'first emit has none yet; then one per top-level response, never the subagent 900k');
 });

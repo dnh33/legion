@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { busyLabel, busyReason } from '../chat/busy';
+import { busyLabel, busyReason, canJoinRun } from '../chat/busy';
 import { restoreDraft } from '../chat/draft';
 import { isImeKey } from '../chat/ime';
 import { queueOf, shouldQueue, threadKey } from '../chat/queue';
@@ -7,7 +7,7 @@ import { useDraft } from '../chat/drafts';
 import { enqueueMessage, getQueue, interruptAndSend, pauseQueue, startQueueRunner, takeLastQueued, useThreadQueue } from '../chat/queueStore';
 import { buildMenu, isCostly, parseSlash, runLegionCommand, LEGION_COMMANDS, type MenuItem } from '../commands';
 import { modelLabel } from '../models';
-import { cancelSelected, effectiveModel, getState, loadCatalog, sendPrompt, useStore } from '../store';
+import { cancelSelected, effectiveModel, getState, loadCatalog, sendPrompt, sendPromptTo, useStore } from '../store';
 import { clip } from '../util';
 import { Icon } from './icons';
 import { ModelPicker } from './ModelPicker';
@@ -38,6 +38,8 @@ export function Composer() {
   const qkey = threadKey(agentId, taskId);
   const thread = useThreadQueue(qkey);
   const agentName = clip(agent?.name ?? 'Legion', 26);
+  // Enter adds the message to the running Claude run (read after its current step) rather than queueing it behind the run
+  const joinable = !!taskId && canJoinRun(busy, task, thread?.items.length ?? 0, '');
 
   // slash menu: only while the text is a single "/token" (no space yet)
   const token = /^\/([^\s]*)$/.exec(text);
@@ -93,6 +95,15 @@ export function Composer() {
       if (!ok) setText((cur) => restoreDraft(cur, raw));
       return;
     }
+    // a running Claude run takes the message now and reads it after its current step; refused (409), it is queued as before
+    if (tId && canJoinRun(why, st.tasks.find((t) => t.id === tId), q?.items.length ?? 0, raw)) {
+      setText('');
+      const r = await sendPromptTo({ agentId: aId, taskId: tId }, raw, { model: effectiveModel(st), select: true });
+      if (r.ok) return;
+      if (r.status === 409 && enqueueMessage(aId, tId, raw, effectiveModel(st))) return;
+      setText((cur) => restoreDraft(cur, raw));
+      return;
+    }
     if (shouldQueue(q, !!why)) {
       if (enqueueMessage(aId, tId, raw, effectiveModel(st))) setText('');
       return;
@@ -146,12 +157,15 @@ export function Composer() {
           </button>
           <span className="composer-hint">
             {busy
-              ? <span className="hint-long" data-testid="composer-hint"><kbd>Enter</kbd> queues <kbd>Ctrl+Enter</kbd> interrupts </span>
+              ? <span className="hint-long" data-testid="composer-hint"><kbd>Enter</kbd> {joinable ? 'adds it to the run' : 'queues'} <kbd>Ctrl+Enter</kbd> interrupts </span>
               : <span className="hint-long"><kbd>Enter</kbd> send <kbd>Shift Enter</kbd> newline </span>}
             <kbd>/</kbd> commands</span>
           <span className="spacer" />
-          {busy && <button type="button" className="send queue" disabled={!text.trim()} onClick={() => void submit()} aria-label="Queue message"
-            title="Queue this message (Enter). Ctrl+Enter interrupts the run and sends it now."><Icon name="plus" size={13} /> Queue</button>}
+          {busy && (joinable
+            ? <button type="button" className="send queue" disabled={!text.trim()} onClick={() => void submit()} aria-label="Add to the run"
+                title="Add this message to the run (Enter): Claude reads it after its current step. Ctrl+Enter interrupts the run and sends it now."><Icon name="plus" size={13} /> Add</button>
+            : <button type="button" className="send queue" disabled={!text.trim()} onClick={() => void submit()} aria-label="Queue message"
+                title="Queue this message (Enter). Ctrl+Enter interrupts the run and sends it now."><Icon name="plus" size={13} /> Queue</button>)}
           {running
             ? <button className="send stop" onClick={() => { pauseQueue(qkey); void cancelSelected(); }} aria-label="Stop"><Icon name="stop" size={14} /> Stop</button>
             : !busy && <button className="send" disabled={!text.trim()} onClick={() => void submit()} aria-label="Send"><Icon name="send" size={14} /></button>}

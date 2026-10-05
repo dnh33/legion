@@ -63,7 +63,9 @@ npm run typecheck         # core (tsconfig.json) and UI (ui/tsconfig.json), no e
 npm run build:ui          # vite build -> dist-ui/
 ```
 
-The gate before anyone says "done": `npm ci && npm run build:ts && npm test && npm run typecheck && npm run build:ui`. Run it from a clean checkout of the exact commit you are reporting on.
+The gate before anyone says "done": `npm ci && npm run build:ts && npm run test:run && npm run typecheck:ui && npm run build:ui`. Run it from a clean checkout of the exact commit you are reporting on.
+
+It compiles the core once. `build:ts` already fails on any type error (tsc exits 2 even while it emits), so `test:run` runs the tests on that build and `typecheck:ui` checks only the UI project. The older gate compiled the core three times (`build:ts`, again inside `npm test`, again in `typecheck`), about 15 s each on the owner's PC. `npm test` and `npm run typecheck` still work on their own.
 
 **Counts are never hard-coded in docs; read them from the run.** `node --test` prints a TAP summary at the end:
 
@@ -84,6 +86,26 @@ node --test --test-name-pattern="R6.1" dist/test/library-review-integrity.test.j
 Never run `node --test` on the `.ts` files, and never edit `dist/` by hand: it is rebuilt from `src/` and `test/` on every `npm test`. `dist/` is not committed.
 
 **Rebuild after every source change.** ESM caches modules inside one process, and the compiled tree is what runs: a running core (and a running harness stack) keeps the old code until restarted.
+
+### Only the tests a change can affect (`test:affected`)
+
+While you work, run only the test files your change can reach. The full gate above is still what "done" means.
+
+```bash
+npm run test:map        # once, and again now and then: one full run with a recorder in every process -> .testmap/map.json
+npm run test:affected   # compile, then run only the test files the changes since the map's commit can affect
+node scripts/test-map/select.mjs --why   # list them, and the changed path that picked each one
+```
+
+How it decides, and why it can be trusted:
+
+- The map records, per test file, what its run actually touched: every module it loaded, every file or folder it read through `node:fs`, and every path it handed to a child process. Processes a test spawns inherit the recorder. A script handed to another program counts as its whole folder.
+- A test is selected when a changed path is a file it touched or sits inside a folder it read. "Changed" means everything that differs from the map's commit: committed, staged, unstaged and untracked.
+- Why that is enough: if a test now behaves differently, it now reads a file whose content differs. A test only reads a file it did not read before because code it did read has changed, and that change selects it.
+- A test that starts a program the recorder cannot see inside **always runs**: PowerShell, git, a shell command, or a Node child whose environment drops the recorder. Such a program can read a file named only inside a temp script, or a path it works out itself. The installer tests are the reason for this rule: they write a temp `.ps1` that dot-sources `scripts/setup.ps1`, which no recorded read shows.
+- It runs the **whole** suite whenever the map cannot vouch for a change. That covers no map, a different Node major version, a change to `package.json`, the lockfile, a `tsconfig`, `copy-static.mjs` or the recorder itself, and a path read by a process it could not tie to a test file. A test file the map does not know (new, or it crashed before it could record) always runs. So does a test that reads build output with no source behind it.
+- The BSV tripwires scan the whole source tree as text, so **any** source change selects them. That is correct: a change anywhere could add a wallet call.
+- It assumes tests are deterministic. A test that depends on the clock, the network or the machine can still differ without any file changing; that is what the full gate is for.
 
 ### The harness, quickly
 
@@ -251,7 +273,7 @@ The text below is the real output of the commands on the commit named, in a Linu
 <!-- VERIFIED-OUTPUT-START -->
 Commit: the tip of `claude/test-harness` when this section was written (parent `792a0b3`, base `integration/v1` `1ed80f8`). Node v22.22.0, Linux container.
 
-**The gate** (`npm ci && npm run build:ts && npm test && npm run typecheck && npm run build:ui`, fresh `node_modules` and `dist`, all five exit codes 0, `npm ci` reported 0 vulnerabilities):
+**The gate** (`npm ci && npm run build:ts && npm run test:run && npm run typecheck:ui && npm run build:ui`, fresh `node_modules` and `dist`, all five exit codes 0, `npm ci` reported 0 vulnerabilities):
 
 ```
 # tests 1441

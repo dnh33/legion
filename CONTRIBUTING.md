@@ -93,7 +93,7 @@ Golden rule: `ui/src/mascot/data/relic.json` and the Relic stage stay byte-ident
 Run this before you say a change is done, and report the exact test counts in the pull request:
 
 ```bash
-npm ci && npm run build:ts && npm test && npm run typecheck && npm run build:ui
+npm ci && npm run build:ts && npm run test:run && npm run typecheck:ui && npm run build:ui
 ```
 
 Every new test needs a negative: temporarily break the code it covers, see the test fail, then put the code back.

@@ -136,3 +136,17 @@ test('history: a continued task sends the earlier messages, with tool calls pair
     assert.equal(last[5].content, 'second question');
   } finally { await f.close(); }
 });
+
+test('a provider run that runs out of turns pauses like a Claude run: the Paused text with its own limit, resumable, calm mascot', async () => {
+  // a model that calls a tool on every turn never gives a final answer, so the loop stops at the provider's limit (3 here)
+  const f = await startFake((_r, res) => replyTools(res, [{ id: `c${Math.random()}`, name: 'mcp__legion__agents', args: {} }]));
+  try {
+    const h = setup(f, { maxTurns: 3 });
+    const t = await run(h);
+    assert.equal(t.status, 'error');
+    assert.equal(t.error, 'Paused at the turn limit (3 turns this run) before finishing. The work so far is kept: continue the task to pick up where it stopped.');
+    assert.equal(t.resumable, true);
+    assert.ok(!h.events.some((e) => e.type === 'mascot' && e.mood === 'error'), 'no fault mascot for a pause');
+    assert.ok(h.store.listMessages(t.id).some((m) => m.role === 'system' && m.text === 'Paused at the turn limit (3 turns this run).'));
+  } finally { await f.close(); }
+});

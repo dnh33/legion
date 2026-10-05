@@ -1,5 +1,6 @@
 /** "Run this item" against the REAL engine: the ordinary project run path, the `ask` cap for unreviewed text, and the run-end hook (controls C8, C9). */
 import { tempDir as cleanupTemp } from './tmp-cleanup.js';
+import { initialPrompt } from '../src/core/input-channel.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtempSync } from 'node:fs';
@@ -38,7 +39,7 @@ function setup() {
   const projects = new ProjectStore(join(root, 'data'), config.workspaceDir);
   const board = new BoardStore(join(root, 'data', 'board'), () => 0);
   const calls: any[] = [];
-  const queryFn = ((params: any) => { calls.push(params); return Object.assign(quick(), { interrupt: async () => undefined, close: () => undefined, accountInfo: async () => ({}) }); }) as unknown as QueryFn;
+  const queryFn = ((params: any) => { calls.push({ ...params, prompt: initialPrompt(params.prompt), input: params.prompt }); return Object.assign(quick(), { interrupt: async () => undefined, close: () => undefined, accountInfo: async () => ({}) }); }) as unknown as QueryFn;
   const engine = new Engine({ store: store as any, bus, vms: { touch() {}, ensureRunning: async () => ({}) } as any, approvals: new ApprovalBroker(bus), config, queryFn, boatConfigured: () => false, projects, taintedPaths: new TaintedPaths(join(root, 'tp.json')) });
   const mod = createBoardModule({ config, store: store as any, bus, engine, approvals: {} as any, dataDir: root, bsvEnabled: () => false }, { projects, board });
   engine.setModules([mod]);

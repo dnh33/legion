@@ -51,14 +51,16 @@ const one = (s: string, n: number): string => { const t = neutralise(s).replace(
  * A short picture of the board for a run that starts in the project: counts per column, what is assigned to this agent, and what the others
  * have in progress. This is how a new session picks up where the last one stopped. Data, capped, titles only.
  */
-export function boardDigest(items: WorkItem[], agentId: string, nameOf: (id: string) => string, max = 1100, notes: Array<{ id: string; title: string }> = []): string {
+export function boardDigest(items: WorkItem[], agentId: string, nameOf: (id: string) => string, max = 1100, notes: Array<{ id: string; title: string }> = [], leader?: string): string {
   const open = items.filter((i) => i.status !== 'done');
-  if (!items.length && !notes.length) return '';
+  if (!items.length && !notes.length && !leader) return '';
+  // who leads the board decides how work is routed: the leader plans on it, everyone else works through the leader
+  const leaderLine = leader ? `Board leader: ${leader === agentId ? 'you' : one(nameOf(leader), 30)}. ` : 'No board leader is set. ';
   const count = (s: WorkItem['status']) => items.filter((i) => i.status === s).length;
   const line = (i: WorkItem) => `- ${i.id} [${i.status}${i.priority === 'high' ? ', high' : ''}${i.due ? `, due ${i.due}` : ''}] ${one(i.title, 70)}${i.assignee?.kind === 'agent' && i.assignee.id !== agentId ? ` (${one(nameOf(i.assignee.id), 20)})` : i.assignee?.kind === 'owner' ? ' (owner)' : ''}`;
   const mine = open.filter((i) => i.assignee?.kind === 'agent' && i.assignee.id === agentId);
   const others = open.filter((i) => i.status === 'doing' && !mine.includes(i));
-  const head = `<legion-board-digest>\n${items.length ? `Board: ${count('backlog')} backlog, ${count('doing')} doing, ${count('review')} review, ${count('blocked')} blocked, ${count('done')} done. ` : ''}${DATA_NOTE_SHORT}`;
+  const head = `<legion-board-digest>\n${leaderLine}${items.length ? `Board: ${count('backlog')} backlog, ${count('doing')} doing, ${count('review')} review, ${count('blocked')} blocked, ${count('done')} done. ` : ''}${DATA_NOTE_SHORT}`;
   const tail = '\n</legion-board-digest>';
   const parts: string[] = [];
   let room = max - head.length - tail.length;

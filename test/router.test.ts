@@ -80,3 +80,10 @@ test('only sonnet escalates', () => {
   assert.equal(shouldEscalate({ model: 'haiku', subtype: 'error_max_turns', isError: true }), false);
   assert.equal(shouldEscalate({ model: 'claude-sonnet-5', subtype: 'error_max_turns', isError: true }), false);
 });
+
+test('a run that stopped at the spend limit never escalates to Opus (a fresh cap would spend more than allowed)', () => {
+  assert.equal(shouldEscalate({ model: 'sonnet', subtype: 'error_max_budget_usd', isError: true }), false);
+  assert.equal(shouldEscalate({ model: 'sonnet', subtype: 'error_max_budget_usd', isError: true, errorText: 'tool crashed' }), false);
+  // a real failure on sonnet still escalates
+  assert.equal(shouldEscalate({ model: 'sonnet', subtype: 'error_during_execution', isError: true }), true);
+});

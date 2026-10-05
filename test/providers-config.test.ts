@@ -30,7 +30,7 @@ test('C7 private-network literals need the owner-confirmed flag; hostnames are n
 });
 
 test('C19 normalizeProviders: clamps, drops bad entries, refuses cli and a non-chat wire, keyless only where it is safe', () => {
-  assert.deepEqual(normalizeProviders(undefined), { version: 1, entries: {}, maxTurns: 40, maxToolCallsPerTurn: 16 });
+  assert.deepEqual(normalizeProviders(undefined), { version: 1, entries: {}, maxTurns: 200, maxToolCallsPerTurn: 16 });
   const n = normalizeProviders({
     maxTurns: 9999, maxToolCallsPerTurn: 0,
     entries: {
@@ -45,7 +45,7 @@ test('C19 normalizeProviders: clamps, drops bad entries, refuses cli and a non-c
       priced: { baseUrl: 'https://p.example/v1', prices: { m: { inputPerMTok: 1.5, outputPerMTok: 3 }, bad: { inputPerMTok: -1, outputPerMTok: 1 } } },
     },
   });
-  assert.equal(n.maxTurns, 40); assert.equal(n.maxToolCallsPerTurn, 16);
+  assert.equal(n.maxTurns, 200); assert.equal(n.maxToolCallsPerTurn, 16);
   assert.deepEqual(Object.keys(n.entries).sort(), ['keyless', 'local', 'ok', 'priced']);
   assert.equal(n.entries.ok!.baseUrl, 'https://api.example.com/v1');
   assert.deepEqual(n.entries.ok!.models, ['m1']);
@@ -61,7 +61,7 @@ test('C19 normalizeProviders: clamps, drops bad entries, refuses cli and a non-c
 test('C19 a fresh install has no providers and config round-trips unknown keys', () => {
   const c = defaultConfig();
   assert.deepEqual(c.providers.entries, {});
-  assert.equal(c.providers.maxTurns, 40);
+  assert.equal(c.providers.maxTurns, 200);
 });
 
 test('C4 keys: a separate 0600 file, bound to the origin, deleted when the origin changes; never in config', () => {

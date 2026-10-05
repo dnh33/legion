@@ -119,7 +119,7 @@ test('C16 limits: turn cap, per-turn tool-call cap, broken arguments, repeated i
   try {
     const h = setup(f, { maxTurns: 3 });
     const t = await run(h);
-    assert.equal(t.status, 'error'); assert.match(t.error ?? '', /Stopped after 3 model turns/); assert.equal(f.requests.length, 3);
+    assert.equal(t.status, 'error'); assert.match(t.error ?? '', /^Paused at the turn limit \(3 turns this run\)/); assert.equal(f.requests.length, 3);
   } finally { await f.close(); }
   // the per-turn cap: the third call is not run
   let m = 0;

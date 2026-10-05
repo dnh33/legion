@@ -1,6 +1,6 @@
 {
   "name": "legion",
-  "version": "0.2.5-b",
+  "version": "0.2.5-c",
   "description": "A local, Claude-native multi-agent desktop bot with on-demand boat.dev VMs and a hand-painted mascot",
   "author": "dnh33",
   "license": "Apache-2.0",
@@ -43,6 +43,10 @@
     "build:ui": "vite build --config ui/vite.config.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p ui/tsconfig.json --noEmit",
     "test": "npm run build:ts && node --test \"dist/test/*.test.js\"",
+    "test:run": "node --test \"dist/test/*.test.js\"",
+    "typecheck:ui": "tsc -p ui/tsconfig.json --noEmit",
+    "test:map": "node scripts/test-map/build.mjs",
+    "test:affected": "node scripts/test-map/select.mjs --run",
     "core": "node dist/src/bin/legion-core.js",
     "start": "npm run build && electron .",
     "app": "electron .",

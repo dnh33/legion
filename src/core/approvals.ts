@@ -119,11 +119,21 @@ export function summarizeToolInput(toolName: string, input: Record<string, unkno
   return compactJson(input ?? {}, 400);
 }
 
+/** The wait as plain words for a message to the model or the owner: "10 minutes", "1 minute", "5 seconds". */
+export function describeWait(ms: number): string {
+  const secs = Math.max(1, Math.round(ms / 1000));
+  if (secs < 60) return `${secs} second${secs === 1 ? '' : 's'}`;
+  const mins = Math.round(secs / 60);
+  return `${mins} minute${mins === 1 ? '' : 's'}`;
+}
+
 interface Pending { req: ApprovalRequest; resolve: (allow: boolean) => void; timer: ReturnType<typeof setTimeout> }
 
 export class ApprovalBroker {
   private readonly items = new Map<string, Pending>();
   private readonly timeoutMs: number;
+  /** How long a card waits for an answer before it is denied, in words ("10 minutes"). For messages that explain a timeout. */
+  get timeoutWait(): string { return describeWait(this.timeoutMs); }
   constructor(private readonly bus: EventBus, opts?: { timeoutMs?: number }) {
     this.timeoutMs = opts?.timeoutMs ?? 10 * 60 * 1000;
   }

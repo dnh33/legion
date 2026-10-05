@@ -1,5 +1,6 @@
 /** Shared fixtures for the Library stage B tests: a real Engine with a scripted queryFn and the real knowledge module. */
 import { tempDir as cleanupTemp } from './tmp-cleanup.js';
+import { initialPrompt } from '../src/core/input-channel.js';
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { basename, join } from 'node:path';
@@ -42,7 +43,7 @@ export function setup(script: Script, opts: { modules?: CoreModule[]; agents?: A
   const calls: Call[] = [];
   const queryFn = ((p: any) => {
     const agent = basename(p.options.cwd);
-    const call: Call = { agent, prompt: p.prompt, options: p.options, n: calls.filter((c) => c.agent === agent).length };
+    const call: Call = { agent, prompt: initialPrompt(p.prompt), options: p.options, n: calls.filter((c) => c.agent === agent).length };
     calls.push(call);
     const sid = `sess-${++sidN}`;
     const gen = script(call) ?? (async function* () { yield init(sid); yield ok(`${agent} done`, sid); })();

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { ChatMessage } from '../../../src/shared/types';
-import { CONTINUE_PROMPT, isTurnLimitPause } from '../../../src/shared/continue';
+import { CONTINUE_PROMPT, budgetLimitFromError, isBudgetPause, isLimitPause } from '../../../src/shared/continue';
 import { base, token } from '../api';
 import { decide, dismissOnboarding, openDoctor, openEditor, openSettings, refresh, selectTask, sendPrompt, useStore } from '../store';
 import { copyText, money } from '../util';
@@ -9,6 +9,8 @@ import { Icon } from './icons';
 import { MessageView } from './MessageView';
 import { TaskSwitcher } from './TaskSwitcher';
 import { ToolGroup } from './ToolChip';
+import { WorkingRow } from './WorkingRow';
+import { TodoList } from './TodoList';
 
 type Item = { k: 'msg'; m: ChatMessage } | { k: 'tools'; items: ChatMessage[] };
 
@@ -46,9 +48,14 @@ export function Thread() {
   const agent = agents.find((a) => a.id === agentId);
   const task = taskId ? tasks.find((t) => t.id === taskId) : undefined;
   const running = task?.status === 'running' || task?.status === 'queued';
-  // a turn-limit stop is a pause with the work kept, not a failure: it gets its own card
-  const paused = isTurnLimitPause(task);
+  // a turn-limit or spend-limit stop is a pause with the work kept, not a failure: it gets its own card
+  const paused = isLimitPause(task);
+  const budgetPaused = isBudgetPause(task);
+  const pausedBudget = budgetPaused ? budgetLimitFromError(task?.error) : undefined;
   const pausedTurns = paused ? /\((\d+) turns this run\)/.exec(task?.error ?? '')?.[1] : undefined;
+  // the history already ends with the engine's own "Cancelled" line: the thread must not say it twice
+  const last = messages[messages.length - 1];
+  const cancelledInHistory = last?.role === 'system' && last.text === 'Cancelled';
 
   const scroller = useRef<HTMLDivElement>(null);
   const stick = useRef(true);
@@ -128,12 +135,13 @@ export function Thread() {
                 ? <ToolGroup key={it.items[0].id} items={it.items} results={results} />
                 : <MessageView key={it.m.id} m={it.m} agent={agent} task={task} />)}
               {stream && <MessageView m={{ role: 'assistant', text: stream }} agent={agent} task={task} streaming />}
-              {running && !stream && <div className="working" aria-live="polite"><i /><i /><i /><span>{task?.status === 'queued' ? 'Queued' : 'Working'}</span></div>}
+              {running && task && task.status !== 'queued' && <TodoList taskId={task.id} />}
+              {running && !stream && task && <WorkingRow taskId={task.id} queued={task.status === 'queued'} waiting={taskApprovals.length > 0} />}
               {taskApprovals.map((a) => <ApprovalCard key={a.id} a={a} />)}
               {task?.status === 'error' && (paused ? (
                 <div className="msg err paused" role="status">
                   <Icon name="pause" size={14} />
-                  <div className="err-body"><b>Paused at the turn limit</b><p>{pausedTurns ? `Claude used all ${pausedTurns} turns of this run` : 'Claude used all the turns of this run'} before finishing. The work so far is kept; Continue picks up where it stopped.</p></div>
+                  <div className="err-body">{budgetPaused ? <><b>Paused at the spend limit</b><p>{pausedBudget ? `This run reached its spend limit of ${pausedBudget}` : 'This run reached its spend limit'} before finishing. The work so far is kept; Continue picks up where it stopped.</p></> : <><b>Paused at the turn limit</b><p>{pausedTurns ? `Claude used all ${pausedTurns} turns of this run` : 'Claude used all the turns of this run'} before finishing. The work so far is kept; Continue picks up where it stopped.</p></>}</div>
                   <div className="err-actions">
                     {task.resumable && <button className="btn sm primary" onClick={() => void sendPrompt(CONTINUE_PROMPT)}>Continue</button>}
                     <button className="link-btn" onClick={() => openSettings('claude')}>Raise the limit</button>
@@ -149,7 +157,10 @@ export function Thread() {
                     : lastUser && <button className="btn sm" onClick={() => void sendPrompt(lastUser.text)}>Retry</button>}
                 </div>
               ))}
-              {task?.status === 'cancelled' && !(messages[messages.length - 1]?.role === 'system' && messages[messages.length - 1]?.text === 'Cancelled') && <div className="msg system">Cancelled</div>}
+              {task?.status === 'cancelled' && (task.resumable ? (
+                /* the run reached its session before it was cancelled, so Continue picks up there instead of starting over */
+                <div className="msg system">{cancelledInHistory ? '' : 'Cancelled. '}Continue picks up where it stopped. <button className="btn sm" onClick={() => void sendPrompt(CONTINUE_PROMPT)}>Continue</button></div>
+              ) : !cancelledInHistory && <div className="msg system">Cancelled</div>)}
               <div className="thread-pad" />
             </>
           )}

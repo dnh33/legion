@@ -75,7 +75,7 @@ never been seen red is not evidence.
 ### 4. Gates
 
 ```
-npm ci && npm run build:ts && npm test && npm run typecheck && npm run build:ui
+npm ci && npm run build:ts && npm run test:run && npm run typecheck:ui && npm run build:ui
 ```
 
 Report **exact counts**. One gate at a time: `npm test` clobbers `dist/`, so never run `tsc` or `build:ui` while a

@@ -1,4 +1,5 @@
 import { tempDir as cleanupTemp } from './tmp-cleanup.js';
+import { initialPrompt } from '../src/core/input-channel.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtempSync } from 'node:fs';
@@ -34,13 +35,13 @@ function setup(script: Script, maxConcurrent = 1) {
   const calls: Call[] = [];
   const queryFn = ((p: any) => {
     const agent = basename(p.options.cwd);
-    const call: Call = { agent, prompt: p.prompt, options: p.options, n: calls.filter((c) => c.agent === agent).length };
+    const call: Call = { agent, prompt: initialPrompt(p.prompt), options: p.options, n: calls.filter((c) => c.agent === agent).length };
     calls.push(call);
     const sid = `sess-${++sidN}`;
     const custom = script(call);
     const gen = custom ?? (async function* () {
       yield { type: 'system', subtype: 'init', session_id: sid };
-      yield ok(`${agent} says: ${String(p.prompt).split('\n').pop()}`, sid);
+      yield ok(`${agent} says: ${initialPrompt(p.prompt).split('\n').pop()}`, sid);
     })();
     return Object.assign(gen, { interrupt: async () => undefined, close: () => undefined });
   }) as unknown as QueryFn;

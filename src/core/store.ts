@@ -8,6 +8,11 @@ import { ROSTER } from './roster.js';
 
 interface StateFile { agents: AgentProfile[]; tasks: Task[]; vms: VmRecord[]; /** One-time migrations already applied (see MIGRATIONS). Absent in files from older builds. */ migrations?: string[] }
 
+/** Zealot's first seeded prompt: it told the lead to handle requests itself, the opposite of its role. */
+const ZEALOT_OLD_PROMPT = 'You are the lead agent. Handle general requests directly and keep answers concise.\nFor big or specialised work, break it into steps and suggest delegating to Builder (coding) or Scout (research).\nUse your cloud VM only when the task really needs it.';
+/** Zealot's seeded prompt. Its role is also enforced by the lead doctrine the engine appends last (src/core/lead.ts). */
+export const ZEALOT_PROMPT = 'You are the lead of the Order. Every request comes to you first: you plan it, split it into tasks and hand them to the agents best placed for them, and you keep the person informed. Keep your answers concise.\nUse your cloud VM only when the task really needs it.';
+
 /** Applied once per state file, in order, then recorded in `migrations` so they never run again (and never undo a later manual choice). */
 const MIGRATIONS: Array<{ id: string; run: (agents: Map<string, AgentProfile>) => boolean }> = [
   {
@@ -17,6 +22,17 @@ const MIGRATIONS: Array<{ id: string; run: (agents: Map<string, AgentProfile>) =
       const b = agents.get('builder');
       if (!b || b.vm?.size !== 'large') return false;
       b.vm = { ...b.vm, size: 'default' };
+      return true;
+    },
+  },
+  {
+    // Zealot's seeded prompt contradicted its role (owner 2026-10-05). Replaced ONLY while it is still that exact old seed:
+    // a prompt the person wrote is never touched (the lead doctrine still applies to it, appended last by the engine).
+    id: 'zealot-lead-prompt-v1',
+    run: (agents) => {
+      const z = agents.get('zealot');
+      if (!z || z.systemPrompt !== ZEALOT_OLD_PROMPT) return false;
+      z.systemPrompt = ZEALOT_PROMPT;
       return true;
     },
   },
@@ -35,9 +51,11 @@ export class Store {
   private migrations = new Set<string>();
   private readonly stateFile: string;
   private readonly messagesDir: string;
+  private readonly saveDebounceMs: number;
 
   /** dir = data dir (e.g. ~/.legion). Loads <dir>/state.json if present. Writes are debounced (~200ms), atomic (tmp + rename). */
-  constructor(public readonly dir: string) {
+  constructor(public readonly dir: string, options?: { saveDebounceMs?: number }) {
+    this.saveDebounceMs = options?.saveDebounceMs ?? DEBOUNCE_MS;
     this.stateFile = join(dir, 'state.json');
     this.messagesDir = join(dir, 'messages');
     mkdirSync(dir, { recursive: true });
@@ -128,7 +146,7 @@ export class Store {
       {
         id: 'zealot', name: 'Zealot', emoji: '✠', model: 'auto', approval: 'auto-edits',
         description: 'Lead agent of the Legion: takes any request, delegates to the order.',
-        systemPrompt: 'You are the lead agent. Handle general requests directly and keep answers concise.\nFor big or specialised work, break it into steps and suggest delegating to Builder (coding) or Scout (research).\nUse your cloud VM only when the task really needs it.',
+        systemPrompt: ZEALOT_PROMPT,
         vm: { enabled: true, size: 'default', idleStopMinutes: 15 }, mcpServers: ['*'],
       },
       {
@@ -198,7 +216,7 @@ export class Store {
   private markDirty(): void {
     this.dirty = true;
     if (this.timer) return;
-    this.timer = setTimeout(() => { this.timer = null; this.schedulePersist(); }, DEBOUNCE_MS);
+    this.timer = setTimeout(() => { this.timer = null; this.schedulePersist(); }, this.saveDebounceMs);
     this.timer.unref?.();
   }
 

@@ -16,7 +16,7 @@ You cannot run Windows, a real Blender, a real wallet, Electron's native dialogs
 
 ## Gates (run before you say done)
 
-`npm ci && npm run build:ts && npm test && npm run typecheck && npm run build:ui`. Report exact counts. A builder's own report is never the proof: an independent reviewer re-runs everything and tries to refute it (default "not fixed"). Every new test needs a negative: show by a temporary scratch mutation of the code, then revert, that it fails.
+`npm ci && npm run build:ts && npm run test:run && npm run typecheck:ui && npm run build:ui`. Report exact counts. A builder's own report is never the proof: an independent reviewer re-runs everything and tries to refute it (default "not fixed"). Every new test needs a negative: show by a temporary scratch mutation of the code, then revert, that it fails.
 
 ## Hard rules (do not weaken to make something pass)
 

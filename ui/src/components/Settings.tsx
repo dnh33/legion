@@ -90,19 +90,23 @@ function ClaudeSection({ s }: { s: SettingsView }) {
   const [inherit, setInherit] = useState(c.inheritClaudeCodeSettings);
   const [inheritMcp, setInheritMcp] = useState(c.inheritMcp);
   const [turns, setTurns] = useState(String(c.maxTurns));
+  const [budget, setBudget] = useState(c.maxBudgetUsd === undefined ? '' : String(c.maxBudgetUsd));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [confirmRm, setConfirmRm] = useState(false);
-  const reset = () => { setAuth(c.auth); setKey(''); setExec(c.executablePath ?? ''); setInherit(c.inheritClaudeCodeSettings); setInheritMcp(c.inheritMcp); setTurns(String(c.maxTurns)); setError(null); };
+  const reset = () => { setAuth(c.auth); setKey(''); setExec(c.executablePath ?? ''); setInherit(c.inheritClaudeCodeSettings); setInheritMcp(c.inheritMcp); setTurns(String(c.maxTurns)); setBudget(c.maxBudgetUsd === undefined ? '' : String(c.maxBudgetUsd)); setError(null); };
   useEffect(reset, [JSON.stringify(c)]);
-  const dirty = auth !== c.auth || key !== '' || exec !== (c.executablePath ?? '') || inherit !== c.inheritClaudeCodeSettings || inheritMcp !== c.inheritMcp || turns !== String(c.maxTurns);
+  const dirty = auth !== c.auth || key !== '' || exec !== (c.executablePath ?? '') || inherit !== c.inheritClaudeCodeSettings || inheritMcp !== c.inheritMcp || turns !== String(c.maxTurns) || budget.trim() !== (c.maxBudgetUsd === undefined ? '' : String(c.maxBudgetUsd));
 
   const save = async () => {
     const n = Number(turns);
     if (!Number.isInteger(n) || n < 1 || n > 1000) { setError('Max turns must be a whole number between 1 and 1000.'); return; }
+    // empty = no limit (sent as null, which clears it); otherwise whole cents from 0.05 to 1000
+    const cap = budget.trim() === '' ? null : Number(budget.trim());
+    if (cap !== null && (!Number.isFinite(cap) || cap < 0.05 || cap > 1000 || Math.abs(cap * 100 - Math.round(cap * 100)) > 1e-6)) { setError('The spend limit must be an amount from 0.05 to 1000 dollars, or empty for no limit.'); return; }
     if (auth === 'api-key' && !key && !c.apiKeySet) { setError('Paste an Anthropic API key to use API key mode.'); return; }
     setBusy(true); setError(null);
-    const patch: SettingsPatch = { claude: { auth, inheritClaudeCodeSettings: inherit, inheritMcp, maxTurns: n, executablePath: exec.trim() || null, ...(key ? { apiKey: key.trim() } : {}) } };
+    const patch: SettingsPatch = { claude: { auth, inheritClaudeCodeSettings: inherit, inheritMcp, maxTurns: n, maxBudgetUsd: cap, executablePath: exec.trim() || null, ...(key ? { apiKey: key.trim() } : {}) } };
     try { await saveSettings(patch); setKey(''); } catch (e) { setError(errText(e)); }
     setBusy(false);
   };
@@ -137,6 +141,9 @@ function ClaudeSection({ s }: { s: SettingsView }) {
         </Field>
         <Field id="claude-turns" label="Max turns per run" hint="Stops a run that loops. 1 to 1000.">
           <input id="claude-turns" className="narrow" inputMode="numeric" value={turns} onChange={(e) => setTurns(e.target.value.replace(/[^\d]/g, ''))} />
+        </Field>
+        <Field id="claude-budget" label="Spend limit per run (USD)" hint="Leave empty for no limit. A run that reaches it pauses and keeps its work; Continue picks it up.">
+          <input id="claude-budget" className="narrow" inputMode="decimal" value={budget} placeholder="no limit" onChange={(e) => setBudget(e.target.value.replace(/[^\d.]/g, ''))} />
         </Field>
         <label className="set-check"><input type="checkbox" checked={inherit} onChange={(e) => setInherit(e.target.checked)} />
           <span><b>Inherit my Claude Code settings</b><em>Agents also read your user and project settings, hooks and CLAUDE.md, like Claude Code in a terminal. The MCP choice below is separate and applies whichever way this is set.</em></span></label>

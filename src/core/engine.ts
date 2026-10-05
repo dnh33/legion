@@ -4,11 +4,13 @@ import { join } from 'node:path';
 import { query as realQuery } from '@anthropic-ai/claude-agent-sdk';
 import type { McpServerConfig, Options, Query, Settings, query as sdkQuery } from '@anthropic-ai/claude-agent-sdk';
 import type {
-  AgentProfile, ApprovalMode, ChatMessage, ConcreteModel, LegionConfig, MascotMood, MessageRole, ModelChoice, Task, TaskSource,
+  AgentProfile, ApprovalMode, ChatMessage, ConcreteModel, LegionConfig, MascotMood, MessageRole, ModelChoice, Task, TaskProgress, TaskSource,
 } from '../shared/types.js';
 import { newId, nowIso, titleFrom } from '../shared/util.js';
 import { scrubHostSessionEnv } from '../shared/config.js';
-import { CONTINUE_PROMPT, TURN_LIMIT_PREFIX } from '../shared/continue.js';
+import { BUDGET_LIMIT_PREFIX, CONTINUE_PROMPT, TURN_LIMIT_PREFIX, budgetCap, formatUsdLimit } from '../shared/continue.js';
+import { InputChannel } from './input-channel.js';
+import { contextTokensOf } from '../shared/context-meter.js';
 import { isLegionTool, needsApproval, stricterMode } from './approvals.js';
 import { TaintedPaths } from './tainted-paths.js';
 import type { CoreModule, ModuleJob, PreambleContext, TaskEndOutcome } from './modules.js';
@@ -20,10 +22,11 @@ import { routeModel, shouldEscalate } from './router.js';
 import type { Store } from './store.js';
 import { buildAgentToolsServer } from './agent-tools.js';
 import { Bridge } from './bridge.js';
+import { leadDoctrineFor } from './lead.js';
 import type { BridgeStartParams } from './bridge.js';
 import type { VmManager } from './vm-manager.js';
 import { isSelfMcpUrl, McpStatusTracker, selfMcpNames } from './mcp-status.js';
-import type { McpStatusView } from '../shared/types.js';
+import type { McpStatusView, TodoItem } from '../shared/types.js';
 import { providerPrefix } from './providers/runtime.js';
 import type { ProviderRuntime } from './providers/runtime.js';
 import type { ProviderHost, ResolvedModel } from './providers/types.js';
@@ -50,6 +53,27 @@ export interface EngineDeps {
   providers?: ProviderRuntime;
   /** Projects (src/core/projects). Absent: no task has a project and nothing about projects is interpreted. */
   projects?: ProjectStore;
+}
+
+/** Most items and longest item text of a TodoWrite list kept for the live checklist. */
+export const TODO_MAX_ITEMS = 50;
+export const TODO_MAX_TEXT = 200;
+const clipText = (v: string) => (v.length > TODO_MAX_TEXT ? v.slice(0, TODO_MAX_TEXT - 1) + '…' : v);
+
+/** Reads a TodoWrite input ({ todos: [{ content, status, activeForm? }] }) into a clipped checklist; null when it has no usable list. */
+export function clipTodos(input: unknown): TodoItem[] | null {
+  const raw = (input as { todos?: unknown } | null | undefined)?.todos;
+  if (!Array.isArray(raw)) return null;
+  const out: TodoItem[] = [];
+  for (const t of raw) {
+    if (out.length >= TODO_MAX_ITEMS) break;
+    const content = typeof t?.content === 'string' ? t.content.trim() : '';
+    if (!content) continue;
+    const status = t.status === 'completed' || t.status === 'in_progress' ? t.status : 'pending';
+    const active = typeof t.activeForm === 'string' ? t.activeForm.trim() : '';
+    out.push({ content: clipText(content), status, ...(active ? { activeForm: clipText(active) } : {}) });
+  }
+  return out;
 }
 
 /**
@@ -160,10 +184,16 @@ interface Active {
   toolUses: Set<string>;
   /** This run's prompt reached a session (Claude: its init arrived; provider: it took a turn). Only then can a stop be continued. */
   reached?: boolean;
+  /** Live progress of the current run (Claude): sent as `task.progress`, never stored. */
+  progress?: { startedAt: string; turn: number; maxTurns: number; tool: string | null; turnIds: Set<string>; contextTokens?: number; todos?: TodoItem[]; thinking: boolean };
+  /** The live prompt stream of the current Claude run: a message from the person while it works is pushed here. */
+  input?: InputChannel;
 }
 interface Outcome { subtype: string; isError: boolean; errorText?: string }
 
 const IDLE_MASCOT_MS = 4000;
+/** What the bundled Claude Code says when `resume` names a session it cannot find (strings in claude.exe, SDK 0.3.285). */
+const SESSION_MISSING_RE = /no conversation found|failed to resume session/i;
 
 export class Engine {
   private readonly store: Store;
@@ -223,6 +253,7 @@ export class Engine {
     if (p.continueTaskId) {
       const prev = this.store.getTask(p.continueTaskId);
       if (!prev) throw new EngineError(`Unknown task: ${p.continueTaskId}`, 404);
+      if (prev.status === 'running') { const live = this.feedLive(p, prev, prompt); if (live) return live; }
       if (prev.status === 'queued' || prev.status === 'running') throw new EngineError('Task is still running', 409);
       if (prev.agentId !== agent.id) throw new EngineError('Task belongs to a different agent', 400);
       const projectId = this.pickProject(p, agent, prev);
@@ -400,6 +431,51 @@ export class Engine {
     return saved ?? m;
   }
 
+  /** Live progress of a Claude run for the working row; transient by design (a restart has no run to report on). */
+  /** The newest request the person (or a bot) actually wrote in this task: not a Continue instruction. */
+  private lastRequest(taskId: string): string | undefined {
+    const rows = this.store.listMessages(taskId);
+    for (let i = rows.length - 1; i >= 0; i--) {
+      const m = rows[i]!;
+      if (m.role === 'user' && m.text.trim() && m.text !== CONTINUE_PROMPT) return m.text;
+    }
+    return undefined;
+  }
+
+  /**
+   * A message from the person to their own running Claude task joins the run: Claude reads it after its current step, in
+   * the same conversation, instead of it waiting for the whole run to end. Returns undefined (the caller answers 409 and
+   * the app queues it as before) for anything else: a bot, an MCP client or a room (their approval ceiling and taint are
+   * fixed per run), a provider run (no stream), a slash command (it would act on the run, not join it), or a run that is
+   * already closing.
+   */
+  private feedLive(p: BridgeStartParams, prev: Task, prompt: string): Task | undefined {
+    if (p.source !== 'ui' || p.bridge || p.origin || p.modelOverrideBy || prompt.startsWith('/')) return undefined;
+    const act = this.active.get(prev.id);
+    if (!act?.input || act.input.isClosed || act.cancelled) return undefined;
+    if (!act.input.push(prompt)) return undefined;
+    this.addMessage(prev.id, 'user', prompt);
+    return { ...prev };
+  }
+
+  /** The live progress of every running Claude run, for a client that connects mid-run (events are transient). */
+  progressSnapshot(): Record<string, TaskProgress> {
+    const out: Record<string, TaskProgress> = {};
+    for (const [taskId, act] of this.active) {
+      const p = act.progress;
+      // a run whose task is already marked done/error is in its last moments of cleanup: it has no progress to show
+      if (!p || this.store.getTask(taskId)?.status !== 'running') continue;
+      out[taskId] = { startedAt: p.startedAt, turn: p.turn, maxTurns: p.maxTurns, tool: p.tool, thinking: p.thinking, ...(p.contextTokens !== undefined ? { contextTokens: p.contextTokens } : {}), ...(p.todos ? { todos: p.todos } : {}) };
+    }
+    return out;
+  }
+
+  private emitProgress(taskId: string, act: Active): void {
+    const p = act.progress;
+    if (!p) return;
+    this.bus.emit({ type: 'task.progress', taskId, progress: { startedAt: p.startedAt, turn: p.turn, maxTurns: p.maxTurns, tool: p.tool, thinking: p.thinking, ...(p.contextTokens !== undefined ? { contextTokens: p.contextTokens } : {}), ...(p.todos ? { todos: p.todos } : {}) } });
+  }
+
   private mascot(mood: MascotMood, note?: string): void {
     if (mood !== 'idle' && this.idleTimer) { clearTimeout(this.idleTimer); this.idleTimer = undefined; }
     this.bus.emit({ type: 'mascot', mood, ...(note ? { note } : {}) });
@@ -535,18 +611,34 @@ export class Engine {
     this.mascot('thinking', from ? `${from.name} → ${agent.name}` : `${agent.name} on ${model}: ${decision.reason}`);
     const sendPrompt = (job.header ? job.header + '\n' : '') + decision.prompt;
 
+    const hadSession = !!this.store.getTask(job.taskId)?.sessionId;
     let outcome = await this.runOnce(job, agent, model, sendPrompt, act);
     if (act.cancelled) return;
+
+    // The session this task resumes is gone (its file was deleted, or Claude Code cannot find it): every Retry and
+    // Continue would fail the same way forever. Start a new conversation once, with the request itself (a "continue"
+    // instruction means nothing to a new conversation), and say so. Checked before escalation, which would hit the
+    // same missing session.
+    if (hadSession && !act.reached && outcome.isError && SESSION_MISSING_RE.test(outcome.errorText ?? '')) {
+      this.patchTask(job.taskId, { sessionId: undefined });
+      const request = decision.prompt === CONTINUE_PROMPT ? this.lastRequest(job.taskId) : sendPrompt;
+      if (!request || /^\s*\/compact\b/i.test(request)) {
+        outcome = { subtype: 'error_during_execution', isError: true, errorText: 'The earlier conversation could not be found, so there is nothing to continue or compact. Send your request again to start a new one.' };
+      } else {
+        this.addMessage(job.taskId, 'system', 'The earlier conversation could not be found, so Claude is starting a new one with your request.');
+        outcome = await this.runOnce(job, agent, model, request, act);
+        if (act.cancelled) return;
+      }
+    }
 
     const cur = this.store.getTask(job.taskId);
     if (
       model === 'sonnet' && !cur?.escalated && outcome.isError && !(cur?.modelOverride && modelRank(agent.model) < 3) &&
       shouldEscalate({ model, subtype: outcome.subtype, isError: outcome.isError, errorText: outcome.errorText })
     ) {
-      const reason = outcome.errorText ? `${outcome.subtype}: ${outcome.errorText.slice(0, 160)}` : outcome.subtype;
       model = 'opus';
       this.patchTask(job.taskId, { escalated: true, model });
-      this.addMessage(job.taskId, 'system', `Escalated to Opus: ${reason}`);
+      this.addMessage(job.taskId, 'system', `Sonnet could not finish this (it stopped with an error). Opus is taking over the same conversation.${outcome.errorText ? ` Error: ${outcome.errorText.slice(0, 160)}` : ''}`);
       this.mascot('thinking', 'escalating to opus');
       // The resumed session already holds the request when the failed run got that far: send it again and Opus starts the task over.
       outcome = await this.runOnce(job, agent, model, act.reached ? CONTINUE_PROMPT : sendPrompt, act);
@@ -555,15 +647,26 @@ export class Engine {
 
     if (outcome.isError) {
       // Read by people (the app) and by callers without a button (MCP clients, other bots), so it names no button.
-      const turnLimit = outcome.subtype === 'error_max_turns' && !outcome.errorText;
+      // A provider run says how far it got ("Stopped after N model turns ...", providers/tool-loop.ts): the same pause,
+      // with that run's own limit; a Claude run's stop carries no text and its limit is claude.maxTurns.
+      const providerStop = /^Stopped after (\d+) model turns/.exec(outcome.errorText ?? '');
+      const turnLimit = outcome.subtype === 'error_max_turns' && (!outcome.errorText || !!providerStop);
+      const limitTurns = providerStop ? Number(providerStop[1]) : this.config.claude.maxTurns;
+      // The spend limit is the same kind of stop. The subtype alone says so (no error text is needed), and the amount is named when known.
+      const budgetLimit = outcome.subtype === 'error_max_budget_usd';
+      const cap = budgetCap(this.config.claude.maxBudgetUsd);
+      const budgetWhere = cap !== undefined ? ` (${formatUsdLimit(cap)} this run)` : '';
       const text = turnLimit
-        ? `${TURN_LIMIT_PREFIX} (${this.config.claude.maxTurns} turns this run) before finishing. The work so far is kept: continue the task to pick up where it stopped.`
-        : outcome.errorText || outcome.subtype;
+        ? `${TURN_LIMIT_PREFIX} (${limitTurns} turns this run) before finishing. The work so far is kept: continue the task to pick up where it stopped.`
+        : budgetLimit
+          ? `${BUDGET_LIMIT_PREFIX}${budgetWhere} before finishing. The work so far is kept: continue the task to pick up where it stopped.`
+          : outcome.errorText || outcome.subtype;
       this.patchTask(job.taskId, { status: 'error', error: text, ...(act.tainted ? { tainted: true } : {}) });
       // the history keeps a short line; the full text is the task's error, which the app shows on the Paused card
-      this.addMessage(job.taskId, 'system', turnLimit ? `${TURN_LIMIT_PREFIX} (${this.config.claude.maxTurns} turns this run).` : `Error: ${text}`);
-      // A turn-limit stop is a pause with the work kept: the mascot stands calm. "Fault detected" would contradict the card.
+      this.addMessage(job.taskId, 'system', turnLimit ? `${TURN_LIMIT_PREFIX} (${limitTurns} turns this run).` : budgetLimit ? `${BUDGET_LIMIT_PREFIX}${budgetWhere}.` : `Error: ${text}`);
+      // A limit stop is a pause with the work kept: the mascot stands calm. "Fault detected" would contradict the card.
       if (turnLimit) this.mascot('idle', 'paused at the turn limit');
+      else if (budgetLimit) this.mascot('idle', 'paused at the spend limit');
       else this.mascot('error', text.slice(0, 120));
     } else {
       this.patchTask(job.taskId, { status: 'done', resumable: undefined, ...(act.tainted ? { tainted: true } : {}) });
@@ -685,10 +788,15 @@ export class Engine {
         { onTimeout: () => { timedOut = true; } },
       );
       if (allowed) return { allow: true };
-      // An MCP client started this run (Claude Code, Cowork) or woke it through a chain, so the ceiling is `ask`. Its card can only be answered in the Legion app window, so say so
-      // instead of a bare denial when nobody answered (the app is closed, or this core was started headless by the MCP bridge).
-      if (timedOut && o?.approvalCeiling === 'ask') {
-        return { allow: false, message: 'No one approved this action: it needs your OK in the Legion app window and nothing was answered within 10 minutes. Open the Legion app, then ask for it again.' };
+      if (timedOut) {
+        const wait = this.approvals.timeoutWait;
+        // An MCP client started this run (Claude Code, Cowork) or woke it through a chain, so the ceiling is `ask`. Its card can only be answered in the Legion app window, so say so
+        // when nobody answered (the app is closed, or this core was started headless by the MCP bridge).
+        if (o?.approvalCeiling === 'ask') {
+          return { allow: false, message: `No one approved this action: it needs your OK in the Legion app window and nothing was answered within ${wait}. Open the Legion app, then ask for it again.` };
+        }
+        // A timeout is not a "no": the model must not read it as the user refusing the work.
+        return { allow: false, message: `No one answered the approval request within ${wait}, so this action was not run. Ask again later or continue without it.` };
       }
       return { allow: false, message: 'The user denied this action.' };
     };
@@ -711,7 +819,9 @@ export class Engine {
           + this.modulePreamble(agent, { prompt, taskId: job.taskId, ...(job.origin ? { origin: job.origin } : {}), tainted: act.tainted || job.origin?.tainted === true, ...(project ? { projectId: project.id } : {}) })
           + '\n\n' + renderCapabilities(agent, { servers, ...(job.origin?.approvalCeiling ? { ceiling: job.origin.approvalCeiling } : {}), vmEnabledForAgent: !!agent.vm?.enabled })
           + (agent.systemPrompt ? '\n\n' + agent.systemPrompt : '')
-          + (project ? '\n\n' + projectSection({ name: project.name, instructions: project.instructions, folder: project.folder }) : ''),
+          + (project ? '\n\n' + projectSection({ name: project.name, instructions: project.instructions, folder: project.folder }) : '')
+          // the lead's role comes last, after the persona and the project, so no edit or wording above can drop it
+          + (leadDoctrineFor(agent.id) ? '\n\n' + leadDoctrineFor(agent.id) : ''),
       },
       ...(projectFolder ? { additionalDirectories: [projectFolder] } : {}),
       settingSources: this.config.claude.inheritClaudeCodeSettings ? ['user', 'project', 'local'] : [],
@@ -720,6 +830,8 @@ export class Engine {
       ...(this.config.claude.inheritMcp === true ? {} : { strictMcpConfig: true }),
       disallowedTools: ['SendMessage', 'ListAgents', ...this.moduleDisallowed(agent)],
       maxTurns: this.config.claude.maxTurns,
+      // optional spend cap per run; on a resumed session it counts only the new spend
+      ...(budgetCap(this.config.claude.maxBudgetUsd) !== undefined ? { maxBudgetUsd: budgetCap(this.config.claude.maxBudgetUsd) } : {}),
       includePartialMessages: true,
       abortController: act.ac,
       env: buildChildEnv(this.config),
@@ -833,7 +945,8 @@ export class Engine {
       systemPrompt: LEGION_PREAMBLE.replace('{name}', agent.name)
         + this.modulePreamble(agent, { prompt, taskId, ...(job.origin ? { origin: job.origin } : {}), tainted: act.tainted || job.origin?.tainted === true })
         + (agent.systemPrompt ? '\n\n' + agent.systemPrompt : '')
-        + `\n\nYou are running on ${pr.model} through ${pr.entry?.label ?? pr.providerId}. You have only the tools listed in this request; you have no file, shell or web tools of your own.`,
+        + `\n\nYou are running on ${pr.model} through ${pr.entry?.label ?? pr.providerId}. You have only the tools listed in this request; you have no file, shell or web tools of your own.`
+        + (leadDoctrineFor(agent.id) ? '\n\n' + leadDoctrineFor(agent.id) : ''),
       prompt, stored: this.store.listMessages(taskId),
       servers, external,
       authorize: decide,
@@ -875,8 +988,14 @@ export class Engine {
     if (pr) return this.runProvider(job, agent, pr, prompt, act);
     const resume = this.store.getTask(job.taskId)?.sessionId;
     const options = this.buildOptions(job, agent, model, act, prompt, resume);
-    const q = this.queryFn({ prompt, options });
+    // Streaming input: the request is the first message of a stream the person can add to while the run works.
+    const input = new InputChannel(prompt);
+    act.input = input;
+    const q = this.queryFn({ prompt: input, options });
     act.q = q;
+    // each run counts its own turns (the limit is per run); the clock and the tool reset with it
+    act.progress = { startedAt: nowIso(), turn: 0, maxTurns: this.config.claude.maxTurns, tool: null, turnIds: new Set(), thinking: false };
+    this.emitProgress(job.taskId, act);
 
     const aborted = new Promise<'aborted'>((res) => {
       if (act.ac.signal.aborted) res('aborted');
@@ -890,7 +1009,8 @@ export class Engine {
         if (next === 'aborted' || act.cancelled) return { subtype: 'cancelled', isError: false };
         if (next.done) break;
         const o = this.handleMessage(job, act, next.value as any);
-        if (o) outcome = o;
+        // each result answers one message; once none are waiting the stream closes and the run ends
+        if (o) { outcome = o; if (input.answered()) input.close(); }
       }
     } catch (e) {
       if (act.cancelled || act.ac.signal.aborted) return { subtype: 'cancelled', isError: false };
@@ -902,6 +1022,10 @@ export class Engine {
       if (outcome.isError) return outcome;
       throw e;
     } finally {
+      // a thinking flag must never outlive its run
+      if (act.progress?.thinking) { act.progress.thinking = false; this.emitProgress(job.taskId, act); }
+      input.close();
+      if (act.input === input) act.input = undefined;
       try { q.close?.(); } catch { /* ignore */ }
       try { void it.return?.(undefined)?.catch?.(() => undefined); } catch { /* ignore */ }
     }
@@ -962,12 +1086,39 @@ export class Engine {
         if (ev?.type === 'content_block_delta' && ev.delta?.type === 'text_delta' && typeof ev.delta.text === 'string' && !msg.parent_tool_use_id) {
           this.bus.emit({ type: 'message.delta', taskId, text: ev.delta.text });
         }
+        // A thinking block is shown only as a state ("Thinking"); its text is never stored or sent. The flag follows the block.
+        const pg = act.progress;
+        if (pg && !msg.parent_tool_use_id) {
+          if (ev?.type === 'content_block_start' && (ev.content_block?.type === 'thinking' || ev.content_block?.type === 'redacted_thinking') && !pg.thinking) { pg.thinking = true; this.emitProgress(taskId, act); }
+          else if (ev?.type === 'content_block_stop' && pg.thinking) { pg.thinking = false; this.emitProgress(taskId, act); }
+        }
         return undefined;
       }
       case 'assistant': {
         const blocks: any[] = Array.isArray(msg.message?.content) ? msg.message.content : [];
         const text = blocks.filter((b) => b?.type === 'text' && typeof b.text === 'string').map((b) => b.text).join('').trim();
         if (text) this.addMessage(taskId, 'assistant', text);
+        // A turn is one model response of the run itself: one message id (the SDK may send a response in several
+        // messages that share it). A subagent's messages carry parent_tool_use_id and are not the run's own turns.
+        const pg = act.progress;
+        // a finished response means the thinking in it is over, whatever its blocks said
+        const wasThinking = pg?.thinking === true;
+        if (pg && wasThinking) pg.thinking = false;
+        let todosChanged = false;
+        if (pg && !msg.parent_tool_use_id) {
+          for (const b of blocks) {
+            if (b?.type === 'tool_use' && b.name === 'TodoWrite') { const list = clipTodos(b.input); if (list) { pg.todos = list; todosChanged = true; } }
+          }
+          const id = typeof msg.message?.id === 'string' ? msg.message.id : `n${pg.turnIds.size}`;
+          const lastTool = [...blocks].reverse().find((b) => b?.type === 'tool_use');
+          const before = `${pg.turn}|${pg.tool}|${pg.contextTokens ?? ''}`;
+          if (!pg.turnIds.has(id)) { pg.turnIds.add(id); pg.turn = pg.turnIds.size; }
+          if (lastTool) pg.tool = String(lastTool.name ?? 'tool');
+          // the context after this response: its input plus the cache it read and wrote (a subagent's is its own context, so skipped above)
+          const ctx = contextTokensOf(msg.message?.usage);
+          if (ctx !== undefined) pg.contextTokens = ctx;
+          if (`${pg.turn}|${pg.tool}|${pg.contextTokens ?? ''}` !== before || todosChanged || wasThinking) this.emitProgress(taskId, act);
+        } else if (pg && wasThinking) this.emitProgress(taskId, act);
         for (const b of blocks) {
           if (b?.type !== 'tool_use') continue;
           this.noteToolUse(job, act, String(b.name ?? 'tool'), typeof b.id === 'string' ? b.id : undefined, b.input);
@@ -983,6 +1134,8 @@ export class Engine {
         // Tool results: stored (truncated) and paired with their call via resultFor, so the UI can expand them.
         if (msg.parent_tool_use_id) return undefined;
         const blocks: any[] = Array.isArray(msg.message?.content) ? msg.message.content : [];
+        // the tool came back: the model is thinking again until its next call
+        if (act.progress?.tool && blocks.some((b) => b?.type === 'tool_result')) { act.progress.tool = null; this.emitProgress(taskId, act); }
         for (const b of blocks) {
           if (b?.type !== 'tool_result' || typeof b.tool_use_id !== 'string') continue;
           const raw = typeof b.content === 'string' ? b.content

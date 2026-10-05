@@ -196,11 +196,25 @@ export interface ChatMessage {
 
 export type MascotMood = 'idle' | 'thinking' | 'hacking' | 'success' | 'error' | 'sleeping';
 
+/** Where a running Claude run is: its turn against the limit, the tool it is waiting on (null: the model is working), and when it started. */
+export interface TaskProgress {
+  startedAt: string; turn: number; maxTurns: number; tool: string | null;
+  /** Tokens in the context after the latest response of the run (input + cache read + cache write); absent until known. Never stored. */
+  contextTokens?: number;
+  /** The latest TodoWrite checklist of the run (top level only; clipped to 50 items of 200 characters). */
+  todos?: TodoItem[];
+  /** True while the model is in a thinking block; the thinking itself is never sent. */
+  thinking?: boolean;
+}
+/** One line of a Claude TodoWrite checklist. */
+export interface TodoItem { content: string; status: 'pending' | 'in_progress' | 'completed'; activeForm?: string }
+
 /** Everything the core broadcasts. UI subscribes via SSE (/api/events). */
 export type LegionEvent =
   | { type: 'task.updated'; task: Task }
   | { type: 'message'; message: ChatMessage }
   | { type: 'message.delta'; taskId: string; text: string }   // streaming assistant text chunk
+  | { type: 'task.progress'; taskId: string; progress: TaskProgress }   // live, not stored: the run's turn, tool and start
   | { type: 'vm.updated'; vm: VmRecord }
   | { type: 'boat.health'; health: BoatHealthView }
   | { type: 'agent.updated'; agent: AgentProfile }
@@ -295,6 +309,8 @@ export interface LegionConfig {
     inheritMcp: boolean;
     /** Max agentic turns per run before the router escalates / stops. A stopped run can be continued in the same session. */
     maxTurns: number;
+    /** Optional spend cap per run, in USD (the SDK's maxBudgetUsd). Absent = no cap. */
+    maxBudgetUsd?: number;
   };
   boat: {
     apiKey?: string;               // or env BOAT_API_KEY
@@ -320,6 +336,8 @@ export interface StateSnapshot {
   boatConfigured: boolean;
   boat?: BoatHealthView;
   auth: LegionConfig['claude']['auth'];
+  /** Live progress of the running Claude runs, by task id (the same data as `task.progress`, for a client that joins mid-run). */
+  progress?: Record<string, TaskProgress>;
 }
 
 /** GET /api/doctor response */
@@ -366,6 +384,8 @@ export interface SettingsView {
     inheritClaudeCodeSettings: boolean;
     inheritMcp: boolean;
     maxTurns: number;
+    /** The spend cap per run in USD; absent when there is none. */
+    maxBudgetUsd?: number;
   };
   boat: {
     apiKeySet: boolean;
@@ -386,7 +406,7 @@ export interface SettingsView {
 
 /** PATCH /api/settings body. Omitted fields are unchanged; apiKey: *** clears a key. */
 export interface SettingsPatch {
-  claude?: { auth?: 'claude-login' | 'api-key'; apiKey?: string | null; executablePath?: string | null; inheritClaudeCodeSettings?: boolean; inheritMcp?: boolean; maxTurns?: number };
+  claude?: { auth?: 'claude-login' | 'api-key'; apiKey?: string | null; executablePath?: string | null; inheritClaudeCodeSettings?: boolean; inheritMcp?: boolean; maxTurns?: number; maxBudgetUsd?: number | null };
   boat?: { apiKey?: string | null; baseUrl?: string; rates?: { small?: number | null; default?: number | null; large?: number | null }; currency?: string };
   mcpServers?: Record<string, McpServerEntry>;
   /** Omitted fields are unchanged; contextWindowOverride: null means "derive the window per model". */

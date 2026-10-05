@@ -198,6 +198,8 @@ export function createServer(ctx: CoreContext): Server {
     // A token-only client gets whether things work, never the user's prices or what the key was probed for.
     ...(ctx.vms.health ? { boat: isAdminReq(req) ? ctx.vms.health.view() : publicBoatHealth(ctx.vms.health.view()) } : {}),
     auth: ctx.config.claude.auth,
+    // live progress of running runs, so a window opened mid-run shows the turn, tool and checklist at once (hidden agents' runs left out)
+    progress: Object.fromEntries(Object.entries(ctx.engine.progressSnapshot?.() ?? {}).filter(([id]) => { const t = ctx.store.getTask(id); return !!t && taskShown(t); })),
   }));
   route('GET', '/api/config', () => redactConfig(ctx.config));
   route('GET', '/api/doctor', () => ctx.doctor());
@@ -389,7 +391,7 @@ export function createServer(ctx: CoreContext): Server {
       case 'agent.updated': return visible(ev.agent);
       case 'agent.deleted': return agentIdVisible(ctx, ev.agentId);
       case 'task.updated': return taskShown(ev.task);
-      case 'message': case 'message.delta': { const t = ctx.store.getTask(ev.type === 'message' ? ev.message.taskId : ev.taskId); return !t || taskShown(t); }
+      case 'message': case 'message.delta': case 'task.progress': { const t = ctx.store.getTask(ev.type === 'message' ? ev.message.taskId : ev.taskId); return !t || taskShown(t); }
       case 'vm.updated': return agentIdVisible(ctx, ev.vm.agentId);
       case 'approval.requested': return agentIdVisible(ctx, ev.approval.agentId);
       case 'comms.state': return agentIdVisible(ctx, ev.agentId) && (!ev.peerId || agentIdVisible(ctx, ev.peerId));

@@ -11,7 +11,7 @@ import { DEFAULT_PROVIDERS, normalizeProviders } from '../core/providers/config.
 import type { ProvidersConfig } from '../core/providers/types.js';
 export { MAX_ROOM_BUDGET_USD };
 
-export const VERSION = '0.2.5-b';
+export const VERSION = '0.2.5-c';
 
 /**
  * Optional BSV Dev Kit toggle (knowledge and visibility only: no wallet, no keys, no funds).
@@ -70,6 +70,8 @@ export const DEFAULT_MAX_TURNS = 200;
 const CONFIG_MIGRATIONS: Array<{ id: string; apply: (disk: any) => void }> = [
   // 40 was the shipped default, written to every config.json on first run; nobody chose it, so it moves to the new default.
   { id: 'claude-max-turns-v2', apply: (d) => { if (d.claude && typeof d.claude === 'object' && d.claude.maxTurns === 40) d.claude.maxTurns = DEFAULT_MAX_TURNS; } },
+  // the provider models had the same shipped 40 (written under "providers" on first run)
+  { id: 'providers-max-turns-v2', apply: (d) => { if (d.providers && typeof d.providers === 'object' && d.providers.maxTurns === 40) d.providers.maxTurns = DEFAULT_PROVIDERS.maxTurns; } },
 ];
 
 /** The least a room's budget can be (below it one turn cannot fit). The hub, the settings dialogs and the bot-room limits all use it. */

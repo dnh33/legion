@@ -11,7 +11,8 @@ export interface SseSink { write(chunk: string): boolean; destroy(error?: Error)
 
 export function pushSse(res: SseSink, ev: LegionEvent): 'sent' | 'dropped' | 'destroyed' {
   if ((res.writableLength ?? 0) > SSE_MAX_BUFFER) { res.destroy(); return 'destroyed'; }
-  if (res.writableNeedDrain && ev.type === 'message.delta') return 'dropped';
+  // transient events: the next one replaces this one, so a slow client loses nothing it needs
+  if (res.writableNeedDrain && (ev.type === 'message.delta' || ev.type === 'task.progress')) return 'dropped';
   res.write(`data: ${JSON.stringify(ev)}\n\n`);
   return 'sent';
 }
