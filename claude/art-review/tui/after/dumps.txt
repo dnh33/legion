@@ -1,0 +1,1324 @@
+=== chat · empty (no task) @60
++------------------------------------------------------------+
+| ✠ LEGION  1: Chat  5: Order                                |
+|────────────────────────────────────────────────────────────|
+| ✠ ⌘ ◎ ⌕ ✎ ▤ ◬ ⌶ ☾ ⊥ ⚑ ◈                            Builder |
+| ⌘ Builder · Auto-edits · auto model                        |
+| n: New task                                                |
+|                                                            |
+| ⌘  New task for Builder                                    |
+|    Writes and fixes code.                                  |
+|                                                            |
+|    Press n, or type in the prompt:                         |
+|    /to builder <what to do>                                |
++------------------------------------------------------------+
+
+=== chat · empty (no task) @80
++--------------------------------------------------------------------------------+
+| ✠ LEGION  1: Chat  5: Order                                                    |
+|────────────────────────────────────────────────────────────────────────────────|
+| ✠ Zealot     │ ⌘ Builder · Auto-edits · auto model                             |
+|▸⌘ Builder    │ n: New task                                                     |
+| ◎ Scout      │                                                                 |
+| ⌕ Inquisi…   │ ⌘  New task for Builder                                         |
+| ✎ Scribe     │    Writes and fixes code.                                       |
+| ▤ Archivi…   │                                                                 |
+| ◬ Sentinel   │    Press n, or type in the prompt:                              |
+| ⌶ Forgema…   │    /to builder <what to do>                                     |
+| ☾ Exorcist   │                                                                 |
+| ⊥ Precept…   │                                                                 |
+| ⚑ Herald     │                                                                 |
+| ◈ Sculptor   │                                                                 |
++--------------------------------------------------------------------------------+
+
+=== chat · empty (no task) @100
++----------------------------------------------------------------------------------------------------+
+| ✠ LEGION  1: Chat  5: Order                                                                        |
+|────────────────────────────────────────────────────────────────────────────────────────────────────|
+| ✠ Zealot         │ ⌘ Builder · Auto-edits · auto model                                             |
+|▸⌘ Builder        │ n: New task                                                                     |
+| ◎ Scout          │                                                                                 |
+| ⌕ Inquisitor     │ ⌘  New task for Builder                                                         |
+| ✎ Scribe         │    Writes and fixes code.                                                       |
+| ▤ Archivist      │                                                                                 |
+| ◬ Sentinel       │    Press n, or type in the prompt:                                              |
+| ⌶ Forgemaster    │    /to builder <what to do>                                                     |
+| ☾ Exorcist       │                                                                                 |
+| ⊥ Preceptor      │                                                                                 |
+| ⚑ Herald         │                                                                                 |
+| ◈ Sculptor       │                                                                                 |
++----------------------------------------------------------------------------------------------------+
+
+=== chat · empty (no task) @120
++------------------------------------------------------------------------------------------------------------------------+
+| ✠ LEGION  1: Chat  5: Order                                                                                            |
+|────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────|
+| ✠ Zealot         │ ⌘ Builder · Auto-edits · auto model                                                                 |
+|▸⌘ Builder        │ n: New task                                                                                         |
+| ◎ Scout          │                                                                                                     |
+| ⌕ Inquisitor     │ ⌘  New task for Builder                                                                             |
+| ✎ Scribe         │    Writes and fixes code.                                                                           |
+| ▤ Archivist      │                                                                                                     |
+| ◬ Sentinel       │    Press n, or type in the prompt:                                                                  |
+| ⌶ Forgemaster    │    /to builder <what to do>                                                                         |
+| ☾ Exorcist       │                                                                                                     |
+| ⊥ Preceptor      │                                                                                                     |
+| ⚑ Herald         │                                                                                                     |
+| ◈ Sculptor       │                                                                                                     |
++------------------------------------------------------------------------------------------------------------------------+
+
+=== chat · no agents @60
++------------------------------------------------------------+
+| ✠ LEGION  1: Chat  5: Order                                |
+|────────────────────────────────────────────────────────────|
+|                                                            |
+| ✠  The order has not mustered yet.                         |
+|    Agents load when the session starts. If this stays      |
+|    empty, run /legion doctor.                              |
++------------------------------------------------------------+
+
+=== chat · no agents @80
++--------------------------------------------------------------------------------+
+| ✠ LEGION  1: Chat  5: Order                                                    |
+|────────────────────────────────────────────────────────────────────────────────|
+|                                                                                |
+| ✠  The order has not mustered yet.                                             |
+|    Agents load when the session starts. If this stays empty, run /legion       |
+|    doctor.                                                                     |
++--------------------------------------------------------------------------------+
+
+=== chat · no agents @100
++----------------------------------------------------------------------------------------------------+
+| ✠ LEGION  1: Chat  5: Order                                                                        |
+|────────────────────────────────────────────────────────────────────────────────────────────────────|
+|                                                                                                    |
+| ✠  The order has not mustered yet.                                                                 |
+|    Agents load when the session starts. If this stays empty, run /legion doctor.                   |
++----------------------------------------------------------------------------------------------------+
+
+=== chat · no agents @120
++------------------------------------------------------------------------------------------------------------------------+
+| ✠ LEGION  1: Chat  5: Order                                                                                            |
+|────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────|
+|                                                                                                                        |
+| ✠  The order has not mustered yet.                                                                                     |
+|    Agents load when the session starts. If this stays empty, run /legion doctor.                                       |
++------------------------------------------------------------------------------------------------------------------------+
+
+=== chat · busy (running, card, live reply) @60
++------------------------------------------------------------+
+| ✠ LEGION  1: Chat  5: Order    1 running · 1 needs your OK |
+|────────────────────────────────────────────────────────────|
+| ✠ ⌘ ◎ ⌕ ✎ ▤ ◬ ⌶ ☾ ⊥ ⚑ ◈                            Builder |
+| ⌘ Builder · Auto-edits · sonnet           ≈$0.21 · 9 turns |
+| n: New task  ● fix the flaky rep…  ‖ tests                 |
+|                                                            |
+| you Pin the clock in the replay test.                      |
+| ⌘   Pinned it with an injected clock.                      |
+|     ▸ Read  test/replay.test.ts                          ✓ |
+|     ▸ Edit  test/replay.test.ts +4 −1                    ✓ |
+|     ▸ Bash  npm test -- replay               Needs your OK |
+| ✠   Zealot · via Legion                                    |
+|     Builder, check the docs too.                           |
+|     Continued where it stopped.                            |
+|     ! ⌘ Builder asks to run a command                      |
+|       npm test -- replay                                   |
+|       It runs on your computer, with your access.          |
+|       Answer in the permission dialog.                     |
+| ⌘   Executing the replay▍                                  |
+| ● Executing                                        s: Stop |
++------------------------------------------------------------+
+
+=== chat · busy (running, card, live reply) @80
++--------------------------------------------------------------------------------+
+| ✠ LEGION  1: Chat  5: Order                        1 running · 1 needs your OK |
+|────────────────────────────────────────────────────────────────────────────────|
+| ✠ Zealot     │ ⌘ Builder · Auto-edits · sonnet                ≈$0.21 · 9 turns |
+|▸⌘ Builder  !1│ n: New task  ● fix the flaky repl…  ‖ tests                     |
+| ◎ Scout      │                                                                 |
+| ⌕ Inquisi…   │ you Pin the clock in the replay test.                           |
+| ✎ Scribe     │ ⌘   Pinned it with an injected clock.                           |
+| ▤ Archivi…   │     ▸ Read  test/replay.test.ts                               ✓ |
+| ◬ Sentinel   │     ▸ Edit  test/replay.test.ts +4 −1                         ✓ |
+| ⌶ Forgema…   │     ▸ Bash  npm test -- replay                    Needs your OK |
+| ☾ Exorcist   │ ✠   Zealot · via Legion                                         |
+| ⊥ Precept…   │     Builder, check the docs too.                                |
+| ⚑ Herald     │     Continued where it stopped.                                 |
+| ◈ Sculptor   │     ! ⌘ Builder asks to run a command                           |
+|              │       npm test -- replay                                        |
+|              │       It runs on your computer, with your access.               |
+|              │       Answer in the permission dialog.                          |
+|              │ ⌘   Executing the replay▍                                       |
+|              │ ● Executing                                             s: Stop |
++--------------------------------------------------------------------------------+
+
+=== chat · busy (running, card, live reply) @100
++----------------------------------------------------------------------------------------------------+
+| ✠ LEGION  1: Chat  5: Order                                            1 running · 1 needs your OK |
+|────────────────────────────────────────────────────────────────────────────────────────────────────|
+| ✠ Zealot         │ ⌘ Builder · Auto-edits · sonnet                                ≈$0.21 · 9 turns |
+|▸⌘ Builder      !1│ n: New task  ● fix the flaky replay  ‖ tests                                    |
+| ◎ Scout          │                                                                                 |
+| ⌕ Inquisitor     │ you Pin the clock in the replay test.                                           |
+| ✎ Scribe         │ ⌘   Pinned it with an injected clock.                                           |
+| ▤ Archivist      │     ▸ Read  test/replay.test.ts                                               ✓ |
+| ◬ Sentinel       │     ▸ Edit  test/replay.test.ts +4 −1                                         ✓ |
+| ⌶ Forgemaster    │     ▸ Bash  npm test -- replay                                    Needs your OK |
+| ☾ Exorcist       │ ✠   Zealot · via Legion                                                         |
+| ⊥ Preceptor      │     Builder, check the docs too.                                                |
+| ⚑ Herald         │     Continued where it stopped.                                                 |
+| ◈ Sculptor       │     ! ⌘ Builder asks to run a command                                           |
+|                  │       npm test -- replay                                                        |
+|                  │       It runs on your computer, with your access.                               |
+|                  │       Answer in the permission dialog.                                          |
+|                  │ ⌘   Executing the replay▍                                                       |
+|                  │ ● Executing                                                             s: Stop |
++----------------------------------------------------------------------------------------------------+
+
+=== chat · busy (running, card, live reply) @120
++------------------------------------------------------------------------------------------------------------------------+
+| ✠ LEGION  1: Chat  5: Order                                                                1 running · 1 needs your OK |
+|────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────|
+| ✠ Zealot         │ ⌘ Builder · Auto-edits · sonnet                                                   ≈$0.21 · 9 turns  |
+|▸⌘ Builder      !1│ n: New task  ● fix the flaky replay  ‖ tests                                                        |
+| ◎ Scout          │                                                                                                     |
+| ⌕ Inquisitor     │ you Pin the clock in the replay test.                                                               |
+| ✎ Scribe         │ ⌘   Pinned it with an injected clock.                                                               |
+| ▤ Archivist      │     ▸ Read  test/replay.test.ts                                                                  ✓  |
+| ◬ Sentinel       │     ▸ Edit  test/replay.test.ts +4 −1                                                            ✓  |
+| ⌶ Forgemaster    │     ▸ Bash  npm test -- replay                                                       Needs your OK  |
+| ☾ Exorcist       │ ✠   Zealot · via Legion                                                                             |
+| ⊥ Preceptor      │     Builder, check the docs too.                                                                    |
+| ⚑ Herald         │     Continued where it stopped.                                                                     |
+| ◈ Sculptor       │     ! ⌘ Builder asks to run a command                                                               |
+|                  │       npm test -- replay                                                                            |
+|                  │       It runs on your computer, with your access.                                                   |
+|                  │       Answer in the permission dialog.                                                              |
+|                  │ ⌘   Executing the replay▍                                                                           |
+|                  │ ● Executing                                                                                s: Stop  |
++------------------------------------------------------------------------------------------------------------------------+
+
+=== chat · paused @60
++------------------------------------------------------------+
+| ✠ LEGION  1: Chat  5: Order    1 running · 1 needs your OK |
+|────────────────────────────────────────────────────────────|
+| ✠ ⌘ ◎ ⌕ ✎ ▤ ◬ ⌶ ☾ ⊥ ⚑ ◈                            Builder |
+| ⌘ Builder · Auto-edits · sonnet           ≈$0.21 · 9 turns |
+| n: New task  ● fix the flaky rep…  ‖ tests                 |
+| ! 1 approval waiting in another task · ⌘ Builder   o: Open |
+|                                                            |
+| you Pin the clock in the replay test.                      |
+| ⌘   Pinned it with an injected clock.                      |
+|     ▸ Read  test/replay.test.ts                          ✓ |
+|     ▸ Edit  test/replay.test.ts +4 −1                    ✓ |
+|     ▸ Bash  npm test -- replay               Needs your OK |
+| ✠   Zealot · via Legion                                    |
+|     Builder, check the docs too.                           |
+|     Continued where it stopped.                            |
+| ‖ Paused at the turn limit · the work is kept  c: Continue |
++------------------------------------------------------------+
+
+=== chat · paused @80
++--------------------------------------------------------------------------------+
+| ✠ LEGION  1: Chat  5: Order                        1 running · 1 needs your OK |
+|────────────────────────────────────────────────────────────────────────────────|
+| ✠ Zealot     │ ⌘ Builder · Auto-edits · sonnet                ≈$0.21 · 9 turns |
+|▸⌘ Builder  !1│ n: New task  ● fix the flaky repl…  ‖ tests                     |
+| ◎ Scout      │ ! 1 approval waiting in another task · ⌘ Builder        o: Open |
+| ⌕ Inquisi…   │                                                                 |
+| ✎ Scribe     │ you Pin the clock in the replay test.                           |
+| ▤ Archivi…   │ ⌘   Pinned it with an injected clock.                           |
+| ◬ Sentinel   │     ▸ Read  test/replay.test.ts                               ✓ |
+| ⌶ Forgema…   │     ▸ Edit  test/replay.test.ts +4 −1                         ✓ |
+| ☾ Exorcist   │     ▸ Bash  npm test -- replay                    Needs your OK |
+| ⊥ Precept…   │ ✠   Zealot · via Legion                                         |
+| ⚑ Herald     │     Builder, check the docs too.                                |
+| ◈ Sculptor   │     Continued where it stopped.                                 |
+|              │ ‖ Paused at the turn limit · the work is kept       c: Continue |
++--------------------------------------------------------------------------------+
+
+=== chat · paused @100
++----------------------------------------------------------------------------------------------------+
+| ✠ LEGION  1: Chat  5: Order                                            1 running · 1 needs your OK |
+|────────────────────────────────────────────────────────────────────────────────────────────────────|
+| ✠ Zealot         │ ⌘ Builder · Auto-edits · sonnet                                ≈$0.21 · 9 turns |
+|▸⌘ Builder      !1│ n: New task  ● fix the flaky replay  ‖ tests                                    |
+| ◎ Scout          │ ! 1 approval waiting in another task · ⌘ Builder                        o: Open |
+| ⌕ Inquisitor     │                                                                                 |
+| ✎ Scribe         │ you Pin the clock in the replay test.                                           |
+| ▤ Archivist      │ ⌘   Pinned it with an injected clock.                                           |
+| ◬ Sentinel       │     ▸ Read  test/replay.test.ts                                               ✓ |
+| ⌶ Forgemaster    │     ▸ Edit  test/replay.test.ts +4 −1                                         ✓ |
+| ☾ Exorcist       │     ▸ Bash  npm test -- replay                                    Needs your OK |
+| ⊥ Preceptor      │ ✠   Zealot · via Legion                                                         |
+| ⚑ Herald         │     Builder, check the docs too.                                                |
+| ◈ Sculptor       │     Continued where it stopped.                                                 |
+|                  │ ‖ Paused at the turn limit · the work is kept                       c: Continue |
++----------------------------------------------------------------------------------------------------+
+
+=== chat · paused @120
++------------------------------------------------------------------------------------------------------------------------+
+| ✠ LEGION  1: Chat  5: Order                                                                1 running · 1 needs your OK |
+|────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────|
+| ✠ Zealot         │ ⌘ Builder · Auto-edits · sonnet                                                   ≈$0.21 · 9 turns  |
+|▸⌘ Builder      !1│ n: New task  ● fix the flaky replay  ‖ tests                                                        |
+| ◎ Scout          │ ! 1 approval waiting in another task · ⌘ Builder                                           o: Open  |
+| ⌕ Inquisitor     │                                                                                                     |
+| ✎ Scribe         │ you Pin the clock in the replay test.                                                               |
+| ▤ Archivist      │ ⌘   Pinned it with an injected clock.                                                               |
+| ◬ Sentinel       │     ▸ Read  test/replay.test.ts                                                                  ✓  |
+| ⌶ Forgemaster    │     ▸ Edit  test/replay.test.ts +4 −1                                                            ✓  |
+| ☾ Exorcist       │     ▸ Bash  npm test -- replay                                                       Needs your OK  |
+| ⊥ Preceptor      │ ✠   Zealot · via Legion                                                                             |
+| ⚑ Herald         │     Builder, check the docs too.                                                                    |
+| ◈ Sculptor       │     Continued where it stopped.                                                                     |
+|                  │ ‖ Paused at the turn limit · the work is kept                                          c: Continue  |
++------------------------------------------------------------------------------------------------------------------------+
+
+=== chat · error @60
++------------------------------------------------------------+
+| ✠ LEGION  1: Chat  5: Order    1 running · 1 needs your OK |
+|────────────────────────────────────────────────────────────|
+| ✠ ⌘ ◎ ⌕ ✎ ▤ ◬ ⌶ ☾ ⊥ ⚑ ◈                              Scout |
+| ◎ Scout · Asks first · sonnet             ≈$0.21 · 9 turns |
+| n: New task  ✕ find the leak                               |
+| ! 1 approval waiting in another task · ⌘ Builder   o: Open |
+|                                                            |
+| ✕ Run failed                                               |
+|   The model refused the request.                           |
+|   Try again with /say, or press n for a new task.          |
++------------------------------------------------------------+
+
+=== chat · error @80
++--------------------------------------------------------------------------------+
+| ✠ LEGION  1: Chat  5: Order                        1 running · 1 needs your OK |
+|────────────────────────────────────────────────────────────────────────────────|
+| ✠ Zealot     │ ◎ Scout · Asks first · sonnet                  ≈$0.21 · 9 turns |
+| ⌘ Builder  !1│ n: New task  ✕ find the leak                                    |
+|▸◎ Scout      │ ! 1 approval waiting in another task · ⌘ Builder        o: Open |
+| ⌕ Inquisi…   │                                                                 |
+| ✎ Scribe     │ ✕ Run failed                                                    |
+| ▤ Archivi…   │   The model refused the request.                                |
+| ◬ Sentinel   │   Try again with /say, or press n for a new task.               |
+| ⌶ Forgema…   │                                                                 |
+| ☾ Exorcist   │                                                                 |
+| ⊥ Precept…   │                                                                 |
+| ⚑ Herald     │                                                                 |
+| ◈ Sculptor   │                                                                 |
++--------------------------------------------------------------------------------+
+
+=== chat · error @100
++----------------------------------------------------------------------------------------------------+
+| ✠ LEGION  1: Chat  5: Order                                            1 running · 1 needs your OK |
+|────────────────────────────────────────────────────────────────────────────────────────────────────|
+| ✠ Zealot         │ ◎ Scout · Asks first · sonnet                                  ≈$0.21 · 9 turns |
+| ⌘ Builder      !1│ n: New task  ✕ find the leak                                                    |
+|▸◎ Scout          │ ! 1 approval waiting in another task · ⌘ Builder                        o: Open |
+| ⌕ Inquisitor     │                                                                                 |
+| ✎ Scribe         │ ✕ Run failed                                                                    |
+| ▤ Archivist      │   The model refused the request.                                                |
+| ◬ Sentinel       │   Try again with /say, or press n for a new task.                               |
+| ⌶ Forgemaster    │                                                                                 |
+| ☾ Exorcist       │                                                                                 |
+| ⊥ Preceptor      │                                                                                 |
+| ⚑ Herald         │                                                                                 |
+| ◈ Sculptor       │                                                                                 |
++----------------------------------------------------------------------------------------------------+
+
+=== chat · error @120
++------------------------------------------------------------------------------------------------------------------------+
+| ✠ LEGION  1: Chat  5: Order                                                                1 running · 1 needs your OK |
+|────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────|
+| ✠ Zealot         │ ◎ Scout · Asks first · sonnet                                                     ≈$0.21 · 9 turns  |
+| ⌘ Builder      !1│ n: New task  ✕ find the leak                                                                        |
+|▸◎ Scout          │ ! 1 approval waiting in another task · ⌘ Builder                                           o: Open  |
+| ⌕ Inquisitor     │                                                                                                     |
+| ✎ Scribe         │ ✕ Run failed                                                                                        |
+| ▤ Archivist      │   The model refused the request.                                                                    |
+| ◬ Sentinel       │   Try again with /say, or press n for a new task.                                                   |
+| ⌶ Forgemaster    │                                                                                                     |
+| ☾ Exorcist       │                                                                                                     |
+| ⊥ Preceptor      │                                                                                                     |
+| ⚑ Herald         │                                                                                                     |
+| ◈ Sculptor       │                                                                                                     |
++------------------------------------------------------------------------------------------------------------------------+
+
+=== chat · other window @60
++------------------------------------------------------------+
+| ✠ LEGION  1: Chat  5: Order    1 running · 1 needs your OK |
+|────────────────────────────────────────────────────────────|
+| ✠ ⌘ ◎ ⌕ ✎ ▤ ◬ ⌶ ☾ ⊥ ⚑ ◈                            Builder |
+| ⌘ Builder · Auto-edits · sonnet           ≈$0.21 · 9 turns |
+| n: New task  ● fix the flaky rep…  ‖ tests                 |
+|                                                            |
+| you Pin the clock in the replay test.                      |
+| ⌘   Pinned it with an injected clock.                      |
+|     ▸ Read  test/replay.test.ts                          ✓ |
+|     ▸ Edit  test/replay.test.ts +4 −1                    ✓ |
+|     ▸ Bash  npm test -- replay               Needs your OK |
+| ✠   Zealot · via Legion                                    |
+|     Builder, check the docs too.                           |
+|     Continued where it stopped.                            |
+|     ! ⌘ Builder asks to run a command                      |
+|       npm test -- replay                                   |
+|       It runs on your computer, with your access.          |
+|       Answer it in the window that runs this task.         |
+| ● Running in another window                                |
+|   Continue or stop it from that window.                    |
++------------------------------------------------------------+
+
+=== chat · other window @80
++--------------------------------------------------------------------------------+
+| ✠ LEGION  1: Chat  5: Order                        1 running · 1 needs your OK |
+|────────────────────────────────────────────────────────────────────────────────|
+| ✠ Zealot     │ ⌘ Builder · Auto-edits · sonnet                ≈$0.21 · 9 turns |
+|▸⌘ Builder  !1│ n: New task  ● fix the flaky repl…  ‖ tests                     |
+| ◎ Scout      │                                                                 |
+| ⌕ Inquisi…   │ you Pin the clock in the replay test.                           |
+| ✎ Scribe     │ ⌘   Pinned it with an injected clock.                           |
+| ▤ Archivi…   │     ▸ Read  test/replay.test.ts                               ✓ |
+| ◬ Sentinel   │     ▸ Edit  test/replay.test.ts +4 −1                         ✓ |
+| ⌶ Forgema…   │     ▸ Bash  npm test -- replay                    Needs your OK |
+| ☾ Exorcist   │ ✠   Zealot · via Legion                                         |
+| ⊥ Precept…   │     Builder, check the docs too.                                |
+| ⚑ Herald     │     Continued where it stopped.                                 |
+| ◈ Sculptor   │     ! ⌘ Builder asks to run a command                           |
+|              │       npm test -- replay                                        |
+|              │       It runs on your computer, with your access.               |
+|              │       Answer it in the window that runs this task.              |
+|              │ ● Running in another window                                     |
+|              │   Continue or stop it from that window.                         |
++--------------------------------------------------------------------------------+
+
+=== chat · other window @100
++----------------------------------------------------------------------------------------------------+
+| ✠ LEGION  1: Chat  5: Order                                            1 running · 1 needs your OK |
+|────────────────────────────────────────────────────────────────────────────────────────────────────|
+| ✠ Zealot         │ ⌘ Builder · Auto-edits · sonnet                                ≈$0.21 · 9 turns |
+|▸⌘ Builder      !1│ n: New task  ● fix the flaky replay  ‖ tests                                    |
+| ◎ Scout          │                                                                                 |
+| ⌕ Inquisitor     │ you Pin the clock in the replay test.                                           |
+| ✎ Scribe         │ ⌘   Pinned it with an injected clock.                                           |
+| ▤ Archivist      │     ▸ Read  test/replay.test.ts                                               ✓ |
+| ◬ Sentinel       │     ▸ Edit  test/replay.test.ts +4 −1                                         ✓ |
+| ⌶ Forgemaster    │     ▸ Bash  npm test -- replay                                    Needs your OK |
+| ☾ Exorcist       │ ✠   Zealot · via Legion                                                         |
+| ⊥ Preceptor      │     Builder, check the docs too.                                                |
+| ⚑ Herald         │     Continued where it stopped.                                                 |
+| ◈ Sculptor       │     ! ⌘ Builder asks to run a command                                           |
+|                  │       npm test -- replay                                                        |
+|                  │       It runs on your computer, with your access.                               |
+|                  │       Answer it in the window that runs this task.                              |
+|                  │ ● Running in another window                                                     |
+|                  │   Continue or stop it from that window.                                         |
++----------------------------------------------------------------------------------------------------+
+
+=== chat · other window @120
++------------------------------------------------------------------------------------------------------------------------+
+| ✠ LEGION  1: Chat  5: Order                                                                1 running · 1 needs your OK |
+|────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────|
+| ✠ Zealot         │ ⌘ Builder · Auto-edits · sonnet                                                   ≈$0.21 · 9 turns  |
+|▸⌘ Builder      !1│ n: New task  ● fix the flaky replay  ‖ tests                                                        |
+| ◎ Scout          │                                                                                                     |
+| ⌕ Inquisitor     │ you Pin the clock in the replay test.                                                               |
+| ✎ Scribe         │ ⌘   Pinned it with an injected clock.                                                               |
+| ▤ Archivist      │     ▸ Read  test/replay.test.ts                                                                  ✓  |
+| ◬ Sentinel       │     ▸ Edit  test/replay.test.ts +4 −1                                                            ✓  |
+| ⌶ Forgemaster    │     ▸ Bash  npm test -- replay                                                       Needs your OK  |
+| ☾ Exorcist       │ ✠   Zealot · via Legion                                                                             |
+| ⊥ Preceptor      │     Builder, check the docs too.                                                                    |
+| ⚑ Herald         │     Continued where it stopped.                                                                     |
+| ◈ Sculptor       │     ! ⌘ Builder asks to run a command                                                               |
+|                  │       npm test -- replay                                                                            |
+|                  │       It runs on your computer, with your access.                                                   |
+|                  │       Answer it in the window that runs this task.                                                  |
+|                  │ ● Running in another window                                                                         |
+|                  │   Continue or stop it from that window.                                                             |
++------------------------------------------------------------------------------------------------------------------------+
+
+=== chat · long (300-char title, 99+ cards, ≈$1,234.56) @60
++------------------------------------------------------------+
+| ✠ LEGION  1: Chat  5: Order  10 running · 99+ need your OK |
+|────────────────────────────────────────────────────────────|
+| ✠ ⌘ ◎ ⌕ ✎ ▤ ◬ ⌶ ☾ ⊥ ⚑ ◈                            Builder |
+| ⌘ Builder · Auto-edits · sonnet     ≈$1,234.56 · 999 turns |
+| n: New task  · task number 1 Fix…                      +14 |
+|                                                            |
+|     ↑ 125 earlier rows                                     |
+|     ! ⌘ Builder asks to run a command                      |
+|       Fix the flaky replay test and keep every assertion   |
+|       while the clock is pinned and keep every assertion   |
+|       while the clock is pinned and keep every assertion   |
+|       while the clock is pinned and keep every assertion … |
+|       It runs on your computer, with your access.          |
+|       Answer in the permission dialog.                     |
+|     ! ⌘ Builder asks to run a command                      |
+|       Fix the flaky replay test and keep every assertion   |
+|       while the clock is pinned and keep every assertion   |
+|       while the clock is pinned and keep every assertion   |
+|       while the clock is pinned and keep every assertion … |
+|       It runs on your computer, with your access.          |
+|       Answer in the permission dialog.                     |
+|     ! ⌘ Builder asks to run a command                      |
+|       Fix the flaky replay test and keep every assertion   |
+|       while the clock is pinned and keep every assertion   |
+|       while the clock is pinned and keep every assertion   |
+|       while the clock is pinned and keep every assertion … |
+|       It runs on your computer, with your access.          |
+|       Answer in the permission dialog.                     |
+| ⌘   Fix the flaky replay test and keep every assertion     |
+|     while the clock is pinned and keep every assertion     |
+|     while the clock is pinned and keep every assertion     |
+|     while the clock is pinned and keep every assertion     |
+|     while the clock is pinned and keep every assertion     |
+|     while the clock is pinned and keep every asse▍         |
++------------------------------------------------------------+
+
+=== chat · long (300-char title, 99+ cards, ≈$1,234.56) @80
++--------------------------------------------------------------------------------+
+| ✠ LEGION  1: Chat  5: Order                      10 running · 99+ need your OK |
+|────────────────────────────────────────────────────────────────────────────────|
+| ✠ Zealot     │ ⌘ Builder · Auto-edits · sonnet          ≈$1,234.56 · 999 turns |
+|▸⌘ Builder  !+│ n: New task  · task number 29 Fix…  · task number 1 Fix…    +13 |
+| ◎ Scout      │                                                                 |
+| ⌕ Inquisi…   │     ↑ 124 earlier rows                                          |
+| ✎ Scribe     │     ! ⌘ Builder asks to run a command                           |
+| ▤ Archivi…   │       Fix the flaky replay test and keep every assertion while  |
+| ◬ Sentinel   │       the clock is pinned and keep every assertion while the    |
+| ⌶ Forgema…  ●│       clock is pinned and keep every assertion while the clock  |
+| ☾ Exorcist   │       is pinned and keep every assertion while the clock is …   |
+| ⊥ Precept…   │       It runs on your computer, with your access.               |
+| ⚑ Herald     │       Answer in the permission dialog.                          |
+| ◈ Sculptor   │     ! ⌘ Builder asks to run a command                           |
+|              │       Fix the flaky replay test and keep every assertion while  |
+|              │       the clock is pinned and keep every assertion while the    |
+|              │       clock is pinned and keep every assertion while the clock  |
+|              │       is pinned and keep every assertion while the clock is …   |
+|              │       It runs on your computer, with your access.               |
+|              │       Answer in the permission dialog.                          |
+|              │     ! ⌘ Builder asks to run a command                           |
+|              │       Fix the flaky replay test and keep every assertion while  |
+|              │       the clock is pinned and keep every assertion while the    |
+|              │       clock is pinned and keep every assertion while the clock  |
+|              │       is pinned and keep every assertion while the clock is …   |
+|              │       It runs on your computer, with your access.               |
+|              │       Answer in the permission dialog.                          |
+|              │     ! ⌘ Builder asks to run a command                           |
+|              │       Fix the flaky replay test and keep every assertion while  |
+|              │       the clock is pinned and keep every assertion while the    |
+|              │       clock is pinned and keep every assertion while the clock  |
+|              │       is pinned and keep every assertion while the clock is …   |
+|              │       It runs on your computer, with your access.               |
+|              │       Answer in the permission dialog.                          |
+|              │ ⌘   Fix the flaky replay test and keep every assertion while the|
+|              │     clock is pinned and keep every assertion while the clock is |
+|              │     pinned and keep every assertion while the clock is pinned   |
+|              │     and keep every assertion while the clock is pinned and keep |
+|              │     every assertion while the clock is pinned and keep every    |
+|              │     asse▍                                                       |
++--------------------------------------------------------------------------------+
+
+=== chat · long (300-char title, 99+ cards, ≈$1,234.56) @100
++----------------------------------------------------------------------------------------------------+
+| ✠ LEGION  1: Chat  5: Order                                          10 running · 99+ need your OK |
+|────────────────────────────────────────────────────────────────────────────────────────────────────|
+| ✠ Zealot         │ ⌘ Builder · Auto-edits · sonnet                          ≈$1,234.56 · 999 turns |
+|▸⌘ Builder      !+│ n: New task  · task number 29 Fix the f…  · task number 1 Fix the fl…       +13 |
+| ◎ Scout          │                                                                                 |
+| ⌕ Inquisitor     │     ↑ 124 earlier rows                                                          |
+| ✎ Scribe         │     ! ⌘ Builder asks to run a command                                           |
+| ▤ Archivist      │       Fix the flaky replay test and keep every assertion while the clock is     |
+| ◬ Sentinel       │       pinned and keep every assertion while the clock is pinned and keep every  |
+| ⌶ Forgemaster   ●│       assertion while the clock is pinned and keep every assertion while the    |
+| ☾ Exorcist       │       clock is pinned and keep every assertion while the clock is pinned and …  |
+| ⊥ Preceptor      │       It runs on your computer, with your access.                               |
+| ⚑ Herald         │       Answer in the permission dialog.                                          |
+| ◈ Sculptor       │     ! ⌘ Builder asks to run a command                                           |
+|                  │       Fix the flaky replay test and keep every assertion while the clock is     |
+|                  │       pinned and keep every assertion while the clock is pinned and keep every  |
+|                  │       assertion while the clock is pinned and keep every assertion while the    |
+|                  │       clock is pinned and keep every assertion while the clock is pinned and …  |
+|                  │       It runs on your computer, with your access.                               |
+|                  │       Answer in the permission dialog.                                          |
+|                  │     ! ⌘ Builder asks to run a command                                           |
+|                  │       Fix the flaky replay test and keep every assertion while the clock is     |
+|                  │       pinned and keep every assertion while the clock is pinned and keep every  |
+|                  │       assertion while the clock is pinned and keep every assertion while the    |
+|                  │       clock is pinned and keep every assertion while the clock is pinned and …  |
+|                  │       It runs on your computer, with your access.                               |
+|                  │       Answer in the permission dialog.                                          |
+|                  │     ! ⌘ Builder asks to run a command                                           |
+|                  │       Fix the flaky replay test and keep every assertion while the clock is     |
+|                  │       pinned and keep every assertion while the clock is pinned and keep every  |
+|                  │       assertion while the clock is pinned and keep every assertion while the    |
+|                  │       clock is pinned and keep every assertion while the clock is pinned and …  |
+|                  │       It runs on your computer, with your access.                               |
+|                  │       Answer in the permission dialog.                                          |
+|                  │ ⌘   Fix the flaky replay test and keep every assertion while the clock is pinned|
+|                  │     and keep every assertion while the clock is pinned and keep every assertion |
+|                  │     while the clock is pinned and keep every assertion while the clock is pinned|
+|                  │     and keep every assertion while the clock is pinned and keep every asse▍     |
++----------------------------------------------------------------------------------------------------+
+
+=== chat · long (300-char title, 99+ cards, ≈$1,234.56) @120
++------------------------------------------------------------------------------------------------------------------------+
+| ✠ LEGION  1: Chat  5: Order                                                              10 running · 99+ need your OK |
+|────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────|
+| ✠ Zealot         │ ⌘ Builder · Auto-edits · sonnet                                             ≈$1,234.56 · 999 turns  |
+|▸⌘ Builder      !+│ n: New task  · task number 29 Fix the fl…  · task number 1 Fix the fla…                        +13  |
+| ◎ Scout          │                                                                                                     |
+| ⌕ Inquisitor     │     ↑ 124 earlier rows                                                                              |
+| ✎ Scribe         │     ! ⌘ Builder asks to run a command                                                               |
+| ▤ Archivist      │       Fix the flaky replay test and keep every assertion while the clock is pinned and keep every   |
+| ◬ Sentinel       │       assertion while the clock is pinned and keep every assertion while the clock is pinned and    |
+| ⌶ Forgemaster   ●│       keep every assertion while the clock is pinned and keep every assertion while the clock is    |
+| ☾ Exorcist       │       pinned and keep every asse                                                                    |
+| ⊥ Preceptor      │       It runs on your computer, with your access.                                                   |
+| ⚑ Herald         │       Answer in the permission dialog.                                                              |
+| ◈ Sculptor       │     ! ⌘ Builder asks to run a command                                                               |
+|                  │       Fix the flaky replay test and keep every assertion while the clock is pinned and keep every   |
+|                  │       assertion while the clock is pinned and keep every assertion while the clock is pinned and    |
+|                  │       keep every assertion while the clock is pinned and keep every assertion while the clock is    |
+|                  │       pinned and keep every asse                                                                    |
+|                  │       It runs on your computer, with your access.                                                   |
+|                  │       Answer in the permission dialog.                                                              |
+|                  │     ! ⌘ Builder asks to run a command                                                               |
+|                  │       Fix the flaky replay test and keep every assertion while the clock is pinned and keep every   |
+|                  │       assertion while the clock is pinned and keep every assertion while the clock is pinned and    |
+|                  │       keep every assertion while the clock is pinned and keep every assertion while the clock is    |
+|                  │       pinned and keep every asse                                                                    |
+|                  │       It runs on your computer, with your access.                                                   |
+|                  │       Answer in the permission dialog.                                                              |
+|                  │     ! ⌘ Builder asks to run a command                                                               |
+|                  │       Fix the flaky replay test and keep every assertion while the clock is pinned and keep every   |
+|                  │       assertion while the clock is pinned and keep every assertion while the clock is pinned and    |
+|                  │       keep every assertion while the clock is pinned and keep every assertion while the clock is    |
+|                  │       pinned and keep every asse                                                                    |
+|                  │       It runs on your computer, with your access.                                                   |
+|                  │       Answer in the permission dialog.                                                              |
+|                  │ ⌘   Fix the flaky replay test and keep every assertion while the clock is pinned and keep every     |
+|                  │     assertion while the clock is pinned and keep every assertion while the clock is pinned and keep |
+|                  │     every assertion while the clock is pinned and keep every assertion while the clock is pinned    |
+|                  │     and keep every asse▍                                                                            |
++------------------------------------------------------------------------------------------------------------------------+
+
+=== order · busy @60
++------------------------------------------------------------+
+| ✠ LEGION  1: Chat  5: Order    1 running · 1 needs your OK |
+|────────────────────────────────────────────────────────────|
+| Agents                                     p: Poke Builder |
+|  ✠ Zealot         Standing vigil                           |
+|▸ ⌘ Builder        Executing                 1 running   !1 |
+|  ◎ Scout          Standing vigil                           |
+|  ⌕ Inquisitor     Standing vigil                           |
+|  ✎ Scribe         Standing vigil                           |
+|  ▤ Archivist      Standing vigil                           |
+|  ◬ Sentinel       Standing vigil                           |
+|  ⌶ Forgemaster    Standing vigil                           |
+|  ☾ Exorcist       Standing vigil                           |
+|  ⊥ Preceptor      Standing vigil                           |
+|  ⚑ Herald         Standing vigil                           |
+|  ◈ Sculptor       Standing vigil                           |
+|                                                            |
+| Running  2                                                 |
+| ● ⌘ fix the flaky replay                  ≈$0.21   9 turns |
+| ‖ ⌘ tests                                 ≈$0.21   9 turns |
+|                                                            |
+| Recent  2                                                  |
+| · ✎ docs                                       ≈$0.21  10s |
+| ✕ ◎ find the leak                              ≈$0.21  16m |
+|                                                            |
+| Doctor                                                     |
+|   /legion doctor checks what Legion needs.                 |
++------------------------------------------------------------+
+
+=== order · busy @80
++--------------------------------------------------------------------------------+
+| ✠ LEGION  1: Chat  5: Order                        1 running · 1 needs your OK |
+|────────────────────────────────────────────────────────────────────────────────|
+| Agents                                                         p: Poke Builder |
+|  ✠ Zealot          Standing vigil                                              |
+|▸ ⌘ Builder         Executing                                    1 running   !1 |
+|  ◎ Scout           Standing vigil                                              |
+|  ⌕ Inquisitor      Standing vigil                                              |
+|  ✎ Scribe          Standing vigil                                              |
+|  ▤ Archivist       Standing vigil                                              |
+|  ◬ Sentinel        Standing vigil                                              |
+|  ⌶ Forgemaster     Standing vigil                                              |
+|  ☾ Exorcist        Standing vigil                                              |
+|  ⊥ Preceptor       Standing vigil                                              |
+|  ⚑ Herald          Standing vigil                                              |
+|  ◈ Sculptor        Standing vigil                                              |
+|                                                                                |
+| Running  2                                                                     |
+| ● ⌘ fix the flaky replay                                      ≈$0.21   9 turns |
+| ‖ ⌘ tests                                                     ≈$0.21   9 turns |
+|                                                                                |
+| Recent  2                                                                      |
+| · ✎ docs                                                           ≈$0.21  10s |
+| ✕ ◎ find the leak                                                  ≈$0.21  16m |
+|                                                                                |
+| Doctor                                                                         |
+|   /legion doctor checks what Legion needs.                                     |
++--------------------------------------------------------------------------------+
+
+=== order · busy @100
++----------------------------------------------------------------------------------------------------+
+| ✠ LEGION  1: Chat  5: Order                                            1 running · 1 needs your OK |
+|────────────────────────────────────────────────────────────────────────────────────────────────────|
+| Agents                                                                             p: Poke Builder |
+|  ✠ Zealot          Standing vigil                                                                  |
+|▸ ⌘ Builder         Executing                                                        1 running   !1 |
+|  ◎ Scout           Standing vigil                                                                  |
+|  ⌕ Inquisitor      Standing vigil                                                                  |
+|  ✎ Scribe          Standing vigil                                                                  |
+|  ▤ Archivist       Standing vigil                                                                  |
+|  ◬ Sentinel        Standing vigil                                                                  |
+|  ⌶ Forgemaster     Standing vigil                                                                  |
+|  ☾ Exorcist        Standing vigil                                                                  |
+|  ⊥ Preceptor       Standing vigil                                                                  |
+|  ⚑ Herald          Standing vigil                                                                  |
+|  ◈ Sculptor        Standing vigil                                                                  |
+|                                                                                                    |
+| Running  2                                                                                         |
+| ● ⌘ fix the flaky replay                                                          ≈$0.21   9 turns |
+| ‖ ⌘ tests                                                                         ≈$0.21   9 turns |
+|                                                                                                    |
+| Recent  2                                                                                          |
+| · ✎ docs                                                                               ≈$0.21  10s |
+| ✕ ◎ find the leak                                                                      ≈$0.21  16m |
+|                                                                                                    |
+| Doctor                                                                                             |
+|   /legion doctor checks what Legion needs.                                                         |
++----------------------------------------------------------------------------------------------------+
+
+=== order · busy @120
++------------------------------------------------------------------------------------------------------------------------+
+| ✠ LEGION  1: Chat  5: Order                                                                1 running · 1 needs your OK |
+|────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────|
+| Agents                                                                                                 p: Poke Builder |
+|  ✠ Zealot          Standing vigil                                                                                      |
+|▸ ⌘ Builder         Executing                                                                            1 running   !1 |
+|  ◎ Scout           Standing vigil                                                                                      |
+|  ⌕ Inquisitor      Standing vigil                                                                                      |
+|  ✎ Scribe          Standing vigil                                                                                      |
+|  ▤ Archivist       Standing vigil                                                                                      |
+|  ◬ Sentinel        Standing vigil                                                                                      |
+|  ⌶ Forgemaster     Standing vigil                                                                                      |
+|  ☾ Exorcist        Standing vigil                                                                                      |
+|  ⊥ Preceptor       Standing vigil                                                                                      |
+|  ⚑ Herald          Standing vigil                                                                                      |
+|  ◈ Sculptor        Standing vigil                                                                                      |
+|                                                                                                                        |
+| Running  2                                                                                                             |
+| ● ⌘ fix the flaky replay                                                                              ≈$0.21   9 turns |
+| ‖ ⌘ tests                                                                                             ≈$0.21   9 turns |
+|                                                                                                                        |
+| Recent  2                                                                                                              |
+| · ✎ docs                                                                                                   ≈$0.21  10s |
+| ✕ ◎ find the leak                                                                                          ≈$0.21  16m |
+|                                                                                                                        |
+| Doctor                                                                                                                 |
+|   /legion doctor checks what Legion needs.                                                                             |
++------------------------------------------------------------------------------------------------------------------------+
+
+=== order · busy + doctor @60
++------------------------------------------------------------+
+| ✠ LEGION  1: Chat  5: Order    1 running · 1 needs your OK |
+|────────────────────────────────────────────────────────────|
+| Agents                                     p: Poke Builder |
+|  ✠ Zealot         Standing vigil                           |
+|▸ ⌘ Builder        Executing                 1 running   !1 |
+|  ◎ Scout          Standing vigil                           |
+|  ⌕ Inquisitor     Standing vigil                           |
+|  ✎ Scribe         Standing vigil                           |
+|  ▤ Archivist      Standing vigil                           |
+|  ◬ Sentinel       Standing vigil                           |
+|  ⌶ Forgemaster    Standing vigil                           |
+|  ☾ Exorcist       Standing vigil                           |
+|  ⊥ Preceptor      Standing vigil                           |
+|  ⚑ Herald         Standing vigil                           |
+|  ◈ Sculptor       Standing vigil                           |
+|                                                            |
+| Running  2                                                 |
+| ● ⌘ fix the flaky replay                  ≈$0.21   9 turns |
+| ‖ ⌘ tests                                 ≈$0.21   9 turns |
+|                                                            |
+| Recent  2                                                  |
+| · ✎ docs                                       ≈$0.21  10s |
+| ✕ ◎ find the leak                              ≈$0.21  16m |
+|                                                            |
+| Doctor                                            1 to fix |
+| ✕ Runner          legion-mod-runner is not running, so     |
+|                   agents cannot start. Install it: claude  |
+|                   plugin install legion-mod-runner@legion  |
+| ✓ Claude Code     2.1.289                                  |
+| ✓ Data folder     C:/Users/someone/.legion/mod             |
+| · Cost estimates  prices as of 2026-10-01                  |
++------------------------------------------------------------+
+
+=== order · busy + doctor @80
++--------------------------------------------------------------------------------+
+| ✠ LEGION  1: Chat  5: Order                        1 running · 1 needs your OK |
+|────────────────────────────────────────────────────────────────────────────────|
+| Agents                                                         p: Poke Builder |
+|  ✠ Zealot          Standing vigil                                              |
+|▸ ⌘ Builder         Executing                                    1 running   !1 |
+|  ◎ Scout           Standing vigil                                              |
+|  ⌕ Inquisitor      Standing vigil                                              |
+|  ✎ Scribe          Standing vigil                                              |
+|  ▤ Archivist       Standing vigil                                              |
+|  ◬ Sentinel        Standing vigil                                              |
+|  ⌶ Forgemaster     Standing vigil                                              |
+|  ☾ Exorcist        Standing vigil                                              |
+|  ⊥ Preceptor       Standing vigil                                              |
+|  ⚑ Herald          Standing vigil                                              |
+|  ◈ Sculptor        Standing vigil                                              |
+|                                                                                |
+| Running  2                                                                     |
+| ● ⌘ fix the flaky replay                                      ≈$0.21   9 turns |
+| ‖ ⌘ tests                                                     ≈$0.21   9 turns |
+|                                                                                |
+| Recent  2                                                                      |
+| · ✎ docs                                                           ≈$0.21  10s |
+| ✕ ◎ find the leak                                                  ≈$0.21  16m |
+|                                                                                |
+| Doctor                                                                1 to fix |
+| ✕ Runner          legion-mod-runner is not running, so agents cannot start.    |
+|                   Install it: claude plugin install legion-mod-runner@legion   |
+| ✓ Claude Code     2.1.289                                                      |
+| ✓ Data folder     C:/Users/someone/.legion/mod                                 |
+| · Cost estimates  prices as of 2026-10-01                                      |
++--------------------------------------------------------------------------------+
+
+=== order · busy + doctor @100
++----------------------------------------------------------------------------------------------------+
+| ✠ LEGION  1: Chat  5: Order                                            1 running · 1 needs your OK |
+|────────────────────────────────────────────────────────────────────────────────────────────────────|
+| Agents                                                                             p: Poke Builder |
+|  ✠ Zealot          Standing vigil                                                                  |
+|▸ ⌘ Builder         Executing                                                        1 running   !1 |
+|  ◎ Scout           Standing vigil                                                                  |
+|  ⌕ Inquisitor      Standing vigil                                                                  |
+|  ✎ Scribe          Standing vigil                                                                  |
+|  ▤ Archivist       Standing vigil                                                                  |
+|  ◬ Sentinel        Standing vigil                                                                  |
+|  ⌶ Forgemaster     Standing vigil                                                                  |
+|  ☾ Exorcist        Standing vigil                                                                  |
+|  ⊥ Preceptor       Standing vigil                                                                  |
+|  ⚑ Herald          Standing vigil                                                                  |
+|  ◈ Sculptor        Standing vigil                                                                  |
+|                                                                                                    |
+| Running  2                                                                                         |
+| ● ⌘ fix the flaky replay                                                          ≈$0.21   9 turns |
+| ‖ ⌘ tests                                                                         ≈$0.21   9 turns |
+|                                                                                                    |
+| Recent  2                                                                                          |
+| · ✎ docs                                                                               ≈$0.21  10s |
+| ✕ ◎ find the leak                                                                      ≈$0.21  16m |
+|                                                                                                    |
+| Doctor                                                                                    1 to fix |
+| ✕ Runner          legion-mod-runner is not running, so agents cannot start. Install it: claude     |
+|                   plugin install legion-mod-runner@legion                                          |
+| ✓ Claude Code     2.1.289                                                                          |
+| ✓ Data folder     C:/Users/someone/.legion/mod                                                     |
+| · Cost estimates  prices as of 2026-10-01                                                          |
++----------------------------------------------------------------------------------------------------+
+
+=== order · busy + doctor @120
++------------------------------------------------------------------------------------------------------------------------+
+| ✠ LEGION  1: Chat  5: Order                                                                1 running · 1 needs your OK |
+|────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────|
+| Agents                                                                                                 p: Poke Builder |
+|  ✠ Zealot          Standing vigil                                                                                      |
+|▸ ⌘ Builder         Executing                                                                            1 running   !1 |
+|  ◎ Scout           Standing vigil                                                                                      |
+|  ⌕ Inquisitor      Standing vigil                                                                                      |
+|  ✎ Scribe          Standing vigil                                                                                      |
+|  ▤ Archivist       Standing vigil                                                                                      |
+|  ◬ Sentinel        Standing vigil                                                                                      |
+|  ⌶ Forgemaster     Standing vigil                                                                                      |
+|  ☾ Exorcist        Standing vigil                                                                                      |
+|  ⊥ Preceptor       Standing vigil                                                                                      |
+|  ⚑ Herald          Standing vigil                                                                                      |
+|  ◈ Sculptor        Standing vigil                                                                                      |
+|                                                                                                                        |
+| Running  2                                                                                                             |
+| ● ⌘ fix the flaky replay                                                                              ≈$0.21   9 turns |
+| ‖ ⌘ tests                                                                                             ≈$0.21   9 turns |
+|                                                                                                                        |
+| Recent  2                                                                                                              |
+| · ✎ docs                                                                                                   ≈$0.21  10s |
+| ✕ ◎ find the leak                                                                                          ≈$0.21  16m |
+|                                                                                                                        |
+| Doctor                                                                                                        1 to fix |
+| ✕ Runner          legion-mod-runner is not running, so agents cannot start. Install it: claude plugin install          |
+|                   legion-mod-runner@legion                                                                             |
+| ✓ Claude Code     2.1.289                                                                                              |
+| ✓ Data folder     C:/Users/someone/.legion/mod                                                                         |
+| · Cost estimates  prices as of 2026-10-01                                                                              |
++------------------------------------------------------------------------------------------------------------------------+
+
+=== order · long @60
++------------------------------------------------------------+
+| ✠ LEGION  1: Chat  5: Order  10 running · 99+ need your OK |
+|────────────────────────────────────────────────────────────|
+| Agents                                     p: Poke Builder |
+|  ✠ Zealot         Standing vigil                           |
+|▸ ⌘ Builder        Standing vigil            5 running !99+ |
+|  ◎ Scout          Standing vigil                           |
+|  ⌕ Inquisitor     Standing vigil                           |
+|  ✎ Scribe         Standing vigil                           |
+|  ▤ Archivist      Standing vigil                           |
+|  ◬ Sentinel       Standing vigil                           |
+|  ⌶ Forgemaster    Standing vigil            5 running      |
+|  ☾ Exorcist       Standing vigil                           |
+|  ⊥ Preceptor      Standing vigil                           |
+|  ⚑ Herald         Standing vigil                           |
+|  ◈ Sculptor       Standing vigil                           |
+|                                                            |
+| Running  10                                                |
+| ● ⌘ task number 27 Fix the flaky re…  ≈$1,234.56 999 turns |
+| ● ⌶ task number 24 Fix the flaky re…  ≈$1,234.56 999 turns |
+| ● ⌘ task number 21 Fix the flaky re…  ≈$1,234.56 999 turns |
+| ● ⌶ task number 18 Fix the flaky re…  ≈$1,234.56 999 turns |
+| ● ⌘ task number 15 Fix the flaky re…  ≈$1,234.56 999 turns |
+| ● ⌶ task number 12 Fix the flaky re…  ≈$1,234.56 999 turns |
+| ● ⌘ task number 9 Fix the flaky rep…  ≈$1,234.56 999 turns |
+| ● ⌶ task number 6 Fix the flaky rep…  ≈$1,234.56 999 turns |
+| ● ⌘ task number 3 Fix the flaky rep…  ≈$1,234.56 999 turns |
+| ● ⌶ Fix the flaky replay test and k…  ≈$1,234.56 999 turns |
+|                                                            |
+| Recent  8                                                  |
+| · ⌘ task number 29 Fix the flaky replay…   ≈$1,234.56  16m |
+| · ⌶ task number 28 Fix the flaky replay…   ≈$1,234.56  16m |
+| · ⌶ task number 26 Fix the flaky replay…   ≈$1,234.56  16m |
+| · ⌘ task number 25 Fix the flaky replay…   ≈$1,234.56  16m |
+| · ⌘ task number 23 Fix the flaky replay…   ≈$1,234.56  16m |
+| · ⌶ task number 22 Fix the flaky replay…   ≈$1,234.56  16m |
+| · ⌶ task number 20 Fix the flaky replay…   ≈$1,234.56  16m |
+| · ⌘ task number 19 Fix the flaky replay…   ≈$1,234.56  16m |
+|                                                            |
+| Doctor                                                     |
+|   /legion doctor checks what Legion needs.                 |
++------------------------------------------------------------+
+
+=== order · long @80
++--------------------------------------------------------------------------------+
+| ✠ LEGION  1: Chat  5: Order                      10 running · 99+ need your OK |
+|────────────────────────────────────────────────────────────────────────────────|
+| Agents                                                         p: Poke Builder |
+|  ✠ Zealot          Standing vigil                                              |
+|▸ ⌘ Builder         Standing vigil                               5 running !99+ |
+|  ◎ Scout           Standing vigil                                              |
+|  ⌕ Inquisitor      Standing vigil                                              |
+|  ✎ Scribe          Standing vigil                                              |
+|  ▤ Archivist       Standing vigil                                              |
+|  ◬ Sentinel        Standing vigil                                              |
+|  ⌶ Forgemaster     Standing vigil                               5 running      |
+|  ☾ Exorcist        Standing vigil                                              |
+|  ⊥ Preceptor       Standing vigil                                              |
+|  ⚑ Herald          Standing vigil                                              |
+|  ◈ Sculptor        Standing vigil                                              |
+|                                                                                |
+| Running  10                                                                    |
+| ● ⌘ task number 27 Fix the flaky replay test and keep e…  ≈$1,234.56 999 turns |
+| ● ⌶ task number 24 Fix the flaky replay test and keep e…  ≈$1,234.56 999 turns |
+| ● ⌘ task number 21 Fix the flaky replay test and keep e…  ≈$1,234.56 999 turns |
+| ● ⌶ task number 18 Fix the flaky replay test and keep e…  ≈$1,234.56 999 turns |
+| ● ⌘ task number 15 Fix the flaky replay test and keep e…  ≈$1,234.56 999 turns |
+| ● ⌶ task number 12 Fix the flaky replay test and keep e…  ≈$1,234.56 999 turns |
+| ● ⌘ task number 9 Fix the flaky replay test and keep ev…  ≈$1,234.56 999 turns |
+| ● ⌶ task number 6 Fix the flaky replay test and keep ev…  ≈$1,234.56 999 turns |
+| ● ⌘ task number 3 Fix the flaky replay test and keep ev…  ≈$1,234.56 999 turns |
+| ● ⌶ Fix the flaky replay test and keep every assertion…   ≈$1,234.56 999 turns |
+|                                                                                |
+| Recent  8                                                                      |
+| · ⌘ task number 29 Fix the flaky replay test and keep every    ≈$1,234.56  16m |
+| · ⌶ task number 28 Fix the flaky replay test and keep every    ≈$1,234.56  16m |
+| · ⌶ task number 26 Fix the flaky replay test and keep every    ≈$1,234.56  16m |
+| · ⌘ task number 25 Fix the flaky replay test and keep every    ≈$1,234.56  16m |
+| · ⌘ task number 23 Fix the flaky replay test and keep every    ≈$1,234.56  16m |
+| · ⌶ task number 22 Fix the flaky replay test and keep every    ≈$1,234.56  16m |
+| · ⌶ task number 20 Fix the flaky replay test and keep every    ≈$1,234.56  16m |
+| · ⌘ task number 19 Fix the flaky replay test and keep every    ≈$1,234.56  16m |
+|                                                                                |
+| Doctor                                                                         |
+|   /legion doctor checks what Legion needs.                                     |
++--------------------------------------------------------------------------------+
+
+=== order · long @100
++----------------------------------------------------------------------------------------------------+
+| ✠ LEGION  1: Chat  5: Order                                          10 running · 99+ need your OK |
+|────────────────────────────────────────────────────────────────────────────────────────────────────|
+| Agents                                                                             p: Poke Builder |
+|  ✠ Zealot          Standing vigil                                                                  |
+|▸ ⌘ Builder         Standing vigil                                                   5 running !99+ |
+|  ◎ Scout           Standing vigil                                                                  |
+|  ⌕ Inquisitor      Standing vigil                                                                  |
+|  ✎ Scribe          Standing vigil                                                                  |
+|  ▤ Archivist       Standing vigil                                                                  |
+|  ◬ Sentinel        Standing vigil                                                                  |
+|  ⌶ Forgemaster     Standing vigil                                                   5 running      |
+|  ☾ Exorcist        Standing vigil                                                                  |
+|  ⊥ Preceptor       Standing vigil                                                                  |
+|  ⚑ Herald          Standing vigil                                                                  |
+|  ◈ Sculptor        Standing vigil                                                                  |
+|                                                                                                    |
+| Running  10                                                                                        |
+| ● ⌘ task number 27 Fix the flaky replay test and keep every                   ≈$1,234.56 999 turns |
+| ● ⌶ task number 24 Fix the flaky replay test and keep every                   ≈$1,234.56 999 turns |
+| ● ⌘ task number 21 Fix the flaky replay test and keep every                   ≈$1,234.56 999 turns |
+| ● ⌶ task number 18 Fix the flaky replay test and keep every                   ≈$1,234.56 999 turns |
+| ● ⌘ task number 15 Fix the flaky replay test and keep every                   ≈$1,234.56 999 turns |
+| ● ⌶ task number 12 Fix the flaky replay test and keep every                   ≈$1,234.56 999 turns |
+| ● ⌘ task number 9 Fix the flaky replay test and keep every                    ≈$1,234.56 999 turns |
+| ● ⌶ task number 6 Fix the flaky replay test and keep every                    ≈$1,234.56 999 turns |
+| ● ⌘ task number 3 Fix the flaky replay test and keep every                    ≈$1,234.56 999 turns |
+| ● ⌶ Fix the flaky replay test and keep every assertion while the clock is p…  ≈$1,234.56 999 turns |
+|                                                                                                    |
+| Recent  8                                                                                          |
+| · ⌘ task number 29 Fix the flaky replay test and keep every                        ≈$1,234.56  16m |
+| · ⌶ task number 28 Fix the flaky replay test and keep every                        ≈$1,234.56  16m |
+| · ⌶ task number 26 Fix the flaky replay test and keep every                        ≈$1,234.56  16m |
+| · ⌘ task number 25 Fix the flaky replay test and keep every                        ≈$1,234.56  16m |
+| · ⌘ task number 23 Fix the flaky replay test and keep every                        ≈$1,234.56  16m |
+| · ⌶ task number 22 Fix the flaky replay test and keep every                        ≈$1,234.56  16m |
+| · ⌶ task number 20 Fix the flaky replay test and keep every                        ≈$1,234.56  16m |
+| · ⌘ task number 19 Fix the flaky replay test and keep every                        ≈$1,234.56  16m |
+|                                                                                                    |
+| Doctor                                                                                             |
+|   /legion doctor checks what Legion needs.                                                         |
++----------------------------------------------------------------------------------------------------+
+
+=== order · long @120
++------------------------------------------------------------------------------------------------------------------------+
+| ✠ LEGION  1: Chat  5: Order                                                              10 running · 99+ need your OK |
+|────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────|
+| Agents                                                                                                 p: Poke Builder |
+|  ✠ Zealot          Standing vigil                                                                                      |
+|▸ ⌘ Builder         Standing vigil                                                                       5 running !99+ |
+|  ◎ Scout           Standing vigil                                                                                      |
+|  ⌕ Inquisitor      Standing vigil                                                                                      |
+|  ✎ Scribe          Standing vigil                                                                                      |
+|  ▤ Archivist       Standing vigil                                                                                      |
+|  ◬ Sentinel        Standing vigil                                                                                      |
+|  ⌶ Forgemaster     Standing vigil                                                                       5 running      |
+|  ☾ Exorcist        Standing vigil                                                                                      |
+|  ⊥ Preceptor       Standing vigil                                                                                      |
+|  ⚑ Herald          Standing vigil                                                                                      |
+|  ◈ Sculptor        Standing vigil                                                                                      |
+|                                                                                                                        |
+| Running  10                                                                                                            |
+| ● ⌘ task number 27 Fix the flaky replay test and keep every                                       ≈$1,234.56 999 turns |
+| ● ⌶ task number 24 Fix the flaky replay test and keep every                                       ≈$1,234.56 999 turns |
+| ● ⌘ task number 21 Fix the flaky replay test and keep every                                       ≈$1,234.56 999 turns |
+| ● ⌶ task number 18 Fix the flaky replay test and keep every                                       ≈$1,234.56 999 turns |
+| ● ⌘ task number 15 Fix the flaky replay test and keep every                                       ≈$1,234.56 999 turns |
+| ● ⌶ task number 12 Fix the flaky replay test and keep every                                       ≈$1,234.56 999 turns |
+| ● ⌘ task number 9 Fix the flaky replay test and keep every                                        ≈$1,234.56 999 turns |
+| ● ⌶ task number 6 Fix the flaky replay test and keep every                                        ≈$1,234.56 999 turns |
+| ● ⌘ task number 3 Fix the flaky replay test and keep every                                        ≈$1,234.56 999 turns |
+| ● ⌶ Fix the flaky replay test and keep every assertion while the clock is pinned and keep every…  ≈$1,234.56 999 turns |
+|                                                                                                                        |
+| Recent  8                                                                                                              |
+| · ⌘ task number 29 Fix the flaky replay test and keep every                                            ≈$1,234.56  16m |
+| · ⌶ task number 28 Fix the flaky replay test and keep every                                            ≈$1,234.56  16m |
+| · ⌶ task number 26 Fix the flaky replay test and keep every                                            ≈$1,234.56  16m |
+| · ⌘ task number 25 Fix the flaky replay test and keep every                                            ≈$1,234.56  16m |
+| · ⌘ task number 23 Fix the flaky replay test and keep every                                            ≈$1,234.56  16m |
+| · ⌶ task number 22 Fix the flaky replay test and keep every                                            ≈$1,234.56  16m |
+| · ⌶ task number 20 Fix the flaky replay test and keep every                                            ≈$1,234.56  16m |
+| · ⌘ task number 19 Fix the flaky replay test and keep every                                            ≈$1,234.56  16m |
+|                                                                                                                        |
+| Doctor                                                                                                                 |
+|   /legion doctor checks what Legion needs.                                                                             |
++------------------------------------------------------------------------------------------------------------------------+
+
+=== order · empty @60
++------------------------------------------------------------+
+| ✠ LEGION  1: Chat  5: Order                                |
+|────────────────────────────────────────────────────────────|
+| Agents                                     p: Poke Builder |
+|  ✠ Zealot         Standing vigil                           |
+|▸ ⌘ Builder        Standing vigil                           |
+|  ◎ Scout          Standing vigil                           |
+|  ⌕ Inquisitor     Standing vigil                           |
+|  ✎ Scribe         Standing vigil                           |
+|  ▤ Archivist      Standing vigil                           |
+|  ◬ Sentinel       Standing vigil                           |
+|  ⌶ Forgemaster    Standing vigil                           |
+|  ☾ Exorcist       Standing vigil                           |
+|  ⊥ Preceptor      Standing vigil                           |
+|  ⚑ Herald         Standing vigil                           |
+|  ◈ Sculptor       Standing vigil                           |
+|                                                            |
+| Running                                                    |
+|   Nothing running. Press n in Chat to start a task.        |
+|                                                            |
+| Recent                                                     |
+|   Tasks show up here as agents work.                       |
+|                                                            |
+| Doctor                                                     |
+|   /legion doctor checks what Legion needs.                 |
++------------------------------------------------------------+
+
+=== order · empty @80
++--------------------------------------------------------------------------------+
+| ✠ LEGION  1: Chat  5: Order                                                    |
+|────────────────────────────────────────────────────────────────────────────────|
+| Agents                                                         p: Poke Builder |
+|  ✠ Zealot          Standing vigil                                              |
+|▸ ⌘ Builder         Standing vigil                                              |
+|  ◎ Scout           Standing vigil                                              |
+|  ⌕ Inquisitor      Standing vigil                                              |
+|  ✎ Scribe          Standing vigil                                              |
+|  ▤ Archivist       Standing vigil                                              |
+|  ◬ Sentinel        Standing vigil                                              |
+|  ⌶ Forgemaster     Standing vigil                                              |
+|  ☾ Exorcist        Standing vigil                                              |
+|  ⊥ Preceptor       Standing vigil                                              |
+|  ⚑ Herald          Standing vigil                                              |
+|  ◈ Sculptor        Standing vigil                                              |
+|                                                                                |
+| Running                                                                        |
+|   Nothing running. Press n in Chat to start a task.                            |
+|                                                                                |
+| Recent                                                                         |
+|   Tasks show up here as agents work.                                           |
+|                                                                                |
+| Doctor                                                                         |
+|   /legion doctor checks what Legion needs.                                     |
++--------------------------------------------------------------------------------+
+
+=== order · empty @100
++----------------------------------------------------------------------------------------------------+
+| ✠ LEGION  1: Chat  5: Order                                                                        |
+|────────────────────────────────────────────────────────────────────────────────────────────────────|
+| Agents                                                                             p: Poke Builder |
+|  ✠ Zealot          Standing vigil                                                                  |
+|▸ ⌘ Builder         Standing vigil                                                                  |
+|  ◎ Scout           Standing vigil                                                                  |
+|  ⌕ Inquisitor      Standing vigil                                                                  |
+|  ✎ Scribe          Standing vigil                                                                  |
+|  ▤ Archivist       Standing vigil                                                                  |
+|  ◬ Sentinel        Standing vigil                                                                  |
+|  ⌶ Forgemaster     Standing vigil                                                                  |
+|  ☾ Exorcist        Standing vigil                                                                  |
+|  ⊥ Preceptor       Standing vigil                                                                  |
+|  ⚑ Herald          Standing vigil                                                                  |
+|  ◈ Sculptor        Standing vigil                                                                  |
+|                                                                                                    |
+| Running                                                                                            |
+|   Nothing running. Press n in Chat to start a task.                                                |
+|                                                                                                    |
+| Recent                                                                                             |
+|   Tasks show up here as agents work.                                                               |
+|                                                                                                    |
+| Doctor                                                                                             |
+|   /legion doctor checks what Legion needs.                                                         |
++----------------------------------------------------------------------------------------------------+
+
+=== order · empty @120
++------------------------------------------------------------------------------------------------------------------------+
+| ✠ LEGION  1: Chat  5: Order                                                                                            |
+|────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────|
+| Agents                                                                                                 p: Poke Builder |
+|  ✠ Zealot          Standing vigil                                                                                      |
+|▸ ⌘ Builder         Standing vigil                                                                                      |
+|  ◎ Scout           Standing vigil                                                                                      |
+|  ⌕ Inquisitor      Standing vigil                                                                                      |
+|  ✎ Scribe          Standing vigil                                                                                      |
+|  ▤ Archivist       Standing vigil                                                                                      |
+|  ◬ Sentinel        Standing vigil                                                                                      |
+|  ⌶ Forgemaster     Standing vigil                                                                                      |
+|  ☾ Exorcist        Standing vigil                                                                                      |
+|  ⊥ Preceptor       Standing vigil                                                                                      |
+|  ⚑ Herald          Standing vigil                                                                                      |
+|  ◈ Sculptor        Standing vigil                                                                                      |
+|                                                                                                                        |
+| Running                                                                                                                |
+|   Nothing running. Press n in Chat to start a task.                                                                    |
+|                                                                                                                        |
+| Recent                                                                                                                 |
+|   Tasks show up here as agents work.                                                                                   |
+|                                                                                                                        |
+| Doctor                                                                                                                 |
+|   /legion doctor checks what Legion needs.                                                                             |
++------------------------------------------------------------------------------------------------------------------------+
+
+=== band · busy + paused item @60
++------------------------------------------------------------+
+| ! ⌘ Builder · Bash  npm test -- rep…  answer in the dialog |
+| ‖ ⌘ Builder · Paused at the turn…  c: Continue  x: Dismiss |
++------------------------------------------------------------+
+
+=== band · busy + paused item @80
++--------------------------------------------------------------------------------+
+| ! ⌘ Builder asks to run a command  npm test -- replay     answer in the dialog |
+| ‖ ⌘ Builder · Paused at the turn limit                 c: Continue  x: Dismiss |
++--------------------------------------------------------------------------------+
+
+=== band · busy + paused item @100
++----------------------------------------------------------------------------------------------------+
+| ! ⌘ Builder asks to run a command  npm test -- replay                         answer in the dialog |
+| ‖ ⌘ Builder · Paused at the turn limit                                     c: Continue  x: Dismiss |
++----------------------------------------------------------------------------------------------------+
+
+=== band · busy + paused item @120
++------------------------------------------------------------------------------------------------------------------------+
+| ! ⌘ Builder asks to run a command  npm test -- replay                                             answer in the dialog |
+| ‖ ⌘ Builder · Paused at the turn limit                                                         c: Continue  x: Dismiss |
++------------------------------------------------------------------------------------------------------------------------+
+
+=== band · long @60
++------------------------------------------------------------+
+| ! ⌘ Builder · Bash  Fix the flaky r…  answer in the dialog |
+| ! ⌘ Builder · Bash  Fix the flaky r…  answer in the dialog |
+| +124 more · /legion to open                                |
++------------------------------------------------------------+
+
+=== band · long @80
++--------------------------------------------------------------------------------+
+| ! ⌘ Builder asks to run a command  Fix the flaky replay…  answer in the dialog |
+| ! ⌘ Builder asks to run a command  Fix the flaky replay…  answer in the dialog |
+| +124 more · /legion to open                                                    |
++--------------------------------------------------------------------------------+
+
+=== band · long @100
++----------------------------------------------------------------------------------------------------+
+| ! ⌘ Builder asks to run a command  Fix the flaky replay test and keep every…  answer in the dialog |
+| ! ⌘ Builder asks to run a command  Fix the flaky replay test and keep every…  answer in the dialog |
+| +124 more · /legion to open                                                                        |
++----------------------------------------------------------------------------------------------------+
+
+=== band · long @120
++------------------------------------------------------------------------------------------------------------------------+
+| ! ⌘ Builder asks to run a command  Fix the flaky replay test and keep every assertion while the…  answer in the dialog |
+| ! ⌘ Builder asks to run a command  Fix the flaky replay test and keep every assertion while the…  answer in the dialog |
+| +124 more · /legion to open                                                                                            |
++------------------------------------------------------------------------------------------------------------------------+
+
+=== band · channel open @60
++------------------------------------------------------------+
+| Speaking to ✠ Zealot · /legion talk off                    |
++------------------------------------------------------------+
+
+=== band · channel open @80
++--------------------------------------------------------------------------------+
+| Speaking to ✠ Zealot · /legion talk off                                        |
++--------------------------------------------------------------------------------+
+
+=== band · channel open @100
++----------------------------------------------------------------------------------------------------+
+| Speaking to ✠ Zealot · /legion talk off                                                            |
++----------------------------------------------------------------------------------------------------+
+
+=== band · channel open @120
++------------------------------------------------------------------------------------------------------------------------+
+| Speaking to ✠ Zealot · /legion talk off                                                                                |
++------------------------------------------------------------------------------------------------------------------------+
+
+=== dispatch · running with card @60
++------------------------------------------------------------+
+|● ⌘ Builder · Executing · 9 turns · ≈$0.21                  |
+|  fix the flaky replay                                      |
+|  ▸ Bash  npm test -- replay                                |
+|  ! ⌘ Builder asks to run a command    answer in the dialog |
++------------------------------------------------------------+
+
+=== dispatch · running with card @80
++--------------------------------------------------------------------------------+
+|● ⌘ Builder · Executing · 9 turns · ≈$0.21                                      |
+|  fix the flaky replay                                                          |
+|  ▸ Bash  npm test -- replay                                                    |
+|  ! ⌘ Builder asks to run a command                        answer in the dialog |
++--------------------------------------------------------------------------------+
+
+=== dispatch · running with card @100
++----------------------------------------------------------------------------------------------------+
+|● ⌘ Builder · Executing · 9 turns · ≈$0.21                                                          |
+|  fix the flaky replay                                                                              |
+|  ▸ Bash  npm test -- replay                                                                        |
+|  ! ⌘ Builder asks to run a command                                            answer in the dialog |
++----------------------------------------------------------------------------------------------------+
+
+=== dispatch · running with card @120
++------------------------------------------------------------------------------------------------------------------------+
+|● ⌘ Builder · Executing · 9 turns · ≈$0.21                                                                              |
+|  fix the flaky replay                                                                                                  |
+|  ▸ Bash  npm test -- replay                                                                                            |
+|  ! ⌘ Builder asks to run a command                                                                answer in the dialog |
++------------------------------------------------------------------------------------------------------------------------+
+
+=== dispatch · done @60
++------------------------------------------------------------+
+|✎ Scribe · done · 9 turns · ≈$0.21                          |
++------------------------------------------------------------+
+
+=== dispatch · done @80
++--------------------------------------------------------------------------------+
+|✎ Scribe · done · 9 turns · ≈$0.21                                              |
++--------------------------------------------------------------------------------+
+
+=== dispatch · done @100
++----------------------------------------------------------------------------------------------------+
+|✎ Scribe · done · 9 turns · ≈$0.21                                                                  |
++----------------------------------------------------------------------------------------------------+
+
+=== dispatch · done @120
++------------------------------------------------------------------------------------------------------------------------+
+|✎ Scribe · done · 9 turns · ≈$0.21                                                                                      |
++------------------------------------------------------------------------------------------------------------------------+
+
+=== dispatch · paused @60
++------------------------------------------------------------+
+|⌘ Builder · paused at the turn limit · 9 turns · ≈$0.21     |
++------------------------------------------------------------+
+
+=== dispatch · paused @80
++--------------------------------------------------------------------------------+
+|⌘ Builder · paused at the turn limit · 9 turns · ≈$0.21 · /continue             |
++--------------------------------------------------------------------------------+
+
+=== dispatch · paused @100
++----------------------------------------------------------------------------------------------------+
+|⌘ Builder · paused at the turn limit · 9 turns · ≈$0.21 · /continue                                 |
++----------------------------------------------------------------------------------------------------+
+
+=== dispatch · paused @120
++------------------------------------------------------------------------------------------------------------------------+
+|⌘ Builder · paused at the turn limit · 9 turns · ≈$0.21 · /continue                                                     |
++------------------------------------------------------------------------------------------------------------------------+
+
+=== dispatch · failed @60
++------------------------------------------------------------+
+|◎ Scout · failed · 9 turns · ≈$0.21                         |
+|  The model refused the request.                            |
++------------------------------------------------------------+
+
+=== dispatch · failed @80
++--------------------------------------------------------------------------------+
+|◎ Scout · failed · 9 turns · ≈$0.21                                             |
+|  The model refused the request.                                                |
++--------------------------------------------------------------------------------+
+
+=== dispatch · failed @100
++----------------------------------------------------------------------------------------------------+
+|◎ Scout · failed · 9 turns · ≈$0.21                                                                 |
+|  The model refused the request.                                                                    |
++----------------------------------------------------------------------------------------------------+
+
+=== dispatch · failed @120
++------------------------------------------------------------------------------------------------------------------------+
+|◎ Scout · failed · 9 turns · ≈$0.21                                                                                     |
+|  The model refused the request.                                                                                        |
++------------------------------------------------------------------------------------------------------------------------+
+
+=== status line @80
++--------------------------------------------------------------------------------+
+|⌘ Builder · Standing vigil                                                      |
+|⌘ Builder · Executing · 1 running · 1 paused · 1 awaiting your word             |
+|⌘ Builder · Standing vigil · 10 running · 99+ awaiting your word                |
+|Speaking to ✠ Zealot · /legion talk off                                         |
++--------------------------------------------------------------------------------+

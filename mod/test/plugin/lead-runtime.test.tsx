@@ -5,6 +5,8 @@
  */
 import { expect, mock, test } from 'claude-code/testing'
 
+import { ZEALOT_ART_JSON } from './fixtures/art-zealot.ts'
+
 const ROOT = 'C:/Users/test/.legion-mod'
 
 function world(on: any) {
@@ -13,6 +15,7 @@ function world(on: any) {
   const registered: { agents: string[]; commands: string[]; tools: string[] } = { agents: [], commands: [], tools: [] }
   const toasts: string[] = []
   const fills: string[] = []
+  const artReads: string[] = []
   const norm = (p: string) => p.replace(/\\/g, '/')
   const clock = mock.clock(on, { now: 1_000_000 })
   mock.env(on, { USERPROFILE: 'C:/Users/test' })
@@ -20,6 +23,12 @@ function world(on: any) {
   on('settings.read', () => ({ value: { theme: 'dark' } }))
   on('fs.exists', (_$: any, e: any) => ({ value: files.has(norm(e.path)) || [...files.keys()].some(k => k.startsWith(norm(e.path) + '/')) }))
   on('fs.read', (_$: any, e: any) => {
+    // The plugin's own art (mod/art/*.json): Zealot's real frames, recorded so a test can prove what was read.
+    if (norm(e.path).includes('/art/')) {
+      artReads.push(norm(e.path))
+      if (norm(e.path).endsWith('/art/zealot.json')) return { value: ZEALOT_ART_JSON }
+      return { deny: `ENOENT: no such file ${e.path}` }
+    }
     const t = files.get(norm(e.path))
     if (t === undefined) return { deny: `ENOENT: no such file ${e.path}` }
     return { value: t }
@@ -53,7 +62,7 @@ function world(on: any) {
   on('prompt.fill', (_$: any, e: any) => { fills.push(e.text); return { value: undefined } })
   on('state.set', { plugin: 'legion-mod' } as any, async (_$: any, e: any, next: any) => { (writes[e.key] ??= []).push(e.value); return next(e) })
   on('session.start', (_$: any, e: any) => ({ cwd: e.cwd }))
-  return { files, writes, registered, toasts, fills, clock, last: (key: string) => writes[key]?.at(-1) }
+  return { files, writes, registered, toasts, fills, clock, artReads, last: (key: string) => writes[key]?.at(-1) }
 }
 
 const start = ($: any) => $.session.start({ cwd: 'D:/work', surface: 'terminal', isInteractive: true })
@@ -149,4 +158,43 @@ test('/legion doctor: an old Claude Code is named with the fix', async ($, on) =
   const text = String(out?.text)
   expect(text).toContain('✕ Claude Code: 2.1.280: mods need 2.1.287 or newer. Run claude update.')
   expect(text).toContain('✓ Runner')
+})
+
+
+/** The 2D Order's world: the pane shown, Zealot's real art on disk, and a record of every art read, timer and blit. */
+function stageWorld(on: any, opts: { twoD: boolean }) {
+  const w = world(on)
+  const artReads: string[] = []
+  const blits: any[] = []
+  on('ui.panes', () => ({ value: [{ id: 'legion', title: 'Legion', isShown: true, isFocused: false, isPlaced: true }] }))
+  on('ui.blit', (_$: any, e: any) => { blits.push(e); return { value: {} } })
+  if (opts.twoD) w.files.set(`${ROOT}/settings/seg-seed-0.jsonl`, JSON.stringify({ s: 'seed', q: 1, t: 1, op: { k: 'patch', patch: { twoD: true } } }) + '\n')
+  return { ...w, artReads: w.artReads, blits }
+}
+
+test('2D Order off (the default): no art is read, no stage, no frame timer, even on the Order view', async ($, on) => {
+  const w = stageWorld(on, { twoD: false })
+  await start($)
+  await ($ as any).command.run({ command: 'legion', args: 'order' })
+  await w.clock.advance(5_000)
+  expect(w.artReads).toEqual([])
+  expect(w.blits).toEqual([])
+  expect(w.last('stage')).toBe(null)
+})
+
+test("2D Order on: the shown agent's stage gets its first frame, frames blit, and it goes still when nothing happens", async ($, on) => {
+  const w = stageWorld(on, { twoD: true })
+  await start($)
+  await ($ as any).command.run({ command: 'legion', args: 'order' })
+  const stage = w.last('stage')
+  expect(stage).toMatchObject({ agentId: 'zealot', cols: 32, rows: 18 })
+  expect(stage.cells.length).toBeGreaterThan(100)
+  await w.clock.advance(3_000)
+  expect(w.blits.length).toBeGreaterThan(0)
+  expect(w.blits[0]).toMatchObject({ requestId: 'legion', key: 'stage' })
+  // Dormant after 60 s without events: the blits stop.
+  await w.clock.advance(90_000)
+  const settled = w.blits.length
+  await w.clock.advance(30_000)
+  expect(w.blits.length).toBe(settled)
 })

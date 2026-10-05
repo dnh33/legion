@@ -201,6 +201,10 @@ declare module 'claude-code' {
       settings: ModSettings
       /** This window's Claude Code session id: tasks owned by another session are drawn read-only ("running in another window"). */
       sessionId: string
+      /** The 2D Order's stage for the shown agent: its first frame (later frames are blitted, never written here). Null when 2D is off. */
+      stage: { agentId: AgentId; cells: string; cols: number; rows: number } | null
+      /** The muster row's still frames (Raster cells, base64) by agent. Empty when 2D is off. */
+      muster: Record<AgentId, string>
       /** The last `/legion doctor` result, newest run only. */
       doctor: DoctorLine[]
       /** Resolved theme for drawing: `dark` or `light`. */

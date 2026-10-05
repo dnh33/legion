@@ -1,0 +1,197 @@
+{
+ "zealot": {
+  "stage": {
+   "refMeanAbsErr": 0.8,
+   "refMaxAbsErr": 37.6,
+   "quantMeanAbsErr": 7.59,
+   "paletteSize": 22
+  },
+  "muster": {
+   "refMeanAbsErr": 1.52,
+   "refMaxAbsErr": 17.2,
+   "quantMeanAbsErr": 4.18,
+   "paletteSize": 22
+  },
+  "bytes": 10356
+ },
+ "builder": {
+  "stage": {
+   "refMeanAbsErr": 0.49,
+   "refMaxAbsErr": 18.2,
+   "quantMeanAbsErr": 6.72,
+   "paletteSize": 22
+  },
+  "muster": {
+   "refMeanAbsErr": 2.28,
+   "refMaxAbsErr": 17.5,
+   "quantMeanAbsErr": 3.12,
+   "paletteSize": 22
+  },
+  "bytes": 10694
+ },
+ "scout": {
+  "stage": {
+   "refMeanAbsErr": 0.62,
+   "refMaxAbsErr": 20.2,
+   "quantMeanAbsErr": 7.7,
+   "paletteSize": 22
+  },
+  "muster": {
+   "refMeanAbsErr": 2.45,
+   "refMaxAbsErr": 19.6,
+   "quantMeanAbsErr": 4.32,
+   "paletteSize": 22
+  },
+  "bytes": 10636
+ },
+ "inquisitor": {
+  "stage": {
+   "refMeanAbsErr": 0.33,
+   "refMaxAbsErr": 15.7,
+   "quantMeanAbsErr": 9.67,
+   "paletteSize": 22
+  },
+  "muster": {
+   "refMeanAbsErr": 0.92,
+   "refMaxAbsErr": 9.7,
+   "quantMeanAbsErr": 3.0,
+   "paletteSize": 22
+  },
+  "bytes": 9041
+ },
+ "scribe": {
+  "stage": {
+   "refMeanAbsErr": 0.46,
+   "refMaxAbsErr": 22.2,
+   "quantMeanAbsErr": 7.06,
+   "paletteSize": 22
+  },
+  "muster": {
+   "refMeanAbsErr": 1.51,
+   "refMaxAbsErr": 16.7,
+   "quantMeanAbsErr": 3.43,
+   "paletteSize": 22
+  },
+  "bytes": 9734
+ },
+ "archivist": {
+  "stage": {
+   "refMeanAbsErr": 0.54,
+   "refMaxAbsErr": 25.3,
+   "quantMeanAbsErr": 7.54,
+   "paletteSize": 22
+  },
+  "muster": {
+   "refMeanAbsErr": 1.65,
+   "refMaxAbsErr": 13.7,
+   "quantMeanAbsErr": 4.99,
+   "paletteSize": 22
+  },
+  "bytes": 8985
+ },
+ "sentinel": {
+  "stage": {
+   "refMeanAbsErr": 0.42,
+   "refMaxAbsErr": 17.4,
+   "quantMeanAbsErr": 7.38,
+   "paletteSize": 22
+  },
+  "muster": {
+   "refMeanAbsErr": 2.2,
+   "refMaxAbsErr": 19.6,
+   "quantMeanAbsErr": 3.14,
+   "paletteSize": 22
+  },
+  "bytes": 11329
+ },
+ "forgemaster": {
+  "stage": {
+   "refMeanAbsErr": 0.43,
+   "refMaxAbsErr": 14.9,
+   "quantMeanAbsErr": 6.11,
+   "paletteSize": 22
+  },
+  "muster": {
+   "refMeanAbsErr": 1.37,
+   "refMaxAbsErr": 11.5,
+   "quantMeanAbsErr": 2.33,
+   "paletteSize": 22
+  },
+  "bytes": 12105
+ },
+ "exorcist": {
+  "stage": {
+   "refMeanAbsErr": 1.05,
+   "refMaxAbsErr": 108.7,
+   "quantMeanAbsErr": 6.55,
+   "paletteSize": 22
+  },
+  "muster": {
+   "refMeanAbsErr": 1.02,
+   "refMaxAbsErr": 14.6,
+   "quantMeanAbsErr": 2.12,
+   "paletteSize": 22
+  },
+  "bytes": 9882
+ },
+ "preceptor": {
+  "stage": {
+   "refMeanAbsErr": 0.45,
+   "refMaxAbsErr": 15.0,
+   "quantMeanAbsErr": 6.2,
+   "paletteSize": 22
+  },
+  "muster": {
+   "refMeanAbsErr": 2.82,
+   "refMaxAbsErr": 31.3,
+   "quantMeanAbsErr": 2.79,
+   "paletteSize": 22
+  },
+  "bytes": 8712
+ },
+ "herald": {
+  "stage": {
+   "refMeanAbsErr": 0.63,
+   "refMaxAbsErr": 28.1,
+   "quantMeanAbsErr": 6.09,
+   "paletteSize": 22
+  },
+  "muster": {
+   "refMeanAbsErr": 2.58,
+   "refMaxAbsErr": 22.5,
+   "quantMeanAbsErr": 4.5,
+   "paletteSize": 22
+  },
+  "bytes": 10296
+ },
+ "assayer": {
+  "stage": {
+   "refMeanAbsErr": 0.55,
+   "refMaxAbsErr": 30.1,
+   "quantMeanAbsErr": 6.68,
+   "paletteSize": 22
+  },
+  "muster": {
+   "refMeanAbsErr": 2.42,
+   "refMaxAbsErr": 22.5,
+   "quantMeanAbsErr": 2.6,
+   "paletteSize": 22
+  },
+  "bytes": 8582
+ },
+ "sculptor": {
+  "stage": {
+   "refMeanAbsErr": 0.53,
+   "refMaxAbsErr": 21.0,
+   "quantMeanAbsErr": 6.47,
+   "paletteSize": 22
+  },
+  "muster": {
+   "refMeanAbsErr": 1.54,
+   "refMaxAbsErr": 14.3,
+   "quantMeanAbsErr": 3.24,
+   "paletteSize": 22
+  },
+  "bytes": 10418
+ }
+}

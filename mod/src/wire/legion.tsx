@@ -27,7 +27,9 @@ import { agentsList } from '../engine/bridge.ts'
 import { dataRoot, fsPort } from '../store/fs-port.ts'
 import { newId } from '../store/ids.ts'
 import { createAgentStore, createSettingsStore, createTaskStore, createThreadStore, DEFAULT_SETTINGS, type AgentStore, type SettingsStore, type TaskStore, type ThreadStore } from '../store/stores.ts'
-import { themeFromClaude } from '../theme.ts'
+import { palette, themeFromClaude } from '../theme.ts'
+import { decodeArt, type Art } from '../art/art.ts'
+import { createStage, invalidateStage, musterCells, stepStage, type StageRuntime } from '../art/driver.ts'
 import { bandItemAt, decodeAction, type DecodedAction } from '../ui/actions.ts'
 import { assistantText, latestTaskOf, makeTask, newCtx, notificationRunId, parseTo, pushBand, resolveAgent, resumeRequest, spawnRequest, stopRequest, taskList, type Ctx } from './core.ts'
 
@@ -45,6 +47,8 @@ const THEME = { plugin: 'legion-mod', key: 'theme' } as const
 const QUEUE = { plugin: 'legion-mod', key: 'runQueue' } as const
 const SESSION = { plugin: 'legion-mod', key: 'sessionId' } as const
 const DOCTOR = { plugin: 'legion-mod', key: 'doctor' } as const
+const STAGE = { plugin: 'legion-mod', key: 'stage' } as const
+const MUSTER = { plugin: 'legion-mod', key: 'muster' } as const
 /** legion-mod-runner's state is outside this plugin's contract (validate lists it under "state of other plugins"), hence the casts. */
 const RESULTS = { plugin: 'legion-mod-runner', key: 'results' } as const
 /** The same value as a hook matcher. The validator refuses one const used both as a state reference and as a matcher. */
@@ -106,6 +110,7 @@ async function apply($: EngineInterface, taskId: string, ev: RunEvent, opts: { p
   }
   const wanted = moodFor(ev)
   const agentId = (after ?? before)?.agentId
+  if (agentId) lastEventAt.set(agentId, at)
   if (wanted && agentId) await setMood($, agentId, wanted)
   return after
 }
@@ -128,6 +133,7 @@ async function settleMood($: EngineInterface, agentId: string): Promise<void> {
   if (step.state !== ctx.moods[agentId]) {
     ctx.moods = { ...ctx.moods, [agentId]: step.state }
     await $.state.set(MOODS, ctx.moods)
+    if (ctx.settings.twoD) { await driveStage($); await publishMuster($) }
   }
   if (step.recheckAt !== undefined && !moodCheckPending.has(agentId)) {
     moodCheckPending.add(agentId)
@@ -236,6 +242,100 @@ async function adopt($: EngineInterface, runId: string): Promise<string | undefi
   return task.id
 }
 
+// ---- The 2D Order (plan §5): off by default; off loads no frame and schedules nothing ------------------------------------
+
+/** Art by agent id, loaded on first use while the 2D Order is on. */
+const artCache = new Map<string, Art | null>()
+/** When each agent last had an event: the Dormant clock counts from here (art/animator.ts). */
+const lastEventAt = new Map<string, number>()
+let stageRt: StageRuntime | undefined
+let stageAgent = ''
+let stageTimer: { cancel(): void } | undefined
+/** The surface colour the frames blend over, as 0xRRGGBB. */
+const panelColour = (theme: 'dark' | 'light'): number => Number.parseInt(palette(theme).surface.slice(1), 16)
+
+async function loadArt($: EngineInterface, agentId: string): Promise<Art | null> {
+  if (artCache.has(agentId)) return artCache.get(agentId) ?? null
+  let art: Art | null = null
+  try {
+    art = decodeArt(JSON.parse(await $.fs.read(`${$.plugin.root}/art/${agentId}.json`)))
+  } catch (err) {
+    $.ui.log(`legion-mod: no 2D art for ${agentId}: ${message(err)}`, { to: 'debug' })
+  }
+  artCache.set(agentId, art)
+  return art
+}
+
+function stopStage(): void {
+  stageTimer?.cancel()
+  stageTimer = undefined
+  stageRt = undefined
+  stageAgent = ''
+}
+
+/** Brings the stage in line with the settings and the view: starts, retargets, wakes or stops it. Cheap to call often. */
+async function stageVisible($: EngineInterface): Promise<boolean> {
+  return ctx.settings.twoD && ctx.ui.view === 'order' && (await $.ui.panes()).some(p => p.id === 'legion' && p.isShown)
+}
+
+async function driveStage($: EngineInterface): Promise<void> {
+  if (!(await stageVisible($))) {
+    if (stageRt || stageTimer) stopStage()
+    return
+  }
+  const agentId = ctx.ui.agentId
+  const theme = ((await $.state.get(THEME)).value ?? 'dark') as 'dark' | 'light'
+  const opts = { panel: panelColour(theme), transparent: 'terminal' as const }
+  if (!stageRt || stageAgent !== agentId) {
+    stopStage()
+    const art = await loadArt($, agentId)
+    if (!art) { await $.state.set(STAGE, null); return }
+    const at = await $.clock.now()
+    // An agent with no events yet counts its quiet time from now; it must never read as "just active" on every frame.
+    if (!lastEventAt.has(agentId)) lastEventAt.set(agentId, at)
+    stageRt = createStage(art, at, ctx.moods[agentId]?.mood ?? 'idle', opts)
+    stageAgent = agentId
+    const first = stepStage(stageRt, at, { mood: ctx.moods[agentId]?.mood ?? 'idle', motion: ctx.settings.motion, lastEventAt: lastEventAt.get(agentId) ?? 0 })
+    await $.state.set(STAGE, { agentId, cells: first.cells ?? '', cols: art.stage.cols, rows: art.stage.rows })
+    scheduleStage($, first.nextAtMs, at)
+    return
+  }
+  // Already showing: an event may have woken a Dormant stage, so step now if nothing is scheduled.
+  if (!stageTimer) await frame($)
+}
+
+function scheduleStage($: EngineInterface, nextAtMs: number | null, at: number): void {
+  stageTimer?.cancel()
+  stageTimer = nextAtMs === null ? undefined : $.clock.after(Math.max(0, nextAtMs - at), () => { stageTimer = undefined; void frame($) })
+}
+
+/** One frame: blit it when it changed, then ask the animator when to come back (never, once Dormant). */
+async function frame($: EngineInterface): Promise<void> {
+  if (!stageRt) return
+  if (!(await stageVisible($))) { stopStage(); return } // the pane closed or moved on: nothing runs for a stage nobody sees
+  const at = await $.clock.now()
+  const agentId = stageAgent
+  const step = stepStage(stageRt, at, { mood: ctx.moods[agentId]?.mood ?? 'idle', motion: ctx.settings.motion, lastEventAt: lastEventAt.get(agentId) ?? 0 })
+  if (step.cells) {
+    const blitted = await $.ui.blit({ requestId: 'legion', key: 'stage', cells: step.cells })
+    if (blitted.deny) invalidateStage(stageRt) // the Raster is not mounted (view changed): redraw in full next time
+  }
+  scheduleStage($, step.nextAtMs, at)
+}
+
+/** The muster row's still frames: computed once per mood change, never animated (as the desktop's rail busts). */
+async function publishMuster($: EngineInterface): Promise<void> {
+  if (!ctx.settings.twoD) { await $.state.set(MUSTER, {}); return }
+  const theme = ((await $.state.get(THEME)).value ?? 'dark') as 'dark' | 'light'
+  const out: Record<string, string> = {}
+  for (const a of ctx.agents) {
+    if (a.isHidden) continue
+    const art = await loadArt($, a.id)
+    if (art) out[a.id] = musterCells(art, ctx.moods[a.id]?.mood ?? 'idle', { panel: panelColour(theme), transparent: 'terminal' })
+  }
+  await $.state.set(MUSTER, out)
+}
+
 // ---- Boot and refresh ----------------------------------------------------------------------------------------------------
 
 async function boot($: EngineInterface): Promise<void> {
@@ -281,6 +381,9 @@ async function boot($: EngineInterface): Promise<void> {
   await publishQueue($)
   for (const a of ctx.agents) if (!a.isHidden) await $.agent.register(buildAgentSpec(a, settings))
   ctx.isReady = true
+  // The 2D Order only when it is on: off loads no art and schedules nothing.
+  await $.state.set(STAGE, null)
+  if (settings.twoD) await publishMuster($)
 }
 
 async function refresh($: EngineInterface): Promise<void> {
@@ -332,12 +435,14 @@ async function actOn($: EngineInterface, a: DecodedAction): Promise<void> {
     case 'view':
       ctx.ui = { ...ctx.ui, view: a.view }
       await $.state.set(UI, ctx.ui)
+      await driveStage($)
       return
     case 'agent': {
       const latest = latestTaskOf(ctx, a.agentId)
-      ctx.ui = { ...ctx.ui, view: 'chat', agentId: a.agentId, taskId: latest?.id ?? null }
+      ctx.ui = { ...ctx.ui, agentId: a.agentId, taskId: latest?.id ?? null }
       await $.state.set(UI, ctx.ui)
-      if (latest) await openTask($, latest.id)
+      if (latest && ctx.ui.view === 'chat') await openTask($, latest.id)
+      await driveStage($)
       return
     }
     case 'task':
@@ -451,7 +556,7 @@ async function runCommand($: EngineInterface, command: string, args: string): Pr
   // /legion [view | talk <agent> | talk off | motion on|off | 2d on|off]
   const [sub = '', rest = ''] = [args.trim().split(/\s+/)[0] ?? '', args.trim().split(/\s+/).slice(1).join(' ')]
   const views: Record<string, ViewId> = { chat: 'chat', order: 'order' }
-  if (views[sub]) { ctx.ui = { ...ctx.ui, view: views[sub] }; await $.state.set(UI, ctx.ui) }
+  if (views[sub]) { ctx.ui = { ...ctx.ui, view: views[sub] }; await $.state.set(UI, ctx.ui); await driveStage($) }
   if (sub === 'talk') {
     if (rest === 'off' || rest === '') {
       ctx.ui = { ...ctx.ui, channel: null }
@@ -476,9 +581,12 @@ async function runCommand($: EngineInterface, command: string, args: string): Pr
     const patch: Partial<ModSettings> = sub === 'motion' ? { motion: on } : { twoD: on }
     if (stores) ctx.settings = await stores.settings.patch(patch)
     await $.state.set(SETTINGS, ctx.settings)
+    await publishMuster($)
+    await driveStage($)
     return { text: sub === 'motion' ? `Motion ${on ? 'on' : 'off'}.` : `2D Order ${on ? 'on' : 'off'}.` }
   }
   await $.ui.open({ id: 'legion', title: 'Legion' })
+  await driveStage($)
   return { text: 'Legion opened.' }
 }
 
