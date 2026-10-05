@@ -59,7 +59,6 @@ let ctx: Ctx = newCtx({ ...DEFAULT_SETTINGS })
 let stores: Stores | undefined
 let liveAt = 0
 
-const now = (): number => Date.now()
 const message = (err: unknown): string => (err instanceof Error ? err.message : String(err)).slice(0, 300)
 
 // ---- Publishing ------------------------------------------------------------------------------------------------------
@@ -84,7 +83,7 @@ async function say($: EngineInterface, text: string): Promise<void> {
 
 /** Applies one run event to its task and thread, persists what changed and publishes it. */
 async function apply($: EngineInterface, taskId: string, ev: RunEvent, opts: { persistRows?: boolean } = { persistRows: true }): Promise<TaskView | undefined> {
-  const at = now()
+  const at = (await $.clock.now())
   const before = ctx.tasks.get(taskId)
   const after = reduceTask(before, ev, at, ctx.settings)
   if (after && after !== before) {
@@ -108,13 +107,32 @@ async function apply($: EngineInterface, taskId: string, ev: RunEvent, opts: { p
   return after
 }
 
+/** The latest mood each agent's events asked for, and whether a deferred check is already waiting (one per agent). */
+const wantedMood = new Map<string, Mood>()
+const moodCheckPending = new Set<string>()
+
+/** Shows `wanted` now, or once the current mood has had its minimum time; the latest wanted mood always wins (mood.ts). */
 async function setMood($: EngineInterface, agentId: string, wanted: Mood): Promise<void> {
-  const step = nextMood(ctx.moods[agentId], wanted, now())
+  wantedMood.set(agentId, wanted)
+  await settleMood($, agentId)
+}
+
+async function settleMood($: EngineInterface, agentId: string): Promise<void> {
+  const wanted = wantedMood.get(agentId)
+  if (!wanted) return
+  const at = await $.clock.now()
+  const step = nextMood(ctx.moods[agentId], wanted, at)
   if (step.state !== ctx.moods[agentId]) {
     ctx.moods = { ...ctx.moods, [agentId]: step.state }
     await $.state.set(MOODS, ctx.moods)
   }
-  if (step.recheckAt !== undefined) $.clock.after(Math.max(0, step.recheckAt - now()), () => void setMood($, agentId, wanted))
+  if (step.recheckAt !== undefined && !moodCheckPending.has(agentId)) {
+    moodCheckPending.add(agentId)
+    $.clock.after(Math.max(0, step.recheckAt - at), () => {
+      moodCheckPending.delete(agentId)
+      void settleMood($, agentId)
+    })
+  }
 }
 
 async function addBand($: EngineInterface, item: BandItem): Promise<void> {
@@ -131,11 +149,11 @@ async function enqueue($: EngineInterface, req: RunRequest): Promise<void> {
 
 /** Starts a new task for `agent` with `text`. Returns the task. */
 async function startTask($: EngineInterface, agent: AgentView, text: string, origin: TaskOrigin = { kind: 'person' }): Promise<TaskView> {
-  const task = makeTask({ id: newId('t'), agentId: agent.id, text, sessionId: ctx.sessionId, origin, now: now() })
+  const task = makeTask({ id: newId('t'), agentId: agent.id, text, sessionId: ctx.sessionId, origin, now: (await $.clock.now()) })
   ctx.tasks.set(task.id, task)
   await apply($, task.id, { type: 'queued', task, prompt: text })
   const pick = pickModel({ agentModel: agent.model, prompt: text, fromBot: origin.kind !== 'person' })
-  await enqueue($, spawnRequest({ id: newId('rq'), task, agent, prompt: pick.prompt, model: pick.model, now: now() }))
+  await enqueue($, spawnRequest({ id: newId('rq'), task, agent, prompt: pick.prompt, model: pick.model, now: (await $.clock.now()) }))
   ctx.ui = { ...ctx.ui, agentId: agent.id, taskId: task.id }
   await $.state.set(UI, ctx.ui)
   return task
@@ -146,7 +164,7 @@ async function continueTask($: EngineInterface, task: TaskView, text: string = C
   if (task.sessionId !== ctx.sessionId) return `${task.title} is running in another window. Continue it there.`
   if (task.status === 'running' || task.status === 'queued') return `${task.title} is still working. Wait for it to finish, or stop it first.`
   if (!task.runId) return `${task.title} has no run to continue yet.`
-  await enqueue($, resumeRequest({ id: newId('rq'), task, text, now: now() }))
+  await enqueue($, resumeRequest({ id: newId('rq'), task, text, now: (await $.clock.now()) }))
   return ''
 }
 
@@ -158,7 +176,7 @@ async function stopTask($: EngineInterface, task: TaskView): Promise<string> {
     for (const [id, req] of ctx.pending) if (req.taskId === task.id) ctx.pending.delete(id)
     await publishQueue($)
   } else {
-    await enqueue($, stopRequest({ id: newId('rq'), task, now: now() }))
+    await enqueue($, stopRequest({ id: newId('rq'), task, now: (await $.clock.now()) }))
   }
   await apply($, task.id, { type: 'stopped', taskId: task.id })
   return ''
@@ -177,7 +195,7 @@ async function onResult($: EngineInterface, r: RunResult): Promise<void> {
   if (!r.ok) {
     if (req.kind === 'stop') return // it had already stopped: the task is cancelled either way
     await apply($, task.id, { type: 'finished', runId: task.runId ?? '', reason: 'error', answer: '', errorText: r.error ?? 'Legion could not reach the agent.' })
-    await addBand($, { id: newId('b'), kind: 'error', taskId: task.id, agentId: task.agentId, text: r.error ?? 'The agent could not start.', at: now() })
+    await addBand($, { id: newId('b'), kind: 'error', taskId: task.id, agentId: task.agentId, text: r.error ?? 'The agent could not start.', at: (await $.clock.now()) })
     return
   }
   if (req.kind === 'spawn' && r.runId) {
@@ -204,7 +222,7 @@ async function adopt($: EngineInterface, runId: string): Promise<string | undefi
   const origin: TaskOrigin = parent
     ? { kind: 'bridge', fromAgentId: parent.agentId, fromTaskId: parent.id, hop: (parent.origin.kind === 'person' || parent.origin.kind === 'claude-code' ? 0 : parent.origin.hop) + 1, depth: (parent.origin.kind === 'bridge' ? parent.origin.depth : 0) + 1 }
     : { kind: 'claude-code' }
-  const task = makeTask({ id: newId('t'), agentId: agent.id, text: info.description || `${agent.name}`, sessionId: ctx.sessionId, origin, now: now() })
+  const task = makeTask({ id: newId('t'), agentId: agent.id, text: info.description || `${agent.name}`, sessionId: ctx.sessionId, origin, now: (await $.clock.now()) })
   ctx.tasks.set(task.id, task)
   ctx.byRun.set(runId, task.id)
   await apply($, task.id, { type: 'queued', task, ...(parent ? { fromAgentId: parent.agentId } : {}) })
@@ -325,7 +343,7 @@ async function actOn($: EngineInterface, a: DecodedAction): Promise<void> {
       return
     }
     case 'poke': {
-      const at = now()
+      const at = (await $.clock.now())
       const recent = [...(pokes.get(a.agentId) ?? []).filter(t => at - t < 10_000), at]
       pokes.set(a.agentId, recent)
       await setMood($, a.agentId, recent.length >= 5 ? 'annoyed' : 'listening')
@@ -482,14 +500,14 @@ export function registerLegion(on: Parameters<Register>[0]): void {
       const input = e as unknown as { subagent_type?: string; prompt?: string; run_in_background?: boolean }
       const target = parseLegionAgentType(input.subagent_type)
       if (target) {
-        const check = checkAsk({ callerRunId: runId, target, isBlocking: input.run_in_background === false, message: input.prompt ?? '', agents: ctx.agents, tasks: taskList(ctx), waiting: ctx.waiting, rateLog: ctx.rateLog, now: now() })
+        const check = checkAsk({ callerRunId: runId, target, isBlocking: input.run_in_background === false, message: input.prompt ?? '', agents: ctx.agents, tasks: taskList(ctx), waiting: ctx.waiting, rateLog: ctx.rateLog, now: (await $.clock.now()) })
         ctx.rateLog = check.rateLog
         if (!check.ok) return { deny: check.reason }
         if (input.run_in_background === false) ctx.waiting.add(runId)
       }
     }
     if (taintsRun(e.tool) && !task.isTainted) {
-      const tainted = { ...task, isTainted: true, updatedAt: now() }
+      const tainted = { ...task, isTainted: true, updatedAt: (await $.clock.now()) }
       ctx.tasks.set(task.id, tainted)
       await stores?.tasks.put(tainted)
       await publishTasks($)
@@ -536,7 +554,7 @@ export function registerLegion(on: Parameters<Register>[0]): void {
       const chunk = item.value
       if (chunk.kind === 'text') {
         text += chunk.text
-        const at = now()
+        const at = (await $.clock.now())
         if (at - liveAt >= LIVE_MS) {
           liveAt = at
           ctx.live.set(taskId, text)
@@ -573,13 +591,13 @@ export function registerLegion(on: Parameters<Register>[0]): void {
     const who = agent ? `${agent.glyph} ${agent.name}` : after.agentId
     const kind = after.status === 'paused' ? 'paused' : after.status === 'error' ? 'error' : 'done'
     const line = kind === 'paused' ? `${who} paused at the turn limit · /continue` : kind === 'error' ? `${who} stopped on an error` : `${who} finished · ${after.title}`
-    await addBand($, { id: newId('b'), kind, taskId, agentId: after.agentId, text: line, at: now() })
+    await addBand($, { id: newId('b'), kind, taskId, agentId: after.agentId, text: line, at: (await $.clock.now()) })
     if (ctx.ui.taskId !== taskId) $.ui.toast(line)
     // A tell: the answer goes back to the caller, appended into its running loop, or resuming it when it already stopped.
     if (after.origin.kind === 'bridge') {
       const caller = ctx.tasks.get(after.origin.fromTaskId)
       if (caller && answerTaintsCaller(after) && !caller.isTainted) {
-        const tainted = { ...caller, isTainted: true, updatedAt: now() }
+        const tainted = { ...caller, isTainted: true, updatedAt: (await $.clock.now()) }
         ctx.tasks.set(caller.id, tainted)
         await stores?.tasks.put(tainted)
       }
@@ -588,7 +606,7 @@ export function registerLegion(on: Parameters<Register>[0]): void {
         if (caller.status === 'running') {
           await $.session.append({ agentId: caller.runId, message: { type: 'user', content: [{ type: 'text', text: reply }] } })
         } else if (caller.sessionId === ctx.sessionId) {
-          await enqueue($, resumeRequest({ id: newId('rq'), task: caller, text: reply, now: now() }))
+          await enqueue($, resumeRequest({ id: newId('rq'), task: caller, text: reply, now: (await $.clock.now()) }))
         }
       }
     }
