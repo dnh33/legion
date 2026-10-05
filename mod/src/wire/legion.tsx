@@ -222,10 +222,13 @@ async function adopt($: EngineInterface, runId: string): Promise<string | undefi
   const origin: TaskOrigin = parent
     ? { kind: 'bridge', fromAgentId: parent.agentId, fromTaskId: parent.id, hop: (parent.origin.kind === 'person' || parent.origin.kind === 'claude-code' ? 0 : parent.origin.hop) + 1, depth: (parent.origin.kind === 'bridge' ? parent.origin.depth : 0) + 1 }
     : { kind: 'claude-code' }
-  const task = makeTask({ id: newId('t'), agentId: agent.id, text: info.description || `${agent.name}`, sessionId: ctx.sessionId, origin, now: (await $.clock.now()) })
+  // The run's opening message is the request: it titles the task and opens its thread, as a /to message would.
+  const read = await $.session.messages({ agentId: runId })
+  const opening = Array.isArray(read) ? (read.find(m => m.role === 'user')?.text?.trim() ?? '') : ''
+  const task = makeTask({ id: newId('t'), agentId: agent.id, text: opening || info.description || agent.name, sessionId: ctx.sessionId, origin, now: (await $.clock.now()) })
   ctx.tasks.set(task.id, task)
   ctx.byRun.set(runId, task.id)
-  await apply($, task.id, { type: 'queued', task, ...(parent ? { fromAgentId: parent.agentId } : {}) })
+  await apply($, task.id, { type: 'queued', task, ...(opening ? { prompt: opening } : {}), ...(parent ? { fromAgentId: parent.agentId } : {}) })
   await apply($, task.id, { type: 'started', taskId: task.id, runId, model: '' })
   return task.id
 }
@@ -537,7 +540,8 @@ export function registerLegion(on: Parameters<Register>[0]): void {
   })
 
   on('turn.step', async function* ($, e, next) {
-    const taskId = e.agentId ? ctx.byRun.get(e.agentId) : undefined
+    // The first model request is the first sign of a run Legion did not queue: adopt it here, so its turns all count.
+    const taskId = e.agentId ? ctx.byRun.get(e.agentId) ?? (await adopt($, e.agentId)) : undefined
     if (!taskId || !e.agentId) return yield* next(e)
     const runId = e.agentId
     await apply($, taskId, { type: 'step', runId }, { persistRows: false })
