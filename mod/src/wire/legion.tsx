@@ -21,7 +21,7 @@ import { seedAgents } from '../engine/roster.ts'
 import { pickModel } from '../engine/router.ts'
 import { moodFor, reduceTask, reduceThread, type RunEvent } from '../engine/runs.ts'
 import { isLegionModTool } from '../engine/tool-names.ts'
-import { extraAsk, needsApproval, stricterMode, summarizeToolInput } from '../engine/approvals.ts'
+import { needsApproval, stricterMode, summarizeToolInput } from '../engine/approvals.ts'
 import { taintsRun } from '../engine/taint.ts'
 import { agentsList } from '../engine/bridge.ts'
 import { dataRoot, fsPort } from '../store/fs-port.ts'
@@ -212,7 +212,7 @@ async function stopTask($: EngineInterface, task: TaskView): Promise<string> {
   if (!task.runId) {
     // Not started yet: take the spawn out of the queue. The runner may already be starting it; remember the request, so a
     // run that arrives anyway is stopped at once (onResult, adopt) instead of running on unseen.
-    for (const [id, req] of ctx.pending) if (req.taskId === task.id && req.kind === 'spawn') { ctx.pending.delete(id); cancelledSpawns.add(id) }
+    for (const [id, req] of ctx.pending) if (req.taskId === task.id && req.kind === 'spawn') { ctx.pending.delete(id); cancelledSpawns.set(id, req) }
     cancelledTasks.add(task.id)
     await publishQueue($)
   } else {
@@ -223,7 +223,7 @@ async function stopTask($: EngineInterface, task: TaskView): Promise<string> {
 }
 
 /** Spawn requests withdrawn by a stop, and tasks stopped before their run started: a run that arrives for them is stopped. */
-const cancelledSpawns = new Set<string>()
+const cancelledSpawns = new Map<string, RunRequest>()
 const cancelledTasks = new Set<string>()
 
 /** Stops a run that started for a task the person had already stopped. */
@@ -256,6 +256,11 @@ async function onResult($: EngineInterface, r: RunResult): Promise<void> {
     const at = await $.clock.now()
     if (req.kind === 'stop') {
       if (/already stopped/i.test(r.error ?? '')) return // it had stopped on its own: cancelled either way
+      if (/waited more than ten minutes/i.test(r.error ?? '')) {
+        // The runner never acted on the stop; whether the run is still going is unknown. Say exactly that.
+        await addBand($, { id: newId('b'), kind: 'error', taskId: task.id, agentId: task.agentId, text: `The stop for ${task.title} was never carried out: legion-mod-runner did not answer for ten minutes. Check /legion doctor; the run may still be going.`, at })
+        return
+      }
       // The stop did not land: the run is still going. Say so, and show it as running again.
       const back = { ...task, status: 'running' as const, updatedAt: at }
       ctx.tasks.set(task.id, back)
@@ -269,6 +274,7 @@ async function onResult($: EngineInterface, r: RunResult): Promise<void> {
     ctx.tasks.set(task.id, failed)
     await stores?.tasks.put(failed)
     await publishTasks($)
+    if (!ctx.threads.has(task.id) && stores) ctx.threads.set(task.id, await stores.threads.load(task.id))
     const row: ThreadRow = { id: `${task.id}:fail:${r.requestId}`, role: 'system', text: `Error: ${failed.error}`, at }
     ctx.threads.set(task.id, [...(ctx.threads.get(task.id) ?? []), row])
     await stores?.threads.append(task.id, [row])
@@ -300,10 +306,14 @@ async function adopt($: EngineInterface, runId: string): Promise<string | undefi
   if (!info || !agent) return undefined
   // A run Legion queued carries its task in its name (`<agent>-t_<12 hex>`, core.ts spawnRequest). Its first step can beat the
   // runner's result: link it to that task instead of adopting a twin.
-  const named = /-(t_[0-9a-f]{12})$/.exec(info.name ?? '')?.[1]
-  const queued = named ? ctx.tasks.get(named) : undefined
-  if (queued) {
-    if (cancelledTasks.has(queued.id) || queued.status === 'cancelled') { await stopLateRun($, queued.id, runId); return queued.id }
+  // Only a run the runner started, for a spawn Legion queued under exactly that name: a model can pick any name with
+  // Agent({ name }), so a name alone must never claim a task (G3 re-review R1: it would drop the bridge's approval ceiling).
+  const openSpawn = info.spawnedBy === 'legion-mod-runner' && info.name
+    ? [...ctx.pending.values(), ...cancelledSpawns.values()].find(r => r.kind === 'spawn' && r.name === info.name)
+    : undefined
+  const queued = openSpawn ? ctx.tasks.get(openSpawn.taskId) : undefined
+  if (queued && openSpawn) {
+    if (cancelledSpawns.has(openSpawn.id) || cancelledTasks.has(queued.id) || queued.status === 'cancelled') { await stopLateRun($, queued.id, runId); return queued.id }
     ctx.byRun.set(runId, queued.id)
     await tr($, { k: 'adopt', task: queued.id, agent: agent.id, run: runId, origin: 'queued', via: 'name' })
     await apply($, queued.id, { type: 'started', taskId: queued.id, runId, model: '' })
@@ -359,7 +369,12 @@ function stopStage(): void {
 
 /** Brings the stage in line with the settings and the view: starts, retargets, wakes or stops it. Cheap to call often. */
 async function stageVisible($: EngineInterface): Promise<boolean> {
-  return ctx.settings.twoD && ctx.ui.view === 'order' && (await $.ui.panes()).some(p => p.id === 'legion' && p.isShown)
+  if (!ctx.settings.twoD || ctx.ui.view !== 'order') return false
+  try {
+    return (await $.ui.panes()).some(p => p.id === 'legion' && p.isShown)
+  } catch {
+    return false // no surface to draw on (a headless session): the stage stays off
+  }
 }
 
 async function driveStage($: EngineInterface): Promise<void> {
@@ -472,8 +487,24 @@ async function boot($: EngineInterface): Promise<void> {
   if (settings.twoD) await publishMuster($)
 }
 
+/** How long a request may wait while legion-mod-runner has never answered in this session, before Legion says so. */
+const RUNNER_SILENT_MS = 30_000
+export const RUNNER_MISSING = 'legion-mod-runner is not running, so agents cannot start. Install it: claude plugin install legion-mod-runner@legion'
+
+async function failIfRunnerMissing($: EngineInterface): Promise<void> {
+  if (ctx.pending.size === 0) return
+  const runner = await $.state.get({ plugin: 'legion-mod-runner', key: 'results' } as any)
+  if (runner.version > 0) return
+  const at = await $.clock.now()
+  for (const req of [...ctx.pending.values()]) {
+    if (at - req.at < RUNNER_SILENT_MS) continue
+    await onResult($, { requestId: req.id, kind: req.kind, taskId: req.taskId, ok: false, error: RUNNER_MISSING, at })
+  }
+}
+
 async function refresh($: EngineInterface): Promise<void> {
   if (!stores || !ctx.isReady) return
+  await failIfRunnerMissing($)
   try {
     const changes = await stores.tasks.refresh()
     if (changes.changed.length || changes.removed.length) {
@@ -496,8 +527,12 @@ async function refresh($: EngineInterface): Promise<void> {
 // ---- Commands ------------------------------------------------------------------------------------------------------------
 
 async function redrawTimes($: EngineInterface): Promise<void> {
-  if (!(await $.ui.panes()).some(p => p.id === 'legion' && p.isShown)) return
-  $.ui.invalidate('ui.render')
+  try {
+    if (!(await $.ui.panes()).some(p => p.id === 'legion' && p.isShown)) return
+    $.ui.invalidate('ui.render')
+  } catch (err) {
+    $.ui.log(`legion-mod: redraw skipped: ${message(err)}`, { to: 'debug' })
+  }
 }
 
 async function openTask($: EngineInterface, taskId: string): Promise<void> {
@@ -809,12 +844,13 @@ export function registerLegion(on: Parameters<Register>[0]): void {
     const task = runId ? ctx.tasks.get(ctx.byRun.get(runId) ?? '') : undefined
     const verdict = await next(e)
     if (!task || verdict.decision === 'deny') return verdict
-    if (isLegionModTool(e.tool)) return verdict.decision === 'ask' ? { decision: 'allow', reason: 'Legion\'s own tool' } : verdict
+    // Legion's own tools pass the engine's default ask, never a rule the person wrote (a rule names itself in `rule`).
+    if (isLegionModTool(e.tool)) return verdict.decision === 'ask' && !verdict.rule ? { decision: 'allow', reason: 'Legion\'s own tool' } : verdict
     const agent = ctx.agents.find(a => a.id === task.agentId)
     if (!agent) return verdict
     const ceiling = task.origin.kind === 'bridge' || task.origin.kind === 'room' ? 'ask' : agent.approval
     const effective = stricterMode(agent.approval, ceiling)
-    if (verdict.decision === 'allow' && needsApproval(effective, e.tool) && extraAsk(effective, agent.approval, e.tool, ctx.settings.fullMode)) {
+    if (verdict.decision === 'allow' && needsApproval(effective, e.tool)) {
       await tr($, { k: 'deny', task: task.id, agent: agent.id, run: runId, tool: e.tool, reason: 'asks: stricter ceiling', ceiling: effective })
       return { decision: 'ask', reason: `${agent.glyph} ${agent.name} asks · ${e.tool} · ${task.title}` }
     }

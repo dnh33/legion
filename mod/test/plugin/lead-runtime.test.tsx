@@ -9,7 +9,7 @@ import { ZEALOT_ART_JSON } from './fixtures/art-zealot.ts'
 
 const ROOT = 'C:/Users/test/.legion-mod'
 
-function world(on: any, opts: { env?: Record<string, string> } = {}) {
+function world(on: any, opts: { env?: Record<string, string>; panes?: unknown[] } = {}) {
   const files = new Map<string, string>()
   const writes: Record<string, any[]> = {}
   const registered: { agents: string[]; commands: string[]; tools: string[] } = { agents: [], commands: [], tools: [] }
@@ -59,6 +59,7 @@ function world(on: any, opts: { env?: Record<string, string> } = {}) {
   on('ui.log', () => ({ value: undefined }))
   on('ui.status', () => ({ value: undefined }))
   on('ui.open', () => ({ value: { isPlaced: true } }))
+  on('ui.panes', () => ({ value: opts.panes ?? [] }))
   on('prompt.fill', (_$: any, e: any) => { fills.push(e.text); return { value: undefined } })
   on('state.set', { plugin: 'legion-mod' } as any, async (_$: any, e: any, next: any) => { (writes[e.key] ??= []).push(e.value); return next(e) })
   on('session.start', (_$: any, e: any) => ({ cwd: e.cwd }))
@@ -166,10 +167,9 @@ test('/legion doctor: an old Claude Code is named with the fix', async ($, on) =
 
 /** The 2D Order's world: the pane shown, Zealot's real art on disk, and a record of every art read, timer and blit. */
 function stageWorld(on: any, opts: { twoD: boolean }) {
-  const w = world(on)
+  const w = world(on, { panes: [{ id: 'legion', title: 'Legion', isShown: true, isFocused: false, isPlaced: true }] })
   const artReads: string[] = []
   const blits: any[] = []
-  on('ui.panes', () => ({ value: [{ id: 'legion', title: 'Legion', isShown: true, isFocused: false, isPlaced: true }] }))
   on('ui.blit', (_$: any, e: any) => { blits.push(e); return { value: {} } })
   if (opts.twoD) w.files.set(`${ROOT}/settings/seg-seed-0.jsonl`, JSON.stringify({ s: 'seed', q: 1, t: 1, op: { k: 'patch', patch: { twoD: true } } }) + '\n')
   return { ...w, artReads: w.artReads, blits }
@@ -248,7 +248,7 @@ async function bridged($: any, on: any, rule: 'allow' | 'deny' | 'ask') {
   const agents: any[] = []
   on('state.get', { plugin: 'legion-mod-runner', key: 'results' } as any, () => ({ value: { value: results, version: results.length } }))
   on('agent.list', () => ({ value: agents }))
-  on('session.messages', () => ({ value: [{ role: 'user', text: 'edit it' }] }))
+  on('session.messages', () => ({ value: [{ role: 'user', text: 'edit it' }] }) as any)
   on('tool.call', () => ({ result: 'ok' }))
   on('tool.check', (_$: any, e: any) => ({ decision: rule, reason: `your settings: ${rule}`, rule: `${e.tool}(*)` }))
   await start($)
@@ -298,7 +298,7 @@ test('G3-3: a queued run whose first tool call beats the runner\'s answer stays 
   on('state.get', { plugin: 'legion-mod-runner', key: 'results' } as any, () => ({ value: { value: results, version: results.length } }))
   on('tool.call', { tool: 'Bash' } as any, () => ({ result: 'ok' }))
   on('agent.list', () => ({ value: agents }))
-  on('session.messages', () => ({ value: [{ role: 'user', text: 'fix the failing test' }] }))
+  on('session.messages', () => ({ value: [{ role: 'user', text: 'fix the failing test' }] }) as any)
   await start($)
   await ($ as any).command.run({ command: 'to', args: 'builder fix the failing test' })
   const req = w.last('runQueue')[0]
@@ -319,7 +319,7 @@ test('G3-6: an ask back up the chain while the asker waits is refused as a deadl
   let innerCalls = 0
   on('state.get', { plugin: 'legion-mod-runner', key: 'results' } as any, () => ({ value: { value: results, version: results.length } }))
   on('agent.list', () => ({ value: agents }))
-  on('session.messages', () => ({ value: [{ role: 'user', text: 'look it up' }] }))
+  on('session.messages', () => ({ value: [{ role: 'user', text: 'look it up' }] }) as any)
   on('tool.call', { tool: 'Agent' } as any, async (_$: any, e: any) => {
     if (e.agentId === 'run_A') {
       verdict = await ($ as any).tool.call({ tool: 'Agent', subagent_type: 'legion-mod:builder', prompt: 'what did you mean?', run_in_background: false, tool_use_id: 'toolu_B', agentId: 'run_B' })
@@ -390,4 +390,64 @@ test('G3-2: a stop before the run started withdraws the spawn; a run that starts
   await start($)
   const stopLater = (w.writes['runQueue'] ?? []).flat().find((r: any) => r.kind === 'stop' && r.runId === 'run_late')
   expect(stopLater).toBeDefined()
+})
+
+// ---- G3 re-review (R1-R3) and the gaps it named ----
+async function order($: any, on: any, verdict: (e: any) => any) {
+  const w = world(on)
+  const results: any[] = []
+  const agents: any[] = []
+  on('state.get', { plugin: 'legion-mod-runner', key: 'results' } as any, () => ({ value: { value: results, version: results.length } }))
+  on('agent.list', () => ({ value: agents }))
+  on('session.messages', () => ({ value: [{ role: 'user', text: 'do it' }] }) as any)
+  on('tool.call', () => ({ result: 'ok' }))
+  on('tool.check', (_$: any, e: any) => verdict(e))
+  await start($)
+  await $.command.run({ command: 'to', args: 'zealot plan it' })
+  const rz = w.last('runQueue')[0]
+  const tz = w.last('tasks')[0].id
+  await $.command.run({ command: 'to', args: 'builder fix the build' })
+  const rb = w.last('runQueue').find((r: any) => r.agentType === 'legion-mod:builder')
+  const tb = w.last('tasks').find((t: any) => t.agentId === 'builder').id
+  results.push({ requestId: rz.id, kind: 'spawn', taskId: tz, ok: true, runId: 'run_Z', model: 'm', at: 1_000_100 })
+  results.push({ requestId: rb.id, kind: 'spawn', taskId: tb, ok: true, runId: 'run_B1', model: 'm', at: 1_000_100 })
+  await start($)
+  return { w, agents, tz, tb }
+}
+
+test('R1 name hijack: a model-started run named <agent>-<existing task id> is not linked to that task', async ($, on) => {
+  const { w, agents, tb } = await order($, on, () => ({ decision: 'allow' }))
+  // Zealot's run starts a Builder with the Agent tool and (by chance or injection) names it after the person's Builder task.
+  agents.push({ id: 'run_X', description: 'x', type: 'legion-mod:builder', status: 'running', parentId: 'run_Z', name: `builder-${tb}` })
+  await ($ as any).tool.call({ tool: 'Edit', file_path: 'a.ts', tool_use_id: 'tu_X', agentId: 'run_X' })
+  const v: any = await ($ as any).tool.check({ tool: 'Edit', input: { file_path: 'a.ts' }, tool_use_id: 'tu_X' })
+  const person = w.last('tasks').find((t: any) => t.id === tb)
+  expect({ personRun: person.runId, bridged: w.last('tasks').some((t: any) => t.origin.kind === 'bridge'), decision: v?.decision }).toEqual({ personRun: 'run_B1', bridged: true, decision: 'ask' })
+})
+
+test("R2 the person's own ask rule on a Legion tool stays an ask", async ($, on) => {
+  await order($, on, (e: any) => ({ decision: 'ask', reason: 'your rule', rule: e.tool }))
+  await ($ as any).tool.call({ tool: 'mcp__legion-mod__kg_forget', tool_use_id: 'tu_L', agentId: 'run_Z' })
+  const v: any = await ($ as any).tool.check({ tool: 'mcp__legion-mod__kg_forget', input: {}, tool_use_id: 'tu_L' })
+  expect(v?.decision).toBe('ask')
+})
+
+test('R3 a bridged Builder Bash that the person allows still gets the ceiling card (as Edit does)', async ($, on) => {
+  const { agents } = await order($, on, () => ({ decision: 'allow', rule: 'Bash(npm test:*)' }))
+  agents.push({ id: 'run_Y', description: 'y', type: 'legion-mod:builder', status: 'running', parentId: 'run_Z' })
+  await ($ as any).tool.call({ tool: 'Bash', command: 'npm test', tool_use_id: 'tu_Y', agentId: 'run_Y' })
+  const v: any = await ($ as any).tool.check({ tool: 'Bash', input: { command: 'npm test' }, tool_use_id: 'tu_Y' })
+  expect(v?.decision).toBe('ask')
+})
+
+test('no runner: a start that waits 30 s with legion-mod-runner never answering fails with how to install it', async ($, on) => {
+  const w = world(on)
+  on('state.get', { plugin: 'legion-mod-runner', key: 'results' } as any, () => ({ value: { value: undefined, version: 0 } }))
+  await start($)
+  await ($ as any).command.run({ command: 'to', args: 'scout read it' })
+  await w.clock.advance(20_000)
+  expect(w.last('tasks')[0].status).toBe('queued')
+  await w.clock.advance(15_000)
+  expect(w.last('tasks')[0]).toMatchObject({ status: 'error', error: expect.stringContaining('claude plugin install legion-mod-runner@legion') })
+  expect(w.last('runQueue')).toEqual([])
 })

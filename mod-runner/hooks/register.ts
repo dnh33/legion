@@ -73,8 +73,13 @@ async function perform($: EngineInterface, req: RunRequest, now: number): Promis
       return sent.isDelivered ? { ...base, ok: true, runId: req.runId } : { ...base, ok: false, runId: req.runId, error: `The agent could not be reached: ${String(sent.reason ?? 'no reason given')}` }
     }
     const stopped = await $.tool.call({ tool: 'TaskStop', task_id: req.runId })
-    if (stopped && 'deny' in stopped) return { ...base, ok: false, runId: req.runId, error: `Claude Code refused to stop it: ${String(stopped.deny)}` }
-    return { ...base, ok: !(stopped as any)?.isError, runId: req.runId, ...((stopped as any)?.isError ? { error: 'The agent had already stopped.' } : {}) }
+    if (stopped && 'deny' in stopped && stopped.deny) return { ...base, ok: false, runId: req.runId, error: `Claude Code refused to stop it: ${String(stopped.deny)}` }
+    const failed = stopped as { isError?: boolean; text?: string } | undefined
+    if (!failed?.isError) return { ...base, ok: true, runId: req.runId }
+    // A run that is gone is the stop's goal reached; any other error is a real failure, said with the engine's own words.
+    const said = String(failed.text ?? '').slice(0, 200)
+    const gone = /not (found|running)|no (such )?(task|agent)|already (stopped|finished|completed)|has (finished|completed)/i.test(said)
+    return { ...base, ok: false, runId: req.runId, error: gone ? 'The agent had already stopped.' : `Claude Code could not stop it: ${said || 'no reason given'}` }
   } catch (err) {
     return { ...base, ok: false, error: message(err) }
   }

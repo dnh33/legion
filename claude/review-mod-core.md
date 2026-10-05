@@ -67,3 +67,32 @@
 
 ## Needs a real PC
 Add each to `claude/tracker-pc-checks.md` (safety class: none, a few cents of tokens each): (1) Continue wakes a completed agent (`session.send`, `isDelivered`); (2) `maxTurns` per resumed run; (3) `TaskStop` through `$.tool.call` prompts or not; (4) a tell reply appended mid-tool-call keeps the tool_use/tool_result order; (5) `--resume` twice shares the session id; (6) kill the terminal during writes; (7) bug 3's race on the real engine (20 `/to` runs, then check `tasks/`); (8) dialogs for deny and ask under ask, auto-edits and full (S1, S2, S3).
+
+## Re-review of the fixes (`f3a2802`, export; default "not fixed")
+**Gates on the `f3a2802` export (all pass):**
+| Gate | Result |
+|---|---|
+| node specs | 198/198 |
+| `plugin test mod` | 36/36 |
+| `plugin test mod-runner` | 4/4 |
+| tsc mod / runner | 0 / 0 errors |
+| validate mod / runner | pass / pass, 0 `$.process` and 0 `$.http` calls |
+
+My earlier scratch tests against `f3a2802`: race, deadlock, both deny checks, ADV6 and ADV7 now pass. ADV5 still fails at the reducer level, which is expected: the fix moved the failed-start handling into `onResult`, so the reducer no longer sees it. My new attack tests are in `<scratchpad>/review-ws/head3/mod/test/plugin/review-fix.test.tsx`.
+
+**Verdicts:**
+| Finding | Verdict | Evidence |
+|---|---|---|
+| 1 deny → ask | FIXED | `next(e)` is called first; a deny returns unchanged; both deny tests pass. |
+| 1' own-tool ask | NEW defect (latent) | legion.tsx tool.check turns any `ask` on a Legion tool into `allow`, including the person's explicit ask **rule** (R2: `rule: mcp__legion-mod__kg_forget` gives `allow`). It does not bite today, because `agents` is answered by its own `tool.call` hook first. It will bite in Phase 2. Fix: allow only when `!verdict.rule`. |
+| 1'' ceiling vs allow rules | NOT FIXED (residual) | Tightening is still gated by the `engineAsks` model. A bridged Builder's `Bash(npm test)` that the person's rule allows gets **no** ceiling card (R3 gives `allow`), while `Edit` under the same rule does (the lead's G3-8 test). Pick one rule. To match desktop `needsApproval`, drop the `extraAsk` gate when `verdict.decision === 'allow'`. |
+| 2 honest stop | FIXED, with 2 minor gaps | A refused stop restores `running` with a band line. A late spawn result after a stop is stopped, whether it arrives through `onResult` or through name-linking in `adopt` (the stop may go out twice, which is harmless). A cancelled task still triggers a stop after a reload (`status === 'cancelled'`). Resume racing a stop: both requests sit in the runner's queue in order, so stop runs before resume. Gap 1: the runner reports **every** `TaskStop` `isError` as "already stopped" (register.ts:77), so a real failure reads as success. Gap 2: a **stale** stop (runner answers "waited more than ten minutes") reverts the task to `running` with "Could not stop", even if the run died long ago. |
+| 3 twin task | FIXED for the race | The "G3 race" test passes. The boot guard holds. |
+| 3' name hijack | NEW defect | `adopt` links any `legion-mod:` run whose `info.name` ends in `-t_<12 hex>` to that existing task: done, running, or another window's. The model sets that name with `Agent({ name })`, and task ids are shown in tell replies. R1: a run started by Zealot and named `builder-<person's task>` takes over the person's task (its `runId` becomes `run_X`). The run then counts as a `person` task, so no bridge ceiling applies (`tool.check` gives `allow`, expected `ask`). Fix: link only to a task with a **pending or cancelled spawn** whose `req.name === info.name`, and only when `info.spawnedBy === 'legion-mod-runner'`. Otherwise adopt as before. |
+| 4 queued forever | FIXED for a failed start and for stale requests | Status becomes `error`, with a thread row and a band line. The runner answers stale requests. Residual: with the runner not installed, a task still waits "queued" with no word (only `/legion doctor` tells). Add a legion-mod timeout. Minor: the failed-start row is published without loading the stored thread, so after a reload the pane can show only that row until a reload. |
+| 5 thread overwrite | FIXED | `apply` preloads the thread, and row ids carry the time. ADV7 passes. |
+| 6 deadlock | FIXED | `ctx.waiting` holds task ids; "G3 deadlock" passes. Minor: two parallel blocking asks from one task share one entry, and the first to finish clears it. |
+| 8 §2.1 test | FIXED | The lead's G3-8 tests exist. The lead reports a negative; I did not re-run it. |
+| runner stale | FIXED | The queue drains. The runner test asserts the answer text. |
+
+**Still open:** bug 7 (fixed earlier) and bugs 9, 10, 11 and P1-P8 are unchanged by this commit, and so are the real-PC checks.

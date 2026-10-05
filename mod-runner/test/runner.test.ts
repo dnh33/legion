@@ -56,3 +56,23 @@ test('does nothing while the queue is empty (Legion Mod absent), beyond saying i
   // One write at start: an empty results list, so Legion Mod's doctor can see the runner (version > 0). Nothing after.
   expect(w.writes).toEqual([[]])
 })
+
+function stopWorld(on: any, answer: { isError?: boolean; text?: string }) {
+  const w = world(on, [req({ id: 'rq_stop', kind: 'stop', runId: 'run_1', agentType: undefined, prompt: undefined })])
+  on('tool.call', { tool: 'TaskStop' } as any, () => ({ result: answer.text ?? '', ...answer }))
+  return w
+}
+
+test('stop: a run that is already gone counts as stopped (the stop reached its goal)', async ($, on) => {
+  const w = stopWorld(on, { isError: true, text: 'No task found with ID: run_1' })
+  await start($)
+  await w.clock.advance(1_000)
+  expect(w.writes.at(-1)?.[0]).toMatchObject({ requestId: 'rq_stop', ok: false, error: 'The agent had already stopped.' })
+})
+
+test('stop: any other failure is said in the engine\'s own words, never as "already stopped"', async ($, on) => {
+  const w = stopWorld(on, { isError: true, text: 'Stopping agents is turned off by your organisation' })
+  await start($)
+  await w.clock.advance(1_000)
+  expect(w.writes.at(-1)?.[0]).toMatchObject({ requestId: 'rq_stop', ok: false, error: 'Claude Code could not stop it: Stopping agents is turned off by your organisation' })
+})
