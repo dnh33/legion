@@ -129,6 +129,12 @@ export function latestTaskOf(ctx: Ctx, agentId: AgentId): TaskView | undefined {
   return taskList(ctx).find(t => t.agentId === agentId && t.sessionId === ctx.sessionId)
 }
 
+/** Why a Legion agent's Agent call to a non-Legion type is refused, and how to do it right. */
+export function orderOnlyMessage(subagentType: unknown, agents: readonly AgentView[]): string {
+  const who = agents.filter(a => !a.isHidden).map(a => a.id).join(', ')
+  return `Delegate inside the Order: use subagent_type legion-mod:<agent id>, not ${String(subagentType ?? 'none')}. The Order: ${who}. mcp__legion-mod__agents says who is busy.`
+}
+
 /** Band rows are capped: at most 20 kept, newest last; a newer row for the same task replaces the older one. */
 export function pushBand(band: readonly BandItem[], item: BandItem): BandItem[] {
   const rest = band.filter(b => !(item.taskId && b.taskId === item.taskId && b.kind !== 'card') && b.id !== item.id)

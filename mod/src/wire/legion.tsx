@@ -31,7 +31,7 @@ import { palette, themeFromClaude } from '../theme.ts'
 import { decodeArt, type Art } from '../art/art.ts'
 import { createStage, invalidateStage, musterCells, stepStage, type StageRuntime } from '../art/driver.ts'
 import { bandItemAt, decodeAction, type DecodedAction } from '../ui/actions.ts'
-import { assistantText, latestTaskOf, makeTask, newCtx, notificationRunId, parseTo, pushBand, resolveAgent, resumeRequest, spawnRequest, stopRequest, taskList, type Ctx } from './core.ts'
+import { assistantText, latestTaskOf, orderOnlyMessage, makeTask, newCtx, notificationRunId, parseTo, pushBand, resolveAgent, resumeRequest, spawnRequest, stopRequest, taskList, type Ctx } from './core.ts'
 
 // ---- State the UI draws (one reference each; literals, as the validator requires) ----
 const AGENTS = { plugin: 'legion-mod', key: 'agents' } as const
@@ -669,12 +669,13 @@ export function registerLegion(on: Parameters<Register>[0]): void {
     if (e.tool === 'Agent') {
       const input = e as unknown as { subagent_type?: string; prompt?: string; run_in_background?: boolean }
       const target = parseLegionAgentType(input.subagent_type)
-      if (target) {
-        const check = checkAsk({ callerRunId: runId, target, isBlocking: input.run_in_background === false, message: input.prompt ?? '', agents: ctx.agents, tasks: taskList(ctx), waiting: ctx.waiting, rateLog: ctx.rateLog, now: (await $.clock.now()) })
-        ctx.rateLog = check.rateLog
-        if (!check.ok) return { deny: check.reason }
-        if (input.run_in_background === false) ctx.waiting.add(runId)
-      }
+      // A Legion agent delegates inside the Order only: a built-in type (general-purpose, Explore) would run outside Legion,
+      // untracked and unguarded. A live run on 2026-10-05 showed Zealot reaching for general-purpose.
+      if (!target) return { deny: orderOnlyMessage(input.subagent_type, ctx.agents) }
+      const check = checkAsk({ callerRunId: runId, target, isBlocking: input.run_in_background === false, message: input.prompt ?? '', agents: ctx.agents, tasks: taskList(ctx), waiting: ctx.waiting, rateLog: ctx.rateLog, now: (await $.clock.now()) })
+      ctx.rateLog = check.rateLog
+      if (!check.ok) return { deny: check.reason }
+      if (input.run_in_background === false) ctx.waiting.add(runId)
     }
     if (taintsRun(e.tool) && !task.isTainted) {
       const tainted = { ...task, isTainted: true, updatedAt: (await $.clock.now()) }

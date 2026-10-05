@@ -206,3 +206,19 @@ test('/to with a model prefix: the router reads it, the title and thread show th
   expect(w.last('tasks')[0].title).toBe('Two things: check the engines field')
   expect(w.last('runQueue')[0]).toMatchObject({ model: 'haiku', prompt: 'Two things: check the engines field' })
 })
+
+test('a Legion agent delegates inside the Order only: general-purpose is refused with how to do it right', async ($, on) => {
+  const w = world(on)
+  const results: any[] = []
+  on('state.get', { plugin: 'legion-mod-runner', key: 'results' } as any, () => ({ value: { value: results, version: results.length } }))
+  on('tool.call', { tool: 'Agent' } as any, () => ({ result: 'started' }))
+  await start($)
+  await ($ as any).command.run({ command: 'to', args: 'zealot two things' })
+  const req = w.last('runQueue')[0]
+  results.push({ requestId: req.id, kind: 'spawn', taskId: w.last('tasks')[0].id, ok: true, runId: 'run_z', model: 'm', at: 1 })
+  await start($)
+  const refused: any = await ($ as any).tool.call({ tool: 'Agent', subagent_type: 'general-purpose', description: 'x', prompt: 'count files', tool_use_id: 'tu_1', agentId: 'run_z' })
+  expect(String(refused?.deny ?? refused?.text ?? JSON.stringify(refused))).toContain('Delegate inside the Order: use subagent_type legion-mod:<agent id>')
+  const allowed: any = await ($ as any).tool.call({ tool: 'Agent', subagent_type: 'legion-mod:scout', description: 'x', prompt: 'count files', run_in_background: true, tool_use_id: 'tu_2', agentId: 'run_z' })
+  expect(allowed?.deny).toBeUndefined()
+})
