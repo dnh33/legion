@@ -63,7 +63,9 @@ npm run typecheck         # core (tsconfig.json) and UI (ui/tsconfig.json), no e
 npm run build:ui          # vite build -> dist-ui/
 ```
 
-The gate before anyone says "done": `npm ci && npm run build:ts && npm test && npm run typecheck && npm run build:ui`. Run it from a clean checkout of the exact commit you are reporting on.
+The gate before anyone says "done": `npm ci && npm run build:ts && npm run test:run && npm run typecheck:ui && npm run build:ui`. Run it from a clean checkout of the exact commit you are reporting on.
+
+It compiles the core once. `build:ts` already fails on any type error (tsc exits 2 even while it emits), so `test:run` runs the tests on that build and `typecheck:ui` checks only the UI project. The older gate compiled the core three times (`build:ts`, again inside `npm test`, again in `typecheck`), about 15 s each on the owner's PC. `npm test` and `npm run typecheck` still work on their own.
 
 **Counts are never hard-coded in docs; read them from the run.** `node --test` prints a TAP summary at the end:
 
@@ -271,7 +273,7 @@ The text below is the real output of the commands on the commit named, in a Linu
 <!-- VERIFIED-OUTPUT-START -->
 Commit: the tip of `claude/test-harness` when this section was written (parent `792a0b3`, base `integration/v1` `1ed80f8`). Node v22.22.0, Linux container.
 
-**The gate** (`npm ci && npm run build:ts && npm test && npm run typecheck && npm run build:ui`, fresh `node_modules` and `dist`, all five exit codes 0, `npm ci` reported 0 vulnerabilities):
+**The gate** (`npm ci && npm run build:ts && npm run test:run && npm run typecheck:ui && npm run build:ui`, fresh `node_modules` and `dist`, all five exit codes 0, `npm ci` reported 0 vulnerabilities):
 
 ```
 # tests 1441

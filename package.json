@@ -43,6 +43,8 @@
     "build:ui": "vite build --config ui/vite.config.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p ui/tsconfig.json --noEmit",
     "test": "npm run build:ts && node --test \"dist/test/*.test.js\"",
+    "test:run": "node --test \"dist/test/*.test.js\"",
+    "typecheck:ui": "tsc -p ui/tsconfig.json --noEmit",
     "test:map": "node scripts/test-map/build.mjs",
     "test:affected": "node scripts/test-map/select.mjs --run",
     "core": "node dist/src/bin/legion-core.js",
