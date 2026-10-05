@@ -1,7 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import type { ApprovalMode } from '../../../types/index.d.ts'
-import { DISALLOWED_TOOLS, MOD_PREAMBLE, agentTypeName, buildAgentSpec, preamble } from '../../../src/engine/prompt.ts'
+import { DISALLOWED_TOOLS, LEAD_AGENT_ID, LEAD_DOCTRINE, MOD_PREAMBLE, agentTypeName, buildAgentSpec, preamble } from '../../../src/engine/prompt.ts'
 import { seedAgents } from '../../../src/engine/roster.ts'
 import { toModToolNames } from '../../../src/engine/tool-names.ts'
 import { between, readRepo, stringLiterals } from './_src.ts'
@@ -52,7 +52,7 @@ test('buildAgentSpec: every seed agent, every mode and fullMode; never bypassPer
     assert.ok(!JSON.stringify(spec).includes('bypassPermissions'), label)
     assert.equal(spec.name, agent.id)
     assert.equal(spec.description, agent.description)
-    assert.equal(spec.prompt, preamble({ name: agent.name }) + '\n\n' + agent.systemPrompt)
+    assert.equal(spec.prompt, preamble({ name: agent.name }) + '\n\n' + agent.systemPrompt + (agent.id === LEAD_AGENT_ID ? '\n\n' + LEAD_DOCTRINE : ''))
     assert.equal(spec.maxTurns, 77)
     assert.deepEqual(spec.disallowedTools, ['SendMessage', 'ListAgents'])
     if (agent.model === 'auto') assert.equal('model' in spec, false, label)
