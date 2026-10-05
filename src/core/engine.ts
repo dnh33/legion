@@ -647,19 +647,23 @@ export class Engine {
 
     if (outcome.isError) {
       // Read by people (the app) and by callers without a button (MCP clients, other bots), so it names no button.
-      const turnLimit = outcome.subtype === 'error_max_turns' && !outcome.errorText;
+      // A provider run says how far it got ("Stopped after N model turns ...", providers/tool-loop.ts): the same pause,
+      // with that run's own limit; a Claude run's stop carries no text and its limit is claude.maxTurns.
+      const providerStop = /^Stopped after (\d+) model turns/.exec(outcome.errorText ?? '');
+      const turnLimit = outcome.subtype === 'error_max_turns' && (!outcome.errorText || !!providerStop);
+      const limitTurns = providerStop ? Number(providerStop[1]) : this.config.claude.maxTurns;
       // The spend limit is the same kind of stop. The subtype alone says so (no error text is needed), and the amount is named when known.
       const budgetLimit = outcome.subtype === 'error_max_budget_usd';
       const cap = budgetCap(this.config.claude.maxBudgetUsd);
       const budgetWhere = cap !== undefined ? ` (${formatUsdLimit(cap)} this run)` : '';
       const text = turnLimit
-        ? `${TURN_LIMIT_PREFIX} (${this.config.claude.maxTurns} turns this run) before finishing. The work so far is kept: continue the task to pick up where it stopped.`
+        ? `${TURN_LIMIT_PREFIX} (${limitTurns} turns this run) before finishing. The work so far is kept: continue the task to pick up where it stopped.`
         : budgetLimit
           ? `${BUDGET_LIMIT_PREFIX}${budgetWhere} before finishing. The work so far is kept: continue the task to pick up where it stopped.`
           : outcome.errorText || outcome.subtype;
       this.patchTask(job.taskId, { status: 'error', error: text, ...(act.tainted ? { tainted: true } : {}) });
       // the history keeps a short line; the full text is the task's error, which the app shows on the Paused card
-      this.addMessage(job.taskId, 'system', turnLimit ? `${TURN_LIMIT_PREFIX} (${this.config.claude.maxTurns} turns this run).` : budgetLimit ? `${BUDGET_LIMIT_PREFIX}${budgetWhere}.` : `Error: ${text}`);
+      this.addMessage(job.taskId, 'system', turnLimit ? `${TURN_LIMIT_PREFIX} (${limitTurns} turns this run).` : budgetLimit ? `${BUDGET_LIMIT_PREFIX}${budgetWhere}.` : `Error: ${text}`);
       // A limit stop is a pause with the work kept: the mascot stands calm. "Fault detected" would contradict the card.
       if (turnLimit) this.mascot('idle', 'paused at the turn limit');
       else if (budgetLimit) this.mascot('idle', 'paused at the spend limit');
