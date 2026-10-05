@@ -5,7 +5,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 
-import { buildAgentSpec, LEAD_AGENT_ID, LEAD_DOCTRINE } from '../../../src/engine/prompt.ts'
+import { buildAgentSpec, LEAD_AGENT_ID, LEAD_DOCTRINE, LEAD_TOOLS } from '../../../src/engine/prompt.ts'
 import { seedAgents } from '../../../src/engine/roster.ts'
 import { MAX_DEPTH, MAX_HOP } from '../../../src/engine/bridge.ts'
 
@@ -35,4 +35,16 @@ test('the doctrine names what the owner asked for, with the bridge\'s real limit
     assert.ok(LEAD_DOCTRINE.includes(must), must)
   }
   assert.ok(LEAD_DOCTRINE.includes(`${MAX_DEPTH} levels and ${MAX_HOP} hops`), 'limits quoted must equal bridge.ts')
+})
+
+test('Zealot can delegate, see the Order and read to check, but cannot edit, run commands or browse', () => {
+  const spec = buildAgentSpec(zealot, settings)
+  assert.deepEqual(spec.tools, [...LEAD_TOOLS])
+  for (const tool of ['Agent', 'mcp__legion-mod__agents', 'Read']) assert.ok(spec.tools!.includes(tool), tool)
+  for (const tool of ['Edit', 'Write', 'MultiEdit', 'NotebookEdit', 'Bash', 'WebFetch', 'WebSearch']) assert.ok(!spec.tools!.includes(tool), tool)
+  assert.ok(LEAD_DOCTRINE.includes('You do not do the work yourself'))
+})
+
+test('every other agent keeps every tool its parent has (no tools list)', () => {
+  for (const a of agents.filter(x => x.id !== LEAD_AGENT_ID)) assert.equal('tools' in buildAgentSpec(a, settings), false, a.id)
 })

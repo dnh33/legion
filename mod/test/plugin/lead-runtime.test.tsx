@@ -198,3 +198,11 @@ test("2D Order on: the shown agent's stage gets its first frame, frames blit, an
   await w.clock.advance(30_000)
   expect(w.blits.length).toBe(settled)
 })
+
+test('/to with a model prefix: the router reads it, the title and thread show the message without it', async ($, on) => {
+  const w = world(on)
+  await start($)
+  await ($ as any).command.run({ command: 'to', args: 'zealot /model haiku Two things: check the engines field' })
+  expect(w.last('tasks')[0].title).toBe('Two things: check the engines field')
+  expect(w.last('runQueue')[0]).toMatchObject({ model: 'haiku', prompt: 'Two things: check the engines field' })
+})

@@ -158,10 +158,11 @@ async function enqueue($: EngineInterface, req: RunRequest): Promise<void> {
 
 /** Starts a new task for `agent` with `text`. Returns the task. */
 async function startTask($: EngineInterface, agent: AgentView, text: string, origin: TaskOrigin = { kind: 'person' }): Promise<TaskView> {
-  const task = makeTask({ id: newId('t'), agentId: agent.id, text, sessionId: ctx.sessionId, origin, now: (await $.clock.now()) })
-  ctx.tasks.set(task.id, task)
-  await apply($, task.id, { type: 'queued', task, prompt: text })
+  // The router reads and strips a leading /opus, /sonnet or /model; the title and the thread show the message without it.
   const pick = pickModel({ agentModel: agent.model, prompt: text, fromBot: origin.kind !== 'person' })
+  const task = makeTask({ id: newId('t'), agentId: agent.id, text: pick.prompt, sessionId: ctx.sessionId, origin, now: (await $.clock.now()) })
+  ctx.tasks.set(task.id, task)
+  await apply($, task.id, { type: 'queued', task, prompt: pick.prompt })
   await enqueue($, spawnRequest({ id: newId('rq'), task, agent, prompt: pick.prompt, model: pick.model, now: (await $.clock.now()) }))
   ctx.ui = { ...ctx.ui, agentId: agent.id, taskId: task.id }
   await $.state.set(UI, ctx.ui)
