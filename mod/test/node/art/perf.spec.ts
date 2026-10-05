@@ -5,7 +5,11 @@ import { compose } from '../../../src/art/compose.ts'
 import { pack } from '../../../src/art/pack.ts'
 import { AGENTS, loadArt } from './load.ts'
 
-test('compose + pack of 600 frames averages well under 1 ms a frame', () => {
+// A timing test means nothing under other load (kodawari: measure relatively, never while other heavy work runs), and
+// `node --test` runs spec files in parallel. So this one runs alone: LEGION_MOD_PERF=1, or `npm run test:perf` in mod/.
+const PERF_SKIP = process.env.LEGION_MOD_PERF === '1' ? false : 'run alone: LEGION_MOD_PERF=1 node --experimental-transform-types --test mod/test/node/art/perf.spec.ts'
+
+test('compose + pack of 600 frames averages well under 1 ms a frame', { skip: PERF_SKIP }, () => {
   const arts = AGENTS.map(loadArt)
   // warm up (JIT, palette caches)
   for (const a of arts) pack(compose(a.stage, poseAt(a, createAnimState(a, 0, 'thinking', { seed: 1 }), 100, true)), { panel: 0x12151a })
