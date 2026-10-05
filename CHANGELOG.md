@@ -2,11 +2,11 @@
 
 All notable changes are recorded here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [0.2.5] - 2026-10-05
 
 ### Fixed
 
-- **A message over 20,000 characters is sent whole again.** Since 0.2.4 kept your draft per thread, the 20,000-character
+- **A message over 20,000 characters is sent whole again.** Since 0.2.3-l kept your draft per thread, the 20,000-character
   limit meant for the saved copy was applied to the text you were typing, so a longer message went out with its end cut
   off and nothing said so. The limit now applies only to the copy kept for a restart.
 
@@ -251,7 +251,8 @@ First public release.
 - **Windows installer** (`setup.cmd`) that installs per user under `%LOCALAPPDATA%\Programs\Legion`, with shortcuts, in-place updates and an uninstaller.
 - Command palette, keyboard shortcuts, task history per agent, and cost and turn tracking.
 
-[Unreleased]: https://github.com/dnh33/legion/compare/v0.2.2...HEAD
+[Unreleased]: https://github.com/dnh33/legion/compare/v0.2.5...HEAD
+[0.2.5]: https://github.com/dnh33/legion/compare/v0.2.4...v0.2.5
 [0.2.2]: https://github.com/dnh33/legion/compare/v0.2.1...v0.2.2
 [0.2.1]: https://github.com/dnh33/legion/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/dnh33/legion/compare/v0.1.0...v0.2.0
