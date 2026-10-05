@@ -9,7 +9,42 @@ import { DEFAULTS } from './config.js';
 
 export interface UpdateSettings { checkEnabled: boolean; autoInstallWhenIdle: boolean; intervalHours: number }
 export interface StoppedTask { id: string; agentId: string }
-export interface UpdaterState { failedVersions: string[]; lastCheckedAt?: string; lastResult?: string; stoppedForUpdate: StoppedTask[]; stoppedAt?: string }
+export interface UpdaterState {
+  failedVersions: string[];
+  /**
+   * When each failed version was recorded, as an ISO date. The block on a rolled-back version is deliberately NOT
+   * permanent: it exists to stop a boot loop, and a boot loop is over once something has changed. Without a date the
+   * list could only grow, so one bad afternoon locked a version out of the machine forever -- and nothing in the
+   * status payload said so, so the panel could only show a bare refusal with no way out. See `pruneFailed`.
+   */
+  failedAt?: Record<string, string>;
+  lastCheckedAt?: string; lastResult?: string; stoppedForUpdate: StoppedTask[]; stoppedAt?: string;
+}
+
+/** How long a rolled-back version stays blocked before it may be retried without the owner asking. */
+export const FAILED_BLOCK_DAYS = 7;
+const DAY = 86_400_000;
+
+/**
+ * Drops a block once it is older than `FAILED_BLOCK_DAYS`, and reports which entries went.
+ *
+ * Time-boxed rather than permanent. The lock exists to stop a boot loop; it should not outlive the condition that
+ * caused it, because a machine that can never try again needs a text editor to get moving. A version with no recorded
+ * date (an older state file, or a hand-edited one) is treated as fresh, so upgrading Legion never silently unlocks
+ * something the owner was told was blocked.
+ */
+export function pruneFailed(
+  failed: readonly string[],
+  failedAt: Record<string, string> | undefined,
+  nowMs: number,
+): { kept: string[]; expired: string[] } {
+  const at = failedAt ?? {};
+  const expired = failed.filter((v) => {
+    const when = Date.parse(at[v] ?? '');
+    return Number.isFinite(when) && nowMs - when > FAILED_BLOCK_DAYS * DAY;
+  });
+  return { kept: expired.length ? failed.filter((v) => !expired.includes(v)) : [...failed], expired };
+}
 
 export function normalizeSettings(raw: unknown): UpdateSettings {
   const r = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>;
@@ -41,6 +76,7 @@ export class UpdaterFiles {
     const r = (readJson(join(this.dir, 'state.json')) ?? {}) as Partial<UpdaterState>;
     return {
       failedVersions: Array.isArray(r.failedVersions) ? r.failedVersions.filter((v): v is string => typeof v === 'string').slice(0, 50) : [],
+      ...(r.failedAt && typeof r.failedAt === 'object' ? { failedAt: Object.fromEntries(Object.entries(r.failedAt as Record<string, unknown>).filter((e): e is [string, string] => typeof e[1] === 'string')) } : {}),
       ...(typeof r.lastCheckedAt === 'string' ? { lastCheckedAt: r.lastCheckedAt } : {}),
       ...(typeof r.lastResult === 'string' ? { lastResult: r.lastResult.slice(0, 300) } : {}),
       stoppedForUpdate: Array.isArray(r.stoppedForUpdate) ? r.stoppedForUpdate.filter((t) => t && typeof t.id === 'string' && typeof t.agentId === 'string').slice(0, 50) : [],

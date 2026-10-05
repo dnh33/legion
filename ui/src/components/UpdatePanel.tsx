@@ -14,6 +14,8 @@ interface UpdateStatus {
   busy: { idle: boolean; reasons: string[] };
   outcome?: { from: string; to: string; result: 'ok' | 'rolled-back' | 'failed'; reason?: string };
   stopped?: { tasks: Array<{ id: string; agentId: string }> };
+  /** Versions held back after a rolled-back first start, and when each may be retried. */
+  blocked?: Array<{ version: string; at?: string; retryAfter?: string }>;
 }
 type Bridge = { updateRestartNow?: () => Promise<{ ok: boolean; error?: string; cancelled?: boolean }> };
 const bridge = (): Bridge => (window as unknown as { legion?: Bridge }).legion ?? {};
@@ -85,6 +87,26 @@ export function UpdatePanel() {
               </div>
             </div>
           )}
+        </div>
+      )}
+      {st.blocked && st.blocked.length > 0 && (
+        <div className="upd-card">
+          {st.blocked.map((b) => (
+            <p key={b.version}>
+              <b>Version {b.version} is being held back.</b>{' '}
+              {b.at ? `It failed its first start on ${b.at.slice(0, 10)} and Legion went back to the previous version. ` : ''}
+              {b.retryAfter
+                ? `You can try it again from ${b.retryAfter.slice(0, 10)} without this button.`
+                : 'When it is due, this version will be offered again on its own.'}
+            </p>
+          ))}
+          <div className="upd-actions">
+            {st.blocked.filter((b) => b.retryAfter).map((b) => (
+              <button key={b.version} type="button" className="btn-ghost" disabled={busy} onClick={() => void act(() => request('POST', '/api/update/retry', { version: b.version }))}>
+                Try {b.version} again
+              </button>
+            ))}
+          </div>
         </div>
       )}
       {st.error && <p className="upd-err" role="alert">{st.error}</p>}

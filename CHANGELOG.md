@@ -2,6 +2,16 @@
 
 All notable changes are recorded here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses [Semantic Versioning](https://semver.org/).
 
+## [0.2.3-h] - 2026-10-04
+
+### Fixed
+
+- **A version that rolled back is no longer held back forever.** When a new version failed its first start and Legion
+  went back to the previous one, that version was blocked with no way to try it again — and the panel said only that
+  it had been rejected, so the way out had to be guessed. A block now expires on its own after a week, the panel names
+  the version and says when it will be offered again, and a button lets you retry it as soon as a fix is out instead of
+  waiting. The block exists to stop a start-up loop, and a loop is over once something has changed.
+
 ## [0.2.3-g] - 2026-10-04
 
 ### Fixed

@@ -17,7 +17,7 @@ import { computeBusy, QuietClock, type BusyProbe } from './idle.js';
 import { checkPolicy, ManifestError, parseManifest, type Manifest, type PolicyVerdict } from './manifest.js';
 import { fetchSmall, NetError, type FetchLike } from './net.js';
 import { stagePackage, stagedTree, StageError, dependencyHash, type Staged } from './package.js';
-import { UpdaterFiles, type UpdateSettings } from './state.js';
+import { FAILED_BLOCK_DAYS, UpdaterFiles, pruneFailed, type UpdateSettings } from './state.js';
 import { UPDATE_KEYS, verifyManifestSignature, type UpdateKey } from './trust.js';
 
 export type InstallMode = 'apply' | 'checkout' | 'unwritable' | 'unsupported';
@@ -48,6 +48,8 @@ export interface UpdateStatus {
   staged?: { version: string }; consent: boolean; readyToApply: boolean;
   busy: { idle: boolean; reasons: string[]; quietMs: number };
   outcome?: Outcome; stopped?: { tasks: Array<{ id: string; agentId: string }>; at?: string };
+  /** Versions held back after a rolled-back first start, and when each may be retried. Empty when none. */
+  blocked?: Array<{ version: string; at?: string; retryAfter?: string }>;
 }
 export interface UpdaterModule extends CoreModule {
   registerBusyProbe(name: string, probe: BusyProbe): void;
@@ -102,7 +104,23 @@ export function createUpdaterModule(deps: ModuleDeps, opts: UpdaterOptions): Upd
 
   // The previous attempt's result (written by the apply helper): a rolled-back version is never offered again.
   const prior = readOutcome(opts.root);
-  if (prior && (prior.result === 'rolled-back') && !files.state().failedVersions.includes(prior.to)) files.saveState({ failedVersions: [...files.state().failedVersions, prior.to] });
+  {
+    const st = files.state();
+    if (prior && prior.result === 'rolled-back' && !st.failedVersions.includes(prior.to)) {
+      files.saveState({
+        failedVersions: [...st.failedVersions, prior.to],
+        failedAt: { ...(st.failedAt ?? {}), [prior.to]: new Date(now()).toISOString() },
+      });
+    }
+    // A block that has outlived its window is dropped here, so a machine that rolled back once is not locked out of
+    // that version forever. Expiry is the point: the loop this prevents is over once a fix has shipped.
+    const pruned = pruneFailed(files.state().failedVersions, files.state().failedAt, now());
+    if (pruned.expired.length) {
+      const at = { ...(files.state().failedAt ?? {}) };
+      for (const v of pruned.expired) delete at[v];
+      files.saveState({ failedVersions: pruned.kept, failedAt: at });
+    }
+  }
   // A package that was staged and approved before a restart (and is still valid) is kept; the next check decides whether it is still wanted.
   const busyInputs = () => ({
     tasks: () => deps.store.listTasks(100000, undefined, true),
@@ -184,11 +202,19 @@ export function createUpdaterModule(deps: ModuleDeps, opts: UpdaterOptions): Upd
       const settings = files.settings();
       const outcome = readOutcome(opts.root) ?? undefined;
       const a = available?.manifest;
+      const st2 = files.state();
+      const at2 = st2.failedAt ?? {};
+      const blocked = st2.failedVersions
+        .map((v) => ({ version: v, at: at2[v], retryAfter: at2[v] ? new Date(Date.parse(at2[v]) + FAILED_BLOCK_DAYS * 86_400_000).toISOString() : undefined }))
+        .filter((b) => b.retryAfter ? Date.parse(b.retryAfter) <= now() : true);
       return {
         mode, keyConfigured: keys.length > 0, installed: { version, ...buildInfo() }, settings,
         check: { ...(s.lastCheckedAt ? { lastCheckedAt: s.lastCheckedAt } : {}), ...(s.lastResult ? { lastResult: s.lastResult } : {}), ...(nextAllowedAt > now() ? { nextAllowedAt: new Date(nextAllowedAt).toISOString() } : {}) },
         ...(a ? { available: { version: a.version, size: a.asset.size, notes: a.notes, publishedAt: a.publishedAt, requiresFullInstall: a.requiresFullInstall } } : {}),
         phase, ...(progress && phase === 'downloading' ? { progress } : {}), ...(error ? { error } : {}),
+        // What is blocked and until when. The owner met this as a bare "rejected: version X failed its first start"
+        // with no way out, and had to guess that Check now was the unlock. Naming it here is the whole fix.
+        ...(blocked.length ? { blocked } : {}),
         ...(staged ? { staged: { version: staged.version } } : {}), consent,
         readyToApply: mode === 'apply' && !!staged && consent && reasons.length === 0 && clock.isQuiet(now()),
         busy: { idle: reasons.length === 0 && clock.isQuiet(now()), reasons, quietMs: clock.quietMs(now()) },
@@ -294,6 +320,21 @@ export function createUpdaterModule(deps: ModuleDeps, opts: UpdaterOptions): Upd
       });
       add('POST', '/api/update/install', async () => { const r = await module.install(); return { ...r, status: await module.status() }; });
       add('POST', '/api/update/cancel', async () => { if (phase === 'downloading' || phase === 'committing') throw new HttpError(409, 'Busy; try again in a moment.'); clearStage(); return module.status(); });
+      // The way out of a block. Without this the only way to retry a rolled-back version was to wait out the window
+      // or hand-edit state.json, and the panel said nothing about either. Admin-gated like every other route, so it
+      // is the owner's click and not a run's.
+      add('POST', '/api/update/retry', async (c) => {
+        const v = (c.body as { version?: unknown } | undefined)?.version;
+        if (typeof v !== 'string' || !v.trim()) throw new HttpError(400, 'version is required');
+        const st = files.state();
+        if (!st.failedVersions.includes(v)) return module.status();
+        const at = { ...(st.failedAt ?? {}) };
+        delete at[v];
+        files.saveState({ failedVersions: st.failedVersions.filter((x) => x !== v), failedAt: at });
+        // And drop the outcome file, or the next start re-adds the version we just unblocked.
+        try { rmSync(outcomePath(opts.root), { force: true }); } catch { /* ignore */ }
+        return module.status();
+      });
       add('POST', '/api/update/ack', async () => { try { rmSync(outcomePath(opts.root), { force: true }); } catch { /* ignore */ } files.saveState({ stoppedForUpdate: [] }); return module.status(); });
       add('POST', '/api/update/drain', ({ req }) => { needNative(req); return module.drain(); });
       add('POST', '/api/update/commit', ({ req, body }) => { needNative(req); return module.commit({ force: isObj(body) && body.force === true }); });
