@@ -7,6 +7,7 @@ import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
+import { serveSameOrigin } from '../lib/same-origin.mjs';
 import { launchChromium } from '../../scripts/lib/load-playwright.mjs';
 
 process.env.PLAYWRIGHT_PATH ||= '/opt/node-tools/node_modules/playwright';
@@ -47,13 +48,9 @@ const base = `http://127.0.0.1:${PORT}`;
 for (let i = 0; i < 100; i++) { try { if ((await fetch(base + '/health')).ok) break; } catch { /* wait */ } await new Promise((r) => setTimeout(r, 150)); }
 
 const uiDir = path.join(REPO, 'dist-ui');
-const uiServer = http.createServer((req, res) => {
-  let p = decodeURIComponent((req.url || '/').split('?')[0]); if (p === '/') p = '/index.html';
-  const f = path.join(uiDir, p);
-  if (!f.startsWith(uiDir) || !fs.existsSync(f)) { res.statusCode = 404; res.end(); return; }
-  res.setHeader('content-type', MIME[path.extname(f)] || 'application/octet-stream'); res.end(fs.readFileSync(f));
-}).listen(PORT + 1000, '127.0.0.1');
-const uiUrl = `http://127.0.0.1:${PORT + 1000}/index.html`;
+// UI and API on ONE origin (test-perf/lib/same-origin.mjs): a second port is a foreign origin the core's guard refuses.
+const ui = await serveSameOrigin({ uiDir, corePort: PORT });
+const uiUrl = ui.uiUrl;
 
 const H = (native) => ({ Authorization: `Bearer ${TOKEN}`, 'X-Legion-Admin': ADMIN, 'Content-Type': 'application/json', ...(native ? { 'X-Legion-Native': NATIVE } : {}) });
 const call = async (method, p, body, native = false) => { const r = await fetch(base + p, { method, headers: H(native), body: body === undefined ? undefined : JSON.stringify(body) }); return { status: r.status, json: await r.json().catch(() => ({})) }; };
@@ -77,7 +74,7 @@ try {
       window.setInterval = (fn, ms, ...r) => { const id = si(fn, ms, ...r); window.__timers.push({ id, ms, live: true }); return id; };
       window.clearInterval = (id) => { for (const t of window.__timers) if (t.id === id) t.live = false; return ci(id); };
       window.legion = { baseUrl: b, token: t, admin: a, platform: 'win32', openExternal() {}, bsvPolicy: (x) => window.__bsvBridge(x), onBsvChanged: () => () => undefined };
-    }, { b: base, t: TOKEN, a: ADMIN, theme: scheme });
+    }, { b: ui.origin, t: TOKEN, a: ADMIN, theme: scheme });
     const page = await ctx.newPage();
     const errs = []; page.on('pageerror', (e) => errs.push(e.message));
     await page.goto(uiUrl);
@@ -154,7 +151,7 @@ try {
     wallet.network = 'testnet';
     await call('POST', '/api/bsv/policy/arm', { minutes: 5 }, true);
     const ctx2 = await browser.newContext({ viewport: { width: 900, height: 700 }, deviceScaleFactor: 1, colorScheme: scheme });
-    await ctx2.addInitScript(({ b, t, a, theme }) => { try { localStorage.setItem('legion.theme', theme); } catch { /* ignore */ } window.legion = { baseUrl: b, token: t, admin: a, platform: 'win32', openExternal() {} }; }, { b: base, t: TOKEN, a: ADMIN, theme: scheme });
+    await ctx2.addInitScript(({ b, t, a, theme }) => { try { localStorage.setItem('legion.theme', theme); } catch { /* ignore */ } window.legion = { baseUrl: b, token: t, admin: a, platform: 'win32', openExternal() {} }; }, { b: ui.origin, t: TOKEN, a: ADMIN, theme: scheme });
     const p2 = await ctx2.newPage(); await p2.goto(uiUrl); await p2.waitForSelector('.live-border', { timeout: 15000 }); await p2.waitForTimeout(700);
     await p2.screenshot({ path: `${OUT}/${scheme}-8-armed-narrow.png` });
     R.noBridgeFreezeText = await p2.getByRole('button', { name: 'Freeze chain' }).isVisible();
@@ -167,7 +164,7 @@ try {
   try { await browser?.close(); } catch { /* ignore */ }
   const exited = new Promise((r) => core.once('exit', r)); core.kill('SIGTERM'); setTimeout(() => core.kill('SIGKILL'), 3000).unref();
   await Promise.race([exited, new Promise((r) => setTimeout(r, 4000))]);
-  uiServer.close(); walletServer.close();
+  ui.close(); walletServer.close();
   fs.rmSync(HOME, { recursive: true, force: true });
 }
 console.log(JSON.stringify(results, null, 1));

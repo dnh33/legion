@@ -1500,3 +1500,17 @@ expiring on edit). **D9 is not done until those pass.**
   scrub fix lives on the other branch. Land both or neither.
 - Per `AGENTS.md` §6: PR with one approving review, no squash, merge `--no-ff`, and audit removed test lines
   (`git diff pre-merge-<name> HEAD -- test/ | grep '^-[^-]'`).
+
+## 2026-10-05 — 0.2.5 (fix/beta-badge-rig-origin)
+
+Ships: long messages no longer cut at 20,000 characters (bug since 0.2.3-l, drafts.ts), and the Beta mark in the title bar.
+Not in the changelog because no installed user sees it:
+- Rigs (title-bar, BSV, chat, Lattice) now serve UI and API from one origin (`test-perf/lib/same-origin.mjs`); the
+  core's loopback guard had refused the second port, so every rig /api call failed CORS. Fix is in the rigs, not the guard.
+- Duplicate `title` on the view tabs (TitleBar.tsx) that failed `npm run typecheck` on main.
+Windows evidence (owner PC): title-bar rig 400/400 (Beta mark every width, dark + light; every API call reached the core);
+chat-ui queue rig 25/25. Gate: 2713 tests, 2666 pass / 2 fail / 45 skip. Clean-main baseline: 2712, 1 fail.
+Both share Lattice F1 (`perf-l-store.test`, kg.updated re-read count), which fails on main and is deterministic: OPEN.
+Branch-only fail E4 (Chromium launch) passes in isolation: load timing.
+Open, pre-existing: `test-perf/bsv-ui/shots.mjs` "Arm LIVE FUNDS" step finds the button disabled (mainnet hard-off by
+default); the scenario predates the mainnet policy. The chat-ui rigs hard-code `/tmp/m/wt-chat` (Linux only).
