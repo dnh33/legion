@@ -795,133 +795,141 @@ matters: an agent writes a line into `AGENTS.md`, then `house_read` must return 
 `needsApproval('full', …)` is correct as written, so the suspect is **`approvalCeiling` capping a `full` agent
 down to `ask`**. Never confirmed — the earlier investigation ran out of subagent credit before isolating it. Small,
 live, and visible to the owner, so it is its own session rather than bundled with a feature.
+### TASK LADDER — where the work is, in order (rewritten 2026-10-04; renumbered because the lettered items
+### had drifted out of order and item 2 still claimed `-d` was the latest release when `-g` had shipped)
 
-### TASK LADDER — where the work is, in order (updated at every release)
+**Do not reorder this list without reading the whole of it.** Items 1 and 2 are shipped and are here as the reason
+the later items exist. Work starts at **3**.
 
-**Source of truth for what happens next.** Anything not listed here is not agreed work.
+---
 
-**Shipping now: `0.2.3-d`** — the context engine, brought to parity with the reference plus the controls a user needs.
+#### SHIPPED CONTEXT — read this first, it explains most of what follows
 
-1. **`0.2.3-d` — SHIPPED, verified installable from inside Legion.** Compaction off switch, manual compact with a focus
-   instruction, a context-usage readout, the `/compact` command and its route. Gate: 2,574 tests, 2 known failures,
-   0 type errors. Pre-flight 14 ok / 0 fail. CDN bytes verified against key k1 after publishing.
-2. **VERIFIED STATE 2026-10-04, session close.** `main` == `cloud/main` at `f9f49cf`, 0 unpushed.
-   **EVERY BRANCH IS MERGED.** Nothing outstanding.
-   - Gate: **2,622 tests across 217 files, 1 failure** - the `kg` F1 already proven failing at `deb5a69`.
-     0 type errors. 0b7850 branch tip is not an ancestor but all three of its commits are; the label is stale, not the work.
-   - **permission cards (S5b)** `4cd05ea` - one rule, in `full` a guard never cards. 22/22.
-   - **house layer** `f9f49cf` - the four shipped defects: a packaged install shipped no context layer at all
-     (11/11 missing), the trust manifest counted as content, every house read raised a card, trust was a one-way
-     ratchet. Code merged clean; the only conflicts were the compaction and house SETTINGS SECTIONS, both additive,
-     kept as unions in `Settings.tsx` and `store.ts`. Both verified present in the built UI bundle.
-   - **vault leak (scrub)** `6a6602a` + `369b5f5` - `claude/` is scrubbed, not shipped verbatim.
-   - **pre-flight `--pkg`** `fa4bd2d` - required instead of guessing a local folder.
-   - **NONE OF THE ABOVE IS RELEASED.** `v0.2.3-d` is still the latest. All of it ships in the next letter.
-   - **H1-H10 UNSTARTED** - the house layer has never run in a real Legion. A PC check, not a code gap.
-   - **Also not done:** `docs/COMPACTION-GAPS.md` (the six-gap backlog for the 1-to-1 work) is now in the vault as
-     `legion-context-gaps-analysis.md` and cross-linked from the pairing table. Its REPO copy is still scrubbed-and-
-     shipped while reading as an internal report - rewrite or exclude.
-   - **Stray:** `D:/bots/legion-ship` on disk, locked, no longer a git worktree. Empty; harmless.
-   - **KNOWN FAILING TEST, not yet on the ladder until now:** `test/perf-l-store.test.ts:164` (F1). Returning to the
-     Lattice with nothing changed publishes a new graph: `rev` goes 2 -> 3 where the test expects it unchanged.
-     The one re-read is correct; the publish is not. No wrong data and nothing lost - the graph on screen is right -
-     but it costs a layout and a re-render on every Lattice re-entry, so it reads as a flicker. Proven failing at
-     `deb5a69`, before any of the compaction or house work. Small, real, and NOT caused by anything in this session.
+Latest release is **`0.2.3-g`**, verified installable from inside Legion, self-applying (`requiresFullInstall:
+false`). Everything below is either shipped, parked, or not started.
 
-2b. **`0.2.3-f` SHIPPED** — security fix found by the Zealot test. The shipped-trust manifest was built by hashing the
-   COPY in the data directory, so an agent could write its own edit's hash into it and have that edit come back
-   TRUSTED and unlabelled; entries were carried forward for `keptNewer` files, so it survived a restart. Now derived
-   from what the app SHIPS. `adopt()` also wrote into the layer, so an owner approval and an agent forgery were the
-   same file; adoption moved to the data directory. **Red-green verified** — reverting the sync turns the test red on
-   exactly that claim. Limit stated in ADR 0011: defence in depth, not a cryptographic boundary, because an agent runs
-   as the same OS user.
+| release | what it carried |
+|---|---|
+| `0.2.3-b` | context compaction, and the Update button that made self-apply usable |
+| `0.2.3-c` | window-proportional turn budget, test temp-dir cleanup, Blender export folder, the product-copy rewrite |
+| `0.2.3-d` | compaction off switch, `/compact [focus]` and its route, context-usage readout |
+| `0.2.3-e` | full-access approval cards (S5b), the house context layer, the `claude/` vault-leak fix, `--pkg` required |
+| `0.2.3-f` | **security**: the shipped-trust manifest was forgeable, so an agent could promote its own edit to the owner's rules |
+| `0.2.3-g` | the house list followed the app theme (white rows on a dark panel); two missing agent instructions |
 
-2d. **PARKED, and the next thing to finish: the house trust record** — branch `fix/house-shipped-record` at `31a31a9`,
-   worktree `D:/bots/legion-shipped`. **Committed, not merged.** Two owner decisions, recorded in ADR 0011 there:
-   **(a) the bytes always survive** — never overwrite a file whose content differs from what the app shipped; an agent's
-   edit is its own work and Legion does not destroy it silently, and if a shipped update therefore does not reach an
-   edited file the owner adopts the new text instead; **(b) the record moves out** — `.shipped.json` goes in the data
-   directory beside `.adopted.json`, because the precondition "the copy still hashes to what this app shipped" is
-   worthless if the agent can write the manifest that makes it true, and an agent runs as the same OS user. That
-   retires the clobber in the `0.2.3-f` fix, which stopped the forge by overwriting the edited file.
-   Also there: `context.ts` folds a backslash before joining, because on Linux a backslash is a legal filename
-   character, so a Windows agent's `docs\adr\x.md` was reported absent.
-   **MERGE NEEDS WORK, NOT A FAST-FORWARD.** main has moved on; `test/house-zealot.test.ts` and ADR 0011 are edited
-   there too. Rebase, then re-run Zealot test 2.4 under the new arrangement — it must still go red when the record is
-   forged in its new home. Do not take the branch's 2.4 as proof; take it as the thing to re-prove.
+Gate at the last full run: **2,655 tests across 220 files, 1 failure**, 0 type errors. The one failure is the `kg` F1,
+proven failing at `deb5a69` before any of this work.
 
-2e. **Model picker: long names break the pill, and there is no effort picker** — owner, from a screenshot.
-   **The bug is precise and cheap.** `ui/src/styles/app.css:245`:
-   `.model-pill { height: 26px; display: inline-flex; ... }` — no `white-space: nowrap`, no `overflow: hidden`,
-   no `text-overflow: ellipsis`, and no `max-width`. So `OpenRouter · stealth/space-bunny-alpha` wraps to a second
-   line inside a control with a fixed 26px height, and the label collides with the neighbouring send button.
-   **The codebase already has the correct pattern in four other rules** — `.agent-name`, `.agent-sub`, `.tb-search span`
-   and `.th-text b` each carry `white-space: nowrap; overflow: hidden; text-overflow: ellipsis`. `.model-pill` is the
-   one that was missed, so this is a missing line, not a new mechanism. Two details that matter: inside a flex
-   container the ellipsis only engages with `min-width: 0` on the label child, and the pill needs a `max-width` or it
-   will simply push the row wider. Add `title={fullName}` so the complete name is still reachable on hover.
-   **No performance cost** — pure CSS, no JS, no measurement, no reflow beyond the one element.
-   **Effort picker: does not exist, and there is no knob to drive.** `grep` for `reasoning_effort` / `effort` across
-   `src/shared/types.ts` and `src/core/providers/` finds nothing; the only `effort` in the tree is compaction's
-   summary-token budget, which is unrelated. So this is a real gap end to end, not a missing UI: a provider's
-   reasoning budget has to be plumbed through the agent profile, the settings route with validation, the provider
-   request, AND the UI — and **only for providers that accept it**, since not every model has the knob and sending an
-   unknown field is how a provider starts rejecting requests. Check the model's own metadata before showing it.
-   Size it as its own item; it is not a companion to the CSS fix.
+**Known open defects, none of them ours to have caused:**
+- `test/perf-l-store.test.ts:164` — returning to the Lattice with nothing changed publishes a new graph (`rev` 2 → 3).
+  Costs a layout and a re-render; no wrong data.
+- `README.md:283` says MIT, `CONTRIBUTING.md:132` says Apache-2.0. A licence contradiction in a public repo.
+- `AGENTS.md` and `CONTEXT.md` ship verbatim into the public snapshot: neither is in `ROOT_DOCS` or `PROSE_DIRS`, so
+  the export scrubber never sees them.
+- 27 medium public-copy findings still outstanding in older changelog entries. The rules exist at
+  `.claude/skills/public-facing-copy.md`; nobody has swept them.
 
-3. **Logging (NEXT)** — Legion has none today. The reference ships `~/.hermes/logs/` with rotation and a CLI reader
-   (`hermes_cli/logs.py`: `tail_log`, `list_logs`, filters by level/component/time). The owner's use case is concrete:
-   when something breaks locally, the log is what gets pasted to an agent.
-   Requirements: append-only, size-capped rotation, **redacted at write time** (NOT encrypted - an encrypted log cannot be
-   pasted into a chat, which defeats the purpose), event ids rather than prose, and a clear button in Settings.
-   Open question to settle first: whether the reference redacts at the writer or only at the display. NOT VERIFIED.
-5. **A real tokenizer + an honest updater check (NEXT AFTER LOGGING)** — two halves, one release.
-   - **Tokenizer:** add `gpt-tokenizer` (a port of OpenAI's `tiktoken`, so the BPE is the reference one). Exact for
-     OpenAI-family models, a better approximation than chars/4 for the rest. Pure ESM, so it bundles into `dist/`.
-     Sources: npmjs.com/package/gpt-tokenizer, pkgpulse.com token-counting comparison 2026.
-   - **Updater:** `apply.ts` states it never touches `node_modules`, and the update package carries ZERO node_modules
-     entries. So a dependency change has nothing to swap — the code arrives and the library does not. Today
-     `package.ts:100` throws `StageError('full-install')` because the lock changed, which is a CONSERVATIVE PROXY:
-     correct for a native module, WRONG for anything bundled at build time.
-     Fix: make the check ask "does this release need anything that is not already on disk?" rather than "did the lock
-     change?" Keep the refusal for genuine native modules. Do NOT delete the guard; make it accurate.
-   - **Test both ways:** a release adding only a BUNDLED dependency self-applies; one adding a NATIVE module still
-     refuses. That pair is the whole proof.
-   - **The reference's answer, from `main`:** `hermes update` treats dependency install as step 3 of a normal update
-     ("runs `uv pip install -e .[all]` to pick up new or changed dependencies"), and step 2 is post-pull syntax
-     validation with `git reset --hard` auto-rollback. Not a dead end, not a manual reinstall.
-   - The threshold setting currently reads as a fact about the model ("how full a model's context window may get")
-     when it is an estimate. Once the tokenizer lands, say so truthfully - and if the tokenizer is ever deferred, label
-     it as an estimate the way the usage readout already is.
+---
 
+#### 1. **PARKED — the house trust record. Next thing to finish.**
 
-4. **House lifecycle: the Archivist can curate, cleanup is not manual** — after logging, BEFORE the context engine.
-   Owner ruling 2026-10-04: an agent that can write but never delete is append-only storage, not agentic software.
-   **What already exists and is correct - do not loosen it.** `graph.ts:927` - a human deletes anything; a bot may
-   forget only its own private notes or its own pending proposal; shared notes are refused with "update it (a
-   proposal goes to the human) or tell the user"; the Archivist NEVER deletes; working memory (`wm:`) cannot be
-   forgotten by a bot at all. The house layer is read-only (`house_read`/`house_recall`/`house_list`) and must stay
-   so: an agent editing the rules it obeys is the entire threat model.
-   **The actual gap is ergonomics, not permission.** Nothing proposes retiring stale notes as a BATCH, so curation
-   is manual one note at a time. Build:
-   - `kg_sweep` - the Archivist proposes a SET of retirements with reasons; the human accepts or rejects as one
-     action. Deletion still requires the human. This is the difference between curation being usable and decorative.
-   - `kg_capture --supersedes <id>` - retires the old note when the new one lands. Cleanup in practice is
-     replacement, not deletion, and this is the path that actually gets used.
-   - Every retirement already lands in the ledger via `logActivity`; a sweep must be auditable from it.
-   - **DONE, shipped as 0.2.3-f:** `test/house-zealot.test.ts`, 22 tests over the REAL built artefact rather than a
-     fixture — the only kind of test that could catch these, because a fixture cannot detect a shape the fixture got
-     wrong. It found a real hole: the shipped-trust manifest was forgeable (see 2b). The read-only and no-card
-     properties are asserted too, negatively.
-   - **STILL TO DO:** `kg_sweep` (propose a BATCH of retirements, human approves as one action) and
-     `kg_capture --supersedes <id>` (retire on replacement — how cleanup actually happens). The delete rules in
-     `graph.ts:927` stay exactly as they are.
+Branch `fix/house-shipped-record` at `31a31a9`, worktree `D:/bots/legion-shipped`. **Committed, not merged.**
 
+Two owner decisions, recorded in ADR 0011 on that branch:
 
-6. **Context engine 1-to-1 (after that)** — the pairing table is in the owner's vault at
-   `06-projects/legion/context-engine-1-to-1-with-hermes.md`. Scorecard: PARITY 11, AHEAD 4, GAP 19, PARTIAL 1.
-   Rule: read the reference's stated REASON before closing a gap; copying a value without its rationale is how the
-   small-window rule ended up inverted. Do NOT touch logging or the tokenizer while doing this.
+- **(a) The bytes always survive.** Never overwrite a file whose content differs from what the app shipped. An agent's
+  edit is its own work and Legion does not destroy it silently. If a shipped update therefore does not reach an edited
+  file, the owner adopts the new text instead — adoption is already their door. A silent irreversible deletion is the
+  one unacceptable outcome, because it is invisible.
+- **(b) The record moves out of the layer.** `.shipped.json` goes in the data directory beside `.adopted.json`. This is
+  the load-bearing one: the precondition *"the copy still hashes to what this app shipped"* is worthless when the agent
+  can write the manifest that makes it true, and an agent runs as the same OS user.
+
+That retires the clobber in the `0.2.3-f` fix, which stopped the forge by overwriting the edited file.
+
+Also on that branch: `context.ts` folds a backslash before joining, because on Linux a backslash is a legal filename
+character, so a Windows agent's `docs\adr\x.md` was reported absent and the escape check was reading a nonsense path.
+
+> **MERGE NEEDS WORK, NOT A FAST-FORWARD.** main has moved on; `test/house-zealot.test.ts` and ADR 0011 are edited
+> there too. Rebase, then **re-prove** Zealot test 2.4 under the new arrangement — forge the record in its *new* home
+> and watch it refused. Do not take that branch's 2.4 as proof; take it as the thing to prove again.
+
+#### 2. **Model pill breaks on a long name** — owner, from a screenshot
+
+`ui/src/styles/app.css:245`: `.model-pill { height: 26px; display: inline-flex; ... }` with no `white-space: nowrap`,
+no `overflow: hidden`, no `text-overflow: ellipsis` and no `max-width`. A provider-qualified name
+(`OpenRouter · stealth/space-bunny-alpha`) wraps to a second line inside a fixed-height control and collides with the
+send button.
+
+**The correct pattern is already in this codebase** — `.agent-name`, `.agent-sub`, `.tb-search span` and `.th-text b`
+each carry `nowrap / overflow: ellipsis`. This is a missing line, not new machinery. Two details a fix must not miss:
+inside a flex container the ellipsis only engages with `min-width: 0` on the label child, and the pill needs a
+`max-width` or it just widens the row. Add `title={fullName}` so the whole name stays reachable. **Pure CSS, no
+runtime cost.**
+
+#### 3. **Logging — NEXT SESSION**
+
+Legion has none: zero logging anywhere in `src/core/`. See the vault `HANDOFF-logging.md` for the full brief. The
+reference's questions are already answered and must not be re-derived: redaction happens **at the writer** via a
+`RedactingFormatter`, so secrets never reach disk; four files split by severity and component; one async queue;
+Windows rotating handlers keep `.__*.lock` files until closed, so profile deletion must release them first.
+
+#### 4. **House lifecycle — the Archivist can curate** (after logging)
+
+The delete rules in `graph.ts:927` are correct and stay exactly as they are: a human deletes shared notes, the
+Archivist never deletes, working memory cannot be forgotten by a bot, and the house layer is read-only because an
+agent editing the rules it obeys is the whole threat model.
+
+What is missing is ergonomics, not permission:
+- `kg_supersede` **already exists and is tested** — one note at a time, with pending proposals on shared notes.
+- `kg_sweep` — propose a **batch** of retirements with reasons; the human accepts or rejects as one action.
+  Without it, curation is one note per tool call, which is manual labour in costume.
+- `kg_capture --supersedes <id>` — retire on replacement, which is how cleanup actually happens in practice.
+
+#### 5. **A real tokenizer + an honest updater check** (after logging)
+
+- **Tokenizer:** `gpt-tokenizer`, a port of OpenAI's `tiktoken`, so the BPE is the reference one. Exact for
+  OpenAI-family models, a better approximation than chars/4 for the rest.
+- **Updater:** `apply.ts` states it never touches `node_modules` and the update package carries zero `node_modules`
+  entries — so a dependency change has nothing to swap. `package.ts:100` throws `full-install` because the lock
+  changed, which is a *conservative proxy*: correct for a native module, wrong for anything bundled at build time.
+  Make the check ask *"does this release need anything not already on disk?"* **Do not delete the guard; make it
+  accurate.** Test both ways: a bundled dependency self-applies, a native module still refuses.
+- The reference does not treat this as a dead end: from `main`, `hermes update` installs changed dependencies as
+  step 3 of a normal update.
+- **Parity note:** the estimator is an estimate in both products. Moving ours was parity, not rescue — do not write
+  it up as a capability gap.
+
+#### 6. **Context engine 1-to-1** (last)
+
+Pairing table in the vault at `context-engine-1-to-1-with-hermes.md`; the evidence is `legion-context-gaps-analysis.md`,
+which is the six concrete gaps item by item. The repo copy `docs/COMPACTION-GAPS.md` is **excluded from the public
+export** because it is 13 references to material we deliberately do not name.
+
+Rule: read the reference's stated *reason* before closing a gap. Copying a value without its rationale is how the
+small-window rule ended up inverted.
+
+---
+
+#### OWNER TASKS — not agent work
+
+- **H1–H10.** The house layer has **never run in a real Legion**. A PC check, not a code gap. The first live run
+  already found 46 stale `claude/skills` files in the live layer, listed as `shipped` and served trusted, residue from
+  an install hours before the current sync — because sync never deletes. That is fixed by item 1's record move.
+- **B9.** Reproduce the community Blender add-on's pinned hash. Still open, and `SECURITY.md` says so on purpose.
+- PC checklist: `claude/tracker-pc-checks.md`.
+
+#### DELIBERATELY NOT DOING
+
+- **An effort picker.** There is no reasoning-effort knob anywhere in the provider model, so it would need the
+  profile, the settings route, the provider request and the UI, shown only for models that accept it. Owner decision
+  2026-10-04: **not needed — the slash command stays.** Do not re-propose it.
+
+#### REPOSITORY STATE
+
+`main` == `cloud/main`, 0 unpushed. Branches: `main`, `fix/house-shipped-record` (item 1, parked),
+`claude/trailer-v2-build` (another session's, dirty, not ours). Worktrees `D:/bots/legion-dev` and
+`D:/bots/legion-cap-wt` are dirty and belong to other sessions — never touch them.
 
 **Known failures, both pre-existing and NOT ours:**
 - `export-public` / `export-scrub`: `claude/SESSION-QUEUE.md` contains the owner's vault name. The owner's document to

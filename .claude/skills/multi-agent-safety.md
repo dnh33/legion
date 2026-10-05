@@ -14,6 +14,23 @@
 **Untracked files do not survive a mistake; tracked ones do.** A tracked file lives on in a stash or another branch.
 An untracked file has no git object and no reflog — it is gone.
 
+## Never claim a path you did not create
+
+The five verbs above are destructive. `git add` is not, and that is why it is the one that gets missed: committing a
+peer's untracked file destroys nothing, so it feels safe, and the only thing it costs is **truth**.
+
+**Never `git add -A`, `git add .` or `git commit -a` in a shared tree.** Stage by path, from what you wrote. Learned
+the hard way on 2026-10-04: a ladder-rewrite commit message shipped alongside a peer's V8 heap limiter, five files I
+never wrote, because `add -A` swept them in. The code was fine and the tests passed — which is exactly why nothing
+caught it. A commit message that does not describe its contents is a permanent, published lie, and the owner reads it.
+
+**Before every commit, read what you are about to stage:** `git diff --cached --stat`. If a path is not one you edited
+this session, do not stage it. If it is genuinely wanted, it gets its own commit with its own message — never someone
+else's work under yours.
+
+**Untracked is not orphaned.** An untracked file belongs to whoever is mid-task in it. Leaving it alone is correct;
+committing it is not a favour.
+
 ## Know which directory is which
 
 Verify with `git rev-parse --git-common-dir`, never a name or a memory:
