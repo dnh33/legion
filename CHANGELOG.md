@@ -2,6 +2,22 @@
 
 All notable changes are recorded here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses [Semantic Versioning](https://semver.org/).
 
+## [0.2.5-d] - 2026-10-06
+
+### Added
+
+- **A usage panel in the title bar.** The chart icon opens a small panel with what Claude has cost today, over 7 days and
+  over 30 days, a 14-day strip, and the models and agents that used the most. It loads only when opened. The figures are
+  Claude's own per-task costs, so they show how much you used, not what a subscription bills.
+
+### Fixed
+
+- **"Update and install now" did nothing after a download.** The panel now offers one button, "Restart and install", which
+  shows what will stop and then installs. The download shows a progress bar, and "Check now" sits in the header.
+- **A task could stay on "working" after it had finished.** When you sent a message while a task was running, Claude
+  answered it together with the step in progress, and Legion kept waiting for a second answer that never came. The task
+  now ends when Claude says nothing else is waiting.
+
 ## [0.2.5-c] - 2026-10-05
 
 ### Added
