@@ -46,3 +46,18 @@ mutation for each new test, renders any UI change) before committing. At most 3 
 
 A3 -> A2 commit -> B6, B4, B8, B9 (small, parallel agents) -> B1 -> B7 -> B5 -> B3 -> B2 (largest, last, own spike) ->
 A4-A7 -> gates.
+
+## C. After 0.2.5-c: web on your own devices, and Mac polish (owner chose "own devices first", 2026-10-05)
+
+Facts (read in code / official docs): `npm start` opens Electron on a Mac too (Electron is a dependency; window code
+has `hiddenInset`); the core starts with `node` from PATH (resolve-node.ts `mode: 'path'`); Claude Code on macOS keeps
+its login in the Keychain (docs: Authentication > Credential management), so the bundled CLI uses it with no OAuth.
+`npm run dev:ui` is a browser-only dev server: no admin secret, so admin routes are refused (looks like a broken app).
+
+| # | Item |
+|---|---|
+| C1 | Web pairing: the app shows a one-time code; a browser trades it for an httpOnly, SameSite=Strict session that the core accepts as admin (with CSRF protection). Core stays on loopback. |
+| C2 | Own devices over Tailscale (`tailscale serve` HTTPS on the tailnet), documented; nothing on the public internet. |
+| C3 | Mac: platform-aware core-start hint (no setup.cmd/winget advice on macOS); PATH note for a future Dock-launched app. |
+| C4 | Later, owner decision: headless/VPS via `claude setup-token` (CLAUDE_CODE_OAUTH_TOKEN, today stripped by scrubHostSessionEnv); hosted-for-others needs API keys per the SDK policy. |
+| C5 | Real-Mac check: `npm start` on a Mac, one task, Keychain prompt behaviour. |
