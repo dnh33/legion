@@ -11,7 +11,7 @@ import { DEFAULT_PROVIDERS, normalizeProviders } from '../core/providers/config.
 import type { ProvidersConfig } from '../core/providers/types.js';
 export { MAX_ROOM_BUDGET_USD };
 
-export const VERSION = '0.2.3-i';
+export const VERSION = '0.2.3-j';
 
 /**
  * Optional BSV Dev Kit toggle (knowledge and visibility only: no wallet, no keys, no funds).

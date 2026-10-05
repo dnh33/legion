@@ -78,7 +78,10 @@ test('wiring (source guard): secret generated per core spawn, written to the std
   assert.match(main, /child\.stdin\?\.end\(secret \+ '\\n' \+ native \+ '\\n'\)/, 'admin secret line, then the native secret line (BSV policy), both over stdin only');
   assert.match(main, /LEGION_ADMIN_STDIN: '1'/);
   assert.ok(!/env: \{[^}]*secret/.test(main), 'the secret is not put in the child environment');
-  assert.match(main, /spawn\(launch\.cmd, \[coreEntry\]/, 'argv is the entry file only');
+  // argv carries the entry file plus the V8 heap ceiling (see heap-limit.ts). Nothing secret may be added here: the
+  // point of the guard is that a secret in argv is visible in the process list.
+  assert.match(main, /spawn\(launch\.cmd, \[\.\.\.heapArgv\(\), coreEntry\]/, 'argv is the entry file plus the heap ceiling, and nothing else');
+  assert.ok(!/spawn\(launch\.cmd, \[[^\]]*secret/i.test(main), 'no secret reaches argv');
   assert.match(main, /admin: live \? rendererAdmin \?\? '' : ''/);
   // F2: the port and token are pinned when the core is started or adopted; config.json is not re-read for them afterwards
   assert.match(main, /LEGION_PORT: String\(port\)/, 'the child is told the port main chose');

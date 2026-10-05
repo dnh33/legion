@@ -10,6 +10,7 @@ import { initUpdater, recoverAtStart } from './updater-main.js';
 import { adminForRenderer, bsvConfirmation, bsvPreflight, coreAction, coreIsBusy, createSpendNative, dialogText, isSpendAction, killPlan, listenerCommands, listenerPids, netChangeProblem, parseBsvAction, SPEND_POLL_MS, trustedSender, type BsvAction, type BsvPolicyFacts, type CoreHealth } from './admin-logic.js';
 import { makeConfirm, providerChange } from './provider-ipc.js';
 import { coreStartHint, resolveCoreLaunch } from './resolve-node.js';
+import { heapArgv } from './heap-limit.js';
 import { projectChange } from './project-ipc.js';
 import { browserChange } from './browser-ipc.js';
 import type { ProjectChangeResult } from './project-ipc.js';
@@ -154,7 +155,7 @@ async function spawnCore(port: number): Promise<string | null> {
     // A fresh secret for every core we start (a tray restart rotates it). It goes over the stdin pipe only.
     const secret = randomBytes(32).toString('hex');
     const native = randomBytes(32).toString('hex');
-    const child = spawn(launch.cmd, [coreEntry], {
+    const child = spawn(launch.cmd, [...heapArgv(), coreEntry], {
       cwd: root,
       stdio: ['pipe', out, out],
       windowsHide: true,

@@ -2,6 +2,23 @@
 
 All notable changes are recorded here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses [Semantic Versioning](https://semver.org/).
 
+## [0.2.3-j] - 2026-10-04
+
+### Fixed
+
+- **The core now has a heap ceiling instead of Node's default.** On a large machine Node sizes the core's heap from
+  total memory, which on a 32 GB machine allows about 4 GB for a process that usually needs far less. It now gets a
+  quarter of RAM, capped at 2048 MB and never below 512, and scales down on smaller machines. If you already set a
+  ceiling yourself — with `--max-old-space-size` or through `NODE_OPTIONS` — your value is kept untouched.
+
+### Added
+
+- **Guards against three plausible-sounding claims that measurement disproved**, recorded so they are not proposed
+  again: that parameter properties, enums and namespaces are safe to use (each is non-erasable), that `.ts` import
+  specifiers work under type stripping (they do not — the specifiers must be `.js`), and that this can be moved to
+  another JavaScript runtime. Measured here across the same 30 test files: Bun failed 25 of them and Deno was roughly
+  six times slower than Node, so the runtime stays Node.
+
 ## [0.2.3-i] - 2026-10-04
 
 ### Fixed
