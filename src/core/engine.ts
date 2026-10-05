@@ -560,7 +560,8 @@ export class Engine {
         ? `${TURN_LIMIT_PREFIX} (${this.config.claude.maxTurns} turns this run) before finishing. The work so far is kept: continue the task to pick up where it stopped.`
         : outcome.errorText || outcome.subtype;
       this.patchTask(job.taskId, { status: 'error', error: text, ...(act.tainted ? { tainted: true } : {}) });
-      this.addMessage(job.taskId, 'system', turnLimit ? text : `Error: ${text}`);
+      // the history keeps a short line; the full text is the task's error, which the app shows on the Paused card
+      this.addMessage(job.taskId, 'system', turnLimit ? `${TURN_LIMIT_PREFIX} (${this.config.claude.maxTurns} turns this run).` : `Error: ${text}`);
       this.mascot('error', text.slice(0, 120));
     } else {
       this.patchTask(job.taskId, { status: 'done', resumable: undefined, ...(act.tainted ? { tainted: true } : {}) });

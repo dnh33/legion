@@ -9,6 +9,7 @@ import { RenameInput } from './TaskSwitcher';
 import { cleanTitle, money, relTime, taskTitle } from '../util';
 import { BlenderCard } from '../blender/BlenderCard';
 import { ComputerCard } from './ComputerCard';
+import { statusDot } from '../../../src/shared/continue';
 
 const LAB_STATES: RelicState[] = ['idle', 'listening', 'thinking', 'hacking', 'awaiting', 'victory', 'error', 'sleeping', 'annoyed'];
 
@@ -73,7 +74,7 @@ export function OpsPanel() {
                     onClick={() => { if (t.archived) void reopenTask(t.id); selectTask(t.id); }}
                     onAuxClick={(e) => { if (e.button === 1) e.preventDefault(); }}
                     onContextMenu={(e) => { e.preventDefault(); openTaskMenu(e.clientX, e.clientY, t.id, 'recent'); }}>
-                    <i className={`st st-${t.status}`} />
+                    <i className={`st st-${statusDot(t)}`} />
                     {renaming === t.id ? <RenameInput id={t.id} title={t.title} /> : <span className="r-title">{taskTitle(t.title, from)}</span>}
                     <span className="r-meta">{a?.name ?? 'Agent'} {'\u00b7'} {t.costUsd != null ? money(t.costUsd) + ' · ' : ''}{relTime(t.updatedAt)}{from && <em className="from-chip">from {from}</em>}{t.modelOverride && <em className="from-chip model-chip" title={`${agents.find((x) => x.id === t.modelOverride!.by)?.name ?? t.modelOverride.by} chose ${modelLabel(catalog, t.modelOverride.model)} for this task`}>{modelLabel(catalog, t.modelOverride.model)}</em>}{t.archived && <em className="from-chip closed-chip">closed</em>}</span>
                   </button>

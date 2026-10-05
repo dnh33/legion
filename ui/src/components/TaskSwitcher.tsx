@@ -3,6 +3,7 @@ import { modelLabel } from '../models';
 import { inProject } from '../projects/projectsLogic';
 import { archiveTask, newTask, openTaskMenu, renameTask, selectTask, startRename, stopRename, useStore } from '../store';
 import { Icon } from './icons';
+import { statusDot } from '../../../src/shared/continue';
 import { cleanTitle, taskTitle } from '../util';
 
 /** Inline title editor used by tabs and Recent rows. Enter saves, Esc cancels. */
@@ -52,7 +53,7 @@ export function TaskSwitcher() {
               onAuxClick={(e) => { if (e.button === 1) { e.preventDefault(); void archiveTask(t.id); } }}
               onMouseDown={(e) => { if (e.button === 1) e.preventDefault(); }}
               onContextMenu={(e) => { e.preventDefault(); openTaskMenu(e.clientX, e.clientY, t.id); }}>
-              <i className={`st st-${t.status}`} />
+              <i className={`st st-${statusDot(t)}`} />
               {renaming === t.id ? <RenameInput id={t.id} title={t.title} /> : <span>{taskTitle(t.title, from)}</span>}
               {from && renaming !== t.id && <em className="from-chip">from {from}</em>}
               {t.modelOverride && renaming !== t.id && <em className="from-chip model-chip" title={`${agents.find((a) => a.id === t.modelOverride!.by)?.name ?? t.modelOverride.by} chose ${modelLabel(catalog, t.modelOverride.model)} for this task`}>{modelLabel(catalog, t.modelOverride.model)}</em>}
@@ -69,7 +70,7 @@ export function TaskSwitcher() {
             <div className="more-pop" role="menu">
               {rest.map((t) => (
                 <button key={t.id} type="button" role="menuitem" className="more-item" onClick={() => { setMore(false); selectTask(t.id); }} onContextMenu={(e) => { e.preventDefault(); openTaskMenu(e.clientX, e.clientY, t.id); }}>
-                  <i className={`st st-${t.status}`} /><span>{cleanTitle(t.title)}</span>
+                  <i className={`st st-${statusDot(t)}`} /><span>{cleanTitle(t.title)}</span>
                 </button>
               ))}
             </div>

@@ -124,6 +124,7 @@ kbd { font-size: 10.5px; line-height: 1; padding: 3px 5px; border: 1px solid var
 .st-queued { background: var(--warn); }
 .st-done { background: var(--muted); }
 .st-error { background: var(--danger); }
+.st-paused { background: var(--warn); }
 .st-cancelled { background: var(--faint); }
 .banner { display: flex; align-items: center; gap: 8px; margin: 10px 20px 0; padding: 7px 12px; border-radius: var(--r); background: var(--warn-soft); border: 1px solid rgba(255, 204, 102, .28); color: var(--warn); text-align: left; }
 .banner span { margin-left: auto; opacity: .85; }

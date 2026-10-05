@@ -207,7 +207,8 @@ test('turn limit: task ends resumable with a plain message; Continue resumes the
   assert.match(stopped.error!, /7 turns this run/);
   // also read by MCP clients and other bots, which have no button to press
   assert.doesNotMatch(stopped.error!, /Press|button|Settings/);
-  assert.equal(s.store.listMessages(t.id).filter((m) => m.role === 'system' && m.text.startsWith('Error:')).length, 0);
+  // the history keeps one short line (the full text is on the app's card), not the long error a second time
+  assert.deepEqual(s.store.listMessages(t.id).filter((m) => m.role === 'system').map((m) => m.text), ['Paused at the turn limit (7 turns this run).']);
   // what the app's Continue button sends
   s.engine.startTask({ agentId: 'a1', prompt: CONTINUE_PROMPT, source: 'ui', continueTaskId: t.id });
   const done = await s.engine.waitFor(t.id, 3000);

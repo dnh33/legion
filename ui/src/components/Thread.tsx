@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { ChatMessage } from '../../../src/shared/types';
-import { CONTINUE_PROMPT, TURN_LIMIT_PREFIX } from '../../../src/shared/continue';
+import { CONTINUE_PROMPT, isTurnLimitPause } from '../../../src/shared/continue';
 import { base, token } from '../api';
 import { decide, dismissOnboarding, openDoctor, openEditor, openSettings, refresh, selectTask, sendPrompt, useStore } from '../store';
 import { copyText, money } from '../util';
@@ -47,7 +47,8 @@ export function Thread() {
   const task = taskId ? tasks.find((t) => t.id === taskId) : undefined;
   const running = task?.status === 'running' || task?.status === 'queued';
   // a turn-limit stop is a pause with the work kept, not a failure: it gets its own card
-  const paused = task?.status === 'error' && (task.error ?? '').startsWith(TURN_LIMIT_PREFIX);
+  const paused = isTurnLimitPause(task);
+  const pausedTurns = paused ? /\((\d+) turns this run\)/.exec(task?.error ?? '')?.[1] : undefined;
 
   const scroller = useRef<HTMLDivElement>(null);
   const stick = useRef(true);
@@ -132,7 +133,7 @@ export function Thread() {
               {task?.status === 'error' && (paused ? (
                 <div className="msg err paused" role="status">
                   <Icon name="pause" size={14} />
-                  <div className="err-body"><b>Paused at the turn limit</b><p>{task.error}</p></div>
+                  <div className="err-body"><b>Paused at the turn limit</b><p>{pausedTurns ? `Claude used all ${pausedTurns} turns of this run` : 'Claude used all the turns of this run'} before finishing. The work so far is kept; Continue picks up where it stopped.</p></div>
                   <div className="err-actions">
                     {task.resumable && <button className="btn sm primary" onClick={() => void sendPrompt(CONTINUE_PROMPT)}>Continue</button>}
                     <button className="link-btn" onClick={() => openSettings('claude')}>Raise the limit</button>
