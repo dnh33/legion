@@ -104,6 +104,15 @@ function KnowledgeSection() {
   );
 }
 
+/**
+ * The network a request is on, as the core reports it, beside the amount: a mainnet request must not look like a testnet one in this list.
+ * Absent, or anything else (the ledger can say invalid), reads Network unknown; it is never assumed to be testnet. The request's own label still comes from spendModel.
+ */
+function NetMark({ net }: { net: unknown }) {
+  const k = net === 'main' || net === 'mainnet' ? 'main' : net === 'test' || net === 'testnet' ? 'test' : 'none';
+  return <span className="bsv-req-net" data-net={k}>{k === 'main' ? 'Mainnet' : k === 'test' ? 'Testnet' : 'Network unknown'}</span>;
+}
+
 function SpendSection({ p }: { p: PolicyView }) {
   const changing = useBsv((s) => s.changing);
   const bridge = canChangePolicy();
@@ -115,6 +124,7 @@ function SpendSection({ p }: { p: PolicyView }) {
       {m.pending.length === 0 && m.unknown.length === 0 && <p className="bsv-fine">Nothing is waiting for your answer.</p>}
       {m.pending.map((r) => (
         <div className="bsv-row" key={r.requestId} data-spend-pending={r.requestId}>
+          <NetMark net={p.pending.find((x) => x.requestId === r.requestId)?.network} />
           <span className="bsv-line">{r.label}</span>
           <button type="button" className="btn" disabled={!bridge || changing} onClick={() => void changePolicy({ kind: 'spend-review', requestId: r.requestId })}>Review&hellip;</button>
           <button type="button" className="btn-ghost" disabled={!bridge || changing} onClick={() => void changePolicy({ kind: 'spend-deny', requestId: r.requestId })}>Deny</button>
@@ -122,6 +132,7 @@ function SpendSection({ p }: { p: PolicyView }) {
       ))}
       {m.unknown.map((r) => (
         <div className="bsv-row" key={r.requestId} data-spend-unknown={r.requestId}>
+          <NetMark net={p.unknown.find((x) => x.requestId === r.requestId)?.net} />
           <span className="bsv-line warn">{r.label}</span>
           <button type="button" className="btn" disabled={!bridge || changing} onClick={() => void changePolicy({ kind: 'spend-resolve', requestId: r.requestId })}>Resolve&hellip;</button>
         </div>

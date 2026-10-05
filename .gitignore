@@ -28,3 +28,6 @@ docs/images/relic.png
 
 # local full-suite logs
 .testlog2.txt
+
+# local art-review renders (before/after/contact sheets, tens of MB): kept on the PC, not in the repo
+claude/art-review/

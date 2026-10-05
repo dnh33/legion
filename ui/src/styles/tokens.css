@@ -18,6 +18,8 @@
   --danger: #FF6B6B;
   --danger-soft: rgba(255, 107, 107, .10);
   --warn-soft: rgba(255, 204, 102, .10);
+  --warn-line: rgba(255, 204, 102, .40);
+  --danger-line: rgba(255, 107, 107, .50);
   --code-bg: #0e1115;
   --scrim: rgba(3, 5, 8, .62);
   --font: 'IBM Plex Sans', 'Segoe UI', system-ui, sans-serif;
@@ -48,6 +50,8 @@
   --danger: #c0343e;
   --danger-soft: rgba(214, 64, 74, .08);
   --warn-soft: rgba(183, 121, 31, .1);
+  --warn-line: rgba(143, 93, 12, .38);
+  --danger-line: rgba(192, 52, 62, .42);
   --code-bg: #f1f3f6;
   --scrim: rgba(20, 24, 32, .32);
   color-scheme: light;

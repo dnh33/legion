@@ -1,7 +1,7 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import type { ChatMessage, CompactionSettings, McpServerEntry, McpStatusView, SettingsPatch, SettingsView } from '../../../src/shared/types';
 import { api, base, openExternal, token } from '../api';
-import { checkBoat, compactNow, ensureBoatChecked, closeSettings, decide, errText, loadSettings, resetCompaction, saveSettings, setSettingsSection as setSection, toast, useStore, type SettingsSection } from '../store';
+import { checkBoat, compactNow, ensureBoatChecked, closeSettings, errText, loadSettings, resetCompaction, saveSettings, setSettingsSection as setSection, toast, useStore, type SettingsSection } from '../store';
 import { copyText } from '../util';
 import { BLENDER_LICENSE_NOTE, GET_BLENDER_TOOL } from '../../../src/shared/blender';
 import { ASSETS_TEXT, ASSETS_TITLE, BOTH_TEXT, BOTH_TITLE, EXPORT_FOLDER_HINT, EXPORT_FOLDER_LABEL, FULL_BLENDER_TEXT, GET_BLENDER_NOT_PINNED, GET_BLENDER_TEXT, LOCAL_SAFETY_NOTE, MODE_CHOICES, LOCAL_MODE_NOTE, NOT_TRIED_VM, visibleNotices } from '../blender/copy';
@@ -10,6 +10,7 @@ import '../blender/blender.css';
 import { ProvidersSection } from '../providers/ProvidersSection';
 import { loadProviders, useProviders } from '../providers/providersStore';
 import { Icon } from './icons';
+import { ApprovalCard } from './ApprovalCard';
 import { UpdatePanel } from './UpdatePanel';
 import { BrowserSection } from '../browser/BrowserSection';
 import { HouseSection } from '../house/HouseSection';
@@ -666,12 +667,8 @@ function BlenderSection() {
           {mg?.installed
             ? <span className="set-hint">Installed for Legion: Blender {mg.installed.version} at {mg.installed.path}. Delete that folder to remove it.</span>
             : <span className="set-hint">{GET_BLENDER_TEXT} {!mg?.supported ? 'Only available on Windows in this version.' : !mg.pinned ? GET_BLENDER_NOT_PINNED : `Blender ${mg.version} (${mg.channel}), about ${mg.approxMb} MB.`}</span>}
-          {getApprovals.map((a) => (
-            <div key={a.id} className="bl-get-card" role="group" aria-label="Approval needed for the Blender download">
-              <b>Needs your OK</b><pre>{a.summary}</pre>
-              <div className="set-actions"><button type="button" className="btn primary" onClick={() => void decide(a.id, true)}>Allow</button><button type="button" className="btn" onClick={() => void decide(a.id, false)}>Deny</button></div>
-            </div>
-          ))}
+          {/* the same card as in a thread: who asks, the full text, Allow by click only, the 10-minute rule */}
+          {getApprovals.map((a) => <ApprovalCard key={a.id} a={a} />)}
           <div className="set-actions">
             <button type="button" className="btn" disabled={b || off || !mg || !mg.supported || !mg.pinned || !!mg.installed || !!mg.getting} onClick={() => void runBlenderGet()}>{busy === 'get' || mg?.getting ? 'Waiting\u2026' : 'Get Blender for Legion'}</button>
             <a className="btn-ghost" href={mg?.downloadPage ?? 'https://www.blender.org/download/'} target="_blank" rel="noopener noreferrer">Get full Blender</a>

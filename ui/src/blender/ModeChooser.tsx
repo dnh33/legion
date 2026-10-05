@@ -15,7 +15,7 @@ export function ModeChooser() {
       <b>{CHOOSER_TITLE}</b>
       <div className="bl-chooser-row">
         {CHOOSER_OPTIONS.map((o) => (
-          <button key={o.mode} type="button" className={`btn${o.mode === pre ? ' primary' : ''}`} disabled={busy !== null} onClick={() => void saveBlenderConfig({ mode: o.mode })}>{o.label}</button>
+          <button key={o.mode} type="button" className={`btn sm${o.mode === pre ? ' suggested' : ''}`} title={o.mode === pre ? 'Suggested for this computer' : undefined} aria-label={o.mode === pre ? `${o.label} (suggested)` : undefined} disabled={busy !== null} onClick={() => void saveBlenderConfig({ mode: o.mode })}>{o.label}</button>
         ))}
       </div>
       <span className="muted-s">{CHOOSER_TEXT}</span>

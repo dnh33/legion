@@ -204,14 +204,26 @@ kbd { font-size: 10.5px; line-height: 1; padding: 3px 5px; border: 1px solid var
 .chip.open .icon:last-child { transform: rotate(90deg); }
 .chip-detail { margin: 0; padding: 10px 12px; background: var(--code-bg); border: 1px solid var(--line); border-radius: var(--r); font-size: 12px; overflow: auto; max-height: 240px; white-space: pre-wrap; overflow-wrap: anywhere; animation: msg-in 140ms var(--ease) both; }
 
-/* approval */
-.approval { border: 1px solid rgba(255, 204, 102, .4); background: linear-gradient(var(--warn-soft), transparent 70%), var(--surface); border-radius: var(--r-lg); padding: 12px 14px; animation: msg-in 200ms var(--ease) both; }
+/* approval: the one place the thread stops for you. Flat surface and a warn edge, no wash; the head says who asks for what.
+   A Blender script on this PC or in your open Blender turns the edge and the head to danger (blender.css). */
+.approval { border: 1px solid var(--warn-line); background: var(--surface); border-radius: var(--r-lg); padding: 12px 14px; animation: msg-in 180ms var(--ease) both; }
 .approval:focus-visible { outline-offset: 2px; }
-.approval-head { display: flex; align-items: center; gap: 8px; color: var(--warn); font-weight: 600; font-size: 12.5px; }
-.approval-tool { font-family: var(--font-mono); font-weight: 500; color: var(--text-2); background: var(--surface-3); padding: 1px 7px; border-radius: 6px; font-size: 11.5px; }
-.approval-sum { margin: 8px 0 10px; padding: 9px 11px; background: var(--code-bg); border: 1px solid var(--line); border-radius: var(--r); font-size: 12px; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 160px; overflow: auto; }
-.approval-actions { display: flex; align-items: center; gap: 8px; }
-.approval-note { margin-left: auto; color: var(--faint); font-size: 11.5px; }
+.approval-head { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; min-width: 0; font-size: 12.5px; }
+.approval-head > .icon { flex: none; color: var(--warn); }
+.approval-ask { color: var(--warn); font-weight: 600; }
+.approval-who { color: var(--text); font-weight: 600; overflow-wrap: anywhere; }
+.approval-who::before { content: '·'; margin-right: 8px; color: var(--faint); font-weight: 400; }
+.approval-tool { font-family: var(--font-mono); font-weight: 500; color: var(--text-2); background: var(--surface-3); padding: 1px 7px; border-radius: var(--r-sm); font-size: 11.5px; overflow-wrap: anywhere; }
+/* no height cap: nothing a person must read may sit below a fold. Each producer bounds its summary (tool input 400 chars, browser 390, a room
+   request 700, downloads from pinned or checked values); a summary made of many short lines makes a tall card, never a hidden line. */
+.approval-sum { margin: 10px 0 12px; padding: 9px 11px; background: var(--code-bg); border: 1px solid var(--line); border-radius: var(--r); font-size: 12px; line-height: 1.55; white-space: pre-wrap; overflow-wrap: anywhere; }
+.approval-sum.prose { font-family: var(--font); font-size: 13px; color: var(--text-2); background: var(--surface-2); }
+.approval-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.approval-note { margin-left: auto; color: var(--faint); font-size: 11.5px; text-align: right; }
+.approval-click { color: var(--muted); }
+/* the keys answer the first card, or the card that holds focus: only that card shows them (hidden, not removed, so nothing shifts) */
+.thread-inner > .approval ~ .approval:not(:focus-within) .approval-actions kbd,
+.thread-inner:has(> .approval:focus-within) > .approval:not(:focus-within) .approval-actions kbd { visibility: hidden; }
 
 /* empty + first run */
 .empty { min-height: 52vh; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; gap: 6px; padding: 24px; animation: msg-in 220ms var(--ease) both; }

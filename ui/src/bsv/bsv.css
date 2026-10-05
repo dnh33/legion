@@ -82,6 +82,11 @@
 .bsv-fine b { color: var(--text-2); }
 .bsv-dim { color: var(--muted); }
 .bsv-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.bsv-row:is([data-spend-pending], [data-spend-unknown]) > .bsv-line { flex: 1 1 240px; min-width: 0; }
+/* the network beside each spend request (BsvPanel NetMark): mainnet in the live-funds amber, testnet in the chain cyan, unknown plain */
+.bsv-req-net { flex: none; font: 600 11px/1.6 var(--font); padding: 0 7px; border-radius: 10px; border: 1px solid var(--line-strong); color: var(--muted); }
+.bsv-req-net[data-net="main"] { color: var(--live); border-color: color-mix(in srgb, var(--live) 50%, transparent); background: var(--live-soft); }
+.bsv-req-net[data-net="test"] { color: var(--chain); border-color: color-mix(in srgb, var(--chain) 45%, transparent); }
 .bsv-kv { margin: 0; display: grid; grid-template-columns: max-content 1fr; gap: 3px 14px; font-size: 12.5px; }
 .bsv-kv dt { color: var(--muted); }
 .bsv-kv dd { margin: 0; color: var(--text); overflow-wrap: anywhere; }

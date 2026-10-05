@@ -46,7 +46,8 @@ test('both key paths read the shared rule: the thread shortcut goes through thre
   assert.match(thread, /const k = threadKey\(taskApprovals\[0\], e\.key\); if \(!k\) return;/);
   assert.match(thread, /void decide\(k\.id, k\.allow\)/);
   // no other decide(…, true) by key in the thread
-  assert.doesNotMatch(thread, /decide\(first\.id, true\)/);
+  assert.doesNotMatch(thread, /decide\([^)]*,\s*true\s*\)/, 'the thread never allows by a literal true');
+  assert.equal((thread.match(/\bdecide\(/g) ?? []).length, 1, 'one decide call in Thread, the one routed through threadKey');
   const cardSrc = readFileSync(join(process.cwd(), 'ui/src/components/ApprovalCard.tsx'), 'utf8');
   assert.match(cardSrc, /const noKey = clickOnly\(a\);/);
   assert.match(cardSrc, /if \(!noKey && \(e\.key === 'a' \|\| e\.key === 'A'\)\)/);
