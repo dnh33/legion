@@ -90,7 +90,12 @@ async function tick($: EngineInterface): Promise<void> {
       const answered = new Set((await readResults($)).map(r => r.requestId))
       const now = await $.clock.now()
       for (const req of queue) {
-        if (answered.has(req.id) || now - req.at > STALE_MS) continue
+        if (answered.has(req.id)) continue
+        if (now - req.at > STALE_MS) {
+          // Too old to act on, but answered, so Legion Mod stops waiting and drops it from its queue.
+          await record($, { requestId: req.id, kind: req.kind, taskId: req.taskId, ok: false, error: 'This request waited more than ten minutes, so it was not carried out. Send it again.', at: now })
+          continue
+        }
         await record($, await perform($, req, now))
       }
     }

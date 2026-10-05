@@ -115,6 +115,8 @@ async function say($: EngineInterface, text: string): Promise<void> {
 /** Applies one run event to its task and thread, persists what changed and publishes it. */
 async function apply($: EngineInterface, taskId: string, ev: RunEvent, opts: { persistRows?: boolean } = { persistRows: true }): Promise<TaskView | undefined> {
   const at = (await $.clock.now())
+  // After a hot reload the thread is not in memory yet: load it first, so new rows follow the stored ones.
+  if (!ctx.threads.has(taskId) && stores && ev.type !== 'queued') ctx.threads.set(taskId, await stores.threads.load(taskId))
   const before = ctx.tasks.get(taskId)
   const after = reduceTask(before, ev, at, ctx.settings)
   if (after && after !== before) {
@@ -208,8 +210,10 @@ async function stopTask($: EngineInterface, task: TaskView): Promise<string> {
   if (task.sessionId !== ctx.sessionId) return `${task.title} is running in another window. Stop it there.`
   if (task.status !== 'running' && task.status !== 'queued') return `${task.title} is not running.`
   if (!task.runId) {
-    // Not started yet: drop the queued spawn so the runner never starts it.
-    for (const [id, req] of ctx.pending) if (req.taskId === task.id) ctx.pending.delete(id)
+    // Not started yet: take the spawn out of the queue. The runner may already be starting it; remember the request, so a
+    // run that arrives anyway is stopped at once (onResult, adopt) instead of running on unseen.
+    for (const [id, req] of ctx.pending) if (req.taskId === task.id && req.kind === 'spawn') { ctx.pending.delete(id); cancelledSpawns.add(id) }
+    cancelledTasks.add(task.id)
     await publishQueue($)
   } else {
     await enqueue($, stopRequest({ id: newId('rq'), task, now: (await $.clock.now()) }))
@@ -218,9 +222,28 @@ async function stopTask($: EngineInterface, task: TaskView): Promise<string> {
   return ''
 }
 
+/** Spawn requests withdrawn by a stop, and tasks stopped before their run started: a run that arrives for them is stopped. */
+const cancelledSpawns = new Set<string>()
+const cancelledTasks = new Set<string>()
+
+/** Stops a run that started for a task the person had already stopped. */
+async function stopLateRun($: EngineInterface, taskId: string, runId: string): Promise<void> {
+  const task = ctx.tasks.get(taskId)
+  if (!task) return
+  ctx.byRun.set(runId, taskId)
+  await tr($, { k: 'deny', task: taskId, run: runId, tool: 'spawn', reason: 'stopped before it started: stopping the run that arrived' })
+  await enqueue($, stopRequest({ id: newId('rq'), task: { ...task, runId }, now: await $.clock.now() }))
+}
+
 /** One runner result: link a new run to its task, or say what failed. Applied once per request. */
 async function onResult($: EngineInterface, r: RunResult): Promise<void> {
   if (ctx.applied.has(r.requestId)) return
+  if (cancelledSpawns.has(r.requestId)) {
+    ctx.applied.add(r.requestId)
+    cancelledSpawns.delete(r.requestId)
+    if (r.ok && r.runId) await stopLateRun($, r.taskId, r.runId)
+    return
+  }
   const req = ctx.pending.get(r.requestId)
   if (!req) return
   ctx.applied.add(r.requestId)
@@ -230,12 +253,32 @@ async function onResult($: EngineInterface, r: RunResult): Promise<void> {
   const task = ctx.tasks.get(req.taskId)
   if (!task) return
   if (!r.ok) {
-    if (req.kind === 'stop') return // it had already stopped: the task is cancelled either way
-    await apply($, task.id, { type: 'finished', runId: task.runId ?? '', reason: 'error', answer: '', errorText: r.error ?? 'Legion could not reach the agent.' })
-    await addBand($, { id: newId('b'), kind: 'error', taskId: task.id, agentId: task.agentId, text: r.error ?? 'The agent could not start.', at: (await $.clock.now()) })
+    const at = await $.clock.now()
+    if (req.kind === 'stop') {
+      if (/already stopped/i.test(r.error ?? '')) return // it had stopped on its own: cancelled either way
+      // The stop did not land: the run is still going. Say so, and show it as running again.
+      const back = { ...task, status: 'running' as const, updatedAt: at }
+      ctx.tasks.set(task.id, back)
+      await stores?.tasks.put(back)
+      await publishTasks($)
+      await addBand($, { id: newId('b'), kind: 'error', taskId: task.id, agentId: task.agentId, text: `Could not stop ${task.title}: ${r.error ?? 'no reason given'}. It is still running.`, at })
+      return
+    }
+    // A start or resume that failed: the task says why, and the thread shows it, whether or not a run ever existed.
+    const failed = { ...task, status: 'error' as const, error: r.error ?? 'Legion could not reach the agent.', updatedAt: at }
+    ctx.tasks.set(task.id, failed)
+    await stores?.tasks.put(failed)
+    await publishTasks($)
+    const row: ThreadRow = { id: `${task.id}:fail:${r.requestId}`, role: 'system', text: `Error: ${failed.error}`, at }
+    ctx.threads.set(task.id, [...(ctx.threads.get(task.id) ?? []), row])
+    await stores?.threads.append(task.id, [row])
+    await publishThread($, task.id)
+    await addBand($, { id: newId('b'), kind: 'error', taskId: task.id, agentId: task.agentId, text: r.error ?? 'The agent could not start.', at })
     return
   }
   if (req.kind === 'spawn' && r.runId) {
+    // The run may have been linked already, by name, when its first step beat this result (adopt): do not restart its count.
+    if (ctx.byRun.get(r.runId) === task.id) return
     ctx.byRun.set(r.runId, task.id)
     await apply($, task.id, { type: 'started', taskId: task.id, runId: r.runId, model: r.model ?? req.model ?? '' })
   } else if (req.kind === 'resume' && r.runId) {
@@ -250,10 +293,22 @@ async function onResult($: EngineInterface, r: RunResult): Promise<void> {
 async function adopt($: EngineInterface, runId: string): Promise<string | undefined> {
   const known = ctx.byRun.get(runId)
   if (known) return known
+  if (!ctx.isReady) return undefined // boot is still loading the tasks: the next event links it, against the full list
   const info = (await $.agent.list()).find(a => a.id === runId)
   const agentId = info ? parseLegionAgentType(info.type) : null
   const agent = agentId ? ctx.agents.find(a => a.id === agentId) : undefined
   if (!info || !agent) return undefined
+  // A run Legion queued carries its task in its name (`<agent>-t_<12 hex>`, core.ts spawnRequest). Its first step can beat the
+  // runner's result: link it to that task instead of adopting a twin.
+  const named = /-(t_[0-9a-f]{12})$/.exec(info.name ?? '')?.[1]
+  const queued = named ? ctx.tasks.get(named) : undefined
+  if (queued) {
+    if (cancelledTasks.has(queued.id) || queued.status === 'cancelled') { await stopLateRun($, queued.id, runId); return queued.id }
+    ctx.byRun.set(runId, queued.id)
+    await tr($, { k: 'adopt', task: queued.id, agent: agent.id, run: runId, origin: 'queued', via: 'name' })
+    await apply($, queued.id, { type: 'started', taskId: queued.id, runId, model: '' })
+    return queued.id
+  }
   const parentTask = info.parentId ? ctx.byRun.get(info.parentId) : undefined
   const parent = parentTask ? ctx.tasks.get(parentTask) : undefined
   const origin: TaskOrigin = parent
@@ -725,7 +780,7 @@ export function registerLegion(on: Parameters<Register>[0]): void {
         await tr($, { k: 'deny', task: task.id, agent: task.agentId, run: runId, tool: e.tool, subagentType: input.subagent_type, reason: check.reason })
         return { deny: check.reason }
       }
-      if (input.run_in_background === false) ctx.waiting.add(runId)
+      if (input.run_in_background === false) ctx.waiting.add(task.id)
     }
     if (taintsRun(e.tool) && !task.isTainted) {
       const tainted = { ...task, isTainted: true, updatedAt: (await $.clock.now()) }
@@ -738,7 +793,7 @@ export function registerLegion(on: Parameters<Register>[0]): void {
     await tr($, { k: 'tool', task: task.id, agent: task.agentId, run: runId, tool: e.tool, id: e.tool_use_id, summary, subagentType: agentCall?.subagent_type, background: agentCall?.run_in_background })
     await apply($, task.id, { type: 'tool', runId, toolUseId: e.tool_use_id, tool: e.tool, summary })
     const ran = await next(e)
-    ctx.waiting.delete(runId)
+    ctx.waiting.delete(task.id)
     const failed = ran.deny !== undefined || ran.isError === true
     await tr($, { k: 'toolDone', task: task.id, run: runId, tool: e.tool, id: e.tool_use_id, isError: failed, deny: ran.deny })
     await apply($, task.id, { type: 'toolDone', runId, toolUseId: e.tool_use_id, isError: failed })
@@ -746,19 +801,24 @@ export function registerLegion(on: Parameters<Register>[0]): void {
   })
 
   // Legion's own tools never ask; a run under a stricter ceiling asks where its agent's mode would not (approvals.ts extraAsk).
+  // The person's own Claude Code rules decide first (next). A deny stands, always. Legion then only tightens: an allow or an ask
+  // becomes an ask where Legion's mode needs a card the agent's permission mode would not raise; Legion's own tools are let
+  // through where the person's rules would only ask (never where they deny).
   on('tool.check', async ($, e, next) => {
     const runId = e.tool_use_id ? ctx.toolRun.get(e.tool_use_id) : undefined
     const task = runId ? ctx.tasks.get(ctx.byRun.get(runId) ?? '') : undefined
-    if (!task) return next(e)
-    if (isLegionModTool(e.tool)) return { decision: 'allow', reason: 'Legion\'s own tool' }
+    const verdict = await next(e)
+    if (!task || verdict.decision === 'deny') return verdict
+    if (isLegionModTool(e.tool)) return verdict.decision === 'ask' ? { decision: 'allow', reason: 'Legion\'s own tool' } : verdict
     const agent = ctx.agents.find(a => a.id === task.agentId)
-    if (!agent) return next(e)
+    if (!agent) return verdict
     const ceiling = task.origin.kind === 'bridge' || task.origin.kind === 'room' ? 'ask' : agent.approval
     const effective = stricterMode(agent.approval, ceiling)
-    if (needsApproval(effective, e.tool) && extraAsk(effective, agent.approval, e.tool, ctx.settings.fullMode)) {
+    if (verdict.decision === 'allow' && needsApproval(effective, e.tool) && extraAsk(effective, agent.approval, e.tool, ctx.settings.fullMode)) {
+      await tr($, { k: 'deny', task: task.id, agent: agent.id, run: runId, tool: e.tool, reason: 'asks: stricter ceiling', ceiling: effective })
       return { decision: 'ask', reason: `${agent.glyph} ${agent.name} asks · ${e.tool} · ${task.title}` }
     }
-    return next(e)
+    return verdict
   })
 
   on('turn.step', async function* ($, e, next) {
@@ -829,7 +889,7 @@ export function registerLegion(on: Parameters<Register>[0]): void {
         ctx.tasks.set(caller.id, tainted)
         await stores?.tasks.put(tainted)
       }
-      if (caller?.runId && !ctx.waiting.has(caller.runId)) {
+      if (caller?.runId && !ctx.waiting.has(caller.id)) {
         const reply = tellReply(agent?.name ?? after.agentId, after.id, truncateResult(e.answer || after.error || ''))
         if (caller.status === 'running') {
           await $.session.append({ agentId: caller.runId, message: { type: 'user', content: [{ type: 'text', text: reply }] } })

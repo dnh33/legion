@@ -43,7 +43,9 @@ test('ignores a stale request and a non-Legion agent type', async ($, on) => {
   await start($)
   await w.clock.advance(1_000)
   expect(w.spawned.length).toBe(0)
-  expect(w.writes.at(-1)?.map((r: any) => [r.requestId, r.ok])).toEqual([['rq_foreign', false]])
+  // The stale one is answered too (not carried out), so Legion Mod stops waiting on it; the foreign one is refused.
+  expect(w.writes.at(-1)?.map((r: any) => [r.requestId, r.ok])).toEqual([['rq_old', false], ['rq_foreign', false]])
+  expect(w.writes.at(-1)?.[0].error).toContain('waited more than ten minutes')
 })
 
 test('does nothing while the queue is empty (Legion Mod absent), beyond saying it is here', async ($, on) => {

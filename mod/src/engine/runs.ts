@@ -152,7 +152,7 @@ export function reduceThread(rows: readonly ThreadRow[], ev: RunEvent, now: numb
   switch (ev.type) {
     case 'queued': {
       if (ev.prompt === undefined) return rows as ThreadRow[]
-      const id = `${ev.task.id}:u${rows.length}`
+      const id = `${ev.task.id}:u${now.toString(36)}-${rows.length}`
       return [...rows, { id, role: 'user', text: ev.prompt, ...(ev.fromAgentId !== undefined ? { fromAgentId: ev.fromAgentId } : {}), at: now }]
     }
     case 'tool':
@@ -171,7 +171,7 @@ export function reduceThread(rows: readonly ThreadRow[], ev: RunEvent, now: numb
         (r) => (r.tool && (r.tool.state === 'running' || r.tool.state === 'awaiting') ? { ...r, tool: { ...r.tool, state: ev.isError ? 'error' : 'ok' } } : r))
     case 'reply': {
       if (!ev.text.trim()) return rows as ThreadRow[]
-      const id = `${ev.runId}:a${rows.length}`
+      const id = `${ev.runId}:a${now.toString(36)}-${rows.length}`
       return [...rows, { id, role: 'assistant', text: ev.text, at: now }]
     }
     case 'finished': {

@@ -238,3 +238,156 @@ test('LEGION_MOD_TRACE=1: decisions land in the session\'s trace file within a s
   expect(kinds).toContain('cmd')
   expect(kinds).toContain('queue')
 })
+
+// ---- G3 review findings (claude/review-mod-core.md), each pinned by a test ----------------------------------------------
+
+/** A Zealot task whose run is live, and a Builder run it started (a bridge child), with the person's rule answering tool.check. */
+async function bridged($: any, on: any, rule: 'allow' | 'deny' | 'ask') {
+  const w = world(on)
+  const results: any[] = []
+  const agents: any[] = []
+  on('state.get', { plugin: 'legion-mod-runner', key: 'results' } as any, () => ({ value: { value: results, version: results.length } }))
+  on('agent.list', () => ({ value: agents }))
+  on('session.messages', () => ({ value: [{ role: 'user', text: 'edit it' }] }))
+  on('tool.call', () => ({ result: 'ok' }))
+  on('tool.check', (_$: any, e: any) => ({ decision: rule, reason: `your settings: ${rule}`, rule: `${e.tool}(*)` }))
+  await start($)
+  await $.command.run({ command: 'to', args: 'zealot plan it' })
+  const req = w.last('runQueue')[0]
+  results.push({ requestId: req.id, kind: 'spawn', taskId: w.last('tasks')[0].id, ok: true, runId: 'run_Z', model: 'm', at: 1_000_100 })
+  await start($)
+  agents.push({ id: 'run_Bu', description: 'builder', type: 'legion-mod:builder', status: 'running', parentId: 'run_Z' })
+  return w
+}
+
+test('G3-1: a deny rule in the person\'s own settings stays a deny, for a bridged run and for Legion\'s own tool', async ($, on) => {
+  await bridged($, on, 'deny')
+  await ($ as any).tool.call({ tool: 'Edit', file_path: '.env', tool_use_id: 'toolu_E', agentId: 'run_Bu' })
+  expect(((await ($ as any).tool.check({ tool: 'Edit', input: { file_path: '.env' }, tool_use_id: 'toolu_E' })) as any)?.decision).toBe('deny')
+  await ($ as any).tool.call({ tool: 'mcp__legion-mod__agents', tool_use_id: 'toolu_L', agentId: 'run_Z' })
+  expect(((await ($ as any).tool.check({ tool: 'mcp__legion-mod__agents', input: {}, tool_use_id: 'toolu_L' })) as any)?.decision).toBe('deny')
+})
+
+test('G3-8 (plan §2.1): a Builder run started by another agent asks before editing, even where the person\'s rules allow', async ($, on) => {
+  await bridged($, on, 'allow')
+  await ($ as any).tool.call({ tool: 'Edit', file_path: 'src/a.ts', tool_use_id: 'toolu_E', agentId: 'run_Bu' })
+  const v: any = await ($ as any).tool.check({ tool: 'Edit', input: { file_path: 'src/a.ts' }, tool_use_id: 'toolu_E' })
+  expect(v?.decision).toBe('ask')
+  expect(String(v?.reason)).toContain('Builder asks')
+})
+
+test('G3-8: the same Builder started by the person keeps its own mode (no extra ask on an allowed edit)', async ($, on) => {
+  const w = world(on)
+  const results: any[] = []
+  on('state.get', { plugin: 'legion-mod-runner', key: 'results' } as any, () => ({ value: { value: results, version: results.length } }))
+  on('tool.call', () => ({ result: 'ok' }))
+  on('tool.check', () => ({ decision: 'allow' }))
+  await start($)
+  await ($ as any).command.run({ command: 'to', args: 'builder edit it' })
+  const req = w.last('runQueue')[0]
+  results.push({ requestId: req.id, kind: 'spawn', taskId: w.last('tasks')[0].id, ok: true, runId: 'run_B', model: 'm', at: 1_000_100 })
+  await start($)
+  await ($ as any).tool.call({ tool: 'Edit', file_path: 'src/a.ts', tool_use_id: 'toolu_E', agentId: 'run_B' })
+  expect(((await ($ as any).tool.check({ tool: 'Edit', input: {}, tool_use_id: 'toolu_E' })) as any)?.decision).toBe('allow')
+})
+
+test('G3-3: a queued run whose first tool call beats the runner\'s answer stays ONE task', async ($, on) => {
+  const w = world(on)
+  const results: any[] = []
+  const agents: any[] = []
+  on('state.get', { plugin: 'legion-mod-runner', key: 'results' } as any, () => ({ value: { value: results, version: results.length } }))
+  on('tool.call', { tool: 'Bash' } as any, () => ({ result: 'ok' }))
+  on('agent.list', () => ({ value: agents }))
+  on('session.messages', () => ({ value: [{ role: 'user', text: 'fix the failing test' }] }))
+  await start($)
+  await ($ as any).command.run({ command: 'to', args: 'builder fix the failing test' })
+  const req = w.last('runQueue')[0]
+  const taskId = w.last('tasks')[0].id
+  agents.push({ id: 'agent_run_1', description: req.description, type: 'legion-mod:builder', status: 'running', name: req.name, spawnedBy: 'legion-mod-runner' })
+  await ($ as any).tool.call({ tool: 'Bash', command: 'npm test', tool_use_id: 'toolu_1', agentId: 'agent_run_1' })
+  results.push({ requestId: req.id, kind: 'spawn', taskId, ok: true, runId: 'agent_run_1', model: 'claude-sonnet-5-5', at: 1_000_100 })
+  await start($)
+  const builderTasks = w.last('tasks').filter((t: any) => t.agentId === 'builder')
+  expect(builderTasks.map((t: any) => `${t.id}:${t.status}:${t.origin.kind}`)).toEqual([`${taskId}:running:person`])
+})
+
+test('G3-6: an ask back up the chain while the asker waits is refused as a deadlock', async ($, on) => {
+  const w = world(on)
+  const results: any[] = []
+  const agents: any[] = []
+  let verdict: any = 'not called'
+  let innerCalls = 0
+  on('state.get', { plugin: 'legion-mod-runner', key: 'results' } as any, () => ({ value: { value: results, version: results.length } }))
+  on('agent.list', () => ({ value: agents }))
+  on('session.messages', () => ({ value: [{ role: 'user', text: 'look it up' }] }))
+  on('tool.call', { tool: 'Agent' } as any, async (_$: any, e: any) => {
+    if (e.agentId === 'run_A') {
+      verdict = await ($ as any).tool.call({ tool: 'Agent', subagent_type: 'legion-mod:builder', prompt: 'what did you mean?', run_in_background: false, tool_use_id: 'toolu_B', agentId: 'run_B' })
+      return { result: 'answer' }
+    }
+    innerCalls++
+    return { result: 'B reached A' }
+  })
+  await start($)
+  await ($ as any).command.run({ command: 'to', args: 'builder build it' })
+  const req = w.last('runQueue')[0]
+  const taskA = w.last('tasks')[0].id
+  results.push({ requestId: req.id, kind: 'spawn', taskId: taskA, ok: true, runId: 'run_A', model: 'm', at: 1_000_100 })
+  await start($)
+  agents.push({ id: 'run_B', description: 'scout', type: 'legion-mod:scout', status: 'running', parentId: 'run_A' })
+  await ($ as any).tool.call({ tool: 'Agent', subagent_type: 'legion-mod:scout', prompt: 'look it up', run_in_background: false, tool_use_id: 'toolu_A', agentId: 'run_A' })
+  expect({ innerCalls, deny: String(verdict?.deny ?? '') }).toEqual({ innerCalls: 0, deny: expect.stringContaining('would deadlock') })
+})
+
+test('G3-4: a start that fails leaves the task in error with the reason, in the thread and the band', async ($, on) => {
+  const w = world(on)
+  const results: any[] = []
+  on('state.get', { plugin: 'legion-mod-runner', key: 'results' } as any, () => ({ value: { value: results, version: results.length } }))
+  await start($)
+  await ($ as any).command.run({ command: 'to', args: 'scout read it' })
+  const req = w.last('runQueue')[0]
+  const taskId = w.last('tasks')[0].id
+  results.push({ requestId: req.id, kind: 'spawn', taskId, ok: false, error: 'Claude Code refused to start the agent: limit', at: 1_000_100 })
+  await start($)
+  expect(w.last('tasks')[0]).toMatchObject({ id: taskId, status: 'error', error: 'Claude Code refused to start the agent: limit' })
+  expect((w.writes['threads'] ?? []).flat().some((r: any) => r.role === 'system' && r.text.includes('refused to start'))).toBe(true)
+  expect(w.last('band').at(-1)).toMatchObject({ kind: 'error', taskId })
+})
+
+test('G3-2: a stop that does not land shows the task running again and says so', async ($, on) => {
+  const w = world(on)
+  const results: any[] = []
+  on('state.get', { plugin: 'legion-mod-runner', key: 'results' } as any, () => ({ value: { value: results, version: results.length } }))
+  await start($)
+  await ($ as any).command.run({ command: 'to', args: 'builder long job' })
+  const spawn = w.last('runQueue')[0]
+  const taskId = w.last('tasks')[0].id
+  results.push({ requestId: spawn.id, kind: 'spawn', taskId, ok: true, runId: 'run_L', model: 'm', at: 1_000_100 })
+  await start($)
+  await ($ as any).command.run({ command: 'stop', args: '' })
+  const stop = w.last('runQueue').find((r: any) => r.kind === 'stop')
+  expect(stop).toMatchObject({ runId: 'run_L', taskId })
+  results.push({ requestId: stop.id, kind: 'stop', taskId, ok: false, runId: 'run_L', error: 'Claude Code refused to stop it: policy', at: 1_000_200 })
+  await start($)
+  expect(w.last('tasks')[0]).toMatchObject({ id: taskId, status: 'running' })
+  expect(String(w.last('band').at(-1)?.text)).toContain('Could not stop')
+})
+
+test('G3-2: a stop before the run started withdraws the spawn; a run that starts anyway is stopped on arrival', async ($, on) => {
+  const w = world(on)
+  const results: any[] = []
+  on('state.get', { plugin: 'legion-mod-runner', key: 'results' } as any, () => ({ value: { value: results, version: results.length } }))
+  await start($)
+  await ($ as any).command.run({ command: 'to', args: 'builder long job' })
+  const spawn = w.last('runQueue')[0]
+  const taskId = w.last('tasks')[0].id
+  await ($ as any).command.run({ command: 'stop', args: '' })
+  expect(w.last('runQueue')).toEqual([])
+  expect(w.last('tasks')[0]).toMatchObject({ id: taskId, status: 'cancelled' })
+  // The runner had already taken the request: its run arrives after the stop.
+  const resultsSet = { requestId: spawn.id, kind: 'spawn', taskId, ok: true, runId: 'run_late', model: 'm', at: 1_000_150 }
+  results.push(resultsSet)
+  await start($)
+  const stopLater = (w.writes['runQueue'] ?? []).flat().find((r: any) => r.kind === 'stop' && r.runId === 'run_late')
+  expect(stopLater).toBeDefined()
+})

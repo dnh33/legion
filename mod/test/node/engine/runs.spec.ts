@@ -105,6 +105,13 @@ test('a re-queued task keeps its tokens, cost, turns, taint and escalation', () 
   assert.deepEqual([again.isTainted, again.isEscalated, again.turns, again.costUsd, again.tokens], [true, true, 1, before.costUsd, before.tokens])
 })
 
+test('thread row ids carry the time: a reloaded thread (rows.length back at 0) never reuses an id', () => {
+  const first = reduceThread([], { type: 'reply', runId: 'r1', text: 'one' }, 1_000)
+  const afterReload = reduceThread([], { type: 'reply', runId: 'r1', text: 'two' }, 2_000)
+  assert.notEqual(first[0]!.id, afterReload[0]!.id)
+  assert.match(first[0]!.id, /^r1:a[0-9a-z]+-0$/)
+})
+
 test('thread: tool rows update in place; a denial stays denied; a card before its tool row makes one row', () => {
   const rows = thread([
     { type: 'queued', task: base(), prompt: 'Pin the clock.' },
@@ -122,7 +129,7 @@ test('thread: tool rows update in place; a denial stays denied; a card before it
     { type: 'toolDone', runId: 'r1', toolUseId: 'u1', isError: true }, // a late result does not reopen a finished row
   ])
   assert.deepEqual(rows.map((r) => [r.id, r.role, r.tool?.state ?? r.text]), [
-    ['t1:u0', 'user', 'Pin the clock.'], ['u1', 'tool', 'ok'], ['u2', 'tool', 'denied'], ['u3', 'tool', 'error'],
+    [rows[0]!.id, 'user', 'Pin the clock.'], ['u1', 'tool', 'ok'], ['u2', 'tool', 'denied'], ['u3', 'tool', 'error'],
   ])
   assert.deepEqual(rows[3]!.tool, { name: 'Bash', summary: 'npm test', state: 'error' })
   assert.equal(rows[1]!.tool!.summary, 'test/replay.test.ts')
