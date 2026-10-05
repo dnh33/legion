@@ -917,6 +917,20 @@ small-window rule ended up inverted.
   already found 46 stale `claude/skills` files in the live layer, listed as `shipped` and served trusted, residue from
   an install hours before the current sync — because sync never deletes. That is fixed by item 1's record move.
 - **B9.** Reproduce the community Blender add-on's pinned hash. Still open, and `SECURITY.md` says so on purpose.
+
+#### PARKED — no date, not a task
+
+- **Performance baseline and stress testing.** The heap cap in `0.2.3-j` (2048 MB, floor 512) is *reasoned, not
+  measured*: 2048 is half of Node's 4192 MB default on this machine, and the floor is judgment. Nobody has profiled
+  what the core actually peaks at under load — a long session, a large KG, several compactions. **H11** is the
+  minimal version: watch heap during one heavy session and see whether it approaches the cap. If it does, the cap is
+  too low and the core will OOM where it previously survived; if it peaks well under, the cap changes nothing and the
+  only value was bounding the worst case. A heap ceiling is a limit, not a reservation, so "it saves memory" is not a
+  claim anyone has earned.
+  A fuller benchmark — repeatable numbers anyone can compare a later change against — is worth doing **only if** H11
+  finds a problem, or if performance becomes a track. **Do not schedule it.** The same goes for the runtime comparison
+  in `claude/PERF-RUNTIME-HANDOFF.md`: those numbers are real and were measured here, but nothing re-runs them, so
+  they are a snapshot, not a gate — and a snapshot nobody refreshes quietly stops being true.
 - PC checklist: `claude/tracker-pc-checks.md`.
 
 #### DELIBERATELY NOT DOING
