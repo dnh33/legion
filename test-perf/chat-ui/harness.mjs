@@ -17,10 +17,10 @@ import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { isCorePath, proxyToCore, serveStatic } from '../lib/same-origin.mjs';
 
 export const SECRET = 'c'.repeat(64);
 export const TOKEN = 'chat-ui-token';
-const MIME = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.woff2': 'font/woff2', '.png': 'image/png', '.svg': 'image/svg+xml', '.json': 'application/json' };
 
 export const MD_REPLY = [
   '## Plan',
@@ -110,18 +110,17 @@ export async function startFake({ ui, repo, port = 48600, agents } = {}) {
   await new Promise((r, j) => { server.once('error', j); server.listen(port, '127.0.0.1', r); });
 
   const uiPort = port + 1;
+  // ONE origin for the UI and the API (../lib/same-origin.mjs): the core's guard refuses a UI served from a second port.
   const stat = http.createServer((req, res) => {
     const u = req.url.split('?')[0];
     if (u === '/__calls') { res.setHeader('content-type', 'application/json'); res.end(JSON.stringify(calls)); return; }
-    let p = decodeURIComponent(u); if (p === '/') p = '/index.html';
-    const f = path.join(ui, p);
-    if (!f.startsWith(ui) || !fs.existsSync(f)) { res.statusCode = 404; res.end(); return; }
-    res.setHeader('content-type', MIME[path.extname(f)] || 'application/octet-stream'); res.end(fs.readFileSync(f));
+    if (isCorePath(u)) { proxyToCore(port, req, res); return; }
+    serveStatic(ui, req, res);
   }).listen(uiPort, '127.0.0.1');
   await new Promise((r) => setTimeout(r, 150));
 
   return {
-    base: `http://127.0.0.1:${port}`, token: TOKEN, admin: SECRET, uiUrl: `http://127.0.0.1:${uiPort}/index.html`, home, calls, bus, store, engine,
+    base: `http://127.0.0.1:${uiPort}`, token: TOKEN, admin: SECRET, uiUrl: `http://127.0.0.1:${uiPort}/index.html`, home, calls, bus, store, engine,
     prompts: () => calls.map((c) => c.prompt),
     async stop() {
       for (const id of engine.running()) engine.cancel(id);
