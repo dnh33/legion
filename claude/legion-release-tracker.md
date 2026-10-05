@@ -1552,3 +1552,14 @@ Not in the changelog because no installed user sees it:
 Deferred: A6 (allowlist programs that read no repo file, e.g. taskkill /PID, reg query, to shrink the always-run list;
 needs a fresh soundness proof). Track C (web on own devices, Mac polish) and C4 (setup-token) after this release.
 Gate: see the hand-off (quiet run).
+
+## 2026-10-05 — SHIPPED v0.2.5-b and v0.2.5-c (owner: "ship -b and get -c done")
+- v0.2.5-b: merge 107227d, gate 2732/2686/1 (Lattice F1, known)/45. Pre-flight 14 ok / 0 fail (2 known benign
+  warnings). All 5 uploaded asset digests == local sha256. Live CDN: latest manifest 0.2.5-b, release-verify OK on
+  fetched bytes. dependencyHash == 0.2.5-a (self-applies).
+- v0.2.5-c: merge 40d46f0 (tree identical to the gated release/0.2.5-c 0793b32), gate 2785/2739/1 (F1)/45, wall 182 s
+  (319 s this morning). First gate run failed 8 tests that followed deliberate changes (C16 provider pause text, U1
+  migration list x5, Zealot persona hash) plus the known harness-smoke ENOENT race; fixed in 0793b32 and re-gated.
+  Pre-flight 14 ok / 0 fail. Digests matched. Live CDN: latest manifest 0.2.5-c, verify OK. dependencyHash == 0.2.5-b.
+- Key: copied out of the vault for each signature and deleted right after; never read into the session.
+- Open for the owner's PC: TL1-TL7, C1-C5, D3 (claude/tracker-pc-checks.md).
