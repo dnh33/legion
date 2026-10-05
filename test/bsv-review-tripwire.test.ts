@@ -6,7 +6,7 @@
 import { tempDir as cleanupTemp } from './tmp-cleanup.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -24,11 +24,13 @@ function copyTrees(): string {
 }
 const plant = (root: string, file: string, text: string, mode: 'append' | 'create' = 'append') => {
   const p = join(root, file);
-  if (mode === 'create') { mkdirSync(dirname(p), { recursive: true }); writeFileSync(p, text); return () => undefined; }
+  if (mode === 'create') { mkdirSync(dirname(p), { recursive: true }); writeFileSync(p, text); return () => rmSync(p); }
   const before = readFileSync(p, 'utf8');
   writeFileSync(p, before + '\n' + text + '\n');
   return () => writeFileSync(p, before);
 };
+/** What a planted file must be again after its undo: its original bytes, or gone if the plant created it. */
+const snapshot = (root: string, file: string): string | null => { const p = join(root, file); return existsSync(p) ? readFileSync(p, 'utf8') : null; };
 
 test('F2: the untouched tree is clean, the scan covers src and ui/src, and the allowlist has no dead entries', () => {
   const r = scanTree(REPO);
@@ -128,15 +130,34 @@ const CASES: Array<{ name: string; file: string; text: string; mode?: 'create'; 
   { name: 'node:net inside an allowlisted file that is only allowed fetch', file: 'src/core/boat.ts', text: "import { connect } from 'node:net'; void connect;", expect: /network|node:net/i },
 ];
 
+// One copy for every plant (copying ~300 files and scanning twice per case made this file 5 minutes long). The copy is
+// proven clean once; each case restores its file in `finally` and checks the bytes came back exactly, so every case still
+// starts from a proven-clean tree; and the last test scans the copy again to prove nothing leaked between cases.
+let plantRoot: string | undefined;
+const sharedCopy = (): string => (plantRoot ??= copyTrees());
+
+test('F2 plant: the shared copy is clean before any plant', () => {
+  assert.deepEqual(scanTree(sharedCopy()).violations, [], 'the copy is clean before planting');
+});
+
 for (const c of CASES) {
   test(`F2 plant: ${c.name} is caught`, () => {
-    const root = copyTrees();
-    assert.deepEqual(scanTree(root).violations, [], 'the copy is clean before planting');
-    plant(root, c.file, c.text, c.mode ?? 'append');
-    const v = scanTree(root).violations;
-    assert.ok(v.some((x) => x.includes(c.file) && c.expect.test(x)), `not caught: ${c.name}\nviolations: ${JSON.stringify(v)}`);
+    const root = sharedCopy();
+    const original = snapshot(root, c.file);
+    const undo = plant(root, c.file, c.text, c.mode ?? 'append');
+    try {
+      const v = scanTree(root).violations;
+      assert.ok(v.some((x) => x.includes(c.file) && c.expect.test(x)), `not caught: ${c.name}\nviolations: ${JSON.stringify(v)}`);
+    } finally {
+      undo();
+      assert.equal(snapshot(root, c.file), original, `${c.file} was not restored exactly after the plant`);
+    }
   });
 }
+
+test('F2 plant: the shared copy is clean again after every plant (nothing leaked from one case into the next)', () => {
+  assert.deepEqual(scanTree(sharedCopy()).violations, []);
+});
 
 test('F2: the word-shaped tool-name rule no longer trips on "alarm", "design" or "payload", but still on real wallet words', () => {
   const root = copyTrees();

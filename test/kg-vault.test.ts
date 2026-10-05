@@ -273,14 +273,7 @@ test('import enforces its limits: dot folders, symlinks, file size, body length,
   assert.match(r.skipped.find((s) => s.path === 'huge.md')!.reason, /larger than 200 KB/);
   assert.match(r.skipped.find((s) => s.path === 'long-body.md')!.reason, /body longer than 20000/);
   assert.equal(g.stats(HUMAN).nodes, 1);
-
-  const many = tmpDir();
-  for (let i = 0; i < VAULT_MAX_FILES + 3; i++) writeFileSync(join(many, `f${String(i).padStart(5, '0')}.md`), `# N${i}\n`);
-  const g2 = mkGraph().g;
-  const r2 = importVault(g2, many);
-  assert.equal(r2.files, VAULT_MAX_FILES);
-  assert.equal(g2.stats(HUMAN).nodes, VAULT_MAX_FILES);
-  assert.ok(r2.skipped.some((s) => s.path === '*' && /5000/.test(s.reason)));
+  // the file-count cap (5,003 real files, ~85 s) lives in kg-vault-file-cap.test.ts so it runs beside this file, not before the rest of it
 });
 
 test('import rejects a path that is not a directory', () => {

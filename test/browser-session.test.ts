@@ -167,7 +167,8 @@ test('close stops the process once and a closed session does not restart', async
 });
 
 test('C5: with a build that sends no navigation events, the final address check still refuses a bad landing', async () => {
-  const r = await rig({ quiet: true, pages: { 'https://a.test/': { redirectTo: 'http://10.0.0.5/x' }, 'http://10.0.0.5/x': { title: 'SECRET', text: 'internal' } } });
+  // a quiet build never sends the load event, so open() waits out navigationMs; 1 s instead of the 30 s default (the assertion is the final check, not the wait)
+  const r = await rig({ quiet: true, pages: { 'https://a.test/': { redirectTo: 'http://10.0.0.5/x' }, 'http://10.0.0.5/x': { title: 'SECRET', text: 'internal' } } }, { limits: { navigationMs: 1000 } });
   try { await assert.rejects(r.session.open('https://a.test/'), (e: Error) => e instanceof SessionRefusal && /10\.0\.0\.5/.test(e.message) && !/SECRET|internal/.test(e.message)); } finally { await r.done(); }
 });
 
@@ -191,7 +192,7 @@ test('closing during launch stops the process that was starting (no orphan)', as
 });
 
 test('reads re-check the address: a page that moves itself after open() is refused before its text is returned', async () => {
-  const r = await rig({ quiet: true, pages: { 'https://a.test/': { text: 'fine' }, 'http://10.0.0.7/': { text: 'INTERNAL' } } });
+  const r = await rig({ quiet: true, pages: { 'https://a.test/': { text: 'fine' }, 'http://10.0.0.7/': { text: 'INTERNAL' } } }, { limits: { navigationMs: 1000 } });
   try {
     await r.session.open('https://a.test/');
     r.fake.state.url = 'http://10.0.0.7/'; // a timer or meta refresh moved the page
