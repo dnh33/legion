@@ -6,9 +6,9 @@
  * engine posted (finished, paused, failed runs, Library notes), newest first.
  *
  * Keys are letters only: a bare digit typed into an empty prompt presses a band Button (ButtonProps.hotkey,
- * claude-code.d.ts), and a stray digit must never allow a tool call or continue a task. The first card takes `a` and
- * `d` (never `a` on a click-only card); the first paused run `c`; the first finished or failed run `o`; the first
- * dismissable row `x`. Every other control is reached with Tab.
+ * claude-code.d.ts), and a stray digit must never continue a task. Card rows carry no controls: approvals are answered
+ * in Claude Code's own permission dialog (plan §2.1). The first paused run takes `c` (not one another window owns),
+ * the first finished or failed run `o`, the first dismissable row `x`. Every other control is reached with Tab.
  *
  * Cards come from the `cards` state, the one truth for what is waiting; a band item of kind `card` is not drawn
  * twice.
@@ -19,7 +19,8 @@ import { count } from './format.ts'
 import { bandOrder } from './actions.ts'
 import { btn, line, span, uniqueKeys, type Part, type Row, type SpanTone } from './model.ts'
 import { oneLine } from './text.ts'
-import { agentLabel, cardsInOrder, shortTool, type Snapshot } from './views/common.ts'
+import { askVerb, answerWhere } from './cards.ts'
+import { agentLabel, cardsInOrder, isElsewhere, shortTool, taskOf, type Snapshot } from './views/common.ts'
 
 export const BAND_MAX = 3
 
@@ -58,13 +59,11 @@ export const bandRows = (s: Snapshot, width: number, maxRows: number): Row[] => 
       return line([span(' '), span('Speaking to ', 'accent'), span(agentLabel(s, e.agentId), 'accent', { bold: true, fixed: true }), span(' · /legion talk off', 'muted')], [], width)
     }
     if (e.kind === 'card') {
+      // who asks, what exactly, then where to answer; no buttons (cards.ts: the run waits on Claude Code's dialog)
       const c = e.card
-      const left: Part[] = [span(' '), span(`${MARK.card} `, 'warn', { fixed: true }), span(agentLabel(s, c.agentId), 'text', { bold: true }), span(wide ? ' needs your OK · ' : ' · ', 'warn'), span(shortTool(c.tool), 'warn', { bold: true }), span('  '), span(oneLine(c.summary), 'muted')]
-      const allow = btn({ kind: 'card-allow', cardId: c.id, index: e.index }, 'Allow', { hotkey: c.isClickOnly ? undefined : key('a') })
-      const deny = btn({ kind: 'card-deny', cardId: c.id, index: e.index }, 'Deny', { hotkey: key('d') })
-      // a Button without its key is padded to the keyed one's width, so Allow and Deny line up row under row
-      const pad = (b: typeof allow): Part[] => (b.hotkey ? [b] : [span('   '), b])
-      return line(left, [span(' '), ...pad(allow), span('  '), ...pad(deny), span(' ')], width)
+      const where = answerWhere(isElsewhere(s, taskOf(s, c.taskId)), true)
+      const left: Part[] = [span(' '), span(`${MARK.card} `, 'warn', { fixed: true }), span(agentLabel(s, c.agentId), 'text', { bold: true, fixed: true }), span(wide ? ` ${askVerb(c.tool)}` : ` · ${shortTool(c.tool)}`, 'warn'), span('  '), span(oneLine(c.summary))]
+      return line(left, [span(where, 'muted', { fixed: true }), span(' ')], width, 2)
     }
     const it = e.item
     const m = ITEM_MARK[it.kind]
@@ -72,7 +71,7 @@ export const bandRows = (s: Snapshot, width: number, maxRows: number): Row[] => 
     if (it.agentId) left.push(span(agentLabel(s, it.agentId), 'text', { bold: true }), span(' · ', 'muted'))
     left.push(span(oneLine(it.text), it.kind === 'error' ? 'danger' : 'text'))
     const right: Part[] = [span(' ')]
-    if (it.kind === 'paused' && it.taskId) {
+    if (it.kind === 'paused' && it.taskId && !isElsewhere(s, taskOf(s, it.taskId))) {
       const id = it.taskId
       right.push(btn({ kind: 'continue', taskId: id }, 'Continue', { hotkey: key('c') }), span('  '))
     } else if ((it.kind === 'done' || it.kind === 'error') && it.taskId) {

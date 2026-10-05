@@ -38,7 +38,11 @@ export const titleRow = (s: Snapshot, width: number): Row => {
   const running = s.tasks.filter(isActive).length
   const right: Part[] = []
   if (running > 0) right.push(span(`${count(running)} running`, 'muted'))
-  if (s.cards.length > 0) right.push(span(right.length > 0 ? ' · ' : '', 'muted'), span(`${MARK.card}${count(s.cards.length)} need your OK`, 'warn'))
+  const paused = s.tasks.filter(t => t.status === 'paused').length
+  if (paused > 0) right.push(span(right.length > 0 ? ' · ' : '', 'muted'), span(`${count(paused)} paused`, 'warn'))
+  // "1 needs your OK", "3 need your OK": a count in words, not a badge
+  const n = s.cards.length
+  if (n > 0) right.push(span(right.length > 0 ? ' · ' : '', 'muted'), span(`${count(n)} ${n === 1 ? 'needs' : 'need'} your OK`, 'warn'))
   if (right.length > 0) right.push(span(' '))
   return line(left, right, width, 2)
 }

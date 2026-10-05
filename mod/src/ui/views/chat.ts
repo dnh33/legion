@@ -7,11 +7,13 @@
  */
 import type { AgentView, ApprovalCard, TaskView, ThreadRow } from '../../../types/index.d.ts'
 import { MARK, MOOD_WORDS, railColumns } from '../../theme.ts'
-import { count, money, plural } from '../format.ts'
+import { count, money, plural, relTime } from '../format.ts'
+import { descendants, taskLine, taskTree } from './tasks.ts'
+import { answerWhere, cardWords } from '../cards.ts'
 import { btn, line, md, partsWidth, rowHeight, span, wrapped, type Part, type Row, type SpanTone } from '../model.ts'
 import { cellWidth, cutCells, fit, oneLine, padCells } from '../text.ts'
 import {
-  agentLabel, APPROVAL_WORDS, cardsInOrder, originWords, cleanTitle, glyphOf, isActive, selectedAgent, selectedTask, shortTool, STATUS_MARK,
+  agentLabel, APPROVAL_WORDS, cardsInOrder, isElsewhere, modelWords, originWords, taskOf, cleanTitle, glyphOf, isActive, selectedAgent, selectedTask, shortTool, STATUS_MARK,
   tasksOf, visibleAgents, type Snapshot,
 } from './common.ts'
 
@@ -29,6 +31,19 @@ const TOOL_STATE: Record<NonNullable<ThreadRow['tool']>['state'], { word: string
   denied: { word: 'Denied', tone: 'muted' },
 }
 const STATE_COL = 13
+
+/**
+ * A tool's name on its chip. Legion's own bridge tools read as what happened, as the desktop's ToolChip.tsx bridge
+ * chips do ("Asked", "Told", "Checked who is available"); every other tool by its short name.
+ */
+const toolWords = (name: string): string => {
+  const bridge = /__(ask|tell|agents)$/.exec(name)
+  if (bridge) return bridge[1] === 'ask' ? 'Asked' : bridge[1] === 'tell' ? 'Told' : 'Checked'
+  return shortTool(name)
+}
+
+/** At most this many handed-out pieces under the header; the rest are in the Order view. */
+const DELEGATED_MAX = 6
 
 /** The widest the thread draws, in cells: past it, a tool's state would sit too far from its name to read as one row. */
 export const THREAD_MAX = 100
@@ -89,7 +104,7 @@ const headerRow = (s: Snapshot, agent: AgentView, task: TaskView | undefined, wi
   // the model first, then the escalation, then the approval mode; who started the task stays longest
   const facts: Array<{ text: string; drop: number }> = [
     { text: APPROVAL_WORDS[agent.approval], drop: 3 },
-    { text: task?.model ?? agent.model, drop: 1 },
+    { text: modelWords(task?.model ?? agent.model), drop: 1 },
     ...(task?.isEscalated ? [{ text: '↑ escalated', drop: 2 }] : []), // MessageView.tsx ModelTag: "↑ escalated"
     ...(task && originWords(s, task) ? [{ text: originWords(s, task) as string, drop: 4 }] : []), // TaskSwitcher.tsx from-chip
   ]
@@ -149,7 +164,7 @@ const threadRowRows = (s: Snapshot, agent: AgentView, r: ThreadRow, width: numbe
   if (r.role === 'system') return wrapped(r.text, width, { indent: LEAD, tone: 'muted' })
   if (r.role === 'tool' && r.tool) {
     const st = TOOL_STATE[r.tool.state]
-    const name = padCells(shortTool(r.tool.name), 5)
+    const name = padCells(toolWords(r.tool.name), 5)
     return [line(
       [indent(), span(`${MARK.arrow} `, 'muted'), span(name), span(' '), span(oneLine(r.tool.summary), 'muted', { strike: r.tool.state === 'denied' })],
       [span(' '), span(fit(st.word, STATE_COL, { align: 'right' }), st.tone), span(' ')],
@@ -160,37 +175,55 @@ const threadRowRows = (s: Snapshot, agent: AgentView, r: ThreadRow, width: numbe
 }
 
 /**
- * An approval card inline in the thread (ApprovalCard.tsx): "Needs your OK · Bash", who asked, what the call does,
- * then Allow and Deny. Only the first card in view takes the `a` / `d` keys; a click-only card never takes `a`
- * (the desktop's no-one-key-approve rule), and says how to allow it instead.
+ * An approval card inline in the thread, read top to bottom as the brief's card rule orders it: who asks and what kind
+ * of thing, the exact call, what saying yes does, who sent the agent (when someone did), then where to answer. No
+ * buttons: the run waits on Claude Code's own permission dialog (plan §2.1), and a card of another window's run
+ * points there instead. Wording ports the desktop's ApprovalCard.tsx head ("Needs your OK") into a sentence.
  */
-export const cardRows = (card: ApprovalCard, index: number, width: number, isFirst: boolean): Row[] => {
-  const rows: Row[] = [line([indent(), span(`${MARK.card} Needs your OK · `, 'warn', { bold: true }), span(shortTool(card.tool), 'warn', { bold: true })], [], width)]
-  if (card.origin) rows.push(...wrapped(card.origin, width, { indent: LEAD + 2, tone: 'muted', maxLines: 2 }))
-  rows.push(...wrapped(card.summary, width, { indent: LEAD + 2, maxLines: 6 }))
-  const allowKey = isFirst && !card.isClickOnly ? 'a' : undefined
-  const parts: Part[] = [
-    span(' '.repeat(LEAD + 2)),
-    btn({ kind: 'card-allow', cardId: card.id, index }, 'Allow', { hotkey: allowKey }),
-    span('   '),
-    btn({ kind: 'card-deny', cardId: card.id, index }, 'Deny', { hotkey: isFirst ? 'd' : undefined }),
+export const cardRows = (s: Snapshot, card: ApprovalCard, width: number): Row[] => {
+  const w = cardWords(card)
+  const elsewhere = isElsewhere(s, taskOf(s, card.taskId))
+  const body = LEAD + 2
+  return [
+    line([indent(), span(`${MARK.card} `, 'warn', { bold: true, fixed: true }), span(agentLabel(s, card.agentId), 'text', { bold: true }), span(` ${w.verb}`, 'warn', { bold: true })], [], width),
+    ...wrapped(w.what, width, { indent: body, maxLines: 4 }),
+    ...wrapped(w.consequence, width, { indent: body, tone: 'muted', maxLines: 2 }),
+    ...(w.origin ? wrapped(w.origin, width, { indent: body, tone: 'muted', maxLines: 2 }) : []),
+    ...wrapped(answerWhere(elsewhere), width, { indent: body, tone: 'warn', maxLines: 1 }),
   ]
-  if (card.isClickOnly) parts.push(span('   No one-key allow here: Tab to Allow, then Enter', 'muted'))
-  rows.push(line(parts, [], width))
-  return rows
 }
 
 /** Where the task stands, at the bottom of the thread, with the one action that fits it. */
 const footerRows = (s: Snapshot, agent: AgentView, task: TaskView, width: number): Row[] => {
   const mood = s.moods[agent.id]?.mood
+  if (isElsewhere(s, task) && (isActive(task) || task.status === 'paused')) {
+    // read-only here: the window that runs it continues or stops it (plan §2.3 "Ownership")
+    const where = isActive(task) ? 'Running in another window' : 'Paused in another window'
+    return [
+      line([gutter(), span(`${STATUS_MARK[task.status].mark} ${where}`, STATUS_MARK[task.status].tone, { fixed: true })], [], width),
+      ...wrapped('Continue or stop it from that window.', width, { indent: 3, tone: 'muted' }),
+    ]
+  }
   if (isActive(task)) {
     // Thread.tsx: "Queued" / "Working"; the agent's own mood word while it is doing something
     const word = task.status === 'queued' ? 'Queued' : mood === 'thinking' || mood === 'hacking' || mood === 'listening' ? MOOD_WORDS[mood] : 'Working'
     return [line([gutter(), span(`${STATUS_MARK[task.status].mark} ${word}`, 'accent')], [btn({ kind: 'stop', taskId: task.id }, 'Stop', { hotkey: 's' }), span(' ')], width)]
   }
   if (task.status === 'paused') {
-    const rows: Row[] = [line([gutter(), span(`${MARK.paused} Paused at the turn limit`, 'warn', { bold: true, fixed: true }), span(' · the work is kept', 'muted')], [btn({ kind: 'continue', taskId: task.id }, 'Continue', { hotkey: 'c' }), span(' ')], width)]
-    if (task.error) rows.push(...wrapped(task.error, width, { indent: 3, tone: 'muted', maxLines: 2 }))
+    // when, for someone coming back to it later; "now" needs no word
+    const ago = relTime(task.updatedAt, s.now)
+    const when = ago === 'now' || ago === '' ? '' : ` ${ago} ago`
+    // the one-key Continue always stays; the reassurance is said whole, or not at all when the line is short
+    // the one-key Continue always stays: the words shorten first, then the reassurance leaves whole
+    const go: Part[] = [btn({ kind: 'continue', taskId: task.id }, 'Continue', { hotkey: 'c' }), span(' ')]
+    const kept = span(' · the work is kept', 'muted', { fixed: true })
+    const say = (text: string): Part => span(`${MARK.paused} ${text}`, 'warn', { bold: true, fixed: true })
+    const fits = (parts: Part[]): boolean => partsWidth([gutter(), ...parts, ...go]) + 1 <= width
+    const left = [[say(`Paused${when} at the turn limit`), kept], [say(`Paused${when} at the turn limit`)], [say('Paused at the turn limit')], [say('Paused')]]
+      .find(fits) ?? [say('Paused')]
+    const rows: Row[] = [line([gutter(), ...left], go, width)]
+    // the runtime's own line repeats the state; only a line that says more is shown
+    if (task.error && !/^paused at the turn limit/i.test(task.error)) rows.push(...wrapped(task.error, width, { indent: 3, tone: 'muted', maxLines: 2 }))
     return rows
   }
   if (task.status === 'error') {
@@ -198,11 +231,12 @@ const footerRows = (s: Snapshot, agent: AgentView, task: TaskView, width: number
     return [
       line([gutter(), span(`${MARK.error} Run failed`, 'danger', { bold: true })], [], width),
       ...wrapped(task.error || 'The run failed without a message.', width, { indent: 3, tone: 'muted', maxLines: 4 }),
-      ...wrapped('Send a follow-up with /say to try again, or press n for a new task.', width, { indent: 3, tone: 'muted' }),
+      ...wrapped('Try again with /say, or press n for a new task.', width, { indent: 3, tone: 'muted' }),
     ]
   }
-  if (task.status === 'cancelled') return [line([gutter(), span(`${MARK.cancelled} Cancelled`, 'muted')], [], width)]
-  return []
+  if (task.status === 'cancelled') return [line([gutter(), span(`${MARK.cancelled} Stopped`, 'muted', { fixed: true }), span(' · /say picks it up again', 'muted')], [], width)]
+  // done: when, and how to follow up in the same thread
+  return [line([gutter(), span(`${MARK.done} Done ${relTime(task.updatedAt, s.now)}${relTime(task.updatedAt, s.now) === 'now' ? '' : ' ago'}`, 'muted', { fixed: true }), span(' · /say to follow up here', 'muted')], [], width)]
 }
 
 /** The screen for an agent with no task in view (Thread.tsx EmptyState: "New task for Builder"). */
@@ -211,8 +245,32 @@ const emptyRows = (agent: AgentView, width: number): Row[] => [
   line([gutter(), span(agent.glyph, 'accent', { bold: true }), span('  '), span(`New task for ${agent.name}`, 'text', { bold: true })], [], width),
   ...wrapped(agent.description || 'Describe what you want done.', width, { indent: 4, tone: 'muted', maxLines: 3 }),
   { t: 'gap' },
-  ...wrapped(`n starts one here. From the prompt: /to ${agent.id} <what to do>`, width, { indent: 4, tone: 'muted' }),
+  line([span('    '), span('Press n, or type in the prompt:', 'muted')], [], width),
+  line([span('    '), span(`/to ${agent.id} <what to do>`, 'accent', { fixed: true })], [], width),
 ]
+
+/**
+ * The very first open: no task anywhere yet. Five seconds to know what this is, who is here and the one thing to do:
+ * ask Zealot, who cuts the request into tasks and hands them across the Order.
+ */
+export const firstRunRows = (s: Snapshot, paneWidth: number): Row[] => {
+  // a readable measure: on a wide dock the sentence keeps its shape instead of running to the edge
+  const width = Math.min(paneWidth, 72)
+  const n = visibleAgents(s).length
+  const lead = s.agents.find(a => a.id === 'zealot' && !a.isHidden)
+  const rows: Row[] = [
+    { t: 'gap' },
+    line([gutter(), span('✠', 'accent', { bold: true, fixed: true }), span('  '), span(`Your Order: ${n} agents, ready.`, 'text', { bold: true })], [], width),
+  ]
+  if (lead) {
+    rows.push(...wrapped(`${lead.name} leads: it splits your request into tasks and hands them out across the Order.`, width, { indent: 4, tone: 'muted', maxLines: 3 }))
+    rows.push({ t: 'gap' }, line([span('    '), span('Start here:', 'text', { fixed: true })], [], width))
+    rows.push(line([span('    '), span(`/to ${lead.id} <what you want done>`, 'accent', { fixed: true })], [], width))
+  }
+  rows.push({ t: 'gap' }, ...wrapped('Or pick an agent and press n.', width, { indent: 4, tone: 'muted' }))
+  // laid out at the measure, padded to the pane, so every row still spans its column
+  return rows.map(r => (r.t === 'line' ? line(r.parts, [], paneWidth) : r))
+}
 
 /** No agents at all: the roster has not loaded. */
 export const noAgentRows = (width: number): Row[] => [
@@ -245,7 +303,8 @@ const tail = (total: number, build: (i: number) => Row[], budget: number, width:
 export const chatLayout = (s: Snapshot, width: number, bodyRows: number, chromeRows: number): ChatLayout => {
   const rail = railRows(s, width)
   const railWidth = rail.length > 0 ? railColumns(width) : 0
-  const mw = width - railWidth
+  // the view is at most THREAD_MAX cells wide, header and thread alike, so their right edges line up on a wide dock
+  const mw = Math.min(width - railWidth, THREAD_MAX)
   const agent = selectedAgent(s)
   if (!agent) return { railWidth, rail, main: noAgentRows(mw) }
   const task = selectedTask(s)
@@ -262,23 +321,34 @@ export const chatLayout = (s: Snapshot, width: number, bodyRows: number, chromeR
     const words = mw >= 60
       ? (n === 1 ? '1 approval waiting in another task' : `${count(n)} approvals waiting in another task`)
       : `${count(n)} waiting in another task`
+    // Open shows that task, where the card says where to answer
     top.push(line([gutter(), span(`${MARK.card} ${words}`, 'warn', { fixed: true }), span(` · ${agentLabel(s, first.agentId)}`, 'warn')], [btn({ kind: 'task', taskId: first.taskId }, 'Open', { hotkey: 'o' }), span(' ')], mw))
   }
+  // the first open: nothing to head or tab yet, only the welcome (the strip of glyphs stays on a narrow pane)
+  if (s.tasks.length === 0) return { railWidth, rail, main: [...(railWidth === 0 ? [agentStrip(s, mw)] : []), ...firstRunRows(s, mw)] }
   if (!task) return { railWidth, rail, main: [...top, ...emptyRows(agent, mw)] }
-  // the thread, then its cards (the first takes a / d), then the reply streaming in; at most THREAD_MAX cells wide,
-  // so on a wide dock a tool's state stays near its name
-  const tw = Math.min(mw, THREAD_MAX)
+  // the pieces this task handed out, as a tree with who, state and cost: the whole request at a glance
+  const pieces = descendants(s, task.id)
+  if (pieces.length > 0) {
+    // drawn as the tree under this task (its own line left out), so each piece hangs from ├ / └
+    const tree = taskTree([task, ...pieces]).filter(l => l.task.id !== task.id).slice(0, DELEGATED_MAX)
+    top.push(line([gutter(), span('Handed out', 'text', { bold: true, fixed: true }), span(`  ${count(pieces.filter(isActive).length)} working · ${count(pieces.length)} in all`, 'muted')], [], mw))
+    for (const l of tree) top.push(taskLine(s, l, mw))
+    if (pieces.length > tree.length) top.push(line([span('   '), span(`+${count(pieces.length - tree.length)} more · 5: Order`, 'muted')], [], mw))
+  }
+  // the thread, then its cards, then the reply streaming in
+  const tw = mw
   const nThread = s.thread.length
   const nGroups = nThread + here.length + (s.live ? 1 : 0)
   const build = (i: number): Row[] => {
     if (i < nThread) return threadRowRows(s, agent, s.thread[i] as ThreadRow, tw)
-    if (i < nThread + here.length) return cardRows(here[i - nThread] as ApprovalCard, ordered.indexOf(here[i - nThread] as ApprovalCard), tw, i === nThread)
+    if (i < nThread + here.length) return cardRows(s, here[i - nThread] as ApprovalCard, tw)
     return [md([gutter(), span(agent.glyph, 'accent')], LEAD, `${s.live}${MARK.caret}`, tw)]
   }
   const foot = footerRows(s, agent, task, tw)
   const budget = Math.max(4, bodyRows - chromeRows - top.length - foot.length - 1)
   // a failed, stopped or paused run says so in its footer; "No messages yet." is only for one still to speak
-  const quiet = isActive(task) || task.status === 'done' ? wrapped('No messages yet.', tw, { indent: LEAD, tone: 'muted' }) : []
+  const quiet = isActive(task) ? wrapped('No messages yet.', tw, { indent: LEAD, tone: 'muted' }) : []
   const body = nGroups > 0 ? tail(nGroups, build, budget, tw) : quiet
   return { railWidth, rail, main: [...top, { t: 'gap' }, ...body, ...foot] }
 }

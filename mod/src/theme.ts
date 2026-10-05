@@ -68,7 +68,7 @@ export const MARK = {
 } as const
 
 /** The width of the rail column, in cells, at each pane width. */
-export const railColumns = (bodyColumns: number): number => (bodyColumns >= 100 ? 19 : bodyColumns >= 72 ? 15 : 0)
+export const railColumns = (bodyColumns: number): number => (bodyColumns >= 100 ? 19 : bodyColumns >= 72 ? 18 : 0)
 
 /** Breakpoints the views lay out against, in cells. */
 export const BREAKPOINTS = { narrow: 72, medium: 100, wide: 140 } as const

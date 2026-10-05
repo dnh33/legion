@@ -2,7 +2,7 @@
  * What every Legion view reads, and the small rules they share: which agents show, which is selected, how an agent
  * and a task are named, the marks and words for each state. Pure.
  */
-import type { AgentId, AgentView, ApprovalCard, ApprovalMode, BandItem, MoodState, ModSettings, TaskStatus, TaskView, ThreadRow, UiState } from '../../../types/index.d.ts'
+import type { AgentId, AgentView, ApprovalCard, ApprovalMode, BandItem, DoctorLine, MoodState, ModSettings, TaskStatus, TaskView, ThreadRow, UiState } from '../../../types/index.d.ts'
 import { MARK, MOOD_WORDS } from '../../theme.ts'
 import type { SpanTone } from '../model.ts'
 import { cardsInOrder as orderCards } from '../actions.ts'
@@ -22,8 +22,10 @@ export type Snapshot = {
   live: string
   /** The clock, for "5m ago". */
   now: number
-  /** The doctor's one-line verdict, when the lead's doctor has one. */
-  doctor?: string
+  /** The last `/legion doctor` run, or none yet. */
+  doctor?: readonly DoctorLine[]
+  /** This window's session id. A task another session owns is shown read-only; unknown ('') counts every task as ours. */
+  sessionId?: string
 }
 
 export const DEFAULT_UI: UiState = { view: 'chat', agentId: 'zealot', taskId: null, channel: null }
@@ -52,6 +54,16 @@ export const glyphOf = (s: Pick<Snapshot, 'agents'>, id: AgentId | undefined): s
 export const APPROVAL_WORDS: Record<ApprovalMode, string> = { ask: 'Asks first', 'auto-edits': 'Auto-edits', full: 'Full access' }
 
 export const isActive = (t: Pick<TaskView, 'status'>): boolean => t.status === 'running' || t.status === 'queued'
+
+/** True when another window owns the task's run: this window shows it, and cannot continue, stop or answer for it. */
+export const isElsewhere = (s: Pick<Snapshot, 'sessionId'>, t: Pick<TaskView, 'sessionId'> | undefined): boolean =>
+  !!t && !!s.sessionId && !!t.sessionId && t.sessionId !== s.sessionId
+
+/** The task a card belongs to. */
+export const taskOf = (s: Pick<Snapshot, 'tasks'>, taskId: string): TaskView | undefined => s.tasks.find(t => t.id === taskId)
+
+/** The model as the header says it: `auto` is the router's choice, said so. */
+export const modelWords = (model: string): string => (model === 'auto' ? 'auto model' : model)
 
 /** The one-cell mark and its tone for a task's state (theme.ts MARK). */
 export const STATUS_MARK: Record<TaskStatus, { mark: string; tone: SpanTone }> = {

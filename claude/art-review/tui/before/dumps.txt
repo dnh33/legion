@@ -1,4 +1,413 @@
-=== chat · empty (no task) @60
+=== chat · J1 first open (no tasks anywhere) @60
++------------------------------------------------------------+
+| ✠ LEGION  1: Chat  5: Order                                |
+|────────────────────────────────────────────────────────────|
+| ✠ ⌘ ◎ ⌕ ✎ ▤ ◬ ⌶ ☾ ⊥ ⚑ ◈                             Zealot |
+| ✠ Zealot · Asks first · auto                               |
+| n: New task                                                |
+|                                                            |
+| ✠  New task for Zealot                                     |
+|    Plans the work and hands it out.                        |
+|                                                            |
+|    n starts one here. From the prompt: /to zealot <what to |
+|    do>                                                     |
++------------------------------------------------------------+
+
+=== chat · J1 first open (no tasks anywhere) @80
++--------------------------------------------------------------------------------+
+| ✠ LEGION  1: Chat  5: Order                                                    |
+|────────────────────────────────────────────────────────────────────────────────|
+|▸✠ Zealot     │ ✠ Zealot · Asks first · auto                                    |
+| ⌘ Builder    │ n: New task                                                     |
+| ◎ Scout      │                                                                 |
+| ⌕ Inquisi…   │ ✠  New task for Zealot                                          |
+| ✎ Scribe     │    Plans the work and hands it out.                             |
+| ▤ Archivi…   │                                                                 |
+| ◬ Sentinel   │    n starts one here. From the prompt: /to zealot <what to do>  |
+| ⌶ Forgema…   │                                                                 |
+| ☾ Exorcist   │                                                                 |
+| ⊥ Precept…   │                                                                 |
+| ⚑ Herald     │                                                                 |
+| ◈ Sculptor   │                                                                 |
++--------------------------------------------------------------------------------+
+
+=== chat · J1 first open (no tasks anywhere) @100
++----------------------------------------------------------------------------------------------------+
+| ✠ LEGION  1: Chat  5: Order                                                                        |
+|────────────────────────────────────────────────────────────────────────────────────────────────────|
+|▸✠ Zealot         │ ✠ Zealot · Asks first · auto                                                    |
+| ⌘ Builder        │ n: New task                                                                     |
+| ◎ Scout          │                                                                                 |
+| ⌕ Inquisitor     │ ✠  New task for Zealot                                                          |
+| ✎ Scribe         │    Plans the work and hands it out.                                             |
+| ▤ Archivist      │                                                                                 |
+| ◬ Sentinel       │    n starts one here. From the prompt: /to zealot <what to do>                  |
+| ⌶ Forgemaster    │                                                                                 |
+| ☾ Exorcist       │                                                                                 |
+| ⊥ Preceptor      │                                                                                 |
+| ⚑ Herald         │                                                                                 |
+| ◈ Sculptor       │                                                                                 |
++----------------------------------------------------------------------------------------------------+
+
+=== chat · J1 first open (no tasks anywhere) @120
++------------------------------------------------------------------------------------------------------------------------+
+| ✠ LEGION  1: Chat  5: Order                                                                                            |
+|────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────|
+|▸✠ Zealot         │ ✠ Zealot · Asks first · auto                                                                        |
+| ⌘ Builder        │ n: New task                                                                                         |
+| ◎ Scout          │                                                                                                     |
+| ⌕ Inquisitor     │ ✠  New task for Zealot                                                                              |
+| ✎ Scribe         │    Plans the work and hands it out.                                                                 |
+| ▤ Archivist      │                                                                                                     |
+| ◬ Sentinel       │    n starts one here. From the prompt: /to zealot <what to do>                                      |
+| ⌶ Forgemaster    │                                                                                                     |
+| ☾ Exorcist       │                                                                                                     |
+| ⊥ Preceptor      │                                                                                                     |
+| ⚑ Herald         │                                                                                                     |
+| ◈ Sculptor       │                                                                                                     |
++------------------------------------------------------------------------------------------------------------------------+
+
+=== chat · J2 watching a request (Zealot, pieces handed out) @60
++------------------------------------------------------------+
+| ✠ LEGION  1: Chat  5: Order                      4 running |
+|────────────────────────────────────────────────────────────|
+| ✠ ⌘ ◎ ⌕ ✎ ▤ ◬ ⌶ ☾ ⊥ ⚑ ◈                             Zealot |
+| ✠ Zealot · Asks first · sonnet            ≈$0.12 · 4 turns |
+| n: New task  ● Ship the replay f…                          |
+|                                                            |
+| you Ship the replay fix: tests green, docs updated.        |
+| ✠   Three pieces: Builder fixes the test, Scout finds the  |
+|     leak, Scribe updates the docs.                         |
+|     ▸ legion-mod·tell Builder: fix the fla…              ✓ |
+| ● Listening                                        s: Stop |
++------------------------------------------------------------+
+
+=== chat · J2 watching a request (Zealot, pieces handed out) @80
++--------------------------------------------------------------------------------+
+| ✠ LEGION  1: Chat  5: Order                                          4 running |
+|────────────────────────────────────────────────────────────────────────────────|
+|▸✠ Zealot    ●│ ✠ Zealot · Asks first · sonnet                 ≈$0.12 · 4 turns |
+| ⌘ Builder   ●│ n: New task  ● Ship the replay fix                              |
+| ◎ Scout      │                                                                 |
+| ⌕ Inquisi…  ●│ you Ship the replay fix: tests green, docs updated.             |
+| ✎ Scribe    ◐│ ✠   Three pieces: Builder fixes the test, Scout finds the leak, |
+| ▤ Archivi…   │     Scribe updates the docs.                                    |
+| ◬ Sentinel   │     ▸ legion-mod·tell Builder: fix the flaky re…              ✓ |
+| ⌶ Forgema…   │ ● Listening                                             s: Stop |
+| ☾ Exorcist   │                                                                 |
+| ⊥ Precept…   │                                                                 |
+| ⚑ Herald    ‖│                                                                 |
+| ◈ Sculptor   │                                                                 |
++--------------------------------------------------------------------------------+
+
+=== chat · J2 watching a request (Zealot, pieces handed out) @100
++----------------------------------------------------------------------------------------------------+
+| ✠ LEGION  1: Chat  5: Order                                                              4 running |
+|────────────────────────────────────────────────────────────────────────────────────────────────────|
+|▸✠ Zealot        ●│ ✠ Zealot · Asks first · sonnet                                 ≈$0.12 · 4 turns |
+| ⌘ Builder       ●│ n: New task  ● Ship the replay fix                                              |
+| ◎ Scout          │                                                                                 |
+| ⌕ Inquisitor    ●│ you Ship the replay fix: tests green, docs updated.                             |
+| ✎ Scribe        ◐│ ✠   Three pieces: Builder fixes the test, Scout finds the leak, Scribe updates  |
+| ▤ Archivist      │     the docs.                                                                   |
+| ◬ Sentinel       │     ▸ legion-mod·tell Builder: fix the flaky replay test                      ✓ |
+| ⌶ Forgemaster    │ ● Listening                                                             s: Stop |
+| ☾ Exorcist       │                                                                                 |
+| ⊥ Preceptor      │                                                                                 |
+| ⚑ Herald        ‖│                                                                                 |
+| ◈ Sculptor       │                                                                                 |
++----------------------------------------------------------------------------------------------------+
+
+=== chat · J2 watching a request (Zealot, pieces handed out) @120
++------------------------------------------------------------------------------------------------------------------------+
+| ✠ LEGION  1: Chat  5: Order                                                                                  4 running |
+|────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────|
+|▸✠ Zealot        ●│ ✠ Zealot · Asks first · sonnet                                                     ≈$0.12 · 4 turns |
+| ⌘ Builder       ●│ n: New task  ● Ship the replay fix                                                                  |
+| ◎ Scout          │                                                                                                     |
+| ⌕ Inquisitor    ●│ you Ship the replay fix: tests green, docs updated.                                                 |
+| ✎ Scribe        ◐│ ✠   Three pieces: Builder fixes the test, Scout finds the leak, Scribe updates the docs.            |
+| ▤ Archivist      │     ▸ legion-mod·tell Builder: fix the flaky replay test                                         ✓  |
+| ◬ Sentinel       │ ● Listening                                                                                s: Stop  |
+| ⌶ Forgemaster    │                                                                                                     |
+| ☾ Exorcist       │                                                                                                     |
+| ⊥ Preceptor      │                                                                                                     |
+| ⚑ Herald        ‖│                                                                                                     |
+| ◈ Sculptor       │                                                                                                     |
++------------------------------------------------------------------------------------------------------------------------+
+
+=== order · J2 the request as a tree @60
++------------------------------------------------------------+
+| ✠ LEGION  1: Chat  5: Order                      4 running |
+|────────────────────────────────────────────────────────────|
+| Agents                                      p: Poke Zealot |
+|▸ ✠ Zealot         Listening                 1 running      |
+|  ⌘ Builder        Executing                 1 running      |
+|  ◎ Scout          Standing vigil                           |
+|  ⌕ Inquisitor     Deliberating              1 running      |
+|  ✎ Scribe         Standing vigil            1 running      |
+|  ▤ Archivist      Standing vigil                           |
+|  ◬ Sentinel       Standing vigil                           |
+|  ⌶ Forgemaster    Standing vigil                           |
+|  ☾ Exorcist       Standing vigil                           |
+|  ⊥ Preceptor      Standing vigil                           |
+|  ⚑ Herald         Standing vigil                           |
+|  ◈ Sculptor       Standing vigil                           |
+|                                                            |
+| Running  5                                                 |
+| ● ⌕ Review Builder's fix                  ≈$0.08   2 turns |
+| ● ⌘ Fix the flaky replay test             ≈$0.21   9 turns |
+| ● ✠ Ship the replay fix                   ≈$0.12   4 turns |
+| ◐ ✎ Update the testing docs               ≈$0.00   0 turns |
+| ‖ ⚑ Draft the 0.3 release notes           ≈$1.02  50 turns |
+|                                                            |
+| Recent  2                                                  |
+| · ◎ Find where the clock leaks                 ≈$0.05  20s |
+| · ▤ Tidy the Library inbox                     ≈$0.31   1d |
++------------------------------------------------------------+
+
+=== order · J2 the request as a tree @80
++--------------------------------------------------------------------------------+
+| ✠ LEGION  1: Chat  5: Order                                          4 running |
+|────────────────────────────────────────────────────────────────────────────────|
+| Agents                                                          p: Poke Zealot |
+|▸ ✠ Zealot          Listening                                    1 running      |
+|  ⌘ Builder         Executing                                    1 running      |
+|  ◎ Scout           Standing vigil                                              |
+|  ⌕ Inquisitor      Deliberating                                 1 running      |
+|  ✎ Scribe          Standing vigil                               1 running      |
+|  ▤ Archivist       Standing vigil                                              |
+|  ◬ Sentinel        Standing vigil                                              |
+|  ⌶ Forgemaster     Standing vigil                                              |
+|  ☾ Exorcist        Standing vigil                                              |
+|  ⊥ Preceptor       Standing vigil                                              |
+|  ⚑ Herald          Standing vigil                                              |
+|  ◈ Sculptor        Standing vigil                                              |
+|                                                                                |
+| Running  5                                                                     |
+| ● ⌕ Review Builder's fix                                      ≈$0.08   2 turns |
+| ● ⌘ Fix the flaky replay test                                 ≈$0.21   9 turns |
+| ● ✠ Ship the replay fix                                       ≈$0.12   4 turns |
+| ◐ ✎ Update the testing docs                                   ≈$0.00   0 turns |
+| ‖ ⚑ Draft the 0.3 release notes                               ≈$1.02  50 turns |
+|                                                                                |
+| Recent  2                                                                      |
+| · ◎ Find where the clock leaks                                     ≈$0.05  20s |
+| · ▤ Tidy the Library inbox                                         ≈$0.31   1d |
++--------------------------------------------------------------------------------+
+
+=== order · J2 the request as a tree @100
++----------------------------------------------------------------------------------------------------+
+| ✠ LEGION  1: Chat  5: Order                                                              4 running |
+|────────────────────────────────────────────────────────────────────────────────────────────────────|
+| Agents                                                                              p: Poke Zealot |
+|▸ ✠ Zealot          Listening                                                        1 running      |
+|  ⌘ Builder         Executing                                                        1 running      |
+|  ◎ Scout           Standing vigil                                                                  |
+|  ⌕ Inquisitor      Deliberating                                                     1 running      |
+|  ✎ Scribe          Standing vigil                                                   1 running      |
+|  ▤ Archivist       Standing vigil                                                                  |
+|  ◬ Sentinel        Standing vigil                                                                  |
+|  ⌶ Forgemaster     Standing vigil                                                                  |
+|  ☾ Exorcist        Standing vigil                                                                  |
+|  ⊥ Preceptor       Standing vigil                                                                  |
+|  ⚑ Herald          Standing vigil                                                                  |
+|  ◈ Sculptor        Standing vigil                                                                  |
+|                                                                                                    |
+| Running  5                                                                                         |
+| ● ⌕ Review Builder's fix                                                          ≈$0.08   2 turns |
+| ● ⌘ Fix the flaky replay test                                                     ≈$0.21   9 turns |
+| ● ✠ Ship the replay fix                                                           ≈$0.12   4 turns |
+| ◐ ✎ Update the testing docs                                                       ≈$0.00   0 turns |
+| ‖ ⚑ Draft the 0.3 release notes                                                   ≈$1.02  50 turns |
+|                                                                                                    |
+| Recent  2                                                                                          |
+| · ◎ Find where the clock leaks                                                         ≈$0.05  20s |
+| · ▤ Tidy the Library inbox                                                             ≈$0.31   1d |
++----------------------------------------------------------------------------------------------------+
+
+=== order · J2 the request as a tree @120
++------------------------------------------------------------------------------------------------------------------------+
+| ✠ LEGION  1: Chat  5: Order                                                                                  4 running |
+|────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────|
+| Agents                                                                                                  p: Poke Zealot |
+|▸ ✠ Zealot          Listening                                                                            1 running      |
+|  ⌘ Builder         Executing                                                                            1 running      |
+|  ◎ Scout           Standing vigil                                                                                      |
+|  ⌕ Inquisitor      Deliberating                                                                         1 running      |
+|  ✎ Scribe          Standing vigil                                                                       1 running      |
+|  ▤ Archivist       Standing vigil                                                                                      |
+|  ◬ Sentinel        Standing vigil                                                                                      |
+|  ⌶ Forgemaster     Standing vigil                                                                                      |
+|  ☾ Exorcist        Standing vigil                                                                                      |
+|  ⊥ Preceptor       Standing vigil                                                                                      |
+|  ⚑ Herald          Standing vigil                                                                                      |
+|  ◈ Sculptor        Standing vigil                                                                                      |
+|                                                                                                                        |
+| Running  5                                                                                                             |
+| ● ⌕ Review Builder's fix                                                                              ≈$0.08   2 turns |
+| ● ⌘ Fix the flaky replay test                                                                         ≈$0.21   9 turns |
+| ● ✠ Ship the replay fix                                                                               ≈$0.12   4 turns |
+| ◐ ✎ Update the testing docs                                                                           ≈$0.00   0 turns |
+| ‖ ⚑ Draft the 0.3 release notes                                                                       ≈$1.02  50 turns |
+|                                                                                                                        |
+| Recent  2                                                                                                              |
+| · ◎ Find where the clock leaks                                                                             ≈$0.05  20s |
+| · ▤ Tidy the Library inbox                                                                                 ≈$0.31   1d |
++------------------------------------------------------------------------------------------------------------------------+
+
+=== chat · J4 back later: a paused task from yesterday @60
++------------------------------------------------------------+
+| ✠ LEGION  1: Chat  5: Order                      4 running |
+|────────────────────────────────────────────────────────────|
+| ✠ ⌘ ◎ ⌕ ✎ ▤ ◬ ⌶ ☾ ⊥ ⚑ ◈                             Herald |
+| ⚑ Herald · Asks first · sonnet           ≈$1.02 · 50 turns |
+| n: New task  ‖ Draft the 0.3 rel…                          |
+|                                                            |
+| ‖ Paused at the turn limit · the work is kept  c: Continue |
+|   Paused at the turn limit (50 turns).                     |
++------------------------------------------------------------+
+
+=== chat · J4 back later: a paused task from yesterday @80
++--------------------------------------------------------------------------------+
+| ✠ LEGION  1: Chat  5: Order                                          4 running |
+|────────────────────────────────────────────────────────────────────────────────|
+| ✠ Zealot    ●│ ⚑ Herald · Asks first · sonnet                ≈$1.02 · 50 turns |
+| ⌘ Builder   ●│ n: New task  ‖ Draft the 0.3 rele…                              |
+| ◎ Scout      │                                                                 |
+| ⌕ Inquisi…  ●│ ‖ Paused at the turn limit · the work is kept       c: Continue |
+| ✎ Scribe    ◐│   Paused at the turn limit (50 turns).                          |
+| ▤ Archivi…   │                                                                 |
+| ◬ Sentinel   │                                                                 |
+| ⌶ Forgema…   │                                                                 |
+| ☾ Exorcist   │                                                                 |
+| ⊥ Precept…   │                                                                 |
+|▸⚑ Herald    ‖│                                                                 |
+| ◈ Sculptor   │                                                                 |
++--------------------------------------------------------------------------------+
+
+=== chat · J4 back later: a paused task from yesterday @100
++----------------------------------------------------------------------------------------------------+
+| ✠ LEGION  1: Chat  5: Order                                                              4 running |
+|────────────────────────────────────────────────────────────────────────────────────────────────────|
+| ✠ Zealot        ●│ ⚑ Herald · Asks first · sonnet                                ≈$1.02 · 50 turns |
+| ⌘ Builder       ●│ n: New task  ‖ Draft the 0.3 release no…                                        |
+| ◎ Scout          │                                                                                 |
+| ⌕ Inquisitor    ●│ ‖ Paused at the turn limit · the work is kept                       c: Continue |
+| ✎ Scribe        ◐│   Paused at the turn limit (50 turns).                                          |
+| ▤ Archivist      │                                                                                 |
+| ◬ Sentinel       │                                                                                 |
+| ⌶ Forgemaster    │                                                                                 |
+| ☾ Exorcist       │                                                                                 |
+| ⊥ Preceptor      │                                                                                 |
+|▸⚑ Herald        ‖│                                                                                 |
+| ◈ Sculptor       │                                                                                 |
++----------------------------------------------------------------------------------------------------+
+
+=== chat · J4 back later: a paused task from yesterday @120
++------------------------------------------------------------------------------------------------------------------------+
+| ✠ LEGION  1: Chat  5: Order                                                                                  4 running |
+|────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────|
+| ✠ Zealot        ●│ ⚑ Herald · Asks first · sonnet                                                    ≈$1.02 · 50 turns |
+| ⌘ Builder       ●│ n: New task  ‖ Draft the 0.3 release not…                                                           |
+| ◎ Scout          │                                                                                                     |
+| ⌕ Inquisitor    ●│ ‖ Paused at the turn limit · the work is kept                                          c: Continue  |
+| ✎ Scribe        ◐│   Paused at the turn limit (50 turns).                                                              |
+| ▤ Archivist      │                                                                                                     |
+| ◬ Sentinel       │                                                                                                     |
+| ⌶ Forgemaster    │                                                                                                     |
+| ☾ Exorcist       │                                                                                                     |
+| ⊥ Preceptor      │                                                                                                     |
+|▸⚑ Herald        ‖│                                                                                                     |
+| ◈ Sculptor       │                                                                                                     |
++------------------------------------------------------------------------------------------------------------------------+
+
+=== chat · J4 back later: a done task @60
++------------------------------------------------------------+
+| ✠ LEGION  1: Chat  5: Order                      4 running |
+|────────────────────────────────────────────────────────────|
+| ✠ ⌘ ◎ ⌕ ✎ ▤ ◬ ⌶ ☾ ⊥ ⚑ ◈                          Archivist |
+| ▤ Archivist · Asks first · sonnet         ≈$0.31 · 9 turns |
+| n: New task  · Tidy the Library…                           |
+|                                                            |
+|     No messages yet.                                       |
++------------------------------------------------------------+
+
+=== chat · J4 back later: a done task @80
++--------------------------------------------------------------------------------+
+| ✠ LEGION  1: Chat  5: Order                                          4 running |
+|────────────────────────────────────────────────────────────────────────────────|
+| ✠ Zealot    ●│ ▤ Archivist · Asks first · sonnet              ≈$0.31 · 9 turns |
+| ⌘ Builder   ●│ n: New task  · Tidy the Library i…                              |
+| ◎ Scout      │                                                                 |
+| ⌕ Inquisi…  ●│     No messages yet.                                            |
+| ✎ Scribe    ◐│                                                                 |
+|▸▤ Archivi…   │                                                                 |
+| ◬ Sentinel   │                                                                 |
+| ⌶ Forgema…   │                                                                 |
+| ☾ Exorcist   │                                                                 |
+| ⊥ Precept…   │                                                                 |
+| ⚑ Herald    ‖│                                                                 |
+| ◈ Sculptor   │                                                                 |
++--------------------------------------------------------------------------------+
+
+=== chat · J4 back later: a done task @100
++----------------------------------------------------------------------------------------------------+
+| ✠ LEGION  1: Chat  5: Order                                                              4 running |
+|────────────────────────────────────────────────────────────────────────────────────────────────────|
+| ✠ Zealot        ●│ ▤ Archivist · Asks first · sonnet                              ≈$0.31 · 9 turns |
+| ⌘ Builder       ●│ n: New task  · Tidy the Library inbox                                           |
+| ◎ Scout          │                                                                                 |
+| ⌕ Inquisitor    ●│     No messages yet.                                                            |
+| ✎ Scribe        ◐│                                                                                 |
+|▸▤ Archivist      │                                                                                 |
+| ◬ Sentinel       │                                                                                 |
+| ⌶ Forgemaster    │                                                                                 |
+| ☾ Exorcist       │                                                                                 |
+| ⊥ Preceptor      │                                                                                 |
+| ⚑ Herald        ‖│                                                                                 |
+| ◈ Sculptor       │                                                                                 |
++----------------------------------------------------------------------------------------------------+
+
+=== chat · J4 back later: a done task @120
++------------------------------------------------------------------------------------------------------------------------+
+| ✠ LEGION  1: Chat  5: Order                                                                                  4 running |
+|────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────|
+| ✠ Zealot        ●│ ▤ Archivist · Asks first · sonnet                                                  ≈$0.31 · 9 turns |
+| ⌘ Builder       ●│ n: New task  · Tidy the Library inbox                                                               |
+| ◎ Scout          │                                                                                                     |
+| ⌕ Inquisitor    ●│     No messages yet.                                                                                |
+| ✎ Scribe        ◐│                                                                                                     |
+|▸▤ Archivist      │                                                                                                     |
+| ◬ Sentinel       │                                                                                                     |
+| ⌶ Forgemaster    │                                                                                                     |
+| ☾ Exorcist       │                                                                                                     |
+| ⊥ Preceptor      │                                                                                                     |
+| ⚑ Herald        ‖│                                                                                                     |
+| ◈ Sculptor       │                                                                                                     |
++------------------------------------------------------------------------------------------------------------------------+
+
+=== band · J3 paused from yesterday @60
++------------------------------------------------------------+
+| ‖ ⚑ Herald · Paused at the turn…   c: Continue  x: Dismiss |
++------------------------------------------------------------+
+
+=== band · J3 paused from yesterday @80
++--------------------------------------------------------------------------------+
+| ‖ ⚑ Herald · Paused at the turn limit                  c: Continue  x: Dismiss |
++--------------------------------------------------------------------------------+
+
+=== band · J3 paused from yesterday @100
++----------------------------------------------------------------------------------------------------+
+| ‖ ⚑ Herald · Paused at the turn limit                                      c: Continue  x: Dismiss |
++----------------------------------------------------------------------------------------------------+
+
+=== band · J3 paused from yesterday @120
++------------------------------------------------------------------------------------------------------------------------+
+| ‖ ⚑ Herald · Paused at the turn limit                                                          c: Continue  x: Dismiss |
++------------------------------------------------------------------------------------------------------------------------+
+
+=== chat · empty (agent with no task, others exist) @60
 +------------------------------------------------------------+
 | ✠ LEGION  1: Chat  5: Order                                |
 |────────────────────────────────────────────────────────────|
@@ -13,7 +422,7 @@
 |    do>                                                     |
 +------------------------------------------------------------+
 
-=== chat · empty (no task) @80
+=== chat · empty (agent with no task, others exist) @80
 +--------------------------------------------------------------------------------+
 | ✠ LEGION  1: Chat  5: Order                                                    |
 |────────────────────────────────────────────────────────────────────────────────|
@@ -31,7 +440,7 @@
 | ◈ Sculptor   │                                                                 |
 +--------------------------------------------------------------------------------+
 
-=== chat · empty (no task) @100
+=== chat · empty (agent with no task, others exist) @100
 +----------------------------------------------------------------------------------------------------+
 | ✠ LEGION  1: Chat  5: Order                                                                        |
 |────────────────────────────────────────────────────────────────────────────────────────────────────|
@@ -49,7 +458,7 @@
 | ◈ Sculptor       │                                                                                 |
 +----------------------------------------------------------------------------------------------------+
 
-=== chat · empty (no task) @120
+=== chat · empty (agent with no task, others exist) @120
 +------------------------------------------------------------------------------------------------------------------------+
 | ✠ LEGION  1: Chat  5: Order                                                                                            |
 |────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────|

@@ -11,7 +11,7 @@
 import { expect, mock, test } from 'claude-code/testing'
 import type { On } from 'claude-code'
 import type { Snapshot } from '../../src/ui/views/common.ts'
-import { base, busy } from '../node/ui/fixtures.ts'
+import { base, busy, DOCTOR } from '../node/ui/fixtures.ts'
 
 const SURFACES = ['terminal', 'desktop'] as const
 const paneProps = (bodyColumns: number) => ({ title: 'Legion', isFocused: true, bodyColumns, placement: 'inline' as const, scroll: { offset: 0, bodyRows: 40 }, view: {} })
@@ -22,7 +22,7 @@ const feed = (on: On, get: () => Snapshot, theme: () => 'dark' | 'light' = () =>
   mock.clock(on, { now: 1_000_000 })
   on('state.get', async (_$, e) => {
     const s = get()
-    const v: Record<string, unknown> = { agents: s.agents, tasks: s.tasks, cards: s.cards, ui: s.ui, moods: s.moods, band: s.band, theme: theme() }
+    const v: Record<string, unknown> = { agents: s.agents, tasks: s.tasks, cards: s.cards, ui: s.ui, moods: s.moods, band: s.band, theme: theme(), sessionId: s.sessionId, doctor: s.doctor }
     const value = e.key === 'threads' ? s.thread : e.key === 'live' ? s.live : v[e.key]
     return { value: { value: value as never, version: value === undefined ? 0 : 1 } }
   })
@@ -34,7 +34,7 @@ test('wired pane: draws from state on both surfaces, and its keys are there', as
     for (const w of [40, 80, 120, 200]) {
       const ui = await $.ui.mount({ plugin: 'legion-mod', surface, component: 'Pane', requestId: 'legion', props: paneProps(w) })
       expect(await ui.find({ type: 'Text', text: '✠ LEGION' })).toBeDefined()
-      expect(await ui.find({ type: 'Button', key: 'allow:c1' })).toBeDefined()
+      expect(await ui.find({ type: 'Button', key: 'stop:t_000000000001' })).toBeDefined()
       expect((await ui.find({ type: 'Button', key: 'new:builder' }))?.props.hotkey).toBe('n')
       await ui.unmount()
     }
@@ -58,7 +58,7 @@ test('wired band: draws what waits; passes when empty and when a survey holds th
   for (const surface of SURFACES) {
     snap = busy()
     let ui = await $.ui.mount({ plugin: 'legion-mod', surface, component: 'AbovePrompt', props: bandProps(80) })
-    expect(await ui.find({ type: 'Button', key: 'allow:c1' })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: /answer in the dialog/ })).toBeDefined()
     await ui.unmount()
     ui = await $.ui.mount({ plugin: 'legion-mod', surface, component: 'AbovePrompt', props: bandProps(80, true) })
     expect(await ui.find({ type: 'Text', text: 'engine band' })).toBeDefined()
@@ -98,8 +98,24 @@ test("wired press: a Legion Button's press reaches ui.press with its action key,
   for (const surface of SURFACES) {
     pressed.length = 0
     const ui = await $.ui.mount({ plugin: 'legion-mod', surface, component: 'Pane', requestId: 'legion', props: paneProps(120) })
-    for (const key of ['view:order', 'allow:c1', 'stop:t_000000000001']) await ui.press({ key })
-    expect(pressed).toEqual(['view:order', 'allow:c1', 'stop:t_000000000001'])
+    for (const key of ['view:order', 'new:builder', 'stop:t_000000000001']) await ui.press({ key })
+    expect(pressed).toEqual(['view:order', 'new:builder', 'stop:t_000000000001'])
+    await ui.unmount()
+  }
+})
+
+test("wired pane: the window's session id and the doctor run come from state", async ($, on) => {
+  let snap: Snapshot = busy({ sessionId: 'me', live: '' })
+  feed(on, () => snap)
+  for (const surface of SURFACES) {
+    snap = busy({ sessionId: 'me', live: '' })
+    let ui = await $.ui.mount({ plugin: 'legion-mod', surface, component: 'Pane', requestId: 'legion', props: paneProps(100) })
+    expect(await ui.find({ type: 'Text', text: /Running in another window/ })).toBeDefined()
+    expect(await ui.find({ type: 'Button', key: 'stop:t_000000000001' })).toBeUndefined()
+    await ui.unmount()
+    snap = busy({ doctor: DOCTOR, ui: { view: 'order', agentId: 'builder', taskId: null, channel: null } })
+    ui = await $.ui.mount({ plugin: 'legion-mod', surface, component: 'Pane', requestId: 'legion', props: paneProps(100) })
+    expect(await ui.find({ type: 'Text', text: /legion-mod-runner is not running/ })).toBeDefined()
     await ui.unmount()
   }
 })

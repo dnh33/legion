@@ -1,82 +1,122 @@
 /**
- * The Order view with the 2D stage off: the Ops summary. Every agent with its mood word, the running tasks with cost
- * and turns, the recent ones, and the doctor's line. Plan §4 "Order is the 2D stage, or the Ops summary when 2D is
+ * The Order view with the 2D stage off: the Ops summary of running work, recent tasks, the agents and the doctor. Plan §4 "Order is the 2D stage, or the Ops summary when 2D is
  * off"; the desktop's Ops panel (ui/src/components/OpsPanel.tsx) is the model for Recent.
  */
-import type { TaskView } from '../../../types/index.d.ts'
-import { MARK } from '../../theme.ts'
+import type { DoctorLine, TaskView } from '../../../types/index.d.ts'
+import { MARK, MOOD_WORDS } from '../../theme.ts'
 import { count, money, plural, relTime } from '../format.ts'
 import { btn, line, partsWidth, span, wrapped, type Part, type Row } from '../model.ts'
-import { cutCells, fit, oneLine } from '../text.ts'
-import { cleanTitle, glyphOf, isActive, moodTone, moodWord, selectedAgent, STATUS_MARK, visibleAgents, type Snapshot } from './common.ts'
+import { cellWidth, cutCells, fit, oneLine } from '../text.ts'
+import { isActive, moodTone, moodWord, selectedAgent, visibleAgents, type Snapshot } from './common.ts'
+import { descendants, taskLine, taskTree } from './tasks.ts'
 
 const gutter = (): Part => span(' ')
-/** Fixed columns: cost '≈$1,234.56' is 10 cells; turns '999 turns' 9; age '59m' 4. */
-const COST = 10
-const TURNS = 9
+/** The age column in Recent: '59m' is 3 cells, '12d' 3, kept at 4 so a '100d' fits. */
 const AGE = 4
 const RECENT_MAX = 8 // OpsPanel.tsx: the 8 most recently updated
 
 const heading = (text: string, n: number | undefined, width: number, right: Part[] = []): Row =>
   line([gutter(), span(text, 'text', { bold: true }), ...(n !== undefined && n > 0 ? [span(`  ${count(n)}`, 'muted')] : [])], right, width)
 
-/** One task line: mark, the agent's glyph, the title (a Button: it opens the task), then fixed number columns. */
-const taskRow = (s: Snapshot, t: TaskView, width: number, right: Part[]): Row => {
-  const st = STATUS_MARK[t.status]
-  const lead: Part[] = [gutter(), span(st.mark, st.tone), span(' '), span(glyphOf(s, t.agentId), 'muted'), span(' ')]
-  const room = Math.max(1, width - partsWidth(lead) - partsWidth(right) - 1)
-  const title = cutCells(oneLine(cleanTitle(t.title)), room)
-  return line([...lead, btn({ kind: 'task', taskId: t.id }, title, { dim: !isActive(t) && t.status !== 'paused' })], right, width)
+/** The doctor's marks: a pass in accent ("alive and yours"), a problem in danger, information muted. */
+const DOCTOR_MARK = { pass: { mark: '✓', tone: 'accent' }, fail: { mark: MARK.error, tone: 'danger' }, info: { mark: MARK.done, tone: 'muted' } } as const
+
+/**
+ * The last `/legion doctor` run: one line per check, mark, label in a fixed column, then the detail, which wraps under
+ * itself (never under the mark). Problems come first, in the order the doctor found them. No run yet: a one-line hint.
+ */
+export const doctorRows = (lines: readonly DoctorLine[], width: number): Row[] => {
+  const bad = lines.filter(l => l.ok === false).length
+  const head = heading('Doctor', undefined, width, lines.length === 0 ? [] : [span(bad === 0 ? 'all clear' : `${count(bad)} to fix`, bad === 0 ? 'accent' : 'danger', { fixed: true }), span(' ')])
+  if (lines.length === 0) return [head, ...wrapped('/legion doctor checks what Legion needs.', width, { indent: 3, tone: 'muted' })]
+  const labelCol = Math.min(16, Math.max(...lines.map(l => cellWidth(l.label)))) + 2
+  const ordered = [...lines.filter(l => l.ok === false), ...lines.filter(l => l.ok !== false)]
+  const rows: Row[] = [head]
+  for (const l of ordered) {
+    const m = l.ok === true ? DOCTOR_MARK.pass : l.ok === false ? DOCTOR_MARK.fail : DOCTOR_MARK.info
+    const lead: Part[] = [gutter(), span(m.mark, m.tone, { fixed: true }), span(' '), span(fit(l.label, labelCol), l.ok === false ? 'text' : 'muted', { bold: l.ok === false, fixed: true })]
+    // "Install it: claude plugin install x": the command gets a line of its own, so a wrap never splits it
+    const cmd = /^(.*?:)\s+((?:claude|\/legion|npm|git) .+)$/.exec(l.detail)
+    if (cmd) {
+      rows.push(...wrapped(cmd[1] as string, width, { lead, tone: l.ok === false ? 'text' : 'muted', maxLines: 3 }))
+      // under the detail when it fits there, else under the mark; cut with '…' only past that
+      const at = partsWidth(lead) + cellWidth(cmd[2] as string) <= width ? partsWidth(lead) : 3
+      rows.push(line([span(' '.repeat(at)), span(cmd[2] as string, 'accent')], [], width))
+    } else rows.push(...wrapped(l.detail, width, { lead, tone: l.ok === false ? 'text' : 'muted', maxLines: 4 }))
+  }
+  return rows
 }
 
+/**
+ * The Order at a glance, most urgent first, so a small pane keeps what matters:
+ * 1. Running: every live task as a tree under the request that started it (Zealot's request, then each piece it
+ *    handed out), with who, what they are doing now and what it costs; the cost of what still runs in the heading.
+ * 2. Recent: the last finished, failed or stopped tasks, with their age, to pick one up again.
+ * 3. Agents: the working ones with their mood word; the idle ones on one line of glyphs.
+ * 4. Doctor: the last `/legion doctor` run.
+ */
 export const orderRows = (s: Snapshot, width: number): Row[] => {
   const rows: Row[] = []
   const sel = selectedAgent(s)
   const agents = visibleAgents(s)
-  const showTurns = width >= 60
 
-  // Agents, each with its mood word: a glance at the whole order
-  rows.push(heading('Agents', undefined, width, sel ? [btn({ kind: 'poke', agentId: sel.id }, `Poke ${sel.name}`, { hotkey: 'p', dim: true }), span(' ')] : []))
+  // Running: live tasks, with the tasks they handed out and the tasks that handed them out, as one tree
+  const live = s.tasks.filter(t => isActive(t) || t.status === 'paused')
+  const shown = new Map(live.map(t => [t.id, t]))
+  for (const t of live) for (const d of descendants(s, t.id)) shown.set(d.id, d)
+  const parentOf = (t: TaskView): TaskView | undefined => (t.origin.kind === 'bridge' ? s.tasks.find(x => x.id === (t.origin.kind === 'bridge' ? t.origin.fromTaskId : '')) : undefined)
+  for (const t of [...shown.values()]) {
+    for (let p = parentOf(t), i = 0; p && i < 8; p = parentOf(p), i++) shown.set(p.id, p)
+  }
+  const tree = taskTree([...shown.values()])
+  // the heading's count and cost measure one set, the work still running or paused; a done piece drawn for its place
+  // in the tree keeps its own cost on its line and is not added here
+  const total = live.reduce((sum, t) => sum + (Number.isFinite(t.costUsd) ? t.costUsd : 0), 0)
+  rows.push(heading('Running', live.length, width, live.length > 0 ? [span(`${money(total)} running`, 'muted', { fixed: true }), span(' ')] : []))
+  if (tree.length === 0) rows.push(...wrapped('Nothing running. /to zealot <what you want> starts work.', width, { indent: 3, tone: 'muted' }))
+  for (const l of tree) rows.push(taskLine(s, l, width))
+
+  // Recent: the last finished, failed or stopped tasks (OpsPanel.tsx "Recent tasks"), with their age
+  const recent = s.tasks.filter(t => !shown.has(t.id)).sort((a, b) => b.updatedAt - a.updatedAt || a.id.localeCompare(b.id)).slice(0, RECENT_MAX)
+  rows.push({ t: 'gap' }, heading('Recent', recent.length, width))
+  if (recent.length === 0) rows.push(...wrapped('Finished tasks stay here to pick up again.', width, { indent: 3, tone: 'muted' }))
+  for (const t of recent) rows.push(taskLine(s, { task: t, prefix: '' }, width, [span(' '), span(fit(relTime(t.updatedAt, s.now), AGE, { align: 'right' }), 'muted', { fixed: true })]))
+
+  // Agents: who is doing what; the idle ones need no row each
+  // no Poke here: a poke means something on the 2D stage, where an agent can answer it; in this summary it did nothing visible
+  rows.push({ t: 'gap' }, heading('Agents', undefined, width))
   if (agents.length === 0) rows.push(...wrapped('The order has not mustered yet. If this stays empty, run /legion doctor.', width, { indent: 3, tone: 'muted' }))
-  const nameCol = Math.min(16, Math.max(10, Math.floor(width / 4)))
-  for (const a of agents) {
+  const resting = (id: string): boolean => {
+    const m = s.moods[id]?.mood ?? 'idle'
+    return (m === 'idle' || m === 'sleeping') && !s.tasks.some(t => t.agentId === id && isActive(t)) && !s.cards.some(c => c.agentId === id)
+  }
+  const nameCol = Math.min(16, Math.max(12, Math.floor(width / 5)))
+  // a resting mood beside a task that waits to start would mislead: it says "queued" instead
+  const now = (id: string): string => {
+    const m = s.moods[id]?.mood ?? 'idle'
+    const waiting = (m === 'idle' || m === 'sleeping') && s.tasks.some(t => t.agentId === id && t.status === 'queued')
+    return waiting ? 'queued' : moodWord(s, id)
+  }
+  for (const a of agents.filter(x => !resting(x.id))) {
     const isSel = a.id === sel?.id
     const label = fit(`${a.glyph} ${a.name}`, nameCol)
-    const running = s.tasks.filter(t => t.agentId === a.id && isActive(t)).length
+    // what each runs is in the tree above; here only what waits on the person
     const cards = s.cards.filter(c => c.agentId === a.id).length
-    // fixed columns, so a row does not move when an agent starts; compact below 60 cells ('●2' for '2 running')
-    const runText = running === 0 ? '' : width >= 60 ? `${count(running)} running` : `${MARK.running}${count(running)}`
-    const right: Part[] = [
-      span(fit(runText, width >= 60 ? 10 : 4, { align: 'right' }), 'accent'),
-      span(fit(cards > 0 ? `${MARK.card}${count(cards)}` : '', 5, { align: 'right' }), 'warn'),
-      span(' '),
-    ]
+    const right: Part[] = cards > 0 ? [span(`${count(cards)} ${cards === 1 ? 'needs' : 'need'} your OK`, 'warn', { fixed: true }), span(' ')] : []
     rows.push(line([
-      span(isSel ? MARK.arrow : ' ', 'accent'), span(' '),
-      isSel ? span(label, 'accent', { bold: true }) : btn({ kind: 'agent', agentId: a.id }, label, { dim: running === 0 && cards === 0 }),
-      span('  '), span(moodWord(s, a.id), moodTone(s, a.id)),
+      span(isSel ? MARK.arrow : ' ', 'accent', { fixed: true }), span(' '),
+      isSel ? span(label, 'accent', { bold: true, fixed: true }) : btn({ kind: 'agent', agentId: a.id }, label),
+      span(' '), span(now(a.id), moodTone(s, a.id)),
     ], right, width))
   }
-
-  // Running: what is working now, and what waits at the turn limit
-  const live = s.tasks.filter(t => isActive(t) || t.status === 'paused').sort((a, b) => b.updatedAt - a.updatedAt || a.id.localeCompare(b.id))
-  rows.push({ t: 'gap' }, heading('Running', live.length, width))
-  if (live.length === 0) rows.push(...wrapped('Nothing running. Press n in Chat to start a task.', width, { indent: 3, tone: 'muted' }))
-  for (const t of live) {
-    const right: Part[] = [span(' '), span(fit(money(t.costUsd), COST, { align: 'right' }), 'muted')]
-    if (showTurns) right.push(span(' '), span(fit(plural(t.turns, 'turn'), TURNS, { align: 'right' }), 'muted'))
-    right.push(span(' '))
-    rows.push(taskRow(s, t, width, right))
+  const idle = agents.filter(x => resting(x.id))
+  if (idle.length > 0) {
+    // one line: the word once, then each resting agent's glyph (a control that opens it)
+    const parts: Part[] = [span('  '), span(`${MOOD_WORDS.idle}  `, 'muted', { fixed: true })]
+    for (const a of idle) parts.push(a.id === sel?.id ? span(a.glyph, 'accent', { bold: true }) : btn({ kind: 'agent', agentId: a.id }, a.glyph, { dim: true }), span(' '))
+    rows.push(line(parts, [], width))
   }
 
-  // Recent: the last finished, failed or stopped tasks (OpsPanel.tsx "Recent tasks")
-  const recent = s.tasks.filter(t => !isActive(t) && t.status !== 'paused').sort((a, b) => b.updatedAt - a.updatedAt || a.id.localeCompare(b.id)).slice(0, RECENT_MAX)
-  rows.push({ t: 'gap' }, heading('Recent', recent.length, width))
-  if (recent.length === 0) rows.push(...wrapped('Tasks show up here as agents work.', width, { indent: 3, tone: 'muted' }))
-  for (const t of recent) {
-    rows.push(taskRow(s, t, width, [span(' '), span(fit(money(t.costUsd), COST, { align: 'right' }), 'muted'), span(' '), span(fit(relTime(t.updatedAt, s.now), AGE, { align: 'right' }), 'muted'), span(' ')]))
-  }
-
-  if (s.doctor) rows.push({ t: 'gap' }, line([gutter(), span('Doctor', 'text', { bold: true }), span(`  ${s.doctor}`, 'muted')], [], width))
+  rows.push({ t: 'gap' }, ...doctorRows(s.doctor ?? [], width))
   return rows
 }

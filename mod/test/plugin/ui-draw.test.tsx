@@ -63,8 +63,8 @@ test('pane: the keys are drawn with their hotkeys, and each press goes through',
     const ui = await $.ui.mount({ plugin: 'legion-mod', surface, component: 'Pane', requestId: DRAW, props: paneProps(120) })
     const buttons = await ui.findAll({ type: 'Button' })
     const hotkeys = buttons.flatMap(b => (typeof b.props.hotkey === 'string' ? [b.props.hotkey] : [])).sort()
-    expect(hotkeys).toEqual(['5', 'a', 'd', 'n', 's'])
-    for (const key of ['view:order', 'new:builder', 'allow:c1', 'deny:c1', 'stop:t_000000000001', 'agent:scout', 'task:t_000000000002']) {
+    expect(hotkeys).toEqual(['5', 'n', 's'])
+    for (const key of ['view:order', 'new:builder', 'stop:t_000000000001', 'agent:scout', 'task:t_000000000002']) {
       expect(await ui.find({ type: 'Button', key }), key).toBeDefined()
       await ui.press({ key, plugin: 'test' })
     }
@@ -72,16 +72,18 @@ test('pane: the keys are drawn with their hotkeys, and each press goes through',
   }
 })
 
-test('pane: a click-only card draws Allow with no hotkey', async ($, on) => {
+test('pane: a card draws who and where to answer, and no Allow or Deny', async ($, on) => {
   mock.clock(on)
   const snap = busy({ cards: [card('c1', 't_000000000001', 'builder', { isClickOnly: true })] })
   on('ui.render', { component: 'Pane', requestId: DRAW }, async ($, e) =>
     Pane($.ui.resolve(e), palette('dark'), paneLayout(snap, e.props.bodyColumns, 40)))
   for (const surface of SURFACES) {
     const ui = await $.ui.mount({ plugin: 'legion-mod', surface, component: 'Pane', requestId: DRAW, props: paneProps(100) })
-    const allow = await ui.find({ type: 'Button', key: 'allow:c1' })
-    expect(allow?.props.hotkey).toBeUndefined()
-    expect((await ui.find({ type: 'Button', key: 'deny:c1' }))?.props.hotkey).toBe('d')
+    expect(await ui.find({ type: 'Text', text: /Builder/ })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: /asks to run a command/ })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: /Answer in the permission dialog\./ })).toBeDefined()
+    expect(await ui.find({ type: 'Button', key: 'allow:c1' })).toBeUndefined()
+    expect(await ui.find({ type: 'Button', key: 'deny:c1' })).toBeUndefined()
     await ui.unmount()
   }
 })
@@ -113,7 +115,7 @@ test('band: draws what waits with its keys, at most three rows then +N more', as
   for (const surface of SURFACES) {
     for (const w of WIDTHS) {
       const ui = await $.ui.mount({ plugin: 'legion-mod', surface, component: 'AbovePrompt', props: bandProps(w) })
-      for (const [key, hotkey] of [['allow:c1', 'a'], ['deny:c1', 'd'], ['continue:t_000000000002', 'c'], ['dismiss:b1', 'x']] as const) {
+      for (const [key, hotkey] of [['continue:t_000000000002', 'c'], ['dismiss:b1', 'x']] as const) {
         expect((await ui.find({ type: 'Button', key }))?.props.hotkey, `${surface}/${w}/${key}`).toBe(hotkey)
         await ui.press({ key, plugin: 'test' })
       }
@@ -138,7 +140,7 @@ test('dispatch: the transcript card draws live and frozen on both surfaces', asy
     expect(await done.find({ type: 'Text', text: /done/ })).toBeDefined()
     await done.unmount()
     const live = await $.ui.mount({ plugin: 'legion-mod', surface, component: 'CommandOutput', props: { command: 'to', args: 'builder fix', text: 'Sent · task t_000000000001', isErrored: false }, viewport: { columns: 100, rows: 40 } })
-    expect(await live.find({ type: 'Button', key: 'allow:c1' })).toBeDefined()
+    expect(await live.find({ type: 'Text', text: /answer in the dialog/ })).toBeDefined()
     await live.unmount()
   }
 })

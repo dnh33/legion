@@ -24,6 +24,8 @@ const ui = atom({ plugin: 'legion-mod', key: 'ui' } as const, DEFAULT_UI)
 const moods = atom({ plugin: 'legion-mod', key: 'moods' } as const, {})
 const band = atom({ plugin: 'legion-mod', key: 'band' } as const, [])
 const theme = atom({ plugin: 'legion-mod', key: 'theme' } as const, 'dark')
+const sessionId = atom({ plugin: 'legion-mod', key: 'sessionId' } as const, '')
+const doctor = atom({ plugin: 'legion-mod', key: 'doctor' } as const, [])
 const THREADS = { plugin: 'legion-mod', key: 'threads' } as const
 const LIVE = { plugin: 'legion-mod', key: 'live' } as const
 
@@ -45,7 +47,9 @@ async function readSnapshot($: EngineInterface, taskFor: 'selected' | 'none' | s
     thread: [],
     live: '',
     now: await $.clock.now(),
+    sessionId: await read($, sessionId),
   }
+  if (taskFor === 'selected') s.doctor = await read($, doctor)
   const id = taskFor === 'selected' ? selectedTask(s)?.id : taskFor === 'none' ? undefined : taskFor
   if (id) {
     const thread: ThreadRow[] | undefined = await read($, { ...THREADS, id })

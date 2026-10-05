@@ -3,7 +3,7 @@
  * long (a 300-character title, 13 agents, 99+ cards, ≈$1,234.56), error and paused. Shared by the Node specs and the
  * plugin tests. Plain data only.
  */
-import type { AgentView, ApprovalCard, BandItem, TaskStatus, TaskView, ThreadRow } from '../../../types/index.d.ts'
+import type { AgentView, ApprovalCard, BandItem, DoctorLine, TaskStatus, TaskView, ThreadRow } from '../../../types/index.d.ts'
 import type { Snapshot } from '../../../src/ui/views/common.ts'
 
 const ROSTER: Array<[string, string, string, AgentView['approval'], string]> = [
@@ -23,7 +23,7 @@ const ROSTER: Array<[string, string, string, AgentView['approval'], string]> = [
 ]
 
 export const AGENTS: AgentView[] = ROSTER.map(([id, name, glyph, approval, description]) => ({
-  id, name, glyph, description, approval, systemPrompt: '', model: 'auto', isRoster: true, isHidden: id === 'assayer',
+  id, name, glyph, description, approval, systemPrompt: '', model: 'auto', isRoster: true, isHidden: id === 'assayer' || id === 'sculptor',
 }))
 
 export const LONG_TITLE = `Fix the flaky replay test ${'and keep every assertion while the clock is pinned '.repeat(6)}`.slice(0, 300)
@@ -83,3 +83,35 @@ export const long = (): Snapshot => {
 }
 
 export const WIDTHS = [40, 60, 80, 100, 120, 200] as const
+
+/** A doctor run with a pass, a problem with a long next step, and an informational line. */
+export const DOCTOR: DoctorLine[] = [
+  { ok: true, label: 'Claude Code', detail: '2.1.289' },
+  { ok: false, label: 'Runner', detail: 'legion-mod-runner is not running, so agents cannot start. Install it: claude plugin install legion-mod-runner@legion' },
+  { ok: true, label: 'Data folder', detail: 'C:/Users/someone/.legion/mod' },
+  { ok: null, label: 'Cost estimates', detail: 'prices as of 2026-10-01' },
+]
+
+const bridge = (fromAgentId: string, fromTaskId: string, depth = 1) => ({ kind: 'bridge' as const, fromAgentId, fromTaskId, hop: depth, depth })
+
+/** Journey 2: one request to Zealot, cut into pieces across the Order, one piece handing out its own; plus yesterday's work. */
+export const fleet = (more: Partial<Snapshot> = {}): Snapshot => base({
+  sessionId: 's1',
+  tasks: [
+    task('t_0000000000a0', 'zealot', 'running', { title: 'Ship the replay fix', costUsd: 0.12, turns: 4, createdAt: 100, updatedAt: 990_000 }),
+    task('t_0000000000a1', 'builder', 'running', { title: 'Fix the flaky replay test', origin: bridge('zealot', 't_0000000000a0'), createdAt: 110, updatedAt: 995_000 }),
+    task('t_0000000000a2', 'scout', 'done', { title: 'Find where the clock leaks', origin: bridge('zealot', 't_0000000000a0'), costUsd: 0.05, turns: 3, createdAt: 120, updatedAt: 980_000 }),
+    task('t_0000000000a3', 'scribe', 'queued', { title: 'Update the testing docs', origin: bridge('zealot', 't_0000000000a0'), costUsd: 0, turns: 0, createdAt: 130, updatedAt: 990_000 }),
+    task('t_0000000000a4', 'inquisitor', 'running', { title: "Review Builder's fix", origin: bridge('builder', 't_0000000000a1', 2), costUsd: 0.08, turns: 2, createdAt: 140, updatedAt: 996_000 }),
+    task('t_0000000000b0', 'archivist', 'done', { title: 'Tidy the Library inbox', costUsd: 0.31, createdAt: 10, updatedAt: 1_000_000 - 86_400_000 }),
+    task('t_0000000000b1', 'herald', 'paused', { title: 'Draft the 0.3 release notes', costUsd: 1.02, turns: 50, createdAt: 20, updatedAt: 1_000_000 - 90_000_000, error: 'Paused at the turn limit (50 turns).' }),
+  ],
+  ui: { view: 'chat', agentId: 'zealot', taskId: 't_0000000000a0', channel: null },
+  moods: { zealot: { mood: 'listening', since: 0 }, builder: { mood: 'hacking', since: 0 }, inquisitor: { mood: 'thinking', since: 0 } },
+  thread: [
+    { id: 'z1', role: 'user', text: 'Ship the replay fix: tests green, docs updated.', at: 1 },
+    { id: 'z2', role: 'assistant', text: 'Three pieces: Builder fixes the test, Scout finds the leak, Scribe updates the docs.', at: 2 },
+    { id: 'z3', role: 'tool', text: '', tool: { name: 'mcp__legion-mod__tell', summary: 'Builder: fix the flaky replay test', state: 'ok' }, at: 3 },
+  ],
+  ...more,
+})
