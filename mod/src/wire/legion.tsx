@@ -28,6 +28,7 @@ import { dataRoot, fsPort } from '../store/fs-port.ts'
 import { newId } from '../store/ids.ts'
 import { createAgentStore, createSettingsStore, createTaskStore, createThreadStore, DEFAULT_SETTINGS, type AgentStore, type SettingsStore, type TaskStore, type ThreadStore } from '../store/stores.ts'
 import { themeFromClaude } from '../theme.ts'
+import { bandItemAt, decodeAction, type DecodedAction } from '../ui/actions.ts'
 import { assistantText, latestTaskOf, makeTask, newCtx, notificationRunId, parseTo, pushBand, resolveAgent, resumeRequest, spawnRequest, stopRequest, taskList, type Ctx } from './core.ts'
 
 // ---- State the UI draws (one reference each; literals, as the validator requires) ----
@@ -279,6 +280,72 @@ async function refresh($: EngineInterface): Promise<void> {
 
 // ---- Commands ------------------------------------------------------------------------------------------------------------
 
+async function openTask($: EngineInterface, taskId: string): Promise<void> {
+  const task = ctx.tasks.get(taskId)
+  if (!task) return
+  if (!ctx.threads.has(taskId) && stores) {
+    ctx.threads.set(taskId, await stores.threads.load(taskId))
+    await publishThread($, taskId)
+  }
+  // Selecting a task also selects its agent: the Chat view shows the selected agent's task only.
+  ctx.ui = { ...ctx.ui, view: 'chat', agentId: task.agentId, taskId }
+  await $.state.set(UI, ctx.ui)
+}
+
+/** Recent pokes per agent: five within ten seconds make it annoyed (the desktop Relic's rule of thumb). */
+const pokes = new Map<string, number[]>()
+
+/** What a Legion Button asked for (src/ui/actions.ts grammar). A press never spawns: it queues, or changes the view. */
+async function actOn($: EngineInterface, a: DecodedAction): Promise<void> {
+  switch (a.kind) {
+    case 'view':
+      ctx.ui = { ...ctx.ui, view: a.view }
+      await $.state.set(UI, ctx.ui)
+      return
+    case 'agent': {
+      const latest = latestTaskOf(ctx, a.agentId)
+      ctx.ui = { ...ctx.ui, view: 'chat', agentId: a.agentId, taskId: latest?.id ?? null }
+      await $.state.set(UI, ctx.ui)
+      if (latest) await openTask($, latest.id)
+      return
+    }
+    case 'task':
+      return openTask($, a.taskId)
+    case 'new': {
+      const agent = ctx.agents.find(x => x.id === a.agentId)
+      if (agent) await $.prompt.fill({ text: `/to ${agent.id} `, mode: 'replace' })
+      return
+    }
+    case 'continue':
+    case 'stop': {
+      const task = ctx.tasks.get(a.taskId)
+      if (!task) return
+      const why = a.kind === 'continue' ? await continueTask($, task) : await stopTask($, task)
+      if (why) $.ui.toast(why)
+      return
+    }
+    case 'poke': {
+      const at = now()
+      const recent = [...(pokes.get(a.agentId) ?? []).filter(t => at - t < 10_000), at]
+      pokes.set(a.agentId, recent)
+      await setMood($, a.agentId, recent.length >= 5 ? 'annoyed' : 'listening')
+      return
+    }
+    case 'card-allow':
+    case 'card-deny':
+      // Approvals are answered in Claude Code's own permission dialog (plan §2.1); the pane shows the request, not a second answer.
+      $.ui.toast("Answer this in Claude Code's permission dialog.")
+      return
+    case 'band-dismiss': {
+      const id = 'itemId' in a ? a.itemId : bandItemAt(ctx.band, a.index)?.id
+      if (!id) return
+      ctx.band = ctx.band.filter(item => item.id !== id)
+      await $.state.set(BAND, ctx.band)
+      return
+    }
+  }
+}
+
 async function runCommand($: EngineInterface, command: string, args: string): Promise<{ text: string }> {
   if (!ctx.isReady) return { text: 'Legion is still starting. Try again in a moment.' }
   if (command === 'to') {
@@ -379,6 +446,18 @@ export function registerLegion(on: Parameters<Register>[0]): void {
   on('command.run', { command: 'say' }, ($, e) => commandHook($, 'say', e.args))
   on('command.run', { command: 'continue' }, ($, e) => commandHook($, 'continue', e.args))
   on('command.run', { command: 'stop' }, ($, e) => commandHook($, 'stop', e.args))
+
+  // Every Legion Button: decode its key and act. The Button's own onPress is a no-op; this hook answers the press.
+  on('ui.press', { requestId: 'legion' }, async ($, e, next) => {
+    const action = decodeAction(e.element)
+    if (!action || e.plugin !== 'legion-mod') return next(e)
+    try {
+      await actOn($, action)
+    } catch (err) {
+      $.ui.toast(`Legion: ${message(err)}`)
+    }
+    return next(e)
+  })
 
   // Runner results: applied once each. This hook is caused by the runner's write, so it never makes this plugin a spawn's cause.
   on('state.set', RESULTS_MATCH as any, async ($, e, next) => {
