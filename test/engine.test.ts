@@ -228,6 +228,33 @@ test('a turn-limit pause keeps the mascot calm (idle with a note), never "error"
   assert.ok(s.events.filter((e: any) => e.type === 'mascot').some((e: any) => e.mood === 'error'), 'a real failure still shows the fault');
 });
 
+// The real SDK (0.3.285, Query.readMessages) yields the error result and THEN throws
+// `Claude Code returned an error result: ...` (docs: a single-shot query() raises after an error result).
+const sdkThrow = (text: string) => { throw new Error(`Claude Code returned an error result: ${text}`); };
+
+test('real SDK shape: the throw that follows an error result does not turn a turn-limit pause into a failure', async () => {
+  const s = setup(() => (async function* () { yield init('sess-real'); yield err('error_max_turns'); sdkThrow('Reached maximum number of turns'); })(), { agent: { model: 'opus' }, config: (c) => { c.claude.maxTurns = 9; } });
+  const t = s.engine.startTask({ agentId: 'a1', prompt: 'long', source: 'ui' });
+  const done = await s.engine.waitFor(t.id, 3000);
+  assert.equal(done.status, 'error');
+  assert.ok(done.error!.startsWith(TURN_LIMIT_PREFIX), done.error);
+  assert.equal(done.resumable, true);
+  assert.deepEqual(s.store.listMessages(t.id).filter((m) => m.role === 'system').map((m) => m.text), ['Paused at the turn limit (9 turns this run).']);
+  assert.ok(!s.events.some((e: any) => e.type === 'mascot' && e.mood === 'error'), 'no fault mascot for the pause');
+});
+
+test('real SDK shape: a Sonnet error result followed by the SDK throw still escalates to Opus, which continues', async () => {
+  const s = setup((_p, n) => (async function* () {
+    yield init('sess-esc');
+    if (n === 0) { yield err('error_during_execution', ['tool crashed']); sdkThrow('tool crashed'); }
+    yield ok('done on opus');
+  })(), { agent: { model: 'sonnet' } });
+  const done = await s.engine.waitFor(s.engine.startTask({ agentId: 'a1', prompt: 'do it', source: 'ui' }).id, 3000);
+  assert.equal(s.calls.length, 2, 'the escalation ran');
+  assert.equal(done.status, 'done');
+  assert.equal(s.calls[1]!.prompt, CONTINUE_PROMPT);
+});
+
 test('sonnet at the turn limit pauses on sonnet: no Opus escalation, no second turn budget', async () => {
   const s = setup(() => (async function* () { yield init('sess-s'); yield err('error_max_turns'); })(), { agent: { model: 'sonnet' } });
   const done = await s.engine.waitFor(s.engine.startTask({ agentId: 'a1', prompt: 'long job', source: 'ui' }).id, 3000);

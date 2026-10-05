@@ -896,6 +896,10 @@ export class Engine {
       if (act.cancelled || act.ac.signal.aborted) return { subtype: 'cancelled', isError: false };
       const text = e instanceof Error ? e.message : String(e);
       if (!outcome) return { subtype: 'error_during_execution', isError: true, errorText: text };
+      // The SDK yields an error result and THEN throws "Claude Code returned an error result: ..." (its documented
+      // single-shot behaviour, Query.readMessages). The result already carries the run's outcome; rethrowing would send
+      // every turn-limit pause and every escalatable error down the generic failure path instead.
+      if (outcome.isError) return outcome;
       throw e;
     } finally {
       try { q.close?.(); } catch { /* ignore */ }
