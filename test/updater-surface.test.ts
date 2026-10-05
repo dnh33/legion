@@ -100,24 +100,17 @@ test('Electron side: the job relaunches the same command as the shortcut; the re
 });
 
 
-test('the update panel still offers a clickable install AFTER the download has finished', () => {
-  // Found by the owner, 2026-10-04: the panel had "Update" before the download and nothing after it. Once
-  // `staged` was set, UpdatePanel.tsx hid the Update button and offered only "Restart now..." and "Cancel update" -
-  // so a release that downloaded cleanly left the owner with no button to install it with, and the only route was
-  // waiting for Legion to go idle or restarting the app.
-  //
-  // The backend already supported it: `install()` returns early with `consent = true` when the staged package is the
-  // version being offered (index.ts, `if (staged?.version === a.version)`). Only the button was missing, which is
-  // exactly the kind of gap a passing suite misses - nothing was broken, something was absent.
+test('the update panel offers an install button after the download that actually applies it', () => {
+  // History: on 2026-10-04 the panel had no button after the download, so a "Update and install now" button was added
+  // that POSTed /api/update/install. That route is a no-op for an already-staged version (index.ts: it only sets
+  // `consent = true` and returns), and the core never restarts anything, so the button did nothing the owner could see
+  // (found by the owner, 2026-10-05). Applying happens only in Electron, through the `updateRestartNow` bridge.
   const panel = read('ui/src/components/UpdatePanel.tsx');
-  // The staged block must contain a button that POSTs the install route.
-  const stagedBlock = panel.slice(panel.indexOf('{st.staged && ('), panel.indexOf('{st.error'));
+  const stagedBlock = panel.slice(panel.indexOf('{st.staged && ('), panel.indexOf('{st.blocked'));
   assert.ok(stagedBlock.length > 0, 'the staged block is still in the panel');
-  assert.match(stagedBlock, /<button[^>]*onClick=\{\(\) => void act\(\(\) => request\('POST', '\/api\/update\/install'\)\)\}/,
-    'the staged state offers a button that installs the downloaded update');
-  // And it must be reachable: the pre-download Update button is hidden when staged, so this one carries the action.
-  assert.match(stagedBlock, /Update and install now/);
-  // The label must not still claim the only route is idleness.
-  assert.doesNotMatch(panel, /Will install when Legion is idle\.'/,
-    'the staged copy must not tell the owner idleness is the only way, when there is now a button');
+  assert.match(stagedBlock, /bridge\(\)\.updateRestartNow!\(\)/, 'the staged state has a button wired to the Electron apply path');
+  assert.match(stagedBlock, /Restart and install/);
+  assert.doesNotMatch(stagedBlock, /request\('POST', '\/api\/update\/install'\)/, 'the staged state must not offer the install no-op again');
+  assert.doesNotMatch(stagedBlock, /Update and install now/);
+  assert.match(stagedBlock, /\/api\/update\/cancel/, 'the download can still be discarded');
 });

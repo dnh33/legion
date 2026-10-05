@@ -1,4 +1,4 @@
-/* Settings, About: updates. App tokens only; nothing animates. */
+/* Settings, About: updates. App tokens only; the progress bar only eases its width. */
 .upd { margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--line); display: flex; flex-direction: column; gap: 8px; }
 .upd h4 { margin: 0; font-size: 13px; font-weight: 600; color: var(--text); }
 .upd p { margin: 0; font-size: 12.5px; color: var(--text-2); line-height: 1.45; }
@@ -9,3 +9,11 @@
 .upd-notes { margin: 0; padding: 8px 10px; max-height: 180px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; background: var(--code-bg); border: 1px solid var(--line); border-radius: var(--r); font-family: var(--font-mono); font-size: 12px; }
 .upd-reasons { margin: 0; padding-left: 18px; color: var(--muted); font-size: 12px; }
 .upd-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+
+.upd-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.upd-card .upd-ready { display: flex; flex-direction: column; gap: 8px; padding-top: 8px; border-top: 1px solid var(--line); }
+.upd-card .upd-ready p { color: var(--text); }
+.upd-progress { display: flex; flex-direction: column; gap: 6px; }
+.upd-bar { height: 6px; border-radius: 3px; background: var(--surface-3); overflow: hidden; }
+.upd-bar span { display: block; height: 100%; background: var(--accent); transition: width var(--t) var(--ease); }
+@media (prefers-reduced-motion: reduce) { .upd-bar span { transition: none; } }

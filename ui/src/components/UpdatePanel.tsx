@@ -30,6 +30,17 @@ const mb = (n: number) => `${Math.max(1, Math.round(n / 1e6))} MB`;
  */
 const IDLE_FOR_INSTALL: ReadonlyArray<UpdateStatus['phase']> = ['idle', 'checking'];
 
+/** Download progress: a bar with a percentage, or an indeterminate label before the first byte count arrives. */
+function Progress({ p }: { p?: { bytes: number; total: number } }) {
+  const pct = p && p.total > 0 ? Math.min(100, Math.round((p.bytes / p.total) * 100)) : null;
+  return (
+    <div className="upd-progress" role="progressbar" aria-label="Downloading update" aria-valuemin={0} aria-valuemax={100} {...(pct !== null ? { 'aria-valuenow': pct } : {})}>
+      <div className="upd-bar"><span style={{ width: `${pct ?? 0}%` }} /></div>
+      <span className="upd-muted">{pct !== null ? `Downloading and checking… ${pct}%` : 'Downloading and checking…'}</span>
+    </div>
+  );
+}
+
 /** Settings, About: the update notice, the Update button, the "ready, will install when idle" state and the three switches. All text from the release is shown as plain text. */
 export function UpdatePanel() {
   const [st, setSt] = useState<UpdateStatus | null>(null);
@@ -42,11 +53,15 @@ export function UpdatePanel() {
   const act = async (fn: () => Promise<unknown>) => { setBusy(true); setErr(null); try { await fn(); } catch (e) { setErr(errText(e)); } finally { setBusy(false); void load(); } };
   if (!st) return <div className="upd">{err ? <p className="upd-err" role="alert">{err}</p> : <p className="upd-muted">Checking update state{'…'}</p>}</div>;
   const a = st.available;
+  const canRestart = !!bridge().updateRestartNow;
   const notifyOnly = !!a && (st.mode !== 'apply' || a.requiresFullInstall);
   const patch = (p: Partial<UpdateStatus['settings']>) => act(() => request('PATCH', '/api/update/settings', p));
   return (
     <div className="upd" aria-label="Updates">
-      <h4>Updates</h4>
+      <div className="upd-head">
+        <h4>Updates</h4>
+        <button type="button" className="btn-ghost sm" disabled={busy || !st.keyConfigured || st.phase !== 'idle'} onClick={() => void act(() => request('POST', '/api/update/check'))}>{st.phase === 'checking' ? 'Checking…' : 'Check now'}</button>
+      </div>
       {!st.keyConfigured && <p className="upd-muted">Updates are off in this build: it has no update key built in.</p>}
       {!st.keyConfigured && <p className="upd-muted">You are on v{st.installed.version}.</p>}
       {st.keyConfigured && (
@@ -71,20 +86,20 @@ export function UpdatePanel() {
             ? <p className="upd-muted">This release changes dependencies, so it cannot be installed from inside Legion. Download the source of the release and run setup.cmd, as for a first install.</p>
             : <p className="upd-muted">This install cannot be updated from inside Legion ({st.mode === 'unwritable' ? 'the folder is not writable' : 'unsupported system'}).</p>)}
           {!notifyOnly && !st.staged && IDLE_FOR_INSTALL.includes(st.phase) && (
-            <button type="button" className="btn-ghost" disabled={busy} onClick={() => void act(() => request('POST', '/api/update/install'))}>Update</button>
+            <div className="upd-actions"><button type="button" className="btn primary" disabled={busy} onClick={() => void act(() => request('POST', '/api/update/install'))}>Download update</button></div>
           )}
           {st.phase === 'awaiting-approval' && <p className="upd-muted">Waiting for your answer on the update card.</p>}
           {st.phase === 'committing' && <p className="upd-muted" role="status">Installing. Legion restarts when this finishes{'…'}</p>}
-          {st.phase === 'downloading' && <p className="upd-muted">Downloading and checking{st.progress ? ` (${Math.round((st.progress.bytes / st.progress.total) * 100)}%)` : ''}{'…'}</p>}
+          {st.phase === 'downloading' && <Progress p={st.progress} />}
           {st.staged && (
-            <div>
-              <p><b>Update ready.</b> {st.readyToApply ? 'Installing now.' : 'Will install when Legion is idle, or now if you use the button below.'}</p>
+            <div className="upd-ready">
+              <p><b>Ready to install.</b> {st.readyToApply ? 'Installing now.' : 'Legion installs it by itself once nothing has run for a minute, or you can restart now.'}</p>
               {st.busy.reasons.length > 0 && <ul className="upd-reasons">{st.busy.reasons.map((r) => <li key={r}>{r}</li>)}</ul>}
               <div className="upd-actions">
-                <button type="button" className="btn-ghost" disabled={busy} onClick={() => void act(() => request('POST', '/api/update/install'))}>Update and install now</button>
-                <button type="button" className="btn-ghost" disabled={busy || !bridge().updateRestartNow} title="Shows what will stop and asks first" onClick={() => void act(async () => { const r = await bridge().updateRestartNow!(); if (!r.ok && !r.cancelled) throw new Error(r.error ?? 'The restart did not start.'); })}>Restart now{'…'}</button>
-                <button type="button" className="btn-ghost" disabled={busy} onClick={() => void act(() => request('POST', '/api/update/cancel'))}>Cancel update</button>
+                <button type="button" className="btn primary" disabled={busy || !canRestart} title={canRestart ? 'Shows what will stop and asks first' : 'Open the Legion desktop app to install'} onClick={() => void act(async () => { const r = await bridge().updateRestartNow!(); if (!r.ok && !r.cancelled) throw new Error(r.error ?? 'The restart did not start.'); })}>{busy ? 'Restarting…' : 'Restart and install'}</button>
+                <button type="button" className="btn-ghost" disabled={busy} onClick={() => void act(() => request('POST', '/api/update/cancel'))}>Discard download</button>
               </div>
+              {!canRestart && <p className="upd-muted">Restarting to install only works from the Legion desktop app, not from a browser tab.</p>}
             </div>
           )}
         </div>
@@ -111,9 +126,6 @@ export function UpdatePanel() {
       )}
       {st.error && <p className="upd-err" role="alert">{st.error}</p>}
       {err && <p className="upd-err" role="alert">{err}</p>}
-      <div className="upd-actions">
-        <button type="button" className="btn-ghost" disabled={busy || !st.keyConfigured} onClick={() => void act(() => request('POST', '/api/update/check'))}>Check now</button>
-      </div>
       <label className="set-check"><input type="checkbox" checked={st.settings.checkEnabled} disabled={busy} onChange={(e) => void patch({ checkEnabled: e.target.checked })} /> <span>Check for updates on launch and every {st.settings.intervalHours} hours (one request to github.com; nothing else is sent)</span></label>
       <label className="set-check"><input type="checkbox" checked={st.settings.autoInstallWhenIdle} disabled={busy || st.mode !== 'apply'} onChange={(e) => { if (!e.target.checked || window.confirm(AUTO_INSTALL_TEXT)) void patch({ autoInstallWhenIdle: e.target.checked }); }} /> <span>{AUTO_INSTALL_TEXT}</span></label>
     </div>
