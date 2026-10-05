@@ -160,6 +160,8 @@ interface Active {
   toolUses: Set<string>;
   /** This run's prompt reached a session (Claude: its init arrived; provider: it took a turn). Only then can a stop be continued. */
   reached?: boolean;
+  /** Live progress of the current run (Claude): sent as `task.progress`, never stored. */
+  progress?: { startedAt: string; turn: number; maxTurns: number; tool: string | null; turnIds: Set<string> };
 }
 interface Outcome { subtype: string; isError: boolean; errorText?: string }
 
@@ -400,6 +402,13 @@ export class Engine {
     return saved ?? m;
   }
 
+  /** Live progress of a Claude run for the working row; transient by design (a restart has no run to report on). */
+  private emitProgress(taskId: string, act: Active): void {
+    const p = act.progress;
+    if (!p) return;
+    this.bus.emit({ type: 'task.progress', taskId, progress: { startedAt: p.startedAt, turn: p.turn, maxTurns: p.maxTurns, tool: p.tool } });
+  }
+
   private mascot(mood: MascotMood, note?: string): void {
     if (mood !== 'idle' && this.idleTimer) { clearTimeout(this.idleTimer); this.idleTimer = undefined; }
     this.bus.emit({ type: 'mascot', mood, ...(note ? { note } : {}) });
@@ -543,10 +552,9 @@ export class Engine {
       model === 'sonnet' && !cur?.escalated && outcome.isError && !(cur?.modelOverride && modelRank(agent.model) < 3) &&
       shouldEscalate({ model, subtype: outcome.subtype, isError: outcome.isError, errorText: outcome.errorText })
     ) {
-      const reason = outcome.errorText ? `${outcome.subtype}: ${outcome.errorText.slice(0, 160)}` : outcome.subtype;
       model = 'opus';
       this.patchTask(job.taskId, { escalated: true, model });
-      this.addMessage(job.taskId, 'system', `Escalated to Opus: ${reason}`);
+      this.addMessage(job.taskId, 'system', `Sonnet could not finish this (it stopped with an error). Opus is taking over the same conversation.${outcome.errorText ? ` Error: ${outcome.errorText.slice(0, 160)}` : ''}`);
       this.mascot('thinking', 'escalating to opus');
       // The resumed session already holds the request when the failed run got that far: send it again and Opus starts the task over.
       outcome = await this.runOnce(job, agent, model, act.reached ? CONTINUE_PROMPT : sendPrompt, act);
@@ -685,10 +693,15 @@ export class Engine {
         { onTimeout: () => { timedOut = true; } },
       );
       if (allowed) return { allow: true };
-      // An MCP client started this run (Claude Code, Cowork) or woke it through a chain, so the ceiling is `ask`. Its card can only be answered in the Legion app window, so say so
-      // instead of a bare denial when nobody answered (the app is closed, or this core was started headless by the MCP bridge).
-      if (timedOut && o?.approvalCeiling === 'ask') {
-        return { allow: false, message: 'No one approved this action: it needs your OK in the Legion app window and nothing was answered within 10 minutes. Open the Legion app, then ask for it again.' };
+      if (timedOut) {
+        const wait = this.approvals.timeoutWait;
+        // An MCP client started this run (Claude Code, Cowork) or woke it through a chain, so the ceiling is `ask`. Its card can only be answered in the Legion app window, so say so
+        // when nobody answered (the app is closed, or this core was started headless by the MCP bridge).
+        if (o?.approvalCeiling === 'ask') {
+          return { allow: false, message: `No one approved this action: it needs your OK in the Legion app window and nothing was answered within ${wait}. Open the Legion app, then ask for it again.` };
+        }
+        // A timeout is not a "no": the model must not read it as the user refusing the work.
+        return { allow: false, message: `No one answered the approval request within ${wait}, so this action was not run. Ask again later or continue without it.` };
       }
       return { allow: false, message: 'The user denied this action.' };
     };
@@ -877,6 +890,9 @@ export class Engine {
     const options = this.buildOptions(job, agent, model, act, prompt, resume);
     const q = this.queryFn({ prompt, options });
     act.q = q;
+    // each run counts its own turns (the limit is per run); the clock and the tool reset with it
+    act.progress = { startedAt: nowIso(), turn: 0, maxTurns: this.config.claude.maxTurns, tool: null, turnIds: new Set() };
+    this.emitProgress(job.taskId, act);
 
     const aborted = new Promise<'aborted'>((res) => {
       if (act.ac.signal.aborted) res('aborted');
@@ -968,6 +984,17 @@ export class Engine {
         const blocks: any[] = Array.isArray(msg.message?.content) ? msg.message.content : [];
         const text = blocks.filter((b) => b?.type === 'text' && typeof b.text === 'string').map((b) => b.text).join('').trim();
         if (text) this.addMessage(taskId, 'assistant', text);
+        // A turn is one model response of the run itself: one message id (the SDK may send a response in several
+        // messages that share it). A subagent's messages carry parent_tool_use_id and are not the run's own turns.
+        const pg = act.progress;
+        if (pg && !msg.parent_tool_use_id) {
+          const id = typeof msg.message?.id === 'string' ? msg.message.id : `n${pg.turnIds.size}`;
+          const lastTool = [...blocks].reverse().find((b) => b?.type === 'tool_use');
+          const before = `${pg.turn}|${pg.tool}`;
+          if (!pg.turnIds.has(id)) { pg.turnIds.add(id); pg.turn = pg.turnIds.size; }
+          if (lastTool) pg.tool = String(lastTool.name ?? 'tool');
+          if (`${pg.turn}|${pg.tool}` !== before) this.emitProgress(taskId, act);
+        }
         for (const b of blocks) {
           if (b?.type !== 'tool_use') continue;
           this.noteToolUse(job, act, String(b.name ?? 'tool'), typeof b.id === 'string' ? b.id : undefined, b.input);
@@ -983,6 +1010,8 @@ export class Engine {
         // Tool results: stored (truncated) and paired with their call via resultFor, so the UI can expand them.
         if (msg.parent_tool_use_id) return undefined;
         const blocks: any[] = Array.isArray(msg.message?.content) ? msg.message.content : [];
+        // the tool came back: the model is thinking again until its next call
+        if (act.progress?.tool && blocks.some((b) => b?.type === 'tool_result')) { act.progress.tool = null; this.emitProgress(taskId, act); }
         for (const b of blocks) {
           if (b?.type !== 'tool_result' || typeof b.tool_use_id !== 'string') continue;
           const raw = typeof b.content === 'string' ? b.content

@@ -389,7 +389,7 @@ export function createServer(ctx: CoreContext): Server {
       case 'agent.updated': return visible(ev.agent);
       case 'agent.deleted': return agentIdVisible(ctx, ev.agentId);
       case 'task.updated': return taskShown(ev.task);
-      case 'message': case 'message.delta': { const t = ctx.store.getTask(ev.type === 'message' ? ev.message.taskId : ev.taskId); return !t || taskShown(t); }
+      case 'message': case 'message.delta': case 'task.progress': { const t = ctx.store.getTask(ev.type === 'message' ? ev.message.taskId : ev.taskId); return !t || taskShown(t); }
       case 'vm.updated': return agentIdVisible(ctx, ev.vm.agentId);
       case 'approval.requested': return agentIdVisible(ctx, ev.approval.agentId);
       case 'comms.state': return agentIdVisible(ctx, ev.agentId) && (!ev.peerId || agentIdVisible(ctx, ev.peerId));

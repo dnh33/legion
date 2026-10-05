@@ -3,7 +3,8 @@ import { MAX_CONTEXT_WINDOW, MIN_CONTEXT_WINDOW } from './compaction.js';
 import { checkEndpoint } from './endpoint.js';
 import type { ProviderEntry, ProviderPrice, ProvidersConfig } from './types.js';
 
-export const DEFAULT_PROVIDERS: ProvidersConfig = { version: 1, entries: {}, maxTurns: 40, maxToolCallsPerTurn: 16 };
+/** Turns one provider run may take; 200 is also the top of the accepted range. Was 40 before 0.2.5-c. */
+export const DEFAULT_PROVIDERS: ProvidersConfig = { version: 1, entries: {}, maxTurns: 200, maxToolCallsPerTurn: 16 };
 export const PROVIDER_ID_RE = /^[a-z][a-z0-9-]{1,31}$/;
 const RESERVED_IDS = new Set(['claude', 'legion', 'auto', 'sonnet', 'opus', 'haiku', 'arn']);
 const MAX_ENTRIES = 24;

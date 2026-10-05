@@ -196,11 +196,15 @@ export interface ChatMessage {
 
 export type MascotMood = 'idle' | 'thinking' | 'hacking' | 'success' | 'error' | 'sleeping';
 
+/** Where a running Claude run is: its turn against the limit, the tool it is waiting on (null: the model is working), and when it started. */
+export interface TaskProgress { startedAt: string; turn: number; maxTurns: number; tool: string | null }
+
 /** Everything the core broadcasts. UI subscribes via SSE (/api/events). */
 export type LegionEvent =
   | { type: 'task.updated'; task: Task }
   | { type: 'message'; message: ChatMessage }
   | { type: 'message.delta'; taskId: string; text: string }   // streaming assistant text chunk
+  | { type: 'task.progress'; taskId: string; progress: TaskProgress }   // live, not stored: the run's turn, tool and start
   | { type: 'vm.updated'; vm: VmRecord }
   | { type: 'boat.health'; health: BoatHealthView }
   | { type: 'agent.updated'; agent: AgentProfile }

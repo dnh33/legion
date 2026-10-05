@@ -9,6 +9,7 @@ import { Icon } from './icons';
 import { MessageView } from './MessageView';
 import { TaskSwitcher } from './TaskSwitcher';
 import { ToolGroup } from './ToolChip';
+import { WorkingRow } from './WorkingRow';
 
 type Item = { k: 'msg'; m: ChatMessage } | { k: 'tools'; items: ChatMessage[] };
 
@@ -49,6 +50,9 @@ export function Thread() {
   // a turn-limit stop is a pause with the work kept, not a failure: it gets its own card
   const paused = isTurnLimitPause(task);
   const pausedTurns = paused ? /\((\d+) turns this run\)/.exec(task?.error ?? '')?.[1] : undefined;
+  // the history already ends with the engine's own "Cancelled" line: the thread must not say it twice
+  const last = messages[messages.length - 1];
+  const cancelledInHistory = last?.role === 'system' && last.text === 'Cancelled';
 
   const scroller = useRef<HTMLDivElement>(null);
   const stick = useRef(true);
@@ -128,7 +132,7 @@ export function Thread() {
                 ? <ToolGroup key={it.items[0].id} items={it.items} results={results} />
                 : <MessageView key={it.m.id} m={it.m} agent={agent} task={task} />)}
               {stream && <MessageView m={{ role: 'assistant', text: stream }} agent={agent} task={task} streaming />}
-              {running && !stream && <div className="working" aria-live="polite"><i /><i /><i /><span>{task?.status === 'queued' ? 'Queued' : 'Working'}</span></div>}
+              {running && !stream && task && <WorkingRow taskId={task.id} queued={task.status === 'queued'} waiting={taskApprovals.length > 0} />}
               {taskApprovals.map((a) => <ApprovalCard key={a.id} a={a} />)}
               {task?.status === 'error' && (paused ? (
                 <div className="msg err paused" role="status">
@@ -149,7 +153,10 @@ export function Thread() {
                     : lastUser && <button className="btn sm" onClick={() => void sendPrompt(lastUser.text)}>Retry</button>}
                 </div>
               ))}
-              {task?.status === 'cancelled' && !(messages[messages.length - 1]?.role === 'system' && messages[messages.length - 1]?.text === 'Cancelled') && <div className="msg system">Cancelled</div>}
+              {task?.status === 'cancelled' && (task.resumable ? (
+                /* the run reached its session before it was cancelled, so Continue picks up there instead of starting over */
+                <div className="msg system">{cancelledInHistory ? '' : 'Cancelled. '}Continue picks up where it stopped. <button className="btn sm" onClick={() => void sendPrompt(CONTINUE_PROMPT)}>Continue</button></div>
+              ) : !cancelledInHistory && <div className="msg system">Cancelled</div>)}
               <div className="thread-pad" />
             </>
           )}

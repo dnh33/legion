@@ -1,6 +1,6 @@
 import { useSyncExternalStore } from 'react';
 import type {
-  AgentProfile, ApprovalRequest, BoatHealthView, Catalog, SettingsPatch, SettingsView, ChatMessage, DoctorCheck, LegionEvent, MascotMood, ModelChoice, StateSnapshot, Task, VmRecord,
+  AgentProfile, ApprovalRequest, BoatHealthView, Catalog, SettingsPatch, SettingsView, ChatMessage, DoctorCheck, LegionEvent, MascotMood, ModelChoice, StateSnapshot, Task, TaskProgress, VmRecord,
 } from '../../src/shared/types';
 import { api, request, subscribe, ApiError, type ConnStatus } from './api';
 import { incomingWins } from './chat/tasksync';
@@ -29,6 +29,8 @@ export interface AppState {
   approvals: ApprovalRequest[];
   messages: Record<string, ChatMessage[]>;
   streaming: Record<string, string>;
+  /** Live progress of running Claude runs (turn, tool, start), from `task.progress`; dropped when the task stops. */
+  progress: Record<string, TaskProgress>;
   mascot: { mood: MascotMood; note?: string; at: number };
   doctor: DoctorCheck[] | null;
   doctorLoading: boolean;
@@ -72,7 +74,7 @@ const initialTheme = ((): 'dark' | 'light' => {
 
 let state: AppState = {
   loaded: false, conn: 'connecting', version: '', auth: 'claude-login', boatConfigured: false, boatHealth: null,
-  agents: [], tasks: [], vms: {}, approvals: [], messages: {}, streaming: {},
+  agents: [], tasks: [], vms: {}, approvals: [], messages: {}, streaming: {}, progress: {},
   mascot: { mood: 'idle', at: Date.now() }, doctor: null, doctorLoading: false,
   selectedAgentId: 'zealot', selectedTaskId: null, modelOverride: null,
   opsOpen: ls('legion.ops') !== '0', theme: initialTheme,
@@ -173,7 +175,10 @@ export function handleEvent(e: LegionEvent) {
       const terminal = e.task.status === 'done' || e.task.status === 'error' || e.task.status === 'cancelled';
       setState((s) => {
         const streaming = terminal && s.streaming[e.task.id] ? { ...s.streaming, [e.task.id]: '' } : s.streaming;
-        return { tasks: upsertTask(s.tasks, e.task), streaming };
+        // a stopped run has no progress; a stale "turn 37" next to a finished task would be wrong
+        let progress = s.progress;
+        if (terminal && progress[e.task.id]) { const { [e.task.id]: _p, ...rest } = progress; progress = rest; }
+        return { tasks: upsertTask(s.tasks, e.task), streaming, progress };
       });
       if (e.task.archived && getState().selectedTaskId === e.task.id && !getState().showClosed) leaveTask(e.task.id);
       break;
@@ -183,7 +188,7 @@ export function handleEvent(e: LegionEvent) {
       delete pendingDelta[id];
       const wasSel = getState().selectedTaskId === id;
       if (wasSel) leaveTask(id);
-      setState((s) => { const { [id]: _m, ...messages } = s.messages; return { tasks: s.tasks.filter((t) => t.id !== id), messages }; });
+      setState((s) => { const { [id]: _m, ...messages } = s.messages; const { [id]: _p, ...progress } = s.progress; return { tasks: s.tasks.filter((t) => t.id !== id), messages, progress }; });
       break;
     }
     case 'settings.updated':
@@ -203,6 +208,9 @@ export function handleEvent(e: LegionEvent) {
       });
       break;
     }
+    case 'task.progress':
+      setState((s) => ({ progress: { ...s.progress, [e.taskId]: e.progress } }));
+      break;
     case 'message.delta':
       pendingDelta[e.taskId] = (pendingDelta[e.taskId] ?? '') + e.text;
       if (!deltaRaf) { deltaRaf = requestAnimationFrame(flushDeltas); deltaTimer = setTimeout(flushDeltas, 100); }

@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { existsSync, mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { ApprovalBroker } from '../src/core/approvals.js';
+import { ApprovalBroker, describeWait } from '../src/core/approvals.js';
 import { EventBus } from '../src/core/bus.js';
 import { Engine, EngineError } from '../src/core/engine.js';
 import type { QueryFn } from '../src/core/engine.js';
@@ -178,7 +178,9 @@ test('escalation: sonnet error_during_execution -> opus rerun with resume + syst
   assert.ok(Math.abs(done.costUsd! - 0.03) < 1e-9);
   const sys = s.store.listMessages(t.id).filter((m) => m.role === 'system');
   assert.equal(sys.length, 1);
-  assert.match(sys[0]!.text, /^Escalated to Opus: /);
+  assert.match(sys[0]!.text, /^Sonnet could not finish this \(it stopped with an error\)\. Opus is taking over the same conversation\./);
+  assert.match(sys[0]!.text, / Error: tool crashed$/, 'the underlying error stays, but last');
+  assert.doesNotMatch(sys[0]!.text, /error_during_execution|Escalated/, 'no raw subtype code in the thread');
 });
 
 test('escalation before the session started re-sends the original prompt', async () => {
@@ -333,6 +335,27 @@ test('/compact while the Claude task is running declines plainly and starts noth
   assert.equal(s.calls.length, 1);
 });
 
+test('live progress: turns count the run\'s own responses (not a subagent\'s), the tool is set on a call and cleared on its result', async () => {
+  const s = setup(() => (async function* () {
+    yield init('sess-p');
+    yield { type: 'assistant', parent_tool_use_id: null, message: { id: 'm1', content: [{ type: 'text', text: 'looking' }, { type: 'tool_use', id: 't1', name: 'Read', input: {} }] } };
+    yield { type: 'user', parent_tool_use_id: null, message: { content: [{ type: 'tool_result', tool_use_id: 't1', content: 'x' }] } };
+    // the same response arriving in a second message: still turn 1
+    yield { type: 'assistant', parent_tool_use_id: null, message: { id: 'm1', content: [{ type: 'tool_use', id: 't2', name: 'Bash', input: {} }] } };
+    // a subagent's response is not one of the run's turns
+    yield { type: 'assistant', parent_tool_use_id: 't2', message: { id: 'sub1', content: [{ type: 'text', text: 'sub' }] } };
+    yield { type: 'user', parent_tool_use_id: null, message: { content: [{ type: 'tool_result', tool_use_id: 't2', content: 'ok' }] } };
+    yield { type: 'assistant', parent_tool_use_id: null, message: { id: 'm2', content: [{ type: 'text', text: 'done' }] } };
+    yield ok('done');
+  })(), { agent: { model: 'opus' }, config: (c) => { c.claude.maxTurns = 50; } });
+  const t = s.engine.startTask({ agentId: 'a1', prompt: 'go', source: 'ui' });
+  await s.engine.waitFor(t.id, 3000);
+  const p = s.events.filter((e: any) => e.type === 'task.progress' && e.taskId === t.id).map((e: any) => e.progress);
+  assert.ok(p.length >= 4, `progress events: ${p.length}`);
+  assert.ok(p.every((x) => x.maxTurns === 50 && x.startedAt === p[0].startedAt));
+  assert.deepEqual(p.map((x) => [x.turn, x.tool]), [[0, null], [1, 'Read'], [1, null], [1, 'Bash'], [1, null], [2, null]]);
+});
+
 test('a follow-up that fails before its own init is not resumable (the old session never saw it)', async () => {
   const s = setup((_p, n) => (async function* () {
     if (n === 0) { yield init('sess-old'); yield ok('first'); return; }
@@ -433,6 +456,31 @@ test('approvals via canUseTool: allow, deny, auto-allowed, timeout', async () =>
   assert.equal((await o.canUseTool('mcp__other__x', {}, sig)).behavior, 'deny'); // times out after 40ms
 });
 
+test('B4: an unanswered approval card is not reported to the model as a user denial', async () => {
+  const s = setup(() => happy(), { agent: { approval: 'ask' }, approvalTimeoutMs: 40 });
+  await s.engine.waitFor(s.engine.startTask({ agentId: 'a1', prompt: 'x', source: 'ui' }).id, 3000);
+  await new Promise((r) => setTimeout(r, 10)); // the run's cleanup cancels cards of its task; let it finish before we ask
+  const o = s.calls[0]!.options;
+  const sig = { signal: new AbortController().signal };
+  const timedOut = await o.canUseTool('Bash', { command: 'ls' }, sig); // nobody answers: 40ms
+  assert.equal(timedOut.behavior, 'deny');
+  assert.equal(timedOut.message, 'No one answered the approval request within 1 second, so this action was not run. Ask again later or continue without it.');
+  assert.doesNotMatch(timedOut.message, /user denied/);
+  // a real denial still says so
+  const d = o.canUseTool('Bash', { command: 'rm' }, sig);
+  s.approvals.resolve(s.approvals.pending()[0]!.id, false);
+  assert.equal((await d).message, 'The user denied this action.');
+});
+
+test('B4: the timeout message names the real broker wait', async () => {
+  const s = setup(() => happy(), { agent: { approval: 'ask' } }); // default broker timeout
+  await s.engine.waitFor(s.engine.startTask({ agentId: 'a1', prompt: 'x', source: 'ui' }).id, 3000);
+  assert.equal(s.approvals.timeoutWait, '10 minutes');
+  assert.equal(describeWait(60_000), '1 minute');
+  assert.equal(describeWait(150_000), '3 minutes');
+  assert.equal(describeWait(5_000), '5 seconds');
+});
+
 test('concurrency cap and FIFO queue', async () => {
   const gates: (() => void)[] = [];
   const s = setup(() => (async function* () {
@@ -452,6 +500,25 @@ test('concurrency cap and FIFO queue', async () => {
   assert.equal(s.calls[2]!.prompt, 'p3');
   gates[1]!(); gates[2]!();
   for (const id of ids) assert.equal((await s.engine.waitFor(id, 3000)).status, 'done');
+});
+
+test('cancel after init leaves the task resumable (Continue picks up the session); cancel before init leaves it unset', async () => {
+  const after = setup(() => (async function* () { yield init('sess-x'); await new Promise<void>(() => undefined); })());
+  const a = after.engine.startTask({ agentId: 'a1', prompt: 'x', source: 'ui' });
+  await new Promise((r) => setTimeout(r, 30));
+  assert.equal(after.engine.cancel(a.id), true);
+  const doneA = await after.engine.waitFor(a.id, 3000);
+  assert.equal(doneA.status, 'cancelled');
+  assert.equal(doneA.sessionId, 'sess-x');
+  assert.equal(doneA.resumable, true);
+  const before = setup(() => (async function* () { await new Promise<void>(() => undefined); yield init('sess-y'); })());
+  const b = before.engine.startTask({ agentId: 'a1', prompt: 'x', source: 'ui' });
+  await new Promise((r) => setTimeout(r, 30));
+  assert.equal(before.engine.cancel(b.id), true);
+  const doneB = await before.engine.waitFor(b.id, 3000);
+  assert.equal(doneB.status, 'cancelled');
+  assert.equal(doneB.sessionId, undefined);
+  assert.equal(doneB.resumable, undefined);
 });
 
 test('cancelling a queued task removes it from the queue', async () => {
