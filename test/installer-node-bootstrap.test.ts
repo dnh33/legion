@@ -1,4 +1,4 @@
-import test from 'node:test';
+import test, { describe } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { existsSync, mkdirSync, readdirSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs';
@@ -55,7 +55,10 @@ const zipGood = goodNodeZip();
 const runtimeNode = (install: string): string => join(install, 'runtime', 'node');
 const leftovers = (install: string): string[] => { const r = join(install, 'runtime'); return existsSync(r) ? readdirSync(r).filter((n) => n.startsWith('.staging')) : []; };
 
-for (const exe of shells) {
+// Windows PowerShell and pwsh run side by side: the two groups share nothing (own temp folders, own fake server on port 0,
+// no environment changes), so one waits for the other only because node:test runs a file's tests in order. Inside each
+// shell the tests stay in order, as before. 243 s -> about half.
+describe('node bootstrap, each shell', { concurrency: true }, () => { for (const exe of shells) describe(exe, () => {
   test(`[${exe}] no Node + user says yes: downloads, verifies the sha256, installs into runtime\\node, marker last`, async () => {
     const dir = tempDir(); const fake = await startFakeNode(zipGood); const install = join(dir, 'Legion');
     try {
@@ -202,6 +205,6 @@ for (const exe of shells) {
       rmSync(dir, { recursive: true, force: true });
     } finally { await fake.close(); }
   });
-}
+}); });
 
 test('PowerShell tests need a PowerShell', { skip: noShell }, () => { assert.ok(shells.length > 0); });
