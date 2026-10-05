@@ -8,6 +8,8 @@ import { join } from 'node:path';
 import { Store } from '../src/core/store.js';
 
 const ID = 'builder-vm-size-default-v1';
+/** Every migration a state file records once it has been loaded (0.2.5-c added the Zealot prompt one after this one). */
+const ALL = [ID, 'zealot-lead-prompt-v1'];
 /** A state.json as an older build wrote it: no `migrations` field, Builder (and Scout, for contrast) on 'large'. */
 function oldState(dir: string): void {
   const st = new Store(cleanupTemp('legion-mig-seed-'));
@@ -26,7 +28,7 @@ test('U1: an old state file with Builder on large is reset to default on upgrade
   assert.equal(s.getAgent('scout')!.vm.size, 'large', 'no other agent is touched');
   await s.flush();
   const d = onDisk(dir);
-  assert.deepEqual(d.migrations, [ID]);
+  assert.deepEqual(d.migrations, ALL);
   assert.equal(d.agents.find((a) => a.id === 'builder')!.vm.size, 'default');
 });
 
@@ -42,7 +44,7 @@ test('U1: it never re-applies: a later manual choice of large survives every res
   assert.equal(s2.getAgent('builder')!.vm.size, 'large', 'not overridden');
   await s2.flush();
   assert.equal(new Store(dir).getAgent('builder')!.vm.size, 'large');
-  assert.deepEqual(onDisk(dir).migrations, [ID]);
+  assert.deepEqual(onDisk(dir).migrations, ALL);
 });
 
 test('U1: a fresh install records the migration without touching anything, so a later large is kept', async () => {
@@ -53,7 +55,7 @@ test('U1: a fresh install records the migration without touching anything, so a 
   const b = s.getAgent('builder')!;
   s.upsertAgent({ ...b, vm: { ...b.vm, size: 'large' } });
   await s.flush();
-  assert.deepEqual(onDisk(dir).migrations, [ID]);
+  assert.deepEqual(onDisk(dir).migrations, ALL);
   assert.equal(new Store(dir).getAgent('builder')!.vm.size, 'large');
 });
 
@@ -63,7 +65,7 @@ test('U1: a state already on default, or without a Builder, just gets the flag',
   const s = new Store(dir);
   assert.equal(s.getAgent('builder'), undefined);
   await s.flush();
-  assert.deepEqual(onDisk(dir).migrations, [ID]);
+  assert.deepEqual(onDisk(dir).migrations, ALL);
 });
 
 test('U1: an agent entry with no vm object does not crash the migration', async () => {
@@ -75,5 +77,5 @@ test('U1: an agent entry with no vm object does not crash the migration', async 
   const s = new Store(dir);
   assert.ok(s.getAgent('builder'), 'the store loaded');
   await s.flush();
-  assert.deepEqual(onDisk(dir).migrations, [ID]);
+  assert.deepEqual(onDisk(dir).migrations, ALL);
 });

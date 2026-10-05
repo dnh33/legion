@@ -13,7 +13,8 @@ import test from 'node:test';
 import { Store } from '../src/core/store.js';
 
 const PINNED: Record<string, string> = {
-  zealot: '52a65501f5d63d1007ce40cde1392910da261337087c7a5a50fc28112f2f4825',
+  // 0.2.5-c: the lead of the Order (owner direction); the old seed told Zealot to handle requests itself
+  zealot: 'b748fba935e08e475c92c5b00261fa7eece6279a08f1656c51ae5d41b8c3e2ec',
   builder: 'afcc30aa33d6403b4bdea20e9cdf0a2c8187cab555fdd9ea74920b234601d26a',
   scout: 'a17ba5e29b22a1fad5bb641ab9f105eec7ae5fedf7ab61ffc8ec56de80cc36fd',
   inquisitor: 'a472001174c15ab74e79a8eee932b480a72c600f5dd54f84c565627d91c5f7a6',
