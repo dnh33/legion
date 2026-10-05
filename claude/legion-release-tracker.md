@@ -1532,3 +1532,23 @@ Proof: 11 scratch mutations each turned a new test red. Real evidence: zealot se
 screenshot rig (dark, light, 860 px) and Continue pressed end to end against the compiled core.
 Needs a real PC: TL1-TL7 in claude/tracker-pc-checks.md (real SDK resume after the limit and after a crash).
 Council findings deferred to 0.2.5-c: claude/plan-0.2.5-c.md.
+
+## 2026-10-05 — 0.2.5-c (release/0.2.5-c)
+
+Ships (owner-visible): messages join a running Claude run (SDK streaming input), live progress row (turn/tool/time/
+context/Thinking) + TodoWrite checklist + snapshot for a window opened mid-run, optional spend limit (pause like the
+turn limit), Zealot lead doctrine appended last + board digest names the leader + seed migration, missing session ->
+new conversation, approval timeout not reported as denial, Continue after Cancel, provider 200 turns + same pause,
+plain escalation copy. Plan and council origin: claude/plan-0.2.5-c.md.
+Not in the changelog because no installed user sees it:
+- Test suite: tripwires share one copy with byte-exact restore (201 -> 39 s, 134 -> 30 s), browser quiet-build waits
+  (62 -> 4 s), 5,000-file vault cap in its own file, store debounce (2.2 -> 0.19 s), installer tests concurrent
+  (243 -> 36-51 s). Full suite 319 s -> 208 s before the installer change.
+- `npm run test:map` / `test:affected`: recorded per-file dependency map (modules, fs reads, child-process paths;
+  opaque programs always-run; killed children recorded line by line). Soundness proof 8/8 (scratchpad prove-map.sh:
+  break a file, run every skipped test, re-run failures alone).
+- Gate compiles the core once: `npm ci && npm run build:ts && npm run test:run && npm run typecheck:ui && npm run build:ui`.
+- Test fakes read the prompt with initialPrompt() (the engine streams it).
+Deferred: A6 (allowlist programs that read no repo file, e.g. taskkill /PID, reg query, to shrink the always-run list;
+needs a fresh soundness proof). Track C (web on own devices, Mac polish) and C4 (setup-token) after this release.
+Gate: see the hand-off (quiet run).
