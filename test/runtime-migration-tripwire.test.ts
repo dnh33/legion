@@ -1,18 +1,24 @@
 /**
- * Tripwire: three runtime-migration claims that were measured and are FALSE for this codebase.
+ * Tripwires for three claims that measurement here disproved.
  *
- * Each one was checked against primary sources and against this repo on 2026-10-05. They are written down here because
- * they are the plausible-sounding suggestions a future agent (or a human) will reach for again, and because each has a
- * measured cost if someone tries it.
+ * ## READ THE CAVEAT BEFORE TREATING THE NUMBERS AS SETTLED
  *
- * - Bun: `bun test` cannot run this suite. 25 fail / 24 errors on 30 files vs Node's 0, because `bun test` does not
- *   isolate a file per process and hits oven-sh/bun#5090 ("test() inside another test()") on every file after the first.
- * - Deno: 2 real failures on Windows — it leaks its own `deno_node_shim_active` into the child environment (which the
- *   env-allowlist test exists to catch) and its process-tree kill leaves a stuck browser alive.
- * - Node type stripping: Legion cannot run on it. Node 26 removed --experimental-transform-types, parameter properties
- *   are not erasable, and every import uses a `.js` specifier that must resolve to a real `.ts` file.
+ * These guards exist because the three claims are plausible and WILL be proposed again. They do NOT exist because
+ * Node was proved the best runtime, and the comparison that produced the figures is **biased toward Node**:
  *
- * The Electron main process runs on Electron's own embedded Node, so a runtime swap needs Electron gone first.
+ *   - the suite is written for `node:test`; the other runtimes are interpreting someone else's test harness
+ *   - the codebase is built for Node's APIs, module resolution and process model, and neither rival was given
+ *     anything equivalent to make it fair
+ *   - the figures come from unoptimised runs of a workload optimised for the incumbent
+ *
+ * So "Bun was 2.5x slower at cold start" is close to meaningless as a verdict on Bun. What IS solid, because it is
+ * not a performance claim at all: **Bun cannot execute this suite** (its `test()` isolation is unimplemented), and
+ * **Deno's process-tree kill fails on Windows**, which matters regardless of speed for an app that terminates Chromium
+ * and Blender. Those two are capability facts about this codebase, not opinions about a runtime.
+ *
+ * A fair comparison would need the workload ported, the harness equivalent, and both sides optimised. That has not
+ * been done and is parked, not scheduled - see the ladder. Do not cite these numbers as evidence that Node wins;
+ * cite them only as evidence that these three specific claims were checked and did not hold.
  */
 import assert from 'node:assert/strict';
 import test from 'node:test';

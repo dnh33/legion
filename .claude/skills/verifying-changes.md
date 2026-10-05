@@ -106,6 +106,17 @@ code.
   `ls dist/test/*.test.js | sed -n '1,40p' | tr '\n' ' ' | xargs node --test --test-reporter=spec`
 - **Never run a build and a suite concurrently.** Two writers on `dist/` produce meaningless results, and the
   failure looks like a real test failure.
+- **Test a fix against state written by the PREVIOUS version, not only state the fix wrote itself.** The one that
+  keeps costing us. A `state.json` written before a feature existed has no field for it, so a fix keyed on that field
+  reads "absent" and takes the branch nobody tested. Three times in one session: the shipped-trust manifest assumed
+  a manifest the agent could rewrite; the rollback lock had no expiry for entries recorded before expiry existed; and
+  the panel promised a date-driven release for a block with no recorded date, which could never arrive. All three were
+  green against freshly-created state.
+  **Write the old-shape fixture by hand, assert the new code does the safe thing with it, and keep that assertion.**
+  "It works on a clean install" is not the claim being made.
+- **Never measure a competing tool on a benchmark built to favour the incumbent.** Numbers that decide an architecture
+  have to be adversarially fair or they are decoration. The caveat recorded beside
+  `test/runtime-migration-tripwire.test.ts` is the worked example.
 - **Pass native `D:/...` paths to `git worktree add`.** A `/d/bots/foo` argument creates a literal `D:\d\bots\foo`.
 
 ## Do not invent scope
