@@ -41,7 +41,12 @@ const tests = {};
 const unowned = { files: new Set(), dirs: new Set(), argv: new Set(), opaque: new Set() };
 let records = 0;
 for (const f of readdirSync(out)) {
-  const r = JSON.parse(readFileSync(join(out, f), 'utf8'));
+  // one JSON line per entry: the owner line first, then {f}ile, {d}irectory and opa{x}ue-program lines. A process
+  // killed mid-write can leave a torn last line; it is skipped (its earlier lines are intact).
+  const lines = readFileSync(join(out, f), 'utf8').split('\n').filter(Boolean).flatMap((l) => { try { return [JSON.parse(l)]; } catch { return []; } });
+  if (!lines.length) continue;
+  const r = { owner: lines[0].owner ?? null, argv: lines[0].argv, files: [], dirs: [], opaque: [] };
+  for (const l of lines.slice(1)) { if (l.f) r.files.push(l.f); else if (l.d) r.dirs.push(l.d); else if (l.x) r.opaque.push(l.x); }
   records++;
   const t = r.owner ? (tests[ownerSource(r.owner)] ??= { files: new Set(), dirs: new Set(), unmapped: new Set(), opaque: new Set() }) : null;
   for (const o of r.opaque ?? []) (t ? t.opaque : unowned.opaque).add(o);

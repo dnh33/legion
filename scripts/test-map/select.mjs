@@ -1,5 +1,7 @@
 // Picks the test files a change can affect, from .testmap/map.json (npm run test:map builds it).
-// Usage: node scripts/test-map/select.mjs [--run] [--why] [--base <ref>]
+// Usage: node scripts/test-map/select.mjs [--run] [--why] [--changed a,b,...] [--skipped]
+//   --changed  ask about these paths instead of what git says changed ("what would this change run?")
+//   --skipped  print the test files NOT selected (the soundness check runs exactly these)
 //   (no flag)  print the selected test files
 //   --why      also print, per selected file, the changed path that selected it
 //   --run      compile, then run the selection with node --test (exit code is the run's)
@@ -18,7 +20,8 @@ const allTests = readdirSync('test').filter((f) => f.endsWith('.test.ts')).map((
 
 /** Anything here changes how every test builds or runs: the map cannot narrow it. */
 const GLOBAL = ['package.json', 'package-lock.json', 'tsconfig.json', 'ui/tsconfig.json', '.gitattributes', '.nvmrc', 'scripts/copy-static.mjs'];
-const GLOBAL_PREFIX = ['scripts/test-map/'];
+// the map's facts come from the recorder and the builder; a change to this selector does not make them untrue
+const GLOBAL_PREFIX = ['scripts/test-map/record.mjs', 'scripts/test-map/build.mjs'];
 
 function decide() {
   if (!existsSync('.testmap/map.json')) return { full: 'no test map yet (run npm run test:map)' };
@@ -26,7 +29,9 @@ function decide() {
   if (map.version !== 1) return { full: 'the test map is from another version of this script' };
   if (map.node.split('.')[0] !== process.versions.node.split('.')[0]) return { full: `the map was built on Node ${map.node}, this is ${process.versions.node}` };
   let changed;
-  try {
+  const given = args.indexOf('--changed');
+  if (given >= 0) changed = new Set(String(args[given + 1] ?? '').split(',').map((s) => s.trim()).filter(Boolean));
+  else try {
     changed = new Set([
       ...sh(`git diff --name-only ${map.commit}`).split('\n'),
       ...sh('git ls-files --others --exclude-standard').split('\n'),
@@ -60,6 +65,10 @@ const head = d.full
   ? `[test-map] FULL suite (${allTests.length} files): ${d.full}`
   : `[test-map] ${d.changed.size} changed path(s) -> ${tests.length} of ${allTests.length} test files`;
 console.error(head);
+if (args.includes('--skipped')) {
+  for (const t of allTests.filter((x) => !tests.includes(x))) console.log(t);
+  process.exit(0);
+}
 if (!args.includes('--run')) {
   for (const t of tests) console.log(args.includes('--why') && d.why ? `${t}\t<- ${d.why.get(t)}` : t);
   process.exit(0);

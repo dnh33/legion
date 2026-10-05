@@ -33,6 +33,19 @@ if (OUT && REPO) {
   // the `node --test` runner itself (the flag is in execArgv, not argv): it only lists and spawns the test files
   const isRunner = !owner && process.execArgv.includes('--test');
 
+  // Each new path is written the moment it is seen, not at exit: a test that ends a child with kill() (a hard
+  // TerminateProcess on Windows) never runs that child's exit handlers, and its reads would be lost. One JSON line
+  // per entry; the first line names the owner.
+  const recFile = join(OUT, `${process.pid}-${Date.now()}.jsonl`);
+  let started = false;
+  const emit = (o) => {
+    if (isRunner) return;
+    try {
+      if (!started) { orig.mkdirSync.call(fs, OUT, { recursive: true }); orig.appendFileSync.call(fs, recFile, JSON.stringify({ owner, argv: process.argv.slice(1, 3) }) + '\n'); started = true; }
+      orig.appendFileSync.call(fs, recFile, JSON.stringify(o) + '\n');
+    } catch { /* recording never breaks a test */ }
+  };
+  const seen = (set, key, value) => { if (!set.has(value)) { set.add(value); emit({ [key]: value }); } };
   const files = new Set();
   const dirs = new Set();
   const rel = (p) => {
@@ -46,8 +59,8 @@ if (OUT && REPO) {
     if (r === '' || r.startsWith('node_modules/') || r === 'node_modules' || r.startsWith('.git/')) return null;
     return r;
   };
-  const noteFile = (p) => { const r = rel(p); if (r !== null) files.add(r); };
-  const noteDir = (p) => { const r = rel(p); if (r !== null) dirs.add(r); };
+  const noteFile = (p) => { const r = rel(p); if (r !== null) seen(files, 'f', r); };
+  const noteDir = (p) => { const r = rel(p); if (r !== null) seen(dirs, 'd', r); };
 
   registerHooks({
     load(url, context, nextLoad) { if (url.startsWith('file:')) noteFile(url); return nextLoad(url, context); },
@@ -88,12 +101,12 @@ if (OUT && REPO) {
     const opts = a.find((x, i) => i > 0 && x && typeof x === 'object' && !Array.isArray(x));
     const env = opts && opts.env && typeof opts.env === 'object' ? opts.env : process.env;
     const traced = !!env.LEGION_TESTMAP_OUT && String(env.NODE_OPTIONS ?? '').includes('record.mjs');
-    if (name === 'fork') { if (!traced) opaque.add('a Node child without the recorder'); return; }
-    if (name === 'exec' || name === 'execSync' || (opts && opts.shell)) { opaque.add(`a shell command: ${String(a[0]).split(/\s+/)[0]}`); return; }
+    if (name === 'fork') { if (!traced) seen(opaque, 'x', 'a Node child without the recorder'); return; }
+    if (name === 'exec' || name === 'execSync' || (opts && opts.shell)) { seen(opaque, 'x', `a shell command: ${String(a[0]).split(/\s+/)[0]}`); return; }
     const exe = String(a[0] ?? '');
     const isNode = exe === process.execPath || NODE_RE.test(exe);
-    if (!isNode) opaque.add(exe.split(/[\\/]/).pop() || exe);
-    else if (!traced) opaque.add('a Node child without the recorder');
+    if (!isNode) seen(opaque, 'x', exe.split(/[\\/]/).pop() || exe);
+    else if (!traced) seen(opaque, 'x', 'a Node child without the recorder');
   };
   const noteSpawn = (a, name) => {
     noteOpaque(name, a);
@@ -105,12 +118,6 @@ if (OUT && REPO) {
   };
   for (const n of ['spawn', 'spawnSync', 'execFile', 'execFileSync', 'exec', 'execSync', 'fork']) wrap(cp, n, (a) => noteSpawn(a, n));
   syncBuiltinESMExports();
-
-  process.on('exit', () => {
-    if (isRunner) return;
-    try {
-      orig.mkdirSync.call(fs, OUT, { recursive: true });
-      orig.appendFileSync.call(fs, join(OUT, `${process.pid}-${Date.now()}.json`), JSON.stringify({ owner, argv: process.argv.slice(1, 3), files: [...files], dirs: [...dirs], opaque: [...opaque] }));
-    } catch { /* nothing to do */ }
-  });
+  // a process that read nothing in the repository still leaves its owner line, so build.mjs sees every test file
+  emit({ start: true });
 }
