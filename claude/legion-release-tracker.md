@@ -850,6 +850,25 @@ live, and visible to the owner, so it is its own session rather than bundled wit
    there too. Rebase, then re-run Zealot test 2.4 under the new arrangement — it must still go red when the record is
    forged in its new home. Do not take the branch's 2.4 as proof; take it as the thing to re-prove.
 
+2e. **Model picker: long names break the pill, and there is no effort picker** — owner, from a screenshot.
+   **The bug is precise and cheap.** `ui/src/styles/app.css:245`:
+   `.model-pill { height: 26px; display: inline-flex; ... }` — no `white-space: nowrap`, no `overflow: hidden`,
+   no `text-overflow: ellipsis`, and no `max-width`. So `OpenRouter · stealth/space-bunny-alpha` wraps to a second
+   line inside a control with a fixed 26px height, and the label collides with the neighbouring send button.
+   **The codebase already has the correct pattern in four other rules** — `.agent-name`, `.agent-sub`, `.tb-search span`
+   and `.th-text b` each carry `white-space: nowrap; overflow: hidden; text-overflow: ellipsis`. `.model-pill` is the
+   one that was missed, so this is a missing line, not a new mechanism. Two details that matter: inside a flex
+   container the ellipsis only engages with `min-width: 0` on the label child, and the pill needs a `max-width` or it
+   will simply push the row wider. Add `title={fullName}` so the complete name is still reachable on hover.
+   **No performance cost** — pure CSS, no JS, no measurement, no reflow beyond the one element.
+   **Effort picker: does not exist, and there is no knob to drive.** `grep` for `reasoning_effort` / `effort` across
+   `src/shared/types.ts` and `src/core/providers/` finds nothing; the only `effort` in the tree is compaction's
+   summary-token budget, which is unrelated. So this is a real gap end to end, not a missing UI: a provider's
+   reasoning budget has to be plumbed through the agent profile, the settings route with validation, the provider
+   request, AND the UI — and **only for providers that accept it**, since not every model has the knob and sending an
+   unknown field is how a provider starts rejecting requests. Check the model's own metadata before showing it.
+   Size it as its own item; it is not a companion to the CSS fix.
+
 3. **Logging (NEXT)** — Legion has none today. The reference ships `~/.hermes/logs/` with rotation and a CLI reader
    (`hermes_cli/logs.py`: `tail_log`, `list_logs`, filters by level/component/time). The owner's use case is concrete:
    when something breaks locally, the log is what gets pasted to an agent.
