@@ -6,6 +6,7 @@ import { redactConfig, VERSION } from '../shared/config.js';
 import type {
   AgentProfile, ApprovalMode, DoctorCheck, LegionConfig, LegionEvent, Catalog, ModelChoice, StateSnapshot, Task, VmSize,
 } from '../shared/types.js';
+import { summariseUsage } from '../shared/usage-summary.js';
 import { nowIso, slugify, uniqueAgentId } from '../shared/util.js';
 import { ADMIN_HEADER, gate, healthProof, isAdminSecret, isHexNonce, isSsePath, safeEqual } from './admin.js';
 import type { ApprovalBroker } from './approvals.js';
@@ -203,6 +204,8 @@ export function createServer(ctx: CoreContext): Server {
   }));
   route('GET', '/api/config', () => redactConfig(ctx.config));
   route('GET', '/api/doctor', () => ctx.doctor());
+  // Claude usage for the title-bar panel: summed from stored tasks (archived included), only those the caller may see.
+  route('GET', '/api/usage', () => summariseUsage(ctx.store.listTasks(100000, undefined, true).filter(taskShown), Date.now()));
   // Admin only by default-deny (not in the client route list): server names and error text are the owner's business.
   route('GET', '/api/mcp/status', () => ctx.engine.mcpStatus());
   route('GET', '/api/catalog', ({ url }) => ctx.catalog(['1', 'true'].includes(url.searchParams.get('refresh') ?? '')));

@@ -1,0 +1,25 @@
+/* Title bar, usage panel. App tokens only; one 140 ms fade-in (the shared pop-in), nothing else moves. */
+.usage-wrap { position: relative; display: inline-flex; }
+.usage-pop { top: calc(100% + 8px); bottom: auto; left: auto; right: -6px; width: 320px; padding: 12px 14px; z-index: 40; display: flex; flex-direction: column; gap: 10px; overflow: visible; -webkit-app-region: no-drag; }
+.usage-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.usage-head h4 { margin: 0; font-size: 13px; font-weight: 600; color: var(--text); }
+.usage-seg { display: flex; gap: 2px; padding: 2px; border: 1px solid var(--line); border-radius: var(--r); background: var(--surface); }
+.usage-seg button { height: 22px; padding: 0 8px; border: 0; border-radius: var(--r-sm); background: transparent; color: var(--muted); font-size: 11.5px; transition: background var(--t) var(--ease), color var(--t) var(--ease); }
+.usage-seg button:hover { color: var(--text); }
+.usage-seg button.on { background: var(--surface-3); color: var(--text); }
+.usage-total { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.usage-total b { font-size: 26px; font-weight: 600; letter-spacing: -.01em; color: var(--text); font-variant-numeric: tabular-nums; }
+.usage-total span { font-size: 12px; color: var(--muted); }
+.usage-spark { display: flex; align-items: flex-end; gap: 3px; height: 38px; }
+.usage-spark i { flex: 1; min-height: 3px; border-radius: 2px; background: var(--line-strong); }
+.usage-spark i.now { background: var(--accent); }
+.usage-axis { display: flex; justify-content: space-between; margin-top: -6px; font-size: 10.5px; color: var(--faint); }
+.usage-sec h5 { margin: 0 0 6px; font-size: 11px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--faint); }
+.usage-sec ul { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 5px; }
+.usage-sec li { display: grid; grid-template-columns: minmax(0, 110px) 1fr auto; align-items: center; gap: 8px; font-size: 12px; }
+.usage-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-2); }
+.usage-track { height: 4px; border-radius: 2px; background: var(--surface-3); overflow: hidden; }
+.usage-track i { display: block; height: 100%; background: var(--accent-line); }
+.usage-val { color: var(--text-2); font-variant-numeric: tabular-nums; }
+.usage-note, .usage-foot { margin: 0; font-size: 12px; line-height: 1.45; color: var(--muted); }
+.usage-foot { padding-top: 8px; border-top: 1px solid var(--line); font-size: 11px; color: var(--faint); }
