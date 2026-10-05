@@ -38,12 +38,13 @@ const toSource = (r) => {
 const ownerSource = (o) => o.replace(/^dist\//, '').replace(/\.js$/, '.ts');
 
 const tests = {};
-const unowned = { files: new Set(), dirs: new Set(), argv: new Set() };
+const unowned = { files: new Set(), dirs: new Set(), argv: new Set(), opaque: new Set() };
 let records = 0;
 for (const f of readdirSync(out)) {
   const r = JSON.parse(readFileSync(join(out, f), 'utf8'));
   records++;
-  const t = r.owner ? (tests[ownerSource(r.owner)] ??= { files: new Set(), dirs: new Set(), unmapped: new Set() }) : null;
+  const t = r.owner ? (tests[ownerSource(r.owner)] ??= { files: new Set(), dirs: new Set(), unmapped: new Set(), opaque: new Set() }) : null;
+  for (const o of r.opaque ?? []) (t ? t.opaque : unowned.opaque).add(o);
   for (const [list, key] of [[r.files, 'files'], [r.dirs, 'dirs']]) {
     for (const p of list) {
       const s = toSource(p);
@@ -66,11 +67,14 @@ const map = {
   suite: summary,
   tests: Object.fromEntries(Object.entries(tests).sort().map(([k, v]) => [k, {
     files: [...v.files].sort(), dirs: [...v.dirs].sort(),
-    ...(v.unmapped.size ? { always: `reads build output with no source behind it: ${[...v.unmapped].slice(0, 3).join(', ')}` } : {}),
+    ...(v.opaque.size || v.unmapped.size ? { always: [
+      v.opaque.size ? `starts ${[...v.opaque].sort().slice(0, 4).join(', ')}, which the recorder cannot see inside` : '',
+      v.unmapped.size ? `reads build output with no source behind it: ${[...v.unmapped].slice(0, 3).join(', ')}` : '',
+    ].filter(Boolean).join('; ') } : {}),
   }])),
   // a test file that left no record (it crashed before exit, or never ran) is always selected
   unrecorded: missing,
-  unowned: { files: [...unowned.files].sort(), dirs: [...unowned.dirs].sort(), processes: [...unowned.argv].filter(Boolean).sort() },
+  unowned: { files: [...unowned.files].sort(), dirs: [...unowned.dirs].sort(), opaque: [...unowned.opaque].sort(), processes: [...unowned.argv].filter(Boolean).sort() },
 };
 writeFileSync('.testmap/map.json', JSON.stringify(map, null, 1));
 const always = Object.values(map.tests).filter((t) => t.always).length;

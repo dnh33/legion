@@ -35,6 +35,8 @@ function decide() {
     ].map((s) => s.trim()).filter(Boolean));
   } catch { return { full: `the map's commit ${String(map.commit).slice(0, 8)} is not in this repository` }; }
   if (!changed.size) return { tests: [], changed, why: new Map() };
+  // a program nobody owns and nobody can see inside may have read anything: nothing can be narrowed
+  if (map.unowned.opaque?.length) return { full: `an unowned process started ${map.unowned.opaque[0]}, whose reads the map cannot know`, changed };
 
   const hits = (rec, c) => rec.files.includes(c) || rec.dirs.some((d) => c === d || c.startsWith(d + '/'));
   for (const c of changed) {

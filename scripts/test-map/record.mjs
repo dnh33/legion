@@ -79,21 +79,38 @@ if (OUT && REPO) {
       else { noteFile(abs); if (/\.(ps1|psm1|cmd|bat|sh)$/i.test(abs)) noteDir(join(abs, '..')); }
     }
   };
-  const noteSpawn = (a) => {
+  // A program the recorder cannot see inside (PowerShell, git, a shell, or a Node child whose environment drops the
+  // recorder) may read any file it is pointed at, by a path in a temp script or one it computes. Its test is marked
+  // always-run: the map never claims to know what such a program read.
+  const opaque = new Set();
+  const NODE_RE = /(^|[\\/])node(\.exe)?$/i;
+  const noteOpaque = (name, a) => {
+    const opts = a.find((x, i) => i > 0 && x && typeof x === 'object' && !Array.isArray(x));
+    const env = opts && opts.env && typeof opts.env === 'object' ? opts.env : process.env;
+    const traced = !!env.LEGION_TESTMAP_OUT && String(env.NODE_OPTIONS ?? '').includes('record.mjs');
+    if (name === 'fork') { if (!traced) opaque.add('a Node child without the recorder'); return; }
+    if (name === 'exec' || name === 'execSync' || (opts && opts.shell)) { opaque.add(`a shell command: ${String(a[0]).split(/\s+/)[0]}`); return; }
+    const exe = String(a[0] ?? '');
+    const isNode = exe === process.execPath || NODE_RE.test(exe);
+    if (!isNode) opaque.add(exe.split(/[\\/]/).pop() || exe);
+    else if (!traced) opaque.add('a Node child without the recorder');
+  };
+  const noteSpawn = (a, name) => {
+    noteOpaque(name, a);
     const opts = a.find((x, i) => i > 0 && x && typeof x === 'object' && !Array.isArray(x));
     const cwd = opts && typeof opts.cwd === 'string' ? opts.cwd : undefined;
     if (cwd) noteDir(cwd);
     if (typeof a[0] === 'string') noteArg(a[0], cwd);
     if (Array.isArray(a[1])) for (const x of a[1]) noteArg(x, cwd);
   };
-  for (const n of ['spawn', 'spawnSync', 'execFile', 'execFileSync', 'exec', 'execSync', 'fork']) wrap(cp, n, noteSpawn);
+  for (const n of ['spawn', 'spawnSync', 'execFile', 'execFileSync', 'exec', 'execSync', 'fork']) wrap(cp, n, (a) => noteSpawn(a, n));
   syncBuiltinESMExports();
 
   process.on('exit', () => {
     if (isRunner) return;
     try {
       orig.mkdirSync.call(fs, OUT, { recursive: true });
-      orig.appendFileSync.call(fs, join(OUT, `${process.pid}-${Date.now()}.json`), JSON.stringify({ owner, argv: process.argv.slice(1, 3), files: [...files], dirs: [...dirs] }));
+      orig.appendFileSync.call(fs, join(OUT, `${process.pid}-${Date.now()}.json`), JSON.stringify({ owner, argv: process.argv.slice(1, 3), files: [...files], dirs: [...dirs], opaque: [...opaque] }));
     } catch { /* nothing to do */ }
   });
 }
