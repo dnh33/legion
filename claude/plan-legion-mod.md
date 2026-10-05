@@ -70,6 +70,7 @@ All runs were headless (`claude -p`, Claude Code 2.1.289, haiku). The probe plug
 | Globals | `crypto.randomUUID` and `crypto.subtle.digest` exist in the plugin environment. |
 | Turn limit (partial) | A `maxTurns: 2` agent that wanted 3 tool rounds ended with `reason: 'answer'` and an **empty** `answer`. There is no explicit flag. Detect it as an empty answer plus a step count of at least `maxTurns`. Needs a second run to confirm. |
 | Nested agents (S7) | A subagent can call the Agent tool. With `run_in_background: false` the call blocks and returns the child's answer (`NESTED` came back through two levels). With the default (background) the caller ends its turn without the answer. The child's `tool.call` carries the parent's `agentId`, visible to every plugin. |
+| **Live E2E (2026-10-05)** | Both plugins on the real engine (`claude -p`, stream-json input). (1) `/to scout …` → `runQueue` → runner spawn → task `done`, 2 turns, ≈$0.21, run id recorded, thread on disk. (2) Claude Code's model called the Agent tool with `legion-mod:scout` → Legion adopted the run on its first step, titled it from the opening message, and counted both turns. The interactive surfaces (pane paint, permission dialogs) are still real-PC checks. |
 | Headless permissions | In `-p`, a subagent's Bash outside `--allowedTools` came back `isError` (denied). S1 and S2, the interactive dialogs, are still open. |
 
 **Consequence: Legion ships as two plugins.**

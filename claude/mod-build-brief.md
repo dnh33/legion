@@ -132,6 +132,29 @@ There is no Legion core and no network.
 | UI | `mod/src/ui/**`, `mod/test/node/ui/**`, `mod/test/plugin/**` |
 | Lead | everything else, plus the wiring in `register.tsx` |
 
+## Aesthetics gate (A-gate): every surface a person sees
+
+Owner direction, 2026-10-05.
+
+**Scope.** Any card, pane, band, status text or transcript card, and above all the approval cards. They must look like the same hand made them as the best parts of Legion: the title bar, the rail, thread bubbles and the mascots.
+
+**Before it ships:**
+1. Load the `anti-slop` and `kodawari` skills, and apply their checklists.
+2. Render every variant at the size it ships, in dark and in light, and look at each one.
+3. Make a ranked findings list in which each finding cites the rule it breaks.
+4. Fix, then show before and after side by side.
+5. Have a reviewer who did not make it try to find slop. It passes only when nothing worth fixing is left.
+
+**Card design.** Follows `claude/card-design-language.md`, written by the approval-cards workstream:
+
+| Rule | What it means |
+|---|---|
+| Hierarchy | Who asks, then what exactly, then the consequence, then Allow / Deny |
+| Tokens | Desktop tokens only. Accent means "alive and yours", never danger. |
+| Words | Plain and second person. No AI-isms. |
+| Decoration | No badge soup. No decorative glow or gradient. |
+| Keys and states | Keys match behaviour, and a disabled state says why. |
+
 ## QA gate G1: every workstream, before you report
 
 Strict enough to catch real defects. Not so strict that it blocks on nitpicks.
