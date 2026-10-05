@@ -37,6 +37,7 @@ export function TitleBar() {
         <span className="tb-word">
           <span className="tb-name">Legion</span>
           {version && <span className="tb-ver">v{version}</span>}
+          <span className="tb-beta nodrag" title="Legion is in beta. Expect rough edges and the odd bug.">Beta</span>
         </span>
       </div>
       <button className="tb-search nodrag" onClick={openPalette} aria-label="Open command palette">
@@ -47,7 +48,7 @@ export function TitleBar() {
           {(['chat', 'rooms', 'graph'] as const).map((v) => {
             const label = v === 'chat' ? 'Chat' : v === 'rooms' ? 'Rooms' : pending > 0 ? `Library, ${pending} waiting for review` : 'Library';
             return (
-              <button key={v} role="tab" aria-selected={view === v} aria-label={label} title={label} className={`tb-view${view === v ? ' on' : ''}`} onClick={() => setView(v)} title={`${label} · ${VIEW_KEY_LABELS[v]}`} aria-keyshortcuts={VIEW_KEY_LABELS[v]}>
+              <button key={v} role="tab" aria-selected={view === v} aria-label={label} className={`tb-view${view === v ? ' on' : ''}`} onClick={() => setView(v)} title={`${label} · ${VIEW_KEY_LABELS[v]}`} aria-keyshortcuts={VIEW_KEY_LABELS[v]}>
                 <ViewGlyph v={v} />
                 {v === 'rooms' && view !== 'rooms' && roomAttn > 0 && <i className="tb-badge" aria-label={`${roomAttn} rooms need attention`}>{roomAttn}</i>}
                 {v === 'graph' && pending > 0 && <i className="tb-badge" aria-hidden="true">{pending > 99 ? '99+' : pending}</i>}

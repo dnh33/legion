@@ -34,10 +34,14 @@ const threadKey = (agentId: string, taskId: string | null | undefined): string =
 
 const STORE_KEY = 'legion.drafts.v1';
 
-/** A single draft is capped so one enormous paste cannot crowd every other thread out of storage. */
+/**
+ * A single STORED draft is capped so one enormous paste cannot crowd every other thread out of storage. The cap is on
+ * the stored copy only, never on the live text: the live text is what the composer shows and what Send sends, and
+ * capping it cut every message over this length short, silently. A longer draft survives a restart only in part.
+ */
 export const MAX_DRAFT_CHARS = 20_000;
 
-/** And so can the total, because localStorage is shared with the rest of the app and a failure there is not ours to pay for. */
+/** And so is the stored total, because localStorage is shared with the rest of the app and a failure there is not ours to pay for. */
 const MAX_TOTAL_CHARS = 200_000;
 
 const memory = new Map<string, string>();
@@ -60,8 +64,18 @@ function hydrate(): void {
   }
 }
 
-function writeStore(): void {
-  const next: Record<string, string> = Object.fromEntries(memory);
+/** Persist a bounded copy of the drafts. `current` is the thread being typed in: its draft is never the one dropped. */
+function writeStore(current: string): void {
+  const capped = [...memory].map(([k, v]) => [k, v.length > MAX_DRAFT_CHARS ? v.slice(0, MAX_DRAFT_CHARS) : v] as const);
+  let total = 0;
+  for (const [, v] of capped) total += v.length;
+  // Over the total, leave the oldest drafts out of STORAGE (map order is last-write order). They stay in memory, so
+  // nothing open in this window loses text; only a restart would. A draft from three hours ago is the right victim.
+  const next: Record<string, string> = {};
+  for (const [k, v] of capped) {
+    if (total > MAX_TOTAL_CHARS && k !== current) { total -= v.length; continue; }
+    next[k] = v;
+  }
   try {
     localStorage.setItem(STORE_KEY, JSON.stringify(next));
   } catch {
@@ -81,23 +95,10 @@ export function getDraft(agentId: string, taskId: string | null | undefined): st
 export function setDraft(agentId: string, taskId: string | null | undefined, text: string): void {
   hydrate();
   const key = threadKey(agentId, taskId);
-  const value = text.length > MAX_DRAFT_CHARS ? text.slice(0, MAX_DRAFT_CHARS) : text;
-
-  // Re-insert so the map's iteration order reflects last write, which is what the eviction below relies on.
+  // Re-insert so the map's iteration order reflects last write, which is what the storage eviction relies on.
   memory.delete(key);
-  if (value) memory.set(key, value);
-
-  let total = 0;
-  for (const v of memory.values()) total += v.length;
-  // Evict oldest-first until there is room. A draft from three hours ago is the right victim; the one being typed
-  // now is the least likely to be the one that matters least.
-  for (const k of [...memory.keys()]) {
-    if (total <= MAX_TOTAL_CHARS) break;
-    if (k === key) continue;
-    total -= memory.get(k)?.length ?? 0;
-    memory.delete(k);
-  }
-  writeStore();
+  if (text) memory.set(key, text);
+  writeStore(key);
   emit();
 }
 

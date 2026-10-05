@@ -88,11 +88,37 @@ test('the draft key is the queue key, so the two agree on what a thread is', () 
   assert.equal(threadKey(A, null), `n:${A}`);
 });
 
-test('an oversized draft is capped rather than stored whole', () => {
-  const huge = 'x'.repeat(MAX_DRAFT_CHARS + 5000);
-  setDraft(A, null, huge);
-  assert.equal(getDraft(A, null).length, MAX_DRAFT_CHARS, 'the cap was not applied');
-  clearDraft(A, null);
+test('an oversized draft is capped in storage, but the text being typed is kept whole', () => {
+  // The live draft IS the composer's text and what Send sends. This test used to assert getDraft() came back capped,
+  // which pinned the bug: a 20,008-character message went out as 20,000, its end cut off without a word.
+  const { store, restore } = withStorage();
+  try {
+    const huge = 'x'.repeat(MAX_DRAFT_CHARS + 5000) + ' END-MARK';
+    setDraft(A, null, huge);
+    assert.equal(getDraft(A, null), huge, 'the live text was cut: Send would send less than was typed');
+    const stored = JSON.parse(store.get('legion.drafts.v1') ?? '{}') as Record<string, string>;
+    assert.equal(stored[threadKey(A, null)]?.length, MAX_DRAFT_CHARS, 'the stored copy was not capped');
+    clearDraft(A, null);
+  } finally {
+    restore();
+  }
+});
+
+test('over the stored total, old drafts leave storage but stay in the window, and the one being typed is kept', () => {
+  const { store, restore } = withStorage();
+  const keys = Array.from({ length: 12 }, (_, i) => `agent-${i}`);
+  try {
+    for (const k of keys) setDraft(k, null, k.padEnd(MAX_DRAFT_CHARS, '.')); // 12 x 20,000 > the 200,000 total
+    const stored = JSON.parse(store.get('legion.drafts.v1') ?? '{}') as Record<string, string>;
+    let total = 0; for (const v of Object.values(stored)) total += v.length;
+    assert.ok(total <= 200_000, `stored total ${total} is over the cap`);
+    assert.ok(!(threadKey(keys[0], null) in stored), 'the oldest draft should be the one left out of storage');
+    assert.ok(threadKey(keys[11], null) in stored, 'the draft being typed was dropped from storage');
+    for (const k of keys) assert.equal(getDraft(k, null).length, MAX_DRAFT_CHARS, `${k} lost its text in the open window`);
+  } finally {
+    for (const k of keys) clearDraft(k, null);
+    restore();
+  }
 });
 
 test('a draft survives storage being unavailable', () => {
