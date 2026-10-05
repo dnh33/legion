@@ -222,3 +222,36 @@ Full record: `claude/HOUSE-LAYER-VERIFICATION.md`.
 Safety classes: BR15-BR20, BR22-BR24 none (a harmless page you control); BR21 native dialog. Nothing in this section was run in a cloud session; do not call the browser tool verified until each is recorded as passed.
 
 | H11 | **Heap ceiling (0.2.3-j).** The core now gets `min(RAM/4, 2048)` MB, floored at 512. On this machine Node's default was 4192 MB, so the cap is roughly half. **Nobody profiled the core's actual peak heap** — the cap is reasoned, not measured. Run a heavy session (large KG, several compactions, a long agent run) and watch whether heap approaches 2048. If it does, the cap is too low and the core will OOM where it previously survived. | todo |
+
+
+## Legion Mod for Claude Code (branch `claude/legion-mod`, plugins `mod/` + `mod-runner/`). Safety class: none (Claude usage only; no money, downloads or wallet)
+
+**What has been checked so far.** Headless runs on the real engine (`claude -p`, haiku, `LEGION_MOD_HOME` in a scratch folder) proved:
+- `/to` → runner → spawn → done;
+- adoption of a run Claude Code's model started;
+- Zealot delegating to `legion-mod:scout`.
+
+The kit tests prove the rest against fakes. Nothing interactive has run.
+
+**How to run the checks.** Load both plugins in an interactive terminal session:
+
+```
+claude --plugin-dir D:\bots\legion-mod\mod --plugin-dir D:\bots\legion-mod\mod-runner
+```
+
+Set `LEGION_MOD_TRACE=1` and read the result with `node scripts/mod-trace.mjs`.
+
+| # | Check | Expected observation | State |
+|---|---|---|---|
+| LM1 | **Approval dialog for a background agent (S1, S2).** In default permission mode, `/to scout run the command: echo hi` (Bash is not pre-allowed). | Claude Code's own permission dialog appears for Scout's Bash call, and the trace shows `tool` then `toolDone`. If no dialog appears and the call is denied silently, record that: plan §2.1 then falls back to design (c). | todo |
+| LM2 | **Deny rules win (S3).** Add a deny rule for `Edit(.env)` to your settings. Run `/to builder add a line to .env`. | The edit is denied. The trace shows no Legion `allow` for it. | todo |
+| LM3 | **The pane in Windows Terminal (S8, S11).** `/legion`, then fullscreen at 80, 120 and 200 columns, inline and docked. | The roster glyphs and marks take one cell each, nothing wraps or jitters, and the accent is `#7CFFB2`. Screenshot each, and look at them. | todo |
+| LM4 | **2D Order in a real terminal.** `/legion 2d on`, then `/legion order`. | The bust draws in pixel style, moves calmly, and goes still about 60 s after the last event. Measure CPU with 2D on and with it off, on the same scene, with nothing else running. Expect it to be within noise. | todo |
+| LM5 | **Continue wakes a finished agent.** After a task is done, `/continue`. | The same task resumes (`continued`), and its thread shows "Continued where it stopped". | todo |
+| LM6 | **`maxTurns` per run.** Set `maxTurns` low (for example 3), give Builder a long job, then `/continue`. | It pauses with "Paused at the turn limit", and Continue gets a fresh count. | todo |
+| LM7 | **Stop.** `/stop` on a running task. | The task shows cancelled, and Claude Code's own agent list shows the run stopped. Check whether a permission prompt appears for TaskStop, and record it. | todo |
+| LM8 | **Two windows, one Library and one task list.** Run Legion in two terminals in the same project and send a task in each. | Each window shows both tasks. The other window's task is marked "in another window" and has no Continue or Stop. | todo |
+| LM9 | **`--resume` in two terminals.** Do they share a session id? | Record the answer. Shared ids would let two windows write one segment file (G3 conditional finding 9). | todo |
+| LM10 | **Kill the terminal during heavy writes.** | After a restart, `/legion doctor` says "every line read cleanly" or reports skipped lines. No crash. | todo |
+| LM11 | **Zealot leads.** `/to zealot <a two-part request>` on Zealot's own model. | The trace shows Zealot delegating with `legion-mod:<id>` (two tells in parallel, or asks), child tasks under it, and a short report naming who did what. | todo |
+| LM12 | **Install from the marketplace mirror** (after the release plan's export exists). Run `claude plugin install legion-mod@legion` on a clean profile. | Both plugins are installed and enabled, and `/legion doctor` shows Runner ✓. | todo |
