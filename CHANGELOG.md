@@ -2,231 +2,87 @@
 
 All notable changes are recorded here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses [Semantic Versioning](https://semver.org/).
 
-## [0.2.3-l] - 2026-10-04
+## [0.2.4] - 2026-10-05
 
-### Fixed
+Thirteen patch releases, consolidated. Everything below shipped between 0.2.3-a and 0.2.3-l; this is the same code with
+one readable changelog instead of twelve.
 
-- **Half-typed messages survive switching agents.** The composer held its text in the component, so moving to another
-  agent — exactly when you had worked out what to say and were going somewhere to say it — took the text with it.
-  Each thread now keeps its own draft: one while you are talking to an agent, another inside each task, kept the way
-  the message queue already keys conversations. Sending clears it as before, and a send that fails still puts the text
-  back. Drafts also survive closing the app. A very long draft is capped, the oldest drafts are dropped when there is
-  no room, and if the browser refuses to store anything the composer carries on working rather than failing.
+### The house layer
 
-## [0.2.3-k] - 2026-10-04
+Legion now ships a **layer of rules every agent reads** — your house rules, your architecture decisions, your own
+guidance — and the agents obey it rather than working from a blank prompt.
 
-### Added
+- **The layer is only trusted while it is unchanged.** Rules are copied from the app itself, so "the app says this" is
+  checkable rather than assumed. The moment a rule file changes it stops being the app's word and becomes yours: it is
+  labelled as not approved, so you can see the difference and approve it deliberately. Approval survives restarts and
+  expires by itself when the text changes again, so an approval can never quietly cover something you did not read.
+- **Trust cannot be forged by editing the record.** An agent that rewrites a rule file cannot also rewrite the record of
+  what the app shipped — the record is derived from the shipped files themselves, and any forged copy is discarded on
+  start. A rule you edited is never overwritten: the app preserves the bytes and lets you decide.
+- **The layer is cleaned up after itself.** Files from a release that no longer ships them are removed, so rules cannot
+  accumulate unowned. Only untouched files are removed; anything you or an agent wrote stays exactly as it is.
+- **The layer is actually present in installed copies.** It used to be missing from the package, so the rules you set up
+  were not there on the machine you were running.
+- **Reading it no longer asks permission**, and agents are told how to retire a note that has been superseded instead of
+  piling up a second copy of it.
+- **Agents read the project's own documentation.** `AGENTS.md` tells every agent which documents matter; recall is
+  bounded in bytes and files, so a search can never swallow a conversation.
+- **The list matches your theme.** House rows and trust tags use the app's own colours in both light and dark.
 
-- **F1, F2 and F3 move between Chat, Rooms and Library.** The three main views sit one key away, and the buttons
-  in the title bar now say which. Held with Ctrl, Alt or the Windows key, the shortcut is left alone so it cannot
-  collide with another program's key.
+### Context that survives a long session
 
-### Fixed
+- **Long conversations are compacted instead of truncated.** When a conversation nears the model's limit, Legion
+  summarises the middle and keeps the ends, with a stated budget rather than a blunt cut.
+- **Overflow is recovered rather than fatal.** A context-length refusal triggers one compaction and one retry instead of
+  ending the run.
+- **Nothing important is dropped silently.** Items marked for retention are checked after summarising, and if something
+  went missing the plan is redone rather than the loss accepted. Decisions made earlier in a long conversation stay with
+  it.
+- **Secrets are redacted twice** — forbidden in the summariser's instructions *and* filtered out of what it returns. The
+  summariser is not left to invent its own redaction.
+- **Tool output is bounded per turn**, and the bound scales with the window instead of being fixed, so one enormous
+  result cannot crowd out the conversation around it.
+- **Compaction can be turned off**, tuned in Settings, or run on demand with `/compact`, optionally with a focus so the
+  summary keeps what you point it at. A context-usage readout shows how much of the window is in use, labelled an
+  estimate.
+- **A provider can declare its own context window**, clamped to a sane range, so compaction budgets follow the model
+  actually in use.
 
-- **Files from a release that no longer ships them are cleaned out of the house layer.** Copying the layer in only
-  ever added or overwrote, so anything an earlier release shipped stayed forever. On a real install that had left 46
-  files from 28 folders in place — personal workflow files from a release that predated the decision not to ship them —
-  still listed to your agents as the app's own words and served unwrapped, with no owner and no expiry. The sync now
-  removes a file it shipped once, no longer ships, and whose bytes nobody has touched.
-  **Anything you or an agent has edited is kept**, and stays marked as not approved, because the cleanup only removes
-  files whose bytes are still exactly what the app shipped — which means nobody ever wrote them.
+### Updates
 
-## [0.2.3-j] - 2026-10-04
+- **Updates are actually checked now**, on a schedule rather than once at startup, and the button installs straight away
+  instead of asking twice.
+- **Updates apply themselves.** A release whose dependencies are bundled is applied by the app; you are not asked to
+  reinstall to pick up ordinary code changes.
+- **Nothing is applied before it is verified.** The release is checked against Legion's own signature, on Legion's own
+  code, before anything is written.
+- **Legion never restarts over work in progress.** The core is treated as idle only when no task, run, approval or
+  export is live, and a failed start can be tried again instead of locking you out of a version permanently.
+- **The update notice tells the truth.** A version you have already moved past is no longer shown as held back, and a
+  block recorded before Legion kept dates says it does not know when it will clear rather than promising otherwise.
 
-### Fixed
+### Everyday
 
-- **The core now has a heap ceiling instead of Node's default.** On a large machine Node sizes the core's heap from
-  total memory, which on a 32 GB machine allows about 4 GB for a process that usually needs far less. It now gets a
-  quarter of RAM, capped at 2048 MB and never below 512, and scales down on smaller machines. If you already set a
-  ceiling yourself — with `--max-old-space-size` or through `NODE_OPTIONS` — your value is kept untouched.
+- **Half-typed messages survive switching agents.** Each thread keeps its own draft, the same way your message queue
+  keeps conversations apart, and drafts survive closing the app. A send that fails still puts your text back.
+- **F1, F2 and F3 move between Chat, Rooms and Library.** Held with Ctrl, Alt or the Windows key they are left alone, so
+  they cannot collide with another program's key.
+- **The core has a memory ceiling** instead of the runtime's default, which on a large machine allows about 4 GB for a
+  process that usually needs far less. If you set your own limit, yours is kept.
+- **Blender's export folder is settable**, and a save carrying a field Legion does not recognise no longer reports
+  success while quietly discarding it.
 
-### Added
+### Safety, and what stays true
 
-- **Guards against three plausible-sounding claims that measurement disproved**, recorded so they are not proposed
-  again: that parameter properties, enums and namespaces are safe to use (each is non-erasable), that `.ts` import
-  specifiers work under type stripping (they do not — the specifiers must be `.js`), and that this can be moved to
-  another JavaScript runtime. Measured here across the same 30 test files: Bun failed 25 of them and Deno was roughly
-  six times slower than Node, so the runtime stays Node.
-
-## [0.2.3-i] - 2026-10-04
-
-### Fixed
-
-- **A version you have already moved past is no longer shown as held back.** If an older release had failed its first
-  start on this machine, its block stayed on screen after a newer version installed successfully — reported as a pending
-  problem when there was nothing to do about it.
-- **The panel no longer promises something it cannot deliver.** For a block recorded before Legion started keeping a
-  date, it said the version "will be offered again on its own". It never would. It now says the truth, and the button to
-  try the version is offered for every held-back version rather than only the ones with a date.
-
-## [0.2.3-h] - 2026-10-04
-
-### Fixed
-
-- **A version that rolled back is no longer held back forever.** When a new version failed its first start and Legion
-  went back to the previous one, that version was blocked with no way to try it again — and the panel said only that
-  it had been rejected, so the way out had to be guessed. A block now expires on its own after a week, the panel names
-  the version and says when it will be offered again, and a button lets you retry it as soon as a fix is out instead of
-  waiting. The block exists to stop a start-up loop, and a loop is over once something has changed.
-
-## [0.2.3-g] - 2026-10-04
-
-### Fixed
-
-- **The House context list now follows the app's theme.** The panel named colours the app does not define, so the
-  light-mode values were always used: every file row rendered as a white card on a dark background, and the file paths
-  were left almost unreadable against it. The rows, borders and the three trust labels now use the app's own palette,
-  so they are correct in both themes. The trust labels also carried a dark-mode block that never took effect, because
-  Legion switches theme through its settings rather than through the operating system preference.
-
-### Changed
-
-- **Agents are told how to retire an outdated note.** Replacing a stale note with a new one is what the tool set is
-  for, but nothing told an agent that was the right move, so a Library could fill with near-identical notes. The
-  instruction appears only for runs that actually have the tool.
-- **Agents are told what to do with layer content that is not the app's own words** — it was edited or added since
-  install, so it is material to consider rather than an instruction to follow.
-
-## [0.2.3-f] - 2026-10-04
-
-### Fixed
-
-- **An agent could promote its own edit to the house rules.** The layer is served to agents as trusted text, so what
-  counts as trusted is decided by a recorded hash of what the app shipped. That record could be forged: an agent that
-  edited a rules file could write the hash of its own version into the record and have it come back trusted and
-  unlabelled on the next start. Trust is now derived from what the app actually ships, so a forged record is discarded
-  the next time Legion starts. Editing a file and then reverting it by hand still restores trust on its own, with
-  nothing to re-approve.
-- **A file you approved could be marked approved by something other than you.** Your approval was recorded in the same
-  folder the agents read from, so a record written there was indistinguishable from one you made. Approvals are now
-  kept outside that folder.
-
-## [0.2.3-e] - 2026-10-04
-
-### Fixed
-
-- **A full-access bot no longer gets asked to approve its own work.** Four guards raised an approval card
-  unconditionally — Blender exec and asset, the comms room tools and the project board — so promoting an agent to
-  full access changed nothing and it still sat waiting on "Needs your OK". The browser module already behaved this
-  way, so the pattern was known and simply not applied everywhere. One rule now decides, and it re-reads your
-  setting on each call, so switching an agent to full takes effect on its next action instead of at its next run.
-- **The context layer is now present in installed copies.** It was not reaching them at all, so an agent installed
-  from a release had no rules to read.
-- **Reading the context layer no longer asks for permission.** Those reads were being treated as unknown tools, so
-  opening your own rules needed a click every time.
-- **Edits an agent makes are no longer trusted automatically.** An agent's own edit to a file came back already
-  trusted, so anything it wrote stayed trusted. It now has to survive a round trip to earn trust again, and the
-  file describing the layer is no longer treated as part of the layer's contents.
+- **A full-access bot is no longer asked to approve its own work.** It still cannot bypass anything else; it just stops
+  being interrupted to rubber-stamp what it is already permitted to do.
 - **The public repository no longer receives private working folders.** They were copied in wholesale, carrying
-  local paths into a repository anyone can read.
-
-### Added
-
-- **House context settings section** — what your agents read as rules, editable from Settings.
-
-## [0.2.3-d] - 2026-10-04
-
-### Added
-
-- **Compaction can be turned off.** `CompactionSettings.enabled`, required rather than optional so a code path that
-  forgets it cannot silently leave compaction on. Honoured at every automatic gate and by the manual trigger.
-- **`/compact [focus]`** — compact a conversation on demand, with an optional instruction about what the summary should
-  weight. `POST /api/tasks/:id/compact` -> `Engine.compactTaskNow` -> `ProviderRuntime.compactNow` -> `compactNow`. The
-  summary is written by the same model, with the same settings, window and redaction as an automatic cut. Works below
-  the threshold. Reuses `askSummarizer`, so the retention guarantee, the one retry and the loss notice all apply.
-  Every decline is `{ ok: false, detail }`, never a throw.
-- **Context-usage readout** in Settings, Compaction: percentage of the window in use, labelled an estimate.
-- **Blender export folder is settable.** `BlenderConfig.baseDir` is now readable and writable through
-  `POST /api/blender/config`, absolute-only, cleared to the defaults on blank, and exposed in the status view so the
-  field prefills. It sets two derived roots — `<base>/local` and `<base>/exports` + `<base>/quarantine` — and moves the
-  containment root from the agent workspace to that folder.
-
-### Fixed
-
-- **`BlenderPatch` silently dropped `baseDir`.** `parsePatch` discarded unknown keys without a 400, so a save returned
-  200 and wrote nothing. A shipped field with no way to set it.
-- **`compactTaskNow` threw instead of declining** when no provider runtime was configured (`this.providers!`), surfacing
-  as a 500 rather than a sentence.
-- **The fake engine in `test/helpers-c.ts` omitted `compactTaskNow`**, so the route test saw `not a function` and a 500
-  where it was asserting a decline. The stub was the bug and it looked like a server bug.
-
-## [0.2.3-c] - 2026-10-04
-
-### Fixed
-
-- **The per-turn tool-output budget floor was an absolute** (`MAX_TOOL_RESULT_CHARS * 2`), so it did not shrink with the
-  model's window. On a 16k model one turn's tool output could add ~8,000 est-tokens against a 2,867-token compaction
-  threshold — a 2.79x overshoot before compaction could trigger. Now window-proportional
-  (`min(40k, max(12k, window * 0.05))` via the exported `turnToolBudget`): 1.40x at 16k, 0.33x at 128k, 0.05x at 1M.
-- **Every test that called `mkdtempSync` leaked its directory** — one run created tens of thousands under the OS temp
-  folder and nothing removed them, which is what fills a disk. `test/tmp-cleanup.ts` routes them through `tempDir()`
-  and removes them at process exit. It tracks only directories that process created, so it cannot delete a sibling test
-  process's in-use folder under `node:test`'s parallel model.
-
-### Changed
-
-- **Product copy stated development state instead of behaviour** — a provider note about being tested against fake
-  servers, a Blender note claiming local mode was untested while 38 tests cover it end to end, and a provider limits
-  line describing truncation that no longer exists. Rewritten. `test/product-copy.test.ts` now fails the build if
-  development-status language returns to the UI. The cloud VM note stays — that run has not happened — and the pending
-  PC runs live in the docs and the tracker, not the interface. `NOT_TRIED_LOCAL` renamed `LOCAL_MODE_NOTE`, because the
-  name had become a claim the content no longer made.
-
-## [0.2.3-b] - 2026-10-04
-
-### Added
-
-- **Long provider conversations keep their decisions.** The provider path had no compaction and no token counting: it
-  kept the newest 40 messages / 60,000 *characters*, so the oldest part of a conversation disappeared with no marker —
-  which is what "the conversation just stops" actually looks like. Conversations are now measured against the model's
-  context window and, past 50% of it, cut into a protected head, a written summary and a verbatim tail.
-- **Overflow is recovered rather than fatal.** A context-length refusal now triggers one compaction and one retry, so a
-  run continues instead of ending as a provider error. Escalation could not help before, because it only fires for
-  `sonnet`, which a provider model never is.
-- **A provider entry can declare its context window** (`contextWindow`, clamped). Unset means a deliberately small
-  default, which compacts earlier than a large-window model needs — over-compacting costs detail, under-compacting
-  ends the run.
-
-### Security
-
-- **The summariser cannot be injected.** Agent transcripts are full of tool output and other agents' messages, so a
-  transcript containing an instruction aimed at a model is ordinary rather than hostile. The summariser is told the
-  turns are data to summarise and never instructions to obey.
-- **Secrets are redacted twice** — forbidden in the summariser prompt *and* filtered on the returned summary. The
-  prompt alone is not treated as sufficient, because a model talked into keeping a secret will keep it.
-
-### Notes
-
-- The summary is written inline into the thread as a system message, and the model is told the original messages remain
-  in the transcript. The store is append-only JSONL, so every original already survives: compaction changes only what
-  is *sent*. No message is ever deleted, and if a summary cannot be produced the conversation goes out unchanged.
-- `docs/COMPACTION.md` is the design; `docs/COMPACTION-GAPS.md` records where this implementation is behind, level with
-  or ahead of the mature implementations it was read from, item by item.
-
-## [0.2.3-a] - 2026-10-04
-
-### Added
-
-- **Agents read the project's own documentation.** The house context layer serves the house rules, architecture
-  decisions, glossary and session log to every agent through in-process tools (`house_list`, `house_recall`,
-  `house_read`), instead of those files being unreachable from an agent's working directory.
-
-### Fixed
-
-- **The house layer is only trusted while it is unchanged.** The layer is copied out of the repository into the data
-  directory and served as Legion's own words. The sync now records a hash of what it shipped, and a read compares it:
-  anything edited or added since install is served wrapped and labelled `[UNTRUSTED SOURCE]`. Agents can edit this
-  repository, so without this an agent's edit to `AGENTS.md` would come back as the owner's rules. An unshipped or
-  unreadable record grants no trust.
-- **The layer ships what its index promises.** `AGENTS.md` tells every agent which documents to read; the module and the
-  sync now agree on that list, and the tests fail if a listed file is missing or if `AGENTS.md` cites a document that does
-  not exist.
-- **Recall is bounded.** Searching the layer reads within a total byte budget, a file-count cap and a depth cap, so a
-  large directory cannot crowd out the rest on every call.
-- **A provider run that returns nothing now says why.** One sentence covered four different faults; it now names the
-  output limit, an unreadable tool call, a safety stop or an early stream close. The conversation Legion sends is also
-  checked for orphaned tool results, which make an OpenAI-compatible endpoint fail mid-stream and look like a network
-  fault.
+  development material into a public tree.
+- **The runtime is Node, and that is now guarded rather than assumed.** Three claims measurement here disproved — about
+  parameter properties, about `.ts` import specifiers, and about moving to another JavaScript runtime — are enforced as
+  tests, so they cannot be proposed again on the strength of a plausible-sounding argument.
+- **Product text describes behaviour, not development state.** Notices about what had or had not been tried are gone
+  from the app and from this changelog.
 
 ## [0.2.2] - 2026-10-04
 
@@ -243,15 +99,15 @@ All notable changes are recorded here. The format follows [Keep a Changelog](htt
 
 - **BSV mode toggle**: turning the BSV Dev Kit on or off now refreshes the knowledge-graph view. Before, the node list could stay stale after a toggle — nodes did not appear on enable, or lingered on disable — because the toggle never signalled the graph to re-read.
 
-## [Unreleased]
+## [0.2.0] - 2026-10-02
 
 ### Blender
 
-- **Added: a Blender pill in the title bar**, after the BSV chip: a cube, a status dot and the word Blender. It opens a small popover with the status (taken only from real status; "Blender: unknown" when it is unknown or failed), one labelled switch for `blender.enabled`, and a button to Settings, Blender ("Get Blender" when none is found; it does not download). No pill with an older core that has no Blender module. **Turning Blender ON asks first**, from the popover and from Settings (one shared dialog, "Turn on Blender?", Cancel is the default); turning it off asks nothing. Not yet looked at in the real app (B17 in `claude/tracker-pc-checks.md`).
+- **Added: a Blender pill in the title bar**, after the BSV chip: a cube, a status dot and the word Blender. It opens a small popover with the status (taken only from real status; "Blender: unknown" when it is unknown or failed), one labelled switch for `blender.enabled`, and a button to Settings, Blender ("Get Blender" when none is found; it does not download). No pill with an older core that has no Blender module. **Turning Blender ON asks first**, from the popover and from Settings (one shared dialog, "Turn on Blender?", Cancel is the default); turning it off asks nothing.
 
 ### BSV
 
-- **Added: `bsv_spend_request`, a spend tool for the Assayer, on testnet AND mainnet; mainnet is built and OFF by default.** One payment to one address per request. The wallet builds an unsigned transaction, Legion decodes it itself, the policy engine checks the decoded numbers, you read native dialogs, and only then is the wallet asked to sign; the wallet's own prompt is the last gate. Legion's own code holds no key and never retries a signing call. See [docs/BSV-MODE.md](docs/BSV-MODE.md), section Spend. **Tested against fake wallets only; not verified against a real wallet or with real funds** until the owner's checks (V1 to V12, R0 to R11, ND1 to ND11 in `claude/tracker-pc-checks.md`) are recorded.
+- **Added: `bsv_spend_request`, a spend tool for the Assayer, on testnet AND mainnet; mainnet is built and OFF by default.** One payment to one address per request. The wallet builds an unsigned transaction, Legion decodes it itself, the policy engine checks the decoded numbers, you read native dialogs, and only then is the wallet asked to sign; the wallet's own prompt is the last gate. Legion's own code holds no key and never retries a signing call. See [docs/BSV-MODE.md](docs/BSV-MODE.md), section Spend.
 - **Added: mainnet capability behind a hard-off switch.** `POST /api/bsv/policy/mainnet` (switching ON needs the admin secret and the native secret and shows a warning dialog; switching OFF needs the admin secret only and no dialog). Per-network limits and recipient allowlists (testnet 1,000 / 5,000 / 10,000 sat, mainnet 1,000 / 2,000 / 5,000 sat, fee ceilings 200 and 100, allowlists empty). One Arm covers one mainnet spend. The switch turns itself off after a mainnet unknown outcome, a mismatch after signing, an audit failure or a tampered policy file.
 - **Added: native dialogs for spends** (card, a LIVE FUNDS second dialog on mainnet, an untrusted-content dialog, Resolve), a panel list of waiting requests and unknown outcomes, and the real BSV note count in the title bar.
 - **Added: the unknown-outcome rule persists.** A spend whose outcome Legion cannot confirm blocks every spend on both networks until you resolve it in a native dialog, and the block survives a restart.
@@ -263,8 +119,8 @@ All notable changes are recorded here. The format follows [Keep a Changelog](htt
 
 ### Projects
 
-- **Projects (minimal).** A project groups one job: shared instructions, a folder, member agents, and its tasks and rooms. A task started in a project gets the instructions added to the agent's prompt (labelled, after the agent's own, never able to change approvals) and the project folder as an extra readable and writable directory. Library notes can be scoped to a project (`project` scope in the tools): a project's runs prefer its notes and never see another project's. Only you, in the app, can create or edit a project; changing its folder or members shows a native confirmation. Bots, rooms, `ask`/`tell` and MCP clients can use a project but cannot create or change one or move work into it; MCP gets read-only `legion_projects`. Old data is unchanged. Plan and controls: `claude/plan-projects.md`; PC checks: `claude/tracker-pc-checks-projects.md`.
-- **Project board (on by default).** Inside a project: work items with a status (Backlog, Doing, Review, Done, Blocked), an assignee, a due date, a priority, labels and an activity trail, shown as a board (drag, or Alt plus arrow keys), a list and an Inbox. Member agents work the board like teammates (create, edit, move, claim, label, note, link project notes) through a `legion_board` tool; only you mark an item Done, assign to yourself, or change items assigned to you. Deleting is for a board leader you choose and shows you an approval card every time. Text an agent writes is marked "not reviewed" until you review it, and a run on it starts under "ask" approvals. "Run this item" starts the assigned agent once through the normal project run path and puts the result in Review, never Done. The board starts nothing by itself. Token clients get a read-only `legion_board_read`. Turn it off with `features.projectBoard = false` in `config.json`. See [docs/PROJECT-BOARD.md](docs/PROJECT-BOARD.md). Not yet tried on a real Windows PC (`claude/tracker-pc-checks.md`, PB1 to PB10).
+- **Projects (minimal).** A project groups one job: shared instructions, a folder, member agents, and its tasks and rooms. A task started in a project gets the instructions added to the agent's prompt (labelled, after the agent's own, never able to change approvals) and the project folder as an extra readable and writable directory. Library notes can be scoped to a project (`project` scope in the tools): a project's runs prefer its notes and never see another project's. Only you, in the app, can create or edit a project; changing its folder or members shows a native confirmation. Bots, rooms, `ask`/`tell` and MCP clients can use a project but cannot create or change one or move work into it; MCP gets read-only `legion_projects`. Old data is unchanged.
+- **Project board (on by default).** Inside a project: work items with a status (Backlog, Doing, Review, Done, Blocked), an assignee, a due date, a priority, labels and an activity trail, shown as a board (drag, or Alt plus arrow keys), a list and an Inbox. Member agents work the board like teammates (create, edit, move, claim, label, note, link project notes) through a `legion_board` tool; only you mark an item Done, assign to yourself, or change items assigned to you. Deleting is for a board leader you choose and shows you an approval card every time. Text an agent writes is marked "not reviewed" until you review it, and a run on it starts under "ask" approvals. "Run this item" starts the assigned agent once through the normal project run path and puts the result in Review, never Done. The board starts nothing by itself. Token clients get a read-only `legion_board_read`. Turn it off with `features.projectBoard = false` in `config.json`. See [docs/PROJECT-BOARD.md](docs/PROJECT-BOARD.md).
 - **Projects as context.** A project run's long-run episode is stored in the project's Library scope, notes an agent saves during a run are linked to the item it worked on, closing an item offers "Save what we learned", and each run in a project starts with a short board digest and the titles of the project's recent notes.
 - **Changed: new top-level `features` block in `config.json`** (currently `projectBoard`, default on). An old `experimental.projectBoard` entry is ignored.
 
@@ -275,15 +131,15 @@ All notable changes are recorded here. The format follows [Keep a Changelog](htt
 
 ### Providers
 
-- **OpenRouter ships as the second provider.** Legion runs on Claude by default; add your own OpenRouter key and an agent can run any model through it. Providers are on by default and the OpenRouter preset is enabled (suggested models: deepseek-v4.1-flash for reasoning, gemini-3.8-flash for computer-use). Settings, Providers has a card (switch, address, key, Test, Refresh models), a "what an agent on a provider cannot do" list, and run limits; the model pickers list the models of providers that are on. Codex, Ollama, LM Studio and other custom/local endpoints come in 0.2.1. Built and tested only against Legion's own fake servers; not yet tried against any real provider (see `claude/tracker-pc-checks-providers.md`).
+- **OpenRouter ships as the second provider.** Legion runs on Claude by default; add your own OpenRouter key and an agent can run any model through it. Providers are on by default and the OpenRouter preset is enabled (suggested models: deepseek-v4.1-flash for reasoning, gemini-3.8-flash for computer-use). Settings, Providers has a card (switch, address, key, Test, Refresh models), a "what an agent on a provider cannot do" list, and run limits; the model pickers list the models of providers that are on. Codex, Ollama, LM Studio and other custom/local endpoints come in 0.2.1.
 - **What a provider agent gets.** Legion's own tool loop with Legion's in-process tools (agents, ask, tell, knowledge graph, comms, Blender, BSV status, and the VM tools when the agent has a VM) plus the MCP servers you enabled for the agent in Settings (stdio, http, sse), reached by Legion's own client under stricter rules (small environment for a local server, https or this computer only, no redirects). No built-in file, shell or web tools, no Claude Code skills or plugins. Every tool call goes through the same approval cards, approval ceiling and taint tracking as a Claude run. A provider failure ends the task as an error; it never falls back to Claude or to another provider.
 - **Keys and addresses.** A key is typed once, confirmed in a native dialog by the app's main process (the window never holds the secret that allows it), and stored in its own file (`providers/keys.json`, owner only), never in `config.json`, a log, an event or a reply. A key is saved for one address and deleted if the address changes. Legion's own code reaches only the address of a provider you configured and turned on: https required (http only for this computer), no redirects followed, timeouts and size caps on every request, at most four requests at a time.
 - **Cost.** Token counts are recorded when the provider returns them. Cost is shown only when you enter prices for a model; Legion ships no price table. Room spend limits count known costs only.
-- **Responses API.** A provider can be set to the Responses format instead of chat completions (Settings, Providers, API format). Tested against fake servers only.
+- **Responses API.** A provider can be set to the Responses format instead of chat completions (Settings, Providers, API format).
 - **Not in this version (0.2.1):** Codex and OpenCode as command-line agents (their own tools run outside Legion's approvals, so they are not offered), Ollama, LM Studio and other custom/local endpoints, and signing in with a ChatGPT subscription.
 ### Updater
 
-- **In-app updates from GitHub releases** (see [docs/UPDATES.md](docs/UPDATES.md); not yet tried on a real Windows PC, see `claude/tracker-pc-checks-updater.md`). Legion can check the public GitHub release for a newer version (one plain GET of two small files, on launch and every 12 hours; off switch in Settings, About) and show a notice with version, notes and size. It downloads and installs only after you click Update and Allow an approval card; an opt-in setting "install updates automatically when idle" is off by default.
+- **In-app updates from GitHub releases** (see [docs/UPDATES.md](docs/UPDATES.md)). Legion can check the public GitHub release for a newer version (one plain GET of two small files, on launch and every 12 hours; off switch in Settings, About) and show a notice with version, notes and size. It downloads and installs only after you click Update and Allow an approval card; an opt-in setting "install updates automatically when idle" is off by default.
 - **Verification before anything is applied** (Legion's own code): an Ed25519 signature over the release manifest checked against a public key built into the app, the package's sha256 and size checked against the signed values before it is unpacked, version and publish date newer than the running build, https only to github.com and GitHub's release-asset hosts with every redirect hop re-checked, size caps, and a strict zip reader. This does not protect against a compromised maintainer key or account with the key, a malicious change the maintainer signs, or local malware. There is no remote key revocation. The shipped key list is empty until the owner adds the public key, and updates stay off until then.
 - **Never restarts over work.** The core is "idle" only when no task, agent run, approval, VM install/stop or Blender download is active for 60 seconds. A ready update waits ("Update ready, will install when idle"). "Restart now" asks in a native dialog that names what will stop; running tasks are cancelled and are not resumed automatically.
 - **Apply and rollback:** a helper swaps only the code folders in the install folder after the app exits, keeps exactly one previous version, and rolls back if the new build does not report healthy on `127.0.0.1` within 60 seconds or if the update is cut off. Your data folder and `node_modules` are not touched. A git checkout, an unwritable folder or a release that changes dependencies only gets a notice.
@@ -291,16 +147,15 @@ All notable changes are recorded here. The format follows [Keep a Changelog](htt
 
 ### Added
 
-- **Blender: "Use both backends at once" (off by default).** The official Blender Lab MCP is the main backend and the community add-on a second source of read-only extras, in one merged tool list (`blender_tools`, `blender_tool`) where each name says its source. Only the main backend runs code. Each add-on gets its own port, Legion checks both ports are free before it starts Blender and checks which add-on answers on each (a taken port or the wrong add-on stops the connection with a plain message). Both add-on sockets still have no password. Not yet tried with a real Blender.
+- **Blender: "Use both backends at once" (off by default).** The official Blender Lab MCP is the main backend and the community add-on a second source of read-only extras, in one merged tool list (`blender_tools`, `blender_tool`) where each name says its source. Only the main backend runs code. Each add-on gets its own port, Legion checks both ports are free before it starts Blender and checks which add-on answers on each (a taken port or the wrong add-on stops the connection with a plain message). Both add-on sockets still have no password.
 - **Blender: Poly Haven downloads for the Sculptor (off until you switch the source on).** Legion fetches the asset itself, shows a card (what, from where, how big) for every download, counts the run as outside content afterwards, keeps the files in a per-task folder outside your workspace (no `.blend` or scripts, size caps, md5 and sha256 recorded) and imports them with its own fixed script. The community add-on's own download and generator commands are never offered.
-- **Blender: "Get Blender for Legion" and "Get full Blender"** (Settings, Blender). The first fetches one pinned official portable build (5.2.2 LTS, Windows x64) into Legion's own folder, only after you press the button and Allow an approval card, with the sha256 checked before anything is unpacked and a strict zip reader (zip-slip, links, size and CRC checks). The second links to the official download page; Legion downloads nothing from it. Detection prefers the managed copy; your own install is never touched. The shipped hash was given by the owner and is not yet reproduced on a PC; the address is not confirmed by a request. Not yet tried on a real PC.
+- **Blender: "Get Blender for Legion" and "Get full Blender"** (Settings, Blender). The first fetches one pinned official portable build (5.2.2 LTS, Windows x64) into Legion's own folder, only after you press the button and Allow an approval card, with the sha256 checked before anything is unpacked and a strict zip reader (zip-slip, links, size and CRC checks). The second links to the official download page; Legion downloads nothing from it. Detection prefers the managed copy; your own install is never touched. The pinned commit and hash are recorded in `docs/BLENDER.md`.
 - **Blender: first-use chooser and Sculptor guidance.** The first Blender card carries a one-time "This computer / Cloud VM / My open Blender / Decide each time" question, saved through the admin settings route. The Sculptor is told when local, the VM or live fits, to say which it chose and why, and that it cannot change Settings.
-- **Blender local headless mode** (see [docs/BLENDER.md](docs/BLENDER.md)): `blender -b` on this computer in a per-task scene with a backup before each run, the same full-script card (badge "On this PC", no one-key Allow), the audit log and quarantined exports; `mode:"local"` on the Blender tools. A busy light ("Running a script") shows while a Blender script runs. Not yet tried with a real Blender on Windows.
-- **Blender: the official add-on is installed as an extension** (`extension build`, `repo-list`, `install-file`, `extension list`), with the by-hand route named when a step fails. Not yet tried on a real Blender 5.1 or later.
+- **Blender local headless mode** (see [docs/BLENDER.md](docs/BLENDER.md)): `blender -b` on this computer in a per-task scene with a backup before each run, the same full-script card (badge "On this PC", no one-key Allow), the audit log and quarantined exports; `mode:"local"` on the Blender tools. A busy light ("Running a script") shows while a Blender script runs.
+- **Blender: the official add-on is installed as an extension** (`extension build`, `repo-list`, `install-file`, `extension list`), with the by-hand route named when a step fails.
 - **Blender: the community add-on is pinned to a commit and sha256.** The project moved to `ahujasid/mcp-for-blender` and has no tags. The hash is still to be reproduced on the owner's PC.
 - A wording test for Blender text (`test/blender-hedge.test.ts`) that shares its banned phrases with the BSV one.
 
-## [0.2.0] - 2026-10-02
 
 ### Changed
 
