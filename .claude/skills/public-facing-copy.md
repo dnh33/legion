@@ -80,3 +80,15 @@ Rule of thumb: **cause goes in the changelog, outcome goes in the notes.**
 - [ ] Outcomes, not mechanisms
 - [ ] Leak check passed
 - [ ] Maintainer detail preserved in the tracker, so nothing is actually lost
+
+- **The changelog is public. Audit it like the app.** `CHANGELOG.md` is in `ROOT_DOCS` in `scripts/export-public.mjs` and
+  ships to the public repository. Phrases banned in the UI are banned there too, and so are pointers to files under
+  `claude/` — a reader of the public repository has no `tracker-pc-checks.md`, so the reference points at nothing. The
+  mistake this prevents: cleaning the wording out of the app while leaving it in the one file that actually publishes.
+- **Keep a release's section where it belongs.** An `[Unreleased]` heading holding work that already shipped is worse
+  than no heading, because the file then misstates what exists. Before filing content under a version, date it —
+  `git log --diff-filter=A` on the feature files against `git log -1 --format=%ci <tag>` settles which release it
+  shipped in mechanically instead of by guess.
+- **Consolidating patch releases is a lossless operation or it is not worth doing.** Diff the bullets before and
+  after, assert that nothing outside the consolidated range was dropped, and then walk the dropped set item by item
+  against the new text. Word-overlap scoring is a smell, not a proof; the judgement has to be made by reading.
