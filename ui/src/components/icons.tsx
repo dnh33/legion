@@ -15,6 +15,7 @@ const P: Record<string, string> = {
   chevron: 'M9 6l6 6-6 6',
   send: 'M5 12l14-7-5 14-2-6-7-1z',
   stop: 'M7 7h10v10H7z',
+  pause: 'M9 6v12M15 6v12',
   tool: 'M14 6a4 4 0 0 0 4 4l-9 9a2 2 0 0 1-3-3l9-9a4 4 0 0 0-1-1zM15 3l2 2',
   edit: 'M4 20h4L19 9l-4-4L4 16zM14 6l4 4',
   play: 'M8 5l11 7-11 7z',

@@ -13,7 +13,7 @@
  *   {say: 'text'}                           an assistant text message
  *   {tool: 'Bash', input: {...}, as: 'k'}   a tool call; the outcome is stored under vars[k] and in the run log
  *   {wait: 50}                              sleep (ms)
- *   {result: 'text', costUsd?: 0.01, error?: true}   the final result message (added automatically if the script has none)
+ *   {result: 'text', costUsd?: 0.01, error?: true, subtype?: 'error_max_turns'}   the final result message (added automatically if the script has none); `subtype` overrides the error kind
  * Selection: scripts are registered with a matcher {agent?, promptIncludes?, once?=true}. First registered match wins; no match -> a default reply.
  */
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
@@ -91,7 +91,7 @@ export function createFakeModel() {
       for (const c of clients.values()) await c.close().catch(() => undefined);
     }
     const text = final?.result ?? record.defaultReply;
-    yield { type: 'result', subtype: final?.error ? 'error_during_execution' : 'success', is_error: final?.error === true, result: text, total_cost_usd: final?.costUsd ?? 0, num_turns: 1, session_id: sid };
+    yield { type: 'result', subtype: final?.subtype ?? (final?.error ? 'error_during_execution' : 'success'), is_error: final?.error === true, result: text, total_cost_usd: final?.costUsd ?? 0, num_turns: 1, session_id: sid };
   }
 
   const queryFn = (p) => {

@@ -40,7 +40,8 @@ test('auto: priorModel opus sticks', () => {
 });
 
 test('shouldEscalate', () => {
-  assert.equal(shouldEscalate({ model: 'sonnet', subtype: 'error_max_turns', isError: true }), true);
+  // a turn-limit stop pauses for Continue on the same model; it is not a reason to buy a second budget on Opus
+  assert.equal(shouldEscalate({ model: 'sonnet', subtype: 'error_max_turns', isError: true }), false);
   assert.equal(shouldEscalate({ model: 'sonnet', subtype: 'error_during_execution', isError: true, errorText: 'boom' }), true);
   assert.equal(shouldEscalate({ model: 'sonnet', subtype: 'success', isError: true, errorText: 'weird' }), true);
   assert.equal(shouldEscalate({ model: 'sonnet', subtype: 'success', isError: false }), false);

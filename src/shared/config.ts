@@ -11,7 +11,7 @@ import { DEFAULT_PROVIDERS, normalizeProviders } from '../core/providers/config.
 import type { ProvidersConfig } from '../core/providers/types.js';
 export { MAX_ROOM_BUDGET_USD };
 
-export const VERSION = '0.2.5-a';
+export const VERSION = '0.2.5-b';
 
 /**
  * Optional BSV Dev Kit toggle (knowledge and visibility only: no wallet, no keys, no funds).
@@ -55,7 +55,22 @@ export function normalizeFeatures(v: unknown): FeaturesConfig {
   return { projectBoard: o.projectBoard !== false, providers: o.providers !== false };
 }
 
-export type CoreConfig = LegionConfig & { bsv: BsvConfig; comms: CommsConfig; blender: BlenderConfig; providers: ProvidersConfig; experimental: ExperimentalConfig; features: FeaturesConfig };
+export type CoreConfig = LegionConfig & { bsv: BsvConfig; comms: CommsConfig; blender: BlenderConfig; providers: ProvidersConfig; experimental: ExperimentalConfig; features: FeaturesConfig; /** One-time config.json migrations already applied (see CONFIG_MIGRATIONS). */ migrations?: string[] };
+
+/**
+ * Turns one Claude run may take before it stops. Claude Code itself has no cap; this is a safety net, and a run that hits it
+ * can be continued in the same session (Continue in the app). Was 40 before 0.2.5-b, which cut long tasks short.
+ */
+export const DEFAULT_MAX_TURNS = 200;
+
+/**
+ * Applied once per config.json, in order, to the ON-DISK JSON (so env-derived values such as BOAT_API_KEY are never written),
+ * then recorded under "migrations" so a later manual choice is never undone.
+ */
+const CONFIG_MIGRATIONS: Array<{ id: string; apply: (disk: any) => void }> = [
+  // 40 was the shipped default, written to every config.json on first run; nobody chose it, so it moves to the new default.
+  { id: 'claude-max-turns-v2', apply: (d) => { if (d.claude && typeof d.claude === 'object' && d.claude.maxTurns === 40) d.claude.maxTurns = DEFAULT_MAX_TURNS; } },
+];
 
 /** The least a room's budget can be (below it one turn cannot fit). The hub, the settings dialogs and the bot-room limits all use it. */
 export const MIN_ROOM_BUDGET_USD = 0.05;
@@ -168,7 +183,7 @@ export function defaultConfig(): CoreConfig {
       auth: 'claude-login',
       inheritClaudeCodeSettings: true,
       inheritMcp: false,
-      maxTurns: 40,
+      maxTurns: DEFAULT_MAX_TURNS,
     },
     boat: { baseUrl: 'https://boat.dev/api/v1' },
     mcpServers: {},
@@ -179,7 +194,22 @@ export function defaultConfig(): CoreConfig {
     providers: { ...DEFAULT_PROVIDERS, entries: {} },
     experimental: {},
     features: { projectBoard: true, providers: true },
+    // a fresh config already has every migration's result
+    migrations: CONFIG_MIGRATIONS.map((m) => m.id),
   };
+}
+
+/** Runs the config migrations this file has not had yet, on the file's own JSON. Returns that JSON (changed or not). */
+function migrateConfigFile(p: string, raw: unknown): unknown {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return raw;
+  const disk = raw as { migrations?: unknown };
+  const done = new Set(Array.isArray(disk.migrations) ? disk.migrations.filter((m): m is string => typeof m === 'string') : []);
+  const todo = CONFIG_MIGRATIONS.filter((m) => !done.has(m.id));
+  if (!todo.length) return raw;
+  for (const m of todo) { m.apply(disk); done.add(m.id); }
+  disk.migrations = [...done];
+  try { writeConfigFile(p, JSON.stringify(disk, null, 2)); } catch { /* read-only: applied in memory this time, retried next start */ }
+  return disk;
 }
 
 /** Whatever the file held under "bsv", reduced to the one shape we accept (testnet only, boolean flag, an optional wallet URL string). */
@@ -209,7 +239,7 @@ export function loadConfig(): CoreConfig {
   const p = configPath();
   let cfg = defaultConfig();
   if (existsSync(p)) {
-    cfg = merge(cfg, JSON.parse(readFileSync(p, 'utf8')));
+    cfg = merge(cfg, migrateConfigFile(p, JSON.parse(readFileSync(p, 'utf8'))));
     tightenConfigMode(p);
   } else {
     saveConfig(cfg);

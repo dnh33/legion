@@ -124,6 +124,7 @@ kbd { font-size: 10.5px; line-height: 1; padding: 3px 5px; border: 1px solid var
 .st-queued { background: var(--warn); }
 .st-done { background: var(--muted); }
 .st-error { background: var(--danger); }
+.st-paused { background: var(--warn); }
 .st-cancelled { background: var(--faint); }
 .banner { display: flex; align-items: center; gap: 8px; margin: 10px 20px 0; padding: 7px 12px; border-radius: var(--r); background: var(--warn-soft); border: 1px solid rgba(255, 204, 102, .28); color: var(--warn); text-align: left; }
 .banner span { margin-left: auto; opacity: .85; }
@@ -159,6 +160,11 @@ kbd { font-size: 10.5px; line-height: 1; padding: 3px 5px; border: 1px solid var
 .msg.err .err-body { flex: 1; min-width: 0; }
 .msg.err b { display: block; color: var(--danger); font-size: 12.5px; }
 .msg.err p { margin: 2px 0 0; color: var(--text-2); font-size: 12.5px; }
+/* a turn-limit stop is a pause, not a failure: the work is kept and Continue picks it up */
+.msg.err.paused { background: var(--warn-soft); border-color: rgba(255, 204, 102, .3); }
+.msg.err.paused .icon, .msg.err.paused b { color: var(--warn); }
+.msg.err .err-actions { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; flex: none; }
+.msg.err .err-actions .link-btn { color: var(--muted); font-size: 12px; }
 .msg.assistant { min-width: 0; }
 
 .md { overflow-wrap: anywhere; }

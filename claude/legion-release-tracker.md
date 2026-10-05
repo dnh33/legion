@@ -1514,3 +1514,21 @@ Both share Lattice F1 (`perf-l-store.test`, kg.updated re-read count), which fai
 Branch-only fail E4 (Chromium launch) passes in isolation: load timing.
 Open, pre-existing: `test-perf/bsv-ui/shots.mjs` "Arm LIVE FUNDS" step finds the button disabled (mainnet hard-off by
 default); the scenario predates the mainnet policy. The chat-ui rigs hard-code `/tmp/m/wt-chat` (Linux only).
+
+## 2026-10-05 — 0.2.5-b (release/0.2.5-b)
+
+Ships: a task that runs out of turns pauses with Continue instead of restarting (Retry and the Sonnet->Opus
+escalation re-sent the whole request into the resumed session; confirmed on a real Zealot session: 40 turns, then the
+same 5,897-char prompt again). Turn limit 40 -> 200 (one-time move for configs still on 40). error_max_turns no longer
+escalates. /compact in Claude tasks reaches Claude Code (Legion had routed it to the provider summariser).
+Compactions are shown in the thread. Paused card amber, history line short, amber status dots.
+Not in the changelog because no installed user sees it: five tests switched their escalation trigger from
+error_max_turns to error_during_execution (their subject is the escalation, which max turns no longer triggers);
+the harness fake model takes an optional result `subtype`.
+Gate (worktree, under parallel load from the test-map proof): 2727 tests, 2679 pass / 3 fail / 45 skip, typecheck and
+UI build clean. Fails: Lattice F1 (perf-l-store, known OPEN, fails on main); R2-G10 lock (library-review2-graph) and
+kg.updated debounce (kg-routes): both pass 3/3 alone, files untouched by this release: load timing.
+Proof: 11 scratch mutations each turned a new test red. Real evidence: zealot session 8ba6d5c8. UI looked at in the
+screenshot rig (dark, light, 860 px) and Continue pressed end to end against the compiled core.
+Needs a real PC: TL1-TL7 in claude/tracker-pc-checks.md (real SDK resume after the limit and after a crash).
+Council findings deferred to 0.2.5-c: claude/plan-0.2.5-c.md.

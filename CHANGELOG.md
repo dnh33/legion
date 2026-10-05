@@ -2,6 +2,26 @@
 
 All notable changes are recorded here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses [Semantic Versioning](https://semver.org/).
 
+## [0.2.5-b] - 2026-10-05
+
+### Fixed
+
+- **A long task that runs out of turns picks up where it stopped, instead of starting over.** A Claude run stops after
+  a set number of turns. Retry then sent your whole request again, so Claude began the task from the start. Now the
+  task shows **Paused at the turn limit**, in amber rather than as a failure, with **Continue**: Claude carries on in the
+  same conversation, and the work it already did is kept. A run cut short by a crash, a restart of Legion or a dropped
+  connection offers Continue too. The mascots treat a pause as a pause: they stand calm instead of showing a fault.
+- **Tasks get 200 turns per run, up from 40.** If your settings still had the old default of 40, they move to 200 once.
+  A limit you picked yourself is kept. You can change it in Settings → Claude, and **Raise the limit** on the card
+  takes you there.
+- **When Sonnet fails with an error, Opus now takes over and finishes the task in the same conversation.** Legion has
+  always meant to do this, but the step never ran: the error went straight to "Run failed". Running out of turns is not
+  such an error. The task pauses on the model it was using, so you are never moved to Opus prices without asking.
+- **`/compact` works in Claude conversations.** It used to answer with a message about provider models and did nothing.
+  Now Claude compacts the conversation, keeping any focus you type after the command.
+- **The thread says when a conversation was compacted**, whether you asked or Claude did it to make room, and how large
+  it was. Before, early instructions could fade with no sign of why.
+
 ## [0.2.5-a] - 2026-10-05
 
 ### Fixed

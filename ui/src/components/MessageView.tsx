@@ -4,6 +4,7 @@ import { CopyMenu } from './CopyMenu';
 import { Markdown } from './Markdown';
 import { modelLabel } from '../models';
 import { selectTask, useStore } from '../store';
+import { CONTINUE_PROMPT } from '../../../src/shared/continue';
 
 export function ModelTag({ task }: { task?: Task }) {
   const catalog = useStore((s) => s.catalog);
@@ -26,6 +27,8 @@ export function splitPrefix(text: string): { model: string | null; text: string 
 
 function MessageViewImpl({ m, agent, task, streaming }: { m: Pick<ChatMessage, 'role' | 'text' | 'fromAgentId'>; agent?: AgentProfile; task?: Task; streaming?: boolean }) {
   if (m.role === 'user' && (m.fromAgentId || parseReply(m.text))) return <AgentMessage from={m.fromAgentId ?? parseReply(m.text)!.name} text={m.text} />;
+  // the Continue button's own instruction to Claude: shown as the action it was, not as a paragraph the user never typed
+  if (m.role === 'user' && m.text === CONTINUE_PROMPT) return <div className="msg system">Continued where it stopped</div>;
   if (m.role === 'user') return <UserBubble text={m.text} />;
   if (m.role === 'system') return <div className="msg system">{m.text}</div>;
   return (
