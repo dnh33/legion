@@ -272,6 +272,8 @@ export async function refresh() {
       return {
         loaded: true, version: snap.version, auth: snap.auth, boatConfigured: snap.boatConfigured, boatHealth: snap.boat ?? s.boatHealth,
         agents: snap.agents, tasks: snap.tasks, vms, approvals: dedupeById(snap.approvals),
+        // opened mid-run: show the run's turn, tool and checklist now, not after its next event
+        progress: snap.progress ?? s.progress,
         selectedAgentId: sel,
         selectedTaskId: first ? null : s.selectedTaskId,
       };

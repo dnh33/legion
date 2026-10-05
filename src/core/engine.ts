@@ -4,11 +4,12 @@ import { join } from 'node:path';
 import { query as realQuery } from '@anthropic-ai/claude-agent-sdk';
 import type { McpServerConfig, Options, Query, Settings, query as sdkQuery } from '@anthropic-ai/claude-agent-sdk';
 import type {
-  AgentProfile, ApprovalMode, ChatMessage, ConcreteModel, LegionConfig, MascotMood, MessageRole, ModelChoice, Task, TaskSource,
+  AgentProfile, ApprovalMode, ChatMessage, ConcreteModel, LegionConfig, MascotMood, MessageRole, ModelChoice, Task, TaskProgress, TaskSource,
 } from '../shared/types.js';
 import { newId, nowIso, titleFrom } from '../shared/util.js';
 import { scrubHostSessionEnv } from '../shared/config.js';
-import { CONTINUE_PROMPT, TURN_LIMIT_PREFIX } from '../shared/continue.js';
+import { BUDGET_LIMIT_PREFIX, CONTINUE_PROMPT, TURN_LIMIT_PREFIX, budgetCap, formatUsdLimit } from '../shared/continue.js';
+import { contextTokensOf } from '../shared/context-meter.js';
 import { isLegionTool, needsApproval, stricterMode } from './approvals.js';
 import { TaintedPaths } from './tainted-paths.js';
 import type { CoreModule, ModuleJob, PreambleContext, TaskEndOutcome } from './modules.js';
@@ -23,7 +24,7 @@ import { Bridge } from './bridge.js';
 import type { BridgeStartParams } from './bridge.js';
 import type { VmManager } from './vm-manager.js';
 import { isSelfMcpUrl, McpStatusTracker, selfMcpNames } from './mcp-status.js';
-import type { McpStatusView } from '../shared/types.js';
+import type { McpStatusView, TodoItem } from '../shared/types.js';
 import { providerPrefix } from './providers/runtime.js';
 import type { ProviderRuntime } from './providers/runtime.js';
 import type { ProviderHost, ResolvedModel } from './providers/types.js';
@@ -50,6 +51,27 @@ export interface EngineDeps {
   providers?: ProviderRuntime;
   /** Projects (src/core/projects). Absent: no task has a project and nothing about projects is interpreted. */
   projects?: ProjectStore;
+}
+
+/** Most items and longest item text of a TodoWrite list kept for the live checklist. */
+export const TODO_MAX_ITEMS = 50;
+export const TODO_MAX_TEXT = 200;
+const clipText = (v: string) => (v.length > TODO_MAX_TEXT ? v.slice(0, TODO_MAX_TEXT - 1) + '…' : v);
+
+/** Reads a TodoWrite input ({ todos: [{ content, status, activeForm? }] }) into a clipped checklist; null when it has no usable list. */
+export function clipTodos(input: unknown): TodoItem[] | null {
+  const raw = (input as { todos?: unknown } | null | undefined)?.todos;
+  if (!Array.isArray(raw)) return null;
+  const out: TodoItem[] = [];
+  for (const t of raw) {
+    if (out.length >= TODO_MAX_ITEMS) break;
+    const content = typeof t?.content === 'string' ? t.content.trim() : '';
+    if (!content) continue;
+    const status = t.status === 'completed' || t.status === 'in_progress' ? t.status : 'pending';
+    const active = typeof t.activeForm === 'string' ? t.activeForm.trim() : '';
+    out.push({ content: clipText(content), status, ...(active ? { activeForm: clipText(active) } : {}) });
+  }
+  return out;
 }
 
 /**
@@ -161,7 +183,7 @@ interface Active {
   /** This run's prompt reached a session (Claude: its init arrived; provider: it took a turn). Only then can a stop be continued. */
   reached?: boolean;
   /** Live progress of the current run (Claude): sent as `task.progress`, never stored. */
-  progress?: { startedAt: string; turn: number; maxTurns: number; tool: string | null; turnIds: Set<string> };
+  progress?: { startedAt: string; turn: number; maxTurns: number; tool: string | null; turnIds: Set<string>; contextTokens?: number; todos?: TodoItem[]; thinking: boolean };
 }
 interface Outcome { subtype: string; isError: boolean; errorText?: string }
 
@@ -415,10 +437,22 @@ export class Engine {
     return undefined;
   }
 
+  /** The live progress of every running Claude run, for a client that connects mid-run (events are transient). */
+  progressSnapshot(): Record<string, TaskProgress> {
+    const out: Record<string, TaskProgress> = {};
+    for (const [taskId, act] of this.active) {
+      const p = act.progress;
+      // a run whose task is already marked done/error is in its last moments of cleanup: it has no progress to show
+      if (!p || this.store.getTask(taskId)?.status !== 'running') continue;
+      out[taskId] = { startedAt: p.startedAt, turn: p.turn, maxTurns: p.maxTurns, tool: p.tool, thinking: p.thinking, ...(p.contextTokens !== undefined ? { contextTokens: p.contextTokens } : {}), ...(p.todos ? { todos: p.todos } : {}) };
+    }
+    return out;
+  }
+
   private emitProgress(taskId: string, act: Active): void {
     const p = act.progress;
     if (!p) return;
-    this.bus.emit({ type: 'task.progress', taskId, progress: { startedAt: p.startedAt, turn: p.turn, maxTurns: p.maxTurns, tool: p.tool } });
+    this.bus.emit({ type: 'task.progress', taskId, progress: { startedAt: p.startedAt, turn: p.turn, maxTurns: p.maxTurns, tool: p.tool, thinking: p.thinking, ...(p.contextTokens !== undefined ? { contextTokens: p.contextTokens } : {}), ...(p.todos ? { todos: p.todos } : {}) } });
   }
 
   private mascot(mood: MascotMood, note?: string): void {
@@ -593,14 +627,21 @@ export class Engine {
     if (outcome.isError) {
       // Read by people (the app) and by callers without a button (MCP clients, other bots), so it names no button.
       const turnLimit = outcome.subtype === 'error_max_turns' && !outcome.errorText;
+      // The spend limit is the same kind of stop. The subtype alone says so (no error text is needed), and the amount is named when known.
+      const budgetLimit = outcome.subtype === 'error_max_budget_usd';
+      const cap = budgetCap(this.config.claude.maxBudgetUsd);
+      const budgetWhere = cap !== undefined ? ` (${formatUsdLimit(cap)} this run)` : '';
       const text = turnLimit
         ? `${TURN_LIMIT_PREFIX} (${this.config.claude.maxTurns} turns this run) before finishing. The work so far is kept: continue the task to pick up where it stopped.`
-        : outcome.errorText || outcome.subtype;
+        : budgetLimit
+          ? `${BUDGET_LIMIT_PREFIX}${budgetWhere} before finishing. The work so far is kept: continue the task to pick up where it stopped.`
+          : outcome.errorText || outcome.subtype;
       this.patchTask(job.taskId, { status: 'error', error: text, ...(act.tainted ? { tainted: true } : {}) });
       // the history keeps a short line; the full text is the task's error, which the app shows on the Paused card
-      this.addMessage(job.taskId, 'system', turnLimit ? `${TURN_LIMIT_PREFIX} (${this.config.claude.maxTurns} turns this run).` : `Error: ${text}`);
-      // A turn-limit stop is a pause with the work kept: the mascot stands calm. "Fault detected" would contradict the card.
+      this.addMessage(job.taskId, 'system', turnLimit ? `${TURN_LIMIT_PREFIX} (${this.config.claude.maxTurns} turns this run).` : budgetLimit ? `${BUDGET_LIMIT_PREFIX}${budgetWhere}.` : `Error: ${text}`);
+      // A limit stop is a pause with the work kept: the mascot stands calm. "Fault detected" would contradict the card.
       if (turnLimit) this.mascot('idle', 'paused at the turn limit');
+      else if (budgetLimit) this.mascot('idle', 'paused at the spend limit');
       else this.mascot('error', text.slice(0, 120));
     } else {
       this.patchTask(job.taskId, { status: 'done', resumable: undefined, ...(act.tainted ? { tainted: true } : {}) });
@@ -762,6 +803,8 @@ export class Engine {
       ...(this.config.claude.inheritMcp === true ? {} : { strictMcpConfig: true }),
       disallowedTools: ['SendMessage', 'ListAgents', ...this.moduleDisallowed(agent)],
       maxTurns: this.config.claude.maxTurns,
+      // optional spend cap per run; on a resumed session it counts only the new spend
+      ...(budgetCap(this.config.claude.maxBudgetUsd) !== undefined ? { maxBudgetUsd: budgetCap(this.config.claude.maxBudgetUsd) } : {}),
       includePartialMessages: true,
       abortController: act.ac,
       env: buildChildEnv(this.config),
@@ -920,7 +963,7 @@ export class Engine {
     const q = this.queryFn({ prompt, options });
     act.q = q;
     // each run counts its own turns (the limit is per run); the clock and the tool reset with it
-    act.progress = { startedAt: nowIso(), turn: 0, maxTurns: this.config.claude.maxTurns, tool: null, turnIds: new Set() };
+    act.progress = { startedAt: nowIso(), turn: 0, maxTurns: this.config.claude.maxTurns, tool: null, turnIds: new Set(), thinking: false };
     this.emitProgress(job.taskId, act);
 
     const aborted = new Promise<'aborted'>((res) => {
@@ -947,6 +990,8 @@ export class Engine {
       if (outcome.isError) return outcome;
       throw e;
     } finally {
+      // a thinking flag must never outlive its run
+      if (act.progress?.thinking) { act.progress.thinking = false; this.emitProgress(job.taskId, act); }
       try { q.close?.(); } catch { /* ignore */ }
       try { void it.return?.(undefined)?.catch?.(() => undefined); } catch { /* ignore */ }
     }
@@ -1007,6 +1052,12 @@ export class Engine {
         if (ev?.type === 'content_block_delta' && ev.delta?.type === 'text_delta' && typeof ev.delta.text === 'string' && !msg.parent_tool_use_id) {
           this.bus.emit({ type: 'message.delta', taskId, text: ev.delta.text });
         }
+        // A thinking block is shown only as a state ("Thinking"); its text is never stored or sent. The flag follows the block.
+        const pg = act.progress;
+        if (pg && !msg.parent_tool_use_id) {
+          if (ev?.type === 'content_block_start' && (ev.content_block?.type === 'thinking' || ev.content_block?.type === 'redacted_thinking') && !pg.thinking) { pg.thinking = true; this.emitProgress(taskId, act); }
+          else if (ev?.type === 'content_block_stop' && pg.thinking) { pg.thinking = false; this.emitProgress(taskId, act); }
+        }
         return undefined;
       }
       case 'assistant': {
@@ -1016,14 +1067,24 @@ export class Engine {
         // A turn is one model response of the run itself: one message id (the SDK may send a response in several
         // messages that share it). A subagent's messages carry parent_tool_use_id and are not the run's own turns.
         const pg = act.progress;
+        // a finished response means the thinking in it is over, whatever its blocks said
+        const wasThinking = pg?.thinking === true;
+        if (pg && wasThinking) pg.thinking = false;
+        let todosChanged = false;
         if (pg && !msg.parent_tool_use_id) {
+          for (const b of blocks) {
+            if (b?.type === 'tool_use' && b.name === 'TodoWrite') { const list = clipTodos(b.input); if (list) { pg.todos = list; todosChanged = true; } }
+          }
           const id = typeof msg.message?.id === 'string' ? msg.message.id : `n${pg.turnIds.size}`;
           const lastTool = [...blocks].reverse().find((b) => b?.type === 'tool_use');
-          const before = `${pg.turn}|${pg.tool}`;
+          const before = `${pg.turn}|${pg.tool}|${pg.contextTokens ?? ''}`;
           if (!pg.turnIds.has(id)) { pg.turnIds.add(id); pg.turn = pg.turnIds.size; }
           if (lastTool) pg.tool = String(lastTool.name ?? 'tool');
-          if (`${pg.turn}|${pg.tool}` !== before) this.emitProgress(taskId, act);
-        }
+          // the context after this response: its input plus the cache it read and wrote (a subagent's is its own context, so skipped above)
+          const ctx = contextTokensOf(msg.message?.usage);
+          if (ctx !== undefined) pg.contextTokens = ctx;
+          if (`${pg.turn}|${pg.tool}|${pg.contextTokens ?? ''}` !== before || todosChanged || wasThinking) this.emitProgress(taskId, act);
+        } else if (pg && wasThinking) this.emitProgress(taskId, act);
         for (const b of blocks) {
           if (b?.type !== 'tool_use') continue;
           this.noteToolUse(job, act, String(b.name ?? 'tool'), typeof b.id === 'string' ? b.id : undefined, b.input);

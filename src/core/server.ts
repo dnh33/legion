@@ -198,6 +198,8 @@ export function createServer(ctx: CoreContext): Server {
     // A token-only client gets whether things work, never the user's prices or what the key was probed for.
     ...(ctx.vms.health ? { boat: isAdminReq(req) ? ctx.vms.health.view() : publicBoatHealth(ctx.vms.health.view()) } : {}),
     auth: ctx.config.claude.auth,
+    // live progress of running runs, so a window opened mid-run shows the turn, tool and checklist at once (hidden agents' runs left out)
+    progress: Object.fromEntries(Object.entries(ctx.engine.progressSnapshot?.() ?? {}).filter(([id]) => { const t = ctx.store.getTask(id); return !!t && taskShown(t); })),
   }));
   route('GET', '/api/config', () => redactConfig(ctx.config));
   route('GET', '/api/doctor', () => ctx.doctor());

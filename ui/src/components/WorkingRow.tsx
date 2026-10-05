@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react';
 import { elapsedLabel } from '../chat/elapsed';
+import { contextLabel } from '../../../src/shared/context-meter';
+import { workingLabel } from '../chat/working';
 import { useStore } from '../store';
 
 /**
@@ -16,11 +18,12 @@ export function WorkingRow({ taskId, queued, waiting }: { taskId: string; queued
     return () => window.clearInterval(t);
   }, [progress, queued]);
 
-  const label = queued ? 'Queued' : waiting ? 'Waiting for your OK' : 'Working';
+  const label = workingLabel({ queued, waiting, thinking: progress?.thinking });
   const parts: string[] = [];
   if (progress && !queued) {
     parts.push(`turn ${progress.turn} of ${progress.maxTurns}`);
     if (progress.tool && !waiting) parts.push(progress.tool);
+    if (progress.contextTokens !== undefined) parts.push(contextLabel(progress.contextTokens));
   }
   const started = progress && !queued ? Date.parse(progress.startedAt) : NaN;
   return (
