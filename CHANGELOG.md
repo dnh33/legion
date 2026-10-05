@@ -4,6 +4,12 @@ All notable changes are recorded here. The format follows [Keep a Changelog](htt
 
 ## [0.2.3-k] - 2026-10-04
 
+### Added
+
+- **F1, F2 and F3 move between Chat, Rooms and Library.** The three main views sit one key away, and the buttons
+  in the title bar now say which. Held with Ctrl, Alt or the Windows key, the shortcut is left alone so it cannot
+  collide with another program's key.
+
 ### Fixed
 
 - **Files from a release that no longer ships them are cleaned out of the house layer.** Copying the layer in only

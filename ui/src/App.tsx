@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { initBlender } from './blender/blenderStore';
+import { viewForKey } from './viewKeys';
 import { initHouse } from './house/houseStore';
 import { EnableBlenderDialog } from './blender/EnableBlenderDialog';
 import { initBsv } from './bsv/bsvStore';
@@ -22,7 +23,7 @@ import { initProjects } from './projects/projectsStore';
 import { RoomsView } from './rooms/RoomsView';
 import { initRooms } from './rooms/roomsStore';
 import {
-  closeOverlays, closeSettings, getState, init, newTask, openPalette, switchAgentByIndex, toggleMascotLab, toggleOps, toggleSettings, useStore,
+  closeOverlays, closeSettings, getState, init, newTask, openPalette, switchAgentByIndex, toggleMascotLab, toggleOps, toggleSettings, useStore, setView,
 } from './store';
 
 /** Ops-panel slide (app.css `.app` grid transition is 180 ms): keep the panel mounted until it has slid out. */
@@ -67,6 +68,19 @@ export function App() {
   useWindowAway();
 
   useEffect(() => { init(); initRooms(); initBsv(); initBlender(); initHouse(); initLibrary(); initProjects(); }, []);
+
+  // F1/F2/F3 switch the main views. Renderer-level on purpose - see ui/src/viewKeys.ts for why this must not be an
+  // OS-level registration. Repeat presses are harmless: setView to the view already shown is a no-op.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const next = viewForKey(e.key, { ctrlKey: e.ctrlKey, metaKey: e.metaKey, altKey: e.altKey });
+      if (!next) return;
+      e.preventDefault();
+      setView(next);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
   useEffect(() => {
     const h = (e: KeyboardEvent) => {
       const mod = e.ctrlKey || e.metaKey;
