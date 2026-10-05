@@ -28,3 +28,6 @@ docs/images/relic.png
 
 # local full-suite logs
 .testlog2.txt
+
+# test map (npm run test:map): local, rebuilt from a full run
+.testmap/
