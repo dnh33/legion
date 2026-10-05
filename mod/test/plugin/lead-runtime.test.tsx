@@ -9,7 +9,7 @@ import { ZEALOT_ART_JSON } from './fixtures/art-zealot.ts'
 
 const ROOT = 'C:/Users/test/.legion-mod'
 
-function world(on: any) {
+function world(on: any, opts: { env?: Record<string, string> } = {}) {
   const files = new Map<string, string>()
   const writes: Record<string, any[]> = {}
   const registered: { agents: string[]; commands: string[]; tools: string[] } = { agents: [], commands: [], tools: [] }
@@ -18,7 +18,7 @@ function world(on: any) {
   const artReads: string[] = []
   const norm = (p: string) => p.replace(/\\/g, '/')
   const clock = mock.clock(on, { now: 1_000_000 })
-  mock.env(on, { USERPROFILE: 'C:/Users/test' })
+  mock.env(on, { USERPROFILE: 'C:/Users/test', ...opts.env })
   on('session.id', () => ({ value: 'sess_test_1' }))
   on('settings.read', () => ({ value: { theme: 'dark' } }))
   on('fs.exists', (_$: any, e: any) => ({ value: files.has(norm(e.path)) || [...files.keys()].some(k => k.startsWith(norm(e.path) + '/')) }))
@@ -78,6 +78,9 @@ test('boot: registers the order (hidden agents excepted), the commands and the a
   expect(w.registered.tools).toEqual(['agents'])
   expect(w.last('theme')).toBe('dark')
   expect(w.last('agents')?.length).toBe(13)
+  // The trace is off unless asked for: no debug file.
+  await w.clock.advance(2_000)
+  expect([...w.files.keys()].some(k => k.includes('/debug/'))).toBe(false)
 })
 
 test('/to queues a spawn for the runner, and the transcript line names the task', async ($, on) => {
@@ -218,7 +221,20 @@ test('a Legion agent delegates inside the Order only: general-purpose is refused
   results.push({ requestId: req.id, kind: 'spawn', taskId: w.last('tasks')[0].id, ok: true, runId: 'run_z', model: 'm', at: 1 })
   await start($)
   const refused: any = await ($ as any).tool.call({ tool: 'Agent', subagent_type: 'general-purpose', description: 'x', prompt: 'count files', tool_use_id: 'tu_1', agentId: 'run_z' })
-  expect(String(refused?.deny ?? refused?.text ?? JSON.stringify(refused))).toContain('Delegate inside the Order: use subagent_type legion-mod:<agent id>')
+  expect(String(refused?.deny ?? refused?.text ?? JSON.stringify(refused))).toContain('Delegate inside the Order: set subagent_type to legion-mod:<agent id>; you used general-purpose')
   const allowed: any = await ($ as any).tool.call({ tool: 'Agent', subagent_type: 'legion-mod:scout', description: 'x', prompt: 'count files', run_in_background: true, tool_use_id: 'tu_2', agentId: 'run_z' })
   expect(allowed?.deny).toBeUndefined()
+})
+
+test('LEGION_MOD_TRACE=1: decisions land in the session\'s trace file within a second; off writes no trace', async ($, on) => {
+  const w = world(on, { env: { LEGION_MOD_TRACE: '1' } })
+  await start($)
+  await ($ as any).command.run({ command: 'to', args: 'scout read the readme' })
+  await w.clock.advance(1_100)
+  const traceKey = [...w.files.keys()].find(k => k.startsWith(`${ROOT}/debug/trace-sess_test_1`))
+  expect(traceKey).toBeDefined()
+  const kinds = w.files.get(traceKey!)!.trim().split('\n').map(l => JSON.parse(l).k)
+  expect(kinds).toContain('boot')
+  expect(kinds).toContain('cmd')
+  expect(kinds).toContain('queue')
 })

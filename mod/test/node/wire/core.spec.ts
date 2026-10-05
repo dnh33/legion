@@ -82,3 +82,20 @@ test('newCtx: starts on Zealot in Chat with nothing pending', () => {
   assert.equal(ctx.pending.size, 0)
   assert.equal(ctx.isReady, false)
 })
+
+test('toolInput drops the engine envelope; toolLine reads a delegation as the person would say it', async () => {
+  const { toolInput, toolLine } = await import('../../../src/wire/core.ts')
+  const { summarizeToolInput } = await import('../../../src/engine/approvals.ts')
+  const e = { tool: 'Agent', tool_use_id: 'tu_1', agentId: 'run_z', consent: 'x', subagent_type: 'legion-mod:scout', description: 'Check the engines field', run_in_background: false, prompt: 'long brief' }
+  assert.deepEqual(toolInput(e), { subagent_type: 'legion-mod:scout', description: 'Check the engines field', run_in_background: false, prompt: 'long brief' })
+  assert.equal(toolLine('Agent', toolInput(e), agents, summarizeToolInput), 'Ask Scout: Check the engines field')
+  assert.equal(toolLine('Agent', { subagent_type: 'legion-mod:builder', prompt: 'Fix the test\nmore', run_in_background: true }, agents, summarizeToolInput), 'Tell Builder: Fix the test')
+  assert.equal(toolLine('Bash', { command: 'npm test' }, agents, summarizeToolInput), 'npm test')
+})
+
+test('orderOnlyMessage: names what was used, including the default general-purpose agent', async () => {
+  const { orderOnlyMessage } = await import('../../../src/wire/core.ts')
+  assert.match(orderOnlyMessage(undefined, agents), /you used no subagent_type \(Claude Code's general-purpose agent\)/)
+  assert.match(orderOnlyMessage('Explore', agents), /you used Explore\./)
+  assert.ok(!orderOnlyMessage('Explore', agents).includes('assayer'), 'hidden agents are not offered')
+})

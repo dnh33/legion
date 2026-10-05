@@ -31,7 +31,8 @@ import { palette, themeFromClaude } from '../theme.ts'
 import { decodeArt, type Art } from '../art/art.ts'
 import { createStage, invalidateStage, musterCells, stepStage, type StageRuntime } from '../art/driver.ts'
 import { bandItemAt, decodeAction, type DecodedAction } from '../ui/actions.ts'
-import { assistantText, latestTaskOf, orderOnlyMessage, makeTask, newCtx, notificationRunId, parseTo, pushBand, resolveAgent, resumeRequest, spawnRequest, stopRequest, taskList, type Ctx } from './core.ts'
+import { FLUSH_MS, newTrace, record, traceFile, traceText, type TraceLine } from './trace.ts'
+import { assistantText, latestTaskOf, orderOnlyMessage, toolInput, toolLine, makeTask, newCtx, notificationRunId, parseTo, pushBand, resolveAgent, resumeRequest, spawnRequest, stopRequest, taskList, type Ctx } from './core.ts'
 
 // ---- State the UI draws (one reference each; literals, as the validator requires) ----
 const AGENTS = { plugin: 'legion-mod', key: 'agents' } as const
@@ -64,9 +65,32 @@ type Stores = { tasks: TaskStore; threads: ThreadStore; settings: SettingsStore;
 let ctx: Ctx = newCtx({ ...DEFAULT_SETTINGS })
 let stores: Stores | undefined
 let dataRootPath = ''
+let trace = newTrace(false)
+let traceFlushPending = false
 let liveAt = 0
 
 const message = (err: unknown): string => (err instanceof Error ? err.message : String(err)).slice(0, 300)
+
+// ---- Development trace (src/wire/trace.ts): off by default; one boolean check when off ----
+
+async function tr($: EngineInterface, line: Omit<TraceLine, 't'>): Promise<void> {
+  if (!trace.isOn) return
+  record(trace, { t: await $.clock.now(), ...line } as TraceLine)
+  if (traceFlushPending) return
+  traceFlushPending = true
+  $.clock.after(FLUSH_MS, () => void flushTrace($))
+}
+
+async function flushTrace($: EngineInterface): Promise<void> {
+  traceFlushPending = false
+  if (!trace.isDirty || !dataRootPath || !ctx.sessionId) return
+  trace.isDirty = false
+  try {
+    await $.fs.write(`${dataRootPath}/${traceFile(ctx.sessionId)}`, traceText(trace))
+  } catch (err) {
+    $.ui.log(`legion-mod: trace not written: ${message(err)}`, { to: 'debug' })
+  }
+}
 
 // ---- Publishing ------------------------------------------------------------------------------------------------------
 
@@ -133,6 +157,7 @@ async function settleMood($: EngineInterface, agentId: string): Promise<void> {
   if (step.state !== ctx.moods[agentId]) {
     ctx.moods = { ...ctx.moods, [agentId]: step.state }
     await $.state.set(MOODS, ctx.moods)
+    await tr($, { k: 'mood', agent: agentId, mood: step.state.mood })
     if (ctx.settings.twoD) { await driveStage($); await publishMuster($) }
   }
   if (step.recheckAt !== undefined && !moodCheckPending.has(agentId)) {
@@ -152,6 +177,7 @@ async function addBand($: EngineInterface, item: BandItem): Promise<void> {
 // ---- Lifecycle requests (legion-mod-runner acts on them) -----------------------------------------------------------------
 
 async function enqueue($: EngineInterface, req: RunRequest): Promise<void> {
+  await tr($, { k: 'queue', task: req.taskId, run: req.runId, kind: req.kind, agentType: req.agentType, model: req.model, prompt: req.prompt })
   ctx.pending.set(req.id, req)
   await publishQueue($)
 }
@@ -199,6 +225,7 @@ async function onResult($: EngineInterface, r: RunResult): Promise<void> {
   if (!req) return
   ctx.applied.add(r.requestId)
   ctx.pending.delete(r.requestId)
+  await tr($, { k: 'result', task: req.taskId, run: r.runId, kind: req.kind, ok: r.ok, error: r.error, model: r.model })
   await publishQueue($)
   const task = ctx.tasks.get(req.taskId)
   if (!task) return
@@ -238,6 +265,7 @@ async function adopt($: EngineInterface, runId: string): Promise<string | undefi
   const task = makeTask({ id: newId('t'), agentId: agent.id, text: opening || info.description || agent.name, sessionId: ctx.sessionId, origin, now: (await $.clock.now()) })
   ctx.tasks.set(task.id, task)
   ctx.byRun.set(runId, task.id)
+  await tr($, { k: 'adopt', task: task.id, agent: agent.id, run: runId, origin: origin.kind, parentTask: parent?.id, title: task.title })
   await apply($, task.id, { type: 'queued', task, ...(opening ? { prompt: opening } : {}), ...(parent ? { fromAgentId: parent.agentId } : {}) })
   await apply($, task.id, { type: 'started', taskId: task.id, runId, model: '' })
   return task.id
@@ -360,6 +388,7 @@ async function boot($: EngineInterface): Promise<void> {
   const previousUi = (await $.state.get({ plugin: 'legion-mod', key: 'ui' } as const)).value
   ctx = newCtx(settings)
   ctx.sessionId = sessionId
+  trace = newTrace((await $.env.get('LEGION_MOD_TRACE')) === '1' || trace.isOn)
   ctx.agents = await stores.agents.load(seedAgents())
   for (const t of await stores.tasks.load()) {
     ctx.tasks.set(t.id, t)
@@ -382,6 +411,7 @@ async function boot($: EngineInterface): Promise<void> {
   await publishQueue($)
   for (const a of ctx.agents) if (!a.isHidden) await $.agent.register(buildAgentSpec(a, settings))
   ctx.isReady = true
+  await tr($, { k: 'boot', root, agents: ctx.agents.filter(a => !a.isHidden).length, tasks: ctx.tasks.size, pending: ctx.pending.size, twoD: settings.twoD })
   // The 2D Order only when it is on: off loads no art and schedules nothing.
   await $.state.set(STAGE, null)
   if (settings.twoD) await publishMuster($)
@@ -524,6 +554,7 @@ async function doctor($: EngineInterface): Promise<DoctorLine[]> {
 }
 
 async function runCommand($: EngineInterface, command: string, args: string): Promise<{ text: string }> {
+  await tr($, { k: 'cmd', command, args })
   if (!ctx.isReady) return { text: 'Legion is still starting. Try again in a moment.' }
   if (command === 'to') {
     const parsed = parseTo(args, ctx.agents)
@@ -569,6 +600,12 @@ async function runCommand($: EngineInterface, command: string, args: string): Pr
     ctx.ui = { ...ctx.ui, channel: agent.id, agentId: agent.id }
     await $.state.set(UI, ctx.ui)
     return { text: `Speaking to ${agent.glyph} ${agent.name}. Every prompt goes to ${agent.name} until /legion talk off.` }
+  }
+  if (sub === 'trace') {
+    if (rest !== 'on' && rest !== 'off') return { text: 'Usage: /legion trace on|off. The trace is for development: every decision, one line each, in the data folder.' }
+    trace.isOn = rest === 'on'
+    if (trace.isOn) await tr($, { k: 'boot', root: dataRootPath, agents: ctx.agents.filter(a => !a.isHidden).length, tasks: ctx.tasks.size, pending: ctx.pending.size, twoD: ctx.settings.twoD, via: 'command' })
+    return { text: trace.isOn ? `Trace on: ${dataRootPath}/${traceFile(ctx.sessionId)}. Read it with node scripts/mod-trace.mjs.` : 'Trace off.' }
   }
   if (sub === 'doctor') {
     const lines = await doctor($)
@@ -635,6 +672,12 @@ export function registerLegion(on: Parameters<Register>[0]): void {
   on('command.run', { command: 'continue' }, ($, e) => commandHook($, 'continue', e.args))
   on('command.run', { command: 'stop' }, ($, e) => commandHook($, 'stop', e.args))
 
+  // The trace's last lines: flushed at session end (Claude Code bounds session.end to about 1.5 s; one write fits).
+  on('session.end', async ($, e, next) => {
+    if (trace.isOn && trace.isDirty) await flushTrace($)
+    return next(e)
+  })
+
   // Every Legion Button: decode its key and act. The Button's own onPress is a no-op; this hook answers the press.
   on('ui.press', { requestId: 'legion' }, async ($, e, next) => {
     const action = decodeAction(e.element)
@@ -671,10 +714,17 @@ export function registerLegion(on: Parameters<Register>[0]): void {
       const target = parseLegionAgentType(input.subagent_type)
       // A Legion agent delegates inside the Order only: a built-in type (general-purpose, Explore) would run outside Legion,
       // untracked and unguarded. A live run on 2026-10-05 showed Zealot reaching for general-purpose.
-      if (!target) return { deny: orderOnlyMessage(input.subagent_type, ctx.agents) }
+      if (!target) {
+        const reason = orderOnlyMessage(input.subagent_type, ctx.agents)
+        await tr($, { k: 'deny', task: task.id, agent: task.agentId, run: runId, tool: e.tool, subagentType: input.subagent_type, reason })
+        return { deny: reason }
+      }
       const check = checkAsk({ callerRunId: runId, target, isBlocking: input.run_in_background === false, message: input.prompt ?? '', agents: ctx.agents, tasks: taskList(ctx), waiting: ctx.waiting, rateLog: ctx.rateLog, now: (await $.clock.now()) })
       ctx.rateLog = check.rateLog
-      if (!check.ok) return { deny: check.reason }
+      if (!check.ok) {
+        await tr($, { k: 'deny', task: task.id, agent: task.agentId, run: runId, tool: e.tool, subagentType: input.subagent_type, reason: check.reason })
+        return { deny: check.reason }
+      }
       if (input.run_in_background === false) ctx.waiting.add(runId)
     }
     if (taintsRun(e.tool) && !task.isTainted) {
@@ -683,10 +733,14 @@ export function registerLegion(on: Parameters<Register>[0]): void {
       await stores?.tasks.put(tainted)
       await publishTasks($)
     }
-    await apply($, task.id, { type: 'tool', runId, toolUseId: e.tool_use_id, tool: e.tool, summary: summarizeToolInput(e.tool, e as unknown as Record<string, unknown>) })
+    const summary = toolLine(e.tool, toolInput(e as unknown as Record<string, unknown>), ctx.agents, summarizeToolInput)
+    const agentCall = e.tool === 'Agent' ? (e as unknown as { subagent_type?: string; run_in_background?: boolean }) : undefined
+    await tr($, { k: 'tool', task: task.id, agent: task.agentId, run: runId, tool: e.tool, id: e.tool_use_id, summary, subagentType: agentCall?.subagent_type, background: agentCall?.run_in_background })
+    await apply($, task.id, { type: 'tool', runId, toolUseId: e.tool_use_id, tool: e.tool, summary })
     const ran = await next(e)
     ctx.waiting.delete(runId)
     const failed = ran.deny !== undefined || ran.isError === true
+    await tr($, { k: 'toolDone', task: task.id, run: runId, tool: e.tool, id: e.tool_use_id, isError: failed, deny: ran.deny })
     await apply($, task.id, { type: 'toolDone', runId, toolUseId: e.tool_use_id, isError: failed })
     return ran
   })
@@ -713,6 +767,7 @@ export function registerLegion(on: Parameters<Register>[0]): void {
     if (!taskId || !e.agentId) return yield* next(e)
     const runId = e.agentId
     await apply($, taskId, { type: 'step', runId }, { persistRows: false })
+    await tr($, { k: 'step', task: taskId, run: runId, n: ctx.tasks.get(taskId)?.runTurns, model: e.model })
     let text = ''
     const stream = next(e)
     while (true) {
@@ -758,6 +813,7 @@ export function registerLegion(on: Parameters<Register>[0]): void {
     const usage = 'usage' in e && e.usage ? tokensFromUsage(e.usage) : undefined
     const model = 'usage' in e && e.usage && typeof e.usage.model === 'string' ? e.usage.model : undefined
     const after = await apply($, taskId, { type: 'finished', runId, reason: e.reason, answer: e.answer, isTurnLimit, ...(usage ? { usage } : {}), ...(model ? { model } : {}) })
+    await tr($, { k: 'finish', task: taskId, agent: after?.agentId, run: runId, reason: e.reason, status: after?.status, turns: after?.turns, runTurns: task.runTurns, isTurnLimit, cost: after?.costUsd, answer: e.answer })
     if (!after) return done
     const agent = ctx.agents.find(a => a.id === after.agentId)
     const who = agent ? `${agent.glyph} ${agent.name}` : after.agentId
@@ -789,7 +845,10 @@ export function registerLegion(on: Parameters<Register>[0]): void {
   on('prompt.submit', async ($, e, next) => {
     if (e.origin?.kind === 'task-notification') {
       const runId = notificationRunId(e.text)
-      if (runId && ctx.byRun.has(runId)) return { drop: 'Legion task finished; shown in the Legion pane.' }
+      if (runId && ctx.byRun.has(runId)) {
+        await tr($, { k: 'drop', run: runId, task: ctx.byRun.get(runId) })
+        return { drop: 'Legion task finished; shown in the Legion pane.' }
+      }
     }
     if (e.origin?.kind === 'composer' && ctx.ui.channel && ctx.isReady && !e.text.trimStart().startsWith('/')) {
       const agent = ctx.agents.find(a => a.id === ctx.ui.channel)
@@ -797,6 +856,7 @@ export function registerLegion(on: Parameters<Register>[0]): void {
         const task = latestTaskOf(ctx, agent.id)
         const why = task && task.runId && task.status !== 'running' && task.status !== 'queued' ? await continueTask($, task, e.text) : (await startTask($, agent, e.text), '')
         if (why) $.ui.toast(why)
+        await tr($, { k: 'channel', agent: agent.id, text: e.text, refused: why || undefined })
         return { drop: `Sent to ${agent.name} (Legion channel).` }
       }
     }

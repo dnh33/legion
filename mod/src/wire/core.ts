@@ -132,7 +132,32 @@ export function latestTaskOf(ctx: Ctx, agentId: AgentId): TaskView | undefined {
 /** Why a Legion agent's Agent call to a non-Legion type is refused, and how to do it right. */
 export function orderOnlyMessage(subagentType: unknown, agents: readonly AgentView[]): string {
   const who = agents.filter(a => !a.isHidden).map(a => a.id).join(', ')
-  return `Delegate inside the Order: use subagent_type legion-mod:<agent id>, not ${String(subagentType ?? 'none')}. The Order: ${who}. mcp__legion-mod__agents says who is busy.`
+  const used = typeof subagentType === 'string' && subagentType.trim() ? subagentType : 'no subagent_type (Claude Code\'s general-purpose agent)'
+  return `Delegate inside the Order: set subagent_type to legion-mod:<agent id>; you used ${used}. The Order: ${who}. mcp__legion-mod__agents says who is busy.`
+}
+
+/** The engine's envelope on a tool call (claude-code.d.ts ToolCallReserved, AgentLoop): not part of what the tool was asked. */
+const ENVELOPE = new Set(['tool', 'tool_use_id', 'consent', 'agentId'])
+
+/** A tool call's own input, without the engine's envelope fields. */
+export function toolInput(e: Record<string, unknown>): Record<string, unknown> {
+  return Object.fromEntries(Object.entries(e).filter(([k]) => !ENVELOPE.has(k)))
+}
+
+/**
+ * The one line a thread shows for a tool call. A delegation inside the Order reads as the person would say it, "Ask Scout:
+ * check the engines field"; everything else uses the desktop's summary rule (approvals.ts summarizeToolInput).
+ */
+export function toolLine(tool: string, input: Record<string, unknown>, agents: readonly AgentView[], summarize: (tool: string, input: Record<string, unknown>) => string): string {
+  if (tool === 'Agent' && typeof input.subagent_type === 'string' && input.subagent_type.startsWith('legion-mod:')) {
+    const id = input.subagent_type.slice('legion-mod:'.length)
+    const name = agents.find(a => a.id === id)?.name ?? id
+    const what = typeof input.description === 'string' && input.description.trim()
+      ? input.description.trim()
+      : titleFrom(typeof input.prompt === 'string' ? input.prompt : '')
+    return `${input.run_in_background === false ? 'Ask' : 'Tell'} ${name}: ${what}`
+  }
+  return summarize(tool, input)
 }
 
 /** Band rows are capped: at most 20 kept, newest last; a newer row for the same task replaces the older one. */
