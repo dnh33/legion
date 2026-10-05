@@ -1,0 +1,11 @@
+{
+  "name": "legion-mod-dev",
+  "private": true,
+  "type": "module",
+  "description": "Development manifest only: marks the mod's .ts files as ES modules for Node's test runner. The plugin itself is .claude-plugin/plugin.json.",
+  "scripts": {
+    "test:node": "node --experimental-transform-types --no-warnings --test \"test/node/**/*.spec.ts\"",
+    "test:plugin": "claude plugin test .",
+    "validate": "claude plugin validate ."
+  }
+}
