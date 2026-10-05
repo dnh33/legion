@@ -62,10 +62,17 @@ test('persistence round-trip after flush', async () => {
 
 test('debounced write happens without explicit flush', async () => {
   const dir = tmp();
-  const s = new Store(dir);
+  const s = new Store(dir, { saveDebounceMs: 20 });
   s.upsertTask(task('t1', 'done', '2026-01-01T00:00:00.000Z'));
   assert.ok(!existsSync(join(dir, 'state.json')));
-  await new Promise((r) => setTimeout(r, 2000));
+  // Poll for file to appear instead of fixed sleep
+  const maxWait = 2000;
+  const pollInterval = 5;
+  const startTime = Date.now();
+  while (Date.now() - startTime < maxWait) {
+    if (existsSync(join(dir, 'state.json'))) break;
+    await new Promise((r) => setTimeout(r, pollInterval));
+  }
   assert.ok(existsSync(join(dir, 'state.json')));
   rmSync(dir, { recursive: true, force: true });
 });

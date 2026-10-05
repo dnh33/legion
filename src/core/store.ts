@@ -35,9 +35,11 @@ export class Store {
   private migrations = new Set<string>();
   private readonly stateFile: string;
   private readonly messagesDir: string;
+  private readonly saveDebounceMs: number;
 
   /** dir = data dir (e.g. ~/.legion). Loads <dir>/state.json if present. Writes are debounced (~200ms), atomic (tmp + rename). */
-  constructor(public readonly dir: string) {
+  constructor(public readonly dir: string, options?: { saveDebounceMs?: number }) {
+    this.saveDebounceMs = options?.saveDebounceMs ?? DEBOUNCE_MS;
     this.stateFile = join(dir, 'state.json');
     this.messagesDir = join(dir, 'messages');
     mkdirSync(dir, { recursive: true });
@@ -198,7 +200,7 @@ export class Store {
   private markDirty(): void {
     this.dirty = true;
     if (this.timer) return;
-    this.timer = setTimeout(() => { this.timer = null; this.schedulePersist(); }, DEBOUNCE_MS);
+    this.timer = setTimeout(() => { this.timer = null; this.schedulePersist(); }, this.saveDebounceMs);
     this.timer.unref?.();
   }
 
