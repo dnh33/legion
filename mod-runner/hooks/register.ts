@@ -40,6 +40,12 @@ async function record($: EngineInterface, result: RunResult): Promise<void> {
   await $.state.set(RESULTS, [...list, result].slice(-RESULTS_KEPT))
 }
 
+/** Writes the results list once at start (empty when nothing ran yet), so Legion Mod's doctor can see the runner is here. */
+async function announce($: EngineInterface): Promise<void> {
+  const got = await $.state.get(RESULTS)
+  if (got.version === 0) await $.state.set(RESULTS, [])
+}
+
 const message = (err: unknown): string => (err instanceof Error ? err.message : String(err)).slice(0, 300)
 
 /** Carries out one request. Never throws: a failure comes back as `ok: false` with a plain sentence. */
@@ -97,6 +103,7 @@ async function tick($: EngineInterface): Promise<void> {
 export const register: Register = on => {
   on('session.start', async ($, e, next) => {
     const started = await next(e)
+    await announce($)
     $.clock.after(IDLE_MS, () => void tick($))
     return started
   })

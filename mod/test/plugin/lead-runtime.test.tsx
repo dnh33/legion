@@ -125,3 +125,28 @@ test('a run: the runner starts it, tool calls and replies fill the thread, the f
   await w.clock.advance(2_000)
   expect(w.last('moods').builder.mood).toBe('victory')
 })
+
+test('/legion doctor: says what is fine and, for each problem, what to do next', async ($, on) => {
+  const w = world(on)
+  on('session.version', () => ({ value: { version: '2.1.289', base: '2.1.289', builtAt: '2026-10-01' } }))
+  await start($)
+  const out: any = await ($ as any).command.run({ command: 'legion', args: 'doctor' })
+  const text = String(out?.text)
+  expect(text).toContain('✓ Claude Code: 2.1.289')
+  expect(text).toContain('✕ Runner: legion-mod-runner is not running')
+  expect(text).toContain('claude plugin install legion-mod-runner@legion')
+  expect(text).toContain('✓ Data folder: C:/Users/test/.legion-mod')
+  expect(text).not.toContain('All clear.')
+  expect(w.last('doctor')?.length).toBeGreaterThan(4)
+})
+
+test('/legion doctor: an old Claude Code is named with the fix', async ($, on) => {
+  world(on)
+  on('session.version', () => ({ value: { version: '2.1.280', base: '2.1.280', builtAt: '2026-09-01' } }))
+  on('state.get', { plugin: 'legion-mod-runner', key: 'results' } as any, () => ({ value: { value: [], version: 1 } }))
+  await start($)
+  const out: any = await ($ as any).command.run({ command: 'legion', args: 'doctor' })
+  const text = String(out?.text)
+  expect(text).toContain('✕ Claude Code: 2.1.280: mods need 2.1.287 or newer. Run claude update.')
+  expect(text).toContain('✓ Runner')
+})

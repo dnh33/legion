@@ -46,10 +46,11 @@ test('ignores a stale request and a non-Legion agent type', async ($, on) => {
   expect(w.writes.at(-1)?.map((r: any) => [r.requestId, r.ok])).toEqual([['rq_foreign', false]])
 })
 
-test('does nothing while the queue is empty (Legion Mod absent)', async ($, on) => {
+test('does nothing while the queue is empty (Legion Mod absent), beyond saying it is here', async ($, on) => {
   const w = world(on, [])
   await start($)
   for (let i = 0; i < 3; i++) await w.clock.advance(1_000)
   expect(w.spawned.length).toBe(0)
-  expect(w.writes.length).toBe(0)
+  // One write at start: an empty results list, so Legion Mod's doctor can see the runner (version > 0). Nothing after.
+  expect(w.writes).toEqual([[]])
 })

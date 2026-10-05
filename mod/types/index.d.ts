@@ -130,6 +130,9 @@ export type BandItem = {
 /** An agent's live mood, with when it started (moods dwell at least 1.8 s, urgent ones switch at once). */
 export type MoodState = { mood: Mood; since: number; note?: string }
 
+/** One line of `/legion doctor`: ok, a problem with its next step, or informational (null). */
+export type DoctorLine = { ok: boolean | null; label: string; detail: string }
+
 /** The mod's own settings, kept across sessions. */
 export type ModSettings = {
   /** `auto` follows Claude Code's theme setting. */
@@ -196,6 +199,10 @@ declare module 'claude-code' {
       moods: Record<AgentId, MoodState>
       band: BandItem[]
       settings: ModSettings
+      /** This window's Claude Code session id: tasks owned by another session are drawn read-only ("running in another window"). */
+      sessionId: string
+      /** The last `/legion doctor` result, newest run only. */
+      doctor: DoctorLine[]
       /** Resolved theme for drawing: `dark` or `light`. */
       theme: 'dark' | 'light'
       /** Lifecycle requests for legion-mod-runner, which acts on them from its own timer (plan §1b). Cleared once answered. */

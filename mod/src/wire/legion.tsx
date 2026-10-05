@@ -11,10 +11,10 @@
  */
 import type { EngineInterface, Register } from 'claude-code'
 
-import type { AgentView, BandItem, ModSettings, Mood, RunRequest, RunResult, TaskOrigin, TaskView, ThreadRow, ViewId } from '../../types/index.d.ts'
+import type { AgentView, BandItem, DoctorLine, ModSettings, Mood, RunRequest, RunResult, TaskOrigin, TaskView, ThreadRow, ViewId } from '../../types/index.d.ts'
 import { answerTaintsCaller, checkAsk, parseLegionAgentType, tellReply, truncateResult } from '../engine/bridge.ts'
 import { CONTINUE_PROMPT, inferTurnLimit } from '../engine/continue.ts'
-import { tokensFromUsage } from '../engine/cost.ts'
+import { PRICES_AS_OF, tokensFromUsage } from '../engine/cost.ts'
 import { nextMood } from '../engine/mood.ts'
 import { buildAgentSpec } from '../engine/prompt.ts'
 import { seedAgents } from '../engine/roster.ts'
@@ -43,6 +43,8 @@ const BAND = { plugin: 'legion-mod', key: 'band' } as const
 const SETTINGS = { plugin: 'legion-mod', key: 'settings' } as const
 const THEME = { plugin: 'legion-mod', key: 'theme' } as const
 const QUEUE = { plugin: 'legion-mod', key: 'runQueue' } as const
+const SESSION = { plugin: 'legion-mod', key: 'sessionId' } as const
+const DOCTOR = { plugin: 'legion-mod', key: 'doctor' } as const
 /** legion-mod-runner's state is outside this plugin's contract (validate lists it under "state of other plugins"), hence the casts. */
 const RESULTS = { plugin: 'legion-mod-runner', key: 'results' } as const
 /** The same value as a hook matcher. The validator refuses one const used both as a state reference and as a matcher. */
@@ -57,6 +59,7 @@ type Stores = { tasks: TaskStore; threads: ThreadStore; settings: SettingsStore;
 
 let ctx: Ctx = newCtx({ ...DEFAULT_SETTINGS })
 let stores: Stores | undefined
+let dataRootPath = ''
 let liveAt = 0
 
 const message = (err: unknown): string => (err instanceof Error ? err.message : String(err)).slice(0, 300)
@@ -238,6 +241,7 @@ async function adopt($: EngineInterface, runId: string): Promise<string | undefi
 async function boot($: EngineInterface): Promise<void> {
   const sessionId = await $.session.id()
   const root = dataRoot({ LEGION_MOD_HOME: await $.env.get('LEGION_MOD_HOME'), USERPROFILE: await $.env.get('USERPROFILE'), HOME: await $.env.get('HOME') })
+  dataRootPath = root
   const port = fsPort({
     read: p => $.fs.read(p),
     write: (p, t) => $.fs.write(p, t),
@@ -267,6 +271,7 @@ async function boot($: EngineInterface): Promise<void> {
   const claudeTheme = (await $.settings.read()) as { theme?: unknown }
   await $.state.set(THEME, settings.theme === 'auto' ? themeFromClaude(claudeTheme.theme) : settings.theme)
   await $.state.set(SETTINGS, settings)
+  await $.state.set(SESSION, sessionId)
   await $.state.set(AGENTS, ctx.agents)
   await $.state.set(UI, ctx.ui)
   await $.state.set(MOODS, ctx.moods)
@@ -300,6 +305,11 @@ async function refresh($: EngineInterface): Promise<void> {
 }
 
 // ---- Commands ------------------------------------------------------------------------------------------------------------
+
+async function redrawTimes($: EngineInterface): Promise<void> {
+  if (!(await $.ui.panes()).some(p => p.id === 'legion' && p.isShown)) return
+  $.ui.invalidate('ui.render')
+}
 
 async function openTask($: EngineInterface, taskId: string): Promise<void> {
   const task = ctx.tasks.get(taskId)
@@ -367,6 +377,46 @@ async function actOn($: EngineInterface, a: DecodedAction): Promise<void> {
   }
 }
 
+/** The oldest Claude Code that runs mods (plan-legion-mod-release.md D10). */
+const MIN_CLAUDE_CODE = [2, 1, 287] as const
+
+const versionAtLeast = (v: string, min: readonly number[]): boolean => {
+  const parts = v.split(/[.+-]/).map(n => Number.parseInt(n, 10))
+  for (let i = 0; i < min.length; i++) {
+    const a = parts[i] ?? 0
+    if (Number.isNaN(a)) return false
+    if (a !== min[i]) return a > min[i]!
+  }
+  return true
+}
+
+/** `/legion doctor`: what Legion needs, checked now. Each problem says what to do next. */
+async function doctor($: EngineInterface): Promise<DoctorLine[]> {
+  const lines: DoctorLine[] = []
+  const version = (await $.session.version()).version
+  lines.push(versionAtLeast(version, MIN_CLAUDE_CODE)
+    ? { ok: true, label: 'Claude Code', detail: version }
+    : { ok: false, label: 'Claude Code', detail: `${version}: mods need ${MIN_CLAUDE_CODE.join('.')} or newer. Run claude update.` })
+  const runner = await $.state.get({ plugin: 'legion-mod-runner', key: 'results' } as any)
+  lines.push(runner.version > 0
+    ? { ok: true, label: 'Runner', detail: 'legion-mod-runner is answering' }
+    : { ok: false, label: 'Runner', detail: 'legion-mod-runner is not running, so agents cannot start. Install it: claude plugin install legion-mod-runner@legion' })
+  try {
+    const probe = `${dataRootPath}/doctor-probe.txt`
+    const stamp = String(await $.clock.now())
+    await $.fs.write(probe, stamp)
+    const back = await $.fs.read(probe)
+    lines.push(back === stamp ? { ok: true, label: 'Data folder', detail: dataRootPath } : { ok: false, label: 'Data folder', detail: `${dataRootPath} did not read back what was written.` })
+  } catch (err) {
+    lines.push({ ok: false, label: 'Data folder', detail: `${dataRootPath || 'not set'}: ${message(err)}. Set LEGION_MOD_HOME to a folder you can write.` })
+  }
+  const skipped = (stores?.tasks.skipped ?? 0) + (stores?.threads.skipped ?? 0) + (stores?.settings.skipped ?? 0) + (stores?.agents.skipped ?? 0)
+  lines.push(skipped === 0 ? { ok: true, label: 'Stored data', detail: 'every line read cleanly' } : { ok: false, label: 'Stored data', detail: `${skipped} unreadable line${skipped === 1 ? '' : 's'} skipped; nothing else was lost.` })
+  lines.push({ ok: null, label: 'Agents', detail: `${ctx.agents.filter(a => !a.isHidden).length} in the order` })
+  lines.push({ ok: null, label: 'Cost estimates', detail: `prices as of ${PRICES_AS_OF}` })
+  return lines
+}
+
 async function runCommand($: EngineInterface, command: string, args: string): Promise<{ text: string }> {
   if (!ctx.isReady) return { text: 'Legion is still starting. Try again in a moment.' }
   if (command === 'to') {
@@ -414,6 +464,12 @@ async function runCommand($: EngineInterface, command: string, args: string): Pr
     await $.state.set(UI, ctx.ui)
     return { text: `Speaking to ${agent.glyph} ${agent.name}. Every prompt goes to ${agent.name} until /legion talk off.` }
   }
+  if (sub === 'doctor') {
+    const lines = await doctor($)
+    await $.state.set(DOCTOR, lines)
+    const bad = lines.filter(l => l.ok === false).length
+    return { text: lines.map(l => `${l.ok === true ? '✓' : l.ok === false ? '✕' : '·'} ${l.label}: ${l.detail}`).join('\n') + (bad ? '' : '\nAll clear.') }
+  }
   if (sub === 'motion' || sub === '2d') {
     const on = rest === 'on'
     if (rest !== 'on' && rest !== 'off') return { text: `Usage: /legion ${sub} on|off` }
@@ -458,6 +514,8 @@ export function registerLegion(on: Parameters<Register>[0]): void {
       description: 'List the agents of Legion\'s order (id, name, what each is for) and which are busy. Ask one with the Agent tool: subagent_type legion-mod:<id>, run_in_background false to wait for its answer, true to hand work off.',
     })
     $.clock.every(REFRESH_MS, () => void refresh($))
+    // Relative times ("5m") are drawn from the clock: redraw the open pane twice a minute so they stay true. Nothing runs when it is closed.
+    $.clock.every(30_000, () => void redrawTimes($))
     return started
   })
 
