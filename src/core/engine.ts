@@ -166,6 +166,8 @@ interface Active {
 interface Outcome { subtype: string; isError: boolean; errorText?: string }
 
 const IDLE_MASCOT_MS = 4000;
+/** What the bundled Claude Code says when `resume` names a session it cannot find (strings in claude.exe, SDK 0.3.285). */
+const SESSION_MISSING_RE = /no conversation found|failed to resume session/i;
 
 export class Engine {
   private readonly store: Store;
@@ -403,6 +405,16 @@ export class Engine {
   }
 
   /** Live progress of a Claude run for the working row; transient by design (a restart has no run to report on). */
+  /** The newest request the person (or a bot) actually wrote in this task: not a Continue instruction. */
+  private lastRequest(taskId: string): string | undefined {
+    const rows = this.store.listMessages(taskId);
+    for (let i = rows.length - 1; i >= 0; i--) {
+      const m = rows[i]!;
+      if (m.role === 'user' && m.text.trim() && m.text !== CONTINUE_PROMPT) return m.text;
+    }
+    return undefined;
+  }
+
   private emitProgress(taskId: string, act: Active): void {
     const p = act.progress;
     if (!p) return;
@@ -544,8 +556,25 @@ export class Engine {
     this.mascot('thinking', from ? `${from.name} → ${agent.name}` : `${agent.name} on ${model}: ${decision.reason}`);
     const sendPrompt = (job.header ? job.header + '\n' : '') + decision.prompt;
 
+    const hadSession = !!this.store.getTask(job.taskId)?.sessionId;
     let outcome = await this.runOnce(job, agent, model, sendPrompt, act);
     if (act.cancelled) return;
+
+    // The session this task resumes is gone (its file was deleted, or Claude Code cannot find it): every Retry and
+    // Continue would fail the same way forever. Start a new conversation once, with the request itself (a "continue"
+    // instruction means nothing to a new conversation), and say so. Checked before escalation, which would hit the
+    // same missing session.
+    if (hadSession && !act.reached && outcome.isError && SESSION_MISSING_RE.test(outcome.errorText ?? '')) {
+      this.patchTask(job.taskId, { sessionId: undefined });
+      const request = decision.prompt === CONTINUE_PROMPT ? this.lastRequest(job.taskId) : sendPrompt;
+      if (!request || /^\s*\/compact\b/i.test(request)) {
+        outcome = { subtype: 'error_during_execution', isError: true, errorText: 'The earlier conversation could not be found, so there is nothing to continue or compact. Send your request again to start a new one.' };
+      } else {
+        this.addMessage(job.taskId, 'system', 'The earlier conversation could not be found, so Claude is starting a new one with your request.');
+        outcome = await this.runOnce(job, agent, model, request, act);
+        if (act.cancelled) return;
+      }
+    }
 
     const cur = this.store.getTask(job.taskId);
     if (

@@ -356,6 +356,55 @@ test('live progress: turns count the run\'s own responses (not a subagent\'s), t
   assert.deepEqual(p.map((x) => [x.turn, x.tool]), [[0, null], [1, 'Read'], [1, null], [1, 'Bash'], [1, null], [2, null]]);
 });
 
+// What the bundled CLI returns for a resume of a session it cannot find (an error result, before any init).
+const missing = (sid: string) => err('error_during_execution', [`No conversation found with session ID: ${sid}`]);
+
+test('a resumed session that no longer exists: the task starts a new conversation once, with the follow-up, and says so', async () => {
+  const s = setup((_p, n) => (async function* () {
+    if (n === 0) { yield init('sess-gone'); yield ok('first'); return; }
+    if (n === 1) { yield missing('sess-gone'); return; }
+    yield init('sess-new'); yield ok('fresh');
+  })(), { agent: { model: 'opus' } });
+  const t = s.engine.startTask({ agentId: 'a1', prompt: 'build the thing', source: 'ui' });
+  await s.engine.waitFor(t.id, 3000);
+  s.engine.startTask({ agentId: 'a1', prompt: 'now add tests', source: 'ui', continueTaskId: t.id });
+  const done = await s.engine.waitFor(t.id, 3000);
+  assert.equal(done.status, 'done');
+  assert.equal(done.sessionId, 'sess-new');
+  assert.equal(s.calls[1]!.options.resume, 'sess-gone');
+  assert.equal(s.calls[2]!.options.resume, undefined, 'the new conversation does not resume the missing one');
+  assert.equal(s.calls[2]!.prompt, 'now add tests');
+  assert.ok(s.store.listMessages(t.id).some((m) => m.role === 'system' && /could not be found, so Claude is starting a new one/.test(m.text)));
+});
+
+test('Continue on a session that no longer exists re-sends the last real request, not the continue instruction', async () => {
+  const s = setup((_p, n) => (async function* () {
+    if (n === 0) { yield init('sess-gone'); yield err('error_max_turns'); return; }
+    if (n === 1) { yield missing('sess-gone'); return; }
+    yield init('sess-new'); yield ok('fresh');
+  })(), { agent: { model: 'opus' } });
+  const t = s.engine.startTask({ agentId: 'a1', prompt: 'the original big job', source: 'ui' });
+  await s.engine.waitFor(t.id, 3000);
+  s.engine.startTask({ agentId: 'a1', prompt: CONTINUE_PROMPT, source: 'ui', continueTaskId: t.id });
+  const done = await s.engine.waitFor(t.id, 3000);
+  assert.equal(done.status, 'done');
+  assert.equal(s.calls[2]!.prompt, 'the original big job');
+});
+
+test('an ordinary failure before init on a resumed task does not start over (only a missing session does)', async () => {
+  const s = setup((_p, n) => (async function* () {
+    if (n === 0) { yield init('sess-1'); yield ok('first'); return; }
+    yield err('error_during_execution', ['Invalid API key, please login']);
+  })(), { agent: { model: 'opus' } });
+  const t = s.engine.startTask({ agentId: 'a1', prompt: 'one', source: 'ui' });
+  await s.engine.waitFor(t.id, 3000);
+  s.engine.startTask({ agentId: 'a1', prompt: 'two', source: 'ui', continueTaskId: t.id });
+  const done = await s.engine.waitFor(t.id, 3000);
+  assert.equal(done.status, 'error');
+  assert.equal(s.calls.length, 2);
+  assert.equal(done.sessionId, 'sess-1', 'the session is kept: it was not the problem');
+});
+
 test('a follow-up that fails before its own init is not resumable (the old session never saw it)', async () => {
   const s = setup((_p, n) => (async function* () {
     if (n === 0) { yield init('sess-old'); yield ok('first'); return; }
