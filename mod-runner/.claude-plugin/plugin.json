@@ -1,0 +1,11 @@
+{
+  "name": "legion-mod-runner",
+  "version": "0.1.0",
+  "description": "Companion to Legion Mod: starts, resumes and stops Legion's agents for it. Install both; it does nothing on its own.",
+  "author": { "name": "Daniel Hjermitslev", "url": "https://github.com/dnh33" },
+  "homepage": "https://github.com/dnh33/legion",
+  "repository": "https://github.com/dnh33/legion",
+  "license": "Apache-2.0",
+  "keywords": ["agents", "legion"],
+  "types": "./types/index.d.ts"
+}

@@ -54,6 +54,41 @@ The goal is as much of the desktop app as can work there. The look: phosphor gre
 | Browser tool | Claude Code has its own web tools. |
 | Updater | Plugin updates come from the marketplace. |
 
+## 1b. Spike results (2026-10-05)
+
+All runs were headless (`claude -p`, Claude Code 2.1.289, haiku). The probe plugins are in the session scratchpad.
+
+| Spike | Result |
+|---|---|
+| `$.agent.spawn` | Returns `{ model, agentId }` at once. `$.agent.list()` shows `status: 'running'` and the `name`. |
+| `turn.complete` | One per subagent run, carrying `agentId`, `reason` (`answer`), `answer`, and `usage` (the four token counts plus `model`). |
+| `session.append` | Every row of every subagent, with `agentId`. `door`: `prompt` / `response` / `tool-result` / `attachment` / `hook-context`. |
+| **Visibility (new)** | **The plugin whose hook caused a spawn never sees that agent's `tool.call` or `turn.step`, even from its other hooks.** It still sees `session.append` and `turn.complete`. The cause is followed through the chain: when plugin A's `$.state.set` triggered plugin B's `state.set` hook to spawn, **A** was blind and B saw the agent. When B spawned from its **own** `$.clock.every` timer after reading A's state, A saw every step and tool call. Agents the model starts with the Agent tool are visible to every plugin. This contradicts the d.ts wording ("every other hook sees its steps", D:12467-12470), and the tests are the evidence. |
+| One module per plugin | `hooks.json` `modules` takes exactly one entry. Validate refuses a second. |
+| Validator rule | `$` may be passed only to a function declared at the top of the same file, and is always spelled `$.noun.method(...)`. Closures made inside a hook that call `$.fs.read(...)` validate. |
+| Imports | `.ts` specifiers work in validate, `claude plugin test` and Node. Repo-style `./x.js` specifiers resolve in the engine. Node needs `--experimental-transform-types` for the vendored files (parameter properties). |
+| Globals | `crypto.randomUUID` and `crypto.subtle.digest` exist in the plugin environment. |
+| Turn limit (partial) | A `maxTurns: 2` agent that wanted 3 tool rounds ended with `reason: 'answer'` and an **empty** `answer`. There is no explicit flag. Detect it as an empty answer plus a step count of at least `maxTurns`. Needs a second run to confirm. |
+| Headless permissions | In `-p`, a subagent's Bash outside `--allowedTools` came back `isError` (denied). S1 and S2, the interactive dialogs, are still open. |
+
+**Consequence: Legion ships as two plugins.**
+
+| Plugin | Role |
+|---|---|
+| `legion-mod` | The brain: UI, approvals, taint, stores, bridge tools. It **observes** every agent. |
+| `legion-mod-runner` | The hands, about 150 lines. It makes every lifecycle call: spawn, resume (`$.session.send`), stop (`TaskStop`). It acts **only from its own timer**. |
+
+How they talk:
+
+1. `legion-mod` writes requests into its own state (`runQueue`).
+2. The runner polls that state with `$.clock.every`, at 200 ms while requests are pending and 1 s when idle. A state read is an in-process call.
+3. The runner writes the outcomes (`runIds`) into its own state.
+
+Because the runner, not `legion-mod`, causes every spawn, `legion-mod` sees every step. A test pins the rule: an agent spawned through the queue raises `tool.call` in `legion-mod`.
+
+- **Agent types stay with `legion-mod`.** It registers `legion-mod:<id>` from its agent store. Who owns the type made no difference to visibility in the spike.
+- **Bonus:** when Claude Code's own model delegates to `legion-mod:builder` with the Agent tool, that run is visible too. `legion-mod` adopts it as a Legion task (`origin: claude-code`), so work Claude Code hands to the order shows up in the pane.
+
 ## 2. Hard problems and their designs
 
 1. **Approval UX.** A hook cannot hold a tool call while a custom pane waits: awaiting our own promise counts against the 10 s hook budget, and the call then proceeds (D:4733-4750). Designs, in order:
@@ -99,7 +134,7 @@ The goal is as much of the desktop app as can work there. The look: phosphor gre
 
 ## 3. Storage
 
-Root: `~/.legion/mod/`. It is separate from the desktop's `~/.legion`, so the two never write one file. Import and export use the desktop's own formats.
+Root: `~/.legion-mod/` (override with `LEGION_MOD_HOME`). It sits outside `~/.legion`, because the desktop uninstaller's `-Purge` deletes `~/.legion` recursively. Import and export use the desktop's own formats.
 
 ```
 manifest.json              generations of each store
@@ -295,7 +330,7 @@ Fullscreen, docked, about 100 columns:
 ## 9. Owner decisions
 
 1. **Plugin id.** Recommended: `legion-mod`, giving agent types `legion-mod:zealot` and tools `mcp__legion-mod__kg_search`. Plain `legion` would collide with the MCP server that the desktop app's first-run screen tells every user to add under that name. Revisit only if S13 shows the two coexist.
-2. **Data root.** Recommended: `~/.legion/mod/`, separate from the desktop app, with import.
+2. **Data root.** Recommended: `~/.legion-mod/`. The desktop `-Purge` deletes `~/.legion`, and `${CLAUDE_PLUGIN_DATA}` is deleted on plugin uninstall.
 3. **Wordmark font licence.** Grenze Gotisch is expected to be OFL, but no licence file sits in `ui/src/fonts/`. Confirm before it ships.
 4. **Is the left-out list right** (BSV, VMs, Blender, providers)?
 5. **2D Order frame pipeline:** confirm that machine-derived half-block frames from the exact layers count as "effects and logic only" under the art rule.

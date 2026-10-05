@@ -2,10 +2,22 @@
   "name": "legion-mod",
   "version": "0.1.0",
   "description": "Legion's order of agents inside Claude Code: thirteen named agents, threads, approvals and a shared Library, in your terminal.",
-  "author": { "name": "Daniel Hjermitslev", "url": "https://github.com/dnh33" },
+  "author": {
+    "name": "Daniel Hjermitslev",
+    "url": "https://github.com/dnh33"
+  },
   "homepage": "https://github.com/dnh33/legion",
   "repository": "https://github.com/dnh33/legion",
   "license": "Apache-2.0",
-  "keywords": ["agents", "multi-agent", "orchestration", "knowledge-graph", "tui"],
-  "types": "./types/index.d.ts"
+  "keywords": [
+    "agents",
+    "multi-agent",
+    "orchestration",
+    "knowledge-graph",
+    "tui"
+  ],
+  "types": "./types/index.d.ts",
+  "dependencies": [
+    "legion-mod-runner"
+  ]
 }
