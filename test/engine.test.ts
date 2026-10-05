@@ -10,6 +10,7 @@ import { Engine, EngineError } from '../src/core/engine.js';
 import type { QueryFn } from '../src/core/engine.js';
 import { buildAgentToolsServer } from '../src/core/agent-tools.js';
 import { defaultConfig } from '../src/shared/config.js';
+import { CONTINUE_PROMPT, TURN_LIMIT_PREFIX } from '../src/shared/continue.js';
 import type { AgentProfile, ChatMessage, LegionConfig, LegionEvent, Task } from '../src/shared/types.js';
 
 // ---- fakes
@@ -156,10 +157,10 @@ test('routing: auto hard prompt -> opus; /sonnet prefix stripped; agent model ho
   assert.equal(s.store.getTask(t2.id)!.model, 'sonnet');
 });
 
-test('escalation: sonnet error_max_turns -> opus rerun with resume + system message', async () => {
+test('escalation: sonnet error_during_execution -> opus rerun with resume + system message', async () => {
   const s = setup((_p, n) => (async function* () {
     yield init('sess-x');
-    if (n === 0) yield err('error_max_turns');
+    if (n === 0) yield err('error_during_execution', ['tool crashed']);
     else yield ok('fixed it');
   })(), { agent: { model: 'sonnet' } });
   const t = s.engine.startTask({ agentId: 'a1', prompt: 'do it', source: 'ui' });
@@ -172,11 +173,140 @@ test('escalation: sonnet error_max_turns -> opus rerun with resume + system mess
   assert.equal(s.calls[0]!.options.model, 'sonnet');
   assert.equal(s.calls[1]!.options.model, 'opus');
   assert.equal(s.calls[1]!.options.resume, 'sess-x');
-  assert.equal(s.calls[1]!.prompt, 'do it');
+  // the resumed session already holds "do it": sending it again makes the model start the task over
+  assert.equal(s.calls[1]!.prompt, CONTINUE_PROMPT);
   assert.ok(Math.abs(done.costUsd! - 0.03) < 1e-9);
   const sys = s.store.listMessages(t.id).filter((m) => m.role === 'system');
   assert.equal(sys.length, 1);
   assert.match(sys[0]!.text, /^Escalated to Opus: /);
+});
+
+test('escalation before the session started re-sends the original prompt', async () => {
+  // run 1 dies before init (no session got the prompt); run 2 must carry the task itself
+  const s = setup((_p, n) => (async function* () {
+    if (n === 0) { yield err('error_during_execution', ['spawn failed']); return; }
+    yield init('sess-y'); yield ok('done');
+  })(), { agent: { model: 'sonnet' } });
+  const done = await s.engine.waitFor(s.engine.startTask({ agentId: 'a1', prompt: 'do it', source: 'ui' }).id, 3000);
+  assert.equal(done.status, 'done');
+  assert.equal(s.calls.length, 2);
+  assert.equal(s.calls[1]!.prompt, 'do it');
+});
+
+test('turn limit: task ends resumable with a plain message; Continue resumes the session, not the task', async () => {
+  const s = setup((_p, n) => (async function* () {
+    yield init('sess-t');
+    if (n === 0) yield err('error_max_turns');
+    else yield ok('finished');
+  })(), { agent: { model: 'opus' }, config: (c) => { c.claude.maxTurns = 7; } });
+  const t = s.engine.startTask({ agentId: 'a1', prompt: 'big job', source: 'ui' });
+  const stopped = await s.engine.waitFor(t.id, 3000);
+  assert.equal(stopped.status, 'error');
+  assert.equal(stopped.resumable, true);
+  assert.ok(stopped.error!.startsWith(TURN_LIMIT_PREFIX));
+  assert.match(stopped.error!, /7 turns this run/);
+  // also read by MCP clients and other bots, which have no button to press
+  assert.doesNotMatch(stopped.error!, /Press|button|Settings/);
+  assert.equal(s.store.listMessages(t.id).filter((m) => m.role === 'system' && m.text.startsWith('Error:')).length, 0);
+  // what the app's Continue button sends
+  s.engine.startTask({ agentId: 'a1', prompt: CONTINUE_PROMPT, source: 'ui', continueTaskId: t.id });
+  const done = await s.engine.waitFor(t.id, 3000);
+  assert.equal(done.status, 'done');
+  assert.equal(done.resumable, undefined);
+  assert.equal(s.calls[1]!.options.resume, 'sess-t');
+  assert.equal(s.calls[1]!.prompt, CONTINUE_PROMPT);
+});
+
+test('sonnet at the turn limit pauses on sonnet: no Opus escalation, no second turn budget', async () => {
+  const s = setup(() => (async function* () { yield init('sess-s'); yield err('error_max_turns'); })(), { agent: { model: 'sonnet' } });
+  const done = await s.engine.waitFor(s.engine.startTask({ agentId: 'a1', prompt: 'long job', source: 'ui' }).id, 3000);
+  assert.equal(s.calls.length, 1);
+  assert.equal(done.escalated, undefined);
+  assert.equal(done.model, 'sonnet');
+  assert.equal(done.resumable, true);
+});
+
+test('resumable is set when the session starts, so a run that throws mid-way can still be continued', async () => {
+  const s = setup(() => (async function* () { yield init('sess-z'); yield textAssistant('half done'); throw new Error('stream reset'); })(), { agent: { model: 'opus' } });
+  const t = s.engine.startTask({ agentId: 'a1', prompt: 'work', source: 'ui' });
+  const failed = await s.engine.waitFor(t.id, 3000);
+  assert.equal(failed.status, 'error');
+  assert.equal(failed.resumable, true);
+});
+
+test('a failed escalation keeps the task continuable when the first run reached its session', async () => {
+  const s = setup((_p, n) => (async function* () {
+    if (n === 0) { yield init('sess-e'); yield err('error_during_execution', ['tool crashed']); return; }
+    yield err('error_during_execution', ['spawn failed']);
+  })(), { agent: { model: 'sonnet' } });
+  const failed = await s.engine.waitFor(s.engine.startTask({ agentId: 'a1', prompt: 'work', source: 'ui' }).id, 3000);
+  assert.equal(s.calls.length, 2);
+  assert.equal(failed.status, 'error');
+  assert.equal(failed.resumable, true);
+});
+
+test('a queued follow-up is not resumable until its own run starts (a restart before then must re-send it)', async () => {
+  const s = setup((_p, n) => (async function* () { yield init('sess-q'); if (n === 0) yield err('error_max_turns'); else yield ok('x'); })(), { agent: { model: 'opus' } });
+  const t = s.engine.startTask({ agentId: 'a1', prompt: 'one', source: 'ui' });
+  assert.equal((await s.engine.waitFor(t.id, 3000)).resumable, true);
+  const queued = s.engine.startTask({ agentId: 'a1', prompt: 'two', source: 'ui', continueTaskId: t.id });
+  assert.equal(queued.resumable, undefined);
+  await s.engine.waitFor(t.id, 3000);
+});
+
+test('/compact on a Claude task runs Claude Code\'s own /compact in that session, not Legion\'s provider summariser', async () => {
+  const s = setup((_p, n) => (async function* () {
+    yield init('sess-c');
+    if (n === 1) yield { type: 'system', subtype: 'compact_boundary', compact_metadata: { trigger: 'manual', pre_tokens: 84210 } };
+    yield ok(n === 0 ? 'worked' : '');
+  })(), { agent: { model: 'opus' } });
+  const t = s.engine.startTask({ agentId: 'a1', prompt: 'long work', source: 'ui' });
+  await s.engine.waitFor(t.id, 3000);
+  const r = await s.engine.compactTaskNow(t.id, ' keep the API notes ');
+  assert.deepEqual(r, { ok: true, detail: 'Claude Code is compacting this conversation.' });
+  await s.engine.waitFor(t.id, 3000);
+  assert.equal(s.calls[1]!.prompt, '/compact keep the API notes');
+  assert.equal(s.calls[1]!.options.resume, 'sess-c');
+  const sys = s.store.listMessages(t.id).filter((m) => m.role === 'system').map((m) => m.text);
+  assert.deepEqual(sys, ['Claude Code compacted this conversation. It held about 84k tokens.']);
+});
+
+test('Claude Code compacting by itself is shown, so early instructions fading has a visible reason', async () => {
+  const s = setup(() => (async function* () {
+    yield init(); yield { type: 'system', subtype: 'compact_boundary', compact_metadata: { trigger: 'auto', pre_tokens: 190000 } }; yield ok('x');
+  })(), { agent: { model: 'opus' } });
+  const t = s.engine.startTask({ agentId: 'a1', prompt: 'go', source: 'ui' });
+  await s.engine.waitFor(t.id, 3000);
+  const sys = s.store.listMessages(t.id).filter((m) => m.role === 'system').map((m) => m.text);
+  assert.equal(sys.length, 1);
+  assert.match(sys[0]!, /by itself.*190k tokens/);
+});
+
+test('/compact while the Claude task is running declines plainly and starts nothing', async () => {
+  let release!: () => void;
+  const gate = new Promise<void>((r) => { release = r; });
+  const s = setup(() => (async function* () { yield init('sess-r'); await gate; yield ok('x'); })(), { agent: { model: 'opus' } });
+  const t = s.engine.startTask({ agentId: 'a1', prompt: 'go', source: 'ui' });
+  for (let i = 0; i < 50 && !s.store.getTask(t.id)?.sessionId; i++) await new Promise((r) => setTimeout(r, 5));
+  const r = await s.engine.compactTaskNow(t.id);
+  assert.deepEqual(r, { ok: false, detail: 'This task is still running. Compact it after it stops.' });
+  release();
+  await s.engine.waitFor(t.id, 3000);
+  assert.equal(s.calls.length, 1);
+});
+
+test('a follow-up that fails before its own init is not resumable (the old session never saw it)', async () => {
+  const s = setup((_p, n) => (async function* () {
+    if (n === 0) { yield init('sess-old'); yield ok('first'); return; }
+    yield err('error_during_execution', ['Invalid API key, please login']);
+  })(), { agent: { model: 'opus' } });
+  const t = s.engine.startTask({ agentId: 'a1', prompt: 'one', source: 'ui' });
+  await s.engine.waitFor(t.id, 3000);
+  s.engine.startTask({ agentId: 'a1', prompt: 'two', source: 'ui', continueTaskId: t.id });
+  const failed = await s.engine.waitFor(t.id, 3000);
+  assert.equal(failed.status, 'error');
+  assert.equal(failed.sessionId, 'sess-old');
+  assert.equal(failed.resumable, undefined);
 });
 
 test('escalation happens at most once; opus failure ends in error', async () => {

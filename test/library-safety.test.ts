@@ -418,12 +418,12 @@ test('seam: onTaskEnd also fires for a failed run, with the error', async () => 
   const ends: Array<[Task, TaskEndOutcome]> = [];
   const s = setup((c) => c.agent !== 'alpha' ? undefined : (async function* () {
     yield init('a1');
-    yield { type: 'result', subtype: 'error_max_turns', is_error: true, errors: ['too many turns'], total_cost_usd: 0.1, num_turns: 9, session_id: 'a1' };
+    yield { type: 'result', subtype: 'error_during_execution', is_error: true, errors: ['too many turns'], total_cost_usd: 0.1, num_turns: 9, session_id: 'a1' };
   })(), { modules: [{ id: 'end', onTaskEnd: (t, _a, o) => { ends.push([t, o]); } }] });
   await waitDone(s, s.engine.startTask({ agentId: 'alpha', prompt: 'go', source: 'ui' }));
   assert.equal(ends.length, 1);
   assert.equal(ends[0]![1].status, 'error');
   assert.equal(ends[0]![1].isError, true);
   assert.match(ends[0]![1].errorText!, /too many turns/);
-  assert.equal(ends[0]![0].turns, 18, 'max-turns escalated to Opus and re-ran (9 + 9 turns), yet onTaskEnd fired once for the whole task run');
+  assert.equal(ends[0]![0].turns, 18, 'the failure escalated to Opus and re-ran (9 + 9 turns), yet onTaskEnd fired once for the whole task run');
 });

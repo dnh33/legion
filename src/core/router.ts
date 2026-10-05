@@ -14,7 +14,10 @@ const LONG_PROMPT_CHARS = 1800;
 const PREFIX_RE = /^\s*\/(opus|sonnet)(?=\s|$)\s*/i;
 const MODEL_PREFIX_RE = /^\s*\/model\s+([A-Za-z0-9._:\[\]-]+)(?=\s|$)\s*/i;
 const NO_ESCALATE_RE = /auth|login|credit|billing|rate.?limit|429|401|403|overloaded/i;
-const ESCALATE_SUBTYPES = new Set(['error_max_turns', 'error_during_execution']);
+const ESCALATE_SUBTYPES = new Set(['error_during_execution']);
+// Running out of turns is not Sonnet failing: the task pauses and continues on the same model. Escalating would hand Opus
+// a second full turn budget on the same session, doubling the cost without asking.
+const NEVER_ESCALATE_SUBTYPES = new Set(['error_max_turns']);
 
 export function routeModel(prompt: string, choice: ModelChoice, ctx?: { priorModel?: ConcreteModel }): RouteDecision {
   // "/model <value>" forces any model; "/model auto" just means "let the router decide" for this message.
@@ -45,6 +48,7 @@ export function routeModel(prompt: string, choice: ModelChoice, ctx?: { priorMod
 
 export function shouldEscalate(r: { model: ConcreteModel; subtype: string; isError: boolean; errorText?: string }): boolean {
   if (r.model !== 'sonnet') return false;
+  if (NEVER_ESCALATE_SUBTYPES.has(r.subtype)) return false;
   if (!ESCALATE_SUBTYPES.has(r.subtype) && !r.isError) return false;
   if (r.errorText && NO_ESCALATE_RE.test(r.errorText)) return false;
   return true;

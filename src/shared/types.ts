@@ -168,6 +168,8 @@ export interface Task {
   /** Final assistant text of the latest run. */
   result?: string;
   error?: string;
+  /** Set when the latest run failed after its prompt reached the session: a follow-up can continue it instead of re-sending the request. */
+  resumable?: boolean;
   costUsd?: number;           // cumulative, as reported by the SDK
   turns?: number;             // cumulative
   createdAt: string;
@@ -291,7 +293,7 @@ export interface LegionConfig {
      * claude.ai connectors are not loaded. On: a run also gets the MCP servers and claude.ai connectors from your Claude Code setup.
      */
     inheritMcp: boolean;
-    /** Max agentic turns per run before the router escalates / stops. */
+    /** Max agentic turns per run before the router escalates / stops. A stopped run can be continued in the same session. */
     maxTurns: number;
   };
   boat: {

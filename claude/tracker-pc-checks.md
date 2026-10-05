@@ -222,3 +222,17 @@ Full record: `claude/HOUSE-LAYER-VERIFICATION.md`.
 Safety classes: BR15-BR20, BR22-BR24 none (a harmless page you control); BR21 native dialog. Nothing in this section was run in a cloud session; do not call the browser tool verified until each is recorded as passed.
 
 | H11 | **Heap ceiling (0.2.3-j).** The core now gets `min(RAM/4, 2048)` MB, floored at 512. On this machine Node's default was 4192 MB, so the cap is roughly half. **Nobody profiled the core's actual peak heap** — the cap is reasoned, not measured. Run a heavy session (large KG, several compactions, a long agent run) and watch whether heap approaches 2048. If it does, the cap is too low and the core will OOM where it previously survived. | todo |
+
+## Turn limit and Continue (branch `fix/long-task-turn-limit`, 0.2.5-b). Safety class: spends a few cents of Claude usage (Haiku)
+
+Proven with the scripted model only (`test/engine.test.ts`, `test/turn-limit-config.test.ts`; 8 source mutations each turned a test red). The scripted model cannot prove that the real Claude Agent SDK resumes the session and that Claude carries on instead of starting over, so nothing here may be called verified until a row says pass. The SDK docs name this as the recovery path ("resume with a higher limit", code.claude.com/docs/en/agent-sdk/sessions).
+
+| # | Check | Expected observation | State |
+|---|---|---|---|
+| TL1 | Settings → Claude: confirm the turn limit reads 200 after the update (it read 40 before; `%USERPROFILE%\.legion\config.json` gains `"migrations": ["claude-max-turns-v2"]`). | 200. Set it to 3, save. | todo |
+| TL2 | On a Haiku agent with Full access, send: "Create step1.txt to step5.txt in the current folder, one Write call per turn, in order, then reply FINISHED." | After 3 turns: an amber **Paused at the turn limit** card (not a red "Run failed"), text "(3 turns this run)", buttons **Continue** and **Raise the limit**. No Opus escalation line. Some step files exist. | todo |
+| TL3 | Press **Raise the limit**. | Settings opens on the Claude section. Set the limit back to 200. | todo |
+| TL4 | Press **Continue**. | The thread shows "Continued where it stopped" (not a long user bubble). Claude writes only the missing step files (check the folder: earlier files keep their timestamps) and replies FINISHED. It does not restart from step1. | todo |
+| TL5 | Start a long task, quit Legion mid-run, start it again. | The task shows "Legion restarted" with **Continue** (not Retry). Continue picks up the work. | todo |
+| TL6 | In a Claude task with some history, type `/compact keep the API notes`. | The thread shows a `/compact keep the API notes` message, then "Claude Code compacted this conversation. It held about Nk tokens." The toast says "Claude Code is compacting this conversation." Before 0.2.5-b, Legion caught `/compact` and answered "Choose a provider model in Settings", and Claude Code's own `/compact` could not be reached. | todo |
+| TL7 | Let a long Claude task run until Claude Code compacts by itself (or check an old long task). | A line "Claude Code compacted this conversation by itself, to make room…" appears where it happened. | todo |

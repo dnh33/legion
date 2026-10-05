@@ -60,7 +60,8 @@ function setup(script: (n: number, q: any) => AsyncGenerator<any, void>, over: (
 }
 const init = (extra: Record<string, unknown> = {}) => ({ type: 'system', subtype: 'init', session_id: 's1', ...extra });
 const ok = { type: 'result', subtype: 'success', is_error: false, result: 'fine', total_cost_usd: 0, num_turns: 1, session_id: 's1' };
-const maxTurns = { type: 'result', subtype: 'error_max_turns', is_error: true, errors: [], total_cost_usd: 0, num_turns: 1, session_id: 's1' };
+// a failure that escalates (a turn-limit stop no longer does: it pauses for Continue)
+const failed = { type: 'result', subtype: 'error_during_execution', is_error: true, errors: [], total_cost_usd: 0, num_turns: 1, session_id: 's1' };
 const run = async (s: ReturnType<typeof setup>) => s.engine.waitFor(s.engine.startTask({ agentId: 'a1', prompt: 'go', source: 'ui' }).id, 3000);
 
 test('config: inheritMcp defaults to off and Settings validates it as a boolean', () => {
@@ -89,7 +90,7 @@ test('off: the user env cannot switch connectors back on', async () => {
 });
 
 test('off: the strict flag is on the retry (escalation) query too', async () => {
-  const s = setup(async function* (n) { yield init(); yield n === 0 ? maxTurns : ok; });
+  const s = setup(async function* (n) { yield init(); yield n === 0 ? failed : ok; });
   const t = await run(s);
   assert.equal(t.escalated, true);
   assert.equal(s.calls.length, 2);
@@ -97,7 +98,7 @@ test('off: the strict flag is on the retry (escalation) query too', async () => 
 });
 
 test('F1: SDK settings.disableClaudeAiConnectors is set on the run and on the retry when inheritMcp is off', async () => {
-  const s = setup(async function* (n) { yield init(); yield n === 0 ? maxTurns : ok; });
+  const s = setup(async function* (n) { yield init(); yield n === 0 ? failed : ok; });
   await run(s);
   assert.equal(s.calls.length, 2);
   for (const c of s.calls) assert.deepEqual(c.options.settings, { disableClaudeAiConnectors: true });

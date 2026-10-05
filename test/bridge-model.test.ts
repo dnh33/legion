@@ -305,7 +305,7 @@ test('B cap: an auto override, or a /opus prefix in a bot\'s message, is clamped
 });
 
 test('B cap: an override task on a sonnet agent does not escalate to opus on failure (an opus agent may)', async () => {
-  const err = (text: string) => (async function* () { yield init('e'); yield { type: 'result', subtype: 'error_max_turns', is_error: true, errors: [text], total_cost_usd: 0, num_turns: 9, session_id: 'e' }; })();
+  const err = (text: string) => (async function* () { yield init('e'); yield { type: 'result', subtype: 'error_during_execution', is_error: true, errors: [text], total_cost_usd: 0, num_turns: 9, session_id: 'e' }; })();
   const s = setup((c) => c.agent === 'scout' || c.agent === 'builder' ? err('too many turns') : undefined, 3);
   const a = s.engine.startTask({ agentId: 'scout', prompt: 'x', source: 'agent', model: 'sonnet', modelOverrideBy: 'zealot' });
   await s.engine.waitFor(a.id, 5000);

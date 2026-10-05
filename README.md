@@ -203,7 +203,7 @@ Type `/` in the composer to open the menu. Commands that Legion does not handle 
 | `claude.inheritClaudeCodeSettings` | Load your Claude Code user and project settings, hooks and CLAUDE.md. Default `true`. |
 | `claude.inheritMcp` | Also load the MCP servers, plugins' MCP servers and claude.ai connectors from your Claude Code setup. Default `false`: a run gets Legion's own server and the servers listed in Settings -> MCP. |
 | `claude.executablePath` | Path to your own `claude` binary. By default the one bundled with the SDK is used. |
-| `claude.maxTurns` | Turn cap per run. Default `40`. |
+| `claude.maxTurns` | Turn cap per run. Default `200` (a config still on the old default `40` moves to `200` once). A run that hits it pauses; **Continue** picks it up in the same conversation. |
 | `boat.apiKey`, `boat.baseUrl` | boat.dev access. `BOAT_API_KEY` also works. |
 | `features.projectBoard` | The project board. Default on; only the literal `false` turns it off (restart Legion). Not written by the app. See [docs/PROJECT-BOARD.md](docs/PROJECT-BOARD.md). |
 | `mcpServers` | Extra MCP servers, in the same shape as Claude Code's `.mcp.json`. Agents pick them by name, or `*` for all. |

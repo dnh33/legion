@@ -2,6 +2,38 @@
 
 All notable changes are recorded here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses [Semantic Versioning](https://semver.org/).
 
+## [0.2.5-b] - 2026-10-05
+
+### Fixed
+
+- **A long task that runs out of turns can be continued instead of starting over.** A Claude run stops after a set number
+  of turns. Before, Retry sent your original request again into the same conversation, so Claude began the whole task
+  from the start. The stop is now a **Paused at the turn limit** card with **Continue**, which picks up where the run
+  stopped, in the same conversation. A run that fails part-way for another reason (a crash, a restart of Legion, a
+  dropped connection) offers Continue too, as long as the request had reached Claude; otherwise Retry sends it again.
+- **The turn limit is 200, up from 40.** 40 was the shipped default and is written into every config.json, so a config
+  still on exactly 40 moves to 200 once, on upgrade. If you had chosen 40 yourself, set it again in Settings → Claude; it
+  will stay. Claude Code itself has no limit; this one is a safety net.
+- **Running out of turns no longer escalates Sonnet to Opus.** It used to hand Opus a second full set of turns on the
+  same task, at Opus prices, without asking, and Opus was sent the original request again. The task now pauses on the
+  model it was using. Opus still takes over when Sonnet fails for other reasons, and then continues the work rather than
+  restarting it.
+- **`/compact` in a Claude conversation now runs Claude Code's own `/compact`.** Legion caught the command and sent it to
+  the summariser it uses for provider models, which answered "Choose a provider model in Settings", so Claude Code's
+  `/compact` could not be reached. It now compacts the Claude session itself, and keeps any focus you type after it.
+- **You can see when Claude Code compacts.** When it compacts a conversation, on `/compact` or by itself as the context
+  fills, the thread says so and how large it was. Before, early instructions could fade with no visible reason.
+
+### For contributors
+
+- **The full test suite runs in 208 s instead of 319 s** (same machine, run after run). The per-file numbers below come
+  from running each file on its own, before and after the change. The two BSV tripwire suites plant their cases in one shared copy of the source and restore each file byte for
+  byte, instead of copying about 300 files for every case: 201 s to 39 s and 134 s to 30 s. They gained two checks, that
+  the copy is clean before the first plant and again after the last. Two browser tests no longer wait out a 30-second
+  timeout (62 s to 4 s). The 5,000-file vault import runs in a file of its own, so it runs beside the other files
+  instead of holding up the rest of its own. Every assertion is unchanged, and each sped-up test was shown to fail on a
+  deliberately broken scanner, address check, restore or file cap.
+
 ## [0.2.5-a] - 2026-10-05
 
 ### Fixed

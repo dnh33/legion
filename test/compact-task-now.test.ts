@@ -43,12 +43,13 @@ test('an unknown task declines with a sentence', async () => {
   assert.match(r.detail, /not here any more/i);
 });
 
-test('a task that never ran on a provider model declines, and says what to do', async () => {
+test('a Claude task with no conversation yet declines, and says what to do', async () => {
   const { store, engine } = realEngine();
   const t = seedTask(store);
   const r = await engine.compactTaskNow(t.id);
   assert.equal(r.ok, false);
-  assert.match(r.detail, /provider model/i, 'the message names the cause, not an error code');
+  assert.match(r.detail, /send a message first/i, 'the message names the cause and the next step, not an error code');
+  assert.doesNotMatch(r.detail, /provider/i, 'a Claude task is never told to pick a provider model');
 });
 
 test('a conversation too short to compact declines rather than summarising nothing', async () => {

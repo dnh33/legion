@@ -8,6 +8,7 @@ import type {
 } from '../shared/types.js';
 import { newId, nowIso, titleFrom } from '../shared/util.js';
 import { scrubHostSessionEnv } from '../shared/config.js';
+import { CONTINUE_PROMPT, TURN_LIMIT_PREFIX } from '../shared/continue.js';
 import { isLegionTool, needsApproval, stricterMode } from './approvals.js';
 import { TaintedPaths } from './tainted-paths.js';
 import type { CoreModule, ModuleJob, PreambleContext, TaskEndOutcome } from './modules.js';
@@ -157,6 +158,8 @@ interface Active {
   tainted: boolean;
   /** tool_use ids already reported (the stream and the PreToolUse hook both see each one). */
   toolUses: Set<string>;
+  /** This run's prompt reached a session (Claude: its init arrived; provider: it took a turn). Only then can a stop be continued. */
+  reached?: boolean;
 }
 interface Outcome { subtype: string; isError: boolean; errorText?: string }
 
@@ -231,7 +234,8 @@ export class Engine {
         ...prev, status: 'queued', source: p.source,
         requestedModel: p.model ?? (prev.modelOverride && !keepOverride ? agent.model : prev.requestedModel),
         modelOverride: overriding ? { model: p.model!, by: p.modelOverrideBy! } : keepOverride ? prev.modelOverride : undefined,
-        result: undefined, error: undefined,
+        // not resumable until this run's own prompt reaches the session (a restart before then must re-send it, not continue)
+        result: undefined, error: undefined, resumable: undefined,
         ...(this.projects ? { projectId } : {}),
         ...(viaBridge ? { fromAgentId: p.bridge!.fromAgentId, parentTaskId: p.bridge!.parentTaskId } : {}),
         bridgeHop: p.bridge ? p.bridge.hop ?? 0 : undefined,
@@ -525,7 +529,7 @@ export class Engine {
       decision = { ...decision, model: capped, reason: `${decision.reason}, capped at ${capped} (${agent.name}'s own setting)` };
     }
     let model = decision.model;
-    const first = this.patchTask(job.taskId, { status: 'running', model, error: undefined });
+    const first = this.patchTask(job.taskId, { status: 'running', model, error: undefined, resumable: undefined });
     if (!first) throw new Error('Task disappeared');
     const from = job.header && job.fromAgentId ? this.store.getAgent(job.fromAgentId) : undefined;
     this.mascot('thinking', from ? `${from.name} → ${agent.name}` : `${agent.name} on ${model}: ${decision.reason}`);
@@ -544,17 +548,22 @@ export class Engine {
       this.patchTask(job.taskId, { escalated: true, model });
       this.addMessage(job.taskId, 'system', `Escalated to Opus: ${reason}`);
       this.mascot('thinking', 'escalating to opus');
-      outcome = await this.runOnce(job, agent, model, sendPrompt, act);
+      // The resumed session already holds the request when the failed run got that far: send it again and Opus starts the task over.
+      outcome = await this.runOnce(job, agent, model, act.reached ? CONTINUE_PROMPT : sendPrompt, act);
       if (act.cancelled) return;
     }
 
     if (outcome.isError) {
-      const text = outcome.errorText || outcome.subtype;
+      // Read by people (the app) and by callers without a button (MCP clients, other bots), so it names no button.
+      const turnLimit = outcome.subtype === 'error_max_turns' && !outcome.errorText;
+      const text = turnLimit
+        ? `${TURN_LIMIT_PREFIX} (${this.config.claude.maxTurns} turns this run) before finishing. The work so far is kept: continue the task to pick up where it stopped.`
+        : outcome.errorText || outcome.subtype;
       this.patchTask(job.taskId, { status: 'error', error: text, ...(act.tainted ? { tainted: true } : {}) });
-      this.addMessage(job.taskId, 'system', `Error: ${text}`);
+      this.addMessage(job.taskId, 'system', turnLimit ? text : `Error: ${text}`);
       this.mascot('error', text.slice(0, 120));
     } else {
-      this.patchTask(job.taskId, { status: 'done', ...(act.tainted ? { tainted: true } : {}) });
+      this.patchTask(job.taskId, { status: 'done', resumable: undefined, ...(act.tainted ? { tainted: true } : {}) });
       this.mascot('success');
     }
   }
@@ -757,6 +766,20 @@ export class Engine {
     const task = this.store.getTask(taskId);
     if (!task) return { ok: false, detail: 'That task is not here any more.' };
     const model = task.model;
+    // A Claude task's real context is Claude Code's own session, not the rows stored here. Legion's summariser would only
+    // add a summary row Claude never reads, so this hands the job to Claude Code's built-in /compact in that session.
+    const agentModel = this.store.getAgent(task.agentId)?.model;
+    if (!task.provider && !providerPrefix(model) && !providerPrefix(agentModel)) {
+      if (!task.sessionId) return { ok: false, detail: 'There is nothing to compact yet. Send a message first, then compact.' };
+      const f = focus?.trim();
+      try {
+        this.startTask({ agentId: task.agentId, prompt: f ? `/compact ${f}` : '/compact', source: 'ui', continueTaskId: taskId });
+      } catch (e) {
+        if (e instanceof EngineError && e.status === 409) return { ok: false, detail: 'This task is still running. Compact it after it stops.' };
+        return { ok: false, detail: e instanceof Error ? e.message : String(e) };
+      }
+      return { ok: true, detail: 'Claude Code is compacting this conversation.' };
+    }
     if (!model || model === 'auto') {
       return { ok: false, detail: 'This conversation has not run on a provider model yet. Open it and send a message first, then compact.' };
     }
@@ -826,9 +849,12 @@ export class Engine {
     };
     const r = await this.providers!.run(host, pr);
     if (act.cancelled) return { subtype: 'cancelled', isError: false };
+    // provider runs rebuild their history from the stored rows, which now hold the request and the work done so far
+    if (r.turns > 0) act.reached = true;
     const cur = this.store.getTask(taskId);
     this.patchTask(taskId, {
       provider: pr.providerId,
+      ...(act.reached ? { resumable: true } : {}),
       turns: (cur?.turns ?? 0) + r.turns,
       tokenUsage: {
         ...(r.usage ? { inputTokens: (cur?.tokenUsage?.inputTokens ?? 0) + r.usage.inputTokens, outputTokens: (cur?.tokenUsage?.outputTokens ?? 0) + r.usage.outputTokens } : (cur?.tokenUsage ?? {})),
@@ -906,8 +932,18 @@ export class Engine {
     switch (msg?.type) {
       case 'system': {
         if (msg.subtype === 'init' && typeof msg.session_id === 'string') {
-          this.patchTask(taskId, { sessionId: msg.session_id });
+          // Set now, not when the run ends: a crash, a restart or a thrown error must still leave the task continuable.
+          act.reached = true;
+          this.patchTask(taskId, { sessionId: msg.session_id, resumable: true });
           this.noteMcpInit(act, msg.mcp_servers);
+        } else if (msg.subtype === 'compact_boundary') {
+          // Claude Code compacted its own context (on /compact, or by itself near the window's end): say so, or the
+          // agent seems to forget early instructions for no visible reason.
+          const pre = Number(msg.compact_metadata?.pre_tokens);
+          const size = Number.isFinite(pre) && pre > 0 ? ` It held about ${Math.round(pre / 1000)}k tokens.` : '';
+          this.addMessage(taskId, 'system', msg.compact_metadata?.trigger === 'auto'
+            ? `Claude Code compacted this conversation by itself, to make room.${size} Early details may now be summarised.`
+            : `Claude Code compacted this conversation.${size}`);
         } else if (msg.subtype === 'local_command_output' && typeof msg.content === 'string' && msg.content.trim()) {
           // Output of a slash command Claude Code ran locally (/cost, /context, ...), shown as an assistant message.
           this.addMessage(taskId, 'assistant', msg.content);

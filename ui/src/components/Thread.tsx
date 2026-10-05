@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { ChatMessage } from '../../../src/shared/types';
+import { CONTINUE_PROMPT, TURN_LIMIT_PREFIX } from '../../../src/shared/continue';
 import { base, token } from '../api';
 import { decide, dismissOnboarding, openDoctor, openEditor, openSettings, refresh, selectTask, sendPrompt, useStore } from '../store';
 import { copyText, money } from '../util';
@@ -45,6 +46,8 @@ export function Thread() {
   const agent = agents.find((a) => a.id === agentId);
   const task = taskId ? tasks.find((t) => t.id === taskId) : undefined;
   const running = task?.status === 'running' || task?.status === 'queued';
+  // a turn-limit stop is a pause with the work kept, not a failure: it gets its own card
+  const paused = task?.status === 'error' && (task.error ?? '').startsWith(TURN_LIMIT_PREFIX);
 
   const scroller = useRef<HTMLDivElement>(null);
   const stick = useRef(true);
@@ -126,13 +129,25 @@ export function Thread() {
               {stream && <MessageView m={{ role: 'assistant', text: stream }} agent={agent} task={task} streaming />}
               {running && !stream && <div className="working" aria-live="polite"><i /><i /><i /><span>{task?.status === 'queued' ? 'Queued' : 'Working'}</span></div>}
               {taskApprovals.map((a) => <ApprovalCard key={a.id} a={a} />)}
-              {task?.status === 'error' && (
+              {task?.status === 'error' && (paused ? (
+                <div className="msg err paused" role="status">
+                  <Icon name="pause" size={14} />
+                  <div className="err-body"><b>Paused at the turn limit</b><p>{task.error}</p></div>
+                  <div className="err-actions">
+                    {task.resumable && <button className="btn sm primary" onClick={() => void sendPrompt(CONTINUE_PROMPT)}>Continue</button>}
+                    <button className="link-btn" onClick={() => openSettings('claude')}>Raise the limit</button>
+                  </div>
+                </div>
+              ) : (
                 <div className="msg err" role="alert">
                   <Icon name="x" size={14} />
                   <div className="err-body"><b>Run failed</b><p>{task.error || 'The run failed without a message.'}</p></div>
-                  {lastUser && <button className="btn sm" onClick={() => void sendPrompt(lastUser.text)}>Retry</button>}
+                  {/* resumable: the session already holds the request, so re-sending it would start the task over */}
+                  {task.resumable
+                    ? <button className="btn sm" onClick={() => void sendPrompt(CONTINUE_PROMPT)} title="Pick up where the run stopped, in the same conversation">Continue</button>
+                    : lastUser && <button className="btn sm" onClick={() => void sendPrompt(lastUser.text)}>Retry</button>}
                 </div>
-              )}
+              ))}
               {task?.status === 'cancelled' && !(messages[messages.length - 1]?.role === 'system' && messages[messages.length - 1]?.text === 'Cancelled') && <div className="msg system">Cancelled</div>}
               <div className="thread-pad" />
             </>
