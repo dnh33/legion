@@ -76,6 +76,40 @@ describe('a rolled-back version is held back, not locked out', () => {
   });
 });
 
+describe('a block on a version you have already moved past is not shown', () => {
+  // The owner's own first run of this code, on 0.2.3-f: "Version 0.2.3-g is being held back" for a version it had
+  // already superseded. The updater only ever offers something NEWER, so a block on an older version can never be
+  // acted on - it is not a pending problem, it is nothing, and showing it as held back invents one.
+  const updaterSrc = readFileSync(join(REPO, 'src', 'core', 'updater', 'index.ts'), 'utf8');
+
+  it('filters the block list to versions newer than the running one', () => {
+    assert.match(updaterSrc, /filter\(\(v\) => compareSemver\(v, version\) > 0\)/,
+      'a block is shown regardless of whether the version is newer than what is running');
+  });
+
+  it('uses the real comparator rather than a string compare', () => {
+    // String comparison gets this wrong: "0.2.3-9" > "0.2.3-10" as text, and the reverse is true as versions.
+    assert.match(updaterSrc, /import \{ compareSemver \} from '\.\/semver\.js'/, 'compareSemver is not imported');
+  });
+
+  it('a dateless block never claims it will clear on its own', () => {
+    // pruneFailed treats a missing date as fresh FOREVER, so "it will be offered again on its own" was a promise that
+    // could not be kept. Say the truth and keep the button, because with no date it is the only way out.
+    assert.match(panel, /does not know when it will clear/,
+      'the panel still promises a date-driven release for a block that has no date');
+    assert.doesNotMatch(panel, /offered again on its own/,
+      'the panel still claims a dateless block clears by itself');
+  });
+
+  it('offers the retry button for every blocked version, dateless or not', () => {
+    // Asserted as an absence rather than by parsing: no `st.blocked.filter(...)` may sit in front of a `.map`, because
+    // any condition there hides the button for exactly the dateless blocks that need it.
+    assert.doesNotMatch(panel, /st\.blocked\.filter\(/,
+      'the retry buttons are filtered, so a dateless block cannot be retried');
+    assert.match(panel, /st\.blocked\.map\(/, 'the retry buttons are not rendered at all');
+  });
+});
+
 describe('the panel tells the owner what is blocked, and offers the way out', () => {
   it('shows the blocked version and when it failed', () => {
     assert.match(panel, /is being held back/, 'the panel never says a version is held back');

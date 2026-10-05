@@ -2,6 +2,17 @@
 
 All notable changes are recorded here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses [Semantic Versioning](https://semver.org/).
 
+## [0.2.3-i] - 2026-10-04
+
+### Fixed
+
+- **A version you have already moved past is no longer shown as held back.** If an older release had failed its first
+  start on this machine, its block stayed on screen after a newer version installed successfully — reported as a pending
+  problem when there was nothing to do about it.
+- **The panel no longer promises something it cannot deliver.** For a block recorded before Legion started keeping a
+  date, it said the version "will be offered again on its own". It never would. It now says the truth, and the button to
+  try the version is offered for every held-back version rather than only the ones with a date.
+
 ## [0.2.3-h] - 2026-10-04
 
 ### Fixed

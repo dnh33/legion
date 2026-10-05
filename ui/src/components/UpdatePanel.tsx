@@ -97,11 +97,11 @@ export function UpdatePanel() {
               {b.at ? `It failed its first start on ${b.at.slice(0, 10)} and Legion went back to the previous version. ` : ''}
               {b.retryAfter
                 ? `You can try it again from ${b.retryAfter.slice(0, 10)} without this button.`
-                : 'When it is due, this version will be offered again on its own.'}
+                : 'Legion does not know when it will clear, so it will not clear on its own. Use the button to try it whenever you have fixed whatever stopped it.'}
             </p>
           ))}
           <div className="upd-actions">
-            {st.blocked.filter((b) => b.retryAfter).map((b) => (
+            {st.blocked.map((b) => (
               <button key={b.version} type="button" className="btn-ghost" disabled={busy} onClick={() => void act(() => request('POST', '/api/update/retry', { version: b.version }))}>
                 Try {b.version} again
               </button>

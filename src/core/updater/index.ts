@@ -18,6 +18,7 @@ import { checkPolicy, ManifestError, parseManifest, type Manifest, type PolicyVe
 import { fetchSmall, NetError, type FetchLike } from './net.js';
 import { stagePackage, stagedTree, StageError, dependencyHash, type Staged } from './package.js';
 import { FAILED_BLOCK_DAYS, UpdaterFiles, pruneFailed, type UpdateSettings } from './state.js';
+import { compareSemver } from './semver.js';
 import { UPDATE_KEYS, verifyManifestSignature, type UpdateKey } from './trust.js';
 
 export type InstallMode = 'apply' | 'checkout' | 'unwritable' | 'unsupported';
@@ -204,7 +205,12 @@ export function createUpdaterModule(deps: ModuleDeps, opts: UpdaterOptions): Upd
       const a = available?.manifest;
       const st2 = files.state();
       const at2 = st2.failedAt ?? {};
+      // Only a block on a version NEWER than what is running can ever be acted on. An older one is history: the
+      // updater only ever offers something newer, so a block on it is invisible to the user and unreleasable by them.
+      // Owner, on the first run of this code: still on 0.2.3-f it showed "Version 0.2.3-g is being held back" for a
+      // version it had already moved past, which reads as a pending problem rather than as nothing.
       const blocked = st2.failedVersions
+        .filter((v) => compareSemver(v, version) > 0)
         .map((v) => ({ version: v, at: at2[v], retryAfter: at2[v] ? new Date(Date.parse(at2[v]) + FAILED_BLOCK_DAYS * 86_400_000).toISOString() : undefined }))
         .filter((b) => b.retryAfter ? Date.parse(b.retryAfter) <= now() : true);
       return {
