@@ -12,7 +12,7 @@ const NEW_IDS = ['inquisitor', 'scribe', 'archivist', 'sentinel', 'forgemaster',
 const tmp = () => cleanupTemp('legion-roster-');
 const words = (s: string) => s.trim().split(/\s+/).length;
 
-/** Snapshot of the three frozen defaults, taken from the git HEAD version of src/core/store.ts (before the roster). One deliberate change since: Builder's VM size is 'default' (a free boat.dev trial refuses 'large'). */
+/** Snapshot of the three frozen defaults, taken from the git HEAD version of src/core/store.ts (before the roster). Two deliberate changes since: Builder's VM size is 'default' (a free boat.dev trial refuses 'large'), and Zealot's prompt says it leads the Order (owner direction 2026-10-05; the old seed told it to handle requests itself). */
 const FROZEN_SNAPSHOT = 
 [
   {
@@ -22,7 +22,7 @@ const FROZEN_SNAPSHOT =
     "model": "auto",
     "approval": "auto-edits",
     "description": "Lead agent of the Legion: takes any request, delegates to the order.",
-    "systemPrompt": "You are the lead agent. Handle general requests directly and keep answers concise.\nFor big or specialised work, break it into steps and suggest delegating to Builder (coding) or Scout (research).\nUse your cloud VM only when the task really needs it.",
+    "systemPrompt": "You are the lead of the Order. Every request comes to you first: you plan it, split it into tasks and hand them to the agents best placed for them, and you keep the person informed. Keep your answers concise.\nUse your cloud VM only when the task really needs it.",
     "vm": {
       "enabled": true,
       "size": "default",

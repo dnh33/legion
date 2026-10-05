@@ -61,3 +61,11 @@ its login in the Keychain (docs: Authentication > Credential management), so the
 | C3 | Mac: platform-aware core-start hint (no setup.cmd/winget advice on macOS); PATH note for a future Dock-launched app. |
 | C4 | Later, owner decision: headless/VPS via `claude setup-token` (CLAUDE_CODE_OAUTH_TOKEN, today stripped by scrubHostSessionEnv); hosted-for-others needs API keys per the SDK policy. |
 | C5 | Real-Mac check: `npm start` on a Mac, one task, Keychain prompt behaviour. |
+
+## D. Zealot (owner 2026-10-05, after B2)
+
+| # | Item |
+|---|---|
+| D1 | Zealot's role holds whatever the prompt: identify the tasks, split them into granular tasks, delegate and run them in parallel through the Order (ask/tell, board), and report back properly. Enforced, not just described: read how 0.2.4's persona update did it, find why it does not hold, then fix in the system prompt layer Zealot always gets, with tests that pin it. |
+| D2 | Zealot knows everything Legion gives it, and uses it: the tools it has (bridge ask/tell, agents list, board, projects, Library/kg, house layer, VM), and in a project it checks the board's leader first and works through the board accordingly. |
+| D3 | Prove it: scripted-model tests for what Zealot is told; a real-PC check (owner) that a plain prompt makes Zealot plan, delegate in parallel and report. |

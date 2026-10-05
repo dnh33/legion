@@ -22,6 +22,7 @@ import { routeModel, shouldEscalate } from './router.js';
 import type { Store } from './store.js';
 import { buildAgentToolsServer } from './agent-tools.js';
 import { Bridge } from './bridge.js';
+import { leadDoctrineFor } from './lead.js';
 import type { BridgeStartParams } from './bridge.js';
 import type { VmManager } from './vm-manager.js';
 import { isSelfMcpUrl, McpStatusTracker, selfMcpNames } from './mcp-status.js';
@@ -814,7 +815,9 @@ export class Engine {
           + this.modulePreamble(agent, { prompt, taskId: job.taskId, ...(job.origin ? { origin: job.origin } : {}), tainted: act.tainted || job.origin?.tainted === true, ...(project ? { projectId: project.id } : {}) })
           + '\n\n' + renderCapabilities(agent, { servers, ...(job.origin?.approvalCeiling ? { ceiling: job.origin.approvalCeiling } : {}), vmEnabledForAgent: !!agent.vm?.enabled })
           + (agent.systemPrompt ? '\n\n' + agent.systemPrompt : '')
-          + (project ? '\n\n' + projectSection({ name: project.name, instructions: project.instructions, folder: project.folder }) : ''),
+          + (project ? '\n\n' + projectSection({ name: project.name, instructions: project.instructions, folder: project.folder }) : '')
+          // the lead's role comes last, after the persona and the project, so no edit or wording above can drop it
+          + (leadDoctrineFor(agent.id) ? '\n\n' + leadDoctrineFor(agent.id) : ''),
       },
       ...(projectFolder ? { additionalDirectories: [projectFolder] } : {}),
       settingSources: this.config.claude.inheritClaudeCodeSettings ? ['user', 'project', 'local'] : [],
@@ -938,7 +941,8 @@ export class Engine {
       systemPrompt: LEGION_PREAMBLE.replace('{name}', agent.name)
         + this.modulePreamble(agent, { prompt, taskId, ...(job.origin ? { origin: job.origin } : {}), tainted: act.tainted || job.origin?.tainted === true })
         + (agent.systemPrompt ? '\n\n' + agent.systemPrompt : '')
-        + `\n\nYou are running on ${pr.model} through ${pr.entry?.label ?? pr.providerId}. You have only the tools listed in this request; you have no file, shell or web tools of your own.`,
+        + `\n\nYou are running on ${pr.model} through ${pr.entry?.label ?? pr.providerId}. You have only the tools listed in this request; you have no file, shell or web tools of your own.`
+        + (leadDoctrineFor(agent.id) ? '\n\n' + leadDoctrineFor(agent.id) : ''),
       prompt, stored: this.store.listMessages(taskId),
       servers, external,
       authorize: decide,
