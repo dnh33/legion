@@ -218,6 +218,16 @@ test('turn limit: task ends resumable with a plain message; Continue resumes the
   assert.equal(s.calls[1]!.prompt, CONTINUE_PROMPT);
 });
 
+test('a turn-limit pause keeps the mascot calm (idle with a note), never "error"; a real failure still shows error', async () => {
+  const s = setup((_p, n) => (async function* () { yield init(); yield n === 0 ? err('error_max_turns') : err('error_during_execution', ['Invalid API key']); })(), { agent: { model: 'opus' } });
+  await s.engine.waitFor(s.engine.startTask({ agentId: 'a1', prompt: 'long', source: 'ui' }).id, 3000);
+  const moods1 = s.events.filter((e: any) => e.type === 'mascot').map((e: any) => [e.mood, e.note]);
+  assert.ok(!moods1.some(([m]) => m === 'error'), JSON.stringify(moods1));
+  assert.ok(moods1.some(([m, n]) => m === 'idle' && n === 'paused at the turn limit'), JSON.stringify(moods1));
+  await s.engine.waitFor(s.engine.startTask({ agentId: 'a1', prompt: 'other', source: 'ui' }).id, 3000);
+  assert.ok(s.events.filter((e: any) => e.type === 'mascot').some((e: any) => e.mood === 'error'), 'a real failure still shows the fault');
+});
+
 test('sonnet at the turn limit pauses on sonnet: no Opus escalation, no second turn budget', async () => {
   const s = setup(() => (async function* () { yield init('sess-s'); yield err('error_max_turns'); })(), { agent: { model: 'sonnet' } });
   const done = await s.engine.waitFor(s.engine.startTask({ agentId: 'a1', prompt: 'long job', source: 'ui' }).id, 3000);

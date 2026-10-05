@@ -10,7 +10,7 @@ All notable changes are recorded here. The format follows [Keep a Changelog](htt
   a set number of turns. Retry then sent your whole request again, so Claude began the task from the start. Now the
   task shows **Paused at the turn limit**, in amber rather than as a failure, with **Continue**: Claude carries on in the
   same conversation, and the work it already did is kept. A run cut short by a crash, a restart of Legion or a dropped
-  connection offers Continue too.
+  connection offers Continue too. The mascots treat a pause as a pause: they stand calm instead of showing a fault.
 - **Tasks get 200 turns per run, up from 40.** If your settings still had the old default of 40, they move to 200 once.
   A limit you picked yourself is kept. You can change it in Settings → Claude, and **Raise the limit** on the card
   takes you there.

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useStore, type RelicState } from '../store';
 import { useComms } from './commsFeed';
+import { latestFinished } from './finished';
 
 /** Attention states switch at once; everything else waits out the minimum dwell. */
 const INSTANT = new Set<RelicState>(['awaiting', 'error', 'victory']);
@@ -62,12 +63,7 @@ function nextDeadline(g: BustSignals, t: number): number {
 export function useBustState(agentId: string, enabled = true): { state: RelicState; vm: boolean } {
   const pending = useStore((s) => s.approvals.some((a) => a.agentId === agentId));
   const running = useStore((s) => s.tasks.some((t) => t.agentId === agentId && (t.status === 'running' || t.status === 'queued')));
-  const finished = useStore((s) => {
-    let best = '';
-    let bt = '';
-    for (const t of s.tasks) if (t.agentId === agentId && (t.status === 'done' || t.status === 'error') && t.updatedAt > bt) { bt = t.updatedAt; best = `${t.status}|${t.updatedAt}`; }
-    return best;
-  });
+  const finished = useStore((s) => latestFinished(s.tasks, agentId));
   const lastActive = useStore((s) => {
     let bt = '';
     for (const t of s.tasks) if (t.agentId === agentId && t.updatedAt > bt) bt = t.updatedAt;

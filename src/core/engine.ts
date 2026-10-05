@@ -562,7 +562,9 @@ export class Engine {
       this.patchTask(job.taskId, { status: 'error', error: text, ...(act.tainted ? { tainted: true } : {}) });
       // the history keeps a short line; the full text is the task's error, which the app shows on the Paused card
       this.addMessage(job.taskId, 'system', turnLimit ? `${TURN_LIMIT_PREFIX} (${this.config.claude.maxTurns} turns this run).` : `Error: ${text}`);
-      this.mascot('error', text.slice(0, 120));
+      // A turn-limit stop is a pause with the work kept: the mascot stands calm. "Fault detected" would contradict the card.
+      if (turnLimit) this.mascot('idle', 'paused at the turn limit');
+      else this.mascot('error', text.slice(0, 120));
     } else {
       this.patchTask(job.taskId, { status: 'done', resumable: undefined, ...(act.tainted ? { tainted: true } : {}) });
       this.mascot('success');
