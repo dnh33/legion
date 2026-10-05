@@ -1,0 +1,5 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": { "types": ["node"], "typeRoots": ["../node_modules/@types", "D:/bots/legion/node_modules/@types"] },
+  "include": [".claude/types", "types", "src", "test/node"]
+}

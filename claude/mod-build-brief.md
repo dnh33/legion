@@ -70,6 +70,9 @@ There is no Legion core and no network.
 - Always spell it `$.noun.method(...)`.
 - Never pass `$` or `$.fs` as a value to an imported function. Build plain objects from closures inside a hook instead, e.g. `{ read: p => $.fs.read(p) }`.
 - `read`, `update` and `atom` from `'claude-code'` are fine.
+- **A top-level function that takes `$` must be reachable from a hook.** A dead or not-yet-called helper that writes state fails validation with a misleading message: "the const X ... is also written through, handed on or exported here". Delete it, or call it, before validating.
+- **A state reference const is only ever a reference.** Never export it, and never also use it as a hook matcher. Give the matcher its own const.
+- **Register hooks with literal matchers.** `on('command.run', { command: 'to' }, …)`: inside a loop, validate lists the command as `?`.
 
 **State**
 - References use literal `plugin` and `key` values: `{ plugin: 'legion-mod', key: 'tasks' } as const`.

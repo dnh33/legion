@@ -2,9 +2,11 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
+import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-const read = (rel: string): string => readFileSync(fileURLToPath(new URL(rel, import.meta.url)), 'utf8')
+const HERE = dirname(fileURLToPath(import.meta.url))
+const read = (rel: string): string => readFileSync(join(HERE, rel), 'utf8')
 const shared = (text: string): string => {
   const a = text.indexOf('/** A lifecycle request')
   const b = text.indexOf('/** What the runner did with one request')

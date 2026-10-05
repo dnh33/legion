@@ -1,0 +1,67 @@
+/**
+ * What an agent is told, and the agent type the mod registers for it. Pure.
+ *
+ * The desktop appends its preamble to Claude Code's own system prompt (src/core/engine.ts:696-702, preset `claude_code`). In the
+ * mod, `AgentSpec.prompt` REPLACES the session's prompt (claude-code.d.ts:372-375), so the preamble also says where the agent
+ * works: the person's project folder.
+ */
+import type { AgentSpec } from 'claude-code'
+import type { AgentView, ApprovalMode, ModSettings } from '../../types/index.d.ts'
+import { permissionModeFor } from './approvals.ts'
+import { AGENT_TYPE_PREFIX, modTool } from './tool-names.ts'
+
+/**
+ * Adapted from desktop LEGION_PREAMBLE (src/core/engine.ts:103-115).
+ * - Kept word for word: lines 1, 2 and 6.
+ * - Lines 3-5 keep the desktop's sentences, but ask and tell are Claude Code's own Agent tool in the mod (plan §1, spike-proven):
+ *   `subagent_type` `legion-mod:<agent id>`, `run_in_background` false to ask, true to tell. `agents` stays a mod tool.
+ * - Dropped: the five VM lines (engine.ts:110-114; the mod has no VMs).
+ * - Added: where the agent works, and that the VMs and the Blender bridge some roster roles mention are not here.
+ * `{name}` is replaced by the agent's name, as on the desktop (engine.ts:698).
+ */
+export const MOD_PREAMBLE = [
+  'You are {name}, an agent inside Legion, the user\'s personal multi-agent bot running on their own computer.',
+  'Be direct and get the work done; report results concisely.',
+  `Other Legion agents are reachable through ${modTool('agents')} (list them) and the Agent tool with subagent_type ${AGENT_TYPE_PREFIX}<agent id> (direct delegation).`,
+  'Use ask, the Agent tool with run_in_background false, when you need the answer before you can continue; it blocks and returns their final message.',
+  'Use tell, the Agent tool with run_in_background true, for long or parallel work: it returns at once and their answer arrives later as a new message in your task.',
+  'Do not use SendMessage or ListAgents; they do not reach Legion agents. Keep messages short and self-contained.',
+  'You work in the user\'s current project folder, your working directory, with Claude Code\'s tools. Read before you change, and keep changes inside that folder unless the user asks otherwise.',
+  'Legion runs here without cloud VMs and without the Blender bridge. If your role mentions them, they are not available: do not run untrusted or destructive work on this computer instead; say what you would need.',
+].join('\n')
+
+/** The preamble for one agent. */
+export function preamble(o: { name: string }): string {
+  return MOD_PREAMBLE.replace('{name}', () => o.name)
+}
+
+/**
+ * Built-in tools a Legion agent must not use: they do not reach Legion agents. Desktop engine.ts:709 withholds the same two. Both
+ * exist as Claude Code built-ins in this build (claude-code.d.ts:15059 ListAgents, :15195 SendMessage). The Agent tool is NOT
+ * withheld: it is how Legion agents ask and tell each other in the mod.
+ */
+export const DISALLOWED_TOOLS = ['SendMessage', 'ListAgents'] as const
+
+/** The agent type's short name: letters, digits, `_` and `-`, at most 64 (claude-code.d.ts:362-366). Roster ids pass unchanged. */
+export function agentTypeName(agentId: string): string {
+  return agentId.replace(/[^A-Za-z0-9_-]/g, '-').slice(0, 64) || 'agent'
+}
+
+/**
+ * The agent type for one agent, for `$.agent.register` (claude-code.d.ts:361-444). The type is `legion-mod:<agentTypeName(id)>`.
+ * - `model` is left out for `auto`: the router picks per spawn (`$.agent.spawn({ model })`).
+ * - `permissionMode` comes from the agent's own mode (`permissionModeFor`); never `bypassPermissions`.
+ * - `mode` (optional) overrides the agent's mode, for a run whose ceiling is stricter; normally the spec carries the agent's own.
+ */
+export function buildAgentSpec(agent: AgentView, settings: Pick<ModSettings, 'maxTurns' | 'fullMode'>, o: { mode?: ApprovalMode } = {}): AgentSpec {
+  const model = agent.model.trim()
+  return {
+    name: agentTypeName(agent.id),
+    description: agent.description,
+    prompt: preamble({ name: agent.name }) + '\n\n' + agent.systemPrompt,
+    ...(model && model.toLowerCase() !== 'auto' ? { model } : {}),
+    permissionMode: permissionModeFor(o.mode ?? agent.approval, settings.fullMode),
+    maxTurns: settings.maxTurns,
+    disallowedTools: [...DISALLOWED_TOOLS],
+  }
+}

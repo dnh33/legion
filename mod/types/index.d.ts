@@ -57,6 +57,8 @@ export type TaskView = {
   /** True once the run touched a tool that taints (web, shell, other MCP): its Library writes go to the Inbox. */
   isTainted: boolean
   turns: number
+  /** Model requests in the current run only; reset when a run starts or continues. The turn-limit check reads it. */
+  runTurns: number
   tokens: TokenCount
   /** An estimate from a price table: the engine reports tokens, not dollars, per agent. Always shown with "≈". */
   costUsd: number
@@ -73,6 +75,8 @@ export type TaskOrigin =
   | { kind: 'person' }
   | { kind: 'bridge'; fromAgentId: AgentId; fromTaskId: string; hop: number; depth: number }
   | { kind: 'room'; roomId: string; hop: number }
+  /** Claude Code's own model delegated to a Legion agent with the Agent tool; Legion adopted the run so it shows in the pane. */
+  | { kind: 'claude-code' }
 
 /** One row of a thread as the Chat view draws it. */
 export type ThreadRow = {
