@@ -1010,7 +1010,7 @@ export class Engine {
         if (next.done) break;
         const o = this.handleMessage(job, act, next.value as any);
         // each result answers one message; once none are waiting the stream closes and the run ends
-        if (o) { outcome = o; if (input.answered()) input.close(); }
+        if (o) { outcome = o; if (input.answered((next.value as any)?.queued_turn_count)) input.close(); }
       }
     } catch (e) {
       if (act.cancelled || act.ac.signal.aborted) return { subtype: 'cancelled', isError: false };
