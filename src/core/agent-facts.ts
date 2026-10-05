@@ -76,6 +76,12 @@ export function renderCapabilities(agent: AgentProfile, ctx: FactsContext): stri
   if (names.has('legion_bsv')) {
     lines.push('- bsv_status contacts a wallet and counts as outside content, so it marks the run tainted. A spend request from a tainted run needs a second native dialog on the owner\'s card. You never choose the network; mainnet is off unless the owner switches it on and arms it.');
   }
+  if (names.has('legion_kg') && (names.get('legion_kg') ?? []).includes('kg_supersede')) {
+    // One line, and only when the tool is really registered. A stale note is retired with kg_supersede rather than
+    // replaced by a near-duplicate, and on a shared note that lands as a proposal the owner accepts - which is the
+    // difference between a Library that stays true and one that accumulates contradictions.
+    lines.push('- When a note is outdated, kg_supersede retires it instead of you capturing a near-duplicate. On a shared note it becomes a proposal the owner accepts, not a change you make.');
+  }
   if (agent.id === 'sentinel') {
     lines.push('- Scheduling: checks run only while a task is running; scheduled runs are planned, not available yet.');
   }

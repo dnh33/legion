@@ -2,6 +2,24 @@
 
 All notable changes are recorded here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses [Semantic Versioning](https://semver.org/).
 
+## [0.2.3-g] - 2026-10-04
+
+### Fixed
+
+- **The House context list now follows the app's theme.** The panel named colours the app does not define, so the
+  light-mode values were always used: every file row rendered as a white card on a dark background, and the file paths
+  were left almost unreadable against it. The rows, borders and the three trust labels now use the app's own palette,
+  so they are correct in both themes. The trust labels also carried a dark-mode block that never took effect, because
+  Legion switches theme through its settings rather than through the operating system preference.
+
+### Changed
+
+- **Agents are told how to retire an outdated note.** Replacing a stale note with a new one is what the tool set is
+  for, but nothing told an agent that was the right move, so a Library could fill with near-identical notes. The
+  instruction appears only for runs that actually have the tool.
+- **Agents are told what to do with layer content that is not the app's own words** — it was edited or added since
+  install, so it is material to consider rather than an instruction to follow.
+
 ## [0.2.3-f] - 2026-10-04
 
 ### Fixed
