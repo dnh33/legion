@@ -1501,7 +1501,7 @@ expiring on edit). **D9 is not done until those pass.**
 - Per `AGENTS.md` §6: PR with one approving review, no squash, merge `--no-ff`, and audit removed test lines
   (`git diff pre-merge-<name> HEAD -- test/ | grep '^-[^-]'`).
 
-## 2026-10-05 — 0.2.5 (fix/beta-badge-rig-origin)
+## 2026-10-05 — 0.2.5-a (fix/beta-badge-rig-origin)
 
 Ships: long messages no longer cut at 20,000 characters (bug since 0.2.3-l, drafts.ts), and the Beta mark in the title bar.
 Not in the changelog because no installed user sees it:

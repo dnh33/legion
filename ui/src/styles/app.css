@@ -51,7 +51,7 @@ kbd { font-size: 10.5px; line-height: 1; padding: 3px 5px; border: 1px solid var
 .tb-ver { color: var(--muted); font-size: 11px; font-weight: 500; line-height: 1; font-variant-numeric: tabular-nums; letter-spacing: .01em; }
 /* the beta mark: a hairline tag in the version's grey, never --warn (that colour means a failing Doctor check). The word is
    "Beta" in the markup and uppercased here, so a screen reader reads a word, not letters. nodrag so the hover note can fire. */
-.tb-beta { color: var(--muted); font-size: 9.5px; font-weight: 600; line-height: 1; letter-spacing: .08em; text-transform: uppercase; padding: 2px 4px 2px 5px; border: 1px solid var(--line-strong); border-radius: 3px; cursor: default; white-space: nowrap; }
+.tb-beta { color: var(--muted); font-size: 9.5px; font-weight: 600; line-height: 1; letter-spacing: .08em; text-transform: uppercase; padding: 1px 4px 1px 5px; border: 1px solid var(--line-strong); border-radius: 3px; cursor: default; white-space: nowrap; transform: translateY(-1px); }
 .tb-search { flex: 0 1 380px; height: 28px; display: flex; align-items: center; gap: 8px; padding: 0 8px 0 10px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--r); color: var(--muted); transition: border-color var(--t), background var(--t); margin: 0 auto 0 0; }
 .tb-search:hover { border-color: var(--line-strong); background: var(--surface-2); }
 .tb-search span { flex: 1; text-align: left; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
