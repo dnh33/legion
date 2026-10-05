@@ -21,6 +21,13 @@ const bridge = (): Bridge => (window as unknown as { legion?: Bridge }).legion ?
 export const AUTO_INSTALL_TEXT = 'Install updates automatically when idle. Legion will download a new release without asking again and restart itself when no task or approval is running. Off by default.';
 const mb = (n: number) => `${Math.max(1, Math.round(n / 1e6))} MB`;
 
+/**
+ * Phases where offering the Update button is correct. Every other phase is work already under way, and a second
+ * click is a second request against that work: `committing` re-POSTs /api/update/install while an install is already
+ * committing. Named rather than inlined so the rule is one thing to read and one thing to extend.
+ */
+const IDLE_FOR_INSTALL: ReadonlyArray<UpdateStatus['phase']> = ['idle', 'checking'];
+
 /** Settings, About: the update notice, the Update button, the "ready, will install when idle" state and the three switches. All text from the release is shown as plain text. */
 export function UpdatePanel() {
   const [st, setSt] = useState<UpdateStatus | null>(null);
@@ -39,7 +46,10 @@ export function UpdatePanel() {
     <div className="upd" aria-label="Updates">
       <h4>Updates</h4>
       {!st.keyConfigured && <p className="upd-muted">Updates are off in this build: it has no update key built in.</p>}
-      <p className="upd-muted">You are on v{st.installed.version}. {st.check.lastResult ? `Last check: ${st.check.lastResult}.` : 'Not checked yet.'}</p>
+      {!st.keyConfigured && <p className="upd-muted">You are on v{st.installed.version}.</p>}
+      {st.keyConfigured && (
+        <p className="upd-muted">You are on v{st.installed.version}. {st.check.lastResult ? `Last check: ${st.check.lastResult}.` : 'Not checked yet.'}</p>
+      )}
       {st.outcome && st.outcome.result !== 'ok' && (
         <p className="upd-warn" role="status">Update {st.outcome.to} {st.outcome.result === 'rolled-back' ? 'did not start correctly and Legion went back to the previous version' : 'was not installed'}{st.outcome.reason ? `: ${st.outcome.reason}` : ''}. <button type="button" className="btn-ghost sm" onClick={() => void act(() => request('POST', '/api/update/ack'))}>Dismiss</button></p>
       )}
@@ -58,10 +68,11 @@ export function UpdatePanel() {
           {notifyOnly && st.mode !== 'checkout' && (a.requiresFullInstall
             ? <p className="upd-muted">This release changes dependencies, so it cannot be installed from inside Legion. Download the source of the release and run setup.cmd, as for a first install.</p>
             : <p className="upd-muted">This install cannot be updated from inside Legion ({st.mode === 'unwritable' ? 'the folder is not writable' : 'unsupported system'}).</p>)}
-          {!notifyOnly && !st.staged && st.phase !== 'downloading' && st.phase !== 'awaiting-approval' && (
+          {!notifyOnly && !st.staged && IDLE_FOR_INSTALL.includes(st.phase) && (
             <button type="button" className="btn-ghost" disabled={busy} onClick={() => void act(() => request('POST', '/api/update/install'))}>Update</button>
           )}
           {st.phase === 'awaiting-approval' && <p className="upd-muted">Waiting for your answer on the update card.</p>}
+          {st.phase === 'committing' && <p className="upd-muted" role="status">Installing. Legion restarts when this finishes{'…'}</p>}
           {st.phase === 'downloading' && <p className="upd-muted">Downloading and checking{st.progress ? ` (${Math.round((st.progress.bytes / st.progress.total) * 100)}%)` : ''}{'…'}</p>}
           {st.staged && (
             <div>

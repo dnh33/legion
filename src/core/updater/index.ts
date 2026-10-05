@@ -140,7 +140,7 @@ export function createUpdaterModule(deps: ModuleDeps, opts: UpdaterOptions): Upd
       available = null;
       if (e instanceof NetError) {
         if (e.kind === 'rate-limit') nextAllowedAt = now() + (e.retryAfterMs ?? 3600_000);
-        settle(e.kind === 'offline' || e.kind === 'timeout' ? 'offline: could not reach the update server' : e.kind === 'rate-limit' ? 'the update server asked us to wait' : e.kind === 'http' && /404/.test(e.message) ? 'no release found' : `could not check: ${e.message}`);
+        settle(describeCheckFailure(e));
       } else if (e instanceof ManifestError) settle(`rejected: ${e.message}`);
       else { settle('could not check for updates'); log('updater check failed', e instanceof Error ? e.message : String(e)); }
     } finally {
@@ -327,4 +327,26 @@ export function createUpdaterModule(deps: ModuleDeps, opts: UpdaterOptions): Upd
     every.unref?.(); timers.push(every);
   }
   return module;
+}
+
+/**
+ * Why a check failed, in words a person can act on.
+ *
+ * Written out rather than nested inline because the previous one-liner was three ternaries deep and its last branch
+ * put the raw exception text on screen: a DNS or TLS failure arrived as `could not check: getaddrinfo ENOTFOUND
+ * api.github.com`, which names an internal host and offers the reader nothing. The kind is what we know; the
+ * message is for the log. Unmapped kinds fall back to the plain sentence rather than leaking `e.message`.
+ */
+export function describeCheckFailure(e: { kind: string; message: string }): string {
+  switch (e.kind) {
+    case 'offline':
+    case 'timeout':
+      return 'offline: could not reach the update server';
+    case 'rate-limit':
+      return 'the update server asked us to wait';
+    case 'http':
+      return /404/.test(e.message) ? 'no release found' : 'the update server returned an error';
+    default:
+      return 'could not check for updates';
+  }
 }

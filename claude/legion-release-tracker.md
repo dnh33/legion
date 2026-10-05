@@ -836,6 +836,20 @@ live, and visible to the owner, so it is its own session rather than bundled wit
    exactly that claim. Limit stated in ADR 0011: defence in depth, not a cryptographic boundary, because an agent runs
    as the same OS user.
 
+2d. **PARKED, and the next thing to finish: the house trust record** — branch `fix/house-shipped-record` at `31a31a9`,
+   worktree `D:/bots/legion-shipped`. **Committed, not merged.** Two owner decisions, recorded in ADR 0011 there:
+   **(a) the bytes always survive** — never overwrite a file whose content differs from what the app shipped; an agent's
+   edit is its own work and Legion does not destroy it silently, and if a shipped update therefore does not reach an
+   edited file the owner adopts the new text instead; **(b) the record moves out** — `.shipped.json` goes in the data
+   directory beside `.adopted.json`, because the precondition "the copy still hashes to what this app shipped" is
+   worthless if the agent can write the manifest that makes it true, and an agent runs as the same OS user. That
+   retires the clobber in the `0.2.3-f` fix, which stopped the forge by overwriting the edited file.
+   Also there: `context.ts` folds a backslash before joining, because on Linux a backslash is a legal filename
+   character, so a Windows agent's `docs\adr\x.md` was reported absent.
+   **MERGE NEEDS WORK, NOT A FAST-FORWARD.** main has moved on; `test/house-zealot.test.ts` and ADR 0011 are edited
+   there too. Rebase, then re-run Zealot test 2.4 under the new arrangement — it must still go red when the record is
+   forged in its new home. Do not take the branch's 2.4 as proof; take it as the thing to re-prove.
+
 3. **Logging (NEXT)** — Legion has none today. The reference ships `~/.hermes/logs/` with rotation and a CLI reader
    (`hermes_cli/logs.py`: `tail_log`, `list_logs`, filters by level/component/time). The owner's use case is concrete:
    when something breaks locally, the log is what gets pasted to an agent.
