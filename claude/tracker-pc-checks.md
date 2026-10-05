@@ -220,3 +220,5 @@ Full record: `claude/HOUSE-LAYER-VERIFICATION.md`.
 
 ## Browser tool (built-in headless Edge/Chrome) - see claude/tracker-pc-checks-browser.md for the full steps (BR15 to BR24; the Lightpanda checks BR1-BR14 are dropped)
 Safety classes: BR15-BR20, BR22-BR24 none (a harmless page you control); BR21 native dialog. Nothing in this section was run in a cloud session; do not call the browser tool verified until each is recorded as passed.
+
+| H11 | **Heap ceiling (0.2.3-j).** The core now gets `min(RAM/4, 2048)` MB, floored at 512. On this machine Node's default was 4192 MB, so the cap is roughly half. **Nobody profiled the core's actual peak heap** — the cap is reasoned, not measured. Run a heavy session (large KG, several compactions, a long agent run) and watch whether heap approaches 2048. If it does, the cap is too low and the core will OOM where it previously survived. | todo |
