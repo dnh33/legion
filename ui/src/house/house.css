@@ -6,7 +6,7 @@
   font-size: 12px;
   font-weight: 600;
   letter-spacing: 0.02em;
-  color: var(--muted, #6b7280);
+  color: var(--muted);
   text-transform: uppercase;
 }
 
@@ -25,9 +25,9 @@
   justify-content: space-between;
   gap: 12px;
   padding: 10px 12px;
-  border: 1px solid var(--border, #e5e7eb);
+  border: 1px solid var(--line);
   border-radius: 8px;
-  background: var(--card, #fff);
+  background: var(--surface-2);
 }
 
 .house-main {
@@ -40,6 +40,7 @@
 .house-path {
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   font-size: 12px;
+  color: var(--text);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -50,7 +51,7 @@
   align-items: center;
   gap: 8px;
   font-size: 11px;
-  color: var(--muted, #6b7280);
+  color: var(--muted);
 }
 
 .house-tag {
@@ -62,9 +63,9 @@
 }
 
 /* Green = the app's own words. Amber = the owner approved these bytes. Grey = nobody has vouched for it. */
-.house-tag.t-shipped { color: #15803d; }
-.house-tag.t-adopted { color: #b45309; }
-.house-tag.t-untrusted { color: #6b7280; }
+.house-tag.t-shipped { color: var(--accent-text); }
+.house-tag.t-adopted { color: var(--warn); }
+.house-tag.t-untrusted { color: var(--muted); }
 
 .house-bytes { font-variant-numeric: tabular-nums; }
 
@@ -73,14 +74,12 @@
   align-items: center;
   gap: 6px;
   font-size: 12px;
-  color: var(--muted, #6b7280);
+  color: var(--muted);
 }
 
-@media (prefers-color-scheme: dark) {
-  .house-tag.t-shipped { color: #4ade80; }
-  .house-tag.t-adopted { color: #fbbf24; }
-  .house-tag.t-untrusted { color: #9ca3af; }
-}
+/* There is deliberately no prefers-color-scheme block here. Legion themes by swapping tokens on
+   :root[data-theme='light'], so a colour-scheme query never fires and the panel ignored the app's theme entirely.
+   The trust tags read --accent-text / --warn / --muted, which the theme already defines for both modes. */
 
 /* Narrow: let the button drop under the text rather than squeeze the path to nothing. */
 @media (max-width: 520px) {
