@@ -2,7 +2,9 @@
 
 ## Supported versions
 
-Legion is young (v0.2.0, no prebuilt releases yet). Only the latest code on the default branch receives security fixes.
+Legion is young and pre-1.0. Only the latest release and the default branch receive security fixes; earlier
+releases are not patched. Signed releases are published on the Releases page and install from inside the app or
+from `setup.cmd` in a release's source.
 
 ## Reporting a vulnerability
 
@@ -45,7 +47,7 @@ A short index of the limits written out above and in `docs/`. Checked against th
 | MCP token is a password | Holder can run agents under the `ask` ceiling, read room text via tasks, and `exec` in a VM-enabled agent's VM through `legion_vm` without a Legion card. | above |
 | Headless core has no admin | Cowork-only use: approvals for agents that need them time out after 10 minutes unless the app is opened. | above |
 | Port squatting | Another local process can take the port first (denial of service, and it sees the MCP token). | above |
-| Bot-made rooms | Each needs your card; a card you allow without reading is allowed. Today a bot-made room has a default budget (`botRoomDefaultBudgetUsd`, 1) and a cap (5); the owner has decided to change the default to no spend limit (member cap stays 6). Update this row when that lands. | above, `docs/COMMS-BRIDGE.md` |
+| Bot-made rooms | Each needs your card; a card you allow without reading is allowed. A bot-made room has **no default spend limit** (`botRoomDefaultBudgetUsd` is unset) and its member cap is 6; name a budget or set one in room settings to bound it. | above, `docs/COMMS-BRIDGE.md` |
 | BSV wallet | Legion's own code has one spend tool (testnet and mainnet; mainnet built, OFF by default, one Arm per spend), reached only after the owner's native dialogs, and holds no key. A program on your computer can call your wallet on `127.0.0.1:3321` directly; the wallet's own prompt is the last gate. The network is the wallet's own claim; change outputs are wallet-claimed. Not verified against a real wallet or with real funds until the owner's checks are recorded. | above, `docs/BSV-MODE.md`, `docs/BSV-WALLET-DESIGN.md` |
 | BSV audit log | Tamper-evident, not tamper-proof: a same-user program can rewrite the file with its hashes. Spend lines are written before and after the wallet calls; if one fails to be written, the wallet is not asked to sign (or the chain freezes). | `docs/BSV-MODE.md` |
 | Blender add-on socket | Live path only: no password on `127.0.0.1:9876`; any local program can send Python to it while the add-on's server runs. The static script check is a filter, not a sandbox. | above, `docs/BLENDER.md` |
@@ -55,7 +57,17 @@ A short index of the limits written out above and in `docs/`. Checked against th
 | Inherited Claude Code setup | By default agents load your Claude Code settings, MCP servers and connectors (`claude.inheritClaudeCodeSettings`). The owner has decided to make MCP inheritance opt-in; not shipped yet. | `README.md`, `docs/ARCHITECTURE.md` |
 | Agents run code | `full` approval removes prompts for that agent. Use VMs for untrusted work. | above |
 | Installer | `setup.cmd` copies the source, runs `npm ci` (downloads packages and the Electron binary, so it trusts npm and its network path) and builds on your machine. It is unsigned. It stops Legion's own processes by PID (matched by install folder and package name, not by program name) and refuses to mirror into a folder that is not empty and not a Legion install. This is checked by tests and has not yet been run on a wide range of Windows machines. Only run it on a source folder you trust. | `README.md` |
-| Updates | Signed manifest (public key built in), sha256 and size checked before unpacking, newer-than-running, https to GitHub hosts only; click to download, idle-only restart, rollback on a failed first start. Not covered: a compromised signing key or maintainer account with the key, a signed malicious build, update withholding, same-user malware. No remote key revocation. Not yet run on a real PC. | `docs/UPDATES.md` |
+| Updates | Signed manifest (public key built in), sha256 and size checked before unpacking, newer-than-running, https to GitHub hosts only; click to download, idle-only restart, rollback on a failed first start. Not covered: a compromised signing key or maintainer account with the key, a signed malicious build, update withholding, same-user malware. No remote key revocation. | `docs/UPDATES.md` |
+| House context layer | The layer is served to your agents as **trusted** text — the one thing in Legion not wrapped as outside material — so what counts as trusted is decided by a recorded hash of what the app shipped. A file you edited, or one an agent edited, is served wrapped as material instead, and approval is of exact bytes: edit an approved file and it needs approving again. An agent runs as your OS user, so it can write anywhere under `~/.legion`, including the trust record; the app re-derives that record from what it ships on every start, so a written one is discarded rather than believed. That is defence in depth, not a cryptographic boundary — a determined agent that knows the app's internal layout is not stopped by it. Agents cannot edit the layer, and adoption is reachable only from the app. | `docs/adr/0011-derive-trust-from-source.md` |
 | Not hosted | Legion is a personal local tool. Do not expose it to a network or share it between users. | above |
+
+**On the wording in this table.** Where a row says something is *not* verified, that is the finding, not hedging, and
+it is not to be smoothed away. A residual-risk table whose rows all read "verified" is a table nobody can act on. Each
+such row names a check that has not happened yet, and the checklist behind it is `claude/tracker-pc-checks.md` in the
+repository — for example **B9**, reproducing the community add-on's pinned hash, is still open. Drop the caveat when the
+check is recorded, not before.
+
+By contrast, the changelog and the release notes carry no such language: a user-facing page that says a shipped feature
+is "not yet tested" states a development state where the reader needs an outcome. Different documents, different job.
 
 Reports about these boundaries (for example an authentication bypass, a way to reach the API from a web page, or a secret leaking into logs or API responses) are in scope.
