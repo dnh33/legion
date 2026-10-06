@@ -59,8 +59,12 @@ interface QueueItem {
   model?: ModelChoice;
   /** Called with the final task when this item's own run ends; or with an error if it could not start. */
   settle?: (r: { task?: Task; error?: Error }) => void;
+  /** Coalesced replies: at least one of the merged replies came from a tainted task (the engine only sees `fromTaskId`). */
+  tainted?: boolean;
 }
 
+/** Between coalesced replies in one caller turn; each reply keeps its own `[Reply from ...]` header. */
+const REPLY_SEPARATOR = '\n\n';
 const isLive = (t: Task) => t.status === 'queued' || t.status === 'running';
 const truncate = (s: string, n = RESULT_MAX_CHARS) => (s.length <= n ? s : `${s.slice(0, n)}\n[truncated: ${s.length - n} more chars]`);
 
@@ -79,6 +83,16 @@ export class Bridge {
   /** `from>to` -> delivery timestamps (rate limit). */
   private readonly deliveries = new Map<string, number[]>();
   private readonly now: () => number;
+  /** caller task -> tells it sent whose reply has not arrived yet. */
+  private readonly openTells = new Map<string, number>();
+  /** caller task -> replies held for coalescing, and the timer that flushes them. */
+  private readonly held = new Map<string, { items: QueueItem[]; timer?: ReturnType<typeof setTimeout> }>();
+  /**
+   * How long a tell reply is held for others to the same caller (reply coalescing). Every reply is a full caller run that re-reads the
+   * caller's whole context (measured median ~106K tokens per reply run, claude/investigation-cost-bridge.md); replies landing close
+   * together become one run instead. A reply is held only while another tell from that caller is still out, and never past this.
+   */
+  replyHoldMs = 60_000;
   /** Hides agents that are switched off (e.g. `requires: 'bsv'` while BSV mode is off). Set by the composition root. */
   isVisible: (a: AgentProfile) => boolean = () => true;
   /** The account's model catalog (cached, probed without a model call). Set by the composition root; without it only the alias list limits `model`. */
@@ -205,7 +219,10 @@ export class Bridge {
     const modelNotice = this.checkCeiling(target, model);
     if (modelNotice) this.noteOverride(callerTaskId, target, model!, target.model);
     const { taskId, done } = this.deliver(caller, target, message, !!opts.fresh, hop, model);
+    this.openTells.set(callerTaskId, (this.openTells.get(callerTaskId) ?? 0) + 1);
     void done.then((r) => {
+      const open = (this.openTells.get(callerTaskId) ?? 1) - 1;
+      if (open <= 0) this.openTells.delete(callerTaskId); else this.openTells.set(callerTaskId, open);
       const t = r.task ?? this.store.getTask(taskId);
       const body = r.error ? `(failed) ${r.error.message}` : t?.status === 'done' ? (t.result ?? '') : `(${t?.status ?? 'gone'}) ${t?.error ?? ''}`.trim();
       // the outcome travels in the header, which only Legion writes: a free-text answer that happens to start with
@@ -272,6 +289,10 @@ export class Bridge {
 
   /** A task was deleted: drop its queued messages and wake anyone waiting on it. */
   forget(taskId: string): void {
+    const h = this.held.get(taskId);
+    if (h?.timer) clearTimeout(h.timer);
+    this.held.delete(taskId);
+    this.openTells.delete(taskId);
     const q = this.queues.get(taskId);
     this.queues.delete(taskId);
     for (const i of q ?? []) i.settle?.({ error: new BridgeError('The target task was deleted') });
@@ -319,6 +340,7 @@ export class Bridge {
       : `[From ${caller?.name ?? item.fromAgentId} (Legion agent) via the bridge. Reply with just what they need; your final message is returned to them.]`;
     return this.engine.startTask({
       agentId, prompt: item.message, source, continueTaskId,
+      ...(item.tainted ? { tainted: true } : {}),
       ...(item.model ? { model: item.model, modelOverrideBy: item.fromAgentId } : {}),
       bridge: { fromAgentId: item.fromAgentId, parentTaskId: item.parentTaskId, header, reply: item.reply, hop: item.hop, ...(item.fromTaskId ? { fromTaskId: item.fromTaskId } : {}) },
     });
@@ -334,7 +356,9 @@ export class Bridge {
   private drain(taskId: string): void {
     const q = this.queues.get(taskId);
     if (!q?.length) return;
-    const item = q.shift()!;
+    let item = q.shift()!;
+    // replies that queued up while the task ran land as one turn (each whole, in arrival order)
+    if (item.reply) { const more: QueueItem[] = []; while (q[0]?.reply) more.push(q.shift()!); if (more.length) item = this.mergeReplies([item, ...more]); }
     if (!q.length) this.queues.delete(taskId);
     const task = this.store.getTask(taskId);
     if (!task || (item.reply && task.status === 'cancelled')) {
@@ -374,7 +398,34 @@ export class Bridge {
     const hop = (this.store.getTask(fromTaskId)?.bridgeHop ?? 0) + 1;
     if (hop > MAX_HOP) return; // loop guard: stop delivering replies deep in a chain
     const item: QueueItem = { message: `[Reply from ${from.name} · task ${fromTaskId}${outcome ? ` · ${outcome}` : ''}] ${body}`, fromAgentId: from.id, reply: true, hop, fromTaskId };
+    const h = this.held.get(callerTaskId) ?? { items: [] };
+    h.items.push(item);
+    this.held.set(callerTaskId, h);
+    // nothing else is on its way: deliver now; otherwise wait for the others, at most replyHoldMs after the first held reply
+    if (!this.openTells.get(callerTaskId)) { this.flushReplies(callerTaskId); return; }
+    if (!h.timer) { h.timer = setTimeout(() => this.flushReplies(callerTaskId), this.replyHoldMs); h.timer.unref?.(); }
+  }
+
+  /** Deliver the held replies of one caller as one turn: queued behind its run if it is running (the rule for every reply). */
+  private flushReplies(callerTaskId: string): void {
+    const h = this.held.get(callerTaskId);
+    if (!h) return;
+    this.held.delete(callerTaskId);
+    if (h.timer) clearTimeout(h.timer);
+    const caller = this.store.getTask(callerTaskId);
+    if (!caller || caller.status === 'cancelled' || !h.items.length) return;
+    const item = this.mergeReplies(h.items);
     if (isLive(caller)) { this.enqueue(caller.id, item); return; }
     try { this.start(caller.agentId, item, caller.id, caller.source); } catch { /* caller agent gone: drop */ }
+  }
+
+  /** Several replies as one caller turn: every reply whole, in arrival order, each under its own `[Reply from ...]` header. */
+  private mergeReplies(items: QueueItem[]): QueueItem {
+    if (items.length === 1) return items[0]!;
+    const tainted = items.some((i) => i.tainted || (!!i.fromTaskId && this.engine.isTainted?.(i.fromTaskId) === true));
+    return {
+      message: items.map((i) => i.message).join(REPLY_SEPARATOR), fromAgentId: items[0]!.fromAgentId, reply: true,
+      hop: Math.max(...items.map((i) => i.hop)), ...(items[0]!.fromTaskId ? { fromTaskId: items[0]!.fromTaskId } : {}), ...(tainted ? { tainted: true } : {}),
+    };
   }
 }

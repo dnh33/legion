@@ -437,3 +437,64 @@ test('pair thread stays findable after the owner types into it: the next ask res
   assert.ok(bc[2]!.options.resume, 'the ask resumes the thread session (warm), not a new one');
   assert.equal(s.store.listTasks(50, 'builder', true).length, 1, 'no second, cold thread');
 });
+
+// ---- reply coalescing: replies to the same caller arriving close together become one caller turn
+test('coalescing: two tell replies for an idle caller become ONE caller turn, in arrival order, each reply whole', async () => {
+  const g = gated();
+  const s = setup((c) => c.agent === 'scout' ? (async function* () { yield init('sc'); await g.p; yield ok('scout late answer', 'sc'); })() : undefined, 4);
+  const z = s.engine.startTask({ agentId: 'zealot', prompt: 'go', source: 'ui' });
+  await s.engine.waitFor(z.id, 3000);
+  const b = s.engine.bridge.tell(z.id, 'builder', 'part one');
+  const sc = s.engine.bridge.tell(z.id, 'scout', 'part two');
+  await tick(150);
+  assert.equal(s.calls.filter((c) => c.agent === 'zealot').length, 1, 'the first reply is held while another tell is outstanding');
+  g.open();
+  await tick(150);
+  await s.engine.waitFor(z.id, 3000);
+  const zc = s.calls.filter((c) => c.agent === 'zealot');
+  assert.equal(zc.length, 2, 'one caller run for both replies');
+  assert.equal(zc[1]!.prompt, `[Reply from Builder · task ${b.taskId}] builder says: part one\n\n[Reply from Scout · task ${sc.taskId}] scout late answer`);
+  const users = s.store.listMessages(z.id).filter((m) => m.role === 'user');
+  assert.equal(users.length, 2);
+  assert.equal(users[1]!.text, zc[1]!.prompt);
+});
+
+test('coalescing: a held reply is delivered alone once the hold runs out; the late one follows on its own', async () => {
+  const g = gated();
+  const s = setup((c) => c.agent === 'scout' ? (async function* () { yield init('sc'); await g.p; yield ok('scout very late', 'sc'); })() : undefined, 4);
+  s.engine.bridge.replyHoldMs = 120;
+  const z = s.engine.startTask({ agentId: 'zealot', prompt: 'go', source: 'ui' });
+  await s.engine.waitFor(z.id, 3000);
+  s.engine.bridge.tell(z.id, 'builder', 'quick');
+  s.engine.bridge.tell(z.id, 'scout', 'slow');
+  await tick(60);
+  assert.equal(s.calls.filter((c) => c.agent === 'zealot').length, 1, 'held inside the window');
+  await tick(200);
+  let zc = s.calls.filter((c) => c.agent === 'zealot');
+  assert.equal(zc.length, 2, 'flushed when the hold ran out');
+  assert.match(zc[1]!.prompt, /^\[Reply from Builder · task [^\]]+\] builder says: quick$/);
+  await s.engine.waitFor(z.id, 3000);
+  g.open();
+  await tick(200);
+  await s.engine.waitFor(z.id, 3000);
+  zc = s.calls.filter((c) => c.agent === 'zealot');
+  assert.equal(zc.length, 3);
+  assert.match(zc[2]!.prompt, /^\[Reply from Scout · task [^\]]+\] scout very late$/);
+});
+
+test('coalescing: replies that arrive while the caller is running wait for it, then land as one turn', async () => {
+  const g = gated();
+  const s = setup((c) => c.agent === 'zealot' && c.n === 0 ? (async function* () { yield init('z1'); await g.p; yield ok('zealot first', 'z1'); })() : undefined, 4);
+  const z = s.engine.startTask({ agentId: 'zealot', prompt: 'go', source: 'ui' });
+  await tick();
+  s.engine.bridge.tell(z.id, 'builder', 'a');
+  s.engine.bridge.tell(z.id, 'scout', 'b');
+  await tick(150);
+  assert.equal(s.calls.filter((c) => c.agent === 'zealot').length, 1, 'nothing delivered while the caller runs');
+  g.open();
+  await tick(200);
+  await s.engine.waitFor(z.id, 3000);
+  const zc = s.calls.filter((c) => c.agent === 'zealot');
+  assert.equal(zc.length, 2, 'both replies in one turn');
+  assert.match(zc[1]!.prompt, /^\[Reply from Builder · task [^\]]+\] builder says: a\n\n\[Reply from Scout · task [^\]]+\] scout says: b$/);
+});
