@@ -20,7 +20,7 @@ Read this first after a compaction or in a new session. Last updated 2026-10-07.
 2. Then the ladder resumes: connectors (16, the connectors session) -> logging (items 3 and 7) is next. Logging and the
    connectors redactor (design rev 6, section 4.4) both rewrite the single `log()` in `src/bin/legion-core.ts` and the
    stdout/stderr wrappers: whoever builds logging agrees the design with the connectors session first.
-   Release B plan: `claude/plan-ci-panel.md` on branch `feat/ci-panel` (worktree `D:otslegion-ci`).
+   Release B plan: `claude/plan-ci-panel.md` on branch `feat/ci-panel` (worktree `D:/bots/legion-ci`).
 
 ## Coordination
 - The orchestrating session ("Legion Claude code mod planning") owns connectors phase 1, merges and releases. It
