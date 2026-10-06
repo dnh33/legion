@@ -2,6 +2,74 @@
 
 All notable changes are recorded here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+## [0.2.5-i] - 2026-10-06
+
+### Fixed
+
+- **The usage panel opens fully again.** The chart button in the title bar opened only a thin strip; it now shows the
+  whole panel with totals, the daily chart and the per-model and per-agent rows.
+
+- **BSV: a payment no longer fails while your wallet is still asking you about it.** Some wallets ask once for a spending
+  grant while they build a payment. Legion gave that step 30 seconds, so a careful answer could come too late and the
+  request ended with a general build error, while the wallet kept the payment it had built. Legion now waits while the
+  wallet asks you (up to 15 minutes, as the BRC-219 wallet standard asks of apps), and the BSV panel shows the request as waiting for your
+  wallet, with Cancel. Cancel, Deny, Freeze and Disconnect end the wait, and for a payment the wallet builds after that,
+  Legion at once tells the wallet to release it, so the wallet can free the coins it had set aside. A payment the wallet
+  hands back more than two minutes after it was asked for is released the same way and the Assayer asks once more,
+  because some wallets drop an unsigned payment after five minutes and a late signature would then leave the outcome
+  unclear. If the wallet never answers, the Assayer asks you to check
+  the wallet instead of asking again.
+- **BSV: the Assayer no longer tells you the wallet will ask you again.** Its tool text now says that you confirm each
+  payment in Legion's own dialogs, and that whether the wallet asks too depends on the wallet.
+
+### Changed
+
+- **BSV knowledge pack version 10** (167 notes, 745 links, from 163 and 727). It now covers BRC-100's official site,
+  brc100.org, and the newer wallet standards around it: how wallets name the calling app, the error shapes, and
+  BRC-219, which asks apps to wait while a wallet asks its user. Every source the pack cites was re-read: moved
+  repositories now point to their new homes, and version numbers and facts that had changed are updated. Notes you
+  edited yourself are kept as they are.
+- **Install on Windows: the save-then-run command comes first.** getlegion.xyz and the README now give
+  `irm https://getlegion.xyz/install.ps1 -OutFile legion.ps1; powershell -ExecutionPolicy Bypass -File .\legion.ps1`, which
+  saves the script so you can read it before it runs. Some browser extensions warned when the site copied the one-step
+  form; `irm https://getlegion.xyz | iex` still works.
+- **SECURITY.md is rewritten** to match what the code does today, in plain words.
+
+## [0.2.5-h] - 2026-10-06
+
+### Added
+
+- **Install Legion with one line.** On Windows, `irm https://getlegion.xyz | iex` downloads the latest release from
+  GitHub Releases, checks it against the release's SHA-256 and runs setup. On macOS and Linux,
+  `curl -fsSL https://getlegion.xyz | sh` builds Legion from the release in `~/.local/share/legion` and adds a `legion`
+  command; it needs git and Node.js 22.12 or newer, and no sudo. Both scripts can be read before you run them:
+  `/install.ps1` and `/install.sh` on the same site.
+- **Doctrine: choose what your agents follow.** Settings → Doctrine (formerly House context) groups the files agents read,
+  under plain names. Core tenets always on. Drills are skills agents can use. Foundations, Decrees, Chronicle and Lore hold
+  how Legion is built, its decisions, its history and its facts. Your orders are files you added. Every file except the
+  core tenets now has its own switch, and search covers all of them.
+- **Six skills from Legion, off until you turn them on:** systematic debugging, verification before completion,
+  requesting code review, receiving code review, fixing red CI, and hardening GitHub Actions. Each one comes from a public
+  source with its licence, and was edited for safety. You can read the whole skill before you turn it on. Agents open a
+  skill only when their task calls for it.
+- **Bulk changes can be undone:** "Turn off" and "Reset to defaults" act at once and offer Undo.
+
+### Fixed
+
+- **Setup installs lettered releases from a downloaded zip.** `setup -PackagePath` and `-PackageUrl` refused versions such
+  as 0.2.5-g, and accepted a folder name in the wrong case.
+- **The release checksum file lists the full installer.** It named only the update package, so the installer's hash could
+  not be checked against the release.
+- **Files in nested folders now reach installed copies.** Before, only top-level files of the shipped context were copied
+  into a release.
+- **Links in agent messages open only web addresses.** Any other kind of link shows as plain text.
+
+### Changed
+
+- **The project's developer skills load in Claude Code again.** Each skill now has the folder layout Claude Code expects.
+
 ## [0.2.5-g] - 2026-10-06
 
 ### Fixed

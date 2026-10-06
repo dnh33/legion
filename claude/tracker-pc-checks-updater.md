@@ -2,7 +2,7 @@
 
 Safety class for all: downloads of a Legion release from GitHub only; no wallet, no funds. Use a COPY install (`-InstallDir`) first, not the daily one. Needs a real signed test release in a throwaway repo or the real repo (owner publishes by hand; the signing key stays with the owner).
 
-- U1. Apply on Windows: with Legion running and idle, publish version N+1; check shows the notice, Update asks a card, download, "ready", quiet 60 s, app restarts itself, new version shown, shortcut still works, `~\.legion` unchanged, `.update\prev` holds exactly the old build.
+- U1. **PASSED (maintainer report 2026-10-06; no screenshot kept).** Apply on Windows: with Legion running and idle, publish version N+1; check shows the notice, Update asks a card, download, "ready", quiet 60 s, app restarts itself, new version shown, shortcut still works, `~\.legion` unchanged, `.update\prev` holds exactly the old build.
 - U2. Real hosts: the download follows GitHub's redirect; record the exact hosts seen (expected github.com then objects.githubusercontent.com or release-assets.githubusercontent.com). If another host appears the allowlist must be changed deliberately, never loosened.
 - U3. Busy: start a task, publish an update; it must stay "ready, will install when idle" and never restart mid-task; pending approval card also blocks; finishing and waiting installs.
 - U4. Restart now: native dialog lists the running task; confirm; the task is `cancelled`, the app returns, nothing resumes by itself, Settings lists what was stopped.

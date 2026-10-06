@@ -15,7 +15,7 @@ const ids = new Set(seed.nodes.map((n) => n.id));
 const words = (s: string) => s.trim().split(/\s+/).length;
 
 test('bsv seed parses with the expected envelope and size', () => {
-  assert.equal(seed.version, 9);
+  assert.equal(seed.version, 10);
   assert.ok(!Number.isNaN(Date.parse(seed.generatedAt)));
   assert.ok(Array.isArray(seed.nodes) && Array.isArray(seed.edges));
   assert.ok(seed.nodes.length >= 45 && seed.nodes.length <= 220, `node count ${seed.nodes.length}`);
@@ -356,4 +356,81 @@ test('pack v8: the new lessons are in the safety module, downstream of orientati
     assert.ok(out(id).some((e) => e.rel === 'part_of'), `${id} is part of a module`);
   }
   assert.ok(seed.edges.some((e) => e.from === 'bsv-status-today' && e.to === 'bsv-safety-spend-flow'), 'status links to the spend flow');
+});
+
+// ---------------------------------------------------------------- pack v10: brc100.org read, stale Legion claims fixed, wallet-no-answer, scoped contradictions
+
+test('pack v10: the ts-stack note says Legion holds no keys and has no wallet, and that its own caps cover only payments asked through Legion', () => {
+  const b = byIdMap.get('bsv-safety-ts-stack-server-keys')!.body;
+  assert.match(b, /Legion holds no keys and has no wallet of its own/);
+  assert.ok(b.includes(`${sats(NET.test.defaultCaps.perTxSats)} satoshis per transaction, ${sats(NET.test.defaultCaps.perSessionSats)} per session and ${sats(NET.test.defaultCaps.per24hSats)} per 24 hours`), 'the testnet default caps in the note are the ones in networks.ts');
+  assert.match(b, /cover only payments asked through Legion/);
+  assert.doesNotMatch(b, /sets no spending limits|has no wallet in this version/);
+});
+
+test('pack v10: the spend flow note names the build deadline and the wallet-no-answer refusal, and tells the owner to check the wallet once', () => {
+  const b = byIdMap.get('bsv-safety-spend-flow')!.body;
+  assert.match(b, /it waits up to 15 minutes, shown in the panel as waiting, with Cancel; Cancel, Deny, Freeze or Disconnect end it at once/);
+  assert.match(b, /no answer within 15 minutes is wallet-no-answer \(other failures: build-failed\): the Assayer tells the owner to check the wallet for an open request from legion\.local and does not ask again/);
+  assert.doesNotMatch(b, /closed connection[^.]{0,40}wallet-no-answer/, 'a closed connection is build-failed, not wallet-no-answer');
+  assert.match(b, /a late build is released with abortAction/);
+  assert.doesNotMatch(b, /30 seconds|120 seconds/);
+});
+
+test('pack v10: brc100.org is a cited source with a licence note, and the BRC-100 lessons cite it', () => {
+  const s = byIdMap.get('bsv-src-brc100-org')!;
+  assert.equal(s.type, 'source');
+  assert.equal(s.sources![0]!.ref, 'https://brc100.org/');
+  assert.match(s.sources![0]!.licence!, /Open BSV License Version 6/);
+  assert.ok(s.sources![0]!.licence!.length < 200);
+  for (const id of ['bsv-brc100-originator-permissions', 'bsv-brc100-createaction-errors', 'bsv-brc100-wallet']) {
+    assert.ok(byIdMap.get(id)!.sources!.some((x) => x.ref === 'https://brc100.org/'), `${id} carries the page URL`);
+    assert.ok(seed.edges.some((e) => e.from === id && e.rel === 'cites' && e.to === 'bsv-src-brc100-org'), `${id} cites the source note`);
+  }
+});
+
+test('pack v10: what the BRC-100 text leaves open stays scoped (originator authentication, prompts, decline codes) and nothing claims a wallet always asks', () => {
+  const o = byIdMap.get('bsv-brc100-originator-permissions')!.body;
+  assert.match(o, /does not say how a wallet should authenticate an originator and names no transport or port/);
+  assert.match(o, /no rule for createAction versus signAction, no spending-grant format and no decline code/);
+  assert.match(o, /do not assume that every wallet asks, or asks at the same call/);
+  assert.match(byIdMap.get('bsv-safety-real-wallet-facts')!.body, /names no decline code and no rule for which call prompts/);
+  assert.doesNotMatch(byIdMap.get('bsv-safety-real-wallet-facts')!.body, /says nothing about user prompts/);
+  const c = byIdMap.get('bsv-brc100-createaction-errors')!.body;
+  assert.match(c, /may carry no explicit inputs or outputs/);
+  assert.match(c, /examples only, and wallets may use their own codes/);
+  assert.match(byIdMap.get('bsv-brc116-wallet-permissions')!.body, /start with "p " \(the letter p and a space\)/);
+});
+
+// ---------------------------------------------------------------- pack v10: source probe of 2026-10-06 (facts that moved, scoped)
+
+test('pack v10 probe: the wallet-toolbox permission facts say what the current source does (a grant with room left is not asked again, signAction checks the reference) and cite the ts-stack copy', () => {
+  const b = byIdMap.get('bsv-safety-real-wallet-facts')!;
+  assert.match(b.body, /a spend inside a stored grant with room left does not ask again \(a per-request grant cache was removed\)/);
+  assert.match(b.body, /signAction checks the reference belongs to the caller/);
+  assert.doesNotMatch(b.body, /signAction passes straight through/);
+  assert.ok(b.sources!.some((s) => s.ref.includes('ts-stack/blob/main/packages/wallet/wallet-toolbox/src/WalletPermissionsManager.ts')));
+  assert.ok(!b.sources!.some((s) => s.ref.includes('github.com/bsv-blockchain/wallet-toolbox/')), 'the archived repo is no longer the cited place');
+});
+
+test('pack v10 probe: BRC-69 says counterparty linkage removes BRC-2 confidentiality, and BRC-219 is recorded as followed by Legion with a 15-minute cap', () => {
+  assert.match(byIdMap.get('bsv-brc69-key-linkage')!.body, /removes the confidentiality of their BRC-2 data/);
+  assert.doesNotMatch(byIdMap.get('bsv-brc69-key-linkage')!.body, /Neither lets the recipient decrypt/);
+  const b = byIdMap.get('bsv-brc219-permission-prompt-liveness')!.body;
+  assert.match(b, /Applications should not add permission-specific timeouts/);
+  assert.match(b, /Legion follows this: its spend path waits up to 15 minutes/);
+  assert.match(b, /a safety cap that BRC-219 does not ask for/);
+  assert.match(b, /never retries a spend after that without the owner checking the wallet first/);
+  assert.doesNotMatch(b, /120 seconds/);
+});
+
+test('pack v10 probe: version facts moved on 2026-10-03 and the notes say so; moved repos are cited at their new address', () => {
+  const f = byIdMap.get('bsv-ts-stack-facts-2026-10')!.body;
+  assert.match(f, /@bsv\/sdk 3\.0\.0/);
+  assert.doesNotMatch(f, /unreleased proposal|@bsv\/sdk 2\.8\.11/);
+  assert.match(byIdMap.get('bsv-teranode-status-timeline')!.body, /latest stable release is v0\.16\.0/);
+  assert.match(byIdMap.get('bsv-go-wallet-toolbox')!.body, /v0\.189\.0/);
+  assert.ok(byIdMap.get('bsv-skills-center-repo')!.sources!.every((s) => !s.ref.includes('bitcoin-sv/bsv-skills-center')));
+  assert.ok(byIdMap.get('bsv-contract-options-map')!.sources!.some((s) => s.ref === 'https://github.com/runonbitcoin/run-sdk'));
+  assert.match(byIdMap.get('bsv-desktop-toolbox-wiring')!.body, /port 2121 with an HTTP fallback on 3321/);
 });

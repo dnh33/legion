@@ -6,8 +6,7 @@
 
 [![CI](https://github.com/dnh33/legion/actions/workflows/ci.yml/badge.svg)](https://github.com/dnh33/legion/actions/workflows/ci.yml)
 [![Latest release](https://img.shields.io/github/v/release/dnh33/legion?include_prereleases&sort=semver&label=release)](https://github.com/dnh33/legion/releases)
-[![Tested on Windows, Ubuntu and macOS](https://img.shields.io/badge/tested_on-Windows_%7C_Ubuntu_%7C_macOS-informational)](docs/CI.md)
-[![Node](https://img.shields.io/badge/node-%E2%89%A520.10-informational)](package.json)
+[![Node](https://img.shields.io/badge/node-%E2%89%A522.12-informational)](package.json)
 [![License: Apache-2.0](https://img.shields.io/github/license/dnh33/legion)](LICENSE)
 
 [Status](#status) · [Install](#install) · [Orchestrate over MCP](#orchestrate-from-claude-code-or-cowork) · [Architecture](docs/ARCHITECTURE.md) · [Contributing](CONTRIBUTING.md)
@@ -21,9 +20,10 @@ Legion is in beta: expect rough edges and the odd bug. This is the one place for
 - **Releases:** prebuilt Windows releases are on [GitHub Releases](https://github.com/dnh33/legion/releases). A release install updates itself ([Updates](#updates)).
 - **Tested:** the automated tests cover the core, app, agents, rooms, Library, board, MCP, approvals, updater and installer. Every push runs all of them on Windows, Ubuntu and macOS ([how CI works](docs/CI.md)).
 - **Project board:** in daily use on the maintainer's PC. Screen-reader, display-scale and crash checks are still open.
-- **Browser tool:** built and tested; agents have not used it on a real PC yet. Web search today goes through Claude's own search tool.
+- **Browser tool:** agents have used it on the maintainer's Windows PC. Web search today goes through Claude's own search tool.
 - **BSV mode:** tested against fake wallets only. Mainnet is built and OFF until you switch it on.
-- **Blender bridge:** built, but not yet tried on a real Blender or in a real VM.
+- **Blender bridge:** local mode (headless Blender on this computer) and Legion's own managed Blender copy ("Get Blender for Legion") are in use on the maintainer's Windows PC. Cloud VM mode, Live mode (your open Blender through the add-on) and the official extension install are not yet tried on a real Blender.
+- **Cloud VMs (boat.dev):** agents have started and used VMs.
 - **Installer:** not code-signed and not widely tested. Expect SmartScreen or antivirus prompts.
 - **macOS and Linux:** dev install only. The automated tests run on Windows, Linux and macOS in CI; the maintainer uses Windows.
 - **Models:** Claude by default, plus OpenRouter with your own key. You can also add an address of your own for any server that speaks the OpenAI chat-completions format, such as vLLM or LM Studio. Presets for OpenAI, Ollama, LM Studio and vLLM, and Codex, are under [Later](#later).
@@ -236,7 +236,7 @@ The ten that join the originals:
 
 <details><summary>Details</summary>
 
-An optional switch in the title bar, off by default. It shows the Assayer bot, loads a read-only BSV knowledge pack into the Lattice (163 notes) and gives the Assayer a short preamble. It can run a read-only status check of a wallet on this computer (four harmless questions to an address you type; the answer is the wallet's own claim). Legion's own code also has one spend tool, `bsv_spend_request`: it asks your wallet to build a transaction, Legion decodes it itself, you read native dialogs (amount, the full address, the network, the fee, the limits left), and only then is the wallet asked to sign; whether the wallet asks too depends on the wallet (see docs/BSV-MODE.md). It works on testnet and on mainnet. **Mainnet is built behind a hard-off switch that ships OFF**: only you turn it on, in the app, and each mainnet spend needs its own Arm and an extra dialog. Limits are tiny by default and per network, the recipient list starts empty, and an outcome Legion cannot confirm blocks every spend until you resolve it. Legion's own code holds no key and does no signing or broadcasting itself. An agent's ordinary tools (a shell, a web fetch) are outside all of this and rest on their approval cards. The Assayer is an ordinary agent: in `ask` mode its shell commands and file edits need your approval, while web fetch and read-only tools run without a prompt. **The spend tool was built and tested against fake wallets only and has not been verified against a real wallet or with real funds until your checks are recorded**; Legion has never been pointed at your funded wallet by its own code, tests or agents. See [docs/BSV-MODE.md](docs/BSV-MODE.md) for what it is and is not.
+An optional switch in the title bar, off by default. It shows the Assayer bot, loads a read-only BSV knowledge pack into the Lattice (167 notes) and gives the Assayer a short preamble. It can run a read-only status check of a wallet on this computer (four harmless questions to an address you type; the answer is the wallet's own claim). Legion's own code also has one spend tool, `bsv_spend_request`: it asks your wallet to build a transaction, Legion decodes it itself, you read native dialogs (amount, the full address, the network, the fee, the limits left), and only then is the wallet asked to sign; whether the wallet asks too depends on the wallet (see docs/BSV-MODE.md). It works on testnet and on mainnet. **Mainnet is built behind a hard-off switch that ships OFF**: only you turn it on, in the app, and each mainnet spend needs its own Arm and an extra dialog. Limits are tiny by default and per network, the recipient list starts empty, and an outcome Legion cannot confirm blocks every spend until you resolve it. Legion's own code holds no key and does no signing or broadcasting itself. An agent's ordinary tools (a shell, a web fetch) are outside all of this and rest on their approval cards. The Assayer is an ordinary agent: in `ask` mode its shell commands and file edits need your approval, while web fetch and read-only tools run without a prompt. **The spend tool was built and tested against fake wallets only and has not been verified against a real wallet or with real funds until your checks are recorded**; Legion has never been pointed at your funded wallet by its own code, tests or agents. See [docs/BSV-MODE.md](docs/BSV-MODE.md) for what it is and is not.
 
 </details>
 
@@ -260,7 +260,7 @@ An optional switch in the title bar, off by default. It shows the Assayer bot, l
 
 - **A Claude sign-in:** a Claude subscription or an API key. You do not need to install Claude Code: Legion runs the `claude` program that comes with the Claude Agent SDK. To sign in once, run `claude` and type `/login`, or on a release install run `scripts\legion-claude.cmd` and type `/login`.
 - **Windows 10/11** is the primary target. macOS and Linux run from a dev install. Caveats: [Status](#status).
-- **Node.js 20.10 or newer, for a source install only.** The release package brings its own runtime.
+- **Node.js 22.12 or newer, for a source install only.** The release package brings its own runtime.
 - **Optional:** a [boat.dev](https://boat.dev) account and API key for agent VMs.
 
 <details><summary>Details</summary>
@@ -271,6 +271,24 @@ An optional switch in the title bar, off by default. It shows the Assayer bot, l
 </details>
 
 ## Install
+
+### One-line install
+
+On Windows, in PowerShell. This saves the script first, so you can read it before it runs:
+
+```
+irm https://getlegion.xyz/install.ps1 -OutFile legion.ps1; powershell -ExecutionPolicy Bypass -File .\legion.ps1
+```
+
+Or in one step: `irm https://getlegion.xyz | iex`. Some browser extensions warn when a site copies that form to your clipboard, because scams use the same pattern. Both forms fetch the same `install.ps1`.
+
+On macOS and Linux:
+
+```
+curl -fsSL https://getlegion.xyz | sh
+```
+
+On Windows the script downloads the latest release from GitHub over HTTPS, checks it against the release's SHA-256 and runs the same setup as below. The package is not code-signed, so SmartScreen or your antivirus may warn; the check shows the file is the one the release lists, not who made it. The script runs setup with `-Yes`, so if Legion is open it is closed without a question. On macOS and Linux it builds Legion from source in `~/.local/share/legion` (Node.js 22.12 or newer and git needed; no sudo). It only updates an existing folder if that folder is a clean clone of Legion; any other folder is left alone. Both scripts are short: read them first at `scripts/install/`.
 
 ### Windows, from a release (recommended)
 
@@ -529,7 +547,7 @@ Not in v1, and not promised:
 <details><summary>Details</summary>
 
 - OpenRouter runs any model, with your own key. Your own address works for any server that speaks the OpenAI chat-completions format.
-- The BSV spend tool is built (testnet and mainnet, mainnet behind a hard-off switch); for what is not yet tried for real, see [Status](#status). The owner's by-hand checks on a real wallet come next.
+- The BSV spend tool is built (testnet and mainnet, mainnet behind a hard-off switch); for what is not yet tried for real, see [Status](#status). The maintainer's by-hand checks on a real wallet come next.
 - More: [docs/BSV-MODE.md](docs/BSV-MODE.md) and [docs/BSV-WALLET-DESIGN.md](docs/BSV-WALLET-DESIGN.md).
 
 </details>

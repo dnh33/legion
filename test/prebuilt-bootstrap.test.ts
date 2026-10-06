@@ -171,6 +171,30 @@ for (const exe of shells) {
     assert.deepEqual(readdirSync(dir).filter((n) => n.startsWith('legion-setup-')), []);
   });
 
+  test(`[${exe}] a lettered patch (0.2.5-g) is accepted for the zip's folder and the release address; other suffixes are refused`, async () => {
+    const dir = tmp('prebuilt-ps-');
+    const url = (v: string, w = v) => `https://github.com/dnh33/legion/releases/download/v${v}/legion-${w}-win-x64.zip`;
+    const good = [url('0.2.5-g'), url('0.2.5-a'), url('0.2.5-z')];
+    const bad = [url('0.2.5-'), url('0.2.5-gg'), url('0.2.5-G'), url('0.2.5-1'), url('0.2.5-g1'), url('0.2.5-g', '0.2.5'), url('0.2.5-g/x'), url('..'), url('0.2.5-g.1')];
+    const body = `@{ good = @(${good.map((g) => `(Test-PackageUrl ${q(g)})`).join(',')}); bad = @(${bad.map((b) => `(Test-PackageUrl ${q(b)})`).join(',')}) } | ConvertTo-Json -Compress`;
+    const r = await snippet(exe, dir, body, env(dir));
+    assert.deepEqual(r.json?.good, [null, null, null], r.out);
+    r.json.bad.forEach((x: unknown, i: number) => assert.equal(typeof x, 'string', `should be refused: ${bad[i]}`));
+    const { checkPackageUrl } = await (await import('./prebuilt-helpers.js')).lib();
+    for (const g of good) assert.equal(checkPackageUrl(g), null, `JS mirror should accept ${g}`);
+    for (const b of bad) assert.equal(typeof checkPackageUrl(b), 'string', `JS mirror should refuse ${b}`);
+    // the unpacked folder name uses the same rule
+    const mk = (top: string) => makeZip([{ name: `${top}/build-info.json`, data: Buffer.from('{"kind":"package","platform":"win32-x64"}') }, { name: `${top}/runtime/electron/electron.exe`, data: Buffer.from('x') }]);
+    const okZip = mk('legion-0.2.5-g'); const fOk = join(dir, 'ok.zip'); writeFileSync(fOk, okZip);
+    const ok = await snippet(exe, dir, GET({ path: fOk, sha: sha256(okZip), temp: dir }), env(dir));
+    assert.equal(ok.json?.ok, true, ok.out);
+    for (const top of ['legion-0.2.5-', 'legion-0.2.5-gg', 'legion-0.2.5-G', 'legion-0.2.5-g.1']) {
+      const z = mk(top); const f = join(dir, `${top}.zip`); writeFileSync(f, z);
+      const r2 = await snippet(exe, dir, GET({ path: f, sha: sha256(z), temp: dir }), env(dir));
+      assert.equal(r2.json?.ok, false, top); assert.match(r2.json.message, /exactly one/i, top);
+    }
+  });
+
   test(`[${exe}] Get-LegionFolderKind: package, source, unknown`, async () => {
     const dir = tmp('prebuilt-ps-'); const src = tmp('prebuilt-src-'); put(src, 'package.json', '{}'); put(src, 'src/a.ts', '');
     const pkg = tmp('prebuilt-pk-'); put(pkg, 'build-info.json', JSON.stringify({ kind: 'package', platform: 'win32-x64' })); put(pkg, 'runtime/electron/electron.exe', '');

@@ -47,6 +47,26 @@ test('C22/C23: keygen refuses a path inside the repo; elsewhere it writes a 0600
   assert.equal(run('release-keygen.mjs', ['--out', out]).status !== 0, true, 'never overwrites an existing key');
 });
 
+test('release-manifest keeps the full installer line in SHA256SUMS.txt (the one-line installer and setup -PackagePath need it)', () => {
+  const tree = builtTree('0.9.0');
+  const out = tmp('upd-sums-');
+  assert.equal(run('release-package.mjs', ['--root', tree, '--out', out, '--published-at', '2026-10-20T10:00:00Z']).status, 0);
+  // build-package.mjs writes the installer zip and its line first; an older version's line must not survive
+  const full = join(out, 'legion-0.9.0-win-x64.zip'); writeFileSync(full, 'full installer bytes');
+  const fullLine = `${sha256(readFileSync(full))}  legion-0.9.0-win-x64.zip`;
+  writeFileSync(join(out, 'SHA256SUMS.txt'), `${fullLine}\n${'0'.repeat(64)}  legion-0.8.0-win-x64.zip\n`);
+  const m = run('release-manifest.mjs', ['--zip', join(out, 'legion-0.9.0-app.zip'), '--out', out]);
+  assert.equal(m.status, 0, m.stderr);
+  const lines = readFileSync(join(out, 'SHA256SUMS.txt'), 'utf8').trimEnd().split('\n');
+  assert.ok(lines.includes(fullLine), 'the installer line is kept');
+  assert.ok(lines.some((l) => l.endsWith('  legion-0.9.0-app.zip')) && lines.some((l) => l.endsWith('  legion-update-manifest.json')));
+  assert.ok(!lines.some((l) => l.includes('0.8.0')), "another version's line is dropped");
+  // with no line for it yet, the installer's hash is computed from the zip in the folder
+  writeFileSync(join(out, 'SHA256SUMS.txt'), '');
+  assert.equal(run('release-manifest.mjs', ['--zip', join(out, 'legion-0.9.0-app.zip'), '--out', out]).status, 0);
+  assert.ok(readFileSync(join(out, 'SHA256SUMS.txt'), 'utf8').split('\n').includes(fullLine), 'the installer hash is added');
+});
+
 test('C23: package -> manifest -> sign -> verify, and the app accepts exactly what the scripts made (end to end through the real stager)', async () => {
   const tree = builtTree('0.9.0');
   const out = tmp('upd-rel-'); const keys = tmp('upd-keys-');

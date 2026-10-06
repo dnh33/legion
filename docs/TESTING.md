@@ -58,12 +58,14 @@ The difference to the harness: those fixtures run the product code inside the te
 ```bash
 npm ci                    # installs Electron too; add ELECTRON_SKIP_BINARY_DOWNLOAD=1 to skip the binary
 npm run build:ts          # tsc -> dist/ (also copies static files)
-npm test                  # build:ts, then node --test "dist/test/*.test.js"
+npm test                  # the full suite: refuses locally (CI only, see below); build:ts, then node --test "dist/test/*.test.js"
 npm run typecheck         # core (tsconfig.json) and UI (ui/tsconfig.json), no emit
 npm run build:ui          # vite build -> dist-ui/
 ```
 
-The gate before anyone says "done": `npm ci && npm run build:ts && npm run test:run && npm run typecheck:ui && npm run build:ui`. Run it from a clean checkout of the exact commit you are reporting on.
+**The full suite runs on the PR's CI, not on a dev PC.** `npm test` and `npm run test:run` start with `scripts/dev/test-guard.mjs`, which exits 1 unless `CI` is set or `LEGION_LOCAL_GATE=1` (`LEGION_LOCAL_GATE=1 npm test` in sh, `$env:LEGION_LOCAL_GATE=1; npm test` in PowerShell). `ci.yml` calls `node --test` directly and sets `CI`, so it is unaffected. Locally: `npm run build:ts`, then single files with `node --test dist/test/<name>.test.js` (or `npm run test:affected`, `npm run harness:smoke`). Before you finish, stop what you started and run `npm run tidy` (report only; `--apply` removes merged, clean worktrees, merged local branches and old dev leftovers).
+
+The gate before anyone says "done" is what CI runs on the PR: `npm ci && npm run build:ts && npm run test:run && npm run typecheck:ui && npm run build:ui`. Read the counts from the PR's CI run; run the chain locally only with `LEGION_LOCAL_GATE=1`, from a clean checkout of the exact commit you are reporting on.
 
 It compiles the core once. `build:ts` already fails on any type error (tsc exits 2 even while it emits), so `test:run` runs the tests on that build and `typecheck:ui` checks only the UI project. The older gate compiled the core three times (`build:ts`, again inside `npm test`, again in `typecheck`), about 15 s each on the owner's PC. `npm test` and `npm run typecheck` still work on their own.
 

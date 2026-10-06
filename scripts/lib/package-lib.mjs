@@ -20,7 +20,7 @@ const RELEASE = Object.freeze({ host: 'github.com', owner: 'dnh33', repo: 'legio
 /** github.com serves the release URL, then redirects to GitHub's release-asset hosts. */
 export const REDIRECT_HOSTS = Object.freeze(['github.com', 'objects.githubusercontent.com', 'release-assets.githubusercontent.com']);
 export const MAX_REDIRECTS = 3;
-const SEMVER = '(?:0|[1-9]\\d{0,8})\\.(?:0|[1-9]\\d{0,8})\\.(?:0|[1-9]\\d{0,8})';
+const SEMVER = '(?:0|[1-9]\\d{0,8})\\.(?:0|[1-9]\\d{0,8})\\.(?:0|[1-9]\\d{0,8})(?:-[a-z])?';
 export const packageAssetName = (version) => `legion-${version}-win-x64.zip`;
 
 /** Mirror of the rule setup.ps1 enforces for -PackageUrl. Returns null when fine, else the reason. */

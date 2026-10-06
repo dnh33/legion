@@ -1,6 +1,7 @@
 /* Title bar, usage panel. App tokens only; one 140 ms fade-in (the shared pop-in), nothing else moves. */
 .usage-wrap { position: relative; display: inline-flex; }
-.usage-pop { top: calc(100% + 8px); bottom: auto; left: auto; right: -6px; width: 320px; padding: 12px 14px; z-index: 40; display: flex; flex-direction: column; gap: 10px; overflow: visible; -webkit-app-region: no-drag; }
+/* `.usage-wrap .usage-pop`, not `.usage-pop`: the bundler puts this file before app.css, so a lone class loses to the shared `.popover` (same specificity, later wins) and the panel collapses to a clipped sliver. */
+.usage-wrap .usage-pop { top: calc(100% + 8px); bottom: auto; left: auto; right: -6px; width: 320px; padding: 12px 14px; z-index: 40; display: flex; flex-direction: column; gap: 10px; overflow: visible; -webkit-app-region: no-drag; }
 .usage-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .usage-head h4 { margin: 0; font-size: 13px; font-weight: 600; color: var(--text); }
 .usage-seg { display: flex; gap: 2px; padding: 2px; border: 1px solid var(--line); border-radius: var(--r); background: var(--surface); }

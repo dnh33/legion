@@ -99,12 +99,21 @@ export interface FakeBehaviour {
   injection: string;
   /** Content-Type of every answer (the real wallet says text/html). */
   contentType: string;
+  /**
+   * 'toolbox' behaves like wallet-toolbox's permission layer (WalletPermissionsManager, which BSV Desktop builds on): createAction BUILDS
+   * first (coins locked, a reference exists), then, unless a stored grant for the caller's Originator covers the payment, HOLDS the call
+   * while it "asks the owner" for a spending grant; the test answers with answerGrant(). A denied grant aborts the build and answers an
+   * error. signAction never asks. 'off' = no grants at all (the default; the other modes above apply).
+   */
+  grant: 'off' | 'toolbox';
+  /** Answer getNetwork this many ms late (0 = at once): lets a test act while Legion's probe is in flight. */
+  netDelayMs: number;
 }
 export const defaults = (): FakeBehaviour => ({
   network: 'mainnet', version: 'wallet-brc100-1.0.0', authenticated: true, height: 969369, flipAtProbe: 0, flipTo: 'mainnet', flipAfter: '',
   create: 'ok', fundSats: 10_000, feeSats: 20, change: 'p2pkh', changeFill: 0x77, payDelta: 0, payFill: null, omitParent: false, parentTxidOnly: false,
   txEncoding: 'bytes', v2: false, atomic: true, withBump: false,
-  sign: 'ok', abort: 'ok', abortDelayMs: 0, injection: '', contentType: 'text/html; charset=utf-8',
+  sign: 'ok', abort: 'ok', abortDelayMs: 0, injection: '', contentType: 'text/html; charset=utf-8', grant: 'off', netDelayMs: 0,
 });
 
 export interface FakeWallet {
@@ -120,6 +129,14 @@ export interface FakeWallet {
   releaseSign(): void;
   /** Releases a hanging createAction. */
   releaseCreate(): void;
+  /** grant 'toolbox': how many times the wallet asked the owner for a grant, and the calls it is holding now. */
+  grantPrompts(): number;
+  heldGrants(): number;
+  /**
+   * grant 'toolbox': the owner's answer to the oldest held grant prompt. A number stores a grant for that many sats (per caller, like a
+   * monthly limit: later payments inside it are not asked about); 'once' answers this call only; 'deny' aborts the build and answers an error.
+   */
+  answerGrant(a: number | 'once' | 'deny'): void;
   stop(): Promise<void>;
 }
 
@@ -130,6 +147,9 @@ export async function startFakeWallet(patch: Partial<FakeBehaviour> = {}): Promi
   const aborted: string[] = []; const signed: string[] = [];
   const built = new Map<string, { target: Buffer; parent: Buffer; payHex: string; paySats: number; outs: TxOut[]; fund: number }>();
   const hangs: Array<() => void> = [];
+  const grants = new Map<string, { limit: number; spent: number }>();
+  const heldGrants: Array<(a: number | 'once' | 'deny') => void> = [];
+  let grantPrompts = 0;
   let netAnswers = 0; let flipped = false; let refSeq = 0;
   const wire = new Set<import('node:net').Socket>();
 
@@ -170,6 +190,7 @@ export async function startFakeWallet(patch: Partial<FakeBehaviour> = {}): Promi
       if (method === 'getNetwork') {
         netAnswers++;
         const flip = flipped || (b.flipAtProbe > 0 && netAnswers >= b.flipAtProbe);
+        if (b.netDelayMs > 0) { const n = flip ? b.flipTo : b.network; setTimeout(() => send(200, { network: n }), b.netDelayMs); return; }
         return send(200, { network: flip ? b.flipTo : b.network });
       }
       if (method === 'isAuthenticated') return send(200, { authenticated: b.authenticated });
@@ -191,6 +212,23 @@ export async function startFakeWallet(patch: Partial<FakeBehaviour> = {}): Promi
           return send(200, { signableTransaction: { tx: encode(u.tx), reference: u.ref } });
         };
         if (b.create === 'hang') { hangs.push(() => { b.create = 'ok'; answer(); }); return; }
+        if (b.grant === 'toolbox' && b.create === 'ok') {
+          const who = String(req.headers['originator'] ?? req.headers['origin'] ?? 'unknown');
+          const u = buildUnsigned(body);
+          if (!u) return send(400, { status: 'error', code: 'ERR_BAD' });
+          open.add(u.ref); // built before the question, as wallet-toolbox does: the coins are locked while it asks
+          const reply = () => send(200, { signableTransaction: { tx: encode(u.tx), reference: u.ref } });
+          const pay = built.get(u.ref)!.paySats;
+          const g = grants.get(who);
+          if (g && g.spent + pay <= g.limit) { g.spent += pay; return reply(); }
+          grantPrompts++;
+          heldGrants.push((a) => {
+            if (a === 'deny') { open.delete(u.ref); aborted.push(u.ref); return send(400, { status: 'error', code: 'ERR_PERMISSION_DENIED', description: inj || 'Permission denied' }); }
+            if (typeof a === 'number') grants.set(who, { limit: a, spent: pay });
+            return reply();
+          });
+          return;
+        }
         return answer();
       }
 
@@ -241,6 +279,9 @@ export async function startFakeWallet(patch: Partial<FakeBehaviour> = {}): Promi
     url: `http://127.0.0.1:${port}`, port, b, calls, of: (m) => calls.filter((c) => c.method === m), open, aborted, signed,
     releaseSign: () => { const h = hangs.splice(0); h.forEach((f) => f()); },
     releaseCreate: () => { const h = hangs.splice(0); h.forEach((f) => f()); },
+    grantPrompts: () => grantPrompts,
+    heldGrants: () => heldGrants.length,
+    answerGrant: (a) => { const h = heldGrants.shift(); if (!h) throw new Error('no grant prompt is open'); h(a); },
     async stop() { for (const s of wire) s.destroy(); await new Promise<void>((r) => server.close(() => r())); },
   };
 }

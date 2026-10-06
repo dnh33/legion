@@ -44,7 +44,7 @@ export const SPEND_METHOD_ALLOWLIST = ['createAction', 'signAction', 'abortActio
  * in the PR; `node scripts/bsv-spend-pin.mjs` prints the current values (it reads two files and nothing else).
  */
 export const SPEND_PINS: Record<string, string> = {
-  [SPEND_FILE]: '1d6ead59f76aa65491115fe38a30a6c1fb054daeda5a89bcb40830543636713f',
+  [SPEND_FILE]: 'a3170d2920a36f09a9e7fa96c5887d2e7fbe218575c1cc3536c1993a65d28585', // PROVISIONAL: review nits + build-expired (stale build released) await the reviewer
   [NETWORKS_FILE]: '7c5153e09b10f958a0275a0ea5b535fbccd7b5a1aea418b189e8411e766338c8',
 };
 /** Files that may spell a network (main / test / live ...) in the BSV area, with the reason. spend.ts, audit.ts and wallet-tool.ts are NOT here: they take the network as an opaque value. */

@@ -105,7 +105,7 @@ test('F10/F12: no unmarked node states a control Legion does not have as a prese
   // the specific nodes the reviewer named now say what is true
   const body = (id: string) => asNode(pack.nodes.find((x) => x.id === id)!).body;
   assert.match(body('bsv-tx-fees'), /Legion's spend tool refuses a transaction whose fee/);
-  assert.match(body('bsv-safety-ts-stack-server-keys'), /Legion has no wallet in this version/);
+  assert.match(body('bsv-safety-ts-stack-server-keys'), /Legion holds no keys and has no wallet of its own/);
   assert.match(body('bsv-safety-copy-no-key-samples'), /Legion has no wallet in this version/);
   assert.match(body('bsv-src-bsv-skills'), /no installer/);
   assert.match(body('bsv-wallet-results-delayed-broadcast'), /no such read exists today/);
