@@ -266,6 +266,22 @@ An optional switch in the title bar, off by default. It shows the Assayer bot, l
 
 ## Install
 
+### One-line install (coming with the next release)
+
+On Windows, in PowerShell:
+
+```
+irm https://getlegion.xyz | iex
+```
+
+On macOS and Linux:
+
+```
+curl -fsSL https://getlegion.xyz | sh
+```
+
+On Windows the script downloads the latest release from GitHub over HTTPS, checks it against the release's SHA-256 and runs the same setup as below. On macOS and Linux it builds Legion from source in `~/.local/share/legion` (Node.js 20.10 or newer and git needed; no sudo). Both scripts are short: read them first at `scripts/install/`.
+
 ### Windows, from a release (recommended)
 
 1. Download `legion-<version>-win-x64.zip` from the [latest release](https://github.com/dnh33/legion/releases/latest).

@@ -11,6 +11,9 @@ Every push to `main` and every pull request runs the whole test suite on GitHub'
 | `test macos-latest 1/2`, `2/2` | the same, on Apple Silicon (arm64) |
 | `typecheck + UI build` | `npm run typecheck` (core and UI), `npm run build:ui` |
 | `installer (Windows PowerShell 5.1)` | the real `setup.ps1` / `uninstall.ps1` / `setup-yes.cmd` under Windows PowerShell 5.1, from folders with spaces, including the refusals (a foreign folder, `C:\`, `C:`) |
+| `install scripts (syntax)` | `sh -n` on `scripts/install/install.sh`, a check that it has no CR bytes and starts with `#!/bin/sh`, and a PowerShell parse check of `scripts/install/install.ps1` |
+| `install.ps1 (Windows PowerShell 5.1)`, `install.ps1 (PowerShell 7)` | runs `install.ps1 -NoLaunch` from the checkout against the real latest release (downloads the 285 MB zip, checks its SHA-256, runs the package's setup) into a temp folder, then checks the installed `build-info.json` version, `electron.exe` and that the temp folder was removed. The 5.1 job runs it a second time in the script-block form (as `irm \| iex` with options) over the same folder. Never launches Legion |
+| `install.sh (ubuntu-latest)`, `install.sh (macos-latest)` | runs `sh scripts/install/install.sh --no-launch --dir <temp>` against the real latest tag (clone, `npm ci`, `npm run build`), then checks the build output, the launcher and the version, and runs it again to check the in-place update |
 
 The split uses Node's own `node --test --test-shard=<i>/<n>`, which deals out test **files** round-robin. Each OS's shards add up exactly to that OS's full run. Jobs do not stop each other on failure (`fail-fast: false`), and a newer push to the same branch cancels the older run.
 
