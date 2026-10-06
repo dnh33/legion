@@ -272,13 +272,15 @@ An optional switch in the title bar, off by default. It shows the Assayer bot, l
 
 ## Install
 
-### One-line install (coming with the next release)
+### One-line install
 
-On Windows, in PowerShell:
+On Windows, in PowerShell. This saves the script first, so you can read it before it runs:
 
 ```
-irm https://getlegion.xyz | iex
+irm https://getlegion.xyz/install.ps1 -OutFile legion.ps1; powershell -ExecutionPolicy Bypass -File .\legion.ps1
 ```
+
+Or in one step: `irm https://getlegion.xyz | iex`. Some browser extensions warn when a site copies that form to your clipboard, because scams use the same pattern. Both forms fetch the same `install.ps1`.
 
 On macOS and Linux:
 
