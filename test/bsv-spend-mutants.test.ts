@@ -43,7 +43,7 @@ const MUTANTS: Mutant[] = [
   { id: 'M25', control: 'C5 outputs above inputs', scenario: 'decoder-rejects-bad-values', edits: [E('spend.js', 'if (outSats > inputSats)\n            return null;', '')] },
   { id: 'M26', control: 'C5 a zero-sat output', scenario: 'decoder-rejects-bad-values', edits: [E('spend.js', 'if (sats < 1)', 'if (false)')] },
   { id: 'M27', control: 'C5 a repeated transaction', scenario: 'decoder-rejects-bad-values', edits: [E('spend.js', 'if (byId.has(t.txid))', 'if (false)')] },
-  { id: 'M29', control: 'C13 a tick while the post-sign probe runs does not rewrite an executed spend', scenario: 'testnet-happy-path', edits: [E('spend.js', "f.phase = 'closing';", 'void 0;')] },
+  { id: 'M29', control: 'C13 a tick while the post-sign probe runs does not rewrite an executed spend', scenario: 'testnet-happy-path', edits: [E('spend.js', "f.phase = 'closing'; // the engine already says executed", 'void 0; // the engine already says executed')] },
   { id: 'M30', control: 'A1 a wallet asking its owner for a grant is not timed out like a slow service (BRC-219; 15 min safety cap)', scenario: 'build-waits-for-a-wallet-that-asks-first', edits: [E('spend.js', 'createTimeoutMs: 900_000', 'createTimeoutMs: 120_000')] },
   { id: 'M31', control: 'A1 no answer in time is wallet-no-answer, not build-failed', scenario: 'wallet-no-answer-is-its-own-code', edits: [E('spend.js', "created.kind === 'timeout' ? 'wallet-no-answer' : 'build-failed'", "'build-failed'")] },
   { id: 'M32', control: 'A1 a build that arrives for a request the owner already ended is released, never shown', scenario: 'cancel-while-the-wallet-asks', edits: [E('spend.js', 'if (isOver(f)) {\n            abort(f);\n            return;\n        }', '')] },
