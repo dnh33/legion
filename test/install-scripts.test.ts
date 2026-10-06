@@ -115,5 +115,13 @@ test('install.sh checks the Electron binary after npm ci and makes the launcher 
   assert.match(sh, /\[ ! -x "\$electron" \]/);
   assert.match(sh, /The Electron binary is missing/);
   const mkdir = sh.indexOf('mkdir -p "$bindir"');
-  assert.ok(mkdir > 0 && mkdir < sh.indexOf('} > "$launcher"'), 'the launcher folder is made before the launcher is written');
+  assert.ok(mkdir > 0 && mkdir < sh.indexOf('write_launcher "$dir" "$launcher"'), 'the launcher folder is made before the launcher is written');
+});
+
+test('the source-install Node floor is 22.12 everywhere the installer states it', () => {
+  assert.doesNotMatch(sh, /20\.10/);
+  assert.match(sh, /22\.12/);
+  const readme = raw('README.md');
+  assert.match(readme, /Node\.js 22\.12 or newer, for a source install only/);
+  assert.doesNotMatch(readme.split('### One-line install')[1].split('### Windows, from a release')[0], /20\.10/);
 });

@@ -24,6 +24,8 @@ The split uses Node's own `node --test --test-shard=<i>/<n>`, which deals out te
 
 When it runs: on a pull request or push to `main` that changes the installer paths (`scripts/install/**`, `scripts/setup.ps1`, `scripts/lib/package-*`, `scripts/lib/legion-procs.ps1`, the workflow itself), nightly, and by hand (`workflow_dispatch`) after a release.
 
+A red nightly run emails the repository owner by GitHub's default notification settings.
+
 It installs the live latest release by design, so it is not part of the per-push gate: a broken release or a GitHub outage would turn every unrelated pull request red. The fast, hermetic `install scripts (syntax)` check stays in `ci.yml`. The workflow has the same lock-down as `ci.yml` (read-only token, no `pull_request_target`, SHA-pinned actions, time limits).
 
 ## Before and after

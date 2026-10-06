@@ -254,7 +254,7 @@ An optional switch in the title bar, off by default. It shows the Assayer bot, l
 
 - **A Claude sign-in:** a Claude subscription or an API key. You do not need to install Claude Code: Legion runs the `claude` program that comes with the Claude Agent SDK. To sign in once, run `claude` and type `/login`, or on a release install run `scripts\legion-claude.cmd` and type `/login`.
 - **Windows 10/11** is the primary target. macOS and Linux run from a dev install. Caveats: [Status](#status).
-- **Node.js 20.10 or newer, for a source install only.** The release package brings its own runtime.
+- **Node.js 22.12 or newer, for a source install only.** The release package brings its own runtime.
 - **Optional:** a [boat.dev](https://boat.dev) account and API key for agent VMs.
 
 <details><summary>Details</summary>
@@ -280,7 +280,7 @@ On macOS and Linux:
 curl -fsSL https://getlegion.xyz | sh
 ```
 
-On Windows the script downloads the latest release from GitHub over HTTPS, checks it against the release's SHA-256 and runs the same setup as below. On macOS and Linux it builds Legion from source in `~/.local/share/legion` (Node.js 20.10 or newer and git needed; no sudo). Both scripts are short: read them first at `scripts/install/`.
+On Windows the script downloads the latest release from GitHub over HTTPS, checks it against the release's SHA-256 and runs the same setup as below. The package is not code-signed, so SmartScreen or your antivirus may warn; the check shows the file is the one the release lists, not who made it. The script runs setup with `-Yes`, so if Legion is open it is closed without a question. On macOS and Linux it builds Legion from source in `~/.local/share/legion` (Node.js 22.12 or newer and git needed; no sudo). It only updates an existing folder if that folder is a clean clone of Legion; any other folder is left alone. Both scripts are short: read them first at `scripts/install/`.
 
 ### Windows, from a release (recommended)
 
