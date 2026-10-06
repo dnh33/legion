@@ -1,5 +1,5 @@
 /** Electron main process. */
-import { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, shell, Tray } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, safeStorage, shell, Tray } from 'electron';
 import { execFile, spawn, type ChildProcess } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import { appendFileSync, closeSync, existsSync, mkdirSync, openSync, readFileSync } from 'node:fs';
@@ -11,6 +11,7 @@ import { adminForRenderer, bsvConfirmation, bsvPreflight, coreAction, coreIsBusy
 import { makeConfirm, providerChange } from './provider-ipc.js';
 import { coreStartHint, resolveCoreLaunch, startFailureLine } from './resolve-node.js';
 import { heapArgv } from './heap-limit.js';
+import { keyLine, loadConnectorKey } from './connector-key.js';
 import { APP_ID, needsId, windowDetails } from './taskbar.js';
 import { projectChange } from './project-ipc.js';
 import { browserChange } from './browser-ipc.js';
@@ -156,6 +157,8 @@ async function spawnCore(port: number): Promise<string | null> {
     // A fresh secret for every core we start (a tray restart rotates it). It goes over the stdin pipe only.
     const secret = randomBytes(32).toString('hex');
     const native = randomBytes(32).toString('hex');
+    // Connectors data key: only read when key.bin already exists (no safeStorage call otherwise); created on the first Connect, not here.
+    const connectorKey = await loadConnectorKey(dataDir(), safeStorage);
     const child = spawn(launch.cmd, [...heapArgv(), coreEntry], {
       cwd: root,
       stdio: ['pipe', out, out],
@@ -170,7 +173,9 @@ async function spawnCore(port: number): Promise<string | null> {
     nativeSecret = native;
     rendererAdmin = undefined;
     child.stdin?.on('error', () => undefined);
-    child.stdin?.end(secret + '\n' + native + '\n');
+    // Without a connectors key this is exactly the old launch line. With one, the key is a third line (the core accepts only KEY <hex>).
+    if (connectorKey) child.stdin?.end(secret + '\n' + native + '\n' + keyLine(connectorKey));
+    else child.stdin?.end(secret + '\n' + native + '\n');
     child.on('error', (err: NodeJS.ErrnoException) => {
       coreProc = null;
       failure = err.code === 'ENOENT' || (launch.mode === 'package' && ['EPERM', 'EACCES', 'UNKNOWN'].includes(err.code ?? ''))
