@@ -21,9 +21,10 @@ Legion is in beta: expect rough edges and the odd bug. This is the one place for
 - **Releases:** prebuilt Windows releases are on [GitHub Releases](https://github.com/dnh33/legion/releases). A release install updates itself ([Updates](#updates)).
 - **Tested:** the automated tests cover the core, app, agents, rooms, Library, board, MCP, approvals, updater and installer. Every push runs all of them on Windows, Ubuntu and macOS ([how CI works](docs/CI.md)).
 - **Project board:** in daily use on the maintainer's PC. Screen-reader, display-scale and crash checks are still open.
-- **Browser tool:** built and tested; agents have not used it on a real PC yet. Web search today goes through Claude's own search tool.
+- **Browser tool:** agents have used it on the maintainer's Windows PC. Web search today goes through Claude's own search tool.
 - **BSV mode:** tested against fake wallets only. Mainnet is built and OFF until you switch it on.
-- **Blender bridge:** built, but not yet tried on a real Blender or in a real VM.
+- **Blender bridge:** local mode (headless Blender on this computer) and Legion's own managed Blender copy ("Get Blender for Legion") are in use on the maintainer's Windows PC. Cloud VM mode, Live mode (your open Blender through the add-on) and the official extension install are not yet tried on a real Blender.
+- **Cloud VMs (boat.dev):** agents have started and used VMs.
 - **Installer:** not code-signed and not widely tested. Expect SmartScreen or antivirus prompts.
 - **macOS and Linux:** dev install only. The automated tests run on Windows, Linux and macOS in CI; the maintainer uses Windows.
 - **Models:** Claude by default, plus OpenRouter with your own key. You can also add an address of your own for any server that speaks the OpenAI chat-completions format, such as vLLM or LM Studio. Presets for OpenAI, Ollama, LM Studio and vLLM, and Codex, are under [Later](#later).
@@ -545,7 +546,7 @@ Not in v1, and not promised:
 <details><summary>Details</summary>
 
 - OpenRouter runs any model, with your own key. Your own address works for any server that speaks the OpenAI chat-completions format.
-- The BSV spend tool is built (testnet and mainnet, mainnet behind a hard-off switch); for what is not yet tried for real, see [Status](#status). The owner's by-hand checks on a real wallet come next.
+- The BSV spend tool is built (testnet and mainnet, mainnet behind a hard-off switch); for what is not yet tried for real, see [Status](#status). The maintainer's by-hand checks on a real wallet come next.
 - More: [docs/BSV-MODE.md](docs/BSV-MODE.md) and [docs/BSV-WALLET-DESIGN.md](docs/BSV-WALLET-DESIGN.md).
 
 </details>
