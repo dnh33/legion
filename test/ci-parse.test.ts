@@ -1,7 +1,7 @@
 /** CI: the run/job parser and log preparation. Pure functions; no network. */
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { countsFor, LOG_MAX_LINES, maskSecrets, parseJobs, parseRuns, prepareLog, summarizeRun } from '../src/core/ci/parse.js';
+import { countsFor, LOG_MAX_CHARS, LOG_MAX_LINES, maskSecrets, parseJobs, parseRuns, prepareLog, summarizeRun } from '../src/core/ci/parse.js';
 
 const run = (o: Record<string, unknown> = {}) => ({
   id: 11, name: 'CI', head_branch: 'main', head_sha: 'abc', display_title: 'Fix it', event: 'push', status: 'completed', conclusion: 'success',
@@ -57,6 +57,17 @@ describe('summarizeRun / countsFor', () => {
 });
 
 describe('log text', () => {
+  it('masks a secret that straddles the character cut, so no tail fragment survives', () => {
+    const tail = 'TAILFRAGMENT0123456789abcdef';
+    const token = 'ghp_' + 'abcdefghij' + tail;
+    // Put the cut in the middle of the token: everything before the last LOG_MAX_CHARS characters is dropped.
+    const after = ' ' + 'x'.repeat(LOG_MAX_CHARS - tail.length - 1);
+    const raw = 'y'.repeat(100) + ' key ' + token + after;
+    const p = prepareLog(raw);
+    assert.equal(p.truncated, true);
+    assert.equal(p.text.includes('TAILFRAGMENT'), false, 'no fragment of the secret reaches the output');
+    assert.equal(p.masked, true);
+  });
   it('removes ANSI and control characters and masks secret-shaped values, but leaves markup as plain text', () => {
     const raw = '\u001b[31mred\u001b[0m\u0007 ok\n2026-10-07T10:00:00.1234567Z token=' + 'ghp_' + 'abcdefghijklmnopqrstuvwxyz0123456789' + '\nAuthorization: Bearer abcdefghijklmnopqrstuvwxyz\nkey ' + 'AKIA' + 'ABCDEFGHIJKLMNOP' + '\n<img src=x onerror=alert(1)>';
     const p = prepareLog(raw);

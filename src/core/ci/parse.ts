@@ -130,10 +130,13 @@ export function prepareLog(raw: string, alreadyTruncated = false): { text: strin
   let truncated = alreadyTruncated;
   // GitHub prefixes each line with an ISO timestamp; they add width and no meaning here
   t = t.replace(/^﻿?\d{4}-\d\d-\d\dT[\d:.]+Z ?/gm, '');
+  // Mask the whole text BEFORE cutting it: a secret that straddles the cut would keep its tail without the prefix the
+  // patterns need, and that fragment would then reach the UI or an agent.
+  const m = maskSecrets(t);
+  t = m.text;
   const lines = t.split('\n');
   if (lines.length > LOG_MAX_LINES) { lines.splice(0, lines.length - LOG_MAX_LINES); truncated = true; }
   t = lines.join('\n');
   if (t.length > LOG_MAX_CHARS) { t = t.slice(t.length - LOG_MAX_CHARS); truncated = true; }
-  const m = maskSecrets(t);
-  return { text: m.text, truncated, masked: m.masked };
+  return { text: t, truncated, masked: m.masked };
 }
