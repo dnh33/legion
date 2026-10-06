@@ -170,7 +170,17 @@ export interface Task {
   error?: string;
   /** Set when the latest run failed after its prompt reached the session: a follow-up can continue it instead of re-sending the request. */
   resumable?: boolean;
-  costUsd?: number;           // cumulative, as reported by the SDK
+  /** What this task has cost so far: the sessions before the current one (`costSession.base`) plus the current session's latest total. */
+  costUsd?: number;
+  /**
+   * The Claude session the cost is being read from. The SDK's `total_cost_usd` is that session's running total (read the latest,
+   * never sum it), so a new result replaces `total`; `base` is what earlier sessions of this task cost (a new session id, or a
+   * total that went down after /clear, moves the old total into `base`).
+   */
+  costSession?: { id: string; total: number; base: number };
+  /** Recorded by a build that summed the running totals, so `costUsd` may be over-counted (it is an upper bound). Cleared once the
+   *  same session reports its true total. */
+  costLegacy?: boolean;
   turns?: number;             // cumulative
   createdAt: string;
   updatedAt: string;

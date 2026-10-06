@@ -121,6 +121,28 @@ export function taintsRun(toolName: string): boolean {
   return !CLEAN_BUILTINS.has(toolName);
 }
 
+/**
+ * The task's cost after one SDK result. `total_cost_usd` is the running total of the SESSION so far (the SDK says to read the latest,
+ * not to sum), and a task can see several results per session (every resumed run, every live message that joined a run). So the
+ * latest total replaces the last one seen for that session; earlier sessions of the task stay in `base`:
+ *  - same session, total not lower: base unchanged (the new total already includes the old one);
+ *  - same session, total lower (the session was cleared with /clear and counts from zero again): the old total moves into base;
+ *  - a different session (the old one went missing and a new one started): the old total moves into base.
+ * A task the old summing code recorded (`costLegacy`, no `costSession`) that resumes its own session (`resumed`) gets its true total: the
+ * running total of that same session is the whole cost, so the over-counted sum is replaced. Resumed in a different session, the
+ * old figure is kept as the base and stays marked.
+ */
+export function sessionCost(cur: Pick<Task, 'costUsd' | 'costSession' | 'costLegacy'> | undefined, total: number, sessionId: string | undefined, resumed?: string): Pick<Task, 'costUsd' | 'costSession' | 'costLegacy'> {
+  const id = sessionId ?? '';
+  const cs = cur?.costSession;
+  let base: number;
+  let legacy = cur?.costLegacy === true;
+  if (cs) base = cs.id === id && total >= cs.total ? cs.base : cs.base + cs.total;
+  else if (legacy && id && resumed === id) { base = 0; legacy = false; }
+  else base = cur?.costUsd ?? 0;
+  return { costUsd: base + total, costSession: { id, total, base }, costLegacy: legacy ? true : undefined };
+}
+
 export class EngineError extends Error {
   constructor(message: string, public readonly status: number) { super(message); this.name = 'EngineError'; }
 }
@@ -178,6 +200,8 @@ interface Job {
 }
 interface Active {
   ac: AbortController; cancelled: boolean; q?: Query;
+  /** The session this run resumed (undefined for a new one): a task the old summing code recorded heals only in that same session. */
+  resumed?: string;
   /** Sticky: the run (or the chain that woke it) touched outside content. Set by the engine, never by a tool argument. */
   tainted: boolean;
   /** tool_use ids already reported (the stream and the PreToolUse hook both see each one). */
@@ -991,6 +1015,7 @@ export class Engine {
     const pr = this.providers?.resolve(model);
     if (pr) return this.runProvider(job, agent, pr, prompt, act);
     const resume = this.store.getTask(job.taskId)?.sessionId;
+    act.resumed = resume;
     const options = this.buildOptions(job, agent, model, act, prompt, resume);
     // Streaming input: the request is the first message of a stream the person can add to while the run works.
     const input = new InputChannel(prompt);
@@ -1157,7 +1182,7 @@ export class Engine {
           ? (typeof msg.result === 'string' ? msg.result : undefined)
           : (Array.isArray(msg.errors) && msg.errors.length ? msg.errors.join('; ') : undefined);
         this.patchTask(taskId, {
-          costUsd: (cur?.costUsd ?? 0) + (typeof msg.total_cost_usd === 'number' ? msg.total_cost_usd : 0),
+          ...(typeof msg.total_cost_usd === 'number' ? sessionCost(cur, msg.total_cost_usd, typeof msg.session_id === 'string' ? msg.session_id : cur?.sessionId, act.resumed) : {}),
           turns: (cur?.turns ?? 0) + (typeof msg.num_turns === 'number' ? msg.num_turns : 0),
           ...(typeof msg.session_id === 'string' && !cur?.sessionId ? { sessionId: msg.session_id } : {}),
           ...(!isError && text !== undefined ? { result: text } : {}),

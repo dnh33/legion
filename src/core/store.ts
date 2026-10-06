@@ -14,7 +14,7 @@ const ZEALOT_OLD_PROMPT = 'You are the lead agent. Handle general requests direc
 export const ZEALOT_PROMPT = 'You are the lead of the Order. Every request comes to you first: you plan it, split it into tasks and hand them to the agents best placed for them, and you keep the person informed. Keep your answers concise.\nUse your cloud VM only when the task really needs it.';
 
 /** Applied once per state file, in order, then recorded in `migrations` so they never run again (and never undo a later manual choice). */
-const MIGRATIONS: Array<{ id: string; run: (agents: Map<string, AgentProfile>) => boolean }> = [
+const MIGRATIONS: Array<{ id: string; run: (agents: Map<string, AgentProfile>, tasks: Map<string, Task>) => boolean }> = [
   {
     // Builder used to be seeded with VM size 'large', which free boat.dev trials refuse. Reset it to 'default' once; the user can pick 'large' again.
     id: 'builder-vm-size-default-v1',
@@ -34,6 +34,22 @@ const MIGRATIONS: Array<{ id: string; run: (agents: Map<string, AgentProfile>) =
       if (!z || z.systemPrompt !== ZEALOT_OLD_PROMPT) return false;
       z.systemPrompt = ZEALOT_PROMPT;
       return true;
+    },
+  },
+  {
+    // Builds up to 0.2.5-g added the SDK's running session total on every result, so a task resumed N times counted its early
+    // turns N times (measured: $129 shown for $30 spent, claude/investigation-cost-bridge.md). The true figure is not recoverable
+    // from Legion's own data (it would mean reading Claude Code's private transcript files, which lack a cost record for some
+    // runs), so such a task is marked instead: its cost is an upper bound until its session reports again (engine sessionCost).
+    id: 'cost-legacy-v1',
+    run: (_agents, tasks) => {
+      let changed = false;
+      for (const t of tasks.values()) {
+        if (t.provider || t.costSession || !(typeof t.costUsd === 'number' && t.costUsd > 0)) continue;
+        t.costLegacy = true;
+        changed = true;
+      }
+      return changed;
     },
   },
 ];
@@ -79,7 +95,7 @@ export class Store {
     let changed = false;
     for (const m of MIGRATIONS) {
       if (this.migrations.has(m.id)) continue;
-      if (m.run(this.agents)) changed = true;
+      if (m.run(this.agents, this.tasks)) changed = true;
       this.migrations.add(m.id);
       changed = true;
     }

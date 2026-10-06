@@ -1064,3 +1064,63 @@ test('context meter: task.progress carries the context after the latest top-leve
   const seen = s.events.filter((e: any) => e.type === 'task.progress').map((e: any) => e.progress.contextTokens);
   assert.deepEqual(seen, [undefined, 52_010, 84_020], 'first emit has none yet; then one per top-level response, never the subagent 900k');
 });
+
+// ---- cost accounting: the SDK's total_cost_usd is the SESSION total so far (sdk.d.ts: read the latest, do not sum)
+const res = (total: number, sid: string, extra: any = {}) => ({ type: 'result', subtype: 'success', is_error: false, result: 'ok', total_cost_usd: total, num_turns: 1, session_id: sid, ...extra });
+
+test('cost: a resumed session reports its cumulative total; the task stores the session total, not the sum of totals', async () => {
+  const totals = [0.10, 0.25, 0.31];
+  const s = setup((_p, n) => (async function* () { yield init('S'); yield res(totals[n]!, 'S'); })());
+  const t = s.engine.startTask({ agentId: 'a1', prompt: 'one', source: 'ui' });
+  await s.engine.waitFor(t.id, 3000);
+  for (const p of ['two', 'three']) { s.engine.startTask({ agentId: 'a1', prompt: p, source: 'ui', continueTaskId: t.id }); await s.engine.waitFor(t.id, 3000); }
+  const done = s.store.getTask(t.id)!;
+  assert.ok(Math.abs(done.costUsd! - 0.31) < 1e-9, `got ${done.costUsd}`);
+  assert.equal(done.turns, 3, 'num_turns is per run and still summed');
+  assert.deepEqual(done.costSession, { id: 'S', total: 0.31, base: 0 });
+});
+
+test('cost: several results in one query (a live message joined the run) count once each, by delta', async () => {
+  const s = setup(() => (async function* () { yield init('S'); yield res(0.10, 'S'); yield res(0.18, 'S'); })());
+  const t = s.engine.startTask({ agentId: 'a1', prompt: 'one', source: 'ui' });
+  const done = await s.engine.waitFor(t.id, 3000);
+  assert.ok(Math.abs(done.costUsd! - 0.18) < 1e-9, `got ${done.costUsd}`);
+  assert.equal(done.turns, 2);
+});
+
+test('cost: a total below the last one seen for the same session (after /clear) is counted whole', async () => {
+  const totals = [0.30, 0.05];
+  const s = setup((_p, n) => (async function* () { yield init('S'); yield res(totals[n]!, 'S'); })());
+  const t = s.engine.startTask({ agentId: 'a1', prompt: 'one', source: 'ui' });
+  await s.engine.waitFor(t.id, 3000);
+  s.engine.startTask({ agentId: 'a1', prompt: '/clear', source: 'ui', continueTaskId: t.id });
+  const done = await s.engine.waitFor(t.id, 3000);
+  assert.ok(Math.abs(done.costUsd! - 0.35) < 1e-9, `got ${done.costUsd}`);
+});
+
+test('cost: a new session id (the old one went missing) starts its own total on top of the earlier sessions', async () => {
+  const runs = [['A', 0.20], ['B', 0.07], ['B', 0.12]] as const;
+  const s = setup((_p, n) => (async function* () { yield init(runs[n]![0]); yield res(runs[n]![1], runs[n]![0]); })());
+  const t = s.engine.startTask({ agentId: 'a1', prompt: 'one', source: 'ui' });
+  await s.engine.waitFor(t.id, 3000);
+  for (const p of ['two', 'three']) { s.engine.startTask({ agentId: 'a1', prompt: p, source: 'ui', continueTaskId: t.id }); await s.engine.waitFor(t.id, 3000); }
+  const done = s.store.getTask(t.id)!;
+  assert.ok(Math.abs(done.costUsd! - 0.32) < 1e-9, `got ${done.costUsd}`);
+  assert.deepEqual(done.costSession, { id: 'B', total: 0.12, base: 0.20 });
+});
+
+test('cost: a task recorded by the old summing code heals on its next run in the same session; a different session keeps the old figure as a base', async () => {
+  const s = setup((_p, n) => (async function* () { yield init(n === 0 ? 'OLD' : 'NEW'); yield res(n === 0 ? 0.40 : 0.05, n === 0 ? 'OLD' : 'NEW'); })());
+  const now = new Date().toISOString();
+  const legacy = (id: string): Task => ({ id, agentId: 'a1', title: 't', status: 'done', source: 'ui', requestedModel: 'sonnet', sessionId: 'OLD', costUsd: 5, costLegacy: true, turns: 9, createdAt: now, updatedAt: now });
+  s.store.tasks.set('t1', legacy('t1'));
+  s.engine.startTask({ agentId: 'a1', prompt: 'more', source: 'ui', continueTaskId: 't1' });
+  const healed = await s.engine.waitFor('t1', 3000);
+  assert.ok(Math.abs(healed.costUsd! - 0.40) < 1e-9, `the session total replaces the over-counted sum (got ${healed.costUsd})`);
+  assert.equal(healed.costLegacy, undefined);
+  s.store.tasks.set('t2', { ...legacy('t2'), sessionId: undefined });
+  s.engine.startTask({ agentId: 'a1', prompt: 'more', source: 'ui', continueTaskId: 't2' });
+  const kept = await s.engine.waitFor('t2', 3000);
+  assert.ok(Math.abs(kept.costUsd! - 5.05) < 1e-9, `got ${kept.costUsd}`);
+  assert.equal(kept.costLegacy, true, 'the old part is still marked as possibly over-counted');
+});

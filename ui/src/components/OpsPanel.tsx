@@ -76,7 +76,7 @@ export function OpsPanel() {
                     onContextMenu={(e) => { e.preventDefault(); openTaskMenu(e.clientX, e.clientY, t.id, 'recent'); }}>
                     <i className={`st st-${statusDot(t)}`} />
                     {renaming === t.id ? <RenameInput id={t.id} title={t.title} /> : <span className="r-title">{taskTitle(t.title, from)}</span>}
-                    <span className="r-meta">{a?.name ?? 'Agent'} {'\u00b7'} {t.costUsd != null ? money(t.costUsd) + ' · ' : ''}{relTime(t.updatedAt)}{from && <em className="from-chip">from {from}</em>}{t.modelOverride && <em className="from-chip model-chip" title={`${agents.find((x) => x.id === t.modelOverride!.by)?.name ?? t.modelOverride.by} chose ${modelLabel(catalog, t.modelOverride.model)} for this task`}>{modelLabel(catalog, t.modelOverride.model)}</em>}{t.archived && <em className="from-chip closed-chip">closed</em>}</span>
+                    <span className="r-meta">{a?.name ?? 'Agent'} {'\u00b7'} {t.costUsd != null ? (t.costLegacy ? 'up to ' : '') + money(t.costUsd) + ' · ' : ''}{relTime(t.updatedAt)}{from && <em className="from-chip">from {from}</em>}{t.modelOverride && <em className="from-chip model-chip" title={`${agents.find((x) => x.id === t.modelOverride!.by)?.name ?? t.modelOverride.by} chose ${modelLabel(catalog, t.modelOverride.model)} for this task`}>{modelLabel(catalog, t.modelOverride.model)}</em>}{t.archived && <em className="from-chip closed-chip">closed</em>}</span>
                   </button>
                 </li>
               );
