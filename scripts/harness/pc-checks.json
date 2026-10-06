@@ -3066,7 +3066,7 @@
     {
       "id": "PC-BSVT-26",
       "area": "BSVT",
-      "title": "W3: the wallet's grant prompt left open past Legion's 30 s build deadline",
+      "title": "W3: the wallet's grant prompt left open; Cancel in Legion; a late approval in the wallet",
       "source": [
         "claude/tracker-pc-checks.md W3",
         "BRC-100 leaves it to the wallet; wallet-toolbox asks at createAction for a spending grant per originator, then not again inside it, and never at signAction (docs/BSV-WALLET-DESIGN.md section 10, update 2026-10-06)"
@@ -3074,11 +3074,12 @@
       "inferred": false,
       "preconditions": "No grant for legion.local.",
       "steps": [
-        "Ask for a spend; leave the wallet's grant prompt open for 40 s.",
-        "Decline it in the wallet.",
-        "Check the spendable balance."
+        "Ask for a spend; leave the wallet's grant prompt open for 3 minutes.",
+        "Press Cancel on the waiting request in the BSV panel.",
+        "Approve the wallet's prompt late.",
+        "Check the spendable balance and the audit lines."
       ],
-      "expected": "Legion reports build-failed after 30 s; after the decline the coins are not left locked. Record what the wallet does if approved late instead (a separate run).",
+      "expected": "Legion keeps waiting (up to 15 min, BRC-219) and lists the request as waiting for your wallet; Cancel ends it at once; after the late approval Legion releases the build (abortAction): nothing is shown or signed and no coins stay locked.",
       "evidence": "PC-BSVT-26.png and the audit lines.",
       "safety": "real-wallet",
       "automation": "owner-only",
@@ -3139,6 +3140,34 @@
       "automation": "owner-only",
       "depends": [
         "PC-BSVT-27"
+      ],
+      "gate": "G8",
+      "result": {
+        "status": "not-run",
+        "date": null,
+        "evidence": null
+      }
+    },
+    {
+      "id": "PC-BSVT-29",
+      "area": "BSVT",
+      "title": "W6: a grant answered after 3 minutes: the late build is released (build-expired) and asking again builds at once",
+      "source": [
+        "claude/tracker-pc-checks.md W6",
+        "src/core/bsv/spend.ts staleBuildMs; wallet-toolbox TaskFailAbandoned (abandonedMsecs 5 min)"
+      ],
+      "inferred": false,
+      "preconditions": "No grant for legion.local. BSVT-04 passed.",
+      "steps": [
+        "Ask for a spend; answer the wallet's grant prompt after 3 minutes with a small amount; do not press Cancel in Legion.",
+        "Ask for the same spend again."
+      ],
+      "expected": "Legion answers build-expired and releases the first build (abortAction, no card); the second request builds at once with no new prompt and shows the card.",
+      "evidence": "PC-BSVT-29.png and the audit lines.",
+      "safety": "real-wallet",
+      "automation": "owner-only",
+      "depends": [
+        "PC-BSVT-04"
       ],
       "gate": "G8",
       "result": {

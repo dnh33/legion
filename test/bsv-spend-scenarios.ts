@@ -34,6 +34,8 @@ export interface Rig {
   job: { taskId: string; origin?: unknown; tainted: boolean; taint(): boolean; markTainted(): void };
   route(method: string, pattern: string, o?: { body?: unknown; params?: string[]; native?: boolean }): Promise<{ status: number; body: any }>;
   ask(args: Record<string, unknown>, job?: any, agent?: any): Promise<any>;
+  /** One tool call, no re-asking while the wallet is busy (for a wallet that holds the build while it asks the owner). */
+  askOnce(args: Record<string, unknown>): Promise<any>;
   /** Waits until the tool answer has a card (pending-owner) and returns the result. */
   askCard(args: Record<string, unknown>): Promise<any>;
   cards(): Promise<any[]>;
@@ -46,7 +48,7 @@ export interface Rig {
   close(): Promise<void>;
 }
 
-export async function rig(M: Mods, o: { wallet?: Partial<FakeBehaviour>; w?: FakeWallet; dataDir?: string; clock?: FakeClock; taskId?: string; native?: boolean; ownWallet?: boolean } = {}): Promise<Rig> {
+export async function rig(M: Mods, o: { wallet?: Partial<FakeBehaviour>; w?: FakeWallet; dataDir?: string; clock?: FakeClock; taskId?: string; native?: boolean; ownWallet?: boolean; transport?: any } = {}): Promise<Rig> {
   const ownWallet = o.ownWallet ?? !o.w; // a restarted rig takes over closing the wallet it was given
   const w = o.w ?? await startFakeWallet({ network: 'testnet', ...o.wallet });
   const dataDir = o.dataDir ?? cleanupTemp('legion-spend-');
@@ -54,7 +56,7 @@ export async function rig(M: Mods, o: { wallet?: Partial<FakeBehaviour>; w?: Fak
   const config: any = { bsv: { enabled: true, network: 'testnet' } };
   const state = M.index.createBsvState({ dataDir, config });
   const deps: any = { config, store: { listAgents: () => [AGENT] }, bus: { emit: () => undefined }, engine: {}, approvals: {}, dataDir, bsvEnabled: () => state.enabled };
-  const bsv = M.index.createBsvModule(deps, { state, nativeSecret: NATIVE, transport: fakeTransport(), clock, now: () => clock.wall(), probeMinIntervalMs: 0, spendToolWaitMs: 120 });
+  const bsv = M.index.createBsvModule(deps, { state, nativeSecret: NATIVE, transport: o.transport ?? fakeTransport(), clock, now: () => clock.wall(), probeMinIntervalMs: 0, spendToolWaitMs: 120 });
   const handlers = new Map<string, any>();
   bsv.routes((m: string, p: string, h: any) => handlers.set(`${m} ${p}`, h));
   const job = { taskId: o.taskId ?? 'task-1', origin: undefined as unknown, tainted: false, taint() { return this.tainted; }, markTainted() { this.tainted = true; } };
@@ -89,6 +91,7 @@ export async function rig(M: Mods, o: { wallet?: Partial<FakeBehaviour>; w?: Fak
       }
       return askOnce(args, j, agent);
     },
+    askOnce: (args) => askOnce(args, job, AGENT),
     async askCard(args) { const res = await r.ask(args); assert.equal(res.status, 'pending-owner', JSON.stringify(res)); return res; },
     async cards() { return (await r.route('GET', '/api/bsv/spend/pending')).body.cards; },
     async approve(id, a = {}) {
@@ -105,7 +108,8 @@ export async function rig(M: Mods, o: { wallet?: Partial<FakeBehaviour>; w?: Fak
     audit: () => readFileSync(join(dataDir, 'bsv', 'audit.jsonl'), 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l)),
     usage: () => bsv.policy.snapshot().nets,
     async restart() { await r.settle(); for (const c of clients) await c.close().catch(() => undefined); return rig(M, { w, dataDir, clock, ownWallet }); },
-    async close() { await r.settle(); for (const c of clients) await c.close().catch(() => undefined); bsv.dispose?.(); if (ownWallet) await w.stop(); },
+    // a grant prompt the fake still holds would keep its createAction (and so settle()) open for the 15-minute cap: answer it first
+    async close() { while (w.heldGrants() > 0) w.answerGrant('deny'); await r.settle(); for (const c of clients) await c.close().catch(() => undefined); bsv.dispose?.(); if (ownWallet) await w.stop(); },
   };
   return r;
 }
@@ -687,4 +691,195 @@ S('decoder-rejects-bad-values', async (M) => {
   assert.equal(M.spend.decodeSignable(beef([{ raw: parent }, { raw: tx([{ sats: 0, script: dataScript() }, { sats: 9_980, script: p2pkhOf(1) }]) }])), null, 'a zero-sat output');
   assert.equal(M.spend.decodeSignable(beef([{ raw: tx([{ sats: 600, script: p2pkhOf(1) }]) }])), null, 'no parent');
   assert.equal(M.spend.decodeSignable(beef([{ raw: parent }, { raw: parent }, { raw: tx([{ sats: 600, script: p2pkhOf(1) }]) }])), null, 'a repeated transaction');
+});
+
+// ------------------------------------------------------------------ a wallet that asks while it builds (wallet-toolbox's permission layer)
+
+/** fakeTransport, recording the deadline Legion asks for on each createAction and, if `createMs` is given, using that one instead (probe calls keep theirs). */
+const recordingTransport = (seen: number[], createMs?: number) => {
+  const base = fakeTransport();
+  return (req: any) => {
+    if (req.path === '/createAction') { seen.push(req.timeoutMs); if (createMs !== undefined) req = { ...req, timeoutMs: createMs }; }
+    return base(req);
+  };
+};
+const until = async (what: string, ok: () => boolean, ms = 5_000): Promise<void> => {
+  const end = Date.now() + ms;
+  while (!ok()) { if (Date.now() > end) throw new Error(`timed out waiting for: ${what}`); await new Promise((x) => setTimeout(x, 10)); }
+};
+
+S('build-waits-for-a-wallet-that-asks-first', async (M) => {
+  const seen: number[] = [];
+  const r = await rig(M, { wallet: { grant: 'toolbox' }, transport: recordingTransport(seen) });
+  try {
+    await r.setup({ allow: { test: [TEST_A] } });
+    const first = await r.askOnce(args());
+    assert.equal(first.status, 'pending-wallet', 'while the wallet asks the owner, the request waits for the wallet');
+    assert.equal(r.w.heldGrants(), 1); assert.deepEqual(await r.cards(), []); assert.equal(sign(r), 0);
+    assert.equal(seen.length, 1);
+    assert.equal(seen[0], M.spend.SPEND_LIMITS.createTimeoutMs);
+    assert.ok(seen[0]! >= 10 * 60_000, `a wallet asking its owner is not timed out like a slow service (BRC-219); ${seen[0]} ms asked for`);
+    assert.deepEqual((await r.route('GET', '/api/bsv/policy')).body.waiting.map((x: any) => x.requestId), [first.requestId], 'the panel lists it as waiting for the wallet');
+    r.w.answerGrant(5_000); // the owner grants a small amount in the wallet
+    await until('the card', () => r.bsv.spend.statusOf(first.requestId)?.status === 'pending-owner');
+    assert.equal((await r.approve(first.requestId)).status, 200);
+    await r.settle();
+    assert.equal(r.bsv.spend.statusOf(first.requestId).status, 'executed');
+    assert.equal(sign(r), 1, 'signing needs no second question from this wallet');
+    const second = await r.askCard(args());
+    assert.equal(second.status, 'pending-owner');
+    assert.deepEqual((await r.route('GET', '/api/bsv/policy')).body.waiting, [], 'a request with a card is not listed as waiting for the wallet');
+    assert.equal(r.w.grantPrompts(), 1, 'inside the grant the wallet does not ask again: Legion\'s card is the per-spend check');
+  } finally { await r.close(); }
+});
+
+S('wallet-no-answer-is-its-own-code', async (M) => {
+  const seen: number[] = [];
+  const r = await rig(M, { wallet: { grant: 'toolbox' }, transport: recordingTransport(seen, 150) });
+  try {
+    await r.setup({ allow: { test: [TEST_A] } });
+    const first = await r.askOnce(args());
+    await until('the end of the build', () => r.bsv.spend.statusOf(first.requestId)?.status === 'failed');
+    assert.deepEqual(r.bsv.spend.statusOf(first.requestId).reasonCodes, ['wallet-no-answer']);
+    assert.deepEqual(await r.cards(), []); assert.equal(sign(r), 0);
+    const failed = lines(r, 'failed').filter((l) => l.fields?.requestId === first.requestId);
+    assert.equal(failed.length, 1); assert.equal(failed[0].reason, 'wallet-no-answer');
+    // the owner answers the wallet late: nothing in Legion changes; the wallet keeps its unsigned build (Legion never got a reference to abort)
+    r.w.answerGrant('once');
+    await new Promise((x) => setTimeout(x, 50)); await r.settle();
+    assert.equal(r.bsv.spend.statusOf(first.requestId).status, 'failed'); assert.equal(sign(r), 0);
+    assert.equal(r.w.open.size, 1, 'documented residual: the wallet holds the late build until it releases it itself');
+    // the request is over, so the next one is not refused as busy
+    r.w.b.grant = 'off';
+    assert.equal((await r.askCard(args())).status, 'pending-owner');
+  } finally { await r.close(); }
+});
+
+S('a-refused-grant-builds-nothing', async (M) => {
+  const r = await rig(M, { wallet: { grant: 'toolbox' } });
+  try {
+    await r.setup({ allow: { test: [TEST_A] } });
+    const first = await r.askOnce(args());
+    r.w.answerGrant('deny');
+    await until('the end of the build', () => r.bsv.spend.statusOf(first.requestId)?.status === 'failed');
+    assert.deepEqual(r.bsv.spend.statusOf(first.requestId).reasonCodes, ['build-failed']);
+    assert.deepEqual(await r.cards(), []); assert.equal(sign(r), 0); assert.equal(r.w.open.size, 0);
+  } finally { await r.close(); }
+});
+
+S('freeze-while-the-wallet-asks', async (M) => {
+  const r = await rig(M, { wallet: { grant: 'toolbox' } });
+  try {
+    await r.setup({ allow: { test: [TEST_A] } });
+    const first = await r.askOnce(args());
+    assert.equal(r.w.heldGrants(), 1);
+    await r.route('POST', '/api/bsv/policy/freeze', { body: {} });
+    // Freeze ends the wait on Legion's side at once, without waiting for the wallet
+    assert.equal(r.bsv.spend.statusOf(first.requestId).status, 'declined');
+    assert.deepEqual(r.bsv.spend.statusOf(first.requestId).reasonCodes, ['frozen']);
+    r.w.answerGrant(5_000); // the owner approves the wallet's question after pressing Freeze
+    await until('the late build is released', () => r.w.aborted.length === 1);
+    await r.settle();
+    assert.deepEqual(await r.cards(), []); assert.equal(sign(r), 0); assert.equal(r.w.open.size, 0, 'no coins stay locked in the wallet');
+    assert.equal(r.bsv.spend.statusOf(first.requestId).status, 'declined', 'the late answer changes nothing');
+  } finally { await r.close(); }
+});
+
+S('cancel-while-the-wallet-asks', async (M) => {
+  const r = await rig(M, { wallet: { grant: 'toolbox' } });
+  try {
+    await r.setup({ allow: { test: [TEST_A] } });
+    const first = await r.askOnce(args());
+    assert.equal(r.w.heldGrants(), 1);
+    const d = await r.route('POST', '/api/bsv/spend/:id/decision', { params: [first.requestId], body: { decision: 'deny' } });
+    assert.equal(d.status, 200); assert.equal(d.body.status, 'declined');
+    assert.deepEqual(r.bsv.spend.statusOf(first.requestId).reasonCodes, ['declined-by-owner']);
+    assert.deepEqual((await r.route('GET', '/api/bsv/policy')).body.waiting, []);
+    // approving a request that has no card yet is still refused
+    const second = await r.askOnce(args());
+    assert.equal(second.status, 'pending-wallet', 'the cancelled request no longer holds the one spend slot');
+    const a = await r.route('POST', '/api/bsv/spend/:id/decision', { params: [second.requestId], body: { decision: 'approve' } });
+    assert.equal(a.status, 409);
+    r.w.answerGrant('once'); // the owner answers the first, cancelled request in the wallet
+    await until('the cancelled build is released', () => r.w.aborted.length === 1);
+    r.w.answerGrant('once');
+    await until('the second card', () => r.bsv.spend.statusOf(second.requestId)?.status === 'pending-owner');
+    assert.equal(sign(r), 0); assert.equal((await r.cards()).length, 1);
+  } finally { await r.close(); }
+});
+
+S('disconnect-while-the-wallet-asks', async (M) => {
+  const r = await rig(M, { wallet: { grant: 'toolbox' } });
+  try {
+    await r.setup({ allow: { test: [TEST_A] } });
+    const first = await r.askOnce(args());
+    await r.route('POST', '/api/bsv/wallet/disconnect', { body: {} });
+    assert.equal(r.bsv.spend.statusOf(first.requestId).status, 'declined');
+    assert.deepEqual(r.bsv.spend.statusOf(first.requestId).reasonCodes, ['not-connected']);
+    r.w.answerGrant(5_000);
+    await until('the late build is released', () => r.w.aborted.length === 1);
+    await r.settle();
+    assert.equal(sign(r), 0); assert.equal(r.w.open.size, 0); assert.deepEqual(await r.cards(), []);
+  } finally { await r.close(); }
+});
+
+S('deny-during-the-first-probe-asks-the-wallet-nothing', async (M) => {
+  const r = await rig(M, { wallet: { grant: 'toolbox' } });
+  try {
+    await r.setup({ allow: { test: [TEST_A] } });
+    r.w.b.netDelayMs = 400; // Legion's fresh probe is in flight while the owner denies
+    const first = await r.askOnce(args());
+    const d = await r.route('POST', '/api/bsv/spend/:id/decision', { params: [first.requestId], body: { decision: 'deny' } });
+    assert.equal(d.status, 200); assert.equal(d.body.status, 'declined');
+    await new Promise((x) => setTimeout(x, 600)); // the probe has answered by now
+    // asserted before settle(): a build sent by mistake would be held by the fake's grant prompt, and settle() would wait for it
+    assert.equal(r.w.of('createAction').length, 0, 'a request ended during the probe asks the wallet to build nothing');
+    await r.settle();
+  } finally { await r.close(); }
+});
+
+S('bsv-off-ends-a-wait-and-a-card', async (M) => {
+  const r = await rig(M, { wallet: { grant: 'toolbox' } });
+  try {
+    await r.setup({ allow: { test: [TEST_A] } });
+    const first = await r.askOnce(args());
+    assert.equal(r.w.heldGrants(), 1);
+    assert.equal((await r.route('POST', '/api/bsv', { body: { enabled: false } })).status, 200);
+    assert.equal(r.bsv.spend.statusOf(first.requestId).status, 'declined');
+    assert.deepEqual(r.bsv.spend.statusOf(first.requestId).reasonCodes, ['bsv-off']);
+    r.w.answerGrant(5_000);
+    await until('the late build is released', () => r.w.aborted.length === 1);
+    assert.equal(sign(r), 0); assert.equal(r.w.open.size, 0);
+  } finally { await r.close(); }
+  // an open card ends too: BSV off means no approval can follow
+  const r2 = await rig(M);
+  try {
+    await r2.setup({ allow: { test: [TEST_A] } });
+    const c = await r2.askCard(args());
+    assert.equal((await r2.route('POST', '/api/bsv', { body: { enabled: false } })).status, 200);
+    assert.equal(r2.bsv.spend.statusOf(c.requestId).status, 'declined');
+    assert.deepEqual(r2.bsv.spend.statusOf(c.requestId).reasonCodes, ['bsv-off']);
+    await r2.settle();
+    assert.equal(r2.w.aborted.length, 1, 'the open card\'s build is released'); assert.equal(sign(r2), 0);
+    assert.equal(r2.usage().test.usage.reservedSats, 0, 'nothing stays reserved');
+  } finally { await r2.close(); }
+});
+
+S('a-late-build-is-released-and-asked-again', async (M) => {
+  const r = await rig(M, { wallet: { grant: 'toolbox' } });
+  try {
+    await r.setup({ allow: { test: [TEST_A] } });
+    const first = await r.askOnce(args());
+    assert.equal(r.w.heldGrants(), 1);
+    r.clock.advance(3 * 60_000); // the owner takes three minutes over the wallet's grant prompt
+    r.w.answerGrant(5_000);
+    await until('the end of the build', () => r.bsv.spend.statusOf(first.requestId)?.status === 'failed');
+    assert.deepEqual(r.bsv.spend.statusOf(first.requestId).reasonCodes, ['build-expired']);
+    await r.settle();
+    assert.equal(r.w.aborted.length, 1, 'the stale build is released before the wallet fails it'); assert.equal(r.w.open.size, 0);
+    assert.deepEqual(await r.cards(), []); assert.equal(sign(r), 0);
+    // asked again: the grant the owner stored makes the new build immediate, so it is fresh
+    const second = await r.askCard(args());
+    assert.equal(second.status, 'pending-owner'); assert.equal(r.w.grantPrompts(), 1);
+  } finally { await r.close(); }
 });

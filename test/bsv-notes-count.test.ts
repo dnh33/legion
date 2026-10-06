@@ -1,6 +1,6 @@
 /**
- * The title-bar number ("<n> BSV notes") and its explanation, against a REAL Graph with the bundled pack (163 notes, version 9) and the bsv
- * scope enabled. Every way the number can differ from 163 is one test: deleted, merged, archived, superseded, held, moved out of scope, purged,
+ * The title-bar number ("<n> BSV notes") and its explanation, against a REAL Graph with the bundled pack (167 notes, version 10) and the bsv
+ * scope enabled. Every way the number can differ from 167 is one test: deleted, merged, archived, superseded, held, moved out of scope, purged,
  * the pack not loaded or only partly, an older installed pack version, notes the owner added, a restore, a failed or malformed count.
  * The old figure (`stats.byScope.bsv`, which counts retired notes too) is compared side by side so the difference is visible.
  * Hermetic: temp folders and the module's own routes; no wallet, no network.
@@ -34,20 +34,20 @@ const statsBsv = (g: ReturnType<typeof mkGraph>['g']) => g.stats(HUMAN).byScope.
 const identity = (s: KnowledgeSummary) => assert.equal(s.packActive + s.retired + s.moved + s.removed + s.notLoaded, s.bundled.count, JSON.stringify(s));
 const PICK = (i: number) => IDS.filter((id) => id !== 'bsv-curriculum-index')[i]!;
 
-test('the bundled pack is 163 notes, version 9 (the number the summary compares against)', () => {
-  assert.equal(PACK.nodes.length, 163);
-  assert.equal(PACK.version, 9);
-  assert.equal(JSON.parse(readFileSync(new URL('../../src/core/kg/seeds/bsv.json', import.meta.url), 'utf8')).nodes.length, 163);
+test('the bundled pack is 167 notes, version 10 (the number the summary compares against)', () => {
+  assert.equal(PACK.nodes.length, 167);
+  assert.equal(PACK.version, 10);
+  assert.equal(JSON.parse(readFileSync(new URL('../../src/core/kg/seeds/bsv.json', import.meta.url), 'utf8')).nodes.length, 167);
 });
 
-test('fresh seed: 163 live notes, nothing removed, added or missing; the old figure agrees', () => {
+test('fresh seed: 167 live notes, nothing removed, added or missing; the old figure agrees', () => {
   const { g } = seeded();
   const s = sum(g);
-  assert.deepEqual({ n: s.inGraph, b: s.bundled, a: s.removedOrMerged, add: s.added, miss: s.missing, v: s.loadedVersion }, { n: 163, b: { count: 163, version: 9 }, a: 0, add: 0, miss: 0, v: 9 });
-  assert.equal(statsBsv(g), 163);
+  assert.deepEqual({ n: s.inGraph, b: s.bundled, a: s.removedOrMerged, add: s.added, miss: s.missing, v: s.loadedVersion }, { n: 167, b: { count: 167, version: 10 }, a: 0, add: 0, miss: 0, v: 10 });
+  assert.equal(statsBsv(g), 167);
   identity(s);
-  assert.equal(knowledgeShort(s.inGraph, s), '163 BSV notes');
-  assert.match(knowledgeExplain(s), /^bundled pack: 163 notes \(version 9\); in your graph: 163; removed or merged by you or a bot: 0; added by you: 0; missing: 0$/);
+  assert.equal(knowledgeShort(s.inGraph, s), '167 BSV notes');
+  assert.match(knowledgeExplain(s), /^bundled pack: 167 notes \(version 10\); in your graph: 167; removed or merged by you or a bot: 0; added by you: 0; missing: 0$/);
 });
 
 test('the owner deletes pack notes: the number drops by exactly that many, the ids are on the missing list, and the explanation says so', () => {
@@ -55,20 +55,20 @@ test('the owner deletes pack notes: the number drops by exactly that many, the i
   const a = PICK(0); const b = PICK(1);
   g.deleteNode(HUMAN, a); g.deleteNode(HUMAN, b);
   const s = sum(g);
-  assert.equal(s.inGraph, 161); assert.equal(statsBsv(g), 161);
+  assert.equal(s.inGraph, 165); assert.equal(statsBsv(g), 165);
   assert.deepEqual({ removed: s.removed, notLoaded: s.notLoaded, missing: s.missing, rm: s.removedOrMerged }, { removed: 2, notLoaded: 0, missing: 2, rm: 2 });
   assert.deepEqual([...s.missingIds].sort(), [a, b].sort());
   identity(s);
-  assert.equal(knowledgeShort(161, s), '161 BSV notes (pack 163)');
-  assert.match(knowledgeExplain(s), /in your graph: 161; removed or merged by you or a bot: 2; added by you: 0; missing: 2 \(2 deleted by you\)/);
+  assert.equal(knowledgeShort(165, s), '165 BSV notes (pack 167)');
+  assert.match(knowledgeExplain(s), /in your graph: 165; removed or merged by you or a bot: 2; added by you: 0; missing: 2 \(2 deleted by you\)/);
 });
 
-test('merging notes (by the owner) retires the dropped ones: the old figure still says 163, the live count says 161', () => {
+test('merging notes (by the owner) retires the dropped ones: the old figure still says 167, the live count says 165', () => {
   const { g } = seeded();
   g.merge(HUMAN, PICK(0), [PICK(1), PICK(2)]);
   const s = sum(g);
-  assert.equal(statsBsv(g), 163, 'the old figure counts retired notes: this is how the title bar could look unchanged and then drop later');
-  assert.equal(s.inGraph, 161);
+  assert.equal(statsBsv(g), 167, 'the old figure counts retired notes: this is how the title bar could look unchanged and then drop later');
+  assert.equal(s.inGraph, 165);
   assert.deepEqual({ retired: s.retired, removed: s.removed, missing: s.missing, rm: s.removedOrMerged }, { retired: 2, removed: 0, missing: 0, rm: 2 });
   identity(s);
 });
@@ -77,12 +77,12 @@ test('a retired (merged, archived) note is purged after 30 days: the old figure 
   const { g, clock } = seeded();
   g.merge(HUMAN, PICK(0), [PICK(1)]);
   g.setStatus(HUMAN, PICK(3), 'archived');
-  assert.equal(statsBsv(g), 163);
+  assert.equal(statsBsv(g), 167);
   clock.t += 31 * DAY;
   assert.equal(g.purgeTombstones(), 2);
-  assert.equal(statsBsv(g), 161, 'the figure fell with no action by the owner that day');
+  assert.equal(statsBsv(g), 165, 'the figure fell with no action by the owner that day');
   const s = sum(g);
-  assert.deepEqual({ n: s.inGraph, retired: s.retired, removed: s.removed, miss: s.missing }, { n: 161, retired: 0, removed: 2, miss: 2 });
+  assert.deepEqual({ n: s.inGraph, retired: s.retired, removed: s.removed, miss: s.missing }, { n: 165, retired: 0, removed: 2, miss: 2 });
   identity(s);
   assert.match(knowledgeExplain(s), /2 deleted by you/);
 });
@@ -95,7 +95,7 @@ test('archive, supersede and a note held for review are retired, not live, and l
   g.supersede(HUMAN, PICK(2), 'my-new');
   const s = sum(g);
   assert.equal(s.retired, 3);
-  assert.equal(s.inGraph, 160 + 1, '163 - 3 retired + the owner\'s live note');
+  assert.equal(s.inGraph, 164 + 1, '167 - 3 retired + the owner\'s live note');
   assert.equal(s.added, 1);
   identity(s);
   assert.match(knowledgeExplain(s), /3 still in the graph but retired/);
@@ -105,7 +105,7 @@ test('moving a pack note out of the bsv scope: not counted, not offered for rest
   const { g } = seeded();
   g.upsertNode(HUMAN, { id: PICK(0), scope: 'shared' });
   const s = sum(g);
-  assert.equal(s.inGraph, 162); assert.equal(statsBsv(g), 162);
+  assert.equal(s.inGraph, 166); assert.equal(statsBsv(g), 166);
   assert.equal(s.moved, 1);
   assert.ok(!s.missingIds.includes(PICK(0)), 'it exists, so it is not "missing"');
   assert.equal(s.missing, 0);
@@ -113,25 +113,25 @@ test('moving a pack note out of the bsv scope: not counted, not offered for rest
   assert.match(knowledgeExplain(s), /1 moved out of the BSV scope/);
 });
 
-test('notes the owner added with scope bsv make the number HIGHER than the pack (the owner may have seen 190)', () => {
+test('notes the owner added with scope bsv make the number HIGHER than the pack (the owner may have seen 194)', () => {
   const { g } = seeded();
   for (let i = 0; i < 27; i++) g.upsertNode(HUMAN, { id: `mine-${i}`, title: `My BSV note ${i}`, scope: 'bsv' });
   const s = sum(g);
-  assert.equal(s.inGraph, 190); assert.equal(statsBsv(g), 190);
+  assert.equal(s.inGraph, 194); assert.equal(statsBsv(g), 194);
   assert.equal(s.added, 27);
-  assert.equal(knowledgeShort(190, s), '190 BSV notes (pack 163)');
-  assert.match(knowledgeExplain(s), /in your graph: 190; removed or merged by you or a bot: 0; added by you: 27; missing: 0/);
+  assert.equal(knowledgeShort(194, s), '194 BSV notes (pack 167)');
+  assert.match(knowledgeExplain(s), /in your graph: 194; removed or merged by you or a bot: 0; added by you: 27; missing: 0/);
   identity(s);
 });
 
-test('the pack was never loaded: 0 live notes, 163 not loaded (not "deleted"); a restore of the missing ids loads all of them', () => {
+test('the pack was never loaded: 0 live notes, 167 not loaded (not "deleted"); a restore of the missing ids loads all of them', () => {
   const { g } = fresh();
   const s = sum(g);
-  assert.deepEqual({ n: s.inGraph, nl: s.notLoaded, rm: s.removed, miss: s.missing, v: s.loadedVersion }, { n: 0, nl: 163, rm: 0, miss: 163, v: 0 });
+  assert.deepEqual({ n: s.inGraph, nl: s.notLoaded, rm: s.removed, miss: s.missing, v: s.loadedVersion }, { n: 0, nl: 167, rm: 0, miss: 167, v: 0 });
   identity(s);
-  assert.equal(knowledgeShort(0, s), '0 BSV notes (pack 163)');
+  assert.equal(knowledgeShort(0, s), '0 BSV notes (pack 167)');
   applySeedPack(g, PACK, { restore: s.missingIds });
-  assert.equal(sum(g).inGraph, 163);
+  assert.equal(sum(g).inGraph, 167);
 });
 
 test('a partly loaded pack (a crash half way, or an old small pack) shows the gap as "not loaded", and the plain seed fills it', () => {
@@ -140,24 +140,24 @@ test('a partly loaded pack (a crash half way, or an old small pack) shows the ga
   applySeedPack(g, half);
   const s = sum(g);
   assert.equal(s.inGraph, 84, 'the very first pack had 84 notes: an install that stopped there shows 84');
-  assert.deepEqual({ nl: s.notLoaded, rm: s.removed, v: s.loadedVersion }, { nl: 79, rm: 0, v: 1 });
+  assert.deepEqual({ nl: s.notLoaded, rm: s.removed, v: s.loadedVersion }, { nl: 83, rm: 0, v: 1 });
   identity(s);
-  assert.match(knowledgeExplain(s), /installed pack version: 1.*79 not loaded yet/);
+  assert.match(knowledgeExplain(s), /installed pack version: 1.*83 not loaded yet/);
   applySeedPack(g, PACK);
-  assert.equal(sum(g).inGraph, 163);
-  assert.equal(sum(g).loadedVersion, 9);
+  assert.equal(sum(g).inGraph, 167);
+  assert.equal(sum(g).loadedVersion, 10);
 });
 
-test('an older installed pack version with all notes present: the count is 163 but the explanation names the version', () => {
+test('an older installed pack version with all notes present: the count is 167 but the explanation names the version', () => {
   const { g } = fresh();
   applySeedPack(g, { ...PACK, version: 5 });
   const s = sum(g);
-  assert.equal(s.inGraph, 163);
+  assert.equal(s.inGraph, 167);
   assert.equal(s.loadedVersion, 5);
   assert.match(knowledgeExplain(s), /installed pack version: 5/);
 });
 
-test('restore: only notes that are not in the graph at all are named, so an edited note keeps the owner\'s text; the number returns to 163', () => {
+test('restore: only notes that are not in the graph at all are named, so an edited note keeps the owner\'s text; the number returns to 167', () => {
   const { g } = seeded();
   const gone = PICK(0); const edited = PICK(1);
   g.deleteNode(HUMAN, gone);
@@ -169,7 +169,7 @@ test('restore: only notes that are not in the graph at all are named, so an edit
   assert.deepEqual(r.restored, [gone]);
   assert.equal(g.getNode(HUMAN, edited)!.body, 'my own words that I wrote myself about this');
   const after = sum(g);
-  assert.equal(after.inGraph, 162, 'the merged note is still retired');
+  assert.equal(after.inGraph, 166, 'the merged note is still retired');
   assert.equal(after.removed, 0);
   assert.equal(after.retired, 1);
   identity(after);

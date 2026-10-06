@@ -1,8 +1,8 @@
 /**
  * BSV mode: the optional BSV Dev Kit toggle. Knowledge, a read-only wallet STATUS probe, and the safety infrastructure for later.
  * There are NO keys here. Wallet contact is wallet-probe.ts (four harmless questions, loopback only) and spend.ts (the one pinned file
- * behind the `bsv_spend_request` tool: the wallet builds and signs, only after the owner's confirmations and with the wallet's own prompt as the
- * last gate). The other agent tool is the read-only `bsv_status`. Mainnet is a hard-off switch (mainnet-routes.ts), off by default.
+ * behind the `bsv_spend_request` tool: the wallet builds and signs, only after the owner's native confirmations, which are the per-spend
+ * gate; whether the wallet also asks depends on the wallet). The other agent tool is the read-only `bsv_status`. Mainnet is a hard-off switch (mainnet-routes.ts), off by default.
  * What the toggle does: shows the Assayer (the state filter in server.ts reads the flag), loads the bundled BSV
  * knowledge pack into the knowledge graph, gives the Assayer a four-line preamble and `bsv_status`, and turns on the chain overlay.
  *
@@ -54,12 +54,14 @@ export interface BsvPolicyView extends PolicySnapshot {
   network: 'testnet';
   /** True when this core was started by the Electron app and so can accept policy changes at all. */
   nativeAvailable: boolean;
-  /** The spend tool exists while BSV mode is on (it still needs the owner's dialogs and the wallet's prompt). */
+  /** The spend tool exists while BSV mode is on (it still needs the owner's dialogs; whether the wallet also asks depends on the wallet). */
   spendTools: boolean;
   /** The mainnet hard-off switch and whether one mainnet spend is armed. */
   mainnet: { enabled: boolean; armed: boolean };
   armChoicesMinutes: number[];
   audit: { ok: boolean; entries: number; reason?: string };
+  /** Requests whose unsigned build the wallet has not answered yet (it may be asking the owner); the owner can Deny them. */
+  waiting: Array<{ requestId: string; totalSats: number; network?: 'test' | 'main' }>;
 }
 
 export interface BsvModuleOptions {
@@ -225,7 +227,7 @@ export function createBsvModule(deps: ModuleDeps, opts: BsvModuleOptions = {}): 
     let rep: { ok: boolean; entries: number; reason?: string };
     try { const v = audit.verify(); rep = { ok: v.ok, entries: v.entries, ...(v.reason ? { reason: v.reason } : {}) }; } catch { rep = { ok: false, entries: 0, reason: 'unreadable' }; }
     const snap = policy.snapshot();
-    return { ...snap, network: 'testnet', nativeAvailable: !!opts.nativeSecret, spendTools: state.enabled, mainnet: { enabled: snap.mainnetEnabled, armed: snap.armed }, armChoicesMinutes: [...ARM_CHOICES_MINUTES], audit: rep };
+    return { ...snap, network: 'testnet', nativeAvailable: !!opts.nativeSecret, spendTools: state.enabled, mainnet: { enabled: snap.mainnetEnabled, armed: snap.armed }, armChoicesMinutes: [...ARM_CHOICES_MINUTES], audit: rep, waiting: spend?.waiting() ?? [] };
   };
   const policyErr = (e: unknown): never => {
     if (e instanceof HttpError) throw e;
@@ -352,6 +354,7 @@ export function createBsvModule(deps: ModuleDeps, opts: BsvModuleOptions = {}): 
       add('POST', '/api/bsv/wallet/disconnect', (): WalletStatus => {
         if (probe.connected) note('owner', 'bsv_wallet', 'disconnected');
         probe.disconnect();
+        spend?.tick(); // a build the wallet has not answered yet ends here; a late answer is released, never signed
         return probe.cached();
       });
       add('GET', '/api/bsv/policy', () => policyView());
@@ -450,6 +453,7 @@ export function createBsvModule(deps: ModuleDeps, opts: BsvModuleOptions = {}): 
           // BSV mode off: nothing stays armed, and the wallet is disconnected: turning the mode back on starts disconnected (Connect again)
           policy.disarm('BSV mode turned off');
           probe.disconnect();
+          spend?.tick(); // a request still waiting for the wallet, or a card, ends now; a late build is released, never shown
         }
         if (changed) note('owner', 'bsv-mode', body.enabled ? 'enabled' : 'disabled');
         if (body.enabled) {

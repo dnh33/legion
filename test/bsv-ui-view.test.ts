@@ -292,3 +292,12 @@ test('panel: the mainnet switch is off by default in wording, the arm control is
   assert.doesNotMatch(panel, /\bsafe\b|verified with|cannot be bypassed|risk-free|production-ready/i); // ("Log verified" is the audit chain, not funds)
   assert.match(panel, /has not been checked with real funds/);
 });
+
+test('spend: a request the wallet has not answered yet is listed as waiting for the wallet, with Cancel (the native Deny path)', () => {
+  const m = spendModel({ spendTools: true, pending: [], waiting: [{ requestId: 'abcdef0123456789abcdef', totalSats: 620, network: 'test' }], unknown: [] });
+  assert.equal(m.waiting.length, 1);
+  assert.match(m.waiting[0]!.label, /620 sat, waiting for your wallet\. It may be asking you for a spending grant: answer it there, or cancel here\./);
+  assert.deepEqual(spendModel({ spendTools: true, pending: [], unknown: [] }).waiting, [], 'an older core without the field shows no rows');
+  const panel = stripComments(read('BsvPanel.tsx'));
+  assert.match(panel, /m\.waiting\.map\(\(r\) => \([\s\S]{0,300}data-spend-waiting=\{r\.requestId\}[\s\S]{0,300}changePolicy\(\{ kind: 'spend-deny', requestId: r\.requestId \}\)\}>Cancel<\/button>/);
+});
