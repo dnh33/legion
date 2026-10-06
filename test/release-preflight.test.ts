@@ -14,7 +14,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, realpathSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -35,7 +35,7 @@ function run(...argv: string[]): Run {
 
 /** A folder shaped like build-package.mjs's --out, so the gate gets past the flag and on with its real work. */
 function artifactDir(): string {
-  const d = mkdtempSync(join(tmpdir(), 'legion-preflight-'));
+  const d = realpathSync.native(mkdtempSync(join(tmpdir(), 'legion-preflight-')));
   return d;
 }
 

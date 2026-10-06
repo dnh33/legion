@@ -16,8 +16,12 @@ const have = (c: string, a: string[]): boolean => { try { execFileSync(c, a, { s
 // The product runs this in a Linux VM (POSIX paths, pkill, a sh blender); the local stand-in is real bash and python3 over a temp folder, so it
 // needs a POSIX host. On Windows these are skipped with this reason (the host-side copy-back guards they exercise are covered by blender-fs-safe,
 // which runs on Windows with junctions and hard links).
-const can = have('python3', ['--version']) && have('bash', ['--version']) && process.platform !== 'win32';
-const why = process.platform === 'win32' ? 'the stand-in VM is a POSIX bash + python3 host (the real runner is a Linux VM); not run on Windows' : 'python3 or bash is not installed';
+// macOS is skipped too: the runner lists exports with GNU `find -printf`, which the real (Linux) VM has and BSD find on macOS does not, so a
+// macOS stand-in would test macOS's userland, not the VM's. Linux CI runs these.
+const can = have('python3', ['--version']) && have('bash', ['--version']) && process.platform !== 'win32' && process.platform !== 'darwin';
+const why = process.platform === 'win32' ? 'the stand-in VM is a POSIX bash + python3 host (the real runner is a Linux VM); not run on Windows'
+  : process.platform === 'darwin' ? 'the stand-in VM needs GNU userland like the real Linux VM (find -printf); macOS has BSD find'
+  : 'python3 or bash is not installed';
 
 const STUB_BPY = `
 import os

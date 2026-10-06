@@ -1,9 +1,11 @@
 /** S8: file helpers that do not follow links. Real temp folders and real links: symlinks on POSIX, junctions (directories) and hard links (files) on Windows, where a file symlink needs privilege. */
 import assert from 'node:assert/strict';
-import { lstatSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join, sep } from 'node:path';
 import test from 'node:test';
 import { findLink, isInside, resolveFolder, safeWriteFile } from '../src/core/blender/fs-safe.js';
+import { checkScript } from '../src/core/blender/static-check.js';
 import { tmp } from './blender-helpers.js';
 import { fileLinkOrSkip, linkOrSkip } from './fs-links.js';
 
@@ -13,6 +15,26 @@ test('resolveFolder: a missing folder resolves under its real parent; a file is 
   assert.equal(r.ok, true);
   writeFileSync(join(d, 'f'), 'x');
   assert.equal(resolveFolder(join(d, 'f')).ok, false);
+});
+
+// The OS temp folder is an 8.3 short name on a GitHub Windows runner (C:\Users\RUNNER~1\...), and so is a LEGION_HOME typed that way.
+// Legion's own static check refuses "~" in a path, so a resolved folder must come back in its long form, or the export and asset folders it
+// allows would be refused. Skipped where the temp path is already long (8.3 names off, or not Windows).
+const shortTemp = process.platform === 'win32' && /~\d/.test(tmpdir()) ? false : 'the temp folder is not an 8.3 short name here';
+test('resolveFolder: a Windows 8.3 short name comes back as the long real path, existing or not', { skip: shortTemp }, () => {
+  const short = mkdtempSync(join(tmpdir(), 'legion-83-'));
+  try {
+    const long = realpathSync.native(short);
+    assert.notEqual(long, short, 'the fixture must start from a short name');
+    const r = resolveFolder(short);
+    assert.equal(r.ok && r.dir, long);
+    const m = resolveFolder(join(short, 'a', 'b'));
+    assert.equal(m.ok && m.dir, join(long, 'a', 'b'));
+    const dir = m.ok ? m.dir : '';
+    assert.ok(!dir.includes('~'), 'no short-name segment is left');
+    const s = `import bpy\nbpy.ops.export_scene.gltf(filepath=${JSON.stringify(join(dir, 'x.glb').split('\\').join('/'))})`;
+    assert.equal(checkScript(s, { allowedDirs: [dir], live: true }).ok, true, 'a path inside the resolved folder passes the check');
+  } finally { rmSync(short, { recursive: true, force: true }); }
 });
 
 test('resolveFolder: a folder that is itself a link is refused, and so is a missing folder below a link that leaves the parent', (t) => {

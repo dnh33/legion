@@ -311,17 +311,21 @@ test('R4.3 residual (documented): the bearer token is not in the child env but s
         // An allow ACE counts if it grants anything beyond Synchronize, ReadAttributes, ReadPermissions and ExecuteFile (0x1200A0),
         // i.e. any way to read, write, append, delete or change the file; a bare traverse/synchronize grant cannot read the token.
         "$e = @($a.GetAccessRules($true, $true, [System.Security.Principal.SecurityIdentifier]) | Where-Object { $_.AccessControlType -eq 'Allow' -and (([int64]$_.FileSystemRights -band 0xFFFFFFFF) -band (-bnot 0x1200A0)) -ne 0 } | ForEach-Object { $_.IdentityReference.Value })",
-        '@{ owner = $o; allow = $e } | ConvertTo-Json -Compress',
+        '$u = [System.Security.Principal.WindowsIdentity]::GetCurrent().User.Value',
+        '@{ owner = $o; user = $u; allow = $e } | ConvertTo-Json -Compress',
       ].join('; ');
       const acl = spawnSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', ps], { encoding: 'utf8', env: { ...process.env, LEGION_ACL_PATH: m.configPath() } });
       assert.equal(acl.status, 0, 'the ACL check needs Windows PowerShell and it failed to run: ' + String(acl.error ?? acl.stderr));
-      const got = JSON.parse(acl.stdout) as { owner: string; allow: string | string[] };
+      const got = JSON.parse(acl.stdout) as { owner: string; user: string; allow: string | string[] };
       const allow = Array.isArray(got.allow) ? got.allow : [got.allow];
       assert.match(got.owner, /^S-1-5-/, 'could not read the file owner SID: ' + acl.stdout);
       assert.ok(allow.length > 0, 'could not read any allow ACE: ' + acl.stdout);
-      const permitted = new Set([got.owner, 'S-1-5-18', 'S-1-5-32-544']);
+      // The account running Legion is permitted too. Under an elevated admin token (a CI runner's built-in Administrator) Windows can make
+      // BUILTIN\Administrators the file owner, so the user's own SID shows up as a separate grantee instead of as the owner.
+      assert.match(got.user, /^S-1-5-/, 'could not read the current user SID: ' + acl.stdout);
+      const permitted = new Set([got.owner, got.user, 'S-1-5-18', 'S-1-5-32-544']);
       const stray = allow.filter((sid) => !permitted.has(sid));
-      assert.deepEqual(stray, [], 'config.json (holds authToken, claude and boat keys) is readable by SIDs other than the owner, SYSTEM and Administrators');
+      assert.deepEqual(stray, [], `config.json (holds authToken, claude and boat keys) is readable by SIDs other than the owner (${got.owner}), the current user (${got.user}), SYSTEM and Administrators`);
       return;
     }
     const mode = lstatSync(m.configPath()).mode & 0o777;

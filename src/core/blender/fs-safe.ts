@@ -44,6 +44,9 @@ export function resolveFolder(dir: string): Resolved {
       if (!same(real, join(parentReal, basename(abs)))) return { ok: false, error: `${abs} resolves to ${real}, outside its parent folder` };
     } catch (e) { return { ok: false, error: `cannot check ${abs}: ${e instanceof Error ? e.message : String(e)}` }; }
   }
+  // The checks above are done; now the long form. The JS realpathSync keeps a Windows 8.3 short name (C:\Users\RUNNER~1, or a LEGION_HOME
+  // typed that way), and the "~" in it made Legion's own static check refuse paths inside this very folder. `.native` expands it.
+  try { real = realpathSync.native(real); } catch (e) { return { ok: false, error: `cannot resolve ${real}: ${e instanceof Error ? e.message : String(e)}` }; }
   return { ok: true, dir: join(real, ...missing) };
 }
 

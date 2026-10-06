@@ -571,7 +571,10 @@ export class BlenderGuard {
       return this.wrapOutput({ ok: false, text: planned.error, images: [] }, 'live', job);
     }
     const plan = planned.plan;
-    const dir = assetDir(this.d.dataDir, taskId, plan.id);
+    // the long real form (no 8.3 short name), so the fixed import script carries the same path Legion's own check allows; fetchPlan re-checks it
+    const asked = assetDir(this.d.dataDir, taskId, plan.id);
+    const real = resolveFolder(asked);
+    const dir = real.ok ? real.dir : asked;
     if (this.assetsInFlight.has(dir)) return this.text(`"${plan.id}" is already being downloaded for this task; wait for it to finish.`, true);
     this.assetsInFlight.add(dir);
     try { return await this.assetGetLocked(agent, job, a, g.source, plan, dir, base, key, hash, taskId); } finally { this.assetsInFlight.delete(dir); }

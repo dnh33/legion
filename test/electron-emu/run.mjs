@@ -5,7 +5,7 @@ import { chmodSync, copyFileSync, mkdtempSync, readFileSync, readdirSync, rmSync
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import http from 'node:http';
-import { spawn } from 'node:child_process';
+import { execFileSync, spawn } from 'node:child_process';
 
 const scenario = process.argv[2] || 'basic';
 const home = mkdtempSync(join(tmpdir(), 'legion-emu-'));
@@ -41,6 +41,16 @@ const bootstrap = () => { const e = {}; globalThis.__ipc['legion:bootstrap'](e);
 const alive = (pid) => {
   try { process.kill(pid, 0); } catch { return false; }
   try { return !/^\d+ \(.*\) Z/.test(readFileSync(`/proc/${pid}/stat`, 'utf8')); } catch { return true; }
+};
+// A process's argv and environment as text. Linux has /proc. macOS has no /proc; `ps -E` prints the environment after the
+// command line (allowed for a process of the same user), so there the environ check is a superset of the argv check.
+// A ps that printed no environment would make "the secret is not in it" pass for the wrong reason, so the environ text must show
+// LEGION_HOME, which the core always gets.
+const procText = (pid, what) => {
+  if (process.platform !== 'darwin') return readFileSync(`/proc/${pid}/${what}`, 'utf8');
+  const text = execFileSync('ps', [what === 'environ' ? '-wwE' : '-ww', '-o', 'command=', '-p', String(pid)], { encoding: 'utf8' });
+  if (what === 'environ' && !text.includes(`LEGION_HOME=${home}`)) throw new Error(`ps -E did not show the environment of ${pid}`);
+  return text;
 };
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 const status = (url, headers) => fetch(url, { headers }).then((r) => r.status);
@@ -118,8 +128,8 @@ try {
     const b = bootstrap();
     out.bootstrapIsSecret = b.admin === S;
     const has = (x) => x.includes(S);
-    out.inCmdline = has(readFileSync(`/proc/${pid}/cmdline`, 'utf8'));
-    out.inEnviron = has(readFileSync(`/proc/${pid}/environ`, 'utf8'));
+    out.inCmdline = has(procText(pid, 'cmdline'));
+    out.inEnviron = has(procText(pid, 'environ'));
     await fetch(`http://127.0.0.1:${PORT}/health?nonce=${'ab'.repeat(16)}`);
     const log = readFileSync(join(home, 'core.log'), 'utf8');
     out.inCoreLog = has(log);
@@ -131,8 +141,8 @@ try {
     out.nativeLen = N?.length ?? 0;
     out.nativeDiffersFromAdmin = !!N && N !== S;
     const hasN = (x) => !!N && x.includes(N);
-    out.nativeInCmdline = hasN(readFileSync(`/proc/${pid}/cmdline`, 'utf8'));
-    out.nativeInEnviron = hasN(readFileSync(`/proc/${pid}/environ`, 'utf8'));
+    out.nativeInCmdline = hasN(procText(pid, 'cmdline'));
+    out.nativeInEnviron = hasN(procText(pid, 'environ'));
     out.nativeInCoreLog = hasN(readFileSync(join(home, 'core.log'), 'utf8'));
     out.nativeInBootstrap = JSON.stringify(b).includes(N ?? 'x');
     const nfiles = [];

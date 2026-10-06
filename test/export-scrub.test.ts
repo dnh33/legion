@@ -2,7 +2,7 @@ import { tempDir as cleanupTemp } from './tmp-cleanup.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, realpathSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -95,7 +95,7 @@ function fixture() {
  * cases that no repo file contains -- the name on its own, without a drive prefix -- so each rule is load-bearing.
  */
 function scrubFixture(files: Record<string, string>): string {
-  const d = mkdtempSync(join(tmpdir(), 'legion-scrubfix-'));
+  const d = realpathSync.native(mkdtempSync(join(tmpdir(), 'legion-scrubfix-')));
   writeFileSync(join(d, 'package.json'), JSON.stringify({ name: 'legion', version: '0.0.0' }));
   writeFileSync(join(d, 'README.md'), '# readme\n');
   writeFileSync(join(d, 'LICENSE'), 'MIT\n');
@@ -110,7 +110,7 @@ function scrubFixture(files: Record<string, string>): string {
 
 /** Runs the exporter over `src` and returns the shipped copy of `rel`, or null when the export refused. */
 function scrubbedCopy(src: string, rel: string): string | null {
-  const out = mkdtempSync(join(tmpdir(), 'legion-scrubout-'));
+  const out = realpathSync.native(mkdtempSync(join(tmpdir(), 'legion-scrubout-')));
   try {
     if (runExport([src, out]) !== null) return null;
     const abs = join(out, rel);
