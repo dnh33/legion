@@ -12,7 +12,7 @@
 #   1. Checks that git and Node.js 20.10 or newer are installed. It installs neither.
 #   2. Finds the latest release from https://github.com/dnh33/legion/releases/latest (or uses --version).
 #   3. Fetches the source at that release tag into ~/.local/share/legion (updates it in place if it is there).
-#   4. Runs npm ci and npm run build in that folder.
+#   4. Runs npm ci (which downloads Electron) and npm run build in that folder, and checks that Electron is there.
 #   5. Writes the launcher ~/.local/bin/legion.
 # There is no prebuilt app for macOS and Linux yet, so this builds from source. It sends nothing anywhere.
 #
@@ -93,11 +93,17 @@ main() {
   cd "$dir"
   say "Installing dependencies (npm ci) ..."
   npm ci --no-audit --no-fund || fail "npm ci failed. The messages above say why."
+  # The Electron binary is downloaded by a postinstall step that is skipped when CI or ELECTRON_SKIP_BINARY_DOWNLOAD is set, and
+  # that never fails the install. Without the binary the launcher below cannot start Legion, so check it here.
+  electron=$(node -e 'process.stdout.write(require("electron"))' 2>/dev/null) || electron=
+  if [ -z "$electron" ] || [ ! -x "$electron" ]; then
+    fail "The Electron binary is missing after npm ci, so Legion could not start. If CI or ELECTRON_SKIP_BINARY_DOWNLOAD is set in your shell, unset it and run this again; otherwise run: cd \"$dir\" && npx install-electron --no"
+  fi
   say "Building (npm run build) ..."
   npm run build || fail "The build failed. The messages above say why."
   [ -f dist/src/electron/main.js ] && [ -f dist-ui/index.html ] || fail "The build finished but its output is missing."
 
-  # 5) launcher
+  # 5) launcher (~/.local/bin does not exist by default on macOS)
   mkdir -p "$bindir"
   launcher=$bindir/legion
   {

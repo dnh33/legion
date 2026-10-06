@@ -136,8 +136,8 @@ jobs:
           if %ERRORLEVEL% EQU 0 (echo setup-yes.cmd accepted a drive root & exit /b 1)
           exit /b 0
 
-  # The one-line installers (scripts/install/install.ps1 and install.sh), run from this checkout against the REAL latest release,
-  # into a temp folder, never launched. The expected version is read from the same releases/latest redirect, by curl, not by the script.
+  # The one-line installers: only the fast, hermetic syntax check runs on every push. The smoke tests that install the live latest
+  # release are in .github/workflows/install.yml (installer paths, nightly, by hand).
   install-script-lint:
     name: install scripts (syntax)
     runs-on: ubuntu-latest
@@ -157,81 +157,3 @@ jobs:
           $errs = $null
           [void][System.Management.Automation.Language.Parser]::ParseFile("$PWD/scripts/install/install.ps1", [ref]$null, [ref]$errs)
           if ($errs.Count -gt 0) { $errs | ForEach-Object { Write-Host $_.Message }; throw 'install.ps1 has parse errors' }
-
-  install-windows:
-    name: install.ps1 (${{ matrix.name }})
-    runs-on: windows-latest
-    timeout-minutes: 20
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - { name: Windows PowerShell 5.1, shell: powershell, exe: powershell.exe }
-          - { name: PowerShell 7, shell: pwsh, exe: pwsh }
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - name: Latest release version (from the releases/latest redirect)
-        shell: pwsh
-        run: |
-          $h = curl.exe -sSI https://github.com/dnh33/legion/releases/latest
-          $loc = ($h | Where-Object { $_ -match '^(?i)location:' } | Select-Object -Last 1)
-          if ($loc -notmatch '/releases/tag/v(\S+)') { throw "no version in: $loc" }
-          "EXPECTED_VERSION=$($Matches[1])" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-          Write-Host "latest is $($Matches[1])"
-      - name: install.ps1 -NoLaunch into a temp folder with a space (${{ matrix.name }})
-        shell: ${{ matrix.shell }}
-        run: |
-          $inst = Join-Path $env:RUNNER_TEMP 'Legion install test'
-          & ${{ matrix.exe }} -NoProfile -ExecutionPolicy Bypass -File scripts/install/install.ps1 -NoLaunch -InstallDir $inst
-          if ($LASTEXITCODE -ne 0) { throw "install.ps1 exited $LASTEXITCODE" }
-          $bi = Get-Content -Raw -LiteralPath (Join-Path $inst 'build-info.json') | ConvertFrom-Json
-          if ($bi.version -ne $env:EXPECTED_VERSION) { throw "installed version '$($bi.version)', expected '$($env:EXPECTED_VERSION)'" }
-          if (-not (Test-Path -LiteralPath (Join-Path $inst 'runtime\electron\electron.exe'))) { throw 'electron.exe is missing' }
-          if (@(Get-ChildItem -LiteralPath ([System.IO.Path]::GetTempPath()) -Directory -Filter 'legion-install-*').Count -ne 0) { throw 'the installer left its temp folder behind' }
-      - name: Windows PowerShell 5.1 only, the documented options form (a script block, as with irm | iex), updating the same folder
-        if: matrix.shell == 'powershell'
-        shell: powershell
-        run: |
-          $inst = Join-Path $env:RUNNER_TEMP 'Legion install test'
-          & ([scriptblock]::Create((Get-Content -Raw -LiteralPath scripts/install/install.ps1))) -NoLaunch -Version $env:EXPECTED_VERSION -InstallDir $inst
-          $bi = Get-Content -Raw -LiteralPath (Join-Path $inst 'build-info.json') | ConvertFrom-Json
-          if ($bi.version -ne $env:EXPECTED_VERSION) { throw "installed version '$($bi.version)', expected '$($env:EXPECTED_VERSION)'" }
-
-  install-unix:
-    name: install.sh (${{ matrix.os }})
-    runs-on: ${{ matrix.os }}
-    timeout-minutes: 20
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, macos-latest]
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
-        with:
-          node-version: 22
-      - name: install.sh --no-launch into a temp folder
-        env:
-          # the workflow default skips the Electron download; the installer must do what a user's install does
-          ELECTRON_SKIP_BINARY_DOWNLOAD: ""
-        run: |
-          expected=$(curl -sSI https://github.com/dnh33/legion/releases/latest | tr -d '\r' | awk 'tolower($1)=="location:" {print $2}' | tail -n 1)
-          expected=${expected##*/releases/tag/v}
-          echo "latest is $expected"
-          dir="$RUNNER_TEMP/legion-install-test"
-          sh scripts/install/install.sh --no-launch --dir "$dir"
-          test -f "$dir/dist/src/electron/main.js"
-          test -f "$dir/dist-ui/index.html"
-          test -x "$HOME/.local/bin/legion"
-          grep -q "$dir" "$HOME/.local/bin/legion"
-          node -e 'const v=require(process.argv[1]).version; if (v!==process.argv[2]) { console.error("installed "+v+", expected "+process.argv[2]); process.exit(1); }' "$dir/package.json" "$expected"
-      - name: install.sh again updates the same folder in place
-        env:
-          ELECTRON_SKIP_BINARY_DOWNLOAD: ""
-        run: |
-          sh scripts/install/install.sh --no-launch --dir "$RUNNER_TEMP/legion-install-test"
-          test -f "$RUNNER_TEMP/legion-install-test/dist/src/electron/main.js"
