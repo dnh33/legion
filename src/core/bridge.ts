@@ -281,8 +281,14 @@ export class Bridge {
   }
 
   /** Latest bridge task from `from` to `to`, if any (archived ones count so a new thread is made instead). */
+  /**
+   * The pair thread `from` -> `to`: the newest task of `to` that `from` delivered an ask or tell into. Keyed on `fromAgentId`, which only
+   * the bridge writes (Engine.startTask, for a bridge request), and never on `source`: `source` records who sent the latest turn, so an
+   * owner typing into the thread turns it into 'ui', and matching on it lost the thread and made the next ask start a new, cold session
+   * (measured twice in claude/investigation-cost-bridge.md, section 5.3).
+   */
   private findPair(from: string, to: string): Task | undefined {
-    return this.store.listTasks(500, to, true).find((t) => t.source === 'agent' && t.fromAgentId === from);
+    return this.store.listTasks(500, to, true).find((t) => t.fromAgentId === from);
   }
 
   private awaitFinish(taskId: string): Promise<Task | undefined> {

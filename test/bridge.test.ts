@@ -416,3 +416,24 @@ test('tell: a reply from a run that failed carries its outcome in the header (th
   const head = `[Reply from Scout · task ${taskId} · `;
   assert.ok(reply.text.startsWith(head + 'error] ') || reply.text.startsWith(head + 'failed] '), reply.text);
 });
+
+test('pair thread stays findable after the owner types into it: the next ask resumes it instead of starting a cold thread', async () => {
+  const ids: string[] = [];
+  let round = 0;
+  const s = setup((c) => c.agent !== 'zealot' ? undefined : (async function* () {
+    yield init(`z${++round}`);
+    ids.push((await callTool(c.options, 'ask', { agent: 'builder', message: `ask ${round}` })).json.taskId);
+    yield ok('done', `z${round}`);
+  })());
+  await s.engine.waitFor(s.engine.startTask({ agentId: 'zealot', prompt: 'first', source: 'ui' }).id, 5000);
+  // the owner opens Builder's pair thread and adds a message of their own
+  s.engine.startTask({ agentId: 'builder', prompt: 'owner: please also check the tests', source: 'ui', continueTaskId: ids[0]! });
+  await s.engine.waitFor(ids[0]!, 5000);
+  assert.equal(s.store.getTask(ids[0]!)!.source, 'ui', 'the owner\'s turn is recorded as theirs');
+  await s.engine.waitFor(s.engine.startTask({ agentId: 'zealot', prompt: 'second', source: 'ui' }).id, 5000);
+  assert.equal(ids[1], ids[0], 'the same pair thread');
+  const bc = s.calls.filter((c) => c.agent === 'builder');
+  assert.equal(bc.length, 3);
+  assert.ok(bc[2]!.options.resume, 'the ask resumes the thread session (warm), not a new one');
+  assert.equal(s.store.listTasks(50, 'builder', true).length, 1, 'no second, cold thread');
+});
