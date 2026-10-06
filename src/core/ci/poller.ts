@@ -27,6 +27,10 @@ export const ANON_POLL_MS = 75_000;
 export const ANON_HOURLY_CAP = 50;
 /** Never spend the last requests of a window. */
 export const RESERVE = 10;
+/** Backstop for a connected account (5,000 an hour): polling at 10 s with two lists is about 720, so this is never reached in normal use. */
+export const CONNECTED_HOURLY_CAP = 1500;
+/** A repo switch the project filter causes is ignored for this long after the last one; the owner's own PUT /api/ci/repo is not. */
+export const SWITCH_DEBOUNCE_MS = 10_000;
 /** A manual refresh closer than this to the last fetch is served from the cache. */
 export const DEBOUNCE_MS = 5_000;
 const HOUR_MS = 3_600_000;
@@ -39,7 +43,8 @@ export type RefreshReason = 'auto' | 'open' | 'focus' | 'manual' | 'write';
 export interface ResolvedRepo { repo: RepoRef | null; branch: string | null; source: 'remote' | 'manual' | null }
 
 export interface PollerOptions {
-  github: GitHubPort | undefined;
+  /** The client, or a getter that is asked on every use (the connectors client may appear after boot). */
+  github: GitHubPort | undefined | (() => GitHubPort | undefined);
   resolveRepo(projectId?: string): ResolvedRepo;
   emit(s: CiUpdateSummary): void;
   now?: () => number;
@@ -74,6 +79,11 @@ export class CiPoller {
   private inflight: Promise<void> | null = null;
   private lastResolved: ResolvedRepo = { repo: null, branch: null, source: null };
 
+  private get gh(): GitHubPort | undefined { const g = this.o.github; return typeof g === 'function' ? g() : g; }
+  private lastSwitchAt = -Infinity;
+  private allowSwitch = false;
+  private pauseKind: 'rate-limited' | 'budget' = 'budget';
+
   constructor(private readonly o: PollerOptions) {
     this.now = o.now ?? Date.now;
     this.schedule = o.schedule ?? defaultSchedule;
@@ -98,7 +108,14 @@ export class CiPoller {
     const r = this.o.resolveRepo(this.watchState?.projectId);
     const k = r.repo ? repoKey(r.repo) : '';
     if (k !== this.key) {
-      this.key = k; this.lists.clear(); this.etags.clear(); this.jobsCache.clear(); this.fetched = false; this.lastFetchAt = 0; this.problem = null; this.updatedAt = null; this.fingerprint = ''; this.pausedUntil = 0;
+      // The project filter and the heartbeat share one slot: windows that disagree would flip the repo and refetch every time. A switch within
+      // SWITCH_DEBOUNCE_MS of the last one is ignored; the first resolution and the owner's explicit repo are always taken.
+      const now = this.now();
+      if (this.key !== '' && !this.allowSwitch && now - this.lastSwitchAt < SWITCH_DEBOUNCE_MS) return this.lastResolved;
+      this.allowSwitch = false;
+      this.lastSwitchAt = now;
+      // Only the per-repo caches go. A rate-limit pause and the fetch debounce belong to the account and stay.
+      this.key = k; this.lists.clear(); this.etags.clear(); this.jobsCache.clear(); this.fetched = false; this.problem = null; this.updatedAt = null; this.fingerprint = '';
     }
     this.lastResolved = r;
     return r;
@@ -115,7 +132,7 @@ export class CiPoller {
   private anyRunning(): boolean { return this.relevant(this.allRuns(), this.lastResolved.branch).some((r) => isRunning(r.status)); }
 
   private async connection(force = false): Promise<Connection | null> {
-    const gh = this.o.github;
+    const gh = this.gh;
     if (!gh) return null;
     if (!force && this.conn && this.now() - this.connAt < CONN_TTL_MS) return this.conn;
     try { this.conn = await gh.connection(); this.connAt = this.now(); } catch { /* keep the old one */ }
@@ -136,8 +153,9 @@ export class CiPoller {
   /** Why a request may not go out now (null: it may). `kind` of CiProblem is what the panel shows. */
   private blocked(c: Connection): CiProblem | null {
     const now = this.now();
-    if (this.pausedUntil > now) return { kind: this.problem?.kind === 'rate-limited' ? 'rate-limited' : 'budget', resetAt: new Date(this.pausedUntil).toISOString() };
+    if (this.pausedUntil > now) return { kind: this.pauseKind, resetAt: new Date(this.pausedUntil).toISOString() };
     if (this.remaining(c) < RESERVE) return { kind: 'budget', resetAt: c.rate.resetAt };
+    if (c.auth !== 'anonymous' && this.usedInHour() >= CONNECTED_HOURLY_CAP) return { kind: 'budget', resetAt: new Date((this.reqLog[0] ?? now) + HOUR_MS).toISOString() };
     if (c.auth === 'anonymous' && this.usedInHour() >= ANON_HOURLY_CAP) return { kind: 'budget', resetAt: new Date((this.reqLog[0] ?? now) + HOUR_MS).toISOString() };
     return null;
   }
@@ -173,7 +191,7 @@ export class CiPoller {
   }
 
   private async doRefresh(reason: RefreshReason): Promise<void> {
-    const gh = this.o.github;
+    const gh = this.gh;
     if (!gh) return;
     const c = await this.connection(reason !== 'auto');
     if (!c) return;
@@ -202,7 +220,7 @@ export class CiPoller {
           : err.kind === 'forbidden' ? { kind: 'forbidden' }
           : err.kind === 'network' || err.kind === 'logs-unavailable' ? { kind: 'network' }
           : { kind: err.kind };
-        if (problem.kind === 'rate-limited') this.pausedUntil = Math.max(this.pausedUntil, Date.parse(problem.resetAt ?? '') || this.now() + 60_000);
+        if (problem.kind === 'rate-limited') { this.pausedUntil = Math.max(this.pausedUntil, Date.parse(problem.resetAt ?? '') || this.now() + 60_000); this.pauseKind = 'rate-limited'; }
         break;
       }
     }
@@ -214,14 +232,14 @@ export class CiPoller {
   /** Emits `ci.updated` only when something the UI shows changed. A 304 or an identical answer emits nothing. */
   private publish(): void {
     const runs = this.allRuns();
-    const fp = JSON.stringify([this.key, runs, this.problem, this.conn?.auth, this.conn?.login, this.canWrite(), this.o.github ? 1 : 0]);
+    const fp = JSON.stringify([this.key, runs, this.problem, this.conn?.auth, this.conn?.login, this.canWrite(), this.gh ? 1 : 0]);
     if (fp === this.fingerprint) return;
     this.fingerprint = fp;
     this.rev++;
     this.o.emit(this.summary(runs));
   }
 
-  private canWrite(): 'yes' | 'no' | 'unknown' { return this.o.github ? this.o.github.can('actions', 'write') : 'no'; }
+  private canWrite(): 'yes' | 'no' | 'unknown' { const g = this.gh; return g ? g.can('actions', 'write') : 'no'; }
 
   private summary(runs = this.allRuns()): CiUpdateSummary {
     const r = this.lastResolved;
@@ -234,7 +252,7 @@ export class CiPoller {
 
   /* ---------- views ---------- */
   async stateView(): Promise<CiStateView> {
-    const gh = this.o.github;
+    const gh = this.gh;
     const r = this.repoNow();
     const defaults = { defaultBranch: DEFAULT_BRANCH, updatedAt: this.updatedAt };
     if (!gh) return { available: false, repo: null, branch: null, connection: null, canWrite: 'no', live: 'slow', problem: null, ...defaults };
@@ -253,7 +271,7 @@ export class CiPoller {
   /** `branch` set: only that branch. Unset: the current branch and main. Loads once when nothing was fetched yet. */
   async runsView(branch?: string): Promise<CiRunsView> {
     this.repoNow();
-    if (this.o.github && !this.fetched && !this.problem) { await this.connection(); await this.refresh('open'); }
+    if (this.gh && !this.fetched && !this.problem) { await this.connection(); await this.refresh('open'); }
     const r = this.lastResolved;
     const all = this.allRuns();
     const runs = (branch ? all.filter((x) => x.branch === branch) : this.relevant(all, r.branch)).slice(0, 40);
@@ -263,7 +281,7 @@ export class CiPoller {
   private cachedRun(runId: number): CiRun | undefined { return this.allRuns().find((x) => x.id === runId); }
 
   async jobsView(runId: number): Promise<CiJobsView> {
-    const gh = this.o.github;
+    const gh = this.gh;
     const r = this.repoNow();
     if (!gh || !r.repo) return { jobs: [], summary: null, problem: null };
     const run = this.cachedRun(runId);
@@ -285,14 +303,14 @@ export class CiPoller {
     } catch (e) {
       this.spent();
       const err = asGhError(e);
-      if (err.kind === 'rate-limited') this.pausedUntil = Math.max(this.pausedUntil, Date.parse(err.resetAt) || this.now() + 60_000);
+      if (err.kind === 'rate-limited') { this.pausedUntil = Math.max(this.pausedUntil, Date.parse(err.resetAt) || this.now() + 60_000); this.pauseKind = 'rate-limited'; }
       const problem: CiProblem = err.kind === 'rate-limited' ? { kind: 'rate-limited', resetAt: err.resetAt } : err.kind === 'logs-unavailable' || err.kind === 'network' ? { kind: 'network' } : err.kind === 'forbidden' ? { kind: 'forbidden' } : { kind: err.kind };
       return { jobs: cached?.jobs ?? [], summary: null, problem };
     }
   }
 
   async logView(jobId: number): Promise<CiLogView> {
-    const gh = this.o.github;
+    const gh = this.gh;
     const r = this.repoNow();
     if (!gh || !r.repo || !validRepoString(repoKey(r.repo))) return { available: false, reason: 'logs-unavailable' };
     const c = await this.connection();
@@ -310,10 +328,13 @@ export class CiPoller {
       if (err.kind === 'logs-unavailable') return { available: false, reason: 'logs-unavailable' };
       this.spent();
       if (err.kind === 'not-found') return { available: false, reason: 'expired' };
-      if (err.kind === 'rate-limited') { this.pausedUntil = Math.max(this.pausedUntil, Date.parse(err.resetAt) || this.now() + 60_000); return { available: false, reason: 'problem', problem: { kind: 'rate-limited', resetAt: err.resetAt } }; }
+      if (err.kind === 'rate-limited') { this.pausedUntil = Math.max(this.pausedUntil, Date.parse(err.resetAt) || this.now() + 60_000); this.pauseKind = 'rate-limited'; return { available: false, reason: 'problem', problem: { kind: 'rate-limited', resetAt: err.resetAt } }; }
       return { available: false, reason: 'problem', problem: { kind: err.kind } };
     }
   }
+
+  /** The owner typed a repo: take the next resolution at once, even inside the switch debounce. */
+  switchNow(): void { this.allowSwitch = true; }
 
   /** What the write routes need: the repo to act on, or null. */
   repoText(): string | null { const r = this.repoNow(); return r.repo && validRepoString(repoKey(r.repo)) ? repoKey(r.repo) : null; }

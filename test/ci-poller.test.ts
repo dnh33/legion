@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { FakeGitHub } from '../src/core/ci/fake-github.js';
-import { ANON_HOURLY_CAP, ANON_POLL_MS, CiPoller, TICK_MS } from '../src/core/ci/poller.js';
+import { ANON_HOURLY_CAP, ANON_POLL_MS, CiPoller, CONNECTED_HOURLY_CAP, SWITCH_DEBOUNCE_MS, TICK_MS } from '../src/core/ci/poller.js';
 import type { CiUpdateSummary } from '../src/shared/ci.js';
 import { CI_WATCH_TTL_MS } from '../src/shared/ci.js';
 
@@ -198,6 +198,7 @@ describe('repo and jobs', () => {
     let repo = { owner: 'dnh33', name: 'legion' };
     const p = new CiPoller({ github: r.gh, resolveRepo: () => ({ repo, branch: null, source: 'manual' }), emit: () => undefined, now: () => r.clock.t, schedule: () => () => undefined });
     assert.ok((await p.runsView()).runs.length > 0);
+    r.advance(SWITCH_DEBOUNCE_MS + 1000); // a switch right after the first one is held back (see 'repo switches' below)
     repo = { owner: 'other', name: 'thing' };
     r.gh.missingRepos.add('other/thing');
     const v = await p.runsView();
@@ -228,5 +229,70 @@ describe('repo and jobs', () => {
     if (ok.available) { assert.ok(!ok.text.includes('ghp_abcdef')); assert.ok(ok.text.includes('<b>x</b>')); assert.equal(ok.masked, true); }
     r.gh.logsMode = 'expired';
     assert.deepEqual(await r.poller.logView(5), { available: false, reason: 'expired' });
+  });
+});
+
+describe('repo switches and the account budget', () => {
+  const flipper = (r: ReturnType<typeof rig>) => {
+    let which = 0;
+    const repos = [{ owner: 'dnh33', name: 'legion' }, { owner: 'dnh33', name: 'other' }];
+    const p = new CiPoller({ github: r.gh, resolveRepo: () => ({ repo: repos[which]!, branch: null, source: 'remote' }), emit: () => undefined, now: () => r.clock.t, schedule: () => () => undefined });
+    return { p, flip: () => { which = 1 - which; }, repos };
+  };
+  it('a project-filter switch inside 10 s of the last one is ignored; the owner typing a repo is not', async () => {
+    const r = rig({ auth: 'pat' });
+    const f = flipper(r);
+    assert.equal((await f.p.stateView()).repo?.name, 'legion');
+    for (let i = 0; i < 9; i++) { r.advance(1000); f.flip(); assert.equal((await f.p.stateView()).repo?.name, 'legion', `second ${i + 1}: no flip`); }
+    r.advance(2000); // nine flips so far: 'other' is what the project filter wants now
+    assert.equal((await f.p.stateView()).repo?.name, 'other', 'after the 10 s the switch is taken');
+    // explicit: taken at once, even right after a switch
+    f.flip();
+    assert.equal((await f.p.stateView()).repo?.name, 'other', 'held back right after a switch');
+    f.p.switchNow();
+    assert.equal((await f.p.stateView()).repo?.name, 'legion', 'the owner repo is taken at once');
+  });
+
+  it('a rate-limit pause and the fetch debounce belong to the account: they survive a repo switch', async () => {
+    const r = rig({ auth: 'pat' });
+    const f = flipper(r);
+    f.p.heartbeat('panel');
+    const resetAt = new Date(T0 + 600_000).toISOString();
+    r.gh.failNext = { error: { kind: 'rate-limited', resetAt }, count: 1 };
+    await f.p.refresh('open');
+    const calls = r.gh.calls.length;
+    r.advance(SWITCH_DEBOUNCE_MS + 1000);
+    f.flip();
+    await f.p.refresh('manual');
+    await f.p.refresh('write');
+    assert.equal(r.gh.calls.length, calls, 'still paused on the other repo');
+    const v = await f.p.runsView();
+    assert.equal(v.problem?.kind, 'rate-limited', 'and still said as a rate limit, not as a generic budget');
+    r.advance(700_000);
+    await f.p.refresh('manual');
+    assert.ok(r.gh.calls.length > calls, 'resumes after the reset');
+  });
+
+  it('a manual refresh right after another repo was fetched is still debounced', async () => {
+    const r = rig({ auth: 'pat' });
+    const f = flipper(r);
+    await f.p.stateView(); // first resolution: the switch clock starts here
+    r.advance(SWITCH_DEBOUNCE_MS);
+    await f.p.refresh('open');
+    const calls = r.gh.calls.length;
+    r.advance(1000);
+    f.flip(); // allowed now (10 s since the last switch), but the last fetch was 1 s ago
+    await f.p.refresh('manual');
+    assert.equal((await f.p.stateView()).repo?.name, 'other', 'the switch itself was taken');
+    assert.equal(r.gh.calls.length, calls, 'inside the 5 s fetch debounce, whatever the repo');
+  });
+
+  it('a connected account has an hourly backstop too', async () => {
+    const r = rig({ auth: 'pat' });
+    r.gh.setRate({ remaining: 1_000_000, limit: 1_000_000 });
+    r.poller.heartbeat('panel');
+    for (let i = 0; i < 2000; i++) { r.advance(1000); await r.poller.refresh('write'); r.gh.setRate({ remaining: 1_000_000 }); }
+    assert.ok(r.gh.calls.length > 1000, `not vacuous (${r.gh.calls.length})`);
+    assert.ok(r.gh.calls.length <= CONNECTED_HOURLY_CAP, `${r.gh.calls.length} requests in an hour`);
   });
 });

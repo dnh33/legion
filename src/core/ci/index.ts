@@ -22,7 +22,8 @@ export type { GitHubPort } from './port.js';
 
 export interface CiOptions {
   /** The GitHub client. Absent: the panel says GitHub support arrives with Connectors. */
-  github?: GitHubPort | undefined;
+  /** The client, or a getter asked on every use (see wiring.ts). Absent or undefined: the panel says GitHub support arrives with Connectors. */
+  github?: GitHubPort | undefined | (() => GitHubPort | undefined);
   /** For resolving a project's folder. */
   projects?: { get(id: string): { folder: string } | undefined };
   log?: (m: string) => void;
@@ -33,19 +34,19 @@ export interface CiOptions {
 
 export interface CiModule extends CoreModule { poller: CiPoller }
 
-const ID = /^[1-9]\d{0,15}$/;
+const ID = /^[1-9]\d{0,14}$/;
 const PROJECT_ID = /^proj_[a-f0-9]{12}$/;
 const UNAVAILABLE = 'GitHub support arrives with Connectors.';
 
 const positive = (s: string | undefined, what: string): number => {
-  if (!s || !ID.test(s)) throw new HttpError(400, `${what} must be a positive whole number`);
+  if (!s || !ID.test(s) || !Number.isSafeInteger(Number(s))) throw new HttpError(400, `${what} must be a positive whole number`);
   return Number(s);
 };
 const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v);
 
 export function createCiModule(deps: ModuleDeps, opts: CiOptions = {}): CiModule {
   const log = opts.log ?? (() => undefined);
-  const github = opts.github;
+  const getGithub = (): GitHubPort | undefined => (typeof opts.github === 'function' ? opts.github() : opts.github);
   const file = join(deps.dataDir, 'ci', 'repo.json');
   let manual: RepoRef | null = null;
   try {
@@ -68,12 +69,12 @@ export function createCiModule(deps: ModuleDeps, opts: CiOptions = {}): CiModule
   };
 
   const poller = new CiPoller({
-    github, resolveRepo, log,
+    github: getGithub, resolveRepo, log,
     emit: (summary) => deps.bus.emit({ type: 'ci.updated', summary }),
     ...(opts.now ? { now: opts.now } : {}), ...(opts.schedule ? { schedule: opts.schedule } : {}),
   });
 
-  const need = (): GitHubPort => { if (!github) throw new HttpError(503, UNAVAILABLE); return github; };
+  const need = (): GitHubPort => { const github = getGithub(); if (!github) throw new HttpError(503, UNAVAILABLE); return github; };
 
   /** Owner clicks only: the single place the write members are called. */
   const write = async (op: 'rerun' | 'cancel', runId: number): Promise<{ ok: true }> => {
@@ -113,7 +114,7 @@ export function createCiModule(deps: ModuleDeps, opts: CiOptions = {}): CiModule
         const b = isObj(body) ? body : {};
         if (b.mode !== 'panel' && b.mode !== 'chip') throw new HttpError(400, "mode must be 'panel' or 'chip'");
         if (b.projectId !== undefined && (typeof b.projectId !== 'string' || !PROJECT_ID.test(b.projectId))) throw new HttpError(400, 'projectId is not valid');
-        if (github) poller.heartbeat(b.mode, b.projectId as string | undefined);
+        if (getGithub()) poller.heartbeat(b.mode, b.projectId as string | undefined);
         return { ok: true };
       });
       add('POST', '/api/ci/refresh', async ({ body }) => {
@@ -132,7 +133,8 @@ export function createCiModule(deps: ModuleDeps, opts: CiOptions = {}): CiModule
           manual = r;
         }
         saveManual();
-        await poller.refresh('manual');
+        poller.switchNow();
+        await poller.refresh('write'); // the owner's own repo: not held back by the fetch debounce
         return poller.stateView();
       });
     },

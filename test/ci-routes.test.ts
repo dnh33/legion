@@ -6,7 +6,7 @@ import { after, describe, it } from 'node:test';
 import { isClientRoute } from '../src/core/admin.js';
 import { createCiModule } from '../src/core/ci/index.js';
 import { FakeGitHub } from '../src/core/ci/fake-github.js';
-import { isGitHubPort, resolveGitHub } from '../src/core/ci/wiring.js';
+import { createGitHubResolver, isGitHubPort, RETRY_IMPORT_MS } from '../src/core/ci/wiring.js';
 import type { ModuleDeps } from '../src/core/modules.js';
 import type { LegionEvent } from '../src/shared/types.js';
 import { asClient, AUTH, makeFakes, start } from './helpers-c.js';
@@ -57,7 +57,7 @@ describe('every CI route is admin-only', () => {
 describe('validation', () => {
   it('refuses bad run and job ids', async () => {
     const m = await mount();
-    for (const id of ['0', '-1', '1.5', 'abc', '99999999999999999999', '01', '1e3']) {
+    for (const id of ['0', '-1', '1.5', 'abc', '99999999999999999999', '9007199254740993', '9999999999999999', '1000000000000000', '01', '1e3']) {
       assert.equal((await m.call('GET', `/api/ci/runs/${id}/jobs`)).status, 400, `jobs ${id}`);
       assert.equal((await m.call('GET', `/api/ci/jobs/${id}/log`)).status, 400, `log ${id}`);
       assert.equal((await m.call('POST', `/api/ci/runs/${id}/rerun-failed`)).status, 400, `rerun ${id}`);
@@ -184,10 +184,34 @@ describe('no GitHub client in the build', () => {
     assert.match(runs.json.error, /Connectors/);
     assert.equal((await m.call('POST', '/api/ci/watch', { mode: 'chip' })).status, 200);
   });
-  it('the production wiring reports unavailable while no client file exists, and checks a client member by member', async () => {
-    // today no client file exists, so this is undefined; once the connectors client lands it must still be a valid port or nothing
-    const wired = await resolveGitHub();
-    assert.ok(wired === undefined || isGitHubPort(wired));
+  it('the resolver asks for the client on every use, so one created after boot is picked up; a missing module is silent, a broken one is logged once by kind', async () => {
+    const logs: string[] = [];
+    let client: unknown = undefined as unknown;
+    let t = 0;
+    const r = createGitHubResolver((m) => logs.push(m), async () => ({ getGitHubClient: () => client }), () => t);
+    await r.settled();
+    assert.equal(r.get(), undefined, 'module present, no client yet: unavailable');
+    client = new FakeGitHub();
+    assert.equal(r.get(), client, 'picked up without a restart');
+    client = undefined;
+    assert.equal(r.get(), undefined, 'and dropped again when the core has none');
+    client = { connection() {} };
+    assert.equal(r.get(), undefined, 'not a GitHubPort');
+
+    const missing = createGitHubResolver((m) => logs.push(m), async () => { throw Object.assign(new Error('Cannot find module /secret/path'), { code: 'ERR_MODULE_NOT_FOUND' }); }, () => t);
+    await missing.settled();
+    assert.equal(missing.get(), undefined);
+    assert.equal(logs.length, 0, 'module not found is normal and silent');
+
+    let attempts = 0;
+    const broken = createGitHubResolver((m) => logs.push(m), async () => { attempts++; throw Object.assign(new SyntaxError('bad token in /secret/path'), { code: 'ERR_BROKEN' }); }, () => t);
+    await broken.settled();
+    broken.get(); t += RETRY_IMPORT_MS + 1; broken.get(); await broken.settled();
+    assert.ok(attempts >= 2, 'it tries again later');
+    assert.equal(logs.length, 1, 'one line only');
+    const line = String(logs[0]);
+    assert.match(line, /ERR_BROKEN/);
+    assert.ok(!/secret|path|token/.test(line), 'kind only, no message');
     assert.equal(isGitHubPort(new FakeGitHub()), true);
     assert.equal(isGitHubPort({ connection() {} }), false);
   });
