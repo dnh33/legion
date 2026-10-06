@@ -6,8 +6,7 @@
 
 [![CI](https://github.com/dnh33/legion/actions/workflows/ci.yml/badge.svg)](https://github.com/dnh33/legion/actions/workflows/ci.yml)
 [![Latest release](https://img.shields.io/github/v/release/dnh33/legion?include_prereleases&sort=semver&label=release)](https://github.com/dnh33/legion/releases)
-[![Tested on Windows, Ubuntu and macOS](https://img.shields.io/badge/tested_on-Windows_%7C_Ubuntu_%7C_macOS-informational)](docs/CI.md)
-[![Node](https://img.shields.io/badge/node-%E2%89%A520.10-informational)](package.json)
+[![Node](https://img.shields.io/badge/node-%E2%89%A522.12-informational)](package.json)
 [![License: Apache-2.0](https://img.shields.io/github/license/dnh33/legion)](LICENSE)
 
 [Status](#status) · [Install](#install) · [Orchestrate over MCP](#orchestrate-from-claude-code-or-cowork) · [Architecture](docs/ARCHITECTURE.md) · [Contributing](CONTRIBUTING.md)

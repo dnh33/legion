@@ -11,7 +11,7 @@ Legion is a local, personal, Claude-only multi-agent bot. It runs on one machine
 3. **Local only.** The HTTP server binds `127.0.0.1`. Every route except `GET /health` needs the MCP-class bearer token, and every route outside a short client list also needs the per-launch admin secret (see Security model).
 4. **Small dependency surface.** Runtime dependencies are `@anthropic-ai/claude-agent-sdk`, `@modelcontextprotocol/sdk` and `zod`, plus Node built-ins. Think twice before adding another.
 5. **Windows-safe.** Use `path.join`, avoid shell-specific commands, and never hard-code `/tmp` on the host.
-6. **ESM with NodeNext.** Relative imports end in `.js`. Node 20.10 or newer.
+6. **ESM with NodeNext.** Relative imports end in `.js`. Node 22.12 or newer (the lockfile's build tools and Electron need it).
 
 ## Process layout
 
