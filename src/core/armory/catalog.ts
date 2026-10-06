@@ -145,7 +145,7 @@ const PATH_ROOTS: ReadonlySet<string> = new Set(['tmp', 'home', 'users', 'mnt', 
 export function looksLikePath(prompt: string): boolean {
   const raw = /^\s*\/(\S+)/.exec(String(prompt ?? ''))?.[1];
   if (!raw) return false;
-  return raw.includes('.') || raw.includes(String.fromCharCode(92)) || PATH_ROOTS.has(raw.toLowerCase());
+  return raw.includes('.') || raw.includes('\\') || PATH_ROOTS.has(raw.toLowerCase());
 }
 
 /**
