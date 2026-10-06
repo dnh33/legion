@@ -2,22 +2,6 @@
 
 All notable changes are recorded here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
-
-### Fixed
-
-- **On macOS and Linux, a new release now updates the house context files.** Each copy got the copy time as its
-  date, so it looked newer than the shipped file. Every later update was then kept back as "your newer copy".
-  The copy now carries the shipped file's date.
-- **A Windows-style path such as `docs\adr\x.md` now works in the house context tools on macOS and Linux.** The same
-  change makes `..\x` count as an attempt to leave the folder, as it already did on Windows.
-
-### Changed
-
-- **CI runs on GitHub's runners, split into parallel shards, on Windows, Ubuntu and macOS (Apple Silicon).** One job
-  runs typecheck and the UI build. Actions are pinned to commit SHAs, and the token is read-only and not kept after
-  checkout.
-
 ## [0.2.5-f] - 2026-10-06
 
 ### Fixed
