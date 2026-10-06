@@ -68,8 +68,10 @@ main() {
 "*) fail "The install folder name must not contain a line break." ;; esac
   # An absolute, symlink-free path from here on (the launcher needs it, and it can no longer be read as an option).
   case $dir in /*) ;; *) dir=$PWD/$dir ;; esac
+  [ -d "$dir" ] || made_dir=$dir
   mkdir -p -- "$dir" || fail "Could not create $dir."
   dir=$(cd -- "$dir" && pwd -P) || fail "Could not enter $dir."
+  [ -z "${made_dir:-}" ] || made_dir=$dir
 
   say "Legion installer"
 
@@ -172,6 +174,11 @@ node_version_ok() {
 }
 
 say() { printf '%s\n' "$*"; }
-fail() { printf 'Legion was not installed: %s\n' "$*" >&2; exit 1; }
+# A folder this run created and left empty is removed again, so a failed run leaves nothing behind.
+fail() {
+  printf 'Legion was not installed: %s\n' "$*" >&2
+  if [ -n "${made_dir:-}" ]; then rmdir -- "$made_dir" 2>/dev/null || :; fi
+  exit 1
+}
 
 main "$@"

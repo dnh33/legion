@@ -195,9 +195,13 @@ test('install.sh stops on bad options and bad folders before anything is downloa
   assert.match(r.stderr, /not a version number|Node\.js|npm|git is not/); // the tool checks may stop it first on a bare machine; never the network
   assert.doesNotMatch(r.stdout + r.stderr, /Fetching Legion|Updating/);
 
-  // a relative --dir is resolved against the working directory before it is used
+  // a relative --dir is resolved against the working directory; a folder this failed run created is removed again,
+  // and a folder that was already there is kept
   run('--no-launch', '--dir', 'rel dir', '--version', 'bad');
-  assert.ok(existsSync(join(wdir, 'rel dir')), 'the relative folder was made under the working directory');
+  assert.ok(!existsSync(join(wdir, 'rel dir')), 'a failed run leaves no empty folder it created');
+  mkdirSync(join(wdir, 'rel kept'));
+  run('--no-launch', '--dir', 'rel kept', '--version', 'bad');
+  assert.ok(existsSync(join(wdir, 'rel kept')), 'a folder that existed before the run is kept');
 
   // an existing git folder that is not Legion's own clone is not touched; neither is a non-empty non-git folder
   const other = join(wdir, 'other'); mkdirSync(other);
