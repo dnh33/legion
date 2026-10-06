@@ -813,7 +813,7 @@ re-check lines.
 
 #### SHIPPED CONTEXT — read this first, it explains most of what follows
 
-Latest release is **`0.2.5-g`** (tag `v0.2.5-g`, 2026-10-06; main is `24d2567`, the merge of release/0.2.5-g). The updater
+Latest release is **`0.2.5-h`** (tag `v0.2.5-h`, 2026-10-06; the merge of release/0.2.5-h). The updater
 applies releases from inside Legion; the maintainer reported on 2026-10-06 that it works (check U1). Everything below is
 either shipped, parked, or not started.
 
@@ -834,6 +834,7 @@ Releases since `0.2.3-g` (dates from the tags; `0.2.3-h` to `0.2.3-l` were conso
 | `0.2.5-e` | 2026-10-06 | pin to the taskbar; from-source setup no longer fails to install Node on a busy PC |
 | `0.2.5-f` | 2026-10-06 | refused or unanswered agent-to-agent messages are shown as such; splash start error shown in full |
 | `0.2.5-g` | 2026-10-06 | BSV wording (Legion's last dialog is the last check), red failed-answer line, running-task clock in a narrow window, thread fixes |
+| `0.2.5-h` | 2026-10-06 | Doctrine screen with a switch per file, six optional skills, Undo for bulk changes (house/skills session); one-line installers; setup takes lettered releases; SHA256SUMS lists the installer; CI-only full suite and `npm run tidy` (dev) |
 
 Table derived from `git tag -l 'v0.2*'` with creation dates and the `CHANGELOG.md` sections (`0.2.3-h` to `0.2.3-l` from the
 `git log v0.2.3-g..v0.2.4` subjects; their own changelog entries were folded into `0.2.4`).
@@ -945,12 +946,15 @@ Items 1 to 6 above stay as they are. These were added from the 2026-10-06 sessio
 7. **Logging** (same as item 3; listed here so the open work is in one place). Not built.
 8. **Plan gate and the Zealot model policy.** Design done; sketches are in branch `sketch/plan-gate`. Not built.
 9. **Hand-off cards, direction D3 "Side thread".** Sketches in branch `sketch/handoff-card`. Not built.
-10. **One-line install through `getlegion.xyz`, moved to Cloudflare** (after `0.2.5-g`). Not started.
+10. **One-line install.** Scripts shipped in `0.2.5-h` (`scripts/install/`, release assets). Still to do: move `getlegion.xyz` to Cloudflare (site branch `feat/cloudflare-pages` in `dnh33/legion-site`), then the commands work.
 11. **Built-in browser pane** (idea). Not designed.
 12. **Provider presets release.** OpenAI, Ollama, LM Studio and vLLM presets; hidden today (the custom address works now).
-13. **House rules and skills (release A) and CI panel (release B).** Another session's work, branch `feat/house-skills-ci-panel`.
+13. **House rules and skills (release A) shipped in `0.2.5-h`.** Next from the same session: the Armory (A2a, branch `feat/armory`), then the CI panel (release B), which will use the GitHub connector (item 16).
 14. **BSV `spend.ts` residuals.** Tool text, `createTimeoutMs`, and real-PC check W3.
 15. **Legion Mod for Claude Code.** Branch `claude/legion-mod`.
+16. **Connectors: GitHub and treg.** Click-to-connect sign-in (OAuth), a Connectors section in Settings, a GitHub connector at least as capable as Claude Desktop's, treg as a paid-tools connector with caps and a card on every spend. Design reviewed for security; not built.
+
+**Order set by the maintainer on 2026-10-06:** the Cloudflare switch (item 10), then connectors (item 16), then logging (items 3 and 7). Logging stays promised; it moved behind these two at the maintainer's request.
 
 ---
 

@@ -2,6 +2,39 @@
 
 All notable changes are recorded here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses [Semantic Versioning](https://semver.org/).
 
+## [0.2.5-h] - 2026-10-06
+
+### Added
+
+- **Install Legion with one line.** On Windows, `irm https://getlegion.xyz | iex` downloads the latest release from
+  GitHub Releases, checks it against the release's SHA-256 and runs setup. On macOS and Linux,
+  `curl -fsSL https://getlegion.xyz | sh` builds Legion from the release in `~/.local/share/legion` and adds a `legion`
+  command; it needs git and Node.js 22.12 or newer, and no sudo. Both scripts can be read before you run them:
+  `/install.ps1` and `/install.sh` on the same site.
+- **Doctrine: choose what your agents follow.** Settings → Doctrine (formerly House context) groups the files agents read,
+  under plain names. Core tenets always on. Drills are skills agents can use. Foundations, Decrees, Chronicle and Lore hold
+  how Legion is built, its decisions, its history and its facts. Your orders are files you added. Every file except the
+  core tenets now has its own switch, and search covers all of them.
+- **Six skills from Legion, off until you turn them on:** systematic debugging, verification before completion,
+  requesting code review, receiving code review, fixing red CI, and hardening GitHub Actions. Each one comes from a public
+  source with its licence, and was edited for safety. You can read the whole skill before you turn it on. Agents open a
+  skill only when their task calls for it.
+- **Bulk changes can be undone:** "Turn off" and "Reset to defaults" act at once and offer Undo.
+
+### Fixed
+
+- **Setup installs lettered releases from a downloaded zip.** `setup -PackagePath` and `-PackageUrl` refused versions such
+  as 0.2.5-g, and accepted a folder name in the wrong case.
+- **The release checksum file lists the full installer.** It named only the update package, so the installer's hash could
+  not be checked against the release.
+- **Files in nested folders now reach installed copies.** Before, only top-level files of the shipped context were copied
+  into a release.
+- **Links in agent messages open only web addresses.** Any other kind of link shows as plain text.
+
+### Changed
+
+- **The project's developer skills load in Claude Code again.** Each skill now has the folder layout Claude Code expects.
+
 ## [0.2.5-g] - 2026-10-06
 
 ### Fixed
