@@ -212,7 +212,9 @@ was deleted, its assets 404'd, and `/releases/latest` pointed back at the previo
 
 ### 10. Verify from the **live CDN**, not your disk
 
-Freshly uploaded assets 503 for about a minute while GitHub's CDN warms. That is not a failure. Then:
+Freshly uploaded assets 503 for about a minute while GitHub's CDN warms. That is not a failure. The `latest` URL can also
+keep serving the PREVIOUS release's manifest for a few minutes (seen 2026-10-06 with 0.2.5-f): fetch it until `version` is
+the new one before running the verify, or the verify sees a mix of two releases and fails. Then:
 
 ```
 curl -sL https://github.com/dnh33/legion/releases/latest/download/legion-update-manifest.json

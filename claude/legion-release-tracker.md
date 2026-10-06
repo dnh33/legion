@@ -1643,3 +1643,18 @@ ode_modules` is a junction: remove the junction only).
 - Open for the owner's PC: P1 (pinning), U1, MD1, MD2, TK2-TK4 (claude/tracker-pc-checks.md).
 - Next: 0.2.5-f = the 7 agent-to-agent bugs (B1-B7, claude/audit-agent-to-agent-ux.md) + the splash's clipped long
   error (found by the splash sketches: the EPERM/antivirus hint is cut after ~74 px and the log cannot scroll).
+
+## 2026-10-06 — SHIPPED v0.2.5-f (owner: "Ship it")
+- Contents (release/0.2.5-f 71efbda, merge 605dbe2): agent-to-agent clarity B1-B7 (refused tell "Not sent" also on the
+  closed chip; "Waiting for X…" / "Waiting on X"; timeout sentence; "X could not finish"; the reply outcome in the
+  header so an answer starting "(error)" stays an answer; override notice as a system row); the splash = the owner's
+  pick 02 (title-bar blackletter, errors always fit, reduced motion, failure line in core.log); vm-fixes-http R7 leak
+  regex no longer matches the asOf timestamp. Independent review of 0.2.5-f: all findings fixed with negatives.
+- Gate on the final tree: 2836 tests, 2791 pass, 0 fail, 45 skipped; typecheck, build:ui clean.
+- Built from the clean worktree D:\bots\legion-ship-025f at 605dbe2 (win-x64 285 MB, sha256 11016498…). Notes 728 chars.
+  Signed k1 (key copied and deleted in one command). Pre-flight 14 ok / 0 fail (2 known warnings). Verify OK.
+- main pushed a799046..605dbe2 (fast-forward). Tag v0.2.5-f. Draft; 5/5 digests == local; published
+  2026-10-06T08:04:24Z as Latest. Live CDN: the latest manifest stayed 0.2.5-e for ~2-3 min, then 0.2.5-f,
+  requiresFullInstall false; verify OK on fetched bytes (docs/SHIPPING.md step 10 now says to wait for the version).
+- Open for the owner's PC: SP1, AB1-AB6, P1, U1, MD1, MD2, TK2-TK4.
+- Next: sketches of the agent-to-agent hand-off card (owner: sketches before building); then the Legion Mod.
