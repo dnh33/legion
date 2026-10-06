@@ -1,6 +1,6 @@
 # README truth audit, 0.2.5-g
 
-Worktree `D:\bots\legion-025g`, branch `release/0.2.5-g`. Every factual claim in `README.md` checked against the code. Line numbers are the README before this audit's edits. Verdicts: true / false / stale / unprovable (needs the owner's real PC, or code that is not in this tree).
+Branch `release/0.2.5-g`. Every factual claim in `README.md` checked against the code. Line numbers are the README before this audit's edits. Verdicts: true / false / stale / unprovable (needs the owner's real PC, or code that is not in this tree).
 
 **Open conflict (owner decides).** The brief and `CLAUDE.md` ("Decisions already made") say providers ship: OpenAI, OpenRouter, Ollama, LM Studio, vLLM, custom address. The code in this tree says otherwise: `ui/src/providers/ProvidersSection.tsx:85-86` hides the presets `openai`, `ollama`, `lmstudio`, `vllm` behind a disabled "Next release" block ("Not in this release", badge 0.2.1) unless one is already enabled, and teases Codex the same way (`:88-105`, `:130`, `:141`). They are `enabled: false` in `src/core/providers/presets.ts`. Shipped and usable: OpenRouter (enabled by default) and "Add a custom endpoint" (any OpenAI chat-completions server; https, or http on this computer; help text names vLLM and LM Studio). The earlier CHANGELOG ("Not in this version (0.2.1): ... Ollama, LM Studio ...") and the tracker ("providers = next release") agree with the code. README now follows the code. To make the claim "providers ship" true, remove `NEXT_RELEASE` in that UI file (and ship a release that does).
 

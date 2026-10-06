@@ -7,8 +7,7 @@ All notable changes are recorded here. The format follows [Keep a Changelog](htt
 ### Fixed
 
 - **BSV: Legion no longer tells you the wallet's own prompt is the last gate.** Whether and when a wallet asks depends on the
-  wallet: wallets built on wallet-toolbox (BSV Desktop) can ask once for a spending grant while they build a payment, before
-  Legion's card, and then not again inside that grant. The dialogs and the BSV panel now say to treat Legion's last dialog as
+  wallet: some wallets ask once for a spending grant and then not again inside it. The dialogs and the BSV panel now say to treat Legion's last dialog as
   the last check, and to keep any spending grant one-time or no higher than Legion's caps.
 - **A failed answer from another agent reads in red again.** "Builder could not finish: …" in a reply was drawn in the
   normal text colour.
