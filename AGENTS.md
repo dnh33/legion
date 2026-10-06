@@ -11,7 +11,9 @@ Legion is a local, Claude-native multi-agent desktop app: an Electron shell arou
 1. This file — the map and the rules.
 2. `docs/ARCHITECTURE.md` — the processes and the contracts between them.
 3. **`.claude/skills/`** — the operational traps: shipping a release, verifying a change, multi-agent safety.
-   Read the one that matches what you are about to do. Written after shipping something wrong.
+   Read the one that matches what you are about to do. Written after shipping something wrong. An agent running
+   inside Legion cannot reach that folder: call `house_skills` to see the skills the owner turned on (all are off
+   by default) and `house_skill` to load one.
 4. The doc for the area you touch (table below).
 5. `docs/adr/` — the decisions that are hard to reverse, and **why**. Read the relevant one before changing its area.
 6. `docs/TESTING.md` — before running anything. A fake-backed harness tests Legion end to end with no real Claude,

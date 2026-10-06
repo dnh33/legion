@@ -1,3 +1,8 @@
+---
+name: verifying-changes
+description: Use before claiming a change works, is safe to merge or ready to ship, before writing a test for a known bug, and when a suite is green after a large change.
+---
+
 # Verifying a change actually works
 
 **A green suite proves nothing if the test cannot fail on the bug.** An assertion of "the run finished" passed against

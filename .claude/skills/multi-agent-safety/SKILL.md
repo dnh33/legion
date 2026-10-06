@@ -1,3 +1,8 @@
+---
+name: multi-agent-safety
+description: Use when another agent or session may be working in the same repository, before git stash pop, checkout --, restore, clean or deleting anything untracked, and when choosing where to work.
+---
+
 # Working on Legion with more than one agent
 
 ## When this applies

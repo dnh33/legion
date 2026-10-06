@@ -1,6 +1,6 @@
 # ADR 0009 — The house context layer
 
-**Status:** accepted · **Date:** 2026-10-04
+**Status:** accepted · **Date:** 2026-10-04 · **Amended by:** ADR 0012 (switches and shipped skills)
 
 ## Context
 
@@ -48,5 +48,6 @@ starts, which is the point of the module.
 - Every agent shares one rulebook, and it is updatable without touching agent prompts.
 - A project that needs different rules gets them through the project's own block, which stays separate.
 - The layer is global, not per-project. Per-project scoping is deliberately **not** here.
-- Skills are a different feature and are not part of this (parked; see the tracker). `claude/skills` is
-  copied as content, but nothing here depends on it existing.
+- Skills are served by two further tools, `house_skills` and `house_skill`, added by ADR 0012. The three tools above
+  never return a skill. `claude/skills` is not shipped (the owner's private workflow skills); Legion's own skills live
+  in the top-level `skills/` folder, every one OFF until the owner switches it on.

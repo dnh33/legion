@@ -38,6 +38,10 @@ function rig(): Rig {
   }
   writeFileSync(join(staged, 'docs', 'adr', 'README.md'), '# ADRs\n\nIndex.\n', 'utf8');
   writeFileSync(join(staged, 'docs', 'adr', '0004-dependency-hash.md'), '# 0004\n\nHash content.\n', 'utf8');
+  // One skill, because `skills` is part of the shipped set and a layer without it reports it missing.
+  mkdirSync(join(staged, 'skills', 'review', 'second-look'), { recursive: true });
+  writeFileSync(join(staged, 'skills', 'review', 'second-look', 'SKILL.md'),
+    '---\nname: second-look\ndescription: Read the diff again as a stranger would.\n---\n\n# Second look\n\nRead it cold.\n', 'utf8');
 
   const data = scratch();
   const deps = { dataDir: data, bsvEnabled: () => false } as unknown as ModuleDeps;
@@ -99,7 +103,7 @@ describe('house routes: adoption is the owner\'s own door', () => {
     // state.json holds the bearer token. A path from a request is untrusted input like any other.
     const r = rig();
     for (const bad of ['../state.json', '../../.legion/state.json', 'docs/../../../etc/passwd']) {
-      await assert.rejects(() => r.call('POST', '/api/house/adopt', { path: bad }), /outside the house context folder/,
+      await assert.rejects(() => r.call('POST', '/api/house/adopt', { path: bad }), /outside the Doctrine folder/,
         `should have refused ${bad}`);
     }
     assert.ok(!existsSync(join(r.data, '..', '.legion', 'state.json')), 'and nothing outside was touched');

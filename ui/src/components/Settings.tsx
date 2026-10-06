@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import type { ChatMessage, CompactionSettings, McpServerEntry, McpStatusView, SettingsPatch, SettingsView } from '../../../src/shared/types';
 import { api, base, openExternal, token } from '../api';
 import { checkBoat, compactNow, ensureBoatChecked, closeSettings, decide, errText, loadSettings, resetCompaction, saveSettings, setSettingsSection as setSection, toast, useStore, type SettingsSection } from '../store';
@@ -21,7 +21,7 @@ const NAV: { id: SettingsSection; label: string; hint: string }[] = [
   { id: 'mcp', label: 'MCP servers', hint: 'Extra tools for agents' },
   { id: 'blender', label: 'Blender', hint: 'Build 3D with the Sculptor' },
   { id: 'compaction', label: 'Compaction', hint: 'Context limits for long runs' },
-  { id: 'house', label: 'House context', hint: 'What your agents read as rules' },
+  { id: 'house', label: 'Doctrine', hint: 'Rules and skills your agents follow' },
   { id: 'connections', label: 'Connections', hint: 'Use Legion from Claude' },
   { id: 'about', label: 'About', hint: 'Version and folders' },
 ];
@@ -34,9 +34,23 @@ export function SettingsPanel() {
   const provView = useProviders((x) => x.view);
   useEffect(() => { void loadProviders(); }, []);
   const nav = provView ? NAV : NAV.filter((n) => n.id !== 'providers');
+  // In the narrow tab strip the selected tab can sit off-screen (Doctrine is far along the row): bring it into view.
+  // Narrowing the window moves the tab again, so the strip's own size is watched too (one frame at most per change).
+  const navEl = useRef<HTMLElement>(null);
+  useEffect(() => {
+    const el = navEl.current;
+    if (!el) return;
+    const show = (): void => { el.querySelector<HTMLElement>('.set-link.sel')?.scrollIntoView?.({ inline: 'nearest', block: 'nearest' }); };
+    show();
+    if (typeof ResizeObserver === 'undefined') return;
+    let raf = 0;
+    const ro = new ResizeObserver(() => { cancelAnimationFrame(raf); raf = requestAnimationFrame(show); });
+    ro.observe(el);
+    return () => { ro.disconnect(); cancelAnimationFrame(raf); };
+  }, [section, provView]);
   return (
     <section className="settings" aria-label="Settings">
-      <nav className="set-nav" aria-label="Settings sections">
+      <nav ref={navEl} className="set-nav" aria-label="Settings sections">
         <button className="set-back" onClick={closeSettings} aria-label="Back to chat" title="Back to chat (Esc)"><Icon name="chevron" size={13} /> <span>Back to chat</span></button>
         <h2>Settings</h2>
         {nav.map((n) => (

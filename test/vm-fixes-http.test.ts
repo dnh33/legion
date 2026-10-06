@@ -183,7 +183,10 @@ describe('VM fixes over HTTP', () => {
     assert.match(forAdmin, /"rates":\{"default":0\.6/);
     const forClient = await readEvent({ Authorization: AUTH.Authorization! });
     assert.match(forClient, /boat\.health/);
-    assert.ok(!/0\.6|2\.4|DKK|resume/.test(forClient), forClient);
+    // as for /api/state above, timestamps are left out of the leak check: "asOf":"...T11:23:10.638Z" contains "0.6" and failed it by the clock
+    // (CI run 37455865437). Only ISO timestamp strings are replaced; every other byte of the stream is still checked.
+    const clientNoTimes = forClient.replace(/"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z"/g, '"<time>"');
+    assert.ok(!/0\.6|2\.4|DKK|resume/.test(clientNoTimes), forClient);
     fb.forbidden.clear();
     await json('/api/settings', { method: 'PATCH', body: JSON.stringify({ boat: { rates: {}, currency: '' } }) });
   });
