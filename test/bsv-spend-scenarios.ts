@@ -831,8 +831,10 @@ S('deny-during-the-first-probe-asks-the-wallet-nothing', async (M) => {
     const first = await r.askOnce(args());
     const d = await r.route('POST', '/api/bsv/spend/:id/decision', { params: [first.requestId], body: { decision: 'deny' } });
     assert.equal(d.status, 200); assert.equal(d.body.status, 'declined');
-    await new Promise((x) => setTimeout(x, 600)); await r.settle();
+    await new Promise((x) => setTimeout(x, 600)); // the probe has answered by now
+    // asserted before settle(): a build sent by mistake would be held by the fake's grant prompt, and settle() would wait for it
     assert.equal(r.w.of('createAction').length, 0, 'a request ended during the probe asks the wallet to build nothing');
+    await r.settle();
   } finally { await r.close(); }
 });
 
