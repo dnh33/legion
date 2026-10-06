@@ -1,6 +1,6 @@
 {
   "name": "legion",
-  "version": "0.2.5-i",
+  "version": "0.2.5-j",
   "description": "A local, Claude-native multi-agent desktop bot with on-demand boat.dev VMs and a hand-painted mascot",
   "author": "dnh33",
   "license": "Apache-2.0",

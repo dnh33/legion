@@ -813,7 +813,7 @@ re-check lines.
 
 #### SHIPPED CONTEXT — read this first, it explains most of what follows
 
-Latest release is **`0.2.5-i`** (tag `v0.2.5-i`, 2026-10-06; the merge of release/0.2.5-i). The updater
+Latest release is **`0.2.5-j`** (tag `v0.2.5-j`, 2026-10-07; the merge of release/0.2.5-j). The updater
 applies releases from inside Legion; the maintainer reported on 2026-10-06 that it works (check U1). Everything below is
 either shipped, parked, or not started.
 
@@ -836,6 +836,7 @@ Releases since `0.2.3-g` (dates from the tags; `0.2.3-h` to `0.2.3-l` were conso
 | `0.2.5-g` | 2026-10-06 | BSV wording (Legion's last dialog is the last check), red failed-answer line, running-task clock in a narrow window, thread fixes |
 | `0.2.5-h` | 2026-10-06 | Doctrine screen with a switch per file, six optional skills, Undo for bulk changes (house/skills session); one-line installers; setup takes lettered releases; SHA256SUMS lists the installer; CI-only full suite and `npm run tidy` (dev) |
 | `0.2.5-i` | 2026-10-06 | BSV: wait while the wallet asks (BRC-219), Cancel, release late or stale builds, knowledge pack v10 (BSV session, PR #16); usage panel opens fully; README install leads with save-then-run; SECURITY.md rewrite; ladder items 17-19 |
+| `0.2.5-j` | 2026-10-07 | The Armory (A2a, PR #23): every skill agents can load, all off by default, per-agent choice; Claude Code skills no longer load by default; skill shell off by default; outside skills taint; drills promote/remove; house sync fix |
 
 Table derived from `git tag -l 'v0.2*'` with creation dates and the `CHANGELOG.md` sections (`0.2.3-h` to `0.2.3-l` from the
 `git log v0.2.3-g..v0.2.4` subjects; their own changelog entries were folded into `0.2.4`).
@@ -950,7 +951,7 @@ Items 1 to 6 above stay as they are. These were added from the 2026-10-06 sessio
 10. **One-line install. DONE.** Scripts shipped in `0.2.5-h`. `getlegion.xyz` moved to Cloudflare Pages on 2026-10-06 (zone active, routing verified with PowerShell 5.1, PowerShell 7, curl and a browser). The site's Windows copy button gives the save-then-run form (uBlock ClickFix warning on a copied `irm | iex`). Left: delete the old Netlify project on or after 2026-10-08 (maintainer chose a 48 h wait).
 11. **Built-in browser pane** (idea). Not designed.
 12. **Provider presets release.** OpenAI, Ollama, LM Studio and vLLM presets; hidden today (the custom address works now).
-13. **House rules and skills (release A) shipped in `0.2.5-h`.** Next from the same session: the Armory (A2a, branch `feat/armory`), then the CI panel (release B), which will use the GitHub connector (item 16).
+13. **House rules and skills.** Release A shipped in `0.2.5-h`; the Armory (A2a) shipped in `0.2.5-j` (PR #23; real-PC checks AR1-AR8 still open). Known imperfections left on purpose: the bulk turn-on confirm pushes the page down; error placement in the New-skill form is inconsistent. Next from the same session: the CI panel (release B). It builds now against a fake of the GitHub client interface (connectors design rev 6, section 4.3: `connection()`, `can()`, `request()`, `logs()`; writes only via `writes.ts` from admin routes), and ships once item 16's client lands.
 14. **BSV `spend.ts` residuals.** Tool text, `createTimeoutMs`, and real-PC check W3.
 15. **Legion Mod for Claude Code.** Branch `claude/legion-mod`.
 16. **Connectors: GitHub and treg.** Click-to-connect sign-in (OAuth), a Connectors section in Settings, a GitHub connector at least as capable as Claude Desktop's, treg as a paid-tools connector with caps and a card on every spend. Design reviewed for security; not built.
@@ -965,6 +966,14 @@ Items 1 to 6 above stay as they are. These were added from the 2026-10-06 sessio
     - **Another harness: MCP for Blender** (https://www.mcp-for-blender.com/, its capabilities page /docs/concepts/capabilities and /creations, plus a t.co link the maintainer shared; destination not checked). Scan it first for safety and security (what runs, what it can reach, how it is installed and updated). Then compare it with the Blender bridge Legion already has: does it add anything?
     - **deepseek-ai/deepseek-harness** (https://github.com/deepseek-ai/deepseek-harness): what it is, whether it is safe, and whether it differs from what Legion has built in.
     - Report back before anything is adopted. Downloads and new accounts need the maintainer's go-ahead.
+
+20. **Bring-your-own iconography (icon packs).** The owner drops in their own icon set and Legion takes it on across the UI, while layout and behaviour stay the same. The UI draws its icons from one file (`ui/src/components/icons.tsx`), so a pack maps onto the same names; needs a pack format, validation (SVG only, sanitised, size caps, no scripts or external references), a preview and a reset. Not designed (maintainer, 2026-10-07).
+
+21. **Archify maps from agents.** Native support for agents producing Archify maps (https://tt-a1i.github.io/archify/, an Agent Skill installed with `npx skills add tt-a1i/archify`): validated single-file HTML maps of architecture, workflow, sequence, data flow and lifecycle, light and dark. Route: vet and vendor it as an Armory skill, or install it through A2b (item 18); decide where generated maps are shown and saved. Safety read and licence check first. Not started (maintainer, 2026-10-07).
+
+22. **SpiffyVault wallet support in BSV mode.** Parked by the maintainer (2026-10-07). Design notes from the SpiffyVault session: MCP over HTTP on 127.0.0.1:47321, 12 tools, pays contacts, payment links or BRC-100 keys (no plain addresses), its own caps. Would need its own tripwire allowlist entry; all BSV hard rules unchanged.
+
+23. **Test fragility: R5.6 uses the shared OS temp folder** and failed once because of a pre-existing `%TEMP%\x` folder that was not Legion's. Move it to its own temp dir (see the test-temp-dirs skill).
 
 **Scope lock (maintainer, 2026-10-06):** the work already running is finished before anything new starts: the Cloudflare switch and connectors phase 1 (this session), the Armory and the CI panel (house/skills session), BSV PR #16 for `0.2.5-i` (BSV session). New requests go onto this ladder as open items. After the lock, work resumes from the ladder.
 

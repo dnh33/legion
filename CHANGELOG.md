@@ -4,6 +4,8 @@ All notable changes are recorded here. The format follows [Keep a Changelog](htt
 
 ## [Unreleased]
 
+## [0.2.5-j] - 2026-10-07
+
 ### Added
 
 - **The Armory: one place for every skill your agents can load.** Settings, Armory lists Legion's own skills, the skills
