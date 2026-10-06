@@ -58,7 +58,7 @@ export class FakeGitHub {
     return this;
   }
 
-  async stop(): Promise<void> { await new Promise<void>((r) => { this.server.close(() => r()); this.server.closeAllConnections?.(); }); }
+  async stop(): Promise<void> { if (!this.server.listening) return; await new Promise<void>((r) => { this.server.close(() => r()); this.server.closeAllConnections?.(); }); }
 
   /** The fetch the client under test gets: github hosts go to this server, anything else is recorded in `stray` and fails. */
   fetchFn(): typeof fetch {

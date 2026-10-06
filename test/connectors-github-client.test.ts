@@ -1,4 +1,4 @@
-import test from 'node:test';
+import test, { after } from 'node:test';
 import assert from 'node:assert/strict';
 import { randomBytes } from 'node:crypto';
 import { readdirSync, readFileSync } from 'node:fs';
@@ -10,11 +10,15 @@ import { TokenStore } from '../src/core/connectors/store.js';
 import { DEVICE_CODE, FAKE_CLIENT_ID, FakeGitHub, STORAGE_HOST } from './connectors-fake-github.js';
 import { tempDir } from './tmp-cleanup.js';
 
+const fakes: FakeGitHub[] = [];
+// a failed assertion must not leave a server open (the test process would never exit)
+after(async () => { for (const f of fakes) await f.stop(); });
 interface Rig { fake: FakeGitHub; store: TokenStore; client: GitHubClient; dir: string; sleeps: number[]; logs: string[]; clock: { t: number }; events: string[] }
 
 async function rig(over: Partial<GhClientDeps> = {}, withKey = true): Promise<Rig> {
   const dir = tempDir('legion-ghc-');
   const fake = await new FakeGitHub().start();
+  fakes.push(fake);
   const kr = new ConnectorKeyring();
   if (withKey) kr.install(randomBytes(32));
   const events: string[] = [];
