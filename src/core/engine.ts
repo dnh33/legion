@@ -142,9 +142,13 @@ function realish(p: string): string {
   return join(real, ...parts);
 }
 
-/** True when `target` is `dir` or inside it, compared as written and after symlinks are resolved (case-insensitive on Windows). */
+/**
+ * True when `target` is `dir` or inside it, compared as written and after symlinks are resolved. Always compared
+ * without case: Windows and macOS file systems usually ignore case, and for a deny guard a false match on Linux only
+ * blocks a path that differs from a protected one by case, which is harmless.
+ */
 export function pathInside(dir: string, target: string): boolean {
-  const fold = (x: string): string => (process.platform === 'win32' ? x.toLowerCase() : x);
+  const fold = (x: string): string => x.toLowerCase();
   const inside = (d: string, t: string): boolean => { const a = fold(resolve(d)); const b = fold(resolve(t)); return b === a || b.startsWith(a.endsWith(sep) ? a : a + sep); };
   return inside(dir, target) || inside(realish(dir), realish(target));
 }
