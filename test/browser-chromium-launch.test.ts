@@ -1,7 +1,7 @@
 import { tempDir as cleanupTemp } from './tmp-cleanup.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -46,18 +46,24 @@ test('E4: a Chromium-family browser is started with its arguments, a scrubbed en
     const t = rig('ok');
     const run = await launchBrowser(t.p, t.found, { label: 'Fake Edge 120.0.0.0 (headless)' });
     const rep = t.read();
-    assert.equal(run.label, 'Fake Edge 120.0.0.0 (headless)');
-    assert.ok(rep.argv.includes('--headless=new') && rep.argv.includes('--remote-debugging-port=0'));
-    assert.ok(!rep.argv.includes('--no-sandbox'));
-    // a fresh profile inside the run folder, which is inside the system temp folder and carries Legion's prefix
-    assert.ok(rep.userDataDir.startsWith(rep.cwd), 'the profile is inside the run folder');
-    assert.ok(rep.cwd.startsWith(tmpdir()) && rep.cwd.includes(RUN_DIR_PREFIX));
-    assert.deepEqual(await run.cdp.send('Target.getTargets'), { targetInfos: [] });
-    // scrubbed environment
-    assert.ok(!('LEGION_TEST_SECRET' in rep.env));
-    assert.ok(!Object.keys(rep.env).some((k) => /key|token|secret/i.test(k)));
-    assert.equal(run.pid, rep.pid);
-    await run.stop();
+    try {
+      assert.equal(run.label, 'Fake Edge 120.0.0.0 (headless)');
+      assert.ok(rep.argv.includes('--headless=new') && rep.argv.includes('--remote-debugging-port=0'));
+      assert.ok(!rep.argv.includes('--no-sandbox'));
+      // a fresh profile inside the run folder, which is inside the system temp folder and carries Legion's prefix. Compared as real paths:
+      // the child reports its cwd resolved, and on macOS the temp folder /var/... is a link to /private/var/...
+      const real = (p: string): string => realpathSync.native(p);
+      assert.ok(real(rep.userDataDir).startsWith(rep.cwd), 'the profile is inside the run folder');
+      assert.ok(rep.cwd.startsWith(real(tmpdir())) && rep.cwd.includes(RUN_DIR_PREFIX));
+      assert.deepEqual(await run.cdp.send('Target.getTargets'), { targetInfos: [] });
+      // scrubbed environment
+      assert.ok(!('LEGION_TEST_SECRET' in rep.env));
+      assert.ok(!Object.keys(rep.env).some((k) => /key|token|secret/i.test(k)));
+      assert.equal(run.pid, rep.pid);
+    } finally {
+      // a failed assertion above must not leave the browser running: it kept this file alive until the runner's timeout
+      await run.stop();
+    }
     assert.equal(await until(() => !alive(rep.pid)), true, 'process gone');
     assert.equal(existsSync(rep.cwd), false, 'run folder removed');
     await run.stop();
