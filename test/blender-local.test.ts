@@ -211,6 +211,8 @@ test('C11: the child gets an allowlisted environment; secrets, proxies and PYTHO
     // Windows adds a few standard variables of its own to every process, whatever the parent passes (user name, home drive, ...): measured with a bare
     // Node child; the product's allowlist cannot remove them. The leak checks above (keys, proxies, PYTHONPATH, tokens) are what C11 proves.
     if (process.platform === 'win32') for (const k of ['homedrive', 'homepath', 'logonserver', 'userdomain', 'username', 'windir', 'systemdrive', 'systemroot', 'path']) allowed.add(k);
+    // macOS adds __CF_USER_TEXT_ENCODING (the user's text encoding, e.g. 0x1F5:0x0:0x0) to a process that starts without it; seen on the macOS CI runner.
+    if (process.platform === 'darwin') allowed.add('__cf_user_text_encoding');
     for (const k of keys) assert.ok(allowed.has(k), `unexpected variable ${k}`);
     assert.ok(keys.includes('pythonutf8') && keys.includes('pythonioencoding'));
     assert.equal(seen.env.PYTHONUTF8, '1');
