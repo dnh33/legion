@@ -91,7 +91,7 @@ export function App() {
       else if (mod && !e.shiftKey && !e.altKey && e.key.toLowerCase() === 'm') { e.preventDefault(); window.dispatchEvent(new Event('legion:model-picker')); }
       else if (mod && e.key === ',') { e.preventDefault(); toggleSettings(); }
       else if (mod && e.key === '.') { e.preventDefault(); toggleOps(); }
-      else if (e.key === 'Escape') { const s = getState(); if (s.palette || s.doctorOpen || s.editor) { e.preventDefault(); closeOverlays(); } else if (s.settingsOpen && !(e.target as HTMLElement)?.closest?.('input, textarea, select')) { e.preventDefault(); closeSettings(); } }
+      else if (e.key === 'Escape') { const s = getState(); if (s.palette || s.doctorOpen || s.editor) { e.preventDefault(); closeOverlays(); } else if (s.settingsOpen && !document.querySelector('.scrim .modal') && !(e.target as HTMLElement)?.closest?.('input, textarea, select')) { e.preventDefault(); closeSettings(); } }
       else if (e.altKey && !mod && /^[1-9]$/.test(e.key)) { e.preventDefault(); switchAgentByIndex(Number(e.key) - 1); }
     };
     window.addEventListener('keydown', h);

@@ -166,6 +166,9 @@ export type Inline =
 const INLINE = /(`[^`\n]+`)|(\*\*[^*\n]+\*\*)|(\[[^[\]\n]{1,500}\]\(https?:\/\/[^)\s]{1,2048}\))|(\bhttps?:\/\/[^\s<)]+)|(\*[^*\s][^*\n]*\*)/g;
 export const MAX_INLINE = 20_000;
 
+/** Only a web address may become a link. javascript:, data:, file: and the rest are shown as the text they are. */
+export const isSafeHref = (href: string): boolean => /^https?:\/\/[^\s]/i.test(href.trim());
+
 export function tokenizeInline(text: string): Inline[] {
   if (text.length > MAX_INLINE) return [{ t: 'text', v: text }];
   const out: Inline[] = [];
@@ -178,7 +181,8 @@ export function tokenizeInline(text: string): Inline[] {
     else if (m[2]) out.push({ t: 'strong', v: tok.slice(2, -2) });
     else if (m[3]) {
       const mm = /^\[([^\]]+)\]\((.+)\)$/.exec(tok)!;
-      out.push({ t: 'link', text: mm[1]!, href: mm[2]! });
+      if (isSafeHref(mm[2]!)) out.push({ t: 'link', text: mm[1]!, href: mm[2]! });
+      else out.push({ t: 'text', v: tok });
     } else if (m[4]) {
       const url = tok.replace(/[.,;:!?]+$/, '');
       out.push({ t: 'link', text: url, href: url });
