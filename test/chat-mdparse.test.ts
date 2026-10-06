@@ -8,7 +8,7 @@ import { Worker } from 'node:worker_threads';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { parseMarkdown, tokenizeInline, type Block } from '../ui/src/chat/mdparse.js';
+import { isSafeHref, parseMarkdown, tokenizeInline, type Block } from '../ui/src/chat/mdparse.js';
 import { markdownToPlainText } from '../ui/src/chat/plaintext.js';
 
 const dir = fileURLToPath(new URL('../ui/src/chat/', import.meta.url));
@@ -94,6 +94,18 @@ test('fences: language tags with + and -, indentation and trailing spaces still 
 test('inline: a link still works, and an opener inside link text restarts at the inner link', () => {
   assert.deepEqual(tokenizeInline('see [docs](https://a.dev/x) ok'), [{ t: 'text', v: 'see ' }, { t: 'link', text: 'docs', href: 'https://a.dev/x' }, { t: 'text', v: ' ok' }]);
   assert.deepEqual(tokenizeInline('[a [b](https://c.d)'), [{ t: 'text', v: '[a ' }, { t: 'link', text: 'b', href: 'https://c.d' }]);
+});
+
+test('links: only http(s) addresses become links; javascript:, data:, file: and the rest stay plain text', () => {
+  for (const bad of ['javascript:alert(1)', 'JaVaScRiPt:alert(1)', 'data:text/html,x', 'file:///c:/x', 'vbscript:x', '//evil.test/x', 'https://', ' javascript:x']) {
+    assert.equal(isSafeHref(bad), false, bad);
+  }
+  for (const ok of ['https://a.dev/x', 'http://a.dev', 'HTTPS://A.DEV']) assert.equal(isSafeHref(ok), true, ok);
+  for (const md of ['[x](javascript:alert(1))', '[x](data:text/html,hi)', '[x](file:///etc/passwd)', '[x](JAVASCRIPT:alert(1))']) {
+    assert.ok(tokenizeInline(md).every((t) => t.t !== 'link'), `${md} became a link`);
+  }
+  const jsx = readFileSync(join(process.cwd(), 'ui/src/components/Markdown.tsx'), 'utf8');
+  assert.match(jsx, /if \(!isSafeHref\(href\)\) return <>\{children\}<\/>;/, 'the renderer refuses an unsafe address even if a caller passes one');
 });
 
 test('inline: a line longer than the limit is left as plain text (no markup scan)', () => {

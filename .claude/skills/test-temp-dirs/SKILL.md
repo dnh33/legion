@@ -1,3 +1,8 @@
+---
+name: test-temp-dirs
+description: Use when adding or changing a test that makes a temp dir, or when the OS temp folder fills with legion-* dirs.
+---
+
 # Test temp dirs
 
 ## When this applies
@@ -9,6 +14,9 @@
 
 - **Never call `mkdtempSync(join(tmpdir(), ...))` directly.** Call `tempDir(prefix)` from `test/tmp-cleanup.ts`.
   *Why:* a raw call leaks one dir per test case; the helper removes the dir when the test process exits.
+- **Compare paths against `tempDir()`'s result, not `tmpdir()`.** It returns the real, long path
+  (`realpathSync.native`). *Why:* a GitHub Windows runner's temp folder is the 8.3 name `C:\Users\RUNNER~1\...` and
+  macOS's `/var` is a link to `/private/var`, while the code under test canonicalises paths (see `docs/CI.md`).
 - **Clean up ownership-scoped.** `tmp-cleanup.ts` removes only the dirs its own process made.
   *Why:* `node --test` runs one process per file in parallel. Deleting "every `legion-*` dir" would race and delete a
   sibling process's in-use dir.

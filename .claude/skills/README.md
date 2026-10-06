@@ -8,10 +8,11 @@ wrong. Both are needed.
 
 | Skill | Read it when |
 |---|---|
-| [`shipping-a-release.md`](shipping-a-release.md) | Cutting, publishing or rolling back a release; the updater will not update; anyone asks "can users install this from inside Legion?" |
-| [`verifying-changes.md`](verifying-changes.md) | Before claiming a change works, is safe to merge, or is ready to ship |
-| [`public-facing-copy.md`](public-facing-copy.md) | Writing a changelog entry, release notes, README or any UI copy a reader outside the project will see. **Read this before writing `CHANGELOG.md`** — it is scrubbed into the public snapshot |
-| [`multi-agent-safety.md`](multi-agent-safety.md) | Another agent or session may be working in the same repository; before any destructive git command |
+| [`shipping-a-release`](shipping-a-release/SKILL.md) | Cutting, publishing or rolling back a release; the updater will not update; anyone asks "can users install this from inside Legion?" |
+| [`verifying-changes`](verifying-changes/SKILL.md) | Before claiming a change works, is safe to merge, or is ready to ship |
+| [`public-facing-copy`](public-facing-copy/SKILL.md) | Writing a changelog entry, release notes, README or any UI copy a reader outside the project will see. **Read this before writing `CHANGELOG.md`** — it is scrubbed into the public snapshot |
+| [`multi-agent-safety`](multi-agent-safety/SKILL.md) | Another agent or session may be working in the same repository; before any destructive git command |
+| [`test-temp-dirs`](test-temp-dirs/SKILL.md) | Adding or changing a test that makes a temp dir; the OS temp folder fills with `legion-*` dirs |
 
 ## Why these exist
 
@@ -21,7 +22,7 @@ nothing until the test has been shown able to fail.
 
 ## Adding a skill
 
-One file, named for the task, not the subsystem.
+One folder per skill, named for the task, not the subsystem, holding a `SKILL.md` that starts with `name` and `description` frontmatter (Claude Code loads skills only in that shape).
 
 1. **When this applies** — the trigger, in the words a person would actually use.
 2. **The rules** — imperative, each with a short *why* so a rule can be re-derived rather than memorised.

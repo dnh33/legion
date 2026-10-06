@@ -9,10 +9,12 @@
  * rule. What an agent *fetches* is a different matter: a file the user dropped into the context folder, or a note
  * carrying an `untrusted` source, is data and is wrapped. See `wrap.ts`.
  */
-import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, realpathSync, statSync } from 'node:fs';
 import { join, relative, sep } from 'node:path';
 import { ADOPTED_NAME, MANIFEST_NAME, readAdopted, readManifest, serveFile, trustKind } from './trust.js';
 import type { TrustKind } from './trust.js';
+import { categoryOf, isOn, readSwitches } from './switches.js';
+import type { SwitchState } from './switches.js';
 
 export const HOUSE_SERVER_NAME = 'legion_house';
 
@@ -32,7 +34,31 @@ export const SHIPPED_FILES = [
 ] as const;
 
 /** Directories copied whole, because the ADRs are useless without their neighbours. */
-export const SHIPPED_DIRS = ['docs/adr', 'context'] as const;
+export const SHIPPED_DIRS = ['docs/adr', 'context', 'skills'] as const;
+
+/**
+ * The owner's switches decide what an agent sees (see ./switches.ts). Skills never come through house_list, house_read
+ * or house_recall at all: they are served only by house_skills / house_skill (./skills.ts), which check their own
+ * switch, so a skill that is off can never be read by guessing its path.
+ */
+export const isServed = (rel: string, state: SwitchState): boolean => categoryOf(rel) !== 'skills' && isOn(rel, state);
+
+/**
+ * The path as the file system names it, relative to the layer, or null when that cannot be worked out. Null means
+ * refuse: falling back to the request's own spelling would compare a switch against a name that is not the file's.
+ *
+ * Needed because a request is only checked LEXICALLY by `resolveInside`, and Windows and macOS reach one file by many
+ * spellings (`agents.md`, `SkillsGNskill.md`, 8.3 short names). Comparing a switch against the spelling in the
+ * request would let a differently-cased path read a file the owner switched off. `realpath.native` returns the real
+ * name, so the comparison is against what the file is, not what it was called.
+ */
+export function canonicalRel(root: string, abs: string): string | null {
+  try {
+    const real = relative(realpathSync.native(root), realpathSync.native(abs));
+    if (real && !real.startsWith('..') && !/^[a-zA-Z]:/.test(real)) return normalisePath(real);
+  } catch { /* cannot be resolved: refuse, see above */ }
+  return null;
+}
 
 /**
  * Deliberately NOT shipped: `claude/skills`.
@@ -41,7 +67,9 @@ export const SHIPPED_DIRS = ['docs/adr', 'context'] as const;
  * repository root (see sync.ts). Adding it back would ship the owner's personal workflow skills to every user, which
  * `scripts/export-public.mjs` already forbids for the public repo ("claude/skills/** excluded wholesale"). Those skills
  * belong to whoever wrote them; a user's own skills are their own files in their own context folder. If shippable skills
- * are wanted later they need a public path of their own, not this one.
+ * are wanted later they need a public path of their own, not this one. That path now exists: the top-level `skills/`
+ * folder (Legion's own vendored skills, listed in SHIPPED_DIRS), served only through house_skills / house_skill and OFF
+ * until the owner switches each one on.
  */
 
 /** Cap on one returned file, so a large document cannot crowd out the run's real context. */
@@ -62,7 +90,7 @@ export const HOUSE_LIMITS = {
   maxSearchBytes: 4_000_000,
   /** Files one search will read, so a wide directory cannot spend the budget on file count alone. */
   maxSearchFiles: 200,
-  /** Directory depth walked from the context root. The layer is docs and skills, not a mirror. */
+  /** Directory depth walked from the context root. The layer is the docs, the ADRs, the facts and Legion's shipped skills, not a mirror. */
   maxDepth: 6,
 } as const;
 
@@ -94,7 +122,9 @@ export function resolveInside(root: string, requested: string): string | null {
   // A Windows agent writes `docs\adr\x.md`. On POSIX a backslash is a filename character, so without this `..\state.json`
   // named a file inside the root instead of an escape, and a nested backslash path did not resolve at all.
   const raw = String(requested ?? '').trim().replace(/\\/g, '/');
-  if (!raw || raw.includes('\0')) return null;
+  // No house file name holds a colon. On Windows a colon after the name opens an NTFS stream of the same file
+  // (`ARCHITECTURE.md::$DATA`), a spelling the switch check should never have to recognise. Drive letters are refused too.
+  if (!raw || raw.includes('\0') || raw.includes(':')) return null;
   const target = join(root, raw);
   const rel = relative(root, target);
   if (rel === '' || rel.startsWith('..' + sep) || rel === '..' || resolveOutside(rel)) return null;
@@ -104,8 +134,13 @@ export function resolveInside(root: string, requested: string): string | null {
 /** `relative()` returning an absolute path means the target was on another drive (Windows) or at the root. */
 const resolveOutside = (rel: string): boolean => /^[a-zA-Z]:/.test(rel) || rel.startsWith(sep);
 
-/** Lists the context layer. Sorted, so the same folder always reads the same way. */
-export function listContext(root: string): ContextListing {
+/**
+ * Lists the context layer. Sorted, so the same folder always reads the same way.
+ *
+ * By default this is what an AGENT may see: files the owner switched off and every skill file are left out. The owner's
+ * own screen and the sync pass `{ all: true }` for the whole layer.
+ */
+export function listContext(root: string, opts: { all?: boolean } = {}): ContextListing {
   const files: ContextFile[] = [];
   const missing: string[] = [];
   const walk = (dir: string, depth: number): void => {
@@ -133,6 +168,12 @@ export function listContext(root: string): ContextListing {
     }
   };
   walk(root, 0);
+  if (!opts.all) {
+    const state = readSwitches(root);
+    const served = files.filter((f) => isServed(f.path, state));
+    files.length = 0;
+    files.push(...served);
+  }
   if (!existsSync(root)) return { files, missing: [...SHIPPED_FILES] };
   for (const want of SHIPPED_FILES) {
     const abs = resolveInside(root, want);
@@ -170,16 +211,16 @@ export type ReadOutcome =
  * Content that is no longer the app's own words is wrapped on the way out (see ./trust.ts). That is the whole point of
  * the module: an agent editing this repo can edit `AGENTS.md`, and its own text must not return as the owner's rules.
  */
-export function readContextFile(root: string, requested: string): ReadOutcome {
+export function readContextFile(root: string, requested: string, opts: { ignoreSwitches?: boolean } = {}): ReadOutcome {
   const abs = resolveInside(root, requested);
   if (!abs) {
-    return { ok: false, reason: 'outside', message: 'That path is outside the house context folder. Use house_list to see what is there.' };
+    return { ok: false, reason: 'outside', message: 'That path is outside the Doctrine folder. Use house_list to see what is there.' };
   }
   let st;
   try {
     st = statSync(abs);
   } catch {
-    return { ok: false, reason: 'absent', message: `No such file in the house context folder: ${normalisePath(requested)}. Call house_list for the list.` };
+    return { ok: false, reason: 'absent', message: `No such file in the Doctrine folder: ${normalisePath(requested)}. Call house_list for the list.` };
   }
   if (!st.isFile()) {
     return { ok: false, reason: 'absent', message: 'That is a folder, not a file. Call house_list.' };
@@ -187,13 +228,18 @@ export function readContextFile(root: string, requested: string): ReadOutcome {
   if (st.size > HOUSE_LIMITS.maxFileBytes) {
     return { ok: false, reason: 'too-large', message: `That file is ${st.size} bytes, over the ${HOUSE_LIMITS.maxFileBytes} cap. Read the relevant part with your own file tools instead.` };
   }
+  const rel = canonicalRel(root, abs);
+  // A file the owner switched off, and any skill file, answers exactly as an absent one does: the message must not tell an
+  // agent that a rule exists and is being withheld. A path whose real name cannot be worked out is refused the same way.
+  if (rel === null || (!opts.ignoreSwitches && !isServed(rel, readSwitches(root)))) {
+    return { ok: false, reason: 'absent', message: `No such file in the Doctrine folder: ${normalisePath(requested)}. Call house_list for the list.` };
+  }
   let text: string;
   try {
     text = readFileSync(abs, 'utf8');
   } catch (err) {
     return { ok: false, reason: 'absent', message: `Could not read that file: ${err instanceof Error ? err.message : String(err)}` };
   }
-  const rel = normalisePath(relative(root, abs));
   const served = serveFile(root, rel, text);
   text = served.text;
   const clipped = text.length > HOUSE_LIMITS.toolResultChars;
@@ -212,7 +258,7 @@ export interface RecallHit {
   kind: TrustKind;
 }
 
-const headingOf = (line: string): string => {
+export const headingOf = (line: string): string => {
   const h = /^(#{1,6})\s+(.*)$/.exec(line);
   return h ? h[2].trim() : '';
 };

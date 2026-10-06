@@ -6,25 +6,32 @@
  * the seam that fixes that: on start it copies the shipped layer into `<dataDir>/context` and gives every agent the
  * `legion_house` tools plus the preamble. See docs/adr/0009-house-context-module.md.
  *
- * It is always on. It costs one directory copy at start and three read-only tools per run.
+ * It is always on. It costs one directory copy at start and five read-only tools per run (recall, read, list, skills,
+ * skill). The owner's switches (./switches.ts) decide which files and skills those tools show.
  */
+import { closeSync, openSync, readSync } from 'node:fs';
 import { dirname, join, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { McpServerConfig } from '@anthropic-ai/claude-agent-sdk';
 import type { AgentProfile } from '../../shared/types.js';
 import { HttpError } from '../server.js';
 import type { CoreModule, ModuleDeps, ModuleJob } from '../modules.js';
-import { CONTEXT_DIRNAME, HOUSE_SERVER_NAME, listContext, normalisePath, resolveInside } from './context.js';
+import { CONTEXT_DIRNAME, HOUSE_LIMITS, HOUSE_SERVER_NAME, headingOf, listContext, normalisePath, readContextFile, resolveInside } from './context.js';
 import { syncContext } from './sync.js';
 import type { SyncResult } from './sync.js';
 import { adopt, trustKind, unadopt } from './trust.js';
-import { HOUSE_PREAMBLE, buildHouseServer } from './tools.js';
+import { HOUSE_PREAMBLE, buildHouseServer, skillsPreambleLine } from './tools.js';
+import { CATEGORIES, categoryOf, isLocked, isOn, readSwitches, resetSwitches, setSwitch, skillGroupOf, skillRootOf } from './switches.js';
+import type { HouseCategory } from './switches.js';
+import { allSkills, enabledSkillNames, listSkills, parseFrontmatter } from './skills.js';
 
 export { CONTEXT_DIRNAME, HOUSE_LIMITS, HOUSE_SERVER_NAME, listContext, readContextFile, recallContext, resolveInside } from './context.js';
 export { syncContext } from './sync.js';
 export { ADOPTED_NAME, MANIFEST_NAME, adopt, isAdopted, isShipped, trustKind, unadopt } from './trust.js';
 export type { TrustKind } from './trust.js';
-export { HOUSE_PREAMBLE, buildHouseServer } from './tools.js';
+export { HOUSE_PREAMBLE, buildHouseServer, skillsPreambleLine } from './tools.js';
+export { SWITCHES_NAME, categoryOf, isLocked, isOn, readSwitches } from './switches.js';
+export { allSkills, listSkills, readSkill } from './skills.js';
 
 export interface HouseModuleOptions {
   /** Where the shipped layer is read from. Defaults to the Legion installation root. */
@@ -56,15 +63,18 @@ export function createHouseModule(deps: ModuleDeps, opts: HouseModuleOptions = {
 
   const doSync = (): SyncResult => {
     const res = syncContext(repoRoot, deps.dataDir);
-    const { files, missing } = listContext(root());
+    const { files, missing } = listContext(root(), { all: true });
     log(`house: context layer ${files.length} file(s) in ${root()}` +
       (missing.length ? `, ${missing.length} expected file(s) missing (${missing.join(', ')})` : '') +
       (res.keptNewer.length ? `, ${res.keptNewer.length} local copy/copies kept because they were newer` : ''));
     return res;
   };
 
-  /** Whether the layer holds anything an agent could usefully read. One call, so the tools and the preamble cannot disagree. */
-  const hasContent = (): boolean => listContext(root()).files.length > 0;
+  /**
+   * Whether the layer holds anything an agent could usefully read. One call, so the tools and the preamble cannot disagree.
+   * It asks the SERVED view: a layer whose every file the owner switched off, and no skill on, has nothing to hand out.
+   */
+  const hasContent = (): boolean => listContext(root()).files.length > 0 || listSkills(root()).length > 0;
 
   const synced = opts.syncOnStart === false ? null : doSync();
 
@@ -85,20 +95,100 @@ export function createHouseModule(deps: ModuleDeps, opts: HouseModuleOptions = {
       const note = agent.approval === 'ask'
         ? ''
         : ' You run with less friction than the others, and the house rules still do not widen it.';
-      return `${head}${note}`;
+      const skills = skillsPreambleLine(enabledSkillNames(root()));
+      return `${head}${skills ? `\n${skills}` : ''}${note}`;
     },
 
     routes(add) {
       // Read-only and admin-gated by the dispatcher: it reports what shipped, which is how the owner tells a broken
       // install from a working one with an empty layer. Trust is per file, because that is the decision the owner makes.
       add('GET', '/api/house', () => {
-        const { files, missing } = listContext(root());
+        // The WHOLE layer, switches included: this is the owner's screen, and an owner must see what is off in order to
+        // turn it on. Agents never get this view (listContext without `all`).
+        const { files, missing } = listContext(root(), { all: true });
+        const state = readSwitches(root());
+        const skillInfo = new Map(allSkills(root(), state).map((k) => [k.path.toLowerCase(), k]));
         return {
           root: root(),
-          files: files.map((f) => ({ ...f, trust: trustKind(root(), f.path) })),
+          files: files.map((f) => {
+            const category = categoryOf(f.path);
+            const home = category === 'skills' ? skillRootOf(f.path) : undefined;
+            const skill = home ? skillInfo.get(home.toLowerCase()) : undefined;
+            const isSkillMd = !!skill && skill.path.toLowerCase() === f.path.toLowerCase();
+            const head = headOf(root(), f.path, f.bytes);
+            return {
+              ...f,
+              trust: trustKind(root(), f.path),
+              category,
+              ...(category === 'skills' ? { group: skillGroupOf(f.path) ?? null, skill: skill?.path ?? null } : {}),
+              title: isSkillMd ? (head.name || skill.folder) : head.heading || fileTitle(f.path),
+              ...(isSkillMd ? { description: head.description } : {}),
+              on: isOn(f.path, state),
+              locked: isLocked(f.path),
+            };
+          }),
           missing,
           synced: synced ? { written: synced.written.length, skipped: synced.skipped.length, keptNewer: synced.keptNewer.length, unchanged: synced.unchanged.length } : null,
         };
+      }, 200);
+
+      // One file's text for the owner's screen ("Read it" before switching a skill on). It ignores the switches, because
+      // the owner reading a file is not an agent being served one, and it reports the trust state so the screen can say so.
+      // Same traversal rule as everything else here; read-only; no tool equivalent.
+      add('GET', '/api/house/file', (c) => {
+        const rel = requestedPath({ path: c.url.searchParams.get('path') });
+        const out = readContextFile(root(), rel, { ignoreSwitches: true });
+        // The same messages serve the agents' tool, which tells them to call house_list; this screen has no such tool.
+        if (!out.ok) throw new HttpError(out.reason === 'outside' ? 400 : 404, out.message.replace(/ (?:Use|Call) house_list[^.]*\./, ''));
+        return { path: out.path, text: out.text, clipped: out.clipped, trust: out.kind };
+      }, 200);
+
+      // The switches. Admin-only like adoption (default-deny gate; NOT on the MCP client list) and with no tool
+      // equivalent: if a run could flip these, "the owner turned it on" would mean nothing. See ./switches.ts.
+      add('POST', '/api/house/switch', (c) => {
+        const rel = requestedPath(c.body);
+        const want = (c.body as { on?: unknown }).on;
+        if (typeof want !== 'boolean') throw new HttpError(400, 'on must be true or false');
+        if (!resolveInside(root(), rel)) throw new HttpError(400, 'That path is outside the Doctrine folder.');
+        const real = listContext(root(), { all: true }).files.find((f) => f.path.toLowerCase() === rel.toLowerCase());
+        if (!real) throw new HttpError(404, `No such file in the Doctrine folder: ${rel}.`);
+        const path = real.path;
+        if (isLocked(path) && !want) {
+          throw new HttpError(400, `${path} is a core rule: every agent reads it first, so it stays on and cannot be switched off.`);
+        }
+        let target = path;
+        if (categoryOf(path) === 'skills') {
+          // A skill is switched as a whole, by its SKILL.md; its reference files follow it but cannot be switched themselves.
+          const home = skillRootOf(path);
+          const skill = home ? allSkills(root()).find((k) => k.path.toLowerCase() === home.toLowerCase()) : undefined;
+          if (!skill) throw new HttpError(400, `${path} is not a skill. A skill is a folder with a SKILL.md in it.`);
+          // Only the SKILL.md carries the switch. A reference or licence file would otherwise flip the whole skill
+          // without saying so, so it is refused and the message names the skill to switch instead.
+          if (skill.path.toLowerCase() !== path.toLowerCase()) throw new HttpError(400, `${path} is part of the ${skill.folder} skill; switch the skill instead.`);
+          target = skill.path;
+        }
+        setSwitch(root(), target, want);
+        log(`house: owner switched ${target} ${want ? 'on' : 'off'}`);
+        return { path: target, on: isOn(target, readSwitches(root())), locked: isLocked(target) };
+      }, 200);
+
+      add('POST', '/api/house/switch/reset', (c) => {
+        const b = c.body && typeof c.body === 'object' ? (c.body as { category?: unknown; group?: unknown }) : {};
+        const hasCat = b.category !== undefined;
+        const hasGroup = b.group !== undefined;
+        if (hasCat === hasGroup) throw new HttpError(400, 'Give either category or group, not both and not neither.');
+        if (hasCat) {
+          if (typeof b.category !== 'string' || !(CATEGORIES as readonly string[]).includes(b.category)) {
+            throw new HttpError(400, `category must be one of: ${CATEGORIES.join(', ')}.`);
+          }
+          const reset = resetSwitches(root(), { category: b.category as HouseCategory });
+          log(`house: owner reset the ${b.category} switches to their defaults`);
+          return { category: b.category, reset };
+        }
+        if (typeof b.group !== 'string' || !b.group.trim() || /[\\/]/.test(b.group)) throw new HttpError(400, 'group must be a skill group name.');
+        const reset = resetSwitches(root(), { group: b.group.trim() });
+        log(`house: owner reset the ${b.group} skills to their defaults`);
+        return { group: b.group.trim(), reset };
       }, 200);
 
       // The one door to adoption. Reachable only from the app (admin-gated like every other route, and NOT part of the
@@ -107,7 +197,7 @@ export function createHouseModule(deps: ModuleDeps, opts: HouseModuleOptions = {
       // makes it untrusted again on its own -- there is no path-shaped grant to inherit. See ADR 0010.
       add('POST', '/api/house/adopt', (c) => {
         const rel = requestedPath(c.body);
-        if (!resolveInside(root(), rel)) throw new HttpError(400, 'That path is outside the house context folder.');
+        if (!resolveInside(root(), rel)) throw new HttpError(400, 'That path is outside the Doctrine folder.');
         const hash = adopt(root(), rel);
         if (!hash) throw new HttpError(404, `No readable file at ${rel}.`);
         log(`house: owner adopted ${rel} (${hash.slice(0, 12)})`);
@@ -127,6 +217,37 @@ export function createHouseModule(deps: ModuleDeps, opts: HouseModuleOptions = {
     sync: doSync,
     root,
   };
+}
+
+/** Title for a file with no heading: its file name, without the extension. */
+const fileTitle = (path: string): string => (path.split('/').pop() ?? path).replace(/\.[^.]+$/, '');
+
+/**
+ * The first heading of a markdown file, and a skill's frontmatter name and description, read from the head of the file
+ * only: the screen lists every file, and reading all of them whole on each refresh would cost far more than it shows.
+ */
+function headOf(root: string, rel: string, bytes: number): { heading: string; name: string; description: string } {
+  const none = { heading: '', name: '', description: '' };
+  if (!rel.toLowerCase().endsWith('.md') || bytes > HOUSE_LIMITS.maxFileBytes) return none;
+  const abs = resolveInside(root, rel);
+  if (!abs) return none;
+  let text = '';
+  let fd: number | undefined;
+  try {
+    fd = openSync(abs, 'r');
+    const buf = Buffer.alloc(Math.min(bytes, 8192));
+    const n = readSync(fd, buf, 0, buf.length, 0);
+    text = buf.subarray(0, n).toString('utf8');
+  } catch {
+    return none;
+  } finally {
+    if (fd !== undefined) { try { closeSync(fd); } catch { /* nothing to release */ } }
+  }
+  const fm = parseFrontmatter(text);
+  const body = text.replace(/^﻿?---\r?\n[\s\S]*?\r?\n---(?:\r?\n|$)/, '');
+  let heading = '';
+  for (const line of body.split(/\r?\n/)) { heading = headingOf(line); if (heading) break; }
+  return { heading, name: fm.name ?? '', description: (fm.description ?? '').replace(/\s+/g, ' ').trim() };
 }
 
 /**
