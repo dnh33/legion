@@ -945,7 +945,7 @@ small-window rule ended up inverted.
 
 Items 1 to 6 above stay as they are. These were added from the 2026-10-06 session and are listed in no priority order.
 
-7. **Logging** (same as item 3; listed here so the open work is in one place). Not built.
+7. **Logging** (same as item 3; listed here so the open work is in one place). Not built. Coordinate first with the connectors session: its redactor (connectors design rev 6, section 4.4) rewrites the same single `log()` in `src/bin/legion-core.ts` and the stdout/stderr wrappers.
 8. **Plan gate and the Zealot model policy.** Design done; sketches are in branch `sketch/plan-gate`. Not built.
 9. **Hand-off cards, direction D3 "Side thread".** Sketches in branch `sketch/handoff-card`. Not built.
 10. **One-line install. DONE.** Scripts shipped in `0.2.5-h`. `getlegion.xyz` moved to Cloudflare Pages on 2026-10-06 (zone active, routing verified with PowerShell 5.1, PowerShell 7, curl and a browser). The site's Windows copy button gives the save-then-run form (uBlock ClickFix warning on a copied `irm | iex`). Left: delete the old Netlify project on or after 2026-10-08 (maintainer chose a 48 h wait).
