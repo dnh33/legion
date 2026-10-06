@@ -453,6 +453,7 @@ export function createBsvModule(deps: ModuleDeps, opts: BsvModuleOptions = {}): 
           // BSV mode off: nothing stays armed, and the wallet is disconnected: turning the mode back on starts disconnected (Connect again)
           policy.disarm('BSV mode turned off');
           probe.disconnect();
+          spend?.tick(); // a request still waiting for the wallet, or a card, ends now; a late build is released, never shown
         }
         if (changed) note('owner', 'bsv-mode', body.enabled ? 'enabled' : 'disabled');
         if (body.enabled) {

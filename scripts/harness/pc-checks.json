@@ -3149,6 +3149,34 @@
       }
     },
     {
+      "id": "PC-BSVT-29",
+      "area": "BSVT",
+      "title": "W6: a grant answered after 3 minutes: the late build is released (build-expired) and asking again builds at once",
+      "source": [
+        "claude/tracker-pc-checks.md W6",
+        "src/core/bsv/spend.ts staleBuildMs; wallet-toolbox TaskFailAbandoned (abandonedMsecs 5 min)"
+      ],
+      "inferred": false,
+      "preconditions": "No grant for legion.local. BSVT-04 passed.",
+      "steps": [
+        "Ask for a spend; answer the wallet's grant prompt after 3 minutes with a small amount; do not press Cancel in Legion.",
+        "Ask for the same spend again."
+      ],
+      "expected": "Legion answers build-expired and releases the first build (abortAction, no card); the second request builds at once with no new prompt and shows the card.",
+      "evidence": "PC-BSVT-29.png and the audit lines.",
+      "safety": "real-wallet",
+      "automation": "owner-only",
+      "depends": [
+        "PC-BSVT-04"
+      ],
+      "gate": "G8",
+      "result": {
+        "status": "not-run",
+        "date": null,
+        "evidence": null
+      }
+    },
+    {
       "id": "PC-BSVM-00",
       "area": "BSVM",
       "title": "R preconditions: V1-V12 passed, review signed off, reviewed commit, own mainnet address",

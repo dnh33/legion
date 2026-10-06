@@ -728,6 +728,7 @@ S('build-waits-for-a-wallet-that-asks-first', async (M) => {
     assert.equal(sign(r), 1, 'signing needs no second question from this wallet');
     const second = await r.askCard(args());
     assert.equal(second.status, 'pending-owner');
+    assert.deepEqual((await r.route('GET', '/api/bsv/policy')).body.waiting, [], 'a request with a card is not listed as waiting for the wallet');
     assert.equal(r.w.grantPrompts(), 1, 'inside the grant the wallet does not ask again: Legion\'s card is the per-spend check');
   } finally { await r.close(); }
 });
@@ -819,5 +820,64 @@ S('disconnect-while-the-wallet-asks', async (M) => {
     await until('the late build is released', () => r.w.aborted.length === 1);
     await r.settle();
     assert.equal(sign(r), 0); assert.equal(r.w.open.size, 0); assert.deepEqual(await r.cards(), []);
+  } finally { await r.close(); }
+});
+
+S('deny-during-the-first-probe-asks-the-wallet-nothing', async (M) => {
+  const r = await rig(M, { wallet: { grant: 'toolbox' } });
+  try {
+    await r.setup({ allow: { test: [TEST_A] } });
+    r.w.b.netDelayMs = 400; // Legion's fresh probe is in flight while the owner denies
+    const first = await r.askOnce(args());
+    const d = await r.route('POST', '/api/bsv/spend/:id/decision', { params: [first.requestId], body: { decision: 'deny' } });
+    assert.equal(d.status, 200); assert.equal(d.body.status, 'declined');
+    await new Promise((x) => setTimeout(x, 600)); await r.settle();
+    assert.equal(r.w.of('createAction').length, 0, 'a request ended during the probe asks the wallet to build nothing');
+  } finally { await r.close(); }
+});
+
+S('bsv-off-ends-a-wait-and-a-card', async (M) => {
+  const r = await rig(M, { wallet: { grant: 'toolbox' } });
+  try {
+    await r.setup({ allow: { test: [TEST_A] } });
+    const first = await r.askOnce(args());
+    assert.equal(r.w.heldGrants(), 1);
+    assert.equal((await r.route('POST', '/api/bsv', { body: { enabled: false } })).status, 200);
+    assert.equal(r.bsv.spend.statusOf(first.requestId).status, 'declined');
+    assert.deepEqual(r.bsv.spend.statusOf(first.requestId).reasonCodes, ['bsv-off']);
+    r.w.answerGrant(5_000);
+    await until('the late build is released', () => r.w.aborted.length === 1);
+    assert.equal(sign(r), 0); assert.equal(r.w.open.size, 0);
+  } finally { await r.close(); }
+  // an open card ends too: BSV off means no approval can follow
+  const r2 = await rig(M);
+  try {
+    await r2.setup({ allow: { test: [TEST_A] } });
+    const c = await r2.askCard(args());
+    assert.equal((await r2.route('POST', '/api/bsv', { body: { enabled: false } })).status, 200);
+    assert.equal(r2.bsv.spend.statusOf(c.requestId).status, 'declined');
+    assert.deepEqual(r2.bsv.spend.statusOf(c.requestId).reasonCodes, ['bsv-off']);
+    await r2.settle();
+    assert.equal(r2.w.aborted.length, 1, 'the open card\'s build is released'); assert.equal(sign(r2), 0);
+    assert.equal(r2.usage().test.usage.reservedSats, 0, 'nothing stays reserved');
+  } finally { await r2.close(); }
+});
+
+S('a-late-build-is-released-and-asked-again', async (M) => {
+  const r = await rig(M, { wallet: { grant: 'toolbox' } });
+  try {
+    await r.setup({ allow: { test: [TEST_A] } });
+    const first = await r.askOnce(args());
+    assert.equal(r.w.heldGrants(), 1);
+    r.clock.advance(3 * 60_000); // the owner takes three minutes over the wallet's grant prompt
+    r.w.answerGrant(5_000);
+    await until('the end of the build', () => r.bsv.spend.statusOf(first.requestId)?.status === 'failed');
+    assert.deepEqual(r.bsv.spend.statusOf(first.requestId).reasonCodes, ['build-expired']);
+    await r.settle();
+    assert.equal(r.w.aborted.length, 1, 'the stale build is released before the wallet fails it'); assert.equal(r.w.open.size, 0);
+    assert.deepEqual(await r.cards(), []); assert.equal(sign(r), 0);
+    // asked again: the grant the owner stored makes the new build immediate, so it is fresh
+    const second = await r.askCard(args());
+    assert.equal(second.status, 'pending-owner'); assert.equal(r.w.grantPrompts(), 1);
   } finally { await r.close(); }
 });

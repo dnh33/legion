@@ -1714,7 +1714,7 @@ app, so whether it prompts on `signAction` depends on the wallet). Investigated,
   `ensureSpendingAuthorization` L1476), no prompt inside a stored monthly grant (L1505-1510), `signAction` passes straight through (L4229).
   BSV Desktop master builds it (`PermissionQueueManager.ts:955`, `seekSpendingPermissions: true` by default, `WalletContext.tsx`).
   So for these wallets the ask comes at Legion's build step, BEFORE the card, and not again inside a grant. A6/U13 did not hold.
-- Owner decision 2026-10-06 (question UI): reframe, keep rung 3. Legion's own dialogs are the per-spend gate; the wallet's grant is a
+- The owner picked the BSV session's recommended option "reframe" in the question UI (2026-10-06): keep rung 3. Legion's own dialogs are the per-spend gate; the wallet's grant is a
   second check (one-time if offered, else at or below Legion's caps).
 - Changed: app text (admin-logic dialogs D1/D2/Arm/enable/connect, BsvPanel, bsv-view, wallet-probe MAINNET_WARNING) no longer states
   the wallet prompt as a fact; D1 (testnet) now carries the grant advice too. Docs: BSV-MODE (flow step 9, D2, residual risks, U4/U13),
@@ -1763,7 +1763,7 @@ Plan: `claude/plan-bsv-spend-residuals.md` (facts table with sources). Closes th
 - Pack v10 with brc100.org content (owner request, relayed by the mod-planning session): subagent; contradictions listed in the PR.
 - W3 revised (hold 130 s, expect `wallet-no-answer`), PC-BSVT-26 regenerated.
 
-- ROUND 2 (owner decisions 2026-10-06, question UI): BRC-219 (Wallet Permission Prompt Liveness, merged 2026-07-30: apps should
+- ROUND 2 (the BSV session's proposal; the owner picked it from three options in the question UI on 2026-10-06, and later said he does not see it as his decision: the 15-minute value and the design are the BSV session's, open until the BRC research is in; the owner approved the release-only abortAction after Disconnect): BRC-219 (Wallet Permission Prompt Liveness, merged 2026-07-30: apps should
   not time out a request while the wallet asks its user) -> "follow it + safety cap": createTimeoutMs 120 s -> 15 min; the panel
   lists builds the wallet has not answered as "waiting for your wallet" with Cancel (reuses the native Deny path: decide() now
   accepts deny while building); Freeze and Disconnect end the wait at once (reconcile handles phase building; the timer runs while

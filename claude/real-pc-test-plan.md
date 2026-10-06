@@ -1140,7 +1140,7 @@ Generated from `scripts/harness/pc-checks.json` with `node scripts/harness/pc-re
 - **Evidence:** PC-BLND-23.log.
 - **Result:** not-run | date: - | evidence path: -
 
-### BSV testnet wallet in a VM (BSVT, 29 checks, gate G8)
+### BSV testnet wallet in a VM (BSVT, 30 checks, gate G8)
 
 #### PC-BSVT-00: V0: build the isolated testnet VM and prove the host wallet is not reachable from it
 
@@ -1509,6 +1509,19 @@ Generated from `scripts/harness/pc-checks.json` with `node scripts/harness/pc-re
   2. Revoke the legion.local grant; ask for one more spend.
 - **Expected:** Recorded: the default (BSV Desktop master: on), that revoking works, and that the next spend asks again.
 - **Evidence:** PC-BSVT-28.png and the audit lines.
+- **Result:** not-run | date: - | evidence path: -
+
+#### PC-BSVT-29: W6: a grant answered after 3 minutes: the late build is released (build-expired) and asking again builds at once
+
+- **Source:** claude/tracker-pc-checks.md W6; src/core/bsv/spend.ts staleBuildMs; wallet-toolbox TaskFailAbandoned (abandonedMsecs 5 min)
+- **Gate / depends:** G8 / after PC-BSVT-04
+- **Safety / automation:** real-wallet / owner-only
+- **Preconditions:** No grant for legion.local. BSVT-04 passed.
+- **Steps:**
+  1. Ask for a spend; answer the wallet's grant prompt after 3 minutes with a small amount; do not press Cancel in Legion.
+  2. Ask for the same spend again.
+- **Expected:** Legion answers build-expired and releases the first build (abortAction, no card); the second request builds at once with no new prompt and shows the card.
+- **Evidence:** PC-BSVT-29.png and the audit lines.
 - **Result:** not-run | date: - | evidence path: -
 
 ### BSV mainnet real funds (BSVM, 14 checks, gate G11)

@@ -106,12 +106,14 @@ export interface FakeBehaviour {
    * error. signAction never asks. 'off' = no grants at all (the default; the other modes above apply).
    */
   grant: 'off' | 'toolbox';
+  /** Answer getNetwork this many ms late (0 = at once): lets a test act while Legion's probe is in flight. */
+  netDelayMs: number;
 }
 export const defaults = (): FakeBehaviour => ({
   network: 'mainnet', version: 'wallet-brc100-1.0.0', authenticated: true, height: 969369, flipAtProbe: 0, flipTo: 'mainnet', flipAfter: '',
   create: 'ok', fundSats: 10_000, feeSats: 20, change: 'p2pkh', changeFill: 0x77, payDelta: 0, payFill: null, omitParent: false, parentTxidOnly: false,
   txEncoding: 'bytes', v2: false, atomic: true, withBump: false,
-  sign: 'ok', abort: 'ok', abortDelayMs: 0, injection: '', contentType: 'text/html; charset=utf-8', grant: 'off',
+  sign: 'ok', abort: 'ok', abortDelayMs: 0, injection: '', contentType: 'text/html; charset=utf-8', grant: 'off', netDelayMs: 0,
 });
 
 export interface FakeWallet {
@@ -188,6 +190,7 @@ export async function startFakeWallet(patch: Partial<FakeBehaviour> = {}): Promi
       if (method === 'getNetwork') {
         netAnswers++;
         const flip = flipped || (b.flipAtProbe > 0 && netAnswers >= b.flipAtProbe);
+        if (b.netDelayMs > 0) { const n = flip ? b.flipTo : b.network; setTimeout(() => send(200, { network: n }), b.netDelayMs); return; }
         return send(200, { network: flip ? b.flipTo : b.network });
       }
       if (method === 'isAuthenticated') return send(200, { authenticated: b.authenticated });

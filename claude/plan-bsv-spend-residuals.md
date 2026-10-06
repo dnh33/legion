@@ -60,7 +60,7 @@ F. Docs: BSV-MODE step 4 (120 s, `wallet-no-answer`), the residual-risk paragrap
 ## Gates
 `npm ci && npm run build:ts && npm run test:run && npm run typecheck:ui && npm run build:ui`, exact counts; independent review (default "not fixed") before the re-pin; PR to main; tell the mod-planning session (0.2.5-h).
 
-## Round 2 (owner decisions 2026-10-06)
+## Round 2 (the BSV session's proposal, 2026-10-06)
 
 | Documented fact | Source |
 |---|---|

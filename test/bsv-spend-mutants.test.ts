@@ -51,6 +51,10 @@ const MUTANTS: Mutant[] = [
   { id: 'M34', control: 'A1 Deny ends a request whose build the wallet has not answered', scenario: 'cancel-while-the-wallet-asks', edits: [E('spend.js', "if (f.phase === 'building' && input.decision === 'deny') {", 'if (false) {')] },
   { id: 'M35', control: 'A1 the release goes to the wallet the build was asked of, even after Disconnect', scenario: 'disconnect-while-the-wallet-asks', edits: [E('spend.js', 'f.walletUrl ?? probe.connectedUrl', 'probe.connectedUrl')] },
   { id: 'M28', control: 'C22 the 24 h window is rebuilt per network from the audit log', scenario: 'mainnet-end-to-end-with-restart', edits: [E('policy.js', 'const net = parseNet(e.fields.net);', "const net = 'test';")] },
+  { id: 'M36', control: 'A1 a request ended during the first probe asks the wallet to build nothing', scenario: 'deny-during-the-first-probe-asks-the-wallet-nothing', edits: [E('spend.js', 'if (isOver(f))\n            return; // ended by the owner (Deny, Freeze, Disconnect, BSV off) during the probe', 'void 0; // mutant')] },
+  { id: 'M37', control: 'A1 only requests the wallet has not answered are listed as waiting', scenario: 'build-waits-for-a-wallet-that-asks-first', edits: [E('spend.js', "filter((f) => f.phase === 'building').map((f) => ({ requestId: f.id, totalSats", "filter((f) => f.phase !== 'over').map((f) => ({ requestId: f.id, totalSats")] },
+  { id: 'M38', control: 'A1 BSV mode off ends a wait for the wallet and an open card', scenario: 'bsv-off-ends-a-wait-and-a-card', edits: [E('spend.js', "(f.phase === 'card' || f.phase === 'building') && !deps.state.enabled", 'false')] },
+  { id: 'M39', control: 'A1 a build that came back after more than 2 minutes is released, not shown (the wallet may fail it before signing)', scenario: 'a-late-build-is-released-and-asked-again', edits: [E('spend.js', 'if (clock() - askedAt > SPEND_LIMITS.staleBuildMs)', 'if (false)')] },
 ];
 
 const applyMutant = (m: Mutant): string => {

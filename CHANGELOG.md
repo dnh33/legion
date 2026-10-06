@@ -10,8 +10,11 @@ All notable changes are recorded here. The format follows [Keep a Changelog](htt
   grant while they build a payment. Legion gave that step 30 seconds, so a careful answer could come too late and the
   request ended with a general build error, while the wallet kept the payment it had built. Legion now waits while the
   wallet asks you (up to 15 minutes, as the BRC-219 wallet standard asks of apps), and the BSV panel shows the request as waiting for your
-  wallet, with Cancel. Cancel, Deny, Freeze and Disconnect end the wait, and a payment the wallet builds after that is
-  released in the wallet at once, so the wallet frees the coins it had set aside for it. If the wallet never answers, the Assayer asks you to check
+  wallet, with Cancel. Cancel, Deny, Freeze and Disconnect end the wait, and for a payment the wallet builds after that,
+  Legion at once tells the wallet to release it, so the wallet can free the coins it had set aside. A payment the wallet
+  hands back more than two minutes after it was asked for is released the same way and the Assayer asks once more,
+  because some wallets drop an unsigned payment after five minutes and a late signature would then leave the outcome
+  unclear. If the wallet never answers, the Assayer asks you to check
   the wallet instead of asking again.
 - **BSV: the Assayer no longer tells you the wallet will ask you again.** Its tool text now says that you confirm each
   payment in Legion's own dialogs, and that whether the wallet asks too depends on the wallet.
