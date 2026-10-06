@@ -76,11 +76,13 @@ never been seen red is not evidence.
 
 ### 4. Gates
 
+The full gate runs on the PR's CI; `npm test` and `npm run test:run` refuse locally (`LEGION_LOCAL_GATE=1` overrides, only with the maintainer's OK). CI runs:
+
 ```
 npm ci && npm run build:ts && npm run test:run && npm run typecheck:ui && npm run build:ui
 ```
 
-Report **exact counts**. One gate at a time: `npm test` clobbers `dist/`, so never run `tsc` or `build:ui` while a
+Report **exact counts** from the CI run. One gate at a time: `npm test` clobbers `dist/`, so never run `tsc` or `build:ui` while a
 suite is in flight. Never pipe a backgrounded npm build (`| tail -N` makes the child's stdin a non-tty and its child
 scripts die).
 
