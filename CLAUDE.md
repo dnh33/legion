@@ -16,7 +16,15 @@ You cannot run Windows, a real Blender, a real wallet, Electron's native dialogs
 
 ## Gates (run before you say done)
 
-`npm ci && npm run build:ts && npm run test:run && npm run typecheck:ui && npm run build:ui`. Report exact counts. A builder's own report is never the proof: an independent reviewer re-runs everything and tries to refute it (default "not fixed"). Every new test needs a negative: show by a temporary scratch mutation of the code, then revert, that it fails.
+The full gate runs on the PR's CI (`.github/workflows/ci.yml`: sharded `node --test` on Windows, Linux and macOS, plus typecheck and the UI build), never on your PC: `npm test` and `npm run test:run` refuse without `CI` or `LEGION_LOCAL_GATE=1`, and you do not set that variable to get around it. Locally run `npm run build:ts`, `npm run typecheck:ui` and the single test files you touched (`node --test dist/test/<name>.test.js`). Push your branch, open a PR, and report the CI run's counts. (The chain CI mirrors: `npm ci && npm run build:ts && npm run test:run && npm run typecheck:ui && npm run build:ui`.) Report exact counts. A builder's own report is never the proof: an independent reviewer re-runs everything and tries to refute it (default "not fixed"). Every new test needs a negative: show by a temporary scratch mutation of the code, then revert, that it fails.
+
+## Clean up and use CI (every session and subagent)
+
+- The full gate runs on the PR's CI, never locally: `npm test` refuses. Run single files: `node --test dist/test/<name>.test.js`.
+- Stop every process you start (dev servers, harness, test runners, Playwright) before you finish. Kill by PID, never by name pattern.
+- Run `npm run tidy` (report only) before reporting done. Use `--apply` only for your own leftovers or with the maintainer's OK.
+- When your PR is merged, remove your worktree and branch (`npm run tidy -- --apply` does it for merged, clean ones). Remove a `node_modules` junction by the link only.
+- Never touch another session's worktree or processes: tidy lists only merged, clean worktrees and old dev leftovers.
 
 ## Hard rules (do not weaken to make something pass)
 

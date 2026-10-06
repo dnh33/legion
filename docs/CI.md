@@ -70,6 +70,8 @@ Moving the suite onto clean machines found three real bugs and several environme
 
 ## Running the same thing locally
 
+The full suite is meant to run on CI: `npm test` and `npm run test:run` refuse locally unless `LEGION_LOCAL_GATE=1` is set. CI itself calls `node --test` directly and sets `CI`.
+
 ```bash
 npm ci && npm run build:ts && npm run test:run && npm run typecheck:ui && npm run build:ui
 ```
