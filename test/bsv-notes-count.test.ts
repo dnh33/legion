@@ -1,5 +1,5 @@
 /**
- * The title-bar number ("<n> BSV notes") and its explanation, against a REAL Graph with the bundled pack (163 notes, version 8) and the bsv
+ * The title-bar number ("<n> BSV notes") and its explanation, against a REAL Graph with the bundled pack (163 notes, version 9) and the bsv
  * scope enabled. Every way the number can differ from 163 is one test: deleted, merged, archived, superseded, held, moved out of scope, purged,
  * the pack not loaded or only partly, an older installed pack version, notes the owner added, a restore, a failed or malformed count.
  * The old figure (`stats.byScope.bsv`, which counts retired notes too) is compared side by side so the difference is visible.
@@ -34,20 +34,20 @@ const statsBsv = (g: ReturnType<typeof mkGraph>['g']) => g.stats(HUMAN).byScope.
 const identity = (s: KnowledgeSummary) => assert.equal(s.packActive + s.retired + s.moved + s.removed + s.notLoaded, s.bundled.count, JSON.stringify(s));
 const PICK = (i: number) => IDS.filter((id) => id !== 'bsv-curriculum-index')[i]!;
 
-test('the bundled pack is 163 notes, version 8 (the number the summary compares against)', () => {
+test('the bundled pack is 163 notes, version 9 (the number the summary compares against)', () => {
   assert.equal(PACK.nodes.length, 163);
-  assert.equal(PACK.version, 8);
+  assert.equal(PACK.version, 9);
   assert.equal(JSON.parse(readFileSync(new URL('../../src/core/kg/seeds/bsv.json', import.meta.url), 'utf8')).nodes.length, 163);
 });
 
 test('fresh seed: 163 live notes, nothing removed, added or missing; the old figure agrees', () => {
   const { g } = seeded();
   const s = sum(g);
-  assert.deepEqual({ n: s.inGraph, b: s.bundled, a: s.removedOrMerged, add: s.added, miss: s.missing, v: s.loadedVersion }, { n: 163, b: { count: 163, version: 8 }, a: 0, add: 0, miss: 0, v: 8 });
+  assert.deepEqual({ n: s.inGraph, b: s.bundled, a: s.removedOrMerged, add: s.added, miss: s.missing, v: s.loadedVersion }, { n: 163, b: { count: 163, version: 9 }, a: 0, add: 0, miss: 0, v: 9 });
   assert.equal(statsBsv(g), 163);
   identity(s);
   assert.equal(knowledgeShort(s.inGraph, s), '163 BSV notes');
-  assert.match(knowledgeExplain(s), /^bundled pack: 163 notes \(version 8\); in your graph: 163; removed or merged by you or a bot: 0; added by you: 0; missing: 0$/);
+  assert.match(knowledgeExplain(s), /^bundled pack: 163 notes \(version 9\); in your graph: 163; removed or merged by you or a bot: 0; added by you: 0; missing: 0$/);
 });
 
 test('the owner deletes pack notes: the number drops by exactly that many, the ids are on the missing list, and the explanation says so', () => {
@@ -145,7 +145,7 @@ test('a partly loaded pack (a crash half way, or an old small pack) shows the ga
   assert.match(knowledgeExplain(s), /installed pack version: 1.*79 not loaded yet/);
   applySeedPack(g, PACK);
   assert.equal(sum(g).inGraph, 163);
-  assert.equal(sum(g).loadedVersion, 8);
+  assert.equal(sum(g).loadedVersion, 9);
 });
 
 test('an older installed pack version with all notes present: the count is 163 but the explanation names the version', () => {

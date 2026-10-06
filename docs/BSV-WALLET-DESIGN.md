@@ -11,7 +11,7 @@ Plain summary (as first written, before rung 3 was built; see the status above):
 | 0 | Read the knowledge pack and explain BSV | Built (v0) |
 | 1 | `bsv_status`: ask a loopback wallet four harmless questions (version, network, signed in, block height) | Built (this release) |
 | 2 | Human-approved reads: one card per read, for example "total of spendable outputs" | Design only |
-| 3 | Manual testnet spend: a two-stage flow, Legion's card first, then the wallet's own prompt | Built and merged, tested against fake wallets only; not verified against a real wallet (order of steps differs from section 4: the wallet builds the unsigned transaction first, Legion decodes it, then the dialogs, then signing) |
+| 3 | Manual testnet spend: Legion's card as the per-spend gate, the wallet's own check as a second one (when and whether it asks depends on the wallet, section 10) | Built and merged, tested against fake wallets only; not verified against a real wallet (order of steps differs from section 4: the wallet builds the unsigned transaction first, Legion decodes it, then the dialogs, then signing) |
 | 4 | Mainnet | Built behind a hard-off switch that ships OFF (`claude/plan-bsv-rung3.md` section 12): per-network limits, one Arm per spend, an extra LIVE FUNDS dialog. Not verified with real funds; the owner's check R0 to R11 comes first |
 
 Each rung adds a tool name, an allowlist entry in `test/bsv-scan.ts`, and a new owner review. The tripwire fails the build if wallet vocabulary appears anywhere else, so a rung cannot arrive by accident.
@@ -50,7 +50,7 @@ Proposed tool: `bsv_balance` (name to be added to the tripwire allowlist with it
 
 - Input: none. Output: `{ network, totalSats, outputCount }` computed inside Legion. Legion calls the wallet's output-listing method for the default basket, sums the satoshis, and throws the rest away in the same function. No outpoint, locking script, tag, label or custom instruction is ever returned, logged or stored.
 - Every call is gated by a card (in the app, one call at a time, no "always allow"): "The Assayer wants to read the total and the count of spendable outputs in your wallet." Denied after 120 s with no answer.
-- The wallet may prompt as well. That is unverified (section 11). Legion's card never replaces the wallet's prompt, and Legion never presses it.
+- The wallet may prompt as well. That is unverified (section 11; for spends see the update in section 10). Legion's card never replaces the wallet's prompt, and Legion never presses it.
 - It refuses unless a fresh status probe says the wallet is on testnet. A mainnet wallet never gets this call.
 - The run is tainted by the answer, like any outside content.
 - Audit: agent, task, tool, decision, and the rounded result class (none, some), never the amount's source data.
@@ -74,7 +74,7 @@ Preconditions, all checked by code, in this order, and each recorded in the audi
 
 Stage 1, Legion's card. The card is built from the decoded transaction. The decision is made by the owner in a native dialog (the same mechanism as arming: main reads the card from the core by id, words the dialog itself, Cancel is the default). A run that read untrusted content needs one more explicit confirmation ("untrusted-content"), shown as a second button press, not a tick box. Expires in 120 s.
 
-Stage 2, the wallet's own prompt. Only after stage 1, Legion asks the wallet to create exactly the transaction the card showed, bound by the card's hash. The wallet shows its own prompt and the owner approves there. Legion never approves a wallet prompt for the owner and never asks for a standing grant (no monthly limit, no auto-pay; the pack lesson `bsv-wallet-choice` says the same). Legion has its own deadline (proposed 120 s). When it passes, the outcome is "unknown", not "failed".
+Stage 2, the wallet's own check, if the wallet makes one. Only after stage 1, Legion asks the wallet to create exactly the transaction the card showed, bound by the card's hash. Whether the wallet asks here depends on the wallet (section 10: wallets built on wallet-toolbox ask at the build step instead, once per spending grant). Legion never approves a wallet prompt for the owner and never asks for a standing grant; if the wallet asks for one, the owner keeps it one-time if offered, else at or below Legion's caps, and never turns on auto-pay (section 10, owner decision 2026-10-06). Legion has its own deadline (proposed 120 s). When it passes, the outcome is "unknown", not "failed".
 
 After the wallet answers, Legion records the transaction id, settles the reservation, writes the audit entry, and tells the agent only the transaction id and a status word.
 
@@ -115,7 +115,7 @@ Actors and entry points:
 
 | Threat | What blocks it | Residual |
 |---|---|---|
-| Prompt injection from chain data or a web page asks the agent to pay | The spend tool exists (rung 3, tested against fakes only): allowlist, caps, card, native dialogs, wallet prompt; a tainted run needs an extra confirmation | The owner can still approve a bad card. Mitigated by tiny caps and an exact allowlist, not eliminated |
+| Prompt injection from chain data or a web page asks the agent to pay | The spend tool exists (rung 3, tested against fakes only): allowlist, caps, card, native dialogs, and whatever the wallet checks (it depends on the wallet); a tainted run needs an extra confirmation | The owner can still approve a bad card. Mitigated by tiny caps and an exact allowlist, not eliminated |
 | Injection asks the agent to reveal a key or seed | Keys never enter Legion; the preamble forbids it; comms refuse seed phrases; the scrubber redacts keys and seed phrases | A bot can still be talked into pasting something it read elsewhere; the redactor knows English BIP-39 only |
 | Injection tries to change policy (arm, raise a cap) | Needs the admin secret and the native secret and a native dialog; the MCP token reaches none of it | A same-user process can read memory (below) |
 | Malicious text in the audit log or a card (newlines, bidi, zero width) | Every field is sanitised on write and again on display; the log is JSON lines, one entry per line | None known |
@@ -128,8 +128,8 @@ Actors and entry points:
 | Approval fatigue | No always-allow, tiny defaults, a calm single card, freeze one click away | A person can still click through; that is human |
 | A compromised window page fakes a card or presses approve | Approvals come from a native dialog worded by main from data main read itself | A same-user process can click the native dialog |
 | Stolen MCP token | Opens only client routes; the one BSV route is Freeze, which can only stop things | None for BSV beyond a nuisance freeze |
-| Same-user malware | Nothing in Legion can stop it (it can read memory, edit files, click dialogs, rewrite the audit log, call the wallet on 3321) | Real. Only a VM or a separate OS account stops it, and the wallet's own prompts are the last gate |
-| A funded mainnet wallet on the owner's PC | Mainnet is built and OFF by default: a wallet that claims mainnet is refused (`mainnet-disabled`) until the owner turns the switch on in the app, then each spend needs an Arm, the card, an extra LIVE FUNDS dialog and the wallet's own prompt; no balance or output reads exist; not verified with real funds | Any local program, including a bot with a shell, can call the wallet directly. The wallet's permission prompts and a small float are the defence |
+| Same-user malware | Nothing in Legion can stop it (it can read memory, edit files, click dialogs, rewrite the audit log, call the wallet on 3321) | Real. Only a VM or a separate OS account stops it, and what remains is whatever the wallet itself checks (it depends on the wallet) |
+| A funded mainnet wallet on the owner's PC | Mainnet is built and OFF by default: a wallet that claims mainnet is refused (`mainnet-disabled`) until the owner turns the switch on in the app, then each spend needs an Arm, the card, an extra LIVE FUNDS dialog and whatever the wallet asks (it depends on the wallet); no balance or output reads exist; not verified with real funds | Any local program, including a bot with a shell, can call the wallet directly. The wallet's permission prompts and a small float are the defence |
 | Probe retargeted by editing `config.json` (`bsv.walletUrl`) | Loopback only, no path or redirect, harmless fixed body; no default address; nothing is contacted until the owner presses Connect, and the native dialog names the address that will be used | A bot with file access can change the saved address, and the owner may confirm it without looking: four POSTs of `{}` then go to another loopback service. Low impact |
 | Clock tricks against the arming expiry | Monotonic and wall clock must both agree | A suspended machine may make the monotonic clock lag; the earlier end wins, so it fails safe |
 | Audit log tampering | Hash chain, in-memory head, head anchor file (catches a cut-off, emptied or replaced log at the next start), first-sequence detection, startup verification, freeze on failure | Tamper-evident, not tamper-proof: a same-user program can rewrite the whole file and every hash |
@@ -190,6 +190,31 @@ To add before rung 2 or 3 ships (each is a release gate; one failing adversarial
 ## 10. What would make me refuse to build rung 3
 
 If BSV Desktop's own prompts turn out to be silent for the methods Legion needs (so that Legion's card is the only gate), or if its permission grants can be made persistent by an unsuspecting click, rung 3 should wait for a different wallet or a different design. Verify first with a throwaway testnet wallet in a VM, never the owner's funded one.
+
+**Update 2026-10-06: this condition is met on paper for wallets built on wallet-toolbox.** Read in `bsv-blockchain/wallet-toolbox` master,
+`src/WalletPermissionsManager.ts` (BSV Desktop, `bsv-blockchain/bsv-desktop` master, builds it in `src/lib/services/PermissionQueueManager.ts:955`,
+with `seekSpendingPermissions: true` by default in `src/lib/WalletContext.tsx`):
+`createAction` (L3989) forces signing off for a non-admin caller, computes the net spend and calls `ensureSpendingAuthorization` (L4196);
+that returns without a prompt for an admin originator, when the wallet setting `seekSpendingPermissions` is off, or when the spend fits
+inside a stored grant for the originator (`spentSoFar + satoshis <= authorizedAmount`, L1505-1510, summed per calendar month); otherwise it
+asks for a new or renewed grant. A one-time ("ephemeral") grant exists in the code (L848). `signAction` (L4229) passes straight through.
+So in Legion's flow the wallet asks, if at all, at the build step BEFORE Legion's card, and after one grant it does not ask again inside it.
+The owner decided (2026-10-06) to keep rung 3 and reframe it rather than pause: Legion's own native dialogs are the per-spend gate, and the
+wallet's grant is a second check, which the owner keeps one-time if the wallet offers that, or at or below Legion's caps. The dialogs, the
+panel and `docs/BSV-MODE.md` say so; checks W1 to W5 in `claude/tracker-pc-checks.md` record what each real wallet does. Not verified on a
+real wallet: the shipped BSV Desktop build may differ from master, and its prompt texts and grant choices are unknown.
+
+### Later: the policy in the wallet (BRC-181, BRC-204)
+
+Today the caps, the allowlist and the audit log live in Legion, so every agent app rebuilds them. Two BRCs put that in the wallet. If a
+wallet Legion supports implements one of them, Legion's card becomes a second check on top of the wallet's policy. Nothing of this is
+built in Legion.
+
+| | Documented fact (source) | Assumption (and the check that proves it) | Unknown |
+|---|---|---|---|
+| BRC-181, Wallet-Enforced Autonomous-Agent Spend Policy (RexStarBSV) | `bsv-blockchain/BRCs` `wallet/0181.md`, on master since 2026-09-22. A signed `PolicyRecord` (`brc-181/agent-policy/1`): `per_tx_cap`, `period_cap` with `period_window_s`, `max_fee`, `total_budget`, `dest_allowlist`, `dest_caps`, rate limit, expiry, `purpose` shown in the audit log, circuit breakers, escalation to the attended path. The agent is identified by an `X-Agent-Token` bearer token, not by the `Originator`/`Origin` header ("forgeable"); spends come from an isolated BRC-42/43 agent account whose balance is the hard cap. No new wallet methods. | A wallet that implements it would let Legion drop its own caps to a second check (a test against that wallet's own implementation) | No public implementation found in wallet-toolbox or bsv-desktop (2026-10-06); the spec mentions a non-public reference implementation |
+| BRC-204, Agent Allowances (Ruth Heasman) | `wallet/0204.md`, merged in PR #301 on 2026-10-05, the file still says "Draft, for discussion". The agent holds its own BRC-42-derived key; the allowance is an output `OP_IF <agent key> OP_CHECKSIG OP_ELSE <owner key> OP_CHECKSIG OP_ENDIF`, so the agent can lose at most what is in it, and the owner can sweep it. `permittedPayees` is advisory and the script does not enforce the expiry. Uses existing BRC-100 methods; "None yet" for implementations. | Fits a later Legion mode in which an agent spends from its own small allowance with no per-spend dialog (a design review first; keys would then live in an agent, which today's rules forbid) | Which wallets will fund and sweep allowances; how receipts reach Legion |
+| BRC-100 originator | `originator` is the "fully-qualified domain name" of the calling app, optional on every method; nothing for local apps outside a browser. BRC-5: a Node client may set `Origin` and `Originator` itself. BSV Desktop `src/onWalletReady.ts` (`parseOrigin`) takes the `origin` header, else `originator`. | Any local program can claim `legion.local` and use a grant the owner gave Legion (already in the threat model as same-user malware) | Whether other wallets on 3321 treat originators differently (W5) |
 
 ## 11. What is unverified
 

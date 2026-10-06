@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Modal } from '../components/Modal';
 import { request } from '../api';
-import { auditLine, formatCountdown, heightText, knowledgeExplain, knowledgeShort, KNOWLEDGE_STALE_MS, mainnetState, netRows, remainingMs, safeLine, spendModel, walletHeadline } from '../../../src/shared/bsv-view';
+import { auditLine, BSV_PREVIEW_FEEDBACK, BSV_PREVIEW_NOTICE, BSV_PREVIEW_TITLE, formatCountdown, heightText, knowledgeExplain, knowledgeShort, KNOWLEDGE_STALE_MS, mainnetState, netRows, remainingMs, safeLine, spendModel, walletHeadline } from '../../../src/shared/bsv-view';
 import type { NetRow, PolicyView } from '../../../src/shared/bsv-view';
 import { toast } from '../store';
 import { canChangePolicy, changePolicy, checkWallet, closeBsvPanel, connectWallet, disconnectWallet, loadAudit, restoreBundledNotes, useBsv } from './bsvStore';
@@ -74,7 +74,7 @@ function ArmSection({ p }: { p: PolicyView }) {
           ? <button type="button" className="btn" disabled={!bridge || !p.nativeAvailable || changing} onClick={() => void changePolicy({ kind: 'unfreeze' })}>Unfreeze&hellip;</button>
           : <button type="button" className="btn-ghost bsv-freeze-btn" disabled={!bridge || changing} onClick={() => void changePolicy({ kind: 'freeze' })}>Freeze chain</button>}
       </div>
-      <p className="bsv-fine">Allowing mainnet, arming and unfreezing open a native confirmation from the app, which this window cannot answer for you. Switching mainnet off, Disarm and Freeze act at once. Arming covers exactly one mainnet spend, and each spend still needs your dialogs and then your wallet&apos;s own prompt, which is the last gate. <b>Testnet spends do not need Arm.</b> Legion&apos;s mainnet path has not been checked with real funds.</p>
+      <p className="bsv-fine">Allowing mainnet, arming and unfreezing open a native confirmation from the app, which this window cannot answer for you. Switching mainnet off, Disarm and Freeze act at once. Arming covers exactly one mainnet spend, and each spend still needs your dialogs; treat the last one as the last check. Whether your wallet asks too depends on the wallet. <b>Testnet spends do not need Arm.</b> Legion&apos;s mainnet path has not been checked with real funds.</p>
     </section>
   );
 }
@@ -231,7 +231,8 @@ export function BsvPanel() {
   return (
     <Modal title="BSV mode" width={640} onClose={closeBsvPanel} footer={<><span style={{ flex: 1 }} /><button type="button" className="btn-ghost" data-autofocus onClick={closeBsvPanel}>Close</button></>}>
       <div className="bsv-panel">
-        <p className="bsv-lead"><span className="bsv-badge" data-net={mn.enabled ? 'main' : 'test'}>{mn.enabled ? (mn.armed ? 'MAINNET ARMED' : 'MAINNET ON, not armed') : 'TESTNET'}</span> The Assayer can explain, draft and review, can ask whether a wallet is there, and can ask for one payment. <b>{'Legion\'s own code holds no keys: a payment needs your confirmation in native dialogs and then your wallet\'s own prompt.'}</b> An agent&apos;s ordinary tools (a shell, web access) are outside that statement: they are limited by their own approval cards, not by anything on this panel.</p>
+        <p className="bsv-preview" role="note" data-preview-notice><b>{BSV_PREVIEW_TITLE}.</b> {BSV_PREVIEW_NOTICE} {BSV_PREVIEW_FEEDBACK}</p>
+        <p className="bsv-lead"><span className="bsv-badge" data-net={mn.enabled ? 'main' : 'test'}>{mn.enabled ? (mn.armed ? 'MAINNET ARMED' : 'MAINNET ON, not armed') : 'TESTNET'}</span> The Assayer can explain, draft and review, can ask whether a wallet is there, and can ask for one payment. <b>{'Legion\'s own code holds no keys: a payment needs your confirmation in native dialogs; whether your wallet asks too depends on the wallet. If it asks for a spending grant, choose one-time if it offers that, or a limit no higher than Legion\'s caps.'}</b> An agent&apos;s ordinary tools (a shell, web access) are outside that statement: they are limited by their own approval cards, not by anything on this panel.</p>
         <WalletSection />
         <KnowledgeSection />
         {p && <SpendSection p={p} />}

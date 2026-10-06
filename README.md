@@ -10,7 +10,7 @@
 [![Node](https://img.shields.io/badge/node-%E2%89%A520.10-informational)](package.json)
 [![License: Apache-2.0](https://img.shields.io/github/license/dnh33/legion)](LICENSE)
 
-[Status](#status) · [Install](#install) · [Orchestrate over MCP](#orchestrate-from-claude-code-or-cowork) · [Legion in Claude Code](#legion-in-claude-code-coming-soon) · [Architecture](docs/ARCHITECTURE.md) · [Contributing](CONTRIBUTING.md)
+[Status](#status) · [Install](#install) · [Orchestrate over MCP](#orchestrate-from-claude-code-or-cowork) · [Architecture](docs/ARCHITECTURE.md) · [Contributing](CONTRIBUTING.md)
 
 </div>
 
@@ -20,11 +20,13 @@ Legion is in beta: expect rough edges and the odd bug. This is the one place for
 
 - **Releases:** prebuilt Windows releases are on [GitHub Releases](https://github.com/dnh33/legion/releases). A release install updates itself ([Updates](#updates)).
 - **Tested:** the automated tests cover the core, app, agents, rooms, Library, board, MCP, approvals, updater and installer. Every push runs all of them on Windows, Ubuntu and macOS ([how CI works](docs/CI.md)).
-- **Not yet tried on a real PC:** the project board and the browser tool.
+- **Project board:** in daily use on the maintainer's PC. Screen-reader, display-scale and crash checks are still open.
+- **Browser tool:** built and tested; agents have not used it on a real PC yet. Web search today goes through Claude's own search tool.
 - **BSV mode:** tested against fake wallets only. Mainnet is built and OFF until you switch it on.
 - **Blender bridge:** built, but not yet tried on a real Blender or in a real VM.
 - **Installer:** not code-signed and not widely tested. Expect SmartScreen or antivirus prompts.
-- **Models:** Claude by default, plus OpenRouter with your own key. Codex and local endpoints are under [Later](#later).
+- **macOS and Linux:** dev install only. The automated tests run on Windows, Linux and macOS in CI; the maintainer uses Windows.
+- **Models:** Claude by default, plus OpenRouter with your own key. You can also add an address of your own for any server that speaks the OpenAI chat-completions format, such as vLLM or LM Studio. Presets for OpenAI, Ollama, LM Studio and vLLM, and Codex, are under [Later](#later).
 
 <details><summary>Details</summary>
 
@@ -32,7 +34,7 @@ Legion is in beta: expect rough edges and the odd bug. This is the one place for
 - BSV mode has a read-only status check of a wallet on this computer, plus one spend tool that asks the wallet to pay only after your confirmations in native dialogs (testnet and mainnet). It is not verified against a real wallet or with real funds yet, until your checks are recorded. Legion has never been pointed at your funded wallet by its own code, tests or agents.
 - The installer has not yet run on a wide range of Windows machines. Expect Windows SmartScreen or antivirus prompts for `.cmd` files.
 - Updates are a separate matter from the installer: each one is checked against the maintainer's signature before it is applied.
-- With OpenRouter, add your own key and run any model.
+- With OpenRouter, add your own key and run any model. An agent on another provider gets Legion's own tools, not Claude Code's file, shell or web tools; Settings, Providers lists what it cannot do.
 
 </details>
 
@@ -41,7 +43,7 @@ Legion is in beta: expect rough edges and the odd bug. This is the one place for
 Legion runs several Claude agents from one desktop app, on your own machine.
 
 - Each agent has its own persona, model policy, approval mode and working directory.
-- An agent can start a cloud Ubuntu VM on [boat.dev](https://boat.dev) when a task needs one.
+- An agent can start a cloud VM on [boat.dev](https://boat.dev) when a task needs one.
 - Legion uses the Claude Code account you are signed in to: no extra logins or keys.
 - Claude Code and Cowork can drive Legion too, over MCP.
 
@@ -49,7 +51,7 @@ Legion runs several Claude agents from one desktop app, on your own machine.
 
 - A small Node service on `127.0.0.1` does the work, and an Electron window sits on top.
 - Agents run through the official Claude Agent SDK. Every existing agent runs on a Claude model by default.
-- OpenRouter is a second provider: add your own key and run any model. Codex and other local/custom endpoints come later (see [Later](#later)).
+- OpenRouter is a second provider: add your own key and run any model. Settings, Providers also takes an address of your own for a server that speaks the OpenAI chat-completions format. Presets for OpenAI, Ollama, LM Studio and vLLM, and Codex, come later (see [Later](#later)).
 
 </details>
 
@@ -226,14 +228,15 @@ The ten that join the originals:
 
 ## BSV mode
 
-- **Off by default.** Turn it on in Settings.
+- **Testing preview.** Tested with fake wallets only, not yet with a real wallet or real funds: use a testnet wallet with test coins. Feedback and ideas are very welcome ([CONTRIBUTING.md](CONTRIBUTING.md)).
+- **Off by default.** Turn it on with the BSV switch in the title bar.
 - It shows the Assayer, loads a BSV knowledge pack and can check a wallet's status, read-only.
-- One spend tool, `bsv_spend_request`: you confirm each payment in native dialogs, then in the wallet's own prompt.
+- One spend tool, `bsv_spend_request`: you confirm each payment in native dialogs; whether your wallet asks too depends on the wallet.
 - Mainnet ships OFF; only you can turn it on, in the app. Not yet tried for real: see [Status](#status).
 
 <details><summary>Details</summary>
 
-An optional toggle in Settings, off by default. It shows the Assayer bot, loads a read-only BSV knowledge pack into the Lattice (163 notes) and gives the Assayer a short preamble. It can run a read-only status check of a wallet on this computer (four harmless questions to an address you type; the answer is the wallet's own claim). Legion's own code also has one spend tool, `bsv_spend_request`: it asks your wallet to build a transaction, Legion decodes it itself, you read native dialogs (amount, the full address, the network, the fee, the limits left), and only then is the wallet asked to sign; the wallet's own prompt is the last gate. It works on testnet and on mainnet. **Mainnet is built behind a hard-off switch that ships OFF**: only you turn it on, in the app, and each mainnet spend needs its own Arm and an extra dialog. Limits are tiny by default and per network, the recipient list starts empty, and an outcome Legion cannot confirm blocks every spend until you resolve it. Legion's own code holds no key and does no signing or broadcasting itself. An agent's ordinary tools (a shell, a web fetch) are outside all of this and rest on their approval cards. The Assayer is an ordinary agent: in `ask` mode its shell commands and file edits need your approval, while web fetch and read-only tools run without a prompt. **The spend tool was built and tested against fake wallets only and has not been verified against a real wallet or with real funds until your checks are recorded**; Legion has never been pointed at your funded wallet by its own code, tests or agents. See [docs/BSV-MODE.md](docs/BSV-MODE.md) for what it is and is not.
+An optional switch in the title bar, off by default. It shows the Assayer bot, loads a read-only BSV knowledge pack into the Lattice (163 notes) and gives the Assayer a short preamble. It can run a read-only status check of a wallet on this computer (four harmless questions to an address you type; the answer is the wallet's own claim). Legion's own code also has one spend tool, `bsv_spend_request`: it asks your wallet to build a transaction, Legion decodes it itself, you read native dialogs (amount, the full address, the network, the fee, the limits left), and only then is the wallet asked to sign; whether the wallet asks too depends on the wallet (see docs/BSV-MODE.md). It works on testnet and on mainnet. **Mainnet is built behind a hard-off switch that ships OFF**: only you turn it on, in the app, and each mainnet spend needs its own Arm and an extra dialog. Limits are tiny by default and per network, the recipient list starts empty, and an outcome Legion cannot confirm blocks every spend until you resolve it. Legion's own code holds no key and does no signing or broadcasting itself. An agent's ordinary tools (a shell, a web fetch) are outside all of this and rest on their approval cards. The Assayer is an ordinary agent: in `ask` mode its shell commands and file edits need your approval, while web fetch and read-only tools run without a prompt. **The spend tool was built and tested against fake wallets only and has not been verified against a real wallet or with real funds until your checks are recorded**; Legion has never been pointed at your funded wallet by its own code, tests or agents. See [docs/BSV-MODE.md](docs/BSV-MODE.md) for what it is and is not.
 
 </details>
 
@@ -246,8 +249,8 @@ An optional toggle in Settings, off by default. It shows the Assayer bot, loads 
 
 <details><summary>Details</summary>
 
-- The default is `claude.auth: "claude-login"`. To pay by API key instead, set `claude.auth` to `api-key` and provide one.
-- Legion never reads, copies or stores your Claude credentials. It removes `ANTHROPIC_API_KEY` from the child environment, so your login is the one used.
+- The default is `claude.auth: "claude-login"`. To pay by API key instead, choose it in Settings, Claude (or set `claude.auth` to `api-key` and provide one). That key is then kept in `config.json`.
+- With the default sign-in, Legion's own code never reads, copies or stores your Claude login. It removes `ANTHROPIC_API_KEY` from the child environment, so your login is the one used.
 - Do not put Legion behind a shared endpoint, or pass your subscription through it to anyone else.
 - Anthropic's terms can change.
 
@@ -255,8 +258,8 @@ An optional toggle in Settings, off by default. It shows the Assayer bot, loads 
 
 ## Requirements
 
-- **Claude Code, signed in:** run `claude`, then `/login`. You need a Claude subscription or an API key.
-- **Windows 10/11** is the primary target. macOS and Linux work from a dev install. Installer caveats: [Status](#status).
+- **A Claude sign-in:** a Claude subscription or an API key. You do not need to install Claude Code: Legion runs the `claude` program that comes with the Claude Agent SDK. To sign in once, run `claude` and type `/login`, or on a release install run `scripts\legion-claude.cmd` and type `/login`.
+- **Windows 10/11** is the primary target. macOS and Linux run from a dev install. Caveats: [Status](#status).
 - **Node.js 20.10 or newer, for a source install only.** The release package brings its own runtime.
 - **Optional:** a [boat.dev](https://boat.dev) account and API key for agent VMs.
 
@@ -323,7 +326,7 @@ npm start          # builds, then opens the desktop app
 
 ## Updates
 
-- A release install updates itself: click **Update**, then **Restart and install**.
+- A release install updates itself: click **Download update**, then **Restart and install**.
 - Legion checks GitHub on launch and on a schedule. Turn the check off in Settings, About.
 - A git checkout only gets a notice. Update it with `git pull`, `npm ci` and `npm run build`.
 
@@ -356,22 +359,22 @@ npm start          # builds, then opens the desktop app
 VMs are optional. Without a key, agents work locally.
 
 1. Create an API key in the boat.dev dashboard.
-2. Put it in `config.json` as `"boat": { "apiKey": "…" }`, or set the `BOAT_API_KEY` environment variable.
+2. Paste it in Settings, boat.dev (VMs), and press **Test**. Or put it in `config.json` as `"boat": { "apiKey": "…" }`, or set the `BOAT_API_KEY` environment variable.
 3. Optional, for `vm_claude` (Claude Code in the agent's VM): connect your Claude subscription once on boat's **Agents** dashboard.
-4. Restart Legion, and enable the VM in an agent's settings.
+4. Enable the VM in an agent's settings.
 
 VMs cost money while they run. Legion stops them after 15 idle minutes by default (configurable).
 
 <details><summary>Details</summary>
 
 - The step 3 sign-in goes through Anthropic's own flow, not through Legion.
-- Agents get `vm_start`, `vm_exec`, `vm_write_file`, `vm_read_file`, `vm_claude`, `vm_desktop` and `vm_stop`.
+- Agents get `vm_start`, `vm_exec`, `vm_write_file`, `vm_read_file`, `vm_claude`, `vm_desktop`, `vm_usage` and `vm_stop`.
 
 </details>
 
 ## Orchestrate from Claude Code or Cowork
 
-1. Run `npm run mcp-config`. It prints ready-to-paste snippets with your real token.
+1. Run `npm run mcp-config` (a release install: `scripts\legion-mcp-config.cmd` in the install folder). It prints ready-to-paste snippets with your real token.
 2. Paste the snippet for your client (below).
 3. Ask, for example: *"Use legion_run with Builder to scaffold the site in its VM, then summarise."*
 
@@ -390,7 +393,7 @@ claude mcp add --transport http legion http://127.0.0.1:4747/mcp \
 "legion": { "command": "node", "args": ["/path/to/legion/dist/src/bin/legion-mcp-stdio.js"] }
 ```
 
-The bridge starts Legion Core headless if the app is not running.
+The bridge starts Legion Core headless if the app is not running. A release install has no system Node: use the snippet that `legion-mcp-config.cmd` prints for it.
 
 <details><summary>Details</summary>
 
@@ -410,41 +413,10 @@ The MCP tools:
 | `legion_continue` | Follow up on a finished task in the same session. |
 | `legion_status` | Task status, result and recent messages. |
 | `legion_cancel` | Cancel a queued or running task. |
-| `legion_vm` | Check, start, stop, exec in, or get the desktop URL of an agent's VM. |
+| `legion_vm` | Check, start, stop, exec in, see usage of, or get the desktop URL of an agent's VM. |
 | `legion_recent_tasks` | List recent tasks. |
-
-</details>
-
-## Legion in Claude Code (coming soon)
-
-**Not published yet.** This section describes the plan; names and steps can change before release.
-
-This is for people who want Legion's agent orchestration but not a desktop app: they work in Claude Code in a terminal. The Legion mod rebuilds Legion as a Claude Code mod, with Claude Code itself as the engine. There is no Legion core, port or token.
-
-- **The Order.** Legion's agents run as Claude Code subagents, and Zealot leads and delegates. (The Assayer and the Sculptor stay desktop-only, with BSV mode and Blender.)
-- **Tasks.** Each run is a task you can follow, stop and continue, with Legion's model routing and turn limit.
-- **Approvals** go through Claude Code's own permission dialog, worded by Legion. Each agent's approval mode (`ask`, `auto-edits`, `full`) sets the baseline, and Legion can only add cards on top of it. Legion's own code does not set `bypassPermissions`.
-- **A Legion panel.** `/legion` opens an extra panel inside Claude Code with a Chat view and an Order view, and a short band above the prompt shows what needs you. Claude Code's own screen stays as it is, and its prompt stays your composer.
-- **Pixel busts (optional).** The painted busts, drawn in terminal cells. Off by default.
-- **Also planned:** the Library (shared memory), rooms, projects and the board, shared by every terminal window.
-- **Desktop only:** VMs, Blender, BSV mode and OpenRouter.
-
-It is planned to run in the terminal and in the Claude Code desktop app's Code tab.
-
-**Install (not available yet).** Once published, add the marketplace, then install the plugin, in a Claude Code session:
-
-```text
-/plugin marketplace add dnh33/legion-mod
-/plugin install legion@legion
-```
-
-The plugin `legion` installs its helper `legion-runner` with it.
-
-<details><summary>Details</summary>
-
-- The planned names are marketplace `legion` (repository `dnh33/legion-mod`) and plugin `legion`.
-- In a session, `/plugin install` opens the plugin's details so you can choose a scope first.
-- From your shell, `claude plugin marketplace add` and `claude plugin install` take the same arguments.
+| `legion_projects` | List projects, or read one (read only). |
+| `legion_board_read` | Read the work items of a project's board (read only). |
 
 </details>
 
@@ -504,12 +476,12 @@ Environment variables: `LEGION_HOME` (data directory), `LEGION_PORT`, `LEGION_NO
 - `authToken` serves the MCP clients (Claude Code, Cowork, curl): `/mcp`, state reads, starting and cancelling tasks, and the event stream. It cannot approve or change settings; the per-launch admin secret that does is never stored. Tasks it starts run under an `ask` ceiling and cannot write working memory or trusted notes.
 - `claude-login` uses your Claude Code account.
 - `claude.inheritClaudeCodeSettings` covers your user and project settings.
-- `claude.inheritMcp` also covers plugins' MCP servers and claude.ai connectors. With the default `false`, a run gets Legion's own server and the servers listed in Settings -> MCP.
+- `claude.inheritMcp` also covers plugins' MCP servers and claude.ai connectors. With the default `false`, a run gets Legion's own server and the servers listed in Settings, MCP servers.
 - Without `claude.executablePath`, the `claude` binary bundled with the SDK is used.
 - `claude.maxTurns`: a config still on the old default `40` moves to `200` once. A run that hits the cap pauses; **Continue** picks it up in the same conversation.
 - `features.projectBoard`: restart Legion after a change. The app does not write this key. See [docs/PROJECT-BOARD.md](docs/PROJECT-BOARD.md).
 - `mcpServers`: agents pick servers by name, or `*` for all.
-- The data directory holds `config.json`, `state.json`, `messages/`, `workspaces/<agent>/` and `core.log`.
+- The data directory holds `config.json`, `state.json`, `messages/`, `workspaces/<agent>/` and `core.log`, among other files.
 
 </details>
 
@@ -549,13 +521,14 @@ On macOS, use `Cmd` in place of `Ctrl`. While a Claude task works, Enter adds yo
 
 Not in v1, and not promised:
 
-- **Codex, Ollama and other custom/local endpoints.** OpenRouter already ships.
+- **Presets for OpenAI, Ollama, LM Studio and vLLM.** They show in Settings, Providers as next release. OpenRouter and an address of your own already ship.
+- **Codex.** Its command-line agent runs its own shell and file tools outside Legion's approvals, so it is not offered yet.
 - **BSV mode beyond one payment:** wallet reads (balances), a VM boundary for wallet tools, and spends by anything other than a run you started.
 - A code-signed installer.
 
 <details><summary>Details</summary>
 
-- OpenRouter runs any model, with your own key.
+- OpenRouter runs any model, with your own key. Your own address works for any server that speaks the OpenAI chat-completions format.
 - The BSV spend tool is built (testnet and mainnet, mainnet behind a hard-off switch); for what is not yet tried for real, see [Status](#status). The owner's by-hand checks on a real wallet come next.
 - More: [docs/BSV-MODE.md](docs/BSV-MODE.md) and [docs/BSV-WALLET-DESIGN.md](docs/BSV-WALLET-DESIGN.md).
 
@@ -601,7 +574,7 @@ assets/       app icon, tray icons, splash
 <details><summary>Details</summary>
 
 - The second secret means an agent that reads `config.json` cannot approve its own request.
-- Legion never handles your Claude credentials.
+- With the default sign-in, Legion's own code does not handle your Claude login.
 - Legion does not stop a process running as your own user from attacking Legion's memory or files, or from calling your BSV wallet directly. Only a VM or a separate OS account does.
 
 </details>

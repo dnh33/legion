@@ -164,7 +164,7 @@ test('wallet: a wallet on the main network is a warning; the audit log gets one 
   const r = await connectWallet(s);
   assert.equal(r.body.network, 'main');
   assert.equal(r.body.condition, 'mainnet-warning');
-  assert.equal(r.body.message, "The wallet says it is on MAINNET (real funds). In Legion's own code a mainnet spend needs the mainnet switch (off by default), Arm, your confirmations and the wallet's own prompt.");
+  assert.equal(r.body.message, "The wallet says it is on MAINNET (real funds). In Legion's own code a mainnet spend needs the mainnet switch (off by default), Arm and your confirmations; whether the wallet asks too depends on the wallet.");
   for (let i = 0; i < 4; i++) await s.call('GET', '/api/bsv/wallet');
   assert.equal(auditLines(s.dataDir).filter((e) => e.tool === 'bsv_wallet' && e.decision === 'probe').length, 1);
   s.wal.w.net = 'testnet';

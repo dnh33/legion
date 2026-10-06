@@ -89,21 +89,38 @@ export function bridgeAgentRef(callText: string): string | undefined {
   return /"agent"\s*:\s*"((?:[^"\\]|\\.)*)"/.exec(callText)?.[1];
 }
 
-/** The agent an ask in this task is still waiting on: the latest ask call with no result yet (its `agent` argument as written). */
-export function pendingAskAgent(messages: readonly { role: string; toolName?: string; toolUseId?: string; resultFor?: string; text: string }[] | undefined): string | undefined {
-  if (!messages) return undefined;
+type StoredMsg = { role: string; toolName?: string; toolUseId?: string; resultFor?: string; text: string; at?: string };
+
+/**
+ * The agents an ask in this task is still waiting on: every ask call with no result yet, in call order, each agent once
+ * (its `agent` argument as written). Asks can run in parallel and come back in any order, so an answered newer ask
+ * does not end the wait on an older one.
+ * @param since the current run's start (progress.startedAt): an ask from an earlier run that never got a result
+ *   (interrupted, or an empty result the core does not store) is not this run's wait
+ */
+export function pendingAskAgents(messages: readonly StoredMsg[] | undefined, since?: string): string[] {
+  if (!messages) return [];
+  const from = since ? Date.parse(since) : NaN;
   const answered = new Set<string>();
   for (const m of messages) if (m.resultFor) answered.add(m.resultFor);
-  for (let i = messages.length - 1; i >= 0; i--) {
-    const m = messages[i]!;
+  const out: string[] = [];
+  for (const m of messages) {
     if (m.role !== 'tool' || m.resultFor || bridgeVerb(m.toolName) !== 'ask') continue;
-    if (m.toolUseId && answered.has(m.toolUseId)) return undefined;
-    return bridgeAgentRef(m.text);
+    if (m.toolUseId && answered.has(m.toolUseId)) continue;
+    if (Number.isFinite(from) && m.at && Date.parse(m.at) < from) continue;
+    const ref = bridgeAgentRef(m.text);
+    if (ref && !out.some((o) => o.toLowerCase() === ref.toLowerCase())) out.push(ref);
   }
-  return undefined;
+  return out;
 }
 
-/** The tool part of the working row: a pending ask names the agent it waits on; every other tool shows its name as before. */
-export function workingToolLabel(tool: string, askTarget: string | undefined): string {
-  return bridgeVerb(tool) === 'ask' ? `Waiting on ${askTarget ?? 'another agent'}` : tool;
+/**
+ * The tool part of the working row: a pending ask names the agents it waits on (two at most, then "+N"); every other
+ * tool shows its name as before.
+ */
+export function workingToolLabel(tool: string, askTargets: readonly string[] | undefined): string {
+  if (bridgeVerb(tool) !== 'ask') return tool;
+  const names = askTargets ?? [];
+  if (names.length === 0) return 'Waiting on another agent';
+  return `Waiting on ${names.slice(0, 2).join(', ')}${names.length > 2 ? ` +${names.length - 2}` : ''}`;
 }

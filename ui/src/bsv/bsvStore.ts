@@ -53,7 +53,7 @@ export interface BsvUiState extends BsvStatus {
   audit: { entries: AuditView[]; total: number; ok: boolean; reason?: string; more: boolean; loading: boolean; error?: string } | null;
 }
 
-export const BSV_TIP = 'BSV Dev Kit: testnet mode. Spends need your confirmation.';
+export const BSV_TIP = 'BSV Dev Kit (testing preview): testnet mode. Spends need your confirmation.';
 const CONFIRMED_KEY = 'legion.bsv.confirmed';
 
 let state: BsvUiState = {

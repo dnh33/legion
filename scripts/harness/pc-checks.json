@@ -1,7 +1,7 @@
 {
   "schema": 1,
   "title": "Legion real-PC test plan",
-  "updated": "2026-10-02",
+  "updated": "2026-10-06",
   "masterDocument": "claude/real-pc-test-plan.md",
   "evidenceRoot": "%USERPROFILE%\\legion-pc-run\\<yyyymmdd>\\ (outside the repo; never commit evidence that contains a token, key or .legion data)",
   "areas": [
@@ -2486,7 +2486,8 @@
       "title": "V5: request 600 sat: dialog 1 and dialog 2, then the wallet's own prompt, then a txid",
       "source": [
         "claude/plan-bsv-rung3.md 7.2 V5",
-        "claude/plan-bsv-rung3.md U4, U5, U10"
+        "claude/plan-bsv-rung3.md U4, U5, U10",
+        "claude/tracker-pc-checks.md W1-W5"
       ],
       "inferred": false,
       "preconditions": "BSVT-04 passed. Window visible.",
@@ -2496,7 +2497,7 @@
         "Only now should the wallet show its prompt; approve it there.",
         "Open the txid in a testnet block explorer in a browser."
       ],
-      "expected": "Dialog 1 matches the request exactly; dialog 2 is a separate press; the wallet prompt appears only after both; a 64-hex txid is returned; the explorer shows one 600 sat output plus change. RECORD the real wallet prompt wording and the real Electron dialog look (wording, default button Cancel, focus, hidden-window case) (U10).",
+      "expected": "Dialog 1 matches the request exactly; dialog 2 is a separate press; the wallet prompt appears only after both; a 64-hex txid is returned; the explorer shows one 600 sat output plus change. RECORD the real wallet prompt wording and the real Electron dialog look (wording, default button Cancel, focus, hidden-window case) (U10). Revised 2026-10-06: a wallet built on wallet-toolbox may instead ask for a spending grant BEFORE Legion's card, while it builds; record which, and pick one-time if offered, else a limit no higher than Legion's caps.",
       "evidence": "PC-BSVT-05-d1.png, PC-BSVT-05-d2.png, PC-BSVT-05-wallet.png, PC-BSVT-05-explorer.png.",
       "safety": "native-dialog",
       "automation": "owner-only",
@@ -2513,10 +2514,11 @@
     {
       "id": "PC-BSVT-06",
       "area": "BSVT",
-      "title": "V6: a second request right after prompts the wallet again (no standing grant)",
+      "title": "V6: a second request right after: record whether the wallet asks again",
       "source": [
         "claude/plan-bsv-rung3.md 7.2 V6",
-        "claude/plan-bsv-rung3.md U4"
+        "claude/plan-bsv-rung3.md U4",
+        "claude/tracker-pc-checks.md W2, W4"
       ],
       "inferred": false,
       "preconditions": "BSVT-05 passed.",
@@ -2524,7 +2526,7 @@
         "Immediately ask for another spend and confirm both Legion dialogs.",
         "Watch the wallet."
       ],
-      "expected": "The wallet prompts again. If a persistent-permission option (\"always allow\", monthly limit) is offered, DECLINE it and record it; if it cannot be avoided report a blocker (design section 10).",
+      "expected": "Record whether the wallet asks again. Expected for wallet-toolbox wallets (revised 2026-10-06): no prompt inside a grant given in V5, a prompt again after a one-time grant. Legion's dialogs appear either way. A grant larger than Legion's caps with no smaller choice: decline it and report a blocker.",
       "evidence": "PC-BSVT-06.png.",
       "safety": "native-dialog",
       "automation": "owner-only",
@@ -2998,6 +3000,145 @@
       "automation": "owner-only",
       "depends": [
         "PC-BSVT-12"
+      ],
+      "gate": "G8",
+      "result": {
+        "status": "not-run",
+        "date": null,
+        "evidence": null
+      }
+    },
+    {
+      "id": "PC-BSVT-24",
+      "area": "BSVT",
+      "title": "W1: first spend with no grant for legion.local: when does the wallet ask (build, after the dialogs, or never)",
+      "source": [
+        "claude/tracker-pc-checks.md W1",
+        "BRC-100 leaves it to the wallet; wallet-toolbox asks at createAction for a spending grant per originator, then not again inside it, and never at signAction (docs/BSV-WALLET-DESIGN.md section 10, update 2026-10-06)"
+      ],
+      "inferred": false,
+      "preconditions": "Fresh testnet wallet in the VM, no grant for legion.local. BSVT-04 passed.",
+      "steps": [
+        "Ask for one 600 sat spend through Legion.",
+        "Screenshot every prompt in order, Legion's and the wallet's."
+      ],
+      "expected": "Recorded: whether the wallet asks while it builds (before Legion's card), after the last Legion dialog, or never; the exact prompt text; the grant choices offered (one-time, an amount, per month). Never: abort (U13, Legion's dialogs would be the only gate).",
+      "evidence": "PC-BSVT-24.png and the audit lines.",
+      "safety": "real-wallet",
+      "automation": "owner-only",
+      "depends": [
+        "PC-BSVT-04"
+      ],
+      "gate": "G8",
+      "result": {
+        "status": "not-run",
+        "date": null,
+        "evidence": null
+      }
+    },
+    {
+      "id": "PC-BSVT-25",
+      "area": "BSVT",
+      "title": "W2: after a one-time grant (if offered), a second request asks again",
+      "source": [
+        "claude/tracker-pc-checks.md W2",
+        "BRC-100 leaves it to the wallet; wallet-toolbox asks at createAction for a spending grant per originator, then not again inside it, and never at signAction (docs/BSV-WALLET-DESIGN.md section 10, update 2026-10-06)"
+      ],
+      "inferred": false,
+      "preconditions": "W1 done; the wallet offered a one-time grant and it was chosen.",
+      "steps": [
+        "Ask for a second spend."
+      ],
+      "expected": "The wallet asks again.",
+      "evidence": "PC-BSVT-25.png and the audit lines.",
+      "safety": "real-wallet",
+      "automation": "owner-only",
+      "depends": [
+        "PC-BSVT-24"
+      ],
+      "gate": "G8",
+      "result": {
+        "status": "not-run",
+        "date": null,
+        "evidence": null
+      }
+    },
+    {
+      "id": "PC-BSVT-26",
+      "area": "BSVT",
+      "title": "W3: the wallet's grant prompt left open past Legion's 30 s build deadline",
+      "source": [
+        "claude/tracker-pc-checks.md W3",
+        "BRC-100 leaves it to the wallet; wallet-toolbox asks at createAction for a spending grant per originator, then not again inside it, and never at signAction (docs/BSV-WALLET-DESIGN.md section 10, update 2026-10-06)"
+      ],
+      "inferred": false,
+      "preconditions": "No grant for legion.local.",
+      "steps": [
+        "Ask for a spend; leave the wallet's grant prompt open for 40 s.",
+        "Decline it in the wallet.",
+        "Check the spendable balance."
+      ],
+      "expected": "Legion reports build-failed after 30 s; after the decline the coins are not left locked. Record what the wallet does if approved late instead (a separate run).",
+      "evidence": "PC-BSVT-26.png and the audit lines.",
+      "safety": "real-wallet",
+      "automation": "owner-only",
+      "depends": [
+        "PC-BSVT-24"
+      ],
+      "gate": "G8",
+      "result": {
+        "status": "not-run",
+        "date": null,
+        "evidence": null
+      }
+    },
+    {
+      "id": "PC-BSVT-27",
+      "area": "BSVT",
+      "title": "W4: two requests inside a small grant: the wallet asks nothing for the second",
+      "source": [
+        "claude/tracker-pc-checks.md W4",
+        "BRC-100 leaves it to the wallet; wallet-toolbox asks at createAction for a spending grant per originator, then not again inside it, and never at signAction (docs/BSV-WALLET-DESIGN.md section 10, update 2026-10-06)"
+      ],
+      "inferred": false,
+      "preconditions": "A grant no higher than Legion's testnet caps.",
+      "steps": [
+        "Ask for two spends inside the grant."
+      ],
+      "expected": "Recorded whether the wallet asks for the second one (expected: no); Legion's dialog still appears each time.",
+      "evidence": "PC-BSVT-27.png and the audit lines.",
+      "safety": "real-wallet",
+      "automation": "owner-only",
+      "depends": [
+        "PC-BSVT-24"
+      ],
+      "gate": "G8",
+      "result": {
+        "status": "not-run",
+        "date": null,
+        "evidence": null
+      }
+    },
+    {
+      "id": "PC-BSVT-28",
+      "area": "BSVT",
+      "title": "W5: the wallet's own spending-check switch and granted-apps list; revoke legion.local",
+      "source": [
+        "claude/tracker-pc-checks.md W5",
+        "BRC-100 leaves it to the wallet; wallet-toolbox asks at createAction for a spending grant per originator, then not again inside it, and never at signAction (docs/BSV-WALLET-DESIGN.md section 10, update 2026-10-06)"
+      ],
+      "inferred": false,
+      "preconditions": "W4 done.",
+      "steps": [
+        "Open the wallet settings (BSV Desktop: seekSpendingPermissions in Settings) and any list of granted apps.",
+        "Revoke the legion.local grant; ask for one more spend."
+      ],
+      "expected": "Recorded: the default (BSV Desktop master: on), that revoking works, and that the next spend asks again.",
+      "evidence": "PC-BSVT-28.png and the audit lines.",
+      "safety": "real-wallet",
+      "automation": "owner-only",
+      "depends": [
+        "PC-BSVT-27"
       ],
       "gate": "G8",
       "result": {

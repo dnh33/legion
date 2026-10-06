@@ -117,7 +117,7 @@ export function coreAction(i: { health: CoreHealth | null | undefined; ownProof:
 // ---------------------------------------------------------------------------------------------------------------------------------
 // BSV policy changes and spend reviews. The app window asks main (IPC); main shows a NATIVE dialog it words itself, and only then calls the
 // core with the native secret, which the window never holds. Everything below is pure (or takes injected dependencies) so it is tested in
-// plain node. Nothing here holds a key or signs: a spend is decided here by a person pressing a button, and the wallet's own prompt follows.
+// plain node. Nothing here holds a key or signs: a spend is decided here by a person pressing a button; whether the wallet asks too depends on the wallet.
 // ---------------------------------------------------------------------------------------------------------------------------------
 
 export const BSV_ARM_CHOICES_MINUTES: readonly number[] = ARM_CHOICES_MINUTES;
@@ -244,7 +244,7 @@ const capLine = (k: CapKey, v: unknown) => `${CAP_LABEL[k]}: ${k === 'maxOutputs
 const ORDINARY_TOOLS = 'An agent\'s ordinary tools (a shell, a web fetch) are not covered by any of this.';
 /** What a policy dialog may say about the spend tool: only what the core reports. No claim about the tool unless the core says it is on offer. */
 const noSpend = (f: BsvPolicyFacts): string => f.spendTools === true
-  ? `This changes Legion's policy state. Legion's own code has one tool that asks a wallet to build and sign a transaction: on the test network after your confirmation, and on the main network only while the mainnet switch is on and armed. The wallet's own prompt follows every time. ${ORDINARY_TOOLS}`
+  ? `This changes Legion's policy state. Legion's own code has one tool that asks a wallet to build and sign a transaction: on the test network after your confirmation, and on the main network only while the mainnet switch is on and armed. Whether the wallet asks too depends on the wallet. ${ORDINARY_TOOLS}`
   : `This changes Legion's policy state. This core does not offer the spend tool; these settings take effect once a core that does is running. ${ORDINARY_TOOLS}`;
 const netCaps = (f: BsvPolicyFacts, net: 'test' | 'main'): Partial<Record<CapKey, number>> => (f.nets?.[net]?.caps ?? (net === 'test' ? f.caps : undefined) ?? {});
 const netName = (net: 'test' | 'main') => (net === 'main' ? 'MAINNET (LIVE FUNDS)' : 'TESTNET');
@@ -261,7 +261,7 @@ export function bsvConfirmation(action: BsvPolicyAction, facts: BsvPolicyFacts =
         message: `Arm LIVE FUNDS mode for ${action.minutes} minutes?`,
         detail: [
           `ONE mainnet spend request may be considered, then it disarms. It also ends when the ${action.minutes} minutes run out, when you press Freeze or Disarm, and when Legion restarts. A shorter time is better.`,
-          'Each request still needs your confirmation dialogs here, in the order they appear, and then your wallet\'s own prompt, which is the last gate and which Legion cannot see.',
+          'Each request still needs your confirmation dialogs here, in the order they appear; treat the last one as the last check. Whether your wallet asks too depends on the wallet, and Legion\'s own code cannot see it. Some wallets ask for a spending grant when they build a payment, before Legion\'s dialogs: choose one-time if offered, or a limit no higher than the mainnet limits below.',
           'Arming does not move anything by itself. Testnet spends do not need Arm.',
           noSpend(facts),
           '',
@@ -279,7 +279,7 @@ export function bsvConfirmation(action: BsvPolicyAction, facts: BsvPolicyFacts =
         message: 'Allow Legion to consider spending REAL BSV?',
         detail: [
           'It is off by default. Turning it on does not spend anything and does not arm anything.',
-          'Each mainnet spend still needs Arm (one spend per Arm), your confirmation dialogs here and the wallet\'s own prompt.',
+          'Each mainnet spend still needs Arm (one spend per Arm) and your confirmation dialogs here; whether the wallet asks too depends on the wallet.',
           'A mainnet unknown outcome, a mismatch after signing, an audit failure or a changed policy file turns it off again by itself. You can turn it off at any time without a dialog.',
           'Legion\'s own mainnet path has not been checked with real funds. Use tiny amounts and read every dialog and the wallet\'s prompt.',
           noSpend(facts),
@@ -337,7 +337,7 @@ export function bsvConfirmation(action: BsvPolicyAction, facts: BsvPolicyFacts =
         detail: [
           `Connecting sends four read-only questions to ${shown}: its version, its network, whether it is signed in, and the block height it knows.`,
           'The connection itself does not ask for balances, outputs, addresses or keys.',
-          facts.spendTools === true ? 'Later, a spend asks this same wallet to build and sign one transaction, only after you confirm it in native dialogs; the wallet then shows its own prompt.' : 'This core does not offer the spend tool; Legion\'s own code asks the wallet only those four read-only questions.',
+          facts.spendTools === true ? 'Later, a spend asks this same wallet to build and sign one transaction, only after you confirm it in native dialogs; whether the wallet asks too depends on the wallet.' : 'This core does not offer the spend tool; Legion\'s own code asks the wallet only those four read-only questions.',
           'Whatever answers at that address is unverified: any program on this computer can listen on a port.',
           'Legion will not contact it again after you disconnect, freeze, turn BSV mode off or restart.',
         ].join('\n'),
@@ -505,7 +505,7 @@ export function spendReviewDialog(c: SpendCard, ctx: ReviewContext | Partial<Rec
     `Left after this request: per transaction ${satsText(c.remaining.perTxSats)}; per session ${satsText(c.remaining.perSessionSats)}; per 24 hours ${satsText(c.remaining.per24hSats)}`,
     ...(main ? [`Armed for one spend; time left: ${left(x.armRemainingMs)}`] : []),
     '',
-    main ? 'This is the first of at least two dialogs. Cancel, Escape or closing this window denies the request.' : 'Cancel, Escape or closing this window denies the request. Approving only lets Legion ask your wallet to build and sign it; the wallet then shows its own prompt, which is the last gate.',
+    main ? 'This is the first of at least two dialogs. Cancel, Escape or closing this window denies the request.' : 'Cancel, Escape or closing this window denies the request. Approving only lets Legion ask your wallet to sign what it built. Treat this dialog as the last check: whether your wallet asks too depends on the wallet, and Legion\'s own code cannot see it. If the wallet asks for a spending grant, choose one-time if it offers that, or a limit no higher than Legion\'s caps.',
     ORDINARY_TOOLS,
   ].filter((l, i, a) => l !== '' || (i > 0 && a[i - 1] !== ''));
   return spendDialog(main
@@ -525,8 +525,8 @@ export function spendLiveDialog(c: SpendCard): SpendDialog {
       c.payment.recipient,
       '',
       `Network: MAINNET (LIVE FUNDS). Fee ${satsText(c.feeSats)}. Total leaving the wallet: ${satsText(c.totalSats)}.`,
-      'This cannot be undone. Your wallet will show its own prompt next; that prompt is the last gate and Legion cannot see it.',
-      'Do not tick "always allow" or a spending limit in the wallet. Cancel, Escape or closing this window denies the request.',
+      'This cannot be undone. Treat this dialog as the last check: whether your wallet asks too depends on the wallet, and Legion\'s own code cannot see it.',
+      'If the wallet asks for a spending grant, choose one-time if it offers that, or a limit no higher than Legion\'s caps. Cancel, Escape or closing this window denies the request.',
     ].join('\n'),
     buttons: [`Send ${c.payment.sats.toLocaleString('en-US')} sat to ...${lastChars(c.payment.recipient)}`, 'Cancel'],
   }, 0, 1);

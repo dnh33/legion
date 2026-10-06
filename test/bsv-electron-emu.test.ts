@@ -62,7 +62,7 @@ test('emu bsv: cancelling the native dialog changes nothing; confirming arms; th
   assert.equal(r.armedAfterConfirm, true);
   assert.equal(r.sentChanged, true, 'the window is told to refresh');
   assert.match(d.detail, /ONE mainnet spend request may be considered, then it disarms/);
-  assert.match(d.detail, /wallet's own prompt, which is the last gate/);
+  assert.match(d.detail, /treat the last one as the last check\. Whether your wallet asks too depends on the wallet/);
 });
 
 test('emu bsv: malformed requests and requests from another window or frame are refused before any dialog', { skip }, async () => {

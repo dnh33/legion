@@ -1665,3 +1665,42 @@ ode_modules` is a junction: remove the junction only).
   requiresFullInstall false; verify OK on fetched bytes (docs/SHIPPING.md step 10 now says to wait for the version).
 - Open for the owner's PC: SP1, AB1-AB6, P1, U1, MD1, MD2, TK2-TK4.
 - Next: sketches of the agent-to-agent hand-off card (owner: sketches before building); then the Legion Mod.
+
+## 2026-10-06 — BSV: "the wallet's own prompt is the last gate" was an unverified claim (UNCOMMITTED, on main)
+
+Trigger: outside feedback (BRC-181/BRC-204 put the agent spend policy in the wallet; BRC-100 does not say how a wallet identifies a local
+app, so whether it prompts on `signAction` depends on the wallet). Investigated, root cause confirmed in source:
+- wallet-toolbox master `src/WalletPermissionsManager.ts`: `createAction` asks for a spending grant per originator (L4196 ->
+  `ensureSpendingAuthorization` L1476), no prompt inside a stored monthly grant (L1505-1510), `signAction` passes straight through (L4229).
+  BSV Desktop master builds it (`PermissionQueueManager.ts:955`, `seekSpendingPermissions: true` by default, `WalletContext.tsx`).
+  So for these wallets the ask comes at Legion's build step, BEFORE the card, and not again inside a grant. A6/U13 did not hold.
+- Owner decision 2026-10-06 (question UI): reframe, keep rung 3. Legion's own dialogs are the per-spend gate; the wallet's grant is a
+  second check (one-time if offered, else at or below Legion's caps).
+- Changed: app text (admin-logic dialogs D1/D2/Arm/enable/connect, BsvPanel, bsv-view, wallet-probe MAINNET_WARNING) no longer states
+  the wallet prompt as a fact; D1 (testnet) now carries the grant advice too. Docs: BSV-MODE (flow step 9, D2, residual risks, U4/U13),
+  SECURITY, README, BSV-WALLET-DESIGN section 10 update + "Later: BRC-181, BRC-204" fact/assumption/unknown table. PC checks: V5, V6,
+  R4, R6, the R abort list, ND10 revised; new W1-W5 (tracker-pc-checks) = PC-BSVT-24..28 (pc-checks.json, real-pc-test-plan.md regenerated).
+  Knowledge pack: the same claims fixed, pack bumped (subagent; see its report).
+- New test `test/bsv-wallet-prompt.test.ts`: no app sentence states the wallet prompt as a certainty; the two status sentences say it
+  depends on the wallet; the check catches the old wordings.
+- NOT changed (pinned, needs reviewer re-pin): `src/core/bsv/spend.ts` comment A6 and `SPEND_LIMITS.createTimeoutMs` 30 s. Finding: a
+  toolbox wallet's grant prompt at `createAction` must be answered within 30 s or Legion reports `build-failed`, while the wallet may
+  still hold the built (unsigned) action; check W3. Also `wallet-probe.ts` (reviewer-signed area) got a string change only.
+- Not verified: any real wallet (W1-W5 are the checks); the Electron emu test is POSIX-only and skipped on Windows.
+- Independent review round 1 (2026-10-06): "not fixed". Remaining certainties in BsvPanel lead (L234), BSV-MODE (L10, L11, L21,
+  L120, L124), SECURITY (L29, L31), BSV-WALLET-DESIGN (L14, L77, L131, L132), TESTING-BSV (L86); the grant advice came only
+  AFTER the wallet's build step. All fixed: panel lead and Arm dialog now carry the grant advice; `test/bsv-wallet-prompt.test.ts`
+  widened (`your wallet's`, "remain the real last gate") and now scans the BSV docs for prompt/last-gate/monthly-limit sentences
+  without a condition (CHANGELOG excluded: past releases are history). Negatives proven (panel, SECURITY sentence).
+- KNOWN RESIDUALS (pinned or reviewer-signed area, not changed): `src/core/bsv/spend.ts:728` tool description tells the Assayer
+  "the owner must confirm in Legion and again in the wallet" (now inaccurate; the pack and preamble say otherwise); spend.ts A6
+  comment; `createTimeoutMs` 30 s (W3); comments in `src/core/bsv/index.ts:4-5,57` say "last gate". One reviewer-signed re-pin
+  of spend.ts should fix all three. Pack note `bsv-safety-ts-stack-server-keys` says Legion "sets no spending limits" (stale, older).
+
+## 2026-10-06 — 0.2.5-g: maintainer detail moved out of the changelog
+
+Removed from `CHANGELOG.md` `## [0.2.5-g]` (public file, `.claude/skills/public-facing-copy.md`). Kept here so nothing is lost.
+
+- **CI entry (was under "Changed"), removed: release tooling, no value to a user.** Text: "CI runs on GitHub's runners, split into parallel shards, on Windows, Ubuntu and macOS (Apple Silicon). One job runs typecheck and the UI build. Actions are pinned to commit SHAs, and the token is read-only and not kept after checkout." Belongs to branch `ci/green-mac-shards`; on this worktree's base (`bb663c2`) `.github/workflows/ci.yml` still runs Windows and Ubuntu only, with no macOS and no shards. The two house-context entries under "Fixed" (copy keeps the shipped file's date; Windows-style paths on macOS and Linux) are also only true once that branch is merged: they live in its `src/core/house/sync.ts` and `context.ts`, not in this worktree.
+- **"Not verified on a real wallet yet." (end of the BSV "Fixed" entry), removed: banned development-state hedge.** The unverified fact itself: that wallet-toolbox wallets (BSV Desktop) ask once for a spending grant while building a payment, before Legion's card, and then not again inside that grant, is a peer-session finding that no check on the owner's real wallet has recorded yet. Record it as a real-PC check before the changelog or docs claim it as observed (README and docs/BSV-MODE.md keep the scoped "whether your wallet asks too depends on the wallet").
+- **"has been tested with fake wallets only, not yet with a real wallet or real funds" (in the "Changed" testing-preview entry), removed: same hedge.** The UI, the README (BSV section) and docs/BSV-MODE.md still carry the testing-preview notice; only the changelog sentence now says "say so". `test/bsv-preview-notice.test.ts` pins the notice itself and the word "testing preview" in the changelog, so its text is unchanged.
