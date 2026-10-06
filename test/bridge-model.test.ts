@@ -10,6 +10,7 @@ import { EventBus } from '../src/core/bus.js';
 import { Engine } from '../src/core/engine.js';
 import type { QueryFn } from '../src/core/engine.js';
 import { Store } from '../src/core/store.js';
+import { toChatMessages } from '../src/core/providers/tool-loop.js';
 import { defaultConfig } from '../src/shared/config.js';
 import type { AgentProfile, Catalog, Task } from '../src/shared/types.js';
 
@@ -88,6 +89,26 @@ test('B: an applied override is announced in the caller thread, naming agent, co
   assert.match(messages, /opus/, 'it must state the model the owner configured');
   assert.match(messages, /haiku/, 'it must state the model actually used');
   assert.equal(asked.json.model, 'haiku', 'and the override still applies');
+});
+
+// Audit B2 (claude/audit-agent-to-agent-ux.md): the notice was stored as role 'user' with fromAgentId = the TARGET, so the UI drew it as a
+// message FROM Builder, and a provider-backed caller replayed it to its model as a user turn (providers/tool-loop.ts toChatMessages).
+test('B2: the override notice is a system notice, not a message from the target, and is never replayed to a model as a user turn', async () => {
+  const s = setup((c) => c.agent !== 'zealot' ? undefined : (async function* () {
+    yield init('z1');
+    await callTool(c.options, 'ask', { agent: 'builder', message: 'count the files', model: 'haiku' });
+    yield ok('done', 'z1');
+  })(), 2);
+  const taskId = s.engine.startTask({ agentId: 'zealot', prompt: 'go', source: 'ui' }).id;
+  await s.engine.waitFor(taskId, 5000);
+  await tick();
+  const rows = s.store.listMessages(taskId);
+  const notice = rows.find((m) => /Model override/.test(m.text));
+  assert.ok(notice, 'the notice is still recorded');
+  assert.equal(notice.role, 'system', 'a Legion notice, not a user turn');
+  assert.equal(notice.fromAgentId, undefined, 'it is not a message from Builder');
+  const replay = toChatMessages(rows);
+  assert.ok(!replay.some((m) => m.role === 'user' && /Model override/.test(m.content ?? '')), 'a provider model never sees it as a user turn');
 });
 
 test('B: an override equal to the configured model is not announced (nothing was overridden)', async () => {

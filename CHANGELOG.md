@@ -2,6 +2,29 @@
 
 All notable changes are recorded here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses [Semantic Versioning](https://semver.org/).
 
+## [0.2.5-f] - 2026-10-06
+
+### Fixed
+
+- **You can see when an agent's message to another agent did not go through.** A refused hand-off (an unknown agent, too many
+  messages in ten minutes, or too deep a chain) read "Sent." It now reads "Not sent" with the reason, in red, also on
+  the closed chip.
+- **A question to another agent says it is waiting.** While Zealot waits for Builder's answer, the call reads "Waiting
+  for Builder…" and the line under the task reads "Waiting on Builder" instead of a raw tool name.
+- **An answer that did not come is shown as such.** A question that ran out of time says the other agent keeps going,
+  instead of showing raw data, and an agent that could not finish reads "Builder could not finish: …" in red, both for
+  a question and for a later reply.
+- **New model-override notices are no longer shown as a message from the other agent.** They are a grey system line now,
+  and a provider model no longer reads them as something you said. Notices saved before this version look as before.
+- **A start error on the splash is shown in full.** The longest one (the antivirus hint) was cut after three lines, and
+  the log could not be scrolled. Now the whole message shows, long paths wrap, and the same text is written to
+  core.log, so "Open log" has it too.
+
+### Changed
+
+- **The splash uses the title bar's blackletter "Legion"**, so it matches the app it opens into. With "Animation effects"
+  off in Windows, the splash no longer animates.
+
 ## [0.2.5-e] - 2026-10-06
 
 ### Fixed

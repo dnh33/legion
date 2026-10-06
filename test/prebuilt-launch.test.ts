@@ -101,3 +101,11 @@ test('mcp-config: in a package it prints the electron command with env; in a sou
   for (const f of ['scripts/mcp-config.mjs', 'scripts/lib/package-lib.mjs']) put(src, f, readFileSync(join(REPO, f)));
   assert.match(run(src).stdout, /"command": "node"/);
 });
+
+test('a core that cannot start leaves its whole message in core.log too, on one line with a timestamp (Open log shows the advice)', async () => {
+  const { startFailureLine } = await import('../src/electron/resolve-node.js');
+  const hint = coreStartHint('package', 'EPERM');
+  const line = startFailureLine(`${hint}\nsecond line`, new Date('2026-10-06T02:00:00.000Z'));
+  assert.equal(line, `[2026-10-06T02:00:00.000Z] Legion could not start the core: ${hint} second line\n`);
+  assert.match(line, /Protection history/, 'the advice is in the log, not only on the splash');
+});

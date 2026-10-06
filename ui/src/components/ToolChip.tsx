@@ -4,24 +4,16 @@ import { selectTask, useStore } from '../store';
 import { todoChipLabel } from '../chat/todos';
 import { clip, shortTool, toolPreview, tryPretty } from '../util';
 import { Icon } from './icons';
+import { bridgeAgentRef, bridgeOutcome, bridgeVerb, type BridgeOutcome } from '../chat/bridgeView';
 
-interface Bridge { verb: string; kind: 'ask' | 'tell' | 'agents'; target?: string; message?: string; result?: string; taskId?: string; list?: string[] }
+export interface Bridge { verb: string; kind: 'ask' | 'tell' | 'agents'; target?: string; message?: string; outcome?: BridgeOutcome; list?: string[] }
 
 /** Tools that are internal noise; their chips are not shown. */
 const HIDDEN_TOOLS = new Set(['ToolSearch']);
 export const isHiddenTool = (name?: string) => !!name && [...HIDDEN_TOOLS].some((h) => name === h || name.endsWith('__' + h));
 /** Reads mcp__legion__ask / tell / agents tool calls into something a person can follow. */
-function bridgeResult(raw: string | undefined): string | undefined {
-  if (!raw) return undefined;
-  try { const o = JSON.parse(raw) as Record<string, unknown>; if (typeof o.result === 'string') return o.result; } catch { /* plain or clipped JSON */ }
-  // Older cores clipped the JSON mid-string; recover the readable result text.
-  const m = /"result"\s*:\s*"([\s\S]*)$/.exec(raw);
-  if (m) return m[1]!.replace(/"\s*}\s*$/, '').replace(/\\n/g, '\n').replace(/\\"/g, '"').replace(/\\\\/g, '\\');
-  return raw;
-}
-
-function bridgeInfo(m: ChatMessage, nameOf: (id: string) => string, rawResult?: string): Bridge | null {
-  const n = (m.toolName ?? '').replace(/^mcp__legion__/, '');
+function bridgeInfo(m: ChatMessage, nameOf: (id: string) => string, rawResult: string | undefined, live: boolean): Bridge | null {
+  const n = bridgeVerb(m.toolName);
   if (n !== 'ask' && n !== 'tell' && n !== 'agents') return null;
   let o: Record<string, unknown> = {};
   try { o = JSON.parse(m.text) as Record<string, unknown>; } catch { /* keep empty */ }
@@ -34,10 +26,9 @@ function bridgeInfo(m: ChatMessage, nameOf: (id: string) => string, rawResult?: 
     else if (rawResult) list = rawResult.split('\n').map((l) => l.trim()).filter(Boolean);
     return { verb: 'Checked who is available', kind: n, list };
   }
-  const target = typeof o.agent === 'string' ? nameOf(o.agent) : 'an agent';
-  const taskId = typeof (parsed as { taskId?: unknown } | undefined)?.taskId === 'string' ? (parsed as { taskId: string }).taskId : undefined;
-  const res = n === 'tell' ? undefined : bridgeResult(rawResult);
-  return { verb: n === 'ask' ? 'Asked' : 'Told', kind: n, target, message: typeof o.message === 'string' ? o.message : undefined, result: res, taskId };
+  const ref = typeof o.agent === 'string' ? o.agent : bridgeAgentRef(m.text);
+  const target = ref ? nameOf(ref) : 'an agent';
+  return { verb: n === 'ask' ? 'Asked' : 'Told', kind: n, target, message: typeof o.message === 'string' ? o.message : undefined, outcome: bridgeOutcome(n, rawResult, target, live) };
 }
 
 function ToolGroupImpl({ items, results = {} }: { items: ChatMessage[]; results?: Record<string, string> }) {
@@ -46,17 +37,22 @@ function ToolGroupImpl({ items, results = {} }: { items: ChatMessage[]; results?
   const nameOf = (id: string) => agents.find((a) => a.id === id || a.name.toLowerCase() === id.toLowerCase())?.name ?? id;
   const openMsg = items.find((m) => m.id === open);
   const resultOf = (m: ChatMessage) => (m.toolUseId ? results[m.toolUseId] : undefined);
-  const openBridge = openMsg ? bridgeInfo(openMsg, nameOf, resultOf(openMsg)) : null;
+  // whether the calling task is still going: a call with no result yet is then pending, not lost
+  const live = useStore((s) => { const st = s.tasks.find((t) => t.id === items[0]?.taskId)?.status; return st === 'running' || st === 'queued'; });
+  const openBridge = openMsg ? bridgeInfo(openMsg, nameOf, resultOf(openMsg), live) : null;
   if (items.every((m) => isHiddenTool(m.toolName))) return null;
   return (
     <div className="toolgroup">
       <div className="chips">
         {items.filter((m) => !isHiddenTool(m.toolName)).map((m) => {
-          const br = bridgeInfo(m, nameOf, resultOf(m));
+          const br = bridgeInfo(m, nameOf, resultOf(m), live);
+          // a refused or failed hand-off is visible on the closed chip too, not only after opening it (review of 0.2.5-f)
+          const failed = br?.outcome?.tone === 'error';
+          const notSent = failed && br?.outcome?.text.startsWith('Not sent');
           if (br) return (
-            <button key={m.id} className={`chip bridge${open === m.id ? ' open' : ''}`} onClick={() => setOpen(open === m.id ? null : m.id)} aria-expanded={open === m.id} title={m.text}>
+            <button key={m.id} className={`chip bridge${failed ? ' failed' : ''}${open === m.id ? ' open' : ''}`} onClick={() => setOpen(open === m.id ? null : m.id)} aria-expanded={open === m.id} title={m.text}>
               <Icon name="arrow" size={12} />
-              <b>{br.verb}{br.target ? ` ${br.target}` : ''}</b>
+              <b>{notSent ? 'Not sent to' : br.verb}{br.target ? ` ${br.target}` : ''}</b>
               {br.message && <span>{'\u201c'}{clip(br.message, 60)}{'\u201d'}</span>}
               <Icon name="chevron" size={11} />
             </button>
@@ -71,24 +67,30 @@ function ToolGroupImpl({ items, results = {} }: { items: ChatMessage[]; results?
           );
         })}
       </div>
-      {openMsg && openBridge && (
-        <div className="chip-detail bridge-detail">
-          {openBridge.kind === 'agents' ? (
-            openBridge.list?.length ? <><h6>Agents</h6><ul className="bridge-list">{openBridge.list.map((l, i) => <li key={i}>{l}</li>)}</ul></> : <p>Looked up the other agents and their status.</p>
-          ) : (<>
-            {openBridge.message && <><h6>{openBridge.verb} {openBridge.target}</h6><p>{openBridge.message}</p></>}
-            {openBridge.kind === 'tell'
-              ? <p className="muted-s">Sent. {openBridge.target}{'\u2019'}s reply will arrive in this task.{openBridge.taskId && <> <button type="button" className="link-btn" onClick={() => selectTask(openBridge.taskId!)}>Open their task</button></>}</p>
-              : openBridge.result ? <><h6>Result</h6><p className="bridge-result">{openBridge.result}</p></> : <p className="muted-s">No result was recorded for this call.</p>}
-          </>)}
-        </div>
-      )}
+      {openMsg && openBridge && <BridgeDetail b={openBridge} />}
       {openMsg && !openBridge && (
         <div className="chip-detail-wrap">
           <pre className="chip-detail">{tryPretty(openMsg.text)}</pre>
           {resultOf(openMsg) && <><h6 className="chip-result-h">Result</h6><pre className="chip-detail chip-result">{resultOf(openMsg)}</pre></>}
         </div>
       )}
+    </div>
+  );
+}
+
+/** The expanded panel of an ask / tell / agents chip. */
+export function BridgeDetail({ b }: { b: Bridge }) {
+  const o = b.outcome;
+  return (
+    <div className="chip-detail bridge-detail">
+      {b.kind === 'agents' ? (
+        b.list?.length ? <><h6>Agents</h6><ul className="bridge-list">{b.list.map((l, i) => <li key={i}>{l}</li>)}</ul></> : <p>Looked up the other agents and their status.</p>
+      ) : (<>
+        {b.message && <><h6>{b.verb} {b.target}</h6><p>{b.message}</p></>}
+        {o && (o.heading
+          ? <><h6>{o.heading}</h6><p className="bridge-result">{o.text}</p></>
+          : <p className={o.tone === 'error' ? 'err-s' : 'muted-s'}>{o.text}{o.taskId && <> <button type="button" className="link-btn" onClick={() => selectTask(o.taskId!)}>Open their task</button></>}</p>)}
+      </>)}
     </div>
   );
 }

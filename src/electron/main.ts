@@ -2,14 +2,14 @@
 import { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, shell, Tray } from 'electron';
 import { execFile, spawn, type ChildProcess } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
-import { closeSync, existsSync, mkdirSync, openSync, readFileSync } from 'node:fs';
+import { appendFileSync, closeSync, existsSync, mkdirSync, openSync, readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { initUpdater, recoverAtStart } from './updater-main.js';
 import { adminForRenderer, bsvConfirmation, bsvPreflight, coreAction, coreIsBusy, createSpendNative, dialogText, isSpendAction, killPlan, listenerCommands, listenerPids, netChangeProblem, parseBsvAction, SPEND_POLL_MS, trustedSender, type BsvAction, type BsvPolicyFacts, type CoreHealth } from './admin-logic.js';
 import { makeConfirm, providerChange } from './provider-ipc.js';
-import { coreStartHint, resolveCoreLaunch } from './resolve-node.js';
+import { coreStartHint, resolveCoreLaunch, startFailureLine } from './resolve-node.js';
 import { heapArgv } from './heap-limit.js';
 import { APP_ID, needsId, windowDetails } from './taskbar.js';
 import { projectChange } from './project-ipc.js';
@@ -444,7 +444,11 @@ async function boot(): Promise<void> {
   await sleep(250);
   splashJs('line', 'waking the core\u2026');
   const err = await ensureCore();
-  if (err) { splashJs('error', err); return; }
+  if (err) {
+    try { appendFileSync(join(dataDir(), 'core.log'), startFailureLine(err)); } catch { /* the splash still shows it */ }
+    splashJs('error', err);
+    return;
+  }
   splashJs('line', 'checking Claude sign-in\u2026');
 
   if (win && !win.isDestroyed()) win.destroy();
