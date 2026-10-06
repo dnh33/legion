@@ -74,7 +74,9 @@ it exists and otherwise reports `unavailable` (the panel then says GitHub suppor
   - Connected (5,000/h): 10 s while a run is in progress, 60 s idle; ETag `If-None-Match` on every list call.
   - Anonymous (60/h): no idle polling at all; refresh on panel open, window focus and a manual Refresh; while a run is
     in progress and the panel is open, at most one poll per 60 s; stop when `rate.remaining` < 10 and show when it
-    resets.
+    resets. A 304 still counts against the anonymous limit (GitHub REST best practices: the 304 saving applies only
+    to requests "correctly authorized with an Authorization header"), so ETags save nothing here. The panel says
+    "Connect GitHub for live updates".
   - Any 403/429 with rate headers: pause until `resetAt`.
   One shared cache; SSE event `ci:update` to the UI.
 - **Log text** is outside content: shown as plain text, capped, never rendered as HTML; a secret-shaped value is
