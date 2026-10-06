@@ -208,7 +208,10 @@ export class Bridge {
     void done.then((r) => {
       const t = r.task ?? this.store.getTask(taskId);
       const body = r.error ? `(failed) ${r.error.message}` : t?.status === 'done' ? (t.result ?? '') : `(${t?.status ?? 'gone'}) ${t?.error ?? ''}`.trim();
-      this.deliverReply(callerTaskId, target, taskId, truncate(body));
+      // the outcome travels in the header, which only Legion writes: a free-text answer that happens to start with
+      // "(error)" is still an answer (review of 0.2.5-f)
+      const outcome = r.error ? 'failed' : t?.status === 'done' ? undefined : (t?.status ?? 'gone');
+      this.deliverReply(callerTaskId, target, taskId, truncate(body), outcome);
     });
     return { taskId };
   }
@@ -352,18 +355,19 @@ export class Bridge {
     if (!caller || caller.status === 'cancelled') return;
     const text = `Model override: ${target.name} is set to ${configured ?? 'its default'} in your configuration, but this one task runs on ${model}. Other tasks are unaffected.`;
     try {
-      this.store.addMessage({ id: randomUUID(), taskId: callerTaskId, role: 'user', text, fromAgentId: target.id, at: new Date().toISOString() });
+      // a Legion notice (role 'system', no fromAgentId): not a message FROM the target, and a provider-backed caller does not replay it as a user turn
+      this.store.addMessage({ id: randomUUID(), taskId: callerTaskId, role: 'system', text, at: new Date().toISOString() });
       this.bus?.emit?.({ type: 'task.updated', task: caller });
     } catch { /* the notice must never break the call */ }
   }
 
   /** Async reply from a `tell`: becomes a new user turn in the caller's task (queued if it is running). */
-  private deliverReply(callerTaskId: string, from: AgentProfile, fromTaskId: string, body: string): void {
+  private deliverReply(callerTaskId: string, from: AgentProfile, fromTaskId: string, body: string, outcome?: string): void {
     const caller = this.store.getTask(callerTaskId);
     if (!caller || caller.status === 'cancelled') return;
     const hop = (this.store.getTask(fromTaskId)?.bridgeHop ?? 0) + 1;
     if (hop > MAX_HOP) return; // loop guard: stop delivering replies deep in a chain
-    const item: QueueItem = { message: `[Reply from ${from.name} · task ${fromTaskId}] ${body}`, fromAgentId: from.id, reply: true, hop, fromTaskId };
+    const item: QueueItem = { message: `[Reply from ${from.name} · task ${fromTaskId}${outcome ? ` · ${outcome}` : ''}] ${body}`, fromAgentId: from.id, reply: true, hop, fromTaskId };
     if (isLive(caller)) { this.enqueue(caller.id, item); return; }
     try { this.start(caller.agentId, item, caller.id, caller.source); } catch { /* caller agent gone: drop */ }
   }

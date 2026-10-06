@@ -157,7 +157,9 @@ describe('VM fixes over HTTP', () => {
     assert.deepEqual([client.rates, client.currency, client.probes, client.forbidden, client.checkedAt, client.keyOk], [{}, '', [], [], null, null]);
     assert.equal(client.configured, true);
     assert.equal(typeof client.asOf, 'string');
-    assert.ok(!/0\.6|2\.4|DKK|resume/.test(JSON.stringify(client)), JSON.stringify(client));
+    // the leak check skips the timestamp: "asOf" like ...T07:09:22.489Z contains "2.4" and failed this check by the clock
+    const { asOf: _asOf, ...clientFields } = client;
+    assert.ok(!/0\.6|2\.4|DKK|resume/.test(JSON.stringify(clientFields)), JSON.stringify(client));
     // event streams: the app window gets the full view, a token-only stream the stripped one
     const readEvent = async (headers: Record<string, string>): Promise<string> => {
       const ac = new AbortController();

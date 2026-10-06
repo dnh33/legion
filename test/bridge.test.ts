@@ -405,3 +405,14 @@ test('agents hidden by isVisible (BSV off) are neither listed nor reachable thro
   assert.equal(err.isError, true);
   assert.match(err.text, /Unknown agent/);
 });
+
+test('tell: a reply from a run that failed carries its outcome in the header (the UI decides from it, never from the answer text)', async () => {
+  const s = setup((c) => c.agent === 'scout' ? (async function* () { throw new Error('boom'); })() : undefined, 4);
+  const z = s.engine.startTask({ agentId: 'zealot', prompt: 'go', source: 'ui' });
+  await s.engine.waitFor(z.id, 3000);
+  const { taskId } = s.engine.bridge.tell(z.id, 'scout', 'research x');
+  await tick(200);
+  const reply = s.store.listMessages(z.id).filter((m) => m.role === 'user').at(-1)!;
+  const head = `[Reply from Scout · task ${taskId} · `;
+  assert.ok(reply.text.startsWith(head + 'error] ') || reply.text.startsWith(head + 'failed] '), reply.text);
+});

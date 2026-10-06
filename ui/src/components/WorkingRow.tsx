@@ -3,6 +3,7 @@ import { elapsedLabel } from '../chat/elapsed';
 import { contextLabel } from '../../../src/shared/context-meter';
 import { workingLabel } from '../chat/working';
 import { useStore } from '../store';
+import { bridgeVerb, pendingAskAgent, workingToolLabel } from '../chat/bridgeView';
 
 /**
  * The row under a running task: what it is doing right now. It subscribes to its own task's progress and ticks its own
@@ -11,6 +12,9 @@ import { useStore } from '../store';
  */
 export function WorkingRow({ taskId, queued, waiting }: { taskId: string; queued: boolean; waiting: boolean }) {
   const progress = useStore((s) => s.progress[taskId]);
+  // a pending ask: the row names the agent it waits on (a string, so the selector stays stable between messages)
+  const askRef = useStore((s) => (bridgeVerb(s.progress[taskId]?.tool ?? '') === 'ask' ? pendingAskAgent(s.messages[taskId]) : undefined));
+  const askName = useStore((s) => (askRef ? s.agents.find((a) => a.id === askRef || a.name.toLowerCase() === askRef.toLowerCase())?.name ?? askRef : undefined));
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
     if (!progress || queued) return;
@@ -22,7 +26,7 @@ export function WorkingRow({ taskId, queued, waiting }: { taskId: string; queued
   const parts: string[] = [];
   if (progress && !queued) {
     parts.push(`turn ${progress.turn} of ${progress.maxTurns}`);
-    if (progress.tool && !waiting) parts.push(progress.tool);
+    if (progress.tool && !waiting) parts.push(workingToolLabel(progress.tool, askName));
     if (progress.contextTokens !== undefined) parts.push(contextLabel(progress.contextTokens));
   }
   const started = progress && !queued ? Date.parse(progress.startedAt) : NaN;

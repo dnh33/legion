@@ -503,7 +503,12 @@ kbd { font-size: 10.5px; line-height: 1; padding: 3px 5px; border: 1px solid var
 .msg.from-agent { display: flex; flex-direction: column; gap: 4px; padding-left: 10px; border-left: 2px solid var(--line-strong); }
 .via-tag { border-style: dashed; }
 .fa-body { white-space: pre-wrap; overflow-wrap: anywhere; color: var(--text-2); }
+.msg.from-agent.failed { border-left-color: var(--danger); }
+.fa-body.err-s { margin: 0; font-size: inherit; }
+.bridge-detail p.err-s { font-size: inherit; }
 .chip.bridge b { font-family: var(--font); font-weight: 600; font-size: 12px; }
+.chip.bridge.failed { border-color: var(--danger); }
+.chip.bridge.failed b { color: var(--danger); }
 .chip.bridge span { font-family: var(--font); font-size: 12px; color: var(--muted); }
 .bridge-detail { white-space: normal; font-family: var(--font); font-size: 12.5px; }
 .bridge-detail h6 { margin: 0 0 2px; color: var(--muted); font-size: 10.5px; letter-spacing: .06em; text-transform: uppercase; }

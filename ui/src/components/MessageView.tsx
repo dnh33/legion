@@ -5,6 +5,7 @@ import { Markdown } from './Markdown';
 import { modelLabel } from '../models';
 import { selectTask, useStore } from '../store';
 import { CONTINUE_PROMPT } from '../../../src/shared/continue';
+import { replyFailure } from '../chat/bridgeView';
 
 export function ModelTag({ task }: { task?: Task }) {
   const catalog = useStore((s) => s.catalog);
@@ -56,9 +57,10 @@ function UserBubble({ text }: { text: string }) {
 }
 
 /** "[Reply from Builder \u00b7 task task_x] body" is how a tell() result is delivered back into the caller's task. */
-export function parseReply(text: string): { name: string; taskId: string; body: string } | null {
-  const r = /^\[Reply from (.+?) \u00b7 task (\S+?)\]\s*([\s\S]*)$/.exec(text);
-  return r ? { name: r[1], taskId: r[2], body: r[3] } : null;
+export function parseReply(text: string): { name: string; taskId: string; outcome?: string; body: string } | null {
+  // a run that did not answer adds its outcome to the header: "[Reply from Builder \u00b7 task task_x \u00b7 failed] (failed) reason"
+  const r = /^\[Reply from (.+?) \u00b7 task (\S+?)(?: \u00b7 (failed|error|cancelled|gone))?\]\s*([\s\S]*)$/.exec(text);
+  return r ? { name: r[1], taskId: r[2], ...(r[3] ? { outcome: r[3] } : {}), body: r[4] } : null;
 }
 
 /** A user-role turn sent by another Legion agent through the bridge. Not the owner's bubble. */
@@ -66,8 +68,9 @@ function AgentMessage({ from, text }: { from: string; text: string }) {
   const sender = useStore((s) => s.agents.find((a) => a.id === from));
   const reply = parseReply(text);
   const taskExists = useStore((s) => (reply ? s.tasks.some((t) => t.id === reply.taskId) : false));
+  const failed = reply ? replyFailure(reply.body, sender?.name ?? reply.name, reply.outcome) : null;
   return (
-    <div className="msg from-agent">
+    <div className={`msg from-agent${failed ? ' failed' : ''}`}>
       <div className="msg-head">
         <span className="mini-avatar">{sender?.emoji ?? '\u25cf'}</span>
         <span className="who">{sender?.name ?? reply?.name ?? from}</span>
@@ -77,7 +80,7 @@ function AgentMessage({ from, text }: { from: string; text: string }) {
           : null}
         <span className="mtag via-tag" title="Sent by another agent through the Legion bridge">via Legion</span>
       </div>
-      <div className="fa-body">{reply ? reply.body : text}</div>
+      {failed ? <div className="fa-body err-s" role="note">{failed.text}</div> : <div className="fa-body">{reply ? reply.body : text}</div>}
     </div>
   );
 }

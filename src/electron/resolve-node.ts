@@ -42,9 +42,17 @@ export function resolveCoreLaunch(root: string, env: NodeJS.ProcessEnv = process
 /** What to tell the person when the core could not be started with this launch. */
 export function coreStartHint(mode: CoreLaunch['mode'], code?: string): string {
   if (mode === 'package') {
-    return `Legion's own runtime (${PACKAGE_ELECTRON.join('\\')}) could not start${code ? ` (${code})` : ''}. Windows or your antivirus may have blocked or removed it: open Windows Security > Virus & threat protection > Protection history, restore or allow the file, then run setup again. Legion does not retry by itself.`;
+    return `Legion's own runtime (${PACKAGE_ELECTRON.join('\\')}) could not start${code ? ` (${code})` : ''}. Your antivirus may have blocked or removed it: in Windows Security > Protection history, allow or restore the file, then run setup again. Legion does not retry by itself.`;
   }
   return 'Node.js 20.10+ not found. Run setup.cmd again (it can install Node for Legion), or: winget install OpenJS.NodeJS.LTS (or set LEGION_NODE).';
+}
+
+/**
+ * The line written to core.log when the core cannot start. The splash shows the same text, but a spawn failure writes
+ * nothing to core.log by itself (the child never ran), so without this "Open log" showed none of the advice.
+ */
+export function startFailureLine(message: string, now: Date = new Date()): string {
+  return `[${now.toISOString()}] Legion could not start the core: ${message.replace(/\r?\n/g, ' ')}\n`;
 }
 
 /** The environment for a process that starts the core from inside Electron's node mode (the stdio proxy): the child must stay in node mode too. */
