@@ -813,7 +813,7 @@ re-check lines.
 
 #### SHIPPED CONTEXT — read this first, it explains most of what follows
 
-Latest release is **`0.2.5-h`** (tag `v0.2.5-h`, 2026-10-06; the merge of release/0.2.5-h). The updater
+Latest release is **`0.2.5-i`** (tag `v0.2.5-i`, 2026-10-06; the merge of release/0.2.5-i). The updater
 applies releases from inside Legion; the maintainer reported on 2026-10-06 that it works (check U1). Everything below is
 either shipped, parked, or not started.
 
@@ -835,6 +835,7 @@ Releases since `0.2.3-g` (dates from the tags; `0.2.3-h` to `0.2.3-l` were conso
 | `0.2.5-f` | 2026-10-06 | refused or unanswered agent-to-agent messages are shown as such; splash start error shown in full |
 | `0.2.5-g` | 2026-10-06 | BSV wording (Legion's last dialog is the last check), red failed-answer line, running-task clock in a narrow window, thread fixes |
 | `0.2.5-h` | 2026-10-06 | Doctrine screen with a switch per file, six optional skills, Undo for bulk changes (house/skills session); one-line installers; setup takes lettered releases; SHA256SUMS lists the installer; CI-only full suite and `npm run tidy` (dev) |
+| `0.2.5-i` | 2026-10-06 | BSV: wait while the wallet asks (BRC-219), Cancel, release late or stale builds, knowledge pack v10 (BSV session, PR #16); usage panel opens fully; README install leads with save-then-run; SECURITY.md rewrite; ladder items 17-19 |
 
 Table derived from `git tag -l 'v0.2*'` with creation dates and the `CHANGELOG.md` sections (`0.2.3-h` to `0.2.3-l` from the
 `git log v0.2.3-g..v0.2.4` subjects; their own changelog entries were folded into `0.2.4`).
@@ -946,7 +947,7 @@ Items 1 to 6 above stay as they are. These were added from the 2026-10-06 sessio
 7. **Logging** (same as item 3; listed here so the open work is in one place). Not built.
 8. **Plan gate and the Zealot model policy.** Design done; sketches are in branch `sketch/plan-gate`. Not built.
 9. **Hand-off cards, direction D3 "Side thread".** Sketches in branch `sketch/handoff-card`. Not built.
-10. **One-line install.** Scripts shipped in `0.2.5-h` (`scripts/install/`, release assets). Still to do: move `getlegion.xyz` to Cloudflare (site branch `feat/cloudflare-pages` in `dnh33/legion-site`), then the commands work.
+10. **One-line install. DONE.** Scripts shipped in `0.2.5-h`. `getlegion.xyz` moved to Cloudflare Pages on 2026-10-06 (zone active, routing verified with PowerShell 5.1, PowerShell 7, curl and a browser). The site's Windows copy button gives the save-then-run form (uBlock ClickFix warning on a copied `irm | iex`). Left: delete the old Netlify project on or after 2026-10-08 (maintainer chose a 48 h wait).
 11. **Built-in browser pane** (idea). Not designed.
 12. **Provider presets release.** OpenAI, Ollama, LM Studio and vLLM presets; hidden today (the custom address works now).
 13. **House rules and skills (release A) shipped in `0.2.5-h`.** Next from the same session: the Armory (A2a, branch `feat/armory`), then the CI panel (release B), which will use the GitHub connector (item 16).
