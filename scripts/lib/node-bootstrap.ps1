@@ -145,12 +145,31 @@ function Install-LegionNode {
     if (-not $src.Test -and $ver.ToString() -ne $v) { throw "The downloaded node.exe reports $ver, not $v." }
     # swap in: only an owned (or absent) runtime\node may be replaced
     if (Test-Path -LiteralPath $final) { Remove-TreeNoFollow $final }
-    [System.IO.Directory]::Move($top, $final)
+    Move-DirectoryPatiently -From $top -To $final
     $marker = @{ version = $ver.ToString(); sha256 = $got; file = $zipName; source = $src.Base } | ConvertTo-Json -Compress
     [System.IO.File]::WriteAllText((Join-Path $final $script:LegionRuntimeMarker), $marker + "`r`n", (New-Object System.Text.ASCIIEncoding))
     return [pscustomobject]@{ NodeDir = $final; Version = $ver.ToString() }
   } finally {
     Remove-TreeNoFollow $staging
+  }
+}
+
+# Moves a folder, retrying while Windows still holds something inside it. Right after unpacking and running node.exe -v, an
+# antivirus scan or the just-exited node.exe can keep a handle open for a moment, and Directory.Move then fails with "Access to
+# the path ... is denied" (seen on a busy PC, 2026-10-06). Only those errors are retried, for at most Attempts x DelayMs; anything
+# else, or a hold that outlasts the wait, fails with the real reason. Known Windows behaviour; the usual fix is this bounded
+# retry on these two exception types only (source in test/installer-node-bootstrap.test.ts; no URLs here, by test).
+function Move-DirectoryPatiently {
+  param([string]$From, [string]$To, [int]$Attempts = 20, [int]$DelayMs = 250)
+  if (Test-Path -LiteralPath $To) { throw "Cannot move to $To`: it already exists." }
+  for ($i = 1; ; $i++) {
+    try { [System.IO.Directory]::Move($From, $To); return }
+    catch {
+      $e = $_.Exception; while ($e.InnerException) { $e = $e.InnerException }
+      $busy = ($e -is [System.UnauthorizedAccessException]) -or ($e -is [System.IO.IOException] -and -not ($e -is [System.IO.FileNotFoundException]) -and -not ($e -is [System.IO.DirectoryNotFoundException]))
+      if (-not $busy -or $i -ge $Attempts) { throw }
+      Start-Sleep -Milliseconds $DelayMs
+    }
   }
 }
 

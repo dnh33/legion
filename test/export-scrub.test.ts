@@ -52,7 +52,7 @@ const PORT_GUARDRAILS = new Set([
 ]);
 
 const PROSE_ROOTS = ['docs'];
-const PROSE_FILES = new Set(['README.md', 'CONTRIBUTING.md', 'SECURITY.md', 'CHANGELOG.md', 'CODE_OF_CONDUCT.md', 'NOTICE', 'LICENSE']);
+const PROSE_FILES = new Set(['README.md', 'CONTRIBUTING.md', 'SECURITY.md', 'CHANGELOG.md', 'NOTICE', 'LICENSE']);
 const isProse = (rel: string) =>
   PROSE_ROOTS.some((d) => rel === d || rel.startsWith(d + '/')) ||
   PROSE_FILES.has(rel) || rel.startsWith('.github/');

@@ -7,7 +7,7 @@ description: Use when writing or editing anything a reader outside the project s
 
 ## The rule that governs every other rule here
 
-**`CHANGELOG.md`, `README.md`, `CONTRIBUTING.md`, `SECURITY.md` and `CODE_OF_CONDUCT.md` are scrubbed into the
+**`CHANGELOG.md`, `README.md`, `CONTRIBUTING.md` and `SECURITY.md` are scrubbed into the
 public snapshot.** `ROOT_DOCS` in `scripts/export-public.mjs` proves it. So does `docs/**` and `claude/**` via
 `PROSE_DIRS`.
 

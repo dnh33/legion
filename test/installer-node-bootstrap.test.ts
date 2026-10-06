@@ -208,3 +208,35 @@ describe('node bootstrap, each shell', { concurrency: true }, () => { for (const
 }); });
 
 test('PowerShell tests need a PowerShell', { skip: noShell }, () => { assert.ok(shells.length > 0); });
+
+// Seen on a busy PC (2026-10-06): right after unpacking and running node.exe -v, something (an antivirus scan, the just-exited
+// node.exe) still holds a file in the unpacked folder, and moving it into runtime\node failed with "Access ... is denied".
+// Known Windows behaviour with the same bounded-retry fix: https://github.com/cloudsmith-io/cloudsmith-cli-install-script/pull/14
+test('a folder held open for a moment is still moved into place; a hold that does not end gives up with the real error', { skip: noShell }, async () => {
+  const exe = shells[0]!; const dir = tempDir();
+  const from = join(dir, 'unpack', 'node'); mkdirSync(from, { recursive: true }); writeFileSync(join(from, 'node.exe'), 'x');
+  const ready = join(dir, 'held'); const release = join(dir, 'release');
+  const holder = join(dir, 'hold.ps1');
+  writeFileSync(holder, [
+    `$fs = [System.IO.File]::Open(${q(join(from, 'node.exe'))}, 'Open', 'Read', 'Read')`,
+    `Set-Content -LiteralPath ${q(ready)} 'x'`,
+    `$until = (Get-Date).AddSeconds(60); while (-not (Test-Path -LiteralPath ${q(release)}) -and (Get-Date) -lt $until) { Start-Sleep -Milliseconds 50 }`,
+    `$fs.Dispose()`,
+  ].join('\n'));
+  const held = ps(exe, holder, [], {});
+  while (!existsSync(ready)) await new Promise((r) => setTimeout(r, 50));
+  // without patience the move fails while the file is held (checked by exception type: the message is in the system language)
+  const once = await snippet(exe, dir, `try { Move-DirectoryPatiently -From ${q(from)} -To ${q(join(dir, 'once'))} -Attempts 1; 'MOVED' } catch { $e = $_.Exception; while ($e.InnerException) { $e = $e.InnerException }; 'FAILED ' + $e.GetType().Name }`, {});
+  assert.match(once.out, /FAILED (UnauthorizedAccess|IO)Exception/, once.out);
+  // a hold that outlasts the wait gives up with the real error, it does not hang
+  const short = await snippet(exe, dir, `try { Move-DirectoryPatiently -From ${q(from)} -To ${q(join(dir, 'short'))} -Attempts 3 -DelayMs 50; 'MOVED' } catch { $e = $_.Exception; while ($e.InnerException) { $e = $e.InnerException }; 'FAILED ' + $e.GetType().Name }`, {});
+  assert.match(short.out, /FAILED (UnauthorizedAccess|IO)Exception/, short.out);
+  // with patience it waits for the hold to end, then moves
+  const patient = snippet(exe, dir, `Move-DirectoryPatiently -From ${q(from)} -To ${q(join(dir, 'final'))} -Attempts 200 -DelayMs 100; 'MOVED'`, {});
+  await new Promise((r) => setTimeout(r, 700));
+  writeFileSync(release, 'x');
+  const r = await patient;
+  assert.match(r.out, /MOVED/, r.out);
+  assert.ok(existsSync(join(dir, 'final', 'node.exe')), 'the folder is in place');
+  await held;
+});

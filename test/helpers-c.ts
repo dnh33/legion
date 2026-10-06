@@ -31,7 +31,11 @@ export function mkAgent(id: string, name = id): AgentProfile {
   };
 }
 
-export function makeFakes() {
+/**
+ * `holdRuns`: a started run stays running until the test ends it. By default a run ends 20 ms after it starts, which a test
+ * that checks something WHILE the run is live cannot rely on: on a loaded PC the next request can take longer than that.
+ */
+export function makeFakes(opts: { holdRuns?: boolean } = {}) {
   const agents = new Map<string, AgentProfile>([['zealot', mkAgent('zealot', 'Zealot')], ['scout', mkAgent('scout', 'Scout')]]);
   const tasks = new Map<string, Task>();
   const messages = new Map<string, ChatMessage[]>();
@@ -50,7 +54,7 @@ export function makeFakes() {
       };
       tasks.set(t.id, t);
       messages.set(t.id, [{ id: 'm1', taskId: t.id, role: 'user', text: p.prompt, at: t.createdAt }]);
-      setTimeout(() => { t.status = 'done'; t.result = `echo: ${p.prompt}`; t.costUsd = 0.01; }, 20);
+      if (!opts.holdRuns) setTimeout(() => { t.status = 'done'; t.result = `echo: ${p.prompt}`; t.costUsd = 0.01; }, 20);
       return t;
     },
     cancel(id: string) { calls.cancel.push(id); return true; },

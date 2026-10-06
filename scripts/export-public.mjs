@@ -78,7 +78,7 @@ const EXCLUDE = new Set([
  * listed in EXCLUDE are not published at all.
  */
 const PROSE_DIRS = ['docs', 'claude'];
-const ROOT_DOCS = ['README.md', 'CONTRIBUTING.md', 'SECURITY.md', 'CHANGELOG.md', 'CODE_OF_CONDUCT.md', 'NOTICE', 'LICENSE'];
+const ROOT_DOCS = ['README.md', 'CONTRIBUTING.md', 'SECURITY.md', 'CHANGELOG.md', 'NOTICE', 'LICENSE'];
 // `claude/` is scrubbed as a whole, which is what the policy above says happens to it: "the design plans, PC-check
 // lists and reports under claude/ ship, line-scrubbed". Until 2026-10-04 the scrub list named docs/, the root docs and
 // .github only, with `claude/tracker-pc-checks.md` carried as a one-off exception, so every other claude/ file was
