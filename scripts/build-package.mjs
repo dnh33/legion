@@ -91,7 +91,8 @@ if (runtimeFiles.length !== listTree(o.electronDist).length) log(`left out ${DEF
 
   const mf = spawnSync(process.execPath, [join(REPO, 'scripts', 'release-manifest.mjs'), '--zip', appZip, '--out', out], { encoding: 'utf8' });
   if (mf.status !== 0) throw new Error(`release-manifest.mjs failed: ${mf.stderr || mf.stdout}`);
-  const sums = readFileSync(join(out, 'SHA256SUMS.txt'), 'utf8').trimEnd().split('\n');
+  // release-manifest.mjs already lists the installer (its zip is written above); replace that line, never add a second one
+  const sums = readFileSync(join(out, 'SHA256SUMS.txt'), 'utf8').trimEnd().split('\n').filter((l) => l.slice(66) !== basename(zip));
   sums.push(`${w.sha256}  ${basename(zip)}`);
   sums.sort((a, b) => (a.slice(66) < b.slice(66) ? -1 : 1));
   writeFileSync(join(out, 'SHA256SUMS.txt'), sums.join('\n') + '\n');

@@ -89,6 +89,8 @@ Never ship from a worktree that is not merged. Never build or test in the instal
 
 ### 1. Gate (one at a time — `npm test` clobbers `dist/`)
 
+A release runs the full suite locally on purpose, so set `LEGION_LOCAL_GATE=1` for this step (the PR's CI runs it too).
+
 ```
 npm ci
 npm run build:ts

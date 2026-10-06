@@ -21,7 +21,7 @@ To run the real app you also need Claude Code signed in (`claude`, then `/login`
 | Command | What it does |
 |---|---|
 | `npm run typecheck` | Type-checks the core (`tsconfig.json`) and the UI (`ui/tsconfig.json`). |
-| `npm test` | Builds the TypeScript, then runs `node --test "dist/test/*.test.js"`. |
+| `npm test` | Builds the TypeScript, then runs `node --test "dist/test/*.test.js"`. Refuses locally: the full suite runs on the PR's CI (set `LEGION_LOCAL_GATE=1` to run it here). |
 | `npm run build` | Builds the core into `dist/` and the UI into `dist-ui/`. |
 | `npm start` | Builds, then opens the Electron app. |
 | `npm run app` | Opens the app without rebuilding. |
@@ -90,7 +90,7 @@ Golden rule: `ui/src/mascot/data/relic.json` and the Relic stage stay byte-ident
 
 ## The gate
 
-Run this before you say a change is done, and report the exact test counts in the pull request:
+The PR's CI runs this; locally set `LEGION_LOCAL_GATE=1` to run the chain yourself. Report the exact test counts in the pull request:
 
 ```bash
 npm ci && npm run build:ts && npm run test:run && npm run typecheck:ui && npm run build:ui
@@ -123,7 +123,7 @@ Do not open a public issue for a vulnerability. Use private vulnerability report
 Checklist:
 
 - [ ] `npm run typecheck` passes
-- [ ] `npm test` passes, with tests added or updated
+- [ ] CI is green on this PR, with tests added or updated
 - [ ] `npm run build:ts` and `npm run build:ui` pass
 - [ ] No secrets, tokens, personal paths or email addresses in the diff
 - [ ] Docs updated (README, `docs/ARCHITECTURE.md`, `CHANGELOG.md` under "Unreleased") if behaviour changed

@@ -13,7 +13,7 @@ $script:LegionPkgUnpackMax = 1200MB
 $script:LegionPkgEntriesMax = 20000
 $script:LegionPkgSizeMB = 270          # shown in the question; the real number is on the release page
 $script:LegionPkgRepoPath = '/dnh33/legion/releases/download/'
-$script:LegionPkgSemver = '(?:0|[1-9]\d{0,8})\.(?:0|[1-9]\d{0,8})\.(?:0|[1-9]\d{0,8})'
+$script:LegionPkgSemver = '(?:0|[1-9]\d{0,8})\.(?:0|[1-9]\d{0,8})\.(?:0|[1-9]\d{0,8})(?:-[a-z])?'
 
 # 'package', 'source' or 'unknown' for a folder. Same rule as detectKind in scripts\lib\package-lib.mjs.
 function Get-LegionFolderKind {
@@ -149,7 +149,7 @@ function Get-LegionPackageFolder {
     try { [void](Expand-ZipSafe -Zip $zip -Dest $unpack -MaxEntries $script:LegionPkgEntriesMax -MaxTotalBytes $script:LegionPkgUnpackMax) }
     catch { return (& $fail "The package could not be unpacked safely: $($_.Exception.Message)") }
     $tops = @(Get-ChildItem -LiteralPath $unpack -Force)
-    if ($tops.Count -ne 1 -or -not $tops[0].PSIsContainer -or $tops[0].Name -notmatch ('^legion-' + $script:LegionPkgSemver + '$')) { return (& $fail 'The zip does not hold exactly one legion-<version> folder.') }
+    if ($tops.Count -ne 1 -or -not $tops[0].PSIsContainer -or $tops[0].Name -cnotmatch ('^legion-' + $script:LegionPkgSemver + '$')) { return (& $fail 'The zip does not hold exactly one legion-<version> folder.') }
     if ((Get-LegionFolderKind $tops[0].FullName) -ne 'package') { return (& $fail 'The zip is not a Legion Windows package (no build-info.json of kind package, or no runtime\electron\electron.exe).') }
     $ok = $true
     return [pscustomobject]@{ Ok = $true; Dir = $tops[0].FullName; Temp = $temp; Message = '' }

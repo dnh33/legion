@@ -11,8 +11,22 @@ Every push to `main` and every pull request runs the whole test suite on GitHub'
 | `test macos-latest 1/2`, `2/2` | the same, on Apple Silicon (arm64) |
 | `typecheck + UI build` | `npm run typecheck` (core and UI), `npm run build:ui` |
 | `installer (Windows PowerShell 5.1)` | the real `setup.ps1` / `uninstall.ps1` / `setup-yes.cmd` under Windows PowerShell 5.1, from folders with spaces, including the refusals (a foreign folder, `C:\`, `C:`) |
+| `install scripts (syntax)` | `sh -n` on `scripts/install/install.sh`, a check that it has no CR bytes and starts with `#!/bin/sh`, and a PowerShell parse check of `scripts/install/install.ps1` |
 
 The split uses Node's own `node --test --test-shard=<i>/<n>`, which deals out test **files** round-robin. Each OS's shards add up exactly to that OS's full run. Jobs do not stop each other on failure (`fail-fast: false`), and a newer push to the same branch cancels the older run.
+
+## Installer smoke tests (separate workflow)
+
+[.github/workflows/install.yml](../.github/workflows/install.yml) runs the one-line installers for real, from the checkout, into a temp folder, never launching Legion:
+
+- `install.ps1 -NoLaunch` on Windows PowerShell 5.1 and on PowerShell 7. It downloads the release zip (the full app), checks its SHA-256, runs the package setup, then checks the installed version, `electron.exe` and that the temp folder was removed. The 5.1 job then runs the script-block form (as `irm | iex` with options) as an update over the same folder.
+- `install.sh --no-launch` on Ubuntu and macOS, with a fresh `HOME`. It clones the real latest tag, runs `npm ci` and `npm run build`, then checks the build output, the launcher in `~/.local/bin`, that the Electron binary exists, and the version. A second run checks the in-place update.
+
+When it runs: on a pull request or push to `main` that changes the installer paths (`scripts/install/**`, `scripts/setup.ps1`, `scripts/lib/package-*`, `scripts/lib/legion-procs.ps1`, the workflow itself), nightly, and by hand (`workflow_dispatch`) after a release.
+
+A red nightly run emails the repository owner by GitHub's default notification settings.
+
+It installs the live latest release by design, so it is not part of the per-push gate: a broken release or a GitHub outage would turn every unrelated pull request red. The fast, hermetic `install scripts (syntax)` check stays in `ci.yml`. The workflow has the same lock-down as `ci.yml` (read-only token, no `pull_request_target`, SHA-pinned actions, time limits).
 
 ## Before and after
 
@@ -69,6 +83,8 @@ Moving the suite onto clean machines found three real bugs and several environme
 - One browser test stopped its fake browser only when every assertion passed. On macOS a failed assertion left the browser running, which kept the test file alive for 20 minutes until the job was cancelled. It now always stops the browser.
 
 ## Running the same thing locally
+
+The full suite is meant to run on CI: `npm test` and `npm run test:run` refuse locally unless `LEGION_LOCAL_GATE=1` is set. CI itself calls `node --test` directly and sets `CI`.
 
 ```bash
 npm ci && npm run build:ts && npm run test:run && npm run typecheck:ui && npm run build:ui

@@ -57,16 +57,20 @@ Source: `review/release-packaging-review.md` section 5 (branch `claude/review-re
 
 ## Also still open from the handoff (section 6.2/6.3)
 
+**2026-10-06, maintainer report (no screenshot kept):** agents started and used boat.dev VMs and it works; this covers the basic start-and-use part of the Forgemaster VM run (plan PC-VM-05) and is not recorded per step. K1 (zero boat.dev calls at core start) and the other VM rows still need their own evidence. Blender in the VM (B11) was not reported.
+
 Real boat.dev checks, real Blender 5.x (official add-on is a Blender extension), tray/second-instance/title bar, Sentinel schedule firing, Forgemaster VM run, Cowork over MCP, approval-card flows end to end, BSV on a testnet wallet in a VM only, perf re-record.
 
 ## Blender local-first (plan 6.2 and 6.3). Record results here; when the local run (B1-B8) passes, add the line `BLENDER LOCAL PC RUN RECORDED` below and only then remove the "not yet tried" notes
+
+**2026-10-06, maintainer report:** local headless mode was used (the Sculptor ran scripts in the installed Blender and exports came out), and "Get Blender for Legion" (the managed copy) was used and works. Only B1, B2, B13 and B14 are marked from that. B3 to B8 and the other rows still need their own evidence, so the `BLENDER LOCAL PC RUN RECORDED` line is NOT added.
 
 Local mode, real Blender on this Windows PC (no downloads if Blender is installed):
 
 | # | Check | State |
 |---|---|---|
-| B1 | `blender.exe --version`; Settings, Blender: detection finds it and mode Automatic says "Next script runs: on this computer" | todo |
-| B2 | Cube plus GLB: approve the card; `<workspace>\blender-exports\<task>\*.glb` exists; `scene.blend` and `backups\` exist under `%APPDATA%\legion\blender\local\<task>\`. Repeat for FBX and a PNG preview (`blender_screenshot`). This is the check that the Python write guard does not break the exporters; if one is blocked, add its temp location to the guard's allowlist and record why (or set `advanced.local.guard` to `log` and say so in the docs) | todo |
+| B1 | `blender.exe --version`; Settings, Blender: detection finds it and mode Automatic says "Next script runs: on this computer" | passed (maintainer report 2026-10-06; no screenshot kept) |
+| B2 | Cube plus GLB: approve the card; `<workspace>\blender-exports\<task>\*.glb` exists; `scene.blend` and `backups\` exist under `%APPDATA%\legion\blender\local\<task>\`. Repeat for FBX and a PNG preview (`blender_screenshot`). This is the check that the Python write guard does not break the exporters; if one is blocked, add its temp location to the guard's allowlist and record why (or set `advanced.local.guard` to `log` and say so in the docs) | passed in part (maintainer report 2026-10-06; no screenshot kept): scripts ran in the installed Blender and the exports came out (FBX and PNG preview not itemised) |
 | B3 | Through the real runner with a hand-written script (below the static check): a write outside the task folder is blocked; an infinite loop is stopped at 120 s and `blender.exe` and its children are gone from Task Manager | todo |
 | B4 | A hand-written script that lists `os.environ`: no Legion or API variables | todo |
 | B5 | With the community add-on installed and `blendermcp_auto_start_server` on, a local run opens no socket on 9876 (`netstat`) | todo |
@@ -87,8 +91,8 @@ B4/B5 (managed Blender, chooser). Downloads: the owner present and a go for each
 | # | Check | State |
 |---|---|---|
 | B12 | **TODO OWNER PC:** reproduce the managed pin. `Invoke-WebRequest https://download.blender.org/release/Blender5.2/blender-5.2.2.sha256` and the line for `blender-5.2.2-windows-x64.zip` must read `3849d17a682cba006075aaa3f3597ecb5c9c30ec31035b2e092c53e40679b535` (given by the owner; not reproduced by an agent). Also confirm the zip address in `MANAGED_BLENDER.url` answers (HTTP 200) and the file's top folder is `blender-5.2.2-windows-x64` | todo |
-| B13 | Settings, Blender, Get Blender for Legion: the approval card appears in Settings and in the Sculptor's chat; Deny fetches nothing (check the folder `%APPDATA%\legion\blender\app` does not exist yet); Allow downloads about 386 MB, unpacks (note the time and peak memory), `blender.exe --version` from `%APPDATA%\legion\blender\app\5.2.2\blender-5.2.2-windows-x64\` prints 5.2.2, and Settings shows it installed. Note any antivirus or SmartScreen prompt on the unpacked files | todo |
-| B14 | With the managed copy installed: detection lists it first, "Next script runs: on this computer (Blender 5.2.2)", and a cube plus GLB export runs through the headless runner (this repeats B2 on the managed build). A normal install is still listed and untouched | todo |
+| B13 | Settings, Blender, Get Blender for Legion: the approval card appears in Settings and in the Sculptor's chat; Deny fetches nothing (check the folder `%APPDATA%\legion\blender\app` does not exist yet); Allow downloads about 386 MB, unpacks (note the time and peak memory), `blender.exe --version` from `%APPDATA%\legion\blender\app\5.2.2\blender-5.2.2-windows-x64\` prints 5.2.2, and Settings shows it installed. Note any antivirus or SmartScreen prompt on the unpacked files | passed in part (maintainer report 2026-10-06; no screenshot kept): the managed copy downloaded and installed and works; the Deny check, time, memory and antivirus notes were not reported |
+| B14 | With the managed copy installed: detection lists it first, "Next script runs: on this computer (Blender 5.2.2)", and a cube plus GLB export runs through the headless runner (this repeats B2 on the managed build). A normal install is still listed and untouched | passed in part (maintainer report 2026-10-06; no screenshot kept): the managed copy ran exports (the "normal install untouched" part was not itemised) |
 | B15 | Negative: with a deliberately wrong hash (a scratch edit of `blender.advanced.managed.sha256` is not enough while the constant is set, so use a scratch build or a fake file server) nothing is unpacked and no `managed.json` appears. Also delete the folder by hand and confirm Settings goes back to "not installed" | todo |
 | B16 | First-use chooser: a fresh data dir with the bridge on shows the chooser on the first Blender card; picking "This computer" saves `mode` and `modeAsked` in `config.json` and the chooser is gone on the next card; the Sculptor, asked in chat, names the place it chose and why | todo |
 | B17 | **Title-bar Blender pill, real app on Windows.** Look at the pill (cube, dot, "Blender") with the bridge off (grey hollow dot), on with Blender installed (green dot; the popover says Ready: this computer plus the version) and with Blender missing (red dot; the popover button says Get Blender, opens Settings, Blender and downloads nothing). It must look like the Doctor button next to it, with no colour of its own. Open the popover: Tab reaches the pill, Enter/Space opens it, Escape closes it and returns the focus to the pill. In the popover press the switch while off: the dialog "Turn on Blender?" opens, Cancel has the focus (Enter cancels), Escape and the X cancel and leave Blender off; "Turn on Blender" turns it on. Do the same from Settings, Blender (the checkbox must show the same dialog and stay unchecked after Cancel). Turning it off from either place asks nothing. Both themes. Resize to 960, 1000, 1280 and 1440: nothing wraps or overlaps, below 1280 only the cube and dot remain. Stop the core: the dot is grey and the popover says Blender: unknown with the switch locked. Narrator reads the pill with its status and the switch as "Turn on the Blender bridge, switch, on/off". | todo |
@@ -121,6 +125,8 @@ B17 (both backends at once). Area: Blender both-backends mode. Safety class: dow
 | B17f | Poly Haven switched OFF: `blender_asset_get` is refused before any listing; Sketchfab and Hyper3D show "Not available" in Settings and cannot be switched on | todo |
 
 ## Project board (claude/plan-project-board.md; in v0.2.0, on by default). Safety class: none (no spend, no download)
+
+**2026-10-06, maintainer report:** the board is in daily use on the maintainer's PC. No row below is marked passed from that: PB3 (screen reader), PB4 (display scale) and PB9 (crash) were not done, and the others need their evidence.
 
 Full steps in `claude/tracker-pc-checks-board.md`. Preconditions: a project with two member agents (nothing to switch on).
 
@@ -230,7 +236,7 @@ Full record: `claude/HOUSE-LAYER-VERIFICATION.md`.
 | H10 | Restart Legion. | `house_list` unchanged; approvals survive; nothing you dropped into the context folder was deleted. | todo |
 
 ## Browser tool (built-in headless Edge/Chrome) - see claude/tracker-pc-checks-browser.md for the full steps (BR15 to BR24; the Lightpanda checks BR1-BR14 are dropped)
-Safety classes: BR15-BR20, BR22-BR24 none (a harmless page you control); BR21 native dialog. Nothing in this section was run in a cloud session; do not call the browser tool verified until each is recorded as passed.
+Safety classes: BR15-BR20, BR22-BR24 none (a harmless page you control); BR21 native dialog. Nothing in this section was run in a cloud session. 2026-10-06, maintainer report: agents used the browser tool on the real PC and it works; BR15 is marked passed in part in `claude/tracker-pc-checks-browser.md`, BR16 to BR24 stay open. Do not call the browser tool verified beyond that until each is recorded as passed.
 
 | H11 | **Heap ceiling (0.2.3-j).** The core now gets `min(RAM/4, 2048)` MB, floored at 512. On this machine Node's default was 4192 MB, so the cap is roughly half. **Nobody profiled the core's actual peak heap** — the cap is reasoned, not measured. Run a heavy session (large KG, several compactions, a long agent run) and watch whether heap approaches 2048. If it does, the cap is too low and the core will OOM where it previously survived. | todo |
 

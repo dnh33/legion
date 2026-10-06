@@ -1,6 +1,6 @@
 # Updates
 
-How an installed Legion gets a new version, and what is and is not checked. Plan and design record: `claude/plan-updater.md`. Code: `src/core/updater/*`, `src/electron/updater-main.ts`, `ui/src/components/UpdatePanel.tsx`, `scripts/release-*.mjs`. Not yet tried on a real Windows PC: `claude/tracker-pc-checks-updater.md`.
+How an installed Legion gets a new version, and what is and is not checked. Plan and design record: `claude/plan-updater.md`. Code: `src/core/updater/*`, `src/electron/updater-main.ts`, `ui/src/components/UpdatePanel.tsx`, `scripts/release-*.mjs`. Applying an update on a real Windows PC works (check U1, maintainer report 2026-10-06; no screenshot kept). The other checks (U2 to U13: busy, rollback, files in use, antivirus, offline and the rest) are not yet recorded: `claude/tracker-pc-checks-updater.md`.
 
 ## What the user sees
 

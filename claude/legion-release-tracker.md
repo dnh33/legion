@@ -802,43 +802,60 @@ matters: an agent writes a line into `AGENTS.md`, then `house_read` must return 
 `needsApproval('full', …)` is correct as written, so the suspect is **`approvalCeiling` capping a `full` agent
 down to `ask`**. Never confirmed — the earlier investigation ran out of subagent credit before isolating it. Small,
 live, and visible to the owner, so it is its own session rather than bundled with a feature.
-### TASK LADDER — where the work is, in order (rewritten 2026-10-04; renumbered because the lettered items
-### had drifted out of order and item 2 still claimed `-d` was the latest release when `-g` had shipped)
+### TASK LADDER — where the work is (rewritten 2026-10-04; shipped context and statuses re-checked 2026-10-06 against the code and git)
 
-**Do not reorder this list without reading the whole of it.** Items 1 and 2 are shipped and are here as the reason
-the later items exist. Work starts at **3**.
+**Do not reorder this list without reading the whole of it.** Order: maintainer to confirm. The 2026-10-04 list (items 1 to 6)
+is kept as written; each item now carries a re-check line. The open work added on 2026-10-06 is items 7 to 15 below, in no
+priority order. The 2026-10-04 text said "Work starts at 3" and "3. Logging — NEXT SESSION"; that is out of date, see the
+re-check lines.
 
 ---
 
 #### SHIPPED CONTEXT — read this first, it explains most of what follows
 
-Latest release is **`0.2.3-g`**, verified installable from inside Legion, self-applying (`requiresFullInstall:
-false`). Everything below is either shipped, parked, or not started.
+Latest release is **`0.2.5-h`** (tag `v0.2.5-h`, 2026-10-06; the merge of release/0.2.5-h). The updater
+applies releases from inside Legion; the maintainer reported on 2026-10-06 that it works (check U1). Everything below is
+either shipped, parked, or not started.
 
-| release | what it carried |
-|---|---|
-| `0.2.3-b` | context compaction, and the Update button that made self-apply usable |
-| `0.2.3-c` | window-proportional turn budget, test temp-dir cleanup, Blender export folder, the product-copy rewrite |
-| `0.2.3-d` | compaction off switch, `/compact [focus]` and its route, context-usage readout |
-| `0.2.3-e` | full-access approval cards (S5b), the house context layer, the `claude/` vault-leak fix, `--pkg` required |
-| `0.2.3-f` | **security**: the shipped-trust manifest was forgeable, so an agent could promote its own edit to the owner's rules |
-| `0.2.3-g` | the house list followed the app theme (white rows on a dark panel); two missing agent instructions |
+Releases since `0.2.3-g` (dates from the tags; `0.2.3-h` to `0.2.3-l` were consolidated into `0.2.4` in the changelog):
 
-Gate at the last full run: **2,655 tests across 220 files, 1 failure**, 0 type errors. The one failure is the `kg` F1,
-proven failing at `deb5a69` before any of this work.
+| release | date | what it carried |
+|---|---|---|
+| `0.2.3-h` | 2026-10-05 | a rolled-back version is no longer held back forever; SECURITY.md false or stale claims fixed |
+| `0.2.3-i` | 2026-10-05 | a block on a version you have already moved past |
+| `0.2.3-j` | 2026-10-05 | a V8 heap ceiling for the core (2048 MB cap, floor 512; reasoned, not measured: H11) |
+| `0.2.3-k` | 2026-10-05 | UI fixes for Chat, Rooms and Library (F1 to F3); the residue prune that never deletes an edited file |
+| `0.2.3-l` | 2026-10-05 | the composer keeps your draft per thread |
+| `0.2.4` | 2026-10-05 | the 0.2.3 arc consolidated into one changelog entry (house layer, compaction, updater fixes) |
+| `0.2.5-a` | 2026-10-05 | a message over 20,000 characters is sent whole again; a Beta mark in the title bar |
+| `0.2.5-b` | 2026-10-05 | 200 turns per run; Continue after a turn limit; Opus takes over when Sonnet errors; `/compact` in Claude conversations |
+| `0.2.5-c` | 2026-10-05 | talk to a task while it runs; live progress line; optional per-run spend limit; Zealot leads the Order |
+| `0.2.5-d` | 2026-10-06 | usage panel in the title bar; the takeover easter egg; Legion's mark in Claude Code results; the "Restart and install" fix |
+| `0.2.5-e` | 2026-10-06 | pin to the taskbar; from-source setup no longer fails to install Node on a busy PC |
+| `0.2.5-f` | 2026-10-06 | refused or unanswered agent-to-agent messages are shown as such; splash start error shown in full |
+| `0.2.5-g` | 2026-10-06 | BSV wording (Legion's last dialog is the last check), red failed-answer line, running-task clock in a narrow window, thread fixes |
+| `0.2.5-h` | 2026-10-06 | Doctrine screen with a switch per file, six optional skills, Undo for bulk changes (house/skills session); one-line installers; setup takes lettered releases; SHA256SUMS lists the installer; CI-only full suite and `npm run tidy` (dev) |
 
-**Known open defects, none of them ours to have caused:**
+Table derived from `git tag -l 'v0.2*'` with creation dates and the `CHANGELOG.md` sections (`0.2.3-h` to `0.2.3-l` from the
+`git log v0.2.3-g..v0.2.4` subjects; their own changelog entries were folded into `0.2.4`).
+
+Test counts: the last full-suite figure in this section (2,655 tests across 220 files, 1 failure, at `0.2.3-g`) is out of
+date and was not re-run in this pass (maintainer rule: no full suite here).
+
+**Known open defects, carried from the 2026-10-04 list and NOT re-checked in this pass:**
 - `test/perf-l-store.test.ts:164` — returning to the Lattice with nothing changed publishes a new graph (`rev` 2 → 3).
   Costs a layout and a re-render; no wrong data.
-- `README.md:283` says MIT, `CONTRIBUTING.md:132` says Apache-2.0. A licence contradiction in a public repo.
+- A licence contradiction between `README.md` and `CONTRIBUTING.md` (MIT against Apache-2.0) in a public repo.
 - `AGENTS.md` and `CONTEXT.md` ship verbatim into the public snapshot: neither is in `ROOT_DOCS` or `PROSE_DIRS`, so
   the export scrubber never sees them.
-- 27 medium public-copy findings still outstanding in older changelog entries. The rules exist at
+- Medium public-copy findings still outstanding in older changelog entries. The rules are in
   `.claude/skills/public-facing-copy/SKILL.md`; nobody has swept them.
 
 ---
 
 #### 1. **PARKED — the house trust record. Next thing to finish.**
+
+**Re-check 2026-10-06: still NOT merged.** `fix/house-shipped-record` is still at `31a31a9`, one commit that is not in `main` (`git merge-base --is-ancestor` says no). It still needs the rebase and the re-proof below.
 
 Branch `fix/house-shipped-record` at `31a31a9`, worktree `D:/bots/legion-shipped`. **Committed, not merged.**
 
@@ -861,7 +878,9 @@ character, so a Windows agent's `docs\adr\x.md` was reported absent and the esca
 > there too. Rebase, then **re-prove** Zealot test 2.4 under the new arrangement — forge the record in its *new* home
 > and watch it refused. Do not take that branch's 2.4 as proof; take it as the thing to prove again.
 
-#### 2. **Model pill breaks on a long name** — owner, from a screenshot
+#### 2. **Model pill breaks on a long name** — maintainer, from a screenshot
+
+**Re-check 2026-10-06: NOT fixed.** `ui/src/styles/app.css` line 269 (`.model-pill`) still has no `white-space: nowrap`, `overflow`, `text-overflow` or `max-width`, and the later rules (lines 425 to 427) add none. `Composer.tsx` still renders the label without a `title` of the full name. The line numbers below are from 2026-10-04.
 
 `ui/src/styles/app.css:245`: `.model-pill { height: 26px; display: inline-flex; ... }` with no `white-space: nowrap`,
 no `overflow: hidden`, no `text-overflow: ellipsis` and no `max-width`. A provider-qualified name
@@ -874,9 +893,11 @@ inside a flex container the ellipsis only engages with `min-width: 0` on the lab
 `max-width` or it just widens the row. Add `title={fullName}` so the whole name stays reachable. **Pure CSS, no
 runtime cost.**
 
-#### 3. **Logging — NEXT SESSION**
+#### 3. **Logging — promised as next, NOT built**
 
-Legion has none: zero logging anywhere in `src/core/`. See the vault `HANDOFF-logging.md` for the full brief. The
+**Re-check 2026-10-06:** there is no logging module in `src/core/` (no logger, no redacting writer, no rotating files; the only grep hit for logging words is a seed file under `kg/seeds`). It was promised as the next session after `0.2.3-g` and the releases since went to other work (see the table). It is still open.
+
+Legion has none: zero logging anywhere in `src/core/`. The brief lives in the maintainer's private notes, not in this repo. The
 reference's questions are already answered and must not be re-derived: redaction happens **at the writer** via a
 `RedactingFormatter`, so secrets never reach disk; four files split by severity and component; one async queue;
 Windows rotating handlers keep `.__*.lock` files until closed, so profile deletion must release them first.
@@ -915,6 +936,25 @@ export** because it is 13 references to material we deliberately do not name.
 
 Rule: read the reference's stated *reason* before closing a gap. Copying a value without its rationale is how the
 small-window rule ended up inverted.
+
+---
+
+#### OPEN WORK ADDED 2026-10-06 (order: maintainer to confirm; not ranked here)
+
+Items 1 to 6 above stay as they are. These were added from the 2026-10-06 session and are listed in no priority order.
+
+7. **Logging** (same as item 3; listed here so the open work is in one place). Not built.
+8. **Plan gate and the Zealot model policy.** Design done; sketches are in branch `sketch/plan-gate`. Not built.
+9. **Hand-off cards, direction D3 "Side thread".** Sketches in branch `sketch/handoff-card`. Not built.
+10. **One-line install.** Scripts shipped in `0.2.5-h` (`scripts/install/`, release assets). Still to do: move `getlegion.xyz` to Cloudflare (site branch `feat/cloudflare-pages` in `dnh33/legion-site`), then the commands work.
+11. **Built-in browser pane** (idea). Not designed.
+12. **Provider presets release.** OpenAI, Ollama, LM Studio and vLLM presets; hidden today (the custom address works now).
+13. **House rules and skills (release A) shipped in `0.2.5-h`.** Next from the same session: the Armory (A2a, branch `feat/armory`), then the CI panel (release B), which will use the GitHub connector (item 16).
+14. **BSV `spend.ts` residuals.** Tool text, `createTimeoutMs`, and real-PC check W3.
+15. **Legion Mod for Claude Code.** Branch `claude/legion-mod`.
+16. **Connectors: GitHub and treg.** Click-to-connect sign-in (OAuth), a Connectors section in Settings, a GitHub connector at least as capable as Claude Desktop's, treg as a paid-tools connector with caps and a card on every spend. Design reviewed for security; not built.
+
+**Order set by the maintainer on 2026-10-06:** the Cloudflare switch (item 10), then connectors (item 16), then logging (items 3 and 7). Logging stays promised; it moved behind these two at the maintainer's request.
 
 ---
 
@@ -1705,7 +1745,7 @@ Removed from `CHANGELOG.md` `## [0.2.5-g]` (public file, `.claude/skills/public-
 - **"Not verified on a real wallet yet." (end of the BSV "Fixed" entry), removed: banned development-state hedge.** The unverified fact itself: that wallet-toolbox wallets (BSV Desktop) ask once for a spending grant while building a payment, before Legion's card, and then not again inside that grant, is a peer-session finding that no check on the owner's real wallet has recorded yet. Record it as a real-PC check before the changelog or docs claim it as observed (README and docs/BSV-MODE.md keep the scoped "whether your wallet asks too depends on the wallet").
 - **"has been tested with fake wallets only, not yet with a real wallet or real funds" (in the "Changed" testing-preview entry), removed: same hedge.** The UI, the README (BSV section) and docs/BSV-MODE.md still carry the testing-preview notice; only the changelog sentence now says "say so". `test/bsv-preview-notice.test.ts` pins the notice itself and the word "testing preview" in the changelog, so its text is unchanged.
 
-## 2026-10-06 — BSV spend residuals (branch fix/bsv-spend-residuals, worktree D:/bots\legion-bsv-residuals, PR pending)
+## 2026-10-06 — BSV spend residuals (branch fix/bsv-spend-residuals, worktree D:/bots/legion-bsv-residuals, PR pending)
 
 Plan: `claude/plan-bsv-spend-residuals.md` (facts table with sources). Closes the KNOWN RESIDUALS above:
 - `spend.ts`: tool text and result sentence no longer say the wallet asks again; A1/A6 comments revised; `createTimeoutMs` 30 s ->
@@ -1735,3 +1775,7 @@ Plan: `claude/plan-bsv-spend-residuals.md` (facts table with sources). Closes th
   bsv-blockchain/ts-stack packages/wallet/wallet-toolbox (WalletPermissionsManager.ts: createAction builds, binds the reference,
   then ensureSpendingAuthorization L1717 (a stored monthly grant with room left is not asked about), aborts on deny; signAction
   L4857 checks the caller owns the reference, no prompt). BSV Desktop master pins @bsv/wallet-toolbox 2.14.5.
+
+## 2026-10-06 note: Node floor of a source install
+
+`package.json` engines says `>=20.10`, but the lockfile needs `>=22.12` (electron 44.5.1 engines `>=22.12`; vite 7.3.6 and @vitejs/plugin-react 5.2.0 `^20.19 || >=22.12`). `scripts/install/install.sh` and the README enforce 22.12. Fix engines (and `scripts/lib/node-bootstrap.ps1` `LegionNodeMin`, `scripts/setup.ps1`, `src/electron/resolve-node.ts`, docs/ARCHITECTURE.md, CONTRIBUTING.md) in a release that needs a full install anyway: an engines change alters `package-lock.json`, which would make the next release a non-self-applying one.
