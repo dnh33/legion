@@ -1,6 +1,6 @@
 # Contributing to Legion
 
-Thanks for helping out. This guide covers setup, the everyday scripts, tests, style, how to add a mascot, and what a good pull request looks like. For how the pieces fit together, read [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) first. Please follow the [Code of Conduct](CODE_OF_CONDUCT.md).
+Thanks for helping out. This guide covers setup, the everyday scripts, tests, style, how to add a mascot, and what a good pull request looks like. For how the pieces fit together, read [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) first.
 
 ## Setup
 

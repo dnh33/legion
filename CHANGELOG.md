@@ -2,6 +2,18 @@
 
 All notable changes are recorded here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses [Semantic Versioning](https://semver.org/).
 
+## [0.2.5-e] - 2026-10-06
+
+### Fixed
+
+- **Legion can be pinned to the taskbar.** Right-click Legion on the taskbar and choose "Pin to taskbar". Before, Windows
+  had nothing to pin, or a pinned shortcut showed up as a second button beside the running window. Legion now tells
+  Windows how to start it again, and gives its own desktop and Start-menu shortcuts the same identity as its window, so
+  a pin and the running app are one button.
+- **A from-source setup no longer fails to install Node.js on a busy PC.** Right after unpacking, Windows (often the antivirus scan)
+  can hold the new folder for a moment, and setup stopped with "Access to the path is denied". It now waits a few seconds
+  for the folder to be free before giving up.
+
 ## [0.2.5-d] - 2026-10-06
 
 ### Added
@@ -9,10 +21,9 @@ All notable changes are recorded here. The format follows [Keep a Changelog](htt
 - **A usage panel in the title bar.** The chart icon opens a small panel with what Claude has cost today, over 7 days and
   over 30 days, a 14-day strip, and the models and agents that used the most. It loads only when opened. The figures are
   Claude's own per-task costs, so they show how much you used, not what a subscription bills.
-- **The Legion is taking over Claude.** On start, the splash shows Claude Code's critter glitch and turn into the Legion
-  helm (steel, green T-visor, plume, binary ring). It plays while the splash is up and nothing waits for it, so start-up
-  is no slower. With "Show animations" off in Windows, you see one still helm. Click the title-bar glyph three times, or
-  choose "Deus vult" in the command palette, to watch the whole takeover again. The art is new: no painted bust changed.
+- **The Legion is taking over Claude.** Click the title-bar glyph three times, or choose "Deus vult" in the command
+  palette: Claude Code's critter glitches and is converted into the Legion helm (steel, green T-visor, plume, binary
+  ring). With "Show animations" off in Windows, you see one still helm. The art is new: no painted bust changed.
 - **Legion's mark, `Ŧ`, in Claude Code.** When Claude Code runs or continues a Legion task, the result ends with one
   short line, e.g. `Ŧ LEGION · sworn · done`. The answer and its data come first and are unchanged, and `legion_status`
   still returns plain JSON. The terminal fonts tested on Windows (Cascadia, Consolas, Lucida Console) all have `Ŧ`;

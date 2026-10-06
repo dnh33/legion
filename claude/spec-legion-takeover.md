@@ -1,6 +1,6 @@
 # Spec: "The Legion is taking over Claude" (takeover art, splash, title-bar egg, README, the Ŧ mark)
 
-Status: approved by the owner and built (2026-10-06), uncommitted. Deviations from the first draft are in section 11. Reference prototype, approved by the owner:
+Status: built 2026-10-06. **Owner correction, 2026-10-06: the takeover was meant for the Legion Mod for Claude Code; the desktop splash must not change.** 0.2.5-e restored the 0.2.5-c splash. The desktop keeps only the title-bar easter egg, the `Ŧ LEGION` line in MCP results and the README GIF; the splash parts of this spec apply to the mod. Deviations from the first draft are in section 11. Reference prototype, approved by the owner:
 [docs/art/takeover-prototype.html](../docs/art/takeover-prototype.html).
 
 ## 1. Goal

@@ -13,12 +13,12 @@ import { BoardStore, createBoardModule } from '../src/core/projects/board/index.
 import { AUTH, asClient, makeFakes, start, TOKEN } from './helpers-c.js';
 
 const J = { 'Content-Type': 'application/json' };
-async function boot(withBoard: boolean) {
+async function boot(withBoard: boolean, fakes: { holdRuns?: boolean } = {}) {
   const root = cleanupTemp('legion-board-http-');
   const data = join(root, 'data');
   const projects = new ProjectStore(data, join(data, 'ws'));
   const board = new BoardStore(join(data, 'board'));
-  const f = makeFakes();
+  const f = makeFakes(fakes);
   const started: any[] = [];
   const realStart = f.ctx.engine.startTask.bind(f.ctx.engine);
   f.ctx.engine.startTask = (p: any) => { started.push(p); return realStart(p); };
@@ -96,7 +96,8 @@ test('C6 the board leader is set by the owner over the admin route: members only
 });
 
 test('C8/C9 Run this item: through the ordinary project path; links the task; untrusted text is capped; end -> review, never done', async () => {
-  const x = await boot(true);
+  // runs stay live until this test ends them: "a second run while one is live" must not race the fake's 20 ms finish
+  const x = await boot(true, { holdRuns: true });
   try {
     const base = `/api/projects/${x.p.id}/board`;
     const mk = async (b: any): Promise<any> => (await x.call('POST', `${base}/items`, b)).json();

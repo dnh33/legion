@@ -11,6 +11,7 @@ import { adminForRenderer, bsvConfirmation, bsvPreflight, coreAction, coreIsBusy
 import { makeConfirm, providerChange } from './provider-ipc.js';
 import { coreStartHint, resolveCoreLaunch } from './resolve-node.js';
 import { heapArgv } from './heap-limit.js';
+import { APP_ID, needsId, windowDetails } from './taskbar.js';
 import { projectChange } from './project-ipc.js';
 import { browserChange } from './browser-ipc.js';
 import type { ProjectChangeResult } from './project-ipc.js';
@@ -373,6 +374,8 @@ function createWindow(showOnReady: boolean): void {
     },
   });
   win.setMenuBarVisibility(false);
+  // the taskbar can pin this window and start Legion again from the pin (taskbar.ts)
+  if (isWin) win.setAppDetails(windowDetails(process.execPath, root));
   if (showOnReady) win.once('ready-to-show', () => win?.show());
   win.webContents.setWindowOpenHandler(({ url }) => { openExternal(url); return { action: 'deny' }; });
   win.webContents.on('will-navigate', (e, url) => {
@@ -485,7 +488,20 @@ function createTray(): void {
   tray.on('click', showWindow);
 }
 
-if (process.platform === 'win32') app.setAppUserModelId('dev.legion.app');
+if (process.platform === 'win32') app.setAppUserModelId(APP_ID);
+
+/** Gives Legion's own desktop and Start-menu shortcuts the window's id, so a pinned shortcut and the running window are one button. */
+function shortcutsShareId(): void {
+  if (process.platform !== 'win32') return;
+  const links = [join(app.getPath('desktop'), 'Legion.lnk'), join(app.getPath('appData'), 'Microsoft', 'Windows', 'Start Menu', 'Programs', 'Legion.lnk')];
+  for (const l of links) {
+    try {
+      if (!existsSync(l)) continue;
+      const info = shell.readShortcutLink(l);
+      if (needsId(info, process.execPath, root)) shell.writeShortcutLink(l, 'update', { ...info, appUserModelId: APP_ID });
+    } catch { /* a shortcut that cannot be read or written stays as it was: pinning is a convenience, never a reason to fail */ }
+  }
+}
 
 if (!app.requestSingleInstanceLock()) {
   app.quit();
@@ -537,6 +553,7 @@ if (!app.requestSingleInstanceLock()) {
   void app.whenReady().then(async () => {
     await recoverAtStart(root); // finish or undo an update that was cut off, before the core starts
     await boot();
+    shortcutsShareId();
     initUpdater({ installDir: root, ownCoreCall, getWin: () => win, uiUrl, pinnedPort: () => (pinned ?? readConfig()).port, stopCore: killCore, beginQuit: () => { quitting = true; app.quit(); } });
   });
 }
