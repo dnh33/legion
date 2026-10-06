@@ -2,7 +2,7 @@
 // Builds legion-update-manifest.json and SHA256SUMS.txt from a package made by release-package.mjs. It does NOT sign: the owner signs by hand
 // with release-sign.mjs. usage: node scripts/release-manifest.mjs --zip <file> --out <folder> [--notes <text file>] [--previous <old manifest>] [--requires-full-install]
 import { createHash } from 'node:crypto';
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { basename, join, resolve } from 'node:path';
 import { args, die, isReleaseVersion, listZipNames, readZipEntry } from './lib/release-lib.mjs';
 
@@ -49,5 +49,14 @@ const manifest = {
 const out = resolve(a.out); mkdirSync(out, { recursive: true });
 const mBytes = Buffer.from(JSON.stringify(manifest, null, 2) + '\n');
 writeFileSync(join(out, 'legion-update-manifest.json'), mBytes);
-writeFileSync(join(out, 'SHA256SUMS.txt'), `${sha(zip)}  legion-${version}-app.zip\n${sha(mBytes)}  legion-update-manifest.json\n`);
+// SHA256SUMS.txt also carries the full installer's line, which build-package.mjs wrote earlier and which the one-line
+// installer and `setup -PackagePath` rely on. Keep the other lines of this version; only the two files written here are
+// replaced. The installer's hash is added when its zip sits in this folder and no line names it yet.
+const sumsPath = join(out, 'SHA256SUMS.txt');
+const mine = new Set([`legion-${version}-app.zip`, 'legion-update-manifest.json']);
+const kept = (existsSync(sumsPath) ? readFileSync(sumsPath, 'utf8') : '').split(/\r?\n/)
+  .filter((l) => /^[0-9a-f]{64} {2}\S/.test(l) && !mine.has(l.slice(66)) && l.slice(66).startsWith(`legion-${version}-`));
+const full = `legion-${version}-win-x64.zip`;
+if (!kept.some((l) => l.slice(66) === full) && existsSync(join(out, full))) kept.push(`${sha(readFileSync(join(out, full)))}  ${full}`);
+writeFileSync(sumsPath, [`${sha(zip)}  legion-${version}-app.zip`, ...kept, `${sha(mBytes)}  legion-update-manifest.json`].join('\n') + '\n');
 console.log(`wrote ${join(out, 'legion-update-manifest.json')} and SHA256SUMS.txt for ${version}. Next: sign it with scripts/release-sign.mjs.`);
