@@ -43,6 +43,8 @@ Cowork / Desktop --stdio--> legion-mcp-stdio --->  Router      auto Sonnet/Opus 
 | `workspaces/<agentId>/` | Default working directory for an agent's local file tools. |
 | `projects.json` | Projects (own file, so an older build's rewrite of `state.json` cannot drop them). |
 | `board/<projectId>.jsonl` | The project board: one JSON line per change, compacted with a temporary file and a rename. |
+| `context/` | The house context layer: a copy of the shipped rules, ADRs, facts and skills (`src/core/house/`). Agents see it only through the `legion_house` tools. `context/.shipped.json` holds the hashes of what Legion shipped. |
+| `.adopted.json`, `.house-switches.json` | The owner's approvals and on/off switches for the house layer. They sit in the data directory, one level above `context/`, and are changed only by admin routes. |
 | `core.log` | Core log. |
 
 Environment overrides: `LEGION_HOME`, `LEGION_PORT`, `LEGION_NODE`, `BOAT_API_KEY`, and `ANTHROPIC_API_KEY` (used only when `claude.auth` is `api-key`).
@@ -313,6 +315,21 @@ The ChatMessage stored in the target thread has `role:'user'`, `fromAgentId`, an
 Port changes are not editable here.
 
 `authToken` is never returned or editable. Secrets appear only as `apiKeySet` plus a hint of the last 4 chars.
+
+## House context layer
+
+The owner sees this layer as **Settings → Doctrine**; internally it is still the house context layer (`house_*` tools, `/api/house` routes, `src/core/house/`).
+
+`src/core/house/` (`createHouseModule`, always on) copies a curated set of files from the installation into `<dataDir>/context` on start and serves it to every agent through the in-process server `legion_house`. Agents run in `workspaces/<agentId>`, never in the repository, so this is how the house rules, the decisions and the lessons reach them. Decisions: ADR 0009 (the layer), 0010 (owner adoption), 0011 (trust derived from the source), 0012 (switches and shipped skills).
+
+- **Sync.** `syncContext` copies `AGENTS.md`, `CONTEXT.md`, the docs listed in `SHIPPED_FILES` and the folders in `SHIPPED_DIRS` (`docs/adr`, `context`, `skills`), walking folders recursively and copying only `.md` files (plus `.json` under `context/`). `scripts/stage-layer.mjs` does the same walk when `copy-static.mjs` stages `dist/context-layer`, so a packaged install and a checkout list the same files. A switch never stops a copy.
+- **Trust.** A file is trusted only while its bytes match what Legion shipped (hash derived from the source, `.shipped.json`) or what the owner approved (`.adopted.json`, in the data directory). Anything else is served wrapped as untrusted. Reads taint the run. The layer is context, not permission.
+- **Switches (`switches.ts`).** `<dataDir>/.house-switches.json` holds `off` (rules switched off) and `on` (skills switched on). Every rule is on by default except the skills, which are off by default. `AGENTS.md` and `CONTEXT.md` are locked on. A switched-off file is not listed, not readable and not returned by recall; it answers like a missing file. Paths are compared by real name, lower-cased (`canonicalRel`), because Windows and macOS are case-insensitive.
+- **Groups.** `categoryOf` puts each path in one group for the owner's screen (themed name, plain hint): Core tenets (always on), Drills (skills), Foundations (how Legion is built), Decrees (decisions), Chronicle (release history), Lore (facts), Your orders (files you added). The names and hints live in `src/shared/house-view.ts`.
+- **Skills (`skills.ts`).** `skills/<group>/<name>/SKILL.md` (frontmatter `name` and `description`), vendored and pinned in `skills/SOURCES.md`. Skills are served only by `house_skills` (the enabled ones) and `house_skill` (load one), never by `house_list`, `house_read` or `house_recall`. Legion never runs a skill's scripts. Each skill folder carries its licence as `LICENSE.md` so it is staged and synced with the skill (only `.md` ships); the screen shows it as a Licence link.
+- **Tools.** `house_list`, `house_recall`, `house_read`, `house_skills`, `house_skill`, all read-only. The preamble names the enabled skills and says nothing about skills when none is on.
+- **Routes.** All admin-only by the default-deny gate and none on the MCP client list: `GET /api/house` (the whole layer with category, skill group, title, trust, `on` and `locked`), `GET /api/house/file` (one file's text for the "Read it" link, ignoring switches), `POST /api/house/switch` (`{path, on}`; refuses to switch a core rule off), `POST /api/house/switch/reset` (`{category}` or `{group}`), `POST /api/house/adopt` and `/unadopt`. No tool changes a switch or an approval.
+- **Limit.** The switch and adoption files are not a wall: a process running as the same OS user can write them. What a forged entry turns on is still served through the trust model and still taints the run (ADR 0011, ADR 0012).
 
 ## Projects and the board
 

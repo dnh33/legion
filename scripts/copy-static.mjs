@@ -1,6 +1,6 @@
 // Copies non-TS files into dist.
-import { cpSync, existsSync, mkdirSync, readdirSync, statSync, copyFileSync, rmSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { cpSync, existsSync, mkdirSync, readdirSync } from 'node:fs';
+import { stageLayer } from './stage-layer.mjs';
 mkdirSync('dist/src/electron', { recursive: true });
 cpSync('src/electron/preload.cjs', 'dist/src/electron/preload.cjs');
 
@@ -46,26 +46,12 @@ const LAYER_FILES = [
   'docs/TESTING.md',
   'docs/adr/README.md',
 ];
-/** Directories copied whole, because an ADR is useless without its neighbours. */
-const LAYER_DIRS = ['docs/adr', 'context'];
+/**
+ * Directories copied whole and RECURSIVELY (scripts/stage-layer.mjs): an ADR is useless without its neighbours, and a skill is
+ * `skills/<group>/<name>/SKILL.md` plus its `references/`, which a flat copy would have left out of every packaged install.
+ */
+const LAYER_DIRS = ['docs/adr', 'context', 'skills'];
 
 const layerOut = 'dist/context-layer';
-rmSync(layerOut, { recursive: true, force: true }); // a removed ADR must not survive in dist
-let staged = 0, missing = 0;
-
-const stage = (rel) => {
-  const dst = join(layerOut, rel);
-  try {
-    if (!statSync(rel).isFile()) { missing++; return; }
-    mkdirSync(dirname(dst), { recursive: true });
-    copyFileSync(rel, dst);
-    staged++;
-  } catch { missing++; }
-};
-
-for (const rel of LAYER_FILES) stage(rel);
-for (const dir of LAYER_DIRS) {
-  if (!existsSync(dir)) { missing++; continue; }
-  for (const name of readdirSync(dir).sort()) if (name.endsWith('.md')) stage(`${dir}/${name}`);
-}
+const { staged, missing } = stageLayer({ files: LAYER_FILES, dirs: LAYER_DIRS, out: layerOut });
 if (staged || missing) console.log(`[copy-static] house layer: staged ${staged} file(s) into ${layerOut}${missing ? `, ${missing} missing` : ''}`);

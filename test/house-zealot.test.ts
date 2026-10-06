@@ -57,7 +57,7 @@ describe('Zealot 1: the layer a release actually ships', () => {
   it('1.1 the built layer holds every path the index promises, with nothing reported missing', () => {
     // The regression test for the defect that shipped: CODE_SET packs `dist` and never the repository root, so a
     // packaged install had none of it. A fixture cannot catch this because the fixture puts the files somewhere.
-    const { files, missing } = listContext(STAGED);
+    const { files, missing } = listContext(STAGED, { all: true }); // the whole layer, skills included: switches are not the question here
     assert.deepEqual(missing, [], `the built layer is missing: ${missing.join(', ')}`);
 
     const have = new Set(files.map((f) => f.path));
@@ -307,7 +307,7 @@ describe('Zealot 4: the house is served, never edited, by the thing that obeys i
     const declared = [...src.matchAll(/^\s*'(house_[a-z_]+)',/gm)].map((m) => m[1]);
     assert.ok(declared.length >= 3, `expected the house tool set, found ${declared.join(', ')}`);
     for (const t of declared) {
-      assert.ok(/^(house_read|house_recall|house_list)$/.test(t), `${t} is not a read-only house tool`);
+      assert.ok(/^(house_read|house_recall|house_list|house_skills|house_skill)$/.test(t), `${t} is not a read-only house tool`);
     }
     // And the write paths do not exist in this module at all.
     for (const forbidden of ['writeFile', 'unlink', 'rmSync', 'house_write', 'house_edit', 'house_delete']) {
@@ -325,7 +325,7 @@ describe('Zealot 4: the house is served, never edited, by the thing that obeys i
     // exist is a call into the adopt function itself.
     assert.ok(!/\badopt\(/.test(toolsSrc), 'adoption is callable from a tool; it must be HTTP-only');
     assert.ok(!/\bunadopt\(/.test(toolsSrc), 'withdrawal is callable from a tool; it must be HTTP-only');
-    // And the house tool set stays exactly the three read paths.
+    // And the house tool set stays exactly the read paths: three for the files, two for the skills.
     assert.ok(!toolsSrc.includes('house_adopt'), 'an adopt tool exists; adoption must not be reachable by a run');
   });
 

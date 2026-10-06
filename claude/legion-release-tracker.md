@@ -760,6 +760,13 @@ mode (`bypassPermissions`, engine.ts:733) following third-party skill text — n
 a hard floor on spend regardless of approval mode; that needs verifying. Signing/attestation was judged NOT worth it for a
 single-owner desktop app; provenance visibility is.
 
+**2026-10-06 — D5 un-parked by the owner (plan `claude/plan-house-skills-ci.md`, branch `feat/house-skills-ci-panel`, worktree `D:\bots\legion-house`).**
+- Owner decisions (question UI): agents get skills through the house tools (trust check and taint kept; works for Claude and provider agents; nothing downloads at runtime). Every shipped skill is OFF by default, each with its own switch ("skills from Legion are opinionated"). Switches are global now; per-agent overrides come later. Core rules `AGENTS.md` and `CONTEXT.md` are locked on. Native SDK skills rejected for now (Claude-only, untainted, readable with `Bash` anyway). Recorded in ADR 0012.
+- **Release A ships (uncommitted, not yet gated):** per-file switches for the house rules; groups in Settings, House (core rules, skills with collapsed sub-groups, how Legion is built, decisions, history, facts, your files); `house_skills` and `house_skill`; `.house-switches.json` in the data directory; 6 vendored skills under `skills/` pinned in `skills/SOURCES.md` (systematic-debugging, verification-before-completion, requesting-code-review, receiving-code-review, fix-red-ci, harden-github-actions; Cursor `loop-on-ci` and Warp `ci-fix` not shipped); recursive staging of shipped folders (`scripts/stage-layer.mjs`, so skills reach packaged installs). Docs: ADR 0012, `docs/ARCHITECTURE.md` (House context layer), stale lines fixed (ADR 0009, `context.ts`, `AGENTS.md`). Real-PC checks HS1-HS5 in `claude/tracker-pc-checks.md`.
+- **Release B adds:** the CI panel (float or dock, title-bar chip), `src/core/ci/` with its tripwire entry, `ci_status` and `ci_wait` for agents (re-run and cancel through approval cards), and `workflow_dispatch:` in `ci.yml`. The CI skills point at `ci_status` and `ci_wait`, which do not exist until then; until Release B they tell the agent to ask the owner.
+- Not done yet: the project and personal levels of the hierarchy (per-agent and per-project overrides); the kodawari pass on the House screen; the independent review and the gate run on the final tree.
+- Open question for the review: whether the NTFS stream spelling (`file.md::$DATA`) of a switched-off file is refused. `canonicalRel` falls back to the lexical path when `realpath` fails. HS5 checks it on the PC.
+
 ### D8 — Make the repo's own orientation files stop lying (owner 2026-10-04)
 - Owner: "No other agents seem to know which branch you have turned into the main branch right now besides you."
 - **Confirmed real:** 12 docs still referenced the DELETED `integration/v1`, including the two files an agent reads first
@@ -840,8 +847,8 @@ date and was not re-run in this pass (maintainer rule: no full suite here).
 - A licence contradiction between `README.md` and `CONTRIBUTING.md` (MIT against Apache-2.0) in a public repo.
 - `AGENTS.md` and `CONTEXT.md` ship verbatim into the public snapshot: neither is in `ROOT_DOCS` or `PROSE_DIRS`, so
   the export scrubber never sees them.
-- Medium public-copy findings still outstanding in older changelog entries. The rules are in `.claude/skills/`
-  (the public-facing-copy skill; its file moves to a folder in the house-skills release, so name the folder, not the file).
+- Medium public-copy findings still outstanding in older changelog entries. The rules are in
+  `.claude/skills/public-facing-copy/SKILL.md`; nobody has swept them.
 
 ---
 
@@ -1317,7 +1324,7 @@ verified serving `0.2.3-a` again. Nothing from it reached a user.
 The cause was not the code: `installMode()` was right and refused to self-update from inside a working copy of the
 repository. The hole was in the installer, which accepted a worktree as an existing install because a worktree's
 `package.json` is named `legion`. Fixed, with a test for both shapes (a clone's `.git` is a directory, a worktree's is a
-file). Lesson and procedure: `.claude/skills/shipping-a-release.md`.
+file). Lesson and procedure: `.claude/skills/shipping-a-release/SKILL.md`.
 
 #### RELEASE PUBLISHED 2026-10-04 — `v0.2.3-b` (first attempt, since withdrawn)
 

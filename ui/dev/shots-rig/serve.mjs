@@ -10,7 +10,8 @@ import { fileURLToPath } from 'node:url';
 const handleFile = process.argv[2];
 const PORT = Number(process.argv[3] || 5173);
 const handle = JSON.parse(readFileSync(handleFile, 'utf8'));
-const DIST = 'D:/bots/legion/dist-ui';
+// The built UI of THIS checkout (it was a fixed path, which served another worktree's older build).
+const DIST = resolve(fileURLToPath(new URL('../../../dist-ui', import.meta.url)));
 const authToken = JSON.parse(readFileSync(join(handle.home, 'config.json'), 'utf8')).authToken;
 const corePort = Number(new URL(handle.baseUrl).port);
 /** The stack's LEGION_HOME. No screenshot may carry this temp path, so every JSON body is rewritten. */

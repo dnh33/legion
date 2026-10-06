@@ -1,3 +1,8 @@
+---
+name: shipping-a-release
+description: Use when cutting, publishing or rolling back a Legion release, choosing a version, when the updater will not update, or when touching src/core/updater/ or UpdatePanel.tsx.
+---
+
 # Shipping a Legion release
 
 **A release is not done because the code is good and the tests pass. It is done when a Legion that already exists can

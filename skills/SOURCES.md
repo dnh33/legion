@@ -1,0 +1,22 @@
+# Sources of the shipped skills
+
+Every skill here is third-party work, edited for Legion on 2026-10-06. Each skill folder holds the upstream licence text. Upstream commit SHAs are the latest commit that touched the skill's path when we vendored it. We read the licence file at that same commit.
+
+| Legion name | Group | Upstream repo | Upstream path | Pinned commit | Licence | What we changed |
+|---|---|---|---|---|---|---|
+| systematic-debugging | verify-debug | obra/superpowers | `skills/systematic-debugging` | `5bf4e78011075bcfc0dc295f0724994cd123ee71` | MIT (Jesse Vincent) | Plain-English rewrite. Replaced the `env \| grep IDENTITY` example, which can print a secret, with a SET/UNSET-only check and a rule never to run `env`. Dropped `find-polluter.sh`, `condition-based-waiting-example.ts`, `CREATION-LOG.md` and all `test-*` scenario files. Folded the three technique notes (root-cause tracing, defence in depth, condition-based waiting) and the polluter idea into short sections. Removed references to other plugin skills and to "your human partner". |
+| verification-before-completion | verify-debug | obra/superpowers | `skills/verification-before-completion` | `3be5aad3dd2400ef23b15680969f4bcd3b6d7b8b` | MIT (Jesse Vincent) | Plain-English rewrite. Removed emoji. Added a line to say plainly when a check could not be run. |
+| requesting-code-review | review | obra/superpowers | `skills/requesting-code-review` (SKILL.md and `code-reviewer.md`) | `5bf4e78011075bcfc0dc295f0724994cd123ee71` | MIT (Jesse Vincent) | Merged the reviewer prompt template into SKILL.md. Removed the `general-purpose` subagent and plugin-path references. Now says: use another agent in the room, or a fresh task if tools allow it, or ask the owner. Read-only review rules kept. |
+| receiving-code-review | review | obra/superpowers | `skills/receiving-code-review` | `3fb75974186ea7fada621d8ab77b3b02169baf57` | MIT (Jesse Vincent) | Plain-English rewrite. Removed "your human partner" and instruction-file wording. Replaced the `gh api` reply command with "reply in the thread, or give the text to the owner". |
+| fix-red-ci | ci-github | openai/skills | `skills/.curated/gh-fix-ci` (SKILL.md, LICENSE.txt) | `77963424cd7687fd52e5fcfdd3f08d826ab9b1ab` | Apache-2.0 (`LICENSE.txt` at that commit; Apache-2.0 allows redistribution with modification, with the licence text kept and changes stated, both done) | Renamed. Dropped the Python script and the `agents/` and `assets/` folders. Replaced `gh` CLI steps with `ci_status` / `ci_wait` (or ask the owner). Added a rule that nothing is pushed, merged or run with `--no-verify` without owner approval. Replaced the `create-plan` skill step with a short inline plan. Change notice is also in the skill. |
+| fix-red-ci (flaky re-run rule) | ci-github | langchain-ai/open-swe | `agent/bundled_skills/baby-sit` | `52a9e31d009586dbb4a6e2eaa079963acefe8694` | MIT (LangChain, Inc.), stored as `LICENSE-baby-sit.md` | Took only the rule: re-run only on evidence of a flaky failure, never a deterministic one; failed jobs only; at most three per head commit. Re-runs go through an approval card. Dropped the cloud watch tooling. |
+| harden-github-actions | ci-github | basecamp/house-skills | `plugins/security/skills/harden-github-actions` | `2d2468e6403eca6170056f8003b22ddd2a029b1c` | MIT (37signals LLC, file `MIT-LICENSE`) | Removed `GITHUB_TOKEN=$(gh auth token) zizmor .`. The skill now says zizmor runs without a token for local analysis, or the owner runs it. Removed the package-manager install loop and the checksum-download example. Removed Basecamp-specific lines ("all our target repos are public", the five named apps, example pull request links, the private registry name). Added safety rules (no unapproved commits or pushes, untrusted input). Kept 11 short rule files in `references/`. Dropped `permission-mappings.md` (10 KB table); the skill says to read each action's README instead. |
+
+## Not shipped
+
+- Cursor `loop-on-ci`: no licence, and it pushes in a loop.
+- Warp `ci-fix`: runs `git add -A` and then pushes.
+
+## Checks done on every file
+
+All text was fetched as plain files only. No script from upstream was run or shipped. Each shipped file was scanned for the code points U+200B to U+200F, U+202A to U+202E, U+2066 to U+2069 and U+FEFF. Each was also read for pipe-to-shell installs, downloads, secret printing, automatic push or merge, `--no-verify`, and text that talks to the agent. Edits are described above.

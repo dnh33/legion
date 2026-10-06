@@ -4,6 +4,12 @@
 
 **A local multi-agent bot for your desktop — Claude by default, plus OpenRouter for any model — with a VM for every agent when it needs one.**
 
+[![CI](https://github.com/dnh33/legion/actions/workflows/ci.yml/badge.svg)](https://github.com/dnh33/legion/actions/workflows/ci.yml)
+[![Latest release](https://img.shields.io/github/v/release/dnh33/legion?include_prereleases&sort=semver&label=release)](https://github.com/dnh33/legion/releases)
+[![Tested on Windows, Ubuntu and macOS](https://img.shields.io/badge/tested_on-Windows_%7C_Ubuntu_%7C_macOS-informational)](docs/CI.md)
+[![Node](https://img.shields.io/badge/node-%E2%89%A520.10-informational)](package.json)
+[![License: Apache-2.0](https://img.shields.io/github/license/dnh33/legion)](LICENSE)
+
 [Status](#status) · [Install](#install) · [Orchestrate over MCP](#orchestrate-from-claude-code-or-cowork) · [Architecture](docs/ARCHITECTURE.md) · [Contributing](CONTRIBUTING.md)
 
 </div>
@@ -13,7 +19,7 @@
 Legion is in beta: expect rough edges and the odd bug. This is the one place for caveats.
 
 - **Releases:** prebuilt Windows releases are on [GitHub Releases](https://github.com/dnh33/legion/releases). A release install updates itself ([Updates](#updates)).
-- **Tested:** the automated tests cover the core, app, agents, rooms, Library, board, MCP, approvals, updater and installer.
+- **Tested:** the automated tests cover the core, app, agents, rooms, Library, board, MCP, approvals, updater and installer. Every push runs all of them on Windows, Ubuntu and macOS ([how CI works](docs/CI.md)).
 - **Project board:** in daily use on the maintainer's PC. Screen-reader, display-scale and crash checks are still open.
 - **Browser tool:** agents have used it on the maintainer's Windows PC. Web search today goes through Claude's own search tool.
 - **BSV mode:** tested against fake wallets only. Mainnet is built and OFF until you switch it on.
