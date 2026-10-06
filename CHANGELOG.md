@@ -4,6 +4,29 @@ All notable changes are recorded here. The format follows [Keep a Changelog](htt
 
 ## [Unreleased]
 
+### Added
+
+- **The Armory: one place for every skill your agents can load.** Settings, Armory lists Legion's own skills, the skills
+  your Claude Code setup brings with it, skills you import and skills you write. Groups start collapsed and every skill
+  starts off, including one you just wrote. Turning a whole group on first tells you how many skill descriptions every
+  agent would then carry. Each agent can follow the Armory or use its own choice, set in the agent editor.
+- **Drills in Doctrine.** You can promote a skill from the Armory to a drill, and remove your own drills again.
+
+### Changed
+
+- **Behaviour change: agents no longer load your Claude Code skills by default.** Before, an agent could see every skill
+  in your Claude Code setup. Now each run gets an explicit list, which is empty until you turn skills on in the Armory.
+  This also applies to subagents.
+- **Skill shell commands are off by default.** Legion asks Claude Code to disable the shell lines inside a skill, so
+  they do not run when it loads, unless you turn this on in the Armory and confirm.
+- **Skills from outside Legion mark a run as tainted** when they load, like other outside content.
+- In the light theme, primary buttons use a darker green so white text meets contrast guidelines.
+
+### Fixed
+
+- **Doctrine sync no longer keeps an outdated file by mistake** when the file on disk and the shipped file were changed
+  within the same millisecond. Identical contents now decide.
+
 ## [0.2.5-i] - 2026-10-06
 
 ### Fixed

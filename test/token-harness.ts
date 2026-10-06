@@ -46,7 +46,7 @@ export const until = async (cond: () => boolean, ms = 12000): Promise<void> => {
   while (!cond()) { if (Date.now() > end) throw new Error('timed out waiting for condition'); await new Promise((r) => setTimeout(r, 10)); }
 };
 
-export async function mount(script: Script = () => undefined, o: { headless?: boolean; seeded?: boolean; approvalTimeoutMs?: number } = {}) {
+export async function mount(script: Script = () => undefined, o: { headless?: boolean; seeded?: boolean; approvalTimeoutMs?: number; extraModules?: (deps: any) => CoreModule[] } = {}) {
   const dir = cleanupTemp('legion-tok1-');
   const dataDir = join(dir, 'data');
   mkdirSync(dataDir, { recursive: true });
@@ -81,7 +81,7 @@ export async function mount(script: Script = () => undefined, o: { headless?: bo
   const kgMod = createKnowledgeModule(deps, { debounceMs: 20 });
   const comms = createCommsModule(deps);
   const bsv = createBsvModule(deps, { state: bsvState, kg: kgMod });
-  const modules: CoreModule[] = [kgMod, comms, bsv];
+  const modules: CoreModule[] = [kgMod, comms, bsv, ...(o.extraModules?.(deps) ?? [])];
   engine.setModules(modules);
   const settings = new SettingsService({ config, bus, configPath, dataDir, onBoatChange: () => undefined });
   const ctx: any = {

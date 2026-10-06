@@ -1,0 +1,286 @@
+/* Settings -> Armory, the skill editor, and the Armory dialogs.
+   Tokens only (the theme test fails on an unknown variable or a hardcoded colour). It reuses the Doctrine screen's group, row, tag and
+   switch classes (house.css), so the two screens read as one family. Every flex child that holds text has min-width: 0, so a long
+   name wraps instead of widening the page at 1.5x zoom. The state of a skill is always named in text, never by colour alone. */
+
+.arm-cross { margin: 6px 0 0; font-size: 12.5px; }
+.arm-hidden { display: none; }
+.arm-legend { margin: 0; }
+.arm-total { margin: 0; font-variant-numeric: tabular-nums; }
+
+/* ---- toolbar ---- */
+.arm-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 10px 14px; flex-wrap: wrap; }
+.arm-filters { display: inline-flex; gap: 4px; flex-wrap: wrap; }
+.arm-filter { height: 28px; padding: 0 12px; border: 1px solid var(--line-strong); border-radius: 999px; background: transparent; color: var(--text-2); font-size: 12.5px; cursor: pointer; }
+.arm-filter:hover { background: var(--surface-3); color: var(--text); }
+.arm-filter.on { background: var(--accent-text); border-color: var(--accent-text); color: var(--accent-ink); }
+.arm-filter:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.arm-actions { display: inline-flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+
+/* ---- banners: the one-time notice, Undo for a removal, a promoted skill ---- */
+.arm-notice, .arm-bar { display: flex; align-items: center; gap: 10px 12px; flex-wrap: wrap; padding: 10px 12px; border: 1px solid var(--line-strong); border-left: 3px solid var(--accent); border-radius: var(--r); background: var(--surface-2); color: var(--text-2); font-size: 12.5px; line-height: 1.45; }
+.arm-notice { flex-direction: column; align-items: flex-start; }
+.arm-notice p { margin: 0; color: var(--text); font-size: 13px; }
+.arm-noticebtns { display: flex; gap: 8px; flex-wrap: wrap; }
+.arm-bar > span { flex: 1 1 240px; min-width: 0; overflow-wrap: anywhere; }
+.arm-notice button[aria-disabled='true'], .arm-bar button[aria-disabled='true'], .arm-foot button[aria-disabled='true'], .modal-foot button[aria-disabled='true'] { opacity: .6; cursor: progress; }
+
+/* The bars that appear after an action (Undo, Promote): a snackbar at the end of the section that sticks to the bottom of the scrolling
+   column (see Snack.tsx). With no bar in it it is not there at all (:empty), so showing or hiding one never moves the list. */
+.arm-snack { position: sticky; bottom: 8px; z-index: 25; display: flex; flex-direction: column; gap: 6px; }
+.arm-snack:empty { display: none; }
+.arm-snack > .arm-bar { background: var(--surface-2); box-shadow: 0 8px 24px var(--scrim); }
+
+.arm-banner { margin: 0; padding: 8px 10px; border: 1px solid var(--line-strong); border-left: 3px solid var(--warn); border-radius: var(--r); background: var(--warn-soft); color: var(--text-2); font-size: 12.5px; line-height: 1.45; overflow-wrap: anywhere; }
+
+.arm-empty { padding: 14px 12px; border: 1px dashed var(--line-strong); border-radius: var(--r); display: flex; flex-direction: column; gap: 6px; }
+.arm-empty p { margin: 0; }
+
+/* ---- discovery: when Claude Code was last asked, and the loading state of the first read ---- */
+.arm-disc { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.arm-discline { margin: 0; display: flex; align-items: center; flex-wrap: wrap; gap: 4px 10px; }
+.arm-discline .btn-ghost[aria-disabled='true'] { opacity: .6; cursor: progress; }
+.arm-discline .spin { margin-right: 4px; }
+.arm-loading { min-height: 240px; align-items: flex-start; padding: 24px 0; }
+
+/* ---- groups ---- */
+.arm-locked { display: flex; align-items: flex-start; gap: 6px; margin: 4px 0 0; overflow-wrap: anywhere; }
+.arm-locked .icon { flex: none; margin-top: 2px; }
+.arm-groups { display: flex; flex-direction: column; gap: 6px; }
+.arm-bulk { min-width: 0; }
+.arm-bulk .btn-ghost[aria-disabled='true'] { opacity: .6; cursor: progress; }
+.arm-list { margin-top: 4px; }
+
+/* ---- a row: text on top, controls underneath, so a long description and three choices never fight for width.
+   No content-visibility here: it clips the ⋯ menu (its box is painted and hit-tested inside the row's own box). The rows of a closed
+   group are not drawn at all and a long list measures lazily (Description), so nothing is lost. ---- */
+.arm-row { padding: 8px 12px; }
+.arm-row:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.arm-row.is-reveal { border-color: var(--accent-line); background: var(--accent-soft); }
+.arm-row.is-removing, .house-row.is-removing { opacity: .7; }
+.arm-removing { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text-2); }
+.arm-cmdnote { font-size: 11.5px; color: var(--muted); }
+.arm-confirm { display: flex; align-items: center; gap: 8px 12px; flex-wrap: wrap; padding: 8px 10px; border: 1px solid var(--line-strong); border-left: 3px solid var(--warn); border-radius: var(--r); background: var(--warn-soft); font-size: 12.5px; color: var(--text); }
+.arm-confirmtext { flex: 1 1 260px; min-width: 0; line-height: 1.45; overflow-wrap: anywhere; }
+.arm-undone { display: block; padding: 6px 10px; border-left: 3px solid var(--accent); font-size: 12.5px; color: var(--text); }
+.arm-pickwhy { display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 8px; margin: 2px 0 0 23px; font-size: 12px; line-height: 1.4; color: var(--warn); }
+.arm-pickwhy .link-btn { font-size: 12px; }
+.arm-row.s-off .arm-name { color: var(--text-2); }
+.arm-row.is-new { border-color: var(--accent-line); background: var(--accent-soft); }
+.arm-line { display: flex; flex-direction: column; gap: 8px; }
+.arm-main { min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.arm-titleline { display: flex; align-items: center; gap: 4px 8px; flex-wrap: wrap; min-width: 0; }
+.arm-name { font-size: 13px; font-weight: 600; color: var(--text); overflow-wrap: anywhere; }
+.arm-src { white-space: nowrap; }
+.arm-src.t-yours { color: var(--accent-text); }
+.arm-src.t-imported { color: var(--warn); }
+.arm-src.t-claude-personal, .arm-src.t-claude-plugin, .arm-src.t-claude-builtin { color: var(--muted); }
+.arm-src.t-fit { color: var(--accent-text); }
+.arm-src.t-kept { color: var(--text-2); }
+.arm-src.t-new { color: var(--accent-text); font-weight: 600; }
+.arm-cmd { font-family: var(--font-mono); font-size: 11.5px; color: var(--muted); overflow-wrap: anywhere; }
+.arm-cmd.muted { color: var(--faint); }
+span.arm-cmd.muted { font-family: inherit; }
+/* One line, then a real "Show more" button that opens the whole text: the description says when to use the skill, and nothing of it
+   lives only in a hover. The text itself is never cut in the data; only the box is. */
+.arm-desc { margin: 0; font-size: 12.5px; line-height: 1.45; color: var(--text-2); overflow-wrap: anywhere; }
+.arm-desc.clamp { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 1; line-clamp: 1; overflow: hidden; }
+.arm-cutnote { margin: 0; }
+.arm-saved { display: flex; align-items: baseline; gap: 8px; margin: 2px 0 0; font-size: 12.5px; color: var(--text); }
+.arm-saved .link-btn { font-size: 12.5px; }
+.arm-desc-toggle { align-self: flex-start; font-size: 12px; }
+.arm-desc-toggle:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: var(--r-sm); }
+.arm-note { display: flex; align-items: flex-start; gap: 6px; margin: 2px 0 0; font-size: 12px; line-height: 1.4; color: var(--text-2); overflow-wrap: anywhere; }
+.arm-note .icon { flex: none; margin-top: 2px; color: var(--warn); }
+.arm-note strong { color: var(--text); font-weight: 600; }
+.arm-controls { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 12px; }
+.arm-controls .arm-menuwrap { margin-left: auto; }
+
+/* The three-state choice: native radios in a segmented control. Selected is a solid fill with its own ink; unselected has an outline. */
+.arm-states { display: inline-flex; border: 1px solid var(--line-strong); border-radius: var(--r-sm); }
+.arm-state { position: relative; display: inline-flex; align-items: center; justify-content: center; min-height: 28px; padding: 0 11px; background: var(--surface-2); color: var(--text-2); font-size: 12px; white-space: nowrap; cursor: pointer; }
+.arm-state + .arm-state { border-left: 1px solid var(--line-strong); }
+/* No overflow:hidden on the group (it would clip the focus ring), so the end segments round their own corners. */
+.arm-state:first-of-type { border-radius: calc(var(--r-sm) - 1px) 0 0 calc(var(--r-sm) - 1px); }
+.arm-state:last-of-type { border-radius: 0 calc(var(--r-sm) - 1px) calc(var(--r-sm) - 1px) 0; }
+.arm-state input { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; opacity: 0; cursor: inherit; }
+.arm-state:hover { background: var(--surface-3); color: var(--text); }
+/* The chosen segment is told by its fill and the marker below 360px, never by a heavier weight: a bold word is wider and moved its neighbours. */
+.arm-state.on.v-on { background: var(--accent-text); color: var(--accent-ink); }
+.arm-state.on.v-manual { background: var(--warn); color: var(--bg); }
+.arm-state.on.v-off { background: var(--muted); color: var(--bg); }
+/* The ring sits outside the group, 2px clear of the fill, so it shows on the chosen segment too (same colour as its fill); an inner ring in the page colour marks it from inside. */
+.arm-state:has(input:focus-visible) { outline: 2px solid var(--accent-text); outline-offset: 2px; box-shadow: inset 0 0 0 2px var(--bg); z-index: 1; }
+.arm-state input[aria-disabled='true'] { cursor: progress; }
+.arm-states.busy { opacity: .6; cursor: progress; }
+.arm-fixed { display: inline-flex; align-items: center; min-height: 28px; padding: 0 11px; border-radius: var(--r-sm); background: var(--surface-3); color: var(--text-2); font-size: 12px; font-weight: 600; }
+
+.arm-agentsbtn { color: var(--text-2); }
+
+/* ---- the menus ---- */
+.arm-menuwrap { position: relative; display: inline-block; }
+.arm-dots { font-size: 16px; line-height: 1; }
+.arm-menu { position: absolute; right: 0; top: calc(100% + 4px); z-index: 30; min-width: 176px; display: flex; flex-direction: column; padding: 4px; background: var(--surface-2); border: 1px solid var(--line-strong); border-radius: var(--r); box-shadow: 0 10px 28px var(--scrim); }
+.arm-menu.up { top: auto; bottom: calc(100% + 4px); }
+.arm-menuitem { display: block; width: 100%; padding: 7px 10px; border: 0; border-radius: var(--r-sm); background: transparent; color: var(--text); font-size: 13px; text-align: left; cursor: pointer; }
+.arm-menuitem:hover, .arm-menuitem:focus-visible { background: var(--surface-3); outline: none; }
+.arm-menuitem:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.arm-menuitem.danger { color: var(--danger); }
+.arm-menuitem[aria-disabled='true'] { opacity: .6; cursor: progress; }
+
+/* ---- what each agent sees ---- */
+.arm-see { border-top: 1px solid var(--line); padding-top: 4px; }
+.arm-seeh { margin: 10px 0 4px; }
+.arm-seebtn { display: inline-flex; align-items: center; gap: 8px; padding: 4px 2px; border: 0; background: transparent; color: inherit; font: inherit; letter-spacing: inherit; text-transform: inherit; cursor: pointer; text-align: left; }
+.arm-seebtn .icon { color: var(--muted); transition: transform var(--t) var(--ease); }
+.arm-seebtn[aria-expanded='true'] .icon { transform: rotate(90deg); }
+.arm-seebtn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: var(--r-sm); }
+.arm-seelist { list-style: none; margin: 6px 0 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.arm-seerow { display: flex; align-items: baseline; gap: 4px 12px; flex-wrap: wrap; padding: 8px 10px; border: 1px solid var(--line); border-radius: var(--r); background: var(--surface-2); font-size: 12.5px; }
+.arm-seename { font-weight: 600; color: var(--text); min-width: 80px; }
+.arm-seetext { flex: 1 1 220px; min-width: 0; color: var(--text-2); font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.arm-seelink { color: var(--text-2); font-size: 12px; }
+.arm-warn { flex-basis: 100%; display: flex; align-items: flex-start; gap: 6px; margin: 2px 0 0; color: var(--warn); font-size: 12.5px; line-height: 1.4; }
+.arm-warn .icon { flex: none; margin-top: 2px; }
+
+/* ---- advanced ---- */
+.arm-adv { border-top: 1px solid var(--line); padding-top: 4px; }
+.arm-advrow { display: flex; align-items: flex-start; gap: 12px; margin-top: 6px; }
+.arm-advtext { min-width: 0; }
+.arm-advtext p { margin: 0; }
+.arm-shellon { display: flex; align-items: flex-start; gap: 6px; margin: 8px 0 0; padding: 6px 10px; border-left: 3px solid var(--warn); border-radius: var(--r-sm); background: var(--warn-soft); color: var(--text); font-size: 12.5px; line-height: 1.4; }
+.arm-shellon .icon { flex: none; margin-top: 2px; color: var(--warn); }
+.arm-advlabel { font-size: 13px; font-weight: 500; color: var(--text); }
+
+/* ---- the editor ---- */
+.arm-form { gap: 12px; }
+.arm-guide { margin: 0; }
+.arm-mono { font-family: var(--font-mono); }
+.arm-field { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
+.arm-form .arm-field > label { display: block; font-size: 12px; font-weight: 500; color: var(--muted); }
+.arm-opt { font-weight: 400; color: var(--faint); }
+.arm-form .arm-short { min-height: 56px; font-family: inherit; font-size: 13.5px; }
+.arm-form .arm-body { min-height: 240px; }
+/* An invalid field is red even while it has focus: the form's own focus colour is green, and a green box around an error reads as "fine". */
+.form.arm-form [aria-invalid='true'], .form.arm-form [aria-invalid='true']:focus { border-color: var(--danger); box-shadow: none; }
+.form.arm-form [aria-invalid='true']:focus-visible { outline: 2px solid var(--danger); outline-offset: 1px; }
+.arm-fielderr { color: var(--danger); font-size: 12px; font-weight: 400; line-height: 1.4; }
+.arm-fieldline { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.arm-fieldline > :first-child { min-width: 0; overflow-wrap: anywhere; }
+.arm-count { flex: none; font-size: 12px; font-weight: 400; color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.arm-tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--line); }
+.arm-tabs button { padding: 7px 14px; border: 0; border-bottom: 2px solid transparent; background: transparent; color: var(--muted); font-size: 13px; cursor: pointer; }
+.arm-tabs button:hover { color: var(--text); }
+.arm-tabs button[aria-selected='true'] { color: var(--text); border-bottom-color: var(--accent); }
+.arm-tabs button:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.arm-panel { display: flex; flex-direction: column; gap: 12px; }
+.arm-preview { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.arm-prevname { margin: 0; }
+.arm-prevname code { font-family: var(--font-mono); font-size: 12px; color: var(--muted); }
+.arm-prevdesc { margin: 0; font-size: 13px; line-height: 1.5; color: var(--text-2); overflow-wrap: anywhere; }
+.arm-faint { color: var(--faint); }
+.arm-discard { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 8px 10px; border: 1px solid var(--line-strong); border-left: 3px solid var(--danger); border-radius: var(--r); background: var(--danger-soft); font-size: 12.5px; color: var(--text); }
+.arm-footslot { display: contents; }
+.arm-form .set-error .icon { flex: none; }
+
+/* ---- dialogs ---- */
+.arm-readpath { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--font-mono); font-size: 11.5px; color: var(--muted); }
+.arm-readbody { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.arm-readbody .house-readmeta, .arm-readbody .set-hint { margin: 0; }
+.modal-foot .arm-states { flex: none; }
+.arm-agents { border: 0; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.arm-check { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--text); cursor: pointer; }
+.arm-check input { width: 15px; height: 15px; accent-color: var(--accent-text); margin: 0; }
+.arm-check.dim { color: var(--muted); }
+/* A box that cannot be changed right now looks it: dimmed, and no pointer. "All agents" is chosen, so the list below is only a preview. */
+.arm-check.dim input { opacity: .45; }
+.arm-check.dim { cursor: default; }
+.arm-guide + .arm-agents { margin-top: 12px; }
+.arm-agentlist { list-style: none; margin: 0; padding: 8px 0 0 22px; display: flex; flex-direction: column; gap: 6px; max-height: 40vh; overflow-y: auto; }
+.arm-review { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.arm-review .set-hint, .arm-review .house-readdesc { margin: 0; }
+.arm-revhead { margin: 0; overflow-wrap: anywhere; }
+.arm-revhead code { font-family: var(--font-mono); font-size: 12px; color: var(--muted); }
+.arm-revh { margin: 12px 0 2px; font-size: 12px; font-weight: 600; letter-spacing: 0.02em; text-transform: uppercase; color: var(--muted); }
+.arm-paths { margin: 0; font-family: var(--font-mono); font-size: 12px; color: var(--text-2); overflow-wrap: anywhere; }
+.arm-dropped { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 3px; font-size: 12.5px; }
+.arm-dropped code { font-family: var(--font-mono); font-size: 12px; color: var(--text-2); overflow-wrap: anywhere; }
+.arm-why { color: var(--muted); }
+.arm-adderr { margin-top: 10px; }
+
+/* Windows high contrast drops fills, so the chosen segment is also outlined (a system colour), and a focus ring is an outline, never a shadow alone. */
+@media (forced-colors: active) {
+  .arm-state.on { outline: 2px solid Highlight; outline-offset: -3px; }
+  .arm-state:has(input:focus-visible) { outline: 2px solid CanvasText; outline-offset: 2px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .arm-seebtn .icon, .arm-filter { transition: none; }
+}
+
+/* Narrow, decided by the column's own width (the `house` container the section sets), not the window's: at 1.5x zoom, or beside two
+   sidebars, the settings column can be a few hundred CSS px in a wide window. Controls wrap, the choice spreads across the line. */
+@container house (max-width: 480px) {
+  .arm-toolbar { flex-direction: column; align-items: stretch; }
+  .arm-actions { justify-content: flex-start; }
+  .arm-states { display: flex; width: 100%; }
+  .arm-state { flex: 1 1 auto; padding: 0 6px; white-space: normal; text-align: center; }
+  .arm-row { padding: 10px; }
+  .arm-advrow { flex-direction: column; gap: 8px; }
+  /* In a column the 220px flex-basis of the text would become a 220px height. */
+  .arm-seerow { flex-direction: column; align-items: flex-start; }
+  .arm-seetext { flex: 0 1 auto; }
+}
+
+/* Very narrow (the column's own width again): three squeezed segments become a radio list, one choice per line, each with a marker so
+   the chosen one is clear by shape as well as by fill, in either theme. Native radios, so the arrow keys still move between them. */
+@container house (max-width: 360px) {
+  .arm-states { flex-direction: column; border-radius: var(--r); }
+  .arm-state:first-of-type { border-radius: calc(var(--r) - 1px) calc(var(--r) - 1px) 0 0; }
+  .arm-state:last-of-type { border-radius: 0 0 calc(var(--r) - 1px) calc(var(--r) - 1px); }
+  .arm-state { justify-content: flex-start; gap: 8px; min-height: 34px; padding: 0 12px; text-align: left; }
+  .arm-state + .arm-state { border-left: 0; border-top: 1px solid var(--line-strong); }
+  .arm-state::before { content: ''; flex: none; width: 12px; height: 12px; box-sizing: border-box; border: 2px solid currentColor; border-radius: 50%; }
+  .arm-state.on::before { background: radial-gradient(circle, currentColor 0 38%, transparent 42%); }
+}
+
+/* ---- the agent editor's Skills section ---- */
+.form .arm-agentskills .arm-check { flex-direction: row; align-items: flex-start; gap: 8px; font-size: 13px; font-weight: 400; color: var(--text); }
+.form .arm-agentskills .arm-check.dim { color: var(--muted); }
+.form .arm-agentskills input[type='radio'], .form .arm-agentskills input[type='checkbox'] { flex: none; width: 15px; height: 15px; padding: 0; margin: 2px 0 0; border: revert; border-radius: revert; background: revert; accent-color: var(--accent-text); outline: none; box-shadow: none; }
+/* The form reset above removes the browser's ring and the form's own focus shadow is ~1.1:1: draw a real one. */
+.form .arm-agentskills input[type='radio']:focus-visible, .form .arm-agentskills input[type='checkbox']:focus-visible { outline: 2px solid var(--accent-text); outline-offset: 2px; box-shadow: none; }
+.arm-agents input[type='radio']:focus-visible, .arm-agents input[type='checkbox']:focus-visible { outline: 2px solid var(--accent-text); outline-offset: 2px; }
+.arm-indent { margin: -4px 0 0 23px; }
+.arm-pick { display: flex; flex-direction: column; gap: 8px; margin-left: 23px; min-width: 0; }
+.arm-pickgroups { display: flex; flex-direction: column; gap: 4px; }
+.arm-pickgroup { border: 1px solid var(--line); border-radius: var(--r-sm); background: var(--surface); }
+.arm-pickhead { display: flex; align-items: center; gap: 8px; padding: 2px 8px; }
+.arm-pickbtn { flex: 1 1 auto; min-width: 0; display: flex; align-items: center; flex-wrap: wrap; gap: 4px 8px; min-height: 32px; padding: 4px 0; border: 0; background: transparent; color: var(--text); font-size: 13px; text-align: left; cursor: pointer; }
+.arm-pickbtn[aria-disabled='true'] { cursor: default; }
+.arm-pickbtn .icon { flex: none; color: var(--muted); transition: transform var(--t) var(--ease); }
+.arm-pickgroup.open .arm-pickbtn .icon { transform: rotate(90deg); }
+.arm-pickbtn:focus-visible, .arm-pickhead input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.arm-pickname { font-weight: 600; overflow-wrap: anywhere; }
+.arm-pickcount { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.arm-picklist { list-style: none; margin: 0; padding: 2px 10px 8px 30px; display: flex; flex-direction: column; gap: 8px; }
+.arm-picklist[hidden] { display: none; }
+.arm-picktext { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.arm-pickrow { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 8px; overflow-wrap: anywhere; }
+.arm-pickflag { color: var(--muted); font-size: 10.5px; }
+.arm-pickdesc { font-size: 12px; line-height: 1.4; color: var(--text-2); overflow-wrap: anywhere; }
+.arm-picksearch { width: 100%; }
+.arm-sees { display: flex; flex-direction: column; gap: 4px; padding: 8px 10px; border: 1px solid var(--line); border-radius: var(--r-sm); background: var(--surface-2); }
+.arm-sees p { margin: 0; }
+.arm-seesline { font-size: 13px; color: var(--text); font-variant-numeric: tabular-nums; }
+.arm-seeslink { align-self: flex-start; color: var(--text-2); font-size: 12px; }
+.arm-seeslist { display: flex; flex-direction: column; gap: 4px; font-size: 12px; line-height: 1.45; color: var(--text-2); overflow-wrap: anywhere; }
+
+/* ---- Doctrine -> Drills: New drill, and a drill that was just written ---- */
+.house-newdrill { display: flex; align-items: center; justify-content: space-between; gap: 8px 12px; flex-wrap: wrap; }
+.house-newdrill .set-hint { margin: 0; }
+.house-row.is-new { border-color: var(--accent-line); background: var(--accent-soft); }
+
+/* ---- text fields: a clear keyboard ring (the global reset removes the browser's) ---- */
+.house-search:has(input:focus-visible) { outline: 2px solid var(--accent-text); outline-offset: 2px; }
+.arm-field input:focus-visible, .arm-field textarea:focus-visible, .arm-field select:focus-visible { outline: 2px solid var(--accent-text); outline-offset: 2px; }

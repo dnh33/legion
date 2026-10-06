@@ -12,6 +12,7 @@
   --accent: #7CFFB2;
   --accent-text: #7CFFB2;
   --accent-ink: #04140b;
+  --accent-hover: #9dffc6;
   --accent-soft: rgba(124, 255, 178, .10);
   --accent-line: rgba(124, 255, 178, .35);
   --warn: #FFCC66;
@@ -42,6 +43,7 @@
   --accent: #0c9f5e;
   --accent-text: #087a47;
   --accent-ink: #ffffff;
+  --accent-hover: #066a3d;
   --accent-soft: rgba(12, 159, 94, .09);
   --accent-line: rgba(12, 159, 94, .4);
   --warn: #8f5d0c;

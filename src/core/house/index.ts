@@ -9,7 +9,7 @@
  * It is always on. It costs one directory copy at start and five read-only tools per run (recall, read, list, skills,
  * skill). The owner's switches (./switches.ts) decide which files and skills those tools show.
  */
-import { closeSync, openSync, readSync } from 'node:fs';
+import { closeSync, existsSync, lstatSync, mkdirSync, openSync, readFileSync, readSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { McpServerConfig } from '@anthropic-ai/claude-agent-sdk';
@@ -19,8 +19,12 @@ import type { CoreModule, ModuleDeps, ModuleJob } from '../modules.js';
 import { CONTEXT_DIRNAME, HOUSE_LIMITS, HOUSE_SERVER_NAME, headingOf, listContext, normalisePath, readContextFile, resolveInside } from './context.js';
 import { syncContext } from './sync.js';
 import type { SyncResult } from './sync.js';
-import { adopt, trustKind, unadopt } from './trust.js';
-import { HOUSE_PREAMBLE, buildHouseServer, skillsPreambleLine } from './tools.js';
+import { adopt, readManifest, trustKind, unadopt } from './trust.js';
+import { HOUSE_PREAMBLE, buildHouseServer, drillFilterFor, skillsPreambleLine } from './tools.js';
+import { SKILL_NAME_RE } from '../../shared/skill-ids.js';
+import { ArmoryInputError, buildSkillMd } from '../armory/files.js';
+import { buildCatalog } from '../armory/catalog.js';
+import type { CatalogEntry } from '../armory/catalog.js';
 import { CATEGORIES, categoryOf, isLocked, isOn, readSwitches, resetSwitches, setSwitch, skillGroupOf, skillRootOf } from './switches.js';
 import type { HouseCategory } from './switches.js';
 import { allSkills, enabledSkillNames, listSkills, parseFrontmatter } from './skills.js';
@@ -38,6 +42,10 @@ export interface HouseModuleOptions {
   repoRoot?: string;
   /** Sync at construction (default true). Tests turn it off to control the data directory themselves. */
   syncOnStart?: boolean;
+  /** Where Claude Code keeps its files (for promoting a Claude Code skill). Tests set it; default is the real one. */
+  claudeHome?: string;
+  /** The skill catalog the Armory lists (its cached Claude Code listing included). Promote looks ids up here so it sees the same skills the owner sees. */
+  catalog?: () => CatalogEntry[];
   log?: (m: string) => void;
 }
 
@@ -95,7 +103,7 @@ export function createHouseModule(deps: ModuleDeps, opts: HouseModuleOptions = {
       const note = agent.approval === 'ask'
         ? ''
         : ' You run with less friction than the others, and the house rules still do not widen it.';
-      const skills = skillsPreambleLine(enabledSkillNames(root()));
+      const skills = skillsPreambleLine(enabledSkillNames(root(), drillFilterFor(agent)));
       return `${head}${skills ? `\n${skills}` : ''}${note}`;
     },
 
@@ -191,6 +199,66 @@ export function createHouseModule(deps: ModuleDeps, opts: HouseModuleOptions = {
         return { group: b.group.trim(), reset };
       }, 200);
 
+      // The owner's own drill: written as an owner file under skills/yours/<name>/SKILL.md. It is NOT shipped, so it is untrusted until the
+      // owner adopts it (the existing adopt route), and a skill is off until switched on (the existing switch model). Nothing here approves or switches.
+      add('POST', '/api/house/drill', (c) => {
+        const b = c.body && typeof c.body === 'object' && !Array.isArray(c.body) ? c.body as Record<string, unknown> : null;
+        if (!b) throw new HttpError(400, 'JSON object body required');
+        const name = typeof b.name === 'string' ? b.name.trim() : '';
+        let md: string;
+        try {
+          md = buildSkillMd({ name, description: String(b.description ?? ''), body: String(b.body ?? ''), ...(typeof b.whenToUse === 'string' ? { whenToUse: b.whenToUse } : {}) });
+        } catch (e) {
+          if (e instanceof ArmoryInputError) throw new HttpError(e.status, e.message);
+          throw e;
+        }
+        // A name that is taken is refused unless the editor's Edit path says replace. New never overwrites by accident.
+        return writeDrill(name, md, b.replace === true);
+      }, 200);
+
+      // Removes one of the owner's own drills (the folder under skills/yours). Only that exact shape is accepted, and a file the app shipped is refused.
+      // The text comes back so the screen can offer Undo by posting it again with replace. Admin-only like every other write route.
+      add('DELETE', '/api/house/drill', (c) => {
+        const rel = normalisePath(String(c.url.searchParams.get('path') ?? '').trim());
+        const m = /^skills\/yours\/([^/]+)\/SKILL\.md$/.exec(rel);
+        if (!m || !SKILL_NAME_RE.test(m[1]!)) throw new HttpError(400, 'Only one of your own drills (skills/yours/<name>/SKILL.md) can be removed here.');
+        const abs = resolveInside(root(), rel);
+        if (!abs) throw new HttpError(400, 'That path is outside the Doctrine folder.');
+        if (rel in readManifest(root())) throw new HttpError(400, 'That drill ships with the app, so it cannot be removed. Switch it off instead.');
+        let st; try { st = lstatSync(abs); } catch { throw new HttpError(404, `No drill at ${rel}.`); }
+        if (!st.isFile()) throw new HttpError(400, 'That is not a drill file.');
+        const text = readFileSync(abs, 'utf8');
+        const folder = join(root(), 'skills', 'yours', m[1]!);
+        try { if (lstatSync(folder).isSymbolicLink()) throw new HttpError(400, 'That drill folder is a link, so it is not removed here.'); } catch (e) { if (e instanceof HttpError) throw e; }
+        rmSync(folder, { recursive: true, force: true });
+        log(`house: owner removed drill ${rel}`);
+        return { removed: rel, name: m[1]!, text };
+      });
+
+      // Copies an Armory skill's SKILL.md into Your drills, as a new owner file: not approved and off. It never approves or switches on, and it
+      // copies the text only (a drill is text an agent reads, never run).
+      add('POST', '/api/house/drill/promote', (c) => {
+        const id = c.body && typeof c.body === 'object' ? (c.body as { armoryId?: unknown }).armoryId : undefined;
+        if (typeof id !== 'string' || !id.trim()) throw new HttpError(400, 'armoryId is required');
+        const wanted = id.trim();
+        const list = opts.catalog ? opts.catalog() : buildCatalog({ dataDir: deps.dataDir, inheritClaudeCode: deps.config?.claude?.inheritClaudeCodeSettings !== false, ...(opts.claudeHome ? { claudeHome: opts.claudeHome } : {}) });
+        const entry = list.find((e) => e.id === wanted);
+        if (!entry) throw new HttpError(404, 'That skill is not in the Armory any more. Reload the Armory and try again.');
+        if (!entry.path) throw new HttpError(400, `${entry.name} is built in to Claude Code and has no text on this computer to copy.`);
+        // The path comes from the SDK handshake and plugin manifests, so check it before reading: a link could point
+        // anywhere, and a huge file or a FIFO would be read whole (or hang) before any size cap applied.
+        let st;
+        try { st = lstatSync(entry.path); } catch { throw new HttpError(404, 'That skill file is not there any more.'); }
+        if (st.isSymbolicLink()) throw new HttpError(400, 'That skill file is a link, so it is not copied into Doctrine.');
+        if (!st.isFile()) throw new HttpError(400, 'That skill is not a plain file, so it is not copied into Doctrine.');
+        if (st.size > HOUSE_LIMITS.maxFileBytes) throw new HttpError(400, 'That skill is too large to copy into Doctrine.');
+        let text: string;
+        try { text = readFileSync(entry.path, 'utf8'); } catch { throw new HttpError(404, 'That skill file is not there any more.'); }
+        const slug = entry.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 64);
+        if (!SKILL_NAME_RE.test(slug)) throw new HttpError(400, 'Could not make a drill name from that skill.');
+        return writeDrill(slug, text, false);
+      }, 200);
+
       // The one door to adoption. Reachable only from the app (admin-gated like every other route, and NOT part of the
       // MCP client's short list), and deliberately with no tool equivalent: if a run could call this, "the owner approved
       // it" would mean nothing. The approval is stored as the hash of the bytes approved, so editing the file afterwards
@@ -217,6 +285,18 @@ export function createHouseModule(deps: ModuleDeps, opts: HouseModuleOptions = {
     sync: doSync,
     root,
   };
+
+  /** Writes skills/yours/<name>/SKILL.md. `overwrite` false refuses an existing one (409). The file is the owner's, so it is untrusted and off. */
+  function writeDrill(name: string, md: string, overwrite: boolean) {
+    const rel = `skills/yours/${name}/SKILL.md`;
+    const abs = resolveInside(root(), rel);
+    if (!abs) throw new HttpError(400, 'That name does not make a path inside the Doctrine folder.');
+    if (!overwrite && existsSync(abs)) throw new HttpError(409, `A drill called ${name} already exists. Edit it, or pick another name.`);
+    mkdirSync(join(root(), 'skills', 'yours', name), { recursive: true });
+    writeFileSync(abs, md, 'utf8');
+    log(`house: owner wrote drill ${rel}`);
+    return { path: rel, name, group: 'yours', trust: trustKind(root(), rel), on: isOn(rel, readSwitches(root())) };
+  }
 }
 
 /** Title for a file with no heading: its file name, without the extension. */

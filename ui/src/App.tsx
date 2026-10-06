@@ -115,7 +115,7 @@ export function App() {
       <div className="ops-slot" aria-hidden={!opsOpen}>{opsMounted && <OpsPanel />}</div>
       {palette && <CommandPalette />}
       {doctorOpen && <DoctorModal />}
-      {editor && <AgentEditor key={editor.id ?? 'new'} id={editor.id} />}
+      {editor && <AgentEditor key={editor.id ?? 'new'} id={editor.id} {...(editor.focus ? { focus: editor.focus } : {})} />}
       <TaskMenu />
       <Toasts />
       <ChainOverlay />

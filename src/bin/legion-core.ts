@@ -21,6 +21,7 @@ import { createBrowserModule } from '../core/browser/index.js';
 import { createBsvModule, createBsvState } from '../core/bsv/index.js';
 import { createCommsModule } from '../core/comms/index.js';
 import { createHouseModule } from '../core/house/index.js';
+import { createArmoryModule } from '../core/armory/index.js';
 import { createKnowledgeModule } from '../core/kg/index.js';
 import { createUpdaterModule } from '../core/updater/index.js';
 import { createProjectsModule, ProjectStore } from '../core/projects/index.js';
@@ -81,7 +82,9 @@ async function main() {
   const moduleDeps: ModuleDeps = { config, store, bus, engine, approvals, dataDir: dataDir(), bsvEnabled };
   const kg = createKnowledgeModule(moduleDeps);
   // the house context layer (AGENTS.md, ADRs, glossary, lessons) copied into the data dir and served to every agent
-  const house = createHouseModule(moduleDeps, { log });
+  const house = createHouseModule(moduleDeps, { log, catalog: () => armory.catalog() });
+  // the Armory: skills agents can pick up (own skills, imported ones, Claude Code's), and the per-run skills list
+  const armory = createArmoryModule(moduleDeps, { log });
   // (creating the BSV module also tells the engine's agent bridge to hide agents that are switched off)
   const bsv = createBsvModule(moduleDeps, { state: bsvState, kg, log, nativeSecret });
   const blender = createBlenderModule(moduleDeps, { vms, boatConfigured, log });
@@ -94,7 +97,7 @@ async function main() {
   // project board: ON by default (owner decision 2026-10-03). Only the literal `false` under "features.projectBoard" in config.json turns it off; then none of it is built (no files, routes, tools or screen).
   const board = config.features.projectBoard ? new BoardStore(join(dataDir(), 'board')) : undefined;
   const boardModules = board ? [createBoardModule(moduleDeps, { projects, board, notes: graphNotes(() => kg.graph()) })] : [];
-  const modules = [kg, house, createCommsModule(moduleDeps, { projects }), createProjectsModule(moduleDeps, { projects, nativeSecret }), ...boardModules, bsv, blender, ...providersModules, updater, createBrowserModule(moduleDeps, { nativeSecret, log })];
+  const modules = [kg, house, armory, createCommsModule(moduleDeps, { projects }), createProjectsModule(moduleDeps, { projects, nativeSecret }), ...boardModules, bsv, blender, ...providersModules, updater, createBrowserModule(moduleDeps, { nativeSecret, log })];
   engine.setModules(modules);
   const server = createServer({
     config, store, bus, engine, vms, approvals, boatConfigured, modules, bsvEnabled,

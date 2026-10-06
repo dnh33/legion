@@ -107,7 +107,14 @@ function copyOne(src: LayerSource, target: string, rel: string, res: SyncResult)
       // a naive "newer means changed" check gets wrong here. Within a millisecond, not exactly: the stamp goes through
       // seconds as a double, which can move the sub-millisecond part that ext4 and NTFS keep.
       const ahead = dstSt.mtimeMs - st.mtimeMs;
-      if (Math.abs(ahead) < 1 && dstSt.size === st.size) { res.unchanged.push(rel); return; }
+      if (Math.abs(ahead) < 1) {
+        // Inside the tolerance the whole-millisecond test cannot tell an untouched copy from an edit made in the same
+        // millisecond (a fast runner did exactly that), so the bytes decide first: identical bytes are the copy we made.
+        // Different bytes: a local copy at least as new as the source (to the sub-millisecond) is the owner's edit and is
+        // kept; one older than the source is replaced by the newer shipped file. Files are capped at MAX_COPY_BYTES.
+        if (dstSt.size === st.size && readFileSync(dst).equals(readFileSync(from))) { res.unchanged.push(rel); return; }
+        if (ahead >= 0) { res.keptNewer.push(rel); return; }
+      }
       // A newer local copy is the user's; do not overwrite it with an older source file.
       if (ahead >= 1) { res.keptNewer.push(rel); return; }
     }

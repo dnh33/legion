@@ -52,7 +52,7 @@ test('groups come in the owner\'s order, each with a one-line blurb and a count;
   assert.deepEqual(v.map((g) => g.info.category), ['core', 'skills', 'built', 'decisions', 'history', 'facts', 'yours']);
   assert.deepEqual(GROUPS.map((g) => g.title), ['Core tenets', 'Drills', 'Foundations', 'Decrees', 'Chronicle', 'Lore', 'Your orders']);
   assert.deepEqual(GROUPS.map((g) => g.hint), [
-    'always on', 'skills agents can use · off by default', 'how Legion is built · on by default', 'decisions on record · on by default',
+    'always on', 'drills agents can use · off by default', 'how Legion is built · on by default', 'decisions on record · on by default',
     'release history · on by default', 'facts and data · on by default', 'files you added · on by default',
   ], 'every hint says the default');
   assert.equal(v[0]!.info.blurb, 'Every agent reads these first. They stay on, and you cannot switch them off.');
@@ -68,7 +68,7 @@ test('skills: sub-groups in a fixed order with friendly names, reference files f
   const sk = buildView(layer()).find((g) => g.info.category === 'skills')!;
   assert.deepEqual(sk.skillGroups.map((g) => g.title), ['Verify and debug', 'CI and GitHub', 'Review', 'Zz New Group']);
   assert.deepEqual(sk.skillGroups.map((g) => g.countLine), ['1 of 2 on', '0 of 1 on', '0 of 1 on', '0 of 1 on']);
-  assert.equal(sk.countLine, '5 skills, 1 on');
+  assert.equal(sk.countLine, '5 drills, 1 on');
   const dbg = sk.skillGroups[0]!.skills.find((s) => s.file.title === 'systematic-debugging')!;
   assert.equal(dbg.references, 1, 'a.md counts as a reference file');
   assert.deepEqual(dbg.licences.map((l) => l.path), ['skills/verify-debug/systematic-debugging/LICENSE.md'], 'licence found from the file name');
@@ -179,7 +179,7 @@ test('each switch is a labelled checkbox with role=switch, and core rows have a 
   assert.match(src, /onChange=\{\(e\) => \{ if \(!switching\) void setHouseSwitch/, 'a change while it saves is ignored, not queued');
   assert.match(src, /f\.locked \? \(\s*<span className="house-lock">/);
   assert.match(src, /const meaning = `\$\{trustBlurb\(f\)\}\$\{f\.locked \? ` \$\{LOCK_REASON\}` : ''\}`;/, 'the lock reason reaches the row as its description, not a hover');
-  assert.match(src, /<li className=\{`house-row[^`]*`\}>/, 'the sentence is not hung on the li');
+  assert.match(src, /<li ref=\{li\} tabIndex=\{-1\} data-house-path=\{f\.path\} aria-busy=\{removing \|\| undefined\} className=\{`house-row[^`]*`\}>/, 'the sentence is not hung on the li');
 });
 
 test('a failed switch rolls back and says so on the row; a failed reset says so too', () => {
@@ -221,7 +221,7 @@ test('skill titles are readable: slugs become words, acronyms and GitHub stay ri
   assert.equal(row.displayTitle, 'Fix red CI');
   assert.equal(row.file.path, 'skills/ci-github/fix-red-ci/SKILL.md');
   assert.equal(matches({ title: 'fix-red-ci', path: 'skills/ci-github/fix-red-ci/SKILL.md', description: '' }, 'fix red ci'), true, 'search finds the words the row shows');
-  assert.match(src, /const label = skill \? skill\.displayTitle : displayTitle\(f\);/);
+  assert.match(src, /const label = skill \? \(isOwnDrill\(f\) \? \(f\.path\.split\('\/'\)\[2\] \?\? skill\.displayTitle\) : skill\.displayTitle\) : displayTitle\(f\);/, 'your own drill is called what you typed, as in the Armory');
   assert.match(src, /openHouseFile\(f\.path, label\)/, 'the dialog title is the readable one too');
 });
 
@@ -260,11 +260,11 @@ test('the dialog renders the body with the app Markdown component (no raw HTML) 
 });
 
 test('the screen is called Doctrine; internal names stay, and loading text uses the ellipsis character', () => {
-  assert.match(src, /<h3 ref=\{heading\} tabIndex=\{-1\}>Doctrine<\/h3>\s*<p>\s*The rules and skills your agents follow\./);
+  assert.match(src, /<h3 ref=\{heading\} tabIndex=\{-1\}>Doctrine<\/h3>\s*<p>\s*The rules and drills your agents follow\./);
   assert.ok(!/House context<\/h3>/.test(src), 'no old heading');
   const settings = readFileSync(join(process.cwd(), 'ui/src/components/Settings.tsx'), 'utf8');
-  assert.match(settings, /\{ id: 'house', label: 'Doctrine', hint: 'Rules and skills your agents follow' \}/);
-  assert.equal(SKILLS_BANNER, 'Skills from Legion are off until you turn them on. Each skill changes how agents work.');
+  assert.match(settings, /\{ id: 'house', label: 'Doctrine', hint: 'Rules and drills your agents follow' \}/);
+  assert.equal(SKILLS_BANNER, 'Drills from Legion are off until you turn them on. Each drill changes how agents work.');
   assert.match(src, /Working\{'…'\}/);
   assert.match(src, /Saving\{'…'\}/);
   assert.match(src, /Reading your doctrine files\{'…'\}/);
@@ -282,14 +282,14 @@ test('narrow layout keys off the column (container query), not the window; rows 
   assert.match(css, /\.house-sgtext \{[^}]*min-width: 0;[^}]*flex-direction: column/, 'sub-group name above its wrapping summary');
   assert.match(css, /\.house-sgsum \{[^}]*overflow-wrap: anywhere/);
   assert.ok(!/white-space: nowrap/.test(/\.house-sgsum \{[^}]*\}/.exec(css)![0]), 'the summary wraps, never truncates');
-  assert.match(css, /@container house \(max-width: 400px\) \{[^@]*\.house-sgcount \{ flex-basis: 100%/, 'the count drops under the text before it can pass the card edge');
-  assert.match(css, /\.house-sgcount \{[^}]*flex: 0 1 auto;[^}]*min-width: 0;[^}]*overflow-wrap: anywhere/, 'and it can shrink and wrap');
+  assert.match(css, /\.house-sgbtn \{ display: grid; grid-template-columns: auto minmax\(0, 1fr\) auto;/, 'the header is one grid row (chevron, text, count): nothing wraps, whatever the column width');
+  assert.match(css, /\.house-sgcount \{[^}]*min-width: 0;[^}]*overflow-wrap: anywhere/, 'and it can shrink and wrap');
   assert.ok(!/@media \(max-width/.test(css), 'no viewport query: the column is narrow because of the sidebars, not the window');
 });
 
 test('descriptions show in full on the row (no clamp, no hover-only text); no transition: all; reduced motion covers the chevron', () => {
   assert.ok(!/\.house-desc \{[^}]*(?:line-clamp|white-space: nowrap|overflow: hidden)/.test(css), 'the "when to use" sentence is never cut');
-  assert.match(src, /<span className="house-desc">\{f\.description\}<\/span>/);
+  assert.match(src, /<Description text=\{f\.description\} name=\{label\} cutNote="[^"]*" \/>/, 'the shared one-line description with Show more, the same as the Armory');
   assert.ok(!/house-desc" title=/.test(src), 'the full text is not left to a tooltip');
   assert.ok(!/transition:\s*all/.test(css));
   const rm = /@media \(prefers-reduced-motion: reduce\) \{([^}]*)\}/.exec(css)![1]!;
@@ -362,12 +362,12 @@ test('while searching a sub-group is shown open on purpose: the toggle is inert 
 
 test('a skill that is off is never described as read as the app\'s rules', () => {
   const off = trustBlurb({ trust: 'shipped', category: 'skills', on: false });
-  assert.match(off, /^Off: agents are not shown this skill\./);
+  assert.match(off, /^Off: agents are not shown this drill\./);
   assert.ok(!/rules/.test(off), off);
-  assert.match(trustBlurb({ trust: 'shipped', category: 'skills', on: true }), /^On: agents can open this skill\./);
+  assert.match(trustBlurb({ trust: 'shipped', category: 'skills', on: true }), /^On: agents can open this drill\./);
   assert.match(trustBlurb({ trust: 'untrusted', category: 'skills', on: false }), /^Off: .*material, not as instructions/);
   assert.match(trustBlurb({ trust: 'shipped', category: 'built' }), /Agents read it as the app’s own rules/, 'other files keep their sentence');
-  assert.match(src, /trustBlurb\(\{ trust: r\.trust, category, on: skillFile\?\.on \}\)/, 'the dialog passes the skill\'s state');
+  assert.match(src, /trustBlurb\(\{ trust: r\.trust, category, on: skillFile\?\.on, group: \(skillFile \?\? file\)\?\.group \}\)/, 'the dialog passes the skill\'s state and group');
 });
 
 test('one bulk pattern: the visible words give the effect, the accessible name gives the group, all with an Undo and a reason when idle', () => {
@@ -377,17 +377,17 @@ test('one bulk pattern: the visible words give the effect, the accessible name g
   // Two buttons that both turn off one skill must not sound alike: Drills and one of its sub-groups.
   const drills = bulkName({ category: 'skills' }, 1, 'Drills');
   const sub = bulkName({ group: 'ci-github' }, 1, 'CI and GitHub');
-  assert.equal(drills, 'Turn off 1 skill in Drills');
-  assert.equal(sub, 'Turn off 1 skill in CI and GitHub');
+  assert.equal(drills, 'Turn off 1 drill in Drills');
+  assert.equal(sub, 'Turn off 1 drill in CI and GitHub');
   assert.notEqual(drills, sub);
   assert.equal(bulkName({ category: 'built' }, 2, 'Foundations'), 'Turn 2 back on in Foundations');
   // WCAG 2.5.3: what the button shows is the start of what it is called.
   for (const [s, n, t] of [[{ category: 'skills' }, 2, 'Drills'], [{ group: 'review' }, 3, 'Review'], [{ category: 'built' }, 2, 'Foundations']] as const) {
     assert.ok(bulkName(s, n, t).startsWith(bulkLabel(s, n)), `label in name: ${bulkLabel(s, n)} / ${bulkName(s, n, t)}`);
   }
-  assert.equal(bulkDone({ group: 'review' }, 1), 'Turned off 1 skill.');
+  assert.equal(bulkDone({ group: 'review' }, 1), 'Turned off 1 drill.');
   assert.equal(bulkDone({ category: 'history' }, 2), 'Turned 2 files back on.');
-  assert.equal(bulkUndone({ category: 'skills' }, 2), 'Turned 2 skills back on.');
+  assert.equal(bulkUndone({ category: 'skills' }, 2), 'Turned 2 drills back on.');
   assert.equal(bulkNothing({ category: 'skills' }), '', 'the skills header already says "0 of 4 on"');
   assert.equal(bulkNothing({ group: 'review' }), '');
   assert.equal(bulkNothing({ category: 'facts' }), 'Already at the defaults.');
@@ -408,7 +408,7 @@ test('copy: no internal word "layer", a plain lead sentence, plural counts, one 
   assert.ok(!/\blayer\b/i.test(visible), 'user copy says "layer"');
   for (const g of GROUPS) assert.ok(!/\blayer\b/i.test(`${g.title} ${g.hint} ${g.blurb}`));
   assert.ok(!/\blayer\b/i.test(`${TRUST_LEGEND} ${missingLine(['a.md'])} ${SKILLS_BANNER}`));
-  assert.match(src, /Agents read these rules before they start work\. Skills are different:\s+an agent opens one only when its job calls for it\./);
+  assert.match(src, /Agents read these rules before they start work\. Drills are different:\s+an agent opens one only when its job calls for it\./);
   assert.ok(!/before they ask you something/.test(src));
   assert.match(src, /Reading your doctrine files/);
   assert.match(src, /No doctrine files yet\./);
@@ -533,7 +533,7 @@ test('licence names come from the licence text; two licences never share a butto
 test('the dialog shows the skill description under its title, and its switch says what it is for', () => {
   assert.match(src, /file\?\.description && file\.path === r\.path \? <p className="house-readdesc">\{file\.description\}<\/p>/);
   assert.ok(src.indexOf('house-readdesc') < src.indexOf('id={stateId}'), 'before the trust sentence');
-  assert.match(src, /caption="Use this skill"/);
+  assert.match(src, /caption="Use this drill"/);
   assert.match(src, /aria-label=\{caption \? `\$\{caption\}: \$\{label\}` : label\}/, 'the visible words are in the name');
   assert.match(src, /\{caption \? <span className="house-swcap">\{caption\}<\/span> : null\}/);
 });

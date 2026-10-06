@@ -13,6 +13,7 @@ import { Icon } from './icons';
 import { UpdatePanel } from './UpdatePanel';
 import { BrowserSection } from '../browser/BrowserSection';
 import { HouseSection } from '../house/HouseSection';
+import { ArmorySection } from '../armory/ArmorySection';
 
 const NAV: { id: SettingsSection; label: string; hint: string }[] = [
   { id: 'claude', label: 'Claude', hint: 'Sign-in, key, runs' },
@@ -21,7 +22,8 @@ const NAV: { id: SettingsSection; label: string; hint: string }[] = [
   { id: 'mcp', label: 'MCP servers', hint: 'Extra tools for agents' },
   { id: 'blender', label: 'Blender', hint: 'Build 3D with the Sculptor' },
   { id: 'compaction', label: 'Compaction', hint: 'Context limits for long runs' },
-  { id: 'house', label: 'Doctrine', hint: 'Rules and skills your agents follow' },
+  { id: 'house', label: 'Doctrine', hint: 'Rules and drills your agents follow' },
+  { id: 'armory', label: 'Armory', hint: 'Skills your agents can pick up' },
   { id: 'connections', label: 'Connections', hint: 'Use Legion from Claude' },
   { id: 'about', label: 'About', hint: 'Version and folders' },
 ];
@@ -37,6 +39,9 @@ export function SettingsPanel() {
   // In the narrow tab strip the selected tab can sit off-screen (Doctrine is far along the row): bring it into view.
   // Narrowing the window moves the tab again, so the strip's own size is watched too (one frame at most per change).
   const navEl = useRef<HTMLElement>(null);
+  // A different section starts at its top, not wherever the last one was scrolled to.
+  const scrollEl = useRef<HTMLDivElement>(null);
+  useEffect(() => { scrollEl.current?.scrollTo?.({ top: 0 }); }, [section]);
   useEffect(() => {
     const el = navEl.current;
     if (!el) return;
@@ -59,7 +64,7 @@ export function SettingsPanel() {
           </button>
         ))}
       </nav>
-      <div className="set-scroll scroll-cue">
+      <div ref={scrollEl} className="set-scroll scroll-cue">
         <div className="set-body">
           {!settings ? <div className="set-loading"><span className="spin" /> Loading settings{'…'}</div> : (
             section === 'claude' ? <ClaudeSection s={settings} />
@@ -69,6 +74,7 @@ export function SettingsPanel() {
                   : section === 'blender' ? <BlenderSection />
                   : section === 'compaction' ? <CompactionSection s={settings} />
                     : section === 'house' ? <HouseSection />
+                  : section === 'armory' ? <ArmorySection />
                   : section === 'connections' ? <ConnectionsSection s={settings} />
                     : <AboutSection s={settings} />
           )}

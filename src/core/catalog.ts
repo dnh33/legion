@@ -50,7 +50,8 @@ async function probe(deps: CatalogDeps, now: () => number): Promise<Catalog> {
       cwd: tmpdir(), env: buildChildEnv(deps.config, { probe: true }), abortController: ac,
       settingSources: deps.config.claude.inheritClaudeCodeSettings ? ['user', 'project', 'local'] : [],
       // Only the command and model lists are wanted: do not connect (and tear down) every inherited MCP server for it.
-      strictMcpConfig: true, ...connectorSettings(deps.config, { probe: true }),
+      // disableAllHooks: a listing must not run the owner's SessionStart hooks.
+      strictMcpConfig: true, settings: { ...connectorSettings(deps.config, { probe: true }).settings, disableAllHooks: true },
     };
     if (deps.config.claude.executablePath) options.pathToClaudeCodeExecutable = deps.config.claude.executablePath;
     q = queryFn({ prompt: input(), options });

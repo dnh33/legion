@@ -27,6 +27,8 @@ These claims are about Legion's own code.
 - **Bot-made rooms.** A bot needs a card you answer to create a room or change its members.
 - **Outside content.** Web pages, tool output and imported notes are marked as untrusted. A run that read such content is "tainted". Its shared notes wait in the Inbox, and a BSV spend needs one more confirmation.
 - **Doctrine.** Settings, Doctrine shows the rules and skills your agents follow. Every file has a switch. The core tenets are locked on. The six optional skills are off by default. Legion ships skills as text and does not run scripts from them.
+- **Armory skills.** Settings, Armory lists every skill your agents could load, including skills inherited from your Claude Code setup. All of them are off by default. Each run gets an explicit list of allowed skills, and Legion's own code refuses a skill outside that list, also for subagents. Skills from outside Legion (Claude Code, imports) mark the run as tainted when they load.
+- **Skill shell commands.** A skill can contain shell lines that run when it loads. Legion asks Claude Code to disable them by default. Turning them on is a setting you confirm.
 - **Updates.** Legion's own update code accepts a release only if the Ed25519 signature on its manifest matches a key built into the app. It then checks the package size and SHA-256. It downloads from GitHub hosts over HTTPS only, and only after you click Update, unless you turn on automatic updates.
 - **Installers.** The one-line Windows installer downloads the release zip from GitHub over HTTPS. It checks the SHA-256 before it unpacks anything. On macOS and Linux the installer builds from source.
 - **MCP isolation.** By default, MCP servers and connectors from your own Claude Code setup are not loaded into agents (`claude.inheritMcp` is off). This is a request Legion's own code makes of Claude Code. It is not a sandbox.
@@ -56,6 +58,7 @@ Details: [BSV mode](docs/BSV-MODE.md) and [wallet design](docs/BSV-WALLET-DESIGN
 - **Blender.** In local mode a script runs in Blender on this computer with your Windows user's rights. Legion's check is a filter, not a sandbox. You see the full script on a card, and Legion saves a backup first. The cloud VM mode keeps scripts away from this computer. In live mode the add-on's socket has no password. Any local program can send Python to it while the add-on's server runs. Details: [Blender](docs/BLENDER.md).
 - **Audit logs.** They are tamper-evident, not tamper-proof. A program running as your user can rewrite a log together with its hashes.
 - **The Library.** Seed-phrase detection knows only the English BIP-39 word list. Taint follows file tools only. Details: [Library](docs/LIBRARY.md).
+- **Skills are not a sandbox.** The skill list and the skill gate decide what agents are told and allowed to load. They do not limit what an agent's other tools can do. A skill you turn on can still steer the agent.
 - **Servers you add.** An MCP server you add runs with your user's rights.
 - **Providers.** An agent on a provider sends its prompts to the server you chose.
 

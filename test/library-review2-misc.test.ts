@@ -11,11 +11,11 @@ import { needsApproval } from '../src/core/approvals.js';
 
 test('R2-T1 taint classification of every real Claude Agent SDK / Claude Code tool name', () => {
   const clean = ['Read', 'Write', 'Edit', 'MultiEdit', 'Glob', 'Grep', 'LS', 'NotebookEdit', 'TodoWrite', 'Task', 'Agent', 'ExitPlanMode', 'EnterPlanMode'];
-  const mustTaint = ['Bash', 'BashOutput', 'KillShell', 'KillBash', 'WebFetch', 'WebSearch', 'ListMcpResourcesTool', 'ReadMcpResourceTool', 'ListMcpResources', 'ReadMcpResource', 'mcp__github__get_issue', 'mcp__legion__vm_exec', 'mcp__legion__vm_read_file', 'mcp__legion__vm_claude', 'mcp__legion__vm_desktop', 'Mcp', 'TaskOutput', 'SlashCommand'];
-  // 'Skill' was in this list in the reviewer's probe, but the same report's R2-E3 requires Skill NOT to taint (it only loads the
-  // user's own skill instructions: no network, no other server). The two probes contradict each other; R2-E3 wins, so Skill is
-  // listed with the clean tools below.
-  const shouldBeClean = ['Skill', 'AskUserQuestion', 'TaskStop', 'TaskCreate', 'TaskUpdate', 'TaskList', 'TaskGet', 'ToolSearch', 'Config', 'EnterWorktree', 'ExitWorktree', 'CronCreate', 'CronList', 'CronDelete', 'Monitor', 'mcp__legion__ask', 'mcp__legion__tell', 'mcp__legion__agents', 'mcp__legion__vm_start', 'mcp__legion__vm_write_file', 'mcp__legion__vm_stop', 'mcp__legion_comms__room_read', 'mcp__legion_kg__kg_recall', 'mcp__legion_kg__kg_capture'];
+  const mustTaint = ['Skill', 'Bash', 'BashOutput', 'KillShell', 'KillBash', 'WebFetch', 'WebSearch', 'ListMcpResourcesTool', 'ReadMcpResourceTool', 'ListMcpResources', 'ReadMcpResource', 'mcp__github__get_issue', 'mcp__legion__vm_exec', 'mcp__legion__vm_read_file', 'mcp__legion__vm_claude', 'mcp__legion__vm_desktop', 'Mcp', 'TaskOutput', 'SlashCommand'];
+  // 'Skill' moved from the clean list to must-taint on 2026-10-06 (Armory, plan-armory.md): a skill's text can come from a third party, so a Skill load
+  // taints unless the skill it names is the owner's own or a Claude Code built-in. That is decided per load from the tool_use input in
+  // Engine.noteToolUse (test/armory-taint.test.ts); taintsRun alone has no input, so it answers for the unknown case: taints.
+  const shouldBeClean = ['AskUserQuestion', 'TaskStop', 'TaskCreate', 'TaskUpdate', 'TaskList', 'TaskGet', 'ToolSearch', 'Config', 'EnterWorktree', 'ExitWorktree', 'CronCreate', 'CronList', 'CronDelete', 'Monitor', 'mcp__legion__ask', 'mcp__legion__tell', 'mcp__legion__agents', 'mcp__legion__vm_start', 'mcp__legion__vm_write_file', 'mcp__legion__vm_stop', 'mcp__legion_comms__room_read', 'mcp__legion_kg__kg_recall', 'mcp__legion_kg__kg_capture'];
   const wrong: string[] = [];
   for (const t of clean) if (taintsRun(t)) wrong.push(`${t} should be clean`);
   for (const t of mustTaint) if (!taintsRun(t)) wrong.push(`${t} must taint`);

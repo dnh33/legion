@@ -44,6 +44,11 @@ export interface AgentProfile {
   approval: ApprovalMode;
   /** Names of entries in LegionConfig.mcpServers this agent gets. ['*'] = all. */
   mcpServers: string[];
+  /**
+   * Which skills this agent may pick up. 'inherit' (default, also when absent) = every skill the Armory switched on for it.
+   * A list = only those ids (it narrows, it never turns a skill on). Covers Armory, Claude Code and drill ids.
+   */
+  skills?: 'inherit' | string[];
   /** Working directory for local file tools. Absolute. Defaults to LegionConfig.workspaceDir/<id>. */
   cwd?: string;
   /** Hidden from lists and the rail until this optional feature is on (e.g. the Assayer needs the BSV Dev Kit). */

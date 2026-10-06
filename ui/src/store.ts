@@ -10,7 +10,7 @@ import { moodAfterDecision, noteDenial } from './mascot/toolActivity';
 
 export type RelicState = 'idle' | 'listening' | 'thinking' | 'hacking' | 'awaiting' | 'victory' | 'error' | 'sleeping' | 'annoyed';
 
-export type SettingsSection = 'claude' | 'providers' | 'boat' | 'mcp' | 'blender' | 'compaction' | 'house' | 'connections' | 'about';
+export type SettingsSection = 'claude' | 'providers' | 'boat' | 'mcp' | 'blender' | 'compaction' | 'house' | 'armory' | 'connections' | 'about';
 export type TaskSrc = 'tab' | 'recent';
 export interface TaskMenu { x: number; y: number; taskId: string; src: TaskSrc }
 
@@ -44,7 +44,7 @@ export interface AppState {
   theme: 'dark' | 'light';
   palette: boolean;
   doctorOpen: boolean;
-  editor: null | { id: string | null };
+  editor: null | { id: string | null; /** Open with keyboard focus on this section. */ focus?: 'skills' };
   onboardingDismissed: boolean;
   toasts: Toast[];
   catalog: Catalog | null;
@@ -474,7 +474,7 @@ export function dismissOnboarding() { lsSet('legion.onboarded', '1'); setState({
 export function closeOverlays() { setState({ palette: false, doctorOpen: false, editor: null }); }
 export const openPalette = () => setState({ palette: true, doctorOpen: false, editor: null });
 export const openDoctor = () => { setState({ doctorOpen: true, palette: false, editor: null }); void runDoctor(); };
-export const openEditor = (id: string | null) => setState({ editor: { id }, palette: false, doctorOpen: false });
+export const openEditor = (id: string | null, focus?: 'skills') => setState({ editor: { id, ...(focus ? { focus } : {}) }, palette: false, doctorOpen: false });
 
 export async function saveAgent(id: string | null, a: Partial<AgentProfile> & { name: string }) {
   try {

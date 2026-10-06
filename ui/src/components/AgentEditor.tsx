@@ -1,11 +1,14 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { AgentProfile, ApprovalMode, ModelChoice, VmSize } from '../../../src/shared/types';
 import { AUTO_INFO, groupModels, modelList } from '../models';
-import { loadCatalog, removeAgent, saveAgent, useStore } from '../store';
+import { closeOverlays, loadCatalog, openSettings, removeAgent, saveAgent, useStore } from '../store';
 import { providerModelGroups, loadProviders, useProviders } from '../providers/providersStore';
 import { Modal } from './Modal';
+import { AgentSkills, settingOf, valueOf } from '../armory/AgentSkills';
+import { MAX_AGENT_SKILLS } from '../../../src/shared/armory-view';
+import { revealSkill } from '../armory/armoryStore';
 
-export function AgentEditor({ id }: { id: string | null }) {
+export function AgentEditor({ id, focus }: { id: string | null; focus?: 'skills' }) {
   const existing = useStore((s) => s.agents.find((a) => a.id === id));
   const [name, setName] = useState(existing?.name ?? '');
   const [emoji, setEmoji] = useState(existing?.emoji ?? '✦');
@@ -16,6 +19,31 @@ export function AgentEditor({ id }: { id: string | null }) {
   const [vmOn, setVmOn] = useState(existing?.vm.enabled ?? false);
   const [size, setSize] = useState<VmSize>(existing?.vm.size ?? 'default');
   const [idle, setIdle] = useState(existing?.vm.idleStopMinutes ?? 15);
+  const [skills, setSkills] = useState(() => valueOf(existing?.skills));
+  const skillsTooMany = skills.mode === 'choose' && skills.ids.length > MAX_AGENT_SKILLS;
+  // Leaving (Esc, the X, a click outside, or "Open in the Armory") must not throw away a Skills choice that was not saved without asking.
+  const startSkills = useRef(settingOf(valueOf(existing?.skills)));
+  const nowSkills = settingOf(skills);
+  const skillsDirty = JSON.stringify(Array.isArray(nowSkills) ? [...nowSkills].sort() : nowSkills) !== JSON.stringify(Array.isArray(startSkills.current) ? [...startSkills.current].sort() : startSkills.current);
+  // Every field counts, not only Skills: the first values are kept, and anything that differs from them asks before it is thrown away.
+  const fields = JSON.stringify([name, emoji, description, systemPrompt, model, approval, vmOn, size, idle]);
+  const startFields = useRef(fields);
+  const dirty = skillsDirty || fields !== startFields.current;
+  const [leaving, setLeaving] = useState<null | { to: 'close' } | { to: 'armory'; skill: string }>(null);
+  const keepBtn = useRef<HTMLButtonElement>(null);
+  useEffect(() => { if (leaving) keepBtn.current?.focus(); }, [leaving]);
+  const openArmory = (skill: string): void => { revealSkill(skill); openSettings('armory'); };
+  const requestClose = (): void => {
+    if (leaving) { setLeaving(null); return; }
+    if (dirty) setLeaving({ to: 'close' }); else closeOverlays();
+  };
+  // "Choose skills for Zealot" lands on the Skills section, not on the name field.
+  useEffect(() => {
+    if (focus !== 'skills') return;
+    const el = document.querySelector<HTMLElement>('[data-skills-focus]');
+    el?.scrollIntoView?.({ block: 'center' });
+    el?.focus();
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
   const catalog = useStore((s) => s.catalog);
   useEffect(() => { if (!catalog) void loadCatalog(); void loadProviders(); }, []);
   const provView = useProviders((x) => x.view);
@@ -36,10 +64,10 @@ export function AgentEditor({ id }: { id: string | null }) {
   const [confirmDel, setConfirmDel] = useState(false);
 
   const submit = async () => {
-    if (!name.trim() || busy) return;
+    if (!name.trim() || busy || skillsTooMany) return;
     setBusy(true);
     const body: Partial<AgentProfile> & { name: string } = {
-      name: name.trim(), emoji: emoji.trim() || '●', description: description.trim(), systemPrompt, model, approval,
+      name: name.trim(), emoji: emoji.trim() || '●', description: description.trim(), systemPrompt, model, approval, skills: settingOf(skills),
       vm: { enabled: vmOn, size, idleStopMinutes: Math.max(1, Math.round(idle) || 15) },
     };
     await saveAgent(id, body);
@@ -47,13 +75,14 @@ export function AgentEditor({ id }: { id: string | null }) {
   };
 
   return (
-    <Modal title={id ? `Edit ${existing?.name ?? 'agent'}` : 'New agent'} width={600}
+    <Modal title={id ? `Edit ${existing?.name ?? 'agent'}` : 'New agent'} width={600} onClose={requestClose}
       footer={<>
         {id && id !== 'zealot' && (confirmDel
           ? <><span className="muted-s">Delete this agent?</span><button className="btn danger" onClick={() => void removeAgent(id)}>Yes, delete</button><button className="btn-ghost" onClick={() => setConfirmDel(false)}>No</button></>
           : <button className="btn-ghost danger" onClick={() => setConfirmDel(true)}>Delete</button>)}
         <span className="spacer" />
-        <button className="btn primary" onClick={() => void submit()} disabled={!name.trim() || busy}>{id ? 'Save' : 'Create agent'}</button>
+        <button type="button" className="btn-ghost" onClick={requestClose}>Cancel</button>
+        <button className="btn primary" onClick={() => void submit()} disabled={!name.trim() || busy || skillsTooMany}>{id ? 'Save' : 'Create agent'}</button>
       </>}>
       <form className="form" onSubmit={(e) => { e.preventDefault(); void submit(); }}>
         <div className="row">
@@ -80,6 +109,15 @@ export function AgentEditor({ id }: { id: string | null }) {
             </select>
           </label>
         </div>
+        <AgentSkills agentId={id} agentName={name} value={skills} onChange={setSkills}
+          onOpenArmory={(sid) => { if (skillsDirty) setLeaving({ to: 'armory', skill: sid }); else openArmory(sid); }} />
+        {leaving ? (
+          <div className="arm-discard" role="alertdialog" aria-label="Unsaved changes">
+            <span>{leaving.to === 'close' ? 'Throw away your changes? They are not saved.' : 'Open the Armory and throw away your Skills choice? It is not saved.'}</span>
+            <button type="button" className="btn sm danger" onClick={() => { if (leaving.to === 'close') closeOverlays(); else openArmory(leaving.skill); }}>Discard</button>
+            <button ref={keepBtn} type="button" className="btn sm" onClick={() => setLeaving(null)}>Keep editing</button>
+          </div>
+        ) : null}
         <fieldset>
           <legend>Computer (boat.dev VM)</legend>
           <label className="check-row"><input type="checkbox" checked={vmOn} onChange={(e) => setVmOn(e.target.checked)} /> Let this agent start a VM on demand</label>

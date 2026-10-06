@@ -1,6 +1,6 @@
 /** Runs agent tasks via the Claude Agent SDK. */
-import { mkdirSync } from 'node:fs';
-import { join } from 'node:path';
+import { existsSync, mkdirSync, realpathSync } from 'node:fs';
+import { basename, dirname, join, resolve, sep } from 'node:path';
 import { query as realQuery } from '@anthropic-ai/claude-agent-sdk';
 import type { McpServerConfig, Options, Query, Settings, query as sdkQuery } from '@anthropic-ai/claude-agent-sdk';
 import type {
@@ -102,8 +102,9 @@ export function clipToolResult(raw: string, max = 1500): string {
 const CLEAN_BUILTINS = new Set([
   'Read', 'Glob', 'Grep', 'LS', 'Edit', 'MultiEdit', 'Write', 'NotebookEdit',
   'TodoWrite', 'Task', 'Agent', 'ExitPlanMode', 'EnterPlanMode',
-  // the agent's own plumbing: no network, no other server, nothing that carries someone else's text into the run
-  'Skill', 'ToolSearch', 'AskUserQuestion', 'TaskStop', 'TaskCreate', 'TaskUpdate', 'TaskList', 'TaskGet',
+  // the agent's own plumbing: no network, no other server, nothing that carries someone else's text into the run.
+  // 'Skill' is deliberately NOT here: a skill's text can come from a third party, so each load is classified by the skill it names (noteToolUse).
+  'ToolSearch', 'AskUserQuestion', 'TaskStop', 'TaskCreate', 'TaskUpdate', 'TaskList', 'TaskGet',
   'Config', 'EnterWorktree', 'ExitWorktree', 'CronCreate', 'CronList', 'CronDelete', 'Monitor',
 ]);
 /** File tools that put a run's content on disk, and the input field that names the file. */
@@ -119,6 +120,37 @@ export function taintsRun(toolName: string): boolean {
   if (TAINTING_LEGION_TOOLS.has(toolName)) return true;
   if (isLegionTool(toolName)) return false;
   return !CLEAN_BUILTINS.has(toolName);
+}
+
+/** A PreToolUse hook answer that blocks the tool and tells the agent why. */
+function preToolDeny(reason: string): { hookSpecificOutput: { hookEventName: 'PreToolUse'; permissionDecision: 'deny'; permissionDecisionReason: string } } {
+  return { hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'deny', permissionDecisionReason: reason } };
+}
+
+/** The path with symlinks and junctions resolved as far as it exists (the rest of the name is appended as written). */
+function realish(p: string): string {
+  const parts: string[] = [];
+  let cur = resolve(p);
+  while (!existsSync(cur)) {
+    const up = dirname(cur);
+    if (up === cur) break;
+    parts.unshift(basename(cur));
+    cur = up;
+  }
+  let real = cur;
+  try { real = realpathSync.native(cur); } catch { /* keep the written path */ }
+  return join(real, ...parts);
+}
+
+/**
+ * True when `target` is `dir` or inside it, compared as written and after symlinks are resolved. Always compared
+ * without case: Windows and macOS file systems usually ignore case, and for a deny guard a false match on Linux only
+ * blocks a path that differs from a protected one by case, which is harmless.
+ */
+export function pathInside(dir: string, target: string): boolean {
+  const fold = (x: string): string => x.toLowerCase();
+  const inside = (d: string, t: string): boolean => { const a = fold(resolve(d)); const b = fold(resolve(t)); return b === a || b.startsWith(a.endsWith(sep) ? a : a + sep); };
+  return inside(dir, target) || inside(realish(dir), realish(target));
 }
 
 export class EngineError extends Error {
@@ -235,6 +267,12 @@ export class Engine {
     if (!agent || !this.bridge.isVisible(agent)) throw new EngineError(`Unknown agent: ${p.agentId}`, 404);
     const prompt = (p.prompt ?? '').trim();
     if (!prompt) throw new EngineError('Prompt is empty', 400);
+    // A /command the owner switched off for this agent is refused here, before anything is queued or fed to a live run, so it holds for the app,
+    // MCP clients, rooms and agent-to-agent messages alike.
+    // The check runs on the text that will really be sent (after routeModel strips a /model or /opus prefix): `/model sonnet /update-config x`
+    // reaches Claude Code as `/update-config x`. A message to a live run that starts with a slash is not fed live (feedLive). execute() checks again when the run starts.
+    const refusal = this.slashRefusal(agent, routeModel(prompt, 'auto').prompt);
+    if (refusal) throw new EngineError(refusal, 400);
 
     // Confused-deputy rule: a run another agent starts through the bridge never gets looser
     // approvals than its caller (rooms set their own origin and take precedence).
@@ -591,6 +629,10 @@ export class Engine {
     const agent = this.store.getAgent(job.agentId);
     if (!agent) throw new Error(`Agent ${job.agentId} no longer exists`);
     let decision = routeModel(job.prompt, job.choice, { priorModel: job.priorModel });
+    // The last check before anything is sent, on the exact text Claude Code will get. A queued prompt starts here, and the owner may have
+    // switched the skill off since it was queued.
+    const slashNo = this.slashRefusal(agent, decision.prompt);
+    if (slashNo) throw new EngineError(slashNo, 400);
     // A model a bot picked (per-task override, or a /opus prefix in a bot's message) never goes above the agent's own setting.
     const picked = this.store.getTask(job.taskId)?.modelOverride || (job.origin && decision.reason.startsWith('prefix'));
     const provAgent = providerPrefix(agent.model);
@@ -612,6 +654,8 @@ export class Engine {
     const sendPrompt = (job.header ? job.header + '\n' : '') + decision.prompt;
 
     const hadSession = !!this.store.getTask(job.taskId)?.sessionId;
+    // The same /command check for text that is re-sent later from the task's history (the raw text, and the text after a /model prefix is removed).
+    const slashNo2 = (text: string): string | undefined => this.slashRefusal(agent, text) ?? this.slashRefusal(agent, routeModel(text, 'auto').prompt);
     let outcome = await this.runOnce(job, agent, model, sendPrompt, act);
     if (act.cancelled) return;
 
@@ -624,6 +668,10 @@ export class Engine {
       const request = decision.prompt === CONTINUE_PROMPT ? this.lastRequest(job.taskId) : sendPrompt;
       if (!request || /^\s*\/compact\b/i.test(request)) {
         outcome = { subtype: 'error_during_execution', isError: true, errorText: 'The earlier conversation could not be found, so there is nothing to continue or compact. Send your request again to start a new one.' };
+      } else if (slashNo2(request)) {
+        // The request comes from the task's history, not from the text checked above: it may be a /command the owner has switched off since.
+        // Fail closed, and stop here: this is a refusal, not a failure Opus should retry.
+        throw new EngineError(slashNo2(request)!, 400);
       } else {
         this.addMessage(job.taskId, 'system', 'The earlier conversation could not be found, so Claude is starting a new one with your request.');
         outcome = await this.runOnce(job, agent, model, request, act);
@@ -677,7 +725,7 @@ export class Engine {
   /** Read-only: the MCP servers the latest run saw and their state (Settings -> MCP). */
   mcpStatus(): McpStatusView { return this.mcpTracker.view(this.config); }
 
-  private buildMcpServers(agent: AgentProfile, job: Job, act: Active): Record<string, McpServerConfig> {
+  private buildMcpServers(agent: AgentProfile, job: Job, act: Active, runtime: 'claude' | 'provider' = 'claude'): Record<string, McpServerConfig> {
     const taskId = job.taskId;
     const pid = this.projectOf(taskId, agent.id)?.id;
     const out: Record<string, McpServerConfig> = {};
@@ -702,12 +750,93 @@ export class Engine {
       taskId, ...(job.origin ? { origin: job.origin, ceiling: job.origin.approvalCeiling } : {}),
       taint: () => act.tainted || job.origin?.tainted === true,
       markTainted: () => { act.tainted = true; },
+      runtime,
       ...(pid ? { projectId: pid } : {}),
     };
     for (const m of this.modules) {
       try { Object.assign(out, m.mcpServers?.(agent, moduleJob) ?? {}); } catch { /* a broken module must not break runs */ }
     }
     return out;
+  }
+
+  /**
+   * Whether this Skill load taints the run. Read from the stream's tool_use input (`{ skill: "<plugin>:<name>" }`), because Claude Code
+   * never calls canUseTool for a Skill load. The first module that answers decides; with none, or a throwing one, it taints (unknown = outside).
+   */
+  private skillLoadTaints(input: unknown): boolean {
+    const raw = input && typeof input === 'object' ? (input as { skill?: unknown }).skill : undefined;
+    const id = typeof raw === 'string' ? raw : '';
+    for (const m of this.modules) {
+      if (!m.skillLoadTaints) continue;
+      try { return m.skillLoadTaints(id); } catch { return true; }
+    }
+    return true;
+  }
+
+  /** A plain refusal when `text` starts with a /command this agent may not run. A module that throws fails CLOSED: the command is refused. */
+  private slashRefusal(agent: AgentProfile, text: string): string | undefined {
+    for (const m of this.modules) {
+      if (!m.refuseSlashCommand) continue;
+      try {
+        const r = m.refuseSlashCommand(agent, text);
+        if (r) return r;
+      } catch {
+        return 'Legion could not check whether this /command is allowed, so it was not sent. Try again, or send it without the slash.';
+      }
+    }
+    return undefined;
+  }
+
+  /**
+   * Why this Skill load is denied, or undefined when it may go ahead. Used by the PreToolUse hook on 'Skill', which Claude Code also runs
+   * for a subagent's loads (a subagent ignores the `skills` list). No module answering, or one that throws: denied.
+   */
+  private skillDenial(agent: AgentProfile, input: unknown): string | undefined {
+    const raw = input && typeof input === 'object' ? (input as { skill?: unknown }).skill : undefined;
+    const id = (typeof raw === 'string' ? raw : '').trim().replace(/^\//, '');
+    let answered = false;
+    for (const m of this.modules) {
+      if (!m.skillGate) continue;
+      answered = true;
+      try {
+        const why = m.skillGate(agent, id);
+        if (why) return why;
+      } catch {
+        return `${id || 'That skill'} could not be checked, so Legion did not load it.`;
+      }
+    }
+    return answered ? undefined : `${id || 'That skill'} is off in Legion. The owner can turn it on in Settings \u2192 Armory.`;
+  }
+
+  /** The folders Claude file tools may not change (the Armory's own files). */
+  private protectedDirs(): string[] {
+    const out: string[] = [];
+    for (const m of this.modules) {
+      try { out.push(...(m.protectedPaths?.() ?? [])); } catch { /* none */ }
+    }
+    return out;
+  }
+
+  /** The `skills` list and plugin folders for a Claude run. Always an array: an omitted list would mean "every skill Claude Code can find". */
+  private moduleSkills(agent: AgentProfile): { skills: string[]; plugins: string[] } {
+    const skills = new Set<string>();
+    const plugins = new Set<string>();
+    for (const m of this.modules) {
+      try {
+        const r = m.claudeSkills?.(agent);
+        for (const id of r?.skills ?? []) skills.add(id);
+        for (const p of r?.plugins ?? []) plugins.add(p);
+      } catch { /* a broken module offers no skills */ }
+    }
+    return { skills: [...skills], plugins: [...plugins] };
+  }
+
+  /** True only when a module says the owner allowed inline skill shell. No module, or a throwing one: blocked. */
+  private skillShellAllowed(): boolean {
+    for (const m of this.modules) {
+      try { if (m.skillShellAllowed?.() === true) return true; } catch { /* blocked */ }
+    }
+    return false;
   }
 
   private moduleDisallowed(agent: AgentProfile): string[] {
@@ -732,7 +861,8 @@ export class Engine {
       if (act.toolUses.has(toolUseId)) return;
       act.toolUses.add(toolUseId);
     }
-    if (taintsRun(toolName)) act.tainted = true;
+    if (toolName === 'Skill') { if (this.skillLoadTaints(input)) act.tainted = true; }
+    else if (taintsRun(toolName)) act.tainted = true;
     this.trackWorkspaceTaint(job, act, toolName, input);
     for (const m of this.modules) {
       try { m.onToolUse?.(job.agentId, job.taskId, toolName); } catch { /* ignore */ }
@@ -814,6 +944,8 @@ export class Engine {
     let projectFolder: string | undefined;
     if (project) { try { mkdirSync(project.folder, { recursive: true }); projectFolder = project.folder; } catch { /* no folder this run: the instructions still apply */ } }
     const servers = this.buildMcpServers(agent, job, act);
+    const skillSet = this.moduleSkills(agent);
+    const allowSkillShell = this.skillShellAllowed();
     const options: Options = {
       model,
       cwd,
@@ -829,6 +961,9 @@ export class Engine {
       },
       ...(projectFolder ? { additionalDirectories: [projectFolder] } : {}),
       settingSources: this.config.claude.inheritClaudeCodeSettings ? ['user', 'project', 'local'] : [],
+      // Always an explicit list: omitted means "everything Claude Code can find" (338 skills on the owner's machine). [] = none.
+      skills: skillSet.skills,
+      ...(skillSet.plugins.length ? { plugins: skillSet.plugins.map((path) => ({ type: 'local' as const, path })) } : {}),
       mcpServers: servers,
       // Off (default): only the servers above, asks the CLI to ignore user/project/local MCP config and plugins. claude.ai connectors are asked off in buildChildEnv and in `settings`.
       ...(this.config.claude.inheritMcp === true ? {} : { strictMcpConfig: true }),
@@ -839,15 +974,34 @@ export class Engine {
       includePartialMessages: true,
       abortController: act.ac,
       env: buildChildEnv(this.config),
-      ...connectorSettings(this.config),
+      // SDK Settings.disableSkillShellExecution (sdk.d.ts:7156): inline shell in skills and slash commands runs before the model sees the text and never
+      // reaches canUseTool, so it is replaced by a placeholder unless the owner allowed it in the Armory. Merged into the same flag layer as the connector switch.
+      settings: { ...connectorSettings(this.config).settings, disableSkillShellExecution: !allowSkillShell },
       // Runs before every tool executes (also in bypass mode), so taint is set before the tool can act on outside content.
       hooks: {
-        PreToolUse: [{
-          hooks: [async (input) => {
-            if (input.hook_event_name === 'PreToolUse') this.noteToolUse(job, act, input.tool_name, input.tool_use_id, input.tool_input);
-            return { continue: true };
-          }],
-        }],
+        PreToolUse: [
+          {
+            hooks: [async (input) => {
+              if (input.hook_event_name === 'PreToolUse') this.noteToolUse(job, act, input.tool_name, input.tool_use_id, input.tool_input);
+              return { continue: true };
+            }],
+          },
+          // Every Skill load, in every approval mode and for subagents too (they ignore the `skills` list): denied unless the skill is on for this agent.
+          { matcher: 'Skill', hooks: [async (input) => {
+            if (input.hook_event_name !== 'PreToolUse' || input.tool_name !== 'Skill') return { continue: true };
+            const why = this.skillDenial(agent, input.tool_input);
+            return why ? preToolDeny(why) : { continue: true };
+          }] },
+          // The Armory's own files are changed only through Legion's routes. Limit, stated plainly: this stops the file tools, not Bash.
+          { hooks: [async (input) => {
+            if (input.hook_event_name !== 'PreToolUse') return { continue: true };
+            const field = WRITE_FILE_TOOLS[input.tool_name];
+            const target = field && input.tool_input && typeof input.tool_input === 'object' ? (input.tool_input as Record<string, unknown>)[field] : undefined;
+            if (typeof target !== 'string' || !target) return { continue: true };
+            const abs = resolve(cwd, target);
+            return this.protectedDirs().some((d) => pathInside(d, abs)) ? preToolDeny('The Armory\'s files can only be changed by the owner in Settings \u2192 Armory, not by an agent.') : { continue: true };
+          }] },
+        ],
       },
     };
     if (resume) options.resume = resume;
@@ -938,7 +1092,7 @@ export class Engine {
     const taskId = job.taskId;
     const servers: ProviderHost['servers'] = {};
     const external: NonNullable<ProviderHost['external']> = {};
-    for (const [name, cfg] of Object.entries(this.buildMcpServers(agent, job, act))) {
+    for (const [name, cfg] of Object.entries(this.buildMcpServers(agent, job, act, 'provider'))) {
       if (cfg.type === 'sdk') servers[name] = cfg;
       else if (cfg.type === 'http' || cfg.type === 'sse') external[name] = { type: cfg.type, url: cfg.url, ...(cfg.headers ? { headers: cfg.headers } : {}) };
       else if (cfg.type === 'stdio' || cfg.type === undefined) external[name] = { command: (cfg as { command: string }).command, ...((cfg as { args?: string[] }).args ? { args: (cfg as { args?: string[] }).args } : {}), ...((cfg as { env?: Record<string, string> }).env ? { env: (cfg as { env?: Record<string, string> }).env } : {}) };
