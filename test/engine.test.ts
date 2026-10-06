@@ -547,6 +547,70 @@ test('a message sent while a Claude run works joins that run: one query, answere
   assert.deepEqual(rows, [['user', 'build the page'], ['assistant', 'on it: build the page'], ['user', 'and make it blue'], ['assistant', 'also: and make it blue']]);
 });
 
+test('a message folded into the current turn (one result answers both) still ends the run: the task does not stay running', async () => {
+  let midRun!: () => void; const reached = new Promise<void>((r) => { midRun = r; });
+  let sent!: () => void; const pushed = new Promise<void>((r) => { sent = r; });
+  const s = setup((params) => (async function* () {
+    // Claude Code delivers a message sent mid-turn into that same turn (a queued_command attachment) and writes ONE result
+    // for both sends; queued_turn_count 0 says nothing else is waiting (SDK docs, SDKResultSuccess.queued_turn_count)
+    const it = (params.prompt as AsyncIterable<any>)[Symbol.asyncIterator]();
+    yield init('sess-fold');
+    await it.next();
+    yield { type: 'assistant', parent_tool_use_id: null, message: { id: 'f1', content: [{ type: 'tool_use', id: 'fb', name: 'Bash', input: {} }] } };
+    midRun();
+    await pushed;
+    await it.next();
+    yield { type: 'assistant', parent_tool_use_id: null, message: { id: 'f2', content: [{ type: 'text', text: 'did both' }] } };
+    yield ok('both answered', { queued_turn_count: 0 });
+    await it.next();
+  })(), { agent: { model: 'opus' } });
+  const t = s.engine.startTask({ agentId: 'a1', prompt: 'build the page', source: 'ui' });
+  try {
+    await reached;
+    s.engine.startTask({ agentId: 'a1', prompt: 'and make it blue', source: 'ui', continueTaskId: t.id });
+    sent();
+    const done = await s.engine.waitFor(t.id, 1000);
+    assert.equal(done.status, 'done', 'the run ends after the result that answered every message');
+    assert.equal(done.result, 'both answered');
+  } finally { s.engine.cancel(t.id); }
+});
+
+test('a result that says more sends are queued keeps the run open: a message sent then still joins it', async () => {
+  let midRun!: () => void; const reached = new Promise<void>((r) => { midRun = r; });
+  let sent!: () => void; const pushed = new Promise<void>((r) => { sent = r; });
+  let firstDone!: () => void; const afterFirst = new Promise<void>((r) => { firstDone = r; });
+  let sent3!: () => void; const pushed3 = new Promise<void>((r) => { sent3 = r; });
+  const s = setup((params) => (async function* () {
+    const it = (params.prompt as AsyncIterable<any>)[Symbol.asyncIterator]();
+    yield init('sess-q');
+    await it.next();
+    midRun();
+    await pushed;
+    yield ok('first answered', { queued_turn_count: 1 });
+    firstDone();
+    await pushed3;
+    const second = await it.next();
+    const third = await it.next();
+    yield { type: 'assistant', parent_tool_use_id: null, message: { id: 'q2', content: [{ type: 'text', text: `also: ${second.value.message.content}, ${third.value.message.content}` }] } };
+    yield ok('rest answered', { queued_turn_count: 0 });
+    assert.equal((await it.next()).done, true);
+  })(), { agent: { model: 'opus' } });
+  const t = s.engine.startTask({ agentId: 'a1', prompt: 'build the page', source: 'ui' });
+  try {
+    await reached;
+    s.engine.startTask({ agentId: 'a1', prompt: 'and make it blue', source: 'ui', continueTaskId: t.id });
+    sent();
+    await afterFirst;
+    const joined = s.engine.startTask({ agentId: 'a1', prompt: 'and bigger', source: 'ui', continueTaskId: t.id });
+    assert.equal(joined.id, t.id);
+    sent3();
+    const done = await s.engine.waitFor(t.id, 3000);
+    assert.equal(done.status, 'done');
+    assert.equal(done.result, 'rest answered');
+    assert.equal(s.calls.length, 1, 'one run');
+  } finally { sent3(); s.engine.cancel(t.id); }
+});
+
 test('only the person\'s own plain messages join a live run; bots, MCP clients and slash commands still get 409 (the app queues them)', async () => {
   let release!: () => void; const gate = new Promise<void>((r) => { release = r; });
   const s = setup(() => (async function* () { yield init('sess-g'); await gate; yield ok('x'); })(), { agent: { model: 'opus' } });

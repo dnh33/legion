@@ -2,27 +2,39 @@
 
 All notable changes are recorded here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [0.2.5-d] - 2026-10-06
 
 ### Added
 
+- **A usage panel in the title bar.** The chart icon opens a small panel with what Claude has cost today, over 7 days and
+  over 30 days, a 14-day strip, and the models and agents that used the most. It loads only when opened. The figures are
+  Claude's own per-task costs, so they show how much you used, not what a subscription bills.
 - **The Legion is taking over Claude.** On start, the splash shows Claude Code's critter glitch and turn into the Legion
-  helm (steel, green T-visor, plume, binary ring). It plays while the splash is up and nothing waits
-  for it, so start-up is no slower. With "Show animations" off in Windows, you see one still helm. Click the title-bar glyph three times, or
+  helm (steel, green T-visor, plume, binary ring). It plays while the splash is up and nothing waits for it, so start-up
+  is no slower. With "Show animations" off in Windows, you see one still helm. Click the title-bar glyph three times, or
   choose "Deus vult" in the command palette, to watch the whole takeover again. The art is new: no painted bust changed.
 - **Legion's mark, `Ŧ`, in Claude Code.** When Claude Code runs or continues a Legion task, the result ends with one
   short line, e.g. `Ŧ LEGION · sworn · done`. The answer and its data come first and are unchanged, and `legion_status`
-  still returns plain JSON. The terminal fonts tested on Windows (Cascadia, Consolas,
-  Lucida Console) all have `Ŧ`; they lack the shield ⛨.
+  still returns plain JSON. The terminal fonts tested on Windows (Cascadia, Consolas, Lucida Console) all have `Ŧ`;
+  they lack the shield ⛨.
 
 ### Fixed
 
+- **"Update and install now" did nothing after a download.** The panel now offers one button, "Restart and install", which
+  shows what will stop and then installs. The download shows a progress bar, and "Check now" sits in the header.
+- **A task could stay on "working" after it had finished.** When you sent a message while a task was running, Claude
+  answered it together with the step in progress, and Legion kept waiting for a second answer that never came. The task
+  now ends when Claude says nothing else is waiting.
 - **An agent's bust no longer says "Executing" right after you press Deny.** The denied call and the denial that comes
   back (also after the 10-minute auto-deny) no longer count as tool activity, so the bust shows "Deliberating" instead of
   a label that reads as "it ran anyway". Allowed calls show "Executing" as before.
 - **Zealot's Relic no longer says "Executing" after a Deny either.** A denied or unanswered card now moves the shared
   mood back to "Deliberating" (with the tool and "denied" or "not answered") while the run goes on. Cancelling a run with
   an open card still ends on the idle pose.
+- **The Lattice no longer jumps when nothing changed.** A background refresh, for example after switching BSV mode,
+  re-drew the graph and re-fitted the camera even when the graph was the same. Now the view stays put unless something
+  in it changed.
+
 
 ## [0.2.5-c] - 2026-10-05
 

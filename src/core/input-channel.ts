@@ -30,8 +30,13 @@ export class InputChannel implements AsyncIterable<SDKUserMessage> {
     return true;
   }
 
-  /** One message got its answer (a result arrived). Returns true when none are left waiting. */
-  answered(): boolean {
+  /**
+   * A result arrived. Returns true when none are left waiting. Claude Code can answer several sends with one result (a message
+   * sent mid-turn is folded into that turn), so its own count of sends still queued wins when the result carries it
+   * (`queued_turn_count`); counting one result per message is the fallback for producers without it.
+   */
+  answered(queued?: unknown): boolean {
+    if (typeof queued === 'number') { this.pending = Math.max(0, queued); return this.pending === 0; }
     this.pending = Math.max(0, this.pending - 1);
     return this.pending === 0;
   }
