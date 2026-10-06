@@ -280,7 +280,7 @@ test('overlay: mainnet switched on but not armed shows MAINNET ON; a wallet on m
   assert.equal(model({ wallet: w, policy: policy({ mainnetEnabled: true }) }).pill?.text, MAINNET_ON_SENTENCE);
   assert.equal(model({ wallet: w, policy: policy() }).pill?.text, MAINNET_SENTENCE);
   assert.doesNotMatch(MAINNET_ON_SENTENCE, /will not use it|cannot|safe|verified/i);
-  assert.match(MAINNET_ON_SENTENCE, /Each spend still needs Arm, your confirmations and the wallet's own prompt/);
+  assert.match(MAINNET_ON_SENTENCE, /Each spend still needs Arm and your confirmations; whether the wallet asks too depends on the wallet/);
 });
 
 test('panel: the mainnet switch is off by default in wording, the arm control is disabled without it, and the panel never sends a native header', () => {

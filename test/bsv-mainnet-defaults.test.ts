@@ -254,7 +254,7 @@ test('C33: a switch-off that cannot be saved freezes the chain instead of leavin
 
 test('C35: the sentences Legion shows about mainnet say it is OFF until the owner turns it on, scope the claim to Legion\'s own code, and never say it refuses mainnet or is testnet only', () => {
   assert.match(MAINNET_WARNING, /needs the mainnet switch \(off by default\)/);
-  assert.match(MAINNET_WARNING, /wallet's own prompt/);
+  assert.match(MAINNET_WARNING, /whether the wallet asks too depends on the wallet/);
   const dir = join(process.cwd(), 'src', 'core', 'bsv');
   for (const f of readdirSync(dir).filter((n) => n.endsWith('.ts'))) {
     const t = readFileSync(join(dir, f), 'utf8');

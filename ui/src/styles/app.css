@@ -192,11 +192,11 @@ kbd { font-size: 10.5px; line-height: 1; padding: 3px 5px; border: 1px solid var
 .codeblock pre { margin: 0; padding: 10px 12px; overflow-x: auto; font-size: 12px; line-height: 1.55; }
 .caret { display: inline-block; width: 7px; height: 1.05em; margin-left: 2px; vertical-align: text-bottom; background: var(--accent); border-radius: 1px; animation: caret 1s steps(2, start) infinite; }
 @keyframes caret { to { visibility: hidden; } }
-.working { display: flex; align-items: center; gap: 4px; color: var(--muted); height: 22px; font-size: 12px; }
-.working i { width: 5px; height: 5px; border-radius: 50%; background: var(--accent); animation: dots 1.2s ease-in-out infinite; }
+.working { display: flex; align-items: center; gap: 4px; color: var(--muted); min-height: 22px; font-size: 12px; }
+.working i { flex: none; width: 5px; height: 5px; border-radius: 50%; background: var(--accent); animation: dots 1.2s ease-in-out infinite; }
 .working i:nth-child(2) { animation-delay: .15s; } .working i:nth-child(3) { animation-delay: .3s; }
-.working span { margin-left: 6px; }
-.working .working-clock { margin-left: 0; font-variant-numeric: tabular-nums; }
+.working span { margin-left: 6px; min-width: 0; }
+.working .working-clock { margin-left: 0; font-variant-numeric: tabular-nums; white-space: nowrap; flex: none; }
 .todos { margin: 4px 0 6px; padding: 8px 12px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--r); font-size: 12.5px; }
 .todos-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; margin-bottom: 4px; color: var(--muted); font-size: 12px; }
 .todos-head b { color: var(--text); font-weight: 600; }
@@ -504,7 +504,7 @@ kbd { font-size: 10.5px; line-height: 1; padding: 3px 5px; border: 1px solid var
 .via-tag { border-style: dashed; }
 .fa-body { white-space: pre-wrap; overflow-wrap: anywhere; color: var(--text-2); }
 .msg.from-agent.failed { border-left-color: var(--danger); }
-.fa-body.err-s { margin: 0; font-size: inherit; }
+.fa-body.err-s { margin: 0; font-size: inherit; color: var(--danger); }
 .bridge-detail p.err-s { font-size: inherit; }
 .chip.bridge b { font-family: var(--font); font-weight: 600; font-size: 12px; }
 .chip.bridge.failed { border-color: var(--danger); }

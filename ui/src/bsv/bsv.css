@@ -72,6 +72,8 @@
 
 /* ---- the panel ---- */
 .bsv-panel { display: grid; gap: 14px; }
+.bsv-preview { margin: 0; padding: 9px 12px; border: 1px solid var(--line); border-left: 3px solid var(--chain); border-radius: var(--r); background: var(--surface-2); color: var(--text-2); font-size: 12.5px; line-height: 1.5; }
+.bsv-preview b { color: var(--text); }
 .bsv-lead { margin: 0; color: var(--text-2); font-size: 13px; line-height: 1.55; }
 .bsv-sec { border: 1px solid var(--line); border-radius: var(--r); padding: 12px 14px; background: var(--surface-2); display: grid; gap: 8px; }
 .bsv-sec h3 { margin: 0; font: 600 11px/1 var(--font-mono); letter-spacing: .08em; text-transform: uppercase; color: var(--chain); }

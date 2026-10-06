@@ -3,7 +3,7 @@ import { elapsedLabel } from '../chat/elapsed';
 import { contextLabel } from '../../../src/shared/context-meter';
 import { workingLabel } from '../chat/working';
 import { useStore } from '../store';
-import { bridgeVerb, pendingAskAgent, workingToolLabel } from '../chat/bridgeView';
+import { bridgeVerb, pendingAskAgents, workingToolLabel } from '../chat/bridgeView';
 
 /**
  * The row under a running task: what it is doing right now. It subscribes to its own task's progress and ticks its own
@@ -12,9 +12,17 @@ import { bridgeVerb, pendingAskAgent, workingToolLabel } from '../chat/bridgeVie
  */
 export function WorkingRow({ taskId, queued, waiting }: { taskId: string; queued: boolean; waiting: boolean }) {
   const progress = useStore((s) => s.progress[taskId]);
-  // a pending ask: the row names the agent it waits on (a string, so the selector stays stable between messages)
-  const askRef = useStore((s) => (bridgeVerb(s.progress[taskId]?.tool ?? '') === 'ask' ? pendingAskAgent(s.messages[taskId]) : undefined));
-  const askName = useStore((s) => (askRef ? s.agents.find((a) => a.id === askRef || a.name.toLowerCase() === askRef.toLowerCase())?.name ?? askRef : undefined));
+  // pending asks of this run: the row names the agents it waits on. Both selectors return one string (names joined by a
+  // newline), so they stay stable between messages; the list is split again for the label. Also read while no tool is
+  // set: the core clears progress.tool on the first tool result (engine.ts), so after one of two asks comes back the
+  // other is still open with tool null.
+  const askRefs = useStore((s) => {
+    const p = s.progress[taskId];
+    return p && (!p.tool || bridgeVerb(p.tool) === 'ask') ? pendingAskAgents(s.messages[taskId], p.startedAt).join('\n') : '';
+  });
+  const askNames = useStore((s) => askRefs.split('\n').filter(Boolean)
+    .map((ref) => s.agents.find((a) => a.id === ref || a.name.toLowerCase() === ref.toLowerCase())?.name ?? ref)
+    .filter((n, i, all) => all.indexOf(n) === i).join('\n'));
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
     if (!progress || queued) return;
@@ -26,7 +34,8 @@ export function WorkingRow({ taskId, queued, waiting }: { taskId: string; queued
   const parts: string[] = [];
   if (progress && !queued) {
     parts.push(`turn ${progress.turn} of ${progress.maxTurns}`);
-    if (progress.tool && !waiting) parts.push(workingToolLabel(progress.tool, askName));
+    const tool = progress.tool ?? (askNames ? 'mcp__legion__ask' : null);
+    if (tool && !waiting) parts.push(workingToolLabel(tool, askNames ? askNames.split('\n') : []));
     if (progress.contextTokens !== undefined) parts.push(contextLabel(progress.contextTokens));
   }
   const started = progress && !queued ? Date.parse(progress.startedAt) : NaN;

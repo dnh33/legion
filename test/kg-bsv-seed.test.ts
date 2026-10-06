@@ -15,7 +15,7 @@ const ids = new Set(seed.nodes.map((n) => n.id));
 const words = (s: string) => s.trim().split(/\s+/).length;
 
 test('bsv seed parses with the expected envelope and size', () => {
-  assert.equal(seed.version, 8);
+  assert.equal(seed.version, 9);
   assert.ok(!Number.isNaN(Date.parse(seed.generatedAt)));
   assert.ok(Array.isArray(seed.nodes) && Array.isArray(seed.edges));
   assert.ok(seed.nodes.length >= 45 && seed.nodes.length <= 220, `node count ${seed.nodes.length}`);
@@ -254,8 +254,9 @@ test('wallet-choice node: the plan, the red flags and the never-list, as a desig
   assert.ok(w, 'bsv-wallet-choice exists');
   assert.equal(w.props?.built, false);
   assert.equal(w.confidence, 0.6);
-  for (const phrase of [/BSV Desktop first/, /HandCash BRC wallet second/, /beta/, /BSV Browser later/, /Yours Wallet/, /Panda/, /Metanet Desktop/, /bsv-mcp/, /never grant a monthly limit or auto-pay/,
-    /originator legion\.local/, /@bsv\/sdk WalletClient only, not wallet-toolbox/, /3321/, /self-declared/, /indefinitely/, /10 USD per 24 hours/, /two-stage/, /Legion's card first, then the wallet's own prompt/]) assert.match(w.body, phrase);
+  for (const phrase of [/BSV Desktop first/, /HandCash BRC wallet second/, /beta/, /BSV Browser later/, /Yours Wallet/, /Panda/, /Metanet Desktop/, /bsv-mcp/, /monthly limit/, /keep a grant one-time if the wallet offers that/, /at or below Legion's caps/, /never turn on auto-pay/,
+    /originator legion\.local/, /@bsv\/sdk WalletClient only, not wallet-toolbox/, /3321/, /self-declared/, /indefinitely/, /10 USD per 24 hours/, /two checks, and the order depends on the wallet/, /before Legion's card/, /asks once for a spending grant/, /does not ask again/, /Legion's card is the per-spend gate; the wallet's grant is a second check/, /not observed on a real wallet/]) assert.match(w.body, phrase);
+  assert.doesNotMatch(w.body, /two-stage|Legion's card first, then the wallet's own prompt|last gate/, 'the old order (Legion first, wallet prompt last) is gone');
   const out = seed.edges.filter((e) => e.from === w.id);
   assert.ok(out.some((e) => e.rel === 'depends_on' && e.to === 'bsv-safety-external-wallet'));
   assert.ok(out.some((e) => e.rel === 'relates' && e.to === 'bsv-desktop-wallet' && e.note === 'protects'));
@@ -300,7 +301,35 @@ test('pack v8: the spend flow note names the real refusal reasons it mentions (g
   assert.ok((SPEND_REASON_CODES as readonly string[]).includes('extra-input'), 'a network field is refused with extra-input');
   assert.match(b, /at most three per task/);
   assert.match(b, /never wallet text/);
-  assert.match(b, /the wallet shows its own prompt, which is the last gate/);
+  // the owner's dialogs are the per-spend gate; whether and when the wallet asks depends on the wallet (wallet-toolbox: once, at createAction, before Legion's card)
+  assert.match(b, /These dialogs are the per-spend gate/);
+  assert.match(b, /Whether and when the wallet also asks depends on the wallet/);
+  assert.match(b, /checks at the unsigned build, before Legion's dialogs, asks once for a spending grant/);
+  assert.match(b, /not observed on a real wallet/);
+  assert.match(b, /keep it one-time; otherwise keep any standing limit at or below Legion's caps/);
+  assert.doesNotMatch(b, /last gate|the wallet shows its own prompt/);
+  assert.doesNotMatch(byIdMap.get('bsv-safety-spend-flow')!.title, /wallet's prompt/);
+});
+
+// pack v9: the wallet's own prompt is never stated as a fact or as the last gate (wallet-toolbox asks once per grant, at createAction, before Legion's card)
+const WALLET_PROMPT = /\b(the wallet|wallet'?s?|its) (shows|own) (its own )?prompt|\bown prompt\b|wallet'?s prompt|\b(last|real) (gate|stop)\b|two-stage/i;
+const CONDITIONAL = /\b(if|may|might|whether|depends?|depending|not verified|not observed|unverified|has not|have not|not yet)\b/i;
+test('pack v9: no note states the wallet\'s own prompt as a fact or as the last gate; any mention is conditional', () => {
+  const hits: string[] = [];
+  for (const n of seed.nodes) for (const text of [n.title, n.body]) for (const sent of text.split(/(?<=[.!?;])\s+/)) {
+    if (WALLET_PROMPT.test(sent) && !CONDITIONAL.test(sent)) hits.push(`${n.id}: ${sent.slice(0, 160)}`);
+  }
+  assert.deepEqual(hits, []);
+  for (const n of seed.nodes) assert.doesNotMatch(n.body, /the wallet shows its own prompt|its own prompt is the last gate|wallet'?s (own )?prompt (are|is|stays?) the (last|real)/i, n.id);
+  // Legion's own dialogs are named as the per-spend gate where the flow is described
+  for (const id of ['bsv-safety-overview', 'bsv-safety-spend-flow', 'bsv-safety-spend-dialogs', 'bsv-status-today', 'bsv-wallet-choice', 'bsv-safety-mainnet-armed-native']) assert.match(byIdMap.get(id)!.body, /per-spend gate/, id);
+});
+
+test('pack v9: the BRC-181 note carries BRC-181 and BRC-204 as a Later item, not as anything Legion implements', () => {
+  const n = byIdMap.get('bsv-brc181-agent-spend-policy')!;
+  for (const phrase of [/2026-09-22/, /RexStarBSV/, /X-Agent-Token/, /forgeable/, /no public wallet that ships it was found/, /BRC-204 \(Agent Allowances, Ruth Heasman/, /PR #301 on 2026-10-05/, /status still Draft/, /BRC-42-derived key/, /OP_IF/, /advisory, not enforced by script/, /none yet/, /Later: if wallets enforce either standard, Legion's card would become a second check on top; nothing of this is implemented in Legion/]) assert.match(n.body, phrase);
+  assert.ok(n.sources!.some((s) => s.ref === 'https://bsv.brc.dev/wallet/0204'));
+  for (const s of n.sources!) assert.ok((s.licence ?? "").length < 200);
 });
 
 test('pack v8: the real-wallet facts note carries what was seen by hand and what is still unobserved', () => {

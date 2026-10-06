@@ -11,7 +11,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 import { build } from 'esbuild';
-import { bridgeOutcome, pendingAskAgent, replyFailure, workingToolLabel } from '../ui/src/chat/bridgeView.js';
+import { bridgeOutcome, pendingAskAgents, replyFailure, workingToolLabel } from '../ui/src/chat/bridgeView.js';
 
 const REPO = fileURLToPath(new URL('../../', import.meta.url));
 
@@ -91,11 +91,31 @@ test('B7: while an ask waits, the working row names the agent, not the tool', ()
     { role: 'tool', resultFor: 'u1', text: '{"taskId":"t","status":"done","result":"x"}' },
     { role: 'tool', toolName: 'mcp__legion__ask', toolUseId: 'u2', text: '{"agent":"builder","message":"' + 'x'.repeat(600) }, // clipped when stored
   ];
-  assert.equal(pendingAskAgent(msgs), 'builder');
-  assert.equal(pendingAskAgent(msgs.slice(0, 2)), undefined, 'the answered ask is not pending');
-  assert.equal(workingToolLabel('mcp__legion__ask', 'Builder'), 'Waiting on Builder');
+  assert.deepEqual(pendingAskAgents(msgs), ['builder']);
+  assert.deepEqual(pendingAskAgents(msgs.slice(0, 2)), [], 'the answered ask is not pending');
+  assert.equal(workingToolLabel('mcp__legion__ask', ['Builder']), 'Waiting on Builder');
   assert.equal(workingToolLabel('mcp__legion__ask', undefined), 'Waiting on another agent');
-  assert.equal(workingToolLabel('Bash', 'Builder'), 'Bash', 'other tools are unchanged');
+  assert.equal(workingToolLabel('Bash', ['Builder']), 'Bash', 'other tools are unchanged');
+});
+
+test('0.2.5-g: the working row keeps naming the agent it still waits on when a newer ask was answered first', () => {
+  const at = '2026-10-06T10:00:01.000Z';
+  const scout = { role: 'tool', toolName: 'mcp__legion__ask', toolUseId: 'u1', text: '{"agent":"scout","message":"look"}', at };
+  const builder = { role: 'tool', toolName: 'mcp__legion__ask', toolUseId: 'u2', text: '{"agent":"builder","message":"count"}', at };
+  const builderDone = { role: 'tool', resultFor: 'u2', text: '{"taskId":"t","status":"done","result":"12"}', at };
+  // two asks in parallel; the newer one (builder) came back first: the row still waits on scout
+  assert.deepEqual(pendingAskAgents([scout, builder, builderDone]), ['scout']);
+  // both pending: both names, in call order; a second ask to the same agent is named once (any case)
+  const builder2 = { role: 'tool', toolName: 'mcp__legion__ask', toolUseId: 'u3', text: '{"agent":"Builder","message":"again"}', at };
+  assert.deepEqual(pendingAskAgents([scout, builder, builder2]), ['scout', 'builder']);
+  // an ask left without a result by an earlier run (interrupted, or an empty result the core does not store) is not this run's wait
+  const orphan = { role: 'tool', toolName: 'mcp__legion__ask', toolUseId: 'u0', text: '{"agent":"zealot","message":"old"}', at: '2026-10-06T09:00:00.000Z' };
+  assert.deepEqual(pendingAskAgents([orphan, scout, builder, builderDone], '2026-10-06T10:00:00.000Z'), ['scout']);
+  // the label stays short
+  assert.equal(workingToolLabel('mcp__legion__ask', ['Scout']), 'Waiting on Scout');
+  assert.equal(workingToolLabel('mcp__legion__ask', ['Builder', 'Scout']), 'Waiting on Builder, Scout');
+  assert.equal(workingToolLabel('mcp__legion__ask', ['Builder', 'Scout', 'Zealot', 'Oracle']), 'Waiting on Builder, Scout +2');
+  assert.equal(workingToolLabel('mcp__legion__ask', []), 'Waiting on another agent');
 });
 
 // ---------------------------------------------------------------- real render
@@ -208,6 +228,38 @@ test('render B7: the working row says "Waiting on Builder" during an ask, not mc
     assert.match(html, /Waiting on Builder/);
     assert.doesNotMatch(html, /mcp__legion__ask/);
   } finally { cleanup(); }
+});
+
+test('render 0.2.5-g: the working row names every agent this run still waits on, by display name', async () => {
+  const at = new Date().toISOString();
+  const started = new Date(Date.now() - 60_000).toISOString();
+  const ask = (id: string, agent: string) => ({ id: `m_${id}`, taskId: 'tz', role: 'tool', toolName: 'mcp__legion__ask', toolUseId: id, text: JSON.stringify({ agent, message: 'go' }), at });
+  const progress = { tz: { startedAt: started, turn: 3, maxTurns: 50, tool: 'mcp__legion__ask' } };
+  const answered = { tz: [ask('u1', 'zealot'), ask('u2', 'builder'), { id: 'r2', taskId: 'tz', role: 'tool', resultFor: 'u2', text: '{"taskId":"t","status":"done","result":"x"}', at }] };
+  let ui = await loadUi(baseState({ messages: answered, progress }));
+  try {
+    const html = ui.r.working('tz');
+    assert.match(html, /Waiting on Zealot/);
+    assert.doesNotMatch(html, /another agent|Builder/);
+  } finally { ui.cleanup(); }
+  ui = await loadUi(baseState({ messages: { tz: [ask('u1', 'zealot'), ask('u2', 'builder')] }, progress }));
+  try { assert.match(ui.r.working('tz'), /Waiting on Zealot, Builder/); } finally { ui.cleanup(); }
+});
+
+test('render 0.2.5-g: after one ask comes back the core clears progress.tool (engine.ts); the row still names the open ask', async () => {
+  const at = new Date().toISOString();
+  const started = new Date(Date.now() - 60_000).toISOString();
+  const ask = (id: string, agent: string) => ({ id: `m_${id}`, taskId: 'tz', role: 'tool', toolName: 'mcp__legion__ask', toolUseId: id, text: JSON.stringify({ agent, message: 'go' }), at });
+  const msgs = [ask('u1', 'zealot'), ask('u2', 'builder'), { id: 'r2', taskId: 'tz', role: 'tool', resultFor: 'u2', text: '{"taskId":"t","status":"done","result":"x"}', at }];
+  let ui = await loadUi(baseState({ messages: { tz: msgs }, progress: { tz: { startedAt: started, turn: 3, maxTurns: 50, tool: null } } }));
+  try { assert.match(ui.r.working('tz'), /Waiting on Zealot/); } finally { ui.cleanup(); }
+  // nothing open and no tool: the row is as before (no "Waiting on")
+  const done = [...msgs, { id: 'r1', taskId: 'tz', role: 'tool', resultFor: 'u1', text: '{"taskId":"t","status":"done","result":"y"}', at }];
+  ui = await loadUi(baseState({ messages: { tz: done }, progress: { tz: { startedAt: started, turn: 3, maxTurns: 50, tool: null } } }));
+  try { assert.doesNotMatch(ui.r.working('tz'), /Waiting on/); } finally { ui.cleanup(); }
+  // another tool running: its name is shown as before
+  ui = await loadUi(baseState({ messages: { tz: msgs }, progress: { tz: { startedAt: started, turn: 3, maxTurns: 50, tool: 'Bash' } } }));
+  try { assert.match(ui.r.working('tz'), /· Bash</); } finally { ui.cleanup(); }
 });
 
 test('a refusal reads "Not sent" whether Claude Code hands it back bare or wrapped in <tool_use_error> tags (PC check AB1)', () => {
