@@ -955,6 +955,9 @@ Items 1 to 6 above stay as they are. These were added from the 2026-10-06 sessio
 16. **Connectors: GitHub and treg.** Click-to-connect sign-in (OAuth), a Connectors section in Settings, a GitHub connector at least as capable as Claude Desktop's, treg as a paid-tools connector with caps and a card on every spend. Design reviewed for security; not built.
 
 **Order set by the maintainer on 2026-10-06:** the Cloudflare switch (item 10), then connectors (item 16), then logging (items 3 and 7). Logging stays promised; it moved behind these two at the maintainer's request.
+17. **App language.** The owner picks Legion's language (for example Danish) as a house rule, and every part of the UI that is not model output follows it: labels, buttons, dialogs, Settings, notices, errors, the native dialogs and the installer messages. No timeline set (maintainer, 2026-10-06).
+
+**Scope lock (maintainer, 2026-10-06):** the work already running is finished before anything new starts: the Cloudflare switch and connectors phase 1 (this session), the Armory and the CI panel (house/skills session), BSV PR #16 for `0.2.5-i` (BSV session). New requests go onto this ladder as open items. After the lock, work resumes from the ladder.
 
 ---
 
