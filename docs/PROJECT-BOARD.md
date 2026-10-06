@@ -1,6 +1,6 @@
 # Project board
 
-Part of Legion 0.2.0, on by default. Plan, controls and known limits: `claude/plan-project-board.md`. Nothing here has run on Windows yet; the checks that need your PC are PB1 to PB10 in `claude/tracker-pc-checks.md`.
+Part of Legion 0.2.0, on by default. Plan, controls and known limits: `claude/plan-project-board.md`. In daily use on Windows; screen-reader, display-scale and crash checks are still open (PB1 to PB10 in `claude/tracker-pc-checks.md`).
 
 ## Where it is
 

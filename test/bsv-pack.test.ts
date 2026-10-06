@@ -244,12 +244,12 @@ test('a human note written to scope bsv first no longer blocks seeding', async (
   assert.equal((await s.call('GET', '/api/kg/stats')).body.byScope.bsv, 5);
 });
 
-test('the bundled pack carries a seedHash on every node and seedVersion 8 on the index', () => {
+test('the bundled pack carries a seedHash on every node and seedVersion 9 on the index', () => {
   const { g } = bundledGraph();
   const pack = loadBsvSeed(BSV_SEED_PATH);
-  assert.equal(pack.version, 8);
+  assert.equal(pack.version, 9);
   for (const n of pack.nodes) assert.match(String(g.getNode(HUMAN, n.id)!.props?.seedHash), /^[0-9a-f]{16}$/, n.id);
-  assert.equal(g.getNode(HUMAN, 'bsv-curriculum-index')!.props!.seedVersion, 8);
+  assert.equal(g.getNode(HUMAN, 'bsv-curriculum-index')!.props!.seedVersion, 9);
   assert.equal(applySeedPack(g, pack).status, 'already-loaded');
 });
 
@@ -268,7 +268,7 @@ test('an install from before hashes: untouched nodes (even ones a system re-seed
 
   const r = applySeedPack(g, loadBsvSeed(BSV_SEED_PATH));
   assert.equal(r.status, 'upgraded');
-  assert.deepEqual([r.from, r.to], [1, 8]);
+  assert.deepEqual([r.from, r.to], [1, 9]);
   assert.deepEqual(r.skippedEdited, ['bsv-safety-spend-caps-approval']);
   assert.match(g.getNode(HUMAN, tn.id)!.body, /Association's own release page confirms/, 'the rev-2 node was never edited, so it took the folded text');
   assert.doesNotMatch(g.getNode(HUMAN, tn.id)!.body, /Update \(/);
@@ -286,7 +286,7 @@ test('v8 upgrade: from the shipped v7 pack, edited notes stay, untouched notes t
   const v8 = loadBsvSeed(BSV_SEED_PATH);
   assert.equal(v7.version, 7);
   assert.equal(v7.nodes.length, 157, 'the fixture is the pack that shipped at version 7');
-  assert.equal(v8.version, 8);
+  assert.equal(v8.version, 9, 'the bundled pack (v9 since 2026-10-06) still upgrades a v7 install the same way');
   const v7ids = new Set(v7.nodes.map((n) => n.id));
   const v8ids = new Set(v8.nodes.map((n) => n.id));
   for (const id of v7ids) assert.ok(v8ids.has(id), `v8 dropped the node ${id}: an upgrade must never lose a note`);
@@ -311,7 +311,7 @@ test('v8 upgrade: from the shipped v7 pack, edited notes stay, untouched notes t
 
   const r = applySeedPack(g, v8);
   assert.equal(r.status, 'upgraded');
-  assert.deepEqual([r.from, r.to], [7, 8]);
+  assert.deepEqual([r.from, r.to], [7, 9]);
   assert.equal(r.created, 6, 'exactly the new nodes');
   assert.deepEqual([...r.skippedEdited].sort(), ['bsv-safety-audit-freeze', 'bsv-status-today'], 'the owner\'s edits are reported and untouched');
   assert.equal(g.getNode(HUMAN, 'bsv-status-today')!.body, 'MY STATUS NOTES (the owner wrote this)');
@@ -323,7 +323,7 @@ test('v8 upgrade: from the shipped v7 pack, edited notes stay, untouched notes t
   const fees = g.getNode(HUMAN, 'bsv-tx-fees')!;
   assert.match(fees.body, /Legion's spend tool refuses a transaction whose fee/);
   assert.doesNotMatch(fees.body, /has no spend tool/);
-  assert.equal(g.getNode(HUMAN, 'bsv-curriculum-index')!.props!.seedVersion, 8);
+  assert.equal(g.getNode(HUMAN, 'bsv-curriculum-index')!.props!.seedVersion, 9);
   // idempotent: the same pack again writes nothing and keeps the edits
   assert.equal(applySeedPack(g, v8).status, 'already-loaded');
   assert.equal(g.getNode(HUMAN, 'bsv-status-today')!.body, 'MY STATUS NOTES (the owner wrote this)');
@@ -343,4 +343,42 @@ test('v8 upgrade: a note the owner deleted at v7 stays deleted, and no v8 note s
   const old = v7.nodes.filter((n) => /no spend tool|has no spend tool|no tool that signs|cannot sign|nothing consumes|no wallet connection beyond/i.test(n.body ?? '')).map((n) => n.id);
   assert.ok(old.length >= 4, `the v7 pack had the old claims in ${old.length} nodes: the check is exercising something`);
   for (const id of old) assert.doesNotMatch(v8.nodes.find((n) => n.id === id)!.body ?? '', /no spend tool|has no spend tool|no tool that signs|cannot sign|nothing consumes|no wallet connection beyond/i, `${id} still carries the old claim`);
+});
+
+// ---------------------------------------------------------------- 8. pack v9: upgrade from a real v8 install (the wallet's prompt is no longer stated as the last gate)
+
+const V8_PATH = fileURLToPath(new URL('../../test/fixtures/bsv-pack-v8.json', import.meta.url));
+const V9_REWRITTEN = ['bsv-safety-overview', 'bsv-safety-keys-never-in-legion', 'bsv-safety-mainnet-armed-native', 'bsv-antipattern-trust-chain-text', 'bsv-assayer-playbook', 'bsv-status-today', 'bsv-wallet-choice', 'bsv-safety-spend-flow', 'bsv-safety-spend-dialogs', 'bsv-safety-owner-checks', 'bsv-safety-real-wallet-facts', 'bsv-brc181-agent-spend-policy'];
+
+test('v9 upgrade: from the shipped v8 pack, untouched notes take the new wallet-prompt text, an edited note stays, nothing is added or lost', () => {
+  const v8 = loadBsvSeed(V8_PATH);
+  const v9 = loadBsvSeed(BSV_SEED_PATH);
+  assert.equal(v8.version, 8);
+  assert.equal(v8.nodes.length, 163, 'the fixture is the pack that shipped at version 8');
+  assert.equal(v9.version, 9);
+  assert.deepEqual(v9.nodes.map((n) => n.id).sort(), v8.nodes.map((n) => n.id).sort(), 'v9 rewrites text only: same notes');
+  assert.equal(v9.edges.length, v8.edges.length);
+  for (const id of V9_REWRITTEN) assert.notEqual(v9.nodes.find((n) => n.id === id)!.body, v8.nodes.find((n) => n.id === id)!.body, `${id} has new text in v9`);
+  assert.match(v8.nodes.find((n) => n.id === 'bsv-safety-spend-flow')!.body!, /the wallet shows its own prompt, which is the last gate/, 'the fixture carries the old claim: the upgrade check exercises something');
+
+  const { g, bsv } = mkGraph();
+  bsv.on = true;
+  assert.equal(applySeedPack(g, v8).status, 'loaded');
+  g.upsertNode(HUMAN, { id: 'bsv-safety-spend-dialogs', body: 'my own dialog notes' });
+  const r = applySeedPack(g, v9);
+  assert.equal(r.status, 'upgraded');
+  assert.deepEqual([r.from, r.to], [8, 9]);
+  assert.equal(r.created, 0);
+  assert.deepEqual(r.skippedEdited, ['bsv-safety-spend-dialogs']);
+  assert.equal(g.getNode(HUMAN, 'bsv-safety-spend-dialogs')!.body, 'my own dialog notes');
+  const flow = g.getNode(HUMAN, 'bsv-safety-spend-flow')!;
+  assert.match(flow.body, /These dialogs are the per-spend gate/);
+  assert.doesNotMatch(flow.body, /last gate/);
+  assert.doesNotMatch(flow.title, /wallet's prompt/);
+  assert.match(g.getNode(HUMAN, 'bsv-wallet-choice')!.body, /the order depends on the wallet/);
+  assert.match(g.getNode(HUMAN, 'bsv-brc181-agent-spend-policy')!.body, /BRC-204/);
+  assert.equal(g.stats(HUMAN).byScope.bsv, 163);
+  assert.equal(g.getNode(HUMAN, 'bsv-curriculum-index')!.props!.seedVersion, 9);
+  assert.equal(applySeedPack(g, v9).status, 'already-loaded');
+  assert.equal(g.getNode(HUMAN, 'bsv-safety-spend-dialogs')!.body, 'my own dialog notes');
 });

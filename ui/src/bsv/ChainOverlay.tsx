@@ -1,12 +1,13 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Modal } from '../components/Modal';
-import { formatCountdown, overlayModel, remainingMs } from '../../../src/shared/bsv-view';
+import { BSV_PREVIEW_NOTICE, BSV_PREVIEW_TITLE, formatCountdown, overlayModel, remainingMs } from '../../../src/shared/bsv-view';
 import { BsvPanel } from './BsvPanel';
 import { cancelConfirm, changePolicy, confirmEnable, loadPolicy, openBsvPanel, useBsv } from './bsvStore';
 import './bsv.css';
 
-/** Five short lines for the first-enable dialog (kept as data so the copy is easy to review). */
+/** Six short lines for the first-enable dialog (kept as data so the copy is easy to review). */
 const CONFIRM_LINES = [
+  `${BSV_PREVIEW_TITLE}. ${BSV_PREVIEW_NOTICE}`,
   'Turns on: the Assayer in the rail and the BSV knowledge pack.',
   'Testnet mode, shown by a calm cyan line along the title bar.',
   'The Assayer gets one read-only check that asks a wallet on this computer which network it claims. Legion\'s own code can ask a wallet to build and sign one payment, only after you confirm it in native dialogs, and holds no keys. Mainnet (real funds) is off by default; only you can switch it on. Never paste a seed phrase.',

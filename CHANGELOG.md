@@ -2,6 +2,35 @@
 
 All notable changes are recorded here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses [Semantic Versioning](https://semver.org/).
 
+## [0.2.5-g] - 2026-10-06
+
+### Fixed
+
+- **BSV: Legion no longer tells you the wallet's own prompt is the last gate.** Whether and when a wallet asks depends on the
+  wallet: wallets built on wallet-toolbox (BSV Desktop) can ask once for a spending grant while they build a payment, before
+  Legion's card, and then not again inside that grant. The dialogs and the BSV panel now say to treat Legion's last dialog as
+  the last check, and to keep any spending grant one-time or no higher than Legion's caps.
+- **A failed answer from another agent reads in red again.** "Builder could not finish: …" in a reply was drawn in the
+  normal text colour.
+- **The line under a running task no longer breaks its clock in a narrow window.** A long line such as "Waiting on
+  Release Notes Cartographer" now wraps inside a taller row, and the time ("1m 31s") stays on one line.
+- **It keeps naming the agent it still waits on when you asked two.** If Zealot asks Builder and Scout and Builder answers
+  first, the line now reads "Waiting on Scout" instead of "Waiting on another agent". While both are open it reads
+  "Waiting on Builder, Scout".
+- **On Linux, a new release now updates the house context files.** Each copy got the copy time as its date, so it
+  looked newer than the shipped file. Every later update was then kept back as "your newer copy". The copy now carries the
+  shipped file's date.
+- **A Windows-style path such as `docs\adr\x.md` now works in the house context tools on macOS and Linux.** The same change
+  makes `..\x` count as an attempt to leave the folder, as it already did on Windows.
+- **Blender works when your Legion data folder is set with a short Windows name** (such as `C:\LEGION~1`). Legion's own
+  safety check compared the short name with the long one and refused files inside Legion's own export folder.
+
+### Changed
+
+- **BSV mode is marked as a testing preview.** The first-enable dialog, the switch's tooltip and the top of the BSV panel now
+  say so and suggest a testnet wallet with test coins. The README and docs/BSV-MODE.md say the same and invite feedback.
+  Wording only: no limit or gate changed.
+
 ## [0.2.5-f] - 2026-10-06
 
 ### Fixed
@@ -282,7 +311,7 @@ guidance — and the agents obey it rather than working from a blank prompt.
 - **Blender: first-use chooser and Sculptor guidance.** The first Blender card carries a one-time "This computer / Cloud VM / My open Blender / Decide each time" question, saved through the admin settings route. The Sculptor is told when local, the VM or live fits, to say which it chose and why, and that it cannot change Settings.
 - **Blender local headless mode** (see [docs/BLENDER.md](docs/BLENDER.md)): `blender -b` on this computer in a per-task scene with a backup before each run, the same full-script card (badge "On this PC", no one-key Allow), the audit log and quarantined exports; `mode:"local"` on the Blender tools. A busy light ("Running a script") shows while a Blender script runs.
 - **Blender: the official add-on is installed as an extension** (`extension build`, `repo-list`, `install-file`, `extension list`), with the by-hand route named when a step fails.
-- **Blender: the community add-on is pinned to a commit and sha256.** The project moved to `ahujasid/mcp-for-blender` and has no tags. The hash is still to be reproduced on the owner's PC.
+- **Blender: the community add-on is pinned to a commit and sha256.** The project moved to `ahujasid/mcp-for-blender` and has no tags. The hash is still to be reproduced on a real PC.
 - A wording test for Blender text (`test/blender-hedge.test.ts`) that shares its banned phrases with the BSV one.
 
 

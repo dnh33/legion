@@ -104,9 +104,14 @@ export function knowledgeExplain(k: KnowledgeSummary | null | undefined): string
   return more.length ? `${base} (${more.join('; ')})` : base;
 }
 
+/** The testing-preview notice: one source for the title-bar tip, the first-enable dialog and the panel. BSV mode is not yet tried on a real wallet. */
+export const BSV_PREVIEW_TITLE = 'Testing preview';
+export const BSV_PREVIEW_NOTICE = 'BSV mode has been tested with fake wallets only, not yet with a real wallet or real funds. Use a testnet wallet with test coins.';
+export const BSV_PREVIEW_FEEDBACK = 'Feedback and ideas are very welcome: open an issue at github.com/dnh33/legion.';
+
 export const MAINNET_SENTENCE = 'The wallet is on MAINNET; Legion is in testnet knowledge mode; Legion will not use it.';
 /** The same warning once the owner has switched mainnet on: it must not say Legion will not use it. */
-export const MAINNET_ON_SENTENCE = 'The wallet says it is on MAINNET and mainnet is switched on in Legion. Each spend still needs Arm, your confirmations and the wallet\'s own prompt.';
+export const MAINNET_ON_SENTENCE = 'The wallet says it is on MAINNET and mainnet is switched on in Legion. Each spend still needs Arm and your confirmations; whether the wallet asks too depends on the wallet.';
 
 /** Whole seconds to mm:ss (h:mm:ss from an hour). Negative and junk give 00:00. */
 export function formatCountdown(ms: number): string {
@@ -198,7 +203,7 @@ export function spendModel(p: { spendTools: boolean; pending: PolicyView['pendin
   const sat = (n: number) => `${(Number.isSafeInteger(n) && n >= 0 ? n : 0).toLocaleString('en-US')} sat`;
   return {
     headline: p.spendTools
-      ? 'The Assayer has one tool that can ask your wallet to build and sign a payment: on the test network after your confirmation, and on the main network only while mainnet is switched on and armed. Every request opens native confirmations, and your wallet then shows its own prompt.'
+      ? 'The Assayer has one tool that can ask your wallet to build and sign a payment: on the test network after your confirmation, and on the main network only while mainnet is switched on and armed. Every request opens native confirmations; whether your wallet asks too depends on the wallet.'
       : 'The spend tool is not available to the Assayer in this core.',
     pending: p.pending.map((r) => ({ requestId: r.requestId, label: `Request ${shortId(r.requestId)}: ${sat(r.totalSats)} waiting for your answer` })),
     unknown: p.unknown.map((r) => ({ requestId: r.requestId, label: `Request ${shortId(r.requestId)}: ${sat(r.totalSats)}, outcome unknown. Check your wallet's history, then resolve it.` })),

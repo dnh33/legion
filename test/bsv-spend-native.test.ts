@@ -136,7 +136,8 @@ test('dialog 1: amount, the FULL recipient, TESTNET, fee, caps, agent, the label
   assert.match(d.detail, /Limits: per transaction 0\.00001000 BSV \(1,000 sat\); per session 0\.00005000 BSV \(5,000 sat\); per rolling 24 hours 0\.00010000 BSV \(10,000 sat\)/);
   assert.match(d.detail, /Left after this request: per transaction 0\.00000388 BSV \(388 sat\)/);
   assert.match(d.detail, /Cancel, Escape or closing this window denies the request/);
-  assert.match(d.detail, /wallet then shows its own prompt, which is the last gate/);
+  assert.match(d.detail, /Treat this dialog as the last check: whether your wallet asks too depends on the wallet, and Legion's own code cannot see it\./);
+  assert.match(d.detail, /If the wallet asks for a spending grant, choose one-time if it offers that, or a limit no higher than Legion's caps\./);
   assert.match(d.detail, /ordinary tools/);
 });
 
@@ -488,8 +489,8 @@ test('D2: another title, confirm button FIRST and Cancel LAST but still the defa
   assert.equal(d2.noLink, true);
   assert.ok(d2.detail.split('\n').includes(MAINPAY) || d2.message.includes(MAINPAY), 'full address');
   assert.match(d2.detail, /Network: MAINNET \(LIVE FUNDS\)/);
-  assert.match(d2.detail, /This cannot be undone\. Your wallet will show its own prompt next; that prompt is the last gate and Legion cannot see it\./);
-  assert.match(d2.detail, /Do not tick "always allow"/);
+  assert.match(d2.detail, /This cannot be undone\. Treat this dialog as the last check: whether your wallet asks too depends on the wallet, and Legion's own code cannot see it\./);
+  assert.match(d2.detail, /If the wallet asks for a spending grant, choose one-time if it offers that, or a limit no higher than Legion's caps\./);
 });
 
 test('mainnet flow: D1 then D2, each its own press; confirmations are approve + live-funds; the hash is the one read', async () => {
@@ -594,7 +595,8 @@ test('Arm dialog: LIVE FUNDS, ONE spend then it disarms, mainnet limits, the wal
   assert.match(c.title, /LIVE FUNDS/);
   assert.match(c.message, /Arm LIVE FUNDS mode for 5 minutes\?/);
   assert.match(c.detail, /ONE mainnet spend request may be considered, then it disarms/);
-  assert.match(c.detail, /wallet's own prompt, which is the last gate/);
+  assert.match(c.detail, /treat the last one as the last check\. Whether your wallet asks too depends on the wallet/);
+  assert.match(c.detail, /Some wallets ask for a spending grant when they build a payment, before Legion's dialogs: choose one-time if offered, or a limit no higher than the mainnet limits below\./);
   assert.match(c.detail, /Mainnet limits that apply/);
   assert.match(c.detail, /Per transaction: 0\.00001000 BSV \(1,000 sat\)/);
   assert.deepEqual(c.buttons, ['Cancel', 'Arm for 5 minutes']);
@@ -615,7 +617,7 @@ test('mainnet-enable dialog: the warning wording, off by default, Cancel first; 
   assert.equal(e.message, 'Allow Legion to consider spending REAL BSV?');
   assert.match(e.detail, /It is off by default/);
   assert.match(e.detail, /Each mainnet spend still needs Arm/);
-  assert.match(e.detail, /wallet's own prompt/);
+  assert.match(e.detail, /whether the wallet asks too depends on the wallet/);
   assert.match(e.detail, /has not been checked with real funds/);
   assert.deepEqual(e.buttons, ['Cancel', 'Allow mainnet']);
   assert.equal(e.route, '/api/bsv/policy/mainnet');

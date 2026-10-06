@@ -237,7 +237,7 @@ export interface WalletStatus extends WalletProbeResult {
   message: string;
 }
 
-export const MAINNET_WARNING = "The wallet says it is on MAINNET (real funds). In Legion's own code a mainnet spend needs the mainnet switch (off by default), Arm, your confirmations and the wallet's own prompt.";
+export const MAINNET_WARNING = "The wallet says it is on MAINNET (real funds). In Legion's own code a mainnet spend needs the mainnet switch (off by default), Arm and your confirmations; whether the wallet asks too depends on the wallet.";
 
 export type WalletIdle = 'off' | 'not-configured' | 'not-connected';
 
