@@ -12,6 +12,7 @@ wrong. Both are needed.
 | [`verifying-changes.md`](verifying-changes.md) | Before claiming a change works, is safe to merge, or is ready to ship |
 | [`public-facing-copy.md`](public-facing-copy.md) | Writing a changelog entry, release notes, README or any UI copy a reader outside the project will see. **Read this before writing `CHANGELOG.md`** — it is scrubbed into the public snapshot |
 | [`multi-agent-safety.md`](multi-agent-safety.md) | Another agent or session may be working in the same repository; before any destructive git command |
+| [`test-temp-dirs.md`](test-temp-dirs.md) | A suite fills the disk by leaking temp dirs; you add or change a test that makes one |
 
 ## Why these exist
 
