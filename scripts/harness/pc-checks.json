@@ -3066,7 +3066,7 @@
     {
       "id": "PC-BSVT-26",
       "area": "BSVT",
-      "title": "W3: the wallet's grant prompt left open past Legion's 30 s build deadline",
+      "title": "W3: the wallet's grant prompt left open; Cancel in Legion; a late approval in the wallet",
       "source": [
         "claude/tracker-pc-checks.md W3",
         "BRC-100 leaves it to the wallet; wallet-toolbox asks at createAction for a spending grant per originator, then not again inside it, and never at signAction (docs/BSV-WALLET-DESIGN.md section 10, update 2026-10-06)"
@@ -3074,11 +3074,12 @@
       "inferred": false,
       "preconditions": "No grant for legion.local.",
       "steps": [
-        "Ask for a spend; leave the wallet's grant prompt open for 40 s.",
-        "Decline it in the wallet.",
-        "Check the spendable balance."
+        "Ask for a spend; leave the wallet's grant prompt open for 3 minutes.",
+        "Press Cancel on the waiting request in the BSV panel.",
+        "Approve the wallet's prompt late.",
+        "Check the spendable balance and the audit lines."
       ],
-      "expected": "Legion reports build-failed after 30 s; after the decline the coins are not left locked. Record what the wallet does if approved late instead (a separate run).",
+      "expected": "Legion keeps waiting (up to 15 min, BRC-219) and lists the request as waiting for your wallet; Cancel ends it at once; after the late approval Legion releases the build (abortAction): nothing is shown or signed and no coins stay locked.",
       "evidence": "PC-BSVT-26.png and the audit lines.",
       "safety": "real-wallet",
       "automation": "owner-only",

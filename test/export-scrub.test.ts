@@ -46,6 +46,7 @@ const PORT_GUARDRAILS = new Set([
   'test/bsv-fake-wallet.ts',
   'test/fixtures/bsv-pack-v7.json',
   'test/fixtures/bsv-pack-v8.json',
+  'test/fixtures/bsv-pack-v9.json',
   'test/kg-bsv-seed.test.ts',
   'scripts/harness/fake-wallet.mjs',
   'test-perf/bsv-ui/shots.mjs',

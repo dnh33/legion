@@ -2,6 +2,28 @@
 
 All notable changes are recorded here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Fixed
+
+- **BSV: a payment no longer fails while your wallet is still asking you about it.** Some wallets ask once for a spending
+  grant while they build a payment. Legion gave that step 30 seconds, so a careful answer could come too late and the
+  request ended with a general build error, while the wallet kept the payment it had built. Legion now waits while the
+  wallet asks you (up to 15 minutes, as the BRC-219 wallet standard asks of apps), and the BSV panel shows the request as waiting for your
+  wallet, with Cancel. Cancel, Deny, Freeze and Disconnect end the wait, and a payment the wallet builds after that is
+  released in the wallet at once, so the wallet frees the coins it had set aside for it. If the wallet never answers, the Assayer asks you to check
+  the wallet instead of asking again.
+- **BSV: the Assayer no longer tells you the wallet will ask you again.** Its tool text now says that you confirm each
+  payment in Legion's own dialogs, and that whether the wallet asks too depends on the wallet.
+
+### Changed
+
+- **BSV knowledge pack version 10** (167 notes, 745 links, from 163 and 727). It now covers BRC-100's official site,
+  brc100.org, and the newer wallet standards around it: how wallets name the calling app, the error shapes, and
+  BRC-219, which asks apps to wait while a wallet asks its user. Every source the pack cites was re-read: moved
+  repositories now point to their new homes, and version numbers and facts that had changed are updated. Notes you
+  edited yourself are kept as they are.
+
 ## [0.2.5-g] - 2026-10-06
 
 ### Fixed

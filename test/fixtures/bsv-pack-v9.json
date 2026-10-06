@@ -1,5 +1,5 @@
 {
-  "version": 10,
+  "version": 9,
   "generatedAt": "2026-10-06T00:00:00.000Z",
   "nodes": [
     {
@@ -1019,7 +1019,7 @@
       "id": "bsv-brc100-wallet",
       "type": "lesson",
       "title": "BRC-100: the wallet-to-application interface",
-      "body": "BRC-100 defines a vendor-neutral boundary: applications state business intent, and the wallet holds keys, tracks outputs, builds and signs transactions, and returns results. It builds on BKDS key derivation, output baskets, labels and tags, BEEF and SPV rules. The architecture notes in ts-stack call this the seam of the ecosystem: code above it works with any compliant wallet, and wallets below it work with any application. BRC-100 is not a token format or a consensus rule; the chain still sees ordinary transactions. The official site brc100.org (read 2026-10-06) groups the methods into payments and transactions, keys and cryptography, and identity and certificates, and says wallets differ in user experience, transports, permission policies and storage, so test against each target wallet. For Legion this is the safest integration surface because the agent never sees a key.",
+      "body": "BRC-100 defines a vendor-neutral boundary: applications state business intent, and the wallet holds keys, tracks outputs, builds and signs transactions, and returns results. It builds on BKDS key derivation, output baskets, labels and tags, BEEF and SPV rules. The architecture notes in ts-stack call this the seam of the ecosystem: code above it works with any compliant wallet, and wallets below it work with any application. BRC-100 is not a token format or a consensus rule; the chain still sees ordinary transactions. For Legion this is the safest integration surface because the agent never sees a key.",
       "tags": [
         "bsv",
         "wallet",
@@ -1038,20 +1038,12 @@
         {
           "ref": "https://github.com/bsv-blockchain/ts-stack",
           "licence": "Open BSV License Version 6 per the repo README (modified MIT; limits use to the BSV blockchain and its testnets; exact terms unverified)"
-        },
-        {
-          "ref": "https://brc100.org/",
-          "licence": "Open BSV License Version 6 (site footer; LICENSE.txt in p2ppsr/brc100.org; checked 2026-10-06); use limited to the BSV blockchain; summarised, not copied"
-        },
-        {
-          "ref": "https://github.com/bsv-blockchain/BRCs/blob/master/wallet/0100.md",
-          "licence": "Open BSV License per the bsv.brc.dev index (repo licence file not read); summarised in our own words, not copied"
         }
       ],
       "confidence": 0.85,
       "createdBy": "system",
       "createdAt": "2026-10-01T00:00:00.000Z",
-      "updatedAt": "2026-10-06T00:00:00.000Z"
+      "updatedAt": "2026-10-01T00:00:00.000Z"
     },
     {
       "id": "bsv-walletclient-calls",
@@ -2183,7 +2175,7 @@
       "id": "bsv-src-brcs",
       "type": "source",
       "title": "Source: BRCs (Bitcoin Request for Comments) standards index",
-      "body": "The vendor-neutral BRC standards collection, browsable at bsv.brc.dev and sourced from the bsv-blockchain/BRCs repository. Entries used in this pack include BRC-31 (Authrite mutual authentication), BRC-42 (BSV Key Derivation Scheme), BRC-43 (security levels, protocol IDs, key IDs, counterparties), BRC-45 and BRC-46 (outputs as tokens and output baskets), BRC-62 (BEEF), BRC-67 (SPV), BRC-77 (message signatures), BRC-100 (wallet-to-application interface) and BRC-103 (peer mutual authentication). The index page also lists reference implementations such as the TypeScript SDK, the wallet toolbox, BSV Desktop and BSV Browser. Pages support Markdown retrieval by appending .md. The official BRC-100 developer site is brc100.org (see bsv-src-brc100-org). Legion summarises these standards in its own words and defers to the live text for exact wire formats.",
+      "body": "The vendor-neutral BRC standards collection, browsable at bsv.brc.dev and sourced from the bsv-blockchain/BRCs repository. Entries used in this pack include BRC-31 (Authrite mutual authentication), BRC-42 (BSV Key Derivation Scheme), BRC-43 (security levels, protocol IDs, key IDs, counterparties), BRC-45 and BRC-46 (outputs as tokens and output baskets), BRC-62 (BEEF), BRC-67 (SPV), BRC-77 (message signatures), BRC-100 (wallet-to-application interface) and BRC-103 (peer mutual authentication). The index page also lists reference implementations such as the TypeScript SDK, the wallet toolbox, BSV Desktop and BSV Browser. Pages support Markdown retrieval by appending .md. Legion summarises these standards in its own words and defers to the live text for exact wire formats.",
       "tags": [
         "bsv",
         "source"
@@ -2197,16 +2189,12 @@
         {
           "ref": "https://bsv.brc.dev/",
           "licence": "unverified (standards repo licence not read)"
-        },
-        {
-          "ref": "https://brc100.org/",
-          "licence": "Open BSV License Version 6 (site footer; LICENSE.txt in p2ppsr/brc100.org; checked 2026-10-06); use limited to the BSV blockchain; summarised, not copied"
         }
       ],
       "confidence": 0.8,
       "createdBy": "system",
       "createdAt": "2026-10-01T00:00:00.000Z",
-      "updatedAt": "2026-10-06T00:00:00.000Z"
+      "updatedAt": "2026-10-01T00:00:00.000Z"
     },
     {
       "id": "bsv-src-wallet-toolbox-archive",
@@ -2647,7 +2635,7 @@
       "id": "bsv-teranode-status-timeline",
       "type": "concept",
       "title": "Teranode status timeline and conflicting claims",
-      "body": "Public timeline as we could assemble it: a September 2024 community article said one Teranode instance was listening on mainnet with a live launch expected in early 2025; the Association announced a public, source-available release on 14 October 2025; its January 2026 pages cite over one million transactions per second on a test network; the Chronicle upgrade was scheduled for 7 April 2026 and is reported to have activated then (the Association's page confirms the date, activation itself is press-sourced); and the repository's latest stable release is v0.16.0 (5 October 2026), with a v0.16.1 beta the same day, still pre-1.0 and under Open BSV License v6. Two Association pages with the same January 2026 modification date quote different mainnet throughput figures (about 13,600 and about 2,800 transactions per second), so treat all throughput numbers as marketing until measured. We did not find a dated statement of what share of mainnet runs Teranode, nor an end-of-life date for the older node. Tell users to build against ARC-compatible APIs and BEEF, and check the current network page before relying on any node-level behaviour.",
+      "body": "Public timeline as we could assemble it: a September 2024 community article said one Teranode instance was listening on mainnet with mining planned for Q4 2024; the Association announced a public, source-available release on 14 October 2025; its January 2026 pages cite over one million transactions per second on a test network; the Chronicle upgrade was scheduled for 7 April 2026 and is reported to have activated then (the Association's page confirms the date, activation itself is press-sourced); and the repository's latest tag is 0.15.9 (16 September 2026), after 0.15.3 (6 July 2026), still pre-1.0 and under Open BSV License v6. Two Association pages with the same January 2026 modification date quote different mainnet throughput figures (about 13,600 and about 2,800 transactions per second), so treat all throughput numbers as marketing until measured. We did not find a dated statement of what share of mainnet runs Teranode, nor an end-of-life date for the older node. Tell users to build against ARC-compatible APIs and BEEF, and check the current network page before relying on any node-level behaviour.",
       "tags": [
         "bsv",
         "teranode",
@@ -2685,7 +2673,7 @@
       "confidence": 0.65,
       "createdBy": "system",
       "createdAt": "2026-10-01T00:00:00.000Z",
-      "updatedAt": "2026-10-06T00:00:00.000Z"
+      "updatedAt": "2026-10-01T00:00:00.000Z"
     },
     {
       "id": "bsv-brc-cheatsheet",
@@ -3197,7 +3185,7 @@
       "id": "bsv-ts-sdk-class-map",
       "type": "concept",
       "title": "@bsv/sdk class map",
-      "body": "The docs group the SDK roughly as follows. Keys and crypto: PrivateKey, PublicKey, Signature, ECDSA, Hash, BigNumber, SymmetricKey, Mnemonic, HD. Scripts and templates: Script, LockingScript, UnlockingScript, P2PKH, PushDrop. Transactions and proofs: Transaction, MerklePath, Beef, ChainTracker, a Broadcaster interface with ARC and WhatsOnChain implementations, and a per-kilobyte fee model (the SatoshisPerKilobyte name is confirmed only in the Python SDK docs). Wallet and identity: WalletClient (BRC-100), Certificate, MasterCertificate, an Identity client. Network and overlay: Peer with SimplifiedHTTPTransport for BRC-103, KVStore, TopicBroadcaster, LookupResolver, Historian. The package ships on npm with 3.0.0 as latest since 2026-10-03 (the 2.8 line before it) under the Open BSV License; the standalone repository is archived and docs moved with ts-stack, so check the docs site URL. Names come from the docs index as summarised and are unverified in detail.",
+      "body": "The docs group the SDK roughly as follows. Keys and crypto: PrivateKey, PublicKey, Signature, ECDSA, Hash, BigNumber, SymmetricKey, Mnemonic, HD. Scripts and templates: Script, LockingScript, UnlockingScript, P2PKH, PushDrop. Transactions and proofs: Transaction, MerklePath, Beef, ChainTracker, a Broadcaster interface with ARC and WhatsOnChain implementations, and a per-kilobyte fee model (the SatoshisPerKilobyte name is confirmed only in the Python SDK docs). Wallet and identity: WalletClient (BRC-100), Certificate, MasterCertificate, an Identity client. Network and overlay: Peer with SimplifiedHTTPTransport for BRC-103, KVStore, TopicBroadcaster, LookupResolver, Historian. The package ships on npm with a 2.x line seen (2.0.13) under the Open BSV License; the standalone repository is archived and docs moved with ts-stack, so check the docs site URL. Names come from the docs index as summarised and are unverified in detail.",
       "tags": [
         "bsv",
         "sdk",
@@ -3231,7 +3219,7 @@
       "confidence": 0.7,
       "createdBy": "system",
       "createdAt": "2026-10-01T00:00:00.000Z",
-      "updatedAt": "2026-10-06T00:00:00.000Z"
+      "updatedAt": "2026-10-01T00:00:00.000Z"
     },
     {
       "id": "bsv-overlay-engine-sdk",
@@ -3385,7 +3373,7 @@
       "id": "bsv-brc52-53-certificates",
       "type": "concept",
       "title": "Identity certificates and selective revelation (BRC-52, BRC-53)",
-      "body": "A BRC-52 certificate binds claims to an identity key with seven fields: type, serial number, subject, certifier, a revocation outpoint (spending that output revokes it), the encrypted fields, and the certifier's signature over a canonical serialisation. BRC-52 itself now specifies how fields stay private (BRC-53 is marked not normative): each field is encrypted, and a master keyring lets the owner unlock them. To prove a certificate to a verifier the wallet decrypts the needed field keys, re-encrypts them for that verifier's key and attaches a verifier keyring, so different verifiers can see different fields and the certifier signature still covers everything. For Legion this means 'the user has a certificate' is evidence from a certifier, not a fact, and a verifier keyring should only ever reveal what a task needs.",
+      "body": "A BRC-52 certificate binds claims to an identity key with seven fields: type, serial number, subject, certifier, a revocation outpoint (spending that output revokes it), the encrypted fields, and the certifier's signature over a canonical serialisation. BRC-53 explains how fields stay private: each field is encrypted, and a master keyring lets the owner unlock them. To prove a certificate to a verifier the wallet decrypts the needed field keys, re-encrypts them for that verifier's key and attaches a verifier keyring, so different verifiers can see different fields and the certifier signature still covers everything. For Legion this means 'the user has a certificate' is evidence from a certifier, not a fact, and a verifier keyring should only ever reveal what a task needs.",
       "tags": [
         "bsv",
         "identity",
@@ -3415,13 +3403,13 @@
       "confidence": 0.8,
       "createdBy": "system",
       "createdAt": "2026-10-01T00:00:00.000Z",
-      "updatedAt": "2026-10-06T00:00:00.000Z"
+      "updatedAt": "2026-10-01T00:00:00.000Z"
     },
     {
       "id": "bsv-brc116-wallet-permissions",
       "type": "concept",
       "title": "Wallet permission model (BRC-116, BRC-73)",
-      "body": "BRC-116 describes how a wallet decides what an app may do: protocol permissions scoped by protocol name and security level, spending permissions (one-off or monthly standing limits), basket permissions, and certificate permissions with per-field consent. For peer interactions at the per-counterparty level it adds a trust check on the specific peer, separate from trusting the app. BRC-73 lets an app declare what it needs in a manifest so the wallet can ask once. Permissions persist as encrypted tokens in admin baskets and are read from that canonical state, so they are revocable. Basket and protocol names that start with \"p \" (the letter p and a space) are reserved for future permission schemes (BRC-46, BRC-98, BRC-99), and names that start with admin are reserved for the wallet itself (BRC-100 text, read 2026-10-06). Design Legion's own approval prompts to match these categories rather than inventing new ones.",
+      "body": "BRC-116 describes how a wallet decides what an app may do: protocol permissions scoped by protocol name and security level, spending permissions (one-off or monthly standing limits), basket permissions, and certificate permissions with per-field consent. For peer interactions at the per-counterparty level it adds a trust check on the specific peer, separate from trusting the app. BRC-73 lets an app declare what it needs in a manifest so the wallet can ask once. Permissions persist as encrypted tokens in admin baskets and are read from that canonical state, so they are revocable. Baskets whose names start with p are reserved for permission schemes (BRC-46). Design Legion's own approval prompts to match these categories rather than inventing new ones.",
       "tags": [
         "bsv",
         "wallet",
@@ -3446,16 +3434,12 @@
         {
           "ref": "https://bsv.brc.dev/wallet/0046",
           "licence": "Open BSV License per the bsv.brc.dev index page; version and per-spec terms unverified"
-        },
-        {
-          "ref": "https://github.com/bsv-blockchain/BRCs/blob/master/wallet/0100.md",
-          "licence": "Open BSV License per the bsv.brc.dev index (repo licence file not read); summarised in our own words, not copied"
         }
       ],
       "confidence": 0.75,
       "createdBy": "system",
       "createdAt": "2026-10-01T00:00:00.000Z",
-      "updatedAt": "2026-10-06T00:00:00.000Z"
+      "updatedAt": "2026-10-01T00:00:00.000Z"
     },
     {
       "id": "bsv-bsv21-specs",
@@ -3660,7 +3644,7 @@
       "id": "bsv-wallet-crypto-formats",
       "type": "concept",
       "title": "Wallet encryption, signatures and message formats (BRC-2, 3, 77, 78)",
-      "body": "BRC-2 encrypts data with a symmetric key derived from the shared secret of two BRC-42 child keys, using AES-256-GCM with a random 256-bit IV prepended to the ciphertext and a 16-byte tag after it, the key being the raw 32-byte X coordinate of the shared point with no extra hash (data made under the earlier hash-based wording may not decrypt); with no counterparty the wallet encrypts to itself. BRC-3 is the matching signature standard, built on the same protocol id, key id and counterparty arguments (its details were not read). BRC-77 defines a signed-message layout: a four-byte version, the 33-byte signer key, a verifier key (or one zero byte for public verification), a 32-byte key id and a DER signature. Because each message uses a fresh derived key, it needs no 'signed message' text prefix and can be verifiable by one recipient only. BRC-78 (portable encrypted messages) was only seen by title. Use these only through wallet calls, never by hand-rolling.",
+      "body": "BRC-2 encrypts data with a symmetric key derived from the shared secret of two BRC-42 child keys, using AES-256-GCM with a random 256-bit IV prepended to the ciphertext; with no counterparty the wallet encrypts to itself. BRC-3 is the matching signature standard, built on the same protocol id, key id and counterparty arguments (its details were not read). BRC-77 defines a signed-message layout: a four-byte version, the 33-byte signer key, a verifier key (or one zero byte for public verification), a 32-byte key id and a DER signature. Because each message uses a fresh derived key, it needs no 'signed message' text prefix and can be verifiable by one recipient only. BRC-78 (portable encrypted messages) was only seen by title. Use these only through wallet calls, never by hand-rolling.",
       "tags": [
         "bsv",
         "crypto",
@@ -3696,13 +3680,13 @@
       "confidence": 0.7,
       "createdBy": "system",
       "createdAt": "2026-10-01T00:00:00.000Z",
-      "updatedAt": "2026-10-06T00:00:00.000Z"
+      "updatedAt": "2026-10-01T00:00:00.000Z"
     },
     {
       "id": "bsv-brc69-key-linkage",
       "type": "concept",
       "title": "Revealing key linkages (BRC-69)",
-      "body": "BRC-69 gives two ways to prove that a derived key belongs to a root key. Counterparty-level linkage reveals the shared secret between two identities, which lets anyone link all past and future derived keys between them: strong but privacy-destroying. Specific linkage reveals only the offset for one protocol, key id and counterparty, so a single key can be tied to its owner without exposing the rest. Counterparty-level linkage also lets the recipient compute the BRC-2 keys between that pair, so it removes the confidentiality of their BRC-2 data across protocols and key ids (BRC-69 was corrected on this on 2026-09-30); specific linkage does not give that. The use case is audit or accountability, and in BRC-100 these are the revealCounterpartyKeyLinkage and revealSpecificKeyLinkage calls. BRC-72 (protecting linkage data in transit) and BRC-93 (correctness of linkage claims) and BRC-94 (proofs for the first method) exist by title. An agent should never invoke these without explicit user approval.",
+      "body": "BRC-69 gives two ways to prove that a derived key belongs to a root key. Counterparty-level linkage reveals the shared secret between two identities, which lets anyone link all past and future derived keys between them: strong but privacy-destroying. Specific linkage reveals only the offset for one protocol, key id and counterparty, so a single key can be tied to its owner without exposing the rest. Neither lets the recipient decrypt data protected under BRC-2. The use case is audit or accountability, and in BRC-100 these are the revealCounterpartyKeyLinkage and revealSpecificKeyLinkage calls. BRC-72 (protecting linkage data in transit) and BRC-93 (limits of BRC-69) exist by title. An agent should never invoke these without explicit user approval.",
       "tags": [
         "bsv",
         "keys",
@@ -3732,7 +3716,7 @@
       "confidence": 0.75,
       "createdBy": "system",
       "createdAt": "2026-10-01T00:00:00.000Z",
-      "updatedAt": "2026-10-06T00:00:00.000Z"
+      "updatedAt": "2026-10-01T00:00:00.000Z"
     },
     {
       "id": "bsv-other-language-sdks",
@@ -3835,7 +3819,7 @@
           "licence": "unverified"
         },
         {
-          "ref": "https://github.com/runonbitcoin/run-sdk",
+          "ref": "https://github.com/runonbitcoin/run",
           "licence": "MIT per repo page; archived"
         },
         {
@@ -3850,7 +3834,7 @@
       "confidence": 0.6,
       "createdBy": "system",
       "createdAt": "2026-10-01T00:00:00.000Z",
-      "updatedAt": "2026-10-06T00:00:00.000Z"
+      "updatedAt": "2026-10-01T00:00:00.000Z"
     },
     {
       "id": "bsv-mnee-stablecoin",
@@ -3932,7 +3916,7 @@
       "id": "bsv-brc140-shamir-backup",
       "type": "concept",
       "title": "Threshold key backup with Shamir shares (BRC-140)",
-      "body": "BRC-140 splits a private key into m shares of which any n (minimum 2) rebuild it, using Shamir's scheme over the secp256k1 prime field: the key is the constant term of a polynomial and each share is a point on it, with share positions that are random per split, so splitting one key twice gives different shares. A share serialises as four dot-separated parts (x, y, threshold, integrity) in Base58, where the integrity tag is the first four bytes of the HASH160 of the compressed public key, so recovery can check it rebuilt the right key. It is backup only, not threshold signing: the key is whole at the dealer and at recovery. Related BRCs cover pluggable backup services (154) and entropy-rooted mnemonic backup (157) but were read by title only. For Legion this is background so it can explain recovery; it must never ask for, store or generate shares.",
+      "body": "BRC-140 splits a private key into m shares of which any n (minimum 2) rebuild it, using Shamir's scheme over the secp256k1 prime field: the key is the constant term of a polynomial and each share is a point on it, with the share positions derived deterministically from a seed. A share serialises as four dot-separated parts (x, y, threshold, integrity) in Base58, where the integrity tag is the first four bytes of the HASH160 of the compressed public key, so recovery can check it rebuilt the right key. Related BRCs cover pluggable backup services (154) and entropy-rooted mnemonic backup (157) but were read by title only. For Legion this is background so it can explain recovery; it must never ask for, store or generate shares.",
       "tags": [
         "bsv",
         "keys",
@@ -3962,7 +3946,7 @@
       "confidence": 0.7,
       "createdBy": "system",
       "createdAt": "2026-10-01T00:00:00.000Z",
-      "updatedAt": "2026-10-06T00:00:00.000Z"
+      "updatedAt": "2026-10-01T00:00:00.000Z"
     },
     {
       "id": "bsv-src-teranode",
@@ -4030,7 +4014,7 @@
       "id": "bsv-ts-stack-facts-2026-10",
       "type": "concept",
       "title": "ts-stack facts and published versions (checked 2026-10-01)",
-      "body": "Repo facts read today from the README, docs and package manifests. The monorepo lists 33 public npm packages and 7 standalone infra services; contributors need Node 24.11 or newer and pnpm 10.33.2, published packages need Node 22 or newer. Versions on npm (latest tag, all published 2026-10-03 unless noted): @bsv/sdk 3.0.0, @bsv/wallet-toolbox 2.14.5, @bsv/overlay 2.6.3, @bsv/message-box-client 2.6.0, @bsv/auth-express-middleware 2.2.9, @bsv/402-pay 0.3.3, @bsv/simple 0.7.0, @bsv/did 0.3.0, @bsv/wallet-relay 0.5.2, create-bsv-app 1.1.2 (2026-09-23). SDK 3.0.0 is a major release (Node 22 or newer) that removes the legacy DID-token module in favour of @bsv/did; wallet-toolbox and 402-pay still accept SDK 2 or 3 as peers. The main branch is already ahead again (SDK 3.1.0 in its manifest). Pin npm-published versions, not main. Pre-1.0 packages (simple, did, 402-pay, wallet-relay) can change without notice.",
+      "body": "Repo facts read today from the README, docs and package manifests. The monorepo lists 33 public npm packages and 7 standalone infra services; contributors need Node 24.11 or newer and pnpm 10.33.2, published packages need Node 22 or newer. Versions on npm today (latest tag): @bsv/sdk 2.8.11 (2026-09-29), @bsv/wallet-toolbox 2.14.4, @bsv/overlay 2.6.2, @bsv/message-box-client 2.5.4, @bsv/auth-express-middleware 2.2.8, @bsv/402-pay 0.3.2, @bsv/simple 0.6.0, @bsv/did 0.2.7, create-bsv-app 1.1.2, @bsv/wallet-relay 0.5.1. The main branch is ahead of npm: its manifests say @bsv/sdk 3.0.0, @bsv/simple 0.7.0, @bsv/did 0.3.0 and @bsv/overlay-topics 2.0.0, described in the docs as a coordinated unreleased proposal that removes legacy DID-token code. Pin npm-published versions, not main. Pre-1.0 packages (simple, did, 402-pay, wallet-relay) can change without notice.",
       "tags": [
         "bsv",
         "ts-stack",
@@ -4067,7 +4051,7 @@
       "confidence": 0.85,
       "createdBy": "system",
       "createdAt": "2026-10-01T00:00:00.000Z",
-      "updatedAt": "2026-10-06T00:00:00.000Z"
+      "updatedAt": "2026-10-01T00:00:00.000Z"
     },
     {
       "id": "bsv-ts-stack-legion-usage-map",
@@ -4203,7 +4187,7 @@
       "id": "bsv-message-box-client",
       "type": "lesson",
       "title": "@bsv/message-box-client: authenticated store-and-forward messaging",
-      "body": "MessageBoxClient takes a WalletClient and a server host and offers sendMessage, listMessages and acknowledgeMessage over HTTP, plus live delivery over an authenticated WebSocket that falls back to HTTP. Every response must come from successful BRC-103 mutual authentication, hosts must be HTTPS except loopback, and serverIdentityKeysByHost pins expected server keys. Bodies are encrypted by default; skipEncryption is an explicit choice. Boxes can carry per-sender fees (-1 blocked, 0 free, positive satoshis); checkPermissions quotes the fee and maximumPayment caps it. PeerPayClient adds BRC-29 payments, requests and refunds on the same transport; SDK 2.8.0 to 2.8.5 reject valid incoming payments there, so use SDK 2.8.6 or later. listMessages sets paymentOutcome on a message that carried a payment, and anything other than internalized must be stored before acknowledging. Overlay-advertised hosts are untrusted candidates. For an agent: message senders are arbitrary keys, so message text is untrusted input; never auto-accept an incoming payment; always set maximumPayment; the wallet stays the spending authority. The README example host is a docs example, not an endorsement.",
+      "body": "MessageBoxClient takes a WalletClient and a server host and offers sendMessage, listMessages and acknowledgeMessage over HTTP, plus live delivery over an authenticated WebSocket that falls back to HTTP. Every response must come from successful BRC-103 mutual authentication, hosts must be HTTPS except loopback, and serverIdentityKeysByHost pins expected server keys. Bodies are encrypted by default; skipEncryption is an explicit choice. Boxes can carry per-sender fees (-1 blocked, 0 free, positive satoshis); checkPermissions quotes the fee and maximumPayment caps it. PeerPayClient adds BRC-29 payments, requests and refunds on the same transport. Overlay-advertised hosts are untrusted candidates. For an agent: message senders are arbitrary keys, so message text is untrusted input; never auto-accept an incoming payment; always set maximumPayment; the wallet stays the spending authority. The README example host is a docs example, not an endorsement.",
       "tags": [
         "bsv",
         "messaging",
@@ -4237,7 +4221,7 @@
       "confidence": 0.85,
       "createdBy": "system",
       "createdAt": "2026-10-01T00:00:00.000Z",
-      "updatedAt": "2026-10-06T00:00:00.000Z"
+      "updatedAt": "2026-10-01T00:00:00.000Z"
     },
     {
       "id": "bsv-auth-express-middleware",
@@ -4280,7 +4264,7 @@
       "id": "bsv-402-pay-package",
       "type": "lesson",
       "title": "@bsv/402-pay and the payment middleware: BRC-121 in code",
-      "body": "@bsv/402-pay (0.3.3, pre-1.0) implements BRC-121 with no auth middleware: createPaymentMiddleware({ wallet, replayStore, calculatePrice }) on the server and create402Fetch({ wallet }) on the client. The server sends x-bsv-sats and x-bsv-server; the client retries with x-bsv-beef, x-bsv-sender, x-bsv-nonce, x-bsv-time and x-bsv-vout. Replay defence has three layers: a 30 second timestamp window, the wallet's BRC-29 validation and an atomic transaction-claim store, which must be shared and durable across processes. The README says the server requires a strictly framed Atomic BEEF (BRC-95). Clients need HTTPS (loopback excepted), refuse cross-origin redirect challenges and never cache paid responses by default. An unexpected failure after payment processing starts returns 503 with no fresh challenge, on purpose: asking again could cause a second spend, so do not blind-retry. @bsv/payment-express-middleware is a different, older flow (x-bsv-payment) that requires the auth middleware. Spending authority stays with the wallet.",
+      "body": "@bsv/402-pay (0.3.2, pre-1.0) implements BRC-121 with no auth middleware: createPaymentMiddleware({ wallet, replayStore, calculatePrice }) on the server and create402Fetch({ wallet }) on the client. The server sends x-bsv-sats and x-bsv-server; the client retries with x-bsv-beef, x-bsv-sender, x-bsv-nonce, x-bsv-time and x-bsv-vout. Replay defence has three layers: a 30 second timestamp window, the wallet's BRC-29 validation and an atomic transaction-claim store, which must be shared and durable across processes. The README says the server requires a strictly framed Atomic BEEF (BRC-95). Clients need HTTPS (loopback excepted), refuse cross-origin redirect challenges and never cache paid responses by default. An unexpected failure after payment processing starts returns 503 with no fresh challenge, on purpose: asking again could cause a second spend, so do not blind-retry. @bsv/payment-express-middleware is a different, older flow (x-bsv-payment) that requires the auth middleware. Spending authority stays with the wallet.",
       "tags": [
         "bsv",
         "payments",
@@ -4315,13 +4299,13 @@
       "confidence": 0.85,
       "createdBy": "system",
       "createdAt": "2026-10-01T00:00:00.000Z",
-      "updatedAt": "2026-10-06T00:00:00.000Z"
+      "updatedAt": "2026-10-01T00:00:00.000Z"
     },
     {
       "id": "bsv-ts-stack-overlay-packages",
       "type": "concept",
       "title": "Overlay packages in ts-stack: engine, Express server, topics and discovery",
-      "body": "The overlay family is operator software. @bsv/overlay (2.6.3) is the engine: new Engine(topicManagers, lookupServices, storage, chainTracker, hostingUrl) with a Knex SQL storage adapter, MongoDB as an optional peer, and @bsv/gasp for sync. It needs a Storage and a ChainTracker, or an explicit 'scripts only' validation mode, which skips SPV checks and should be treated as development-only. @bsv/overlay-express (2.7.4) wraps it in an Express 5 server and depends on knex, mongodb, wallet-toolbox-client, auth-express-middleware and @bsv/overlay-discovery-services. @bsv/overlay-topics holds canonical topic managers and lookup services; its 2.0.0 release (2026-10-03) drops the serial DID overlay. The deployable example lives under infra/overlay-server. Legion would only query overlays as a client and cross-check results; it never hosts one or holds the server key.",
+      "body": "The overlay family is operator software. @bsv/overlay (2.6.2) is the engine: new Engine(topicManagers, lookupServices, storage, chainTracker, hostingUrl) with a Knex SQL storage adapter, MongoDB as an optional peer, and @bsv/gasp for sync. It needs a Storage and a ChainTracker, or an explicit 'scripts only' validation mode, which skips SPV checks and should be treated as development-only. @bsv/overlay-express (2.7.3) wraps it in an Express 5 server and depends on knex, mongodb, wallet-toolbox-client, auth-express-middleware and @bsv/overlay-discovery-services. @bsv/overlay-topics holds canonical topic managers and lookup services; its main branch (2.0.0, unpublished, npm shows 1.9.1) drops the serial DID overlay. The deployable example lives under infra/overlay-server. Legion would only query overlays as a client and cross-check results; it never hosts one or holds the server key.",
       "tags": [
         "bsv",
         "overlay",
@@ -4358,13 +4342,13 @@
       "confidence": 0.8,
       "createdBy": "system",
       "createdAt": "2026-10-01T00:00:00.000Z",
-      "updatedAt": "2026-10-06T00:00:00.000Z"
+      "updatedAt": "2026-10-01T00:00:00.000Z"
     },
     {
       "id": "bsv-wallet-relay-pairing",
       "type": "concept",
       "title": "@bsv/wallet-relay: pairing a mobile wallet with a web app by QR",
-      "body": "@bsv/wallet-relay (0.5.2) lets a website offer 'connect with a mobile wallet': the desktop page shows a QR code, the phone wallet scans it, and wallet calls travel over an encrypted WebSocket relay. The README says keys never leave the phone and the relay never sees plaintext; we did not audit that. It also says this is an early release with no stability guarantee before 1.0 (the repo's package page labels it stable, an inconsistency). Web developers run WalletRelayService on a backend that needs a stable private key, kept in an environment file, because the phone derives its shared secret from it; wallet-app developers use the client WalletPairingSession. Without an allowedOrigins list the relay accepts browser origins it has not seen before. An npx scaffold generates a backend and React frontend. For Legion this explains how BSV Browser reaches web apps; Legion does not host a relay, because that would put a server key in its environment.",
+      "body": "@bsv/wallet-relay (0.5.1) lets a website offer 'connect with a mobile wallet': the desktop page shows a QR code, the phone wallet scans it, and wallet calls travel over an encrypted WebSocket relay. The README says keys never leave the phone and the relay never sees plaintext; we did not audit that. It also says this is an early release with no stability guarantee before 1.0 (the repo's package page labels it stable, an inconsistency). Web developers run WalletRelayService on a backend that needs a stable private key, kept in an environment file, because the phone derives its shared secret from it; wallet-app developers use the client WalletPairingSession. Without an allowedOrigins list the relay accepts browser origins it has not seen before. An npx scaffold generates a backend and React frontend. For Legion this explains how BSV Browser reaches web apps; Legion does not host a relay, because that would put a server key in its environment.",
       "tags": [
         "bsv",
         "wallet",
@@ -4398,13 +4382,13 @@
       "confidence": 0.8,
       "createdBy": "system",
       "createdAt": "2026-10-01T00:00:00.000Z",
-      "updatedAt": "2026-10-06T00:00:00.000Z"
+      "updatedAt": "2026-10-01T00:00:00.000Z"
     },
     {
       "id": "bsv-create-bsv-app-and-simple",
       "type": "concept",
       "title": "create-bsv-app and @bsv/simple: scaffolding and the high-level API in detail",
-      "body": "create-bsv-app (1.1.2) is the CLI that replaced the deprecated @bsv/app. 'new' generates React, Express or full-stack starters; 'add' retrofits wallet-connect, wallet-login or signed-requests; a local --ui mode listens on loopback only; it writes bsv-scaffold.json. Twelve example starters are shallow-cloned from other repositories, which is third-party code. Generated servers read SERVER_PRIVATE_KEY. @bsv/simple (0.7.0, pre-1.0) has a browser entry that wraps WalletClient and a server entry that runs a wallet from a private key. Its README warns that the bundled identity registry is unauthenticated, remote DID resolution carries no proof, presentation envelopes carry no holder signature, and the generated server-wallet route answers 403 until the app supplies an authorize callback. Treat output of both tools as code to read before it runs, and decode what simple will send before any approval.",
+      "body": "create-bsv-app (1.1.2) is the CLI that replaced the deprecated @bsv/app. 'new' generates React, Express or full-stack starters; 'add' retrofits wallet-connect, wallet-login or signed-requests; a local --ui mode listens on loopback only; it writes bsv-scaffold.json. Twelve example starters are shallow-cloned from other repositories, which is third-party code. Generated servers read SERVER_PRIVATE_KEY. @bsv/simple (0.6.0, pre-1.0) has a browser entry that wraps WalletClient and a server entry that runs a wallet from a private key. Its README warns that the bundled identity registry is unauthenticated, remote DID resolution carries no proof, presentation envelopes carry no holder signature, and the generated server-wallet route answers 403 until the app supplies an authorize callback. Treat output of both tools as code to read before it runs, and decode what simple will send before any approval.",
       "tags": [
         "bsv",
         "sdk",
@@ -4438,13 +4422,13 @@
       "confidence": 0.85,
       "createdBy": "system",
       "createdAt": "2026-10-01T00:00:00.000Z",
-      "updatedAt": "2026-10-06T00:00:00.000Z"
+      "updatedAt": "2026-10-01T00:00:00.000Z"
     },
     {
       "id": "bsv-did-package",
       "type": "concept",
       "title": "@bsv/did: SD-JWT credentials and did:key for BSV identity keys",
-      "body": "@bsv/did (0.3.0 on npm) is a compatibility layer, not a change to the SDK. It treats BSV secp256k1 keys as JOSE ES256K keys, builds did:key identifiers and documents, and issues, presents and verifies SD-JWT verifiable credentials with optional key-binding tokens. Its README is clear about limits: 'verified' proves signature, type, validity window, disclosures and the requested binding, not that the issuer is allowed to grant access, so set expectedIssuer and expectedVct or an allowlist; key binding needs both audience and a per-transaction nonce; status lists are not fetched. Some EU profiles need P-256 ES256, which this does not provide. The repo's migration guide retires @bsv/did-client and the serial-number did:bsv tokens in favour of this package, and SDK 3.0.0 (published 2026-10-03) removes the old DID-token module.",
+      "body": "@bsv/did (0.2.7 on npm) is a compatibility layer, not a change to the SDK. It treats BSV secp256k1 keys as JOSE ES256K keys, builds did:key identifiers and documents, and issues, presents and verifies SD-JWT verifiable credentials with optional key-binding tokens. Its README is clear about limits: 'verified' proves signature, type, validity window, disclosures and the requested binding, not that the issuer is allowed to grant access, so set expectedIssuer and expectedVct or an allowlist; key binding needs both audience and a per-transaction nonce; status lists are not fetched. Some EU profiles need P-256 ES256, which this does not provide. The repo's migration guide (a source proposal, not published) retires @bsv/did-client and the serial-number did:bsv tokens in favour of this package, and SDK 3.0.0 would remove the old DID-token module.",
       "tags": [
         "bsv",
         "identity",
@@ -4478,13 +4462,13 @@
       "confidence": 0.8,
       "createdBy": "system",
       "createdAt": "2026-10-01T00:00:00.000Z",
-      "updatedAt": "2026-10-06T00:00:00.000Z"
+      "updatedAt": "2026-10-01T00:00:00.000Z"
     },
     {
       "id": "bsv-safety-ts-stack-server-keys",
       "type": "lesson",
       "title": "Refuse ts-stack patterns that put a private key in Legion",
-      "body": "Several ts-stack entry points are built around a key held by the running program, which Legion must decline even though the docs call them normal. @bsv/simple/server and ServerWallet read SERVER_PRIVATE_KEY and talk to a wallet storage server; the docs recommend it for agents and MCP servers. @bsv/wallet-relay needs WALLET_PRIVATE_KEY on its backend. Generated create-bsv-app servers read SERVER_PRIVATE_KEY, and wallet-toolbox assembles wallets that hold keys and storage. Each is fine for an operator who owns that key; none belongs in Legion's config, environment, VMs or logs. If a user asks for a bot wallet, point them to an external BRC-100 wallet that the owner controls and approves in, and say plainly that the key would otherwise be in the bot's reach (Legion holds no keys and has no wallet of its own; its own spend tool has per-network caps, by default on testnet 1,000 satoshis per transaction, 5,000 per session and 10,000 per 24 hours, with lower mainnet defaults, and they cover only payments asked through Legion). If a generated project contains such a variable, do not fill it, print it or commit it, and tell the owner before running it.",
+      "body": "Several ts-stack entry points are built around a key held by the running program, which Legion must decline even though the docs call them normal. @bsv/simple/server and ServerWallet read SERVER_PRIVATE_KEY and talk to a wallet storage server; the docs recommend it for agents and MCP servers. @bsv/wallet-relay needs WALLET_PRIVATE_KEY on its backend. Generated create-bsv-app servers read SERVER_PRIVATE_KEY, and wallet-toolbox assembles wallets that hold keys and storage. Each is fine for an operator who owns that key; none belongs in Legion's config, environment, VMs or logs. If a user asks for a bot wallet, point them to an external BRC-100 wallet that the owner controls and approves in, and say plainly that the key would otherwise be in the bot's reach (Legion has no wallet in this version and sets no spending limits). If a generated project contains such a variable, do not fill it, print it or commit it, and tell the owner before running it.",
       "tags": [
         "bsv",
         "safety",
@@ -4522,7 +4506,7 @@
       "confidence": 0.85,
       "createdBy": "system",
       "createdAt": "2026-10-01T00:00:00.000Z",
-      "updatedAt": "2026-10-06T00:00:00.000Z"
+      "updatedAt": "2026-10-01T00:00:00.000Z"
     },
     {
       "id": "bsv-src-batch3-repos",
@@ -4601,22 +4585,22 @@
       },
       "sources": [
         {
-          "ref": "https://github.com/bsv-blockchain/gitbook-bsv-skills-center",
+          "ref": "https://github.com/bitcoin-sv/bsv-skills-center",
           "licence": "No LICENSE file found (raw fetch 404 on master, 2026-10-01); content licence unverified, so summarise in fresh words and link only"
         },
         {
-          "ref": "https://raw.githubusercontent.com/bsv-blockchain/gitbook-bsv-skills-center/master/SUMMARY.md",
+          "ref": "https://raw.githubusercontent.com/bitcoin-sv/bsv-skills-center/master/SUMMARY.md",
           "licence": "No LICENSE file found (raw fetch 404 on master, 2026-10-01); content licence unverified, so summarise in fresh words and link only"
         },
         {
-          "ref": "https://raw.githubusercontent.com/bsv-blockchain/gitbook-bsv-skills-center/master/README.md",
+          "ref": "https://raw.githubusercontent.com/bitcoin-sv/bsv-skills-center/master/README.md",
           "licence": "No LICENSE file found (raw fetch 404 on master, 2026-10-01); content licence unverified, so summarise in fresh words and link only"
         }
       ],
       "confidence": 0.85,
       "createdBy": "system",
       "createdAt": "2026-10-01T00:00:00.000Z",
-      "updatedAt": "2026-10-06T00:00:00.000Z"
+      "updatedAt": "2026-10-01T00:00:00.000Z"
     },
     {
       "id": "bsv-mockchain-offline-stack",
@@ -4641,14 +4625,14 @@
       },
       "sources": [
         {
-          "ref": "https://raw.githubusercontent.com/bsv-blockchain/gitbook-bsv-skills-center/master/guides/local-blockchain-stack/mockchain.md",
+          "ref": "https://raw.githubusercontent.com/bitcoin-sv/bsv-skills-center/master/guides/local-blockchain-stack/mockchain.md",
           "licence": "No LICENSE file found (raw fetch 404 on master, 2026-10-01); content licence unverified, so summarise in fresh words and link only"
         }
       ],
       "confidence": 0.8,
       "createdBy": "system",
       "createdAt": "2026-10-01T00:00:00.000Z",
-      "updatedAt": "2026-10-06T00:00:00.000Z"
+      "updatedAt": "2026-10-01T00:00:00.000Z"
     },
     {
       "id": "bsv-chronicle-primary-notes",
@@ -4841,7 +4825,7 @@
       "id": "bsv-go-wallet-toolbox",
       "type": "entity",
       "title": "go-wallet-toolbox: the Go wallet toolbox (know it, do not use it)",
-      "body": "bsv-blockchain/go-wallet-toolbox is the Go counterpart of the TypeScript wallet toolbox: BRC-100 wallet components on go-sdk (go.mod: go-sdk v1.7.0, Go 1.27.0). Packages: wallet (BRC-100 methods, certificates, key linkage), storage (GORM provider for SQLite, MySQL 8.0.1 or later, or Postgres, with an active store plus backups and chunked sync), a storage server (JSON-RPC with Authrite authentication, port 8100 by default) and client, services (ARC, WhatsOnChain, Bitails, block header services, Arcade, ChainTracks) and a monitor (sync statuses, send waiting, abort abandoned, un-fail). Networks: main, test, ttn (public Teranode test net) and tstn (private). Latest Go proxy tag v0.189.0 on 2026-10-05: pre-1.0 and moving daily. Open BSV License v5. wallet.New takes a WIF or hex root key, so it holds keys. Legion's policy is to reach a wallet, once there is one, only as an external BRC-100 wallet through @bsv/sdk WalletClient, so it must not use this. It helps to know what Go wallet servers do.",
+      "body": "bsv-blockchain/go-wallet-toolbox is the Go counterpart of the TypeScript wallet toolbox: BRC-100 wallet components on go-sdk (go.mod: go-sdk v1.7.0, Go 1.27.0). Packages: wallet (BRC-100 methods, certificates, key linkage), storage (GORM provider for SQLite, MySQL 8.0.1 or later, or Postgres, with an active store plus backups and chunked sync), a storage server (JSON-RPC with Authrite authentication, port 8100 by default) and client, services (ARC, WhatsOnChain, Bitails, block header services, Arcade, ChainTracks) and a monitor (sync statuses, send waiting, abort abandoned, un-fail). Networks: main, test, ttn (public Teranode test net) and tstn (private). Latest Go proxy tag v0.188.1 on 2026-10-01: pre-1.0 and moving daily. Open BSV License v5. wallet.New takes a WIF or hex root key, so it holds keys. Legion's policy is to reach a wallet, once there is one, only as an external BRC-100 wallet through @bsv/sdk WalletClient, so it must not use this. It helps to know what Go wallet servers do.",
       "tags": [
         "bsv",
         "wallet",
@@ -4879,7 +4863,7 @@
       "confidence": 0.85,
       "createdBy": "system",
       "createdAt": "2026-10-01T00:00:00.000Z",
-      "updatedAt": "2026-10-06T00:00:00.000Z"
+      "updatedAt": "2026-10-01T00:00:00.000Z"
     },
     {
       "id": "bsv-go-wallet-toolbox-gaps",
@@ -4925,7 +4909,7 @@
       "id": "bsv-wallet-toolbox-architecture",
       "type": "concept",
       "title": "@bsv/wallet-toolbox architecture: storage, services, monitor, permissions",
-      "body": "Read from ts-stack docs. npm latest is 2.14.5 (2026-10-03); the ts-stack docs already say 2.14.6. Wallet implements BRC-100. WalletStorageManager coordinates one active and optional backup providers. Providers: SQL through Knex (SQLite, MySQL), IndexedDB for browsers and mobile, and StorageClient, a remote provider over HTTPS JSON-RPC where each response must complete BRC-103 mutual auth and the client can pin the server identity key. WalletSigner turns derived keys into SDK signatures. Services fails over across ARC (TAAL, GorillaPool), Arcade, WhatsOnChain and Bitails, with ChainTracks for headers. Monitor runs background tasks. WalletPermissionsManager gates calls, supports BRC-98, 99 and 111 permission modules, asks once per spend (approvals are never cached) and fails closed on certificates. Key managers cover BRC-42/43 and Shamir recovery with WAB. MockChain serves tests. Separate client and mobile builds exist. A backup needs both root key material and wallet records. Builders use it; Legion never does.",
+      "body": "Read from ts-stack docs. npm latest is 2.14.4 (2026-09-29); docs already say 2.14.5. Wallet implements BRC-100. WalletStorageManager coordinates one active and optional backup providers. Providers: SQL through Knex (SQLite, MySQL), IndexedDB for browsers and mobile, and StorageClient, a remote provider over HTTPS JSON-RPC where each response must complete BRC-103 mutual auth and the client can pin the server identity key. WalletSigner turns derived keys into SDK signatures. Services fails over across ARC (TAAL, GorillaPool), Arcade, WhatsOnChain and Bitails, with ChainTracks for headers. Monitor runs background tasks. WalletPermissionsManager gates calls, supports BRC-98, 99 and 111 permission modules, asks once per spend (approvals are never cached) and fails closed on certificates. Key managers cover BRC-42/43 and Shamir recovery with WAB. MockChain serves tests. Separate client and mobile builds exist. A backup needs both root key material and wallet records. Builders use it; Legion never does.",
       "tags": [
         "bsv",
         "wallet",
@@ -4961,7 +4945,7 @@
       "confidence": 0.85,
       "createdBy": "system",
       "createdAt": "2026-10-01T00:00:00.000Z",
-      "updatedAt": "2026-10-06T00:00:00.000Z"
+      "updatedAt": "2026-10-01T00:00:00.000Z"
     },
     {
       "id": "bsv-wallet-results-delayed-broadcast",
@@ -5008,7 +4992,7 @@
       "id": "bsv-desktop-toolbox-wiring",
       "type": "concept",
       "title": "How BSV Desktop uses the wallet toolbox",
-      "body": "Read from the BSV Desktop README and source on master (package.json 2.9.9; an earlier look at the releases page showed 2.8.3). It pins @bsv/wallet-toolbox and its client build 2.14.5 with @bsv/sdk 2.8.11. Two modes: self-custody with a local SQLite database through StorageKnex, or remote storage through StorageClient with WAB authentication. The README names wallet.db and wallet-test.db under ~/.bsv-desktop, while the monitor worker comment says wallet-<identityKey>-<chain>.db, so file naming is unverified. A separate Node process runs the Monitor on the same database with Arcade-first Services and live ArcadeSSE status. External apps reach the wallet on localhost (the README names an HTTPS server on 127.0.0.1 port 2121 with an HTTP fallback on 3321; a source comment says 3321); those calls pass through WalletPermissionsManager, while Desktop's own storage handshake bypasses it. The chain choice is main, test or ttn (TeraTestNet), but getNetwork collapses ttn to testnet. The README gives 250 sats per kB as the local fee default. Consequences for Legion: the app must stay open for broadcast and proofs, and a testnet answer cannot tell public testnet from TeraTestNet.",
+      "body": "Read from the BSV Desktop README and source on master (package.json 2.9.9; an earlier look at the releases page showed 2.8.3). It pins @bsv/wallet-toolbox and its client build 2.14.4 with @bsv/sdk 2.8.11. Two modes: self-custody with a local SQLite database through StorageKnex, or remote storage through StorageClient with WAB authentication. The README names wallet.db and wallet-test.db under ~/.bsv-desktop, while the monitor worker comment says wallet-<identityKey>-<chain>.db, so file naming is unverified. A separate Node process runs the Monitor on the same database with Arcade-first Services and live ArcadeSSE status. External apps reach the wallet on localhost; those calls pass through WalletPermissionsManager, while Desktop's own storage handshake bypasses it. The chain choice is main, test or ttn (TeraTestNet), but getNetwork collapses ttn to testnet. The README gives 250 sats per kB as the local fee default. Consequences for Legion: the app must stay open for broadcast and proofs, and a testnet answer cannot tell public testnet from TeraTestNet.",
       "tags": [
         "bsv",
         "wallet",
@@ -5047,7 +5031,7 @@
       "confidence": 0.8,
       "createdBy": "system",
       "createdAt": "2026-10-01T00:00:00.000Z",
-      "updatedAt": "2026-10-06T00:00:00.000Z"
+      "updatedAt": "2026-10-01T00:00:00.000Z"
     },
     {
       "id": "bsv-teranode-service-map",
@@ -5174,7 +5158,7 @@
       "id": "bsv-teranode-release-licence-networks",
       "type": "concept",
       "title": "Teranode today: version, licence and the four networks",
-      "body": "Checked 2026-10-01; versions re-checked 2026-10-06. The licence is Open BSV License Version 6 (the LICENSE file was read), which settles the question the earlier nodes left open: it is source-available with a field-of-use limit to the BSV blockchains and their test chains, rather than open source in the usual sense. The Go module proxy lists v0.16.0 (2026-09-30) as latest, after v0.15.9 (2026-09-16) and v0.15.3 (2026-07-06); GitHub published v0.16.0 on 2026-10-05: still 0.x. Docs say Go 1.27.0 or later. The separate teranode-quickstart repo runs mainnet, testnet, teratestnet or regtest in Docker. Its default mode is listen_only, which needs no public ports; full mode needs public P2P and asset endpoints. Teratestnet is the shared Association test network, with a 1 GiB block cap and published snapshots. Regtest is local only; the P2P docs say the Association runs no public regtest. Its mainnet sizing is 128 GB RAM minimum, 256 GB recommended, 2 TB or more of disk. go-wallet-toolbox names the networks ttn (public teratestnet) and tstn (private scaling test net). The Teranode DeepWiki page states no version or licence.",
+      "body": "Checked 2026-10-01. The licence is Open BSV License Version 6 (the LICENSE file was read), which settles the question the earlier nodes left open: it is source-available with a field-of-use limit to the BSV blockchains and their test chains, rather than open source in the usual sense. The Go module proxy lists v0.15.9 (2026-09-16) as latest, after v0.15.3 (2026-07-06) and v0.15.0 (2026-05-14): still 0.x. Docs say Go 1.27.0 or later. The separate teranode-quickstart repo runs mainnet, testnet, teratestnet or regtest in Docker. Its default mode is listen_only, which needs no public ports; full mode needs public P2P and asset endpoints. Teratestnet is the shared Association test network, with a 1 GiB block cap and published snapshots. Regtest is local only; the P2P docs say the Association runs no public regtest. Its mainnet sizing is 128 GB RAM minimum, 256 GB recommended, 2 TB or more of disk. go-wallet-toolbox names the networks ttn (public teratestnet) and tstn (private scaling test net). The Teranode DeepWiki page states no version or licence.",
       "tags": [
         "bsv",
         "teranode",
@@ -5212,7 +5196,7 @@
       "confidence": 0.85,
       "createdBy": "system",
       "createdAt": "2026-10-01T00:00:00.000Z",
-      "updatedAt": "2026-10-06T00:00:00.000Z"
+      "updatedAt": "2026-10-01T00:00:00.000Z"
     },
     {
       "id": "bsv-teranode-alert-freeze",
@@ -5289,7 +5273,7 @@
       "id": "bsv-wallet-choice",
       "type": "lesson",
       "title": "[Design] Wallet choice: BSV Desktop first, HandCash beta second, a one-time grant, not a monthly limit",
-      "body": "Design, not built in v0.\nLegion's own code reaches a wallet for a status check and, behind the owner's confirmations, for a spend; this is the plan for which wallets to support. Support order: BSV Desktop first (BSV Association, official, Windows and testnet capable), the HandCash BRC wallet second behind a beta label and only after a hands-on test, BSV Browser later (no localhost interface a desktop app can reach). Never: Yours Wallet or Panda, the old Metanet Desktop repo, the community bsv-mcp, or any wallet that holds keys for Legion. Use @bsv/sdk WalletClient only, not wallet-toolbox, with originator legion.local. Red flags: the origin is self-declared, so any local process can claim any origin; a monthly limit removes the wallet's per-spend ask, so keep a grant one-time if the wallet offers that, any standing limit at or below Legion's caps, and never turn on auto-pay (HandCash auto-pay defaults to a ceiling of 10 USD per 24 hours); wallet prompts can wait indefinitely, so Legion would add its own deadline; BSV Desktop and HandCash both listen on 3321 (a fallback to 2121), so run only one. Every spend would pass two checks, and the order depends on the wallet: per the wallet-toolbox source (not observed on a real wallet), BSV Desktop checks at createAction, before Legion's card, asks once for a spending grant and does not ask again inside it. Legion's card is the per-spend gate; the wallet's grant is a second check. Never retry a spend after a timeout.",
+      "body": "Design, not built in v0.\nLegion's own code reaches a wallet for a status check and, behind the owner's confirmations, for a spend; this is the plan for which wallets to support, in a later, reviewed phase. Support order: BSV Desktop first (BSV Association, official, Windows and testnet capable), the HandCash BRC wallet second behind a beta label and only after a hands-on test, BSV Browser later (no localhost interface a desktop app can reach). Never: Yours Wallet or Panda, the old Metanet Desktop repo, the community bsv-mcp, or any wallet that holds keys for Legion. Use @bsv/sdk WalletClient only, not wallet-toolbox, with originator legion.local. Red flags: the origin is self-declared, so any local process can claim any origin; a monthly limit removes the wallet's per-spend ask, so keep a grant one-time if the wallet offers that, any standing limit at or below Legion's caps, and never turn on auto-pay (HandCash auto-pay defaults to a ceiling of 10 USD per 24 hours); wallet prompts can wait indefinitely, so Legion would add its own deadline; BSV Desktop and HandCash both use port 3321, so run only one. Every spend would pass two checks, and the order depends on the wallet: per the wallet-toolbox source (not observed on a real wallet), BSV Desktop checks at createAction, before Legion's card, asks once for a spending grant and does not ask again inside it. Legion's card is the per-spend gate; the wallet's grant is a second check. Never retry a spend after a timeout.",
       "tags": [
         "bsv",
         "safety",
@@ -5325,7 +5309,7 @@
       "id": "bsv-safety-spend-flow",
       "type": "lesson",
       "title": "[Partly built] The spend flow: one request, the owner's dialogs, then the wallet signs",
-      "body": "Partly built: some of this exists, the rest is design.\nBuilt today: bsv_spend_request takes four fields and nothing else; a network field is refused. The gates run first (BSV mode on, Assayer only, an owner-started run, not frozen, no unknown outcome, one request at a time, at most three per task). Then the wallet is asked for an unsigned transaction (it waits up to 15 minutes, shown in the panel as waiting, with Cancel; Cancel, Deny, Freeze or Disconnect end it at once; no answer within 15 minutes is wallet-no-answer (other failures: build-failed): the Assayer tells the owner to check the wallet for an open request from legion.local and does not ask again; a late build is released with abortAction), Legion decodes it itself, accepts one payment plus at most one change output, and the policy engine checks those numbers. The owner then reads native dialogs (bsv-safety-spend-dialogs); only then does it ask the wallet to sign. These dialogs are the per-spend gate. Whether and when the wallet also asks depends on the wallet: BSV Desktop checks at the unsigned build, before Legion's dialogs, asks once for a spending grant and not again inside it (not observed on a real wallet). Offered a one-time grant, keep it one-time; otherwise keep any standing limit at or below Legion's caps. The agent gets a status word and a transaction id, never wallet text. Not built: other bots' spends, repeated spends, several outputs. Not verified: it was tested against fake wallets only (bsv-safety-owner-checks).",
+      "body": "Partly built: some of this exists, the rest is design.\nBuilt today: bsv_spend_request takes four fields (a request key, one recipient address, an amount in satoshis and a purpose) and nothing else; a network field is refused. The gates run first: BSV mode on, the Assayer only, a run the owner started in the app, not frozen, no unknown outcome, one request at a time, at most three per task. Then the wallet is asked for an unsigned transaction, Legion decodes it itself, accepts only the one payment plus at most one change output, and the policy engine checks the real decoded numbers. The owner reads a native dialog (bsv-safety-spend-dialogs), then a second one if the run read untrusted content, then a third live-funds one on mainnet. Only then does Legion ask the wallet to sign. These dialogs are the per-spend gate. Whether and when the wallet also asks depends on the wallet: BSV Desktop (wallet-toolbox) checks at the unsigned build, before Legion's dialogs, asks once for a spending grant and not again inside it (per its source; not observed on a real wallet). Offered a one-time grant, keep it one-time; otherwise keep any standing limit at or below Legion's caps. The agent gets a status word and a transaction id, never wallet text. Not built: spends from other bots, scheduled or repeated spends, and several outputs. Not verified: it was tested against fake wallets only (bsv-safety-owner-checks).",
       "tags": [
         "bsv",
         "safety",
@@ -5457,7 +5441,7 @@
       "id": "bsv-safety-real-wallet-facts",
       "type": "lesson",
       "title": "What a real BRC-100 wallet was seen to do, and what the specification leaves open",
-      "body": "Observed by hand on 2026-10-02, read-only, on the owner's own BSV Desktop: getVersion answered wallet-brc100-1.0.0, which is not semantic versioning, so Legion accepts a short vendor token followed by a version. getNetwork answered mainnet. isAuthenticated and getHeight answered normally. Every answer was HTTP 200 with a JSON body labelled text/html, so Legion does not check the content type. None of the four read-only methods showed a prompt. From the BRC-100 text: createAction with signing switched off returns a signable transaction with the transaction as Atomic BEEF and a reference, and no fee or change fields, so Legion must decode the BEEF itself; abortAction takes that reference; signAction takes it back. The BRC-100 text (re-read 2026-10-06) says the wallet can authenticate the request's originator and seek user permission if necessary, and gives only example error codes that wallets may rename; it names no decline code and no rule for which call prompts. A reference lost in a crash cannot be aborted through the public interface. BSV Desktop keeps testnet in a separate database from mainnet. From the wallet-toolbox source (WalletPermissionsManager, now in ts-stack; the old repo is archived; read 2026-10-06; not observed on a real wallet): the spending check runs in createAction; signAction checks the reference belongs to the caller and aborts the build on error; a spend inside a stored grant with room left does not ask again (a per-request grant cache was removed). Not yet observed: any signing prompt, the unsigned transaction's real shape, and a decline answer.",
+      "body": "Observed by hand on 2026-10-02, read-only, on the owner's own BSV Desktop: getVersion answered wallet-brc100-1.0.0, which is not semantic versioning, so Legion accepts a short vendor token followed by a version. getNetwork answered mainnet. isAuthenticated and getHeight answered normally. Every answer was HTTP 200 with a JSON body labelled text/html, so Legion does not check the content type. None of the four read-only methods showed a prompt. From the BRC-100 text: createAction with signing switched off returns a signable transaction with the transaction as Atomic BEEF and a reference, and no fee or change fields, so Legion must decode the BEEF itself; abortAction takes that reference; signAction takes it back. The specification says nothing about user prompts or decline codes, and a reference lost in a crash cannot be aborted through the public interface. BSV Desktop keeps testnet in a separate database from mainnet. From the wallet-toolbox source (WalletPermissionsManager, master, read 2026-10-06; not observed on a real wallet): the spending check runs in createAction, signAction passes straight through, and a spend inside a stored grant, monthly or one-time, does not ask again. Not yet observed: any signing prompt, the unsigned transaction's real shape, and a decline answer.",
       "tags": [
         "bsv",
         "wallet",
@@ -5479,16 +5463,8 @@
           "licence": "Project-internal design document (Legion owner)"
         },
         {
-          "ref": "https://github.com/bsv-blockchain/ts-stack/blob/main/packages/wallet/wallet-toolbox/src/WalletPermissionsManager.ts",
+          "ref": "https://github.com/bsv-blockchain/wallet-toolbox/blob/master/src/WalletPermissionsManager.ts",
           "licence": "Source code; licence not checked here; summarised in fresh words, not copied"
-        },
-        {
-          "ref": "https://brc100.org/",
-          "licence": "Open BSV License Version 6 (site footer; LICENSE.txt in p2ppsr/brc100.org; checked 2026-10-06); use limited to the BSV blockchain; summarised, not copied"
-        },
-        {
-          "ref": "https://github.com/bsv-blockchain/BRCs/blob/master/wallet/0100.md",
-          "licence": "Open BSV License per the bsv.brc.dev index (repo licence file not read); summarised in our own words, not copied"
         }
       ],
       "confidence": 0.8,
@@ -5526,135 +5502,6 @@
       "confidence": 0.7,
       "createdBy": "system",
       "createdAt": "2026-10-02T00:00:00.000Z",
-      "updatedAt": "2026-10-06T00:00:00.000Z"
-    },
-    {
-      "id": "bsv-src-brc100-org",
-      "type": "source",
-      "title": "Source: brc100.org, the official BRC-100 developer site",
-      "body": "The official one-page developer guide for BRC-100, the wallet-to-application interface. It introduces the interface, groups the methods into payments and transactions, keys and cryptography, and identity and certificates, and shows editable WalletClient examples that send nothing. It lists reference wallets (BSV Desktop and BSV Browser) and other wallets and apps, each labelled with its integration state, and links the specification in the BRCs repository, the TypeScript SDK reference and the wallet toolbox. It says wallet experience, supported transports, permission policies, storage, backup and recovery can differ between wallets, and tells developers to test against the wallets they target. It does not describe how an app outside a browser is identified, nor any port or transport. Read 2026-10-06. Legion summarises it in its own words and defers to the live page and the specification.",
-      "tags": [
-        "bsv",
-        "source",
-        "brc-100"
-      ],
-      "scope": "bsv",
-      "props": {
-        "module": "sources",
-        "order": 206
-      },
-      "sources": [
-        {
-          "ref": "https://brc100.org/",
-          "licence": "Open BSV License Version 6 (site footer; LICENSE.txt in p2ppsr/brc100.org; checked 2026-10-06); use limited to the BSV blockchain; summarised, not copied"
-        }
-      ],
-      "confidence": 0.8,
-      "createdBy": "system",
-      "createdAt": "2026-10-06T00:00:00.000Z",
-      "updatedAt": "2026-10-06T00:00:00.000Z"
-    },
-    {
-      "id": "bsv-brc100-originator-permissions",
-      "type": "lesson",
-      "title": "BRC-100 originators and permissions: what the text says and leaves open",
-      "body": "Read from the BRC-100 text and brc100.org on 2026-10-06. The text says requests carry their originator, so the wallet can authenticate the originator and seek user permission if necessary. It does not say how a wallet should authenticate an originator and names no transport or port, so how a local desktop app is identified is left to each wallet and SDK; Legion's own code treats its origin as self-declared (bsv-wallet-choice). Permissions follow BRC-43: level 0 is open, level 1 needs authorization for a protocol across counterparties, level 2 needs permission per counterparty; the wallet manages grants with expiry and user notifications. The text gives no rule for createAction versus signAction, no spending-grant format and no decline code. brc100.org says a wallet may ask the user, tells developers to handle declined permissions and to check permission behaviour in each target wallet. Privileged mode, a second key set for key methods, needs a stated reason. So do not assume that every wallet asks, or asks at the same call.",
-      "tags": [
-        "bsv",
-        "wallet",
-        "permissions",
-        "brc-100"
-      ],
-      "scope": "bsv",
-      "props": {
-        "module": "wallets",
-        "gapType": "new",
-        "relatesToExisting": "bsv-brc100-wallet, bsv-brc116-wallet-permissions, bsv-wallet-choice",
-        "verify": "How BSV Desktop identifies a local HTTP caller was not read from the site; see bsv-safety-real-wallet-facts for what was and was not observed.",
-        "order": 207
-      },
-      "sources": [
-        {
-          "ref": "https://brc100.org/",
-          "licence": "Open BSV License Version 6 (site footer; LICENSE.txt in p2ppsr/brc100.org; checked 2026-10-06); use limited to the BSV blockchain; summarised, not copied"
-        },
-        {
-          "ref": "https://github.com/bsv-blockchain/BRCs/blob/master/wallet/0100.md",
-          "licence": "Open BSV License per the bsv.brc.dev index (repo licence file not read); summarised in our own words, not copied"
-        }
-      ],
-      "confidence": 0.8,
-      "createdBy": "system",
-      "createdAt": "2026-10-06T00:00:00.000Z",
-      "updatedAt": "2026-10-06T00:00:00.000Z"
-    },
-    {
-      "id": "bsv-brc100-createaction-errors",
-      "type": "lesson",
-      "title": "BRC-100 createAction shapes, errors and name rules",
-      "body": "From the BRC-100 text, read 2026-10-06. createAction either builds and signs a transaction or returns a signableTransaction when some inputs are left for later; signAction completes it and abortAction cancels one that is not finished. Current interoperable wallets also use createAction for batching and chained sends (noSend, sendWith, change remixing), so a valid request may carry no explicit inputs or outputs: code that inspects a request must not assume it has any. Explicit inputs need an inputDescription; an output with no basket is untracked and does not appear in listOutputs. Labels on actions and tags on outputs only help search and trigger nothing. Errors keep one shape: status (always error), code, description and an optional context. ERR_MISSING_PARAMETER, ERR_INVALID_PARAMETER_VALUE and ERR_CONFLICTING_PARAMETERS are examples only, and wallets may use their own codes, so match on the shape and treat codes as wallet-specific. String limits count UTF-8 bytes, not characters. Legion's spend tool decodes the unsigned build itself (bsv-safety-spend-flow).",
-      "tags": [
-        "bsv",
-        "wallet",
-        "brc-100",
-        "createaction",
-        "errors"
-      ],
-      "scope": "bsv",
-      "props": {
-        "module": "wallets",
-        "gapType": "new",
-        "relatesToExisting": "bsv-brc100-wallet, bsv-safety-spend-flow, bsv-safety-real-wallet-facts",
-        "verify": "Example error codes and the batching wording come from the current BRC-100 text on master; re-read before relying on them.",
-        "order": 208
-      },
-      "sources": [
-        {
-          "ref": "https://github.com/bsv-blockchain/BRCs/blob/master/wallet/0100.md",
-          "licence": "Open BSV License per the bsv.brc.dev index (repo licence file not read); summarised in our own words, not copied"
-        },
-        {
-          "ref": "https://brc100.org/",
-          "licence": "Open BSV License Version 6 (site footer; LICENSE.txt in p2ppsr/brc100.org; checked 2026-10-06); use limited to the BSV blockchain; summarised, not copied"
-        }
-      ],
-      "confidence": 0.8,
-      "createdBy": "system",
-      "createdAt": "2026-10-06T00:00:00.000Z",
-      "updatedAt": "2026-10-06T00:00:00.000Z"
-    },
-    {
-      "id": "bsv-brc219-permission-prompt-liveness",
-      "type": "lesson",
-      "title": "BRC-219: pending permission requests and application timeouts",
-      "body": "Read 2026-10-06. BRC-219 says that when an interactive wallet needs the user's permission, it either shows a prompt and keeps the request pending until the user grants or denies, or returns an error at once. Applications should not add permission-specific timeouts: a request that hangs means the wallet is waiting for the user, and a wallet that hangs without a prompt is non-compliant. Wallets and transports should not abort such a request only because time passed; a lost connection or process is ordinary transport failure. Non-interactive wallets must not hang. Status, version, network and authentication probes must not trigger a prompt, and a request that says not to seek permission must fail rather than wait. Legion follows this: its spend path waits up to 15 minutes for the unsigned build, a safety cap that BRC-219 does not ask for, and shows the request as waiting for the wallet with a Cancel. If the cap passes it refuses as wallet-no-answer, and it never retries a spend after that without the owner checking the wallet first (bsv-safety-spend-flow).",
-      "tags": [
-        "bsv",
-        "wallet",
-        "brc-219",
-        "permissions"
-      ],
-      "scope": "bsv",
-      "props": {
-        "module": "wallets",
-        "gapType": "new",
-        "relatesToExisting": "bsv-brc100-originator-permissions, bsv-safety-spend-flow, bsv-wallet-choice",
-        "verify": "Status of BRC-219 was not read; re-check before relying on it. Whether BSV Desktop follows it was not tested.",
-        "order": 209
-      },
-      "sources": [
-        {
-          "ref": "https://bsv.brc.dev/wallet/0219",
-          "licence": "Open BSV License per the bsv.brc.dev index (repo licence file not read); summarised in our own words, not copied"
-        },
-        {
-          "ref": "https://raw.githubusercontent.com/bsv-blockchain/BRCs/master/wallet/0219.md",
-          "licence": "Open BSV License per the bsv.brc.dev index (repo licence file not read); summarised in our own words, not copied"
-        }
-      ],
-      "confidence": 0.75,
-      "createdBy": "system",
-      "createdAt": "2026-10-06T00:00:00.000Z",
       "updatedAt": "2026-10-06T00:00:00.000Z"
     }
   ],
@@ -11621,150 +11468,6 @@
       "note": "unknown outcomes and the log",
       "createdBy": "system",
       "createdAt": "2026-10-02T00:00:00.000Z"
-    },
-    {
-      "id": "e-bsv-brc100-originator-permissions-part_of-bsv-mod-wallets",
-      "from": "bsv-brc100-originator-permissions",
-      "to": "bsv-mod-wallets",
-      "rel": "part_of",
-      "createdBy": "system",
-      "createdAt": "2026-10-06T00:00:00.000Z"
-    },
-    {
-      "id": "e-bsv-brc100-originator-permissions-depends_on-bsv-brc100-wallet",
-      "from": "bsv-brc100-originator-permissions",
-      "to": "bsv-brc100-wallet",
-      "rel": "depends_on",
-      "createdBy": "system",
-      "createdAt": "2026-10-06T00:00:00.000Z"
-    },
-    {
-      "id": "e-bsv-brc100-originator-permissions-cites-bsv-src-brc100-org",
-      "from": "bsv-brc100-originator-permissions",
-      "to": "bsv-src-brc100-org",
-      "rel": "cites",
-      "createdBy": "system",
-      "createdAt": "2026-10-06T00:00:00.000Z"
-    },
-    {
-      "id": "e-bsv-brc100-originator-permissions-cites-bsv-src-brcs",
-      "from": "bsv-brc100-originator-permissions",
-      "to": "bsv-src-brcs",
-      "rel": "cites",
-      "createdBy": "system",
-      "createdAt": "2026-10-06T00:00:00.000Z"
-    },
-    {
-      "id": "e-bsv-brc100-originator-permissions-relates-bsv-brc116-wallet-permissions",
-      "from": "bsv-brc100-originator-permissions",
-      "to": "bsv-brc116-wallet-permissions",
-      "rel": "relates",
-      "createdBy": "system",
-      "createdAt": "2026-10-06T00:00:00.000Z"
-    },
-    {
-      "id": "e-bsv-brc100-originator-permissions-relates-bsv-wallet-choice",
-      "from": "bsv-brc100-originator-permissions",
-      "to": "bsv-wallet-choice",
-      "rel": "relates",
-      "createdBy": "system",
-      "createdAt": "2026-10-06T00:00:00.000Z"
-    },
-    {
-      "id": "e-bsv-brc100-createaction-errors-part_of-bsv-mod-wallets",
-      "from": "bsv-brc100-createaction-errors",
-      "to": "bsv-mod-wallets",
-      "rel": "part_of",
-      "createdBy": "system",
-      "createdAt": "2026-10-06T00:00:00.000Z"
-    },
-    {
-      "id": "e-bsv-brc100-createaction-errors-depends_on-bsv-brc100-wallet",
-      "from": "bsv-brc100-createaction-errors",
-      "to": "bsv-brc100-wallet",
-      "rel": "depends_on",
-      "createdBy": "system",
-      "createdAt": "2026-10-06T00:00:00.000Z"
-    },
-    {
-      "id": "e-bsv-brc100-createaction-errors-cites-bsv-src-brc100-org",
-      "from": "bsv-brc100-createaction-errors",
-      "to": "bsv-src-brc100-org",
-      "rel": "cites",
-      "createdBy": "system",
-      "createdAt": "2026-10-06T00:00:00.000Z"
-    },
-    {
-      "id": "e-bsv-brc100-createaction-errors-cites-bsv-src-brcs",
-      "from": "bsv-brc100-createaction-errors",
-      "to": "bsv-src-brcs",
-      "rel": "cites",
-      "createdBy": "system",
-      "createdAt": "2026-10-06T00:00:00.000Z"
-    },
-    {
-      "id": "e-bsv-brc100-createaction-errors-relates-bsv-safety-spend-flow",
-      "from": "bsv-brc100-createaction-errors",
-      "to": "bsv-safety-spend-flow",
-      "rel": "relates",
-      "createdBy": "system",
-      "createdAt": "2026-10-06T00:00:00.000Z"
-    },
-    {
-      "id": "e-bsv-brc100-wallet-cites-bsv-src-brc100-org",
-      "from": "bsv-brc100-wallet",
-      "to": "bsv-src-brc100-org",
-      "rel": "cites",
-      "createdBy": "system",
-      "createdAt": "2026-10-06T00:00:00.000Z"
-    },
-    {
-      "id": "e-bsv-safety-real-wallet-facts-relates-bsv-brc100-originator-permissions",
-      "from": "bsv-safety-real-wallet-facts",
-      "to": "bsv-brc100-originator-permissions",
-      "rel": "relates",
-      "createdBy": "system",
-      "createdAt": "2026-10-06T00:00:00.000Z"
-    },
-    {
-      "id": "e-bsv-brc219-permission-prompt-liveness-part_of-bsv-mod-wallets",
-      "from": "bsv-brc219-permission-prompt-liveness",
-      "to": "bsv-mod-wallets",
-      "rel": "part_of",
-      "createdBy": "system",
-      "createdAt": "2026-10-06T00:00:00.000Z"
-    },
-    {
-      "id": "e-bsv-brc219-permission-prompt-liveness-depends_on-bsv-brc100-originator-permissions",
-      "from": "bsv-brc219-permission-prompt-liveness",
-      "to": "bsv-brc100-originator-permissions",
-      "rel": "depends_on",
-      "createdBy": "system",
-      "createdAt": "2026-10-06T00:00:00.000Z"
-    },
-    {
-      "id": "e-bsv-brc219-permission-prompt-liveness-cites-bsv-src-brcs",
-      "from": "bsv-brc219-permission-prompt-liveness",
-      "to": "bsv-src-brcs",
-      "rel": "cites",
-      "createdBy": "system",
-      "createdAt": "2026-10-06T00:00:00.000Z"
-    },
-    {
-      "id": "e-bsv-brc219-permission-prompt-liveness-relates-bsv-safety-spend-flow",
-      "from": "bsv-brc219-permission-prompt-liveness",
-      "to": "bsv-safety-spend-flow",
-      "rel": "relates",
-      "createdBy": "system",
-      "createdAt": "2026-10-06T00:00:00.000Z"
-    },
-    {
-      "id": "e-bsv-brc219-permission-prompt-liveness-relates-bsv-wallet-choice",
-      "from": "bsv-brc219-permission-prompt-liveness",
-      "to": "bsv-wallet-choice",
-      "rel": "relates",
-      "createdBy": "system",
-      "createdAt": "2026-10-06T00:00:00.000Z"
     }
   ]
 }

@@ -44,6 +44,12 @@ const MUTANTS: Mutant[] = [
   { id: 'M26', control: 'C5 a zero-sat output', scenario: 'decoder-rejects-bad-values', edits: [E('spend.js', 'if (sats < 1)', 'if (false)')] },
   { id: 'M27', control: 'C5 a repeated transaction', scenario: 'decoder-rejects-bad-values', edits: [E('spend.js', 'if (byId.has(t.txid))', 'if (false)')] },
   { id: 'M29', control: 'C13 a tick while the post-sign probe runs does not rewrite an executed spend', scenario: 'testnet-happy-path', edits: [E('spend.js', "f.phase = 'closing';", 'void 0;')] },
+  { id: 'M30', control: 'A1 a wallet asking its owner for a grant is not timed out like a slow service (BRC-219; 15 min safety cap)', scenario: 'build-waits-for-a-wallet-that-asks-first', edits: [E('spend.js', 'createTimeoutMs: 900_000', 'createTimeoutMs: 120_000')] },
+  { id: 'M31', control: 'A1 no answer in time is wallet-no-answer, not build-failed', scenario: 'wallet-no-answer-is-its-own-code', edits: [E('spend.js', "created.kind === 'timeout' ? 'wallet-no-answer' : 'build-failed'", "'build-failed'")] },
+  { id: 'M32', control: 'A1 a build that arrives for a request the owner already ended is released, never shown', scenario: 'cancel-while-the-wallet-asks', edits: [E('spend.js', 'if (isOver(f)) {\n            abort(f);\n            return;\n        }', '')] },
+  { id: 'M33', control: 'A1 Freeze ends a wait for the wallet at once', scenario: 'freeze-while-the-wallet-asks', edits: [E('spend.js', "f.phase === 'building' && (policy.isFrozen || !probe.connected)", 'false')] },
+  { id: 'M34', control: 'A1 Deny ends a request whose build the wallet has not answered', scenario: 'cancel-while-the-wallet-asks', edits: [E('spend.js', "if (f.phase === 'building' && input.decision === 'deny') {", 'if (false) {')] },
+  { id: 'M35', control: 'A1 the release goes to the wallet the build was asked of, even after Disconnect', scenario: 'disconnect-while-the-wallet-asks', edits: [E('spend.js', 'f.walletUrl ?? probe.connectedUrl', 'probe.connectedUrl')] },
   { id: 'M28', control: 'C22 the 24 h window is rebuilt per network from the audit log', scenario: 'mainnet-end-to-end-with-restart', edits: [E('policy.js', 'const net = parseNet(e.fields.net);', "const net = 'test';")] },
 ];
 

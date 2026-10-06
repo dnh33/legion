@@ -85,7 +85,7 @@ Cloud work runs on the claude.ai/code web surface (credits). Branches live in pr
 ## After install: Legion MCP for Claude Code (owner approved 2026-10-02, user scope)
 
 1. Back up `~/.claude.json` to `~/.claude/backups/2026-10-02-legion-mcp/` with RESTORE.md.
-2. `claude mcp add --scope user legion -- node "%LOCALAPPDATA%\Programs\Legion\dist\srcin\legion-mcp-stdio.js"` (stdio bridge reads the token itself; no token in the Claude config).
+2. `claude mcp add --scope user legion -- node "%LOCALAPPDATA%\Programs\Legion\dist\srcbin\legion-mcp-stdio.js"` (stdio bridge reads the token itself; no token in the Claude config).
 3. Verify tools list, then a one-line Haiku task. Token class cannot approve cards, accept notes or change settings. Remove with `claude mcp remove legion`.
 
 ## Item G: GitHub-ready docs and current screenshots (owner request 2026-10-02) - runs LAST, after BSV and Blender are merged
@@ -1704,3 +1704,34 @@ Removed from `CHANGELOG.md` `## [0.2.5-g]` (public file, `.claude/skills/public-
 - **CI entry (was under "Changed"), removed: release tooling, no value to a user.** Text: "CI runs on GitHub's runners, split into parallel shards, on Windows, Ubuntu and macOS (Apple Silicon). One job runs typecheck and the UI build. Actions are pinned to commit SHAs, and the token is read-only and not kept after checkout." Belongs to branch `ci/green-mac-shards`; on this worktree's base (`bb663c2`) `.github/workflows/ci.yml` still runs Windows and Ubuntu only, with no macOS and no shards. The two house-context entries under "Fixed" (copy keeps the shipped file's date; Windows-style paths on macOS and Linux) are also only true once that branch is merged: they live in its `src/core/house/sync.ts` and `context.ts`, not in this worktree.
 - **"Not verified on a real wallet yet." (end of the BSV "Fixed" entry), removed: banned development-state hedge.** The unverified fact itself: that wallet-toolbox wallets (BSV Desktop) ask once for a spending grant while building a payment, before Legion's card, and then not again inside that grant, is a peer-session finding that no check on the owner's real wallet has recorded yet. Record it as a real-PC check before the changelog or docs claim it as observed (README and docs/BSV-MODE.md keep the scoped "whether your wallet asks too depends on the wallet").
 - **"has been tested with fake wallets only, not yet with a real wallet or real funds" (in the "Changed" testing-preview entry), removed: same hedge.** The UI, the README (BSV section) and docs/BSV-MODE.md still carry the testing-preview notice; only the changelog sentence now says "say so". `test/bsv-preview-notice.test.ts` pins the notice itself and the word "testing preview" in the changelog, so its text is unchanged.
+
+## 2026-10-06 — BSV spend residuals (branch fix/bsv-spend-residuals, worktree D:/bots\legion-bsv-residuals, PR pending)
+
+Plan: `claude/plan-bsv-spend-residuals.md` (facts table with sources). Closes the KNOWN RESIDUALS above:
+- `spend.ts`: tool text and result sentence no longer say the wallet asks again; A1/A6 comments revised; `createTimeoutMs` 30 s ->
+  120 s (= CARD_TTL_MS; a wallet-toolbox wallet holds createAction while it asks for a grant); new reason code `wallet-no-answer`
+  (deadline passed; any other build failure stays `build-failed`); the agent is told to send the owner to the wallet, not ask again.
+  SPEND_PINS re-pinned; independent review signed it off 2026-10-06 (225/225 targeted tests, M30 and M31 red, pin = bsv-spend-pin.mjs).
+- `index.ts` comments; fake wallet grant mode (`grant: 'toolbox'`, in-process only; the harness twin does not have it yet);
+  scenarios build-waits-for-a-wallet-that-asks-first, wallet-no-answer-is-its-own-code, a-refused-grant-builds-nothing,
+  freeze-while-the-wallet-asks; mutants M30 (deadline back to 30 s) and M31 (code mapping removed).
+- FOR THE OWNER (found, not changed): Freeze disconnects the wallet first (`index.ts` freeze handler), so Legion sends no
+  `abortAction` for a build the wallet finishes after Freeze or for an open card: the wallet keeps that unsigned build (coins
+  locked) until the owner declines it there or the wallet releases it (wallet-toolbox: ~5-10 min, `TaskFailAbandoned`). By design
+  "after Freeze no wallet contact"; decide whether Freeze should still send that one cancel.
+- Late approval after `wallet-no-answer`: Legion never received a reference, so it cannot cancel that build (same release path).
+- Pack v10 with brc100.org content (owner request, relayed by the mod-planning session): subagent; contradictions listed in the PR.
+- W3 revised (hold 130 s, expect `wallet-no-answer`), PC-BSVT-26 regenerated.
+
+- ROUND 2 (owner decisions 2026-10-06, question UI): BRC-219 (Wallet Permission Prompt Liveness, merged 2026-07-30: apps should
+  not time out a request while the wallet asks its user) -> "follow it + safety cap": createTimeoutMs 120 s -> 15 min; the panel
+  lists builds the wallet has not answered as "waiting for your wallet" with Cancel (reuses the native Deny path: decide() now
+  accepts deny while building); Freeze and Disconnect end the wait at once (reconcile handles phase building; the timer runs while
+  a build waits); a build the wallet finishes after that is released with abortAction sent to the wallet the build was asked of
+  (so the earlier "Freeze sends no cancel" finding is resolved: after Freeze/Disconnect Legion's own code sends abortAction only);
+  a wallet that signs early on an ended request still becomes unknown. New scenarios cancel-/disconnect-while-the-wallet-asks,
+  mutants M32-M35. SPEND_PINS re-pinned; independent review signed off round 2 (658/658 targeted tests, M30-M35 red, pin = bsv-spend-pin.mjs).
+- Sources re-checked 2026-10-06: the wallet-toolbox repo was archived 2026-06-12; the live code is
+  bsv-blockchain/ts-stack packages/wallet/wallet-toolbox (WalletPermissionsManager.ts: createAction builds, binds the reference,
+  then ensureSpendingAuthorization L1717 (a stored monthly grant with room left is not asked about), aborts on deny; signAction
+  L4857 checks the caller owns the reference, no prompt). BSV Desktop master pins @bsv/wallet-toolbox 2.14.5.

@@ -17,16 +17,16 @@ const REPO = fileURLToPath(new URL('../../', import.meta.url));
 const read = (rel: string) => readFileSync(join(REPO, rel), 'utf8');
 const dirFiles = (rel: string, re: RegExp) => readdirSync(join(REPO, rel)).filter((n) => re.test(n)).map((n) => `${rel}/${n}`);
 
-/** Person-readable app text (strings and JSX text; comments are maintainer notes). spend.ts is pinned and has no such sentence. */
+/** Person- and agent-readable app text (strings and JSX text; comments are maintainer notes), including the spend tool's own text. */
 const SOURCES = [
   ...dirFiles('ui/src/bsv', /\.tsx?$/),
   ...dirFiles('src/shared', /^bsv-.*\.ts$/),
-  ...dirFiles('src/core/bsv', /\.ts$/).filter((f) => !f.endsWith('/spend.ts')),
+  ...dirFiles('src/core/bsv', /\.ts$/),
   'src/electron/admin-logic.ts',
 ].map((f) => ({ name: f, text: lex(read(f)).kept }));
 
 /** A certainty about the wallet's prompt: "the wallet then shows its own prompt", "will show", "follows every time", "needs ... the wallet's own prompt", "... is the last gate". */
-const CERTAIN = /wallet (?:will show|then shows|shows) its own prompt|own prompts? follows?|needs[^.]{0,80}(?:the|your) wallet'?s own prompt|then (?:the|your) wallet'?s own prompt|own prompts?[^.]{0,40}\b(?:is|are|remains?) the (?:real )?last gate|which is the last gate/i;
+const CERTAIN = /wallet asks again|again in the wallet|wallet (?:will show|then shows|shows) its own prompt|own prompts? follows?|needs[^.]{0,80}(?:the|your) wallet'?s own prompt|then (?:the|your) wallet'?s own prompt|own prompts?[^.]{0,40}\b(?:is|are|remains?) the (?:real )?last gate|which is the last gate/i;
 export const DEPENDS = /whether (?:your|the) wallet asks too depends on the wallet/;
 
 test('wallet prompt: the check catches the old certainties', () => {

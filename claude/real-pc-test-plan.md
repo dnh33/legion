@@ -1471,17 +1471,18 @@ Generated from `scripts/harness/pc-checks.json` with `node scripts/harness/pc-re
 - **Evidence:** PC-BSVT-25.png and the audit lines.
 - **Result:** not-run | date: - | evidence path: -
 
-#### PC-BSVT-26: W3: the wallet's grant prompt left open past Legion's 30 s build deadline
+#### PC-BSVT-26: W3: the wallet's grant prompt left open; Cancel in Legion; a late approval in the wallet
 
 - **Source:** claude/tracker-pc-checks.md W3; BRC-100 leaves it to the wallet; wallet-toolbox asks at createAction for a spending grant per originator, then not again inside it, and never at signAction (docs/BSV-WALLET-DESIGN.md section 10, update 2026-10-06)
 - **Gate / depends:** G8 / after PC-BSVT-24
 - **Safety / automation:** real-wallet / owner-only
 - **Preconditions:** No grant for legion.local.
 - **Steps:**
-  1. Ask for a spend; leave the wallet's grant prompt open for 40 s.
-  2. Decline it in the wallet.
-  3. Check the spendable balance.
-- **Expected:** Legion reports build-failed after 30 s; after the decline the coins are not left locked. Record what the wallet does if approved late instead (a separate run).
+  1. Ask for a spend; leave the wallet's grant prompt open for 3 minutes.
+  2. Press Cancel on the waiting request in the BSV panel.
+  3. Approve the wallet's prompt late.
+  4. Check the spendable balance and the audit lines.
+- **Expected:** Legion keeps waiting (up to 15 min, BRC-219) and lists the request as waiting for your wallet; Cancel ends it at once; after the late approval Legion releases the build (abortAction): nothing is shown or signed and no coins stay locked.
 - **Evidence:** PC-BSVT-26.png and the audit lines.
 - **Result:** not-run | date: - | evidence path: -
 

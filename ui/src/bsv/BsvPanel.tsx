@@ -112,7 +112,13 @@ function SpendSection({ p }: { p: PolicyView }) {
     <section className="bsv-sec" aria-labelledby="bsv-h-spend">
       <h3 id="bsv-h-spend">Requests from the Assayer</h3>
       <p className="bsv-line" data-spend={p.spendTools ? 'on' : 'off'}>{m.headline}</p>
-      {m.pending.length === 0 && m.unknown.length === 0 && <p className="bsv-fine">Nothing is waiting for your answer.</p>}
+      {m.pending.length === 0 && m.waiting.length === 0 && m.unknown.length === 0 && <p className="bsv-fine">Nothing is waiting for your answer.</p>}
+      {m.waiting.map((r) => (
+        <div className="bsv-row" key={r.requestId} data-spend-waiting={r.requestId}>
+          <span className="bsv-line">{r.label}</span>
+          <button type="button" className="btn-ghost" disabled={!bridge || changing} onClick={() => void changePolicy({ kind: 'spend-deny', requestId: r.requestId })}>Cancel</button>
+        </div>
+      ))}
       {m.pending.map((r) => (
         <div className="bsv-row" key={r.requestId} data-spend-pending={r.requestId}>
           <span className="bsv-line">{r.label}</span>
