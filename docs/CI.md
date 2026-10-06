@@ -20,7 +20,7 @@ Measured on run [37433983238](https://github.com/dnh33/legion/actions/runs/37433
 
 | | Before | After |
 |---|---|---|
-| Whole run, wall-clock | 4 min 50 s, red | 3 min 53 s, green |
+| Whole run, wall-clock | 4 min 58 s, red | 3 min 53 s, green |
 | Windows | 1 job, 4:50 | 4 shards, slowest 2:36 |
 | Ubuntu | 1 job, 3:29 | 2 shards, slowest 2:25 |
 | macOS (Apple Silicon) | not tested | 2 shards, slowest 3:44 |
@@ -38,7 +38,7 @@ Per OS on the green run, with 0 failures everywhere:
 
 The skips are platform-bound tests, each with its reason in the test file (for example, POSIX-only emulation on Windows, a Windows-only file-lock behaviour elsewhere).
 
-So: 50 % more test runs, a third operating system, and 57 s less wall-clock. The slowest shard decides the run now, and it is macOS.
+So: 50 % more test runs, a third operating system, and 65 s less wall-clock. The slowest shard decides the run now, and it is macOS.
 
 ## How it is locked down
 
@@ -46,7 +46,7 @@ So: 50 % more test runs, a third operating system, and 57 s less wall-clock. The
 - It runs on `pull_request`, never `pull_request_target`, so a pull request from a fork gets no secrets and no write access. The workflow uses no secrets at all.
 - `actions/checkout` runs with `persist-credentials: false`: the token is not left in the checkout's git config.
 - Every action is pinned to a full commit SHA (checkout v7.0.1, setup-node v7.0.0), with the version in a comment. Dependabot keeps the pins current.
-- Every job has a time limit, and every test has a 3-minute limit (`--test-timeout=180000`), so a hang fails with the test's name instead of stalling a job until GitHub cancels it.
+- Every job has a time limit, and every test has a 3-minute limit (`--test-timeout=180000`). A test that hangs fails with its name, and so does a test file that stays open after its tests (seen on macOS: `browser-chromium-launch.test.js` "timed out after 180000ms"), instead of stalling a job until GitHub cancels it.
 
 ## What the runners taught us
 
@@ -54,7 +54,7 @@ Moving the suite onto clean machines found three real bugs and several environme
 
 **Real bugs, fixed:**
 
-- **House files on macOS and Linux never updated.** On Linux, `fs.copyFileSync` gives the copy the time of the copy (libuv copies with `copy_file_range`); on Windows, `CopyFileW` keeps the original's time. The house sync compared times, so on Linux every shipped file looked newer than the release, and each update was kept back as "your newer copy". The copy is now stamped with the source's time. A second trap sat inside the fix: Node rounds a `Stats` date to the nearest millisecond, so stamping with `st.mtime` can put the copy 1 ms in the future. The stamp uses seconds as a number, and the comparison allows 1 ms.
+- **House files on Linux never updated.** On Linux, `fs.copyFileSync` gives the copy the time of the copy (libuv copies with `copy_file_range`); on Windows, `CopyFileW` keeps the original's time. The house sync compared times, so on Linux every shipped file looked newer than the release, and each update was kept back as "your newer copy". The copy is now stamped with the source's time. A second trap sat inside the fix: Node rounds a `Stats` date to the nearest millisecond, so stamping with `st.mtime` can put the copy 1 ms in the future. The stamp uses seconds as a number, and the comparison allows 1 ms.
 - **A backslash path did not work in the house tools on macOS and Linux.** On POSIX a backslash is a filename character, so `docs\adr\x.md` did not resolve, and `..\x` named a file instead of an attempt to leave the folder. Backslashes are now separators everywhere.
 - **Blender refused its own export folder under a short-name `LEGION_HOME`.** Windows can spell a folder in its 8.3 short form (`C:\LEGION~1`). Node's JS `realpathSync` keeps that form; `realpathSync.native` expands it. Legion's Blender safety check refuses any path with `~` (it would be a home-folder shortcut), so it refused paths inside Legion's own folder. It failed safe, but it did not work. The folder resolver now returns the long form. GitHub's Windows runner found this: its temp folder is `C:\Users\RUNNER~1\...`.
 
