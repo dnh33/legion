@@ -252,13 +252,14 @@ test('nested asks with maxConcurrent 1 do not deadlock (zealot -> builder -> sco
   assert.equal(scoutTask.fromAgentId, 'builder');
 });
 
-test('ask result is truncated to 4000 chars with a note; ask timeout returns running', async () => {
-  const s = setup((c) => c.agent === 'builder' && c.prompt.endsWith('big') ? (async function* () { yield init('b1'); yield ok('x'.repeat(9000), 'b1'); })() : c.agent === 'builder' && c.prompt.endsWith('slow') ? (async function* () { yield init('b2'); await new Promise(() => undefined); })() : undefined, 4);
+test('ask result is inlined up to 12000 chars, then cut with a pointer to the rest; ask timeout returns running', async () => {
+  const s = setup((c) => c.agent === 'builder' && c.prompt.endsWith('big') ? (async function* () { yield init('b1'); yield ok('x'.repeat(17000), 'b1'); })() : c.agent === 'builder' && c.prompt.endsWith('slow') ? (async function* () { yield init('b2'); await new Promise(() => undefined); })() : undefined, 4);
   const z = s.engine.startTask({ agentId: 'zealot', prompt: 'go', source: 'ui' });
   await s.engine.waitFor(z.id, 3000);
   const r = await s.engine.bridge.ask(z.id, 'builder', 'big') as any;
-  assert.ok(r.result.length < 4100);
-  assert.match(r.result, /\[truncated: 5000 more chars\]$/);
+  assert.equal(r.result.slice(0, 12000), 'x'.repeat(12000));
+  assert.equal(r.result.slice(12000), `
+[5000 more chars not shown. Read them with the result tool: taskId "${r.taskId}", offset 12000.]`);
   const t = await s.engine.bridge.ask(z.id, 'scout', 'slow-not-builder');
   assert.equal(t.status, 'done');
   const slow = await s.engine.bridge.ask(z.id, 'builder', 'slow', { fresh: true, timeoutSeconds: 0.05 }) as any;
@@ -497,4 +498,74 @@ test('coalescing: replies that arrive while the caller is running wait for it, t
   const zc = s.calls.filter((c) => c.agent === 'zealot');
   assert.equal(zc.length, 2, 'both replies in one turn');
   assert.match(zc[1]!.prompt, /^\[Reply from Builder · task [^\]]+\] builder says: a\n\n\[Reply from Scout · task [^\]]+\] scout says: b$/);
+});
+
+
+// ---- reply cap: 12000 chars inline, the rest behind a pointer; nothing is dropped without one
+async function bigScript(len: number, extra?: (c: Call) => AsyncGenerator<any, void> | undefined) {
+  const body = Array.from({ length: len }, (_, i) => String.fromCharCode(97 + (i % 26))).join('');
+  const s = setup((c) => extra?.(c) ?? (c.agent === 'builder' ? (async function* () { yield init('bb'); yield ok(body, 'bb'); })() : undefined), 4);
+  return { s, body };
+}
+
+test('reply cap: a 9,000-char answer now arrives whole (the old 4,000 cap cut it)', async () => {
+  const { s, body } = await bigScript(9000);
+  const z = s.engine.startTask({ agentId: 'zealot', prompt: 'go', source: 'ui' });
+  await s.engine.waitFor(z.id, 3000);
+  const r = await s.engine.bridge.ask(z.id, 'builder', 'big') as any;
+  assert.equal(r.result, body);
+});
+
+test('reply cap: a long tell reply inlines 12000 chars plus a pointer, and the result tool returns the rest exactly', async () => {
+  let fetched: any;
+  let fetchedEnd: any;
+  let idForFetch = '';
+  const { s, body } = await bigScript(30000, (c) => c.agent === 'zealot' && c.n === 1 ? (async function* () {
+    yield init('z1');
+    fetched = await callTool(c.options, 'result', { taskId: idForFetch, offset: 12000 });
+    fetchedEnd = await callTool(c.options, 'result', { taskId: idForFetch, offset: 24000 });
+    yield ok('read it', 'z1');
+  })() : undefined);
+  const z = s.engine.startTask({ agentId: 'zealot', prompt: 'go', source: 'ui' });
+  await s.engine.waitFor(z.id, 3000);
+  const { taskId } = s.engine.bridge.tell(z.id, 'builder', 'big');
+  idForFetch = taskId;
+  await tick(200);
+  await s.engine.waitFor(z.id, 3000);
+  const reply = s.store.listMessages(z.id).filter((m) => m.role === 'user')[1]!.text;
+  const head = `[Reply from Builder · task ${taskId}] `;
+  assert.ok(reply.startsWith(head + body.slice(0, 12000)));
+  assert.equal(reply.slice(head.length + 12000), `
+[18000 more chars not shown. Read them with the result tool: taskId "${taskId}", offset 12000.]`);
+  assert.equal(fetched.isError, undefined, fetched.text);
+  assert.equal(fetched.json.text, body.slice(12000, 24000));
+  assert.equal(fetched.json.next, 24000);
+  assert.equal(fetchedEnd.json.text, body.slice(24000));
+  assert.equal(fetchedEnd.json.next, undefined, 'nothing left');
+  assert.equal(body.slice(0, 12000) + fetched.json.text + fetchedEnd.json.text, body, 'every char is reachable');
+});
+
+test('reply cap: the result tool only reads tasks the caller sent work to, and a tainted result taints the reader', async () => {
+  let mine: any; let other: any;
+  let ids = { b: '', foreign: '' };
+  const s = setup((c) => c.agent === 'zealot' && c.n === 1 ? (async function* () {
+    yield init('z1');
+    mine = await callTool(c.options, 'result', { taskId: ids.b });
+    other = await callTool(c.options, 'result', { taskId: ids.foreign });
+    yield ok('x', 'z1');
+  })() : undefined, 4);
+  const z = s.engine.startTask({ agentId: 'zealot', prompt: 'go', source: 'ui' });
+  await s.engine.waitFor(z.id, 3000);
+  const r = await s.engine.bridge.ask(z.id, 'builder', 'hello') as any;
+  ids.b = r.taskId;
+  const foreign = s.engine.startTask({ agentId: 'scout', prompt: 'owner work', source: 'ui' });
+  await s.engine.waitFor(foreign.id, 3000);
+  ids.foreign = foreign.id;
+  s.engine.markTainted(ids.b);
+  s.engine.startTask({ agentId: 'zealot', prompt: 'read', source: 'ui', continueTaskId: z.id });
+  await s.engine.waitFor(z.id, 3000);
+  assert.equal(mine.json.text, 'builder says: hello');
+  assert.equal(other.isError, true);
+  assert.match(other.text, /not a task you sent work to/);
+  assert.equal(s.engine.isTainted(z.id), true);
 });

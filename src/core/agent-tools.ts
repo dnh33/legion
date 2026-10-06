@@ -83,7 +83,13 @@ function bridgeTools(ctx: AgentToolsCtx) {
     { agent: z.string().describe('Agent id or name'), message: z.string().min(1), fresh: z.boolean().optional(), model: modelParam },
     (a) => guard(async () => bridge.tell(taskId, a.agent, a.message, { fresh: a.fresh, model: await bridge.resolveModel(a.model) })),
   );
-  return [agents, ask, tell];
+  const result = tool(
+    'result',
+    'Read more of an answer from an agent you sent work to, when ask or a reply says chars were not shown. Returns up to 12000 chars from offset, and next if more remain.',
+    { taskId: z.string(), offset: z.number().int().min(0).optional() },
+    (a) => guard(() => bridge.readResult(taskId, a.taskId, a.offset ?? 0)),
+  );
+  return [agents, ask, tell, result];
 }
 
 export function buildAgentToolsServer(ctx: AgentToolsCtx): McpSdkServerConfigWithInstance {

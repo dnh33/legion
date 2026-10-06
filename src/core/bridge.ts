@@ -8,7 +8,12 @@ import type { Store } from './store.js';
 
 export const MAX_DEPTH = 3;
 export const MAX_HOP = 6;
-export const RESULT_MAX_CHARS = 4000;
+/**
+ * Characters of an answer inlined into the caller's context (ask result, tell reply). Was 4,000, which cut 12 of 18 measured replies
+ * (12,189 chars lost, claude/investigation-cost-bridge.md); the longest measured reply was 6,592. Above the cap the rest is never
+ * dropped: a pointer line names the task and the offset, and the `result` tool reads it (Bridge.readResult).
+ */
+export const RESULT_MAX_CHARS = 12_000;
 export const RATE_LIMIT = 30;
 export const RATE_WINDOW_MS = 10 * 60 * 1000;
 /** The per-task model a lead may ask for through `ask`, `tell`, `bot_send` and `room_post`. */
@@ -66,7 +71,11 @@ interface QueueItem {
 /** Between coalesced replies in one caller turn; each reply keeps its own `[Reply from ...]` header. */
 const REPLY_SEPARATOR = '\n\n';
 const isLive = (t: Task) => t.status === 'queued' || t.status === 'running';
-const truncate = (s: string, n = RESULT_MAX_CHARS) => (s.length <= n ? s : `${s.slice(0, n)}\n[truncated: ${s.length - n} more chars]`);
+/** The answer, cut at the inline cap with a pointer to the rest (never cut without one). */
+const capAnswer = (s: string, taskId: string, n = RESULT_MAX_CHARS) => (s.length <= n ? s
+  : `${s.slice(0, n)}\n[${s.length - n} more chars not shown. Read them with the result tool: taskId "${taskId}", offset ${n}.]`);
+/** What a finished task answers: its result, or its error / status when it did not finish. The same text ask, tell and `result` see. */
+const answerOf = (t: Task) => (t.status === 'done' ? (t.result ?? '') : (t.error ?? t.status));
 
 export class Bridge {
   private readonly store: Store;
@@ -200,10 +209,9 @@ export class Bridge {
       if (r.error) throw r.error;
       const t = r.task ?? this.store.getTask(taskId);
       if (!t) throw new BridgeError('The target task no longer exists');
-      const text = t.status === 'done' ? (t.result ?? '') : (t.error ?? t.status);
       // the answer comes back into the caller's context: a tainted answer taints the caller
       if (this.engine.isTainted?.(t.id)) this.engine.markTainted?.(callerTaskId);
-      return { taskId, status: t.status, model: t.model, result: truncate(text) };
+      return { taskId, status: t.status, model: t.model, result: capAnswer(answerOf(t), taskId) };
     } finally {
       if (timer) clearTimeout(timer);
       const left = (this.waiting.get(callerTaskId) ?? 1) - 1;
@@ -228,9 +236,26 @@ export class Bridge {
       // the outcome travels in the header, which only Legion writes: a free-text answer that happens to start with
       // "(error)" is still an answer (review of 0.2.5-f)
       const outcome = r.error ? 'failed' : t?.status === 'done' ? undefined : (t?.status ?? 'gone');
-      this.deliverReply(callerTaskId, target, taskId, truncate(body), outcome);
+      this.deliverReply(callerTaskId, target, taskId, capAnswer(body, taskId), outcome);
     });
     return { taskId };
+  }
+
+  /**
+   * The `result` tool: one slice of the answer of a task this caller's agent sent work to (a pair thread or a fresh ask/tell target:
+   * `fromAgentId` is the caller's agent). It is how the part of an answer above the inline cap is read; anything else is refused. A
+   * tainted task taints the reader, as its inlined answer would.
+   */
+  readResult(callerTaskId: string, taskId: string, offset = 0): { taskId: string; status: string; total: number; offset: number; text: string; next?: number } {
+    const caller = this.store.getTask(callerTaskId);
+    if (!caller) throw new BridgeError('Unknown caller task');
+    const t = this.store.getTask(taskId);
+    if (!t || t.fromAgentId !== caller.agentId) throw new BridgeError(`${taskId} is not a task you sent work to (only the answers of your own ask/tell targets can be read).`);
+    const all = answerOf(t);
+    const from = Math.max(0, Math.min(Math.floor(Number.isFinite(offset) ? offset : 0), all.length));
+    const text = all.slice(from, from + RESULT_MAX_CHARS);
+    if (this.engine.isTainted?.(t.id)) this.engine.markTainted?.(callerTaskId);
+    return { taskId, status: t.status, total: all.length, offset: from, text, ...(from + text.length < all.length ? { next: from + text.length } : {}) };
   }
 
   /** The caller task was cancelled: cancel what it was waiting on and drop its queued messages. */
