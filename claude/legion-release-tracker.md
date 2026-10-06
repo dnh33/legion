@@ -1623,3 +1623,23 @@ ode_modules` is a junction: remove the junction only).
   at 99ad3a7. Draft first; all 5 uploaded digests == local sha256; published 2026-10-06T00:10:48Z as Latest.
 - Live CDN: latest manifest 0.2.5-d, requiresFullInstall false; release-verify OK on the fetched bytes.
 - Open for the owner's PC: U1 (0.2.5-c installs 0.2.5-d), MD1, MD2, TK1-TK4 (claude/tracker-pc-checks.md).
+
+## 2026-10-06 — SHIPPED v0.2.5-e (owner: "when everything is peachy, ship it, properly")
+- Contents (release/0.2.5-e 7381a6a, merge f938c5e): taskbar pinning (window relaunch details + shortcuts get
+  AppUserModelID dev.legion.app); a from-source setup no longer fails on a busy PC (Move-DirectoryPatiently: retry while
+  Windows/antivirus holds the unpacked Node folder; found from a flaky installer test; same fix as
+  cloudsmith-cli-install-script PR #14); the 0.2.5-c splash restored (owner: the takeover is the mod's; not in the
+  changelog; a test keeps the takeover out of the splash); README refresh + density pass (29 Details blocks; hedge tests
+  green); Code of Conduct removed; board test no longer races the fake engine (holdRuns); the A2A UX audit recorded.
+  The 0.2.5-d CHANGELOG entry and GitHub release body no longer mention splash art.
+- Gate on the final tree: 2819 tests, 2774 pass, 0 fail, 45 skipped; typecheck, build:ui clean. Three earlier gate runs
+  failed on load-sensitive tests; each was root-caused and fixed (installer move, board 20 ms window, a github.com URL
+  in a .ps1 comment that the URL-allowlist test rightly refused), not re-run until green.
+- Built from the clean worktree D:\bots\legion-ship-025e at f938c5e. Package D:\bots\legion-pkg-025e (win-x64 285 MB,
+  sha256 e81a3000…). Notes 444 chars. Signed k1 (key copied and deleted in one command). Pre-flight 14 ok / 0 fail (the
+  2 known warnings). release-verify OK. Restore tag pre-merge-0.2.5-e = 581949b.
+- main pushed 581949b..f938c5e (fast-forward). Tag v0.2.5-e at f938c5e. Draft; all 5 digests == local; published
+  2026-10-06T01:35:09Z as Latest. Live CDN: manifest 0.2.5-e, requiresFullInstall false; verify OK on fetched bytes.
+- Open for the owner's PC: P1 (pinning), U1, MD1, MD2, TK2-TK4 (claude/tracker-pc-checks.md).
+- Next: 0.2.5-f = the 7 agent-to-agent bugs (B1-B7, claude/audit-agent-to-agent-ux.md) + the splash's clipped long
+  error (found by the splash sketches: the EPERM/antivirus hint is cut after ~74 px and the log cannot scroll).
