@@ -143,6 +143,14 @@ export function sessionCost(cur: Pick<Task, 'costUsd' | 'costSession' | 'costLeg
   return { costUsd: base + total, costSession: { id, total, base }, costLegacy: legacy ? true : undefined };
 }
 
+/**
+ * Claude Code built-ins a bridge TARGET (a run another agent started with ask/tell) does not get. None fits a peer's answer:
+ * Workflow needs the owner's explicit opt-in, AskUserQuestion has no human to answer it, ReportFindings drives the code-review UI,
+ * and ScheduleWakeup is a /loop tool. Their schemas are re-sent on every API call of the run, so dropping them saves an estimated
+ * ~6.7K input tokens per call (claude/comms-efficiency-measure.md). Owner runs, and replies landing in the caller's own task, keep them.
+ */
+export const BRIDGE_TARGET_DISALLOWED = ['Workflow', 'ReportFindings', 'AskUserQuestion', 'ScheduleWakeup'];
+
 export class EngineError extends Error {
   constructor(message: string, public readonly status: number) { super(message); this.name = 'EngineError'; }
 }
@@ -859,7 +867,7 @@ export class Engine {
       mcpServers: servers,
       // Off (default): only the servers above, asks the CLI to ignore user/project/local MCP config and plugins. claude.ai connectors are asked off in buildChildEnv and in `settings`.
       ...(this.config.claude.inheritMcp === true ? {} : { strictMcpConfig: true }),
-      disallowedTools: ['SendMessage', 'ListAgents', ...this.moduleDisallowed(agent)],
+      disallowedTools: ['SendMessage', 'ListAgents', ...(job.fromAgentId && !job.reply ? BRIDGE_TARGET_DISALLOWED : []), ...this.moduleDisallowed(agent)],
       maxTurns: this.config.claude.maxTurns,
       // optional spend cap per run; on a resumed session it counts only the new spend
       ...(budgetCap(this.config.claude.maxBudgetUsd) !== undefined ? { maxBudgetUsd: budgetCap(this.config.claude.maxBudgetUsd) } : {}),

@@ -1137,3 +1137,22 @@ test('router: a long bridge reply landing in an auto caller does not move it to 
   await s.engine.waitFor(t.id, 3000);
   assert.equal(s.calls[2]!.options.model, 'opus', 'a long request from the owner is still routed by length');
 });
+
+test('bridge targets run without Workflow, ReportFindings, AskUserQuestion and ScheduleWakeup; owner runs and replies landing in the caller keep them', async () => {
+  const BRIDGE_ONLY = ['Workflow', 'ReportFindings', 'AskUserQuestion', 'ScheduleWakeup'];
+  const s = setup(() => (async function* () { yield init('S'); yield res(0.01, 'S'); })());
+  s.store.agents.set('z', mkAgent({ id: 'z', name: 'Zed' }));
+  const owner = s.engine.startTask({ agentId: 'a1', prompt: 'owner asks', source: 'ui' });
+  await s.engine.waitFor(owner.id, 3000);
+  const asked = s.engine.startTask({ agentId: 'a1', prompt: 'peer asks', source: 'agent', bridge: { fromAgentId: 'z', parentTaskId: 'zt', hop: 1, header: '[From Zed]' } });
+  await s.engine.waitFor(asked.id, 3000);
+  s.engine.startTask({ agentId: 'a1', prompt: '[Reply from Zed · task zt] fine', source: 'ui', continueTaskId: owner.id, bridge: { fromAgentId: 'z', reply: true, hop: 1 } });
+  await s.engine.waitFor(owner.id, 3000);
+  const [o, b, r] = s.calls.map((c) => c.options.disallowedTools as string[]);
+  for (const t of BRIDGE_ONLY) {
+    assert.ok(b!.includes(t), `bridge target: ${t} is off`);
+    assert.ok(!o!.includes(t), `owner run: ${t} stays`);
+    assert.ok(!r!.includes(t), `reply in the caller's own task: ${t} stays`);
+  }
+  for (const t of ['SendMessage', 'ListAgents']) assert.ok(b!.includes(t) && o!.includes(t));
+});
