@@ -81,8 +81,130 @@
    :root[data-theme='light'], so a colour-scheme query never fires and the panel ignored the app's theme entirely.
    The trust tags read --accent-text / --warn / --muted, which the theme already defines for both modes. */
 
-/* Narrow: let the button drop under the text rather than squeeze the path to nothing. */
-@media (max-width: 520px) {
-  .house-row { flex-direction: column; align-items: stretch; gap: 8px; }
-  .house-row .set-actions { justify-content: flex-start; }
+/* ---- groups, switches, skills (Release A) ----------------------------------------------------------------------
+   Tokens only: the theme test fails on an unknown variable or a hardcoded colour. Rows are a two-column flex line and
+   the switch has a fixed width, so toggling never moves anything. Every flex child that holds text has min-width: 0,
+   so a long title truncates instead of widening the page at 1.5x. */
+
+.house-group { display: flex; flex-direction: column; gap: 6px; }
+.house-ghead { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin-top: 12px; flex-wrap: wrap; }
+.house-gtext { min-width: 0; flex: 1 1 260px; }
+.house-gtext .house-h { margin: 0 0 2px; }
+.house-gtext .set-hint { margin: 0; }
+.house-hint { margin-left: 6px; font-weight: 400; letter-spacing: 0; text-transform: none; color: var(--muted); font-size: 12px; }
+.house-count { margin-left: 6px; white-space: nowrap; font-weight: 400; letter-spacing: 0; text-transform: none; color: var(--faint); font-variant-numeric: tabular-nums; }
+/* The slot has the same footprint with the button, the Undo offer or the short reason in it, so the header never grows when the offer shows. */
+.house-reset { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: flex-end; min-width: min(260px, 100%); min-height: 28px; }
+.house-undo { display: inline-flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 12.5px; color: var(--text-2); }
+.house-undoerr { color: var(--danger); }
+.house-none { font-size: 12px; color: var(--muted); }
+.house-legend { margin: 0 0 8px; }
+.house-found { margin: 6px 0 0; }
+.house-h:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.house-sgbtn[aria-disabled='true'] { cursor: default; }
+.house-sgforced { color: var(--muted); }
+.house-reset button[aria-disabled='true'], .house-actions button[aria-disabled='true'], .set-error .btn[aria-disabled='true'] { opacity: .6; cursor: progress; }
+.set-error .btn { margin-left: auto; flex: none; }
+.house-readmd h3, .house-readmd h4, .house-readmd h5, .house-readmd h6 { margin: 14px 0 6px; line-height: 1.3; }
+.house-readmd :is(h3, h4, h5, h6):first-child { margin-top: 0; }
+
+.house-search { display: flex; align-items: center; gap: 8px; padding: 0 10px; height: 34px; background: var(--bg); border: 1px solid var(--line-strong); border-radius: 8px; color: var(--muted); transition: border-color var(--t), box-shadow var(--t); }
+.house-search:focus-within { border-color: var(--accent-line); box-shadow: 0 0 0 3px var(--accent-soft); }
+.house-search input::placeholder { color: var(--muted); opacity: 1; }
+.house-search input { flex: 1; min-width: 0; height: 100%; border: 0; outline: 0; background: transparent; color: var(--text); font: inherit; }
+
+.house-banner { margin: 0; padding: 8px 10px; border: 1px solid var(--line-strong); border-left: 3px solid var(--warn); border-radius: 8px; background: var(--warn-soft); color: var(--text-2); font-size: 12.5px; line-height: 1.45; }
+.house-empty { padding: 10px 0; }
+.house-about { margin: 4px 0 0; }
+
+/* Rows: one column of text that may shrink, one column of controls that never does. */
+.house-row { display: block; padding: 10px 12px; }
+.house-line { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.house-main { flex: 1 1 auto; min-width: 0; gap: 2px; }
+.house-title { font-size: 13px; font-weight: 500; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* The whole description, never clamped: it says when to use the skill, and a hover is no way to read it by keyboard or touch. */
+.house-desc { font-size: 12.5px; line-height: 1.4; color: var(--text-2); overflow-wrap: anywhere; }
+.house-path { color: var(--muted); font-size: 11px; }
+.house-meta { flex-wrap: wrap; gap: 4px 8px; margin-top: 2px; }
+.house-meta > * { white-space: nowrap; }
+.house-row.is-off .house-title { color: var(--text-2); }
+.house-actions { flex: none; display: flex; align-items: center; gap: 10px; }
+.house-cq { container: house / inline-size; }
+.house-meta .link-btn { color: var(--text-2); font-size: 11px; }
+.house-meta .link-btn:hover { color: var(--text); }
+
+.house-lock { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; color: var(--muted); white-space: nowrap; }
+
+/* The switch is a real checkbox (role=switch): keyboard, screen readers and forced-colours all keep working. The
+   track is drawn beside it; the input itself fills the label so the whole control is the click target. */
+.house-sw { position: relative; display: inline-flex; align-items: center; gap: 8px; min-width: 62px; height: 28px; cursor: pointer; }
+.house-sw input { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; opacity: 0; cursor: inherit; }
+.house-swtrack { position: relative; flex: none; width: 32px; height: 18px; border-radius: 999px; background: var(--surface-3); border: 1px solid var(--muted); transition: background var(--t) var(--ease), border-color var(--t) var(--ease); }
+.house-swtrack i { position: absolute; top: 2px; left: 2px; width: 12px; height: 12px; border-radius: 50%; background: var(--muted); transition: transform var(--t) var(--ease), background var(--t) var(--ease); }
+/* On: a solid accent track with the ink-coloured knob. Off: a --muted outline on the row. Both pairs clear 3:1 in both themes. */
+.house-sw input:checked ~ .house-swtrack { background: var(--accent); border-color: var(--accent); }
+.house-sw input:checked ~ .house-swtrack i { transform: translateX(14px); background: var(--accent-ink); }
+.house-swtext { width: 22px; font-size: 12px; color: var(--text-2); }
+.house-sw input:focus-visible ~ .house-swtrack { outline: 2px solid var(--accent); outline-offset: 2px; }
+.house-sw input[aria-disabled='true'] { cursor: progress; }
+.house-sw.busy { opacity: .6; cursor: progress; }
+
+.house-rowerr { display: flex; align-items: flex-start; gap: 6px; margin-top: 8px; font-size: 12px; line-height: 1.4; color: var(--danger); }
+.house-rowerr .icon { flex: none; margin-top: 2px; }
+.house-reset .house-rowerr, .house-sgtools .house-rowerr { margin-top: 0; }
+
+/* Skill sub-groups: a disclosure header that is one wide button. */
+.house-skillgroups { display: flex; flex-direction: column; gap: 6px; }
+.house-sg { border: 1px solid var(--line); border-radius: 8px; background: var(--surface); }
+.house-sgh { margin: 0; font-size: inherit; font-weight: inherit; }
+.house-sgbtn { display: flex; align-items: flex-start; gap: 10px; width: 100%; min-height: 40px; padding: 8px 12px; border: 0; border-radius: 8px; background: transparent; color: var(--text); text-align: left; cursor: pointer; }
+.house-sgbtn:hover { background: var(--surface-2); }
+.house-sgbtn:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.house-sgbtn .icon { flex: none; margin-top: 3px; color: var(--muted); transition: transform var(--t) var(--ease); }
+.house-sg.open .house-sgbtn .icon { transform: rotate(90deg); }
+.house-sgtext { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.house-sgname { font-weight: 600; font-size: 13px; overflow-wrap: anywhere; }
+.house-sgsum { color: var(--muted); font-size: 12.5px; line-height: 1.4; overflow-wrap: anywhere; }
+.house-sgcount { flex: 0 1 auto; min-width: 0; max-width: 40%; margin-top: 1px; font-size: 12px; color: var(--text-2); font-variant-numeric: tabular-nums; text-align: right; overflow-wrap: anywhere; }
+.house-sgbody { padding: 0 12px 12px; }
+.house-sgbody[hidden] { display: none; }
+.house-sgtools { display: flex; align-items: center; gap: 8px; min-height: 28px; margin: 2px 0 4px; }
+/* Inside a sub-group the bulk action sits at the left under the header, not in a wide right-aligned slot; and with nothing to
+   offer (no skill on, no Undo, no error) the strip takes no space instead of leaving an empty gap under the header. */
+.house-sgtools .house-reset { min-width: 0; justify-content: flex-start; }
+.house-sgtools:has(> .house-reset:empty) { display: none; }
+
+.house-swcap { font-size: 12px; color: var(--text-2); white-space: nowrap; }
+.house-readdesc { margin: 0 0 8px; font-size: 13px; line-height: 1.5; color: var(--text-2); overflow-wrap: anywhere; }
+.house-readpath { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--font-mono); font-size: 11.5px; color: var(--muted); }
+.house-read { margin: 8px 0 0; padding: 12px; max-height: 60vh; overflow: auto; background: var(--code-bg); border: 1px solid var(--line); border-radius: 8px; font-family: var(--font-mono); font-size: 12px; line-height: 1.5; color: var(--text); white-space: pre-wrap; overflow-wrap: anywhere; }
+.house-readmeta { margin: 8px 0 0; font-size: 12px; line-height: 1.5; color: var(--muted); overflow-wrap: anywhere; }
+.house-readmeta code { font-family: var(--font-mono); font-size: 11.5px; color: var(--text-2); }
+.house-readmeta .link-btn { color: var(--text-2); font-size: inherit; }
+.house-readmd { white-space: normal; background: var(--surface); font-family: inherit; font-size: 13px; line-height: 1.55; }
+.house-read:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+@media (prefers-reduced-motion: reduce) {
+  .house-swtrack, .house-swtrack i, .house-sgbtn .icon, .house-search { transition: none; }
+}
+
+/* Narrow, decided by the column's own width and not the window's: at 1.5x zoom, or beside two sidebars, the settings
+   column can be a few hundred CSS px in a wide window, so a viewport media query never fires. `.house-cq` is the
+   container (inline-size). In a narrow column the row stacks: the text block takes the full width and wraps, the meta
+   line wraps as a unit below it, and the controls sit on their own line (they wrap, never overlap). */
+@container house (max-width: 480px) {
+  .house-row { padding: 10px; }
+  .house-line { flex-direction: column; align-items: stretch; gap: 8px; }
+  .house-main { flex: none; width: 100%; }
+  .house-title { white-space: normal; overflow-wrap: anywhere; }
+  .house-actions { flex-wrap: wrap; justify-content: space-between; row-gap: 6px; }
+  .house-ghead { gap: 6px; }
+  .house-gtext { flex-basis: 100%; }
+  .house-reset { justify-content: flex-start; }
+}
+/* Narrow: the sub-group's count drops under its text, aligned with it, instead of squeezing it or running past the card. */
+@container house (max-width: 400px) {
+  .house-sgbtn { flex-wrap: wrap; }
+  .house-sgcount { flex-basis: 100%; max-width: none; margin: 0 0 0 23px; text-align: left; }
+  .house-sgbody { padding: 0 8px 10px; }
 }
