@@ -7,7 +7,7 @@
  * there. ADR 0010.
  */
 import assert from 'node:assert/strict';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, realpathSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { after, describe, it } from 'node:test';
@@ -17,7 +17,7 @@ import type { HouseModule } from '../src/core/house/index.js';
 import { ADOPTED_NAME, MANIFEST_NAME } from '../src/core/house/trust.js';
 
 const roots: string[] = [];
-const scratch = (): string => { const r = mkdtempSync(join(tmpdir(), 'legion-house-routes-')); roots.push(r); return r; };
+const scratch = (): string => { const r = realpathSync.native(mkdtempSync(join(tmpdir(), 'legion-house-routes-'))); roots.push(r); return r; };
 after(() => { for (const r of roots) { try { rmSync(r, { recursive: true, force: true }); } catch { /* ignore */ } } });
 
 interface Rig { mod: HouseModule; root: string; data: string; layer: string; call: (m: string, p: string, body?: unknown) => Promise<unknown>; paths: string[] }

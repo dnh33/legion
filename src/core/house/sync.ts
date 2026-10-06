@@ -13,7 +13,7 @@
  * Every path in the result is relative to the context root, because that is what `house_read` takes and what the log
  * and the `/api/house` route report. An absolute path here would be a path no tool can use.
  */
-import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, rmdirSync, statSync, unlinkSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, rmdirSync, statSync, unlinkSync, utimesSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { dirname, join, resolve } from 'node:path';
 import { SHIPPED_DIRS, SHIPPED_FILES, normalisePath } from './context.js';
@@ -102,15 +102,23 @@ function copyOne(src: LayerSource, target: string, rel: string, res: SyncResult)
     if (st.size > MAX_COPY_BYTES) { res.skipped.push(rel); return; }
     if (existsSync(dst)) {
       const dstSt = statSync(dst);
-      // copyFileSync preserves mtime, so an untouched copy has exactly the source's mtime and size. Comparing those two
-      // makes a second sync a no-op instead of rewriting the whole layer on every start, which is what a naive
-      // "newer means changed" check gets wrong here.
-      if (dstSt.mtimeMs === st.mtimeMs && dstSt.size === st.size) { res.unchanged.push(rel); return; }
+      // Each copy is stamped with the source's mtime (below), so an untouched copy has the source's mtime and size.
+      // Comparing those two makes a second sync a no-op instead of rewriting the whole layer on every start, which is what
+      // a naive "newer means changed" check gets wrong here. Within a millisecond, not exactly: the stamp goes through
+      // seconds as a double, which can move the sub-millisecond part that ext4 and NTFS keep.
+      const ahead = dstSt.mtimeMs - st.mtimeMs;
+      if (Math.abs(ahead) < 1 && dstSt.size === st.size) { res.unchanged.push(rel); return; }
       // A newer local copy is the user's; do not overwrite it with an older source file.
-      if (dstSt.mtimeMs > st.mtimeMs) { res.keptNewer.push(rel); return; }
+      if (ahead >= 1) { res.keptNewer.push(rel); return; }
     }
     mkdirSync(dirname(dst), { recursive: true });
     copyFileSync(from, dst);
+    // copyFileSync keeps the mtime on Windows but not on Linux (libuv copies with copy_file_range/sendfile and the copy
+    // gets "now"). Without this stamp every copy looked newer than its source on Linux, so a release update was never
+    // copied over it (kept as "the user's newer copy").
+    // Seconds as numbers, not st.mtime: the Stats Date is rounded to the nearest millisecond and can land after the source.
+    // A failed stamp leaves a good copy that is merely rewritten next time; it must not turn the copy into "skipped".
+    try { utimesSync(dst, st.atimeMs / 1000, st.mtimeMs / 1000); } catch { /* copied, not stamped */ }
     res.written.push(rel);
   } catch {
     res.skipped.push(rel);

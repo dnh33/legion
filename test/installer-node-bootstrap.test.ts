@@ -212,7 +212,10 @@ test('PowerShell tests need a PowerShell', { skip: noShell }, () => { assert.ok(
 // Seen on a busy PC (2026-10-06): right after unpacking and running node.exe -v, something (an antivirus scan, the just-exited
 // node.exe) still holds a file in the unpacked folder, and moving it into runtime\node failed with "Access ... is denied".
 // Known Windows behaviour with the same bounded-retry fix: https://github.com/cloudsmith-io/cloudsmith-cli-install-script/pull/14
-test('a folder held open for a moment is still moved into place; a hold that does not end gives up with the real error', { skip: noShell }, async () => {
+// Windows only: a share-mode hold blocks a rename only on Windows. POSIX has no share modes, so pwsh on Linux or macOS moves the
+// held folder at once and there is nothing to wait for (the installer itself targets Windows).
+const noHold = process.platform !== 'win32' ? 'a held file blocks a move only on Windows' : noShell;
+test('a folder held open for a moment is still moved into place; a hold that does not end gives up with the real error', { skip: noHold }, async () => {
   const exe = shells[0]!; const dir = tempDir();
   const from = join(dir, 'unpack', 'node'); mkdirSync(from, { recursive: true }); writeFileSync(join(from, 'node.exe'), 'x');
   const ready = join(dir, 'held'); const release = join(dir, 'release');

@@ -6,7 +6,7 @@
  * folder and nothing ever removed them, eventually filling C:. Route every test
  * temp dir through tempDir() so this process removes what it made.
  */
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, realpathSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -19,9 +19,13 @@ const live = new Set<string>();
  * sibling test process's dirs. (node:test runs one process per file in parallel;
  * a snapshot of "all legion-* dirs" would race and delete a sibling's in-use
  * dir.)
+ *
+ * The path is the real, long form. A CI runner's TEMP is an 8.3 short name (C:\Users\RUNNER~1\...) and macOS's is the
+ * /var -> /private/var link, while the code under test canonicalises paths. `.native` is the variant that expands 8.3
+ * names; the JS realpathSync does not.
  */
 export function tempDir(prefix = 'legion-tmp-'): string {
-  const dir = mkdtempSync(join(tmpdir(), prefix));
+  const dir = realpathSync.native(mkdtempSync(join(tmpdir(), prefix)));
   live.add(dir);
   return dir;
 }

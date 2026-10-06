@@ -91,7 +91,9 @@ export const normalisePath = (p: string): string => p.replace(/\\/g, '/').replac
  * live attempts. Resolving and re-checking the prefix is the only check that holds for symlinks and drive letters too.
  */
 export function resolveInside(root: string, requested: string): string | null {
-  const raw = String(requested ?? '').trim();
+  // A Windows agent writes `docs\adr\x.md`. On POSIX a backslash is a filename character, so without this `..\state.json`
+  // named a file inside the root instead of an escape, and a nested backslash path did not resolve at all.
+  const raw = String(requested ?? '').trim().replace(/\\/g, '/');
   if (!raw || raw.includes('\0')) return null;
   const target = join(root, raw);
   const rel = relative(root, target);
