@@ -51,10 +51,11 @@ test('E4: a Chromium-family browser is started with its arguments, a scrubbed en
       assert.ok(rep.argv.includes('--headless=new') && rep.argv.includes('--remote-debugging-port=0'));
       assert.ok(!rep.argv.includes('--no-sandbox'));
       // a fresh profile inside the run folder, which is inside the system temp folder and carries Legion's prefix. Compared as real paths:
-      // the child reports its cwd resolved, and on macOS the temp folder /var/... is a link to /private/var/...
+      // on macOS the child reports its cwd resolved (/private/var/...) while the temp folder is /var/..., and on a Windows runner it reports
+      // the 8.3 short form (RUNNER~1) it was given, so both sides are resolved
       const real = (p: string): string => realpathSync.native(p);
-      assert.ok(real(rep.userDataDir).startsWith(rep.cwd), 'the profile is inside the run folder');
-      assert.ok(rep.cwd.startsWith(real(tmpdir())) && rep.cwd.includes(RUN_DIR_PREFIX));
+      assert.ok(real(rep.userDataDir).startsWith(real(rep.cwd)), 'the profile is inside the run folder');
+      assert.ok(real(rep.cwd).startsWith(real(tmpdir())) && rep.cwd.includes(RUN_DIR_PREFIX));
       assert.deepEqual(await run.cdp.send('Target.getTargets'), { targetInfos: [] });
       // scrubbed environment
       assert.ok(!('LEGION_TEST_SECRET' in rep.env));
