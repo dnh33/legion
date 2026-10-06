@@ -382,6 +382,51 @@ export function judgeScenario({ name, error, checks, cleanup, ms, ...extra }) {
   return { name, status: problem ? 'FAIL' : 'PASS', ms, checks, ...(problem ? { error: problem } : {}), ...(leftover ? { cleanup } : {}), ...extra };
 }
 
+// ---------------------------------------------------------------------------------------------------------------------------------
+scenario({
+  name: 'ci-panel-routes',
+  proves: ['The CI routes are admin-only (the MCP token gets 403) and answer from the scripted GitHub: runs, jobs, a failed job, logs refused as a state and logs served masked.',
+    'A 403, a 404 and a rate limit from GitHub come back as states in a 200 answer; a rate limit pauses requests until its reset.',
+    'Re-run failed jobs and Cancel reach GitHub only through the admin routes, with the repo, and only with write access.'],
+  doesNotProve: ['Real GitHub, the real client (connectors), the panel UI (checked in a browser by hand), or Windows (claude/tracker-pc-checks.md CI1 to CI4).'],
+  async run(h, t) {
+    const call = (m, p, b, a) => h.call(m, p, b, a);
+    await h.github({ scenario: 'mixed', logs: 'refused', fail: null, resetCalls: true, connection: { auth: 'pat', permissions: { actions: 'write' }, rate: { limit: 5000, remaining: 5000, resetAt: new Date(Date.now() + 3600000).toISOString() } } });
+    t.eq('the token cannot read CI state', (await call('GET', '/api/ci/state', undefined, 'token')).status, 403);
+    t.eq('the token cannot re-run', (await call('POST', '/api/ci/runs/9004/rerun-failed', undefined, 'token')).status, 403);
+    t.eq('no write reached GitHub from the token', (await h.github({})).writes.length, 0);
+    t.eq('set the repo', (await call('PUT', '/api/ci/repo', { repo: 'dnh33/legion' })).status, 200);
+    const runs = await call('GET', '/api/ci/runs');
+    t.ok('runs are listed', runs.status === 200 && runs.json.runs.length >= 5, runs.json);
+    const jobs = await call('GET', '/api/ci/runs/9004/jobs');
+    t.eq('the failed job is named in the summary', jobs.json.summary.failedJobs.map((j) => j.id), [900401]);
+    t.eq('logs refused is a state, not an error', (await call('GET', '/api/ci/jobs/900401/log')).json, { available: false, reason: 'logs-unavailable' });
+    await h.github({ logs: 'ok' });
+    const log = (await call('GET', '/api/ci/jobs/900401/log')).json;
+    t.ok('log is served with the secret masked', log.available && log.masked && !log.text.includes('ghp_abcdef'), log);
+    t.eq('bad id is refused', (await call('GET', '/api/ci/runs/0/jobs')).status, 400);
+    const r1 = await call('POST', '/api/ci/runs/9004/rerun-failed');
+    t.eq('re-run with write access', r1.status, 200);
+    t.eq('the write carried the repo', (await h.github({})).writes, [{ op: 'rerun', runId: 9004, repo: 'dnh33/legion' }]);
+    await h.github({ connection: { permissions: { actions: 'read' } } });
+    t.eq('read-only cannot cancel', (await call('POST', '/api/ci/runs/9005/cancel')).status, 403);
+    await h.github({ fail: { kind: 'not-found' } });
+    await call('PUT', '/api/ci/repo', { repo: 'dnh33/gone' });
+    t.eq('a 404 from GitHub is a state', (await call('GET', '/api/ci/runs')).json.problem?.kind, 'not-found');
+    await h.github({ fail: { kind: 'forbidden', needs: 'read' } });
+    await call('PUT', '/api/ci/repo', { repo: 'dnh33/nope' });
+    t.eq('a 403 from GitHub is a state', (await call('GET', '/api/ci/runs')).json.problem?.kind, 'forbidden');
+    await h.github({ fail: { kind: 'rate-limited', resetAt: new Date(Date.now() + 1800000).toISOString() }, resetCalls: true });
+    await call('PUT', '/api/ci/repo', { repo: 'dnh33/limited' });
+    t.eq('a rate limit is a state', (await call('GET', '/api/ci/runs')).json.problem?.kind, 'rate-limited');
+    await h.github({ fail: null });
+    const before = (await h.github({})).calls;
+    await call('POST', '/api/ci/refresh', { reason: 'manual' });
+    t.eq('paused until the reset: no request made', (await h.github({})).calls, before);
+    await call('PUT', '/api/ci/repo', { repo: null });
+  },
+});
+
 /** Runs scenarios. With `shared` (a handle) they run in that stack; otherwise each gets a fresh stack that is stopped afterwards. */
 export async function runScenarios(names, shared, { verbose = false } = {}) {
   const results = [];

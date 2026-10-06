@@ -78,7 +78,7 @@ it exists and otherwise reports `unavailable` (the panel then says GitHub suppor
     to requests "correctly authorized with an Authorization header"), so ETags save nothing here. The panel says
     "Connect GitHub for live updates".
   - Any 403/429 with rate headers: pause until `resetAt`.
-  One shared cache; SSE event `ci:update` to the UI.
+  One shared cache; SSE event `ci.updated` to the UI.
 - **Log text** is outside content: shown as plain text, capped, never rendered as HTML; a secret-shaped value is
   masked before display.
 - No new fetch file, no tripwire entry, no child process.

@@ -126,6 +126,7 @@ const control = createServer(async (req, res) => {
     if (url.pathname === '/call') return send(200, await callCore(body));
     if (url.pathname === '/script') return send(200, await ipc({ op: 'script', match: body.match, steps: body.steps }));
     if (url.pathname === '/model/log') return send(200, await ipc({ op: 'log' }));
+    if (url.pathname === '/fakes/github') return send(200, await ipc({ op: 'ci', cmd: body }));
     if (url.pathname === '/model/reset') return send(200, await ipc({ op: 'reset' }));
     if (url.pathname === '/fakes/boat') return send(200, { requests: boat.requests.map(({ method, path }) => ({ method, path })), sandboxes: [...boat.sandboxes.entries()].map(([id, s]) => ({ id, ...s })) });
     if (url.pathname === '/fakes/boat/config') { for (const k of ['trial', 'providerConfigured', 'providerFirst', 'stopSticks']) if (typeof body[k] === 'boolean') boat[k] = body[k]; if (Array.isArray(body.forbidden)) boat.forbidden = new Set(body.forbidden.map(String)); return send(200, { ok: true }); }

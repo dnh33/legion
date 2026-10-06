@@ -44,6 +44,7 @@ Tests are `node:test` files in `test/*.test.ts`, compiled to `dist/test/*.test.j
 | Lattice and Library (knowledge graph) | `kg/`, `shared/kg*.ts` | `kg-*`, `library-*`, `perf-l-core`, `perf-l-store` (fakes: `library-fakes.ts`, `kg-helpers.ts`) |
 | BSV read-only mode | `bsv/`, `shared/bsv-*.ts`, `electron/admin-logic.ts` | `bsv-*` (including the tripwire `bsv-tripwire`, `bsv-review-tripwire` via `bsv-scan.ts`, and the hedge test `bsv-hedge`), `kg-bsv-seed` |
 | Blender bridge | `blender/`, `shared/blender.ts` | `blender-*` (fakes: `blender-helpers.ts`) |
+| CI panel (GitHub Actions runs, rate-budgeted poller, float/dock panel) | `src/core/ci/`, `src/shared/ci*.ts`, `ui/src/ci/` | `ci-parse`, `ci-poller`, `ci-routes`, `ci-ui` (fake GitHub: `src/core/ci/fake-github.ts`; harness: `h.github({...})`, scenario `ci-panel-routes`) |
 | Electron main, emulated | `electron/main.ts`, `electron/admin-logic.ts` | `token-v1-electron`, `token-v1-emu`, `bsv-electron-emu`, `bsv-electron-logic`; scenarios in `test/electron-emu/` run the compiled `main.js` with `electron` stubbed (POSIX only) |
 | Installer scripts | `setup.cmd`, `scripts/setup.ps1`, `scripts/uninstall.ps1` | `installer-*` (PowerShell paths are skipped off Windows) |
 | UI logic (no browser) | `ui/src/chat/`, `ui/src/graph/`, `ui/src/bsv/`, `ui/src/mascot/` | `chat-*`, `mascot`, `mascot-m`, `titlebar-layout`, `library-ui-*`, `bsv-ui-view`, `bsv-review-ui`, `blender-ui`, `perf-l-lattice`. The UI also gets `npm run typecheck` and `npm run build:ui`; browser benchmarks are in `test-perf/` (manual) |
