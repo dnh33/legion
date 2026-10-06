@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useStore, type RelicState } from '../store';
 import { useComms } from './commsFeed';
 import { latestFinished } from './finished';
+import { lastToolAt } from './toolActivity';
 
 /** Attention states switch at once; everything else waits out the minimum dwell. */
 const INSTANT = new Set<RelicState>(['awaiting', 'error', 'victory']);
@@ -72,9 +73,8 @@ export function useBustState(agentId: string, enabled = true): { state: RelicSta
   });
   const toolAt = useStore((s) => {
     const t = s.tasks.find((x) => x.agentId === agentId && x.status === 'running');
-    const ms = t ? s.messages[t.id] : undefined;
-    const m = ms && ms.length ? ms[ms.length - 1] : undefined;
-    return m && m.role === 'tool' ? m.at : '';
+    // a denied call (and its denial result) is not work: no "Executing" right after Deny
+    return t ? lastToolAt(s.messages[t.id], s.denials[t.id]) : '';
   });
   const vmState = useStore((s) => s.vms[agentId]?.state);
   const vmEnabled = useStore((s) => s.agents.find((a) => a.id === agentId)?.vm.enabled ?? false);

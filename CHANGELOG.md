@@ -2,6 +2,28 @@
 
 All notable changes are recorded here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+
+- **The Legion is taking over Claude.** On start, the splash shows Claude Code's critter glitch and turn into the Legion
+  helm (steel, green T-visor, plume, binary ring). It plays while the splash is up and nothing waits
+  for it, so start-up is no slower. With "Show animations" off in Windows, you see one still helm. Click the title-bar glyph three times, or
+  choose "Deus vult" in the command palette, to watch the whole takeover again. The art is new: no painted bust changed.
+- **Legion's mark, `Ŧ`, in Claude Code.** When Claude Code runs or continues a Legion task, the result ends with one
+  short line, e.g. `Ŧ LEGION · sworn · done`. The answer and its data come first and are unchanged, and `legion_status`
+  still returns plain JSON. The terminal fonts tested on Windows (Cascadia, Consolas,
+  Lucida Console) all have `Ŧ`; they lack the shield ⛨.
+
+### Fixed
+
+- **An agent's bust no longer says "Executing" right after you press Deny.** The denied call and the denial that comes
+  back (also after the 10-minute auto-deny) no longer count as tool activity, so the bust shows "Deliberating" instead of
+  a label that reads as "it ran anyway". Allowed calls show "Executing" as before.
+- **Zealot's Relic no longer says "Executing" after a Deny either.** A denied or unanswered card now moves the shared
+  mood back to "Deliberating" (with the tool and "denied" or "not answered") while the run goes on. Cancelling a run with
+  an open card still ends on the idle pose.
+
 ## [0.2.5-c] - 2026-10-05
 
 ### Added

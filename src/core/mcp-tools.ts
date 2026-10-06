@@ -61,7 +61,23 @@ function taskSummary(t: Task) {
   };
 }
 
+/**
+ * The Legion mark in Claude Code: one short last line after a run or a follow-up, e.g. "Ŧ LEGION · sworn · done". A separate text
+ * block, so content[0] (the answer and its JSON head) is unchanged. No imperative and no second person: it is a status label, never
+ * an instruction to the model. Not on legion_status, whose whole answer is JSON that clients may join and parse.
+ * `Ŧ` (U+0166) is in every terminal font checked (claude/spec-legion-takeover.md, section 6); its one-cell width is PC check TK2.
+ */
+export function legionTag(status: Task['status']): string {
+  const state = status === 'done' ? 'done' : status === 'error' ? 'fault' : status === 'cancelled' ? 'cancelled' : status === 'queued' ? 'queued' : 'running';
+  return `Ŧ LEGION · sworn · ${state}`;
+}
+const tagged = (r: ToolResult, status: Task['status']): ToolResult => ({ ...r, content: [...r.content, { type: 'text', text: legionTag(status) }] });
+
 function formatRun(t: Task, timedOut: boolean): ToolResult {
+  return tagged(formatRunBody(t, timedOut), t.status);
+}
+
+function formatRunBody(t: Task, timedOut: boolean): ToolResult {
   const head = {
     taskId: t.id, agent: t.agentId, status: t.status, model: t.model, escalated: t.escalated,
     costUsd: t.costUsd, turns: t.turns,
@@ -79,7 +95,7 @@ function formatRun(t: Task, timedOut: boolean): ToolResult {
 
 async function runAndMaybeWait(ctx: CoreContext, t: Task, wait: boolean, timeoutSeconds: number): Promise<ToolResult> {
   if (!wait) {
-    return ok(`Started. ${JSON.stringify({ taskId: t.id, agent: t.agentId, status: t.status })}\nPoll with legion_status, or continue with legion_continue once finished.`);
+    return tagged(ok(`Started. ${JSON.stringify({ taskId: t.id, agent: t.agentId, status: t.status })}\nPoll with legion_status, or continue with legion_continue once finished.`), t.status);
   }
   const final = await ctx.engine.waitFor(t.id, Math.max(1, timeoutSeconds) * 1000);
   return formatRun(final, final.status === 'queued' || final.status === 'running');

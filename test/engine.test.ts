@@ -678,6 +678,60 @@ test('B4: an unanswered approval card is not reported to the model as a user den
   assert.equal((await d).message, 'The user denied this action.');
 });
 
+// The tool_use sets the mood to 'hacking' before canUseTool runs; a denied call never ran, so the Relic must not stay on "Executing".
+function denyRun(timeoutMs?: number) {
+  let release!: () => void;
+  const gate = new Promise<void>((r) => { release = r; });
+  const s = setup((p) => (async function* () {
+    yield init();
+    yield { type: 'assistant', message: { content: [{ type: 'tool_use', id: 'tu_1', name: 'Bash', input: { command: 'rm x' } }] } };
+    await p.options.canUseTool('Bash', { command: 'rm x' }, { signal: new AbortController().signal });
+    await gate; // the run goes on after the decision, as a real one would
+    yield ok('done');
+  })(), { agent: { approval: 'auto-edits' }, ...(timeoutMs ? { approvalTimeoutMs: timeoutMs } : {}) });
+  const t = s.engine.startTask({ agentId: 'a1', prompt: 'x', source: 'ui' });
+  const moods = () => s.events.filter((e: any) => e.type === 'mascot').map((e: any) => [e.mood, e.note]);
+  const card = async () => { for (let i = 0; i < 100 && !s.approvals.pending().length; i++) await new Promise((r) => setTimeout(r, 5)); return s.approvals.pending()[0]!; };
+  const settle = () => new Promise((r) => setTimeout(r, 20));
+  return { s, t, moods, card, settle, release };
+}
+
+test('mascot: a user Deny moves the mood off "hacking" while the run goes on; Allow leaves it', async () => {
+  const d = denyRun();
+  d.s.approvals.resolve((await d.card()).id, false);
+  await d.settle();
+  assert.deepEqual(d.moods().at(-1), ['thinking', 'Bash denied'], 'denied: no longer Executing');
+  assert.ok(d.moods().some(([m]) => m === 'hacking'), 'the tool_use did set hacking first');
+  d.release();
+  assert.equal((await d.s.engine.waitFor(d.t.id, 3000)).status, 'done');
+
+  const a = denyRun();
+  a.s.approvals.resolve((await a.card()).id, true);
+  await a.settle();
+  assert.deepEqual(a.moods().at(-1), ['hacking', 'Bash'], 'allowed: still Executing');
+  a.release();
+  await a.s.engine.waitFor(a.t.id, 3000);
+});
+
+test('mascot: the timeout auto-deny moves the mood off "hacking" too', async () => {
+  const d = denyRun(40);
+  await d.card();
+  await new Promise((r) => setTimeout(r, 80));
+  assert.deepEqual(d.moods().at(-1), ['thinking', 'Bash not answered']);
+  d.release();
+  await d.s.engine.waitFor(d.t.id, 3000);
+});
+
+test('mascot: cancelling a run with an open card ends on idle, not on the deny mood', async () => {
+  const d = denyRun();
+  await d.card();
+  d.s.engine.cancel(d.t.id);
+  await d.settle();
+  assert.deepEqual(d.moods().at(-1), ['idle', 'cancelled']);
+  d.release();
+  await d.s.engine.waitFor(d.t.id, 3000);
+});
+
 test('B4: the timeout message names the real broker wait', async () => {
   const s = setup(() => happy(), { agent: { approval: 'ask' } }); // default broker timeout
   await s.engine.waitFor(s.engine.startTask({ agentId: 'a1', prompt: 'x', source: 'ui' }).id, 3000);

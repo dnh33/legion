@@ -5,7 +5,7 @@ import { describeSeed } from '../../../src/shared/bsv-seed';
 import type { SeedReport } from '../../../src/shared/bsv-seed';
 import type { KgEdge, KgLintReport, KgNode, KgNodeType, KgSearchHit, KgSource, KgSubgraph } from '../../../src/shared/kg';
 import { ApiError, request, subscribe } from '../api';
-import { mapPool, orderOverview, reconcileView, sameHits, seedGroups, touchesDetail, touchesView } from './viewsync';
+import { mapPool, orderOverview, reconcileView, sameHits, sameView, seedGroups, touchesDetail, touchesView } from './viewsync';
 
 export const MAX_VIEW_NODES = 400;
 const RECENT_KEY = 'legion.lattice.recent';
@@ -141,12 +141,15 @@ function mergeIntoView(nodes: KgNode[], edges: KgEdge[], protect: string[] = [],
   }
   publish({ evicted: s.evicted + evicted, ...extra });
 }
-function replaceView(sub: KgSubgraph, cam: Cam['kind'] = 'fit', ids?: string[]) {
-  vNodes.clear(); vEdges.clear();
+function replaceView(sub: KgSubgraph, cam: Cam['kind'] = 'fit', ids?: string[], keepIfSame = false) {
   const nodes = sub.nodes.slice(0, MAX_VIEW_NODES);
+  const truncated = sub.truncated || sub.nodes.length > MAX_VIEW_NODES;
+  // a refresh that re-read the whole view and found what is already on the canvas: no new graph, no layout, no camera move
+  if (keepIfSame && truncated === s.truncated && sameView({ nodes: vNodes, edges: vEdges }, nodes, sub.edges)) { set({ graphLoading: false, noSeeds: false }); return; }
+  vNodes.clear(); vEdges.clear();
   for (const n of nodes) { vNodes.set(n.id, n); touched.set(n.id, ++clock); learn(n); }
   for (const e of sub.edges) vEdges.set(e.id, e);
-  publish({ truncated: sub.truncated || sub.nodes.length > MAX_VIEW_NODES, evicted: 0, graphLoading: false, noSeeds: false, cam: { n: s.cam.n + 1, kind: cam, ids } });
+  publish({ truncated, evicted: 0, graphLoading: false, noSeeds: false, cam: { n: s.cam.n + 1, kind: cam, ids } });
 }
 
 /* ---------- boot / overview ---------- */
@@ -208,7 +211,8 @@ export async function boot() {
 let viewSeq = 0;
 let overviewRunning = 0;
 
-export async function loadOverview(extraSeeds: string[] = []) {
+/** `keepIfSame`: a refresh, not a request for a new view; when the answer matches the canvas nothing is published. */
+export async function loadOverview(extraSeeds: string[] = [], { keepIfSame = false } = {}) {
   const my = ++viewSeq;
   overviewRunning++;
   set({ graphLoading: true });
@@ -220,7 +224,7 @@ export async function loadOverview(extraSeeds: string[] = []) {
       if (my !== viewSeq) return;
       if (all.nodes.length > 0) {
         const present = new Set(all.nodes.map((n) => n.id));
-        replaceView(orderOverview(all, [...new Set([...extraSeeds, ...recentIds()])].filter((id) => present.has(id))));
+        replaceView(orderOverview(all, [...new Set([...extraSeeds, ...recentIds()])].filter((id) => present.has(id))), 'fit', undefined, keepIfSame);
         return;
       }
     }
@@ -237,7 +241,7 @@ export async function loadOverview(extraSeeds: string[] = []) {
     try { sub = await request<KgSubgraph>('GET', `/api/kg/subgraph?seed=${enc(seeds.join(','))}&depth=${small ? 1 : 2}&max=${small ? MAX_VIEW_NODES - 20 : 300}`); }
     catch (e) { if (my !== viewSeq) return; if (e instanceof ApiError && e.status === 404) { set({ graphLoading: false, noSeeds: true }); return; } throw e; }
     if (my !== viewSeq) return;
-    replaceView(sub);
+    replaceView(sub, 'fit', undefined, keepIfSame);
   } catch (e) {
     if (my !== viewSeq) return;
     set({ graphLoading: false, offline: isOffline(e) });
@@ -528,7 +532,7 @@ export function refreshFromServer(changed?: string[]) {
   void request<Stats>('GET', '/api/kg/stats').then((st) => {
     const wasEmpty = (s.stats?.nodes ?? 0) === 0;
     set({ stats: st, ...bsvFrom(st), boot: 'ready', noSeeds: false });
-    if (st.nodes > 0 && (full || wasEmpty || vNodes.size === 0) && !overviewRunning) void loadOverview(changed ?? []);
+    if (st.nodes > 0 && (full || wasEmpty || vNodes.size === 0) && !overviewRunning) void loadOverview(changed ?? [], { keepIfSame: true });
   }).catch(() => {});
   // nothing of the Lattice is on screen (a Library action, with the Inbox or Activity tab open): the tab re-reads everything when it comes back
   if (liveUsers === 0) return;

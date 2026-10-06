@@ -15,6 +15,7 @@ import { SettingsPanel } from './components/Settings';
 import { TaskMenu } from './components/TaskMenu';
 import { Thread } from './components/Thread';
 import { TitleBar } from './components/TitleBar';
+import { Takeover } from './mascot/Takeover';
 import { Toasts } from './components/Toasts';
 import { initLibrary } from './library/libraryStore';
 import { LibraryView } from './library/LibraryView';
@@ -119,6 +120,7 @@ export function App() {
       <Toasts />
       <ChainOverlay />
       <EnableBlenderDialog />
+      <Takeover />
     </div>
   );
 }

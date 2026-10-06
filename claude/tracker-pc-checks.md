@@ -247,3 +247,19 @@ Proven with the scripted model only (`test/engine.test.ts`, `test/turn-limit-con
 | C4 | Settings -> Claude: spend limit $0.10; run a task that costs more. | Amber "Paused at the spend limit" card, calm mascot; Continue resumes. | todo |
 | C5 | A task that uses TodoWrite and thinks; open the window mid-run. | The checklist and "Working · turn N of 200 · tool · time · context" show at once; "Thinking" while it thinks. | todo |
 | D3 | Give Zealot a plain multi-part request ("build a landing page with a signup form and write the release note"), without saying how. Then the same inside a project whose board leader is Builder. | Zealot names the pieces, delegates them (tell, several at once), keeps a plan with owners and status, checks the answers and reports who did what. In the project: it reads the board, sees Builder leads it, and routes the work through Builder instead of running its own plan. | todo |
+
+## 2026-10-06: Deny mood and Lattice camera (uncommitted fixes on main, see the tracker section of the same date). Safety class: a few cents of Claude usage (MD1); none (MD2)
+
+| id | Steps | Expected | Evidence | State |
+|---|---|---|---|---|
+| MD1 | Built app. Give Zealot a task that runs a Bash command that needs a card. Press Deny quickly (under 1 s), then again on a new card after a slow Deny (about 3 s). Then Allow on a third. | After each Deny, the bust and Zealot's Relic go from "Awaiting your word" to "Deliberating", with no "Executing" frame. After Allow, Executing shows as before. | A screen recording or quick screenshots of the bust label after each answer. | todo |
+| MD2 | Built app, Lattice open with a framed view. Toggle BSV mode (or anything that refreshes from the server without changing the graph). | The camera does not jump or re-fit. A real change (a node hidden or deleted elsewhere) still shows after the refresh. | Before and after screenshots of the Lattice. | todo |
+
+## 2026-10-06: the takeover art and the Ŧ mark (uncommitted, spec claude/spec-legion-takeover.md). Safety class: none (TK1, TK2, TK4); a few cents of Claude usage (TK3)
+
+| id | Steps | Expected | Evidence | State |
+|---|---|---|---|---|
+| TK1 | Quit Legion fully, start it from the desktop shortcut, watch the splash. Time the window from double-click to the main window, before and after this change. | The critter idles, glitches and is converted into the helm within about 0.8 s; the helm holds with its ring turning until the fade. On a warm second launch (start it again at once), the helm is fully converted before the fade starts; the headline "THE LEGION IS TAKING OVER CLAUDE" is never clipped. If the boot fails, the error shows next to the still helm, not a glitch frame; the boot lines still appear. The main window opens no later than before. With Windows "Show animations" off: one still helm, no motion. | A screen recording of the splash; the two timings. | todo |
+| TK2 | In Windows Terminal (CaskaydiaCove NF) run `node -e "console.log('Ŧ LEGION · sworn · done|')"`; then look at the same text in a Claude Code desktop session (TK3). | `Ŧ` is drawn, one cell wide: the `|` at the end lines up with a row of 26 ASCII characters above it. | A screenshot of each. | todo |
+| TK3 | In Claude Code with Legion's MCP server: ask it to run a one-line task on Scout through legion_run. | The tool result ends with the line `Ŧ LEGION · sworn · done`, visible when the result is expanded. Claude does not treat it as an instruction. | A screenshot of the expanded tool result. | todo |
+| TK4 | Put docs/images/legion-takeover.gif (frame 1) side by side with Claude Code's own banner critter. | It reads as the critter (an homage) but is not a pixel copy: proportions and palette are Legion's redraw. If it is a near-copy, redraw before publishing. | The side-by-side image. | todo |

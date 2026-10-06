@@ -2,6 +2,7 @@ import { platform } from '../api';
 import { BlenderChip } from '../blender/BlenderChip';
 import { BsvChip } from '../bsv/BsvChip';
 import { RelicGlyph } from '../mascot/Relic';
+import { useTripleClick } from '../mascot/Takeover';
 import { useL } from '../library/libraryStore';
 import { isUnread, useRooms } from '../rooms/roomsStore';
 import { VIEW_KEY_LABELS } from '../viewKeys';
@@ -25,6 +26,7 @@ export function TitleBar() {
   const version = useStore((s) => s.version);
   const settingsOpen = useStore((s) => s.settingsOpen);
   const view = useStore((s) => s.view);
+  const onGlyph = useTripleClick();
   const pending = useL((s) => s.inbox?.length ?? 0);
   const roomAttn = useRooms((s) => s.rooms.filter((r) => r.paused || isUnread(s, r)).length);
   const bad = doctor ? doctor.filter((c) => !c.ok).length : 0;
@@ -34,7 +36,7 @@ export function TitleBar() {
   return (
     <header className="titlebar" style={{ paddingRight: padRight, paddingLeft: padLeft }}>
       <div className="tb-brand">
-        <RelicGlyph size={22} />
+        <button type="button" className="tb-glyph nodrag" aria-label="Legion" tabIndex={-1} onClick={onGlyph}><RelicGlyph size={22} /></button>
         <span className="tb-word">
           <span className="tb-name">Legion</span>
           {version && <span className="tb-ver">v{version}</span>}

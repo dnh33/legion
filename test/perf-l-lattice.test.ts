@@ -7,7 +7,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import type { KgEdge, KgNode, KgSubgraph } from '../src/shared/kg.js';
 import {
-  chunkIds, mapPool, orderOverview, reconcileView, sameEdge, sameHits, sameNode, seedGroups, touchesDetail, touchesView,
+  chunkIds, mapPool, orderOverview, reconcileView, sameEdge, sameHits, sameNode, sameView, seedGroups, touchesDetail, touchesView,
 } from '../ui/src/graph/viewsync.js';
 import { ALPHA_MIN, edgeSig, Sim } from '../ui/src/graph/layout.js';
 
@@ -30,6 +30,19 @@ test('F1: an identical re-read is "same", any visible change is not', () => {
   const e = edge('e', 'a', 'b', { note: 'n', weight: 2 });
   assert.equal(sameEdge(e, clone(e)), true);
   for (const patch of [{ rel: 'cites' as const }, { note: 'm' }, { weight: 3 }, { to: 'c' }]) assert.equal(sameEdge(e, { ...e, ...patch }), false);
+});
+
+test('F1: sameView: a full re-read with the same nodes and links is the same view; one more, one less or one edited is not', () => {
+  const ns = [node('a'), node('b'), node('c')], es = [edge('e1', 'a', 'b'), edge('e2', 'b', 'c')];
+  const v = view(ns, es);
+  assert.equal(sameView(v, clone(ns).reverse(), clone(es)), true, 'order does not matter');
+  assert.equal(sameView(v, clone(ns), [...clone(es), edge('ex', 'c', 'zz')]), true, 'a link to a node not in the answer is dropped by the view anyway');
+  assert.equal(sameView(v, [...clone(ns), node('d')], clone(es)), false, 'a node that became visible');
+  assert.equal(sameView(v, clone(ns).slice(0, 2), [edge('e1', 'a', 'b')]), false, 'a node that was hidden');
+  assert.equal(sameView(v, [node('a', { body: 'edited', rev: 2 }), node('b'), node('c')], clone(es)), false, 'an edited node');
+  assert.equal(sameView(v, clone(ns), [edge('e1', 'a', 'b')]), false, 'a link gone');
+  assert.equal(sameView(v, clone(ns), [...clone(es), edge('e3', 'a', 'c')]), false, 'a new link');
+  assert.equal(sameView(v, clone(ns), [edge('e1', 'a', 'b', { rel: 'cites' }), edge('e2', 'b', 'c')]), false, 'a relabelled link');
 });
 
 test('F1: reconcileView reports no change for an unchanged re-read and keeps the old objects', () => {

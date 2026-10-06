@@ -280,13 +280,16 @@ test('module: id, 9-line preamble (5 graph lines + 4 library lines), per-agent l
 });
 
 test('module: kg.updated is emitted once per burst of writes (debounced), carrying counts and changed ids', async () => {
-  // the four writes must all land inside one window: 60 ms is not enough for loopback HTTP + fsync on a loaded Windows box
-  const s = await setup({ debounceMs: 600 });
-  const ids: string[] = [];
-  for (const t of ['One', 'Two', 'Three']) ids.push((await s.call('POST', '/api/kg/nodes', { title: t })).body.node.id);
-  await s.call('POST', '/api/kg/edges', { from: ids[0], to: ids[1], rel: 'relates' });
+  // The burst runs in one macrotask, straight on the graph, so the debounce timer cannot fire inside it however slow the
+  // lock-file I/O is. Four loopback HTTP writes made this a wall-clock race: single lock-file calls stalled 300-750 ms on a
+  // loaded Windows PC and the event fired mid-burst, even with a 600 ms window (2026-10-06). HTTP writes are covered below.
+  const s = await setup({ debounceMs: 20 });
+  const g = s.mod.graph();
+  const ids = ['One', 'Two', 'Three'].map((title) => g.upsertNode(HUMAN, { title }).node.id);
+  g.link(HUMAN, { from: ids[0]!, to: ids[1]!, rel: 'relates' });
   assert.equal(s.events.filter((e) => e.type === 'kg.updated').length, 0, 'nothing is emitted inside the debounce window');
-  await new Promise((r) => setTimeout(r, 900));
+  // the debounce timer (20 ms, set first) expires before this one, and Node runs timers in expiry order
+  await new Promise((r) => setTimeout(r, 100));
   const ev = s.events.filter((e) => e.type === 'kg.updated');
   assert.equal(ev.length, 1);
   const e = ev[0] as Extract<LegionEvent, { type: 'kg.updated' }>;

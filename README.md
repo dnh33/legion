@@ -4,6 +4,10 @@
 
 **A local multi-agent bot for your desktop — Claude by default, plus OpenRouter for any model — with a VM for every agent when it needs one.**
 
+<img alt="The Claude Code critter glitches and is converted into the Legion helm" src="docs/images/legion-takeover.gif" width="285">
+
+<sub>Ŧ The Legion is taking over Claude. (Art only: Legion is an independent app, is not affiliated with or endorsed by Anthropic, and does not modify Claude Code.)</sub>
+
 [Status](#status) · [Install](#install) · [Orchestrate over MCP](#orchestrate-from-claude-code-or-cowork) · [Architecture](docs/ARCHITECTURE.md) · [Contributing](CONTRIBUTING.md)
 
 </div>

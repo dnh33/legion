@@ -788,6 +788,10 @@ export class Engine {
         { onTimeout: () => { timedOut = true; } },
       );
       if (allowed) return { allow: true };
+      // The tool_use already set the mood to 'hacking'; after a deny nothing else would move it until the run ends, so the Relic
+      // would read "Executing" for a call that never ran. Skip it once the run is cancelled or over (cancel denies open cards too).
+      const live = this.active.get(job.taskId);
+      if (live && !live.cancelled) this.mascot('thinking', `${toolName} ${timedOut ? 'not answered' : 'denied'}`);
       if (timedOut) {
         const wait = this.approvals.timeoutWait;
         // An MCP client started this run (Claude Code, Cowork) or woke it through a chain, so the ceiling is `ask`. Its card can only be answered in the Legion app window, so say so

@@ -165,6 +165,29 @@ test('F1: kg.updated about unrelated nodes costs no node re-read and no new grap
   await m.close();
 });
 
+test('F1: a full re-read (no changed list, e.g. the bsv scope flipped) shows nodes that were not on the canvas and drops ones that are gone', async () => {
+  const m = await mount();
+  const ids = await seedGraph(m, 10);
+  const { store, fetches } = await bundleStore(m.srv);
+  await store.boot();
+  store.startLive();
+  const rev0 = store.getG().graph.rev;
+  // change the graph behind the store's back (no event): one node appears, one is deleted
+  const graph = m.kgMod.graph();
+  const { HUMAN } = await import('../src/core/kg/types.js');
+  graph.upsertNode(HUMAN, { id: 'came-into-view', title: 'Came into view', body: 'was hidden' });
+  const del = await m.http('DELETE', `/api/kg/nodes/${ids[9]!}`, undefined, AUTH);
+  assert.ok(del.status < 300, del.text);
+  fetches.length = 0;
+  store.refreshFromServer();
+  await settle(fetches);
+  const g = store.getG().graph;
+  assert.ok(g.rev > rev0, 'a different view publishes');
+  assert.ok(g.nodes.some((n) => n.id === 'came-into-view'), 'the node not on the canvas is shown');
+  assert.ok(!g.nodes.some((n) => n.id === ids[9]), 'the deleted node is gone');
+  await m.close();
+});
+
 test('F1: the open note is re-read only when the event names it or a note it links to', async () => {
   const m = await mount();
   const ids = await seedGraph(m, 12);

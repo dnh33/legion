@@ -4,6 +4,7 @@ import {
 } from '../store';
 import { vmIsLive } from '../util';
 import { openBsvPanel, useBsv } from '../bsv/bsvStore';
+import { TAKEOVER_EVENT } from '../mascot/Takeover';
 
 interface Cmd { id: string; label: string; glyph?: string; hint?: string; run: () => void; group: string }
 
@@ -38,6 +39,7 @@ export function CommandPalette() {
       { id: 'model', group: 'App', label: 'Change model', hint: 'Ctrl M', run: () => window.dispatchEvent(new Event('legion:model-picker')) },
       { id: 'lab', group: 'App', label: 'Mascot Lab', hint: 'Ctrl Shift M', run: toggleMascotLab },
       { id: 'theme', group: 'App', label: 'Toggle theme', run: toggleTheme },
+      { id: 'deus-vult', group: 'App', label: 'Deus vult', run: () => window.dispatchEvent(new Event(TAKEOVER_EVENT)) },
       { id: 'ops', group: 'App', label: 'Toggle Ops panel', hint: 'Ctrl .', run: toggleOps },
     );
     return c;

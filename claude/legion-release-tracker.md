@@ -1563,3 +1563,46 @@ Gate: see the hand-off (quiet run).
   Pre-flight 14 ok / 0 fail. Digests matched. Live CDN: latest manifest 0.2.5-c, verify OK. dependencyHash == 0.2.5-b.
 - Key: copied out of the vault for each signature and deleted right after; never read into the session.
 - Open for the owner's PC: TL1-TL7, C1-C5, D3 (claude/tracker-pc-checks.md).
+
+## 2026-10-06 — Two fixes waiting in `D:\bots\legion` (main, base f90d195), UNCOMMITTED
+
+Brought together in this tree on 2026-10-06 by the Legion Mod session, at the owner's request. Nothing is committed; the owner decides when.
+
+**1. Executing shown after a Deny (one unit from two sessions; do not split).**
+- Bust: `deriveBustState` counted a denied tool call and its denial result as tool activity, so a running task showed Executing about 100 ms after a fast Deny. Now the store records each task's newest denied card, and `lastToolAt` (`ui/src/mascot/toolActivity.ts`) ignores those calls and their paired results.
+- Zealot's Relic: the engine set the mood to `hacking` when the tool_use arrived, and nothing reset it after a Deny. Now `Engine.toolDecider` sends `mascot('thinking')` on a deny or timeout, while the run is still active and not cancelled. `moodAfterDecision` does the same client-side at once, closing a 1.8 s gap.
+- Files: src/core/engine.ts, test/engine.test.ts, ui/src/mascot/toolActivity.ts (new), ui/src/mascot/useBustState.ts, ui/src/store.ts, test/mascot-deny.test.ts (new), CHANGELOG.md.
+- Proof given by the sessions: mascot-deny 6/6 plus the engine tests, with negatives recorded. Harness rig: no Executing frame after a Deny; Allow still shows Executing.
+
+**2. perf-l-store F1 (was failing on main).**
+- `refreshFromServer()` published a new view, and re-fitted the camera, even when nothing changed. Now a pure `sameView()` lets `replaceView(..., keepIfSame)` skip the publish; only `refreshFromServer` passes it.
+- Files: ui/src/graph/graphStore.ts, ui/src/graph/viewsync.ts, test/perf-l-store.test.ts, test/perf-l-lattice.test.ts. Applied from `D:\bots\legion-f1\claude-f1-fix.patch` (identical to that worktree's diff).
+- Proof given: full gate 2747 pass / 0 fail / 45 skipped. perf-l-store 12/12 on 3 runs. Independent re-run matched. Two negatives recorded.
+
+**Still open for these two:**
+- [x] The full gate on the COMBINED tree, 2026-10-06: build:ts, test:run, typecheck:ui and build:ui all exit 0. Tests 2802: 2757 pass, 0 fail, 45 skipped, 0 cancelled. (`npm ci` skipped: no package file changed, and other sessions share this tree's node_modules.)
+- [x] FIXED 2026-10-06 (uncommitted, test-only). `bsv-spend-flow` "policy-refusals-use-decoded-values" (1 !== 2): **ROOT CAUSE FOUND (2026-10-06), a race in the TEST, not a bug in the spend code.** `deny()` in `src/core/bsv/spend.ts` starts the wallet `abortAction` call in the background (`abort()`, about lines 400-408) and answers at once. The scenario (`test/bsv-spend-scenarios.ts` about lines 282 and 285) checks `r.w.aborted.length` after only the fixed 25 ms real-clock wait in `askOnce`, without `await r.settle()`, which drains the background set. Under CPU load the abort is still in flight: 9 of 80 failed under load ("0 !== 1" at line 282, "1 !== 2" at line 285), 0 of 30 alone. A 100 ms delay injected on the abort fails it 5/5; with `settle()` it passes 5/5. `output-check-extra-outputs` (about line 300) has the same latent race. Applied: `await r.settle()` before those three `aborted.length` checks, plus an opt-in `abortDelayMs` on the fake wallet (test/bsv-fake-wallet.ts, default 0) that both scenarios now use (80 ms), so a missing settle fails every time instead of 1 in 9. bsv-spend-flow 25/25 three times; negatives: each settle removed fails 3/3 ("0 !== 1"). Optional: make `askOnce` await `bsv.spend?.settled?.()` instead of sleeping 25 ms. Proof to add: an opt-in `abortDelayMs` on the fake wallet, with a negative (remove a settle and it fails). Scratch evidence: `<session scratchpad>/flake-bsv/` (its `tree
+ode_modules` is a junction: remove the junction only).
+- [ ] Deny fix: not checked in the real Electron app (PC check MD1).
+- [ ] F1 fix: not checked in the real Lattice (PC check MD2).
+- [ ] The owner's go to commit, as two commits (the Deny unit, then F1), and the release they ship in (0.2.5-d is on `fix/stuck-working`, not on main yet).
+- Note: the Legion Mod (worktree `D:\bots\legion-mod`) had the same Deny bug. It is fixed there separately (`mod/src/wire/legion.tsx`, kit test + negative). Nothing from these two fixes goes into the mod branch; it picks them up when it merges with main.
+- [x] FIXED 2026-10-06 (uncommitted, test-only). `kg-routes` "module: kg.updated is emitted once per burst of writes (debounced)" (test/kg-routes.test.ts about line 282; message "nothing is emitted inside the debounce window. 1 !== 0" at line 288): **ROOT CAUSE FOUND (2026-10-06), a wall-clock window in the TEST.** Four sequential loopback HTTP writes must all finish within `debounceMs: 600`. Each write does synchronous lock-file I/O (`Graph.withLock`/`append` in src/core/kg/graph.ts), and on this Windows PC single calls sometimes stall 300-750 ms+ (instrumented: `openSync(graph.jsonl.lock)` 754 ms, event-loop delay 906 ms; GC max 124 ms, so not GC). Then the debounce fires mid-burst. The trigger is I/O latency, not CPU (16 CPU-bound copies never passed 282 ms). Reproduced: 1/30 alone (on a busy box), 3/147 probes during full runs; a 700 ms gap before the edge write fails 2/2. Commit `4474345` already widened this window from 60 to 600 ms and it flaked again, so widening is not the fix. Applied: the burst runs synchronously through `s.mod.graph()` (`upsertNode` x3 + `link`, one macrotask) with `debounceMs: 20` and a 100 ms wait; keep the HTTP checks that have no timing risk. Proven on a scratch probe: a 700 ms stall mid-burst still gives 0 events inside the window and 1 after; negative: no debounce gives 4 and 4 and fails. Repo proof: kg-routes 15/15 three times; negative: the debounce replaced by an immediate flush fails it; a 700 ms synchronous stall injected mid-burst still passes. Still unknown: why Windows stalls on those fs calls (Defender or disk not shown). Scratch: `<session scratchpad>/flake-kg/`.
+
+**3. "The Legion is taking over Claude" (third session, owner-approved spec `claude/spec-legion-takeover.md`), UNCOMMITTED in the same tree.**
+- Independent review 2026-10-06: ready after fixes. It re-ran the tests (116, 0 fail), proved three new tests fail when broken, and found the MCP tag correct (separate last block, content[0] unchanged, `legion_status` pure JSON, no instruction to the model) and no painted bust touched.
+- All review findings FIXED by the lead, 2026-10-06:
+  - splash headline clipped in Cascadia Code (235 px in a 230 px box): letter-spacing removed, now 225/230 px, measured in a 560x360 render;
+  - a boot error froze a random glitch frame: `error()` now draws the still helm;
+  - the title-bar egg ignored reduced motion in CSS: a reduced-motion rule added;
+  - the conversion counted from a later start than the 1200 ms floor: `BOOT.sweep` 14 -> 10, converted by 800 ms (test pinned), and the CHANGELOG line reworded ("nothing waits for it");
+  - the egg drew over dialogs (z 60 > scrim 50): now z 45;
+  - "13 sworn" hard-coded: now the live agent count;
+  - a "Deus vult" inside the cooldown did nothing: now a toast;
+  - the glyph was an inert tab stop: `tabIndex={-1}` (the palette is the keyboard path);
+  - a queued task was tagged "running": now "queued";
+  - the splash redrew every 50 ms during the hold: now only on the ticks that change;
+  - the splash drift test message names the esbuild/vite case;
+  - the CHANGELOG `Ŧ` claim is scoped to "the fonts have the glyph" (one-cell width stays TK2).
+- New tests: still helm on error, reduced motion and layer order of the egg, the queued tag, and the 800 ms boot. Negatives: each old source fails its new test (splash 2, css 1, mcp-tools 1, takeover-art 2). takeover-art + takeover-splash + mcp-tag 13/13.
+- **Owner question:** the spec's section 11 says the splash lost the Zealot image and the "Your order of agents." tagline. That is the builder's deviation note, not a recorded owner decision.

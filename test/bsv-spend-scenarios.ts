@@ -276,12 +276,15 @@ S('policy-refusals-use-decoded-values', async (M) => {
     assert.deepEqual((await r.ask(args({ sats: 1001 }))).reasonCodes, ['over-cap']);
     assert.deepEqual((await r.ask(args({ recipient: TEST_B }))).reasonCodes, ['not-allowlisted']);
     assert.equal(create(r), 0, 'cheap refusals build nothing');
+    r.w.b.abortDelayMs = 80; // the abort lands after askOnce's fixed wait, as it does on a loaded PC: only settle() sees it
     r.w.b.feeSats = 300; // a fee above the 200 sat ceiling shows up only in the wallet's transaction
     const fee = await r.ask(args());
     assert.deepEqual(fee.reasonCodes, ['fee-too-high']);
+    await r.settle(); // the abort is a background wallet call: wait for it, not for a fixed delay (it raced under load)
     assert.equal(r.w.aborted.length, 1, 'the unsigned transaction was aborted'); assert.equal(sign(r), 0);
     r.job.taskId = 'task-b'; r.w.b.feeSats = 20; r.w.b.payDelta = 100; // the wallet builds 700 where 600 was asked: the output check refuses
     assert.deepEqual((await r.ask(args())).reasonCodes, ['unexpected-outputs']);
+    await r.settle();
     assert.equal(r.w.aborted.length, 2);
     r.job.taskId = 'task-c';
     const built = create(r);
@@ -292,11 +295,12 @@ S('policy-refusals-use-decoded-values', async (M) => {
 
 S('output-check-extra-outputs', async (M) => {
   for (const change of ['two', 'data', 'nonstandard', 'to-recipient'] as const) {
-    const r = await rig(M, { wallet: { change } });
+    const r = await rig(M, { wallet: { change, abortDelayMs: 80 } });
     try {
       await r.setup({ allow: { test: [TEST_A] } });
       const res = await r.ask(args());
       assert.equal(res.status, 'denied', change); assert.deepEqual(res.reasonCodes, ['unexpected-outputs'], change);
+      await r.settle();
       assert.equal(r.w.aborted.length, 1, change); assert.equal(sign(r), 0);
       assert.equal(r.bsv.policy.snapshot().nets.test.usage.reservedSats, 0, 'nothing stays reserved');
     } finally { await r.close(); }

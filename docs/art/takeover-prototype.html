@@ -1,0 +1,107 @@
+<!doctype html>
+<!--
+  Locked prototype (owner approved 2026-10-06): the critter idles, glitches, and is converted right to left into the Legion
+  great helm in the style of assets/icon.ico (steel, green T-visor, gold laurels and circuits, red plume, binary ring).
+  Reference for the splash, the title-bar egg and the README GIF; not shipped as is. The critter is drawn from memory:
+  check it side by side with Claude Code's banner before shipping (trademark-sensitive, kept at the owner's choice).
+  The mark is Ŧ (owner choice 2026-10-06): one cell wide in every terminal font tested.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Legion takeover prototype</title>
+<style>
+  body { margin: 0; min-height: 100vh; display: flex; align-items: center; justify-content: center; background: #07090b; }
+  .wrap { display: flex; flex-wrap: wrap; gap: 16px; align-items: stretch; padding: 16px; }
+  #stage { background: #0b0f12; border-radius: 16px; padding: 6px; line-height: 0; }
+  .term { min-width: 260px; display: flex; flex-direction: column; justify-content: center; font-family: 'Cascadia Code', 'Cascadia Mono', Consolas, monospace;
+    font-size: 13px; background: #0b0d10; color: #7CFFB2; border-radius: 8px; padding: 14px 16px; line-height: 1.7; }
+  @keyframes blink { 50% { opacity: 0; } }
+  .blink { animation: blink 1s steps(1) infinite; }
+  @media (prefers-reduced-motion: reduce) { .blink { animation: none; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div id="stage"></div>
+  <div class="term">
+    <div><span style="color:#7CFFB2">Ŧ</span> <span style="color:#FFCC66">LEGION</span> <span style="color:#6B7586">// cogitator online</span></div>
+    <div id="headline" style="color:#FF6B6B;letter-spacing:0.5px">&nbsp;</div>
+    <div id="bar" style="color:#6B7586"></div>
+    <div>The Order has the terminal. 13 sworn &middot; 1 leads.</div>
+    <div><span style="color:#6B7586">&gt;</span> <span class="blink">_</span></div>
+  </div>
+</div>
+<script>
+const P = { S:'#9aa3ad', s:'#5d6672', K:'#05070a', G:'#e6c36a', g:'#b8913f', L:'#c9a24b', N:'#2fd28a', V:'#06231a', E:'#b6ffd6', n:'#0f5a3c',
+  P:'#e0353f', p:'#8e1a22', O:'#D97757', o:'#A8502F', R:'#7CFFB2', r:'#0f5a3c' };
+const helm = ["................PPP.......","..............PPpPPP......",".............PPp...P......","...........KGGPK..........",".........KKGgRgGKK........",
+  ".......KKSSSGGGSSSKK......","......KSSSSsSSSsSSSSK.....",".....KSSSSSsSSSsSSSSSK....","....KLSSSSSSSSSSSSSSSLK...","...KLLSSSSSSSSSSSSSSSLLK..",
+  "...KLSSgSSSSSSSSSSSgSSLK..","...KSSNNNNNNNNNNNNNNNSSK..","...KSSNVVEEVVVVVEEVVNSSK..","...KSSNVVEEVVVVVEEVVNSSK..","...KSSNNNNNNVVVNNNNNNSSK..",
+  "...KSSSgSSSNVVVNSSSgSSSK..","...KSSSgggSNVVVNSgggSSSK..","...KSSSSSgSNVVVNSgSSSSSK..","...KsSSSSSSNVVVNSSSSSSsK..","...KssSSSSSNNNNNSSSSSssK..",
+  "....KssSSSSSSGSSSSSSssK...",".....KKsssssssssssssKK....",".......KKKKKKKKKKKKK......","........nnnnnnnnnnn......."];
+const critter = ["...OOOOOOOOOOOO...","...OOOOOOOOOOOO...","...OOKOOOOOOKOO...","...OOKOOOOOOKOO...","OOOOOOOOOOOOOOOOOO","OOOOOOOOOOOOOOOOOO",
+  "...OOOOOOOOOOOO...","...OOOOOOOOOOOO...","...O.O.O..O.O.O...","...O.O.O..O.O.O..."];
+const CW = 34, CH = 32, SC = 7, cx = 16.5, cy = 15.5, ns = 'http://www.w3.org/2000/svg';
+const H = {};
+helm.forEach((r, y) => [...r].forEach((c, x) => { if (c !== '.') H[(x + 4) + ',' + (y + 4)] = c; }));
+const bits = '1011001110100101110010110100111010'; let bi = 0;
+for (let a = 0; a < 360; a += 5) { const x = Math.round(cx + 15 * Math.cos(a * Math.PI / 180)), y = Math.round(cy + 15 * Math.sin(a * Math.PI / 180)), k = x + ',' + y;
+  if (!H[k] && a % 15 !== 5) H[k] = bits[bi++ % bits.length] === '1' ? 'R' : 'r'; }
+for (let a = 0; a < 360; a += 12) { const x = Math.round(cx + 13 * Math.cos(a * Math.PI / 180)), y = Math.round(cy + 13 * Math.sin(a * Math.PI / 180)), k = x + ',' + y;
+  if (!H[k]) H[k] = 'r'; }
+function critterGrid(bounce, eyesShut) {
+  const g = {};
+  critter.forEach((r, y) => [...r].forEach((c, x) => { if (c === '.') return; g[(x + 8) + ',' + (y + 13 + bounce)] = eyesShut && c === 'K' ? 'O' : c; }));
+  return g;
+}
+const svg = document.createElementNS(ns, 'svg');
+svg.setAttribute('width', CW * SC); svg.setAttribute('height', CH * SC); svg.setAttribute('shape-rendering', 'crispEdges');
+document.getElementById('stage').appendChild(svg);
+function rect(x, y, c, op) {
+  const e = document.createElementNS(ns, 'rect');
+  e.setAttribute('x', x * SC); e.setAttribute('y', y * SC); e.setAttribute('width', SC); e.setAttribute('height', SC); e.setAttribute('fill', c);
+  if (op) e.setAttribute('opacity', op);
+  svg.appendChild(e);
+}
+function draw(seam, crit, glitchy, flickerRows) {
+  svg.replaceChildren();
+  const shifts = {};
+  if (glitchy) {
+    const n = 1 + Math.floor(Math.random() * 3);
+    for (let k = 0; k < n; k++) { const y0 = Math.floor(Math.random() * CH), h = 1 + Math.floor(Math.random() * 3), dx = (Math.random() < .5 ? -1 : 1) * (1 + Math.floor(Math.random() * 2));
+      for (let y = y0; y < y0 + h; y++) shifts[y] = dx; }
+  }
+  for (const k of new Set([...Object.keys(H), ...Object.keys(crit)])) {
+    const [x, y] = k.split(',').map(Number);
+    let useHelm = x > seam || (x === seam && y % 2 === 0);
+    if (flickerRows && flickerRows.has(y)) useHelm = !useHelm;
+    const c = useHelm ? H[k] : crit[k];
+    if (!c) continue;
+    const dx = shifts[y] || 0;
+    if (dx) { rect(x + dx - 1, y, '#ff2a6d', '0.5'); rect(x + dx + 1, y, '#00e5ff', '0.5'); }
+    rect(x + dx, y, P[c]);
+  }
+  if (glitchy && seam > 0 && seam < CW) for (let y = 0; y < CH; y += 2) if (Math.random() < .35) rect(seam, y, Math.random() < .5 ? '#00e5ff' : '#ff2a6d', '0.8');
+}
+const IDLE = 16, FLICK = 8, SWEEP = 44, HOLD = 22, END = IDLE + FLICK + SWEEP + HOLD; let t = 0;
+const hl = document.getElementById('headline'), bar = document.getElementById('bar');
+const glitchText = (s, on) => on ? [...s].map((ch) => ch !== ' ' && Math.random() < .08 ? '▓▒░'[Math.floor(Math.random() * 3)] : ch).join('') : s;
+function tick() {
+  let seam = CW, glitchy = false, flick = null, p = 0, text = 'claude code ready.';
+  const crit = critterGrid(t < IDLE && t % 8 >= 4 ? -1 : 0, t < IDLE && t % 16 === 10);
+  if (t >= IDLE && t < IDLE + FLICK) { glitchy = Math.random() < .8; flick = new Set(); for (let k = 0; k < 4; k++) flick.add(Math.floor(Math.random() * CH)); text = 'THE LEGION IS TAKING OVER CLAUDE'; }
+  else if (t >= IDLE + FLICK && t < IDLE + FLICK + SWEEP) { p = (t - IDLE - FLICK) / SWEEP; seam = Math.round(CW - p * (CW + 1)); glitchy = Math.random() < .6; text = 'THE LEGION IS TAKING OVER CLAUDE'; }
+  else if (t >= IDLE + FLICK + SWEEP) { seam = -2; p = 1; text = 'THE LEGION HAS TAKEN CLAUDE'; }
+  draw(seam, crit, glitchy, flick);
+  hl.style.color = t < IDLE ? '#D97757' : '#FF6B6B';
+  hl.textContent = glitchText(text, glitchy);
+  const n = Math.round(p * 20);
+  bar.textContent = t < IDLE ? ' ' : '[' + '█'.repeat(n) + ' '.repeat(20 - n) + '] ' + Math.round(p * 100) + '%';
+  t = t >= END ? 0 : t + 1;
+}
+if (matchMedia('(prefers-reduced-motion: reduce)').matches) { t = IDLE + FLICK + SWEEP / 2; tick(); } else { tick(); setInterval(tick, 110); }
+</script>
+</body>
+</html>

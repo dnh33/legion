@@ -6,6 +6,7 @@ import { api, request, subscribe, ApiError, type ConnStatus } from './api';
 import { incomingWins } from './chat/tasksync';
 import type { Project } from '../../src/shared/projects';
 import { FILTER_KEY, inProject, newTaskProjectId } from './projects/projectsLogic';
+import { moodAfterDecision, noteDenial } from './mascot/toolActivity';
 
 export type RelicState = 'idle' | 'listening' | 'thinking' | 'hacking' | 'awaiting' | 'victory' | 'error' | 'sleeping' | 'annoyed';
 
@@ -27,6 +28,8 @@ export interface AppState {
   tasks: Task[];
   vms: Record<string, VmRecord>;
   approvals: ApprovalRequest[];
+  /** Per task: the `at` of the newest approval card that was denied (by the user or the timeout), so the busts do not read the denied call as work. */
+  denials: Record<string, string>;
   messages: Record<string, ChatMessage[]>;
   streaming: Record<string, string>;
   /** Live progress of running Claude runs (turn, tool, start), from `task.progress`; dropped when the task stops. */
@@ -74,7 +77,7 @@ const initialTheme = ((): 'dark' | 'light' => {
 
 let state: AppState = {
   loaded: false, conn: 'connecting', version: '', auth: 'claude-login', boatConfigured: false, boatHealth: null,
-  agents: [], tasks: [], vms: {}, approvals: [], messages: {}, streaming: {}, progress: {},
+  agents: [], tasks: [], vms: {}, approvals: [], denials: {}, messages: {}, streaming: {}, progress: {},
   mascot: { mood: 'idle', at: Date.now() }, doctor: null, doctorLoading: false,
   selectedAgentId: 'zealot', selectedTaskId: null, modelOverride: null,
   opsOpen: ls('legion.ops') !== '0', theme: initialTheme,
@@ -246,7 +249,10 @@ export function handleEvent(e: LegionEvent) {
       setState((s) => (s.approvals.some((a) => a.id === e.approval.id) ? {} : { approvals: [...s.approvals, e.approval] }));
       break;
     case 'approval.resolved':
-      setState((s) => ({ approvals: s.approvals.filter((a) => a.id !== e.approvalId) }));
+      setState((s) => ({
+        approvals: s.approvals.filter((a) => a.id !== e.approvalId),
+        denials: noteDenial(s.denials, s.approvals.find((a) => a.id === e.approvalId), e.allowed),
+      }));
       break;
     case 'comms.state':
       window.dispatchEvent(new CustomEvent('legion:comms', { detail: e }));
@@ -430,7 +436,10 @@ export async function compactNow(taskId: string, focus?: string): Promise<{ ok: 
 }
 
 export async function decide(id: string, allow: boolean) {
-  setState((s) => ({ approvals: s.approvals.filter((a) => a.id !== id) })); // optimistic
+  setState((s) => {
+    const card = s.approvals.find((a) => a.id === id);
+    return { approvals: s.approvals.filter((a) => a.id !== id), denials: noteDenial(s.denials, card, allow), mascot: moodAfterDecision(s.mascot, card, allow, Date.now()) };
+  }); // optimistic
   try { await api.decide(id, allow); } catch (e) { toast(errText(e), 'error'); void refresh(); }
 }
 

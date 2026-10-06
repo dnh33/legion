@@ -1,0 +1,17 @@
+/* The title-bar easter egg (Takeover.tsx): fixed colours on purpose, it is the same art in both themes. */
+.takeover { position: fixed; top: 48px; left: 14px; z-index: 45; /* under the modal scrim (50): never over a dialog or a card */ display: flex; gap: 16px; align-items: stretch; pointer-events: none;
+  animation: tk-in 200ms ease-out; transition: opacity 400ms ease; }
+.takeover.leaving { opacity: 0; }
+.takeover-stage { background: #0b0f12; border-radius: 16px; padding: 6px; line-height: 0; box-shadow: 0 12px 40px rgba(0, 0, 0, .55); }
+.takeover-term { min-width: 300px; display: flex; flex-direction: column; justify-content: center; font: 13px/1.7 "Cascadia Code", "Cascadia Mono", Consolas, monospace;
+  background: #0b0d10; color: #7CFFB2; border: 1px solid #1a1f27; border-radius: 8px; padding: 14px 16px; box-shadow: 0 12px 40px rgba(0, 0, 0, .55); }
+.tk-mark { color: #7CFFB2; } .tk-name { color: #FFCC66; } .tk-dim { color: #6B7586; }
+.tk-headline { letter-spacing: .5px; white-space: nowrap; }
+.tk-bar { white-space: pre; }
+.tk-caret { animation: tk-blink 1s steps(1) infinite; }
+@keyframes tk-blink { 50% { opacity: 0; } }
+@keyframes tk-in { from { opacity: 0; transform: translateY(-6px); } }
+@media (prefers-reduced-motion: reduce) { .takeover, .tk-caret { animation: none; } .takeover { transition: none; } }
+/* the title-bar glyph is a button now (three clicks play the egg); it looks exactly as before */
+.tb-glyph { display: inline-flex; padding: 0; border: 0; background: none; color: inherit; cursor: default; line-height: 0; }
+.tb-glyph:focus-visible { outline: 2px solid var(--accent, #7CFFB2); outline-offset: 2px; border-radius: 4px; }

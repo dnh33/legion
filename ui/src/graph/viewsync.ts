@@ -93,6 +93,24 @@ export function reconcileView(v: ViewMaps, ids: string[], parts: KgSubgraph[], d
 }
 
 /**
+ * True when a whole-view answer (`nodes`, and the `edges` between them) holds exactly the nodes and links already on the canvas, with
+ * the same content: a full re-read that found nothing new, so the view keeps its graph, its layout and its camera.
+ */
+export function sameView(v: ViewMaps, nodes: KgNode[], edges: KgEdge[]): boolean {
+  if (nodes.length !== v.nodes.size) return false;
+  const ids = new Set<string>();
+  for (const n of nodes) { const o = v.nodes.get(n.id); if (!o || !sameNode(o, n)) return false; ids.add(n.id); }
+  let links = 0;
+  for (const e of edges) {
+    if (!ids.has(e.from) || !ids.has(e.to)) continue; // the view drops a link whose end is not on it
+    const o = v.edges.get(e.id);
+    if (!o || !sameEdge(o, e)) return false;
+    links++;
+  }
+  return links === v.edges.size;
+}
+
+/**
  * Whether a kg.updated event needs the canvas re-read: no `changed` list (a manual refresh) always does; otherwise only when one of the
  * ids is a node or link on the canvas.
  */

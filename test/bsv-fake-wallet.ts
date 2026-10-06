@@ -93,6 +93,8 @@ export interface FakeBehaviour {
   // signAction
   sign: 'ok' | 'hang' | 'close' | 'http500' | 'garbage' | 'error-json' | 'refuse-conn' | 'different-amount' | 'different-recipient' | 'no-tx' | 'bad-txid' | 'txid-mismatch' | 'more-fee';
   abort: 'ok' | 'fail' | 'http500';
+  /** Answer abortAction this many ms late (0 = at once): longer than any fixed wait, so a test that does not settle fails every time. */
+  abortDelayMs: number;
   /** Text an attacker-controlled wallet puts in every string field it can. */
   injection: string;
   /** Content-Type of every answer (the real wallet says text/html). */
@@ -102,7 +104,7 @@ export const defaults = (): FakeBehaviour => ({
   network: 'mainnet', version: 'wallet-brc100-1.0.0', authenticated: true, height: 969369, flipAtProbe: 0, flipTo: 'mainnet', flipAfter: '',
   create: 'ok', fundSats: 10_000, feeSats: 20, change: 'p2pkh', changeFill: 0x77, payDelta: 0, payFill: null, omitParent: false, parentTxidOnly: false,
   txEncoding: 'bytes', v2: false, atomic: true, withBump: false,
-  sign: 'ok', abort: 'ok', injection: '', contentType: 'text/html; charset=utf-8',
+  sign: 'ok', abort: 'ok', abortDelayMs: 0, injection: '', contentType: 'text/html; charset=utf-8',
 });
 
 export interface FakeWallet {
@@ -224,8 +226,9 @@ export async function startFakeWallet(patch: Partial<FakeBehaviour> = {}): Promi
         const ref: string = body?.reference;
         if (b.abort === 'http500') return send(500, { status: 'error', code: 'ERR_X' });
         if (b.abort === 'fail') return send(200, { status: 'error', code: 'ERR_ABORT', description: inj });
-        open.delete(ref); aborted.push(ref);
-        return send(200, { aborted: true });
+        const done = () => { open.delete(ref); aborted.push(ref); send(200, { aborted: true }); };
+        if (b.abortDelayMs > 0) { setTimeout(done, b.abortDelayMs); return; }
+        return done();
       }
       return send(404, { status: 'error', code: 'ERR_NOT_IMPLEMENTED' });
     });
