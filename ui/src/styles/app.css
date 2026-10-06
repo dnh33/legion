@@ -19,8 +19,9 @@ kbd { font-size: 10.5px; line-height: 1; padding: 3px 5px; border: 1px solid var
 .btn, .btn-ghost, .icon-btn { display: inline-flex; align-items: center; gap: 6px; border-radius: var(--r-sm); transition: background var(--t) var(--ease), border-color var(--t) var(--ease), color var(--t) var(--ease), opacity var(--t); }
 .btn { height: 30px; padding: 0 12px; background: var(--surface-2); border: 1px solid var(--line-strong); font-weight: 500; }
 .btn:hover:not(:disabled) { background: var(--surface-3); }
-.btn.primary { background: var(--accent); color: var(--accent-ink); border-color: transparent; font-weight: 600; }
-.btn.primary:hover:not(:disabled) { filter: brightness(1.08); background: var(--accent); }
+.btn.primary { background: var(--accent-text); color: var(--accent-ink); border-color: transparent; font-weight: 600; }
+/* A defined hover colour (not a brightness filter, which does nothing visible on the dark theme's light green and almost nothing on the light theme's dark green). Both keep the ink readable. */
+.btn.primary:hover:not(:disabled) { background: var(--accent-hover); }
 .btn.danger { background: var(--danger); color: #fff; border-color: transparent; }
 .btn.sm { height: 26px; padding: 0 10px; font-size: 12px; }
 .btn kbd { background: rgba(0, 0, 0, .14); border-color: rgba(0, 0, 0, .2); color: inherit; opacity: .75; margin-left: 2px; }
@@ -270,7 +271,7 @@ kbd { font-size: 10.5px; line-height: 1; padding: 3px 5px; border: 1px solid var
 .model-pill:hover { border-color: var(--line-strong); background: var(--surface-3); }
 .mp-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--muted); }
 .m-sonnet .mp-dot { background: #8fd3ff; } .m-opus .mp-dot { background: #c9b2ff; }
-.send { height: 30px; min-width: 30px; padding: 0 8px; display: inline-flex; align-items: center; justify-content: center; gap: 6px; border: 0; border-radius: var(--r); background: var(--accent); color: var(--accent-ink); font-weight: 600; transition: opacity var(--t), filter var(--t), transform var(--t); }
+.send { height: 30px; min-width: 30px; padding: 0 8px; display: inline-flex; align-items: center; justify-content: center; gap: 6px; border: 0; border-radius: var(--r); background: var(--accent-text); color: var(--accent-ink); font-weight: 600; transition: opacity var(--t), filter var(--t), transform var(--t); }
 .send:hover:not(:disabled) { filter: brightness(1.08); }
 .send:active:not(:disabled) { transform: scale(.96); }
 .send:disabled { background: var(--surface-3); color: var(--faint); cursor: default; }
@@ -524,7 +525,7 @@ kbd { font-size: 10.5px; line-height: 1; padding: 3px 5px; border: 1px solid var
 .set-link b { font-weight: 500; font-size: 13px; color: var(--text); } .set-link span { font-size: 11.5px; color: var(--muted); }
 .set-link:hover { background: var(--surface); }
 .set-link.sel { background: var(--surface-2); border-color: var(--line-strong); box-shadow: inset 2px 0 0 var(--accent); }
-.set-scroll { min-height: 0; overflow-y: auto; }
+.set-scroll { min-height: 0; overflow-y: auto; scrollbar-gutter: stable; scroll-padding-block: 16px 96px; }
 .set-body { max-width: 640px; margin: 0 auto; padding: 22px 28px 40px; }
 .set-loading { display: flex; align-items: center; gap: 10px; color: var(--muted); padding: 40px 0; }
 .set-section { display: flex; flex-direction: column; gap: 14px; animation: msg-in 160ms var(--ease) both; }

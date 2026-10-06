@@ -12,7 +12,12 @@ import { z } from 'zod';
 import type { AgentProfile } from '../../shared/types.js';
 import type { ModuleJob } from '../modules.js';
 import { HOUSE_LIMITS, HOUSE_SERVER_NAME, RECALL_LIMIT, listContext, readContextFile, recallContext } from './context.js';
+import { agentSkillsAllow, drillId } from '../../shared/skill-ids.js';
 import { listSkills, readSkill } from './skills.js';
+import type { DrillFilter } from './skills.js';
+
+/** The drills one agent may see: its own skills setting decides (an Armory switch does not reach drills). */
+export const drillFilterFor = (agent: Pick<AgentProfile, 'skills'>): DrillFilter => (s) => agentSkillsAllow(agent.skills, drillId(s.group, s.folder));
 
 type ToolResult = { content: { type: 'text'; text: string }[]; isError?: boolean };
 const text = (s: string, isError = false): ToolResult => ({ content: [{ type: 'text', text: s }], ...(isError ? { isError: true } : {}) });
@@ -46,6 +51,7 @@ export function buildHouseServer(agent: AgentProfile, job: ModuleJob | undefined
   // The tools read the user's own files on this computer, so they mark the run tainted: content the owner added is
   // still content that arrived from outside the prompt.
   const taint = () => { try { job?.markTainted?.(); } catch { /* never block a read on bookkeeping */ } };
+  const allow = drillFilterFor(agent);
   void TOOL;
 
   const server = createSdkMcpServer({
@@ -114,7 +120,7 @@ export function buildHouseServer(agent: AgentProfile, job: ModuleJob | undefined
         {},
         async () => {
           taint();
-          const skills = listSkills(d.root());
+          const skills = listSkills(d.root(), allow);
           if (!skills.length) return text('No skills are turned on. The owner chooses which skills agents may use.');
           const body = skills.map((k) => {
             const note = k.trust === 'untrusted' ? 'edited since install; read it with house_skill, where it is marked' : k.description;
@@ -132,7 +138,7 @@ export function buildHouseServer(agent: AgentProfile, job: ModuleJob | undefined
         },
         async ({ name, path }) => {
           taint();
-          const out = readSkill(d.root(), name ?? path ?? '');
+          const out = readSkill(d.root(), name ?? path ?? '', allow);
           if (!out.ok) return text(out.message, true);
           const origin = out.kind === 'shipped'
             ? 'shipped with Legion'

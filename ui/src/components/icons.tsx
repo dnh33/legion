@@ -28,6 +28,7 @@ const P: Record<string, string> = {
   cube: 'M12 3l8 4.5v9L12 21l-8-4.5v-9zM4 7.5l8 4.5 8-4.5M12 12v9',
   lock: 'M7 11V8a5 5 0 0 1 10 0v3M5 11h14v10H5zM12 15v2',
   shield: 'M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z',
+  warn: 'M12 4l9 16H3zM12 10v4M12 17v.5',
 };
 export function Icon({ name, size = 16 }: { name: keyof typeof P | string; size?: number }) {
   return (

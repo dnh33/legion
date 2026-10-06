@@ -22,6 +22,8 @@ export interface ModuleJob {
   markTainted?(): void;
   /** The project this run belongs to, resolved by the engine (active project, agent is a member). Never taken from a tool argument. */
   projectId?: string;
+  /** Which runtime the servers are for: a Claude (SDK) run, or a run on a model provider. Set by the engine, never by a tool. */
+  runtime?: 'claude' | 'provider';
 }
 
 /** What the engine tells a module while it builds a run's system prompt. */
@@ -64,6 +66,24 @@ export interface CoreModule {
   onToolUse?(agentId: string, taskId: string, toolName: string): void;
   /** Fired once when a run ends (done, error or cancelled), after the task's final status is saved. Never throws into the engine. */
   onTaskEnd?(task: Task, agent: AgentProfile, outcome: TaskEndOutcome): void;
+  /**
+   * Skills a Claude run gets: the ids for the SDK `skills` option and local plugin folders for `plugins`. The engine ALWAYS passes a
+   * `skills` array (omitted would mean "everything"), so a build with no module that answers gets `[]`.
+   */
+  claudeSkills?(agent: AgentProfile): { skills: string[]; plugins: string[] };
+  /** Whether the owner allowed skills to run inline shell commands (Armory switch). The engine blocks it unless some module says true. */
+  skillShellAllowed?(): boolean;
+  /** Whether loading the skill named `id` (the Skill tool's `input.skill`) taints the run. No module answering means yes. */
+  skillLoadTaints?(id: string): boolean;
+  /** A plain refusal when the prompt starts with a /command the owner switched off for this agent; otherwise undefined. */
+  refuseSlashCommand?(agent: AgentProfile, prompt: string): string | undefined;
+  /**
+   * The gate on every Skill load, main session and subagents alike (a PreToolUse hook on 'Skill'): a plain refusal text when the agent
+   * may not load the skill named `id`, else undefined. A throwing module denies. With no module that has this method, every load is denied.
+   */
+  skillGate?(agent: AgentProfile, id: string): string | undefined;
+  /** Folders that Claude file tools (Write, Edit, MultiEdit, NotebookEdit) must not change in an agent run. */
+  protectedPaths?(): string[];
   /** Register HTTP routes under /api/... (bearer auth is already enforced by the dispatcher). */
   routes?(add: RouteAdder): void;
   /** Called on shutdown. */

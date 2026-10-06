@@ -143,6 +143,15 @@ function parseMcpServers(v: unknown): string[] | undefined {
   return v as string[];
 }
 
+function parseSkills(v: unknown): 'inherit' | string[] | undefined {
+  if (v === undefined) return undefined;
+  if (v === 'inherit') return 'inherit';
+  if (!Array.isArray(v) || v.length > 500 || v.some((x) => typeof x !== 'string' || !x.trim() || x.length > 200)) {
+    throw new HttpError(400, "skills must be 'inherit' or an array of skill ids (strings)");
+  }
+  return [...new Set((v as string[]).map((x) => x.trim()))];
+}
+
 /** Shared field validation for create + patch (only present fields returned). */
 function parseAgentFields(b: Record<string, unknown>) {
   return {
@@ -155,6 +164,7 @@ function parseAgentFields(b: Record<string, unknown>) {
     approval: oneOf(b.approval, 'approval', APPROVALS),
     vm: parseVm(b.vm),
     mcpServers: parseMcpServers(b.mcpServers),
+    skills: parseSkills(b.skills),
   };
 }
 
@@ -237,6 +247,7 @@ export function createServer(ctx: CoreContext): Server {
       vm: { enabled: false, size: 'default', idleStopMinutes: 15, ...f.vm },
       approval: f.approval ?? 'ask',
       mcpServers: f.mcpServers ?? ['*'],
+      ...(f.skills ? { skills: f.skills } : {}),
       ...(f.cwd ? { cwd: f.cwd } : {}),
       createdAt: now, updatedAt: now,
     };
@@ -259,6 +270,7 @@ export function createServer(ctx: CoreContext): Server {
       ...(f.model ? { model: f.model } : {}),
       ...(f.approval ? { approval: f.approval } : {}),
       ...(f.mcpServers ? { mcpServers: f.mcpServers } : {}),
+      ...(f.skills ? { skills: f.skills } : {}),
       ...(f.cwd !== undefined ? { cwd: f.cwd || undefined } : {}),
       vm: { ...cur.vm, ...f.vm },
       id: cur.id, createdAt: cur.createdAt, updatedAt: nowIso(),

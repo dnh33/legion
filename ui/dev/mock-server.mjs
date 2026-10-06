@@ -7,6 +7,8 @@ import { fileURLToPath } from 'node:url';
 
 const PORT = Number(process.argv[2] || 47811);
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../dist-ui');
+// The real version from package.json: a hard-coded "0.1.0" made every screenshot look like an old build.
+const VERSION = JSON.parse(fs.readFileSync(path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../package.json'), 'utf8')).version;
 const now = () => new Date().toISOString();
 const ago = (m) => new Date(Date.now() - m * 60000).toISOString();
 const vm = (o = {}) => ({ agentId: 'builder', sandboxId: 'sbx_1', state: 'running', size: 'large', lastUsedAt: ago(1), createdAt: ago(60), ...o });
@@ -233,7 +235,7 @@ http.createServer(async (req, res) => {
     if (!f.startsWith(root) || !fs.existsSync(f)) { res.writeHead(404); return res.end(); }
     res.writeHead(200, { 'Content-Type': mime[path.extname(f)] || 'application/octet-stream' }); return fs.createReadStream(f).pipe(res);
   }
-  if (p === '/health') return send(res, 200, { ok: true, version: '0.1.0', pid: process.pid });
+  if (p === '/health') return send(res, 200, { ok: true, version: VERSION, pid: process.pid });
   const auth = (req.headers.authorization || '').replace(/^Bearer\s+/i, '') || url.searchParams.get('token') || url.searchParams.get('scn');
   const ctx = ctxFor(auth); const { db, flags } = ctx;
   if (p === '/__emit' && req.method === 'POST') { emit(ctx, await readBody(req)); return send(res, 200, { ok: true }); }
@@ -244,7 +246,7 @@ http.createServer(async (req, res) => {
     res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', Connection: 'keep-alive' });
     res.write(': hi\n\n'); ctx.clients.add(res); req.on('close', () => ctx.clients.delete(res)); return;
   }
-  if (p === '/api/state') return send(res, 200, { version: '0.1.0', agents: db.agents, tasks: db.tasks.filter((t) => url.searchParams.get('archived') === '1' || !t.archived).reverse(), vms: db.vms, approvals: db.approvals, boatConfigured: db.boat, auth: 'claude-login' });
+  if (p === '/api/state') return send(res, 200, { version: VERSION, agents: db.agents, tasks: db.tasks.filter((t) => url.searchParams.get('archived') === '1' || !t.archived).reverse(), vms: db.vms, approvals: db.approvals, boatConfigured: db.boat, auth: 'claude-login' });
   if (p === '/api/config') return send(res, 200, { port: PORT, authToken: '***', claude: { auth: 'claude-login', inheritClaudeCodeSettings: true, maxTurns: 40 }, boat: { apiKey: '***', baseUrl: 'https://boat.dev/api/v1' }, mcpServers: {} });
   if (p === '/api/doctor') return send(res, 200, doctorChecks(flags.has('doctor-pass'), db.boat));
   if (p === '/api/catalog') {

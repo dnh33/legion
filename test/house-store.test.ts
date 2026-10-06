@@ -165,19 +165,19 @@ test('turn all off runs at once, says what it did, and Undo restores exactly the
   assert.deepEqual(wasOn, ['skills/review/c/SKILL.md', 'skills/verify-debug/a/SKILL.md']);
   await store.resetHouse({ category: 'skills' });
   assert.deepEqual(onSkills(), [], 'it ran without asking');
-  assert.equal(getHouse().undo?.message, 'Turned off 2 skills.');
-  assert.match(getHouse().notice, /^Turned off 2 skills\./, 'and announced it');
+  assert.equal(getHouse().undo?.message, 'Turned off 2 drills.');
+  assert.match(getHouse().notice, /^Turned off 2 drills\./, 'and announced it');
   await store.undoBulk();
   assert.deepEqual(onSkills().sort(), wasOn, 'exactly the previous on-set, not every skill');
   assert.equal(getHouse().undo, null);
-  assert.match(getHouse().notice, /^Turned 2 skills back on\./);
+  assert.match(getHouse().notice, /^Turned 2 drills back on\./);
   assert.equal(world.files.find((f) => f.path === 'skills/verify-debug/b/SKILL.md')!.on, false, 'a skill that was off stays off');
 });
 
 test('a sub-group and a plain group use the same pattern, with their own words', async () => {
   reset(); await store.loadHouse();
   await store.resetHouse({ group: 'verify-debug' });
-  assert.equal(getHouse().undo?.message, 'Turned off 1 skill.');
+  assert.equal(getHouse().undo?.message, 'Turned off 1 drill.');
   assert.deepEqual(onSkills(), ['skills/review/c/SKILL.md'], 'only that group');
   await store.resetHouse({ category: 'built' });
   assert.equal(getHouse().undo?.message, 'Turned 2 files back on.');
@@ -235,7 +235,7 @@ test('a failed Undo keeps the offer, names the reason, and a second try finishes
   await store.undoBulk();
   assert.equal(getHouse().undo, null, 'gone only when it fully worked');
   assert.deepEqual(onSkills().sort(), ['skills/review/c/SKILL.md', 'skills/verify-debug/a/SKILL.md']);
-  assert.match(getHouse().notice, /^Turned 2 skills back on\./, 'counted over the whole change, not the retry');
+  assert.match(getHouse().notice, /^Turned 2 drills back on\./, 'counted over the whole change, not the retry');
 });
 
 test('the Undo clock waits while the pointer or focus is on the offer, and says so when it runs out', async () => {

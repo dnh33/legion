@@ -62,9 +62,9 @@
   letter-spacing: 0.01em;
 }
 
-/* Green = the app's own words. Amber = the owner approved these bytes. Grey = nobody has vouched for it. */
+/* Green = the app's own words. Plain text colour = the owner approved these bytes (a good state, so not a warning colour). Grey = nobody has vouched for it. */
 .house-tag.t-shipped { color: var(--accent-text); }
-.house-tag.t-adopted { color: var(--warn); }
+.house-tag.t-adopted { color: var(--text); }
 .house-tag.t-untrusted { color: var(--muted); }
 
 .house-bytes { font-variant-numeric: tabular-nums; }
@@ -144,6 +144,8 @@
 /* On: a solid accent track with the ink-coloured knob. Off: a --muted outline on the row. Both pairs clear 3:1 in both themes. */
 .house-sw input:checked ~ .house-swtrack { background: var(--accent); border-color: var(--accent); }
 .house-sw input:checked ~ .house-swtrack i { transform: translateX(14px); background: var(--accent-ink); }
+.house-sw.warn input:checked ~ .house-swtrack { background: var(--warn); border-color: var(--warn); }
+.house-sw.warn input:checked ~ .house-swtrack i { background: var(--accent-ink); }
 .house-swtext { width: 22px; font-size: 12px; color: var(--text-2); }
 .house-sw input:focus-visible ~ .house-swtrack { outline: 2px solid var(--accent); outline-offset: 2px; }
 .house-sw input[aria-disabled='true'] { cursor: progress; }
@@ -157,7 +159,7 @@
 .house-skillgroups { display: flex; flex-direction: column; gap: 6px; }
 .house-sg { border: 1px solid var(--line); border-radius: 8px; background: var(--surface); }
 .house-sgh { margin: 0; font-size: inherit; font-weight: inherit; }
-.house-sgbtn { display: flex; align-items: flex-start; gap: 10px; width: 100%; min-height: 40px; padding: 8px 12px; border: 0; border-radius: 8px; background: transparent; color: var(--text); text-align: left; cursor: pointer; }
+.house-sgbtn { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: start; gap: 10px; width: 100%; min-height: 40px; padding: 8px 12px; border: 0; border-radius: 8px; background: transparent; color: var(--text); text-align: left; cursor: pointer; }
 .house-sgbtn:hover { background: var(--surface-2); }
 .house-sgbtn:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 .house-sgbtn .icon { flex: none; margin-top: 3px; color: var(--muted); transition: transform var(--t) var(--ease); }
@@ -165,7 +167,7 @@
 .house-sgtext { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
 .house-sgname { font-weight: 600; font-size: 13px; overflow-wrap: anywhere; }
 .house-sgsum { color: var(--muted); font-size: 12.5px; line-height: 1.4; overflow-wrap: anywhere; }
-.house-sgcount { flex: 0 1 auto; min-width: 0; max-width: 40%; margin-top: 1px; font-size: 12px; color: var(--text-2); font-variant-numeric: tabular-nums; text-align: right; overflow-wrap: anywhere; }
+.house-sgcount { min-width: 0; max-width: 16em; margin-top: 1px; font-size: 12px; color: var(--text-2); font-variant-numeric: tabular-nums; text-align: right; overflow-wrap: anywhere; }
 .house-sgbody { padding: 0 12px 12px; }
 .house-sgbody[hidden] { display: none; }
 .house-sgtools { display: flex; align-items: center; gap: 8px; min-height: 28px; margin: 2px 0 4px; }
@@ -173,6 +175,8 @@
    offer (no skill on, no Undo, no error) the strip takes no space instead of leaving an empty gap under the header. */
 .house-sgtools .house-reset { min-width: 0; justify-content: flex-start; }
 .house-sgtools:has(> .house-reset:empty) { display: none; }
+/* A group header with nothing to offer (no bulk button, no Undo) draws no empty slot: it left a 28px gap under the description. */
+.house-ghead > .house-reset:empty { display: none; }
 
 .house-swcap { font-size: 12px; color: var(--text-2); white-space: nowrap; }
 .house-readdesc { margin: 0 0 8px; font-size: 13px; line-height: 1.5; color: var(--text-2); overflow-wrap: anywhere; }
@@ -204,7 +208,5 @@
 }
 /* Narrow: the sub-group's count drops under its text, aligned with it, instead of squeezing it or running past the card. */
 @container house (max-width: 400px) {
-  .house-sgbtn { flex-wrap: wrap; }
-  .house-sgcount { flex-basis: 100%; max-width: none; margin: 0 0 0 23px; text-align: left; }
   .house-sgbody { padding: 0 8px 10px; }
 }

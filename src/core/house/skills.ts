@@ -17,6 +17,7 @@
 import { readFileSync, statSync } from 'node:fs';
 import { relative } from 'node:path';
 import { HOUSE_LIMITS, canonicalRel, listContext, normalisePath, resolveInside } from './context.js';
+import { DESCRIPTION_CAP } from '../../shared/skill-ids.js';
 import { isOn, keyOf, readSwitches, skillGroupOf, skillRootOf } from './switches.js';
 import type { SwitchState } from './switches.js';
 import { serveFile, trustKind } from './trust.js';
@@ -65,7 +66,7 @@ export function parseFrontmatter(text: string): Record<string, string> {
   return out;
 }
 
-const oneLine = (s: string, max = 220): string => {
+const oneLine = (s: string, max = DESCRIPTION_CAP): string => {
   const flat = s.replace(/\s+/g, ' ').trim();
   return flat.length > max ? `${flat.slice(0, max - 1).trimEnd()}…` : flat;
 };
@@ -99,12 +100,15 @@ export function allSkills(root: string, state: SwitchState = readSwitches(root))
   return out.sort((a, b) => a.group.localeCompare(b.group) || a.name.localeCompare(b.name));
 }
 
-/** The skills an agent may use right now: the enabled ones only. */
-export const listSkills = (root: string): SkillInfo[] => allSkills(root).filter((s) => s.enabled);
+/** Narrows the drills one agent sees (its own skills setting). Absent = every enabled drill. */
+export type DrillFilter = (s: SkillInfo) => boolean;
+
+/** The skills an agent may use right now: the enabled ones only, and only those its own setting lets through. */
+export const listSkills = (root: string, allow?: DrillFilter): SkillInfo[] => allSkills(root).filter((s) => s.enabled && (!allow || allow(s)));
 
 /** Names for the preamble line. Plain names only; nothing from a file's own text unless the bytes are Legion's own. */
-export function enabledSkillNames(root: string): string[] {
-  return [...new Set(listSkills(root).map((s) => s.name).filter(plainName))];
+export function enabledSkillNames(root: string, allow?: DrillFilter): string[] {
+  return [...new Set(listSkills(root, allow).map((s) => s.name).filter(plainName))];
 }
 
 export type SkillOutcome =
@@ -123,11 +127,11 @@ const NOT_AVAILABLE = (what: string): SkillOutcome => ({
  * A skill that is off, a name nobody has and a path that goes nowhere all get the same answer, so an agent cannot probe
  * for skills the owner left off.
  */
-export function readSkill(root: string, nameOrPath: string): SkillOutcome {
+export function readSkill(root: string, nameOrPath: string, allow?: DrillFilter): SkillOutcome {
   const asked = String(nameOrPath ?? '').trim();
   if (!asked) return NOT_AVAILABLE('');
   const state = readSwitches(root);
-  const enabled = allSkills(root, state).filter((s) => s.enabled);
+  const enabled = allSkills(root, state).filter((s) => s.enabled && (!allow || allow(s)));
 
   let rel: string | undefined;
   const looksLikePath = /[\\/]/.test(asked) || /\.md$/i.test(asked);

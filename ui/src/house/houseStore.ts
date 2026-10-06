@@ -13,6 +13,7 @@
 import { useSyncExternalStore } from 'react';
 import { ApiError, request } from '../api';
 import { bulkDone, bulkUndone, endSentence, licenceNameFromText, withSwitch, wouldReset } from '../../../src/shared/house-view';
+import { restorePayload } from '../../../src/shared/armory-view';
 import type { HouseCategory, HouseFileView, HouseTrust } from '../../../src/shared/house-view';
 
 export type { HouseCategory, HouseFileView, HouseTrust };
@@ -61,7 +62,16 @@ export interface HouseUiState {
   notice: string;
   /** Short licence names ("MIT") read from the licence files, by path. Missing until read; the screen numbers licences meanwhile. */
   licenceNames: Record<string, string>;
+  /** The drill just written, so its row can be found and drawn with a highlight for a few seconds. */
+  justAdded: string | null;
+  /** A drill to move keyboard focus to once its row is on screen (Promote, then Open Doctrine). */
+  focusPath: string | null;
+  /** A drill of yours being removed, and the last one removed (kept a few seconds so Remove can be undone). */
+  removingPath: string | null;
+  removedDrill: RemovedDrill | null;
+  drillError: string | null;
 }
+export interface RemovedDrill { path: string; name: string; text: string; message: string; busy: boolean; error?: string }
 export interface BulkUndo {
   key: string;
   scope: ResetScope;
@@ -76,7 +86,8 @@ export interface BulkUndo {
 
 let state: HouseUiState = {
   status: null, loaded: false, busyPath: null, trustErrors: {}, loadError: null, loading: false, absent: false,
-  switching: [], switchErrors: {}, resetting: null, resetErrors: {}, reading: null, undo: null, notice: '', licenceNames: {},
+  switching: [], switchErrors: {}, resetting: null, resetErrors: {}, reading: null, undo: null, notice: '', licenceNames: {}, justAdded: null,
+  focusPath: null, removingPath: null, removedDrill: null, drillError: null,
 };
 const listeners = new Set<() => void>();
 const set = (p: Partial<HouseUiState>): void => { state = { ...state, ...p }; listeners.forEach((l) => l()); };
@@ -115,11 +126,31 @@ const announce = (text: string): void => { flip = !flip; set({ notice: flip ? `$
 /** A retry shows "Trying…" at least this long, so a try that fails again does not look like nothing happened. */
 export const RETRY_MIN_MS = 400;
 
-export async function loadHouse(opts: { minBusyMs?: number } = {}): Promise<void> {
+/**
+ * Reads /api/house. `maxAgeMs` is for a screen that re-reads on entry: it takes the answer already on screen when that is fresh, and
+ * joins a read that is under way, so opening Doctrine right after the Armory changed it (Promote) is one request, not three. A caller
+ * that has just changed something passes no `maxAgeMs` and always asks again.
+ */
+let inflight: Promise<void> | null = null;
+let loadedAt = 0;
+export function loadHouse(opts: { minBusyMs?: number; maxAgeMs?: number } = {}): Promise<void> {
+  if (opts.maxAgeMs !== undefined) {
+    if (state.loaded && !state.loadError && Date.now() - loadedAt < opts.maxAgeMs) return Promise.resolve();
+    if (inflight) return inflight;
+  }
+  const p = readHouse(opts);
+  inflight = p;
+  void p.finally(() => { if (inflight === p) inflight = null; });
+  return p;
+}
+/** The caller has just read Doctrine for the owner (Promote does) and is about to open it: the screen's entry read takes that answer instead of asking again. */
+export const markHouseFresh = (): void => { loadedAt = Date.now(); };
+async function readHouse(opts: { minBusyMs?: number }): Promise<void> {
   const started = Date.now();
   set({ loading: true });
   try {
     const status = await request<HouseView>('GET', '/api/house');
+    loadedAt = Date.now();
     // What the core says now is the truth, so a failure shown from an earlier try no longer describes anything.
     set({ status, loaded: true, loadError: null, absent: false, switchErrors: {}, resetErrors: {}, trustErrors: {} });
   } catch (e) {
@@ -289,6 +320,93 @@ export async function openHouseFile(path: string, title: string): Promise<void> 
   }
 }
 export function closeHouseFile(): void { set({ reading: null }); }
+
+/**
+ * Your drills. A drill the owner writes is saved as skills/yours/<name>/SKILL.md through POST /api/house/drill. It is NOT shipped, so it
+ * starts not approved, and it is off until switched on; this function never approves or switches anything. Saving over an existing
+ * drill changes its bytes, which drops its approval: the message says so. Throws the core's message for the editor to show inline.
+ */
+let justTimer: ReturnType<typeof setTimeout> | undefined;
+export async function saveDrill(f: { name: string; description: string; whenToUse: string; body: string }, edited: boolean): Promise<string> {
+  clearUndo();
+  // New sends no `replace`, so the core refuses a name that is taken (409). Edit sends replace:true, the one way to overwrite.
+  const body = { name: f.name, description: f.description, ...(f.whenToUse.trim() ? { whenToUse: f.whenToUse } : {}), body: f.body, ...(edited ? { replace: true } : {}) };
+  const res = await request<{ path: string; name: string }>('POST', '/api/house/drill', body);
+  await loadHouse();
+  if (justTimer) clearTimeout(justTimer);
+  set({ justAdded: res.path });
+  justTimer = setTimeout(() => { if (state.justAdded === res.path) set({ justAdded: null }); }, 8000);
+  announce(edited ? `Saved ${res.name}. Your approval no longer applies, so approve it again.` : `Added ${res.name}. It is not approved and it is off.`);
+  return res.path;
+}
+/** Show a drill that exists already: its group opens, its row is drawn with the highlight and takes keyboard focus. */
+export function revealDrill(path: string): void {
+  if (justTimer) clearTimeout(justTimer);
+  set({ justAdded: path, focusPath: path });
+  justTimer = setTimeout(() => { if (state.justAdded === path) set({ justAdded: null }); }, 8000);
+}
+export const clearFocusPath = (): void => { if (state.focusPath) set({ focusPath: null }); };
+
+/** How long "Removed x. Undo" stays; the clock waits while the pointer or focus is on the offer. */
+let drillTimer: ReturnType<typeof setTimeout> | undefined;
+const drillHolds = new Set<string>();
+const stopDrill = (): void => { if (drillTimer) clearTimeout(drillTimer); drillTimer = undefined; };
+const startDrill = (): void => {
+  stopDrill();
+  if (state.removedDrill && !drillHolds.size) drillTimer = setTimeout(() => { drillHolds.clear(); set({ removedDrill: null }); announce('Undo is no longer available.'); }, UNDO_MS);
+};
+export const holdDrill = (who: string): void => { drillHolds.add(who); stopDrill(); };
+export const releaseDrill = (who: string): void => { drillHolds.delete(who); startDrill(); };
+export function dismissRemovedDrill(): void { stopDrill(); drillHolds.clear(); if (state.removedDrill) set({ removedDrill: null }); }
+
+/**
+ * Remove one of your own drills (DELETE /api/house/drill). The row says "Removing…" at once; the core hands back the text, and Undo posts
+ * it again with replace. A restored drill is not approved and is off, whatever it was before: the approval was of those exact bytes.
+ */
+export async function removeDrill(path: string, name: string): Promise<boolean> {
+  if (state.removingPath) return false;
+  dismissRemovedDrill();
+  set({ removingPath: path, drillError: null });
+  try {
+    const res = await request<{ removed: string; name: string; text: string }>('DELETE', `/api/house/drill?path=${encodeURIComponent(path)}`);
+    await loadHouse();
+    const message = `Removed ${name}.`;
+    set({ removedDrill: { path, name, text: res.text, message, busy: false } });
+    startDrill();
+    announce(message);
+    return true;
+  } catch (e) {
+    set({ drillError: `${name}: ${msg(e)}` });
+    return false;
+  } finally {
+    set({ removingPath: null });
+  }
+}
+export async function undoRemoveDrill(): Promise<void> {
+  const r = state.removedDrill;
+  if (!r || r.busy) return;
+  stopDrill();
+  set({ removedDrill: { ...r, busy: true, error: undefined } });
+  try {
+    const p = restorePayload(r.text);
+    await request('POST', '/api/house/drill', { name: p.name || r.name, description: p.description, body: p.body, replace: true });
+    await loadHouse();
+    drillHolds.clear();
+    set({ removedDrill: null });
+    revealDrill(r.path);
+    announce(`Put ${r.name} back. It is not approved and it is off.`);
+  } catch (e) {
+    const error = `${endSentence(`Undo failed: ${msg(e)}`)} Try again.`;
+    set({ removedDrill: { ...r, busy: false, error } });
+    announce(error);
+  }
+}
+
+/** The text of one drill, for the editor. */
+export async function readDrillText(path: string): Promise<string> {
+  const r = await request<{ text: string }>('GET', `/api/house/file?path=${encodeURIComponent(path)}`);
+  return r.text;
+}
 
 let started = false;
 export function initHouse(): void {

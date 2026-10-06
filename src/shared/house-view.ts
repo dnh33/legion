@@ -32,7 +32,7 @@ export interface GroupInfo { category: HouseCategory; title: string; hint: strin
 /** The owner's order. */
 export const GROUPS: readonly GroupInfo[] = [
   { category: 'core', title: 'Core tenets', hint: 'always on', blurb: 'Every agent reads these first. They stay on, and you cannot switch them off.' },
-  { category: 'skills', title: 'Drills', hint: 'skills agents can use · off by default', blurb: 'Step-by-step ways of working. An agent opens one only when its job calls for it.' },
+  { category: 'skills', title: 'Drills', hint: 'drills agents can use · off by default', blurb: 'Step-by-step ways of working. An agent opens one only when its job calls for it.' },
   { category: 'built', title: 'Foundations', hint: 'how Legion is built · on by default', blurb: 'Architecture, testing and versioning notes.' },
   { category: 'decisions', title: 'Decrees', hint: 'decisions on record · on by default', blurb: 'Why Legion works the way it does, one record per decision.' },
   { category: 'history', title: 'Chronicle', hint: 'release history · on by default', blurb: 'Release notes and the session log.' },
@@ -44,15 +44,20 @@ export const GROUPS: readonly GroupInfo[] = [
 const plainHint = (info: GroupInfo): string => info.hint.split(' · ')[0]!;
 
 export const LOCK_REASON = 'A core rule. Every agent reads it first, so it stays on and cannot be switched off.';
-export const SKILLS_BANNER = 'Skills from Legion are off until you turn them on. Each skill changes how agents work.';
+export const SKILLS_BANNER = 'Drills from Legion are off until you turn them on. Each drill changes how agents work.';
 
 /** Friendly names and one-line summaries for the skill folders Legion ships. Anything else gets its own name. */
 const SKILL_GROUPS: Record<string, { title: string; summary: string }> = {
   'verify-debug': { title: 'Verify and debug', summary: 'Find the cause before fixing, and check before saying done.' },
   'ci-github': { title: 'CI and GitHub', summary: 'Fix failing checks and tighten GitHub Actions.' },
   review: { title: 'Review', summary: 'Ask for a code review and handle the feedback.' },
+  yours: { title: 'Your drills', summary: 'Drills you wrote. Each needs your approval before agents read it as a rule.' },
 };
-const SKILL_GROUP_ORDER = ['verify-debug', 'ci-github', 'review'];
+const SKILL_GROUP_ORDER = ['verify-debug', 'ci-github', 'review', 'yours'];
+
+/** The sub-group of drills the owner wrote (skills/yours/<name>/SKILL.md). They are not Legion's words, so they start not approved. */
+export const OWN_DRILLS = 'yours';
+export const isOwnDrill = (f: { category?: HouseCategory; group?: string | null }): boolean => f.category === 'skills' && (f.group ?? '').toLowerCase() === OWN_DRILLS;
 
 const titleCase = (s: string): string => s.replace(/[-_]+/g, ' ').trim().replace(/\S+/g, (w) => w.charAt(0).toUpperCase() + w.slice(1));
 
@@ -167,21 +172,23 @@ export function parseSkillText(text: string): SkillText {
 }
 
 export function skillGroupSummary(group: string, total: number): string {
-  return SKILL_GROUPS[group.toLowerCase()]?.summary ?? `${total} ${total === 1 ? 'skill' : 'skills'}.`;
+  return SKILL_GROUPS[group.toLowerCase()]?.summary ?? `${total} ${total === 1 ? 'drill' : 'drills'}.`;
 }
 
 /** "From Legion", "Edited" (a shipped file that no longer matches), "Approved by you", or "Not approved" for your own files. */
-export function trustLabel(f: Pick<HouseFileView, 'trust' | 'category'>): string {
+export function trustLabel(f: Pick<HouseFileView, 'trust' | 'category'> & { group?: string | null }): string {
   if (f.trust === 'shipped') return 'From Legion';
   if (f.trust === 'adopted') return 'Approved by you';
-  return f.category === 'yours' ? 'Not approved' : 'Edited';
+  return f.category === 'yours' || isOwnDrill(f) ? 'Not approved' : 'Edited';
 }
-export function trustBlurb(f: Pick<HouseFileView, 'trust' | 'category'> & { on?: boolean }): string {
+export function trustBlurb(f: Pick<HouseFileView, 'trust' | 'category'> & { on?: boolean; group?: string | null }): string {
   if (f.category === 'skills' && f.on !== undefined) {
-    // A skill's state comes first: an off skill is not shown to agents at all, so "agents read it as rules" would be false.
-    const state = f.on ? 'On: agents can open this skill.' : 'Off: agents are not shown this skill.';
+    // A drill's state comes first: an off drill is not shown to agents at all, so "agents read it as rules" would be false.
+    const state = f.on ? 'On: agents can open this drill.' : 'Off: agents are not shown this drill.';
     if (f.trust === 'shipped') return `${state} It ships with Legion, unchanged.`;
     if (f.trust === 'adopted') return `${state} You approved these exact words.`;
+    // Your own drill was never Legion's, so "no longer matches" would be false: it is simply not approved yet.
+    if (isOwnDrill(f)) return `${state} You wrote it and have not approved it, so agents read it as material, not as instructions, until you approve it.`;
     return `${state} It no longer matches what Legion shipped, so agents read it as material, not as instructions.`;
   }
   if (f.trust === 'shipped') return 'Ships with Legion, unchanged. Agents read it as the app’s own rules.';
@@ -341,7 +348,7 @@ export function buildView(files: readonly HouseFileView[], query = '', licenceNa
       const on = mds.filter((f) => f.on).length;
       out.push({
         info, rows: [], skillGroups, about: q ? [] : about, count: total, locked: false,
-        countLine: total ? `${total} ${total === 1 ? 'skill' : 'skills'}, ${on} on` : 'none shipped',
+        countLine: total ? `${total} ${total === 1 ? 'drill' : 'drills'}, ${on} on` : 'none shipped',
       });
       continue;
     }
@@ -411,9 +418,9 @@ export const isSkillScope = (scope: BulkScope): boolean => 'group' in scope || s
 export const bulkLabel = (scope: BulkScope, n: number): string => (isSkillScope(scope) ? `Turn off ${n}` : `Turn ${n} back on`);
 /** The button's accessible name: the visible words, then which group it acts on, so two buttons never share a name. */
 export const bulkName = (scope: BulkScope, n: number, groupTitle: string): string =>
-  isSkillScope(scope) ? `Turn off ${plural(n, 'skill')} in ${groupTitle}` : `Turn ${n} back on in ${groupTitle}`;
+  isSkillScope(scope) ? `Turn off ${plural(n, 'drill')} in ${groupTitle}` : `Turn ${n} back on in ${groupTitle}`;
 /** The result, shown next to Undo and announced. */
-export const bulkDone = (scope: BulkScope, n: number): string => (isSkillScope(scope) ? `Turned off ${plural(n, 'skill')}.` : `Turned ${plural(n, 'file')} back on.`);
-export const bulkUndone = (scope: BulkScope, n: number): string => (isSkillScope(scope) ? `Turned ${plural(n, 'skill')} back on.` : `Turned ${plural(n, 'file')} off again.`);
+export const bulkDone = (scope: BulkScope, n: number): string => (isSkillScope(scope) ? `Turned off ${plural(n, 'drill')}.` : `Turned ${plural(n, 'file')} back on.`);
+export const bulkUndone = (scope: BulkScope, n: number): string => (isSkillScope(scope) ? `Turned ${plural(n, 'drill')} back on.` : `Turned ${plural(n, 'file')} off again.`);
 /** Why the button is not offered when there is nothing to do. Skills say nothing: the header already reads "0 of 4 on". */
 export const bulkNothing = (scope: BulkScope): string => (isSkillScope(scope) ? '' : 'Already at the defaults.');

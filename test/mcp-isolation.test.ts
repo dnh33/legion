@@ -101,7 +101,7 @@ test('F1: SDK settings.disableClaudeAiConnectors is set on the run and on the re
   const s = setup(async function* (n) { yield init(); yield n === 0 ? failed : ok; });
   await run(s);
   assert.equal(s.calls.length, 2);
-  for (const c of s.calls) assert.deepEqual(c.options.settings, { disableClaudeAiConnectors: true });
+  for (const c of s.calls) assert.deepEqual(c.options.settings, { disableClaudeAiConnectors: true, disableSkillShellExecution: true });
 });
 
 test('F1: catalog probe and doctor probe carry settings.disableClaudeAiConnectors whichever way inheritMcp is set', async () => {
@@ -111,7 +111,7 @@ test('F1: catalog probe and doctor probe carry settings.disableClaudeAiConnector
     const q = { supportedCommands: async () => [], supportedModels: async () => [], accountInfo: async () => ({ email: 'a@b.c' }), interrupt: async () => undefined, close: () => undefined };
     const queryFn = ((p: any) => { seen = p.options; return q; }) as unknown as QueryFn;
     await getCatalog({ config, queryFn });
-    assert.deepEqual(seen.settings, { disableClaudeAiConnectors: true });
+    assert.deepEqual(seen.settings, { disableClaudeAiConnectors: true, disableAllHooks: true });
     seen = undefined;
     await runDoctor({ config, getBoat: () => null, queryFn });
     assert.deepEqual(seen.settings, { disableClaudeAiConnectors: true });
@@ -125,7 +125,7 @@ test('on: today\'s behaviour (no strict flag, connectors not forced off)', async
     await run(s);
     const o = s.calls[0]!.options;
     assert.equal(o.strictMcpConfig, undefined);
-    assert.equal(o.settings, undefined);
+    assert.deepEqual(o.settings, { disableSkillShellExecution: true }, "no connector switch when inheriting MCP, but inline skill shell stays blocked");
     assert.equal(o.env.ENABLE_CLAUDEAI_MCP_SERVERS, undefined);
     assert.deepEqual(o.settingSources, ['user', 'project', 'local']);
   } finally { if (save !== undefined) process.env.ENABLE_CLAUDEAI_MCP_SERVERS = save; }

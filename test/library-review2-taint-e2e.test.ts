@@ -35,9 +35,9 @@ test('R2-E2 a sub-agent (Task tool) that uses WebFetch taints the parent run', a
   assert.equal(s.graph.getNode(HUMAN, idOf(w))!.status, 'pending');
 });
 
-test('R2-E3 tools that never touch outside content must not taint (Skill / ToolSearch / AskUserQuestion / TaskStop)', async () => {
+test('R2-E3 tools that never touch outside content must not taint (ToolSearch / AskUserQuestion / TaskStop)', async () => {
   const bad: string[] = [];
-  for (const tool of ['Skill', 'ToolSearch', 'AskUserQuestion', 'TaskStop', 'EnterWorktree']) {
+  for (const tool of ['ToolSearch', 'AskUserQuestion', 'TaskStop', 'EnterWorktree']) {
     const s = setup((c) => c.agent !== 'alpha' ? undefined : (async function* () { yield init('s1'); yield toolUse(tool); yield ok('r', 's1'); })());
     const t = await waitDone(s, s.engine.startTask({ agentId: 'alpha', prompt: 'go', source: 'ui' }));
     if (t.tainted) bad.push(tool);

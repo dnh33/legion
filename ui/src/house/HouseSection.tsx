@@ -17,14 +17,19 @@ import { openExternal } from '../api';
 import { Icon } from '../components/icons';
 import { Markdown } from '../components/Markdown';
 import { Modal } from '../components/Modal';
+import { SkillEditor } from '../armory/SkillEditor';
+import { SnackSlot, Toast } from '../armory/Snack';
+import { Description } from '../armory/Description';
 import {
-  closeHouseFile, getHouse, holdUndo, loadHouse, loadLicenceNames, openHouseFile, releaseUndo, resetCount, resetHouse, resetKey, retryLoad,
-  setHouseSwitch, setHouseTrust, undoBulk, useHouse,
+  clearFocusPath, closeHouseFile, dismissRemovedDrill, getHouse, holdDrill, holdUndo, loadHouse, loadLicenceNames, openHouseFile, readDrillText, releaseDrill, releaseUndo,
+  removeDrill, resetCount, resetHouse, resetKey, retryLoad, saveDrill, setHouseSwitch, setHouseTrust, undoBulk, undoRemoveDrill, useHouse,
 } from './houseStore';
+import { focusIntent, focusWhenReady } from '../armory/lateFocus';
+import type { FocusIntent } from '../armory/lateFocus';
 import type { HouseFileView, ResetScope } from './houseStore';
 import {
   bulkLabel, bulkName, bulkNothing, buildView, displayTitle, dropLeadingTitle, endSentence, formatBytes, humaniseSkillName, LICENCE_RE, licenceLabels,
-  LOCK_REASON, matchCount, missingLine, nextHeader, noSkillsShipped, parseOpenGroups, parseSkillText, pathIsRedundant, plural, showSearch,
+  isOwnDrill, LOCK_REASON, matchCount, missingLine, nextHeader, noSkillsShipped, parseOpenGroups, parseSkillText, pathIsRedundant, plural, showSearch,
   SKILLS_BANNER, skillGroupLabel, TRUST_LEGEND, trustBlurb, trustLabel,
 } from '../../../src/shared/house-view';
 import type { GroupView, SkillGroupView } from '../../../src/shared/house-view';
@@ -46,11 +51,28 @@ export function HouseSection() {
   const retried = useRef(false);
 
   // Re-read on entry: the owner may have edited files in this folder since it was last open.
-  useEffect(() => { void loadHouse(); }, []);
+  useEffect(() => { void loadHouse({ maxAgeMs: 5000 }); }, []);
   // A Try again that worked removes its own button, so focus would fall to the page. It goes to the heading instead.
   useEffect(() => {
     if (retried.current && loaded && !loadError) { retried.current = false; heading.current?.focus(); }
   }, [loaded, loadError]);
+  // Coming from the Armory's Promote: the new drill's row takes keyboard focus, so Approve is one Tab away. The row may not exist yet (the list is
+  // still being read) or may sit in a group that is still opening, and a focus() on a hidden row does nothing, so this tries again until the row
+  // really holds focus. If it never does, focus goes to this screen's heading and never to the page.
+  const focusPath = useHouse((s) => s.focusPath);
+  useEffect(() => {
+    if (!focusPath) return;
+    const path = focusPath;
+    return focusWhenReady({
+      find: () => {
+        const li = Array.from(document.querySelectorAll<HTMLElement>('[data-house-path]')).find((e) => e.dataset.housePath === path) ?? null;
+        li?.scrollIntoView?.({ block: 'center' });
+        return li;
+      },
+      fallback: () => heading.current,
+      done: () => clearFocusPath(),
+    });
+  }, [focusPath]);
 
   const files = st?.files ?? [];
   const searchable = showSearch(files);
@@ -90,8 +112,8 @@ export function HouseSection() {
       <header className="set-head">
         <h3 ref={heading} tabIndex={-1}>Doctrine</h3>
         <p>
-          The rules and skills your agents follow. Agents read these rules before they start work. Skills are different:
-          an agent opens one only when its job calls for it. A switch decides whether agents see a file. Trust is separate:
+          The rules and drills your agents follow. Agents read these rules before they start work. Drills are different:
+          an agent opens one only when its job calls for it. (Skills live in the Armory.) A switch decides whether agents see a file. Trust is separate:
           a file you write needs your approval to count as a rule, and needs it again after any edit, because approval
           covers those exact words.
         </p>
@@ -140,6 +162,7 @@ export function HouseSection() {
       ) : null}
 
       {groups.map((g) => <Group key={g.info.category} g={g} files={files} searching={!!q} />)}
+      {loaded && !files.some((f) => f.category === 'skills') ? <DrillsOnly files={files} /> : null}
 
       <ReadDialog />
     </div>
@@ -250,6 +273,21 @@ function SkillsBody({ g, files, searching }: { g: GroupView; files: HouseFileVie
     try { return parseOpenGroups(window.localStorage.getItem(OPEN_KEY)); } catch { return {}; }
   });
   const wrap = useRef<HTMLDivElement>(null);
+  const [drill, setDrill] = useState<DrillTarget | null>(null);
+  const [snackEl, setSnackEl] = useState<HTMLDivElement | null>(null);
+  const wantFocus = useRef<FocusIntent | null>(null);
+  const justAdded = useHouse((s) => s.justAdded);
+  // A drill just written: its group opens, so the new row is on screen with its "Not approved" tag and its Approve button.
+  useEffect(() => {
+    const key = justAdded ? justAdded.split('/')[1] : undefined;
+    if (!key) return;
+    setOpen((cur) => {
+      if (cur[key]) return cur;
+      const next = { ...cur, [key]: true };
+      try { window.localStorage.setItem(OPEN_KEY, JSON.stringify(next)); } catch { /* works without storage */ }
+      return next;
+    });
+  }, [justAdded]);
   const toggle = (key: string): void => {
     const next = { ...open, [key]: !open[key] };
     if (!next[key]) delete next[key];
@@ -265,24 +303,41 @@ function SkillsBody({ g, files, searching }: { g: GroupView; files: HouseFileVie
   };
 
   if (noSkillsShipped(files)) {
-    return <p className="set-hint house-empty">This version of Legion ships no skills.</p>;
+    return (
+      <>
+        <DrillBar onNew={() => setDrill({ mode: 'new' })} />
+        <RemovedDrillBar wantFocus={wantFocus} el={snackEl} />
+        <p className="set-hint house-empty">This version of Legion ships no drills.</p>
+        {drill ? <DrillEditorHost target={drill} files={files} onClose={() => setDrill(null)} /> : null}
+        <SnackSlot onEl={setSnackEl} />
+      </>
+    );
   }
   return (
     <>
       <p className="house-banner" role="note">{SKILLS_BANNER}</p>
+      <DrillBar onNew={() => setDrill({ mode: 'new' })} />
+      <RemovedDrillBar wantFocus={wantFocus} el={snackEl} />
       <div ref={wrap} className="house-skillgroups">
         {g.skillGroups.map((sg, i) => (
-          <SkillGroup key={sg.key} sg={sg} open={searching || !!open[sg.key]} forced={searching} onToggle={() => toggle(sg.key)} onKey={(e) => move(e, i)} />
+          <SkillGroup key={sg.key} sg={sg} open={searching || !!open[sg.key]} forced={searching} onToggle={() => toggle(sg.key)} onKey={(e) => move(e, i)}
+            onEdit={isOwnDrill({ category: 'skills', group: sg.key }) ? (f) => setDrill({ mode: 'edit', path: f.path, name: f.path.split('/')[2] ?? '' }) : undefined}
+            onRemove={isOwnDrill({ category: 'skills', group: sg.key }) ? (f) => {
+              wantFocus.current?.done();
+              const intent = focusIntent((document.activeElement as HTMLElement | null)?.closest('li') ?? null);
+              wantFocus.current = intent;
+              void removeDrill(f.path, f.path.split('/')[2] ?? 'the drill').then((ok) => { if (!ok) { intent.done(); if (wantFocus.current === intent) wantFocus.current = null; } });
+            } : undefined} />
         ))}
       </div>
       {g.about.length ? (
         <p className="set-hint house-about">
-          About these skills:{' '}
+          About these drills:{' '}
           {g.about.map((f, i) => {
             const sources = f.path.toLowerCase().endsWith('sources.md');
             return (
               <span key={f.path}>{i ? ' · ' : ''}
-                <button type="button" className="link-btn" onClick={() => void openHouseFile(f.path, sources ? 'Where the skills come from' : 'About these skills')}>
+                <button type="button" className="link-btn" onClick={() => void openHouseFile(f.path, sources ? 'Where the drills come from' : 'About these drills')}>
                   {sources ? 'sources and licences' : 'read me'}
                 </button>
               </span>
@@ -290,12 +345,78 @@ function SkillsBody({ g, files, searching }: { g: GroupView; files: HouseFileVie
           })}
         </p>
       ) : null}
+      {drill ? <DrillEditorHost target={drill} files={files} onClose={() => setDrill(null)} /> : null}
+      <SnackSlot onEl={setSnackEl} />
     </>
   );
 }
 
-function SkillGroup({ sg, open, forced, onToggle, onKey }: {
-  sg: SkillGroupView; open: boolean; forced: boolean; onToggle: () => void; onKey: (e: React.KeyboardEvent) => void;
+type DrillTarget = { mode: 'new' } | { mode: 'edit'; path: string; name: string };
+
+/** "Removed x. Undo": the drill is gone at once, and this brings it back (not approved and off: the approval was of those exact words). */
+function RemovedDrillBar({ wantFocus, el }: { wantFocus: React.MutableRefObject<FocusIntent | null>; el: HTMLElement | null }) {
+  const r = useHouse((s) => s.removedDrill);
+  const err = useHouse((s) => s.drillError);
+  const undoBtn = useRef<HTMLButtonElement>(null);
+  const had = useRef(false);
+  useEffect(() => {
+    if (r && !had.current && wantFocus.current) {
+      if (wantFocus.current.still()) undoBtn.current?.focus();
+      wantFocus.current.done();
+      wantFocus.current = null;
+    }
+    had.current = !!r;
+  }, [r]); // eslint-disable-line react-hooks/exhaustive-deps
+  if (err && !r) return <div className="house-rowerr" role="alert"><Icon name="x" size={12} /> <span>{endSentence(`Could not remove it: ${err}`)}</span></div>;
+  if (!r) return null;
+  return (
+    <Toast el={el}>
+    <div className="arm-bar" onMouseEnter={() => holdDrill('hover')} onMouseLeave={() => releaseDrill('hover')} onFocus={() => holdDrill('focus')} onBlur={() => releaseDrill('focus')}>
+      <span className={r.error ? 'house-undoerr' : undefined}>{r.error ?? `${r.message} Undo brings it back not approved and off.`}</span>
+      <button ref={undoBtn} type="button" className="btn sm" aria-disabled={r.busy} aria-busy={r.busy || undefined} onClick={() => { if (!r.busy) void undoRemoveDrill(); }}>
+        {r.busy ? <>Undoing{'…'}</> : 'Undo'}
+      </button>
+      <button type="button" className="btn-ghost sm" onClick={dismissRemovedDrill}>Dismiss</button>
+    </div>
+    </Toast>
+  );
+}
+
+/** Your own drills start here: write one. It is saved not approved and off; approving it is the Approve button on its row. */
+function DrillBar({ onNew }: { onNew: () => void }) {
+  return (
+    <div className="house-newdrill">
+      <span className="set-hint">Write your own drill. It starts not approved and off.</span>
+      <button type="button" className="btn sm" onClick={onNew}><Icon name="plus" size={12} /> New drill</button>
+    </div>
+  );
+}
+
+/** The editor shared with the Armory. A new name is checked against your existing drills, because saving over one replaces it. */
+function DrillEditorHost({ target, files, onClose }: { target: DrillTarget; files: HouseFileView[]; onClose: () => void }) {
+  const taken = files.filter((f) => isOwnDrill(f) && f.skill === f.path).map((f) => f.path.split('/')[2] ?? '');
+  return (
+    <SkillEditor kind="drill" taken={taken}
+      {...(target.mode === 'edit' ? { edit: { name: target.name, loadText: () => readDrillText(target.path) } } : {})}
+      onSave={async (f) => { await saveDrill(f, target.mode === 'edit'); }}
+      onClose={onClose} />
+  );
+}
+
+/** With no drill shipped and none written there is no Drills group to hold the button, so it gets a small group of its own. */
+function DrillsOnly({ files }: { files: HouseFileView[] }) {
+  const [drill, setDrill] = useState<DrillTarget | null>(null);
+  return (
+    <section className="house-group" aria-label="Drills">
+      <div className="house-ghead"><div className="house-gtext"><h4 className="house-h">Drills <span className="house-hint">drills agents can use · off by default</span></h4></div></div>
+      <DrillBar onNew={() => setDrill({ mode: 'new' })} />
+      {drill ? <DrillEditorHost target={drill} files={files} onClose={() => setDrill(null)} /> : null}
+    </section>
+  );
+}
+
+function SkillGroup({ sg, open, forced, onToggle, onKey, onEdit, onRemove }: {
+  sg: SkillGroupView; open: boolean; forced: boolean; onToggle: () => void; onKey: (e: React.KeyboardEvent) => void; onEdit?: (f: HouseFileView) => void; onRemove?: (f: HouseFileView) => void;
 }) {
   const id = useId();
   const sumId = useId();
@@ -321,7 +442,7 @@ function SkillGroup({ sg, open, forced, onToggle, onKey }: {
           </div>
         )}
         <ul className="house-list">
-          {sg.skills.map((r) => <Row key={r.file.path} f={r.file} skill={r} />)}
+          {sg.skills.map((r) => <Row key={r.file.path} f={r.file} skill={r} {...(onEdit ? { onEdit } : {})} {...(onRemove ? { onRemove } : {})} />)}
         </ul>
       </div>
     </div>
@@ -344,28 +465,34 @@ function SwitchControl({ f, label, describedBy, caption }: { f: HouseFileView; l
   );
 }
 
-function Row({ f, skill }: { f: HouseFileView; skill?: SkillGroupView['skills'][number] }) {
+function Row({ f, skill, onEdit, onRemove }: { f: HouseFileView; skill?: SkillGroupView['skills'][number]; onEdit?: (f: HouseFileView) => void; onRemove?: (f: HouseFileView) => void }) {
   const busyPath = useHouse((s) => s.busyPath);
   const err = useHouse((s) => s.switchErrors[f.path]);
   const trustErr = useHouse((s) => s.trustErrors[f.path]);
   const licenceNames = useHouse((s) => s.licenceNames);
+  const fresh = useHouse((s) => s.justAdded === f.path);
+  const removing = useHouse((s) => s.removingPath === f.path);
+  const line = useRef<HTMLDivElement>(null);
+  const li = useRef<HTMLLIElement>(null);
+  useEffect(() => { if (fresh) line.current?.scrollIntoView?.({ block: 'nearest' }); }, [fresh]);
   const descId = useId();
   const busy = busyPath === f.path;
   const disabled = busyPath !== null && !busy;
   const approvable = f.trust !== 'shipped';
-  const label = skill ? skill.displayTitle : displayTitle(f);
+  // Your own drill is called what you typed, the same as in the Armory; a shipped one has its written title.
+  const label = skill ? (isOwnDrill(f) ? (f.path.split('/')[2] ?? skill.displayTitle) : skill.displayTitle) : displayTitle(f);
   const meaning = `${trustBlurb(f)}${f.locked ? ` ${LOCK_REASON}` : ''}`;
   const licenceNamesFor = skill ? licenceLabels(skill.licences.map((l) => licenceNames[l.path] ?? '')) : [];
   // The trust sentence is attached once per row: to Approve when the row has it, else to the switch. A locked row has
   // neither, so there the sentence is plain text for a screen reader.
   const hasControl = approvable || !f.locked;
   return (
-    <li className={`house-row t-${f.trust}${f.on ? ' is-on' : ' is-off'}`}>
+    <li ref={li} tabIndex={-1} data-house-path={f.path} aria-busy={removing || undefined} className={`house-row t-${f.trust}${f.on ? ' is-on' : ' is-off'}${fresh ? ' is-new' : ''}${removing ? ' is-removing' : ''}`}>
       <span id={descId} className={hasControl ? undefined : 'sr-only'} hidden={hasControl}>{meaning}</span>
-      <div className="house-line">
+      <div ref={line} className="house-line">
         <div className="house-main">
           <span className="house-title" title={label}>{label}</span>
-          {skill && f.description ? <span className="house-desc">{f.description}</span> : null}
+          {skill && f.description ? <Description text={f.description} name={label} cutNote="Shortened to 400 characters here. Open the drill to read the rest." /> : null}
           {pathIsRedundant(f.path, label) ? null : <span className="house-path" title={f.path}>{f.path}</span>}
           <span className="house-meta">
             <span className={`house-tag t-${f.trust}`}>{trustLabel(f)}</span>
@@ -385,6 +512,9 @@ function Row({ f, skill }: { f: HouseFileView; skill?: SkillGroupView['skills'][
                 <button type="button" className="link-btn" aria-label={`Read it: ${label}`} onClick={() => void openHouseFile(f.path, label)}>
                   Read it
                 </button>
+                {onEdit ? <button type="button" className="link-btn" aria-label={`Edit ${label}`} onClick={() => onEdit(f)}>Edit</button> : null}
+                {onRemove ? <button type="button" className="link-btn" aria-label={`Remove ${label}`} aria-disabled={removing || undefined} onClick={() => { if (!removing) onRemove(f); }}>Remove</button> : null}
+                {removing ? <span className="arm-removing"><span className="spin" /> Removing{'…'}</span> : null}
               </>
             ) : null}
           </span>
@@ -392,8 +522,8 @@ function Row({ f, skill }: { f: HouseFileView; skill?: SkillGroupView['skills'][
         <div className="house-actions">
           {approvable ? (
             <button type="button" className={`btn sm${f.trust === 'adopted' ? '' : ' primary'}`} aria-disabled={busy || disabled} aria-busy={busy || undefined}
-              aria-describedby={descId} onClick={() => { if (busy || disabled) return; void setHouseTrust(f.path, f.trust !== 'adopted'); }}>
-              {busy ? <><span className="spin" /> Saving{'…'}</> : f.trust === 'adopted' ? 'Withdraw approval' : 'Approve as my rules'}
+              aria-label={`${f.trust === 'adopted' ? 'Withdraw approval of' : 'Approve'} ${label}`} aria-describedby={descId} onClick={() => { if (busy || disabled) return; void setHouseTrust(f.path, f.trust !== 'adopted'); }}>
+              {busy ? <><span className="spin" /> Saving{'…'}</> : f.trust === 'adopted' ? 'Withdraw approval' : 'Approve'}
             </button>
           ) : null}
           {f.locked ? (
@@ -452,7 +582,7 @@ function ReadDialog() {
       footer={<>
         <span className="house-readpath" title={r.path}>{r.path}</span>
         <span style={{ flex: 1 }} />
-        {skillFile ? <SwitchControl f={skillFile} caption="Use this skill" label={humaniseSkillName(skillFile.path.split('/').slice(-2, -1)[0] ?? 'skill')} describedBy={stateId} /> : null}
+        {skillFile ? <SwitchControl f={skillFile} caption="Use this drill" label={humaniseSkillName(skillFile.path.split('/').slice(-2, -1)[0] ?? 'skill')} describedBy={stateId} /> : null}
         <button type="button" className="btn" onClick={closeHouseFile}>Done</button>
       </>}>
       {r.status === 'loading' ? <div className="set-loading"><span className="spin" /> Reading the file{'…'}</div> : null}
@@ -465,7 +595,7 @@ function ReadDialog() {
       {r.status === 'ready' ? (
         <>
           {file?.description && file.path === r.path ? <p className="house-readdesc">{file.description}</p> : null}
-          {r.trust ? <p id={stateId} className="set-hint">{trustBlurb({ trust: r.trust, category, on: skillFile?.on })}</p> : null}
+          {r.trust ? <p id={stateId} className="set-hint">{trustBlurb({ trust: r.trust, category, on: skillFile?.on, group: (skillFile ?? file)?.group })}</p> : null}
           {r.clipped ? <p className="set-hint">Showing the start of a long file.</p> : null}
           {facts.length || doc.source || doc.commit ? (
             <p className="house-readmeta">
