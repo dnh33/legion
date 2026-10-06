@@ -1606,3 +1606,20 @@ ode_modules` is a junction: remove the junction only).
   - the CHANGELOG `Ŧ` claim is scoped to "the fonts have the glyph" (one-cell width stays TK2).
 - New tests: still helm on error, reduced motion and layer order of the egg, the queued tag, and the 800 ms boot. Negatives: each old source fails its new test (splash 2, css 1, mcp-tools 1, takeover-art 2). takeover-art + takeover-splash + mcp-tag 13/13.
 - **Owner question:** the spec's section 11 says the splash lost the Zealot image and the "Your order of agents." tagline. That is the builder's deviation note, not a recorded owner decision.
+
+## 2026-10-06 — SHIPPED v0.2.5-d (owner: "one commit, good changelog notes, package and ship, letter bump")
+- Contents: `d28469d` (the Deny fixes, the Lattice F1 fix, the two flaky-test fixes, the takeover with all review fixes) +
+  merge `99ad3a7` of `fix/stuck-working` (Zealot's 0.2.5-d: usage panel, the working update button, the stuck "working"
+  fix). CHANGELOG: one 0.2.5-d entry. Restore tag `pre-merge-0.2.5-d` = f90d195.
+- Gate on the merged main, after `npm ci`: 2817 tests, 2772 pass, 0 fail, 45 skipped; typecheck and build:ui clean.
+- Built from the clean detached worktree `D:\bots\legion-ship-025d` at 99ad3a7 (dirty: false). Package
+  `D:\bots\legion-pkg-025d`: win-x64 285 MB (sha256 886978d4…), app.zip 2.7 MB (79e24145…). Notes 898 chars
+  (`D:\bots\legion-pkg-025d-notes\`), including how 0.2.5-c users apply it ("Restart now…": 0.2.5-c's "Update and
+  install now" button is the one this release fixes).
+- Signed with k1 (key copied out of the vault, deleted in the same command, never read). Pre-flight 14 ok / 0 fail
+  (the 2 known benign warnings). release-verify OK. depsSha256 differs from 0.2.5-c by design (raw lock); pre-flight
+  confirms "a version-only lock bump does not read as a dependency change".
+- main pushed 7ca01a0..99ad3a7 (fast-forward; includes the unpushed updater commits 4a94020 and f90d195). Tag v0.2.5-d
+  at 99ad3a7. Draft first; all 5 uploaded digests == local sha256; published 2026-10-06T00:10:48Z as Latest.
+- Live CDN: latest manifest 0.2.5-d, requiresFullInstall false; release-verify OK on the fetched bytes.
+- Open for the owner's PC: U1 (0.2.5-c installs 0.2.5-d), MD1, MD2, TK1-TK4 (claude/tracker-pc-checks.md).

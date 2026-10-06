@@ -263,3 +263,9 @@ Proven with the scripted model only (`test/engine.test.ts`, `test/turn-limit-con
 | TK2 | In Windows Terminal (CaskaydiaCove NF) run `node -e "console.log('Ŧ LEGION · sworn · done|')"`; then look at the same text in a Claude Code desktop session (TK3). | `Ŧ` is drawn, one cell wide: the `|` at the end lines up with a row of 26 ASCII characters above it. | A screenshot of each. | todo |
 | TK3 | In Claude Code with Legion's MCP server: ask it to run a one-line task on Scout through legion_run. | The tool result ends with the line `Ŧ LEGION · sworn · done`, visible when the result is expanded. Claude does not treat it as an instruction. | A screenshot of the expanded tool result. | todo |
 | TK4 | Put docs/images/legion-takeover.gif (frame 1) side by side with Claude Code's own banner critter. | It reads as the critter (an homage) but is not a pixel copy: proportions and palette are Legion's redraw. If it is a near-copy, redraw before publishing. | The side-by-side image. | todo |
+
+## 2026-10-06: the installed 0.2.5-c picks up 0.2.5-d. Safety class: none (updates your own install)
+
+| id | Steps | Expected | Evidence | State |
+|---|---|---|---|---|
+| U1 | In the installed Legion 0.2.5-c: Settings → About → Updates → "Check now", then "Update" (download), then **"Restart now…"** (not "Update and install now", which is the 0.2.5-c bug this release fixes). Confirm the dialog. | Legion restarts on 0.2.5-d (title bar shows v0.2.5-d); the usage chart icon is in the title bar; the update panel now shows "Restart and install". `%LOCALAPPDATA%\Programs\Legion\.git` still does not exist. | Screenshot of the title bar version and the updates panel. | todo |
