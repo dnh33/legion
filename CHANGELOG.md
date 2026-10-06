@@ -17,8 +17,8 @@ All notable changes are recorded here. The format follows [Keep a Changelog](htt
 - **Behaviour change: agents no longer load your Claude Code skills by default.** Before, an agent could see every skill
   in your Claude Code setup. Now each run gets an explicit list, which is empty until you turn skills on in the Armory.
   This also applies to subagents.
-- **Skill shell commands are off by default.** Shell lines inside a skill no longer run when it loads, unless you turn
-  this on in the Armory and confirm.
+- **Skill shell commands are off by default.** Legion asks Claude Code to disable the shell lines inside a skill, so
+  they do not run when it loads, unless you turn this on in the Armory and confirm.
 - **Skills from outside Legion mark a run as tainted** when they load, like other outside content.
 - In the light theme, primary buttons use a darker green so white text meets contrast guidelines.
 

@@ -1,9 +1,10 @@
 /** Your own drills (Doctrine): written as owner files, so untrusted and off until the owner approves and switches them; promote; per-agent drill filter. */
 import assert from 'node:assert/strict';
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, it } from 'node:test';
 import { createHouseModule } from '../src/core/house/index.js';
+import { HOUSE_LIMITS } from '../src/core/house/context.js';
 import type { ModuleDeps, ModuleJob, RouteAdder } from '../src/core/modules.js';
 import { drillId } from '../src/shared/skill-ids.js';
 import { tempDir } from './tmp-cleanup.js';
@@ -189,6 +190,36 @@ describe('promote an SDK-only Claude Code skill (the id has spaces)', () => {
     const r = rig(true);
     await r.a.call('GET', '/api/armory');
     await assert.rejects(() => r.call('POST', '/api/house/drill/promote', { armoryId: 'zzz-secret-id' }), (e: Error) => /not in the Armory any more/.test(e.message) && !/zzz-secret-id/.test(e.message));
+  });
+
+  it('refuses a skill file over the size cap before reading it, and writes nothing', async () => {
+    const home = tempDir('legion-cchome-');
+    const r = houseRig({ sdkProbe: async () => {
+      const out = sdk(home);
+      writeFileSync(join(out.plugins[0].path, 'skills', 'Agent Development', 'SKILL.md'), md('Agent Development', 'Build agents.', '', 'x'.repeat(HOUSE_LIMITS.maxFileBytes + 10)), 'utf8');
+      return out;
+    }, cc: {} }, true);
+    await r.a.call('GET', '/api/armory');
+    await assert.rejects(() => r.call('POST', '/api/house/drill/promote', { armoryId: 'design:Agent Development' }), /too large/);
+    assert.equal(existsSync(join(r.layer, 'skills', 'yours', 'agent-development')), false);
+  });
+
+  it('refuses a skill file that is a link, and writes nothing', async (t) => {
+    const home = tempDir('legion-cchome-');
+    const target = join(tempDir('legion-linktarget-'), 'elsewhere.md');
+    writeFileSync(target, md('Agent Development', 'Build agents.', '', 'Linked body.'), 'utf8');
+    let linked = true;
+    const r = houseRig({ sdkProbe: async () => {
+      const out = sdk(home);
+      const file = join(out.plugins[0].path, 'skills', 'Agent Development', 'SKILL.md');
+      rmSync(file);
+      try { symlinkSync(target, file, 'file'); } catch { linked = false; }
+      return out;
+    }, cc: {} }, true);
+    await r.a.call('GET', '/api/armory');
+    if (!linked) { t.skip('file symlinks need privilege on this machine'); return; }
+    await assert.rejects(() => r.call('POST', '/api/house/drill/promote', { armoryId: 'design:Agent Development' }), /is a link/);
+    assert.equal(existsSync(join(r.layer, 'skills', 'yours', 'agent-development')), false);
   });
 
   it('negative: a house module that builds its own catalog (the old behaviour) cannot find it', async () => {

@@ -245,9 +245,15 @@ export function createHouseModule(deps: ModuleDeps, opts: HouseModuleOptions = {
         const entry = list.find((e) => e.id === wanted);
         if (!entry) throw new HttpError(404, 'That skill is not in the Armory any more. Reload the Armory and try again.');
         if (!entry.path) throw new HttpError(400, `${entry.name} is built in to Claude Code and has no text on this computer to copy.`);
+        // The path comes from the SDK handshake and plugin manifests, so check it before reading: a link could point
+        // anywhere, and a huge file or a FIFO would be read whole (or hang) before any size cap applied.
+        let st;
+        try { st = lstatSync(entry.path); } catch { throw new HttpError(404, 'That skill file is not there any more.'); }
+        if (st.isSymbolicLink()) throw new HttpError(400, 'That skill file is a link, so it is not copied into Doctrine.');
+        if (!st.isFile()) throw new HttpError(400, 'That skill is not a plain file, so it is not copied into Doctrine.');
+        if (st.size > HOUSE_LIMITS.maxFileBytes) throw new HttpError(400, 'That skill is too large to copy into Doctrine.');
         let text: string;
         try { text = readFileSync(entry.path, 'utf8'); } catch { throw new HttpError(404, 'That skill file is not there any more.'); }
-        if (text.length > HOUSE_LIMITS.maxFileBytes) throw new HttpError(400, 'That skill is too large to copy into Doctrine.');
         const slug = entry.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 64);
         if (!SKILL_NAME_RE.test(slug)) throw new HttpError(400, 'Could not make a drill name from that skill.');
         return writeDrill(slug, text, false);
