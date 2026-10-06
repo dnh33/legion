@@ -959,6 +959,12 @@ Items 1 to 6 above stay as they are. These were added from the 2026-10-06 sessio
 
 18. **Install skills from a link (Armory A2b).** GitHub, skills.sh and well-known sources, with review, pinning to a commit and the shared GitHub client. Second half of the approved Armory plan; after the scope lock (maintainer, 2026-10-06).
 
+19. **Research: more Blender sources and harnesses.** A research task, nothing built yet (maintainer, 2026-10-06):
+    - **Asset and scene sources:** Hyper3D (Rodin), Hunyuan3D, Tripo, Poly Haven and Poly Pizza for 3D asset and scene generation. Find out how each one is reached, its licence, its cost and its account needs. Decide which belong in Legion's Blender tools.
+    - **Another harness: MCP for Blender** (https://www.mcp-for-blender.com/, its capabilities page /docs/concepts/capabilities and /creations, plus a t.co link the maintainer shared; destination not checked). Scan it first for safety and security (what runs, what it can reach, how it is installed and updated). Then compare it with the Blender bridge Legion already has: does it add anything?
+    - **deepseek-ai/deepseek-harness** (https://github.com/deepseek-ai/deepseek-harness): what it is, whether it is safe, and whether it differs from what Legion has built in.
+    - Report back before anything is adopted. Downloads and new accounts need the maintainer's go-ahead.
+
 **Scope lock (maintainer, 2026-10-06):** the work already running is finished before anything new starts: the Cloudflare switch and connectors phase 1 (this session), the Armory and the CI panel (house/skills session), BSV PR #16 for `0.2.5-i` (BSV session). New requests go onto this ladder as open items. After the lock, work resumes from the ladder.
 
 ---
