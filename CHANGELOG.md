@@ -4,7 +4,12 @@ All notable changes are recorded here. The format follows [Keep a Changelog](htt
 
 ## [Unreleased]
 
+## [0.2.5-i] - 2026-10-06
+
 ### Fixed
+
+- **The usage panel opens fully again.** The chart button in the title bar opened only a thin strip; it now shows the
+  whole panel with totals, the daily chart and the per-model and per-agent rows.
 
 - **BSV: a payment no longer fails while your wallet is still asking you about it.** Some wallets ask once for a spending
   grant while they build a payment. Legion gave that step 30 seconds, so a careful answer could come too late and the
@@ -26,6 +31,11 @@ All notable changes are recorded here. The format follows [Keep a Changelog](htt
   BRC-219, which asks apps to wait while a wallet asks its user. Every source the pack cites was re-read: moved
   repositories now point to their new homes, and version numbers and facts that had changed are updated. Notes you
   edited yourself are kept as they are.
+- **Install on Windows: the save-then-run command comes first.** getlegion.xyz and the README now give
+  `irm https://getlegion.xyz/install.ps1 -OutFile legion.ps1; powershell -ExecutionPolicy Bypass -File .\legion.ps1`, which
+  saves the script so you can read it before it runs. Some browser extensions warned when the site copied the one-step
+  form; `irm https://getlegion.xyz | iex` still works.
+- **SECURITY.md is rewritten** to match what the code does today, in plain words.
 
 ## [0.2.5-h] - 2026-10-06
 
