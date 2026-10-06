@@ -197,6 +197,8 @@ interface Job {
   fromAgentId?: string; parentTaskId?: string;
   /** Set when another bot woke this run (rooms, or the agent bridge). Caps the run's approval mode. */
   origin?: TaskOrigin;
+  /** This turn is a bridge reply landing in the caller's task: routed as data, not as a request (router.ts). */
+  reply?: boolean;
 }
 interface Active {
   ac: AbortController; cancelled: boolean; q?: Query;
@@ -320,6 +322,7 @@ export class Engine {
       taskId: task.id, agentId: agent.id, prompt, choice: task.requestedModel, priorModel,
       header: p.bridge?.header, fromAgentId: p.bridge?.fromAgentId, parentTaskId: p.bridge && !p.bridge.reply ? p.bridge.parentTaskId : undefined,
       origin: task.origin,
+      ...(p.bridge?.reply ? { reply: true } : {}),
     });
     queueMicrotask(() => this.pump());
     return { ...task };
@@ -614,7 +617,7 @@ export class Engine {
   private async execute(job: Job, act: Active): Promise<void> {
     const agent = this.store.getAgent(job.agentId);
     if (!agent) throw new Error(`Agent ${job.agentId} no longer exists`);
-    let decision = routeModel(job.prompt, job.choice, { priorModel: job.priorModel });
+    let decision = routeModel(job.prompt, job.choice, { priorModel: job.priorModel, ...(job.reply ? { reply: true } : {}) });
     // A model a bot picked (per-task override, or a /opus prefix in a bot's message) never goes above the agent's own setting.
     const picked = this.store.getTask(job.taskId)?.modelOverride || (job.origin && decision.reason.startsWith('prefix'));
     const provAgent = providerPrefix(agent.model);

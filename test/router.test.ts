@@ -87,3 +87,16 @@ test('a run that stopped at the spend limit never escalates to Opus (a fresh cap
   // a real failure on sonnet still escalates
   assert.equal(shouldEscalate({ model: 'sonnet', subtype: 'error_during_execution', isError: true }), true);
 });
+
+test('a bridge reply is data: its length, keywords and phrases never pick Opus; it stays on the model the thread already uses', () => {
+  const long = '[Reply from Scout · task t1] ' + 'architect a migration plan, think hard, review and debug. '.repeat(80);
+  assert.ok(long.length > 1800);
+  assert.equal(routeModel(long, 'auto', { reply: true }).model, 'sonnet', 'no prior model: the default');
+  assert.equal(routeModel(long, 'auto', { reply: true, priorModel: 'sonnet' }).model, 'sonnet');
+  assert.equal(routeModel(long, 'auto', { reply: true, priorModel: 'opus' }).model, 'opus', 'a thread already on Opus stays (switching would drop its cache)');
+  assert.match(routeModel(long, 'auto', { reply: true }).reason, /reply/);
+  // real requests keep every rule
+  assert.equal(routeModel(long, 'auto').model, 'opus');
+  assert.equal(routeModel('/opus hi', 'auto', { reply: true }).model, 'opus', 'an explicit prefix still wins');
+  assert.equal(routeModel('hi', 'haiku', { reply: true }).model, 'haiku', 'a chosen model still passes through');
+});

@@ -1124,3 +1124,16 @@ test('cost: a task recorded by the old summing code heals on its next run in the
   assert.ok(Math.abs(kept.costUsd! - 5.05) < 1e-9, `got ${kept.costUsd}`);
   assert.equal(kept.costLegacy, true, 'the old part is still marked as possibly over-counted');
 });
+
+test('router: a long bridge reply landing in an auto caller does not move it to Opus; a long owner message still does', async () => {
+  const s = setup(() => (async function* () { yield init('S'); yield res(0.01, 'S'); })());
+  const t = s.engine.startTask({ agentId: 'a1', prompt: 'ask scout something', source: 'ui' });
+  await s.engine.waitFor(t.id, 3000);
+  const reply = '[Reply from Scout · task t9] ' + 'x'.repeat(4000);
+  s.engine.startTask({ agentId: 'a1', prompt: reply, source: 'ui', continueTaskId: t.id, bridge: { fromAgentId: 'scout', reply: true, hop: 1 } });
+  await s.engine.waitFor(t.id, 3000);
+  assert.equal(s.calls[1]!.options.model, 'sonnet');
+  s.engine.startTask({ agentId: 'a1', prompt: 'y'.repeat(4000), source: 'ui', continueTaskId: t.id });
+  await s.engine.waitFor(t.id, 3000);
+  assert.equal(s.calls[2]!.options.model, 'opus', 'a long request from the owner is still routed by length');
+});

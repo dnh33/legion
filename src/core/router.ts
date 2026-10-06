@@ -20,7 +20,14 @@ const ESCALATE_SUBTYPES = new Set(['error_during_execution']);
 // Opus would get a fresh cap and spend more than the owner allowed.
 const NEVER_ESCALATE_SUBTYPES = new Set(['error_max_turns', 'error_max_budget_usd']);
 
-export function routeModel(prompt: string, choice: ModelChoice, ctx?: { priorModel?: ConcreteModel }): RouteDecision {
+/**
+ * `ctx.reply`: this turn is a bridge reply landing in the caller's own task (`[Reply from ...]`, Bridge.deliverReply). It is another
+ * agent's answer, not a request: its length (usually near the 4,000-char reply cap), keywords and phrases say nothing about how hard
+ * the caller's next step is, and routing on them moved callers to Opus for good (measured in claude/investigation-cost-bridge.md: 16
+ * of 18 replies were over the length rule, each switch rewrote the whole cached thread). A reply stays on the model the thread
+ * already uses; explicit prefixes and a chosen model still apply.
+ */
+export function routeModel(prompt: string, choice: ModelChoice, ctx?: { priorModel?: ConcreteModel; reply?: boolean }): RouteDecision {
   // "/model <value>" forces any model; "/model auto" just means "let the router decide" for this message.
   const mm = MODEL_PREFIX_RE.exec(prompt);
   if (mm) {
@@ -37,6 +44,7 @@ export function routeModel(prompt: string, choice: ModelChoice, ctx?: { priorMod
   if (choice !== 'auto' && choice) return { model: choice, reason: `chosen: ${choice}`, prompt }; // any alias / catalog id passes through
 
   if (ctx?.priorModel === 'opus') return { model: 'opus', reason: 'continuing on opus', prompt };
+  if (ctx?.reply) return { model: 'sonnet', reason: 'reply from another agent: stays on the model of this thread', prompt };
 
   const lower = prompt.toLowerCase();
   if (prompt.length > LONG_PROMPT_CHARS) return { model: 'opus', reason: `long prompt (${prompt.length} chars)`, prompt };
