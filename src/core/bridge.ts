@@ -1,7 +1,7 @@
 /** Agent-to-agent bridge: lets any Legion agent message any other agent (ask = wait, tell = async reply). */
 import { randomUUID } from 'node:crypto';
 import { overrideAllowed, overrideRefusal } from './model-cap.js';
-import type { AgentProfile, Catalog, ModelChoice, Task, TaskSource } from '../shared/types.js';
+import type { AgentProfile, Catalog, ChatMessage, ModelChoice, Task, TaskSource } from '../shared/types.js';
 import type { TaskOrigin } from '../shared/comms.js';
 import type { EventBus } from './bus.js';
 import type { Store } from './store.js';
@@ -53,8 +53,10 @@ interface QueueItem {
   reply: boolean;
   /** Replies: the task whose result this carries (taint follows it). */
   fromTaskId?: string;
-  /** Bridge hop of the run this message starts (caller's hop + 1). */
+  /** Bridge hop of the run this message starts: the caller's hop + 1 for a message, the caller's own hop for a reply to it. */
   hop: number;
+  /** Replies: who is answering, and the task the reply is for (named in the notice if it cannot be delivered). */
+  fromName?: string; toTaskId?: string;
   /** Model the caller asked for, for this message's run only. */
   model?: ModelChoice;
   /** Called with the final task when this item's own run ends; or with an error if it could not start. */
@@ -274,7 +276,10 @@ export class Bridge {
   forget(taskId: string): void {
     const q = this.queues.get(taskId);
     this.queues.delete(taskId);
-    for (const i of q ?? []) i.settle?.({ error: new BridgeError('The target task was deleted') });
+    for (const i of q ?? []) {
+      i.settle?.({ error: new BridgeError('The target task was deleted') });
+      if (i.reply) this.replyRefused(i, undefined, 'the task it was for was deleted');
+    }
     const fs = this.finishers.get(taskId);
     this.finishers.delete(taskId);
     for (const f of fs ?? []) f(undefined);
@@ -333,6 +338,7 @@ export class Bridge {
     const task = this.store.getTask(taskId);
     if (!task || (item.reply && task.status === 'cancelled')) {
       item.settle?.({ error: new BridgeError('The target task no longer exists') });
+      if (item.reply) this.replyRefused(item, task, task ? 'the task was cancelled' : 'the task it was for no longer exists');
       return this.drain(taskId);
     }
     try {
@@ -340,6 +346,7 @@ export class Bridge {
       if (item.settle) { const s = item.settle; void this.awaitFinish(started.id).then((t) => s({ task: t })); }
     } catch (e) {
       item.settle?.({ error: e instanceof Error ? e : new Error(String(e)) });
+      if (item.reply) this.replyRefused(item, task, `it could not be started (${e instanceof Error ? e.message : String(e)})`);
       this.drain(taskId);
     }
   }
@@ -361,14 +368,42 @@ export class Bridge {
     } catch { /* the notice must never break the call */ }
   }
 
-  /** Async reply from a `tell`: becomes a new user turn in the caller's task (queued if it is running). */
+  /**
+   * Async reply from a `tell`: becomes a new user turn in the caller's task (queued if it is running).
+   *
+   * A reply goes back to the task that issued the tell, so it runs at that task's OWN hop: collecting an answer is not a new step
+   * away from the owner. Only a message that starts or wakes another agent (ask, tell) is one hop further, and that is where the loop
+   * guard (MAX_HOP) bites. Hop is no input to the approval ceiling (bridgeOrigin builds it from the caller's approval and origin), and
+   * a reply adds no origin and takes the sender's taint (Engine.startTask), so this changes counting only.
+   *
+   * A reply that cannot be delivered is never silent: both threads get a notice line (replyRefused).
+   */
   private deliverReply(callerTaskId: string, from: AgentProfile, fromTaskId: string, body: string, outcome?: string): void {
     const caller = this.store.getTask(callerTaskId);
-    if (!caller || caller.status === 'cancelled') return;
-    const hop = (this.store.getTask(fromTaskId)?.bridgeHop ?? 0) + 1;
-    if (hop > MAX_HOP) return; // loop guard: stop delivering replies deep in a chain
-    const item: QueueItem = { message: `[Reply from ${from.name} · task ${fromTaskId}${outcome ? ` · ${outcome}` : ''}] ${body}`, fromAgentId: from.id, reply: true, hop, fromTaskId };
+    const item: QueueItem = {
+      message: `[Reply from ${from.name} · task ${fromTaskId}${outcome ? ` · ${outcome}` : ''}] ${body}`,
+      fromAgentId: from.id, fromName: from.name, toTaskId: callerTaskId, reply: true, hop: caller?.bridgeHop ?? 0, fromTaskId,
+    };
+    if (!caller) return this.replyRefused(item, undefined, 'the task it was for no longer exists');
+    if (caller.status === 'cancelled') return this.replyRefused(item, caller, 'the task was cancelled');
+    if (item.hop > MAX_HOP) return this.replyRefused(item, caller, `the task is already ${item.hop} hops from you (limit ${MAX_HOP})`);
     if (isLive(caller)) { this.enqueue(caller.id, item); return; }
-    try { this.start(caller.agentId, item, caller.id, caller.source); } catch { /* caller agent gone: drop */ }
+    try { this.start(caller.agentId, item, caller.id, caller.source); } catch (e) { this.replyRefused(item, caller, `it could not be started (${e instanceof Error ? e.message : String(e)})`); }
+  }
+
+  /** A reply was not delivered: say so on the task it was for and on the task that produced it (the owner sees both threads). */
+  private replyRefused(item: QueueItem, caller: Task | undefined, why: string): void {
+    const who = item.fromName ?? item.fromAgentId;
+    if (caller) this.notice(caller.id, `A reply from ${who} (task ${item.fromTaskId ?? '?'}) was not delivered here: ${why}. Its result is still on that task.`);
+    if (item.fromTaskId) this.notice(item.fromTaskId, `Your reply to ${item.toTaskId ?? 'the task that asked'} was not delivered: ${why}.`);
+  }
+
+  /** A Legion notice line (role 'system') in a task's thread. Never throws: a notice must not break a delivery. */
+  private notice(taskId: string, text: string): void {
+    if (!this.store.getTask(taskId)) return;
+    try {
+      const m: ChatMessage = { id: randomUUID(), taskId, role: 'system', text, at: new Date().toISOString() };
+      this.bus?.emit?.({ type: 'message', message: this.store.addMessage(m) ?? m });
+    } catch { /* ignore */ }
   }
 }
