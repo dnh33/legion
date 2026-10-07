@@ -950,7 +950,7 @@ small-window rule ended up inverted.
 Items 1 to 6 above stay as they are. These were added from the 2026-10-06 session and are listed in no priority order.
 
 7. **Logging** (same as item 3). DONE, shipped in `0.2.5-l`. Coordinate first with the connectors session: its redactor (connectors design rev 6, section 4.4) rewrites the same single `log()` in `src/bin/legion-core.ts` and the stdout/stderr wrappers.
-8. **Plan gate and the Zealot model policy.** Design done; sketches are in branch `sketch/plan-gate`. Not built.
+8. **Plan gate and the Marshal model policy.** Design done; sketches are in branch `sketch/plan-gate`. Not built.
 9. **Hand-off cards, direction D3 "Side thread".** Sketches in branch `sketch/handoff-card`. Not built.
 10. **One-line install. DONE.** Scripts shipped in `0.2.5-h`. `getlegion.xyz` moved to Cloudflare Pages on 2026-10-06 (zone active, routing verified with PowerShell 5.1, PowerShell 7, curl and a browser). The site's Windows copy button gives the save-then-run form (uBlock ClickFix warning on a copied `irm | iex`). Left: delete the old Netlify project on or after 2026-10-08 (maintainer chose a 48 h wait).
 11. **Built-in browser pane** (idea). Not designed.
@@ -982,7 +982,7 @@ Items 1 to 6 above stay as they are. These were added from the 2026-10-06 sessio
 24. **Fascia for the Order.** Plan: `claude/plan-fascia.md` (research, code findings with file refs, decisions, build detail). Richer souls, typed delegation, a durable work ledger and a board that can run work. Open (proposed 2026-10-07).
     1. **Board bug patch.** Now, in parallel (maintainer, 2026-10-07). Fascia session owns it; branch `fix/board-run-state`; stays out of `engine.ts`, `bridge.ts` and `kg/graph.ts`. Fixes: a restart leaves `activeRun` set, so the item is stuck in Doing with Run disabled; the item dialog PATCHes every field and can drag a finished run back to Doing; Run has no guard on Done or Review; delete ignores a live run; claim is last-write-wins.
     2. **Soul Codex v1: SHIPPED in `0.2.5-n` (PR #41; welcome flow PR #46).** Builder, Scout and Zealot in a 7-part shape (voice, stance, refuses, done when, output contract, worked examples, edges), behavioural soul evals instead of the hash pin, a run-once migration that never touches owner-edited souls, and a welcome flow that points at Zealot. The maintainer retired "persona text stays byte-identical" on 2026-10-07, on condition that each soul stays true to its bot's core and role.
-    3. **Typed delegation.** Absorbs items 8 and 9: roster cards, typed brief and result on ask/tell, verify before reporting, model by role, a request tree under the lead's answer. Builds on the Order-bug bridge/engine changes.
+    3. **Typed delegation.** Part a SHIPPED in `0.2.5-n` (PR #50: roster cards, one teamwork block); 3b next. Absorbs items 8 and 9: roster cards, typed brief and result on ask/tell, verify before reporting, model by role, a request tree under the lead's answer. Builds on the Order-bug bridge/engine changes.
     4. **"Needs you" inbox.** One title-bar badge and list for approvals, paused runs, room attention, board proposals and items in Review.
     5. **Fascia ledger and Watch view.** Append-only ledger of delegations, leases renewed from tool activity, replay on start, budget tree, read-only Watch view.
     6. **Board v2.** A lead run verb using the board's own bookkeeping, a clearer trust flow, proposal feedback to bots, Retry on Blocked. Opt-in auto-dispatch only after that, under the conditions in the plan.
@@ -1007,7 +1007,7 @@ Items 1 to 6 above stay as they are. These were added from the 2026-10-06 sessio
 
 32. **A /sec command in the Legion Mod** (maintainer, 2026-10-07).
 
-33. **Release builds on GitHub Actions.** Actions builds the package zips, the manifest and SHA256SUMS on a tag, with no secrets. The signing key stays on the maintainer's PC; signing and upload stay manual. Documented model-agnostically in `docs/SHIPPING.md` and `AGENTS.md`. Status: planned.
+33. **Release builds on GitHub Actions.** Actions builds the package zips, the manifest and SHA256SUMS on a tag, with no secrets. The signing key stays on the maintainer's PC; signing and upload stay manual. Documented model-agnostically in `docs/SHIPPING.md` and `AGENTS.md`. **DONE (PR #55, merged 2026-10-07; workflow `release-build.yml`).** RB1 passed: a dry run of `v0.2.5-m` on Actions gave byte-identical zips. RB2 (the first real release built on Actions) is open. Follow-ups in the PR: a `v*` tag ruleset, build attestation, signing SHA256SUMS.
 
 34. **A shell tool for agents on other providers** (like Hermes Agent's). Security-heavy; ties to BUG-4 (item 26). Status: planned.
 
