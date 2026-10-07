@@ -29,8 +29,12 @@ const doctor = atom({ plugin: 'legion-mod', key: 'doctor' } as const, [])
 const THREADS = { plugin: 'legion-mod', key: 'threads' } as const
 const LIVE = { plugin: 'legion-mod', key: 'live' } as const
 
-/** Keys whose change can change the status line (not `threads` or `live`, which change on every streamed chunk). */
-const STATUS_KEYS: ReadonlySet<string> = new Set(['agents', 'tasks', 'cards', 'ui', 'moods'])
+/**
+ * Keys whose change can change the status line. `threads` is one write per row (a tool starting or ending), and the
+ * line's verb comes from it: without it the verb froze until the mood changed. `live` changes on every streamed chunk
+ * and never changes the line.
+ */
+const STATUS_KEYS: ReadonlySet<string> = new Set(['agents', 'tasks', 'cards', 'ui', 'moods', 'threads'])
 
 /**
  * One read of the state a drawing needs. `thread` and `live` are read for one task: the selected task's for the pane,
@@ -55,9 +59,27 @@ async function readSnapshot($: EngineInterface, taskFor: 'selected' | 'none' | s
     const thread: ThreadRow[] | undefined = await read($, { ...THREADS, id })
     s.thread = thread ?? []
     s.live = (await read($, { ...LIVE, id })) ?? ''
+    s.threads = { [id]: s.thread }
+  }
+  // the working tasks' own rows, for what each is doing now (R2): the pane's tree and Order, or the status line's agent.
+  // Capped, newest first; each read subscribes the drawing, so a tool starting redraws its verb.
+  const workers = s.tasks.filter(t => t.status === 'running' && t.id !== id)
+    .filter(t => taskFor !== 'none' || t.agentId === s.ui.agentId)
+    .sort((a, b) => b.updatedAt - a.updatedAt).slice(0, THREADS_READ_MAX)
+  if (workers.length > 0) {
+    const threads: Record<string, readonly ThreadRow[]> = { ...s.threads }
+    for (const t of workers) threads[t.id] = (await read($, { ...THREADS, id: t.id })) ?? []
+    s.threads = threads
   }
   return s
 }
+
+/** The snapshot with one task's just-written rows laid over it (a `threads` write names its task by the family id). */
+const withThread = (s: Snapshot, e: { id?: string; value: unknown }): Snapshot =>
+  e.id ? { ...s, threads: { ...s.threads, [e.id]: e.value as readonly ThreadRow[] } } : s
+
+/** At most this many other tasks' rows are read per drawing; past it a task's verb reads "thinking". */
+const THREADS_READ_MAX = 12
 
 /** The card a `/to` or `/say` row leaves, or undefined to let the engine draw the row's text. */
 async function dispatchTree($: EngineInterface, e: Parameters<EngineInterface['ui']['resolve']>[0] & { props: { text: string; isErrored: boolean }; viewport?: { columns: number } }): Promise<RenderElement | undefined> {
@@ -101,7 +123,7 @@ export function registerUi(on: On): void {
     // every get of one dispatch reads one moment, which may be before this write lands: lay the written value over it
     const s = await readSnapshot($, 'none')
     const landed = done.deny === undefined && done.value.isSet
-    const text = statusText(landed ? { ...s, [e.key]: e.value } : s)
+    const text = statusText(!landed ? s : e.key === 'threads' ? withThread(s, e) : { ...s, [e.key]: e.value })
     if (text !== lastStatus) {
       lastStatus = text
       $.ui.status(text)

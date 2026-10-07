@@ -7,7 +7,8 @@ import { MARK, MOOD_WORDS } from '../../theme.ts'
 import { count, money, plural, relTime } from '../format.ts'
 import { btn, line, partsWidth, span, wrapped, type Part, type Row } from '../model.ts'
 import { cellWidth, cutCells, fit, oneLine } from '../text.ts'
-import { isActive, moodTone, moodWord, selectedAgent, visibleAgents, type Snapshot } from './common.ts'
+import { isActive, moodWord, nowOf, selectedAgent, visibleAgents, type Snapshot } from './common.ts'
+import { STATE_WORD } from '../words.ts'
 import { descendants, taskLine, taskTree } from './tasks.ts'
 
 const gutter = (): Part => span(' ')
@@ -15,8 +16,8 @@ const gutter = (): Part => span(' ')
 const AGE = 4
 const RECENT_MAX = 8 // OpsPanel.tsx: the 8 most recently updated
 
-const heading = (text: string, n: number | undefined, width: number, right: Part[] = []): Row =>
-  line([gutter(), span(text, 'text', { bold: true }), ...(n !== undefined && n > 0 ? [span(`  ${count(n)}`, 'muted')] : [])], right, width)
+const heading = (text: string, width: number, right: Part[] = []): Row =>
+  line([gutter(), span(text, 'text', { bold: true, fixed: true })], right, width)
 
 /** The doctor's marks: a pass in accent ("alive and yours"), a problem in danger, information muted. */
 const DOCTOR_MARK = { pass: { mark: '✓', tone: 'accent' }, fail: { mark: MARK.error, tone: 'danger' }, info: { mark: MARK.done, tone: 'muted' } } as const
@@ -27,7 +28,7 @@ const DOCTOR_MARK = { pass: { mark: '✓', tone: 'accent' }, fail: { mark: MARK.
  */
 export const doctorRows = (lines: readonly DoctorLine[], width: number): Row[] => {
   const bad = lines.filter(l => l.ok === false).length
-  const head = heading('Doctor', undefined, width, lines.length === 0 ? [] : [span(bad === 0 ? 'all clear' : `${count(bad)} to fix`, bad === 0 ? 'accent' : 'danger', { fixed: true }), span(' ')])
+  const head = heading('Doctor', width, lines.length === 0 ? [] : [span(bad === 0 ? 'all clear' : `${count(bad)} to fix`, bad === 0 ? 'accent' : 'danger', { fixed: true }), span(' ')])
   if (lines.length === 0) return [head, ...wrapped('/legion doctor checks what Legion needs.', width, { indent: 3, tone: 'muted' })]
   const labelCol = Math.min(16, Math.max(...lines.map(l => cellWidth(l.label)))) + 2
   const ordered = [...lines.filter(l => l.ok === false), ...lines.filter(l => l.ok !== false)]
@@ -60,7 +61,8 @@ export const orderRows = (s: Snapshot, width: number): Row[] => {
   const sel = selectedAgent(s)
   const agents = visibleAgents(s)
 
-  // Running: live tasks, with the tasks they handed out and the tasks that handed them out, as one tree
+  // Working: tasks still working, queued or paused, with the tasks they handed out and the tasks that handed them out,
+  // as one tree. The counts are the title row's (R1); the heading carries the cost of exactly the lines drawn (bug 5).
   const live = s.tasks.filter(t => isActive(t) || t.status === 'paused')
   const shown = new Map(live.map(t => [t.id, t]))
   for (const t of live) for (const d of descendants(s, t.id)) shown.set(d.id, d)
@@ -69,47 +71,35 @@ export const orderRows = (s: Snapshot, width: number): Row[] => {
     for (let p = parentOf(t), i = 0; p && i < 8; p = parentOf(p), i++) shown.set(p.id, p)
   }
   const tree = taskTree([...shown.values()])
-  // the heading's count and cost measure one set, the work still running or paused; a done piece drawn for its place
-  // in the tree keeps its own cost on its line and is not added here
-  const total = live.reduce((sum, t) => sum + (Number.isFinite(t.costUsd) ? t.costUsd : 0), 0)
-  rows.push(heading('Running', live.length, width, live.length > 0 ? [span(`${money(total)} running`, 'muted', { fixed: true }), span(' ')] : []))
-  if (tree.length === 0) rows.push(...wrapped('Nothing running. /to zealot <what you want> starts work.', width, { indent: 3, tone: 'muted' }))
-  for (const l of tree) rows.push(taskLine(s, l, width))
+  const total = drawnCost(tree.map(l => l.task))
+  rows.push(heading('Working', width, total >= 0.01 ? [span(`${money(total)} so far`, 'muted', { fixed: true }), span(' ')] : []))
+  if (tree.length === 0) rows.push(...wrapped('Nothing is working. /to zealot <what you want done> starts it.', width, { indent: 3, tone: 'muted' }))
+  for (const l of tree) rows.push(taskLine(s, l, width, { turns: true }))
 
-  // Recent: the last finished, failed or stopped tasks (OpsPanel.tsx "Recent tasks"), with their age
+  // Recent: the last done, failed or stopped tasks (OpsPanel.tsx "Recent tasks"), with their age, to pick one up again
   const recent = s.tasks.filter(t => !shown.has(t.id)).sort((a, b) => b.updatedAt - a.updatedAt || a.id.localeCompare(b.id)).slice(0, RECENT_MAX)
-  rows.push({ t: 'gap' }, heading('Recent', recent.length, width))
-  if (recent.length === 0) rows.push(...wrapped('Finished tasks stay here to pick up again.', width, { indent: 3, tone: 'muted' }))
-  for (const t of recent) rows.push(taskLine(s, { task: t, prefix: '' }, width, [span(' '), span(fit(relTime(t.updatedAt, s.now), AGE, { align: 'right' }), 'muted', { fixed: true })]))
+  rows.push({ t: 'gap' }, heading('Recent', width))
+  if (recent.length === 0) rows.push(...wrapped('Done tasks stay here to pick up again.', width, { indent: 3, tone: 'muted' }))
+  for (const t of recent) rows.push(taskLine(s, { task: t, prefix: '' }, width, { turns: true, tail: [span(fit(relTime(t.updatedAt, s.now), AGE, { align: 'right' }), 'muted', { fixed: true })] }))
 
-  // Agents: who is doing what; the idle ones need no row each
-  // no Poke here: a poke means something on the 2D stage, where an agent can answer it; in this summary it did nothing visible
-  rows.push({ t: 'gap' }, heading('Agents', undefined, width))
-  if (agents.length === 0) rows.push(...wrapped('The order has not mustered yet. If this stays empty, run /legion doctor.', width, { indent: 3, tone: 'muted' }))
-  const resting = (id: string): boolean => {
-    const m = s.moods[id]?.mood ?? 'idle'
-    return (m === 'idle' || m === 'sleeping') && !s.tasks.some(t => t.agentId === id && isActive(t)) && !s.cards.some(c => c.agentId === id)
-  }
-  const nameCol = Math.min(16, Math.max(12, Math.floor(width / 5)))
-  // a resting mood beside a task that waits to start would mislead: it says "queued" instead
-  const now = (id: string): string => {
-    const m = s.moods[id]?.mood ?? 'idle'
-    const waiting = (m === 'idle' || m === 'sleeping') && s.tasks.some(t => t.agentId === id && t.status === 'queued')
-    return waiting ? 'queued' : moodWord(s, id)
-  }
-  for (const a of agents.filter(x => !resting(x.id))) {
+  // Agents: each one at work, with its mood word (character belongs here, R2); the resting ones share one line
+  rows.push({ t: 'gap' }, heading('Agents', width))
+  if (agents.length === 0) rows.push(...wrapped('The Order has not mustered yet. If this stays empty, type /legion doctor.', width, { indent: 3, tone: 'muted' }))
+  const working = (id: string): boolean => s.tasks.some(t => t.agentId === id && (isActive(t) || t.status === 'paused')) || s.cards.some(c => c.agentId === id)
+  const nameCol = Math.min(16, Math.max(13, Math.floor(width / 5)))
+  for (const a of agents.filter(x => working(x.id))) {
     const isSel = a.id === sel?.id
     const label = fit(`${a.glyph} ${a.name}`, nameCol)
-    // what each runs is in the tree above; here only what waits on the person
+    // the count of what needs your OK is the title row's (R1); the word says it here
     const cards = s.cards.filter(c => c.agentId === a.id).length
-    const right: Part[] = cards > 0 ? [span(`${count(cards)} ${cards === 1 ? 'needs' : 'need'} your OK`, 'warn', { fixed: true }), span(' ')] : []
+    const word = agentWord(s, a.id)
     rows.push(line([
       span(isSel ? MARK.arrow : ' ', 'accent', { fixed: true }), span(' '),
       isSel ? span(label, 'accent', { bold: true, fixed: true }) : btn({ kind: 'agent', agentId: a.id }, label),
-      span(' '), span(now(a.id), moodTone(s, a.id)),
-    ], right, width))
+      span(' '), span(word, cards > 0 ? 'warn' : 'text'),
+    ], [], width))
   }
-  const idle = agents.filter(x => resting(x.id))
+  const idle = agents.filter(x => !working(x.id))
   if (idle.length > 0) {
     // one line: the word once, then each resting agent's glyph (a control that opens it)
     const parts: Part[] = [span('  '), span(`${MOOD_WORDS.idle}  `, 'muted', { fixed: true })]
@@ -119,4 +109,23 @@ export const orderRows = (s: Snapshot, width: number): Row[] => {
 
   rows.push({ t: 'gap' }, ...doctorRows(s.doctor ?? [], width))
   return rows
+}
+
+/** The cost of the tasks drawn: the one sum the Working heading shows (a spec pins that it matches the lines). */
+export const drawnCost = (tasks: readonly TaskView[]): number => tasks.reduce((sum, t) => sum + (Number.isFinite(t.costUsd) && t.costUsd >= 0.01 ? t.costUsd : 0), 0)
+
+/**
+ * An agent's word in the Agents list: its mood, unless its state says otherwise (review bug 6). An agent whose call
+ * needs your OK is "Awaiting your word"; one at work whose mood rests (Standing vigil, Dormant, a sibling's Victory)
+ * shows its task's verb instead; one with only a queued or paused task says so.
+ */
+export const agentWord = (s: Snapshot, id: string): string => {
+  if (s.cards.some(c => c.agentId === id)) return MOOD_WORDS.awaiting
+  const m = s.moods[id]?.mood ?? 'idle'
+  const atWork = s.tasks.filter(t => t.agentId === id && t.status === 'running').sort((a, b) => b.updatedAt - a.updatedAt)[0]
+  const resting = m === 'idle' || m === 'sleeping' || m === 'victory'
+  if (atWork) return resting ? nowOf(s, atWork) : moodWord(s, id)
+  if (s.tasks.some(t => t.agentId === id && t.status === 'queued')) return STATE_WORD.queued
+  if (s.tasks.some(t => t.agentId === id && t.status === 'paused')) return STATE_WORD.paused
+  return moodWord(s, id)
 }

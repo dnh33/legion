@@ -11,8 +11,8 @@
  */
 import type { EngineInterface, Register } from 'claude-code'
 
-import type { AgentView, BandItem, DoctorLine, ModSettings, Mood, RunRequest, RunResult, TaskOrigin, TaskView, ThreadRow, ViewId } from '../../types/index.d.ts'
-import { answerTaintsCaller, checkAsk, parseLegionAgentType, tellReply, truncateResult } from '../engine/bridge.ts'
+import type { AgentView, ApprovalCard, BandItem, DoctorLine, ModSettings, Mood, RunRequest, RunResult, TaskOrigin, TaskView, ThreadRow, ViewId } from '../../types/index.d.ts'
+import { answerTaintsCaller, checkAsk, parseLegionAgentType } from '../engine/bridge.ts'
 import { CONTINUE_PROMPT, inferTurnLimit } from '../engine/continue.ts'
 import { PRICES_AS_OF, tokensFromUsage } from '../engine/cost.ts'
 import { nextMood } from '../engine/mood.ts'
@@ -27,12 +27,12 @@ import { agentsList } from '../engine/bridge.ts'
 import { dataRoot, fsPort } from '../store/fs-port.ts'
 import { newId } from '../store/ids.ts'
 import { createAgentStore, createSettingsStore, createTaskStore, createThreadStore, DEFAULT_SETTINGS, type AgentStore, type SettingsStore, type TaskStore, type ThreadStore } from '../store/stores.ts'
-import { palette, themeFromClaude } from '../theme.ts'
+import { MOOD_DWELL_MS, TRANSIENT_MOOD_MS, palette, themeFromClaude } from '../theme.ts'
 import { decodeArt, type Art } from '../art/art.ts'
 import { createStage, invalidateStage, musterCells, stepStage, type StageRuntime } from '../art/driver.ts'
 import { bandItemAt, decodeAction, type DecodedAction } from '../ui/actions.ts'
 import { FLUSH_MS, newTrace, record, traceFile, traceText, type TraceLine } from './trace.ts'
-import { assistantText, latestTaskOf, orderOnlyMessage, toolInput, toolLine, makeTask, newCtx, notificationRunId, parseTo, pushBand, resolveAgent, resumeRequest, spawnRequest, stopRequest, taskList, type Ctx } from './core.ts'
+import { assistantText, finishedLine, latestTaskOf, orderOnlyMessage, toolInput, toolLine, makeTask, newCtx, notificationRunId, parseTo, pushBand, resolveAgent, resumeRequest, spawnRequest, stopRequest, taskList, type Ctx } from './core.ts'
 
 // ---- State the UI draws (one reference each; literals, as the validator requires) ----
 const AGENTS = { plugin: 'legion-mod', key: 'agents' } as const
@@ -148,8 +148,20 @@ const moodCheckPending = new Set<string>()
 /** Shows `wanted` now, or once the current mood has had its minimum time; the latest wanted mood always wins (mood.ts). */
 async function setMood($: EngineInterface, agentId: string, wanted: Mood): Promise<void> {
   wantedMood.set(agentId, wanted)
+  const seq = (moodSeq.get(agentId) ?? 0) + 1
+  moodSeq.set(agentId, seq)
   await settleMood($, agentId)
+  // Victory and Fault are moments, not states: the agent rests once they have shown, unless something newer was asked for.
+  const lasts = TRANSIENT_MOOD_MS[wanted]
+  if (lasts !== undefined) {
+    $.clock.after(MOOD_DWELL_MS + lasts, () => {
+      if (moodSeq.get(agentId) === seq) void setMood($, agentId, 'idle')
+    })
+  }
 }
+
+/** Counts each agent's mood requests, so a transient mood's rest only lands when nothing newer came after it. */
+const moodSeq = new Map<string, number>()
 
 async function settleMood($: EngineInterface, agentId: string): Promise<void> {
   const wanted = wantedMood.get(agentId)
@@ -169,6 +181,34 @@ async function settleMood($: EngineInterface, agentId: string): Promise<void> {
       void settleMood($, agentId)
     })
   }
+}
+
+/**
+ * A Legion task's tool call that waits for the person's answer in Claude Code's permission dialog. The pane and the band show it
+ * as "needs your OK" until the call resolves (live run 2026-10-05: without this the pane said "running" while Scout waited).
+ */
+async function openCard($: EngineInterface, task: TaskView, toolUseId: string, tool: string, input: Record<string, unknown>): Promise<void> {
+  if (ctx.cards.some(c => c.id === toolUseId)) return
+  const parent = task.origin.kind === 'bridge' ? ctx.tasks.get(task.origin.fromTaskId) : undefined
+  const from = parent ? ctx.agents.find(a => a.id === parent.agentId) : undefined
+  const card: ApprovalCard = {
+    id: toolUseId, taskId: task.id, agentId: task.agentId, tool, summary: summarizeToolInput(tool, input),
+    ...(from ? { origin: `Handed over by ${from.glyph} ${from.name}` } : {}),
+    isClickOnly: false, at: await $.clock.now(),
+  }
+  ctx.cards = [...ctx.cards, card]
+  await $.state.set(CARDS, ctx.cards)
+  await apply($, task.id, { type: 'card', card }, { persistRows: false })
+  await addBand($, { id: `card-${toolUseId}`, kind: 'card', taskId: task.id, agentId: task.agentId, text: `${task.title} · needs your OK`, at: card.at })
+  await tr($, { k: 'tool', task: task.id, agent: task.agentId, tool, id: toolUseId, summary: 'needs your OK' })
+}
+
+async function closeCard($: EngineInterface, taskId: string, toolUseId: string, allowed: boolean): Promise<void> {
+  ctx.cards = ctx.cards.filter(c => c.id !== toolUseId)
+  await $.state.set(CARDS, ctx.cards)
+  ctx.band = ctx.band.filter(b => b.id !== `card-${toolUseId}`)
+  await $.state.set(BAND, ctx.band)
+  await apply($, taskId, { type: 'cardDone', toolUseId, allowed }, { persistRows: false })
 }
 
 async function addBand($: EngineInterface, item: BandItem): Promise<void> {
@@ -199,16 +239,16 @@ async function startTask($: EngineInterface, agent: AgentView, text: string, ori
 
 /** Sends `text` into an existing task: resumes its stopped run, or starts it again when it never ran. */
 async function continueTask($: EngineInterface, task: TaskView, text: string = CONTINUE_PROMPT): Promise<string> {
-  if (task.sessionId !== ctx.sessionId) return `${task.title} is running in another window. Continue it there.`
-  if (task.status === 'running' || task.status === 'queued') return `${task.title} is still working. Wait for it to finish, or stop it first.`
-  if (!task.runId) return `${task.title} has no run to continue yet.`
+  if (task.sessionId !== ctx.sessionId) return `${task.title} is working in another window. Continue it there.`
+  if (task.status === 'running' || task.status === 'queued') return `${task.title} is still working. Wait for it, or stop it first.`
+  if (!task.runId) return `${task.title} has not started yet. It starts on its own.`
   await enqueue($, resumeRequest({ id: newId('rq'), task, text, now: (await $.clock.now()) }))
   return ''
 }
 
 async function stopTask($: EngineInterface, task: TaskView): Promise<string> {
-  if (task.sessionId !== ctx.sessionId) return `${task.title} is running in another window. Stop it there.`
-  if (task.status !== 'running' && task.status !== 'queued') return `${task.title} is not running.`
+  if (task.sessionId !== ctx.sessionId) return `${task.title} is working in another window. Stop it there.`
+  if (task.status !== 'running' && task.status !== 'queued') return `${task.title} is not working.`
   if (!task.runId) {
     // Not started yet: take the spawn out of the queue. The runner may already be starting it; remember the request, so a
     // run that arrives anyway is stopped at once (onResult, adopt) instead of running on unseen.
@@ -266,7 +306,7 @@ async function onResult($: EngineInterface, r: RunResult): Promise<void> {
       ctx.tasks.set(task.id, back)
       await stores?.tasks.put(back)
       await publishTasks($)
-      await addBand($, { id: newId('b'), kind: 'error', taskId: task.id, agentId: task.agentId, text: `Could not stop ${task.title}: ${r.error ?? 'no reason given'}. It is still running.`, at })
+      await addBand($, { id: newId('b'), kind: 'error', taskId: task.id, agentId: task.agentId, text: `Could not stop ${task.title}: ${r.error ?? 'no reason given'}. It is still working.`, at })
       return
     }
     // A start or resume that failed: the task says why, and the thread shows it, whether or not a run ever existed.
@@ -275,7 +315,7 @@ async function onResult($: EngineInterface, r: RunResult): Promise<void> {
     await stores?.tasks.put(failed)
     await publishTasks($)
     if (!ctx.threads.has(task.id) && stores) ctx.threads.set(task.id, await stores.threads.load(task.id))
-    const row: ThreadRow = { id: `${task.id}:fail:${r.requestId}`, role: 'system', text: `Error: ${failed.error}`, at }
+    const row: ThreadRow = { id: `${task.id}:fail:${r.requestId}`, role: 'system', text: `Failed: ${failed.error}`, at }
     ctx.threads.set(task.id, [...(ctx.threads.get(task.id) ?? []), row])
     await stores?.threads.append(task.id, [row])
     await publishThread($, task.id)
@@ -468,6 +508,12 @@ async function boot($: EngineInterface): Promise<void> {
   for (const req of (await $.state.get(QUEUE)).value ?? []) ctx.pending.set(req.id, req)
   for (const r of ((await $.state.get(RESULTS as any)).value as unknown as RunResult[] | undefined) ?? []) await onResult($, r)
   if (previousUi) ctx.ui = previousUi
+  // A hot reload keeps the band, the open cards and the moods too; only a fresh process starts them empty.
+  ctx.band = (await $.state.get(BAND)).value ?? ctx.band
+  ctx.cards = (await $.state.get(CARDS)).value ?? ctx.cards
+  ctx.moods = (await $.state.get(MOODS)).value ?? ctx.moods
+  // $.state lives as long as this Claude Code process: set here means a hot reload, unset means Claude Code (re)started.
+  if ((await $.state.get(SESSION)).value === undefined) await markGoneRuns($)
   const claudeTheme = (await $.settings.read()) as { theme?: unknown }
   await $.state.set(THEME, settings.theme === 'auto' ? themeFromClaude(claudeTheme.theme) : settings.theme)
   await $.state.set(SETTINGS, settings)
@@ -485,6 +531,43 @@ async function boot($: EngineInterface): Promise<void> {
   // The 2D Order only when it is on: off loads no art and schedules nothing.
   await $.state.set(STAGE, null)
   if (settings.twoD) await publishMuster($)
+}
+
+/** Why a task of this session failed: Claude Code closed while its agent worked, so the agent is gone. */
+export const GONE_REASON = (agentId: string): string => `Claude Code closed while it worked. Send it again: /to ${agentId} <what to do>`
+
+/**
+ * After Claude Code restarts, this session's tasks that still read working have no agent behind them: their runs ended
+ * with the old process. Each one Claude Code no longer lists becomes failed, with why. Runs it still lists, tasks of other
+ * windows, and spawns still queued are left alone. If the list cannot be read, nothing is marked: guessing would fail a
+ * live task.
+ */
+async function markGoneRuns($: EngineInterface): Promise<void> {
+  const mine = [...ctx.tasks.values()].filter(t => t.sessionId === ctx.sessionId && (t.status === 'running' || t.status === 'queued'))
+  if (mine.length === 0) return
+  let listed: Set<string>
+  try {
+    const agents = await $.agent.list()
+    if (!Array.isArray(agents)) return
+    listed = new Set(agents.filter(a => !['completed', 'failed', 'killed'].includes(a.status)).map(a => a.id))
+  } catch {
+    return
+  }
+  const queued = new Set([...ctx.pending.values()].map(r => r.taskId))
+  const gone = mine.filter(t => !(t.runId && listed.has(t.runId)) && !queued.has(t.id))
+  if (gone.length === 0) return
+  const at = await $.clock.now()
+  for (const t of gone) {
+    const failed: TaskView = { ...t, status: 'error', error: GONE_REASON(t.agentId), updatedAt: at }
+    ctx.tasks.set(t.id, failed)
+    await stores?.tasks.put(failed)
+  }
+  await tr($, { k: 'gone', tasks: gone.map(t => t.id).join(',') })
+  // one row for the lot: a restart with five open tasks is one event, not five
+  const first = gone[0]!
+  await addBand($, gone.length === 1
+    ? { id: newId('b'), kind: 'error', taskId: first.id, agentId: first.agentId, text: `${first.title} · ${GONE_REASON(first.agentId)}`, at }
+    : { id: newId('b'), kind: 'inbox', text: `${gone.length} Legion tasks failed when Claude Code closed · open Order to see them`, at })
 }
 
 /** How long a request may wait while legion-mod-runner has never answered in this session, before Legion says so. */
@@ -526,6 +609,15 @@ async function refresh($: EngineInterface): Promise<void> {
 
 // ---- Commands ------------------------------------------------------------------------------------------------------------
 
+/** Whether the Legion pane is on screen now (false where the surface cannot say). */
+async function paneShown($: EngineInterface): Promise<boolean> {
+  try {
+    return (await $.ui.panes()).some(p => p.id === 'legion' && p.isShown)
+  } catch {
+    return false
+  }
+}
+
 async function redrawTimes($: EngineInterface): Promise<void> {
   try {
     if (!(await $.ui.panes()).some(p => p.id === 'legion' && p.isShown)) return
@@ -543,7 +635,7 @@ async function openTask($: EngineInterface, taskId: string): Promise<void> {
     await publishThread($, taskId)
   }
   // Selecting a task also selects its agent: the Chat view shows the selected agent's task only.
-  ctx.ui = { ...ctx.ui, view: 'chat', agentId: task.agentId, taskId }
+  ctx.ui = { ...ctx.ui, view: 'chat', agentId: task.agentId, taskId, keysOpen: false }
   await $.state.set(UI, ctx.ui)
 }
 
@@ -554,13 +646,13 @@ const pokes = new Map<string, number[]>()
 async function actOn($: EngineInterface, a: DecodedAction): Promise<void> {
   switch (a.kind) {
     case 'view':
-      ctx.ui = { ...ctx.ui, view: a.view }
+      ctx.ui = { ...ctx.ui, view: a.view, keysOpen: false }
       await $.state.set(UI, ctx.ui)
       await driveStage($)
       return
     case 'agent': {
       const latest = latestTaskOf(ctx, a.agentId)
-      ctx.ui = { ...ctx.ui, agentId: a.agentId, taskId: latest?.id ?? null }
+      ctx.ui = { ...ctx.ui, agentId: a.agentId, taskId: latest?.id ?? null, keysOpen: false }
       await $.state.set(UI, ctx.ui)
       if (latest && ctx.ui.view === 'chat') await openTask($, latest.id)
       await driveStage($)
@@ -591,7 +683,15 @@ async function actOn($: EngineInterface, a: DecodedAction): Promise<void> {
     case 'card-allow':
     case 'card-deny':
       // Approvals are answered in Claude Code's own permission dialog (plan §2.1); the pane shows the request, not a second answer.
-      $.ui.toast("Answer this in Claude Code's permission dialog.")
+      $.ui.toast("Needs your OK: answer it in Claude Code's permission dialog.")
+      return
+    case 'keys':
+      ctx.ui = { ...ctx.ui, keysOpen: a.open }
+      await $.state.set(UI, ctx.ui)
+      return
+    case 'steps':
+      ctx.ui = { ...ctx.ui, stepsOpen: a.taskId }
+      await $.state.set(UI, ctx.ui)
       return
     case 'band-dismiss': {
       const id = 'itemId' in a ? a.itemId : bandItemAt(ctx.band, a.index)?.id
@@ -601,6 +701,65 @@ async function actOn($: EngineInterface, a: DecodedAction): Promise<void> {
       return
     }
   }
+}
+
+/** The tasks `taskId` handed out (tell or ask) that still work. */
+const openChildren = (taskId: string): TaskView[] =>
+  [...ctx.tasks.values()].filter(t => t.origin.kind === 'bridge' && t.origin.fromTaskId === taskId && (t.status === 'running' || t.status === 'queued'))
+
+/** If nothing wakes a held task this long after its last helper answered, it is settled as done. */
+const WAKE_GRACE_MS = 60_000
+
+/** Keeps a task working while the agents it told work: no done row or toast yet, and no victory. */
+async function holdForChildren($: EngineInterface, task: TaskView): Promise<void> {
+  const held: TaskView = { ...task, status: 'running', updatedAt: await $.clock.now() }
+  ctx.tasks.set(task.id, held)
+  await stores?.tasks.put(held)
+  await publishTasks($)
+  await setMood($, task.agentId, 'thinking')
+  await tr($, { k: 'hold', task: task.id, open: openChildren(task.id).map(t => t.id).join(',') })
+}
+
+/** The band row and, when the pane is hidden, the toast for a task that stopped. */
+async function settleTask($: EngineInterface, after: TaskView): Promise<void> {
+  const agent = ctx.agents.find(a => a.id === after.agentId)
+  const who = agent ? `${agent.glyph} ${agent.name}` : after.agentId
+  const kind = after.status === 'paused' ? 'paused' : after.status === 'error' ? 'error' : 'done'
+  const what = kind === 'paused' ? 'paused at the turn limit' : kind === 'error' ? `failed: ${after.error ?? 'no reason given'}` : 'done'
+  await addBand($, { id: newId('b'), kind, taskId: after.id, agentId: after.agentId, text: `${after.title} · ${what}`, at: (await $.clock.now()) })
+  if (!(await paneShown($))) $.ui.toast(`${who} · ${after.title} · ${what}`)
+}
+
+/**
+ * A told or asked agent stopped. Its answer reaches the caller through Claude Code itself, which wakes the caller's loop
+ * (seen live: a second delivery from Legion made Zealot answer twice), so Legion only carries the taint up, and settles
+ * a held caller that nothing woke within WAKE_GRACE_MS of its last helper's answer.
+ */
+async function afterChildFinished($: EngineInterface, child: TaskView): Promise<void> {
+  if (child.origin.kind !== 'bridge') return
+  const caller = ctx.tasks.get(child.origin.fromTaskId)
+  if (!caller) return
+  if (answerTaintsCaller(child) && !caller.isTainted) {
+    const tainted = { ...caller, isTainted: true, updatedAt: (await $.clock.now()) }
+    ctx.tasks.set(caller.id, tainted)
+    await stores?.tasks.put(tainted)
+  }
+  if (caller.status !== 'running' || openChildren(caller.id).length > 0) return
+  const mark = ctx.tasks.get(caller.id)?.updatedAt
+  $.clock.after(WAKE_GRACE_MS, () => void settleIfUnwoken($, caller.id, mark))
+}
+
+/** Settles a held task as done, unless a step or finish since `mark` shows Claude Code woke it (its own finish settles it). */
+async function settleIfUnwoken($: EngineInterface, taskId: string, mark: number | undefined): Promise<void> {
+  const task = ctx.tasks.get(taskId)
+  if (!task || task.status !== 'running' || task.updatedAt !== mark) return
+  const settled: TaskView = { ...task, status: 'done', updatedAt: await $.clock.now() }
+  ctx.tasks.set(taskId, settled)
+  await stores?.tasks.put(settled)
+  await publishTasks($)
+  await setMood($, task.agentId, 'victory')
+  await tr($, { k: 'settle', task: taskId })
+  await settleTask($, settled)
 }
 
 /** The oldest Claude Code that runs mods (plan-legion-mod-release.md D10). */
@@ -638,9 +797,35 @@ async function doctor($: EngineInterface): Promise<DoctorLine[]> {
   }
   const skipped = (stores?.tasks.skipped ?? 0) + (stores?.threads.skipped ?? 0) + (stores?.settings.skipped ?? 0) + (stores?.agents.skipped ?? 0)
   lines.push(skipped === 0 ? { ok: true, label: 'Stored data', detail: 'every line read cleanly' } : { ok: false, label: 'Stored data', detail: `${skipped} unreadable line${skipped === 1 ? '' : 's'} skipped; nothing else was lost.` })
-  lines.push({ ok: null, label: 'Agents', detail: `${ctx.agents.filter(a => !a.isHidden).length} in the order` })
+  for (const refused of refusedAtStart) lines.push({ ok: false, label: 'Start', detail: `Claude Code refused ${refused}` })
+  lines.push({ ok: null, label: 'Agents', detail: `${ctx.agents.filter(a => !a.isHidden).length} in the Order` })
   lines.push({ ok: null, label: 'Cost estimates', detail: `prices as of ${PRICES_AS_OF}` })
   return lines
+}
+
+/**
+ * The task `/legion continue` or `/legion stop` means. Named: a task id, or an agent (its newest task in this window). Unnamed: the task
+ * the pane shows when that is one it can act on, else the only one in this window it can act on. Two or more: it asks
+ * which, naming them, instead of guessing (a guess here continues or stops the wrong work).
+ */
+function pickTask(args: string, verb: 'continue' | 'stop', shown: TaskView | undefined): { task: TaskView } | { error: string } {
+  const mine = taskList(ctx).filter(t => t.sessionId === ctx.sessionId)
+  const can = (t: TaskView) => (verb === 'stop' ? t.status === 'running' || t.status === 'queued' : t.status === 'paused' || t.status === 'done' || t.status === 'error' || t.status === 'cancelled')
+  const ref = args.trim()
+  if (ref) {
+    const byId = ctx.tasks.get(ref)
+    if (byId) return { task: byId }
+    const agent = resolveAgent(ref, ctx.agents)
+    const latest = agent ? mine.find(t => t.agentId === agent.id) : undefined
+    if (latest) return { task: latest }
+    return { error: agent ? `${agent.glyph} ${agent.name} has no task in this window.` : `No task or agent called "${ref}".` }
+  }
+  if (shown && shown.sessionId === ctx.sessionId && can(shown)) return { task: shown }
+  const candidates = verb === 'stop' ? mine.filter(can) : mine.filter(t => t.status === 'paused')
+  if (candidates.length === 1) return { task: candidates[0]! }
+  if (candidates.length === 0) return { error: verb === 'stop' ? 'Nothing is working in this window.' : 'Nothing is paused in this window. Open a task in the Legion pane, or name one: /legion continue builder' }
+  const names = candidates.slice(0, 4).map(t => `${ctx.agents.find(a => a.id === t.agentId)?.id ?? t.agentId} (${t.title})`).join(', ')
+  return { error: `Which one? Name it: /legion ${verb} ${candidates[0]!.agentId}. In this window: ${names}${candidates.length > 4 ? ', …' : ''}.` }
 }
 
 async function runCommand($: EngineInterface, command: string, args: string): Promise<{ text: string }> {
@@ -650,7 +835,7 @@ async function runCommand($: EngineInterface, command: string, args: string): Pr
     const parsed = parseTo(args, ctx.agents)
     if ('error' in parsed) return { text: parsed.error }
     const task = await startTask($, parsed.agent, parsed.text)
-    return { text: `Sent to ${parsed.agent.name} as task ${task.id}.` }
+    return { text: `Sent to ${parsed.agent.glyph} ${parsed.agent.name} · task ${task.id}` }
   }
   const shownAgent = ctx.agents.find(a => a.id === ctx.ui.agentId) ?? ctx.agents[0]
   const shownTask = ctx.ui.taskId ? ctx.tasks.get(ctx.ui.taskId) : shownAgent ? latestTaskOf(ctx, shownAgent.id) : undefined
@@ -660,23 +845,22 @@ async function runCommand($: EngineInterface, command: string, args: string): Pr
     if (!shownAgent) return { text: 'No agent to talk to.' }
     if (shownTask && shownTask.agentId === shownAgent.id && shownTask.runId && shownTask.status !== 'running' && shownTask.status !== 'queued') {
       const why = await continueTask($, shownTask, text)
-      return { text: why || `Sent to ${shownAgent.name} in task ${shownTask.id}.` }
+      return { text: why || `Sent to ${shownAgent.glyph} ${shownAgent.name} · task ${shownTask.id}` }
     }
     const task = await startTask($, shownAgent, text)
-    return { text: `Sent to ${shownAgent.name} as task ${task.id}.` }
+    return { text: `Sent to ${shownAgent.glyph} ${shownAgent.name} · task ${task.id}` }
   }
-  if (command === 'continue') {
-    if (!shownTask) return { text: 'No task to continue. Open one in the Legion pane first.' }
-    const why = await continueTask($, shownTask)
-    return { text: why || `Continuing ${shownTask.id}.` }
+  if (command === 'continue' || command === 'stop') {
+    const pick = pickTask(args, command === 'continue' ? 'continue' : 'stop', shownTask)
+    if ('error' in pick) return { text: pick.error }
+    const why = command === 'continue' ? await continueTask($, pick.task) : await stopTask($, pick.task)
+    const agent = ctx.agents.find(a => a.id === pick.task.agentId)
+    const who = agent ? `${agent.glyph} ${agent.name}` : pick.task.agentId
+    return { text: why || `${command === 'continue' ? 'Continuing' : 'Stopping'} ${who} · ${pick.task.title} · task ${pick.task.id}` }
   }
-  if (command === 'stop') {
-    if (!shownTask) return { text: 'No task to stop.' }
-    const why = await stopTask($, shownTask)
-    return { text: why || `Stopping ${shownTask.id}.` }
-  }
-  // /legion [view | talk <agent> | talk off | motion on|off | 2d on|off]
+  // /legion [continue|stop [task|agent] | view | talk <agent> | talk off | doctor | motion on|off | 2d on|off]
   const [sub = '', rest = ''] = [args.trim().split(/\s+/)[0] ?? '', args.trim().split(/\s+/).slice(1).join(' ')]
+  if (sub === 'continue' || sub === 'stop') return runCommand($, sub, rest)
   const views: Record<string, ViewId> = { chat: 'chat', order: 'order' }
   if (views[sub]) { ctx.ui = { ...ctx.ui, view: views[sub] }; await $.state.set(UI, ctx.ui); await driveStage($) }
   if (sub === 'talk') {
@@ -689,7 +873,7 @@ async function runCommand($: EngineInterface, command: string, args: string): Pr
     if (!agent) return { text: `No agent called "${rest}".` }
     ctx.ui = { ...ctx.ui, channel: agent.id, agentId: agent.id }
     await $.state.set(UI, ctx.ui)
-    return { text: `Speaking to ${agent.glyph} ${agent.name}. Every prompt goes to ${agent.name} until /legion talk off.` }
+    return { text: `Talking to ${agent.glyph} ${agent.name}. Every prompt goes to ${agent.name} until /legion talk off.` }
   }
   if (sub === 'trace') {
     if (rest !== 'on' && rest !== 'off') return { text: 'Usage: /legion trace on|off. The trace is for development: every decision, one line each, in the data folder.' }
@@ -728,13 +912,18 @@ async function commandHook($: EngineInterface, command: string, args: string | u
 
 // ---- Registration --------------------------------------------------------------------------------------------------------
 
+/**
+ * Legion's commands. Only `/legion`, `/to` and `/say` are top-level: Claude Code owns `/continue` (an alias of /resume) and
+ * refuses a plugin that registers it (live run, 2026-10-05), so continue and stop live under /legion with the other actions.
+ */
 export const COMMANDS = [
-  { name: 'legion', description: 'Open Legion: your order of agents, their threads and the shared Library', argumentHint: '[chat|order|talk <agent>|talk off|motion on|off|2d on|off]' },
+  { name: 'legion', description: 'Open Legion, or act on a task: continue, stop, talk, doctor', argumentHint: '[continue|stop [task|agent]] [talk <agent>|off] [chat|order] [doctor]' },
   { name: 'to', description: 'Send a message to one of Legion\'s agents as a new task', argumentHint: '<agent> <message>' },
   { name: 'say', description: 'Send a message to the agent the Legion pane shows', argumentHint: '<message>' },
-  { name: 'continue', description: 'Continue the task the Legion pane shows, from where it stopped' },
-  { name: 'stop', description: 'Stop the task the Legion pane shows' },
 ] as const
+
+/** Registrations Claude Code refused at start (a name it owns, a tool it rejects): said once, and listed by /legion doctor. */
+const refusedAtStart: string[] = []
 
 export function registerLegion(on: Parameters<Register>[0]): void {
   on('session.start', async ($, e, next) => {
@@ -744,11 +933,23 @@ export function registerLegion(on: Parameters<Register>[0]): void {
     } catch (err) {
       $.ui.log(`legion-mod: Legion could not start: ${message(err)}`, { to: 'transcript' })
     }
-    for (const c of COMMANDS) await $.command.register(c)
-    await $.tool.register({
-      name: 'agents',
-      description: 'List the agents of Legion\'s order (id, name, what each is for) and which are busy. Ask one with the Agent tool: subagent_type legion-mod:<id>, run_in_background false to wait for its answer, true to hand work off.',
-    })
+    // Each registration on its own: one refusal must never take the rest of Legion's start down with it.
+    for (const c of COMMANDS) {
+      try {
+        await $.command.register(c)
+      } catch (err) {
+        refusedAtStart.push(`/${c.name}: ${message(err)}`)
+      }
+    }
+    try {
+      await $.tool.register({
+        name: 'agents',
+        description: 'List the agents of Legion\'s order (id, name, what each is for) and which are busy. Ask one with the Agent tool: subagent_type legion-mod:<id>, run_in_background false to wait for its answer, true to hand work off.',
+      })
+    } catch (err) {
+      refusedAtStart.push(`the agents tool: ${message(err)}`)
+    }
+    if (refusedAtStart.length) $.ui.log(`legion-mod: Claude Code refused ${refusedAtStart.join('; ')}. /legion doctor has the details.`, { to: 'transcript' })
     $.clock.every(REFRESH_MS, () => void refresh($))
     // Relative times ("5m") are drawn from the clock: redraw the open pane twice a minute so they stay true. Nothing runs when it is closed.
     $.clock.every(30_000, () => void redrawTimes($))
@@ -759,8 +960,6 @@ export function registerLegion(on: Parameters<Register>[0]): void {
   on('command.run', { command: 'legion' }, ($, e) => commandHook($, 'legion', e.args))
   on('command.run', { command: 'to' }, ($, e) => commandHook($, 'to', e.args))
   on('command.run', { command: 'say' }, ($, e) => commandHook($, 'say', e.args))
-  on('command.run', { command: 'continue' }, ($, e) => commandHook($, 'continue', e.args))
-  on('command.run', { command: 'stop' }, ($, e) => commandHook($, 'stop', e.args))
 
   // The trace's last lines: flushed at session end (Claude Code bounds session.end to about 1.5 s; one write fits).
   on('session.end', async ($, e, next) => {
@@ -769,7 +968,9 @@ export function registerLegion(on: Parameters<Register>[0]): void {
   })
 
   // Every Legion Button: decode its key and act. The Button's own onPress is a no-op; this hook answers the press.
-  on('ui.press', { requestId: 'legion' }, async ($, e, next) => {
+  // Matched by plugin, not by requestId: only the pane is 'legion'; the band above the prompt and a /to card are
+  // other sites with their own ids, and a requestId matcher left their buttons (dismiss, open, continue) dead.
+  on('ui.press', { plugin: 'legion-mod' }, async ($, e, next) => {
     const action = decodeAction(e.element)
     if (!action || e.plugin !== 'legion-mod') return next(e)
     try {
@@ -829,6 +1030,9 @@ export function registerLegion(on: Parameters<Register>[0]): void {
     await apply($, task.id, { type: 'tool', runId, toolUseId: e.tool_use_id, tool: e.tool, summary })
     const ran = await next(e)
     ctx.waiting.delete(task.id)
+    // A no in Claude Code's dialog comes back as an error result, not a hook's deny: either way the card was not allowed,
+    // so the agent goes back to thinking instead of showing Executing (desktop's Deny rule, 2026-10-06).
+    if (ctx.cards.some(c => c.id === e.tool_use_id)) await closeCard($, task.id, e.tool_use_id, ran.deny === undefined && ran.isError !== true)
     const failed = ran.deny !== undefined || ran.isError === true
     await tr($, { k: 'toolDone', task: task.id, run: runId, tool: e.tool, id: e.tool_use_id, isError: failed, deny: ran.deny })
     await apply($, task.id, { type: 'toolDone', runId, toolUseId: e.tool_use_id, isError: failed })
@@ -850,11 +1054,16 @@ export function registerLegion(on: Parameters<Register>[0]): void {
     if (!agent) return verdict
     const ceiling = task.origin.kind === 'bridge' || task.origin.kind === 'room' ? 'ask' : agent.approval
     const effective = stricterMode(agent.approval, ceiling)
-    if (verdict.decision === 'allow' && needsApproval(effective, e.tool)) {
-      await tr($, { k: 'deny', task: task.id, agent: agent.id, run: runId, tool: e.tool, reason: 'asks: stricter ceiling', ceiling: effective })
-      return { decision: 'ask', reason: `${agent.glyph} ${agent.name} asks · ${e.tool} · ${task.title}` }
+    const answer = verdict.decision === 'allow' && needsApproval(effective, e.tool)
+      ? { decision: 'ask' as const, reason: `${agent.glyph} ${agent.name}, a Legion agent, needs your OK` }
+      : verdict
+    if (answer.decision === 'ask' && e.tool_use_id) {
+      if (answer !== verdict) await tr($, { k: 'deny', task: task.id, agent: agent.id, run: runId, tool: e.tool, reason: 'asks: stricter ceiling', ceiling: effective })
+      // tool.check carries the call's arguments under `input` (a tool.call carries them at the top level): summarize those.
+      const args = (e as unknown as { input?: Record<string, unknown> }).input ?? toolInput(e as unknown as Record<string, unknown>)
+      await openCard($, task, e.tool_use_id, e.tool, args)
     }
-    return verdict
+    return answer
   })
 
   on('turn.step', async function* ($, e, next) {
@@ -911,29 +1120,14 @@ export function registerLegion(on: Parameters<Register>[0]): void {
     const after = await apply($, taskId, { type: 'finished', runId, reason: e.reason, answer: e.answer, isTurnLimit, ...(usage ? { usage } : {}), ...(model ? { model } : {}) })
     await tr($, { k: 'finish', task: taskId, agent: after?.agentId, run: runId, reason: e.reason, status: after?.status, turns: after?.turns, runTurns: task.runTurns, isTurnLimit, cost: after?.costUsd, answer: e.answer })
     if (!after) return done
-    const agent = ctx.agents.find(a => a.id === after.agentId)
-    const who = agent ? `${agent.glyph} ${agent.name}` : after.agentId
-    const kind = after.status === 'paused' ? 'paused' : after.status === 'error' ? 'error' : 'done'
-    const line = kind === 'paused' ? `${who} paused at the turn limit · /continue` : kind === 'error' ? `${who} stopped on an error` : `${who} finished · ${after.title}`
-    await addBand($, { id: newId('b'), kind, taskId, agentId: after.agentId, text: line, at: (await $.clock.now()) })
-    if (ctx.ui.taskId !== taskId) $.ui.toast(line)
-    // A tell: the answer goes back to the caller, appended into its running loop, or resuming it when it already stopped.
-    if (after.origin.kind === 'bridge') {
-      const caller = ctx.tasks.get(after.origin.fromTaskId)
-      if (caller && answerTaintsCaller(after) && !caller.isTainted) {
-        const tainted = { ...caller, isTainted: true, updatedAt: (await $.clock.now()) }
-        ctx.tasks.set(caller.id, tainted)
-        await stores?.tasks.put(tainted)
-      }
-      if (caller?.runId && !ctx.waiting.has(caller.id)) {
-        const reply = tellReply(agent?.name ?? after.agentId, after.id, truncateResult(e.answer || after.error || ''))
-        if (caller.status === 'running') {
-          await $.session.append({ agentId: caller.runId, message: { type: 'user', content: [{ type: 'text', text: reply }] } })
-        } else if (caller.sessionId === ctx.sessionId) {
-          await enqueue($, resumeRequest({ id: newId('rq'), task: caller, text: reply, now: (await $.clock.now()) }))
-        }
-      }
+    // Its turn ended, but agents it told still work: Claude Code wakes it with their answers, so it is not done yet
+    // (live run: Zealot read "done" with "standing by", then answered again once Scout replied).
+    if (after.status === 'done' && openChildren(after.id).length > 0) {
+      await holdForChildren($, after)
+      return done
     }
+    await settleTask($, after)
+    await afterChildFinished($, after)
     return done
   })
 
@@ -942,8 +1136,11 @@ export function registerLegion(on: Parameters<Register>[0]): void {
     if (e.origin?.kind === 'task-notification') {
       const runId = notificationRunId(e.text)
       if (runId && ctx.byRun.has(runId)) {
-        await tr($, { k: 'drop', run: runId, task: ctx.byRun.get(runId) })
-        return { drop: 'Legion task finished; shown in the Legion pane.' }
+        const task = ctx.tasks.get(ctx.byRun.get(runId) ?? '')
+        const agent = task ? ctx.agents.find(a => a.id === task.agentId) : undefined
+        await tr($, { k: 'drop', run: runId, task: task?.id })
+        // Claude Code always shows a dropped prompt's reason (prompt.submit docs), so the line names what stopped, once.
+        return { drop: task && agent ? finishedLine(agent, task) : "A Legion agent's result is in the Legion pane." }
       }
     }
     if (e.origin?.kind === 'composer' && ctx.ui.channel && ctx.isReady && !e.text.trimStart().startsWith('/')) {

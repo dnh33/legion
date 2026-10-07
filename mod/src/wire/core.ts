@@ -114,7 +114,7 @@ export function parseTo(args: string, agents: readonly AgentView[]): { agent: Ag
   const space = trimmed.search(/\s/)
   const ref = space === -1 ? trimmed : trimmed.slice(0, space)
   const text = space === -1 ? '' : trimmed.slice(space).trim()
-  if (!ref) return { error: 'Usage: /to <agent> <message>, for example /to builder fix the failing test.' }
+  if (!ref) return { error: 'Usage: /to <agent> <message>. For example: /to zealot ship the replay fix' }
   const agent = resolveAgent(ref, agents)
   if (!agent) return { error: `No agent called "${ref}". The order: ${agents.filter(a => !a.isHidden).map(a => a.id).join(', ')}.` }
   if (!text) return { error: `What should ${agent.name} do? Usage: /to ${agent.id} <message>.` }
@@ -164,4 +164,14 @@ export function toolLine(tool: string, input: Record<string, unknown>, agents: r
 export function pushBand(band: readonly BandItem[], item: BandItem): BandItem[] {
   const rest = band.filter(b => !(item.taskId && b.taskId === item.taskId && b.kind !== 'card') && b.id !== item.id)
   return [...rest, item].slice(-20)
+}
+
+/**
+ * The one line the main conversation shows when a Legion run stops (its task notification is dropped, and Claude Code
+ * shows the drop's reason): `✠ Zealot · Report the version… · its result is in the Legion pane`. No state word: the
+ * notification can come for a task that is done, paused or failed, and the pane says which.
+ */
+export const finishedLine = (agent: Pick<AgentView, 'glyph' | 'name'>, task: Pick<TaskView, 'title'>): string => {
+  const title = task.title.length > 60 ? `${task.title.slice(0, 59)}…` : task.title
+  return `${agent.glyph} ${agent.name} · ${title} · its result is in the Legion pane`
 }

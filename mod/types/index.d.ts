@@ -115,6 +115,10 @@ export type UiState = {
   taskId: string | null
   /** While set, every prompt goes to this agent (`/legion talk <agent>`). */
   channel: AgentId | null
+  /** The key-help view (k) is open. */
+  keysOpen?: boolean
+  /** The task whose finished tool lines are unfolded, or null. */
+  stepsOpen?: string | null
 }
 
 /** One row of the band above the prompt: something that needs the person. */

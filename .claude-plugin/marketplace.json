@@ -1,0 +1,9 @@
+{
+  "name": "legion-local",
+  "owner": { "name": "Daniel Hjermitslev", "url": "https://github.com/dnh33" },
+  "description": "Local dev marketplace for Legion Mod (worktree D:/bots/legion-mod). Not the public release.",
+  "plugins": [
+    { "name": "legion-mod", "source": "./mod" },
+    { "name": "legion-mod-runner", "source": "./mod-runner" }
+  ]
+}

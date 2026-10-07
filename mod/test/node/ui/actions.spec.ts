@@ -14,6 +14,10 @@ const ALL: UiAction[] = [
   { kind: 'card-allow', cardId: 'toolu_01ABCdef', index: 0 },
   { kind: 'card-deny', cardId: 'toolu_01ABCdef', index: 0 },
   { kind: 'band-dismiss', itemId: 'b_1', index: 2 },
+  { kind: 'keys', open: true },
+  { kind: 'keys', open: false },
+  { kind: 'steps', taskId: 't_0123456789ab' },
+  { kind: 'steps', taskId: null },
 ]
 
 const withoutIndex = (a: UiAction): unknown => {
@@ -25,7 +29,9 @@ test('actions: every action round-trips through its key, in the documented gramm
   assert.deepEqual(ALL.map(encodeAction), [
     'view:order', 'agent:builder', 'task:t_0123456789ab', 'new:zealot', 'continue:t_0123456789ab', 'stop:t_0123456789ab',
     'poke:scout', 'allow:toolu_01ABCdef', 'deny:toolu_01ABCdef', 'dismiss:b_1',
+    'keys:open', 'keys:close', 'steps:t_0123456789ab', 'steps:close',
   ])
+  assert.equal(decodeAction('keys:maybe'), null)
   for (const a of ALL) assert.deepEqual(decodeAction(encodeAction(a)), withoutIndex(a), a.kind)
 })
 

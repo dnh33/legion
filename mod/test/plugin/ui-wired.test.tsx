@@ -35,7 +35,7 @@ test('wired pane: draws from state on both surfaces, and its keys are there', as
       const ui = await $.ui.mount({ plugin: 'legion-mod', surface, component: 'Pane', requestId: 'legion', props: paneProps(w) })
       expect(await ui.find({ type: 'Text', text: '✠ LEGION' })).toBeDefined()
       expect(await ui.find({ type: 'Button', key: 'stop:t_000000000001' })).toBeDefined()
-      expect((await ui.find({ type: 'Button', key: 'new:builder' }))?.props.hotkey).toBe('n')
+      expect((await ui.find({ type: 'Button', key: 'keys:open' }))?.props.hotkey).toBe('k')
       await ui.unmount()
     }
   }
@@ -58,7 +58,7 @@ test('wired band: draws what waits; passes when empty and when a survey holds th
   for (const surface of SURFACES) {
     snap = busy()
     let ui = await $.ui.mount({ plugin: 'legion-mod', surface, component: 'AbovePrompt', props: bandProps(80) })
-    expect(await ui.find({ type: 'Text', text: /answer in the dialog/ })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: /in the dialog/ })).toBeDefined()
     await ui.unmount()
     ui = await $.ui.mount({ plugin: 'legion-mod', surface, component: 'AbovePrompt', props: bandProps(80, true) })
     expect(await ui.find({ type: 'Text', text: 'engine band' })).toBeDefined()
@@ -98,8 +98,8 @@ test("wired press: a Legion Button's press reaches ui.press with its action key,
   for (const surface of SURFACES) {
     pressed.length = 0
     const ui = await $.ui.mount({ plugin: 'legion-mod', surface, component: 'Pane', requestId: 'legion', props: paneProps(120) })
-    for (const key of ['view:order', 'new:builder', 'stop:t_000000000001']) await ui.press({ key })
-    expect(pressed).toEqual(['view:order', 'new:builder', 'stop:t_000000000001'])
+    for (const key of ['view:order', 'keys:open', 'stop:t_000000000001']) await ui.press({ key })
+    expect(pressed).toEqual(['view:order', 'keys:open', 'stop:t_000000000001'])
     await ui.unmount()
   }
 })
@@ -110,7 +110,7 @@ test("wired pane: the window's session id and the doctor run come from state", a
   for (const surface of SURFACES) {
     snap = busy({ sessionId: 'me', live: '' })
     let ui = await $.ui.mount({ plugin: 'legion-mod', surface, component: 'Pane', requestId: 'legion', props: paneProps(100) })
-    expect(await ui.find({ type: 'Text', text: /Running in another window/ })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: /in another window/ })).toBeDefined()
     expect(await ui.find({ type: 'Button', key: 'stop:t_000000000001' })).toBeUndefined()
     await ui.unmount()
     snap = busy({ doctor: DOCTOR, ui: { view: 'order', agentId: 'builder', taskId: null, channel: null } })

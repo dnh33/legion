@@ -41,7 +41,7 @@ export const card = (id: string, taskId: string, agentId: string, more: Partial<
 export const THREAD: ThreadRow[] = [
   { id: 'r1', role: 'user', text: 'Pin the clock in the replay test.', at: 1 },
   { id: 'r2', role: 'assistant', text: 'Pinned it with an injected clock.', at: 2 },
-  { id: 'r3', role: 'tool', text: '', tool: { name: 'Read', summary: 'test/replay.test.ts', state: 'ok' }, at: 3 },
+  { id: 'r3', role: 'tool', text: '', tool: { name: 'Read', summary: '{"file_path":"test/replay.test.ts"}', state: 'ok' }, at: 3 },
   { id: 'r4', role: 'tool', text: '', tool: { name: 'Edit', summary: 'test/replay.test.ts  +4 −1', state: 'ok' }, at: 4 },
   { id: 'r5', role: 'tool', text: '', tool: { name: 'Bash', summary: 'npm test -- replay', state: 'awaiting' }, at: 5 },
   { id: 'r6', role: 'user', text: 'Builder, check the docs too.', fromAgentId: 'zealot', at: 6 },
@@ -58,7 +58,7 @@ export const busy = (more: Partial<Snapshot> = {}): Snapshot => base({
   tasks: [
     task('t_000000000001', 'builder', 'running', { title: 'fix the flaky replay', createdAt: 5_000, updatedAt: 9_000 }),
     task('t_000000000002', 'builder', 'paused', { title: 'tests', createdAt: 4_000, error: 'Paused at the turn limit (50 turns).' }),
-    task('t_000000000003', 'scout', 'error', { title: 'find the leak', error: 'The model refused the request.' }),
+    task('t_000000000003', 'scout', 'error', { title: 'find the leak', error: 'The model declined to answer.' }),
     task('t_000000000004', 'scribe', 'done', { title: 'docs', updatedAt: 990_000 }),
   ],
   cards: [card('c1', 't_000000000001', 'builder')],
@@ -78,11 +78,12 @@ export const long = (): Snapshot => {
   return base({
     tasks, cards, thread: [...THREAD, { id: 'big', role: 'assistant', text: LONG_TITLE.repeat(3), at: 9 }],
     ui: { view: 'chat', agentId: 'builder', taskId: 't_000000000001', channel: null }, live: LONG_TITLE,
-    band: Array.from({ length: 6 }, (_, i): BandItem => ({ id: `b${i}`, kind: i % 2 ? 'done' : 'paused', taskId: 't_000000000001', agentId: 'builder', text: LONG_TITLE, at: i })),
+    band: Array.from({ length: 6 }, (_, i): BandItem => ({ id: `b${i}`, kind: i % 2 ? 'done' : 'paused', taskId: 't_000000000001', agentId: 'builder', text: `${LONG_TITLE} · ${i % 2 ? 'done' : 'paused at the turn limit'}`, at: i })),
   })
 }
 
-export const WIDTHS = [40, 60, 80, 100, 120, 200] as const
+/** The widths every view must hold, the in-between ones where rows used to break (review bug 3) included. */
+export const WIDTHS = [40, 56, 60, 64, 68, 72, 80, 100, 120, 200] as const
 
 /** A doctor run with a pass, a problem with a long next step, and an informational line. */
 export const DOCTOR: DoctorLine[] = [
@@ -111,7 +112,27 @@ export const fleet = (more: Partial<Snapshot> = {}): Snapshot => base({
   thread: [
     { id: 'z1', role: 'user', text: 'Ship the replay fix: tests green, docs updated.', at: 1 },
     { id: 'z2', role: 'assistant', text: 'Three pieces: Builder fixes the test, Scout finds the leak, Scribe updates the docs.', at: 2 },
-    { id: 'z3', role: 'tool', text: '', tool: { name: 'mcp__legion-mod__tell', summary: 'Builder: fix the flaky replay test', state: 'ok' }, at: 3 },
+    { id: 'z3', role: 'tool', text: '', tool: { name: 'Agent', summary: 'Tell Builder: Fix the flaky replay test', state: 'ok' }, at: 3 },
+    { id: 'z4', role: 'tool', text: '', tool: { name: 'Read', summary: '{"file_path":"docs/TESTING.md"}', state: 'ok' }, at: 4 },
+    { id: 'z5', role: 'tool', text: '', tool: { name: 'Grep', summary: '{"pattern":"clock"}', state: 'ok' }, at: 5 },
   ],
+  ...more,
+})
+
+/** The runtime's band texts, as src/wire/legion.tsx writes them: "<title> · done | paused at the turn limit | failed: <reason>". */
+export const wireBand = (kind: 'done' | 'paused' | 'error', taskId: string, agentId: string, title: string, at = 1, reason = 'The model declined to answer.'): BandItem => ({
+  id: `b_${taskId}`, kind, taskId, agentId, at,
+  text: `${title} · ${kind === 'done' ? 'done' : kind === 'paused' ? 'paused at the turn limit' : `failed: ${reason}`}`,
+})
+
+/** The runtime's /to reply (src/wire/legion.tsx runCommand). */
+export const sentTo = (glyphName: string, taskId: string): string => `Sent to ${glyphName} · task ${taskId}`
+
+/** Journey 2 with each working piece's current tool, as the wire's thread rows carry them. */
+export const fleetLive = (more: Partial<Snapshot> = {}): Snapshot => fleet({
+  threads: {
+    t_0000000000a1: [{ id: 'b1', role: 'tool', text: '', tool: { name: 'Edit', summary: 'test/replay.test.ts', state: 'running' }, at: 1 }],
+    t_0000000000a4: [{ id: 'i1', role: 'tool', text: '', tool: { name: 'Read', summary: '{"file_path":"src/core/replay.ts"}', state: 'running' }, at: 1 }],
+  },
   ...more,
 })

@@ -15,7 +15,7 @@ import { bandRows } from '../../src/ui/band.ts'
 import { dispatchRows } from '../../src/ui/dispatch.ts'
 import { paneLayout } from '../../src/ui/views/pane.ts'
 import type { Snapshot } from '../../src/ui/views/common.ts'
-import { base, busy, card, long, WIDTHS } from '../node/ui/fixtures.ts'
+import { WIDTHS, base, busy, card, long, wireBand } from '../node/ui/fixtures.ts'
 
 /**
  * A pane id of the test's own, so the plugin's pane hook (matched on 'legion') never answers it, wired or not. The band
@@ -63,8 +63,8 @@ test('pane: the keys are drawn with their hotkeys, and each press goes through',
     const ui = await $.ui.mount({ plugin: 'legion-mod', surface, component: 'Pane', requestId: DRAW, props: paneProps(120) })
     const buttons = await ui.findAll({ type: 'Button' })
     const hotkeys = buttons.flatMap(b => (typeof b.props.hotkey === 'string' ? [b.props.hotkey] : [])).sort()
-    expect(hotkeys).toEqual(['5', 'n', 's'])
-    for (const key of ['view:order', 'new:builder', 'stop:t_000000000001', 'agent:scout', 'task:t_000000000002']) {
+    expect(hotkeys).toEqual(['2', 'k', 's'])
+    for (const key of ['view:order', 'keys:open', 'stop:t_000000000001', 'steps:t_000000000001', 'agent:scout', 'task:t_000000000002']) {
       expect(await ui.find({ type: 'Button', key }), key).toBeDefined()
       await ui.press({ key, plugin: 'test' })
     }
@@ -80,7 +80,7 @@ test('pane: a card draws who and where to answer, and no Allow or Deny', async (
   for (const surface of SURFACES) {
     const ui = await $.ui.mount({ plugin: 'legion-mod', surface, component: 'Pane', requestId: DRAW, props: paneProps(100) })
     expect(await ui.find({ type: 'Text', text: /Builder/ })).toBeDefined()
-    expect(await ui.find({ type: 'Text', text: /asks to run a command/ })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: /needs your OK to run a command/ })).toBeDefined()
     expect(await ui.find({ type: 'Text', text: /Answer in the permission dialog\./ })).toBeDefined()
     expect(await ui.find({ type: 'Button', key: 'allow:c1' })).toBeUndefined()
     expect(await ui.find({ type: 'Button', key: 'deny:c1' })).toBeUndefined()
@@ -106,7 +106,7 @@ test('theme: the wordmark draws in each palette\'s own accent', async ($, on) =>
 
 test('band: draws what waits with its keys, at most three rows then +N more', async ($, on) => {
   mock.clock(on)
-  let snap: Snapshot = busy({ band: [{ id: 'b1', kind: 'paused', taskId: 't_000000000002', agentId: 'builder', text: 'Paused at the turn limit', at: 1 }] })
+  let snap: Snapshot = busy({ band: [wireBand('paused', 't_000000000002', 'builder', 'tests')] })
   on('ui.render', { component: 'AbovePrompt' }, async ($, e) => {
     const rows = bandRows(snap, e.props.bodyColumns, e.props.maxRows)
     const { Box } = $.ui.resolve(e)
@@ -115,16 +115,15 @@ test('band: draws what waits with its keys, at most three rows then +N more', as
   for (const surface of SURFACES) {
     for (const w of WIDTHS) {
       const ui = await $.ui.mount({ plugin: 'legion-mod', surface, component: 'AbovePrompt', props: bandProps(w) })
-      for (const [key, hotkey] of [['continue:t_000000000002', 'c'], ['dismiss:b1', 'x']] as const) {
-        expect((await ui.find({ type: 'Button', key }))?.props.hotkey, `${surface}/${w}/${key}`).toBe(hotkey)
-        await ui.press({ key, plugin: 'test' })
-      }
+      expect((await ui.find({ type: 'Button', key: 'continue:t_000000000002' }))?.props.hotkey, `${surface}/${w}`).toBe('c')
+      await ui.press({ key: 'continue:t_000000000002', plugin: 'test' })
+      if (w >= 64) await ui.press({ key: 'dismiss:b_t_000000000002', plugin: 'test' })
       await ui.unmount()
     }
   }
   snap = long()
   const many = await $.ui.mount({ plugin: 'legion-mod', surface: 'terminal', component: 'AbovePrompt', props: bandProps(80) })
-  expect(await many.find({ type: 'Text', text: /\+124 more · \/legion to open/ })).toBeDefined()
+  expect(await many.find({ type: 'Text', text: /99\+ more · \/legion to open/ })).toBeDefined()
   await many.unmount()
 })
 
@@ -140,7 +139,7 @@ test('dispatch: the transcript card draws live and frozen on both surfaces', asy
     expect(await done.find({ type: 'Text', text: /done/ })).toBeDefined()
     await done.unmount()
     const live = await $.ui.mount({ plugin: 'legion-mod', surface, component: 'CommandOutput', props: { command: 'to', args: 'builder fix', text: 'Sent · task t_000000000001', isErrored: false }, viewport: { columns: 100, rows: 40 } })
-    expect(await live.find({ type: 'Text', text: /answer in the dialog/ })).toBeDefined()
+    expect(await live.find({ type: 'Text', text: /in the dialog/ })).toBeDefined()
     await live.unmount()
   }
 })

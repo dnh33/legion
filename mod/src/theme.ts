@@ -50,6 +50,8 @@ export const MOOD_WORDS: Record<Mood, string> = {
 /** Moods that switch at once; every other mood dwells at least MOOD_DWELL_MS (desktop mascot rule). */
 export const URGENT_MOODS: ReadonlySet<Mood> = new Set(['awaiting', 'error'])
 export const MOOD_DWELL_MS = 1800
+/** How long Victory and Fault show before the agent rests (desktop ui/src/mascot/useBustState.ts VICTORY_MS, ERROR_MS). */
+export const TRANSIENT_MOOD_MS: Partial<Record<Mood, number>> = { victory: 3200, error: 5000 }
 
 /** One-cell marks. Each must be width 1 in Windows Terminal (spike S8 measures them; the fallbacks are ASCII-safe). */
 export const MARK = {

@@ -2,20 +2,18 @@
  * Task lines as the Order view and the Chat view's "Delegated" block draw them: a task and the pieces it handed out,
  * as a tree (a bridge task sits under the task that asked for it), each line one task with fixed number columns.
  *
- * What survives on a small pane, in order: the state mark, the agent's glyph, the title and the cost. From 80 cells the
- * agent's name joins; from 100, what the agent is doing now (its mood word) and the turns.
+ * What survives on a small pane: the agent's glyph, the title and the cost (R7). From 56 cells what the task is doing
+ * now joins (R2) in place of the state mark, from 80 the agent's name, and in Order from 100 the turns.
  */
 import type { TaskView } from '../../../types/index.d.ts'
 import { money, plural } from '../format.ts'
-import { btn, line, partsWidth, span, type Part, type Row } from '../model.ts'
+import { btn, line, partsWidth, span, type Part, type Row, type SpanTone } from '../model.ts'
 import { cutCells, fit, oneLine } from '../text.ts'
-import { agentById, cleanTitle, glyphOf, isActive, isElsewhere, moodTone, moodWord, STATUS_MARK, type Snapshot } from './common.ts'
-
-/** Fixed columns: cost '≈$1,234.56' is 10 cells; turns '999 turns' 9; the agent's name 11; the now-word 14. */
+import { agentById, cleanTitle, glyphOf, isActive, isElsewhere, nowOf, STATUS_MARK, type Snapshot } from './common.ts'
+/** Fixed columns: cost '≈$1,234.56' is 10 cells; turns '999 turns' 9; the agent's name 11. */
 const COST = 10
 const TURNS = 9
 const NAME = 11
-const NOW = 14
 
 export type TreeLine = { task: TaskView; depth: number; isLast: boolean; prefix: string }
 
@@ -64,32 +62,49 @@ export const descendants = (s: Pick<Snapshot, 'tasks'>, taskId: string): TaskVie
   return out
 }
 
+/** The tone of a task's now-words: what needs the person is loud, what works is plain, what rests is quiet (R9). */
+const nowTone = (s: Snapshot, t: TaskView): SpanTone => {
+  if (isElsewhere(s, t)) return 'muted'
+  if (t.status === 'running') return s.cards.some(c => c.taskId === t.id) ? 'warn' : 'text'
+  if (t.status === 'paused') return 'warn'
+  if (t.status === 'error') return 'danger'
+  return 'muted'
+}
+
+export type TaskLineOptions = {
+  /** Order's accounting columns: the turns, from 100 cells. */
+  turns?: boolean
+  /** A trailing column of the caller's (Recent's age), in place of the now-words. */
+  tail?: Part[]
+}
+
 /**
- * One task line: state mark, glyph, [name], tree prefix, title (a Button that opens it), [now], cost, [turns] or a
- * trailing column of the caller's (`tail`, such as the age in Recent).
+ * One task line: tree prefix, glyph, [name], title (a Button that opens it), [what it is doing now], cost.
+ * From 56 cells the now-words say the state (R2: a verb while it works); below that a one-cell mark says it instead,
+ * so the title and the cost survive (R7). A cost under a cent is left out (R4).
  */
-export const taskLine = (s: Snapshot, l: Pick<TreeLine, 'task' | 'prefix'>, width: number, tail?: Part[]): Row => {
+export const taskLine = (s: Snapshot, l: Pick<TreeLine, 'task' | 'prefix'>, width: number, opts: TaskLineOptions = {}): Row => {
   const t = l.task
   const st = STATUS_MARK[t.status]
   const agent = agentById(s, t.agentId)
-  // who first, in fixed columns; the tree hangs the titles, so names and titles each line up
-  const lead: Part[] = [span(' '), span(st.mark, st.tone, { fixed: true }), span(' '), span(glyphOf(s, t.agentId), isActive(t) ? 'accent' : 'muted', { fixed: true }), span(' ')]
-  if (width >= 80) lead.push(span(fit(agent?.name ?? t.agentId, NAME), 'text', { fixed: true }), span(' '))
-  if (l.prefix) lead.push(span(l.prefix, 'line', { fixed: true }))
+  // the now-words take 30% of the line, 12 to 26 cells; below 56 cells a one-cell mark says the state instead
+  const now = Math.max(12, Math.min(26, Math.floor(width * 0.3)))
+  const wide = width >= 56
+  const named = width >= 80
+  const lead: Part[] = [span(' ')]
+  // the tree hangs the titles: after the name when names show (so names line up), else before the glyph
+  if (l.prefix && !named) lead.push(span(l.prefix, 'line', { fixed: true }))
+  if (!wide) lead.push(span(st.mark, st.tone, { fixed: true }), span(' '))
+  lead.push(span(glyphOf(s, t.agentId), 'muted', { fixed: true }), span(' '))
+  if (named) lead.push(span(fit(agent?.name ?? t.agentId, NAME), 'text', { fixed: true }), span(' '))
+  if (l.prefix && named) lead.push(span(l.prefix, 'line', { fixed: true }))
   const right: Part[] = [span(' ')]
-  if (width >= 100 && !tail) {
-    // what it is doing now: its agent's mood while it runs; plain state words otherwise
-    const now = isElsewhere(s, t) ? 'other window' : t.status === 'running' ? moodWord(s, t.agentId) : t.status === 'queued' ? 'queued' : t.status === 'paused' ? 'paused' : ''
-    const tone = isElsewhere(s, t) || t.status === 'queued' ? 'muted' : t.status === 'running' ? moodTone(s, t.agentId) : 'warn'
-    right.push(span(fit(now, NOW), tone, { fixed: true }), span(' '))
-  }
-  right.push(span(fit(money(t.costUsd), COST, { align: 'right' }), 'muted', { fixed: true }))
-  if (tail) right.push(...tail)
-  else if (width >= 100) right.push(span(' '), span(fit(plural(t.turns, 'turn'), TURNS, { align: 'right' }), 'muted', { fixed: true }))
+  if (opts.tail) right.push(...opts.tail, span(' '))
+  else if (wide) right.push(span(fit(nowOf(s, t, now), now), nowTone(s, t), { fixed: true }), span(' '))
+  right.push(span(fit(t.costUsd >= 0.01 ? money(t.costUsd) : '', COST, { align: 'right' }), 'muted', { fixed: true }))
+  if (opts.turns && width >= 100) right.push(span(' '), span(fit(t.turns > 0 ? plural(t.turns, 'turn') : '', TURNS, { align: 'right' }), 'muted', { fixed: true }))
   right.push(span(' '))
-  // below 100 cells a run another window owns says so after its title
-  const note: Part[] = isElsewhere(s, t) && width < 100 ? [span(' · other window', 'muted', { fixed: true })] : []
-  const room = Math.max(1, width - partsWidth(lead) - partsWidth(note) - partsWidth(right) - 1)
+  const room = Math.max(1, width - partsWidth(lead) - partsWidth(right) - 1)
   const title = cutCells(oneLine(cleanTitle(t.title)), room)
-  return line([...lead, btn({ kind: 'task', taskId: t.id }, title, { dim: !isActive(t) && t.status !== 'paused' }), ...note], right, width)
+  return line([...lead, btn({ kind: 'task', taskId: t.id }, title, { dim: !isActive(t) && t.status !== 'paused' })], right, width)
 }

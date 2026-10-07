@@ -421,6 +421,17 @@ Steps 7 and 9 touch public services and are the owner's. Everything before step 
 - **getlegion.xyz:** one page for the mod: what it is, the install lines, the privacy text, the minimum Claude Code version.
 - **No in-app promotion in the desktop for v1** (D9).
 
+## 5b. Risk: mods can be switched off remotely (observed 2026-10-05)
+
+`claude plugin test` refused to load any mod with this message: "hooks modules are turned off in this process: the rollout switch was saved off by an earlier session and is not refreshed yet. Start `claude` once with network access … if this message returns, installed mods are turned off remotely". One `claude -p` run refreshed the switch, and mods loaded again.
+
+**What this means.** Function-hook mods sit behind a remote rollout switch while the feature is in early access. A user whose switch is off gets no Legion at all, and the plugin cannot detect it because its code never runs.
+
+**What we do about it:**
+- The README's troubleshooting section names the symptom (`/legion` unknown) and the fix (start `claude` once online; update Claude Code).
+- The release notes say mods are early access in Claude Code.
+- We check the switch before each release with `claude plugin test`.
+
 ## 6. Launch checklist
 
 ### Before 0.1.0

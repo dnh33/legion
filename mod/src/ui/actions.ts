@@ -11,6 +11,7 @@
  *   view:<chat|order>      agent:<agentId>      task:<taskId>      new:<agentId>
  *   continue:<taskId>      stop:<taskId>        poke:<agentId>
  *   allow:<cardId>         deny:<cardId>        dismiss:<bandItemId>
+ *   keys:open | keys:close (the key-help view)     steps:<taskId> (open a task's folded steps) | steps:close
  *
  * An id that would take a key past 64 characters is written as its index instead, `allow#3`: the position in
  * `cardsInOrder(cards)` (cards) or `bandOrder(band)` (band items), the same orders the UI draws in; `cardAt` and
@@ -30,6 +31,8 @@ export type UiAction =
   | { kind: 'card-allow'; cardId: string; index: number }
   | { kind: 'card-deny'; cardId: string; index: number }
   | { kind: 'band-dismiss'; itemId: string; index: number }
+  | { kind: 'keys'; open: boolean }
+  | { kind: 'steps'; taskId: string | null }
 
 /** What a decoded key names: the action, with an index in place of an id that was too long to write. */
 export type DecodedAction =
@@ -43,7 +46,7 @@ export const KEY_MAX = 64
 
 const PREFIX = {
   view: 'view', agent: 'agent', task: 'task', new: 'new', continue: 'continue', stop: 'stop', poke: 'poke',
-  'card-allow': 'allow', 'card-deny': 'deny', 'band-dismiss': 'dismiss',
+  'card-allow': 'allow', 'card-deny': 'deny', 'band-dismiss': 'dismiss', keys: 'keys', steps: 'steps',
 } as const satisfies Record<UiAction['kind'], string>
 
 const KIND_OF: Record<string, UiAction['kind']> = Object.fromEntries(Object.entries(PREFIX).map(([k, p]) => [p, k as UiAction['kind']]))
@@ -55,6 +58,8 @@ const idOf = (a: UiAction): string => {
     case 'task': case 'continue': case 'stop': return a.taskId
     case 'card-allow': case 'card-deny': return a.cardId
     case 'band-dismiss': return a.itemId
+    case 'keys': return a.open ? 'open' : 'close'
+    case 'steps': return a.taskId ?? 'close'
   }
 }
 
@@ -91,6 +96,8 @@ export const decodeAction = (key: string): DecodedAction | null => {
     case 'task': case 'continue': case 'stop': return { kind, taskId: rest }
     case 'card-allow': case 'card-deny': return { kind, cardId: rest }
     case 'band-dismiss': return { kind, itemId: rest }
+    case 'keys': return rest === 'open' || rest === 'close' ? { kind, open: rest === 'open' } : null
+    case 'steps': return { kind, taskId: rest === 'close' ? null : rest }
   }
 }
 
