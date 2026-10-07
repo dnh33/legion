@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { openExternal, request } from '../api';
-import { errText } from '../store';
+import { errText, REOPEN_GITHUB_KEY } from '../store';
 import { storageLine } from '../../../src/shared/connectors-view';
 import type { GithubConnectionView, GithubStatusView } from '../../../src/shared/connectors-view';
 
@@ -35,12 +35,15 @@ export function GithubSection() {
 
   const connect = async () => {
     setBusy(true); setErr(null); setNote(null);
+    // a first connect restarts the core and reloads this window: remember to come back here, where the code will be
+    try { sessionStorage.setItem(REOPEN_GITHUB_KEY, '1'); } catch { /* optional */ }
     try {
       const fn = (window as unknown as { legion?: Native }).legion?.connectorConnect;
       if (!fn) throw new Error('Connecting needs the Legion app window (it shows a confirmation dialog). Open Legion from its shortcut.');
       const r = await fn();
+      try { sessionStorage.removeItem(REOPEN_GITHUB_KEY); } catch { /* optional */ }
       if (r.cancelled) setNote('Cancelled. Nothing changed.'); else if (!r.ok) throw new Error(r.error ?? 'The connect failed.');
-    } catch (e) { setErr(errText(e)); } finally { setBusy(false); void load(); }
+    } catch (e) { try { sessionStorage.removeItem(REOPEN_GITHUB_KEY); } catch { /* optional */ } setErr(errText(e)); } finally { setBusy(false); void load(); }
   };
   const act = async (fn: () => Promise<unknown>) => { setBusy(true); setErr(null); setNote(null); try { await fn(); } catch (e) { setErr(errText(e)); } finally { setBusy(false); void load(); } };
 

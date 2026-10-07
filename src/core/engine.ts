@@ -11,7 +11,7 @@ import { scrubHostSessionEnv } from '../shared/config.js';
 import { BUDGET_LIMIT_PREFIX, CONTINUE_PROMPT, TURN_LIMIT_PREFIX, budgetCap, formatUsdLimit } from '../shared/continue.js';
 import { InputChannel } from './input-channel.js';
 import { contextTokensOf } from '../shared/context-meter.js';
-import { isLegionTool, needsApproval, stricterMode } from './approvals.js';
+import { isLegionTool, needsApproval, stricterMode, LEGION_SERVER_NAMES } from './approvals.js';
 import { TaintedPaths } from './tainted-paths.js';
 import { CONTINUE_REFUSED } from './connector-withhold.js';
 import type { CoreModule, ModuleJob, PreambleContext, TaskEndOutcome } from './modules.js';
@@ -743,7 +743,7 @@ export class Engine {
       if (!all && !wanted.includes(name)) continue;
       if (self.has(name)) continue;
       // A Settings entry may not take one of Legion's own server names: its tools would match LEGION_TOOL_PREFIXES (no card, no taint). Names are Legion's.
-      if (/^legion(_|$)/.test(name)) continue;
+      if (LEGION_SERVER_NAMES.has(name)) continue;
       if (entry.type === 'http') out[name] = { type: 'http', url: entry.url, ...(entry.headers ? { headers: entry.headers } : {}) };
       else if (entry.type === 'sse') out[name] = { type: 'sse', url: entry.url, ...(entry.headers ? { headers: entry.headers } : {}) };
       else out[name] = { type: 'stdio', command: entry.command, ...(entry.args ? { args: entry.args } : {}), ...(entry.env ? { env: entry.env } : {}) };

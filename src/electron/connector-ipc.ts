@@ -42,7 +42,7 @@ export async function connectGithub(deps: ConnectorIpcDeps): Promise<ConnectResu
       const running = Array.isArray(state?.json?.tasks) && state!.json.tasks.some((t: { status?: string }) => t.status === 'running' || t.status === 'queued');
       const go = await deps.confirm({
         title: 'Restart Legion Core to connect GitHub?', message: 'Legion needs to restart its core once to store the GitHub sign-in encrypted.',
-        detail: (running ? 'Tasks that are running now will be stopped and pending approvals cancelled. ' : '') + 'This happens once, on the first connect. The window reloads; then the GitHub sign-in starts.',
+        detail: (running ? 'Tasks that are running now will be stopped and pending approvals cancelled. ' : '') + 'This happens once, on the first connect. The window reloads and opens Settings, GitHub, where your sign-in code appears; your browser opens the GitHub page.',
         confirmLabel: 'Restart and connect',
       });
       if (!go) return { ok: false, cancelled: true };

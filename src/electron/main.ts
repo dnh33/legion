@@ -258,15 +258,21 @@ async function killCore(): Promise<void> {
 }
 
 /** Tray "Restart core": rotates the admin secret. The window reload re-runs the preload, so the renderer picks up the new secret. */
-async function restartCore(): Promise<string | null> {
+/** Restarts our core. Returns the error text and shows no dialog itself: the caller reports it once (the tray shows the box, the Connect flow returns it to the window). */
+async function restartCoreQuiet(): Promise<string | null> {
   if (coreProc) {
     await killCore();
     await waitPortFree((pinned ?? readConfig()).port);
   }
   const err = await ensureCore();
-  if (err) dialog.showErrorBox('Could not restart Legion Core', err);
   win?.webContents.reload();
   return err;
+}
+
+/** Tray "Restart core": the one place that shows the error box. */
+async function restartCore(): Promise<void> {
+  const err = await restartCoreQuiet();
+  if (err) dialog.showErrorBox('Could not restart Legion Core', err);
 }
 
 /** A request to our own core, with the admin secret (and the native secret when asked). undefined = we hold no proven core of our own. */
@@ -559,7 +565,7 @@ if (!app.requestSingleInstanceLock()) {
         call: (method, route, body) => ownCoreCall(method, route, body),
         confirm: makeConfirm(dialog, () => win),
         ensureKey: () => ensureConnectorKey(dataDir(), safeStorage),
-        restartCore,
+        restartCore: restartCoreQuiet,
         openExternal,
       });
     } catch { return { ok: false, error: 'The connect failed.' }; }

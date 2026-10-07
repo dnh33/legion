@@ -556,6 +556,11 @@ export function openSettings(section?: SettingsSection) {
   setState({ settingsOpen: true, palette: false, doctorOpen: false, editor: null, ...(section ? { settingsSection: section } : {}) });
   void loadSettings();
 }
+/** The first GitHub connect restarts the core and reloads the window; this key tells the reloaded window to reopen Settings, GitHub (where the code is). */
+export const REOPEN_GITHUB_KEY = 'legion.reopen-github';
+export function reopenGithubAfterReload(): void {
+  try { if (sessionStorage.getItem(REOPEN_GITHUB_KEY)) { sessionStorage.removeItem(REOPEN_GITHUB_KEY); openSettings('github'); } } catch { /* no storage: the owner opens Settings, GitHub by hand */ }
+}
 export function setSettingsSection(settingsSection: SettingsSection) { setState({ settingsSection }); }
 export function closeSettings() { setState({ settingsOpen: false }); }
 export function toggleSettings() { if (getState().settingsOpen) closeSettings(); else openSettings(); }

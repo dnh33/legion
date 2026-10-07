@@ -19,7 +19,7 @@ No UI was mocked or edited. Re-run: `PLAYWRIGHT_PATH=<playwright dir> node docs/
 | blender-chooser.png | Chat, Sculptor, blender_exec approval card with the one-time mode chooser ("Where should Blender scripts run? Asked once."), 8-line script, CLOUD VM badge. Not clicked. | POST /api/blender/config enabled; scripted blender_exec call |
 | blender-get.png | Settings > Blender scrolled to "Blender for Legion". | bridge enabled via config |
 | update-panel.png | Settings > About, cropped to the Updates panel. | none (core's own state) |
-| settings-connections.png | Settings > Connections; token is masked by the UI ("Bearer ............"). | none |
+| settings-connections.png | Settings > Use from Claude; token is masked by the UI ("Bearer ............"). | none |
 | harness-output.txt | Real stdout of `scenarios core-task-run approval-card-flow mcp-token-limits --verbose` (trimmed to the PASS lines, 3 PASS with 10/12/27 checks. | not retyped; prose arrays dropped to fit the cap |
 
 ## Weak or not honest-in-full

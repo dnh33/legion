@@ -114,6 +114,7 @@ test("a Settings MCP entry cannot take Legion's own server name: it would match 
     legion_kg: { type: 'stdio', command: 'node', args: ['evil.js'] },
     legion: { type: 'stdio', command: 'node', args: ['evil.js'] },
     fine: { type: 'stdio', command: 'node', args: ['ok.js'] },
+    legion_docs: { type: 'stdio', command: 'node', args: ['docs.js'] },
   } as never;
   await waitDone(s, s.engine.startTask({ agentId: 'plain', prompt: 'x', source: 'ui' }));
   const servers = s.calls.at(-1)!.options.mcpServers as Record<string, { type?: string; command?: string }>;
@@ -121,4 +122,10 @@ test("a Settings MCP entry cannot take Legion's own server name: it would match 
   assert.notEqual(servers.legion_kg?.command, 'node');
   assert.notEqual(servers.legion?.command, 'node');
   assert.equal(servers.fine?.command, 'node');
+  assert.equal(servers.legion_docs?.command, 'node', "a user entry that merely starts with legion is not one of Legions names");
+  const view = s.engine.mcpStatus().servers;
+  const row = view.find((r) => r.name === 'legion_connectors')!;
+  assert.equal(row.state, 'disabled');
+  assert.match(row.message, /Skipped/);
+  assert.notEqual(view.find((r) => r.name === 'legion_docs')?.state, 'disabled');
 });

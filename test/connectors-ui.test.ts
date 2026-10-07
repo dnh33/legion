@@ -24,6 +24,19 @@ test('storage wording is plain for every state', () => {
   assert.equal(storageLine('empty'), '');
 });
 
+test('after the restart the window reopens Settings, GitHub; the restart error is reported once', () => {
+  const page = src('ui/src/connectors/GithubSection.tsx');
+  assert.ok(page.includes('sessionStorage.setItem(REOPEN_GITHUB_KEY'));
+  assert.ok(src('ui/src/store.ts').includes("sessionStorage.removeItem(REOPEN_GITHUB_KEY); openSettings('github')"));
+  assert.ok(src('ui/src/App.tsx').includes('reopenGithubAfterReload()'));
+  assert.match(src('src/electron/connector-ipc.ts'), /opens Settings, GitHub, where your sign-in code appears/);
+  const main = src('src/electron/main.ts');
+  const quiet = main.slice(main.indexOf('async function restartCoreQuiet'), main.indexOf('/** Tray "Restart core"'));
+  assert.doesNotMatch(quiet, /showErrorBox/, 'the shared restart shows no box; its caller reports');
+  assert.match(main, /restartCore: restartCoreQuiet,/);
+  assert.equal((main.match(/Could not restart Legion Core/g) ?? []).length, 1);
+});
+
 test('the editor shows the warning and saves the opt-in; Settings has the GitHub page; the page shows the not-available state and the revoke link', () => {
   const editor = src('ui/src/components/AgentEditor.tsx');
   assert.match(editor, /connectorsShellWarning\(\{ connectors: github, approval, onProvider, vmOn \}\)/);
