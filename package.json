@@ -67,6 +67,7 @@
     "@types/react-dom": "^19.1.0",
     "@vitejs/plugin-react": "^6.1.2",
     "electron": "^44.5.1",
+    "esbuild": "^0.28.2",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
     "typescript": "^5.9.0",
