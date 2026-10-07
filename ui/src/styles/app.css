@@ -685,5 +685,5 @@ kbd { font-size: 10.5px; line-height: 1; padding: 3px 5px; border: 1px solid var
 .thread-search .flip { display: inline-flex; transform: rotate(180deg); }
 .firstrun .later { margin: 4px 0 12px; }
 .firstrun .later > summary { cursor: pointer; color: var(--muted); font-size: 12.5px; padding: 4px 0; }
-.firstrun .later > summary:focus-visible { outline: 2px solid var(--accent-line); outline-offset: 2px; border-radius: var(--r-sm); }
+:root[data-kbd-nav] .firstrun .later > summary:focus-visible { outline: 2px solid var(--accent-line); outline-offset: 2px; border-radius: var(--r-sm); }
 .firstrun .later[open] > summary { margin-bottom: 10px; }
