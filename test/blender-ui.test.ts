@@ -132,8 +132,9 @@ test('the card view reads mode local, and the badge says "On this PC"', () => {
 
 test('no key shortcut approves any Blender card, and the Blender card is not a one-key Allow', () => {
   const card = read('ui/src/components/ApprovalCard.tsx');
-  // noKey covers the Blender script card (bl) AND the managed-download card; both are allowed by clicking only
-  assert.match(card, /const noKey = bl \|\| a\.toolName === GET_BLENDER_TOOL \|\| a\.toolName === BLENDER_ASSET_TOOL;/);
+  // noKey covers the Blender script card AND the download cards; all are allowed by clicking only. The rule lives in one shared function
+  // (behaviour tested in test/approval-keys.test.ts) that the thread-wide shortcut reads too.
+  assert.match(card, /const noKey = clickOnly\(a\);/);
   assert.match(card, /if \(!noKey && \(e\.key === 'a' \|\| e\.key === 'A'\)\)/);
   assert.match(card, /Allow\{!noKey && <> <kbd>A<\/kbd><\/>\}/);
   assert.match(card, /<BlenderBadge mode=\{bmode\} \/>/);

@@ -76,6 +76,14 @@ interface QueueItem {
 
 const isLive = (t: Task) => t.status === 'queued' || t.status === 'running';
 const truncate = (s: string, n = RESULT_MAX_CHARS) => (s.length <= n ? s : `${s.slice(0, n)}\n[truncated: ${s.length - n} more chars]`);
+/** An agent's card for the `agents` tool: its model and the first sentence of its soul's "Output shape:" line (the owner's own text, scrubbed and clipped). */
+export const cardOf = (a: Pick<AgentProfile, 'model' | 'systemPrompt'>): string => {
+  const shape = /^Output shape: (.+)$/m.exec(a.systemPrompt ?? '')?.[1];
+  if (!shape) return '';
+  const first = shape.split(/(?<=\.)\s/)[0]!.replace(/\.$/, '');
+  const s = scrubSecrets(first);
+  return `model ${a.model} | answers: ${s.length <= 140 ? s : s.slice(0, s.lastIndexOf(' ', 139)) + '\u2026'}`;
+};
 
 export class Bridge {
   private readonly store: Store;
@@ -116,7 +124,10 @@ export class Bridge {
 
   // ---------------------------------------------------------------- tools
 
-  /** Compact roster for the `agents` tool: one line per other agent. */
+  /**
+   * Roster for the `agents` tool: one line per other agent, then its card (Fascia 3a): the model it runs on and how its answer
+   * starts, read from its own soul's "Output shape:" line, so a lead can brief it and check the reply. No soul line, no card line.
+   */
   list(callerAgentId: string): string {
     const lines: string[] = [];
     for (const a of this.store.listAgents().filter((x) => this.isVisible(x))) {
@@ -125,6 +136,8 @@ export class Bridge {
       const status = tasks.some((t) => t.status === 'running') ? 'working' : tasks.some((t) => t.status === 'queued') ? 'queued' : 'idle';
       const thread = this.findPair(callerAgentId, a.id) ? 'thread' : 'no-thread';
       lines.push(`${a.id} | ${a.name} | ${a.description.slice(0, 80)} | ${status} | ${thread}`);
+      const card = cardOf(a);
+      if (card) lines.push(`  ${card}`);
     }
     return lines.length ? lines.join('\n') : 'No other agents.';
   }

@@ -4,7 +4,7 @@ import { writeFile, rename, unlink, mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { AgentProfile, ChatMessage, Task, VmRecord } from '../shared/types.js';
 import { nowIso } from '../shared/util.js';
-import { BUILDER_SOUL, ROSTER, SCOUT_SOUL, ZEALOT_SOUL } from './roster.js';
+import { BUILDER_SOUL, ROSTER, SCOUT_SOUL, ZEALOT_SOUL, withLegacyCommsLines } from './roster.js';
 import { TaskIndex, type PageQuery } from './task-index.js';
 import { messageWindow, searchMessages, type MsgHit } from './message-pages.js';
 
@@ -55,6 +55,21 @@ const MIGRATIONS: Array<{ id: string; run: (agents: Map<string, AgentProfile>) =
         const a = agents.get(id);
         if (!a || a.systemPrompt !== SOUL_SEEDS_V0[id]) continue;
         a.systemPrompt = SOULS_V1[id];
+        changed = true;
+      }
+      return changed;
+    },
+  },
+  {
+    // Fascia 3a: the roster's comms lines moved into the teamwork block, said once per run. A stored roster prompt is
+    // trimmed only while it is still its exact shipped seed; an edited one keeps its text (a duplicate line, never a lost one).
+    id: 'roster-comms-lines-v1',
+    run: (agents) => {
+      let changed = false;
+      for (const r of ROSTER) {
+        const a = agents.get(r.id);
+        if (!a || a.systemPrompt !== withLegacyCommsLines(r.systemPrompt)) continue;
+        a.systemPrompt = r.systemPrompt;
         changed = true;
       }
       return changed;
