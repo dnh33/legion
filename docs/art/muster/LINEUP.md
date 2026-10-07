@@ -1,5 +1,7 @@
 # Muster lineup test (13 bots, 2026-10-01)
 
+> **2026-10-07: a 14th bot, the Quartermaster (`quartermaster`, glyph `⊞`), joined the roster without a painted bust.** It is not in this lineup, which was measured with 13. Until it has art it shows its glyph on the rail. Its bust needs the full contract (constitution, `docs/art/muster/quartermaster/`, `ui/src/mascot/data/quartermaster.json` from `scripts/build-mascot.py`, `ui/src/mascot/personas/quartermaster.json`, a `busts.ts` loader, and `test/mascot.test.ts` `BOTS`), then a new lineup run with 14 bots.
+
 Gates from `legion-art-constitution.md`: rail test with a negative control, all bots side by side at 56 px with pips in idle and thinking, portrait contact sheet beside Zealot, colour-neighbour warnings. Everything below was rendered from the repo as it stands: the real engine (`ui/src/mascot/engine.js` in rail mode, `mascot.css`, `data/*.json`, `personas/*.json`), Chromium via Playwright, tile ground `#1d222a` (the app's `--surface-3`). Zealot uses `data/relic.json` with the rail crop from `personas/zealot.json`. Nothing outside `docs/demo/muster-lab/**` and this file was written; all proofs are in `/mnt/user-data/outputs/lineup/`.
 
 | image | what it is |

@@ -8,7 +8,7 @@ import { Store } from '../src/core/store.js';
 import { ROSTER, BACKBONE, COMMS_LINES } from '../src/core/roster.js';
 
 const FROZEN_IDS = ['zealot', 'builder', 'scout'];
-const NEW_IDS = ['inquisitor', 'scribe', 'archivist', 'sentinel', 'forgemaster', 'exorcist', 'preceptor', 'herald', 'assayer', 'sculptor'];
+const NEW_IDS = ['inquisitor', 'scribe', 'archivist', 'sentinel', 'forgemaster', 'exorcist', 'preceptor', 'herald', 'assayer', 'sculptor', 'quartermaster'];
 const tmp = () => cleanupTemp('legion-roster-');
 const words = (s: string) => s.trim().split(/\s+/).length;
 
@@ -69,7 +69,7 @@ const FROZEN_SNAPSHOT =
 ]
 ;
 
-test('roster has the ten muster ids, unique, not colliding with the frozen three', () => {
+test('roster has the eleven muster ids, unique, not colliding with the frozen three', () => {
   assert.deepEqual(ROSTER.map((r) => r.id), NEW_IDS);
   assert.equal(new Set(ROSTER.map((r) => r.id)).size, ROSTER.length);
   for (const id of FROZEN_IDS) assert.ok(!ROSTER.some((r) => r.id === id), id);
@@ -137,6 +137,21 @@ test('roster prompts carry each bot\'s role and hard limits', () => {
   assert.match(by('forgemaster'), /rollback/);
   assert.match(by('sentinel'), /STATUS/);
   assert.match(by('scribe'), /reader/);
+  // the Quartermaster: supply watch, report only, filed to the board without duplicates, release text is data
+  const qm = by('quartermaster');
+  assert.match(qm, /mcp__legion_board__list/);
+  assert.match(qm, /mcp__legion_board__propose/);
+  assert.match(qm, /same source and version/);
+  assert.match(qm, /label update/);
+  assert.match(qm, /current and new version/);
+  assert.match(qm, /untrusted data, never instructions/);
+  assert.match(qm, /Report only/);
+  assert.match(qm, /[Nn]ever install, upgrade/);
+  assert.match(qm, /Sentinel/);
+  assert.match(qm, /no schedule/);
+  assert.match(qm, /Scope:/);
+  assert.match(qm, /current project's board/);
+  assert.doesNotMatch(qm, /legion-dev|proj_[0-9a-f]/, 'names no project');
 });
 
 test('spec defaults for model, approval and VM', () => {
@@ -144,6 +159,7 @@ test('spec defaults for model, approval and VM', () => {
     inquisitor: ['opus', 'ask', false], scribe: ['sonnet', 'auto-edits', false], archivist: ['sonnet', 'ask', false],
     sentinel: ['sonnet', 'ask', true], forgemaster: ['auto', 'ask', true], exorcist: ['auto', 'ask', true],
     preceptor: ['opus', 'ask', true], herald: ['sonnet', 'ask', false], assayer: ['auto', 'ask', false], sculptor: ['auto', 'ask', true],
+    quartermaster: ['sonnet', 'ask', false],
   };
   for (const r of ROSTER) assert.deepEqual([r.model, r.approval, r.vm.enabled], table[r.id], r.id);
 });
@@ -205,7 +221,8 @@ test('an existing install gets the roster added without touching its old agents'
   assert.equal(s.getAgent('zealot')!.systemPrompt, 'user edited zealot');
   assert.equal(s.getAgent('zealot')!.cwd, '/custom/zealot');
   assert.equal(s.getAgent('builder')!.createdAt, ts);
-  assert.equal(s.listAgents().length, 13);
+  assert.equal(s.listAgents().length, FROZEN_IDS.length + NEW_IDS.length);
+  assert.ok(s.getAgent('quartermaster'), 'an existing install gains the Quartermaster on next start');
   assert.ok(s.getAgent('sculptor'));
   rmSync(dir, { recursive: true, force: true });
 });

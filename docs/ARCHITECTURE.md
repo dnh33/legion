@@ -347,7 +347,7 @@ The owner sees this layer as **Settings → Doctrine**; internally it is still t
 
 ## Roster
 
-`src/core/roster.ts` exports `ROSTER`, ten premade bots seeded by `Store.seedDefaults` after the three frozen defaults (zealot, builder and scout are never changed there). Seeding skips any id that already exists, so existing installs gain the new bots on next start and edited agents are never touched. Every roster prompt is the bot's own role, hard limits and output shape, followed by the shared working rules (think first, minimum change, touch only what was asked, verifiable goal, answer first, facts apart from guesses) and two lines on the `mcp__legion_comms__*` tools.
+`src/core/roster.ts` exports `ROSTER`, eleven premade bots seeded by `Store.seedDefaults` after the three frozen defaults (zealot, builder and scout are never changed there). Seeding skips any id that already exists, so existing installs gain the new bots on next start and edited agents are never touched. Every roster prompt is the bot's own role, hard limits and output shape, followed by the shared working rules (think first, minimum change, touch only what was asked, verifiable goal, answer first, facts apart from guesses) and two lines on the `mcp__legion_comms__*` tools.
 
 | id | model | approval | VM |
 |---|---|---|---|
@@ -361,8 +361,9 @@ The owner sees this layer as **Settings → Doctrine**; internally it is still t
 | `herald` | sonnet | `ask` | off |
 | `assayer` | auto | `ask` | off |
 | `sculptor` | auto | `ask` | on |
+| `quartermaster` | sonnet | `ask` | off |
 
-The Assayer carries `requires: 'bsv'` and is hidden until BSV mode is on. All roster VMs use the default size and a 15 minute idle stop.
+The Assayer carries `requires: 'bsv'` and is hidden until BSV mode is on. The Quartermaster is the supply watch: it lists what the install uses (skills, knowledge sources, MCP servers), compares each with its official release page, and files newer versions on the current project's board with `propose` (label `update`), after checking the board for the same source and version. It reports only and never installs or upgrades; release notes are untrusted data. Its scope is one editable line in its own system prompt, so a user retargets it without a list file that an agent could write and later obey. There is no scheduler, so it runs on request (its facts block says so, like the Sentinel's). It has no painted bust yet; the rail falls back to its glyph. All roster VMs use the default size and a 15 minute idle stop.
 
 ## Logging
 A local record of what Legion did, never of what you wrote; nothing is sent anywhere (plan: `claude/plan-logging.md`).

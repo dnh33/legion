@@ -30,7 +30,7 @@ test('seedDefaults creates the three agents, is idempotent and keeps edits', () 
   const edited = { ...s.getAgent('zealot')!, name: 'Renamed' };
   s.upsertAgent(edited);
   s.seedDefaults(join(dir, 'workspaces'));
-  assert.equal(s.listAgents().length, 13); // the three defaults plus the ten-bot muster roster
+  assert.equal(s.listAgents().length, 14); // the three defaults plus the eleven-bot muster roster
   assert.equal(s.getAgent('zealot')!.name, 'Renamed');
   rmSync(dir, { recursive: true, force: true });
 });
@@ -49,7 +49,7 @@ test('persistence round-trip after flush', async () => {
   assert.ok(readFileSync(join(dir, 'messages', 't1.jsonl'), 'utf8').includes('"m1"'));
 
   const s2 = new Store(dir);
-  assert.equal(s2.listAgents().length, 13);
+  assert.equal(s2.listAgents().length, 14);
   assert.equal(s2.getTask('t1')!.status, 'done');
   assert.equal(s2.getVm('zealot').sandboxId, 'bx_1');
   assert.deepEqual(s2.listMessages('t1'), [m]);
@@ -145,7 +145,7 @@ test('seedDefaults keeps the frozen three first and adds the muster roster after
   s.seedDefaults(join(dir, 'w'));
   const ids = s.listAgents().map((a) => a.id);
   assert.deepEqual(ids.slice(0, 3), ['zealot', 'builder', 'scout']);
-  assert.equal(ids.length, 13);
+  assert.equal(ids.length, 14);
   assert.equal(s.getAgent('assayer')!.requires, 'bsv');
   rmSync(dir, { recursive: true, force: true });
 });

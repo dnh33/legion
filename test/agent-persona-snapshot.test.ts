@@ -1,5 +1,5 @@
 /**
- * Persona snapshot: the system prompt of each of the 13 premade bots is pinned by hash, so a change to a bot's voice is deliberate.
+ * Persona snapshot: the system prompt of each of the 14 premade bots is pinned by hash, so a change to a bot's voice is deliberate.
  * To change one on purpose: edit the text, run this test, put the new hash below in the SAME commit and say why in the message.
  * (Stored personas on existing installs never update; facts that must stay true live in src/core/agent-facts.ts instead.)
  */
@@ -27,11 +27,13 @@ const PINNED: Record<string, string> = {
   herald: 'bbfebf3df421a223eea0b5b9671e3bb4786596698bb129e7d940f2022fa0b55f',
   assayer: '4b5222f41466330a713226d196e2a3d34060872322d6728b136592eac95f6723',
   sculptor: 'c281b633fc9e5906cd4f3629331f95a6fbab4e25490e27a3fb30af1d73147346',
+  // added with the Quartermaster (supply watch: reports newer versions, never upgrades)
+  quartermaster: 'a35b7d55f683f2fe472bfb1ec7759913d765026f7d2787d35b6ac67d9a083907',
 };
 
 const sha = (s: string): string => createHash('sha256').update(s).digest('hex');
 
-test('persona snapshot: the 13 premade personas match their pinned hashes', () => {
+test('persona snapshot: the 14 premade personas match their pinned hashes', () => {
   const d = cleanupTemp('persona-snap-');
   const store = new Store(d);
   store.seedDefaults(join(d, 'ws'));
