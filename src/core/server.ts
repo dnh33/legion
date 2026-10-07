@@ -16,6 +16,7 @@ import { EngineError } from './engine.js';
 import type { Engine } from './engine.js';
 import { buildLegionMcpServer } from './mcp-tools.js';
 import type { Store } from './store.js';
+import { BadCursorError, PAGE_DEFAULT } from './task-index.js';
 import { SettingsError } from './settings.js';
 import type { SettingsService } from './settings.js';
 import { VmError } from './vm-manager.js';
@@ -98,6 +99,9 @@ function readBody(req: IncomingMessage): Promise<unknown> {
 }
 
 /** A task as listed in /api/state: everything but the final assistant text. */
+/** What the app's /api/state?slim=1 ships besides running tasks: per agent the newest N (tabs are the newest 12 by creation) and the newest few overall (Recent tasks shows 8). */
+const STATE_PER_AGENT = 14;
+const STATE_RECENT = 12;
 const withoutResult = (t: Task): Task => { if (t.result === undefined) return t; const { result: _result, ...rest } = t; return rest; };
 
 const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v);
@@ -211,7 +215,10 @@ export function createServer(ctx: CoreContext): Server {
     version: VERSION,
     agents: ctx.store.listAgents().filter(visible),
     // the list leaves out each task's final text (up to 2 KB x 200): GET /api/tasks/:id has it, and task.updated events carry the whole task
-    tasks: ctx.store.listTasks(200, undefined, ['1', 'true'].includes(url.searchParams.get('archived') ?? '')).filter(taskShown).map(withoutResult),
+    // `slim=1` (the app window): the tasks a window needs at once, so the snapshot stays small however long the history is; the history list pages through GET /api/tasks. Without it: the newest 200, as before.
+    tasks: (['1', 'true'].includes(url.searchParams.get('slim') ?? '')
+      ? ctx.store.snapshotTasks({ agentIds: ctx.store.listAgents().filter(visible).map((a) => a.id), perAgent: STATE_PER_AGENT, recent: STATE_RECENT, includeArchived: ['1', 'true'].includes(url.searchParams.get('archived') ?? ''), agentOk: (id) => agentIdVisible(ctx, id) })
+      : ctx.store.listTasks(200, undefined, ['1', 'true'].includes(url.searchParams.get('archived') ?? '')).filter(taskShown)).map(withoutResult),
     vms: ctx.store.listVms().filter((v) => agentIdVisible(ctx, v.agentId)),
     approvals: ctx.approvals.pending().filter((a) => agentIdVisible(ctx, a.agentId)),
     boatConfigured: ctx.boatConfigured(),
@@ -221,6 +228,30 @@ export function createServer(ctx: CoreContext): Server {
     // live progress of running runs, so a window opened mid-run shows the turn, tool and checklist at once (hidden agents' runs left out)
     progress: Object.fromEntries(Object.entries(ctx.engine.progressSnapshot?.() ?? {}).filter(([id]) => { const t = ctx.store.getTask(id); return !!t && taskShown(t); })),
   }));
+  // The history list: one page of tasks, newest first, optionally filtered. Admin-only by default-deny (not in admin.ts CLIENT_ROUTES). Visibility is applied to
+  // every entry inside the index walk, so a hidden agent's tasks are in no page and no search, and `agentId=<hidden>` answers like an id that never existed.
+  route('GET', '/api/tasks', ({ url }) => {
+    const sp = url.searchParams;
+    const agentNames = new Map<string, string>();
+    for (const a of ctx.store.listAgents()) if (visible(a)) agentNames.set(a.id, a.name);
+    const lim = sp.get('limit');
+    try {
+      const page = ctx.store.pageTasks({
+        limit: lim === null || lim === '' ? PAGE_DEFAULT : Number(lim),
+        ...(sp.get('cursor') ? { cursor: sp.get('cursor')! } : {}),
+        ...(sp.get('agentId') ? { agentId: sp.get('agentId')! } : {}),
+        ...(sp.get('projectId') ? { projectId: sp.get('projectId')! } : {}),
+        includeArchived: ['1', 'true'].includes(sp.get('archived') ?? ''),
+        q: (sp.get('q') ?? '').slice(0, 200),
+        agentNames,
+        agentOk: (id) => agentIdVisible(ctx, id),
+      });
+      return { tasks: page.tasks.filter(taskShown).map(withoutResult), nextCursor: page.nextCursor };
+    } catch (e) {
+      if (e instanceof BadCursorError) throw new HttpError(400, 'Invalid cursor');
+      throw e;
+    }
+  });
   route('GET', '/api/config', () => redactConfig(ctx.config));
   route('GET', '/api/doctor', () => ctx.doctor());
   // Claude usage for the title-bar panel: summed from stored tasks (archived included), only those the caller may see.

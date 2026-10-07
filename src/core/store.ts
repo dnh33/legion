@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import type { AgentProfile, ChatMessage, Task, VmRecord } from '../shared/types.js';
 import { nowIso } from '../shared/util.js';
 import { ROSTER } from './roster.js';
+import { TaskIndex, type PageQuery } from './task-index.js';
 
 interface StateFile { agents: AgentProfile[]; tasks: Task[]; vms: VmRecord[]; /** One-time migrations already applied (see MIGRATIONS). Absent in files from older builds. */ migrations?: string[] }
 
@@ -45,6 +46,7 @@ export class Store {
   private tasks = new Map<string, Task>();
   private vms = new Map<string, VmRecord>();
   private messages = new Map<string, ChatMessage[]>();
+  private index = new TaskIndex();
   private dirty = false;
   private timer: NodeJS.Timeout | null = null;
   private writing: Promise<void> = Promise.resolve();
@@ -72,6 +74,7 @@ export class Store {
       }
     }
     this.migrate();
+    this.index.rebuild(this.tasks.values());
   }
 
   /** Runs each migration that this state file has not recorded yet. A fresh install records them all without changing anything. */
@@ -103,11 +106,30 @@ export class Store {
     list.sort((a, b) => (a.updatedAt < b.updatedAt ? 1 : a.updatedAt > b.updatedAt ? -1 : 0));
     return list.slice(0, limit);
   }
+  /**
+   * One page of tasks, newest first (updatedAt desc, id desc), from the in-memory index (src/core/task-index.ts): no scan or sort of the history.
+   * Filtering by agent visibility, project, archived flag and search text happens inside the walk, so the page is always full when more exist.
+   */
+  pageTasks(q: PageQuery): { tasks: Task[]; nextCursor: string | null } {
+    const { ids, nextCursor } = this.index.page(q);
+    return { tasks: ids.map((id) => this.tasks.get(id)).filter((t): t is Task => !!t), nextCursor };
+  }
+  /** The tasks a window needs at once: every queued or running one, plus per agent the newest `perAgent` by creation and by update, plus the newest `recent` overall. Newest first by updatedAt. */
+  snapshotTasks(o: { agentIds: readonly string[]; perAgent: number; recent: number; includeArchived: boolean; agentOk?: (agentId: string) => boolean }): Task[] {
+    const ids = new Set<string>(this.index.liveIds());
+    for (const a of o.agentIds) {
+      for (const by of ['createdAt', 'updatedAt'] as const) for (const id of this.index.newest(o.perAgent, { agentId: a, by, includeArchived: o.includeArchived })) ids.add(id);
+    }
+    for (const id of this.index.newest(o.recent, { by: 'updatedAt', includeArchived: o.includeArchived, ...(o.agentOk ? { agentOk: o.agentOk } : {}) })) ids.add(id);
+    const out = [...ids].map((id) => this.tasks.get(id)).filter((t): t is Task => !!t && (!o.agentOk || o.agentOk(t.agentId)));
+    return out.sort((a, b) => (a.updatedAt < b.updatedAt ? 1 : a.updatedAt > b.updatedAt ? -1 : 0));
+  }
   getTask(id: string): Task | undefined { return this.tasks.get(id); }
-  upsertTask(t: Task): Task { this.tasks.set(t.id, t); this.markDirty(); return t; }
+  upsertTask(t: Task): Task { this.tasks.set(t.id, t); this.index.set(t); this.markDirty(); return t; }
   /** Removes the task and its messages file. Returns false if unknown. */
   deleteTask(id: string): boolean {
     const had = this.tasks.delete(id);
+    this.index.remove(id);
     this.messages.delete(id);
     try { rmSync(this.msgFile(id), { force: true }); } catch { /* ignore */ }
     if (had) this.markDirty();
@@ -182,6 +204,7 @@ export class Store {
         t.status = 'error';
         t.error = 'Legion restarted';
         t.updatedAt = ts;
+        this.index.set(t);
         n++;
       }
     }

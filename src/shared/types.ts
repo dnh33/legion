@@ -358,6 +358,9 @@ export interface StateSnapshot {
   progress?: Record<string, TaskProgress>;
 }
 
+/** GET /api/tasks response: one page of the history, newest first, without each task's final text. `nextCursor` is null on the last page. */
+export interface TasksPage { tasks: Task[]; nextCursor: string | null }
+
 /** GET /api/doctor response */
 export interface DoctorCheck {
   id: string;
