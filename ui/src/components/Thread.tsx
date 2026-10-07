@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { ChatMessage } from '../../../src/shared/types';
 import { CONTINUE_PROMPT, budgetLimitFromError, isBudgetPause, isLimitPause } from '../../../src/shared/continue';
+import { threadKey } from '../../../src/shared/approval-keys';
 import { base, token } from '../api';
 import { decide, dismissOnboarding, ensureLoaded, jumpToLatest, loadOlder, openDoctor, openEditor, openSettings, refresh, retryOlder, selectTask, sendPrompt, sendPromptTo, toast, useStore } from '../store';
 import { WELCOME_LATER, WELCOME_STEPS, WELCOME_TRY, canTryZealot } from './welcomeLogic';
@@ -137,15 +138,15 @@ export function Thread() {
   const otherApprovals = approvals.filter((a) => a.agentId === agentId && a.taskId !== taskId);
   useLayoutEffect(() => { if (stick.current && !metaDetached(meta)) toBottom(); }, [messages, stream, taskApprovals.length, running, toBottom, tick, meta]);
 
-  // A / D shortcut for the first pending approval when nothing is focused
+  // A / D shortcut for the first pending approval when nothing is focused (A never allows a click-only card)
   useEffect(() => {
     const h = (e: KeyboardEvent) => {
       if (e.ctrlKey || e.metaKey || e.altKey) return;
       const t = e.target as HTMLElement;
       if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable || t.closest('.approval, .modal'))) return;
-      const first = taskApprovals[0]; if (!first) return;
-      if (e.key === 'a' || e.key === 'A') { e.preventDefault(); void decide(first.id, true); }
-      if (e.key === 'd' || e.key === 'D') { e.preventDefault(); void decide(first.id, false); }
+      // the same rule as the card's own keys: a Blender script or a download is allowed by clicking only
+      const k = threadKey(taskApprovals[0], e.key); if (!k) return;
+      e.preventDefault(); void decide(k.id, k.allow);
     };
     window.addEventListener('keydown', h);
     return () => window.removeEventListener('keydown', h);
