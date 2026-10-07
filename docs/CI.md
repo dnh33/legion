@@ -28,6 +28,10 @@ A red nightly run emails the repository owner by GitHub's default notification s
 
 It installs the live latest release by design, so it is not part of the per-push gate: a broken release or a GitHub outage would turn every unrelated pull request red. The fast, hermetic `install scripts (syntax)` check stays in `ci.yml`. The workflow has the same lock-down as `ci.yml` (read-only token, no `pull_request_target`, SHA-pinned actions, time limits).
 
+## Release build (separate workflow)
+
+[.github/workflows/release-build.yml](../.github/workflows/release-build.yml) builds the Windows release package on a `v*` tag push, or by hand with an optional `ref` (a dry run), on `windows-latest` with the maintainer's Node version. It uploads one artifact: both zips, the unsigned manifest, `SHA256SUMS.txt` and the two installers, and lists every hash in the run summary. It has a read-only token, no secrets and no npm cache, and it never signs or publishes: that stays on the maintainer's PC ([SHIPPING.md](SHIPPING.md), step 4a). `test/install-scripts.test.ts` pins that shape.
+
 ## Before and after
 
 Measured on run [37433983238](https://github.com/dnh33/legion/actions/runs/37433983238) (the last run before this setup, red) and run [37451985877](https://github.com/dnh33/legion/actions/runs/37451985877) (green).

@@ -1,0 +1,133 @@
+name: Release build
+
+# Builds the Windows release package on a `v*` tag push, or by hand (with an optional ref, for a dry run), and uploads it as ONE
+# workflow artifact: both zips, the UNSIGNED update manifest, SHA256SUMS.txt and the two one-line installers. That is all it does.
+# Signing, the pre-flight gate, verification and publishing stay on the maintainer's PC (docs/SHIPPING.md): the signing key never
+# comes here, this workflow has no secrets and no write permission, and it never creates or uploads a release.
+#
+# Runner: windows-latest. build-package.mjs builds the Windows x64 package and refuses any other platform (it ships the Windows
+# electron.exe and the SDK's win32 claude.exe from the dependency install). Node is pinned to the maintainer's PC version: the zips
+# use fixed entry dates, so their bytes follow only the inputs and the Node/zlib that deflates them.
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Branch, tag or commit to build (empty = the branch you run this from). A dry run; nothing is published.
+        required: false
+        default: ''
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-build-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: build Windows package
+    if: github.repository == 'dnh33/legion'
+    runs-on: windows-latest
+    timeout-minutes: 60
+    env:
+      # GitHub sets CI=true, and scripts/postinstall.mjs skips the Electron download when CI or ELECTRON_SKIP_BINARY_DOWNLOAD is
+      # set. The package ships that Electron, so both are cleared here.
+      CI: ""
+      ELECTRON_SKIP_BINARY_DOWNLOAD: ""
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.ref || github.ref }}
+          # Full commit history without file contents, so a tag build can prove its commit is on main.
+          fetch-depth: 0
+          filter: blob:none
+          persist-credentials: false
+      # No npm cache: a release is built from a clean dependency install, never from a restored cache.
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24.13.1
+      - name: Version, tag and release notes
+        id: v
+        env:
+          EVENT: ${{ github.event_name }}
+          REF_TYPE: ${{ github.ref_type }}
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          $v = (Get-Content -Raw package.json | ConvertFrom-Json).version
+          if ($v -notmatch '^(0|[1-9]\d{0,8})\.(0|[1-9]\d{0,8})\.(0|[1-9]\d{0,8})(-[a-z])?$') { throw "package.json version '$v' is not a release version" }
+          if ($env:EVENT -eq 'push') {
+            if ($env:REF_TYPE -ne 'tag' -or $env:REF_NAME -cne "v$v") { throw "the tag '$($env:REF_NAME)' does not match package.json version $v (expected v$v)" }
+            # A release is built only from a commit that is on main (reviewed and merged), never from a tag on a side branch.
+            git merge-base --is-ancestor HEAD origin/main
+            if ($LASTEXITCODE -ne 0) { throw 'the tagged commit is not on main: merge first, then tag the merged commit' }
+          }
+          $sha = (git rev-parse HEAD).Trim()
+          if ($sha -notmatch '^[0-9a-f]{40}$') { throw 'could not read the commit' }
+          # Only a tag build is named as a release; a build run by hand says DRYRUN and its commit in its name.
+          $artifact = if ($env:EVENT -eq 'push') { "legion-$v-release" } else { "legion-$v-DRYRUN-$($sha.Substring(0, 7))" }
+          "PKG=$(Join-Path $env:RUNNER_TEMP 'legion-pkg')" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "artifact=$artifact" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          "commit=$sha" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          $notes = "docs/release-notes/$v.txt"
+          if (Test-Path -LiteralPath $notes -PathType Leaf) {
+            "notes=$notes" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          } elseif ($env:EVENT -eq 'push') {
+            throw "$notes is missing: commit the release notes before tagging"
+          } else {
+            Write-Host "::warning::$notes is missing: building WITHOUT release notes (a dry run). release-preflight will refuse this manifest until notes are added on the PC."
+          }
+          "version=$v" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          Write-Host "building $v"
+      - run: npm ci
+      - run: npm run build
+      - name: Build the package (outside the checkout)
+        run: node scripts/build-package.mjs --out "$env:PKG" --skip-build
+      - name: Add the one-line installers
+        run: |
+          Copy-Item -LiteralPath scripts/install/install.ps1 -Destination $env:PKG
+          Copy-Item -LiteralPath scripts/install/install.sh -Destination $env:PKG
+      - name: Manifest with release notes (unsigned)
+        if: steps.v.outputs.notes != ''
+        env:
+          V: ${{ steps.v.outputs.version }}
+          NOTES: ${{ steps.v.outputs.notes }}
+        run: node scripts/release-manifest.mjs --zip "$env:PKG\legion-$env:V-app.zip" --out "$env:PKG" --notes "$env:NOTES"
+      - name: Check SHA256SUMS and list every hash in the run summary
+        env:
+          V: ${{ steps.v.outputs.version }}
+          ARTIFACT: ${{ steps.v.outputs.artifact }}
+          COMMIT: ${{ steps.v.outputs.commit }}
+        run: |
+          $files = "legion-$env:V-app.zip", "legion-$env:V-win-x64.zip", 'legion-update-manifest.json', 'SHA256SUMS.txt', 'install.ps1', 'install.sh'
+          foreach ($f in $files) { if (-not (Test-Path -LiteralPath (Join-Path $env:PKG $f) -PathType Leaf)) { throw "$f was not built" } }
+          $lines = Get-Content -LiteralPath (Join-Path $env:PKG 'SHA256SUMS.txt') | Where-Object { $_ }
+          foreach ($l in $lines) {
+            $h, $n = $l -split '  ', 2
+            $got = (Get-FileHash -Algorithm SHA256 -LiteralPath (Join-Path $env:PKG $n)).Hash.ToLowerInvariant()
+            if ($got -ne $h) { throw "SHA256SUMS.txt says $h for $n, the file is $got" }
+          }
+          foreach ($n in $files[0..2]) { if (-not ($lines | Where-Object { $_.EndsWith("  $n") })) { throw "SHA256SUMS.txt has no line for $n" } }
+          $kind = if ($env:ARTIFACT.EndsWith('-release')) { 'release build (unsigned)' } else { 'DRY RUN, not for release' }
+          $sum = @("### Legion $env:V $kind", '', "Artifact ``$env:ARTIFACT``, commit ``$env:COMMIT``", '', '| file | SHA-256 |', '| --- | --- |')
+          foreach ($f in $files) { $sum += "| $f | ``$((Get-FileHash -Algorithm SHA256 -LiteralPath (Join-Path $env:PKG $f)).Hash.ToLowerInvariant())`` |" }
+          $sum += '', 'Next, on the PC: download the artifact, check these hashes, sign, pre-flight, verify, publish (docs/SHIPPING.md).'
+          $sum | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Encoding utf8 -Append
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: ${{ steps.v.outputs.artifact }}
+          path: |
+            ${{ runner.temp }}/legion-pkg/legion-${{ steps.v.outputs.version }}-app.zip
+            ${{ runner.temp }}/legion-pkg/legion-${{ steps.v.outputs.version }}-win-x64.zip
+            ${{ runner.temp }}/legion-pkg/legion-update-manifest.json
+            ${{ runner.temp }}/legion-pkg/SHA256SUMS.txt
+            ${{ runner.temp }}/legion-pkg/install.ps1
+            ${{ runner.temp }}/legion-pkg/install.sh
+          if-no-files-found: error
+          retention-days: 14
+          # The zips are already compressed.
+          compression-level: 0

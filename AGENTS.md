@@ -128,6 +128,15 @@ These fail quietly, which is worse than failing loudly:
 - **ESM caches modules**: a running server keeps stale code until restarted.
 - **Config and state migrations** must be versioned, run once, and never override a later manual choice.
 
+## Releases: Actions builds, the PC signs
+
+- GitHub Actions builds the release package (`.github/workflows/release-build.yml`) on a `v*` tag or by hand, and uploads it as one workflow artifact. It never signs and never publishes a release.
+- Only a tag build of a commit on main is a release; a manual run is named `DRYRUN` and is never signed.
+- The PC checks that the run is that tag build, downloads the artifact, checks SHA256SUMS and the commit in build-info.json, signs the manifest with the key, runs preflight and verify, and uploads the release (`docs/SHIPPING.md`).
+- Never add a signing key, token or other secret to Actions, a workflow, the repo or a report. Never give the release workflow write permissions or a release-upload step.
+- Keep every action pinned to a full commit SHA, and never add an npm cache to the release workflow.
+- Release notes live in `docs/release-notes/<version>.txt`.
+
 ## Lessons from earlier work on this codebase
 
 - **Windows is where tests break.** Use `fileURLToPath`, never `new URL(...).pathname` (on Windows that yields

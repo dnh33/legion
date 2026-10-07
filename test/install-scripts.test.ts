@@ -97,6 +97,40 @@ test('install.yml clears CI and ELECTRON_SKIP_BINARY_DOWNLOAD for install.sh and
   assert.match(installYml, /name: Windows PowerShell 5\.1 only, update over the existing install/);
 });
 
+// The release build (ladder 33): Actions builds and uploads ONE artifact; signing and publishing stay on the PC (docs/SHIPPING.md).
+const releaseYml = raw('.github/workflows/release-build.yml').replace(/\r\n/g, '\n');
+
+test('release-build.yml builds on a v* tag or by hand, read-only, with no secrets, no cache and no release upload', () => {
+  const code = releaseYml.replace(/^\s*#.*$/gm, '');
+  assert.match(releaseYml, /^on:\n {2}push:\n {4}tags: \['v\*'\]\n {2}workflow_dispatch:$/m);
+  assert.doesNotMatch(code, /pull_request/);
+  assert.match(releaseYml, /^permissions:\n {2}contents: read\n\n/m, 'only contents: read, nothing else');
+  assert.doesNotMatch(code, /permissions:\s*\n\s+\w+: write|: write\b|write-all/);
+  assert.doesNotMatch(code, /secrets\.|GITHUB_TOKEN|github\.token/, 'no secrets or token used');
+  assert.doesNotMatch(code, /cache:|actions\/cache/, 'a release is never built from a restored cache');
+  assert.doesNotMatch(code, /gh release|softprops|action-gh-release|upload-release|release-sign|\.pem|\.key/i, 'no publishing or signing here');
+  for (const m of releaseYml.matchAll(/uses: (\S+)/g)) assert.match(m[1], /@[0-9a-f]{40}$/, `unpinned action ${m[1]}`);
+  assert.equal((releaseYml.match(/persist-credentials: false/g) ?? []).length, (releaseYml.match(/actions\/checkout@/g) ?? []).length);
+  assert.match(releaseYml, /^ {4}runs-on: windows-latest$/m, 'build-package.mjs only builds on Windows x64');
+  assert.match(releaseYml, /^ {4}timeout-minutes: [0-9]+$/m);
+  assert.match(releaseYml, /^ {6}CI: ""$/m, 'CI cleared so postinstall downloads Electron');
+  assert.match(releaseYml, /^ {6}ELECTRON_SKIP_BINARY_DOWNLOAD: ""$/m);
+  // untrusted text reaches the shell only through env, never through ${{ }} inside a run block
+  for (const m of releaseYml.matchAll(/^( +)run: \|\n((?:\1 {2}.*\n|\n)*)/gm)) assert.doesNotMatch(m[2], /\$\{\{/, 'expression inside a run block');
+  for (const m of releaseYml.matchAll(/^ +run: (?!\|)(.*)$/gm)) assert.doesNotMatch(m[1], /\$\{\{/, 'expression inside a run line');
+  assert.match(releaseYml, /if-no-files-found: error/);
+  // the runner context is not available in job-level env (GitHub's context table); using it there fails validation
+  assert.doesNotMatch(releaseYml, /^ {6}\w+: .*\$\{\{ *runner\./m, 'runner.* in job-level env');
+});
+
+test('release-build.yml builds a release only from a commit on main, and names any other build a dry run', () => {
+  assert.match(releaseYml, /fetch-depth: 0\n/);
+  const push = releaseYml.slice(releaseYml.indexOf("if ($env:EVENT -eq 'push') {"));
+  assert.match(push, /^ {12}git merge-base --is-ancestor HEAD origin\/main\n {12}if \(\$LASTEXITCODE -ne 0\) \{ throw/m);
+  assert.match(releaseYml, /\$artifact = if \(\$env:EVENT -eq 'push'\) \{ "legion-\$v-release" \} else \{ "legion-\$v-DRYRUN-/);
+  assert.match(releaseYml, /^ {10}name: \$\{\{ steps\.v\.outputs\.artifact \}\}$/m, 'the artifact is named by the build kind');
+});
+
 test('ci.yml keeps only the fast syntax check for the installers; the smoke jobs moved to install.yml', () => {
   assert.match(ciYml, /^ {2}install-script-lint:\n {4}name: install scripts \(syntax\)$/m);
   for (const job of smokeJobs) {

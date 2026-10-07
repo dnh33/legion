@@ -453,3 +453,12 @@ Nothing was switched off during this run. The panel was left floating and closed
 | AR1 | in progress | Test skill `pc-check-phrase` created through the New skill editor: it started off ("Saved (off). Turn on") and was set to Agents decide (Armory count 103 -> 104 on). Not yet asked. | Polish: unticking a group in the agent editor shifts the list under the cursor (the over-40 warning line disappears). |
 
 Cost of the agent runs so far: about $0.80 of Claude quota.
+
+## 2026-10-07: Release build on GitHub Actions (ladder 33, branch feat/release-build). Safety class: downloads (the build artifact only; nothing is signed or published)
+
+The workflow cannot run before it is on main. Its guard test pins the security shape (read-only, no secrets, no cache, SHA pins, no release upload); the build itself is unproven until these runs.
+
+| id | area | preconditions | exact steps | expected observation | evidence to capture | safety class | source |
+|---|---|---|---|---|---|---|---|
+| RB1 | Same bytes as the PC build | `release-build.yml` merged to main | Actions, "Release build", Run workflow from main with `ref` = `v0.2.5-m`. Download the artifact (`gh run download <id> -n legion-0.2.5-m-release`). Compare its SHA256SUMS.txt with the published 0.2.5-m one (app.zip `b0da9855...`, win-x64.zip `ffe3ab96...`), and install.ps1 / install.sh with the published assets. | The run is green. The job summary lists six hashes. app.zip and install scripts match the published release; if the zips differ, list the differing entries (the per-file list inside win-x64.zip) before trusting the path. The manifest differs only if the notes differ (no notes file for 0.2.5-m: expect empty notes and the dry-run warning). | Run URL, both SHA256SUMS files, a diff of differing zip entries if any | downloads | orchestrator |
+| RB2 | Full path on a real release | 0.2.5-n (or the next release) tagged with `docs/release-notes/<v>.txt` committed | Push the tag. Download the artifact, check hashes against SHA256SUMS and the job summary, sign on the PC, run release-preflight and release-verify, publish as in docs/SHIPPING.md 4a. | Tag build green; preflight ends in "Pre-flight passed"; the live-CDN verify passes; an installed Legion self-updates. | Run URL, preflight output, the live manifest | downloads, real release | orchestrator |
