@@ -224,3 +224,7 @@
    so nothing about the interaction changes; only the walk into the art is skipped.
    --------------------------------------------------------------------------------------------------- */
 .mx:not(.mxs-rail) .mx-layer > svg { pointer-events: none; }
+
+/* Keyboard-only ring for the Relic (appended after the pinned region, which stays byte for byte): the rule above is neutralised here and drawn only after keyboard navigation. */
+.mx:focus-visible { box-shadow: none; }
+:root[data-kbd-nav] .mx:focus-visible { box-shadow: 0 0 0 2px rgba(124, 255, 178, .6); border-radius: 12px; }

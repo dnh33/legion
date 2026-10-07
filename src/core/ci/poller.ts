@@ -38,7 +38,8 @@ export const CONN_TTL_MS = 30_000;
 const LIST_SIZE = 30;
 const ANON_LIST_SIZE = 50;
 
-export type RefreshReason = 'auto' | 'open' | 'focus' | 'manual' | 'write';
+/** `watch` (the heartbeat found nobody watching) and `load` (a view found nothing cached) are the core's own triggers; `open`, `focus`, `manual` and `write` come from a person. */
+export type RefreshReason = 'auto' | 'open' | 'focus' | 'manual' | 'write' | 'watch' | 'load';
 
 export interface ResolvedRepo { repo: RepoRef | null; branch: string | null; source: 'remote' | 'manual' | null }
 
@@ -79,6 +80,7 @@ export class CiPoller {
   private fingerprint = '';
   private rev = 0;
   private inflight: Promise<void> | null = null;
+  private inflightOwn = false;
   private lastResolved: ResolvedRepo = { repo: null, branch: null, source: null };
 
   private hasWrites(): boolean { const w = this.o.writes; return !!(typeof w === 'function' ? w() : w); }
@@ -101,7 +103,7 @@ export class CiPoller {
     const was = this.isWatching();
     this.watchState = { mode, ...(projectId ? { projectId } : {}), at: this.now() };
     if (!this.stopTimer) this.stopTimer = this.schedule(() => { void this.tick(); }, TICK_MS);
-    if (!was) void this.refresh('open');
+    if (!was) void this.refresh('watch');
   }
 
   dispose(): void { this.stopTimer?.(); this.stopTimer = null; }
@@ -198,9 +200,11 @@ export class CiPoller {
   }
 
   refresh(reason: RefreshReason): Promise<void> {
-    if (this.inflight) return this.inflight;
+    const own = reason === 'watch' || reason === 'load';
+    // A person's refresh must not be swallowed by a core-triggered one that may decide to fetch nothing: it runs after it.
+    if (this.inflight) return this.inflightOwn && !own ? this.inflight.then(() => this.refresh(reason)) : this.inflight;
     const p = this.doRefresh(reason).finally(() => { this.inflight = null; });
-    this.inflight = p;
+    this.inflight = p; this.inflightOwn = own;
     return p;
   }
 
@@ -220,6 +224,9 @@ export class CiPoller {
     if (!c) { this.repoNow(); this.problem = this.connProblem ?? { kind: 'network' }; this.publish(); return; }
     const r = this.repoNow();
     if (!r.repo) { this.publish(); return; }
+    // Anonymous callers have 60 requests an hour: with only the title-bar chip showing, the core's own triggers (a lapsed heartbeat, a view
+    // finding nothing cached) fetch nothing. The panel opening, focus, the Refresh button and a write still do.
+    if ((reason === 'watch' || reason === 'load') && c.auth === 'anonymous' && this.watchMode() !== 'panel') return;
     if (reason !== 'auto' && reason !== 'write' && this.now() - this.lastFetchAt < DEBOUNCE_MS) return;
     const block = this.blocked(c);
     if (block) { this.problem = block; this.publish(); return; }
@@ -296,7 +303,7 @@ export class CiPoller {
   /** `branch` set: only that branch. Unset: the current branch and main. Loads once when nothing was fetched yet. */
   async runsView(branch?: string): Promise<CiRunsView> {
     this.repoNow();
-    if (this.gh && !this.fetched && !this.problem) { await this.connection(); await this.refresh('open'); }
+    if (this.gh && !this.fetched && !this.problem) { await this.connection(); await this.refresh('load'); }
     const r = this.lastResolved;
     const all = this.allRuns();
     const runs = (branch ? all.filter((x) => x.branch === branch) : this.relevant(all, r.branch)).slice(0, 40);
@@ -352,6 +359,8 @@ export class CiPoller {
       if (err.kind === 'logs-unavailable') return { available: false, reason: 'logs-unavailable' };
       this.spent();
       if (err.kind === 'not-found') return { available: false, reason: 'expired' };
+      // GitHub gives job logs only to a signed-in caller: for an anonymous one a refusal is "connect", not a permission error.
+      if (c.auth === 'anonymous' && (err.kind === 'forbidden' || err.kind === 'not-connected' || err.kind === 'auth-expired')) return { available: false, reason: 'problem', problem: { kind: 'not-connected' } };
       if (err.kind === 'rate-limited') { this.pausedUntil = Math.max(this.pausedUntil, Date.parse(err.resetAt) || this.now() + 60_000); this.pauseKind = 'rate-limited'; return { available: false, reason: 'problem', problem: { kind: 'rate-limited', resetAt: err.resetAt } }; }
       return { available: false, reason: 'problem', problem: { kind: err.kind } };
     }

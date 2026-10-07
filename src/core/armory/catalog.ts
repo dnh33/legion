@@ -196,11 +196,24 @@ export function refusedCommand(
   if (!typed) return undefined;
   const { hits, ambiguous } = resolveName(catalog, typed);
   if (ambiguous) return ambiguous;
-  // A built-in the owner never touched, whose name is also one of Claude Code's own commands (/init, /security-review), is that command, not a switched-off skill.
-  const off = hits.find((e) => access(e, agent) === 'off' && !(e.source === 'claude-builtin' && e.stateIsDefault && cliCommands.has(e.id)));
+  // A built-in whose name is one of Claude Code's own core commands (/init, /review, /security-review) is that command, not a skill.
+  // Only the fixed CLI_COMMANDS list counts here, never the SDK's live command list: that list also names built-ins such as /debug,
+  // which would then slip past both the Armory switch and the agent's own choice (found on a real PC, check AR5, 2026-10-07).
+  const coreCommand = (e: CatalogEntry): boolean => e.source === 'claude-builtin' && CLI_COMMANDS.has(e.id);
+  const off = hits.find((e) => access(e, agent) === 'off' && !(e.stateIsDefault && coreCommand(e)));
   if (off) return `/${typed} is switched off in the Armory (${off.id}). Turn it on in Settings > Armory, or set it to "Only when I ask".`;
+  // The agent's own choice holds for typed commands too. "Only when I ask" lets the owner type a skill the agent would not pick by
+  // itself; it does not let the owner run, through this agent, a skill the agent was set not to have.
+  const notChosen = hits.find((e) => !coreCommand(e) && ((e.agents !== 'all' && !e.agents.includes(agent.id)) || !agentSkillsAllow(agent.skills, e.id)));
+  if (notChosen) return `/${typed} is not one of this agent's skills (${notChosen.id}). Tick it under Skills in the agent's settings, or set the agent to "Same as the Armory".`;
   if (hits.length) return undefined;
-  if (cliCommands.has(typed)) return undefined;
+  // A command Claude Code lists that is not a skill in the Armory (a plugin's slash command): there is no switch for it, so an agent
+  // with its own skill list may run it only when that list names it. The fixed core commands always run; an agent that follows the
+  // Armory keeps the live list, as before.
+  if (cliCommands.has(typed)) {
+    if (CLI_COMMANDS.has(typed) || agentSkillsAllow(agent.skills, typed)) return undefined;
+    return `/${typed} is not one of this agent's skills: it is a Claude Code command outside the Armory. Set the agent to "Same as the Armory" to allow it.`;
+  }
   if (looksLikePath(prompt)) return undefined;
   return `/${typed} is not a command Legion knows: it is not one of Claude Code's own commands and not a skill in the Armory. Check the name, or turn the skill on in Settings > Armory.`;
 }

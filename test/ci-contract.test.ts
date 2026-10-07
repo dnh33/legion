@@ -75,6 +75,7 @@ function rig(o: { signedIn?: boolean; branch?: string | null; writes?: GitHubWri
 describe('the CI module against the real GitHubClient', () => {
   it('anonymous: lists runs, reads the rate from /rate_limit, sends no credentials, and is read-only (can() is unknown, no writes module)', async () => {
     const r = rig();
+    r.poller.heartbeat('panel'); // anonymous callers load nothing by themselves while only the chip shows
     const v = await r.poller.runsView();
     assert.equal(v.problem, null);
     assert.deepEqual(v.runs.map((x) => x.id).sort(), [1, 2]);

@@ -13,7 +13,9 @@ import './ci.css';
  * Docked, it sets `--dock-w` and `data-dock` on <html>; app.css-side rules in ci.css make the app grid leave room for it.
  */
 const STEP = 16;
-const DEFAULT: PanelGeometry = { mode: 'float', x: 0, y: 0, w: 460, h: 560, dockW: 380 };
+const DEFAULT: PanelGeometry = { mode: 'float', x: 0, y: 0, w: 460, h: 560, dockW: 440 };
+/** A docked panel is never narrower than this on load (a width saved when the default was 380 would truncate run and job names). */
+const DOCK_MIN = 400;
 
 const key = (id: string) => `legion.float.${id}`;
 const num = (v: unknown, d: number): number => (typeof v === 'number' && Number.isFinite(v) ? v : d);
@@ -22,7 +24,7 @@ function load(id: string, defaults: Partial<PanelGeometry>): PanelGeometry {
   const base = { ...DEFAULT, ...defaults };
   try {
     const raw = JSON.parse(localStorage.getItem(key(id)) ?? 'null') as Partial<PanelGeometry> | null;
-    if (raw && typeof raw === 'object') return { mode: raw.mode === 'dock' ? 'dock' : 'float', x: num(raw.x, base.x), y: num(raw.y, base.y), w: num(raw.w, base.w), h: num(raw.h, base.h), dockW: num(raw.dockW, base.dockW) };
+    if (raw && typeof raw === 'object') return { mode: raw.mode === 'dock' ? 'dock' : 'float', x: num(raw.x, base.x), y: num(raw.y, base.y), w: num(raw.w, base.w), h: num(raw.h, base.h), dockW: Math.max(DOCK_MIN, num(raw.dockW, base.dockW)) };
   } catch { /* private mode or damaged: use the defaults */ }
   return base;
 }

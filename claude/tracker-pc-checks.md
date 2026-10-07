@@ -431,3 +431,25 @@ Checked visually with `ui/dev/mock-server.mjs` (scenario `first`); the real firs
 | id | Steps | Expected | Evidence | State |
 |---|---|---|---|---|
 | WF1 | Fresh install (or clear `legion.onboarded` in the window's local storage and have no tasks). Look at the welcome, open "Later, when you need them", then press Ask Zealot. | Two steps (sign-in, first task for Zealot); VMs and the Claude Code command only under Later. Ask Zealot opens a new Zealot task with the shown request; Zealot hands it to Scout and answers in one line with a source. | Screenshots of the welcome and the finished task. | todo |
+
+## Run 2026-10-07 (computer use on the maintainer's PC, Legion 0.2.5-l, the maintainer present)
+
+| id | result | what was seen | open issue |
+|---|---|---|---|
+| LG1 | **pass** | Settings, Logs showed the agreed lead line, the folder `%USERPROFILE%\.legion\logs` and `legion.log` (4.3 KB). Clear logs asked inline ("Delete every log file? This cannot be undone.", Delete logs / Keep them); after Delete the folder was emptied while the core was running, "Nothing recorded yet." showed, and new lines were written again within seconds. | Polish: the screen has *Copy path* but no *Open folder* button (the plan names one). |
+| LG2 (partial) | pass for content | The live log held 44 lines, all `core.message` events (house layer, the core start line, GitHub request lines); a scan found 0 secret-shaped values. No crash was provoked. | The log is chatty: every GitHub call is a line, including `GET /rate_limit` every 35 s. Events such as `run.finished` only appear after a run. |
+| CI3 (partial) | **fail** on cadence | Anonymous, public repo dnh33/legion: the chip showed "CI 1 running"; the panel listed main's runs (running, passed, failed, cancelled) with jobs, OS and durations, and "Connect GitHub for live updates". | (1) BUG: with the panel closed and only the chip visible, the core fetched `/repos/dnh33/legion/actions/runs` about every 4 minutes for 40 minutes (core log), about 15 of the 60 anonymous requests per hour; the plan says no idle polling when not signed in. (2) BUG: opening a failed job's log, not signed in, shows "GitHub did not allow this request. Check the access in Settings, Connectors." GitHub refuses job logs to anonymous callers; the panel should say logs need a GitHub connection (or show the logs-unavailable state), not a permission error. |
+| CI4 (partial) | pass for dock, float and Escape | Dock to the right narrowed the chat; float came back; Escape closed the panel and focus returned to the CI chip with a visible ring. Not tested: two monitors, restart, display scaling, high contrast. | Polish: docked, the panel is too narrow; run and job names shrink to "Merge pull req…" and "test …". |
+
+Nothing was switched off during this run. The panel was left floating and closed, as it was found.
+
+### Armory checks in the same run (2026-10-07, 0.2.5-l, a throwaway agent "PC Check" and a throwaway skill)
+
+| id | result | what was seen | open issue |
+|---|---|---|---|
+| AR3 | **pass** | Agent with "Choose skills" and nothing ticked answered "NONE". With one plugin skill (`markdown-fetch`) and one claude.ai-synced skill (`kodawari`) ticked, it listed exactly `markdown-fetch:markdown-fetch` and `anthropic-skills:kodawari`. None of the maintainer's 148 personal skills was on, so the personal half used a synced skill instead. | The agent still sees skill NAMES mentioned as text in the maintainer's Claude Code session-start hook and global CLAUDE.md (inherit Claude Code settings is on); context text, not loadable skills. |
+| AR4 | **pass** (plugin skill) | After a Skill load of `markdown-fetch:markdown-fetch` the task was `tainted: true` in Ask, Allow edits and Full access (state.json); tasks without a skill load were not tainted. The "own skill not tainted" half was not run yet. | |
+| AR5 | **FAIL** | `/debug` sent to the agent with no skills chosen RAN ("Debug logging is now on...") instead of being refused with the Armory message. | BUG: the slash refusal does not cover this Claude Code built-in command. Also, the composer's `/` menu offers `/debug` and every skill on the PC, not only the agent's own. |
+| AR1 | in progress | Test skill `pc-check-phrase` created through the New skill editor: it started off ("Saved (off). Turn on") and was set to Agents decide (Armory count 103 -> 104 on). Not yet asked. | Polish: unticking a group in the agent editor shifts the list under the cursor (the over-40 warning line disappears). |
+
+Cost of the agent runs so far: about $0.80 of Claude quota.

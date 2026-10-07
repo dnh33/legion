@@ -14,4 +14,4 @@
 @media (prefers-reduced-motion: reduce) { .takeover, .tk-caret { animation: none; } .takeover { transition: none; } }
 /* the title-bar glyph is a button now (three clicks play the egg); it looks exactly as before */
 .tb-glyph { display: inline-flex; padding: 0; border: 0; background: none; color: inherit; cursor: default; line-height: 0; }
-.tb-glyph:focus-visible { outline: 2px solid var(--accent, #7CFFB2); outline-offset: 2px; border-radius: 4px; }
+:root[data-kbd-nav] .tb-glyph:focus-visible { outline: 2px solid var(--accent, #7CFFB2); outline-offset: 2px; border-radius: 4px; }

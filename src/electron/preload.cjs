@@ -43,6 +43,9 @@ contextBridge.exposeInMainWorld('legion', {
   connectorConnect() {
     return ipcRenderer.invoke('legion:connector-connect');
   },
+  openLogsFolder() {
+    return ipcRenderer.invoke('legion:open-logs');
+  },
   openExternal(url) {
     return ipcRenderer.invoke('legion:open-external', String(url));
   },

@@ -140,3 +140,28 @@ describe('logger: bounded queue', () => {
     sink.closeAll();
   });
 });
+
+describe('logger: quiet GitHub request lines', () => {
+  const lines = (msgs: string[], level: 'info' | 'debug' = 'info') => {
+    const dir = tempDir('legion-log-');
+    const sink = new LogSink({ dir, level });
+    const log = sink.logger('core');
+    for (const m of msgs) log.info('core.message', { message: m });
+    sink.flushSync(); sink.closeAll();
+    return read(dir, 'legion.log');
+  };
+  const set = ['github: GET /rate_limit 200', 'github: GET /repos/o/r/actions/runs 200', 'github: GET /repos/o/r/actions/runs/1/jobs 403', 'github: GET /user failed', 'github: signed in'];
+  it('at the default level: no rate_limit line, no successful read, failures at WARN, other lines untouched', () => {
+    const t = lines(set);
+    assert.equal(t.includes('/rate_limit'), false);
+    assert.equal(t.includes('actions/runs 200'), false);
+    assert.match(t, /WARN\s+core core\.message message="github: GET \/repos\/o\/r\/actions\/runs\/1\/jobs 403"/);
+    assert.match(t, /WARN\s+core core\.message message="github: GET \/user failed"/);
+    assert.match(t, /INFO\s+core core\.message message="github: signed in"/);
+  });
+  it('at debug level the successful read is a DEBUG line, and rate_limit is still dropped', () => {
+    const t = lines(set, 'debug');
+    assert.match(t, /DEBUG\s+core core\.message message="github: GET \/repos\/o\/r\/actions\/runs 200"/);
+    assert.equal(t.includes('/rate_limit'), false);
+  });
+});

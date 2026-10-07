@@ -9,7 +9,7 @@
 /* ---- title-bar chip ---- */
 .tb-ci { white-space: nowrap; flex: none; height: 26px; display: inline-flex; align-items: center; gap: 6px; padding: 0 9px; margin-right: 4px; background: transparent; border: 1px solid var(--line); border-radius: 13px; color: var(--muted); font-size: 12px; transition: color var(--t) var(--ease), border-color var(--t) var(--ease), background var(--t) var(--ease); }
 .tb-ci:hover, .tb-ci.on { color: var(--text); border-color: var(--line-strong); background: var(--surface-2); }
-.tb-ci:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+:root[data-kbd-nav] .tb-ci:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .tb-ci-name { font: 600 11px/1 var(--font-mono); letter-spacing: .06em; }
 .tb-ci-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--faint); flex: none; }
 .tb-ci.tone-ok .tb-ci-dot { background: var(--ci-ok); }
@@ -34,7 +34,7 @@ html[data-dock] .titlebar { margin-right: calc(-1 * var(--dock-w)); }
 .fp-dock { right: 0; top: 40px; bottom: 0; border-radius: 0; border-top: 0; border-right: 0; box-shadow: -8px 0 24px rgba(0, 0, 0, .22); animation-name: fp-in-dock; }
 @keyframes fp-in { from { opacity: 0; transform: translateY(4px); } }
 @keyframes fp-in-dock { from { opacity: 0; } }
-.fp:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+:root[data-kbd-nav] .fp:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 .fp-head { display: flex; align-items: center; gap: 6px; padding: 6px 6px 6px 4px; border-bottom: 1px solid var(--line); background: var(--surface-2); border-radius: var(--r-lg) var(--r-lg) 0 0; flex: none; }
 .fp-dock .fp-head { border-radius: 0; }
 .fp-float .fp-head { cursor: grab; touch-action: none; }
@@ -43,7 +43,7 @@ html[data-dock] .titlebar { margin-right: calc(-1 * var(--dock-w)); }
 .fp-grip { cursor: inherit; }
 .fp-grip:hover, .fp-btn:hover:not(:disabled) { color: var(--text); background: var(--surface-3); }
 .fp-btn:disabled { opacity: .55; cursor: default; }
-.fp-grip:focus-visible, .fp-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+:root[data-kbd-nav] .fp-grip:focus-visible, :root[data-kbd-nav] .fp-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 .fp-titles { min-width: 0; flex: 1; display: flex; flex-direction: column; gap: 1px; }
 .fp-title { margin: 0; font-size: 13px; font-weight: 600; line-height: 1.2; }
 .fp-sub { display: flex; gap: 8px; align-items: center; min-width: 0; font-size: 11.5px; color: var(--muted); white-space: nowrap; overflow: hidden; }
@@ -63,9 +63,9 @@ html[data-dock] .titlebar { margin-right: calc(-1 * var(--dock-w)); }
 .ci-runs, .ci-jobs { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
 .ci-run { border: 1px solid var(--line); border-radius: var(--r); background: var(--surface); overflow: hidden; }
 .ci-run.tone-bad { border-color: color-mix(in srgb, var(--ci-bad) 40%, var(--line)); }
-.ci-run-row { width: 100%; display: grid; grid-template-columns: 92px minmax(0, 1fr) auto 14px; align-items: center; gap: 8px; padding: 8px 10px; text-align: left; background: transparent; border: 0; color: inherit; cursor: pointer; font: inherit; }
+.ci-run-row { width: 100%; display: grid; grid-template-columns: 84px minmax(0, 1fr) auto 14px; align-items: center; gap: 8px; padding: 8px 10px; text-align: left; background: transparent; border: 0; color: inherit; cursor: pointer; font: inherit; }
 .ci-run-row:hover { background: var(--surface-2); }
-.ci-run-row:focus-visible, .ci-job-btn:focus-visible, .ci-link:focus-visible, .ci-log:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+:root[data-kbd-nav] .ci-run-row:focus-visible, :root[data-kbd-nav] .ci-job-btn:focus-visible, :root[data-kbd-nav] .ci-link:focus-visible, :root[data-kbd-nav] .ci-log:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 .ci-run-main { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
 .ci-run-title { font-size: 12.5px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .ci-run-meta { display: flex; gap: 8px; align-items: center; min-width: 0; font-size: 11px; color: var(--muted); }
@@ -81,10 +81,13 @@ html[data-dock] .titlebar { margin-right: calc(-1 * var(--dock-w)); }
 .ci-st.tone-idle { color: var(--muted); }
 .ci-run-body { border-top: 1px solid var(--line); padding: 8px 10px 10px; background: var(--surface-2); }
 .ci-job { border-radius: var(--r-sm); }
-.ci-job-row { display: grid; grid-template-columns: 92px minmax(0, 1fr) auto auto; align-items: center; gap: 8px; width: 100%; padding: 5px 6px; font-size: 12px; text-align: left; color: inherit; background: transparent; border: 0; border-radius: var(--r-sm); font-family: inherit; }
+.ci-job-row { display: grid; grid-template-columns: 84px minmax(0, 1fr) auto auto; align-items: center; gap: 8px; width: 100%; padding: 5px 6px; font-size: 12px; text-align: left; color: inherit; background: transparent; border: 0; border-radius: var(--r-sm); font-family: inherit; }
 .ci-job-btn { cursor: pointer; }
 .ci-job-btn:hover { background: var(--surface-3); }
 .ci-job-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Docked: names may wrap to two lines before they are cut; the name column takes the room, the badges keep their size. */
+.fp-dock .ci-job-name, .fp-dock .ci-run-title { white-space: normal; overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.fp-dock .ci-tag, .fp-dock .ci-dur, .fp-dock .ci-st { flex: none; }
 .ci-tag { padding: 1px 6px; border: 1px solid var(--line-strong); border-radius: 8px; font-size: 10.5px; color: var(--muted); white-space: nowrap; }
 .ci-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
 .ci-ext { border: 1px solid var(--line); }
@@ -93,11 +96,11 @@ html[data-dock] .titlebar { margin-right: calc(-1 * var(--dock-w)); }
 .ci-log { margin: 0; max-height: 300px; overflow: auto; padding: 8px 10px; background: var(--code-bg); border: 1px solid var(--line); border-radius: var(--r-sm); font: 11px/1.5 var(--font-mono); color: var(--text-2); white-space: pre; tab-size: 4; }
 .ci-more { margin-top: 12px; font-size: 12px; color: var(--muted); }
 .ci-more summary { cursor: pointer; width: fit-content; }
-.ci-more summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+:root[data-kbd-nav] .ci-more summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .ci-repo { margin-top: 8px; }
 .ci-repo-row { display: flex; gap: 8px; margin-top: 4px; }
 .ci-input { flex: 1; min-width: 0; height: 28px; padding: 0 9px; background: var(--code-bg); color: var(--text); border: 1px solid var(--line-strong); border-radius: var(--r-sm); font: 12px var(--font-mono); }
-.ci-input:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+:root[data-kbd-nav] .ci-input:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 .ci-spin { animation: ci-rot 900ms linear infinite; }
 @keyframes ci-rot { to { transform: rotate(360deg); } }
 @media (max-width: 520px) { .ci-run-row { grid-template-columns: 78px minmax(0, 1fr) 14px; } .ci-run-row .ci-dur { display: none; } }
@@ -110,7 +113,7 @@ html[data-dock] .titlebar { margin-right: calc(-1 * var(--dock-w)); }
   .fp { border: 1px solid CanvasText; box-shadow: none; }
   .fp-head { border-bottom: 1px solid CanvasText; }
   .fp-btn, .fp-grip, .tb-ci, .ci-run, .ci-banner, .ci-input, .ci-tag, .ci-log { border: 1px solid ButtonText; }
-  .fp:focus-visible, .fp-btn:focus-visible, .fp-grip:focus-visible, .tb-ci:focus-visible, .ci-run-row:focus-visible, .ci-job-btn:focus-visible, .ci-log:focus-visible, .ci-link:focus-visible, .ci-input:focus-visible { outline: 2px solid Highlight; }
+  :root[data-kbd-nav] .fp:focus-visible, :root[data-kbd-nav] .fp-btn:focus-visible, :root[data-kbd-nav] .fp-grip:focus-visible, :root[data-kbd-nav] .tb-ci:focus-visible, :root[data-kbd-nav] .ci-run-row:focus-visible, :root[data-kbd-nav] .ci-job-btn:focus-visible, :root[data-kbd-nav] .ci-log:focus-visible, :root[data-kbd-nav] .ci-link:focus-visible, :root[data-kbd-nav] .ci-input:focus-visible { outline: 2px solid Highlight; }
   .fp-resize { background: linear-gradient(135deg, transparent 0 55%, CanvasText 55% 62%, transparent 62% 72%, CanvasText 72% 79%, transparent 79%); }
   .tb-ci-dot { forced-color-adjust: none; background: ButtonText; }
   .ci-link { color: LinkText; }

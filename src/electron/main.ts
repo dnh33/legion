@@ -578,6 +578,14 @@ if (!app.requestSingleInstanceLock()) {
     return false;
   });
 
+  // Opens the logs folder and nothing else: the handler takes NO argument, so no path can come from the window.
+  ipcMain.handle('legion:open-logs', async (e): Promise<boolean> => {
+    const frameUrl = (e as { senderFrame?: { url?: string } }).senderFrame?.url;
+    if (!win || win.isDestroyed() || (e as { sender?: unknown }).sender !== win.webContents || !trustedSender(frameUrl, uiUrl)) return false;
+    const dir = join(dataDir(), 'logs');
+    try { mkdirSync(dir, { recursive: true }); return (await shell.openPath(dir)) === ''; } catch { return false; }
+  });
+
   app.on('before-quit', () => { quitting = true; });
   app.on('will-quit', () => { if (spendTimer) clearInterval(spendTimer); spendTimer = undefined; void killCore(); });
   app.on('window-all-closed', () => { /* stay in tray */ });

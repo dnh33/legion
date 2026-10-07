@@ -3,4 +3,4 @@
 .logs-files span { color: var(--muted); }
 .logs-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .logs-confirm { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 8px; font-size: 13px; }
-.logs-section button:focus-visible { outline: 2px solid var(--accent, currentColor); outline-offset: 2px; }
+:root[data-kbd-nav] .logs-section button:focus-visible { outline: 2px solid var(--accent, currentColor); outline-offset: 2px; }
