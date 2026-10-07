@@ -5,11 +5,13 @@
  *
  * The ids reach this module from an agent's tool arguments, so both are checked against a strict pattern before any path is built.
  */
-import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 /** Longest result kept in full, per run (characters). A longer one is cut, and the text says it was. */
 export const RESULT_STORE_MAX = 200_000;
+/** Most bytes of kept results per task; the oldest runs are dropped first (the newest is always kept). */
+export const RESULT_TASK_MAX_BYTES = 2_000_000;
 
 const TASK_ID_RE = /^[A-Za-z0-9_-]{1,80}$/;
 const RUN_ID_RE = /^[0-9]{1,6}$/;
@@ -25,6 +27,8 @@ export function capStored(text: string, max = RESULT_STORE_MAX): string {
 
 export class ResultStore {
   private readonly mem = new Map<string, string[]>();
+  private readonly memIds = new Map<string, string[]>();
+  private readonly memNext = new Map<string, number>();
   constructor(private readonly dir?: string) {}
 
   private taskDir(taskId: string): string | undefined {
@@ -38,13 +42,27 @@ export class ResultStore {
     const d = this.taskDir(taskId);
     if (!d) {
       const list = this.mem.get(taskId) ?? [];
+      const id = String((this.memNext.get(taskId) ?? 0) + 1);
+      this.memNext.set(taskId, Number(id));
       list.push(kept);
+      this.memIds.set(taskId, [...(this.memIds.get(taskId) ?? []), id]);
+      while (list.length > 1 && list.reduce((n, t) => n + Buffer.byteLength(t), 0) > RESULT_TASK_MAX_BYTES) { list.shift(); this.memIds.get(taskId)!.shift(); }
       this.mem.set(taskId, list);
-      return String(list.length);
+      return id;
     }
     mkdirSync(d, { recursive: true });
-    const id = String(this.ids(taskId).length + 1);
+    const ids = this.ids(taskId);
+    const id = String((ids.length ? Number(ids[ids.length - 1]) : 0) + 1);
     writeFileSync(join(d, `${id}.txt`), kept, 'utf8');
+    // keep the task's results under the byte cap: oldest first, never the one just written
+    const all = [...ids, id];
+    const size = (x: string) => { try { return statSync(join(d, `${x}.txt`)).size; } catch { return 0; } };
+    let total = all.reduce((n, x) => n + size(x), 0);
+    for (const old of all.slice(0, -1)) {
+      if (total <= RESULT_TASK_MAX_BYTES) break;
+      total -= size(old);
+      try { rmSync(join(d, `${old}.txt`), { force: true }); } catch { /* ignore */ }
+    }
     return id;
   }
 
@@ -52,7 +70,7 @@ export class ResultStore {
   get(taskId: string, runId: string): string | undefined {
     if (!TASK_ID_RE.test(taskId) || !RUN_ID_RE.test(runId)) return undefined;
     const d = this.taskDir(taskId);
-    if (!d) return this.mem.get(taskId)?.[Number(runId) - 1];
+    if (!d) { const i = (this.memIds.get(taskId) ?? []).indexOf(runId); return i < 0 ? undefined : this.mem.get(taskId)?.[i]; }
     try { return readFileSync(join(d, `${runId}.txt`), 'utf8'); } catch { return undefined; }
   }
 
@@ -66,14 +84,14 @@ export class ResultStore {
 
   private ids(taskId: string): string[] {
     const d = this.taskDir(taskId);
-    if (!d) return (this.mem.get(taskId) ?? []).map((_, i) => String(i + 1));
+    if (!d) return [...(this.memIds.get(taskId) ?? [])];
     if (!existsSync(d)) return [];
     return readdirSync(d).map((f) => /^([0-9]{1,6})\.txt$/.exec(f)?.[1]).filter((x): x is string => !!x).sort((a, b) => Number(a) - Number(b));
   }
 
   /** The task was deleted: its kept results go with it. */
   remove(taskId: string): void {
-    this.mem.delete(taskId);
+    this.mem.delete(taskId); this.memIds.delete(taskId); this.memNext.delete(taskId);
     const d = this.taskDir(taskId);
     if (d) { try { rmSync(d, { recursive: true, force: true }); } catch { /* ignore */ } }
   }

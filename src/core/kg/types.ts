@@ -23,7 +23,9 @@ export interface RunContext {
   /** Called by the tool layer after kg_capture or kg_wm_set actually stored something (a refused call does not count). */
   saved?: () => void;
   /** The stored full result of a task (or its error text), for kg_get on an episode's `task:<id>#result` link. Engine-side: the tool never reads the task store itself. */
-  taskResult?: (taskId: string) => string | undefined;
+  taskResult?: (taskId: string) => { text?: string; projectId?: string; tainted?: boolean } | undefined;
+  /** The run read text that came from a tainted task: the run becomes tainted. */
+  readTainted?: () => void;
 }
 
 /** Who is acting. Visibility and write rights derive from it. */

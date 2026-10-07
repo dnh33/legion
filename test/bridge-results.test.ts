@@ -3,7 +3,9 @@ import assert from 'node:assert/strict';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { RESULT_MAX_CHARS, RESULT_PAGE_CHARS } from '../src/core/bridge.js';
-import { RESULT_STORE_MAX } from '../src/core/result-store.js';
+import { RESULT_STORE_MAX, RESULT_TASK_MAX_BYTES, ResultStore } from '../src/core/result-store.js';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { callTool, init, ok, setup, tick } from './bridge-rig.js';
 
 // BUG-2: a reply was cut at 4000 characters and the rest was gone. Now the full text is kept and the cut says how to read it.
@@ -161,4 +163,33 @@ test("the agent's own tasks of another project are not readable, threads it star
   const r: any = await s.engine.bridge.ask(z.id, 'builder', 'x');
   s.store.upsertTask({ ...s.store.getTask(r.taskId)!, projectId: 'proj_elsewhere' });
   assert.equal((await callTool(zOptions, 'task_result', { taskId: r.taskId, resultId: r.resultId })).isError, undefined);
+});
+
+test('kept results per task are capped in bytes, oldest first, the newest always kept (disk and memory)', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'legion-rs-'));
+  try {
+    for (const store of [new ResultStore(dir), new ResultStore(undefined)]) {
+      const ids: string[] = [];
+      for (let i = 0; i < 14; i++) ids.push(store.put('task_cap', 'Z'.repeat(RESULT_STORE_MAX)));
+      assert.equal(ids[13], '14', 'ids keep counting after pruning');
+      assert.equal(store.get('task_cap', '1'), undefined, 'the oldest went first');
+      assert.ok(store.get('task_cap', '14'), 'the newest stays');
+      const kept = ids.filter((id) => store.get('task_cap', id) !== undefined).length;
+      assert.ok(kept * RESULT_STORE_MAX <= RESULT_TASK_MAX_BYTES && kept >= 9, `kept ${kept}`);
+      store.remove('task_cap');
+      assert.equal(store.get('task_cap', '14'), undefined);
+    }
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('task_result without a resultId while a new run of the task is going says it is the previous run result', async () => {
+  let release!: () => void; const gate = new Promise<void>((r) => { release = r; });
+  let n = 0;
+  const s = setup((c) => c.agent !== 'builder' ? undefined : (async function* () { yield init(`b${c.n}`); if (n++ === 1) await gate; yield ok(n === 1 ? big(9_000) : 'second', `b${c.n}`); })());
+  const z = s.engine.startTask({ agentId: 'zealot', prompt: 'go', source: 'ui' });
+  await s.engine.waitFor(z.id, 3000);
+  const a: any = await s.engine.bridge.ask(z.id, 'builder', 'one');
+  const pending = s.engine.bridge.ask(z.id, 'builder', 'two');
+  await tick(80);
+  try { assert.match(s.engine.bridge.taskResult(z.id, a.taskId), /previous run's result: a new run of this task is in progress/); } finally { release(); await pending; }
 });

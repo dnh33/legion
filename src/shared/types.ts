@@ -213,6 +213,8 @@ export interface TaskProgress {
   thinking?: boolean;
   /** Background agents this run is waiting on (absent: none). The run stays open until they report; Stop ends them. */
   background?: number;
+  /** When Legion stops waiting for them whatever they do (ISO time); present with `background` once the run is held. */
+  backgroundStopsAt?: string;
 }
 /** One line of a Claude TodoWrite checklist. */
 export interface TodoItem { content: string; status: 'pending' | 'in_progress' | 'completed'; activeForm?: string }

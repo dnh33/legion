@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { MAX_HOP } from '../src/core/bridge.js';
+import { MAX_BRIDGE_RUNS_PER_ROOT, MAX_HOP } from '../src/core/bridge.js';
 import { callTool, init, isReply, ok, notices, setup, tick } from './bridge-rig.js';
 
 // BUG-1: a reply came back to the lead at the SENDER's hop + 1, so each tell/reply round-trip cost the lead two hops and a lead started
@@ -97,4 +97,30 @@ test('a reply refused by the hop guard is not silent either, and starts nothing'
   assert.match(notices(s, z.id).join('\n'), /not delivered here: the task is already 7 hops from you \(limit 6\)/);
   assert.match(notices(s, builderTask).join('\n'), /was not delivered/);
   assert.equal(s.calls.filter((c) => c.agent === 'zealot').length, 1);
+});
+
+test('a reply-then-tell loop (every answer makes the lead tell again) stops at the per-task cap with a notice to the owner', async () => {
+  const targets = ['builder', 'scout', 'worker'];
+  const errors: string[] = [];
+  let tells = 0;
+  const s = setup((c) => {
+    if (c.agent !== 'zealot') return undefined;
+    return (async function* () {
+      const sid = `z-${c.n}`;
+      yield init(sid);
+      if (errors.length === 0) {
+        const r = await callTool(c.options, 'tell', { agent: targets[tells++ % 3], message: 'again' });
+        if (r.isError) errors.push(r.text);
+      }
+      yield ok('looping', sid);
+    })();
+  });
+  const z = s.engine.startTask({ agentId: 'zealot', prompt: 'go', source: 'ui' });
+  for (let i = 0; i < 600 && errors.length === 0; i++) await tick(10);
+  await tick(150);
+  assert.equal(errors.length, 1, 'the loop was refused');
+  assert.match(errors[0]!, new RegExp(`Bridge run limit reached \\(${MAX_BRIDGE_RUNS_PER_ROOT} agent runs`));
+  const worked = s.calls.filter((c) => c.agent !== 'zealot').length;
+  assert.ok(worked <= MAX_BRIDGE_RUNS_PER_ROOT && worked >= 15, `agents ran ${worked} times`);
+  assert.match(notices(s, z.id).join('\n'), /Legion stopped the agents' messages here: this task has caused 40 agent runs in the last hour/);
 });

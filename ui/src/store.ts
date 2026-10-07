@@ -4,7 +4,7 @@ import type {
 } from '../../src/shared/types';
 import { api, request, subscribe, ApiError, type ConnStatus } from './api';
 import { incomingWins } from './chat/tasksync';
-import { stopWarning } from './chat/background';
+import { askToStop } from './chat/background';
 import type { Project } from '../../src/shared/projects';
 import { FILTER_KEY, inProject, newTaskProjectId } from './projects/projectsLogic';
 import { moodAfterDecision, noteDenial } from './mascot/toolActivity';
@@ -432,7 +432,7 @@ export async function sendPrompt(prompt: string): Promise<boolean> {
 export function confirmStop(taskId: string | null): boolean {
   const n = taskId ? getState().progress[taskId]?.background ?? 0 : 0;
   if (n <= 0) return true;
-  try { return window.confirm(stopWarning(n)); } catch { return true; }
+  return askToStop(n, (m) => window.confirm(m));
 }
 
 export async function cancelSelected(confirmed = false) {

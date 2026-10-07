@@ -56,7 +56,7 @@ export interface EngineDeps {
   /** Projects (src/core/projects). Absent: no task has a project and nothing about projects is interpreted. */
   projects?: ProjectStore;
   /** Timings for a run that is held open by background agents. Tests shorten them; the defaults are BG_STALL_MS and BG_GRACE_MS. */
-  background?: { stallMs?: number; graceMs?: number };
+  background?: { stallMs?: number; graceMs?: number; maxHeldMs?: number; now?: () => number };
 }
 
 /**
@@ -66,6 +66,11 @@ export interface EngineDeps {
 export const BG_STALL_MS = 60 * 60_000;
 /** After the last background agent reports, how long a silent run is given to answer the notification before it is closed. */
 export const BG_GRACE_MS = 30_000;
+/**
+ * The most a run is held open for background agents, whatever they send: their own heartbeats (task_progress, tool_progress) would
+ * otherwise keep the silence cap from ever firing on a wedged agent, and the run holds a concurrency slot meanwhile.
+ */
+export const BG_MAX_HELD_MS = 2 * 60 * 60_000;
 
 /** Most items and longest item text of a TodoWrite list kept for the live checklist. */
 export const TODO_MAX_ITEMS = 50;
@@ -234,6 +239,8 @@ interface Active {
   input?: InputChannel;
   /** The background agents the current Claude run has going (from the SDK's task messages). While any run, the input stays open. */
   bg?: BackgroundTasks;
+  /** When the held phase ends whatever happens (ms since epoch); set while the run is held for background agents. */
+  bgStopsAt?: number;
 }
 interface Outcome { subtype: string; isError: boolean; errorText?: string }
 
@@ -261,10 +268,14 @@ export class Engine {
   private readonly mcpTracker = new McpStatusTracker();
   private readonly bgStallMs: number;
   private readonly bgGraceMs: number;
+  private readonly bgMaxHeldMs: number;
+  private readonly bgNow: () => number;
 
   constructor(deps: EngineDeps) {
     this.bgStallMs = Math.max(1, deps.background?.stallMs ?? BG_STALL_MS);
     this.bgGraceMs = Math.max(1, deps.background?.graceMs ?? BG_GRACE_MS);
+    this.bgMaxHeldMs = Math.max(1, deps.background?.maxHeldMs ?? BG_MAX_HELD_MS);
+    this.bgNow = deps.background?.now ?? Date.now;
     this.store = deps.store; this.bus = deps.bus; this.vms = deps.vms; this.approvals = deps.approvals;
     this.config = deps.config;
     this.queryFn = deps.queryFn ?? realQuery;
@@ -539,7 +550,7 @@ export class Engine {
     return {
       startedAt: p.startedAt, turn: p.turn, maxTurns: p.maxTurns, tool: p.tool, thinking: p.thinking,
       ...(p.contextTokens !== undefined ? { contextTokens: p.contextTokens } : {}), ...(p.todos ? { todos: p.todos } : {}),
-      ...(background > 0 ? { background } : {}),
+      ...(background > 0 ? { background, ...(act.bgStopsAt !== undefined ? { backgroundStopsAt: new Date(act.bgStopsAt).toISOString() } : {}) } : {}),
     };
   }
 
@@ -1194,14 +1205,19 @@ export class Engine {
     // success result closes the input only when no background agent is running; otherwise the run is held open until they report.
     const bg = new BackgroundTasks();
     act.bg = bg;
-    let lastActivity = Date.now();
+    let lastActivity = this.bgNow();
     let held = false;
     // a turn (the model answering a notification) has started since the run was held: then only its result may close the run
     let turnStarted = false;
     const watchdog = setInterval(() => {
       if (input.isClosed) return;
-      const quiet = Date.now() - lastActivity;
-      if (bg.count > 0 && quiet >= this.bgStallMs) {
+      const quiet = this.bgNow() - lastActivity;
+      if (act.bgStopsAt !== undefined && this.bgNow() >= act.bgStopsAt) {
+        const n = bg.count;
+        this.addMessage(job.taskId, 'system', `Legion stopped waiting for background agents after ${Math.round(this.bgMaxHeldMs / 60_000)} minutes${n ? `; the ${n} still running ${n === 1 ? 'was' : 'were'} stopped` : ''}. Ask again to start the work over.`);
+        for (const id of bg.ids()) { try { void (q as any).stopTask?.(id)?.catch?.(() => undefined); } catch { /* ignore */ } }
+        input.close();
+      } else if (bg.count > 0 && quiet >= this.bgStallMs) {
         this.addMessage(job.taskId, 'system', `Legion stopped waiting for ${bg.count} background agent${bg.count === 1 ? '' : 's'}: nothing came from them for ${Math.round(this.bgStallMs / 60_000)} minutes. They end with this run; ask again to start them over.`);
         input.close();
       } else if (held && bg.count === 0 && !turnStarted && quiet >= this.bgGraceMs) {
@@ -1215,7 +1231,7 @@ export class Engine {
         const next = await Promise.race([it.next(), aborted]);
         if (next === 'aborted' || act.cancelled) return { subtype: 'cancelled', isError: false };
         if (next.done) break;
-        lastActivity = Date.now();
+        lastActivity = this.bgNow();
         if (bg.note(next.value)) this.emitProgress(job.taskId, act);
         // only the run's own messages: a background agent's carry parent_tool_use_id and are not the model answering
         if (held && ['assistant', 'user', 'stream_event'].includes((next.value as any)?.type) && !(next.value as any)?.parent_tool_use_id) turnStarted = true;
@@ -1224,11 +1240,13 @@ export class Engine {
         if (o) {
           outcome = o;
           if (input.answered((next.value as any)?.queued_turn_count)) {
-            if (o.isError || bg.count === 0) { held = false; input.close(); }
+            if (o.isError || bg.count === 0) { held = false; act.bgStopsAt = undefined; input.close(); }
             else {
               turnStarted = false;
               if (!held) {
                 held = true;
+                act.bgStopsAt = this.bgNow() + this.bgMaxHeldMs;
+                this.emitProgress(job.taskId, act);
                 const n = bg.count;
                 this.addMessage(job.taskId, 'system', `Waiting for ${n} background agent${n === 1 ? '' : 's'} to report before this run ends. Stop cancels them.`);
               }
@@ -1247,7 +1265,7 @@ export class Engine {
       throw e;
     } finally {
       clearInterval(watchdog);
-      act.bg = undefined;
+      act.bg = undefined; act.bgStopsAt = undefined;
       // a thinking flag must never outlive its run
       if (act.progress?.thinking) { act.progress.thinking = false; this.emitProgress(job.taskId, act); }
       input.close();

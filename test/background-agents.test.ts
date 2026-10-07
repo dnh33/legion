@@ -38,9 +38,9 @@ async function until(cond: () => boolean, ms = 3000): Promise<void> {
 type TaskSpec = { id: string; type?: string; description: string; ambient?: boolean };
 /** Set by a test: the fake emits a background agent's own message (parent_tool_use_id set) just before it reports. */
 const chatter = { on: false };
-interface Rig { finish(id: string): void; log: string[]; stoppedByClose: string[]; inputClosed(): boolean }
+interface Rig { finish(id: string): void; log: string[]; stoppedByClose: string[]; inputClosed(): boolean; stopped: string[] }
 
-function setup(tasksToStart: TaskSpec[], opts: { level?: boolean; background?: { stallMs?: number; graceMs?: number }; quietAfterReports?: boolean } = {}) {
+function setup(tasksToStart: TaskSpec[], opts: { level?: boolean; background?: { stallMs?: number; graceMs?: number; maxHeldMs?: number; now?: () => number }; quietAfterReports?: boolean } = {}) {
   const store = new FakeStore();
   store.agents.set(agent.id, agent);
   const bus = new EventBus();
@@ -48,7 +48,7 @@ function setup(tasksToStart: TaskSpec[], opts: { level?: boolean; background?: {
   bus.on((e) => events.push(e));
   const config = defaultConfig();
   config.workspaceDir = join(cleanupTemp('legion-bg-'), 'ws');
-  const rig: Rig = { finish: () => undefined, log: [], stoppedByClose: [], inputClosed: () => false };
+  const rig: Rig = { finish: () => undefined, log: [], stoppedByClose: [], inputClosed: () => false, stopped: [] };
   let calls = 0;
   const queryFn = ((params: any) => {
     calls++;
@@ -98,7 +98,7 @@ function setup(tasksToStart: TaskSpec[], opts: { level?: boolean; background?: {
         }
       }
     })();
-    return Object.assign(gen, { interrupt: async () => undefined, close: () => undefined, accountInfo: async () => ({}) });
+    return Object.assign(gen, { interrupt: async () => undefined, close: () => undefined, accountInfo: async () => ({}), stopTask: async (id: string) => { rig.stopped.push(id); } });
   }) as unknown as QueryFn;
   const engine = new Engine({
     store: store as any, bus, vms: { touch() {}, ensureRunning: async () => ({}) } as any, approvals: new ApprovalBroker(bus), config, queryFn,
@@ -217,4 +217,28 @@ test('the app words what it waits on, and what stopping would cost', async () =>
   assert.equal(backgroundLabel(3), 'waiting on 3 background agents');
   assert.match(stopWarning(2), /2 background agents are still working.*ends them too/);
   assert.match(stopWarning(1), /1 background agent is still working.*ends it too/);
+});
+
+test('the held phase has a wall-clock cap that heartbeats cannot extend: the agents are stopped, the owner is told, the row shows the time', async () => {
+  let now = 1_800_000_000_000;
+  const s = setup(TWO, { level: true, background: { stallMs: 1e12, graceMs: 1e12, maxHeldMs: 2 * 60 * 60_000, now: () => now } });
+  const t = s.engine.startTask({ agentId: 'zealot', prompt: 'go', source: 'ui' });
+  await until(() => sys(s, t.id).some((x) => /Waiting for 2 background agents/.test(x)));
+  const p = s.engine.progressSnapshot()[t.id]!;
+  assert.equal(p.background, 2);
+  assert.equal(p.backgroundStopsAt, new Date(now + 2 * 60 * 60_000).toISOString());
+  now += 2 * 60 * 60_000 + 1000;
+  const done = await s.engine.waitFor(t.id, 3000);
+  assert.equal(done.status, 'done');
+  assert.ok(sys(s, t.id).some((x) => /stopped waiting for background agents after 120 minutes; the 2 still running were stopped/.test(x)), sys(s, t.id).join('|'));
+  assert.deepEqual(s.rig.stopped.sort(), ['bgA', 'bgB']);
+});
+
+test('the working row names the time it stops waiting; stopping fails closed when the dialog cannot be shown', async () => {
+  const { backgroundLabel, askToStop } = await import('../ui/src/chat/background.js');
+  assert.match(backgroundLabel(2, new Date(2026, 9, 7, 14, 5).toISOString()), /^waiting on 2 background agents · stops at 14:05$/);
+  assert.equal(askToStop(2, () => { throw new Error('no dialog'); }), false);
+  assert.equal(askToStop(2, () => false), false);
+  assert.equal(askToStop(2, () => true), true);
+  assert.equal(askToStop(0, () => { throw new Error('unused'); }), true);
 });

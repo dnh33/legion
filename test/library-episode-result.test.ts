@@ -5,7 +5,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { EPISODE_RESULT_CHARS } from '../src/core/kg/graph.js';
-import { HUMAN } from '../src/core/kg/types.js';
+import { agentActor, HUMAN } from '../src/core/kg/types.js';
+import { projectScope } from '../src/shared/projects.js';
 import { init, kg, ok, setup, waitDone } from './library-fakes.js';
 
 // built in two parts so the export scan does not mistake this fake key for a real one
@@ -107,4 +108,27 @@ test('reading the result of a tainted task through the link taints the reader; a
   assert.equal(s.engine.isTainted(readerTask.id), false, 'a refused ref reads nothing and taints nothing');
   await kg(reader.alpha, 'kg_get', { id: `task:${t.id}#result` });
   assert.equal(s.engine.isTainted(readerTask.id), true, 'the tainted text came into the reader');
+});
+
+test('an ep: node that the system did not write is no key to a task result', async () => {
+  const { s, t, reader } = await withEpisode();
+  const plain = s.store.listTasks(20, 'alpha', true).find((x) => x.id !== t.id)!;
+  // a note a person (or anything but the system) made, with the episode id shape and a result source
+  s.graph.upsertNode(HUMAN, { id: `ep:${plain.id}`, type: 'episode', title: 'Forged', body: 'x', scope: 'shared', sources: [{ ref: `task:${plain.id}#result` }] } as any);
+  assert.equal(s.graph.getNode(HUMAN, `ep:${plain.id}`)?.createdBy !== 'system', true);
+  const r = await kg(reader.alpha, 'kg_get', { id: `task:${plain.id}#result` });
+  assert.equal(r.isError, true);
+  assert.match(r.text, /Unknown node/);
+});
+
+test('a task moved out of the project of its episode does not hand its new result to that project', () => {
+  const s = setup(() => undefined);
+  const pid = 'proj_0123456789ab';
+  s.graph.recordEpisode({ taskId: 'task_moved', agentId: 'alpha', title: 'x', status: 'done', turns: 9, costUsd: 0, prompt: 'p', result: 'r'.repeat(2000), tainted: false, projectId: pid });
+  const member = agentActor('beta', { projectId: pid });
+  assert.equal(s.graph.episodeResult(member, 'task_moved', () => ({ text: 'full result', projectId: pid })).text, 'full result');
+  for (const moved of [undefined, 'proj_ffffffffffff']) {
+    assert.throws(() => s.graph.episodeResult(member, 'task_moved', () => ({ text: 'NEW-RESULT', projectId: moved })), /Unknown node/);
+  }
+  assert.equal(projectScope(pid), s.graph.getNode(HUMAN, 'ep:task_moved')!.scope);
 });

@@ -37,7 +37,7 @@ export function WorkingRow({ taskId, queued, waiting }: { taskId: string; queued
     parts.push(`turn ${progress.turn} of ${progress.maxTurns}`);
     const tool = progress.tool ?? (askNames ? 'mcp__legion__ask' : null);
     if (tool && !waiting) parts.push(workingToolLabel(tool, askNames ? askNames.split('\n') : []));
-    if (progress.background) parts.push(backgroundLabel(progress.background));
+    if (progress.background) parts.push(backgroundLabel(progress.background, progress.backgroundStopsAt));
     if (progress.contextTokens !== undefined) parts.push(contextLabel(progress.contextTokens));
   }
   const started = progress && !queued ? Date.parse(progress.startedAt) : NaN;

@@ -1777,18 +1777,24 @@ export class Graph {
    * notes, so a source on some other node is never a key to a task's result. The whole text goes through the secret guard (not just the
    * window the episode summary used); a seed phrase or key in it withholds all of it.
    */
-  episodeResult(actor: Actor, taskId: string, rawOf: () => string | undefined): { node: KgNode; text: string } {
+  episodeResult(actor: Actor, taskId: string, srcOf: () => { text?: string; projectId?: string; tainted?: boolean } | undefined): { node: KgNode; text: string; tainted: boolean } {
     const node = this.getNode(actor, `ep:${taskId}`);
     if (!node || node.type !== 'episode' || node.createdBy !== 'system') throw new KgError('not_found', `Unknown node "${episodeResultRef(taskId)}" (it may not exist or may not be visible to you).`);
     // read only after the episode check above: a ref that fails it never reaches the task store (and never taints anything)
-    const raw = rawOf();
+    const src = srcOf();
+    // an episode kept in a project's scope is for that project's runs: if the task has since moved to another project (or none), its new
+    // result is not theirs to read
+    if (projectIdOfScope(node.scope) !== undefined && (src?.projectId === undefined || projectScope(src.projectId) !== node.scope)) {
+      throw new KgError('not_found', `Unknown node "${episodeResultRef(taskId)}" (it may not exist or may not be visible to you).`);
+    }
+    const raw = src?.text;
     if (raw === undefined) throw new KgError('not_found', 'The full result of that task is no longer stored.');
     let text: string;
     try { text = this.guard().text(raw); } catch (err) {
       if (!(err instanceof KgError)) throw err;
       throw new KgError('forbidden', 'The full result is withheld: it contains what looks like a secret (a seed phrase or a key).');
     }
-    return { node, text };
+    return { node, text, tainted: src?.tainted === true };
   }
 
   /**

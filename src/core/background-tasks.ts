@@ -30,6 +30,8 @@ export class BackgroundTasks {
   private readonly known = new Map<string, Known>();
 
   get count(): number { return this.live.size; }
+  /** Ids of the running background tasks (to stop them). */
+  ids(): string[] { return [...this.live.keys()]; }
   /** One line per running background task (descriptions come from the model: show them only as data). */
   descriptions(): string[] { return [...this.live.values()]; }
 
