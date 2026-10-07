@@ -4,10 +4,17 @@ All notable changes are recorded here. The format follows [Keep a Changelog](htt
 
 ## [Unreleased]
 
+## [0.2.5-k] - 2026-10-07
+
+### Added
+
+- **CI panel.** A chip in the title bar shows the GitHub Actions state of the current repo and branch (green, red or running), and opens a panel with the runs, their jobs and the failed steps. Public repos work without signing in (read-only, polled slowly to stay inside GitHub's limit for anonymous use). Connecting GitHub, and Re-run and Cancel, come with the GitHub connector in a later release.
+
 ### Fixed
 
-- **A run waits for its background agents.** Claude Code subagents started in the background used to die the moment the lead answered any message, because Legion closed the run. The run now stays open until they report (the working row says "waiting on N background agents"), you stop it, or nothing has come from them for 60 minutes. Stop, Ctrl+Enter and "send now" ask first when background agents would be ended.
-- **Answers from agents no longer use up the lead's hops.** A reply to a `tell` now comes back at the lead's own hop. Before, a lead started by the owner could collect about three answers and then every `tell` failed with "hop limit", and later answers were dropped without a word. An answer that cannot be delivered now leaves a notice in both threads.
+- **A run waits for its background agents.** Claude Code subagents started in the background used to die the moment the lead answered any message, because Legion closed the run. The run now stays open until they report (the working row says "waiting on N background agents" and when it stops waiting), you stop it, nothing has come from them for 60 minutes, or two hours have passed. Stop, Ctrl+Enter and "send now" ask first when background agents would be ended.
+- **Answers from agents no longer use up the lead's hops.** A reply to a `tell` now comes back at the lead's own hop. Before, a lead started by the owner could collect about three answers and then every `tell` failed with "hop limit", and later answers were dropped without a word. An answer that cannot be delivered now leaves a notice in both threads. One task you started can cause at most 40 agent runs per hour; at that point Legion stops the messages and tells you.
+- **Project board: runs survive a restart.** An item no longer stays stuck in Doing with Run greyed out after Legion restarts. Saving an item sends only what you changed, and if an agent changed the item meanwhile you keep your edits and see the new values. "Mark as reviewed" marks only the text you have on screen. Run is refused on a Done item, and an item with a live run cannot be deleted or taken over by another agent.
 - **Long answers are no longer cut off.** An answer over 4,000 characters is kept in full; the cut text points to it and the new `task_result` tool reads the rest in pages.
 - **Library episodes link to the full result.** An episode still keeps a short summary, and `kg_get task:<id>#result` reads the whole result of that task (scrubbed for secrets).
 

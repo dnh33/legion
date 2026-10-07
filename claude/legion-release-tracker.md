@@ -813,7 +813,7 @@ re-check lines.
 
 #### SHIPPED CONTEXT — read this first, it explains most of what follows
 
-Latest release is **`0.2.5-j`** (tag `v0.2.5-j`, 2026-10-07; the merge of release/0.2.5-j). The updater
+Latest release is **`0.2.5-k`** (tag `v0.2.5-k`, 2026-10-07; the merge of release/0.2.5-k). The updater
 applies releases from inside Legion; the maintainer reported on 2026-10-06 that it works (check U1). Everything below is
 either shipped, parked, or not started.
 
@@ -837,6 +837,7 @@ Releases since `0.2.3-g` (dates from the tags; `0.2.3-h` to `0.2.3-l` were conso
 | `0.2.5-h` | 2026-10-06 | Doctrine screen with a switch per file, six optional skills, Undo for bulk changes (house/skills session); one-line installers; setup takes lettered releases; SHA256SUMS lists the installer; CI-only full suite and `npm run tidy` (dev) |
 | `0.2.5-i` | 2026-10-06 | BSV: wait while the wallet asks (BRC-219), Cancel, release late or stale builds, knowledge pack v10 (BSV session, PR #16); usage panel opens fully; README install leads with save-then-run; SECURITY.md rewrite; ladder items 17-19 |
 | `0.2.5-j` | 2026-10-07 | The Armory (A2a, PR #23): every skill agents can load, all off by default, per-agent choice; Claude Code skills no longer load by default; skill shell off by default; outside skills taint; drills promote/remove; house sync fix |
+| `0.2.5-k` | 2026-10-07 | CI panel (Release B, PR #27, read-only, anonymous for public repos); Order fixes BUG-7/1/2/3 (PR #35: background agents kept alive, replies keep the lead's hop, 40 runs/hour/root cap, full results via task_result, episodes link full results); project board run state (PR #32); connectors slice 1a (token store, GitHub client, PR #29) and log redactor (PR #30) shipped dark (not wired to UI/log yet) |
 
 Table derived from `git tag -l 'v0.2*'` with creation dates and the `CHANGELOG.md` sections (`0.2.3-h` to `0.2.3-l` from the
 `git log v0.2.3-g..v0.2.4` subjects; their own changelog entries were folded into `0.2.4`).
@@ -986,7 +987,7 @@ Items 1 to 6 above stay as they are. These were added from the 2026-10-06 sessio
 
     Items 2-7 follow logging, in this order. Not proposed: the council (parked), an effort picker, mascot art changes.
 
-25. **Order bugs, fixed in one draft PR (branch `fix/order-bugs`; not merged, not released).** From the owner's run of the Order on 2026-10-07 (bug file `LEGION-BUGS.md` in the owner's project folder). The PR is not verified on a real PC until checks OF1 to OF4 in `claude/tracker-pc-checks.md` pass.
+25. **Order bugs BUG-7, 1, 2, 3: FIXED, shipped in `0.2.5-k` (PR #35).** From the owner's run of the Order on 2026-10-07 (bug file `LEGION-BUGS.md` in the owner's project folder). The PR is not verified on a real PC until checks OF1 to OF4 in `claude/tracker-pc-checks.md` pass.
     - **BUG-7 (high). FIXED IN PR.** A run closed its input when the lead answered, which killed Claude Code background subagents. The run now stays open while the SDK reports running background agents (`src/core/background-tasks.ts`, `engine.ts runOnce`); cap 60 minutes without any SDK message; "waiting on N background agents" in the working row; Stop, Ctrl+Enter and "send now" ask first. Known limit: replies to a `tell` reach a held run only when it closes.
     - **BUG-1 (high). FIXED IN PR.** A reply goes back at the caller's own hop (`bridge.ts deliverReply`); `ask` and `tell` still add one; a refused reply leaves a notice on both threads.
     - **BUG-2 (high). FIXED IN PR.** Replies over 4,000 characters keep the full text (`ResultStore`, cap 200,000) and point to the new `task_result` tool.
@@ -994,6 +995,14 @@ Items 1 to 6 above stay as they are. These were added from the 2026-10-06 sessio
 26. **BUG-4 (medium). OPEN.** Agents on other model providers have no file tools, so they cannot deliver into the project folder. Plan: a scoped `project_write` and `project_read` in `src/core/providers/tool-loop.ts` (unverified), honouring approval mode and taint.
 27. **BUG-5 (medium). OPEN.** Runs delegated from a project run land in the wrong project (they cannot see its board; their Library notes go to legion-dev). Cause not traced: check whether `engine.start` from the bridge passes the caller's `projectId`.
 28. **BUG-6 (low, UX). OPEN.** A tainted run cannot assign board items and has no way out. Plan: let it propose an assignee that lands in the owner's inbox with one-click accept, without loosening the guard (`projects/board/store.ts`).
+
+29. **Approval-card previews.** Cards show what will happen, not raw JSON: a per-tool preview registry (mail: To/Subject/body; Bash: the exact command; file write/edit: path and diff; web fetch: URL; MCP tools may declare one; unknown tools fall back to JSON). "Show input" keeps the raw input one click away. A preview never hides or rewords what runs (exact, escaped values; an explicit "show all"), and Allow is bound to the exact input shown. Labels follow the UI language (item 17). Visual reference: the hjermitslev.dev hero demo (maintainer via the portfolio session, 2026-10-07).
+
+30. **Context stats in the usage panel.** Each agent's context use and compactions, like Claude Desktop's usage view (maintainer, 2026-10-07).
+
+31. **A /sec command in Legion.** A security status: admin gate, secrets, connectors, BSV policy (maintainer, 2026-10-07).
+
+32. **A /sec command in the Legion Mod** (maintainer, 2026-10-07).
 
 **Scope lock (maintainer, 2026-10-06):** the work already running is finished before anything new starts: the Cloudflare switch and connectors phase 1 (this session), the Armory and the CI panel (house/skills session), BSV PR #16 for `0.2.5-i` (BSV session). New requests go onto this ladder as open items. After the lock, work resumes from the ladder.
 
