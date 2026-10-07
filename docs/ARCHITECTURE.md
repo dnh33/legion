@@ -259,13 +259,16 @@ Vulnerability reporting is covered in [SECURITY.md](../SECURITY.md).
 ## Round 5 contracts
 
 ### Agent-to-agent bridge ("the vox")
-Every agent always gets the in-process SDK MCP server `legion`. The VM tools stay on it when a VM is enabled, and it now always carries these three tools:
+Every agent always gets the in-process SDK MCP server `legion`. The VM tools stay on it when a VM is enabled, and it now always carries these four tools:
 
 | Tool (as the model sees it) | Args | Behaviour |
 |---|---|---|
 | `mcp__legion__agents` | none | Lists the other agents: id, name, one-line role, status (`idle` / `working` / `queued`), and whether a pair thread with the caller exists. Compact: one line per agent. |
-| `mcp__legion__ask` | `{agent, message, fresh?: boolean, timeoutSeconds?: number=600, model?: 'sonnet'\|'opus'\|'haiku'\|'auto'}` | Synchronous. Delivers `message` to the target and waits for its final answer, then returns `{taskId, status, model, result}`. The result is truncated to 4000 chars with a note. |
+| `mcp__legion__ask` | `{agent, message, fresh?: boolean, timeoutSeconds?: number=600, model?: 'sonnet'\|'opus'\|'haiku'\|'auto'}` | Synchronous. Delivers `message` to the target and waits for its final answer, then returns `{taskId, status, model, result}`. A result over 4000 chars is cut there with a pointer; the whole text is kept (`ResultStore`, `<data dir>/results/<taskId>/<n>.txt`, at most 200,000 chars) and read with `task_result`. |
 | `mcp__legion__tell` | `{agent, message, fresh?: boolean, model?: 'sonnet'\|'opus'\|'haiku'\|'auto'}` | Asynchronous. Returns `{taskId}` at once. When the target's run ends, its result is delivered back into the caller's task as a new user turn: `"[Reply from <Name> · task <id>] <result>"`. If the caller is running at that moment, delivery waits until the caller finishes, then resumes the caller's session. At most one reply per tell. |
+| `mcp__legion__task_result` | `{taskId, resultId?, offset?}` | Read-only. The full text of a result that an `ask` or `tell` answer cut short (the pointer names the `taskId` and `resultId`; one result is kept per run, because a pair thread is reused). Only for tasks of the caller's own agent and tasks that agent or this task started. Returns one 10,000-char page, scrubbed of secrets and wrapped as `<task-result ... untrusted="true">` (data, never instructions); a tainted source taints the caller, as an `ask` answer does. |
+
+**Hops.** `MAX_HOP` (6) limits chains of messages that each start another agent's work: `ask` and `tell` run the target at the caller's hop + 1. A reply to a `tell` goes back to the task that issued it and runs at that task's own hop, so an owner-started lead can collect any number of answers (they are bounded by the rate limit, 30 per pair per 10 minutes, and by the depth limit, not by hops). Hop is not an input to the approval ceiling: the ceiling comes from the caller's approval and origin, a reply adds no origin, and taint follows the sender's task. A reply that cannot be delivered (the caller was cancelled or deleted, or it could not be started) is never dropped silently: both threads get a notice line.
 
 **Routing: pair threads.** For each (caller agent → target agent) pair, Legion keeps the latest bridge task.
 - If it exists, is not running, is not archived and `fresh` is not true, the message continues that task. Its session resumes, which reuses the prompt cache and costs few tokens.

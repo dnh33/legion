@@ -71,6 +71,11 @@ export const EPISODE_PROMPT_CHARS = 300;
 /** How much of a prompt or result is looked at before it is cut: far more than is kept, so a secret that straddles the cut is still seen whole. */
 const EPISODE_SCRUB_WINDOW = 8_000;
 export const EPISODE_RESULT_CHARS = 800;
+/** The source link an episode carries to the full result of its task, and the one place that builds it. */
+export const episodeResultRef = (taskId: string): string => `task:${taskId}#result`;
+const episodeSources = (taskId: string): KgSource[] => [{ ref: `task:${taskId}`, untrusted: true }, { ref: episodeResultRef(taskId), untrusted: true }];
+/** Matches the link in a kg_get id; the capture is the task id. */
+export const EPISODE_RESULT_RE = /^task:([A-Za-z0-9_-]{1,64})#result$/;
 export const staleDaysFor = (type: KgNodeType): number => (NEVER_STALE.has(type) ? Infinity : STALE_DAYS_BY_TYPE[type] ?? STALE_DAYS);
 const MAX_TAGS = 32;
 const MAX_SOURCES = 20;
@@ -1735,7 +1740,9 @@ export class Graph {
       title = clipCp(oneLine(g.text(`Episode: ${e.title || e.taskId}`)), KG_LIMITS.titleChars);
       // scrub the text first and cut it afterwards: a key or a seed phrase must never be cut in half and slip past the scrubber
       const gen = (s: string, max: number): string => clipCp(g.text(s.slice(0, EPISODE_SCRUB_WINDOW)), max);
-      body = `${header}\n\nPrompt: ${gen(e.prompt, EPISODE_PROMPT_CHARS)}\n\nResult: ${gen(e.result, EPISODE_RESULT_CHARS)}`;
+      // the node keeps a short summary; the whole result stays on the task and is read through the `task:<id>#result` link (episodeResult)
+      const more = e.result.length > EPISODE_RESULT_CHARS ? `\n\n(${e.result.length} characters in all. Full result: kg_get ${episodeResultRef(e.taskId)})` : '';
+      body = `${header}\n\nPrompt: ${gen(e.prompt, EPISODE_PROMPT_CHARS)}\n\nResult: ${gen(e.result, EPISODE_RESULT_CHARS)}${more}`;
     } catch (err) {
       if (!(err instanceof KgError)) throw err;
       // a seed phrase or key in the text: keep the fact that the task ran, drop the text
@@ -1748,11 +1755,11 @@ export class Graph {
     const origin: KgOrigin = { taskId: e.taskId, tainted: e.tainted };
     let op: LogOp;
     if (existing) {
-      op = { op: 'patch', id, fields: { title, body, props, origin, updatedAt: now } };
+      op = { op: 'patch', id, fields: { title, body, props, origin, sources: episodeSources(e.taskId), updatedAt: now } };
     } else {
       const node: KgNode = {
         id, type: 'episode', title, body, tags: ['episode', 'auto'], scope, props,
-        sources: [{ ref: `task:${e.taskId}`, untrusted: true }], trust: 'untrusted', origin, createdBy: 'system', createdAt: now, updatedAt: now,
+        sources: episodeSources(e.taskId), trust: 'untrusted', origin, createdBy: 'system', createdAt: now, updatedAt: now,
       };
       op = { op: 'node', node };
     }
@@ -1762,6 +1769,32 @@ export class Graph {
     this.logActivity(SYSTEM, 'episode', undo, n);
     this.changed([id]);
     return structuredClone(n);
+  }
+
+  /**
+   * The full result behind an episode's `task:<id>#result` link. The link is only followed through the episode the system itself wrote for
+   * that task (`ep:<taskId>`, createdBy system) and only if the actor may see that episode: a bot can write any `sources` text on its own
+   * notes, so a source on some other node is never a key to a task's result. The whole text goes through the secret guard (not just the
+   * window the episode summary used); a seed phrase or key in it withholds all of it.
+   */
+  episodeResult(actor: Actor, taskId: string, srcOf: () => { text?: string; projectId?: string; tainted?: boolean } | undefined): { node: KgNode; text: string; tainted: boolean } {
+    const node = this.getNode(actor, `ep:${taskId}`);
+    if (!node || node.type !== 'episode' || node.createdBy !== 'system') throw new KgError('not_found', `Unknown node "${episodeResultRef(taskId)}" (it may not exist or may not be visible to you).`);
+    // read only after the episode check above: a ref that fails it never reaches the task store (and never taints anything)
+    const src = srcOf();
+    // an episode kept in a project's scope is for that project's runs: if the task has since moved to another project (or none), its new
+    // result is not theirs to read
+    if (projectIdOfScope(node.scope) !== undefined && (src?.projectId === undefined || projectScope(src.projectId) !== node.scope)) {
+      throw new KgError('not_found', `Unknown node "${episodeResultRef(taskId)}" (it may not exist or may not be visible to you).`);
+    }
+    const raw = src?.text;
+    if (raw === undefined) throw new KgError('not_found', 'The full result of that task is no longer stored.');
+    let text: string;
+    try { text = this.guard().text(raw); } catch (err) {
+      if (!(err instanceof KgError)) throw err;
+      throw new KgError('forbidden', 'The full result is withheld: it contains what looks like a secret (a seed phrase or a key).');
+    }
+    return { node, text, tainted: src?.tainted === true };
   }
 
   /**

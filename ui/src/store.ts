@@ -4,6 +4,7 @@ import type {
 } from '../../src/shared/types';
 import { api, request, subscribe, ApiError, type ConnStatus } from './api';
 import { incomingWins } from './chat/tasksync';
+import { askToStop } from './chat/background';
 import type { Project } from '../../src/shared/projects';
 import { FILTER_KEY, inProject, newTaskProjectId } from './projects/projectsLogic';
 import { moodAfterDecision, noteDenial } from './mascot/toolActivity';
@@ -260,6 +261,9 @@ export function handleEvent(e: LegionEvent) {
     case 'blender.status':
       window.dispatchEvent(new CustomEvent('legion:blender', { detail: e.status }));
       break;
+    case 'ci.updated':
+      window.dispatchEvent(new CustomEvent('legion:ci', { detail: e.summary }));
+      break;
     case 'mascot':
       setState({ mascot: { mood: e.mood, note: e.note, at: Date.now() } });
       break;
@@ -421,9 +425,20 @@ export async function sendPrompt(prompt: string): Promise<boolean> {
   return true;
 }
 
-export async function cancelSelected() {
+/**
+ * Whether the owner agrees to cancel this run. A run waiting on background agents ends them when it is cancelled (Stop, Ctrl+Enter and
+ * "send now" all cancel), so that is said first (docs/CHAT.md). A run with none is not asked.
+ */
+export function confirmStop(taskId: string | null): boolean {
+  const n = taskId ? getState().progress[taskId]?.background ?? 0 : 0;
+  if (n <= 0) return true;
+  return askToStop(n, (m) => window.confirm(m));
+}
+
+export async function cancelSelected(confirmed = false) {
   const id = getState().selectedTaskId;
   if (!id) return;
+  if (!confirmed && !confirmStop(id)) return;
   try { await api.cancelTask(id); } catch (e) { toast(errText(e), 'error'); }
 }
 
@@ -536,6 +551,7 @@ export async function deleteTask(id: string) {
   try { await api.deleteTask(id); handleEvent({ type: 'task.deleted', taskId: id }); } catch (e) { toast(errText(e), 'error'); }
 }
 export async function stopTask(id: string) {
+  if (!confirmStop(id)) return;
   try { await api.cancelTask(id); } catch (e) { toast(errText(e), 'error'); }
 }
 export async function setShowClosed(on: boolean) {

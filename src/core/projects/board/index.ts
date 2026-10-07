@@ -45,6 +45,16 @@ export function createBoardModule(deps: ModuleDeps, opts: BoardModuleOpts): Core
   /** Advisory, carries no item text: the window re-reads the board. */
   const changed = (projectId: string): void => { try { deps.bus.emit({ type: 'board.updated', projectId }); } catch { /* advisory */ } };
   const out = <T>(projectId: string, v: T): T => { changed(projectId); return v; };
+  // a run is live while its task is queued or running; an unreadable task store counts as live (never end a run on a guess)
+  board.setRunLookup((taskId) => {
+    const t = deps.store.getTask(taskId);
+    return { live: !!t && (t.status === 'queued' || t.status === 'running'), ...(t?.agentId ? { agentId: t.agentId } : {}), ...(t ? { tainted: !!t.tainted } : {}) };
+  });
+  // the engine marked tasks left running by a previous process as errors before the modules were built: end their items' runs now
+  // per project, so one unreadable board does not leave the others' items stuck in Doing
+  let all: { id: string }[] = [];
+  try { all = projects.list(); } catch { /* the board still starts */ }
+  for (const p of all) { try { board.reconcileRuns(p.id); } catch { /* this project's items stay as they were */ } }
 
   return {
     id: 'project-board',
@@ -107,6 +117,7 @@ export function createBoardModule(deps: ModuleDeps, opts: BoardModuleOpts): Core
         if (p.status === 'archived') throw new HttpError(409, 'This project is archived: unarchive it to run an item.');
         const item: WorkItem | undefined = wrap(() => board.get(p.id, c.params[1]!));
         if (!item || item.proposal) throw new HttpError(404, 'Unknown item');
+        if (item.status === 'done') throw new HttpError(409, 'This item is Done. Move it out of Done to run it again.');
         if (item.assignee?.kind !== 'agent') throw new HttpError(400, 'Assign this item to a member agent first: the owner cannot "run" an item.');
         const agentId = item.assignee.id;
         if (!p.members.includes(agentId)) throw new HttpError(400, `${agentId} is not a member of this project. Reassign the item or add the agent as a member.`);

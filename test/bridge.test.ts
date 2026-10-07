@@ -252,13 +252,14 @@ test('nested asks with maxConcurrent 1 do not deadlock (zealot -> builder -> sco
   assert.equal(scoutTask.fromAgentId, 'builder');
 });
 
-test('ask result is truncated to 4000 chars with a note; ask timeout returns running', async () => {
+test('ask result is cut to 4000 chars with a pointer to the full text; ask timeout returns running', async () => {
   const s = setup((c) => c.agent === 'builder' && c.prompt.endsWith('big') ? (async function* () { yield init('b1'); yield ok('x'.repeat(9000), 'b1'); })() : c.agent === 'builder' && c.prompt.endsWith('slow') ? (async function* () { yield init('b2'); await new Promise(() => undefined); })() : undefined, 4);
   const z = s.engine.startTask({ agentId: 'zealot', prompt: 'go', source: 'ui' });
   await s.engine.waitFor(z.id, 3000);
   const r = await s.engine.bridge.ask(z.id, 'builder', 'big') as any;
-  assert.ok(r.result.length < 4100);
-  assert.match(r.result, /\[truncated: 5000 more chars\]$/);
+  assert.ok(r.result.length < 4400);
+  assert.match(r.result, /\[truncated: 5000 more chars\. The full result is kept: call task_result with taskId "task_\w+" and resultId "1"/);
+  assert.equal(r.truncated, true);
   const t = await s.engine.bridge.ask(z.id, 'scout', 'slow-not-builder');
   assert.equal(t.status, 'done');
   const slow = await s.engine.bridge.ask(z.id, 'builder', 'slow', { fresh: true, timeoutSeconds: 0.05 }) as any;

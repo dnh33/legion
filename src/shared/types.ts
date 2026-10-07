@@ -5,6 +5,7 @@
 import type { Room, RoomMessage, CommsState, TaskOrigin } from './comms.js';
 import type { BlenderStatusView } from './blender.js';
 import type { Project } from './projects.js';
+import type { CiUpdateSummary } from './ci.js';
 
 /** What the user picks per agent/task. 'auto' lets the router decide. */
 export type ModelChoice = 'auto' | string;
@@ -217,6 +218,10 @@ export interface TaskProgress {
   todos?: TodoItem[];
   /** True while the model is in a thinking block; the thinking itself is never sent. */
   thinking?: boolean;
+  /** Background agents this run is waiting on (absent: none). The run stays open until they report; Stop ends them. */
+  background?: number;
+  /** When Legion stops waiting for them whatever they do (ISO time); present with `background` once the run is held. */
+  backgroundStopsAt?: string;
 }
 /** One line of a Claude TodoWrite checklist. */
 export interface TodoItem { content: string; status: 'pending' | 'in_progress' | 'completed'; activeForm?: string }
@@ -243,7 +248,8 @@ export type LegionEvent =
   | { type: 'kg.updated'; nodeCount: number; edgeCount: number; changed?: string[] }
   | { type: 'blender.status'; status: BlenderStatusView }
   | { type: 'project.updated'; project: Project }
-  | { type: 'board.updated'; projectId: string };
+  | { type: 'board.updated'; projectId: string }
+  | { type: 'ci.updated'; summary: CiUpdateSummary };
 
 /** A tool call waiting for the user's decision. Auto-denied after 10 minutes. */
 export interface ApprovalRequest {

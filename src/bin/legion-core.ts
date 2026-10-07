@@ -26,6 +26,8 @@ import { createBsvModule, createBsvState } from '../core/bsv/index.js';
 import { createCommsModule } from '../core/comms/index.js';
 import { createHouseModule } from '../core/house/index.js';
 import { createArmoryModule } from '../core/armory/index.js';
+import { createCiModule } from '../core/ci/index.js';
+import { createWritesResolver, resolveGitHub } from '../core/ci/wiring.js';
 import { createKnowledgeModule } from '../core/kg/index.js';
 import { createUpdaterModule } from '../core/updater/index.js';
 import { createProjectsModule, ProjectStore } from '../core/projects/index.js';
@@ -107,7 +109,9 @@ async function main() {
   const boardModules = board ? [createBoardModule(moduleDeps, { projects, board, notes: graphNotes(() => kg.graph()) })] : [];
   // connectors: the gateway tools (an agent must opt in) and the Settings routes; GitHub reads only in this build
   const connectors = createConnectorsModule(moduleDeps, { keys: connectorKeyring, log });
-  const modules = [kg, house, armory, createCommsModule(moduleDeps, { projects }), createProjectsModule(moduleDeps, { projects, nativeSecret }), ...boardModules, bsv, blender, ...providersModules, updater, createBrowserModule(moduleDeps, { nativeSecret, log }), connectors];
+  // CI panel: runs of the current repo's GitHub Actions. The GitHub client comes from the connectors work; without it the panel says so.
+  const ci = createCiModule(moduleDeps, { github: () => resolveGitHub(), writes: createWritesResolver(log).get, projects, log });
+  const modules = [kg, house, armory, createCommsModule(moduleDeps, { projects }), createProjectsModule(moduleDeps, { projects, nativeSecret }), ...boardModules, bsv, blender, ...providersModules, updater, createBrowserModule(moduleDeps, { nativeSecret, log }), connectors, ci];
   engine.setModules(modules);
   const server = createServer({
     config, store, bus, engine, vms, approvals, boatConfigured, modules, bsvEnabled,
