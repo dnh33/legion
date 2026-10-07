@@ -4,6 +4,7 @@ import type {
 } from '../../src/shared/types';
 import { api, request, subscribe, ApiError, type ConnStatus } from './api';
 import { incomingWins } from './chat/tasksync';
+import { keepTasks } from './history/historyLogic';
 import { askToStop } from './chat/background';
 import type { Project } from '../../src/shared/projects';
 import { FILTER_KEY, inProject, newTaskProjectId } from './projects/projectsLogic';
@@ -131,6 +132,22 @@ function upsertTask(tasks: Task[], t: Task): Task[] {
 function upsertTaskIfNewer(tasks: Task[], t: Task): Task[] {
   const cur = tasks.find((x) => x.id === t.id);
   return cur && !incomingWins(cur, t) ? tasks : upsertTask(tasks, t);
+}
+
+/** Puts a task the window did not have (a row of the history list, a project's task) into the store, so the thread, menus and rename can find it. Never replaces a newer copy. */
+export function adoptTask(t: Task) { setState((s) => ({ tasks: upsertTaskIfNewer(s.tasks, t) })); }
+/** Opens a task chosen in the history list: adopt it, bring it back from Closed if needed, select it. */
+export function openHistoryTask(t: Task) {
+  adoptTask(t);
+  if (t.archived) void reopenTask(t.id);
+  selectTask(t.id);
+}
+/** The newest tasks of one project, for its page: the window's snapshot only holds the newest few per agent. */
+export async function loadProjectTasks(projectId: string) {
+  try {
+    const page = await api.tasksPage({ projectId, limit: 30 });
+    setState((s) => { let tasks = s.tasks; for (const t of page.tasks) tasks = upsertTaskIfNewer(tasks, t); return tasks === s.tasks ? {} : { tasks }; });
+  } catch { /* the page still shows what the window already has */ }
 }
 
 export function tasksForAgent(s: AppState, agentId: string) {
@@ -281,7 +298,7 @@ export async function refresh() {
       const first = !s.loaded;
       return {
         loaded: true, version: snap.version, auth: snap.auth, boatConfigured: snap.boatConfigured, boatHealth: snap.boat ?? s.boatHealth,
-        agents: snap.agents, tasks: snap.tasks, vms, approvals: dedupeById(snap.approvals),
+        agents: snap.agents, tasks: keepTasks(s.tasks, snap.tasks, new Set(s.selectedTaskId ? [s.selectedTaskId] : [])), vms, approvals: dedupeById(snap.approvals),
         // opened mid-run: show the run's turn, tool and checklist now, not after its next event
         progress: snap.progress ?? s.progress,
         selectedAgentId: sel,

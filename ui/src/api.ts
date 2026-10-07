@@ -3,7 +3,7 @@ import type { BoardStatus, BoardView, WorkItem } from '../../src/shared/board';
 import type { BlenderStatusView } from '../../src/shared/blender';
 import type {
   SettingsView, SettingsPatch, McpStatusView,
-  AgentProfile, ApprovalRequest, BoatHealthView, Catalog, ChatMessage, DoctorCheck, LegionConfig, LegionEvent, ModelChoice, StateSnapshot, Task, VmRecord,
+  AgentProfile, ApprovalRequest, BoatHealthView, Catalog, ChatMessage, DoctorCheck, LegionConfig, LegionEvent, ModelChoice, StateSnapshot, Task, TasksPage, VmRecord,
 } from '../../src/shared/types';
 
 declare global {
@@ -88,7 +88,18 @@ export async function request<T>(method: string, path: string, body?: unknown): 
 export type NewAgent = Partial<AgentProfile> & { name: string };
 
 export const api = {
-  state: (archived = false) => request<StateSnapshot>('GET', `/api/state${archived ? '?archived=1' : ''}`),
+  /** `slim=1`: the window's working set (running tasks, the newest per agent), not the whole history; the history list pages through `tasksPage`. */
+  state: (archived = false) => request<StateSnapshot>('GET', `/api/state?slim=1${archived ? '&archived=1' : ''}`),
+  tasksPage: (p: { agentId?: string; projectId?: string; q?: string; cursor?: string | null; limit?: number; archived?: boolean }) => {
+    const sp = new URLSearchParams();
+    if (p.agentId) sp.set('agentId', p.agentId);
+    if (p.projectId) sp.set('projectId', p.projectId);
+    if (p.q) sp.set('q', p.q);
+    if (p.cursor) sp.set('cursor', p.cursor);
+    if (p.limit) sp.set('limit', String(p.limit));
+    if (p.archived) sp.set('archived', '1');
+    return request<TasksPage>('GET', `/api/tasks?${sp}`);
+  },
   settings: () => request<SettingsView>('GET', '/api/settings'),
   patchSettings: (p: SettingsPatch) => request<SettingsView>('PATCH', '/api/settings', p),
   testBoat: (apiKey?: string, baseUrl?: string) => request<{ ok: boolean; detail: string; warnings?: string[] }>('POST', '/api/settings/boat/test', { ...(apiKey ? { apiKey } : {}), ...(baseUrl ? { baseUrl } : {}) }),

@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { PROJECT_LIMITS } from '../../../src/shared/projects';
 import type { Project } from '../../../src/shared/projects';
 import { ensureRoomList, openRoom, useRooms } from '../rooms/roomsStore';
-import { newTask, selectAgent, selectTask, setView, useStore } from '../store';
+import { loadProjectTasks, newTask, selectAgent, selectTask, setView, useStore } from '../store';
 import { assignRoom, changeMembers, chooseFolder, closeProjectPage, saveProject, setProjectFilter, useDefaultFolder } from './projectsStore';
 import { assignableRooms, instructionsCounter, projectLabel, roomsOf, statusLine } from './projectsLogic';
 import { BoardPanel } from './board/BoardPanel';
@@ -27,6 +27,8 @@ function ProjectPage({ project }: { project: Project }) {
   const tasks = useStore((s) => s.tasks);
   const rooms = useRooms((s) => s.rooms);
   useEffect(() => { ensureRoomList(); }, []);
+  // the window's snapshot holds only the newest tasks per agent: fetch this project's own
+  useEffect(() => { void loadProjectTasks(project.id); }, [project.id]);
   const [name, setName] = useState(project.name);
   const [text, setText] = useState(project.instructions);
   const [add, setAdd] = useState('');
