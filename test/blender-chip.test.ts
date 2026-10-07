@@ -183,7 +183,7 @@ test('source: mounted in the title bar right after the BSV chip (its narrow-wind
   assert.ok(tb.indexOf('<BlenderChip />') > 0 && tb.indexOf('<BsvChip />') < tb.indexOf('<BlenderChip />') && tb.indexOf('<BlenderChip />') < tb.indexOf('className={`tb-doctor'));
   const css = read('ui/src/blender/blender.css');
   const chipSrc = read('ui/src/blender/BlenderChip.tsx');
-  assert.match(css, /\.tb-bl-pill:focus-visible, \.bl-pop button:focus-visible \{ outline: 2px/);
+  assert.match(css, /:root\[data-kbd-nav\] \.tb-bl-pill:focus-visible, :root\[data-kbd-nav\] \.bl-pop button:focus-visible \{ outline: 2px/);
   assert.match(css, /@media \(max-width: 1279px\) \{ \.tb-bl-word \{ display: none; \}/);
   assert.ok(!/#f5792a|--bl\b/.test(css), 'no colour of its own: the app tokens only');
   assert.match(chipSrc, /openSettings\('blender'\)/);

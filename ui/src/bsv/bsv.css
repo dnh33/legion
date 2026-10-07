@@ -17,12 +17,12 @@
 .tb-bsv.on:hover:not(:disabled) { color: var(--chain); border-color: var(--chain); background: var(--chain-soft); }
 .tb-bsv.on .tb-bsv-track { background: var(--chain-soft); border-color: color-mix(in srgb, var(--chain) 60%, transparent); }
 .tb-bsv.on .tb-bsv-track::after { transform: translateX(10px); background: var(--chain); }
-.tb-bsv:focus-visible { outline: 2px solid var(--chain); outline-offset: 2px; }
+:root[data-kbd-nav] .tb-bsv:focus-visible { outline: 2px solid var(--chain); outline-offset: 2px; }
 /* panel button beside the switch (shown while the mode is on, wide windows only; the pill and the command palette reach the panel everywhere) */
 .tb-bsv-panel { height: 26px; padding: 0 9px; margin-right: 2px; background: transparent; border: 1px solid var(--line); border-radius: 13px; color: var(--chain); font: 600 11px/1 var(--font-mono); letter-spacing: .06em; cursor: pointer; }
 .tb-bsv-panel:hover { background: var(--chain-soft); border-color: var(--chain); }
 .tb-bsv-panel[data-live='1'] { color: var(--live); border-color: var(--live); }
-.tb-bsv-panel:focus-visible { outline: 2px solid var(--chain); outline-offset: 2px; }
+:root[data-kbd-nav] .tb-bsv-panel:focus-visible { outline: 2px solid var(--chain); outline-offset: 2px; }
 @media (max-width: 1279px) { .tb-bsv-panel { display: none; } }
 /*
  * Wide windows (>= 1280px): the chip is a normal item of .tb-right and the header's left side does not move.
@@ -68,7 +68,7 @@
 .bsv-pill-btn { background: transparent; color: var(--text-2); border: 1px solid var(--line-strong); }
 .bsv-pill-btn:hover:not(:disabled) { background: var(--surface-3); color: var(--text); }
 .bsv-pill button:disabled { opacity: .55; cursor: progress; }
-.bsv-pill button:focus-visible, .bsv-panel button:focus-visible { outline: 2px solid var(--chain); outline-offset: 2px; }
+:root[data-kbd-nav] .bsv-pill button:focus-visible, :root[data-kbd-nav] .bsv-panel button:focus-visible { outline: 2px solid var(--chain); outline-offset: 2px; }
 
 /* ---- the panel ---- */
 .bsv-panel { display: grid; gap: 14px; }

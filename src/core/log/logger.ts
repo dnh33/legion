@@ -99,6 +99,22 @@ export interface LogSinkOptions {
   schedule?: (fn: () => void) => void;
 }
 
+const GH_OK = /^github: (?:GET|HEAD) (\S+) [23]\d\d$/;
+const GH_BAD = /^github: [A-Z]+ \S+ (?:failed|[45]\d\d)$/;
+/**
+ * Every GitHub call the connectors client reports arrives as a core.message line at INFO. That is noise: a successful read is DEBUG, a
+ * successful GET /rate_limit (the CI poller's heartbeat, about every 35 s) is dropped, and a failure stays visible at WARN.
+ * Returns the level to use, or null to drop the line.
+ */
+export function quietGithubLine(level: LogLevel, component: string, event: string, fields?: LogFields): LogLevel | null {
+  if (component !== 'core' || event !== 'core.message' || level !== 'info') return level;
+  const m = fields?.message;
+  if (typeof m !== 'string') return level;
+  const ok = GH_OK.exec(m);
+  if (ok) return ok[1] === '/rate_limit' ? null : 'debug';
+  return GH_BAD.test(m) ? 'warn' : level;
+}
+
 export class LogSink {
   readonly dir: string;
   private readonly minRank: number;
@@ -147,6 +163,9 @@ export class LogSink {
 
   /** Formats, redacts and enqueues one line. Never throws, never blocks. */
   log(level: LogLevel, component: string, event: string, fields?: LogFields): void {
+    const q = quietGithubLine(level, component, event, fields);
+    if (q === null) return;
+    level = q;
     const rank = RANK[level];
     if (rank === undefined || rank < this.minRank) return;
     let text: string;
