@@ -10,6 +10,7 @@ import { initUpdater, recoverAtStart } from './updater-main.js';
 import { adminForRenderer, bsvConfirmation, bsvPreflight, coreAction, coreIsBusy, createSpendNative, dialogText, isSpendAction, killPlan, listenerCommands, listenerPids, netChangeProblem, parseBsvAction, SPEND_POLL_MS, trustedSender, type BsvAction, type BsvPolicyFacts, type CoreHealth } from './admin-logic.js';
 import { makeConfirm, providerChange } from './provider-ipc.js';
 import { coreStartHint, resolveCoreLaunch, startFailureLine } from './resolve-node.js';
+import { redact } from '../core/log/redact.js';
 import { heapArgv } from './heap-limit.js';
 import { ensureConnectorKey, keyLine, loadConnectorKey } from './connector-key.js';
 import { connectGithub } from './connector-ipc.js';
@@ -458,7 +459,7 @@ async function boot(): Promise<void> {
   splashJs('line', 'waking the core\u2026');
   const err = await ensureCore();
   if (err) {
-    try { appendFileSync(join(dataDir(), 'core.log'), startFailureLine(err)); } catch { /* the splash still shows it */ }
+    try { appendFileSync(join(dataDir(), 'core.log'), redact(startFailureLine(err))); } catch { /* the splash still shows it */ }
     splashJs('error', err);
     return;
   }

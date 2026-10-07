@@ -1,9 +1,10 @@
 #!/usr/bin/env node
 /** Legion Core composition root. */
+// FIRST import, on purpose: it wraps stdout and stderr in the redactor before any other module can write (test/log-wiring.test.ts).
+import '../core/log/install.js';
 import { ProviderRuntime } from '../core/providers/runtime.js';
 import { ProviderKeys, keyFileFor } from '../core/providers/secrets.js';
 import { createProvidersModule } from '../core/providers/routes.js';
-import { appendFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { configPath, dataDir, loadConfig, scrubHostSessionEnv, VERSION } from '../shared/config.js';
@@ -27,6 +28,7 @@ import { createCommsModule } from '../core/comms/index.js';
 import { createHouseModule } from '../core/house/index.js';
 import { createArmoryModule } from '../core/armory/index.js';
 import { createCiModule } from '../core/ci/index.js';
+import { createLogsModule, openLogSink } from '../core/log/index.js';
 import { createWritesResolver, resolveGitHub } from '../core/ci/wiring.js';
 import { createKnowledgeModule } from '../core/kg/index.js';
 import { createUpdaterModule } from '../core/updater/index.js';
@@ -37,12 +39,18 @@ import { Store } from '../core/store.js';
 import { isPackageInstall } from '../electron/resolve-node.js';
 import { VmManager } from '../core/vm-manager.js';
 
-const logFile = join(dataDir(), 'core.log');
+// One sink: <dataDir>/logs. log() is a thin call into it (component 'core'); the line also goes to stderr (redacted by the wrapper),
+// which Electron main keeps as the raw stream file core.log. There is no second writer.
+const sink = openLogSink(dataDir());
+const clog = sink.logger('core');
 const log = (...a: unknown[]) => {
-  const line = `[${new Date().toISOString()}] ${a.map((x) => (x instanceof Error ? x.stack : typeof x === 'string' ? x : JSON.stringify(x))).join(' ')}\n`;
-  process.stderr.write(line);
-  try { appendFileSync(logFile, line); } catch { /* ignore */ }
+  const text = a.map((x) => (x instanceof Error ? x.stack ?? x.message : typeof x === 'string' ? x : JSON.stringify(x))).join(' ');
+  if (a.some((x) => x instanceof Error)) clog.error('core.error', { message: text }); else clog.info('core.message', { message: text });
+  process.stderr.write(`[${new Date().toISOString()}] ${text}
+`);
 };
+/** Writes what is queued and closes the files: exit and fatal paths. */
+const closeLogs = () => { try { sink.flushSync(); sink.closeAll(); } catch { /* nothing more to do */ } };
 
 async function main() {
   // Per-launch admin secret from the stdin pipe (Electron main only). None for a headless/bridge-started core: admin routes stay closed.
@@ -111,7 +119,8 @@ async function main() {
   const connectors = createConnectorsModule(moduleDeps, { keys: connectorKeyring, log });
   // CI panel: runs of the current repo's GitHub Actions. The GitHub client comes from the connectors work; without it the panel says so.
   const ci = createCiModule(moduleDeps, { github: () => resolveGitHub(), writes: createWritesResolver(log).get, projects, log });
-  const modules = [kg, house, armory, createCommsModule(moduleDeps, { projects }), createProjectsModule(moduleDeps, { projects, nativeSecret }), ...boardModules, bsv, blender, ...providersModules, updater, createBrowserModule(moduleDeps, { nativeSecret, log }), connectors, ci];
+  const logs = createLogsModule(moduleDeps, { sink });
+  const modules = [kg, house, armory, createCommsModule(moduleDeps, { projects }), createProjectsModule(moduleDeps, { projects, nativeSecret }), ...boardModules, bsv, blender, ...providersModules, updater, createBrowserModule(moduleDeps, { nativeSecret, log }), connectors, ci, logs];
   engine.setModules(modules);
   const server = createServer({
     config, store, bus, engine, vms, approvals, boatConfigured, modules, bsvEnabled,
@@ -143,12 +152,23 @@ async function main() {
     server.close();
     await store.flush();
     await projects.flush();
+    closeLogs();
     process.exit(0);
   };
   process.on('SIGINT', () => void shutdown('SIGINT'));
   process.on('SIGTERM', () => void shutdown('SIGTERM'));
-  process.on('unhandledRejection', (e) => log('unhandledRejection', e));
-  process.on('uncaughtException', (e) => log('uncaughtException', e));
+  // Fatal paths: log the error, write the queue now. uncaughtException keeps the old behaviour (the process stays up).
+  const fatal = (event: string, e: unknown) => {
+    const message = e instanceof Error ? e.stack ?? e.message : String(e);
+    clog.error(event, { message });
+    process.stderr.write(`[${new Date().toISOString()}] ${event} ${message}
+`);
+    sink.flushSync();
+  };
+  process.on('unhandledRejection', (e) => fatal('process.unhandledRejection', e));
+  process.on('uncaughtException', (e) => fatal('process.uncaughtException', e));
+  process.on('beforeExit', closeLogs);
+  process.on('exit', closeLogs);
 }
 
-main().catch((e) => { log('fatal', e); process.exit(1); });
+main().catch((e) => { log('fatal', e); closeLogs(); process.exit(1); });
