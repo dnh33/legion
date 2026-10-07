@@ -39,6 +39,10 @@ contextBridge.exposeInMainWorld('legion', {
   updateRestartNow() {
     return ipcRenderer.invoke('legion:update-restart-now');
   },
+  // Settings, Connectors, GitHub: main makes the key on the first connect (restarting the core once), then starts the sign-in and opens GitHub's page.
+  connectorConnect() {
+    return ipcRenderer.invoke('legion:connector-connect');
+  },
   openExternal(url) {
     return ipcRenderer.invoke('legion:open-external', String(url));
   },

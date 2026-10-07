@@ -13,8 +13,9 @@ import { InputChannel } from './input-channel.js';
 import { BackgroundTasks } from './background-tasks.js';
 import { capStored } from './result-store.js';
 import { contextTokensOf } from '../shared/context-meter.js';
-import { isLegionTool, needsApproval, stricterMode } from './approvals.js';
+import { isLegionTool, needsApproval, stricterMode, LEGION_SERVER_NAMES } from './approvals.js';
 import { TaintedPaths } from './tainted-paths.js';
+import { CONTINUE_REFUSED } from './connector-withhold.js';
 import type { CoreModule, ModuleJob, PreambleContext, TaskEndOutcome } from './modules.js';
 import type { TaskOrigin } from '../shared/comms.js';
 import type { ApprovalBroker } from './approvals.js';
@@ -323,6 +324,8 @@ export class Engine {
       if (prev.status === 'running') { const live = this.feedLive(p, prev, prompt); if (live) return live; }
       if (prev.status === 'queued' || prev.status === 'running') throw new EngineError('Task is still running', 409);
       if (prev.agentId !== agent.id) throw new EngineError('Task belongs to a different agent', 400);
+      // a task that read connector data holds that text in its session: nothing started by or down a chain from an MCP client may resume it
+      if (prev.usedConnectors && origin?.viaMcpClient) throw new EngineError(CONTINUE_REFUSED, 403);
       const projectId = this.pickProject(p, agent, prev);
       priorModel = prev.model;
       const viaBridge = p.bridge && !p.bridge.reply;
@@ -409,8 +412,9 @@ export class Engine {
    */
   private mcpOrigin(p: BridgeStartParams, prev?: Task): TaskOrigin | undefined {
     if (p.source !== 'mcp') return undefined;
-    if (prev?.origin) return { ...prev.origin, approvalCeiling: stricterMode(prev.origin.approvalCeiling, 'ask') };
-    return { roomId: 'mcp', fromAgentId: 'mcp', hop: 0, approvalCeiling: 'ask' };
+    // viaMcpClient is set in both branches: a continue of a room-woken task by a client still came from a client (connector reads are refused for it).
+    if (prev?.origin) return { ...prev.origin, approvalCeiling: stricterMode(prev.origin.approvalCeiling, 'ask'), viaMcpClient: true };
+    return { roomId: 'mcp', fromAgentId: 'mcp', hop: 0, approvalCeiling: 'ask', viaMcpClient: true };
   }
 
   /** Origin (approval ceiling) for a task started by `ask`/`tell`. Replies go back to the caller's own task and add none. */
@@ -421,7 +425,9 @@ export class Engine {
     let ceiling: ApprovalMode = callerAgent?.approval ?? 'ask';
     if (callerTask?.origin) ceiling = stricterMode(ceiling, callerTask.origin.approvalCeiling);
     const tainted = !!callerTask?.origin?.tainted || (!!p.bridge.parentTaskId && this.isTainted(p.bridge.parentTaskId));
-    return { roomId: 'agent-bridge', fromAgentId: p.bridge.fromAgentId, hop: p.bridge.hop ?? 1, approvalCeiling: ceiling, ...(tainted ? { tainted: true } : {}) };
+    // the client flag travels down the chain: MCP client -> A -> (ask/tell) -> B is still a client-started chain (strictest wins, never cleared)
+    const viaMcpClient = callerTask?.origin?.viaMcpClient === true;
+    return { roomId: 'agent-bridge', fromAgentId: p.bridge.fromAgentId, hop: p.bridge.hop ?? 1, approvalCeiling: ceiling, ...(tainted ? { tainted: true } : {}), ...(viaMcpClient ? { viaMcpClient: true } : {}) };
   }
 
   /** Whether a task touched outside content (live run first, then what was stored). */
@@ -776,6 +782,8 @@ export class Engine {
     for (const [name, entry] of Object.entries(this.config.mcpServers ?? {})) {
       if (!all && !wanted.includes(name)) continue;
       if (self.has(name)) continue;
+      // A Settings entry may not take one of Legion's own server names: its tools would match LEGION_TOOL_PREFIXES (no card, no taint). Names are Legion's.
+      if (LEGION_SERVER_NAMES.has(name)) continue;
       if (entry.type === 'http') out[name] = { type: 'http', url: entry.url, ...(entry.headers ? { headers: entry.headers } : {}) };
       else if (entry.type === 'sse') out[name] = { type: 'sse', url: entry.url, ...(entry.headers ? { headers: entry.headers } : {}) };
       else out[name] = { type: 'stdio', command: entry.command, ...(entry.args ? { args: entry.args } : {}), ...(entry.env ? { env: entry.env } : {}) };
@@ -790,6 +798,7 @@ export class Engine {
       taskId, ...(job.origin ? { origin: job.origin, ceiling: job.origin.approvalCeiling } : {}),
       taint: () => act.tainted || job.origin?.tainted === true,
       markTainted: () => { act.tainted = true; },
+      markConnectorData: () => { this.patchTask(taskId, { usedConnectors: true }); },
       runtime,
       ...(pid ? { projectId: pid } : {}),
     };
@@ -938,6 +947,27 @@ export class Engine {
   }
 
   /**
+   * Maintainer decision 2026-10-07: in a run that read connector data AND is tainted, WebFetch and WebSearch need an approval card even in
+   * full mode: web access could carry that data out. Like the connector gateway's writes this raises its own card (never through guardAsk).
+   * Returns undefined when no card is due, else the decision. Used by canUseTool and the provider path (toolDecider) and, in bypass mode where
+   * canUseTool does not exist, by a PreToolUse hook.
+   */
+  private webEgressCard(job: Job, agent: AgentProfile, toolName: string, input: Record<string, unknown>): Promise<{ allow: boolean; message?: string }> | undefined {
+    if (toolName !== 'WebFetch' && toolName !== 'WebSearch') return undefined;
+    const used = this.store.getTask(job.taskId)?.usedConnectors === true;
+    const tainted = this.active.get(job.taskId)?.tainted === true || job.origin?.tainted === true;
+    if (!used || !tainted) return undefined;
+    const target = String(toolName === 'WebFetch' ? input?.url ?? '' : input?.query ?? '').slice(0, 1000);
+    const o = job.origin;
+    let timedOut = false;
+    return this.approvals.request(job.taskId, agent.id, toolName, input, o ? { roomId: o.roomId, fromAgentId: o.fromAgentId, hop: o.hop } : undefined, {
+      onTimeout: () => { timedOut = true; },
+      summary: `${toolName}: ${target}
+This run read connector (GitHub) data and other outside text. Web access can send that data out. Check the address or query before you allow it.`,
+    }).then((allowed) => allowed ? { allow: true } : { allow: false, message: timedOut ? `No one answered the approval request within ${this.approvals.timeoutWait}, so this web request was not run.` : 'The user denied this web request.' });
+  }
+
+  /**
    * The approval decision for one tool call, shared by the Claude path (canUseTool) and the provider path: effective mode (never looser
    * than the run's ceiling), then needsApproval, then a card the user answers (10 minutes, then denied).
    */
@@ -948,6 +978,10 @@ export class Engine {
       return ceiling ? stricterMode(mode, ceiling) : mode;
     };
     return async (toolName, input) => {
+      // web egress after connector data: a card in every mode (maintainer decision 2026-10-07)
+      // (no await when no card is due: the card of a normal tool must still be raised synchronously)
+      const egress = this.webEgressCard(job, agent, toolName, input);
+      if (egress) return egress;
       const mode = effective();
       if (!needsApproval(mode, toolName, { capped: job.origin?.approvalCeiling === 'ask' })) return { allow: true };
       const o = job.origin;
@@ -1056,6 +1090,12 @@ export class Engine {
     if (agent.approval === 'full' && !(ceiling && ceiling !== 'full')) {
       options.permissionMode = 'bypassPermissions';
       options.allowDangerouslySkipPermissions = true;
+      // bypass mode has no canUseTool: the web-egress card is raised from a PreToolUse hook instead (never both, so one card per call)
+      options.hooks?.PreToolUse?.push({ matcher: 'WebFetch|WebSearch', hooks: [async (input) => {
+        if (input.hook_event_name !== 'PreToolUse') return { continue: true };
+        const d = await this.webEgressCard(job, agent, input.tool_name, (input.tool_input ?? {}) as Record<string, unknown>);
+        return d && !d.allow ? preToolDeny(d.message ?? 'The user denied this web request.') : { continue: true };
+      }] });
     } else {
       options.permissionMode = 'default';
       const decide = this.toolDecider(job, agent);

@@ -26,8 +26,7 @@ import { initProjects } from './projects/projectsStore';
 import { RoomsView } from './rooms/RoomsView';
 import { initRooms } from './rooms/roomsStore';
 import {
-  closeOverlays, closeSettings, getState, init, newTask, openPalette, switchAgentByIndex, toggleMascotLab, toggleOps, toggleSettings, useStore, setView,
-} from './store';
+  closeOverlays, closeSettings, getState, init, newTask, openPalette, switchAgentByIndex, toggleMascotLab, toggleOps, toggleSettings, useStore, setView, reopenGithubAfterReload } from './store';
 
 /** Ops-panel slide (app.css `.app` grid transition is 180 ms): keep the panel mounted until it has slid out. */
 const OPS_SLIDE_MS = 220;
@@ -70,6 +69,7 @@ export function App() {
   const opsMounted = useOpsMounted(opsOpen);
   useWindowAway();
 
+  useEffect(() => { reopenGithubAfterReload(); }, []);
   useEffect(() => { init(); initRooms(); initBsv(); initBlender(); initHouse(); initLibrary(); initProjects(); initCi(); }, []);
   const projectFilter = useStore((s) => s.projectFilter);
   useEffect(() => { ciProjectChanged(); }, [projectFilter]);

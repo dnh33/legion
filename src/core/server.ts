@@ -8,6 +8,7 @@ import type {
 } from '../shared/types.js';
 import { summariseUsage } from '../shared/usage-summary.js';
 import { nowIso, slugify, uniqueAgentId } from '../shared/util.js';
+import { withholdEvent, withholdMessage, withholdTask } from './connector-withhold.js';
 import { ADMIN_HEADER, gate, healthProof, isAdminSecret, isHexNonce, isSsePath, safeEqual } from './admin.js';
 import type { ApprovalBroker } from './approvals.js';
 import type { EventBus } from './bus.js';
@@ -143,6 +144,13 @@ function parseMcpServers(v: unknown): string[] | undefined {
   return v as string[];
 }
 
+/** Connector ids an agent opts into: lowercase names, at most 16. */
+function parseConnectors(v: unknown): string[] | undefined {
+  if (v === undefined) return undefined;
+  if (!Array.isArray(v) || v.length > 16 || v.some((x) => typeof x !== 'string' || !/^[a-z][a-z0-9_-]{0,63}$/.test(x))) throw new HttpError(400, 'connectors must be an array of connector ids (lowercase names)');
+  return [...new Set(v as string[])];
+}
+
 function parseSkills(v: unknown): 'inherit' | string[] | undefined {
   if (v === undefined) return undefined;
   if (v === 'inherit') return 'inherit';
@@ -164,6 +172,7 @@ function parseAgentFields(b: Record<string, unknown>) {
     approval: oneOf(b.approval, 'approval', APPROVALS),
     vm: parseVm(b.vm),
     mcpServers: parseMcpServers(b.mcpServers),
+    connectors: parseConnectors(b.connectors),
     skills: parseSkills(b.skills),
   };
 }
@@ -247,6 +256,7 @@ export function createServer(ctx: CoreContext): Server {
       vm: { enabled: false, size: 'default', idleStopMinutes: 15, ...f.vm },
       approval: f.approval ?? 'ask',
       mcpServers: f.mcpServers ?? ['*'],
+      ...(f.connectors?.length ? { connectors: f.connectors } : {}),
       ...(f.skills ? { skills: f.skills } : {}),
       ...(f.cwd ? { cwd: f.cwd } : {}),
       createdAt: now, updatedAt: now,
@@ -270,6 +280,7 @@ export function createServer(ctx: CoreContext): Server {
       ...(f.model ? { model: f.model } : {}),
       ...(f.approval ? { approval: f.approval } : {}),
       ...(f.mcpServers ? { mcpServers: f.mcpServers } : {}),
+      ...(f.connectors ? { connectors: f.connectors } : {}),
       ...(f.skills ? { skills: f.skills } : {}),
       ...(f.cwd !== undefined ? { cwd: f.cwd || undefined } : {}),
       vm: { ...cur.vm, ...f.vm },
@@ -306,17 +317,20 @@ export function createServer(ctx: CoreContext): Server {
     if (projectId !== undefined && !admin) throw new HttpError(403, 'admin_required: only the Legion app can start a task inside a project');
     return ctx.engine.startTask({ agentId, prompt, source: admin ? 'ui' : 'mcp', model, continueTaskId, ...(projectId ? { projectId } : {}) });
   }, 201);
-  route('GET', '/api/tasks/:id/wait', async ({ params, url }) => {
+  route('GET', '/api/tasks/:id/wait', async ({ params, url, req }) => {
     const raw = url.searchParams.get('timeoutMs');
     let ms = raw === null ? 120000 : Number(raw);
     if (!Number.isFinite(ms) || ms < 0) ms = 120000;
     ms = Math.min(ms, 600000);
     mustTask(params[0]);
-    return ctx.engine.waitFor(params[0], ms);
+    const done = await ctx.engine.waitFor(params[0], ms);
+    return isAdminReq(req) ? done : withholdTask(done);
   });
-  route('GET', '/api/tasks/:id', ({ params }) => {
+  route('GET', '/api/tasks/:id', ({ params, req }) => {
     const task = mustTask(params[0]);
-    return { task, messages: ctx.store.listMessages(task.id) };
+    const msgs = ctx.store.listMessages(task.id);
+    // a bearer-only caller gets no connector data: tool rows, assistant text and the final result of a task that used connectors are withheld
+    return isAdminReq(req) ? { task, messages: msgs } : { task: withholdTask(task), messages: msgs.map((m) => withholdMessage(m, task)) };
   });
   route('PATCH', '/api/tasks/:id', ({ params, body }) => {
     const cur = mustTask(params[0]);
@@ -430,7 +444,9 @@ export function createServer(ctx: CoreContext): Server {
     const off = ctx.bus.on((ev: LegionEvent) => {
       if (!eventShown(ev)) return; // hidden agents must not leak through the event stream
       if (!admin && adminOnlyEvent(ev)) return;
-      pushSse(res, !admin && ev.type === 'boat.health' ? { type: 'boat.health', health: publicBoatHealth(ev.health) } : ev);
+      const out = admin ? ev : withholdEvent(ev, (id) => ctx.store.getTask(id));
+      if (!out) return;
+      pushSse(res, !admin && out.type === 'boat.health' ? { type: 'boat.health', health: publicBoatHealth(out.health) } : out);
     });
     const hb = setInterval(() => { if (!res.writableNeedDrain) res.write(': hb\n\n'); }, 15000);
     let closed = false;

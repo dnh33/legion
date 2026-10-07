@@ -124,7 +124,7 @@ Route B (cross-check for the "built against fakes" scenes): `npm run harness` st
 | BSV panel: status, Spend section, Arm | `bsv/BsvPanel.tsx` via `BsvChip` | B preferred, A if needed | new |
 | Blender mode chooser and Get Blender card | `blender/ModeChooser.tsx`, Settings > Blender | A | new |
 | Update panel | Settings > About, `UpdatePanel.tsx` | A (`/api/update/status` demo) | new |
-| Settings (nav list, Connections snippet) | `Settings.tsx` | A | new |
+| Settings (nav list, Use-from-Claude snippet) | `Settings.tsx` | A | new |
 | Board tab, card "Not reviewed", leader selector, delete approval card (Variant A only) | `ui/src/projects/board/BoardPanel.tsx` | needs the branch's UI: Phase 2 builds `dist-ui` in a scratch worktree of `origin/claude/project-board` (nothing from it is committed to this branch's `src/` or `ui/`); the mock answers `GET /api/board` with `{enabled:true}` and serves demo items. Route B (real core with `experimental.projectBoard:true` in the harness's temp home) provides the digest and episode captures from a fake-model run | new |
 | Library with a project-scope episode and note; Lattice scope switch | `library/`, `graph/` | A for Variant B (project-scoped note, shipped); B for the episode (needs the branch's `recordEpisode`) | new |
 | Slash menu, model picker | `SlashMenu`, `ModelPicker` | not used this time (already shown in trailer 1; no new idea) | dropped by design |

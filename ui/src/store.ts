@@ -11,7 +11,7 @@ import { moodAfterDecision, noteDenial } from './mascot/toolActivity';
 
 export type RelicState = 'idle' | 'listening' | 'thinking' | 'hacking' | 'awaiting' | 'victory' | 'error' | 'sleeping' | 'annoyed';
 
-export type SettingsSection = 'claude' | 'providers' | 'boat' | 'mcp' | 'blender' | 'compaction' | 'house' | 'armory' | 'connections' | 'about';
+export type SettingsSection = 'claude' | 'providers' | 'boat' | 'mcp' | 'blender' | 'compaction' | 'house' | 'armory' | 'github' | 'connections' | 'about';
 export type TaskSrc = 'tab' | 'recent';
 export interface TaskMenu { x: number; y: number; taskId: string; src: TaskSrc }
 
@@ -571,6 +571,11 @@ export async function loadSettings() {
 export function openSettings(section?: SettingsSection) {
   setState({ settingsOpen: true, palette: false, doctorOpen: false, editor: null, ...(section ? { settingsSection: section } : {}) });
   void loadSettings();
+}
+/** The first GitHub connect restarts the core and reloads the window; this key tells the reloaded window to reopen Settings, GitHub (where the code is). */
+export const REOPEN_GITHUB_KEY = 'legion.reopen-github';
+export function reopenGithubAfterReload(): void {
+  try { if (sessionStorage.getItem(REOPEN_GITHUB_KEY)) { sessionStorage.removeItem(REOPEN_GITHUB_KEY); openSettings('github'); } } catch { /* no storage: the owner opens Settings, GitHub by hand */ }
 }
 export function setSettingsSection(settingsSection: SettingsSection) { setState({ settingsSection }); }
 export function closeSettings() { setState({ settingsOpen: false }); }

@@ -2,6 +2,7 @@
  * MCP isolation helpers: which servers a run saw (read-only status for Settings -> MCP) and the guard against Legion connecting to its own /mcp.
  * Nothing here connects, reconnects or edits a server; it only reports what the Claude Code process said.
  */
+import { LEGION_SERVER_NAMES } from './approvals.js';
 import type { LegionConfig, McpServerState, McpStatusView } from '../shared/types.js';
 
 /** Hostname (WHATWG-normalised, so 127.1, 2130706433 and long IPv6 forms are already canonical) that resolves to this machine by spelling alone. */
@@ -115,7 +116,11 @@ export class McpStatusTracker {
       byName.delete(name);
     };
     push('legion', 'legion');
-    for (const name of Object.keys(config.mcpServers ?? {})) push(name, 'settings');
+    for (const name of Object.keys(config.mcpServers ?? {})) {
+      // an entry named like one of Legion's own servers is never given to an agent (see Engine.buildMcpServers): say so, do not hide it
+      if (LEGION_SERVER_NAMES.has(name)) { byName.delete(name); rows.push({ name, state: 'disabled', origin: 'settings', message: 'Skipped: this name belongs to one of the tool servers Legion provides itself, so it is not given to any agent. Rename the entry in Settings, MCP servers.' }); continue; }
+      push(name, 'settings');
+    }
     // Everything else the process reported: modules' own servers, and (inherit on) servers from your Claude Code setup.
     for (const s of [...byName.values()]) {
       const state = toState(s.status);

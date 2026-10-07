@@ -43,7 +43,7 @@ Run the same `setup-yes.cmd` line again. Expect success, "copying ..." again, `.
 $env:LEGION_HOME='D:\bots\legion-pkg-test\data'; $env:LEGION_PORT='4799'
 & 'D:\bots\legion-pkg-test\Legion Test\start-legion.cmd'
 ```
-Expect: the window opens; `Invoke-RestMethod http://127.0.0.1:4799/health` answers with version 0.2.0; `Get-CimInstance Win32_Process | ? { $_.ExecutablePath -like '*Legion Test*' } | select ProcessId,Name,CommandLine`: only `electron.exe` from `runtime\electron`, one of them with `legion-core.js` in its command line, and **no `node.exe` at all**. `core.log` in the data folder is clean. Settings > Connections shows the Claude Desktop snippet with `...\runtime\electron\electron.exe`, `args` with `legion-mcp-stdio.js` and `"env": {"ELECTRON_RUN_AS_NODE": "1"}`.
+Expect: the window opens; `Invoke-RestMethod http://127.0.0.1:4799/health` answers with version 0.2.0; `Get-CimInstance Win32_Process | ? { $_.ExecutablePath -like '*Legion Test*' } | select ProcessId,Name,CommandLine`: only `electron.exe` from `runtime\electron`, one of them with `legion-core.js` in its command line, and **no `node.exe` at all**. `core.log` in the data folder is clean. Settings > Use from Claude shows the Claude Desktop snippet with `...\runtime\electron\electron.exe`, `args` with `legion-mcp-stdio.js` and `"env": {"ELECTRON_RUN_AS_NODE": "1"}`.
 First run has no Claude sign-in yet if the owner's `~/.claude` has none: the existing doctor card must say so. (The owner's existing Claude login in the user profile is shared; that is expected.)
 
 ## PB6 Run a task (needs the owner's go: uses their Claude sign-in)

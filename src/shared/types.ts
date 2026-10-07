@@ -46,6 +46,11 @@ export interface AgentProfile {
   /** Names of entries in LegionConfig.mcpServers this agent gets. ['*'] = all. */
   mcpServers: string[];
   /**
+   * Connectors (GitHub, ...) this agent may use through Legion's own gateway (mcp__legion_connectors__*). An explicit opt-in:
+   * default empty, and `mcpServers: ['*']` does NOT grant it (the gateway checks this field, not the UI). Ids are lowercase names.
+   */
+  connectors?: string[];
+  /**
    * Which skills this agent may pick up. 'inherit' (default, also when absent) = every skill the Armory switched on for it.
    * A list = only those ids (it narrows, it never turns a skill on). Covers Armory, Claude Code and drill ids.
    */
@@ -169,6 +174,8 @@ export interface Task {
   sessionId?: string;
   /** Set when this task was started by another bot (comms bridge). Tightens approvals and labels cards. */
   origin?: TaskOrigin;
+  /** Sticky: a connector gateway call reached the connector in this task. Its tool rows, text and result are withheld from bearer-token callers and it cannot be continued from an MCP client. */
+  usedConnectors?: boolean;
   /** Engine-observed and sticky: this task touched outside content (web, shell, external tools) or was woken by a tainted chain. */
   tainted?: boolean;
   /** Final assistant text of the latest run. */

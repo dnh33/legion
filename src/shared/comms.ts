@@ -95,6 +95,11 @@ export interface TaskOrigin {
   approvalCeiling: ApprovalMode;
   /** True when anything on the chain of senders touched outside content (web, shell, external tools). ORed along the chain, never cleared. */
   tainted?: boolean;
+  /**
+   * True when a bearer-token client (MCP, curl) started this run or any run on the chain that woke it (direct, through the agent bridge, through a
+   * room, or a continue). ORed along the chain and never cleared by a hop. Connector reads are refused for such a run (design 4.1).
+   */
+  viaMcpClient?: boolean;
 }
 
 /** The most any room budget can be, however it is set (human, bot or config). */

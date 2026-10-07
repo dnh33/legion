@@ -20,3 +20,5 @@ export const GITHUB_LOG_STORAGE_HOSTS: readonly string[] = [];
 export const GITHUB_READ_APP_CLIENT_ID = 'unregistered';
 /** GitHub App client ids look like `Iv1.0123456789abcdef` or `Iv23liXXXXXXXXXXXX`. */
 export const looksLikeClientId = (id: unknown): id is string => typeof id === 'string' && /^Iv\d+\.?[A-Za-z0-9]{8,40}$/.test(id);
+/** Where the owner revokes a grant at GitHub. Legion has no client secret, so it cannot revoke remotely (design 4.2 step 9, check C-GH-6). */
+export const GITHUB_APPS_SETTINGS_URL = 'https://github.com/settings/applications';

@@ -9,7 +9,9 @@ const READ_ONLY = new Set(['Read', 'Glob', 'Grep', 'LS', 'WebSearch', 'WebFetch'
 const EDIT_TOOLS = new Set(['Write', 'Edit', 'MultiEdit', 'NotebookEdit']);
 
 /** Legion's own in-process MCP servers: vm tools, the comms bridge, the knowledge graph, the project board, the house context layer and the guarded Blender bridge (it asks for its own approval inside the tool). */
-export const LEGION_TOOL_PREFIXES = ['mcp__legion__', 'mcp__legion_comms__', 'mcp__legion_kg__', 'mcp__legion_board__', 'mcp__legion_house__', 'mcp__legion_armory__', 'mcp__legion_blender__'];
+export const LEGION_TOOL_PREFIXES = ['mcp__legion__', 'mcp__legion_comms__', 'mcp__legion_kg__', 'mcp__legion_board__', 'mcp__legion_house__', 'mcp__legion_armory__', 'mcp__legion_blender__', 'mcp__legion_connectors__'];
+/** Legion's own in-process server names ("legion", "legion_comms", ...): a Settings MCP entry may not take one, its tools would pass for Legion's (no card, no taint). */
+export const LEGION_SERVER_NAMES: ReadonlySet<string> = new Set(LEGION_TOOL_PREFIXES.map((p) => p.replace(/^mcp__/, '').replace(/__$/, '')));
 const LEGION_TOOL_NAME = new RegExp(`^(?:${LEGION_TOOL_PREFIXES.join('|')})[a-z][a-z0-9_]*$`);
 /**
  * One of Legion's own in-process tools: the exact server name, then a plain tool name. A prefix test alone also matches
@@ -41,6 +43,13 @@ const CAPPED_CARDED = new Set(['mcp__legion__vm_exec', 'mcp__legion__vm_claude',
  * Legion goes through here, so a new guard cannot forget the mode the way four of them did (Blender exec and
  * asset, the comms room tools and the project board all asked unconditionally, so a full-access bot still got a
  * "Needs your OK" card; the browser module already did this correctly and was the proof the pattern was known).
+ *
+ * EXCEPTION (decided 2026-10-06, recorded 2026-10-07; claude/design-connectors.md 4.1 step 6): the connector gateway handlers
+ * (src/core/connectors/gateway.ts, mcp__legion_connectors__) that write outward or spend raise their own card in EVERY mode, full
+ * included, by calling `broker.request` directly. They are the only exception to the rule above. Do not "fix" them to go through
+ * guardAsk. (Slice 1b ships READ tools only; the first carded handler arrives with the GitHub writes.)
+ * Second exception, maintainer decision 2026-10-07: WebFetch and WebSearch in a run that read connector data AND is tainted raise their own
+ * card in every mode (Engine.webEgressCard), because web access can carry that data out.
  *
  * `modeOf` re-reads the store on EVERY call, so switching an agent from `ask` to `full` mid-task takes effect on
  * its next guarded call. A snapshot taken at run start would keep carding a bot the owner has just promoted.

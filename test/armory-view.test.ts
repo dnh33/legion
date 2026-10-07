@@ -530,7 +530,7 @@ describe('markup contracts', () => {
     const settings = read('ui/src/components/Settings.tsx');
     assert.match(settings, /\{ id: 'house', label: 'Doctrine', hint: 'Rules and drills your agents follow' \},\s*\{ id: 'armory', label: 'Armory', hint: 'Skills your agents can pick up' \},/);
     assert.match(settings, /section === 'armory' \? <ArmorySection \/>/);
-    assert.match(read('ui/src/store.ts'), /'house' \| 'armory' \| 'connections'/);
+    assert.match(read('ui/src/store.ts'), /'house' \| 'armory' \| (?:'github' \| )?'connections'/);
   });
   it('the header says what the Armory is and links to Doctrine; the notice and the Advanced warning use the owner words', () => {
     assert.match(section, /<p>\{HEADER_TEXT\}<\/p>/);

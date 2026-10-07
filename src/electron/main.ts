@@ -11,7 +11,8 @@ import { adminForRenderer, bsvConfirmation, bsvPreflight, coreAction, coreIsBusy
 import { makeConfirm, providerChange } from './provider-ipc.js';
 import { coreStartHint, resolveCoreLaunch, startFailureLine } from './resolve-node.js';
 import { heapArgv } from './heap-limit.js';
-import { keyLine, loadConnectorKey } from './connector-key.js';
+import { ensureConnectorKey, keyLine, loadConnectorKey } from './connector-key.js';
+import { connectGithub } from './connector-ipc.js';
 import { APP_ID, needsId, windowDetails } from './taskbar.js';
 import { projectChange } from './project-ipc.js';
 import { browserChange } from './browser-ipc.js';
@@ -257,14 +258,21 @@ async function killCore(): Promise<void> {
 }
 
 /** Tray "Restart core": rotates the admin secret. The window reload re-runs the preload, so the renderer picks up the new secret. */
-async function restartCore(): Promise<void> {
+/** Restarts our core. Returns the error text and shows no dialog itself: the caller reports it once (the tray shows the box, the Connect flow returns it to the window). */
+async function restartCoreQuiet(): Promise<string | null> {
   if (coreProc) {
     await killCore();
     await waitPortFree((pinned ?? readConfig()).port);
   }
   const err = await ensureCore();
-  if (err) dialog.showErrorBox('Could not restart Legion Core', err);
   win?.webContents.reload();
+  return err;
+}
+
+/** Tray "Restart core": the one place that shows the error box. */
+async function restartCore(): Promise<void> {
+  const err = await restartCoreQuiet();
+  if (err) dialog.showErrorBox('Could not restart Legion Core', err);
 }
 
 /** A request to our own core, with the admin secret (and the native secret when asked). undefined = we hold no proven core of our own. */
@@ -548,6 +556,19 @@ if (!app.requestSingleInstanceLock()) {
     const frameUrl = (e as { senderFrame?: { url?: string } }).senderFrame?.url;
     if (!win || win.isDestroyed() || (e as { sender?: unknown }).sender !== win.webContents || !trustedSender(frameUrl, uiUrl)) return { ok: false, error: 'Refused: not the Legion window.' };
     try { return await browserChange(raw, { call: ownCoreCall, confirm: makeConfirm(dialog, () => win) }); } catch { return { ok: false, error: 'The change failed.' }; }
+  });
+  ipcMain.handle('legion:connector-connect', async (e) => {
+    const frameUrl = (e as { senderFrame?: { url?: string } }).senderFrame?.url;
+    if (!win || win.isDestroyed() || (e as { sender?: unknown }).sender !== win.webContents || !trustedSender(frameUrl, uiUrl)) return { ok: false, error: 'Refused: not the Legion window.' };
+    try {
+      return await connectGithub({
+        call: (method, route, body) => ownCoreCall(method, route, body),
+        confirm: makeConfirm(dialog, () => win),
+        ensureKey: () => ensureConnectorKey(dataDir(), safeStorage),
+        restartCore: restartCoreQuiet,
+        openExternal,
+      });
+    } catch { return { ok: false, error: 'The connect failed.' }; }
   });
   ipcMain.handle('legion:open-external', (_e, url: unknown) => {
     if (typeof url === 'string' && isHttp(url)) { void shell.openExternal(url); return true; }

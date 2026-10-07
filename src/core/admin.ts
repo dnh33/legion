@@ -10,6 +10,7 @@
  * A core without a secret (headless, started by the MCP stdio bridge) is admin-closed: nothing can pass the gate.
  */
 import { createHmac, timingSafeEqual } from 'node:crypto';
+import { registerSecret } from './log/redact.js';
 
 export const ADMIN_HEADER = 'x-legion-admin';
 /** Env flag the Electron main sets to say "the admin secret is on stdin". Its value is only ever '1', never the secret. */
@@ -99,7 +100,9 @@ export function readSecretFromStream(stream: NodeJS.ReadableStream, timeoutMs = 
       stream.removeListener('error', onEnd);
       try { stream.pause(); } catch { /* ignore */ }
       buf = '';
-      resolve(value && value.length >= MIN_ADMIN_SECRET_LENGTH ? value : undefined);
+      const accepted = value && value.length >= MIN_ADMIN_SECRET_LENGTH ? value : undefined;
+      registerSecret(accepted); // the admin secret must never reach a log, in any encoding
+      resolve(accepted);
     };
     const onData = (c: Buffer | string) => {
       buf += typeof c === 'string' ? c : c.toString('utf8');
@@ -157,7 +160,12 @@ export function readSecretsFromStream(stream: NodeJS.ReadableStream, timeoutMs =
       else { try { stream.pause(); } catch { /* ignore */ } }
       buf = '';
       const ok = (v: string | undefined) => (v && v.length >= MIN_ADMIN_SECRET_LENGTH ? v : undefined);
-      resolve({ admin: ok(parts[0]), native: ok(parts[1]) });
+      const admin = ok(parts[0]);
+      const native = ok(parts[1]);
+      // both per-launch secrets are known to the log redactor from the moment the core reads them (the native secret too, never given to the window)
+      registerSecret(admin);
+      registerSecret(native);
+      resolve({ admin, native });
     };
     const onData = (c: Buffer | string) => {
       buf += typeof c === 'string' ? c : c.toString('utf8');
