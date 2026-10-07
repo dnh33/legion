@@ -6,11 +6,12 @@ import { CONNECTORS_SERVER_NAME } from '../src/core/connectors/gateway.js';
 import { createConnectorsModule } from '../src/core/connectors/index.js';
 import type { FakeGitHub } from './connectors-fake-github.js';
 import { signedInGitHub } from './connectors-rig.js';
-import { init, ok } from './library-fakes.js';
+import { init, ok, toolUse } from './library-fakes.js';
 import { asClient, AUTH } from './helpers-c.js';
 import { closeAll, mk, mount, startedTask } from './token-harness.js';
 
 const MARK = 'SECRET-ISSUE-BODY-7731';
+const FINAL = 'FINAL-RESULT-5521';
 const fakes: FakeGitHub[] = [];
 after(async () => { await closeAll(); for (const f of fakes) await f.stop(); });
 
@@ -20,8 +21,10 @@ async function rig() {
   gh.fake.override = (host, _m, path) => host === 'api.github.com' && path.startsWith('/repos/o/r/issues/1') ? [200, { number: 1, title: 'T', state: 'open', user: { login: 'x' }, body: MARK, labels: [], comments: 0 }, {}] : undefined;
   const m = await mount((c) => c.agent === 'reader' ? (async function* () {
     yield init('s-r');
-    await c.options.mcpServers[CONNECTORS_SERVER_NAME].instance._registeredTools.github_issue_get.handler({ repo: 'o/r', number: 1 }, {});
-    yield ok(`summary: ${MARK}`, 's-r');
+    yield toolUse('mcp__legion_connectors__github_issue_get', 'tu1', { repo: 'o/r', number: 1 });
+    const r = await c.options.mcpServers[CONNECTORS_SERVER_NAME].instance._registeredTools.github_issue_get.handler({ repo: 'o/r', number: 1 }, {});
+    yield { type: 'user', message: { content: [{ type: 'tool_result', tool_use_id: 'tu1', content: r.content[0].text }] } };
+    yield ok(`summary: ${FINAL}`, 's-r');
   })() : undefined, { extraModules: (deps) => [createConnectorsModule(deps, { keys: gh.keys, client: () => gh.client })] });
   m.store.upsertAgent({ ...mk('reader', 'Reader', 'full'), connectors: ['github'] });
   return m;
@@ -52,17 +55,19 @@ test('a bearer-only caller gets no connector data from an owner-started run, on 
   await new Promise((r) => setTimeout(r, 100));
   // (a) GET /api/tasks/:id and /wait
   const get = await m.http('GET', `/api/tasks/${id}`, undefined, asClient);
-  assert.ok(!get.text.includes(MARK), 'GET /api/tasks/:id leaked');
+  assert.ok(![MARK, FINAL].some((x) => get.text.includes(x)), 'GET /api/tasks/:id leaked');
   assert.match(get.text, new RegExp(WITHHELD));
-  assert.ok(!(await m.http('GET', `/api/tasks/${id}/wait?timeoutMs=100`, undefined, asClient)).text.includes(MARK), '/wait leaked');
+  const waited = (await m.http('GET', `/api/tasks/${id}/wait?timeoutMs=100`, undefined, asClient)).text;
+  assert.ok(![MARK, FINAL].some((x) => waited.includes(x)), '/wait leaked');
   assert.ok((await m.http('GET', `/api/tasks/${id}`, undefined, AUTH)).text.includes(MARK), 'the app window keeps the data');
   // (b) legion_status
   const c = await m.mcp();
-  assert.ok(!(await m.tool(c, 'legion_status', { taskId: id })).text.includes(MARK), 'legion_status leaked');
+  const status = (await m.tool(c, 'legion_status', { taskId: id })).text;
+  assert.ok(![MARK, FINAL].some((x) => status.includes(x)), 'legion_status leaked');
   // (c) the event stream
   await client.stop(); await admin.stop();
-  assert.ok(admin.text().includes(MARK), 'the app stream carries the data (control)');
-  assert.ok(!client.text().includes(MARK), 'the bearer stream leaked');
+  assert.ok(admin.text().includes(MARK) && admin.text().includes(FINAL), 'the app stream carries the data (control)');
+  assert.ok(![MARK, FINAL].some((x) => client.text().includes(x)), 'the bearer stream leaked');
   // (d) continue
   const viaHttp = await m.http('POST', '/api/tasks', { agentId: 'reader', prompt: 'more', continueTaskId: id }, asClient);
   assert.equal(viaHttp.status, 403);
