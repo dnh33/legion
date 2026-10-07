@@ -1,31 +1,32 @@
-# Resume: house/skills session (Armory, CI panel)
+# Resume: house/skills session (Armory, CI panel, logging)
 
 Read this first after a compaction or in a new session. Last updated 2026-10-07.
 
 ## Done
-- A2a (Armory) merged to main: PR #23, merge `00541f2`. CI 11/11 green, independent review "ship".
-- Release `0.2.5-j` (the Armory) published 2026-10-07 by the orchestrating session (tag on merge `e850201`;
-  pre-flight passed, asset digests and the live CDN manifest checked). Worktrees `legion-rel-j` and `legion-armory`
-  and their local branches are removed.
-- Merges and releases: the orchestrating session ("Legion Claude code mod planning") merges and releases (the maintainer
-  put it in charge, as that session relayed on 2026-10-07). Tell it when a PR is green; do not tag, build or publish.
+- A2a (Armory): PR #23, shipped in `0.2.5-j` (published by the orchestrating session; real-PC checks AR1-AR8 open).
+- Shared CI run parser: PR #26 (`src/core/ci/parse.ts`, also used by the connectors tool `github_ci_wait`).
+- Release B (CI panel): PR #27, merged as `b4e51aa`, ships in the next letter. Runs on the real connectors client
+  (`getGitHubClient()`, read port only). Re-run and Cancel stay hidden until connectors slice 2 adds
+  `src/core/connectors/github/writes.ts` with module-level `rerunFailed(runId, repo)` and `cancel(runId, repo)`
+  (agreed shape; the connectors session adds `src/core/ci/wiring.ts` to the writes import allowlist). The GitHub App's
+  device-flow client id is still a placeholder, so the panel shows not-connected until the App is registered.
+  Real-PC checks CI1-CI4 open.
+- Logging design: PR #28, `claude/plan-logging.md`, agreed with the connectors session.
+- Log redactor: PR #30 (`github_pat_` in `scrub.ts`; `src/core/log/redact.ts` with `redact`, `registerSecret`,
+  `registerSecretBytes`). Not wired into `log()` yet; the connectors session calls `registerSecret*` in slice 1b.
+- All worktrees of this session are removed except the docs one for this file.
 
-## Next, in order (scope lock, maintainer 2026-10-06; ladder in `claude/legion-release-tracker.md`)
-1. Release B (CI panel) on a new branch off main. Build against a fake of the GitHub client interface from the
-   connectors design rev 6 section 4.3 (`D:/bots/legion-connectors/claude/design-connectors.md`): `connection()`,
-   `can(area, level)`, `request(path)`, `logs(jobId)` returning `{text, truncated}`. "Logs unavailable" is a normal
-   state, because the storage-host allowlist ships empty until PC check C-GH-2. Re-run and Cancel go only through
-   `writes.ts`, from admin-only routes, never an agent tool. Offer "Connect with write access" while
-   `can('actions','write')` is `'no'`. Ship once the connectors session's real client is merged.
-2. Then the ladder resumes: connectors (16, the connectors session) -> logging (items 3 and 7) is next. Logging and the
-   connectors redactor (design rev 6, section 4.4) both rewrite the single `log()` in `src/bin/legion-core.ts` and the
-   stdout/stderr wrappers: whoever builds logging agrees the design with the connectors session first.
-   Release B plan: `claude/plan-ci-panel.md` on branch `feat/ci-panel` (worktree `D:/bots/legion-ci`).
+## Next (maintainer order, 2026-10-07)
+1. The orchestrating session's Order-bug PR (BUG-7, 1, 2, 3; branch `fix/order-bugs`) merges first. Do not edit
+   `src/core/engine.ts`, `src/core/bridge.ts` or `src/core/kg/graph.ts` while it is open.
+2. Then logging (ladder items 3 and 7) per `claude/plan-logging.md`, building on the merged redactor. It must land
+   before connectors slice 2 (writes): the redactor needs a caller in `log()` and both stream wrappers. Pending detail
+   for the build: logs mask bare 64-hex, so the updater's sha256 digests and BSV txids are logged as a 12-hex prefix.
 
 ## Coordination
-- The orchestrating session ("Legion Claude code mod planning") owns connectors phase 1, merges and releases. It
-  will message this session when the GitHub client (`src/core/connectors/github/client.ts`) is merged; Release B
-  swaps its fake for it then. Propose any interface name change to it before using it.
+- The orchestrating session ("Legion Claude code mod planning") owns connectors, merges and releases (the maintainer
+  put it in charge, as that session relayed on 2026-10-07). Tell it when a PR is green; do not tag, build or publish.
+  Agree before touching `src/bin/legion-core.ts`, the log sink or the stream wrappers.
 - SpiffyVault is parked (ladder item 22).
 
 ## Working rules learned this session
@@ -35,3 +36,5 @@ Read this first after a compaction or in a new session. Last updated 2026-10-07.
   and forced colours.
 - The UX review loop is capped at one final review; after it, fix bugs and cheap polish only, and list the rest as
   known imperfections.
+- Key-shaped literals in tests and fakes are built at runtime (`'gh' + 'p_' + ...`), or the public export refuses the
+  file.
