@@ -3,7 +3,7 @@ import type { ChatMessage } from '../../../src/shared/types';
 import { CONTINUE_PROMPT, budgetLimitFromError, isBudgetPause, isLimitPause } from '../../../src/shared/continue';
 import { base, token } from '../api';
 import { decide, dismissOnboarding, ensureLoaded, jumpToLatest, loadOlder, openDoctor, openEditor, openSettings, refresh, retryOlder, selectTask, sendPrompt, sendPromptTo, toast, useStore } from '../store';
-import { WELCOME_LATER, WELCOME_STEPS, WELCOME_TRY } from './welcomeLogic';
+import { WELCOME_LATER, WELCOME_STEPS, WELCOME_TRY, canTryZealot } from './welcomeLogic';
 import type { WelcomeItem } from './welcomeLogic';
 import { ROW_GAP, anchoredScrollTop, hasOlder, layoutOffsets, metaDetached, rowAt, rowIndexOfMessage, scrollForRow, shouldLoadOlder, visibleRange } from '../chat/threadWindow';
 import { ThreadSearch } from './ThreadSearch';
@@ -327,25 +327,27 @@ function EmptyState() {
           <div><b>{step('signin').title}</b><p>{step('signin').body}</p></div>
           <button className="btn" onClick={openDoctor}>Run Doctor</button>
         </li>
-        <li>
-          <span className="step-n">2</span>
-          <div><b>{step('try').title}</b><p>{step('try').body}</p>
-            <div className="cmd"><code>{WELCOME_TRY.prompt}</code></div>
-          </div>
-          <button className="btn primary" disabled={trying} onClick={() => void tryIt()}>Ask Zealot</button>
-        </li>
+        {canTryZealot(agents) && (
+          <li>
+            <span className="step-n">2</span>
+            <div><b>{step('try').title}</b><p>{step('try').body}</p>
+              <div className="cmd"><code>{WELCOME_TRY.prompt}</code></div>
+            </div>
+            <button className="btn primary" disabled={trying} onClick={() => void tryIt()}>Ask Zealot</button>
+          </li>
+        )}
       </ol>
       <p className="lead">Or type your own request below.</p>
       <details className="later">
         <summary>Later, when you need them</summary>
         <ol className="steps">
           <li>
-            <span className={`step-n${boat ? ' ok' : ''}`}>{boat ? <Icon name="check" size={12} /> : <Icon name="plus" size={12} />}</span>
+            <span className={`step-n${boat ? ' ok' : ''}`}>{boat ? <Icon name="check" size={12} /> : <Icon name="cube" size={12} />}</span>
             <div><b>{later('boat').title}</b><p>{boat ? 'Connected. Agents can start on-demand VMs.' : later('boat').body}</p></div>
             {!boat && <button className="btn" onClick={() => openSettings('boat')}>Add key</button>}
           </li>
           <li>
-            <span className="step-n"><Icon name="plus" size={12} /></span>
+            <span className="step-n"><Icon name="terminal" size={12} /></span>
             <div><b>{later('mcp').title}</b><p>{later('mcp').body}</p>
               <div className="cmd"><code>{shownCmd}</code>
                 <button className="btn-ghost sm" onClick={async () => { if (await copyText(cmd)) { setCopied(true); setTimeout(() => setCopied(false), 1500); } }}><Icon name={copied ? 'check' : 'copy'} size={12} /> {copied ? 'Copied' : 'Copy'}</button>
