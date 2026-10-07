@@ -53,7 +53,7 @@ export async function startFake({ ui, repo, port = 48600, agents } = {}) {
   fs.writeFileSync(path.join(dataDir, 'config.json'), JSON.stringify({ port, authToken: TOKEN, workspaceDir: path.join(home, 'ws'), claude: { auth: 'claude-login', inheritClaudeCodeSettings: true, maxTurns: 40 }, boat: { baseUrl: 'https://boat.test' }, mcpServers: {} }));
   const store = new Store(dataDir);
   const mk = (id, name, emoji, approval) => ({ id, name, emoji, description: `${name} (test agent)`, systemPrompt: '', model: 'sonnet', vm: { enabled: false, size: 'default', idleStopMinutes: 15 }, approval, mcpServers: [], createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z' });
-  for (const a of agents ?? [mk('zealot', 'Zealot', '⚡', 'full'), mk('scout', 'Scout', '🔭', 'full'), mk('careful', 'Careful', '🛡', 'ask')]) store.upsertAgent(a);
+  for (const a of agents ?? [mk('zealot', 'Marshal', '⚡', 'full'), mk('scout', 'Scout', '🔭', 'full'), mk('careful', 'Careful', '🛡', 'ask')]) store.upsertAgent(a);
   const bus = new EventBus();
   const config = defaultConfig(); config.authToken = TOKEN; config.workspaceDir = path.join(home, 'ws'); config.port = port;
   const calls = [];

@@ -438,7 +438,7 @@ Generated from `scripts/harness/pc-checks.json` with `node scripts/harness/pc-re
 - **Preconditions:** Owner signed in to Claude Code on this PC (or an API key set in Settings). Uses a few tokens: pick the Haiku model.
 - **Steps:**
   1. Open Settings, Claude; read the sign-in state.
-  2. Select Zealot, choose a small model, send "reply with the word ok".
+  2. Select Marshal, choose a small model, send "reply with the word ok".
 - **Expected:** The run streams a reply and ends; the task appears under recent tasks with a cost. No credential is shown on screen.
 - **Evidence:** PC-APP-10.png (no key visible).
 - **Result:** not-run | date: - | evidence path: -
@@ -505,7 +505,7 @@ Generated from `scripts/harness/pc-checks.json` with `node scripts/harness/pc-re
 - **Safety / automation:** account / computer-use-ok
 - **Preconditions:** APP-10 passed. Two agents. Owner at the keyboard. Use a small model.
 - **Steps:**
-  1. Ask Zealot to create a room with Scout using room_create and no budget.
+  1. Ask Marshal to create a room with Scout using room_create and no budget.
   2. Read the approval card; Allow it.
   3. Open the room header and the room settings.
 - **Expected:** The card says there is no spend limit (not $1 or $5). The room header meter shows running cost with no maximum; settings Budget box shows the placeholder "No limit". Member cap 6 still applies.
@@ -658,7 +658,7 @@ Generated from `scripts/harness/pc-checks.json` with `node scripts/harness/pc-re
   1. Back up ~/.claude.json to ~/.claude/backups/<date>-legion-mcp/ and write a RESTORE.md there.
   2. Run `claude mcp add --scope user legion -- node "%LOCALAPPDATA%\Programs\Legion\dist\src\bin\legion-mcp-stdio.js"`.
   3. Run `claude mcp list` and, in a Claude Code session, list the legion tools (legion_list_agents, legion_models, legion_create_agent, legion_run, legion_continue, legion_status, legion_cancel, legion_vm, legion_recent_tasks).
-  4. Ask Claude Code to use legion_run with Zealot on Haiku: "reply ok".
+  4. Ask Claude Code to use legion_run with Marshal on Haiku: "reply ok".
 - **Expected:** The nine tools are listed; the task runs and its result comes back. The Claude config holds no token (the bridge reads it itself). Rollback: `claude mcp remove legion` and restore the backup.
 - **Evidence:** PC-MCP-05.log (claude mcp list output), PC-MCP-05.png.
 - **Result:** not-run | date: - | evidence path: -
@@ -1834,7 +1834,7 @@ Generated from `scripts/harness/pc-checks.json` with `node scripts/harness/pc-re
 - **Source:** claude/legion-release-tracker.md item G (fallback: capture on the PC with the Playwright harnesses under test-perf/). **INFERRED:** Conditional on the cloud having no browser; item G phase 2 is not done on this base.
 - **Gate / depends:** G9 / after PC-INST-10
 - **Safety / automation:** none / computer-use-ok
-- **Preconditions:** Only if item G phase 2 could not do it. The Zealot art is photographed only, never edited.
+- **Preconditions:** Only if item G phase 2 could not do it. The Marshal art (id zealot) is photographed only, never edited.
 - **Steps:**
   1. Run the screenshot scripts (test-perf/ui-app/titlebar-shots.mjs, vm-shots.mjs, chat-ui/shots.mjs, bsv-ui/shots.mjs) into a scratch folder; compare with docs/images and docs/screenshots at full size.
 - **Expected:** Light and dark screenshots match the real UI at README sizes.

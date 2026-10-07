@@ -288,7 +288,7 @@ function EmptyState() {
   const step = (id: WelcomeItem['id']) => WELCOME_STEPS.find((s) => s.id === id)!;
   const later = (id: WelcomeItem['id']) => WELCOME_LATER.find((s) => s.id === id)!;
   const [trying, setTrying] = useState(false);
-  // the first task goes to Zealot whichever agent is selected; the new task opens on success
+  // the first task goes to the Marshal whichever agent is selected; the new task opens on success
   const tryIt = async () => {
     setTrying(true);
     const r = await sendPromptTo({ agentId: WELCOME_TRY.agentId, taskId: null }, WELCOME_TRY.prompt, { select: true });
@@ -321,7 +321,7 @@ function EmptyState() {
   return (
     <div className="firstrun">
       <h3>Welcome to Legion</h3>
-      <p className="lead">Give the work to Zealot, the lead of your Order. A Claude sign-in is all you need.</p>
+      <p className="lead">Give the work to the Marshal, the lead of your Order. A Claude sign-in is all you need.</p>
       <ol className="steps">
         <li>
           <span className={`step-n${signin?.ok ? ' ok' : ''}`}>{signin?.ok ? <Icon name="check" size={12} /> : 1}</span>
@@ -334,7 +334,7 @@ function EmptyState() {
             <div><b>{step('try').title}</b><p>{step('try').body}</p>
               <div className="cmd"><code>{WELCOME_TRY.prompt}</code></div>
             </div>
-            <button className="btn primary" disabled={trying} onClick={() => void tryIt()}>Ask Zealot</button>
+            <button className="btn primary" disabled={trying} onClick={() => void tryIt()}>Ask the Marshal</button>
           </li>
         )}
       </ol>

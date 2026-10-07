@@ -10,7 +10,7 @@ import { messageWindow, searchMessages, type MsgHit } from './message-pages.js';
 
 interface StateFile { agents: AgentProfile[]; tasks: Task[]; vms: VmRecord[]; /** One-time migrations already applied (see MIGRATIONS). Absent in files from older builds. */ migrations?: string[] }
 
-/** Zealot's first seeded prompt: it told the lead to handle requests itself, the opposite of its role. */
+/** The lead's (id zealot) first seeded prompt: it told the lead to handle requests itself, the opposite of its role. */
 const ZEALOT_OLD_PROMPT = 'You are the lead agent. Handle general requests directly and keep answers concise.\nFor big or specialised work, break it into steps and suggest delegating to Builder (coding) or Scout (research).\nUse your cloud VM only when the task really needs it.';
 /** The seeds the three defaults shipped with before Soul Codex v1: a stored prompt still equal to one of these was never edited by the owner. */
 export const SOUL_SEEDS_V0 = {
@@ -18,7 +18,9 @@ export const SOUL_SEEDS_V0 = {
   builder: 'You write, run and debug code. Make small, verifiable changes and run tests before reporting done.\nPrefer your cloud VM for untrusted code, heavy installs, long builds and GUI/browser work.\nStop the VM when you are finished with it.',
   scout: 'You research, read and summarise. Cite sources and separate facts from guesses.\nKeep summaries tight: lead with the answer, then supporting detail.\nDo not modify files unless explicitly asked.',
 } as const;
-/** Zealot's seeded prompt (its soul). Its role is also enforced by the lead doctrine the engine appends last (src/core/lead.ts). */
+/** The lead's soul as shipped before the rename to the Marshal (it named itself Zealot): a stored prompt still equal to this was never edited. */
+const ZEALOT_SOUL_BEFORE_MARSHAL = 'You are Zealot, the lead of the Order. Every request comes to you first: you plan it, split it into tasks and hand them to the agents best placed for them, and you keep the person informed. Keep your answers concise. Speak like a commander: the plan, then the status, no ceremony. Fan out only as wide as the work needs: one well-briefed agent beats three vague ones.\nUse your cloud VM only when the task really needs it.\n\nDone when: every task came back with a verdict, you checked each against its done condition, and the person knows what is still open.\nWho does what: code to the Builder; research to the Scout; review and proof to the Inquisitor; bugs to the Exorcist; docs to the Scribe; CI and deploys to the Forgemaster; craft (UI, art, copy) to the Preceptor; message drafts to the Herald; notes and memory to the Archivist; watches to the Sentinel; Blender to the Sculptor.\nHard limits: never report done on an answer you did not check; never do a specialist\'s whole job yourself to save a hand-off (a simple one-step question is still yours to answer).\nOutput shape: the first line is STATUS or ANSWER. ANSWER is for a one-step question you answer yourself. STATUS gives n of m done and k blocked, then Plan (owner, task, state per line), Results with evidence, and Open.\nExample: asked "add dark mode to the board", you reply:\nSTATUS 0 of 2 done, 0 blocked\nPlan: Builder, board colours from theme tokens (running). Inquisitor, review that change with a screenshot (waiting).';
+/** The lead's seeded prompt (its soul). Its role is also enforced by the lead doctrine the engine appends last (src/core/lead.ts). */
 export const ZEALOT_PROMPT = ZEALOT_SOUL;
 const SOULS_V1: Record<keyof typeof SOUL_SEEDS_V0, string> = { zealot: ZEALOT_SOUL, builder: BUILDER_SOUL, scout: SCOUT_SOUL };
 
@@ -35,7 +37,7 @@ const MIGRATIONS: Array<{ id: string; run: (agents: Map<string, AgentProfile>) =
     },
   },
   {
-    // Zealot's seeded prompt contradicted its role (owner 2026-10-05). Replaced ONLY while it is still that exact old seed:
+    // The lead's (id zealot) seeded prompt contradicted its role (owner 2026-10-05). Replaced ONLY while it is still that exact old seed:
     // a prompt the person wrote is never touched (the lead doctrine still applies to it, appended last by the engine).
     id: 'zealot-lead-prompt-v1',
     run: (agents) => {
@@ -72,6 +74,19 @@ const MIGRATIONS: Array<{ id: string; run: (agents: Map<string, AgentProfile>) =
         a.systemPrompt = r.systemPrompt;
         changed = true;
       }
+      return changed;
+    },
+  },
+  {
+    // Rename the lead to the Marshal (maintainer 2026-10-07; the id stays 'zealot'). The display name changes only while it is
+    // still exactly the seeded "Zealot" (a name the person chose is never touched); the prompt only while it is still the exact old soul.
+    id: 'lead-name-marshal-v1',
+    run: (agents) => {
+      const z = agents.get('zealot');
+      if (!z) return false;
+      let changed = false;
+      if (z.name === 'Zealot') { z.name = 'Marshal'; changed = true; }
+      if (z.systemPrompt === ZEALOT_SOUL_BEFORE_MARSHAL) { z.systemPrompt = ZEALOT_SOUL; changed = true; }
       return changed;
     },
   },
@@ -211,7 +226,7 @@ export class Store {
     const ts = nowIso();
     const defs: Array<Omit<AgentProfile, 'createdAt' | 'updatedAt' | 'cwd'>> = [
       {
-        id: 'zealot', name: 'Zealot', emoji: '✠', model: 'auto', approval: 'auto-edits',
+        id: 'zealot', name: 'Marshal', emoji: '✠', model: 'auto', approval: 'auto-edits',
         description: 'Lead agent of the Legion: takes any request, delegates to the order.',
         systemPrompt: ZEALOT_PROMPT,
         vm: { enabled: true, size: 'default', idleStopMinutes: 15 }, mcpServers: ['*'],

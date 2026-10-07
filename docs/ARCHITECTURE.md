@@ -56,7 +56,7 @@ Environment overrides: `LEGION_HOME`, `LEGION_PORT`, `LEGION_NODE`, `BOAT_API_KE
 
 | id | name | model | approval | VM | purpose |
 |---|---|---|---|---|---|
-| `zealot` | Zealot | auto | `auto-edits` | enabled, default size | General-purpose lead. Cannot be deleted. |
+| `zealot` | Marshal | auto | `auto-edits` | enabled, default size | General-purpose lead. Cannot be deleted. |
 | `builder` | Builder | auto | `full` | enabled, default size | Coding and building; prefers its VM for risky work. Not seeded as `large`: a free boat.dev trial refuses it. |
 | `scout` | Scout | sonnet | `ask` | disabled | Research, reading and summarising. |
 
@@ -296,7 +296,7 @@ The ChatMessage stored in the target thread has `role:'user'`, `fromAgentId`, an
 - Engine options add `disallowedTools: ['SendMessage', 'ListAgents']`. Those are Claude Code's own peer-session tools and confuse agents inside Legion.
 - The preamble tells agents to use `agents`, `ask` and `tell` for other Legion agents.
 
-**Mascot.** `thinking`/`hacking` as usual. The note shows "Zealot → Builder".
+**Mascot.** `thinking`/`hacking` as usual. The note shows "Marshal → Builder".
 
 ### Task management
 | Method | Path | Body | Response |

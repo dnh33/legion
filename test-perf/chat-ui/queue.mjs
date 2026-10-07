@@ -169,7 +169,7 @@ try {
   });
 
   await check('a failed run pauses the queue with the error shown', async () => {
-    await page.locator('.agent', { hasText: 'Zealot' }).click();
+    await page.locator('.agent', { hasText: 'Marshal' }).click();
     await newThread();
     await typeEnter(page, '[slow:2500][error] boom'); await busy();
     await q('after boom'); await queueN(1);
@@ -198,18 +198,18 @@ try {
   });
 
   await check('a second agent keeps its own queue while another agent is selected', async () => {
-    await page.locator('.agent', { hasText: 'Zealot' }).click(); await newThread();
+    await page.locator('.agent', { hasText: 'Marshal' }).click(); await newThread();
     await typeEnter(page, '[slow:4000] z-run'); await busy();
     await q('z-queued'); await queueN(1);
     await page.locator('.agent', { hasText: 'Scout' }).click();
     await newThread();
     assert.equal(await queueCount(page), 0, 'Scout shows no queue');
-    await page.locator('.agent', { hasText: 'Zealot' }).click();
+    await page.locator('.agent', { hasText: 'Marshal' }).click();
     await until(async () => (await queueCount(page)) <= 1, 2000, 'zealot back');
     // the queue drains even while another agent is selected
     await page.locator('.agent', { hasText: 'Scout' }).click();
     await until(() => prompts().includes('z-queued'), 12000, 'z-queued sent while Scout selected');
-    await page.locator('.agent', { hasText: 'Zealot' }).click();
+    await page.locator('.agent', { hasText: 'Marshal' }).click();
     await idle();
     // coming back, the thread shows its whole history including the message the queue sent in the background
     const b = await userBubbles(page);
@@ -217,7 +217,7 @@ try {
   });
 
   await check('reload: the queue comes back HELD and nothing is sent until Resume', async () => {
-    await page.locator('.agent', { hasText: 'Zealot' }).click(); await newThread();
+    await page.locator('.agent', { hasText: 'Marshal' }).click(); await newThread();
     await typeEnter(page, '[slow:3000] run8'); await busy();
     await q('r1', 'r2'); await queueN(2);
     await page.reload(); await page.waitForSelector('textarea[aria-label="Message"]');
@@ -359,7 +359,7 @@ try {
     assert.equal(r.status, 200);
     await until(async () => (await page.evaluate(() => sessionStorage.getItem('legion.queue.v1'))) === null, 4000, 'queue storage cleared');
     for (const t of env.store.listTasks(200)) if (t.agentId === created.id) env.engine.cancel(t.id);
-    await page.locator('.agent', { hasText: 'Zealot' }).click();
+    await page.locator('.agent', { hasText: 'Marshal' }).click();
   });
 
   await check('a failed Ctrl+Enter gives the text back, and keeps what was typed meanwhile', async () => {

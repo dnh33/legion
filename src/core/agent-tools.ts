@@ -44,7 +44,7 @@ export interface AgentToolsCtx {
  * Optional per-task model for ask/tell/bot_send/room_post: a lead can say "use Haiku for this".
  *
  * The description states the ceiling plainly, because the old wording only disclaimed authority limits and said nothing about
- * the owner's fixed model for that agent — which read to an agent as "this is safe, it only affects the model" (Zealot's report,
+ * the owner's fixed model for that agent — which read to an agent as "this is safe, it only affects the model" (the Marshal's report,
  * 2026-10-03). An applied override is also reported into the caller's thread as an event, so it cannot be silent (bridge.checkCeiling).
  */
 export const modelParam = z.enum(OVERRIDE_MODELS).optional()

@@ -64,7 +64,7 @@ const room = await must('POST', '/api/rooms', {
   projectId: project.id,
 });
 log('room', room.id);
-await must('POST', `/api/rooms/${room.id}/messages`, { text: 'Release cut is 0.3-f. Zealot: what is still unverified on a real PC?' });
+await must('POST', `/api/rooms/${room.id}/messages`, { text: 'Release cut is 0.3-f. Marshal: what is still unverified on a real PC?' });
 await h.resetModel();
 await h.script({ agent: 'builder' }, [
   { say: 'Two things. The updater never ran against a real signed release, and the Blender bridge has never touched a real Blender. Everything else is covered by the harness.' },

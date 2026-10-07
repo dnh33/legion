@@ -14,7 +14,7 @@ import { Store } from '../src/core/store.js';
 
 const PINNED: Record<string, string> = {
   // Soul Codex v1 (maintainer 2026-10-07, claude/plan-fascia.md 6.2): full souls for the three defaults, true to each core
-  zealot: '4579d1da385635404d38e1814873881d6e7ad03b2c1ce8c9bd0ed968c7ce6ea1',
+  zealot: '42749e93cf4f6690f380513b30e521b941d9001e0889ce22734eeec91366672d',
   builder: '0e355c26f0a8d4ed903ce31169dfe3ef7754d1f5b800c30bcc62d23f3a85391b',
   scout: 'ec252a6319b482ce0b106881e10b0d62eae17a223a24be0f2c0079b809210e55',
   // Fascia 3a (claude/plan-fascia.md 6.3): the roster's trailing comms lines moved into the teamwork block, said once per run

@@ -841,7 +841,7 @@
       "preconditions": "Owner signed in to Claude Code on this PC (or an API key set in Settings). Uses a few tokens: pick the Haiku model.",
       "steps": [
         "Open Settings, Claude; read the sign-in state.",
-        "Select Zealot, choose a small model, send \"reply with the word ok\"."
+        "Select Marshal, choose a small model, send \"reply with the word ok\"."
       ],
       "expected": "The run streams a reply and ends; the task appears under recent tasks with a cost. No credential is shown on screen.",
       "evidence": "PC-APP-10.png (no key visible).",
@@ -983,7 +983,7 @@
       "inferred": false,
       "preconditions": "APP-10 passed. Two agents. Owner at the keyboard. Use a small model.",
       "steps": [
-        "Ask Zealot to create a room with Scout using room_create and no budget.",
+        "Ask Marshal to create a room with Scout using room_create and no budget.",
         "Read the approval card; Allow it.",
         "Open the room header and the room settings."
       ],
@@ -1299,7 +1299,7 @@
         "Back up ~/.claude.json to ~/.claude/backups/<date>-legion-mcp/ and write a RESTORE.md there.",
         "Run `claude mcp add --scope user legion -- node \"%LOCALAPPDATA%\\Programs\\Legion\\dist\\src\\bin\\legion-mcp-stdio.js\"`.",
         "Run `claude mcp list` and, in a Claude Code session, list the legion tools (legion_list_agents, legion_models, legion_create_agent, legion_run, legion_continue, legion_status, legion_cancel, legion_vm, legion_recent_tasks).",
-        "Ask Claude Code to use legion_run with Zealot on Haiku: \"reply ok\"."
+        "Ask Claude Code to use legion_run with Marshal on Haiku: \"reply ok\"."
       ],
       "expected": "The nine tools are listed; the task runs and its result comes back. The Claude config holds no token (the bridge reads it itself). Rollback: `claude mcp remove legion` and restore the backup.",
       "evidence": "PC-MCP-05.log (claude mcp list output), PC-MCP-05.png.",
@@ -3822,7 +3822,7 @@
       ],
       "inferred": true,
       "inferredNote": "Conditional on the cloud having no browser; item G phase 2 is not done on this base.",
-      "preconditions": "Only if item G phase 2 could not do it. The Zealot art is photographed only, never edited.",
+      "preconditions": "Only if item G phase 2 could not do it. The Marshal art (id zealot) is photographed only, never edited.",
       "steps": [
         "Run the screenshot scripts (test-perf/ui-app/titlebar-shots.mjs, vm-shots.mjs, chat-ui/shots.mjs, bsv-ui/shots.mjs) into a scratch folder; compare with docs/images and docs/screenshots at full size."
       ],

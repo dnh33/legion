@@ -12,12 +12,12 @@ const NEW_IDS = ['inquisitor', 'scribe', 'archivist', 'sentinel', 'forgemaster',
 const tmp = () => cleanupTemp('legion-roster-');
 const words = (s: string) => s.trim().split(/\s+/).length;
 
-/** Snapshot of the three frozen defaults, taken from the git HEAD version of src/core/store.ts (before the roster). Two deliberate changes since: Builder's VM size is 'default' (a free boat.dev trial refuses 'large'), and Zealot's prompt says it leads the Order (owner direction 2026-10-05; the old seed told it to handle requests itself). */
+/** Snapshot of the three frozen defaults, taken from the git HEAD version of src/core/store.ts (before the roster). Deliberate changes since: the lead is named "Marshal" (rename 2026-10-07, id stays zealot); Builder's VM size is 'default' (a free boat.dev trial refuses 'large'), and Zealot's prompt says it leads the Order (owner direction 2026-10-05; the old seed told it to handle requests itself). */
 const FROZEN_SNAPSHOT = 
 [
   {
     "id": "zealot",
-    "name": "Zealot",
+    "name": "Marshal",
     "emoji": "✠",
     "model": "auto",
     "approval": "auto-edits",

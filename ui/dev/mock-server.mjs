@@ -23,21 +23,21 @@ const LONG_LINE = 'const result = await client.request({ method: "POST", url: "h
  *   first        first run: no tasks, no boat key, doctor failing
  *   empty        agents but no tasks
  *   long         very long agent names / descriptions / task titles
- *   vm-none | vm-starting | vm-running | vm-archived | vm-error | vm-disabled   state of Zealot's VM (default vm-none)
+ *   vm-none | vm-starting | vm-running | vm-archived | vm-error | vm-disabled   state of the Marshal's VM (default vm-none)
  *   noboat       boat.dev key not configured
  *   doctor-pass  every Doctor check passes
  *   offline      /api/events refuses (shows Offline, retrying)
  *   down         every /api call fails (core unreachable)
  *   apierr       starting a VM / sending a task fails with a long error
- *   approval     pending approvals (Zealot 1, Builder 2)
- *   sel-err | sel-code   open Zealot on the failed run / the long-code run
+ *   approval     pending approvals (Marshal 1, Builder 2)
+ *   sel-err | sel-code   open the Marshal on the failed run / the long-code run
  */
 function makeDb(flags) {
   const f = (n) => flags.has(n);
   const long = f('long');
   const db = {
     agents: [
-      agent('zealot', long ? 'Zealot the Incorruptible Lead Orchestrator of Many Legions' : 'Zealot', '✠', long ? 'General-purpose lead agent that can delegate to every other agent, read the whole repository and summarise it afterwards' : 'Lead agent of the Legion: takes any request, delegates to the order.', 'auto', 'auto-edits', !f('vm-disabled')),
+      agent('zealot', long ? 'Marshal the Incorruptible Lead Orchestrator of Many Legions' : 'Marshal', '✠', long ? 'General-purpose lead agent that can delegate to every other agent, read the whole repository and summarise it afterwards' : 'Lead agent of the Legion: takes any request, delegates to the order.', 'auto', 'auto-edits', !f('vm-disabled')),
       agent('builder', long ? 'Builder of Extraordinarily Long Named Things' : 'Builder', '⌘', 'Coding and building; prefers its VM for risky work.', 'auto', 'auto-edits', true, 'large'),
       agent('scout', 'Scout', '◎', 'Research, reading and summarising.', 'sonnet', 'ask', false),
     ],
@@ -66,7 +66,7 @@ function makeDb(flags) {
   if (z) db.vms.push(vm({ agentId: 'zealot', state: z, size: 'default', error: z === 'error' ? 'boat.dev returned 502 while provisioning the sandbox. Try again in a minute.' : undefined }));
   db.vms.push(vm({ agentId: 'builder' }));
   if (f('bridge')) {
-    db.tasks.push({ id: 't7', agentId: 'builder', title: 'Zealot: Migrate the auth module to the new session API and keep the tests green', status: f('bridge-run') ? 'running' : 'done', source: 'agent', fromAgentId: 'zealot', parentTaskId: 't1', requestedModel: 'auto', model: 'sonnet', costUsd: 0.09, turns: 6, createdAt: ago(20), updatedAt: ago(f('bridge-run') ? 0 : 15) });
+    db.tasks.push({ id: 't7', agentId: 'builder', title: 'Marshal: Migrate the auth module to the new session API and keep the tests green', status: f('bridge-run') ? 'running' : 'done', source: 'agent', fromAgentId: 'zealot', parentTaskId: 't1', requestedModel: 'auto', model: 'sonnet', costUsd: 0.09, turns: 6, createdAt: ago(20), updatedAt: ago(f('bridge-run') ? 0 : 15) });
   }
   db.messages = {
     t1: [

@@ -565,7 +565,7 @@ export class CommsHub {
   // ---- rooms a bot asks for (each one waits for the user's OK, awaited inside the tool handler)
 
   /**
-   * `room_create`: validate, show the user a card ("Zealot wants to create room X with A, B, C"), and only on Allow make the room.
+   * `room_create`: validate, show the user a card ("Marshal wants to create room X with A, B, C"), and only on Allow make the room.
    * The creator is always a member. Members are capped, the budget is optional (none unless the bot names one or config "comms" sets a default; an optional ceiling applies), the guards are the
    * ordinary ones, the room is marked as created by the bot, and no bot tool deletes a room: only the user can.
    */

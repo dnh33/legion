@@ -39,7 +39,7 @@ export function AgentEditor({ id, focus }: { id: string | null; focus?: 'skills'
     if (leaving) { setLeaving(null); return; }
     if (dirty) setLeaving({ to: 'close' }); else closeOverlays();
   };
-  // "Choose skills for Zealot" lands on the Skills section, not on the name field.
+  // "Choose skills for Marshal" lands on the Skills section, not on the name field.
   useEffect(() => {
     if (focus !== 'skills') return;
     const el = document.querySelector<HTMLElement>('[data-skills-focus]');
