@@ -4,7 +4,7 @@ import type { IncomingMessage, Server, ServerResponse } from 'node:http';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { redactConfig, VERSION } from '../shared/config.js';
 import type {
-  AgentProfile, ApprovalMode, DoctorCheck, LegionConfig, LegionEvent, Catalog, ModelChoice, StateSnapshot, Task, VmSize,
+  AgentProfile, ApprovalMode, ChatMessage, DoctorCheck, LegionConfig, LegionEvent, Catalog, ModelChoice, StateSnapshot, Task, VmSize,
 } from '../shared/types.js';
 import { summariseUsage } from '../shared/usage-summary.js';
 import { nowIso, slugify, uniqueAgentId } from '../shared/util.js';
@@ -362,6 +362,18 @@ export function createServer(ctx: CoreContext): Server {
     const msgs = ctx.store.listMessages(task.id);
     // a bearer-only caller gets no connector data: tool rows, assistant text and the final result of a task that used connectors are withheld
     return isAdminReq(req) ? { task, messages: msgs } : { task: withholdTask(task), messages: msgs.map((m) => withholdMessage(m, task)) };
+  });
+  // One window of a thread (newest first by default), or a search of it. Reachable with the bearer token like GET /api/tasks/:id, and withheld the same way:
+  // for a bearer-only caller the connector rows of a task that used connectors are withheld, and search runs on the withheld text, so it cannot be used to read them.
+  route('GET', '/api/tasks/:id/messages', ({ params, url, req }) => {
+    const task = mustTask(params[0]);
+    const admin = isAdminReq(req);
+    const view = (m: ChatMessage): ChatMessage => (admin ? m : withholdMessage(m, task));
+    const num = (k: string): number | undefined => { const v = url.searchParams.get(k); return v === null || v === '' ? undefined : Number(v); };
+    const q = url.searchParams.get('q');
+    if (q) return ctx.store.searchMessages(task.id, q, view);
+    const page = ctx.store.pageMessages(task.id, { before: num('before'), from: num('from'), limit: num('limit') });
+    return { task: admin ? task : withholdTask(task), messages: page.messages.map(view), start: page.start, end: page.end, total: page.total };
   });
   route('PATCH', '/api/tasks/:id', ({ params, body }) => {
     const cur = mustTask(params[0]);

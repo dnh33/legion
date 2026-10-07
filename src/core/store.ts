@@ -6,6 +6,7 @@ import type { AgentProfile, ChatMessage, Task, VmRecord } from '../shared/types.
 import { nowIso } from '../shared/util.js';
 import { ROSTER } from './roster.js';
 import { TaskIndex, type PageQuery } from './task-index.js';
+import { messageWindow, searchMessages, type MsgHit } from './message-pages.js';
 
 interface StateFile { agents: AgentProfile[]; tasks: Task[]; vms: VmRecord[]; /** One-time migrations already applied (see MIGRATIONS). Absent in files from older builds. */ migrations?: string[] }
 
@@ -140,6 +141,13 @@ export class Store {
   listMessages(taskId: string): ChatMessage[] {
     return [...this.loadMessages(taskId)];
   }
+  /** One window of a thread, oldest first (see message-pages.ts): the newest `limit` before `before`, or `limit` from position `from`. `start`/`end`/`total` are positions. */
+  pageMessages(taskId: string, o: { before?: number; from?: number; limit?: number }): { messages: ChatMessage[]; start: number; end: number; total: number } {
+    const list = this.loadMessages(taskId);
+    const w = messageWindow(list, o);
+    return { messages: list.slice(w.start, w.end), start: w.start, end: w.end, total: w.total };
+  }
+  searchMessages(taskId: string, q: string, view?: (m: ChatMessage) => ChatMessage): { hits: MsgHit[]; total: number } { return searchMessages(this.loadMessages(taskId), q, view); }
   addMessage(m: ChatMessage): ChatMessage {
     const list = this.loadMessages(m.taskId);
     list.push(m);

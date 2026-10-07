@@ -131,6 +131,15 @@ export const api = {
   boardRun: (pid: string, id: string) => request<{ item: WorkItem; limited: boolean }>('POST', `/api/projects/${encodeURIComponent(pid)}/board/items/${encodeURIComponent(id)}/run`, {}),
   patchRoomProject: (roomId: string, projectId: string | null) => request<unknown>('PATCH', `/api/rooms/${encodeURIComponent(roomId)}`, { projectId }),
   createTask: (b: { agentId: string; prompt: string; model?: ModelChoice; continueTaskId?: string; projectId?: string }) => request<Task>('POST', '/api/tasks', b),
+  /** One window of a conversation (newest by default; `before` pages back, `from` opens a window at a position) and its search (`q`). */
+  taskMessages: (id: string, o: { before?: number; from?: number; limit?: number }) => {
+    const sp = new URLSearchParams();
+    if (o.before !== undefined) sp.set('before', String(o.before));
+    if (o.from !== undefined) sp.set('from', String(o.from));
+    if (o.limit !== undefined) sp.set('limit', String(o.limit));
+    return request<{ task: Task; messages: ChatMessage[]; start: number; end: number; total: number }>('GET', `/api/tasks/${encodeURIComponent(id)}/messages?${sp}`);
+  },
+  searchMessages: (id: string, q: string) => request<{ hits: Array<{ index: number; id: string; role: string; snippet: string }>; total: number }>('GET', `/api/tasks/${encodeURIComponent(id)}/messages?q=${encodeURIComponent(q)}`),
   getTask: (id: string) => request<{ task: Task; messages: ChatMessage[] }>('GET', `/api/tasks/${encodeURIComponent(id)}`),
   cancelTask: (id: string) => request<{ ok: boolean }>('POST', `/api/tasks/${encodeURIComponent(id)}/cancel`),
   /** POST /api/tasks/:id/compact: ask the engine to compact this conversation now, optionally keeping a focus instruction. */

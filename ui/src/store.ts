@@ -5,6 +5,7 @@ import type {
 import { api, request, subscribe, ApiError, type ConnStatus } from './api';
 import { incomingWins } from './chat/tasksync';
 import { keepTasks } from './history/historyLogic';
+import { metaDetached, hasOlder, loadedHas, prependPage, reconcileNewest, type ThreadMeta } from './chat/threadWindow';
 import { askToStop } from './chat/background';
 import type { Project } from '../../src/shared/projects';
 import { FILTER_KEY, inProject, newTaskProjectId } from './projects/projectsLogic';
@@ -33,6 +34,8 @@ export interface AppState {
   /** Per task: the `at` of the newest approval card that was denied (by the user or the timeout), so the busts do not read the denied call as work. */
   denials: Record<string, string>;
   messages: Record<string, ChatMessage[]>;
+  /** Per task: which part of a long conversation is loaded (the core pages it; `messages[id]` holds positions start..end). Absent for a task whose thread was never paged. */
+  threadMeta: Record<string, ThreadMeta>;
   streaming: Record<string, string>;
   /** Live progress of running Claude runs (turn, tool, start), from `task.progress`; dropped when the task stops. */
   progress: Record<string, TaskProgress>;
@@ -79,7 +82,7 @@ const initialTheme = ((): 'dark' | 'light' => {
 
 let state: AppState = {
   loaded: false, conn: 'connecting', version: '', auth: 'claude-login', boatConfigured: false, boatHealth: null,
-  agents: [], tasks: [], vms: {}, approvals: [], denials: {}, messages: {}, streaming: {}, progress: {},
+  agents: [], tasks: [], vms: {}, approvals: [], denials: {}, messages: {}, threadMeta: {}, streaming: {}, progress: {},
   mascot: { mood: 'idle', at: Date.now() }, doctor: null, doctorLoading: false,
   selectedAgentId: 'zealot', selectedTaskId: null, modelOverride: null,
   opsOpen: ls('legion.ops') !== '0', theme: initialTheme,
@@ -209,7 +212,7 @@ export function handleEvent(e: LegionEvent) {
       delete pendingDelta[id];
       const wasSel = getState().selectedTaskId === id;
       if (wasSel) leaveTask(id);
-      setState((s) => { const { [id]: _m, ...messages } = s.messages; const { [id]: _p, ...progress } = s.progress; return { tasks: s.tasks.filter((t) => t.id !== id), messages, progress }; });
+      setState((s) => { const { [id]: _m, ...messages } = s.messages; const { [id]: _t, ...threadMeta } = s.threadMeta; const { [id]: _p, ...progress } = s.progress; return { tasks: s.tasks.filter((t) => t.id !== id), messages, threadMeta, progress }; });
       break;
     }
     case 'settings.updated':
@@ -221,11 +224,14 @@ export function handleEvent(e: LegionEvent) {
       setState((s) => {
         const list = s.messages[m.taskId] ?? [];
         if (list.some((x) => x.id === m.id)) return {};
+        const meta = s.threadMeta[m.taskId];
+        // a window opened in the middle of a long thread (a search hit) is not the live end: count the row, do not add it; Jump to latest reloads
+        if (meta && metaDetached(meta)) return { threadMeta: { ...s.threadMeta, [m.taskId]: { ...meta, total: meta.total + 1 } } };
         let next = list;
         if (m.role === 'user') next = list.filter((x) => !(x.id.startsWith('tmp-') && x.text === m.text));
         next = [...next, m];
         const streaming = m.role === 'assistant' ? { ...s.streaming, [m.taskId]: '' } : s.streaming;
-        return { messages: { ...s.messages, [m.taskId]: next }, streaming };
+        return { messages: { ...s.messages, [m.taskId]: next }, streaming, ...(meta ? { threadMeta: { ...s.threadMeta, [m.taskId]: { ...meta, end: meta.end + 1, total: meta.total + 1 } } } : {}) };
       });
       break;
     }
@@ -349,15 +355,39 @@ export async function runDoctor() {
 export async function loadTask(id: string, force = false) {
   if (!force && getState().messages[id]) return;
   try {
-    const { task, messages } = await api.getTask(id);
+    const p = await api.taskMessages(id, {});
     setState((s) => {
-      const live = s.messages[id] ?? [];
-      const ids = new Set(messages.map((m) => m.id));
-      const merged = [...messages, ...live.filter((m) => !ids.has(m.id) && !m.id.startsWith('tmp-'))];
-      return { messages: { ...s.messages, [id]: merged }, tasks: upsertTaskIfNewer(s.tasks, task) };
+      const messages = reconcileNewest(s.messages[id] ?? [], p.messages);
+      const end = p.end + (messages.length - p.messages.length); // rows that came live after the answer was built
+      return { messages: { ...s.messages, [id]: messages }, threadMeta: { ...s.threadMeta, [id]: { start: p.start, end, total: Math.max(p.total, end), loadingOlder: false } }, tasks: upsertTaskIfNewer(s.tasks, p.task) };
     });
   } catch (e) { toast(errText(e), 'error'); }
 }
+
+/** The next older page of a long conversation (scrolled near the top). */
+export async function loadOlder(id: string) {
+  const m = getState().threadMeta[id];
+  if (!m || !hasOlder(m) || m.loadingOlder) return;
+  setState((s) => ({ threadMeta: { ...s.threadMeta, [id]: { ...m, loadingOlder: true, error: undefined } } }));
+  try {
+    const p = await api.taskMessages(id, { before: m.start, limit: 100 });
+    setState((s) => { const cur = s.threadMeta[id]; return cur ? { messages: { ...s.messages, [id]: prependPage(s.messages[id] ?? [], p.messages) }, threadMeta: { ...s.threadMeta, [id]: { ...cur, start: Math.min(cur.start, p.start), loadingOlder: false } } } : {}; });
+  } catch (e) {
+    setState((s) => (s.threadMeta[id] ? { threadMeta: { ...s.threadMeta, [id]: { ...s.threadMeta[id]!, loadingOlder: false, error: errText(e) } } } : {}));
+  }
+}
+export function retryOlder(id: string) { setState((s) => (s.threadMeta[id] ? { threadMeta: { ...s.threadMeta, [id]: { ...s.threadMeta[id]!, error: undefined } } } : {})); void loadOlder(id); }
+
+/** Makes sure the message at stored position `index` is loaded: when it is not, replaces the loaded window with one around it (the thread is then detached from the live end until Jump to latest). */
+export async function ensureLoaded(id: string, index: number): Promise<boolean> {
+  if (loadedHas(getState().threadMeta[id], index)) return true;
+  try {
+    const p = await api.taskMessages(id, { from: Math.max(0, index - 30), limit: 80 });
+    setState((s) => ({ messages: { ...s.messages, [id]: p.messages }, threadMeta: { ...s.threadMeta, [id]: { start: p.start, end: p.end, total: p.total, loadingOlder: false } } }));
+    return true;
+  } catch (e) { toast(errText(e), 'error'); return false; }
+}
+export function jumpToLatest(id: string) { void loadTask(id, true); }
 
 /* ---------- actions ---------- */
 export function selectAgent(id: string) {

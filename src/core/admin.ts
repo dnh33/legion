@@ -53,6 +53,7 @@ const CLIENT_ROUTES: Array<[string, RegExp]> = [
   ['GET', /^\/api\/agents\/?$/],
   ['GET', /^\/api\/catalog\/?$/],
   ['GET', /^\/api\/tasks\/[^/]+(\/wait)?\/?$/],
+  ['GET', /^\/api\/tasks\/[^/]+\/messages\/?$/],
   ['POST', /^\/api\/tasks\/?$/],
   ['POST', /^\/api\/tasks\/[^/]+\/cancel\/?$/],
   // BSV freeze only makes Legion safer (it denies, disarms and stops wallet contact), so a core with no app window can still be frozen with the bearer token.
