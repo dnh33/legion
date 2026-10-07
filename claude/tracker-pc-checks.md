@@ -415,6 +415,15 @@ Built and tested on fakes and the in-process test core only. Settings, Logs has 
 | LG2 | The log folder after a crash | Built app on Windows | End the core process from Task Manager while a run is going (or make it throw), then start Legion again and open Settings, Logs | `errors.log` holds the last error lines (or the folder shows the run's last lines); pasting `errors.log` into a chat shows no key, token or prompt text; `core.log` is intact | The folder listing and the pasted text | none | Logging wire |
 
 
+## 2026-10-07: Soul Codex v1 (feat/soul-codex-v1; plan `claude/plan-fascia.md` 6.2). Safety class: a few cents of Claude usage
+
+The souls are tested for shape and contract on fakes only; nothing has checked how a real model follows them.
+
+| id | Steps | Expected | Evidence | State |
+|---|---|---|---|---|
+| SC1 | Built app, a fresh install (or an install whose three defaults still have their old seeds). Open Builder, Scout and Zealot and read their prompts. | All three show the new souls. Edit Scout's prompt by hand, restart Legion: your text is kept. | Screenshot of each prompt; Scout after the restart. | todo |
+| SC2 | Ask Builder: "Add a function that reverses a string in a scratch file and prove it works." Ask Scout: "What is the current LTS version of Node.js? Give the source." Ask Zealot: "Write a one-paragraph README section for the board, and have it reviewed." | Builder's first line is BUILT, PARTIAL or BLOCKED, with Evidence naming a command it ran. Scout's first line is FOUND, PARTIAL or NOT FOUND, with a link. Zealot's first line is STATUS; it hands the writing to the Scribe and the review to the Inquisitor, then reports with evidence. | The three answers, copied as text. | todo |
+
 ## Run 2026-10-07 (computer use on the maintainer's PC, Legion 0.2.5-l, the maintainer present)
 
 | id | result | what was seen | open issue |
