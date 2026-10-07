@@ -46,6 +46,8 @@ const CAPPED_CARDED = new Set(['mcp__legion__vm_exec', 'mcp__legion__vm_claude',
  * (src/core/connectors/gateway.ts, mcp__legion_connectors__) that write outward or spend raise their own card in EVERY mode, full
  * included, by calling `broker.request` directly. They are the only exception to the rule above. Do not "fix" them to go through
  * guardAsk. (Slice 1b ships READ tools only; the first carded handler arrives with the GitHub writes.)
+ * Second exception, maintainer decision 2026-10-07: WebFetch and WebSearch in a run that read connector data AND is tainted raise their own
+ * card in every mode (Engine.webEgressCard), because web access can carry that data out.
  *
  * `modeOf` re-reads the store on EVERY call, so switching an agent from `ask` to `full` mid-task takes effect on
  * its next guarded call. A snapshot taken at run start would keep carding a bot the owner has just promoted.

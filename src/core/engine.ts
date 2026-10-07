@@ -907,6 +907,29 @@ export class Engine {
   }
 
   /**
+   * Maintainer decision 2026-10-07: in a run that read connector data AND is tainted, WebFetch and WebSearch need an approval card even in
+   * full mode: web access could carry that data out. Like the connector gateway's writes this raises its own card (never through guardAsk).
+   * Returns undefined when no card is due, else the decision. Used by canUseTool and the provider path (toolDecider) and, in bypass mode where
+   * canUseTool does not exist, by a PreToolUse hook.
+   */
+  private async webEgressCard(job: Job, agent: AgentProfile, toolName: string, input: Record<string, unknown>): Promise<{ allow: boolean; message?: string } | undefined> {
+    if (toolName !== 'WebFetch' && toolName !== 'WebSearch') return undefined;
+    const used = this.store.getTask(job.taskId)?.usedConnectors === true;
+    const tainted = this.active.get(job.taskId)?.tainted === true || job.origin?.tainted === true;
+    if (!used || !tainted) return undefined;
+    const target = String(toolName === 'WebFetch' ? input?.url ?? '' : input?.query ?? '').slice(0, 1000);
+    const o = job.origin;
+    let timedOut = false;
+    const allowed = await this.approvals.request(job.taskId, agent.id, toolName, input, o ? { roomId: o.roomId, fromAgentId: o.fromAgentId, hop: o.hop } : undefined, {
+      onTimeout: () => { timedOut = true; },
+      summary: `${toolName}: ${target}
+This run read connector (GitHub) data and other outside text. Web access can send that data out. Check the address or query before you allow it.`,
+    });
+    if (allowed) return { allow: true };
+    return { allow: false, message: timedOut ? `No one answered the approval request within ${this.approvals.timeoutWait}, so this web request was not run.` : 'The user denied this web request.' };
+  }
+
+  /**
    * The approval decision for one tool call, shared by the Claude path (canUseTool) and the provider path: effective mode (never looser
    * than the run's ceiling), then needsApproval, then a card the user answers (10 minutes, then denied).
    */
@@ -917,6 +940,9 @@ export class Engine {
       return ceiling ? stricterMode(mode, ceiling) : mode;
     };
     return async (toolName, input) => {
+      // web egress after connector data: a card in every mode (maintainer decision 2026-10-07)
+      const egress = await this.webEgressCard(job, agent, toolName, input);
+      if (egress) return egress;
       const mode = effective();
       if (!needsApproval(mode, toolName, { capped: job.origin?.approvalCeiling === 'ask' })) return { allow: true };
       const o = job.origin;
@@ -1025,6 +1051,12 @@ export class Engine {
     if (agent.approval === 'full' && !(ceiling && ceiling !== 'full')) {
       options.permissionMode = 'bypassPermissions';
       options.allowDangerouslySkipPermissions = true;
+      // bypass mode has no canUseTool: the web-egress card is raised from a PreToolUse hook instead (never both, so one card per call)
+      options.hooks?.PreToolUse?.push({ matcher: 'WebFetch|WebSearch', hooks: [async (input) => {
+        if (input.hook_event_name !== 'PreToolUse') return { continue: true };
+        const d = await this.webEgressCard(job, agent, input.tool_name, (input.tool_input ?? {}) as Record<string, unknown>);
+        return d && !d.allow ? preToolDeny(d.message ?? 'The user denied this web request.') : { continue: true };
+      }] });
     } else {
       options.permissionMode = 'default';
       const decide = this.toolDecider(job, agent);
