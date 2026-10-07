@@ -11,7 +11,7 @@ import { roomsOf } from '../projectsLogic';
 import { setView, useStore } from '../../store';
 import { acceptItem, createItem, deleteItem, loadBoard, moveItem, openTask, patchItem, probeBoard, rejectItem, runItem, sayItem, setLeader, useBoard } from './boardStore';
 import {
-  applyFilters, assigneeKey, assigneeLabel, byColumn, cardLabel, columnLabel, COLUMNS, descCounter, dueState, dueText, FILTER_KEY, hasFilters, keyMove,
+  applyFilters, assigneeKey, changedFields, runHint, assigneeLabel, byColumn, cardLabel, columnLabel, COLUMNS, descCounter, dueState, dueText, FILTER_KEY, hasFilters, keyMove,
   labelsOf, learnDraft, moveAnnouncement, shouldOfferNote, NO_FILTERS, parseAssignee, PRIORITY_LABEL, priorityMark, readFilters,
 } from './boardLogic';
 import type { Filters } from './boardLogic';
@@ -249,6 +249,9 @@ function ItemDialog({ project, item, members, name, archived, onClose, startLear
   const [priority, setPriority] = useState(item?.priority ?? 'normal');
   const [due, setDue] = useState(item?.due ?? '');
   const [labels, setLabels] = useState(item?.labels.join(', ') ?? '');
+  // the item as the dialog last knew it: the save sends only what changed against it, and is refused if the core's copy moved on since
+  const [base, setBase] = useState(item);
+  const own = async (b: Record<string, unknown>) => { const r = await patchItem(project.id, item!.id, b); if (r) setBase(r); return r; };
   const [sure, setSure] = useState(false);
   const [learnOpen, setLearnOpen] = useState(startLearn);
   const draft = useMemo(() => (item ? learnDraft(item, name) : { title: '', body: '' }), [item?.id]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -263,11 +266,11 @@ function ItemDialog({ project, item, members, name, archived, onClose, startLear
   useEffect(() => { for (const id of item?.noteIds ?? []) if (!(id in titles)) void api.boardNoteTitle(project.id, id).then((r) => setTitles((t) => ({ ...t, [id]: r.title })), () => setTitles((t) => ({ ...t, [id]: '(note not found)' }))); }, [item?.noteIds.join(',')]); // eslint-disable-line react-hooks/exhaustive-deps
   const counter = descCounter(desc);
   const labelList = labels.split(',').map((l) => l.trim()).filter(Boolean);
-  const canRun = !!item && !item.proposal && !archived && item.assignee?.kind === 'agent' && project.members.includes(item.assignee.id) && !item.activeRun;
+  const canRun = !!item && !item.proposal && !archived && item.assignee?.kind === 'agent' && project.members.includes(item.assignee.id) && !item.activeRun && item.status !== 'done';
   const body = () => ({ title: title.trim(), description: desc.slice(0, BOARD_LIMITS.descriptionChars), status, assignee: parseAssignee(assignee), priority, due: due || null, labels: labelList });
 
   const save = async () => {
-    const r = item ? await patchItem(project.id, item.id, body()) : await createItem(project.id, { ...body(), due: due || undefined });
+    const r = item && base ? await patchItem(project.id, item.id, { ...changedFields(base, { ...body(), assignee: parseAssignee(assignee) }), ifUpdatedAt: base.updatedAt }) : await createItem(project.id, { ...body(), due: due || undefined });
     if (r && item && status === 'done' && shouldOfferNote(item.status, status, item.noteIds.length)) onOffer({ id: item.id, title: title.trim() });
     if (r) { sayItem(item ? 'Item saved.' : 'Item created.'); onClose(); }
   };
@@ -277,7 +280,7 @@ function ItemDialog({ project, item, members, name, archived, onClose, startLear
         {item?.trust === 'untrusted' && !item.proposal && (
           <div className="proj-note" role="note">
             <strong>Written by an agent, not reviewed.</strong> Read the text below. Until you mark it reviewed, &ldquo;Run this item&rdquo; starts the run with the stricter &ldquo;ask&rdquo; approvals.
-            <div><button type="button" className="btn sm" disabled={archived || busy} onClick={() => void patchItem(project.id, item.id, { trust: 'human' })}>Mark as reviewed</button></div>
+            <div><button type="button" className="btn sm" disabled={archived || busy} onClick={() => void own({ trust: 'human' })}>Mark as reviewed</button></div>
           </div>
         )}
         <label>Title<input value={title} maxLength={BOARD_LIMITS.titleChars} required data-autofocus disabled={archived} onChange={(e) => setTitle(e.target.value)} /></label>
@@ -327,7 +330,7 @@ function ItemDialog({ project, item, members, name, archived, onClose, startLear
                 <h4 className="bd-h4">Linked work</h4>
                 <ul className="proj-list">
                   {item.taskIds.map((t) => <li key={t}><button type="button" className="proj-link" onClick={() => { onClose(); openTask(t); }}>Open task {t.slice(-6)}</button></li>)}
-                  {item.roomIds.map((r) => <li key={r}><button type="button" className="proj-link" onClick={() => { onClose(); setView('rooms'); openRoom(r); }}>Open room {rooms.find((x) => x.id === r)?.name ?? r.slice(-6)}</button>{!archived && <button type="button" className="btn-ghost sm" aria-label={`Unlink room ${rooms.find((x) => x.id === r)?.name ?? r.slice(-6)}`} onClick={() => void patchItem(project.id, item.id, { roomIds: item.roomIds.filter((x) => x !== r) })}>Unlink</button>}</li>)}
+                  {item.roomIds.map((r) => <li key={r}><button type="button" className="proj-link" onClick={() => { onClose(); setView('rooms'); openRoom(r); }}>Open room {rooms.find((x) => x.id === r)?.name ?? r.slice(-6)}</button>{!archived && <button type="button" className="btn-ghost sm" aria-label={`Unlink room ${rooms.find((x) => x.id === r)?.name ?? r.slice(-6)}`} onClick={() => void own({ roomIds: item.roomIds.filter((x) => x !== r) })}>Unlink</button>}</li>)}
                 </ul>
               </div>
             )}
@@ -339,7 +342,7 @@ function ItemDialog({ project, item, members, name, archived, onClose, startLear
                     {projectRooms.filter((r) => !item.roomIds.includes(r.id)).map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}
                   </select>
                 </label>
-                <button type="button" className="btn" disabled={!roomPick || busy} onClick={() => void patchItem(project.id, item.id, { roomIds: [...item.roomIds, roomPick] }).then(() => setRoomPick(''))}>Link</button>
+                <button type="button" className="btn" disabled={!roomPick || busy} onClick={() => void own({ roomIds: [...item.roomIds, roomPick] }).then(() => setRoomPick(''))}>Link</button>
               </div>
             )}
             <div>
@@ -362,7 +365,7 @@ function ItemDialog({ project, item, members, name, archived, onClose, startLear
             : <button type="button" className="btn-ghost danger" disabled={archived || busy} onClick={() => setSure(true)}>Delete</button>)}
           <button type="button" className="btn-ghost" onClick={onClose}>Cancel</button>
         </div>
-        {item && !item.proposal && <p className="field-note" id="bd-runnote">{canRun ? 'Runs the assigned agent once, with this item’s text and the project instructions, under its usual approvals. The item moves to Doing, then to Review when the run ends. Only you mark it Done.' : 'To run an item, assign it to a member agent first.'}</p>}
+        {item && !item.proposal && <p className="field-note" id="bd-runnote">{runHint(item, canRun)}</p>}
       </form>
     </Modal>
   );
