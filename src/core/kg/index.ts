@@ -119,6 +119,12 @@ export function createKnowledgeModule(deps: ModuleDeps, opts: KnowledgeModuleOpt
       const run: RunContext = job
         ? {
           taskId: job.taskId, ...(job.origin ? { origin: job.origin } : {}), ...(job.ceiling ? { ceiling: job.ceiling } : {}), taint: job.taint, quota: quotaFor(job.taskId), ...(job.projectId ? { projectId: job.projectId } : {}),
+          // the text of another run's task comes into this one: a tainted source taints the reader, as an ask answer or task_result does
+          taskResult: (id: string) => {
+            const t = deps.store.getTask(id);
+            return t ? { text: t.result ?? t.error, ...(t.projectId ? { projectId: t.projectId } : {}), tainted: deps.engine.isTainted(id) } : undefined;
+          },
+          readTainted: () => deps.engine.markTainted(job.taskId),
           saved: () => { captured.add(job.taskId); if (captured.size > 500) captured.delete(captured.values().next().value as string); },
         }
         : {};

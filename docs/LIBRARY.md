@@ -29,7 +29,7 @@ Nothing from a tainted run, and nothing untrusted, ever reaches it. The block sa
 
 ### Close-out
 
-A task of 8 or more turns, or $0.10 or more, that made no *successful* `kg_capture` or `kg_wm_set` call (a refused one does not count) gets one deterministic `episode` note (private to that bot, written by the system, kept 30 days). No extra model turn is forced.
+A task of 8 or more turns, or $0.10 or more, that made no *successful* `kg_capture` or `kg_wm_set` call (a refused one does not count) gets one deterministic `episode` note (private to that bot, written by the system, kept 30 days). No extra model turn is forced. The note keeps 300 characters of the request and 800 of the result; it also carries the source `task:<id>#result`, and `kg_get task:<id>#result` returns the whole latest result of that task (at most 200,000 characters kept), in pages, wrapped as untrusted and scrubbed of secrets in full (a seed phrase or key anywhere in it withholds all of it). It works only through the system-written episode of that task and only for an agent that may see that episode.
 
 ### Vault mirror
 

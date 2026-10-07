@@ -13,7 +13,7 @@ test('the model is offered exactly the in-process Legion tools, as mcp__<server>
     const h = setup(f);
     await run(h);
     const names = (f.requests[0]!.body.tools as any[]).map((t) => t.function.name).sort();
-    assert.deepEqual(names, ['mcp__legion__agents', 'mcp__legion__ask', 'mcp__legion__tell']);
+    assert.deepEqual(names, ['mcp__legion__agents', 'mcp__legion__ask', 'mcp__legion__task_result', 'mcp__legion__tell']);
     assert.equal(f.requests[0]!.body.tool_choice, 'auto');
     const v = setup(f, { vm: true });
     await run(v);

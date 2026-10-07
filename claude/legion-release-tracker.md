@@ -986,6 +986,15 @@ Items 1 to 6 above stay as they are. These were added from the 2026-10-06 sessio
 
     Items 2-7 follow logging, in this order. Not proposed: the council (parked), an effort picker, mascot art changes.
 
+25. **Order bugs, fixed in one draft PR (branch `fix/order-bugs`; not merged, not released).** From the owner's run of the Order on 2026-10-07 (bug file `LEGION-BUGS.md` in the owner's project folder). The PR is not verified on a real PC until checks OF1 to OF4 in `claude/tracker-pc-checks.md` pass.
+    - **BUG-7 (high). FIXED IN PR.** A run closed its input when the lead answered, which killed Claude Code background subagents. The run now stays open while the SDK reports running background agents (`src/core/background-tasks.ts`, `engine.ts runOnce`); cap 60 minutes without any SDK message; "waiting on N background agents" in the working row; Stop, Ctrl+Enter and "send now" ask first. Known limit: replies to a `tell` reach a held run only when it closes.
+    - **BUG-1 (high). FIXED IN PR.** A reply goes back at the caller's own hop (`bridge.ts deliverReply`); `ask` and `tell` still add one; a refused reply leaves a notice on both threads.
+    - **BUG-2 (high). FIXED IN PR.** Replies over 4,000 characters keep the full text (`ResultStore`, cap 200,000) and point to the new `task_result` tool.
+    - **BUG-3 (high). FIXED IN PR.** Library episodes link to `task:<id>#result`; `kg_get` reads the full result.
+26. **BUG-4 (medium). OPEN.** Agents on other model providers have no file tools, so they cannot deliver into the project folder. Plan: a scoped `project_write` and `project_read` in `src/core/providers/tool-loop.ts` (unverified), honouring approval mode and taint.
+27. **BUG-5 (medium). OPEN.** Runs delegated from a project run land in the wrong project (they cannot see its board; their Library notes go to legion-dev). Cause not traced: check whether `engine.start` from the bridge passes the caller's `projectId`.
+28. **BUG-6 (low, UX). OPEN.** A tainted run cannot assign board items and has no way out. Plan: let it propose an assignee that lands in the owner's inbox with one-click accept, without loosening the guard (`projects/board/store.ts`).
+
 **Scope lock (maintainer, 2026-10-06):** the work already running is finished before anything new starts: the Cloudflare switch and connectors phase 1 (this session), the Armory and the CI panel (house/skills session), BSV PR #16 for `0.2.5-i` (BSV session). New requests go onto this ladder as open items. After the lock, work resumes from the ladder.
 
 ---
