@@ -207,7 +207,13 @@ export function refusedCommand(
   const notChosen = hits.find((e) => !coreCommand(e) && ((e.agents !== 'all' && !e.agents.includes(agent.id)) || !agentSkillsAllow(agent.skills, e.id)));
   if (notChosen) return `/${typed} is not one of this agent's skills (${notChosen.id}). Tick it under Skills in the agent's settings, or set the agent to "Same as the Armory".`;
   if (hits.length) return undefined;
-  if (cliCommands.has(typed)) return undefined;
+  // A command Claude Code lists that is not a skill in the Armory (a plugin's slash command): there is no switch for it, so an agent
+  // with its own skill list may run it only when that list names it. The fixed core commands always run; an agent that follows the
+  // Armory keeps the live list, as before.
+  if (cliCommands.has(typed)) {
+    if (CLI_COMMANDS.has(typed) || agentSkillsAllow(agent.skills, typed)) return undefined;
+    return `/${typed} is not one of this agent's skills: it is a Claude Code command outside the Armory. Set the agent to "Same as the Armory" to allow it.`;
+  }
   if (looksLikePath(prompt)) return undefined;
   return `/${typed} is not a command Legion knows: it is not one of Claude Code's own commands and not a skill in the Armory. Check the name, or turn the skill on in Settings > Armory.`;
 }

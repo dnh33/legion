@@ -531,3 +531,13 @@ describe('AR5: the composer menu offers only what the agent may type', () => {
     assert.equal(isClientRoute('GET', '/api/armory/slash'), false);
   });
 });
+
+describe('AR5: a plugin slash command outside the Armory follows the agent\'s skill choice', () => {
+  const live = new Set([...CLI_COMMANDS, 'commit-commands:commit']);
+  it('is refused for an agent with its own skill list, runs when the list names it, and for an agent that follows the Armory', () => {
+    assert.match(refusedCommand([], { id: 'a', skills: [] } as never, '/commit-commands:commit', live) ?? '', /outside the Armory/);
+    assert.equal(refusedCommand([], { id: 'a', skills: ['commit-commands:commit'] } as never, '/commit-commands:commit', live), undefined);
+    assert.equal(refusedCommand([], { id: 'a', skills: 'inherit' } as never, '/commit-commands:commit', live), undefined);
+    assert.equal(refusedCommand([], { id: 'a', skills: [] } as never, '/compact', live), undefined, 'core commands always run');
+  });
+});
