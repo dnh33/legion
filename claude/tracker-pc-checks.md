@@ -425,3 +425,14 @@ Built and tested on fakes and the in-process test core only. Settings, Logs has 
 | CI4 (partial) | pass for dock, float and Escape | Dock to the right narrowed the chat; float came back; Escape closed the panel and focus returned to the CI chip with a visible ring. Not tested: two monitors, restart, display scaling, high contrast. | Polish: docked, the panel is too narrow; run and job names shrink to "Merge pull req…" and "test …". |
 
 Nothing was switched off during this run. The panel was left floating and closed, as it was found.
+
+### Armory checks in the same run (2026-10-07, 0.2.5-l, a throwaway agent "PC Check" and a throwaway skill)
+
+| id | result | what was seen | open issue |
+|---|---|---|---|
+| AR3 | **pass** | Agent with "Choose skills" and nothing ticked answered "NONE". With one plugin skill (`markdown-fetch`) and one claude.ai-synced skill (`kodawari`) ticked, it listed exactly `markdown-fetch:markdown-fetch` and `anthropic-skills:kodawari`. None of the maintainer's 148 personal skills was on, so the personal half used a synced skill instead. | The agent still sees skill NAMES mentioned as text in the maintainer's Claude Code session-start hook and global CLAUDE.md (inherit Claude Code settings is on); context text, not loadable skills. |
+| AR4 | **pass** (plugin skill) | After a Skill load of `markdown-fetch:markdown-fetch` the task was `tainted: true` in Ask, Allow edits and Full access (state.json); tasks without a skill load were not tainted. The "own skill not tainted" half was not run yet. | |
+| AR5 | **FAIL** | `/debug` sent to the agent with no skills chosen RAN ("Debug logging is now on...") instead of being refused with the Armory message. | BUG: the slash refusal does not cover this Claude Code built-in command. Also, the composer's `/` menu offers `/debug` and every skill on the PC, not only the agent's own. |
+| AR1 | in progress | Test skill `pc-check-phrase` created through the New skill editor: it started off ("Saved (off). Turn on") and was set to Agents decide (Armory count 103 -> 104 on). Not yet asked. | Polish: unticking a group in the agent editor shifts the list under the cursor (the over-40 warning line disappears). |
+
+Cost of the agent runs so far: about $0.80 of Claude quota.
