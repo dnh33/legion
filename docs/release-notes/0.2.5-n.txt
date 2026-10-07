@@ -1,0 +1,9 @@
+Legion 0.2.5-n. The Marshal leads, and the Quartermaster joins.
+
+- The lead agent is now called the Marshal (it was Zealot); your tasks, threads and settings carry over.
+- The Quartermaster, a new agent, checks your skills and MCP servers for updates and files them on the board. It reports only.
+- Fuller souls for the Marshal, Builder and Scout, and a two-step first screen.
+- Smaller instructions on every run; the A key no longer approves click-only cards; quieter logs and CI panel; focus rings only for keyboard use.
+
+---
+Full detail in CHANGELOG.md. Self-applies from inside Legion - no reinstall needed.
