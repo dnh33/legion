@@ -33,9 +33,11 @@ const RULES: Array<{ re: RegExp; to: string | ((...m: string[]) => string); hex?
   // sk-... API keys (OpenAI, Anthropic, ...)
   { re: /\bsk-[A-Za-z0-9_-]{8,}/g, to: '[redacted-token]' },
   // GitHub, Slack, AWS
-  { re: /\bgh[pousr]_[A-Za-z0-9]{20,}\b/g, to: '[redacted-token]' },
+  // Lookbehind, not \b: a token glued to "_" or a letter (x_ghu_...) has no word boundary in front of it. No trailing
+  // boundary either: the greedy class stops at "_", so ghu_..._suffix is masked up to the suffix.
+  { re: /(?<![A-Za-z0-9])gh[pousr]_[A-Za-z0-9]{20,}/g, to: '[redacted-token]' },
   // GitHub fine-grained personal access tokens: github_pat_<22>_<59>
-  { re: /\bgithub_pat_[A-Za-z0-9_]{20,}/g, to: '[redacted-token]' },
+  { re: /(?<![A-Za-z0-9])github_pat_[A-Za-z0-9_]{20,}/g, to: '[redacted-token]' },
   { re: /\bxox[abprs]-[A-Za-z0-9-]{10,}/g, to: '[redacted-token]' },
   { re: /\bAKIA[0-9A-Z]{16}\b/g, to: '[redacted-token]' },
   // Bitcoin / BSV WIF private keys: base58, 51 chars starting with 5 or 52 chars starting with K / L

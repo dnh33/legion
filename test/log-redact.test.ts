@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict';
 import { afterEach, describe, it } from 'node:test';
 import { scrubSecrets } from '../src/core/comms/scrub.js';
-import { clearRegisteredSecrets, redact, registerSecret } from '../src/core/log/redact.js';
+import { clearRegisteredSecrets, redact, registerSecret, registerSecretBytes } from '../src/core/log/redact.js';
 
 // Built at runtime so the public export's secret scan does not see key-shaped literals in this file.
 const PAT = 'github' + '_pat_' + '11ABCDEFG0123456789abc' + '_' + 'x'.repeat(59);
@@ -73,6 +73,44 @@ describe('log redactor: URL query strings', () => {
   });
   it('leaves a URL without a query as it is', () => {
     assert.equal(redact('see https://example.com/docs/page'), 'see https://example.com/docs/page');
+  });
+});
+
+describe('scrub.ts: tokens glued to other characters', () => {
+  it('masks a gh*_ token preceded by "_" or a letter, and one followed by "_suffix"', () => {
+    for (const line of [`x_${GHP}`, `id=${GHP}_suffix`, `ab${'_'}${GHP}`]) {
+      const out = scrubSecrets(line);
+      assert.equal(out.includes('a'.repeat(36)), false, line);
+    }
+    assert.match(scrubSecrets(`id=${GHP}_suffix`), /\[redacted-token\]_suffix$/);
+  });
+  it('masks a github_pat_ token glued to a word', () => {
+    assert.equal(scrubSecrets(`x_${PAT}`).includes('x'.repeat(59)), false);
+  });
+  it('does not mask a word that merely ends in gh (no false start inside a word)', () => {
+    assert.equal(scrubSecrets('sleighp_' + 'b'.repeat(25)), 'sleighp_' + 'b'.repeat(25));
+  });
+});
+
+describe('log redactor: binary secrets', () => {
+  it('registerSecretBytes masks the base64, base64url and hex forms of raw key bytes', () => {
+    const key = Buffer.from(Array.from({ length: 32 }, (_, i) => (i * 37 + 11) & 0xff));
+    registerSecretBytes(key);
+    for (const form of [key.toString('base64'), key.toString('base64').replace(/=+$/, ''), key.toString('base64url'), key.toString('hex'), key.toString('hex').toUpperCase()]) {
+      assert.equal(redact(`KEY ${form}`).includes(form), false, form);
+    }
+  });
+});
+
+describe('log redactor: hostile input', () => {
+  it('stays fast on a 200k line of chained schemes with no spaces', () => {
+    for (const unit of ['http://', 'http://,', 'https://a,']) {
+      const line = unit.repeat(Math.ceil(200_000 / unit.length));
+      const t0 = performance.now();
+      redact(line);
+      const ms = performance.now() - t0;
+      assert.ok(ms < 1500, `${unit}: ${ms.toFixed(0)} ms`);
+    }
   });
 });
 

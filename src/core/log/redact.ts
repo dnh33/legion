@@ -32,6 +32,19 @@ export function registerSecret(value: string | undefined | null): void {
   for (const v of encodings(value)) exactValues.add(v);
 }
 
+/**
+ * Registers a binary secret (for example the connectors data key, 32 raw bytes) by its text encodings: base64,
+ * base64url (padded and not) and hex. A key is logged in one of those forms, never as raw bytes.
+ */
+export function registerSecretBytes(bytes: Uint8Array | undefined | null): void {
+  if (!bytes || bytes.length < 8) return;
+  const buf = Buffer.from(bytes);
+  const b64 = buf.toString('base64');
+  for (const v of [b64, b64.replace(/=+$/, ''), buf.toString('base64url'), buf.toString('hex'), buf.toString('hex').toUpperCase()]) {
+    if (v.length >= MIN_EXACT) exactValues.add(v);
+  }
+}
+
 /** Test hook: forgets every registered value. */
 export function clearRegisteredSecrets(): void {
   exactValues.clear();
@@ -41,8 +54,12 @@ const LOG_RULES: Array<{ re: RegExp; to: string | ((...m: string[]) => string) }
   // OAuth device flow (RFC 8628): the device code and the user code, next to their labels
   { re: /(\bdevice[_ -]?code\b["']?\s*[:=]\s*["']?)[A-Za-z0-9_-]{8,}/gi, to: (_m: string, pre: string) => `${pre}[redacted-code]` },
   { re: /(\buser[_ -]?code\b["']?\s*[:=]\s*["']?)[A-Z0-9]{4}-?[A-Z0-9]{4}\b/gi, to: (_m: string, pre: string) => `${pre}[redacted-code]` },
-  // any query string on a URL: logs keep scheme, host and path only
-  { re: /(\b(?:https?|wss?):\/\/[^\s"'<>?#]*)\?[^\s"'<>]*/gi, to: (_m: string, url: string) => `${url}?[redacted-query]` },
+  // Any query string on a URL: logs keep scheme, host and path only. Linear on hostile input: a URL may not start
+  // right after a URL character (so "http://http://..." gives one start, not one per scheme), and the scheme+path part
+  // is capped at 2,048 characters. The query itself is unbounded on purpose (nothing follows it, so no backtracking,
+  // and a capped query would leave its tail unmasked). Limit: a query behind a path longer than 2,048 characters is not
+  // matched here; scrubSecrets still masks URLs that carry token, key, sig or signature parameters.
+  { re: /((?<![A-Za-z0-9+.\-\/:])(?:https?|wss?):\/\/[^\s"'<>?#]{0,2048})\?[^\s"'<>]*/gi, to: (_m: string, url: string) => `${url}?[redacted-query]` },
 ];
 
 /** Redacts one log line. Exact values first (longest first, so an encoding that contains another is caught whole). */
