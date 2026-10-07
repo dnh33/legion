@@ -912,7 +912,7 @@ export class Engine {
    * Returns undefined when no card is due, else the decision. Used by canUseTool and the provider path (toolDecider) and, in bypass mode where
    * canUseTool does not exist, by a PreToolUse hook.
    */
-  private async webEgressCard(job: Job, agent: AgentProfile, toolName: string, input: Record<string, unknown>): Promise<{ allow: boolean; message?: string } | undefined> {
+  private webEgressCard(job: Job, agent: AgentProfile, toolName: string, input: Record<string, unknown>): Promise<{ allow: boolean; message?: string }> | undefined {
     if (toolName !== 'WebFetch' && toolName !== 'WebSearch') return undefined;
     const used = this.store.getTask(job.taskId)?.usedConnectors === true;
     const tainted = this.active.get(job.taskId)?.tainted === true || job.origin?.tainted === true;
@@ -920,13 +920,11 @@ export class Engine {
     const target = String(toolName === 'WebFetch' ? input?.url ?? '' : input?.query ?? '').slice(0, 1000);
     const o = job.origin;
     let timedOut = false;
-    const allowed = await this.approvals.request(job.taskId, agent.id, toolName, input, o ? { roomId: o.roomId, fromAgentId: o.fromAgentId, hop: o.hop } : undefined, {
+    return this.approvals.request(job.taskId, agent.id, toolName, input, o ? { roomId: o.roomId, fromAgentId: o.fromAgentId, hop: o.hop } : undefined, {
       onTimeout: () => { timedOut = true; },
       summary: `${toolName}: ${target}
 This run read connector (GitHub) data and other outside text. Web access can send that data out. Check the address or query before you allow it.`,
-    });
-    if (allowed) return { allow: true };
-    return { allow: false, message: timedOut ? `No one answered the approval request within ${this.approvals.timeoutWait}, so this web request was not run.` : 'The user denied this web request.' };
+    }).then((allowed) => allowed ? { allow: true } : { allow: false, message: timedOut ? `No one answered the approval request within ${this.approvals.timeoutWait}, so this web request was not run.` : 'The user denied this web request.' });
   }
 
   /**
@@ -941,7 +939,8 @@ This run read connector (GitHub) data and other outside text. Web access can sen
     };
     return async (toolName, input) => {
       // web egress after connector data: a card in every mode (maintainer decision 2026-10-07)
-      const egress = await this.webEgressCard(job, agent, toolName, input);
+      // (no await when no card is due: the card of a normal tool must still be raised synchronously)
+      const egress = this.webEgressCard(job, agent, toolName, input);
       if (egress) return egress;
       const mode = effective();
       if (!needsApproval(mode, toolName, { capped: job.origin?.approvalCeiling === 'ask' })) return { allow: true };
