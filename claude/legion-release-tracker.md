@@ -813,7 +813,7 @@ re-check lines.
 
 #### SHIPPED CONTEXT — read this first, it explains most of what follows
 
-Latest release is **`0.2.5-m`** (tag `v0.2.5-m`, 2026-10-07; the merge of release/0.2.5-m). The updater
+Latest release is **`0.2.5-n`** (tag `v0.2.5-n`, 2026-10-07; the merge of release/0.2.5-n). The updater
 applies releases from inside Legion; the maintainer reported on 2026-10-06 that it works (check U1). Everything below is
 either shipped, parked, or not started.
 
@@ -840,6 +840,7 @@ Releases since `0.2.3-g` (dates from the tags; `0.2.3-h` to `0.2.3-l` were conso
 | `0.2.5-k` | 2026-10-07 | CI panel (Release B, PR #27, read-only, anonymous for public repos); Order fixes BUG-7/1/2/3 (PR #35: background agents kept alive, replies keep the lead's hop, 40 runs/hour/root cap, full results via task_result, episodes link full results); project board run state (PR #32); connectors slice 1a (token store, GitHub client, PR #29) and log redactor (PR #30) shipped dark (not wired to UI/log yet) |
 | `0.2.5-l` | 2026-10-07 | Logging (PRs #37, #38: Settings, Logs; local only, secrets masked incl. crash output, size-capped, owner-only files); connectors slice 1b (PR #33: gateway, GitHub read tools, github_ci_wait, Settings, GitHub page shown as not available until the App is registered; web-egress card after connector data; connector data withheld from MCP clients) |
 | `0.2.5-m` | 2026-10-07 | Long conversations open fast (thread paging, windowed rows, search in a thread) and the task history is paged and searchable with an index (PR #39); planning notes kept (PR #42) |
+| `0.2.5-n` | 2026-10-07 | Soul Codex for the Marshal, Builder and Scout and the welcome flow that points at the Marshal (PR #41, #46); A key and wake-up taint fixes (PR #43); Armory respects the agent's skill choice for typed commands (PR #48); PC-run fixes: CI polling, quieter logs, Open folder, docked width, keyboard-only focus rings (PR #49); smaller per-run instructions and one teamwork block (PR #50); docs and prompt-size ceilings (PR #51); Quartermaster (#47) and Marshal rename (#52) |
 
 Table derived from `git tag -l 'v0.2*'` with creation dates and the `CHANGELOG.md` sections (`0.2.3-h` to `0.2.3-l` from the
 `git log v0.2.3-g..v0.2.4` subjects; their own changelog entries were folded into `0.2.4`).
@@ -980,7 +981,7 @@ Items 1 to 6 above stay as they are. These were added from the 2026-10-06 sessio
 
 24. **Fascia for the Order.** Plan: `claude/plan-fascia.md` (research, code findings with file refs, decisions, build detail). Richer souls, typed delegation, a durable work ledger and a board that can run work. Open (proposed 2026-10-07).
     1. **Board bug patch.** Now, in parallel (maintainer, 2026-10-07). Fascia session owns it; branch `fix/board-run-state`; stays out of `engine.ts`, `bridge.ts` and `kg/graph.ts`. Fixes: a restart leaves `activeRun` set, so the item is stuck in Doing with Run disabled; the item dialog PATCHes every field and can drag a finished run back to Doing; Run has no guard on Done or Review; delete ignores a live run; claim is last-write-wins.
-    2. **Soul Codex v1.** Builder, Scout and Zealot in a 7-part shape (voice, stance, refuses, done when, output contract, worked examples, edges), behavioural soul evals instead of the hash pin, a run-once migration that never touches owner-edited souls, and a welcome flow that points at Zealot. The maintainer retired "persona text stays byte-identical" on 2026-10-07, on condition that each soul stays true to its bot's core and role.
+    2. **Soul Codex v1: SHIPPED in `0.2.5-n` (PR #41; welcome flow PR #46).** Builder, Scout and Zealot in a 7-part shape (voice, stance, refuses, done when, output contract, worked examples, edges), behavioural soul evals instead of the hash pin, a run-once migration that never touches owner-edited souls, and a welcome flow that points at Zealot. The maintainer retired "persona text stays byte-identical" on 2026-10-07, on condition that each soul stays true to its bot's core and role.
     3. **Typed delegation.** Absorbs items 8 and 9: roster cards, typed brief and result on ask/tell, verify before reporting, model by role, a request tree under the lead's answer. Builds on the Order-bug bridge/engine changes.
     4. **"Needs you" inbox.** One title-bar badge and list for approvals, paused runs, room attention, board proposals and items in Review.
     5. **Fascia ledger and Watch view.** Append-only ledger of delegations, leases renewed from tool activity, replay on start, budget tree, read-only Watch view.
@@ -1005,6 +1006,14 @@ Items 1 to 6 above stay as they are. These were added from the 2026-10-06 sessio
 31. **A /sec command in Legion.** A security status: admin gate, secrets, connectors, BSV policy (maintainer, 2026-10-07).
 
 32. **A /sec command in the Legion Mod** (maintainer, 2026-10-07).
+
+33. **Release builds on GitHub Actions.** Actions builds the package zips, the manifest and SHA256SUMS on a tag, with no secrets. The signing key stays on the maintainer's PC; signing and upload stay manual. Documented model-agnostically in `docs/SHIPPING.md` and `AGENTS.md`. Status: planned.
+
+34. **A shell tool for agents on other providers** (like Hermes Agent's). Security-heavy; ties to BUG-4 (item 26). Status: planned.
+
+35. **Comms cost fixes.** Branch `fix/comms-efficiency`, commits 8b1f8a2, b5c2ab1, 4053562, 6fb72d4. Status: planned.
+
+36. **Title-bar polish.** From branch `claude/blender-chip`, commits c72a50e, 2794ced, b39d467. Status: planned.
 
 **Scope lock (maintainer, 2026-10-06):** the work already running is finished before anything new starts: the Cloudflare switch and connectors phase 1 (this session), the Armory and the CI panel (house/skills session), BSV PR #16 for `0.2.5-i` (BSV session). New requests go onto this ladder as open items. After the lock, work resumes from the ladder.
 
