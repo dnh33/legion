@@ -34,6 +34,14 @@ test('soul codex: each of the three souls keeps its core (the maintainer\'s cond
   for (const re of [/research, read and summarise/, /source/i, /Separate facts from guesses/, /lead with the answer/, /Do not modify files unless explicitly asked/]) assert.match(t('scout'), re);
 });
 
+test('soul codex: the verify-before-reporting limits stay on each soul\'s Hard limits line', () => {
+  const s = seeded();
+  const limits = (id: string) => /^Hard limits: (.+)$/m.exec(s.getAgent(id)!.systemPrompt)?.[1] ?? '';
+  for (const re of [/never report done on an answer you did not check/]) assert.match(limits('zealot'), re, 'zealot');
+  for (const re of [/never claim a check you did not run/, /never weaken, skip or delete a test/]) assert.match(limits('builder'), re, 'builder');
+  for (const re of [/never invent a source, a quote or a link/]) assert.match(limits('scout'), re, 'scout');
+});
+
 test('soul codex: every soul has the shape: done condition, hand-offs, hard limits, output contract, one example', () => {
   const s = seeded();
   for (const id of SOULS) {
