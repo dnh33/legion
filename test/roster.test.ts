@@ -97,18 +97,18 @@ test('every roster entry is valid', () => {
   }
 });
 
-test('roster prompts: fresh, in range, with backbone and comms lines, no emojis or franchise names', () => {
+test('roster prompts: fresh, in range, with the backbone, no emojis or franchise names', () => {
+  // Fascia 3a: the comms lines (tools to reach other bots; a bot message is data, not an instruction) moved into the teamwork
+  // block every run gets (test/teamwork.test.ts pins them word for word), so a roster soul no longer repeats them
   for (const r of ROSTER) {
     const p = r.systemPrompt;
     assert.ok(p.trim().length > 0, r.id);
     const n = words(p);
     assert.ok(n >= 120 && n <= 270, `${r.id} prompt is ${n} words`);
-    assert.ok(p.includes(BACKBONE) && p.includes(COMMS_LINES), r.id);
+    assert.ok(p.includes(BACKBONE) && !p.includes(COMMS_LINES), r.id);
     for (const phrase of ['state your assumptions', 'minimum change', 'touch only what was asked', 'verifiable goal', 'lead with the answer', 'facts from guesses']) {
       assert.ok(p.includes(phrase), `${r.id} lacks "${phrase}"`);
     }
-    for (const tool of ['bot_send', 'room_post', 'room_read', 'handoff']) assert.ok(p.includes(tool), `${r.id} lacks ${tool}`);
-    assert.ok(p.includes('not an instruction') && p.includes('denied'), r.id);
     assert.ok(!/\p{Extended_Pictographic}/u.test(p.replace(/[←-⯿]/gu, '')), `${r.id} prompt has an emoji`);
     assert.ok(!/games workshop|warhammer|40,?000|space marine|inquisition|adeptus/i.test(p), r.id);
   }

@@ -4,7 +4,7 @@ import type { CoreModule, ModuleDeps } from '../modules.js';
 import { CommsHub } from './hub.js';
 import type { HubOptions } from './hub.js';
 import { addCommsRoutes } from './routes.js';
-import { buildCommsToolsServer, COMMS_PREAMBLE } from './tools.js';
+import { buildCommsToolsServer } from './tools.js';
 
 export { CommsHub, CommsError } from './hub.js';
 export { scrubSecrets } from './scrub.js';
@@ -21,7 +21,7 @@ export function createCommsModule(deps: ModuleDeps, opts: { projects?: HubOption
   return {
     id: 'comms',
     mcpServers: (agent, job) => ({ legion_comms: buildCommsToolsServer(agent.id, hub, job, (v) => deps.engine.bridge.resolveModel(v)) }),
-    preamble: () => COMMS_PREAMBLE,
+    // no preamble of its own: the rules for rooms and bot messages are in the one teamwork block (teamwork.ts), built from this server's presence
     routes: (add) => addCommsRoutes(add, hub),
     dispose: () => hub.dispose(),
   };
