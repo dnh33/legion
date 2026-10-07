@@ -90,6 +90,8 @@ export type NewAgent = Partial<AgentProfile> & { name: string };
 export const api = {
   /** `slim=1`: the window's working set (running tasks, the newest per agent), not the whole history; the history list pages through `tasksPage`. */
   state: (archived = false) => request<StateSnapshot>('GET', `/api/state?slim=1${archived ? '&archived=1' : ''}`),
+  /** The /names this agent may not type (the core's own refusal rule), for the composer's / menu. */
+  armorySlash: (agentId: string) => request<{ agent: string; refused: string[] }>('GET', `/api/armory/slash?agent=${encodeURIComponent(agentId)}`),
   tasksPage: (p: { agentId?: string; projectId?: string; q?: string; cursor?: string | null; limit?: number; archived?: boolean }) => {
     const sp = new URLSearchParams();
     if (p.agentId) sp.set('agentId', p.agentId);

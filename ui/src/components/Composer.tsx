@@ -6,6 +6,7 @@ import { queueOf, shouldQueue, threadKey } from '../chat/queue';
 import { useDraft } from '../chat/drafts';
 import { enqueueMessage, getQueue, interruptAndSend, pauseQueue, startQueueRunner, takeLastQueued, useThreadQueue } from '../chat/queueStore';
 import { buildMenu, isCostly, parseSlash, runLegionCommand, LEGION_COMMANDS, type MenuItem } from '../commands';
+import { api } from '../api';
 import { modelLabel } from '../models';
 import { cancelSelected, confirmStop, effectiveModel, getState, loadCatalog, sendPrompt, sendPromptTo, useStore } from '../store';
 import { clip } from '../util';
@@ -44,7 +45,20 @@ export function Composer() {
   // slash menu: only while the text is a single "/token" (no space yet)
   const token = /^\/([^\s]*)$/.exec(text);
   const menuOpen = !!token && !dismissed && !picker;
-  const items = useMemo<MenuItem[]>(() => (token ? buildMenu(token[1], catalog?.commands ?? []) : []), [text, catalog]);
+  // The /names this agent may not type, from the core's own refusal rule, so the menu offers only what would run. Fetched when the
+  // menu opens for an agent; on failure the menu shows everything (the run itself still refuses).
+  const [refused, setRefused] = useState<{ agent: string; names: Set<string> } | null>(null);
+  useEffect(() => {
+    if (!menuOpen || !agentId || refused?.agent === agentId) return;
+    let live = true;
+    api.armorySlash(agentId).then((r) => { if (live) setRefused({ agent: agentId, names: new Set(r.refused) }); }).catch(() => { /* show all */ });
+    return () => { live = false; };
+  }, [menuOpen, agentId, refused?.agent]);
+  const allowed = useMemo(() => {
+    const all = catalog?.commands ?? [];
+    return refused && refused.agent === agentId ? all.filter((c) => !refused.names.has(c.name.toLowerCase())) : all;
+  }, [catalog, refused, agentId]);
+  const items = useMemo<MenuItem[]>(() => (token ? buildMenu(token[1], allowed) : []), [text, allowed]);
   useEffect(() => { if (menuOpen && !catalog) void loadCatalog(); }, [menuOpen, catalog]);
   useEffect(() => { setSel(0); setDismissed(false); }, [token?.[1]]);
   useEffect(() => { setCostAsk(null); }, [text]);
