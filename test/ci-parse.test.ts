@@ -1,7 +1,11 @@
-/** CI: the run/job parser and log preparation. Pure functions; no network. */
+/** CI: the run/job parser, log preparation and the git remote reader. Pure functions plus a temp folder; no network. */
 import assert from 'node:assert/strict';
+import { mkdirSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { describe, it } from 'node:test';
 import { countsFor, LOG_MAX_CHARS, LOG_MAX_LINES, maskSecrets, parseJobs, parseRuns, prepareLog, summarizeRun } from '../src/core/ci/parse.js';
+import { parseRemoteUrl, parseRepoText, validRepoString, readRepoInfo, validBranch } from '../src/core/ci/repo.js';
+import { tempDir } from './tmp-cleanup.js';
 
 const run = (o: Record<string, unknown> = {}) => ({
   id: 11, name: 'CI', head_branch: 'main', head_sha: 'abc', display_title: 'Fix it', event: 'push', status: 'completed', conclusion: 'success',
@@ -68,6 +72,11 @@ describe('log text', () => {
     assert.equal(p.text.includes('TAILFRAGMENT'), false, 'no fragment of the secret reaches the output');
     assert.equal(p.masked, true);
   });
+  it('strips bidirectional controls, so a log cannot reorder what the reader sees', () => {
+    const p = prepareLog('safe \u202eevil\u202c \u2066x\u2069 end');
+    assert.equal(p.text, 'safe evil x end');
+    assert.ok(!/[\u202a-\u202e\u2066-\u2069]/.test(p.text));
+  });
   it('removes ANSI and control characters and masks secret-shaped values, but leaves markup as plain text', () => {
     const raw = '\u001b[31mred\u001b[0m\u0007 ok\n2026-10-07T10:00:00.1234567Z token=' + 'ghp_' + 'abcdefghijklmnopqrstuvwxyz0123456789' + '\nAuthorization: Bearer abcdefghijklmnopqrstuvwxyz\nkey ' + 'AKIA' + 'ABCDEFGHIJKLMNOP' + '\n<img src=x onerror=alert(1)>';
     const p = prepareLog(raw);
@@ -92,3 +101,47 @@ describe('log text', () => {
   });
 });
 
+describe('repo from git', () => {
+  it('parses github.com remotes (https, ssh, ssh://, credentials ignored) and refuses other hosts', () => {
+    assert.deepEqual(parseRemoteUrl('https://github.com/dnh33/legion.git'), { owner: 'dnh33', name: 'legion' });
+    assert.deepEqual(parseRemoteUrl('git@github.com:dnh33/legion.git'), { owner: 'dnh33', name: 'legion' });
+    assert.deepEqual(parseRemoteUrl('ssh://git@github.com/dnh33/legion'), { owner: 'dnh33', name: 'legion' });
+    assert.deepEqual(parseRemoteUrl('https://user:secret@github.com/dnh33/legion'), { owner: 'dnh33', name: 'legion' });
+    assert.equal(parseRemoteUrl('https://gitlab.com/dnh33/legion.git'), null);
+    assert.equal(parseRemoteUrl('https://github.com.evil.example/dnh33/legion'), null);
+  });
+  it('validRepoString: owner/name only, and neither part may be . or ..', () => {
+    for (const ok of ['dnh33/legion', 'a.b/c_d-e', '.github/x', 'a/.x']) assert.equal(validRepoString(ok), true, ok);
+    for (const bad of ['./x', '../x', 'a/..', 'a/.', '/x', 'a/', 'a/b/c', 'a b/c', 'a/b?x', '', 5, null]) assert.equal(validRepoString(bad), false, String(bad));
+  });
+  it('validates typed repos and branches', () => {
+    assert.deepEqual(parseRepoText(' dnh33/legion '), { owner: 'dnh33', name: 'legion' });
+    for (const bad of ['', 'a', 'a/b/c', '../x', './x', 'a b/c', 'a/b c', 'a/..', 'a/b;rm', 5, null]) assert.equal(parseRepoText(bad), null, String(bad));
+    assert.equal(validBranch('feat/ci-panel'), true);
+    for (const bad of ['', 'a..b', 'a b', 'a?x=1', 'x\ny', 'a'.repeat(201)]) assert.equal(validBranch(bad), false, bad);
+  });
+  it('reads origin and the branch from a clone, prefers origin to cloud, and follows a linked worktree', () => {
+    const root = tempDir('legion-ci-git-');
+    const main = join(root, 'main');
+    mkdirSync(join(main, '.git', 'worktrees', 'wt'), { recursive: true });
+    writeFileSync(join(main, '.git', 'config'), '[core]\n\tbare = false\n[remote "cloud"]\n\turl = https://github.com/someone/else.git\n[remote "origin"]\n\turl = git@github.com:dnh33/legion.git\n');
+    writeFileSync(join(main, '.git', 'HEAD'), 'ref: refs/heads/main\n');
+    assert.deepEqual(readRepoInfo(main), { repo: { owner: 'dnh33', name: 'legion' }, branch: 'main' });
+    const wt = join(root, 'wt');
+    mkdirSync(join(wt, 'sub'), { recursive: true });
+    writeFileSync(join(wt, '.git'), `gitdir: ${join(main, '.git', 'worktrees', 'wt')}\n`);
+    writeFileSync(join(main, '.git', 'worktrees', 'wt', 'HEAD'), 'ref: refs/heads/feat/ci-panel\n');
+    writeFileSync(join(main, '.git', 'worktrees', 'wt', 'commondir'), '../..\n');
+    assert.deepEqual(readRepoInfo(join(wt, 'sub')), { repo: { owner: 'dnh33', name: 'legion' }, branch: 'feat/ci-panel' });
+    writeFileSync(join(main, '.git', 'worktrees', 'wt', 'HEAD'), '0123456789abcdef0123456789abcdef01234567\n');
+    assert.equal(readRepoInfo(wt).branch, null, 'detached HEAD has no branch');
+  });
+  it('a folder with no git, or a non-github remote, gives no repo', () => {
+    const d = tempDir('legion-ci-nogit-');
+    assert.equal(readRepoInfo(d).repo, null);
+    mkdirSync(join(d, '.git'));
+    writeFileSync(join(d, '.git', 'config'), '[remote "origin"]\n\turl = https://example.com/a/b.git\n');
+    writeFileSync(join(d, '.git', 'HEAD'), 'ref: refs/heads/main\n');
+    assert.deepEqual(readRepoInfo(d), { repo: null, branch: 'main' });
+  });
+});

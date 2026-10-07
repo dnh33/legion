@@ -126,7 +126,7 @@ export function maskSecrets(text: string): { text: string; masked: boolean } {
  * caps the size, masks secrets. The result is plain text: the UI must render it as text, never as HTML.
  */
 export function prepareLog(raw: string, alreadyTruncated = false): { text: string; truncated: boolean; masked: boolean } {
-  let t = raw.replace(/\u001b\[[0-9;?]*[ -\/]*[@-~]/g, '').replace(/\u001b[@-Z\\-_]/g, '').replace(/\r\n?/g, '\n').replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g, '');
+  let t = raw.replace(/\u001b\[[0-9;?]*[ -\/]*[@-~]/g, '').replace(/\u001b[@-Z\\-_]/g, '').replace(/\r\n?/g, '\n').replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g, '').replace(/[\u202a-\u202e\u2066-\u2069]/g, '');
   let truncated = alreadyTruncated;
   // GitHub prefixes each line with an ISO timestamp; they add width and no meaning here
   t = t.replace(/^﻿?\d{4}-\d\d-\d\dT[\d:.]+Z ?/gm, '');

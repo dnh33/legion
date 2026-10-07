@@ -1,6 +1,7 @@
 import { platform } from '../api';
 import { BlenderChip } from '../blender/BlenderChip';
 import { BsvChip } from '../bsv/BsvChip';
+import { CiChip } from '../ci/CiChip';
 import { RelicGlyph } from '../mascot/Relic';
 import { useTripleClick } from '../mascot/Takeover';
 import { useL } from '../library/libraryStore';
@@ -62,6 +63,7 @@ export function TitleBar() {
         <span className={`conn conn-${conn}`} title={connLabel}><i className="conn-dot" /> <span className="conn-label">{connLabel}</span></span>
         <BsvChip />
         <BlenderChip />
+        <CiChip />
         <UsageButton />
         <button className={`tb-doctor${bad ? ' bad' : doctor ? ' good' : ''}`} onClick={openDoctor} title={bad ? `${bad} setup check${bad === 1 ? '' : 's'} failing. Open Doctor` : doctor ? 'All required checks pass. Open Doctor' : 'Sign-in & setup checks'}>
           <Icon name="pulse" size={14} /> Doctor{bad > 0 && <b>{bad} to fix</b>}

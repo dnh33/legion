@@ -4,6 +4,7 @@ import {
 } from '../store';
 import { vmIsLive } from '../util';
 import { openBsvPanel, useBsv } from '../bsv/bsvStore';
+import { openCi } from '../ci/ciStore';
 import { TAKEOVER_EVENT } from '../mascot/Takeover';
 
 interface Cmd { id: string; label: string; glyph?: string; hint?: string; run: () => void; group: string }
@@ -35,6 +36,7 @@ export function CommandPalette() {
       { id: 'settings', group: 'App', label: 'Settings', hint: 'Ctrl ,', run: () => openSettings() },
       { id: 'boatkey', group: 'App', label: 'Add or change boat.dev key', run: () => openSettings('boat') },
       { id: 'doctor', group: 'App', label: 'Open Doctor (sign-in & setup checks)', run: openDoctor },
+      { id: 'ci', group: 'App', label: 'CI panel (GitHub Actions runs for this repository)', run: openCi },
       ...(bsvOn ? [{ id: 'bsv', group: 'App', label: 'BSV panel (wallet, live funds, freeze, activity)', run: openBsvPanel }] : []),
       { id: 'model', group: 'App', label: 'Change model', hint: 'Ctrl M', run: () => window.dispatchEvent(new Event('legion:model-picker')) },
       { id: 'lab', group: 'App', label: 'Mascot Lab', hint: 'Ctrl Shift M', run: toggleMascotLab },
