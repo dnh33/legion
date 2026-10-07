@@ -142,7 +142,11 @@ test('main.ts: the keyless launch line is untouched; the key is a third line onl
   assert.match(main, /child\.stdin\?\.end\(secret \+ '\\n' \+ native \+ '\\n'\)/);
   assert.match(main, /if \(connectorKey\) child\.stdin\?\.end\(secret \+ '\\n' \+ native \+ '\\n' \+ keyLine\(connectorKey\)\);\n\s*else child\.stdin\?\.end/);
   assert.match(main, /const connectorKey = await loadConnectorKey\(dataDir\(\), safeStorage\);/);
-  assert.doesNotMatch(main, /ensureConnectorKey/, 'creation is the first Connect (slice 1b), not app start');
+  // creation is the first Connect (slice 1b): ensureConnectorKey appears only inside the connector-connect handler, never at launch
+  assert.equal((main.match(/ensureConnectorKey\(/g) ?? []).length, 1);
+  const handler = main.slice(main.indexOf("ipcMain.handle('legion:connector-connect'"), main.indexOf("ipcMain.handle('legion:open-external'"));
+  assert.ok(handler.includes('ensureKey: () => ensureConnectorKey(dataDir(), safeStorage)'));
+  assert.doesNotMatch(main.slice(main.indexOf('async function spawnCore'), main.indexOf('/** Asks what to do with a foreign core')), /ensureConnectorKey/);
   const spawnBlock = main.slice(main.indexOf('const child = spawn('), main.indexOf('coreProc = child;'));
   assert.doesNotMatch(spawnBlock, /connectorKey|keyLine/, 'not in argv or env');
   assert.doesNotMatch(main, /console\.\w+\([^)]*connectorKey/);
