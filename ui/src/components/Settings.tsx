@@ -14,6 +14,7 @@ import { UpdatePanel } from './UpdatePanel';
 import { BrowserSection } from '../browser/BrowserSection';
 import { HouseSection } from '../house/HouseSection';
 import { ArmorySection } from '../armory/ArmorySection';
+import { GithubSection } from '../connectors/GithubSection';
 
 const NAV: { id: SettingsSection; label: string; hint: string }[] = [
   { id: 'claude', label: 'Claude', hint: 'Sign-in, key, runs' },
@@ -24,7 +25,8 @@ const NAV: { id: SettingsSection; label: string; hint: string }[] = [
   { id: 'compaction', label: 'Compaction', hint: 'Context limits for long runs' },
   { id: 'house', label: 'Doctrine', hint: 'Rules and drills your agents follow' },
   { id: 'armory', label: 'Armory', hint: 'Skills your agents can pick up' },
-  { id: 'connections', label: 'Connections', hint: 'Use Legion from Claude' },
+  { id: 'github', label: 'GitHub', hint: 'Connector: read repos and CI' },
+  { id: 'connections', label: 'Use from Claude', hint: 'Drive Legion from Claude Code' },
   { id: 'about', label: 'About', hint: 'Version and folders' },
 ];
 
@@ -75,6 +77,7 @@ export function SettingsPanel() {
                   : section === 'compaction' ? <CompactionSection s={settings} />
                     : section === 'house' ? <HouseSection />
                   : section === 'armory' ? <ArmorySection />
+                  : section === 'github' ? <GithubSection />
                   : section === 'connections' ? <ConnectionsSection s={settings} />
                     : <AboutSection s={settings} />
           )}
@@ -775,7 +778,7 @@ function ConnectionsSection({ s }: { s: SettingsView }) {
     : { command: 'node', args: [`${dir}/dist/src/bin/legion-mcp-stdio.js`] } } }, null, 2);
   return (
     <div className="set-section">
-      <Head title="Connections" lead="Drive your agents from Claude Code, Claude Desktop or Cowork." />
+      <Head title="Use from Claude" lead="Drive your agents from Claude Code, Claude Desktop or Cowork." />
       <Snippet title="Claude Code" lead="Run once in a terminal. Copy includes your access token; it stays hidden here. It lets Claude Code run and read agents, but not approve cards or change settings." shown={cmd(token ? mask : '<token>')} real={cmd(token || '<token>')} />
       <Snippet title="Claude Desktop and Cowork" lead="Add this to the mcpServers section of claude_desktop_config.json, then restart the app. It starts a small local bridge; no token needed." shown={json} real={json} />
     </div>

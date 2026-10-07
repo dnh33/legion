@@ -7,6 +7,7 @@ import { Modal } from './Modal';
 import { AgentSkills, settingOf, valueOf } from '../armory/AgentSkills';
 import { MAX_AGENT_SKILLS } from '../../../src/shared/armory-view';
 import { revealSkill } from '../armory/armoryStore';
+import { connectorsShellWarning } from '../../../src/shared/connectors-view';
 
 export function AgentEditor({ id, focus }: { id: string | null; focus?: 'skills' }) {
   const existing = useStore((s) => s.agents.find((a) => a.id === id));
@@ -19,6 +20,7 @@ export function AgentEditor({ id, focus }: { id: string | null; focus?: 'skills'
   const [vmOn, setVmOn] = useState(existing?.vm.enabled ?? false);
   const [size, setSize] = useState<VmSize>(existing?.vm.size ?? 'default');
   const [idle, setIdle] = useState(existing?.vm.idleStopMinutes ?? 15);
+  const [github, setGithub] = useState(existing?.connectors?.includes('github') ?? false);
   const [skills, setSkills] = useState(() => valueOf(existing?.skills));
   const skillsTooMany = skills.mode === 'choose' && skills.ids.length > MAX_AGENT_SKILLS;
   // Leaving (Esc, the X, a click outside, or "Open in the Armory") must not throw away a Skills choice that was not saved without asking.
@@ -26,7 +28,7 @@ export function AgentEditor({ id, focus }: { id: string | null; focus?: 'skills'
   const nowSkills = settingOf(skills);
   const skillsDirty = JSON.stringify(Array.isArray(nowSkills) ? [...nowSkills].sort() : nowSkills) !== JSON.stringify(Array.isArray(startSkills.current) ? [...startSkills.current].sort() : startSkills.current);
   // Every field counts, not only Skills: the first values are kept, and anything that differs from them asks before it is thrown away.
-  const fields = JSON.stringify([name, emoji, description, systemPrompt, model, approval, vmOn, size, idle]);
+  const fields = JSON.stringify([name, emoji, description, systemPrompt, model, approval, vmOn, size, idle, github]);
   const startFields = useRef(fields);
   const dirty = skillsDirty || fields !== startFields.current;
   const [leaving, setLeaving] = useState<null | { to: 'close' } | { to: 'armory'; skill: string }>(null);
@@ -67,7 +69,7 @@ export function AgentEditor({ id, focus }: { id: string | null; focus?: 'skills'
     if (!name.trim() || busy || skillsTooMany) return;
     setBusy(true);
     const body: Partial<AgentProfile> & { name: string } = {
-      name: name.trim(), emoji: emoji.trim() || '●', description: description.trim(), systemPrompt, model, approval, skills: settingOf(skills),
+      name: name.trim(), emoji: emoji.trim() || '●', description: description.trim(), systemPrompt, model, approval, connectors: github ? ['github'] : [], skills: settingOf(skills),
       vm: { enabled: vmOn, size, idleStopMinutes: Math.max(1, Math.round(idle) || 15) },
     };
     await saveAgent(id, body);
@@ -118,6 +120,12 @@ export function AgentEditor({ id, focus }: { id: string | null; focus?: 'skills'
             <button ref={keepBtn} type="button" className="btn sm" onClick={() => setLeaving(null)}>Keep editing</button>
           </div>
         ) : null}
+        <fieldset>
+          <legend>Connectors</legend>
+          <label className="check-row"><input type="checkbox" checked={github} onChange={(e) => setGithub(e.target.checked)} /> Let this agent read GitHub (repositories, issues, pull requests, CI)</label>
+          <span className="field-note">Read only. Connect GitHub first in Settings, GitHub. A run started from Claude Code or another MCP client never gets connectors.</span>
+          {connectorsShellWarning({ connectors: github, approval, onProvider, vmOn }) && <p className="field-note" role="alert"><b>Warning.</b> {connectorsShellWarning({ connectors: github, approval, onProvider, vmOn })}</p>}
+        </fieldset>
         <fieldset>
           <legend>Computer (boat.dev VM)</legend>
           <label className="check-row"><input type="checkbox" checked={vmOn} onChange={(e) => setVmOn(e.target.checked)} /> Let this agent start a VM on demand</label>
