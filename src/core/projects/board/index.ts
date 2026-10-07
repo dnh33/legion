@@ -48,7 +48,7 @@ export function createBoardModule(deps: ModuleDeps, opts: BoardModuleOpts): Core
   // a run is live while its task is queued or running; an unreadable task store counts as live (never end a run on a guess)
   board.setRunLookup((taskId) => {
     const t = deps.store.getTask(taskId);
-    return { live: !!t && (t.status === 'queued' || t.status === 'running'), ...(t?.agentId ? { agentId: t.agentId } : {}) };
+    return { live: !!t && (t.status === 'queued' || t.status === 'running'), ...(t?.agentId ? { agentId: t.agentId } : {}), ...(t ? { tainted: !!t.tainted } : {}) };
   });
   // the engine marked tasks left running by a previous process as errors before the modules were built: end their items' runs now
   // per project, so one unreadable board does not leave the others' items stuck in Doing

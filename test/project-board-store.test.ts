@@ -84,7 +84,8 @@ test('C4 a bot proposal is untrusted, sits in the Inbox, is never live, and tain
   code(() => s.propose(P, 'scout', { title: 'add TESTS' }, run), 409, /already proposed/);
   const a = s.accept(P, i.id, { assignee: { kind: 'agent', id: 'zealot' } });
   assert.equal(a.proposal, undefined); assert.equal(a.status, 'backlog'); assert.equal(a.trust, 'untrusted', 'accepting does not make bot text trusted');
-  assert.equal(s.patch(P, i.id, { trust: 'human' }).trust, 'human');
+  code(() => s.patch(P, i.id, { trust: 'human' }), 409, /read its current text/);
+  assert.equal(s.patch(P, i.id, { trust: 'human', ifUpdatedAt: s.get(PID, i.id)!.updatedAt }).trust, 'human');
   code(() => s.patch(P, i.id, { trust: 'untrusted' }), 400);
   code(() => s.accept(P, i.id), 409, /not waiting/);
   const r = s.propose(P, 'scout', { title: 'Reject me' }, run); s.reject(P, r.id); assert.equal(s.get(PID, r.id), undefined);
