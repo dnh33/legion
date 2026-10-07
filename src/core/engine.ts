@@ -124,6 +124,8 @@ const CLEAN_BUILTINS = new Set([
   // 'Skill' is deliberately NOT here: a skill's text can come from a third party, so each load is classified by the skill it names (noteToolUse).
   'ToolSearch', 'AskUserQuestion', 'TaskStop', 'TaskCreate', 'TaskUpdate', 'TaskList', 'TaskGet',
   'Config', 'EnterWorktree', 'ExitWorktree', 'CronCreate', 'CronList', 'CronDelete', 'Monitor',
+  'ScheduleWakeup', // schedules the agent's own next turn; returns only a confirmation
+  'PushNotification', // notice to the owner's device; nothing comes back into the run
 ]);
 /** File tools that put a run's content on disk, and the input field that names the file. */
 const WRITE_FILE_TOOLS: Record<string, string> = { Write: 'file_path', Edit: 'file_path', MultiEdit: 'file_path', NotebookEdit: 'notebook_path' };
