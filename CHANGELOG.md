@@ -4,6 +4,10 @@ All notable changes are recorded here. The format follows [Keep a Changelog](htt
 
 ## [Unreleased]
 
+### Added
+
+- **The Quartermaster, a supply watch.** A new premade agent checks the skills, knowledge sources and MCP servers your install uses for newer versions, and files each one on the current project's board for you to decide (label `update`, current and new version, a link). It checks the board first so nothing is filed twice, reports only, and never installs or upgrades anything. To point it at your own tools, edit the Scope line in its settings. It runs when you ask; there is no schedule yet. Existing installs get it on next start.
+
 ### Changed
 
 - **Long conversations open fast.** A conversation with thousands of messages used to be sent whole and drawn whole. It now opens at its newest 100 messages, loads earlier ones as you scroll up (the view stays where it was), and draws only the rows on screen. A search button in the conversation header searches the whole thread on the core and jumps to a match; "Jump to latest" returns to the live end. New route `GET /api/tasks/:id/messages`; the old `GET /api/tasks/:id` is unchanged.

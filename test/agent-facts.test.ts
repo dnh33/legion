@@ -9,7 +9,7 @@ const SERVERS = ['legion', 'legion_comms', 'legion_kg', 'legion_browser', 'legio
 test('coverage: every registered agent-visible tool of every bot appears in its block, or is intentionally hidden', () => {
   const w = world({ bsv: true, browser: true, blender: true, both: true, polyhaven: true });
   try {
-    assert.equal(w.agents.length, 13);
+    assert.equal(w.agents.length, 14);
     let seen = 0;
     for (const a of w.agents) {
       const srv = w.servers(a, { vm: true });
@@ -102,6 +102,8 @@ test('Assayer: the taint and network facts are stated, with no numbers; Sentinel
     assert.ok(!/\d/.test(assayer.split('\n').filter((l) => l.includes('bsv_status contacts')).join(' ')), 'no numbers in the BSV line');
     const sentinel = w.block(w.agents.find((a) => a.id === 'sentinel')!);
     assert.match(sentinel, /scheduled runs are planned, not available yet/);
+    const qm = w.block(w.agents.find((a) => a.id === 'quartermaster')!);
+    assert.match(qm, /runs only when the owner or another bot asks; scheduled runs are planned, not available yet/);
     assert.ok(!/scheduled runs are planned/.test(w.block(w.agents.find((a) => a.id === 'scout')!)));
   } finally { w.dispose(); }
 });

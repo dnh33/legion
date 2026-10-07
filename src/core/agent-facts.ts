@@ -88,6 +88,9 @@ export function renderCapabilities(agent: AgentProfile, ctx: FactsContext): stri
   if (agent.id === 'sentinel') {
     lines.push('- Scheduling: checks run only while a task is running; scheduled runs are planned, not available yet.');
   }
+  if (agent.id === 'quartermaster') {
+    lines.push('- Scheduling: the supply watch runs only when the owner or another bot asks; scheduled runs are planned, not available yet.');
+  }
   const mode = ctx.ceiling ? stricterMode(agent.approval, ctx.ceiling) : agent.approval;
   lines.push(`- Approvals: your mode is ${mode}${mode !== agent.approval ? ` (capped from ${agent.approval} by whoever woke you)` : ''}. A denied action stays denied; do not reroute it.`);
   return `${FACTS_HEADER}\n${lines.join('\n')}`;

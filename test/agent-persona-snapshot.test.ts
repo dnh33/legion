@@ -26,6 +26,7 @@ const PINNED: Record<string, string> = {
   exorcist: '5630c73c50976f70a854f0d26ed3f6b043c249219b806e035bc3bf3a3c6d16bd',
   preceptor: '941fbfc931e417e23f033125ab299118218b06b91241e9eaa1cb4520a62d09e2',
   herald: 'cc58bb7443e0d4f541fde344e0aa6afe1cb4e552eb9c0229a4b2cecb0cc41711',
+  quartermaster: 'd9cb33da244c0d933080402870ca5a80e42293fe186401940828f34812aea75d',
   assayer: '544aa417acb8521f0a59744b1a17afff06f7f858ee81ef4f15133fcf8fc195df',
   sculptor: 'dc7a647c2ab4a3675ccce262e93679bdb0ab855a6d3447d9ededeb5864e83e5f',
 };
