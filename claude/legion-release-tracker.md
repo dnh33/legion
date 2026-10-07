@@ -1015,6 +1015,8 @@ Items 1 to 6 above stay as they are. These were added from the 2026-10-06 sessio
 
 36. **Title-bar polish.** From branch `claude/blender-chip`, commits c72a50e, 2794ced, b39d467. Status: planned.
 
+37. **Computer use and browser use for every provider.** The Claude SDKs now ship computer-use and browser-use toolsets that run the loop and send actions to drivers (seen in `@anthropic-ai/sdk` 0.115.0, `tools/agent-toolset`, Node only; exact tools and driver interface not yet read). Goal: one driver layer in Legion that Claude runs AND agents on other providers (OpenRouter, custom address) can use. Their tool loop in `src/core/providers` would offer the same actions as function calls (screenshot, click, type, navigate), for vision-capable models only. Research first: read the SDK source (tool schemas, driver interface, licence), compare with Legion's VM computer use (boat.dev) and item 11 (browser pane), and decide whether to reuse the SDK drivers or write a model-agnostic one. Safety: approval cards, taint from screen content, the tripwire allowlist for any new spawn or fetch site, and no driving the owner's real browser or desktop without consent. Ties to items 11, 26 (BUG-4) and 34. Status: idea, after the weekly reset (maintainer, 2026-10-07).
+
 **Scope lock (maintainer, 2026-10-06):** the work already running is finished before anything new starts: the Cloudflare switch and connectors phase 1 (this session), the Armory and the CI panel (house/skills session), BSV PR #16 for `0.2.5-i` (BSV session). New requests go onto this ladder as open items. After the lock, work resumes from the ladder.
 
 ---
