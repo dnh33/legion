@@ -162,6 +162,8 @@ Output    First line: FOUND · PARTIAL · NOT FOUND
 Check every draft against the bot's current text and role before shipping (the maintainer's condition).
 
 ### 6.3 Typed delegation (sub-item 3, absorbs ladder 8 + 9)
+Split agreed with the orchestrator (2026-10-07): 3a roster cards + one teamwork block, 3b typed brief/result (reuses task_result and its result store), 3c model by role (ladder 8), 3d hand-off card + request tree (ladder 9, D3 "Side thread"). Sketches for 3c/3d: D:/bots/_refs/sketches/plan-gate and D:/bots/_refs/sketches/handoff; propose 3c/3d here before building.
+3a status: built on branch `feat/fascia-roster-cards`. `src/core/teamwork.ts` renders "Working with other agents" once per run (Claude and provider paths), replacing the delegation lines in LEGION_PREAMBLE, COMMS_PREAMBLE and the roster COMMS_LINES; the bot-message safety lines kept word for word; VM policy moved into the capabilities block and said only when VM tools exist; the provider path gets the capabilities block; migration `roster-comms-lines-v1`; `agents()` shows a card per bot (model, how its answer starts). Fixed prompt cost down 7 to 15 percent per agent (test/prompt-size.test.ts). Next dedupe candidate: the knowledge-graph preamble lists its tools, which the capabilities block lists again.
 - Roster cards generated from souls (use when, don't use when, output contract, model tier, typical cost); `agents()` returns cards.
 - Optional fields on `ask`/`tell` (prose still works):
   - brief `{ goal, done_when, context: [refs], returns, budget: {usd, minutes}, priority }`

@@ -38,6 +38,7 @@ import { toChatMessages } from './providers/tool-loop.js';
 import type { Project } from '../shared/projects.js';
 import { projectSection } from './projects/prompt.js';
 import { renderCapabilities } from './agent-facts.js';
+import { renderTeamwork } from './teamwork.js';
 import type { ProjectStore } from './projects/store.js';
 
 export type QueryFn = typeof sdkQuery;
@@ -177,18 +178,13 @@ export class EngineError extends Error {
   constructor(message: string, public readonly status: number) { super(message); this.name = 'EngineError'; }
 }
 
+/**
+ * Who the agent is and how to behave. Reaching other agents lives in the teamwork block (teamwork.ts) and the VM policy in the
+ * capabilities block (agent-facts.ts), each said once and only when the run has those tools (Fascia 3a).
+ */
 export const LEGION_PREAMBLE = [
   'You are {name}, an agent inside Legion, the user\'s personal multi-agent bot running on their own computer.',
   'Be direct and get the work done; report results concisely.',
-  'Other Legion agents are reachable through mcp__legion__agents (list them), mcp__legion__ask and mcp__legion__tell (direct delegation).',
-  'Use ask when you need the answer before you can continue; it blocks and returns their final message.',
-  'Use tell for long or parallel work: it returns at once and their answer arrives later as a new message in your task.',
-  'Do not use SendMessage or ListAgents; they do not reach Legion agents. Keep messages short and self-contained.',
-  'You may have mcp__legion__vm_* tools (vm_start, vm_exec, vm_write_file, vm_read_file, vm_claude, vm_desktop, vm_stop, vm_usage)',
-  'for an on-demand cloud VM that costs money while running. Start it only when needed',
-  '(untrusted code, long jobs, GUI/browser work, heavy installs) and stop it with vm_stop when done.',
-  'vm_claude hands a whole task to Claude Code inside the VM, which can also drive the VM desktop/browser.',
-  'Treat desktop URLs as secrets and tell the user to open them.',
 ].join('\n');
 
 /**
@@ -1028,6 +1024,7 @@ This run read connector (GitHub) data and other outside text. Web access can sen
       systemPrompt: {
         type: 'preset', preset: 'claude_code',
         append: LEGION_PREAMBLE.replace('{name}', agent.name)
+          + '\n\n' + renderTeamwork(servers)
           + this.modulePreamble(agent, { prompt, taskId: job.taskId, ...(job.origin ? { origin: job.origin } : {}), tainted: act.tainted || job.origin?.tainted === true, ...(project ? { projectId: project.id } : {}) })
           + '\n\n' + renderCapabilities(agent, { servers, ...(job.origin?.approvalCeiling ? { ceiling: job.origin.approvalCeiling } : {}), vmEnabledForAgent: !!agent.vm?.enabled })
           + (agent.systemPrompt ? '\n\n' + agent.systemPrompt : '')
@@ -1174,7 +1171,8 @@ This run read connector (GitHub) data and other outside text. Web access can sen
     const taskId = job.taskId;
     const servers: ProviderHost['servers'] = {};
     const external: NonNullable<ProviderHost['external']> = {};
-    for (const [name, cfg] of Object.entries(this.buildMcpServers(agent, job, act, 'provider'))) {
+    const allServers = this.buildMcpServers(agent, job, act, 'provider');
+    for (const [name, cfg] of Object.entries(allServers)) {
       if (cfg.type === 'sdk') servers[name] = cfg;
       else if (cfg.type === 'http' || cfg.type === 'sse') external[name] = { type: cfg.type, url: cfg.url, ...(cfg.headers ? { headers: cfg.headers } : {}) };
       else if (cfg.type === 'stdio' || cfg.type === undefined) external[name] = { command: (cfg as { command: string }).command, ...((cfg as { args?: string[] }).args ? { args: (cfg as { args?: string[] }).args } : {}), ...((cfg as { env?: Record<string, string> }).env ? { env: (cfg as { env?: Record<string, string> }).env } : {}) };
@@ -1182,8 +1180,11 @@ This run read connector (GitHub) data and other outside text. Web access can sen
     const decide = this.toolDecider(job, agent);
     const host: ProviderHost = {
       taskId, agentName: agent.name, signal: act.ac.signal, cancelled: () => act.cancelled || act.ac.signal.aborted,
+      // the same teamwork and capabilities blocks as a Claude run, so an agent on another provider gets the same rules and tool facts
       systemPrompt: LEGION_PREAMBLE.replace('{name}', agent.name)
+        + '\n\n' + renderTeamwork(allServers)
         + this.modulePreamble(agent, { prompt, taskId, ...(job.origin ? { origin: job.origin } : {}), tainted: act.tainted || job.origin?.tainted === true })
+        + '\n\n' + renderCapabilities(agent, { servers: allServers, ...(job.origin?.approvalCeiling ? { ceiling: job.origin.approvalCeiling } : {}), vmEnabledForAgent: !!agent.vm?.enabled })
         + (agent.systemPrompt ? '\n\n' + agent.systemPrompt : '')
         + `\n\nYou are running on ${pr.model} through ${pr.entry?.label ?? pr.providerId}. You have only the tools listed in this request; you have no file, shell or web tools of your own.`
         + (leadDoctrineFor(agent.id) ? '\n\n' + leadDoctrineFor(agent.id) : ''),

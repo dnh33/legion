@@ -4,7 +4,7 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import type { McpSdkServerConfigWithInstance } from '@anthropic-ai/claude-agent-sdk';
 import { createCommsModule } from '../src/core/comms/index.js';
-import { buildCommsToolsServer, COMMS_PREAMBLE } from '../src/core/comms/tools.js';
+import { buildCommsToolsServer } from '../src/core/comms/tools.js';
 import type { ModuleDeps } from '../src/core/modules.js';
 import { makeHarness } from './comms-fakes.test.js';
 import type { Harness } from './comms-fakes.test.js';
@@ -44,8 +44,8 @@ describe('legion_comms MCP tools (in-process client)', () => {
     assert.ok(paths.includes('POST /api/rooms/:id/messages'));
     assert.ok(paths.includes('GET /api/rooms/search'));
     assert.ok(paths.indexOf('GET /api/rooms/search') < paths.indexOf('GET /api/rooms/:id'), 'search is registered before :id');
-    assert.match(mod.preamble!(h.agents.get('scout')!), /legion_comms/);
-    assert.equal(mod.preamble!(h.agents.get('scout')!), COMMS_PREAMBLE);
+    // Fascia 3a: the comms rules moved into the one teamwork block (teamwork.ts), so the module adds no preamble of its own
+    assert.equal(mod.preamble, undefined);
     // the module's server really talks to its hub: a tool call reaches the engine
     const { client, close } = await connect(servers.legion_comms as McpSdkServerConfigWithInstance);
     const r: any = await client.callTool({ name: 'bot_send', arguments: { to: 'zealot', text: 'via module' } });
