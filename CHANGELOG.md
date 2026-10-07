@@ -4,15 +4,31 @@ All notable changes are recorded here. The format follows [Keep a Changelog](htt
 
 ## [Unreleased]
 
+## [0.2.5-n] - 2026-10-07
+
 ### Added
 
 - **The Quartermaster, a supply watch.** A new premade agent checks the skills, knowledge sources and MCP servers your install uses for newer versions, and files each one on the current project's board for you to decide (label `update`, current and new version, a link). It checks the board first so nothing is filed twice, reports only, and never installs or upgrades anything. To point it at your own tools, edit the Scope line in its settings. It runs when you ask; there is no schedule yet. Existing installs get it on next start.
+- **Logs: Open folder.** In Settings, Logs, a button opens the folder that holds Legion's log files. The button shows only in the desktop app.
 
 ### Changed
 
 - **The lead agent is now called the Marshal (it was Zealot).** Your tasks, threads and settings carry over.
 - **Long conversations open fast.** A conversation with thousands of messages used to be sent whole and drawn whole. It now opens at its newest 100 messages, loads earlier ones as you scroll up (the view stays where it was), and draws only the rows on screen. A search button in the conversation header searches the whole thread on the core and jumps to a match; "Jump to latest" returns to the live end. New route `GET /api/tasks/:id/messages`; the old `GET /api/tasks/:id` is unchanged.
 - **The task history is paged and searchable.** The History button on the task bar (it replaces "+N more") opens a search box and the agent's whole history, loaded 50 at a time as you scroll, with only the visible rows drawn. Before, only the newest 200 tasks were reachable at all. The app's state snapshot no longer carries 200 tasks: it holds the running ones and the newest few per agent, and `GET /api/tasks` serves the rest from an in-memory index.
+- **The Marshal, Builder and Scout have fuller souls.** Each now says when its work is done, which agents it hands work to, its hard limits, and how its answer starts: BUILT, PARTIAL or BLOCKED for the Builder; FOUND, PARTIAL or NOT FOUND for the Scout; STATUS or ANSWER for the Marshal. A soul you edited yourself is kept. Only a soul that still has the old text is upgraded, and only once.
+- **The first screen points at the Marshal.** It now has two steps: check your Claude sign-in, then give the Marshal a first task. "Ask the Marshal" starts that task with a short request that hands the search to the Scout, and the step says it uses a little Claude usage before you click. The boat.dev key and the Claude Code command move under "Later, when you need them", and each is marked optional.
+- **Smaller instructions on every run.** The fixed text a run carries is about 550 to 800 characters shorter for most agents. Each run gets one "Working with other agents" block that matches the tools the run has, and the VM policy line appears only when VM tools exist. Runs on other model providers also get the capabilities text that Claude runs already had.
+
+### Fixed
+
+- **The A key no longer approves a click-only card.** Before, A approved any card in the thread, including a Blender script or a download. Click-only cards now need a click.
+- **Wake-up and notification tools no longer taint a run.** ScheduleWakeup and PushNotification leave a run clean. Outside content read earlier in the run still taints it.
+- **Armory: typed commands respect the agent's skill choice.** An agent with no skills chosen used to run /debug instead of refusing it. Now a typed command for a skill the agent was not given is refused with a plain message, and the / menu hides those names. Commands such as /compact still run.
+- **Logs are quieter.** Successful rate-limit checks are no longer written, other successful requests go to the debug level, and failures are warnings.
+- **The CI panel polls less when you are signed out.** The title-bar chip used to ask GitHub about every 4 minutes while you were not signed in and the panel was closed. It now fetches nothing until you open the panel. A job log without a GitHub connection says "Logs need a GitHub connection." instead of a permission error.
+- **The CI panel docks wider.** The default width is 440 px, a saved width is kept at 400 px or more, and long run names wrap to two lines before they are cut.
+- **Focus rings show only for keyboard use.** Tab shows the focus ring, and a click with the pointer hides it.
 
 ## [0.2.5-l] - 2026-10-07
 
