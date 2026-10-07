@@ -426,6 +426,19 @@ export function createArmoryModule(deps: ModuleDeps, opts: ArmoryOptions = {}): 
         if (!agent) throw new HttpError(404, `Unknown agent "${agentId.slice(0, 80)}"`);
         return effectiveFor(agent);
       });
+      // The /names this agent may NOT type, so the composer's / menu offers only what would run. Computed with the same
+      // refusedCommand the run uses, so the menu and the refusal cannot disagree. Admin-only (not in CLIENT_ROUTES).
+      add('GET', '/api/armory/slash', (c) => {
+        const agentId = c.url.searchParams.get('agent') ?? '';
+        const agent = deps.store.getAgent(agentId);
+        if (!agent) throw new HttpError(404, `Unknown agent "${agentId.slice(0, 80)}"`);
+        const entries = catalog();
+        const known = disc?.mode === 'sdk' && disc.cli ? new Set([...CLI_COMMANDS, ...disc.cli]) : CLI_COMMANDS;
+        const names = new Set<string>([...known]);
+        for (const e of entries) { const cmd = commandOf(e); if (cmd) { names.add(cmd.toLowerCase()); names.add(e.name.toLowerCase()); } }
+        const refused = [...names].filter((n) => refusedCommand(entries, agent, `/${n}`, known) !== undefined).sort();
+        return { agent: agent.id, refused };
+      });
       // The counts for every agent in one call: the screen that lists them all asked once per agent (a dozen requests, each re-reading the catalog).
       // Admin-only like the rest of /api/armory (not in CLIENT_ROUTES): the default-deny gate answers a token-only caller 403.
       add('GET', '/api/armory/effective-all', () => {

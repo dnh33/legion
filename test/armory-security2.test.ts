@@ -8,6 +8,9 @@ import { join } from 'node:path';
 import { describe, it } from 'node:test';
 import { EngineError, pathInside } from '../src/core/engine.js';
 import { deliveryRoot } from '../src/core/armory/delivery.js';
+import { CLI_COMMANDS, refusedCommand } from '../src/core/armory/catalog.js';
+import { isClientRoute } from '../src/core/admin.js';
+import { mkAgent as rigAgent } from './armory-rig.js';
 import { buildSkillMd, hasShellPreprocessing, prepareImport, reviewImport, sanitizeSkillMd } from '../src/core/armory/files.js';
 import { sdkHandshake } from '../src/core/armory/handshake.js';
 import type { SdkProbe } from '../src/core/armory/handshake.js';
@@ -474,5 +477,67 @@ describe('L2: a bare built-in id does not also switch on a plugin skill of the s
 describe('the delivery and source paths', () => {
   it('pluginRoot (source) and deliveryRoot are different folders', () => {
     assert.notEqual(pluginRoot('/d'), deliveryRoot('/d'));
+  });
+});
+
+describe('AR5 (real PC, 2026-10-07): a typed /command respects the agent\'s own skill choice, in every approval mode', () => {
+  const refuses = (r: Awaited<ReturnType<typeof engineRun>>, agentId: string, prompt: string, re: RegExp) => {
+    let err: unknown;
+    try { r.s.engine.startTask({ agentId, prompt, source: 'ui' }); } catch (e) { err = e; }
+    assert.ok(err instanceof EngineError, `${prompt} was accepted for ${agentId}`);
+    assert.match((err as EngineError).message, re);
+  };
+  for (const approval of ['ask', 'auto-edits', 'full'] as const) {
+    it(`${approval}: an agent with no skills chosen may not run an Armory skill by typing it; Claude Code's own commands still run`, async () => {
+      const r = await engineRun({ prep: prepSkills, agents: [{ ...mkAgent('alpha', 'Alpha'), skills: [], approval }, { ...mkAgent('beta', 'Beta'), approval }] });
+      refuses(r, 'alpha', '/legion-armory:on-one go', /not one of this agent's skills/);
+      refuses(r, 'alpha', '/legion-armory:manual-one go', /not one of this agent's skills/);
+      await r.start('alpha', '/compact');
+      // control: the same commands run for an agent that follows the Armory
+      await r.start('beta', '/legion-armory:on-one go');
+      await r.start('beta', '/legion-armory:manual-one go');
+    });
+  }
+});
+
+describe('AR5: the off-by-default exemption covers only the fixed list of Claude Code core commands', () => {
+  const builtin = (id: string, over: Record<string, unknown> = {}) => ({ id, name: id, source: 'claude-builtin', state: 'off', stateIsDefault: true, agents: 'all', description: '', path: null, runsCommandsOnLoad: false, hiddenText: false, ...over }) as never;
+  const agent = { id: 'a', skills: 'inherit' as const };
+  it('/debug, a built-in off by default, is refused even when the SDK lists it as a command', () => {
+    const live = new Set([...CLI_COMMANDS, 'debug']);
+    assert.match(refusedCommand([builtin('debug')], agent as never, '/debug', live) ?? '', /switched off/);
+  });
+  it('/review, a core command that is also a built-in off by default, still runs', () => {
+    assert.equal(refusedCommand([builtin('review')], agent as never, '/review', CLI_COMMANDS), undefined);
+  });
+  it('a built-in the owner turned on is refused for an agent that did not choose it, but /review is not', () => {
+    const none = { id: 'a', skills: [] as string[] };
+    assert.match(refusedCommand([builtin('debug', { state: 'on', stateIsDefault: false })], none as never, '/debug') ?? '', /not one of this agent's skills/);
+    assert.equal(refusedCommand([builtin('review', { state: 'on', stateIsDefault: false })], none as never, '/review'), undefined);
+  });
+});
+
+describe('AR5: the composer menu offers only what the agent may type', () => {
+  it('GET /api/armory/slash lists exactly the names refusedCommand refuses for that agent, and is admin-only', async () => {
+    const rig = armoryRig({ agents: [rigAgent('alpha', { skills: [] }), rigAgent('beta')] });
+    await prepSkills(rig);
+    const a = await rig.call('GET', '/api/armory/slash?agent=alpha');
+    const b = await rig.call('GET', '/api/armory/slash?agent=beta');
+    assert.ok(a.refused.includes('legion-armory:on-one'), 'alpha (no skills chosen) may not type an Armory skill');
+    assert.ok(a.refused.includes('legion-armory:manual-one'));
+    assert.ok(!a.refused.includes('compact'), "Claude Code's own /compact stays offered");
+    assert.ok(!b.refused.includes('legion-armory:on-one'), 'beta (follows the Armory) may');
+    assert.ok(b.refused.includes('legion-armory:off-one'), 'an Armory-off skill is refused for everyone');
+    assert.equal(isClientRoute('GET', '/api/armory/slash'), false);
+  });
+});
+
+describe('AR5: a plugin slash command outside the Armory follows the agent\'s skill choice', () => {
+  const live = new Set([...CLI_COMMANDS, 'commit-commands:commit']);
+  it('is refused for an agent with its own skill list, runs when the list names it, and for an agent that follows the Armory', () => {
+    assert.match(refusedCommand([], { id: 'a', skills: [] } as never, '/commit-commands:commit', live) ?? '', /outside the Armory/);
+    assert.equal(refusedCommand([], { id: 'a', skills: ['commit-commands:commit'] } as never, '/commit-commands:commit', live), undefined);
+    assert.equal(refusedCommand([], { id: 'a', skills: 'inherit' } as never, '/commit-commands:commit', live), undefined);
+    assert.equal(refusedCommand([], { id: 'a', skills: [] } as never, '/compact', live), undefined, 'core commands always run');
   });
 });
