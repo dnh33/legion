@@ -423,3 +423,11 @@ The souls are tested for shape and contract on fakes only; nothing has checked h
 |---|---|---|---|---|
 | SC1 | Built app, a fresh install (or an install whose three defaults still have their old seeds). Open Builder, Scout and Zealot and read their prompts. | All three show the new souls. Edit Scout's prompt by hand, restart Legion: your text is kept. | Screenshot of each prompt; Scout after the restart. | todo |
 | SC2 | Ask Builder: "Add a function that reverses a string in a scratch file and prove it works." Ask Scout: "What is the current LTS version of Node.js? Give the source." Ask Zealot: "Write a one-paragraph README section for the board, and have it reviewed." | Builder's first line is BUILT, PARTIAL or BLOCKED, with Evidence naming a command it ran. Scout's first line is FOUND, PARTIAL or NOT FOUND, with a link. Zealot's first line is STATUS; it hands the writing to the Scribe and the review to the Inquisitor, then reports with evidence. | The three answers, copied as text. | todo |
+
+## 2026-10-07: Welcome points at Zealot (feat/welcome-zealot; plan `claude/plan-fascia.md` 6.2). Safety class: a few cents of Claude usage
+
+Checked visually with `ui/dev/mock-server.mjs` (scenario `first`); the real first task needs a real Claude sign-in.
+
+| id | Steps | Expected | Evidence | State |
+|---|---|---|---|---|
+| WF1 | Fresh install (or clear `legion.onboarded` in the window's local storage and have no tasks). Look at the welcome, open "Later, when you need them", then press Ask Zealot. | Two steps (sign-in, first task for Zealot); VMs and the Claude Code command only under Later. Ask Zealot opens a new Zealot task with the shown request; Zealot hands it to Scout and answers in one line with a source. | Screenshots of the welcome and the finished task. | todo |

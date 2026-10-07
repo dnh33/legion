@@ -9,7 +9,7 @@ import { Store } from '../src/core/store.js';
 
 const ID = 'builder-vm-size-default-v1';
 /** Every migration a state file records once it has been loaded (0.2.5-c added the Zealot prompt one after this one). */
-const ALL = [ID, 'zealot-lead-prompt-v1', 'souls-codex-v1'];
+const ALL = [ID, 'zealot-lead-prompt-v1', 'souls-codex-v1', 'roster-comms-lines-v1'];
 /** A state.json as an older build wrote it: no `migrations` field, Builder (and Scout, for contrast) on 'large'. */
 function oldState(dir: string): void {
   const st = new Store(cleanupTemp('legion-mig-seed-'));

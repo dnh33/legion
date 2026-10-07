@@ -3,7 +3,9 @@ import type { ChatMessage } from '../../../src/shared/types';
 import { CONTINUE_PROMPT, budgetLimitFromError, isBudgetPause, isLimitPause } from '../../../src/shared/continue';
 import { threadKey } from '../../../src/shared/approval-keys';
 import { base, token } from '../api';
-import { decide, dismissOnboarding, ensureLoaded, jumpToLatest, loadOlder, openDoctor, openEditor, openSettings, refresh, retryOlder, selectTask, sendPrompt, useStore } from '../store';
+import { decide, dismissOnboarding, ensureLoaded, jumpToLatest, loadOlder, openDoctor, openEditor, openSettings, refresh, retryOlder, selectTask, sendPrompt, sendPromptTo, toast, useStore } from '../store';
+import { WELCOME_LATER, WELCOME_STEPS, WELCOME_TRY, canTryZealot } from './welcomeLogic';
+import type { WelcomeItem } from './welcomeLogic';
 import { ROW_GAP, anchoredScrollTop, hasOlder, layoutOffsets, metaDetached, rowAt, rowIndexOfMessage, scrollForRow, shouldLoadOlder, visibleRange } from '../chat/threadWindow';
 import { ThreadSearch } from './ThreadSearch';
 import { copyText, money } from '../util';
@@ -283,6 +285,16 @@ function EmptyState() {
   const shownCmd = mkCmd(token ? '\u2022'.repeat(12) : '<token>');
   const [copied, setCopied] = useState(false);
   const signin = doctor?.find((c) => /claude|sign|auth/i.test(c.id + c.label));
+  const step = (id: WelcomeItem['id']) => WELCOME_STEPS.find((s) => s.id === id)!;
+  const later = (id: WelcomeItem['id']) => WELCOME_LATER.find((s) => s.id === id)!;
+  const [trying, setTrying] = useState(false);
+  // the first task goes to Zealot whichever agent is selected; the new task opens on success
+  const tryIt = async () => {
+    setTrying(true);
+    const r = await sendPromptTo({ agentId: WELCOME_TRY.agentId, taskId: null }, WELCOME_TRY.prompt, { select: true });
+    setTrying(false);
+    if (!r.ok) toast(r.message, 'error');
+  };
 
   if (agents.length === 0 && conn !== 'online') {
     return (
@@ -309,27 +321,42 @@ function EmptyState() {
   return (
     <div className="firstrun">
       <h3>Welcome to Legion</h3>
-      <p className="lead">Three quick things and you are set. Then just type below.</p>
+      <p className="lead">Give the work to Zealot, the lead of your Order. A Claude sign-in is all you need.</p>
       <ol className="steps">
         <li>
           <span className={`step-n${signin?.ok ? ' ok' : ''}`}>{signin?.ok ? <Icon name="check" size={12} /> : 1}</span>
-          <div><b>Check your Claude sign-in</b><p>Legion uses the account you are signed into Claude Code with. Doctor verifies it without a model call.</p></div>
+          <div><b>{step('signin').title}</b><p>{step('signin').body}</p></div>
           <button className="btn" onClick={openDoctor}>Run Doctor</button>
         </li>
-        <li>
-          <span className={`step-n${boat ? ' ok' : ''}`}>{boat ? <Icon name="check" size={12} /> : 2}</span>
-          <div><b>Add a boat key for VMs</b><p>{boat ? 'Connected. Agents can start on-demand VMs.' : <>Paste your boat.dev key in Settings. It applies straight away, no restart.</>}</p></div>
-          {!boat && <button className="btn" onClick={() => openSettings('boat')}>Add key</button>}
-        </li>
-        <li>
-          <span className="step-n">3</span>
-          <div><b>Connect to Claude Code</b><p>Run this once in a terminal to drive your agents from Claude Code or Cowork. Copy includes your token; it is hidden here.</p>
-            <div className="cmd"><code>{shownCmd}</code>
-              <button className="btn-ghost sm" onClick={async () => { if (await copyText(cmd)) { setCopied(true); setTimeout(() => setCopied(false), 1500); } }}><Icon name={copied ? 'check' : 'copy'} size={12} /> {copied ? 'Copied' : 'Copy'}</button>
+        {canTryZealot(agents) && (
+          <li>
+            <span className="step-n">2</span>
+            <div><b>{step('try').title}</b><p>{step('try').body}</p>
+              <div className="cmd"><code>{WELCOME_TRY.prompt}</code></div>
             </div>
-          </div>
-        </li>
+            <button className="btn primary" disabled={trying} onClick={() => void tryIt()}>Ask Zealot</button>
+          </li>
+        )}
       </ol>
+      <p className="lead">Or type your own request below.</p>
+      <details className="later">
+        <summary>Later, when you need them</summary>
+        <ol className="steps">
+          <li>
+            <span className={`step-n${boat ? ' ok' : ''}`}>{boat ? <Icon name="check" size={12} /> : <Icon name="cube" size={12} />}</span>
+            <div><b>{later('boat').title}</b><p>{boat ? 'Connected. Agents can start on-demand VMs.' : later('boat').body}</p></div>
+            {!boat && <button className="btn" onClick={() => openSettings('boat')}>Add key</button>}
+          </li>
+          <li>
+            <span className="step-n"><Icon name="terminal" size={12} /></span>
+            <div><b>{later('mcp').title}</b><p>{later('mcp').body}</p>
+              <div className="cmd"><code>{shownCmd}</code>
+                <button className="btn-ghost sm" onClick={async () => { if (await copyText(cmd)) { setCopied(true); setTimeout(() => setCopied(false), 1500); } }}><Icon name={copied ? 'check' : 'copy'} size={12} /> {copied ? 'Copied' : 'Copy'}</button>
+              </div>
+            </div>
+          </li>
+        </ol>
+      </details>
       <button className="btn-ghost" onClick={dismissOnboarding}>Dismiss</button>
     </div>
   );
