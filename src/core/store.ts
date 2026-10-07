@@ -4,7 +4,7 @@ import { writeFile, rename, unlink, mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { AgentProfile, ChatMessage, Task, VmRecord } from '../shared/types.js';
 import { nowIso } from '../shared/util.js';
-import { ROSTER } from './roster.js';
+import { BUILDER_SOUL, ROSTER, SCOUT_SOUL, ZEALOT_SOUL, withLegacyCommsLines } from './roster.js';
 import { TaskIndex, type PageQuery } from './task-index.js';
 import { messageWindow, searchMessages, type MsgHit } from './message-pages.js';
 
@@ -12,8 +12,15 @@ interface StateFile { agents: AgentProfile[]; tasks: Task[]; vms: VmRecord[]; /*
 
 /** Zealot's first seeded prompt: it told the lead to handle requests itself, the opposite of its role. */
 const ZEALOT_OLD_PROMPT = 'You are the lead agent. Handle general requests directly and keep answers concise.\nFor big or specialised work, break it into steps and suggest delegating to Builder (coding) or Scout (research).\nUse your cloud VM only when the task really needs it.';
-/** Zealot's seeded prompt. Its role is also enforced by the lead doctrine the engine appends last (src/core/lead.ts). */
-export const ZEALOT_PROMPT = 'You are the lead of the Order. Every request comes to you first: you plan it, split it into tasks and hand them to the agents best placed for them, and you keep the person informed. Keep your answers concise.\nUse your cloud VM only when the task really needs it.';
+/** The seeds the three defaults shipped with before Soul Codex v1: a stored prompt still equal to one of these was never edited by the owner. */
+export const SOUL_SEEDS_V0 = {
+  zealot: 'You are the lead of the Order. Every request comes to you first: you plan it, split it into tasks and hand them to the agents best placed for them, and you keep the person informed. Keep your answers concise.\nUse your cloud VM only when the task really needs it.',
+  builder: 'You write, run and debug code. Make small, verifiable changes and run tests before reporting done.\nPrefer your cloud VM for untrusted code, heavy installs, long builds and GUI/browser work.\nStop the VM when you are finished with it.',
+  scout: 'You research, read and summarise. Cite sources and separate facts from guesses.\nKeep summaries tight: lead with the answer, then supporting detail.\nDo not modify files unless explicitly asked.',
+} as const;
+/** Zealot's seeded prompt (its soul). Its role is also enforced by the lead doctrine the engine appends last (src/core/lead.ts). */
+export const ZEALOT_PROMPT = ZEALOT_SOUL;
+const SOULS_V1: Record<keyof typeof SOUL_SEEDS_V0, string> = { zealot: ZEALOT_SOUL, builder: BUILDER_SOUL, scout: SCOUT_SOUL };
 
 /** Applied once per state file, in order, then recorded in `migrations` so they never run again (and never undo a later manual choice). */
 const MIGRATIONS: Array<{ id: string; run: (agents: Map<string, AgentProfile>) => boolean }> = [
@@ -34,8 +41,38 @@ const MIGRATIONS: Array<{ id: string; run: (agents: Map<string, AgentProfile>) =
     run: (agents) => {
       const z = agents.get('zealot');
       if (!z || z.systemPrompt !== ZEALOT_OLD_PROMPT) return false;
-      z.systemPrompt = ZEALOT_PROMPT;
+      z.systemPrompt = SOUL_SEEDS_V0.zealot;
       return true;
+    },
+  },
+  {
+    // Soul Codex v1 (maintainer 2026-10-07): the three defaults get their full souls. Only a prompt still equal to its
+    // old seed is replaced; a soul the owner wrote or edited is never touched. Runs after zealot-lead-prompt-v1.
+    id: 'souls-codex-v1',
+    run: (agents) => {
+      let changed = false;
+      for (const id of Object.keys(SOULS_V1) as Array<keyof typeof SOULS_V1>) {
+        const a = agents.get(id);
+        if (!a || a.systemPrompt !== SOUL_SEEDS_V0[id]) continue;
+        a.systemPrompt = SOULS_V1[id];
+        changed = true;
+      }
+      return changed;
+    },
+  },
+  {
+    // Fascia 3a: the roster's comms lines moved into the teamwork block, said once per run. A stored roster prompt is
+    // trimmed only while it is still its exact shipped seed; an edited one keeps its text (a duplicate line, never a lost one).
+    id: 'roster-comms-lines-v1',
+    run: (agents) => {
+      let changed = false;
+      for (const r of ROSTER) {
+        const a = agents.get(r.id);
+        if (!a || a.systemPrompt !== withLegacyCommsLines(r.systemPrompt)) continue;
+        a.systemPrompt = r.systemPrompt;
+        changed = true;
+      }
+      return changed;
     },
   },
 ];
@@ -182,13 +219,13 @@ export class Store {
       {
         id: 'builder', name: 'Builder', emoji: '⌘', model: 'auto', approval: 'full',
         description: 'Coding and building; prefers its VM for risky work.',
-        systemPrompt: 'You write, run and debug code. Make small, verifiable changes and run tests before reporting done.\nPrefer your cloud VM for untrusted code, heavy installs, long builds and GUI/browser work.\nStop the VM when you are finished with it.',
+        systemPrompt: BUILDER_SOUL,
         vm: { enabled: true, size: 'default', idleStopMinutes: 15 }, mcpServers: ['*'], // 'large' only when the user picks it: free trials refuse it
       },
       {
         id: 'scout', name: 'Scout', emoji: '◎', model: 'sonnet', approval: 'ask',
         description: 'Research, reading and summarising.',
-        systemPrompt: 'You research, read and summarise. Cite sources and separate facts from guesses.\nKeep summaries tight: lead with the answer, then supporting detail.\nDo not modify files unless explicitly asked.',
+        systemPrompt: SCOUT_SOUL,
         vm: { enabled: false, size: 'default', idleStopMinutes: 15 }, mcpServers: ['*'],
       },
     ];

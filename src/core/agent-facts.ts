@@ -65,6 +65,9 @@ export function renderCapabilities(agent: AgentProfile, ctx: FactsContext): stri
     lines.push(ctx.vmEnabledForAgent
       ? '- VM tools: not available this run (no boat.dev key is set up).'
       : '- VM tools: not available to you (your VM is off).');
+  } else {
+    // only a run that really has the VM tools pays for the VM policy (it used to sit in every run's preamble)
+    lines.push('- VM: an on-demand cloud VM that costs money while running. Start it only when needed (untrusted code, long jobs, GUI/browser work, heavy installs) and stop it with vm_stop when done. vm_claude hands a whole task to Claude Code inside the VM, which can also drive the VM desktop/browser. Treat desktop URLs as secrets and tell the user to open them.');
   }
   if (names.has('legion_browser') && names.get('legion_browser')!.length > 0) {
     // the mode in force, computed once below and reused for the approvals line

@@ -112,6 +112,7 @@ Decisions this plan must not contradict: Claude default; board "not Jira", no sc
 - Tests: one per bug, each with a negative (temporary scratch mutation shows it fails), fake-backed, `test-temp-dirs` rules.
 
 ### 6.2 Soul Codex v1 (sub-item 2)
+Status (2026-10-07): souls, migration and tests built on branch `feat/soul-codex-v1`. Souls live in `src/core/roster.ts` (`ZEALOT_SOUL`, `BUILDER_SOUL`, `SCOUT_SOUL`), seeded by `store.ts`; migration `souls-codex-v1`; contract tests `test/soul-codex.test.ts`. The welcome flow is split into its own PR after #39 (it rewrites `Thread.tsx`). The one-house-backbone dedupe moves to sub-item 3 (it touches the engine and comms preambles). As built, every soul keeps its core lines, at most 300 words, no tool names, hand-offs name only bots in the Order (never the BSV-only Assayer).
 Shape for every bot: **Voice, Stance, Refuses (→ who), Done when, Output (first-line verdict + fixed sections), Examples (1-2 short), Edges (who next, when)**. Capability facts stay in `renderCapabilities`.
 - v1 bots: Builder, Scout, Zealot (the lead doctrine stays appended last).
 - One house backbone: shared rules (delegation how-to, untrusted content, verify first) generated once; the 3× and 7× duplicates removed.
@@ -161,6 +162,8 @@ Output    First line: FOUND · PARTIAL · NOT FOUND
 Check every draft against the bot's current text and role before shipping (the maintainer's condition).
 
 ### 6.3 Typed delegation (sub-item 3, absorbs ladder 8 + 9)
+Split agreed with the orchestrator (2026-10-07): 3a roster cards + one teamwork block, 3b typed brief/result (reuses task_result and its result store), 3c model by role (ladder 8), 3d hand-off card + request tree (ladder 9, D3 "Side thread"). Sketches for 3c/3d: D:/bots/_refs/sketches/plan-gate and D:/bots/_refs/sketches/handoff; propose 3c/3d here before building.
+3a status: built on branch `feat/fascia-roster-cards`. `src/core/teamwork.ts` renders "Working with other agents" once per run (Claude and provider paths), replacing the delegation lines in LEGION_PREAMBLE, COMMS_PREAMBLE and the roster COMMS_LINES; the bot-message safety lines kept word for word; VM policy moved into the capabilities block and said only when VM tools exist; the provider path gets the capabilities block; migration `roster-comms-lines-v1`; `agents()` shows a card per bot (model, how its answer starts). Fixed prompt cost down 7 to 15 percent per agent (test/prompt-size.test.ts). Next dedupe candidate: the knowledge-graph preamble lists its tools, which the capabilities block lists again.
 - Roster cards generated from souls (use when, don't use when, output contract, model tier, typical cost); `agents()` returns cards.
 - Optional fields on `ask`/`tell` (prose still works):
   - brief `{ goal, done_when, context: [refs], returns, budget: {usd, minutes}, priority }`
