@@ -11,6 +11,7 @@ import { scrubHostSessionEnv } from '../shared/config.js';
 import { BUDGET_LIMIT_PREFIX, CONTINUE_PROMPT, TURN_LIMIT_PREFIX, budgetCap, formatUsdLimit } from '../shared/continue.js';
 import { InputChannel } from './input-channel.js';
 import { BackgroundTasks } from './background-tasks.js';
+import { capStored } from './result-store.js';
 import { contextTokensOf } from '../shared/context-meter.js';
 import { isLegionTool, needsApproval, stricterMode } from './approvals.js';
 import { TaintedPaths } from './tainted-paths.js';
@@ -1163,7 +1164,7 @@ export class Engine {
         ...(r.usageUnknown || !r.usage || cur?.tokenUsage?.unknown ? { unknown: true } : {}),
       },
       ...(r.costUsd !== undefined ? { costUsd: (cur?.costUsd ?? 0) + r.costUsd } : {}),
-      ...(!r.isError && r.resultText !== undefined ? { result: r.resultText } : {}),
+      ...(!r.isError && r.resultText !== undefined ? { result: capStored(r.resultText) } : {}),
     });
     return { subtype: r.subtype, isError: r.isError, errorText: r.isError ? r.errorText : undefined };
   }
@@ -1380,7 +1381,7 @@ export class Engine {
           costUsd: (cur?.costUsd ?? 0) + (typeof msg.total_cost_usd === 'number' ? msg.total_cost_usd : 0),
           turns: (cur?.turns ?? 0) + (typeof msg.num_turns === 'number' ? msg.num_turns : 0),
           ...(typeof msg.session_id === 'string' && !cur?.sessionId ? { sessionId: msg.session_id } : {}),
-          ...(!isError && text !== undefined ? { result: text } : {}),
+          ...(!isError && text !== undefined ? { result: capStored(text) } : {}),
         });
         return { subtype: String(msg.subtype), isError, errorText: isError ? text : undefined };
       }

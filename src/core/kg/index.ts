@@ -119,6 +119,7 @@ export function createKnowledgeModule(deps: ModuleDeps, opts: KnowledgeModuleOpt
       const run: RunContext = job
         ? {
           taskId: job.taskId, ...(job.origin ? { origin: job.origin } : {}), ...(job.ceiling ? { ceiling: job.ceiling } : {}), taint: job.taint, quota: quotaFor(job.taskId), ...(job.projectId ? { projectId: job.projectId } : {}),
+          taskResult: (id: string) => { const t = deps.store.getTask(id); return t?.result ?? t?.error; },
           saved: () => { captured.add(job.taskId); if (captured.size > 500) captured.delete(captured.values().next().value as string); },
         }
         : {};

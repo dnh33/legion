@@ -31,12 +31,12 @@ test('D: a 10-turn task with no capture yields exactly one episode, with no extr
   assert.equal(e.scope, 'agent:alpha');
   assert.equal(e.createdBy, 'system');
   assert.equal(e.trust, 'untrusted');
-  assert.deepEqual(e.sources, [{ ref: `task:${t.id}`, untrusted: true }]);
+  assert.deepEqual(e.sources, [{ ref: `task:${t.id}`, untrusted: true }, { ref: `task:${t.id}#result`, untrusted: true }]);
   assert.equal(e.origin?.taskId, t.id);
   assert.equal(e.origin?.tainted, false);
   assert.equal(e.props?.turns, 10);
   assert.match(e.body, /ended done after 10 turns/);
-  const promptPart = /Prompt: ([\s\S]*?)\n\nResult: ([\s\S]*)$/.exec(e.body)!;
+  const promptPart = /Prompt: ([\s\S]*?)\n\nResult: ([\s\S]*?)(?:\n\n\(\d+ characters in all\. Full result: kg_get task:\w+#result\))?$/.exec(e.body)!;
   assert.ok(promptPart[1]!.length <= 300 + 20, `prompt part ${promptPart[1]!.length}`);
   assert.ok(promptPart[2]!.length <= 800 + 20, `result part ${promptPart[2]!.length}`);
   assert.doesNotMatch(JSON.stringify(e), /sk-ant/, 'scrubbed at the Graph boundary');

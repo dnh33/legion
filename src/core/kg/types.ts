@@ -22,6 +22,8 @@ export interface RunContext {
   projectId?: string;
   /** Called by the tool layer after kg_capture or kg_wm_set actually stored something (a refused call does not count). */
   saved?: () => void;
+  /** The stored full result of a task (or its error text), for kg_get on an episode's `task:<id>#result` link. Engine-side: the tool never reads the task store itself. */
+  taskResult?: (taskId: string) => string | undefined;
 }
 
 /** Who is acting. Visibility and write rights derive from it. */
