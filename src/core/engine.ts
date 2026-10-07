@@ -13,6 +13,7 @@ import { InputChannel } from './input-channel.js';
 import { contextTokensOf } from '../shared/context-meter.js';
 import { isLegionTool, needsApproval, stricterMode } from './approvals.js';
 import { TaintedPaths } from './tainted-paths.js';
+import { CONTINUE_REFUSED } from './connector-withhold.js';
 import type { CoreModule, ModuleJob, PreambleContext, TaskEndOutcome } from './modules.js';
 import type { TaskOrigin } from '../shared/comms.js';
 import type { ApprovalBroker } from './approvals.js';
@@ -294,6 +295,8 @@ export class Engine {
       if (prev.status === 'running') { const live = this.feedLive(p, prev, prompt); if (live) return live; }
       if (prev.status === 'queued' || prev.status === 'running') throw new EngineError('Task is still running', 409);
       if (prev.agentId !== agent.id) throw new EngineError('Task belongs to a different agent', 400);
+      // a task that read connector data holds that text in its session: nothing started by or down a chain from an MCP client may resume it
+      if (prev.usedConnectors && origin?.viaMcpClient) throw new EngineError(CONTINUE_REFUSED, 403);
       const projectId = this.pickProject(p, agent, prev);
       priorModel = prev.model;
       const viaBridge = p.bridge && !p.bridge.reply;
@@ -755,6 +758,7 @@ export class Engine {
       taskId, ...(job.origin ? { origin: job.origin, ceiling: job.origin.approvalCeiling } : {}),
       taint: () => act.tainted || job.origin?.tainted === true,
       markTainted: () => { act.tainted = true; },
+      markConnectorData: () => { this.patchTask(taskId, { usedConnectors: true }); },
       runtime,
       ...(pid ? { projectId: pid } : {}),
     };

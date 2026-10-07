@@ -51,9 +51,11 @@ function needAgent(ctx: CoreContext, ref: string): AgentProfile {
   return a;
 }
 
+import { withholdMessage, withholdTask } from './connector-withhold.js';
 const clip = (s: string, n: number) => (s.length > n ? s.slice(0, n) + '…[truncated]' : s);
 
-function taskSummary(t: Task) {
+function taskSummary(raw: Task) {
+  const t = withholdTask(raw);
   return {
     taskId: t.id, agent: t.agentId, status: t.status, model: t.model, requestedModel: t.requestedModel,
     escalated: t.escalated, costUsd: t.costUsd, turns: t.turns, title: t.title,
@@ -77,7 +79,8 @@ function formatRun(t: Task, timedOut: boolean): ToolResult {
   return tagged(formatRunBody(t, timedOut), t.status);
 }
 
-function formatRunBody(t: Task, timedOut: boolean): ToolResult {
+function formatRunBody(raw: Task, timedOut: boolean): ToolResult {
+  const t = withholdTask(raw); // a task that read connector data never hands its result to a bearer-token client
   const head = {
     taskId: t.id, agent: t.agentId, status: t.status, model: t.model, escalated: t.escalated,
     costUsd: t.costUsd, turns: t.turns,
@@ -216,7 +219,7 @@ export function buildLegionMcpServer(ctx: CoreContext): McpServer {
   }, safe(async (a: { taskId: string }) => {
     const t = knownTask(ctx, a.taskId);
     if (!t) return fail(`Unknown task "${a.taskId}".`);
-    const msgs: ChatMessage[] = ctx.store.listMessages(t.id).slice(-20);
+    const msgs: ChatMessage[] = ctx.store.listMessages(t.id).slice(-20).map((m) => withholdMessage(m, t));
     return json({
       task: taskSummary(t),
       messages: msgs.map((m) => ({ role: m.role, toolName: m.toolName, at: m.at, text: clip(m.text, 2000) })),

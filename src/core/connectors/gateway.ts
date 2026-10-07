@@ -100,6 +100,7 @@ export function buildConnectorsServer(agent: AgentProfile, job: ModuleJob, d: Ga
     const client = d.github();
     if (!client) return text('GitHub is not available in this core.', true);
     taint();
+    try { job.markConnectorData?.(); } catch { /* bookkeeping only */ }
     try { return text(wrapGithub(name, await fn(client, args, ctxFor(extra)))); } catch (e) { return text(errorText(e), true); }
   };
 

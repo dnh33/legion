@@ -20,6 +20,8 @@ export interface ModuleJob {
   taint(): boolean;
   /** Flags the run as tainted from now on (a tool just handed it text a tainted bot wrote, e.g. room_read). Sticky. */
   markTainted?(): void;
+  /** Marks the task as having read connector data (sticky): withheld from MCP-client readers. Called by the connector gateway. */
+  markConnectorData?(): void;
   /** The project this run belongs to, resolved by the engine (active project, agent is a member). Never taken from a tool argument. */
   projectId?: string;
   /** Which runtime the servers are for: a Claude (SDK) run, or a run on a model provider. Set by the engine, never by a tool. */
