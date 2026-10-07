@@ -121,6 +121,29 @@ function makeDb(flags) {
     const ids = ['zealot', 'zealot', 'zealot', 'zealot', 'zealot', 'zealot', 'zealot', 'builder', 'builder', 'scout'];
     for (let i = 0; i < N; i++) { const at = ago(1000 + i * 3); db.tasks.push({ id: 'h' + i, agentId: ids[i % ids.length], title: Array.from({ length: 5 }, (_, k) => W[(i * 7 + k * 3) % W.length]).join(' ') + ' ' + i, status: 'done', source: 'ui', requestedModel: 'auto', costUsd: 0.1, turns: 3, createdAt: at, updatedAt: at, ...(i % 3 === 0 ? { archived: true } : {}) }); }
   }
+  if (f('bigthread')) { // one task with 2,102 messages (about 1.2 MB as JSON): user turns, markdown answers with code, tool call and result pairs
+    const N = Number(process.env.MOCK_MSGS || 2102); const msgs = []; let k = 0;
+    const md = (i) => `Step ${i}: here is what I found in \`src/core/module${i % 40}.ts\`.
+
+- the first point about ${i} and why it matters for the billing flow
+- a second point with **bold** text and a [link](https://example.com/${i})
+
+\`\`\`ts
+export function f${i}(x: number) {
+  return x * ${i} + ${k};
+}
+\`\`\`
+
+` + 'More words to make the answer a realistic length. '.repeat(4);
+    while (msgs.length < N) {
+      const i = k++; const at = ago(5000 - i);
+      if (i % 12 === 0) msgs.push({ id: 'bm' + msgs.length, taskId: 'big1', role: 'user', text: 'Please continue with step ' + i + ' and check the tests again.', at });
+      else if (i % 3 === 0) msgs.push({ id: 'bm' + msgs.length, taskId: 'big1', role: 'assistant', text: md(i), at });
+      else { const uid = 'tu' + i; msgs.push({ id: 'bm' + msgs.length, taskId: 'big1', role: 'tool', toolName: 'Bash', toolUseId: uid, text: JSON.stringify({ command: 'npm test -- module' + i }), at }); msgs.push({ id: 'bm' + msgs.length, taskId: 'big1', role: 'tool', resultFor: uid, text: 'ok '.repeat(60), at }); }
+    }
+    db.tasks.unshift({ id: 'big1', agentId: 'zealot', title: 'Long session with 2,102 messages', status: 'done', source: 'ui', requestedModel: 'auto', model: 'sonnet', costUsd: 3.2, turns: 400, createdAt: ago(6000), updatedAt: ago(0) });
+    db.messages.big1 = msgs.slice(0, N);
+  }
   if (f('approval')) {
     db.approvals.push({ id: 'apA', taskId: 't1', agentId: 'zealot', toolName: 'Bash', summary: 'sudo apt-get install -y imagemagick && convert -version', input: {}, at: ago(1) });
     db.approvals.push({ id: 'apB', taskId: 't3', agentId: 'builder', toolName: 'Bash', summary: 'rm -rf node_modules && npm install', input: {}, at: ago(1) });
@@ -314,6 +337,15 @@ http.createServer(async (req, res) => {
     return send(res, 200, { ok: true, detail: 'Connected \u00b7 3 sandboxes' });
   }
   let m;
+  if ((m = p.match(/^\/api\/tasks\/([^/]+)\/messages$/)) && req.method === 'GET') {
+    const task = db.tasks.find((t) => t.id === m[1]); if (!task) return send(res, 404, { error: 'not found' });
+    const all = db.messages[task.id] || [], sp = url.searchParams, lim = Math.min(300, Math.max(1, Number(sp.get('limit')) || 100));
+    if (sp.get('q')) { const w = sp.get('q').toLowerCase(); const hits = []; for (let i = all.length - 1; i >= 0 && hits.length < 100; i--) if (all[i].text.toLowerCase().includes(w)) hits.push({ index: i, id: all[i].id, role: all[i].role, snippet: all[i].text.slice(0, 120) }); return send(res, 200, { hits, total: all.length }); }
+    let start, end; if (sp.get('from') !== null && sp.get('from') !== '') { start = Math.max(0, Number(sp.get('from'))); end = Math.min(all.length, start + lim); } else { end = sp.get('before') !== null && sp.get('before') !== '' ? Math.min(all.length, Number(sp.get('before'))) : all.length; start = Math.max(0, end - lim); }
+    const byUse = new Map(); all.forEach((x, i) => { if (x.toolUseId) byUse.set(x.toolUseId, i); });
+    for (let i = start; i < end; i++) { const c = all[i].resultFor && byUse.get(all[i].resultFor); if (c !== undefined && c < start) start = c; }
+    return send(res, 200, { task, messages: all.slice(start, end), start, end, total: all.length });
+  }
   if ((m = p.match(/^\/api\/tasks\/([^/]+)$/)) && req.method === 'PATCH') {
     const task = db.tasks.find((t) => t.id === m[1]); if (!task) return send(res, 404, { error: 'not found' });
     const b = await readBody(req); if (typeof b.archived === 'boolean') task.archived = b.archived; if (typeof b.title === 'string' && b.title.trim()) task.title = b.title.trim().slice(0, 120);

@@ -80,6 +80,7 @@ JSON over `127.0.0.1:<port>` (default 4747). Implemented in `src/core/server.ts`
 | DELETE | `/api/agents/:id` | none | `{ok:true}`. The `zealot` agent is refused with 400. |
 | POST | `/api/tasks` | `{agentId, prompt, model?, continueTaskId?}` | `Task` (201) |
 | GET | `/api/tasks/:id` | none | `{task, messages}` |
+| GET | `/api/tasks/:id/messages` | `?before=&from=&limit=&q=` | `{task, messages, start, end, total}` (oldest first within the window; positions are the stored order, which only grows at the end, so `before` is a stable cursor). Default 100 rows, at most 300; a tool call and its result are never split (the window grows by a few rows to keep a pair together). `from=N` opens a window at position N (a search hit). `q=` returns `{hits:[{index,id,role,snippet}], total}` instead: case-insensitive substring over the whole thread, newest first, at most 100. Reachable with the bearer token like `GET /api/tasks/:id`, and withheld the same way (a bearer-only caller gets the withheld view of a connector task, and search runs on that view). A hidden agent's task is a 404 |
 | GET | `/api/tasks/:id/wait?timeoutMs=N` | none | `Task`. Long-poll; N is at most 600000, default 120000. |
 | POST | `/api/tasks/:id/cancel` | none | `{ok}` |
 | GET | `/api/vms` | none | `VmRecord[]` |
