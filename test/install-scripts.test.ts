@@ -119,6 +119,16 @@ test('release-build.yml builds on a v* tag or by hand, read-only, with no secret
   for (const m of releaseYml.matchAll(/^( +)run: \|\n((?:\1 {2}.*\n|\n)*)/gm)) assert.doesNotMatch(m[2], /\$\{\{/, 'expression inside a run block');
   for (const m of releaseYml.matchAll(/^ +run: (?!\|)(.*)$/gm)) assert.doesNotMatch(m[1], /\$\{\{/, 'expression inside a run line');
   assert.match(releaseYml, /if-no-files-found: error/);
+  // the runner context is not available in job-level env (GitHub's context table); using it there fails validation
+  assert.doesNotMatch(releaseYml, /^ {6}\w+: .*\$\{\{ *runner\./m, 'runner.* in job-level env');
+});
+
+test('release-build.yml builds a release only from a commit on main, and names any other build a dry run', () => {
+  assert.match(releaseYml, /fetch-depth: 0\n/);
+  const push = releaseYml.slice(releaseYml.indexOf("if ($env:EVENT -eq 'push') {"));
+  assert.match(push, /^ {12}git merge-base --is-ancestor HEAD origin\/main\n {12}if \(\$LASTEXITCODE -ne 0\) \{ throw/m);
+  assert.match(releaseYml, /\$artifact = if \(\$env:EVENT -eq 'push'\) \{ "legion-\$v-release" \} else \{ "legion-\$v-DRYRUN-/);
+  assert.match(releaseYml, /^ {10}name: \$\{\{ steps\.v\.outputs\.artifact \}\}$/m, 'the artifact is named by the build kind');
 });
 
 test('ci.yml keeps only the fast syntax check for the installers; the smoke jobs moved to install.yml', () => {

@@ -36,7 +36,6 @@ jobs:
       # set. The package ships that Electron, so both are cleared here.
       CI: ""
       ELECTRON_SKIP_BINARY_DOWNLOAD: ""
-      PKG: ${{ runner.temp }}\legion-pkg
     defaults:
       run:
         shell: pwsh
@@ -44,6 +43,9 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ inputs.ref || github.ref }}
+          # Full commit history without file contents, so a tag build can prove its commit is on main.
+          fetch-depth: 0
+          filter: blob:none
           persist-credentials: false
       # No npm cache: a release is built from a clean dependency install, never from a restored cache.
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
@@ -60,7 +62,17 @@ jobs:
           if ($v -notmatch '^(0|[1-9]\d{0,8})\.(0|[1-9]\d{0,8})\.(0|[1-9]\d{0,8})(-[a-z])?$') { throw "package.json version '$v' is not a release version" }
           if ($env:EVENT -eq 'push') {
             if ($env:REF_TYPE -ne 'tag' -or $env:REF_NAME -cne "v$v") { throw "the tag '$($env:REF_NAME)' does not match package.json version $v (expected v$v)" }
+            # A release is built only from a commit that is on main (reviewed and merged), never from a tag on a side branch.
+            git merge-base --is-ancestor HEAD origin/main
+            if ($LASTEXITCODE -ne 0) { throw 'the tagged commit is not on main: merge first, then tag the merged commit' }
           }
+          $sha = (git rev-parse HEAD).Trim()
+          if ($sha -notmatch '^[0-9a-f]{40}$') { throw 'could not read the commit' }
+          # Only a tag build is named as a release; a build run by hand says DRYRUN and its commit in its name.
+          $artifact = if ($env:EVENT -eq 'push') { "legion-$v-release" } else { "legion-$v-DRYRUN-$($sha.Substring(0, 7))" }
+          "PKG=$(Join-Path $env:RUNNER_TEMP 'legion-pkg')" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "artifact=$artifact" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          "commit=$sha" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
           $notes = "docs/release-notes/$v.txt"
           if (Test-Path -LiteralPath $notes -PathType Leaf) {
             "notes=$notes" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
@@ -88,6 +100,8 @@ jobs:
       - name: Check SHA256SUMS and list every hash in the run summary
         env:
           V: ${{ steps.v.outputs.version }}
+          ARTIFACT: ${{ steps.v.outputs.artifact }}
+          COMMIT: ${{ steps.v.outputs.commit }}
         run: |
           $files = "legion-$env:V-app.zip", "legion-$env:V-win-x64.zip", 'legion-update-manifest.json', 'SHA256SUMS.txt', 'install.ps1', 'install.sh'
           foreach ($f in $files) { if (-not (Test-Path -LiteralPath (Join-Path $env:PKG $f) -PathType Leaf)) { throw "$f was not built" } }
@@ -98,13 +112,14 @@ jobs:
             if ($got -ne $h) { throw "SHA256SUMS.txt says $h for $n, the file is $got" }
           }
           foreach ($n in $files[0..2]) { if (-not ($lines | Where-Object { $_.EndsWith("  $n") })) { throw "SHA256SUMS.txt has no line for $n" } }
-          $sum = @("### Legion $env:V release build (unsigned)", '', '| file | SHA-256 |', '| --- | --- |')
+          $kind = if ($env:ARTIFACT.EndsWith('-release')) { 'release build (unsigned)' } else { 'DRY RUN, not for release' }
+          $sum = @("### Legion $env:V $kind", '', "Artifact ``$env:ARTIFACT``, commit ``$env:COMMIT``", '', '| file | SHA-256 |', '| --- | --- |')
           foreach ($f in $files) { $sum += "| $f | ``$((Get-FileHash -Algorithm SHA256 -LiteralPath (Join-Path $env:PKG $f)).Hash.ToLowerInvariant())`` |" }
           $sum += '', 'Next, on the PC: download the artifact, check these hashes, sign, pre-flight, verify, publish (docs/SHIPPING.md).'
           $sum | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Encoding utf8 -Append
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: legion-${{ steps.v.outputs.version }}-release
+          name: ${{ steps.v.outputs.artifact }}
           path: |
             ${{ runner.temp }}/legion-pkg/legion-${{ steps.v.outputs.version }}-app.zip
             ${{ runner.temp }}/legion-pkg/legion-${{ steps.v.outputs.version }}-win-x64.zip
