@@ -7,7 +7,7 @@ import { useDraft } from '../chat/drafts';
 import { enqueueMessage, getQueue, interruptAndSend, pauseQueue, startQueueRunner, takeLastQueued, useThreadQueue } from '../chat/queueStore';
 import { buildMenu, isCostly, parseSlash, runLegionCommand, LEGION_COMMANDS, type MenuItem } from '../commands';
 import { modelLabel } from '../models';
-import { cancelSelected, effectiveModel, getState, loadCatalog, sendPrompt, sendPromptTo, useStore } from '../store';
+import { cancelSelected, confirmStop, effectiveModel, getState, loadCatalog, sendPrompt, sendPromptTo, useStore } from '../store';
 import { clip } from '../util';
 import { Icon } from './icons';
 import { ModelPicker } from './ModelPicker';
@@ -167,7 +167,7 @@ export function Composer() {
             : <button type="button" className="send queue" disabled={!text.trim()} onClick={() => void submit()} aria-label="Queue message"
                 title="Queue this message (Enter). Ctrl+Enter interrupts the run and sends it now."><Icon name="plus" size={13} /> Queue</button>)}
           {running
-            ? <button className="send stop" onClick={() => { pauseQueue(qkey); void cancelSelected(); }} aria-label="Stop"><Icon name="stop" size={14} /> Stop</button>
+            ? <button className="send stop" onClick={() => { if (!confirmStop(taskId)) return; pauseQueue(qkey); void cancelSelected(true); }} aria-label="Stop"><Icon name="stop" size={14} /> Stop</button>
             : !busy && <button className="send" disabled={!text.trim()} onClick={() => void submit()} aria-label="Send"><Icon name="send" size={14} /></button>}
         </div>
       </div>

@@ -10,6 +10,7 @@ import { newId, nowIso, titleFrom } from '../shared/util.js';
 import { scrubHostSessionEnv } from '../shared/config.js';
 import { BUDGET_LIMIT_PREFIX, CONTINUE_PROMPT, TURN_LIMIT_PREFIX, budgetCap, formatUsdLimit } from '../shared/continue.js';
 import { InputChannel } from './input-channel.js';
+import { BackgroundTasks } from './background-tasks.js';
 import { contextTokensOf } from '../shared/context-meter.js';
 import { isLegionTool, needsApproval, stricterMode } from './approvals.js';
 import { TaintedPaths } from './tainted-paths.js';
@@ -53,7 +54,17 @@ export interface EngineDeps {
   providers?: ProviderRuntime;
   /** Projects (src/core/projects). Absent: no task has a project and nothing about projects is interpreted. */
   projects?: ProjectStore;
+  /** Timings for a run that is held open by background agents. Tests shorten them; the defaults are BG_STALL_MS and BG_GRACE_MS. */
+  background?: { stallMs?: number; graceMs?: number };
 }
+
+/**
+ * A run with background agents is held open (its input stays open) until they report. If the SDK sends nothing at all for this long while
+ * they are running, Legion stops waiting, says so in the thread and closes the run (which ends them).
+ */
+export const BG_STALL_MS = 60 * 60_000;
+/** After the last background agent reports, how long a silent run is given to answer the notification before it is closed. */
+export const BG_GRACE_MS = 30_000;
 
 /** Most items and longest item text of a TodoWrite list kept for the live checklist. */
 export const TODO_MAX_ITEMS = 50;
@@ -220,6 +231,8 @@ interface Active {
   progress?: { startedAt: string; turn: number; maxTurns: number; tool: string | null; turnIds: Set<string>; contextTokens?: number; todos?: TodoItem[]; thinking: boolean };
   /** The live prompt stream of the current Claude run: a message from the person while it works is pushed here. */
   input?: InputChannel;
+  /** The background agents the current Claude run has going (from the SDK's task messages). While any run, the input stays open. */
+  bg?: BackgroundTasks;
 }
 interface Outcome { subtype: string; isError: boolean; errorText?: string }
 
@@ -245,8 +258,12 @@ export class Engine {
   readonly bridge: Bridge;
   private modules: CoreModule[];
   private readonly mcpTracker = new McpStatusTracker();
+  private readonly bgStallMs: number;
+  private readonly bgGraceMs: number;
 
   constructor(deps: EngineDeps) {
+    this.bgStallMs = Math.max(1, deps.background?.stallMs ?? BG_STALL_MS);
+    this.bgGraceMs = Math.max(1, deps.background?.graceMs ?? BG_GRACE_MS);
     this.store = deps.store; this.bus = deps.bus; this.vms = deps.vms; this.approvals = deps.approvals;
     this.config = deps.config;
     this.queryFn = deps.queryFn ?? realQuery;
@@ -500,18 +517,29 @@ export class Engine {
   progressSnapshot(): Record<string, TaskProgress> {
     const out: Record<string, TaskProgress> = {};
     for (const [taskId, act] of this.active) {
-      const p = act.progress;
+      const p = this.progressView(act);
       // a run whose task is already marked done/error is in its last moments of cleanup: it has no progress to show
       if (!p || this.store.getTask(taskId)?.status !== 'running') continue;
-      out[taskId] = { startedAt: p.startedAt, turn: p.turn, maxTurns: p.maxTurns, tool: p.tool, thinking: p.thinking, ...(p.contextTokens !== undefined ? { contextTokens: p.contextTokens } : {}), ...(p.todos ? { todos: p.todos } : {}) };
+      out[taskId] = p;
     }
     return out;
   }
 
   private emitProgress(taskId: string, act: Active): void {
+    const p = this.progressView(act);
+    if (p) this.bus.emit({ type: 'task.progress', taskId, progress: p });
+  }
+
+  /** What the app is told about a run: one place, so the live event and the snapshot for a late client cannot drift apart. */
+  private progressView(act: Active): TaskProgress | undefined {
     const p = act.progress;
-    if (!p) return;
-    this.bus.emit({ type: 'task.progress', taskId, progress: { startedAt: p.startedAt, turn: p.turn, maxTurns: p.maxTurns, tool: p.tool, thinking: p.thinking, ...(p.contextTokens !== undefined ? { contextTokens: p.contextTokens } : {}), ...(p.todos ? { todos: p.todos } : {}) } });
+    if (!p) return undefined;
+    const background = act.bg?.count ?? 0;
+    return {
+      startedAt: p.startedAt, turn: p.turn, maxTurns: p.maxTurns, tool: p.tool, thinking: p.thinking,
+      ...(p.contextTokens !== undefined ? { contextTokens: p.contextTokens } : {}), ...(p.todos ? { todos: p.todos } : {}),
+      ...(background > 0 ? { background } : {}),
+    };
   }
 
   private mascot(mood: MascotMood, note?: string): void {
@@ -1161,14 +1189,50 @@ export class Engine {
     });
     const it = q[Symbol.asyncIterator]();
     let outcome: Outcome | undefined;
+    // Background agents (Claude Code's own subagents) die with the run's input stream: closing it while they work kills them. So a
+    // success result closes the input only when no background agent is running; otherwise the run is held open until they report.
+    const bg = new BackgroundTasks();
+    act.bg = bg;
+    let lastActivity = Date.now();
+    let held = false;
+    // a turn (the model answering a notification) has started since the run was held: then only its result may close the run
+    let turnStarted = false;
+    const watchdog = setInterval(() => {
+      if (input.isClosed) return;
+      const quiet = Date.now() - lastActivity;
+      if (bg.count > 0 && quiet >= this.bgStallMs) {
+        this.addMessage(job.taskId, 'system', `Legion stopped waiting for ${bg.count} background agent${bg.count === 1 ? '' : 's'}: nothing came from them for ${Math.round(this.bgStallMs / 60_000)} minutes. They end with this run; ask again to start them over.`);
+        input.close();
+      } else if (held && bg.count === 0 && !turnStarted && quiet >= this.bgGraceMs) {
+        // the last background agent reported and no turn followed: nothing is left to wait for
+        input.close();
+      }
+    }, Math.max(1, Math.min(1000, Math.floor(Math.min(this.bgStallMs, this.bgGraceMs) / 4))));
+    watchdog.unref?.();
     try {
       for (;;) {
         const next = await Promise.race([it.next(), aborted]);
         if (next === 'aborted' || act.cancelled) return { subtype: 'cancelled', isError: false };
         if (next.done) break;
+        lastActivity = Date.now();
+        if (bg.note(next.value)) this.emitProgress(job.taskId, act);
+        if (held && ['assistant', 'user', 'stream_event'].includes((next.value as any)?.type)) turnStarted = true;
         const o = this.handleMessage(job, act, next.value as any);
-        // each result answers one message; once none are waiting the stream closes and the run ends
-        if (o) { outcome = o; if (input.answered((next.value as any)?.queued_turn_count)) input.close(); }
+        // each result answers one message; once none are waiting the stream closes and the run ends, unless background agents still work
+        if (o) {
+          outcome = o;
+          if (input.answered((next.value as any)?.queued_turn_count)) {
+            if (o.isError || bg.count === 0) { held = false; input.close(); }
+            else {
+              turnStarted = false;
+              if (!held) {
+                held = true;
+                const n = bg.count;
+                this.addMessage(job.taskId, 'system', `Waiting for ${n} background agent${n === 1 ? '' : 's'} to report before this run ends. Stop cancels them.`);
+              }
+            }
+          }
+        }
       }
     } catch (e) {
       if (act.cancelled || act.ac.signal.aborted) return { subtype: 'cancelled', isError: false };
@@ -1180,6 +1244,8 @@ export class Engine {
       if (outcome.isError) return outcome;
       throw e;
     } finally {
+      clearInterval(watchdog);
+      act.bg = undefined;
       // a thinking flag must never outlive its run
       if (act.progress?.thinking) { act.progress.thinking = false; this.emitProgress(job.taskId, act); }
       input.close();

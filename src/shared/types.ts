@@ -210,6 +210,8 @@ export interface TaskProgress {
   todos?: TodoItem[];
   /** True while the model is in a thinking block; the thinking itself is never sent. */
   thinking?: boolean;
+  /** Background agents this run is waiting on (absent: none). The run stays open until they report; Stop ends them. */
+  background?: number;
 }
 /** One line of a Claude TodoWrite checklist. */
 export interface TodoItem { content: string; status: 'pending' | 'in_progress' | 'completed'; activeForm?: string }

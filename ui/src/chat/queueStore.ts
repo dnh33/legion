@@ -9,7 +9,7 @@
 import { useSyncExternalStore } from 'react';
 import type { ModelChoice, Task } from '../../../src/shared/types';
 import { api } from '../api';
-import { getState, sendPromptTo, subscribeStore, tapEvents, toast } from '../store';
+import { confirmStop, getState, sendPromptTo, subscribeStore, tapEvents, toast } from '../store';
 import { busyReason } from './busy';
 import * as Q from './queue';
 
@@ -134,6 +134,8 @@ function kick() { if (kicked) return; kicked = true; queueMicrotask(() => { kick
  */
 export async function interruptAndSend(agentId: string, taskId: string | null, text: string, model: ModelChoice): Promise<boolean> {
   const key = Q.threadKey(agentId, taskId);
+  // a run with background agents ends them when it is cancelled: the owner is asked first, and a "no" sends nothing
+  if (taskId && busyReason(agentId, taskId, getState().tasks, getState().approvals) && !confirmStop(taskId)) return false;
   await inflight.get(key);
   set(Q.lock(qs, key));
   let failure: string | undefined;
@@ -160,6 +162,7 @@ export async function interruptAndSend(agentId: string, taskId: string | null, t
 export async function sendQueuedNow(key: string, itemId: string): Promise<void> {
   const at = targetOf(key);
   if (!at) return;
+  if (at.taskId && busyReason(at.agentId, at.taskId, getState().tasks, getState().approvals) && !confirmStop(at.taskId)) return;
   await inflight.get(key);
   const item = qs.threads[key]?.items.find((i) => i.id === itemId);
   const began = Q.beginSend(qs, key, itemId);

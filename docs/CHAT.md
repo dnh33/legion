@@ -47,6 +47,10 @@ While a queue is held and the agent is idle, a fresh Enter sends right away; the
 - **A failed send gives the text back.** If Enter or Ctrl+Enter cannot send (offline, refused), the message returns to the input; whatever you typed meanwhile stays after it. A queued message that fails to send stays in the queue and holds it.
 - If the core says "still running" for a moment after our copy says idle (event ordering), the send is retried a few times before the queue is held.
 
+### Runs with background agents
+
+A Claude run that started background agents (Claude Code's own subagents) is **held open** until they report: the working row says "waiting on N background agents", and a message you add with plain Enter joins the run as before. Legion closes such a run only when its last background agent has reported and the model has answered, when you stop it, or when nothing at all has come from the agents for 60 minutes (the thread says so). Stop, `Ctrl+Enter` and "send now" cancel the run, and that ends the background agents too, so a run that has some asks first ("Stop anyway?"); answering no sends nothing and cancels nothing. Background shells (a dev server) are not waited on. Replies from other agents (`tell`) reach a held run when it closes, not before.
+
 ### Implementation
 
 - `queue.ts`: a pure state machine (enqueue, dequeue on run end, override lock, pause, resume, clear, edit, rekey, persistence round trip with sanitising). `busy.ts`: the busy rules. Both are unit-tested (`test/chat-queue.test.ts`).
