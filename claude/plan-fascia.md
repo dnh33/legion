@@ -163,15 +163,42 @@ Check every draft against the bot's current text and role before shipping (the m
 
 ### 6.3 Typed delegation (sub-item 3, absorbs ladder 8 + 9)
 Split agreed with the orchestrator (2026-10-07): 3a roster cards + one teamwork block, 3b typed brief/result (reuses task_result and its result store), 3c model by role (ladder 8), 3d hand-off card + request tree (ladder 9, D3 "Side thread"). Sketches for 3c/3d: D:/bots/_refs/sketches/plan-gate and D:/bots/_refs/sketches/handoff; propose 3c/3d here before building.
-3a status: built on branch `feat/fascia-roster-cards`. `src/core/teamwork.ts` renders "Working with other agents" once per run (Claude and provider paths), replacing the delegation lines in LEGION_PREAMBLE, COMMS_PREAMBLE and the roster COMMS_LINES; the bot-message safety lines kept word for word; VM policy moved into the capabilities block and said only when VM tools exist; the provider path gets the capabilities block; migration `roster-comms-lines-v1`; `agents()` shows a card per bot (model, how its answer starts). Fixed prompt cost down 7 to 15 percent per agent (test/prompt-size.test.ts). Next dedupe candidate: the knowledge-graph preamble lists its tools, which the capabilities block lists again.
-- Roster cards generated from souls (use when, don't use when, output contract, model tier, typical cost); `agents()` returns cards.
-- Optional fields on `ask`/`tell` (prose still works):
-  - brief `{ goal, done_when, context: [refs], returns, budget: {usd, minutes}, priority }`
-  - result `{ verdict, summary, evidence: [], files: [], open: [], cost }`
-- Lead doctrine: check each result against `done_when` before reporting; a failed check re-briefs or escalates.
-- Model by role: router reads the tier from the card (part of the item 8 model policy).
-- Hand-off card (item 9 sketch) and a request tree under the lead's answer render the same brief/result data.
-- Reuse the Order-bug `task_result` tool if it fits; do not build a second one.
+3a status: MERGED (#50, 2026-10-07). One teamwork block per run (`src/core/teamwork.ts`, Claude and provider paths), VM policy only with VM tools, provider path gets the capabilities block, migration `roster-comms-lines-v1`, cards in `agents()`. Claude-path fixed cost down 7 to 15 percent per agent, now held by per-agent ceilings (+5%) in `test/prompt-size.test.ts`. Provider path not measured end to end (derived: roster bots about even, the three defaults about +220 chars from the capabilities block they now get). Next dedupe candidate: the knowledge-graph preamble lists its 16 tools, which the capabilities block lists again.
+
+Rename (maintainer, 2026-10-07): the lead's display name becomes "the Marshal"; the id `zealot` stays in code, tasks, migrations and the mascot. The orchestrator runs the rename PR. New text says "Marshal". Start 3b only after the rename PR merges (both touch `lead.ts`).
+
+Paused for the weekly usage limit (maintainer, 2026-10-07). The plans below are ready to build: read this section, then the two design files named in 3c and 3d.
+
+#### 3b. Typed brief and result
+- Brief, optional on `ask` and `tell` (zod in `agent-tools.ts`; prose still works, `message` optional when a brief is given): `{ goal: string (max 300), done_when: string[] (1 to 4 observable checks), context?: string[] (refs: file:line, task ids), returns?: string, budget?: { usd?: number }, priority?: 'low'|'normal'|'high' }`. `done_when` is an array: the plan gate (3c) edits it per check.
+- The bridge renders the brief into the callee's message as a short header (Goal, numbered Done when, Context, Returns) under the existing "from" header. Cost: about 40 to 80 chars, only when a brief is used.
+- Result: `ask` returns `{ taskId, status, model, verdict, result }`. `verdict` is the first token of the answer's first line matched against the callee's own contract (the card's verdict list, for example BUILT/PARTIAL/BLOCKED or VERIFIED/NOT FIXED/QUESTIONABLE), else `none`. The long body stays in the existing ResultStore and `task_result` (no second store). Add the resolved model and `Task.costUsd`.
+- Budget: `budget.usd` becomes the child run's `maxBudgetUsd`, never above the owner's `claude.maxBudgetUsd`. No minutes limit in v1 (nothing enforces it).
+- Lead doctrine step 6: compare the verdict and evidence with each `done_when` check; send back with the unmet check, at most two send-backs per task, then report it as open.
+- Router guard: brief text must not flip `auto` routing (`router.ts` scores keywords such as plan, review and debug, and length over 1800). Score the goal only, or pass the model explicitly (3c).
+- Never write a verdict as a board status (bots never set Review or Done).
+- Tests: brief schema (bad number of checks, long goal), header rendering, verdict parse for all 13 souls plus an unknown soul, budget clamp, prose path unchanged, router not flipped by a brief. A negative per test, made with the backup-and-restore negative script, never by reverse replacement.
+
+#### 3c. Model by role and the plan gate (ladder 8)
+Source: `D:/bots/_refs/sketches/plan-gate/design-plan-gate.md` (revision 2, direction B "Dispatch") and `review-plan-gate.md` (blocking findings #1 to #13 are folded into revision 2; nits #16 to #24 are still open). Owner decisions in the design: the gate shows before the Marshal delegates in every approval mode, Full access included (a plan review, not a permission card; a per-lead setting turns it off; note the exception next to `approvals.ts:40-50`); "optionality is the rule" (agent, model, order, delegate or do it itself: all shown and changeable).
+- Mechanism: a new `mcp__legion__plan` tool stores a `PlanRecord` on the `ChatMessage` (pending, approved, cancelled, replaced) and returns "End your turn now". Run sends a normal user message ("Plan approved. ..."). `ask` and `tell` refuse a target without an approved plan item (`assertPlanned`, also for `bot_send`, `room_post` and `handoff`; `Task` and `Agent` go into the lead's `disallowedTools`). One item is one task (`fresh: true`, `Done when:` prepended from 3b). Onward delegation (Builder to Scout) is not gated. A run not started from the app auto-approves with the same bounds (needs `origin` in `AgentToolsCtx`).
+- Model policy: the Marshal proposes the cheapest model that fits each item: planning, judging and reporting on its own model (Opus by default through a versioned migration, only while it is still the shipped `auto`); build, review and research on sonnet; exactly specified mechanical work on haiku; hard design on opus; a provider-pinned agent keeps its model. The owner can change any item.
+- Bounds, checked at plan time and again at Run: the model ceiling (`model-cap.ts`), the provider lock, the account catalog, the per-run spend limit (a warning, not a block), the effective approval. Show a concrete alias, never `auto`. New run flag `noEscalate` unless the item allows "may move up to Opus" (`shouldEscalate` otherwise reruns on Opus).
+- Per-job provider models (owner answer 1) need a deliberate change to `OVERRIDE_MODELS` (`bridge.ts`) and to the provider rule in `model-cap.ts`; keep its data-sovereignty reasoning visible in the gate.
+- Phases: 1 core (PlanRecord, plan tool, assertPlanned, bounds, noEscalate, migration) with tests; 2 gate UI (keys R, E, X, U, C, G; Esc never cancels; text-field and IME guards); 3 the `ask_owner` question card; 4 verdict chips per done check (needs 3b).
+- Open, owner-only: the seven PC checks in the design (does the lead continue after Run on real Claude, a provider lead, a restart with a pending plan). Light-theme kbd contrast 4.19:1. Never word anything as an effort control (the effort picker is rejected); the gate never starts a board run.
+- Prompt cost: the plan wording replaces LEAD_DOCTRINE steps 1 and 2; the prompt-size ceilings must still hold.
+
+#### 3d. Hand-off card D3 "Side thread" and the request tree (ladder 9)
+Source: `D:/bots/_refs/sketches/handoff/handoff.js` (`rail()`) and `sheet-3-side-thread.html`. The maintainer picked D3.
+- Card per ask or tell: head "[avatar] Marshal asked|told Builder" plus "waits for the answer" or "keeps working" while live; the request line; a node with a state icon (a distinct icon per state, never colour alone), the callee avatar and a status line; the answer as Markdown, clamped, with "Show all"; footer links "Open the approval" (first, warn tone), "Go to the answer", "Open <Agent>'s task". `role="group"` with an aria-label such as "Marshal asked Builder: Answered".
+- States (exact words in handoff.js `ST`): Waiting, Queued, Needs your OK, Sent, Answered with one duration, Could not finish, Cancelled, Stopped waiting, Not sent (maps the core's refusal strings: unknown agent, self, depth 3, deadlock, hop 6, rate limit 30 per 10 minutes). A tell reply is its own card ("Scout answered Marshal", "re: ..."). The callee's thread shows a breadcrumb back to the caller.
+- Backend data missing today (add as bridge events and message metadata, no new store): the callee task id while an ask is pending, a queued state for an ask, the link from an approval to the caller task, a per-request id, asked or told on the callee's first bubble, which message ends a bridged run, whether the caller stopped waiting.
+- Design change to confirm with the maintainer: add 3b's verdict, model, duration and cost to the node status line ("BUILT, 41s, sonnet, $0.12"); D3 as sketched shows none of them.
+- Request tree (not sketched): under the lead's answer, one row per brief (agent, state, verdict, cost), built from the same events in the D3 node style.
+- Phases: 3d-1 backend events and metadata; 3d-2 the card replacing today's ask/tell chip (D0, `ToolChip`); 3d-3 the tree. Tests: pure state and refusal mapping, aria labels.
+
+Build order after the pause: rename PR (orchestrator), 3b, 3c phase 1, 3d-1 and 3d-2, 3c phase 2, 3d-3, 3c phases 3 and 4.
 
 ### 6.4 "Needs you" inbox (sub-item 4)
 One title-bar badge + list over data the UI already computes: approvals (rail), paused runs/turn limits, room attention, board proposals, items in Review across projects.
