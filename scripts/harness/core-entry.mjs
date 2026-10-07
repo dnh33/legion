@@ -64,7 +64,7 @@ const boardModules = board ? [createBoardModule(moduleDeps, { projects, board, n
 const fakeGithub = new FakeGitHub();
 fakeGithub.scenario('mixed');
 fakeGithub.setConnection({ auth: 'pat', login: 'octo', permissions: { actions: 'write', contents: 'read' }, rate: { limit: 5000, remaining: 5000, resetAt: new Date(Date.now() + 3600000).toISOString() } });
-const ci = createCiModule(moduleDeps, { github: fakeGithub, projects, log });
+const ci = createCiModule(moduleDeps, { github: fakeGithub, writes: () => fakeGithub.writesPort(), projects, log });
 const modules = [kg, house, armory, createCommsModule(moduleDeps, { projects }), createProjectsModule(moduleDeps, { projects, nativeSecret }), ...boardModules, bsv, blender, ...providersModules, updater, createBrowserModule(moduleDeps, { nativeSecret, log }), ci];
 engine.setModules(modules);
 const server = createServer({

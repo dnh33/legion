@@ -1,10 +1,13 @@
 /**
- * A scriptable stand-in for the GitHub client, for tests and the harness only (never wired in production). It answers the two list calls the
+ * A scriptable stand-in for the GitHub client, for tests and the harness only (never wired in production). It has the shapes of the real
+ * client (src/core/connectors/github/client.ts): `GhInit.ifNoneMatch`, the request path refusals, thrown `GhError` instances, `can()` that
+ * answers 'unknown' without a permission map, and NO write members: writes are a separate `FakeWrites` a scenario enables. It answers the two list calls the
  * CI module makes (`/repos/{o}/{r}/actions/runs`, `/repos/{o}/{r}/actions/runs/{id}/jobs`) with JSON in GitHub's documented shape, speaks ETag and
  * 304, counts a rate budget, and can refuse logs, answer 403/404 or run out of rate. Every call is recorded in `calls` / `writes`.
  * Nothing here opens a socket.
  */
-import type { Connection, GhArea, GhRequestInit, GhResponse, GitHubPort } from './port.js';
+import { GhError as GhClientError } from '../connectors/github/client.js';
+import type { Connection, GhArea, GhInit, GhResponse, GitHubPort, GitHubWrites } from './port.js';
 import { asGhError } from './port.js';
 import type { GhError } from './port.js';
 
@@ -12,6 +15,9 @@ type Raw = Record<string, unknown>;
 export interface FakeCall { method: string; path: string; ifNoneMatch?: string }
 
 const ISO = (ms: number): string => new Date(ms).toISOString();
+
+/** Throws like the real client: a GhError instance with the same fields. */
+const thrown = (e: GhError): GhClientError => new GhClientError(e.kind, { ...('needs' in e && e.needs ? { needs: e.needs } : {}), ...('resetAt' in e ? { resetAt: e.resetAt } : {}), ...('retryable' in e ? { retryable: e.retryable } : {}) });
 
 export class FakeGitHub implements GitHubPort {
   conn: Connection;
@@ -22,6 +28,8 @@ export class FakeGitHub implements GitHubPort {
   logsMode: 'ok' | 'refused' | 'expired' = 'refused';
   calls: FakeCall[] = [];
   writes: Array<{ op: 'rerun' | 'cancel'; runId: number; repo: string }> = [];
+  /** Whether the write members exist (a scenario enables them; the real writes module may not exist yet). */
+  writesOn = false;
   connectionCalls = 0;
   /** Repos only a signed-in caller can see: anonymous gets not-connected. */
   privateRepos = new Set<string>();
@@ -63,10 +71,11 @@ export class FakeGitHub implements GitHubPort {
   clear(): void { this.runs = []; this.jobs.clear(); this.logText.clear(); this.touch(); }
 
   /* ---------- GitHubPort ---------- */
-  async connection(): Promise<Connection> { this.connectionCalls++; return JSON.parse(JSON.stringify(this.conn)) as Connection; }
+  /** Makes connection() throw (the real one reads /user and can be refused like any request). */
+  connectionFail: GhError | null = null;
+  async connection(): Promise<Connection> { this.connectionCalls++; if (this.connectionFail) throw thrown(this.connectionFail); return JSON.parse(JSON.stringify(this.conn)) as Connection; }
 
   can(area: GhArea, level: 'read' | 'write'): 'yes' | 'no' | 'unknown' {
-    if (this.conn.auth === 'anonymous') return level === 'read' ? 'yes' : 'no';
     const p = this.conn.permissions;
     if (!p) return 'unknown';
     const have = p[area];
@@ -75,7 +84,7 @@ export class FakeGitHub implements GitHubPort {
   }
 
   private spend(notModified: boolean): void {
-    if (this.conn.rate.remaining <= 0) throw { kind: 'rate-limited', resetAt: this.conn.rate.resetAt } satisfies GhError;
+    if (this.conn.rate.remaining <= 0) throw thrown({ kind: 'rate-limited', resetAt: this.conn.rate.resetAt });
     // a 304 is free for a signed-in caller; an anonymous one still pays (GitHub REST best practices)
     if (!notModified || this.conn.auth === 'anonymous') this.conn.rate.remaining--;
   }
@@ -83,19 +92,21 @@ export class FakeGitHub implements GitHubPort {
     const f = this.failNext;
     if (!f) return;
     if (f.count !== Infinity && --f.count <= 0) this.failNext = null;
-    throw f.error;
+    throw thrown(f.error);
   }
 
-  async request(path: string, init: GhRequestInit = {}): Promise<GhResponse> {
-    const ifNoneMatch = init.headers?.['If-None-Match'];
+  async request(path: string, init: GhInit = {}): Promise<GhResponse> {
+    const ifNoneMatch = init.ifNoneMatch;
     this.calls.push({ method: init.method ?? 'GET', path, ...(ifNoneMatch ? { ifNoneMatch } : {}) });
     this.maybeFail();
+    // the same refusals as the real client
+    if (!path.startsWith('/') || path.startsWith('//') || /[\\\s#]/.test(path)) throw thrown({ kind: 'network', retryable: false });
     const url = new URL(path, 'https://api.github.com');
     const m = /^\/repos\/([^/]+)\/([^/]+)\/actions\/runs(?:\/(\d+)\/jobs)?$/.exec(url.pathname);
-    if (!m) throw { kind: 'not-found' } satisfies GhError;
+    if (!m) throw thrown({ kind: 'not-found' });
     const repo = `${m[1]}/${m[2]}`;
-    if (this.missingRepos.has(repo)) { this.spend(false); throw { kind: 'not-found' } satisfies GhError; }
-    if (this.privateRepos.has(repo) && this.conn.auth === 'anonymous') { this.spend(false); throw { kind: 'not-connected' } satisfies GhError; }
+    if (this.missingRepos.has(repo)) { this.spend(false); throw thrown({ kind: 'not-found' }); }
+    if (this.privateRepos.has(repo) && this.conn.auth === 'anonymous') { this.spend(false); throw thrown({ kind: 'not-connected' }); }
     const etag = `W/"${this.rev}-${url.pathname}${url.search}"`;
     if (ifNoneMatch === etag) { this.spend(true); return { status: 304, json: null, etag, notModified: true, rate: { ...this.conn.rate } }; }
     this.spend(false);
@@ -112,32 +123,38 @@ export class FakeGitHub implements GitHubPort {
     return { status: 200, json, etag, rate: { ...this.conn.rate } };
   }
 
-  async logs(jobId: number, _repo: string): Promise<{ text: string; truncated: boolean }> {
+  async logs(jobId: number | string, _repo: string): Promise<{ text: string; truncated: boolean }> {
     this.calls.push({ method: 'GET', path: `logs:${jobId}:${_repo}` });
     this.maybeFail();
-    if (this.logsMode === 'refused') throw { kind: 'logs-unavailable' } satisfies GhError;
-    if (this.logsMode === 'expired') throw { kind: 'not-found' } satisfies GhError;
-    const text = this.logText.get(jobId);
-    if (text === undefined) throw { kind: 'not-found' } satisfies GhError;
+    if (this.logsMode === 'refused') throw thrown({ kind: 'logs-unavailable' });
+    if (this.logsMode === 'expired') throw thrown({ kind: 'not-found' });
+    const text = this.logText.get(Number(jobId));
+    if (text === undefined) throw thrown({ kind: 'not-found' });
     return { text, truncated: false };
   }
 
   private writeGuard(): void {
-    if (this.can('actions', 'write') !== 'yes') throw { kind: 'forbidden', needs: 'write' } satisfies GhError;
+    if (this.can('actions', 'write') !== 'yes') throw thrown({ kind: 'forbidden', needs: 'write' });
   }
-  async rerunFailed(runId: number, repo: string): Promise<void> {
-    this.writes.push({ op: 'rerun', runId, repo });
-    this.maybeFail(); this.writeGuard();
-    const r = this.runs.find((x) => x.id === runId);
-    if (!r) throw { kind: 'not-found' } satisfies GhError;
-    r.status = 'queued'; r.conclusion = null; r.run_attempt = Number(r.run_attempt ?? 1) + 1; this.touch();
-  }
-  async cancel(runId: number, repo: string): Promise<void> {
-    this.writes.push({ op: 'cancel', runId, repo });
-    this.maybeFail(); this.writeGuard();
-    const r = this.runs.find((x) => x.id === runId);
-    if (!r) throw { kind: 'not-found' } satisfies GhError;
-    r.status = 'completed'; r.conclusion = 'cancelled'; this.touch();
+  /** The write members, only while a scenario enabled them (the real writes module is optional and may be missing). */
+  writesPort(): GitHubWrites | undefined {
+    if (!this.writesOn) return undefined;
+    return {
+      rerunFailed: async (runId, repo) => {
+        this.writes.push({ op: 'rerun', runId, repo });
+        this.maybeFail(); this.writeGuard();
+        const r = this.runs.find((x) => x.id === runId);
+        if (!r) throw thrown({ kind: 'not-found' });
+        r.status = 'queued'; r.conclusion = null; r.run_attempt = Number(r.run_attempt ?? 1) + 1; this.touch();
+      },
+      cancel: async (runId, repo) => {
+        this.writes.push({ op: 'cancel', runId, repo });
+        this.maybeFail(); this.writeGuard();
+        const r = this.runs.find((x) => x.id === runId);
+        if (!r) throw thrown({ kind: 'not-found' });
+        r.status = 'completed'; r.conclusion = 'cancelled'; this.touch();
+      },
+    };
   }
 
   /* ---------- harness control ---------- */
@@ -175,7 +192,8 @@ export class FakeGitHub implements GitHubPort {
     if (Array.isArray(cmd.privateRepos)) this.privateRepos = new Set(cmd.privateRepos.map(String));
     if (Array.isArray(cmd.missingRepos)) this.missingRepos = new Set(cmd.missingRepos.map(String));
     if (typeof cmd.finish === 'number') this.finishRun(cmd.finish, typeof cmd.conclusion === 'string' ? cmd.conclusion : 'success');
+    if (typeof cmd.writes === 'boolean') this.writesOn = cmd.writes;
     if (cmd.resetCalls) { this.calls.length = 0; this.writes.length = 0; }
-    return { calls: this.calls.length, writes: this.writes, runs: this.runs.length, auth: this.conn.auth, remaining: this.conn.rate.remaining, logs: this.logsMode };
+    return { calls: this.calls.length, writes: this.writes, runs: this.runs.length, auth: this.conn.auth, remaining: this.conn.rate.remaining, logs: this.logsMode, writesEnabled: this.writesOn };
   }
 }

@@ -391,7 +391,7 @@ scenario({
   doesNotProve: ['Real GitHub, the real client (connectors), the panel UI (checked in a browser by hand), or Windows (claude/tracker-pc-checks.md CI1 to CI4).'],
   async run(h, t) {
     const call = (m, p, b, a) => h.call(m, p, b, a);
-    await h.github({ scenario: 'mixed', logs: 'refused', fail: null, resetCalls: true, connection: { auth: 'pat', permissions: { actions: 'write' }, rate: { limit: 5000, remaining: 5000, resetAt: new Date(Date.now() + 3600000).toISOString() } } });
+    await h.github({ scenario: 'mixed', logs: 'refused', fail: null, resetCalls: true, writes: true, connection: { auth: 'pat', permissions: { actions: 'write' }, rate: { limit: 5000, remaining: 5000, resetAt: new Date(Date.now() + 3600000).toISOString() } } });
     t.eq('the token cannot read CI state', (await call('GET', '/api/ci/state', undefined, 'token')).status, 403);
     t.eq('the token cannot re-run', (await call('POST', '/api/ci/runs/9004/rerun-failed', undefined, 'token')).status, 403);
     t.eq('no write reached GitHub from the token', (await h.github({})).writes.length, 0);

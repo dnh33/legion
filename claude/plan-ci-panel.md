@@ -29,39 +29,30 @@ The panel's run summary uses the same shape as `github_ci_wait`: `{status, concl
 conclusion}]}`, from one parser of GitHub's run/jobs JSON (`src/core/ci/parse.ts`) that the connectors session will
 import too.
 
-## Interface (connectors design rev 6, section 4.3; do not rename without the connectors session)
+## Interface (landed: `src/core/connectors/github/client.ts`; the CI module types itself from it)
 ```ts
-interface Connection { auth:'github-app'|'pat'|'anonymous'; login?:string; expiresAt?:string;
-  permissions?:Record<string,'read'|'write'>; scopes?:string[]; rate:{limit:number;remaining:number;resetAt:string} }
-connection(): Promise<Connection>
-can(area:'contents'|'issues'|'pull_requests'|'actions', level:'read'|'write'): 'yes'|'no'|'unknown'
-request(path, init?): Promise<GhResponse>   // api.github.com only, typed errors
-logs(jobId): Promise<{text:string; truncated:boolean}>   // never a URL; refuses while the host list is empty
-// writes.ts (import only from admin routes and the gateway's carded handlers; a source test enforces it)
-rerunFailed(runId): Promise<void>; cancel(runId): Promise<void>
+class GitHubClient {            // the core's single instance: getGitHubClient(): GitHubClient | undefined
+  connection(): Promise<Connection>           // NOT free: signed in it reads /user and /user/installations
+  can(area, level): 'yes'|'no'|'unknown'      // 'unknown' until connection() ran, or while no permission map
+  request(path, init?: GhInit): Promise<GhResponse>   // GhInit = { method?, body?, ifNoneMatch? }; api.github.com only
+  logs(jobId, repo): Promise<{text, truncated}>       // repo is "owner/name"; never a URL; fails closed (logs-unavailable)
+}
+// request() refuses paths that start with "//" or contain a backslash, whitespace or "#"; errors are thrown as class GhError
+// { kind, needs?, resetAt?, retryable? }, never with a URL, header or body inside.
 ```
-**Pinned before the fake is written (proposed to the connectors session for acceptance):**
-```ts
-interface GhResponse { status:number; json:unknown; etag?:string; notModified?:boolean;   // 304 when If-None-Match matched
-  rate:{limit:number;remaining:number;resetAt:string} }
-type GhError =
-  | { kind:'not-connected' }                       // private repo, no token
-  | { kind:'auth-expired' }                        // 401 after one refresh attempt
-  | { kind:'forbidden'; needs?:'write'|'read' }    // 403 missing permission
-  | { kind:'rate-limited'; resetAt:string }        // 403/429 with rate headers
-  | { kind:'not-found' }                           // 404 (or no access, GitHub hides it)
-  | { kind:'logs-unavailable' }                    // storage-host list empty, or redirect refused
-  | { kind:'network'; retryable:boolean }
-```
-`request(path, init)` passes `If-None-Match` through and returns `notModified` (GitHub: a 304 does not count against
-the primary rate limit). Errors are thrown as `GhError`-shaped objects, never with a URL, header or body inside.
-
-Release B defines a port type `GitHubPort` in `src/core/ci/port.ts` with exactly these members, a fake
-`src/core/ci/fake-github.ts` (tests and harness only), and the production wiring that resolves the real client when
-it exists and otherwise reports `unavailable` (the panel then says GitHub support arrives with Connectors).
+- `GitHubPort = Pick<GitHubClient, 'connection'|'can'|'request'|'logs'>` (`src/core/ci/port.ts`). The module needs only these four.
+- **Writes are optional and separate.** `GitHubWrites { rerunFailed(runId, repo), cancel(runId, repo) }` comes from connectors `writes.ts`
+  (slice 2), loaded lazily through the literal `import('../connectors/github/writes.js')` (the tripwire needs a literal specifier). The CI
+  module calls them from its two admin routes only (a source test enforces it). A missing module means: `canWrite` is `no`, the panel shows
+  "Connect with write access", and Re-run and Cancel answer 403 with a plain line, never a 500.
+- Wiring (`src/core/ci/wiring.ts`): the client is imported statically and asked via `getGitHubClient()` on every use (token refresh stays
+  on one instance); `undefined` or an object without the four read members means unavailable. Writes resolve lazily as above.
+- `src/core/ci/fake-github.ts` (tests and the harness only) has the real shapes (`ifNoneMatch`, path refusals, thrown `GhError`, `can()` is
+  `unknown` without permissions) and NO write members unless a scenario enables them (`writes: true`). `test/ci-contract.test.ts` runs the
+  module against the real `GitHubClient` with its fetch injected, so the swap itself is tested.
 
 ## Core (`src/core/ci/`)
-- `index.ts` `createCiModule(deps, { github })`, routes, **all admin-only** (default-deny gate, none in CLIENT_ROUTES):
+- `index.ts` `createCiModule(deps, { github, writes })`, routes, **all admin-only** (default-deny gate, none in CLIENT_ROUTES):
   `GET /api/ci/state` (repo, connection summary without secrets, can-write), `GET /api/ci/runs?branch=`,
   `GET /api/ci/runs/:id/jobs`, `GET /api/ci/jobs/:id/log`, `POST /api/ci/runs/:id/rerun-failed`,
   `POST /api/ci/runs/:id/cancel`. Ids validated as positive integers.
@@ -77,7 +68,8 @@ it exists and otherwise reports `unavailable` (the panel then says GitHub suppor
     resets. A 304 still counts against the anonymous limit (GitHub REST best practices: the 304 saving applies only
     to requests "correctly authorized with an Authorization header"), so ETags save nothing here. The panel says
     "Connect GitHub for live updates".
-  - Any 403/429 with rate headers: pause until `resetAt`.
+  - Any 403/429 with rate headers: pause until `resetAt`. The pause is the account's: it survives a repo switch and blocks even `connection()`.
+  - `connection()` is cached 30 s and counted as two requests when signed in (it reads /user and /user/installations).
   One shared cache; SSE event `ci.updated` to the UI.
 - **Log text** is outside content: shown as plain text, capped, never rendered as HTML; a secret-shaped value is
   masked before display.

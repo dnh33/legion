@@ -6,7 +6,8 @@ import { after, describe, it } from 'node:test';
 import { isClientRoute } from '../src/core/admin.js';
 import { createCiModule } from '../src/core/ci/index.js';
 import { FakeGitHub } from '../src/core/ci/fake-github.js';
-import { createGitHubResolver, isGitHubPort, RETRY_IMPORT_MS } from '../src/core/ci/wiring.js';
+import { createGitHubClient, resetGitHubClientForTests } from '../src/core/connectors/github/client.js';
+import { createWritesResolver, isGitHubPort, isGitHubWrites, resolveGitHub, RETRY_IMPORT_MS } from '../src/core/ci/wiring.js';
 import type { ModuleDeps } from '../src/core/modules.js';
 import type { LegionEvent } from '../src/shared/types.js';
 import { asClient, AUTH, makeFakes, start } from './helpers-c.js';
@@ -15,14 +16,15 @@ import { tempDir } from './tmp-cleanup.js';
 const closers: Array<() => Promise<void>> = [];
 after(async () => { for (const c of closers) await c(); });
 
-async function mount(o: { github?: FakeGitHub | null } = {}) {
+async function mount(o: { github?: FakeGitHub | null; writes?: boolean } = {}) {
   const f = makeFakes();
   const dataDir = tempDir('legion-ci-data-');
   const gh = o.github === null ? undefined : (o.github ?? new FakeGitHub());
   if (gh && !o.github) { gh.setConnection({ auth: 'pat', login: 'octo', permissions: { actions: 'write' }, rate: { limit: 5000, remaining: 5000, resetAt: new Date(Date.now() + 3_600_000).toISOString() } }); gh.scenario('mixed'); }
+  if (gh) gh.writesOn = o.writes !== false;
   const events: LegionEvent[] = [];
   f.bus.on((e) => events.push(e));
-  const ci = createCiModule({ config: f.ctx.config, bus: f.bus, dataDir } as unknown as ModuleDeps, { github: gh, schedule: () => () => undefined });
+  const ci = createCiModule({ config: f.ctx.config, bus: f.bus, dataDir } as unknown as ModuleDeps, { github: gh, writes: gh ? () => gh.writesPort() : undefined, schedule: () => () => undefined });
   const { base, close } = await start({ ...f.ctx, modules: [ci] });
   closers.push(close, async () => ci.dispose?.());
   const call = async (method: string, path: string, body?: unknown, headers: Record<string, string> = AUTH) => {
@@ -153,6 +155,18 @@ describe('Re-run and Cancel', () => {
     assert.equal((await m.call('POST', '/api/ci/runs/9004/rerun-failed')).status, 403);
     assert.deepEqual(m.gh!.writes, []);
   });
+  it('with no writes module: canWrite is false even with write permission, and both routes refuse plainly (403, not a 500)', async () => {
+    const m = await mount({ writes: false });
+    await m.call('PUT', '/api/ci/repo', { repo: 'dnh33/legion' });
+    const state = await m.call('GET', '/api/ci/state');
+    assert.equal(m.gh!.can('actions', 'write'), 'yes', 'the permission is there');
+    assert.equal(state.json.canWrite, 'no', 'but without the module the panel stays read-only');
+    const a = await m.call('POST', '/api/ci/runs/9004/rerun-failed');
+    const b = await m.call('POST', '/api/ci/runs/9005/cancel');
+    assert.deepEqual([a.status, b.status], [403, 403]);
+    assert.match(a.json.error, /write access/);
+    assert.deepEqual(m.gh!.writes, []);
+  });
   it('a GitHub refusal or a missing run becomes a plain message with no GitHub detail', async () => {
     const m = await mount();
     await m.call('PUT', '/api/ci/repo', { repo: 'dnh33/legion' });
@@ -184,27 +198,40 @@ describe('no GitHub client in the build', () => {
     assert.match(runs.json.error, /Connectors/);
     assert.equal((await m.call('POST', '/api/ci/watch', { mode: 'chip' })).status, 200);
   });
-  it('the resolver asks for the client on every use, so one created after boot is picked up; a missing module is silent, a broken one is logged once by kind', async () => {
+  it('the client resolver asks for the single core instance on every use, and accepts it only with the four read members', () => {
+    resetGitHubClientForTests();
+    assert.equal(resolveGitHub(), undefined, 'before core start');
+    const tokens = { get: async () => undefined, set: async () => undefined, remove: async () => undefined, status: async () => 'empty' };
+    const real = createGitHubClient({ tokens: tokens as never, fetchFn: (async () => { throw new Error('no network in tests'); }) as never });
+    assert.equal(resolveGitHub(), real, 'picked up after boot, without a restart');
+    assert.equal(isGitHubPort(real), true, 'the real client is accepted: it has no write members and needs none');
+    assert.equal(resolveGitHub(() => ({ connection() {} })), undefined, 'not a port');
+    assert.equal(resolveGitHub(() => { throw new Error('x'); }), undefined);
+    resetGitHubClientForTests();
+    assert.equal(resolveGitHub(), undefined);
+  });
+  it('the writes resolver picks up a module that appears later; a missing module is silent, a broken one is logged once by kind', async () => {
     const logs: string[] = [];
-    let client: unknown = undefined as unknown;
+    let mod: unknown = {};
     let t = 0;
-    const r = createGitHubResolver((m) => logs.push(m), async () => ({ getGitHubClient: () => client }), () => t);
+    const r = createWritesResolver((m) => logs.push(m), async () => mod, () => t);
     await r.settled();
-    assert.equal(r.get(), undefined, 'module present, no client yet: unavailable');
-    client = new FakeGitHub();
-    assert.equal(r.get(), client, 'picked up without a restart');
-    client = undefined;
-    assert.equal(r.get(), undefined, 'and dropped again when the core has none');
-    client = { connection() {} };
-    assert.equal(r.get(), undefined, 'not a GitHubPort');
+    assert.equal(r.get(), undefined, 'module without rerunFailed and cancel: no writes');
+    const writes = { rerunFailed: async () => undefined, cancel: async () => undefined };
+    mod = writes;
+    // the module object is read as loaded: a second resolver sees the real thing
+    const r2 = createWritesResolver((m) => logs.push(m), async () => writes, () => t);
+    await r2.settled();
+    assert.equal(r2.get(), writes);
+    assert.equal(isGitHubWrites({ rerunFailed() {} }), false);
 
-    const missing = createGitHubResolver((m) => logs.push(m), async () => { throw Object.assign(new Error('Cannot find module /secret/path'), { code: 'ERR_MODULE_NOT_FOUND' }); }, () => t);
+    const missing = createWritesResolver((m) => logs.push(m), async () => { throw Object.assign(new Error('Cannot find module /secret/path'), { code: 'ERR_MODULE_NOT_FOUND' }); }, () => t);
     await missing.settled();
     assert.equal(missing.get(), undefined);
     assert.equal(logs.length, 0, 'module not found is normal and silent');
 
     let attempts = 0;
-    const broken = createGitHubResolver((m) => logs.push(m), async () => { attempts++; throw Object.assign(new SyntaxError('bad token in /secret/path'), { code: 'ERR_BROKEN' }); }, () => t);
+    const broken = createWritesResolver((m) => logs.push(m), async () => { attempts++; throw Object.assign(new SyntaxError('bad token in /secret/path'), { code: 'ERR_BROKEN' }); }, () => t);
     await broken.settled();
     broken.get(); t += RETRY_IMPORT_MS + 1; broken.get(); await broken.settled();
     assert.ok(attempts >= 2, 'it tries again later');
@@ -212,7 +239,12 @@ describe('no GitHub client in the build', () => {
     const line = String(logs[0]);
     assert.match(line, /ERR_BROKEN/);
     assert.ok(!/secret|path|token/.test(line), 'kind only, no message');
-    assert.equal(isGitHubPort(new FakeGitHub()), true);
-    assert.equal(isGitHubPort({ connection() {} }), false);
+  });
+  it('the default writes module is absent today: no writes, and the real module path is a literal import', async () => {
+    const r = createWritesResolver();
+    await r.settled();
+    assert.equal(r.get(), undefined);
+    const src = readFileSync(join(process.cwd(), 'src', 'core', 'ci', 'wiring.ts'), 'utf8');
+    assert.ok(src.includes("import('../connectors/github/writes.js')"), 'a literal specifier, as the tripwire needs');
   });
 });

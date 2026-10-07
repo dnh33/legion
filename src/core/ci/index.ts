@@ -11,7 +11,7 @@ import { join } from 'node:path';
 import { HttpError } from '../server.js';
 import type { CoreModule, ModuleDeps } from '../modules.js';
 import { asGhError } from './port.js';
-import type { GitHubPort } from './port.js';
+import type { GitHubPort, GitHubWrites } from './port.js';
 import { CiPoller } from './poller.js';
 import type { PollerOptions, ResolvedRepo } from './poller.js';
 import { parseRepoText, readRepoInfo, repoKey, validBranch } from './repo.js';
@@ -26,6 +26,8 @@ export interface CiOptions {
   github?: GitHubPort | undefined | (() => GitHubPort | undefined);
   /** For resolving a project's folder. */
   projects?: { get(id: string): { folder: string } | undefined };
+  /** The write members (connectors writes.ts), or a getter asked on every use. Absent: the panel is read-only and the two write routes refuse plainly. */
+  writes?: GitHubWrites | undefined | (() => GitHubWrites | undefined);
   log?: (m: string) => void;
   /** Tests only. */
   now?: () => number;
@@ -46,6 +48,7 @@ const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 
 
 export function createCiModule(deps: ModuleDeps, opts: CiOptions = {}): CiModule {
   const log = opts.log ?? (() => undefined);
+  const getWrites = (): GitHubWrites | undefined => (typeof opts.writes === 'function' ? opts.writes() : opts.writes);
   const getGithub = (): GitHubPort | undefined => (typeof opts.github === 'function' ? opts.github() : opts.github);
   const file = join(deps.dataDir, 'ci', 'repo.json');
   let manual: RepoRef | null = null;
@@ -69,7 +72,7 @@ export function createCiModule(deps: ModuleDeps, opts: CiOptions = {}): CiModule
   };
 
   const poller = new CiPoller({
-    github: getGithub, resolveRepo, log,
+    github: getGithub, writes: getWrites, resolveRepo, log,
     emit: (summary) => deps.bus.emit({ type: 'ci.updated', summary }),
     ...(opts.now ? { now: opts.now } : {}), ...(opts.schedule ? { schedule: opts.schedule } : {}),
   });
@@ -79,11 +82,12 @@ export function createCiModule(deps: ModuleDeps, opts: CiOptions = {}): CiModule
   /** Owner clicks only: the single place the write members are called. */
   const write = async (op: 'rerun' | 'cancel', runId: number): Promise<{ ok: true }> => {
     const gh = need();
-    if (gh.can('actions', 'write') !== 'yes') throw new HttpError(403, 'Connect GitHub with write access to do this.');
+    const w = getWrites();
+    if (!w || gh.can('actions', 'write') !== 'yes') throw new HttpError(403, 'Connect GitHub with write access to do this.');
     const repo = poller.repoText();
     if (!repo) throw new HttpError(409, 'No repository is set.');
     try {
-      if (op === 'rerun') await gh.rerunFailed(runId, repo); else await gh.cancel(runId, repo);
+      if (op === 'rerun') await w.rerunFailed(runId, repo); else await w.cancel(runId, repo);
     } catch (e) {
       const err = asGhError(e);
       log(`ci: ${op} failed (${err.kind})`);

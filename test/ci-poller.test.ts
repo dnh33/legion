@@ -296,3 +296,38 @@ describe('repo switches and the account budget', () => {
     assert.ok(r.gh.calls.length <= CONNECTED_HOURLY_CAP, `${r.gh.calls.length} requests in an hour`);
   });
 });
+
+describe('connection() is a request too', () => {
+  it('a refused connection() is shown as the problem, pauses everything until its reset, and is not asked again meanwhile', async () => {
+    const r = rig({ auth: 'pat' });
+    const resetAt = new Date(T0 + 900_000).toISOString();
+    r.gh.connectionFail = { kind: 'rate-limited', resetAt };
+    r.poller.heartbeat('panel');
+    await r.poller.refresh('open');
+    assert.equal((await r.poller.runsView()).problem?.kind, 'rate-limited');
+    assert.equal(r.gh.calls.length, 0, 'no list request without a connection');
+    const asked = r.gh.connectionCalls;
+    r.gh.connectionFail = null;
+    r.advance(40_000);
+    await r.poller.refresh('manual');
+    await r.poller.refresh('write');
+    assert.equal(r.gh.connectionCalls, asked, 'paused: not even connection() is asked');
+    assert.equal(r.gh.calls.length, 0);
+    r.advance(900_000);
+    await r.poller.refresh('manual');
+    assert.ok(r.gh.calls.length > 0, 'resumes after the reset');
+  });
+  it('a refused connection() that is not a rate limit is still shown as a problem, not swallowed', async () => {
+    const r = rig({ auth: 'pat' });
+    r.gh.connectionFail = { kind: 'auth-expired' };
+    const v = await r.poller.runsView();
+    assert.equal(v.problem?.kind, 'auth-expired');
+    assert.equal(r.gh.calls.length, 0);
+    assert.equal((await r.poller.stateView()).problem?.kind, 'auth-expired');
+  });
+  it('a signed-in connection() is counted as two requests in the hourly budget', async () => {
+    const r = rig({ auth: 'pat' });
+    await r.poller.refresh('open');
+    assert.ok(r.poller.requestsInHour() >= 2 + r.gh.calls.length, `${r.poller.requestsInHour()} counted for ${r.gh.calls.length} lists`);
+  });
+});

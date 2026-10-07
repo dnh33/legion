@@ -138,7 +138,9 @@ export function connectGithub(): void { closeCi(); openSettings('connections'); 
 
 /* ---------- watching ---------- */
 async function heartbeat(): Promise<void> {
-  if (document.hidden || st.absent || (st.state && !st.state.available)) return;
+  if (document.hidden || st.absent) return;
+  // no GitHub client yet: ask again each beat, so one that appears later is picked up without a restart
+  if (st.state && !st.state.available) { await loadState(); if (!st.state?.available) return; }
   try {
     await request('POST', '/api/ci/watch', { mode: st.panelOpen ? 'panel' : 'chip', ...(projectParam() ? { projectId: projectParam() } : {}) });
     if (st.offline) set({ offline: false });

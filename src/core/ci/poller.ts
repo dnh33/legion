@@ -12,7 +12,7 @@
  */
 import type { CiCounts, CiJob, CiJobsView, CiLogView, CiProblem, CiRun, CiRunsView, CiStateView, CiUpdateSummary } from '../../shared/ci.js';
 import { CI_WATCH_TTL_MS } from '../../shared/ci.js';
-import type { Connection, GitHubPort } from './port.js';
+import type { Connection, GitHubPort, GitHubWrites } from './port.js';
 import { asGhError } from './port.js';
 import { countsFor, isRunning, parseJobs, parseRuns, prepareLog, summarizeRun } from './parse.js';
 import type { RepoRef } from './repo.js';
@@ -45,6 +45,8 @@ export interface ResolvedRepo { repo: RepoRef | null; branch: string | null; sou
 export interface PollerOptions {
   /** The client, or a getter that is asked on every use (the connectors client may appear after boot). */
   github: GitHubPort | undefined | (() => GitHubPort | undefined);
+  /** The write members (connectors writes.ts), or a getter asked on every use. Absent or undefined: nothing can be re-run or cancelled. */
+  writes?: GitHubWrites | undefined | (() => GitHubWrites | undefined);
   resolveRepo(projectId?: string): ResolvedRepo;
   emit(s: CiUpdateSummary): void;
   now?: () => number;
@@ -79,6 +81,7 @@ export class CiPoller {
   private inflight: Promise<void> | null = null;
   private lastResolved: ResolvedRepo = { repo: null, branch: null, source: null };
 
+  private hasWrites(): boolean { const w = this.o.writes; return !!(typeof w === 'function' ? w() : w); }
   private get gh(): GitHubPort | undefined { const g = this.o.github; return typeof g === 'function' ? g() : g; }
   private lastSwitchAt = -Infinity;
   private allowSwitch = false;
@@ -131,11 +134,23 @@ export class CiPoller {
   }
   private anyRunning(): boolean { return this.relevant(this.allRuns(), this.lastResolved.branch).some((r) => isRunning(r.status)); }
 
-  private async connection(force = false): Promise<Connection | null> {
+  /** What the last failed `connection()` said (null while it works). The real client's connection() is NOT free: signed in it reads /user and /user/installations. */
+  private connProblem: CiProblem | null = null;
+  private async connection(): Promise<Connection | null> {
     const gh = this.gh;
     if (!gh) return null;
-    if (!force && this.conn && this.now() - this.connAt < CONN_TTL_MS) return this.conn;
-    try { this.conn = await gh.connection(); this.connAt = this.now(); } catch { /* keep the old one */ }
+    if (this.conn && this.now() - this.connAt < CONN_TTL_MS) return this.conn;
+    try {
+      this.conn = await gh.connection(); this.connAt = this.now(); this.connProblem = null;
+      // two requests that count against a signed-in account's limit (anonymous /rate_limit does not)
+      if (this.conn.auth !== 'anonymous') { this.spent(); this.spent(); }
+    } catch (e) {
+      this.spent();
+      const err = asGhError(e);
+      this.connProblem = err.kind === 'rate-limited' ? { kind: 'rate-limited', resetAt: err.resetAt } : err.kind === 'logs-unavailable' || err.kind === 'network' ? { kind: 'network' } : err.kind === 'forbidden' ? { kind: 'forbidden' } : { kind: err.kind };
+      if (err.kind === 'rate-limited') { this.pausedUntil = Math.max(this.pausedUntil, Date.parse(err.resetAt) || this.now() + 60_000); this.pauseKind = 'rate-limited'; }
+      // keep the last good connection (and its rate) if there was one
+    }
     return this.conn;
   }
 
@@ -193,8 +208,10 @@ export class CiPoller {
   private async doRefresh(reason: RefreshReason): Promise<void> {
     const gh = this.gh;
     if (!gh) return;
-    const c = await this.connection(reason !== 'auto');
-    if (!c) return;
+    // A pause belongs to the account: no request of any kind, not even connection(), until it ends.
+    if (this.pausedUntil > this.now()) { this.repoNow(); this.problem = { kind: this.pauseKind, resetAt: new Date(this.pausedUntil).toISOString() }; this.publish(); return; }
+    const c = await this.connection();
+    if (!c) { this.repoNow(); this.problem = this.connProblem ?? { kind: 'network' }; this.publish(); return; }
     const r = this.repoNow();
     if (!r.repo) { this.publish(); return; }
     if (reason !== 'auto' && reason !== 'write' && this.now() - this.lastFetchAt < DEBOUNCE_MS) return;
@@ -207,7 +224,7 @@ export class CiPoller {
       if (again) { problem = again; break; }
       try {
         const etag = c.auth !== 'anonymous' ? this.etags.get(path) : undefined;
-        const resp = await gh.request(path, etag ? { headers: { 'If-None-Match': etag } } : {});
+        const resp = await gh.request(path, etag ? { ifNoneMatch: etag } : {});
         this.spent();
         this.conn = { ...c, rate: resp.rate }; c.rate = resp.rate;
         if (resp.notModified) continue;
@@ -239,7 +256,9 @@ export class CiPoller {
     this.o.emit(this.summary(runs));
   }
 
-  private canWrite(): 'yes' | 'no' | 'unknown' { const g = this.gh; return g ? g.can('actions', 'write') : 'no'; }
+  private canWrite(): 'yes' | 'no' | 'unknown' { const g = this.gh;
+    // Write needs both the permission AND the writes module (connectors slice 2): without it the panel stays read-only
+    return g && this.hasWrites() ? g.can('actions', 'write') : 'no'; }
 
   private summary(runs = this.allRuns()): CiUpdateSummary {
     const r = this.lastResolved;

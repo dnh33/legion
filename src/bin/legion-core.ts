@@ -26,7 +26,7 @@ import { createCommsModule } from '../core/comms/index.js';
 import { createHouseModule } from '../core/house/index.js';
 import { createArmoryModule } from '../core/armory/index.js';
 import { createCiModule } from '../core/ci/index.js';
-import { createGitHubResolver } from '../core/ci/wiring.js';
+import { createWritesResolver, resolveGitHub } from '../core/ci/wiring.js';
 import { createKnowledgeModule } from '../core/kg/index.js';
 import { createUpdaterModule } from '../core/updater/index.js';
 import { createProjectsModule, ProjectStore } from '../core/projects/index.js';
@@ -107,7 +107,7 @@ async function main() {
   const board = config.features.projectBoard ? new BoardStore(join(dataDir(), 'board')) : undefined;
   const boardModules = board ? [createBoardModule(moduleDeps, { projects, board, notes: graphNotes(() => kg.graph()) })] : [];
   // CI panel: runs of the current repo's GitHub Actions. The GitHub client comes from the connectors work; without it the panel says so.
-  const ci = createCiModule(moduleDeps, { github: createGitHubResolver(log).get, projects, log });
+  const ci = createCiModule(moduleDeps, { github: () => resolveGitHub(), writes: createWritesResolver(log).get, projects, log });
   const modules = [kg, house, armory, createCommsModule(moduleDeps, { projects }), createProjectsModule(moduleDeps, { projects, nativeSecret }), ...boardModules, bsv, blender, ...providersModules, updater, createBrowserModule(moduleDeps, { nativeSecret, log }), ci];
   engine.setModules(modules);
   const server = createServer({
