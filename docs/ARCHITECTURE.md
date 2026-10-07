@@ -69,7 +69,8 @@ JSON over `127.0.0.1:<port>` (default 4747). Implemented in `src/core/server.ts`
 | Method | Path | Body | Response |
 |---|---|---|---|
 | GET | `/health` | none | `{ok, version, pid, admin}` (no auth; `admin` says whether this core holds an admin secret, never the secret). With `?nonce=<16-128 hex>` a core that holds the secret adds `proof`, HMAC-SHA256(secret, nonce) as hex: the app's challenge to tell its own core from anything else on the port. |
-| GET | `/api/state` | none | `StateSnapshot` |
+| GET | `/api/state` | `?archived=1`, `?slim=1` | `StateSnapshot`. Plain: the newest 200 tasks. `slim=1` (what the app window sends): every queued or running task, per visible agent the newest 14 by creation and by update, and the newest 12 overall, so the snapshot stays small however long the history is |
+| GET | `/api/tasks` | `?agentId=&projectId=&q=&cursor=&limit=&archived=1` | `{tasks, nextCursor}`. Admin only. One page of the history, newest first (default 50, at most 100), without each task's final text. `q` matches the start of title words and agent names (all words must match). `cursor` is opaque (updatedAt and id); a bad one is a 400. Tasks of hidden agents are in no page or search, and a hidden agent id answers like one that never existed. Backed by `src/core/task-index.ts` (an in-memory index the Store updates on every create, update and delete; not persisted, rebuilt at startup) |
 | GET | `/api/config` | none | config with secrets redacted |
 | GET | `/api/doctor` | none | `DoctorCheck[]` |
 | GET | `/api/catalog?refresh=1` | none | `Catalog` (slash commands and models) |
@@ -80,6 +81,7 @@ JSON over `127.0.0.1:<port>` (default 4747). Implemented in `src/core/server.ts`
 | DELETE | `/api/agents/:id` | none | `{ok:true}`. The `zealot` agent is refused with 400. |
 | POST | `/api/tasks` | `{agentId, prompt, model?, continueTaskId?}` | `Task` (201) |
 | GET | `/api/tasks/:id` | none | `{task, messages}` |
+| GET | `/api/tasks/:id/messages` | `?before=&from=&limit=&q=` | `{task, messages, start, end, total}` (oldest first within the window; positions are the stored order, which only grows at the end, so `before` is a stable cursor). Default 100 rows, at most 300; a tool call and its result are never split (the window grows by a few rows to keep a pair together). `from=N` opens a window at position N (a search hit). `q=` returns `{hits:[{index,id,role,snippet}], total}` instead: case-insensitive substring over the whole thread, newest first, at most 100. Reachable with the bearer token like `GET /api/tasks/:id`, and withheld the same way (a bearer-only caller gets the withheld view of a connector task, and search runs on that view). A hidden agent's task is a 404 |
 | GET | `/api/tasks/:id/wait?timeoutMs=N` | none | `Task`. Long-poll; N is at most 600000, default 120000. |
 | POST | `/api/tasks/:id/cancel` | none | `{ok}` |
 | GET | `/api/vms` | none | `VmRecord[]` |

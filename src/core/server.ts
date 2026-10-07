@@ -4,7 +4,7 @@ import type { IncomingMessage, Server, ServerResponse } from 'node:http';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { redactConfig, VERSION } from '../shared/config.js';
 import type {
-  AgentProfile, ApprovalMode, DoctorCheck, LegionConfig, LegionEvent, Catalog, ModelChoice, StateSnapshot, Task, VmSize,
+  AgentProfile, ApprovalMode, ChatMessage, DoctorCheck, LegionConfig, LegionEvent, Catalog, ModelChoice, StateSnapshot, Task, VmSize,
 } from '../shared/types.js';
 import { summariseUsage } from '../shared/usage-summary.js';
 import { nowIso, slugify, uniqueAgentId } from '../shared/util.js';
@@ -16,6 +16,7 @@ import { EngineError } from './engine.js';
 import type { Engine } from './engine.js';
 import { buildLegionMcpServer } from './mcp-tools.js';
 import type { Store } from './store.js';
+import { BadCursorError, PAGE_DEFAULT } from './task-index.js';
 import { SettingsError } from './settings.js';
 import type { SettingsService } from './settings.js';
 import { VmError } from './vm-manager.js';
@@ -98,6 +99,9 @@ function readBody(req: IncomingMessage): Promise<unknown> {
 }
 
 /** A task as listed in /api/state: everything but the final assistant text. */
+/** What the app's /api/state?slim=1 ships besides running tasks: per agent the newest N (tabs are the newest 12 by creation) and the newest few overall (Recent tasks shows 8). */
+const STATE_PER_AGENT = 14;
+const STATE_RECENT = 12;
 const withoutResult = (t: Task): Task => { if (t.result === undefined) return t; const { result: _result, ...rest } = t; return rest; };
 
 const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v);
@@ -211,7 +215,10 @@ export function createServer(ctx: CoreContext): Server {
     version: VERSION,
     agents: ctx.store.listAgents().filter(visible),
     // the list leaves out each task's final text (up to 2 KB x 200): GET /api/tasks/:id has it, and task.updated events carry the whole task
-    tasks: ctx.store.listTasks(200, undefined, ['1', 'true'].includes(url.searchParams.get('archived') ?? '')).filter(taskShown).map(withoutResult),
+    // `slim=1` (the app window): the tasks a window needs at once, so the snapshot stays small however long the history is; the history list pages through GET /api/tasks. Without it: the newest 200, as before.
+    tasks: (['1', 'true'].includes(url.searchParams.get('slim') ?? '')
+      ? ctx.store.snapshotTasks({ agentIds: ctx.store.listAgents().filter(visible).map((a) => a.id), perAgent: STATE_PER_AGENT, recent: STATE_RECENT, includeArchived: ['1', 'true'].includes(url.searchParams.get('archived') ?? ''), agentOk: (id) => agentIdVisible(ctx, id) })
+      : ctx.store.listTasks(200, undefined, ['1', 'true'].includes(url.searchParams.get('archived') ?? '')).filter(taskShown)).map(withoutResult),
     vms: ctx.store.listVms().filter((v) => agentIdVisible(ctx, v.agentId)),
     approvals: ctx.approvals.pending().filter((a) => agentIdVisible(ctx, a.agentId)),
     boatConfigured: ctx.boatConfigured(),
@@ -221,6 +228,30 @@ export function createServer(ctx: CoreContext): Server {
     // live progress of running runs, so a window opened mid-run shows the turn, tool and checklist at once (hidden agents' runs left out)
     progress: Object.fromEntries(Object.entries(ctx.engine.progressSnapshot?.() ?? {}).filter(([id]) => { const t = ctx.store.getTask(id); return !!t && taskShown(t); })),
   }));
+  // The history list: one page of tasks, newest first, optionally filtered. Admin-only by default-deny (not in admin.ts CLIENT_ROUTES). Visibility is applied to
+  // every entry inside the index walk, so a hidden agent's tasks are in no page and no search, and `agentId=<hidden>` answers like an id that never existed.
+  route('GET', '/api/tasks', ({ url }) => {
+    const sp = url.searchParams;
+    const agentNames = new Map<string, string>();
+    for (const a of ctx.store.listAgents()) if (visible(a)) agentNames.set(a.id, a.name);
+    const lim = sp.get('limit');
+    try {
+      const page = ctx.store.pageTasks({
+        limit: lim === null || lim === '' ? PAGE_DEFAULT : Number(lim),
+        ...(sp.get('cursor') ? { cursor: sp.get('cursor')! } : {}),
+        ...(sp.get('agentId') ? { agentId: sp.get('agentId')! } : {}),
+        ...(sp.get('projectId') ? { projectId: sp.get('projectId')! } : {}),
+        includeArchived: ['1', 'true'].includes(sp.get('archived') ?? ''),
+        q: (sp.get('q') ?? '').slice(0, 200),
+        agentNames,
+        agentOk: (id) => agentIdVisible(ctx, id),
+      });
+      return { tasks: page.tasks.filter(taskShown).map(withoutResult), nextCursor: page.nextCursor };
+    } catch (e) {
+      if (e instanceof BadCursorError) throw new HttpError(400, 'Invalid cursor');
+      throw e;
+    }
+  });
   route('GET', '/api/config', () => redactConfig(ctx.config));
   route('GET', '/api/doctor', () => ctx.doctor());
   // Claude usage for the title-bar panel: summed from stored tasks (archived included), only those the caller may see.
@@ -331,6 +362,18 @@ export function createServer(ctx: CoreContext): Server {
     const msgs = ctx.store.listMessages(task.id);
     // a bearer-only caller gets no connector data: tool rows, assistant text and the final result of a task that used connectors are withheld
     return isAdminReq(req) ? { task, messages: msgs } : { task: withholdTask(task), messages: msgs.map((m) => withholdMessage(m, task)) };
+  });
+  // One window of a thread (newest first by default), or a search of it. Reachable with the bearer token like GET /api/tasks/:id, and withheld the same way:
+  // for a bearer-only caller the connector rows of a task that used connectors are withheld, and search runs on the withheld text, so it cannot be used to read them.
+  route('GET', '/api/tasks/:id/messages', ({ params, url, req }) => {
+    const task = mustTask(params[0]);
+    const admin = isAdminReq(req);
+    const view = (m: ChatMessage): ChatMessage => (admin ? m : withholdMessage(m, task));
+    const num = (k: string): number | undefined => { const v = url.searchParams.get(k); return v === null || v === '' ? undefined : Number(v); };
+    const q = url.searchParams.get('q');
+    if (q) return ctx.store.searchMessages(task.id, q, view);
+    const page = ctx.store.pageMessages(task.id, { before: num('before'), from: num('from'), limit: num('limit') });
+    return { task: admin ? task : withholdTask(task), messages: page.messages.map(view), start: page.start, end: page.end, total: page.total };
   });
   route('PATCH', '/api/tasks/:id', ({ params, body }) => {
     const cur = mustTask(params[0]);

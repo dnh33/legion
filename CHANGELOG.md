@@ -4,6 +4,11 @@ All notable changes are recorded here. The format follows [Keep a Changelog](htt
 
 ## [Unreleased]
 
+### Changed
+
+- **Long conversations open fast.** A conversation with thousands of messages used to be sent whole and drawn whole. It now opens at its newest 100 messages, loads earlier ones as you scroll up (the view stays where it was), and draws only the rows on screen. A search button in the conversation header searches the whole thread on the core and jumps to a match; "Jump to latest" returns to the live end. New route `GET /api/tasks/:id/messages`; the old `GET /api/tasks/:id` is unchanged.
+- **The task history is paged and searchable.** The History button on the task bar (it replaces "+N more") opens a search box and the agent's whole history, loaded 50 at a time as you scroll, with only the visible rows drawn. Before, only the newest 200 tasks were reachable at all. The app's state snapshot no longer carries 200 tasks: it holds the running ones and the newest few per agent, and `GET /api/tasks` serves the rest from an in-memory index.
+
 ## [0.2.5-l] - 2026-10-07
 
 ### Added

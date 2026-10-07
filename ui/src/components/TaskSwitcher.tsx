@@ -3,6 +3,7 @@ import { modelLabel } from '../models';
 import { inProject } from '../projects/projectsLogic';
 import { archiveTask, newTask, openTaskMenu, renameTask, selectTask, startRename, stopRename, useStore } from '../store';
 import { Icon } from './icons';
+import { HistoryList } from '../history/HistoryList';
 import { statusDot } from '../../../src/shared/continue';
 import { cleanTitle, taskTitle } from '../util';
 
@@ -28,7 +29,6 @@ export function TaskSwitcher() {
   // stable order: newest-created first, so tabs never jump when a task finishes
   const all = useMemo(() => tasks.filter((t) => t.agentId === agentId && (!t.archived || t.id === sel) && (inProject(t, filter) || t.id === sel)).sort((a, b) => b.createdAt.localeCompare(a.createdAt) || a.id.localeCompare(b.id)), [tasks, agentId, sel, filter]);
   const mine = useMemo(() => { const head = all.slice(0, MAX); if (sel && !head.some((t) => t.id === sel)) { const s = all.find((t) => t.id === sel); if (s) head[MAX - 1] = s; } return head; }, [all, sel]);
-  const rest = all.filter((t) => !mine.some((m) => m.id === t.id));
   const [more, setMore] = useState(false);
   useEffect(() => {
     if (!more) return;
@@ -63,20 +63,10 @@ export function TaskSwitcher() {
           );
         })}
       </div>
-      {rest.length > 0 && (
-        <div className="tab-more">
-          <button type="button" className="tab more-btn" onClick={() => setMore((v) => !v)} aria-expanded={more} aria-haspopup="menu">+{rest.length} more</button>
-          {more && (
-            <div className="more-pop" role="menu">
-              {rest.map((t) => (
-                <button key={t.id} type="button" role="menuitem" className="more-item" onClick={() => { setMore(false); selectTask(t.id); }} onContextMenu={(e) => { e.preventDefault(); openTaskMenu(e.clientX, e.clientY, t.id); }}>
-                  <i className={`st st-${statusDot(t)}`} /><span>{cleanTitle(t.title)}</span>
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
+      <div className="tab-more">
+        <button type="button" className="tab more-btn" onClick={() => setMore((v) => !v)} aria-expanded={more} aria-haspopup="menu" title="Search and browse every task of this agent">History</button>
+        {more && <HistoryList agentId={agentId} onClose={() => setMore(false)} />}
+      </div>
     </div>
   );
 }

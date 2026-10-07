@@ -3,7 +3,7 @@ import type { BoardStatus, BoardView, WorkItem } from '../../src/shared/board';
 import type { BlenderStatusView } from '../../src/shared/blender';
 import type {
   SettingsView, SettingsPatch, McpStatusView,
-  AgentProfile, ApprovalRequest, BoatHealthView, Catalog, ChatMessage, DoctorCheck, LegionConfig, LegionEvent, ModelChoice, StateSnapshot, Task, VmRecord,
+  AgentProfile, ApprovalRequest, BoatHealthView, Catalog, ChatMessage, DoctorCheck, LegionConfig, LegionEvent, ModelChoice, StateSnapshot, Task, TasksPage, VmRecord,
 } from '../../src/shared/types';
 
 declare global {
@@ -88,7 +88,18 @@ export async function request<T>(method: string, path: string, body?: unknown): 
 export type NewAgent = Partial<AgentProfile> & { name: string };
 
 export const api = {
-  state: (archived = false) => request<StateSnapshot>('GET', `/api/state${archived ? '?archived=1' : ''}`),
+  /** `slim=1`: the window's working set (running tasks, the newest per agent), not the whole history; the history list pages through `tasksPage`. */
+  state: (archived = false) => request<StateSnapshot>('GET', `/api/state?slim=1${archived ? '&archived=1' : ''}`),
+  tasksPage: (p: { agentId?: string; projectId?: string; q?: string; cursor?: string | null; limit?: number; archived?: boolean }) => {
+    const sp = new URLSearchParams();
+    if (p.agentId) sp.set('agentId', p.agentId);
+    if (p.projectId) sp.set('projectId', p.projectId);
+    if (p.q) sp.set('q', p.q);
+    if (p.cursor) sp.set('cursor', p.cursor);
+    if (p.limit) sp.set('limit', String(p.limit));
+    if (p.archived) sp.set('archived', '1');
+    return request<TasksPage>('GET', `/api/tasks?${sp}`);
+  },
   settings: () => request<SettingsView>('GET', '/api/settings'),
   patchSettings: (p: SettingsPatch) => request<SettingsView>('PATCH', '/api/settings', p),
   testBoat: (apiKey?: string, baseUrl?: string) => request<{ ok: boolean; detail: string; warnings?: string[] }>('POST', '/api/settings/boat/test', { ...(apiKey ? { apiKey } : {}), ...(baseUrl ? { baseUrl } : {}) }),
@@ -120,6 +131,15 @@ export const api = {
   boardRun: (pid: string, id: string) => request<{ item: WorkItem; limited: boolean }>('POST', `/api/projects/${encodeURIComponent(pid)}/board/items/${encodeURIComponent(id)}/run`, {}),
   patchRoomProject: (roomId: string, projectId: string | null) => request<unknown>('PATCH', `/api/rooms/${encodeURIComponent(roomId)}`, { projectId }),
   createTask: (b: { agentId: string; prompt: string; model?: ModelChoice; continueTaskId?: string; projectId?: string }) => request<Task>('POST', '/api/tasks', b),
+  /** One window of a conversation (newest by default; `before` pages back, `from` opens a window at a position) and its search (`q`). */
+  taskMessages: (id: string, o: { before?: number; from?: number; limit?: number }) => {
+    const sp = new URLSearchParams();
+    if (o.before !== undefined) sp.set('before', String(o.before));
+    if (o.from !== undefined) sp.set('from', String(o.from));
+    if (o.limit !== undefined) sp.set('limit', String(o.limit));
+    return request<{ task: Task; messages: ChatMessage[]; start: number; end: number; total: number }>('GET', `/api/tasks/${encodeURIComponent(id)}/messages?${sp}`);
+  },
+  searchMessages: (id: string, q: string) => request<{ hits: Array<{ index: number; id: string; role: string; snippet: string }>; total: number }>('GET', `/api/tasks/${encodeURIComponent(id)}/messages?q=${encodeURIComponent(q)}`),
   getTask: (id: string) => request<{ task: Task; messages: ChatMessage[] }>('GET', `/api/tasks/${encodeURIComponent(id)}`),
   cancelTask: (id: string) => request<{ ok: boolean }>('POST', `/api/tasks/${encodeURIComponent(id)}/cancel`),
   /** POST /api/tasks/:id/compact: ask the engine to compact this conversation now, optionally keeping a focus instruction. */
