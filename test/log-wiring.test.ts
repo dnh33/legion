@@ -21,6 +21,7 @@ after(closeAll);
 
 // Built at runtime so the public export's secret scan does not see key-shaped literals in this file.
 const GHP = 'gh' + 'p_' + 'c'.repeat(36);
+const GHP2 = 'gh' + 'p_' + 'd'.repeat(36);
 const MARKER = 'MARKER-' + 'zq81xk3v';
 const src = (p: string): string => readFileSync(new URL(`../../${p}`, import.meta.url), 'utf8');
 const allLogText = (dir: string): string => (existsSync(dir) ? readdirSync(dir).map((n) => readFileSync(join(dir, n), 'utf8')).join('\n') : '');
@@ -49,13 +50,14 @@ test('the stream wrappers are the very first import of legion-core.ts, and nothi
 test('a token split across two writes comes out masked, and the tail is flushed on a timer', async () => {
   const out = fake();
   const restore = installStreamWrappers([out as never], { flushMs: 10, onExit: false });
-  out.write('line one\ntoken ' + GHP.slice(0, 20));
+  out.write('line one ' + GHP2 + '\ntoken ' + GHP.slice(0, 20));
   out.write(GHP.slice(20) + ' end');
   assert.equal(out.chunks.join('').includes('gh' + 'p_'), false, 'nothing unmasked so far');
   await new Promise((r) => setTimeout(r, 80));
   const text = out.chunks.join('');
   assert.equal(text.includes(GHP.slice(0, 20)), false);
-  assert.match(text, /line one\n/);
+  assert.equal(text.includes('gh' + 'p_'), false, 'the emitted part is redacted too');
+  assert.match(text, /line one \[redacted-token\]\n/);
   assert.match(text, /token \[redacted-token\] end/);
   restore();
 });

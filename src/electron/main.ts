@@ -11,6 +11,7 @@ import { adminForRenderer, bsvConfirmation, bsvPreflight, coreAction, coreIsBusy
 import { makeConfirm, providerChange } from './provider-ipc.js';
 import { coreStartHint, resolveCoreLaunch, startFailureLine } from './resolve-node.js';
 import { redact } from '../core/log/redact.js';
+import { rotateRawLog } from '../core/log/rotate-file.js';
 import { heapArgv } from './heap-limit.js';
 import { ensureConnectorKey, keyLine, loadConnectorKey } from './connector-key.js';
 import { connectGithub } from './connector-ipc.js';
@@ -153,6 +154,7 @@ async function waitPortFree(port: number, ms = 6000): Promise<boolean> {
 async function spawnCore(port: number): Promise<string | null> {
   const launch = resolveCoreLaunch(root);
   let out: number | 'ignore' = 'ignore';
+  rotateRawLog(join(dataDir(), 'core.log')); // over 5 MB: core.log.1 (rename only; a failed rename keeps the file and appends)
   try { out = openSync(join(dataDir(), 'core.log'), 'a'); } catch { /* ignore */ }
   try {
     let failure: string | null = null;

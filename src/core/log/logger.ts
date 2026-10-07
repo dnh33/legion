@@ -304,6 +304,14 @@ export class LogSink {
     for (const f of [...this.fds.keys()]) this.closeHandle(f);
   }
 
+  /** Drops every queued line without writing it (Clear logs: lines from before the clear must not come back). */
+  clearQueue(): void {
+    this.head = null; this.tail = null; this.size = 0; this.dropped = 0;
+    for (const q of this.low) { q.list = []; q.at = 0; q.live = 0; }
+    const w = this.waiters; this.waiters = [];
+    for (const r of w) r();
+  }
+
   /** Makes the sink usable again after `closeAll()`. Recreates the folder; queued lines are written. */
   reopen(): void {
     this.open = true;

@@ -51,6 +51,7 @@ export function createLogsModule(deps: ModuleDeps, opts: { sink: LogSink }): Cor
       // Windows: an open handle makes the delete fail, so close every handle first, then delete, then reopen.
       add('POST', '/api/logs/clear', () => {
         sink.closeAll();
+        sink.clearQueue();
         try { rmSync(sink.dir, { recursive: true, force: true }); } finally { sink.reopen(); }
         return view(sink);
       });

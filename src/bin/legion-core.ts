@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /** Legion Core composition root. */
 // FIRST import, on purpose: it wraps stdout and stderr in the redactor before any other module can write (test/log-wiring.test.ts).
-import '../core/log/install.js';
+import { describeError, setFatalSink } from '../core/log/install.js';
 import { ProviderRuntime } from '../core/providers/runtime.js';
 import { ProviderKeys, keyFileFor } from '../core/providers/secrets.js';
 import { createProvidersModule } from '../core/providers/routes.js';
@@ -39,18 +39,24 @@ import { Store } from '../core/store.js';
 import { isPackageInstall } from '../electron/resolve-node.js';
 import { VmManager } from '../core/vm-manager.js';
 
-// One sink: <dataDir>/logs. log() is a thin call into it (component 'core'); the line also goes to stderr (redacted by the wrapper),
-// which Electron main keeps as the raw stream file core.log. There is no second writer.
+// One sink: <dataDir>/logs. log() is a thin call into it (component 'core') and writes nothing else: core.log (the raw stream file
+// Electron main keeps) holds only what other code prints, crashes and the ready line. There is no second writer.
 const sink = openLogSink(dataDir());
 const clog = sink.logger('core');
 const log = (...a: unknown[]) => {
   const text = a.map((x) => (x instanceof Error ? x.stack ?? x.message : typeof x === 'string' ? x : JSON.stringify(x))).join(' ');
   if (a.some((x) => x instanceof Error)) clog.error('core.error', { message: text }); else clog.info('core.message', { message: text });
-  process.stderr.write(`[${new Date().toISOString()}] ${text}
-`);
 };
 /** Writes what is queued and closes the files: exit and fatal paths. */
 const closeLogs = () => { try { sink.flushSync(); sink.closeAll(); } catch { /* nothing more to do */ } };
+// From here a fatal error is logged and flushed, and the process stays up (until now install.ts prints it and exits).
+setFatalSink((event, e) => {
+  const message = describeError(e);
+  clog.error(event, { message });
+  process.stderr.write(`[${new Date().toISOString()}] ${event} ${message}
+`);
+  sink.flushSync();
+});
 
 async function main() {
   // Per-launch admin secret from the stdin pipe (Electron main only). None for a headless/bridge-started core: admin routes stay closed.
@@ -140,6 +146,8 @@ async function main() {
   });
   listenLoopback(server, config.port, () => {
     log(`Legion Core ${VERSION} on http://127.0.0.1:${config.port}  (config: ${configPath()})`);
+    process.stderr.write(`[${new Date().toISOString()}] Legion Core ${VERSION} on http://127.0.0.1:${config.port}
+`); // the one ready line in core.log (nothing parses it)
     // BSV mode already on: bring the pack up to the bundled version without anyone toggling (never blocks, never throws)
     void bsv.start();
   }, (addr) => { log('refusing to run: the server bound a non-loopback address', addr); process.exit(4); });
@@ -157,16 +165,6 @@ async function main() {
   };
   process.on('SIGINT', () => void shutdown('SIGINT'));
   process.on('SIGTERM', () => void shutdown('SIGTERM'));
-  // Fatal paths: log the error, write the queue now. uncaughtException keeps the old behaviour (the process stays up).
-  const fatal = (event: string, e: unknown) => {
-    const message = e instanceof Error ? e.stack ?? e.message : String(e);
-    clog.error(event, { message });
-    process.stderr.write(`[${new Date().toISOString()}] ${event} ${message}
-`);
-    sink.flushSync();
-  };
-  process.on('unhandledRejection', (e) => fatal('process.unhandledRejection', e));
-  process.on('uncaughtException', (e) => fatal('process.uncaughtException', e));
   process.on('beforeExit', closeLogs);
   process.on('exit', closeLogs);
 }
