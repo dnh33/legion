@@ -50,9 +50,10 @@ export const PAGE_DEFAULT = 50;
 export const PAGE_MAX = 100;
 
 export class BadCursorError extends Error {}
-export const encodeCursor = (k: { updatedAt: string; id: string }): string => Buffer.from(`${k.updatedAt}|${k.id}`, 'utf8').toString('base64url');
+export const encodeCursor = (k: { updatedAt: string; id: string }): string => encodeURIComponent(`${k.updatedAt}|${k.id}`);
 export function decodeCursor(c: string): { updatedAt: string; id: string } {
-  const s = Buffer.from(c, 'base64url').toString('utf8');
+  let s: string;
+  try { s = decodeURIComponent(c); } catch { throw new BadCursorError('Invalid cursor'); }
   const i = s.indexOf('|');
   if (i <= 0 || i === s.length - 1 || encodeCursor({ updatedAt: s.slice(0, i), id: s.slice(i + 1) }) !== c) throw new BadCursorError('Invalid cursor');
   return { updatedAt: s.slice(0, i), id: s.slice(i + 1) };

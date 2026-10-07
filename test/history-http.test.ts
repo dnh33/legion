@@ -43,7 +43,7 @@ describe('history pages over HTTP', () => {
     assert.equal((await page('limit=1000')).tasks.length, 100);
     assert.equal((await page('limit=abc')).tasks.length, 50);
     const seen: string[] = []; let cursor: string | null = '';
-    while (cursor !== null) { const p = await page(`limit=40${cursor ? '&cursor=' + cursor : ''}`); seen.push(...p.tasks.map((t) => t.id)); cursor = p.nextCursor; }
+    while (cursor !== null) { const p = await page(`limit=40${cursor ? '&cursor=' + encodeURIComponent(cursor) : ''}`); seen.push(...p.tasks.map((t) => t.id)); cursor = p.nextCursor; }
     assert.equal(new Set(seen).size, seen.length);
     assert.equal(seen.length, 130 + 20 + 1, 'visible, open tasks only (closed and hidden-agent ones are not in it)');
     assert.ok(!seen.includes('arch1'));
@@ -67,7 +67,7 @@ describe('history pages over HTTP', () => {
 
   it('a hidden agent\'s tasks are in no page, no search, no agent filter and no snapshot', async () => {
     const everything: string[] = []; let cursor: string | null = '';
-    while (cursor !== null) { const p = await page(`archived=1&limit=100${cursor ? '&cursor=' + cursor : ''}`); everything.push(...p.tasks.map((t) => t.id)); cursor = p.nextCursor; }
+    while (cursor !== null) { const p = await page(`archived=1&limit=100${cursor ? '&cursor=' + encodeURIComponent(cursor) : ''}`); everything.push(...p.tasks.map((t) => t.id)); cursor = p.nextCursor; }
     assert.ok(everything.length > 100);
     assert.ok(!everything.some((id) => id.startsWith('x')), 'no hidden task in any page');
     for (const q of ['secret', 'wallet', 'audit', 'assayer', 'secret%20wallet%20billing']) assert.deepEqual(await ids(`q=${q}&archived=1`), [], `search "${q}" finds nothing of the hidden agent`);
