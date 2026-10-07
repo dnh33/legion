@@ -93,7 +93,7 @@ function fakeStorage(over: Partial<SafeStorageLike> & { available?: boolean; reE
 test('a launch with no key.bin makes no safeStorage call and creates nothing', async () => {
   const dir = tempDir('legion-key-');
   const { ss, calls } = fakeStorage();
-  assert.equal(await loadConnectorKey(dir, ss), undefined);
+  assert.equal(await loadConnectorKey(dir, ss, 'win32'), undefined);
   assert.deepEqual(calls, []);
   assert.equal(existsSync(keyFilePath(dir)), false);
 });
@@ -101,11 +101,11 @@ test('a launch with no key.bin makes no safeStorage call and creates nothing', a
 test('first Connect creates the key (wrapped, 256 bits, not readable in the file); a later launch hands the same key over', async () => {
   const dir = tempDir('legion-key-');
   const { ss } = fakeStorage();
-  const hex = await ensureConnectorKey(dir, ss);
+  const hex = await ensureConnectorKey(dir, ss, 'win32');
   assert.match(hex!, /^[0-9a-f]{64}$/);
   assert.ok(!readFileSync(keyFilePath(dir)).toString('latin1').includes(hex!));
-  assert.equal(await loadConnectorKey(dir, ss), hex);
-  assert.equal(await ensureConnectorKey(dir, ss), hex, 'no second key');
+  assert.equal(await loadConnectorKey(dir, ss, 'win32'), hex);
+  assert.equal(await ensureConnectorKey(dir, ss, 'win32'), hex, 'no second key');
   assert.equal(keyLine(hex!), `KEY ${hex}\n`);
 });
 
@@ -122,16 +122,16 @@ test('Linux basic_text or unknown, or unavailable encryption: nothing is written
 
 test('shouldReEncrypt re-wraps the key; a file that does not unwrap is never overwritten', async () => {
   const dir = tempDir('legion-key-');
-  const hex = await ensureConnectorKey(dir, fakeStorage().ss);
+  const hex = await ensureConnectorKey(dir, fakeStorage().ss, 'win32');
   const before = readFileSync(keyFilePath(dir));
   const { ss, calls } = fakeStorage({ reEncrypt: true });
   writeFileSync(keyFilePath(dir), Buffer.from('WRAP:' + Buffer.from(hex!).toString('hex') + ''));
-  assert.equal(await loadConnectorKey(dir, ss), hex);
+  assert.equal(await loadConnectorKey(dir, ss, 'win32'), hex);
   assert.ok(calls.includes('enc'));
   const dir2 = tempDir('legion-key-');
   mkdirSync(join(dir2, 'connectors'), { recursive: true });
   writeFileSync(keyFilePath(dir2), 'garbage');
-  assert.equal(await ensureConnectorKey(dir2, fakeStorage().ss), undefined);
+  assert.equal(await ensureConnectorKey(dir2, fakeStorage().ss, 'win32'), undefined);
   assert.equal(readFileSync(keyFilePath(dir2), 'utf8'), 'garbage');
 });
 
