@@ -1,7 +1,7 @@
 import test, { after } from 'node:test';
 import assert from 'node:assert/strict';
 import { randomBytes } from 'node:crypto';
-import { readdirSync, readFileSync } from 'node:fs';
+import { readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { createGitHubClient, DeviceFlowError, GhError, getGitHubClient, GitHubClient, GITHUB_TOKEN_ID, resetGitHubClientForTests, type GhClientDeps } from '../src/core/connectors/github/client.js';
 import { GITHUB_LOG_STORAGE_HOSTS } from '../src/core/connectors/github/hosts.js';
@@ -13,7 +13,7 @@ import { tempDir } from './tmp-cleanup.js';
 const fakes: FakeGitHub[] = [];
 // a failed assertion must not leave a server open (the test process would never exit)
 after(async () => { for (const f of fakes) await f.stop(); });
-interface Rig { fake: FakeGitHub; store: TokenStore; client: GitHubClient; dir: string; sleeps: number[]; logs: string[]; clock: { t: number }; events: string[] }
+interface Rig { fake: FakeGitHub; store: TokenStore; client: GitHubClient; dir: string; sleeps: number[]; logs: string[]; clock: { t: number }; events: string[]; hook: { fn?: () => Promise<void> } }
 
 async function rig(over: Partial<GhClientDeps> = {}, withKey = true): Promise<Rig> {
   const dir = tempDir('legion-ghc-');
@@ -26,12 +26,14 @@ async function rig(over: Partial<GhClientDeps> = {}, withKey = true): Promise<Ri
   const origSet = store.set.bind(store);
   store.set = ((id: string, v: unknown) => { events.push('persist'); return origSet(id, v); }) as typeof store.set;
   const base = fake.fetchFn();
-  const fetchFn = ((u: string, i: RequestInit) => { const a = new Headers(i?.headers).get('authorization'); if (a) events.push(`api:${a.slice(7, 25)}`); return base(u, i); }) as typeof fetch;
+  const hook: Rig['hook'] = {};
+  const fetchFn = (async (u: string, i: RequestInit) => {
+    if (new URL(u).hostname === 'api.github.com' && hook.fn) { const f = hook.fn; hook.fn = undefined; await f(); } const a = new Headers(i?.headers).get('authorization'); if (a) events.push(`api:${a.slice(7, 25)}`); return base(u, i); }) as typeof fetch;
   const sleeps: number[] = [];
   const logs: string[] = [];
   const clock = { t: 1_800_000_000_000 };
   const client = new GitHubClient({ tokens: store, fetchFn, clientId: FAKE_CLIENT_ID, sleep: async (ms) => { sleeps.push(ms); }, log: (l) => logs.push(l), now: () => clock.t, ...over });
-  return { fake, store, client, dir, sleeps, logs, clock, events };
+  return { fake, store, client, dir, sleeps, logs, clock, events, hook };
 }
 async function signedIn(r: Rig): Promise<void> { const f = await r.client.startDeviceFlow(); await f.poll(); r.fake.requests.length = 0; r.events.length = 0; }
 async function kind(p: Promise<unknown>): Promise<GhError> { try { await p; } catch (e) { assert.ok(e instanceof GhError, String(e)); return e; } throw new Error('expected a GhError'); }
@@ -287,4 +289,82 @@ test('one instance: the getter returns exactly what core created, and creating t
   assert.equal(createGitHubClient({ tokens: store }), made);
   resetGitHubClientForTests();
   assert.equal(getGitHubClient(), undefined);
+});
+
+test('a 401 that arrives after another refresh already rotated the tokens uses the stored record and does not spend the old refresh token', async () => {
+  const r = await rig();
+  await signedIn(r);
+  const a = (await r.store.get<{ access: string; refresh: string }>(GITHUB_TOKEN_ID))!;
+  const b = r.fake.issue();
+  r.fake.refreshes.delete(a.refresh); // the old refresh token is spent
+  r.hook.fn = async () => { await r.store.set(GITHUB_TOKEN_ID, { access: b.access, refresh: b.refresh }); r.fake.expire(a.access); };
+  const res = await r.client.request('/repos/o/r');
+  assert.equal(res.status, 200);
+  assert.equal(r.fake.requests.filter((q) => q.host === 'github.com').length, 0, 'GitHub was not asked to refresh');
+  assert.equal((await r.store.get<{ access: string }>(GITHUB_TOKEN_ID))?.access, b.access, 'the valid sign-in survived');
+  await r.fake.stop();
+});
+
+test('only an explicit refusal deletes the sign-in; an odd answer or a failed save keeps the old record and says so in the log, with no token in it', async () => {
+  const r = await rig();
+  await signedIn(r);
+  const old = (await r.store.get<{ access: string; refresh: string }>(GITHUB_TOKEN_ID))!;
+  r.clock.t += 28_800_000;
+  r.fake.refreshMode = 'weird';
+  const e1 = await kind(r.client.request('/repos/o/r'));
+  assert.deepEqual([e1.kind, e1.retryable], ['network', false]);
+  assert.deepEqual(await r.store.get(GITHUB_TOKEN_ID), old, 'kept');
+  r.fake.refreshMode = 'ok';
+  const realSet = r.store.set.bind(r.store);
+  r.store.set = (async () => { throw new Error('disk full'); }) as typeof r.store.set;
+  const e2 = await kind(r.client.request('/repos/o/r'));
+  assert.deepEqual([e2.kind, e2.retryable], ['network', false]);
+  assert.deepEqual(await r.store.get(GITHUB_TOKEN_ID), old, 'old record kept');
+  assert.ok(r.logs.some((l) => l.includes('could not be saved')));
+  assert.deepEqual(leaks(r.logs.join(' ')), []);
+  r.store.set = realSet;
+  await r.fake.stop();
+});
+
+test('a network failure after a write was sent is not retryable; for a read it is', async () => {
+  const r = await rig();
+  await signedIn(r);
+  const down = new GitHubClient({ tokens: r.store, fetchFn: (async () => { throw new Error('reset'); }) as typeof fetch, clientId: FAKE_CLIENT_ID });
+  assert.equal((await kind(down.request('/repos/o/r/issues/1/comments', { method: 'POST', body: '{}' }))).retryable, false);
+  assert.equal((await kind(down.request('/repos/o/r'))).retryable, true);
+  await r.fake.stop();
+});
+
+test('a write never follows a redirect', async () => {
+  const r = await rig();
+  await signedIn(r);
+  r.fake.override = (h, m, p) => (h === 'api.github.com' && m === 'POST' && p === '/repos/o/r/issues/1/comments' ? [307, '', { location: 'https://api.github.com/repos/o/r' }] : undefined);
+  await kind(r.client.request('/repos/o/r/issues/1/comments', { method: 'POST', body: '{"body":"x"}' }));
+  assert.equal(r.fake.apiRequests().length, 1, 'one request, no second');
+  await r.fake.stop();
+});
+
+test('a response is capped while it streams, not after it is buffered', async () => {
+  const r = await rig();
+  await signedIn(r);
+  let pulled = 0;
+  const huge = new GitHubClient({
+    tokens: r.store, clientId: FAKE_CLIENT_ID,
+    fetchFn: (async () => new Response(new ReadableStream({ pull(c) { if (pulled++ >= 100) { c.close(); return; } c.enqueue(new Uint8Array(1024 * 1024)); } }), { status: 200 })) as typeof fetch,
+  });
+  assert.equal((await kind(huge.request('/repos/o/r'))).kind, 'network');
+  assert.ok(pulled <= 12, `read ${pulled} MB before giving up`);
+  await r.fake.stop();
+});
+
+test('connection() tells the owner to sign in again when the store did not authenticate (wrong key or tampered file)', async () => {
+  const r = await rig();
+  await signedIn(r);
+  const file = join(r.dir, 'connectors', 'oauth.json');
+  const bytes = readFileSync(file);
+  bytes[bytes.length - 1] = bytes[bytes.length - 1]! ^ 0xff;
+  writeFileSync(file, bytes);
+  const c = await r.client.connection();
+  assert.deepEqual([c.auth, c.needsSignIn], ['anonymous', true]);
+  await r.fake.stop();
 });

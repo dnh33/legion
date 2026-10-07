@@ -24,7 +24,7 @@ export class FakeGitHub {
   script: Poll[] = ['success'];
   deviceDisabled = false;
   /** github.com refresh endpoint: 'ok' rotates, 'bad' answers bad_refresh_token, 'down' answers 503. */
-  refreshMode: 'ok' | 'bad' | 'down' = 'ok';
+  refreshMode: 'ok' | 'bad' | 'down' | 'weird' = 'ok';
   /** Access tokens live this long (seconds) from issue. */
   expiresIn = 28800;
   /** A hostile server: error messages echo the Authorization header and the request path. */
@@ -130,6 +130,7 @@ export class FakeGitHub {
     if (r.path === '/login/oauth/access_token') {
       if (form.get('grant_type') === 'refresh_token') {
         const rt = form.get('refresh_token') ?? '';
+        if (this.refreshMode === 'weird') return [200, { error: 'server_error' }];
         if (this.refreshMode === 'down') return [503, { error: 'unavailable' }];
         if (this.refreshMode === 'bad' || !this.refreshes.has(rt)) return [200, { error: 'bad_refresh_token' }];
         this.refreshes.delete(rt);

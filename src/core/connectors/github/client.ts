@@ -102,6 +102,8 @@ const API_VERSION = '2022-11-28';
 const MAX_BODY = 8 * 1024 * 1024;
 const MAX_LOG = 2 * 1024 * 1024;
 const REFRESH_SKEW_MS = 60_000;
+/** GitHub's explicit refusals of a refresh token. */
+const REFUSALS = new Set(['bad_refresh_token', 'invalid_grant', 'refresh_token_expired', 'incorrect_client_credentials']);
 const REPO = /^[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+$/;
 /** "owner/name" with no "." or ".." part. */
 export const validRepo = (repo: unknown): repo is string => typeof repo === 'string' && REPO.test(repo) && !repo.split('/').some((p) => p === '.' || p === '..');
@@ -236,15 +238,27 @@ export class GitHubClient {
   private refresh(rec: GhTokenRecord): Promise<GhTokenRecord> {
     if (this.refreshing) return this.refreshing;
     const attempt = (async (): Promise<GhTokenRecord> => {
+      // Another refresh may have finished and rotated the tokens since the caller read its record: use what is stored now.
+      const stored = await this.tokens.get<GhTokenRecord>(GITHUB_TOKEN_ID);
+      if (!stored || typeof stored.access !== 'string') throw new GhError('auth-expired');
+      if (stored.refresh !== rec.refresh) return stored;
       if (!rec.refresh || (rec.refreshExpiresAt !== undefined && rec.refreshExpiresAt <= this.now())) return this.signInAgain();
       const r = await this.formPost('/login/oauth/access_token', { client_id: this.clientId, grant_type: 'refresh_token', refresh_token: rec.refresh });
       if (r === undefined) throw new GhError('network', { retryable: true });
       const j = asRec(r);
-      if (typeof j.access_token !== 'string' || !j.access_token) return this.signInAgain();
+      if (typeof j.access_token !== 'string' || !j.access_token) {
+        // only an explicit refusal ends the sign-in; anything else is a failure to renew, and the stored record stays
+        if (typeof j.error === 'string' && REFUSALS.has(j.error)) return this.signInAgain();
+        this.logLine('github: refresh gave no token');
+        throw new GhError('network', { retryable: false });
+      }
       const next = this.recordFrom(j);
       if (!next.refresh && rec.refresh) next.refresh = rec.refresh;
       if (rec.login) next.login = rec.login;
-      await this.tokens.set(GITHUB_TOKEN_ID, next);
+      try { await this.tokens.set(GITHUB_TOKEN_ID, next); } catch {
+        this.logLine('github: a refreshed token could not be saved; the old sign-in is kept and may now be spent');
+        throw new GhError('network', { retryable: false });
+      }
       this.logLine('github: token refreshed');
       return next;
     })();
@@ -298,7 +312,7 @@ export class GitHubClient {
       return res;
     } catch {
       this.logLine(`github: ${method} ${url.pathname} failed`);
-      throw new GhError('network', { retryable: true });
+      throw new GhError('network', { retryable: isRead(method) });
     }
   }
 
@@ -310,9 +324,18 @@ export class GitHubClient {
   }
 
   private async readText(res: Response, cap: number): Promise<string> {
-    const text = await res.text();
-    if (text.length > cap) throw new Error('too large');
-    return text;
+    if (!res.body) return '';
+    const reader = res.body.getReader();
+    const chunks: Buffer[] = [];
+    let size = 0;
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      size += value.length;
+      if (size > cap) { await reader.cancel().catch(() => undefined); throw new Error('too large'); }
+      chunks.push(Buffer.from(value));
+    }
+    return Buffer.concat(chunks).toString('utf8');
   }
 
   /** api.github.com only. `init` has no header field: Authorization, Host and friends cannot be chosen by the caller. */
@@ -356,6 +379,7 @@ export class GitHubClient {
   // ---------------------------------------------------------------------------------------------- connection and permissions
 
   async connection(): Promise<Connection> {
+    if ((await this.tokens.status()) === 'sign-in-again') this.needsSignIn = true; // wrong key or a file that did not authenticate
     const rec = await this.currentToken();
     if (!rec) {
       const r = await this.request('/rate_limit');
