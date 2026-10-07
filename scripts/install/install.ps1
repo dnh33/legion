@@ -3,7 +3,7 @@
 #   irm https://getlegion.xyz | iex
 #
 # With options (a pinned version, another folder, no launch at the end):
-#   & ([scriptblock]::Create((irm https://getlegion.xyz))) -Version 0.2.5-g -NoLaunch
+#   & ([scriptblock]::Create((irm https://getlegion.xyz))) -Version <version> -NoLaunch
 #
 # What it does:
 #   1. Finds the latest release from https://github.com/dnh33/legion/releases/latest (or uses -Version).
