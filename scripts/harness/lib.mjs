@@ -102,6 +102,8 @@ export function client(handle) {
     call: (method, path, body, auth = 'admin') => control(handle, '/call', { method, path, body, auth }),
     script: (match, steps) => control(handle, '/script', { match, steps }),
     modelLog: () => control(handle, '/model/log'),
+    /** Scripts the fake GitHub behind the CI panel: {scenario, connection, rate, logs, fail, privateRepos, finish, resetCalls}. Returns call counts and the write log. */
+    github: (cmd = {}) => control(handle, '/fakes/github', cmd),
     resetModel: () => control(handle, '/model/reset', {}),
     boat: () => control(handle, '/fakes/boat'),
     boatConfig: (patch) => control(handle, '/fakes/boat/config', patch),

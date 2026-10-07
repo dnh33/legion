@@ -1,0 +1,117 @@
+/*
+ * CI panel, its title-bar chip and the reusable float/dock container (FloatPanel).
+ * Focus rings only on :focus-visible. Motion: a short fade for the panel and a slow pulse on a running dot, both off under
+ * prefers-reduced-motion, and the pulse also off while the window is away. Forced colors: system colours, borders kept, glyph + word carry state.
+ */
+:root { --ci-ok: var(--accent-text); --ci-bad: var(--danger); --ci-run: #5fb0ff; --ci-warn: var(--warn); }
+:root[data-theme='light'] { --ci-run: #1f6fbf; }
+
+/* ---- title-bar chip ---- */
+.tb-ci { white-space: nowrap; flex: none; height: 26px; display: inline-flex; align-items: center; gap: 6px; padding: 0 9px; margin-right: 4px; background: transparent; border: 1px solid var(--line); border-radius: 13px; color: var(--muted); font-size: 12px; transition: color var(--t) var(--ease), border-color var(--t) var(--ease), background var(--t) var(--ease); }
+.tb-ci:hover, .tb-ci.on { color: var(--text); border-color: var(--line-strong); background: var(--surface-2); }
+.tb-ci:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.tb-ci-name { font: 600 11px/1 var(--font-mono); letter-spacing: .06em; }
+.tb-ci-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--faint); flex: none; }
+.tb-ci.tone-ok .tb-ci-dot { background: var(--ci-ok); }
+.tb-ci.tone-bad { color: var(--ci-bad); border-color: color-mix(in srgb, var(--ci-bad) 45%, transparent); }
+.tb-ci.tone-bad .tb-ci-dot { background: var(--ci-bad); border-radius: 2px; }
+.tb-ci.tone-run .tb-ci-dot { background: var(--ci-run); }
+.tb-ci.tone-warn .tb-ci-dot { background: var(--ci-warn); }
+@media (prefers-reduced-motion: no-preference) {
+  .tb-ci.tone-run .tb-ci-dot { animation: ci-pulse 1.8s ease-in-out infinite; }
+  :root[data-win='away'] .tb-ci.tone-run .tb-ci-dot { animation: none; }
+}
+@keyframes ci-pulse { 50% { opacity: .35; } }
+@media (max-width: 1099px) { .tb-ci-word { display: none; } .tb-ci { padding: 0 8px; gap: 5px; } }
+
+/* ---- the app grid leaves room for a docked panel; the title bar keeps its full width ---- */
+html[data-dock] .app { padding-right: var(--dock-w); box-sizing: border-box; }
+html[data-dock] .titlebar { margin-right: calc(-1 * var(--dock-w)); }
+
+/* ---- FloatPanel ---- */
+.fp { position: fixed; z-index: 40; display: flex; flex-direction: column; min-width: 320px; background: var(--surface); color: var(--text); border: 1px solid var(--line-strong); box-shadow: 0 18px 48px rgba(0, 0, 0, .42); outline: none; animation: fp-in 140ms var(--ease); }
+.fp-float { border-radius: var(--r-lg); max-width: calc(100vw - 16px); max-height: calc(100vh - 56px); }
+.fp-dock { right: 0; top: 40px; bottom: 0; border-radius: 0; border-top: 0; border-right: 0; box-shadow: -8px 0 24px rgba(0, 0, 0, .22); animation-name: fp-in-dock; }
+@keyframes fp-in { from { opacity: 0; transform: translateY(4px); } }
+@keyframes fp-in-dock { from { opacity: 0; } }
+.fp:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.fp-head { display: flex; align-items: center; gap: 6px; padding: 6px 6px 6px 4px; border-bottom: 1px solid var(--line); background: var(--surface-2); border-radius: var(--r-lg) var(--r-lg) 0 0; flex: none; }
+.fp-dock .fp-head { border-radius: 0; }
+.fp-float .fp-head { cursor: grab; touch-action: none; }
+.fp-float .fp-head:active { cursor: grabbing; }
+.fp-grip, .fp-btn { display: inline-grid; place-items: center; width: 28px; height: 28px; border-radius: var(--r-sm); background: transparent; border: 0; color: var(--muted); cursor: pointer; }
+.fp-grip { cursor: inherit; }
+.fp-grip:hover, .fp-btn:hover:not(:disabled) { color: var(--text); background: var(--surface-3); }
+.fp-btn:disabled { opacity: .55; cursor: default; }
+.fp-grip:focus-visible, .fp-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.fp-titles { min-width: 0; flex: 1; display: flex; flex-direction: column; gap: 1px; }
+.fp-title { margin: 0; font-size: 13px; font-weight: 600; line-height: 1.2; }
+.fp-sub { display: flex; gap: 8px; align-items: center; min-width: 0; font-size: 11.5px; color: var(--muted); white-space: nowrap; overflow: hidden; }
+.fp-actions { display: flex; align-items: center; gap: 2px; flex: none; }
+.fp-body { flex: 1; min-height: 0; overflow: auto; padding: 10px 12px 14px; }
+.fp-resize { position: absolute; right: 0; bottom: 0; width: 18px; height: 18px; cursor: nwse-resize; touch-action: none; border-radius: 0 0 var(--r-lg) 0; background: linear-gradient(135deg, transparent 0 55%, var(--line-strong) 55% 62%, transparent 62% 72%, var(--line-strong) 72% 79%, transparent 79%); }
+.fp-edge { position: absolute; left: -4px; top: 0; bottom: 0; width: 8px; cursor: ew-resize; touch-action: none; z-index: 1; }
+.fp-edge:hover { background: var(--accent-soft); }
+
+/* ---- CI panel body ---- */
+.ci-note { margin: 4px 0 10px; color: var(--text-2); font-size: 12.5px; line-height: 1.5; }
+.ci-fine { margin: 6px 0 0; color: var(--muted); font-size: 11.5px; line-height: 1.45; }
+.ci-err { margin: 6px 0 0; color: var(--danger); font-size: 12px; }
+.ci-banner { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 0 0 10px; padding: 8px 10px; border: 1px solid var(--line-strong); border-radius: var(--r); background: var(--surface-2); color: var(--text-2); font-size: 12px; line-height: 1.45; }
+.ci-banner.warn { border-color: color-mix(in srgb, var(--ci-warn) 50%, transparent); background: var(--warn-soft); }
+.ci-banner .btn { flex: none; }
+.ci-runs, .ci-jobs { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.ci-run { border: 1px solid var(--line); border-radius: var(--r); background: var(--surface); overflow: hidden; }
+.ci-run.tone-bad { border-color: color-mix(in srgb, var(--ci-bad) 40%, var(--line)); }
+.ci-run-row { width: 100%; display: grid; grid-template-columns: 92px minmax(0, 1fr) auto 14px; align-items: center; gap: 8px; padding: 8px 10px; text-align: left; background: transparent; border: 0; color: inherit; cursor: pointer; font: inherit; }
+.ci-run-row:hover { background: var(--surface-2); }
+.ci-run-row:focus-visible, .ci-job-btn:focus-visible, .ci-link:focus-visible, .ci-log:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.ci-run-main { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.ci-run-title { font-size: 12.5px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ci-run-meta { display: flex; gap: 8px; align-items: center; min-width: 0; font-size: 11px; color: var(--muted); }
+.ci-wf { flex: none; }
+.ci-br, .ci-repo-name { font-family: var(--font-mono); font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.ci-dur { font: 500 11px/1 var(--font-mono); color: var(--muted); white-space: nowrap; }
+.ci-chev { color: var(--faint); transition: transform var(--t) var(--ease); }
+.ci-run-row[aria-expanded='true'] .ci-chev { transform: rotate(180deg); }
+.ci-st { display: inline-flex; align-items: center; gap: 5px; font-size: 11.5px; font-weight: 600; white-space: nowrap; }
+.ci-st.tone-ok { color: var(--ci-ok); }
+.ci-st.tone-bad { color: var(--ci-bad); }
+.ci-st.tone-run { color: var(--ci-run); }
+.ci-st.tone-idle { color: var(--muted); }
+.ci-run-body { border-top: 1px solid var(--line); padding: 8px 10px 10px; background: var(--surface-2); }
+.ci-job { border-radius: var(--r-sm); }
+.ci-job-row { display: grid; grid-template-columns: 92px minmax(0, 1fr) auto auto; align-items: center; gap: 8px; width: 100%; padding: 5px 6px; font-size: 12px; text-align: left; color: inherit; background: transparent; border: 0; border-radius: var(--r-sm); font-family: inherit; }
+.ci-job-btn { cursor: pointer; }
+.ci-job-btn:hover { background: var(--surface-3); }
+.ci-job-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ci-tag { padding: 1px 6px; border: 1px solid var(--line-strong); border-radius: 8px; font-size: 10.5px; color: var(--muted); white-space: nowrap; }
+.ci-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+.ci-ext { border: 1px solid var(--line); }
+.ci-link { background: none; border: 0; padding: 0; color: var(--accent-text); text-decoration: underline; cursor: pointer; font: inherit; }
+.ci-log-wrap { margin: 4px 0 8px 6px; }
+.ci-log { margin: 0; max-height: 300px; overflow: auto; padding: 8px 10px; background: var(--code-bg); border: 1px solid var(--line); border-radius: var(--r-sm); font: 11px/1.5 var(--font-mono); color: var(--text-2); white-space: pre; tab-size: 4; }
+.ci-more { margin-top: 12px; font-size: 12px; color: var(--muted); }
+.ci-more summary { cursor: pointer; width: fit-content; }
+.ci-more summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.ci-repo { margin-top: 8px; }
+.ci-repo-row { display: flex; gap: 8px; margin-top: 4px; }
+.ci-input { flex: 1; min-width: 0; height: 28px; padding: 0 9px; background: var(--code-bg); color: var(--text); border: 1px solid var(--line-strong); border-radius: var(--r-sm); font: 12px var(--font-mono); }
+.ci-input:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.ci-spin { animation: ci-rot 900ms linear infinite; }
+@keyframes ci-rot { to { transform: rotate(360deg); } }
+@media (max-width: 520px) { .ci-run-row { grid-template-columns: 78px minmax(0, 1fr) 14px; } .ci-run-row .ci-dur { display: none; } }
+
+@media (prefers-reduced-motion: reduce) {
+  .fp, .ci-spin, .tb-ci-dot { animation: none !important; }
+  .ci-chev, .tb-ci { transition: none; }
+}
+@media (forced-colors: active) {
+  .fp { border: 1px solid CanvasText; box-shadow: none; }
+  .fp-head { border-bottom: 1px solid CanvasText; }
+  .fp-btn, .fp-grip, .tb-ci, .ci-run, .ci-banner, .ci-input, .ci-tag, .ci-log { border: 1px solid ButtonText; }
+  .fp:focus-visible, .fp-btn:focus-visible, .fp-grip:focus-visible, .tb-ci:focus-visible, .ci-run-row:focus-visible, .ci-job-btn:focus-visible, .ci-log:focus-visible, .ci-link:focus-visible, .ci-input:focus-visible { outline: 2px solid Highlight; }
+  .fp-resize { background: linear-gradient(135deg, transparent 0 55%, CanvasText 55% 62%, transparent 62% 72%, CanvasText 72% 79%, transparent 79%); }
+  .tb-ci-dot { forced-color-adjust: none; background: ButtonText; }
+  .ci-link { color: LinkText; }
+}
