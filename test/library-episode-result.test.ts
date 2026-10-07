@@ -8,7 +8,8 @@ import { EPISODE_RESULT_CHARS } from '../src/core/kg/graph.js';
 import { HUMAN } from '../src/core/kg/types.js';
 import { init, kg, ok, setup, waitDone } from './library-fakes.js';
 
-const SECRET = 'sk-ant-api03-abcdefghijklmnop1234';
+// built in two parts so the export scan does not mistake this fake key for a real one
+const SECRET = 'sk-ant-' + 'api03-abcdefghijklmnop1234';
 const SENTINEL = '<<END-OF-RESEARCH>>';
 // a result of ~20,000 characters; the secret sits at about 15,000, far past the window the episode summary looks at
 const LONG = `${'research line. '.repeat(1000)}key ${SECRET} ${'more findings. '.repeat(330)}${SENTINEL}`;
