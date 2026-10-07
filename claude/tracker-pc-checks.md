@@ -414,3 +414,11 @@ Built and tested on fakes and the in-process test core only. Settings, Logs has 
 | LG1 | Clear logs on Windows | Built app on Windows, some runs done so the log files exist, the core running | Settings, Logs: press Clear logs, then Delete logs. Then run one short task. | The file list empties with no error (no "file in use"); after the task, `legion.log` and `agents.log` exist again in the same folder with the new lines only | Screenshot of the Logs screen before and after; the folder listing | none | Logging wire |
 | LG2 | The log folder after a crash | Built app on Windows | End the core process from Task Manager while a run is going (or make it throw), then start Legion again and open Settings, Logs | `errors.log` holds the last error lines (or the folder shows the run's last lines); pasting `errors.log` into a chat shows no key, token or prompt text; `core.log` is intact | The folder listing and the pasted text | none | Logging wire |
 
+
+## 2026-10-07: Welcome points at Zealot (feat/welcome-zealot; plan `claude/plan-fascia.md` 6.2). Safety class: a few cents of Claude usage
+
+Checked visually with `ui/dev/mock-server.mjs` (scenario `first`); the real first task needs a real Claude sign-in.
+
+| id | Steps | Expected | Evidence | State |
+|---|---|---|---|---|
+| WF1 | Fresh install (or clear `legion.onboarded` in the window's local storage and have no tasks). Look at the welcome, open "Later, when you need them", then press Ask Zealot. | Two steps (sign-in, first task for Zealot); VMs and the Claude Code command only under Later. Ask Zealot opens a new Zealot task with the shown request; Zealot hands it to Scout and answers in one line with a source. | Screenshots of the welcome and the finished task. | todo |
