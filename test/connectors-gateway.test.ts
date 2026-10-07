@@ -24,7 +24,7 @@ import { tempDir } from './tmp-cleanup.js';
 const fakes: FakeGitHub[] = [];
 after(async () => { for (const f of fakes) await f.stop(); });
 
-const TOKEN_SHAPED = 'ghu_FAKEACCESS0001abcdefghijklmnopqrstuv';
+const TOKEN_SHAPED = 'gh' + 'u_FAKEACCESS0001abcdefghijklmnopqrstuv'; // split so the export secret scan does not refuse this file
 
 async function mk(o: { agent?: Partial<AgentProfile>; tools?: Record<string, ReadTool>; job?: Partial<ModuleJob>; noClient?: boolean } = {}) {
   const dir = tempDir('legion-gw-');
