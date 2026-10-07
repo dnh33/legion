@@ -11,7 +11,7 @@
  * No write methods here: writes.ts is slice 2.
  */
 import { GITHUB_API_ORIGIN, GITHUB_DEVICE_PAGE, GITHUB_LOG_STORAGE_HOSTS, GITHUB_READ_APP_CLIENT_ID, GITHUB_WEB_ORIGIN, looksLikeClientId } from './hosts.js';
-import type { TokenStore } from '../store.js';
+import type { StoreStatus, TokenStore } from '../store.js';
 
 export const GITHUB_TOKEN_ID = 'github-read';
 
@@ -64,7 +64,7 @@ export class DeviceFlowError extends Error {
 
 export interface GhRate { limit: number; remaining: number; resetAt: string }
 /** Pinned 2026-10-07 with the house/skills session. */
-export interface GhResponse { status: number; json: unknown; etag?: string; notModified?: boolean; rate: GhRate }
+export interface GhResponse { status: number; json: unknown; etag?: string; notModified?: boolean; rate: GhRate; /** Only for a `raw` request: the response body as text (a file's contents). */ text?: string }
 export type GhArea = 'contents' | 'issues' | 'pull_requests' | 'actions';
 export interface Connection {
   auth: 'github-app' | 'pat' | 'anonymous';
@@ -77,7 +77,7 @@ export interface Connection {
   rate: GhRate;
 }
 /** What `request()` accepts. Headers cannot be chosen by the caller (no Authorization, no Host): only these fields. */
-export interface GhInit { method?: string; body?: string; ifNoneMatch?: string }
+export interface GhInit { method?: string; body?: string; ifNoneMatch?: string; /** Ask for the raw media type: the body comes back as `text` (file contents), not parsed. */ raw?: boolean }
 
 interface GhTokenRecord { access: string; refresh?: string; expiresAt?: number; refreshExpiresAt?: number; login?: string }
 type FetchFn = typeof fetch;
@@ -215,6 +215,15 @@ export class GitHubClient {
     return rec;
   }
 
+  /** False while the GitHub App is not registered (the client id is a placeholder): the sign-in cannot start. */
+  deviceFlowAvailable(): boolean { return looksLikeClientId(this.clientId); }
+
+  /** The token store's state for the Settings page: ok, empty, sign-in-again or memory-only. */
+  storageStatus(): Promise<StoreStatus> { return this.tokens.status(); }
+
+  /** Whether a sign-in is stored (no network). */
+  async signedIn(): Promise<boolean> { const r = await this.tokens.get<GhTokenRecord>(GITHUB_TOKEN_ID); return !!r && typeof r.access === 'string'; }
+
   /** Forgets the stored sign-in locally. (Revoking at GitHub is the owner's step: github.com/settings/applications.) */
   async disconnect(): Promise<void> {
     await this.tokens.remove(GITHUB_TOKEN_ID);
@@ -285,6 +294,8 @@ export class GitHubClient {
   private async exchange(path: string, init: GhInit & { accept?: string }): Promise<Response> {
     const method = (init.method ?? 'GET').toUpperCase();
     if (!path.startsWith('/') || path.startsWith('//') || /[\\\s#]/.test(path)) throw new GhError('network', { retryable: false });
+    // a "." or ".." path segment (also percent-encoded) would be collapsed by URL parsing and could climb out of the repository path
+    if (path.split('?')[0]!.split('/').some((s) => /^(?:\.|%2e){1,2}$/i.test(s))) throw new GhError('network', { retryable: false });
     const url = new URL(path, GITHUB_API_ORIGIN);
     if (url.origin !== GITHUB_API_ORIGIN) throw new GhError('network', { retryable: false });
     let rec = await this.currentToken();
@@ -341,22 +352,26 @@ export class GitHubClient {
   /** api.github.com only. `init` has no header field: Authorization, Host and friends cannot be chosen by the caller. */
   async request(path: string, init: GhInit = {}): Promise<GhResponse> {
     const method = (init.method ?? 'GET').toUpperCase();
-    let res = await this.exchange(path, init);
+    const ex: GhInit & { accept?: string } = init.raw ? { ...init, accept: 'application/vnd.github.raw+json' } : init;
+    let res = await this.exchange(path, ex);
     // one same-origin redirect for reads (a renamed or moved repository); anything else is not followed
     if (redirectStatus(res.status) && isRead(method)) {
       const loc = res.headers.get('location');
       let to: URL | undefined;
       try { to = loc ? new URL(loc, GITHUB_API_ORIGIN) : undefined; } catch { to = undefined; }
       if (!to || to.origin !== GITHUB_API_ORIGIN) throw new GhError('network', { retryable: false });
-      res = await this.exchange(to.pathname + to.search, init);
+      res = await this.exchange(to.pathname + to.search, ex);
     }
-    return this.classify(res, method);
+    return this.classify(res, method, init.raw === true);
   }
 
-  private async classify(res: Response, method: string): Promise<GhResponse> {
+  private async classify(res: Response, method: string, raw = false): Promise<GhResponse> {
     const rate = this.lastRate;
     const etag = res.headers.get('etag') ?? undefined;
     if (res.status === 304) return { status: 304, json: undefined, notModified: true, ...(etag ? { etag } : {}), rate };
+    if (res.status >= 200 && res.status < 300 && raw) {
+      try { return { status: res.status, json: undefined, text: await this.readText(res, MAX_BODY), ...(etag ? { etag } : {}), rate }; } catch { throw new GhError('network', { retryable: false }); }
+    }
     if (res.status >= 200 && res.status < 300) {
       let json: unknown;
       try { const t = await this.readText(res, MAX_BODY); json = t ? JSON.parse(t) : undefined; } catch { throw new GhError('network', { retryable: false }); }

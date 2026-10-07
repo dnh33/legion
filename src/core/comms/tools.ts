@@ -30,7 +30,7 @@ export function buildCommsToolsServer(
   /** Checks a per-turn model against the account's catalog (Bridge.resolveModel). Without it only the alias list applies. */
   resolveModel?: (v: unknown) => Promise<ModelChoice | undefined>,
 ): McpSdkServerConfigWithInstance {
-  const sender = (): SenderRun => ({ ...(run?.taint() ? { tainted: true } : {}), ...(run?.ceiling ? { ceiling: run.ceiling } : {}) });
+  const sender = (): SenderRun => ({ ...(run?.taint() ? { tainted: true } : {}), ...(run?.ceiling ? { ceiling: run.ceiling } : {}), ...(run?.origin?.viaMcpClient ? { viaMcpClient: true } : {}) });
   const botList = tool(
     'bot_list',
     'List the other bots you can talk to: id, name, description, state (idle / working / waiting) and the rooms you share with each.',

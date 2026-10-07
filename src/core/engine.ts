@@ -380,8 +380,9 @@ export class Engine {
    */
   private mcpOrigin(p: BridgeStartParams, prev?: Task): TaskOrigin | undefined {
     if (p.source !== 'mcp') return undefined;
-    if (prev?.origin) return { ...prev.origin, approvalCeiling: stricterMode(prev.origin.approvalCeiling, 'ask') };
-    return { roomId: 'mcp', fromAgentId: 'mcp', hop: 0, approvalCeiling: 'ask' };
+    // viaMcpClient is set in both branches: a continue of a room-woken task by a client still came from a client (connector reads are refused for it).
+    if (prev?.origin) return { ...prev.origin, approvalCeiling: stricterMode(prev.origin.approvalCeiling, 'ask'), viaMcpClient: true };
+    return { roomId: 'mcp', fromAgentId: 'mcp', hop: 0, approvalCeiling: 'ask', viaMcpClient: true };
   }
 
   /** Origin (approval ceiling) for a task started by `ask`/`tell`. Replies go back to the caller's own task and add none. */
@@ -392,7 +393,9 @@ export class Engine {
     let ceiling: ApprovalMode = callerAgent?.approval ?? 'ask';
     if (callerTask?.origin) ceiling = stricterMode(ceiling, callerTask.origin.approvalCeiling);
     const tainted = !!callerTask?.origin?.tainted || (!!p.bridge.parentTaskId && this.isTainted(p.bridge.parentTaskId));
-    return { roomId: 'agent-bridge', fromAgentId: p.bridge.fromAgentId, hop: p.bridge.hop ?? 1, approvalCeiling: ceiling, ...(tainted ? { tainted: true } : {}) };
+    // the client flag travels down the chain: MCP client -> A -> (ask/tell) -> B is still a client-started chain (strictest wins, never cleared)
+    const viaMcpClient = callerTask?.origin?.viaMcpClient === true;
+    return { roomId: 'agent-bridge', fromAgentId: p.bridge.fromAgentId, hop: p.bridge.hop ?? 1, approvalCeiling: ceiling, ...(tainted ? { tainted: true } : {}), ...(viaMcpClient ? { viaMcpClient: true } : {}) };
   }
 
   /** Whether a task touched outside content (live run first, then what was stored). */
@@ -736,6 +739,8 @@ export class Engine {
     for (const [name, entry] of Object.entries(this.config.mcpServers ?? {})) {
       if (!all && !wanted.includes(name)) continue;
       if (self.has(name)) continue;
+      // A Settings entry may not take one of Legion's own server names: its tools would match LEGION_TOOL_PREFIXES (no card, no taint). Names are Legion's.
+      if (/^legion(_|$)/.test(name)) continue;
       if (entry.type === 'http') out[name] = { type: 'http', url: entry.url, ...(entry.headers ? { headers: entry.headers } : {}) };
       else if (entry.type === 'sse') out[name] = { type: 'sse', url: entry.url, ...(entry.headers ? { headers: entry.headers } : {}) };
       else out[name] = { type: 'stdio', command: entry.command, ...(entry.args ? { args: entry.args } : {}), ...(entry.env ? { env: entry.env } : {}) };

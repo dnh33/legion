@@ -11,6 +11,7 @@ import { readLaunchSecrets } from '../core/admin.js';
 import { ConnectorKeyring } from '../core/connectors/keyring.js';
 import { TokenStore } from '../core/connectors/store.js';
 import { createGitHubClient } from '../core/connectors/github/client.js';
+import { createConnectorsModule } from '../core/connectors/index.js';
 import { ApprovalBroker } from '../core/approvals.js';
 import { EventBus } from '../core/bus.js';
 import { getCatalog } from '../core/catalog.js';
@@ -104,7 +105,9 @@ async function main() {
   // project board: ON by default (owner decision 2026-10-03). Only the literal `false` under "features.projectBoard" in config.json turns it off; then none of it is built (no files, routes, tools or screen).
   const board = config.features.projectBoard ? new BoardStore(join(dataDir(), 'board')) : undefined;
   const boardModules = board ? [createBoardModule(moduleDeps, { projects, board, notes: graphNotes(() => kg.graph()) })] : [];
-  const modules = [kg, house, armory, createCommsModule(moduleDeps, { projects }), createProjectsModule(moduleDeps, { projects, nativeSecret }), ...boardModules, bsv, blender, ...providersModules, updater, createBrowserModule(moduleDeps, { nativeSecret, log })];
+  // connectors: the gateway tools (an agent must opt in) and the Settings routes; GitHub reads only in this build
+  const connectors = createConnectorsModule(moduleDeps, { keys: connectorKeyring, log });
+  const modules = [kg, house, armory, createCommsModule(moduleDeps, { projects }), createProjectsModule(moduleDeps, { projects, nativeSecret }), ...boardModules, bsv, blender, ...providersModules, updater, createBrowserModule(moduleDeps, { nativeSecret, log }), connectors];
   engine.setModules(modules);
   const server = createServer({
     config, store, bus, engine, vms, approvals, boatConfigured, modules, bsvEnabled,

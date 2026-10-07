@@ -106,10 +106,10 @@ const NO_REPLY = /^\W*no[_ -]?reply\W*$/i;
 
 // ------------------------------------------------------------------ internals
 
-interface Delivery { msg: RoomMessage; ceiling: ApprovalMode; humanChain: boolean; tainted?: boolean }
+interface Delivery { msg: RoomMessage; ceiling: ApprovalMode; humanChain: boolean; tainted?: boolean; viaMcpClient?: boolean }
 /** What a sender may pick for the woken bot's turn: a model, for that turn only. */
 export interface PostOpts { model?: string }
-interface Meta { ceiling: ApprovalMode; humanChain: boolean; auto: boolean; tainted?: boolean }
+interface Meta { ceiling: ApprovalMode; humanChain: boolean; auto: boolean; tainted?: boolean; viaMcpClient?: boolean }
 
 /** The model alias a bot asked for, checked (the tool layer also checks it against the catalog). */
 function cleanModel(v: unknown): string | undefined {
@@ -123,6 +123,8 @@ export interface SenderRun {
   tainted?: boolean;
   /** The approval ceiling of the sender's own run (an MCP-started run is capped at `ask`). Whatever the sender's agent is set to, a message it sends never wakes a peer above this. */
   ceiling?: ApprovalMode;
+  /** The sender's run was started by (or woken down a chain from) an MCP client: the flag follows every message it sends. */
+  viaMcpClient?: boolean;
 }
 interface Plan { explicit: string[]; wake: string[]; everyone: boolean; rrUsed: boolean }
 interface Wake {
@@ -454,7 +456,7 @@ export class CommsHub {
     const msg = this.post(room, { from, to: plan.explicit, kind: 'chat', text: t, ...(replyTo ? { replyTo } : {}), hop: ctx.hop + 1, ...(run.tainted ? { tainted: true } : {}), ...(model ? { model } : {}) });
     this.notePost(room, sender.id, msg);
     this.awaitAnswer(sender.id, room.id, peer.id);
-    this.dispatch(room, msg, plan.wake, { ceiling: this.sendCeiling(ctx, run), humanChain: ctx.humanChain, auto: false, ...(run.tainted ? { tainted: true } : {}) });
+    this.dispatch(room, msg, plan.wake, { ceiling: this.sendCeiling(ctx, run), humanChain: ctx.humanChain, auto: false, ...(run.tainted ? { tainted: true } : {}), ...(run.viaMcpClient ? { viaMcpClient: true } : {}) });
     return clone(msg);
   }
 
@@ -477,7 +479,7 @@ export class CommsHub {
     this.notePost(room, fromId, msg);
     const viaParam = (Array.isArray(mention) ? mention : mention ? [mention] : []).map((m) => '@' + m.replace(/^@/, '')).join(' ');
     this.noteBotEveryone(room, fromId, `${t} ${viaParam}`);
-    this.dispatch(room, msg, plan.wake, { ceiling: this.sendCeiling(ctx, run), humanChain: ctx.humanChain, auto: false, ...(run.tainted ? { tainted: true } : {}) });
+    this.dispatch(room, msg, plan.wake, { ceiling: this.sendCeiling(ctx, run), humanChain: ctx.humanChain, auto: false, ...(run.tainted ? { tainted: true } : {}), ...(run.viaMcpClient ? { viaMcpClient: true } : {}) });
     return clone(msg);
   }
 
@@ -501,7 +503,7 @@ export class CommsHub {
     // the thread is the receiver's now: whatever this run still says at the end of its turn wakes nobody
     const mine = this.activeWake(room.id, fromId);
     if (mine) mine.handedOff = true;
-    this.dispatch(room, msg, [target], { ceiling: this.sendCeiling(ctx, run), humanChain: ctx.humanChain, auto: false, ...(run.tainted ? { tainted: true } : {}) });
+    this.dispatch(room, msg, [target], { ceiling: this.sendCeiling(ctx, run), humanChain: ctx.humanChain, auto: false, ...(run.tainted ? { tainted: true } : {}), ...(run.viaMcpClient ? { viaMcpClient: true } : {}) });
     return clone(msg);
   }
 
@@ -761,7 +763,7 @@ export class CommsHub {
   /** Guards that apply to a stored message, then delivery to each recipient. */
   private dispatch(room: Room, msg: RoomMessage, wake: string[], meta: Meta): void {
     const ids = unique(wake).filter((id) => room.members.includes(id) && !(msg.from.kind === 'bot' && msg.from.agentId === id));
-    if (room.paused) { if (room.paused.reason === 'budget') for (const id of ids) this.hold(room, id, { msg, ceiling: meta.ceiling, humanChain: meta.humanChain, ...(meta.tainted ? { tainted: true } : {}) }); return; }
+    if (room.paused) { if (room.paused.reason === 'budget') for (const id of ids) this.hold(room, id, { msg, ceiling: meta.ceiling, humanChain: meta.humanChain, ...(meta.tainted ? { tainted: true } : {}), ...(meta.viaMcpClient ? { viaMcpClient: true } : {}) }); return; }
     if (ids.length === 0) return;
     if (msg.from.kind === 'bot') {
       const sender = msg.from.agentId;
@@ -788,7 +790,7 @@ export class CommsHub {
         return;
       }
     }
-    for (const id of ids) this.deliver(room, id, { msg, ceiling: meta.ceiling, humanChain: meta.humanChain, ...(meta.tainted ? { tainted: true } : {}) });
+    for (const id of ids) this.deliver(room, id, { msg, ceiling: meta.ceiling, humanChain: meta.humanChain, ...(meta.tainted ? { tainted: true } : {}), ...(meta.viaMcpClient ? { viaMcpClient: true } : {}) });
   }
 
   private deliver(room: Room, botId: string, d: Delivery): void {
@@ -955,6 +957,8 @@ export class CommsHub {
       approvalCeiling: strictest(bots.map((d) => d.ceiling)),
       // taint is ORed along the chain: one tainted sender taints the whole wake
       ...(bots.some((d) => d.tainted) ? { tainted: true } : {}),
+      // the MCP-client flag is ORed the same way: one flagged sender flags the whole wake
+      ...(bots.some((d) => d.viaMcpClient) ? { viaMcpClient: true } : {}),
     };
   }
 
@@ -1018,7 +1022,7 @@ export class CommsHub {
         const wake = w.handedOff ? []
           : w.handoffFrom?.length ? this.mentionsIn(room, result).filter((id) => id !== w.botId && !w.handoffFrom!.includes(id))
           : plan.wake;
-        this.dispatch(room, msg, wake, { ceiling, humanChain: w.humanChain, auto: true, ...(task.tainted ? { tainted: true } : {}) });
+        this.dispatch(room, msg, wake, { ceiling, humanChain: w.humanChain, auto: true, ...(task.tainted ? { tainted: true } : {}), ...(task.origin?.viaMcpClient ? { viaMcpClient: true } : {}) });
       }
     } else if (task.status === 'error') {
       this.post(room, {

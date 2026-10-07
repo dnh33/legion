@@ -4,6 +4,8 @@
  * argv or a log by this module, and toString/JSON show nothing. No key (headless core, Linux without a keyring, first launch before
  * the first Connect) means the token store keeps connectors in memory only.
  */
+import { registerSecretBytes } from '../log/redact.js';
+
 export const DATA_KEY_BYTES = 32;
 /** The one accepted form of the key line on the launch pipe: "KEY " and 64 lowercase hex characters. */
 export const KEY_LINE = /^KEY ([0-9a-f]{64})$/;
@@ -20,6 +22,8 @@ export class ConnectorKeyring {
   install(key: Buffer): boolean {
     if (this.#key || key.length !== DATA_KEY_BYTES) return false;
     this.#key = Buffer.from(key);
+    // the redactor must know the key from the moment the core holds it, in every text encoding a log could carry
+    registerSecretBytes(this.#key);
     return true;
   }
 

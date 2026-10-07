@@ -143,6 +143,13 @@ function parseMcpServers(v: unknown): string[] | undefined {
   return v as string[];
 }
 
+/** Connector ids an agent opts into: lowercase names, at most 16. */
+function parseConnectors(v: unknown): string[] | undefined {
+  if (v === undefined) return undefined;
+  if (!Array.isArray(v) || v.length > 16 || v.some((x) => typeof x !== 'string' || !/^[a-z][a-z0-9_-]{0,63}$/.test(x))) throw new HttpError(400, 'connectors must be an array of connector ids (lowercase names)');
+  return [...new Set(v as string[])];
+}
+
 function parseSkills(v: unknown): 'inherit' | string[] | undefined {
   if (v === undefined) return undefined;
   if (v === 'inherit') return 'inherit';
@@ -164,6 +171,7 @@ function parseAgentFields(b: Record<string, unknown>) {
     approval: oneOf(b.approval, 'approval', APPROVALS),
     vm: parseVm(b.vm),
     mcpServers: parseMcpServers(b.mcpServers),
+    connectors: parseConnectors(b.connectors),
     skills: parseSkills(b.skills),
   };
 }
@@ -247,6 +255,7 @@ export function createServer(ctx: CoreContext): Server {
       vm: { enabled: false, size: 'default', idleStopMinutes: 15, ...f.vm },
       approval: f.approval ?? 'ask',
       mcpServers: f.mcpServers ?? ['*'],
+      ...(f.connectors?.length ? { connectors: f.connectors } : {}),
       ...(f.skills ? { skills: f.skills } : {}),
       ...(f.cwd ? { cwd: f.cwd } : {}),
       createdAt: now, updatedAt: now,
@@ -270,6 +279,7 @@ export function createServer(ctx: CoreContext): Server {
       ...(f.model ? { model: f.model } : {}),
       ...(f.approval ? { approval: f.approval } : {}),
       ...(f.mcpServers ? { mcpServers: f.mcpServers } : {}),
+      ...(f.connectors ? { connectors: f.connectors } : {}),
       ...(f.skills ? { skills: f.skills } : {}),
       ...(f.cwd !== undefined ? { cwd: f.cwd || undefined } : {}),
       vm: { ...cur.vm, ...f.vm },

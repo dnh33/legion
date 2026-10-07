@@ -45,6 +45,11 @@ export interface AgentProfile {
   /** Names of entries in LegionConfig.mcpServers this agent gets. ['*'] = all. */
   mcpServers: string[];
   /**
+   * Connectors (GitHub, ...) this agent may use through Legion's own gateway (mcp__legion_connectors__*). An explicit opt-in:
+   * default empty, and `mcpServers: ['*']` does NOT grant it (the gateway checks this field, not the UI). Ids are lowercase names.
+   */
+  connectors?: string[];
+  /**
    * Which skills this agent may pick up. 'inherit' (default, also when absent) = every skill the Armory switched on for it.
    * A list = only those ids (it narrows, it never turns a skill on). Covers Armory, Claude Code and drill ids.
    */
