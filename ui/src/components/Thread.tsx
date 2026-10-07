@@ -2,7 +2,9 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import type { ChatMessage } from '../../../src/shared/types';
 import { CONTINUE_PROMPT, budgetLimitFromError, isBudgetPause, isLimitPause } from '../../../src/shared/continue';
 import { base, token } from '../api';
-import { decide, dismissOnboarding, openDoctor, openEditor, openSettings, refresh, selectTask, sendPrompt, useStore } from '../store';
+import { decide, dismissOnboarding, ensureLoaded, jumpToLatest, loadOlder, openDoctor, openEditor, openSettings, refresh, retryOlder, selectTask, sendPrompt, useStore } from '../store';
+import { ROW_GAP, anchoredScrollTop, hasOlder, layoutOffsets, metaDetached, rowAt, rowIndexOfMessage, scrollForRow, shouldLoadOlder, visibleRange } from '../chat/threadWindow';
+import { ThreadSearch } from './ThreadSearch';
 import { copyText, money } from '../util';
 import { ApprovalCard } from './ApprovalCard';
 import { Icon } from './icons';
@@ -34,6 +36,21 @@ function group(messages: ChatMessage[]): Item[] {
 }
 
 const EMPTY: ChatMessage[] = [];
+const itemKey = (it: Item): string => (it.k === 'tools' ? it.items[0]!.id : it.m.id);
+
+/** One drawn row of the conversation. Its measured height feeds the window (rows not drawn use an estimate); `onSize` also fires when the row resizes (a code block wrapping, an image loading). */
+function Row({ k, onSize, hit, children }: { k: string; onSize: (k: string, h: number) => void; hit: boolean; children: React.ReactNode }) {
+  const ref = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    const el = ref.current; if (!el) return;
+    onSize(k, el.offsetHeight);
+    if (typeof ResizeObserver === 'undefined') return;
+    const ro = new ResizeObserver(() => onSize(k, el.offsetHeight));
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [k, onSize]);
+  return <div ref={ref} className={`vrow${hit ? ' hit' : ''}`} data-k={k}>{children}</div>;
+}
 
 export function Thread() {
   const agentId = useStore((s) => s.selectedAgentId);
@@ -59,6 +76,29 @@ export function Thread() {
 
   const scroller = useRef<HTMLDivElement>(null);
   const stick = useRef(true);
+  const meta = useStore((s) => (taskId ? s.threadMeta[taskId] : undefined));
+  // windowing: measured row heights (per thread), the scroll offset, and what the reader is anchored to while older rows load
+  const hv = useRef<{ id: string | null; map: Map<string, number> }>({ id: null, map: new Map() });
+  if (hv.current.id !== taskId) hv.current = { id: taskId, map: new Map() };
+  const [tick, setTick] = useState(0);
+  const [top, setTop] = useState(Number.MAX_SAFE_INTEGER); // "far down": a thread opens at its tail
+  const [viewH, setViewH] = useState(640);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [hitId, setHitId] = useState<string | null>(null);
+  const anchor = useRef<{ key: string; rowTop: number; first: string } | null>(null);
+  const pin = useRef<{ id: string; n: number } | null>(null);
+  const offsetsRef = useRef<number[]>([0]);
+  const keysRef = useRef<string[]>([]);
+  const pendingSize = useRef(false);
+  const onSize = useCallback((k: string, h: number) => {
+    const map = hv.current.map; const old = map.get(k);
+    if (old === h) return;
+    map.set(k, h);
+    const el = scroller.current; const i = keysRef.current.indexOf(k);
+    // a row above the reader changed height: move the scroll position by the same amount so what is on screen does not jump
+    if (el && i >= 0 && !stick.current && old !== undefined && offsetsRef.current[i + 1]! <= el.scrollTop) el.scrollTop += h - old;
+    if (!pendingSize.current) { pendingSize.current = true; queueMicrotask(() => { pendingSize.current = false; setTick((t) => t + 1); }); }
+  }, []);
   const [away, setAway] = useState(false);
   const awayRef = useRef(false);
   const setAwayOnce = useCallback((v: boolean) => { if (awayRef.current !== v) { awayRef.current = v; setAway(v); } }, []);
@@ -68,7 +108,13 @@ export function Thread() {
     const near = el.scrollHeight - el.scrollTop - el.clientHeight < 72;
     stick.current = near;
     setAwayOnce(!near);
-  }, [setAwayOnce]);
+    setTop(el.scrollTop); setViewH(el.clientHeight || 800);
+    if (taskId && shouldLoadOlder(el.scrollTop, meta)) {
+      const i = rowAt(offsetsRef.current, el.scrollTop);
+      anchor.current = { key: keysRef.current[i] ?? '', rowTop: (offsetsRef.current[i] ?? 0) - el.scrollTop, first: keysRef.current[0] ?? '' };
+      void loadOlder(taskId);
+    }
+  }, [setAwayOnce, taskId, meta]);
   const toBottom = useCallback((smooth = false) => {
     const el = scroller.current; if (!el) return;
     el.scrollTo({ top: el.scrollHeight, behavior: smooth ? 'smooth' : 'auto' });
@@ -76,11 +122,18 @@ export function Thread() {
   }, [setAwayOnce]);
 
   // new thread → jump to bottom without animation
-  useLayoutEffect(() => { stick.current = true; toBottom(); }, [taskId, toBottom]);
+  useLayoutEffect(() => { stick.current = true; anchor.current = null; pin.current = null; setHitId(null); setSearchOpen(false); setTop(Number.MAX_SAFE_INTEGER); toBottom(); setViewH(scroller.current?.clientHeight || 800); }, [taskId, toBottom]);
+  // the window follows the pane's height (resizing, a hidden pane being shown)
+  useEffect(() => {
+    const el = scroller.current; if (!el || typeof ResizeObserver === 'undefined') return;
+    const ro = new ResizeObserver(() => setViewH(el.clientHeight || 800));
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
   // follow content while stuck to bottom
   const taskApprovals = approvals.filter((a) => a.taskId === taskId);
   const otherApprovals = approvals.filter((a) => a.agentId === agentId && a.taskId !== taskId);
-  useLayoutEffect(() => { if (stick.current) toBottom(); }, [messages, stream, taskApprovals.length, running, toBottom]);
+  useLayoutEffect(() => { if (stick.current && !metaDetached(meta)) toBottom(); }, [messages, stream, taskApprovals.length, running, toBottom, tick, meta]);
 
   // A / D shortcut for the first pending approval when nothing is focused
   useEffect(() => {
@@ -100,6 +153,32 @@ export function Thread() {
   const results = useMemo(() => toolResults(messages), [messages]);
   const lastUser = useMemo(() => [...messages].reverse().find((m) => m.role === 'user' && !m.fromAgentId), [messages]);
   const empty = items.length === 0 && !stream && !running;
+  const keys = useMemo(() => items.map(itemKey), [items]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const offsets = useMemo(() => layoutOffsets(keys, hv.current.map), [keys, tick, taskId]);
+  keysRef.current = keys; offsetsRef.current = offsets;
+  const win = visibleRange(offsets, top, viewH);
+  // older rows arrived above: put the scroll position back so the row the reader was looking at stays where it was
+  useLayoutEffect(() => {
+    const el = scroller.current; const a = anchor.current;
+    if (!el || !a || keys[0] === a.first) return;
+    const i = keys.indexOf(a.key); anchor.current = null;
+    if (i >= 0) { el.scrollTop = anchoredScrollTop(offsets[i]!, a.rowTop); setTop(el.scrollTop); }
+  }, [keys, offsets]);
+  // a search hit: bring its row to the top, again as the rows around it are measured (estimates become real heights), until it settles
+  useLayoutEffect(() => {
+    const el = scroller.current; const p = pin.current;
+    if (!el || !p) return;
+    const i = rowIndexOfMessage(items, messages, p.id);
+    if (i < 0) return;
+    const want = scrollForRow(offsets, i);
+    if (Math.abs(el.scrollTop - want) > 2) { el.scrollTop = want; setTop(want); }
+    if (++p.n > 8) pin.current = null;
+  }, [offsets, items, messages]);
+  const jumpTo = useCallback(async (index: number, id: string) => {
+    if (!taskId || !(await ensureLoaded(taskId, index))) return;
+    stick.current = false; setAwayOnce(true); setHitId(id); pin.current = { id, n: 0 }; setTick((t) => t + 1);
+  }, [taskId, setAwayOnce]);
 
   return (
     <section className="thread">
@@ -115,10 +194,12 @@ export function Thread() {
           {agent && <span className={`chip-pill ap-${agent.approval}`} title="Approval mode">{agent.approval === 'full' ? 'Full access' : agent.approval === 'ask' ? 'Asks first' : 'Auto-edits'}</span>}
           {task?.provider && <span className="th-cost" title="This run used a provider, not Claude. Cost is shown only when you entered prices for the model.">{task.provider}{task.tokenUsage?.inputTokens != null ? ` \u00b7 ${task.tokenUsage.inputTokens} in / ${task.tokenUsage.outputTokens ?? 0} out` : ''}{task.tokenUsage?.unknown ? ' \u00b7 token counts unknown' : ''}{task.costUsd == null ? ' \u00b7 cost unknown' : ''}</span>}
           {task && <span className="th-cost" title="Cumulative cost and turns for this task">{task.costUsd != null ? money(task.costUsd) : ''}{task.costUsd != null && task.turns != null ? ' · ' : ''}{task.turns != null ? `${task.turns} turn${task.turns === 1 ? '' : 's'}` : ''}</span>}
+          {taskId && <button className={`icon-btn${searchOpen ? ' on' : ''}`} onClick={() => setSearchOpen((v) => !v)} aria-pressed={searchOpen} aria-label="Search this conversation" title="Search this conversation"><Icon name="search" size={14} /></button>}
           {agent && <button className="icon-btn" onClick={() => openEditor(agent.id)} aria-label="Edit agent" title="Edit agent"><Icon name="edit" size={14} /></button>}
         </div>
       </div>
       <TaskSwitcher />
+      {taskId && searchOpen && <ThreadSearch taskId={taskId} onJump={jumpTo} onClose={() => { setSearchOpen(false); setHitId(null); }} />}
       {loaded && conn === 'offline' && agents.length > 0 && (
         <div className="banner offline" role="status"><Icon name="x" size={13} /> <span>Legion core is not reachable. Retrying automatically; replies resume when it is back.</span></div>
       )}
@@ -131,9 +212,23 @@ export function Thread() {
         <div className="thread-inner">
           {empty ? <EmptyState /> : (
             <>
-              {items.map((it, i) => it.k === 'tools'
-                ? <ToolGroup key={it.items[0].id} items={it.items} results={results} />
-                : <MessageView key={it.m.id} m={it.m} agent={agent} task={task} />)}
+              {taskId && hasOlder(meta) && (
+                <div className="older-row" role="status">
+                  {meta?.error ? <button className="btn sm" onClick={() => retryOlder(taskId)}>Could not load earlier messages. Retry</button>
+                    : meta?.loadingOlder ? <span><span className="spin" /> Loading earlier messages{'\u2026'}</span>
+                    : <button className="btn sm" onClick={() => { anchor.current = { key: keys[0] ?? '', rowTop: 0, first: keys[0] ?? '' }; void loadOlder(taskId); }}>{meta!.start} earlier messages. Load more</button>}
+                </div>
+              )}
+              {win.padTop > 0 && <div aria-hidden="true" style={{ height: Math.max(0, win.padTop - ROW_GAP) }} />}
+              {items.slice(win.start, win.end).map((it) => {
+                const k = itemKey(it);
+                return (
+                  <Row key={k} k={k} onSize={onSize} hit={hitId !== null && (it.k === 'msg' ? it.m.id === hitId : it.items.some((x) => x.id === hitId))}>
+                    {it.k === 'tools' ? <ToolGroup items={it.items} results={results} /> : <MessageView m={it.m} agent={agent} task={task} />}
+                  </Row>
+                );
+              })}
+              {win.padBottom > 0 && <div aria-hidden="true" style={{ height: Math.max(0, win.padBottom - ROW_GAP) }} />}
               {stream && <MessageView m={{ role: 'assistant', text: stream }} agent={agent} task={task} streaming />}
               {running && task && task.status !== 'queued' && <TodoList taskId={task.id} />}
               {running && !stream && task && <WorkingRow taskId={task.id} queued={task.status === 'queued'} waiting={taskApprovals.length > 0} />}
@@ -166,7 +261,8 @@ export function Thread() {
           )}
         </div>
       </div>
-      {away && <button className="jump" onClick={() => toBottom(true)}><Icon name="down" size={13} /> Jump to latest</button>}
+      {taskId && metaDetached(meta) && <div className="banner detached" role="status"><span>Showing an earlier part of this conversation.</span> <button className="btn sm" onClick={() => { jumpToLatest(taskId); setHitId(null); stick.current = true; }}>Jump to latest</button></div>}
+      {away && !metaDetached(meta) && <button className="jump" onClick={() => toBottom(true)}><Icon name="down" size={13} /> Jump to latest</button>}
     </section>
   );
 }
