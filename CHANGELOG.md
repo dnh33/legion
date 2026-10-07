@@ -4,6 +4,13 @@ All notable changes are recorded here. The format follows [Keep a Changelog](htt
 
 ## [Unreleased]
 
+### Fixed
+
+- **A run waits for its background agents.** Claude Code subagents started in the background used to die the moment the lead answered any message, because Legion closed the run. The run now stays open until they report (the working row says "waiting on N background agents"), you stop it, or nothing has come from them for 60 minutes. Stop, Ctrl+Enter and "send now" ask first when background agents would be ended.
+- **Answers from agents no longer use up the lead's hops.** A reply to a `tell` now comes back at the lead's own hop. Before, a lead started by the owner could collect about three answers and then every `tell` failed with "hop limit", and later answers were dropped without a word. An answer that cannot be delivered now leaves a notice in both threads.
+- **Long answers are no longer cut off.** An answer over 4,000 characters is kept in full; the cut text points to it and the new `task_result` tool reads the rest in pages.
+- **Library episodes link to the full result.** An episode still keeps a short summary, and `kg_get task:<id>#result` reads the whole result of that task (scrubbed for secrets).
+
 ## [0.2.5-j] - 2026-10-07
 
 ### Added
