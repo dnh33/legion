@@ -146,7 +146,9 @@ try {
     out.nativeInCoreLog = hasN(readFileSync(join(home, 'core.log'), 'utf8'));
     out.nativeInBootstrap = JSON.stringify(b).includes(N ?? 'x');
     const nfiles = [];
-    const walkN = (d) => { for (const e of readdirSync(d, { withFileTypes: true })) { const p = join(d, e.name); if (e.isDirectory()) walkN(p); else if (hasN(readFileSync(p, 'utf8'))) nfiles.push(p); } };
+    // The core writes atomically (x.tmp, then rename), so a file or folder can vanish between readdir and read: skip ENOENT only.
+    const gone = (e) => e && e.code === 'ENOENT';
+    const walkN = (d) => { let es; try { es = readdirSync(d, { withFileTypes: true }); } catch (e) { if (gone(e)) return; throw e; } for (const e of es) { const p = join(d, e.name); if (e.isDirectory()) walkN(p); else { let text; try { text = readFileSync(p, 'utf8'); } catch (err) { if (gone(err)) continue; throw err; } if (hasN(text)) nfiles.push(p); } } };
     walkN(home);
     out.nativeFiles = nfiles;
   }
