@@ -14,11 +14,11 @@ export interface WritableLike { write: (...args: never[]) => boolean }
 const WRAPPED = Symbol.for('legion.log.streamWrapped');
 
 /** Redacts one chunk. Text and byte chunks both become redacted text. */
-export function redactChunk(chunk: unknown, encoding?: unknown): unknown {
+export function redactChunk(chunk: unknown, _encoding?: unknown): unknown {
   if (typeof chunk === 'string') return redact(chunk);
   if (chunk instanceof Uint8Array) {
-    const enc = typeof encoding === 'string' && Buffer.isEncoding(encoding) ? encoding : 'utf8';
-    return redact(Buffer.from(chunk).toString(enc as BufferEncoding));
+    // A Buffer is bytes: the encoding argument describes strings, so it is ignored here (write(buf, 'hex') is legal).
+    return redact(Buffer.from(chunk).toString('utf8'));
   }
   return chunk;
 }

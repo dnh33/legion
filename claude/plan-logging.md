@@ -4,6 +4,23 @@ Status: **design, for agreement with the connectors session** (it owns the redac
 section 4.4). No code in `src/bin/legion-core.ts`, the log sink or the stream wrappers until both sessions agree.
 Brief: the maintainer's logging handoff (private notes, 2026-10-04/05), restated below where it decides something.
 
+## The stance: a neutral record that belongs to the user (maintainer, 2026-10-07)
+Logging must never be, or read as, surveillance. It is a neutral layer that exists for one reason: when something
+breaks, the user has the facts to fix it or to ask for help. Rules that follow from this, binding on the code and the
+copy:
+- **Local only.** Legion's own code never sends a log anywhere: no telemetry, no crash upload, no "send report"
+  button that posts to us. Nothing leaves the computer unless the user copies it themselves.
+- **What Legion did, never what you wrote.** Events about the app (a run started, a provider answered with an error,
+  an update installed), never prompts, replies, notes, files or tool arguments. Secrets are masked before a line is
+  written.
+- **Yours.** Plain text in a folder the user can open; *Copy* and *Clear logs* in Settings; size-capped so it never
+  fills a disk.
+- **Copy leads with the benefit, stated plainly.** Settings, Logs says what the logs are for and what they hold, for
+  example: "Legion keeps a short record of what it did (runs, errors, updates) on this computer, so you can see what
+  went wrong and share it if you ask for help. It never includes what you or your agents wrote, and it is never sent
+  anywhere." No vague words ("diagnostics", "analytics", "improve your experience") that suggest data collection.
+- Docs (`SECURITY.md`, the README Status section) describe it the same way, scoped to Legion's own code.
+
 ## What the owner gets
 - Logs a user can paste into a chat when something breaks. **Not encrypted, on purpose**: encryption and redaction
   solve different problems. Keys stay in the keyring; a secret that leaks into a log is redacted at the writer.

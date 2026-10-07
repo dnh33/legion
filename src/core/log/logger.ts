@@ -17,7 +17,7 @@
  * Limits: a token split across two stream chunks (see stream-wrap.ts) is not matched; if a rotation rename fails
  * (another process holds the file) the writer keeps appending, so the cap is then soft for that file.
  */
-import { closeSync, existsSync, fstatSync, mkdirSync, openSync, renameSync, rmSync, writeSync } from 'node:fs';
+import { closeSync, existsSync, fstatSync, mkdirSync, openSync, renameSync, writeSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { join } from 'node:path';
 import { redact } from './redact.js';
@@ -35,6 +35,8 @@ export const QUEUE_MAX = 10_000;
 export const ROTATE_BYTES = 5 * 1024 * 1024;
 export const ROTATE_KEEP = 3;
 const BATCH_LINES = 500;
+/** After a failed rotation, wait this long before trying again for that file. */
+export const ROTATE_RETRY_MS = 60_000;
 
 /** Components whose INFO+ lines also go to app.log. Everything else goes to legion.log (and errors.log) only. */
 const APP_COMPONENTS = new Set(['app', 'updater', 'blender', 'connectors']);
@@ -65,7 +67,10 @@ function renderValue(v: unknown): string {
   if (typeof v === 'number') return Number.isFinite(v) ? String(v) : '"[non-finite]"';
   if (typeof v === 'boolean') return v ? 'true' : 'false';
   if (typeof v === 'string') {
-    const capped = v.length > MAX_FIELD_CHARS ? `${v.slice(0, MAX_FIELD_CHARS)}...[truncated]` : v;
+    // Redact the whole value first, then cap: a token straddling the cap must not leave an unmasked prefix. The input to
+    // the redactor is bounded so a huge string cannot stall the caller; a token that starts before the cap is far shorter.
+    const masked = redact(v.length > 100_000 ? v.slice(0, 100_000) : v);
+    const capped = masked.length > MAX_FIELD_CHARS ? `${masked.slice(0, MAX_FIELD_CHARS)}...[truncated]` : masked;
     return JSON.stringify(capped); // one line, newlines escaped: a field cannot forge a second log line
   }
   return '"[unserialised]"'; // objects, arrays, null, undefined, functions, bigint, symbols: never serialised
@@ -88,6 +93,8 @@ export interface LogSinkOptions {
   rotateBytes?: number;
   rotateKeep?: number;
   now?: () => Date;
+  /** Rename used by rotation (injectable so a test can fail it). Default fs.renameSync. */
+  rename?: (from: string, to: string) => void;
   /** How a drain is scheduled. Default setImmediate. A test passes one that never runs, to stall the writer. */
   schedule?: (fn: () => void) => void;
 }
@@ -105,7 +112,9 @@ export class LogSink {
   private tail: Entry | null = null;
   private size = 0;
   /** Oldest-first lists of queued DEBUG and INFO entries, for eviction when the queue is full. */
-  private readonly low: Array<{ list: Entry[]; at: number }> = [{ list: [], at: 0 }, { list: [], at: 0 }];
+  private readonly low: Array<{ list: Entry[]; at: number; live: number }> = [{ list: [], at: 0, live: 0 }, { list: [], at: 0, live: 0 }];
+  private readonly rename: (from: string, to: string) => void;
+  private readonly rotateBackoffUntil = new Map<LogFile, number>();
   private dropped = 0;
   private scheduled = false;
   private open = true;
@@ -120,6 +129,7 @@ export class LogSink {
     this.queueMax = opts.queueMax ?? QUEUE_MAX;
     this.rotateBytes = opts.rotateBytes ?? ROTATE_BYTES;
     this.rotateKeep = opts.rotateKeep ?? ROTATE_KEEP;
+    this.rename = opts.rename ?? renameSync;
     this.now = opts.now ?? (() => new Date());
     this.schedule = opts.schedule ?? ((fn) => { setImmediate(fn); });
   }
@@ -130,6 +140,8 @@ export class LogSink {
 
   /** Lines waiting for the writer. */
   get queued(): number { return this.size; }
+  /** Diagnostic: entries held in the DEBUG/INFO eviction lists (stays near the queue size, never the history). */
+  get lowListLength(): number { return this.low[0].list.length + this.low[1].list.length; }
   /** Open file handles (0 after closeAll). */
   get openHandles(): number { return this.fds.size; }
 
@@ -148,7 +160,7 @@ export class LogSink {
     if (this.tail) this.tail.next = e; else this.head = e;
     this.tail = e;
     this.size++;
-    if (rank < RANK.warn) this.low[rank].list.push(e);
+    if (rank < RANK.warn) { this.low[rank].list.push(e); this.low[rank].live++; }
     this.kick();
   }
 
@@ -174,8 +186,11 @@ export class LogSink {
     if (e.prev) e.prev.next = e.next; else this.head = e.next;
     if (e.next) e.next.prev = e.prev; else this.tail = e.prev;
     this.size--;
-    for (const q of this.low) {
-      if (q.at > 4096 && q.at * 2 > q.list.length) { q.list.splice(0, q.at); q.at = 0; }
+    if (e.level < RANK.warn) {
+      const q = this.low[e.level];
+      q.live--;
+      // Drained or evicted entries stay in the list until compacted: keep it within twice the live count.
+      if (q.list.length > 1024 && q.list.length > 2 * q.live) { q.list = q.list.filter((x) => !x.gone); q.at = 0; }
     }
   }
 
@@ -205,7 +220,7 @@ export class LogSink {
     if (this.dropped > 0) {
       const n = this.dropped;
       this.dropped = 0;
-      add(['legion.log', 'errors.log'], `${this.now().toISOString()} WARN  log log.dropped count=${n}`);
+      add(['legion.log', 'errors.log'], redact(`${this.now().toISOString()} WARN  log log.dropped count=${n}`));
     }
     let n = 0;
     while (this.head && n < max) {
@@ -222,8 +237,8 @@ export class LogSink {
     const cur = this.fds.get(file);
     if (cur) return cur;
     try {
-      mkdirSync(this.dir, { recursive: true });
-      const fd = openSync(join(this.dir, file), 'a');
+      mkdirSync(this.dir, { recursive: true, mode: 0o700 });
+      const fd = openSync(join(this.dir, file), 'a', 0o600);
       const h = { fd, size: fstatSync(fd).size };
       this.fds.set(file, h);
       return h;
@@ -241,10 +256,14 @@ export class LogSink {
     this.closeHandle(file);
     const base = join(this.dir, file);
     try {
-      rmSync(`${base}.${this.rotateKeep}`, { force: true });
-      for (let i = this.rotateKeep - 1; i >= 1; i--) if (existsSync(`${base}.${i}`)) renameSync(`${base}.${i}`, `${base}.${i + 1}`);
-      renameSync(base, `${base}.1`);
-    } catch { this.writeErrors++; /* soft cap for this file: keep appending */ }
+      // Rename only, oldest first: a rename onto an existing file replaces it, so the oldest backup is dropped only once
+      // its replacement is in place. A failure part-way loses nothing that was not already due to go.
+      for (let i = this.rotateKeep - 1; i >= 1; i--) if (existsSync(`${base}.${i}`)) this.rename(`${base}.${i}`, `${base}.${i + 1}`);
+      this.rename(base, `${base}.1`);
+    } catch {
+      this.writeErrors++; // soft cap for this file: keep appending, and do not retry on every line
+      this.rotateBackoffUntil.set(file, this.now().getTime() + ROTATE_RETRY_MS);
+    }
   }
 
   private writeLines(file: LogFile, lines: string[]): void {
@@ -270,7 +289,7 @@ export class LogSink {
       const len = Buffer.byteLength(text);
       const h = this.handle(file);
       const have = (h?.size ?? 0) + Buffer.byteLength(pending);
-      if (have > 0 && have + len > this.rotateBytes) { flush(); this.rotate(file); }
+      if (have > 0 && have + len > this.rotateBytes && this.now().getTime() >= (this.rotateBackoffUntil.get(file) ?? 0)) { flush(); this.rotate(file); }
       pending += text;
     }
     flush();
@@ -288,7 +307,7 @@ export class LogSink {
   /** Makes the sink usable again after `closeAll()`. Recreates the folder; queued lines are written. */
   reopen(): void {
     this.open = true;
-    try { mkdirSync(this.dir, { recursive: true }); } catch { this.writeErrors++; }
+    try { mkdirSync(this.dir, { recursive: true, mode: 0o700 }); } catch { this.writeErrors++; }
     if (this.size > 0) this.kick();
   }
 }
