@@ -16,7 +16,22 @@ export interface KbdTarget {
 
 /** Starts the tracking; returns the stop function, which also clears the attribute. */
 export function startKbdNav(doc: KbdTarget = document as unknown as KbdTarget): () => void {
-  const key = ((e: { key?: string }): void => { if (e.key === 'Tab') doc.documentElement.setAttribute(KBD_ATTR, ''); }) as Handler;
+  // Tab always means keyboard navigation. Arrow keys do too when they move between controls (a menu, a list, a radio group), but not
+  // inside a text field, where they move the caret. Enter, Space, Escape and typing do not: people who use the mouse press those all
+  // the time (the maintainer's rule, 2026-10-07: rings only for keyboard navigation, never for a mouse user, not even after Escape).
+  const NAV = new Set(['Tab', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Home', 'End', 'PageUp', 'PageDown']);
+  const inText = (t: unknown): boolean => {
+    const el = t as { tagName?: string; isContentEditable?: boolean; type?: string } | null;
+    if (!el) return false;
+    if (el.isContentEditable) return true;
+    const tag = (el.tagName ?? '').toUpperCase();
+    return tag === 'TEXTAREA' || (tag === 'INPUT' && !['checkbox', 'radio', 'range', 'button', 'submit', 'reset'].includes((el.type ?? 'text').toLowerCase()));
+  };
+  const key = ((e: { key?: string; target?: unknown }): void => {
+    if (!e.key || !NAV.has(e.key)) return;
+    if (e.key !== 'Tab' && inText(e.target)) return;
+    doc.documentElement.setAttribute(KBD_ATTR, '');
+  }) as Handler;
   const pointer = ((): void => doc.documentElement.removeAttribute(KBD_ATTR)) as Handler;
   doc.addEventListener('keydown', key, true);
   doc.addEventListener('pointerdown', pointer, true);

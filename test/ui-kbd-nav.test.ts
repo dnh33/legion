@@ -34,6 +34,20 @@ describe('kbdNav', () => {
     d.fire('keydown', { key: 'Tab', shiftKey: true });
     assert.equal(d.attrs.has(KBD_ATTR), true);
   });
+  it('arrow keys between controls set it (a keyboard user in a menu keeps rings after a click); arrows in a text field, Space and typing do not', () => {
+    const d = fakeDoc();
+    startKbdNav(d);
+    d.fire('keydown', { key: 'ArrowDown', target: { tagName: 'TEXTAREA' } });
+    d.fire('keydown', { key: 'ArrowLeft', target: { tagName: 'INPUT', type: 'text' } });
+    d.fire('keydown', { key: ' ', target: { tagName: 'BUTTON' } });
+    d.fire('keydown', { key: 'a', target: { tagName: 'DIV' } });
+    assert.equal(d.attrs.has(KBD_ATTR), false);
+    d.fire('keydown', { key: 'ArrowDown', target: { tagName: 'BUTTON' } });
+    assert.equal(d.attrs.has(KBD_ATTR), true);
+    d.fire('pointerdown');
+    d.fire('keydown', { key: 'ArrowRight', target: { tagName: 'INPUT', type: 'radio' } });
+    assert.equal(d.attrs.has(KBD_ATTR), true, 'arrows in a radio group are navigation');
+  });
   it('stop removes the listeners and the attribute', () => {
     const d = fakeDoc();
     const stop = startKbdNav(d);
