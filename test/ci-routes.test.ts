@@ -8,6 +8,7 @@ import { createCiModule } from '../src/core/ci/index.js';
 import { FakeGitHub } from '../src/core/ci/fake-github.js';
 import { createGitHubClient, resetGitHubClientForTests } from '../src/core/connectors/github/client.js';
 import { createWritesResolver, isGitHubPort, isGitHubWrites, resolveGitHub, RETRY_IMPORT_MS } from '../src/core/ci/wiring.js';
+import type { GitHubWrites } from '../src/core/ci/port.js';
 import type { ModuleDeps } from '../src/core/modules.js';
 import type { LegionEvent } from '../src/shared/types.js';
 import { asClient, AUTH, makeFakes, start } from './helpers-c.js';
@@ -16,7 +17,7 @@ import { tempDir } from './tmp-cleanup.js';
 const closers: Array<() => Promise<void>> = [];
 after(async () => { for (const c of closers) await c(); });
 
-async function mount(o: { github?: FakeGitHub | null; writes?: boolean } = {}) {
+async function mount(o: { github?: FakeGitHub | null; writes?: boolean; writesFn?: () => GitHubWrites | undefined } = {}) {
   const f = makeFakes();
   const dataDir = tempDir('legion-ci-data-');
   const gh = o.github === null ? undefined : (o.github ?? new FakeGitHub());
@@ -24,7 +25,7 @@ async function mount(o: { github?: FakeGitHub | null; writes?: boolean } = {}) {
   if (gh) gh.writesOn = o.writes !== false;
   const events: LegionEvent[] = [];
   f.bus.on((e) => events.push(e));
-  const ci = createCiModule({ config: f.ctx.config, bus: f.bus, dataDir } as unknown as ModuleDeps, { github: gh, writes: gh ? () => gh.writesPort() : undefined, schedule: () => () => undefined });
+  const ci = createCiModule({ config: f.ctx.config, bus: f.bus, dataDir } as unknown as ModuleDeps, { github: gh, writes: o.writesFn ?? (gh ? () => gh.writesPort() : undefined), schedule: () => () => undefined });
   const { base, close } = await start({ ...f.ctx, modules: [ci] });
   closers.push(close, async () => ci.dispose?.());
   const call = async (method: string, path: string, body?: unknown, headers: Record<string, string> = AUTH) => {
@@ -33,7 +34,7 @@ async function mount(o: { github?: FakeGitHub | null; writes?: boolean } = {}) {
     let json: any; try { json = text ? JSON.parse(text) : undefined; } catch { json = undefined; }
     return { status: res.status, json };
   };
-  return { gh, call, events, ci };
+  return { gh, call, events, ci, base, bus: f.bus };
 }
 
 const ROUTES: Array<[string, string]> = [
@@ -53,6 +54,30 @@ describe('every CI route is admin-only', () => {
     assert.equal(m.gh!.calls.length, 0, 'the refused calls made no GitHub request');
     const none = await m.call('GET', '/api/ci/state', undefined, {});
     assert.equal(none.status, 401);
+  });
+});
+
+describe('the event stream', () => {
+  async function listen(base: string, headers: Record<string, string>) {
+    const ac = new AbortController();
+    const res = await fetch(base + '/api/events', { headers, signal: ac.signal });
+    const reader = res.body!.getReader();
+    const dec = new TextDecoder();
+    let seen = '';
+    void (async () => { try { for (;;) { const { value, done } = await reader.read(); if (done) return; seen += dec.decode(value); } } catch { /* aborted */ } })();
+    closers.push(async () => ac.abort());
+    return { status: res.status, text: () => seen };
+  }
+  it('a bearer-only subscriber does not receive ci.updated; the app window does', async () => {
+    const m = await mount();
+    const client = await listen(m.base, asClient);
+    const admin = await listen(m.base, AUTH);
+    assert.equal(client.status, 200, 'the token may open the stream (it is a client path)');
+    await new Promise((r) => setTimeout(r, 50));
+    m.bus.emit({ type: 'ci.updated', summary: { repo: 'secret-owner/private-repo' } } as unknown as LegionEvent);
+    await new Promise((r) => setTimeout(r, 100));
+    assert.match(admin.text(), /ci\.updated/, 'the app window sees it (control: the event really went out)');
+    assert.doesNotMatch(client.text(), /ci\.updated|private-repo/, 'the token-only stream does not');
   });
 });
 
@@ -154,6 +179,34 @@ describe('Re-run and Cancel', () => {
     m.gh!.setConnection({ auth: 'anonymous' });
     assert.equal((await m.call('POST', '/api/ci/runs/9004/rerun-failed')).status, 403);
     assert.deepEqual(m.gh!.writes, []);
+  });
+  it('a writes module with both members, loaded through the resolver seam, makes canWrite yes and the two POST routes reach it', async () => {
+    const calls: Array<[string, number, string]> = [];
+    const mod = { rerunFailed: async (id: number, repo: string) => { calls.push(['rerun', id, repo]); }, cancel: async (id: number, repo: string) => { calls.push(['cancel', id, repo]); } };
+    const resolver = createWritesResolver(undefined, async () => mod);
+    await resolver.settled();
+    const m = await mount({ writesFn: resolver.get });
+    await m.call('PUT', '/api/ci/repo', { repo: 'dnh33/legion' });
+    assert.equal((await m.call('GET', '/api/ci/state')).json.canWrite, 'yes');
+    assert.equal((await m.call('POST', '/api/ci/runs/9004/rerun-failed')).status, 200);
+    assert.equal((await m.call('POST', '/api/ci/runs/9005/cancel')).status, 200);
+    assert.deepEqual(calls, [['rerun', 9004, 'dnh33/legion'], ['cancel', 9005, 'dnh33/legion']]);
+    assert.deepEqual(m.gh!.writes, [], 'the fake client was not the one called');
+    // the bearer token alone still cannot reach it
+    assert.equal((await m.call('POST', '/api/ci/runs/9004/cancel', undefined, asClient)).status, 403);
+    assert.equal(calls.length, 2);
+  });
+  it('a module with only one of the two members is not a writes module: canWrite stays no and nothing is called', async () => {
+    const calls: string[] = [];
+    const half = { rerunFailed: async () => { calls.push('rerun'); } };
+    const resolver = createWritesResolver(undefined, async () => half);
+    await resolver.settled();
+    assert.equal(resolver.get(), undefined);
+    const m = await mount({ writesFn: resolver.get });
+    await m.call('PUT', '/api/ci/repo', { repo: 'dnh33/legion' });
+    assert.equal((await m.call('GET', '/api/ci/state')).json.canWrite, 'no');
+    assert.equal((await m.call('POST', '/api/ci/runs/9004/rerun-failed')).status, 403);
+    assert.deepEqual(calls, []);
   });
   it('with no writes module: canWrite is false even with write permission, and both routes refuse plainly (403, not a 500)', async () => {
     const m = await mount({ writes: false });

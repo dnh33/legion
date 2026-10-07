@@ -34,7 +34,7 @@ export const SWITCH_DEBOUNCE_MS = 10_000;
 /** A manual refresh closer than this to the last fetch is served from the cache. */
 export const DEBOUNCE_MS = 5_000;
 const HOUR_MS = 3_600_000;
-const CONN_TTL_MS = 30_000;
+export const CONN_TTL_MS = 30_000;
 const LIST_SIZE = 30;
 const ANON_LIST_SIZE = 50;
 
@@ -136,16 +136,21 @@ export class CiPoller {
 
   /** What the last failed `connection()` said (null while it works). The real client's connection() is NOT free: signed in it reads /user and /user/installations. */
   private connProblem: CiProblem | null = null;
+  private connFailAt = -Infinity;
   private async connection(): Promise<Connection | null> {
     const gh = this.gh;
     if (!gh) return null;
     if (this.conn && this.now() - this.connAt < CONN_TTL_MS) return this.conn;
+    // connection() is a request (or three). While the account is paused, or for CONN_TTL_MS after a failure, the last answer stands:
+    // every 5 s tick, state read and log read would otherwise call it again and again.
+    if (this.pausedUntil > this.now() || this.now() - this.connFailAt < CONN_TTL_MS) return this.conn;
     try {
-      this.conn = await gh.connection(); this.connAt = this.now(); this.connProblem = null;
+      this.conn = await gh.connection(); this.connAt = this.now(); this.connProblem = null; this.connFailAt = -Infinity;
       // two requests that count against a signed-in account's limit (anonymous /rate_limit does not)
       if (this.conn.auth !== 'anonymous') { this.spent(); this.spent(); }
     } catch (e) {
       this.spent();
+      this.connFailAt = this.now();
       const err = asGhError(e);
       this.connProblem = err.kind === 'rate-limited' ? { kind: 'rate-limited', resetAt: err.resetAt } : err.kind === 'logs-unavailable' || err.kind === 'network' ? { kind: 'network' } : err.kind === 'forbidden' ? { kind: 'forbidden' } : { kind: err.kind };
       if (err.kind === 'rate-limited') { this.pausedUntil = Math.max(this.pausedUntil, Date.parse(err.resetAt) || this.now() + 60_000); this.pauseKind = 'rate-limited'; }
@@ -179,6 +184,7 @@ export class CiPoller {
   /** One timer step: decides whether a request is due and makes it. Safe to call as often as you like. */
   async tick(): Promise<'idle' | 'skipped' | 'fetched'> {
     if (!this.isWatching()) { this.stopTimer?.(); this.stopTimer = null; return 'idle'; }
+    if (this.pausedUntil > this.now()) return 'skipped'; // before connection(): a pause blocks every request
     const c = await this.connection();
     if (!c) return 'idle';
     this.repoNow();
@@ -333,10 +339,9 @@ export class CiPoller {
     const r = this.repoNow();
     if (!gh || !r.repo || !validRepoString(repoKey(r.repo))) return { available: false, reason: 'logs-unavailable' };
     const c = await this.connection();
-    if (c) {
-      const block = this.blocked(c);
-      if (block) return { available: false, reason: 'problem', problem: block };
-    }
+    if (!c) return { available: false, reason: 'problem', problem: this.connProblem ?? { kind: 'network' } }; // not connected: nothing to ask
+    const block = this.blocked(c);
+    if (block) return { available: false, reason: 'problem', problem: block };
     try {
       const out = await gh.logs(jobId, repoKey(r.repo));
       this.spent();

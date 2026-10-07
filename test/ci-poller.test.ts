@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { FakeGitHub } from '../src/core/ci/fake-github.js';
-import { ANON_HOURLY_CAP, ANON_POLL_MS, CiPoller, CONNECTED_HOURLY_CAP, SWITCH_DEBOUNCE_MS, TICK_MS } from '../src/core/ci/poller.js';
+import { ANON_HOURLY_CAP, ANON_POLL_MS, CiPoller, CONN_TTL_MS, CONNECTED_HOURLY_CAP, SWITCH_DEBOUNCE_MS, TICK_MS } from '../src/core/ci/poller.js';
 import type { CiUpdateSummary } from '../src/shared/ci.js';
 import { CI_WATCH_TTL_MS } from '../src/shared/ci.js';
 
@@ -329,5 +329,51 @@ describe('connection() is a request too', () => {
     const r = rig({ auth: 'pat' });
     await r.poller.refresh('open');
     assert.ok(r.poller.requestsInHour() >= 2 + r.gh.calls.length, `${r.poller.requestsInHour()} counted for ${r.gh.calls.length} lists`);
+  });
+});
+
+describe('ticks never hammer connection()', () => {
+  const keepAlive = (r: ReturnType<typeof rig>) => async (el: number) => { if (el % 30_000 === 0) r.poller.heartbeat('panel'); };
+  it('a rate-limited connection() failure and 60 ticks over 300 s make at most one connection() call during the pause', async () => {
+    const r = rig({ auth: 'pat', running: true });
+    r.gh.connectionFail = { kind: 'rate-limited', resetAt: new Date(T0 + 900_000).toISOString() };
+    r.poller.heartbeat('panel');
+    await r.poller.refresh('open');
+    await r.run(300_000, keepAlive(r));
+    assert.ok(r.gh.connectionCalls <= 1, `${r.gh.connectionCalls} connection() calls`);
+    assert.equal(r.gh.calls.length, 0);
+    assert.equal((await r.poller.stateView()).problem?.kind, 'rate-limited');
+    assert.ok(r.gh.connectionCalls <= 1, 'stateView() does not ask again either');
+  });
+  it('other failures (network, auth-expired, not-connected) are asked again at most once per CONN_TTL_MS', async () => {
+    for (const kind of ['network', 'auth-expired', 'not-connected'] as const) {
+      const r = rig({ auth: 'pat', running: true });
+      r.gh.connectionFail = kind === 'network' ? { kind, retryable: true } : { kind };
+      r.poller.heartbeat('panel');
+      await r.poller.refresh('open');
+      await r.run(300_000, keepAlive(r));
+      const allowed = Math.ceil(300_000 / CONN_TTL_MS) + 1;
+      assert.ok(r.gh.connectionCalls <= allowed, `${kind}: ${r.gh.connectionCalls} calls, at most ${allowed}`);
+      assert.ok(r.gh.connectionCalls >= 1);
+      const before = r.gh.connectionCalls;
+      for (let i = 0; i < 20; i++) await r.poller.stateView();
+      assert.ok(r.gh.connectionCalls <= before + 1, `${kind}: stateView() reads use the failure cache`);
+    }
+  });
+  it('after the pause ends the connection is asked again and polling resumes', async () => {
+    const r = rig({ auth: 'pat', running: true });
+    r.gh.connectionFail = { kind: 'rate-limited', resetAt: new Date(T0 + 100_000).toISOString() };
+    r.poller.heartbeat('panel');
+    await r.poller.refresh('open');
+    r.gh.connectionFail = null;
+    await r.run(150_000, keepAlive(r));
+    assert.ok(r.gh.calls.length > 0, 'lists were requested after the reset');
+  });
+  it('logs are not asked of GitHub while there is no connection', async () => {
+    const r = rig({ auth: 'pat' });
+    r.gh.connectionFail = { kind: 'auth-expired' };
+    const v = await r.poller.logView(5);
+    assert.deepEqual(v, { available: false, reason: 'problem', problem: { kind: 'auth-expired' } });
+    assert.equal(r.gh.calls.filter((c) => c.path.startsWith('logs:')).length, 0, 'gh.logs() was not called');
   });
 });
