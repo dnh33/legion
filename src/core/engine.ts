@@ -1217,7 +1217,8 @@ export class Engine {
         if (next.done) break;
         lastActivity = Date.now();
         if (bg.note(next.value)) this.emitProgress(job.taskId, act);
-        if (held && ['assistant', 'user', 'stream_event'].includes((next.value as any)?.type)) turnStarted = true;
+        // only the run's own messages: a background agent's carry parent_tool_use_id and are not the model answering
+        if (held && ['assistant', 'user', 'stream_event'].includes((next.value as any)?.type) && !(next.value as any)?.parent_tool_use_id) turnStarted = true;
         const o = this.handleMessage(job, act, next.value as any);
         // each result answers one message; once none are waiting the stream closes and the run ends, unless background agents still work
         if (o) {

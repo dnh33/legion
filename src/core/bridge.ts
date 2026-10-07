@@ -244,8 +244,7 @@ ${pointer}`, ...(resultId ? { resultId } : {}) };
   }
 
   /**
-   * `task_result`: the full text of a result that was cut. Only tasks the caller may see: its own agent's, ones its agent started through
-   * the bridge, and ones started by this very task. The text is scrubbed, wrapped as another agent's output (data, never instructions) and
+   * `task_result`: the full text of a result that was cut. Only tasks the caller may see: ones its agent or this task started through the bridge, and its own agent's tasks of the same project. The text is scrubbed, wrapped as another agent's output (data, never instructions) and
    * paged, and a tainted source taints the caller exactly as an `ask` answer does.
    */
   taskResult(callerTaskId: string, taskId: string, opts: { resultId?: string; offset?: number } = {}): string {
@@ -255,7 +254,9 @@ ${pointer}`, ...(resultId ? { resultId } : {}) };
     if (typeof taskId !== 'string' || !/^[A-Za-z0-9_-]{1,80}$/.test(taskId)) throw refuse();
     const target = this.store.getTask(taskId);
     const owner = target ? this.store.getAgent(target.agentId) : undefined;
-    const mine = !!target && (target.agentId === caller.agentId || target.fromAgentId === caller.agentId || target.parentTaskId === callerTaskId);
+    // threads this agent or this task started are always readable; the agent's other tasks only inside the same project (none and none counts)
+    const mine = !!target && (target.fromAgentId === caller.agentId || target.parentTaskId === callerTaskId
+      || (target.agentId === caller.agentId && (target.projectId ?? undefined) === (caller.projectId ?? undefined)));
     if (!target || !owner || !this.isVisible(owner) || !mine) throw refuse();
     if (opts.resultId !== undefined && !/^[0-9]{1,6}$/.test(opts.resultId)) throw new BridgeError('resultId is the number a pointer gave you.');
     let runId = opts.resultId;

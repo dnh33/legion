@@ -975,6 +975,15 @@ Items 1 to 6 above stay as they are. These were added from the 2026-10-06 sessio
 
 23. **Test fragility: R5.6 uses the shared OS temp folder** and failed once because of a pre-existing `%TEMP%\x` folder that was not Legion's. Move it to its own temp dir (see the test-temp-dirs skill).
 
+24. **Order bugs, fixed in one draft PR (branch `fix/order-bugs`; not merged, not released).** From the owner's run of the Order on 2026-10-07 (bug file `LEGION-BUGS.md` in the owner's project folder). The PR is not verified on a real PC until checks OF1 to OF4 in `claude/tracker-pc-checks.md` pass.
+    - **BUG-7 (high). FIXED IN PR.** A run closed its input when the lead answered, which killed Claude Code background subagents. The run now stays open while the SDK reports running background agents (`src/core/background-tasks.ts`, `engine.ts runOnce`); cap 60 minutes without any SDK message; "waiting on N background agents" in the working row; Stop, Ctrl+Enter and "send now" ask first. Known limit: replies to a `tell` reach a held run only when it closes.
+    - **BUG-1 (high). FIXED IN PR.** A reply goes back at the caller's own hop (`bridge.ts deliverReply`); `ask` and `tell` still add one; a refused reply leaves a notice on both threads.
+    - **BUG-2 (high). FIXED IN PR.** Replies over 4,000 characters keep the full text (`ResultStore`, cap 200,000) and point to the new `task_result` tool.
+    - **BUG-3 (high). FIXED IN PR.** Library episodes link to `task:<id>#result`; `kg_get` reads the full result.
+25. **BUG-4 (medium). OPEN.** Agents on other model providers have no file tools, so they cannot deliver into the project folder. Plan: a scoped `project_write` and `project_read` in `src/core/providers/tool-loop.ts` (unverified), honouring approval mode and taint.
+26. **BUG-5 (medium). OPEN.** Runs delegated from a project run land in the wrong project (they cannot see its board; their Library notes go to legion-dev). Cause not traced: check whether `engine.start` from the bridge passes the caller's `projectId`.
+27. **BUG-6 (low, UX). OPEN.** A tainted run cannot assign board items and has no way out. Plan: let it propose an assignee that lands in the owner's inbox with one-click accept, without loosening the guard (`projects/board/store.ts`).
+
 **Scope lock (maintainer, 2026-10-06):** the work already running is finished before anything new starts: the Cloudflare switch and connectors phase 1 (this session), the Armory and the CI panel (house/skills session), BSV PR #16 for `0.2.5-i` (BSV session). New requests go onto this ladder as open items. After the lock, work resumes from the ladder.
 
 ---
@@ -1800,15 +1809,3 @@ Plan: `claude/plan-bsv-spend-residuals.md` (facts table with sources). Closes th
 ## 2026-10-06 note: Node floor of a source install
 
 `package.json` engines says `>=20.10`, but the lockfile needs `>=22.12` (electron 44.5.1 engines `>=22.12`; vite 7.3.6 and @vitejs/plugin-react 5.2.0 `^20.19 || >=22.12`). `scripts/install/install.sh` and the README enforce 22.12. Fix engines (and `scripts/lib/node-bootstrap.ps1` `LegionNodeMin`, `scripts/setup.ps1`, `src/electron/resolve-node.ts`, docs/ARCHITECTURE.md, CONTRIBUTING.md) in a release that needs a full install anyway: an engines change alters `package-lock.json`, which would make the next release a non-self-applying one.
-
-#### ORDER BUGS (from the owner's run of the Order, 2026-10-07; file `LEGION-BUGS.md` in the owner's project folder)
-
-Fixed in one draft PR, branch `fix/order-bugs` (not merged, not released; real-PC checks OF1 to OF4 in `claude/tracker-pc-checks.md` are open, so none of these is called verified):
-
-- **BUG-7 (high). FIXED IN PR.** A run closed its input when the lead answered, which killed Claude Code background subagents. The run now stays open while the SDK reports running background agents (`src/core/background-tasks.ts`, `engine.ts runOnce`); cap 60 minutes without any SDK message; "waiting on N background agents" in the working row; Stop, Ctrl+Enter and "send now" ask first. Known limit: replies to a `tell` reach a held run only when it closes.
-- **BUG-1 (high). FIXED IN PR.** A reply goes back at the caller's own hop (`bridge.ts deliverReply`); `ask` and `tell` still add one; a refused reply leaves a notice on both threads.
-- **BUG-2 (high). FIXED IN PR.** Replies over 4,000 characters keep the full text (`ResultStore`, cap 200,000) and point to the new `task_result` tool.
-- **BUG-3 (high). FIXED IN PR.** Library episodes link to `task:<id>#result`; `kg_get` reads the full result.
-- **BUG-4 (medium). OPEN.** Agents on other model providers have no file tools, so they cannot deliver into the project folder; plan: scoped `project_write` and `project_read` in `src/core/providers/tool-loop.ts` (unverified), honouring approval mode and taint.
-- **BUG-5 (medium). OPEN.** Runs delegated from a project run land in the wrong project (they cannot see the board; their Library notes go to legion-dev); cause not traced, check whether `engine.start` from the bridge passes the caller's `projectId`.
-- **BUG-6 (low, UX). OPEN.** A tainted run cannot assign board items and has no way out; plan: let it propose an assignee that lands in the owner's inbox with one-click accept, without loosening the guard (`projects/board/store.ts`).

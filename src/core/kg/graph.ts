@@ -1777,9 +1777,11 @@ export class Graph {
    * notes, so a source on some other node is never a key to a task's result. The whole text goes through the secret guard (not just the
    * window the episode summary used); a seed phrase or key in it withholds all of it.
    */
-  episodeResult(actor: Actor, taskId: string, raw: string | undefined): { node: KgNode; text: string } {
+  episodeResult(actor: Actor, taskId: string, rawOf: () => string | undefined): { node: KgNode; text: string } {
     const node = this.getNode(actor, `ep:${taskId}`);
     if (!node || node.type !== 'episode' || node.createdBy !== 'system') throw new KgError('not_found', `Unknown node "${episodeResultRef(taskId)}" (it may not exist or may not be visible to you).`);
+    // read only after the episode check above: a ref that fails it never reaches the task store (and never taints anything)
+    const raw = rawOf();
     if (raw === undefined) throw new KgError('not_found', 'The full result of that task is no longer stored.');
     let text: string;
     try { text = this.guard().text(raw); } catch (err) {

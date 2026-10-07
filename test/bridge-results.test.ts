@@ -144,3 +144,21 @@ test('the stored result is capped and says so; deleting the task deletes its sto
   s.bus.emit({ type: 'task.deleted', taskId: r.taskId });
   assert.equal(existsSync(dir), false);
 });
+
+test("the agent's own tasks of another project are not readable, threads it started are", async () => {
+  const { s, out } = rig(big(9_000));
+  const z = s.engine.startTask({ agentId: 'zealot', prompt: 'go', source: 'ui' });
+  await s.engine.waitFor(z.id, 3000);
+  const zOptions = out.zOptions; // the next zealot run replaces it
+  const old = s.engine.startTask({ agentId: 'zealot', prompt: 'older work', source: 'ui' });
+  await s.engine.waitFor(old.id, 3000);
+  s.store.upsertTask({ ...s.store.getTask(old.id)!, projectId: 'proj_other', result: 'OTHER-PROJECT-RESULT' });
+  s.store.upsertTask({ ...s.store.getTask(z.id)!, projectId: 'proj_mine' });
+  const refused = await callTool(zOptions, 'task_result', { taskId: old.id });
+  assert.equal(refused.isError, true);
+  assert.doesNotMatch(refused.text, /OTHER-PROJECT-RESULT/);
+  // a thread the lead started is readable whatever project it landed in
+  const r: any = await s.engine.bridge.ask(z.id, 'builder', 'x');
+  s.store.upsertTask({ ...s.store.getTask(r.taskId)!, projectId: 'proj_elsewhere' });
+  assert.equal((await callTool(zOptions, 'task_result', { taskId: r.taskId, resultId: r.resultId })).isError, undefined);
+});

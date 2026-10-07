@@ -125,7 +125,7 @@ export function buildKgToolsServer(graph: Graph, agentId: string, run: RunContex
     safe(async (a: { id: string; offset?: number }) => {
       const link = EPISODE_RESULT_RE.exec(a.id);
       if (link) {
-        const r = graph.episodeResult(me, link[1]!, run.taskResult?.(link[1]!));
+        const r = graph.episodeResult(me, link[1]!, () => run.taskResult?.(link[1]!));
         const start = Math.min(a.offset ?? 0, r.text.length);
         const end = Math.min(r.text.length, start + RESULT_PAGE);
         const more = end < r.text.length ? `More: kg_get ${a.id} with offset ${end}.` : 'This is the end.';

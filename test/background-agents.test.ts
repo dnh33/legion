@@ -36,6 +36,8 @@ async function until(cond: () => boolean, ms = 3000): Promise<void> {
 }
 
 type TaskSpec = { id: string; type?: string; description: string; ambient?: boolean };
+/** Set by a test: the fake emits a background agent's own message (parent_tool_use_id set) just before it reports. */
+const chatter = { on: false };
 interface Rig { finish(id: string): void; log: string[]; stoppedByClose: string[]; inputClosed(): boolean }
 
 function setup(tasksToStart: TaskSpec[], opts: { level?: boolean; background?: { stallMs?: number; graceMs?: number }; quietAfterReports?: boolean } = {}) {
@@ -81,6 +83,7 @@ function setup(tasksToStart: TaskSpec[], opts: { level?: boolean; background?: {
         } else if (m.kind === 'finished') {
           running.delete(m.id);
           reported++;
+          if (chatter.on) yield { type: 'assistant', parent_tool_use_id: `tu-${m.id}`, message: { id: `sub-${m.id}`, content: [{ type: 'text', text: 'subagent output' }] } };
           yield { type: 'system', subtype: 'task_notification', task_id: m.id, status: 'completed', output_file: '', summary: `${m.id} done` };
           if (opts.level) yield level();
           if (running.size === 0 && !opts.quietAfterReports) {
@@ -175,6 +178,18 @@ test('the last agent reports but the model never answers the notice: the run clo
   const done = await s.engine.waitFor(t.id, 3000);
   assert.equal(done.status, 'done');
   assert.deepEqual(s.rig.stoppedByClose, []);
+});
+
+test("a background agent's own messages are not the model answering: a model that never answers the last notice still ends the run after the grace time", async () => {
+  chatter.on = true;
+  try {
+    const s = setup([TWO[0]!], { level: true, background: { stallMs: 5000, graceMs: 80 }, quietAfterReports: true });
+    const t = s.engine.startTask({ agentId: 'zealot', prompt: 'go', source: 'ui' });
+    await until(() => sys(s, t.id).some((x) => /Waiting for 1 background agent /.test(x)));
+    s.rig.finish('bgA');
+    const done = await s.engine.waitFor(t.id, 3000);
+    assert.equal(done.status, 'done');
+  } finally { chatter.on = false; }
 });
 
 test('BackgroundTasks: edges before the first level message, the level alone after it', () => {

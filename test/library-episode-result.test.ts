@@ -95,3 +95,15 @@ test('a task whose result is gone says so, not "unknown"', async () => {
   assert.equal(r.isError, true);
   assert.match(r.text, /no longer stored/);
 });
+
+test('reading the result of a tainted task through the link taints the reader; a ref that fails the episode check does not', async () => {
+  const { s, t, reader } = await withEpisode();
+  const readerTask = s.store.listTasks(20, 'alpha', true).find((x) => x.id !== t.id)!;
+  assert.equal(s.engine.isTainted(readerTask.id), false);
+  // the reader run is over, so mark through a live-looking stored row: isTainted reads the stored flag too
+  s.engine.markTainted(t.id);
+  await kg(reader.alpha, 'kg_get', { id: 'task:task_nothere#result' });
+  assert.equal(s.engine.isTainted(readerTask.id), false, 'a refused ref reads nothing and taints nothing');
+  await kg(reader.alpha, 'kg_get', { id: `task:${t.id}#result` });
+  assert.equal(s.engine.isTainted(readerTask.id), true, 'the tainted text came into the reader');
+});
