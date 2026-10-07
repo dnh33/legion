@@ -26,6 +26,9 @@ export async function loadBoard(projectId: string): Promise<void> {
   try { const v = await api.boardView(projectId); set((s) => ({ views: { ...s.views, [projectId]: v } })); } catch (e) { toast(errText(e), 'error'); }
 }
 
+/** The item as the window's copy of the board has it now (after the last reload). */
+export const currentItem = (projectId: string, id: string): WorkItem | undefined => state.views[projectId]?.items.find((x) => x.id === id);
+
 async function act<T>(projectId: string, fn: () => Promise<T>): Promise<T | undefined> {
   set({ busy: true });
   try { const r = await fn(); await loadBoard(projectId); return r; } catch (e) { toast(errText(e), 'error'); await loadBoard(projectId); return undefined; } finally { set({ busy: false }); }

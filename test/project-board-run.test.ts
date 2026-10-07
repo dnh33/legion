@@ -77,7 +77,7 @@ test('C8 text an agent wrote runs tainted under the `ask` ceiling until the owne
   assert.equal(t.tainted, true); assert.equal(t.origin?.approvalCeiling, 'ask');
   assert.match(String(s.calls[0].prompt), /has not reviewed it/);
   // reviewed: back to the owner's own setting
-  s.board.patch(s.proj, q.id, { trust: 'human' });
+  s.board.patch(s.proj, q.id, { trust: 'human', ifUpdatedAt: s.board.get(s.proj.id, q.id)!.updatedAt });
   const r2 = s.post(q.id);
   await settle(s, r2.task.id);
   assert.equal(s.calls[1].options.permissionMode, 'bypassPermissions');

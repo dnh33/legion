@@ -122,3 +122,35 @@ export function learnDraft(i: WorkItem, name: (id: string) => string): { title: 
 }
 /** Offer the note when an item has just been closed and has none yet. */
 export const shouldOfferNote = (before: BoardStatus, after: BoardStatus, noteCount: number): boolean => after === 'done' && before !== 'done' && noteCount === 0;
+
+/** The fields of the edit form that differ from the item as the dialog opened it. Only these are sent, so a save cannot overwrite what a run changed meanwhile. */
+export function changedFields(item: WorkItem, f: { title: string; description: string; status: BoardStatus; assignee: BoardAssignee | null; priority: BoardPriority; due: string | null; labels: string[] }): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  if (f.title !== item.title) out.title = f.title;
+  if (f.description !== item.description) out.description = f.description;
+  if (f.status !== item.status) out.status = f.status;
+  if (assigneeKey(f.assignee) !== assigneeKey(item.assignee)) out.assignee = f.assignee;
+  if (f.priority !== item.priority) out.priority = f.priority;
+  if ((f.due ?? null) !== (item.due ?? null)) out.due = f.due;
+  if (f.labels.join('\u0000') !== item.labels.join('\u0000')) out.labels = f.labels;
+  return out;
+}
+
+/** The edit form as the dialog holds it (strings as the inputs show them). */
+export interface ItemForm { title: string; description: string; status: BoardStatus; assignee: string; priority: BoardPriority; due: string; labels: string }
+export const formOf = (i: WorkItem): ItemForm => ({ title: i.title, description: i.description, status: i.status, assignee: assigneeKey(i.assignee), priority: i.priority, due: i.due ?? '', labels: i.labels.join(', ') });
+/** After the item changed under an open dialog: a field the owner had not touched takes the new value; a field the owner edited keeps the edit. */
+export function rebaseForm(old: WorkItem, fresh: WorkItem, f: ItemForm): ItemForm {
+  const was = formOf(old); const now = formOf(fresh);
+  const out = { ...f };
+  for (const k of Object.keys(was) as Array<keyof ItemForm>) if (f[k] === was[k]) (out as Record<keyof ItemForm, string>)[k] = now[k];
+  return out;
+}
+
+/** The line under "Run this item": why it is, or is not, available. */
+export function runHint(item: WorkItem, canRun: boolean): string {
+  if (item.activeRun) return 'A run is in progress for this item. Wait for it to end.';
+  if (item.status === 'done') return 'Move it out of Done to run it again.';
+  if (canRun) return 'Runs the assigned agent once, with this item’s text and the project instructions, under its usual approvals. The item moves to Doing, then to Review when the run ends. Only you mark it Done.';
+  return 'To run an item, assign it to a member agent first.';
+}

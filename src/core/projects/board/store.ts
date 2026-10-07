@@ -16,6 +16,8 @@ export class BoardError extends Error {
 export type ProjectRef = Pick<Project, 'id' | 'members' | 'status'>;
 /** What the store knows about the run an agent write comes from. `tainted`: it touched outside content. `capped`: another bot or an MCP client started it under `ask` approvals. Either one limits what it may do. */
 export interface BotRun { tainted: boolean; capped?: boolean }
+/** What the task store says about an item's run: still queued or running, whose, and whether it touched outside content. */
+export interface RunLookup { live: boolean; agentId?: string; tainted?: boolean }
 const LIMITED_RUN = 'This run is limited: it touched outside content (web, shell or external tools), or another bot or an MCP client started it under "ask" approvals.';
 
 const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v);
@@ -137,6 +139,31 @@ export class BoardStore {
   private readonly botWrites = new Map<string, number[]>();
   private readonly creates = new Map<string, number[]>();
   private readonly deletes = new Map<string, number[]>();
+
+  /** Says whether a run's task is still queued or running, for which agent, and whether it was tainted. Set by the board module (the store itself knows no tasks). Unset = every activeRun counts as live. */
+  private runLookup: ((taskId: string) => RunLookup) | undefined;
+  setRunLookup(fn: (taskId: string) => RunLookup): void { this.runLookup = fn; }
+  private liveRun(i: WorkItem): RunLookup {
+    if (!i.activeRun) return { live: false };
+    if (!this.runLookup) return { live: true };
+    try { return this.runLookup(i.activeRun); } catch { return { live: true }; }
+  }
+
+  /** On startup: an item whose run task is no longer queued or running (the process restarted) is ended the way endRun ends a failed run. Returns how many. */
+  reconcileRuns(pid: string): number {
+    if (!PROJECT_ID_RE.test(pid) || !this.runLookup) return 0;
+    let n = 0;
+    for (const i of [...this.board(pid).items.values()]) {
+      if (!i.activeRun) continue;
+      const lr = this.liveRun(i);
+      if (lr.live) continue;
+      const taskId = i.activeRun;
+      this.note(i, { kind: 'system' }, 'run', 'Legion restarted during this run.');
+      // keep the run's taint: a task we can no longer read counts as tainted
+      if (this.endRun(pid, taskId, { status: 'error', isError: true, text: 'Legion restarted during this run', tainted: lr.tainted ?? true })) n++;
+    }
+    return n;
+  }
 
   constructor(private readonly dir: string, private readonly clock: () => number = Date.now) {}
 
@@ -290,9 +317,12 @@ export class BoardStore {
   }
 
   /** The owner's edits. `trust: 'human'` is "I have read this text". */
-  patch(proj: ProjectRef, id: string, p: { title?: unknown; description?: unknown; status?: unknown; assignee?: unknown; due?: unknown; priority?: unknown; labels?: unknown; trust?: unknown; roomIds?: unknown; noteIds?: unknown }): WorkItem {
+  patch(proj: ProjectRef, id: string, p: { title?: unknown; description?: unknown; status?: unknown; assignee?: unknown; due?: unknown; priority?: unknown; labels?: unknown; trust?: unknown; roomIds?: unknown; noteIds?: unknown; ifUpdatedAt?: unknown }): WorkItem {
     const b = this.writable(proj);
     const i = this.must(b, id);
+    // "reviewed" must name the version the owner read: without it, newer agent text could be marked reviewed unseen
+    if (p.trust === 'human' && p.ifUpdatedAt === undefined) throw new BoardError(409, 'Open the item and read its current text before you mark it reviewed.');
+    if (p.ifUpdatedAt !== undefined && (typeof p.ifUpdatedAt !== 'string' || p.ifUpdatedAt !== i.updatedAt)) throw new BoardError(409, 'This item changed since you opened it. The board was reloaded: look at it again and redo your edit.');
     const by: BoardActor = { kind: 'owner' };
     // validate everything first so a bad field leaves the item untouched
     const next = {
@@ -382,6 +412,7 @@ export class BoardStore {
   remove(proj: ProjectRef, id: string): void {
     const b = this.writable(proj);
     const i = this.must(b, id);
+    if (this.liveRun(i).live) throw new BoardError(409, 'This item has a run in progress. Stop the run first.');
     const col = i.status;
     this.drop(b, id);
     this.renumber(b, col);
@@ -508,6 +539,8 @@ export class BoardStore {
     if (touching.length === 0 && u.note === undefined && u.noteIds === undefined) throw new BoardError(400, 'Give a note or a field to change.');
     if (i.status === 'done') throw new BoardError(409, 'The owner already closed this item. Create a new item if more work is needed.');
     if (i.assignee?.kind === 'owner' && touching.length) throw new BoardError(403, 'This item is assigned to the owner. You can add a note; the owner changes the item.');
+    const lr = this.liveRun(i);
+    if (lr.live && (u.assignee !== undefined || u.status !== undefined) && lr.agentId !== agentId) throw new BoardError(409, 'A run on this item is in progress for another agent. You can add a note; leave its assignee and status to that run.');
     // validate everything first so a bad field leaves the item untouched
     let status: BoardStatus | undefined;
     if (u.status !== undefined) {
@@ -557,6 +590,7 @@ export class BoardStore {
     if (!i || i.proposal) throw new BoardError(404, `No item "${clip(String(id), 40)}" on this project's board.`);
     if (i.status === 'done') throw new BoardError(403, 'Done items are the owner\'s record. Only the owner deletes them.');
     if (i.assignee?.kind === 'owner') throw new BoardError(403, 'This item is assigned to the owner. Only the owner deletes it.');
+    if (this.liveRun(i).live) throw new BoardError(409, 'This item has a run in progress. Stop the run first.');
     if (count) this.tick(this.deletes, agentId, BOARD_LIMITS.botDeletesPerWindow, BOARD_LIMITS.proposalWindowMs, `At most ${BOARD_LIMITS.botDeletesPerWindow} delete requests per ${BOARD_LIMITS.proposalWindowMs / 60000} minutes.`);
     return structuredClone(i);
   }

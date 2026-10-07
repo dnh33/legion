@@ -355,6 +355,17 @@ None of these is proven: the slice was built and tested on fakes only (fake safe
 | C-GH-2 | Log redirect | Signed in; a repository with a finished Actions run | Call `GitHubClient.logs(jobId, repo)` for a real job id | Today it fails with `logs-unavailable` and `core.log` names the redirect HOST only. Record the host names, add them to `GITHUB_LOG_STORAGE_HOSTS`, repeat: text returned, no Authorization on the second request | The recorded host names; `core.log` lines | account | slice 1a (covers: fail-closed list and one-redirect rule; list stays empty until this runs) |
 | C-GH-3 | Permissions | Read App signed in | `connection()` then `can('actions','write')` | `permissions` from `/user/installations`; `can` says `no` for write on the read App | The returned permissions | account | slice 1a (covers: `connection`, `can`; the write App is slice 2) |
 
+## 2026-10-07: Board run state (fix/board-run-state; plan `claude/plan-fascia.md` 6.1). Safety class: a few cents of Claude usage; none otherwise
+
+Built and tested on fakes only (fake task store, no Electron UI, no real restart).
+
+| id | Steps | Expected | Evidence | State |
+|---|---|---|---|---|
+| BR1 | Built app, Windows. In a project, assign an item to a member agent and click Run this item. While it runs (item in Doing), quit Legion fully from the tray and start it again. Open the board. | The item is in Blocked, not Doing. Its activity says "Legion restarted during this run." and its last run is recorded. Move it to Backlog or Doing: Run this item is enabled again. | Screenshot of the item dialog after the restart; the activity lines. | todo |
+| BR2 | Built app. Open an item's dialog while its run is in progress and leave it open until the run ends (item moves to Review). Then press Save without other edits, then change the title and press Save. | No status change is sent with the first Save (the item stays in Review). If the item changed since the dialog opened, a toast says "This item changed since you opened it" and the board reloads; nothing is overwritten. | Screenshots of the board before and after; the toast. | todo |
+| BR3 | Built app. Move an item to Done and open it. Then try to delete an item whose run is in progress. | No enabled Run button on the Done item, with the hint "Move it out of Done to run it again." Delete during a run is refused with "Stop the run first." | Screenshots of both messages. | todo |
+| BR4 | Built app. Have an agent create a board item (untrusted). Open its dialog. While it is open, have the agent change the item's description (ask it in chat). Then press Mark as reviewed. Also try typing in the description and look at the button. | Mark as reviewed is refused with a toast, the dialog says the item changed and now shows the new description; pressing it again marks the text now on screen. While the description has unsaved edits the button is disabled with "Save your text edits first." | Screenshots of the note, the toast and the activity line "The owner reviewed the text". | todo |
+
 ## 2026-10-07: CI panel (Release B, feat/ci-panel). Safety class: none (CI2 re-runs a deliberately red PR; no money, no wallet)
 
 Built against a scripted GitHub; none of these has run against real GitHub, and the real client lands with the connectors work. Do not mark the CI panel verified until these are recorded as passed.
