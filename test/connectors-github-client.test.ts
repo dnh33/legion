@@ -198,9 +198,11 @@ test('host restriction: only api.github.com paths; callers cannot set headers; a
   const r = await rig();
   await signedIn(r);
   for (const p of ['https://evil.example/x', 'http://api.github.com/x', '//evil.example/x', 'evil.example', '/a b', '/x#y', '/\\evil']) {
-    assert.equal((await kind(r.client.request(p))).kind, 'network', p);
+    const e = await kind(r.client.request(p));
+    assert.deepEqual([e.kind, e.retryable], ['network', false], p);
   }
   assert.equal(r.fake.requests.length, 0, 'rejected before any request');
+  assert.deepEqual(r.fake.stray, [], 'no other host was even attempted');
   assert.equal((await kind(r.client.request('/repos/o/evil'))).kind, 'network');
   assert.deepEqual(r.fake.stray, []);
   const moved = await r.client.request('/repos/o/moved');
