@@ -12,7 +12,7 @@ own Claude Code sign-in. No account of ours, no server of ours.
 **Core** — the Node process. Holds the store, the engine, every module, the HTTP API, the SSE stream and
 the MCP endpoint. This is where all behaviour lives.
 
-**Mascot / Zealot** — Zealot is the hand-painted mascot and the default lead agent. Its art is untouchable:
+**Mascot / the Marshal** — the Marshal (internal id `zealot`; formerly named Zealot) is the hand-painted mascot and the default lead agent. Its art is untouchable:
 effects and logic only, never a repaint.
 
 ## Agents and tasks

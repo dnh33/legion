@@ -5,7 +5,7 @@ import { STATE_LABEL } from './useRelicState';
 import { useBustState } from './useBustState';
 import './relic.css';
 
-/** The Ops-panel stage for every agent except Zealot (whose stage stays the exact Relic): same frame, mood label and Lab. */
+/** The Ops-panel stage for every agent except the Marshal (whose stage stays the exact Relic): same frame, mood label and Lab. */
 export function BustStage({ agentId, width = 210 }: { agentId: string; width?: number }) {
   const force = useStore((s) => s.mascotForce);
   const forceVm = useStore((s) => s.mascotVm);

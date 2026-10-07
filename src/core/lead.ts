@@ -1,8 +1,8 @@
 /**
- * Zealot's standing role (owner direction, 2026-10-05): whatever the request says and however a person edits Zealot's own
- * prompt, Zealot is the lead of the Order. It identifies the work, cuts it into granular tasks, delegates them, runs
+ * The Marshal's standing role (owner direction, 2026-10-05): whatever the request says and however a person edits the Marshal's own
+ * prompt, the Marshal is the lead of the Order. It identifies the work, cuts it into granular tasks, delegates them, runs
  * independent ones in parallel, and keeps the Order and the person informed. The engine appends this AFTER every other
- * part of Zealot's system prompt, so it is the last word and an edited persona cannot drop it.
+ * part of the Marshal's system prompt, so it is the last word and an edited persona cannot drop it.
  * Same doctrine as the Legion Mod's (mod/src/engine/prompt.ts LEAD_DOCTRINE), worded for the app's own tools.
  */
 import { MAX_DEPTH, MAX_HOP } from './bridge.js';

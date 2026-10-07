@@ -9,7 +9,7 @@ import { Store } from '../src/core/store.js';
 
 const ID = 'builder-vm-size-default-v1';
 /** Every migration a state file records once it has been loaded (0.2.5-c added the Zealot prompt one after this one). */
-const ALL = [ID, 'zealot-lead-prompt-v1', 'souls-codex-v1', 'roster-comms-lines-v1'];
+const ALL = [ID, 'zealot-lead-prompt-v1', 'souls-codex-v1', 'roster-comms-lines-v1', 'lead-name-marshal-v1'];
 /** A state.json as an older build wrote it: no `migrations` field, Builder (and Scout, for contrast) on 'large'. */
 function oldState(dir: string): void {
   const st = new Store(cleanupTemp('legion-mig-seed-'));
@@ -78,4 +78,32 @@ test('U1: an agent entry with no vm object does not crash the migration', async 
   assert.ok(s.getAgent('builder'), 'the store loaded');
   await s.flush();
   assert.deepEqual(onDisk(dir).migrations, ALL);
+});
+
+/** Rename to the Marshal (2026-10-07): the old seeded name and the exact old soul move; a person's own name or prompt never does. */
+function preRenameState(dir: string, patch: { name?: string; systemPrompt?: string }): string {
+  const seed = new Store(cleanupTemp('legion-mig-seed-'));
+  seed.seedDefaults(join(dir, 'w'));
+  const OLD_SOUL = seed.getAgent('zealot')!.systemPrompt.replace('You are the Marshal, the lead', 'You are Zealot, the lead');
+  const agents = seed.listAgents().map((a) => (a.id === 'zealot' ? { ...a, name: 'Zealot', systemPrompt: OLD_SOUL, ...patch } : a));
+  const done = ALL.filter((m) => m !== 'lead-name-marshal-v1');
+  writeFileSync(join(dir, 'state.json'), JSON.stringify({ agents, tasks: [], vms: [], migrations: done }));
+  return OLD_SOUL;
+}
+
+test('lead-name-marshal-v1: the seeded "Zealot" name and the exact old soul become the Marshal; the id stays', () => {
+  const dir = cleanupTemp('legion-mig-');
+  const old = preRenameState(dir, {});
+  const z = new Store(dir).getAgent('zealot')!;
+  assert.equal(z.name, 'Marshal');
+  assert.notEqual(z.systemPrompt, old);
+  assert.match(z.systemPrompt, /^You are the Marshal, the lead of the Order/);
+});
+
+test('lead-name-marshal-v1: a name or prompt the person wrote is never touched', () => {
+  const dir = cleanupTemp('legion-mig-');
+  preRenameState(dir, { name: 'Captain', systemPrompt: 'You are Zealot. My own words.' });
+  const z = new Store(dir).getAgent('zealot')!;
+  assert.equal(z.name, 'Captain');
+  assert.equal(z.systemPrompt, 'You are Zealot. My own words.');
 });

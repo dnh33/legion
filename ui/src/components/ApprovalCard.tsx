@@ -8,7 +8,7 @@ import { BLENDER_ASSET_TOOL, GET_BLENDER_TOOL } from '../../../src/shared/blende
 import { Icon } from './icons';
 import { clickOnly } from '../../../src/shared/approval-keys';
 
-/** "Asked by Zealot in Launch crew, hop 2": shown when a bot woken inside a room needs approval. */
+/** "Asked by Marshal in Launch crew, hop 2": shown when a bot woken inside a room needs approval. */
 function Origin({ o, inRoomView }: { o: NonNullable<ApprovalRequest['origin']>; inRoomView: boolean }) {
   const from = useStore((s) => s.agents.find((x) => x.id === o.fromAgentId)?.name ?? o.fromAgentId);
   const viaBridge = o.roomId === 'agent-bridge';

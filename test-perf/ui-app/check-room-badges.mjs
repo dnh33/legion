@@ -31,7 +31,7 @@ try {
   check('list row shows "by <bot>"', (await page.locator('.rm-row .rm-pill', { hasText: /^by / }).count()) === 1);
   check('header shows "created by <bot>"', (await page.locator('.rm-head .rm-pill', { hasText: /created by/ }).count()) === 1);
   check('message shows the model it asked for', (await page.locator('.rm-model', { hasText: /haiku/i }).count()) === 1);
-  await env.emit({ type: 'approval.requested', approval: { id: 'apr_1', taskId: 'task_x', agentId: a, toolName: 'mcp__legion_comms__room_create', summary: 'Zealot asks to create a room. The name below is the bot\'s text, not Legion\'s: Launch crew\nMembers: Zealot, Scout, Builder. Lead: Zealot.\nBudget: $1.00 (the room pauses when it is spent), 6 bot-to-bot hops at most.\nOnly you can delete the room later. Deny to stop it.', input: {}, at: new Date().toISOString(), origin: { roomId: room.id, fromAgentId: a, hop: 1 } } });
+  await env.emit({ type: 'approval.requested', approval: { id: 'apr_1', taskId: 'task_x', agentId: a, toolName: 'mcp__legion_comms__room_create', summary: 'Marshal asks to create a room. The name below is the bot\'s text, not Legion\'s: Launch crew\nMembers: Zealot, Scout, Builder. Lead: Zealot.\nBudget: $1.00 (the room pauses when it is spent), 6 bot-to-bot hops at most.\nOnly you can delete the room later. Deny to stop it.', input: {}, at: new Date().toISOString(), origin: { roomId: room.id, fromAgentId: a, hop: 1 } } });
   await page.waitForSelector('.rm-approval');
   check('room request card is labelled', (await page.locator('.approval-tool', { hasText: 'Room request' }).count()) === 1);
   await page.screenshot({ path: path.join(shots, 'rooms-badges.png') });

@@ -66,19 +66,19 @@ Legion runs several Claude agents from one desktop app, on your own machine.
 
 ## Features
 
-**The highlights:** Zealot leads an Order of 13 agents · agents ask each other for help · projects with a work board · shared long-term memory · a cloud VM per agent when a task needs one.
+**The highlights:** the Marshal leads an Order of 13 agents · agents ask each other for help · projects with a work board · shared long-term memory · a cloud VM per agent when a task needs one.
 
 ### Your agents
 
-- **13 ready-made agents**: Zealot (lead), Builder (coding), Scout (research) and ten more, or make your own ([The Muster](#the-muster)).
-- **Zealot leads the Order.** It splits a request into tasks, hands each to the best agent and runs independent ones at once.
+- **13 ready-made agents**: the Marshal (lead), Builder (coding), Scout (research) and ten more, or make your own ([The Muster](#the-muster)).
+- **The Marshal leads the Order.** It splits a request into tasks, hands each to the best agent and runs independent ones at once.
 - **Agents talk to each other.** One can `ask` another and wait, or `tell` it and get the reply later.
 - **Rooms**: group chats of agents and you ([Rooms](#rooms)).
 - **A VM per agent, on demand**, with a live screen preview ([boat.dev VMs](#boatdev-vms)).
 
 <details><summary>Details</summary>
 
-- Your own agents get a name, system prompt, model, approval mode and VM settings. Your edits to Zealot's prompt are kept; the lead role applies on top. In a project, Zealot works through the board's leader.
+- Your own agents get a name, system prompt, model, approval mode and VM settings. Your edits to the Marshal's prompt are kept; the lead role applies on top. In a project, the Marshal works through the board's leader.
 - Pair threads between two agents resume the same session, so repeat conversations stay cheap. Hop, rate and cycle guards stop runaway loops.
 - Rooms have guards against runaway loops. Agents can propose creating a room or changing its members; each change waits for an Allow card that only you can answer in the app.
 - Agents start, use and stop their own boat.dev VM. You get an "Open desktop" link. Idle VMs stop on their own, so billing pauses. Legion shows how long a VM has run today, and an optional cost estimate from the hourly price you enter ([docs/VM-NOTES.md](docs/VM-NOTES.md)).
@@ -174,7 +174,7 @@ Legion runs several Claude agents from one desktop app, on your own machine.
 
 Legion ships with 13 premade agents, each with its own persona, model policy, approval mode and animated bust.
 
-- **The originals:** Zealot (lead), Builder (coding) and Scout (research).
+- **The originals:** the Marshal (lead), Builder (coding) and Scout (research).
 - **They are ordinary agents:** edit their prompts, models and approval modes, or delete the ones you do not want.
 - You see 12 until BSV mode is on: the Assayer stays hidden until then.
 

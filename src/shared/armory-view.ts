@@ -417,7 +417,7 @@ export function discoveryWarning(d: Pick<ArmoryData, 'inherit' | 'discovery' | '
 
 export interface AgentRef { id: string; name: string }
 
-/** "All", "All but Zealot", "None", "Only Builder", "Only Builder, Scout", "3 of 9". */
+/** "All", "All but Marshal", "None", "Only Builder", "Only Builder, Scout", "3 of 9". */
 export function agentsLabel(grant: 'all' | readonly string[], agents: readonly AgentRef[]): string {
   if (grant === 'all') return 'All';
   const known = agents.filter((a) => grant.includes(a.id));
@@ -577,7 +577,7 @@ export function triOf(ids: readonly string[], chosen: ReadonlySet<string>): Tri 
 }
 
 /**
- * Why a tick will not reach the agent anyway (the list only narrows), said on that line: "Not for Zealot: limited to other agents in
+ * Why a tick will not reach the agent anyway (the list only narrows), said on that line: "Not for Marshal: limited to other agents in
  * the Armory. Change it there." Empty when the skill reaches the agent.
  */
 export function tickReason(s: Pick<ArmorySkill, 'state' | 'agents'>, agentId: string, who: string): string {
