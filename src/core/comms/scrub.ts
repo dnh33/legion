@@ -34,6 +34,8 @@ const RULES: Array<{ re: RegExp; to: string | ((...m: string[]) => string); hex?
   { re: /\bsk-[A-Za-z0-9_-]{8,}/g, to: '[redacted-token]' },
   // GitHub, Slack, AWS
   { re: /\bgh[pousr]_[A-Za-z0-9]{20,}\b/g, to: '[redacted-token]' },
+  // GitHub fine-grained personal access tokens: github_pat_<22>_<59>
+  { re: /\bgithub_pat_[A-Za-z0-9_]{20,}/g, to: '[redacted-token]' },
   { re: /\bxox[abprs]-[A-Za-z0-9-]{10,}/g, to: '[redacted-token]' },
   { re: /\bAKIA[0-9A-Z]{16}\b/g, to: '[redacted-token]' },
   // Bitcoin / BSV WIF private keys: base58, 51 chars starting with 5 or 52 chars starting with K / L
