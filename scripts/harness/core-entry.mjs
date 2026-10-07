@@ -15,10 +15,10 @@ const root = join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'dist', '
 const load = (p) => import(pathToFileURL(join(root, p)).href);
 
 const [{ dataDir, configPath, loadConfig, VERSION }, { readLaunchSecrets }, { ApprovalBroker }, { EventBus }, { makeBoatGetter, SettingsService }, { Engine }, { createServer },
-  { createBlenderModule }, { createBsvModule, createBsvState }, { createCommsModule }, { createKnowledgeModule }, { createHouseModule }, { createArmoryModule }, { Store }, { VmManager }, { ProviderRuntime }, { ProviderKeys, keyFileFor }, { createProvidersModule }, { createUpdaterModule }, { createProjectsModule, ProjectStore }, { BoardStore, createBoardModule, graphNotes }, { createBrowserModule }, { createCiModule }, { FakeGitHub }] = await Promise.all([
+  { createBlenderModule }, { createBsvModule, createBsvState }, { createCommsModule }, { createKnowledgeModule }, { createHouseModule }, { createArmoryModule }, { Store }, { VmManager }, { ProviderRuntime }, { ProviderKeys, keyFileFor }, { createProvidersModule }, { createUpdaterModule }, { createProjectsModule, ProjectStore }, { BoardStore, createBoardModule, graphNotes }, { createBrowserModule }, { createCiModule }, { FakeGitHub }, { createConnectorsModule }, { ConnectorKeyring }] = await Promise.all([
   load('shared/config.js'), load('core/admin.js'), load('core/approvals.js'), load('core/bus.js'), load('core/settings.js'), load('core/engine.js'), load('core/server.js'),
   load('core/blender/index.js'), load('core/bsv/index.js'), load('core/comms/index.js'), load('core/kg/index.js'), load('core/house/index.js'), load('core/armory/index.js'), load('core/store.js'), load('core/vm-manager.js'),
-  load('core/providers/runtime.js'), load('core/providers/secrets.js'), load('core/providers/routes.js'), load('core/updater/index.js'), load('core/projects/index.js'), load('core/projects/board/index.js'), load('core/browser/index.js'), load('core/ci/index.js'), load('core/ci/fake-github.js'),
+  load('core/providers/runtime.js'), load('core/providers/secrets.js'), load('core/providers/routes.js'), load('core/updater/index.js'), load('core/projects/index.js'), load('core/projects/board/index.js'), load('core/browser/index.js'), load('core/ci/index.js'), load('core/ci/fake-github.js'), load('core/connectors/index.js'), load('core/connectors/keyring.js'),
 ]);
 
 const log = (...a) => process.stderr.write(`[harness-core] ${a.join(' ')}\n`);
@@ -64,8 +64,8 @@ const boardModules = board ? [createBoardModule(moduleDeps, { projects, board, n
 const fakeGithub = new FakeGitHub();
 fakeGithub.scenario('mixed');
 fakeGithub.setConnection({ auth: 'pat', login: 'octo', permissions: { actions: 'write', contents: 'read' }, rate: { limit: 5000, remaining: 5000, resetAt: new Date(Date.now() + 3600000).toISOString() } });
-const ci = createCiModule(moduleDeps, { github: fakeGithub, writes: () => fakeGithub.writesPort(), projects, log });
-const modules = [kg, house, armory, createCommsModule(moduleDeps, { projects }), createProjectsModule(moduleDeps, { projects, nativeSecret }), ...boardModules, bsv, blender, ...providersModules, updater, createBrowserModule(moduleDeps, { nativeSecret, log }), ci];
+/ connectors: same module as the product; no key and no GitHub client in the harness, so Connect reports not available/nconst connectors = createConnectorsModule(moduleDeps, { keys: new ConnectorKeyring(), log });/nconst ci = createCiModule(moduleDeps, { github: fakeGithub, writes: () => fakeGithub.writesPort(), projects, log });
+const modules = [kg, house, armory, createCommsModule(moduleDeps, { projects }), createProjectsModule(moduleDeps, { projects, nativeSecret }), ...boardModules, bsv, blender, ...providersModules, updater, createBrowserModule(moduleDeps, { nativeSecret, log }), connectors, ci];
 engine.setModules(modules);
 const server = createServer({
   config, store, bus, engine, vms, approvals, boatConfigured, modules, bsvEnabled,
