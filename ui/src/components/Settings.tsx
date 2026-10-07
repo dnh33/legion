@@ -15,6 +15,7 @@ import { BrowserSection } from '../browser/BrowserSection';
 import { HouseSection } from '../house/HouseSection';
 import { ArmorySection } from '../armory/ArmorySection';
 import { GithubSection } from '../connectors/GithubSection';
+import { LogsSection } from '../logs/LogsSection';
 
 const NAV: { id: SettingsSection; label: string; hint: string }[] = [
   { id: 'claude', label: 'Claude', hint: 'Sign-in, key, runs' },
@@ -27,6 +28,7 @@ const NAV: { id: SettingsSection; label: string; hint: string }[] = [
   { id: 'armory', label: 'Armory', hint: 'Skills your agents can pick up' },
   { id: 'github', label: 'GitHub', hint: 'Connector: read repos and CI' },
   { id: 'connections', label: 'Use from Claude', hint: 'Drive Legion from Claude Code' },
+  { id: 'logs', label: 'Logs', hint: 'What Legion did, on this computer' },
   { id: 'about', label: 'About', hint: 'Version and folders' },
 ];
 
@@ -78,6 +80,7 @@ export function SettingsPanel() {
                     : section === 'house' ? <HouseSection />
                   : section === 'armory' ? <ArmorySection />
                   : section === 'github' ? <GithubSection />
+                  : section === 'logs' ? <LogsSection />
                   : section === 'connections' ? <ConnectionsSection s={settings} />
                     : <AboutSection s={settings} />
           )}

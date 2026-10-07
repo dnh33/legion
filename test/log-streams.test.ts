@@ -19,18 +19,20 @@ function fake(): { chunks: string[]; cbs: number; write: W } {
 }
 
 describe('installStreamWrappers', () => {
-  it('masks a token in string and byte chunks on both streams, and still calls the callback', () => {
+  it('masks a token in string and byte chunks on both streams, and still calls the callback', async () => {
     const out = fake();
     const err = fake();
     const restore = installStreamWrappers([out as never, err as never]);
     out.write(`token ${GHP}\n`);
-    err.write(Buffer.from(`crash ${GHP}`), undefined, () => {});
+    let called = 0;
+    err.write(Buffer.from(`crash ${GHP}`), undefined, () => { called++; });
     out.write(Buffer.from(`x ${GHP}`), 'utf8');
     restore();
+    await new Promise((r) => setImmediate(r));
     for (const c of [...out.chunks, ...err.chunks]) assert.equal(c.includes(GHP), false, c);
     assert.equal(out.chunks.length, 2);
     assert.equal(err.chunks.length, 1);
-    assert.equal(err.cbs, 1);
+    assert.equal(called, 1);
     assert.match(out.chunks[0], /^token /);
   });
   it('is idempotent per stream and restore puts the original back', () => {

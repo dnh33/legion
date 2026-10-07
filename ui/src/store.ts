@@ -13,7 +13,7 @@ import { moodAfterDecision, noteDenial } from './mascot/toolActivity';
 
 export type RelicState = 'idle' | 'listening' | 'thinking' | 'hacking' | 'awaiting' | 'victory' | 'error' | 'sleeping' | 'annoyed';
 
-export type SettingsSection = 'claude' | 'providers' | 'boat' | 'mcp' | 'blender' | 'compaction' | 'house' | 'armory' | 'github' | 'connections' | 'about';
+export type SettingsSection = 'claude' | 'providers' | 'boat' | 'mcp' | 'blender' | 'compaction' | 'house' | 'armory' | 'github' | 'connections' | 'logs' | 'about';
 export type TaskSrc = 'tab' | 'recent';
 export interface TaskMenu { x: number; y: number; taskId: string; src: TaskSrc }
 

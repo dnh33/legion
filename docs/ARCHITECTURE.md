@@ -45,7 +45,8 @@ Cowork / Desktop --stdio--> legion-mcp-stdio --->  Router      auto Sonnet/Opus 
 | `board/<projectId>.jsonl` | The project board: one JSON line per change, compacted with a temporary file and a rename. |
 | `context/` | The house context layer: a copy of the shipped rules, ADRs, facts and skills (`src/core/house/`). Agents see it only through the `legion_house` tools. `context/.shipped.json` holds the hashes of what Legion shipped. |
 | `.adopted.json`, `.house-switches.json` | The owner's approvals and on/off switches for the house layer. They sit in the data directory, one level above `context/`, and are changed only by admin routes. |
-| `core.log` | Core log. |
+| `core.log` | The raw stdout and stderr stream of the core (redacted by the stream wrappers). The structured logs are in `logs/`. |
+| `logs/` | `legion.log`, `errors.log`, `agents.log`, `app.log` (5 MB each, 3 old copies kept). See Logging below. |
 
 Environment overrides: `LEGION_HOME`, `LEGION_PORT`, `LEGION_NODE`, `BOAT_API_KEY`, and `ANTHROPIC_API_KEY` (used only when `claude.auth` is `api-key`).
 
@@ -362,3 +363,10 @@ The owner sees this layer as **Settings → Doctrine**; internally it is still t
 | `sculptor` | auto | `ask` | on |
 
 The Assayer carries `requires: 'bsv'` and is hidden until BSV mode is on. All roster VMs use the default size and a 15 minute idle stop.
+
+## Logging
+A local record of what Legion did, never of what you wrote; nothing is sent anywhere (plan: `claude/plan-logging.md`).
+- `src/core/log/install.ts` is the first import of `legion-core.ts`: it wraps `process.stdout` and `process.stderr` so every chunk passes the redactor (`redact.ts`). Each stream holds a short tail so a secret split across two writes is still masked; the tail is flushed on a 50 ms timer and at exit.
+- `logger.ts` is the one sink: `log()` formats, redacts and enqueues (bounded queue of 10,000 lines, DEBUG and INFO dropped first); one writer drains it into `<dataDir>/logs/`. WARN and above also go to `errors.log`; runs go to `agents.log`; the window, updater, Blender and connectors go to `app.log`. Rotation is by the writer (rename and reopen, no lock files).
+- `events.ts` subscribes to the event bus and writes fixed fields only: run start and finish (agent, provider, model, duration, turns, outcome), approvals (tool name and answer), the Blender state. Never message text, prompts or tool input.
+- `index.ts` is the module behind Settings, Logs: `GET /api/logs`, `GET /api/logs/errors`, `POST /api/logs/clear` (close every handle, delete, reopen). All three are admin-only.
