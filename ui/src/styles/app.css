@@ -5,8 +5,10 @@ button, input, textarea, select { font: inherit; color: inherit; }
 button { cursor: pointer; }
 code, pre, kbd { font-family: var(--font-mono); }
 ::selection { background: var(--accent-soft); }
-:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; border-radius: var(--r-sm); }
+:where(:root[data-kbd-nav]) :focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; border-radius: var(--r-sm); }
 input:focus-visible, textarea:focus-visible, select:focus-visible { outline: none; }
+/* Rings are for people who navigate by keyboard (ui/src/a11y/kbdNav.ts sets data-kbd-nav on <html>). Under forced colours the ring is a system-colour outline. */
+@media (forced-colors: active) { :root[data-kbd-nav] :focus-visible { outline: 2px solid Highlight; outline-offset: 2px; } }
 .icon { flex: none; }
 .spacer { flex: 1; }
 .muted-s { color: var(--muted); font-size: 12px; }
@@ -180,7 +182,7 @@ kbd { font-size: 10.5px; line-height: 1; padding: 3px 5px; border: 1px solid var
 .md-link { color: var(--text); text-decoration: none; border-bottom: 1px solid var(--faint); transition: border-color var(--t) var(--ease); }
 .md-link:hover { border-bottom-color: var(--text); }
 .md-table-wrap { max-width: 100%; overflow-x: auto; margin: 0 0 10px; border: 1px solid var(--line); border-radius: var(--r); background: var(--code-bg); }
-.md-table-wrap:focus-visible { outline: 2px solid var(--line-strong); outline-offset: 2px; }
+:root[data-kbd-nav] .md-table-wrap:focus-visible { outline: 2px solid var(--line-strong); outline-offset: 2px; }
 .md-table { border-collapse: collapse; width: max-content; min-width: 100%; font-size: 12.5px; line-height: 1.45; font-variant-numeric: tabular-nums; }
 .md-table th, .md-table td { padding: 5px 12px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; overflow-wrap: normal; word-break: normal; max-width: 46ch; }
 .md-table th + th, .md-table td + td { border-left: 1px solid var(--line); }
@@ -228,7 +230,7 @@ kbd { font-size: 10.5px; line-height: 1; padding: 3px 5px; border: 1px solid var
 
 /* approval */
 .approval { border: 1px solid rgba(255, 204, 102, .4); background: linear-gradient(var(--warn-soft), transparent 70%), var(--surface); border-radius: var(--r-lg); padding: 12px 14px; animation: msg-in 200ms var(--ease) both; }
-.approval:focus-visible { outline-offset: 2px; }
+:root[data-kbd-nav] .approval:focus-visible { outline-offset: 2px; }
 .approval-head { display: flex; align-items: center; gap: 8px; color: var(--warn); font-weight: 600; font-size: 12.5px; }
 .approval-tool { font-family: var(--font-mono); font-weight: 500; color: var(--text-2); background: var(--surface-3); padding: 1px 7px; border-radius: 6px; font-size: 11.5px; }
 .approval-sum { margin: 8px 0 10px; padding: 9px 11px; background: var(--code-bg); border: 1px solid var(--line); border-radius: var(--r); font-size: 12px; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 160px; overflow: auto; }
@@ -261,7 +263,7 @@ kbd { font-size: 10.5px; line-height: 1; padding: 3px 5px; border: 1px solid var
 /* ---------- composer ---------- */
 .composer-wrap { flex: none; padding: 8px 24px 16px; width: 100%; max-width: 780px; margin: 0 auto; }
 .composer { max-width: 780px; margin: 0 auto; background: var(--surface); border: 1px solid var(--line-strong); border-radius: var(--r-lg); transition: border-color var(--t) var(--ease), box-shadow var(--t) var(--ease); }
-.composer:focus-within { border-color: var(--accent-line); box-shadow: 0 0 0 3px var(--accent-soft); }
+.composer:focus-within { border-color: var(--accent-line); } :root[data-kbd-nav] .composer:focus-within { box-shadow: 0 0 0 3px var(--accent-soft); }
 .composer textarea { display: block; width: 100%; resize: none; border: 0; background: transparent; padding: 12px 14px 4px; line-height: 1.5; max-height: 180px; min-height: 40px; outline: none; }
 .composer textarea::placeholder { color: var(--faint); }
 .composer-bar { display: flex; align-items: center; gap: 10px; padding: 4px 8px 8px 10px; }
@@ -371,7 +373,7 @@ kbd { font-size: 10.5px; line-height: 1; padding: 3px 5px; border: 1px solid var
 .form label { display: flex; flex-direction: column; gap: 5px; font-size: 12px; font-weight: 500; color: var(--muted); }
 .form input:not([type='checkbox']), .form textarea, .form select { background: var(--surface-2); border: 1px solid var(--line-strong); border-radius: var(--r-sm); padding: 7px 10px; color: var(--text); font-weight: 400; font-size: 13.5px; transition: border-color var(--t), box-shadow var(--t); }
 .form textarea { resize: vertical; min-height: 84px; font-family: var(--font-mono); font-size: 12.5px; }
-.form input:focus, .form textarea:focus, .form select:focus { border-color: var(--accent-line); box-shadow: 0 0 0 3px var(--accent-soft); }
+.form input:focus, .form textarea:focus, .form select:focus { border-color: var(--accent-line); } :root[data-kbd-nav] .form input:focus, :root[data-kbd-nav] .form textarea:focus, :root[data-kbd-nav] .form select:focus { box-shadow: 0 0 0 3px var(--accent-soft); }
 .form .row { display: flex; gap: 12px; } .form .grow { flex: 1; min-width: 0; }
 .f-emoji { width: 72px; } .f-emoji input { text-align: center; font-size: 16px; }
 .form fieldset { border: 1px solid var(--line); border-radius: var(--r); padding: 10px 12px 12px; display: flex; flex-direction: column; gap: 10px; margin: 0; }
@@ -438,7 +440,7 @@ kbd { font-size: 10.5px; line-height: 1; padding: 3px 5px; border: 1px solid var
 .pop-search { padding: 6px 4px 2px; }
 .mp-search { width: 100%; background: var(--surface); border: 1px solid var(--line-strong); border-radius: var(--r-sm); padding: 6px 10px; color: var(--text); font-size: 13px; }
 .mp-search::placeholder { color: var(--faint); }
-.mp-search:focus { border-color: var(--accent-line); box-shadow: 0 0 0 3px var(--accent-soft); }
+.mp-search:focus { border-color: var(--accent-line); } :root[data-kbd-nav] .mp-search:focus { box-shadow: 0 0 0 3px var(--accent-soft); }
 .mp-empty { padding: 10px 10px; color: var(--muted); font-size: 12.5px; }
 .mp-more { width: 100%; display: flex; align-items: center; justify-content: center; gap: 6px; padding: 7px; margin-top: 2px; border: 0; border-radius: var(--r-sm); background: transparent; color: var(--text-2); font-size: 12.5px; }
 .mp-more:hover { background: var(--surface-3); }
@@ -537,7 +539,7 @@ kbd { font-size: 10.5px; line-height: 1; padding: 3px 5px; border: 1px solid var
 .set-hint { color: var(--muted); font-size: 12.5px; line-height: 1.45; } .set-hint b { color: var(--text-2); font-weight: 500; }
 .set-field input:not([type]), .set-field input[type='text'], .set-field input[type='password'], .set-field textarea { width: 100%; padding: 8px 10px; background: var(--bg); border: 1px solid var(--line-strong); border-radius: var(--r); color: var(--text); font: inherit; outline: 0; transition: border-color var(--t), box-shadow var(--t); }
 .set-field textarea { font-family: var(--font-mono); font-size: 12px; resize: vertical; min-height: 44px; }
-.set-field input:focus, .set-field textarea:focus { border-color: var(--accent-line); box-shadow: 0 0 0 3px var(--accent-soft); }
+.set-field input:focus, .set-field textarea:focus { border-color: var(--accent-line); } :root[data-kbd-nav] .set-field input:focus, :root[data-kbd-nav] .set-field textarea:focus { box-shadow: 0 0 0 3px var(--accent-soft); }
 .set-field input:disabled { opacity: .55; }
 .set-field input.narrow { width: 120px; }
 .set-inline { display: flex; align-items: center; gap: 8px; } .set-inline input { flex: 1; min-width: 0; }
@@ -571,7 +573,7 @@ kbd { font-size: 10.5px; line-height: 1; padding: 3px 5px; border: 1px solid var
 .set-rates .set-inline { flex-wrap: wrap; align-items: flex-end; }
 .set-rate { display: flex; flex-direction: column; gap: 4px; flex: 1 1 100px; min-width: 90px; font-size: 12px; color: var(--muted); }
 .set-rate input { width: 100%; padding: 8px 10px; background: var(--bg); border: 1px solid var(--line-strong); border-radius: var(--r); color: var(--text); font: inherit; outline: 0; transition: border-color var(--t), box-shadow var(--t); }
-.set-rate input:focus { border-color: var(--accent-line); box-shadow: 0 0 0 3px var(--accent-soft); }
+.set-rate input:focus { border-color: var(--accent-line); } :root[data-kbd-nav] .set-rate input:focus { box-shadow: 0 0 0 3px var(--accent-soft); }
 .set-rate input::placeholder { color: var(--faint); }
 .set-adv summary { cursor: pointer; color: var(--muted); font-size: 12.5px; margin-bottom: 8px; }
 .set-empty { display: flex; flex-direction: column; gap: 2px; padding: 18px; border: 1px dashed var(--line-strong); border-radius: var(--r-lg); color: var(--muted); }
@@ -620,7 +622,7 @@ kbd { font-size: 10.5px; line-height: 1; padding: 3px 5px; border: 1px solid var
 .kv-row { display: flex; gap: 6px; align-items: center; } .kv-row input { min-width: 0; flex: 1; } .kv-row input:first-child { flex: 0 0 38%; }
 .kv-row input.is-masked::placeholder, .kv-row input.is-masked { color: var(--muted); font-family: var(--font-mono); }
 .kv-add { align-self: flex-start; }
-.set-field .kv-row input { padding: 7px 9px; background: var(--bg); border: 1px solid var(--line-strong); border-radius: var(--r); color: var(--text); font: inherit; font-size: 12.5px; outline: 0; } .kv-row input:focus { border-color: var(--accent-line); box-shadow: 0 0 0 3px var(--accent-soft); }
+.set-field .kv-row input { padding: 7px 9px; background: var(--bg); border: 1px solid var(--line-strong); border-radius: var(--r); color: var(--text); font: inherit; font-size: 12.5px; outline: 0; } .kv-row input:focus { border-color: var(--accent-line); } :root[data-kbd-nav] .kv-row input:focus { box-shadow: 0 0 0 3px var(--accent-soft); }
 .tabs-scroll { mask-image: linear-gradient(90deg, transparent, #000 14px, #000 calc(100% - 24px), transparent); }
 .chip-detail.bridge-detail { max-height: none; }
 .bridge-detail .bridge-result { max-height: 220px; overflow: auto; white-space: pre-wrap; padding-right: 4px; }

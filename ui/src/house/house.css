@@ -100,7 +100,7 @@
 .house-none { font-size: 12px; color: var(--muted); }
 .house-legend { margin: 0 0 8px; }
 .house-found { margin: 6px 0 0; }
-.house-h:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+:root[data-kbd-nav] .house-h:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .house-sgbtn[aria-disabled='true'] { cursor: default; }
 .house-sgforced { color: var(--muted); }
 .house-reset button[aria-disabled='true'], .house-actions button[aria-disabled='true'], .set-error .btn[aria-disabled='true'] { opacity: .6; cursor: progress; }
@@ -109,7 +109,7 @@
 .house-readmd :is(h3, h4, h5, h6):first-child { margin-top: 0; }
 
 .house-search { display: flex; align-items: center; gap: 8px; padding: 0 10px; height: 34px; background: var(--bg); border: 1px solid var(--line-strong); border-radius: 8px; color: var(--muted); transition: border-color var(--t), box-shadow var(--t); }
-.house-search:focus-within { border-color: var(--accent-line); box-shadow: 0 0 0 3px var(--accent-soft); }
+.house-search:focus-within { border-color: var(--accent-line); } :root[data-kbd-nav] .house-search:focus-within { box-shadow: 0 0 0 3px var(--accent-soft); }
 .house-search input::placeholder { color: var(--muted); opacity: 1; }
 .house-search input { flex: 1; min-width: 0; height: 100%; border: 0; outline: 0; background: transparent; color: var(--text); font: inherit; }
 
@@ -147,7 +147,7 @@
 .house-sw.warn input:checked ~ .house-swtrack { background: var(--warn); border-color: var(--warn); }
 .house-sw.warn input:checked ~ .house-swtrack i { background: var(--accent-ink); }
 .house-swtext { width: 22px; font-size: 12px; color: var(--text-2); }
-.house-sw input:focus-visible ~ .house-swtrack { outline: 2px solid var(--accent); outline-offset: 2px; }
+:root[data-kbd-nav] .house-sw input:focus-visible ~ .house-swtrack { outline: 2px solid var(--accent); outline-offset: 2px; }
 .house-sw input[aria-disabled='true'] { cursor: progress; }
 .house-sw.busy { opacity: .6; cursor: progress; }
 
@@ -161,7 +161,7 @@
 .house-sgh { margin: 0; font-size: inherit; font-weight: inherit; }
 .house-sgbtn { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: start; gap: 10px; width: 100%; min-height: 40px; padding: 8px 12px; border: 0; border-radius: 8px; background: transparent; color: var(--text); text-align: left; cursor: pointer; }
 .house-sgbtn:hover { background: var(--surface-2); }
-.house-sgbtn:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+:root[data-kbd-nav] .house-sgbtn:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 .house-sgbtn .icon { flex: none; margin-top: 3px; color: var(--muted); transition: transform var(--t) var(--ease); }
 .house-sg.open .house-sgbtn .icon { transform: rotate(90deg); }
 .house-sgtext { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
@@ -186,7 +186,7 @@
 .house-readmeta code { font-family: var(--font-mono); font-size: 11.5px; color: var(--text-2); }
 .house-readmeta .link-btn { color: var(--text-2); font-size: inherit; }
 .house-readmd { white-space: normal; background: var(--surface); font-family: inherit; font-size: 13px; line-height: 1.55; }
-.house-read:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+:root[data-kbd-nav] .house-read:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
 @media (prefers-reduced-motion: reduce) {
   .house-swtrack, .house-swtrack i, .house-sgbtn .icon, .house-search { transition: none; }

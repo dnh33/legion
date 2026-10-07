@@ -36,7 +36,7 @@
 .lt-totals { color: var(--faint); font-size: 11px; white-space: nowrap; padding-bottom: 6px; }
 .lt-explore { flex: 1; min-height: 0; display: flex; flex-direction: column; }
 .lt-search { display: flex; align-items: center; gap: 8px; margin: 10px 10px 6px; padding: 0 8px 0 10px; height: 32px; border: 1px solid var(--line-strong); border-radius: var(--r); background: var(--surface); color: var(--muted); transition: border-color var(--t), box-shadow var(--t); }
-.lt-search:focus-within { border-color: var(--accent-line); box-shadow: 0 0 0 3px var(--accent-soft); }
+.lt-search:focus-within { border-color: var(--accent-line); } :root[data-kbd-nav] .lt-search:focus-within { box-shadow: 0 0 0 3px var(--accent-soft); }
 .lt-search input { flex: 1; min-width: 0; height: 100%; background: transparent; border: 0; outline: 0; color: var(--text); }
 .lt-search input::placeholder { color: var(--faint); }
 .lt-search input::-webkit-search-cancel-button { display: none; }
@@ -110,7 +110,7 @@
 .lt-stage { flex: 1; min-width: 0; position: relative; overflow: hidden; }
 .lt-canvas-wrap { container-type: size; position: absolute; inset: 0; background-color: var(--bg); background-image: radial-gradient(circle at center, var(--line) 1px, transparent 1.2px); background-size: 24px 24px; }
 .lt-canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; cursor: grab; touch-action: none; outline: 0; }
-.lt-canvas:focus-visible { box-shadow: inset 0 0 0 2px var(--accent-line); border-radius: 0; }
+:root[data-kbd-nav] .lt-canvas:focus-visible { box-shadow: inset 0 0 0 2px var(--accent-line); border-radius: 0; }
 .lt-toolbar { position: absolute; top: 10px; display: flex; gap: 2px; padding: 3px; background: var(--surface); border: 1px solid var(--line-strong); border-radius: var(--r); box-shadow: 0 6px 18px rgba(0, 0, 0, .22); z-index: 3; }
 .lt-tool { width: 28px; height: 28px; display: grid; place-items: center; border: 0; border-radius: var(--r-sm); background: transparent; color: var(--text-2); }
 .lt-tool:hover { background: var(--surface-3); color: var(--text); }

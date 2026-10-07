@@ -8,6 +8,9 @@ import './logs.css';
 
 const size = (n: number): string => (n < 1024 ? `${n} B` : n < 1024 * 1024 ? `${(n / 1024).toFixed(1)} KB` : `${(n / 1024 / 1024).toFixed(1)} MB`);
 
+/** Set only in the desktop app (preload); absent in the browser build, so the button is hidden there. */
+const openLogsFolder = (window as unknown as { legion?: { openLogsFolder?: () => Promise<boolean> } }).legion?.openLogsFolder;
+
 /** Settings, Logs. A neutral local record: what Legion did, in a folder the person owns. Nothing here is sent anywhere. */
 export function LogsSection() {
   const [view, setView] = useState<LogsView | null>(null);
@@ -40,7 +43,7 @@ export function LogsSection() {
       {view && (
         <>
           <dl className="set-about">
-            <div><dt>Folder</dt><dd><code>{view.dir}</code><button type="button" className="btn-ghost sm" onClick={() => void copyText(view.dir).then((ok) => ok && toast('Copied'))}>Copy path</button></dd></div>
+            <div><dt>Folder</dt><dd><code>{view.dir}</code><button type="button" className="btn-ghost sm" onClick={() => void copyText(view.dir).then((ok) => ok && toast('Copied'))}>Copy path</button>{openLogsFolder && <button type="button" className="btn-ghost sm" onClick={() => void openLogsFolder().then((ok) => { if (!ok) toast('Could not open the folder'); })}>Open folder</button>}</dd></div>
           </dl>
           <ul className="logs-files" aria-label="Log files">
             {view.files.length === 0 && <li className="set-hint">Nothing recorded yet.</li>}

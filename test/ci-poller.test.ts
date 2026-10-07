@@ -186,6 +186,7 @@ describe('rate limit and errors', () => {
   it('a private repo with no connection is a state (not-connected), not an exception', async () => {
     const r = rig({ auth: 'anonymous' });
     r.gh.privateRepos.add('dnh33/legion');
+    r.poller.heartbeat('panel'); // with only the chip showing, anonymous callers load nothing by themselves
     const v = await r.poller.runsView();
     assert.equal(v.problem?.kind, 'not-connected');
     assert.deepEqual(v.runs, []);
@@ -375,5 +376,50 @@ describe('ticks never hammer connection()', () => {
     const v = await r.poller.logView(5);
     assert.deepEqual(v, { available: false, reason: 'problem', problem: { kind: 'auth-expired' } });
     assert.equal(r.gh.calls.filter((c) => c.path.startsWith('logs:')).length, 0, 'gh.logs() was not called');
+  });
+});
+
+describe('chip-only anonymous watching (real-PC finding: it polled every ~4 min)', () => {
+  it('a simulated hour with only the chip, heartbeats that lapse and views that find nothing cached, sends no run-list request', async () => {
+    const r = rig({ auth: 'anonymous', running: true });
+    // the UI's reloadView asks for the runs on every beat; a lapsed heartbeat (a hidden or throttled window) used to refresh as 'open'
+    for (let el = 0; el < 3_600_000; el += TICK_MS) {
+      r.advance(TICK_MS);
+      if (el % 240_000 === 0) { r.advance(CI_WATCH_TTL_MS + 1000); r.poller.heartbeat('chip'); await r.poller.runsView(); }
+      await r.poller.tick();
+    }
+    assert.equal(r.gh.calls.filter((c) => c.path.includes('/actions/runs')).length, 0);
+  });
+
+  it('a person still gets a load: the panel opening, focus and Refresh fetch while anonymous', async () => {
+    const r = rig({ auth: 'anonymous', running: false });
+    r.poller.heartbeat('chip');
+    await r.poller.refresh('open');
+    assert.equal(r.gh.calls.filter((c) => c.path.includes('/actions/runs')).length, 1);
+    r.advance(10_000);
+    await r.poller.refresh('focus');
+    assert.equal(r.gh.calls.filter((c) => c.path.includes('/actions/runs')).length, 2);
+  });
+
+  it('with the panel open, a lapsed heartbeat still loads once', async () => {
+    const r = rig({ auth: 'anonymous', running: false });
+    r.poller.heartbeat('panel');
+    await Promise.resolve(); await r.poller.refresh('load');
+    assert.equal(r.gh.calls.filter((c) => c.path.includes('/actions/runs')).length, 1);
+  });
+});
+
+describe('anonymous job logs', () => {
+  it('a refusal is "not-connected" (connect GitHub), not a permission error', async () => {
+    const r = rig({ auth: 'anonymous' });
+    await r.poller.runsView();
+    r.gh.failNext = { error: { kind: 'forbidden' } as never, count: 1 };
+    assert.deepEqual(await r.poller.logView(5), { available: false, reason: 'problem', problem: { kind: 'not-connected' } });
+  });
+  it('a signed-in refusal stays a permission error', async () => {
+    const r = rig({ auth: 'pat' });
+    await r.poller.runsView();
+    r.gh.failNext = { error: { kind: 'forbidden' } as never, count: 1 };
+    assert.deepEqual(await r.poller.logView(5), { available: false, reason: 'problem', problem: { kind: 'forbidden' } });
   });
 });

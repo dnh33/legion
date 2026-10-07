@@ -62,7 +62,7 @@
 .tb-bl .sr-only { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
 .tb-bl-pill { height: 26px; display: inline-flex; align-items: center; gap: 6px; padding: 0 10px 0 8px; background: transparent; border: 1px solid var(--line); border-radius: 13px; color: var(--muted); font-size: 12px; transition: all var(--t) var(--ease); }
 .tb-bl-pill:hover, .tb-bl-pill.open { color: var(--text); border-color: var(--line-strong); background: var(--surface-2); }
-.tb-bl-pill:focus-visible, .bl-pop button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+:root[data-kbd-nav] .tb-bl-pill:focus-visible, :root[data-kbd-nav] .bl-pop button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .bl-dot { flex: none; width: 7px; height: 7px; border-radius: 50%; box-sizing: border-box; background: transparent; border: 1.5px solid var(--faint); }
 .bl-dot.tone-on { background: var(--accent); border-color: var(--accent); }
 .bl-dot.tone-warn { background: var(--warn); border-color: var(--warn); }

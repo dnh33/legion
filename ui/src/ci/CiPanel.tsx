@@ -22,6 +22,7 @@ function LogBox({ jobId, log, url }: { jobId: number; log: CiLogView | 'loading'
   if (!log.available) {
     if (log.reason === 'logs-unavailable') return <p className="ci-note">Logs are not available yet.{url && <> <button type="button" className="ci-link" onClick={() => openExternal(url)}>Open on GitHub</button></>}</p>;
     if (log.reason === 'expired') return <p className="ci-note">GitHub no longer has this log.{url && <> <button type="button" className="ci-link" onClick={() => openExternal(url)}>Open on GitHub</button></>}</p>;
+    if (log.problem?.kind === 'not-connected') return <p className="ci-note">Logs need a GitHub connection. <button type="button" className="ci-link" onClick={connectGithub}>Connect GitHub</button></p>;
     return <p className="ci-note">{log.problem ? problemText(log.problem) : 'The log could not be loaded.'}</p>;
   }
   return (
