@@ -3,6 +3,12 @@
 Status: open. Proposed 2026-10-07. Ladder item "Fascia for the Order" (sub-items 1-7 below).
 Visual version: https://claude.ai/artifact/VNRF8LikrgJanSVGg7VUMi (private to the maintainer; this file is the full record).
 
+## NOW (2026-10-07, read this first)
+- Merged: 24.1 board run-state fix (#32), 24.2 Soul Codex v1 (#41) and the welcome flow (#46), 24.3a teamwork block and roster cards (#50). This file's 3b-3d plans and the prompt-size ceilings are in #51.
+- Paused for the weekly usage limit (maintainer). No build work until the maintainer says go.
+- Next: 3b (typed brief and result, section 6.3), starting only after the Marshal rename PR (#52) merges. Code keeps the id `zealot`; all new user-facing text, prompts and docs say "Marshal".
+- Coordination: the orchestrating session ("Legion Claude code mod planning") reviews and merges; feature work stops at a green PR. Negatives use the backup-and-restore script, never reverse replacement.
+
 Read this file first. It holds the research, the code findings with file refs, the decisions, the ownership and the open questions, so a new agent does not redo the analysis. Line numbers are from `main` at cb92ac5 (0.2.5-j); re-check them before you edit, and rebase onto the Order-bug PR (see Ownership).
 
 ## 1. Goal
