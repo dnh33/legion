@@ -87,10 +87,14 @@ serialised.
 5. Settings → Logs UI, clear button, docs (`docs/ARCHITECTURE.md`, `SECURITY.md` limit line), real-PC check
    (Windows clear while open, paste-ability).
 
-## Open questions for the connectors session
-1. Does the redactor live in `scrub.ts` (extended) or a new `src/core/log/redact.ts` that calls `scrubSecrets`? I
-   propose the latter, so the log path can add log-only shapes (device codes, signed URLs) without changing what
-   transcripts scrub.
-2. The stream wrappers: installed by the logger module at core start, before any other module loads; agreed?
-3. Your `KEY <base64>` stdin line: the data key value is passed to the redactor's exact-value list so it can never be
-   logged even if a caller mistakes it for text. Agreed?
+## Agreed with the connectors session (2026-10-07)
+Status: **design agreed.** Building starts after connectors phase 1 merges (locked order); the redactor part may
+start earlier on its own branch, because it does not touch `legion-core.ts`.
+1. **Redactor split by kind.** General token *shapes* go into `src/core/comms/scrub.ts`, one list for every caller
+   (comms, KG, browser, logs): add `github_pat_` (the `gh[pousr]_` shapes are already there). Log-only rules go in
+   `src/core/log/redact.ts`, which calls `scrubSecrets` first and adds: device-code shapes, query strings on signed
+   URLs, and the exact-value list. Each new shape gets a test and a mutation negative.
+2. **Stream wrappers** are the very first import in `legion-core.ts` (a side-effect import before any other module),
+   so nothing can write before they are in. A test asserts the import order.
+3. **Exact-value list** holds the admin secret, the native secret and the connectors data key once read from stdin:
+   memory only, never serialised, matched as the raw value and its base64 and hex forms.
