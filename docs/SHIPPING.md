@@ -122,7 +122,20 @@ a pre-release sorts *below* its own base, which is how `0.2.2-a` died. See `docs
 git tag pre-merge-<name> && git push cloud pre-merge-<name>
 ```
 
-### 4. Build the package, **outside the repo**
+### 4a. Build on GitHub Actions (the normal path)
+
+The workflow `.github/workflows/release-build.yml` builds the package on a Windows runner. It never signs and never publishes a release.
+
+1. Make sure `docs/release-notes/<v>.txt` is committed in the release PR. It is the text the updater shows. Max 2000 chars.
+2. After the release commit is on main, push the tag: `git tag v<v> && git push cloud v<v>`. The tag push starts "Release build" in Actions. Do not push test tags. For a dry run, use the manual run with `ref`.
+3. Download the artifact into a fresh folder outside the repo: `gh run download <run-id> --repo dnh33/legion -n legion-<v>-release -D D:/bots/legion-pkg-<v>`.
+4. Check the hashes. Compare `sha256sum` (or `Get-FileHash`) of each file with SHA256SUMS.txt and with the hashes in the run's job summary. Compare install.ps1 and install.sh with the files in your own checkout at the tag. Use the working-tree files, not `git show`, which drops the CRLF line endings of .ps1. A match proves the download is what the runner produced. It does not prove what the runner ran.
+5. If the release needs a full install (dependencies changed), re-run release-manifest on the PC with `--requires-full-install --notes docs/release-notes/<v>.txt` against the downloaded app.zip, into the same folder. It rewrites the manifest and its SHA256SUMS line.
+6. Then skip steps 4 and 5 below and go on from step 6 (Sign) of this section: 6, 7, 9 and 10 as written (8 is done, because the tag is on main). Sign on the PC. The key never goes to Actions.
+
+### 4. Fallback: build the package on the PC, **outside the repo**
+
+Use this when Actions is down or for a hotfix; steps 4 and 5 are the old local path.
 
 ```
 rm -rf dist dist-ui && npm run build
