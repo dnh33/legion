@@ -36,6 +36,7 @@ Tests are `node:test` files in `test/*.test.ts`, compiled to `dist/test/*.test.j
 | Router (auto Sonnet/Opus) | `router.ts` | `router` |
 | Approvals | `approvals.ts` | `approvals` |
 | Store and migrations | `store.ts`, `shared/config.ts`, `settings.ts` | `store`, `store-migration`, `settings`, `roster`, `no-key-literals` |
+| History list (paged tasks, search, the task index) | `task-index.ts`, `server.ts` (`GET /api/tasks`, `/api/state?slim=1`), `ui/src/history/` | `task-index` (includes the 20,000-task timing test), `history-http`, `history-ui-logic` |
 | HTTP server and admin gate | `server.ts`, `admin.ts`, `sse.ts` | `server`, `token-v1-*`, `vm-fixes-http` |
 | MCP tools for Claude Code/Cowork | `mcp-tools.ts`, `mcp-status.ts`, `bin/legion-mcp-stdio.ts` | `mcp`, `mcp-isolation` |
 | Agent bridge (`ask`/`tell`) | `bridge.ts`, `agent-tools.ts` | `bridge`, `bridge-model` |

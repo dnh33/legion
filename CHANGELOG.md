@@ -4,6 +4,10 @@ All notable changes are recorded here. The format follows [Keep a Changelog](htt
 
 ## [Unreleased]
 
+### Changed
+
+- **The task history is paged and searchable.** The History button on the task bar (it replaces "+N more") opens a search box and the agent's whole history, loaded 50 at a time as you scroll, with only the visible rows drawn. Before, only the newest 200 tasks were reachable at all. The app's state snapshot no longer carries 200 tasks: it holds the running ones and the newest few per agent, and `GET /api/tasks` serves the rest from an in-memory index.
+
 ## [0.2.5-k] - 2026-10-07
 
 ### Added

@@ -68,7 +68,8 @@ JSON over `127.0.0.1:<port>` (default 4747). Implemented in `src/core/server.ts`
 | Method | Path | Body | Response |
 |---|---|---|---|
 | GET | `/health` | none | `{ok, version, pid, admin}` (no auth; `admin` says whether this core holds an admin secret, never the secret). With `?nonce=<16-128 hex>` a core that holds the secret adds `proof`, HMAC-SHA256(secret, nonce) as hex: the app's challenge to tell its own core from anything else on the port. |
-| GET | `/api/state` | none | `StateSnapshot` |
+| GET | `/api/state` | `?archived=1`, `?slim=1` | `StateSnapshot`. Plain: the newest 200 tasks. `slim=1` (what the app window sends): every queued or running task, per visible agent the newest 14 by creation and by update, and the newest 12 overall, so the snapshot stays small however long the history is |
+| GET | `/api/tasks` | `?agentId=&projectId=&q=&cursor=&limit=&archived=1` | `{tasks, nextCursor}`. Admin only. One page of the history, newest first (default 50, at most 100), without each task's final text. `q` matches the start of title words and agent names (all words must match). `cursor` is opaque (updatedAt and id); a bad one is a 400. Tasks of hidden agents are in no page or search, and a hidden agent id answers like one that never existed. Backed by `src/core/task-index.ts` (an in-memory index the Store updates on every create, update and delete; not persisted, rebuilt at startup) |
 | GET | `/api/config` | none | config with secrets redacted |
 | GET | `/api/doctor` | none | `DoctorCheck[]` |
 | GET | `/api/catalog?refresh=1` | none | `Catalog` (slash commands and models) |
