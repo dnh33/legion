@@ -4,6 +4,19 @@ All notable changes are recorded here. The format follows [Keep a Changelog](htt
 
 ## [Unreleased]
 
+## [0.2.5-l] - 2026-10-07
+
+### Added
+
+- **Logs you own.** Settings, Logs: Legion keeps a short record of what it did (runs, errors, updates) on this computer, so you can see what went wrong and share it if you ask for help. It never includes what you or your agents wrote, and Legion's own code never sends it anywhere. Copy and Clear logs are in Settings; the files are size-capped and readable only by your user account. Secret-shaped values (tokens, keys, signed links) are masked before a line is written, including in crash output.
+- **Settings, GitHub (preview).** The page for Legion's GitHub connector is in place: connect with a code on github.com, read-only, opt-in per agent. Connecting stays unavailable until Legion's GitHub App is registered; the page says so.
+
+### Changed
+
+- **A web fetch after reading connector data asks first.** In a run that read data from a connector and outside content, WebFetch and WebSearch show an approval card, even in full mode, so private data cannot leave in a URL without your OK.
+- **Data an agent read through a connector is not shown to MCP clients.** Task details, results and live messages from such a run are withheld from programs that connect with the MCP token; a run started from an MCP client cannot continue one.
+- Settings, "Connections" is now called "Use from Claude".
+
 ## [0.2.5-k] - 2026-10-07
 
 ### Added

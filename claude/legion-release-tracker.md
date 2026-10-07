@@ -813,7 +813,7 @@ re-check lines.
 
 #### SHIPPED CONTEXT — read this first, it explains most of what follows
 
-Latest release is **`0.2.5-k`** (tag `v0.2.5-k`, 2026-10-07; the merge of release/0.2.5-k). The updater
+Latest release is **`0.2.5-l`** (tag `v0.2.5-l`, 2026-10-07; the merge of release/0.2.5-l). The updater
 applies releases from inside Legion; the maintainer reported on 2026-10-06 that it works (check U1). Everything below is
 either shipped, parked, or not started.
 
@@ -838,6 +838,7 @@ Releases since `0.2.3-g` (dates from the tags; `0.2.3-h` to `0.2.3-l` were conso
 | `0.2.5-i` | 2026-10-06 | BSV: wait while the wallet asks (BRC-219), Cancel, release late or stale builds, knowledge pack v10 (BSV session, PR #16); usage panel opens fully; README install leads with save-then-run; SECURITY.md rewrite; ladder items 17-19 |
 | `0.2.5-j` | 2026-10-07 | The Armory (A2a, PR #23): every skill agents can load, all off by default, per-agent choice; Claude Code skills no longer load by default; skill shell off by default; outside skills taint; drills promote/remove; house sync fix |
 | `0.2.5-k` | 2026-10-07 | CI panel (Release B, PR #27, read-only, anonymous for public repos); Order fixes BUG-7/1/2/3 (PR #35: background agents kept alive, replies keep the lead's hop, 40 runs/hour/root cap, full results via task_result, episodes link full results); project board run state (PR #32); connectors slice 1a (token store, GitHub client, PR #29) and log redactor (PR #30) shipped dark (not wired to UI/log yet) |
+| `0.2.5-l` | 2026-10-07 | Logging (PRs #37, #38: Settings, Logs; local only, secrets masked incl. crash output, size-capped, owner-only files); connectors slice 1b (PR #33: gateway, GitHub read tools, github_ci_wait, Settings, GitHub page shown as not available until the App is registered; web-egress card after connector data; connector data withheld from MCP clients) |
 
 Table derived from `git tag -l 'v0.2*'` with creation dates and the `CHANGELOG.md` sections (`0.2.3-h` to `0.2.3-l` from the
 `git log v0.2.3-g..v0.2.4` subjects; their own changelog entries were folded into `0.2.4`).
@@ -896,7 +897,7 @@ inside a flex container the ellipsis only engages with `min-width: 0` on the lab
 `max-width` or it just widens the row. Add `title={fullName}` so the whole name stays reachable. **Pure CSS, no
 runtime cost.**
 
-#### 3. **Logging — promised as next, NOT built**
+#### 3. **Logging — DONE, shipped in `0.2.5-l` (PRs #37, #38)**
 
 **Re-check 2026-10-06:** there is no logging module in `src/core/` (no logger, no redacting writer, no rotating files; the only grep hit for logging words is a seed file under `kg/seeds`). It was promised as the next session after `0.2.3-g` and the releases since went to other work (see the table). It is still open.
 
@@ -946,7 +947,7 @@ small-window rule ended up inverted.
 
 Items 1 to 6 above stay as they are. These were added from the 2026-10-06 session and are listed in no priority order.
 
-7. **Logging** (same as item 3; listed here so the open work is in one place). Not built. Coordinate first with the connectors session: its redactor (connectors design rev 6, section 4.4) rewrites the same single `log()` in `src/bin/legion-core.ts` and the stdout/stderr wrappers.
+7. **Logging** (same as item 3). DONE, shipped in `0.2.5-l`. Coordinate first with the connectors session: its redactor (connectors design rev 6, section 4.4) rewrites the same single `log()` in `src/bin/legion-core.ts` and the stdout/stderr wrappers.
 8. **Plan gate and the Zealot model policy.** Design done; sketches are in branch `sketch/plan-gate`. Not built.
 9. **Hand-off cards, direction D3 "Side thread".** Sketches in branch `sketch/handoff-card`. Not built.
 10. **One-line install. DONE.** Scripts shipped in `0.2.5-h`. `getlegion.xyz` moved to Cloudflare Pages on 2026-10-06 (zone active, routing verified with PowerShell 5.1, PowerShell 7, curl and a browser). The site's Windows copy button gives the save-then-run form (uBlock ClickFix warning on a copied `irm | iex`). Left: delete the old Netlify project on or after 2026-10-08 (maintainer chose a 48 h wait).
