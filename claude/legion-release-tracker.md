@@ -813,7 +813,7 @@ re-check lines.
 
 #### SHIPPED CONTEXT — read this first, it explains most of what follows
 
-Latest release is **`0.2.5-l`** (tag `v0.2.5-l`, 2026-10-07; the merge of release/0.2.5-l). The updater
+Latest release is **`0.2.5-m`** (tag `v0.2.5-m`, 2026-10-07; the merge of release/0.2.5-m). The updater
 applies releases from inside Legion; the maintainer reported on 2026-10-06 that it works (check U1). Everything below is
 either shipped, parked, or not started.
 
@@ -839,6 +839,7 @@ Releases since `0.2.3-g` (dates from the tags; `0.2.3-h` to `0.2.3-l` were conso
 | `0.2.5-j` | 2026-10-07 | The Armory (A2a, PR #23): every skill agents can load, all off by default, per-agent choice; Claude Code skills no longer load by default; skill shell off by default; outside skills taint; drills promote/remove; house sync fix |
 | `0.2.5-k` | 2026-10-07 | CI panel (Release B, PR #27, read-only, anonymous for public repos); Order fixes BUG-7/1/2/3 (PR #35: background agents kept alive, replies keep the lead's hop, 40 runs/hour/root cap, full results via task_result, episodes link full results); project board run state (PR #32); connectors slice 1a (token store, GitHub client, PR #29) and log redactor (PR #30) shipped dark (not wired to UI/log yet) |
 | `0.2.5-l` | 2026-10-07 | Logging (PRs #37, #38: Settings, Logs; local only, secrets masked incl. crash output, size-capped, owner-only files); connectors slice 1b (PR #33: gateway, GitHub read tools, github_ci_wait, Settings, GitHub page shown as not available until the App is registered; web-egress card after connector data; connector data withheld from MCP clients) |
+| `0.2.5-m` | 2026-10-07 | Long conversations open fast (thread paging, windowed rows, search in a thread) and the task history is paged and searchable with an index (PR #39); planning notes kept (PR #42) |
 
 Table derived from `git tag -l 'v0.2*'` with creation dates and the `CHANGELOG.md` sections (`0.2.3-h` to `0.2.3-l` from the
 `git log v0.2.3-g..v0.2.4` subjects; their own changelog entries were folded into `0.2.4`).
