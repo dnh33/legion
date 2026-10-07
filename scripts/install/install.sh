@@ -3,7 +3,7 @@
 #
 #   curl -fsSL https://getlegion.xyz | sh
 #
-# With options: curl -fsSL https://getlegion.xyz | sh -s -- --version 0.2.5-g --no-launch
+# With options: curl -fsSL https://getlegion.xyz | sh -s -- --version <version> --no-launch
 #   --version <v>   install this release instead of the latest
 #   --dir <path>    install here instead of ~/.local/share/legion (a path starting with - needs: --dir -- <path>)
 #   --no-launch     do not start Legion at the end
