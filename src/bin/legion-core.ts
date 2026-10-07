@@ -8,6 +8,9 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { configPath, dataDir, loadConfig, scrubHostSessionEnv, VERSION } from '../shared/config.js';
 import { readLaunchSecrets } from '../core/admin.js';
+import { ConnectorKeyring } from '../core/connectors/keyring.js';
+import { TokenStore } from '../core/connectors/store.js';
+import { createGitHubClient } from '../core/connectors/github/client.js';
 import { ApprovalBroker } from '../core/approvals.js';
 import { EventBus } from '../core/bus.js';
 import { getCatalog } from '../core/catalog.js';
@@ -43,12 +46,16 @@ const log = (...a: unknown[]) => {
 async function main() {
   // Per-launch admin secret from the stdin pipe (Electron main only). None for a headless/bridge-started core: admin routes stay closed.
   // The second line is the NATIVE secret (main only, never the window): BSV policy changes need it as well.
-  const { admin: adminSecret, native: nativeSecret } = await readLaunchSecrets(process.env, process.stdin);
+  // A third line (KEY <hex>, connectors data key, memory only) is accepted from the same pipe; the two secrets are read exactly as before.
+  const connectorKeyring = new ConnectorKeyring();
+  const { admin: adminSecret, native: nativeSecret } = await readLaunchSecrets(process.env, process.stdin, (line) => { connectorKeyring.installLine(line); });
   // Run standalone even if launched from inside a Claude host session.
   const clean = scrubHostSessionEnv(process.env);
   for (const k of Object.keys(process.env)) if (!(k in clean)) delete process.env[k];
   const config = loadConfig();
   const store = new Store(dataDir());
+  // The one GitHub client (no network until something asks). Everyone else reaches it through getGitHubClient().
+  createGitHubClient({ tokens: new TokenStore(join(dataDir(), 'connectors'), connectorKeyring), log: (l) => log(l) });
   store.seedDefaults(config.workspaceDir);
   const recovered = store.recoverInterrupted();
   if (recovered) log(`recovered ${recovered} interrupted task(s)`);
