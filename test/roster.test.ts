@@ -5,7 +5,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Store } from '../src/core/store.js';
-import { ROSTER, BACKBONE, COMMS_LINES } from '../src/core/roster.js';
+import { ROSTER, BACKBONE, COMMS_LINES, BUILDER_SOUL, SCOUT_SOUL, ZEALOT_SOUL } from '../src/core/roster.js';
 
 const FROZEN_IDS = ['zealot', 'builder', 'scout'];
 const NEW_IDS = ['inquisitor', 'scribe', 'archivist', 'sentinel', 'forgemaster', 'exorcist', 'preceptor', 'herald', 'assayer', 'sculptor'];
@@ -157,12 +157,15 @@ test('seedDefaults adds the roster, frozen three are unchanged from the original
   const s = new Store(dir);
   s.seedDefaults(join(dir, 'w'));
   assert.deepEqual(s.listAgents().map((a) => a.id), [...FROZEN_IDS, ...NEW_IDS]);
+  // Soul Codex v1 (maintainer 2026-10-07) changed only the three souls; every other field stays frozen
+  const SOULS: Record<string, string> = { zealot: ZEALOT_SOUL, builder: BUILDER_SOUL, scout: SCOUT_SOUL };
   for (const f of FROZEN_SNAPSHOT) {
     const a = s.getAgent(f.id)!;
-    const { createdAt: _c, updatedAt: _u, cwd, ...rest } = a;
+    const { createdAt: _c, updatedAt: _u, cwd, systemPrompt, ...rest } = a;
+    const { systemPrompt: _old, ...frozen } = f;
     assert.equal(cwd, join(dir, 'w', f.id));
-    assert.deepEqual(rest, f);
-    assert.equal(a.systemPrompt, f.systemPrompt);
+    assert.deepEqual(rest, frozen);
+    assert.equal(systemPrompt, SOULS[f.id]);
   }
   for (const r of ROSTER) {
     const { createdAt: _c, updatedAt: _u, cwd, ...rest } = s.getAgent(r.id)!;

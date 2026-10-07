@@ -112,6 +112,7 @@ Decisions this plan must not contradict: Claude default; board "not Jira", no sc
 - Tests: one per bug, each with a negative (temporary scratch mutation shows it fails), fake-backed, `test-temp-dirs` rules.
 
 ### 6.2 Soul Codex v1 (sub-item 2)
+Status (2026-10-07): souls, migration and tests built on branch `feat/soul-codex-v1`. Souls live in `src/core/roster.ts` (`ZEALOT_SOUL`, `BUILDER_SOUL`, `SCOUT_SOUL`), seeded by `store.ts`; migration `souls-codex-v1`; contract tests `test/soul-codex.test.ts`. The welcome flow is split into its own PR after #39 (it rewrites `Thread.tsx`). The one-house-backbone dedupe moves to sub-item 3 (it touches the engine and comms preambles). As built, every soul keeps its core lines, at most 300 words, no tool names, hand-offs name only bots in the Order (never the BSV-only Assayer).
 Shape for every bot: **Voice, Stance, Refuses (→ who), Done when, Output (first-line verdict + fixed sections), Examples (1-2 short), Edges (who next, when)**. Capability facts stay in `renderCapabilities`.
 - v1 bots: Builder, Scout, Zealot (the lead doctrine stays appended last).
 - One house backbone: shared rules (delegation how-to, untrusted content, verify first) generated once; the 3× and 7× duplicates removed.

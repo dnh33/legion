@@ -13,10 +13,10 @@ import test from 'node:test';
 import { Store } from '../src/core/store.js';
 
 const PINNED: Record<string, string> = {
-  // 0.2.5-c: the lead of the Order (owner direction); the old seed told Zealot to handle requests itself
-  zealot: 'b748fba935e08e475c92c5b00261fa7eece6279a08f1656c51ae5d41b8c3e2ec',
-  builder: 'afcc30aa33d6403b4bdea20e9cdf0a2c8187cab555fdd9ea74920b234601d26a',
-  scout: 'a17ba5e29b22a1fad5bb641ab9f105eec7ae5fedf7ab61ffc8ec56de80cc36fd',
+  // Soul Codex v1 (maintainer 2026-10-07, claude/plan-fascia.md 6.2): full souls for the three defaults, true to each core
+  zealot: '494246897272a76463a7f8e481fee7937da0e205e0aad52e8efd6b5e1613c8f4',
+  builder: '0e355c26f0a8d4ed903ce31169dfe3ef7754d1f5b800c30bcc62d23f3a85391b',
+  scout: 'ec252a6319b482ce0b106881e10b0d62eae17a223a24be0f2c0079b809210e55',
   inquisitor: 'a472001174c15ab74e79a8eee932b480a72c600f5dd54f84c565627d91c5f7a6',
   scribe: '7fa67b71950516de75ff310e11eac438d9c52b27a6c781b62f22c40cf91a92a3',
   archivist: 'd0424fd7ea070269cf14b25e9b695665e5a0dc29e5a772b9bdee17ee52f38da7',
