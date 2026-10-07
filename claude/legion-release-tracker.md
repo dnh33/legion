@@ -975,14 +975,25 @@ Items 1 to 6 above stay as they are. These were added from the 2026-10-06 sessio
 
 23. **Test fragility: R5.6 uses the shared OS temp folder** and failed once because of a pre-existing `%TEMP%\x` folder that was not Legion's. Move it to its own temp dir (see the test-temp-dirs skill).
 
-24. **Order bugs, fixed in one draft PR (branch `fix/order-bugs`; not merged, not released).** From the owner's run of the Order on 2026-10-07 (bug file `LEGION-BUGS.md` in the owner's project folder). The PR is not verified on a real PC until checks OF1 to OF4 in `claude/tracker-pc-checks.md` pass.
+24. **Fascia for the Order.** Plan: `claude/plan-fascia.md` (research, code findings with file refs, decisions, build detail). Richer souls, typed delegation, a durable work ledger and a board that can run work. Open (proposed 2026-10-07).
+    1. **Board bug patch.** Now, in parallel (maintainer, 2026-10-07). Fascia session owns it; branch `fix/board-run-state`; stays out of `engine.ts`, `bridge.ts` and `kg/graph.ts`. Fixes: a restart leaves `activeRun` set, so the item is stuck in Doing with Run disabled; the item dialog PATCHes every field and can drag a finished run back to Doing; Run has no guard on Done or Review; delete ignores a live run; claim is last-write-wins.
+    2. **Soul Codex v1.** Builder, Scout and Zealot in a 7-part shape (voice, stance, refuses, done when, output contract, worked examples, edges), behavioural soul evals instead of the hash pin, a run-once migration that never touches owner-edited souls, and a welcome flow that points at Zealot. The maintainer retired "persona text stays byte-identical" on 2026-10-07, on condition that each soul stays true to its bot's core and role.
+    3. **Typed delegation.** Absorbs items 8 and 9: roster cards, typed brief and result on ask/tell, verify before reporting, model by role, a request tree under the lead's answer. Builds on the Order-bug bridge/engine changes.
+    4. **"Needs you" inbox.** One title-bar badge and list for approvals, paused runs, room attention, board proposals and items in Review.
+    5. **Fascia ledger and Watch view.** Append-only ledger of delegations, leases renewed from tool activity, replay on start, budget tree, read-only Watch view.
+    6. **Board v2.** A lead run verb using the board's own bookkeeping, a clearer trust flow, proposal feedback to bots, Retry on Blocked. Opt-in auto-dispatch only after that, under the conditions in the plan.
+    7. **Soul Codex v2 and depth on demand.** The other ten souls, a Settings "Advanced" group, one name for the knowledge store.
+
+    Items 2-7 follow logging, in this order. Not proposed: the council (parked), an effort picker, mascot art changes.
+
+25. **Order bugs, fixed in one draft PR (branch `fix/order-bugs`; not merged, not released).** From the owner's run of the Order on 2026-10-07 (bug file `LEGION-BUGS.md` in the owner's project folder). The PR is not verified on a real PC until checks OF1 to OF4 in `claude/tracker-pc-checks.md` pass.
     - **BUG-7 (high). FIXED IN PR.** A run closed its input when the lead answered, which killed Claude Code background subagents. The run now stays open while the SDK reports running background agents (`src/core/background-tasks.ts`, `engine.ts runOnce`); cap 60 minutes without any SDK message; "waiting on N background agents" in the working row; Stop, Ctrl+Enter and "send now" ask first. Known limit: replies to a `tell` reach a held run only when it closes.
     - **BUG-1 (high). FIXED IN PR.** A reply goes back at the caller's own hop (`bridge.ts deliverReply`); `ask` and `tell` still add one; a refused reply leaves a notice on both threads.
     - **BUG-2 (high). FIXED IN PR.** Replies over 4,000 characters keep the full text (`ResultStore`, cap 200,000) and point to the new `task_result` tool.
     - **BUG-3 (high). FIXED IN PR.** Library episodes link to `task:<id>#result`; `kg_get` reads the full result.
-25. **BUG-4 (medium). OPEN.** Agents on other model providers have no file tools, so they cannot deliver into the project folder. Plan: a scoped `project_write` and `project_read` in `src/core/providers/tool-loop.ts` (unverified), honouring approval mode and taint.
-26. **BUG-5 (medium). OPEN.** Runs delegated from a project run land in the wrong project (they cannot see its board; their Library notes go to legion-dev). Cause not traced: check whether `engine.start` from the bridge passes the caller's `projectId`.
-27. **BUG-6 (low, UX). OPEN.** A tainted run cannot assign board items and has no way out. Plan: let it propose an assignee that lands in the owner's inbox with one-click accept, without loosening the guard (`projects/board/store.ts`).
+26. **BUG-4 (medium). OPEN.** Agents on other model providers have no file tools, so they cannot deliver into the project folder. Plan: a scoped `project_write` and `project_read` in `src/core/providers/tool-loop.ts` (unverified), honouring approval mode and taint.
+27. **BUG-5 (medium). OPEN.** Runs delegated from a project run land in the wrong project (they cannot see its board; their Library notes go to legion-dev). Cause not traced: check whether `engine.start` from the bridge passes the caller's `projectId`.
+28. **BUG-6 (low, UX). OPEN.** A tainted run cannot assign board items and has no way out. Plan: let it propose an assignee that lands in the owner's inbox with one-click accept, without loosening the guard (`projects/board/store.ts`).
 
 **Scope lock (maintainer, 2026-10-06):** the work already running is finished before anything new starts: the Cloudflare switch and connectors phase 1 (this session), the Armory and the CI panel (house/skills session), BSV PR #16 for `0.2.5-i` (BSV session). New requests go onto this ladder as open items. After the lock, work resumes from the ladder.
 

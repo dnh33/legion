@@ -4,6 +4,8 @@ import { viewForKey } from './viewKeys';
 import { initHouse } from './house/houseStore';
 import { EnableBlenderDialog } from './blender/EnableBlenderDialog';
 import { initBsv } from './bsv/bsvStore';
+import { CiPanel } from './ci/CiPanel';
+import { ciProjectChanged, initCi } from './ci/ciStore';
 import { ChainOverlay } from './bsv/ChainOverlay';
 import { AgentEditor } from './components/AgentEditor';
 import { AgentRail } from './components/AgentRail';
@@ -68,7 +70,9 @@ export function App() {
   const opsMounted = useOpsMounted(opsOpen);
   useWindowAway();
 
-  useEffect(() => { init(); initRooms(); initBsv(); initBlender(); initHouse(); initLibrary(); initProjects(); }, []);
+  useEffect(() => { init(); initRooms(); initBsv(); initBlender(); initHouse(); initLibrary(); initProjects(); initCi(); }, []);
+  const projectFilter = useStore((s) => s.projectFilter);
+  useEffect(() => { ciProjectChanged(); }, [projectFilter]);
 
   // F1/F2/F3 switch the main views. Renderer-level on purpose - see ui/src/viewKeys.ts for why this must not be an
   // OS-level registration. Repeat presses are harmless: setView to the view already shown is a no-op.
@@ -119,6 +123,7 @@ export function App() {
       <TaskMenu />
       <Toasts />
       <ChainOverlay />
+      <CiPanel />
       <EnableBlenderDialog />
       <Takeover />
     </div>

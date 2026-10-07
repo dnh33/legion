@@ -261,6 +261,9 @@ export function handleEvent(e: LegionEvent) {
     case 'blender.status':
       window.dispatchEvent(new CustomEvent('legion:blender', { detail: e.status }));
       break;
+    case 'ci.updated':
+      window.dispatchEvent(new CustomEvent('legion:ci', { detail: e.summary }));
+      break;
     case 'mascot':
       setState({ mascot: { mood: e.mood, note: e.note, at: Date.now() } });
       break;
