@@ -10,8 +10,9 @@
  * Every state change is journaled (temp file + fsync + rename) so a kill at any point is recoverable by `recoverInterrupted`.
  */
 import { execFile, spawn } from 'node:child_process';
-import { closeSync, existsSync, fsyncSync, lstatSync, mkdirSync, openSync, readFileSync, renameSync, rmSync, writeFileSync, appendFileSync, writeSync } from 'node:fs';
-import { dirname, join, resolve, sep } from 'node:path';
+import { closeSync, cpSync, existsSync, fsyncSync, lstatSync, mkdirSync, openSync, readFileSync, renameSync, rmSync, writeFileSync, appendFileSync, writeSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { basename, dirname, join, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 /** The only names an update may replace (directories and files at the top of the install folder). */
@@ -30,7 +31,7 @@ export const UPDATE_DIR = '.update';
 
 export type JournalState = 'swapping' | 'awaiting-health' | 'committed' | 'rolled-back';
 export interface Journal { state: JournalState; from: string; to: string; entries: string[]; stagedDir: string; at: number; heartbeat: number }
-export interface Outcome { at: string; from: string; to: string; result: 'ok' | 'rolled-back' | 'failed'; reason?: string }
+export interface Outcome { at: string; from: string; to: string; result: 'ok' | 'rolled-back' | 'failed' | 're-exec'; reason?: string }
 
 const upDir = (installDir: string): string => join(installDir, UPDATE_DIR);
 const journalPath = (installDir: string): string => join(upDir(installDir), 'journal.json');
@@ -174,6 +175,8 @@ export interface ApplyDeps {
   health(port: number): Promise<{ ok: boolean; version?: string } | null>;
   spawnApp(r: Relaunch): { pid?: number } | null;
   killTree(pid: number): Promise<void>;
+  /** Full-package swaps on Windows: re-run this helper from a runtime outside the install, returning to nothing. */
+  reExec?(jobFile: string): boolean;
   sleep(ms: number): Promise<void>;
   log(line: string): void;
   step?: (label: string) => void;
@@ -185,6 +188,15 @@ export async function runApply(job: ApplyJob, d: ApplyDeps): Promise<Outcome['re
     const end = Date.now() + ms;
     for (;;) { if (await cond()) return true; if (Date.now() >= end) return false; await d.sleep(250); }
   };
+  // On Windows this helper runs from <install>/node_modules (electron.exe as node). A full-package swap must
+  // rename the very directory the helper is loaded from, which Windows refuses with EPERM no matter how often
+  // it is retried (the running image does not share delete). Unload first: re-run the helper from a copy of the
+  // runtime in the system temp dir (env-guarded against loops), and let that fresh process own the swap and
+  // every outcome after it. The parent and port waits run again in the fresh process.
+  if (process.platform === 'win32' && job.names?.includes('node_modules') && process.env.LEGION_APPLY_REEXEC !== '1') {
+    d.log('full package: re-running the swap helper from a runtime outside the install (node_modules must move)');
+    if (d.reExec?.(process.argv[2] ?? '')) return 're-exec';
+  }
   d.log(`apply ${job.from} -> ${job.to}`);
   if (!(await waitUntil(() => !d.isAlive(job.parentPid), job.parentWaitMs ?? 30_000))) { d.log('the app is still running: nothing was changed'); writeOutcome(installDir, { from: job.from, to: job.to, result: 'failed', reason: 'the app did not exit in time; nothing was changed' }); return 'failed'; }
   // a core that still answers means files are in use: never swap under it
@@ -240,10 +252,22 @@ export function realDeps(installDir: string): ApplyDeps {
       } catch { return null; }
     },
     killTree: (pid) => new Promise((done) => {
-      if (process.platform === 'win32') { execFile('taskkill', ['/PID', String(pid), '/T', '/F'], { windowsHide: true }, () => done()); return; }
-      try { process.kill(-pid, 'SIGKILL'); } catch { try { process.kill(pid, 'SIGKILL'); } catch { /* gone */ } }
-      done();
-    }),
+                if (process.platform === 'win32') { execFile('taskkill', ['/PID', String(pid), '/T', '/F'], { windowsHide: true }, () => done()); return; }
+                try { process.kill(-pid, 'SIGKILL'); } catch { try { process.kill(pid, 'SIGKILL'); } catch { /* gone */ } }
+                done();
+            }),
+            reExec: (jobFile) => {
+                        const srcDir = dirname(process.execPath); // node_modules/electron/dist — electron.exe alone cannot boot as node (needs resources/)
+                        const dir = join(tmpdir(), `legion-apply-${process.pid}`);
+                        const env: Record<string, string | undefined> = { ...process.env, LEGION_APPLY_REEXEC: '1' };
+                        try { cpSync(srcDir, dir, { recursive: true }); } catch { return false; }
+                        try {
+                            const c = spawn(join(dir, basename(process.execPath)), [process.argv[1] ?? '', jobFile], { cwd: tmpdir(), detached: true, stdio: 'ignore', windowsHide: false, env });
+                            c.on('error', () => undefined);
+                            c.unref();
+                            return true;
+                        } catch { return false; }
+                    },
     sleep: sleepMs,
     log: (line) => { try { appendFileSync(join(upDir(installDir), 'apply.log'), `[${new Date().toISOString()}] ${line}\n`); } catch { /* ignore */ } },
   };
