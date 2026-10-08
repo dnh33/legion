@@ -5,7 +5,7 @@
   white-space: nowrap; transition: background var(--t) var(--ease), border-color var(--t) var(--ease), color var(--t) var(--ease);
 }
 .upd-badge:hover { background: var(--surface-2); color: var(--text); }
-.upd-badge:focus-visible { outline: 2px solid var(--accent-line); outline-offset: 1px; }
+:root[data-kbd-nav] .upd-badge:focus-visible { outline: 2px solid var(--accent-line); outline-offset: 1px; }
 .upd-badge-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--accent); flex: none; }
 .upd-badge-label { line-height: 1; }
 .upd-badge-detail { font-family: var(--font-mono); font-size: 11px; color: var(--muted); }
