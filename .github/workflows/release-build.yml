@@ -103,6 +103,10 @@ jobs:
         env:
           SMOKE_TIMEOUT: 45
           V: ${{ steps.v.outputs.version }}
+          # CI-friendly Electron flags: disable GPU, sandbox; run on software renderer
+          ELECTRON_DISABLE_GPU: "1"
+          ELECTRON_ENABLE_LOGGING: "1"
+          ELECTRON_ENABLE_STACK_DUMPING: "1"
         run: |
           Write-Host "=== SMOKE TEST START ==="
           Write-Host "PKG dir: $env:PKG"
@@ -126,9 +130,9 @@ jobs:
           $electronExe = Join-Path $appRoot "runtime\electron\electron.exe"
           Write-Host "Electron exe: $electronExe"
           if (-not (Test-Path $electronExe)) { throw "electron.exe not found at $electronExe (full package missing)" }
-          Write-Host "Electron exe found, launching..."
-          # Launch Electron with the app directory; non-blocking
-          $proc = Start-Process $electronExe -ArgumentList $appRoot -PassThru -WindowStyle Hidden -RedirectStandardOutput "d:\smoke-out.txt" -RedirectStandardError "d:\smoke-err.txt"
+          Write-Host "Electron exe found, launching with GPU disabled..."
+          # Launch Electron with the app directory; CI-friendly flags
+          $proc = Start-Process $electronExe -ArgumentList $appRoot, "--disable-gpu", "--disable-software-rasterizer", "--no-sandbox", "--disable-dev-shm-usage" -PassThru -WindowStyle Hidden -RedirectStandardOutput "d:\smoke-out.txt" -RedirectStandardError "d:\smoke-err.txt"
           Write-Host "Launched PID: $($proc.Id)"
           # Wait for startup
           Start-Sleep -Seconds $env:SMOKE_TIMEOUT
@@ -143,7 +147,7 @@ jobs:
             } catch {
               Write-Host "Health endpoint not ready: $_"
             }
-            # Check stdout for any renderer crash evidence
+            # Check stdout/stderr for any renderer crash evidence
             $stdout = Get-Content "d:\smoke-out.txt" -ErrorAction SilentlyContinue -Raw
             $stderr = Get-Content "d:\smoke-err.txt" -ErrorAction SilentlyContinue -Raw
             if ($stdout -and ($stdout -match "Renderer process crashed|blank|failed")) {
