@@ -102,6 +102,7 @@ jobs:
         # the FULL win-x64 package (not the code-only update zip) so the Electron runtime is present.
         env:
           SMOKE_TIMEOUT: 45
+          V: ${{ steps.v.outputs.version }}
         run: |
           Write-Host "=== SMOKE TEST START ==="
           Write-Host "PKG dir: $env:PKG"
