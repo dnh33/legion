@@ -1,0 +1,8 @@
+Legion 0.2.5-q. The fixed updater, same safe dependencies.
+
+- Update relaunch no longer blanks the renderer (single-instance lock now skipped during update).
+- True download sizes, one-click retry, single-instance lock, title-bar badge.
+- Same safe dependencies as 0.2.5-o (audit clean, integrity-pinned).
+
+---
+Installs in place from 0.2.5-p and 0.2.5-o. Full detail in CHANGELOG.md.

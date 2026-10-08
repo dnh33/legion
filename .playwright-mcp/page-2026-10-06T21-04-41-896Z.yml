@@ -1,0 +1,97 @@
+- generic [ref=e3]:
+  - banner [ref=e4]:
+    - generic [ref=e5]:
+      - button "Legion" [ref=e6]
+      - generic [ref=e7]:
+        - generic [ref=e8]: Legion
+        - generic "Legion is in beta. Expect rough edges and the odd bug." [ref=e9]: Beta
+    - button "Open command palette" [ref=e10] [cursor=pointer]:
+      - generic [ref=e13]: Search or run a command
+      - generic [ref=e14]: Ctrl K
+    - generic [ref=e15]:
+      - tablist "View" [ref=e16]:
+        - tab "Chat" [selected] [ref=e17] [cursor=pointer]
+        - tab "Rooms" [ref=e20] [cursor=pointer]
+        - tab "Library" [ref=e25] [cursor=pointer]
+      - generic "Offline — retrying" [ref=e31]
+      - switch "BSV Dev Kit" [ref=e35] [cursor=pointer]
+      - generic [ref=e37]:
+        - 'button "Blender: unknown. Blender menu" [ref=e38] [cursor=pointer]':
+          - generic [ref=e42]: Blender
+        - status [ref=e43]
+      - button "Claude usage" [ref=e45] [cursor=pointer]
+      - button "Doctor" [ref=e48] [cursor=pointer]
+      - button "Settings" [ref=e51] [cursor=pointer]
+      - button "Toggle theme" [ref=e54] [cursor=pointer]
+      - button "Toggle Ops panel" [ref=e57] [cursor=pointer]
+  - navigation "Agents" [ref=e60]:
+    - generic [ref=e61]:
+      - generic [ref=e62]: Project
+      - combobox "Project" [ref=e63]:
+        - option "All projects" [selected]
+      - button "New project" [ref=e65] [cursor=pointer]
+    - button "New agent" [ref=e69] [cursor=pointer]
+  - main [ref=e72]:
+    - generic [ref=e73]:
+      - generic [ref=e75]:
+        - generic [ref=e76]: ●
+        - generic [ref=e77]:
+          - generic [ref=e78]: Legion
+          - generic [ref=e79]: General-purpose agent
+      - tablist "Tasks" [ref=e80]:
+        - button "New task" [ref=e81]
+      - generic [ref=e87]:
+        - heading "Cannot reach Legion core" [level=3] [ref=e91]
+        - paragraph [ref=e92]: The local core is not answering. Start it with start-legion.cmd, then try again. Legion keeps retrying on its own.
+        - button "Try again" [ref=e93] [cursor=pointer]
+    - generic [ref=e95]:
+      - textbox "Message" [ref=e96]:
+        - /placeholder: Ask Legion to do something
+      - generic [ref=e97]:
+        - button "Auto" [ref=e98] [cursor=pointer]
+        - generic [ref=e101]:
+          - generic [ref=e102]: Enter send Shift Enter newline
+          - generic [ref=e103]: /
+          - text: commands
+        - button "Send" [disabled] [ref=e104]
+  - complementary "Ops" [ref=e108]:
+    - generic [ref=e109]:
+      - generic [ref=e111]:
+        - button "Mascot. Click for a word of wisdom." [ref=e113] [cursor=pointer]:
+          - generic [ref=e114]:
+            - generic [ref=e115]:
+              - img [aria-hidden]:
+                - generic: 0x7f3a 11001011 10011100 10101100 01011110 00010011 11011110 ship 10111110 0101 10000111 0010 11010011 00011011 ship 00011000 11100001 01101001 0101 10010001 00011110 exit0 1000
+            - generic [ref=e128]:
+              - img [aria-hidden]:
+                - generic:
+                  - generic:
+                    - generic: // no tests failed
+                    - generic: 0 warnings
+            - generic [ref=e129]:
+              - img [aria-hidden]:
+                - generic:
+                  - generic:
+                    - generic: git push --force
+                    - generic: sudo
+            - generic [ref=e130]:
+              - img [aria-hidden]:
+                - generic:
+                  - generic:
+                    - generic: rm -rf doubt
+                    - generic: commit 7f3a9c
+          - img [aria-hidden]:
+            - generic: "!"
+            - generic: z
+            - generic: z
+            - generic: z
+        - generic [ref=e131]: Standing vigil
+      - generic [ref=e133]:
+        - generic [ref=e134]:
+          - heading "Recent tasks" [level=4] [ref=e135]
+          - button "Show closed" [ref=e136] [cursor=pointer]
+        - paragraph [ref=e138]: Tasks show up here as agents work.
+        - list [ref=e139]
+  - generic:
+    - alert:
+      - generic "Cannot reach Legion core"

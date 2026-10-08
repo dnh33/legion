@@ -1,0 +1,90 @@
+- generic [ref=e3]:
+  - banner [ref=e4]:
+    - generic [ref=e5]:
+      - button "Legion" [ref=e6]
+      - generic [ref=e7]:
+        - generic [ref=e8]: Legion
+        - generic "Legion is in beta. Expect rough edges and the odd bug." [ref=e9]: Beta
+    - button "Open command palette" [ref=e10] [cursor=pointer]
+    - generic [ref=e13]:
+      - tablist "View" [ref=e14]:
+        - tab "Chat" [selected] [ref=e15] [cursor=pointer]
+        - tab "Rooms" [ref=e18] [cursor=pointer]
+        - tab "Library" [ref=e23] [cursor=pointer]
+      - generic "Connecting…" [ref=e29]
+      - switch "BSV Dev Kit" [ref=e31] [cursor=pointer]
+      - generic [ref=e33]:
+        - 'button "Blender: unknown. Blender menu" [ref=e34] [cursor=pointer]'
+        - status [ref=e38]
+      - button "Claude usage" [ref=e40] [cursor=pointer]
+      - button "Doctor" [ref=e43] [cursor=pointer]
+      - button "Settings" [ref=e46] [cursor=pointer]
+      - button "Toggle theme" [ref=e49] [cursor=pointer]
+      - button "Toggle Ops panel" [ref=e52] [cursor=pointer]
+  - navigation "Agents" [ref=e55]:
+    - generic [ref=e56]:
+      - generic [ref=e57]: Project
+      - combobox "Project" [ref=e58]:
+        - option "All projects" [selected]
+      - button "New project" [ref=e60] [cursor=pointer]
+    - button "New agent" [ref=e64] [cursor=pointer]
+  - main [ref=e67]:
+    - generic [ref=e68]:
+      - generic [ref=e70]:
+        - generic [ref=e71]: ●
+        - generic [ref=e72]:
+          - generic [ref=e73]: Legion
+          - generic [ref=e74]: General-purpose agent
+      - tablist "Tasks" [ref=e75]:
+        - button "New task" [ref=e76]
+      - generic [ref=e82]:
+        - heading "Connecting to Legion core…" [level=3] [ref=e86]
+        - paragraph [ref=e87]: Hold on, this takes a moment.
+        - button "Try again" [ref=e88] [cursor=pointer]
+    - generic [ref=e90]:
+      - textbox "Message" [ref=e91]:
+        - /placeholder: Ask Legion to do something
+      - generic [ref=e92]:
+        - button "Auto" [ref=e93] [cursor=pointer]
+        - generic [ref=e96]:
+          - generic [ref=e97]: /
+          - text: commands
+        - button "Send" [disabled] [ref=e98]
+  - complementary "Ops" [ref=e102]:
+    - generic [ref=e103]:
+      - generic [ref=e105]:
+        - button "Mascot. Click for a word of wisdom." [ref=e107] [cursor=pointer]:
+          - generic [ref=e108]:
+            - generic [ref=e109]:
+              - img [aria-hidden]:
+                - generic: 0x7f3a 11001011 10011100 10101100 01011110 00010011 11011110 ship 10111110 0101 10000111 0010 11010011 00011011 ship 00011000 11100001 01101001 0101 10010001 00011110 exit0 1000
+            - generic [ref=e122]:
+              - img [aria-hidden]:
+                - generic:
+                  - generic:
+                    - generic: // no tests failed
+                    - generic: 0 warnings
+            - generic [ref=e123]:
+              - img [aria-hidden]:
+                - generic:
+                  - generic:
+                    - generic: git push --force
+                    - generic: sudo
+            - generic [ref=e124]:
+              - img [aria-hidden]:
+                - generic:
+                  - generic:
+                    - generic: rm -rf doubt
+                    - generic: commit 7f3a9c
+          - img [aria-hidden]:
+            - generic: "!"
+            - generic: z
+            - generic: z
+            - generic: z
+        - generic [ref=e125]: Standing vigil
+      - generic [ref=e127]:
+        - generic [ref=e128]:
+          - heading "Recent tasks" [level=4] [ref=e129]
+          - button "Show closed" [ref=e130] [cursor=pointer]
+        - paragraph [ref=e132]: Tasks show up here as agents work.
+        - list [ref=e133]

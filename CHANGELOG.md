@@ -4,13 +4,14 @@ All notable changes are recorded here. The format follows [Keep a Changelog](htt
 
 ## [Unreleased]
 
-## [0.2.5-p] - 2026-10-08
+## [0.2.5-q] - 2026-10-08
 
 ### Fixed
 
 - **In-app updates that change dependencies now install themselves on Windows.** The installer's swap step moved the dependency folder while running from inside it, which Windows always refuses, so such an update could never finish and asked for a manual reinstall. The swap now runs from a fresh copy of its runtime outside the install, and completes like any other update.
 - **The update panel reported the wrong download size** for dependency updates (it showed the small code package's size). It now reports the size of what it actually downloads.
 - **A failed update no longer stacks windows.** Each failed attempt started another copy of the app without closing the previous one. Legion now keeps a single instance, and the panel offers a one-click retry after a failed update.
+- **Update relaunch no longer blanks the renderer.** During an update, the new process now skips the single-instance lock check (the old process still holds it), preventing the blank-renderer regression that blocked 0.2.5-p.
 
 ### Added
 

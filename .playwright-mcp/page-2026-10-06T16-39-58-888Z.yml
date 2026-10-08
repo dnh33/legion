@@ -1,0 +1,94 @@
+- generic [ref=f1e3]:
+  - banner [ref=f1e4]:
+    - generic [ref=f1e5]:
+      - button "Legion" [ref=f1e6]
+      - generic [ref=f1e7]:
+        - generic [ref=f1e8]: Legion
+        - generic "Legion is in beta. Expect rough edges and the odd bug." [ref=f1e9]: Beta
+    - button "Open command palette" [ref=f1e10] [cursor=pointer]:
+      - generic [ref=f1e13]: Search or run a command
+      - generic [ref=f1e14]: Ctrl K
+    - generic [ref=f1e15]:
+      - tablist "View" [ref=f1e16]:
+        - tab "Chat" [selected] [ref=f1e17] [cursor=pointer]
+        - tab "Rooms" [ref=f1e20] [cursor=pointer]
+        - tab "Library" [ref=f1e25] [cursor=pointer]
+      - generic "Connecting…" [ref=f1e31]
+      - switch "BSV Dev Kit" [ref=f1e35] [cursor=pointer]
+      - generic [ref=f1e37]:
+        - 'button "Blender: unknown. Blender menu" [ref=f1e38] [cursor=pointer]':
+          - generic [ref=f1e42]: Blender
+        - status [ref=f1e43]
+      - button "Claude usage" [ref=f1e45] [cursor=pointer]
+      - button "Doctor" [ref=f1e48] [cursor=pointer]
+      - button "Settings" [ref=f1e51] [cursor=pointer]
+      - button "Toggle theme" [ref=f1e54] [cursor=pointer]
+      - button "Toggle Ops panel" [ref=f1e57] [cursor=pointer]
+  - navigation "Agents" [ref=f1e60]:
+    - generic [ref=f1e61]:
+      - generic [ref=f1e62]: Project
+      - combobox "Project" [ref=f1e63]:
+        - option "All projects" [selected]
+      - button "New project" [ref=f1e65] [cursor=pointer]
+    - button "New agent" [ref=f1e69] [cursor=pointer]
+  - main [ref=f1e72]:
+    - generic [ref=f1e73]:
+      - generic [ref=f1e75]:
+        - generic [ref=f1e76]: ●
+        - generic [ref=f1e77]:
+          - generic [ref=f1e78]: Legion
+          - generic [ref=f1e79]: General-purpose agent
+      - tablist "Tasks" [ref=f1e80]:
+        - button "New task" [ref=f1e81]
+      - generic [ref=f1e87]:
+        - heading "Connecting to Legion core…" [level=3] [ref=f1e91]
+        - paragraph [ref=f1e92]: Hold on, this takes a moment.
+        - button "Try again" [ref=f1e93] [cursor=pointer]
+    - generic [ref=f1e95]:
+      - textbox "Message" [ref=f1e96]:
+        - /placeholder: Ask Legion to do something
+      - generic [ref=f1e97]:
+        - button "Auto" [ref=f1e98] [cursor=pointer]
+        - generic [ref=f1e101]:
+          - generic [ref=f1e102]: Enter send Shift Enter newline
+          - generic [ref=f1e103]: /
+          - text: commands
+        - button "Send" [disabled] [ref=f1e104]
+  - complementary "Ops" [ref=f1e108]:
+    - generic [ref=f1e109]:
+      - generic [ref=f1e111]:
+        - button "Mascot. Click for a word of wisdom." [ref=f1e113] [cursor=pointer]:
+          - generic [ref=f1e114]:
+            - generic [ref=f1e115]:
+              - img [aria-hidden]:
+                - generic: 0x7f3a 11001011 10011100 10101100 01011110 00010011 11011110 ship 10111110 0101 10000111 0010 11010011 00011011 ship 00011000 11100001 01101001 0101 10010001 00011110 exit0 1000
+            - generic [ref=f1e128]:
+              - img [aria-hidden]:
+                - generic:
+                  - generic:
+                    - generic: // no tests failed
+                    - generic: 0 warnings
+            - generic [ref=f1e129]:
+              - img [aria-hidden]:
+                - generic:
+                  - generic:
+                    - generic: git push --force
+                    - generic: sudo
+            - generic [ref=f1e130]:
+              - img [aria-hidden]:
+                - generic:
+                  - generic:
+                    - generic: rm -rf doubt
+                    - generic: commit 7f3a9c
+          - img [aria-hidden]:
+            - generic: "!"
+            - generic: z
+            - generic: z
+            - generic: z
+        - generic [ref=f1e131]: Standing vigil
+      - generic [ref=f1e133]:
+        - generic [ref=f1e134]:
+          - heading "Recent tasks" [level=4] [ref=f1e135]
+          - button "Show closed" [ref=f1e136] [cursor=pointer]
+        - paragraph [ref=f1e138]: Tasks show up here as agents work.
+        - list [ref=f1e139]

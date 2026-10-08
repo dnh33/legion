@@ -1,0 +1,703 @@
+- generic [ref=e3]:
+  - banner [ref=e4]:
+    - generic [ref=e5]:
+      - button "Legion" [ref=e6]
+      - generic [ref=e7]:
+        - generic [ref=e8]: Legion
+        - generic [ref=e140]: v0.2.5-g
+        - generic "Legion is in beta. Expect rough edges and the odd bug." [ref=e9]: Beta
+    - button "Open command palette" [ref=e10] [cursor=pointer]:
+      - generic [ref=e13]: Search or run a command
+      - generic [ref=e14]: Ctrl K
+    - generic [ref=e15]:
+      - tablist "View" [ref=e16]:
+        - tab "Chat" [selected] [ref=e17] [cursor=pointer]
+        - tab "Rooms" [ref=e20] [cursor=pointer]
+        - tab "Library" [ref=e25] [cursor=pointer]
+      - generic "Connected" [ref=e141]
+      - switch "BSV Dev Kit" [ref=e35] [cursor=pointer]
+      - generic [ref=e37]:
+        - 'button "Blender: Off. Blender menu" [ref=e142] [cursor=pointer]':
+          - generic [ref=e42]: Blender
+        - status [ref=e43]
+      - button "Claude usage" [ref=e45] [cursor=pointer]
+      - button "Doctor" [ref=e48] [cursor=pointer]
+      - button "Settings" [active] [ref=e51] [cursor=pointer]
+      - button "Toggle theme" [ref=e54] [cursor=pointer]
+      - button "Toggle Ops panel" [ref=e57] [cursor=pointer]
+  - navigation "Agents" [ref=e60]:
+    - generic [ref=e61]:
+      - generic [ref=e62]: Project
+      - combobox "Project" [ref=e63]:
+        - option "All projects" [selected]
+      - button "New project" [ref=e65] [cursor=pointer]
+    - generic [ref=e68]:
+      - 'button "Zealot Lead agent of the Legion: takes any request, delegates to the order. VM: No VM" [ref=e143] [cursor=pointer]':
+        - generic [ref=e146]:
+          - generic [aria-hidden]:
+            - generic:
+              - generic:
+                - img [aria-hidden]:
+                  - generic: 0x7f3a 11001011 10011100 10101100 01011110 00010011 11011110 ship 10111110 0101 10000111 0010 11010011 00011011 ship 00011000 11100001 01101001 0101 10010001 00011110 exit0 1000
+              - generic:
+                - img [aria-hidden]:
+                  - generic:
+                    - generic:
+                      - generic: // no tests failed
+                      - generic: 0 warnings
+              - generic:
+                - img [aria-hidden]:
+                  - generic:
+                    - generic:
+                      - generic: git push --force
+                      - generic: sudo
+              - generic:
+                - img [aria-hidden]:
+                  - generic:
+                    - generic:
+                      - generic: rm -rf doubt
+                      - generic: commit 7f3a9c
+            - img [aria-hidden]:
+              - generic: "!"
+              - generic: z
+              - generic: z
+              - generic: z
+        - generic [ref=e147]:
+          - generic [ref=e148]: Zealot
+          - generic [ref=e149]: "Lead agent of the Legion: takes any request, delegates to the order."
+        - 'generic "VM: No VM" [ref=e151]'
+      - 'button "Builder Coding and building; prefers its VM for risky work. VM: No VM" [ref=e152] [cursor=pointer]':
+        - generic [ref=e155]:
+          - generic [aria-hidden]:
+            - generic:
+              - generic:
+                - img [aria-hidden]:
+                  - generic:
+                    - generic: $ make
+                    - generic: $ make
+                    - generic: lint
+                    - generic: lint
+                    - generic: test 42/42
+                    - generic: test 42/42
+                    - generic: build
+                    - generic: build
+              - generic:
+                - img [aria-hidden]:
+                  - generic: PASS
+                  - generic: PASS
+              - generic:
+                - img [aria-hidden]:
+                  - generic: 0 ERR
+                  - generic: 0 ERR
+            - img [aria-hidden]:
+              - generic: "!"
+              - generic: z
+              - generic: z
+              - generic: z
+        - generic [ref=e156]:
+          - generic [ref=e157]: Builder
+          - generic [ref=e158]: Coding and building; prefers its VM for risky work.
+        - 'generic "VM: No VM" [ref=e160]'
+      - button "Scout Research, reading and summarising." [ref=e161] [cursor=pointer]:
+        - generic [ref=e164]:
+          - generic [aria-hidden]:
+            - generic:
+              - generic:
+                - generic:
+                  - img [aria-hidden]:
+                    - generic: brg 041 . src [1][2][?]
+              - generic:
+                - img [aria-hidden]:
+                  - generic:
+                    - generic: "041"
+                    - generic: deg mag
+              - generic:
+                - img [aria-hidden]:
+                  - generic:
+                    - generic: 3/3
+                    - generic: src ok
+              - generic:
+                - img [aria-hidden]:
+                  - generic:
+                    - generic:
+                      - generic: 55.68N 12.57E
+                      - generic: brg 041 [1]
+                      - generic: ridge [2]
+                      - generic: pass?
+                      - generic: "[?]"
+            - img [aria-hidden]:
+              - generic: "!"
+              - generic: z
+              - generic: z
+              - generic: z
+        - generic [ref=e165]:
+          - generic [ref=e166]: Scout
+          - generic [ref=e167]: Research, reading and summarising.
+      - 'button "Inquisitor Hostile reviewer: code review, security audit, and adversarial verification of fixes." [ref=e168] [cursor=pointer]':
+        - generic [ref=e171]:
+          - generic [aria-hidden]:
+            - generic:
+              - generic:
+                - img [aria-hidden]:
+                  - generic: ASSUME HOSTILE INPUT · REPRODUCE · VERIFY · NOT FIXED UNTIL PROVEN · TRUST NO CALLER ·
+              - generic:
+                - generic:
+                  - img [aria-hidden]:
+                    - generic:
+                      - generic:
+                        - generic: assume(input).hostile
+                        - generic: assume(input).hostile
+              - generic:
+                - img [aria-hidden]:
+                  - generic:
+                    - generic: "#0218"
+                    - generic:
+                      - generic: tok=req.h
+                      - generic: sig.vrfy
+                      - generic: ok
+                    - generic: VALID
+              - generic:
+                - img [aria-hidden]:
+                  - generic:
+                    - generic: "#0225"
+                    - generic:
+                      - generic: if(!auth)
+                      - generic: race?
+                      - generic: ln 212
+                      - generic: "?"
+                    - generic: DOUBTFUL
+              - generic:
+                - img [aria-hidden]:
+                  - generic:
+                    - generic: "#0232"
+                    - generic:
+                      - generic: repro 3/3
+                      - generic: path ../
+                      - generic: esc(usr)
+                      - generic: old!=new
+                    - generic: NOT FIXED
+              - generic:
+                - img [aria-hidden]:
+                  - generic:
+                    - generic: "#0239"
+                    - generic:
+                      - generic: len>MAX?
+                      - generic: cmp(a,b)
+                      - generic: "lint: w"
+                    - generic: NOISE
+              - generic:
+                - img [aria-hidden]:
+                  - generic:
+                    - generic: "#0246"
+                    - generic:
+                      - generic: assert ok
+                      - generic: no test
+                      - generic: trust?
+                    - generic: UNPROVEN
+              - generic:
+                - img [aria-hidden]:
+                  - generic:
+                    - generic:
+                      - generic: verify()
+                      - generic: repro()
+                      - generic: diff -U3
+                      - generic: grep -n
+                      - generic: trust 0
+                      - generic: bounds?
+                      - generic: audit()
+                      - generic: fail cl
+                      - generic: deny dfl
+                      - generic: least pr
+                      - generic: no eval
+                      - generic: pin deps
+                      - generic: rotate
+                      - generic: sanitize
+                      - generic: escape
+                      - generic: prove it
+                      - generic: cmp ==
+                      - generic: hash ok
+                      - generic: sig.vrfy
+                      - generic: retry 3
+                      - generic: timeout
+                      - generic: abort()
+                      - generic: exit 1
+                      - generic: lock?
+                      - generic: toctou?
+                      - generic: null?
+                      - generic: overflow
+                      - generic: utf8 ok
+                      - generic: csrf tok
+                      - generic: origin?
+                      - generic: replay?
+                      - generic: nonce
+                      - generic: salted
+                      - generic: argon2
+                      - generic: no md5
+                      - generic: constant
+                      - generic: time cmp
+                      - generic: log it
+                      - generic: redact
+                      - generic: pii?
+                      - generic: scope
+                      - generic: expiry
+                      - generic: revoke
+                      - generic: audit
+                      - generic: again
+                      - generic: again
+                      - generic: amen
+                  - generic: CLAIM != PROOF
+                  - generic: SHOW THE REPRO
+                  - generic: CLAIM != PROOF
+                  - generic: SHOW THE REPRO
+                  - generic:
+                    - generic:
+                      - generic:
+                        - generic: hash ok
+                        - generic: sig.vrfy
+                        - generic: retry 3
+                        - generic: timeout
+            - img [aria-hidden]:
+              - generic: "!"
+              - generic: z
+              - generic: z
+              - generic: z
+        - generic [ref=e172]:
+          - generic [ref=e173]: Inquisitor
+          - generic [ref=e174]: "Hostile reviewer: code review, security audit, and adversarial verification of fixes."
+      - 'button "Scribe Documentation: READMEs, changelogs, guides, runbooks and release notes, written for the reader." [ref=e175] [cursor=pointer]':
+        - generic [ref=e178]:
+          - generic [aria-hidden]:
+            - generic:
+              - generic:
+                - img [aria-hidden]:
+                  - generic: "## Changelog · v0.1.0 · Added: one sentence, finished properly. · Fixed: a dangling modifier. · Removed: nothing that mattered. · See README § 2 · ## Changelog · v0.1.0 · Added: one sentence, finished properly. · Fixed: a dangling modifier. · Removed: nothing that mattered. · See README § 2 ·"
+                  - generic: "@param path — the file, not its feelings · @returns the truth, tersely · TODO: nothing · diff --git a/notes b/notes · @param path — the file, not its feelings · @returns the truth, tersely · TODO: nothing · diff --git a/notes b/notes ·"
+              - generic:
+                - generic:
+                  - img [aria-hidden]:
+                    - generic: § README · NOTES · CHANGELOG §
+                    - generic: ¶
+                    - generic: ¶
+              - generic:
+                - img [aria-hidden]:
+                  - generic:
+                    - generic: CHANGELOG
+                    - generic: v
+                    - generic: 0.1.0 — the Legion
+                    - generic: learns to write.
+                    - generic: Every agent now
+                    - generic: leaves a note behind,
+                    - generic: dated, signed and
+                    - generic: spelled correctly.
+                    - generic: "Breaking: none."
+                    - generic: "Known issues: two."
+                  - generic:
+                    - generic: "@@ -12,4 +12,5 @@"
+                    - generic: teh build passes
+                    - generic: "-"
+                    - generic: the build passes
+                    - generic: +
+                    - generic: and is verified.
+                    - generic: +
+                    - generic: see README § 2
+                    - generic: "TODO: explain"
+                    - generic: "-"
+                    - generic: Explained, below;
+                    - generic: +
+                    - generic: briefly, I hope.
+                    - generic: +
+                    - generic: — signed, Scribe
+            - img [aria-hidden]:
+              - generic: "!"
+              - generic: z
+              - generic: z
+              - generic: z
+        - generic [ref=e179]:
+          - generic [ref=e180]: Scribe
+          - generic [ref=e181]: "Documentation: READMEs, changelogs, guides, runbooks and release notes, written for the reader."
+      - 'button "Archivist Notes and memory hygiene: staleness, orphans, duplicates and contradictions. Flags, never deletes." [ref=e182] [cursor=pointer]':
+        - generic [ref=e185]:
+          - generic [aria-hidden]:
+            - generic:
+              - generic:
+                - generic:
+                  - img [aria-hidden]:
+                    - generic: A
+                    - generic: Z
+                    - generic: F
+                    - generic: S
+                    - generic: M
+                - generic:
+                  - img [aria-hidden]:
+                    - generic: ARCHIVE
+              - generic:
+                - img [aria-hidden]:
+                  - generic: stale
+                  - generic: 214d
+              - generic:
+                - img [aria-hidden]:
+                  - generic: orphan
+                  - generic: no refs
+              - generic:
+                - img [aria-hidden]:
+                  - generic: dup
+                  - generic: x2
+              - generic:
+                - img [aria-hidden]:
+                  - generic: keep
+                  - generic: v3
+              - generic:
+                - img [aria-hidden]:
+                  - generic: "last touched: 214d"
+                  - generic: "214"
+                  - generic: "---"
+                  - generic: "title: auth-notes"
+                  - generic: "updated: 2026-03-02"
+                  - generic: "status: stale"
+                  - generic: "---"
+                  - generic: A-D
+            - img [aria-hidden]:
+              - generic: "!"
+              - generic: z
+              - generic: z
+              - generic: z
+        - generic [ref=e186]:
+          - generic [ref=e187]: Archivist
+          - generic [ref=e188]: "Notes and memory hygiene: staleness, orphans, duplicates and contradictions. Flags, never deletes."
+      - 'button "Sentinel Watch duty: scheduled routines, health checks and concise alerts. VM: No VM" [ref=e189] [cursor=pointer]':
+        - generic [ref=e192]:
+          - generic [aria-hidden]:
+            - generic:
+              - generic:
+                - generic:
+                  - img [aria-hidden]:
+                    - generic: while(1) watch();
+                    - generic: while(1) watch();
+              - generic:
+                - img [aria-hidden]:
+                  - generic: WATCH
+                  - generic: 01:00
+                  - generic: ok
+                  - generic: 02:00
+                  - generic: ok
+                  - generic: 03:00
+                  - generic: ok
+                  - generic: 04:00
+                  - generic: ok
+            - img [aria-hidden]:
+              - generic: "!"
+              - generic: z
+              - generic: z
+              - generic: z
+        - generic [ref=e193]:
+          - generic [ref=e194]: Sentinel
+          - generic [ref=e195]: "Watch duty: scheduled routines, health checks and concise alerts."
+        - 'generic "VM: No VM" [ref=e197]'
+      - 'button "Forgemaster Infrastructure, CI, deploys and VM operations, with reproducible steps and a rollback. VM: No VM" [ref=e198] [cursor=pointer]':
+        - generic [ref=e201]:
+          - generic [aria-hidden]:
+            - generic:
+              - generic:
+                - img [aria-hidden]:
+                  - generic:
+                    - generic: TEMPER · TEST · SHIP · NO SHORTCUTS · TEMPER · TEST · SHIP · IT SHIPS WHEN IT IS READY ·
+                    - generic: TEMPER · TEST · SHIP · NO SHORTCUTS · TEMPER · TEST · SHIP · IT SHIPS WHEN IT IS READY ·
+              - generic:
+                - img [aria-hidden]:
+                  - generic: a3f9c1e
+                  - generic: TEMPERED
+                  - generic: a3f9c1e
+                  - generic: TEMPERED
+                  - generic: 7c2d
+              - generic:
+                - generic:
+                  - img [aria-hidden]:
+                    - generic: QUENCH · TEMPER · TEST
+                    - generic: QUENCH · TEMPER · TEST
+              - generic:
+                - img [aria-hidden]:
+                  - generic: e1c9a07
+                  - generic: e1c9a07
+                  - generic: PASS
+                  - generic: PASS
+              - generic:
+                - img [aria-hidden]:
+                  - generic: 3f0b2d
+                  - generic: 3f0b2d
+                  - generic: ok
+                  - generic: ok
+              - generic:
+                - img [aria-hidden]:
+                  - generic: 9d41e8b
+                  - generic: 9d41e8b
+                  - generic: TEMP
+                  - generic: TEMP
+            - img [aria-hidden]:
+              - generic: "!"
+              - generic: z
+              - generic: z
+              - generic: z
+        - generic [ref=e202]:
+          - generic [ref=e203]: Forgemaster
+          - generic [ref=e204]: Infrastructure, CI, deploys and VM operations, with reproducible steps and a rollback.
+        - 'generic "VM: No VM" [ref=e206]'
+      - 'button "Exorcist Debugging: reproduce first, find the root cause, make the minimal fix, prove it. VM: No VM" [ref=e207] [cursor=pointer]':
+        - generic [ref=e210]:
+          - generic [aria-hidden]:
+            - generic:
+              - generic:
+                - img [aria-hidden]:
+                  - generic: at parse() line 42 · at load() line 7 · at main() line 1 · amen
+              - generic:
+                - generic:
+                  - img [aria-hidden]:
+                    - generic: REPRO · NAME · CAST OUT
+                    - generic: REPRO · NAME · CAST OUT
+              - generic:
+                - img [aria-hidden]:
+                  - generic: "#42"
+              - generic:
+                - img [aria-hidden]:
+                  - generic: EOF
+            - img [aria-hidden]:
+              - generic: "!"
+              - generic: z
+              - generic: z
+              - generic: z
+        - generic [ref=e211]:
+          - generic [ref=e212]: Exorcist
+          - generic [ref=e213]: "Debugging: reproduce first, find the root cause, make the minimal fix, prove it."
+        - 'generic "VM: No VM" [ref=e215]'
+      - 'button "Preceptor Craftsman and mentor: runs the Kodawari loop on art, UI, copy and code, then teaches the why. VM: No VM" [ref=e216] [cursor=pointer]':
+        - generic [ref=e219]:
+          - generic [aria-hidden]:
+            - generic:
+              - generic:
+                - img [aria-hidden]:
+                  - generic:
+                    - generic: "0"
+                    - generic: "20"
+                    - generic: "40"
+                    - generic: "60"
+                    - generic: "80"
+                    - generic: "100"
+                    - generic: "120"
+                    - generic: "140"
+                    - generic: "160"
+                    - generic: "180"
+              - generic:
+                - img [aria-hidden]:
+                  - generic:
+                    - generic:
+                      - generic: "1"
+                      - generic: "2"
+                      - generic: "3"
+                      - generic: "4"
+                      - generic: "5"
+                      - generic: "11"
+                      - generic: "10"
+                      - generic: "9"
+                      - generic: "8"
+                      - generic: "7"
+              - generic:
+                - img [aria-hidden]:
+                  - generic:
+                    - generic:
+                      - generic: "1"
+                      - generic: "2"
+                      - generic: "3"
+                      - generic: "4"
+                      - generic: "5"
+                      - generic: "6"
+                      - generic: "7"
+                      - generic: "8"
+              - generic:
+                - img [aria-hidden]:
+                  - generic:
+                    - generic:
+                      - generic: "1"
+                      - generic: "2"
+                      - generic: "3"
+                      - generic: "4"
+                      - generic: "5"
+                      - generic: "6"
+                      - generic: "7"
+              - generic:
+                - img [aria-hidden]:
+                  - generic:
+                    - generic:
+                      - generic: SEEN
+                      - generic: PROVEN
+            - img [aria-hidden]:
+              - generic: "!"
+              - generic: z
+              - generic: z
+              - generic: z
+        - generic [ref=e220]:
+          - generic [ref=e221]: Preceptor
+          - generic [ref=e222]: "Craftsman and mentor: runs the Kodawari loop on art, UI, copy and code, then teaches the why."
+        - 'generic "VM: No VM" [ref=e224]'
+      - button "Herald Comms drafts for email, chat and outreach. Drafts only, never sends." [ref=e225] [cursor=pointer]:
+        - generic [ref=e228]:
+          - generic [aria-hidden]:
+            - generic:
+              - generic:
+                - img [aria-hidden]:
+                  - generic:
+                    - generic:
+                      - generic: "TO: ALL HANDS"
+                      - generic: "RE: build 418"
+                      - generic: "STATUS: sent"
+            - img [aria-hidden]:
+              - generic: "!"
+              - generic: z
+              - generic: z
+              - generic: z
+        - generic [ref=e229]:
+          - generic [ref=e230]: Herald
+          - generic [ref=e231]: Comms drafts for email, chat and outreach. Drafts only, never sends.
+      - 'button "Sculptor Blender work through the Blender bridge: plan first, small reversible scripts, backed-up files. VM: No VM" [ref=e232] [cursor=pointer]':
+        - generic [ref=e235]:
+          - generic [aria-hidden]:
+            - generic:
+              - generic:
+                - img [aria-hidden]:
+                  - generic: v 0.000 1.250 0.372 · v 0.118 1.244 0.372 · v 0.236 1.226 0.371 · v 0.351 1.197 0.369 · f 4 5 9 8 · v 0.462 1.157 0.366 · v 0.568 1.106 0.362 · f 5 6 10 9
+                  - generic: v 0.000 1.250 0.372 · v 0.118 1.244 0.372 · v 0.236 1.226 0.371 · v 0.351 1.197 0.369 · f 4 5 9 8 · v 0.462 1.157 0.366 · v 0.568 1.106 0.362 · f 5 6 10 9
+              - generic:
+                - generic:
+                  - img [aria-hidden]:
+                    - generic:
+                      - generic:
+                        - generic: bpy.ops.mesh.subdivide(cuts=2)
+                        - generic: bpy.ops.mesh.subdivide(cuts=2)
+            - img [aria-hidden]:
+              - generic: "!"
+              - generic: z
+              - generic: z
+              - generic: z
+        - generic [ref=e236]:
+          - generic [ref=e237]: Sculptor
+          - generic [ref=e238]: "Blender work through the Blender bridge: plan first, small reversible scripts, backed-up files."
+        - 'generic "VM: No VM" [ref=e240]'
+    - button "New agent" [ref=e69] [cursor=pointer]
+  - main [ref=e72]:
+    - region "Settings" [ref=e282]:
+      - navigation "Settings sections" [ref=e283]:
+        - button "Back to chat" [ref=e284] [cursor=pointer]
+        - heading "Settings" [level=2] [ref=e288]
+        - button "Claude Sign-in, key, runs" [ref=e289] [cursor=pointer]:
+          - generic [ref=e290]: Claude
+          - generic [ref=e291]: Sign-in, key, runs
+        - button "Providers Other models, optional" [ref=e292] [cursor=pointer]:
+          - generic [ref=e293]: Providers
+          - generic [ref=e294]: Other models, optional
+        - button "boat.dev (VMs) Cloud computers" [ref=e295] [cursor=pointer]:
+          - generic [ref=e296]: boat.dev (VMs)
+          - generic [ref=e297]: Cloud computers
+        - button "MCP servers Extra tools for agents" [ref=e298] [cursor=pointer]:
+          - generic [ref=e299]: MCP servers
+          - generic [ref=e300]: Extra tools for agents
+        - button "Blender Build 3D with the Sculptor" [ref=e301] [cursor=pointer]:
+          - generic [ref=e302]: Blender
+          - generic [ref=e303]: Build 3D with the Sculptor
+        - button "Compaction Context limits for long runs" [ref=e304] [cursor=pointer]:
+          - generic [ref=e305]: Compaction
+          - generic [ref=e306]: Context limits for long runs
+        - button "Doctrine Rules and drills your agents follow" [ref=e307] [cursor=pointer]:
+          - generic [ref=e308]: Doctrine
+          - generic [ref=e309]: Rules and drills your agents follow
+        - button "Armory Skills your agents can pick up" [ref=e310] [cursor=pointer]:
+          - generic [ref=e311]: Armory
+          - generic [ref=e312]: Skills your agents can pick up
+        - button "Connections Use Legion from Claude" [ref=e313] [cursor=pointer]:
+          - generic [ref=e314]: Connections
+          - generic [ref=e315]: Use Legion from Claude
+        - button "About Version and folders" [ref=e316] [cursor=pointer]:
+          - generic [ref=e317]: About
+          - generic [ref=e318]: Version and folders
+      - generic [ref=e321]:
+        - generic [ref=e322]:
+          - heading "Claude" [level=3] [ref=e323]
+          - paragraph [ref=e324]: How agents sign in and how long a run may go. Changes apply from the next run.
+        - generic [ref=e325]:
+          - generic [ref=e326]:
+            - generic [ref=e327]: Sign in with
+            - radiogroup "Sign-in mode" [ref=e328]:
+              - radio "Claude sign-in" [checked] [ref=e329] [cursor=pointer]
+              - radio "API key" [ref=e330] [cursor=pointer]
+            - generic [ref=e331]: Uses the account you are signed into Claude Code with. Covered by your subscription.
+          - generic [ref=e332]:
+            - generic [ref=e333]: Anthropic API key
+            - 'textbox "Anthropic API key Status: not set. The key is stored in your config file and never shown again." [disabled] [ref=e335]':
+              - /placeholder: sk-ant-…
+            - generic [ref=e336]: "Status: not set. The key is stored in your config file and never shown again."
+          - generic [ref=e337]:
+            - generic [ref=e338]: Claude executable
+            - 'textbox "Claude executable Leave empty to find `claude` on your PATH." [ref=e339]':
+              - /placeholder: C:\Users\you\AppData\Roaming\npm\claude.cmd
+            - generic [ref=e340]: "Leave empty to find `claude` on your PATH."
+          - generic [ref=e341]:
+            - generic [ref=e342]: Max turns per run
+            - textbox "Max turns per run Stops a run that loops. 1 to 1000." [ref=e343]: "200"
+            - generic [ref=e344]: Stops a run that loops. 1 to 1000.
+          - generic [ref=e345]:
+            - generic [ref=e346]: Spend limit per run (USD)
+            - textbox "Spend limit per run (USD) Leave empty for no limit. A run that reaches it pauses and keeps its work; Continue picks it up." [ref=e347]:
+              - /placeholder: no limit
+            - generic [ref=e348]: Leave empty for no limit. A run that reaches it pauses and keeps its work; Continue picks it up.
+          - generic [ref=e349] [cursor=pointer]:
+            - checkbox "Inherit my Claude Code settings Agents also read your user and project settings, hooks and CLAUDE.md, like Claude Code in a terminal. The MCP choice below is separate and applies whichever way this is set." [checked] [ref=e350]
+            - generic [ref=e351]:
+              - generic [ref=e352]: Inherit my Claude Code settings
+              - emphasis [ref=e353]: Agents also read your user and project settings, hooks and CLAUDE.md, like Claude Code in a terminal. The MCP choice below is separate and applies whichever way this is set.
+          - generic [ref=e354] [cursor=pointer]:
+            - checkbox "Also load MCP servers and claude.ai connectors from my Claude Code setup Off by default. When off, Legion asks Claude Code to use only Legion's own tools and the servers you add under MCP servers, and not to load claude.ai connectors. Turning it on brings back the servers and connectors you use in Claude Code, which connect again on every run. This only changes what Legion's own code asks Claude Code to load; it does not limit what an agent's ordinary tools, such as a shell, can reach." [ref=e355]
+            - generic [ref=e356]:
+              - generic [ref=e357]: Also load MCP servers and claude.ai connectors from my Claude Code setup
+              - emphasis [ref=e358]: Off by default. When off, Legion asks Claude Code to use only Legion's own tools and the servers you add under MCP servers, and not to load claude.ai connectors. Turning it on brings back the servers and connectors you use in Claude Code, which connect again on every run. This only changes what Legion's own code asks Claude Code to load; it does not limit what an agent's ordinary tools, such as a shell, can reach.
+        - button "Save" [disabled] [ref=e361]
+  - complementary "Ops" [ref=e108]:
+    - generic [ref=e109]:
+      - generic [ref=e111]:
+        - button "Mascot. Click for a word of wisdom." [ref=e113] [cursor=pointer]:
+          - generic [ref=e114]:
+            - generic [ref=e115]:
+              - img [aria-hidden]:
+                - generic: 0x7f3a 11001011 10011100 10101100 01011110 00010011 11011110 ship 10111110 0101 10000111 0010 11010011 00011011 ship 00011000 11100001 01101001 0101 10010001 00011110 exit0 1000
+            - generic [ref=e128]:
+              - img [aria-hidden]:
+                - generic:
+                  - generic:
+                    - generic: // no tests failed
+                    - generic: 0 warnings
+            - generic [ref=e129]:
+              - img [aria-hidden]:
+                - generic:
+                  - generic:
+                    - generic: git push --force
+                    - generic: sudo
+            - generic [ref=e130]:
+              - img [aria-hidden]:
+                - generic:
+                  - generic:
+                    - generic: rm -rf doubt
+                    - generic: commit 7f3a9c
+          - img [aria-hidden]:
+            - generic: "!"
+            - generic: z
+            - generic: z
+            - generic: z
+        - generic [ref=e131]: Standing vigil
+      - generic [ref=e270]:
+        - generic [ref=e271]:
+          - heading "Computer" [level=4] [ref=e274]
+          - generic [ref=e275]: No VM
+          - button "Start" [ref=e277] [cursor=pointer]
+        - generic [ref=e278]: No VM yet. It starts when Zealot needs a computer, or press Start.
+      - generic [ref=e133]:
+        - generic [ref=e134]:
+          - heading "Recent tasks" [level=4] [ref=e135]
+          - button "Show closed" [ref=e136] [cursor=pointer]
+        - paragraph [ref=e138]: Tasks show up here as agents work.
+        - list [ref=e139]
