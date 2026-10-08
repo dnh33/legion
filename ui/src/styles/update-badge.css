@@ -1,0 +1,20 @@
+/* Title-bar update badge. App tokens only; a quiet pill in .tb-right that reddens its dot and eases as the update moves. */
+.upd-badge {
+  display: inline-flex; align-items: center; gap: 6px; height: 24px; padding: 0 9px; border-radius: 12px;
+  border: 1px solid var(--line-strong); background: var(--surface); color: var(--text-2); font-size: 12px; font-weight: 500;
+  white-space: nowrap; transition: background var(--t) var(--ease), border-color var(--t) var(--ease), color var(--t) var(--ease);
+}
+.upd-badge:hover { background: var(--surface-2); color: var(--text); }
+:root[data-kbd-nav] .upd-badge:focus-visible { outline: 2px solid var(--accent-line); outline-offset: 1px; }
+.upd-badge-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--accent); flex: none; }
+.upd-badge-label { line-height: 1; }
+.upd-badge-detail { font-family: var(--font-mono); font-size: 11px; color: var(--muted); }
+
+.upd-badge.tone-accent { border-color: var(--accent-line); }
+.upd-badge.tone-accent .upd-badge-dot { background: var(--accent); }
+.upd-badge.tone-ready .upd-badge-dot { background: var(--warn); }
+.upd-badge.tone-progress .upd-badge-dot,
+.upd-badge.tone-busy .upd-badge-dot { background: var(--warn); animation: upd-badge-pulse 1.1s var(--ease) infinite; }
+
+@keyframes upd-badge-pulse { 0%, 100% { opacity: 1; } 50% { opacity: .35; } }
+@media (prefers-reduced-motion: reduce) { .upd-badge-dot { animation: none !important; } }

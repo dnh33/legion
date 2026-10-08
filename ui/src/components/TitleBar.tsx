@@ -9,6 +9,7 @@ import { isUnread, useRooms } from '../rooms/roomsStore';
 import { VIEW_KEY_LABELS } from '../viewKeys';
 import { openDoctor, openPalette, setView, toggleOps, toggleSettings, toggleTheme, useStore } from '../store';
 import { Icon } from './icons';
+import { UpdateBadge } from './UpdateBadge';
 import { UsageButton } from './UsagePopover';
 
 /** Icon-only view tabs keep the title bar the width v4 shipped (the search box does not move). */
@@ -64,6 +65,7 @@ export function TitleBar() {
         <BsvChip />
         <BlenderChip />
         <CiChip />
+        <UpdateBadge />
         <UsageButton />
         <button className={`tb-doctor${bad ? ' bad' : doctor ? ' good' : ''}`} onClick={openDoctor} title={bad ? `${bad} setup check${bad === 1 ? '' : 's'} failing. Open Doctor` : doctor ? 'All required checks pass. Open Doctor' : 'Sign-in & setup checks'}>
           <Icon name="pulse" size={14} /> Doctor{bad > 0 && <b>{bad} to fix</b>}
