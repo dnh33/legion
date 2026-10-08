@@ -49,10 +49,11 @@ Full commands: [`docs/SHIPPING.md`](../../docs/SHIPPING.md). The order that matt
 5. **Build outside the repo**, native `D:/...` path (an MSYS `/d/...` becomes `D:\d\...` and ENOENTs).
 6. **Manifest from `app.zip`**, not the 285 MB installer zip.
 7. **Sign with the key outside every work tree.** The vault key sits inside the owner's vault repo and the signer
-   refuses it. Copy out, sign, delete the copy. Never read a key into a session — pass the path.
+   refuses it. Copy out, sign, delete the copy. Never read a key into a session — pass the path. Sign the manifest
+   (`release-sign.mjs`) **and** `SHA256SUMS.txt` (`release-sign-sums.mjs`).
 8. **`release-preflight.mjs` must end "Pre-flight passed".** Do not publish over a failure.
 9. **Merge `--no-ff`.** Read every removed test line: `git diff pre-merge-<name> HEAD -- test/ | grep '^-[^-]'`.
-10. **DRAFT the release.** `gh release create --draft`, upload all five assets, verify the **uploaded** assets
+10. **DRAFT the release.** `gh release create --draft`, upload all six assets, verify the **uploaded** assets
     (GitHub reports a per-asset `digest`, and it must equal your local sha256), then `--draft=false`.
 11. **Verify from the live CDN only AFTER publishing.** A draft's assets are not publicly served —
     `releases/download/...` returns 404 until the release is public. What a draft can prove is byte-equality via the

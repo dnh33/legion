@@ -14,9 +14,9 @@ import { createFakeModel } from './fake-model.mjs';
 const root = join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'dist', 'src');
 const load = (p) => import(pathToFileURL(join(root, p)).href);
 
-const [{ dataDir, configPath, loadConfig, VERSION }, { readLaunchSecrets }, { ApprovalBroker }, { EventBus }, { makeBoatGetter, SettingsService }, { Engine }, { createServer },
+const [{ dataDir, configPath, loadConfig, VERSION }, { readLaunchSecrets }, { ApprovalBroker }, { QuestionBroker }, { EventBus }, { makeBoatGetter, SettingsService }, { Engine }, { createServer },
   { createBlenderModule }, { createBsvModule, createBsvState }, { createCommsModule }, { createKnowledgeModule }, { createHouseModule }, { createArmoryModule }, { Store }, { VmManager }, { ProviderRuntime }, { ProviderKeys, keyFileFor }, { createProvidersModule }, { createUpdaterModule }, { createProjectsModule, ProjectStore }, { BoardStore, createBoardModule, graphNotes }, { createBrowserModule }, { createCiModule }, { FakeGitHub }, { createConnectorsModule }, { ConnectorKeyring }, { createLogsModule, openLogSink }] = await Promise.all([
-  load('shared/config.js'), load('core/admin.js'), load('core/approvals.js'), load('core/bus.js'), load('core/settings.js'), load('core/engine.js'), load('core/server.js'),
+  load('shared/config.js'), load('core/admin.js'), load('core/approvals.js'), load('core/questions.js'), load('core/bus.js'), load('core/settings.js'), load('core/engine.js'), load('core/server.js'),
   load('core/blender/index.js'), load('core/bsv/index.js'), load('core/comms/index.js'), load('core/kg/index.js'), load('core/house/index.js'), load('core/armory/index.js'), load('core/store.js'), load('core/vm-manager.js'),
   load('core/providers/runtime.js'), load('core/providers/secrets.js'), load('core/providers/routes.js'), load('core/updater/index.js'), load('core/projects/index.js'), load('core/projects/board/index.js'), load('core/browser/index.js'), load('core/ci/index.js'), load('core/ci/fake-github.js'), load('core/connectors/index.js'), load('core/connectors/keyring.js'), load('core/log/index.js'),
 ]);
@@ -34,10 +34,11 @@ const getBoat = makeBoatGetter(config);
 const boatConfigured = () => !!config.boat.apiKey;
 const vms = new VmManager({ store, bus, getBoat, boatConfig: () => config.boat });
 const approvals = new ApprovalBroker(bus);
+const questions = new QuestionBroker(bus);
 const model = createFakeModel();
 const providerRuntime = config.features.providers ? new ProviderRuntime({ config, keys: new ProviderKeys(keyFileFor(dataDir())) }) : undefined;
 const projects = new ProjectStore(dataDir(), config.workspaceDir);
-const engine = new Engine({ store, bus, vms, approvals, config, boatConfigured, projects, ...(providerRuntime ? { providers: providerRuntime } : {}), queryFn: model.queryFn });
+const engine = new Engine({ store, bus, vms, approvals, questions, config, boatConfigured, projects, ...(providerRuntime ? { providers: providerRuntime } : {}), queryFn: model.queryFn });
 const fakeCatalog = async () => ({ commands: [{ name: 'cost', description: 'Show cost', argumentHint: '' }], models: [{ value: 'sonnet', displayName: 'Sonnet (harness)', description: 'fake' }, { value: 'opus', displayName: 'Opus (harness)', description: 'fake' }], fetchedAt: new Date().toISOString() });
 engine.bridge.catalog = fakeCatalog;
 let stopReaper = () => {};
@@ -72,7 +73,7 @@ const logs = createLogsModule(moduleDeps, { sink: openLogSink(dataDir()) });
 const modules = [kg, house, armory, createCommsModule(moduleDeps, { projects }), createProjectsModule(moduleDeps, { projects, nativeSecret }), ...boardModules, bsv, blender, ...providersModules, updater, createBrowserModule(moduleDeps, { nativeSecret, log }), connectors, ci, logs];
 engine.setModules(modules);
 const server = createServer({
-  config, store, bus, engine, vms, approvals, boatConfigured, modules, bsvEnabled,
+  config, store, bus, engine, vms, approvals, questions, boatConfigured, modules, bsvEnabled,
   doctor: async () => [{ id: 'harness', label: 'Harness', ok: true, detail: 'scripted model, fake boat.dev' }],
   catalog: fakeCatalog,
   settings, adminSecret, projects, ...(board ? { board } : {}),

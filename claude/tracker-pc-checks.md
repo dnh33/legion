@@ -466,3 +466,13 @@ The workflow cannot run before it is on main. Its guard test pins the security s
 | id | result | what was seen | open issue |
 |---|---|---|---|
 | RB1 | **PASSED** 2026-10-07 (orchestrator) | Run 37681503541 (dispatch from main, ref `v0.2.5-m`) green. app.zip `b0da9855…` and win-x64.zip `ffe3ab96…` byte-identical to the published 0.2.5-m; install.ps1 and install.sh identical. | none |
+
+## 2026-10-08: Release-build follow-ups (ladder 33) — attestation, SHA256SUMS signing, owner-only `v*` tag ruleset. Branch `feat/release-build-extras`
+
+The scripts and the workflow change are pinned offline (`test/release-extras.test.ts`, `test/install-scripts.test.ts`). What only a real run, the owner, or `gh` can prove:
+
+| id | area | preconditions | exact steps | expected observation | evidence to capture | safety class | source |
+|---|---|---|---|---|---|---|---|
+| RB3 | The attestation verifies | `release-build.yml` on main with the `attest` job | On the next real build (RB2, or a dispatch), after downloading the artifact: `gh attestation verify <file> --repo dnh33/legion` for each file. | `gh` reports a valid SLSA build-provenance attestation from GitHub's Sigstore instance, naming the workflow, the commit and a subject digest equal to the file's sha256. | `gh attestation verify` output, the run URL | reads only | orchestrator |
+| RB4 | Signed SHA256SUMS end to end | a release folder signed on the PC | `node scripts/release-verify.mjs --dir <folder>`; then fetch the published `SHA256SUMS.txt` and `SHA256SUMS.txt.sig` from the live CDN into a fresh folder and check them against the published k1 public key. | release-verify prints OK; the fetched bytes verify against the same key `UPDATE_KEYS` holds. | release-verify output, the fetched files | reads only | orchestrator |
+| RB5 | Tags locked down | owner with `gh` authenticated (admin on dnh33/legion) | `node scripts/gh-tag-ruleset.mjs --apply`; then try to create/move/delete a `v*` tag as a non-admin actor. | `gh api repos/dnh33/legion/rulesets` lists the `tag` ruleset over `refs/tags/v*`; a non-admin push of a `v*` tag is refused. | the ruleset JSON, the refusal | GitHub write, as the owner | owner only |

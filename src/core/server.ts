@@ -4,13 +4,14 @@ import type { IncomingMessage, Server, ServerResponse } from 'node:http';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { redactConfig, VERSION } from '../shared/config.js';
 import type {
-  AgentProfile, ApprovalMode, ChatMessage, DoctorCheck, LegionConfig, LegionEvent, Catalog, ModelChoice, StateSnapshot, Task, VmSize,
+  AgentProfile, ApprovalMode, ChatMessage, DoctorCheck, LegionConfig, LegionEvent, Catalog, ModelChoice, StateSnapshot, Task, VmSize, QuestionPick,
 } from '../shared/types.js';
 import { summariseUsage } from '../shared/usage-summary.js';
 import { nowIso, slugify, uniqueAgentId } from '../shared/util.js';
 import { withholdEvent, withholdMessage, withholdTask } from './connector-withhold.js';
 import { ADMIN_HEADER, gate, healthProof, isAdminSecret, isHexNonce, isSsePath, safeEqual } from './admin.js';
 import type { ApprovalBroker } from './approvals.js';
+import type { QuestionBroker } from './questions.js';
 import type { EventBus } from './bus.js';
 import { EngineError } from './engine.js';
 import type { Engine } from './engine.js';
@@ -31,6 +32,8 @@ import type { BoardStore } from './projects/board/store.js';
 
 export interface CoreContext {
   config: LegionConfig; store: Store; bus: EventBus; engine: Engine; vms: VmManager; approvals: ApprovalBroker;
+  /** Structured questions (the question card). Absent: /api/questions answers empty and nothing can be answered. */
+  questions?: QuestionBroker;
   boatConfigured: () => boolean;
   doctor: () => Promise<DoctorCheck[]>;
   /** Claude Code commands + models (cached; force = re-probe). */
@@ -221,6 +224,8 @@ export function createServer(ctx: CoreContext): Server {
       : ctx.store.listTasks(200, undefined, ['1', 'true'].includes(url.searchParams.get('archived') ?? '')).filter(taskShown)).map(withoutResult),
     vms: ctx.store.listVms().filter((v) => agentIdVisible(ctx, v.agentId)),
     approvals: ctx.approvals.pending().filter((a) => agentIdVisible(ctx, a.agentId)),
+    // Structured questions are admin-only: a token-only client never gets them (the same class as room text). Absent for a token client.
+    ...(isAdminReq(req) ? { questions: (ctx.questions?.pending() ?? []).filter((q) => agentIdVisible(ctx, q.agentId)) } : {}),
     boatConfigured: ctx.boatConfigured(),
     // A token-only client gets whether things work, never the user's prices or what the key was probed for.
     ...(ctx.vms.health ? { boat: isAdminReq(req) ? ctx.vms.health.view() : publicBoatHealth(ctx.vms.health.view()) } : {}),
@@ -453,6 +458,21 @@ export function createServer(ctx: CoreContext): Server {
     return { ok: ctx.approvals.resolve(params[0], body.allow) };
   });
 
+  // ---- structured questions (the question card) ------------------------
+  // Admin-only by default-deny, exactly like approvals: an MCP-class token may start the task that asks, but only the
+  // owner answers in the app window. `answers` carries one pick per question, in the order they were asked.
+  route('GET', '/api/questions', () => (ctx.questions?.pending() ?? []).filter((q) => agentIdVisible(ctx, q.agentId)));
+  route('POST', '/api/questions/:id', ({ params, body }) => {
+    if (!isObj(body) || !Array.isArray(body.answers)) throw new HttpError(400, 'body {answers: QuestionPick[]} required');
+    const answers: QuestionPick[] = body.answers.map((raw) => {
+      const p = isObj(raw) ? raw : {};
+      const labels = Array.isArray(p.labels) ? p.labels.filter((l): l is string => typeof l === 'string' && l.length > 0) : [];
+      const other = typeof p.other === 'string' && p.other.trim() ? p.other.trim() : undefined;
+      return { labels, ...(other ? { other } : {}) };
+    });
+    return { ok: ctx.questions?.resolve(params[0], answers) ?? false };
+  });
+
   // ---- feature modules ---------------------------------------------------
   for (const m of ctx.modules ?? []) m.routes?.(route);
 
@@ -466,6 +486,7 @@ export function createServer(ctx: CoreContext): Server {
       case 'message': case 'message.delta': case 'task.progress': { const t = ctx.store.getTask(ev.type === 'message' ? ev.message.taskId : ev.taskId); return !t || taskShown(t); }
       case 'vm.updated': return agentIdVisible(ctx, ev.vm.agentId);
       case 'approval.requested': return agentIdVisible(ctx, ev.approval.agentId);
+      case 'question.requested': return agentIdVisible(ctx, ev.question.agentId);
       case 'comms.state': return agentIdVisible(ctx, ev.agentId) && (!ev.peerId || agentIdVisible(ctx, ev.peerId));
       case 'room.updated': return ev.room.members.every((m) => agentIdVisible(ctx, m));
       case 'room.message': return (ev.message.from.kind !== 'bot' || agentIdVisible(ctx, ev.message.from.agentId)) && ev.message.to.every((m) => agentIdVisible(ctx, m));
@@ -474,7 +495,7 @@ export function createServer(ctx: CoreContext): Server {
   };
 
   /** Events only the app window (admin) may see: the human's rooms and their text, bot-to-bot state, and settings (key hints). A token-only stream drops them. */
-  const adminOnlyEvent = (ev: LegionEvent): boolean => ev.type.startsWith('room.') || ev.type.startsWith('comms.') || ev.type.startsWith('settings.') || ev.type.startsWith('kg.') || ev.type.startsWith('blender.') || ev.type.startsWith('project.') || ev.type.startsWith('board.') || ev.type.startsWith('ci.');
+  const adminOnlyEvent = (ev: LegionEvent): boolean => ev.type.startsWith('room.') || ev.type.startsWith('comms.') || ev.type.startsWith('settings.') || ev.type.startsWith('kg.') || ev.type.startsWith('blender.') || ev.type.startsWith('project.') || ev.type.startsWith('board.') || ev.type.startsWith('ci.') || ev.type.startsWith('question.');
 
   const handleSse = (req: IncomingMessage, res: ServerResponse, admin: boolean) => {
     res.writeHead(200, {

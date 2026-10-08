@@ -20,6 +20,7 @@ import { CONTINUE_REFUSED } from './connector-withhold.js';
 import type { CoreModule, ModuleJob, PreambleContext, TaskEndOutcome } from './modules.js';
 import type { TaskOrigin } from '../shared/comms.js';
 import type { ApprovalBroker } from './approvals.js';
+import { QuestionBroker } from './questions.js';
 import type { EventBus } from './bus.js';
 import { modelRank, overrideAllowed, overrideRefusal, rankModel } from './model-cap.js';
 import { routeModel, shouldEscalate } from './router.js';
@@ -46,6 +47,8 @@ export type QueryFn = typeof sdkQuery;
 
 export interface EngineDeps {
   store: Store; bus: EventBus; vms: VmManager; approvals: ApprovalBroker; config: LegionConfig;
+  /** Structured questions (agent ask_user_question -> thread card). Defaults to one private to this engine, on the same bus. */
+  questions?: QuestionBroker;
   /** Injected for tests; defaults to the real SDK query(). */
   queryFn?: QueryFn;
   /** Returns whether boat is configured (vm tools only offered when true). */
@@ -257,6 +260,7 @@ export class Engine {
   private readonly bus: EventBus;
   private readonly vms: VmManager;
   private readonly approvals: ApprovalBroker;
+  private readonly questions: QuestionBroker;
   private readonly config: LegionConfig;
   private readonly queryFn: QueryFn;
   private readonly boatConfigured: () => boolean;
@@ -281,6 +285,7 @@ export class Engine {
     this.bgMaxHeldMs = Math.max(1, deps.background?.maxHeldMs ?? BG_MAX_HELD_MS);
     this.bgNow = deps.background?.now ?? Date.now;
     this.store = deps.store; this.bus = deps.bus; this.vms = deps.vms; this.approvals = deps.approvals;
+    this.questions = deps.questions ?? new QuestionBroker(deps.bus);
     this.config = deps.config;
     this.queryFn = deps.queryFn ?? realQuery;
     this.boatConfigured = deps.boatConfigured;
@@ -464,6 +469,7 @@ export class Engine {
     a.cancelled = true;
     this.markCancelled(taskId);
     this.approvals.cancelForTask(taskId);
+    this.questions.cancelForTask(taskId);
     try { this.bridge.cancelFor(taskId); } catch { /* ignore */ }
     try { a.ac.abort(); } catch { /* ignore */ }
     try { void a.q?.interrupt?.()?.catch?.(() => undefined); } catch { /* ignore */ }
@@ -647,6 +653,7 @@ export class Engine {
       this.endTask(job, act);
       if (this.active.get(job.taskId) === act) this.active.delete(job.taskId);
       try { this.approvals.cancelForTask(job.taskId); } catch { /* ignore */ }
+      try { this.questions.cancelForTask(job.taskId); } catch { /* ignore */ }
       if (this.active.size === 0 && this.queue.length === 0) this.scheduleIdle();
       this.pump();
     }
@@ -800,9 +807,10 @@ export class Engine {
     }
     // Every agent gets the in-process `legion` server (bridge tools; plus vm_* when a VM is enabled).
     out.legion = buildAgentToolsServer({
-      agentId: agent.id, taskId, vms: this.vms, bridge: this.bridge,
+      agentId: agent.id, taskId, vms: this.vms, bridge: this.bridge, questions: this.questions,
       vmEnabled: !!agent.vm?.enabled && this.boatConfigured(),
       claudeAvailable: this.vms.claudeAvailable?.() ?? true, // vm_claude is hidden while Claude is known not to be set up on boat.dev
+      ...(job.origin ? { origin: { roomId: job.origin.roomId, fromAgentId: job.origin.fromAgentId, hop: job.origin.hop } } : {}),
     });
     const moduleJob: ModuleJob = {
       taskId, ...(job.origin ? { origin: job.origin, ceiling: job.origin.approvalCeiling } : {}),

@@ -902,9 +902,9 @@ test('mcpServers: config filtered per agent; legion vm server only when vm enabl
   const some = setup(() => happy(), { config: cfgFn, boat: false, agent: { vm, mcpServers: ['two'] } });
   await some.engine.waitFor(some.engine.startTask({ agentId: 'a1', prompt: 'x', source: 'ui' }).id, 3000);
   assert.deepEqual(Object.keys(some.calls[0]!.options.mcpServers).sort(), ['legion', 'two']);
-  assert.deepEqual(Object.keys((some.calls[0]!.options.mcpServers.legion.instance as any)._registeredTools).sort(), ['agents', 'ask', 'task_result', 'tell']);
+  assert.deepEqual(Object.keys((some.calls[0]!.options.mcpServers.legion.instance as any)._registeredTools).sort(), ['agents', 'ask', 'ask_user_question', 'task_result', 'tell']);
   assert.deepEqual(some.calls[0]!.options.disallowedTools, ['SendMessage', 'ListAgents']);
-  assert.deepEqual(Object.keys((all.calls[0]!.options.mcpServers.legion.instance as any)._registeredTools).sort(), ['agents', 'ask', 'task_result', 'tell', 'vm_claude', 'vm_desktop', 'vm_exec', 'vm_read_file', 'vm_start', 'vm_stop', 'vm_usage', 'vm_write_file']);
+  assert.deepEqual(Object.keys((all.calls[0]!.options.mcpServers.legion.instance as any)._registeredTools).sort(), ['agents', 'ask', 'ask_user_question', 'task_result', 'tell', 'vm_claude', 'vm_desktop', 'vm_exec', 'vm_read_file', 'vm_start', 'vm_stop', 'vm_usage', 'vm_write_file']);
 });
 
 test('agent tools server builds with name legion', () => {

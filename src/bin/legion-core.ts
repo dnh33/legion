@@ -14,6 +14,7 @@ import { TokenStore } from '../core/connectors/store.js';
 import { createGitHubClient } from '../core/connectors/github/client.js';
 import { createConnectorsModule } from '../core/connectors/index.js';
 import { ApprovalBroker } from '../core/approvals.js';
+import { QuestionBroker } from '../core/questions.js';
 import { EventBus } from '../core/bus.js';
 import { getCatalog } from '../core/catalog.js';
 import { makeBoatGetter, SettingsService } from '../core/settings.js';
@@ -82,12 +83,14 @@ async function main() {
 
   const vms = new VmManager({ store, bus, getBoat, boatConfig: () => config.boat });
   const approvals = new ApprovalBroker(bus);
+  // structured questions (the agent's ask_user_question -> a card in the thread); the same lifetime and bus as approvals
+  const questions = new QuestionBroker(bus);
   // other model providers (OpenAI-compatible endpoints); keys live in <dataDir>/providers/keys.json, never in config.json
   // providers ship (OpenRouter on by default); off only if config.json sets features.providers = false
   const providerRuntime = config.features.providers ? new ProviderRuntime({ config, keys: new ProviderKeys(keyFileFor(dataDir())) }) : undefined;
   // projects (owner-only groups of tasks, rooms, notes; own file <dataDir>/projects.json)
   const projects = new ProjectStore(dataDir(), config.workspaceDir);
-  const engine = new Engine({ store, bus, vms, approvals, config, boatConfigured, projects, ...(providerRuntime ? { providers: providerRuntime } : {}) });
+  const engine = new Engine({ store, bus, vms, approvals, questions, config, boatConfigured, projects, ...(providerRuntime ? { providers: providerRuntime } : {}) });
   // lets ask/tell check a per-task model against what the account offers
   engine.bridge.catalog = () => getCatalog({ config });
   let stopReaper: () => void = () => {};
@@ -129,7 +132,7 @@ async function main() {
   const modules = [kg, house, armory, createCommsModule(moduleDeps, { projects }), createProjectsModule(moduleDeps, { projects, nativeSecret }), ...boardModules, bsv, blender, ...providersModules, updater, createBrowserModule(moduleDeps, { nativeSecret, log }), connectors, ci, logs];
   engine.setModules(modules);
   const server = createServer({
-    config, store, bus, engine, vms, approvals, boatConfigured, modules, bsvEnabled,
+    config, store, bus, engine, vms, approvals, questions, boatConfigured, modules, bsvEnabled,
     doctor: () => runDoctor({ config, getBoat, health: vms.health }),
     catalog: (force) => getCatalog({ config }, { force }),
     settings, adminSecret, projects, ...(board ? { board } : {}),
