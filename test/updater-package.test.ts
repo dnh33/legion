@@ -6,9 +6,9 @@ import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, symlinkS
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { parseManifest } from '../src/core/updater/manifest.js';
-import { stagePackage, StageError, stagedTree , dependencyHash } from '../src/core/updater/package.js';
-import { assetNameFor } from '../src/core/updater/config.js';
-import { LOCK, makeKey, makeRelease, makeZip, packageFiles, sha256, startFakeServer, type Release, type ZipFile } from './updater-helpers.js';
+import { stagePackage, stageFullPackage, stagedTree, stagedInfo, StageError, dependencyHash } from '../src/core/updater/package.js';
+import { assetNameFor, fullAssetNameFor } from '../src/core/updater/config.js';
+import { LOCK, makeKey, makeRelease, makeZip, fullPackageFiles, packageFiles, sha256, startFakeServer, type Release, type ZipFile } from './updater-helpers.js';
 
 const k = makeKey();
 const V = '0.2.1';
@@ -139,4 +139,58 @@ test('C9: a staging folder that is a link is refused', async () => {
     await assert.rejects(stagePackage({ installDir: install, source: s.source, manifest: parseManifest(r.manifest), version: V, installedDepsHash: dependencyHash(LOCK), freeBytes: free }), (e) => e instanceof StageError && e.code === 'unsafe');
     assert.deepEqual(readdirSync(elsewhere), []);
   } finally { await s.close(); }
+});
+
+// The dependency-change bridge: stageFullPackage downloads and verifies the SIGNED full package (node_modules + runtime)
+// instead of the code-only app package. These pin the routing-critical parts: the right asset, its signed hash, and the
+// node_modules/runtime that are the whole point of a full update.
+async function runFull(r: Release, o: { freeBytes?: () => number; serve?: Buffer } = {}) {
+  const s = await startFakeServer(r);
+  if (o.serve) { s.handler.custom = (req, res) => { if (req.url?.includes('/releases/download/')) { res.writeHead(200, { 'content-length': o.serve!.length }); res.end(o.serve); return true; } return false; }; }
+  const install = cleanupTemp('upd-full-');
+  const m = parseManifest(r.manifest);
+  try {
+    const out = await stageFullPackage({ installDir: install, source: s.source, manifest: m, version: V, freeBytes: o.freeBytes ?? free });
+    return { out, err: undefined as unknown, install, s };
+  } catch (err) { return { out: undefined, err, install, s }; }
+  finally { await s.close(); }
+}
+const withoutTop = (prefix: string): ZipFile[] => fullPackageFiles(V).filter((f) => !f.name.startsWith(`legion-${V}/${prefix}/`));
+
+test('C25: a good full package is downloaded, hashed, extracted and checked; node_modules and runtime are present; kind is full', async () => {
+  const r = makeRelease(k, V, { requiresFullInstall: true, full: {} });
+  assert.equal(r.manifestObj.fullAsset && (r.manifestObj.fullAsset as { name: string }).name, fullAssetNameFor(V));
+  const { out, err, install } = await runFull(r);
+  assert.equal(err, undefined, String(err));
+  assert.equal(out!.kind, 'full');
+  assert.equal(out!.zipSha256, sha256(r.fullZip!));
+  assert.ok(existsSync(join(out!.treeDir, 'node_modules', 'electron', 'index.js')));
+  assert.ok(existsSync(join(out!.treeDir, 'runtime', 'electron', 'electron.exe')));
+  assert.ok(existsSync(join(out!.treeDir, 'PACKAGE-FILES.json')));
+  assert.deepEqual(stagedInfo(install, V), { treeDir: out!.treeDir, kind: 'full' });
+  assert.equal(stagedTree(install, V), out!.treeDir);
+});
+
+test('C25: the full package is verified against its SIGNED sha256 BEFORE extraction; on mismatch nothing is staged', async () => {
+  const r = makeRelease(k, V, { requiresFullInstall: true, full: {} });
+  const same = Buffer.from(r.fullZip!); same[same.length - 30] ^= 0xff; // same size, different bytes
+  const res = await runFull(r, { serve: same });
+  assert.equal(code(res.err), 'hash');
+  assert.equal(existsSync(join(res.install, '.update', 'staging', V)), false, 'staging removed');
+  assert.equal(stagedInfo(res.install, V), null);
+});
+
+test('C25: a full package missing node_modules, runtime or its executable list is refused as content', async () => {
+  const missingNodeModules = makeRelease(k, V, { requiresFullInstall: true, full: { files: withoutTop('node_modules') } });
+  assert.equal(code((await runFull(missingNodeModules)).err), 'content');
+  const missingRuntime = makeRelease(k, V, { requiresFullInstall: true, full: { files: withoutTop('runtime') } });
+  assert.equal(code((await runFull(missingRuntime)).err), 'content');
+  const badList = makeRelease(k, V, { requiresFullInstall: true, full: { files: fullPackageFiles(V).map((f) => (f.name.endsWith('PACKAGE-FILES.json') ? { ...f, data: JSON.stringify({ schema: 1, files: [{ path: 'dist/x', size: 1, sha256: '0'.repeat(64) }] }) } : f)) } });
+  assert.equal(code((await runFull(badList)).err), 'content', 'the file list must name the bundled executables');
+});
+
+test('C25: a full package whose own package-lock differs from the signed depsSha256 is refused', async () => {
+  // The whole zip is signed over its own bytes, so the download hash matches; the content check refuses the lock mismatch.
+  const r = makeRelease(k, V, { requiresFullInstall: true, full: { files: fullPackageFiles(V, { lock: '{"other":1}' }) } });
+  assert.equal(code((await runFull(r)).err), 'content');
 });

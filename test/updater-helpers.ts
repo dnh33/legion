@@ -3,7 +3,7 @@ import { createHash, generateKeyPairSync, sign } from 'node:crypto';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import { deflateRawSync } from 'node:zlib';
 import type { AddressInfo } from 'node:net';
-import { assetNameFor, MANIFEST_NAME, SIG_NAME, type UpdateSource } from '../src/core/updater/config.js';
+import { assetNameFor, fullAssetNameFor, MANIFEST_NAME, SIG_NAME, type UpdateSource } from '../src/core/updater/config.js';
 import type { UpdateKey } from '../src/core/updater/trust.js';
 
 export const sha256 = (b: Buffer | string): string => createHash('sha256').update(b).digest('hex');
@@ -67,17 +67,37 @@ export function packageFiles(version: string, over: { lock?: string; extra?: Zip
   return [...f.filter((x) => !(over.drop ?? []).some((d) => x.name === top + d)), ...(over.extra ?? [])];
 }
 
-export interface Release { version: string; zip: Buffer; manifest: Buffer; sig: string; manifestObj: Record<string, unknown> }
-export function makeRelease(k: TestKey, version: string, o: { files?: ZipFile[]; manifest?: Record<string, unknown>; lock?: string; publishedAt?: string; signWith?: TestKey; requiresFullInstall?: boolean } = {}): Release {
-  const zip = makeZip(o.files ?? packageFiles(version, o.lock !== undefined ? { lock: o.lock } : {}));
+/** The two executables a Legion full package must ship (mirrors scripts/lib/package-lib.mjs ELECTRON_REL / CLAUDE_REL). */
+const FULL_EXES = ['runtime/electron/electron.exe', 'node_modules/@anthropic-ai/claude-agent-sdk-win32-x64/claude.exe'];
+/** The files of a valid FULL package for `version`: the app files plus node_modules, runtime and PACKAGE-FILES.json. */
+export function fullPackageFiles(version: string, over: { lock?: string; extra?: ZipFile[]; drop?: string[]; pkgVersion?: string } = {}): ZipFile[] {
+  const top = `legion-${version}/`;
+  const files: ZipFile[] = [
+    ...packageFiles(version, over),
+    { name: `${top}node_modules/electron/index.js`, data: '// electron' },
+    { name: `${top}node_modules/@anthropic-ai/claude-agent-sdk-win32-x64/claude.exe`, data: 'MZ claude' },
+    { name: `${top}runtime/electron/electron.exe`, data: 'MZ electron' },
+    { name: `${top}PACKAGE-FILES.json`, data: JSON.stringify({ schema: 1, files: FULL_EXES.map((p) => ({ path: p, size: 1, sha256: '0'.repeat(64) })) }) },
+  ];
+  return files.filter((x) => !(over.drop ?? []).some((d) => x.name === top + d));
+}
+
+export interface Release { version: string; zip: Buffer; fullZip?: Buffer; manifest: Buffer; sig: string; manifestObj: Record<string, unknown> }
+export function makeRelease(k: TestKey, version: string, o: { files?: ZipFile[]; manifest?: Record<string, unknown>; lock?: string; publishedAt?: string; signWith?: TestKey; requiresFullInstall?: boolean; full?: { files?: ZipFile[]; drop?: string[]; pkgVersion?: string } } = {}): Release {
+  const lock = o.lock ?? LOCK;
+  const zip = makeZip(o.files ?? packageFiles(version, o.lock !== undefined ? { lock } : {}));
+  // A signed full package exists only when the caller asks for one. `depsSha256` is the app lock's raw hash, so the
+  // full package must carry the SAME lock bytes or checkFullTree refuses it (this mirrors the real release scripts).
+  const fullZip = o.full ? makeZip(o.full.files ?? fullPackageFiles(version, { lock, ...o.full })) : undefined;
   const manifestObj = {
     schema: 1, product: 'legion', channel: 'stable', version, publishedAt: o.publishedAt ?? new Date().toISOString().replace(/\.\d+Z$/, 'Z'),
     asset: { name: assetNameFor(version), size: zip.length, sha256: sha256(zip) },
-    depsSha256: sha256(o.lock ?? LOCK), requiresFullInstall: o.requiresFullInstall ?? false, notes: 'Test notes <b>x</b>', ...o.manifest,
+    ...(fullZip ? { fullAsset: { name: fullAssetNameFor(version), size: fullZip.length, sha256: sha256(fullZip) } } : {}),
+    depsSha256: sha256(lock), requiresFullInstall: o.requiresFullInstall ?? false, notes: 'Test notes <b>x</b>', ...o.manifest,
   };
   const manifest = Buffer.from(JSON.stringify(manifestObj, null, 2) + '\n');
   const signer = o.signWith ?? k;
-  return { version, zip, manifest, manifestObj, sig: JSON.stringify({ keyId: signer.id, alg: 'ed25519', sig: signer.sign(manifest) }) };
+  return { version, zip, ...(fullZip ? { fullZip } : {}), manifest, manifestObj, sig: JSON.stringify({ keyId: signer.id, alg: 'ed25519', sig: signer.sign(manifest) }) };
 }
 
 export interface FakeServer { url: string; source: UpdateSource; hits: string[]; close(): Promise<void>; setRelease(r: Release | null): void; handler: { custom?: (req: IncomingMessage, res: ServerResponse) => boolean } }
@@ -93,6 +113,7 @@ export async function startFakeServer(initial: Release | null): Promise<FakeServ
     if (rel && u === `/releases/latest/download/${MANIFEST_NAME}`) { res.writeHead(200, { 'content-length': rel.manifest.length }); res.end(rel.manifest); return; }
     if (rel && u === `/releases/latest/download/${SIG_NAME}`) { res.writeHead(200); res.end(rel.sig); return; }
     if (rel && u === `/releases/download/v${rel.version}/${assetNameFor(rel.version)}`) { res.writeHead(200, { 'content-length': rel.zip.length }); res.end(rel.zip); return; }
+    if (rel && rel.fullZip && u === `/releases/download/v${rel.version}/${fullAssetNameFor(rel.version)}`) { res.writeHead(200, { 'content-length': rel.fullZip.length }); res.end(rel.fullZip); return; }
     res.writeHead(404); res.end('no');
   });
   await new Promise<void>((r) => srv.listen(0, '127.0.0.1', () => r()));

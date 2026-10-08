@@ -22,16 +22,28 @@ export const PRODUCTION_SOURCE: UpdateSource = Object.freeze({
 export const MANIFEST_NAME = 'legion-update-manifest.json';
 export const SIG_NAME = 'legion-update-manifest.json.sig';
 export const assetNameFor = (version: string): string => `legion-${version}-app.zip`;
+/**
+ * The full package: the code set PLUS `node_modules` and `runtime`, built by `scripts/build-package.mjs` and installed by
+ * `scripts/package-install.mjs`. The app package carries no `node_modules`, so a release whose dependency tree changed
+ * (`requiresFullInstall`) can only self-apply from this asset. Its name and hash are signed in the manifest's `fullAsset`
+ * when the owner publishes one (see manifest.ts); the URL shape mirrors `packageAssetName` in scripts/lib/package-lib.mjs.
+ */
+export const fullAssetNameFor = (version: string): string => `legion-${version}-win-x64.zip`;
 export const manifestUrl = (s: UpdateSource): string => `${s.base}/releases/latest/download/${MANIFEST_NAME}`;
 export const sigUrl = (s: UpdateSource): string => `${s.base}/releases/latest/download/${SIG_NAME}`;
 /** `version` must already be a validated plain semver (manifest.ts); it is never taken from a redirect. */
 export const assetUrl = (s: UpdateSource, version: string): string => `${s.base}/releases/download/v${version}/${assetNameFor(version)}`;
+/** The full package, used only for a `requiresFullInstall` release whose manifest signs a `fullAsset`. */
+export const fullAssetUrl = (s: UpdateSource, version: string): string => `${s.base}/releases/download/v${version}/${fullAssetNameFor(version)}`;
 
 export const LIMITS = Object.freeze({
   manifestBytes: 64 * 1024,
   sigBytes: 4 * 1024,
   packageBytes: 150 * 1024 * 1024,
   unpackedBytes: 400 * 1024 * 1024,
+  /** The full package (code set + node_modules + runtime) is much larger; the caps mirror scripts/lib/package-lib.mjs CAPS. */
+  fullPackageBytes: 450 * 1024 * 1024,
+  fullUnpackedBytes: 1200 * 1024 * 1024,
   entries: 20_000,
   relPathChars: 200,
   notesChars: 2000,

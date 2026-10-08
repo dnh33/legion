@@ -9,6 +9,7 @@ import { ADMIN_HEADER, gate, NATIVE_HEADER } from '../src/core/admin.js';
 import { ApprovalBroker } from '../src/core/approvals.js';
 import { EventBus } from '../src/core/bus.js';
 import { createUpdaterModule, installMode, type UpdaterModule } from '../src/core/updater/index.js';
+import { FULL_PACKAGE_SET } from '../src/core/updater/apply.js';
 import type { ModuleDeps, RouteAdder } from '../src/core/modules.js';
 import { Store } from '../src/core/store.js';
 import type { Task } from '../src/shared/types.js';
@@ -283,6 +284,53 @@ test('C10/C20: a release that changes dependencies is notify-only; a package who
   } finally { await lock.srv.close(); }
   assert.equal(sha256(LOCK).length, 64);
 });
+
+test('C10b: a dependency-change release WITH a signed full package self-applies via the full route; commit hands back the full name set', async () => {
+  const full = await rig(makeRelease(k, '0.2.1', { requiresFullInstall: true, full: {} }));
+  try {
+    await full.mod.check(true);
+    const s0 = await full.mod.status();
+    assert.equal(s0.available?.requiresFullInstall, true);
+    assert.equal(s0.available?.canFullInstall, true);
+    assert.deepEqual(await full.mod.install(), { ok: true });
+    const s1 = await full.mod.status();
+    assert.equal(s1.phase, 'staged');
+    assert.equal(s1.staged?.kind, 'full');
+    assert.equal(hitsFor(full, '/releases/download/'), 1, 'only the full package is fetched; the app package is never downloaded');
+    assert.ok(full.srv.hits.some((h) => h.includes('/legion-0.2.1-win-x64.zip')), 'the full package URL was requested');
+    quiet(full);
+    const job = await full.mod.commit();
+    assert.deepEqual(job.names, [...FULL_PACKAGE_SET]);
+    assert.equal(job.to, '0.2.1');
+  } finally { await full.srv.close(); }
+});
+
+test('C10b: a dependency-change release WITHOUT a signed full package stays notify-only (the human fallback)', async () => {
+  const notify = await rig(makeRelease(k, '0.2.1', { requiresFullInstall: true }));
+  try {
+    await notify.mod.check(true);
+    const s = await notify.mod.status();
+    assert.equal(s.available?.canFullInstall, false);
+    await assert.rejects(notify.mod.install(), /dependencies/);
+    assert.equal(hitsFor(notify, '/releases/download/'), 0, 'nothing is downloaded');
+  } finally { await notify.srv.close(); }
+});
+
+test('C10c: a lock that changed WITHOUT the flag is caught at staging and escalated to the signed full package', async () => {
+  // requiresFullInstall is false, so the route is 'code'. The app package's dependency CONTENT differs from the installed
+  // lock, so checkTree throws full-install; because a fullAsset is signed, install() applies the full package, not give up.
+  const r = await rig(makeRelease(k, '0.2.1', { lock: '{"changed":true}', full: {} }));
+  try {
+    await r.mod.check(true);
+    assert.equal((await r.mod.status()).available?.canFullInstall, false, 'the manifest did not declare the change');
+    assert.deepEqual(await r.mod.install(), { ok: true });
+    const s = await r.mod.status();
+    assert.equal(s.phase, 'staged');
+    assert.equal(s.staged?.kind, 'full');
+    assert.ok(r.srv.hits.some((h) => h.includes('/legion-0.2.1-win-x64.zip')), 'the full package was fetched after the app package failed the deps check');
+  } finally { await r.srv.close(); }
+});
+
 test('a rolled-back version recorded by the helper is never offered again', async () => {
   const r = await rig(makeRelease(k, '0.2.1'));
   try {
