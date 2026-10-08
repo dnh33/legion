@@ -17,3 +17,7 @@
 .upd-bar { height: 6px; border-radius: 3px; background: var(--surface-3); overflow: hidden; }
 .upd-bar span { display: block; height: 100%; background: var(--accent); transition: width var(--t) var(--ease); }
 @media (prefers-reduced-motion: reduce) { .upd-bar span { transition: none; } }
+/* The check button's busy spinner: a ring that turns while a check is in flight, so it reads as work, not as an enabled button. */
+.upd-spin { display: inline-block; width: 10px; height: 10px; border: 2px solid var(--line-strong); border-top-color: var(--accent); border-radius: 50%; animation: upd-spin 0.7s linear infinite; }
+@keyframes upd-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .upd-spin { animation: none; } }
