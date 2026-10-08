@@ -813,8 +813,9 @@ re-check lines.
 
 #### SHIPPED CONTEXT — read this first, it explains most of what follows
 
-Latest release is **`0.2.5-o`** (tag `v0.2.5-o`, 2026-10-08; the merge of release/0.2.5-o). The updater
-applies releases from inside Legion; the maintainer reported on 2026-10-06 that it works (check U1). Everything below is
+Latest release is **`0.2.5-p`** (tag `v0.2.5-p`, 2026-10-08; the merge of release/0.2.5-p). It updates the bundled
+libraries (Claude Agent SDK, MCP SDK, Electron) and moves the build tooling to Vite 8, so it ships as a full package
+that installs from inside Legion. The updater applies releases from inside Legion; the maintainer reported on 2026-10-06 that it works (check U1). Everything below is
 either shipped, parked, or not started.
 
 Releases since `0.2.3-g` (dates from the tags; `0.2.3-h` to `0.2.3-l` were consolidated into `0.2.4` in the changelog):
@@ -842,6 +843,7 @@ Releases since `0.2.3-g` (dates from the tags; `0.2.3-h` to `0.2.3-l` were conso
 | `0.2.5-m` | 2026-10-07 | Long conversations open fast (thread paging, windowed rows, search in a thread) and the task history is paged and searchable with an index (PR #39); planning notes kept (PR #42) |
 | `0.2.5-n` | 2026-10-07 | Soul Codex for the Marshal, Builder and Scout and the welcome flow that points at the Marshal (PR #41, #46); A key and wake-up taint fixes (PR #43); Armory respects the agent's skill choice for typed commands (PR #48); PC-run fixes: CI polling, quieter logs, Open folder, docked width, keyboard-only focus rings (PR #49); smaller per-run instructions and one teamwork block (PR #50); docs and prompt-size ceilings (PR #51); Quartermaster (#47) and Marshal rename (#52) |
 | `0.2.5-o` | 2026-10-08 | Question card: an agent asks the owner 1-4 structured questions and the owner answers in a card (PR #62); Fascia 3b typed delegation — a typed brief (goal, done-when, optional budget) on ask/tell and a first-line verdict read from the result (PR #64); house lifecycle `kg_sweep` batch retirement and `kg_capture --supersedes` (PR #65); the updater applies a dependency-change release through the signed full-package swap, with the existing notify-only path as fallback (PR #66); release builds: SLSA build attestation and a signed SHA256SUMS.txt (PR #63) |
+| `0.2.5-p` | 2026-10-08 | Dependency update: Claude Agent SDK 0.3.293, MCP SDK 1.32.1, Electron 44.7.0, and the build tooling moved to Vite 8 (@vitejs/plugin-react 6.1.2, esbuild 0.28.2). A full package that installs from inside Legion (deps PRs #59, #61) |
 
 Table derived from `git tag -l 'v0.2*'` with creation dates and the `CHANGELOG.md` sections (`0.2.3-h` to `0.2.3-l` from the
 `git log v0.2.3-g..v0.2.4` subjects; their own changelog entries were folded into `0.2.4`).

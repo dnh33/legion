@@ -4,6 +4,14 @@ All notable changes are recorded here. The format follows [Keep a Changelog](htt
 
 ## [Unreleased]
 
+## [0.2.5-p] - 2026-10-08
+
+### Changed
+
+- **Updated the bundled libraries.** The Claude Agent SDK (0.3.293), the MCP SDK (1.32.1) and Electron (44.7.0) are current as of this release.
+- **The build tooling moved to Vite 8**, with the matching React plugin and esbuild.
+- **This release is a full package.** Because the dependency tree changed, it cannot arrive as the code-only swap: Legion downloads the signed full package and installs it from inside the app the same journaled way as a normal update, replacing its own libraries along with the code. It is a larger download, and the update panel says so. An install that cannot take the full package still shows the notice, and reinstalling from the source still works.
+
 ## [0.2.5-o] - 2026-10-08
 
 ### Added
