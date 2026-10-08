@@ -1,14 +1,20 @@
 /** Pure helpers for the Electron side of the updater (src/electron/updater-main.ts), kept free of electron so they can be tested. */
 import { join, resolve, sep } from 'node:path';
-import { UPDATE_DIR, type ApplyJob } from './apply.js';
+import { CODE_SET, FULL_PACKAGE_SET, UPDATE_DIR, type ApplyJob } from './apply.js';
 
-export interface CommitFacts { installDir: string; stagedDir: string; from: string; to: string }
+export interface CommitFacts { installDir: string; stagedDir: string; from: string; to: string; /** FULL_PACKAGE_SET for a dependency-change release, omitted for a code-only update. */ names?: readonly string[] }
+
+/** The name sets the core may return, in order. Anything else (or a reordered/edited set) is refused, so a tampered commit answer cannot make the helper swap an arbitrary top-level name. */
+const NAME_SETS: readonly (readonly string[])[] = [CODE_SET, FULL_PACKAGE_SET];
+export const isKnownNameSet = (names: unknown): names is readonly string[] =>
+  Array.isArray(names) && NAME_SETS.some((set) => set.length === names.length && set.every((n, i) => n === names[i]));
 
 /** The commit answer is only used if it describes THIS install and a staged tree inside its own .update folder. */
 export function commitMatches(c: unknown, installDir: string): c is CommitFacts {
   if (!c || typeof c !== 'object') return false;
   const o = c as Record<string, unknown>;
   if (![o.installDir, o.stagedDir, o.from, o.to].every((v) => typeof v === 'string' && v.length > 0)) return false;
+  if (o.names !== undefined && !isKnownNameSet(o.names)) return false;
   const base = resolve(installDir);
   const staged = resolve(o.stagedDir as string);
   const win = process.platform === 'win32';
@@ -19,6 +25,7 @@ export function commitMatches(c: unknown, installDir: string): c is CommitFacts 
 export function buildJob(c: CommitFacts, o: { parentPid: number; port: number; execPath: string }): ApplyJob {
   return {
     installDir: c.installDir, stagedDir: c.stagedDir, parentPid: o.parentPid, port: o.port, from: c.from, to: c.to,
+    ...(c.names ? { names: c.names } : {}),
     // the same command the Start-menu shortcut runs: electron.exe "<install dir>"
     relaunch: { cmd: o.execPath, args: [c.installDir], cwd: c.installDir },
   };

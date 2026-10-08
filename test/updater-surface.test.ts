@@ -5,7 +5,7 @@ import { readdirSync, readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { ALLOWLIST, lex, scanTree } from './bsv-scan.js';
-import { CODE_SET } from '../src/core/updater/apply.js';
+import { CODE_SET, FULL_PACKAGE_SET } from '../src/core/updater/apply.js';
 import { buildJob, commitMatches, restartNowText } from '../src/core/updater/main-logic.js';
 import { UPDATE_KEYS } from '../src/core/updater/trust.js';
 import { createPublicKey } from 'node:crypto';
@@ -87,6 +87,26 @@ test('Electron side: commit facts are used only if they describe THIS install an
   assert.equal(commitMatches({ ...ok, stagedDir: join(inst, '.update', 'staging', '..', '..', 'dist') }, inst), false);
   assert.equal(commitMatches({ ...ok, stagedDir: join(inst, 'dist') }, inst), false);
   for (const bad of [null, 5, {}, { ...ok, to: '' }, { ...ok, from: 3 }]) assert.equal(commitMatches(bad, inst), false);
+});
+
+test('Electron side: only the two known name sets may be swapped; a reordered or edited set is refused before it reaches the helper', () => {
+  const inst = resolve('/tmp/legion-inst');
+  const ok = { installDir: inst, stagedDir: join(inst, '.update', 'staging', '1.1.0', 'x', 'legion-1.1.0'), from: '1.0.0', to: '1.1.0' };
+  assert.deepEqual([...FULL_PACKAGE_SET], [...CODE_SET, 'node_modules', 'runtime']);
+  assert.equal(commitMatches({ ...ok, names: [...CODE_SET] }, inst), true, 'a code-only commit may name the code set explicitly');
+  assert.equal(commitMatches({ ...ok, names: [...FULL_PACKAGE_SET] }, inst), true, 'a full-package commit names the full set');
+  for (const bad of [
+    ['dist', 'node_modules'],                  // not a whole known set
+    [...FULL_PACKAGE_SET, 'evil'],             // extra name
+    [FULL_PACKAGE_SET.slice(0, -1)],           // missing runtime
+    [...FULL_PACKAGE_SET].reverse(),           // reordered: never what the core returns
+    [...CODE_SET, 'node_modules'],             // code set plus one of the extras, not the full set
+    'node_modules',                            // not an array
+  ]) assert.equal(commitMatches({ ...ok, names: bad }, inst), false, JSON.stringify(bad));
+  // buildJob carries the validated set through to the helper's job.json; a code-only commit carries none.
+  const j = buildJob({ ...ok, names: [...FULL_PACKAGE_SET] }, { parentPid: 1, port: 4747, execPath: 'electron.exe' });
+  assert.deepEqual(j.names, [...FULL_PACKAGE_SET]);
+  assert.equal(buildJob(ok, { parentPid: 1, port: 4747, execPath: 'electron.exe' }).names, undefined);
 });
 test('Electron side: the job relaunches the same command as the shortcut; the restart-now text names what stops and what does not', () => {
   const inst = resolve('/tmp/legion-inst');

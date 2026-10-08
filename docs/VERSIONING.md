@@ -15,7 +15,7 @@ the update panel reports no update available, with no error.
 | Bug fix, no dependency change, updater-appliable | **PATCH** | `0.2.1` -> `0.2.2` |
 | Patch on a number not yet released, when the next PATCH slot is already spoken for | **LETTERED PATCH** | `0.2.2-a` |
 | New feature, or a change in existing behaviour | **MINOR** | `0.2.2` -> `0.3.0` |
-| Breaking change, or anything touching `package-lock.json` | **MINOR** + `requiresFullInstall` | `0.3.0`, not self-appliable |
+| Breaking change, or anything touching `package-lock.json` | **MINOR** + `requiresFullInstall` (self-appliable only if a signed full package is published with it) | `0.3.0` |
 | Pre-1.0 breaking change that invalidates data or config | **MAJOR** | -> `1.0.0` |
 
 Batch what belongs together. Two bug fixes ship as one patch, not two.
@@ -58,9 +58,12 @@ locked every existing install out of the fix that would have unblocked them.
 The manifest carries `depsSha256` (a hash of `package-lock.json`). The updater compares it
 against the hash of the **installed** lockfile; if they differ, the release is marked
 `requiresFullInstall` and the updater refuses to stage it, telling the owner to download the
-source and run `setup.cmd` instead. Any change to `package-lock.json` therefore forces a
-notify-only release. That is a deliberate safety property, not an obstacle to route around:
-a patch release that cannot self-apply would be a lie in the version number.
+source and run `setup.cmd` instead. Any change to `package-lock.json` therefore rules out a
+plain PATCH. When the release also ships a signed full package (the manifest's `fullAsset`,
+written with `--full-zip`), an install applies it through the same journaled swap, replacing
+`node_modules` and `runtime` too. A dependency-change release that ships no full package stays
+notify-only and the owner installs from the source. Either way the number tells the truth: a
+release that cannot self-apply is never a plain PATCH.
 
 ## Rules that hold for every release
 

@@ -11,12 +11,13 @@ import { VERSION } from '../../shared/config.js';
 import { safeEqual, NATIVE_HEADER } from '../admin.js';
 import type { CoreModule, ModuleDeps, RouteAdder } from '../modules.js';
 import { HttpError } from '../server.js';
-import { outcomePath, readOutcome, removeOwned, type Outcome } from './apply.js';
+import { FULL_PACKAGE_SET, outcomePath, readOutcome, removeOwned, type Outcome } from './apply.js';
 import { DRAIN_MS, FREEZE_MAX_MS, LIMITS, manifestUrl, POLL_MS, PRODUCTION_SOURCE, RETRY_MS, SAMPLE_MS, sigUrl, type UpdateSource } from './config.js';
+import { planRelease } from './deps-change.js';
 import { computeBusy, QuietClock, type BusyProbe } from './idle.js';
 import { checkPolicy, ManifestError, parseManifest, type Manifest, type PolicyVerdict } from './manifest.js';
 import { fetchSmall, NetError, type FetchLike } from './net.js';
-import { stagePackage, stagedTree, StageError, dependencyHash, type Staged } from './package.js';
+import { stagePackage, stageFullPackage, stagedInfo, StageError, dependencyHash, type Staged } from './package.js';
 import { FAILED_BLOCK_DAYS, UpdaterFiles, pruneFailed, type UpdateSettings } from './state.js';
 import { compareSemver } from './semver.js';
 import { UPDATE_KEYS, verifyManifestSignature, type UpdateKey } from './trust.js';
@@ -44,9 +45,9 @@ type Phase = 'idle' | 'checking' | 'awaiting-approval' | 'downloading' | 'staged
 export interface UpdateStatus {
   mode: InstallMode; keyConfigured: boolean; installed: { version: string; publishedAt?: string }; settings: UpdateSettings;
   check: { lastCheckedAt?: string; lastResult?: string; nextAllowedAt?: string };
-  available?: { version: string; size: number; notes: string; publishedAt: string; requiresFullInstall: boolean };
+  available?: { version: string; size: number; notes: string; publishedAt: string; requiresFullInstall: boolean; /** True when a dependency-change release ships a signed full package and can self-apply. */ canFullInstall: boolean };
   phase: Phase; progress?: { bytes: number; total: number }; error?: string;
-  staged?: { version: string }; consent: boolean; readyToApply: boolean;
+  staged?: { version: string; kind: 'code' | 'full' }; consent: boolean; readyToApply: boolean;
   busy: { idle: boolean; reasons: string[]; quietMs: number };
   outcome?: Outcome; stopped?: { tasks: Array<{ id: string; agentId: string }>; at?: string };
   /** Versions held back after a rolled-back first start, and when each may be retried. Empty when none. */
@@ -58,7 +59,7 @@ export interface UpdaterModule extends CoreModule {
   status(): Promise<UpdateStatus>;
   install(o?: { auto?: boolean }): Promise<{ ok: boolean; declined?: boolean }>;
   drain(): Promise<{ stopped: Array<{ id: string; agentId: string }>; settled: boolean }>;
-  commit(o?: { force?: boolean }): Promise<{ installDir: string; stagedDir: string; from: string; to: string }>;
+  commit(o?: { force?: boolean }): Promise<{ installDir: string; stagedDir: string; from: string; to: string; names?: readonly string[] }>;
   abortCommit(): void;
 }
 
@@ -165,7 +166,9 @@ export function createUpdaterModule(deps: ModuleDeps, opts: UpdaterOptions): Upd
     } finally {
       phase = was === 'staged' ? 'staged' : 'idle';
     }
-    if (available && !staged && mode === 'apply' && !available.manifest.requiresFullInstall && files.settings().autoInstallWhenIdle) void module.install({ auto: true }).catch(() => undefined);
+    // Auto-install only when the release can actually be applied here: a code-only update, or a dependency-change
+    // release that ships a signed full package (route 'full'). A notify-only release has nothing to download.
+    if (available && !staged && mode === 'apply' && planRelease(available.manifest).route !== 'notify' && files.settings().autoInstallWhenIdle) void module.install({ auto: true }).catch(() => undefined);
   }
 
   function clearStage(): void {
@@ -216,12 +219,12 @@ export function createUpdaterModule(deps: ModuleDeps, opts: UpdaterOptions): Upd
       return {
         mode, keyConfigured: keys.length > 0, installed: { version, ...buildInfo() }, settings,
         check: { ...(s.lastCheckedAt ? { lastCheckedAt: s.lastCheckedAt } : {}), ...(s.lastResult ? { lastResult: s.lastResult } : {}), ...(nextAllowedAt > now() ? { nextAllowedAt: new Date(nextAllowedAt).toISOString() } : {}) },
-        ...(a ? { available: { version: a.version, size: a.asset.size, notes: a.notes, publishedAt: a.publishedAt, requiresFullInstall: a.requiresFullInstall } } : {}),
+        ...(a ? { available: { version: a.version, size: a.asset.size, notes: a.notes, publishedAt: a.publishedAt, requiresFullInstall: a.requiresFullInstall, canFullInstall: planRelease(a).route === 'full' } } : {}),
         phase, ...(progress && phase === 'downloading' ? { progress } : {}), ...(error ? { error } : {}),
         // What is blocked and until when. The owner met this as a bare "rejected: version X failed its first start"
         // with no way out, and had to guess that Check now was the unlock. Naming it here is the whole fix.
         ...(blocked.length ? { blocked } : {}),
-        ...(staged ? { staged: { version: staged.version } } : {}), consent,
+        ...(staged ? { staged: { version: staged.version, kind: staged.kind } } : {}), consent,
         readyToApply: mode === 'apply' && !!staged && consent && reasons.length === 0 && clock.isQuiet(now()),
         busy: { idle: reasons.length === 0 && clock.isQuiet(now()), reasons, quietMs: clock.quietMs(now()) },
         ...(outcome ? { outcome } : {}),
@@ -233,7 +236,10 @@ export function createUpdaterModule(deps: ModuleDeps, opts: UpdaterOptions): Upd
       if (mode !== 'apply') throw new HttpError(409, mode === 'checkout' ? 'This is a git checkout: update it with git pull and a rebuild.' : 'This install cannot be updated from inside Legion.');
       const a = available?.manifest;
       if (!a) throw new HttpError(409, 'There is no verified update to install. Check for updates first.');
-      if (a.requiresFullInstall) throw new HttpError(409, 'This release changes dependencies. Download its source and run setup.cmd.');
+      const plan = planRelease(a);
+      // A dependency-change release with no signed full package can only be installed by hand: the human fallback, and
+      // what every install that predates full-package support still gets.
+      if (plan.route === 'notify') throw new HttpError(409, 'This release changes dependencies. Download its source and run setup.cmd.');
       if (phase !== 'idle' && phase !== 'staged') throw new HttpError(409, 'An update is already being prepared.');
       if (staged?.version === a.version) { consent = true; return { ok: true }; }
       error = undefined;
@@ -246,18 +252,30 @@ export function createUpdaterModule(deps: ModuleDeps, opts: UpdaterOptions): Upd
       //     in the approvals list", pointing at a list (the agent thread, ApprovalCard) not reachable from the update panel.
       // The card is not deleted from the codebase because `phase` still models an approval wait for the drain path; it is simply
       // no longer reachable from install(). What still stands between a GitHub download and running code: the release SIGNATURE
-      // (verified before staging), requiresFullInstall (refuses dependency changes outright), and `consent` gating the commit
-      // (readyToApply, index.ts:184) so a staged update waits for the owner AND for Legion to be idle.
-      phase = 'downloading'; progress = { bytes: 0, total: a.asset.size };
+      // (verified before staging) for BOTH assets, the full package's own signed sha256 when the dependencies changed, and `consent`
+      // gating the commit (readyToApply) so a staged update waits for the owner AND for Legion to be idle.
+      const progressTotal = plan.route === 'full' ? (a.fullAsset?.size ?? a.asset.size) : a.asset.size;
+      phase = 'downloading'; progress = { bytes: 0, total: progressTotal };
+      const onProgress = (bytes: number, total: number): void => { progress = { bytes, total }; };
+      const stageOpts = { installDir: opts.root, source, manifest: a, version: a.version, onProgress, ...(opts.freeBytes ? { freeBytes: opts.freeBytes } : {}), ...(opts.fetchImpl ? { fetchImpl: opts.fetchImpl } : {}) };
       try {
-        staged = await stagePackage({
-          installDir: opts.root, source, manifest: a, version: a.version, installedDepsHash: installedDepsHash(),
-          onProgress: (bytes, total) => { progress = { bytes, total }; },
-          ...(opts.freeBytes ? { freeBytes: opts.freeBytes } : {}), ...(opts.fetchImpl ? { fetchImpl: opts.fetchImpl } : {}),
-        });
+        // route 'full': the app package carries no node_modules, so stage the signed full package instead.
+        staged = plan.route === 'full'
+          ? await stageFullPackage(stageOpts)
+          : await stagePackage({ ...stageOpts, installedDepsHash: installedDepsHash() });
         consent = true; phase = 'staged';
         return { ok: true };
       } catch (e) {
+        // The manifest did not declare the dependency change, but the app package's lock content differs from what is
+        // installed (checkTree throws 'full-install'), or the install has no readable lock. When the release ALSO ships a
+        // signed full package, apply that rather than giving up; otherwise this stays the notify-only fallback.
+        if (e instanceof StageError && e.code === 'full-install' && a.fullAsset) {
+          try {
+            staged = await stageFullPackage(stageOpts);
+            consent = true; phase = 'staged';
+            return { ok: true };
+          } catch (e2) { e = e2; }
+        }
         phase = 'idle'; staged = null; consent = false;
         if (e instanceof StageError) {
           error = e.code === 'full-install' ? 'This release changes dependencies. Download its source and run setup.cmd.' : `The update was not installed: ${e.message}`;
@@ -291,8 +309,8 @@ export function createUpdaterModule(deps: ModuleDeps, opts: UpdaterOptions): Upd
     async commit(o = {}) {
       if (mode !== 'apply') throw new HttpError(409, 'This install cannot be updated from inside Legion.');
       if (!staged || !consent) throw new HttpError(409, 'No update is staged and approved.');
-      const dir = stagedTree(opts.root, staged.version);
-      if (!dir) throw new HttpError(409, 'The staged update is incomplete; download it again.');
+      const info = stagedInfo(opts.root, staged.version);
+      if (!info) throw new HttpError(409, 'The staged update is incomplete; download it again.');
       const forced = !!o.force && now() - drainedAt < 60_000;
       const reasons = await busyNow();
       if (reasons.length) throw new HttpError(409, `Legion is busy: ${reasons.join('; ')}`);
@@ -301,7 +319,9 @@ export function createUpdaterModule(deps: ModuleDeps, opts: UpdaterOptions): Upd
       phase = 'committing';
       files.backupState(deps.dataDir, version);
       await deps.store.flush();
-      return { installDir: opts.root, stagedDir: dir, from: version, to: staged.version };
+      // A full-package stage returns FULL_PACKAGE_SET so the helper swaps node_modules and runtime too; a code-only
+      // stage leaves it out and the helper swaps CODE_SET. commitMatches refuses any other set before it is written.
+      return { installDir: opts.root, stagedDir: info.treeDir, from: version, to: staged.version, ...(staged.kind === 'full' ? { names: FULL_PACKAGE_SET } : {}) };
     },
     abortCommit() {
       frozen = false; if (freezeTimer) { clearTimeout(freezeTimer); freezeTimer = null; }
