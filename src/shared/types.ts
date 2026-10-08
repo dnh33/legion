@@ -240,6 +240,8 @@ export type LegionEvent =
   | { type: 'settings.updated'; settings: SettingsView }
   | { type: 'approval.requested'; approval: ApprovalRequest }
   | { type: 'approval.resolved'; approvalId: string; allowed: boolean }
+  | { type: 'question.requested'; question: PendingQuestion }
+  | { type: 'question.resolved'; questionId: string; answered: boolean }
   | { type: 'mascot'; mood: MascotMood; note?: string }
   | { type: 'room.updated'; room: Room }
   | { type: 'room.deleted'; roomId: string }
@@ -250,6 +252,32 @@ export type LegionEvent =
   | { type: 'project.updated'; project: Project }
   | { type: 'board.updated'; projectId: string }
   | { type: 'ci.updated'; summary: CiUpdateSummary };
+
+/**
+ * One choice a question offers. `preview` is plain text the card shows in a monospace panel; never rendered as HTML.
+ * `recommended` marks the agent's suggestion (at most one per question): the card puts it first and shows a small badge.
+ */
+export interface QuestionOption { label: string; description: string; preview?: string; recommended?: boolean }
+
+/** One question an agent asks the owner (AskUserQuestion's input shape, validated by src/core/questions.ts). */
+export interface QuestionSpec { question: string; header: string; options: QuestionOption[]; multiSelect: boolean }
+
+/** The owner's choice for one question: the labels picked, and the owner's own text when Other was used. */
+export interface QuestionPick { labels: string[]; other?: string }
+
+/** POST /api/questions/:id body: one pick per question, in the order they were asked. */
+export interface QuestionAnswersBody { answers: QuestionPick[] }
+
+/** A question card waiting for the owner. Answered, declined or cancelled, it leaves the list. Auto-declined after 10 minutes. */
+export interface PendingQuestion {
+  id: string;
+  taskId: string;
+  agentId: string;
+  questions: QuestionSpec[];
+  at: string;
+  /** Present when the requesting task was woken by another bot: who asked, in which room (as an approval card shows it). */
+  origin?: { roomId: string; fromAgentId: string; hop: number };
+}
 
 /** A tool call waiting for the user's decision. Auto-denied after 10 minutes. */
 export interface ApprovalRequest {
@@ -351,6 +379,8 @@ export interface StateSnapshot {
   tasks: Task[];              // newest first, max 200
   vms: VmRecord[];
   approvals: ApprovalRequest[];   // pending
+  /** Structured questions waiting for the owner's answer (the question card). Admin only; a token-only client never gets this. */
+  questions?: PendingQuestion[];
   boatConfigured: boolean;
   boat?: BoatHealthView;
   auth: LegionConfig['claude']['auth'];

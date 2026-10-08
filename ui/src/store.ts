@@ -1,6 +1,6 @@
 import { useSyncExternalStore } from 'react';
 import type {
-  AgentProfile, ApprovalRequest, BoatHealthView, Catalog, SettingsPatch, SettingsView, ChatMessage, DoctorCheck, LegionEvent, MascotMood, ModelChoice, StateSnapshot, Task, TaskProgress, VmRecord,
+  AgentProfile, ApprovalRequest, BoatHealthView, Catalog, SettingsPatch, SettingsView, ChatMessage, DoctorCheck, LegionEvent, MascotMood, ModelChoice, PendingQuestion, QuestionPick, StateSnapshot, Task, TaskProgress, VmRecord,
 } from '../../src/shared/types';
 import { api, request, subscribe, ApiError, type ConnStatus } from './api';
 import { incomingWins } from './chat/tasksync';
@@ -31,6 +31,8 @@ export interface AppState {
   tasks: Task[];
   vms: Record<string, VmRecord>;
   approvals: ApprovalRequest[];
+  /** Structured questions waiting for the owner's answer (the question card). Admin only; empty in a window without the admin key. */
+  questions: PendingQuestion[];
   /** Per task: the `at` of the newest approval card that was denied (by the user or the timeout), so the busts do not read the denied call as work. */
   denials: Record<string, string>;
   messages: Record<string, ChatMessage[]>;
@@ -82,7 +84,7 @@ const initialTheme = ((): 'dark' | 'light' => {
 
 let state: AppState = {
   loaded: false, conn: 'connecting', version: '', auth: 'claude-login', boatConfigured: false, boatHealth: null,
-  agents: [], tasks: [], vms: {}, approvals: [], denials: {}, messages: {}, threadMeta: {}, streaming: {}, progress: {},
+  agents: [], tasks: [], vms: {}, approvals: [], questions: [], denials: {}, messages: {}, threadMeta: {}, streaming: {}, progress: {},
   mascot: { mood: 'idle', at: Date.now() }, doctor: null, doctorLoading: false,
   selectedAgentId: 'zealot', selectedTaskId: null, modelOverride: null,
   opsOpen: ls('legion.ops') !== '0', theme: initialTheme,
@@ -278,6 +280,12 @@ export function handleEvent(e: LegionEvent) {
         denials: noteDenial(s.denials, s.approvals.find((a) => a.id === e.approvalId), e.allowed),
       }));
       break;
+    case 'question.requested':
+      setState((s) => (s.questions.some((q) => q.id === e.question.id) ? {} : { questions: [...s.questions, e.question] }));
+      break;
+    case 'question.resolved':
+      setState((s) => ({ questions: s.questions.filter((q) => q.id !== e.questionId) }));
+      break;
     case 'comms.state':
       window.dispatchEvent(new CustomEvent('legion:comms', { detail: e }));
       break;
@@ -304,7 +312,7 @@ export async function refresh() {
       const first = !s.loaded;
       return {
         loaded: true, version: snap.version, auth: snap.auth, boatConfigured: snap.boatConfigured, boatHealth: snap.boat ?? s.boatHealth,
-        agents: snap.agents, tasks: keepTasks(s.tasks, snap.tasks, new Set(s.selectedTaskId ? [s.selectedTaskId] : [])), vms, approvals: dedupeById(snap.approvals),
+        agents: snap.agents, tasks: keepTasks(s.tasks, snap.tasks, new Set(s.selectedTaskId ? [s.selectedTaskId] : [])), vms, approvals: dedupeById(snap.approvals), questions: dedupeById(snap.questions ?? s.questions),
         // opened mid-run: show the run's turn, tool and checklist now, not after its next event
         progress: snap.progress ?? s.progress,
         selectedAgentId: sel,
@@ -503,6 +511,15 @@ export async function decide(id: string, allow: boolean) {
     return { approvals: s.approvals.filter((a) => a.id !== id), denials: noteDenial(s.denials, card, allow), mascot: moodAfterDecision(s.mascot, card, allow, Date.now()) };
   }); // optimistic
   try { await api.decide(id, allow); } catch (e) { toast(errText(e), 'error'); void refresh(); }
+}
+
+/**
+ * Submit the owner's answers to a question card: one pick per question, in the order they were asked. Optimistic —
+ * the card leaves at once, then the POST; on failure the card is restored from the core.
+ */
+export async function answerQuestion(id: string, answers: QuestionPick[]) {
+  setState((s) => ({ questions: s.questions.filter((q) => q.id !== id) })); // optimistic
+  try { await api.answerQuestion(id, answers); } catch (e) { toast(errText(e), 'error'); void refresh(); }
 }
 
 export async function vmAction(agentId: string, action: 'start' | 'stop') {
