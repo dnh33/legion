@@ -10,9 +10,9 @@
  * Every state change is journaled (temp file + fsync + rename) so a kill at any point is recoverable by `recoverInterrupted`.
  */
 import { execFile, spawn } from 'node:child_process';
-import { closeSync, copyFileSync, existsSync, fsyncSync, lstatSync, mkdirSync, openSync, readFileSync, renameSync, rmSync, writeFileSync, appendFileSync, writeSync } from 'node:fs';
+import { closeSync, cpSync, existsSync, fsyncSync, lstatSync, mkdirSync, openSync, readFileSync, renameSync, rmSync, writeFileSync, appendFileSync, writeSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { dirname, join, resolve, sep } from 'node:path';
+import { basename, dirname, join, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 /** The only names an update may replace (directories and files at the top of the install folder). */
@@ -257,17 +257,17 @@ export function realDeps(installDir: string): ApplyDeps {
                 done();
             }),
             reExec: (jobFile) => {
-                const src = process.execPath; // electron.exe under <install>/node_modules — the thing locking the swap
-                const dst = join(tmpdir(), `legion-apply-${process.pid}.exe`);
-                const env: Record<string, string | undefined> = { ...process.env, LEGION_APPLY_REEXEC: '1' };
-                try { copyFileSync(src, dst); } catch { return false; }
-                try {
-                    const c = spawn(dst, [process.argv[1] ?? '', jobFile], { cwd: tmpdir(), detached: true, stdio: 'ignore', windowsHide: false, env });
-                    c.on('error', () => undefined);
-                    c.unref();
-                    return true;
-                } catch { return false; }
-            },
+                        const srcDir = dirname(process.execPath); // node_modules/electron/dist — electron.exe alone cannot boot as node (needs resources/)
+                        const dir = join(tmpdir(), `legion-apply-${process.pid}`);
+                        const env: Record<string, string | undefined> = { ...process.env, LEGION_APPLY_REEXEC: '1' };
+                        try { cpSync(srcDir, dir, { recursive: true }); } catch { return false; }
+                        try {
+                            const c = spawn(join(dir, basename(process.execPath)), [process.argv[1] ?? '', jobFile], { cwd: tmpdir(), detached: true, stdio: 'ignore', windowsHide: false, env });
+                            c.on('error', () => undefined);
+                            c.unref();
+                            return true;
+                        } catch { return false; }
+                    },
     sleep: sleepMs,
     log: (line) => { try { appendFileSync(join(upDir(installDir), 'apply.log'), `[${new Date().toISOString()}] ${line}\n`); } catch { /* ignore */ } },
   };
