@@ -8,7 +8,7 @@ import { z } from 'zod';
 import { KG_LIMITS, KG_RELS, NODE_TYPES } from '../../shared/kg.js';
 import type { KgEdge, KgNode } from '../../shared/kg.js';
 import { CAPTURE_HELP, CAPTURE_KINDS, renderCapture } from './capture.js';
-import { EPISODE_RESULT_RE, MAX_LICENCE_CHARS, MAX_MERGE_DROPS, WM_ACTIVE_MAX } from './graph.js';
+import { EPISODE_RESULT_RE, MAX_LICENCE_CHARS, MAX_MERGE_DROPS, MAX_SWEEP_ITEMS, WM_ACTIVE_MAX } from './graph.js';
 import type { Graph } from './graph.js';
 import { TaskQuota } from './quota.js';
 import { capText, DATA_LINE, guarded, isUntrusted, oneLine, safeTitle, shownTitle, statusOf, trustOf, UNTRUSTED_LEAD, UNTRUSTED_MARK, wrapNode } from './text.js';
@@ -340,6 +340,18 @@ export function buildKgToolsServer(graph: Graph, agentId: string, run: RunContex
     }),
   );
 
+  const sweep = tool(
+    'kg_sweep',
+    'Retire SEVERAL outdated notes at once: each item pairs an oldId (the outdated note) with the newId of the live note that replaces it, and a reason. This is a batch of kg_supersede calls in ONE action. If you may not change an old note directly (the human wrote it, or you are the Archivist) the whole batch becomes ONE pending proposal the human accepts or rejects together, and nothing changes until then. The old notes are kept and hidden, never deleted. To fold duplicates into one note instead, use kg_merge.',
+    { items: z.array(z.object({ oldId: id, newId: id, reason: z.string().max(500).optional().describe('Why this note is retired.') })).min(1).max(MAX_SWEEP_ITEMS).describe('The notes to retire, each replaced by a live note in the same scope.') },
+    safe(async (a: { items: { oldId: string; newId: string; reason?: string }[] }) => {
+      const r = graph.sweep(me, a.items);
+      return ok(r.mode === 'direct'
+        ? `Retired ${r.retired.length} note(s), kept and hidden from recall: ${r.items.map((i) => `${i.oldId} (by ${i.newId})`).join(', ')}.`
+        : `Proposed: retire ${r.items.length} note(s) (${r.items.map((i) => i.oldId).join(', ')}). PENDING for the human as ONE action (proposal ${r.proposal!.id}); nothing changed yet.`);
+    }),
+  );
+
   const link = tool(
     'kg_link',
     'Add a typed link from one node to another (idempotent: the same from+to+rel is never duplicated; passing weight/note updates them). ' + RELS_HELP,
@@ -411,6 +423,6 @@ export function buildKgToolsServer(graph: Graph, agentId: string, run: RunContex
   return createSdkMcpServer({
     name: KG_SERVER_NAME,
     version: '0.1.0',
-    tools: [recall, search, get, neighbors, path, subgraph, upsert, capture, wmSet, supersede, merge, link, unlink, forget, lint, stats],
+    tools: [recall, search, get, neighbors, path, subgraph, upsert, capture, wmSet, supersede, sweep, merge, link, unlink, forget, lint, stats],
   });
 }

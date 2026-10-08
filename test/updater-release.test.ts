@@ -67,6 +67,32 @@ test('release-manifest keeps the full installer line in SHA256SUMS.txt (the one-
   assert.ok(readFileSync(join(out, 'SHA256SUMS.txt'), 'utf8').split('\n').includes(fullLine), 'the installer hash is added');
 });
 
+test('C22b: release-manifest --full-zip signs the full package; a wrong-named one is refused, and the app parses the result', () => {
+  const tree = builtTree('0.9.1');
+  const out = tmp('upd-fullrel-');
+  assert.equal(run('release-package.mjs', ['--root', tree, '--out', out, '--published-at', '2026-10-21T10:00:00Z']).status, 0);
+  const app = join(out, 'legion-0.9.1-app.zip');
+  const manifestPath = join(out, 'legion-update-manifest.json');
+  // Without --full-zip a --requires-full-install release carries no fullAsset: the manifest declares the dependency
+  // change but the app can only notify (the deliberate fallback).
+  assert.equal(run('release-manifest.mjs', ['--zip', app, '--out', out, '--requires-full-install']).status, 0);
+  let m = JSON.parse(readFileSync(manifestPath, 'utf8')) as Record<string, unknown>;
+  assert.equal(m.requiresFullInstall, true);
+  assert.equal(m.fullAsset, undefined);
+  // A wrong-named full package is refused before anything is written.
+  const wrong = join(out, 'legion-0.9.1-win-x64-other.zip'); writeFileSync(wrong, 'full');
+  const bad = run('release-manifest.mjs', ['--zip', app, '--out', out, '--full-zip', wrong]);
+  assert.notEqual(bad.status, 0); assert.match(bad.stderr, /must be named/);
+  // The correctly named full package is signed, and the app's own parser accepts the manifest it wrote.
+  const full = join(out, 'legion-0.9.1-win-x64.zip'); writeFileSync(full, 'the full package bytes');
+  assert.equal(run('release-manifest.mjs', ['--zip', app, '--out', out, '--full-zip', full, '--requires-full-install']).status, 0);
+  m = JSON.parse(readFileSync(manifestPath, 'utf8')) as Record<string, unknown>;
+  assert.deepEqual(m.fullAsset, { name: 'legion-0.9.1-win-x64.zip', size: 22, sha256: sha256(Buffer.from('the full package bytes')) });
+  const parsed = parseManifest(Buffer.from(JSON.stringify(m)));
+  assert.equal(parsed.requiresFullInstall, true);
+  assert.equal(parsed.fullAsset?.name, 'legion-0.9.1-win-x64.zip');
+});
+
 test('C23: package -> manifest -> sign -> verify, and the app accepts exactly what the scripts made (end to end through the real stager)', async () => {
   const tree = builtTree('0.9.0');
   const out = tmp('upd-rel-'); const keys = tmp('upd-keys-');

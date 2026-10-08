@@ -113,14 +113,15 @@ function Row({ row }: { row: KgInboxRow }) {
   const names = useAgentNames();
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState(false);
-  const isProposal = row.kind === 'supersede' || row.kind === 'merge';
+  const isProposal = row.kind === 'supersede' || row.kind === 'sweep' || row.kind === 'merge';
   useG((s) => s.kv);
 
-  const ids = isProposal ? [node.props?.oldId, node.props?.newId, node.props?.keep, ...String(node.props?.drop ?? '').split(',')].filter((x): x is string => typeof x === 'string' && !!x) : [];
+  const ids = isProposal ? [node.props?.oldId, node.props?.newId, node.props?.keep, ...String(node.props?.drop ?? '').split(','), ...String(node.props?.oldIds ?? '').split(','), ...String(node.props?.newIds ?? '').split(',')].filter((x): x is string => typeof x === 'string' && !!x) : [];
   const idKey = ids.join(',');
   useEffect(() => { if (ids.length) void resolveTitles(ids); }, [idKey]); // eslint-disable-line react-hooks/exhaustive-deps
   const q = (id: unknown) => `“${titleOf(String(id))}”`;
   const headline = row.kind === 'supersede' ? `Replace ${q(node.props?.oldId)} with ${q(node.props?.newId)}`
+    : row.kind === 'sweep' ? `Retire ${plural(String(node.props?.oldIds ?? '').split(',').filter(Boolean).length, 'note')}`
     : row.kind === 'merge' ? `Merge ${plural(String(node.props?.drop ?? '').split(',').filter(Boolean).length, 'note')} into ${q(node.props?.keep)}`
     : node.title;
   const body = node.body;
@@ -190,6 +191,7 @@ const plural = (n: number, w: string) => `${n} ${w}${n === 1 ? '' : 's'}`;
 
 function acceptHint(row: KgInboxRow): string {
   if (row.kind === 'supersede') return 'Accepting retires the old note and keeps it, marked superseded.';
+  if (row.kind === 'sweep') return 'Accepting retires every note in the batch and keeps them, marked superseded.';
   if (row.kind === 'merge') return 'Accepting archives the duplicates and moves their links.';
   if (row.kind === 'edit') return 'Accepting replaces the note it edits; the old text stays, marked superseded.';
   if (row.tainted) return 'Accept keeps it at agent trust. Edit then accept makes it yours.';

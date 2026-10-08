@@ -118,10 +118,10 @@ export interface KgLintReport {
   lite?: KgLintLite;
 }
 
-/** One row of the human's inbox: a note, edit proposal or supersede/merge proposal waiting for a decision. */
+/** One row of the human's inbox: a note, edit proposal or supersede/sweep/merge proposal waiting for a decision. */
 export interface KgInboxRow {
   id: string;
-  kind: 'note' | 'edit' | 'supersede' | 'merge';
+  kind: 'note' | 'edit' | 'supersede' | 'sweep' | 'merge';
   /** The bot that wrote it. */
   agentId: string;
   node: KgNode;

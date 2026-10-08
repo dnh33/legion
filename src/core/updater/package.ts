@@ -7,15 +7,15 @@ import { closeSync, createReadStream, createWriteStream, existsSync, fstatSync, 
 import { createHash } from 'node:crypto';
 import { join } from 'node:path';
 import { extractZip, ZipError, type ZipSink, type ZipSource } from '../blender/zip.js';
-import { CODE_SET, removeOwned, UPDATE_DIR } from './apply.js';
-import { assetUrl, LIMITS, type UpdateSource } from './config.js';
+import { CODE_SET, FULL_PACKAGE_SET, removeOwned, UPDATE_DIR } from './apply.js';
+import { assetUrl, fullAssetUrl, LIMITS, type UpdateSource } from './config.js';
 import type { Manifest } from './manifest.js';
 import { downloadFile, NetError, type FetchLike } from './net.js';
 
 export class StageError extends Error {
   constructor(public readonly code: 'disk' | 'hash' | 'zip' | 'content' | 'full-install' | 'net' | 'unsafe', message: string) { super(message); }
 }
-export interface Staged { version: string; treeDir: string; zipSha256: string }
+export interface Staged { version: string; treeDir: string; zipSha256: string; /** 'code': the app package (code set only). 'full': the full package (code set + node_modules + runtime). */ kind: 'code' | 'full' }
 export interface StageOptions {
   installDir: string; source: UpdateSource; manifest: Manifest; version: string;
   /** sha256 of the INSTALLED package-lock.json (undefined: unreadable, treated as a mismatch). */
@@ -137,8 +137,8 @@ export async function stagePackage(o: StageOptions): Promise<Staged> {
     const treeDir = join(extractTo, `legion-${o.version}`);
     walkCheck(treeDir);
     checkTree(treeDir, m, o.installedDepsHash);
-    writeFileSync(join(work, 'stage.json'), JSON.stringify({ version: o.version, zipSha256: dl.sha256, at: Date.now() }));
-    return { version: o.version, treeDir, zipSha256: dl.sha256 };
+    writeFileSync(join(work, 'stage.json'), JSON.stringify({ version: o.version, zipSha256: dl.sha256, kind: 'code', at: Date.now() }));
+    return { version: o.version, treeDir, zipSha256: dl.sha256, kind: 'code' };
   } catch (e) {
     try { removeOwned(installDir, work); } catch { /* leftovers are inside .update and harmless */ }
     throw e;
@@ -160,12 +160,111 @@ function walkCheck(root: string): void {
   walk(root, '');
 }
 
-/** Whether a staged package of this version is complete on disk (stage.json written last). */
-export function stagedTree(installDir: string, version: string): string | null {
+/** The full package's own file list, and the two executables a Legion package must ship (mirrors scripts/lib/package-lib.mjs). */
+const FULL_LIST = 'PACKAGE-FILES.json';
+const FULL_REQUIRED_EXES: readonly string[] = Object.freeze([
+  'runtime/electron/electron.exe',
+  'node_modules/@anthropic-ai/claude-agent-sdk-win32-x64/claude.exe',
+]);
+
+export interface FullStageOptions {
+  installDir: string; source: UpdateSource; manifest: Manifest; version: string;
+  freeBytes?: (dir: string) => number;
+  onProgress?: (bytes: number, total: number) => void;
+  fetchImpl?: FetchLike;
+}
+
+/**
+ * Content checks on the extracted FULL package. The scope is broader than `checkTree`: `node_modules` and `runtime` are
+ * allowed and REQUIRED, because that is the whole point of a dependency-change update. As with `checkTree`, the signed
+ * whole-zip sha256 and the strict extractor already vouch for the bytes; this confirms the shape, the signed version, the
+ * signed lock, and that the package's own file list names the runtime and the bundled claude.exe. An unsafe or empty full
+ * package never reaches a swap.
+ */
+export function checkFullTree(treeDir: string, m: Manifest): void {
+  const fa = m.fullAsset;
+  if (!fa) throw new StageError('full-install', 'this release carries no signed full package');
+  const allowed = [...FULL_PACKAGE_SET, FULL_LIST];
+  for (const n of readdirSync(treeDir)) if (!allowed.includes(n)) throw new StageError('content', `the full package contains "${n}", which is not part of a Legion package`);
+  for (const must of ['package.json', 'package-lock.json', 'dist/src/electron/main.js', 'dist/src/bin/legion-core.js', 'dist-ui/index.html', 'node_modules', 'runtime', FULL_LIST])
+    if (!existsSync(join(treeDir, must))) throw new StageError('content', `the full package is missing ${must}`);
+  let pkg: { version?: unknown };
+  try { pkg = JSON.parse(readFileSync(join(treeDir, 'package.json'), 'utf8')) as typeof pkg; } catch { throw new StageError('content', 'package.json in the full package is not valid JSON'); }
+  if (pkg.version !== m.version) throw new StageError('content', 'the full package does not carry the signed version');
+  const lock = sha256(readFileSync(join(treeDir, 'package-lock.json')));
+  if (lock !== m.depsSha256) throw new StageError('content', 'the dependency lock in the full package differs from the signed one');
+  let list: { schema?: unknown; files?: unknown };
+  try { list = JSON.parse(readFileSync(join(treeDir, FULL_LIST), 'utf8')) as typeof list; } catch { throw new StageError('content', 'the full package file list is not valid JSON'); }
+  if (!list || list.schema !== 1 || !Array.isArray(list.files) || list.files.length === 0) throw new StageError('content', 'the full package file list has the wrong shape');
+  const paths = new Set<string>();
+  for (const f of list.files as Array<{ path?: unknown }>) {
+    if (!f || typeof f.path !== 'string') throw new StageError('content', 'the full package file list has a malformed entry');
+    paths.add(f.path);
+  }
+  for (const exe of FULL_REQUIRED_EXES) if (!paths.has(exe)) throw new StageError('content', `the full package file list does not name ${exe}`);
+}
+
+/**
+ * Downloads, verifies and extracts the SIGNED full package for a dependency-change release. Same shape as `stagePackage`,
+ * but the asset is `m.fullAsset` (`legion-<version>-win-x64.zip`), the caps are the full-package ones, and the tree is
+ * allowed (and required) to carry `node_modules` and `runtime`. There is no installed-deps comparison here: this is the
+ * path taken precisely when the dependencies changed.
+ */
+export async function stageFullPackage(o: FullStageOptions): Promise<Staged> {
+  const { installDir, manifest: m } = o;
+  const fa = m.fullAsset;
+  if (!fa) throw new StageError('full-install', 'this release changes dependencies but carries no signed full package');
+  const free = (o.freeBytes ?? defaultFree)(installDir);
+  if (free < fa.size * 3) throw new StageError('disk', `not enough free space: about ${Math.ceil((fa.size * 3) / 1e6)} MB are needed on the install drive`);
+  const root = ensureStagingRoot(installDir);
+  const work = join(root, o.version);
+  removeOwned(installDir, work);
+  mkdirSync(work, { recursive: true });
+  const part = join(work, 'package.zip.part');
+  const zip = join(work, 'package.zip');
+  try {
+    let dl;
+    try {
+      dl = await downloadFile(fullAssetUrl(o.source, o.version), o.source.policy, part, { exactSize: fa.size, version: o.version, ...(o.onProgress ? { onProgress: (b: number) => o.onProgress!(b, fa.size) } : {}), ...(o.fetchImpl ? { fetchImpl: o.fetchImpl } : {}) });
+    } catch (e) {
+      if (e instanceof NetError) throw new StageError(e.message === 'the disk is full' ? 'disk' : 'net', e.message);
+      throw e;
+    }
+    if (dl.sha256 !== fa.sha256) throw new StageError('hash', 'the downloaded full package does not match the signed sha256');
+    renameSync(part, zip);
+    const src = fileSource(zip);
+    const extractTo = join(work, 'x');
+    try {
+      await extractZip(src, fileSink, extractTo, `legion-${o.version}`, { maxEntries: LIMITS.entries, maxUnpackedBytes: LIMITS.fullUnpackedBytes });
+    } catch (e) {
+      if (e instanceof ZipError) throw new StageError('zip', e.message);
+      if ((e as NodeJS.ErrnoException).code === 'ENOSPC') throw new StageError('disk', 'the disk is full');
+      throw e;
+    } finally { src.close(); }
+    const treeDir = join(extractTo, `legion-${o.version}`);
+    walkCheck(treeDir);
+    checkFullTree(treeDir, m);
+    writeFileSync(join(work, 'stage.json'), JSON.stringify({ version: o.version, zipSha256: dl.sha256, kind: 'full', at: Date.now() }));
+    return { version: o.version, treeDir, zipSha256: dl.sha256, kind: 'full' };
+  } catch (e) {
+    try { removeOwned(installDir, work); } catch { /* leftovers are inside .update and harmless */ }
+    throw e;
+  }
+}
+
+export interface StagedInfo { treeDir: string; kind: 'code' | 'full' }
+/** The staged package of this version, whatever kind, or null (stage.json is written last, so its presence means complete). */
+export function stagedInfo(installDir: string, version: string): StagedInfo | null {
   const work = join(stagingRoot(installDir), version);
   try {
-    const j = JSON.parse(readFileSync(join(work, 'stage.json'), 'utf8')) as { version?: string };
-    const tree = join(work, 'x', `legion-${version}`);
-    return j.version === version && existsSync(join(tree, 'package.json')) ? tree : null;
+    const j = JSON.parse(readFileSync(join(work, 'stage.json'), 'utf8')) as { version?: string; kind?: unknown };
+    const treeDir = join(work, 'x', `legion-${version}`);
+    if (j.version !== version || !existsSync(join(treeDir, 'package.json'))) return null;
+    return { treeDir, kind: j.kind === 'full' ? 'full' : 'code' };
   } catch { return null; }
+}
+
+/** Whether a staged package of this version is complete on disk (stage.json written last). */
+export function stagedTree(installDir: string, version: string): string | null {
+  return stagedInfo(installDir, version)?.treeDir ?? null;
 }

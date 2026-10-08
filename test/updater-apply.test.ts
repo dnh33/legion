@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, relative } from 'node:path';
-import { CODE_SET, markCommitted, readJournal, readOutcome, recoverInterrupted, removeOwned, rollback, runApply, swapIn, type ApplyDeps, type ApplyJob } from '../src/core/updater/apply.js';
+import { CODE_SET, FULL_PACKAGE_SET, markCommitted, readJournal, readOutcome, recoverInterrupted, removeOwned, rollback, runApply, swapIn, type ApplyDeps, type ApplyJob } from '../src/core/updater/apply.js';
 
 function put(root: string, files: Record<string, string>): void {
   for (const [p, c] of Object.entries(files)) { mkdirSync(join(root, p, '..'), { recursive: true }); writeFileSync(join(root, p), c); }
@@ -22,8 +22,8 @@ function snap(root: string, skip = '.update'): Record<string, string> {
   walk(root);
   return out;
 }
-const OLD = { 'package.json': '{"version":"1.0.0"}', 'dist/src/electron/main.js': 'old-main', 'dist/src/bin/legion-core.js': 'old-core', 'dist-ui/index.html': 'old-ui', 'assets/icon.png': 'old-icon', 'node_modules/electron/keep.txt': 'KEEP', 'uninstall.cmd': 'UNINSTALL', 'extra-user-file.txt': 'mine' };
-const NEW = { 'package.json': '{"version":"1.1.0"}', 'dist/src/electron/main.js': 'new-main', 'dist/src/bin/legion-core.js': 'new-core', 'dist-ui/index.html': 'new-ui', 'assets/icon.png': 'new-icon', 'node_modules/evil/x.js': 'EVIL', 'uninstall.cmd': 'EVIL-UNINSTALL', 'not-in-set.txt': 'x' };
+const OLD = { 'package.json': '{"version":"1.0.0"}', 'dist/src/electron/main.js': 'old-main', 'dist/src/bin/legion-core.js': 'old-core', 'dist-ui/index.html': 'old-ui', 'assets/icon.png': 'old-icon', 'node_modules/electron/keep.txt': 'KEEP', 'runtime/electron/electron.exe': 'old-electron', 'uninstall.cmd': 'UNINSTALL', 'extra-user-file.txt': 'mine' };
+const NEW = { 'package.json': '{"version":"1.1.0"}', 'dist/src/electron/main.js': 'new-main', 'dist/src/bin/legion-core.js': 'new-core', 'dist-ui/index.html': 'new-ui', 'assets/icon.png': 'new-icon', 'node_modules/evil/x.js': 'EVIL', 'runtime/electron/electron.exe': 'new-electron', 'uninstall.cmd': 'EVIL-UNINSTALL', 'not-in-set.txt': 'x' };
 
 function fixture(): { install: string; staged: string; data: string; root: string } {
   const root = cleanupTemp('upd-apply-');
@@ -58,6 +58,40 @@ test('C16: the swap replaces only code-set names; node_modules, uninstall.cmd, u
   assert.equal(readFileSync(join(f.install, '.update', 'prev', 'dist', 'src', 'electron', 'main.js'), 'utf8'), 'new-main', 'exactly one previous version: 1.1.0, not 1.0.0');
   assert.equal(readdirSync(join(f.install, '.update', 'prev')).includes('node_modules'), false);
   assert.ok(CODE_SET.every((n) => n !== 'node_modules' && n !== 'uninstall.cmd' && !n.includes('..') && !n.includes('/')));
+});
+
+test('C16b: a full-package swap (FULL_PACKAGE_SET) also replaces node_modules and runtime, keeps user files and uninstall.cmd, and one previous', async () => {
+  const f = fixture();
+  const dataBefore = snap(f.data);
+  await swapIn({ installDir: f.install, stagedDir: f.staged, from: '1.0.0', to: '1.1.0', names: FULL_PACKAGE_SET });
+  const now = snap(f.install);
+  assert.equal(now['node_modules/evil/x.js'], 'EVIL');
+  assert.equal(existsSync(join(f.install, 'node_modules', 'electron', 'keep.txt')), false, 'the old dependency tree is gone');
+  assert.equal(now['runtime/electron/electron.exe'], 'new-electron');
+  assert.equal(now['uninstall.cmd'], 'UNINSTALL');
+  assert.equal(now['extra-user-file.txt'], 'mine');
+  assert.equal(readFileSync(join(f.install, '.update', 'prev', 'node_modules', 'electron', 'keep.txt'), 'utf8'), 'KEEP');
+  assert.equal(readFileSync(join(f.install, '.update', 'prev', 'runtime', 'electron', 'electron.exe'), 'utf8'), 'old-electron');
+  const j = readJournal(f.install);
+  assert.equal(j?.state, 'awaiting-health');
+  for (const n of j!.entries) assert.ok(FULL_PACKAGE_SET.includes(n), `${n} is in the full set`);
+  assert.ok(j!.entries.includes('node_modules') && j!.entries.includes('runtime'));
+  assert.deepEqual(snap(f.data), dataBefore, 'the data folder is never touched');
+});
+
+test('C17b: a kill during a full-package swap is recovered at the next start (the old tree and runtime come back)', async () => {
+  const probe = fixture();
+  const labels: string[] = [];
+  await swapIn({ installDir: probe.install, stagedDir: probe.staged, from: '1.0.0', to: '1.1.0', names: FULL_PACKAGE_SET, step: (l) => labels.push(l) });
+  assert.ok(labels.some((l) => l.startsWith('before-move:node_modules')), 'the swap moved the dependency tree');
+  assert.ok(labels.some((l) => l.startsWith('before-move:runtime')), 'the swap moved the runtime');
+  for (const label of labels) {
+    const f = fixture();
+    const before = snap(f.install);
+    await assert.rejects(swapIn({ installDir: f.install, stagedDir: f.staged, from: '1.0.0', to: '1.1.0', names: FULL_PACKAGE_SET, step: kill(label) }), /killed at/);
+    assert.equal(await recoverInterrupted(f.install, { runningVersion: '1.0.0' }), 'rolled-back', label);
+    assert.deepEqual(snap(f.install), before, `after a kill at ${label}`);
+  }
 });
 
 test('C17: a kill at every step is recovered at the next start (live tree == the old tree again)', async () => {
@@ -108,6 +142,14 @@ function deps(over: Partial<ApplyDeps> & { f: ReturnType<typeof fixture>; newHea
   return Object.assign(d, over);
 }
 const job = (f: ReturnType<typeof fixture>): ApplyJob => ({ installDir: f.install, stagedDir: f.staged, parentPid: 1, port: 4747, from: '1.0.0', to: '1.1.0', relaunch: { cmd: 'x', args: [], cwd: f.install }, healthTimeoutMs: 40, parentWaitMs: 40, portFreeMs: 40, swapRetryMs: 10 });
+
+test('C18b: runApply carries job.names through to the swap, so a full-package commit moves node_modules and runtime', async () => {
+  const f = fixture();
+  assert.equal(await runApply({ ...job(f), names: FULL_PACKAGE_SET }, deps({ f, newHealthy: true })), 'ok');
+  assert.equal(snap(f.install)['node_modules/evil/x.js'], 'EVIL');
+  assert.equal(snap(f.install)['runtime/electron/electron.exe'], 'new-electron');
+  assert.equal(readJournal(f.install)?.state, 'committed');
+});
 
 test('C18: a healthy new build commits; an outcome ok is written; staging is cleaned', async () => {
   const f = fixture();

@@ -61,11 +61,11 @@ test('R3.2 no tool argument can change identity, task, quota, trust, origin or s
   const { g } = fresh();
   const c = await connect(g, 'alpha', { taskId: 'T1' });
   const { tools } = await c.client.listTools();
-  assert.equal(tools.length, 16);
+  assert.equal(tools.length, 17);
   const forbiddenArgs = /^(taskId|task|agent|agentId|actor|trust|origin|status|taint|tainted|quota|createdBy|supersededBy|via|ceiling)$/i;
   for (const t of tools) for (const k of Object.keys((t.inputSchema as { properties?: Record<string, unknown> }).properties ?? {})) assert.doesNotMatch(k, forbiddenArgs, `${t.name}.${k}`);
   // and no tool is an accept / reject / undo / restore / scope-change
-  assert.deepEqual(tools.map((t) => t.name).sort(), ['kg_capture', 'kg_forget', 'kg_get', 'kg_link', 'kg_lint', 'kg_merge', 'kg_neighbors', 'kg_path', 'kg_recall', 'kg_search', 'kg_stats', 'kg_subgraph', 'kg_supersede', 'kg_unlink', 'kg_upsert_node', 'kg_wm_set']);
+  assert.deepEqual(tools.map((t) => t.name).sort(), ['kg_capture', 'kg_forget', 'kg_get', 'kg_link', 'kg_lint', 'kg_merge', 'kg_neighbors', 'kg_path', 'kg_recall', 'kg_search', 'kg_stats', 'kg_subgraph', 'kg_supersede', 'kg_sweep', 'kg_unlink', 'kg_upsert_node', 'kg_wm_set']);
   // extra unknown keys in the arguments are ignored, not honoured
   const r = await c.call('kg_upsert_node', { title: 'spoof', scope: 'shared', trust: 'human', status: 'active', origin: { taskId: 'x', tainted: false }, createdBy: 'human' });
   const n = g.getNode(HUMAN, idOf(r.text))!;

@@ -5,8 +5,8 @@
  * and runs it from there under the installed Electron binary in node mode, so it does not live in the folders it swaps. main also imports
  * `recoverInterrupted` from it at every start.
  *
- * What it touches: only the names in CODE_SET (or the names a full-package install passes) inside the install folder, and its own <install>/.update folder. Never node_modules, the data
- * folder, shortcuts or uninstall.cmd; no robocopy; no recursive delete outside .update (and there only after a containment and not-a-link check).
+ * What it touches: only the names in CODE_SET (or the names a full-package install passes) inside the install folder, and its own <install>/.update folder. Never the data
+ * folder, shortcuts or uninstall.cmd; node_modules and runtime only when a full-package install passes them in `names`. No robocopy; no recursive delete outside .update (and there only after a containment and not-a-link check).
  * Every state change is journaled (temp file + fsync + rename) so a kill at any point is recoverable by `recoverInterrupted`.
  */
 import { execFile, spawn } from 'node:child_process';
@@ -20,6 +20,12 @@ export const CODE_SET: readonly string[] = Object.freeze([
   'package.json', 'package-lock.json', 'build-info.json', 'NOTICE', 'LICENSE', 'README.md', 'SECURITY.md', 'CHANGELOG.md',
   'setup.cmd', 'setup-yes.cmd', 'start-legion.cmd',
 ]);
+/**
+ * The names a full-package install swaps: the code set plus the dependency tree and the Electron runtime.
+ * Mirrors scripts/lib/package-lib.mjs `packageTopNames(CODE_SET)` (EXTRA_TOP). Used only when a signed manifest's
+ * `fullAsset` is applied for a release that changes dependencies; the app package never carries these names.
+ */
+export const FULL_PACKAGE_SET: readonly string[] = Object.freeze([...CODE_SET, 'node_modules', 'runtime']);
 export const UPDATE_DIR = '.update';
 
 export type JournalState = 'swapping' | 'awaiting-health' | 'committed' | 'rolled-back';
@@ -160,6 +166,8 @@ export interface Relaunch { cmd: string; args: string[]; cwd: string; env?: Reco
 export interface ApplyJob {
   installDir: string; stagedDir: string; parentPid: number; port: number; from: string; to: string; relaunch: Relaunch;
   healthTimeoutMs?: number; parentWaitMs?: number; portFreeMs?: number; swapRetryMs?: number;
+  /** The names to swap; omitted = CODE_SET (code-only), FULL_PACKAGE_SET = code set + node_modules + runtime. Validated by main-logic commitMatches before it is written here. */
+  names?: readonly string[];
 }
 export interface ApplyDeps {
   isAlive(pid: number): boolean;
@@ -182,7 +190,7 @@ export async function runApply(job: ApplyJob, d: ApplyDeps): Promise<Outcome['re
   // a core that still answers means files are in use: never swap under it
   if (!(await waitUntil(async () => (await d.health(job.port)) === null, job.portFreeMs ?? 10_000))) { d.log('a core still answers on the port: nothing was changed'); writeOutcome(installDir, { from: job.from, to: job.to, result: 'failed', reason: 'a Legion core is still running; nothing was changed' }); d.spawnApp(job.relaunch); return 'failed'; }
   try {
-    await swapIn({ installDir, stagedDir: job.stagedDir, from: job.from, to: job.to, retryMs: job.swapRetryMs ?? 15_000, ...(d.step ? { step: d.step } : {}) });
+    await swapIn({ installDir, stagedDir: job.stagedDir, from: job.from, to: job.to, retryMs: job.swapRetryMs ?? 15_000, ...(job.names ? { names: job.names } : {}), ...(d.step ? { step: d.step } : {}) });
   } catch (e) {
     const reason = e instanceof Error ? e.message : String(e);
     d.log(`swap failed: ${reason}`);
