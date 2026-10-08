@@ -15,7 +15,7 @@ import assert from 'node:assert/strict';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import test from 'node:test';
-import ts from 'typescript';
+import ts from 'typescript-api';
 import { COMPACTION_LIMITS, DEFAULT_COMPACTION, defaultConfig, normalizeCompaction } from '../src/shared/config.js';
 import { SettingsError, SettingsService, validatePatch } from '../src/core/settings.js';
 import { EventBus } from '../src/core/bus.js';

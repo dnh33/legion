@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import test from 'node:test';
-import ts from 'typescript';
+import ts from 'typescript-api';
 
 const STORE = readFileSync(join(process.cwd(), 'ui/src/providers/providersStore.ts'), 'utf8');
 const SECTION = readFileSync(join(process.cwd(), 'ui/src/providers/ProvidersSection.tsx'), 'utf8');

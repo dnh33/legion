@@ -40,7 +40,7 @@ import assert from 'node:assert/strict';
 import { readdirSync, readFileSync } from 'node:fs';
 import { join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import ts from 'typescript';
+import ts from 'typescript-api';
 
 const REPO = fileURLToPath(new URL('../../', import.meta.url));
 const UI_SRC = join(REPO, 'ui/src');

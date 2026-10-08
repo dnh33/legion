@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import test from 'node:test';
-import ts from 'typescript';
+import ts from 'typescript-api';
 import { checkScript } from '../src/core/blender/static-check.js';
 
 const SRC = readFileSync(join(process.cwd(), 'ui/src/blender/BlenderApproval.tsx'), 'utf8');
