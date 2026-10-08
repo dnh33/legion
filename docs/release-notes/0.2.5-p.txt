@@ -1,7 +1,8 @@
-Legion 0.2.5-p. Fresh libraries behind it, one larger download.
+Legion 0.2.5-p. The updater is fixed and easier to read.
 
-- The Claude Agent SDK, MCP SDK and Electron are updated, and the build tooling moved to Vite 8.
-- Because dependencies changed, this is a full package: Legion installs it from inside the app, like any update. Only the download is larger.
+- Dependency-changing updates now install themselves on Windows; before, they always asked for a manual reinstall.
+- The panel shows the true download size, real progress, and a one-click retry if something fails.
+- A badge in the title bar announces updates and their progress.
 
 ---
-Installs in place from 0.2.5-o. Older versions show a notice and install from the source. Full detail in CHANGELOG.md.
+Installs in place, as usual.
