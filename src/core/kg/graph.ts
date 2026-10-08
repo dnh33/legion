@@ -27,7 +27,7 @@ import {
 import { actorName, ARCHIVIST_ID, agentActor, HUMAN, isAskCapped, isNodeType, isTainted, KgError, SYSTEM, WM_PREFIX, wmId } from './types.js';
 import type {
   Actor, BriefingParts, CaptureInput, CaptureResult, GraphStats, LinkInput, LinkResult, MergeResult, NeighborsResult, NodeInput, PathResult,
-  RecallResult, SupersedeResult, UpsertResult,
+  RecallResult, SupersedeResult, SweepItem, SweepResult, UpsertResult,
 } from './types.js';
 
 export interface GraphOptions {
@@ -64,6 +64,8 @@ export const WM_ACTIVE_MAX = 2_500;
 export const WM_ARCHIVE_MAX = 6_000;
 /** Largest merge a single call may do. */
 export const MAX_MERGE_DROPS = 10;
+/** Largest sweep (a batch of supersede pairs proposed to the human in one action) a single call may carry. */
+export const MAX_SWEEP_ITEMS = 20;
 const DAY_MS = 86_400_000;
 /** Titles at least this alike (token Jaccard) count as the same note when capturing. */
 export const SIMILAR_TITLE_JACCARD = 0.7;
@@ -1513,14 +1515,15 @@ export class Graph {
     return { ops, newEdges };
   }
 
-  /** A pending note that stands for a supersede or merge a bot may not do itself (props.proposal says which). */
-  private proposalMarker(actor: Actor & { kind: 'agent' }, kind: 'supersede' | 'merge', props: Record<string, string>, title: string, reason: string | undefined, g: { text: (s: string) => string }): KgNode {
+  /** A pending note that stands for a supersede, sweep or merge a bot may not do itself (props.proposal says which). */
+  private proposalMarker(actor: Actor & { kind: 'agent' }, kind: 'supersede' | 'sweep' | 'merge', props: Record<string, string>, title: string, reason: string | undefined, g: { text: (s: string) => string }, body?: string): KgNode {
     const w = this.writeCtx(actor, 'shared', false);
     this.requirePendingRoom(actor);
     const now = nowIso();
     const text = reason ? oneLine(g.text(reason)).slice(0, 500) : '';
+    const markerBody = body ?? (text ? `Reason given by ${actor.id}: ${text}` : `Proposed by ${actor.id}.`);
     return {
-      id: newId('n'), type: 'note', title, body: text ? `Reason given by ${actor.id}: ${text}` : `Proposed by ${actor.id}.`, tags: ['proposal'], scope: 'shared',
+      id: newId('n'), type: 'note', title, body: markerBody.slice(0, KG_LIMITS.bodyChars), tags: ['proposal'], scope: 'shared',
       props: { proposal: kind, ...props }, trust: w.trust, status: 'pending', ...(w.origin ? { origin: w.origin } : {}),
       createdBy: actor.id, createdAt: now, updatedAt: now,
     };
@@ -1606,6 +1609,68 @@ export class Graph {
     return { mode: 'proposal', keep: structuredClone(keep), dropped: [], proposal: structuredClone(this.nodes.get(marker.id)!), notes: ['Saved as a pending proposal: the human decides whether to merge.'] };
   }
 
+  /**
+   * Retire several notes at once, each replaced by a newer one — the batch form of `supersede`, so curation is one
+   * action instead of one tool call per note. When every item may be done directly it is ONE atomic append; when any
+   * old note may not be changed directly by this bot (human-trust, a held run, or the Archivist) the whole batch
+   * becomes ONE pending proposal the human accepts or rejects together. Never deletes: the old notes are kept.
+   */
+  sweep(actor: Actor, items: SweepItem[], opts: { reason?: string } = {}): SweepResult {
+    if (!Array.isArray(items) || !items.length) throw new KgError('invalid', 'sweep needs at least one item (oldId and newId).');
+    if (items.length > MAX_SWEEP_ITEMS) throw new KgError('invalid', `At most ${MAX_SWEEP_ITEMS} items per sweep.`);
+    const seen = new Set<string>();
+    const resolved: Array<{ old: KgNode; nw: KgNode; reason?: string }> = [];
+    for (const it of items) {
+      if (!it || typeof it.oldId !== 'string' || typeof it.newId !== 'string') throw new KgError('invalid', 'Each sweep item needs a string oldId and newId.');
+      if (it.oldId === it.newId) throw new KgError('invalid', `oldId and newId must differ (${it.oldId}).`);
+      if (seen.has(it.oldId)) throw new KgError('invalid', `"${it.oldId}" is listed twice; a note is retired once per sweep.`);
+      seen.add(it.oldId);
+      if (it.reason !== undefined && typeof it.reason !== 'string') throw new KgError('invalid', 'A sweep reason must be a string.');
+      const old = this.mustSee(actor, it.oldId);
+      const nw = this.mustSee(actor, it.newId);
+      this.assertReplaceable(old, 'superseded');
+      if (isInactive(nw)) throw new KgError('invalid', `"${nw.id}" is ${statusOf(nw)}: supersede with a live note.`);
+      if (old.scope !== nw.scope) throw new KgError('invalid', `Both notes of an item must be in the same scope (${old.id} is ${old.scope}, ${nw.id} is ${nw.scope}).`);
+      const mode = this.editMode(actor, old);
+      if (mode === 'forbidden') throw new KgError('forbidden', `You may not replace "${old.id}" (scope ${old.scope}).`);
+      resolved.push({ old, nw, ...(it.reason !== undefined ? { reason: it.reason } : {}) });
+    }
+    const g = this.guard();
+    const asBot = actor.kind === 'agent';
+    const direct = !asBot || resolved.every(({ old, nw }) => this.editMode(actor, old) === 'direct' && statusOf(nw) === 'active' && !(isSharedLike(old.scope) && effectiveTrust(nw) === 'untrusted'));
+    const asItems = (): SweepItem[] => resolved.map(({ old, nw, reason }) => ({ oldId: old.id, newId: nw.id, ...(reason !== undefined ? { reason } : {}) }));
+    if (direct) {
+      const who = actorName(actor);
+      const ops: LogOp[] = [];
+      const retired: string[] = [];
+      for (const { old, nw } of resolved) { ops.push(...this.supersedeOps(old, nw, who)); retired.push(old.id); }
+      for (const _ of resolved) this.chargeNode(actor, 0);
+      for (const o of ops) if (o.op === 'edge') this.chargeEdge(actor);
+      const undo = this.inverseOf(ops);
+      this.apply(ops);
+      const touched = [...retired, ...resolved.map((r) => r.nw.id)];
+      this.logActivity(actor, 'sweep', undo, undefined, touched, `Retired ${retired.length} note(s)`);
+      this.changed(touched);
+      return { mode: 'direct', items: asItems(), retired, notes: [] };
+    }
+    const lines = [`Proposed by ${actor.id}: retire ${resolved.length} note(s) in one action.`];
+    for (const { old, nw, reason } of resolved) {
+      const r = reason ? ` — ${oneLine(g.text(reason)).slice(0, 200)}` : '';
+      lines.push(`- ${old.id} -> ${nw.id}${r}`);
+    }
+    const marker = this.proposalMarker(
+      actor as Actor & { kind: 'agent' }, 'sweep',
+      { oldIds: resolved.map((r) => r.old.id).join(','), newIds: resolved.map((r) => r.nw.id).join(',') },
+      `Proposal: retire ${resolved.length} note(s)`, opts.reason, g, lines.join('\n'),
+    );
+    this.chargeNode(actor, Buffer.byteLength(JSON.stringify(marker)));
+    const undo = this.inverseOf([{ op: 'node', node: marker }]);
+    this.apply([{ op: 'node', node: marker }]);
+    this.logActivity(actor, 'proposal', undo, this.nodes.get(marker.id));
+    this.changed([marker.id]);
+    return { mode: 'proposal', items: asItems(), retired: [], proposal: structuredClone(this.nodes.get(marker.id)!), notes: ['Saved as a pending proposal: the human decides whether to retire the batch.'] };
+  }
+
   // ------------------------------------------------------------------ inbox (human only)
 
   /** Everything waiting for the human: held notes, edit proposals, supersede and merge proposals. Newest first. */
@@ -1617,10 +1682,12 @@ export class Graph {
       if (opts.agentId && n.createdBy !== opts.agentId) continue;
       const proposal = n.props?.proposal;
       let target: KgNode | undefined;
-      if (proposal !== 'supersede' && proposal !== 'merge') target = this.editTarget(n);
-      const kind = proposal === 'supersede' ? 'supersede' : proposal === 'merge' ? 'merge' : target ? 'edit' : 'note';
+      if (proposal !== 'supersede' && proposal !== 'merge' && proposal !== 'sweep') target = this.editTarget(n);
+      const kind = proposal === 'supersede' ? 'supersede' : proposal === 'merge' ? 'merge' : proposal === 'sweep' ? 'sweep' : target ? 'edit' : 'note';
       const involved = kind === 'edit' ? [target] : kind === 'supersede' ? [n.props?.oldId, n.props?.newId].map((i) => this.nodes.get(String(i)))
-        : kind === 'merge' ? [n.props?.keep, ...String(n.props?.drop ?? '').split(',')].map((i) => this.nodes.get(String(i))) : [];
+        : kind === 'merge' ? [n.props?.keep, ...String(n.props?.drop ?? '').split(',')].map((i) => this.nodes.get(String(i)))
+        : kind === 'sweep' ? [...String(n.props?.oldIds ?? '').split(','), ...String(n.props?.newIds ?? '').split(',')].map((i) => this.nodes.get(String(i)))
+        : [];
       rows.push({
         id: n.id, kind,
         agentId: n.createdBy, node: structuredClone(n), ...(target ? { target: structuredClone(target) } : {}),
@@ -1655,7 +1722,7 @@ export class Graph {
     const who = actorName(actor);
     const proposal = n.props?.proposal;
     const ops: LogOp[] = [];
-    if (proposal === 'supersede' || proposal === 'merge') {
+    if (proposal === 'supersede' || proposal === 'sweep' || proposal === 'merge') {
       const live = (i: unknown): KgNode => {
         const x = typeof i === 'string' ? this.nodes.get(i) : undefined;
         if (!x || isInactive(x) || statusOf(x) === 'pending') throw new KgError('conflict', 'One of the notes in this proposal has changed or is gone: reject it instead.');
@@ -1665,6 +1732,11 @@ export class Graph {
         const old = live(n.props?.oldId);
         const nw = live(n.props?.newId);
         ops.push(...this.supersedeOps(old, nw, who));
+      } else if (proposal === 'sweep') {
+        const olds = String(n.props?.oldIds ?? '').split(',').filter(Boolean);
+        const news = String(n.props?.newIds ?? '').split(',').filter(Boolean);
+        if (!olds.length || olds.length !== news.length) throw new KgError('conflict', 'This sweep proposal is malformed: reject it instead.');
+        for (let i = 0; i < olds.length; i++) ops.push(...this.supersedeOps(live(olds[i]), live(news[i]), who));
       } else {
         const keep = live(n.props?.keep);
         const drops = String(n.props?.drop ?? '').split(',').filter(Boolean).map(live);

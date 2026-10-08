@@ -10,7 +10,7 @@ No model calls, no embeddings and no new dependencies are involved. Everything b
 | --- | --- |
 | `kg_capture` | Saves one note in a fixed shape: `decision`, `mistake`, `pattern`, `project` or `idea`, each with required fields that become fixed headings. Warns when a near-identical title exists (`similar: id X`) and then writes nothing, unless `supersedes` or `force` is given. One atomic write. |
 | `kg_wm_set` | Sets the bot's own working memory: a private note, 2,500 characters of ACTIVE plus a small ARCHIVE. Shown to that bot at the start of its next run. Refused in a tainted run and in a run under an `ask` ceiling (started by an MCP client, or woken by one): that run's text could otherwise reach the next run you start from the app. Every private note such a run writes is stored untrusted and stays out of briefings; its shared notes wait in the Inbox. |
-| `kg_supersede`, `kg_merge` | Retire an outdated note in favour of a newer one, or fold duplicates into one. The old notes are kept, marked superseded or archived, and hidden from search and recall. A bot that may not change the old note directly (you wrote it) files a proposal instead. |
+| `kg_supersede`, `kg_sweep`, `kg_merge` | Retire an outdated note in favour of a newer one, fold several into one batch, or fold duplicates into one. `kg_sweep` retires several notes at once as one pending proposal you accept or reject in a single action. The old notes are kept, marked superseded or archived, and hidden from search and recall. A bot that may not change an old note directly (you wrote it) files a proposal instead. |
 | `kg_upsert_node`, `kg_link`, `kg_unlink`, `kg_forget` | The original Lattice tools. `kg_forget` works only on the bot's own private notes and leaves a tombstone. |
 | `kg_recall`, `kg_search`, `kg_get`, `kg_neighbors`, `kg_path`, `kg_subgraph`, `kg_lint`, `kg_stats` | Reads. Recall ranks by text match, recency (decisions, patterns and mistakes do not age), confidence and trust. Untrusted notes come back as `[untrusted lead]` with an id and no text. |
 
@@ -51,7 +51,7 @@ Colour: amber is pending, red is untrusted or tainted, dimmed dashed is supersed
 
 - Any shared write from a **tainted** run (see below). Forced untrusted and pending.
 - A bot's edit to a note whose trust is `human`: stored as a pending copy that supersedes yours. Your note is untouched until you accept.
-- A supersede or merge a bot may not do directly.
+- A supersede, sweep or merge a bot may not do directly.
 - A shared write from a run another bot woke while that bot was under "ask" approvals.
 - Every shared write by the Archivist, which flags and proposes and never decides.
 
