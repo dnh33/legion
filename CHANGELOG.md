@@ -6,11 +6,19 @@ All notable changes are recorded here. The format follows [Keep a Changelog](htt
 
 ## [0.2.5-p] - 2026-10-08
 
+### Fixed
+
+- **In-app updates that change dependencies now install themselves on Windows.** The installer's swap step moved the dependency folder while running from inside it, which Windows always refuses, so such an update could never finish and asked for a manual reinstall. The swap now runs from a fresh copy of its runtime outside the install, and completes like any other update.
+- **The update panel reported the wrong download size** for dependency updates (it showed the small code package's size). It now reports the size of what it actually downloads.
+- **A failed update no longer stacks windows.** Each failed attempt started another copy of the app without closing the previous one. Legion now keeps a single instance, and the panel offers a one-click retry after a failed update.
+
+### Added
+
+- **Updates announce themselves.** A badge in the title bar shows when an update is available, its download progress, and when it is ready to install — no need to open Settings.
+
 ### Changed
 
-- **Updated the bundled libraries.** The Claude Agent SDK (0.3.293), the MCP SDK (1.32.1) and Electron (44.7.0) are current as of this release.
-- **The build tooling moved to Vite 8**, with the matching React plugin and esbuild.
-- **This release is a full package.** Because the dependency tree changed, it cannot arrive as the code-only swap: Legion downloads the signed full package and installs it from inside the app the same journaled way as a normal update, replacing its own libraries along with the code. It is a larger download, and the update panel says so. An install that cannot take the full package still shows the notice, and reinstalling from the source still works.
+- The update panel is clearer about what is happening: a live checking state with the last check time, real byte progress, and no more release notes shown beside a message that contradicts them.
 
 ## [0.2.5-o] - 2026-10-08
 
