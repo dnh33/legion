@@ -8,8 +8,25 @@ import { OVERRIDE_MODELS, BridgeError } from './bridge.js';
 import type { Bridge } from './bridge.js';
 import { overrideAllowed, overrideRefusal } from './model-cap.js';
 import { CLAUDE_NOT_CONFIGURED } from './boat-health.js';
+import { DONE_WHEN_MAX, DONE_WHEN_MIN, GOAL_MAX } from './brief.js';
 
 const MAX_CHARS = 12_000;
+
+/**
+ * The typed brief a lead may attach to ask/tell (Fascia 3b, plan-fascia.md 6.3). Prose still works; when a brief is
+ * given the bridge renders it as a short header into the callee's message. `done_when` is an array of one to four
+ * observable checks, because the plan gate (3c) edits one check at a time. `budget.usd` is clamped by the owner's
+ * claude.maxBudgetUsd; `priority` is accepted but nothing orders by it in v1.
+ */
+export const briefSchema = z.object({
+  goal: z.string().min(1).max(GOAL_MAX).describe('The one outcome, in at most 300 characters'),
+  done_when: z.array(z.string().min(1)).min(DONE_WHEN_MIN).max(DONE_WHEN_MAX)
+    .describe('One to four observable checks that decide done'),
+  context: z.array(z.string().min(1)).optional().describe('Pointers the agent needs: file:line refs, task ids'),
+  returns: z.string().optional().describe('What the agent should hand back'),
+  budget: z.object({ usd: z.number().positive().finite().optional() }).optional().describe('A spend cap for the child run in USD; never above the owner\'s own per-run limit'),
+  priority: z.enum(['low', 'normal', 'high']).optional().describe('Advisory only in v1'),
+});
 
 type ToolResult = { content: { type: 'text'; text: string }[]; isError?: boolean };
 const ok = (text: string): ToolResult => ({ content: [{ type: 'text', text }] });
@@ -67,21 +84,34 @@ function bridgeTools(ctx: AgentToolsCtx) {
   );
   const ask = tool(
     'ask',
-    'Send a message to another Legion agent and wait for its answer. Reuses your ongoing thread with it unless fresh=true. Use when you need the result before continuing.',
+    'Send a message to another Legion agent and wait for its answer. Reuses your ongoing thread with it unless fresh=true. Use when you need the result before continuing. Give a brief (goal + done_when checks) to hand off a typed task; message alone still works for prose.',
     {
       agent: z.string().describe('Agent id or name'),
-      message: z.string().min(1),
+      message: z.string().min(1).optional().describe('The task in prose. Optional when you give a brief; when both are given the brief comes first and the prose follows.'),
+      brief: briefSchema.optional().describe('A typed task: goal, one to four done_when checks, optional context, returns, budget and priority.'),
       fresh: z.boolean().optional().describe('Start a new thread instead of continuing the existing one'),
       timeoutSeconds: z.number().positive().max(3600).optional().describe('Default 600'),
       model: modelParam,
     },
-    (a) => guard(async () => bridge.ask(taskId, a.agent, a.message, { fresh: a.fresh, timeoutSeconds: a.timeoutSeconds, model: await bridge.resolveModel(a.model) })),
+    (a) => guard(async () => {
+      if (!a.message?.trim() && !a.brief) throw new BridgeError('Give a message or a brief.');
+      return bridge.ask(taskId, a.agent, a.message ?? '', { fresh: a.fresh, timeoutSeconds: a.timeoutSeconds, model: await bridge.resolveModel(a.model), brief: a.brief });
+    }),
   );
   const tell = tool(
     'tell',
-    'Send a message to another Legion agent without waiting. Its answer arrives later as a new message in your task. Use for long or parallel work.',
-    { agent: z.string().describe('Agent id or name'), message: z.string().min(1), fresh: z.boolean().optional(), model: modelParam },
-    (a) => guard(async () => bridge.tell(taskId, a.agent, a.message, { fresh: a.fresh, model: await bridge.resolveModel(a.model) })),
+    'Send a message to another Legion agent without waiting. Its answer arrives later as a new message in your task. Use for long or parallel work. Give a brief (goal + done_when checks) to hand off a typed task; message alone still works for prose.',
+    {
+      agent: z.string().describe('Agent id or name'),
+      message: z.string().min(1).optional().describe('The task in prose. Optional when you give a brief; when both are given the brief comes first and the prose follows.'),
+      brief: briefSchema.optional().describe('A typed task: goal, one to four done_when checks, optional context, returns, budget and priority.'),
+      fresh: z.boolean().optional(),
+      model: modelParam,
+    },
+    (a) => guard(async () => {
+      if (!a.message?.trim() && !a.brief) throw new BridgeError('Give a message or a brief.');
+      return bridge.tell(taskId, a.agent, a.message ?? '', { fresh: a.fresh, model: await bridge.resolveModel(a.model), brief: a.brief });
+    }),
   );
   const taskResult = tool(
     'task_result',

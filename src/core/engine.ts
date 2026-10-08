@@ -9,6 +9,7 @@ import type {
 import { newId, nowIso, titleFrom } from '../shared/util.js';
 import { scrubHostSessionEnv } from '../shared/config.js';
 import { BUDGET_LIMIT_PREFIX, CONTINUE_PROMPT, TURN_LIMIT_PREFIX, budgetCap, formatUsdLimit } from '../shared/continue.js';
+import { clampBudget } from './brief.js';
 import { InputChannel } from './input-channel.js';
 import { BackgroundTasks } from './background-tasks.js';
 import { capStored } from './result-store.js';
@@ -219,6 +220,10 @@ interface Job {
   taskId: string; agentId: string; prompt: string; choice: ModelChoice; priorModel?: ConcreteModel;
   /** One-line bridge header prepended to what Claude sees (not stored). */
   header?: string;
+  /** Text the auto router scores, when it differs from `prompt` (a typed brief scores its goal only; Fascia 3b). */
+  routeText?: string;
+  /** A per-run spend cap in USD (a brief's budget); clamped in buildOptions, never above the owner's claude.maxBudgetUsd. */
+  maxBudgetUsd?: number;
   /** Set for bridge runs: the caller agent + task, for mascot note and cap bypass. */
   fromAgentId?: string; parentTaskId?: string;
   /** Set when another bot woke this run (rooms, or the agent bridge). Caps the run's approval mode. */
@@ -363,6 +368,8 @@ export class Engine {
     this.queue.push({
       taskId: task.id, agentId: agent.id, prompt, choice: task.requestedModel, priorModel,
       header: p.bridge?.header, fromAgentId: p.bridge?.fromAgentId, parentTaskId: p.bridge && !p.bridge.reply ? p.bridge.parentTaskId : undefined,
+      ...(p.routeText !== undefined ? { routeText: p.routeText } : {}),
+      ...(p.maxBudgetUsd !== undefined ? { maxBudgetUsd: p.maxBudgetUsd } : {}),
       origin: task.origin,
     });
     queueMicrotask(() => this.pump());
@@ -672,10 +679,14 @@ export class Engine {
   private async execute(job: Job, act: Active): Promise<void> {
     const agent = this.store.getAgent(job.agentId);
     if (!agent) throw new Error(`Agent ${job.agentId} no longer exists`);
-    let decision = routeModel(job.prompt, job.choice, { priorModel: job.priorModel });
+    // Fascia 3b: a typed brief is sent whole, but only its goal is scored by the auto router. The checks and the context
+    // refs are a checklist, not the task, and must not flip `auto` (they name words such as plan, review and debug, or run long).
+    const hasBriefRoute = !!(job.routeText && job.routeText.trim());
+    let decision = routeModel(hasBriefRoute ? job.routeText! : job.prompt, job.choice, { priorModel: job.priorModel });
     // The last check before anything is sent, on the exact text Claude Code will get. A queued prompt starts here, and the owner may have
     // switched the skill off since it was queued.
-    const slashNo = this.slashRefusal(agent, decision.prompt);
+    const sendText = hasBriefRoute ? job.prompt : decision.prompt;
+    const slashNo = this.slashRefusal(agent, sendText);
     if (slashNo) throw new EngineError(slashNo, 400);
     // A model a bot picked (per-task override, or a /opus prefix in a bot's message) never goes above the agent's own setting.
     const picked = this.store.getTask(job.taskId)?.modelOverride || (job.origin && decision.reason.startsWith('prefix'));
@@ -695,7 +706,7 @@ export class Engine {
     if (!first) throw new Error('Task disappeared');
     const from = job.header && job.fromAgentId ? this.store.getAgent(job.fromAgentId) : undefined;
     this.mascot('thinking', from ? `${from.name} → ${agent.name}` : `${agent.name} on ${model}: ${decision.reason}`);
-    const sendPrompt = (job.header ? job.header + '\n' : '') + decision.prompt;
+    const sendPrompt = (job.header ? job.header + '\n' : '') + sendText;
 
     const hadSession = !!this.store.getTask(job.taskId)?.sessionId;
     // The same /command check for text that is re-sent later from the task's history (the raw text, and the text after a /model prefix is removed).
@@ -746,7 +757,8 @@ export class Engine {
       const limitTurns = providerStop ? Number(providerStop[1]) : this.config.claude.maxTurns;
       // The spend limit is the same kind of stop. The subtype alone says so (no error text is needed), and the amount is named when known.
       const budgetLimit = outcome.subtype === 'error_max_budget_usd';
-      const cap = budgetCap(this.config.claude.maxBudgetUsd);
+      // the cap this run really had: a brief's budget when it lowered the owner's (Fascia 3b)
+      const cap = this.perRunBudget(job);
       const budgetWhere = cap !== undefined ? ` (${formatUsdLimit(cap)} this run)` : '';
       const text = turnLimit
         ? `${TURN_LIMIT_PREFIX} (${limitTurns} turns this run) before finishing. The work so far is kept: continue the task to pick up where it stopped.`
@@ -1008,6 +1020,14 @@ This run read connector (GitHub) data and other outside text. Web access can sen
     };
   }
 
+  /**
+   * The spend cap for one run: a typed brief's budget when one asked for it, clamped so it is never above the owner's
+   * claude.maxBudgetUsd (Fascia 3b). Absent both: undefined (no cap), exactly as before.
+   */
+  private perRunBudget(job: Job): number | undefined {
+    return clampBudget(job.maxBudgetUsd, budgetCap(this.config.claude.maxBudgetUsd));
+  }
+
   private buildOptions(job: Job, agent: AgentProfile, model: ConcreteModel, act: Active, prompt: string, resume?: string): Options {
     const cwd = agent.cwd || join(this.config.workspaceDir, agent.id);
     mkdirSync(cwd, { recursive: true });
@@ -1018,6 +1038,7 @@ This run read connector (GitHub) data and other outside text. Web access can sen
     const servers = this.buildMcpServers(agent, job, act);
     const skillSet = this.moduleSkills(agent);
     const allowSkillShell = this.skillShellAllowed();
+    const maxBudgetUsd = this.perRunBudget(job);
     const options: Options = {
       model,
       cwd,
@@ -1042,8 +1063,8 @@ This run read connector (GitHub) data and other outside text. Web access can sen
       ...(this.config.claude.inheritMcp === true ? {} : { strictMcpConfig: true }),
       disallowedTools: ['SendMessage', 'ListAgents', ...this.moduleDisallowed(agent)],
       maxTurns: this.config.claude.maxTurns,
-      // optional spend cap per run; on a resumed session it counts only the new spend
-      ...(budgetCap(this.config.claude.maxBudgetUsd) !== undefined ? { maxBudgetUsd: budgetCap(this.config.claude.maxBudgetUsd) } : {}),
+      // optional spend cap per run; a typed brief may ask for a lower one, clamped here, never above the owner's. On a resumed session it counts only the new spend.
+      ...(maxBudgetUsd !== undefined ? { maxBudgetUsd } : {}),
       includePartialMessages: true,
       abortController: act.ac,
       env: buildChildEnv(this.config),
