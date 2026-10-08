@@ -813,7 +813,7 @@ re-check lines.
 
 #### SHIPPED CONTEXT — read this first, it explains most of what follows
 
-Latest release is **`0.2.5-n`** (tag `v0.2.5-n`, 2026-10-07; the merge of release/0.2.5-n). The updater
+Latest release is **`0.2.5-o`** (tag `v0.2.5-o`, 2026-10-08; the merge of release/0.2.5-o). The updater
 applies releases from inside Legion; the maintainer reported on 2026-10-06 that it works (check U1). Everything below is
 either shipped, parked, or not started.
 
@@ -841,6 +841,7 @@ Releases since `0.2.3-g` (dates from the tags; `0.2.3-h` to `0.2.3-l` were conso
 | `0.2.5-l` | 2026-10-07 | Logging (PRs #37, #38: Settings, Logs; local only, secrets masked incl. crash output, size-capped, owner-only files); connectors slice 1b (PR #33: gateway, GitHub read tools, github_ci_wait, Settings, GitHub page shown as not available until the App is registered; web-egress card after connector data; connector data withheld from MCP clients) |
 | `0.2.5-m` | 2026-10-07 | Long conversations open fast (thread paging, windowed rows, search in a thread) and the task history is paged and searchable with an index (PR #39); planning notes kept (PR #42) |
 | `0.2.5-n` | 2026-10-07 | Soul Codex for the Marshal, Builder and Scout and the welcome flow that points at the Marshal (PR #41, #46); A key and wake-up taint fixes (PR #43); Armory respects the agent's skill choice for typed commands (PR #48); PC-run fixes: CI polling, quieter logs, Open folder, docked width, keyboard-only focus rings (PR #49); smaller per-run instructions and one teamwork block (PR #50); docs and prompt-size ceilings (PR #51); Quartermaster (#47) and Marshal rename (#52) |
+| `0.2.5-o` | 2026-10-08 | Question card: an agent asks the owner 1-4 structured questions and the owner answers in a card (PR #62); Fascia 3b typed delegation — a typed brief (goal, done-when, optional budget) on ask/tell and a first-line verdict read from the result (PR #64); house lifecycle `kg_sweep` batch retirement and `kg_capture --supersedes` (PR #65); the updater applies a dependency-change release through the signed full-package swap, with the existing notify-only path as fallback (PR #66); release builds: SLSA build attestation and a signed SHA256SUMS.txt (PR #63) |
 
 Table derived from `git tag -l 'v0.2*'` with creation dates and the `CHANGELOG.md` sections (`0.2.3-h` to `0.2.3-l` from the
 `git log v0.2.3-g..v0.2.4` subjects; their own changelog entries were folded into `0.2.4`).
@@ -908,7 +909,7 @@ reference's questions are already answered and must not be re-derived: redaction
 `RedactingFormatter`, so secrets never reach disk; four files split by severity and component; one async queue;
 Windows rotating handlers keep `.__*.lock` files until closed, so profile deletion must release them first.
 
-#### 4. **House lifecycle — the Archivist can curate** (after logging)
+#### 4. **House lifecycle — the Archivist can curate — SHIPPED in `0.2.5-o` (PR #65)**
 
 The delete rules in `graph.ts:927` are correct and stay exactly as they are: a human deletes shared notes, the
 Archivist never deletes, working memory cannot be forgotten by a bot, and the house layer is read-only because an
@@ -920,7 +921,11 @@ What is missing is ergonomics, not permission:
   Without it, curation is one note per tool call, which is manual labour in costume.
 - `kg_capture --supersedes <id>` — retire on replacement, which is how cleanup actually happens in practice.
 
-#### 5. **A real tokenizer + an honest updater check** (after logging)
+**Shipped in `0.2.5-o` (PR #65):** `kg_sweep` retires several notes in one proposal the human accepts or rejects
+together (the Library inbox shows it as one `sweep` row; accepting retires every note in the batch, kept and hidden);
+`kg_capture --supersedes` retires the replaced note in the same action. `kg_supersede` unchanged.
+
+#### 5. **A real tokenizer + an honest updater check** — updater half SHIPPED in `0.2.5-o` (PR #66); tokenizer still open
 
 - **Tokenizer:** `gpt-tokenizer`, a port of OpenAI's `tiktoken`, so the BPE is the reference one. Exact for
   OpenAI-family models, a better approximation than chars/4 for the rest.
@@ -933,6 +938,12 @@ What is missing is ergonomics, not permission:
   step 3 of a normal update.
 - **Parity note:** the estimator is an estimate in both products. Moving ours was parity, not rescue — do not write
   it up as a capability gap.
+
+**Updater half shipped in `0.2.5-o` (PR #66):** a dependency-change release now signs a `fullAsset` (`--full-zip`); the
+updater routes `code` (plain swap), `full` (signed full-package swap: the code set plus `node_modules` and `runtime`,
+same journaled helper) or `notify` (no signed full package — the human fallback, unchanged). The code-only stager still
+fails closed on a real lock mismatch and is escalated to the full package when one is signed (`deps-change.ts`
+`planRelease`, `package.ts` `checkTree`/`stageFullPackage`). Tokenizer still open.
 
 #### 6. **Context engine 1-to-1** (last)
 
@@ -982,7 +993,7 @@ Items 1 to 6 above stay as they are. These were added from the 2026-10-06 sessio
 24. **Fascia for the Order.** Plan: `claude/plan-fascia.md` (research, code findings with file refs, decisions, build detail). Richer souls, typed delegation, a durable work ledger and a board that can run work. Open (proposed 2026-10-07).
     1. **Board bug patch.** Now, in parallel (maintainer, 2026-10-07). Fascia session owns it; branch `fix/board-run-state`; stays out of `engine.ts`, `bridge.ts` and `kg/graph.ts`. Fixes: a restart leaves `activeRun` set, so the item is stuck in Doing with Run disabled; the item dialog PATCHes every field and can drag a finished run back to Doing; Run has no guard on Done or Review; delete ignores a live run; claim is last-write-wins.
     2. **Soul Codex v1: SHIPPED in `0.2.5-n` (PR #41; welcome flow PR #46).** Builder, Scout and Zealot in a 7-part shape (voice, stance, refuses, done when, output contract, worked examples, edges), behavioural soul evals instead of the hash pin, a run-once migration that never touches owner-edited souls, and a welcome flow that points at Zealot. The maintainer retired "persona text stays byte-identical" on 2026-10-07, on condition that each soul stays true to its bot's core and role.
-    3. **Typed delegation.** Part a SHIPPED in `0.2.5-n` (PR #50: roster cards, one teamwork block); 3b next. Absorbs items 8 and 9: roster cards, typed brief and result on ask/tell, verify before reporting, model by role, a request tree under the lead's answer. Builds on the Order-bug bridge/engine changes.
+    3. **Typed delegation.** Part a SHIPPED in `0.2.5-n` (PR #50: roster cards, one teamwork block). **3b SHIPPED in `0.2.5-o` (PR #64):** a typed brief on ask/tell (goal, done-when checks, context, returns, optional `budget.usd` clamped by the owner's `claude.maxBudgetUsd`) is rendered into the callee's message; the answer's first line is read against the callee's own output contract and reported as the verdict. Absorbs items 8 and 9: roster cards, typed brief and result on ask/tell, verify before reporting, model by role, a request tree under the lead's answer. Builds on the Order-bug bridge/engine changes.
     4. **"Needs you" inbox.** One title-bar badge and list for approvals, paused runs, room attention, board proposals and items in Review.
     5. **Fascia ledger and Watch view.** Append-only ledger of delegations, leases renewed from tool activity, replay on start, budget tree, read-only Watch view.
     6. **Board v2.** A lead run verb using the board's own bookkeeping, a clearer trust flow, proposal feedback to bots, Retry on Blocked. Opt-in auto-dispatch only after that, under the conditions in the plan.
@@ -1007,7 +1018,7 @@ Items 1 to 6 above stay as they are. These were added from the 2026-10-06 sessio
 
 32. **A /sec command in the Legion Mod** (maintainer, 2026-10-07).
 
-33. **Release builds on GitHub Actions.** Actions builds the package zips, the manifest and SHA256SUMS on a tag, with no secrets. The signing key stays on the maintainer's PC; signing and upload stay manual. Documented model-agnostically in `docs/SHIPPING.md` and `AGENTS.md`. **DONE (PR #55, merged 2026-10-07; workflow `release-build.yml`).** RB1 passed: a dry run of `v0.2.5-m` on Actions gave byte-identical zips. RB2 (the first real release built on Actions) is open. Follow-ups in the PR: a `v*` tag ruleset, build attestation, signing SHA256SUMS.
+33. **Release builds on GitHub Actions.** Actions builds the package zips, the manifest and SHA256SUMS on a tag, with no secrets. The signing key stays on the maintainer's PC; signing and upload stay manual. Documented model-agnostically in `docs/SHIPPING.md` and `AGENTS.md`. **DONE (PR #55, merged 2026-10-07; workflow `release-build.yml`).** RB1 passed: a dry run of `v0.2.5-m` on Actions gave byte-identical zips. RB2 (the first real release built on Actions) is open. Follow-ups in the PR: a `v*` tag ruleset, build attestation, signing SHA256SUMS. **All three SHIPPED in `0.2.5-o` (PR #63):** build attestation (`release-build.yml` `attest` job, `actions/attest@v4.2.2`, the only job with write scopes); SHA256SUMS signing (`scripts/release-sign-sums.mjs`, folded into `release-verify.mjs`; the release now carries a sixth asset, `SHA256SUMS.txt.sig`); the owner-only `v*` tag ruleset (`scripts/gh-tag-ruleset.mjs`, applied by the owner). PC checks RB3–RB5 in `claude/tracker-pc-checks.md`; RB2 still open.
 
 34. **A shell tool for agents on other providers** (like Hermes Agent's). Security-heavy; ties to BUG-4 (item 26). Status: planned.
 

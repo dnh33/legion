@@ -236,6 +236,33 @@ kbd { font-size: 10.5px; line-height: 1; padding: 3px 5px; border: 1px solid var
 .approval-sum { margin: 8px 0 10px; padding: 9px 11px; background: var(--code-bg); border: 1px solid var(--line); border-radius: var(--r); font-size: 12px; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 160px; overflow: auto; }
 .approval-actions { display: flex; align-items: center; gap: 8px; }
 .approval-note { margin-left: auto; color: var(--faint); font-size: 11.5px; }
+/* ---------- question card (the approval card's twin: same shell, tokens and keyboard-only focus ring) ---------- */
+.question-steps { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0 2px; }
+.qstep { display: inline-flex; align-items: center; gap: 5px; padding: 3px 9px; border: 1px solid var(--line); border-radius: 999px; background: var(--surface-2); color: var(--muted); font-size: 11.5px; transition: background var(--t) var(--ease), border-color var(--t) var(--ease), color var(--t) var(--ease); }
+.qstep:hover { border-color: var(--line-strong); color: var(--text-2); }
+.qstep.on { border-color: var(--warn); color: var(--warn); background: var(--warn-soft); }
+.qstep.done { color: var(--text-2); }
+.question-body { margin: 8px 0 10px; }
+.question-text { font-weight: 600; margin-bottom: 8px; }
+.question-multi { color: var(--muted); font-weight: 400; font-size: 12px; }
+.question-main { display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px; }
+.question-main.has-preview { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+.question-opts { display: flex; flex-direction: column; gap: 6px; }
+.qopt { display: flex; flex-direction: column; gap: 2px; text-align: left; padding: 8px 10px; border: 1px solid var(--line); border-radius: var(--r); background: var(--surface); color: var(--text); transition: background var(--t) var(--ease), border-color var(--t) var(--ease); }
+.qopt:hover { border-color: var(--line-strong); background: var(--surface-2); }
+.qopt:focus { outline: 2px solid var(--accent); outline-offset: -2px; border-color: var(--accent-line); }
+.qopt.on { border-color: var(--accent-line); background: var(--accent-soft); }
+.qopt-label { display: flex; align-items: center; gap: 8px; font-weight: 600; }
+.qopt-desc { color: var(--muted); font-size: 12px; }
+.qrec { font-size: 10px; font-weight: 600; letter-spacing: .03em; text-transform: uppercase; color: var(--warn); border: 1px solid var(--warn); border-radius: 999px; padding: 1px 6px; }
+.question-preview { margin: 0; padding: 9px 11px; background: var(--code-bg); border: 1px solid var(--line); border-radius: var(--r); font-size: 12px; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 220px; overflow: auto; }
+.question-other { display: flex; gap: 8px; margin-top: 8px; }
+.qother-input { flex: 1; height: 30px; padding: 0 10px; background: var(--surface-2); border: 1px solid var(--line-strong); border-radius: var(--r); color: var(--text); font-size: 12.5px; }
+:root[data-kbd-nav] .qother-input:focus { outline: none; box-shadow: 0 0 0 3px var(--accent-soft); }
+.question-review { display: flex; flex-direction: column; gap: 6px; }
+.qrow { display: flex; gap: 10px; padding: 7px 10px; background: var(--surface-2); border: 1px solid var(--line); border-radius: var(--r); }
+.qrow-h { flex: none; min-width: 96px; color: var(--muted); font-size: 12px; }
+.qrow-a { flex: 1; }
 
 /* empty + first run */
 .empty { min-height: 52vh; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; gap: 6px; padding: 24px; animation: msg-in 220ms var(--ease) both; }

@@ -58,6 +58,30 @@ test('C6: the strict schema accepts a good manifest and rejects each bad field',
   assert.throws(() => parseManifest(Buffer.alloc(70_000, 32)), ManifestError);
 });
 
+test('C6b: the optional fullAsset (the signed full package) is validated as strictly as the app asset, and is absent on every existing manifest', () => {
+  const full = { name: 'legion-0.3.0-win-x64.zip', size: 1234, sha256: 'a'.repeat(64) };
+  const m = parseManifest(Buffer.from(JSON.stringify({ ...rel('0.3.0').manifestObj, fullAsset: full })));
+  assert.deepEqual(m.fullAsset, full);
+  // Absent: back-compatible, and (with planRelease) a notify-only route.
+  assert.equal(parseManifest(rel('0.3.0').manifest).fullAsset, undefined);
+  const bad = (fullAsset: unknown) => assert.throws(
+    () => parseManifest(Buffer.from(JSON.stringify({ ...rel('0.3.0').manifestObj, fullAsset }))),
+    ManifestError, JSON.stringify(fullAsset).slice(0, 70),
+  );
+  bad({ ...full, name: 'evil.zip' });                       // wrong name
+  bad({ ...full, name: 'legion-0.3.0-app.zip' });           // the app asset name is not the full name
+  bad({ ...full, name: 'legion-0.3.1-win-x64.zip' });       // another version's full package
+  bad({ name: full.name, size: full.size });                // no sha256
+  bad({ ...full, size: 0 });
+  bad({ ...full, size: -1 });
+  bad({ ...full, size: 1.5 });
+  bad({ ...full, size: 999_999_999_999 });                  // over the full-package cap
+  bad({ ...full, sha256: 'A'.repeat(64) });                 // uppercase hex
+  bad({ ...full, sha256: 'abc' });
+  bad(5);
+  bad([]);
+});
+
 test('C7: policy table (downgrade, equal, older build, future, failed before)', () => {
   const m = (v: string, at: string) => parseManifest(rel(v, { publishedAt: at }).manifest);
   const now = Date.parse('2026-10-20T00:00:00Z');

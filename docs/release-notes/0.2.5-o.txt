@@ -1,0 +1,10 @@
+Legion 0.2.5-o. Ask, hand off, tidy up.
+
+- Agents can ask you a question card - a few questions with choices and an Other box - instead of guessing. A never answers it.
+- Agents handing work to each other can send a typed brief (goal, checks for done, spend cap) and get the outcome word.
+- Retire a batch of outdated notes in one action in the Library; nothing is deleted.
+- An update that changes dependencies now installs from inside Legion.
+- Releases carry a checkable build record and a signed checksum list.
+
+---
+Self-applies from inside Legion - no reinstall. Full detail in CHANGELOG.md.

@@ -7,7 +7,7 @@ import assert from 'node:assert/strict';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { CAPTURE_TEMPLATES, CAPTURE_KINDS, renderCapture } from '../src/core/kg/capture.js';
-import { Graph, MAX_PENDING_PER_AGENT, WM_ACTIVE_MAX, WM_ARCHIVE_MAX, parseWorkingMemory } from '../src/core/kg/graph.js';
+import { Graph, MAX_PENDING_PER_AGENT, MAX_SWEEP_ITEMS, WM_ACTIVE_MAX, WM_ARCHIVE_MAX, parseWorkingMemory } from '../src/core/kg/graph.js';
 import { TaskQuota } from '../src/core/kg/quota.js';
 import { rankFactor } from '../src/core/kg/text.js';
 import { ARCHIVIST_ID, agentActor, KgError, wmId } from '../src/core/kg/types.js';
@@ -404,4 +404,163 @@ test('E: ranking prefers newer and human over older and untrusted; an untrusted 
   const out = g.recall(alpha, 'quokka rumours handbook').outline;
   assert.match(out, new RegExp(`\\[untrusted lead\\] \\(id ${webHub.id}`));
   assert.doesNotMatch(out, /Quokka rumours|quokka quokka/, 'no title or snippet of an untrusted note');
+});
+
+// ---------------------------------------------------------------- sweep (batch retire), capture --supersedes
+
+test('F: kg_sweep retires a batch as ONE pending proposal; a single accept supersedes every old note', async () => {
+  const { g } = mkGraph();
+  const h1 = note(g, 'Human decision: deploy on friday');
+  const h2 = note(g, 'Human decision: use tabs');
+  const t = await connect(g, 'alpha');
+  const mk = async (title: string) => idOf((await t.call('kg_upsert_node', { title })).text);
+  const new1 = await mk('Deploy on tuesday');
+  const new2 = await mk('Use spaces');
+  const calls = spyAppend(g);
+  const r = await t.call('kg_sweep', { items: [{ oldId: h1.id, newId: new1, reason: 'policy changed' }, { oldId: h2.id, newId: new2 }] });
+  assert.equal(r.isError, false, r.text);
+  assert.match(r.text, /ONE action/);
+  assert.deepEqual(calls, [1], 'the whole proposal is one append (the marker node)');
+  // nothing is retired until the human acts: their notes stand
+  assert.equal(g.getNode(HUMAN, h1.id)!.status, undefined);
+  assert.equal(g.getNode(HUMAN, h2.id)!.status, undefined);
+  const row = g.inbox(HUMAN).find((x) => x.kind === 'sweep')!;
+  assert.ok(row, 'the batch is a single inbox row');
+  assert.equal(row.agentId, 'alpha');
+  assert.equal(row.node.props!.oldIds, `${h1.id},${h2.id}`);
+  assert.equal(row.node.props!.newIds, `${new1},${new2}`);
+  assert.match(row.node.body, /policy changed/);
+  assert.equal(row.touchesHuman, true, 'it changes the human\'s own notes');
+  assert.equal(g.inbox(HUMAN).filter((x) => x.kind === 'sweep').length, 1);
+  // ONE accept carries out the entire batch
+  g.acceptPending(HUMAN, row.id);
+  for (const [o, n] of [[h1.id, new1], [h2.id, new2]] as const) {
+    assert.equal(g.getNode(HUMAN, o)!.status, 'superseded');
+    assert.equal(g.getNode(HUMAN, o)!.supersededBy, n);
+    assert.ok(g.edgesOf(HUMAN, o).some((e) => e.rel === 'supersedes' && e.from === n && e.to === o), `${n} -> ${o}`);
+  }
+  assert.equal(g.inbox(HUMAN).length, 0);
+  await t.close();
+});
+
+test('F: rejecting a sweep retires nothing; the old notes stand and the marker is archived', async () => {
+  const { g } = mkGraph();
+  const h1 = note(g, 'Human decision: keep A');
+  const t = await connect(g, 'alpha');
+  const nw = idOf((await t.call('kg_upsert_node', { title: 'New A' })).text);
+  await t.call('kg_sweep', { items: [{ oldId: h1.id, newId: nw }] });
+  const row = g.inbox(HUMAN)[0]!;
+  assert.equal(row.kind, 'sweep');
+  g.rejectPending(HUMAN, row.id);
+  assert.equal(g.getNode(HUMAN, h1.id)!.status, undefined, 'the human note was never touched');
+  assert.equal(g.getNode(HUMAN, row.id)!.status, 'archived');
+  assert.equal(g.inbox(HUMAN).length, 0);
+  assert.equal(g.edgesOf(HUMAN, h1.id).length, 0);
+  await t.close();
+});
+
+test('F: kg_sweep on a bot\'s own notes is one atomic append; one activity row undoes the whole batch', async () => {
+  const { g } = mkGraph();
+  const t = await connect(g, 'alpha');
+  const mk = async (title: string) => idOf((await t.call('kg_upsert_node', { title })).text);
+  const a1 = await mk('Old caching note'); const a2 = await mk('New caching note');
+  const b1 = await mk('Old queue note'); const b2 = await mk('New queue note');
+  const calls = spyAppend(g);
+  const r = await t.call('kg_sweep', { items: [{ oldId: a1, newId: a2 }, { oldId: b1, newId: b2 }] });
+  assert.equal(r.isError, false, r.text);
+  assert.match(r.text, /Retired 2 note\(s\)/);
+  assert.deepEqual(calls, [4], 'two patches + two supersedes edges in ONE append');
+  assert.equal(g.getNode(HUMAN, a1)!.status, 'superseded');
+  assert.equal(g.getNode(HUMAN, b1)!.status, 'superseded');
+  assert.equal(g.inbox(HUMAN).length, 0, 'no proposal: the bot may change its own notes directly');
+  const row = g.activityFeed(HUMAN).find((x) => x.kind === 'sweep')!;
+  assert.ok(row, 'a sweep is one Activity row');
+  g.undo(HUMAN, row.id);
+  for (const id of [a1, b1]) {
+    assert.equal(g.getNode(HUMAN, id)!.status, undefined, 'undo restored the whole batch');
+    assert.equal(g.getNode(HUMAN, id)!.supersededBy, undefined);
+    assert.equal(g.edgesOf(HUMAN, id).length, 0);
+  }
+  await t.close();
+});
+
+test('Archivist: kg_sweep is still ONE pending proposal and kg_forget is still refused (the delete rules are untouched)', async () => {
+  const { g } = mkGraph();
+  const old = g.upsertNode(agentActor('alpha'), { title: 'Alpha old note' }).node;
+  const nw = g.upsertNode(agentActor('alpha'), { title: 'Alpha new note' }).node;
+  const t = await connect(g, ARCHIVIST_ID);
+  const r = await t.call('kg_sweep', { items: [{ oldId: old.id, newId: nw.id, reason: 'stale' }] });
+  assert.equal(r.isError, false, r.text);
+  assert.match(r.text, /PENDING for the human/);
+  assert.equal(g.getNode(HUMAN, old.id)!.status, undefined, 'nothing retired until the human accepts');
+  const row = g.inbox(HUMAN).find((x) => x.kind === 'sweep')!;
+  assert.equal(row.agentId, ARCHIVIST_ID);
+  const forget = await t.call('kg_forget', { id: old.id, confirm: true });
+  assert.equal(forget.isError, true);
+  assert.match(forget.text, /never deletes/);
+  g.acceptPending(HUMAN, row.id);
+  assert.equal(g.getNode(HUMAN, old.id)!.status, 'superseded', 'one accept performs the batch');
+  assert.equal(g.getNode(HUMAN, old.id)!.supersededBy, nw.id);
+  await t.close();
+});
+
+test('F: kg_sweep validates the whole batch before writing, and a bad batch changes nothing', async () => {
+  const { g } = mkGraph();
+  const t = await connect(g, 'alpha');
+  const mk = async (title: string) => idOf((await t.call('kg_upsert_node', { title })).text);
+  const a = await mk('Target A'); const a2 = await mk('Replacement A2');
+  const b = await mk('Target B'); const b2 = await mk('Replacement B2');
+  const e1 = await mk('To be superseded'); const e2 = await mk('Its successor');
+  const priv = idOf((await t.call('kg_upsert_node', { title: 'Private replacement', scope: 'private' })).text);
+  const betaPriv = g.upsertNode(agentActor('beta'), { title: 'Beta private', scope: 'agent:beta' }).node;
+  g.supersede(agentActor('alpha'), e1, e2); // e1 is now superseded
+  const before = logCount(g);
+  const bad = async (items: unknown, re: RegExp) => {
+    const r = await t.call('kg_sweep', { items });
+    assert.equal(r.isError, true, JSON.stringify(items));
+    assert.match(r.text, re);
+    assert.equal(logCount(g), before, 'nothing was written for a refused batch');
+    assert.equal(g.getNode(HUMAN, a)!.status, undefined);
+  };
+  // the schema caps an empty or over-long batch before the Graph sees it; the Graph guard is the second line
+  rejects(() => g.sweep(agentActor('alpha'), []), 'invalid', /at least one item/);
+  rejects(() => g.sweep(agentActor('alpha'), Array.from({ length: MAX_SWEEP_ITEMS + 1 }, (_, i) => ({ oldId: `n_x${i}`, newId: `n_y${i}` }))), 'invalid', /At most 20 items/);
+  assert.equal(logCount(g), before, 'neither the empty nor the over-long batch wrote anything');
+  assert.equal((await t.call('kg_sweep', { items: [] })).isError, true, 'the tool schema refuses an empty batch too');
+  await bad([{ oldId: a, newId: a }], /must differ/);
+  await bad([{ oldId: a, newId: a2 }, { oldId: a, newId: b2 }], /listed twice/);
+  await bad([{ oldId: a, newId: 'n_missing' }], /Unknown node/);
+  await bad([{ oldId: a, newId: a2 }, { oldId: 'n_missing', newId: b2 }], /Unknown node/);
+  await bad([{ oldId: a, newId: priv }], /same scope/);
+  await bad([{ oldId: betaPriv.id, newId: b2 }], /Unknown node/);
+  await bad([{ oldId: e1, newId: b2 }], /already superseded/);
+  await bad([{ oldId: a, newId: e1 }], /supersede with a live note/);
+  await t.close();
+});
+
+test('F: kg_capture --supersedes retires the note it replaces in the same atomic write; the flag is refused when it cannot apply', async () => {
+  const { g } = mkGraph();
+  const t = await connect(g, 'alpha');
+  const first = idOf((await t.call('kg_capture', { kind: 'decision', title: 'Use Postgres for storage', fields: decision })).text);
+  const calls = spyAppend(g);
+  const r = await t.call('kg_capture', { kind: 'decision', title: 'Use Postgres 16 for storage', fields: { ...decision, why: 'faster' }, supersedes: first });
+  assert.equal(r.isError, false, r.text);
+  assert.match(r.text, /replaces /);
+  assert.deepEqual(calls, [3], 'new node + supersedes edge + old node patch, one append');
+  const old = g.getNode(HUMAN, first)!;
+  assert.equal(old.status, 'superseded');
+  assert.equal(old.supersededBy, idOf(r.text));
+  assert.ok(g.edgesOf(HUMAN, first).some((e) => e.rel === 'supersedes' && e.from === idOf(r.text) && e.to === first));
+  // negatives: a superseded target, an unknown target, and a target in another scope
+  const twice = await t.call('kg_capture', { kind: 'decision', title: 'A third plan', fields: decision, supersedes: first });
+  assert.equal(twice.isError, true);
+  assert.match(twice.text, /already superseded/);
+  const missing = await t.call('kg_capture', { kind: 'decision', title: 'To nowhere', fields: decision, supersedes: 'n_missing' });
+  assert.equal(missing.isError, true);
+  assert.match(missing.text, /Unknown node/);
+  const priv = idOf((await t.call('kg_upsert_node', { title: 'Private target', scope: 'private' })).text);
+  const cross = await t.call('kg_capture', { kind: 'decision', title: 'Shared over private', fields: decision, supersedes: priv });
+  assert.equal(cross.isError, true);
+  assert.match(cross.text, /same scope/);
+  await t.close();
 });

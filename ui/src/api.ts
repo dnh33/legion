@@ -3,7 +3,7 @@ import type { BoardStatus, BoardView, WorkItem } from '../../src/shared/board';
 import type { BlenderStatusView } from '../../src/shared/blender';
 import type {
   SettingsView, SettingsPatch, McpStatusView,
-  AgentProfile, ApprovalRequest, BoatHealthView, Catalog, ChatMessage, DoctorCheck, LegionConfig, LegionEvent, ModelChoice, StateSnapshot, Task, TasksPage, VmRecord,
+  AgentProfile, ApprovalRequest, BoatHealthView, Catalog, ChatMessage, DoctorCheck, LegionConfig, LegionEvent, ModelChoice, PendingQuestion, QuestionPick, StateSnapshot, Task, TasksPage, VmRecord,
 } from '../../src/shared/types';
 
 declare global {
@@ -158,6 +158,9 @@ export const api = {
   screenshot: (agentId: string) => request<{ format: 'jpeg'; data: string }>('GET', `/api/vms/${encodeURIComponent(agentId)}/screenshot`),
   approvals: () => request<ApprovalRequest[]>('GET', '/api/approvals'),
   decide: (id: string, allow: boolean) => request<{ ok: boolean }>('POST', `/api/approvals/${encodeURIComponent(id)}`, { allow }),
+  questions: () => request<PendingQuestion[]>('GET', '/api/questions'),
+  /** One pick per question, in the order they were asked. Admin only (the POST refuses an MCP-class token). */
+  answerQuestion: (id: string, answers: QuestionPick[]) => request<{ ok: boolean }>('POST', `/api/questions/${encodeURIComponent(id)}`, { answers }),
 };
 
 export type ConnStatus = 'connecting' | 'online' | 'offline';

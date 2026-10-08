@@ -6,8 +6,8 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { basename, join, resolve } from 'node:path';
 import { args, die, isReleaseVersion, listZipNames, readZipEntry } from './lib/release-lib.mjs';
 
-const a = args(process.argv.slice(2), { zip: 'v', out: 'v', notes: 'v', previous: 'v', 'requires-full-install': 'flag' });
-if (!a.zip || !a.out) die('usage: node scripts/release-manifest.mjs --zip <file> --out <folder> [--notes <file>] [--previous <manifest>] [--requires-full-install]');
+const a = args(process.argv.slice(2), { zip: 'v', out: 'v', notes: 'v', previous: 'v', 'full-zip': 'v', 'requires-full-install': 'flag' });
+if (!a.zip || !a.out) die('usage: node scripts/release-manifest.mjs --zip <file> --out <folder> [--notes <file>] [--previous <manifest>] [--full-zip <file>] [--requires-full-install]');
 const zip = readFileSync(resolve(a.zip));
 const sha = (b) => createHash('sha256').update(b).digest('hex');
 // Read the version out of the package's own top folder. Kept as its own literal (and checked against the shared rule below)
@@ -41,9 +41,23 @@ if (a.previous) {
   if (cmp(version, prev.version) <= 0) die(`version ${version} is not greater than the previous release ${prev.version}`);
   if (Date.parse(info.publishedAt) < Date.parse(prev.publishedAt)) die('this package is dated before the previous release');
 }
+// The full package (legion-<version>-win-x64.zip) is what lets a release that changed dependencies self-apply in the
+// app, through the same journaled swap as a code-only update (src/core/updater/package.ts stageFullPackage). Its name,
+// size and sha256 are signed in the manifest's `fullAsset`, so the app authenticates it exactly like the app zip.
+// Without it a `--requires-full-install` release stays notify-only, which is the deliberate fallback.
+let fullAsset;
+if (a['full-zip']) {
+  const fz = readFileSync(resolve(a['full-zip']));
+  const wantName = `legion-${version}-win-x64.zip`;
+  if (basename(a['full-zip']) !== wantName) die(`the full package must be named ${wantName}`);
+  fullAsset = { name: wantName, size: fz.length, sha256: sha(fz) };
+}
+if (a['requires-full-install'] && !fullAsset) console.error('warning: --requires-full-install without --full-zip: installs get a notice only, this release cannot self-apply');
+if (fullAsset && !a['requires-full-install']) console.error('warning: --full-zip without --requires-full-install: the manifest will not declare the dependency change, so installs treat it as a code-only update');
 const manifest = {
   schema: 1, product: 'legion', channel: 'stable', version, publishedAt: info.publishedAt,
   asset: { name: `legion-${version}-app.zip`, size: zip.length, sha256: sha(zip) },
+  ...(fullAsset ? { fullAsset } : {}),
   depsSha256: sha(lock), requiresFullInstall: !!a['requires-full-install'], notes,
 };
 const out = resolve(a.out); mkdirSync(out, { recursive: true });
@@ -59,4 +73,4 @@ const kept = (existsSync(sumsPath) ? readFileSync(sumsPath, 'utf8') : '').split(
 const full = `legion-${version}-win-x64.zip`;
 if (!kept.some((l) => l.slice(66) === full) && existsSync(join(out, full))) kept.push(`${sha(readFileSync(join(out, full)))}  ${full}`);
 writeFileSync(sumsPath, [`${sha(zip)}  legion-${version}-app.zip`, ...kept, `${sha(mBytes)}  legion-update-manifest.json`].join('\n') + '\n');
-console.log(`wrote ${join(out, 'legion-update-manifest.json')} and SHA256SUMS.txt for ${version}. Next: sign it with scripts/release-sign.mjs.`);
+console.log(`wrote ${join(out, 'legion-update-manifest.json')} and SHA256SUMS.txt for ${version}. Next: sign the manifest with scripts/release-sign.mjs and SHA256SUMS.txt with scripts/release-sign-sums.mjs.`);

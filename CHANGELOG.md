@@ -4,6 +4,37 @@ All notable changes are recorded here. The format follows [Keep a Changelog](htt
 
 ## [Unreleased]
 
+## [0.2.5-o] - 2026-10-08
+
+### Added
+
+- **Agents can ask you a question card.** When an agent needs a decision it would otherwise guess at, it can ask you
+  one to four questions, each with two to four choices and a free-text Other, and you answer in a card in the thread:
+  one question per step, the recommended choice marked and shown first, a preview panel for a choice that carries one,
+  a review step before you send, and a step bar that shows which questions are answered. Arrows move, Enter picks, the
+  number keys pick directly, and Esc closes Other. The A key never answers a question card — only a click does. A card
+  left unanswered for ten minutes is declined, and cancelling the run removes its open cards.
+- **A batch of outdated notes can be retired in one action.** The Archivist can propose retiring several notes at once,
+  each with a reason, and you accept or reject the whole batch in the Library in one step; nothing is deleted, the
+  notes are kept and hidden from recall. Capturing a note that replaces an older one can retire the older one in the
+  same action.
+- **Releases carry build provenance and a signed checksum list.** Each release built on GitHub Actions is now recorded
+  with signed build provenance that anyone can check against the repository, and the file of SHA-256 checksums is
+  signed, so the hashes a download is compared against travel under a signature instead of unsigned beside it.
+
+### Changed
+
+- **Agents can hand work to each other with a typed brief.** When one agent asks or tells another, it can send a short
+  contract instead of free text: a goal, one to four checks that decide done, optional context, and what to hand back.
+  A delegation can also set a spend cap for that piece of work, which is never allowed above your own limit. When the
+  answer's first line matches the callee's own word for its outcome (BUILT, PARTIAL, NOT FIXED and so on), the result
+  reports that word as the verdict. A brief is optional; plain messages still work.
+- **An update that changes dependencies now installs from inside Legion.** Such a release used to show a notice and ask
+  you to download the source and run setup. It now ships a signed full package, which Legion downloads and applies the
+  same journaled way as a normal update, replacing its own libraries along with the code. It is a larger download, and
+  the update panel says so. A dependency-change release that ships no full package still shows a notice, and
+  reinstalling from the source still works.
+
 ## [0.2.5-n] - 2026-10-07
 
 ### Added

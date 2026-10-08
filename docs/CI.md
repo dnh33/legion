@@ -30,7 +30,7 @@ It installs the live latest release by design, so it is not part of the per-push
 
 ## Release build (separate workflow)
 
-[.github/workflows/release-build.yml](../.github/workflows/release-build.yml) builds the Windows release package on a `v*` tag push, or by hand with an optional `ref` (a dry run), on `windows-latest` with the maintainer's Node version. It uploads one artifact: both zips, the unsigned manifest, `SHA256SUMS.txt` and the two installers, and lists every hash in the run summary. It has a read-only token, no secrets and no npm cache, and it never signs or publishes: that stays on the maintainer's PC ([SHIPPING.md](SHIPPING.md), step 4a). `test/install-scripts.test.ts` pins that shape.
+[.github/workflows/release-build.yml](../.github/workflows/release-build.yml) builds the Windows release package on a `v*` tag push, or by hand with an optional `ref` (a dry run), on `windows-latest` with the maintainer's Node version. It uploads one artifact: both zips, the unsigned manifest, `SHA256SUMS.txt` and the two installers, and lists every hash in the run summary. A second job (`attest`) records signed SLSA build provenance for that artifact on GitHub's attestations API; it is the only job with a write scope, and only the three attestation scopes (`id-token`, `attestations`, `artifact-metadata`), while the build job stays read-only. The workflow uses no secrets and no npm cache, and it never signs the release or publishes: that stays on the maintainer's PC ([SHIPPING.md](SHIPPING.md), step 4a). `test/install-scripts.test.ts` pins that shape, including the exact write scopes the attest job may hold.
 
 ## Before and after
 

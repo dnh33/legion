@@ -155,6 +155,18 @@ export interface CaptureResult {
 }
 export interface SupersedeResult { mode: 'direct' | 'proposal'; old: KgNode; proposal?: KgNode; notes: string[] }
 export interface MergeResult { mode: 'direct' | 'proposal'; keep: KgNode; dropped: string[]; proposal?: KgNode; notes: string[] }
+
+/** One retirement in a sweep: an outdated note `oldId` replaced by the live note `newId`, with an optional reason. */
+export interface SweepItem { oldId: string; newId: string; reason?: string }
+export interface SweepResult {
+  mode: 'direct' | 'proposal';
+  /** The items as validated and carried out (or proposed). */
+  items: SweepItem[];
+  /** The old note ids retired, in item order (direct mode; empty when the whole batch waits for the human). */
+  retired: string[];
+  proposal?: KgNode;
+  notes: string[];
+}
 /** The only things a run briefing may show (see Graph.briefingParts). */
 export interface BriefingParts {
   /** The ACTIVE section of the bot's own working memory. */

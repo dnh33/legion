@@ -1,9 +1,11 @@
 name: Release build
 
-# Builds the Windows release package on a `v*` tag push, or by hand (with an optional ref, for a dry run), and uploads it as ONE
-# workflow artifact: both zips, the UNSIGNED update manifest, SHA256SUMS.txt and the two one-line installers. That is all it does.
+# Builds the Windows release package on a `v*` tag push, or by hand (with an optional ref, for a dry run): the `build` job uploads
+# ONE workflow artifact (both zips, the UNSIGNED update manifest, SHA256SUMS.txt and the two one-line installers) and the `attest`
+# job records signed SLSA build provenance for that artifact on GitHub's attestations API. That is all it does.
 # Signing, the pre-flight gate, verification and publishing stay on the maintainer's PC (docs/SHIPPING.md): the signing key never
-# comes here, this workflow has no secrets and no write permission, and it never creates or uploads a release.
+# comes here, the workflow uses no secrets, it never creates or uploads a release, and only the `attest` job holds write scopes
+# (id-token, attestations and artifact-metadata, the three actions/attest documents). The `build` job stays read-only.
 #
 # Runner: windows-latest. build-package.mjs builds the Windows x64 package and refuses any other platform (it ships the Windows
 # electron.exe and the SDK's win32 claude.exe from the dependency install). Node is pinned to the maintainer's PC version: the zips
@@ -31,6 +33,9 @@ jobs:
     if: github.repository == 'dnh33/legion'
     runs-on: windows-latest
     timeout-minutes: 60
+    outputs:
+      # The artifact name (legion-<v>-release or legion-<v>-DRYRUN-<sha7>), so the attest job downloads exactly this build.
+      artifact: ${{ steps.v.outputs.artifact }}
     env:
       # GitHub sets CI=true, and scripts/postinstall.mjs skips the Electron download when CI or ELECTRON_SKIP_BINARY_DOWNLOAD is
       # set. The package ships that Electron, so both are cleared here.
@@ -131,3 +136,30 @@ jobs:
           retention-days: 14
           # The zips are already compressed.
           compression-level: 0
+
+  # Build attestation. This runs as its own job because artifact attestations need write scopes the build job must not hold:
+  # id-token, attestations and artifact-metadata are exactly the three actions/attest documents for a provenance attestation.
+  # The build job above stays read-only. This job only reads the uploaded artifact and records signed SLSA build provenance
+  # (in-toto, Sigstore-signed) over its files on the repository's attestations API; it needs no secret, never publishes a
+  # release, and the release signing key is not here. Verify later with `gh attestation verify` (docs/SHIPPING.md).
+  attest:
+    name: attest the build
+    needs: build
+    if: github.repository == 'dnh33/legion'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+      artifact-metadata: write
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: ${{ needs.build.outputs.artifact }}
+          path: ${{ runner.temp }}/legion-attest
+      - name: Generate SLSA build provenance for the release artifact
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          # One glob covers every file in the artifact: both zips, the manifest, SHA256SUMS.txt and the two installers.
+          subject-path: ${{ runner.temp }}/legion-attest/*

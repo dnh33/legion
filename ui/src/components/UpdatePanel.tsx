@@ -8,7 +8,7 @@ interface UpdateStatus {
   mode: 'apply' | 'checkout' | 'unwritable' | 'unsupported'; keyConfigured: boolean; installed: { version: string };
   settings: { checkEnabled: boolean; autoInstallWhenIdle: boolean; intervalHours: number };
   check: { lastCheckedAt?: string; lastResult?: string; nextAllowedAt?: string };
-  available?: { version: string; size: number; notes: string; publishedAt: string; requiresFullInstall: boolean };
+  available?: { version: string; size: number; notes: string; publishedAt: string; requiresFullInstall: boolean; canFullInstall?: boolean };
   phase: 'idle' | 'checking' | 'awaiting-approval' | 'downloading' | 'staged' | 'committing';
   progress?: { bytes: number; total: number }; error?: string; staged?: { version: string }; consent: boolean; readyToApply: boolean;
   busy: { idle: boolean; reasons: string[] };
@@ -54,7 +54,7 @@ export function UpdatePanel() {
   if (!st) return <div className="upd">{err ? <p className="upd-err" role="alert">{err}</p> : <p className="upd-muted">Checking update state{'…'}</p>}</div>;
   const a = st.available;
   const canRestart = !!bridge().updateRestartNow;
-  const notifyOnly = !!a && (st.mode !== 'apply' || a.requiresFullInstall);
+  const notifyOnly = !!a && (st.mode !== 'apply' || (a.requiresFullInstall && !a.canFullInstall));
   const patch = (p: Partial<UpdateStatus['settings']>) => act(() => request('PATCH', '/api/update/settings', p));
   return (
     <div className="upd" aria-label="Updates">
@@ -82,9 +82,12 @@ export function UpdatePanel() {
           <a className="upd-muted" href={`https://github.com/dnh33/legion/releases/tag/v${a.version}`} target="_blank" rel="noreferrer noopener">Release notes</a>
           {a.notes && <pre className="upd-notes">{a.notes}</pre>}
           {notifyOnly && st.mode === 'checkout' && <p className="upd-muted">This is a git checkout. Update it yourself: <code>git pull</code>, <code>npm ci</code>, <code>npm run build</code>. Legion does not run these for you.</p>}
-          {notifyOnly && st.mode !== 'checkout' && (a.requiresFullInstall
+          {notifyOnly && st.mode !== 'checkout' && (a.requiresFullInstall && !a.canFullInstall
             ? <p className="upd-muted">This release changes dependencies, so it cannot be installed from inside Legion. Download the source of the release and run setup.cmd, as for a first install.</p>
             : <p className="upd-muted">This install cannot be updated from inside Legion ({st.mode === 'unwritable' ? 'the folder is not writable' : 'unsupported system'}).</p>)}
+          {a.requiresFullInstall && a.canFullInstall && !st.staged && (
+            <p className="upd-muted">This release changes dependencies, so the update includes them: a larger download, applied the same way.</p>
+          )}
           {!notifyOnly && !st.staged && IDLE_FOR_INSTALL.includes(st.phase) && (
             <div className="upd-actions"><button type="button" className="btn primary" disabled={busy} onClick={() => void act(() => request('POST', '/api/update/install'))}>Download update</button></div>
           )}

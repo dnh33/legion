@@ -100,12 +100,23 @@ test('install.yml clears CI and ELECTRON_SKIP_BINARY_DOWNLOAD for install.sh and
 // The release build (ladder 33): Actions builds and uploads ONE artifact; signing and publishing stay on the PC (docs/SHIPPING.md).
 const releaseYml = raw('.github/workflows/release-build.yml').replace(/\r\n/g, '\n');
 
-test('release-build.yml builds on a v* tag or by hand, read-only, with no secrets, no cache and no release upload', () => {
+test('release-build.yml keeps the build job read-only, with no secrets, no cache and no release upload', () => {
   const code = releaseYml.replace(/^\s*#.*$/gm, '');
   assert.match(releaseYml, /^on:\n {2}push:\n {4}tags: \['v\*'\]\n {2}workflow_dispatch:$/m);
   assert.doesNotMatch(code, /pull_request/);
-  assert.match(releaseYml, /^permissions:\n {2}contents: read\n\n/m, 'only contents: read, nothing else');
-  assert.doesNotMatch(code, /permissions:\s*\n\s+\w+: write|: write\b|write-all/);
+  assert.match(releaseYml, /^permissions:\n {2}contents: read\n\n/m, 'the workflow default is contents: read, nothing else');
+  // Only the attest job may hold write scopes, and only the three actions/attest documents for an artifact attestation
+  // (id-token, attestations, artifact-metadata). The build job — and every other job — must stay read-only, and nothing
+  // may write contents or use write-all. (The attestation scopes were agreed as the narrow exception to the old blanket
+  // rule; the key still never comes to Actions.)
+  assert.doesNotMatch(code, /write-all/, 'never grant write-all');
+  assert.doesNotMatch(code, /contents: write/, 'the release workflow never writes contents');
+  const writeScopes = [...code.matchAll(/^ +([\w-]+): write$/gm)].map((m) => m[1]).sort();
+  assert.deepEqual(writeScopes, ['artifact-metadata', 'attestations', 'id-token'], "only the attest job's scopes may be write");
+  const jobs = releaseYml.slice(releaseYml.indexOf('\njobs:'));
+  const buildJob = jobs.slice(jobs.indexOf('\n  build:'), jobs.indexOf('\n  attest:'));
+  assert.ok(buildJob.length > 0, 'the build job must exist');
+  assert.doesNotMatch(buildJob, /: write/, 'the build job stays read-only');
   assert.doesNotMatch(code, /secrets\.|GITHUB_TOKEN|github\.token/, 'no secrets or token used');
   assert.doesNotMatch(code, /cache:|actions\/cache/, 'a release is never built from a restored cache');
   assert.doesNotMatch(code, /gh release|softprops|action-gh-release|upload-release|release-sign|\.pem|\.key/i, 'no publishing or signing here');
@@ -129,6 +140,23 @@ test('release-build.yml builds a release only from a commit on main, and names a
   assert.match(push, /^ {12}git merge-base --is-ancestor HEAD origin\/main\n {12}if \(\$LASTEXITCODE -ne 0\) \{ throw/m);
   assert.match(releaseYml, /\$artifact = if \(\$env:EVENT -eq 'push'\) \{ "legion-\$v-release" \} else \{ "legion-\$v-DRYRUN-/);
   assert.match(releaseYml, /^ {10}name: \$\{\{ steps\.v\.outputs\.artifact \}\}$/m, 'the artifact is named by the build kind');
+});
+
+test('release-build.yml attests the artifact in a separate job that is the only writer, over the uploaded files', () => {
+  const attest = releaseYml.slice(releaseYml.indexOf('\n  attest:'));
+  assert.ok(attest.length > 0, 'the attest job must exist');
+  // exactly the scopes actions/attest documents for an artifact attestation, and no more
+  assert.match(attest, /^ {4}permissions:\n {6}contents: read\n {6}id-token: write\n {6}attestations: write\n {6}artifact-metadata: write\n {4}steps:$/m,
+    'the attest job declares exactly the scopes actions/attest documents');
+  assert.match(attest, /^ {4}needs: build$/m, 'attestation runs after the build, over its artifact');
+  assert.match(attest, /^ {4}runs-on: ubuntu-latest$/m, 'attestation does not need Windows');
+  // it downloads exactly the artifact the build job uploaded, then attests the files in it
+  assert.match(attest, /^ {10}name: \$\{\{ needs\.build\.outputs\.artifact \}\}$/m, "it downloads the build job's named artifact");
+  assert.match(attest, /^ {10}subject-path: \$\{\{ runner\.temp \}\}\/legion-attest\/\*$/m);
+  assert.match(attest, /actions\/download-artifact@[0-9a-f]{40}\b/, 'the artifact is fetched with a pinned action');
+  assert.match(attest, /actions\/attest@[0-9a-f]{40}\b/, 'provenance is generated with a pinned action');
+  // and the build job exposes its artifact name so the attest job can name it
+  assert.match(releaseYml, /^ {6}artifact: \$\{\{ steps\.v\.outputs\.artifact \}\}$/m, 'the build job outputs its artifact name');
 });
 
 test('ci.yml keeps only the fast syntax check for the installers; the smoke jobs moved to install.yml', () => {

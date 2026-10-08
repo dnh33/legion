@@ -8,8 +8,27 @@ import { OVERRIDE_MODELS, BridgeError } from './bridge.js';
 import type { Bridge } from './bridge.js';
 import { overrideAllowed, overrideRefusal } from './model-cap.js';
 import { CLAUDE_NOT_CONFIGURED } from './boat-health.js';
+import { DONE_WHEN_MAX, DONE_WHEN_MIN, GOAL_MAX } from './brief.js';
+import { validateQuestions, type QuestionBroker } from './questions.js';
+import type { PendingQuestion } from '../shared/types.js';
 
 const MAX_CHARS = 12_000;
+
+/**
+ * The typed brief a lead may attach to ask/tell (Fascia 3b, plan-fascia.md 6.3). Prose still works; when a brief is
+ * given the bridge renders it as a short header into the callee's message. `done_when` is an array of one to four
+ * observable checks, because the plan gate (3c) edits one check at a time. `budget.usd` is clamped by the owner's
+ * claude.maxBudgetUsd; `priority` is accepted but nothing orders by it in v1.
+ */
+export const briefSchema = z.object({
+  goal: z.string().min(1).max(GOAL_MAX).describe('The one outcome, in at most 300 characters'),
+  done_when: z.array(z.string().min(1)).min(DONE_WHEN_MIN).max(DONE_WHEN_MAX)
+    .describe('One to four observable checks that decide done'),
+  context: z.array(z.string().min(1)).optional().describe('Pointers the agent needs: file:line refs, task ids'),
+  returns: z.string().optional().describe('What the agent should hand back'),
+  budget: z.object({ usd: z.number().positive().finite().optional() }).optional().describe('A spend cap for the child run in USD; never above the owner\'s own per-run limit'),
+  priority: z.enum(['low', 'normal', 'high']).optional().describe('Advisory only in v1'),
+});
 
 type ToolResult = { content: { type: 'text'; text: string }[]; isError?: boolean };
 const ok = (text: string): ToolResult => ({ content: [{ type: 'text', text }] });
@@ -38,6 +57,10 @@ export interface AgentToolsCtx {
   /** False while Claude is known not to be set up on boat.dev: vm_claude is left out of the tool list (default true). */
   claudeAvailable?: boolean;
   bridge: Bridge;
+  /** The structured-question broker (the ask_user_question tool waits on it). Omitted only where no broker is reachable; the tool then reports it is unavailable. */
+  questions?: QuestionBroker;
+  /** Who woke this run, when another bot did: shown on the question card as an approval card shows it. */
+  origin?: PendingQuestion['origin'];
 }
 
 /**
@@ -67,21 +90,34 @@ function bridgeTools(ctx: AgentToolsCtx) {
   );
   const ask = tool(
     'ask',
-    'Send a message to another Legion agent and wait for its answer. Reuses your ongoing thread with it unless fresh=true. Use when you need the result before continuing.',
+    'Send a message to another Legion agent and wait for its answer. Reuses your ongoing thread with it unless fresh=true. Use when you need the result before continuing. Give a brief (goal + done_when checks) to hand off a typed task; message alone still works for prose.',
     {
       agent: z.string().describe('Agent id or name'),
-      message: z.string().min(1),
+      message: z.string().min(1).optional().describe('The task in prose. Optional when you give a brief; when both are given the brief comes first and the prose follows.'),
+      brief: briefSchema.optional().describe('A typed task: goal, one to four done_when checks, optional context, returns, budget and priority.'),
       fresh: z.boolean().optional().describe('Start a new thread instead of continuing the existing one'),
       timeoutSeconds: z.number().positive().max(3600).optional().describe('Default 600'),
       model: modelParam,
     },
-    (a) => guard(async () => bridge.ask(taskId, a.agent, a.message, { fresh: a.fresh, timeoutSeconds: a.timeoutSeconds, model: await bridge.resolveModel(a.model) })),
+    (a) => guard(async () => {
+      if (!a.message?.trim() && !a.brief) throw new BridgeError('Give a message or a brief.');
+      return bridge.ask(taskId, a.agent, a.message ?? '', { fresh: a.fresh, timeoutSeconds: a.timeoutSeconds, model: await bridge.resolveModel(a.model), brief: a.brief });
+    }),
   );
   const tell = tool(
     'tell',
-    'Send a message to another Legion agent without waiting. Its answer arrives later as a new message in your task. Use for long or parallel work.',
-    { agent: z.string().describe('Agent id or name'), message: z.string().min(1), fresh: z.boolean().optional(), model: modelParam },
-    (a) => guard(async () => bridge.tell(taskId, a.agent, a.message, { fresh: a.fresh, model: await bridge.resolveModel(a.model) })),
+    'Send a message to another Legion agent without waiting. Its answer arrives later as a new message in your task. Use for long or parallel work. Give a brief (goal + done_when checks) to hand off a typed task; message alone still works for prose.',
+    {
+      agent: z.string().describe('Agent id or name'),
+      message: z.string().min(1).optional().describe('The task in prose. Optional when you give a brief; when both are given the brief comes first and the prose follows.'),
+      brief: briefSchema.optional().describe('A typed task: goal, one to four done_when checks, optional context, returns, budget and priority.'),
+      fresh: z.boolean().optional(),
+      model: modelParam,
+    },
+    (a) => guard(async () => {
+      if (!a.message?.trim() && !a.brief) throw new BridgeError('Give a message or a brief.');
+      return bridge.tell(taskId, a.agent, a.message ?? '', { fresh: a.fresh, model: await bridge.resolveModel(a.model), brief: a.brief });
+    }),
   );
   const taskResult = tool(
     'task_result',
@@ -219,10 +255,39 @@ export function buildAgentToolsServer(ctx: AgentToolsCtx): McpSdkServerConfigWit
     }, { touch: false }),
   );
 
+  const askUserQuestion = tool(
+    'ask_user_question',
+    'Ask the owner a structured question with set choices instead of asking in plain text. Use 1-4 questions, each with 2-4 options and an optional Other the owner can type. The owner sees a clickable card in the chat thread, picks answers one at a time, reviews them, then submits; this call returns their answers. Mark one option recommended: true to show a Recommended badge and put it first. Prefer this over writing a question in your reply when you need a decision from the owner.',
+    {
+      questions: z.array(z.object({
+        question: z.string().describe('The question itself, ending in a question mark.'),
+        header: z.string().describe('A short label for the step (a few words).'),
+        multiSelect: z.boolean().optional().describe('Let the owner pick more than one option.'),
+        options: z.array(z.object({
+          label: z.string().describe('The choice itself (a few words).'),
+          description: z.string().describe('What choosing this option means.'),
+          preview: z.string().optional().describe('Optional longer plain text (code, a plan, a diff) the card shows in a side panel when the option is focused. Never HTML.'),
+          recommended: z.boolean().optional().describe('Mark the option you recommend. The card shows a Recommended badge and lists it first. Mark at most one option per question.'),
+        })).describe('2-4 options.'),
+      })).describe('1-4 questions.'),
+    },
+    async (args) => {
+      const v = validateQuestions(args);
+      if (!v.ok) return fail(new Error(v.error));
+      if (!ctx.questions) return fail(new Error('Structured questions are not available in this run.'));
+      const result = await ctx.questions.request(ctx.taskId, agentId, v.questions, ctx.origin);
+      if (!result.answered || !result.picks) {
+        return ok('The owner did not answer this question (it was declined, cancelled or timed out). Continue without it, or ask again later; do not repeat the same question immediately.');
+      }
+      const answers = v.questions.map((q, i) => ({ question: q.question, picked: result.picks![i]?.labels ?? [], other: result.picks![i]?.other ?? null }));
+      return ok(JSON.stringify({ answers }, null, 2));
+    },
+  );
+
   return createSdkMcpServer({
     name: 'legion',
     version: '0.1.0',
     alwaysLoad: true, // never deferred behind ToolSearch: agents call mcp__legion__* directly
-    tools: [...bridgeTools(ctx), ...(ctx.vmEnabled ? [vmStart, vmExec, vmWriteFile, vmReadFile, ...(ctx.claudeAvailable === false ? [] : [vmClaude]), vmDesktop, vmStop, vmUsage] : [])],
+    tools: [...bridgeTools(ctx), askUserQuestion, ...(ctx.vmEnabled ? [vmStart, vmExec, vmWriteFile, vmReadFile, ...(ctx.claudeAvailable === false ? [] : [vmClaude]), vmDesktop, vmStop, vmUsage] : [])],
   });
 }
