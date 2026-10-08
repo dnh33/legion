@@ -24,4 +24,4 @@ const sigText = JSON.stringify({ keyId: embedded.id, alg: 'ed25519', sig: sign(n
 const v = trust.verifyManifestSignature(bytes, sigText, trust.UPDATE_KEYS);
 if (!v.ok) die(`the signature did not verify: ${v.reason}`);
 writeFileSync(`${mPath}.sig`, sigText + '\n');
-console.log(`wrote ${mPath}.sig (key ${embedded.id}, verified with the app's own verifier). Publish: the zip, the manifest, the .sig and SHA256SUMS.txt on the GitHub release v<version>.`);
+console.log(`wrote ${mPath}.sig (key ${embedded.id}, verified with the app's own verifier). Next: sign SHA256SUMS.txt with scripts/release-sign-sums.mjs. Publish the zip, the manifest, the .sig, SHA256SUMS.txt and its .sig on the GitHub release v<version>.`);

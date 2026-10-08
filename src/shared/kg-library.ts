@@ -147,12 +147,12 @@ export function undoState(row: Pick<KgActivityRow, 'undoable' | 'undone' | 'bloc
 
 const KIND_LABEL: Record<string, string> = {
   create: 'created', update: 'edited', proposal: 'proposed', forget: 'forgot', link: 'linked', unlink: 'unlinked',
-  supersede: 'superseded', capture: 'captured', wm: 'wrote working memory', merge: 'merged', episode: 'recorded an episode',
+  supersede: 'superseded', capture: 'captured', wm: 'wrote working memory', merge: 'merged', episode: 'recorded an episode', sweep: 'retired a batch',
 };
 export const activityVerb = (kind: string): string => KIND_LABEL[kind] ?? kind;
 
 export const inboxKindLabel = (k: KgInboxRow['kind']): string =>
-  k === 'edit' ? 'Edit of a human note' : k === 'supersede' ? 'Replace a note' : k === 'merge' ? 'Merge notes' : 'New note';
+  k === 'edit' ? 'Edit of a human note' : k === 'supersede' ? 'Replace a note' : k === 'sweep' ? 'Retire several notes' : k === 'merge' ? 'Merge notes' : 'New note';
 
 /** Agents that have pending rows, with counts, most first (feeds the "filter by bot" menu). */
 export function agentCounts(rows: readonly Pick<KgInboxRow, 'agentId'>[]): Array<{ agentId: string; count: number }> {

@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { Graph } from '../src/core/kg/graph.js';
 import { agentActor, HUMAN } from '../src/core/kg/types.js';
 import {
-  activityVerb, agentCounts, bulkSummary, collapseDiff, diffChanged, diffStats, editDelta, humanizeIds, idsIn, lineDiff, parseTags, planBulk, previewText, skipNote, undoState,
+  activityVerb, agentCounts, bulkSummary, collapseDiff, diffChanged, diffStats, editDelta, humanizeIds, idsIn, inboxKindLabel, lineDiff, parseTags, planBulk, previewText, skipNote, undoState,
 } from '../src/shared/kg-library.js';
 import { mkGraph, note } from './kg-helpers.js';
 
@@ -135,7 +135,10 @@ test('undoState follows the real Graph for every case the feed can show', () => 
 
 test('small label helpers', () => {
   assert.equal(activityVerb('capture'), 'captured');
+  assert.equal(activityVerb('sweep'), 'retired a batch');
   assert.equal(activityVerb('something_new'), 'something_new', 'unknown kinds are shown as they are');
+  assert.equal(inboxKindLabel('sweep'), 'Retire several notes');
+  assert.equal(inboxKindLabel('supersede'), 'Replace a note');
   assert.deepEqual(agentCounts([{ agentId: 'b' }, { agentId: 'a' }, { agentId: 'b' }]), [{ agentId: 'b', count: 2 }, { agentId: 'a', count: 1 }]);
   assert.equal(previewText('  one   two\nthree  '), 'one two three');
   const long = ('word '.repeat(80)).trim();

@@ -83,7 +83,7 @@ export function renderCapabilities(agent: AgentProfile, ctx: FactsContext): stri
     // One line, and only when the tool is really registered. A stale note is retired with kg_supersede rather than
     // replaced by a near-duplicate, and on a shared note that lands as a proposal the owner accepts - which is the
     // difference between a Library that stays true and one that accumulates contradictions.
-    lines.push('- When a note is outdated, kg_supersede retires it instead of you capturing a near-duplicate. On a shared note it becomes a proposal the owner accepts, not a change you make.');
+    lines.push('- When a note is outdated, kg_supersede retires it (a proposal on shared notes). kg_sweep retires a batch as one proposal.');
   }
   if (agent.id === 'sentinel') {
     lines.push('- Scheduling: checks run only while a task is running; scheduled runs are planned, not available yet.');

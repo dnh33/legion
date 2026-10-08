@@ -73,4 +73,4 @@ const kept = (existsSync(sumsPath) ? readFileSync(sumsPath, 'utf8') : '').split(
 const full = `legion-${version}-win-x64.zip`;
 if (!kept.some((l) => l.slice(66) === full) && existsSync(join(out, full))) kept.push(`${sha(readFileSync(join(out, full)))}  ${full}`);
 writeFileSync(sumsPath, [`${sha(zip)}  legion-${version}-app.zip`, ...kept, `${sha(mBytes)}  legion-update-manifest.json`].join('\n') + '\n');
-console.log(`wrote ${join(out, 'legion-update-manifest.json')} and SHA256SUMS.txt for ${version}. Next: sign it with scripts/release-sign.mjs.`);
+console.log(`wrote ${join(out, 'legion-update-manifest.json')} and SHA256SUMS.txt for ${version}. Next: sign the manifest with scripts/release-sign.mjs and SHA256SUMS.txt with scripts/release-sign-sums.mjs.`);

@@ -124,12 +124,12 @@ git tag pre-merge-<name> && git push cloud pre-merge-<name>
 
 ### 4a. Build on GitHub Actions (the normal path)
 
-The workflow `.github/workflows/release-build.yml` builds the package on a Windows runner. It never signs and never publishes a release.
+The workflow `.github/workflows/release-build.yml` builds the package on a Windows runner, then records **signed SLSA build provenance** for the artifact (the `attest` job). It never signs the release and never publishes it: signing and publishing stay on the PC, and the signing key never goes to Actions. The `build` job is read-only; only the `attest` job holds write scopes, and only the three attestation scopes (`id-token`, `attestations`, `artifact-metadata`).
 
 1. Make sure `docs/release-notes/<v>.txt` is committed in the release PR. It is the text the updater shows. Max 2000 chars.
 2. After the release commit is on main, push the tag: `git tag v<v> && git push cloud v<v>`. The tag push starts "Release build" in Actions. Do not push test tags. For a dry run, use the manual run with `ref`.
 3. Check the run is the tag build of the reviewed commit, then download it. `gh run view <run-id> --repo dnh33/legion --json event,headBranch,headSha,path` must say `event` = `push`, `headBranch` = `v<v>`, `path` = `.github/workflows/release-build.yml`, and `headSha` = `git rev-parse v<v>^{commit}`, a commit on main (`git merge-base --is-ancestor <sha> cloud/main`). Only a tag build makes an artifact named `legion-<v>-release`; a manual run makes `legion-<v>-DRYRUN-<sha7>`, which is never signed. Then: `gh run download <run-id> --repo dnh33/legion -n legion-<v>-release -D D:/bots/legion-pkg-<v>`.
-4. Check the hashes. Compare `sha256sum` (or `Get-FileHash`) of each file with SHA256SUMS.txt and with the hashes in the run's job summary. Compare install.ps1 and install.sh with the files in your own checkout at the tag. Use the working-tree files, not `git show`, which drops the CRLF line endings of .ps1. Check `build-info.json` inside app.zip: `commit` is the same SHA as in step 3, and `dirty` is `false`. A match proves the download is what the runner produced from that commit. It does not prove what the runner ran: the dependency install runs on the runner too. Until checks RB1 and RB2 in `claude/tracker-pc-checks.md` have passed, also build app.zip on the PC from the tag (step 4 below) and sign only if its SHA-256 equals the artifact's.
+4. Check the hashes. Compare `sha256sum` (or `Get-FileHash`) of each file with SHA256SUMS.txt and with the hashes in the run's job summary. Compare install.ps1 and install.sh with the files in your own checkout at the tag. Use the working-tree files, not `git show`, which drops the CRLF line endings of .ps1. Check `build-info.json` inside app.zip: `commit` is the same SHA as in step 3, and `dirty` is `false`. A match proves the download is what the runner produced from that commit. It does not prove what the runner ran: the dependency install runs on the runner too. The run also attests the artifact, so check its provenance: `gh attestation verify D:/bots/legion-pkg-<v>/legion-<v>-win-x64.zip --repo dnh33/legion` (repeat per file). Until checks RB1 and RB2 in `claude/tracker-pc-checks.md` have passed, also build app.zip on the PC from the tag (step 4 below) and sign only if its SHA-256 equals the artifact's.
 5. If the release needs a full install (dependencies changed), re-run release-manifest on the PC with `--requires-full-install --notes docs/release-notes/<v>.txt` against the downloaded app.zip, into the same folder. It rewrites the manifest and its SHA256SUMS line.
 6. Then skip steps 4 and 5 below and go on from step 6 (Sign) of this section: 6, 7, 9 and 10 as written (8 is done, because the tag is on main). Sign on the PC. The key never goes to Actions.
 
@@ -158,11 +158,17 @@ node scripts/release-manifest.mjs --zip D:/bots/legion-pkg-<v>/legion-<v>-app.zi
 
 Passing the 285 MB zip fails with a naming error that does not explain which zip is expected.
 
-### 6. Sign
+### 6. Sign (the manifest **and** SHA256SUMS)
 
 ```
-node scripts/release-sign.mjs --key <key.pem> --manifest D:/bots/legion-pkg-<v>/legion-update-manifest.json
+node scripts/release-sign.mjs      --key <key.pem> --manifest D:/bots/legion-pkg-<v>/legion-update-manifest.json
+node scripts/release-sign-sums.mjs --key <key.pem> --sums     D:/bots/legion-pkg-<v>/SHA256SUMS.txt
 ```
+
+The first signs the update manifest, which the app checks before it stages an update. The second signs `SHA256SUMS.txt`,
+so the hashes a downloader compares are covered by a signature and not only by a file that travelled beside them; it
+writes `SHA256SUMS.txt.sig` next to it. Both use the same k1 key, both write a detached Ed25519 signature in the same
+`{"keyId","alg","sig"}` shape, and both refuse a key that is not the one the app trusts.
 
 **The key must be outside every git work tree.** The vault path
 `D:\the owner's vault\04-claude\credentials\legion-updater\legion-update-k1.key.pem` is *inside* the owner's vault's own git repo
@@ -178,7 +184,9 @@ node scripts/release-verify.mjs   --dir D:/bots/legion-pkg-<v>
 
 This answers the one question `npm test` cannot: *can an install that exists today actually receive this release?*
 It checks version reciprocity, lockfile-vs-dependency hashing, artifact/manifest/sha agreement, notes presence, and
-verifies the signature **with the app's own verifier and its own baked-in keys**.
+verifies the signature **with the app's own verifier and its own baked-in keys**. It also checks `SHA256SUMS.txt.sig`
+against the same key when that file is present (it is optional, so a release signed before the sums signer existed
+still passes).
 
 **Do not publish over a failure.** Two warnings are known and benign on Windows installs:
 `lettered patch: only installs that ALREADY support lettered versions…` (safe once any `-a` has shipped) and
@@ -215,11 +223,11 @@ Read every removed test line. No test may vanish silently.
 
 ```
 gh release create <v> --repo dnh33/legion --title "..." --notes-file <file> --draft
-gh release upload <v> --repo dnh33/legion <the five assets>
+gh release upload <v> --repo dnh33/legion <the six assets>
 gh release edit <v> --repo dnh33/legion --draft=false
 ```
 
-Five assets: `app.zip`, `win-x64.zip`, `legion-update-manifest.json`, its `.sig`, `SHA256SUMS.txt`.
+Six assets: `app.zip`, `win-x64.zip`, `legion-update-manifest.json`, its `.sig`, `SHA256SUMS.txt` and `SHA256SUMS.txt.sig`.
 
 **Why draft first:** `gh release create` without `--draft` publishes immediately. A draft lets you upload, verify,
 and abort without anything being visible. On 2026-10-04 this is exactly what made a rollback possible — the release
@@ -238,6 +246,37 @@ curl -sL https://github.com/dnh33/legion/releases/latest/download/legion-update-
 Check `version` **and** `requiresFullInstall: false`. Download the manifest, its `.sig`, the `app.zip` and
 `SHA256SUMS.txt` into a fresh folder and run `release-verify.mjs` **on those fetched bytes**. Local verification
 proves the folder is right; this proves a real install can receive it.
+
+---
+
+## Protect the `v*` release tags (one-time, owner only)
+
+A release is identified by a `v*` tag, so a tag anyone can move or recreate is a release anyone can re-point at other
+bytes. Apply the tag protection ruleset once, as the repository owner:
+
+```
+node scripts/gh-tag-ruleset.mjs            # prints the ruleset and the exact gh command; touches nothing
+node scripts/gh-tag-ruleset.mjs --apply    # creates it (needs gh authenticated with admin on dnh33/legion)
+```
+
+It creates an active `tag` ruleset over `refs/tags/v*` that restricts **creation, update and deletion** to the repository
+admin role (the owner) and no one else. Running `--apply` again updates the same ruleset by name instead of failing. The
+script sends the official `POST /repos/{owner}/{repo}/rulesets` body (the field sources are in its header comment); to do
+it by hand:
+
+```
+node scripts/gh-tag-ruleset.mjs --repo dnh33/legion > ruleset.json
+gh api --method POST repos/dnh33/legion/rulesets --input ruleset.json
+```
+
+Confirm it took, then leave it alone:
+
+```
+gh api repos/dnh33/legion/rulesets --jq '.[] | select(.target=="tag") | .name'
+```
+
+This is the owner's own `gh`, never Actions: the ruleset step is the one place a write scope is involved, and it carries
+no secret of its own. A changed ruleset is a deliberate, manual act.
 
 ---
 

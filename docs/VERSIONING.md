@@ -90,7 +90,7 @@ release that cannot self-apply is never a plain PATCH.
    (out-dir must be **outside** the repo; use a native `D:/...` path, never `/d/...`).
 5. `node scripts/release-manifest.mjs --zip ... --out ... --notes ...`
 6. `node scripts/release-sign.mjs --key ... --manifest ...`
-7. `gh release create v<version> --target main` with all five assets.
+7. `gh release create v<version> --target main` with all six assets.
 8. Confirm `releases/latest/download/legion-update-manifest.json` serves the new version.
    Freshly uploaded assets return HTTP 503 for roughly a minute while GitHub's CDN warms;
    that is not a failure — re-check before concluding a release is broken.
