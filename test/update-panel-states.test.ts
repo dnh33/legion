@@ -119,3 +119,69 @@ describe('update panel: failures say something a person can act on', () => {
     }
   });
 });
+
+describe('update panel: the check control and the download progress tell the truth', () => {
+  it('the check control is a real busy state: a spinner and "Checking update state", versus "Check now" when idle', () => {
+    assert.match(panel, /aria-busy=\{checking\}/, 'the button never reports that a check is running');
+    assert.match(panel, /className="upd-spin"/, 'there is no spinner while the check runs');
+    assert.match(panel, /Checking update state/, 'the checking label reads like an idle button');
+    assert.match(panel, /: 'Check now'/, 'the idle label is gone');
+  });
+
+  it('negative: the label is a branch, not the fixed string "Check now"', () => {
+    // A fixed label would show "Check now" during a check, inviting a second request the core 429s.
+    assert.match(panel, /checking \?[\s\S]{0,120}: 'Check now'/, 'the check label no longer branches on the checking phase');
+  });
+
+  it('shows when the last check happened, not only its result', () => {
+    assert.match(panel, /lastCheckedAt/, 'the last-checked timestamp is never displayed');
+    assert.match(panel, /fmtWhen\(st\.check\.lastCheckedAt\)/, 'the timestamp is not formatted for a person');
+  });
+
+  it('download progress names bytes of the route-correct total, not only a percentage', () => {
+    assert.match(panel, /\$\{fmtBytes\(got\)\} of \$\{fmtBytes\(total\)\}/, 'the progress line does not name bytes and total');
+    assert.match(panel, /\(\$\{pct\}%\)/, 'the percentage is gone');
+  });
+
+  it('committing says Legion restarts to finish, not just that it is installing', () => {
+    assert.match(panel, /st\.phase === 'committing'/, 'the committing phase renders nothing');
+    assert.match(panel, /Legion restarts to finish/, 'the committing line does not say Legion restarts');
+  });
+});
+
+describe('update panel: a failed outcome is actionable, not instructions only', () => {
+  it('offers a one-click Try again that re-offers the download or re-checks', () => {
+    assert.match(panel, /Try again/, 'a failed outcome has no retry, only text');
+    assert.match(panel, /request\('POST', '\/api\/update\/install'\)/, 'the retry cannot re-offer the download');
+    assert.match(panel, /request\('POST', '\/api\/update\/check'\)/, 'the retry cannot re-check');
+    assert.match(panel, /canRetryInstall \? installNow\(\) : checkNow\(\)/, 'the retry does not choose an endpoint');
+  });
+
+  it('surfaces the reason a files-in-use failure carries', () => {
+    assert.match(panel, /st\.outcome\.reason/, 'the failure reason from the status is dropped');
+  });
+
+  it('negative: the Try again button sits inside the failure branch, not the success branch', () => {
+    assert.match(panel, /st\.outcome && st\.outcome\.result !== 'ok' && \([\s\S]{0,1000}?Try again/, 'the retry is not in the failure branch');
+  });
+});
+
+describe('update panel: a refusal does not print the notes that contradict it', () => {
+  it('withholds the release notes exactly when the panel refuses to install', () => {
+    const idx = panel.indexOf('upd-notes');
+    assert.ok(idx > 0, 'the panel no longer renders release notes at all');
+    const before = panel.slice(Math.max(0, idx - 60), idx);
+    assert.match(before, /!notifyOnly && a\.notes/, 'notes render even when Legion refuses to install in place');
+  });
+
+  it('negative: an unconditional notes render would show "installs in place" beside "cannot be installed"', () => {
+    // The owner met exactly this: a manifest note promising an in-place install, then the refusal. The notes must be
+    // gated on the same `notifyOnly` that drives the refusal.
+    assert.equal(/\{a\.notes && <pre className="upd-notes">/.test(panel), false, 'the notes block is unconditional again');
+  });
+
+  it('keeps the Release notes link and the refusal support line', () => {
+    assert.match(panel, /Release notes/, 'the Release notes link is gone');
+    assert.match(panel, /run setup\.cmd/, 'the refusal support line is gone');
+  });
+});

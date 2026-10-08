@@ -22,6 +22,10 @@ const bridge = (): Bridge => (window as unknown as { legion?: Bridge }).legion ?
 
 export const AUTO_INSTALL_TEXT = 'Install updates automatically when idle. Legion will download a new release without asking again and restart itself when no task or approval is running. Off by default.';
 const mb = (n: number) => `${Math.max(1, Math.round(n / 1e6))} MB`;
+/** Bytes as a person reads them. The download total is the route-aware `size`, so this line and the card agree. */
+const fmtBytes = (n: number) => n >= 1e9 ? `${(n / 1e9).toFixed(1)} GB` : n >= 1e6 ? `${(n / 1e6).toFixed(1)} MB` : `${Math.max(1, Math.round(n / 1e3))} KB`;
+/** A stored ISO timestamp as local date/time; an unparseable one is shown as stored, never as "Invalid Date". */
+const fmtWhen = (iso: string) => { const t = Date.parse(iso); return Number.isFinite(t) ? new Date(t).toLocaleString(undefined, { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : iso; };
 
 /**
  * Phases where offering the Update button is correct. Every other phase is work already under way, and a second
@@ -30,13 +34,18 @@ const mb = (n: number) => `${Math.max(1, Math.round(n / 1e6))} MB`;
  */
 const IDLE_FOR_INSTALL: ReadonlyArray<UpdateStatus['phase']> = ['idle', 'checking'];
 
-/** Download progress: a bar with a percentage, or an indeterminate label before the first byte count arrives. */
+/** Download progress: bytes of the route-correct total plus a percentage, or an indeterminate label before the first byte count arrives. */
 function Progress({ p }: { p?: { bytes: number; total: number } }) {
-  const pct = p && p.total > 0 ? Math.min(100, Math.round((p.bytes / p.total) * 100)) : null;
+  const total = p?.total ?? 0;
+  const got = p?.bytes ?? 0;
+  const pct = total > 0 ? Math.min(100, Math.round((got / total) * 100)) : null;
+  const label = p
+    ? (pct !== null ? `Downloading and checking… ${fmtBytes(got)} of ${fmtBytes(total)} (${pct}%)` : `Downloading and checking… ${fmtBytes(got)}`)
+    : 'Downloading and checking…';
   return (
     <div className="upd-progress" role="progressbar" aria-label="Downloading update" aria-valuemin={0} aria-valuemax={100} {...(pct !== null ? { 'aria-valuenow': pct } : {})}>
       <div className="upd-bar"><span style={{ width: `${pct ?? 0}%` }} /></div>
-      <span className="upd-muted">{pct !== null ? `Downloading and checking… ${pct}%` : 'Downloading and checking…'}</span>
+      <span className="upd-muted">{label}</span>
     </div>
   );
 }
@@ -55,20 +64,37 @@ export function UpdatePanel() {
   const a = st.available;
   const canRestart = !!bridge().updateRestartNow;
   const notifyOnly = !!a && (st.mode !== 'apply' || (a.requiresFullInstall && !a.canFullInstall));
+  const checking = st.phase === 'checking';
+  // A failed outcome can be tried again from the same button: re-download when a verified newer release is still
+  // offered, otherwise re-check. Never offered on a notify-only install, where there is nothing to apply in place.
+  const canRetryInstall = !!a && !notifyOnly && IDLE_FOR_INSTALL.includes(st.phase);
+  const installNow = () => act(() => request('POST', '/api/update/install'));
+  const checkNow = () => act(() => request('POST', '/api/update/check'));
   const patch = (p: Partial<UpdateStatus['settings']>) => act(() => request('PATCH', '/api/update/settings', p));
   return (
     <div className="upd" aria-label="Updates">
       <div className="upd-head">
         <h4>Updates</h4>
-        <button type="button" className="btn-ghost sm" disabled={busy || !st.keyConfigured || st.phase !== 'idle'} onClick={() => void act(() => request('POST', '/api/update/check'))}>{st.phase === 'checking' ? 'Checking…' : 'Check now'}</button>
+        <button type="button" className="btn-ghost sm" disabled={busy || !st.keyConfigured || st.phase !== 'idle'} aria-busy={checking} onClick={() => void checkNow()}>
+          {checking ? <><span className="upd-spin" aria-hidden="true" /> Checking update state{'…'}</> : 'Check now'}
+        </button>
       </div>
       {!st.keyConfigured && <p className="upd-muted">Updates are off in this build: it has no update key built in.</p>}
       {!st.keyConfigured && <p className="upd-muted">You are on v{st.installed.version}.</p>}
       {st.keyConfigured && (
-        <p className="upd-muted">You are on v{st.installed.version}. {st.check.lastResult ? `Last check: ${st.check.lastResult}.` : 'Not checked yet.'}</p>
+        <p className="upd-muted">
+          You are on v{st.installed.version}.{' '}
+          {st.check.lastResult
+            ? `Last check: ${st.check.lastResult}${st.check.lastCheckedAt ? ` — checked ${fmtWhen(st.check.lastCheckedAt)}` : ''}.`
+            : st.check.lastCheckedAt ? `Last checked ${fmtWhen(st.check.lastCheckedAt)}.` : 'Not checked yet.'}
+        </p>
       )}
       {st.outcome && st.outcome.result !== 'ok' && (
-        <p className="upd-warn" role="status">Update {st.outcome.to} {st.outcome.result === 'rolled-back' ? 'did not start correctly and Legion went back to the previous version' : 'was not installed'}{st.outcome.reason ? `: ${st.outcome.reason}` : ''}. <button type="button" className="btn-ghost sm" onClick={() => void act(() => request('POST', '/api/update/ack'))}>Dismiss</button></p>
+        <p className="upd-warn" role="status">
+          Update {st.outcome.to} {st.outcome.result === 'rolled-back' ? 'did not start correctly and Legion went back to the previous version' : 'was not installed'}{st.outcome.reason ? `: ${st.outcome.reason}` : ''}.{' '}
+          <button type="button" className="btn primary sm" disabled={busy || !st.keyConfigured} onClick={() => void (canRetryInstall ? installNow() : checkNow())}>Try again</button>{' '}
+          <button type="button" className="btn-ghost sm" onClick={() => void act(() => request('POST', '/api/update/ack'))}>Dismiss</button>
+        </p>
       )}
       {st.outcome?.result === 'ok' && st.stopped && st.stopped.tasks.length > 0 && (
         <p className="upd-warn" role="status">Updated to {st.outcome.to}. These tasks were stopped for the restart and were not resumed: {st.stopped.tasks.map((t) => t.id).join(', ')}. Run them again from the task list. <button type="button" className="btn-ghost sm" onClick={() => void act(() => request('POST', '/api/update/ack'))}>Dismiss</button></p>
@@ -80,7 +106,7 @@ export function UpdatePanel() {
         <div className="upd-card">
           <b>Version {a.version} is available</b> <span className="upd-muted">({mb(a.size)}, published {a.publishedAt.slice(0, 10)})</span>{' '}
           <a className="upd-muted" href={`https://github.com/dnh33/legion/releases/tag/v${a.version}`} target="_blank" rel="noreferrer noopener">Release notes</a>
-          {a.notes && <pre className="upd-notes">{a.notes}</pre>}
+          {!notifyOnly && a.notes && <pre className="upd-notes">{a.notes}</pre>}
           {notifyOnly && st.mode === 'checkout' && <p className="upd-muted">This is a git checkout. Update it yourself: <code>git pull</code>, <code>npm ci</code>, <code>npm run build</code>. Legion does not run these for you.</p>}
           {notifyOnly && st.mode !== 'checkout' && (a.requiresFullInstall && !a.canFullInstall
             ? <p className="upd-muted">This release changes dependencies, so it cannot be installed from inside Legion. Download the source of the release and run setup.cmd, as for a first install.</p>
@@ -89,10 +115,10 @@ export function UpdatePanel() {
             <p className="upd-muted">This release changes dependencies, so the update includes them: a larger download, applied the same way.</p>
           )}
           {!notifyOnly && !st.staged && IDLE_FOR_INSTALL.includes(st.phase) && (
-            <div className="upd-actions"><button type="button" className="btn primary" disabled={busy} onClick={() => void act(() => request('POST', '/api/update/install'))}>Download update</button></div>
+            <div className="upd-actions"><button type="button" className="btn primary" disabled={busy} onClick={() => void installNow()}>Download update</button></div>
           )}
           {st.phase === 'awaiting-approval' && <p className="upd-muted">Waiting for your answer on the update card.</p>}
-          {st.phase === 'committing' && <p className="upd-muted" role="status">Installing. Legion restarts when this finishes{'…'}</p>}
+          {st.phase === 'committing' && <p className="upd-muted" role="status">Installing the update. Legion restarts to finish{'…'}</p>}
           {st.phase === 'downloading' && <Progress p={st.progress} />}
           {st.staged && (
             <div className="upd-ready">

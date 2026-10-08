@@ -16,6 +16,7 @@ import { heapArgv } from './heap-limit.js';
 import { ensureConnectorKey, keyLine, loadConnectorKey } from './connector-key.js';
 import { connectGithub } from './connector-ipc.js';
 import { APP_ID, needsId, windowDetails } from './taskbar.js';
+import { decideSingleInstance } from './instance-logic.js';
 import { projectChange } from './project-ipc.js';
 import { browserChange } from './browser-ipc.js';
 import type { ProjectChangeResult } from './project-ipc.js';
@@ -523,7 +524,12 @@ function shortcutsShareId(): void {
   }
 }
 
-if (!app.requestSingleInstanceLock()) {
+// One process only. The first launch takes the lock and runs; a second launch (a pinned shortcut, a double-click on
+// Legion.exe, or the updater's own relaunch) must quit BEFORE it builds a window, a tray or a core, or two Legion
+// windows stack over one core. The decision is a pure function (instance-logic.ts) so the quit branch is tested, not
+// merely read. `second-instance` fires in the surviving first process and brings its window forward.
+const instance = decideSingleInstance(app.requestSingleInstanceLock());
+if (instance.quit) {
   app.quit();
 } else {
   app.on('second-instance', () => showWindow());
