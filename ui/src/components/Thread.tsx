@@ -10,6 +10,7 @@ import { ROW_GAP, anchoredScrollTop, hasOlder, layoutOffsets, metaDetached, rowA
 import { ThreadSearch } from './ThreadSearch';
 import { copyText, money } from '../util';
 import { ApprovalCard } from './ApprovalCard';
+import { QuestionCard } from './QuestionCard';
 import { Icon } from './icons';
 import { MessageView } from './MessageView';
 import { TaskSwitcher } from './TaskSwitcher';
@@ -63,6 +64,7 @@ export function Thread() {
   const messages = useStore((s) => (taskId ? s.messages[taskId] ?? EMPTY : EMPTY));
   const stream = useStore((s) => (taskId ? s.streaming[taskId] ?? '' : ''));
   const approvals = useStore((s) => s.approvals);
+  const questions = useStore((s) => s.questions);
   const conn = useStore((s) => s.conn);
   const loaded = useStore((s) => s.loaded);
   const agent = agents.find((a) => a.id === agentId);
@@ -136,14 +138,17 @@ export function Thread() {
   // follow content while stuck to bottom
   const taskApprovals = approvals.filter((a) => a.taskId === taskId);
   const otherApprovals = approvals.filter((a) => a.agentId === agentId && a.taskId !== taskId);
-  useLayoutEffect(() => { if (stick.current && !metaDetached(meta)) toBottom(); }, [messages, stream, taskApprovals.length, running, toBottom, tick, meta]);
+  const taskQuestions = questions.filter((q) => q.taskId === taskId);
+  const otherQuestions = questions.filter((q) => q.agentId === agentId && q.taskId !== taskId);
+  useLayoutEffect(() => { if (stick.current && !metaDetached(meta)) toBottom(); }, [messages, stream, taskApprovals.length, taskQuestions.length, running, toBottom, tick, meta]);
 
-  // A / D shortcut for the first pending approval when nothing is focused (A never allows a click-only card)
+  // A / D shortcut for the first pending approval when nothing is focused (A never allows a click-only card, and
+  // never a question card: a keypress inside one of those is skipped by the closest() guard below).
   useEffect(() => {
     const h = (e: KeyboardEvent) => {
       if (e.ctrlKey || e.metaKey || e.altKey) return;
       const t = e.target as HTMLElement;
-      if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable || t.closest('.approval, .modal'))) return;
+      if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable || t.closest('.approval, .question, .modal'))) return;
       // the same rule as the card's own keys: a Blender script or a download is allowed by clicking only
       const k = threadKey(taskApprovals[0], e.key); if (!k) return;
       e.preventDefault(); void decide(k.id, k.allow);
@@ -211,6 +216,11 @@ export function Thread() {
           <Icon name="shield" size={13} /> {otherApprovals.length} approval{otherApprovals.length > 1 ? 's' : ''} waiting in another task <span>Open {'→'}</span>
         </button>
       )}
+      {otherQuestions.length > 0 && (
+        <button className="banner" onClick={() => selectTask(otherQuestions[0].taskId)}>
+          <Icon name="help" size={13} /> {otherQuestions.length} question{otherQuestions.length > 1 ? 's' : ''} waiting in another task <span>Open {'→'}</span>
+        </button>
+      )}
       <div className="thread-scroll scroll-cue" ref={scroller} onScroll={onScroll}>
         <div className="thread-inner">
           {empty ? <EmptyState /> : (
@@ -234,8 +244,9 @@ export function Thread() {
               {win.padBottom > 0 && <div aria-hidden="true" style={{ height: Math.max(0, win.padBottom - ROW_GAP) }} />}
               {stream && <MessageView m={{ role: 'assistant', text: stream }} agent={agent} task={task} streaming />}
               {running && task && task.status !== 'queued' && <TodoList taskId={task.id} />}
-              {running && !stream && task && <WorkingRow taskId={task.id} queued={task.status === 'queued'} waiting={taskApprovals.length > 0} />}
+              {running && !stream && task && <WorkingRow taskId={task.id} queued={task.status === 'queued'} waiting={taskApprovals.length > 0 || taskQuestions.length > 0} />}
               {taskApprovals.map((a) => <ApprovalCard key={a.id} a={a} />)}
+              {taskQuestions.map((q) => <QuestionCard key={q.id} q={q} />)}
               {task?.status === 'error' && (paused ? (
                 <div className="msg err paused" role="status">
                   <Icon name="pause" size={14} />

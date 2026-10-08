@@ -8,6 +8,8 @@ import { OVERRIDE_MODELS, BridgeError } from './bridge.js';
 import type { Bridge } from './bridge.js';
 import { overrideAllowed, overrideRefusal } from './model-cap.js';
 import { CLAUDE_NOT_CONFIGURED } from './boat-health.js';
+import { validateQuestions, type QuestionBroker } from './questions.js';
+import type { PendingQuestion } from '../shared/types.js';
 
 const MAX_CHARS = 12_000;
 
@@ -38,6 +40,10 @@ export interface AgentToolsCtx {
   /** False while Claude is known not to be set up on boat.dev: vm_claude is left out of the tool list (default true). */
   claudeAvailable?: boolean;
   bridge: Bridge;
+  /** The structured-question broker (the ask_user_question tool waits on it). Omitted only where no broker is reachable; the tool then reports it is unavailable. */
+  questions?: QuestionBroker;
+  /** Who woke this run, when another bot did: shown on the question card as an approval card shows it. */
+  origin?: PendingQuestion['origin'];
 }
 
 /**
@@ -219,10 +225,39 @@ export function buildAgentToolsServer(ctx: AgentToolsCtx): McpSdkServerConfigWit
     }, { touch: false }),
   );
 
+  const askUserQuestion = tool(
+    'ask_user_question',
+    'Ask the owner a structured question with set choices instead of asking in plain text. Use 1-4 questions, each with 2-4 options and an optional Other the owner can type. The owner sees a clickable card in the chat thread, picks answers one at a time, reviews them, then submits; this call returns their answers. Mark one option recommended: true to show a Recommended badge and put it first. Prefer this over writing a question in your reply when you need a decision from the owner.',
+    {
+      questions: z.array(z.object({
+        question: z.string().describe('The question itself, ending in a question mark.'),
+        header: z.string().describe('A short label for the step (a few words).'),
+        multiSelect: z.boolean().optional().describe('Let the owner pick more than one option.'),
+        options: z.array(z.object({
+          label: z.string().describe('The choice itself (a few words).'),
+          description: z.string().describe('What choosing this option means.'),
+          preview: z.string().optional().describe('Optional longer plain text (code, a plan, a diff) the card shows in a side panel when the option is focused. Never HTML.'),
+          recommended: z.boolean().optional().describe('Mark the option you recommend. The card shows a Recommended badge and lists it first. Mark at most one option per question.'),
+        })).describe('2-4 options.'),
+      })).describe('1-4 questions.'),
+    },
+    async (args) => {
+      const v = validateQuestions(args);
+      if (!v.ok) return fail(new Error(v.error));
+      if (!ctx.questions) return fail(new Error('Structured questions are not available in this run.'));
+      const result = await ctx.questions.request(ctx.taskId, agentId, v.questions, ctx.origin);
+      if (!result.answered || !result.picks) {
+        return ok('The owner did not answer this question (it was declined, cancelled or timed out). Continue without it, or ask again later; do not repeat the same question immediately.');
+      }
+      const answers = v.questions.map((q, i) => ({ question: q.question, picked: result.picks![i]?.labels ?? [], other: result.picks![i]?.other ?? null }));
+      return ok(JSON.stringify({ answers }, null, 2));
+    },
+  );
+
   return createSdkMcpServer({
     name: 'legion',
     version: '0.1.0',
     alwaysLoad: true, // never deferred behind ToolSearch: agents call mcp__legion__* directly
-    tools: [...bridgeTools(ctx), ...(ctx.vmEnabled ? [vmStart, vmExec, vmWriteFile, vmReadFile, ...(ctx.claudeAvailable === false ? [] : [vmClaude]), vmDesktop, vmStop, vmUsage] : [])],
+    tools: [...bridgeTools(ctx), askUserQuestion, ...(ctx.vmEnabled ? [vmStart, vmExec, vmWriteFile, vmReadFile, ...(ctx.claudeAvailable === false ? [] : [vmClaude]), vmDesktop, vmStop, vmUsage] : [])],
   });
 }
