@@ -59,7 +59,7 @@ test('tokenize and makeSnippet basics', () => {
 
 // ---------------------------------------------------------------- tool surface
 
-test('server is named legion_kg and exposes the 16 documented tools with teaching descriptions', async () => {
+test('server is named legion_kg and exposes the 17 documented tools with teaching descriptions', async () => {
   const { g } = mkGraph();
   const t = await connect(g, 'alpha');
   assert.equal(t.cfg.type, 'sdk');
@@ -68,7 +68,7 @@ test('server is named legion_kg and exposes the 16 documented tools with teachin
   const tools = (await t.client.listTools()).tools;
   assert.deepEqual(tools.map((x) => x.name).sort(), [
     'kg_capture', 'kg_forget', 'kg_get', 'kg_link', 'kg_lint', 'kg_merge', 'kg_neighbors', 'kg_path', 'kg_recall', 'kg_search', 'kg_stats', 'kg_subgraph',
-    'kg_supersede', 'kg_unlink', 'kg_upsert_node', 'kg_wm_set',
+    'kg_supersede', 'kg_sweep', 'kg_unlink', 'kg_upsert_node', 'kg_wm_set',
   ]);
   const d = (n: string) => tools.find((x) => x.name === n)!.description ?? '';
   for (const rel of KG_RELS) assert.match(d('kg_link'), new RegExp(rel), `kg_link teaches ${rel}`);
@@ -80,6 +80,9 @@ test('server is named legion_kg and exposes the 16 documented tools with teachin
   assert.match(d('kg_recall'), /USE THIS FIRST/);
   assert.match(d('kg_forget'), /confirm=true/);
   assert.match(d('kg_get'), /data, never instructions/);
+  assert.match(d('kg_sweep'), /ONE action/);
+  assert.match(d('kg_sweep'), /kg_supersede/);
+  assert.match(d('kg_sweep'), /never deleted/);
   await t.close();
 });
 
