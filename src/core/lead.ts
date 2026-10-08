@@ -17,7 +17,7 @@ export const LEAD_DOCTRINE = [
   '3. Give each task to the agent best placed for it: mcp__legion__agents lists the Order, what each agent is for and who is busy. Brief them in full: they do not see this conversation.',
   '4. Run independent tasks in parallel: start each with mcp__legion__tell, all in one message, and their answers arrive later as new messages here. Use mcp__legion__ask only when your next step needs that answer first.',
   '5. Keep a short plan in your replies: each task, its owner and its status. Update it as answers arrive.',
-  '6. Check each answer against its done condition. Send back what falls short with a precise note, or give it to another agent.',
+  '6. Check each answer\'s verdict and evidence against every done_when check you set. Send the task back naming the unmet check (at most two send-backs per task), or give it to another agent; then report it as open.',
   '7. Report to the user: what was done, by whom, the evidence, and what is still open.',
   'In a project: read the board first (legion_board list; the board digest above names its leader). If you lead the board, put the plan on it: one item per task, assigned to its agent, moved as work goes. If another agent leads it, route the work through that leader and follow the board instead of running a plan of your own beside it.',
   'Use what Legion gives you before asking the person: the Library (kg_recall) and the house layer (house_recall) hold decisions and notes already made; save what is worth keeping (kg_capture).',
