@@ -96,6 +96,47 @@ jobs:
         run: |
           Copy-Item -LiteralPath scripts/install/install.ps1 -Destination $env:PKG
           Copy-Item -LiteralPath scripts/install/install.sh -Destination $env:PKG
+      - name: Smoke test the built package
+        # Launch the packaged app and verify the frontend renders (confirms single-instance fix works)
+        # This test runs on the same runner: if the blank-renderer bug exists, electron will exit
+        # before creating a window (lock held), so the process will die within the timeout
+        run: |
+          $pkgDir = "$env:PKG"
+          $appDir = Join-Path $pkgDir "legion-0.2.5-o"
+          # The zip extracts to a folder like `legion-0.2.5-o` containing the Electron runtime
+          if (-not (Test-Path $appDir)) { throw "Expected app dir not found: $appDir" }
+          # Start the app in background — note: first launch takes the lock; subsequent launches quit
+          # We run with LEGION_UPDATE_RELAUNCH unset so it exercises the single-instance logic
+          $proc = Start-Process (
+            Join-Path $appDir "electron.exe"
+          ) -ArgumentList $appDir -NoNewWindow -PassThru -Wait -RedirectStandardOutput "d:\smoke-test-out.txt" -RedirectStandardError "d:\smoke-test-err.txt"
+          # Write the PID to a file so we can kill it after the test
+          "PID=$($proc.Id)" | Out-File -FilePath "$env:RUNNER_TEMP\smoke-pid.txt" -Encoding utf8
+          # Give it 45 seconds to start; if it's still running after that, the frontend likely loaded
+          Start-Sleep -Seconds 45
+          # Check if process is still alive — if yes, frontend loaded successfully
+          $stillAlive = Get-Process -Id $proc.Id -ErrorAction SilentlyContinue
+          if ($stillAlive) {
+            # Process still running after 45s = likely frontend loaded and running
+            # Check health endpoint
+            $health = Invoke-RestMethod "http://127.0.0.1:4747/health" -TimeoutSec 5
+            if ($health.ok) {
+              Write-Host "::notice::Smoke test PASSED: Frontend loaded and health endpoint responds OK"
+            } else {
+              Write-Host "::fail::Frontend running but health endpoint failed: $health"
+              exit 1
+            }
+          } else {
+            # Process died within 45s = likely blank-renderer bug (lock held, app quit)
+            $output = Get-Content "d:\smoke-test-out.txt" -ErrorAction SilentlyContinue
+            $error = Get-Content "d:\smoke-test-err.txt" -ErrorAction SilentlyContinue
+            Write-Host "::fail::Smoke test FAILED: App process exited within 45 seconds"
+            if ($output) { Write-Host "stdout: $output" }
+            if ($error) { Write-Host "stderr: $error" }
+            # Kill any leftover processes
+            try { Get-Process | Where-Object { $_.Id -ne $proc.Id } | Stop-Process -ErrorAction SilentlyContinue }
+            exit 1
+          }
       - name: Manifest with release notes (unsigned)
         if: steps.v.outputs.notes != ''
         env:
