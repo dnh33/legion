@@ -103,43 +103,57 @@ jobs:
         env:
           SMOKE_TIMEOUT: 45
         run: |
-          $zipName = if ($env:EVENT -eq 'push') { "legion-$env:V-win-x64.zip" } else { "legion-$env:V-win-x64.zip" }
-          # Actually, the zip name is derived from version. Let's use the actual file in the artifact.
+          Write-Host "=== SMOKE TEST START ==="
+          Write-Host "PKG dir: $env:PKG"
+          Write-Host "Version: $env:V"
+          # List what's in PKG
+          Get-ChildItem -LiteralPath $env:PKG | ForEach-Object { Write-Host "  $($_.Name) ($($_.Length) bytes)" }
           $fullZip = (Join-Path $env:PKG "legion-$env:V-win-x64.zip")
+          Write-Host "Looking for: $fullZip"
+          if (-not (Test-Path $fullZip)) { throw "Full package zip not found at $fullZip" }
+          Write-Host "Found zip: $($fullZip) - size: $((Get-Item $fullZip).Length) bytes"
           # Extract to a temporary directory
           $exDir = "$env:RUNNER_TEMP\smoke-extract"
+          Write-Host "Extracting to: $exDir"
           Expand-Archive -LiteralPath $fullZip -DestinationPath $exDir -Force
-          $appRoot = (Get-ChildItem -LiteralPath $exDir | Where-Object { $_.PSIsContainer } | Select-Object -First 1).FullName
+          Write-Host "Extract complete"
+          $children = Get-ChildItem -LiteralPath $exDir
+          $children | ForEach-Object { Write-Host "  Root child: $($_.Name) (container: $($_.PSIsContainer))" }
+          $appRoot = ($children | Where-Object { $_.PSIsContainer } | Select-Object -First 1).FullName
+          Write-Host "App root: $appRoot"
           # Find the electron executable inside the package
           $electronExe = Join-Path $appRoot "runtime\electron\electron.exe"
+          Write-Host "Electron exe: $electronExe"
           if (-not (Test-Path $electronExe)) { throw "electron.exe not found at $electronExe (full package missing)" }
-          # Launch Electron with the app directory; non-blocking (do NOT use -Wait which blocks forever for a GUI app)
+          Write-Host "Electron exe found, launching..."
+          # Launch Electron with the app directory; non-blocking
           $proc = Start-Process $electronExe -ArgumentList $appRoot -PassThru -WindowStyle Hidden -RedirectStandardOutput "d:\smoke-out.txt" -RedirectStandardError "d:\smoke-err.txt"
-          # Wait for startup (the fix skips the single-instance lock during relaunch; if broken, electron exits quickly)
+          Write-Host "Launched PID: $($proc.Id)"
+          # Wait for startup
           Start-Sleep -Seconds $env:SMOKE_TIMEOUT
-          # Check if the process is still alive after the timeout — alive = frontend loaded successfully
+          # Check if the process is still alive after the timeout
           $alive = Get-Process -Id $proc.Id -ErrorAction SilentlyContinue
           if ($alive) {
-            # Process survived: check the health endpoint
+            Write-Host "Process still alive after $env:SMOKE_TIMEOUT s"
+            # Check health endpoint
             try {
               $health = Invoke-RestMethod -Uri "http://127.0.0.1:4747/health" -TimeoutSec 5
+              if ($health.ok) { Write-Host "Health OK: $health" }
             } catch {
-              # The health endpoint may not respond within 5s; try reading the stdout file for a readiness signal
-              $health = @{ ok = $false }
+              Write-Host "Health endpoint not ready: $_"
             }
-            # Also check stdout for any renderer crash evidence
-            $stdout = Get-Content "d:\smoke-out.txt" -ErrorAction SilentlyContinue -Raw | Select-String -Pattern "Renderer process crashed|blank|failed" -Quiet | Where-Object { $_ }
-            if ($stdout) {
+            # Check stdout for any renderer crash evidence
+            $stdout = Get-Content "d:\smoke-out.txt" -ErrorAction SilentlyContinue -Raw
+            $stderr = Get-Content "d:\smoke-err.txt" -ErrorAction SilentlyContinue -Raw
+            if ($stdout -and ($stdout -match "Renderer process crashed|blank|failed")) {
               Write-Host "::fail::Smoke test FAILED: Renderer crash detected in stdout"
               Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue
               exit 1
             }
             Write-Host "::notice::Smoke test PASSED: Process alive after $env:SMOKE_TIMEOUT s (frontend rendered)"
-            # Kill cleanly after confirming
             Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue
             exit 0
           } else {
-            # Process died within the timeout — this is the failure mode (single-instance lock blocks relaunch, app quits)
             $stdout = Get-Content "d:\smoke-out.txt" -ErrorAction SilentlyContinue -Raw
             $stderr = Get-Content "d:\smoke-err.txt" -ErrorAction SilentlyContinue -Raw
             Write-Host "::fail::Smoke test FAILED: Electron process exited within $env:SMOKE_TIMEOUT s"
