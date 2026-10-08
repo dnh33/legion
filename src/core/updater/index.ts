@@ -207,6 +207,7 @@ export function createUpdaterModule(deps: ModuleDeps, opts: UpdaterOptions): Upd
       const outcome = readOutcome(opts.root) ?? undefined;
       const a = available?.manifest;
       const st2 = files.state();
+      const plan = a ? planRelease(a) : null;
       const at2 = st2.failedAt ?? {};
       // Only a block on a version NEWER than what is running can ever be acted on. An older one is history: the
       // updater only ever offers something newer, so a block on it is invisible to the user and unreleasable by them.
@@ -219,7 +220,7 @@ export function createUpdaterModule(deps: ModuleDeps, opts: UpdaterOptions): Upd
       return {
         mode, keyConfigured: keys.length > 0, installed: { version, ...buildInfo() }, settings,
         check: { ...(s.lastCheckedAt ? { lastCheckedAt: s.lastCheckedAt } : {}), ...(s.lastResult ? { lastResult: s.lastResult } : {}), ...(nextAllowedAt > now() ? { nextAllowedAt: new Date(nextAllowedAt).toISOString() } : {}) },
-        ...(a ? { available: { version: a.version, size: a.asset.size, notes: a.notes, publishedAt: a.publishedAt, requiresFullInstall: a.requiresFullInstall, canFullInstall: planRelease(a).route === 'full' } } : {}),
+        ...(a && plan ? { available: { version: a.version, size: plan.route === 'full' ? (a.fullAsset?.size ?? a.asset.size) : a.asset.size, notes: a.notes, publishedAt: a.publishedAt, requiresFullInstall: a.requiresFullInstall, canFullInstall: plan.route === 'full' } } : {}),
         phase, ...(progress && phase === 'downloading' ? { progress } : {}), ...(error ? { error } : {}),
         // What is blocked and until when. The owner met this as a bare "rejected: version X failed its first start"
         // with no way out, and had to guess that Check now was the unlock. Naming it here is the whole fix.
