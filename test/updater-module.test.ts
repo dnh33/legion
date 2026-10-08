@@ -286,12 +286,14 @@ test('C10/C20: a release that changes dependencies is notify-only; a package who
 });
 
 test('C10b: a dependency-change release WITH a signed full package self-applies via the full route; commit hands back the full name set', async () => {
-  const full = await rig(makeRelease(k, '0.2.1', { requiresFullInstall: true, full: {} }));
+  const rel = makeRelease(k, '0.2.1', { requiresFullInstall: true, full: {} });
+  const full = await rig(rel);
   try {
     await full.mod.check(true);
     const s0 = await full.mod.status();
     assert.equal(s0.available?.requiresFullInstall, true);
     assert.equal(s0.available?.canFullInstall, true);
+    assert.equal(s0.available?.size, (rel.manifestObj.fullAsset as { size: number }).size, 'the full route reports the full package size, never the app-package size');
     assert.deepEqual(await full.mod.install(), { ok: true });
     const s1 = await full.mod.status();
     assert.equal(s1.phase, 'staged');
@@ -306,11 +308,13 @@ test('C10b: a dependency-change release WITH a signed full package self-applies 
 });
 
 test('C10b: a dependency-change release WITHOUT a signed full package stays notify-only (the human fallback)', async () => {
-  const notify = await rig(makeRelease(k, '0.2.1', { requiresFullInstall: true }));
+  const rel2 = makeRelease(k, '0.2.1', { requiresFullInstall: true });
+  const notify = await rig(rel2);
   try {
     await notify.mod.check(true);
     const s = await notify.mod.status();
     assert.equal(s.available?.canFullInstall, false);
+    assert.equal(s.available?.size, (rel2.manifestObj.asset as { size: number }).size, 'the notify route still reports the app-package size');
     await assert.rejects(notify.mod.install(), /dependencies/);
     assert.equal(hitsFor(notify, '/releases/download/'), 0, 'nothing is downloaded');
   } finally { await notify.srv.close(); }
