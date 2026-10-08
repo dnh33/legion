@@ -117,6 +117,20 @@ test('C17: a normal error in the middle rolls back by itself', async () => {
   await assert.rejects(swapIn({ installDir: f.install, stagedDir: f.staged, from: '1.0.0', to: '1.1.0', step: (l) => { if (l === 'before-install:dist-ui') throw new Error('boom'); } }), /boom/);
   assert.deepEqual(snap(f.install), before);
 });
+test('C18c: on Windows a full-package commit unloads the helper first (re-exec) and the fresh process owns the swap', { skip: process.platform !== 'win32' }, async () => {
+  const f = fixture();
+  const jobs: string[] = [];
+  const d = deps({ f, newHealthy: true, reExec: (jf) => { jobs.push(jf); return true; } });
+  assert.equal(await runApply({ ...job(f), names: FULL_PACKAGE_SET }, d), 're-exec');
+  assert.deepEqual(jobs, [process.argv[2] ?? '']);
+  assert.ok((snap(f.install)['package.json'] ?? '').includes('1.0.0'), 'the first process swapped nothing');
+  process.env.LEGION_APPLY_REEXEC = '1';
+  try {
+    assert.equal(await runApply({ ...job(f), names: FULL_PACKAGE_SET }, deps({ f, newHealthy: true })), 'ok', 'the env-guarded helper proceeds to the real swap');
+  } finally { delete process.env.LEGION_APPLY_REEXEC; }
+  assert.ok((snap(f.install)['package.json'] ?? '').includes('1.1.0'), 'the re-executed helper completed the swap');
+});
+
 test('C17: recoverInterrupted decisions (awaiting-health with the new build running, fresh helper, stale helper)', async () => {
   const f = fixture();
   await swapIn({ installDir: f.install, stagedDir: f.staged, from: '1.0.0', to: '1.1.0' });
