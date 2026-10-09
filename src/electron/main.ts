@@ -400,14 +400,27 @@ function createWindow(showOnReady: boolean): void {
     e.preventDefault();
     openExternal(url);
   });
+  win.webContents.on('did-fail-load', (e, code, desc, validatedURL, isMainFrame) => {
+    if (isMainFrame) {
+      console.error('[renderer] Main frame failed to load:', validatedURL, 'code:', code, 'desc:', desc);
+      // Fallback to error page
+      win?.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(
+        `<body style="background:#0b0d10;color:#e6e9ef;font:14px system-ui;padding:40px"><h2>Failed to load UI</h2><pre>${validatedURL}</pre><pre>Error ${code}: ${desc}</pre></body>`));
+    }
+  });
+  win.webContents.on('render-process-gone', (e, details) => {
+    console.error('[renderer] Render process gone:', details.reason, 'exit code:', details.exitCode);
+  });
   win.on('close', (e) => {
     if (!quitting) { e.preventDefault(); win?.hide(); }
   });
   win.on('closed', () => { win = null; });
 
   if (existsSync(uiIndex)) {
+    console.log('[main] Loading UI from:', uiIndex);
     void win.loadFile(uiIndex);
   } else {
+    console.error('[main] UI not found at:', uiIndex);
     void win.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(
       '<body style="background:#0b0d10;color:#e6e9ef;font:14px system-ui;padding:40px"><h2>Legion UI not built</h2><p>Run <code>npm run build</code> in the project folder, then restart Legion.</p></body>'));
   }
@@ -489,6 +502,8 @@ async function boot(): Promise<void> {
   const mainWin = win as BrowserWindow | null;
   mainWin?.show();
   mainWin?.focus();
+  // Ensure window is visible after boot completes
+  showWindow();
 }
 
 function createTray(): void {
@@ -528,11 +543,14 @@ function shortcutsShareId(): void {
 // Legion.exe, or the updater's own relaunch) must quit BEFORE it builds a window, a tray or a core, or two Legion
 // windows stack over one core. The decision is a pure function (instance-logic.ts) so the quit branch is tested, not
 // merely read. `second-instance` fires in the surviving first process and brings its window forward.
-const instance = decideSingleInstance(app.requestSingleInstanceLock());
+const isUpdateRelaunch = process.env.LEGION_UPDATE_RELAUNCH === '1';
+const instance = decideSingleInstance(isUpdateRelaunch ? true : app.requestSingleInstanceLock());
 if (instance.quit) {
   app.quit();
 } else {
-  app.on('second-instance', () => showWindow());
+  if (!isUpdateRelaunch) {
+    app.on('second-instance', () => showWindow());
+  }
 
   ipcMain.on('legion:bootstrap', (e) => {
     // Port and token are the ones pinned when the core was started or adopted (config.json is not re-read: a bot can edit it).
