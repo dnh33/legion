@@ -502,8 +502,6 @@ async function boot(): Promise<void> {
   const mainWin = win as BrowserWindow | null;
   mainWin?.show();
   mainWin?.focus();
-  // Ensure window is visible after boot completes
-  showWindow();
 }
 
 function createTray(): void {
