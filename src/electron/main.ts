@@ -394,15 +394,6 @@ function createWindow(showOnReady: boolean): void {
   // the taskbar can pin this window and start Legion again from the pin (taskbar.ts)
   if (isWin) win.setAppDetails(windowDetails(process.execPath, root));
   if (showOnReady) win.once('ready-to-show', () => win?.show());
-  // Electron 44.4.x regression: ready-to-show never fires for hidden windows with titleBarOverlay.
-  // Fallback: show on did-finish-load (or after 8s timeout) so the window is always visible.
-  let windowShown = false;
-  const showWindowIfNeeded = () => { if (!win || win.isDestroyed() || windowShown) return; windowShown = true; win.show(); win.focus(); };
-  if (showOnReady) {
-    win.once('ready-to-show', showWindowIfNeeded);
-    win.webContents.once('did-finish-load', showWindowIfNeeded);
-    setTimeout(showWindowIfNeeded, 8000); // never hang on the splash
-  }
   win.webContents.setWindowOpenHandler(({ url }) => { openExternal(url); return { action: 'deny' }; });
   win.webContents.on('will-navigate', (e, url) => {
     if (url === uiUrl || url.startsWith(uiUrl + '#') || url.startsWith(uiUrl + '?')) return;
@@ -511,9 +502,7 @@ async function boot(): Promise<void> {
   const mainWin = win as BrowserWindow | null;
   mainWin?.show();
   mainWin?.focus();
-  // Ensure window is visible after boot completes.
-  // Electron 44.4.x regression: ready-to-show never fires for hidden windows with titleBarOverlay.
-  // Fallback to showing on did-finish-load so the window is always visible.
+  // Ensure window is visible after boot completes
   showWindow();
 }
 
