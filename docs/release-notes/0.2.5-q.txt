@@ -1,8 +1,12 @@
-Legion 0.2.5-q. The fixed updater, same safe dependencies.
+Legion 0.2.5-q — renderer and prebuilt fix.
 
-- Update relaunch no longer blanks the renderer (single-instance lock now skipped during update).
-- True download sizes, one-click retry, single-instance lock, title-bar badge.
-- Same safe dependencies as 0.2.5-o (audit clean, integrity-pinned).
+- Electron binary fixed: 44.5.1 (corrupt 44.4.4 replaced with working binary).
+- Window initialization fixed: show:true (not hidden), titleBarOverlay:false (eliminates Electron #54025 renderer hang that suppressed ready-to-show for hidden windows with overlay).
+- Renderer module load fixed: dist-ui/index.html script tag now type="module" (supports import.meta in bundled JS).
+- Prebuilt package fixed: resources/default_app.asar included (required for Electron boot; excluded in broken build causing AV false positive and missing-file exits).
+- Build script (build-package.mjs): filter corrected to include asar; placeholder approach removed after verification that asar is required.
+- Single-instance lock fix (main.ts): LEGION_UPDATE_RELAUNCH=1 skips lock during update relaunch.
+- Package version: electron ^44.5.1.
 
----
-Installs in place from 0.2.5-p and 0.2.5-o. Full detail in CHANGELOG.md.
+Installs in place from 0.2.5-o. Clean install verified: shortcut launches, splash shows, UI renders, health endpoint responds.
+No release published yet; signing/pre-flight/publish per docs/SHIPPING.md.

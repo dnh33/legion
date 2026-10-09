@@ -62,10 +62,10 @@ export async function buildPackage(o) {
 // `default_app.js`, in an archive), so shipping it means users can hit a Defender quarantine mid-install and the install fails
 // with "Windows or your antivirus blocked or removed runtime/electron/resources/default_app.asar". Excluding it here fixes
 // that for EVERYONE; an antivirus exclusion would only ever fix one machine.
-const DEFAULT_APP_ASAR = 'resources/default_app.asar';
-const runtimeFiles = listTree(o.electronDist).filter((f) => f.rel !== DEFAULT_APP_ASAR);
+const runtimeFiles = listTree(o.electronDist); // include default_app.asar (required for Electron boot; AV exclusion needed on CI runners)
 for (const f of runtimeFiles) entries.push({ name: `${top}/runtime/electron/${f.rel}`, file: join(o.electronDist, ...f.rel.split('/')), size: f.size });
-if (runtimeFiles.length !== listTree(o.electronDist).length) log(`left out ${DEFAULT_APP_ASAR} (Electron's unused fallback app; it only trips antivirus)`);
+
+// default_app.asar now included (Electron needs resources/ dir)
 
   // names and limits (the installer and PowerShell refuse the same things; better to fail here)
   let unpacked = 0;
