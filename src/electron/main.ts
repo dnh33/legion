@@ -394,6 +394,12 @@ function createWindow(showOnReady: boolean): void {
   // the taskbar can pin this window and start Legion again from the pin (taskbar.ts)
   if (isWin) win.setAppDetails(windowDetails(process.execPath, root));
   if (showOnReady) win.once('ready-to-show', () => win?.show());
+  // Electron 44.4.x regression: ready-to-show never fires for hidden windows with titleBarOverlay.
+  // Fallback: also show on did-finish-load or after timeout, so window is always visible.
+  let windowShown = false;
+  const showWindowIfNeeded = () => { if (!win || win.isDestroyed() || windowShown) return; windowShown = true; win.show(); win.focus(); };
+  win.webContents.once('did-finish-load', showWindowIfNeeded);
+  setTimeout(showWindowIfNeeded, 8000); // never hang on the splash
   win.webContents.setWindowOpenHandler(({ url }) => { openExternal(url); return { action: 'deny' }; });
   win.webContents.on('will-navigate', (e, url) => {
     if (url === uiUrl || url.startsWith(uiUrl + '#') || url.startsWith(uiUrl + '?')) return;
