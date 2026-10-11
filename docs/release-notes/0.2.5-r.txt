@@ -1,8 +1,9 @@
-Legion 0.2.5-r. The fixed updater, same safe dependencies.
+Legion 0.2.5-r — updates are safer and finish cleanly.
 
-- Update relaunch no longer blanks the renderer (single-instance lock now skipped during update).
-- True download sizes, one-click retry, single-instance lock, title-bar badge.
-- Same safe dependencies as 0.2.5-o (audit clean, integrity-pinned).
+- Before an update changes anything, your conversations, settings and projects are backed up. If an update cannot finish, nothing you made is lost.
+- An update now closes Legion's background processes before it replaces files, so it can no longer leave a blank window behind. If the new version does not start, Legion returns to the version you had.
+- Legion refuses to start a second update while one is already running, so two updates can never overwrite each other.
+- After an update, Legion restarts itself only once the previous version has fully closed — no more two windows fighting over one engine.
+- If an update is interrupted — a crash, a power cut, closing the laptop — Legion repairs itself on the next start instead of staying broken.
 
----
-Installs in place from 0.2.5-p and 0.2.5-o. Full detail in CHANGELOG.md.
+Installs over 0.2.5-o and later. Full detail in CHANGELOG.md.

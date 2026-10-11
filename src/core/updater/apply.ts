@@ -14,6 +14,17 @@ import { closeSync, cpSync, existsSync, fsyncSync, lstatSync, mkdirSync, openSyn
 import { tmpdir } from 'node:os';
 import { basename, dirname, join, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
+// C21: this helper is copied alone to <install>/.update/run/apply.mjs and run standalone during the swap,
+// so it imports node: builtins ONLY. The types and the pure recovery judge are inlined here (no sibling
+// imports); every impure behavior (preflight, marker, teardown, waiter, metrics, progress) arrives through
+// ApplyDeps, exactly like health/spawnApp/reExec already do.
+export interface PreflightResult { ok: boolean; backedUp: string[]; error?: string }
+export interface MarkerInfo { fromVersion: string; toVersion: string }
+export interface BeginResult { ok: boolean; reason?: 'in-progress' | 'error'; message?: string }
+export interface RecoveryVerdict { action: 'swap-back' | 'complete' | 'clean'; reason: string }
+export interface UpdateAttemptRec { at: number; from: string; to: string; result: 'ok' | 'rolled-back' | 'failed' | 're-exec'; durationMs: number; reason?: string }
+export interface ProgressEventRec { stage: string; message: string; percent: number | null }
+export type ProgressSink = (e: ProgressEventRec) => void;
 
 /** The only names an update may replace (directories and files at the top of the install folder). */
 export const CODE_SET: readonly string[] = Object.freeze([
@@ -149,16 +160,37 @@ export function markCommitted(installDir: string): void {
  * Called by main at every start, BEFORE the core is spawned. `swapping` = the helper died mid-swap: roll back. `awaiting-health` with the
  * running build not being the new one and a stale heartbeat: roll back. Running build == new one: leave it (main confirms it with markCommitted).
  */
+
+/** The singular recovery decision (pure, inlined so this helper stays node-only). */
+function judgeRecovery(journal: Journal | null, runningVersion: string): RecoveryVerdict {
+  if (!journal) return { action: 'clean', reason: 'no journal: nothing was in flight' };
+  const match = runningVersion === journal.to;
+  switch (journal.state) {
+    case 'swapping':
+      return { action: 'swap-back', reason: `interrupted during the swap to ${journal.to}: restoring ${journal.from}` };
+    case 'awaiting-health':
+      return match
+        ? { action: 'complete', reason: `the swap to ${journal.to} landed and that build is running: confirm it` }
+        : { action: 'swap-back', reason: `the swap to ${journal.to} never went live (running ${runningVersion}): restoring ${journal.from}` };
+    case 'committed':
+      return { action: 'clean', reason: `the update to ${journal.to} was already committed` };
+    case 'rolled-back':
+      return { action: 'clean', reason: 'a rollback is already on record: nothing to recover (idempotent)' };
+    default:
+      return { action: 'clean', reason: `unrecognised journal state ${String((journal as { state?: unknown }).state)}: nothing to act on` };
+  }
+}
+
 export async function recoverInterrupted(installDir: string, ctx: { runningVersion: string; nowMs?: number; staleMs?: number }): Promise<'none' | 'rolled-back' | 'awaiting-confirm'> {
   const j = readJournal(installDir);
   if (!j) return 'none';
   const now = ctx.nowMs ?? Date.now();
-  if (j.state === 'swapping') { await rollback(installDir, 'interrupted: the update was cut off during the swap'); return 'rolled-back'; }
-  if (j.state === 'awaiting-health') {
-    if (ctx.runningVersion === j.to) return 'awaiting-confirm';
-    if (now - j.heartbeat > (ctx.staleMs ?? 120_000)) { await rollback(installDir, 'interrupted: the new build was never confirmed healthy'); return 'rolled-back'; }
-  }
-  return 'none';
+  // A live helper may still be deciding: defer when the heartbeat is fresh (judgeRecovery has no clock).
+  if (j.state === 'awaiting-health' && ctx.runningVersion !== j.to && now - j.heartbeat <= (ctx.staleMs ?? 120_000)) return 'none';
+  // Singular recovery decision (teardown.ts judgeRecovery).
+  const v = judgeRecovery(j, ctx.runningVersion);
+  if (v.action === 'swap-back') { await rollback(installDir, v.reason); return 'rolled-back'; }
+  return v.action === 'complete' ? 'awaiting-confirm' : 'none';
 }
 
 // ------------------------------------------------------------------ the helper process
@@ -180,14 +212,48 @@ export interface ApplyDeps {
   sleep(ms: number): Promise<void>;
   log(line: string): void;
   step?: (label: string) => void;
+  /** Graceful core shutdown before swap (teardown.ts). Returns ok:false to cancel the update. */
+  gracefulTeardown?: (timeoutMs: number) => Promise<{ ok: boolean; error?: string }>;
+  /** Cross-process update marker (update-marker.ts). */
+  marker?: { begin(info: MarkerInfo): BeginResult; end(): void; isInProgress(): boolean };
+  /** Data backup before any file is touched (state-preflight.ts). Fail-closed. */
+  runPreflight?: () => PreflightResult;
+  /** External relaunch waiter (relaunch-waiter.ts). */
+  startWaiter?: (opts: { oldPid: number; newCmd: string; newArgs: string[] }) => Promise<{ ok: boolean; waiterPid?: number; error?: string }>;
+  /** Update attempt history (metrics.ts). */
+  recordAttempt?: (attempt: UpdateAttemptRec) => void;
+  /** Progress events for the update panel (progress.ts). */
+  progress?: ProgressSink;
 }
 
 export async function runApply(job: ApplyJob, d: ApplyDeps): Promise<Outcome['result']> {
   const { installDir } = job;
+  const progress: ProgressSink = d.progress ?? (() => undefined);
+  const startTime = Date.now();
+  const finish = (result: Outcome['result'], reason?: string): Outcome['result'] => {
+    if (d.recordAttempt) {
+      d.recordAttempt({
+        at: startTime, from: job.from, to: job.to,
+        result: result === 'ok' ? 'ok' : result === 'rolled-back' ? 'rolled-back' : result === 're-exec' ? 're-exec' : 'failed',
+        durationMs: Date.now() - startTime,
+        ...(reason ? { reason } : {})
+      });
+    }
+    return result;
+  };
   const waitUntil = async (cond: () => boolean | Promise<boolean>, ms: number): Promise<boolean> => {
     const end = Date.now() + ms;
     for (;;) { if (await cond()) return true; if (Date.now() >= end) return false; await d.sleep(250); }
   };
+  // Cross-process update marker: refuse if another update owns this install (update-marker.ts).
+  if (d.marker) {
+    const begin = d.marker.begin({ fromVersion: job.from, toVersion: job.to });
+    if (!begin.ok) {
+      d.log(`update refused: ${begin.message}`);
+      writeOutcome(installDir, { from: job.from, to: job.to, result: 'failed', reason: begin.message });
+      return finish('failed', begin.message);
+    }
+  }
   // On Windows this helper runs from <install>/node_modules (electron.exe as node). A full-package swap must
   // rename the very directory the helper is loaded from, which Windows refuses with EPERM no matter how often
   // it is retried (the running image does not share delete). Unload first: re-run the helper from a copy of the
@@ -195,40 +261,88 @@ export async function runApply(job: ApplyJob, d: ApplyDeps): Promise<Outcome['re
   // every outcome after it. The parent and port waits run again in the fresh process.
   if (process.platform === 'win32' && job.names?.includes('node_modules') && process.env.LEGION_APPLY_REEXEC !== '1') {
     d.log('full package: re-running the swap helper from a runtime outside the install (node_modules must move)');
-    if (d.reExec?.(process.argv[2] ?? '')) return 're-exec';
+    if (d.reExec?.(process.argv[2] ?? '')) return finish('re-exec');
   }
   d.log(`apply ${job.from} -> ${job.to}`);
-  if (!(await waitUntil(() => !d.isAlive(job.parentPid), job.parentWaitMs ?? 30_000))) { d.log('the app is still running: nothing was changed'); writeOutcome(installDir, { from: job.from, to: job.to, result: 'failed', reason: 'the app did not exit in time; nothing was changed' }); return 'failed'; }
-  // a core that still answers means files are in use: never swap under it
-  if (!(await waitUntil(async () => (await d.health(job.port)) === null, job.portFreeMs ?? 10_000))) { d.log('a core still answers on the port: nothing was changed'); writeOutcome(installDir, { from: job.from, to: job.to, result: 'failed', reason: 'a Legion core is still running; nothing was changed' }); d.spawnApp(job.relaunch); return 'failed'; }
+  // Data backup before any file is touched (state-preflight.ts). Fail closed.
+  if (d.runPreflight) {
+    progress({ stage: 'preflight', message: 'Backing up data', percent: null });
+    const pf = d.runPreflight();
+    if (!pf.ok) {
+      d.log(`preflight failed: ${pf.error}`);
+      writeOutcome(installDir, { from: job.from, to: job.to, result: 'failed', reason: `preflight: ${pf.error}` });
+      if (d.marker) d.marker.end();
+      return finish('failed', `preflight: ${pf.error}`);
+    }
+    d.log(`preflight: backed up ${pf.backedUp.length} entries`);
+  }
+  progress({ stage: 'teardown', message: 'Waiting for the app to close', percent: null });
+  if (!(await waitUntil(() => !d.isAlive(job.parentPid), job.parentWaitMs ?? 30_000))) { d.log('the app is still running: nothing was changed'); writeOutcome(installDir, { from: job.from, to: job.to, result: 'failed', reason: 'the app did not exit in time; nothing was changed' }); if (d.marker) d.marker.end(); return finish('failed', 'the app did not exit in time'); }
+  // A core that still answers means files are in use: never swap under it (health-based guard).
+  if (!(await waitUntil(async () => (await d.health(job.port)) === null, job.portFreeMs ?? 10_000))) { d.log('a core still answers on the port: nothing was changed'); writeOutcome(installDir, { from: job.from, to: job.to, result: 'failed', reason: 'a Legion core is still running; nothing was changed' }); d.spawnApp(job.relaunch); if (d.marker) d.marker.end(); return finish('failed', 'a Legion core is still running'); }
+  // Graceful core shutdown before swap (teardown.ts). Never swap files under a running core.
+  progress({ stage: 'teardown', message: 'Stopping the core', percent: null });
+  const td = d.gracefulTeardown ? await d.gracefulTeardown(job.portFreeMs ?? 5000) : { ok: true };
+  if (!td.ok) {
+    d.log(`teardown failed: ${td.error}`);
+    writeOutcome(installDir, { from: job.from, to: job.to, result: 'failed', reason: td.error });
+    d.spawnApp(job.relaunch);
+    if (d.marker) d.marker.end();
+    return finish('failed', td.error);
+  }
+  // Swap (journaled rename).
+  progress({ stage: 'swap', message: 'Installing the update', percent: 50 });
   try {
     await swapIn({ installDir, stagedDir: job.stagedDir, from: job.from, to: job.to, retryMs: job.swapRetryMs ?? 15_000, ...(job.names ? { names: job.names } : {}), ...(d.step ? { step: d.step } : {}) });
   } catch (e) {
     const reason = e instanceof Error ? e.message : String(e);
     d.log(`swap failed: ${reason}`);
     const code = (e as NodeJS.ErrnoException).code;
-    writeOutcome(installDir, { from: job.from, to: job.to, result: 'failed', reason: ['EBUSY', 'EPERM', 'EACCES'].includes(code ?? '') ? 'files in use: close other Legion windows or tools started in the Legion folder, then try again' : reason });
+    const msg = ['EBUSY', 'EPERM', 'EACCES'].includes(code ?? '') ? 'files in use: close other Legion windows or tools started in the Legion folder, then try again' : reason;
+    writeOutcome(installDir, { from: job.from, to: job.to, result: 'failed', reason: msg });
     d.spawnApp(job.relaunch);
-    return 'failed';
+    if (d.marker) d.marker.end();
+    return finish('failed', msg);
   }
   d.log('swapped; starting the new build');
-  const child = d.spawnApp(job.relaunch);
-  const pid = child?.pid;
+  // Relaunch via external waiter (relaunch-waiter.ts) so the old process is provably gone first.
+  progress({ stage: 'relaunch', message: 'Starting the new build', percent: 80 });
+  let pid: number | undefined;
+  if (d.startWaiter) {
+    const r = await d.startWaiter({
+      oldPid: job.parentPid,
+      newCmd: job.relaunch.cmd,
+      newArgs: job.relaunch.args
+    });
+    if (!r.ok) { d.log(`relaunch deferred: ${r.error}`); } else { pid = r.waiterPid; }
+  } else {
+    const child = d.spawnApp(job.relaunch);
+    pid = child?.pid;
+  }
+  // Health check of the new build.
+  progress({ stage: 'health', message: 'Waiting for the new build', percent: 90 });
   const healthy = await waitUntil(async () => {
     const j = readJournal(installDir);
     if (j) saveJournal(installDir, { ...j, heartbeat: Date.now() });
     const h = await d.health(job.port);
     return !!h && h.ok && h.version === job.to;
   }, job.healthTimeoutMs ?? 60_000);
-  if (healthy) { markCommitted(installDir); d.log('the new build is healthy'); return 'ok'; }
+  if (healthy) {
+    markCommitted(installDir);
+    d.log('the new build is healthy');
+    progress({ stage: 'health', message: 'Update complete', percent: 100 });
+    if (d.marker) d.marker.end();
+    return finish('ok');
+  }
   d.log('the new build did not become healthy: rolling back');
+  progress({ stage: 'error', message: 'Update failed, rolling back', percent: null });
   if (pid) await d.killTree(pid); // by PID, never by name
   await waitUntil(async () => (await d.health(job.port)) === null, job.portFreeMs ?? 10_000);
   await rollback(installDir, `the new build did not report healthy on 127.0.0.1:${job.port} within ${Math.round((job.healthTimeoutMs ?? 60_000) / 1000)} s`, job.swapRetryMs ?? 15_000);
   d.spawnApp(job.relaunch);
-  return 'rolled-back';
+  if (d.marker) d.marker.end();
+  return finish('rolled-back');
 }
-
 export function realDeps(installDir: string): ApplyDeps {
   return {
     isAlive: (pid) => { try { process.kill(pid, 0); return true; } catch (e) { return (e as NodeJS.ErrnoException).code === 'EPERM'; } },
@@ -270,6 +384,19 @@ export function realDeps(installDir: string): ApplyDeps {
                     },
     sleep: sleepMs,
     log: (line) => { try { appendFileSync(join(upDir(installDir), 'apply.log'), `[${new Date().toISOString()}] ${line}\n`); } catch { /* ignore */ } },
+    gracefulTeardown: async (timeoutMs: number) => {
+      // Best-effort core shutdown via the admin endpoint, then wait for the port to go silent.
+      try { await fetch('http://127.0.0.1:4747/admin/shutdown', { method: 'POST', signal: AbortSignal.timeout(2000) }); } catch { /* core may not be running */ }
+      const end = Date.now() + timeoutMs;
+      for (;;) {
+        try {
+          const r = await fetch('http://127.0.0.1:4747/health', { signal: AbortSignal.timeout(1500) });
+          if (!r.ok) return { ok: true };
+        } catch { return { ok: true }; }
+        if (Date.now() >= end) return { ok: false, error: 'the Legion core did not exit in time; nothing was changed' };
+        await sleepMs(250);
+      }
+    },
   };
 }
 

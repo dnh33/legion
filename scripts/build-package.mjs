@@ -46,7 +46,7 @@ export async function buildPackage(o) {
 
   const out = resolve(o.out); mkdirSync(out, { recursive: true });
   const work = join(out, '.work'); rmSync(work, { recursive: true, force: true }); mkdirSync(work, { recursive: true });
-  const info = { platform: PLATFORM, kind: 'package', builtAt: o.publishedAt, commit: o.commit ?? 'unknown', dirty: !!o.dirty, electron: o.electronVersion, sdk: sdkVersion, sdkBinarySha256: sdk.sha256 };
+  const info = { platform: PLATFORM, kind: 'package', updateMechanism: 'self', builtAt: o.publishedAt, commit: o.commit ?? 'unknown', dirty: !!o.dirty, electron: o.electronVersion, sdk: sdkVersion, sdkBinarySha256: sdk.sha256 };
   const infoFile = join(work, 'build-info-extra.json'); writeFileSync(infoFile, JSON.stringify(info));
   const rp = spawnSync(process.execPath, [join(REPO, 'scripts', 'release-package.mjs'), '--out', out, '--root', root, '--published-at', o.publishedAt, '--build-info', infoFile], { encoding: 'utf8' });
   if (rp.status !== 0) throw new Error(`release-package.mjs failed: ${rp.stderr || rp.stdout}`);

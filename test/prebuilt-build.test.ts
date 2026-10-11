@@ -22,7 +22,7 @@ test('build: layout, build-info, file list, sums; no src, no tests, no .bin, no 
   for (const must of ['package.json', 'build-info.json', 'PACKAGE-FILES.json', 'runtime/electron/electron.exe', 'node_modules/@anthropic-ai/claude-agent-sdk-win32-x64/claude.exe', 'node_modules/zod/index.js', 'dist/src/electron/main.js', 'setup.cmd']) assert.ok(names.includes(top + must), must);
   for (const never of ['dist/test/a.test.js', 'src/core/a.ts', 'node_modules/.bin/zod.cmd', 'node_modules/.package-lock.json', 'node_modules/@anthropic-ai/claude-agent-sdk-win32-arm64/claude.exe', 'node_modules/@anthropic-ai/claude-agent-sdk-linux-x64/claude']) assert.ok(!names.includes(top + never), never);
   const info = JSON.parse(readZipEntry(zip, top + 'build-info.json').toString());
-  assert.deepEqual({ ...info, sdkBinarySha256: undefined }, { platform: 'win32-x64', kind: 'package', builtAt: AT, commit: 'abc1234', dirty: false, electron: '44.5.1', sdk: '0.3.285', version: '0.9.0', publishedAt: AT, sdkBinarySha256: undefined });
+  assert.deepEqual({ ...info, sdkBinarySha256: undefined }, { platform: 'win32-x64', kind: 'package', updateMechanism: 'self', builtAt: AT, commit: 'abc1234', dirty: false, electron: '44.5.1', sdk: '0.3.285', version: '0.9.0', publishedAt: AT, sdkBinarySha256: undefined });
   assert.equal(info.sdkBinarySha256, sha(FAKE_CLAUDE));
   const sums = readFileSync(join(out, 'SHA256SUMS.txt'), 'utf8').trim().split('\n');
   assert.deepEqual(sums.map((l) => l.slice(66)), ['legion-0.9.0-app.zip', 'legion-0.9.0-win-x64.zip', 'legion-update-manifest.json']);

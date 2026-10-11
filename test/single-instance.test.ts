@@ -44,7 +44,7 @@ describe('single instance: the first process wins, a second quits', () => {
 describe('single instance: main.ts is wired to the rule, not to an inline check', () => {
   it('asks Electron for the lock and routes the answer through the pure decision', () => {
     assert.match(main, /app\.requestSingleInstanceLock\(\)/, 'the lock is never requested, so a second launch always runs');
-    assert.match(main, /decideSingleInstance\(app\.requestSingleInstanceLock\(\)\)/, 'the lock answer does not reach the pure decision');
+    assert.match(main, /decideSingleInstance\([^;]*app\.requestSingleInstanceLock\(\)/, 'the lock answer does not reach the pure decision');
   });
 
   it('quits on the decision before the window/core branch', () => {
