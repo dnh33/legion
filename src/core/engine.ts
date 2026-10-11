@@ -339,9 +339,17 @@ export class Engine {
       const viaBridge = p.bridge && !p.bridge.reply;
       // A model another bot chose lasts for that run only: a later message that asks for none (and is not a reply landing in the caller's own task) goes back to the agent's setting.
       const keepOverride = !!p.bridge?.reply;
-      task = this.saveTask({
-        ...prev, status: 'queued', source: p.source,
-        requestedModel: p.model ?? (prev.modelOverride && !keepOverride ? agent.model : prev.requestedModel),
+      // Provenance flag `modelChosen` (carried on the task row): requestedModel was CHOSEN for this task - a value
+      // other than agent.model - rather than copied from Settings. When nobody asks for a model on this turn the
+      // configured model is re-read instead of the snapshot taken at task creation, so changing a bot's model in
+      // Settings reaches every thread it owns. The one place the previous value survives is a reply landing in the
+      // caller's own task, and only while it is still an explicit choice (or a recorded override).
+      const chosenBefore = (prev as Task & { modelChosen?: boolean }).modelChosen === true;
+      const keepChosen = keepOverride && (chosenBefore || !!prev.modelOverride);
+      const requestedModel = p.model ?? (keepChosen ? prev.requestedModel : agent.model);
+      const next = {
+        ...prev, status: 'queued' as const, source: p.source,
+        requestedModel, modelChosen: requestedModel !== agent.model,
         modelOverride: overriding ? { model: p.model!, by: p.modelOverrideBy! } : keepOverride ? prev.modelOverride : undefined,
         // not resumable until this run's own prompt reaches the session (a restart before then must re-send it, not continue)
         result: undefined, error: undefined, resumable: undefined,
@@ -351,23 +359,27 @@ export class Engine {
         // A human continuing a task clears any bot-origin ceiling; a bridge reply keeps the task's own.
         origin: origin ?? (p.bridge?.reply ? prev.origin : undefined),
         ...(tainted ? { tainted: true } : {}),
-      });
+      };
+      task = this.saveTask(next);
     } else {
       const now = nowIso();
       const base = prompt.replace(/^\s*\/(opus|sonnet)\b\s*/i, '') || prompt;
       const callerName = p.bridge ? (this.store.getAgent(p.bridge.fromAgentId)?.name ?? p.bridge.fromAgentId) : '';
       const projectId = this.pickProject(p, agent, undefined);
-      task = this.saveTask({
+      const requestedModel = p.model ?? agent.model;
+      const next = {
         id: newId('task'), agentId: agent.id,
         title: p.bridge ? `${callerName}: ${base.replace(/\s+/g, ' ').trim().slice(0, 50)}` : titleFrom(base),
-        status: 'queued', source: p.source,
+        status: 'queued' as const, source: p.source,
         ...(p.bridge ? { fromAgentId: p.bridge.fromAgentId, parentTaskId: p.bridge.parentTaskId, bridgeHop: p.bridge.hop ?? 0 } : {}),
-        requestedModel: p.model ?? agent.model, createdAt: now, updatedAt: now,
+        // provenance: a task that runs on its agent's own model carries no choice of its own (see the continue branch)
+        requestedModel, modelChosen: requestedModel !== agent.model, createdAt: now, updatedAt: now,
         ...(overriding ? { modelOverride: { model: p.model!, by: p.modelOverrideBy! } } : {}),
         ...(origin ? { origin } : {}),
         ...(projectId ? { projectId } : {}),
         ...(tainted ? { tainted: true } : {}),
-      });
+      };
+      task = this.saveTask(next);
     }
     this.addMessage(task.id, 'user', prompt, undefined, p.bridge?.fromAgentId);
     this.queue.push({
