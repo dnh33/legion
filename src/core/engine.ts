@@ -1268,6 +1268,18 @@ This run read connector (GitHub) data and other outside text. Web access can sen
   private async runOnce(job: Job, agent: AgentProfile, model: ConcreteModel, prompt: string, act: Active): Promise<Outcome> {
     const pr = this.providers?.resolve(model);
     if (pr) return this.runProvider(job, agent, pr, prompt, act);
+    // Never the Claude path: a `<id>:<model>` value whose provider resolves to nothing (no provider runtime at all,
+    // a reserved id the config dropped, an id resolve() cannot parse) FAILS the way a preset-backed id with a
+    // deleted entry already does (providers/runtime.ts:119) instead of being handed to the Claude SDK as a model
+    // name. The owner must see "not set up any more", not a silent run on the wrong model. `arn:` is a Bedrock id
+    // for the Claude path, never a provider (same exclusion as providerPrefix).
+    const shaped = /^([A-Za-z][A-Za-z0-9-]{1,31}):/.exec(model);
+    if (shaped && !/^arn:/i.test(model)) {
+      return {
+        subtype: 'error_during_execution', isError: true,
+        errorText: `The provider "${shaped[1]}" is not set up any more. Choose another model for this agent in Settings, Providers.`,
+      };
+    }
     const resume = this.store.getTask(job.taskId)?.sessionId;
     const options = this.buildOptions(job, agent, model, act, prompt, resume);
     // Streaming input: the request is the first message of a stream the person can add to while the run works.
