@@ -1886,3 +1886,6 @@ Plan: `claude/plan-bsv-spend-residuals.md` (facts table with sources). Closes th
 
 ## NEXT RELEASE (0.2.6-s): AGENT SHELL — develop Legion with Legion
 User directive: Legion agents need a SHELL (run commands, edit files, drive the machine like Claude Code / Hermes Agent). One of the last things blocking dogfooding (develop Legion with Legion), esp. for non-Claude providers. Study Claude Code + Hermes Agent tool-calling (hermes-agent skill, contributor-guide) and reuse for Legion's provider abstraction. Requirements: exec shell (cwd/timeout/output), file ops scoped to workspace, provider-agnostic tool loop, approval gates (no exec.ask:off, scope containment).
+
+## 2026-10-11 — v0.2.5-r in-app update VERIFIED WORKING
+User tested the in-app updater in Legion: updated 0.2.5-o -> 0.2.5-r without issues. Updater saga CLOSED (self-applying code update works end-to-end). build-info updateMechanism:'self' + preflight + teardown + relaunch-waiter all live and functional.
