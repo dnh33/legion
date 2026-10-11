@@ -147,6 +147,9 @@ function deps(over: Partial<ApplyDeps> & { f: ReturnType<typeof fixture>; newHea
   const d = {
     spawned: 0, killed: [] as number[], state,
     isAlive: () => false,
+    stopCore: async () => { /* no-op in tests */ },
+    isCoreRunning: () => false,
+    waitExit: async () => true,
     health: async () => (state.newUp ? { ok: true, version: '1.1.0' } : state.oldUp ? { ok: true, version: '1.0.0' } : null),
     spawnApp: () => { d.spawned++; const swapped = snap(over.f.install)['package.json']!.includes('1.1.0'); if (swapped && over.newHealthy) state.newUp = true; else if (swapped) state.oldUp = false; else state.oldUp = true; return { pid: 4242 }; },
     killTree: async (pid: number) => { d.killed.push(pid); state.newUp = false; },
