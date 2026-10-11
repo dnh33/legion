@@ -1855,3 +1855,15 @@ Plan: `claude/plan-bsv-spend-residuals.md` (facts table with sources). Closes th
 ## 2026-10-06 note: Node floor of a source install
 
 `package.json` engines says `>=20.10`, but the lockfile needs `>=22.12` (electron 44.5.1 engines `>=22.12`; vite 7.3.6 and @vitejs/plugin-react 5.2.0 `^20.19 || >=22.12`). `scripts/install/install.sh` and the README enforce 22.12. Fix engines (and `scripts/lib/node-bootstrap.ps1` `LegionNodeMin`, `scripts/setup.ps1`, `src/electron/resolve-node.ts`, docs/ARCHITECTURE.md, CONTRIBUTING.md) in a release that needs a full install anyway: an engines change alters `package-lock.json`, which would make the next release a non-self-applying one.
+
+## 2026-10-11 — 0.2.5-q: the rolldownOptions crash
+
+**The bug:** `cloud/main` merge renamed `rollupOptions` → `rolldownOptions` (Vite 8). Vite 7 silently ignores it, falls back to ESM output instead of IIFE. Renderer crashes with SIGTERM (exit 143). Blank window.
+
+**The fix:** revert to `rollupOptions` in `ui/vite.config.ts`.
+
+**Red herrings chased first:** showWindowIfNeeded, show:false/true, titleBarOverlay, module fix, corrupt binary. All real issues but none caused THIS crash.
+
+**Lesson:** when merging dependency bumps, check config key renames. Verify build output format, not just build success. CI smoke test must verify rendering, not just process liveness.
+
+**Also fixed in this release:** prebuilt package ships working Electron 44.5.1 + default_app.asar (was corrupt + missing), electron dep spec reverted to ^44.5.1 (lockfile diff must be version-only for updater bridge).
