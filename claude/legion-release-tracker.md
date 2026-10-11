@@ -1867,3 +1867,19 @@ Plan: `claude/plan-bsv-spend-residuals.md` (facts table with sources). Closes th
 **Lesson:** when merging dependency bumps, check config key renames. Verify build output format, not just build success. CI smoke test must verify rendering, not just process liveness.
 
 **Also fixed in this release:** prebuilt package ships working Electron 44.5.1 + default_app.asar (was corrupt + missing), electron dep spec reverted to ^44.5.1 (lockfile diff must be version-only for updater bridge).
+
+## 2026-10-11 — 0.2.5-r: updater hardening (P0-P2) RELEASED
+
+**Shipped** (all verified): state-preflight (data backup before swap, fail-closed), update-marker (cross-process lock, PID-reuse guard), teardown (graceful core shutdown + judgeRecovery singular recovery owner), relaunch-waiter (external, PID guard, handshake, cancel), concurrent update prevention, progress emission, update metrics (JSONL), install stamp (updateMechanism).
+
+**runApply sequence:** marker -> preflight -> parentWait -> portFree(health) -> teardown -> swap -> relaunch -> health -> metrics. recoverInterrupted uses judgeRecovery (idempotent).
+
+**Key lessons:**
+1. apply.ts MUST stay self-contained (node: imports only) — it is copied to .update/run/apply.mjs and run standalone. Sibling behaviors injected via ApplyDeps, types + pure judge inlined. C21 test enforces this.
+2. judgeRecovery must be idempotent: rolled-back = always clean (never re-run repair). The subagent's gap-fill broke this; proven by updater-apply C16.
+3. relaunch-waiter spawns processes (its function) -> registered in bsv-scan ALLOWLIST + C21 expectCp with reason. Not weakening; the scan's designed path.
+4. Subagent fan-out: 4 lanes (state-preflight, update-marker, teardown, relaunch-waiter) on xiaomi/mimo-v2.6-flash, orchestrator verifies. Config had been wrongly -pro; fixed.
+
+**Gate:** 3912 tests, 3863 pass, 0 fail, 49 skipped. Preflight 14 ok. App's verifier on live CDN bytes: OK (key k1). requiresFullInstall: false.
+
+**Released:** v0.2.5-r live on GitHub (8 assets, signed). User tests in-app updater 0.2.5-o -> 0.2.5-r.
