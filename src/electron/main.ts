@@ -377,7 +377,7 @@ function createWindow(showOnReady: boolean): void {
     height: 820,
     minWidth: 960,
     minHeight: 600,
-    show: true,
+    show: false,
     backgroundColor: '#0b0d10',
     title: 'Legion',
     icon: existsSync(assetPath('icon.png')) ? assetPath('icon.png') : undefined,
@@ -394,12 +394,6 @@ function createWindow(showOnReady: boolean): void {
   // the taskbar can pin this window and start Legion again from the pin (taskbar.ts)
   if (isWin) win.setAppDetails(windowDetails(process.execPath, root));
   if (showOnReady) win.once('ready-to-show', () => win?.show());
-  // Safety net: if ready-to-show is slow or suppressed, show after did-finish-load or timeout.
-  // Normal path: ready-to-show fires and the window shows immediately. This fallback only activates on failure.
-  let windowShown = false;
-  const showWindowIfNeeded = () => { if (!win || win.isDestroyed() || windowShown) return; windowShown = true; win.show(); win.focus(); };
-  win.webContents.once('did-finish-load', showWindowIfNeeded);
-  setTimeout(showWindowIfNeeded, 8000); // never hang on the splash
   win.webContents.setWindowOpenHandler(({ url }) => { openExternal(url); return { action: 'deny' }; });
   win.webContents.on('will-navigate', (e, url) => {
     if (url === uiUrl || url.startsWith(uiUrl + '#') || url.startsWith(uiUrl + '?')) return;
