@@ -1889,3 +1889,6 @@ User directive: Legion agents need a SHELL (run commands, edit files, drive the 
 
 ## 2026-10-11 — v0.2.5-r in-app update VERIFIED WORKING
 User tested the in-app updater in Legion: updated 0.2.5-o -> 0.2.5-r without issues. Updater saga CLOSED (self-applying code update works end-to-end). build-info updateMechanism:'self' + preflight + teardown + relaunch-waiter all live and functional.
+
+## 2026-10-12 — Model-routing diagnosis VERIFIED (Workstream A)
+CONFIRMED leaks (orchestrator re-grepped): L1 engine.ts:344 continued tasks reuse prev.requestedModel snapshot (not agent.model) - marshal delegation ignores Settings change. L2 engine.ts:325 `overriding = !!p.modelOverrideBy && !!p.model` + ui/store.ts:422 localStorage `legion.model.<id>` beats agent.model. L5 engine.ts:1257 provider-shaped model with unresolvable provider silently runs on Claude. Hypothesis comms/tools.ts:51,68 (raw a.model) is NOT reachable (resolveModel always passed) - downgraded. Fix lane (A2) dispatched with findings inlined, commit-sized units. Full dossier: scratch/model-routing-diagnosis.md.
