@@ -1883,3 +1883,6 @@ Plan: `claude/plan-bsv-spend-residuals.md` (facts table with sources). Closes th
 **Gate:** 3912 tests, 3863 pass, 0 fail, 49 skipped. Preflight 14 ok. App's verifier on live CDN bytes: OK (key k1). requiresFullInstall: false.
 
 **Released:** v0.2.5-r live on GitHub (8 assets, signed). User tests in-app updater 0.2.5-o -> 0.2.5-r.
+
+## NEXT RELEASE (0.2.6-s): AGENT SHELL — develop Legion with Legion
+User directive: Legion agents need a SHELL (run commands, edit files, drive the machine like Claude Code / Hermes Agent). One of the last things blocking dogfooding (develop Legion with Legion), esp. for non-Claude providers. Study Claude Code + Hermes Agent tool-calling (hermes-agent skill, contributor-guide) and reuse for Legion's provider abstraction. Requirements: exec shell (cwd/timeout/output), file ops scoped to workspace, provider-agnostic tool loop, approval gates (no exec.ask:off, scope containment).
