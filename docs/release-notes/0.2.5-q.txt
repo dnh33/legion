@@ -1,12 +1,10 @@
-Legion 0.2.5-q — renderer and prebuilt fix.
+Legion 0.2.5-q — the prebuilt package installs and runs.
 
-- Electron binary fixed: 44.5.1 (corrupt 44.4.4 replaced with working binary).
-- Window initialization fixed: show:true (not hidden), titleBarOverlay:false (eliminates Electron #54025 renderer hang that suppressed ready-to-show for hidden windows with overlay).
-- Renderer module load fixed: dist-ui/index.html script tag now type="module" (supports import.meta in bundled JS).
-- Prebuilt package fixed: resources/default_app.asar included (required for Electron boot; excluded in broken build causing AV false positive and missing-file exits).
-- Build script (build-package.mjs): filter corrected to include asar; placeholder approach removed after verification that asar is required.
-- Single-instance lock fix (main.ts): LEGION_UPDATE_RELAUNCH=1 skips lock during update relaunch.
-- Package version: electron ^44.5.1.
+- The prebuilt package now ships a working Electron binary and the required resources directory. Previously the package contained a corrupt binary and was missing a required file, so the app exited silently after installation.
+- The renderer script loads correctly in the bundled package. The previous build produced a script tag that did not support ES modules; it now uses the module type so in-code imports work.
+- Update relaunch no longer blanks the renderer. The single-instance lock is now skipped during the update relaunch so the new version starts cleanly.
+- Dependency-changing updates install themselves on Windows. The installer's swap step ran from inside the directory it was replacing, which Windows refuses; the swap now runs from a separate runtime.
+- The update panel reports the true download size for dependency updates and offers a one-click retry.
+- A title-bar badge announces available updates and their progress.
 
-Installs in place from 0.2.5-o. Clean install verified: shortcut launches, splash shows, UI renders, health endpoint responds.
-No release published yet; signing/pre-flight/publish per docs/SHIPPING.md.
+Installs over 0.2.5-o and 0.2.5-p. Full detail in CHANGELOG.md.

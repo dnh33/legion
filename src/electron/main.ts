@@ -377,12 +377,12 @@ function createWindow(showOnReady: boolean): void {
     height: 820,
     minWidth: 960,
     minHeight: 600,
-    show: true,
+    show: false,
     backgroundColor: '#0b0d10',
     title: 'Legion',
     icon: existsSync(assetPath('icon.png')) ? assetPath('icon.png') : undefined,
     titleBarStyle: isMac ? 'hiddenInset' : 'hidden',
-    ...(isWin ? { titleBarOverlay: false } : {}),
+    ...(isWin ? { titleBarOverlay: { color: '#0b0d10', symbolColor: '#e6e9ef', height: 40 } } : {}),
     webPreferences: {
       preload: join(here, 'preload.cjs'),
       contextIsolation: true,
@@ -472,15 +472,6 @@ async function boot(): Promise<void> {
   win = null;
   createWindow(false);
   const w = win as BrowserWindow | null;
-  if (w) {
-    console.log('[DEBUG boot] Window created, loading UI...');
-    w.webContents.on('console-message', (e, level, message, line, sourceId) => {
-      console.log(`[RENDERER] ${level}: ${message}`);
-    });
-    w.webContents.on('did-finish-load', () => console.log('[DEBUG boot] did-finish-load ok'));
-    w.webContents.on('did-fail-load', (e, errorCode, errorDesc) => console.log(`[DEBUG boot] did-fail-load: code=${errorCode} desc=${errorDesc}`));
-    w.webContents.on('render-process-gone', (e, details) => console.log(`[DEBUG boot] render-process-gone: reason=${details.reason}`));
-  }
   await new Promise<void>((resolveReady) => {
     if (!w) return resolveReady();
     w.once('ready-to-show', () => resolveReady());
