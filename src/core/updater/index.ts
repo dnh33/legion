@@ -14,6 +14,7 @@ import { HttpError } from '../server.js';
 import { FULL_PACKAGE_SET, outcomePath, readOutcome, removeOwned, type Outcome } from './apply.js';
 import { DRAIN_MS, FREEZE_MAX_MS, LIMITS, manifestUrl, POLL_MS, PRODUCTION_SOURCE, RETRY_MS, SAMPLE_MS, sigUrl, type UpdateSource } from './config.js';
 import { planRelease } from './deps-change.js';
+import { isUpdateInProgress, type MarkerDeps } from './update-marker.js';
 import { computeBusy, QuietClock, type BusyProbe } from './idle.js';
 import { checkPolicy, ManifestError, parseManifest, type Manifest, type PolicyVerdict } from './manifest.js';
 import { fetchSmall, NetError, type FetchLike } from './net.js';
@@ -40,6 +41,8 @@ export interface UpdaterOptions {
   // The rest exist for tests. legion-core.ts passes none of them (test/updater-surface.test.ts checks that).
   source?: UpdateSource; keys?: readonly UpdateKey[]; fetchImpl?: FetchLike; version?: string; platform?: NodeJS.Platform;
   now?: () => number; timers?: boolean; freeBytes?: (dir: string) => number;
+  /** Cross-process update marker (update-marker.ts). When present, install() refuses if another process owns an update. */
+  marker?: MarkerDeps;
 }
 type Phase = 'idle' | 'checking' | 'awaiting-approval' | 'downloading' | 'staged' | 'committing';
 export interface UpdateStatus {
@@ -242,6 +245,11 @@ export function createUpdaterModule(deps: ModuleDeps, opts: UpdaterOptions): Upd
       // what every install that predates full-package support still gets.
       if (plan.route === 'notify') throw new HttpError(409, 'This release changes dependencies. Download its source and run setup.cmd.');
       if (phase !== 'idle' && phase !== 'staged') throw new HttpError(409, 'An update is already being prepared.');
+      // Cross-process guard: refuse if another Legion process already owns an update (update-marker.ts).
+      if (opts.marker) {
+        const mp = isUpdateInProgress(opts.marker);
+        if (mp.inProgress) throw new HttpError(409, 'Another Legion update is already in progress. Wait for it to finish.');
+      }
       if (staged?.version === a.version) { consent = true; return { ok: true }; }
       error = undefined;
       // CONSENT. There is no approval card on either path, and that is deliberate (owner directive 2026-10-03).

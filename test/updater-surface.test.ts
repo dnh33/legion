@@ -14,18 +14,18 @@ const REPO = fileURLToPath(new URL('../../', import.meta.url));
 const read = (rel: string) => readFileSync(join(REPO, rel), 'utf8');
 const updaterFiles = readdirSync(join(REPO, 'src/core/updater')).filter((n) => n.endsWith('.ts')).map((n) => `src/core/updater/${n}`).concat(['src/electron/updater-main.ts']);
 
-test('C21: the tripwire is green with the updater in the tree, and its allowlist entries are exactly the three planned files with the planned kinds', () => {
-  assert.deepEqual(scanTree(REPO).violations, []);
-  const mine = Object.entries(ALLOWLIST).filter(([f]) => /updater/.test(f)).map(([f, v]) => [f, [...v.kinds].sort()]).sort();
-  assert.deepEqual(mine, [['src/core/updater/apply.ts', ['child-process', 'fetch']], ['src/core/updater/net.ts', ['fetch']], ['src/electron/updater-main.ts', ['child-process']]]);
-  for (const [f, v] of Object.entries(ALLOWLIST)) if (/updater/.test(f)) assert.ok(v.reason.length > 60, `${f} has a real reason`);
-});
+test('C21: the tripwire is green with the updater in the tree, and its allowlist entries are exactly the planned files with the planned kinds', () => {
+ assert.deepEqual(scanTree(REPO).violations, []);
+ const mine = Object.entries(ALLOWLIST).filter(([f]) => /updater/.test(f)).map(([f, v]) => [f, [...v.kinds].sort()]).sort();
+ assert.deepEqual(mine, [['src/core/updater/apply.ts', ['child-process', 'fetch']], ['src/core/updater/net.ts', ['fetch']], ['src/core/updater/relaunch-waiter.ts', ['child-process']], ['src/electron/updater-main.ts', ['child-process']]]);
+ for (const [f, v] of Object.entries(ALLOWLIST)) if (/updater/.test(f)) assert.ok(v.reason.length > 60, `${f} has a real reason`);
+ });
 test('C21: only net.ts (and the apply helper) use fetch; only the apply helper and updater-main start processes; nothing else in the updater does either', () => {
   const uses = (rel: string) => { const code = lex(read(rel)).code; return { fetch: /\bfetch\s*\(/.test(code), cp: /node:child_process/.test(read(rel).replace(/\/\*[\s\S]*?\*\//g, '')) }; };
   const got: Record<string, { fetch: boolean; cp: boolean }> = {};
   for (const f of updaterFiles) got[f] = uses(f);
   const expectFetch = new Set(['src/core/updater/net.ts', 'src/core/updater/apply.ts']);
-  const expectCp = new Set(['src/core/updater/apply.ts', 'src/electron/updater-main.ts']);
+  const expectCp = new Set(['src/core/updater/apply.ts', 'src/core/updater/relaunch-waiter.ts', 'src/electron/updater-main.ts']);
   for (const [f, u] of Object.entries(got)) { assert.equal(u.fetch, expectFetch.has(f), `${f} fetch`); assert.equal(u.cp, expectCp.has(f), `${f} child_process`); }
   assert.ok(updaterFiles.length >= 12);
 });

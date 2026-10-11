@@ -158,7 +158,7 @@ export function realGetPidStartTime(pid: number): number | null {
   }
 }
 
-export function realWaiterRunDeps(): WaiterRunDeps {
+export function realWaiterRunDeps(optsEnv?: Record<string, string | undefined>): WaiterRunDeps {
   return {
     writeReady: (p) => { mkdirSync(dirname(p), { recursive: true }); writeFileSync(p, String(process.pid)); },
     isPidAlive: (pid) => { try { process.kill(pid, 0); return true; } catch (e) { return (e as NodeJS.ErrnoException).code === 'EPERM'; } },
@@ -166,7 +166,7 @@ export function realWaiterRunDeps(): WaiterRunDeps {
     launch: (cmd, args) => {
       try {
         // the waiter runs as plain node (ELECTRON_RUN_AS_NODE=1 when spawned from the electron helper); the app it starts must not inherit it
-        const env: Record<string, string | undefined> = { ...process.env };
+        const env: Record<string, string | undefined> = { ...(optsEnv ?? {}) };
         delete env.ELECTRON_RUN_AS_NODE;
         const c = spawn(cmd, args, { detached: true, stdio: 'ignore', windowsHide: false, env });
         c.on('error', () => undefined);
@@ -181,11 +181,11 @@ export function realWaiterRunDeps(): WaiterRunDeps {
 }
 
 /** Parent-side real deps; `log` is the orchestrator's (e.g. appending to .update/apply.log). */
-export function realWaiterDeps(log: (line: string) => void = (l) => { try { console.error(`[legion-relaunch] ${l}`); } catch { /* ignore */ } }): WaiterDeps {
+export function realWaiterDeps(optsEnv?: Record<string, string | undefined>, log: (line: string) => void = (l) => { try { console.error(`[legion-relaunch] ${l}`); } catch { /* ignore */ } }): WaiterDeps {
   return {
     spawnWaiter: (script, args) => {
       // the waiter is plain node code: force ELECTRON_RUN_AS_NODE=1 so electron.exe runs it as node under the helper
-      const c = spawn(process.execPath, [script, ...args], { detached: true, stdio: 'ignore', windowsHide: false, env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' } });
+      const c = spawn(process.execPath, [script, ...args], { detached: true, stdio: 'ignore', windowsHide: false, env: { ...(optsEnv ?? {}), ELECTRON_RUN_AS_NODE: '1' } });
       c.on('error', () => undefined);
       c.unref();
       if (!c.pid) throw new Error('the waiter process did not start');
