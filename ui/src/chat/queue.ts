@@ -238,7 +238,12 @@ export function restore(raw: string | null | undefined): QState {
       if (!it || typeof it !== 'object') continue;
       const { id, text, model, at } = it as Record<string, unknown>;
       if (typeof id !== 'string' || !id || typeof text !== 'string' || !text.trim() || text.length > MAX_TEXT) continue;
-      items.push({ id, text, model: typeof model === 'string' && model ? model : 'auto', at: typeof at === 'number' && Number.isFinite(at) ? at : 0 });
+      // No model was stored: the message never carried a choice of its own, so it comes back with NO model ('')
+      // and the sender puts the agent's own configured model on it - defaulting to 'auto' here would override
+      // Settings with the router's choice every time a queue came back from storage. A hostile value (anything
+      // that is not a string) still falls back to 'auto', as before.
+      const m = typeof model === 'string' ? model : model === undefined ? '' : 'auto';
+      items.push({ id, text, model: m, at: typeof at === 'number' && Number.isFinite(at) ? at : 0 });
     }
     if (items.length) threads[k] = { items, hold: 'restored', sending: null };
   }
