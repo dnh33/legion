@@ -28,7 +28,7 @@ export default defineConfig({
     emptyOutDir: true,
     target: 'chrome130',
     modulePreload: false,
-    rolldownOptions: { output: { format: 'iife', inlineDynamicImports: true } },
+    rollupOptions: { output: { format: 'iife', inlineDynamicImports: true } },
   },
   server: { port: 5173, strictPort: true },
 });
