@@ -377,7 +377,7 @@ function createWindow(showOnReady: boolean): void {
     height: 820,
     minWidth: 960,
     minHeight: 600,
-    show: false,
+    show: true,
     backgroundColor: '#0b0d10',
     title: 'Legion',
     icon: existsSync(assetPath('icon.png')) ? assetPath('icon.png') : undefined,
