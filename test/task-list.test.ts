@@ -209,3 +209,11 @@ test('renderHandover tells Claude to make its own list match, in its own tools',
   assert.match(t, /TaskCreate/);
   assert.match(t, /TaskUpdate/);
 });
+
+test('native task list: on for the lead by default, off for others, an explicit setting wins', async () => {
+  const { nativeTaskListOn } = await import('../src/shared/task-list-setting.js');
+  assert.equal(nativeTaskListOn({ id: 'zealot' }), true);
+  assert.equal(nativeTaskListOn({ id: 'scout' }), false);
+  assert.equal(nativeTaskListOn({ id: 'scout', taskList: 'on' }), true);
+  assert.equal(nativeTaskListOn({ id: 'zealot', taskList: 'off' }), false);
+});

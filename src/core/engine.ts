@@ -18,6 +18,10 @@ import { isLegionTool, needsApproval, stricterMode, LEGION_SERVER_NAMES } from '
 import { decideGate } from './gates.js';
 import { TaintedPaths } from './tainted-paths.js';
 import { CLAUDE_TASK_TOOLS, mirrorClaudeTaskCall, renderForModel, type TaskList, TaskListStore } from './task-list.js';
+import { nativeTaskListOn } from '../shared/task-list-setting.js';
+
+/** Claude Code's own task tools, opted in or out per agent (nativeTaskListOn). */
+const NATIVE_TASK_TOOLS = ['TaskCreate', 'TaskUpdate', 'TaskList', 'TaskGet'] as const;
 import { buildHostToolsServer } from './exec/host-tools.js';
 import { DirectHostBackend } from './exec/direct-host.js';
 import { clampExecLimits } from './exec/limits.js';
@@ -1170,7 +1174,9 @@ This run read connector (GitHub) data and other outside text. Web access can sen
       mcpServers: servers,
       // Off (default): only the servers above, asks the CLI to ignore user/project/local MCP config and plugins. claude.ai connectors are asked off in buildChildEnv and in `settings`.
       ...(this.config.claude.inheritMcp === true ? {} : { strictMcpConfig: true }),
-      disallowedTools: ['SendMessage', 'ListAgents', ...this.moduleDisallowed(agent)],
+      // Claude Code's own task list: 5.x models have it only when asked for (the SDK's documented allowedTools opt-in); off, the old TodoWrite goes too
+      ...(nativeTaskListOn(agent) ? { allowedTools: [...NATIVE_TASK_TOOLS] } : {}),
+      disallowedTools: ['SendMessage', 'ListAgents', ...(nativeTaskListOn(agent) ? [] : [...NATIVE_TASK_TOOLS, 'TodoWrite']), ...this.moduleDisallowed(agent)],
       maxTurns: this.config.claude.maxTurns,
       // optional spend cap per run; a typed brief may ask for a lower one, clamped here, never above the owner's. On a resumed session it counts only the new spend.
       ...(maxBudgetUsd !== undefined ? { maxBudgetUsd } : {}),

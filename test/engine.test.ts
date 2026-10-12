@@ -1088,7 +1088,7 @@ test('mcpServers: config filtered per agent; legion vm server only when vm enabl
   await some.engine.waitFor(some.engine.startTask({ agentId: 'a1', prompt: 'x', source: 'ui' }).id, 3000);
   assert.deepEqual(Object.keys(some.calls[0]!.options.mcpServers).sort(), ['legion', 'two']);
   assert.deepEqual(Object.keys((some.calls[0]!.options.mcpServers.legion.instance as any)._registeredTools).sort(), ['agents', 'ask', 'ask_user_question', 'task_result', 'tell']);
-  assert.deepEqual(some.calls[0]!.options.disallowedTools, ['SendMessage', 'ListAgents']);
+  assert.deepEqual(some.calls[0]!.options.disallowedTools, ['SendMessage', 'ListAgents', 'TaskCreate', 'TaskUpdate', 'TaskList', 'TaskGet', 'TodoWrite']); // task list off by default for a non-lead agent
   assert.deepEqual(Object.keys((all.calls[0]!.options.mcpServers.legion.instance as any)._registeredTools).sort(), ['agents', 'ask', 'ask_user_question', 'task_result', 'tell', 'vm_claude', 'vm_desktop', 'vm_exec', 'vm_read_file', 'vm_start', 'vm_stop', 'vm_usage', 'vm_write_file']);
 });
 
@@ -1161,7 +1161,7 @@ test('modules: disallowedTools are added in every permission mode; a throwing mo
   await s.engine.waitFor(t.id, 3000);
   const o = s.calls[0]!.options;
   assert.equal(o.permissionMode, 'bypassPermissions');
-  assert.deepEqual(o.disallowedTools, ['SendMessage', 'ListAgents', 'mcp__blender']);
+  assert.deepEqual(o.disallowedTools, ['SendMessage', 'ListAgents', 'TaskCreate', 'TaskUpdate', 'TaskList', 'TaskGet', 'TodoWrite', 'mcp__blender']);
 });
 
 test('bot-origin task: a full-approval agent is never run in bypass mode when the sender is stricter', async () => {
@@ -1248,4 +1248,15 @@ test('context meter: task.progress carries the context after the latest top-leve
   await s.engine.waitFor(s.engine.startTask({ agentId: 'a1', prompt: 'x', source: 'ui' }).id, 3000);
   const seen = s.events.filter((e: any) => e.type === 'task.progress').map((e: any) => e.progress.contextTokens);
   assert.deepEqual(seen, [undefined, 52_010, 84_020], 'first emit has none yet; then one per top-level response, never the subagent 900k');
+});
+
+test('task list on: the native Task tools are opted in (allowedTools); off: they and TodoWrite are disallowed', async () => {
+  const on = setup(() => happy(), { agent: { taskList: 'on' } });
+  await on.engine.waitFor(on.engine.startTask({ agentId: 'a1', prompt: 'x', source: 'ui' }).id, 3000);
+  for (const t of ['TaskCreate', 'TaskUpdate', 'TaskList', 'TaskGet']) assert.ok(on.calls[0]!.options.allowedTools.includes(t), t);
+  for (const t of ['TaskCreate', 'TaskUpdate', 'TaskList', 'TaskGet']) assert.ok(!on.calls[0]!.options.disallowedTools.includes(t), t);
+  const off = setup(() => happy(), { agent: { taskList: 'off' } });
+  await off.engine.waitFor(off.engine.startTask({ agentId: 'a1', prompt: 'x', source: 'ui' }).id, 3000);
+  for (const t of ['TaskCreate', 'TaskUpdate', 'TaskList', 'TaskGet', 'TodoWrite']) assert.ok(off.calls[0]!.options.disallowedTools.includes(t), t);
+  assert.equal(off.calls[0]!.options.allowedTools, undefined);
 });

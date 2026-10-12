@@ -206,6 +206,8 @@ function parseAgentFields(b: Record<string, unknown>) {
     mcpServers: parseMcpServers(b.mcpServers),
     connectors: parseConnectors(b.connectors),
     skills: parseSkills(b.skills),
+    // null clears the setting back to the default
+    taskList: b.taskList === null ? null : oneOf(b.taskList, 'taskList', ['on', 'off']),
   };
 }
 
@@ -321,6 +323,7 @@ export function createServer(ctx: CoreContext): Server {
       ...(f.skills ? { skills: f.skills } : {}),
       ...(f.cwd ? { cwd: f.cwd } : {}),
       ...(f.host ? { host: f.host } : {}),
+      ...(f.taskList ? { taskList: f.taskList } : {}),
       createdAt: now, updatedAt: now,
     };
     const saved = ctx.store.upsertAgent(agent);
@@ -347,9 +350,11 @@ export function createServer(ctx: CoreContext): Server {
       ...(f.cwd !== undefined ? { cwd: f.cwd || undefined } : {}),
       // The whole host block is replaced, never merged: the editor always sends enabled + both optional fields.
       ...(f.host !== undefined ? { host: f.host } : {}),
+      ...(f.taskList ? { taskList: f.taskList } : {}),
       vm: { ...cur.vm, ...f.vm },
       id: cur.id, createdAt: cur.createdAt, updatedAt: nowIso(),
     };
+    if (f.taskList === null) delete next.taskList;
     const saved = ctx.store.upsertAgent(next);
     ctx.bus.emit({ type: 'agent.updated', agent: saved });
     return saved;

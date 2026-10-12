@@ -127,6 +127,8 @@ export interface AgentProfile {
   cwd?: string;
   /** The agent shell (host shell/file tools). Absent = off. See AgentHostSettings. */
   host?: AgentHostSettings;
+  /** Claude Code's own task tools (TaskCreate and the rest) on this agent's Claude runs. Absent = the default: on for the lead, off for the rest (shared/task-list-setting.ts). */
+  taskList?: 'on' | 'off';
   /** Hidden from lists and the rail until this optional feature is on (e.g. the Assayer needs the BSV Dev Kit). */
   requires?: 'bsv';
   createdAt: string;     // ISO
