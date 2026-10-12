@@ -7,8 +7,8 @@
  */
 import { createSdkMcpServer, tool } from '@anthropic-ai/claude-agent-sdk';
 import type { McpSdkServerConfigWithInstance } from '@anthropic-ai/claude-agent-sdk';
-import { readFile, writeFile } from 'node:fs/promises';
-import { resolve, sep } from 'node:path';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { join, resolve, sep } from 'node:path';
 import { z } from 'zod';
 import type { ExecutionBackend } from './types.js';
 import { clampExecLimits, type ExecLimits } from './limits.js';
@@ -42,6 +42,21 @@ export function resolveWithin(root: string, target: string): string {
 const tail = (s: string, max: number): string =>
   (s.length <= max ? s : `[truncated: last ${max} of ${s.length} chars]\n` + s.slice(-max));
 
+let spillN = 0;
+/**
+ * The tool's text window. When the text is longer than `max`, the FULL text is spilled to a file inside the scope
+ * root and the window carries a pointer to it — so nothing is silently lost (the agent can read_file the whole thing).
+ * A cap that drops content without a pointer would lose work; this keeps every character retrievable.
+ */
+export async function windowOrSpill(text: string, rootDir: string, taskId: string, max: number): Promise<string> {
+  if (text.length <= max) return text;
+  const dir = join(rootDir, '.legion-output');
+  await mkdir(dir, { recursive: true });
+  const file = join(dir, `${taskId.replace(/[^A-Za-z0-9_-]/g, '_')}-${Date.now()}-${++spillN}.txt`);
+  await writeFile(file, text, 'utf8');
+  return `${tail(text, max)}\n[Legion kept the last ${max} of ${text.length} characters here; the full output is in ${file}]`;
+}
+
 export function buildHostToolsServer(ctx: HostToolsCtx): McpSdkServerConfigWithInstance {
   const limits = clampExecLimits(ctx.limits);
   const run = async (fn: () => Promise<string>): Promise<ToolResult> => {
@@ -59,7 +74,8 @@ export function buildHostToolsServer(ctx: HostToolsCtx): McpSdkServerConfigWithI
     (a) => run(async () => {
       const cwd = a.cwd === undefined ? ctx.rootDir : resolveWithin(ctx.rootDir, a.cwd);
       const r = await ctx.backend.execute({ cmd: a.command, cwd, timeoutMs: (a.timeoutSeconds ?? limits.timeoutSeconds) * 1000 });
-      return `exit code: ${r.exit_code}${r.timedOut ? ' (timed out)' : ''}\n${tail(r.output, limits.maxOutputChars)}`;
+      const body = await windowOrSpill(r.output, ctx.rootDir, ctx.taskId, limits.maxOutputChars);
+      return `exit code: ${r.exit_code}${r.timedOut ? ' (timed out)' : ''}\n${body}`;
     }),
   );
 
@@ -67,7 +83,7 @@ export function buildHostToolsServer(ctx: HostToolsCtx): McpSdkServerConfigWithI
     'read_file',
     'Read a UTF-8 text file on this machine (within the allowed root). Long files are truncated.',
     { path: z.string().describe('File path (must stay inside the allowed root)') },
-    (a) => run(async () => tail(await readFile(resolveWithin(ctx.rootDir, a.path), 'utf8'), limits.maxOutputChars)),
+    (a) => run(async () => windowOrSpill(await readFile(resolveWithin(ctx.rootDir, a.path), 'utf8'), ctx.rootDir, ctx.taskId, limits.maxOutputChars)),
   );
 
   const writeFileTool = tool(
