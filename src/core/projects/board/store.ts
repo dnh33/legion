@@ -28,6 +28,8 @@ export interface RunLookup { live: boolean; agentId?: string; tainted?: boolean 
 const LIMITED_RUN = 'This run is limited: it touched outside content (web, shell or external tools), or another bot or an MCP client started it under "ask" approvals.';
 
 const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v);
+/** Longest serialized per-item sidecar. State, not content: a ledger and a few checks fit in a few hundred characters. */
+const SIDECAR_CHARS = 2_000;
 const oneLine = (s: string): string => s.replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029\u202a-\u202e\u2066-\u2069]/g, ' ').replace(/\s+/g, ' ').trim();
 const cleanText = (s: string): string => s.replace(/\r\n?/g, '\n').replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f\u2028\u2029\u202a-\u202e\u2066-\u2069]/g, '');
 const clip = (s: string, n: number): string => (s.length > n ? s.slice(0, n) : s);
@@ -303,6 +305,36 @@ export class BoardStore {
     return i ? structuredClone(i) : undefined;
   }
   count(pid: string): number { return this.board(pid).items.size; }
+
+  // ------------------------------------------------------------------ per-item sidecar
+
+  /**
+   * The per-item sidecar: state that belongs beside a work item but is not one of its fields (the Marshal's
+   * attempt ledger and done-when checks ride here). It travels the log as unknown keys — the tolerant loader
+   * parks them in `extras` and compaction writes them back — so orchestration state survives a restart with
+   * no change to the shared `WorkItem` contract.
+   */
+  sidecar(pid: string, id: string): Record<string, unknown> | undefined {
+    const m = this.board(pid).extras.get(id);
+    return m ? structuredClone(m) : undefined;
+  }
+  /**
+   * Merges keys into an item's sidecar (`undefined` value drops that key; dropping the last key drops the
+   * sidecar). Only small plain data: it is state, never text shown to anyone, and one oversized write is
+   * refused rather than allowed to bloat the log.
+   */
+  setSidecar(pid: string, id: string, patch: Record<string, unknown>): WorkItem {
+    const b = this.board(pid);
+    const i = this.must(b, id);
+    if (!isObj(patch)) throw new BoardError(400, 'sidecar must be an object');
+    const next = { ...(b.extras.get(id) ?? {}) };
+    for (const [k, v] of Object.entries(patch)) { if (v === undefined) delete next[k]; else next[k] = v; }
+    const json = JSON.stringify(next);
+    if (json.length > SIDECAR_CHARS) throw new BoardError(400, `sidecar is too large (max ${SIDECAR_CHARS} characters): this is state, not content.`);
+    if (Object.keys(next).length) b.extras.set(id, next); else b.extras.delete(id);
+    this.save(b, i);
+    return structuredClone(i);
+  }
 
   // ------------------------------------------------------------------ helpers
 
