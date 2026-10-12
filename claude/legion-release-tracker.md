@@ -1916,3 +1916,8 @@ LIVE (Daniel approved): deny in Full honoured by the real CLI; resumed cost show
 Final gate: 4193 tests, 4144 pass, 0 fail (park .superpowers/ first).
 NEXT (Daniel): push + merge (30 commits on local main + this branch), then CI release-build from docs/release-notes/0.2.6-s.txt, draft-first.
 Out of this release by plan: OpenShell sandbox backend; auxiliary models; A2A adapter (research: Aetherkeep research-bridge-cost-and-a2a-2026-10-12.md).
+
+## 2026-10-12 — 0.2.6-s SMOKE TEST in the real UI (this branch's core + built UI, isolated data folder, Playwright)
+Passed: agent editor shows the Task list switch and the .env select (masked default); shell on for Builder (OpenRouter deepseek-v4.1-flash) carded each call; a real .env read showed names with values hidden, the secret appeared nowhere (tool results, transcript, reply); Remember → Always allow saved a 'card' gate rule, Settings → Gates listed it, the next `git --version` ran with no card; Providers → Tool calls saved prompted/native/auto; project board Marshal tab rendered and its switch saved ON.
+Found and fixed (test-first): 937a929 Remember on a chained command built a rule that never matched (now per part); 1fb3aaf the CORS preflight left out PUT, so the app window could not save provider edits, project members, the CI repo, the board leader or the Marshal switch (a shipped bug, not only new code).
+Gate on 78bcd8b: 4199 tests, 4150 pass, 0 fail.
