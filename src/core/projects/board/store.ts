@@ -7,10 +7,17 @@ import { PROJECT_ID_RE } from '../../../shared/projects.js';
 import type { Project } from '../../../shared/projects.js';
 import { newId, nowIso } from '../../../shared/util.js';
 import { findForbiddenSecret, scrubSecrets } from '../../comms/scrub.js';
+import { scoreWorkItem, topFactor } from './priority.js';
+import type { PriorityFactor, ScoredItem } from './priority.js';
 
 export class BoardError extends Error {
   constructor(public readonly status: number, message: string) { super(message); this.name = 'BoardError'; }
 }
+
+/** Why one item sits where it does: its score, the factor that explains it most, and that factor's own line. */
+export interface ItemRank { score: number; factor: PriorityFactor; why: string }
+/** The board as it is read: the items in score order per column, plus why each one ranks where it does (by item id). */
+export interface RankedBoardView extends BoardView { /** One entry per board item; Inbox proposals are not ranked. */ rank: Record<string, ItemRank> }
 
 /** The part of a project the store needs; the caller reads it from the ProjectStore at the moment of the call. */
 export type ProjectRef = Pick<Project, 'id' | 'members' | 'status'>;
@@ -133,6 +140,17 @@ class Board {
   constructor(readonly file: string, readonly projectId: string) {}
 }
 
+/**
+ * The item as the scorer reads it: the board's own fields, plus a `deps` list the log may carry. The
+ * store keeps the fields it does not know (they ride along as extras and are written back on
+ * compaction), so an item can already wait on other items before `WorkItem` declares a `deps` field.
+ */
+const forScoring = (b: Board, i: WorkItem): ScoredItem => {
+  const raw = b.extras.get(i.id)?.deps;
+  const deps = Array.isArray(raw) ? raw.filter((d): d is string => typeof d === 'string') : undefined;
+  return { priority: i.priority, ...(i.due ? { due: i.due } : {}), trust: i.trust, ...(deps?.length ? { deps } : {}) };
+};
+
 export class BoardStore {
   private readonly boards = new Map<string, Board>();
   private readonly proposals = new Map<string, number[]>();
@@ -240,11 +258,31 @@ export class BoardStore {
   private column(b: Board, status: BoardStatus): WorkItem[] {
     return [...b.items.values()].filter((i) => !i.proposal && i.status === status).sort((x, y) => x.order - y.order || x.createdAt.localeCompare(y.createdAt) || x.id.localeCompare(y.id));
   }
-  view(proj: ProjectRef): BoardView {
+  /**
+   * The board as the UI and the tools read it: every column ordered by score — priority deciding
+   * first, then due urgency, trust and what the item waits for (see priority.ts) — with the column's
+   * own order breaking a tie, and `rank` carrying the score and the one line that explains each place.
+   */
+  view(proj: ProjectRef): RankedBoardView {
     const b = this.board(proj.id);
-    const items = BOARD_STATUSES.flatMap((s) => this.column(b, s)).map((i) => structuredClone(i));
+    const now = this.clock();
+    // a dependency counts as done only when this board itself says so: the scorer never reads a store
+    const isDone = (id: string): boolean => b.items.get(id)?.status === 'done';
+    const rank: Record<string, ItemRank> = {};
+    const ranked = (status: BoardStatus): WorkItem[] => {
+      const col = this.column(b, status);
+      const scored = new Map<string, number>();
+      for (const i of col) {
+        const r = scoreWorkItem(forScoring(b, i), now, isDone);
+        const factor = topFactor(r.factors);
+        rank[i.id] = { score: r.score, factor, why: r.factors[factor].reason };
+        scored.set(i.id, r.score);
+      }
+      return col.sort((x, y) => scored.get(y.id)! - scored.get(x.id)! || x.order - y.order || x.createdAt.localeCompare(y.createdAt) || x.id.localeCompare(y.id));
+    };
+    const items = BOARD_STATUSES.flatMap((status) => ranked(status)).map((i) => structuredClone(i));
     const inbox = [...b.items.values()].filter((i) => i.proposal).sort((x, y) => x.createdAt.localeCompare(y.createdAt)).map((i) => structuredClone(i));
-    return { items, inbox, archived: proj.status === 'archived', ...(this.leaderOf(proj) ? { leader: this.leaderOf(proj) } : {}) };
+    return { items, inbox, archived: proj.status === 'archived', ...(this.leaderOf(proj) ? { leader: this.leaderOf(proj) } : {}), rank };
   }
   /** The leader, if still a member of the project. */
   leaderOf(proj: ProjectRef): string | undefined {

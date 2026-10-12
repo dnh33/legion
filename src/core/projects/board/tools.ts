@@ -57,7 +57,7 @@ export function buildBoardToolsServer(agentId: string, deps: { board: BoardStore
     async (a) => guard(() => {
       const p = scope();
       const v = deps.board.view(p);
-      return json({ note: DATA_NOTE, items: v.items.filter((i) => !a.status || i.status === a.status).map((i) => itemForBot(i, agentId, false)), yourPendingProposals: v.inbox.filter((i) => i.createdBy.kind === 'agent' && i.createdBy.id === agentId).length });
+      return json({ note: DATA_NOTE, items: v.items.filter((i) => !a.status || i.status === a.status).map((i) => itemForBot(i, agentId, false, v.rank[i.id])), yourPendingProposals: v.inbox.filter((i) => i.createdBy.kind === 'agent' && i.createdBy.id === agentId).length });
     }));
   const get = tool('get', 'Read one work item of this project: description and the latest activity.', { id: z.string() },
     async (a) => guard(() => {
