@@ -9,7 +9,12 @@
 import type { ChatMessage, ChatToolCall, ChatToolSpec } from './types.js';
 
 const FENCE = '```';
-const BLOCK_RE = /```tool_call[^\n]*\n([\s\S]*?)(?:\n```|```|$)/g;
+// A block ends only on a line that is just the fence (or at the end of the reply): a JSON string cannot hold a raw
+// newline, so three backticks inside an argument (a markdown file being written) never end the call early.
+const BLOCK_RE = /```tool_call[^\n]*\n([\s\S]*?)(?:\n[ \t]*```[ \t]*(?=\n|$)|$)/g;
+
+/** A fence longer than any run of backticks in `text`, so the text cannot close its own block. */
+const fenceFor = (text: string): string => '`'.repeat(Math.max(3, ...[...text.matchAll(/`+/g)].map((m) => m[0].length + 1)));
 
 /** The tools and the one call format, for the end of the system prompt. */
 export function renderToolCatalogue(tools: readonly ChatToolSpec[]): string {
@@ -76,7 +81,10 @@ export function promptedMessages(messages: readonly ChatMessage[], tools: readon
       continue;
     }
     if (m.role === 'tool') {
-      out.push({ role: 'user', content: `${FENCE}tool_result ${m.tool_call_id ?? ''}\n${m.content ?? ''}\n${FENCE}` });
+      // a result is outside data: its fence is longer than any inside it, so it cannot end its own block and pose as a new turn
+      const body = m.content ?? '';
+      const f = fenceFor(body);
+      out.push({ role: 'user', content: `${f}tool_result ${m.tool_call_id ?? ''}\n${body}\n${f}` });
       continue;
     }
     out.push({ role: m.role, content: m.content });

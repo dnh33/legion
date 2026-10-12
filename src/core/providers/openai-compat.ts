@@ -144,6 +144,8 @@ function feedResponsesBody(acc: Acc, byItem: Map<string, number>, body: unknown)
 
 // a 400 that names tools, or OpenRouter's 404 "No endpoints found that support tool use"
 const refusedTools = (e: unknown): boolean => e instanceof ProviderHttpError && e.code === 'status' && (e.status === 400 || e.status === 404) && /tool|function/i.test(e.message);
+/** The refusal says the model or endpoint has no tool calling at all (as opposed to a request the model could not take). */
+const noToolCalling = (e: unknown): boolean => e instanceof ProviderHttpError && /not support|unsupported|support tool use|no endpoints? found|tool.?choice.*(?:not|auto)|enable-auto-tool-choice|does not have (?:tool|function)|(?:tools?|function calling) (?:is|are) not (?:available|enabled|supported)/i.test(e.message);
 const refusedStreamOptions = (e: unknown): boolean => e instanceof ProviderHttpError && e.code === 'status' && e.status === 400 && /stream_options|include_usage/i.test(e.message);
 
 /** One model turn. Retries once without `stream_options`, once without tools, and once after a 429 (waiting at most 20 s). */
@@ -199,7 +201,9 @@ export async function chatTurn(target: ProviderTarget, req: ChatTurnRequest): Pr
       if (withTools && refusedTools(e)) {
         withTools = false;
         // the owner chose native only: answer without tools, as before (no text is ever parsed for calls)
-        if (mode !== 'native') { prompted = true; markPrompted(target.entry, req.model); }
+        // only wording that says the MODEL has no tool calling makes it a prompted model (remembered); any other 400 that
+        // mentions tools (a malformed history, say) is answered once without tools, as before, and nothing is parsed
+        if (mode !== 'native' && noToolCalling(e)) { prompted = true; markPrompted(target.entry, req.model); }
         continue;
       }
       if (e instanceof ProviderHttpError && e.code === 'status' && e.status === 429 && !waited) {
