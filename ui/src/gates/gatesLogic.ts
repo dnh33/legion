@@ -96,7 +96,7 @@ export function consequenceLine(then: GateVerdict, mode: ApprovalMode): string {
   return 'Lets matching calls run without asking. On Full access it changes nothing (nothing asks there anyway); it never loosens a run another bot started.';
 }
 
-/** The shipped preset: the Hermes "never, even under yolo" floor, offered (never auto-applied). */
+/** The shipped preset: a "never, whatever the mode" floor, offered (never auto-applied). */
 export const GATE_PRESETS: ReadonlyArray<{ id: string; title: string; when: GateWhen; then: GateVerdict; label: string }> = [
   {
     id: 'destructive-block', title: 'Suggested: never rm -rf / sudo', then: 'deny',
@@ -189,7 +189,7 @@ export interface GateTestResult {
 
 /**
  * The "Try it" tester: the SAME decideGate the engine calls, with the rules exactly as stored. It decides, prints
- * and runs NOTHING — same contract as `hermes approvals test`.
+ * and runs NOTHING: a dry run of the real decision.
  */
 export function gateTestResult(rules: readonly GateRule[], call: GateTestCall, capped = false): GateTestResult {
   const d = decideGate({ toolName: call.toolName, input: call.input, agentId: call.agentId }, rules, call.mode, capped);

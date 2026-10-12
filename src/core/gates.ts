@@ -151,7 +151,7 @@ export function allowSubcommands(cmd: string): string[] | undefined {
 }
 
 /**
- * The forms a command is matched under, so quoting tricks cannot sidestep a rule (Hermes' de-obfuscation idea):
+ * The forms a command is matched under, so quoting tricks cannot sidestep a rule (the text is de-obfuscated first):
  * the raw text, and the text with quote characters removed (`r"m -rf` matches a `rm -rf *` deny).
  */
 export function commandVariants(cmd: string): string[] {
