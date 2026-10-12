@@ -1260,3 +1260,82 @@ test('task list on: the native Task tools are opted in (allowedTools); off: they
   for (const t of ['TaskCreate', 'TaskUpdate', 'TaskList', 'TaskGet', 'TodoWrite']) assert.ok(off.calls[0]!.options.disallowedTools.includes(t), t);
   assert.equal(off.calls[0]!.options.allowedTools, undefined);
 });
+
+// SessionStart, fired by the fake SDK the way the CLI fires it: at the start of the session, before the model's first turn.
+const fireSessionStart = async (params: any, source: string): Promise<string | undefined> => {
+  const hook = params.options.hooks?.SessionStart?.flatMap((m: any) => m.hooks)[0];
+  const out = await hook?.({ hook_event_name: 'SessionStart', source, session_id: 's', transcript_path: '', cwd: '' }, undefined, { signal: new AbortController().signal });
+  return out?.hookSpecificOutput?.additionalContext;
+};
+
+test('Claude run after a provider changed the list: it is handed over once, the flag clears, and the run\'s own mirror does not set it again', async () => {
+  const { TaskList, TaskListStore } = await import('../src/core/task-list.js');
+  const seen: Array<string | undefined> = [];
+  let n = 0;
+  const s = setup((params) => (async function* () {
+    n++;
+    yield init('sess-hand');
+    if (n > 1) seen.push(await fireSessionStart(params, 'resume'));
+    if (n === 2) {
+      yield taskCall('c1', 'TaskCreate', { subject: 'mine too', description: '' });
+      yield taskResult('c1', { task: { id: '2', subject: 'mine too' } });
+    }
+    yield ok('done');
+  })(), { agent: { model: 'opus', taskList: 'on' } });
+  const t = s.engine.startTask({ agentId: 'a1', prompt: 'one', source: 'ui' });
+  await s.engine.waitFor(t.id, 3000);
+  const store = new TaskListStore(join(s.config.workspaceDir, '.task-lists'));
+  const l = new TaskList(); l.create({ subject: 'from the provider', description: '' }); l.handoverPending = true; store.save(t.id, l);
+  s.engine.startTask({ agentId: 'a1', prompt: 'two', source: 'ui', continueTaskId: t.id });
+  await s.engine.waitFor(t.id, 3000);
+  assert.match(seen[0] ?? '', /make your own list match/);
+  assert.match(seen[0] ?? '', /1\. from the provider \(pending\)/);
+  assert.equal(store.load(t.id).handoverPending, false, 'cleared, and the mirrored TaskCreate after it did not write it back');
+  s.engine.startTask({ agentId: 'a1', prompt: 'three', source: 'ui', continueTaskId: t.id });
+  await s.engine.waitFor(t.id, 3000);
+  assert.equal(seen[1], undefined, 'once only');
+});
+
+test('after Claude compacts, the open tasks are shown again; an empty list adds nothing', async () => {
+  const { TaskList, TaskListStore } = await import('../src/core/task-list.js');
+  const seen: Array<string | undefined> = [];
+  const s = setup((params) => (async function* () {
+    yield init('sess-compact');
+    seen.push(await fireSessionStart(params, 'compact'));
+    yield ok('done');
+  })(), { agent: { model: 'opus', taskList: 'on' } });
+  const t = s.engine.startTask({ agentId: 'a1', prompt: 'one', source: 'ui' });
+  await s.engine.waitFor(t.id, 3000);
+  assert.equal(seen[0], undefined, 'an empty list: no block at all');
+  const store = new TaskListStore(join(s.config.workspaceDir, '.task-lists'));
+  const l = new TaskList(); l.create({ subject: 'keep going', description: '' }); store.save(t.id, l);
+  s.engine.startTask({ agentId: 'a1', prompt: 'two', source: 'ui', continueTaskId: t.id });
+  await s.engine.waitFor(t.id, 3000);
+  assert.match(seen[1] ?? '', /^\[Your task list for this conversation, kept by Legion\]\n- \[ \] 1\. keep going \(pending\)$/);
+});
+
+test('a Claude-only conversation (no flag, session resumed) gets no hand-over', async () => {
+  const seen: Array<string | undefined> = [];
+  let n = 0;
+  const s = setup((params) => (async function* () {
+    n++;
+    yield init('sess-only');
+    if (n === 1) {
+      yield taskCall('c1', 'TaskCreate', { subject: 'claude made me', description: '' });
+      yield taskResult('c1', { task: { id: '1', subject: 'claude made me' } });
+    } else seen.push(await fireSessionStart(params, 'resume'));
+    yield ok('done');
+  })(), { agent: { model: 'opus', taskList: 'on' } });
+  const t = s.engine.startTask({ agentId: 'a1', prompt: 'one', source: 'ui' });
+  await s.engine.waitFor(t.id, 3000);
+  s.engine.startTask({ agentId: 'a1', prompt: 'two', source: 'ui', continueTaskId: t.id });
+  await s.engine.waitFor(t.id, 3000);
+  assert.equal(seen.length, 1);
+  assert.equal(seen[0], undefined, 'Claude\'s own list is already right; a hand-over would make it re-create its tasks');
+});
+
+test('task list off: no SessionStart hook is installed', async () => {
+  const s = setup(() => happy(), { agent: { taskList: 'off' } });
+  await s.engine.waitFor(s.engine.startTask({ agentId: 'a1', prompt: 'x', source: 'ui' }).id, 3000);
+  assert.equal(s.calls[0]!.options.hooks.SessionStart, undefined);
+});

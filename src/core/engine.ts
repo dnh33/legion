@@ -17,7 +17,7 @@ import { contextTokensOf } from '../shared/context-meter.js';
 import { isLegionTool, needsApproval, stricterMode, LEGION_SERVER_NAMES } from './approvals.js';
 import { decideGate } from './gates.js';
 import { TaintedPaths } from './tainted-paths.js';
-import { CLAUDE_TASK_TOOLS, mirrorClaudeTaskCall, renderForModel, type TaskList, TaskListStore } from './task-list.js';
+import { CLAUDE_TASK_TOOLS, mirrorClaudeTaskCall, renderForModel, renderHandover, type TaskList, TaskListStore } from './task-list.js';
 import { nativeTaskListOn } from '../shared/task-list-setting.js';
 
 /** Claude Code's own task tools, opted in or out per agent (nativeTaskListOn). */
@@ -1254,6 +1254,26 @@ This run read connector (GitHub) data and other outside text. Web access can sen
         const d = await decide(toolName, input);
         return d.allow ? { behavior: 'allow', updatedInput: input } : { behavior: 'deny', message: d.message ?? 'The user denied this action.' };
       };
+    }
+    // The task list reaches Claude's own list through the documented SessionStart hook only: shown again after Claude
+    // compacts, and handed over when a provider run changed it or the session is new. An agent without the tools gets neither.
+    if (nativeTaskListOn(agent)) {
+      options.hooks!.SessionStart = [{ hooks: [async (input) => {
+        if (input.hook_event_name !== 'SessionStart') return { continue: true };
+        const list = this.taskLists.load(job.taskId);
+        let text: string | undefined;
+        if (input.source === 'compact') text = renderForModel(list);
+        else if (list.handoverPending || (!resume && list.list().length > 0)) {
+          text = renderHandover(list);
+          if (text) {
+            // cleared on the run's mirror too, or its next mirrored Task call would write the flag back
+            list.handoverPending = false;
+            if (act.taskList) act.taskList.handoverPending = false;
+            try { this.taskLists.save(job.taskId, list); } catch { /* handed over again next run */ }
+          }
+        }
+        return text ? { hookSpecificOutput: { hookEventName: 'SessionStart' as const, additionalContext: text } } : { continue: true };
+      }] }];
     }
     return options;
   }
