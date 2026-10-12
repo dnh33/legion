@@ -54,6 +54,8 @@ const byId = (a: string, b: string): number => {
 export class TaskList {
   private readonly tasks = new Map<string, ListedTask>();
   private nextId = 1;
+  /** A provider run changed the list since a Claude run last saw it: the next Claude run is handed it over. */
+  handoverPending = false;
 
   /** `id` is given only when mirroring a list numbered elsewhere (Claude Code's); the next own id then follows it. */
   create(f: TaskCreateFields, id?: string): ListedTask {
@@ -129,12 +131,12 @@ export class TaskList {
     return this.list().map((t) => ({ content: t.subject, status: t.status, ...(t.activeForm ? { activeForm: t.activeForm } : {}) }));
   }
 
-  toJSON(): { nextId: number; tasks: ListedTask[] } { return { nextId: this.nextId, tasks: this.list() }; }
+  toJSON(): { nextId: number; handoverPending: boolean; tasks: ListedTask[] } { return { nextId: this.nextId, handoverPending: this.handoverPending, tasks: this.list() }; }
 
   /** Rebuilds a stored list. Anything damaged is dropped, never trusted: a task without an id or subject, an unknown status (pending), a dangling link. */
   static fromJSON(raw: unknown): TaskList {
     const l = new TaskList();
-    const o = raw && typeof raw === 'object' ? raw as { nextId?: unknown; tasks?: unknown } : {};
+    const o = raw && typeof raw === 'object' ? raw as { nextId?: unknown; handoverPending?: unknown; tasks?: unknown } : {};
     for (const t of Array.isArray(o.tasks) ? o.tasks : []) {
       if (!t || typeof t !== 'object') continue;
       const r = t as Record<string, unknown>;
@@ -152,8 +154,46 @@ export class TaskList {
       for (const b of t.blocks) { const o = l.tasks.get(b)!; if (!o.blockedBy.includes(t.id)) o.blockedBy.push(t.id); }
     }
     if (typeof o.nextId === 'number' && Number.isInteger(o.nextId) && o.nextId > l.nextId) l.nextId = o.nextId;
+    l.handoverPending = o.handoverPending === true;
     return l;
   }
+}
+
+export const TASK_LIST_HEADER = '[Your task list for this conversation, kept by Legion]';
+const MAX_OPEN_SHOWN = 40;
+const MAX_DONE_CHARS = 1500;
+
+/** The list as the model is shown it again: open items in full, done titles on one line. Undefined for an empty list. */
+export function renderForModel(list: TaskList): string | undefined {
+  const all = list.list();
+  if (!all.length) return undefined;
+  const open = all.filter((t) => t.status !== 'completed');
+  const done = all.filter((t) => t.status === 'completed');
+  const lines = [TASK_LIST_HEADER];
+  for (const t of open.slice(0, MAX_OPEN_SHOWN)) {
+    const waits = t.blockedBy.length ? `; waits for ${t.blockedBy.join(', ')}` : '';
+    lines.push(`- [${t.status === 'in_progress' ? '>' : ' '}] ${t.id}. ${t.subject} (${t.status === 'in_progress' ? 'in progress' : 'pending'}${waits})`);
+  }
+  if (open.length > MAX_OPEN_SHOWN) lines.push(`${open.length - MAX_OPEN_SHOWN} more open tasks are not shown.`);
+  if (done.length) {
+    let line = 'Done: ';
+    let shown = 0;
+    for (const t of done) {
+      const part = `${shown ? '; ' : ''}${t.id}. ${t.subject}`;
+      if (line.length + part.length > MAX_DONE_CHARS) break;
+      line += part; shown++;
+    }
+    if (shown < done.length) line += ` (and ${done.length - shown} more done)`;
+    lines.push(line);
+  }
+  return lines.join('\n');
+}
+
+/** The hand-over to a Claude run whose own list may be behind: the list, and how to make Claude's own list match. */
+export function renderHandover(list: TaskList): string | undefined {
+  const body = renderForModel(list);
+  if (!body) return undefined;
+  return `${body}\nThis conversation's task list changed while another model was working on it. Call TaskList, then make your own list match the one above: TaskCreate for each open task you do not have, TaskUpdate for any status that differs. Do this before other work.`;
 }
 
 /** One JSON file per Legion task under `dir`. A missing or unreadable file is an empty list; a failed write is reported to the caller. */

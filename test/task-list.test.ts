@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { mirrorClaudeTaskCall, TaskList, TaskListStore, TASK_LIST_MAX } from '../src/core/task-list.js';
+import { mirrorClaudeTaskCall, renderForModel, renderHandover, TaskList, TaskListStore, TASK_LIST_HEADER, TASK_LIST_MAX } from '../src/core/task-list.js';
 
 test('create numbers tasks 1, 2, 3 and starts them pending', () => {
   const l = new TaskList();
@@ -161,4 +161,51 @@ test('list order is numeric first, then text ids, the same every time', () => {
   const l = new TaskList();
   for (const id of ['a', '10', 'b', '2']) l.create({ subject: id, description: '' }, id);
   assert.deepEqual(l.list().map((t) => t.id), ['2', '10', 'a', 'b']);
+});
+
+test('renderForModel: open items in full, done titles on one line, nothing for an empty list', () => {
+  const l = new TaskList();
+  assert.equal(renderForModel(l), undefined);
+  l.create({ subject: 'Read the spec', description: 'all of it' });
+  l.create({ subject: 'Write the test', description: '' });
+  l.create({ subject: 'Ship', description: '' });
+  l.update({ taskId: '1', status: 'completed' });
+  l.update({ taskId: '2', status: 'in_progress' });
+  l.update({ taskId: '3', addBlockedBy: ['2'] });
+  assert.equal(renderForModel(l), [
+    TASK_LIST_HEADER,
+    '- [>] 2. Write the test (in progress)',
+    '- [ ] 3. Ship (pending; waits for 2)',
+    'Done: 1. Read the spec',
+  ].join('\n'));
+});
+
+test('renderForModel stays bounded: at most 40 open items and 1500 chars of done titles, and says what it left out', () => {
+  const l = new TaskList();
+  for (let i = 0; i < 90; i++) l.create({ subject: `step ${i} ${'x'.repeat(60)}`, description: '' });
+  for (let i = 1; i <= 40; i++) l.update({ taskId: String(i), status: 'completed' });
+  const text = renderForModel(l)!;
+  assert.equal(text.split('\n').filter((s) => s.startsWith('- [')).length, 40);
+  assert.match(text, /10 more open tasks are not shown/);
+  assert.ok(text.slice(text.indexOf('Done:')).length <= 1600);
+  assert.match(text, /more done/);
+});
+
+test('a provider change marks the list for handover; the flag survives a save/load', () => {
+  const l = new TaskList();
+  l.create({ subject: 'a', description: '' });
+  assert.equal(l.handoverPending, false);
+  l.handoverPending = true;
+  assert.equal(TaskList.fromJSON(JSON.parse(JSON.stringify(l))).handoverPending, true);
+});
+
+test('renderHandover tells Claude to make its own list match, in its own tools', () => {
+  const l = new TaskList();
+  assert.equal(renderHandover(l), undefined);
+  l.create({ subject: 'carry me', description: '' });
+  const t = renderHandover(l)!;
+  assert.ok(t.startsWith(TASK_LIST_HEADER));
+  assert.match(t, /TaskList/);
+  assert.match(t, /TaskCreate/);
+  assert.match(t, /TaskUpdate/);
 });
