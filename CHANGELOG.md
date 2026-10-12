@@ -8,8 +8,8 @@ All notable changes are recorded here. The format follows [Keep a Changelog](htt
 
 ### Added
 
-- **Agents can work on this computer (the agent shell).** An agent you allow can run commands and read and write files
-  on this machine, inside a scope folder you choose (Agent settings, Shell). Every call goes through its approval mode
+- **Agents can work on your computer (the agent shell).** An agent you allow can run commands and read and write files
+  on your computer, inside a scope folder you choose (Agent settings, Shell). Every call goes through its approval mode
   and your Gates, and a hard guard refuses whole-machine damage (wiping a drive, formatting, deleting system or home
   folders, removing restore points) for every agent, full access included. Long output is kept in full in a file, never
   cut. No secret Legion holds (its own token, your Claude, boat and provider keys) reaches the model from a tool's
@@ -47,7 +47,7 @@ All notable changes are recorded here. The format follows [Keep a Changelog](htt
 ### Known limits
 
 - The agent shell runs commands as you. There is no sandbox yet: the approval card, your Gates, the scope folder and the
-  guard are what stand between an agent and this computer. A command that builds its payload at run time (for example a
+  guard are what stand between an agent and your computer. A command that builds its payload at run time (for example a
   decoded script piped into a shell) is not recognised by the guard. Keep the shell off for agents you run on Full access
   unless you trust the work they do.
 
