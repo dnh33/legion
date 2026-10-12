@@ -223,11 +223,11 @@ Read every removed test line. No test may vanish silently.
 
 ```
 gh release create <v> --repo dnh33/legion --title "..." --notes-file <file> --draft
-gh release upload <v> --repo dnh33/legion <the six assets>
+gh release upload <v> --repo dnh33/legion <the eight assets>
 gh release edit <v> --repo dnh33/legion --draft=false
 ```
 
-Six assets: `app.zip`, `win-x64.zip`, `legion-update-manifest.json`, its `.sig`, `SHA256SUMS.txt` and `SHA256SUMS.txt.sig`.
+Eight assets: `app.zip`, `win-x64.zip`, `legion-update-manifest.json`, its `.sig`, `SHA256SUMS.txt`, `SHA256SUMS.txt.sig`, `install.ps1` and `install.sh`. The installers are not optional: `getlegion.xyz/install.ps1` fetches `install.ps1` from the latest release, so a release without it breaks every new install the moment it becomes latest (0.2.6-s and 0.2.6-t shipped without them on 2026-10-12; new installs failed until they were added).
 
 **Why draft first:** `gh release create` without `--draft` publishes immediately. A draft lets you upload, verify,
 and abort without anything being visible. On 2026-10-04 this is exactly what made a rollback possible — the release
@@ -246,6 +246,10 @@ curl -sL https://github.com/dnh33/legion/releases/latest/download/legion-update-
 Check `version` **and** `requiresFullInstall: false`. Download the manifest, its `.sig`, the `app.zip` and
 `SHA256SUMS.txt` into a fresh folder and run `release-verify.mjs` **on those fetched bytes**. Local verification
 proves the folder is right; this proves a real install can receive it.
+
+Then check that a new install still works: `curl -sL https://getlegion.xyz/install.ps1` must return the same bytes as
+the release's `install.ps1` (not "Legion installer unavailable"), and
+`https://github.com/dnh33/legion/releases/latest/download/install.sh` must answer 200.
 
 ---
 
