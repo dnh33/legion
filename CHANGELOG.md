@@ -4,6 +4,21 @@ All notable changes are recorded here. The format follows [Keep a Changelog](htt
 
 ## [Unreleased]
 
+## [0.2.6-t] - 2026-10-12
+
+### Fixed
+
+- **A Block rule for your temp folder now holds in both spellings.** On Windows the agent shell reads `/tmp/x` as your
+  temp folder. A Block or Ask gate written as `C:\Users\you\AppData\Local\Temp\...` now also catches the `/tmp/...`
+  spelling, and the other way round. Never-ask gates stay exact.
+- **Short secrets in .env files stay hidden in shell output.** With .env files masked (the default), a value of 4 to 7
+  characters under a secret-looking name (a PIN, a short key or password) is now hidden too, as a whole word. Short
+  ordinary values such as `PORT=3000` stay readable.
+- **The two-send-backs rule survives a restart.** One task goes to one agent at most three times. That count used to
+  reset when Legion restarted, and a send that never arrived still used up a try. Both are fixed.
+- **Remembered gates read more clearly.** A gate made from an approval card now reads "may run `git status` with any
+  arguments" instead of "`git status` or `git status *`".
+
 ## [0.2.6-s] - 2026-10-12
 
 ### Added
