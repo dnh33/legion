@@ -1,0 +1,180 @@
+/**
+ * Gate rules (src/core/gates.ts): precedence, compound-command splitting, deny-in-`full`, and the back-compat
+ * invariant that rules=[] decides `baseline` for every input (so needsApproval stays byte-identical to today).
+ */
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { decideGate, GATE_TOOL_GROUPS, splitCommand } from '../src/core/gates.js';
+import { needsApproval } from '../src/core/approvals.js';
+import type { ApprovalMode, GateRule, GateVerdict, GateWhen } from '../src/shared/types.js';
+
+let n = 0;
+function rule(then: GateVerdict, when: GateWhen, over: Partial<GateRule> = {}): GateRule {
+  return { id: `gr_t${++n}`, enabled: true, then, label: `${then} rule`, source: 'user', when, ...over };
+}
+const modes: ApprovalMode[] = ['ask', 'auto-edits', 'full'];
+
+test('precedence: deny > ask > allow, and specificity never reorders the classes', () => {
+  // A narrow allow and a broad deny both match: the deny wins (an allow never carves out of a deny).
+  const allowGit = rule('allow', { commands: ['git push*'] });
+  const denyPush = rule('deny', { commands: ['git push origin *'] });
+  const ask = rule('ask', { tools: ['Bash'] });
+  const call = { toolName: 'Bash', input: { command: 'git push origin main' }, agentId: 'zealot' };
+  assert.equal(decideGate(call, [allowGit, denyPush], 'ask', false).verdict, 'deny');
+  assert.equal(decideGate(call, [denyPush, allowGit], 'ask', false).verdict, 'deny');
+
+  // A matching ask still prompts even when a (different) allow also matches: ask beats allow.
+  const allowBash = rule('allow', { tools: ['shell'] });
+  assert.equal(decideGate(call, [allowBash, ask], 'ask', false).verdict, 'ask');
+  assert.equal(decideGate(call, [ask, allowBash], 'ask', false).verdict, 'ask');
+
+  // The order of the list itself never changes any verdict — class decides, always.
+  const rules = [allowGit, denyPush, ask, allowBash];
+  const forwards = decideGate(call, rules, 'ask', false);
+  const backwards = decideGate(call, [...rules].reverse(), 'ask', false);
+  assert.equal(forwards.verdict, backwards.verdict);
+  assert.deepEqual([...forwards.ruleIds].sort(), [...backwards.ruleIds].sort());
+});
+
+test('deny applies in `full` mode; ask is inert there (owner rule: in full a guard never shows a card)', () => {
+  const deny = rule('deny', { commands: ['mkfs*'] });
+  const ask = rule('ask', { tools: ['Bash'] });
+  const call = { toolName: 'Bash', input: { command: 'mkfs.ext4 /dev/sda1' }, agentId: 'zealot' };
+  for (const mode of modes) {
+    assert.equal(decideGate(call, [deny], mode, false).verdict, 'deny', `deny in ${mode}`);
+  }
+  // ask alone: decides nothing in full (baseline), decides ask in the other two.
+  assert.equal(decideGate(call, [ask], 'ask', false).verdict, 'ask');
+  assert.equal(decideGate(call, [ask], 'auto-edits', false).verdict, 'ask');
+  assert.equal(decideGate(call, [ask], 'full', false).verdict, 'baseline');
+  // A rule may make `full` STRICTER (deny) but never card it (ask).
+  assert.equal(decideGate(call, [deny, ask], 'full', false).verdict, 'deny');
+});
+
+test('allow never loosens a capped run (confused-deputy guard: a run from another bot only gets stricter)', () => {
+  const allow = rule('allow', { commands: ['git push*'] });
+  const ask = rule('ask', { tools: ['Bash'] });
+  const call = { toolName: 'Bash', input: { command: 'git push origin main' }, agentId: 'zealot' };
+  assert.equal(decideGate(call, [allow], 'ask', true).verdict, 'baseline', 'allow ignored when capped');
+  assert.equal(decideGate(call, [allow], 'auto-edits', false).verdict, 'allow', 'allow applies when not capped');
+  assert.equal(decideGate(call, [ask], 'ask', true).verdict, 'ask', 'ask still tightens a capped run');
+  assert.equal(decideGate(call, [allow, ask], 'ask', true).verdict, 'ask');
+  assert.equal(decideGate(call, [allow, ask], 'full', true).verdict, 'baseline', 'in full the ask rule is inert (owner rule) and the allow is capped away');
+});
+
+test('compound bash splits on && || ; | & and newlines: deny fires on any subcommand, allow needs every subcommand', () => {
+  assert.deepEqual(splitCommand('git status && rm -rf /'), ['git status', 'rm -rf /']);
+  assert.deepEqual(splitCommand('ls; echo a || echo b'), ['ls', 'echo a', 'echo b']);
+  assert.deepEqual(splitCommand('cat x | grep y'), ['cat x', 'grep y']);
+  assert.deepEqual(splitCommand('make & wait'), ['make', 'wait']);
+  assert.deepEqual(splitCommand('echo one\necho two'), ['echo one', 'echo two']);
+  assert.deepEqual(splitCommand('git push > out.txt'), ['git push'], 'a redirect is not a separator');
+
+  const allowGit = rule('allow', { commands: ['git *'] });
+  const denyRm = rule('deny', { commands: ['rm -rf *'] });
+  const chained = { toolName: 'Bash', input: { command: 'git push && rm -rf /' }, agentId: 'zealot' };
+  // The allow does NOT approve the whole line; the deny still fires on the second half.
+  assert.equal(decideGate(chained, [allowGit], 'ask', false).verdict, 'baseline');
+  assert.equal(decideGate(chained, [denyRm], 'ask', false).verdict, 'deny');
+  assert.equal(decideGate({ toolName: 'Bash', input: { command: 'git push && git status' }, agentId: 'zealot' }, [allowGit], 'ask', false).verdict, 'allow');
+});
+
+test('normalization defeats quote/escape tricks before matching', () => {
+  const deny = rule('deny', { commands: ['rm -rf *'] });
+  for (const command of ['rm -rf /', 'r"m -rf /', 'rm" -rf /', 'Rm -RF /', 'rm  -rf  /']) {
+    assert.equal(decideGate({ toolName: 'Bash', input: { command }, agentId: 'a' }, [deny], 'full', false).verdict, 'deny', command);
+  }
+  const allow = rule('allow', { commands: ['git st*'] });
+  assert.equal(decideGate({ toolName: 'Bash', input: { command: 'git st"atus' }, agentId: 'a' }, [allow], 'ask', false).verdict, 'allow');
+});
+
+test('paths: gitignore-style matching, redirect targets as candidates, exceptPaths and the leading-! carve-out', () => {
+  const cwd = 'D:/bots/site';
+  // Path scoping is applied inside decideGate (it is class-aware there), so the probe goes through it.
+  const denies = (when: GateWhen, call: { toolName: string; input: Record<string, unknown>; cwd: string }) =>
+    decideGate(call, [rule('deny', when)], 'ask', false).verdict === 'deny';
+  const write = (file_path: string) => ({ toolName: 'Write', input: { file_path }, cwd });
+  const w: GateWhen = { paths: ['**/*.env', '!**/.env.example'] };
+  assert.equal(denies(w, write('D:/bots/site/.env')), true);
+  assert.equal(denies(w, write('D:/bots/site/config/.env')), true, 'double star crosses folders');
+  assert.equal(denies(w, write('D:/bots/site/.env.example')), false, 'the ! entry carves it out');
+  // `!` FIRST carves nothing: a list of only carve-outs names no paths at all.
+  assert.equal(denies({ paths: ['!**/*.env'] }, write('D:/bots/site/.env')), false, 'a leading ! lists no paths at all');
+  assert.equal(denies({ paths: ['**/*.env'], exceptPaths: ['**/.env.example'] }, write('X/.env.example')), false);
+  // A redirect target is a path candidate: `echo x > out/.env` matches a path-scoped rule.
+  assert.equal(denies({ paths: ['**/*.env'] }, { toolName: 'Bash', input: { command: 'echo x > out/.env' }, cwd }), true);
+  // A rule scoped to paths cannot match a call with no path at all.
+  assert.equal(denies({ paths: ['**/*.env'] }, { toolName: 'Bash', input: { command: 'ls' }, cwd }), false);
+  // Bare name matches at any level; a pattern with a slash is anchored to cwd-relative.
+  assert.equal(denies({ paths: ['secrets.txt'] }, write('D:/bots/site/a/b/secrets.txt')), true);
+  assert.equal(denies({ paths: ['src/app.ts'] }, write('D:/bots/site/lib/app.ts')), false);
+});
+
+test('scoping: agents, projects (with and without a projectId), contexts, tools and disabled rules', () => {
+  const a = rule('deny', { agents: ['zealot'] });
+  assert.equal(decideGate({ toolName: 'Bash', agentId: 'zealot' }, [a], 'full', false).verdict, 'deny');
+  assert.equal(decideGate({ toolName: 'Bash', agentId: 'scout' }, [a], 'full', false).verdict, 'baseline');
+
+  const p = rule('ask', { projects: ['website'] });
+  assert.equal(decideGate({ toolName: 'Bash', projectId: 'website' }, [p], 'auto-edits', false).verdict, 'ask');
+  assert.equal(decideGate({ toolName: 'Bash', projectId: 'legion' }, [p], 'auto-edits', false).verdict, 'baseline');
+  assert.equal(decideGate({ toolName: 'Bash' }, [p], 'auto-edits', false).verdict, 'baseline', 'a task with no project matches only rules without a project scope');
+
+  const ctxRule = rule('deny', { contexts: ['capped'] });
+  assert.equal(decideGate({ toolName: 'Bash' }, [ctxRule], 'full', true).verdict, 'deny');
+  assert.equal(decideGate({ toolName: 'Bash' }, [ctxRule], 'full', false).verdict, 'baseline');
+  const hop = rule('ask', { contexts: ['room-hop'] });
+  assert.equal(decideGate({ toolName: 'Bash', ctx: { roomHop: true } }, [hop], 'auto-edits', false).verdict, 'ask');
+
+  const g = rule('deny', { tools: ['shell'] });
+  assert.equal(decideGate({ toolName: 'Bash' }, [g], 'full', false).verdict, 'deny', 'group shell covers Bash');
+  assert.equal(decideGate({ toolName: 'mcp__host__shell' }, [g], 'full', false).verdict, 'deny', 'group shell covers the agent shell');
+  assert.equal(decideGate({ toolName: 'Write' }, [g], 'full', false).verdict, 'baseline');
+  const hostGlob = rule('deny', { tools: ['mcp__host__*'] });
+  assert.equal(decideGate({ toolName: 'mcp__host__write_file' }, [hostGlob], 'full', false).verdict, 'deny');
+  const srv = rule('deny', { tools: ['mcp__github__'] });
+  assert.equal(decideGate({ toolName: 'mcp__github__create_issue' }, [srv], 'full', false).verdict, 'deny', 'server prefix');
+  assert.equal(decideGate({ toolName: 'mcp__githubish__x' }, [srv], 'full', false).verdict, 'baseline');
+
+  const off = rule('deny', { tools: ['shell'] }, { enabled: false });
+  assert.equal(decideGate({ toolName: 'Bash' }, [off], 'full', false).verdict, 'baseline', 'a disabled rule never decides');
+
+  // A command-scoped rule never matches a call that carries no command.
+  const cmdRule = rule('deny', { commands: ['npm run *'] });
+  assert.equal(decideGate({ toolName: 'Write', input: { file_path: 'a.ts' } }, [cmdRule], 'full', false).verdict, 'baseline');
+});
+
+test('BACK-COMPAT FLOOR: with rules=[] decideGate returns baseline for every tool, mode and cap - today’s behaviour', () => {
+  const tools = ['Bash', 'Write', 'Edit', 'Read', 'WebFetch', 'mcp__legion__vm_exec', 'mcp__host__shell', 'mcp__x__y', 'Whatever'];
+  const inputs = [{}, { command: 'rm -rf /' }, { command: 'git push origin main && echo hi' }, { file_path: '/etc/passwd' }];
+  let checked = 0;
+  for (const toolName of tools) for (const mode of modes) for (const capped of [false, true]) for (const input of inputs) {
+    const d = decideGate({ toolName, input, agentId: 'zealot', projectId: 'p', cwd: 'C:/x' }, [], mode, capped);
+    assert.equal(d.verdict, 'baseline', `${toolName}/${mode}/${capped}`);
+    assert.deepEqual(d.ruleIds, []);
+    // and the caller's floor is untouched: needsApproval is the exact same call it always was
+    assert.equal(typeof needsApproval(mode, toolName, { capped }), 'boolean');
+    checked++;
+  }
+  assert.ok(checked > 100, `grid actually ran (${checked} cells)`);
+});
+
+test('the reads group is exactly needsApproval’s read-only set (+ the agent shell read), so the two never drift', async () => {
+  const mod = await import('../src/core/approvals.js') as { APPROVAL_READ_ONLY?: ReadonlySet<string> };
+  assert.ok(mod.APPROVAL_READ_ONLY, 'approvals.ts exports its read-only set for this sync check');
+  const reads = new Set(GATE_TOOL_GROUPS.reads!);
+  for (const t of mod.APPROVAL_READ_ONLY) assert.ok(reads.has(t), `reads group must contain ${t}`);
+  for (const t of reads) {
+    if (t === 'mcp__host__read_file') continue;
+    assert.ok(mod.APPROVAL_READ_ONLY.has(t), `${t} is in the reads group but not in needsApproval's read-only set`);
+  }
+});
+
+test('ruleIds lists every matching rule (for the "why" popover), including the ones that lost the class vote', () => {
+  const allow = rule('allow', { tools: ['shell'] });
+  const deny = rule('deny', { commands: ['rm *'] });
+  const noMatch = rule('ask', { agents: ['scout'] });
+  const d = decideGate({ toolName: 'Bash', input: { command: 'rm -rf /' }, agentId: 'zealot' }, [allow, deny, noMatch], 'ask', false);
+  assert.equal(d.verdict, 'deny');
+  assert.deepEqual(d.ruleIds, [allow.id, deny.id], 'the allow matched the tool but lost to the deny; the agent-scoped ask did not match');
+});

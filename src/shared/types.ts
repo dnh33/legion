@@ -18,6 +18,60 @@ export type ConcreteModel = string;
 
 export type ApprovalMode = 'ask' | 'auto-edits' | 'full';
 
+/** What a gate rule says happens to a matching tool call. */
+export type GateVerdict = 'allow' | 'ask' | 'deny';
+
+/** A run context a gate rule may be scoped to. */
+export type GateContext = 'capped' | 'room-hop' | 'tainted' | 'connector-data';
+
+/**
+ * When one gate rule applies. Every present field must match (AND); within a field any entry matches (OR).
+ * An absent or empty field matches everything. Rules only refine the APPROVAL decision; they never grant
+ * tools (an agent still needs `host.enabled` / `connectors` for its tools to exist at all).
+ */
+export interface GateWhen {
+  /** Agent ids. Absent = every agent. */
+  agents?: string[];
+  /** Tool names, tool groups (shell, edits, reads, web, host, connectors, blender) or 'mcp__<server>__*'. Absent = every tool. */
+  tools?: string[];
+  /** Glob patterns over the normalized shell command text; only consulted when the call carries a command (Bash, host shell, vm_exec). */
+  commands?: string[];
+  /** Gitignore-style globs over file paths. A '!' entry carves paths out of the entries before it in the same list. */
+  paths?: string[];
+  /** Paths carved out of this rule's whole path list. */
+  exceptPaths?: string[];
+  /** Project ids. Absent = every project; a task with no project matches only rules without this field. */
+  projects?: string[];
+  /** Run contexts. Absent = any; several = any one of them. */
+  contexts?: GateContext[];
+}
+
+/**
+ * One gate rule: a sentence the owner can read, stored as data. Built in Settings -> Gates (nobody edits JSON).
+ * Order in `GatesConfig.rules` never changes precedence — the class does (deny > ask > allow, specificity never reorders).
+ */
+export interface GateRule {
+  /** 'gr_<id>'. */
+  id: string;
+  enabled: boolean;
+  then: GateVerdict;
+  when: GateWhen;
+  /** Plain sentence derived from when/then; regenerated on edit, display-only. */
+  label: string;
+  /** Where the rule came from — shown on the card. */
+  source: 'preset' | 'card' | 'user';
+}
+
+/**
+ * The gate rules in config.json (Settings -> Gates). Absent in an older config = no rules, which is exactly
+ * today's behaviour: needsApproval is the floor and rules only refine it.
+ */
+export interface GatesConfig {
+  rules: GateRule[];
+  /** Bumped when shipped presets change, so a new preset can be offered once. */
+  presetsVersion: number;
+}
+
 export type VmSize = 'small' | 'default' | 'large';
 
 export interface AgentVmSettings {
@@ -386,6 +440,11 @@ export interface LegionConfig {
   mcpServers: Record<string, McpServerEntry>;
   /** Context-compaction tuning for provider runs. Stored under "compaction"; absent means the shipped defaults. */
   compaction: CompactionSettings;
+  /**
+   * Gate rules (Settings -> Gates): the owner's refinements on top of each agent's approval mode. Absent in an
+   * older config = no rules, exactly today's behaviour (needsApproval stays the floor).
+   */
+  gates?: GatesConfig;
 }
 
 /** GET /api/state response */
@@ -464,6 +523,8 @@ export interface SettingsView {
   mcpServers: Record<string, McpServerEntry>;
   /** Context-compaction tuning for provider runs. */
   compaction: CompactionSettings;
+  /** Gate rules, normalized (Settings -> Gates). Always present in a view; an old config reads as no rules. */
+  gates: GatesConfig;
   port: number;
   configPath: string;
   dataDir: string;
@@ -478,6 +539,11 @@ export interface SettingsPatch {
   mcpServers?: Record<string, McpServerEntry>;
   /** Omitted fields are unchanged; contextWindowOverride: null means "derive the window per model". */
   compaction?: Partial<CompactionSettings>;
+  /**
+   * Replaces the gate rule list (and optionally the preset stamp). A malformed rule is a 400 and nothing is
+   * stored — a bad rule must never reach a matcher at run time.
+   */
+  gates?: { rules: GateRule[]; presetsVersion?: number };
 }
 
 /** State of one MCP server on the most recent run, as the Claude Code process reported it. */
