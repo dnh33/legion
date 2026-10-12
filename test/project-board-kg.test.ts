@@ -116,6 +116,7 @@ test('C20 the run\'s preamble carries the project notes through the module', () 
 });
 
 test('the board preamble separates the agent\'s own task list from the shared board', () => {
-  assert.match(BOARD_PREAMBLE, /Your task list .* is your own working checklist/);
+  assert.match(BOARD_PREAMBLE, /If you keep a task list, it is your own working checklist/);
+  assert.doesNotMatch(BOARD_PREAMBLE, /TaskCreate|todo_/, 'an agent with the task tools off is not pointed at tools it lacks');
   assert.match(BOARD_PREAMBLE, /Nothing moves between them by itself/);
 });

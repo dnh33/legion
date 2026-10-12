@@ -193,7 +193,12 @@ export function renderForModel(list: TaskList): string | undefined {
 export function renderHandover(list: TaskList): string | undefined {
   const body = renderForModel(list);
   if (!body) return undefined;
-  return `${body}\nThis conversation's task list changed while another model was working on it. Call TaskList, then make your own list match the one above: TaskCreate for each open task you do not have, TaskUpdate for any status that differs. Do this before other work.`;
+  return `${body}\nThis conversation's task list changed while another model was working on it. Call TaskList, then make your own list match the one above: TaskCreate for each open task you do not have, TaskUpdate for any status that differs, and TaskUpdate with status deleted for any task of yours that is not listed above. Do this before other work.`;
+}
+
+/** The hand-over when another model emptied the list: Claude's own list is now behind with tasks that no longer exist. */
+export function renderEmptyHandover(): string {
+  return `${TASK_LIST_HEADER}\n(empty)\nThis conversation's task list was emptied while another model was working on it. Call TaskList and remove each task you still have (TaskUpdate with status deleted) before other work.`;
 }
 
 /** One JSON file per Legion task under `dir`. A missing or unreadable file is an empty list; a failed write is reported to the caller. */
@@ -263,7 +268,11 @@ export function mirrorClaudeTaskCall(list: TaskList, call: { name: string; input
     }
     if (call.name === 'TaskUpdate') {
       if (out.success === false) return null;
-      return list.update(input as unknown as TaskUpdateFields).success ? list : null;
+      // Claude Code accepted it: a link to a task the mirror never saw (created before it was mirrored) is left out,
+      // the rest of the update still applies
+      const known = (v: unknown) => strs(v).filter((x) => list.get(x) !== null);
+      const u = { ...input, ...(input.addBlocks !== undefined ? { addBlocks: known(input.addBlocks) } : {}), ...(input.addBlockedBy !== undefined ? { addBlockedBy: known(input.addBlockedBy) } : {}) };
+      return list.update(u as unknown as TaskUpdateFields).success ? list : null;
     }
     if (call.name === 'TaskList' && Array.isArray(out.tasks)) {
       // merged by id: the result carries status and links but not activeForm or description, which the mirror keeps

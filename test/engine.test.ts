@@ -1398,3 +1398,24 @@ test('a finished hand-over keeps the provider\'s done tasks on the checklist', a
   assert.deepEqual(after.list().map((x) => [x.subject, x.status]), [['still open', 'pending'], ['already done', 'completed']]);
   assert.equal(after.handoverPending, false);
 });
+
+test('a provider run that emptied the list still hands over (Claude empties its own) and the flag clears', async () => {
+  const { TaskList, TaskListStore } = await import('../src/core/task-list.js');
+  const seen: Array<string | undefined> = [];
+  let n = 0;
+  const s = setup((params) => (async function* () {
+    n++;
+    yield init('sess-empty');
+    if (n === 2) seen.push(await fireSessionStart(params, 'resume'));
+    yield ok('done');
+  })(), { agent: { model: 'opus', taskList: 'on' } });
+  const t = s.engine.startTask({ agentId: 'a1', prompt: 'one', source: 'ui' });
+  await s.engine.waitFor(t.id, 3000);
+  const store = new TaskListStore(join(s.config.workspaceDir, '.task-lists'));
+  const l = new TaskList(); l.handoverPending = true; store.save(t.id, l);
+  s.engine.startTask({ agentId: 'a1', prompt: 'two', source: 'ui', continueTaskId: t.id });
+  await s.engine.waitFor(t.id, 3000);
+  for (let i = 0; i < 100 && s.engine.running().includes(t.id); i++) await new Promise((r) => setTimeout(r, 10));
+  assert.match(seen[0] ?? '', /empty/i);
+  assert.equal(store.load(t.id).handoverPending, false);
+});

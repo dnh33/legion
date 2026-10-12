@@ -78,14 +78,15 @@ export function AgentEditor({ id, focus }: { id: string | null; focus?: 'skills'
     setBusy(true);
     // The timeout field holds what the owner typed; round and clamp it the same range the server enforces (1..3600).
     const secs = hostTimeout.trim() === '' ? undefined : Math.min(3600, Math.max(1, Math.round(Number(hostTimeout.trim())) || 120));
-    const body: Partial<AgentProfile> & { name: string } = {
+    const body: Omit<Partial<AgentProfile>, 'taskList'> & { name: string; taskList?: 'on' | 'off' | null } = {
       name: name.trim(), emoji: emoji.trim() || '●', description: description.trim(), systemPrompt, model, approval, connectors: github ? ['github'] : [], skills: settingOf(skills),
       vm: { enabled: vmOn, size, idleStopMinutes: Math.max(1, Math.round(idle) || 15) },
       // Absent host = off; a present host always says so explicitly (server.ts parseHost requires `enabled`).
       host: hostOn
         ? { enabled: true, ...(hostRoot.trim() ? { rootDir: hostRoot.trim() } : {}), ...(secs !== undefined ? { timeoutSeconds: secs } : {}), ...(hostEnv !== 'masked' ? { envFiles: hostEnv } : {}) }
         : { enabled: false },
-      ...(taskList !== startTaskList.current ? { taskList: taskList ? 'on' as const : 'off' as const } : {}),
+      // changed back to what the default gives: clear the explicit choice (null), so the agent follows the default again
+      ...(taskList !== startTaskList.current ? { taskList: taskList === nativeTaskListOn({ id: existing?.id ?? '' }) ? null : taskList ? 'on' as const : 'off' as const } : {}),
     };
     await saveAgent(id, body);
     setBusy(false);

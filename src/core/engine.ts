@@ -18,11 +18,8 @@ import { contextTokensOf } from '../shared/context-meter.js';
 import { isLegionTool, needsApproval, stricterMode, LEGION_SERVER_NAMES } from './approvals.js';
 import { decideGate } from './gates.js';
 import { TaintedPaths } from './tainted-paths.js';
-import { carryDone, CLAUDE_TASK_TOOLS, mirrorClaudeTaskCall, renderForModel, renderHandover, TaskList, TaskListStore } from './task-list.js';
+import { carryDone, CLAUDE_TASK_TOOLS, mirrorClaudeTaskCall, renderEmptyHandover, renderForModel, renderHandover, TaskList, TaskListStore } from './task-list.js';
 import { nativeTaskListOn } from '../shared/task-list-setting.js';
-
-/** Claude Code's own task tools, opted in or out per agent (nativeTaskListOn). */
-const NATIVE_TASK_TOOLS = ['TaskCreate', 'TaskUpdate', 'TaskList', 'TaskGet'] as const;
 import { buildHostToolsServer, redactValues } from './exec/host-tools.js';
 import { DirectHostBackend } from './exec/direct-host.js';
 import { clampExecLimits } from './exec/limits.js';
@@ -89,6 +86,9 @@ export const BG_GRACE_MS = 30_000;
  * otherwise keep the silence cap from ever firing on a wedged agent, and the run holds a concurrency slot meanwhile.
  */
 export const BG_MAX_HELD_MS = 2 * 60 * 60_000;
+
+/** Claude Code's own task tools, opted in or out per agent (nativeTaskListOn). */
+const NATIVE_TASK_TOOLS = ['TaskCreate', 'TaskUpdate', 'TaskList', 'TaskGet'] as const;
 
 /** Most items and longest item text of a TodoWrite list kept for the live checklist. */
 export const TODO_MAX_ITEMS = 50;
@@ -1200,7 +1200,10 @@ This run read connector (GitHub) data and other outside text. Web access can sen
       mcpServers: servers,
       // Off (default): only the servers above, asks the CLI to ignore user/project/local MCP config and plugins. claude.ai connectors are asked off in buildChildEnv and in `settings`.
       ...(this.config.claude.inheritMcp === true ? {} : { strictMcpConfig: true }),
-      // Claude Code's own task list: 5.x models have it only when asked for (the SDK's documented allowedTools opt-in); off, the old TodoWrite goes too
+      // Claude Code's own task list: 5.x models have it only when asked for. Naming the tools in allowedTools turns them on
+      // (Claude Code CLI behaviour, verified live 2026-10-12; sdk.d.ts documents allowedTools only as auto-approval) and
+      // auto-approves them, so a Gates rule for them does not apply — harmless: they are notes (READ_ONLY), never carded.
+      // Off, the old TodoWrite goes too.
       ...(nativeTaskListOn(agent) ? { allowedTools: [...NATIVE_TASK_TOOLS] } : {}),
       disallowedTools: ['SendMessage', 'ListAgents', ...(nativeTaskListOn(agent) ? [] : [...NATIVE_TASK_TOOLS, 'TodoWrite']), ...this.moduleDisallowed(agent)],
       maxTurns: this.config.claude.maxTurns,
@@ -1290,7 +1293,8 @@ This run read connector (GitHub) data and other outside text. Web access can sen
         let text: string | undefined;
         if (input.source === 'compact') text = renderForModel(list);
         else if (list.handoverPending || (!resume && list.list().length > 0)) {
-          text = renderHandover(list);
+          // a list another model emptied still hands over: Claude's own list holds tasks that no longer exist
+          text = renderHandover(list) ?? (list.handoverPending ? renderEmptyHandover() : undefined);
           if (text) {
             // Claude's first step (TaskList) replaces the mirror with its own, still-behind list: the handed-over list is
             // kept aside and put back unless the run finishes (settleHandover)

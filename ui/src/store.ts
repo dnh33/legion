@@ -567,10 +567,12 @@ export const openPalette = () => setState({ palette: true, doctorOpen: false, ed
 export const openDoctor = () => { setState({ doctorOpen: true, palette: false, editor: null }); void runDoctor(); };
 export const openEditor = (id: string | null, focus?: 'skills') => setState({ editor: { id, ...(focus ? { focus } : {}) }, palette: false, doctorOpen: false });
 
-export async function saveAgent(id: string | null, a: Partial<AgentProfile> & { name: string }) {
+export async function saveAgent(id: string | null, a: Omit<Partial<AgentProfile>, 'taskList'> & { name: string; taskList?: 'on' | 'off' | null }) {
   try {
     const before = id ? getState().agents.find((x) => x.id === id)?.model : undefined;
-    const saved = id ? await api.patchAgent(id, a) : await api.createAgent(a);
+    // `taskList: null` travels as JSON null: the server reads it as "clear my choice, follow the default"
+    const body = a as unknown as Partial<AgentProfile> & { name: string };
+    const saved = id ? await api.patchAgent(id, body) : await api.createAgent(body);
     // A remembered composer pick was made against the model that was configured then; a new model in Settings
     // makes it meaningless, so it goes (effectiveModel refuses an unequal value either way).
     if (id && before !== undefined && saved.model !== before) lsDel(modelKey(id));

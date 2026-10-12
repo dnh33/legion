@@ -243,3 +243,22 @@ test('mirror: a TaskList result keeps carried done tasks, unless Claude has a ta
   ] }, text: '', isError: false })!;
   assert.deepEqual(next.list().map((t) => [t.id, t.subject]), [['1', 'open one'], ['2', 'claude has me'], ['done-1', 'done one']]);
 });
+
+test('mirror: a TaskUpdate naming one link the mirror never saw still applies the rest (status, the known links)', () => {
+  const l = new TaskList();
+  l.create({ subject: 'a', description: '' }, '1');
+  l.create({ subject: 'b', description: '' }, '2');
+  const next = mirrorClaudeTaskCall(l, { name: 'TaskUpdate', input: { taskId: '2', status: 'in_progress', addBlockedBy: ['1', '99'] } }, { structured: { success: true }, text: '', isError: false });
+  assert.ok(next, 'the update is kept');
+  assert.equal(next!.get('2')!.status, 'in_progress');
+  assert.deepEqual(next!.get('2')!.blockedBy, ['1'], 'the unknown link is left out, the known one kept');
+});
+
+test('renderHandover asks Claude to delete the tasks Legion no longer has; an emptied list has its own hand-over', async () => {
+  const { renderEmptyHandover } = await import('../src/core/task-list.js');
+  const l = new TaskList();
+  l.create({ subject: 'one', description: '' });
+  assert.match(renderHandover(l)!, /delete/i);
+  assert.match(renderEmptyHandover(), /empty/i);
+  assert.match(renderEmptyHandover(), /TaskUpdate/);
+});
