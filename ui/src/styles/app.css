@@ -236,6 +236,10 @@ kbd { font-size: 10.5px; line-height: 1; padding: 3px 5px; border: 1px solid var
 .approval-sum { margin: 8px 0 10px; padding: 9px 11px; background: var(--code-bg); border: 1px solid var(--line); border-radius: var(--r); font-size: 12px; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 160px; overflow: auto; }
 .approval-actions { display: flex; align-items: center; gap: 8px; }
 .approval-note { margin-left: auto; color: var(--faint); font-size: 11.5px; }
+/* the one-click "Remember" choices: each button carries the full rule sentence, so they stack and wrap */
+.approval-remember { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; margin-top: 8px; }
+.approval-remember .btn { white-space: normal; text-align: left; }
+.approval-remember .approval-note { margin-left: 0; }
 /* ---------- question card (the approval card's twin: same shell, tokens and keyboard-only focus ring) ---------- */
 .question-steps { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0 2px; }
 .qstep { display: inline-flex; align-items: center; gap: 5px; padding: 3px 9px; border: 1px solid var(--line); border-radius: 999px; background: var(--surface-2); color: var(--muted); font-size: 11.5px; transition: background var(--t) var(--ease), border-color var(--t) var(--ease), color var(--t) var(--ease); }

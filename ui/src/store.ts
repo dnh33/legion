@@ -669,6 +669,14 @@ export async function saveSettings(patch: SettingsPatch, quiet = false): Promise
   return view;
 }
 
+/** The approval card's "Remember": appends one gate rule to the rules as stored now (read first, so no other rule is lost). */
+export async function rememberGate(rule: NonNullable<SettingsView['gates']>['rules'][number]): Promise<void> {
+  const cur = await api.settings();
+  const gates = cur.gates ?? { rules: [], presetsVersion: 0 };
+  await saveSettings({ gates: { rules: [...gates.rules, rule], presetsVersion: gates.presetsVersion } }, true);
+  toast(`Remembered: ${rule.label}`);
+}
+
 /** POST /api/settings/compaction/reset: restore the shipped compaction defaults. Throws the server's message on a 403/400. */
 export async function resetCompaction(): Promise<SettingsView> {
   const view = await request<SettingsView>('POST', '/api/settings/compaction/reset');

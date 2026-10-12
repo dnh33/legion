@@ -110,6 +110,38 @@ export function presetRule(p: { id: string; when: GateWhen; then: GateVerdict; l
   return { id: newGateId(), enabled: true, then: p.then, when: structuredCloneSafe(p.when), label: p.label, source: 'preset' };
 }
 
+/** Cards a rule must not decide: rails (a Blender script, a download — read and clicked every time) and room requests. */
+const NO_REMEMBER = /^(?:mcp__legion_blender__blender_exec|mcp__legion_blender__blender_asset_get|legion_get_blender|mcp__legion_comms__room_(?:create|add_member|remove_member))$/;
+
+/** Whether the approval card offers "Remember". */
+export function canRemember(a: { toolName: string }): boolean {
+  return !NO_REMEMBER.test(a.toolName);
+}
+
+const PATH_KEYS = ['file_path', 'path', 'notebook_path'] as const;
+
+/**
+ * The rule the approval card's "Remember" saves (source 'card'): this agent and this tool, narrowed to the command's
+ * program (plus its subcommand, `git status`) or to the file's folder. The owner reads the sentence before it is saved.
+ */
+export function rememberRule(a: { agentId: string; toolName: string; input: Record<string, unknown> }, then: 'allow' | 'deny', nameOf: (id: string) => string): GateRule {
+  const when: GateWhen = { agents: [a.agentId], tools: [a.toolName] };
+  const command = typeof a.input.command === 'string' ? a.input.command.trim() : '';
+  const path = PATH_KEYS.map((k) => a.input[k]).find((v): v is string => typeof v === 'string' && v.trim() !== '');
+  if (command) {
+    const [prog, next] = command.split(/\s+/);
+    // a subcommand is a plain word (status, test, run); a flag, a path or a file name is not
+    const prefix = next && /^[a-z][a-z0-9-]*$/.test(next) ? `${prog} ${next}` : prog!;
+    when.commands = [`${prefix.toLowerCase()}*`];
+    delete when.tools; // the command scopes it; the same program is the same choice in Bash and the agent shell
+  } else if (path) {
+    const p = path.replace(/\\/g, '/');
+    const dir = p.includes('/') ? p.slice(0, p.lastIndexOf('/')) : '';
+    when.paths = [dir ? `${dir}/**` : p];
+  }
+  return { id: newGateId(), enabled: true, then, when, label: gateSentence(when, then, nameOf), source: 'card' };
+}
+
 /** structuredClone without assuming it exists in an old webview. */
 function structuredCloneSafe<T>(v: T): T { return JSON.parse(JSON.stringify(v)) as T; }
 
