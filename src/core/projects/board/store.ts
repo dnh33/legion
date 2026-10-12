@@ -1,8 +1,8 @@
 /** Project board store: one JSONL log per project (<dataDir>/board/<projectId>.jsonl). See claude/plan-project-board.md. */
 import { appendFileSync, existsSync, mkdirSync, readFileSync, renameSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { BOARD_LIMITS, BOARD_PRIORITIES, BOARD_STATUSES, BOT_STATUSES, NOTE_ID_RE, WORK_ITEM_ID_RE } from '../../../shared/board.js';
-import type { ActivityEntry, BoardActor, BoardAssignee, BoardPriority, BoardStatus, BoardView, WorkItem } from '../../../shared/board.js';
+import { BOARD_LIMITS, BOARD_PRIORITIES, BOARD_STATUSES, BOT_STATUSES, MARSHAL_LIMITS, NOTE_ID_RE, WORK_ITEM_ID_RE } from '../../../shared/board.js';
+import type { ActivityEntry, BoardActor, BoardAssignee, BoardPriority, BoardStatus, BoardView, MarshalConfig, WorkItem } from '../../../shared/board.js';
 import { PROJECT_ID_RE } from '../../../shared/projects.js';
 import type { Project } from '../../../shared/projects.js';
 import { newId, nowIso } from '../../../shared/util.js';
@@ -74,6 +74,26 @@ export const cleanStatus = (v: unknown): BoardStatus => {
   if (!BOARD_STATUSES.includes(v as BoardStatus)) throw new BoardError(400, `status must be one of ${BOARD_STATUSES.join(', ')}`);
   return v as BoardStatus;
 };
+/**
+ * The Marshal's config as this board holds it: off, on the shipped wave and stall budget. The numbers agree
+ * with the loop's own defaults (WAVE_SIZE, STALL_MS — pinned together in test/board-marshal-config.test.ts),
+ * so a project that never wrote a config behaves exactly like the tested library.
+ */
+export const MARSHAL_DEFAULTS: MarshalConfig = { enabled: false, waveSize: 3, stallMinutes: 8 };
+const cleanBound = (v: unknown, field: keyof typeof MARSHAL_LIMITS): number => {
+  const [lo, hi] = MARSHAL_LIMITS[field];
+  if (typeof v !== 'number' || !Number.isInteger(v) || v < lo || v > hi) throw new BoardError(400, `${field} must be a whole number between ${lo} and ${hi}`);
+  return v;
+};
+/** A stored config read back: tolerant like every load (a damaged value falls back, never throws, never widens). */
+function readMarshal(raw: Record<string, unknown>): MarshalConfig {
+  const bound = (v: unknown, field: keyof typeof MARSHAL_LIMITS): number => {
+    const [lo, hi] = MARSHAL_LIMITS[field];
+    return typeof v === 'number' && Number.isInteger(v) && v >= lo && v <= hi ? v : MARSHAL_DEFAULTS[field];
+  };
+  // `enabled` is read strictly on: an unreadable switch counts as off, so a damaged line never starts the loop
+  return { enabled: raw.enabled === true, waveSize: bound(raw.waveSize, 'waveSize'), stallMinutes: bound(raw.stallMinutes, 'stallMinutes') };
+}
 /** Wire form: null, {kind:'owner'} or {kind:'agent', id}. The agent must be a member of the project. */
 export function cleanAssignee(v: unknown, proj: ProjectRef): BoardAssignee | null {
   if (v === null) return null;
@@ -138,6 +158,8 @@ class Board {
   foreign: string[] = [];
   /** The member agent that may ask to delete items (each delete still needs the owner's approval card). Owner-set; none by default. */
   leader: string | undefined;
+  /** The Marshal's config for this project, off by default. Rides the same meta line as the leader. */
+  marshal: MarshalConfig = { ...MARSHAL_DEFAULTS };
   lines = 0;
   constructor(readonly file: string, readonly projectId: string) {}
 }
@@ -209,7 +231,12 @@ export class BoardStore {
         try { rec = JSON.parse(line); } catch { continue; } // a torn last line, or damage: that line only is skipped
         if (!isObj(rec)) continue;
         if (typeof rec.v === 'number' && rec.v > 1) { b.foreign.push(line); continue; }
-        if (rec.kind === 'meta') { b.leader = typeof rec.leader === 'string' && rec.leader ? clip(rec.leader, 64) : undefined; continue; }
+        if (rec.kind === 'meta') {
+          b.leader = typeof rec.leader === 'string' && rec.leader ? clip(rec.leader, 64) : undefined;
+          // absent = this line never carried a config (a build older than the Marshal): keep what earlier lines said
+          if (isObj(rec.marshal)) b.marshal = readMarshal(rec.marshal);
+          continue;
+        }
         if (rec.kind === 'delete' && typeof rec.id === 'string') { b.items.delete(rec.id); b.extras.delete(rec.id); continue; }
         if (rec.kind === 'item') {
           const r = loadItem(rec.item, b.projectId);
@@ -236,12 +263,24 @@ export class BoardStore {
     this.append(b, { v: 1, kind: 'delete', at: nowIso(), id });
   }
 
+  /**
+   * The board's standing state as one meta line: the leader and the Marshal's config. Written only when it
+   * carries something (a leader, or a config that differs from the defaults), so compaction of an untouched
+   * board still writes nothing but its items — and whenever it IS written, it carries BOTH halves, so no
+   * write can drop the other.
+   */
+  private metaLine(b: Board, at: string): string | undefined {
+    const configured = (['enabled', 'waveSize', 'stallMinutes'] as const).some((k) => b.marshal[k] !== MARSHAL_DEFAULTS[k]);
+    if (!b.leader && !configured) return undefined;
+    return JSON.stringify({ v: 1, kind: 'meta', at, leader: b.leader ?? null, marshal: { ...b.marshal } });
+  }
   /** Rewrites the log as one snapshot per live item (tmp file, then rename). A failure leaves the old log valid. */
   compact(b: Board): void {
     const at = nowIso();
+    const meta = this.metaLine(b, at);
     const text = [
       ...b.foreign,
-      ...(b.leader ? [JSON.stringify({ v: 1, kind: 'meta', at, leader: b.leader })] : []),
+      ...(meta ? [meta] : []),
       ...[...b.items.values()].map((i) => JSON.stringify({ v: 1, kind: 'item', at, item: { ...(b.extras.get(i.id) ?? {}), ...i } })),
     ].join('\n') + '\n';
     const tmp = b.file + '.tmp';
@@ -251,7 +290,7 @@ export class BoardStore {
         const code = (e as NodeJS.ErrnoException).code;
         if (code === 'EPERM' || code === 'EEXIST') { unlinkSync(b.file); renameSync(tmp, b.file); } else throw e;
       }
-      b.lines = b.items.size + b.foreign.length + (b.leader ? 1 : 0);
+      b.lines = b.items.size + b.foreign.length + (meta ? 1 : 0);
     } catch { try { unlinkSync(tmp); } catch { /* ignore */ } }
   }
 
@@ -296,8 +335,39 @@ export class BoardStore {
     const b = this.writable(proj);
     if (agentId !== null && (typeof agentId !== 'string' || !proj.members.includes(agentId))) throw new BoardError(400, 'The leader must be a member agent of this project, or null for none.');
     b.leader = agentId === null ? undefined : agentId;
-    this.append(b, { v: 1, kind: 'meta', at: nowIso(), leader: b.leader ?? null });
+    this.appendMeta(b);
     return { ...proj, ...(b.leader ? { leader: b.leader } : {}) };
+  }
+  /** One meta line carrying the board's WHOLE standing state. Every meta write goes through here, so no write can drop the other half. */
+  private appendMeta(b: Board): void {
+    this.append(b, { v: 1, kind: 'meta', at: nowIso(), leader: b.leader ?? null, marshal: { ...b.marshal } });
+  }
+
+  // ------------------------------------------------------------------ the Marshal's config
+  /** The Marshal's config for this project: off until the owner switches it on. */
+  marshalConfig(pid: string): MarshalConfig {
+    return { ...this.board(pid).marshal };
+  }
+  /**
+   * The owner's config (the PUT route): which of `enabled`, `waveSize` and `stallMinutes` they sent, validated
+   * and written as one meta line. Everything validates before anything is written, so a bad field leaves the
+   * stored config exactly as it was.
+   */
+  setMarshal(proj: ProjectRef, input: unknown): MarshalConfig {
+    const b = this.writable(proj);
+    if (!isObj(input)) throw new BoardError(400, 'marshal config must be an object');
+    const sent = (['enabled', 'waveSize', 'stallMinutes'] as const).filter((k) => input[k] !== undefined);
+    if (!sent.length) throw new BoardError(400, 'give enabled, waveSize or stallMinutes to change');
+    const next: MarshalConfig = { ...b.marshal };
+    if (input.enabled !== undefined) {
+      if (typeof input.enabled !== 'boolean') throw new BoardError(400, 'enabled must be true or false');
+      next.enabled = input.enabled;
+    }
+    if (input.waveSize !== undefined) next.waveSize = cleanBound(input.waveSize, 'waveSize');
+    if (input.stallMinutes !== undefined) next.stallMinutes = cleanBound(input.stallMinutes, 'stallMinutes');
+    b.marshal = next;
+    this.appendMeta(b);
+    return { ...next };
   }
   /** One item of this project (an id from another project is simply not found). */
   get(pid: string, id: string): WorkItem | undefined {

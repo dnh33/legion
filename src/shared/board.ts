@@ -68,3 +68,19 @@ export const WORK_ITEM_ID_RE = /^wi_[a-f0-9]{12}$/;
 export const COLUMN_LABEL: Record<BoardStatus, string> = { backlog: 'Backlog', doing: 'Doing', review: 'Review', done: 'Done', blocked: 'Blocked' };
 
 export interface BoardView { items: WorkItem[]; inbox: WorkItem[]; archived: boolean; /** The member agent that may ask to delete (the owner approves each one). */ leader?: string }
+
+/**
+ * The Marshal's config, as the board's meta line holds it and `PUT .../board/marshal` takes it: whether the
+ * proactive loop runs for this project at all, how many items one pass may dispatch, and how long a run may
+ * go without progress before it is stopped. Off by default — the loop is a switch the owner throws, never a
+ * standing behaviour.
+ */
+export interface MarshalConfig {
+  enabled: boolean;
+  /** Items one pass may dispatch (1-10): the wave. */
+  waveSize: number;
+  /** Minutes without progress before a run is stopped as stalled (1-240). */
+  stallMinutes: number;
+}
+/** The clamp every write and read of `MarshalConfig` honours, as one place. */
+export const MARSHAL_LIMITS = { waveSize: [1, 10] as const, stallMinutes: [1, 240] as const };
