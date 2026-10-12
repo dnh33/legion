@@ -14,6 +14,8 @@ export interface ProviderEntry {
   kind: 'openai-compat';
   /** Which HTTP dialect: 'chat' (chat completions, default) or 'responses' (the Responses API). */
   wire?: 'chat' | 'responses';
+  /** How the models here call tools. Absent = automatic (native, and prompted for a model that refuses the tools field or whose provider says it has none); 'native' = never prompted; 'prompted' = always in the prompt. */
+  toolCalls?: 'native' | 'prompted';
   label: string;
   baseUrl: string;
   enabled: boolean;

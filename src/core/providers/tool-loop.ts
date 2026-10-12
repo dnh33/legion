@@ -805,6 +805,7 @@ export async function runToolLoop(host: ProviderHost, target: ProviderTarget, mo
       }
       addUsage(r);
       if (r.toolsRefused && !noticedRefused) { noticedRefused = true; host.onNotice('This model did not accept tools: it can answer, but it cannot use Legion\'s tools.'); }
+      if (r.toolsPrompted && !noticedRefused) { noticedRefused = true; host.onNotice('This model has no native tool calling, so Legion is describing the tools in the prompt and reading its calls from the reply. Tool calls still go through the same approvals.'); }
       const text = redact(r.text).trim();
       if (text) { host.onAssistantText(text); lastText = text; }
       if (r.toolCalls.length === 0) {

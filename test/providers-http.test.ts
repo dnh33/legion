@@ -137,7 +137,9 @@ test('chatTurn: streamed text and usage, tool-call assembly, JSON fallback, stre
     assert.equal(f.requests[0]!.body.stream_options.include_usage, true);
     assert.equal((await chatTurn({ entry: mk('/stream-options') }, { model: 'm', messages: [], tools: [], onText: () => undefined })).text, 'ok');
     const noTools = await chatTurn({ entry: mk('/tools') }, { model: 'm', messages: [], tools: [{ type: 'function', function: { name: 'x', description: '', parameters: {} } }], onText: () => undefined });
-    assert.equal(noTools.text, 'plain'); assert.equal(noTools.toolsRefused, true);
+    // a refused tools field means no NATIVE tool calling: the retry carries the tools in the prompt instead (prompted-tools.ts)
+    assert.equal(noTools.text, 'plain'); assert.equal(noTools.toolsPrompted, true);
+    assert.match(JSON.stringify(f.requests.at(-1)!.body.messages), /TOOLS\./);
     const j = await chatTurn({ entry: mk('/json') }, { model: 'm', messages: [], tools: [], onText: () => undefined });
     assert.equal(j.text, 'whole body'); assert.deepEqual(j.usage, { inputTokens: 3, outputTokens: 4 });
     n = 0;

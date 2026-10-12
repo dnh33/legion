@@ -1,7 +1,8 @@
 /** The OpenAI-compatible chat-completions adapter: one request per model turn, streamed. Used for OpenAI, OpenRouter, custom and local servers. */
 import { providerRequest, ProviderHttpError } from './http.js';
 import type { HttpLimits, ProviderTarget } from './http.js';
-import type { ChatMessage, ChatToolCall, ChatToolSpec, TokenUsage } from './types.js';
+import type { ChatMessage, ChatToolCall, ChatToolSpec, ProviderEntry, TokenUsage } from './types.js';
+import { parseToolBlocks, promptedMessages } from './prompted-tools.js';
 
 export interface ChatTurnRequest {
   model: string;
@@ -18,7 +19,16 @@ export interface ChatTurnResult {
   usage?: TokenUsage;
   /** Set when the endpoint refused tools and the turn was answered without them. */
   toolsRefused?: boolean;
+  /** Set when the model has no native tool calling: the tools went in the prompt and the calls were read from the reply. */
+  toolsPrompted?: boolean;
 }
+
+/** Provider + model pairs known to lack native tool calling (refused the tools field, or the provider says so). In memory: one refused request per core start. */
+const promptedTargets = new Set<string>();
+const promptedKey = (entry: ProviderEntry, model: string): string => `${entry.baseUrl}|${model}`;
+/** Marks a model as one that gets its tools in the prompt (from provider metadata, before any request). */
+export function markPrompted(entry: ProviderEntry, model: string): void { promptedTargets.add(promptedKey(entry, model)); }
+export function isPrompted(entry: ProviderEntry, model: string): boolean { return promptedTargets.has(promptedKey(entry, model)); }
 
 const MAX_RETRY_AFTER_SEC = 20;
 const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v);
@@ -132,23 +142,29 @@ function feedResponsesBody(acc: Acc, byItem: Map<string, number>, body: unknown)
   if (u) acc.usage = u;
 }
 
-const refusedTools = (e: unknown): boolean => e instanceof ProviderHttpError && e.code === 'status' && e.status === 400 && /tool|function/i.test(e.message);
+// a 400 that names tools, or OpenRouter's 404 "No endpoints found that support tool use"
+const refusedTools = (e: unknown): boolean => e instanceof ProviderHttpError && e.code === 'status' && (e.status === 400 || e.status === 404) && /tool|function/i.test(e.message);
 const refusedStreamOptions = (e: unknown): boolean => e instanceof ProviderHttpError && e.code === 'status' && e.status === 400 && /stream_options|include_usage/i.test(e.message);
 
 /** One model turn. Retries once without `stream_options`, once without tools, and once after a 429 (waiting at most 20 s). */
 export async function chatTurn(target: ProviderTarget, req: ChatTurnRequest): Promise<ChatTurnResult> {
-  let withTools = req.tools.length > 0;
+  const mode = target.entry.toolCalls;
+  let prompted = req.tools.length > 0 && (mode === 'prompted' || (mode !== 'native' && isPrompted(target.entry, req.model)));
+  let withTools = req.tools.length > 0 && !prompted;
   let streamOptions = true;
   let waited = false;
   for (let attempt = 0; attempt < 4; attempt++) {
     const responses = target.entry.wire === 'responses';
     const body: Record<string, unknown> = { model: req.model, stream: true };
+    const messages = prompted ? promptedMessages(req.messages, req.tools) : req.messages;
+    // a prompted reply is read whole and its blocks taken out before the owner sees it, so it is not streamed raw
+    const onText = prompted ? () => undefined : req.onText;
     if (responses) {
-      const ri = toResponsesInput(req.messages);
+      const ri = toResponsesInput(messages);
       body.instructions = ri.instructions; body.input = ri.input; body.store = false;
       if (withTools) { body.tools = req.tools.map((t) => ({ type: 'function', name: t.function.name, description: t.function.description, parameters: t.function.parameters })); body.tool_choice = 'auto'; }
     } else {
-      body.messages = req.messages;
+      body.messages = messages;
       if (streamOptions) body.stream_options = { include_usage: true };
       if (withTools) { body.tools = req.tools; body.tool_choice = 'auto'; }
     }
@@ -159,14 +175,19 @@ export async function chatTurn(target: ProviderTarget, req: ChatTurnRequest): Pr
       if (r.kind === 'json') {
         if (responses) feedResponsesBody(acc, byItem, r.json);
         else feed(acc, r.json, () => undefined); // a server that ignored `stream`: one body with choices[0].message
-        if (acc.text) req.onText(acc.text);
+        if (acc.text && !prompted) req.onText(acc.text);
       } else {
         for await (const data of r.events) {
           if (data.trim() === '[DONE]') break;
           let j: unknown;
           try { j = JSON.parse(data); } catch { throw new ProviderHttpError('format', 'The provider sent a stream line Legion could not read.'); }
-          if (responses) feedResponses(acc, byItem, j, req.onText); else feed(acc, j, req.onText);
+          if (responses) feedResponses(acc, byItem, j, onText); else feed(acc, j, onText);
         }
+      }
+      if (prompted) {
+        const p = parseToolBlocks(acc.text);
+        if (p.text) req.onText(p.text);
+        return { text: p.text, toolCalls: p.calls, toolsPrompted: true, ...(acc.finish ? { finishReason: acc.finish } : {}), ...(acc.usage ? { usage: acc.usage } : {}) };
       }
       const toolCalls: ChatToolCall[] = [...acc.calls.entries()].sort((a, b) => a[0] - b[0]).map(([, c], i) => ({
         id: c.id || `call_${i + 1}`, type: 'function' as const, function: { name: c.name, arguments: c.args },
@@ -174,7 +195,13 @@ export async function chatTurn(target: ProviderTarget, req: ChatTurnRequest): Pr
       return { text: acc.text, toolCalls, ...(acc.finish ? { finishReason: acc.finish } : {}), ...(acc.usage ? { usage: acc.usage } : {}), ...(req.tools.length > 0 && !withTools ? { toolsRefused: true } : {}) };
     } catch (e) {
       if (streamOptions && refusedStreamOptions(e)) { streamOptions = false; continue; }
-      if (withTools && refusedTools(e)) { withTools = false; continue; }
+      // no native tool calling: give it the tools in the prompt instead, and remember that for this model
+      if (withTools && refusedTools(e)) {
+        withTools = false;
+        // the owner chose native only: answer without tools, as before (no text is ever parsed for calls)
+        if (mode !== 'native') { prompted = true; markPrompted(target.entry, req.model); }
+        continue;
+      }
       if (e instanceof ProviderHttpError && e.code === 'status' && e.status === 429 && !waited) {
         waited = true;
         const ms = Math.min(MAX_RETRY_AFTER_SEC, e.retryAfterSec ?? 2) * 1000;
@@ -195,6 +222,11 @@ export async function listModelIds(target: ProviderTarget, limits?: Partial<Http
   const r = await providerRequest(target, '/models', { method: 'GET', accept: 'json', limits: { maxBodyBytes: 1024 * 1024, ...limits } });
   if (r.kind !== 'json' || !isObj(r.json)) throw new ProviderHttpError('format', 'The provider did not return a model list.');
   const data = Array.isArray(r.json.data) ? r.json.data : Array.isArray(r.json.models) ? r.json.models : [];
+  // OpenRouter lists each model's supported parameters: one without "tools" gets its tools in the prompt from the first
+  // request (no refused request needed). A model with no such list is tried natively first and the refusal decides.
+  for (const m of data) {
+    if (isObj(m) && typeof m.id === 'string' && Array.isArray(m.supported_parameters) && !m.supported_parameters.includes('tools')) markPrompted(target.entry, m.id);
+  }
   const ids = data.map((m) => (isObj(m) ? (typeof m.id === 'string' ? m.id : typeof m.name === 'string' ? m.name : '') : typeof m === 'string' ? m : ''))
     .filter((s) => s.length > 0 && s.length <= 120 && !/\s/.test(s));
   return [...new Set(ids)].slice(0, 500);

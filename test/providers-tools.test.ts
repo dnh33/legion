@@ -155,13 +155,13 @@ test('C16 limits: turn cap, per-turn tool-call cap, broken arguments, repeated i
   } finally { await x.close(); }
 });
 
-test('a model that rejects tools still answers, and the task says it cannot use tools', async () => {
+test('a model that rejects the tools field still answers, gets the tools in its prompt, and the task says so', async () => {
   const f = await startFake((r, res) => { if (r.body.tools) { res.writeHead(400, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ error: { message: 'this model does not support tools' } })); } else replyText(res, 'plain answer'); });
   try {
     const h = setup(f);
     const t = await run(h);
     assert.equal(t.status, 'done'); assert.equal(t.result, 'plain answer');
-    assert.ok(h.store.listMessages(t.id).some((m) => m.role === 'system' && /did not accept tools/.test(m.text)));
+    assert.ok(h.store.listMessages(t.id).some((m) => m.role === 'system' && /describing the tools in the prompt/.test(m.text)));
   } finally { await f.close(); }
 });
 

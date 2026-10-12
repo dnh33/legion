@@ -38,6 +38,13 @@ function ProviderCard({ p }: { p: ProviderView }) {
             <option value="responses">Responses API (OpenAI)</option>
           </select>
         </label>
+        <label>Tool calls
+          <select value={p.toolCalls} disabled={!!busy} onChange={(e) => void saveEntry(p.id, { toolCalls: e.target.value === 'auto' ? null : e.target.value })}>
+            <option value="auto">Automatic (in the prompt for a model without tool calling)</option>
+            <option value="native">Native only</option>
+            <option value="prompted">Always in the prompt</option>
+          </select>
+        </label>
       </div>
       {(p.needsKey || p.keySet) && (
         <form className="prov-row" onSubmit={(e) => { e.preventDefault(); void submitKey(); }}>
