@@ -8,7 +8,7 @@
 import { createSdkMcpServer, tool } from '@anthropic-ai/claude-agent-sdk';
 import type { McpSdkServerConfigWithInstance } from '@anthropic-ai/claude-agent-sdk';
 import { mkdir, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
-import { join, resolve, sep } from 'node:path';
+import { dirname, join, resolve, sep } from 'node:path';
 import { z } from 'zod';
 import type { ExecutionBackend } from './types.js';
 import { clampExecLimits, type ExecLimits } from './limits.js';
@@ -111,6 +111,7 @@ export function buildHostToolsServer(ctx: HostToolsCtx): McpSdkServerConfigWithI
     (a) => run(async () => {
       if (a.content.length > limits.maxWriteChars) throw new Error(`Content is too large (${a.content.length} > ${limits.maxWriteChars} chars)`);
       const p = resolveWithin(ctx.rootDir, a.path);
+      await mkdir(dirname(p), { recursive: true });
       await writeFile(p, a.content, 'utf8');
       return `Wrote ${a.content.length} chars to ${p}`;
     }),
