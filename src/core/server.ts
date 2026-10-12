@@ -584,7 +584,8 @@ export function createServer(ctx: CoreContext): Server {
     if (origin !== undefined && originAllowed(origin, listeningPort(), req.headers['user-agent'])) {
       res.setHeader('Access-Control-Allow-Origin', origin);
       res.setHeader('Vary', 'Origin');
-      res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PATCH,DELETE,OPTIONS');
+      // every method the core has routes for: PUT too (provider edits, project members, the board leader, the Marshal)
+      res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PUT,PATCH,DELETE,OPTIONS');
       res.setHeader('Access-Control-Allow-Headers', 'Authorization, Content-Type, X-Legion-Admin, mcp-session-id, mcp-protocol-version');
       res.setHeader('Access-Control-Expose-Headers', 'mcp-session-id');
       res.setHeader('Access-Control-Max-Age', '600');
