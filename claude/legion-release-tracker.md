@@ -1907,3 +1907,12 @@ DONE on the branch (each test-first):
 Gate last full run: e28e3eb 4149/4100/0 (park .superpowers/ first: export-scrub scans scratch files). Targeted suites green after each later commit.
 REMAINING (source of truth with statuses: Aetherkeep 06-projects/legion/release-0.2.6-s-scope.md): lead's two-send-back rule in code for bridge tell/ask; Marshal busy counts hand-started runs; capStored 200k spill not drop; weak providers (OpenRouter supported_parameters + prompted-tools fallback); approval-card one-click "Remember" rule; per-agent .env setting (allow/masked/block, Daniel 2026-10-12); deferred minors; one batched live run (full-mode deny honoured by the CLI, etc. — ask Daniel); full gate; fresh Opus review; release notes naming the sandbox limit; version bump; draft release.
 OUT of this release per plan: OpenShell sandbox backend (W6+, optional); auxiliary models.
+
+## 2026-10-12 — 0.2.6-s READY (branch feat/task-list-and-host-hardening, not pushed)
+Every planned part is in (scope + rulings: Aetherkeep 06-projects/legion/release-0.2.6-s-scope.md). Version 0.2.6-s, CHANGELOG + docs/release-notes/0.2.6-s.txt written (0.2.5-r changelog entry backfilled).
+Added since the state entry above: lead send-back rule in code (bridge), Marshal busy counts hand-started runs, whole replies kept past 200k (pointer), prompted tools for models without tool calling (+ OpenRouter detection + per-provider override), approval-card Remember, per-agent .env setting (masked default), guard + gates refinements, cost display fix (per-session delta), BSV lead line, persona re-pin.
+Opus review 2: 1 Critical + 6 Important fixed test-first (allow splitter on bash/cmd, guard prefixes, Remember on runners, masked .env bypasses, prompted fences, sticky refusal). Deferred minors are listed in the scope note.
+LIVE (Daniel approved): deny in Full honoured by the real CLI; resumed cost shows 0.2527 (old code 0.4936; the resumed run cost 0.012); prompted tools: deepseek-v4.1-flash (forced) and ibm-granite micro (detected tool-less) both created a task through Legion's tool.
+Final gate: 4193 tests, 4144 pass, 0 fail (park .superpowers/ first).
+NEXT (Daniel): push + merge (30 commits on local main + this branch), then CI release-build from docs/release-notes/0.2.6-s.txt, draft-first.
+Out of this release by plan: OpenShell sandbox backend; auxiliary models; A2A adapter (research: Aetherkeep research-bridge-cost-and-a2a-2026-10-12.md).
