@@ -87,6 +87,8 @@ export interface ProviderHost {
   onToolCall(toolName: string, toolUseId: string, input: unknown): void;
   onToolResult(toolUseId: string, text: string): void;
   onNotice(text: string): void;
+  /** The task list as the model should see it after compaction (undefined: none). Optional. */
+  taskListText?(): string | undefined;
 }
 
 export interface ProviderRunResult {

@@ -476,6 +476,9 @@ async function compactMessages(
   if (missingCarried.length) host.onNotice(carryLossNotice(missingCarried));
   const summary = clipToTokens(usedFallback ? localFallbackSummary(middle, plan.summaryBudget) : body, plan.summaryBudget);
   const row = renderSummaryRow(summary, { dropped: middle.length, fallback: usedFallback });
+  // the run's open tasks ride with the summary, so they survive it
+  const list = host.taskListText?.();
+  if (list) row.content = `${row.content ?? ''}\n\n${list}`;
   host.onNotice(row.content ?? '');
   const out: ChatMessage[] = [system, ...applyPlan(conv, plan, row)];
   // Drop a head that ends on unanswered tool calls.
@@ -546,6 +549,9 @@ async function compactOnce(
   if (missingCarried.length) host.onNotice(carryLossNotice(missingCarried));
   const summary = clipToTokens(usedFallback ? localFallbackSummary(conv.middle, conv.plan.summaryBudget) : body, conv.plan.summaryBudget);
   const row = renderSummaryRow(summary, { dropped: conv.middle.length, fallback: usedFallback });
+  // the run's open tasks ride with the summary, so they survive it
+  const list = host.taskListText?.();
+  if (list) row.content = `${row.content ?? ''}\n\n${list}`;
   // Into the transcript, not just into this request: the next turn has to start from the same summary, and the owner has
   // to be able to read what the model was actually told.
   host.onNotice(row.content ?? '');

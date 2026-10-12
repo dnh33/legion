@@ -17,7 +17,7 @@ import { contextTokensOf } from '../shared/context-meter.js';
 import { isLegionTool, needsApproval, stricterMode, LEGION_SERVER_NAMES } from './approvals.js';
 import { decideGate } from './gates.js';
 import { TaintedPaths } from './tainted-paths.js';
-import { CLAUDE_TASK_TOOLS, mirrorClaudeTaskCall, type TaskList, TaskListStore } from './task-list.js';
+import { CLAUDE_TASK_TOOLS, mirrorClaudeTaskCall, renderForModel, type TaskList, TaskListStore } from './task-list.js';
 import { buildHostToolsServer } from './exec/host-tools.js';
 import { DirectHostBackend } from './exec/direct-host.js';
 import { clampExecLimits } from './exec/limits.js';
@@ -882,7 +882,8 @@ export class Engine {
       claudeAvailable: this.vms.claudeAvailable?.() ?? true, // vm_claude is hidden while Claude is known not to be set up on boat.dev
       ...(job.origin ? { origin: { roomId: job.origin.roomId, fromAgentId: job.origin.fromAgentId, hop: job.origin.hop } } : {}),
       // a provider run has no Claude Code task tools: Legion keeps the list for it (a Claude run's own list is only mirrored, for the checklist)
-      ...(runtime === 'provider' ? { taskList: { load: () => this.taskLists.load(taskId), save: (l: TaskList) => { this.taskLists.save(taskId, l); this.showTaskList(taskId, act, l); } } } : {}),
+      // a provider change is handed over to the next Claude run of this conversation (its own list is behind)
+      ...(runtime === 'provider' ? { taskList: { load: () => this.taskLists.load(taskId), save: (l: TaskList) => { l.handoverPending = true; this.taskLists.save(taskId, l); this.showTaskList(taskId, act, l); } } } : {}),
     });
     // The agent shell: host shell/file tools, only for an agent that opted in. The names are `mcp__host__*` (NOT
     // Legion's own), so needsApproval raises a card and taintsRun marks the run; `host` grants the TOOLS, the agent's
@@ -1331,9 +1332,11 @@ This run read connector (GitHub) data and other outside text. Web access can sen
         + this.modulePreamble(agent, { prompt, taskId, ...(job.origin ? { origin: job.origin } : {}), tainted: act.tainted || job.origin?.tainted === true })
         + '\n\n' + renderCapabilities(agent, { servers: allServers, ...(job.origin?.approvalCeiling ? { ceiling: job.origin.approvalCeiling } : {}), vmEnabledForAgent: !!agent.vm?.enabled })
         + (agent.systemPrompt ? '\n\n' + agent.systemPrompt : '')
+        + (() => { const t = renderForModel(this.taskLists.load(taskId)); return t ? '\n\n' + t : ''; })()
         + `\n\nYou are running on ${pr.model} through ${pr.entry?.label ?? pr.providerId}. You have only the tools listed in this request; you have no file, shell or web tools of your own.`
         + (leadDoctrineFor(agent.id) ? '\n\n' + leadDoctrineFor(agent.id) : ''),
       prompt, stored: this.store.listMessages(taskId),
+      taskListText: () => renderForModel(this.taskLists.load(taskId)),
       servers, external,
       authorize: decide,
       noteToolUse: (name, id, input) => this.noteToolUse(job, act, name, id, input),

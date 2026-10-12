@@ -114,3 +114,85 @@ test('end to end: a provider run\'s mcp__host__shell call really runs on this ho
     if (prev === undefined) delete process.env.ANTHROPIC_API_KEY; else process.env.ANTHROPIC_API_KEY = prev;
   }
 });
+
+test('a continued provider run sees its open tasks in the system prompt from the first turn', async () => {
+  let n = 0;
+  const f = await startFake((_r, res) => { n++; if (n === 1) replyTools(res, [{ id: 'c1', name: 'mcp__legion__todo_create', args: { subject: 'carry me', description: '' } }]); else replyText(res, 'done'); });
+  try {
+    const h = setup(f);
+    const t = await run(h, 'one');
+    await run(h, 'two', { continueTaskId: t.id });
+    const sys = (f.requests.at(-1)!.body.messages as any[])[0].content as string;
+    assert.match(sys, /\[Your task list for this conversation, kept by Legion\]/);
+    assert.match(sys, /1\. carry me \(pending\)/);
+  } finally { await f.close(); }
+});
+
+test('a provider run with no tasks gets no task-list block at all', async () => {
+  const f = await startFake((_r, res) => replyText(res, 'ok'));
+  try {
+    const h = setup(f);
+    await run(h);
+    assert.doesNotMatch((f.requests[0]!.body.messages as any[])[0].content, /kept by Legion\]/);
+  } finally { await f.close(); }
+});
+
+test('a provider todo change marks the list for handover to the next Claude run', async () => {
+  let n = 0;
+  const f = await startFake((_r, res) => { n++; if (n === 1) replyTools(res, [{ id: 'c1', name: 'mcp__legion__todo_create', args: { subject: 'x', description: '' } }]); else replyText(res, 'done'); });
+  try {
+    const h = setup(f);
+    const t = await run(h);
+    const { TaskListStore } = await import('../src/core/task-list.js');
+    const { join } = await import('node:path');
+    assert.equal(new TaskListStore(join(h.config.workspaceDir, '.task-lists')).load(t.id).handoverPending, true);
+  } finally { await f.close(); }
+});
+
+/** A thread with one open task, buried past the compaction threshold, then continued. Returns the stored summary rows. */
+async function compactedThread(withList: boolean, refuseOnce: boolean): Promise<string[]> {
+  const { COMPACTION_MARKER } = await import('../src/core/providers/compaction.js');
+  const { compactionGuard } = await import('../src/core/providers/tool-loop.js');
+  const { TaskList, TaskListStore } = await import('../src/core/task-list.js');
+  const { jsonReply } = await import('./providers-fakes.js');
+  const { join } = await import('node:path');
+  let armed = false;
+  let refusals = 0;
+  const f = await startFake((req, res) => {
+    if (/DATA to summarise/.test(JSON.stringify(req.body) ?? '')) { replyText(res, '## Goal\nkeep going\n\n## Key Decisions\ncarry on'); return; }
+    if (armed && refuseOnce && !refusals) { refusals++; jsonReply(res, 400, { error: { message: "This model's maximum context length is 8192 tokens, however you requested 12000 tokens." } }); return; }
+    replyText(res, 'ok');
+  });
+  try {
+    const h = setup(f, { entry: { contextWindow: 8_192 } });
+    const first = await run(h, 'a short ask');
+    if (withList) {
+      const l = new TaskList();
+      l.create({ subject: 'survive the summary', description: '' });
+      new TaskListStore(join(h.config.workspaceDir, '.task-lists')).save(first.id, l);
+    }
+    const store = h.store as unknown as { addMessage(m: { taskId: string; role: string; text: string }): unknown };
+    const lines = refuseOnce ? 60 : 120;
+    for (let i = 0; i < lines; i++) store.addMessage({ taskId: first.id, role: 'assistant', text: `work ${i}: ${'filler text about the migration. '.repeat(10)}` });
+    compactionGuard.forget(first.id);
+    armed = true;
+    const next = h.engine.startTask({ agentId: h.agent.id, prompt: 'carry on', source: 'ui', continueTaskId: first.id } as never);
+    await h.engine.waitFor(next.id, 20_000);
+    if (refuseOnce) assert.equal(refusals, 1, 'the overflow path ran');
+    return h.store.listMessages(first.id).filter((m) => m.role === 'system' && m.text.startsWith(COMPACTION_MARKER)).map((m) => m.text);
+  } finally { await f.close(); }
+}
+
+test('after a compaction the summary carries the task list, so the open tasks survive it (pre-flight and overflow paths)', async () => {
+  for (const refuseOnce of [false, true]) {
+    const rows = await compactedThread(true, refuseOnce);
+    assert.ok(rows.length > 0, 'a compaction happened');
+    assert.match(rows.at(-1)!, /\n\n\[Your task list for this conversation, kept by Legion\]\n- \[ \] 1\. survive the summary \(pending\)$/);
+  }
+});
+
+test('a compaction in a thread with no tasks leaves the summary row as it was', async () => {
+  const rows = await compactedThread(false, false);
+  assert.ok(rows.length > 0, 'a compaction happened');
+  assert.doesNotMatch(rows.at(-1)!, /kept by Legion\]/);
+});
