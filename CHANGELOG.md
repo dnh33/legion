@@ -20,6 +20,9 @@ All notable changes are recorded here. The format follows [Keep a Changelog](htt
   status`", "No agent may ever run `rm -rf *`"), with a builder, a dry-run tester and suggested rules. Block rules
   apply even to Full access. An approval card now has **Remember…**: one click turns your answer into a rule for that
   agent and that command or folder.
+- **Gates learns from your answers.** After you allow the same kind of call for an agent 3 times, Settings, Gates
+  suggests the rule that Remember would make, with Add rule and Dismiss. Nothing is added on its own. Switch it off with
+  "Suggest gates from my answers": then nothing is counted and the small record of your answers is deleted.
 - **The Marshal works the board on its own.** With the Marshal on for a project, it picks the next item by the board's
   score, matches it to the right bot (never one whose role forbids the action), sends work out in waves, watches for
   stalls, and gives each bot at most two tries. Each item explains its place in the order. The Marshal tab shows what
