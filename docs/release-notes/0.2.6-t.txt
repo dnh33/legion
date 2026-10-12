@@ -1,0 +1,8 @@
+Legion 0.2.6-t: tighter rules for agents on your computer.
+
+- A Block rule for your temp folder now holds however the agent writes the path (/tmp or the Windows form).
+- Short secrets in your .env files, such as a PIN, are now hidden from shell output too. Ordinary values like a port number stay readable.
+- The rule that a task goes to one agent at most three times now survives a restart, and a send that never arrived no longer counts.
+- Gates you saved from an approval card read more clearly: "may run `git status` with any arguments".
+
+Installs over 0.2.5-o and later. Full detail in CHANGELOG.md.
