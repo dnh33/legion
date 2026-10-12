@@ -25,7 +25,7 @@ const ctx = (over: Partial<CandidateCtx> = {}): CandidateCtx => ({
 test('the catalog carries the WHOLE role prose: a prohibition tail past 80 characters survives', () => {
   const herald = entry('herald');
   assert.ok(herald.role.length > 200, `the full prose, not a roster line (got ${herald.role.length} chars)`);
-  assert.match(herald.role, /never send, post, schedule or publish/i, 'the safety tail the 80-char roster line cuts is here');
+  assert.match(herald.role, /never send, post, schedule or publish/i, 'the safety tail is here (the agents roster line carries it whole too)');
   assert.equal(herald.model, byId('herald').model, 'the catalog carries the chosen model');
   assert.equal(herald.approval, 'ask', 'the catalog carries the access tier');
 });

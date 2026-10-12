@@ -417,3 +417,18 @@ test('tell: a reply from a run that failed carries its outcome in the header (th
   const head = `[Reply from Scout · task ${taskId} · `;
   assert.ok(reply.text.startsWith(head + 'error] ') || reply.text.startsWith(head + 'failed] '), reply.text);
 });
+
+test('agents tool: a bot\'s whole description reaches the lead, safety tail included (never cut to 80 characters)', async () => {
+  let text = '';
+  const s = setup((c) => c.agent !== 'zealot' ? undefined : (async function* () {
+    yield init('z-desc');
+    text = (await callTool(c.options, 'agents', {})).text;
+    yield ok('x', 'z-desc');
+  })());
+  const long = 'Watches the skills, knowledge sources and MCP servers in use and files newer versions on the board.\nReports, never upgrades.';
+  s.store.upsertAgent({ ...mkAgent('scout', 'Scout'), description: long });
+  await s.engine.waitFor(s.engine.startTask({ agentId: 'zealot', prompt: 'go', source: 'ui' }).id, 5000);
+  const line = text.split('\n').find((l) => l.startsWith('scout'))!;
+  assert.match(line, /Reports, never upgrades\./);
+  assert.match(line, /^scout \| Scout \| .* \| idle \| no-thread$/, 'still one line: a newline in the description does not break the table');
+});

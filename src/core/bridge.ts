@@ -109,6 +109,9 @@ interface QueueItem {
 const isLive = (t: Task) => t.status === 'queued' || t.status === 'running';
 const truncate = (s: string, n = RESULT_MAX_CHARS) => (s.length <= n ? s : `${s.slice(0, n)}\n[truncated: ${s.length - n} more chars]`);
 /** An agent's card for the `agents` tool: its model and the first sentence of its soul's "Output shape:" line (the owner's own text, scrubbed and clipped). */
+/** A description on one table line: whitespace runs (newlines too) become one space, and `|` cannot open a new column. */
+const oneLine = (s: string): string => s.replace(/\s+/g, ' ').replace(/\|/g, '/').trim();
+
 export const cardOf = (a: Pick<AgentProfile, 'model' | 'systemPrompt'>): string => {
   const shape = /^Output shape: (.+)$/m.exec(a.systemPrompt ?? '')?.[1];
   if (!shape) return '';
@@ -167,7 +170,8 @@ export class Bridge {
       const tasks = this.store.listTasks(500, a.id, true);
       const status = tasks.some((t) => t.status === 'running') ? 'working' : tasks.some((t) => t.status === 'queued') ? 'queued' : 'idle';
       const thread = this.findPair(callerAgentId, a.id) ? 'thread' : 'no-thread';
-      lines.push(`${a.id} | ${a.name} | ${a.description.slice(0, 80)} | ${status} | ${thread}`);
+      // the whole description: a role's last clause is often its limit ("Reports, never upgrades."), and a cut one routes work to a bot that may not do it
+      lines.push(`${a.id} | ${a.name} | ${oneLine(a.description)} | ${status} | ${thread}`);
       const card = cardOf(a);
       if (card) lines.push(`  ${card}`);
     }
