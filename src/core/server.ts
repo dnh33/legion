@@ -188,6 +188,10 @@ function parseHost(v: unknown): AgentHostSettings | undefined {
     }
     out.timeoutSeconds = v.timeoutSeconds;
   }
+  if (v.envFiles !== undefined) {
+    if (v.envFiles !== 'allow' && v.envFiles !== 'masked' && v.envFiles !== 'block') throw new HttpError(400, 'host.envFiles must be allow, masked or block');
+    out.envFiles = v.envFiles;
+  }
   return out;
 }
 

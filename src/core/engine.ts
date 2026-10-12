@@ -922,6 +922,7 @@ export class Engine {
         backend: new DirectHostBackend({ limits: clampExecLimits({ timeoutSeconds: agent.host.timeoutSeconds }), env: buildHostShellEnv(this.config) }),
         // the shell can read Legion's own files (config.json, provider keys): every secret Legion holds is taken out of what comes back
         redact: (text) => redactValues(text, [...liveSecrets(this.config), ...(this.providers?.secretValues() ?? [])]),
+        envFiles: agent.host.envFiles ?? 'masked',
       });
     }
     const moduleJob: ModuleJob = {

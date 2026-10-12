@@ -52,4 +52,12 @@ describe('agent shell settings (AgentProfile.host)', () => {
     const fakes = f.ctx.store.getAgent(a.id);
     assert.equal(fakes?.host, undefined, 'stored profile carries no host key');
   });
+
+  it('host.envFiles is allow, masked or block; anything else is a 400', async () => {
+    const a = await (await post({ name: 'EnvTest', host: { enabled: true, envFiles: 'block' } })).json();
+    assert.deepEqual(a.host, { enabled: true, envFiles: 'block' });
+    const r = await post({ name: 'EnvBad', host: { enabled: true, envFiles: 'sometimes' } });
+    assert.equal(r.status, 400);
+  });
 });
+

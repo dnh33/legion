@@ -25,6 +25,7 @@ export function AgentEditor({ id, focus }: { id: string | null; focus?: 'skills'
   const [hostOn, setHostOn] = useState(existing?.host?.enabled ?? false);
   const [hostRoot, setHostRoot] = useState(existing?.host?.rootDir ?? '');
   const [hostTimeout, setHostTimeout] = useState(existing?.host?.timeoutSeconds === undefined ? '' : String(existing.host.timeoutSeconds));
+  const [hostEnv, setHostEnv] = useState<'allow' | 'masked' | 'block'>(existing?.host?.envFiles ?? 'masked');
   const [skills, setSkills] = useState(() => valueOf(existing?.skills));
   // shown as the effective setting; saved only once the owner changes it, so an untouched agent keeps following the default
   const [taskList, setTaskList] = useState(() => nativeTaskListOn(existing ?? { id: '' }));
@@ -35,7 +36,7 @@ export function AgentEditor({ id, focus }: { id: string | null; focus?: 'skills'
   const nowSkills = settingOf(skills);
   const skillsDirty = JSON.stringify(Array.isArray(nowSkills) ? [...nowSkills].sort() : nowSkills) !== JSON.stringify(Array.isArray(startSkills.current) ? [...startSkills.current].sort() : startSkills.current);
   // Every field counts, not only Skills: the first values are kept, and anything that differs from them asks before it is thrown away.
-  const fields = JSON.stringify([name, emoji, description, systemPrompt, model, approval, vmOn, size, idle, github, hostOn, hostRoot, hostTimeout, taskList]);
+  const fields = JSON.stringify([name, emoji, description, systemPrompt, model, approval, vmOn, size, idle, github, hostOn, hostRoot, hostTimeout, hostEnv, taskList]);
   const startFields = useRef(fields);
   const dirty = skillsDirty || fields !== startFields.current;
   const [leaving, setLeaving] = useState<null | { to: 'close' } | { to: 'armory'; skill: string }>(null);
@@ -82,7 +83,7 @@ export function AgentEditor({ id, focus }: { id: string | null; focus?: 'skills'
       vm: { enabled: vmOn, size, idleStopMinutes: Math.max(1, Math.round(idle) || 15) },
       // Absent host = off; a present host always says so explicitly (server.ts parseHost requires `enabled`).
       host: hostOn
-        ? { enabled: true, ...(hostRoot.trim() ? { rootDir: hostRoot.trim() } : {}), ...(secs !== undefined ? { timeoutSeconds: secs } : {}) }
+        ? { enabled: true, ...(hostRoot.trim() ? { rootDir: hostRoot.trim() } : {}), ...(secs !== undefined ? { timeoutSeconds: secs } : {}), ...(hostEnv !== 'masked' ? { envFiles: hostEnv } : {}) }
         : { enabled: false },
       ...(taskList !== startTaskList.current ? { taskList: taskList ? 'on' as const : 'off' as const } : {}),
     };
@@ -153,6 +154,14 @@ export function AgentEditor({ id, focus }: { id: string | null; focus?: 'skills'
             <label className="grow">Scope root<input disabled={!hostOn} value={hostRoot} onChange={(e) => setHostRoot(e.target.value)} placeholder="Leave empty for this agent’s own workspace folder" spellCheck={false} /></label>
             <label className="grow">Command timeout (s)<input disabled={!hostOn} type="number" min={1} max={3600} value={hostTimeout} placeholder="120" onChange={(e) => setHostTimeout(e.target.value.replace(/[^\d]/g, ''))} /><span className="field-note">A command killed after this many seconds. 1 to 3600; 120 by default.</span></label>
           </div>
+          <label style={{ opacity: hostOn ? 1 : 0.5 }}>.env files
+            <select disabled={!hostOn} value={hostEnv} onChange={(e) => setHostEnv(e.target.value as 'allow' | 'masked' | 'block')}>
+              <option value="masked">Masked: names shown, values hidden, no writes</option>
+              <option value="block">Blocked: no reading, writing or commands that name one</option>
+              <option value="allow">Allowed: read and write as written</option>
+            </select>
+            <span className="field-note">Masked hides every value from all of this agent's tool output. .env.example and other templates are ordinary files.</span>
+          </label>
         </fieldset>
         <fieldset>
           <legend>Computer (boat.dev VM)</legend>

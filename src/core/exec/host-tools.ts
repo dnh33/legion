@@ -7,7 +7,7 @@
  */
 import { createSdkMcpServer, tool } from '@anthropic-ai/claude-agent-sdk';
 import type { McpSdkServerConfigWithInstance } from '@anthropic-ai/claude-agent-sdk';
-import { realpathSync } from 'node:fs';
+import { readdirSync, readFileSync, realpathSync, statSync } from 'node:fs';
 import { mkdir, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { dirname, join, resolve, sep } from 'node:path';
 import { z } from 'zod';
@@ -31,6 +31,51 @@ export interface HostToolsCtx {
   limits?: ExecLimits;
   /** Takes every secret Legion holds out of text before the model sees it (output, file text, spills, errors). Omitted: text is returned as is. */
   redact?: (text: string) => string;
+  /** .env files: 'allow' reads them as written; 'masked' (default) hides their values everywhere and refuses writes; 'block' refuses them outright. */
+  envFiles?: 'allow' | 'masked' | 'block';
+}
+
+/** A secrets file: `.env`, `.env.local`, `.env.production`… but not a shared template (`.env.example`, `.sample`, `.template`, `.dist`). */
+export function isEnvFile(p: string): boolean {
+  const base = p.replace(/\\/g, '/').split('/').pop() ?? '';
+  return /^\.env(?:\.[^/]+)?$/i.test(base) && !/\.(?:example|sample|template|dist)$/i.test(base);
+}
+
+/** Whether a command line names a secrets file (for 'block': the command is refused rather than guessed at). */
+export function mentionsEnvFile(cmd: string): boolean {
+  for (const m of cmd.matchAll(/(?:^|[\s'"=/\\(<>|;&])(\.env(?:\.[\w.-]+)?)(?=$|[\s'"/\\)<>|;&])/gi)) if (isEnvFile(m[1]!)) return true;
+  return false;
+}
+
+const ENV_LINE = /^(\s*(?:export\s+)?[A-Za-z_][A-Za-z0-9_.-]*\s*=\s*)(.*)$/;
+
+/** A .env text with every value replaced: names, comments and blank lines stay, so the agent still sees what is configured. */
+export function maskEnvText(text: string): string {
+  return text.split('\n').map((line) => { const m = ENV_LINE.exec(line); return m && m[2]!.trim() ? `${m[1]}[masked]` : line; }).join('\n');
+}
+
+/** Every value in the secrets files under `root` (two levels deep, without node_modules and .git), for exact redaction. */
+function envValues(root: string): string[] {
+  const out: string[] = [];
+  const walk = (dir: string, depth: number) => {
+    let names: string[];
+    try { names = readdirSync(dir); } catch { return; }
+    for (const n of names) {
+      const p = join(dir, n);
+      if (isEnvFile(n)) {
+        try {
+          for (const line of readFileSync(p, 'utf8').split('\n')) {
+            const v = ENV_LINE.exec(line)?.[2]?.trim().replace(/^(['"])(.*)\1$/, '$2');
+            if (v) out.push(v);
+          }
+        } catch { /* unreadable: nothing to hide */ }
+      } else if (depth < 2 && n !== 'node_modules' && n !== '.git') {
+        try { if (statSync(p).isDirectory()) walk(p, depth + 1); } catch { /* skip */ }
+      }
+    }
+  };
+  walk(root, 0);
+  return out;
 }
 
 const isInside = (r: string, t: string): boolean => {
@@ -288,7 +333,13 @@ export function redactValues(text: string, values: readonly string[]): string {
 
 export function buildHostToolsServer(ctx: HostToolsCtx): McpSdkServerConfigWithInstance {
   const limits = clampExecLimits(ctx.limits);
-  const redact = ctx.redact ?? ((s: string) => s);
+  const envMode = ctx.envFiles ?? 'masked';
+  // the secrets Legion holds, and (unless the owner allowed .env files) every value in this root's .env files
+  const redact = (s: string): string => {
+    const t = ctx.redact ? ctx.redact(s) : s;
+    return envMode === 'allow' ? t : redactValues(t, envValues(ctx.rootDir));
+  };
+  const envRefusal = (what: string): Error => new Error(`This agent's setting for .env files is "${envMode}": it may not ${what} them. Change it in the agent's Shell settings, or do it yourself.`);
   // redacted on the way out, errors included; output and file text are redacted BEFORE the spill too, so the full
   // copy on disk (which read_file can bring back) never holds a secret either
   const run = async (fn: () => Promise<string>): Promise<ToolResult> => {
@@ -304,6 +355,7 @@ export function buildHostToolsServer(ctx: HostToolsCtx): McpSdkServerConfigWithI
       timeoutSeconds: z.number().positive().max(3600).optional().describe(`Kill the command after this many seconds (default ${limits.timeoutSeconds})`),
     },
     (a) => run(async () => {
+      if (envMode === 'block' && mentionsEnvFile(a.command)) throw envRefusal('name');
       const bad = refuseCatastrophic(a.command);
       if (bad) throw new Error(bad);
       const cwd = a.cwd === undefined ? ctx.rootDir : resolveWithin(ctx.rootDir, a.cwd);
@@ -317,7 +369,13 @@ export function buildHostToolsServer(ctx: HostToolsCtx): McpSdkServerConfigWithI
     'read_file',
     'Read a UTF-8 text file on this machine (within the allowed root). A long file is returned in a window with a pointer to the full text, so nothing is lost.',
     { path: z.string().describe('File path (must stay inside the allowed root)') },
-    (a) => run(async () => windowOrSpill(redact(await readFile(resolveWithin(ctx.rootDir, a.path), 'utf8')), ctx.rootDir, ctx.taskId, limits.maxOutputChars)),
+    (a) => run(async () => {
+      const p = resolveWithin(ctx.rootDir, a.path);
+      const env = isEnvFile(p);
+      if (env && envMode === 'block') throw envRefusal('read');
+      const text = await readFile(p, 'utf8');
+      return windowOrSpill(redact(env && envMode === 'masked' ? maskEnvText(text) : text), ctx.rootDir, ctx.taskId, limits.maxOutputChars);
+    }),
   );
 
   const writeFileTool = tool(
@@ -330,6 +388,7 @@ export function buildHostToolsServer(ctx: HostToolsCtx): McpSdkServerConfigWithI
     (a) => run(async () => {
       if (a.content.length > limits.maxWriteChars) throw new Error(`Content is too large (${a.content.length} > ${limits.maxWriteChars} chars)`);
       const p = resolveWithin(ctx.rootDir, a.path);
+      if (isEnvFile(p) && envMode !== 'allow') throw envRefusal('write');
       await mkdir(dirname(p), { recursive: true });
       await writeFile(p, a.content, 'utf8');
       return `Wrote ${a.content.length} chars to ${p}`;

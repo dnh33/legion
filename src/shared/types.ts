@@ -94,6 +94,8 @@ export interface AgentHostSettings {
   rootDir?: string;
   /** Default command timeout in seconds (default 120). */
   timeoutSeconds?: number;
+  /** .env files in the scope: 'allow' as written, 'masked' (the default when absent: names shown, values hidden everywhere, no writes) or 'block' (no read, write or command naming one). */
+  envFiles?: 'allow' | 'masked' | 'block';
 }
 
 export interface AgentProfile {
