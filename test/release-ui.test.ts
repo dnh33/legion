@@ -110,8 +110,8 @@ test('approval card: Remember is offered on an ordinary card, never on a rail ca
   assert.match(r.card(req('Bash', { command: 'git status -s' })), /Remember…/);
   assert.doesNotMatch(r.card(req('mcp__legion_blender__blender_exec', { code: 'x' })), /Remember…/, 'a Blender script is never remembered');
   const choices = r.remember(req('Bash', { command: 'git status -s' }));
-  assert.match(choices, /Always allow: Builder may run `git status` or `git status \*`/);
-  assert.match(choices, /Always block: Builder may never run `git status` or `git status \*`/);
+  assert.match(choices, /Always allow: Builder may run `git status` with any arguments/);
+  assert.match(choices, /Always block: Builder may never run `git status` with any arguments/);
   assert.match(choices, /An allow never applies to a run another bot or Claude Code started/);
   const wildcard = r.remember(req('Bash', { command: 'python *.py' }));
   assert.doesNotMatch(wildcard, /Always allow/, 'no allow for a runner with a wildcard');
