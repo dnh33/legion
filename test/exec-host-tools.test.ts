@@ -181,3 +181,27 @@ test('the guard stays fast on a huge command with an unclosed quote (it runs on 
     assert.ok(Date.now() - t < 500, `200 KB with an open ${q} took ${Date.now() - t} ms`);
   }
 });
+
+test('a link inside the root that points outside it is refused: read, write and shell cwd all check the real path', async () => {
+  const { symlinkSync, writeFileSync: wf, existsSync } = await import('node:fs');
+  const root = mkdtempSync(join(tmpdir(), 'legion-root-'));
+  const outside = mkdtempSync(join(tmpdir(), 'legion-outside-'));
+  wf(join(outside, 'secret.txt'), 'outside the scope');
+  symlinkSync(outside, join(root, 'link'), 'junction');
+  const srv = buildHostToolsServer({ agentId: 'a', taskId: 't', rootDir: root, backend: new DirectHostBackend() });
+  const call = async (name: string, args: Record<string, unknown>) => {
+    const out = await (srv as any).instance._registeredTools[name].handler(args, {});
+    return { text: out.content.map((c: any) => c.text).join('\n'), isError: out.isError === true };
+  };
+  const read = await call('read_file', { path: 'link/secret.txt' });
+  assert.equal(read.isError, true, read.text);
+  assert.doesNotMatch(read.text, /outside the scope/);
+  const write = await call('write_file', { path: 'link/new.txt', content: 'x' });
+  assert.equal(write.isError, true, write.text);
+  assert.equal(existsSync(join(outside, 'new.txt')), false, 'nothing was written outside the root');
+  const sh = await call('shell', { command: 'echo hi', cwd: 'link' });
+  assert.equal(sh.isError, true, sh.text);
+  // a normal folder inside the root still works
+  const ok = await call('write_file', { path: 'sub/dir/file.txt', content: 'in scope' });
+  assert.equal(ok.isError, false, ok.text);
+});

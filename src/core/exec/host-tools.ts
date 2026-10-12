@@ -7,6 +7,7 @@
  */
 import { createSdkMcpServer, tool } from '@anthropic-ai/claude-agent-sdk';
 import type { McpSdkServerConfigWithInstance } from '@anthropic-ai/claude-agent-sdk';
+import { realpathSync } from 'node:fs';
 import { mkdir, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { dirname, join, resolve, sep } from 'node:path';
 import { z } from 'zod';
@@ -32,12 +33,37 @@ export interface HostToolsCtx {
   redact?: (text: string) => string;
 }
 
-/** Resolve `target` against `root`, and refuse anything that escapes it (lexical resolution, no symlink chase). */
+const isInside = (r: string, t: string): boolean => {
+  // Windows paths compare without case (C:\Work and c:\work are one folder)
+  const [a, b] = process.platform === 'win32' ? [r.toLowerCase(), t.toLowerCase()] : [r, t];
+  return b === a || b.startsWith(a.endsWith(sep) ? a : a + sep);
+};
+
+/** The real path of `p`, or of its nearest existing ancestor with the rest appended; undefined when nothing on the way exists. */
+function realOf(p: string): string | undefined {
+  let cur = p;
+  const rest: string[] = [];
+  for (;;) {
+    try { return join(realpathSync.native(cur), ...rest.reverse()); } catch { /* not there yet: try the parent */ }
+    const up = dirname(cur);
+    if (up === cur) return undefined;
+    rest.push(cur.slice(up.length).replace(/^[\\/]+/, ''));
+    cur = up;
+  }
+}
+
+/**
+ * Resolve `target` against `root`, and refuse anything that escapes it: first by the path as written (`..`, another
+ * drive, UNC), then by the REAL path, so a symlink or junction inside the root that points outside it is refused too.
+ * The real check uses the nearest existing ancestor, so a file about to be created under a link is caught as well.
+ */
 export function resolveWithin(root: string, target: string): string {
   const r = resolve(root);
   const t = resolve(r, target);
-  const inside = t === r || t.startsWith(r.endsWith(sep) ? r : r + sep);
-  if (!inside) throw new Error(`Path "${target}" is outside the allowed root`);
+  if (!isInside(r, t)) throw new Error(`Path "${target}" is outside the allowed root`);
+  const realRoot = realOf(r);
+  const realTarget = realOf(t);
+  if (realRoot && realTarget && !isInside(realRoot, realTarget)) throw new Error(`Path "${target}" leads outside the allowed root through a link`);
   return t;
 }
 
