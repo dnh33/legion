@@ -116,22 +116,28 @@ export function splitCommand(cmd: string): string[] {
 }
 
 /**
- * The subcommands an ALLOW is judged on: split only where the shell splits, outside quotes ('…' is literal, "…"
- * honours \ escapes), so `echo "a; b"` is one command. Undefined — and no allow can hold — when the line runs code
- * inside an argument (`$(…)`, backticks, `<(…)`, `>(…)` outside single quotes) or a quote is left open: what the
- * shell would run there is not what the rule was written for. Deny and ask keep `splitCommand`'s wider reading.
+ * The subcommands an ALLOW is judged on. The same line can run in bash (the Bash tool) or in cmd.exe (the agent shell
+ * on Windows), and those two read quotes differently, so only what BOTH read as data is kept together: a double-quoted
+ * text with no `\`, `$` or backtick in it (`echo "a; b"` is one command). Single quotes and backslashes are ordinary
+ * characters here (cmd quotes with neither), so a separator next to them splits — the safe direction for an allow.
+ * Undefined — no allow can hold — when the line runs code inside an argument (`$(…)`, backticks, `<(…)`, `>(…)`),
+ * uses bash's `$'…'` quoting, or leaves a double quote open, or a double-quoted text holds `\`, `$` or a backtick.
+ * Deny and ask keep `splitCommand`'s wider reading.
  */
 export function allowSubcommands(cmd: string): string[] | undefined {
+  if (/`|[$<>]\(|\$'/.test(cmd)) return undefined;
   const subs: string[] = [];
   let cur = '';
-  let q: '"' | "'" | null = null;
+  let quoted = false;
   for (let i = 0; i < cmd.length; i++) {
     const c = cmd[i]!;
-    if (q === "'") { cur += c; if (c === "'") q = null; continue; }
-    if (c === '\\' && i + 1 < cmd.length) { cur += c + cmd[++i]; continue; }
-    if (c === '`' || ((c === '$' || c === '<' || c === '>') && cmd[i + 1] === '(')) return undefined;
-    if (q === '"') { cur += c; if (c === '"') q = null; continue; }
-    if (c === '"' || c === "'") { q = c; cur += c; continue; }
+    if (quoted) {
+      if (c === '\\' || c === '$') return undefined;
+      cur += c;
+      if (c === '"') quoted = false;
+      continue;
+    }
+    if (c === '"') { quoted = true; cur += c; continue; }
     const two = cmd.slice(i, i + 2);
     // `2>&1`, `>&2` and `&>` are redirects, not the background separator
     const redirectAmp = c === '&' && (cur.endsWith('>') || cur.endsWith('<') || cmd[i + 1] === '>');
@@ -139,7 +145,7 @@ export function allowSubcommands(cmd: string): string[] | undefined {
     if (!redirectAmp && ';|&\n\r'.includes(c)) { subs.push(cur); cur = ''; continue; }
     cur += c;
   }
-  if (q) return undefined;
+  if (quoted) return undefined;
   subs.push(cur);
   return subs.map((s) => stripRedirects(s).trim()).filter(Boolean);
 }
