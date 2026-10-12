@@ -9,6 +9,7 @@ import { createSdkMcpServer, tool } from '@anthropic-ai/claude-agent-sdk';
 import type { McpSdkServerConfigWithInstance } from '@anthropic-ai/claude-agent-sdk';
 import { readdirSync, readFileSync, realpathSync, statSync } from 'node:fs';
 import { mkdir, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import { dirname, join, resolve, sep } from 'node:path';
 import { z } from 'zod';
 import type { ExecutionBackend } from './types.js';
@@ -138,6 +139,19 @@ function scanEnvValues(root: string): string[] {
   return out;
 }
 
+/**
+ * On Windows the agent shell's own tools print paths the Git Bash way (`pwd` gives `/d/work/site`, or `/tmp/x` for the
+ * temp folder). Those name the same files as `D:\work\site` and `%TEMP%\x`, so the file tools read them that way rather
+ * than as a folder `\d\work` on the current drive. Elsewhere a path is taken as written.
+ */
+export function nativePath(p: string): string {
+  if (process.platform !== 'win32') return p;
+  const drive = /^\/([a-zA-Z])(\/.*)?$/.exec(p);
+  if (drive) return `${drive[1]!.toUpperCase()}:${drive[2] ?? '/'}`;
+  if (p === '/tmp' || p.startsWith('/tmp/')) return join(tmpdir(), p.slice(4));
+  return p;
+}
+
 const isInside = (r: string, t: string): boolean => {
   // Windows paths compare without case (C:\Work and c:\work are one folder)
   const [a, b] = process.platform === 'win32' ? [r.toLowerCase(), t.toLowerCase()] : [r, t];
@@ -164,7 +178,7 @@ function realOf(p: string): string | undefined {
  */
 export function resolveWithin(root: string, target: string): string {
   const r = resolve(root);
-  const t = resolve(r, target);
+  const t = resolve(r, nativePath(target));
   if (!isInside(r, t)) throw new Error(`Path "${target}" is outside the allowed root`);
   const realRoot = realOf(r);
   const realTarget = realOf(t);
