@@ -14,10 +14,10 @@ All notable changes are recorded here. The format follows [Keep a Changelog](htt
   folders, removing restore points) for every agent, full access included. Long output is kept in full in a file, never
   cut. No secret Legion holds (its own token, your Claude, boat and provider keys) reaches the model from a tool's
   output, and a link inside the scope folder that points outside it is refused.
-- **.env files have their own switch.** Per agent: masked (the default — the names show, the values are hidden from
+- **.env files have their own switch.** Per agent: masked (the default: the names show, the values are hidden from
   everything the agent sees, and it cannot write the file), blocked, or allowed.
-- **Gates: decide where approvals apply.** Settings, Gates holds rules in plain sentences — "Builder may run `git
-  status*`", "No agent may ever run `rm -rf *`" — with a builder, a dry-run tester and suggested rules. Block rules
+- **Gates: decide where approvals apply.** Settings, Gates holds rules in plain sentences ("Builder may run `git
+  status`", "No agent may ever run `rm -rf *`"), with a builder, a dry-run tester and suggested rules. Block rules
   apply even to Full access. An approval card now has **Remember…**: one click turns your answer into a rule for that
   agent and that command or folder.
 - **The Marshal works the board on its own.** With the Marshal on for a project, it picks the next item by the board's

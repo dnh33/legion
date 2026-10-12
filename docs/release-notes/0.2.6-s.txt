@@ -1,4 +1,4 @@
-Legion 0.2.6-s — agents that work on this computer, under your rules.
+Legion 0.2.6-s: agents that work on this computer, under your rules.
 
 - Agent shell: an agent you allow can run commands and edit files on this machine, inside a folder you choose. Every action goes through its approval mode and your Gates, and a hard guard refuses whole-machine damage for every agent, full access included. No key Legion holds reaches the model, and .env files are masked by default.
 - Gates: rules in plain sentences decide where approvals apply. On an approval card, Remember turns your answer into a rule in one click. Block rules hold even in Full access.
