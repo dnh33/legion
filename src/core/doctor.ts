@@ -61,10 +61,11 @@ export async function runDoctor(deps: { config: LegionConfig; getBoat: () => Boa
   const checks: DoctorCheck[] = [];
 
   checks.push(await safe('node', 'Node.js version', () => {
-    const major = Number(process.versions.node.split('.')[0]);
-    return major >= 20
+    // the floor of package.json engines.node (Electron and the build tools need 22.12)
+    const [major = 0, minor = 0] = process.versions.node.split('.').map(Number);
+    return major > 22 || (major === 22 && minor >= 12)
       ? { ok: true, detail: `v${process.versions.node}` }
-      : { ok: false, detail: `v${process.versions.node}`, fix: 'Install Node.js 20 or newer' };
+      : { ok: false, detail: `v${process.versions.node}`, fix: 'Install Node.js 22.12 or newer' };
   }));
 
   checks.push(await safe('config', 'Config file', () => {

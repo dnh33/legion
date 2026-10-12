@@ -20,6 +20,24 @@ test('the Node version truth: the script minimum equals package.json engines, an
   assert.doesNotMatch(read('scripts/setup.ps1'), /\[int\]\(\$ver\.Split/, 'the old major-only "20+" check is gone');
 });
 
+test('the Node floor covers the lockfile: engines.node is at least what Electron and the build tools need, and no message names a lower one', () => {
+  const ver = (s: string): number[] => s.split('.').map((n) => Number(n));
+  const atLeast = (a: number[], b: number[]): boolean => { for (let i = 0; i < 3; i++) { if ((a[i] ?? 0) !== (b[i] ?? 0)) return (a[i] ?? 0) > (b[i] ?? 0); } return true; };
+  const floor = ver(/^>=(\d+\.\d+)$/.exec((JSON.parse(read('package.json')) as { engines: { node: string } }).engines.node)![1]!);
+  const lock = JSON.parse(read('package-lock.json')) as { packages: Record<string, { engines?: { node?: string } }> };
+  // Electron states a single lower bound; the build tools' ranges ("^20.19.0 || >=22.12.0") are met by their >= branch on the Node 22+ line
+  for (const name of ['electron', 'vite', '@vitejs/plugin-react']) {
+    const range = lock.packages[`node_modules/${name}`]?.engines?.node ?? '';
+    const lows = [...range.matchAll(/>=\s*(\d+\.\d+\.\d+)/g)].map((m) => ver(m[1]!));
+    assert.ok(lows.length > 0, `${name} states a >= bound: ${range}`);
+    const need = lows.reduce((a, b) => (atLeast(a, b) ? a : b));
+    assert.ok(atLeast(floor, need), `engines.node ${floor.join('.')} is below ${name}'s ${need.join('.')} (${range})`);
+  }
+  for (const f of ['src/electron/resolve-node.ts', 'src/core/doctor.ts', 'scripts/setup.ps1', 'scripts/build-package.mjs', 'scripts/build-package.cmd']) {
+    assert.doesNotMatch(read(f), /\b20\.10\b|Node\.js 20 or newer|major >= 20\b/, `${f} still names the old Node 20.10 floor`);
+  }
+});
+
 test('every URL in the setup scripts names only nodejs.org (the Node download) or, for the prebuilt package, github.com in the package files only; the test loopback is the only other host', () => {
   const allowed = new Set(['nodejs.org', '127.0.0.1', 'github.com']);
   const seen = new Map<string, string[]>();

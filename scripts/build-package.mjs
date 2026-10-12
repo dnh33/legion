@@ -125,7 +125,7 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
   if (!a.foreign && !(process.platform === 'win32' && process.arch === 'x64')) die('this builds the Windows x64 package: run it on Windows x64 (the Windows Electron and claude.exe come from the dependency install).');
   if (resolve(a.out) === REPO || resolve(a.out).startsWith(REPO + (process.platform === 'win32' ? '\\' : '/'))) die('--out must be outside the repository (the output would dirty the tree and could end up in the package)');
   const nodeVer = process.versions.node.split('.').map(Number);
-  if (nodeVer[0] < 20 || (nodeVer[0] === 20 && nodeVer[1] < 10)) die('Node 20.10 or newer is needed to build');
+  if (nodeVer[0] < 22 || (nodeVer[0] === 22 && nodeVer[1] < 12)) die('Node 22.12 or newer is needed to build');
   const dirty = a.foreign ? false : git(['status', '--porcelain']) !== '';
   if (dirty && !a['allow-dirty']) die('the git tree has uncommitted changes (use --allow-dirty to build anyway; it is recorded in build-info.json)');
   const commit = a.commit ?? (git(['rev-parse', 'HEAD']) || 'unknown');
