@@ -1,0 +1,43 @@
+/* Settings -> Gates: sentence cards, chips, the builder, the tester and the locked rails. */
+
+.gate-head-note { padding: 10px 12px; border: 1px solid var(--line-strong); border-radius: var(--r); background: var(--surface-2); font-size: 12.5px; line-height: 1.45; color: var(--text-2); margin-bottom: 10px; }
+.gate-head-note b { color: var(--text); }
+
+.gate-list { list-style: none; display: flex; flex-direction: column; gap: 8px; margin: 0 0 10px; padding: 0; }
+.gate-card { border: 1px solid var(--line); border-radius: var(--r); padding: 10px 12px; background: var(--surface); }
+.gate-card.off { opacity: .6; }
+.gate-card.editing { padding: 0; border: 0; background: transparent; }
+.gate-card-head { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+.gate-sentence { font-size: 13px; line-height: 1.45; }
+.gate-card-meta { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 6px; }
+.gate-card-actions { display: inline-flex; align-items: center; gap: 8px; margin-left: auto; }
+.gate-toggle { display: inline-flex; align-items: center; gap: 4px; }
+
+.gate-then { flex: none; font-size: 11px; font-weight: 650; padding: 2px 7px; border-radius: 999px; border: 1px solid var(--line-strong); white-space: nowrap; }
+.gate-then.allow { color: var(--accent-text); border-color: var(--accent-text); }
+.gate-then.ask { color: var(--text-2); }
+.gate-then.deny { color: var(--danger); border-color: var(--danger); }
+
+.gate-chips { display: flex; flex-direction: column; gap: 6px; margin-top: 6px; }
+.gate-chip-row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.gate-chip { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; padding: 3px 9px; border: 1px solid var(--line-strong); border-radius: 999px; color: var(--text-2); background: var(--surface-2); }
+.gate-chip.on { color: var(--text); border-color: var(--accent-text); box-shadow: inset 0 0 0 1px var(--accent-text); }
+.gate-chip button { display: inline-flex; border: 0; background: transparent; color: var(--muted); cursor: pointer; padding: 0; }
+.gate-chip input { border: 0; background: transparent; color: var(--text); font-size: 12px; width: 110px; outline: none; }
+button.gate-chip { cursor: pointer; }
+button.gate-chip:hover { color: var(--text); }
+
+.gate-builder { margin-top: 10px; }
+.gate-preview { font-size: 13px; font-weight: 600; line-height: 1.45; padding: 8px 10px; border-left: 3px solid var(--accent-text); background: var(--surface-2); border-radius: var(--r-sm); margin: 0 0 4px; }
+
+.gate-tester h4, .gate-rails h4 { margin: 0 0 4px; display: flex; align-items: center; gap: 6px; }
+.gate-test-out { margin-top: 10px; padding: 8px 10px; border: 1px solid var(--line-strong); border-radius: var(--r); display: flex; flex-direction: column; gap: 4px; }
+.gate-test-out b { font-size: 12.5px; letter-spacing: .02em; }
+.gate-test-out.v-allow b { color: var(--accent-text); }
+.gate-test-out.v-ask b { color: var(--text); }
+.gate-test-out.v-deny b { color: var(--danger); }
+.gate-test-out.v-baseline b { color: var(--muted); }
+.gate-test-out ul { list-style: none; margin: 2px 0 0; padding: 0; display: flex; flex-direction: column; gap: 4px; font-size: 12.5px; line-height: 1.4; }
+
+.gate-rails ul { list-style: none; margin: 8px 0 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.gate-rails li { display: flex; flex-direction: column; gap: 2px; font-size: 12.5px; line-height: 1.4; padding-left: 10px; border-left: 3px solid var(--line-strong); }
