@@ -41,6 +41,8 @@ export interface Rig {
   cards(): Promise<any[]>;
   approve(id: string, o?: { hash?: string; confirmations?: string[] }): Promise<{ status: number; body: any }>;
   settle(): Promise<void>;
+  /** Waits until the fake wallet is holding its grant question (the build has reached the wallet; the tool answers first). */
+  walletQuestion(): Promise<void>;
   setup(o: { allow?: Record<string, string[]>; mainnet?: boolean; arm?: boolean; connect?: boolean }): Promise<void>;
   audit(): any[];
   usage(): any;
@@ -99,6 +101,7 @@ export async function rig(M: Mods, o: { wallet?: Partial<FakeBehaviour>; w?: Fak
       return r.route('POST', '/api/bsv/spend/:id/decision', { params: [id], body: { decision: 'approve', cardHash: a.hash ?? card?.hash, confirmations: a.confirmations ?? card?.requiredConfirmations ?? [] } });
     },
     async settle() { await bsv.spend?.settled?.(); for (let i = 0; i < 6; i++) await new Promise((x) => setTimeout(x, 15)); },
+    async walletQuestion() { await until('the wallet asks its owner about a build', () => w.heldGrants() > 0); },
     async setup(s) {
       if (s.connect !== false) assert.equal((await r.route('POST', '/api/bsv/wallet/connect', { body: { url: w.url } })).status, 200);
       for (const [net, list] of Object.entries(s.allow ?? {})) assert.equal((await r.route('POST', '/api/bsv/policy/allowlist', { body: { net, list } })).status, 200, `allowlist ${net}`);
@@ -108,8 +111,14 @@ export async function rig(M: Mods, o: { wallet?: Partial<FakeBehaviour>; w?: Fak
     audit: () => readFileSync(join(dataDir, 'bsv', 'audit.jsonl'), 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l)),
     usage: () => bsv.policy.snapshot().nets,
     async restart() { await r.settle(); for (const c of clients) await c.close().catch(() => undefined); return rig(M, { w, dataDir, clock, ownWallet }); },
-    // a grant prompt the fake still holds would keep its createAction (and so settle()) open for the 15-minute cap: answer it first
-    async close() { while (w.heldGrants() > 0) w.answerGrant('deny'); await r.settle(); for (const c of clients) await c.close().catch(() => undefined); bsv.dispose?.(); if (ownWallet) await w.stop(); },
+    // a grant question the fake holds keeps its createAction (and so settle()) open for the 15-minute createTimeoutMs: answer them all,
+    // including one that arrives while the background drains (a test can end before the build has reached the wallet)
+    async close() {
+      let stopping = false;
+      const answering = (async () => { for (;;) { while (w.heldGrants() > 0) w.answerGrant('deny'); if (stopping) return; await new Promise((x) => setTimeout(x, 5)); } })();
+      try { await r.settle(); } finally { stopping = true; await answering; }
+      for (const c of clients) await c.close().catch(() => undefined); bsv.dispose?.(); if (ownWallet) await w.stop();
+    },
   };
   return r;
 }
@@ -715,7 +724,7 @@ S('build-waits-for-a-wallet-that-asks-first', async (M) => {
     await r.setup({ allow: { test: [TEST_A] } });
     const first = await r.askOnce(args());
     assert.equal(first.status, 'pending-wallet', 'while the wallet asks the owner, the request waits for the wallet');
-    assert.equal(r.w.heldGrants(), 1); assert.deepEqual(await r.cards(), []); assert.equal(sign(r), 0);
+    await r.walletQuestion(); assert.equal(r.w.heldGrants(), 1); assert.deepEqual(await r.cards(), []); assert.equal(sign(r), 0);
     assert.equal(seen.length, 1);
     assert.equal(seen[0], M.spend.SPEND_LIMITS.createTimeoutMs);
     assert.ok(seen[0]! >= 10 * 60_000, `a wallet asking its owner is not timed out like a slow service (BRC-219); ${seen[0]} ms asked for`);
@@ -745,7 +754,7 @@ S('wallet-no-answer-is-its-own-code', async (M) => {
     const failed = lines(r, 'failed').filter((l) => l.fields?.requestId === first.requestId);
     assert.equal(failed.length, 1); assert.equal(failed[0].reason, 'wallet-no-answer');
     // the owner answers the wallet late: nothing in Legion changes; the wallet keeps its unsigned build (Legion never got a reference to abort)
-    r.w.answerGrant('once');
+    await r.walletQuestion(); r.w.answerGrant('once');
     await new Promise((x) => setTimeout(x, 50)); await r.settle();
     assert.equal(r.bsv.spend.statusOf(first.requestId).status, 'failed'); assert.equal(sign(r), 0);
     assert.equal(r.w.open.size, 1, 'documented residual: the wallet holds the late build until it releases it itself');
@@ -760,7 +769,7 @@ S('a-refused-grant-builds-nothing', async (M) => {
   try {
     await r.setup({ allow: { test: [TEST_A] } });
     const first = await r.askOnce(args());
-    r.w.answerGrant('deny');
+    await r.walletQuestion(); r.w.answerGrant('deny');
     await until('the end of the build', () => r.bsv.spend.statusOf(first.requestId)?.status === 'failed');
     assert.deepEqual(r.bsv.spend.statusOf(first.requestId).reasonCodes, ['build-failed']);
     assert.deepEqual(await r.cards(), []); assert.equal(sign(r), 0); assert.equal(r.w.open.size, 0);
@@ -772,7 +781,7 @@ S('freeze-while-the-wallet-asks', async (M) => {
   try {
     await r.setup({ allow: { test: [TEST_A] } });
     const first = await r.askOnce(args());
-    assert.equal(r.w.heldGrants(), 1);
+    await r.walletQuestion(); assert.equal(r.w.heldGrants(), 1);
     await r.route('POST', '/api/bsv/policy/freeze', { body: {} });
     // Freeze ends the wait on Legion's side at once, without waiting for the wallet
     assert.equal(r.bsv.spend.statusOf(first.requestId).status, 'declined');
@@ -790,7 +799,7 @@ S('cancel-while-the-wallet-asks', async (M) => {
   try {
     await r.setup({ allow: { test: [TEST_A] } });
     const first = await r.askOnce(args());
-    assert.equal(r.w.heldGrants(), 1);
+    await r.walletQuestion(); assert.equal(r.w.heldGrants(), 1);
     const d = await r.route('POST', '/api/bsv/spend/:id/decision', { params: [first.requestId], body: { decision: 'deny' } });
     assert.equal(d.status, 200); assert.equal(d.body.status, 'declined');
     assert.deepEqual(r.bsv.spend.statusOf(first.requestId).reasonCodes, ['declined-by-owner']);
@@ -802,7 +811,7 @@ S('cancel-while-the-wallet-asks', async (M) => {
     assert.equal(a.status, 409);
     r.w.answerGrant('once'); // the owner answers the first, cancelled request in the wallet
     await until('the cancelled build is released', () => r.w.aborted.length === 1);
-    r.w.answerGrant('once');
+    await r.walletQuestion(); r.w.answerGrant('once');
     await until('the second card', () => r.bsv.spend.statusOf(second.requestId)?.status === 'pending-owner');
     assert.equal(sign(r), 0); assert.equal((await r.cards()).length, 1);
   } finally { await r.close(); }
@@ -813,6 +822,7 @@ S('disconnect-while-the-wallet-asks', async (M) => {
   try {
     await r.setup({ allow: { test: [TEST_A] } });
     const first = await r.askOnce(args());
+    await r.walletQuestion(); // the wallet is asking before the owner disconnects
     await r.route('POST', '/api/bsv/wallet/disconnect', { body: {} });
     assert.equal(r.bsv.spend.statusOf(first.requestId).status, 'declined');
     assert.deepEqual(r.bsv.spend.statusOf(first.requestId).reasonCodes, ['not-connected']);
@@ -843,7 +853,7 @@ S('bsv-off-ends-a-wait-and-a-card', async (M) => {
   try {
     await r.setup({ allow: { test: [TEST_A] } });
     const first = await r.askOnce(args());
-    assert.equal(r.w.heldGrants(), 1);
+    await r.walletQuestion(); assert.equal(r.w.heldGrants(), 1);
     assert.equal((await r.route('POST', '/api/bsv', { body: { enabled: false } })).status, 200);
     assert.equal(r.bsv.spend.statusOf(first.requestId).status, 'declined');
     assert.deepEqual(r.bsv.spend.statusOf(first.requestId).reasonCodes, ['bsv-off']);
@@ -870,7 +880,7 @@ S('a-late-build-is-released-and-asked-again', async (M) => {
   try {
     await r.setup({ allow: { test: [TEST_A] } });
     const first = await r.askOnce(args());
-    assert.equal(r.w.heldGrants(), 1);
+    await r.walletQuestion(); assert.equal(r.w.heldGrants(), 1);
     r.clock.advance(3 * 60_000); // the owner takes three minutes over the wallet's grant prompt
     r.w.answerGrant(5_000);
     await until('the end of the build', () => r.bsv.spend.statusOf(first.requestId)?.status === 'failed');
