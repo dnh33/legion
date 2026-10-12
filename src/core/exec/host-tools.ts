@@ -28,6 +28,8 @@ export interface HostToolsCtx {
   backend: ExecutionBackend;
   /** Tunable limits (timeout, output window, write cap). Clamped to defaults when omitted. */
   limits?: ExecLimits;
+  /** Takes every secret Legion holds out of text before the model sees it (output, file text, spills, errors). Omitted: text is returned as is. */
+  redact?: (text: string) => string;
 }
 
 /** Resolve `target` against `root`, and refuse anything that escapes it (lexical resolution, no symlink chase). */
@@ -245,10 +247,26 @@ export async function windowOrSpill(text: string, rootDir: string, taskId: strin
   return `${tail(text, max)}\n[Legion kept the last ${max} of ${text.length} characters here; the full output is in ${file}]`;
 }
 
+/**
+ * Takes the exact secret values out of a text (longest first, so a value that contains another goes whole). Exact
+ * values only, never credential SHAPES: the shell reads and rewrites project files, and a shape rule would turn a
+ * fixture's `token: '…'` or a checksum into a placeholder that a read-then-write puts back into the code.
+ */
+export function redactValues(text: string, values: readonly string[]): string {
+  let out = text;
+  for (const v of [...new Set(values)].filter((x) => typeof x === 'string' && x.length >= 8).sort((a, b) => b.length - a.length)) {
+    if (out.includes(v)) out = out.split(v).join('[redacted-secret]');
+  }
+  return out;
+}
+
 export function buildHostToolsServer(ctx: HostToolsCtx): McpSdkServerConfigWithInstance {
   const limits = clampExecLimits(ctx.limits);
+  const redact = ctx.redact ?? ((s: string) => s);
+  // redacted on the way out, errors included; output and file text are redacted BEFORE the spill too, so the full
+  // copy on disk (which read_file can bring back) never holds a secret either
   const run = async (fn: () => Promise<string>): Promise<ToolResult> => {
-    try { return ok(await fn()); } catch (e) { return fail(e); }
+    try { return ok(redact(await fn())); } catch (e) { return fail(new Error(redact(e instanceof Error ? e.message : String(e)))); }
   };
 
   const shell = tool(
@@ -264,7 +282,7 @@ export function buildHostToolsServer(ctx: HostToolsCtx): McpSdkServerConfigWithI
       if (bad) throw new Error(bad);
       const cwd = a.cwd === undefined ? ctx.rootDir : resolveWithin(ctx.rootDir, a.cwd);
       const r = await ctx.backend.execute({ cmd: a.command, cwd, timeoutMs: (a.timeoutSeconds ?? limits.timeoutSeconds) * 1000 });
-      const body = await windowOrSpill(r.output, ctx.rootDir, ctx.taskId, limits.maxOutputChars);
+      const body = await windowOrSpill(redact(r.output), ctx.rootDir, ctx.taskId, limits.maxOutputChars);
       return `exit code: ${r.exit_code}${r.timedOut ? ' (timed out)' : ''}\n${body}`;
     }),
   );
@@ -273,7 +291,7 @@ export function buildHostToolsServer(ctx: HostToolsCtx): McpSdkServerConfigWithI
     'read_file',
     'Read a UTF-8 text file on this machine (within the allowed root). A long file is returned in a window with a pointer to the full text, so nothing is lost.',
     { path: z.string().describe('File path (must stay inside the allowed root)') },
-    (a) => run(async () => windowOrSpill(await readFile(resolveWithin(ctx.rootDir, a.path), 'utf8'), ctx.rootDir, ctx.taskId, limits.maxOutputChars)),
+    (a) => run(async () => windowOrSpill(redact(await readFile(resolveWithin(ctx.rootDir, a.path), 'utf8')), ctx.rootDir, ctx.taskId, limits.maxOutputChars)),
   );
 
   const writeFileTool = tool(

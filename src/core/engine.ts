@@ -8,6 +8,7 @@ import type {
 } from '../shared/types.js';
 import { newId, nowIso, titleFrom } from '../shared/util.js';
 import { gatesFor, scrubHostSessionEnv } from '../shared/config.js';
+import { liveSecrets } from './kg/index.js';
 import { BUDGET_LIMIT_PREFIX, CONTINUE_PROMPT, TURN_LIMIT_PREFIX, budgetCap, formatUsdLimit } from '../shared/continue.js';
 import { clampBudget } from './brief.js';
 import { InputChannel } from './input-channel.js';
@@ -22,7 +23,7 @@ import { nativeTaskListOn } from '../shared/task-list-setting.js';
 
 /** Claude Code's own task tools, opted in or out per agent (nativeTaskListOn). */
 const NATIVE_TASK_TOOLS = ['TaskCreate', 'TaskUpdate', 'TaskList', 'TaskGet'] as const;
-import { buildHostToolsServer } from './exec/host-tools.js';
+import { buildHostToolsServer, redactValues } from './exec/host-tools.js';
 import { DirectHostBackend } from './exec/direct-host.js';
 import { clampExecLimits } from './exec/limits.js';
 import { CONTINUE_REFUSED } from './connector-withhold.js';
@@ -910,6 +911,8 @@ export class Engine {
         agentId: agent.id, taskId,
         rootDir: this.hostRootOf(agent),
         backend: new DirectHostBackend({ limits: clampExecLimits({ timeoutSeconds: agent.host.timeoutSeconds }), env: buildHostShellEnv(this.config) }),
+        // the shell can read Legion's own files (config.json, provider keys): every secret Legion holds is taken out of what comes back
+        redact: (text) => redactValues(text, [...liveSecrets(this.config), ...(this.providers?.secretValues() ?? [])]),
       });
     }
     const moduleJob: ModuleJob = {

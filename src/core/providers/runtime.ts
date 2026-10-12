@@ -105,6 +105,9 @@ export class ProviderRuntime {
     });
   }
 
+  /** The provider keys Legion holds, as exact values (the agent shell redacts them from what it returns). */
+  secretValues(): string[] { return this.deps.keys.all(); }
+
   /** Strips the keys Legion holds and any key-shaped text from a string before it is stored or shown. */
   redact(s: string): string { return scrubSecrets(s, { exact: this.deps.keys.all() }); }
 
