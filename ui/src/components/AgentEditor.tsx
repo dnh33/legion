@@ -21,6 +21,9 @@ export function AgentEditor({ id, focus }: { id: string | null; focus?: 'skills'
   const [size, setSize] = useState<VmSize>(existing?.vm.size ?? 'default');
   const [idle, setIdle] = useState(existing?.vm.idleStopMinutes ?? 15);
   const [github, setGithub] = useState(existing?.connectors?.includes('github') ?? false);
+  const [hostOn, setHostOn] = useState(existing?.host?.enabled ?? false);
+  const [hostRoot, setHostRoot] = useState(existing?.host?.rootDir ?? '');
+  const [hostTimeout, setHostTimeout] = useState(existing?.host?.timeoutSeconds === undefined ? '' : String(existing.host.timeoutSeconds));
   const [skills, setSkills] = useState(() => valueOf(existing?.skills));
   const skillsTooMany = skills.mode === 'choose' && skills.ids.length > MAX_AGENT_SKILLS;
   // Leaving (Esc, the X, a click outside, or "Open in the Armory") must not throw away a Skills choice that was not saved without asking.
@@ -28,7 +31,7 @@ export function AgentEditor({ id, focus }: { id: string | null; focus?: 'skills'
   const nowSkills = settingOf(skills);
   const skillsDirty = JSON.stringify(Array.isArray(nowSkills) ? [...nowSkills].sort() : nowSkills) !== JSON.stringify(Array.isArray(startSkills.current) ? [...startSkills.current].sort() : startSkills.current);
   // Every field counts, not only Skills: the first values are kept, and anything that differs from them asks before it is thrown away.
-  const fields = JSON.stringify([name, emoji, description, systemPrompt, model, approval, vmOn, size, idle, github]);
+  const fields = JSON.stringify([name, emoji, description, systemPrompt, model, approval, vmOn, size, idle, github, hostOn, hostRoot, hostTimeout]);
   const startFields = useRef(fields);
   const dirty = skillsDirty || fields !== startFields.current;
   const [leaving, setLeaving] = useState<null | { to: 'close' } | { to: 'armory'; skill: string }>(null);
@@ -68,9 +71,15 @@ export function AgentEditor({ id, focus }: { id: string | null; focus?: 'skills'
   const submit = async () => {
     if (!name.trim() || busy || skillsTooMany) return;
     setBusy(true);
+    // The timeout field holds what the owner typed; round and clamp it the same range the server enforces (1..3600).
+    const secs = hostTimeout.trim() === '' ? undefined : Math.min(3600, Math.max(1, Math.round(Number(hostTimeout.trim())) || 120));
     const body: Partial<AgentProfile> & { name: string } = {
       name: name.trim(), emoji: emoji.trim() || '●', description: description.trim(), systemPrompt, model, approval, connectors: github ? ['github'] : [], skills: settingOf(skills),
       vm: { enabled: vmOn, size, idleStopMinutes: Math.max(1, Math.round(idle) || 15) },
+      // Absent host = off; a present host always says so explicitly (server.ts parseHost requires `enabled`).
+      host: hostOn
+        ? { enabled: true, ...(hostRoot.trim() ? { rootDir: hostRoot.trim() } : {}), ...(secs !== undefined ? { timeoutSeconds: secs } : {}) }
+        : { enabled: false },
     };
     await saveAgent(id, body);
     setBusy(false);
@@ -125,6 +134,15 @@ export function AgentEditor({ id, focus }: { id: string | null; focus?: 'skills'
           <label className="check-row"><input type="checkbox" checked={github} onChange={(e) => setGithub(e.target.checked)} /> Let this agent read GitHub (repositories, issues, pull requests, CI)</label>
           <span className="field-note">Read only. Connect GitHub first in Settings, GitHub. A run started from Claude Code or another MCP client never gets connectors.</span>
           {connectorsShellWarning({ connectors: github, approval, onProvider, vmOn }) && <p className="field-note" role="alert"><b>Warning.</b> {connectorsShellWarning({ connectors: github, approval, onProvider, vmOn })}</p>}
+        </fieldset>
+        <fieldset>
+          <legend>Shell (this computer)</legend>
+          <label className="check-row"><input type="checkbox" checked={hostOn} onChange={(e) => setHostOn(e.target.checked)} /> Let this agent run commands and read/write files on this computer</label>
+          <span className="field-note">Off by default. When on, the agent gets its own shell inside the scope root below. Its approval mode still decides whether each call asks you, and Gates (Settings, Gates) refine when it asks. This switch decides whether the agent gets the tools at all.</span>
+          <div className="row" style={{ opacity: hostOn ? 1 : 0.5 }}>
+            <label className="grow">Scope root<input disabled={!hostOn} value={hostRoot} onChange={(e) => setHostRoot(e.target.value)} placeholder="Leave empty for this agent’s own workspace folder" spellCheck={false} /></label>
+            <label className="grow">Command timeout (s)<input disabled={!hostOn} type="number" min={1} max={3600} value={hostTimeout} placeholder="120" onChange={(e) => setHostTimeout(e.target.value.replace(/[^\d]/g, ''))} /><span className="field-note">A command killed after this many seconds. 1 to 3600; 120 by default.</span></label>
+          </div>
         </fieldset>
         <fieldset>
           <legend>Computer (boat.dev VM)</legend>
