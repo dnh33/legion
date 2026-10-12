@@ -33,6 +33,10 @@ test('gateSentence reads as a sentence for every class and scope', () => {
   assert.equal(gateSentence({ agents: ['zealot'], commands: ['git *'] }, 'ask', nameOf), 'Z Zealot needs your OK before running `git *`');
   assert.equal(gateSentence({ tools: ['edits'] }, 'ask', nameOf), 'Every agent needs your OK before using file edits');
   assert.equal(gateSentence({ paths: ['src/**'] }, 'deny', nameOf), 'Every agent may never change files matching `src/**`');
+  // the pair Remember makes (`X` and `X *`) reads once: both forms are allowed, so neither alone is the truth
+  assert.equal(gateSentence({ agents: ['zealot'], commands: ['git status', 'git status *'] }, 'allow', nameOf), 'Z Zealot may run `git status` with any arguments');
+  assert.equal(gateSentence({ agents: ['zealot'], commands: ['pwd', 'pwd *', 'ls', 'ls *'] }, 'ask', nameOf), 'Z Zealot needs your OK before running `pwd` with any arguments or `ls` with any arguments');
+  assert.equal(gateSentence({ commands: ['git push *'] }, 'deny', nameOf), 'Every agent may never run `git push *`', 'a lone `X *` stays as written');
   assert.equal(gateSentence({ agents: ['zealot'], commands: ['npm run *'], projects: ['website'], contexts: ['capped'] }, 'ask', nameOf),
     'Z Zealot needs your OK before running `npm run *` \u00b7 in website \u00b7 only when started by claude code or another bot');
 });

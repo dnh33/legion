@@ -52,6 +52,17 @@ export function toggleIn(list: readonly string[], x: string): string[] {
 
 const joinOr = (xs: readonly string[]): string => xs.map((p) => '`' + p + '`').join(' or ');
 
+/** Command patterns as words: the pair Remember makes (`X` and `X *`) reads once, as "`X` with any arguments". */
+function joinCommands(pats: readonly string[]): string {
+  const set = new Set(pats);
+  const words: string[] = [];
+  for (const p of pats) {
+    if (p.endsWith(' *') && set.has(p.slice(0, -2))) continue; // said with its bare form
+    words.push(set.has(`${p} *`) ? '`' + p + '` with any arguments' : '`' + p + '`');
+  }
+  return words.join(' or ');
+}
+
 /**
  * The sentence a rule is stored AS and shown AS. Grammar holds for every shape: the verb form follows the
  * "what" (run/running, change/changing, use/using), so no combination reads broken. `projectOf` maps a project
@@ -64,7 +75,7 @@ export function gateSentence(when: GateWhen, then: GateVerdict, nameOf: (id: str
   const tools = (when.tools ?? []).map((t) => TOOL_LABEL[t] ?? t);
   let base: string;
   let ing: string;
-  if (pats.length) { base = 'run ' + joinOr(pats); ing = 'running ' + joinOr(pats); }
+  if (pats.length) { base = 'run ' + joinCommands(pats); ing = 'running ' + joinCommands(pats); }
   else if (paths.length) { base = 'change files matching ' + joinOr(paths); ing = 'changing files matching ' + joinOr(paths); }
   else if (tools.length) { base = 'use ' + tools.join(', '); ing = 'using ' + tools.join(', '); }
   else { base = 'do anything'; ing = 'doing anything'; }
