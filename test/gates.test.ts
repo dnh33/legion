@@ -281,6 +281,19 @@ test('REVIEW: an allow is never fooled by quoting a shell reads differently — 
   assert.equal(decideGate(bash('echo "a; b"'), [allowEcho], 'ask', false).verdict, 'allow');
 });
 
+test('a deny path rule catches the temp folder in both spellings (/tmp/x is %TEMP%/x on Windows); an allow stays exact', () => {
+  const tmpDir = 'C:\\Users\\Me\\AppData\\Local\\Temp';
+  const read = (path: string) => ({ toolName: 'mcp__host__read_file', input: { path }, agentId: 'zealot', cwd: 'D:/work', tmpDir });
+  const denyWin = rule('deny', { paths: ['C:/Users/Me/AppData/Local/Temp/creds/**'] });
+  assert.equal(decideGate(read('/tmp/creds/a.json'), [denyWin], 'full', false).verdict, 'deny', 'the /tmp spelling is caught');
+  assert.equal(decideGate(read('/tmp/other/a.json'), [denyWin], 'full', false).verdict, 'baseline');
+  const denyPosix = rule('deny', { paths: ['/tmp/creds/**'] });
+  assert.equal(decideGate(read('C:\\Users\\Me\\AppData\\Local\\Temp\\creds\\a.json'), [denyPosix], 'full', false).verdict, 'deny', 'and the Windows spelling of a /tmp rule');
+  const allow = rule('allow', { paths: ['C:/Users/Me/AppData/Local/Temp/**'] });
+  assert.equal(decideGate(read('/tmp/x.txt'), [allow], 'ask', false).verdict, 'baseline', 'the wider reading never widens an allow');
+  assert.equal(decideGate({ ...read('/tmp/creds/a.json'), tmpDir: undefined }, [denyWin], 'full', false).verdict, 'baseline', 'no temp folder known (not Windows): nothing is mapped');
+});
+
 test('a deny path rule also catches the Git Bash form of the same path (/d/secrets/x is D:/secrets/x); an allow stays exact', () => {
   const read = (path: string) => ({ toolName: 'mcp__host__read_file', input: { path }, agentId: 'zealot', cwd: 'D:/work' });
   const deny = rule('deny', { paths: ['D:/secrets/**'] });

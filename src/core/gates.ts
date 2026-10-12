@@ -52,6 +52,8 @@ export interface GateCall {
   projectId?: string;
   /** The agent's working dir, used to resolve relative file paths and redirects. Pure string work; no fs. */
   cwd?: string;
+  /** The real temp folder where `/tmp` means it (the agent shell on Windows). Lets deny and ask rules see both spellings. */
+  tmpDir?: string;
   /** Run contexts. `capped` mirrors decideGate's own argument so a caller can pass it in either place. */
   ctx?: { capped?: boolean; roomHop?: boolean; tainted?: boolean; connectorData?: boolean };
 }
@@ -289,12 +291,24 @@ function pathGlobRe(glob: string): RegExp {
   return new RegExp(`^${s}$`, 'i');
 }
 
+/** `/tmp/x` as `<tmp>/x`, or `<tmp>/x` as `/tmp/x` (case-insensitive, as Windows paths are); undefined for any other path. */
+function tempForm(abs: string, tmp: string): string | undefined {
+  if (!tmp) return undefined;
+  if (abs === '/tmp' || abs.startsWith('/tmp/')) return tmp + abs.slice(4);
+  const a = abs.toLowerCase(), t = tmp.toLowerCase();
+  if (a === t || a.startsWith(t + '/')) return '/tmp' + abs.slice(tmp.length);
+  return undefined;
+}
+
 /** A candidate matches a pattern when the pattern matches the whole path or a tail of it (gitignore's "any level"). */
-function pathMatches(pattern: string, candidate: string, cwd: string, widen = false): boolean {
+function pathMatches(pattern: string, candidate: string, cwd: string, widen = false, tmpDir?: string): boolean {
   const pat = normPath(pattern.trim());
   if (!pat) return false;
   const abs = absolute(candidate, cwd);
-  if (pat.startsWith('/')) return pathGlobRe(pat).test(abs);
+  // The temp folder's other spelling (`/tmp/x` is `%TEMP%/x` in the agent shell on Windows, and back): deny and ask
+  // only, like the drive form below, so a rule written one way cannot be stepped around by writing the other.
+  const tmp = widen && tmpDir ? tempForm(abs, normPath(tmpDir).replace(/\/+$/, '')) : undefined;
+  if (pat.startsWith('/')) return pathGlobRe(pat).test(abs) || (tmp !== undefined && pathGlobRe(pat).test(tmp));
   const c = normPath(cwd || '');
   const rel = c && abs.startsWith(c + '/') ? abs.slice(c.length + 1) : abs;
   // For deny and ask, also the path without its root (`/` or `C:/`): a `**/` or bare-name pattern never matches a
@@ -303,7 +317,7 @@ function pathMatches(pattern: string, candidate: string, cwd: string, widen = fa
   // Also the drive form of a Git Bash path (`/d/secrets/x` is `d:/secrets/x` on Windows), so the agent shell's own way of
   // writing a path cannot step around a deny written the Windows way. Same rule: deny and ask only, never an allow.
   const drive = /^\/([a-zA-Z])(\/.*)?$/.exec(abs);
-  const forms = widen ? [abs, rel, abs.replace(/^(?:[a-zA-Z]:)?\//, ''), ...(drive ? [`${drive[1]}:${drive[2] ?? '/'}`] : [])] : [abs, rel];
+  const forms = widen ? [abs, rel, abs.replace(/^(?:[a-zA-Z]:)?\//, ''), ...(drive ? [`${drive[1]}:${drive[2] ?? '/'}`] : []), ...(tmp ? [tmp] : [])] : [abs, rel];
   return forms.some((f) => pathGlobRe(pat).test(f))
     // A bare name (no slash) matches at any level, like gitignore: `secrets.txt` hits src/secrets.txt too.
     || (!pat.includes('/') && forms.some((f) => pathGlobRe(`**/${pat}`).test(f)));
@@ -317,19 +331,19 @@ function pathMatches(pattern: string, candidate: string, cwd: string, widen = fa
  * The wider path form (see pathMatches) is used only where it tightens: on a deny or ask rule's own patterns, and on
  * an allow rule's carve-outs. A deny's carve-outs and an allow's patterns keep the exact form, so they never widen.
  */
-function pathsMatch(when: GateWhen, candidates: readonly string[], cwd: string, then: GateVerdict): boolean {
+function pathsMatch(when: GateWhen, candidates: readonly string[], cwd: string, then: GateVerdict, tmpDir?: string): boolean {
   const patterns = when.paths ?? [];
   if (!patterns.length) return true;
   if (!candidates.length) return false;
   const widenIn = then !== 'allow';
   const widenOut = then === 'allow';
-  const carved = (p: string): boolean => (when.exceptPaths ?? []).some((e) => pathMatches(e, p, cwd, widenOut));
+  const carved = (p: string): boolean => (when.exceptPaths ?? []).some((e) => pathMatches(e, p, cwd, widenOut, tmpDir));
   return candidates.some((c) => {
     if (carved(c)) return false;
     let inList = false;
     for (const pat of patterns) {
-      if (pat.startsWith('!')) { if (pathMatches(pat.slice(1), c, cwd, widenOut)) inList = false; continue; }
-      if (pathMatches(pat, c, cwd, widenIn)) inList = true;
+      if (pat.startsWith('!')) { if (pathMatches(pat.slice(1), c, cwd, widenOut, tmpDir)) inList = false; continue; }
+      if (pathMatches(pat, c, cwd, widenIn, tmpDir)) inList = true;
     }
     return inList;
   });
@@ -390,7 +404,7 @@ export function decideGate(input: GateCall, rules: readonly GateRule[], mode: Ap
     // Command scoping is class-aware (any-subcommand for deny/ask, every-subcommand for allow); paths are the
     // same for every class. Both live here, not in whenMatches, because they need the rule's class.
     if (r.when.commands?.length && (!subs || !commandsMatch(r.when.commands, subs, r.then, allowSubs))) continue;
-    if ((r.when.paths?.length || r.when.exceptPaths?.length) && !pathsMatch(r.when, candidates, input.cwd ?? '', r.then)) continue;
+    if ((r.when.paths?.length || r.when.exceptPaths?.length) && !pathsMatch(r.when, candidates, input.cwd ?? '', r.then, input.tmpDir)) continue;
     matched.push(r);
   }
   const ruleIds = matched.map((r) => r.id);

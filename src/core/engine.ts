@@ -49,6 +49,10 @@ import { projectSection } from './projects/prompt.js';
 import { renderCapabilities } from './agent-facts.js';
 import { renderTeamwork } from './teamwork.js';
 import type { ProjectStore } from './projects/store.js';
+import { tmpdir } from 'node:os';
+
+/** On Windows the agent shell and Git Bash read `/tmp` as the user's temp folder: gates check both spellings there. */
+const GATE_TMP_DIR = process.platform === 'win32' ? tmpdir() : undefined;
 
 export type QueryFn = typeof sdkQuery;
 
@@ -1129,7 +1133,7 @@ This run read connector (GitHub) data and other outside text. Web access can sen
       const mode = effective();
       // Gate rules (Settings -> Gates) sit ahead of the approval baseline: deny wins outright (and survives full), an
       // explicit allow skips the card, an ask forces one (inert in full), and no rule falls through to the baseline.
-      const gate = decideGate({ toolName, input, agentId: agent.id, cwd: this.gateCwd(agent, toolName), projectId: this.projectOf(job.taskId, agent.id)?.id, ctx: { roomHop: (job.origin?.hop ?? 0) > 0, tainted: this.active.get(job.taskId)?.tainted === true || job.origin?.tainted === true, connectorData: this.store.getTask(job.taskId)?.usedConnectors === true } }, gatesFor(this.config).rules, mode, job.origin?.approvalCeiling === 'ask');
+      const gate = decideGate({ toolName, input, agentId: agent.id, cwd: this.gateCwd(agent, toolName), tmpDir: GATE_TMP_DIR, projectId: this.projectOf(job.taskId, agent.id)?.id, ctx: { roomHop: (job.origin?.hop ?? 0) > 0, tainted: this.active.get(job.taskId)?.tainted === true || job.origin?.tainted === true, connectorData: this.store.getTask(job.taskId)?.usedConnectors === true } }, gatesFor(this.config).rules, mode, job.origin?.approvalCeiling === 'ask');
       if (gate.verdict === 'deny') return { allow: false, message: 'Blocked by a gate rule (Settings -> Gates).' };
       if (gate.verdict === 'allow') return { allow: true };
       if (gate.verdict !== 'ask' && !needsApproval(mode, toolName, { capped: job.origin?.approvalCeiling === 'ask' })) return { allow: true };
@@ -1273,7 +1277,7 @@ This run read connector (GitHub) data and other outside text. Web access can sen
           const d = await demoted(input.tool_name, (input.tool_input ?? {}) as Record<string, unknown>);
           return d.allow ? { continue: true } : preToolDeny(d.message ?? 'The user denied this action.');
         }
-        const g = decideGate({ toolName: input.tool_name, input: (input.tool_input ?? {}) as Record<string, unknown>, agentId: agent.id, cwd: this.gateCwd(agent, input.tool_name), projectId: this.projectOf(job.taskId, agent.id)?.id, ctx: { roomHop: (job.origin?.hop ?? 0) > 0, tainted: this.active.get(job.taskId)?.tainted === true || job.origin?.tainted === true, connectorData: this.store.getTask(job.taskId)?.usedConnectors === true } }, gatesFor(this.config).rules, 'full', false);
+        const g = decideGate({ toolName: input.tool_name, input: (input.tool_input ?? {}) as Record<string, unknown>, agentId: agent.id, cwd: this.gateCwd(agent, input.tool_name), tmpDir: GATE_TMP_DIR, projectId: this.projectOf(job.taskId, agent.id)?.id, ctx: { roomHop: (job.origin?.hop ?? 0) > 0, tainted: this.active.get(job.taskId)?.tainted === true || job.origin?.tainted === true, connectorData: this.store.getTask(job.taskId)?.usedConnectors === true } }, gatesFor(this.config).rules, 'full', false);
         return g.verdict === 'deny' ? preToolDeny('Blocked by a gate rule (Settings -> Gates).') : { continue: true };
       }] });
     } else {
