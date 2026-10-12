@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { needsApproval, isLegionTool } from '../src/core/approvals.js';
 import { taintsRun } from '../src/core/engine.js';
-import { buildHostToolsServer, resolveWithin, windowOrSpill } from '../src/core/exec/host-tools.js';
+import { buildHostToolsServer, resolveWithin, windowOrSpill, refuseCatastrophic } from '../src/core/exec/host-tools.js';
 import { DirectHostBackend } from '../src/core/exec/direct-host.js';
 import { mkdtempSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -64,4 +64,16 @@ test('short output is returned whole with no spill file', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'legion-spill-'));
   const out = await windowOrSpill('small', dir, 'task2', 1000);
   assert.equal(out, 'small', 'under the window: returned as-is');
+});
+
+test('the safety guard refuses catastrophic commands (the Wipe Lesson floor)', () => {
+  for (const cmd of ['rm -rf /', 'rm -rf ~', 'rm -fr /boot', 'mkfs /dev/sda1', 'mkfs.ext4 /dev/sdb', 'dd if=/dev/zero of=/dev/sda', 'format C:', 'diskpart', ':(){ :|:& };:', 'echo x > /dev/sda']) {
+    assert.ok(refuseCatastrophic(cmd), `refused: ${cmd}`);
+  }
+});
+
+test('the safety guard does NOT block ordinary work', () => {
+  for (const cmd of ['echo hi', 'git push', 'npm test', 'rm -rf node_modules', 'rm old.txt', 'rm -rf build/', 'cat package.json', 'ls -la', 'tsc -p tsconfig.json']) {
+    assert.equal(refuseCatastrophic(cmd), undefined, `allowed: ${cmd}`);
+  }
 });

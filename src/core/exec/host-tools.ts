@@ -46,6 +46,30 @@ let spillN = 0;
 /** Most spill files kept: the oldest are dropped so a long session cannot grow without bound. */
 const SPILL_KEEP_FILES = 50;
 
+/**
+ * A hard safety floor (the Wipe Lesson): command shapes that can destroy the machine or its data irrecoverably. They
+ * are refused for EVERY agent — a full-access tier forgives the approval card, not the machine. This is the one check
+ * an approval cannot override. Matched conservatively: it must never block ordinary work (rm of a project folder, git,
+ * builds all pass through).
+ */
+const CATASTROPHIC: Array<[RegExp, string]> = [
+  [/\brm\b[^|&;\n]*\s-[a-z]*[rf][a-z]*\s+(?:--recursive\s+)?['"]?(?:\/(?:\*|bin|boot|etc|usr|var|home|root|lib|sbin)?|~(?:\/\*?)?|\$HOME|[A-Za-z]:[\\/])['"]?(?=\s|$)/i, 'recursive delete of a system root or home'],
+  [/\bmkfs(?:\.\w+)?\b/i, 'formatting a filesystem'],
+  [/\bdd\b[^|&;\n]*\bof\s*=\s*['"]?\/dev\//i, 'raw write to a device'],
+  [/\bformat(?:\.com)?\s+['"]?[A-Za-z]:/i, 'formatting a drive'],
+  [/\bdiskpart\b/i, 'disk partitioning'],
+  [/:\(\)\s*\{\s*:\s*\|\s*:\s*&\s*\}\s*;\s*:/, 'a fork bomb'],
+  [/>\s*['"]?\/dev\/(?:sd|hd|nvme|mmcblk|vd)[a-z0-9]*['"]?\s*$/i, 'overwriting a block device'],
+];
+
+/** The refusal reason when a command is catastrophic, else undefined. */
+export function refuseCatastrophic(cmd: string): string | undefined {
+  for (const [re, what] of CATASTROPHIC) {
+    if (re.test(cmd)) return `Refused: this command looks like ${what}, which can destroy the machine or its data. It is blocked for every agent, even full access.`;
+  }
+  return undefined;
+}
+
 async function pruneSpill(dir: string): Promise<void> {
   try {
     const names = (await readdir(dir)).filter((n) => n.endsWith('.txt'));
@@ -87,6 +111,8 @@ export function buildHostToolsServer(ctx: HostToolsCtx): McpSdkServerConfigWithI
       timeoutSeconds: z.number().positive().max(3600).optional().describe(`Kill the command after this many seconds (default ${limits.timeoutSeconds})`),
     },
     (a) => run(async () => {
+      const bad = refuseCatastrophic(a.command);
+      if (bad) throw new Error(bad);
       const cwd = a.cwd === undefined ? ctx.rootDir : resolveWithin(ctx.rootDir, a.cwd);
       const r = await ctx.backend.execute({ cmd: a.command, cwd, timeoutMs: (a.timeoutSeconds ?? limits.timeoutSeconds) * 1000 });
       const body = await windowOrSpill(r.output, ctx.rootDir, ctx.taskId, limits.maxOutputChars);
