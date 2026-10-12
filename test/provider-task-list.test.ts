@@ -196,3 +196,14 @@ test('a compaction in a thread with no tasks leaves the summary row as it was', 
   assert.ok(rows.length > 0, 'a compaction happened');
   assert.doesNotMatch(rows.at(-1)!, /kept by Legion\]/);
 });
+
+test('todo_create says the task list is private and shared work belongs on the project board', async () => {
+  const f = await startFake((_r, res) => replyText(res, 'ok'));
+  try {
+    const h = setup(f);
+    await run(h);
+    const tool = (f.requests[0]!.body.tools as any[]).find((t) => t.function?.name === 'mcp__legion__todo_create');
+    assert.ok(tool, 'todo_create is offered');
+    assert.match(tool.function.description, /project board/);
+  } finally { await f.close(); }
+});

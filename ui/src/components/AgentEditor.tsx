@@ -8,6 +8,7 @@ import { AgentSkills, settingOf, valueOf } from '../armory/AgentSkills';
 import { MAX_AGENT_SKILLS } from '../../../src/shared/armory-view';
 import { revealSkill } from '../armory/armoryStore';
 import { connectorsShellWarning } from '../../../src/shared/connectors-view';
+import { nativeTaskListOn } from '../../../src/shared/task-list-setting';
 
 export function AgentEditor({ id, focus }: { id: string | null; focus?: 'skills' }) {
   const existing = useStore((s) => s.agents.find((a) => a.id === id));
@@ -25,13 +26,16 @@ export function AgentEditor({ id, focus }: { id: string | null; focus?: 'skills'
   const [hostRoot, setHostRoot] = useState(existing?.host?.rootDir ?? '');
   const [hostTimeout, setHostTimeout] = useState(existing?.host?.timeoutSeconds === undefined ? '' : String(existing.host.timeoutSeconds));
   const [skills, setSkills] = useState(() => valueOf(existing?.skills));
+  // shown as the effective setting; saved only once the owner changes it, so an untouched agent keeps following the default
+  const [taskList, setTaskList] = useState(() => nativeTaskListOn(existing ?? { id: '' }));
+  const startTaskList = useRef(taskList);
   const skillsTooMany = skills.mode === 'choose' && skills.ids.length > MAX_AGENT_SKILLS;
   // Leaving (Esc, the X, a click outside, or "Open in the Armory") must not throw away a Skills choice that was not saved without asking.
   const startSkills = useRef(settingOf(valueOf(existing?.skills)));
   const nowSkills = settingOf(skills);
   const skillsDirty = JSON.stringify(Array.isArray(nowSkills) ? [...nowSkills].sort() : nowSkills) !== JSON.stringify(Array.isArray(startSkills.current) ? [...startSkills.current].sort() : startSkills.current);
   // Every field counts, not only Skills: the first values are kept, and anything that differs from them asks before it is thrown away.
-  const fields = JSON.stringify([name, emoji, description, systemPrompt, model, approval, vmOn, size, idle, github, hostOn, hostRoot, hostTimeout]);
+  const fields = JSON.stringify([name, emoji, description, systemPrompt, model, approval, vmOn, size, idle, github, hostOn, hostRoot, hostTimeout, taskList]);
   const startFields = useRef(fields);
   const dirty = skillsDirty || fields !== startFields.current;
   const [leaving, setLeaving] = useState<null | { to: 'close' } | { to: 'armory'; skill: string }>(null);
@@ -80,6 +84,7 @@ export function AgentEditor({ id, focus }: { id: string | null; focus?: 'skills'
       host: hostOn
         ? { enabled: true, ...(hostRoot.trim() ? { rootDir: hostRoot.trim() } : {}), ...(secs !== undefined ? { timeoutSeconds: secs } : {}) }
         : { enabled: false },
+      ...(taskList !== startTaskList.current ? { taskList: taskList ? 'on' as const : 'off' as const } : {}),
     };
     await saveAgent(id, body);
     setBusy(false);
@@ -134,6 +139,11 @@ export function AgentEditor({ id, focus }: { id: string | null; focus?: 'skills'
           <label className="check-row"><input type="checkbox" checked={github} onChange={(e) => setGithub(e.target.checked)} /> Let this agent read GitHub (repositories, issues, pull requests, CI)</label>
           <span className="field-note">Read only. Connect GitHub first in Settings, GitHub. A run started from Claude Code or another MCP client never gets connectors.</span>
           {connectorsShellWarning({ connectors: github, approval, onProvider, vmOn }) && <p className="field-note" role="alert"><b>Warning.</b> {connectorsShellWarning({ connectors: github, approval, onProvider, vmOn })}</p>}
+        </fieldset>
+        <fieldset>
+          <legend>Task list</legend>
+          <label className="check-row"><input type="checkbox" checked={taskList} onChange={(e) => setTaskList(e.target.checked)} /> Keep a task list on Claude (Claude Code's own task tools)</label>
+          <span className="field-note">On by default for the lead. Newer Claude models plan without a written list; turn this on for agents that run long, multi-step work. Runs on other providers always have a task list.</span>
         </fieldset>
         <fieldset>
           <legend>Shell (this computer)</legend>

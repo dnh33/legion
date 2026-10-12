@@ -318,7 +318,7 @@ function todoTools(store: NonNullable<AgentToolsCtx['taskList']>) {
   const status = z.enum(['pending', 'in_progress', 'completed']);
   const create = tool(
     'todo_create',
-    'Add a task to your own task list for this conversation (like Claude Code\'s TaskCreate). Use it to plan multi-step work and show progress: the owner sees the list live. It is kept when the conversation continues. Returns the new task id.',
+    'Add a task to your own task list for this conversation (like Claude Code\'s TaskCreate). Use it to plan multi-step work and show progress: the owner sees the list live. It is kept when the conversation continues. It is private to this conversation; work other agents or the owner should see belongs on the project board. Returns the new task id.',
     {
       subject: z.string().min(1).describe('A brief title for the task'),
       description: z.string().optional().describe('What needs to be done'),
