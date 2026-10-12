@@ -300,7 +300,10 @@ function pathMatches(pattern: string, candidate: string, cwd: string, widen = fa
   // For deny and ask, also the path without its root (`/` or `C:/`): a `**/` or bare-name pattern never matches a
   // leading `/`, so without this a POSIX path (`/proj/src/secrets.txt`) would slip past `secrets.txt`. Never for allow:
   // a form that matches more would widen an allow.
-  const forms = widen ? [abs, rel, abs.replace(/^(?:[a-zA-Z]:)?\//, '')] : [abs, rel];
+  // Also the drive form of a Git Bash path (`/d/secrets/x` is `d:/secrets/x` on Windows), so the agent shell's own way of
+  // writing a path cannot step around a deny written the Windows way. Same rule: deny and ask only, never an allow.
+  const drive = /^\/([a-zA-Z])(\/.*)?$/.exec(abs);
+  const forms = widen ? [abs, rel, abs.replace(/^(?:[a-zA-Z]:)?\//, ''), ...(drive ? [`${drive[1]}:${drive[2] ?? '/'}`] : [])] : [abs, rel];
   return forms.some((f) => pathGlobRe(pat).test(f))
     // A bare name (no slash) matches at any level, like gitignore: `secrets.txt` hits src/secrets.txt too.
     || (!pat.includes('/') && forms.some((f) => pathGlobRe(`**/${pat}`).test(f)));

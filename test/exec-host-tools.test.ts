@@ -243,3 +243,25 @@ test('REVIEW: a whole-machine command behind any prefix is still refused (start,
     'runas /user:admin "wbadmin delete catalog"',
   ]) assert.ok(refuseCatastrophic(bad), bad);
 });
+
+test('Windows: a path in the shell\'s own form (/d/work/x, /tmp/x, from `pwd` in Git Bash) is the same file to read_file and write_file', { skip: process.platform !== 'win32' }, async () => {
+  const { writeFileSync: wf } = await import('node:fs');
+  const root = mkdtempSync(join(tmpdir(), 'legion-msys-'));
+  wf(join(root, 'a.txt'), 'found it');
+  const srv = buildHostToolsServer({ agentId: 'a', taskId: 't', rootDir: root, backend: new DirectHostBackend() });
+  const call = async (name: string, args: Record<string, unknown>) => {
+    const out = await (srv as any).instance._registeredTools[name].handler(args, {});
+    return { text: out.content.map((c: any) => c.text).join('\n'), isError: out.isError === true };
+  };
+  const fwd = root.replace(/\\/g, '/');
+  const driveForm = `/${fwd[0]!.toLowerCase()}${fwd.slice(2)}/a.txt`; // C:/Users/... -> /c/Users/...
+  assert.equal((await call('read_file', { path: driveForm })).text, 'found it', driveForm);
+  const tmp = tmpdir().replace(/\\/g, '/');
+  if (fwd.toLowerCase().startsWith(tmp.toLowerCase())) {
+    const tmpForm = `/tmp${fwd.slice(tmp.length)}/a.txt`;
+    assert.equal((await call('read_file', { path: tmpForm })).text, 'found it', tmpForm);
+  }
+  // still scoped: a shell-form path outside the root is refused
+  const outside = await call('read_file', { path: '/c/Windows/win.ini' });
+  assert.equal(outside.isError, true);
+});

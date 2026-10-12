@@ -280,3 +280,12 @@ test('REVIEW: an allow is never fooled by quoting a shell reads differently — 
   // a plain double-quoted separator, with nothing a shell could read differently, is still data
   assert.equal(decideGate(bash('echo "a; b"'), [allowEcho], 'ask', false).verdict, 'allow');
 });
+
+test('a deny path rule also catches the Git Bash form of the same path (/d/secrets/x is D:/secrets/x); an allow stays exact', () => {
+  const read = (path: string) => ({ toolName: 'mcp__host__read_file', input: { path }, agentId: 'zealot', cwd: 'D:/work' });
+  const deny = rule('deny', { paths: ['D:/secrets/**'] });
+  assert.equal(decideGate(read('/d/secrets/key.txt'), [deny], 'full', false).verdict, 'deny');
+  assert.equal(decideGate(read('/d/work/a.txt'), [deny], 'full', false).verdict, 'baseline');
+  const allow = rule('allow', { paths: ['D:/work/**'] });
+  assert.equal(decideGate(read('/d/work/a.txt'), [allow], 'ask', false).verdict, 'baseline', 'the wider reading never widens an allow');
+});
