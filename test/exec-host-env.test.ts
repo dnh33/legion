@@ -110,3 +110,14 @@ test('REVIEW: block refuses a wildcard that reaches .env (cat .env*)', async () 
   const root = project();
   assert.equal((await call(hostServer(root, 'block'), 'shell', { command: 'cat .env*' })).isError, true);
 });
+
+test('masked: a short value under a secret-looking name is hidden as a whole word; short ordinary values stay readable', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'legion-env-short-'));
+  writeFileSync(join(root, '.env'), 'DB_PIN=4821\nAPI_KEY="zq7x"\nPORT=3000\nMODE=dev\n');
+  const srv = hostServer(root);
+  const r = await call(srv, 'shell', { command: 'echo pin 4821 key zq7x port 3000 mode dev id 48210' });
+  assert.equal(r.isError, false, r.text);
+  assert.ok(!/\b4821\b/.test(r.text) && !r.text.includes('zq7x'), `short secrets hidden: ${r.text}`);
+  assert.match(r.text, /port 3000 mode dev/, 'a port or a mode is not a secret: blanking it would mangle ordinary output');
+  assert.match(r.text, /id 48210/, 'only the whole word: a longer number that contains the value is left alone');
+});
