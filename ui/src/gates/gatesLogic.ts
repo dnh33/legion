@@ -3,7 +3,8 @@
  * only — the same strings the Settings surface renders and stores as GateRule.label, so what the owner reads IS
  * the rule. The tester calls the real decideGate; it runs nothing.
  */
-import { allowSubcommands, decideGate } from '../../../src/core/gates.js';
+import { decideGate } from '../../../src/core/gates.js';
+import { rememberWhen } from '../../../src/core/gate-remember.js';
 import type { ApprovalMode, GateContext, GateRule, GateVerdict, GatesConfig, GateWhen } from '../../../src/shared/types.js';
 
 /** Each agent's mode, in the same plain words the agent editor uses (mode first, gates on top). */
@@ -110,68 +111,14 @@ export function presetRule(p: { id: string; when: GateWhen; then: GateVerdict; l
   return { id: newGateId(), enabled: true, then: p.then, when: structuredCloneSafe(p.when), label: p.label, source: 'preset' };
 }
 
-/** Cards a rule must not decide: rails (a Blender script, a download — read and clicked every time) and room requests. */
-const NO_REMEMBER = /^(?:mcp__legion_blender__blender_exec|mcp__legion_blender__blender_asset_get|legion_get_blender|mcp__legion_comms__room_(?:create|add_member|remove_member))$/;
-
-/** Whether the approval card offers "Remember". */
-export function canRemember(a: { toolName: string }): boolean {
-  return !NO_REMEMBER.test(a.toolName);
-}
-
-const PATH_KEYS = ['file_path', 'path', 'notebook_path'] as const;
-
-/** Programs that run whatever text follows them: shells, interpreters, package runners and wrappers. */
-const RUNNERS = new Set([
-  'bash', 'sh', 'zsh', 'dash', 'ksh', 'fish', 'cmd', 'powershell', 'pwsh', 'wsl',
-  'python', 'python3', 'py', 'node', 'deno', 'bun', 'ruby', 'perl', 'php', 'lua', 'osascript',
-  'npx', 'pnpx', 'bunx', 'uvx', 'pipx',
-  'sudo', 'doas', 'env', 'xargs', 'eval', 'exec', 'nohup', 'time', 'nice', 'timeout', 'watch', 'ssh', 'su', 'runas', 'start', 'call',
-]);
-const runsAnything = (prog: string): boolean => RUNNERS.has(prog.toLowerCase().replace(/^.*[\\/]/, '').replace(/\.exe$/, ''));
-
-/**
- * Whether the card may offer "Always allow". Not for a runner whose exact command holds a wildcard: an exact-command
- * rule is a glob pattern, so `python *.py` would allow every script; such a call is answered per card (block is still offered).
- */
-export function canRememberAllow(a: { toolName: string; input: Record<string, unknown> }): boolean {
-  if (!canRemember(a)) return false;
-  const command = typeof a.input.command === 'string' ? a.input.command.trim() : '';
-  if (!command) return true;
-  // a line no allow can ever hold on (command substitution, $'…', an open quote) gets no allow to offer
-  const parts = allowSubcommands(command);
-  if (!parts) return false;
-  return !parts.some((p) => runsAnything(p.split(/\s+/)[0]!) && /[*?[\]]/.test(p));
-}
-
-/** One part of a command as patterns: a runner's exact text, else its program (and subcommand) with and without arguments. */
-function partPatterns(part: string): string[] {
-  const [prog, next] = part.split(/\s+/);
-  // a shell, an interpreter or a wrapper runs whatever follows it: only this exact command is remembered
-  if (runsAnything(prog!)) return [part.toLowerCase()];
-  // a subcommand is a plain word (status, test, run); a flag, a path or a file name is not
-  const prefix = (next && /^[a-z][a-z0-9-]*$/.test(next) ? `${prog} ${next}` : prog!).toLowerCase();
-  return [prefix, `${prefix} *`];
-}
+export { SUGGEST_AFTER, canRemember, canRememberAllow } from '../../../src/core/gate-remember.js';
 
 /**
  * The rule the approval card's "Remember" saves (source 'card'): this agent and this tool, narrowed to the command's
  * program (plus its subcommand, `git status`) or to the file's folder. The owner reads the sentence before it is saved.
  */
 export function rememberRule(a: { agentId: string; toolName: string; input: Record<string, unknown> }, then: 'allow' | 'deny', nameOf: (id: string) => string): GateRule {
-  const when: GateWhen = { agents: [a.agentId], tools: [a.toolName] };
-  const command = typeof a.input.command === 'string' ? a.input.command.trim() : '';
-  const path = PATH_KEYS.map((k) => a.input[k]).find((v): v is string => typeof v === 'string' && v.trim() !== '');
-  if (command) {
-    // a chained line (`pwd; ls -la`) is judged per part by the gate, so the rule names each part's program: a single
-    // pattern for the whole line would never match it. A line no allow can hold on is remembered as written (a block).
-    const parts = allowSubcommands(command) ?? [command];
-    when.commands = [...new Set(parts.flatMap(partPatterns))];
-    delete when.tools; // the command scopes it; the same program is the same choice in Bash and the agent shell
-  } else if (path) {
-    const p = path.replace(/\\/g, '/');
-    const dir = p.includes('/') ? p.slice(0, p.lastIndexOf('/')) : '';
-    when.paths = [dir ? `${dir}/**` : p];
-  }
+  const when = rememberWhen(a);
   return { id: newGateId(), enabled: true, then, when, label: gateSentence(when, then, nameOf), source: 'card' };
 }
 

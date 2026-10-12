@@ -87,14 +87,16 @@ async function loadUi(state: Record<string, unknown>): Promise<{ r: Render; save
     stdin: {
       resolveDir: REPO, sourcefile: 'entry.ts', loader: 'ts',
       contents: `import { createElement } from 'react'; import { renderToStaticMarkup } from 'react-dom/server';
-        import { GatesSection, GateBuilder, GateRuleCard, GateTestOut, GateRails } from ${ui('ui/src/gates/GatesSection.tsx')};
+        import { GatesSection, GateBuilder, GateRuleCard, GateTestOut, GateRails, GateSuggestions } from ${ui('ui/src/gates/GatesSection.tsx')};
         import { AgentEditor } from ${ui('ui/src/components/AgentEditor.tsx')};
         const render = (el) => renderToStaticMarkup(el);
         export const section = (rules) => render(createElement(GatesSection, { s: { gates: { rules, presetsVersion: 0 } } }));
+        export const sectionWith = (gates) => render(createElement(GatesSection, { s: { gates } }));
         export const builder = (draft) => render(createElement(GateBuilder, { draft, setDraft: () => {}, agents: globalThis.__st.agents, projects: globalThis.__st.projects, projectOf: globalThis.__projectOf, mode: draft.mode ?? 'ask', onCancel: () => {}, onSave: () => {}, saveLabel: 'Add gate' }));
         export const card = (r, hostless) => render(createElement(GateRuleCard, { r, nameOf: globalThis.__nameOf, projectOf: globalThis.__projectOf, hostless: !!hostless, busy: false, confirmDelete: false, onToggle: () => {}, onEdit: () => {}, onDelete: () => {}, onCancelDelete: () => {} }));
         export const testOut = (result) => render(createElement(GateTestOut, { result }));
         export const rails = () => render(createElement(GateRails));
+        export const suggestions = (items) => render(createElement(GateSuggestions, { items, nameOf: globalThis.__nameOf, busy: false, onAdd: () => {}, onDismiss: () => {} }));
         export const editor = (id) => render(createElement(AgentEditor, { id }));`,
     },
     bundle: true, write: false, platform: 'node', format: 'cjs', jsx: 'automatic', logLevel: 'silent', loader: { '.css': 'empty' },
@@ -116,6 +118,7 @@ async function loadUi(state: Record<string, unknown>): Promise<{ r: Render; save
           export const saveSettings = async (p) => { globalThis.__saved.push(p); };
           export const errText = (e) => (e && e.message) ? e.message : String(e);
           export const saveAgent = async () => {}; export const removeAgent = async () => {};
+          export const loadGateSuggestions = async () => []; export const dismissGateSuggestion = async () => {}; export const rememberGate = async () => {};
           export const closeOverlays = () => {}; export const openSettings = () => {}; export const loadCatalog = async () => {};
           export const toast = () => {}; export const openEditor = () => {}; export const selectAgent = () => {};` }));
       },
@@ -194,6 +197,32 @@ test('render: the tester readout prints the verdict and the rules that matched, 
     const base = r.testOut(gateTestResult([], { toolName: 'Bash', input: { command: 'ls' }, agentId: 'zealot', mode: 'ask' }));
     assert.match(base, /BASELINE/);
     assert.match(base, /No gate matched — your mode decides/);
+  } finally { cleanup(); }
+});
+
+test('render: a learned suggestion reads as the rule it would add, says how often you allowed it, and offers Add rule and Dismiss', async () => {
+  const { r, saved, cleanup } = await loadUi(baseState());
+  try {
+    assert.equal(r.suggestions([]), '', 'no suggestions, no card');
+    const html = r.suggestions([{ key: 'k1', when: { agents: ['zealot'], commands: ['git status', 'git status *'] }, count: 4, agentId: 'zealot', toolName: 'Bash', input: { command: 'git status' } }]);
+    assert.match(html, /Suggested from your answers/);
+    assert.match(html, /Z Zealot may run `git status`/);
+    assert.match(html, /You allowed this 4 times/);
+    assert.match(html, />Add rule</);
+    assert.match(html, />Dismiss</);
+    assert.equal(saved.length, 0, 'a suggestion is never added on its own');
+  } finally { cleanup(); }
+});
+
+test('render: the owner can switch learned suggestions off; the switch says what off means', async () => {
+  const { r, cleanup } = await loadUi(baseState());
+  try {
+    const on = r.sectionWith({ rules: [], presetsVersion: 0 });
+    assert.match(on, /Suggest gates from my answers/);
+    assert.match(on, /aria-label="Suggest gates from my answers" checked=""/);
+    assert.match(on, /Off keeps no record of your answers/);
+    const off = r.sectionWith({ rules: [], presetsVersion: 0, learn: false });
+    assert.doesNotMatch(off, /aria-label="Suggest gates from my answers" checked=""/);
   } finally { cleanup(); }
 });
 

@@ -220,9 +220,11 @@ export function normalizeGates(v: unknown, opts: { strict?: boolean } = {}): Gat
   }
   const pv = v.presetsVersion;
   if (pv !== undefined && (typeof pv !== 'number' || !Number.isInteger(pv) || pv < 0) && strict) bad('gates.presetsVersion must be a whole number');
+  if (v.learn !== undefined && typeof v.learn !== 'boolean' && strict) bad('gates.learn must be true or false');
   return {
     rules,
     presetsVersion: typeof pv === 'number' && Number.isInteger(pv) && pv >= 0 ? pv : DEFAULT_GATES.presetsVersion,
+    ...(typeof v.learn === 'boolean' ? { learn: v.learn } : {}), // absent means on: today's shape stays as it was
   };
 }
 

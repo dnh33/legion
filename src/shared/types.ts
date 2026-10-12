@@ -70,6 +70,8 @@ export interface GatesConfig {
   rules: GateRule[];
   /** Bumped when shipped presets change, so a new preset can be offered once. */
   presetsVersion: number;
+  /** Suggest rules from the owner's own approval answers (Settings, Gates). On unless stored as false; off keeps no counts. */
+  learn?: boolean;
 }
 
 export type VmSize = 'small' | 'default' | 'large';
@@ -357,6 +359,9 @@ export interface PendingQuestion {
 }
 
 /** A tool call waiting for the user's decision. Auto-denied after 10 minutes. */
+/** A learned gate suggestion (GET /api/gates/suggestions): the rule a Remember would make, earned by `count` allows. */
+export interface GateSuggestion { key: string; when: GateWhen; count: number; agentId: string; toolName: string; input: Record<string, unknown> }
+
 export interface ApprovalRequest {
   id: string;
   taskId: string;
@@ -550,7 +555,7 @@ export interface SettingsPatch {
    * Replaces the gate rule list (and optionally the preset stamp). A malformed rule is a 400 and nothing is
    * stored — a bad rule must never reach a matcher at run time.
    */
-  gates?: { rules: GateRule[]; presetsVersion?: number };
+  gates?: { rules: GateRule[]; presetsVersion?: number; learn?: boolean };
 }
 
 /** State of one MCP server on the most recent run, as the Claude Code process reported it. */

@@ -1,10 +1,10 @@
-import { useState } from 'react';
-import type { AgentProfile, ApprovalMode, GateContext, GateRule, GateVerdict, GatesConfig, GateWhen, SettingsView } from '../../../src/shared/types';
+import { useEffect, useState } from 'react';
+import type { AgentProfile, ApprovalMode, GateContext, GateRule, GateSuggestion, GateVerdict, GatesConfig, GateWhen, SettingsView } from '../../../src/shared/types';
 import type { Project } from '../../../src/shared/projects';
-import { errText, saveSettings, useStore } from '../store';
+import { dismissGateSuggestion, errText, loadGateSuggestions, rememberGate, saveSettings, useStore } from '../store';
 import { Icon } from '../components/icons';
 import {
-  CONTEXT_CHIPS, GATE_PRESETS, GATE_RAILS, GATES_EMPTY, MODE_TEXT, TOOL_CHIPS, VERDICT_TEXT,
+  CONTEXT_CHIPS, GATE_PRESETS, GATE_RAILS, GATES_EMPTY, MODE_TEXT, SUGGEST_AFTER, TOOL_CHIPS, VERDICT_TEXT,
   consequenceLine, gateSentence, gateTestResult, newGateId, presetRule, ruleHostless, toggleIn,
   type GateTestResult,
 } from './gatesLogic';
@@ -247,6 +247,39 @@ export function GateRails() {
 }
 
 /**
+ * Rules earned from the owner's own answers: a call allowed often enough is offered as the rule its card's Remember
+ * would make. Offered only; nothing is added until the owner clicks Add rule.
+ */
+export function GateSuggestions({ items, nameOf, busy, onAdd, onDismiss }: {
+  items: readonly GateSuggestion[]; nameOf: (id: string) => string; busy: boolean;
+  onAdd: (s: GateSuggestion) => void; onDismiss: (s: GateSuggestion) => void;
+}) {
+  if (items.length === 0) return null;
+  return (
+    <div className="set-card gate-suggest" aria-label="Suggested gates">
+      <h4><Icon name="check" size={13} /> Suggested from your answers</h4>
+      <ul className="gate-list">
+        {items.map((s) => (
+          <li key={s.key} className="gate-card">
+            <div className="gate-card-head">
+              <span className="gate-then allow">{THEN_BADGE.allow.text}</span>
+              <b className="gate-sentence">{gateSentence(s.when, 'allow', nameOf)}</b>
+            </div>
+            <div className="gate-card-meta">
+              <span className="muted-s">You allowed this {s.count} times.</span>
+              <span className="gate-card-actions">
+                <button type="button" className="btn-ghost sm" disabled={busy} onClick={() => onDismiss(s)}>Dismiss</button>
+                <button type="button" className="btn sm" disabled={busy} onClick={() => onAdd(s)}>Add rule</button>
+              </span>
+            </div>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+/**
  * Settings -> Gates: sentence rule cards, the Who/What/Where/Then builder, the dry-run tester and the locked
  * rails. Every action saves straight away (the same pattern as Settings -> MCP): the next tool call picks the
  * change up — no restart.
@@ -262,12 +295,23 @@ export function GatesSection({ s }: { s: SettingsView }) {
   const [adding, setAdding] = useState(false);
   const [editId, setEditId] = useState<string | null>(null);
   const [rmId, setRmId] = useState<string | null>(null);
+  const [suggested, setSuggested] = useState<GateSuggestion[]>([]);
+  // Learned suggestions are a hint: a failed load shows none and says nothing.
+  const loadSuggested = () => { loadGateSuggestions().then(setSuggested, () => setSuggested([])); };
+  const learn = gates.learn !== false;
+  useEffect(loadSuggested, [rules, learn]);
+  const setLearn = async (on: boolean) => {
+    setBusy(true); setError(null);
+    try { await saveSettings({ gates: { ...gates, learn: on } }); }
+    catch (e) { setError(errText(e)); }
+    setBusy(false);
+  };
 
   const nameOf = (id: string) => { const a = agents.find((x) => x.id === id); return a ? `${a.emoji} ${a.name}` : id; };
   const projectOf = (id: string) => projects.find((p) => p.id === id)?.name ?? id;
   const save = async (next: GateRule[], after?: () => void) => {
     setBusy(true); setError(null);
-    try { await saveSettings({ gates: { rules: next, presetsVersion: gates.presetsVersion } }); after?.(); }
+    try { await saveSettings({ gates: { ...gates, rules: next } }); after?.(); }
     catch (e) { setError(errText(e)); }
     setBusy(false);
   };
@@ -289,6 +333,17 @@ export function GatesSection({ s }: { s: SettingsView }) {
     const r = presetRule(GATE_PRESETS[i]!);
     // A preset keeps its own sentence; only the id is fresh.
     void save([...rules, r]);
+  };
+  // Same path as the approval card's Remember: reads the stored rules first, so no other rule is lost.
+  const addSuggested = async (s: GateSuggestion) => {
+    setBusy(true); setError(null);
+    try { await rememberGate({ id: newGateId(), enabled: true, then: 'allow', when: s.when, label: gateSentence(s.when, 'allow', nameOf), source: 'card' }); }
+    catch (e) { setError(errText(e)); }
+    setBusy(false);
+  };
+  const dismissSuggested = (s: GateSuggestion) => {
+    setSuggested((xs) => xs.filter((x) => x.key !== s.key));
+    dismissGateSuggestion(s.key).catch((e: unknown) => setError(errText(e)));
   };
 
   return (
@@ -330,6 +385,12 @@ export function GatesSection({ s }: { s: SettingsView }) {
         )}
         {error && <div className="set-error" role="alert"><Icon name="x" size={13} /> <span>{error}</span></div>}
       </div>
+      <label className="set-check gate-learn">
+        <input type="checkbox" aria-label="Suggest gates from my answers" checked={learn} disabled={busy}
+          onChange={() => void setLearn(!learn)} />
+        <span>Suggest gates from my answers <span className="muted-s">After you allow the same kind of call {SUGGEST_AFTER} times, it is offered here as a gate. Off keeps no record of your answers.</span></span>
+      </label>
+      <GateSuggestions items={learn ? suggested : []} nameOf={nameOf} busy={busy} onAdd={(x) => void addSuggested(x)} onDismiss={dismissSuggested} />
       <GateTester rules={rules} agents={agents} />
       <GateRails />
     </div>
