@@ -1892,3 +1892,18 @@ User tested the in-app updater in Legion: updated 0.2.5-o -> 0.2.5-r without iss
 
 ## 2026-10-12 — Model-routing diagnosis VERIFIED (Workstream A)
 CONFIRMED leaks (orchestrator re-grepped): L1 engine.ts:344 continued tasks reuse prev.requestedModel snapshot (not agent.model) - marshal delegation ignores Settings change. L2 engine.ts:325 `overriding = !!p.modelOverrideBy && !!p.model` + ui/store.ts:422 localStorage `legion.model.<id>` beats agent.model. L5 engine.ts:1257 provider-shaped model with unresolvable provider silently runs on Claude. Hypothesis comms/tools.ts:51,68 (raw a.model) is NOT reachable (resolveModel always passed) - downgraded. Fix lane (A2) dispatched with findings inlined, commit-sized units. Full dossier: scratch/model-routing-diagnosis.md.
+
+## 2026-10-12 — NEXT RELEASE (0.2.6-s) STATE: audit done, completing every planned part (session da0bb71f)
+Branch `feat/task-list-and-host-hardening` in D:/bots/legion (worktree of legion-dev), on top of local main 85e7339 (30 unpushed commits since v0.2.5-r: model routing A, agent shell B, gates, board scoring C1, Marshal C2-C4). NOT pushed; Daniel pushes/merges.
+Owner directive: "begin working on the next release and having all parts 1000% in it" + "ensure you have the full picture" of the orchestration work.
+DONE on the branch (each test-first):
+- Release-brief audit of the agent shell + gates (findings + fixes in bb4604f): Windows/POSIX catastrophic guard, path/command deny forms, host-shell env drops Legion credentials, live full->ask demotion, hook timeouts. Marshal audited: holds.
+- Task list across Claude + providers, compaction-proof, hand-over (f25f47c..e28e3eb). Live Sonnet 5.5 run verified (0.28 USD).
+- 64f6c49 secret redaction on host tool output (exact Legion-held values only; never credential shapes, which would corrupt files on read-then-write).
+- e0094b5 symlink/junction escape from the scope root refused (real-path check).
+- 327554c gates: allow splits as the shell does; FOUND+FIXED hole: allow `echo *` approved `echo $(rm -rf ~)` — no allow holds on substitution.
+- a015f78 C4: agents roster no longer cuts descriptions at 80 chars (safety tails reach the lead).
+- cd2d46d C4: lead routing table names the Quartermaster (migration lead-roster-full-v1); BSV mode names the Assayer to the lead per run.
+Gate last full run: e28e3eb 4149/4100/0 (park .superpowers/ first: export-scrub scans scratch files). Targeted suites green after each later commit.
+REMAINING (source of truth with statuses: Aetherkeep 06-projects/legion/release-0.2.6-s-scope.md): lead's two-send-back rule in code for bridge tell/ask; Marshal busy counts hand-started runs; capStored 200k spill not drop; weak providers (OpenRouter supported_parameters + prompted-tools fallback); approval-card one-click "Remember" rule; per-agent .env setting (allow/masked/block, Daniel 2026-10-12); deferred minors; one batched live run (full-mode deny honoured by the CLI, etc. — ask Daniel); full gate; fresh Opus review; release notes naming the sandbox limit; version bump; draft release.
+OUT of this release per plan: OpenShell sandbox backend (W6+, optional); auxiliary models.
