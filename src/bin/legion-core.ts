@@ -30,6 +30,7 @@ import { createHouseModule } from '../core/house/index.js';
 import { createArmoryModule } from '../core/armory/index.js';
 import { createCiModule } from '../core/ci/index.js';
 import { createLogsModule, openLogSink } from '../core/log/index.js';
+import { createGateSuggestionsModule } from '../core/gate-suggestions.js';
 import { createWritesResolver, resolveGitHub } from '../core/ci/wiring.js';
 import { createKnowledgeModule } from '../core/kg/index.js';
 import { createUpdaterModule } from '../core/updater/index.js';
@@ -129,7 +130,7 @@ async function main() {
   // CI panel: runs of the current repo's GitHub Actions. The GitHub client comes from the connectors work; without it the panel says so.
   const ci = createCiModule(moduleDeps, { github: () => resolveGitHub(), writes: createWritesResolver(log).get, projects, log });
   const logs = createLogsModule(moduleDeps, { sink });
-  const modules = [kg, house, armory, createCommsModule(moduleDeps, { projects }), createProjectsModule(moduleDeps, { projects, nativeSecret }), ...boardModules, bsv, blender, ...providersModules, updater, createBrowserModule(moduleDeps, { nativeSecret, log }), connectors, ci, logs];
+  const modules = [kg, house, armory, createCommsModule(moduleDeps, { projects }), createProjectsModule(moduleDeps, { projects, nativeSecret }), ...boardModules, bsv, blender, ...providersModules, updater, createBrowserModule(moduleDeps, { nativeSecret, log }), connectors, ci, logs, createGateSuggestionsModule(moduleDeps)];
   engine.setModules(modules);
   const server = createServer({
     config, store, bus, engine, vms, approvals, questions, boatConfigured, modules, bsvEnabled,

@@ -15,10 +15,10 @@ const root = join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'dist', '
 const load = (p) => import(pathToFileURL(join(root, p)).href);
 
 const [{ dataDir, configPath, loadConfig, VERSION }, { readLaunchSecrets }, { ApprovalBroker }, { QuestionBroker }, { EventBus }, { makeBoatGetter, SettingsService }, { Engine }, { createServer },
-  { createBlenderModule }, { createBsvModule, createBsvState }, { createCommsModule }, { createKnowledgeModule }, { createHouseModule }, { createArmoryModule }, { Store }, { VmManager }, { ProviderRuntime }, { ProviderKeys, keyFileFor }, { createProvidersModule }, { createUpdaterModule }, { createProjectsModule, ProjectStore }, { BoardStore, createBoardModule, graphNotes }, { createBrowserModule }, { createCiModule }, { FakeGitHub }, { createConnectorsModule }, { ConnectorKeyring }, { createLogsModule, openLogSink }] = await Promise.all([
+  { createBlenderModule }, { createBsvModule, createBsvState }, { createCommsModule }, { createKnowledgeModule }, { createHouseModule }, { createArmoryModule }, { Store }, { VmManager }, { ProviderRuntime }, { ProviderKeys, keyFileFor }, { createProvidersModule }, { createUpdaterModule }, { createProjectsModule, ProjectStore }, { BoardStore, createBoardModule, graphNotes }, { createBrowserModule }, { createCiModule }, { FakeGitHub }, { createConnectorsModule }, { ConnectorKeyring }, { createLogsModule, openLogSink }, { createGateSuggestionsModule }] = await Promise.all([
   load('shared/config.js'), load('core/admin.js'), load('core/approvals.js'), load('core/questions.js'), load('core/bus.js'), load('core/settings.js'), load('core/engine.js'), load('core/server.js'),
   load('core/blender/index.js'), load('core/bsv/index.js'), load('core/comms/index.js'), load('core/kg/index.js'), load('core/house/index.js'), load('core/armory/index.js'), load('core/store.js'), load('core/vm-manager.js'),
-  load('core/providers/runtime.js'), load('core/providers/secrets.js'), load('core/providers/routes.js'), load('core/updater/index.js'), load('core/projects/index.js'), load('core/projects/board/index.js'), load('core/browser/index.js'), load('core/ci/index.js'), load('core/ci/fake-github.js'), load('core/connectors/index.js'), load('core/connectors/keyring.js'), load('core/log/index.js'),
+  load('core/providers/runtime.js'), load('core/providers/secrets.js'), load('core/providers/routes.js'), load('core/updater/index.js'), load('core/projects/index.js'), load('core/projects/board/index.js'), load('core/browser/index.js'), load('core/ci/index.js'), load('core/ci/fake-github.js'), load('core/connectors/index.js'), load('core/connectors/keyring.js'), load('core/log/index.js'), load('core/gate-suggestions.js'),
 ]);
 
 const log = (...a) => process.stderr.write(`[harness-core] ${a.join(' ')}\n`);
@@ -70,7 +70,7 @@ const connectors = createConnectorsModule(moduleDeps, { keys: new ConnectorKeyri
 const ci = createCiModule(moduleDeps, { github: fakeGithub, writes: () => fakeGithub.writesPort(), projects, log });
 // logs: the same module as the product, on the harness data dir
 const logs = createLogsModule(moduleDeps, { sink: openLogSink(dataDir()) });
-const modules = [kg, house, armory, createCommsModule(moduleDeps, { projects }), createProjectsModule(moduleDeps, { projects, nativeSecret }), ...boardModules, bsv, blender, ...providersModules, updater, createBrowserModule(moduleDeps, { nativeSecret, log }), connectors, ci, logs];
+const modules = [kg, house, armory, createCommsModule(moduleDeps, { projects }), createProjectsModule(moduleDeps, { projects, nativeSecret }), ...boardModules, bsv, blender, ...providersModules, updater, createBrowserModule(moduleDeps, { nativeSecret, log }), connectors, ci, logs, createGateSuggestionsModule(moduleDeps)];
 engine.setModules(modules);
 const server = createServer({
   config, store, bus, engine, vms, approvals, questions, boatConfigured, modules, bsvEnabled,

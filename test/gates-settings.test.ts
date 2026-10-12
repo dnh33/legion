@@ -74,6 +74,14 @@ test('PATCH gates: validated, applied live, and written to config.json (survives
   assert.deepEqual(again.view().gates.rules.map((r) => r.id), ['gr_a1']);
 });
 
+test('PATCH gates: learn false is kept live and on disk, a patch without it keeps it, true turns it back on', () => {
+  const { s, file } = svc();
+  assert.equal(s.patch({ gates: { rules: [], learn: false } }).gates?.learn, false);
+  assert.equal((JSON.parse(readFileSync(file, 'utf8')) as { gates: { learn?: boolean } }).gates.learn, false);
+  assert.equal(s.patch({ gates: { rules: [] } }).gates?.learn, false, 'an older writer that omits it cannot switch learning back on');
+  assert.equal(s.patch({ gates: { rules: [], learn: true } }).gates?.learn, true);
+});
+
 test('PATCH gates: a malformed rule is a 400 and config.json is untouched', () => {
   const { s, file } = svc({ port: 4747, custom: 1 });
   const before = readFileSync(file, 'utf8');
