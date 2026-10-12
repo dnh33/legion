@@ -10,6 +10,10 @@ import type { TaskOrigin } from '../../../shared/comms.js';
 import type { CoreModule, ModuleDeps } from '../../modules.js';
 import { HttpError } from '../../server.js';
 import type { Ctx } from '../../server.js';
+import { agentIdVisible } from '../../visibility.js';
+import { engineMatcher } from '../../marshal/matcher.js';
+import { MarshalDriver } from '../../marshal/driver.js';
+import type { MarshalPorts, RunState } from '../../marshal/orchestrator.js';
 import type { ProjectStore } from '../store.js';
 import { BOARD_PREAMBLE, boardDigest, runPrompt } from './prompt.js';
 import type { BoardNotes } from './notes.js';
@@ -22,13 +26,36 @@ export { registerBoardRead } from './mcp.js';
 export { graphNotes } from './notes.js';
 export type { BoardNotes } from './notes.js';
 
-export interface BoardModuleOpts { projects: ProjectStore; board: BoardStore; /** The project Library (absent in tests that do not need it): note links, automatic linking and "save what we learned". */ notes?: BoardNotes }
+export interface BoardModuleOpts {
+  projects: ProjectStore;
+  board: BoardStore;
+  /** The project Library (absent in tests that do not need it): note links, automatic linking and "save what we learned". */
+  notes?: BoardNotes;
+  /** The Marshal's clock. The app takes Date.now; a test passes its own. */
+  marshalNow?: () => number;
+  /** The Marshal's timer: starts the tick and returns the cancel function. Tests pass a no-op and call `module.marshal.tick()` themselves. */
+  marshalSchedule?: (fn: () => void, ms: number) => () => void;
+}
+/** The board module plus the Marshal's per-project driver — what the three marshal routes drive and what `dispose` stops. */
+export interface BoardModule extends CoreModule { marshal: MarshalDriver }
+
+/** The checks that decide an item (`doneWhen`): at most the ledger's own six, each a line of text. */
+const doneWhen = (v: unknown): string[] => {
+  if (!Array.isArray(v)) throw new HttpError(400, 'doneWhen must be an array of checks (one line each)');
+  if (v.length > 6) throw new HttpError(400, 'at most 6 checks: they are what decides whether this item is done');
+  return v.map((raw, n) => {
+    if (typeof raw !== 'string' || !raw.trim()) throw new HttpError(400, `check ${n + 1} must be text`);
+    const one = raw.trim();
+    if (one.length > 200) throw new HttpError(400, `check ${n + 1} is too long (max 200 characters)`);
+    return one;
+  });
+};
 
 const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v);
 /** The approval ceiling of a run on text no human has read: the same as a token client's run. */
 const UNTRUSTED_ORIGIN: TaskOrigin = { roomId: 'board', fromAgentId: 'board', hop: 0, approvalCeiling: 'ask', tainted: true };
 
-export function createBoardModule(deps: ModuleDeps, opts: BoardModuleOpts): CoreModule {
+export function createBoardModule(deps: ModuleDeps, opts: BoardModuleOpts): BoardModule {
   const { projects, board, notes } = opts;
   const wrap = <T>(fn: () => T): T => {
     try { return fn(); } catch (e) {
@@ -56,8 +83,50 @@ export function createBoardModule(deps: ModuleDeps, opts: BoardModuleOpts): Core
   try { all = projects.list(); } catch { /* the board still starts */ }
   for (const p of all) { try { board.reconcileRuns(p.id); } catch { /* this project's items stay as they were */ } }
 
+  // ---- the Marshal (C2/C3): the loop over this core's own engine, store and matcher --------------
+  // The run port carries NO model. `engine.startTask({ agentId, prompt, source: 'ui', projectId })` asked for
+  // no model at all resolves to the bot's own chosen setting, so a dispatch structurally cannot reroute where
+  // a run runs — the port has no slot to put a model in.
+  const matcher = engineMatcher({ engine: deps.engine, bus: deps.bus, store: deps.store });
+  const portsFor = (pid: string): MarshalPorts => ({
+    board,
+    agents: () => deps.store.listAgents(),
+    visible: (id) => agentIdVisible({ bsvEnabled: deps.bsvEnabled, store: deps.store }, id),
+    matcher,
+    startRun: ({ agentId, prompt }) => ({ taskId: deps.engine.startTask({ agentId, prompt, source: 'ui', projectId: pid }).id }),
+    runState: (taskId): RunState => {
+      try {
+        const t = deps.store.getTask(taskId);
+        if (!t) return { status: 'unknown' };
+        const at = Date.parse(t.updatedAt);
+        return { status: t.status, ...(Number.isFinite(at) ? { progressAt: at } : {}), ...(t.error ? { error: t.error } : {}) };
+      } catch {
+        // an unreadable task store counts as live, exactly like the board's own run lookup: never end a run on a guess
+        return { status: 'running', progressAt: Date.now() };
+      }
+    },
+    cancelRun: (taskId) => deps.engine.cancel(taskId),
+  });
+  const driver = new MarshalDriver({
+    board,
+    project: (pid) => { try { return projects.get(pid); } catch { return undefined; } },
+    ports: portsFor,
+    changed,
+    now: opts.marshalNow ?? Date.now,
+    schedule: opts.marshalSchedule ?? ((fn, ms) => { const t = setInterval(fn, ms); t.unref?.(); return () => clearInterval(t); }),
+  });
+  // Opt-in across a restart: only a project whose stored config says `enabled` gets a timer. Everything else
+  // is off until the owner switches it on through PUT .../board/marshal.
+  for (const p of all) {
+    try {
+      const cfg = board.marshalConfig(p.id);
+      if (cfg.enabled) driver.apply(p.id, cfg);
+    } catch { /* this project starts as it is */ }
+  }
+
   return {
     id: 'project-board',
+    marshal: driver,
     mcpServers: (agent, job): Record<string, McpServerConfig> => {
       // no project (or not an active one this agent belongs to) = no board tool at all
       if (!job?.projectId || !projects.forRun(job.projectId, agent.id)) return {};
@@ -92,8 +161,35 @@ export function createBoardModule(deps: ModuleDeps, opts: BoardModuleOpts): Core
       });
       add('PUT', '/api/projects/:id/board/leader', (c) => { const p = proj(c.params[0]); const b = body(c); wrap(() => board.setLeader(p, b.leader)); return out(p.id, wrap(() => board.view(proj(p.id)))); });
       add('GET', '/api/projects/:id/board', (c) => wrap(() => board.view(proj(c.params[0]))));
+      // The Marshal's picture (C2/C3): what runs and why that bot, what is blocked and why, what is next —
+      // plus its plain lines, the checks written so far, and the config that switches the loop on for this project.
+      add('GET', '/api/projects/:id/board/status', (c) => {
+        const p = proj(c.params[0]);
+        return wrap(() => ({ ...driver.status(p.id), marshal: board.marshalConfig(p.id) }));
+      });
+      // The owner's switch. Validated in the store (bounds, a real boolean), applied to the live driver at once.
+      add('PUT', '/api/projects/:id/board/marshal', (c) => {
+        const p = proj(c.params[0]);
+        const cfg = wrap(() => board.setMarshal(p, body(c)));
+        driver.apply(p.id, cfg);
+        changed(p.id);
+        return cfg;
+      });
       add('POST', '/api/projects/:id/board/items', (c) => { const p = proj(c.params[0]); return out(p.id, wrap(() => board.create(p, body(c)))); }, 201);
       add('PATCH', '/api/projects/:id/board/items/:iid', (c) => { const p = proj(c.params[0]); return out(p.id, wrap(() => board.patch(p, c.params[1]!, body(c)))); });
+      // The checks that decide an item (done_when): written before the first dispatch, shown next to the item.
+      add('PUT', '/api/projects/:id/board/items/:iid/dispatch', (c) => {
+        const p = proj(c.params[0]);
+        if (p.status === 'archived') throw new HttpError(409, 'This project is archived: its board is read-only. Unarchive it first.');
+        const checks = doneWhen(body(c).doneWhen);
+        const item: WorkItem | undefined = wrap(() => board.get(p.id, c.params[1]!));
+        if (!item || item.proposal) throw new HttpError(404, 'Unknown item');
+        const marshal = driver.marshalFor(p.id);
+        if (!marshal) throw new HttpError(404, `Unknown project "${p.id}"`);
+        marshal.writeDoneWhen(item.id, checks);
+        changed(p.id);
+        return { itemId: item.id, doneWhen: marshal.ledger.doneWhen(item.id) ?? [] };
+      });
       add('POST', '/api/projects/:id/board/items/:iid/move', (c) => { const p = proj(c.params[0]); const b = body(c); return out(p.id, wrap(() => board.move(p, c.params[1]!, b.status, b.index))); });
       add('DELETE', '/api/projects/:id/board/items/:iid', (c) => { const p = proj(c.params[0]); wrap(() => board.remove(p, c.params[1]!)); return out(p.id, { ok: true }); });
       // "Save what we learned": the owner writes a project note about an item (the owner edits the text first in the app); it is linked to the item
@@ -136,5 +232,7 @@ export function createBoardModule(deps: ModuleDeps, opts: BoardModuleOpts): Core
         return { item: next, task, limited: untrusted };
       }, 201);
     },
+    // the loop's timers stop with the core; the Marshals and their ledgers are just objects
+    dispose: () => driver.dispose(),
   };
 }

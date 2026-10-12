@@ -84,15 +84,26 @@ export class Marshal {
   /** The last block reason per item, so `status` can show it even after the board dropped the item. */
   private readonly blocked = new Map<string, BlockedItem>();
 
-  constructor(private readonly ports: MarshalPorts, private readonly project: ProjectRef, options: { ledger?: AttemptLedger; waveSize?: number; stallMs?: number; escalateAfterStalls?: number } = {}) {
+  constructor(private readonly ports: MarshalPorts, private project: ProjectRef, options: { ledger?: AttemptLedger; waveSize?: number; stallMs?: number; escalateAfterStalls?: number } = {}) {
     this.ledger = options.ledger ?? Marshal.loadLedger(ports.board, project);
     this.waveSize = Math.max(1, options.waveSize ?? WAVE_SIZE);
     this.stallMs = Math.max(1, options.stallMs ?? STALL_MS);
     this.escalateAfterStalls = Math.max(1, options.escalateAfterStalls ?? ESCALATE_AFTER_STALLS);
   }
-  readonly waveSize: number;
-  readonly stallMs: number;
+  waveSize: number;
+  stallMs: number;
   readonly escalateAfterStalls: number;
+
+  /**
+   * The owner changed the config, or the project's shape changed (a member joined or left), while the loop
+   * runs: the next pass takes both. Only the bounds and the roster move — the ledger and the runs in flight
+   * are untouched, so a settings change never restarts, forgets or double-books anything.
+   */
+  reconfigure(o: { waveSize?: number; stallMs?: number; project?: ProjectRef }): void {
+    if (o.waveSize !== undefined) this.waveSize = Math.max(1, Math.round(o.waveSize));
+    if (o.stallMs !== undefined) this.stallMs = Math.max(1, Math.round(o.stallMs));
+    if (o.project) this.project = o.project;
+  }
 
   /** The ledger as the board holds it: every item's sidecar, read once at construction. */
   private static loadLedger(board: BoardStore, project: ProjectRef): AttemptLedger {
