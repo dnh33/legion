@@ -57,6 +57,9 @@ export interface CandidateSetup {
 
 const UNTRUSTED = 'This item was written by an agent and the owner has not reviewed it. Untrusted board text never selects a bot: mark the text reviewed and the Marshal will route it.';
 
+/** The injection guard's own line, when an item's text an agent wrote must not select a bot. */
+export const untrustedRefusal = (item: Pick<WorkItem, 'trust'>): string | undefined => (item.trust === 'human' ? undefined : UNTRUSTED);
+
 const base = (outcome: MatchOutcome, reason: string, extra: Partial<AssignmentRecord> = {}): AssignmentRecord => ({
   botId: null, reason, matched: [], considered: [], confidence: 0, outcome, ...extra,
 });

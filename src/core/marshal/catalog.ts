@@ -111,8 +111,8 @@ export function catalogOfAll(agents: readonly AgentProfile[], visible: (a: Agent
   return agents.filter((a) => visible(a)).map(catalogOf);
 }
 
-/** Why one bot may not take a task, in one human line. */
-export interface Exclusion { id: string; why: string }
+/** Why one bot may not take a task, in one human line. `transient` marks a reason that passes with time (a busy bot). */
+export interface Exclusion { id: string; why: string; transient?: boolean }
 
 /** What the dispatch loop knows that a matcher must not have to: membership, feature switches, load, and history. */
 export interface CandidateCtx {
@@ -136,7 +136,7 @@ export function eligible(catalog: readonly BotCatalogEntry[], ctx: CandidateCtx)
   for (const b of catalog) {
     if (!ctx.members.includes(b.id)) { excluded.push({ id: b.id, why: 'not a member of this project' }); continue; }
     if (!ctx.visible(b.id)) { excluded.push({ id: b.id, why: 'switched off (its feature is off)' }); continue; }
-    if (ctx.busy(b.id)) { excluded.push({ id: b.id, why: 'already working on another item' }); continue; }
+    if (ctx.busy(b.id)) { excluded.push({ id: b.id, why: 'already working on another item', transient: true }); continue; }
     const reuse = ctx.reuse(b.id);
     if (!reuse.ok) { excluded.push({ id: b.id, why: reuse.why }); continue; }
     candidates.push(b);

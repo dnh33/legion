@@ -443,6 +443,24 @@ export class BoardStore {
     return [...new Set(v as string[])];
   }
 
+  /**
+   * The Marshal's own move (system actor): flag an item blocked with the reason, or send a failed item back
+   * for another try. Only those two columns — closing an item stays the owner's, and a live run's item is
+   * never moved out from under it.
+   */
+  systemMove(proj: ProjectRef, id: string, status: 'blocked' | 'backlog', note: string): WorkItem {
+    const b = this.writable(proj);
+    const i = this.must(b, id);
+    if (i.proposal) throw new BoardError(409, 'This item is waiting in the Inbox.');
+    if (this.liveRun(i).live) throw new BoardError(409, 'This item has a run in progress. End the run first.');
+    const by: BoardActor = { kind: 'system' };
+    if (i.status !== status) this.place(b, i, status, undefined, by);
+    this.note(i, by, 'marshal', note);
+    this.touch(i, by);
+    this.save(b, i);
+    return structuredClone(i);
+  }
+
   /** Adds Library note links to an item (the caller has checked that the notes exist in this project). Keeps the newest few. */
   linkNotes(pid: string, id: string, noteIds: string[], by: BoardActor): WorkItem | undefined {
     const b = this.board(pid);

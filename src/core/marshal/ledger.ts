@@ -134,7 +134,8 @@ export class AttemptLedger {
 
   /**
    * A run ended. `reassign` marks the owner's bot as history (the item is moving on: forward-only from
-   * here). A failed or stalled run that does not reassign leaves the bot eligible for one send-back.
+   * here). A failed or stalled run that does not reassign leaves the bot eligible for one send-back. A
+   * finished run frees the item without scorning the bot: done is not a reassignment.
    */
   runEnded(itemId: string, outcome: 'done' | 'failed' | 'stalled' | 'cancelled', reassign = false): void {
     const s = this.items.get(itemId);
@@ -142,6 +143,6 @@ export class AttemptLedger {
     const was = s.owner;
     delete s.owner;
     if (outcome === 'stalled') s.stalls++;
-    if (was && (reassign || outcome === 'done' || this.attempts(itemId, was) >= MAX_ATTEMPTS_PER_BOT)) s.history.add(was);
+    if (was && (reassign || this.attempts(itemId, was) >= MAX_ATTEMPTS_PER_BOT)) s.history.add(was);
   }
 }
