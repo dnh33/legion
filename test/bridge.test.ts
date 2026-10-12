@@ -432,3 +432,31 @@ test('agents tool: a bot\'s whole description reaches the lead, safety tail incl
   assert.match(line, /Reports, never upgrades\./);
   assert.match(line, /^scout \| Scout \| .* \| idle \| no-thread$/, 'still one line: a newline in the description does not break the table');
 });
+
+test('the lead\'s send-back rule is code: one goal goes to one agent at most three times (two send-backs), and never back once it moved on', async () => {
+  const results: Array<{ step: string; isError?: boolean; text: string }> = [];
+  const brief = (goal: string) => ({ goal, done_when: ['the test passes'] });
+  const s = setup((c) => c.agent !== 'zealot' ? undefined : (async function* () {
+    yield init('z-sendback');
+    const send = async (step: string, agent: string, goal: string) => {
+      const r = await callTool(c.options, 'ask', { agent, brief: brief(goal), timeoutSeconds: 5 });
+      results.push({ step, isError: r.isError, text: r.text });
+    };
+    await send('1st', 'builder', 'Fix the export test');
+    await send('2nd', 'builder', '  fix the EXPORT test ');
+    await send('3rd', 'builder', 'Fix the export test');
+    await send('4th', 'builder', 'Fix the export test');
+    await send('other goal', 'builder', 'Write the changelog');
+    await send('moved', 'scout', 'Fix the export test');
+    await send('back', 'builder', 'Fix the export test');
+    yield ok('x', 'z-sendback');
+  })(), 4);
+  await s.engine.waitFor(s.engine.startTask({ agentId: 'zealot', prompt: 'go', source: 'ui' }).id, 20_000);
+  const by = (step: string) => results.find((r) => r.step === step)!;
+  for (const step of ['1st', '2nd', '3rd', 'other goal', 'moved']) assert.ok(!by(step).isError, `${step}: ${by(step).text}`);
+  assert.equal(by('4th').isError, true);
+  assert.match(by('4th').text, /two send-backs|3 times/i);
+  assert.match(by('4th').text, /another agent|open/i);
+  assert.equal(by('back').isError, true);
+  assert.match(by('back').text, /moved|does not go back/i);
+});
