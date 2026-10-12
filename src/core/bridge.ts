@@ -4,7 +4,7 @@ import { overrideAllowed, overrideRefusal } from './model-cap.js';
 import type { AgentProfile, Catalog, ChatMessage, ConcreteModel, ModelChoice, Task, TaskSource } from '../shared/types.js';
 import type { TaskOrigin } from '../shared/comms.js';
 import { scrubSecrets } from './comms/scrub.js';
-import { ResultStore } from './result-store.js';
+import { fullResultPointer, ResultStore } from './result-store.js';
 import { briefBudget, renderBrief, verdictOf } from './brief.js';
 import type { Brief } from './brief.js';
 import type { EventBus } from './bus.js';
@@ -319,8 +319,13 @@ export class Bridge {
   private clip(text: string, taskId: string): { text: string; resultId?: string } {
     if (text.length <= RESULT_MAX_CHARS) return { text };
     let resultId: string | undefined;
-    try { resultId = this.results.put(taskId, text); } catch { /* not kept: the cut still says so */ }
-    const rest = text.length - RESULT_MAX_CHARS;
+    let total = text.length;
+    // a task row cut at the store's size already points to the whole reply: point the caller there, not to the cut copy
+    const full = fullResultPointer(text);
+    const whole = full && full.taskId === taskId ? this.results.get(taskId, full.resultId) : undefined;
+    if (full && whole !== undefined) { resultId = full.resultId; total = whole.length; text = whole; }
+    else { try { resultId = this.results.put(taskId, text); } catch { /* not kept: the cut still says so */ } }
+    const rest = total - RESULT_MAX_CHARS;
     const pointer = resultId
       ? `[truncated: ${rest} more chars. The full result is kept: call task_result with taskId "${taskId}" and resultId "${resultId}" (it comes in pages).]`
       : `[truncated: ${rest} more chars, and the full text could not be kept]`;

@@ -13,7 +13,7 @@ import { BUDGET_LIMIT_PREFIX, CONTINUE_PROMPT, TURN_LIMIT_PREFIX, budgetCap, for
 import { clampBudget } from './brief.js';
 import { InputChannel } from './input-channel.js';
 import { BackgroundTasks } from './background-tasks.js';
-import { capStored } from './result-store.js';
+import { capStored, RESULT_STORE_MAX } from './result-store.js';
 import { contextTokensOf } from '../shared/context-meter.js';
 import { isLegionTool, needsApproval, stricterMode, LEGION_SERVER_NAMES } from './approvals.js';
 import { decideGate } from './gates.js';
@@ -572,6 +572,15 @@ export class Engine {
     const cur = this.store.getTask(taskId);
     if (!cur) return undefined;
     return this.saveTask({ ...cur, ...patch });
+  }
+
+  /**
+   * The task row's copy of a reply. A reply longer than the row holds is kept whole in the result store first, and the
+   * row's visible note points there, so no character is lost (the owner's no-silent-truncation rule): only this copy is cut.
+   */
+  private keepResult(taskId: string, text: string): string {
+    if (text.length <= RESULT_STORE_MAX) return text;
+    try { return capStored(text, RESULT_STORE_MAX, { taskId, resultId: this.bridge.results.put(taskId, text) }); } catch { return capStored(text); }
   }
 
   private addMessage(taskId: string, role: MessageRole, text: string, toolName?: string, fromAgentId?: string, extra?: Partial<ChatMessage>): ChatMessage {
@@ -1424,7 +1433,7 @@ This run read connector (GitHub) data and other outside text. Web access can sen
         ...(r.usageUnknown || !r.usage || cur?.tokenUsage?.unknown ? { unknown: true } : {}),
       },
       ...(r.costUsd !== undefined ? { costUsd: (cur?.costUsd ?? 0) + r.costUsd } : {}),
-      ...(!r.isError && r.resultText !== undefined ? { result: capStored(r.resultText) } : {}),
+      ...(!r.isError && r.resultText !== undefined ? { result: this.keepResult(taskId, r.resultText) } : {}),
     });
     return { subtype: r.subtype, isError: r.isError, errorText: r.isError ? r.errorText : undefined };
   }
@@ -1674,7 +1683,7 @@ This run read connector (GitHub) data and other outside text. Web access can sen
           costUsd: (cur?.costUsd ?? 0) + (typeof msg.total_cost_usd === 'number' ? msg.total_cost_usd : 0),
           turns: (cur?.turns ?? 0) + (typeof msg.num_turns === 'number' ? msg.num_turns : 0),
           ...(typeof msg.session_id === 'string' && !cur?.sessionId ? { sessionId: msg.session_id } : {}),
-          ...(!isError && text !== undefined ? { result: capStored(text) } : {}),
+          ...(!isError && text !== undefined ? { result: this.keepResult(taskId, text) } : {}),
         });
         return { subtype: String(msg.subtype), isError, errorText: isError ? text : undefined };
       }
