@@ -16,6 +16,9 @@ import { capStored } from './result-store.js';
 import { contextTokensOf } from '../shared/context-meter.js';
 import { isLegionTool, needsApproval, stricterMode, LEGION_SERVER_NAMES } from './approvals.js';
 import { TaintedPaths } from './tainted-paths.js';
+import { buildHostToolsServer } from './exec/host-tools.js';
+import { DirectHostBackend } from './exec/direct-host.js';
+import { clampExecLimits } from './exec/limits.js';
 import { CONTINUE_REFUSED } from './connector-withhold.js';
 import type { CoreModule, ModuleJob, PreambleContext, TaskEndOutcome } from './modules.js';
 import type { TaskOrigin } from '../shared/comms.js';
@@ -824,6 +827,16 @@ export class Engine {
       claudeAvailable: this.vms.claudeAvailable?.() ?? true, // vm_claude is hidden while Claude is known not to be set up on boat.dev
       ...(job.origin ? { origin: { roomId: job.origin.roomId, fromAgentId: job.origin.fromAgentId, hop: job.origin.hop } } : {}),
     });
+    // The agent shell: host shell/file tools, only for an agent that opted in. The names are `mcp__host__*` (NOT
+    // Legion's own), so needsApproval raises a card and taintsRun marks the run; `host` grants the TOOLS, the agent's
+    // `approval` mode decides whether each call is carded. An absent `host` = no tools (the opt-in gate).
+    if (agent.host?.enabled) {
+      out.host = buildHostToolsServer({
+        agentId: agent.id, taskId,
+        rootDir: agent.host.rootDir ?? agent.cwd ?? join(this.config.workspaceDir, agent.id),
+        backend: new DirectHostBackend({ limits: clampExecLimits({ timeoutSeconds: agent.host.timeoutSeconds }) }),
+      });
+    }
     const moduleJob: ModuleJob = {
       taskId, ...(job.origin ? { origin: job.origin, ceiling: job.origin.approvalCeiling } : {}),
       taint: () => act.tainted || job.origin?.tainted === true,

@@ -28,6 +28,20 @@ export interface AgentVmSettings {
   idleStopMinutes: number;
 }
 
+/**
+ * The agent shell: run commands and read/write files on THIS machine. An explicit opt-in (absent = off), like
+ * `connectors`. It grants the TOOLS; the agent's `approval` mode still decides whether each call needs a card.
+ * `rootDir` scopes read_file/write_file and the shell's cwd (default: the agent's `cwd`).
+ */
+export interface AgentHostSettings {
+  /** Turn the host shell/file tools on for this agent. A present `host` must say so explicitly. */
+  enabled: boolean;
+  /** Scope root for the file tools and shell cwd. Absolute. Defaults to the agent's `cwd` (workspaceDir/<id>). */
+  rootDir?: string;
+  /** Default command timeout in seconds (default 120). */
+  timeoutSeconds?: number;
+}
+
 export interface AgentProfile {
   id: string;            // slug, e.g. "zealot", "researcher"
   name: string;          // display name
@@ -57,6 +71,8 @@ export interface AgentProfile {
   skills?: 'inherit' | string[];
   /** Working directory for local file tools. Absolute. Defaults to LegionConfig.workspaceDir/<id>. */
   cwd?: string;
+  /** The agent shell (host shell/file tools). Absent = off. See AgentHostSettings. */
+  host?: AgentHostSettings;
   /** Hidden from lists and the rail until this optional feature is on (e.g. the Assayer needs the BSV Dev Kit). */
   requires?: 'bsv';
   createdAt: string;     // ISO
