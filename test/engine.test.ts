@@ -793,6 +793,81 @@ test('continue while running -> 409', async () => {
   await s.engine.waitFor(t.id, 3000);
 });
 
+/** A deny rule on a folder, by absolute path, for the gate tests below. */
+const denyPaths = (paths: string[]) => (c: any) => { c.gates = { rules: [{ id: 'gr_t1', enabled: true, then: 'deny', label: 'no secrets', source: 'user', when: { paths } }], presetsVersion: 0 }; };
+const hanging = () => (async function* () { yield init(); await new Promise<void>(() => undefined); })();
+
+test('a path deny rule holds for a RELATIVE path too: the gate resolves it against the agent folder (ask mode, canUseTool)', async () => {
+  let ws = '';
+  const s = setup(hanging, { agent: { approval: 'ask' }, config: (c) => { ws = c.workspaceDir; denyPaths([join(c.workspaceDir, 'a1', 'secrets', '**').replace(/\\/g, '/')])(c); } });
+  const t = s.engine.startTask({ agentId: 'a1', prompt: 'x', source: 'ui' });
+  await new Promise((r) => setTimeout(r, 30));
+  const use = s.calls[0]!.options.canUseTool;
+  const sig = { signal: new AbortController().signal };
+  for (const p of ['secrets/key.txt', 'x/../secrets/key.txt', join(ws, 'a1', 'secrets', 'key.txt')]) {
+    assert.deepEqual(await use('Read', { file_path: p }, sig), { behavior: 'deny', message: 'Blocked by a gate rule (Settings -> Gates).' }, p);
+  }
+  s.engine.cancel(t.id);
+  await s.engine.waitFor(t.id, 3000);
+});
+
+test('a path deny rule holds for a relative path in full mode too (the PreToolUse hook), and for a host tool against its own root', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'legion-gate-root-'));
+  const s = setup(hanging, { agent: { approval: 'full', host: { enabled: true, rootDir: root } }, config: (c) => denyPaths([join(c.workspaceDir, 'a1', 'secrets', '**').replace(/\\/g, '/'), join(root, 'vault', '**').replace(/\\/g, '/')])(c) });
+  const t = s.engine.startTask({ agentId: 'a1', prompt: 'x', source: 'ui' });
+  await new Promise((r) => setTimeout(r, 30));
+  const hooks: any[] = s.calls[0]!.options.hooks.PreToolUse.filter((h: any) => h.matcher === '.*').flatMap((h: any) => h.hooks);
+  assert.equal(hooks.length, 1);
+  const ask = async (tool: string, input: unknown) => (await hooks[0]({ hook_event_name: 'PreToolUse', tool_name: tool, tool_input: input }))?.hookSpecificOutput?.permissionDecision ?? 'allow';
+  assert.equal(await ask('Read', { file_path: 'secrets/key.txt' }), 'deny');
+  assert.equal(await ask('Read', { file_path: 'src/a.ts' }), 'allow');
+  // a host tool's relative path means a path under its root (resolveWithin), so the gate reads it the same way
+  assert.equal(await ask('mcp__host__read_file', { path: 'vault/key.txt' }), 'deny');
+  assert.equal(await ask('mcp__host__read_file', { path: 'src/a.ts' }), 'allow');
+  s.engine.cancel(t.id);
+  await s.engine.waitFor(t.id, 3000);
+});
+
+test('demoting a full-access agent to ask takes effect on the running run\'s next tool call (bypass mode re-reads the mode)', async () => {
+  const s = setup(hanging, { agent: { approval: 'full' } });
+  const t = s.engine.startTask({ agentId: 'a1', prompt: 'x', source: 'ui' });
+  await new Promise((r) => setTimeout(r, 30));
+  assert.equal(s.calls[0]!.options.permissionMode, 'bypassPermissions');
+  const hook = s.calls[0]!.options.hooks.PreToolUse.filter((h: any) => h.matcher === '.*').flatMap((h: any) => h.hooks)[0];
+  const decide = (tool: string, input: unknown) => hook({ hook_event_name: 'PreToolUse', tool_name: tool, tool_input: input });
+  // still full: no card, the call goes ahead
+  assert.equal((await decide('Bash', { command: 'ls' }))?.hookSpecificOutput?.permissionDecision, undefined);
+  assert.equal(s.approvals.pending().length, 0);
+  // the owner demotes the agent while it works
+  s.store.agents.set('a1', { ...s.store.getAgent('a1')!, approval: 'ask' });
+  const pending = decide('Bash', { command: 'rm -rf build' });
+  await new Promise((r) => setTimeout(r, 10));
+  assert.equal(s.approvals.pending().length, 1, 'the next call asks, as an ask agent\'s would');
+  s.approvals.resolve(s.approvals.pending()[0]!.id, false);
+  const out = await pending;
+  assert.equal(out?.hookSpecificOutput?.permissionDecision, 'deny');
+  assert.match(out?.hookSpecificOutput?.permissionDecisionReason ?? '', /denied/);
+  // a read-only tool still needs no card in ask
+  assert.equal((await decide('Read', { file_path: 'a.txt' }))?.hookSpecificOutput?.permissionDecision, undefined);
+  // promoted again: no card
+  s.store.agents.set('a1', { ...s.store.getAgent('a1')!, approval: 'full' });
+  assert.equal((await decide('Bash', { command: 'ls' }))?.hookSpecificOutput?.permissionDecision, undefined);
+  assert.equal(s.approvals.pending().length, 0);
+  s.engine.cancel(t.id);
+  await s.engine.waitFor(t.id, 3000);
+});
+
+test('in full mode the hooks that can wait on a card allow at least the card\'s own wait (a hook timeout would stop the run instead)', async () => {
+  const s = setup(hanging, { agent: { approval: 'full' }, approvalTimeoutMs: 600_000 });
+  const t = s.engine.startTask({ agentId: 'a1', prompt: 'x', source: 'ui' });
+  await new Promise((r) => setTimeout(r, 30));
+  const carding = s.calls[0]!.options.hooks.PreToolUse.filter((h: any) => h.matcher === '.*' || h.matcher === 'WebFetch|WebSearch');
+  assert.equal(carding.length, 2);
+  for (const h of carding) assert.ok(typeof h.timeout === 'number' && h.timeout >= 600, `${h.matcher}: timeout ${h.timeout}`);
+  s.engine.cancel(t.id);
+  await s.engine.waitFor(t.id, 3000);
+});
+
 test('cancel: aborts run, status cancelled, pending approvals denied', async () => {
   const s = setup((p) => (async function* () {
     yield init();

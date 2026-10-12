@@ -149,6 +149,8 @@ export class ApprovalBroker {
   private readonly timeoutMs: number;
   /** How long a card waits for an answer before it is denied, in words ("10 minutes"). For messages that explain a timeout. */
   get timeoutWait(): string { return describeWait(this.timeoutMs); }
+  /** The same wait in whole seconds: a hook that awaits a card must be given at least this long. */
+  get timeoutSeconds(): number { return Math.ceil(this.timeoutMs / 1000); }
   constructor(private readonly bus: EventBus, opts?: { timeoutMs?: number }) {
     this.timeoutMs = opts?.timeoutMs ?? 10 * 60 * 1000;
   }

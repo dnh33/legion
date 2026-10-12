@@ -87,3 +87,30 @@ test('a continued provider conversation keeps its task list: the next run lists 
   } finally { await f.close(); }
 });
 
+test('end to end: a provider run\'s mcp__host__shell call really runs on this host, inside its root, without Legion\'s key', async () => {
+  const { mkdtempSync } = await import('node:fs');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+  const root = mkdtempSync(join(tmpdir(), 'legion-host-e2e-'));
+  const prev = process.env.ANTHROPIC_API_KEY;
+  process.env.ANTHROPIC_API_KEY = 'sk-' + 'ant-must-not-reach-the-shell';
+  let n = 0;
+  const f = await startFake((_r, res) => {
+    n++;
+    if (n === 1) replyTools(res, [{ id: 's1', name: 'mcp__host__shell', args: { command: 'node -e "console.log(process.cwd()); console.log(\'KEY=\' + (process.env.ANTHROPIC_API_KEY || \'absent\'))"' } }]);
+    else replyText(res, 'done');
+  });
+  try {
+    const h = setup(f, { agent: { approval: 'full', host: { enabled: true, rootDir: root } } });
+    const t = await run(h);
+    assert.equal(t.status, 'done');
+    const out = toolMsg(f.requests[1]!, 's1');
+    assert.match(out, /exit code: 0/);
+    assert.ok(out.toLowerCase().includes(root.toLowerCase()), `ran in its root: ${out}`);
+    assert.match(out, /KEY=absent/);
+    assert.ok(t.tainted, 'a host call taints the run');
+  } finally {
+    await f.close();
+    if (prev === undefined) delete process.env.ANTHROPIC_API_KEY; else process.env.ANTHROPIC_API_KEY = prev;
+  }
+});

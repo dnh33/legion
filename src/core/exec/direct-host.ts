@@ -58,7 +58,7 @@ class DirectRun implements RunningExec {
   private pending: ((v: IteratorResult<StreamEvent>) => void)[] = [];
   private finished = false;
 
-  constructor(private readonly req: ExecRequest, private readonly limits: ExecLimits) {
+  constructor(private readonly req: ExecRequest, private readonly limits: ExecLimits, private readonly baseEnv?: Record<string, string | undefined>) {
     this.result = new Promise<ExecResult>((res, rej) => { this.resolveResult = res; this.rejectResult = rej; });
 
     const env = validateEnv(req.env);
@@ -66,7 +66,7 @@ class DirectRun implements RunningExec {
     this.proc = spawn(req.cmd, {
       shell: true,
       cwd,
-      env: { ...process.env, ...env },
+      env: { ...(this.baseEnv ?? process.env), ...env },
       detached: platform() !== 'win32',
       windowsHide: true,
       stdio: ['pipe', 'pipe', 'pipe'],
@@ -196,11 +196,14 @@ class DirectRun implements RunningExec {
 export class DirectHostBackend implements ExecutionBackend {
   readonly name = 'direct-host';
   private readonly limits: ExecLimits;
-  constructor(options?: { limits?: ExecLimits }) {
+  /** The environment every command starts from. Absent: this process's own (the engine always passes a scrubbed one). */
+  private readonly env?: Record<string, string | undefined>;
+  constructor(options?: { limits?: ExecLimits; env?: Record<string, string | undefined> }) {
     this.limits = clampExecLimits(options?.limits ?? DEFAULT_EXEC_LIMITS);
+    this.env = options?.env;
   }
   capabilities(): BackendCaps { return { shell: true, perCallCwd: true, streaming: true, remote: false }; }
-  execute(req: ExecRequest): Promise<ExecResult> { return new DirectRun(req, this.limits).waitForExit(); }
-  start(req: ExecRequest): RunningExec { return new DirectRun(req, this.limits); }
+  execute(req: ExecRequest): Promise<ExecResult> { return new DirectRun(req, this.limits, this.env).waitForExit(); }
+  start(req: ExecRequest): RunningExec { return new DirectRun(req, this.limits, this.env); }
   async cleanup(): Promise<void> { /* each run is killed through its own handle; nothing global to release */ }
 }

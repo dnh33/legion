@@ -229,6 +229,33 @@ export function buildChildEnv(config: LegionConfig, opts?: { probe?: boolean }):
   return env;
 }
 
+/** Environment variables that hold Legion's own credentials. */
+const LEGION_CREDENTIAL_ENV = new Set(['ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN', 'BOAT_API_KEY']);
+
+/**
+ * The environment the agent shell (host tools) starts from. Legion's own credentials are not the agent's: the Anthropic
+ * key and token, the boat key, and any variable whose value holds the bearer token or a configured key are left out, so a
+ * command (`set`, `env`, a curl that sends a variable) does not get them from its environment. Everything else is kept,
+ * including credentials the owner set up for the work itself (a GITHUB_TOKEN for git push): the approval card is the
+ * check on those.
+ *
+ * Known limit, stated rather than hidden: the shell runs as the user, so it can still READ Legion's own files
+ * (`~/.legion/config.json`, or LEGION_HOME) where those keys are kept. Only a sandboxed backend closes that.
+ */
+export function buildHostShellEnv(config: LegionConfig): Record<string, string> {
+  // a section that is not there has no key in it: the named variables are still dropped
+  const secrets = [config.authToken, config.claude?.apiKey, config.boat?.apiKey]
+    .filter((s): s is string => typeof s === 'string' && s.length >= 8).map((s) => s.toLowerCase());
+  const out: Record<string, string> = {};
+  for (const [k, v] of Object.entries(scrubHostSessionEnv({ ...process.env }))) {
+    if (v === undefined || LEGION_CREDENTIAL_ENV.has(k.toUpperCase())) continue;
+    const lower = v.toLowerCase();
+    if (secrets.some((s) => lower.includes(s))) continue;
+    out[k] = v;
+  }
+  return out;
+}
+
 interface Job {
   taskId: string; agentId: string; prompt: string; choice: ModelChoice; priorModel?: ConcreteModel;
   /** One-line bridge header prepended to what Claude sees (not stored). */
@@ -863,8 +890,8 @@ export class Engine {
     if (agent.host?.enabled) {
       out.host = buildHostToolsServer({
         agentId: agent.id, taskId,
-        rootDir: agent.host.rootDir ?? agent.cwd ?? join(this.config.workspaceDir, agent.id),
-        backend: new DirectHostBackend({ limits: clampExecLimits({ timeoutSeconds: agent.host.timeoutSeconds }) }),
+        rootDir: this.hostRootOf(agent),
+        backend: new DirectHostBackend({ limits: clampExecLimits({ timeoutSeconds: agent.host.timeoutSeconds }), env: buildHostShellEnv(this.config) }),
       });
     }
     const moduleJob: ModuleJob = {
@@ -1014,6 +1041,19 @@ export class Engine {
     }
   }
 
+  /** Where the agent shell runs and its file paths resolve (host-tools.ts resolveWithin). */
+  private hostRootOf(agent: AgentProfile): string {
+    return agent.host?.rootDir ?? agent.cwd ?? join(this.config.workspaceDir, agent.id);
+  }
+
+  /**
+   * The folder a tool call's relative paths mean, so a path gate rule reads `secrets/key.txt` as the file it names: the
+   * agent shell's root for its own tools, the agent's working folder for everything else.
+   */
+  private gateCwd(agent: AgentProfile, toolName: string): string {
+    return toolName.startsWith('mcp__host__') ? this.hostRootOf(agent) : (agent.cwd || join(this.config.workspaceDir, agent.id));
+  }
+
   private agentCwd(agentId: string): string {
     const agent = this.store.getAgent(agentId);
     return agent?.cwd || join(this.config.workspaceDir, agentId);
@@ -1044,7 +1084,7 @@ This run read connector (GitHub) data and other outside text. Web access can sen
    * The approval decision for one tool call, shared by the Claude path (canUseTool) and the provider path: effective mode (never looser
    * than the run's ceiling), then needsApproval, then a card the user answers (10 minutes, then denied).
    */
-  private toolDecider(job: Job, agent: AgentProfile): (toolName: string, input: Record<string, unknown>) => Promise<{ allow: boolean; message?: string }> {
+  private toolDecider(job: Job, agent: AgentProfile, opts: { egress?: boolean } = {}): (toolName: string, input: Record<string, unknown>) => Promise<{ allow: boolean; message?: string }> {
     const ceiling = job.origin?.approvalCeiling;
     const effective = (): ApprovalMode => {
       const mode = this.store.getAgent(agent.id)?.approval ?? agent.approval;
@@ -1053,12 +1093,12 @@ This run read connector (GitHub) data and other outside text. Web access can sen
     return async (toolName, input) => {
       // web egress after connector data: a card in every mode (maintainer decision 2026-10-07)
       // (no await when no card is due: the card of a normal tool must still be raised synchronously)
-      const egress = this.webEgressCard(job, agent, toolName, input);
+      const egress = opts.egress === false ? undefined : this.webEgressCard(job, agent, toolName, input);
       if (egress) return egress;
       const mode = effective();
       // Gate rules (Settings -> Gates) sit ahead of the approval baseline: deny wins outright (and survives full), an
       // explicit allow skips the card, an ask forces one (inert in full), and no rule falls through to the baseline.
-      const gate = decideGate({ toolName, input, agentId: agent.id, projectId: this.projectOf(job.taskId, agent.id)?.id, ctx: { roomHop: (job.origin?.hop ?? 0) > 0, tainted: this.active.get(job.taskId)?.tainted === true || job.origin?.tainted === true, connectorData: this.store.getTask(job.taskId)?.usedConnectors === true } }, gatesFor(this.config).rules, mode, job.origin?.approvalCeiling === 'ask');
+      const gate = decideGate({ toolName, input, agentId: agent.id, cwd: this.gateCwd(agent, toolName), projectId: this.projectOf(job.taskId, agent.id)?.id, ctx: { roomHop: (job.origin?.hop ?? 0) > 0, tainted: this.active.get(job.taskId)?.tainted === true || job.origin?.tainted === true, connectorData: this.store.getTask(job.taskId)?.usedConnectors === true } }, gatesFor(this.config).rules, mode, job.origin?.approvalCeiling === 'ask');
       if (gate.verdict === 'deny') return { allow: false, message: 'Blocked by a gate rule (Settings -> Gates).' };
       if (gate.verdict === 'allow') return { allow: true };
       if (gate.verdict !== 'ask' && !needsApproval(mode, toolName, { capped: job.origin?.approvalCeiling === 'ask' })) return { allow: true };
@@ -1176,18 +1216,28 @@ This run read connector (GitHub) data and other outside text. Web access can sen
       return ceiling ? stricterMode(mode, ceiling) : mode;
     };
     if (agent.approval === 'full' && !(ceiling && ceiling !== 'full')) {
+      // a hook that awaits a card gets the card's own wait and a minute more: a hook timeout would stop the run, not deny the call
+      const cardHookSeconds = this.approvals.timeoutSeconds + 60;
       options.permissionMode = 'bypassPermissions';
       options.allowDangerouslySkipPermissions = true;
       // bypass mode has no canUseTool: the web-egress card is raised from a PreToolUse hook instead (never both, so one card per call)
-      options.hooks?.PreToolUse?.push({ matcher: 'WebFetch|WebSearch', hooks: [async (input) => {
+      options.hooks?.PreToolUse?.push({ matcher: 'WebFetch|WebSearch', timeout: cardHookSeconds, hooks: [async (input) => {
         if (input.hook_event_name !== 'PreToolUse') return { continue: true };
         const d = await this.webEgressCard(job, agent, input.tool_name, (input.tool_input ?? {}) as Record<string, unknown>);
         return d && !d.allow ? preToolDeny(d.message ?? 'The user denied this web request.') : { continue: true };
       }] });
+      // The run started in full, but the owner may demote the agent while it works: bypass mode cannot be left, so this hook
+      // re-reads the mode on every call and, once it is no longer full, decides the call as that mode would, card included.
+      // (The web-egress card has its own hook above, so it is left out here: one card per call.)
+      const demoted = this.toolDecider(job, agent, { egress: false });
       // deny rules survive Full (the one class meant to): a Block rule still stops the tool here, where canUseTool does not exist.
-      options.hooks?.PreToolUse?.push({ matcher: '.*', hooks: [async (input) => {
+      options.hooks?.PreToolUse?.push({ matcher: '.*', timeout: cardHookSeconds, hooks: [async (input) => {
         if (input.hook_event_name !== 'PreToolUse') return { continue: true };
-        const g = decideGate({ toolName: input.tool_name, input: (input.tool_input ?? {}) as Record<string, unknown>, agentId: agent.id, projectId: this.projectOf(job.taskId, agent.id)?.id, ctx: { roomHop: (job.origin?.hop ?? 0) > 0, tainted: this.active.get(job.taskId)?.tainted === true || job.origin?.tainted === true, connectorData: this.store.getTask(job.taskId)?.usedConnectors === true } }, gatesFor(this.config).rules, 'full', false);
+        if (effective() !== 'full') {
+          const d = await demoted(input.tool_name, (input.tool_input ?? {}) as Record<string, unknown>);
+          return d.allow ? { continue: true } : preToolDeny(d.message ?? 'The user denied this action.');
+        }
+        const g = decideGate({ toolName: input.tool_name, input: (input.tool_input ?? {}) as Record<string, unknown>, agentId: agent.id, cwd: this.gateCwd(agent, input.tool_name), projectId: this.projectOf(job.taskId, agent.id)?.id, ctx: { roomHop: (job.origin?.hop ?? 0) > 0, tainted: this.active.get(job.taskId)?.tainted === true || job.origin?.tainted === true, connectorData: this.store.getTask(job.taskId)?.usedConnectors === true } }, gatesFor(this.config).rules, 'full', false);
         return g.verdict === 'deny' ? preToolDeny('Blocked by a gate rule (Settings -> Gates).') : { continue: true };
       }] });
     } else {

@@ -191,3 +191,53 @@ test('ruleIds lists every matching rule (for the "why" popover), including the o
   assert.equal(d.verdict, 'deny');
   assert.deepEqual(d.ruleIds, [allow.id, deny.id], 'the allow matched the tool but lost to the deny; the agent-scoped ask did not match');
 });
+test('a command deny rule sees through flag order, long flags, wrappers, shell -c and escapes', () => {
+  const deny = rule('deny', { tools: ['shell'], commands: ['rm -rf *'] });
+  const v = (command: string) => decideGate({ toolName: 'mcp__host__shell', input: { command }, agentId: 'a' }, [deny], 'full', false).verdict;
+  for (const c of [
+    'rm -rf build', 'rm -fr build', 'rm -r -f build', 'rm -Rf build', 'rm --recursive --force build', 'rm -rf -- build',
+    '/bin/rm -rf build', 'sudo rm -rf build', 'sudo -u root rm -rf build', 'command rm -rf build', 'env FOO=1 rm -rf build', 'nohup rm -rf build',
+    'bash -c "rm -rf build"', 'sh -c \'ls; rm -rf build\'', 'cmd /c "rm -rf build"', 'powershell -Command "rm -rf build"',
+    'r^m -rf build', 'r\\m -rf build', 'ls && sudo rm -fr build',
+  ]) assert.equal(v(c), 'deny', c);
+  for (const c of ['rm build', 'rm -f build', 'ls -rf', 'echo rm', 'git rm -r --cached x']) assert.equal(v(c), 'baseline', c);
+});
+
+test('those forms never widen an allow: a wrapped or reshaped command still needs the card', () => {
+  const allow = rule('allow', { tools: ['shell'], commands: ['rm -rf build'] });
+  const v = (command: string) => decideGate({ toolName: 'Bash', input: { command }, agentId: 'a' }, [allow], 'ask', false).verdict;
+  assert.equal(v('rm -rf build'), 'allow');
+  for (const c of ['sudo rm -rf build', 'bash -c "rm -rf build"', '/bin/rm -rf build', 'rm -fr build', 'env X=1 rm -rf build']) assert.equal(v(c), 'baseline', c);
+});
+
+test('a bare-name or **/ deny rule still holds when the agent folder is a POSIX path (macOS, Linux, WSL)', () => {
+  const v = (paths: string[], p: string, cwd?: string) => decideGate({ toolName: 'Read', input: { file_path: p }, agentId: 'a', ...(cwd ? { cwd } : {}) }, [rule('deny', { paths })], 'full', false).verdict;
+  for (const cwd of [undefined, '/proj', 'C:/proj']) {
+    assert.equal(v(['secrets.txt'], 'src/secrets.txt', cwd), 'deny', `bare name, cwd ${cwd}`);
+    assert.equal(v(['**/secrets/**'], '../sib/secrets/k', cwd), 'deny', `**/ form, cwd ${cwd}`);
+  }
+  assert.equal(v(['secrets.txt'], '/proj/a/secrets.txt', '/proj'), 'deny', 'an absolute POSIX path too');
+  assert.equal(v(['.env'], '/home/me/app/.env', '/'), 'deny');
+  assert.equal(v(['secrets.txt'], '/proj/a/public.txt', '/proj'), 'baseline');
+});
+
+test('the root-stripped path form is for deny and ask only: it never widens a path allow', () => {
+  const allow = rule('allow', { tools: ['edits'], paths: ['notes.txt'] });
+  const v = (p: string, cwd: string) => decideGate({ toolName: 'Write', input: { file_path: p }, agentId: 'a', cwd }, [allow], 'ask', false).verdict;
+  // inside the agent folder the relative form names the file: that is the rule's meaning
+  assert.equal(v('/proj/notes.txt', '/proj'), 'allow');
+  // outside it, only the root-stripped form would match: an allow must not get it
+  assert.equal(v('/other/notes.txt', '/proj'), 'baseline');
+});
+
+test('a path with . and .. segments is matched as the path it names: x/../secrets is secrets, and .. never climbs above the root', () => {
+  const deny = rule('deny', { paths: ['D:/proj/secrets/**'] });
+  const call = (p: string) => decideGate({ toolName: 'Read', input: { file_path: p }, agentId: 'a', cwd: 'D:/proj' }, [deny], 'full', false).verdict;
+  assert.equal(call('secrets/key.txt'), 'deny');
+  assert.equal(call('x/../secrets/key.txt'), 'deny');
+  assert.equal(call('./secrets/./key.txt'), 'deny');
+  assert.equal(call('D:\\proj\\src\\..\\secrets\\key.txt'), 'deny');
+  assert.equal(call('secrets/../public/a.txt'), 'baseline');
+  const etc = rule('deny', { paths: ['/etc/**'] });
+  assert.equal(decideGate({ toolName: 'Read', input: { file_path: '/a/../../../etc/passwd' }, agentId: 'a', cwd: '/' }, [etc], 'full', false).verdict, 'deny');
+});
