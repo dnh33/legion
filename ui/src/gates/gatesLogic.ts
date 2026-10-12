@@ -120,6 +120,25 @@ export function canRemember(a: { toolName: string }): boolean {
 
 const PATH_KEYS = ['file_path', 'path', 'notebook_path'] as const;
 
+/** Programs that run whatever text follows them: shells, interpreters, package runners and wrappers. */
+const RUNNERS = new Set([
+  'bash', 'sh', 'zsh', 'dash', 'ksh', 'fish', 'cmd', 'powershell', 'pwsh', 'wsl',
+  'python', 'python3', 'py', 'node', 'deno', 'bun', 'ruby', 'perl', 'php', 'lua', 'osascript',
+  'npx', 'pnpx', 'bunx', 'uvx', 'pipx',
+  'sudo', 'doas', 'env', 'xargs', 'eval', 'exec', 'nohup', 'time', 'nice', 'timeout', 'watch', 'ssh', 'su', 'runas', 'start', 'call',
+]);
+const runsAnything = (prog: string): boolean => RUNNERS.has(prog.toLowerCase().replace(/^.*[\\/]/, '').replace(/\.exe$/, ''));
+
+/**
+ * Whether the card may offer "Always allow". Not for a runner whose exact command holds a wildcard: an exact-command
+ * rule is a glob pattern, so `python *.py` would allow every script; such a call is answered per card (block is still offered).
+ */
+export function canRememberAllow(a: { toolName: string; input: Record<string, unknown> }): boolean {
+  if (!canRemember(a)) return false;
+  const command = typeof a.input.command === 'string' ? a.input.command.trim() : '';
+  return !(command && runsAnything(command.split(/\s+/)[0]!) && /[*?[\]]/.test(command));
+}
+
 /**
  * The rule the approval card's "Remember" saves (source 'card'): this agent and this tool, narrowed to the command's
  * program (plus its subcommand, `git status`) or to the file's folder. The owner reads the sentence before it is saved.
@@ -130,9 +149,14 @@ export function rememberRule(a: { agentId: string; toolName: string; input: Reco
   const path = PATH_KEYS.map((k) => a.input[k]).find((v): v is string => typeof v === 'string' && v.trim() !== '');
   if (command) {
     const [prog, next] = command.split(/\s+/);
-    // a subcommand is a plain word (status, test, run); a flag, a path or a file name is not
-    const prefix = next && /^[a-z][a-z0-9-]*$/.test(next) ? `${prog} ${next}` : prog!;
-    when.commands = [`${prefix.toLowerCase()}*`];
+    if (runsAnything(prog!)) {
+      // a shell, an interpreter or a wrapper runs whatever follows it: only this exact command is remembered
+      when.commands = [command.toLowerCase()];
+    } else {
+      // a subcommand is a plain word (status, test, run); a flag, a path or a file name is not
+      const prefix = (next && /^[a-z][a-z0-9-]*$/.test(next) ? `${prog} ${next}` : prog!).toLowerCase();
+      when.commands = [prefix, `${prefix} *`];
+    }
     delete when.tools; // the command scopes it; the same program is the same choice in Bash and the agent shell
   } else if (path) {
     const p = path.replace(/\\/g, '/');

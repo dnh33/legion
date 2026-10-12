@@ -3,7 +3,7 @@ import '../rooms/rooms.css';
 import { openRoom, useRoomName } from '../rooms/roomsStore';
 import { useState } from 'react';
 import { decide, errText, rememberGate, toast, useStore } from '../store';
-import { canRemember, rememberRule } from '../gates/gatesLogic';
+import { canRemember, canRememberAllow, rememberRule } from '../gates/gatesLogic';
 import { shortTool } from '../util';
 import { BlenderBadge, BlenderBody, blenderView, isBlenderExec } from '../blender/BlenderApproval';
 import { BLENDER_ASSET_TOOL, GET_BLENDER_TOOL } from '../../../src/shared/blender';
@@ -80,7 +80,7 @@ function RememberChoices({ a }: { a: ApprovalRequest }) {
   };
   return (
     <div className="approval-remember" role="group" aria-label="Remember this answer">
-      <button type="button" className="btn sm" disabled={busy} onClick={() => void save(allow, true)}>Always allow: {allow.label}</button>
+      {canRememberAllow(a) && <button type="button" className="btn sm" disabled={busy} onClick={() => void save(allow, true)}>Always allow: {allow.label}</button>}
       <button type="button" className="btn sm" disabled={busy} onClick={() => void save(deny, false)}>Always block: {deny.label}</button>
       <span className="approval-note">Saved as a gate (Settings, Gates). An allow never applies to a run another bot or Claude Code started.</span>
     </div>
