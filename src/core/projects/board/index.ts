@@ -107,6 +107,10 @@ export function createBoardModule(deps: ModuleDeps, opts: BoardModuleOpts): Boar
       }
     },
     cancelRun: (taskId) => deps.engine.cancel(taskId),
+    // a bot the owner (or another bot) already has working is busy: the Marshal does not put a second run on it
+    botBusy: (id) => {
+      try { return deps.store.listTasks(200, id, true).some((t) => t.status === 'running' || t.status === 'queued'); } catch { return true; }
+    },
   });
   const driver = new MarshalDriver({
     board,

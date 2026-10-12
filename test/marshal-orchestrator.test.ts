@@ -218,3 +218,14 @@ test('the STATUS is the human’s picture: running with its why, blocked with it
   assert.match(text, /^STATUS 2 running, 0 blocked/, 'the STATUS line leads');
   assert.match(text, /Running: ship the feature → /, 'and names what runs');
 });
+
+test('a bot already working on a hand-started run counts as busy: the Marshal does not dispatch to it on top', async () => {
+  const r = rig(prefer('builder'));
+  r.board.create(P, { title: 'Write the parser', priority: 'high' });
+  const ports = { ...r.ports, botBusy: (id: string) => id === 'builder' };
+  const m = new Marshal(ports, P, {});
+  m.writeDoneWhen(r.board.view(P).items[0]!.id, ['it parses']);
+  const report = await m.step(T0);
+  assert.equal(report.dispatched.length, 1);
+  assert.notEqual(report.dispatched[0]!.botId, 'builder', 'the Builder is busy with the owner, so the item goes to the next bot');
+});

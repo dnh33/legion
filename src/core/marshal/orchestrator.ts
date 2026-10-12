@@ -47,6 +47,8 @@ export interface MarshalPorts {
   startRun(input: { agentId: string; prompt: string; itemId: string }): { taskId: string };
   runState(taskId: string): RunState;
   cancelRun(taskId: string): boolean;
+  /** A bot already working outside the Marshal (a run the owner or another bot started) is busy too. Optional: absent, only the Marshal's own runs count. */
+  botBusy?(id: string): boolean;
 }
 
 export interface DispatchedItem {
@@ -131,7 +133,7 @@ export class Marshal {
     return {
       catalog: catalogOfAll(this.ports.agents(), (a) => this.ports.visible(a.id)),
       visible: (id: string) => this.ports.visible(id),
-      busy: (id: string) => [...this.live.values()].some((l) => l.botId === id),
+      busy: (id: string) => [...this.live.values()].some((l) => l.botId === id) || this.ports.botBusy?.(id) === true,
       depsOf: (id: string) => (board.sidecar(project.id, id)?.deps as string[] | undefined) ?? [],
       isDone: (id: string) => board.get(project.id, id)?.status === 'done',
     };
