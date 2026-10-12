@@ -1419,3 +1419,24 @@ test('a provider run that emptied the list still hands over (Claude empties its 
   assert.match(seen[0] ?? '', /empty/i);
   assert.equal(store.load(t.id).handoverPending, false);
 });
+
+test('cost: a resumed session\'s total_cost_usd is cumulative, so a task counts the new spend only (not the history again)', async () => {
+  const res = (sid: string, total: number) => ({ type: 'result', subtype: 'success', is_error: false, result: 'ok', total_cost_usd: total, num_turns: 1, session_id: sid });
+  const plan: Array<[string, number]> = [['sess-c', 0.10], ['sess-c', 0.25], ['sess-d', 0.05]];
+  let n = 0;
+  const s = setup(() => (async function* () {
+    const [sid, total] = plan[n++]!;
+    yield init(sid);
+    yield res(sid, total);
+  })(), { agent: { model: 'opus' } });
+  const t = s.engine.startTask({ agentId: 'a1', prompt: 'one', source: 'ui' });
+  assert.equal((await s.engine.waitFor(t.id, 3000)).costUsd, 0.10);
+  s.engine.startTask({ agentId: 'a1', prompt: 'two', source: 'ui', continueTaskId: t.id });
+  const second = await s.engine.waitFor(t.id, 3000);
+  assert.ok(Math.abs(second.costUsd! - 0.25) < 1e-9, `the resumed run added 0.15, not 0.25: ${second.costUsd}`);
+  // a new session (the old one could not be resumed) starts its own count
+  s.store.upsertTask({ ...s.store.getTask(t.id)!, sessionId: undefined } as never);
+  s.engine.startTask({ agentId: 'a1', prompt: 'three', source: 'ui', continueTaskId: t.id });
+  const third = await s.engine.waitFor(t.id, 3000);
+  assert.ok(Math.abs(third.costUsd! - 0.30) < 1e-9, `a new session adds its own total: ${third.costUsd}`);
+});

@@ -257,7 +257,10 @@ export interface Task {
   error?: string;
   /** Set when the latest run failed after its prompt reached the session: a follow-up can continue it instead of re-sending the request. */
   resumable?: boolean;
-  costUsd?: number;           // cumulative, as reported by the SDK
+  costUsd?: number;           // this task's spend: the sum of each run's NEW spend (see sessionCostUsd)
+  /** The Claude session's running total at its last result (the SDK reports a cumulative total per session), and which session it was. */
+  sessionCostUsd?: number;
+  costSessionId?: string;
   turns?: number;             // cumulative
   createdAt: string;
   updatedAt: string;

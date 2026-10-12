@@ -1684,8 +1684,16 @@ This run read connector (GitHub) data and other outside text. Web access can sen
         const text: string | undefined = msg.subtype === 'success'
           ? (typeof msg.result === 'string' ? msg.result : undefined)
           : (Array.isArray(msg.errors) && msg.errors.length ? msg.errors.join('; ') : undefined);
+        // total_cost_usd is the SESSION's running total (sdk.d.ts: "read the latest result rather than summing"; a resumed
+        // session continues from its saved total): only the rise since this session's last result is new spend. Summing it
+        // re-added a thread's whole history on every resumed run (measured 4.4x, up to 12.4x on long threads).
+        const total = typeof msg.total_cost_usd === 'number' && Number.isFinite(msg.total_cost_usd) ? msg.total_cost_usd : undefined;
+        const sid = typeof msg.session_id === 'string' ? msg.session_id : undefined;
+        const before = sid && cur?.costSessionId === sid ? (cur?.sessionCostUsd ?? 0) : 0;
+        const spent = total === undefined ? 0 : total >= before ? total - before : total; // a lower total = the session's count restarted (/clear)
         this.patchTask(taskId, {
-          costUsd: (cur?.costUsd ?? 0) + (typeof msg.total_cost_usd === 'number' ? msg.total_cost_usd : 0),
+          costUsd: (cur?.costUsd ?? 0) + spent,
+          ...(total !== undefined && sid ? { sessionCostUsd: total, costSessionId: sid } : {}),
           turns: (cur?.turns ?? 0) + (typeof msg.num_turns === 'number' ? msg.num_turns : 0),
           ...(typeof msg.session_id === 'string' && !cur?.sessionId ? { sessionId: msg.session_id } : {}),
           ...(!isError && text !== undefined ? { result: this.keepResult(taskId, text) } : {}),
