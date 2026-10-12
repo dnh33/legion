@@ -33,6 +33,7 @@ All notable changes are recorded here. The format follows [Keep a Changelog](htt
 
 ### Fixed
 
+- **Saving some settings failed in the app.** The app window was not allowed to send one kind of request to the core, so changing a provider, a project's members, the CI repository or the board leader was refused. These save again, and so does the Marshal's on/off switch.
 - **Costs shown for agent-to-agent threads were too high.** A resumed conversation reported its whole history again on
   every run, so long threads showed several times their real cost. Each run now adds only its own spend.
 - **The chosen model always wins.** A continued thread, a delegated task and the composer all use the model set in the

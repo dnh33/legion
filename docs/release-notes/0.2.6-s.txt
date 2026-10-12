@@ -5,7 +5,7 @@ Legion 0.2.6-s — agents that work on this computer, under your rules.
 - The Marshal works the board: it picks the next item, matches it to the right bot, sends work out in waves, watches for stalls and gives each bot at most two tries.
 - One task list per conversation, on Claude and on other providers, kept through compaction and through switching between them.
 - Models without tool calling can now use tools: Legion gives them the tools in the prompt, with the same approvals.
-- Fixed: agent-to-agent threads showed several times their real cost; the model you chose for an agent now always wins; long replies are kept whole.
+- Fixed: changing a provider, project members, the CI repository or the board leader was refused by the app and now saves again; agent-to-agent threads showed several times their real cost; the model you chose for an agent now always wins; long replies are kept whole.
 
 Known limit: the agent shell has no sandbox yet; it runs commands as you. Keep it off for agents on Full access unless you trust their work.
 
