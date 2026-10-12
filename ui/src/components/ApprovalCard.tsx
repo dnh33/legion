@@ -68,7 +68,7 @@ export function ApprovalCard({ a }: { a: ApprovalRequest }) {
 }
 
 /** One click turns this answer into a gate rule (Settings → Gates lists it, labelled as from a card), then answers the card. */
-function RememberChoices({ a }: { a: ApprovalRequest }) {
+export function RememberChoices({ a }: { a: ApprovalRequest }) {
   const agents = useStore((s) => s.agents);
   const nameOf = (id: string) => agents.find((x) => x.id === id)?.name ?? id;
   const allow = rememberRule(a, 'allow', nameOf);
