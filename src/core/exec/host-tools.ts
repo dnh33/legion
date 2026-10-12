@@ -152,10 +152,8 @@ const CATASTROPHIC_WINDOWS: Array<[RegExp, string]> = [
   [/\b(?:format-volume|clear-disk|initialize-disk|remove-partition)\b/, 'formatting or wiping a disk'],
 ];
 
-/** The same patterns anchored at the start: judged at each place a command runs. */
-const CATASTROPHIC_WINDOWS_AT: Array<[RegExp, string]> = [...CATASTROPHIC_COMMANDS, ...CATASTROPHIC_WINDOWS].map(([re, what]) => [new RegExp(`^(?:${re.source})`, re.flags.replace('g', '')), what]);
 /** Programs that run TEXT as a command (besides the shells): only for these is a quoted string judged as a command of its own. */
-const TEXT_RUNNERS = new Set(['eval', 'iex', 'invoke-expression', 'ssh', 'su', 'wsl', 'xargs', 'start', 'watch', 'source', '.']);
+const TEXT_RUNNERS = new Set(['eval', 'iex', 'invoke-expression', 'ssh', 'su', 'wsl', 'xargs', 'start', 'watch', 'source', '.', 'runas', 'call', 'invoke-command', 'start-process']);
 
 /** Delete commands of sh, cmd and PowerShell (with its aliases). */
 const DELETE_VERBS = new Set(['rm', 'rmdir', 'rd', 'del', 'erase', 'remove-item', 'ri']);
@@ -259,11 +257,6 @@ function refuseSegment(segment: string): string | undefined {
   const runs = (ws: readonly string[], verbs: ReadonlySet<string>): number[] => commandPositions(ws).filter((i) => verbs.has(program(ws[i]!)));
   const targetsAfter = (ws: readonly string[], i: number): boolean => ws.slice(i + 1).some(isProtectedTarget);
   for (const ws of stages) {
-    // the Windows whole-machine tools count where a command runs (`cmd /c vssadmin …`), never as text (`grep "vssadmin …"`)
-    for (const i of commandPositions(ws)) {
-      const tail = ws.slice(i).join(' ');
-      for (const [re, what] of CATASTROPHIC_WINDOWS_AT) if (re.test(tail)) return what;
-    }
     if (runs(ws, DELETE_VERBS).some((i) => targetsAfter(ws, i))) return 'a recursive delete of a drive, a system folder or a home folder';
     const deletes = ws.includes('-delete') || ws.some((w, i) => (w === '-exec' || w === '-execdir') && DELETE_VERBS.has(program(ws[i + 1] ?? '')));
     if (deletes && runs(ws, FIND_VERB).some((i) => targetsAfter(ws, i))) return 'deleting everything under a drive, a system folder or a home folder';
@@ -296,6 +289,14 @@ export function refuseCatastrophic(cmd: string, depth = 0): string | undefined {
   const say = (what: string): string => `Refused: this command looks like ${what}, which can destroy the machine or its data. It is blocked for every agent, even full access.`;
   for (const [re, what] of CATASTROPHIC) {
     if (re.test(cmd)) return say(what);
+  }
+  // The whole-machine commands count anywhere on the line (behind `start ""`, `call`, `&`, a group, `timeout`…), except
+  // inside quoted text of several words on a line that runs no text: a commit message or a grep pattern naming one is data.
+  // A one-word quote (`format "c:"`) is kept, unquoted, so quoting a target cannot hide it.
+  const scan = (runsText(cmd) ? cmd : cmd.replace(/"([^"]*)"|'([^']*)'/g, (_m, a?: string, b?: string) => (/\s/.test(a ?? b ?? '') ? ' ' : (a ?? b ?? ''))))
+    .replace(/[\^"']/g, '').toLowerCase();
+  for (const [re, what] of [...CATASTROPHIC_COMMANDS, ...CATASTROPHIC_WINDOWS]) {
+    if (re.test(scan)) return say(what);
   }
   for (const segment of cmd.split(/&&|\|\||[;&\n\r]/)) {
     const why = refuseSegment(segment);

@@ -228,3 +228,18 @@ test('the guard judges quoted text as a command only when the line runs text: a 
     'sudo reg delete HKLM\\SYSTEM /f',
   ]) assert.ok(refuseCatastrophic(bad), bad);
 });
+
+test('REVIEW: a whole-machine command behind any prefix is still refused (start, call, &, a group, timeout, wsl, if)', () => {
+  for (const bad of [
+    'start "" format c:',
+    'call format c:',
+    '& format c:',
+    'if 1==1 format c:',
+    '(mkfs.ext4 /dev/sda)',
+    '{ mkfs.ext4 /dev/sda; }',
+    'timeout 5 diskpart',
+    'wsl mkfs.ext4 /dev/sdb',
+    'start "" vssadmin delete shadows /all',
+    'runas /user:admin "wbadmin delete catalog"',
+  ]) assert.ok(refuseCatastrophic(bad), bad);
+});
