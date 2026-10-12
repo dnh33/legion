@@ -4,7 +4,7 @@
  */
 import type { McpServerConfig } from '@anthropic-ai/claude-agent-sdk';
 import { BOARD_LIMITS } from '../../../shared/board.js';
-import type { WorkItem } from '../../../shared/board.js';
+import type { BoardMarshalStatus, WorkItem } from '../../../shared/board.js';
 import type { Project } from '../../../shared/projects.js';
 import type { TaskOrigin } from '../../../shared/comms.js';
 import type { CoreModule, ModuleDeps } from '../../modules.js';
@@ -13,6 +13,7 @@ import type { Ctx } from '../../server.js';
 import { agentIdVisible } from '../../visibility.js';
 import { engineMatcher } from '../../marshal/matcher.js';
 import { MarshalDriver } from '../../marshal/driver.js';
+import { MAX_DONE_WHEN } from '../../marshal/ledger.js';
 import type { MarshalPorts, RunState } from '../../marshal/orchestrator.js';
 import type { ProjectStore } from '../store.js';
 import { BOARD_PREAMBLE, boardDigest, runPrompt } from './prompt.js';
@@ -39,10 +40,10 @@ export interface BoardModuleOpts {
 /** The board module plus the Marshal's per-project driver — what the three marshal routes drive and what `dispose` stops. */
 export interface BoardModule extends CoreModule { marshal: MarshalDriver }
 
-/** The checks that decide an item (`doneWhen`): at most the ledger's own six, each a line of text. */
+/** The checks that decide an item (`doneWhen`): the ledger's own bound, each a line of text. */
 const doneWhen = (v: unknown): string[] => {
   if (!Array.isArray(v)) throw new HttpError(400, 'doneWhen must be an array of checks (one line each)');
-  if (v.length > 6) throw new HttpError(400, 'at most 6 checks: they are what decides whether this item is done');
+  if (v.length > MAX_DONE_WHEN) throw new HttpError(400, `at most ${MAX_DONE_WHEN} checks: they are what decides whether this item is done`);
   return v.map((raw, n) => {
     if (typeof raw !== 'string' || !raw.trim()) throw new HttpError(400, `check ${n + 1} must be text`);
     const one = raw.trim();
@@ -163,7 +164,8 @@ export function createBoardModule(deps: ModuleDeps, opts: BoardModuleOpts): Boar
       add('GET', '/api/projects/:id/board', (c) => wrap(() => board.view(proj(c.params[0]))));
       // The Marshal's picture (C2/C3): what runs and why that bot, what is blocked and why, what is next —
       // plus its plain lines, the checks written so far, and the config that switches the loop on for this project.
-      add('GET', '/api/projects/:id/board/status', (c) => {
+      // The annotation is the contract: the shared view type is what the window draws, checked here at compile time.
+      add('GET', '/api/projects/:id/board/status', (c): BoardMarshalStatus => {
         const p = proj(c.params[0]);
         return wrap(() => ({ ...driver.status(p.id), marshal: board.marshalConfig(p.id) }));
       });

@@ -1,7 +1,7 @@
 /** Project board store: one JSONL log per project (<dataDir>/board/<projectId>.jsonl). See claude/plan-project-board.md. */
 import { appendFileSync, existsSync, mkdirSync, readFileSync, renameSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { BOARD_LIMITS, BOARD_PRIORITIES, BOARD_STATUSES, BOT_STATUSES, MARSHAL_LIMITS, NOTE_ID_RE, WORK_ITEM_ID_RE } from '../../../shared/board.js';
+import { BOARD_LIMITS, BOARD_PRIORITIES, BOARD_STATUSES, BOT_STATUSES, MARSHAL_DEFAULTS, MARSHAL_LIMITS, NOTE_ID_RE, WORK_ITEM_ID_RE } from '../../../shared/board.js';
 import type { ActivityEntry, BoardActor, BoardAssignee, BoardPriority, BoardStatus, BoardView, MarshalConfig, WorkItem } from '../../../shared/board.js';
 import { PROJECT_ID_RE } from '../../../shared/projects.js';
 import type { Project } from '../../../shared/projects.js';
@@ -75,11 +75,10 @@ export const cleanStatus = (v: unknown): BoardStatus => {
   return v as BoardStatus;
 };
 /**
- * The Marshal's config as this board holds it: off, on the shipped wave and stall budget. The numbers agree
- * with the loop's own defaults (WAVE_SIZE, STALL_MS — pinned together in test/board-marshal-config.test.ts),
- * so a project that never wrote a config behaves exactly like the tested library.
+ * The Marshal's config as this board holds it: off, on the shipped wave and stall budget (the shared default,
+ * re-exported here beside the validation that enforces it).
  */
-export const MARSHAL_DEFAULTS: MarshalConfig = { enabled: false, waveSize: 3, stallMinutes: 8 };
+export { MARSHAL_DEFAULTS };
 const cleanBound = (v: unknown, field: keyof typeof MARSHAL_LIMITS): number => {
   const [lo, hi] = MARSHAL_LIMITS[field];
   if (typeof v !== 'number' || !Number.isInteger(v) || v < lo || v > hi) throw new BoardError(400, `${field} must be a whole number between ${lo} and ${hi}`);

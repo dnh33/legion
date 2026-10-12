@@ -84,3 +84,36 @@ export interface MarshalConfig {
 }
 /** The clamp every write and read of `MarshalConfig` honours, as one place. */
 export const MARSHAL_LIMITS = { waveSize: [1, 10] as const, stallMinutes: [1, 240] as const };
+/**
+ * The config a project gets until the owner writes one: off, on the loop's shipped wave and stall budget.
+ * These numbers agree with the Marshal's own defaults (WAVE_SIZE and STALL_MS — pinned together by
+ * test/board-marshal-config.test.ts), so a project that never wrote a config behaves like the tested library.
+ */
+export const MARSHAL_DEFAULTS: MarshalConfig = { enabled: false, waveSize: 3, stallMinutes: 8 };
+
+/** One run the Marshal started, as `GET .../board/status` ships it: which bot, on which model, and why that bot. */
+export interface MarshalRunningView {
+  itemId: string; title: string;
+  botId: string; botName: string;
+  /** The bot's OWN model — a dispatch never asks for another. */
+  model: string;
+  /** The bot's access tier: `full` acts pre-authorized, anything else shows the card first. */
+  tier: string;
+  irreversible: string[];
+  /** True when an irreversible verb is going to a tier that gates it. */
+  gated: boolean;
+  why: string; score: number; rankWhy: string; taskId: string; startedAt: number; attempts: number;
+}
+export interface MarshalBlockedView { itemId: string; title: string; reason: string }
+export interface MarshalNextView { itemId: string; title: string; score: number; why: string }
+/** The picture the owner reads: what runs and why that bot, what is blocked and why, what is next and why. */
+export interface MarshalStatusView { running: MarshalRunningView[]; blocked: MarshalBlockedView[]; next: MarshalNextView[] }
+/** The whole answer of `GET /api/projects/:id/board/status`. */
+export interface BoardMarshalStatus {
+  status: MarshalStatusView;
+  /** The same picture as plain lines (copyable, and the accessible summary). */
+  statusText: string;
+  /** The done-when checks written so far, by item id: what an item would dispatch with. */
+  checks: Record<string, string[]>;
+  marshal: MarshalConfig;
+}

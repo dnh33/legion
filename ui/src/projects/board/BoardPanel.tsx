@@ -9,7 +9,9 @@ import { api } from '../../api';
 import { ensureRoomList, openRoom, useRooms } from '../../rooms/roomsStore';
 import { roomsOf } from '../projectsLogic';
 import { setView, useStore } from '../../store';
-import { acceptItem, createItem, currentItem, deleteItem, loadBoard, moveItem, openTask, patchItem, probeBoard, rejectItem, runItem, sayItem, setLeader, useBoard } from './boardStore';
+import { acceptItem, createItem, currentItem, deleteItem, loadBoard, loadMarshal, moveItem, openTask, patchItem, probeBoard, rejectItem, runItem, saveChecks, saveMarshal, sayItem, setLeader, useBoard } from './boardStore';
+import { DoneWhen, MarshalPanel } from './MarshalPanel';
+import { checksText, parseChecks } from './marshalLogic';
 import {
   applyFilters, assigneeKey, changedFields, rebaseForm, runHint, assigneeLabel, byColumn, cardLabel, columnLabel, COLUMNS, descCounter, dueState, dueText, FILTER_KEY, hasFilters, keyMove,
   labelsOf, learnDraft, moveAnnouncement, shouldOfferNote, NO_FILTERS, parseAssignee, PRIORITY_LABEL, priorityMark, readFilters,
@@ -17,7 +19,7 @@ import {
 import type { Filters } from './boardLogic';
 import './board.css';
 
-type Tab = 'board' | 'list' | 'inbox';
+type Tab = 'board' | 'list' | 'inbox' | 'marshal';
 
 /** The board of a project. Renders nothing at all unless the core answered the board probe (the board's config switch is on). */
 export function BoardPanel({ project }: { project: Project }) {
@@ -30,6 +32,7 @@ export function BoardPanel({ project }: { project: Project }) {
 function Board({ project }: { project: Project }) {
   const agents = useStore((s) => s.agents);
   const view = useBoard((s) => s.views[project.id]);
+  const marshal = useBoard((s) => s.statuses[project.id]);
   const busy = useBoard((s) => s.busy);
   const announce = useBoard((s) => s.announce);
   const [tab, setTab] = useState<Tab>('board');
@@ -44,8 +47,9 @@ function Board({ project }: { project: Project }) {
 
   useEffect(() => {
     void loadBoard(project.id);
+    void loadMarshal(project.id);
     let t: ReturnType<typeof setTimeout> | undefined;
-    const on = (e: Event) => { if ((e as CustomEvent).detail === project.id) { clearTimeout(t); t = setTimeout(() => void loadBoard(project.id), 150); } };
+    const on = (e: Event) => { if ((e as CustomEvent).detail === project.id) { clearTimeout(t); t = setTimeout(() => { void loadBoard(project.id); void loadMarshal(project.id); }, 150); } };
     window.addEventListener('legion-board-updated', on);
     return () => { window.removeEventListener('legion-board-updated', on); clearTimeout(t); };
   }, [project.id]);
@@ -92,9 +96,9 @@ function Board({ project }: { project: Project }) {
       <div className="bd-head">
         <h3 id="bd-h">Work items</h3>
         <div role="tablist" aria-label="Board views" className="bd-tabs">
-          {([['board', 'Board'], ['list', 'List'], ['inbox', `Inbox${inbox.length ? ` (${inbox.length})` : ''}`]] as const).map(([k, label]) => (
+          {([['board', 'Board'], ['list', 'List'], ['inbox', `Inbox${inbox.length ? ` (${inbox.length})` : ''}`], ['marshal', 'Marshal']] as const).map(([k, label]) => (
             <button key={k} type="button" role="tab" id={`bd-tab-${k}`} aria-selected={tab === k} aria-controls="bd-panel" tabIndex={tab === k ? 0 : -1} className={`bd-tab${tab === k ? ' on' : ''}`} onClick={() => setTab(k)}
-              onKeyDown={(e) => { const order: Tab[] = ['board', 'list', 'inbox']; const n = order.indexOf(tab) + (e.key === 'ArrowRight' ? 1 : e.key === 'ArrowLeft' ? -1 : 0); if (e.key.startsWith('Arrow') && order[n]) { e.preventDefault(); setTab(order[n]!); document.getElementById(`bd-tab-${order[n]}`)?.focus(); } }}>{label}</button>
+              onKeyDown={(e) => { const order: Tab[] = ['board', 'list', 'inbox', 'marshal']; const n = order.indexOf(tab) + (e.key === 'ArrowRight' ? 1 : e.key === 'ArrowLeft' ? -1 : 0); if (e.key.startsWith('Arrow') && order[n]) { e.preventDefault(); setTab(order[n]!); document.getElementById(`bd-tab-${order[n]}`)?.focus(); } }}>{label}</button>
           ))}
         </div>
         <button type="button" className="btn primary" disabled={archived || busy} onClick={() => setEditing('new')}>New item</button>
@@ -117,7 +121,7 @@ function Board({ project }: { project: Project }) {
         </div>
       )}
 
-      {tab !== 'inbox' && (
+      {(tab === 'board' || tab === 'list') && (
         <form className="bd-filters" role="search" aria-label="Filter items" onSubmit={(e) => e.preventDefault()}>
           <label>Search<input type="search" value={filters.q} maxLength={80} onChange={(e) => setFilters({ ...filters, q: e.target.value })} /></label>
           <label>Assignee
@@ -150,7 +154,9 @@ function Board({ project }: { project: Project }) {
       )}
 
       <div id="bd-panel" role="tabpanel" aria-labelledby={`bd-tab-${tab}`}>
-        {!view ? <p className="muted-s">Loading the board&hellip;</p> : tab === 'board' ? (
+        {tab === 'marshal' ? (
+          <MarshalPanel view={marshal} busy={busy} readOnly={archived} onSave={(cfg) => { void saveMarshal(project.id, cfg); }} />
+        ) : !view ? <p className="muted-s">Loading the board&hellip;</p> : tab === 'board' ? (
           <>
             <p className="field-note" id="bd-keys">Move a card: drag it, or focus it and press Alt plus an arrow key (left and right change column, up and down reorder). Enter opens it.</p>
             {all.length === 0 && <p className="muted-s">Nothing here yet. Add the first item, or let a member agent propose one: proposals wait in the Inbox for you.</p>}
@@ -270,6 +276,17 @@ function ItemDialog({ project, item, members, name, archived, onClose, startLear
   const [lBody, setLBody] = useState(draft.body);
   const [titles, setTitles] = useState<Record<string, string>>({});
   const busy = useBoard((s) => s.busy);
+  // The checks that decide THIS item, read back from the core (it has the last word). Re-seeded only when what
+  // it holds actually changes, so a reload never wipes what the owner is typing.
+  const savedChecks = useBoard((s) => (item ? s.statuses[project.id]?.checks?.[item.id] : undefined));
+  const savedKey = checksText(savedChecks);
+  const [checks, setChecks] = useState(savedKey);
+  const [checksSaved, setChecksSaved] = useState(false);
+  useEffect(() => { setChecks(savedKey); setChecksSaved(false); }, [item?.id, savedKey]); // eslint-disable-line react-hooks/exhaustive-deps
+  const storeChecks = async (): Promise<void> => {
+    const r = await saveChecks(project.id, item!.id, parseChecks(checks));
+    if (r) { setChecks(checksText(r)); setChecksSaved(true); sayItem('Done-when checks saved.'); }
+  };
   const rooms = useRooms((s) => s.rooms);
   const [roomPick, setRoomPick] = useState('');
   useEffect(() => { ensureRoomList(); }, []);
@@ -311,6 +328,10 @@ function ItemDialog({ project, item, members, name, archived, onClose, startLear
           <label>Due date<input type="date" value={due} disabled={archived} onChange={(e) => setDue(e.target.value)} /></label>
         </div>
         <label>Labels<input value={labels} disabled={archived} aria-describedby="bd-lhelp" onChange={(e) => setLabels(e.target.value)} /><span id="bd-lhelp" className={`field-note${labelList.length > BOARD_LIMITS.labels ? ' proj-over' : ''}`}>Separate with commas. Up to {BOARD_LIMITS.labels}, letters, digits, spaces and hyphens.</span></label>
+
+        {item && !item.proposal && (
+          <DoneWhen value={checks} onChange={(v) => { setChecks(v); setChecksSaved(false); }} onSave={() => { void storeChecks(); }} saved={checksSaved} disabled={archived} busy={busy} />
+        )}
 
         {item && (
           <>

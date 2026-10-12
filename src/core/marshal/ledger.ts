@@ -2,6 +2,9 @@
  * The attempt ledger (C4 robustness lens): the futility rule the lead's doctrine only PROSEd —
  * "at most two send-backs per task" — enforced in code the prose cannot talk past.
  *
+ * The checks a dispatch is judged against share one bound, named here and used by the ledger, the
+ * dispatch route and the panel that writes them: six lines a human can read at a glance.
+ *
  * Four guards live here, all pure: a bot gets two tries and never a third; an item that leaves a bot for
  * another never comes back to the first (forward-only); an item whose attempts are spent everywhere stops
  * and waits for a human (the loop blocks it — it never forces a fit); and `done_when` must be written
@@ -15,6 +18,8 @@
 export const MAX_ATTEMPTS_PER_BOT = 2;
 /** Two tries on every reasonable bot still does not make a fit: after this many dispatches the item needs a human. */
 export const MAX_ATTEMPTS_PER_ITEM = 4;
+/** The checks that decide one item: the most `done_when` lines the ledger keeps, the route accepts and the panel offers. */
+export const MAX_DONE_WHEN = 6;
 
 /** One item's dispatch history. Everything optional is dropped when unreadable: a damaged count is not a count. */
 export interface ItemLedgerState {
@@ -54,7 +59,7 @@ function read(raw: unknown): ItemState {
   if (typeof raw.owner === 'string' && raw.owner) s.owner = raw.owner;
   if (Array.isArray(raw.history)) for (const b of raw.history) if (typeof b === 'string' && b) s.history.add(b);
   s.stalls = count(raw.stalls);
-  if (Array.isArray(raw.doneWhen)) { const checks = raw.doneWhen.filter((c): c is string => typeof c === 'string' && !!c.trim()).slice(0, 6); if (checks.length) s.doneWhen = checks; }
+  if (Array.isArray(raw.doneWhen)) { const checks = raw.doneWhen.filter((c): c is string => typeof c === 'string' && !!c.trim()).slice(0, MAX_DONE_WHEN); if (checks.length) s.doneWhen = checks; }
   return s;
 }
 
@@ -94,7 +99,7 @@ export class AttemptLedger {
   doneWhen(itemId: string): string[] | undefined { return this.items.get(itemId)?.doneWhen; }
   /** The owner writes (or rewrites) the checks. A dispatch before this is refused by `mayDispatch`. */
   setDoneWhen(itemId: string, checks: readonly string[]): void {
-    const clean = checks.map((c) => String(c).trim()).filter(Boolean).slice(0, 6);
+    const clean = checks.map((c) => String(c).trim()).filter(Boolean).slice(0, MAX_DONE_WHEN);
     this.item(itemId).doneWhen = clean.length ? clean : undefined;
   }
   /** How many times the item was dispatched to this bot. */
