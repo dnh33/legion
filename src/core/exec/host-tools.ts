@@ -102,22 +102,41 @@ export function maskEnvText(text: string): string {
   return out.join('\n');
 }
 
-const envCache = new Map<string, { at: number; values: string[] }>();
+/** The values of one root's secrets files: `values` for exact redaction (8+ chars), `short` for whole-word redaction. */
+interface EnvSecrets { values: string[]; short: string[] }
+const envCache = new Map<string, { at: number; secrets: EnvSecrets }>();
+
+/** A key that names a secret. A short value under any other key (PORT=3000, MODE=dev) is ordinary text and stays readable. */
+const SECRET_KEY = /(?:secret|token|pass(?:word|wd|phrase)?|pwd|pin|key|auth|credential|private|salt|otp|cookie|session)/i;
+/** Below this a value is too likely to be a common word or number to hide anywhere. */
+const SHORT_MIN = 4;
 
 /**
- * Every value in the secrets files under `root` (two levels deep, without node_modules and .git), for exact redaction.
+ * Every value in the secrets files under `root` (two levels deep, without node_modules and .git), for redaction.
  * Read again at most every 2 s per root: one tool call redacts several texts, and a broad root must not stall the core.
  */
-function envValues(root: string): string[] {
+function envValues(root: string): EnvSecrets {
   const hit = envCache.get(root);
-  if (hit && Date.now() - hit.at < 2000) return hit.values;
-  const values = scanEnvValues(root);
-  envCache.set(root, { at: Date.now(), values });
-  return values;
+  if (hit && Date.now() - hit.at < 2000) return hit.secrets;
+  const secrets = scanEnvValues(root);
+  envCache.set(root, { at: Date.now(), secrets });
+  return secrets;
 }
 
-function scanEnvValues(root: string): string[] {
+/** Replaces each short secret where it stands as a whole word (not inside a longer word or number). */
+export function redactShortValues(text: string, values: readonly string[]): string {
+  let out = text;
+  for (const v of [...new Set(values)].sort((a, b) => b.length - a.length)) {
+    if (!out.includes(v)) continue;
+    const esc = v.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    out = out.replace(new RegExp(`(?<![A-Za-z0-9_])${esc}(?![A-Za-z0-9_])`, 'g'), '[redacted-secret]');
+  }
+  return out;
+}
+
+function scanEnvValues(root: string): EnvSecrets {
   const out: string[] = [];
+  const short: string[] = [];
   const walk = (dir: string, depth: number) => {
     let names: string[];
     try { names = readdirSync(dir); } catch { return; }
@@ -128,6 +147,9 @@ function scanEnvValues(root: string): string[] {
           for (const e of envEntries(readFileSync(p, 'utf8'))) {
             // the whole value, and each of its lines (a program may print a multi-line value one line at a time)
             if (e.value) out.push(e.value, ...e.value.split('\n').map((l) => l.trim()));
+            const v = e.value.trim();
+            const key = /([A-Za-z_][A-Za-z0-9_.-]*)\s*=/.exec(e.prefix)?.[1] ?? '';
+            if (v.length >= SHORT_MIN && v.length < 8 && SECRET_KEY.test(key)) short.push(v);
           }
         } catch { /* unreadable: nothing to hide */ }
       } else if (depth < 2 && n !== 'node_modules' && n !== '.git') {
@@ -136,7 +158,7 @@ function scanEnvValues(root: string): string[] {
     }
   };
   walk(root, 0);
-  return out;
+  return { values: out, short };
 }
 
 /**
@@ -441,7 +463,9 @@ export function buildHostToolsServer(ctx: HostToolsCtx): McpSdkServerConfigWithI
   // the secrets Legion holds, and (unless the owner allowed .env files) every value in this root's .env files
   const redact = (s: string): string => {
     const t = ctx.redact ? ctx.redact(s) : s;
-    return envMode === 'allow' ? t : redactValues(t, envValues(ctx.rootDir));
+    if (envMode === 'allow') return t;
+    const env = envValues(ctx.rootDir);
+    return redactShortValues(redactValues(t, env.values), env.short);
   };
   const envRefusal = (what: string): Error => new Error(`This agent's setting for .env files is "${envMode}": it may not ${what} them. Change it in the agent's Shell settings, or do it yourself.`);
   // redacted on the way out, errors included; output and file text are redacted BEFORE the spill too, so the full
