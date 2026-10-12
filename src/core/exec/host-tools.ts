@@ -7,7 +7,7 @@
  */
 import { createSdkMcpServer, tool } from '@anthropic-ai/claude-agent-sdk';
 import type { McpSdkServerConfigWithInstance } from '@anthropic-ai/claude-agent-sdk';
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { join, resolve, sep } from 'node:path';
 import { z } from 'zod';
 import type { ExecutionBackend } from './types.js';
@@ -43,6 +43,20 @@ const tail = (s: string, max: number): string =>
   (s.length <= max ? s : `[truncated: last ${max} of ${s.length} chars]\n` + s.slice(-max));
 
 let spillN = 0;
+/** Most spill files kept: the oldest are dropped so a long session cannot grow without bound. */
+const SPILL_KEEP_FILES = 50;
+
+async function pruneSpill(dir: string): Promise<void> {
+  try {
+    const names = (await readdir(dir)).filter((n) => n.endsWith('.txt'));
+    if (names.length <= SPILL_KEEP_FILES) return;
+    const mtime = new Map<string, number>();
+    for (const n of names) { try { mtime.set(n, (await stat(join(dir, n))).mtimeMs); } catch { /* skip */ } }
+    const drop = [...mtime.entries()].sort((a, b) => a[1] - b[1]).slice(0, mtime.size - SPILL_KEEP_FILES);
+    for (const [n] of drop) { try { await rm(join(dir, n), { force: true }); } catch { /* best effort */ } }
+  } catch { /* cleanup is best-effort and must never fail the tool */ }
+}
+
 /**
  * The tool's text window. When the text is longer than `max`, the FULL text is spilled to a file inside the scope
  * root and the window carries a pointer to it — so nothing is silently lost (the agent can read_file the whole thing).
@@ -54,6 +68,7 @@ export async function windowOrSpill(text: string, rootDir: string, taskId: strin
   await mkdir(dir, { recursive: true });
   const file = join(dir, `${taskId.replace(/[^A-Za-z0-9_-]/g, '_')}-${Date.now()}-${++spillN}.txt`);
   await writeFile(file, text, 'utf8');
+  await pruneSpill(dir);
   return `${tail(text, max)}\n[Legion kept the last ${max} of ${text.length} characters here; the full output is in ${file}]`;
 }
 
@@ -81,7 +96,7 @@ export function buildHostToolsServer(ctx: HostToolsCtx): McpSdkServerConfigWithI
 
   const readFileTool = tool(
     'read_file',
-    'Read a UTF-8 text file on this machine (within the allowed root). Long files are truncated.',
+    'Read a UTF-8 text file on this machine (within the allowed root). A long file is returned in a window with a pointer to the full text, so nothing is lost.',
     { path: z.string().describe('File path (must stay inside the allowed root)') },
     (a) => run(async () => windowOrSpill(await readFile(resolveWithin(ctx.rootDir, a.path), 'utf8'), ctx.rootDir, ctx.taskId, limits.maxOutputChars)),
   );
