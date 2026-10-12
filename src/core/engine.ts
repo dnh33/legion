@@ -17,7 +17,7 @@ import { contextTokensOf } from '../shared/context-meter.js';
 import { isLegionTool, needsApproval, stricterMode, LEGION_SERVER_NAMES } from './approvals.js';
 import { decideGate } from './gates.js';
 import { TaintedPaths } from './tainted-paths.js';
-import { CLAUDE_TASK_TOOLS, mirrorClaudeTaskCall, renderForModel, renderHandover, type TaskList, TaskListStore } from './task-list.js';
+import { CLAUDE_TASK_TOOLS, mirrorClaudeTaskCall, renderForModel, renderHandover, TaskList, TaskListStore } from './task-list.js';
 import { nativeTaskListOn } from '../shared/task-list-setting.js';
 
 /** Claude Code's own task tools, opted in or out per agent (nativeTaskListOn). */
@@ -293,6 +293,10 @@ interface Active {
   taskList?: TaskList;
   /** Claude Code task-tool calls waiting for their result (a new task's id arrives only in the result), by tool_use id. */
   taskCalls?: Map<string, { name: string; input: unknown }>;
+  /** The list as it was handed over to this Claude run (flag still set): put back if the run does not finish, so nothing is lost. */
+  handoverFrom?: TaskList;
+  /** The run ended done (set just before that status is saved). */
+  finishedOk?: boolean;
 }
 interface Outcome { subtype: string; isError: boolean; errorText?: string }
 
@@ -724,6 +728,7 @@ export class Engine {
     } catch (e) {
       this.failTask(job.taskId, e, act);
     } finally {
+      this.settleHandover(job.taskId, act);
       this.endTask(job, act);
       if (this.active.get(job.taskId) === act) this.active.delete(job.taskId);
       try { this.approvals.cancelForTask(job.taskId); } catch { /* ignore */ }
@@ -731,6 +736,13 @@ export class Engine {
       if (this.active.size === 0 && this.queue.length === 0) this.scheduleIdle();
       this.pump();
     }
+  }
+
+  /** A hand-over run that did not finish (stopped, failed, paused at a limit) puts the handed-over list back, flagged, so the next Claude run gets it again. */
+  private settleHandover(taskId: string, act: Active): void {
+    // the run's own outcome, not the task's status: a continuation queued the moment this run finished has already re-set that
+    if (!act.handoverFrom || act.finishedOk) return;
+    try { this.taskLists.save(taskId, act.handoverFrom); } catch { /* best effort */ }
   }
 
   /** Tells every module the run is over (after the final status is saved). A broken module never breaks the engine. */
@@ -854,6 +866,7 @@ export class Engine {
       else if (budgetLimit) this.mascot('idle', 'paused at the spend limit');
       else this.mascot('error', text.slice(0, 120));
     } else {
+      act.finishedOk = true;
       this.patchTask(job.taskId, { status: 'done', resumable: undefined, ...(act.tainted ? { tainted: true } : {}) });
       this.mascot('success');
     }
@@ -1266,6 +1279,9 @@ This run read connector (GitHub) data and other outside text. Web access can sen
         else if (list.handoverPending || (!resume && list.list().length > 0)) {
           text = renderHandover(list);
           if (text) {
+            // Claude's first step (TaskList) replaces the mirror with its own, still-behind list: the handed-over list is
+            // kept aside and put back unless the run finishes (settleHandover)
+            act.handoverFrom ??= TaskList.fromJSON(JSON.parse(JSON.stringify(list)));
             // cleared on the run's mirror too, or its next mirrored Task call would write the flag back
             list.handoverPending = false;
             if (act.taskList) act.taskList.handoverPending = false;

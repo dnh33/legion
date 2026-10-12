@@ -1339,3 +1339,33 @@ test('task list off: no SessionStart hook is installed', async () => {
   await s.engine.waitFor(s.engine.startTask({ agentId: 'a1', prompt: 'x', source: 'ui' }).id, 3000);
   assert.equal(s.calls[0]!.options.hooks.SessionStart, undefined);
 });
+
+test('a hand-over run that stops before it finishes leaves the provider\'s list as it was, flagged for the next Claude run', async () => {
+  const { TaskList, TaskListStore } = await import('../src/core/task-list.js');
+  let n = 0;
+  const s = setup((params) => (async function* () {
+    n++;
+    yield init('sess-stop');
+    if (n === 2) {
+      await fireSessionStart(params, 'resume');
+      // the hand-over's first step: Claude's own list, still empty, replaces the mirror
+      yield taskCall('l1', 'TaskList', {});
+      yield taskResult('l1', { tasks: [] });
+      yield err('error_during_execution', ['the run broke']);
+      return;
+    }
+    yield ok('done');
+  })(), { agent: { model: 'opus', taskList: 'on' } });
+  const t = s.engine.startTask({ agentId: 'a1', prompt: 'one', source: 'ui' });
+  await s.engine.waitFor(t.id, 3000);
+  const store = new TaskListStore(join(s.config.workspaceDir, '.task-lists'));
+  const l = new TaskList(); l.create({ subject: 'from the provider', description: '' }); l.handoverPending = true; store.save(t.id, l);
+  s.engine.startTask({ agentId: 'a1', prompt: 'two', source: 'ui', continueTaskId: t.id });
+  const end = await s.engine.waitFor(t.id, 3000);
+  assert.equal(end.status, 'error');
+  // waitFor answers when the status is saved; the run itself ends a moment later
+  for (let i = 0; i < 100 && s.engine.running().includes(t.id); i++) await new Promise((r) => setTimeout(r, 10));
+  const after = store.load(t.id);
+  assert.deepEqual(after.list().map((x) => x.subject), ['from the provider'], 'the provider\'s tasks are not lost to an unfinished hand-over');
+  assert.equal(after.handoverPending, true, 'handed over again next time');
+});

@@ -20,6 +20,18 @@ import {
 import type { CompactionPlan } from './compaction.js';
 import type { CompactionSettings } from '../../shared/types.js';
 import type { ChatMessage, ChatToolSpec, ProviderHost, ProviderRunResult, TokenUsage } from './types.js';
+import { TASK_LIST_HEADER } from '../task-list.js';
+
+/**
+ * A stored summary row without the task list that rode with it. The list is appended when a summary is made (so the
+ * transcript shows what the model was told), but read back it is a stale copy: the run's own system prompt carries the
+ * list as it is now.
+ */
+function withoutTaskList(row: ChatMessage): ChatMessage {
+  const content = row.content ?? '';
+  const at = content.indexOf(`\n\n${TASK_LIST_HEADER}`);
+  return at < 0 ? row : { ...row, content: content.slice(0, at) };
+}
 
 export const MAX_ARG_BYTES = 64 * 1024;
 export const MAX_TOOL_RESULT_CHARS = 12_000;
@@ -189,7 +201,7 @@ function readConversation(host: Pick<ProviderHost, 'stored' | 'prompt' | 'system
   // in the JSONL and are not sent, because re-sending them costs window for no information.
   let summaryAt = -1;
   for (let i = all.length - 1; i >= 0; i--) if (isSummaryMessage(all[i]!)) { summaryAt = i; break; }
-  const existing = summaryAt >= 0 ? all[summaryAt]! : null;
+  const existing = summaryAt >= 0 ? withoutTaskList(all[summaryAt]!) : null;
   const afterSummary = summaryAt >= 0 ? all.slice(summaryAt + 1) : all;
   // Early turns are protected on the first compaction only. After that the summary is the head, and keeping the
   // opening turns as well would re-assert them in every future summary — stale decisions, faithfully repeated.
@@ -285,7 +297,7 @@ export function summariserInput(middle: readonly ChatMessage[], existing: ChatMe
 
 /** The summary text without the marker header Legion wraps around it. */
 function existingSummaryBody(summary: ChatMessage): string {
-  const content = summary.content ?? '';
+  const content = withoutTaskList(summary).content ?? '';
   const split = content.indexOf('\n\n');
   return split >= 0 ? content.slice(split + 2) : content;
 }

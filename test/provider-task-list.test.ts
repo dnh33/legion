@@ -207,3 +207,31 @@ test('todo_create says the task list is private and shared work belongs on the p
     assert.match(tool.function.description, /project board/);
   } finally { await f.close(); }
 });
+
+test('a stored summary row\'s old task list is not sent again: the model sees only the fresh list', async () => {
+  const { COMPACTION_MARKER } = await import('../src/core/providers/compaction.js');
+  const { TaskList, TaskListStore } = await import('../src/core/task-list.js');
+  const { join } = await import('node:path');
+  const f = await startFake((_r, res) => replyText(res, 'ok'));
+  try {
+    const h = setup(f);
+    const t = await run(h, 'one');
+    const store = h.store as unknown as { addMessage(m: { taskId: string; role: string; text: string }): unknown };
+    store.addMessage({ taskId: t.id, role: 'system', text: `${COMPACTION_MARKER} 4 earlier messages were compacted.\n\n## Goal\nkeep going\n\n[Your task list for this conversation, kept by Legion]\n- [ ] 1. stale item (pending)` });
+    const l = new TaskList(); l.create({ subject: 'fresh item', description: '' }); new TaskListStore(join(h.config.workspaceDir, '.task-lists')).save(t.id, l);
+    await run(h, 'two', { continueTaskId: t.id });
+    const body = JSON.stringify(f.requests.at(-1)!.body);
+    assert.match(body, /fresh item/);
+    assert.doesNotMatch(body, /stale item/);
+    assert.match(body, /keep going/, 'the summary itself is still sent');
+  } finally { await f.close(); }
+});
+
+test('the summariser is not handed the old task list as part of the previous summary', async () => {
+  const { summariserInput } = await import('../src/core/providers/tool-loop.js');
+  const { COMPACTION_MARKER } = await import('../src/core/providers/compaction.js');
+  const prior = { role: 'system' as const, content: `${COMPACTION_MARKER} x\n\n## Goal\nkeep going\n\n[Your task list for this conversation, kept by Legion]\n- [ ] 1. stale item (pending)` };
+  const text = summariserInput([{ role: 'user', content: 'new turn' }], prior);
+  assert.match(text, /keep going/);
+  assert.doesNotMatch(text, /stale item|kept by Legion/);
+});
