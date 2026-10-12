@@ -176,7 +176,7 @@ const TEST_TOOLS = [
 
 /**
  * "Try it": type a command, pick an agent, see the verdict the SAME decideGate would return — the rules exactly
- * as stored, nothing executed (the contract of `hermes approvals test`).
+ * as stored, nothing executed (a dry run of the real decision).
  */
 export function GateTester({ rules, agents }: { rules: readonly GateRule[]; agents: readonly AgentProfile[] }) {
   const [agentId, setAgentId] = useState(agents[0]?.id ?? '');

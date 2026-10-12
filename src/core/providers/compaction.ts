@@ -37,8 +37,7 @@ export const COMPACTION_THRESHOLD = 0.5;
  */
 export const SMALL_WINDOW_TOKENS = 32_000;
 /**
- * Small-context boundary, matching the reference implementation
- * (hermes-agent agent/context_compressor.py: `_SMALL_CTX_WINDOW_LIMIT = 512_000`). Below this window the trigger
+ * Small-context boundary: windows up to 512,000 tokens count as small. Below this window the trigger
  * fraction is floored — raise-only. The old code applied a LOWER fraction below 32k, so it compacted EARLIER than the
  * reference on essentially every real model and discarded usable window on every task.
  */
@@ -77,7 +76,7 @@ export const INEFFECTIVE_LIMIT = 2;
 /**
  * Tokens for a piece of text.
  *
- * Mirrors the reference estimator (hermes-agent agent/model_metadata.py: `estimate_tokens_rough`, CHARS_PER_TOKEN = 4):
+ * A rough estimator at 4 characters per token:
  * CJK/Hangul/Kana codepoints cost ~1 token each; everything else costs ceil(UTF-8 BYTES / 4). Bytes, not characters,
  * is the load-bearing part: a Cyrillic/Greek/Arabic character is 2 bytes (≈2.5 chars/token), and a CJK ideograph is 3
  * bytes — the old rule counted UTF-16 code units and divided by 3, calling an ideograph a THIRD of a token. Measured:
