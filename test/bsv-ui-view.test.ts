@@ -301,3 +301,28 @@ test('spend: a request the wallet has not answered yet is listed as waiting for 
   const panel = stripComments(read('BsvPanel.tsx'));
   assert.match(panel, /m\.waiting\.map\(\(r\) => \([\s\S]{0,300}data-spend-waiting=\{r\.requestId\}[\s\S]{0,300}changePolicy\(\{ kind: 'spend-deny', requestId: r\.requestId \}\)\}>Cancel<\/button>/);
 });
+
+// ---------------------------------------------------------------- the frozen banner (fix/bsv-frozen-banner-reason)
+
+test('frozen banner: the ticker shows the reason, the date and that Unfreeze is in the BSV panel', () => {
+  const m = model({ policy: policy({ frozen: { at: '2026-10-05T09:12:00.000Z', reason: 'an audit entry failed verification' } }) });
+  const wide = m.tiers[0];
+  assert.ok(wide, 'the frozen tier exists');
+  assert.equal(wide[0], 'BSV FROZEN');
+  assert.equal(wide[1], 'an audit entry failed verification', 'the reason is on its own line');
+  assert.ok(wide.some((l) => /2026-10-05/.test(l)), 'the freeze date is shown: ' + JSON.stringify(wide));
+  assert.ok(wide.some((l) => /Unfreeze is in the BSV panel/.test(l)), 'the way out is named: ' + JSON.stringify(wide));
+  assert.ok(m.tiers.some((tier) => tier.length === 1 && tier[0] === 'BSV FROZEN'), 'a plain status is the last fallback for a very narrow gap');
+  assert.ok(m.tiers.some((tier) => tier !== wide && tier.some((l) => /2026-10-05/.test(l)) && tier.some((l) => /Unfreeze is in the BSV panel/.test(l))), 'a middle tier keeps the date and the way out for a narrow gap: ' + JSON.stringify(m.tiers));
+  const text = wide.join(' ');
+  assert.doesNotMatch(text, /[–—]/, 'no en dash or em dash');
+  assert.doesNotMatch(text, /this computer/i, 'says your computer, never this computer');
+});
+
+test('frozen banner: reason and date are read from the saved policy, not invented by the view', () => {
+  const bare = model({ policy: policy({ frozen: { at: '2026-10-01T12:00:00.000Z', reason: 'frozen' } }) }).tiers[0];
+  assert.ok(bare && bare.some((l) => /frozen/i.test(l) && l !== 'BSV FROZEN'), 'the saved reason is shown: ' + JSON.stringify(bare));
+  assert.ok(bare.some((l) => /2026-10-01/.test(l)), 'the saved date is shown');
+  const view = readFileSync(new URL('../../src/shared/bsv-view.ts', import.meta.url), 'utf8');
+  assert.doesNotMatch(view, /reason: 'an audit|reason: 'frozen by/, 'the reason comes from the policy, never from the view');
+});
