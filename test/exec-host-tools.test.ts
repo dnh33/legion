@@ -205,3 +205,26 @@ test('a link inside the root that points outside it is refused: read, write and 
   const ok = await call('write_file', { path: 'sub/dir/file.txt', content: 'in scope' });
   assert.equal(ok.isError, false, ok.text);
 });
+
+test('the guard judges quoted text as a command only when the line runs text: a commit message or a grep pattern passes', () => {
+  // data, not commands: nothing here runs the quoted text
+  for (const ok of [
+    'git commit -m "fix the rm -rf / bug in the installer"',
+    'git commit -m "rm -rf / is now refused by the guard"',
+    'grep "vssadmin delete shadows" notes.txt',
+    'echo "never run format C: here" > notes.txt',
+    'rg -n "Remove-Item -Recurse -Force C:\\" docs',
+  ]) assert.equal(refuseCatastrophic(ok), undefined, ok);
+  // the same text handed to something that runs it is still refused
+  for (const bad of [
+    'echo "rm -rf /" | sh',
+    'bash -c "rm -rf /"',
+    'powershell -Command "Remove-Item -Recurse -Force C:\\"',
+    'ssh host "rm -rf /"',
+    'eval "rm -rf /"',
+    'echo $(rm -rf /)',
+    'vssadmin delete shadows /all /quiet',
+    'cmd /c vssadmin delete shadows /all',
+    'sudo reg delete HKLM\\SYSTEM /f',
+  ]) assert.ok(refuseCatastrophic(bad), bad);
+});

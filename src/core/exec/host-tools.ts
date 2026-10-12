@@ -125,11 +125,15 @@ const SPILL_KEEP_FILES = 50;
  * an approval cannot override. Matched conservatively: it must never block ordinary work (rm of a project folder, git,
  * builds all pass through).
  */
-const CATASTROPHIC: Array<[RegExp, string]> = [
+/** Commands that are catastrophic by themselves: judged where a command runs, so a note or a grep pattern naming one passes. */
+const CATASTROPHIC_COMMANDS: Array<[RegExp, string]> = [
   [/\bmkfs(?:\.\w+)?\b/i, 'formatting a filesystem'],
   [/\bdd\b[^|&;\n]*\bof\s*=\s*['"]?\/dev\//i, 'raw write to a device'],
   [/\bformat(?:\.com)?\s+['"]?[A-Za-z]:/i, 'formatting a drive'],
   [/\bdiskpart\b/i, 'disk partitioning'],
+];
+/** Shapes that are not words (a fork bomb, a redirect onto a disk): matched anywhere on the line. */
+const CATASTROPHIC: Array<[RegExp, string]> = [
   [/:\(\)\s*\{\s*:\s*\|\s*:\s*&\s*\}\s*;\s*:/, 'a fork bomb'],
   [/>\s*['"]?\/dev\/(?:sd|hd|nvme|mmcblk|vd)[a-z0-9]*['"]?\s*$/i, 'overwriting a block device'],
 ];
@@ -147,6 +151,11 @@ const CATASTROPHIC_WINDOWS: Array<[RegExp, string]> = [
   [/\bcipher(?:\.exe)?\s+\/w\b/, 'wiping a drive\'s free space'],
   [/\b(?:format-volume|clear-disk|initialize-disk|remove-partition)\b/, 'formatting or wiping a disk'],
 ];
+
+/** The same patterns anchored at the start: judged at each place a command runs. */
+const CATASTROPHIC_WINDOWS_AT: Array<[RegExp, string]> = [...CATASTROPHIC_COMMANDS, ...CATASTROPHIC_WINDOWS].map(([re, what]) => [new RegExp(`^(?:${re.source})`, re.flags.replace('g', '')), what]);
+/** Programs that run TEXT as a command (besides the shells): only for these is a quoted string judged as a command of its own. */
+const TEXT_RUNNERS = new Set(['eval', 'iex', 'invoke-expression', 'ssh', 'su', 'wsl', 'xargs', 'start', 'watch', 'source', '.']);
 
 /** Delete commands of sh, cmd and PowerShell (with its aliases). */
 const DELETE_VERBS = new Set(['rm', 'rmdir', 'rd', 'del', 'erase', 'remove-item', 'ri']);
@@ -205,6 +214,8 @@ function isProtectedTarget(word: string): boolean {
 /** Programs that run the rest of the line as the command (`sudo rm …` is an rm); their own options are skipped. */
 const WRAPPERS = new Set(['sudo', 'doas', 'command', 'builtin', 'exec', 'env', 'nice', 'nohup', 'time', 'xargs']);
 const WRAPPER_OPTS_WITH_ARG = new Set(['-u', '-g', '-p', '-h', '-n']);
+/** PowerShell options that take a value. */
+const PS_OPTS_WITH_ARG = new Set(['-executionpolicy', '-ep', '-ex', '-windowstyle', '-w', '-outputformat', '-of', '-inputformat', '-if', '-configurationname', '-workingdirectory', '-wd', '-settingsfile', '-version', '-v']);
 /** Shells that run the command line after their command flag (`bash -c`, `cmd /c`, `powershell -Command`). */
 const SHELLS = new Set(['bash', 'sh', 'zsh', 'dash', 'ksh', 'fish', 'cmd', 'powershell', 'pwsh']);
 const SHELL_COMMAND_FLAGS = new Set(['-c', '/c', '/k', '-command']);
@@ -228,6 +239,13 @@ function commandPositions(ws: readonly string[]): number[] {
     }
     const flag = SHELLS.has(p) ? ws.findIndex((w, j) => j > i && SHELL_COMMAND_FLAGS.has(w)) : -1;
     if (flag > i) { i = flag + 1; continue; }
+    // PowerShell runs its first plain argument as a command even without -Command (`powershell Format-Volume …`);
+    // its options that take a value (-ExecutionPolicy Bypass) are stepped over, and -File runs a script, not a command
+    if (p === 'powershell' || p === 'pwsh') {
+      let j = i + 1;
+      while (j < ws.length && ws[j]!.startsWith('-')) { if (ws[j] === '-file' || ws[j] === '-f') { j = ws.length; break; } j += PS_OPTS_WITH_ARG.has(ws[j]!) ? 2 : 1; }
+      if (j < ws.length) { i = j; continue; }
+    }
     break;
   }
   ws.forEach((w, j) => { if ((w === '-exec' || w === '-execdir') && j + 1 < ws.length) out.push(j + 1); });
@@ -241,6 +259,11 @@ function refuseSegment(segment: string): string | undefined {
   const runs = (ws: readonly string[], verbs: ReadonlySet<string>): number[] => commandPositions(ws).filter((i) => verbs.has(program(ws[i]!)));
   const targetsAfter = (ws: readonly string[], i: number): boolean => ws.slice(i + 1).some(isProtectedTarget);
   for (const ws of stages) {
+    // the Windows whole-machine tools count where a command runs (`cmd /c vssadmin …`), never as text (`grep "vssadmin …"`)
+    for (const i of commandPositions(ws)) {
+      const tail = ws.slice(i).join(' ');
+      for (const [re, what] of CATASTROPHIC_WINDOWS_AT) if (re.test(tail)) return what;
+    }
     if (runs(ws, DELETE_VERBS).some((i) => targetsAfter(ws, i))) return 'a recursive delete of a drive, a system folder or a home folder';
     const deletes = ws.includes('-delete') || ws.some((w, i) => (w === '-exec' || w === '-execdir') && DELETE_VERBS.has(program(ws[i + 1] ?? '')));
     if (deletes && runs(ws, FIND_VERB).some((i) => targetsAfter(ws, i))) return 'deleting everything under a drive, a system folder or a home folder';
@@ -260,14 +283,19 @@ function refuseSegment(segment: string): string | undefined {
  * (`echo <base64> | base64 -d | sh`, a script file it wrote first) is not seen. Only a sandboxed backend closes that;
  * until one exists, a full-access agent with the host shell can do anything the user can.
  */
+/** Whether some command position on the line is a shell or another program that runs text as a command. */
+function runsText(cmd: string): boolean {
+  for (const seg of cmd.split(/&&|\|\||[;&|\n\r]/)) {
+    const ws = words(seg);
+    if (commandPositions(ws).some((i) => { const p = program(ws[i]!); return SHELLS.has(p) || TEXT_RUNNERS.has(p); })) return true;
+  }
+  return false;
+}
+
 export function refuseCatastrophic(cmd: string, depth = 0): string | undefined {
   const say = (what: string): string => `Refused: this command looks like ${what}, which can destroy the machine or its data. It is blocked for every agent, even full access.`;
   for (const [re, what] of CATASTROPHIC) {
     if (re.test(cmd)) return say(what);
-  }
-  const plain = cmd.replace(/[\^"']/g, '').toLowerCase();
-  for (const [re, what] of CATASTROPHIC_WINDOWS) {
-    if (re.test(plain)) return say(what);
   }
   for (const segment of cmd.split(/&&|\|\||[;&\n\r]/)) {
     const why = refuseSegment(segment);
@@ -281,8 +309,9 @@ export function refuseCatastrophic(cmd: string, depth = 0): string | undefined {
       const inner = refuseCatastrophic(m[1] ?? m[2] ?? '', depth + 1);
       if (inner) return inner;
     }
-    // one plain scan per quote (a pattern that also demands whitespace inside backtracks quadratically on an open quote)
-    for (const m of cmd.matchAll(/"([^"]*)"|'([^']*)'/g)) {
+    // one plain scan per quote (a pattern that also demands whitespace inside backtracks quadratically on an open quote);
+    // only when something on the line runs text (a shell's -c, eval, ssh, a pipe into sh): a commit message is data
+    if (runsText(cmd)) for (const m of cmd.matchAll(/"([^"]*)"|'([^']*)'/g)) {
       const text = m[1] ?? m[2] ?? '';
       if (!/\s/.test(text)) continue;
       const inner = refuseCatastrophic(text, depth + 1);
