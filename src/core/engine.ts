@@ -7,7 +7,7 @@ import type {
   AgentProfile, ApprovalMode, ChatMessage, ConcreteModel, LegionConfig, MascotMood, MessageRole, ModelChoice, Task, TaskProgress, TaskSource,
 } from '../shared/types.js';
 import { newId, nowIso, titleFrom } from '../shared/util.js';
-import { scrubHostSessionEnv } from '../shared/config.js';
+import { gatesFor, scrubHostSessionEnv } from '../shared/config.js';
 import { BUDGET_LIMIT_PREFIX, CONTINUE_PROMPT, TURN_LIMIT_PREFIX, budgetCap, formatUsdLimit } from '../shared/continue.js';
 import { clampBudget } from './brief.js';
 import { InputChannel } from './input-channel.js';
@@ -15,6 +15,7 @@ import { BackgroundTasks } from './background-tasks.js';
 import { capStored } from './result-store.js';
 import { contextTokensOf } from '../shared/context-meter.js';
 import { isLegionTool, needsApproval, stricterMode, LEGION_SERVER_NAMES } from './approvals.js';
+import { decideGate } from './gates.js';
 import { TaintedPaths } from './tainted-paths.js';
 import { buildHostToolsServer } from './exec/host-tools.js';
 import { DirectHostBackend } from './exec/direct-host.js';
@@ -1026,7 +1027,12 @@ This run read connector (GitHub) data and other outside text. Web access can sen
       const egress = this.webEgressCard(job, agent, toolName, input);
       if (egress) return egress;
       const mode = effective();
-      if (!needsApproval(mode, toolName, { capped: job.origin?.approvalCeiling === 'ask' })) return { allow: true };
+      // Gate rules (Settings -> Gates) sit ahead of the approval baseline: deny wins outright (and survives full), an
+      // explicit allow skips the card, an ask forces one (inert in full), and no rule falls through to the baseline.
+      const gate = decideGate({ toolName, input, agentId: agent.id, projectId: this.projectOf(job.taskId, agent.id)?.id, ctx: { roomHop: (job.origin?.hop ?? 0) > 0, tainted: this.active.get(job.taskId)?.tainted === true || job.origin?.tainted === true, connectorData: this.store.getTask(job.taskId)?.usedConnectors === true } }, gatesFor(this.config).rules, mode, job.origin?.approvalCeiling === 'ask');
+      if (gate.verdict === 'deny') return { allow: false, message: 'Blocked by a gate rule (Settings -> Gates).' };
+      if (gate.verdict === 'allow') return { allow: true };
+      if (gate.verdict !== 'ask' && !needsApproval(mode, toolName, { capped: job.origin?.approvalCeiling === 'ask' })) return { allow: true };
       const o = job.origin;
       let timedOut = false;
       const allowed = await this.approvals.request(
@@ -1148,6 +1154,12 @@ This run read connector (GitHub) data and other outside text. Web access can sen
         if (input.hook_event_name !== 'PreToolUse') return { continue: true };
         const d = await this.webEgressCard(job, agent, input.tool_name, (input.tool_input ?? {}) as Record<string, unknown>);
         return d && !d.allow ? preToolDeny(d.message ?? 'The user denied this web request.') : { continue: true };
+      }] });
+      // deny rules survive Full (the one class meant to): a Block rule still stops the tool here, where canUseTool does not exist.
+      options.hooks?.PreToolUse?.push({ matcher: '.*', hooks: [async (input) => {
+        if (input.hook_event_name !== 'PreToolUse') return { continue: true };
+        const g = decideGate({ toolName: input.tool_name, input: (input.tool_input ?? {}) as Record<string, unknown>, agentId: agent.id, projectId: this.projectOf(job.taskId, agent.id)?.id, ctx: { roomHop: (job.origin?.hop ?? 0) > 0, tainted: this.active.get(job.taskId)?.tainted === true || job.origin?.tainted === true, connectorData: this.store.getTask(job.taskId)?.usedConnectors === true } }, gatesFor(this.config).rules, 'full', false);
+        return g.verdict === 'deny' ? preToolDeny('Blocked by a gate rule (Settings -> Gates).') : { continue: true };
       }] });
     } else {
       options.permissionMode = 'default';
