@@ -90,7 +90,7 @@ test('ask round-trip: result returned, pair thread stored with fromAgentId, head
   assert.equal(msgs[0]!.fromAgentId, 'zealot');
   const builderCall = s.calls.find((c) => c.agent === 'builder')!;
   assert.equal(builderCall.prompt, '[From Zealot (Legion agent) via the bridge. Reply with just what they need; your final message is returned to them.]\nbuild it');
-  assert.deepEqual(builderCall.options.disallowedTools, ['SendMessage', 'ListAgents']);
+  assert.deepEqual(builderCall.options.disallowedTools, ['SendMessage', 'ListAgents', 'TaskCreate', 'TaskUpdate', 'TaskList', 'TaskGet', 'TodoWrite']); // task list off by default for a non-lead agent
   assert.match(builderCall.options.systemPrompt.append, /mcp__legion__ask/);
 });
 
@@ -416,4 +416,47 @@ test('tell: a reply from a run that failed carries its outcome in the header (th
   const reply = s.store.listMessages(z.id).filter((m) => m.role === 'user').at(-1)!;
   const head = `[Reply from Scout · task ${taskId} · `;
   assert.ok(reply.text.startsWith(head + 'error] ') || reply.text.startsWith(head + 'failed] '), reply.text);
+});
+
+test('agents tool: a bot\'s whole description reaches the lead, safety tail included (never cut to 80 characters)', async () => {
+  let text = '';
+  const s = setup((c) => c.agent !== 'zealot' ? undefined : (async function* () {
+    yield init('z-desc');
+    text = (await callTool(c.options, 'agents', {})).text;
+    yield ok('x', 'z-desc');
+  })());
+  const long = 'Watches the skills, knowledge sources and MCP servers in use and files newer versions on the board.\nReports, never upgrades.';
+  s.store.upsertAgent({ ...mkAgent('scout', 'Scout'), description: long });
+  await s.engine.waitFor(s.engine.startTask({ agentId: 'zealot', prompt: 'go', source: 'ui' }).id, 5000);
+  const line = text.split('\n').find((l) => l.startsWith('scout'))!;
+  assert.match(line, /Reports, never upgrades\./);
+  assert.match(line, /^scout \| Scout \| .* \| idle \| no-thread$/, 'still one line: a newline in the description does not break the table');
+});
+
+test('the lead\'s send-back rule is code: one goal goes to one agent at most three times (two send-backs), and never back once it moved on', async () => {
+  const results: Array<{ step: string; isError?: boolean; text: string }> = [];
+  const brief = (goal: string) => ({ goal, done_when: ['the test passes'] });
+  const s = setup((c) => c.agent !== 'zealot' ? undefined : (async function* () {
+    yield init('z-sendback');
+    const send = async (step: string, agent: string, goal: string) => {
+      const r = await callTool(c.options, 'ask', { agent, brief: brief(goal), timeoutSeconds: 5 });
+      results.push({ step, isError: r.isError, text: r.text });
+    };
+    await send('1st', 'builder', 'Fix the export test');
+    await send('2nd', 'builder', '  fix the EXPORT test ');
+    await send('3rd', 'builder', 'Fix the export test');
+    await send('4th', 'builder', 'Fix the export test');
+    await send('other goal', 'builder', 'Write the changelog');
+    await send('moved', 'scout', 'Fix the export test');
+    await send('back', 'builder', 'Fix the export test');
+    yield ok('x', 'z-sendback');
+  })(), 4);
+  await s.engine.waitFor(s.engine.startTask({ agentId: 'zealot', prompt: 'go', source: 'ui' }).id, 20_000);
+  const by = (step: string) => results.find((r) => r.step === step)!;
+  for (const step of ['1st', '2nd', '3rd', 'other goal', 'moved']) assert.ok(!by(step).isError, `${step}: ${by(step).text}`);
+  assert.equal(by('4th').isError, true);
+  assert.match(by('4th').text, /two send-backs|3 times/i);
+  assert.match(by('4th').text, /another agent|open/i);
+  assert.equal(by('back').isError, true);
+  assert.match(by('back').text, /moved|does not go back/i);
 });

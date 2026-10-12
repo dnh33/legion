@@ -278,7 +278,7 @@ test('preamble: four lines, only for the assayer, only while on', async () => {
   assert.match(p, /mcp__legion_bsv__bsv_status/);
   assert.match(p, /kg_recall with scope bsv/);
   assert.match(p, /Never ask the user for keys, seed phrases/);
-  for (const id of ['zealot', 'scout', 'builder', 'herald', 'assayer2']) assert.equal(s.bsv.preamble!(mkAgent(id)), '', id);
+  for (const id of ['scout', 'builder', 'herald', 'assayer2']) assert.equal(s.bsv.preamble!(mkAgent(id)), '', id);
   s.state.set(false);
   assert.equal(s.bsv.preamble!(a), '', 'off again');
 });
@@ -359,4 +359,18 @@ test('hidden Assayer over HTTP: starting a task, its VM, exec and desktop are re
   await s.call('POST', '/api/bsv', { enabled: true });
   assert.equal((await s.call('POST', '/api/tasks', { agentId: 'assayer', prompt: 'x' })).status, 201);
   assert.equal((await s.call('POST', '/api/vms/assayer/exec', { command: 'echo hi' })).status, 200);
+});
+
+test('preamble: while BSV mode is on, the lead is told to route Bitcoin SV work to the Assayer; off, nothing names it', async () => {
+  const s = await setup();
+  const lead = s.agents.get('zealot')!;
+  assert.equal(s.bsv.preamble!(lead), '', 'off: the Assayer is hidden, so the lead never hears of it');
+  s.state.set(true);
+  const p = s.bsv.preamble!(lead);
+  assert.equal(p.split('\n').length, 1, 'one line');
+  assert.match(p, /Bitcoin SV/);
+  assert.match(p, /Assayer/);
+  assert.doesNotMatch(p, /mcp__/);
+  s.state.set(false);
+  assert.equal(s.bsv.preamble!(lead), '');
 });

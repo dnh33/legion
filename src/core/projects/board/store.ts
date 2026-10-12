@@ -1,16 +1,23 @@
 /** Project board store: one JSONL log per project (<dataDir>/board/<projectId>.jsonl). See claude/plan-project-board.md. */
 import { appendFileSync, existsSync, mkdirSync, readFileSync, renameSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { BOARD_LIMITS, BOARD_PRIORITIES, BOARD_STATUSES, BOT_STATUSES, NOTE_ID_RE, WORK_ITEM_ID_RE } from '../../../shared/board.js';
-import type { ActivityEntry, BoardActor, BoardAssignee, BoardPriority, BoardStatus, BoardView, WorkItem } from '../../../shared/board.js';
+import { BOARD_LIMITS, BOARD_PRIORITIES, BOARD_STATUSES, BOT_STATUSES, MARSHAL_DEFAULTS, MARSHAL_LIMITS, NOTE_ID_RE, WORK_ITEM_ID_RE } from '../../../shared/board.js';
+import type { ActivityEntry, BoardActor, BoardAssignee, BoardPriority, BoardStatus, BoardView, MarshalConfig, WorkItem } from '../../../shared/board.js';
 import { PROJECT_ID_RE } from '../../../shared/projects.js';
 import type { Project } from '../../../shared/projects.js';
 import { newId, nowIso } from '../../../shared/util.js';
 import { findForbiddenSecret, scrubSecrets } from '../../comms/scrub.js';
+import { scoreWorkItem, topFactor } from './priority.js';
+import type { PriorityFactor, ScoredItem } from './priority.js';
 
 export class BoardError extends Error {
   constructor(public readonly status: number, message: string) { super(message); this.name = 'BoardError'; }
 }
+
+/** Why one item sits where it does: its score, the factor that explains it most, and that factor's own line. */
+export interface ItemRank { score: number; factor: PriorityFactor; why: string }
+/** The board as it is read: the items in score order per column, plus why each one ranks where it does (by item id). */
+export interface RankedBoardView extends BoardView { /** One entry per board item; Inbox proposals are not ranked. */ rank: Record<string, ItemRank> }
 
 /** The part of a project the store needs; the caller reads it from the ProjectStore at the moment of the call. */
 export type ProjectRef = Pick<Project, 'id' | 'members' | 'status'>;
@@ -21,6 +28,8 @@ export interface RunLookup { live: boolean; agentId?: string; tainted?: boolean 
 const LIMITED_RUN = 'This run is limited: it touched outside content (web, shell or external tools), or another bot or an MCP client started it under "ask" approvals.';
 
 const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v);
+/** Longest serialized per-item sidecar. State, not content: a ledger and a few checks fit in a few hundred characters. */
+const SIDECAR_CHARS = 2_000;
 const oneLine = (s: string): string => s.replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029\u202a-\u202e\u2066-\u2069]/g, ' ').replace(/\s+/g, ' ').trim();
 const cleanText = (s: string): string => s.replace(/\r\n?/g, '\n').replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f\u2028\u2029\u202a-\u202e\u2066-\u2069]/g, '');
 const clip = (s: string, n: number): string => (s.length > n ? s.slice(0, n) : s);
@@ -65,6 +74,25 @@ export const cleanStatus = (v: unknown): BoardStatus => {
   if (!BOARD_STATUSES.includes(v as BoardStatus)) throw new BoardError(400, `status must be one of ${BOARD_STATUSES.join(', ')}`);
   return v as BoardStatus;
 };
+/**
+ * The Marshal's config as this board holds it: off, on the shipped wave and stall budget (the shared default,
+ * re-exported here beside the validation that enforces it).
+ */
+export { MARSHAL_DEFAULTS };
+const cleanBound = (v: unknown, field: keyof typeof MARSHAL_LIMITS): number => {
+  const [lo, hi] = MARSHAL_LIMITS[field];
+  if (typeof v !== 'number' || !Number.isInteger(v) || v < lo || v > hi) throw new BoardError(400, `${field} must be a whole number between ${lo} and ${hi}`);
+  return v;
+};
+/** A stored config read back: tolerant like every load (a damaged value falls back, never throws, never widens). */
+function readMarshal(raw: Record<string, unknown>): MarshalConfig {
+  const bound = (v: unknown, field: keyof typeof MARSHAL_LIMITS): number => {
+    const [lo, hi] = MARSHAL_LIMITS[field];
+    return typeof v === 'number' && Number.isInteger(v) && v >= lo && v <= hi ? v : MARSHAL_DEFAULTS[field];
+  };
+  // `enabled` is read strictly on: an unreadable switch counts as off, so a damaged line never starts the loop
+  return { enabled: raw.enabled === true, waveSize: bound(raw.waveSize, 'waveSize'), stallMinutes: bound(raw.stallMinutes, 'stallMinutes') };
+}
 /** Wire form: null, {kind:'owner'} or {kind:'agent', id}. The agent must be a member of the project. */
 export function cleanAssignee(v: unknown, proj: ProjectRef): BoardAssignee | null {
   if (v === null) return null;
@@ -129,9 +157,22 @@ class Board {
   foreign: string[] = [];
   /** The member agent that may ask to delete items (each delete still needs the owner's approval card). Owner-set; none by default. */
   leader: string | undefined;
+  /** The Marshal's config for this project, off by default. Rides the same meta line as the leader. */
+  marshal: MarshalConfig = { ...MARSHAL_DEFAULTS };
   lines = 0;
   constructor(readonly file: string, readonly projectId: string) {}
 }
+
+/**
+ * The item as the scorer reads it: the board's own fields, plus a `deps` list the log may carry. The
+ * store keeps the fields it does not know (they ride along as extras and are written back on
+ * compaction), so an item can already wait on other items before `WorkItem` declares a `deps` field.
+ */
+const forScoring = (b: Board, i: WorkItem): ScoredItem => {
+  const raw = b.extras.get(i.id)?.deps;
+  const deps = Array.isArray(raw) ? raw.filter((d): d is string => typeof d === 'string') : undefined;
+  return { priority: i.priority, ...(i.due ? { due: i.due } : {}), trust: i.trust, ...(deps?.length ? { deps } : {}) };
+};
 
 export class BoardStore {
   private readonly boards = new Map<string, Board>();
@@ -189,7 +230,12 @@ export class BoardStore {
         try { rec = JSON.parse(line); } catch { continue; } // a torn last line, or damage: that line only is skipped
         if (!isObj(rec)) continue;
         if (typeof rec.v === 'number' && rec.v > 1) { b.foreign.push(line); continue; }
-        if (rec.kind === 'meta') { b.leader = typeof rec.leader === 'string' && rec.leader ? clip(rec.leader, 64) : undefined; continue; }
+        if (rec.kind === 'meta') {
+          b.leader = typeof rec.leader === 'string' && rec.leader ? clip(rec.leader, 64) : undefined;
+          // absent = this line never carried a config (a build older than the Marshal): keep what earlier lines said
+          if (isObj(rec.marshal)) b.marshal = readMarshal(rec.marshal);
+          continue;
+        }
         if (rec.kind === 'delete' && typeof rec.id === 'string') { b.items.delete(rec.id); b.extras.delete(rec.id); continue; }
         if (rec.kind === 'item') {
           const r = loadItem(rec.item, b.projectId);
@@ -216,12 +262,24 @@ export class BoardStore {
     this.append(b, { v: 1, kind: 'delete', at: nowIso(), id });
   }
 
+  /**
+   * The board's standing state as one meta line: the leader and the Marshal's config. Written only when it
+   * carries something (a leader, or a config that differs from the defaults), so compaction of an untouched
+   * board still writes nothing but its items — and whenever it IS written, it carries BOTH halves, so no
+   * write can drop the other.
+   */
+  private metaLine(b: Board, at: string): string | undefined {
+    const configured = (['enabled', 'waveSize', 'stallMinutes'] as const).some((k) => b.marshal[k] !== MARSHAL_DEFAULTS[k]);
+    if (!b.leader && !configured) return undefined;
+    return JSON.stringify({ v: 1, kind: 'meta', at, leader: b.leader ?? null, marshal: { ...b.marshal } });
+  }
   /** Rewrites the log as one snapshot per live item (tmp file, then rename). A failure leaves the old log valid. */
   compact(b: Board): void {
     const at = nowIso();
+    const meta = this.metaLine(b, at);
     const text = [
       ...b.foreign,
-      ...(b.leader ? [JSON.stringify({ v: 1, kind: 'meta', at, leader: b.leader })] : []),
+      ...(meta ? [meta] : []),
       ...[...b.items.values()].map((i) => JSON.stringify({ v: 1, kind: 'item', at, item: { ...(b.extras.get(i.id) ?? {}), ...i } })),
     ].join('\n') + '\n';
     const tmp = b.file + '.tmp';
@@ -231,7 +289,7 @@ export class BoardStore {
         const code = (e as NodeJS.ErrnoException).code;
         if (code === 'EPERM' || code === 'EEXIST') { unlinkSync(b.file); renameSync(tmp, b.file); } else throw e;
       }
-      b.lines = b.items.size + b.foreign.length + (b.leader ? 1 : 0);
+      b.lines = b.items.size + b.foreign.length + (meta ? 1 : 0);
     } catch { try { unlinkSync(tmp); } catch { /* ignore */ } }
   }
 
@@ -240,11 +298,31 @@ export class BoardStore {
   private column(b: Board, status: BoardStatus): WorkItem[] {
     return [...b.items.values()].filter((i) => !i.proposal && i.status === status).sort((x, y) => x.order - y.order || x.createdAt.localeCompare(y.createdAt) || x.id.localeCompare(y.id));
   }
-  view(proj: ProjectRef): BoardView {
+  /**
+   * The board as the UI and the tools read it: every column ordered by score — priority deciding
+   * first, then due urgency, trust and what the item waits for (see priority.ts) — with the column's
+   * own order breaking a tie, and `rank` carrying the score and the one line that explains each place.
+   */
+  view(proj: ProjectRef): RankedBoardView {
     const b = this.board(proj.id);
-    const items = BOARD_STATUSES.flatMap((s) => this.column(b, s)).map((i) => structuredClone(i));
+    const now = this.clock();
+    // a dependency counts as done only when this board itself says so: the scorer never reads a store
+    const isDone = (id: string): boolean => b.items.get(id)?.status === 'done';
+    const rank: Record<string, ItemRank> = {};
+    const ranked = (status: BoardStatus): WorkItem[] => {
+      const col = this.column(b, status);
+      const scored = new Map<string, number>();
+      for (const i of col) {
+        const r = scoreWorkItem(forScoring(b, i), now, isDone);
+        const factor = topFactor(r.factors);
+        rank[i.id] = { score: r.score, factor, why: r.factors[factor].reason };
+        scored.set(i.id, r.score);
+      }
+      return col.sort((x, y) => scored.get(y.id)! - scored.get(x.id)! || x.order - y.order || x.createdAt.localeCompare(y.createdAt) || x.id.localeCompare(y.id));
+    };
+    const items = BOARD_STATUSES.flatMap((status) => ranked(status)).map((i) => structuredClone(i));
     const inbox = [...b.items.values()].filter((i) => i.proposal).sort((x, y) => x.createdAt.localeCompare(y.createdAt)).map((i) => structuredClone(i));
-    return { items, inbox, archived: proj.status === 'archived', ...(this.leaderOf(proj) ? { leader: this.leaderOf(proj) } : {}) };
+    return { items, inbox, archived: proj.status === 'archived', ...(this.leaderOf(proj) ? { leader: this.leaderOf(proj) } : {}), rank };
   }
   /** The leader, if still a member of the project. */
   leaderOf(proj: ProjectRef): string | undefined {
@@ -256,8 +334,39 @@ export class BoardStore {
     const b = this.writable(proj);
     if (agentId !== null && (typeof agentId !== 'string' || !proj.members.includes(agentId))) throw new BoardError(400, 'The leader must be a member agent of this project, or null for none.');
     b.leader = agentId === null ? undefined : agentId;
-    this.append(b, { v: 1, kind: 'meta', at: nowIso(), leader: b.leader ?? null });
+    this.appendMeta(b);
     return { ...proj, ...(b.leader ? { leader: b.leader } : {}) };
+  }
+  /** One meta line carrying the board's WHOLE standing state. Every meta write goes through here, so no write can drop the other half. */
+  private appendMeta(b: Board): void {
+    this.append(b, { v: 1, kind: 'meta', at: nowIso(), leader: b.leader ?? null, marshal: { ...b.marshal } });
+  }
+
+  // ------------------------------------------------------------------ the Marshal's config
+  /** The Marshal's config for this project: off until the owner switches it on. */
+  marshalConfig(pid: string): MarshalConfig {
+    return { ...this.board(pid).marshal };
+  }
+  /**
+   * The owner's config (the PUT route): which of `enabled`, `waveSize` and `stallMinutes` they sent, validated
+   * and written as one meta line. Everything validates before anything is written, so a bad field leaves the
+   * stored config exactly as it was.
+   */
+  setMarshal(proj: ProjectRef, input: unknown): MarshalConfig {
+    const b = this.writable(proj);
+    if (!isObj(input)) throw new BoardError(400, 'marshal config must be an object');
+    const sent = (['enabled', 'waveSize', 'stallMinutes'] as const).filter((k) => input[k] !== undefined);
+    if (!sent.length) throw new BoardError(400, 'give enabled, waveSize or stallMinutes to change');
+    const next: MarshalConfig = { ...b.marshal };
+    if (input.enabled !== undefined) {
+      if (typeof input.enabled !== 'boolean') throw new BoardError(400, 'enabled must be true or false');
+      next.enabled = input.enabled;
+    }
+    if (input.waveSize !== undefined) next.waveSize = cleanBound(input.waveSize, 'waveSize');
+    if (input.stallMinutes !== undefined) next.stallMinutes = cleanBound(input.stallMinutes, 'stallMinutes');
+    b.marshal = next;
+    this.appendMeta(b);
+    return { ...next };
   }
   /** One item of this project (an id from another project is simply not found). */
   get(pid: string, id: string): WorkItem | undefined {
@@ -265,6 +374,36 @@ export class BoardStore {
     return i ? structuredClone(i) : undefined;
   }
   count(pid: string): number { return this.board(pid).items.size; }
+
+  // ------------------------------------------------------------------ per-item sidecar
+
+  /**
+   * The per-item sidecar: state that belongs beside a work item but is not one of its fields (the Marshal's
+   * attempt ledger and done-when checks ride here). It travels the log as unknown keys — the tolerant loader
+   * parks them in `extras` and compaction writes them back — so orchestration state survives a restart with
+   * no change to the shared `WorkItem` contract.
+   */
+  sidecar(pid: string, id: string): Record<string, unknown> | undefined {
+    const m = this.board(pid).extras.get(id);
+    return m ? structuredClone(m) : undefined;
+  }
+  /**
+   * Merges keys into an item's sidecar (`undefined` value drops that key; dropping the last key drops the
+   * sidecar). Only small plain data: it is state, never text shown to anyone, and one oversized write is
+   * refused rather than allowed to bloat the log.
+   */
+  setSidecar(pid: string, id: string, patch: Record<string, unknown>): WorkItem {
+    const b = this.board(pid);
+    const i = this.must(b, id);
+    if (!isObj(patch)) throw new BoardError(400, 'sidecar must be an object');
+    const next = { ...(b.extras.get(id) ?? {}) };
+    for (const [k, v] of Object.entries(patch)) { if (v === undefined) delete next[k]; else next[k] = v; }
+    const json = JSON.stringify(next);
+    if (json.length > SIDECAR_CHARS) throw new BoardError(400, `sidecar is too large (max ${SIDECAR_CHARS} characters): this is state, not content.`);
+    if (Object.keys(next).length) b.extras.set(id, next); else b.extras.delete(id);
+    this.save(b, i);
+    return structuredClone(i);
+  }
 
   // ------------------------------------------------------------------ helpers
 
@@ -371,6 +510,24 @@ export class BoardStore {
     if (!Array.isArray(v) || v.some((x) => typeof x !== 'string' || !NOTE_ID_RE.test(x))) throw new BoardError(400, 'noteIds must be Library note ids');
     if (v.length > BOARD_LIMITS.noteLinks) throw new BoardError(400, `at most ${BOARD_LIMITS.noteLinks} linked notes`);
     return [...new Set(v as string[])];
+  }
+
+  /**
+   * The Marshal's own move (system actor): flag an item blocked with the reason, or send a failed item back
+   * for another try. Only those two columns — closing an item stays the owner's, and a live run's item is
+   * never moved out from under it.
+   */
+  systemMove(proj: ProjectRef, id: string, status: 'blocked' | 'backlog', note: string): WorkItem {
+    const b = this.writable(proj);
+    const i = this.must(b, id);
+    if (i.proposal) throw new BoardError(409, 'This item is waiting in the Inbox.');
+    if (this.liveRun(i).live) throw new BoardError(409, 'This item has a run in progress. End the run first.');
+    const by: BoardActor = { kind: 'system' };
+    if (i.status !== status) this.place(b, i, status, undefined, by);
+    this.note(i, by, 'marshal', note);
+    this.touch(i, by);
+    this.save(b, i);
+    return structuredClone(i);
   }
 
   /** Adds Library note links to an item (the caller has checked that the notes exist in this project). Keeps the newest few. */

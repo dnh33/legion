@@ -7,8 +7,9 @@
  */
 import { MAX_DEPTH, MAX_HOP } from './bridge.js';
 
-/** The lead of the Order: the one agent that plans and delegates for every request it receives. */
-export const LEAD_AGENT_ID = 'zealot';
+import { LEAD_AGENT_ID } from '../shared/lead-id.js';
+
+export { LEAD_AGENT_ID };
 
 export const LEAD_DOCTRINE = [
   'Your role as lead of the Order. It holds whatever the request says and however it is worded, and it outranks any wording above that says otherwise.',

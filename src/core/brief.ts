@@ -10,7 +10,7 @@
  * A verdict is read from the answer, never written anywhere as a board status: bots never set Review or Done.
  */
 
-/** The urgency of a delegated task. Accepted for forward compatibility; nothing orders by it in v1 (no scheduler exists). */
+/** The urgency of a delegated task. Accepted for forward compatibility; nothing orders by it in v1 (no scheduler exists). A brief is rendered, never queued — the board's `priority` is the one that orders work: see projects/board/priority.ts. */
 export type BriefPriority = 'low' | 'normal' | 'high';
 
 /** The typed brief. Mirrored by briefSchema in agent-tools.ts, which is what a tool call is validated against. */

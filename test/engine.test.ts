@@ -2,7 +2,7 @@ import { tempDir as cleanupTemp } from './tmp-cleanup.js';
 import { initialPrompt } from '../src/core/input-channel.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync, mkdtempSync } from 'node:fs';
+import { existsSync, mkdtempSync, readdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { ApprovalBroker, describeWait } from '../src/core/approvals.js';
@@ -449,6 +449,116 @@ test('a subagent\'s TodoWrite is not the run\'s checklist', async () => {
   assert.equal(progressOf(s, t.id).at(-1).todos[0].content, 'mine');
 });
 
+// Claude Code's task tools: the id of a new task arrives only in the result (tool_use_result.task.id), so the call and its result are paired.
+const taskCall = (id: string, name: string, input: unknown, parent: string | null = null) => ({ type: 'assistant', parent_tool_use_id: parent, message: { id: 'mk' + id, content: [{ type: 'tool_use', id, name, input }] } });
+const taskResult = (id: string, structured: unknown, opts: { isError?: boolean; parent?: string | null } = {}) => ({
+  type: 'user', parent_tool_use_id: opts.parent ?? null, tool_use_result: structured,
+  message: { content: [{ type: 'tool_result', tool_use_id: id, content: 'ok', ...(opts.isError ? { is_error: true } : {}) }] },
+});
+
+test('Claude Code\'s TaskCreate/TaskUpdate drive the live checklist, with Claude Code\'s own ids; a delete takes the line away', async () => {
+  const s = setup(() => (async function* () {
+    yield init('sess-tasks');
+    yield taskCall('c1', 'TaskCreate', { subject: 'one', description: 'first', activeForm: 'Doing one' });
+    yield taskResult('c1', { task: { id: '1', subject: 'one' } });
+    yield taskCall('c2', 'TaskCreate', { subject: 'two', description: '' });
+    yield taskResult('c2', { task: { id: '2', subject: 'two' } });
+    yield taskCall('u1', 'TaskUpdate', { taskId: '1', status: 'in_progress' });
+    yield taskResult('u1', { success: true, taskId: '1', updatedFields: ['status'] });
+    yield taskCall('u2', 'TaskUpdate', { taskId: '2', status: 'deleted' });
+    yield taskResult('u2', { success: true, taskId: '2', updatedFields: ['status'] });
+    yield ok('done');
+  })(), { agent: { model: 'opus' } });
+  const t = s.engine.startTask({ agentId: 'a1', prompt: 'go', source: 'ui' });
+  await s.engine.waitFor(t.id, 3000);
+  const lists = progressOf(s, t.id).filter((p) => p.todos).map((p) => p.todos);
+  assert.deepEqual(lists[0], [{ content: 'one', status: 'pending', activeForm: 'Doing one' }]);
+  assert.deepEqual(lists.at(-1), [{ content: 'one', status: 'in_progress', activeForm: 'Doing one' }]);
+});
+
+test('a refused task call (an error result, or success:false) leaves the checklist as it was; a subagent\'s task calls are not the run\'s', async () => {
+  const s = setup(() => (async function* () {
+    yield init('sess-tasks2');
+    yield taskCall('c1', 'TaskCreate', { subject: 'mine', description: '' });
+    yield taskResult('c1', { task: { id: '1', subject: 'mine' } });
+    yield taskCall('u1', 'TaskUpdate', { taskId: '1', status: 'completed' });
+    yield taskResult('u1', { success: false, taskId: '1', updatedFields: [], error: 'nope' });
+    yield taskCall('u2', 'TaskUpdate', { taskId: '1', status: 'completed' });
+    yield taskResult('u2', undefined, { isError: true });
+    yield taskCall('c2', 'TaskCreate', { subject: 'theirs', description: '' }, 'agent-1');
+    yield taskResult('c2', { task: { id: '2', subject: 'theirs' } }, { parent: 'agent-1' });
+    yield ok('done');
+  })(), { agent: { model: 'opus' } });
+  const t = s.engine.startTask({ agentId: 'a1', prompt: 'go', source: 'ui' });
+  await s.engine.waitFor(t.id, 3000);
+  assert.deepEqual(progressOf(s, t.id).filter((p) => p.todos).at(-1).todos, [{ content: 'mine', status: 'pending' }]);
+});
+
+test('a TaskList result replaces the mirrored checklist (Claude Code\'s own list is the truth on a Claude run)', async () => {
+  const s = setup(() => (async function* () {
+    yield init('sess-tasks3');
+    yield taskCall('c1', 'TaskCreate', { subject: 'stale', description: '' });
+    yield taskResult('c1', { task: { id: '1', subject: 'stale' } });
+    yield taskCall('l1', 'TaskList', {});
+    yield taskResult('l1', { tasks: [{ id: '4', subject: 'real', status: 'in_progress', blockedBy: [] }, { id: '5', subject: 'next', status: 'pending', blockedBy: ['4'] }] });
+    yield ok('done');
+  })(), { agent: { model: 'opus' } });
+  const t = s.engine.startTask({ agentId: 'a1', prompt: 'go', source: 'ui' });
+  await s.engine.waitFor(t.id, 3000);
+  assert.deepEqual(progressOf(s, t.id).filter((p) => p.todos).at(-1).todos, [{ content: 'real', status: 'in_progress' }, { content: 'next', status: 'pending' }]);
+});
+
+test('the checklist is kept per Legion task: a continued conversation shows its list from the start of the next run', async () => {
+  let n = 0;
+  const s = setup(() => (async function* () {
+    n++;
+    yield init('sess-tasks4');
+    if (n === 1) {
+      yield taskCall('c1', 'TaskCreate', { subject: 'carry me', description: '' });
+      yield taskResult('c1', { task: { id: '1', subject: 'carry me' } });
+    }
+    yield ok('done');
+  })(), { agent: { model: 'opus' } });
+  const t = s.engine.startTask({ agentId: 'a1', prompt: 'one', source: 'ui' });
+  await s.engine.waitFor(t.id, 3000);
+  const before = s.events.length;
+  s.engine.startTask({ agentId: 'a1', prompt: 'two', source: 'ui', continueTaskId: t.id });
+  await s.engine.waitFor(t.id, 3000);
+  const second = s.events.slice(before).filter((e: any) => e.type === 'task.progress' && e.taskId === t.id).map((e: any) => e.progress);
+  assert.deepEqual(second.find((p: any) => p.todos)?.todos, [{ content: 'carry me', status: 'pending' }]);
+});
+
+test('a task list longer than the checklist limit shows its first 50 lines, like a TodoWrite list', async () => {
+  const s = setup(() => (async function* () {
+    yield init('sess-tasks6');
+    for (let i = 1; i <= 60; i++) {
+      yield taskCall('c' + i, 'TaskCreate', { subject: 'step ' + i, description: '' });
+      yield taskResult('c' + i, { task: { id: String(i), subject: 'step ' + i } });
+    }
+    yield ok('done');
+  })(), { agent: { model: 'opus' } });
+  const t = s.engine.startTask({ agentId: 'a1', prompt: 'go', source: 'ui' });
+  await s.engine.waitFor(t.id, 3000);
+  const last = progressOf(s, t.id).filter((p) => p.todos).at(-1).todos;
+  assert.equal(last.length, 50);
+  assert.equal(last[49].content, 'step 50');
+});
+
+test('deleting a task deletes its task list: a new task never inherits it', async () => {
+  const s = setup(() => (async function* () {
+    yield init('sess-tasks5');
+    yield taskCall('c1', 'TaskCreate', { subject: 'private', description: '' });
+    yield taskResult('c1', { task: { id: '1', subject: 'private' } });
+    yield ok('done');
+  })(), { agent: { model: 'opus' } });
+  const t = s.engine.startTask({ agentId: 'a1', prompt: 'go', source: 'ui' });
+  await s.engine.waitFor(t.id, 3000);
+  const dir = join(s.config.workspaceDir, '.task-lists');
+  assert.equal(readdirSync(dir).length, 1);
+  s.bus.emit({ type: 'task.deleted', taskId: t.id });
+  assert.deepEqual(readdirSync(dir), []);
+});
+
 const blockStart = (type: string, parent: string | null = null) => ({ type: 'stream_event', parent_tool_use_id: parent, event: { type: 'content_block_start', index: 0, content_block: { type, ...(type === 'thinking' ? { thinking: '' } : {}) } } });
 const blockStop = (parent: string | null = null) => ({ type: 'stream_event', parent_tool_use_id: parent, event: { type: 'content_block_stop', index: 0 } });
 
@@ -683,6 +793,81 @@ test('continue while running -> 409', async () => {
   await s.engine.waitFor(t.id, 3000);
 });
 
+/** A deny rule on a folder, by absolute path, for the gate tests below. */
+const denyPaths = (paths: string[]) => (c: any) => { c.gates = { rules: [{ id: 'gr_t1', enabled: true, then: 'deny', label: 'no secrets', source: 'user', when: { paths } }], presetsVersion: 0 }; };
+const hanging = () => (async function* () { yield init(); await new Promise<void>(() => undefined); })();
+
+test('a path deny rule holds for a RELATIVE path too: the gate resolves it against the agent folder (ask mode, canUseTool)', async () => {
+  let ws = '';
+  const s = setup(hanging, { agent: { approval: 'ask' }, config: (c) => { ws = c.workspaceDir; denyPaths([join(c.workspaceDir, 'a1', 'secrets', '**').replace(/\\/g, '/')])(c); } });
+  const t = s.engine.startTask({ agentId: 'a1', prompt: 'x', source: 'ui' });
+  await new Promise((r) => setTimeout(r, 30));
+  const use = s.calls[0]!.options.canUseTool;
+  const sig = { signal: new AbortController().signal };
+  for (const p of ['secrets/key.txt', 'x/../secrets/key.txt', join(ws, 'a1', 'secrets', 'key.txt')]) {
+    assert.deepEqual(await use('Read', { file_path: p }, sig), { behavior: 'deny', message: 'Blocked by a gate rule (Settings -> Gates).' }, p);
+  }
+  s.engine.cancel(t.id);
+  await s.engine.waitFor(t.id, 3000);
+});
+
+test('a path deny rule holds for a relative path in full mode too (the PreToolUse hook), and for a host tool against its own root', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'legion-gate-root-'));
+  const s = setup(hanging, { agent: { approval: 'full', host: { enabled: true, rootDir: root } }, config: (c) => denyPaths([join(c.workspaceDir, 'a1', 'secrets', '**').replace(/\\/g, '/'), join(root, 'vault', '**').replace(/\\/g, '/')])(c) });
+  const t = s.engine.startTask({ agentId: 'a1', prompt: 'x', source: 'ui' });
+  await new Promise((r) => setTimeout(r, 30));
+  const hooks: any[] = s.calls[0]!.options.hooks.PreToolUse.filter((h: any) => h.matcher === '.*').flatMap((h: any) => h.hooks);
+  assert.equal(hooks.length, 1);
+  const ask = async (tool: string, input: unknown) => (await hooks[0]({ hook_event_name: 'PreToolUse', tool_name: tool, tool_input: input }))?.hookSpecificOutput?.permissionDecision ?? 'allow';
+  assert.equal(await ask('Read', { file_path: 'secrets/key.txt' }), 'deny');
+  assert.equal(await ask('Read', { file_path: 'src/a.ts' }), 'allow');
+  // a host tool's relative path means a path under its root (resolveWithin), so the gate reads it the same way
+  assert.equal(await ask('mcp__host__read_file', { path: 'vault/key.txt' }), 'deny');
+  assert.equal(await ask('mcp__host__read_file', { path: 'src/a.ts' }), 'allow');
+  s.engine.cancel(t.id);
+  await s.engine.waitFor(t.id, 3000);
+});
+
+test('demoting a full-access agent to ask takes effect on the running run\'s next tool call (bypass mode re-reads the mode)', async () => {
+  const s = setup(hanging, { agent: { approval: 'full' } });
+  const t = s.engine.startTask({ agentId: 'a1', prompt: 'x', source: 'ui' });
+  await new Promise((r) => setTimeout(r, 30));
+  assert.equal(s.calls[0]!.options.permissionMode, 'bypassPermissions');
+  const hook = s.calls[0]!.options.hooks.PreToolUse.filter((h: any) => h.matcher === '.*').flatMap((h: any) => h.hooks)[0];
+  const decide = (tool: string, input: unknown) => hook({ hook_event_name: 'PreToolUse', tool_name: tool, tool_input: input });
+  // still full: no card, the call goes ahead
+  assert.equal((await decide('Bash', { command: 'ls' }))?.hookSpecificOutput?.permissionDecision, undefined);
+  assert.equal(s.approvals.pending().length, 0);
+  // the owner demotes the agent while it works
+  s.store.agents.set('a1', { ...s.store.getAgent('a1')!, approval: 'ask' });
+  const pending = decide('Bash', { command: 'rm -rf build' });
+  await new Promise((r) => setTimeout(r, 10));
+  assert.equal(s.approvals.pending().length, 1, 'the next call asks, as an ask agent\'s would');
+  s.approvals.resolve(s.approvals.pending()[0]!.id, false);
+  const out = await pending;
+  assert.equal(out?.hookSpecificOutput?.permissionDecision, 'deny');
+  assert.match(out?.hookSpecificOutput?.permissionDecisionReason ?? '', /denied/);
+  // a read-only tool still needs no card in ask
+  assert.equal((await decide('Read', { file_path: 'a.txt' }))?.hookSpecificOutput?.permissionDecision, undefined);
+  // promoted again: no card
+  s.store.agents.set('a1', { ...s.store.getAgent('a1')!, approval: 'full' });
+  assert.equal((await decide('Bash', { command: 'ls' }))?.hookSpecificOutput?.permissionDecision, undefined);
+  assert.equal(s.approvals.pending().length, 0);
+  s.engine.cancel(t.id);
+  await s.engine.waitFor(t.id, 3000);
+});
+
+test('in full mode the hooks that can wait on a card allow at least the card\'s own wait (a hook timeout would stop the run instead)', async () => {
+  const s = setup(hanging, { agent: { approval: 'full' }, approvalTimeoutMs: 600_000 });
+  const t = s.engine.startTask({ agentId: 'a1', prompt: 'x', source: 'ui' });
+  await new Promise((r) => setTimeout(r, 30));
+  const carding = s.calls[0]!.options.hooks.PreToolUse.filter((h: any) => h.matcher === '.*' || h.matcher === 'WebFetch|WebSearch');
+  assert.equal(carding.length, 2);
+  for (const h of carding) assert.ok(typeof h.timeout === 'number' && h.timeout >= 600, `${h.matcher}: timeout ${h.timeout}`);
+  s.engine.cancel(t.id);
+  await s.engine.waitFor(t.id, 3000);
+});
+
 test('cancel: aborts run, status cancelled, pending approvals denied', async () => {
   const s = setup((p) => (async function* () {
     yield init();
@@ -903,7 +1088,7 @@ test('mcpServers: config filtered per agent; legion vm server only when vm enabl
   await some.engine.waitFor(some.engine.startTask({ agentId: 'a1', prompt: 'x', source: 'ui' }).id, 3000);
   assert.deepEqual(Object.keys(some.calls[0]!.options.mcpServers).sort(), ['legion', 'two']);
   assert.deepEqual(Object.keys((some.calls[0]!.options.mcpServers.legion.instance as any)._registeredTools).sort(), ['agents', 'ask', 'ask_user_question', 'task_result', 'tell']);
-  assert.deepEqual(some.calls[0]!.options.disallowedTools, ['SendMessage', 'ListAgents']);
+  assert.deepEqual(some.calls[0]!.options.disallowedTools, ['SendMessage', 'ListAgents', 'TaskCreate', 'TaskUpdate', 'TaskList', 'TaskGet', 'TodoWrite']); // task list off by default for a non-lead agent
   assert.deepEqual(Object.keys((all.calls[0]!.options.mcpServers.legion.instance as any)._registeredTools).sort(), ['agents', 'ask', 'ask_user_question', 'task_result', 'tell', 'vm_claude', 'vm_desktop', 'vm_exec', 'vm_read_file', 'vm_start', 'vm_stop', 'vm_usage', 'vm_write_file']);
 });
 
@@ -976,7 +1161,7 @@ test('modules: disallowedTools are added in every permission mode; a throwing mo
   await s.engine.waitFor(t.id, 3000);
   const o = s.calls[0]!.options;
   assert.equal(o.permissionMode, 'bypassPermissions');
-  assert.deepEqual(o.disallowedTools, ['SendMessage', 'ListAgents', 'mcp__blender']);
+  assert.deepEqual(o.disallowedTools, ['SendMessage', 'ListAgents', 'TaskCreate', 'TaskUpdate', 'TaskList', 'TaskGet', 'TodoWrite', 'mcp__blender']);
 });
 
 test('bot-origin task: a full-approval agent is never run in bypass mode when the sender is stricter', async () => {
@@ -1063,4 +1248,195 @@ test('context meter: task.progress carries the context after the latest top-leve
   await s.engine.waitFor(s.engine.startTask({ agentId: 'a1', prompt: 'x', source: 'ui' }).id, 3000);
   const seen = s.events.filter((e: any) => e.type === 'task.progress').map((e: any) => e.progress.contextTokens);
   assert.deepEqual(seen, [undefined, 52_010, 84_020], 'first emit has none yet; then one per top-level response, never the subagent 900k');
+});
+
+test('task list on: the native Task tools are opted in (allowedTools); off: they and TodoWrite are disallowed', async () => {
+  const on = setup(() => happy(), { agent: { taskList: 'on' } });
+  await on.engine.waitFor(on.engine.startTask({ agentId: 'a1', prompt: 'x', source: 'ui' }).id, 3000);
+  for (const t of ['TaskCreate', 'TaskUpdate', 'TaskList', 'TaskGet']) assert.ok(on.calls[0]!.options.allowedTools.includes(t), t);
+  for (const t of ['TaskCreate', 'TaskUpdate', 'TaskList', 'TaskGet']) assert.ok(!on.calls[0]!.options.disallowedTools.includes(t), t);
+  const off = setup(() => happy(), { agent: { taskList: 'off' } });
+  await off.engine.waitFor(off.engine.startTask({ agentId: 'a1', prompt: 'x', source: 'ui' }).id, 3000);
+  for (const t of ['TaskCreate', 'TaskUpdate', 'TaskList', 'TaskGet', 'TodoWrite']) assert.ok(off.calls[0]!.options.disallowedTools.includes(t), t);
+  assert.equal(off.calls[0]!.options.allowedTools, undefined);
+});
+
+// SessionStart, fired by the fake SDK the way the CLI fires it: at the start of the session, before the model's first turn.
+const fireSessionStart = async (params: any, source: string): Promise<string | undefined> => {
+  const hook = params.options.hooks?.SessionStart?.flatMap((m: any) => m.hooks)[0];
+  const out = await hook?.({ hook_event_name: 'SessionStart', source, session_id: 's', transcript_path: '', cwd: '' }, undefined, { signal: new AbortController().signal });
+  return out?.hookSpecificOutput?.additionalContext;
+};
+
+test('Claude run after a provider changed the list: it is handed over once, the flag clears, and the run\'s own mirror does not set it again', async () => {
+  const { TaskList, TaskListStore } = await import('../src/core/task-list.js');
+  const seen: Array<string | undefined> = [];
+  let n = 0;
+  const s = setup((params) => (async function* () {
+    n++;
+    yield init('sess-hand');
+    if (n > 1) seen.push(await fireSessionStart(params, 'resume'));
+    if (n === 2) {
+      yield taskCall('c1', 'TaskCreate', { subject: 'mine too', description: '' });
+      yield taskResult('c1', { task: { id: '2', subject: 'mine too' } });
+    }
+    yield ok('done');
+  })(), { agent: { model: 'opus', taskList: 'on' } });
+  const t = s.engine.startTask({ agentId: 'a1', prompt: 'one', source: 'ui' });
+  await s.engine.waitFor(t.id, 3000);
+  const store = new TaskListStore(join(s.config.workspaceDir, '.task-lists'));
+  const l = new TaskList(); l.create({ subject: 'from the provider', description: '' }); l.handoverPending = true; store.save(t.id, l);
+  s.engine.startTask({ agentId: 'a1', prompt: 'two', source: 'ui', continueTaskId: t.id });
+  await s.engine.waitFor(t.id, 3000);
+  assert.match(seen[0] ?? '', /make your own list match/);
+  assert.match(seen[0] ?? '', /1\. from the provider \(pending\)/);
+  assert.equal(store.load(t.id).handoverPending, false, 'cleared, and the mirrored TaskCreate after it did not write it back');
+  s.engine.startTask({ agentId: 'a1', prompt: 'three', source: 'ui', continueTaskId: t.id });
+  await s.engine.waitFor(t.id, 3000);
+  assert.equal(seen[1], undefined, 'once only');
+});
+
+test('after Claude compacts, the open tasks are shown again; an empty list adds nothing', async () => {
+  const { TaskList, TaskListStore } = await import('../src/core/task-list.js');
+  const seen: Array<string | undefined> = [];
+  const s = setup((params) => (async function* () {
+    yield init('sess-compact');
+    seen.push(await fireSessionStart(params, 'compact'));
+    yield ok('done');
+  })(), { agent: { model: 'opus', taskList: 'on' } });
+  const t = s.engine.startTask({ agentId: 'a1', prompt: 'one', source: 'ui' });
+  await s.engine.waitFor(t.id, 3000);
+  assert.equal(seen[0], undefined, 'an empty list: no block at all');
+  const store = new TaskListStore(join(s.config.workspaceDir, '.task-lists'));
+  const l = new TaskList(); l.create({ subject: 'keep going', description: '' }); store.save(t.id, l);
+  s.engine.startTask({ agentId: 'a1', prompt: 'two', source: 'ui', continueTaskId: t.id });
+  await s.engine.waitFor(t.id, 3000);
+  assert.match(seen[1] ?? '', /^\[Your task list for this conversation, kept by Legion\]\n- \[ \] 1\. keep going \(pending\)$/);
+});
+
+test('a Claude-only conversation (no flag, session resumed) gets no hand-over', async () => {
+  const seen: Array<string | undefined> = [];
+  let n = 0;
+  const s = setup((params) => (async function* () {
+    n++;
+    yield init('sess-only');
+    if (n === 1) {
+      yield taskCall('c1', 'TaskCreate', { subject: 'claude made me', description: '' });
+      yield taskResult('c1', { task: { id: '1', subject: 'claude made me' } });
+    } else seen.push(await fireSessionStart(params, 'resume'));
+    yield ok('done');
+  })(), { agent: { model: 'opus', taskList: 'on' } });
+  const t = s.engine.startTask({ agentId: 'a1', prompt: 'one', source: 'ui' });
+  await s.engine.waitFor(t.id, 3000);
+  s.engine.startTask({ agentId: 'a1', prompt: 'two', source: 'ui', continueTaskId: t.id });
+  await s.engine.waitFor(t.id, 3000);
+  assert.equal(seen.length, 1);
+  assert.equal(seen[0], undefined, 'Claude\'s own list is already right; a hand-over would make it re-create its tasks');
+});
+
+test('task list off: no SessionStart hook is installed', async () => {
+  const s = setup(() => happy(), { agent: { taskList: 'off' } });
+  await s.engine.waitFor(s.engine.startTask({ agentId: 'a1', prompt: 'x', source: 'ui' }).id, 3000);
+  assert.equal(s.calls[0]!.options.hooks.SessionStart, undefined);
+});
+
+test('a hand-over run that stops before it finishes leaves the provider\'s list as it was, flagged for the next Claude run', async () => {
+  const { TaskList, TaskListStore } = await import('../src/core/task-list.js');
+  let n = 0;
+  const s = setup((params) => (async function* () {
+    n++;
+    yield init('sess-stop');
+    if (n === 2) {
+      await fireSessionStart(params, 'resume');
+      // the hand-over's first step: Claude's own list, still empty, replaces the mirror
+      yield taskCall('l1', 'TaskList', {});
+      yield taskResult('l1', { tasks: [] });
+      yield err('error_during_execution', ['the run broke']);
+      return;
+    }
+    yield ok('done');
+  })(), { agent: { model: 'opus', taskList: 'on' } });
+  const t = s.engine.startTask({ agentId: 'a1', prompt: 'one', source: 'ui' });
+  await s.engine.waitFor(t.id, 3000);
+  const store = new TaskListStore(join(s.config.workspaceDir, '.task-lists'));
+  const l = new TaskList(); l.create({ subject: 'from the provider', description: '' }); l.handoverPending = true; store.save(t.id, l);
+  s.engine.startTask({ agentId: 'a1', prompt: 'two', source: 'ui', continueTaskId: t.id });
+  const end = await s.engine.waitFor(t.id, 3000);
+  assert.equal(end.status, 'error');
+  // waitFor answers when the status is saved; the run itself ends a moment later
+  for (let i = 0; i < 100 && s.engine.running().includes(t.id); i++) await new Promise((r) => setTimeout(r, 10));
+  const after = store.load(t.id);
+  assert.deepEqual(after.list().map((x) => x.subject), ['from the provider'], 'the provider\'s tasks are not lost to an unfinished hand-over');
+  assert.equal(after.handoverPending, true, 'handed over again next time');
+});
+
+test('a finished hand-over keeps the provider\'s done tasks on the checklist', async () => {
+  const { TaskList, TaskListStore } = await import('../src/core/task-list.js');
+  let n = 0;
+  const s = setup((params) => (async function* () {
+    n++;
+    yield init('sess-keep');
+    if (n === 2) {
+      await fireSessionStart(params, 'resume');
+      yield taskCall('l1', 'TaskList', {});
+      yield taskResult('l1', { tasks: [] });
+      yield taskCall('c1', 'TaskCreate', { subject: 'still open', description: '' });
+      yield taskResult('c1', { task: { id: '1', subject: 'still open' } });
+    }
+    yield ok('done');
+  })(), { agent: { model: 'opus', taskList: 'on' } });
+  const t = s.engine.startTask({ agentId: 'a1', prompt: 'one', source: 'ui' });
+  await s.engine.waitFor(t.id, 3000);
+  const store = new TaskListStore(join(s.config.workspaceDir, '.task-lists'));
+  const l = new TaskList();
+  l.create({ subject: 'already done', description: '' }); l.create({ subject: 'still open', description: '' });
+  l.update({ taskId: '1', status: 'completed' }); l.handoverPending = true; store.save(t.id, l);
+  s.engine.startTask({ agentId: 'a1', prompt: 'two', source: 'ui', continueTaskId: t.id });
+  await s.engine.waitFor(t.id, 3000);
+  for (let i = 0; i < 100 && s.engine.running().includes(t.id); i++) await new Promise((r) => setTimeout(r, 10));
+  const after = store.load(t.id);
+  assert.deepEqual(after.list().map((x) => [x.subject, x.status]), [['still open', 'pending'], ['already done', 'completed']]);
+  assert.equal(after.handoverPending, false);
+});
+
+test('a provider run that emptied the list still hands over (Claude empties its own) and the flag clears', async () => {
+  const { TaskList, TaskListStore } = await import('../src/core/task-list.js');
+  const seen: Array<string | undefined> = [];
+  let n = 0;
+  const s = setup((params) => (async function* () {
+    n++;
+    yield init('sess-empty');
+    if (n === 2) seen.push(await fireSessionStart(params, 'resume'));
+    yield ok('done');
+  })(), { agent: { model: 'opus', taskList: 'on' } });
+  const t = s.engine.startTask({ agentId: 'a1', prompt: 'one', source: 'ui' });
+  await s.engine.waitFor(t.id, 3000);
+  const store = new TaskListStore(join(s.config.workspaceDir, '.task-lists'));
+  const l = new TaskList(); l.handoverPending = true; store.save(t.id, l);
+  s.engine.startTask({ agentId: 'a1', prompt: 'two', source: 'ui', continueTaskId: t.id });
+  await s.engine.waitFor(t.id, 3000);
+  for (let i = 0; i < 100 && s.engine.running().includes(t.id); i++) await new Promise((r) => setTimeout(r, 10));
+  assert.match(seen[0] ?? '', /empty/i);
+  assert.equal(store.load(t.id).handoverPending, false);
+});
+
+test('cost: a resumed session\'s total_cost_usd is cumulative, so a task counts the new spend only (not the history again)', async () => {
+  const res = (sid: string, total: number) => ({ type: 'result', subtype: 'success', is_error: false, result: 'ok', total_cost_usd: total, num_turns: 1, session_id: sid });
+  const plan: Array<[string, number]> = [['sess-c', 0.10], ['sess-c', 0.25], ['sess-d', 0.05]];
+  let n = 0;
+  const s = setup(() => (async function* () {
+    const [sid, total] = plan[n++]!;
+    yield init(sid);
+    yield res(sid, total);
+  })(), { agent: { model: 'opus' } });
+  const t = s.engine.startTask({ agentId: 'a1', prompt: 'one', source: 'ui' });
+  assert.equal((await s.engine.waitFor(t.id, 3000)).costUsd, 0.10);
+  s.engine.startTask({ agentId: 'a1', prompt: 'two', source: 'ui', continueTaskId: t.id });
+  const second = await s.engine.waitFor(t.id, 3000);
+  assert.ok(Math.abs(second.costUsd! - 0.25) < 1e-9, `the resumed run added 0.15, not 0.25: ${second.costUsd}`);
+  // a new session (the old one could not be resumed) starts its own count
+  s.store.upsertTask({ ...s.store.getTask(t.id)!, sessionId: undefined } as never);
+  s.engine.startTask({ agentId: 'a1', prompt: 'three', source: 'ui', continueTaskId: t.id });
+  const third = await s.engine.waitFor(t.id, 3000);
+  assert.ok(Math.abs(third.costUsd! - 0.30) < 1e-9, `a new session adds its own total: ${third.costUsd}`);
 });

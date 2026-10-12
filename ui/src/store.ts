@@ -13,7 +13,7 @@ import { moodAfterDecision, noteDenial } from './mascot/toolActivity';
 
 export type RelicState = 'idle' | 'listening' | 'thinking' | 'hacking' | 'awaiting' | 'victory' | 'error' | 'sleeping' | 'annoyed';
 
-export type SettingsSection = 'claude' | 'providers' | 'boat' | 'mcp' | 'blender' | 'compaction' | 'house' | 'armory' | 'github' | 'connections' | 'logs' | 'about';
+export type SettingsSection = 'claude' | 'gates' | 'providers' | 'boat' | 'mcp' | 'blender' | 'compaction' | 'house' | 'armory' | 'github' | 'connections' | 'logs' | 'about';
 export type TaskSrc = 'tab' | 'recent';
 export interface TaskMenu { x: number; y: number; taskId: string; src: TaskSrc }
 
@@ -75,6 +75,7 @@ export interface AppState {
 
 function ls(key: string): string | null { try { return localStorage.getItem(key); } catch { return null; } }
 function lsSet(key: string, v: string) { try { localStorage.setItem(key, v); } catch { /* ignore */ } }
+function lsDel(key: string) { try { localStorage.removeItem(key); } catch { /* ignore */ } }
 
 const initialTheme = ((): 'dark' | 'light' => {
   const t = ls('legion.theme');
@@ -419,7 +420,12 @@ const modelKey = (agentId: string) => `legion.model.${agentId}`;
 export function storedModel(agentId: string): ModelChoice | null { return ls(modelKey(agentId)); }
 export function effectiveModel(s: AppState): ModelChoice {
   if (s.modelOverride) return s.modelOverride;
-  return storedModel(s.selectedAgentId) || (s.agents.find((a) => a.id === s.selectedAgentId)?.model ?? 'auto');
+  const configured = s.agents.find((a) => a.id === s.selectedAgentId)?.model ?? 'auto';
+  // The composer's remembered pick (legion.model.<agentId>) is honoured only while it still IS the agent's
+  // configured model: a stale value left over from before a Settings change must never beat Settings, which is
+  // where the owner sets a bot's model.
+  const stored = storedModel(s.selectedAgentId);
+  return stored && stored === configured ? stored : configured;
 }
 /** Picks the composer model for the current agent and remembers it (localStorage legion.model.<agentId>). */
 export function setModelChoice(choice: ModelChoice) {
@@ -452,7 +458,13 @@ export async function sendPromptTo(target: { agentId: string; taskId: string | n
   if (!text) return { ok: false, status: 400, message: 'Prompt is empty' };
   const cont = target.taskId ? s.tasks.find((t) => t.id === target.taskId) : undefined;
   const projectId = newTaskProjectId(s.projects, s.projectFilter, target.agentId, !!cont);
-  const body = { agentId: target.agentId, prompt: text, model: opts.model ?? effectiveModel(s), ...(cont ? { continueTaskId: cont.id } : {}), ...(projectId ? { projectId } : {}) };
+  const configured = s.agents.find((a) => a.id === target.agentId)?.model ?? 'auto';
+  // What this send is asking for: its own model, else the selection's composer state, else the target agent's own
+  // setting (a queued message that never carried a choice, or a thread of an agent that is not selected). It goes
+  // on the wire ONLY when it differs from the configured model, so Settings stays the authority: an equal value
+  // would just restate what the engine already does, and it would be recorded as a request the owner never made.
+  const want = opts.model || (target.agentId === s.selectedAgentId ? effectiveModel(s) : configured);
+  const body = { agentId: target.agentId, prompt: text, ...(want && want !== configured ? { model: want } : {}), ...(cont ? { continueTaskId: cont.id } : {}), ...(projectId ? { projectId } : {}) };
   // optimistic echo for follow-ups (replaced when the real user message arrives)
   if (cont) {
     const tmp: ChatMessage = { id: 'tmp-' + Date.now(), taskId: cont.id, role: 'user', text, at: new Date().toISOString() };
@@ -555,9 +567,15 @@ export const openPalette = () => setState({ palette: true, doctorOpen: false, ed
 export const openDoctor = () => { setState({ doctorOpen: true, palette: false, editor: null }); void runDoctor(); };
 export const openEditor = (id: string | null, focus?: 'skills') => setState({ editor: { id, ...(focus ? { focus } : {}) }, palette: false, doctorOpen: false });
 
-export async function saveAgent(id: string | null, a: Partial<AgentProfile> & { name: string }) {
+export async function saveAgent(id: string | null, a: Omit<Partial<AgentProfile>, 'taskList'> & { name: string; taskList?: 'on' | 'off' | null }) {
   try {
-    const saved = id ? await api.patchAgent(id, a) : await api.createAgent(a);
+    const before = id ? getState().agents.find((x) => x.id === id)?.model : undefined;
+    // `taskList: null` travels as JSON null: the server reads it as "clear my choice, follow the default"
+    const body = a as unknown as Partial<AgentProfile> & { name: string };
+    const saved = id ? await api.patchAgent(id, body) : await api.createAgent(body);
+    // A remembered composer pick was made against the model that was configured then; a new model in Settings
+    // makes it meaningless, so it goes (effectiveModel refuses an unequal value either way).
+    if (id && before !== undefined && saved.model !== before) lsDel(modelKey(id));
     handleEvent({ type: 'agent.updated', agent: saved });
     if (!id) selectAgent(saved.id);
     setState({ editor: null });
@@ -651,6 +669,14 @@ export async function saveSettings(patch: SettingsPatch, quiet = false): Promise
   if (!quiet) toast('Saved');
   void runDoctor();
   return view;
+}
+
+/** The approval card's "Remember": appends one gate rule to the rules as stored now (read first, so no other rule is lost). */
+export async function rememberGate(rule: NonNullable<SettingsView['gates']>['rules'][number]): Promise<void> {
+  const cur = await api.settings();
+  const gates = cur.gates ?? { rules: [], presetsVersion: 0 };
+  await saveSettings({ gates: { rules: [...gates.rules, rule], presetsVersion: gates.presetsVersion } }, true);
+  toast(`Remembered: ${rule.label}`);
 }
 
 /** POST /api/settings/compaction/reset: restore the shipped compaction defaults. Throws the server's message on a 403/400. */

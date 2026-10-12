@@ -386,3 +386,12 @@ test('constant-time compare: equal, unequal, different length, empty; isAdminSec
   assert.equal((g('GET', '/api/kg/stats', false, true) as any).status, 403);
   assert.equal((g('GET', '/anything', false, true) as any).status, 403);
 });
+
+test('e: the app window may send every method the core has routes for — PUT included (provider edits, project members, the Marshal switch)', async () => {
+  const m = await mount();
+  const r = await fetch(`${m.srv.base}/api/providers/x`, { method: 'OPTIONS', headers: { Origin: 'null', 'User-Agent': 'Mozilla/5.0 Chrome/130.0.0.0 Electron/33.0.0 Safari/537.36', 'Access-Control-Request-Method': 'PUT', 'Access-Control-Request-Headers': 'x-legion-admin,authorization,content-type' } });
+  assert.equal(r.status, 204);
+  const allowed = (r.headers.get('access-control-allow-methods') ?? '').split(',').map((s) => s.trim());
+  for (const method of ['GET', 'POST', 'PUT', 'PATCH', 'DELETE']) assert.ok(allowed.includes(method), `${method} is allowed: ${allowed.join(',')}`);
+  await m.close();
+});

@@ -131,16 +131,17 @@ test('reading a tainted task taints the caller, as an ask answer does', async ()
   assert.equal(s.engine.isTainted(z.id), true, 'the tainted text came into the caller');
 });
 
-test('the stored result is capped and says so; deleting the task deletes its stored results', async () => {
-  const { s, out } = rig('Y'.repeat(RESULT_STORE_MAX + 5000));
+test('a reply longer than the task row loses nothing: the row is capped with a pointer, task_result pages through every character; deleting the task deletes its stored results', async () => {
+  const reply = 'Y'.repeat(RESULT_STORE_MAX + 5000) + 'THE-END';
+  const { s, out } = rig(reply);
   const z = s.engine.startTask({ agentId: 'zealot', prompt: 'go', source: 'ui' });
   await s.engine.waitFor(z.id, 3000);
   const r: any = await s.engine.bridge.ask(z.id, 'builder', 'x');
   const pages = await readAll(out.zOptions, r.taskId, r.resultId);
-  const all = pages.join('');
-  assert.ok(all.length < RESULT_STORE_MAX + 200 && all.length > RESULT_STORE_MAX);
-  assert.match(all, new RegExp(`\\[Legion kept the first ${RESULT_STORE_MAX} of ${RESULT_STORE_MAX + 5000} characters of this result\\]$`));
-  assert.ok(s.store.getTask(r.taskId)!.result!.length <= RESULT_STORE_MAX + 200, 'the task row holds the capped text too');
+  assert.equal(pages.join(''), reply, 'the caller can read the whole reply, tail included');
+  const row = s.store.getTask(r.taskId)!.result!;
+  assert.ok(row.length <= RESULT_STORE_MAX + 300, 'the task row stays bounded');
+  assert.match(row, /\[Legion kept the first \d+ of \d+ characters of this result here; the full text is kept: task_result with taskId "task_\w+" and resultId "\d+"\]$/);
   const dir = join(s.store.dir, 'results', r.taskId);
   assert.equal(existsSync(dir), true);
   s.bus.emit({ type: 'task.deleted', taskId: r.taskId });

@@ -16,13 +16,28 @@ export const RESULT_TASK_MAX_BYTES = 2_000_000;
 const TASK_ID_RE = /^[A-Za-z0-9_-]{1,80}$/;
 const RUN_ID_RE = /^[0-9]{1,6}$/;
 
-const KEPT_NOTE_RE = /\n\[Legion kept the first \d+ of \d+ characters of this result\]$/;
+/** Longest single result the store keeps (a disk-safety bound, far above any real reply); beyond it the cut says so. */
+export const RESULT_KEEP_MAX = 10_000_000;
 
-/** The text as it is kept: whole up to RESULT_STORE_MAX, then cut with a visible note saying how much was dropped. */
-export function capStored(text: string, max = RESULT_STORE_MAX): string {
+const KEPT_NOTE_RE = /\n\[Legion kept the first \d+ of \d+ characters of this result(?: here; the full text is kept: task_result with taskId "[A-Za-z0-9_-]+" and resultId "\d+")?\]$/;
+const FULL_POINTER_RE = /\n\[Legion kept the first \d+ of \d+ characters of this result here; the full text is kept: task_result with taskId "([A-Za-z0-9_-]+)" and resultId "(\d+)"\]$/;
+
+/**
+ * The text as it is kept: whole up to `max`, then cut with a visible note. With `full` (where the whole text was kept
+ * in the result store) the note points to it, so nothing is lost: the cut is only the size of this copy.
+ */
+export function capStored(text: string, max = RESULT_STORE_MAX, full?: { taskId: string; resultId: string }): string {
   // already cut (the task row is capped when it is saved, and the bridge caps what it keeps): the note is not added twice
-  if (KEPT_NOTE_RE.test(text.slice(-120)) && text.length <= max + 120) return text;
-  return text.length <= max ? text : `${text.slice(0, max)}\n[Legion kept the first ${max} of ${text.length} characters of this result]`;
+  if (KEPT_NOTE_RE.test(text.slice(-300)) && text.length <= max + 300) return text;
+  if (text.length <= max) return text;
+  const where = full ? ` here; the full text is kept: task_result with taskId "${full.taskId}" and resultId "${full.resultId}"` : '';
+  return `${text.slice(0, max)}\n[Legion kept the first ${max} of ${text.length} characters of this result${where}]`;
+}
+
+/** Where a capped copy says its whole text is kept, or undefined. */
+export function fullResultPointer(text: string): { taskId: string; resultId: string } | undefined {
+  const m = FULL_POINTER_RE.exec(text.slice(-300));
+  return m ? { taskId: m[1]!, resultId: m[2]! } : undefined;
 }
 
 export class ResultStore {
@@ -38,7 +53,8 @@ export class ResultStore {
   /** Keeps the text (capped) as the next run of this task; returns the run id ("1", "2", ...). */
   put(taskId: string, text: string): string {
     if (!TASK_ID_RE.test(taskId)) throw new Error('Bad task id');
-    const kept = capStored(text);
+    // whole: this store is where a long reply is kept in full (the task row only points here)
+    const kept = capStored(text, RESULT_KEEP_MAX);
     const d = this.taskDir(taskId);
     if (!d) {
       const list = this.mem.get(taskId) ?? [];

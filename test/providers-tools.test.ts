@@ -13,7 +13,7 @@ test('the model is offered exactly the in-process Legion tools, as mcp__<server>
     const h = setup(f);
     await run(h);
     const names = (f.requests[0]!.body.tools as any[]).map((t) => t.function.name).sort();
-    assert.deepEqual(names, ['mcp__legion__agents', 'mcp__legion__ask', 'mcp__legion__ask_user_question', 'mcp__legion__task_result', 'mcp__legion__tell']);
+    assert.deepEqual(names, ['mcp__legion__agents', 'mcp__legion__ask', 'mcp__legion__ask_user_question', 'mcp__legion__task_result', 'mcp__legion__tell', 'mcp__legion__todo_create', 'mcp__legion__todo_get', 'mcp__legion__todo_list', 'mcp__legion__todo_update']);
     assert.equal(f.requests[0]!.body.tool_choice, 'auto');
     const v = setup(f, { vm: true });
     await run(v);
@@ -155,13 +155,13 @@ test('C16 limits: turn cap, per-turn tool-call cap, broken arguments, repeated i
   } finally { await x.close(); }
 });
 
-test('a model that rejects tools still answers, and the task says it cannot use tools', async () => {
+test('a model that rejects the tools field still answers, gets the tools in its prompt, and the task says so', async () => {
   const f = await startFake((r, res) => { if (r.body.tools) { res.writeHead(400, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ error: { message: 'this model does not support tools' } })); } else replyText(res, 'plain answer'); });
   try {
     const h = setup(f);
     const t = await run(h);
     assert.equal(t.status, 'done'); assert.equal(t.result, 'plain answer');
-    assert.ok(h.store.listMessages(t.id).some((m) => m.role === 'system' && /did not accept tools/.test(m.text)));
+    assert.ok(h.store.listMessages(t.id).some((m) => m.role === 'system' && /describing the tools in the prompt/.test(m.text)));
   } finally { await f.close(); }
 });
 

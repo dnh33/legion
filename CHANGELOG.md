@@ -4,6 +4,61 @@ All notable changes are recorded here. The format follows [Keep a Changelog](htt
 
 ## [Unreleased]
 
+## [0.2.6-s] - 2026-10-12
+
+### Added
+
+- **Agents can work on this computer (the agent shell).** An agent you allow can run commands and read and write files
+  on this machine, inside a scope folder you choose (Agent settings, Shell). Every call goes through its approval mode
+  and your Gates, and a hard guard refuses whole-machine damage (wiping a drive, formatting, deleting system or home
+  folders, removing restore points) for every agent, full access included. Long output is kept in full in a file, never
+  cut. No secret Legion holds (its own token, your Claude, boat and provider keys) reaches the model from a tool's
+  output, and a link inside the scope folder that points outside it is refused.
+- **.env files have their own switch.** Per agent: masked (the default — the names show, the values are hidden from
+  everything the agent sees, and it cannot write the file), blocked, or allowed.
+- **Gates: decide where approvals apply.** Settings, Gates holds rules in plain sentences — "Builder may run `git
+  status*`", "No agent may ever run `rm -rf *`" — with a builder, a dry-run tester and suggested rules. Block rules
+  apply even to Full access. An approval card now has **Remember…**: one click turns your answer into a rule for that
+  agent and that command or folder.
+- **The Marshal works the board on its own.** With the Marshal on for a project, it picks the next item by the board's
+  score, matches it to the right bot (never one whose role forbids the action), sends work out in waves, watches for
+  stalls, and gives each bot at most two tries. Each item explains its place in the order. The Marshal tab shows what
+  runs, why that bot, what is blocked and what is next.
+- **Every model keeps a task list.** Claude and other providers (OpenRouter and the rest) keep one task list per
+  conversation. It survives compaction and a switch between Claude and another provider, done items included, and it
+  shows as the live checklist. Per agent, Claude's own task tools can be on or off (on for the Marshal by default).
+- **Models without tool calling can use tools.** A provider model that has no native tool calling gets its tools in the
+  prompt and calls them in a fixed format; the calls go through the same approvals. Legion detects it from OpenRouter's
+  model list or from the provider's refusal, and Settings, Providers lets you choose per provider.
+
+### Fixed
+
+- **Saving some settings failed in the app.** The app window was not allowed to send one kind of request to the core, so changing a provider, a project's members, the CI repository or the board leader was refused. These save again, and so does the Marshal's on/off switch.
+- **Costs shown for agent-to-agent threads were too high.** A resumed conversation reported its whole history again on
+  every run, so long threads showed several times their real cost. Each run now adds only its own spend.
+- **The chosen model always wins.** A continued thread, a delegated task and the composer all use the model set in the
+  agent's settings; a provider model that is no longer set up fails plainly instead of quietly running on Claude.
+- **Nothing in a long reply is lost.** A reply longer than a task keeps is stored whole, with a pointer, so another agent
+  can read every character.
+- **The lead knows the whole Order.** Agent descriptions reach the lead in full (a role's limit, such as "reports, never
+  upgrades", was cut off), its routing table names the Quartermaster, and in BSV mode it is told to route Bitcoin SV
+  work to the Assayer. Sending the same task back to an agent stops after two send-backs.
+
+### Known limits
+
+- The agent shell runs commands as you. There is no sandbox yet: the approval card, your Gates, the scope folder and the
+  guard are what stand between an agent and this computer. A command that builds its payload at run time (for example a
+  decoded script piped into a shell) is not recognised by the guard. Keep the shell off for agents you run on Full access
+  unless you trust the work they do.
+
+## [0.2.5-r] - 2026-10-11
+
+### Fixed
+
+- **Updates are safer and finish cleanly.** Before an update changes anything, your conversations, settings and projects are backed up; if an update cannot finish, nothing you made is lost. An update now closes Legion's background processes before it replaces files, so it can no longer leave a blank window behind, and if the new version does not start Legion returns to the version you had.
+- **One update at a time.** Legion refuses to start a second update while one is running, and after an update it restarts only once the previous version has fully closed.
+- **An interrupted update repairs itself.** After a crash, a power cut or a closed laptop mid-update, Legion repairs itself on the next start instead of staying broken.
+
 ## [0.2.5-q] - 2026-10-08
 
 ### Fixed

@@ -82,6 +82,7 @@ export const ALLOWLIST: Allow = {
   'src/core/connectors/github/client.ts': { kinds: ['fetch'], reason: "the GitHub client, the only file that talks to GitHub: api.github.com for the REST calls and github.com for the device-flow sign-in and token refresh (addresses live in github/hosts.ts, a request path must start with a slash and resolve to api.github.com, the caller cannot set headers), one redirect for job logs only to a host on an empty-by-default storage list with no Authorization, timeouts and size caps, reads retried once after a token refresh and writes never; tokens come from the encrypted token store and are never put in an error or a log line (test/connectors-github-client.test.ts)" },
   'src/core/comms/scrub.ts': { kinds: ['decode'], reason: 'the secret detector decodes base64 and rot13 candidates to find seed phrases hidden in them' },
   [PROBE_FILE]: { kinds: ['loopback-http-client'], reason: 'the read-only wallet STATUS probe: one POST per allowlisted method to a loopback address, never a server, never another host (rules below)' },
+  'src/core/exec/direct-host.ts': { kinds: ['child-process'], reason: 'the host shell tool runs one child process per approved command on this machine (killed by process tree on timeout or cancel); it is behind the approval gate and never under src/core/providers/' },
 };
 
 

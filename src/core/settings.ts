@@ -1,6 +1,6 @@
 /** Settings API backend: validate, persist atomically to config.json, apply live. */
 import { existsSync, readFileSync } from 'node:fs';
-import { COMPACTION_LIMITS, DEFAULT_COMPACTION, writeConfigFile } from '../shared/config.js';
+import { COMPACTION_LIMITS, DEFAULT_COMPACTION, DEFAULT_GATES, normalizeGates, writeConfigFile } from '../shared/config.js';
 import { budgetCap } from '../shared/continue.js';
 import type { CompactionSettings, LegionConfig, McpServerEntry, SettingsPatch, SettingsView } from '../shared/types.js';
 import { sanitizeRates } from '../shared/vm-usage.js';
@@ -182,6 +182,12 @@ export function validatePatch(raw: unknown, current?: Record<string, McpServerEn
     if (c.smallWindowTokens !== undefined) o.smallWindowTokens = compactionNum(c.smallWindowTokens, 'compaction.smallWindowTokens', L.smallWindowTokens.min, L.smallWindowTokens.max, true);
     out.compaction = o;
   }
+  if (raw.gates !== undefined) {
+    // Strict on write, tolerant on read: a malformed rule is a 400 naming the rule, so a bad rule can never
+    // reach a matcher at run time (normalizeGates drops it on load instead).
+    try { out.gates = normalizeGates(raw.gates, { strict: true }); }
+    catch (e) { throw new SettingsError(e instanceof Error ? e.message : 'gates is malformed', 400); }
+  }
   return out;
 }
 
@@ -204,6 +210,7 @@ export class SettingsService {
       },
       mcpServers: Object.fromEntries(Object.entries(c.mcpServers ?? {}).map(([k, v]) => [k, maskEntry(v)])),
       compaction: { ...(c.compaction ?? DEFAULT_COMPACTION), contextWindowOverride: c.compaction?.contextWindowOverride ?? null },
+      gates: normalizeGates(c.gates ?? DEFAULT_GATES),
       port: c.port, configPath: this.deps.configPath, dataDir: this.deps.dataDir,
       ...(this.deps.install ? { install: this.deps.install } : {}),
     };
@@ -224,7 +231,7 @@ export class SettingsService {
     const apply = (target: any) => {
       // THE PERSISTENCE LIST. A section not named here is written to the in-memory config only and is gone on restart.
       // Adding a top-level settings section means adding it here; test/settings.test.ts reads config.json back from disk to prove it.
-      for (const sec of ['claude', 'boat', 'compaction'] as const) {
+      for (const sec of ['claude', 'boat', 'compaction', 'gates'] as const) {
         const src = p[sec] as Record<string, unknown> | undefined;
         if (!src) continue;
         target[sec] = isObj(target[sec]) ? target[sec] : {};

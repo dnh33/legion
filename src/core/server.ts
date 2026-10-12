@@ -4,7 +4,7 @@ import type { IncomingMessage, Server, ServerResponse } from 'node:http';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { redactConfig, VERSION } from '../shared/config.js';
 import type {
-  AgentProfile, ApprovalMode, ChatMessage, DoctorCheck, LegionConfig, LegionEvent, Catalog, ModelChoice, StateSnapshot, Task, VmSize, QuestionPick,
+  AgentHostSettings, AgentProfile, ApprovalMode, ChatMessage, DoctorCheck, LegionConfig, LegionEvent, Catalog, ModelChoice, StateSnapshot, Task, VmSize, QuestionPick,
 } from '../shared/types.js';
 import { summariseUsage } from '../shared/usage-summary.js';
 import { nowIso, slugify, uniqueAgentId } from '../shared/util.js';
@@ -167,6 +167,34 @@ function parseSkills(v: unknown): 'inherit' | string[] | undefined {
   return [...new Set((v as string[]).map((x) => x.trim()))];
 }
 
+/**
+ * The agent shell opt-in (AgentProfile.host, engine.ts buildMcpServers): absent = the agent has no host tools at
+ * all. A present `host` must say `enabled` explicitly (an ambiguous half-object could turn the shell on by
+ * accident). `timeoutSeconds` mirrors the clamp range of exec/limits.ts (1..3600; 120 is the shipped default),
+ * rejected out loud rather than silently clamped — the same strictness the Settings PATCH has.
+ */
+function parseHost(v: unknown): AgentHostSettings | undefined {
+  if (v === undefined) return undefined;
+  if (!isObj(v)) throw new HttpError(400, 'host must be an object');
+  if (typeof v.enabled !== 'boolean') throw new HttpError(400, 'host.enabled must be a boolean (a present host must say so explicitly)');
+  const out: AgentHostSettings = { enabled: v.enabled };
+  if (v.rootDir !== undefined) {
+    if (typeof v.rootDir !== 'string' || !v.rootDir.trim() || v.rootDir.length > 1000) throw new HttpError(400, 'host.rootDir must be a path string, or absent');
+    out.rootDir = v.rootDir.trim();
+  }
+  if (v.timeoutSeconds !== undefined) {
+    if (typeof v.timeoutSeconds !== 'number' || !Number.isInteger(v.timeoutSeconds) || v.timeoutSeconds < 1 || v.timeoutSeconds > 3600) {
+      throw new HttpError(400, 'host.timeoutSeconds must be a whole number of seconds between 1 and 3600');
+    }
+    out.timeoutSeconds = v.timeoutSeconds;
+  }
+  if (v.envFiles !== undefined) {
+    if (v.envFiles !== 'allow' && v.envFiles !== 'masked' && v.envFiles !== 'block') throw new HttpError(400, 'host.envFiles must be allow, masked or block');
+    out.envFiles = v.envFiles;
+  }
+  return out;
+}
+
 /** Shared field validation for create + patch (only present fields returned). */
 function parseAgentFields(b: Record<string, unknown>) {
   return {
@@ -175,12 +203,15 @@ function parseAgentFields(b: Record<string, unknown>) {
     description: str(b.description, 'description'),
     systemPrompt: str(b.systemPrompt, 'systemPrompt'),
     cwd: str(b.cwd, 'cwd'),
+    host: parseHost(b.host),
     model: parseModel(b.model),
     approval: oneOf(b.approval, 'approval', APPROVALS),
     vm: parseVm(b.vm),
     mcpServers: parseMcpServers(b.mcpServers),
     connectors: parseConnectors(b.connectors),
     skills: parseSkills(b.skills),
+    // null clears the setting back to the default
+    taskList: b.taskList === null ? null : oneOf(b.taskList, 'taskList', ['on', 'off']),
   };
 }
 
@@ -295,6 +326,8 @@ export function createServer(ctx: CoreContext): Server {
       ...(f.connectors?.length ? { connectors: f.connectors } : {}),
       ...(f.skills ? { skills: f.skills } : {}),
       ...(f.cwd ? { cwd: f.cwd } : {}),
+      ...(f.host ? { host: f.host } : {}),
+      ...(f.taskList ? { taskList: f.taskList } : {}),
       createdAt: now, updatedAt: now,
     };
     const saved = ctx.store.upsertAgent(agent);
@@ -319,9 +352,13 @@ export function createServer(ctx: CoreContext): Server {
       ...(f.connectors ? { connectors: f.connectors } : {}),
       ...(f.skills ? { skills: f.skills } : {}),
       ...(f.cwd !== undefined ? { cwd: f.cwd || undefined } : {}),
+      // The whole host block is replaced, never merged: the editor always sends enabled + both optional fields.
+      ...(f.host !== undefined ? { host: f.host } : {}),
+      ...(f.taskList ? { taskList: f.taskList } : {}),
       vm: { ...cur.vm, ...f.vm },
       id: cur.id, createdAt: cur.createdAt, updatedAt: nowIso(),
     };
+    if (f.taskList === null) delete next.taskList;
     const saved = ctx.store.upsertAgent(next);
     ctx.bus.emit({ type: 'agent.updated', agent: saved });
     return saved;
@@ -547,7 +584,8 @@ export function createServer(ctx: CoreContext): Server {
     if (origin !== undefined && originAllowed(origin, listeningPort(), req.headers['user-agent'])) {
       res.setHeader('Access-Control-Allow-Origin', origin);
       res.setHeader('Vary', 'Origin');
-      res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PATCH,DELETE,OPTIONS');
+      // every method the core has routes for: PUT too (provider edits, project members, the board leader, the Marshal)
+      res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PUT,PATCH,DELETE,OPTIONS');
       res.setHeader('Access-Control-Allow-Headers', 'Authorization, Content-Type, X-Legion-Admin, mcp-session-id, mcp-protocol-version');
       res.setHeader('Access-Control-Expose-Headers', 'mcp-session-id');
       res.setHeader('Access-Control-Max-Age', '600');

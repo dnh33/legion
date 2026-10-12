@@ -1,5 +1,5 @@
 import type { Project } from '../../src/shared/projects';
-import type { BoardStatus, BoardView, WorkItem } from '../../src/shared/board';
+import type { BoardMarshalStatus, BoardStatus, BoardView, MarshalConfig, WorkItem } from '../../src/shared/board';
 import type { BlenderStatusView } from '../../src/shared/blender';
 import type {
   SettingsView, SettingsPatch, McpStatusView,
@@ -131,6 +131,12 @@ export const api = {
   boardAccept: (pid: string, id: string, b: Record<string, unknown>) => request<WorkItem>('POST', `/api/projects/${encodeURIComponent(pid)}/board/items/${encodeURIComponent(id)}/accept`, b),
   boardReject: (pid: string, id: string) => request<{ ok: true }>('POST', `/api/projects/${encodeURIComponent(pid)}/board/items/${encodeURIComponent(id)}/reject`, {}),
   boardRun: (pid: string, id: string) => request<{ item: WorkItem; limited: boolean }>('POST', `/api/projects/${encodeURIComponent(pid)}/board/items/${encodeURIComponent(id)}/run`, {}),
+  /** What the Marshal is doing on this board: the picture, its plain lines, the written checks and the config. */
+  boardStatus: (pid: string) => request<BoardMarshalStatus>('GET', `/api/projects/${encodeURIComponent(pid)}/board/status`),
+  /** The Marshal's switch and bounds for one project (validated in the core: wave 1-10, stop-after 1-240). */
+  boardMarshal: (pid: string, b: { enabled?: boolean; waveSize?: number; stallMinutes?: number }) => request<MarshalConfig>('PUT', `/api/projects/${encodeURIComponent(pid)}/board/marshal`, b),
+  /** The checks that decide one item (done_when): written before the Marshal may dispatch it. */
+  boardDispatch: (pid: string, id: string, doneWhen: string[]) => request<{ itemId: string; doneWhen: string[] }>('PUT', `/api/projects/${encodeURIComponent(pid)}/board/items/${encodeURIComponent(id)}/dispatch`, { doneWhen }),
   patchRoomProject: (roomId: string, projectId: string | null) => request<unknown>('PATCH', `/api/rooms/${encodeURIComponent(roomId)}`, { projectId }),
   createTask: (b: { agentId: string; prompt: string; model?: ModelChoice; continueTaskId?: string; projectId?: string }) => request<Task>('POST', '/api/tasks', b),
   /** One window of a conversation (newest by default; `before` pages back, `from` opens a window at a position) and its search (`q`). */

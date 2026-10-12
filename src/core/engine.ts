@@ -7,15 +7,22 @@ import type {
   AgentProfile, ApprovalMode, ChatMessage, ConcreteModel, LegionConfig, MascotMood, MessageRole, ModelChoice, Task, TaskProgress, TaskSource,
 } from '../shared/types.js';
 import { newId, nowIso, titleFrom } from '../shared/util.js';
-import { scrubHostSessionEnv } from '../shared/config.js';
+import { gatesFor, scrubHostSessionEnv } from '../shared/config.js';
+import { liveSecrets } from './kg/index.js';
 import { BUDGET_LIMIT_PREFIX, CONTINUE_PROMPT, TURN_LIMIT_PREFIX, budgetCap, formatUsdLimit } from '../shared/continue.js';
 import { clampBudget } from './brief.js';
 import { InputChannel } from './input-channel.js';
 import { BackgroundTasks } from './background-tasks.js';
-import { capStored } from './result-store.js';
+import { capStored, RESULT_STORE_MAX } from './result-store.js';
 import { contextTokensOf } from '../shared/context-meter.js';
 import { isLegionTool, needsApproval, stricterMode, LEGION_SERVER_NAMES } from './approvals.js';
+import { decideGate } from './gates.js';
 import { TaintedPaths } from './tainted-paths.js';
+import { carryDone, CLAUDE_TASK_TOOLS, mirrorClaudeTaskCall, renderEmptyHandover, renderForModel, renderHandover, TaskList, TaskListStore } from './task-list.js';
+import { nativeTaskListOn } from '../shared/task-list-setting.js';
+import { buildHostToolsServer, redactValues } from './exec/host-tools.js';
+import { DirectHostBackend } from './exec/direct-host.js';
+import { clampExecLimits } from './exec/limits.js';
 import { CONTINUE_REFUSED } from './connector-withhold.js';
 import type { CoreModule, ModuleJob, PreambleContext, TaskEndOutcome } from './modules.js';
 import type { TaskOrigin } from '../shared/comms.js';
@@ -57,6 +64,8 @@ export interface EngineDeps {
   modules?: CoreModule[];
   /** Where the list of files written by tainted runs is kept; defaults to <workspaceDir>/.tainted-paths.json. */
   taintedPaths?: TaintedPaths;
+  /** Where each task's own task list is kept (task-list.ts); defaults to <workspaceDir>/.task-lists. */
+  taskLists?: TaskListStore;
   /** Other model providers (OpenAI-compatible endpoints). Absent: every run is a Claude run, exactly as before. */
   providers?: ProviderRuntime;
   /** Projects (src/core/projects). Absent: no task has a project and nothing about projects is interpreted. */
@@ -78,6 +87,9 @@ export const BG_GRACE_MS = 30_000;
  */
 export const BG_MAX_HELD_MS = 2 * 60 * 60_000;
 
+/** Claude Code's own task tools, opted in or out per agent (nativeTaskListOn). */
+const NATIVE_TASK_TOOLS = ['TaskCreate', 'TaskUpdate', 'TaskList', 'TaskGet'] as const;
+
 /** Most items and longest item text of a TodoWrite list kept for the live checklist. */
 export const TODO_MAX_ITEMS = 50;
 export const TODO_MAX_TEXT = 200;
@@ -98,6 +110,9 @@ export function clipTodos(input: unknown): TodoItem[] | null {
   }
   return out;
 }
+
+/** A task list as the live checklist: the same limit a TodoWrite list has. */
+const checklistOf = (list: TaskList): TodoItem[] => list.todos().slice(0, TODO_MAX_ITEMS);
 
 /**
  * Keep stored tool results small (≤ ~1500 chars) without breaking JSON: a JSON result is shortened
@@ -219,6 +234,33 @@ export function buildChildEnv(config: LegionConfig, opts?: { probe?: boolean }):
   return env;
 }
 
+/** Environment variables that hold Legion's own credentials. */
+const LEGION_CREDENTIAL_ENV = new Set(['ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN', 'BOAT_API_KEY']);
+
+/**
+ * The environment the agent shell (host tools) starts from. Legion's own credentials are not the agent's: the Anthropic
+ * key and token, the boat key, and any variable whose value holds the bearer token or a configured key are left out, so a
+ * command (`set`, `env`, a curl that sends a variable) does not get them from its environment. Everything else is kept,
+ * including credentials the owner set up for the work itself (a GITHUB_TOKEN for git push): the approval card is the
+ * check on those.
+ *
+ * Known limit, stated rather than hidden: the shell runs as the user, so it can still READ Legion's own files
+ * (`~/.legion/config.json`, or LEGION_HOME) where those keys are kept. Only a sandboxed backend closes that.
+ */
+export function buildHostShellEnv(config: LegionConfig): Record<string, string> {
+  // a section that is not there has no key in it: the named variables are still dropped
+  const secrets = [config.authToken, config.claude?.apiKey, config.boat?.apiKey]
+    .filter((s): s is string => typeof s === 'string' && s.length >= 8).map((s) => s.toLowerCase());
+  const out: Record<string, string> = {};
+  for (const [k, v] of Object.entries(scrubHostSessionEnv({ ...process.env }))) {
+    if (v === undefined || LEGION_CREDENTIAL_ENV.has(k.toUpperCase())) continue;
+    const lower = v.toLowerCase();
+    if (secrets.some((s) => lower.includes(s))) continue;
+    out[k] = v;
+  }
+  return out;
+}
+
 interface Job {
   taskId: string; agentId: string; prompt: string; choice: ModelChoice; priorModel?: ConcreteModel;
   /** One-line bridge header prepended to what Claude sees (not stored). */
@@ -240,7 +282,7 @@ interface Active {
   toolUses: Set<string>;
   /** This run's prompt reached a session (Claude: its init arrived; provider: it took a turn). Only then can a stop be continued. */
   reached?: boolean;
-  /** Live progress of the current run (Claude): sent as `task.progress`, never stored. */
+  /** Live progress of the current run (Claude, or a provider run from its first turn): sent as `task.progress`, never stored. */
   progress?: { startedAt: string; turn: number; maxTurns: number; tool: string | null; turnIds: Set<string>; contextTokens?: number; todos?: TodoItem[]; thinking: boolean };
   /** The live prompt stream of the current Claude run: a message from the person while it works is pushed here. */
   input?: InputChannel;
@@ -248,6 +290,14 @@ interface Active {
   bg?: BackgroundTasks;
   /** When the held phase ends whatever happens (ms since epoch); set while the run is held for background agents. */
   bgStopsAt?: number;
+  /** The task's own task list (kept per Legion task): a mirror of Claude Code's on a Claude run, the list itself on a provider run. */
+  taskList?: TaskList;
+  /** Claude Code task-tool calls waiting for their result (a new task's id arrives only in the result), by tool_use id. */
+  taskCalls?: Map<string, { name: string; input: unknown }>;
+  /** The list as it was handed over to this Claude run (flag still set): put back if the run does not finish, so nothing is lost. */
+  handoverFrom?: TaskList;
+  /** The run ended done (set just before that status is saved). */
+  finishedOk?: boolean;
 }
 interface Outcome { subtype: string; isError: boolean; errorText?: string }
 
@@ -266,6 +316,7 @@ export class Engine {
   private readonly boatConfigured: () => boolean;
   private readonly maxConcurrent: number;
   private readonly taintedPaths: TaintedPaths;
+  private readonly taskLists: TaskListStore;
   private readonly providers?: ProviderRuntime;
   private readonly projects?: ProjectStore;
   private readonly queue: Job[] = [];
@@ -294,6 +345,9 @@ export class Engine {
     this.providers = deps.providers;
     this.projects = deps.projects;
     this.taintedPaths = deps.taintedPaths ?? new TaintedPaths(join(deps.config.workspaceDir, '.tainted-paths.json'));
+    this.taskLists = deps.taskLists ?? new TaskListStore(join(deps.config.workspaceDir, '.task-lists'));
+    // a deleted task takes its task list with it, so nothing of it is left behind for a later task to find
+    this.bus.on((e) => { if (e.type === 'task.deleted') { try { this.taskLists.remove(e.taskId); } catch { /* best effort */ } } });
     this.bridge = new Bridge({ store: this.store, bus: this.bus, engine: this });
   }
 
@@ -339,9 +393,17 @@ export class Engine {
       const viaBridge = p.bridge && !p.bridge.reply;
       // A model another bot chose lasts for that run only: a later message that asks for none (and is not a reply landing in the caller's own task) goes back to the agent's setting.
       const keepOverride = !!p.bridge?.reply;
-      task = this.saveTask({
-        ...prev, status: 'queued', source: p.source,
-        requestedModel: p.model ?? (prev.modelOverride && !keepOverride ? agent.model : prev.requestedModel),
+      // Provenance flag `modelChosen` (carried on the task row): requestedModel was CHOSEN for this task - a value
+      // other than agent.model - rather than copied from Settings. When nobody asks for a model on this turn the
+      // configured model is re-read instead of the snapshot taken at task creation, so changing a bot's model in
+      // Settings reaches every thread it owns. The one place the previous value survives is a reply landing in the
+      // caller's own task, and only while it is still an explicit choice (or a recorded override).
+      const chosenBefore = (prev as Task & { modelChosen?: boolean }).modelChosen === true;
+      const keepChosen = keepOverride && (chosenBefore || !!prev.modelOverride);
+      const requestedModel = p.model ?? (keepChosen ? prev.requestedModel : agent.model);
+      const next = {
+        ...prev, status: 'queued' as const, source: p.source,
+        requestedModel, modelChosen: requestedModel !== agent.model,
         modelOverride: overriding ? { model: p.model!, by: p.modelOverrideBy! } : keepOverride ? prev.modelOverride : undefined,
         // not resumable until this run's own prompt reaches the session (a restart before then must re-send it, not continue)
         result: undefined, error: undefined, resumable: undefined,
@@ -351,23 +413,27 @@ export class Engine {
         // A human continuing a task clears any bot-origin ceiling; a bridge reply keeps the task's own.
         origin: origin ?? (p.bridge?.reply ? prev.origin : undefined),
         ...(tainted ? { tainted: true } : {}),
-      });
+      };
+      task = this.saveTask(next);
     } else {
       const now = nowIso();
       const base = prompt.replace(/^\s*\/(opus|sonnet)\b\s*/i, '') || prompt;
       const callerName = p.bridge ? (this.store.getAgent(p.bridge.fromAgentId)?.name ?? p.bridge.fromAgentId) : '';
       const projectId = this.pickProject(p, agent, undefined);
-      task = this.saveTask({
+      const requestedModel = p.model ?? agent.model;
+      const next = {
         id: newId('task'), agentId: agent.id,
         title: p.bridge ? `${callerName}: ${base.replace(/\s+/g, ' ').trim().slice(0, 50)}` : titleFrom(base),
-        status: 'queued', source: p.source,
+        status: 'queued' as const, source: p.source,
         ...(p.bridge ? { fromAgentId: p.bridge.fromAgentId, parentTaskId: p.bridge.parentTaskId, bridgeHop: p.bridge.hop ?? 0 } : {}),
-        requestedModel: p.model ?? agent.model, createdAt: now, updatedAt: now,
+        // provenance: a task that runs on its agent's own model carries no choice of its own (see the continue branch)
+        requestedModel, modelChosen: requestedModel !== agent.model, createdAt: now, updatedAt: now,
         ...(overriding ? { modelOverride: { model: p.model!, by: p.modelOverrideBy! } } : {}),
         ...(origin ? { origin } : {}),
         ...(projectId ? { projectId } : {}),
         ...(tainted ? { tainted: true } : {}),
-      });
+      };
+      task = this.saveTask(next);
     }
     this.addMessage(task.id, 'user', prompt, undefined, p.bridge?.fromAgentId);
     this.queue.push({
@@ -508,6 +574,15 @@ export class Engine {
     return this.saveTask({ ...cur, ...patch });
   }
 
+  /**
+   * The task row's copy of a reply. A reply longer than the row holds is kept whole in the result store first, and the
+   * row's visible note points there, so no character is lost (the owner's no-silent-truncation rule): only this copy is cut.
+   */
+  private keepResult(taskId: string, text: string): string {
+    if (text.length <= RESULT_STORE_MAX) return text;
+    try { return capStored(text, RESULT_STORE_MAX, { taskId, resultId: this.bridge.results.put(taskId, text) }); } catch { return capStored(text); }
+  }
+
   private addMessage(taskId: string, role: MessageRole, text: string, toolName?: string, fromAgentId?: string, extra?: Partial<ChatMessage>): ChatMessage {
     const m: ChatMessage = { id: newId('msg'), taskId, role, text, at: nowIso(), ...(toolName ? { toolName } : {}), ...(fromAgentId ? { fromAgentId } : {}), ...(extra ?? {}) };
     const saved = this.store.addMessage(m);
@@ -557,6 +632,19 @@ export class Engine {
   private emitProgress(taskId: string, act: Active): void {
     const p = this.progressView(act);
     if (p) this.bus.emit({ type: 'task.progress', taskId, progress: p });
+  }
+
+  /** A Claude run's mirrored task list changed: keep it for the task's next run and show it as the live checklist. */
+  private keepTaskList(taskId: string, act: Active, list: TaskList): void {
+    // only the checklist's copy (Claude Code keeps the real list): an unwritable folder must not stop the run
+    try { this.taskLists.save(taskId, list); } catch { /* the live checklist still updates */ }
+    this.showTaskList(taskId, act, list);
+  }
+
+  /** Shows the task's list as the live checklist of the current run. */
+  private showTaskList(taskId: string, act: Active, list: TaskList): void {
+    act.taskList = list;
+    if (act.progress) { act.progress.todos = checklistOf(list); this.emitProgress(taskId, act); }
   }
 
   /** What the app is told about a run: one place, so the live event and the snapshot for a late client cannot drift apart. */
@@ -650,6 +738,7 @@ export class Engine {
     } catch (e) {
       this.failTask(job.taskId, e, act);
     } finally {
+      this.settleHandover(job.taskId, act);
       this.endTask(job, act);
       if (this.active.get(job.taskId) === act) this.active.delete(job.taskId);
       try { this.approvals.cancelForTask(job.taskId); } catch { /* ignore */ }
@@ -657,6 +746,13 @@ export class Engine {
       if (this.active.size === 0 && this.queue.length === 0) this.scheduleIdle();
       this.pump();
     }
+  }
+
+  /** A hand-over run that did not finish (stopped, failed, paused at a limit) puts the handed-over list back, flagged, so the next Claude run gets it again. */
+  private settleHandover(taskId: string, act: Active): void {
+    // the run's own outcome, not the task's status: a continuation queued the moment this run finished has already re-set that
+    if (!act.handoverFrom || act.finishedOk) return;
+    try { this.taskLists.save(taskId, act.handoverFrom); } catch { /* best effort */ }
   }
 
   /** Tells every module the run is over (after the final status is saved). A broken module never breaks the engine. */
@@ -780,6 +876,7 @@ export class Engine {
       else if (budgetLimit) this.mascot('idle', 'paused at the spend limit');
       else this.mascot('error', text.slice(0, 120));
     } else {
+      act.finishedOk = true;
       this.patchTask(job.taskId, { status: 'done', resumable: undefined, ...(act.tainted ? { tainted: true } : {}) });
       this.mascot('success');
     }
@@ -811,7 +908,23 @@ export class Engine {
       vmEnabled: !!agent.vm?.enabled && this.boatConfigured(),
       claudeAvailable: this.vms.claudeAvailable?.() ?? true, // vm_claude is hidden while Claude is known not to be set up on boat.dev
       ...(job.origin ? { origin: { roomId: job.origin.roomId, fromAgentId: job.origin.fromAgentId, hop: job.origin.hop } } : {}),
+      // a provider run has no Claude Code task tools: Legion keeps the list for it (a Claude run's own list is only mirrored, for the checklist)
+      // a provider change is handed over to the next Claude run of this conversation (its own list is behind)
+      ...(runtime === 'provider' ? { taskList: { load: () => this.taskLists.load(taskId), save: (l: TaskList) => { l.handoverPending = true; this.taskLists.save(taskId, l); this.showTaskList(taskId, act, l); } } } : {}),
     });
+    // The agent shell: host shell/file tools, only for an agent that opted in. The names are `mcp__host__*` (NOT
+    // Legion's own), so needsApproval raises a card and taintsRun marks the run; `host` grants the TOOLS, the agent's
+    // `approval` mode decides whether each call is carded. An absent `host` = no tools (the opt-in gate).
+    if (agent.host?.enabled) {
+      out.host = buildHostToolsServer({
+        agentId: agent.id, taskId,
+        rootDir: this.hostRootOf(agent),
+        backend: new DirectHostBackend({ limits: clampExecLimits({ timeoutSeconds: agent.host.timeoutSeconds }), env: buildHostShellEnv(this.config) }),
+        // the shell can read Legion's own files (config.json, provider keys): every secret Legion holds is taken out of what comes back
+        redact: (text) => redactValues(text, [...liveSecrets(this.config), ...(this.providers?.secretValues() ?? [])]),
+        envFiles: agent.host.envFiles ?? 'masked',
+      });
+    }
     const moduleJob: ModuleJob = {
       taskId, ...(job.origin ? { origin: job.origin, ceiling: job.origin.approvalCeiling } : {}),
       taint: () => act.tainted || job.origin?.tainted === true,
@@ -959,6 +1072,19 @@ export class Engine {
     }
   }
 
+  /** Where the agent shell runs and its file paths resolve (host-tools.ts resolveWithin). */
+  private hostRootOf(agent: AgentProfile): string {
+    return agent.host?.rootDir ?? agent.cwd ?? join(this.config.workspaceDir, agent.id);
+  }
+
+  /**
+   * The folder a tool call's relative paths mean, so a path gate rule reads `secrets/key.txt` as the file it names: the
+   * agent shell's root for its own tools, the agent's working folder for everything else.
+   */
+  private gateCwd(agent: AgentProfile, toolName: string): string {
+    return toolName.startsWith('mcp__host__') ? this.hostRootOf(agent) : (agent.cwd || join(this.config.workspaceDir, agent.id));
+  }
+
   private agentCwd(agentId: string): string {
     const agent = this.store.getAgent(agentId);
     return agent?.cwd || join(this.config.workspaceDir, agentId);
@@ -989,7 +1115,7 @@ This run read connector (GitHub) data and other outside text. Web access can sen
    * The approval decision for one tool call, shared by the Claude path (canUseTool) and the provider path: effective mode (never looser
    * than the run's ceiling), then needsApproval, then a card the user answers (10 minutes, then denied).
    */
-  private toolDecider(job: Job, agent: AgentProfile): (toolName: string, input: Record<string, unknown>) => Promise<{ allow: boolean; message?: string }> {
+  private toolDecider(job: Job, agent: AgentProfile, opts: { egress?: boolean } = {}): (toolName: string, input: Record<string, unknown>) => Promise<{ allow: boolean; message?: string }> {
     const ceiling = job.origin?.approvalCeiling;
     const effective = (): ApprovalMode => {
       const mode = this.store.getAgent(agent.id)?.approval ?? agent.approval;
@@ -998,10 +1124,15 @@ This run read connector (GitHub) data and other outside text. Web access can sen
     return async (toolName, input) => {
       // web egress after connector data: a card in every mode (maintainer decision 2026-10-07)
       // (no await when no card is due: the card of a normal tool must still be raised synchronously)
-      const egress = this.webEgressCard(job, agent, toolName, input);
+      const egress = opts.egress === false ? undefined : this.webEgressCard(job, agent, toolName, input);
       if (egress) return egress;
       const mode = effective();
-      if (!needsApproval(mode, toolName, { capped: job.origin?.approvalCeiling === 'ask' })) return { allow: true };
+      // Gate rules (Settings -> Gates) sit ahead of the approval baseline: deny wins outright (and survives full), an
+      // explicit allow skips the card, an ask forces one (inert in full), and no rule falls through to the baseline.
+      const gate = decideGate({ toolName, input, agentId: agent.id, cwd: this.gateCwd(agent, toolName), projectId: this.projectOf(job.taskId, agent.id)?.id, ctx: { roomHop: (job.origin?.hop ?? 0) > 0, tainted: this.active.get(job.taskId)?.tainted === true || job.origin?.tainted === true, connectorData: this.store.getTask(job.taskId)?.usedConnectors === true } }, gatesFor(this.config).rules, mode, job.origin?.approvalCeiling === 'ask');
+      if (gate.verdict === 'deny') return { allow: false, message: 'Blocked by a gate rule (Settings -> Gates).' };
+      if (gate.verdict === 'allow') return { allow: true };
+      if (gate.verdict !== 'ask' && !needsApproval(mode, toolName, { capped: job.origin?.approvalCeiling === 'ask' })) return { allow: true };
       const o = job.origin;
       let timedOut = false;
       const allowed = await this.approvals.request(
@@ -1069,7 +1200,12 @@ This run read connector (GitHub) data and other outside text. Web access can sen
       mcpServers: servers,
       // Off (default): only the servers above, asks the CLI to ignore user/project/local MCP config and plugins. claude.ai connectors are asked off in buildChildEnv and in `settings`.
       ...(this.config.claude.inheritMcp === true ? {} : { strictMcpConfig: true }),
-      disallowedTools: ['SendMessage', 'ListAgents', ...this.moduleDisallowed(agent)],
+      // Claude Code's own task list: 5.x models have it only when asked for. Naming the tools in allowedTools turns them on
+      // (Claude Code CLI behaviour, verified live 2026-10-12; sdk.d.ts documents allowedTools only as auto-approval) and
+      // auto-approves them, so a Gates rule for them does not apply — harmless: they are notes (READ_ONLY), never carded.
+      // Off, the old TodoWrite goes too.
+      ...(nativeTaskListOn(agent) ? { allowedTools: [...NATIVE_TASK_TOOLS] } : {}),
+      disallowedTools: ['SendMessage', 'ListAgents', ...(nativeTaskListOn(agent) ? [] : [...NATIVE_TASK_TOOLS, 'TodoWrite']), ...this.moduleDisallowed(agent)],
       maxTurns: this.config.claude.maxTurns,
       // optional spend cap per run; a typed brief may ask for a lower one, clamped here, never above the owner's. On a resumed session it counts only the new spend.
       ...(maxBudgetUsd !== undefined ? { maxBudgetUsd } : {}),
@@ -1116,13 +1252,29 @@ This run read connector (GitHub) data and other outside text. Web access can sen
       return ceiling ? stricterMode(mode, ceiling) : mode;
     };
     if (agent.approval === 'full' && !(ceiling && ceiling !== 'full')) {
+      // a hook that awaits a card gets the card's own wait and a minute more: a hook timeout would stop the run, not deny the call
+      const cardHookSeconds = this.approvals.timeoutSeconds + 60;
       options.permissionMode = 'bypassPermissions';
       options.allowDangerouslySkipPermissions = true;
       // bypass mode has no canUseTool: the web-egress card is raised from a PreToolUse hook instead (never both, so one card per call)
-      options.hooks?.PreToolUse?.push({ matcher: 'WebFetch|WebSearch', hooks: [async (input) => {
+      options.hooks?.PreToolUse?.push({ matcher: 'WebFetch|WebSearch', timeout: cardHookSeconds, hooks: [async (input) => {
         if (input.hook_event_name !== 'PreToolUse') return { continue: true };
         const d = await this.webEgressCard(job, agent, input.tool_name, (input.tool_input ?? {}) as Record<string, unknown>);
         return d && !d.allow ? preToolDeny(d.message ?? 'The user denied this web request.') : { continue: true };
+      }] });
+      // The run started in full, but the owner may demote the agent while it works: bypass mode cannot be left, so this hook
+      // re-reads the mode on every call and, once it is no longer full, decides the call as that mode would, card included.
+      // (The web-egress card has its own hook above, so it is left out here: one card per call.)
+      const demoted = this.toolDecider(job, agent, { egress: false });
+      // deny rules survive Full (the one class meant to): a Block rule still stops the tool here, where canUseTool does not exist.
+      options.hooks?.PreToolUse?.push({ matcher: '.*', timeout: cardHookSeconds, hooks: [async (input) => {
+        if (input.hook_event_name !== 'PreToolUse') return { continue: true };
+        if (effective() !== 'full') {
+          const d = await demoted(input.tool_name, (input.tool_input ?? {}) as Record<string, unknown>);
+          return d.allow ? { continue: true } : preToolDeny(d.message ?? 'The user denied this action.');
+        }
+        const g = decideGate({ toolName: input.tool_name, input: (input.tool_input ?? {}) as Record<string, unknown>, agentId: agent.id, cwd: this.gateCwd(agent, input.tool_name), projectId: this.projectOf(job.taskId, agent.id)?.id, ctx: { roomHop: (job.origin?.hop ?? 0) > 0, tainted: this.active.get(job.taskId)?.tainted === true || job.origin?.tainted === true, connectorData: this.store.getTask(job.taskId)?.usedConnectors === true } }, gatesFor(this.config).rules, 'full', false);
+        return g.verdict === 'deny' ? preToolDeny('Blocked by a gate rule (Settings -> Gates).') : { continue: true };
       }] });
     } else {
       options.permissionMode = 'default';
@@ -1131,6 +1283,31 @@ This run read connector (GitHub) data and other outside text. Web access can sen
         const d = await decide(toolName, input);
         return d.allow ? { behavior: 'allow', updatedInput: input } : { behavior: 'deny', message: d.message ?? 'The user denied this action.' };
       };
+    }
+    // The task list reaches Claude's own list through the documented SessionStart hook only: shown again after Claude
+    // compacts, and handed over when a provider run changed it or the session is new. An agent without the tools gets neither.
+    if (nativeTaskListOn(agent)) {
+      options.hooks!.SessionStart = [{ hooks: [async (input) => {
+        if (input.hook_event_name !== 'SessionStart') return { continue: true };
+        const list = this.taskLists.load(job.taskId);
+        let text: string | undefined;
+        if (input.source === 'compact') text = renderForModel(list);
+        else if (list.handoverPending || (!resume && list.list().length > 0)) {
+          // a list another model emptied still hands over: Claude's own list holds tasks that no longer exist
+          text = renderHandover(list) ?? (list.handoverPending ? renderEmptyHandover() : undefined);
+          if (text) {
+            // Claude's first step (TaskList) replaces the mirror with its own, still-behind list: the handed-over list is
+            // kept aside and put back unless the run finishes (settleHandover)
+            act.handoverFrom ??= TaskList.fromJSON(JSON.parse(JSON.stringify(list)));
+            // the run's mirror becomes the taken-over list (flag cleared, or its next mirrored Task call would write it back),
+            // with done tasks carried under their own ids so Claude's TaskList does not drop them
+            const taken = carryDone(list);
+            taken.handoverPending = false;
+            this.keepTaskList(job.taskId, act, taken);
+          }
+        }
+        return text ? { hookSpecificOutput: { hookEventName: 'SessionStart' as const, additionalContext: text } } : { continue: true };
+      }] }];
     }
     return options;
   }
@@ -1215,12 +1392,25 @@ This run read connector (GitHub) data and other outside text. Web access can sen
         + this.modulePreamble(agent, { prompt, taskId, ...(job.origin ? { origin: job.origin } : {}), tainted: act.tainted || job.origin?.tainted === true })
         + '\n\n' + renderCapabilities(agent, { servers: allServers, ...(job.origin?.approvalCeiling ? { ceiling: job.origin.approvalCeiling } : {}), vmEnabledForAgent: !!agent.vm?.enabled })
         + (agent.systemPrompt ? '\n\n' + agent.systemPrompt : '')
+        + (() => { const t = renderForModel(this.taskLists.load(taskId)); return t ? '\n\n' + t : ''; })()
         + `\n\nYou are running on ${pr.model} through ${pr.entry?.label ?? pr.providerId}. You have only the tools listed in this request; you have no file, shell or web tools of your own.`
         + (leadDoctrineFor(agent.id) ? '\n\n' + leadDoctrineFor(agent.id) : ''),
       prompt, stored: this.store.listMessages(taskId),
+      taskListText: () => renderForModel(this.taskLists.load(taskId)),
       servers, external,
       authorize: decide,
       noteToolUse: (name, id, input) => this.noteToolUse(job, act, name, id, input),
+      // the same live progress a Claude run sends: the turn against the provider loop's own limit, the tool it waits on, the task list
+      onTurn: (turn, maxTurns) => {
+        if (!act.progress) {
+          act.progress = { startedAt: nowIso(), turn, maxTurns, tool: null, turnIds: new Set(), thinking: false };
+          const list = this.taskLists.load(taskId);
+          if (list.list().length) act.progress.todos = checklistOf(list);
+        }
+        act.progress.turn = turn;
+        act.progress.tool = null;
+        this.emitProgress(taskId, act);
+      },
       onDelta: (text) => this.bus.emit({ type: 'message.delta', taskId, text }),
       onAssistantText: (text) => { this.addMessage(taskId, 'assistant', text); },
       onToolCall: (name, id, input) => {
@@ -1229,6 +1419,7 @@ This run read connector (GitHub) data and other outside text. Web access can sen
         if (json.length > 500) json = json.slice(0, 499) + '…';
         this.addMessage(taskId, 'tool', json, name, undefined, { toolUseId: id });
         this.mascot('hacking', name);
+        if (act.progress) { act.progress.tool = name; this.emitProgress(taskId, act); }
       },
       onToolResult: (id, text) => { if (text.trim()) this.addMessage(taskId, 'tool', clipToolResult(text), undefined, undefined, { resultFor: id }); },
       onNotice: (text) => { this.addMessage(taskId, 'system', text); },
@@ -1247,7 +1438,7 @@ This run read connector (GitHub) data and other outside text. Web access can sen
         ...(r.usageUnknown || !r.usage || cur?.tokenUsage?.unknown ? { unknown: true } : {}),
       },
       ...(r.costUsd !== undefined ? { costUsd: (cur?.costUsd ?? 0) + r.costUsd } : {}),
-      ...(!r.isError && r.resultText !== undefined ? { result: capStored(r.resultText) } : {}),
+      ...(!r.isError && r.resultText !== undefined ? { result: this.keepResult(taskId, r.resultText) } : {}),
     });
     return { subtype: r.subtype, isError: r.isError, errorText: r.isError ? r.errorText : undefined };
   }
@@ -1256,6 +1447,18 @@ This run read connector (GitHub) data and other outside text. Web access can sen
   private async runOnce(job: Job, agent: AgentProfile, model: ConcreteModel, prompt: string, act: Active): Promise<Outcome> {
     const pr = this.providers?.resolve(model);
     if (pr) return this.runProvider(job, agent, pr, prompt, act);
+    // Never the Claude path: a `<id>:<model>` value whose provider resolves to nothing (no provider runtime at all,
+    // a reserved id the config dropped, an id resolve() cannot parse) FAILS the way a preset-backed id with a
+    // deleted entry already does (providers/runtime.ts:119) instead of being handed to the Claude SDK as a model
+    // name. The owner must see "not set up any more", not a silent run on the wrong model. `arn:` is a Bedrock id
+    // for the Claude path, never a provider (same exclusion as providerPrefix).
+    const shaped = /^([A-Za-z][A-Za-z0-9-]{1,31}):/.exec(model);
+    if (shaped && !/^arn:/i.test(model)) {
+      return {
+        subtype: 'error_during_execution', isError: true,
+        errorText: `The provider "${shaped[1]}" is not set up any more. Choose another model for this agent in Settings, Providers.`,
+      };
+    }
     const resume = this.store.getTask(job.taskId)?.sessionId;
     const options = this.buildOptions(job, agent, model, act, prompt, resume);
     // Streaming input: the request is the first message of a stream the person can add to while the run works.
@@ -1265,6 +1468,10 @@ This run read connector (GitHub) data and other outside text. Web access can sen
     act.q = q;
     // each run counts its own turns (the limit is per run); the clock and the tool reset with it
     act.progress = { startedAt: nowIso(), turn: 0, maxTurns: this.config.claude.maxTurns, tool: null, turnIds: new Set(), thinking: false };
+    // the task's list is kept across its runs, so a continued conversation shows its checklist from the start
+    act.taskList = this.taskLists.load(job.taskId);
+    act.taskCalls = new Map();
+    if (act.taskList.list().length) act.progress.todos = checklistOf(act.taskList);
     this.emitProgress(job.taskId, act);
 
     const aborted = new Promise<'aborted'>((res) => {
@@ -1424,6 +1631,7 @@ This run read connector (GitHub) data and other outside text. Web access can sen
         if (pg && !msg.parent_tool_use_id) {
           for (const b of blocks) {
             if (b?.type === 'tool_use' && b.name === 'TodoWrite') { const list = clipTodos(b.input); if (list) { pg.todos = list; todosChanged = true; } }
+            else if (b?.type === 'tool_use' && CLAUDE_TASK_TOOLS.has(b.name) && typeof b.id === 'string') act.taskCalls?.set(b.id, { name: b.name, input: b.input });
           }
           const id = typeof msg.message?.id === 'string' ? msg.message.id : `n${pg.turnIds.size}`;
           const lastTool = [...blocks].reverse().find((b) => b?.type === 'tool_use');
@@ -1452,10 +1660,18 @@ This run read connector (GitHub) data and other outside text. Web access can sen
         const blocks: any[] = Array.isArray(msg.message?.content) ? msg.message.content : [];
         // the tool came back: the model is thinking again until its next call
         if (act.progress?.tool && blocks.some((b) => b?.type === 'tool_result')) { act.progress.tool = null; this.emitProgress(taskId, act); }
+        // the structured result belongs to the message's one tool result; with several it cannot be told apart, so the text is used
+        const results = blocks.filter((b) => b?.type === 'tool_result');
         for (const b of blocks) {
           if (b?.type !== 'tool_result' || typeof b.tool_use_id !== 'string') continue;
           const raw = typeof b.content === 'string' ? b.content
             : Array.isArray(b.content) ? b.content.filter((c: any) => c?.type === 'text').map((c: any) => c.text).join('\n') : '';
+          const call = act.taskCalls?.get(b.tool_use_id);
+          if (call && act.taskList) {
+            act.taskCalls!.delete(b.tool_use_id);
+            const next = mirrorClaudeTaskCall(act.taskList, call, { structured: results.length === 1 ? msg.tool_use_result : undefined, text: raw, isError: b.is_error === true });
+            if (next) this.keepTaskList(taskId, act, next);
+          }
           if (!raw.trim()) continue;
           const text = clipToolResult(raw);
           this.addMessage(taskId, 'tool', text, undefined, undefined, { resultFor: b.tool_use_id });
@@ -1468,11 +1684,19 @@ This run read connector (GitHub) data and other outside text. Web access can sen
         const text: string | undefined = msg.subtype === 'success'
           ? (typeof msg.result === 'string' ? msg.result : undefined)
           : (Array.isArray(msg.errors) && msg.errors.length ? msg.errors.join('; ') : undefined);
+        // total_cost_usd is the SESSION's running total (sdk.d.ts: "read the latest result rather than summing"; a resumed
+        // session continues from its saved total): only the rise since this session's last result is new spend. Summing it
+        // re-added a thread's whole history on every resumed run (measured 4.4x, up to 12.4x on long threads).
+        const total = typeof msg.total_cost_usd === 'number' && Number.isFinite(msg.total_cost_usd) ? msg.total_cost_usd : undefined;
+        const sid = typeof msg.session_id === 'string' ? msg.session_id : undefined;
+        const before = sid && cur?.costSessionId === sid ? (cur?.sessionCostUsd ?? 0) : 0;
+        const spent = total === undefined ? 0 : total >= before ? total - before : total; // a lower total = the session's count restarted (/clear)
         this.patchTask(taskId, {
-          costUsd: (cur?.costUsd ?? 0) + (typeof msg.total_cost_usd === 'number' ? msg.total_cost_usd : 0),
+          costUsd: (cur?.costUsd ?? 0) + spent,
+          ...(total !== undefined && sid ? { sessionCostUsd: total, costSessionId: sid } : {}),
           turns: (cur?.turns ?? 0) + (typeof msg.num_turns === 'number' ? msg.num_turns : 0),
           ...(typeof msg.session_id === 'string' && !cur?.sessionId ? { sessionId: msg.session_id } : {}),
-          ...(!isError && text !== undefined ? { result: capStored(text) } : {}),
+          ...(!isError && text !== undefined ? { result: this.keepResult(taskId, text) } : {}),
         });
         return { subtype: String(msg.subtype), isError, errorText: isError ? text : undefined };
       }

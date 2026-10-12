@@ -14,6 +14,8 @@ export interface ProviderEntry {
   kind: 'openai-compat';
   /** Which HTTP dialect: 'chat' (chat completions, default) or 'responses' (the Responses API). */
   wire?: 'chat' | 'responses';
+  /** How the models here call tools. Absent = automatic (native, and prompted for a model that refuses the tools field or whose provider says it has none); 'native' = never prompted; 'prompted' = always in the prompt. */
+  toolCalls?: 'native' | 'prompted';
   label: string;
   baseUrl: string;
   enabled: boolean;
@@ -80,11 +82,15 @@ export interface ProviderHost {
   external?: Record<string, ExternalServerConfig>;
   authorize(toolName: string, input: Record<string, unknown>): Promise<{ allow: boolean; message?: string }>;
   noteToolUse(toolName: string, toolUseId: string, input: unknown): void;
+  /** A model turn starts (1-based) against the loop's limit: the engine shows it as the run's live progress. Optional. */
+  onTurn?(turn: number, maxTurns: number): void;
   onDelta(text: string): void;
   onAssistantText(text: string): void;
   onToolCall(toolName: string, toolUseId: string, input: unknown): void;
   onToolResult(toolUseId: string, text: string): void;
   onNotice(text: string): void;
+  /** The task list as the model should see it after compaction (undefined: none). Optional. */
+  taskListText?(): string | undefined;
 }
 
 export interface ProviderRunResult {

@@ -24,6 +24,10 @@ const ZEALOT_SOUL_BEFORE_MARSHAL = 'You are Zealot, the lead of the Order. Every
 export const ZEALOT_PROMPT = ZEALOT_SOUL;
 const SOULS_V1: Record<keyof typeof SOUL_SEEDS_V0, string> = { zealot: ZEALOT_SOUL, builder: BUILDER_SOUL, scout: SCOUT_SOUL };
 
+/** The lead's "Who does what" ending since 2026-10-12, and the soul as shipped before it (the Quartermaster was missing). */
+const LEAD_WHO_NOW = 'Blender to the Sculptor; supply and version checks to the Quartermaster.';
+const ZEALOT_SOUL_BEFORE_FULL_ROSTER = ZEALOT_SOUL.replace(LEAD_WHO_NOW, 'Blender to the Sculptor.');
+
 /** Applied once per state file, in order, then recorded in `migrations` so they never run again (and never undo a later manual choice). */
 const MIGRATIONS: Array<{ id: string; run: (agents: Map<string, AgentProfile>) => boolean }> = [
   {
@@ -88,6 +92,18 @@ const MIGRATIONS: Array<{ id: string; run: (agents: Map<string, AgentProfile>) =
       if (z.name === 'Zealot') { z.name = 'Marshal'; changed = true; }
       if (z.systemPrompt === ZEALOT_SOUL_BEFORE_MARSHAL) { z.systemPrompt = ZEALOT_SOUL; changed = true; }
       return changed;
+    },
+  },
+  {
+    // The lead's "Who does what" named eleven of thirteen bots (C4 council, 2026-10-12): the Quartermaster was missing, so
+    // the lead's routing table and the real roster disagreed (the Assayer is named per run by the BSV module, only while it
+    // exists). Replaced only while it is still the exact shipped soul.
+    id: 'lead-roster-full-v1',
+    run: (agents) => {
+      const z = agents.get('zealot');
+      if (!z || z.systemPrompt !== ZEALOT_SOUL_BEFORE_FULL_ROSTER) return false;
+      z.systemPrompt = ZEALOT_SOUL;
+      return true;
     },
   },
 ];

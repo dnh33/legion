@@ -1,7 +1,9 @@
 import type { ApprovalRequest } from '../../../src/shared/types';
 import '../rooms/rooms.css';
 import { openRoom, useRoomName } from '../rooms/roomsStore';
-import { decide, useStore } from '../store';
+import { useState } from 'react';
+import { decide, errText, rememberGate, toast, useStore } from '../store';
+import { canRemember, canRememberAllow, rememberRule } from '../gates/gatesLogic';
 import { shortTool } from '../util';
 import { BlenderBadge, BlenderBody, blenderView, isBlenderExec } from '../blender/BlenderApproval';
 import { BLENDER_ASSET_TOOL, GET_BLENDER_TOOL } from '../../../src/shared/blender';
@@ -37,6 +39,7 @@ export function ApprovalCard({ a }: { a: ApprovalRequest }) {
   const noKey = clickOnly(a);
   const bmode = bl ? blenderView(a).mode : 'sandbox';
   const live = bmode === 'live';
+  const [remember, setRemember] = useState(false);
   return (
     <div className={`approval${bl ? ` blender${live ? ' is-live' : bmode === 'local' ? ' is-local' : ''}` : ''}`} tabIndex={0} role="group" aria-label={`Approval needed for ${cardTool(a.toolName)}`}
       onKeyDown={(e) => {
@@ -56,8 +59,30 @@ export function ApprovalCard({ a }: { a: ApprovalRequest }) {
       <div className="approval-actions">
         <button className="btn primary" onClick={() => void decide(a.id, true)}>Allow{!noKey && <> <kbd>A</kbd></>}</button>
         <button className="btn" onClick={() => void decide(a.id, false)}>Deny <kbd>D</kbd></button>
+        {canRemember(a) && <button type="button" className="btn-ghost sm" aria-expanded={remember} onClick={() => setRemember((v) => !v)}>Remember…</button>}
         <span className="approval-note">Auto-denies after 10 min</span>
       </div>
+      {remember && canRemember(a) && <RememberChoices a={a} />}
+    </div>
+  );
+}
+
+/** One click turns this answer into a gate rule (Settings → Gates lists it, labelled as from a card), then answers the card. */
+export function RememberChoices({ a }: { a: ApprovalRequest }) {
+  const agents = useStore((s) => s.agents);
+  const nameOf = (id: string) => agents.find((x) => x.id === id)?.name ?? id;
+  const allow = rememberRule(a, 'allow', nameOf);
+  const deny = rememberRule(a, 'deny', nameOf);
+  const [busy, setBusy] = useState(false);
+  const save = async (rule: typeof allow, ok: boolean) => {
+    setBusy(true);
+    try { await rememberGate(rule); await decide(a.id, ok); } catch (e) { toast(errText(e), 'error'); } finally { setBusy(false); }
+  };
+  return (
+    <div className="approval-remember" role="group" aria-label="Remember this answer">
+      {canRememberAllow(a) && <button type="button" className="btn sm" disabled={busy} onClick={() => void save(allow, true)}>Always allow: {allow.label}</button>}
+      <button type="button" className="btn sm" disabled={busy} onClick={() => void save(deny, false)}>Always block: {deny.label}</button>
+      <span className="approval-note">Saved as a gate (Settings, Gates). An allow never applies to a run another bot or Claude Code started.</span>
     </div>
   );
 }

@@ -23,6 +23,7 @@ export function normalizeEntry(id: string, v: unknown): { entry: ProviderEntry }
   if (v.kind === 'cli') return { reason: `${id}: CLI providers are not available in this version` };
   if (v.kind !== undefined && v.kind !== 'openai-compat') return { reason: `${id}: unknown kind` };
   if (v.wire !== undefined && v.wire !== 'chat' && v.wire !== 'responses') return { reason: `${id}: wire must be chat or responses` };
+  if (v.toolCalls !== undefined && v.toolCalls !== null && v.toolCalls !== 'native' && v.toolCalls !== 'prompted') return { reason: `${id}: toolCalls must be native or prompted (or absent for automatic)` };
   const allowPrivate = v.allowPrivateNetwork === true;
   const ep = checkEndpoint(v.baseUrl, { allowPrivate });
   if (!ep.ok) return { reason: `${id}: ${ep.reason}` };
@@ -40,6 +41,7 @@ export function normalizeEntry(id: string, v: unknown): { entry: ProviderEntry }
     entry: {
       kind: 'openai-compat', label, baseUrl: ep.url, enabled: v.enabled === true, models,
       ...(v.wire === 'responses' ? { wire: 'responses' as const } : {}),
+      ...(v.toolCalls === 'native' || v.toolCalls === 'prompted' ? { toolCalls: v.toolCalls } : {}),
       ...(keyless ? { keyless: true } : {}), ...(allowPrivate && ep.privateLiteral ? { allowPrivateNetwork: true } : {}),
       ...(Object.keys(prices).length ? { prices } : {}),
       ...(window !== undefined ? { contextWindow: window } : {}),

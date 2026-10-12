@@ -127,6 +127,6 @@ export function createProvidersModule(opts: ProvidersModuleOpts): CoreModule {
 /** Only the fields a PUT may set; anything else in the body is ignored. */
 function pick(b: Record<string, unknown>): Record<string, unknown> {
   const out: Record<string, unknown> = {};
-  for (const k of ['label', 'baseUrl', 'enabled', 'keyless', 'allowPrivateNetwork', 'models', 'prices', 'wire']) if (b[k] !== undefined) out[k] = b[k];
+  for (const k of ['label', 'baseUrl', 'enabled', 'keyless', 'allowPrivateNetwork', 'models', 'prices', 'wire', 'toolCalls']) if (b[k] !== undefined) out[k] = b[k];
   return out;
 }

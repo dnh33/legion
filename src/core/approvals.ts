@@ -5,7 +5,13 @@ import type { ApprovalMode, ApprovalRequest } from '../shared/types.js';
 import { newId, nowIso } from '../shared/util.js';
 import type { EventBus } from './bus.js';
 
-const READ_ONLY = new Set(['Read', 'Glob', 'Grep', 'LS', 'WebSearch', 'WebFetch', 'TodoWrite', 'Task', 'Agent']);
+/** The run's own task list (TodoWrite, and the TaskCreate/Update/List/Get tools that replaced it) is notes, not an action: never carded. */
+const READ_ONLY = new Set(['Read', 'Glob', 'Grep', 'LS', 'WebSearch', 'WebFetch', 'TodoWrite', 'TaskCreate', 'TaskUpdate', 'TaskList', 'TaskGet', 'Task', 'Agent']);
+/**
+ * Exported so test/gates.test.ts can assert the gate layer's `reads` group is exactly this set (plus the agent
+ * shell's read tool): the two describe the same idea in two modules and must never drift apart.
+ */
+export const APPROVAL_READ_ONLY: ReadonlySet<string> = READ_ONLY;
 const EDIT_TOOLS = new Set(['Write', 'Edit', 'MultiEdit', 'NotebookEdit']);
 
 /** Legion's own in-process MCP servers: vm tools, the comms bridge, the knowledge graph, the project board, the house context layer and the guarded Blender bridge (it asks for its own approval inside the tool). */
@@ -143,6 +149,8 @@ export class ApprovalBroker {
   private readonly timeoutMs: number;
   /** How long a card waits for an answer before it is denied, in words ("10 minutes"). For messages that explain a timeout. */
   get timeoutWait(): string { return describeWait(this.timeoutMs); }
+  /** The same wait in whole seconds: a hook that awaits a card must be given at least this long. */
+  get timeoutSeconds(): number { return Math.ceil(this.timeoutMs / 1000); }
   constructor(private readonly bus: EventBus, opts?: { timeoutMs?: number }) {
     this.timeoutMs = opts?.timeoutMs ?? 10 * 60 * 1000;
   }

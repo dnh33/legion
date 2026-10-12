@@ -18,6 +18,12 @@ test('needsApproval matrix', () => {
   }
 });
 
+test('the built-in task list (TaskCreate/Update/List/Get) never asks for a card: it is the run\'s own notes, like TodoWrite', () => {
+  for (const mode of ['ask', 'auto-edits', 'full'] as const) {
+    for (const t of ['TaskCreate', 'TaskUpdate', 'TaskList', 'TaskGet']) assert.equal(needsApproval(mode, t), false, `${mode} ${t}`);
+  }
+});
+
 test('summarizeToolInput', () => {
   assert.equal(summarizeToolInput('Bash', { command: 'ls -la' }), 'ls -la');
   assert.equal(summarizeToolInput('Write', { file_path: '/a/b.txt', content: 'x' }), '/a/b.txt');

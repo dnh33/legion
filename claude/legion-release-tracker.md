@@ -1867,3 +1867,57 @@ Plan: `claude/plan-bsv-spend-residuals.md` (facts table with sources). Closes th
 **Lesson:** when merging dependency bumps, check config key renames. Verify build output format, not just build success. CI smoke test must verify rendering, not just process liveness.
 
 **Also fixed in this release:** prebuilt package ships working Electron 44.5.1 + default_app.asar (was corrupt + missing), electron dep spec reverted to ^44.5.1 (lockfile diff must be version-only for updater bridge).
+
+## 2026-10-11 — 0.2.5-r: updater hardening (P0-P2) RELEASED
+
+**Shipped** (all verified): state-preflight (data backup before swap, fail-closed), update-marker (cross-process lock, PID-reuse guard), teardown (graceful core shutdown + judgeRecovery singular recovery owner), relaunch-waiter (external, PID guard, handshake, cancel), concurrent update prevention, progress emission, update metrics (JSONL), install stamp (updateMechanism).
+
+**runApply sequence:** marker -> preflight -> parentWait -> portFree(health) -> teardown -> swap -> relaunch -> health -> metrics. recoverInterrupted uses judgeRecovery (idempotent).
+
+**Key lessons:**
+1. apply.ts MUST stay self-contained (node: imports only) — it is copied to .update/run/apply.mjs and run standalone. Sibling behaviors injected via ApplyDeps, types + pure judge inlined. C21 test enforces this.
+2. judgeRecovery must be idempotent: rolled-back = always clean (never re-run repair). The subagent's gap-fill broke this; proven by updater-apply C16.
+3. relaunch-waiter spawns processes (its function) -> registered in bsv-scan ALLOWLIST + C21 expectCp with reason. Not weakening; the scan's designed path.
+4. Subagent fan-out: 4 lanes (state-preflight, update-marker, teardown, relaunch-waiter) on xiaomi/mimo-v2.6-flash, orchestrator verifies. Config had been wrongly -pro; fixed.
+
+**Gate:** 3912 tests, 3863 pass, 0 fail, 49 skipped. Preflight 14 ok. App's verifier on live CDN bytes: OK (key k1). requiresFullInstall: false.
+
+**Released:** v0.2.5-r live on GitHub (8 assets, signed). User tests in-app updater 0.2.5-o -> 0.2.5-r.
+
+## NEXT RELEASE (0.2.6-s): AGENT SHELL — develop Legion with Legion
+User directive: Legion agents need a SHELL (run commands, edit files, drive the machine like Claude Code / Hermes Agent). One of the last things blocking dogfooding (develop Legion with Legion), esp. for non-Claude providers. Study Claude Code + Hermes Agent tool-calling (hermes-agent skill, contributor-guide) and reuse for Legion's provider abstraction. Requirements: exec shell (cwd/timeout/output), file ops scoped to workspace, provider-agnostic tool loop, approval gates (no exec.ask:off, scope containment).
+
+## 2026-10-11 — v0.2.5-r in-app update VERIFIED WORKING
+User tested the in-app updater in Legion: updated 0.2.5-o -> 0.2.5-r without issues. Updater saga CLOSED (self-applying code update works end-to-end). build-info updateMechanism:'self' + preflight + teardown + relaunch-waiter all live and functional.
+
+## 2026-10-12 — Model-routing diagnosis VERIFIED (Workstream A)
+CONFIRMED leaks (orchestrator re-grepped): L1 engine.ts:344 continued tasks reuse prev.requestedModel snapshot (not agent.model) - marshal delegation ignores Settings change. L2 engine.ts:325 `overriding = !!p.modelOverrideBy && !!p.model` + ui/store.ts:422 localStorage `legion.model.<id>` beats agent.model. L5 engine.ts:1257 provider-shaped model with unresolvable provider silently runs on Claude. Hypothesis comms/tools.ts:51,68 (raw a.model) is NOT reachable (resolveModel always passed) - downgraded. Fix lane (A2) dispatched with findings inlined, commit-sized units. Full dossier: scratch/model-routing-diagnosis.md.
+
+## 2026-10-12 — NEXT RELEASE (0.2.6-s) STATE: audit done, completing every planned part (session da0bb71f)
+Branch `feat/task-list-and-host-hardening` in D:/bots/legion (worktree of legion-dev), on top of local main 85e7339 (30 unpushed commits since v0.2.5-r: model routing A, agent shell B, gates, board scoring C1, Marshal C2-C4). NOT pushed; Daniel pushes/merges.
+Owner directive: "begin working on the next release and having all parts 1000% in it" + "ensure you have the full picture" of the orchestration work.
+DONE on the branch (each test-first):
+- Release-brief audit of the agent shell + gates (findings + fixes in bb4604f): Windows/POSIX catastrophic guard, path/command deny forms, host-shell env drops Legion credentials, live full->ask demotion, hook timeouts. Marshal audited: holds.
+- Task list across Claude + providers, compaction-proof, hand-over (f25f47c..e28e3eb). Live Sonnet 5.5 run verified (0.28 USD).
+- 64f6c49 secret redaction on host tool output (exact Legion-held values only; never credential shapes, which would corrupt files on read-then-write).
+- e0094b5 symlink/junction escape from the scope root refused (real-path check).
+- 327554c gates: allow splits as the shell does; FOUND+FIXED hole: allow `echo *` approved `echo $(rm -rf ~)` — no allow holds on substitution.
+- a015f78 C4: agents roster no longer cuts descriptions at 80 chars (safety tails reach the lead).
+- cd2d46d C4: lead routing table names the Quartermaster (migration lead-roster-full-v1); BSV mode names the Assayer to the lead per run.
+Gate last full run: e28e3eb 4149/4100/0 (park .superpowers/ first: export-scrub scans scratch files). Targeted suites green after each later commit.
+REMAINING (source of truth with statuses: Aetherkeep 06-projects/legion/release-0.2.6-s-scope.md): lead's two-send-back rule in code for bridge tell/ask; Marshal busy counts hand-started runs; capStored 200k spill not drop; weak providers (OpenRouter supported_parameters + prompted-tools fallback); approval-card one-click "Remember" rule; per-agent .env setting (allow/masked/block, Daniel 2026-10-12); deferred minors; one batched live run (full-mode deny honoured by the CLI, etc. — ask Daniel); full gate; fresh Opus review; release notes naming the sandbox limit; version bump; draft release.
+OUT of this release per plan: OpenShell sandbox backend (W6+, optional); auxiliary models.
+
+## 2026-10-12 — 0.2.6-s READY (branch feat/task-list-and-host-hardening, not pushed)
+Every planned part is in (scope + rulings: Aetherkeep 06-projects/legion/release-0.2.6-s-scope.md). Version 0.2.6-s, CHANGELOG + docs/release-notes/0.2.6-s.txt written (0.2.5-r changelog entry backfilled).
+Added since the state entry above: lead send-back rule in code (bridge), Marshal busy counts hand-started runs, whole replies kept past 200k (pointer), prompted tools for models without tool calling (+ OpenRouter detection + per-provider override), approval-card Remember, per-agent .env setting (masked default), guard + gates refinements, cost display fix (per-session delta), BSV lead line, persona re-pin.
+Opus review 2: 1 Critical + 6 Important fixed test-first (allow splitter on bash/cmd, guard prefixes, Remember on runners, masked .env bypasses, prompted fences, sticky refusal). Deferred minors are listed in the scope note.
+LIVE (Daniel approved): deny in Full honoured by the real CLI; resumed cost shows 0.2527 (old code 0.4936; the resumed run cost 0.012); prompted tools: deepseek-v4.1-flash (forced) and ibm-granite micro (detected tool-less) both created a task through Legion's tool.
+Final gate: 4193 tests, 4144 pass, 0 fail (park .superpowers/ first).
+NEXT (Daniel): push + merge (30 commits on local main + this branch), then CI release-build from docs/release-notes/0.2.6-s.txt, draft-first.
+Out of this release by plan: OpenShell sandbox backend; auxiliary models; A2A adapter (research: Aetherkeep research-bridge-cost-and-a2a-2026-10-12.md).
+
+## 2026-10-12 — 0.2.6-s SMOKE TEST in the real UI (this branch's core + built UI, isolated data folder, Playwright)
+Passed: agent editor shows the Task list switch and the .env select (masked default); shell on for Builder (OpenRouter deepseek-v4.1-flash) carded each call; a real .env read showed names with values hidden, the secret appeared nowhere (tool results, transcript, reply); Remember → Always allow saved a 'card' gate rule, Settings → Gates listed it, the next `git --version` ran with no card; Providers → Tool calls saved prompted/native/auto; project board Marshal tab rendered and its switch saved ON.
+Found and fixed (test-first): 937a929 Remember on a chained command built a rule that never matched (now per part); 1fb3aaf the CORS preflight left out PUT, so the app window could not save provider edits, project members, the CI repo, the board leader or the Marshal switch (a shipped bug, not only new code).
+Gate on 78bcd8b: 4199 tests, 4150 pass, 0 fail.
