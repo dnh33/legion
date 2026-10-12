@@ -52,6 +52,7 @@ test('masked (the default): names are visible, values are not — in read_file a
   assert.ok(!r.text.includes(VALUE) && !r.text.includes(TOKEN), r.text);
   const sh = await call(srv, 'shell', { command: process.platform === 'win32' ? 'type .env' : 'cat .env' });
   assert.ok(!sh.text.includes(VALUE) && !sh.text.includes(TOKEN), 'cat/type cannot bring a value back');
+  assert.equal(sh.isError, true, 'a command naming a .env file is refused in masked mode: read_file is the masked view');
   const echo = await call(srv, 'shell', { command: `echo ${VALUE}` });
   assert.ok(!echo.text.includes(VALUE), 'nor can a value printed any other way');
 });
@@ -84,4 +85,28 @@ test('allow: the file reads as written', async () => {
   const root = project();
   const r = await call(hostServer(root, 'allow'), 'read_file', { path: '.env' });
   assert.ok(r.text.includes(VALUE) && r.text.includes(TOKEN));
+});
+
+test('REVIEW: masked cannot be walked around — a rename or copy of .env is refused, multi-line and commented values stay hidden', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'legion-env-'));
+  const pem = ['-----BEGIN KEY-----', ['abc', 'def', 'ghi', 'jkl'].join(''), ['mno', 'pqr', 'stu', 'vwx'].join(''), '-----END KEY-----'];
+  const COMMENTED = ['commented', 'value', '42'].join('');
+  writeFileSync(join(root, '.env'), `PRIVATE="${pem.join('\n')}"\nNOTED=${COMMENTED} # rotate monthly\n`);
+  const srv = hostServer(root, 'masked');
+  for (const command of ['mv .env notes.txt', 'cp .env x.txt', 'copy .env x.txt', 'cat .env*']) {
+    const r = await call(srv, 'shell', { command });
+    assert.equal(r.isError, true, command);
+  }
+  assert.equal(existsSync(join(root, 'notes.txt')), false, 'nothing was renamed');
+  const r = await call(srv, 'read_file', { path: '.env' });
+  assert.match(r.text, /PRIVATE=/);
+  assert.match(r.text, /NOTED=/);
+  for (const secret of [pem[1]!, pem[2]!, COMMENTED]) assert.ok(!r.text.includes(secret), `masked view hides ${secret}`);
+  const echo = await call(srv, 'shell', { command: `echo ${COMMENTED} ${pem[1]}` });
+  for (const secret of [pem[1]!, COMMENTED]) assert.ok(!echo.text.includes(secret), `output hides ${secret}`);
+});
+
+test('REVIEW: block refuses a wildcard that reaches .env (cat .env*)', async () => {
+  const root = project();
+  assert.equal((await call(hostServer(root, 'block'), 'shell', { command: 'cat .env*' })).isError, true);
 });

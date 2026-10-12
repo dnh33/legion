@@ -41,21 +41,81 @@ export function isEnvFile(p: string): boolean {
   return /^\.env(?:\.[^/]+)?$/i.test(base) && !/\.(?:example|sample|template|dist)$/i.test(base);
 }
 
-/** Whether a command line names a secrets file (for 'block': the command is refused rather than guessed at). */
+/**
+ * Whether a command line names a secrets file — or a wildcard that can reach one (`.env*`, `.env.?`). For 'masked' and
+ * 'block' such a command is refused rather than guessed at: a rename or a copy would otherwise take the values out.
+ */
 export function mentionsEnvFile(cmd: string): boolean {
-  for (const m of cmd.matchAll(/(?:^|[\s'"=/\\(<>|;&])(\.env(?:\.[\w.-]+)?)(?=$|[\s'"/\\)<>|;&])/gi)) if (isEnvFile(m[1]!)) return true;
+  for (const m of cmd.matchAll(/(?:^|[\s'"=/\\(<>|;&])(\.env[\w.*?[\]-]*)(?=$|[\s'"/\\)<>|;&])/gi)) {
+    const t = m[1]!;
+    if (/[*?[\]]/.test(t) || isEnvFile(t)) return true;
+  }
   return false;
 }
 
 const ENV_LINE = /^(\s*(?:export\s+)?[A-Za-z_][A-Za-z0-9_.-]*\s*=\s*)(.*)$/;
 
-/** A .env text with every value replaced: names, comments and blank lines stay, so the agent still sees what is configured. */
-export function maskEnvText(text: string): string {
-  return text.split('\n').map((line) => { const m = ENV_LINE.exec(line); return m && m[2]!.trim() ? `${m[1]}[masked]` : line; }).join('\n');
+/**
+ * The entries of a .env text: each assignment's prefix (`KEY=`), its value, and how many lines it spans. A quoted value may
+ * run over several lines (a PEM key) and keeps its inner text; an unquoted value ends at an inline ` # comment`.
+ */
+function envEntries(text: string): Array<{ line: number; prefix: string; value: string; lines: number }> {
+  const lines = text.split('\n');
+  const out: Array<{ line: number; prefix: string; value: string; lines: number }> = [];
+  for (let i = 0; i < lines.length; i++) {
+    const m = ENV_LINE.exec(lines[i]!);
+    if (!m) continue;
+    const raw = m[2]!.trim();
+    const q = raw[0] === '"' || raw[0] === "'" ? raw[0] : undefined;
+    if (q) {
+      const close = raw.indexOf(q, 1);
+      if (close > 0) { out.push({ line: i, prefix: m[1]!, value: raw.slice(1, close), lines: 1 }); continue; }
+      // the value goes on until a line holding the closing quote
+      const parts = [raw.slice(1)];
+      let j = i + 1;
+      for (; j < lines.length; j++) {
+        const at = lines[j]!.indexOf(q);
+        if (at >= 0) { parts.push(lines[j]!.slice(0, at)); break; }
+        parts.push(lines[j]!);
+      }
+      out.push({ line: i, prefix: m[1]!, value: parts.join('\n'), lines: Math.min(j, lines.length - 1) - i + 1 });
+      i = j;
+      continue;
+    }
+    out.push({ line: i, prefix: m[1]!, value: raw.replace(/\s+#.*$/, ''), lines: 1 });
+  }
+  return out;
 }
 
-/** Every value in the secrets files under `root` (two levels deep, without node_modules and .git), for exact redaction. */
+/** A .env text with every value replaced: names, comments and blank lines stay, so the agent still sees what is configured. */
+export function maskEnvText(text: string): string {
+  const lines = text.split('\n');
+  const out: string[] = [];
+  const at = new Map(envEntries(text).map((e) => [e.line, e]));
+  for (let i = 0; i < lines.length; i++) {
+    const e = at.get(i);
+    if (!e) { out.push(lines[i]!); continue; }
+    out.push(e.value.trim() ? `${e.prefix}[masked]` : lines[i]!);
+    i += e.lines - 1; // the lines of a multi-line value are not shown at all
+  }
+  return out.join('\n');
+}
+
+const envCache = new Map<string, { at: number; values: string[] }>();
+
+/**
+ * Every value in the secrets files under `root` (two levels deep, without node_modules and .git), for exact redaction.
+ * Read again at most every 2 s per root: one tool call redacts several texts, and a broad root must not stall the core.
+ */
 function envValues(root: string): string[] {
+  const hit = envCache.get(root);
+  if (hit && Date.now() - hit.at < 2000) return hit.values;
+  const values = scanEnvValues(root);
+  envCache.set(root, { at: Date.now(), values });
+  return values;
+}
+
+function scanEnvValues(root: string): string[] {
   const out: string[] = [];
   const walk = (dir: string, depth: number) => {
     let names: string[];
@@ -64,9 +124,9 @@ function envValues(root: string): string[] {
       const p = join(dir, n);
       if (isEnvFile(n)) {
         try {
-          for (const line of readFileSync(p, 'utf8').split('\n')) {
-            const v = ENV_LINE.exec(line)?.[2]?.trim().replace(/^(['"])(.*)\1$/, '$2');
-            if (v) out.push(v);
+          for (const e of envEntries(readFileSync(p, 'utf8'))) {
+            // the whole value, and each of its lines (a program may print a multi-line value one line at a time)
+            if (e.value) out.push(e.value, ...e.value.split('\n').map((l) => l.trim()));
           }
         } catch { /* unreadable: nothing to hide */ }
       } else if (depth < 2 && n !== 'node_modules' && n !== '.git') {
@@ -385,7 +445,8 @@ export function buildHostToolsServer(ctx: HostToolsCtx): McpSdkServerConfigWithI
       timeoutSeconds: z.number().positive().max(3600).optional().describe(`Kill the command after this many seconds (default ${limits.timeoutSeconds})`),
     },
     (a) => run(async () => {
-      if (envMode === 'block' && mentionsEnvFile(a.command)) throw envRefusal('name');
+      // masked too: a command can rename, copy or print the file; read_file is the masked way to see it
+      if (envMode !== 'allow' && mentionsEnvFile(a.command)) throw envMode === 'masked' ? new Error('This agent\'s setting for .env files is "masked": a command may not name one (it could copy, move or print it). Use read_file for a view with the values hidden, or change the setting in the agent\'s Shell settings.') : envRefusal('name');
       const bad = refuseCatastrophic(a.command);
       if (bad) throw new Error(bad);
       const cwd = a.cwd === undefined ? ctx.rootDir : resolveWithin(ctx.rootDir, a.cwd);
