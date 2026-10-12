@@ -220,6 +220,25 @@ export class TaskListStore {
   }
 }
 
+/** Id prefix of a done task a hand-over carried from another runtime: Claude never had it, so Claude's own list does not replace it. */
+export const CARRIED_PREFIX = 'done-';
+
+/**
+ * The list as a Claude run takes it over: done tasks move to their own ids (`done-<id>`), so they stay on the checklist
+ * when Claude's TaskList replaces the mirror. Open tasks keep their ids; Claude re-creates them under its own numbers,
+ * so a link to a carried task is dropped.
+ */
+export function carryDone(list: TaskList): TaskList {
+  const tasks = list.list();
+  const carried = new Set(tasks.filter((t) => t.status === 'completed' && !t.id.startsWith(CARRIED_PREFIX)).map((t) => t.id));
+  return TaskList.fromJSON({
+    handoverPending: list.handoverPending,
+    tasks: tasks.map((t) => carried.has(t.id)
+      ? { ...t, id: CARRIED_PREFIX + t.id, blocks: [], blockedBy: [] }
+      : { ...t, blocks: t.blocks.filter((x) => !carried.has(x)), blockedBy: t.blockedBy.filter((x) => !carried.has(x)) }),
+  });
+}
+
 /** Claude Code's own task tools. Their calls are mirrored into a TaskList on a Claude run, only for the live checklist. */
 export const CLAUDE_TASK_TOOLS: ReadonlySet<string> = new Set(['TaskCreate', 'TaskUpdate', 'TaskList']);
 
@@ -254,7 +273,10 @@ export function mirrorClaudeTaskCall(list: TaskList, call: { name: string; input
         const had = id ? list.get(id) : null;
         return { ...r, id, description: had?.description ?? '', ...(had?.activeForm ? { activeForm: had.activeForm } : {}) };
       });
-      return TaskList.fromJSON({ tasks });
+      // done tasks a hand-over carried stay, unless Claude has one of the same subject
+      const subjects = new Set(tasks.map((t) => String((t as { subject?: unknown }).subject ?? '').trim().toLowerCase()));
+      const carried = list.list().filter((t) => t.id.startsWith(CARRIED_PREFIX) && t.status === 'completed' && !subjects.has(t.subject.trim().toLowerCase()));
+      return TaskList.fromJSON({ tasks: [...tasks, ...carried.map((t) => ({ ...t, blocks: [], blockedBy: [] }))] });
     }
   } catch { /* a mirror that cannot follow a call keeps what it had */ }
   return null;

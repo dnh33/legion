@@ -17,7 +17,7 @@ import { contextTokensOf } from '../shared/context-meter.js';
 import { isLegionTool, needsApproval, stricterMode, LEGION_SERVER_NAMES } from './approvals.js';
 import { decideGate } from './gates.js';
 import { TaintedPaths } from './tainted-paths.js';
-import { CLAUDE_TASK_TOOLS, mirrorClaudeTaskCall, renderForModel, renderHandover, TaskList, TaskListStore } from './task-list.js';
+import { carryDone, CLAUDE_TASK_TOOLS, mirrorClaudeTaskCall, renderForModel, renderHandover, TaskList, TaskListStore } from './task-list.js';
 import { nativeTaskListOn } from '../shared/task-list-setting.js';
 
 /** Claude Code's own task tools, opted in or out per agent (nativeTaskListOn). */
@@ -1282,10 +1282,11 @@ This run read connector (GitHub) data and other outside text. Web access can sen
             // Claude's first step (TaskList) replaces the mirror with its own, still-behind list: the handed-over list is
             // kept aside and put back unless the run finishes (settleHandover)
             act.handoverFrom ??= TaskList.fromJSON(JSON.parse(JSON.stringify(list)));
-            // cleared on the run's mirror too, or its next mirrored Task call would write the flag back
-            list.handoverPending = false;
-            if (act.taskList) act.taskList.handoverPending = false;
-            try { this.taskLists.save(job.taskId, list); } catch { /* handed over again next run */ }
+            // the run's mirror becomes the taken-over list (flag cleared, or its next mirrored Task call would write it back),
+            // with done tasks carried under their own ids so Claude's TaskList does not drop them
+            const taken = carryDone(list);
+            taken.handoverPending = false;
+            this.keepTaskList(job.taskId, act, taken);
           }
         }
         return text ? { hookSpecificOutput: { hookEventName: 'SessionStart' as const, additionalContext: text } } : { continue: true };

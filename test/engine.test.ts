@@ -1369,3 +1369,32 @@ test('a hand-over run that stops before it finishes leaves the provider\'s list 
   assert.deepEqual(after.list().map((x) => x.subject), ['from the provider'], 'the provider\'s tasks are not lost to an unfinished hand-over');
   assert.equal(after.handoverPending, true, 'handed over again next time');
 });
+
+test('a finished hand-over keeps the provider\'s done tasks on the checklist', async () => {
+  const { TaskList, TaskListStore } = await import('../src/core/task-list.js');
+  let n = 0;
+  const s = setup((params) => (async function* () {
+    n++;
+    yield init('sess-keep');
+    if (n === 2) {
+      await fireSessionStart(params, 'resume');
+      yield taskCall('l1', 'TaskList', {});
+      yield taskResult('l1', { tasks: [] });
+      yield taskCall('c1', 'TaskCreate', { subject: 'still open', description: '' });
+      yield taskResult('c1', { task: { id: '1', subject: 'still open' } });
+    }
+    yield ok('done');
+  })(), { agent: { model: 'opus', taskList: 'on' } });
+  const t = s.engine.startTask({ agentId: 'a1', prompt: 'one', source: 'ui' });
+  await s.engine.waitFor(t.id, 3000);
+  const store = new TaskListStore(join(s.config.workspaceDir, '.task-lists'));
+  const l = new TaskList();
+  l.create({ subject: 'already done', description: '' }); l.create({ subject: 'still open', description: '' });
+  l.update({ taskId: '1', status: 'completed' }); l.handoverPending = true; store.save(t.id, l);
+  s.engine.startTask({ agentId: 'a1', prompt: 'two', source: 'ui', continueTaskId: t.id });
+  await s.engine.waitFor(t.id, 3000);
+  for (let i = 0; i < 100 && s.engine.running().includes(t.id); i++) await new Promise((r) => setTimeout(r, 10));
+  const after = store.load(t.id);
+  assert.deepEqual(after.list().map((x) => [x.subject, x.status]), [['still open', 'pending'], ['already done', 'completed']]);
+  assert.equal(after.handoverPending, false);
+});

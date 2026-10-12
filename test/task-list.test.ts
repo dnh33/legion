@@ -217,3 +217,29 @@ test('native task list: on for the lead by default, off for others, an explicit 
   assert.equal(nativeTaskListOn({ id: 'scout', taskList: 'on' }), true);
   assert.equal(nativeTaskListOn({ id: 'zealot', taskList: 'off' }), false);
 });
+
+test('a hand-over carries done tasks under their own ids; open ones keep theirs for Claude to re-create', async () => {
+  const { carryDone } = await import('../src/core/task-list.js');
+  const l = new TaskList();
+  l.create({ subject: 'done one', description: '' });
+  l.create({ subject: 'open one', description: '' });
+  l.update({ taskId: '1', status: 'completed' });
+  l.update({ taskId: '2', addBlockedBy: ['1'] });
+  const c = carryDone(l);
+  assert.deepEqual(c.list().map((t) => [t.id, t.subject, t.status]), [['2', 'open one', 'pending'], ['done-1', 'done one', 'completed']]);
+  assert.deepEqual(c.get('2')!.blockedBy, [], 'a link to a carried task goes: Claude renumbers its own');
+  assert.equal(c.handoverPending, l.handoverPending);
+});
+
+test('mirror: a TaskList result keeps carried done tasks, unless Claude has a task with the same subject', () => {
+  const l = TaskList.fromJSON({ tasks: [
+    { id: 'done-1', subject: 'done one', status: 'completed', blocks: [], blockedBy: [] },
+    { id: 'done-2', subject: 'Claude has me', status: 'completed', blocks: [], blockedBy: [] },
+    { id: '2', subject: 'stale open', status: 'pending', blocks: [], blockedBy: [] },
+  ] });
+  const next = mirrorClaudeTaskCall(l, { name: 'TaskList', input: {} }, { structured: { tasks: [
+    { id: '1', subject: 'open one', status: 'pending', blockedBy: [] },
+    { id: '2', subject: 'claude has me', status: 'completed', blockedBy: [] },
+  ] }, text: '', isError: false })!;
+  assert.deepEqual(next.list().map((t) => [t.id, t.subject]), [['1', 'open one'], ['2', 'claude has me'], ['done-1', 'done one']]);
+});
