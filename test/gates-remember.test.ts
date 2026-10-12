@@ -68,3 +68,16 @@ test('REVIEW: a shell, an interpreter or a wrapper is remembered by its exact co
   assert.equal(canRememberAllow(req('Bash', { command: 'python *.py' })), false, 'an exact command with a wildcard in it cannot be pinned: no allow offered');
   assert.equal(canRememberAllow(req('Bash', { command: 'git status' })), true);
 });
+
+test('SMOKE FIX: a chained command is remembered per part, so the rule really matches the command it was made from', async () => {
+  const { canRememberAllow } = await import('../ui/src/gates/gatesLogic.js');
+  const call = (command: string) => ({ toolName: 'mcp__host__shell', input: { command }, agentId: 'builder' });
+  const r = rememberRule(req('mcp__host__shell', { command: 'pwd; ls -la' }), 'allow', nameOf);
+  assert.deepEqual(r.when.commands, ['pwd', 'pwd *', 'ls', 'ls *']);
+  assert.equal(decideGate(call('pwd; ls -la'), [r], 'ask', false).verdict, 'allow', 'the command on the card is now allowed');
+  assert.equal(decideGate(call('pwd; rm x'), [r], 'ask', false).verdict, 'baseline', 'a different chain still asks');
+  const b = rememberRule(req('mcp__host__shell', { command: 'pwd; ls -la' }), 'deny', nameOf);
+  assert.equal(decideGate(call('pwd; ls -la'), [b], 'full', false).verdict, 'deny', 'a block matches it too');
+  // a line no allow can hold on (command substitution) offers no allow at all
+  assert.equal(canRememberAllow(req('Bash', { command: 'echo $(date)' })), false);
+});
