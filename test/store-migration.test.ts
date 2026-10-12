@@ -9,7 +9,10 @@ import { Store } from '../src/core/store.js';
 
 const ID = 'builder-vm-size-default-v1';
 /** Every migration a state file records once it has been loaded (0.2.5-c added the Zealot prompt one after this one). */
-const ALL = [ID, 'zealot-lead-prompt-v1', 'souls-codex-v1', 'roster-comms-lines-v1', 'lead-name-marshal-v1'];
+const ALL = [ID, 'zealot-lead-prompt-v1', 'souls-codex-v1', 'roster-comms-lines-v1', 'lead-name-marshal-v1', 'lead-roster-full-v1'];
+/** The lead's "Who does what" line before the Quartermaster was added to it (2026-10-12). */
+const WHO_NOW = 'Blender to the Sculptor; supply and version checks to the Quartermaster.';
+const WHO_BEFORE = 'Blender to the Sculptor.';
 /** A state.json as an older build wrote it: no `migrations` field, Builder (and Scout, for contrast) on 'large'. */
 function oldState(dir: string): void {
   const st = new Store(cleanupTemp('legion-mig-seed-'));
@@ -84,7 +87,7 @@ test('U1: an agent entry with no vm object does not crash the migration', async 
 function preRenameState(dir: string, patch: { name?: string; systemPrompt?: string }): string {
   const seed = new Store(cleanupTemp('legion-mig-seed-'));
   seed.seedDefaults(join(dir, 'w'));
-  const OLD_SOUL = seed.getAgent('zealot')!.systemPrompt.replace('You are the Marshal, the lead', 'You are Zealot, the lead');
+  const OLD_SOUL = seed.getAgent('zealot')!.systemPrompt.replace('You are the Marshal, the lead', 'You are Zealot, the lead').replace(WHO_NOW, WHO_BEFORE);
   const agents = seed.listAgents().map((a) => (a.id === 'zealot' ? { ...a, name: 'Zealot', systemPrompt: OLD_SOUL, ...patch } : a));
   const done = ALL.filter((m) => m !== 'lead-name-marshal-v1');
   writeFileSync(join(dir, 'state.json'), JSON.stringify({ agents, tasks: [], vms: [], migrations: done }));
@@ -106,4 +109,32 @@ test('lead-name-marshal-v1: a name or prompt the person wrote is never touched',
   const z = new Store(dir).getAgent('zealot')!;
   assert.equal(z.name, 'Captain');
   assert.equal(z.systemPrompt, 'You are Zealot. My own words.');
+});
+
+/** The lead's soul as shipped before 2026-10-12: the "Who does what" line without the Quartermaster. */
+function preFullRosterState(dir: string, patch: { systemPrompt?: string }): string {
+  const seed = new Store(cleanupTemp('legion-mig-seed-'));
+  seed.seedDefaults(join(dir, 'w'));
+  const OLD_SOUL = seed.getAgent('zealot')!.systemPrompt.replace(WHO_NOW, WHO_BEFORE);
+  assert.notEqual(OLD_SOUL, seed.getAgent('zealot')!.systemPrompt, 'the shipped soul has the new line');
+  const agents = seed.listAgents().map((a) => (a.id === 'zealot' ? { ...a, systemPrompt: OLD_SOUL, ...patch } : a));
+  writeFileSync(join(dir, 'state.json'), JSON.stringify({ agents, tasks: [], vms: [], migrations: ALL.filter((m) => m !== 'lead-roster-full-v1') }));
+  return OLD_SOUL;
+}
+
+test('lead-roster-full-v1: the lead\'s exact shipped soul gains the Quartermaster in "Who does what"', async () => {
+  const dir = cleanupTemp('legion-mig-');
+  preFullRosterState(dir, {});
+  const st = new Store(dir);
+  const z = st.getAgent('zealot')!;
+  await st.flush();
+  assert.doesNotMatch(z.systemPrompt, /Assayer/, 'the Assayer exists only in BSV mode: the BSV module names it to the lead per run');
+  assert.match(z.systemPrompt, /version checks to the Quartermaster/);
+  assert.deepEqual(onDisk(dir).migrations, ALL);
+});
+
+test('lead-roster-full-v1: a lead prompt the person wrote is never touched', () => {
+  const dir = cleanupTemp('legion-mig-');
+  preFullRosterState(dir, { systemPrompt: 'My own lead prompt. Blender to the Sculptor.' });
+  assert.equal(new Store(dir).getAgent('zealot')!.systemPrompt, 'My own lead prompt. Blender to the Sculptor.');
 });

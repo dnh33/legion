@@ -19,6 +19,7 @@ import { HttpError } from '../server.js';
 import type { Handler } from '../server.js';
 import type { CoreModule, ModuleDeps } from '../modules.js';
 import type { AgentProfile } from '../../shared/types.js';
+import { LEAD_AGENT_ID } from '../../shared/lead-id.js';
 import { AuditLog, auditPath } from './audit.js';
 import type { OpenResult } from './audit.js';
 import { ARM_CHOICES_MINUTES, buildPolicyConfig, DAY_MS, ledgerFromAudit, PolicyEngine, PolicyError, validateCaps } from './policy.js';
@@ -47,6 +48,9 @@ export const BSV_PREAMBLE = [
   'Use the knowledge graph for BSV lessons: call mcp__legion_kg__kg_recall with scope bsv before answering from recall.',
   'Never ask the user for keys, seed phrases or wallet secrets, and tell them not to paste any into chat.',
 ].join('\n');
+
+/** One line for the lead while BSV mode is on: the Assayer exists only then, so no soul names it and this line does, per run. */
+export const BSV_LEAD_LINE = 'BSV mode is on: Bitcoin SV work (transactions, scripts, wallets, ordinals) goes to the Assayer, which builds and explains them; a payment goes out only after the owner approves it.';
 
 /** GET /api/bsv/policy: the policy state plus what this core can and cannot do. */
 export interface BsvPolicyView extends PolicySnapshot {
@@ -323,7 +327,7 @@ export function createBsvModule(deps: ModuleDeps, opts: BsvModuleOptions = {}): 
     ensureSeed,
     start,
     // keyed on the gate, not on an id string: a bot a user happens to name "Assayer" is an ordinary bot
-    preamble: (agent: AgentProfile) => (agent.requires === 'bsv' && state.enabled ? BSV_PREAMBLE : ''),
+    preamble: (agent: AgentProfile) => (!state.enabled ? '' : agent.requires === 'bsv' ? BSV_PREAMBLE : agent.id === LEAD_AGENT_ID ? BSV_LEAD_LINE : ''),
     mcpServers: (agent: AgentProfile, job): Record<string, McpServerConfig> => (agent.requires === 'bsv' && state.enabled
       ? { [BSV_SERVER_NAME]: buildBsvStatusServer({ agent, job, state, policy, probe, audit, calls: statusCalls, checkPolicyFile, extraTools: [spend!.buildTool(agent, job)] }) }
       : {}),
