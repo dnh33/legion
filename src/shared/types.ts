@@ -284,7 +284,7 @@ export interface TaskProgress {
   startedAt: string; turn: number; maxTurns: number; tool: string | null;
   /** Tokens in the context after the latest response of the run (input + cache read + cache write); absent until known. Never stored. */
   contextTokens?: number;
-  /** The latest TodoWrite checklist of the run (top level only; clipped to 50 items of 200 characters). */
+  /** The run's checklist: Claude's TodoWrite list, Claude Code's task tools (mirrored), or a provider run's todo_* list (top level only; clipped to 50 items of 200 characters). */
   todos?: TodoItem[];
   /** True while the model is in a thinking block; the thinking itself is never sent. */
   thinking?: boolean;
@@ -293,7 +293,7 @@ export interface TaskProgress {
   /** When Legion stops waiting for them whatever they do (ISO time); present with `background` once the run is held. */
   backgroundStopsAt?: string;
 }
-/** One line of a Claude TodoWrite checklist. */
+/** One line of the run's checklist. */
 export interface TodoItem { content: string; status: 'pending' | 'in_progress' | 'completed'; activeForm?: string }
 
 /** Everything the core broadcasts. UI subscribes via SSE (/api/events). */

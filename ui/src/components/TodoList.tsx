@@ -3,7 +3,7 @@ import { todoSummary, todoText, visibleTodos, TODO_FOLD } from '../chat/todos';
 import { useStore } from '../store';
 
 /**
- * The run's checklist (Claude's TodoWrite), pinned in the thread just above the working row. It reads its own task's
+ * The run's checklist (Claude's TodoWrite or task tools, or a provider run's todo_* tools), pinned in the thread just above the working row. It reads its own task's
  * progress, so only it re-renders when the list changes. Long lists fold to the lines around the current work.
  */
 export function TodoList({ taskId }: { taskId: string }) {

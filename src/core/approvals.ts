@@ -5,7 +5,8 @@ import type { ApprovalMode, ApprovalRequest } from '../shared/types.js';
 import { newId, nowIso } from '../shared/util.js';
 import type { EventBus } from './bus.js';
 
-const READ_ONLY = new Set(['Read', 'Glob', 'Grep', 'LS', 'WebSearch', 'WebFetch', 'TodoWrite', 'Task', 'Agent']);
+/** The run's own task list (TodoWrite, and the TaskCreate/Update/List/Get tools that replaced it) is notes, not an action: never carded. */
+const READ_ONLY = new Set(['Read', 'Glob', 'Grep', 'LS', 'WebSearch', 'WebFetch', 'TodoWrite', 'TaskCreate', 'TaskUpdate', 'TaskList', 'TaskGet', 'Task', 'Agent']);
 /**
  * Exported so test/gates.test.ts can assert the gate layer's `reads` group is exactly this set (plus the agent
  * shell's read tool): the two describe the same idea in two modules and must never drift apart.

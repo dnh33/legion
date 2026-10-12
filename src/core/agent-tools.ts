@@ -11,6 +11,7 @@ import { CLAUDE_NOT_CONFIGURED } from './boat-health.js';
 import { DONE_WHEN_MAX, DONE_WHEN_MIN, GOAL_MAX } from './brief.js';
 import { validateQuestions, type QuestionBroker } from './questions.js';
 import type { PendingQuestion } from '../shared/types.js';
+import type { TaskList } from './task-list.js';
 
 const MAX_CHARS = 12_000;
 
@@ -61,6 +62,11 @@ export interface AgentToolsCtx {
   questions?: QuestionBroker;
   /** Who woke this run, when another bot did: shown on the question card as an approval card shows it. */
   origin?: PendingQuestion['origin'];
+  /**
+   * The run's own task list, kept per Legion task (task-list.ts). Given only to a provider run: a Claude run has Claude Code's
+   * TaskCreate/TaskUpdate/TaskList/TaskGet. Absent: no todo_* tools. Each call loads, changes and saves; a failed save is the tool's error.
+   */
+  taskList?: { load(): TaskList; save(list: TaskList): void };
 }
 
 /**
@@ -288,6 +294,77 @@ export function buildAgentToolsServer(ctx: AgentToolsCtx): McpSdkServerConfigWit
     name: 'legion',
     version: '0.1.0',
     alwaysLoad: true, // never deferred behind ToolSearch: agents call mcp__legion__* directly
-    tools: [...bridgeTools(ctx), askUserQuestion, ...(ctx.vmEnabled ? [vmStart, vmExec, vmWriteFile, vmReadFile, ...(ctx.claudeAvailable === false ? [] : [vmClaude]), vmDesktop, vmStop, vmUsage] : [])],
+    tools: [...bridgeTools(ctx), askUserQuestion, ...(ctx.taskList ? todoTools(ctx.taskList) : []), ...(ctx.vmEnabled ? [vmStart, vmExec, vmWriteFile, vmReadFile, ...(ctx.claudeAvailable === false ? [] : [vmClaude]), vmDesktop, vmStop, vmUsage] : [])],
   });
+}
+
+/**
+ * The run's own task list for a model without Claude Code's tools (a provider run): the same four tools, the same inputs and
+ * the same answers as Claude Code's TaskCreate/TaskUpdate/TaskList/TaskGet, so an agent plans the same way on either runtime.
+ * Named todo_* so they never read as the bridge's task_result (another agent's task). Never carded, never tainting: they are
+ * Legion's own tools (approvals.ts isLegionTool) and touch nothing outside the list.
+ */
+function todoTools(store: NonNullable<AgentToolsCtx['taskList']>) {
+  const json = (v: unknown): ToolResult => ok(JSON.stringify(v));
+  /** Load, change, save: no list is held between calls, so a failed save never leaves a copy that differs from the file. */
+  const change = (fn: (l: TaskList) => unknown): ToolResult => {
+    try {
+      const l = store.load();
+      const out = fn(l);
+      store.save(l);
+      return json(out);
+    } catch (e) { return fail(e); }
+  };
+  const status = z.enum(['pending', 'in_progress', 'completed']);
+  const create = tool(
+    'todo_create',
+    'Add a task to your own task list for this conversation (like Claude Code\'s TaskCreate). Use it to plan multi-step work and show progress: the owner sees the list live. It is kept when the conversation continues. Returns the new task id.',
+    {
+      subject: z.string().min(1).describe('A brief title for the task'),
+      description: z.string().optional().describe('What needs to be done'),
+      activeForm: z.string().optional().describe('Present continuous form shown while it is in progress (e.g. "Running tests")'),
+    },
+    async (a) => change((l) => { const t = l.create({ subject: a.subject, description: a.description ?? '', ...(a.activeForm ? { activeForm: a.activeForm } : {}) }); return { task: { id: t.id, subject: t.subject } }; }),
+  );
+  const update = tool(
+    'todo_update',
+    'Change a task on your own task list (like Claude Code\'s TaskUpdate): its status (pending, in_progress, completed, or deleted to remove it), text, or what it blocks or waits for. Mark a task in_progress when you start it and completed when it is done.',
+    {
+      taskId: z.string().min(1).describe('The id of the task to update'),
+      subject: z.string().optional().describe('New subject for the task'),
+      description: z.string().optional().describe('New description for the task'),
+      activeForm: z.string().optional().describe('Present continuous form shown while it is in progress'),
+      status: z.union([status, z.literal('deleted')]).optional().describe('New status; deleted removes the task'),
+      addBlocks: z.array(z.string()).optional().describe('Task ids that wait for this task'),
+      addBlockedBy: z.array(z.string()).optional().describe('Task ids this task waits for'),
+    },
+    async (a) => {
+      try {
+        const l = store.load();
+        const r = l.update(a);
+        // a refused update changed nothing, so there is nothing to save; it is still an error the model must see
+        if (!r.success) return { content: [{ type: 'text' as const, text: JSON.stringify(r) }], isError: true };
+        store.save(l);
+        return json(r);
+      } catch (e) { return fail(e); }
+    },
+  );
+  const list = tool(
+    'todo_list',
+    'Show your own task list for this conversation (like Claude Code\'s TaskList): every task with its id, subject, status and what it waits for.',
+    {},
+    async () => { try { return json({ tasks: store.load().list().map((t) => ({ id: t.id, subject: t.subject, status: t.status, blockedBy: t.blockedBy })) }); } catch (e) { return fail(e); } },
+  );
+  const get = tool(
+    'todo_get',
+    'Show one task of your own task list in full (like Claude Code\'s TaskGet), including its description.',
+    { taskId: z.string().min(1).describe('The id of the task') },
+    async (a) => {
+      try {
+        const t = store.load().get(a.taskId);
+        return json({ task: t ? { id: t.id, subject: t.subject, description: t.description, status: t.status, blocks: t.blocks, blockedBy: t.blockedBy } : null });
+      } catch (e) { return fail(e); }
+    },
+  );
+  return [create, update, list, get];
 }

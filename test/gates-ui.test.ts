@@ -13,7 +13,7 @@ import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 import { build } from 'esbuild';
 import {
-  GATE_PRESETS, GATE_RAILS, MODE_TEXT, VERDICT_TEXT, consequenceLine, gateSentence, gateTestResult, newGateId, presetRule, ruleHostless, toggleIn,
+  GATE_PRESETS, GATE_RAILS, MODE_TEXT, TOOL_CHIPS, VERDICT_TEXT, consequenceLine, gateSentence, gateTestResult, newGateId, presetRule, ruleHostless, toggleIn,
 } from '../ui/src/gates/gatesLogic.js';
 
 const REPO = fileURLToPath(new URL('../../', import.meta.url));
@@ -211,4 +211,10 @@ test('render: the agent editor has the Shell fieldset — on with the saved root
     assert.doesNotMatch(off, /checked=""/, 'scout starts unchecked');
     assert.match(off, /placeholder="120"/);
   } finally { cleanup(); }
+});
+
+test('every tool group the core knows has a chip in Settings -> Gates (a group the owner cannot pick is a group nobody can use)', async () => {
+  const { GATE_TOOL_GROUPS } = await import('../src/core/gates.js');
+  assert.deepEqual(TOOL_CHIPS.map((c) => c.id).sort(), Object.keys(GATE_TOOL_GROUPS).sort());
+  assert.equal(TOOL_CHIPS.find((c) => c.id === 'tasks')?.label, 'Task list');
 });

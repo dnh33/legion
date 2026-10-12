@@ -17,6 +17,7 @@ import { contextTokensOf } from '../shared/context-meter.js';
 import { isLegionTool, needsApproval, stricterMode, LEGION_SERVER_NAMES } from './approvals.js';
 import { decideGate } from './gates.js';
 import { TaintedPaths } from './tainted-paths.js';
+import { CLAUDE_TASK_TOOLS, mirrorClaudeTaskCall, type TaskList, TaskListStore } from './task-list.js';
 import { buildHostToolsServer } from './exec/host-tools.js';
 import { DirectHostBackend } from './exec/direct-host.js';
 import { clampExecLimits } from './exec/limits.js';
@@ -61,6 +62,8 @@ export interface EngineDeps {
   modules?: CoreModule[];
   /** Where the list of files written by tainted runs is kept; defaults to <workspaceDir>/.tainted-paths.json. */
   taintedPaths?: TaintedPaths;
+  /** Where each task's own task list is kept (task-list.ts); defaults to <workspaceDir>/.task-lists. */
+  taskLists?: TaskListStore;
   /** Other model providers (OpenAI-compatible endpoints). Absent: every run is a Claude run, exactly as before. */
   providers?: ProviderRuntime;
   /** Projects (src/core/projects). Absent: no task has a project and nothing about projects is interpreted. */
@@ -102,6 +105,9 @@ export function clipTodos(input: unknown): TodoItem[] | null {
   }
   return out;
 }
+
+/** A task list as the live checklist: the same limit a TodoWrite list has. */
+const checklistOf = (list: TaskList): TodoItem[] => list.todos().slice(0, TODO_MAX_ITEMS);
 
 /**
  * Keep stored tool results small (≤ ~1500 chars) without breaking JSON: a JSON result is shortened
@@ -244,7 +250,7 @@ interface Active {
   toolUses: Set<string>;
   /** This run's prompt reached a session (Claude: its init arrived; provider: it took a turn). Only then can a stop be continued. */
   reached?: boolean;
-  /** Live progress of the current run (Claude): sent as `task.progress`, never stored. */
+  /** Live progress of the current run (Claude, or a provider run from its first turn): sent as `task.progress`, never stored. */
   progress?: { startedAt: string; turn: number; maxTurns: number; tool: string | null; turnIds: Set<string>; contextTokens?: number; todos?: TodoItem[]; thinking: boolean };
   /** The live prompt stream of the current Claude run: a message from the person while it works is pushed here. */
   input?: InputChannel;
@@ -252,6 +258,10 @@ interface Active {
   bg?: BackgroundTasks;
   /** When the held phase ends whatever happens (ms since epoch); set while the run is held for background agents. */
   bgStopsAt?: number;
+  /** The task's own task list (kept per Legion task): a mirror of Claude Code's on a Claude run, the list itself on a provider run. */
+  taskList?: TaskList;
+  /** Claude Code task-tool calls waiting for their result (a new task's id arrives only in the result), by tool_use id. */
+  taskCalls?: Map<string, { name: string; input: unknown }>;
 }
 interface Outcome { subtype: string; isError: boolean; errorText?: string }
 
@@ -270,6 +280,7 @@ export class Engine {
   private readonly boatConfigured: () => boolean;
   private readonly maxConcurrent: number;
   private readonly taintedPaths: TaintedPaths;
+  private readonly taskLists: TaskListStore;
   private readonly providers?: ProviderRuntime;
   private readonly projects?: ProjectStore;
   private readonly queue: Job[] = [];
@@ -298,6 +309,9 @@ export class Engine {
     this.providers = deps.providers;
     this.projects = deps.projects;
     this.taintedPaths = deps.taintedPaths ?? new TaintedPaths(join(deps.config.workspaceDir, '.tainted-paths.json'));
+    this.taskLists = deps.taskLists ?? new TaskListStore(join(deps.config.workspaceDir, '.task-lists'));
+    // a deleted task takes its task list with it, so nothing of it is left behind for a later task to find
+    this.bus.on((e) => { if (e.type === 'task.deleted') { try { this.taskLists.remove(e.taskId); } catch { /* best effort */ } } });
     this.bridge = new Bridge({ store: this.store, bus: this.bus, engine: this });
   }
 
@@ -575,6 +589,19 @@ export class Engine {
     if (p) this.bus.emit({ type: 'task.progress', taskId, progress: p });
   }
 
+  /** A Claude run's mirrored task list changed: keep it for the task's next run and show it as the live checklist. */
+  private keepTaskList(taskId: string, act: Active, list: TaskList): void {
+    // only the checklist's copy (Claude Code keeps the real list): an unwritable folder must not stop the run
+    try { this.taskLists.save(taskId, list); } catch { /* the live checklist still updates */ }
+    this.showTaskList(taskId, act, list);
+  }
+
+  /** Shows the task's list as the live checklist of the current run. */
+  private showTaskList(taskId: string, act: Active, list: TaskList): void {
+    act.taskList = list;
+    if (act.progress) { act.progress.todos = checklistOf(list); this.emitProgress(taskId, act); }
+  }
+
   /** What the app is told about a run: one place, so the live event and the snapshot for a late client cannot drift apart. */
   private progressView(act: Active): TaskProgress | undefined {
     const p = act.progress;
@@ -827,6 +854,8 @@ export class Engine {
       vmEnabled: !!agent.vm?.enabled && this.boatConfigured(),
       claudeAvailable: this.vms.claudeAvailable?.() ?? true, // vm_claude is hidden while Claude is known not to be set up on boat.dev
       ...(job.origin ? { origin: { roomId: job.origin.roomId, fromAgentId: job.origin.fromAgentId, hop: job.origin.hop } } : {}),
+      // a provider run has no Claude Code task tools: Legion keeps the list for it (a Claude run's own list is only mirrored, for the checklist)
+      ...(runtime === 'provider' ? { taskList: { load: () => this.taskLists.load(taskId), save: (l: TaskList) => { this.taskLists.save(taskId, l); this.showTaskList(taskId, act, l); } } } : {}),
     });
     // The agent shell: host shell/file tools, only for an agent that opted in. The names are `mcp__host__*` (NOT
     // Legion's own), so needsApproval raises a card and taintsRun marks the run; `host` grants the TOOLS, the agent's
@@ -1258,6 +1287,17 @@ This run read connector (GitHub) data and other outside text. Web access can sen
       servers, external,
       authorize: decide,
       noteToolUse: (name, id, input) => this.noteToolUse(job, act, name, id, input),
+      // the same live progress a Claude run sends: the turn against the provider loop's own limit, the tool it waits on, the task list
+      onTurn: (turn, maxTurns) => {
+        if (!act.progress) {
+          act.progress = { startedAt: nowIso(), turn, maxTurns, tool: null, turnIds: new Set(), thinking: false };
+          const list = this.taskLists.load(taskId);
+          if (list.list().length) act.progress.todos = checklistOf(list);
+        }
+        act.progress.turn = turn;
+        act.progress.tool = null;
+        this.emitProgress(taskId, act);
+      },
       onDelta: (text) => this.bus.emit({ type: 'message.delta', taskId, text }),
       onAssistantText: (text) => { this.addMessage(taskId, 'assistant', text); },
       onToolCall: (name, id, input) => {
@@ -1266,6 +1306,7 @@ This run read connector (GitHub) data and other outside text. Web access can sen
         if (json.length > 500) json = json.slice(0, 499) + '…';
         this.addMessage(taskId, 'tool', json, name, undefined, { toolUseId: id });
         this.mascot('hacking', name);
+        if (act.progress) { act.progress.tool = name; this.emitProgress(taskId, act); }
       },
       onToolResult: (id, text) => { if (text.trim()) this.addMessage(taskId, 'tool', clipToolResult(text), undefined, undefined, { resultFor: id }); },
       onNotice: (text) => { this.addMessage(taskId, 'system', text); },
@@ -1314,6 +1355,10 @@ This run read connector (GitHub) data and other outside text. Web access can sen
     act.q = q;
     // each run counts its own turns (the limit is per run); the clock and the tool reset with it
     act.progress = { startedAt: nowIso(), turn: 0, maxTurns: this.config.claude.maxTurns, tool: null, turnIds: new Set(), thinking: false };
+    // the task's list is kept across its runs, so a continued conversation shows its checklist from the start
+    act.taskList = this.taskLists.load(job.taskId);
+    act.taskCalls = new Map();
+    if (act.taskList.list().length) act.progress.todos = checklistOf(act.taskList);
     this.emitProgress(job.taskId, act);
 
     const aborted = new Promise<'aborted'>((res) => {
@@ -1473,6 +1518,7 @@ This run read connector (GitHub) data and other outside text. Web access can sen
         if (pg && !msg.parent_tool_use_id) {
           for (const b of blocks) {
             if (b?.type === 'tool_use' && b.name === 'TodoWrite') { const list = clipTodos(b.input); if (list) { pg.todos = list; todosChanged = true; } }
+            else if (b?.type === 'tool_use' && CLAUDE_TASK_TOOLS.has(b.name) && typeof b.id === 'string') act.taskCalls?.set(b.id, { name: b.name, input: b.input });
           }
           const id = typeof msg.message?.id === 'string' ? msg.message.id : `n${pg.turnIds.size}`;
           const lastTool = [...blocks].reverse().find((b) => b?.type === 'tool_use');
@@ -1501,10 +1547,18 @@ This run read connector (GitHub) data and other outside text. Web access can sen
         const blocks: any[] = Array.isArray(msg.message?.content) ? msg.message.content : [];
         // the tool came back: the model is thinking again until its next call
         if (act.progress?.tool && blocks.some((b) => b?.type === 'tool_result')) { act.progress.tool = null; this.emitProgress(taskId, act); }
+        // the structured result belongs to the message's one tool result; with several it cannot be told apart, so the text is used
+        const results = blocks.filter((b) => b?.type === 'tool_result');
         for (const b of blocks) {
           if (b?.type !== 'tool_result' || typeof b.tool_use_id !== 'string') continue;
           const raw = typeof b.content === 'string' ? b.content
             : Array.isArray(b.content) ? b.content.filter((c: any) => c?.type === 'text').map((c: any) => c.text).join('\n') : '';
+          const call = act.taskCalls?.get(b.tool_use_id);
+          if (call && act.taskList) {
+            act.taskCalls!.delete(b.tool_use_id);
+            const next = mirrorClaudeTaskCall(act.taskList, call, { structured: results.length === 1 ? msg.tool_use_result : undefined, text: raw, isError: b.is_error === true });
+            if (next) this.keepTaskList(taskId, act, next);
+          }
           if (!raw.trim()) continue;
           const text = clipToolResult(raw);
           this.addMessage(taskId, 'tool', text, undefined, undefined, { resultFor: b.tool_use_id });

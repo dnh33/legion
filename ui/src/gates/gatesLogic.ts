@@ -18,6 +18,7 @@ export const TOOL_CHIPS: ReadonlyArray<{ id: string; label: string }> = [
   { id: 'shell', label: 'Shell' },
   { id: 'edits', label: 'File edits' },
   { id: 'reads', label: 'File reads' },
+  { id: 'tasks', label: 'Task list' },
   { id: 'web', label: 'Web' },
   { id: 'host', label: 'Host shell' },
   { id: 'connectors', label: 'Connectors' },

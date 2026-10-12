@@ -767,6 +767,7 @@ export async function runToolLoop(host: ProviderHost, target: ProviderTarget, mo
       spent = 0;
       if (host.cancelled()) return { ...res, subtype: 'cancelled', usage };
       res.turns = turn;
+      host.onTurn?.(turn, opts.maxTurns);
       let r: ChatTurnResult;
       try {
         r = await turnFn(target, { model, messages, tools: tools.specs, signal: host.signal, limits: opts.limits, onText: host.onDelta });

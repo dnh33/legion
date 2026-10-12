@@ -80,6 +80,8 @@ export interface ProviderHost {
   external?: Record<string, ExternalServerConfig>;
   authorize(toolName: string, input: Record<string, unknown>): Promise<{ allow: boolean; message?: string }>;
   noteToolUse(toolName: string, toolUseId: string, input: unknown): void;
+  /** A model turn starts (1-based) against the loop's limit: the engine shows it as the run's live progress. Optional. */
+  onTurn?(turn: number, maxTurns: number): void;
   onDelta(text: string): void;
   onAssistantText(text: string): void;
   onToolCall(toolName: string, toolUseId: string, input: unknown): void;

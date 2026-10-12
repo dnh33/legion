@@ -33,8 +33,10 @@ export const GATE_TOOL_GROUPS: Record<string, readonly string[]> = {
   shell: ['Bash', 'mcp__host__shell'],
   /** File writes: Claude Code's edit tools plus the agent shell's write. */
   edits: ['Write', 'Edit', 'MultiEdit', 'NotebookEdit', 'mcp__host__write_file'],
-  /** File/one-shot reads: the same set needsApproval treats as read-only, plus the agent shell's read. */
-  reads: ['Read', 'Glob', 'Grep', 'LS', 'WebSearch', 'WebFetch', 'TodoWrite', 'Task', 'Agent', 'mcp__host__read_file'],
+  /** File/one-shot reads: needsApproval's read-only set (less the task list, its own group below), plus the agent shell's read. */
+  reads: ['Read', 'Glob', 'Grep', 'LS', 'WebSearch', 'WebFetch', 'Task', 'Agent', 'mcp__host__read_file'],
+  /** The run's own task list on every runtime: Claude Code's TodoWrite and Task tools, and a provider run's todo_* tools. */
+  tasks: ['TodoWrite', 'TaskCreate', 'TaskUpdate', 'TaskList', 'TaskGet', 'mcp__legion__todo_create', 'mcp__legion__todo_update', 'mcp__legion__todo_list', 'mcp__legion__todo_get'],
   web: ['WebFetch', 'WebSearch'],
   /** The agent shell's own tools (server `host` in src/core/exec/host-tools.ts). */
   host: ['mcp__host__shell', 'mcp__host__read_file', 'mcp__host__write_file'],

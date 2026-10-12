@@ -159,15 +159,28 @@ test('BACK-COMPAT FLOOR: with rules=[] decideGate returns baseline for every too
   assert.ok(checked > 100, `grid actually ran (${checked} cells)`);
 });
 
-test('the reads group is exactly needsApproval’s read-only set (+ the agent shell read), so the two never drift', async () => {
+test('reads + tasks are exactly needsApproval’s read-only set (+ the agent shell read), so the two never drift', async () => {
   const mod = await import('../src/core/approvals.js') as { APPROVAL_READ_ONLY?: ReadonlySet<string> };
   assert.ok(mod.APPROVAL_READ_ONLY, 'approvals.ts exports its read-only set for this sync check');
   const reads = new Set(GATE_TOOL_GROUPS.reads!);
-  for (const t of mod.APPROVAL_READ_ONLY) assert.ok(reads.has(t), `reads group must contain ${t}`);
-  for (const t of reads) {
-    if (t === 'mcp__host__read_file') continue;
-    assert.ok(mod.APPROVAL_READ_ONLY.has(t), `${t} is in the reads group but not in needsApproval's read-only set`);
+  const tasks = new Set(GATE_TOOL_GROUPS.tasks ?? []);
+  for (const t of mod.APPROVAL_READ_ONLY) assert.ok(reads.has(t) || tasks.has(t), `reads or tasks must contain ${t}`);
+  for (const t of [...reads, ...tasks]) {
+    // the agent shell's read is carded on purpose; Legion's own todo_* tools are never carded (isLegionTool), so not in the set
+    if (t === 'mcp__host__read_file' || t.startsWith('mcp__legion__')) continue;
+    assert.ok(mod.APPROVAL_READ_ONLY.has(t), `${t} is in a group but not in needsApproval's read-only set`);
   }
+  for (const t of tasks) assert.equal(reads.has(t), false, `${t} is in both reads and tasks`);
+});
+
+test('the task list is its own group: a File reads rule leaves it alone, a Task list rule reaches it (and the provider todo_* tools)', () => {
+  const tools = ['TodoWrite', 'TaskCreate', 'TaskUpdate', 'TaskList', 'TaskGet', 'mcp__legion__todo_create', 'mcp__legion__todo_update', 'mcp__legion__todo_list', 'mcp__legion__todo_get'];
+  const v = (group: string, toolName: string) => decideGate({ toolName, input: {}, agentId: 'a' }, [rule('deny', { tools: [group] })], 'full', false).verdict;
+  for (const t of tools) {
+    assert.equal(v('reads', t), 'baseline', `reads must not reach ${t}`);
+    assert.equal(v('tasks', t), 'deny', `tasks must reach ${t}`);
+  }
+  assert.equal(v('tasks', 'Read'), 'baseline');
 });
 
 test('ruleIds lists every matching rule (for the "why" popover), including the ones that lost the class vote', () => {

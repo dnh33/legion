@@ -2,7 +2,7 @@ import { tempDir as cleanupTemp } from './tmp-cleanup.js';
 import { initialPrompt } from '../src/core/input-channel.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync, mkdtempSync } from 'node:fs';
+import { existsSync, mkdtempSync, readdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { ApprovalBroker, describeWait } from '../src/core/approvals.js';
@@ -447,6 +447,116 @@ test('a subagent\'s TodoWrite is not the run\'s checklist', async () => {
   assert.ok(all.length >= 1);
   assert.ok(all.every((l) => l.length === 1 && l[0] === 'mine'), JSON.stringify(all));
   assert.equal(progressOf(s, t.id).at(-1).todos[0].content, 'mine');
+});
+
+// Claude Code's task tools: the id of a new task arrives only in the result (tool_use_result.task.id), so the call and its result are paired.
+const taskCall = (id: string, name: string, input: unknown, parent: string | null = null) => ({ type: 'assistant', parent_tool_use_id: parent, message: { id: 'mk' + id, content: [{ type: 'tool_use', id, name, input }] } });
+const taskResult = (id: string, structured: unknown, opts: { isError?: boolean; parent?: string | null } = {}) => ({
+  type: 'user', parent_tool_use_id: opts.parent ?? null, tool_use_result: structured,
+  message: { content: [{ type: 'tool_result', tool_use_id: id, content: 'ok', ...(opts.isError ? { is_error: true } : {}) }] },
+});
+
+test('Claude Code\'s TaskCreate/TaskUpdate drive the live checklist, with Claude Code\'s own ids; a delete takes the line away', async () => {
+  const s = setup(() => (async function* () {
+    yield init('sess-tasks');
+    yield taskCall('c1', 'TaskCreate', { subject: 'one', description: 'first', activeForm: 'Doing one' });
+    yield taskResult('c1', { task: { id: '1', subject: 'one' } });
+    yield taskCall('c2', 'TaskCreate', { subject: 'two', description: '' });
+    yield taskResult('c2', { task: { id: '2', subject: 'two' } });
+    yield taskCall('u1', 'TaskUpdate', { taskId: '1', status: 'in_progress' });
+    yield taskResult('u1', { success: true, taskId: '1', updatedFields: ['status'] });
+    yield taskCall('u2', 'TaskUpdate', { taskId: '2', status: 'deleted' });
+    yield taskResult('u2', { success: true, taskId: '2', updatedFields: ['status'] });
+    yield ok('done');
+  })(), { agent: { model: 'opus' } });
+  const t = s.engine.startTask({ agentId: 'a1', prompt: 'go', source: 'ui' });
+  await s.engine.waitFor(t.id, 3000);
+  const lists = progressOf(s, t.id).filter((p) => p.todos).map((p) => p.todos);
+  assert.deepEqual(lists[0], [{ content: 'one', status: 'pending', activeForm: 'Doing one' }]);
+  assert.deepEqual(lists.at(-1), [{ content: 'one', status: 'in_progress', activeForm: 'Doing one' }]);
+});
+
+test('a refused task call (an error result, or success:false) leaves the checklist as it was; a subagent\'s task calls are not the run\'s', async () => {
+  const s = setup(() => (async function* () {
+    yield init('sess-tasks2');
+    yield taskCall('c1', 'TaskCreate', { subject: 'mine', description: '' });
+    yield taskResult('c1', { task: { id: '1', subject: 'mine' } });
+    yield taskCall('u1', 'TaskUpdate', { taskId: '1', status: 'completed' });
+    yield taskResult('u1', { success: false, taskId: '1', updatedFields: [], error: 'nope' });
+    yield taskCall('u2', 'TaskUpdate', { taskId: '1', status: 'completed' });
+    yield taskResult('u2', undefined, { isError: true });
+    yield taskCall('c2', 'TaskCreate', { subject: 'theirs', description: '' }, 'agent-1');
+    yield taskResult('c2', { task: { id: '2', subject: 'theirs' } }, { parent: 'agent-1' });
+    yield ok('done');
+  })(), { agent: { model: 'opus' } });
+  const t = s.engine.startTask({ agentId: 'a1', prompt: 'go', source: 'ui' });
+  await s.engine.waitFor(t.id, 3000);
+  assert.deepEqual(progressOf(s, t.id).filter((p) => p.todos).at(-1).todos, [{ content: 'mine', status: 'pending' }]);
+});
+
+test('a TaskList result replaces the mirrored checklist (Claude Code\'s own list is the truth on a Claude run)', async () => {
+  const s = setup(() => (async function* () {
+    yield init('sess-tasks3');
+    yield taskCall('c1', 'TaskCreate', { subject: 'stale', description: '' });
+    yield taskResult('c1', { task: { id: '1', subject: 'stale' } });
+    yield taskCall('l1', 'TaskList', {});
+    yield taskResult('l1', { tasks: [{ id: '4', subject: 'real', status: 'in_progress', blockedBy: [] }, { id: '5', subject: 'next', status: 'pending', blockedBy: ['4'] }] });
+    yield ok('done');
+  })(), { agent: { model: 'opus' } });
+  const t = s.engine.startTask({ agentId: 'a1', prompt: 'go', source: 'ui' });
+  await s.engine.waitFor(t.id, 3000);
+  assert.deepEqual(progressOf(s, t.id).filter((p) => p.todos).at(-1).todos, [{ content: 'real', status: 'in_progress' }, { content: 'next', status: 'pending' }]);
+});
+
+test('the checklist is kept per Legion task: a continued conversation shows its list from the start of the next run', async () => {
+  let n = 0;
+  const s = setup(() => (async function* () {
+    n++;
+    yield init('sess-tasks4');
+    if (n === 1) {
+      yield taskCall('c1', 'TaskCreate', { subject: 'carry me', description: '' });
+      yield taskResult('c1', { task: { id: '1', subject: 'carry me' } });
+    }
+    yield ok('done');
+  })(), { agent: { model: 'opus' } });
+  const t = s.engine.startTask({ agentId: 'a1', prompt: 'one', source: 'ui' });
+  await s.engine.waitFor(t.id, 3000);
+  const before = s.events.length;
+  s.engine.startTask({ agentId: 'a1', prompt: 'two', source: 'ui', continueTaskId: t.id });
+  await s.engine.waitFor(t.id, 3000);
+  const second = s.events.slice(before).filter((e: any) => e.type === 'task.progress' && e.taskId === t.id).map((e: any) => e.progress);
+  assert.deepEqual(second.find((p: any) => p.todos)?.todos, [{ content: 'carry me', status: 'pending' }]);
+});
+
+test('a task list longer than the checklist limit shows its first 50 lines, like a TodoWrite list', async () => {
+  const s = setup(() => (async function* () {
+    yield init('sess-tasks6');
+    for (let i = 1; i <= 60; i++) {
+      yield taskCall('c' + i, 'TaskCreate', { subject: 'step ' + i, description: '' });
+      yield taskResult('c' + i, { task: { id: String(i), subject: 'step ' + i } });
+    }
+    yield ok('done');
+  })(), { agent: { model: 'opus' } });
+  const t = s.engine.startTask({ agentId: 'a1', prompt: 'go', source: 'ui' });
+  await s.engine.waitFor(t.id, 3000);
+  const last = progressOf(s, t.id).filter((p) => p.todos).at(-1).todos;
+  assert.equal(last.length, 50);
+  assert.equal(last[49].content, 'step 50');
+});
+
+test('deleting a task deletes its task list: a new task never inherits it', async () => {
+  const s = setup(() => (async function* () {
+    yield init('sess-tasks5');
+    yield taskCall('c1', 'TaskCreate', { subject: 'private', description: '' });
+    yield taskResult('c1', { task: { id: '1', subject: 'private' } });
+    yield ok('done');
+  })(), { agent: { model: 'opus' } });
+  const t = s.engine.startTask({ agentId: 'a1', prompt: 'go', source: 'ui' });
+  await s.engine.waitFor(t.id, 3000);
+  const dir = join(s.config.workspaceDir, '.task-lists');
+  assert.equal(readdirSync(dir).length, 1);
+  s.bus.emit({ type: 'task.deleted', taskId: t.id });
+  assert.deepEqual(readdirSync(dir), []);
 });
 
 const blockStart = (type: string, parent: string | null = null) => ({ type: 'stream_event', parent_tool_use_id: parent, event: { type: 'content_block_start', index: 0, content_block: { type, ...(type === 'thinking' ? { thinking: '' } : {}) } } });
