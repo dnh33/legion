@@ -136,10 +136,10 @@ test('C5 the app cannot start a task for a non-member (400); a bridge run to a n
   const viaMember = s.engine.startTask({ agentId: 'a2', prompt: 'help', source: 'agent', bridge: { fromAgentId: 'a1', parentTaskId: parent.id, hop: 1 } });
   assert.equal(viaMember.projectId, p.id);
   await s.engine.waitFor(viaMember.id, 3000);
-  // a non-member callee used to start silently without the project (no rules, no board, no folder) while the caller was
-  // never told: now the caller hears why, and can ask a member or the owner instead
-  assert.throws(() => s.engine.startTask({ agentId: 'a3', prompt: 'help', source: 'agent', bridge: { fromAgentId: 'a1', parentTaskId: parent.id, hop: 1 } }),
-    (e: any) => e instanceof EngineError && e.status === 403 && /not a member of project "P"/.test(e.message) && /member/.test(e.message));
+  // a non-member callee helps from outside (decision 2026-10-13, outside helper): no project, and both threads say so
+  const outside = s.engine.startTask({ agentId: 'a3', prompt: 'help', source: 'agent', bridge: { fromAgentId: 'a1', parentTaskId: parent.id, hop: 1 } });
+  assert.equal(outside.projectId, undefined);
+  await s.engine.waitFor(outside.id, 3000);
 });
 
 test('BUG-5 (council A2): a delegation goes to a thread in the CALLER\'s project; an older thread with the same agent in another project is left alone', async () => {
@@ -328,13 +328,53 @@ test('L1 the run\'s episode goes to the project the run had: a removed member\'s
   assert.equal(kg.graph().getNode(HUMAN, 'ep:task_archived')?.scope, 'agent:a1', 'no outcome.projectId: the episode stays out of the project');
 });
 
-test('L2 a delegation from a task in an archived project is refused (409), not run without the project', async () => {
+test('L2 a delegation from a task in an archived project runs as an outside helper, and both threads say why', async () => {
   const s = setup();
   const p = s.mk('P', ['a1', 'a2']);
   const parent = await run(s, { agentId: 'a1', prompt: 'lead', source: 'ui', projectId: p.id });
   s.projects.update(p.id, { status: 'archived' });
-  assert.throws(() => s.engine.startTask({ agentId: 'a2', prompt: 'help', source: 'agent', bridge: { fromAgentId: 'a1', parentTaskId: parent.id, hop: 1 } }),
-    (e: any) => e instanceof EngineError && e.status === 409 && /Project "P" is archived/.test(e.message));
+  const t = s.engine.startTask({ agentId: 'a2', prompt: 'help', source: 'agent', bridge: { fromAgentId: 'a1', parentTaskId: parent.id, hop: 1 } });
+  assert.equal(t.projectId, undefined);
+  await s.engine.waitFor(t.id, 3000);
+  const sys = (id: string) => s.store.listMessages(id).filter((m) => m.role === 'system').map((m) => m.text).join(' | ');
+  assert.match(sys(t.id), /You are helping with project "P" from outside it \(the project is archived\)/);
+  assert.match(sys(parent.id), /A2 helped from outside project "P" \(the project is archived\)\. Unarchive the project to work in it again\./);
+});
+
+test('D6 a non-member helps as an outside helper: no project folder, notes or board; the project\'s deny rules still bind it; both threads are told', async () => {
+  let release!: () => void;
+  const held = new Promise<void>((r) => { release = r; });
+  const s = setup((params) => String(params.options?.cwd ?? '').endsWith('a3')
+    ? (async function* () { yield { type: 'system', subtype: 'init', session_id: 's3' }; await held; yield ok(); })()
+    : quick());
+  const p = s.mk('P', ['a1', 'a2']);
+  s.config.gates = { rules: [{ id: 'gr_p', enabled: true, then: 'deny', label: 'no shell in P', source: 'user', when: { projects: [p.id], tools: ['Bash'] } }] } as any;
+  const parent = await run(s, { agentId: 'a1', prompt: 'lead', source: 'ui', projectId: p.id });
+  const t = s.engine.startTask({ agentId: 'a3', prompt: 'help', source: 'agent', bridge: { fromAgentId: 'a1', parentTaskId: parent.id, hop: 1 } });
+  try {
+    await new Promise((r) => setTimeout(r, 40));
+    assert.equal(t.projectId, undefined, 'the helper is not in the project');
+    const call = s.calls.find((c) => String(c.options?.cwd ?? '').endsWith('a3'))!;
+    assert.equal(call.options.additionalDirectories, undefined, 'no project folder');
+    assert.ok(!call.options.systemPrompt.append.includes('legion-project'), 'no project section');
+    const v = await Promise.race([call.options.canUseTool('Bash', { command: 'ls' }, { signal: new AbortController().signal }), new Promise((r) => setTimeout(() => r({ behavior: 'card' }), 300))]) as { behavior: string };
+    assert.equal(v.behavior, 'deny', "P's deny rule binds the outside helper");
+    const sys = (id: string) => s.store.listMessages(id).filter((m) => m.role === 'system').map((m) => m.text).join(' | ');
+    assert.match(sys(t.id), /You are helping with project "P" from outside it \(A3 is not a member\)\. You have no access to its folder, notes or board; its deny rules still apply\./);
+    assert.match(sys(parent.id), /A3 helped from outside project "P" \(A3 is not a member\)\. To give A3 the project's folder, notes and board, add it on the project page\./);
+  } finally { release(); s.engine.cancel(t.id); await s.engine.waitFor(t.id, 3000); }
+});
+
+test('D3 a reply lands in a task whose project was archived meanwhile: the caller\'s run goes on without the project', async () => {
+  const s = setup();
+  const p = s.mk('P', ['a1', 'a2']);
+  const parent = await run(s, { agentId: 'a1', prompt: 'lead', source: 'ui', projectId: p.id });
+  s.projects.update(p.id, { status: 'archived' });
+  const reply = s.engine.startTask({ agentId: 'a1', prompt: '[Reply from A2] done', source: 'agent', continueTaskId: parent.id, bridge: { fromAgentId: 'a2', parentTaskId: parent.id, hop: 1, reply: true } } as any);
+  assert.equal(reply.id, parent.id);
+  const done = await s.engine.waitFor(parent.id, 3000);
+  assert.equal(done.status, 'done');
+  assert.equal(done.projectId, p.id, 'the task keeps its project');
 });
 
 test('a project deny rule still applies to a live run after its agent is removed from the project', async () => {

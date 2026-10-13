@@ -282,6 +282,8 @@ interface Job {
   taskId: string; agentId: string; prompt: string; choice: ModelChoice; priorModel?: ConcreteModel;
   /** The project the run was queued in (A10): if it is gone when the run starts, the thread says so. */
   projectAtStart?: string;
+  /** An outside helper's project (decision 2026-10-13): the run is not in it, but its deny and ask rules bind the run. */
+  outsideOf?: string;
   /** One-line bridge header prepended to what Claude sees (not stored). */
   header?: string;
   /** Text the auto router scores, when it differs from `prompt` (a typed brief scores its goal only; Fascia 3b). */
@@ -402,6 +404,7 @@ export class Engine {
     if (overriding && !overrideAllowed(agent.model, p.model)) throw new EngineError(overrideRefusal(agent.name, agent.model, p.model!), 400);
     let task: Task;
     let priorModel: ConcreteModel | undefined;
+    let outside: { project: Project; why: string } | undefined;
     if (p.continueTaskId) {
       const prev = this.store.getTask(p.continueTaskId);
       if (!prev) throw new EngineError(`Unknown task: ${p.continueTaskId}`, 404);
@@ -410,7 +413,9 @@ export class Engine {
       if (prev.agentId !== agent.id) throw new EngineError('Task belongs to a different agent', 400);
       // a task that read connector data holds that text in its session: nothing started by or down a chain from an MCP client may resume it
       if (prev.usedConnectors && origin?.viaMcpClient) throw new EngineError(CONTINUE_REFUSED, 403);
-      const picked = this.pickProject(p, agent, prev);
+      const pick = this.pickProject(p, agent, prev);
+      const picked = pick.id;
+      outside = pick.outside;
       // Continuing never erases the task's project (council A4): when this run cannot use it (the agent left the project,
       // or it is archived), the task keeps it, the run goes without it, and the thread says so. Only an explicit `null`
       // from the app or a room clears it.
@@ -450,7 +455,9 @@ export class Engine {
       const now = nowIso();
       const base = prompt.replace(/^\s*\/(opus|sonnet)\b\s*/i, '') || prompt;
       const callerName = p.bridge ? (this.store.getAgent(p.bridge.fromAgentId)?.name ?? p.bridge.fromAgentId) : '';
-      const projectId = this.pickProject(p, agent, undefined);
+      const pick = this.pickProject(p, agent, undefined);
+      const projectId = pick.id;
+      outside = pick.outside;
       const requestedModel = p.model ?? agent.model;
       const next = {
         id: newId('task'), agentId: agent.id,
@@ -467,10 +474,12 @@ export class Engine {
       task = this.saveTask(next);
     }
     this.addMessage(task.id, 'user', prompt, undefined, p.bridge?.fromAgentId);
+    if (outside) this.noteOutsideHelper(task.id, p.bridge?.parentTaskId, agent, outside);
     const projectAtStart = this.projectOf(task.id, agent.id)?.id;
     this.queue.push({
       taskId: task.id, agentId: agent.id, prompt, choice: task.requestedModel, priorModel,
       ...(projectAtStart ? { projectAtStart } : {}),
+      ...(outside ? { outsideOf: outside.project.id } : {}),
       header: p.bridge?.header, fromAgentId: p.bridge?.fromAgentId, parentTaskId: p.bridge && !p.bridge.reply ? p.bridge.parentTaskId : undefined,
       ...(p.routeText !== undefined ? { routeText: p.routeText } : {}),
       ...(p.maxBudgetUsd !== undefined ? { maxBudgetUsd: p.maxBudgetUsd } : {}),
@@ -486,10 +495,10 @@ export class Engine {
    * project active. The app gets an error for a bad pick; a room or bridge run just starts without the project. Continuing keeps the
    * task's project unless the app or the room says otherwise. `undefined` = no project.
    */
-  private pickProject(p: BridgeStartParams, agent: AgentProfile, prev: Task | undefined): string | undefined {
+  private pickProject(p: BridgeStartParams, agent: AgentProfile, prev: Task | undefined): { id?: string; outside?: { project: Project; why: string } } {
     if (!this.projects) {
       if (p.source === 'ui' && typeof p.projectId === 'string') throw new EngineError('Projects are not available in this core', 400);
-      return prev?.projectId;
+      return { id: prev?.projectId };
     }
     let want: string | undefined;
     let named = false;
@@ -498,20 +507,30 @@ export class Engine {
     if ((p.source === 'ui' || p.source === 'bot') && p.projectId !== undefined) { want = p.projectId ?? undefined; named = true; }
     else if (delegated) want = this.store.getTask(p.bridge!.parentTaskId!)?.projectId;
     else if (prev) want = prev.projectId;
-    if (!want) return undefined;
+    if (!want) return {};
     const pr = this.projects.get(want);
     if (pr && pr.status === 'archived') {
+      // a reply always lands in its caller's task (B3: live runs finish); the run goes on without the project, with the note
+      if (p.bridge?.reply) return {};
+      // a live run of an archived project may still hand work on: the helper works from outside it, and both threads say so
+      if (delegated) return { outside: { project: pr, why: 'the project is archived' } };
       if (p.source === 'ui' || (prev && !named)) throw new EngineError(`Project "${pr.name}" is archived. Unarchive it to start or continue a task in it.`, 409);
-      // a hand-off from an archived project would run without its rules, board and folder, and the caller would not know
-      if (delegated) throw new EngineError(`Project "${pr.name}" is archived, so work cannot be handed on from it. Unarchive it first.`, 409);
-      return undefined;
+      return {};
     }
-    if (pr && pr.members.includes(agent.id)) return want;
+    if (pr && pr.members.includes(agent.id)) return { id: want };
     if (p.source === 'ui' && named) throw new EngineError(pr ? `${agent.name} is not a member of project "${pr.name}"` : `Unknown project: ${want}`, 400);
-    // A delegation into a project goes to its members only: a run without the project would miss its rules, board and folder,
-    // and the caller would never know (council A3). The caller is told, and can ask a member or the owner instead.
-    if (delegated && pr) throw new EngineError(`${agent.name} is not a member of project "${pr.name}". Ask an agent that is a member, or ask the owner to add ${agent.name} to the project.`, 403);
-    return undefined;
+    // A non-member helps from outside (decision 2026-10-13): no folder, notes or board, the project's deny rules still bind it,
+    // and both threads say so (the caller is never left unaware, council A3).
+    if (delegated && pr) return { outside: { project: pr, why: `${agent.name} is not a member` } };
+    return {};
+  }
+
+  /** An outside helper is told it works on the project from outside it, and its caller is told how to give it the project (decision 2026-10-13). */
+  private noteOutsideHelper(taskId: string, callerTaskId: string | undefined, agent: AgentProfile, o: { project: Project; why: string }): void {
+    try { this.addMessage(taskId, 'system', `You are helping with project "${o.project.name}" from outside it (${o.why}). You have no access to its folder, notes or board; its deny rules still apply.`); } catch { /* advisory */ }
+    if (!callerTaskId) return;
+    const how = o.project.status === 'archived' ? 'Unarchive the project to work in it again.' : `To give ${agent.name} the project's folder, notes and board, add it on the project page.`;
+    try { this.addMessage(callerTaskId, 'system', `${agent.name} helped from outside project "${o.project.name}" (${o.why}). ${how}`); } catch { /* advisory */ }
   }
 
   /**
@@ -1271,7 +1290,7 @@ This run read connector (GitHub) data and other outside text. Web access can sen
       const mode = effective();
       // Gate rules (Settings -> Gates) sit ahead of the approval baseline: deny wins outright (and survives full), an
       // explicit allow skips the card, an ask forces one (inert in full), and no rule falls through to the baseline.
-      const gate = decideGate({ toolName, input, agentId: agent.id, cwd: this.gateCwd(agent, toolName), tmpDir: GATE_TMP_DIR, projectId: this.projectOf(job.taskId, agent.id)?.id, startProjectId: job.projectAtStart, ctx: { roomHop: (job.origin?.hop ?? 0) > 0, tainted: this.active.get(job.taskId)?.tainted === true || job.origin?.tainted === true, connectorData: this.store.getTask(job.taskId)?.usedConnectors === true } }, gatesFor(this.config).rules, mode, job.origin?.approvalCeiling === 'ask');
+      const gate = decideGate({ toolName, input, agentId: agent.id, cwd: this.gateCwd(agent, toolName), tmpDir: GATE_TMP_DIR, projectId: this.projectOf(job.taskId, agent.id)?.id, startProjectId: job.projectAtStart ?? job.outsideOf, ctx: { roomHop: (job.origin?.hop ?? 0) > 0, tainted: this.active.get(job.taskId)?.tainted === true || job.origin?.tainted === true, connectorData: this.store.getTask(job.taskId)?.usedConnectors === true } }, gatesFor(this.config).rules, mode, job.origin?.approvalCeiling === 'ask');
       if (gate.verdict === 'deny') return { allow: false, message: 'Blocked by a gate rule (Settings -> Gates).' };
       // the shell floor sits ahead of allow rules and the baseline: an allow rule cannot pass a command nobody could read
       const floor = this.shellFloor(job, agent, toolName, input, { card: opts.floorCard !== false });
@@ -1421,7 +1440,7 @@ This run read connector (GitHub) data and other outside text. Web access can sen
           const d = await demoted(input.tool_name, (input.tool_input ?? {}) as Record<string, unknown>);
           return d.allow ? { continue: true } : preToolDeny(d.message ?? 'The user denied this action.');
         }
-        const g = decideGate({ toolName: input.tool_name, input: (input.tool_input ?? {}) as Record<string, unknown>, agentId: agent.id, cwd: this.gateCwd(agent, input.tool_name), tmpDir: GATE_TMP_DIR, projectId: this.projectOf(job.taskId, agent.id)?.id, startProjectId: job.projectAtStart, ctx: { roomHop: (job.origin?.hop ?? 0) > 0, tainted: this.active.get(job.taskId)?.tainted === true || job.origin?.tainted === true, connectorData: this.store.getTask(job.taskId)?.usedConnectors === true } }, gatesFor(this.config).rules, 'full', false);
+        const g = decideGate({ toolName: input.tool_name, input: (input.tool_input ?? {}) as Record<string, unknown>, agentId: agent.id, cwd: this.gateCwd(agent, input.tool_name), tmpDir: GATE_TMP_DIR, projectId: this.projectOf(job.taskId, agent.id)?.id, startProjectId: job.projectAtStart ?? job.outsideOf, ctx: { roomHop: (job.origin?.hop ?? 0) > 0, tainted: this.active.get(job.taskId)?.tainted === true || job.origin?.tainted === true, connectorData: this.store.getTask(job.taskId)?.usedConnectors === true } }, gatesFor(this.config).rules, 'full', false);
         if (g.verdict === 'deny') return preToolDeny('Blocked by a gate rule (Settings -> Gates).');
         // Full forgives the approval card, not the machine: the shell floor holds here too (Claude's own Bash included)
         const floor = this.shellFloor(job, agent, input.tool_name, (input.tool_input ?? {}) as Record<string, unknown>);
@@ -1436,7 +1455,7 @@ This run read connector (GitHub) data and other outside text. Web access can sen
       options.hooks?.PreToolUse?.push({ matcher: 'Bash|PowerShell|Monitor|mcp__host__shell', timeout: cardHookSeconds, hooks: [async (input) => {
         if (input.hook_event_name !== 'PreToolUse') return { continue: true };
         const tin = (input.tool_input ?? {}) as Record<string, unknown>;
-        const g = decideGate({ toolName: input.tool_name, input: tin, agentId: agent.id, cwd: this.gateCwd(agent, input.tool_name), tmpDir: GATE_TMP_DIR, projectId: this.projectOf(job.taskId, agent.id)?.id, startProjectId: job.projectAtStart, ctx: { roomHop: (job.origin?.hop ?? 0) > 0, tainted: this.active.get(job.taskId)?.tainted === true || job.origin?.tainted === true, connectorData: this.store.getTask(job.taskId)?.usedConnectors === true } }, gatesFor(this.config).rules, effective(), job.origin?.approvalCeiling === 'ask');
+        const g = decideGate({ toolName: input.tool_name, input: tin, agentId: agent.id, cwd: this.gateCwd(agent, input.tool_name), tmpDir: GATE_TMP_DIR, projectId: this.projectOf(job.taskId, agent.id)?.id, startProjectId: job.projectAtStart ?? job.outsideOf, ctx: { roomHop: (job.origin?.hop ?? 0) > 0, tainted: this.active.get(job.taskId)?.tainted === true || job.origin?.tainted === true, connectorData: this.store.getTask(job.taskId)?.usedConnectors === true } }, gatesFor(this.config).rules, effective(), job.origin?.approvalCeiling === 'ask');
         if (g.verdict === 'deny') return preToolDeny('Blocked by a gate rule (Settings -> Gates).');
         const floor = this.shellFloor(job, agent, input.tool_name, tin);
         if (!floor) return { continue: true };
