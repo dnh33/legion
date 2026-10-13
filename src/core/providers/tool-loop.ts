@@ -15,7 +15,7 @@ import {
   applyPlan, carryLossNotice, CarriedItem, clipToTokens, CompactionGuard, DEFAULT_CONTEXT_WINDOW, extractCarriedItems,
   isContextLengthError, isSummaryMessage, missingCarriedItems, MIN_SUMMARY_TOKENS,
   localFallbackSummary, messagesTokens, needsCompaction, planCompaction, PROTECT_FIRST, renderSummaryRow,
-  renderTranscript, sanitizeSummary, summaryPrompt, TAIL_MAX_WINDOW_FRACTION, thresholdTokens, toolsTokens, usableWindow,
+  renderTranscript, sanitizeSummary, summaryPrompt, TAIL_MAX_WINDOW_FRACTION, thresholdTokens, toolsTokens, usableWindow, outputReserve,
 } from './compaction.js';
 import type { CompactionPlan } from './compaction.js';
 import type { CompactionSettings } from '../../shared/types.js';
@@ -614,6 +614,8 @@ async function askSummarizer(args: {
         tools: [],
         signal: args.signal,
         ...(args.limits ? { limits: args.limits } : {}),
+        // the summary has its own budget: room for it, never the model's whole maximum (which a provider would reserve credit for)
+        maxTokens: Math.min(32_768, Math.max(4_096, args.budgetTokens * 2)),
         onText: () => undefined,
       } as never);
       body = sanitizeSummary(r.text, args.redact);
@@ -788,7 +790,7 @@ export async function runToolLoop(host: ProviderHost, target: ProviderTarget, mo
       host.onTurn?.(turn, opts.maxTurns);
       let r: ChatTurnResult;
       try {
-        r = await turnFn(target, { model, messages, tools: tools.specs, signal: host.signal, limits: opts.limits, onText: host.onDelta });
+        r = await turnFn(target, { model, messages, tools: tools.specs, signal: host.signal, limits: opts.limits, maxTokens: outputReserve(window), onText: host.onDelta });
       } catch (e) {
         // The provider refused the request for size. That is the one error worth a second attempt: compact hard and retry
         // ONCE. Retrying without compacting fails identically, and retrying more than once turns one refusal into a loop
@@ -801,7 +803,7 @@ export async function runToolLoop(host: ProviderHost, target: ProviderTarget, mo
         const forced = await compactMessages(turnFn, target, model, opts, host, redact, messages, window, true, true);
         if (!forced) throw e; // nothing smaller to send; the original error is the honest one to report
         messages = forced;
-        r = await turnFn(target, { model, messages, tools: tools.specs, signal: host.signal, limits: opts.limits, onText: host.onDelta });
+        r = await turnFn(target, { model, messages, tools: tools.specs, signal: host.signal, limits: opts.limits, maxTokens: outputReserve(window), onText: host.onDelta });
       }
       addUsage(r);
       if (r.toolsRefused && !noticedRefused) { noticedRefused = true; host.onNotice('This model did not accept tools: it can answer, but it cannot use Legion\'s tools.'); }

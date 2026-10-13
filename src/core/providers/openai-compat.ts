@@ -10,8 +10,19 @@ export interface ChatTurnRequest {
   tools: ChatToolSpec[];
   signal?: AbortSignal;
   limits?: Partial<HttpLimits>;
+  /**
+   * The most output tokens this turn may produce. Sent as max_tokens (max_output_tokens on the Responses wire). Without it a
+   * provider assumes the model's maximum, and OpenRouter reserves credit for that whole maximum up front, so a low balance
+   * failed every call ("requires more credits, or fewer max_tokens").
+   */
+  maxTokens?: number;
   onText: (delta: string) => void;
 }
+
+/** OpenRouter's 402 names what the balance covers: "You requested up to N tokens, but can only afford M". */
+const AFFORD = /can only afford (\d+)/i;
+/** Below this many output tokens a turn cannot do useful work: tell the owner about the credit instead of retrying. */
+const MIN_USEFUL_OUTPUT = 1_024;
 export interface ChatTurnResult {
   text: string;
   toolCalls: ChatToolCall[];
@@ -155,9 +166,12 @@ export async function chatTurn(target: ProviderTarget, req: ChatTurnRequest): Pr
   let withTools = req.tools.length > 0 && !prompted;
   let streamOptions = true;
   let waited = false;
-  for (let attempt = 0; attempt < 4; attempt++) {
+  let cap = req.maxTokens;
+  let capRetried = false;
+  for (let attempt = 0; attempt < 6; attempt++) {
     const responses = target.entry.wire === 'responses';
     const body: Record<string, unknown> = { model: req.model, stream: true };
+    if (cap !== undefined) body[responses ? 'max_output_tokens' : 'max_tokens'] = cap;
     const messages = prompted ? promptedMessages(req.messages, req.tools) : req.messages;
     // a prompted reply is read whole and its blocks taken out before the owner sees it, so it is not streamed raw
     const onText = prompted ? () => undefined : req.onText;
@@ -197,6 +211,17 @@ export async function chatTurn(target: ProviderTarget, req: ChatTurnRequest): Pr
       return { text: acc.text, toolCalls, ...(acc.finish ? { finishReason: acc.finish } : {}), ...(acc.usage ? { usage: acc.usage } : {}), ...(req.tools.length > 0 && !withTools ? { toolsRefused: true } : {}) };
     } catch (e) {
       if (streamOptions && refusedStreamOptions(e)) { streamOptions = false; continue; }
+      if (e instanceof ProviderHttpError && e.code === 'status') {
+        // the balance covers less than the cap: ask once more for what it covers, when that is still enough to work with
+        const afford = e.status === 402 ? AFFORD.exec(e.message) : null;
+        if (afford) {
+          const n = Number(afford[1]);
+          if (!capRetried && n >= MIN_USEFUL_OUTPUT && (cap === undefined || n < cap)) { capRetried = true; cap = n; continue; }
+          throw new ProviderHttpError('status', `Your credit with this provider covers only ${n} output tokens for this model, too few for a turn. Add credit with the provider (OpenRouter: openrouter.ai/settings/credits), or choose a cheaper model.`, 402);
+        }
+        // a server that does not know the field: once more without a cap, as before
+        if (cap !== undefined && e.status === 400 && /max_(?:output_)?tokens/i.test(e.message)) { cap = undefined; continue; }
+      }
       // no native tool calling: give it the tools in the prompt instead, and remember that for this model
       if (withTools && refusedTools(e)) {
         withTools = false;
