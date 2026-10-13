@@ -14,7 +14,7 @@ import { dirname, join, resolve, sep } from 'node:path';
 import { z } from 'zod';
 import type { ExecutionBackend } from './types.js';
 import { clampExecLimits, type ExecLimits } from './limits.js';
-import { refuseCatastrophic } from './shell-floor.js';
+import { MAX_READABLE, refuseCatastrophic } from './shell-floor.js';
 // the safety floor lives in its own module; these names stay importable from here
 export { refuseCatastrophic, unjudgeableCommand } from './shell-floor.js';
 
@@ -285,7 +285,8 @@ export function buildHostToolsServer(ctx: HostToolsCtx): McpSdkServerConfigWithI
     (a) => run(async () => {
       // masked too: a command can rename, copy or print the file; read_file is the masked way to see it
       if (envMode !== 'allow' && mentionsEnvFile(a.command)) throw envMode === 'masked' ? new Error('This agent\'s setting for .env files is "masked": a command may not name one (it could copy, move or print it). Use read_file for a view with the values hidden, or change the setting in the agent\'s Shell settings.') : envRefusal('name');
-      const bad = refuseCatastrophic(a.command);
+      // the floor again, in this shell's own reading (cmd.exe on Windows); a command over the reading limit was carded by the engine
+      const bad = a.command.length <= MAX_READABLE ? refuseCatastrophic(a.command, process.platform === 'win32' ? 'cmd' : 'sh') : undefined;
       if (bad) throw new Error(bad);
       const cwd = a.cwd === undefined ? ctx.rootDir : resolveWithin(ctx.rootDir, a.cwd);
       const r = await ctx.backend.execute({ cmd: a.command, cwd, timeoutMs: (a.timeoutSeconds ?? limits.timeoutSeconds) * 1000 });

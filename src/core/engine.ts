@@ -21,7 +21,7 @@ import { TaintedPaths } from './tainted-paths.js';
 import { carryDone, CLAUDE_TASK_TOOLS, mirrorClaudeTaskCall, renderEmptyHandover, renderForModel, renderHandover, TaskList, TaskListStore } from './task-list.js';
 import { nativeTaskListOn } from '../shared/task-list-setting.js';
 import { buildHostToolsServer, redactValues } from './exec/host-tools.js';
-import { refuseCatastrophic, unjudgeableCommand, type ShellKind } from './exec/shell-floor.js';
+import { MAX_READABLE, refuseCatastrophic, unjudgeableCommand, type ShellKind } from './exec/shell-floor.js';
 /** The tools that run a shell command: Legion's host shell and Claude Code's own Bash and PowerShell. */
 const SHELL_TOOLS: ReadonlySet<string> = new Set(['mcp__host__shell', 'Bash', 'PowerShell', 'Monitor']);
 /** The shell each tool runs its command in: Claude Code's Bash and Monitor (POSIX sh, Git Bash on Windows), its PowerShell, Legion's host shell (cmd.exe on Windows). */
@@ -1135,11 +1135,22 @@ This run read connector (GitHub) data and other outside text. Web access can sen
     if (!SHELL_TOOLS.has(toolName)) return undefined;
     const command = typeof input?.command === 'string' ? input.command : '';
     if (!command) return undefined;
-    const refused = refuseCatastrophic(command);
-    if (refused) return Promise.resolve({ allow: false, message: refused });
-    // the card is raised in one place per call: where the call is decided first (the ask-mode hook owns it for Claude's tools)
-    if (opts.card === false) return undefined;
-    const why = unjudgeableCommand(command, shellKindOf(toolName));
+    const kind = shellKindOf(toolName);
+    let why: string | undefined;
+    try {
+      // a command too long to read is not read (that would hold up the core): it goes straight to the owner's card
+      if (command.length <= MAX_READABLE) {
+        const refused = refuseCatastrophic(command, kind);
+        if (refused) return Promise.resolve({ allow: false, message: refused });
+      }
+      // the card is raised in one place per call: where the call is decided first (the ask-mode hook owns it for Claude's tools)
+      if (opts.card === false) return undefined;
+      why = unjudgeableCommand(command, kind);
+    } catch {
+      // fail closed: a floor that could not read the command asks the owner
+      if (opts.card === false) return undefined;
+      why = 'the safety check could not read it';
+    }
     if (!why) return undefined;
     const o = job.origin;
     let timedOut = false;

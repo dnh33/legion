@@ -284,6 +284,60 @@ test('REVIEW 2 (0.2.6-v): tests, PowerShell expressions and cmd switch commands 
   }
 });
 
+test('REVIEW 3 (0.2.6-v): quotes, loops, pipes and casts the third review found are refused or carded', () => {
+  const caught = (cmd: string, shell: ShellKind) => refuseCatastrophic(cmd, shell) ?? unjudgeableCommand(cmd, shell);
+  const cases: Array<[string, ShellKind]> = [
+    // each shell's own quoting: a backslash before a quote escapes it only in sh; cmd has no single quotes; an open quote is unreadable
+    ['Write-Host "C:\\"; Remove-Item -Recurse -Force C:\\', 'pwsh'], ['echo "C:\\" & rd /s /q C:\\', 'cmd'], ['echo \\"; rm -rf /', 'sh'],
+    ["echo hi # don't\nrm -rf /", 'sh'], ['cat > n.txt <<EOF\nit\'s fine\nEOF\nrm -rf ~', 'sh'], ['echo ^" & rd /s /q C:\\ & echo ^"', 'cmd'],
+    ["echo ' & rd /s /q C:\\ & echo '", 'cmd'], ['echo `"; Remove-Item -Recurse -Force C:\\', 'pwsh'], ["# it's\nRemove-Item -Recurse -Force C:\\", 'pwsh'],
+    ['bash <<EOF\nrm -rf /\nEOF', 'sh'],
+    // pipes that feed a delete
+    ['find / -type f | xargs rm -f', 'sh'], ['find ~ | xargs rm -rf', 'sh'], ['echo ~/* | xargs rm -rf', 'sh'], ['Get-Item C:\\ | Remove-Item -Recurse', 'pwsh'],
+    ["'C:\\' | Remove-Item -Recurse -Force", 'pwsh'], ["$p=@{Path='C:\\';Recurse=$true}; Remove-Item @p", 'pwsh'],
+    // a wipe after cd into a protected folder
+    ['cd ~ && find . -delete', 'sh'], ['cd / && git clean -fdx', 'sh'], ['cd / && rsync -a --delete e/ .', 'sh'], ['cd C:\\; ls -r | rm -r -fo', 'pwsh'],
+    // targets that are not written out
+    ['rm -rf /{etc,usr,var,home}', 'sh'], ['rm -rf /{,}', 'sh'], ['rm -rf /$EMPTY', 'sh'], ["rm -rf $'\\x2f'", 'sh'], ['rm -rf "${HOME%/}"', 'sh'],
+    ["for /f %i in ('dir /b C:\\') do rd /s /q \"C:\\%i\"", 'cmd'],
+    // deletes away from a command position
+    ['for /r C:\\ %f in (*) do del /f "%f"', 'cmd'], ['forfiles /p C:\\ /c "cmd /c del @path"', 'cmd'], ['wmic process call create "cmd /c rd /s /q C:\\Windows"', 'cmd'],
+    ["[IO.Directory]::Delete('C:\\',$true)", 'pwsh'], ['[void](Remove-Item -Recurse C:\\)', 'pwsh'], ['Microsoft.PowerShell.Management\\Remove-Item -Recurse C:\\', 'pwsh'],
+    ["Start-Process cmd -ArgumentList '/c rd /s /q C:\\'", 'pwsh'],
+    // wrappers, runners and shell forms
+    ['pkexec rm -rf /', 'sh'], ['fakeroot rm -rf /', 'sh'], ['unshare -r rm -rf /', 'sh'], ['systemd-run rm -rf /', 'sh'], ['runuser -u root rm -rf /', 'sh'],
+    ['parallel rm -rf ::: /', 'sh'], ['watch rm -rf /', 'sh'], ["script -qc 'rm -rf /'", 'sh'], ["tmux new -d 'rm -rf /'", 'sh'], ['screen -dm rm -rf /', 'sh'],
+    ["at now <<< 'rm -rf /'", 'sh'], ["alias x='rm -rf /'; x", 'sh'], ["trap 'rm -rf /' EXIT", 'sh'], ['time -p rm -rf /c', 'sh'], ['exec -a foo rm -rf /c', 'sh'],
+    ['env -S "rm -rf /"', 'sh'], ['case x in x) rm -rf /;; esac', 'sh'], ['cat /dev/zero > /dev/sda; echo done', 'sh'],
+    ['rm -rf /System', 'sh'], ['rm -rf /Library', 'sh'], ['rm -rf /Applications', 'sh'], ['rm -rf /usr/lib', 'sh'],
+  ];
+  for (const [cmd, shell] of cases) assert.ok(caught(cmd, shell), `refused or carded (${shell}): ${JSON.stringify(cmd)}`);
+});
+
+test('REVIEW 3 (0.2.6-v): everyday tests, case branches, functions, redirects and cmd conditions are not carded', () => {
+  const cases: Array<[string, ShellKind]> = [
+    ['[ "$1" = a ] && echo yes', 'sh'], ['[[ $X == y ]] && echo y', 'sh'], ['while [ $i -lt 3 ]; do i=$((i+1)); done', 'sh'], ['(( $n > 3 )) && echo big', 'sh'],
+    ['for ((i=0;i<3;i++)); do echo $i; done', 'sh'], ['case $1 in start) npm start;; esac', 'sh'], ['f() { echo hi; }; f', 'sh'], ['{ echo a; } > out.txt', 'sh'],
+    ['exec > log 2>&1', 'sh'], ['V=$(echo $(date)) make', 'sh'], ['find ~ -name .DS_Store -delete', 'sh'], ["find ~ -name '*.pyc' -delete", 'sh'],
+    ["cat > notes.txt <<'EOF'\nit's done; rm -rf / is only text here\nEOF", 'sh'], ["python3 - <<'EOF'\nprint('hi')\nEOF", 'sh'],
+    ['if "%X%"=="a" echo yes', 'cmd'], ['if %ERRORLEVEL% neq 0 exit /b 1', 'cmd'], ['for %f in (*.txt) do type %f', 'cmd'], ['echo "it\'s" & dir', 'cmd'],
+    ["Write-Host 'it''s fine'; npm test", 'pwsh'], ['git rm -r --cached dist', 'sh'], ['git clean -fd', 'sh'], ['docker system prune -f', 'sh'], ['docker rm -f web', 'sh'],
+  ];
+  for (const [cmd, shell] of cases) {
+    assert.equal(refuseCatastrophic(cmd, shell), undefined, `not refused (${shell}): ${cmd}`);
+    assert.equal(unjudgeableCommand(cmd, shell), undefined, `no card (${shell}): ${cmd}`);
+  }
+});
+
+test('REVIEW 3 (0.2.6-v): reading stays fast on the shape that took 101 s (a pipe of shells) and other 10 KB inputs', () => {
+  for (const big of ['x | sh | '.repeat(1_200), 'sh -c "a $(b c)"; '.repeat(600), '$(a) '.repeat(2_000), '"a"b'.repeat(2_500)]) {
+    const t = Date.now();
+    refuseCatastrophic(big.slice(0, 10_000));
+    unjudgeableCommand(big.slice(0, 10_000));
+    assert.ok(Date.now() - t < 1_000, `${big.slice(0, 10)}… took ${Date.now() - t} ms`);
+  }
+});
+
 test('REVIEW 2 (0.2.6-v): a command too long to read safely gets a card at once; reading stays fast on 200 KB', () => {
   assert.match(unjudgeableCommand('echo ' + 'a'.repeat(20_000)) ?? '', /too long/);
   for (const big of ['a | '.repeat(50_000), 'a; '.repeat(60_000), '"a"b'.repeat(50_000), '$(a) '.repeat(40_000)]) {
