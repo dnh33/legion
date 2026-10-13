@@ -1,0 +1,13 @@
+Restarting stops running agents. Each stopped run offers Continue afterwards. You need to do nothing.
+
+Esc no longer throws away your changes
+In the agent editor, Esc closed it at once and your unsaved changes were gone.
+Now Esc asks first, like the close button: discard them, or keep editing.
+
+Also fixed:
+- An answer of your own in a question card can have spaces again.
+- A bare @ in a room no longer picks @everyone, so Enter does not wake every agent.
+- Done-when checks you typed are kept when you save a work item.
+- A message that could not be sent now says why.
+
+Installs over 0.2.5-o and later. Full detail in CHANGELOG.md.
