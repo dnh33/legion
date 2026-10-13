@@ -249,6 +249,25 @@ test('Restart now: drain cancels running and queued tasks, denies approvals, rec
     assert.equal((await r.mod.status()).stopped, undefined);
   } finally { await r.srv.close(); }
 });
+test('Restart now right after Legion started: your click is not refused for "Legion just started" (only the automatic install waits)', async () => {
+  const r = await stagedRig();
+  try {
+    // no time has passed since the core started
+    assert.match((await r.mod.status()).busy.reasons.join(), /just started/, 'the automatic install still waits');
+    await assert.rejects(r.mod.commit(), /quiet long enough|just started/, 'and so does a commit without your click');
+    await r.mod.drain();
+    const job = await r.mod.commit({ force: true });
+    assert.equal(job.to, '0.2.1');
+  } finally { await r.srv.close(); }
+});
+test('Restart now still refuses real work that the drain could not stop', async () => {
+  const r = await stagedRig();
+  try {
+    await r.mod.drain();
+    r.store.upsertVm({ agentId: 'builder', sandboxId: 's', state: 'archiving', size: 'default', lastUsedAt: null, createdAt: null } as never);
+    await assert.rejects(r.mod.commit({ force: true }), /busy: a VM operation/);
+  } finally { await r.srv.close(); }
+});
 test('commit with force only works within a minute of a drain', async () => {
   const r = await stagedRig();
   try { await assert.rejects(r.mod.commit({ force: true }), /quiet long enough|just started/); } finally { await r.srv.close(); }

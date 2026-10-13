@@ -1,6 +1,7 @@
 /** Pure helpers for the Electron side of the updater (src/electron/updater-main.ts), kept free of electron so they can be tested. */
 import { join, resolve, sep } from 'node:path';
 import { CODE_SET, FULL_PACKAGE_SET, UPDATE_DIR, type ApplyJob } from './apply.js';
+import { BOOT_REASON } from './idle.js';
 
 export interface CommitFacts { installDir: string; stagedDir: string; from: string; to: string; /** FULL_PACKAGE_SET for a dependency-change release, omitted for a code-only update. */ names?: readonly string[] }
 
@@ -33,7 +34,8 @@ export function buildJob(c: CommitFacts, o: { parentPid: number; port: number; e
 
 /** Text of the native "Restart now" confirmation: names exactly what will stop. */
 export function restartNowText(busy: readonly string[], to: string): { message: string; detail: string; buttons: [string, string] } {
-  const stops = busy.length ? busy.map((r) => `- ${r}`).join('\n') : '- nothing is running right now';
+  const work = busy.filter((r) => r !== BOOT_REASON); // a wait for the automatic install, not work: nothing to stop
+  const stops = work.length ? work.map((r) => `- ${r}`).join('\n') : '- nothing is running right now';
   return {
     message: `Restart Legion now to install ${to}?`,
     detail: [
