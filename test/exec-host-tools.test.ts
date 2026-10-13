@@ -120,23 +120,45 @@ test('the host shell never gets Legion\'s own credentials: API keys, the boat ke
   const cfg = defaultConfig();
   cfg.claude.apiKey = 'sk-' + 'ant-legion-own-key-0123456789';
   cfg.boat.apiKey = 'boat-legion-own-key-0123456789';
-  const names = ['ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN', 'BOAT_API_KEY', 'LEGION_LEAK_A', 'LEGION_LEAK_B', 'LEGION_LEAK_C', 'GITHUB_TOKEN', 'LEGION_PLAIN'];
+  const names = ['ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN', 'BOAT_API_KEY', 'MY_LEAK_A', 'MY_LEAK_B', 'MY_LEAK_C', 'GITHUB_TOKEN', 'OWNER_PLAIN'];
   const prev = Object.fromEntries(names.map((k) => [k, process.env[k]]));
   try {
     process.env.ANTHROPIC_API_KEY = 'sk-' + 'ant-from-the-environment';
     process.env.ANTHROPIC_AUTH_TOKEN = 'oauth-from-the-environment';
     process.env.BOAT_API_KEY = 'boat-from-the-environment';
-    process.env.LEGION_LEAK_A = `x${cfg.authToken}y`;
-    process.env.LEGION_LEAK_B = `Bearer ${cfg.claude.apiKey}`;
-    process.env.LEGION_LEAK_C = cfg.boat.apiKey.toUpperCase();
+    process.env.MY_LEAK_A = `x${cfg.authToken}y`;
+    process.env.MY_LEAK_B = `Bearer ${cfg.claude.apiKey}`;
+    process.env.MY_LEAK_C = cfg.boat.apiKey.toUpperCase();
     process.env.GITHUB_TOKEN = 'ghp' + '_the_owners_own_token';
-    process.env.LEGION_PLAIN = 'ordinary';
+    process.env.OWNER_PLAIN = 'ordinary';
     const env = buildHostShellEnv(cfg);
-    for (const k of ['ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN', 'BOAT_API_KEY', 'LEGION_LEAK_A', 'LEGION_LEAK_B', 'LEGION_LEAK_C']) assert.equal(k in env, false, k);
+    for (const k of ['ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN', 'BOAT_API_KEY', 'MY_LEAK_A', 'MY_LEAK_B', 'MY_LEAK_C']) assert.equal(k in env, false, k);
     // the owner's own tools still work: PATH, and credentials the owner put there for the agent's work (git push)
     assert.ok(env.PATH ?? env.Path, 'PATH is kept');
     assert.equal(env.GITHUB_TOKEN, 'ghp' + '_the_owners_own_token');
-    assert.equal(env.LEGION_PLAIN, 'ordinary');
+    assert.equal(env.OWNER_PLAIN, 'ordinary');
+  } finally { for (const k of names) { if (prev[k] === undefined) delete process.env[k]; else process.env[k] = prev[k]; } }
+});
+
+test('the host shell never gets Legion\'s own control variables: LEGION_* is the core\'s namespace (a leaked LEGION_PORT moved an agent\'s test run to the live core\'s port)', async () => {
+  const { buildHostShellEnv } = await import('../src/core/engine.js');
+  const { defaultConfig } = await import('../src/shared/config.js');
+  const names = ['LEGION_PORT', 'LEGION_HOME', 'LEGION_ADMIN_STDIN', 'LEGION_TEST_MODE', 'legion_lowercase', 'LEGIONNAIRE', 'OWNER_PLAIN'];
+  const prev = Object.fromEntries(names.map((k) => [k, process.env[k]]));
+  try {
+    process.env.LEGION_PORT = '4747';
+    process.env.LEGION_HOME = (await import('node:os')).tmpdir();
+    process.env.LEGION_ADMIN_STDIN = '1';
+    process.env.LEGION_TEST_MODE = '1';
+    process.env.legion_lowercase = 'x';
+    process.env.LEGIONNAIRE = 'kept: not the LEGION_ namespace';
+    process.env.OWNER_PLAIN = 'ordinary';
+    const env = buildHostShellEnv(defaultConfig());
+    for (const k of ['LEGION_PORT', 'LEGION_HOME', 'LEGION_ADMIN_STDIN', 'LEGION_TEST_MODE']) assert.equal(k in env, false, k);
+    // Windows env names are case-insensitive: a lowercase spelling is the same variable there
+    assert.equal(Object.keys(env).some((k) => /^legion_/i.test(k)), false, 'no LEGION_ name in any case');
+    assert.equal(env.LEGIONNAIRE, 'kept: not the LEGION_ namespace');
+    assert.equal(env.OWNER_PLAIN, 'ordinary');
   } finally { for (const k of names) { if (prev[k] === undefined) delete process.env[k]; else process.env[k] = prev[k]; } }
 });
 
