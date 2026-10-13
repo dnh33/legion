@@ -1226,7 +1226,7 @@ This run read connector (GitHub) data and other outside text. Web access can sen
       const mode = effective();
       // Gate rules (Settings -> Gates) sit ahead of the approval baseline: deny wins outright (and survives full), an
       // explicit allow skips the card, an ask forces one (inert in full), and no rule falls through to the baseline.
-      const gate = decideGate({ toolName, input, agentId: agent.id, cwd: this.gateCwd(agent, toolName), tmpDir: GATE_TMP_DIR, projectId: this.projectOf(job.taskId, agent.id)?.id, ctx: { roomHop: (job.origin?.hop ?? 0) > 0, tainted: this.active.get(job.taskId)?.tainted === true || job.origin?.tainted === true, connectorData: this.store.getTask(job.taskId)?.usedConnectors === true } }, gatesFor(this.config).rules, mode, job.origin?.approvalCeiling === 'ask');
+      const gate = decideGate({ toolName, input, agentId: agent.id, cwd: this.gateCwd(agent, toolName), tmpDir: GATE_TMP_DIR, projectId: this.projectOf(job.taskId, agent.id)?.id, startProjectId: job.projectAtStart, ctx: { roomHop: (job.origin?.hop ?? 0) > 0, tainted: this.active.get(job.taskId)?.tainted === true || job.origin?.tainted === true, connectorData: this.store.getTask(job.taskId)?.usedConnectors === true } }, gatesFor(this.config).rules, mode, job.origin?.approvalCeiling === 'ask');
       if (gate.verdict === 'deny') return { allow: false, message: 'Blocked by a gate rule (Settings -> Gates).' };
       // the shell floor sits ahead of allow rules and the baseline: an allow rule cannot pass a command nobody could read
       const floor = this.shellFloor(job, agent, toolName, input, { card: opts.floorCard !== false });
@@ -1375,7 +1375,7 @@ This run read connector (GitHub) data and other outside text. Web access can sen
           const d = await demoted(input.tool_name, (input.tool_input ?? {}) as Record<string, unknown>);
           return d.allow ? { continue: true } : preToolDeny(d.message ?? 'The user denied this action.');
         }
-        const g = decideGate({ toolName: input.tool_name, input: (input.tool_input ?? {}) as Record<string, unknown>, agentId: agent.id, cwd: this.gateCwd(agent, input.tool_name), tmpDir: GATE_TMP_DIR, projectId: this.projectOf(job.taskId, agent.id)?.id, ctx: { roomHop: (job.origin?.hop ?? 0) > 0, tainted: this.active.get(job.taskId)?.tainted === true || job.origin?.tainted === true, connectorData: this.store.getTask(job.taskId)?.usedConnectors === true } }, gatesFor(this.config).rules, 'full', false);
+        const g = decideGate({ toolName: input.tool_name, input: (input.tool_input ?? {}) as Record<string, unknown>, agentId: agent.id, cwd: this.gateCwd(agent, input.tool_name), tmpDir: GATE_TMP_DIR, projectId: this.projectOf(job.taskId, agent.id)?.id, startProjectId: job.projectAtStart, ctx: { roomHop: (job.origin?.hop ?? 0) > 0, tainted: this.active.get(job.taskId)?.tainted === true || job.origin?.tainted === true, connectorData: this.store.getTask(job.taskId)?.usedConnectors === true } }, gatesFor(this.config).rules, 'full', false);
         if (g.verdict === 'deny') return preToolDeny('Blocked by a gate rule (Settings -> Gates).');
         // Full forgives the approval card, not the machine: the shell floor holds here too (Claude's own Bash included)
         const floor = this.shellFloor(job, agent, input.tool_name, (input.tool_input ?? {}) as Record<string, unknown>);
@@ -1390,7 +1390,7 @@ This run read connector (GitHub) data and other outside text. Web access can sen
       options.hooks?.PreToolUse?.push({ matcher: 'Bash|PowerShell|Monitor|mcp__host__shell', timeout: cardHookSeconds, hooks: [async (input) => {
         if (input.hook_event_name !== 'PreToolUse') return { continue: true };
         const tin = (input.tool_input ?? {}) as Record<string, unknown>;
-        const g = decideGate({ toolName: input.tool_name, input: tin, agentId: agent.id, cwd: this.gateCwd(agent, input.tool_name), tmpDir: GATE_TMP_DIR, projectId: this.projectOf(job.taskId, agent.id)?.id, ctx: { roomHop: (job.origin?.hop ?? 0) > 0, tainted: this.active.get(job.taskId)?.tainted === true || job.origin?.tainted === true, connectorData: this.store.getTask(job.taskId)?.usedConnectors === true } }, gatesFor(this.config).rules, effective(), job.origin?.approvalCeiling === 'ask');
+        const g = decideGate({ toolName: input.tool_name, input: tin, agentId: agent.id, cwd: this.gateCwd(agent, input.tool_name), tmpDir: GATE_TMP_DIR, projectId: this.projectOf(job.taskId, agent.id)?.id, startProjectId: job.projectAtStart, ctx: { roomHop: (job.origin?.hop ?? 0) > 0, tainted: this.active.get(job.taskId)?.tainted === true || job.origin?.tainted === true, connectorData: this.store.getTask(job.taskId)?.usedConnectors === true } }, gatesFor(this.config).rules, effective(), job.origin?.approvalCeiling === 'ask');
         if (g.verdict === 'deny') return preToolDeny('Blocked by a gate rule (Settings -> Gates).');
         const floor = this.shellFloor(job, agent, input.tool_name, tin);
         if (!floor) return { continue: true };

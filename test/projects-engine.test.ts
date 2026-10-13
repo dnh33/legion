@@ -336,3 +336,25 @@ test('L2 a delegation from a task in an archived project is refused (409), not r
   assert.throws(() => s.engine.startTask({ agentId: 'a2', prompt: 'help', source: 'agent', bridge: { fromAgentId: 'a1', parentTaskId: parent.id, hop: 1 } }),
     (e: any) => e instanceof EngineError && e.status === 409 && /Project "P" is archived/.test(e.message));
 });
+
+test('a project deny rule still applies to a live run after its agent is removed from the project', async () => {
+  let release!: () => void;
+  const held = new Promise<void>((r) => { release = r; });
+  const s = setup(() => (async function* () { yield { type: 'system', subtype: 'init', session_id: 's1' }; await held; yield ok(); })());
+  const p = s.mk('Locked', ['a1']);
+  s.config.gates = { rules: [{ id: 'gr_lock', enabled: true, then: 'deny', label: 'no shell here', source: 'user', when: { projects: [p.id], tools: ['Bash'] } }] } as any;
+  const t = s.engine.startTask({ agentId: 'a1', prompt: 'x', source: 'ui', projectId: p.id });
+  await new Promise((r) => setTimeout(r, 30));
+  const sig = { signal: new AbortController().signal };
+  // a verdict, or an open card (ask) after a short wait
+  const verdict = async () => (await Promise.race([s.calls[0]!.options.canUseTool('Bash', { command: 'ls' }, sig), new Promise((r) => setTimeout(() => r({ behavior: 'card shown (no verdict)' }), 300))]) as { behavior: string }).behavior;
+  try {
+    assert.equal(await verdict(), 'deny', 'in the project: denied');
+    s.projects.setMembers(p.id, []);
+    assert.equal(await verdict(), 'deny', 'removed mid-run: still denied');
+  } finally {
+    release();
+    s.engine.cancel(t.id); // an open card must not hold the test
+    await s.engine.waitFor(t.id, 3000);
+  }
+});

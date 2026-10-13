@@ -50,6 +50,11 @@ export interface GateCall {
   input?: Record<string, unknown>;
   agentId?: string;
   projectId?: string;
+  /**
+   * The project the run was queued in. A run that lost it mid-way (archived, agent removed) still meets that project's
+   * deny and ask rules for the rest of the run; its allow rules need the project now (projectId).
+   */
+  startProjectId?: string;
   /** The agent's working dir, used to resolve relative file paths and redirects. Pure string work; no fs. */
   cwd?: string;
   /** The real temp folder where `/tmp` means it (the agent shell on Windows). Lets deny and ask rules see both spellings. */
@@ -400,7 +405,8 @@ export function decideGate(input: GateCall, rules: readonly GateRule[], mode: Ap
   const matched: GateRule[] = [];
   for (const r of rules) {
     if (!r.enabled) continue;
-    if (!whenMatches(r.when, call)) continue;
+    const lostProject = r.then !== 'allow' && !!call.startProjectId && call.startProjectId !== call.projectId;
+    if (!whenMatches(r.when, call) && !(lostProject && whenMatches(r.when, { ...call, projectId: call.startProjectId }))) continue;
     // Command scoping is class-aware (any-subcommand for deny/ask, every-subcommand for allow); paths are the
     // same for every class. Both live here, not in whenMatches, because they need the rule's class.
     if (r.when.commands?.length && (!subs || !commandsMatch(r.when.commands, subs, r.then, allowSubs))) continue;
