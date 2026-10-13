@@ -274,7 +274,9 @@ export class Bridge {
       ]);
       if (r === 'timeout') {
         const t = this.store.getTask(taskId);
-        return { taskId, status: t?.status ?? 'running', verdict: 'none', note: `Still working; use ask again later or tell. Timed out after ${Math.round(timeoutMs / 1000)}s.` };
+        // the answer is not lost: it lands in the caller's task when the run ends, as a tell's would
+        this.replyWhenDone(callerTaskId, target, taskId, done, { quietWhenDeleted: true });
+        return { taskId, status: t?.status ?? 'running', verdict: 'none', note: `Still working after ${Math.round(timeoutMs / 1000)}s. Its answer arrives later as a new message in your task; task_result ${taskId} reads it once it is done.` };
       }
       if (r.error) throw r.error;
       const t = r.task ?? this.store.getTask(taskId);
@@ -304,7 +306,15 @@ export class Bridge {
       return this.deliver(caller, target, message, !!opts.fresh, hop, model, opts.brief);
     });
     this.sendBacks.record(callerTaskId, target, opts.brief?.goal); // delivered: only now does it use up a try
+    this.replyWhenDone(callerTaskId, target, taskId, done);
+    return { taskId };
+  }
+
+  /** When the callee's run ends, its answer lands in the caller's task as a new message (a tell, or an ask that timed out). */
+  private replyWhenDone(callerTaskId: string, target: AgentProfile, taskId: string, done: Promise<{ task?: Task; error?: Error }>, opts: { quietWhenDeleted?: boolean } = {}): void {
     void done.then((r) => {
+      // a timed-out ask whose thread the owner deleted: a line in the thread says so; no run is woken for it
+      if (opts.quietWhenDeleted && r.error && /was deleted/.test(r.error.message)) { this.notice(callerTaskId, `The answer from ${target.name} (task ${taskId}) will not come: that task was deleted.`); return; }
       const t = r.task ?? this.store.getTask(taskId);
       const body = r.error ? `(failed) ${r.error.message}` : t?.status === 'done' ? (t.result ?? '') : `(${t?.status ?? 'gone'}) ${t?.error ?? ''}`.trim();
       // the outcome travels in the header, which only Legion writes: a free-text answer that happens to start with
@@ -312,7 +322,6 @@ export class Bridge {
       const outcome = r.error ? 'failed' : t?.status === 'done' ? undefined : (t?.status ?? 'gone');
       this.deliverReply(callerTaskId, target, taskId, this.clip(body, taskId).text, outcome);
     });
-    return { taskId };
   }
 
   /**

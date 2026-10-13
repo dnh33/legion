@@ -285,7 +285,7 @@ test('ask result is cut to 4000 chars with a pointer to the full text; ask timeo
   assert.equal(t.status, 'done');
   const slow = await s.engine.bridge.ask(z.id, 'builder', 'slow', { fresh: true, timeoutSeconds: 0.05 }) as any;
   assert.equal(slow.status, 'running');
-  assert.match(slow.note, /Timed out/);
+  assert.match(slow.note, /Still working after \d+s\. Its answer arrives later/);
   s.engine.cancel(slow.taskId);
 });
 
@@ -492,4 +492,19 @@ test('D4 a delegation that is refused when it starts costs nothing: neither the 
   s.engine.startTask = real;
   const { taskId } = s.engine.bridge.tell(z.id, 'builder', 'now it can start', { fresh: true });
   assert.ok(taskId, 'not stopped by a budget the refusals used up');
+});
+
+test('D7 an ask that times out still delivers its answer later, as a reply in the caller task; the note says so', async () => {
+  const g = gated();
+  const s = setup((c) => c.agent === 'builder' ? (async function* () { yield init('b1'); await g.p; yield ok('the late answer', 'b1'); })() : undefined, 4);
+  const z = s.engine.startTask({ agentId: 'zealot', prompt: 'go', source: 'ui' });
+  await s.engine.waitFor(z.id, 3000);
+  const r = await s.engine.bridge.ask(z.id, 'builder', 'slow job', { timeoutSeconds: 1 });
+  assert.match(r.note ?? '', /arrives later as a new message in your task/);
+  g.open();
+  await s.engine.waitFor(r.taskId, 3000);
+  await tick(150);
+  const replies = s.store.listMessages(z.id).filter((m) => m.role === 'user' && /\[Reply from Builder/.test(m.text));
+  assert.equal(replies.length, 1, 'the answer was not lost');
+  assert.match(replies[0]!.text, /builder says: slow job|the late answer/);
 });
