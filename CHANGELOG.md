@@ -34,6 +34,9 @@ All notable changes are recorded here. The format follows [Keep a Changelog](htt
 - **Projects show where things go.** A queued message keeps the project you queued it in. The thread header, task tabs
   and History show a task's project. The composer says "New task in: <project>". Removing a member or archiving a
   project first says what it touches. A run queued in a project that is archived or loses the agent says so.
+- **MiMo 2.6 Pro and MiMo 2.6 Flash lead the OpenRouter models.** A new OpenRouter setup offers
+  `xiaomi/mimo-v2.6-pro` (reasoning) and `xiaomi/mimo-v2.6-flash` (fast everyday work) first, above DeepSeek. A list you
+  already saved keeps its own order.
 - **The agent shell no longer inherits Legion's own `LEGION_*` settings.** An agent that ran Legion's own tests picked
   up the live app's port.
 - **The BSV frozen banner says why, since when, and that Unfreeze is in the BSV panel.**
