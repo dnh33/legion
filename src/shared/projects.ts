@@ -35,3 +35,14 @@ export const projectIdOfScope = (scope: string): string | undefined => {
   const id = scope.slice(PROJECT_SCOPE_PREFIX.length);
   return PROJECT_ID_RE.test(id) ? id : undefined;
 };
+
+/**
+ * Why a room tagged with a project is out of it (decision B4), or undefined while it is in it: the project is gone or
+ * archived, or one of the room's agents is not a member. The room keeps its tag, so putting this right brings it back.
+ */
+export function roomOutOfProjectReason(members: readonly string[], project: Pick<Project, 'status' | 'members'> | undefined, nameOf: (id: string) => string): string | undefined {
+  if (!project) return 'the project was deleted';
+  if (project.status !== 'active') return 'the project is archived';
+  const outside = members.find((m) => !project.members.includes(m));
+  return outside ? `${nameOf(outside)} is not a member of it` : undefined;
+}

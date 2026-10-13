@@ -4,7 +4,7 @@ import type { Project } from '../../../src/shared/projects';
 import { ensureRoomList, openRoom, useRooms } from '../rooms/roomsStore';
 import { loadProjectTasks, newTask, selectAgent, selectTask, setView, useStore } from '../store';
 import { archiveProject, assignRoom, changeMembers, chooseFolder, closeProjectPage, saveProject, setProjectFilter, useDefaultFolder } from './projectsStore';
-import { assignableRooms, instructionsCounter, projectLabel, roomsOf, statusLine } from './projectsLogic';
+import { assignableRooms, instructionsCounter, projectLabel, roomOutOfProject, roomsOf, statusLine } from './projectsLogic';
 import { BoardPanel } from './board/BoardPanel';
 import './projects.css';
 
@@ -44,6 +44,7 @@ function ProjectPage({ project }: { project: Project }) {
   const free = assignableRooms(rooms, project);
   const members = project.members.map((id) => agents.find((a) => a.id === id) ?? { id, name: id, emoji: '?' });
   const outside = agents.filter((a) => !project.members.includes(a.id));
+  const names = Object.fromEntries(agents.map((a) => [a.id, a.name]));
   const counter = instructionsCounter(text);
   const nameDirty = name.trim() !== project.name;
   const textDirty = text.slice(0, PROJECT_LIMITS.instructionsChars) !== project.instructions;
@@ -146,6 +147,7 @@ function ProjectPage({ project }: { project: Project }) {
               {inRooms.map((r) => (
                 <li key={r.id}>
                   <button type="button" className="proj-link" onClick={() => { setView('rooms'); openRoom(r.id); }}>{r.name}</button>
+                  {roomOutOfProject(r, [project], names) && <span className="muted-s" title={roomOutOfProject(r, [project], names)}>out of project</span>}
                   <button type="button" className="btn-ghost sm" disabled={busy} aria-label={`Take ${r.name} out of this project`} onClick={() => void run(() => assignRoom(r.id, null))}>Take out</button>
                 </li>
               ))}

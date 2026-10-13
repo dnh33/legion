@@ -1,6 +1,6 @@
 /** Pure helpers for the Projects UI (no React, no store): tested in node. */
 import type { Room } from '../../../src/shared/comms.js';
-import { PROJECT_LIMITS } from '../../../src/shared/projects.js';
+import { PROJECT_LIMITS, roomOutOfProjectReason } from '../../../src/shared/projects.js';
 import type { Project } from '../../../src/shared/projects.js';
 import type { AgentProfile, Task } from '../../../src/shared/types.js';
 
@@ -71,6 +71,12 @@ export function archiveQuestion(name: string, n: { live: number; open: number; r
   lines.push(n.open ? `Its ${plural(n.open, 'open task', 'open tasks')} cannot be continued, and no new task can start in it, until you unarchive it.` : 'No new task can start in it until you unarchive it.');
   if (n.rooms) lines.push(`${plural(n.rooms, 'room keeps', 'rooms keep')} working, without the project's instructions and notes.`);
   return lines.join('\n\n');
+}
+
+/** Why a room is out of its project (the same rule the core uses for its notice), or undefined: shown as a badge. */
+export function roomOutOfProject(room: Pick<Room, 'projectId' | 'members'>, projects: Project[], names: Record<string, string>): string | undefined {
+  if (!room.projectId) return undefined;
+  return roomOutOfProjectReason(room.members, projects.find((p) => p.id === room.projectId), (id) => names[id] ?? id);
 }
 
 export const roomsOf = (rooms: Room[], projectId: string): Room[] => rooms.filter((r) => r.projectId === projectId);

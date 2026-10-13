@@ -102,3 +102,23 @@ test('council A9: the archive question says what archiving touches', async () =>
   assert.match(q, /1 room keeps working, without the project's instructions and notes\./);
   assert.doesNotMatch(archiveQuestion('Site', { live: 0, open: 0, rooms: 0 }), /run|room|open task/);
 });
+
+test('B4 roomOutOfProject: the reason a room is out of its project, or nothing', async () => {
+  const { roomOutOfProject } = await import('../ui/src/projects/projectsLogic.js');
+  const P = { id: 'proj_aaaaaaaaaaaa', name: 'Crew', status: 'active', members: ['zealot', 'scout'] } as any;
+  const names = { zealot: 'Zealot', scout: 'Scout', ranger: 'Ranger' };
+  assert.equal(roomOutOfProject({ projectId: P.id, members: ['zealot', 'scout'] }, [P], names), undefined);
+  assert.equal(roomOutOfProject({ members: ['zealot', 'ranger'] }, [P], names), undefined, 'no project, nothing to say');
+  assert.equal(roomOutOfProject({ projectId: P.id, members: ['zealot', 'ranger'] }, [P], names), 'Ranger is not a member of it');
+  assert.equal(roomOutOfProject({ projectId: P.id, members: ['zealot'] }, [{ ...P, status: 'archived' }], names), 'the project is archived');
+  assert.equal(roomOutOfProject({ projectId: P.id, members: ['zealot'] }, [], names), 'the project was deleted');
+});
+
+test('B4 the room header names the room\'s project, and marks it "out of project" with the reason', () => {
+  const root = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
+  const head = readFileSync(join(root, 'ui', 'src', 'rooms', 'RoomHeader.tsx'), 'utf8');
+  assert.match(head, /roomOutOfProject\(room, projects, names\)/);
+  assert.match(head, /data-testid="room-out-of-project"/);
+  const view = readFileSync(join(root, 'ui', 'src', 'projects', 'ProjectView.tsx'), 'utf8');
+  assert.match(view, /roomOutOfProject\(r, \[project\], names\)/);
+});

@@ -17,6 +17,7 @@ import { RoomStore } from './rooms.js';
 import type { HubState, TaskMapEntry } from './rooms.js';
 import { overrideAllowed, overrideRefusal } from '../model-cap.js';
 import { cardText, clip, containsSeedPhrase, cycleHash, neutralizeTags, safeName, scrubSecrets } from './scrub.js';
+import { roomOutOfProjectReason } from '../../shared/projects.js';
 
 // ------------------------------------------------------------------ public types
 
@@ -178,6 +179,8 @@ export class CommsHub {
   private readonly held = new Map<string, Array<{ botId: string; d: Delivery }>>();
   private readonly agents: HubStore;
   private readonly projects?: HubOptions['projects'];
+  /** Rooms last seen out of their project (decision B4): a notice is posted only when this changes. */
+  private readonly outOfProject = new Set<string>();
   private readonly bus: EventBus;
   private readonly rooms: RoomStore;
   private readonly now: () => number;
@@ -963,6 +966,7 @@ export class CommsHub {
   }
 
   private onEvent(ev: LegionEvent): void {
+    if (ev.type === 'project.updated') { this.onProjectUpdated(ev.project); return; }
     if (ev.type === 'task.updated') {
       const w = this.watchers.get(ev.task.id);
       if (w && !LIVE(ev.task.status)) this.onDone(w, ev.task);
@@ -1326,6 +1330,22 @@ export class CommsHub {
     for (const id of wakeIds) {
       const a = this.agents.getAgent(id);
       if (a && !overrideAllowed(a.model, model)) throw new CommsError(400, overrideRefusal(a.name, a.model, model));
+    }
+  }
+
+  /** A room whose project was archived, deleted or lost one of the room's agents says so once, and once more when it is back (decision B4). */
+  private onProjectUpdated(p: { id: string; name: string; status: string; members: string[] }): void {
+    for (const room of this.liveRooms()) {
+      if (room.projectId !== p.id) continue;
+      const why = roomOutOfProjectReason(room.members, { status: p.status as 'active' | 'archived', members: p.members }, (id) => this.nameOf(id));
+      const was = this.outOfProject.has(room.id);
+      if (why && !was) {
+        this.outOfProject.add(room.id);
+        this.post(room, { from: { kind: 'system' }, kind: 'note', hop: 0, text: `This room is out of project "${p.name}": ${why}. Its agents work without the project's instructions, board and notes until that changes.` });
+      } else if (!why && was) {
+        this.outOfProject.delete(room.id);
+        this.post(room, { from: { kind: 'system' }, kind: 'note', hop: 0, text: `This room is back in project "${p.name}".` });
+      }
     }
   }
 
