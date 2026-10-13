@@ -87,16 +87,19 @@ D:\bots\legion-<topic>  a worktree for ONE feature               <- also fine, m
 
 Never ship from a worktree that is not merged. Never build or test in the install folder.
 
-### 1. Gate (one at a time — `npm test` clobbers `dist/`)
+### 1. Gate
 
-A release runs the full suite locally on purpose, so set `LEGION_LOCAL_GATE=1` for this step (the PR's CI runs it too).
+GitHub CI is the full-suite gate: all 11 required checks green on the release PR's head (Windows, macOS, Linux
+tests, installers, typecheck + UI build). `main` requires the branch to be up to date, so that head already holds
+`main`. Record the run id. Locally, run only what CI cannot: the typecheck, the test files the change touches, and the
+in-app test in an isolated test copy. A full local run (`LEGION_LOCAL_GATE=1 npm test`) is opt-in, one at a time
+(it rewrites `dist/`).
 
 ```
-npm ci
-npm run build:ts
-npm test                       # record the EXACT counts
 npm run typecheck
-npm run build:ui
+npm run build:ts
+node --test dist/test/<touched>.test.js
+gh pr checks <pr>              # all pass, then record the run id
 ```
 
 Run a **clean-`main` baseline first** if you intend to claim a failure is pre-existing. Do not skip this: it is the
@@ -194,12 +197,12 @@ still passes).
 
 ### 7b. THE FULL SUITE MUST BE GREEN BEFORE `main` IS TOUCHED
 
-`npm test` on the merged tree, in the folder that will be `main`, with nothing else building at the time. Two
-rules that are not negotiable, both learned the hard way on 2026-10-04:
+The release PR's CI, all 11 required checks, on a head that is up to date with `main` (step 1). Two rules that are
+not negotiable, both learned the hard way on 2026-10-04:
 
 - **Focused suites are not the gate.** Running the seven suites a change touches proves the change works. It says
   nothing about the other 2,400 tests. Merging on focused evidence alone is merging on a guess.
-- **One gate at a time.** `npm test` rewrites `dist/`, so a concurrent `npm run build:ts` — from another agent,
+- **One local full run at a time, if you opt in to one.** `npm test` rewrites `dist/`, so a concurrent `npm run build:ts` — from another agent,
   a scratch worktree, or a probe script — silently corrupts both results. Two suites writing the same output
   produce numbers that mean nothing, and the failure mode looks like flaky tests.
 
