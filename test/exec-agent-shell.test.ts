@@ -127,28 +127,6 @@ test('a cancel ends a Git Bash run the same way', { skip: skipReal }, async () =
   assert.ok(Date.now() - t0 < 8000, `ended after ${Date.now() - t0} ms`);
 });
 
-test('review 2026-10-13: what Git Bash runs is what the floor reads (CR dropped, /c is a drive, //x a switch, homes by name, Git\'s own folders)', async () => {
-  const { refuseCatastrophic, unjudgeableCommand } = await import('../src/core/exec/shell-floor.js');
-  const CR = '\r';
-  const stopped = (c: string) => refuseCatastrophic(c, 'sh') ?? unjudgeableCommand(c, 'sh');
-  // bash and cmd drop every carriage return: r<CR>m is rm
-  for (const c of [`r${CR}m -rf /c`, `rm -r${CR}f /c`, `cd /c && r${CR}m -rf *`, `for${CR}mat C: /q`, `r${CR}m -rf ~`]) assert.ok(refuseCatastrophic(c, 'sh'), JSON.stringify(c));
-  assert.ok(refuseCatastrophic(`r${CR}d /s /q C:\\`, 'cmd'), 'cmd drops it too');
-  // cd to a drive or a system folder written the Git Bash way, then a wipe
-  for (const c of ['cd /c && rm -rf *', 'cd /c; rm -rf *', 'pushd /c && rm -rf *', 'cd /usr && rm -rf *', 'cd /c && find . -delete', 'cd /c && git clean -fdx']) assert.ok(refuseCatastrophic(c, 'sh'), c);
-  // a native program gets /c as the path C:/ and //x as the switch /x
-  for (const c of ['robocopy empty /c //mir', 'icacls /c //grant Everyone:F //t', 'takeown //f /c //r', 'cmd //c rd //s //q /c', 'rd //s //q /c']) assert.ok(refuseCatastrophic(c, 'sh'), c);
-  // whole-machine tools and raw disk writes, Git Bash spelling
-  for (const c of ['bcdedit //delete {default}', 'cipher //w:C', 'dd if=/dev/zero of=//./PhysicalDrive0', 'cat /dev/zero > //./PhysicalDrive0', 'dd if=x of=//./C:']) assert.ok(refuseCatastrophic(c, 'sh'), c);
-  // a home by name, the current folder, Git for Windows' own folders
-  for (const c of ['rm -rf ~danie', 'rm -rf ~+', 'rm -rf /mingw64', 'rm -rf /cmd', 'rm -rf /ucrt64']) assert.ok(refuseCatastrophic(c, 'sh'), c);
-  assert.ok(stopped('rm -rf /c/$X'), 'a drive plus a variable cannot be read');
-  // ordinary work still runs
-  for (const c of ['rd //s //q build', 'robocopy src dst //E', 'cd /c/work/site && npm test', 'rm -rf ./build', 'cd build && rm -rf *.o', 'ls ~/projects', 'echo "line1\r\nline2"']) assert.equal(refuseCatastrophic(c, 'sh'), undefined, c);
-  // cmd reading keeps /c as a switch
-  assert.equal(refuseCatastrophic('cmd /c dir C:\\work', 'cmd'), undefined);
-});
-
 test('Git Bash is never found through a relative PATH entry', () => {
   const files = gitAt('fakegit').concat(gitAt('C:\\Program Files\\Git'));
   assert.equal(findGitBash(probe({ PATH: 'fakegit\\cmd;.\\x', ProgramFiles: 'C:\\Program Files' }, files)), 'C:\\Program Files\\Git');

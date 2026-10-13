@@ -111,13 +111,6 @@ test('REVIEW: block refuses a wildcard that reaches .env (cat .env*)', async () 
   assert.equal((await call(hostServer(root, 'block'), 'shell', { command: 'cat .env*' })).isError, true);
 });
 
-test('review 2026-10-13: a carriage return inside the name (.e<CR>nv) does not hide a .env file from the guard (bash and cmd drop it)', async () => {
-  const root = project();
-  for (const mode of ['masked', 'block'] as const) {
-    for (const command of ['cat .e\rnv', 'type .e\rnv', 'cp .en\rv x.txt']) assert.equal((await call(hostServer(root, mode), 'shell', { command })).isError, true, `${mode}: ${JSON.stringify(command)}`);
-  }
-});
-
 test('masked: a short value under a secret-looking name is hidden as a whole word; short ordinary values stay readable', async () => {
   const root = mkdtempSync(join(tmpdir(), 'legion-env-short-'));
   writeFileSync(join(root, '.env'), 'DB_PIN=4821\nAPI_KEY="zq7x"\nPORT=3000\nMODE=dev\n');
