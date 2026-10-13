@@ -158,3 +158,7 @@ export const followRemote = (local: string, prevRemote: string, nextRemote: stri
 /** Who starts a new task from the project page by default: the agent in view when it is a member, else the first member. */
 export const defaultStarter = (members: string[], selected: string | null): string | undefined =>
   selected && members.includes(selected) ? selected : members[0];
+
+/** The project page lists this many tasks until the owner asks for all. */
+export const PROJECT_TASKS_FOLDED = 30;
+export const visibleTasks = <T>(list: T[], expanded: boolean): T[] => (expanded ? list : list.slice(0, PROJECT_TASKS_FOLDED));

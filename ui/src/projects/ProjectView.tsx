@@ -4,7 +4,7 @@ import type { Project } from '../../../src/shared/projects';
 import { ensureRoomList, openRoom, useRooms } from '../rooms/roomsStore';
 import { loadProjectTasks, newTask, selectAgent, selectTask, setView, useStore } from '../store';
 import { archiveProject, assignRoom, changeMembers, chooseFolder, closeProjectPage, saveProject, setProjectFilter, useDefaultFolder } from './projectsStore';
-import { assignableRooms, defaultStarter, followRemote, instructionsCounter, projectLabel, roomOutOfProject, roomsOf, statusLine } from './projectsLogic';
+import { assignableRooms, defaultStarter, followRemote, PROJECT_TASKS_FOLDED, visibleTasks, instructionsCounter, projectLabel, roomOutOfProject, roomsOf, statusLine } from './projectsLogic';
 import { BoardPanel } from './board/BoardPanel';
 import './projects.css';
 
@@ -35,6 +35,7 @@ function ProjectPage({ project }: { project: Project }) {
   const [add, setAdd] = useState('');
   const [busy, setBusy] = useState(false);
   const [roomPick, setRoomPick] = useState('');
+  const [allTasks, setAllTasks] = useState(false);
   const [starter, setStarter] = useState<string | undefined>(() => defaultStarter(project.members, selected));
   // keep the editors in step with changes from elsewhere (another window, a confirmation) while nothing is being edited
   const prev = useRef(project);
@@ -142,13 +143,19 @@ function ProjectPage({ project }: { project: Project }) {
           <h3 id="proj-h-tasks">Tasks</h3>
           {inTasks.length === 0 ? <p className="muted-s">No tasks yet. Start one from this page, or choose this project in the rail and write to an agent.</p> : (
             <ul className="proj-list">
-              {inTasks.slice(0, 30).map((t) => (
+              {visibleTasks(inTasks, allTasks).map((t) => (
                 <li key={t.id}>
                   <button type="button" className="proj-link" onClick={() => { setView('chat'); selectTask(t.id); }}>{t.title}</button>
                   <span className="muted-s">{agents.find((a) => a.id === t.agentId)?.name ?? t.agentId}, {t.status}</span>
                 </li>
               ))}
             </ul>
+          )}
+          {inTasks.length >= PROJECT_TASKS_FOLDED && (
+            <button type="button" className="link-btn" aria-expanded={allTasks}
+              onClick={() => { if (!allTasks) void loadProjectTasks(project.id, 100); setAllTasks((v) => !v); }}>
+              {allTasks ? 'Show fewer' : `Show all ${inTasks.length}${inTasks.length === PROJECT_TASKS_FOLDED ? '+' : ''}`}
+            </button>
           )}
         </section>
 

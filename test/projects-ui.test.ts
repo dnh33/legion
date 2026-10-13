@@ -214,3 +214,16 @@ test('C2 defaultStarter: the selected agent when it is a member, else the first 
   assert.match(view, /<select aria-label="Agent for the new task"/);
   assert.doesNotMatch(view, /const first = project\.members\[0\];/, 'no longer always the first member');
 });
+
+test('C3 the project page shows 30 tasks, and all of them on request', async () => {
+  const { visibleTasks, PROJECT_TASKS_FOLDED } = await import('../ui/src/projects/projectsLogic.js');
+  const list = Array.from({ length: 45 }, (_, i) => i);
+  assert.equal(PROJECT_TASKS_FOLDED, 30);
+  assert.equal(visibleTasks(list, false).length, 30);
+  assert.equal(visibleTasks(list, true).length, 45);
+  const root = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
+  const view = readFileSync(join(root, 'ui', 'src', 'projects', 'ProjectView.tsx'), 'utf8');
+  assert.match(view, /Show all \$\{inTasks\.length\}/);
+  assert.match(view, /loadProjectTasks\(project\.id, 100\)/);
+  assert.doesNotMatch(view, /inTasks\.slice\(0, 30\)/);
+});
