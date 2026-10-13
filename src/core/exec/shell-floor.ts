@@ -526,6 +526,8 @@ const TEXT_RUNNERS = new Set(['eval', 'iex', 'invoke-expression', 'ssh', 'su', '
 const SEGMENTS = /&&|\|\||[;&\n\r]|\b(?:do|then|else)\b(?=\s)/;
 /** PowerShell: & is its call operator, not a separator. */
 const PS_SEGMENTS = /&&|\|\||[;\n\r]|\b(?:do|then|else)\b(?=\s)/;
+/** A PowerShell script block's braces start and end a command of its own (`foreach ($d in $x) { Remove-Item $d }`); `${var}` and `@{…}` are not script blocks. */
+const PS_BLOCKS = /(?<![$@])\{|\}/;
 
 /** Whether some command position on the line is a shell or another program that runs text as a command. */
 function runsText(cmd: string): boolean {
@@ -847,8 +849,24 @@ function literalTarget(w: string, cmd: string): string | undefined {
   const m = /^(?:\$\{?|\$env:)([a-z_]\w*)\}?([\\/].*)?$/i.exec(w);
   if (!m) return undefined;
   const name = m[1]!;
-  const sets = [...cmd.matchAll(new RegExp(`(?:^|[;&\\n]\\s*)(?:export\\s+|set\\s+)?(?:\\$(?:env:)?)?${name}\\s*=\\s*("[^"$\`]*"|'[^']*'|[^\\s;&|$\`"'()]+)\\s*(?=[;&\\n]|$)`, 'gi'))];
+  const sets = [...cmd.matchAll(new RegExp(`(?:^|[;&\\n]\\s*)(?:export\\s+|set\\s+)?(?:\\$(?:env:)?)?${name}\\s*=\\s*("(?:\\$env:\\w+|\\$\\{env:\\w+\\}|\\$home|\\$\\{home\\}|%\\w+%)?[^"$\`%]*"|'[^']*'|[^\\s;&|$\`"'()]+)\\s*(?=[;&\\n]|$)`, 'gi'))];
   if (sets.length !== 1 || (cmd.match(new RegExp(`\\b${name}\\s*=`, 'gi')) ?? []).length !== 1) return undefined;
+  // every other mention must be a plain use ($S, ${S}, "$S/x"): a bare name is something else setting it (read S,
+  // for S in, local S, unset S, Set-Variable S), and a use followed by an operator or in a loop header changes it
+  // ($S += '..', $d, $e = …, foreach ($d in …))
+  const [from, to] = [sets[0]!.index!, sets[0]!.index! + sets[0]![0].length];
+  for (const o of cmd.matchAll(new RegExp(`(\\$\\{?|\\$env:)?\\b${name}\\b\\}?`, 'gi'))) {
+    if (o.index! >= from && o.index! < to) continue; // the assignment itself
+    const after = cmd.slice(o.index! + o[0].length);
+    if (!o[1]) {
+      // the name as a word of its own (read S, for S in, S+=x, S[0]=x) sets it; inside another word (mc-edge-profile) it does not
+      const own = /(?:^|[\s(;|&{,])$/.test(cmd.slice(Math.max(0, o.index! - 1), o.index!)) && /^(?:[\s;)|&}=,[]|[-+*/.%?:]=|\+\+|--|$)/.test(after);
+      if (own) return undefined;
+      continue;
+    }
+    if (!/^(?:[\s"'/\\;)|&}]|$)/.test(after) || /^(?:\+\+|--)|^\s*(?:[-+*/.%?:]?=|,|in\b)/i.test(after)) return undefined;
+    if (/(?:foreach|for)\s*\(\s*$/i.test(cmd.slice(Math.max(0, o.index! - 20), o.index!))) return undefined;
+  }
   return sets[0]![1]!.replace(/^["']|["']$/g, '').toLowerCase() + (m[2] ?? '');
 }
 /**
@@ -900,7 +918,9 @@ export function unjudgeableCommand(cmd: string, shell: ShellKind = 'sh', depth =
   for (const segment of splitOutside(flat, shell === 'pwsh' ? PS_SEGMENTS : SEGMENTS, shell)) {
     const stages = splitOutside(segment, PIPE, shell);
     for (let s = 0; s < stages.length; s++) {
-      const why = shell === 'pwsh' ? psStage(stages[s]!, text, depth) : shStage(stages[s]!, text, shell, depth);
+      const why = shell === 'pwsh'
+        ? splitOutside(stages[s]!, PS_BLOCKS, 'pwsh').reduce<string | undefined>((found, part) => found ?? psStage(part, text, depth), undefined)
+        : shStage(stages[s]!, text, shell, depth);
       if (why) return why;
       const ws = words(stages[s]!);
       // `printf "ls\n" | bash` runs text that is on the line (refuseCatastrophic reads it); anything else is unseen

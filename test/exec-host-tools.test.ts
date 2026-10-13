@@ -404,6 +404,9 @@ test('REAL COMMANDS (0.2.6-v): multi-line scripts in quotes, a find -exec termin
   const still: Array<[string, ShellKind]> = [
     // set to a protected folder, set twice, set only for the one command, or set from a command: still not known to be safe
     ['S=/; rm -rf "$S"', 'sh'], ['S=x; S=/; rm -rf $S', 'sh'], ['S=/tmp/x rm -rf $S', 'sh'], ['S=$(pwd); rm -rf $S', 'sh'], ["$d = 'C:\\'; Remove-Item $d -Recurse", 'pwsh'],
+    // set once to a written-out folder, then changed by something else before the delete
+    ['S=/tmp/x; read S; rm -rf "$S"', 'sh'], ['S=/tmp/x; for S in / /tmp; do rm -rf "$S"; done', 'sh'], ['S=dist; S+=/../..; rm -rf "$S"', 'sh'],
+    ["$d = 'out'; $d += '\\..\\..'; Remove-Item $d -Recurse", 'pwsh'], ["$d = 'out'; foreach ($d in $roots) { Remove-Item $d -Recurse }", 'pwsh'], ["$d = 'out'; $d, $e = $a, $b; Remove-Item $d -Recurse", 'pwsh'],
     // a line break inside quotes still runs what bash runs there: a backtick or $( ) inside double quotes
     ['node -e "\nlet s = `a${1}b`;\n"', 'sh'], ['echo "\n$(rm -rf /)\n"', 'sh'],
     // a function body's first command, and a substitution with another one inside it, are judged too
