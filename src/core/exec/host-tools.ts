@@ -5,6 +5,7 @@
  * raises a card before a call and `taintsRun` marks the run. `read_file`/`write_file`/`shell` are confined to a scope
  * root; the approval card is the human's check on what the command actually does.
  */
+import { agentShell, floorShell, shellRefusal, shellToolDescription, type AgentShell } from './agent-shell.js';
 import { createSdkMcpServer, tool } from '@anthropic-ai/claude-agent-sdk';
 import type { McpSdkServerConfigWithInstance } from '@anthropic-ai/claude-agent-sdk';
 import { readdirSync, readFileSync, realpathSync, statSync } from 'node:fs';
@@ -37,6 +38,8 @@ export interface HostToolsCtx {
   redact?: (text: string) => string;
   /** .env files: 'allow' reads them as written; 'masked' (default) hides their values everywhere and refuses writes; 'block' refuses them outright. */
   envFiles?: 'allow' | 'masked' | 'block';
+  /** The shell the backend runs commands in (agent-shell.ts); named in the tool description and read by the floor. Default: this machine's. */
+  shell?: AgentShell;
 }
 
 /** A secrets file: `.env`, `.env.local`, `.env.production`… but not a shared template (`.env.example`, `.sample`, `.template`, `.dist`). */
@@ -274,9 +277,10 @@ export function buildHostToolsServer(ctx: HostToolsCtx): McpSdkServerConfigWithI
     try { return ok(redact(await fn())); } catch (e) { return fail(new Error(redact(e instanceof Error ? e.message : String(e)))); }
   };
 
+  const sh = ctx.shell ?? agentShell();
   const shell = tool(
     'shell',
-    'Run a shell command on this machine and return its exit code and output. A short timeout is enforced; the command is killed with its process tree if it overruns.',
+    shellToolDescription(sh),
     {
       command: z.string().min(1).describe('The shell command line'),
       cwd: z.string().optional().describe('Working directory (must stay inside the allowed root)'),
@@ -285,8 +289,11 @@ export function buildHostToolsServer(ctx: HostToolsCtx): McpSdkServerConfigWithI
     (a) => run(async () => {
       // masked too: a command can rename, copy or print the file; read_file is the masked way to see it
       if (envMode !== 'allow' && mentionsEnvFile(a.command)) throw envMode === 'masked' ? new Error('This agent\'s setting for .env files is "masked": a command may not name one (it could copy, move or print it). Use read_file for a view with the values hidden, or change the setting in the agent\'s Shell settings.') : envRefusal('name');
-      // the floor again, in this shell's own reading (cmd.exe on Windows); a command over the reading limit was carded by the engine
-      const bad = a.command.length <= MAX_READABLE ? refuseCatastrophic(a.command, process.platform === 'win32' ? 'cmd' : 'sh') : undefined;
+      // cmd.exe runs only the first of several lines: refused, so the shell never runs less than the floor read
+      const wrong = shellRefusal(sh, a.command);
+      if (wrong) throw new Error(wrong);
+      // the floor again, in this shell's own reading; a command over the reading limit was carded by the engine
+      const bad = a.command.length <= MAX_READABLE ? refuseCatastrophic(a.command, floorShell(sh)) : undefined;
       if (bad) throw new Error(bad);
       const cwd = a.cwd === undefined ? ctx.rootDir : resolveWithin(ctx.rootDir, a.cwd);
       const r = await ctx.backend.execute({ cmd: a.command, cwd, timeoutMs: (a.timeoutSeconds ?? limits.timeoutSeconds) * 1000 });

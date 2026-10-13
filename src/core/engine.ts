@@ -24,9 +24,10 @@ import { buildHostToolsServer, redactValues } from './exec/host-tools.js';
 import { MAX_READABLE, refuseCatastrophic, unjudgeableCommand, type ShellKind } from './exec/shell-floor.js';
 /** The tools that run a shell command: Legion's host shell and Claude Code's own Bash and PowerShell. */
 const SHELL_TOOLS: ReadonlySet<string> = new Set(['mcp__host__shell', 'Bash', 'PowerShell', 'Monitor']);
-/** The shell each tool runs its command in: Claude Code's Bash and Monitor (POSIX sh, Git Bash on Windows), its PowerShell, Legion's host shell (cmd.exe on Windows). */
-const shellKindOf = (toolName: string): ShellKind => (toolName === 'PowerShell' ? 'pwsh' : toolName === 'mcp__host__shell' && process.platform === 'win32' ? 'cmd' : 'sh');
+/** The shell each tool runs its command in: Claude Code's Bash and Monitor (POSIX sh, Git Bash on Windows), its PowerShell, Legion's host shell (agent-shell.ts: Git Bash, or cmd.exe on Windows without Git). */
+const shellKindOf = (toolName: string): ShellKind => (toolName === 'PowerShell' ? 'pwsh' : toolName === 'mcp__host__shell' ? floorShell(agentShell()) : 'sh');
 import { DirectHostBackend } from './exec/direct-host.js';
+import { agentShell, floorShell } from './exec/agent-shell.js';
 import { clampExecLimits } from './exec/limits.js';
 import { CONTINUE_REFUSED } from './connector-withhold.js';
 import type { CoreModule, ModuleJob, PreambleContext, TaskEndOutcome } from './modules.js';
