@@ -84,6 +84,18 @@ interface Reading { masked: string; open: boolean; heredocToRunner: boolean; blo
  * plain character there. `open` is true when a quote or here-string never closes: then the line cannot be read safely.
  */
 function readLine(s: string, shell: ShellKind): Reading {
+  // one command is read several times over (comments, substitutions, segments, runners): the same text is read once
+  const hit = READS.find((r) => r[0] === shell && r[1] === s);
+  if (hit) return hit[2];
+  const reading = readLineOnce(s, shell);
+  READS.unshift([shell, s, reading]);
+  if (READS.length > 8) READS.pop();
+  return reading;
+}
+/** The last few readings, newest first. Readings are never changed after they are made, so sharing them is safe. */
+const READS: Array<[ShellKind, string, Reading]> = [];
+
+function readLineOnce(s: string, shell: ShellKind): Reading {
   let out = '';
   let q: string | null = null;
   let heredocToRunner = false;
@@ -281,6 +293,7 @@ const program = (w: string): string => {
 function clean(w: string): string {
   // PowerShell casts in front of an expression ([void](Remove-Item …)) are not the command either
   const s = w.replace(/^(?:\[[\w.]+\])+/, '').replace(/^[(@{]+/, '').replace(/(?<=.)\d?>{1,2}.*$/, '');
+  if (!/[)};]$/.test(s)) return s;
   // counted once, then kept up to date while trailing closers come off: one pass, however many closers there are
   const count = { '(': 0, ')': 0, '{': 0, '}': 0 } as Record<string, number>;
   for (const ch of s) if (ch in count) count[ch]!++;
