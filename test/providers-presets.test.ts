@@ -36,6 +36,20 @@ test('OpenRouter ships on: the preset is enabled and offers the reasoning and co
   assert.ok(p.entry.models?.includes(GUI), 'the GUI/computer-use model is offered');
 });
 
+test('a fresh install runs on the OpenRouter preset once its key is saved: runs and Settings read the same entry (no saved entry needed)', () => {
+  const cfg = defaultConfig();
+  const keys = memKeys(cleanupTemp('legion-prov-presets-'));
+  const rt = new ProviderRuntime({ config: cfg, keys });
+  const r = rt.resolve(`openrouter:${REASONING}`);
+  assert.ok(r, 'a preset id resolves');
+  assert.equal(r!.entry?.baseUrl, 'https://openrouter.ai/api/v1', 'with the preset entry Settings shows, not "not set up any more"');
+  assert.equal(r!.entry?.enabled, true);
+  // a preset that ships off resolves to its off entry: the run says "turned off", as Settings does
+  assert.equal(rt.resolve('openai:gpt-test')!.entry?.enabled, false);
+  // an id that is neither saved nor a preset still resolves to nothing
+  assert.equal(rt.resolve('ghost:x'), undefined);
+});
+
 test('the owner\'s picks lead the list: MiMo 2.6 Pro and MiMo 2.6 Flash come first, above DeepSeek (owner, 2026-10-13)', () => {
   const models = preset('openrouter').entry.models ?? [];
   assert.deepEqual(models.slice(0, 2), [REASONING, FAST]);
