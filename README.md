@@ -97,6 +97,7 @@ Legion runs several Claude agents from one desktop app, on your own machine.
 <details><summary>Details</summary>
 
 - A project holds instructions, a folder, member agents, tasks, rooms and notes. Member agents can create, edit, move, claim and note board items; you mark them done, approve deletes and decide what runs.
+- Agents give project work to members first. An agent outside the project can still help, without the project's folder, notes or board; the project's deny rules still apply to it. Whatever waits on you shows at the top of the agent list, whichever project you are viewing.
 - For provider models, Enter queues a message instead (in order, shown above the composer). Ctrl+Enter interrupts the run and sends now. A stop, a failure or a reload pauses the queue instead of sending on its own. Each thread keeps its own half-typed draft, also across restarts.
 - A run gets 200 turns by default. One that reaches the limit pauses on the model it was using; **Continue** carries on in the same conversation. A run cut short by a crash, a restart or a dropped connection offers Continue too.
 - Claude Code connects over HTTP; Cowork and Claude Desktop connect over a stdio bridge.
