@@ -41,7 +41,7 @@ export function ApprovalCard({ a }: { a: ApprovalRequest }) {
   const live = bmode === 'live';
   const [remember, setRemember] = useState(false);
   return (
-    <div className={`approval${bl ? ` blender${live ? ' is-live' : bmode === 'local' ? ' is-local' : ''}` : ''}`} tabIndex={0} role="group" aria-label={`Approval needed for ${cardTool(a.toolName)}`}
+    <div className={`approval${bl ? ` blender${live ? ' is-live' : bmode === 'local' ? ' is-local' : ''}` : ''}`} tabIndex={0} data-approval-id={a.id} role="group" aria-label={`Approval needed for ${cardTool(a.toolName)}`}
       onKeyDown={(e) => {
         if (e.ctrlKey || e.metaKey || e.altKey) return;
         // a Blender script is allowed by clicking, after reading it: no one-key approve

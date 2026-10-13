@@ -147,14 +147,30 @@ export function Thread() {
 
   // A / D shortcut for the first pending approval when nothing is focused (A never allows a click-only card, and
   // never a question card: a keypress inside one of those is skipped by the closest() guard below).
+  // A allows only a card the reader can see in full; otherwise it scrolls to the card and focuses it, and A on the card allows it.
+  const cardEl = (id: string) => scroller.current?.querySelector<HTMLElement>(`[data-approval-id="${CSS.escape(id)}"]`) ?? null;
+  const cardInView = (a: { id: string } | undefined): boolean => {
+    const el = a && cardEl(a.id); const sc = scroller.current;
+    if (!el || !sc) return false;
+    const r = el.getBoundingClientRect(), v = sc.getBoundingClientRect();
+    return r.height > 0 && v.height > 0 && r.top >= v.top && r.bottom <= v.bottom;
+  };
   useEffect(() => {
     const h = (e: KeyboardEvent) => {
       if (e.ctrlKey || e.metaKey || e.altKey) return;
       const t = e.target as HTMLElement;
       if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable || t.closest('.approval, .question, .modal'))) return;
       // the same rule as the card's own keys: a Blender script or a download is allowed by clicking only
-      const k = threadKey(taskApprovals[0], e.key); if (!k) return;
-      e.preventDefault(); void decide(k.id, k.allow);
+      const first = taskApprovals[0];
+      const k = threadKey(first, e.key, cardInView(first)); if (!k) return;
+      e.preventDefault();
+      if ('reveal' in k) {
+        const el = cardEl(k.id);
+        if (el) { el.focus({ preventScroll: true }); el.scrollIntoView({ block: 'nearest' }); }
+        else { toBottom(); requestAnimationFrame(() => cardEl(k.id)?.focus()); }
+        return;
+      }
+      void decide(k.id, k.allow);
     };
     window.addEventListener('keydown', h);
     return () => window.removeEventListener('keydown', h);

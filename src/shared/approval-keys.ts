@@ -15,11 +15,17 @@ export const clickOnly = (a: Card): boolean => a.toolName === BLENDER_EXEC_TOOL 
 
 /**
  * The thread-wide shortcut: A or D answers the first pending card of the open task when focus is not in a field or on a card.
+ * A allows only a card that is fully in view, so a stray keypress never allows a command the reader has not seen; on a card that is
+ * not in view, A reveals it (scrolls to it and focuses it) and a second A on the focused card allows it.
  * A on a click-only card does nothing (it does not move on to the next card either); D denies it.
  */
-export function threadKey(first: (Card & Pick<ApprovalRequest, 'id'>) | undefined, key: string): { id: string; allow: boolean } | null {
+export function threadKey(
+  first: (Card & Pick<ApprovalRequest, 'id'>) | undefined,
+  key: string,
+  inView: boolean,
+): { id: string; allow: boolean } | { id: string; reveal: true } | null {
   if (!first) return null;
   if (key === 'd' || key === 'D') return { id: first.id, allow: false };
-  if ((key === 'a' || key === 'A') && !clickOnly(first)) return { id: first.id, allow: true };
+  if ((key === 'a' || key === 'A') && !clickOnly(first)) return inView ? { id: first.id, allow: true } : { id: first.id, reveal: true };
   return null;
 }

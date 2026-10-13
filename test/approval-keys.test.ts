@@ -27,23 +27,34 @@ test('click-only cards: a Blender script (whatever its input), the Blender downl
 });
 
 test('thread-wide A allows an ordinary card and never a click-only one; D denies either; other keys and no card do nothing', () => {
-  assert.deepEqual(threadKey(bash, 'a'), { id: 'a1', allow: true });
-  assert.deepEqual(threadKey(bash, 'A'), { id: 'a1', allow: true });
+  assert.deepEqual(threadKey(bash, 'a', true), { id: 'a1', allow: true });
+  assert.deepEqual(threadKey(bash, 'A', true), { id: 'a1', allow: true });
   for (const c of [script, oddScript, getBlender, asset]) {
-    assert.equal(threadKey(c, 'a'), null, `A must not allow ${c.toolName}`);
-    assert.equal(threadKey(c, 'A'), null, `Shift+A must not allow ${c.toolName}`);
-    assert.deepEqual(threadKey(c, 'd'), { id: c.id, allow: false });
-    assert.deepEqual(threadKey(c, 'D'), { id: c.id, allow: false });
+    assert.equal(threadKey(c, 'a', true), null, `A must not allow ${c.toolName}`);
+    assert.equal(threadKey(c, 'A', true), null, `Shift+A must not allow ${c.toolName}`);
+    assert.deepEqual(threadKey(c, 'd', true), { id: c.id, allow: false });
+    assert.deepEqual(threadKey(c, 'D', true), { id: c.id, allow: false });
   }
-  assert.equal(threadKey(bash, 'x'), null);
-  assert.equal(threadKey(bash, 'Enter'), null);
-  assert.equal(threadKey(undefined, 'a'), null);
-  assert.equal(threadKey(undefined, 'd'), null);
+  assert.equal(threadKey(bash, 'x', true), null);
+  assert.equal(threadKey(bash, 'Enter', true), null);
+  assert.equal(threadKey(undefined, 'a', true), null);
+  assert.equal(threadKey(undefined, 'd', true), null);
+});
+
+test('thread-wide A never allows a card that is not fully in view: it reveals the card instead; D still denies', () => {
+  // the defect: a stray "a" with focus on the page allowed a card 3,300 px below the visible part of the thread
+  assert.deepEqual(threadKey(bash, 'a', false), { id: 'a1', reveal: true });
+  assert.deepEqual(threadKey(bash, 'A', false), { id: 'a1', reveal: true });
+  assert.deepEqual(threadKey(bash, 'a', true), { id: 'a1', allow: true });
+  assert.deepEqual(threadKey(bash, 'd', false), { id: 'a1', allow: false });
+  // a click-only card is neither allowed nor revealed by A, in view or not
+  assert.equal(threadKey(script, 'a', false), null);
+  assert.equal(threadKey(script, 'a', true), null);
 });
 
 test('both key paths read the shared rule: the thread shortcut goes through threadKey, the card through clickOnly', () => {
   const thread = readFileSync(join(process.cwd(), 'ui/src/components/Thread.tsx'), 'utf8');
-  assert.match(thread, /const k = threadKey\(taskApprovals\[0\], e\.key\); if \(!k\) return;/);
+  assert.match(thread, /const k = threadKey\(first, e\.key, cardInView\(first\)\); if \(!k\) return;/);
   assert.match(thread, /void decide\(k\.id, k\.allow\)/);
   // no other decide(…, true) by key in the thread
   assert.doesNotMatch(thread, /decide\(first\.id, true\)/);
