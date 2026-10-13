@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import type { PendingQuestion, QuestionPick } from '../../../src/shared/types';
 import { answerQuestion, useStore } from '../store';
 import {
-  applyOther, applyPick, initialAnswers, isAnswered, isReviewStep, orderedOptions, questionKey, reviewOf, stepCount,
+  applyOther, applyPick, finalAnswers, initialAnswers, isAnswered, isReviewStep, orderedOptions, questionKey, reviewOf, stepCount,
 } from '../chat/questionCard';
 import { Icon } from './icons';
 
@@ -69,7 +69,7 @@ export function QuestionCard({ q }: { q: PendingQuestion }) {
 
   const submit = () => {
     setBusy(true);
-    void answerQuestion(q.id, answers);
+    void answerQuestion(q.id, finalAnswers(answers));
   };
 
   const allAnswered = q.questions.every((_, i) => isAnswered(answers, i));

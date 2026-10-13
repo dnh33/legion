@@ -10,7 +10,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import test from 'node:test';
 import {
-  applyOther, applyPick, initialAnswers, isAnswered, isReviewStep, orderedOptions, questionKey, reviewRows, stepCount,
+  applyOther, applyPick, finalAnswers, initialAnswers, isAnswered, isReviewStep, orderedOptions, questionKey, reviewRows, stepCount,
 } from '../ui/src/chat/questionCard.js';
 import type { QuestionSpec } from '../src/shared/types.js';
 
@@ -73,10 +73,16 @@ test('answers: single-select replaces, multi-select toggles, Other is kept and c
   assert.deepEqual(a[0]!.labels, ['B', 'C'], 'multi-select adds');
   a = applyPick(a, 0, 'B', true);
   assert.deepEqual(a[0]!.labels, ['C'], 'multi-select toggles off');
+  // the field is controlled: what you type must come back as typed, spaces included, or "my own" cannot be typed
+  a = applyOther(a, 1, 'my ');
+  assert.equal(a[1]!.other, 'my ', 'a trailing space survives while typing');
   a = applyOther(a, 1, '  my own  ');
-  assert.equal(a[1]!.other, 'my own');
+  assert.equal(a[1]!.other, '  my own  ');
+  assert.deepEqual(finalAnswers(a)[1], { labels: [], other: 'my own' }, 'the answer sent is trimmed');
   a = applyOther(a, 1, '   ');
   assert.equal(a[1]!.other, undefined, 'blank Other clears it');
+  assert.equal(isAnswered([{ labels: [], other: '  ' }], 0), false, 'spaces alone are not an answer');
+  assert.deepEqual(reviewRows([{ header: 'H', question: 'Q', options: [], multiSelect: false }] as never, [{ labels: [], other: ' why ' }])[0]!.answer, 'why');
   assert.equal(isAnswered([{ labels: [] }], 0), false);
   assert.equal(isAnswered([{ labels: [], other: 'x' }], 0), true);
   assert.equal(isAnswered([{ labels: ['A'] }], 0), true);
@@ -106,7 +112,7 @@ test('the card keeps the approval shell, routes the keyboard through questionKey
   const src = readFileSync(join(process.cwd(), 'ui/src/components/QuestionCard.tsx'), 'utf8');
   assert.match(src, /className="approval question"/, 'the approval shell, so the look and the focus ring are shared');
   assert.match(src, /questionKey\(\{ key: e\.key/);
-  assert.match(src, /answerQuestion\(q\.id, answers\)/);
+  assert.match(src, /answerQuestion\(q\.id, finalAnswers\(answers\)\)/);
   assert.match(src, />Submit</);
   assert.match(src, /Recommended/);
   assert.doesNotMatch(src, /e\.key === 'a'/, 'no A-key answer on the card');

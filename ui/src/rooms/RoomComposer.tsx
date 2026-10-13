@@ -6,9 +6,10 @@ import { Face } from './Stack';
 import './rooms.css';
 import { getDraft, sendMessage, setDraft } from './roomsStore';
 import { pauseCopy, whoAnswers } from './roomsUtil';
+import { mentionCandidates, type MentionCand } from './mentionLogic';
 
 const MAX_TEXT = 20_000;
-interface Cand { key: string; insert: string; label: string; sub: string; agentId?: string }
+type Cand = MentionCand;
 
 export function RoomComposer({ room, agents, offline }: { room: Room; agents: AgentProfile[]; offline: boolean }) {
   const [text, setText] = useState(() => getDraft(room.id));
@@ -31,18 +32,7 @@ export function RoomComposer({ room, agents, offline }: { room: Room; agents: Ag
     const m = /(^|[\s(])@([^\s@]*)$/.exec(text.slice(0, caret));
     return m ? { q: m[2] ?? '', start: caret - (m[2]?.length ?? 0) - 1 } : null;
   }, [text, caret]);
-  const cands = useMemo<Cand[]>(() => {
-    if (!tok) return [];
-    const q = tok.q.toLowerCase();
-    const all: Cand[] = [];
-    if (room.members.length > 1 && room.kind === 'group') all.push({ key: 'everyone', insert: '@everyone', label: '@everyone', sub: 'Wake every member once' });
-    for (const id of room.members) {
-      const a = agents.find((x) => x.id === id);
-      all.push({ key: id, insert: `@${a?.name ?? id}`, label: `@${a?.name ?? id}`, sub: id === room.lead ? 'Lead' : (a?.description ?? ''), agentId: id });
-    }
-    const score = (c: Cand) => { const l = c.label.slice(1).toLowerCase(); const id = (c.agentId ?? c.key).toLowerCase(); return l.startsWith(q) || id.startsWith(q) ? 0 : l.includes(q) || id.includes(q) ? 1 : 2; };
-    return all.filter((c) => score(c) < 2).sort((a, b) => score(a) - score(b));
-  }, [tok, room, agents]);
+  const cands = useMemo<Cand[]>(() => (tok ? mentionCandidates(room, agents, tok.q) : []), [tok, room, agents]);
   const menuOpen = !!tok && cands.length > 0 && dismissed !== `${tok.start}:${tok.q}`;
   useEffect(() => { setSel(0); }, [tok?.q, tok?.start]);
 

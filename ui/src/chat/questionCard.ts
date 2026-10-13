@@ -57,18 +57,27 @@ export function applyPick(answers: QuestionPick[], i: number, label: string, mul
   return next;
 }
 
-/** The Other free-text field for one question. Empty text clears it. */
+/**
+ * The Other free-text field for one question. The field is controlled, so the text is kept exactly as typed (trimming
+ * it here ate every space at the end, and "my own" could not be typed); blank text clears it. `finalAnswers` trims.
+ */
 export function applyOther(answers: QuestionPick[], i: number, text: string): QuestionPick[] {
   const next = answers.map((a) => ({ ...a }));
-  const trimmed = text.trim();
   const cur: QuestionPick = next[i] ?? { labels: [] };
-  next[i] = trimmed ? { ...cur, other: trimmed } : { labels: [...cur.labels] };
+  next[i] = text.trim() ? { ...cur, other: text } : { labels: [...cur.labels] };
   return next;
 }
 
+/** The answers as sent: Other text trimmed, and dropped when only spaces are left. */
+export const finalAnswers = (answers: QuestionPick[]): QuestionPick[] =>
+  answers.map((a) => {
+    const other = a.other?.trim();
+    return other ? { labels: [...a.labels], other } : { labels: [...a.labels] };
+  });
+
 export const isAnswered = (answers: QuestionPick[], i: number): boolean => {
   const a = answers[i];
-  return !!a && (a.labels.length > 0 || !!a.other);
+  return !!a && (a.labels.length > 0 || !!a.other?.trim());
 };
 
 /** The rows the review step shows: every question, the labels picked (and Other text when used). */
@@ -76,7 +85,7 @@ export function reviewRows(questions: QuestionSpec[], answers: QuestionPick[]): 
   return questions.map((q, i) => {
     const a = answers[i];
     const parts: string[] = [...(a?.labels ?? [])];
-    if (a?.other) parts.push(a.other);
+    if (a?.other?.trim()) parts.push(a.other.trim());
     return { header: q.header, question: q.question, answer: parts.length ? parts.join(', ') : 'Not answered' };
   });
 }

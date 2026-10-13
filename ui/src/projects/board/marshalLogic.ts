@@ -47,6 +47,8 @@ export const draftToConfig = (d: MarshalDraft): MarshalConfig => ({
 export function parseChecks(text: string): string[] {
   return text.split('\n').map((line) => line.trim()).filter(Boolean);
 }
+/** True when the checks on screen differ from the saved ones (spacing and blank lines do not count). */
+export const checksPending = (text: string, savedText: string): boolean => parseChecks(text).join('\n') !== parseChecks(savedText).join('\n');
 /** The stored checks as text to show. */
 export const checksText = (checks?: readonly string[]): string => (checks ?? []).join('\n');
 /** Why these lines cannot be saved yet, or undefined when they can. */

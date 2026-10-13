@@ -11,7 +11,7 @@ import { roomsOf } from '../projectsLogic';
 import { setView, useStore } from '../../store';
 import { acceptItem, createItem, currentItem, deleteItem, loadBoard, loadMarshal, moveItem, openTask, patchItem, probeBoard, rejectItem, runItem, saveChecks, saveMarshal, sayItem, setLeader, useBoard } from './boardStore';
 import { DoneWhen, MarshalPanel } from './MarshalPanel';
-import { checksText, parseChecks } from './marshalLogic';
+import { checksPending, checksText, parseChecks } from './marshalLogic';
 import {
   applyFilters, assigneeKey, changedFields, rebaseForm, runHint, assigneeLabel, byColumn, cardLabel, columnLabel, COLUMNS, descCounter, dueState, dueText, FILTER_KEY, hasFilters, keyMove,
   labelsOf, learnDraft, moveAnnouncement, shouldOfferNote, NO_FILTERS, parseAssignee, PRIORITY_LABEL, priorityMark, readFilters,
@@ -283,9 +283,10 @@ function ItemDialog({ project, item, members, name, archived, onClose, startLear
   const [checks, setChecks] = useState(savedKey);
   const [checksSaved, setChecksSaved] = useState(false);
   useEffect(() => { setChecks(savedKey); setChecksSaved(false); }, [item?.id, savedKey]); // eslint-disable-line react-hooks/exhaustive-deps
-  const storeChecks = async (): Promise<void> => {
+  const storeChecks = async (): Promise<boolean> => {
     const r = await saveChecks(project.id, item!.id, parseChecks(checks));
     if (r) { setChecks(checksText(r)); setChecksSaved(true); sayItem('Done-when checks saved.'); }
+    return !!r;
   };
   const rooms = useRooms((s) => s.rooms);
   const [roomPick, setRoomPick] = useState('');
@@ -298,6 +299,8 @@ function ItemDialog({ project, item, members, name, archived, onClose, startLear
   const body = () => ({ title: title.trim(), description: desc.slice(0, BOARD_LIMITS.descriptionChars), status, assignee: parseAssignee(assignee), priority, due: due || null, labels: labelList });
 
   const save = async () => {
+    // checks typed but not saved with their own button are saved first: closing would drop them
+    if (item && !item.proposal && checksPending(checks, savedKey) && !(await storeChecks())) return;
     const r = item && base ? await patchItem(project.id, item.id, { ...changedFields(base, { ...body(), assignee: parseAssignee(assignee) }), ifUpdatedAt: base.updatedAt }) : await createItem(project.id, { ...body(), due: due || undefined });
     if (r && item && status === 'done' && shouldOfferNote(item.status, status, item.noteIds.length)) onOffer({ id: item.id, title: title.trim() });
     if (r) { sayItem(item ? 'Item saved.' : 'Item created.'); onClose(); } else if (item) resync();
