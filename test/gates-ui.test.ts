@@ -234,13 +234,13 @@ test('render: the agent editor has the Shell fieldset — on with the saved root
   const { r, cleanup } = await loadUi(baseState());
   try {
     const on = r.editor('zealot');
-    assert.match(on, /Shell \(this computer\)/);
-    assert.match(on, /Let this agent run commands and read\/write files on this computer/);
+    assert.match(on, /Shell \(your computer\)/);
+    assert.match(on, /Let this agent run commands and read\/write files on your computer/);
     assert.match(on, /value="D:\/work\/site"/);
     assert.match(on, /value="300"/);
     assert.match(on, /1 to 3600; 120 by default/);
     const off = r.editor('scout');
-    assert.match(off, /Shell \(this computer\)/);
+    assert.match(off, /Shell \(your computer\)/);
     assert.doesNotMatch(off, /checked=""/, 'scout starts unchecked');
     assert.match(off, /placeholder="120"/);
   } finally { cleanup(); }

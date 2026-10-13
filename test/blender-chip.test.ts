@@ -26,8 +26,8 @@ test('chip view-model: one row per real status', () => {
     ['off', input(status('off', { enabled: false })), { tone: 'off', enabled: false, label: 'Blender: Off', settingsText: 'Open Blender settings', action: 'settings' }],
     ['off wins over a stale light', input(status('connected', { enabled: false })), { tone: 'off', enabled: false, label: 'Blender: Off' }],
     ['not found offers Get Blender (opens Settings)', input(status('not-found')), { tone: 'bad', enabled: true, label: 'Blender not found', settingsText: 'Get Blender', action: 'get' }],
-    ['local ready with version', input(status('local', { selected: v510 })), { tone: 'on', label: 'Ready: this computer, Blender 5.1.0' }],
-    ['local ready without a version', input(status('local')), { tone: 'on', label: 'Ready: this computer' }],
+    ['local ready with version', input(status('local', { selected: v510 })), { tone: 'on', label: 'Ready: your computer, Blender 5.1.0' }],
+    ['local ready without a version', input(status('local')), { tone: 'on', label: 'Ready: your computer' }],
     ['cloud VM', input(status('sandbox')), { tone: 'on', label: 'Ready: cloud VM' }],
     ['live connected', input(status('connected')), { tone: 'on', label: 'Live Blender connected' }],
     ['needs setup', input(status('needs-setup')), { tone: 'warn', label: 'Blender needs setup', settingsText: 'Set up in Settings', action: 'setup' }],
@@ -85,7 +85,7 @@ test('chip text: plain, scoped, and no overclaim', () => {
   const lights: BlenderLight[] = ['off', 'not-found', 'needs-setup', 'disconnected', 'connected', 'sandbox', 'local', 'busy', 'error'];
   const all = [BLENDER_CHIP_TIP, BLENDER_UNKNOWN, ...lights.flatMap((l) => { const m = chipModel(input(status(l, { enabled: l !== 'off' }))); return [m.label, m.settingsText, m.title, m.actionLabel]; })];
   for (const t of all) assert.ok(!/\b(safe|safely|secure|secured|verified|guarantee|protected)\b/i.test(t), `no overclaim in: ${t}`);
-  assert.equal(BLENDER_CHIP_TIP, 'Blender scripts run on this computer with your rights; every script needs your OK');
+  assert.equal(BLENDER_CHIP_TIP, 'Blender scripts run on your computer with your rights; every script needs your OK');
 });
 
 // ---- the real component, rendered with the store replaced by a spy ----
@@ -152,7 +152,7 @@ test('the pill is one quiet button; its popover switch asks first when turning O
     on.buttons.find((b) => b.role === 'switch')!.onClick!();
     assert.deepEqual(on.calls, [['saveBlenderConfig', { enabled: false }]]);
     assert.match(on.pop, /aria-checked="true"/);
-    assert.match(on.pop, /Ready: this computer, Blender 5\.1\.0/);
+    assert.match(on.pop, /Ready: your computer, Blender 5\.1\.0/);
     const nf = render(uiState(status('not-found')));
     assert.match(nf.pop, /Blender not found/);
     assert.match(nf.pop, />Get Blender</);

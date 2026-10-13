@@ -54,9 +54,9 @@ export function lineParts(line: string): Part[] {
 export const hiddenCount = (script: string): number => (script.match(HIDDEN) ?? []).length;
 
 export function BlenderBadge({ mode }: { mode: CardMode }) {
-  if (mode === 'live') return <span className="bl-badge live" title="Runs in your open Blender on this computer">Live</span>;
-  if (mode === 'local') return <span className="bl-badge local" title="Runs in a background Blender on this computer, with your Windows user's rights">On this PC</span>;
-  return <span className="bl-badge sandbox" title="Runs in a cloud VM, not on this computer">Cloud VM</span>;
+  if (mode === 'live') return <span className="bl-badge live" title="Runs in your open Blender on your computer">Live</span>;
+  if (mode === 'local') return <span className="bl-badge local" title="Runs in a background Blender on your computer, with your Windows user's rights">On your PC</span>;
+  return <span className="bl-badge sandbox" title="Runs in a cloud VM, not on your computer">Cloud VM</span>;
 }
 
 /** The body of the approval card for blender_exec: the FULL script, wrapped (nothing hides off to the side), plus what the user needs to judge it. */
@@ -68,7 +68,7 @@ export function BlenderBody({ a }: { a: ApprovalRequest }) {
     <>
       <ModeChooser />
       <div className="bl-facts">
-        <span>Where <b>{v.where || (v.mode === 'live' ? 'LIVE Blender on your computer' : v.mode === 'local' ? 'Blender in the background on this computer' : 'cloud VM')}</b></span>
+        <span>Where <b>{v.where || (v.mode === 'live' ? 'LIVE Blender on your computer' : v.mode === 'local' ? 'Blender in the background on your computer' : 'cloud VM')}</b></span>
         {v.agentName && <span>From <b>{v.agentName}</b></span>}
         <span><b>{lines.length}</b> lines</span>
         {v.backup && <span>Backup <b>{v.backup}</b></span>}
@@ -77,7 +77,7 @@ export function BlenderBody({ a }: { a: ApprovalRequest }) {
       </div>
       {v.purpose && <p className="bl-purpose"><span className="bl-purpose-tag">The bot{'’'}s text, not checked:</span> {v.purpose}</p>}
       {v.live && <div className="bl-live-warn"><b>Live.</b> This runs in your open Blender with your files around it. The safety check is a filter, not a sandbox: read every line before you allow it.{v.exportDir ? ` Exports go to ${v.exportDir}.` : ''}</div>}
-      {v.mode === 'local' && <div className="bl-live-warn"><b>On this PC.</b> {LOCAL_CARD_WARN}{localCardExports(v.exportDir)}</div>}
+      {v.mode === 'local' && <div className="bl-live-warn"><b>On your PC.</b> {LOCAL_CARD_WARN}{localCardExports(v.exportDir)}</div>}
       {hidden > 0 && <div className="bl-live-warn" role="alert"><b>Hidden characters.</b> This script holds {hidden} character{hidden === 1 ? '' : 's'} you cannot normally see (zero-width, direction or line-separator marks). They are shown below as <span className="bl-hid">{'‹'}U+XXXX{'›'}</span> markers. Read the script as marked.</div>}
       <div className="bl-script" role="region" aria-label="Script to run" tabIndex={0}>
         {lines.map((line, n) => (

@@ -93,11 +93,11 @@ const copy = (): Copy => {
 test('"Where scripts run" offers four choices, recommended first, with the plain-language texts', () => {
   const c = copy().MODE_CHOICES;
   assert.deepEqual(c.map((x) => x.mode), ['auto', 'local', 'vm', 'live']);
-  assert.deepEqual(c.map((x) => x.title), ['Automatic (recommended)', 'This computer, in the background', 'Cloud VM (boat.dev)', 'My open Blender']);
-  assert.match(c[0]!.text, /^On this computer when Blender is found, otherwise in the cloud VM\. Your open Blender is used only when the Sculptor asks for it and you approve a LIVE card\.$/);
+  assert.deepEqual(c.map((x) => x.title), ['Automatic (recommended)', 'Your computer, in the background', 'Cloud VM (boat.dev)', 'My open Blender']);
+  assert.match(c[0]!.text, /^On your computer when Blender is found, otherwise in the cloud VM\. Your open Blender is used only when the Sculptor asks for it and you approve a LIVE card\.$/);
   assert.match(c[1]!.text, /runs with your Windows user.s rights/);
   assert.match(c[1]!.text, /filter, not a sandbox/);
-  assert.match(c[2]!.text, /^Runs in the Sculptor.s VM, away from this computer.s files and accounts\. Needs a boat\.dev key and VM time\. Only exported files come back\.$/);
+  assert.match(c[2]!.text, /^Runs in the Sculptor.s VM, away from your computer.s files and accounts\. Needs a boat\.dev key and VM time\. Only exported files come back\.$/);
   const settings = read('ui/src/components/Settings.tsx');
   assert.match(settings, /MODE_CHOICES\.map/);
   assert.match(settings, /saveBlenderConfig\(\{ mode: c\.mode \}\)/);
@@ -115,7 +115,7 @@ test('the cloud VM note stays; the local path states what it does', () => {
   assert.match(settings, /\{LOCAL_MODE_NOTE\}/);
 });
 
-test('the card view reads mode local, and the badge says "On this PC"', () => {
+test('the card view reads mode local, and the badge says "On your PC"', () => {
   const view = run<(a: unknown) => { mode: string; live: boolean }>(`${cut(SRC, 'export function blenderView', '/**\n * The same line breaks')}`, 'blenderView');
   const mk = (mode?: string) => ({ input: { script: 'x', ...(mode ? { mode } : {}) } });
   assert.equal(view(mk('local')).mode, 'local');
@@ -123,10 +123,10 @@ test('the card view reads mode local, and the badge says "On this PC"', () => {
   assert.equal(view(mk('live')).mode, 'live');
   assert.equal(view(mk('sandbox')).mode, 'sandbox');
   assert.equal(view(mk()).mode, 'sandbox');
-  assert.match(SRC, />On this PC</);
+  assert.match(SRC, />On your PC</);
   assert.match(SRC, /v\.mode === 'local' && <div className="bl-live-warn">/);
   assert.match(SRC, /filter, not a sandbox|LOCAL_CARD_WARN/);
-  assert.match(read('ui/src/blender/copy.ts'), /Runs headless Blender on this computer as you\. Read every line: Legion.s check is a filter, not a sandbox\./);
+  assert.match(read('ui/src/blender/copy.ts'), /Runs headless Blender on your computer as you\. Read every line: Legion.s check is a filter, not a sandbox\./);
   assert.match(SRC, /<span><b>\{lines\.length\}<\/b> lines<\/span>/, 'the fixed line count (final line break not counted) is the number shown');
 });
 

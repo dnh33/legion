@@ -78,7 +78,7 @@ function AddCustom() {
   return (
     <fieldset className="prov-add">
       <legend>Add a custom endpoint</legend>
-      <p className="field-note">Any server that speaks the OpenAI chat-completions format: your own gateway, vLLM, LM Studio or another host. https is required unless the server is on this computer.</p>
+      <p className="field-note">Any server that speaks the OpenAI chat-completions format: your own gateway, vLLM, LM Studio or another host. https is required unless the server is on your computer.</p>
       <div className="prov-row">
         <label>Short name<input value={id} onChange={(e) => setId(e.target.value.toLowerCase())} placeholder="mygateway" spellCheck={false} /></label>
         <label>Label<input value={label} onChange={(e) => setLabel(e.target.value)} placeholder="My gateway" /></label>
