@@ -338,6 +338,7 @@ interface Arg { raw: string; w: string; sw: boolean }
 /** The words of a stage without redirects (`> out`, `2>&1`, `>>log`): what a redirect writes to is not an argument. */
 function argWords(stage: string, shell: ShellKind = 'sh'): Arg[] {
   const tokens = stage.match(/(?:"[^"]*"|'[^']*'|[^\s"'])+/g) ?? [];
+  const gitBashSwitches = shell === 'sh' && tokens.some((t) => /^\/\/[a-z?][\w:?.-]*$/i.test(t.replace(/["'^]/g, '')));
   const out: Arg[] = [];
   for (let i = 0; i < tokens.length; i++) {
     const t = tokens[i]!;
@@ -347,7 +348,8 @@ function argWords(stage: string, shell: ShellKind = 'sh'): Arg[] {
     if (/^(?:\\;|';'|";")$/.test(t) && out.some((a) => /^-(?:exec|execdir|ok|okdir)$/.test(a.w))) continue;
     const lower = t.replace(/["'^]/g, '').toLowerCase();
     const raw = undoubled(lower);
-    if (raw) { const w = clean(raw); out.push({ raw, w, sw: shell === 'sh' ? raw !== lower : CMD_SWITCH.test(w) }); }
+    // in sh, once a stage writes a switch the Git Bash way (//s), its single-slash words are paths (/c is C:/)
+    if (raw) { const w = clean(raw); out.push({ raw, w, sw: shell === 'sh' && gitBashSwitches ? raw !== lower : CMD_SWITCH.test(w) }); }
   }
   return out;
 }
@@ -802,7 +804,8 @@ export function refuseCatastrophic(raw: string, shell: ShellKind = 'sh', depth =
       if (why) return say(why);
       const st = new Stage(argWords(segment, shell));
       const c = st.at(CD_VERBS)[0];
-      if (c !== undefined) { const t = st.plainAfter(c, CMD_SWITCH_VERBS.has(program(st.ws[c]!)))[0]; inRoot = t !== undefined && isProtectedTarget(t); continue; }
+      // in sh, cd and pushd are bash's own: /c is the C: drive, never a switch
+      if (c !== undefined) { const t = st.plainAfter(c, shell !== 'sh' && CMD_SWITCH_VERBS.has(program(st.ws[c]!)))[0]; inRoot = t !== undefined && isProtectedTarget(t); continue; }
       if (!inRoot) continue;
       // after `cd /`: rm -rf *, del /s /q *, find . -delete, git clean, rsync --delete into `.`, `ls -r | rm`
       const wipe = st.at(DELETE_VERBS).some((i) => st.ws.slice(i + 1).some((w) => EVERYTHING_HERE.test(w)))

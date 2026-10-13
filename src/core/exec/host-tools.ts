@@ -53,6 +53,8 @@ export function isEnvFile(p: string): boolean {
  * 'block' such a command is refused rather than guessed at: a rename or a copy would otherwise take the values out.
  */
 export function mentionsEnvFile(cmd: string): boolean {
+  // bash and cmd drop every carriage return before they read a line: `.e<CR>nv` is `.env`
+  cmd = cmd.replace(/\r/g, '');
   for (const m of cmd.matchAll(/(?:^|[\s'"=/\\(<>|;&])(\.env[\w.*?[\]-]*)(?=$|[\s'"/\\)<>|;&])/gi)) {
     const t = m[1]!;
     if (/[*?[\]]/.test(t) || isEnvFile(t)) return true;
