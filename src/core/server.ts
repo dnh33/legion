@@ -276,7 +276,8 @@ export function createServer(ctx: CoreContext): Server {
         limit: lim === null || lim === '' ? PAGE_DEFAULT : Number(lim),
         ...(sp.get('cursor') ? { cursor: sp.get('cursor')! } : {}),
         ...(sp.get('agentId') ? { agentId: sp.get('agentId')! } : {}),
-        ...(sp.get('projectId') ? { projectId: sp.get('projectId')! } : {}),
+        // `projectId=none`: only the tasks that belong to no project
+        ...(sp.get('projectId') ? { projectId: sp.get('projectId') === 'none' ? null : sp.get('projectId')! } : {}),
         includeArchived: ['1', 'true'].includes(sp.get('archived') ?? ''),
         q: (sp.get('q') ?? '').slice(0, 200),
         agentNames,
@@ -370,6 +371,14 @@ export function createServer(ctx: CoreContext): Server {
     if (!gone) throw new HttpError(404, `Unknown agent "${id}"`);
     const wasShown = visible(gone);
     ctx.store.deleteAgent(id);
+    // a deleted agent is no project's member: its id would linger in the member lists and counts
+    for (const p of ctx.projects?.list() ?? []) {
+      if (!p.members.includes(id)) continue;
+      try {
+        const next = ctx.projects!.setMembers(p.id, p.members.filter((m) => m !== id));
+        if (wasShown) ctx.bus.emit({ type: 'project.updated', project: next });
+      } catch { /* the agent is gone either way; a member list that cannot be saved keeps the stale id */ }
+    }
     if (wasShown) ctx.bus.emit({ type: 'agent.deleted', agentId: id });
     return { ok: true };
   });

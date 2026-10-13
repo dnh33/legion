@@ -177,3 +177,12 @@ test('C12 board.* events reach only the admin stream and carry no item text', as
     admin.stop(); token.stop();
   } finally { await x.close(); }
 });
+
+test('council A13: a deleted agent leaves every member list', async () => {
+  const x = await boot(false);
+  try {
+    x.projects.setMembers(x.p.id, ['zealot', 'scout']);
+    assert.equal((await x.call('DELETE', '/api/agents/scout')).status, 200);
+    assert.deepEqual(x.projects.get(x.p.id)!.members, ['zealot'], 'the deleted agent is no longer a member');
+  } finally { await x.close(); }
+});
