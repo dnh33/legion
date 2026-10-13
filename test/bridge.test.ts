@@ -508,3 +508,17 @@ test('D7 an ask that times out still delivers its answer later, as a reply in th
   assert.equal(replies.length, 1, 'the answer was not lost');
   assert.match(replies[0]!.text, /builder says: slow job|the late answer/);
 });
+
+test('D8 a delegated run that pauses at its turn limit hands back its work so far, flagged as paused', async () => {
+  const s = setup((c) => c.agent === 'builder' ? (async function* () {
+    yield init('b1');
+    yield { type: 'assistant', message: { content: [{ type: 'text', text: 'Parsed 3 of 5 files; the CSV reader is done, the XML reader is next.' }] } };
+    yield { type: 'result', subtype: 'error_max_turns', is_error: true, total_cost_usd: 0.01, num_turns: 30, session_id: 'b1' };
+  })() : undefined, 4);
+  const z = s.engine.startTask({ agentId: 'zealot', prompt: 'go', source: 'ui' });
+  await s.engine.waitFor(z.id, 3000);
+  const r = await s.engine.bridge.ask(z.id, 'builder', 'parse the files') as any;
+  assert.equal(r.status, 'error');
+  assert.match(r.result, /^Paused at the turn limit/);
+  assert.match(r.result, /Work so far \(its last message\):\nParsed 3 of 5 files; the CSV reader is done, the XML reader is next\./);
+});

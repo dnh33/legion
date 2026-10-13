@@ -1,4 +1,5 @@
 /** Agent-to-agent bridge: lets any Legion agent message any other agent (ask = wait, tell = async reply). */
+import { BUDGET_LIMIT_PREFIX, TURN_LIMIT_PREFIX } from '../shared/continue.js';
 import { randomUUID } from 'node:crypto';
 import { overrideAllowed, overrideRefusal } from './model-cap.js';
 import type { AgentProfile, Catalog, ChatMessage, ConcreteModel, ModelChoice, Task, TaskSource } from '../shared/types.js';
@@ -281,7 +282,7 @@ export class Bridge {
       if (r.error) throw r.error;
       const t = r.task ?? this.store.getTask(taskId);
       if (!t) throw new BridgeError('The target task no longer exists');
-      const text = t.status === 'done' ? (t.result ?? '') : (t.error ?? t.status);
+      const text = t.status === 'done' ? (t.result ?? '') : this.withWorkSoFar(t, t.error ?? t.status);
       // the answer comes back into the caller's context: a tainted answer taints the caller
       if (this.engine.isTainted?.(t.id)) this.engine.markTainted?.(callerTaskId);
       const c = this.clip(text, t.id);
@@ -310,13 +311,30 @@ export class Bridge {
     return { taskId };
   }
 
+  /**
+   * A run paused at its turn or spend limit kept its work, but its error text says only that: the caller also gets the
+   * run's last message (what it had done and what was next), so a hand-off that ran out of room still returns its work.
+   */
+  private withWorkSoFar(t: Task, error: string): string {
+    if (!error.startsWith(TURN_LIMIT_PREFIX) && !error.startsWith(BUDGET_LIMIT_PREFIX)) return error;
+    let last: string | undefined;
+    try {
+      const msgs = this.store.listMessages(t.id);
+      for (let i = msgs.length - 1; i >= 0 && msgs[i]!.role !== 'user'; i--) if (msgs[i]!.role === 'assistant' && msgs[i]!.text.trim()) { last = msgs[i]!.text.trim(); break; }
+    } catch { /* the pause text alone */ }
+    return last ? `${error}
+
+Work so far (its last message):
+${last}` : error;
+  }
+
   /** When the callee's run ends, its answer lands in the caller's task as a new message (a tell, or an ask that timed out). */
   private replyWhenDone(callerTaskId: string, target: AgentProfile, taskId: string, done: Promise<{ task?: Task; error?: Error }>, opts: { quietWhenDeleted?: boolean } = {}): void {
     void done.then((r) => {
       // a timed-out ask whose thread the owner deleted: a line in the thread says so; no run is woken for it
       if (opts.quietWhenDeleted && r.error && /was deleted/.test(r.error.message)) { this.notice(callerTaskId, `The answer from ${target.name} (task ${taskId}) will not come: that task was deleted.`); return; }
       const t = r.task ?? this.store.getTask(taskId);
-      const body = r.error ? `(failed) ${r.error.message}` : t?.status === 'done' ? (t.result ?? '') : `(${t?.status ?? 'gone'}) ${t?.error ?? ''}`.trim();
+      const body = r.error ? `(failed) ${r.error.message}` : t?.status === 'done' ? (t.result ?? '') : `(${t?.status ?? 'gone'}) ${t ? this.withWorkSoFar(t, t.error ?? '') : ''}`.trim();
       // the outcome travels in the header, which only Legion writes: a free-text answer that happens to start with
       // "(error)" is still an answer (review of 0.2.5-f)
       const outcome = r.error ? 'failed' : t?.status === 'done' ? undefined : (t?.status ?? 'gone');
