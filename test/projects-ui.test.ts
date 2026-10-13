@@ -99,7 +99,7 @@ test('council A9: the archive question says what archiving touches', async () =>
   assert.match(q, /^Archive "Site"\?/);
   assert.match(q, /2 runs in progress finish first\./);
   assert.match(q, /Its 5 open tasks cannot be continued, and no new task can start in it, until you unarchive it\./);
-  assert.match(q, /1 room keeps working, without the project's instructions and notes\./);
+  assert.match(q, /1 room is marked out of project, with a notice in it; it keeps working without the project's instructions, board and notes\./);
   assert.doesNotMatch(archiveQuestion('Site', { live: 0, open: 0, rooms: 0 }), /run|room|open task/);
 });
 
@@ -226,4 +226,13 @@ test('C3 the project page shows 30 tasks, and all of them on request', async () 
   assert.match(view, /Show all \$\{inTasks\.length\}/);
   assert.match(view, /loadProjectTasks\(project\.id, 100\)/);
   assert.doesNotMatch(view, /inTasks\.slice\(0, 30\)/);
+});
+
+test('C4 unarchive asks first and says what comes back', async () => {
+  const { unarchiveQuestion } = await import('../ui/src/projects/projectsLogic.js');
+  assert.equal(unarchiveQuestion('Site'), 'Unarchive "Site"?\n\nIts tasks can be continued again and new tasks can start in it. Its rooms and members get its instructions, board and notes again.');
+  const root = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
+  const view = readFileSync(join(root, 'ui', 'src', 'projects', 'ProjectView.tsx'), 'utf8');
+  assert.match(view, /unarchiveProject\(project\)/);
+  assert.doesNotMatch(view, /saveProject\(project\.id, \{ status: 'active' \}\)/, 'no unarchive without the question');
 });

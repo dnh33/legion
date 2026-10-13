@@ -69,7 +69,7 @@ export function archiveQuestion(name: string, n: { live: number; open: number; r
   const lines = [`Archive "${name}"?`];
   if (n.live) lines.push(`${plural(n.live, 'run in progress finishes', 'runs in progress finish')} first.`);
   lines.push(n.open ? `Its ${plural(n.open, 'open task', 'open tasks')} cannot be continued, and no new task can start in it, until you unarchive it.` : 'No new task can start in it until you unarchive it.');
-  if (n.rooms) lines.push(`${plural(n.rooms, 'room keeps', 'rooms keep')} working, without the project's instructions and notes.`);
+  if (n.rooms) lines.push(`${plural(n.rooms, 'room is', 'rooms are')} marked out of project, with a notice in ${n.rooms === 1 ? 'it' : 'each'}; ${n.rooms === 1 ? 'it keeps' : 'they keep'} working without the project's instructions, board and notes.`);
   return lines.join('\n\n');
 }
 
@@ -78,6 +78,12 @@ export function roomOutOfProject(room: Pick<Room, 'projectId' | 'members'>, proj
   if (!room.projectId) return undefined;
   return roomOutOfProjectReason(room.members, projects.find((p) => p.id === room.projectId), (id) => names[id] ?? id);
 }
+
+/** The question before a project is unarchived: what comes back. */
+export const unarchiveQuestion = (name: string): string =>
+  `Unarchive "${name}"?
+
+Its tasks can be continued again and new tasks can start in it. Its rooms and members get its instructions, board and notes again.`;
 
 export const roomsOf = (rooms: Room[], projectId: string): Room[] => rooms.filter((r) => r.projectId === projectId);
 /** Rooms the owner can move into the project: none yet, and every member of the room is already a member of the project. */
