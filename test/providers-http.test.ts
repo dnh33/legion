@@ -165,3 +165,38 @@ test('chatTurn: a mid-stream error object, broken stream JSON, and tool calls wi
     assert.deepEqual(r.toolCalls.map((c) => c.id), ['call_1', 'call_2']);
   } finally { await f.close(); }
 });
+
+test('chatTurn: an output cap is sent (max_tokens, or max_output_tokens on the Responses wire), so a provider does not reserve credit for the model maximum', async () => {
+  const f = await startFake((_r, res) => replyText(res, 'ok'));
+  try {
+    await chatTurn({ entry: entryFor(f) }, { model: 'm', messages: [{ role: 'user', content: 'hi' }], tools: [], maxTokens: 32_768, onText: () => undefined });
+    assert.equal(f.requests[0]!.body.max_tokens, 32_768);
+    // without a cap the request is as before (no field)
+    await chatTurn({ entry: entryFor(f) }, { model: 'm', messages: [], tools: [], onText: () => undefined });
+    assert.equal('max_tokens' in f.requests[1]!.body, false);
+  } finally { await f.close(); }
+});
+
+test('chatTurn: OpenRouter\'s "can only afford N" retries once with N; too little credit gives a plain message; a server that refuses the field is asked again without it', async () => {
+  const f = await startFake((r, res) => {
+    const b = r.body ?? {};
+    if (r.url.includes('/afford/')) {
+      if ((b.max_tokens ?? 1e9) > 9000) { jsonReply(res, 402, { error: { message: `This request requires more credits, or fewer max_tokens. You requested up to ${b.max_tokens ?? 131072} tokens, but can only afford 9000. To increase, visit https://openrouter.ai/settings/keys and create a key with a higher total limit`, code: 402 } }); return; }
+      replyText(res, `afforded ${b.max_tokens}`); return;
+    }
+    if (r.url.includes('/broke/')) { jsonReply(res, 402, { error: { message: 'This request requires more credits, or fewer max_tokens. You requested up to 32768 tokens, but can only afford 40.', code: 402 } }); return; }
+    if (r.url.includes('/nofield/')) { if ('max_tokens' in b) { jsonReply(res, 400, { error: { message: 'Unrecognized request argument supplied: max_tokens' } }); return; } replyText(res, 'no cap'); return; }
+    replyText(res, 'ok');
+  });
+  try {
+    const mk = (path: string) => ({ ...entryFor(f), baseUrl: f.url + path });
+    const a = await chatTurn({ entry: mk('/afford') }, { model: 'm', messages: [], tools: [], maxTokens: 32_768, onText: () => undefined });
+    assert.equal(a.text, 'afforded 9000');
+    const broke = await chatTurn({ entry: mk('/broke') }, { model: 'm', messages: [], tools: [], maxTokens: 32_768, onText: () => undefined }).catch((e) => e);
+    assert.ok(broke instanceof ProviderHttpError);
+    assert.match(broke.message, /credit/i);
+    assert.match(broke.message, /40/);
+    const nf = await chatTurn({ entry: mk('/nofield') }, { model: 'm', messages: [], tools: [], maxTokens: 32_768, onText: () => undefined });
+    assert.equal(nf.text, 'no cap');
+  } finally { await f.close(); }
+});
