@@ -4,6 +4,7 @@
  */
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { ProjectStore } from '../src/core/projects/store.js';
 import { startFake, replyText } from './providers-fakes.js';
@@ -75,5 +76,19 @@ test('a provider run without the agent shell is not told it may edit files in th
     const system = systemOf(f);
     assert.match(system, /Project folder: .*this run cannot open files there/);
     assert.doesNotMatch(system, /you may read and write files there/);
+  } finally { await f.close(); }
+});
+
+test('live 0.2.6-y: a provider run with the agent shell in a project creates the project folder, so a shell call can work there', async () => {
+  const f = await startFake((_r, res) => replyText(res, 'done'));
+  try {
+    const root = cleanupTemp('legion-prov-proj5-');
+    const projects = new ProjectStore(join(root, 'data'), join(root, 'ws'));
+    const p = projects.setMembers(projects.create({ name: 'Atlas' }).id, ['a1']);
+    const h = setup(f, { agent: { approval: 'full', host: { enabled: true } } as any, projects });
+    assert.equal(existsSync(p.folder), false, 'a new project has no folder on disk yet');
+    const t = await run(h, 'hello', { projectId: p.id });
+    assert.equal(t.status, 'done', t.error);
+    assert.equal(existsSync(p.folder), true, 'the run made the folder its shell is given');
   } finally { await f.close(); }
 });

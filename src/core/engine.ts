@@ -1054,6 +1054,8 @@ export class Engine {
     // Legion's own), so needsApproval raises a card and taintsRun marks the run; `host` grants the TOOLS, the agent's
     // `approval` mode decides whether each call is carded. An absent `host` = no tools (the opt-in gate).
     if (agent.host?.enabled) {
+      // the folder the shell is given must exist: a provider run never made it, so a shell call there failed (live test 0.2.6-y)
+      if (project) { try { mkdirSync(project.folder, { recursive: true }); } catch { /* the call then says why */ } }
       out.host = buildHostToolsServer({
         agentId: agent.id, taskId,
         rootDir: this.hostRootOf(agent),
