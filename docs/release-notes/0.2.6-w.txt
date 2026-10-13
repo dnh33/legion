@@ -1,0 +1,11 @@
+Legion 0.2.6-w: a security fix for the safety floor.
+
+- A hidden carriage return in the middle of a command no longer gets it past the safety floor. Git Bash and cmd drop that character before they run a command, so a drive wipe hidden that way was not seen. This affected Claude agents' own Bash tool on Windows, in every approval mode.
+- Paths written the Git Bash way are read as paths: cd /c followed by a wipe, and Windows tools given /c next to //switches, are refused like C:\.
+- A switch written with two slashes (//s) is read as the switch it is, so bcdedit //delete, cipher //w and raw disk writes through //./ are refused.
+- A home named by its user (~name), the current folder (~+) and Git for Windows' own folders are protected.
+- The same hidden character no longer hides a .env file from the agent shell's .env setting.
+
+Checked against 20,205 real agent commands: no ordinary command is newly refused or newly asked about.
+
+Installs over 0.2.5-o and later. Full detail in CHANGELOG.md.

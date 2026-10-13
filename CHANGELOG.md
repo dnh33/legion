@@ -4,6 +4,26 @@ All notable changes are recorded here. The format follows [Keep a Changelog](htt
 
 ## [Unreleased]
 
+## [0.2.6-w] - 2026-10-13
+
+### Security
+
+- **A hidden character can no longer get a command past the safety floor.** Git Bash and cmd quietly drop a carriage
+  return (an invisible line-end character) before they run a command, even in the middle of a word. Legion read the
+  command with it in place, so a delete of a whole drive, hidden that way, was not recognised. Legion now reads the
+  command the way the shell will run it. This affected Claude agents' own Bash tool on Windows, in every approval mode.
+  The same character no longer hides a `.env` file from the agent shell's `.env` setting either.
+- **Paths written the Git Bash way are read as paths.** In Git Bash, `/c` is your C: drive and `/usr` is Git's own
+  folder. `cd /c` followed by a wipe of everything there, and Windows tools given `/c` next to their Git Bash switches
+  (`robocopy empty /c //mir`, `icacls /c //grant ... //t`), are now refused like `C:\`. A switch written with two
+  slashes (`//s`, the Git Bash way to pass `/s` to a Windows program) is read as that switch, so `bcdedit //delete`,
+  `cipher //w` and a raw write to `//./PhysicalDrive0` are refused too.
+- **More homes and folders are protected.** A home named by its user (`~name`), the current folder (`~+`), and Git for
+  Windows' own folders (`/mingw64`, `/cmd` and the like) are protected like your own home and the system folders.
+  `rm -rf /c/$X` gets the same check as `rm -rf "$DIR"`.
+
+Checked against 20,205 real agent commands: no ordinary command is newly refused or newly asked about.
+
 ## [0.2.6-v] - 2026-10-13
 
 ### Security
