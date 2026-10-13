@@ -481,3 +481,15 @@ test('the lead\'s send-back rule is code: one goal goes to one agent at most thr
   assert.equal(by('back').isError, true);
   assert.match(by('back').text, /moved|does not go back/i);
 });
+
+test('D4 a delegation that is refused when it starts costs nothing: neither the pair rate nor the per-task run budget', async () => {
+  const s = setup(() => undefined, 4);
+  const z = s.engine.startTask({ agentId: 'zealot', prompt: 'go', source: 'ui' });
+  await s.engine.waitFor(z.id, 3000);
+  const real = s.engine.startTask.bind(s.engine);
+  s.engine.startTask = (() => { throw new Error('refused by the engine'); }) as typeof s.engine.startTask;
+  for (let i = 0; i < 45; i++) assert.throws(() => s.engine.bridge.tell(z.id, 'builder', `m${i}`, { fresh: true }), /refused by the engine/);
+  s.engine.startTask = real;
+  const { taskId } = s.engine.bridge.tell(z.id, 'builder', 'now it can start', { fresh: true });
+  assert.ok(taskId, 'not stopped by a budget the refusals used up');
+});
