@@ -7,6 +7,7 @@ Legion 0.2.6-x: Git Bash for agents on Windows, and a round of fixes.
 - Agents on OpenRouter stop failing on a low balance: Legion sends an output cap, and says plainly when the credit is too low.
 - The Marshal knows which agents have a shell, and sends shell work only to them.
 - Projects: delegated work lands in the right project, and the app shows where a task and a new message go.
+- OpenRouter offers MiMo 2.6 Pro and MiMo 2.6 Flash first in a new setup, above DeepSeek.
 - The agent shell no longer inherits Legion's own LEGION_* settings.
 - The BSV frozen banner says why, since when, and where to unfreeze. The model pill keeps one line. The app says "your computer".
 
