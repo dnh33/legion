@@ -20,6 +20,7 @@ export function projectSection(p: Pick<Project, 'name' | 'instructions' | 'folde
       ? `Project folder: ${folder} (this run cannot open files there; say what should change, and a member with file access can do it).`
       : `Project folder: ${folder} (you may read and write files there; keep this project's files in it).`,
   ];
+  lines.push("mcp__legion__agents says who is in this project: give project work to members first; a non-member helps from outside, without the project's folder, notes or board.");
   const text = body(p.instructions).trim();
   if (text) lines.push('Project instructions:', text);
   lines.push('</legion-project>');

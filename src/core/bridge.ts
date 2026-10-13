@@ -59,6 +59,8 @@ export interface BridgeEngine {
   cancel(taskId: string): boolean;
   /** Whether a task has touched outside content. Optional so test doubles need not implement it. */
   isTainted?(taskId: string): boolean;
+  /** The project a task's run belongs to now (active, its agent a member), for the roster's membership column. */
+  projectOfTask?(taskId: string): { members: string[] } | undefined;
   /** Marks a live or stored task tainted (a tainted peer's result just reached it). */
   markTainted?(taskId: string): void;
 }
@@ -171,15 +173,19 @@ export class Bridge {
    * Roster for the `agents` tool: one line per other agent, then its card (Fascia 3a): the model it runs on and how its answer
    * starts, read from its own soul's "Output shape:" line, so a lead can brief it and check the reply. No soul line, no card line.
    */
-  list(callerAgentId: string): string {
+  list(callerAgentId: string, callerTaskId?: string): string {
     const lines: string[] = [];
+    // in a project run, who is in it: a non-member helps from outside (no folder, notes or board), so the model can pick a member first
+    let project: { members: string[] } | undefined;
+    try { project = callerTaskId ? this.engine.projectOfTask?.(callerTaskId) : undefined; } catch { /* no column */ }
     for (const a of this.store.listAgents().filter((x) => this.isVisible(x))) {
       if (a.id === callerAgentId) continue;
       const tasks = this.store.listTasks(500, a.id, true);
       const status = tasks.some((t) => t.status === 'running') ? 'working' : tasks.some((t) => t.status === 'queued') ? 'queued' : 'idle';
       const thread = this.findPair(callerAgentId, a.id, 'any') ? 'thread' : 'no-thread';
       // the whole description: a role's last clause is often its limit ("Reports, never upgrades."), and a cut one routes work to a bot that may not do it
-      lines.push(`${a.id} | ${a.name} | ${oneLine(a.description)} | ${status} | ${thread}`);
+      const member = project ? (project.members.includes(a.id) ? ' | in this project' : ' | not in this project (helps from outside: no folder, notes or board)') : '';
+      lines.push(`${a.id} | ${a.name} | ${oneLine(a.description)} | ${status} | ${thread}${member}`);
       // what it can do on the owner's computer: a lead must not hand commands or file edits to an agent without a shell
       lines.push(`  tools: ${toolsOf(a)}`);
       const card = cardOf(a);

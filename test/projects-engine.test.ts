@@ -510,3 +510,19 @@ test('D1 waitingOnOwner: true while the run\'s approval card is open, false afte
     await s.engine.waitFor(t.id, 3000);
   }
 });
+
+test('D5 the agents roster of a project run says who is in the project; elsewhere it says nothing about projects', async () => {
+  const s = setup();
+  const p = s.mk('P', ['a1', 'a2']);
+  const inP = await run(s, { agentId: 'a1', prompt: 'lead', source: 'ui', projectId: p.id });
+  const plain = await run(s, { agentId: 'a1', prompt: 'loose', source: 'ui' });
+  const roster = s.engine.bridge.list('a1', inP.id);
+  assert.match(roster, /^a2 \| .* \| in this project$/m);
+  assert.match(roster, /^a3 \| .* \| not in this project \(helps from outside: no folder, notes or board\)$/m);
+  assert.doesNotMatch(s.engine.bridge.list('a1', plain.id), /in this project/);
+  assert.doesNotMatch(s.engine.bridge.list('a1'), /in this project/);
+});
+
+test('D5 the project section tells a project run how membership shapes delegation (only project runs pay for the line)', async () => {
+  assert.match(projectSection({ name: 'P', instructions: '', folder: 'C:/p' }), /mcp__legion__agents says who is in this project: give project work to members first; a non-member helps from outside, without the project's folder, notes or board\./);
+});

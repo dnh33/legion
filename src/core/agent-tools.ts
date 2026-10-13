@@ -92,7 +92,7 @@ function bridgeTools(ctx: AgentToolsCtx) {
     'agents',
     'List the other Legion agents (id, role, status) and whether you already have a thread with each.',
     {},
-    () => guard(() => bridge.list(agentId)),
+    () => guard(() => bridge.list(agentId, taskId)),
   );
   const ask = tool(
     'ask',

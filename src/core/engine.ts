@@ -664,6 +664,12 @@ export class Engine {
 
   running(): string[] { return [...this.active.keys()]; }
 
+  /** The project a task's run belongs to now (active, its agent a member): the roster's membership column. */
+  projectOfTask(taskId: string): Project | undefined {
+    const t = this.store.getTask(taskId);
+    return t ? this.projectOf(taskId, t.agentId) : undefined;
+  }
+
   /** An approval card or a question of this task waits on the owner (the run is paused on a person, not stalled). */
   waitingOnOwner(taskId: string): boolean {
     try { return this.approvals.pending().some((a) => a.taskId === taskId) || this.questions.pending().some((q) => q.taskId === taskId); } catch { return false; }
