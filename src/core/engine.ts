@@ -20,7 +20,9 @@ import { decideGate } from './gates.js';
 import { TaintedPaths } from './tainted-paths.js';
 import { carryDone, CLAUDE_TASK_TOOLS, mirrorClaudeTaskCall, renderEmptyHandover, renderForModel, renderHandover, TaskList, TaskListStore } from './task-list.js';
 import { nativeTaskListOn } from '../shared/task-list-setting.js';
-import { buildHostToolsServer, redactValues } from './exec/host-tools.js';
+import { buildHostToolsServer, redactValues, refuseCatastrophic, unjudgeableCommand } from './exec/host-tools.js';
+/** The tools that run a shell command: Legion's host shell and Claude Code's own Bash and PowerShell. */
+const SHELL_TOOLS: ReadonlySet<string> = new Set(['mcp__host__shell', 'Bash', 'PowerShell']);
 import { DirectHostBackend } from './exec/direct-host.js';
 import { clampExecLimits } from './exec/limits.js';
 import { CONTINUE_REFUSED } from './connector-withhold.js';
@@ -1116,6 +1118,35 @@ This run read connector (GitHub) data and other outside text. Web access can sen
   }
 
   /**
+   * The safety floor for every shell an agent drives: Legion's own host shell AND Claude Code's Bash and PowerShell tools.
+   * A catastrophic command (a whole drive, a system or home folder) or one that runs decoded or encoded text is refused, with
+   * no card. A command the floor cannot read (its program is built when it runs: `$(echo rm)`, `$x`, `{a,b}`, `%X%`, or
+   * another command's output piped into a shell) gets a card in EVERY approval mode, Full included, and the card offers no
+   * Remember. Fail closed: what cannot be read is asked about, never assumed safe. Undefined when the floor has nothing to say.
+   */
+  private shellFloor(job: Job, agent: AgentProfile, toolName: string, input: Record<string, unknown>): Promise<{ allow: boolean; message?: string }> | undefined {
+    if (!SHELL_TOOLS.has(toolName)) return undefined;
+    const command = typeof input?.command === 'string' ? input.command : '';
+    if (!command) return undefined;
+    const refused = refuseCatastrophic(command);
+    if (refused) return Promise.resolve({ allow: false, message: refused });
+    const why = unjudgeableCommand(command);
+    if (!why) return undefined;
+    const o = job.origin;
+    let timedOut = false;
+    return this.approvals.request(job.taskId, agent.id, toolName, input, o ? { roomId: o.roomId, fromAgentId: o.fromAgentId, hop: o.hop } : undefined, {
+      onTimeout: () => { timedOut = true; },
+      noRemember: true,
+      summary: `Legion cannot read what this command will run.\n${command.slice(0, 1000)}\nWhy: ${why}.\nYou are asked even in Full access, because the safety check cannot see the program until it runs. Allow it only if you know what it does.`,
+    }).then((allowed) => allowed ? { allow: true } : {
+      allow: false,
+      message: timedOut
+        ? `No one answered the approval request within ${this.approvals.timeoutWait}, so this command was not run (${why}). Do not retry it or reach the same result another way: write the command out plainly so it can be checked, or ask the user.`
+        : `The user has not approved this command (${why}). Do not retry it, rephrase it or reach the same result another way. Stop, tell the user what the command was meant to do, and wait for their answer.`,
+    });
+  }
+
+  /**
    * The approval decision for one tool call, shared by the Claude path (canUseTool) and the provider path: effective mode (never looser
    * than the run's ceiling), then needsApproval, then a card the user answers (10 minutes, then denied).
    */
@@ -1135,6 +1166,9 @@ This run read connector (GitHub) data and other outside text. Web access can sen
       // explicit allow skips the card, an ask forces one (inert in full), and no rule falls through to the baseline.
       const gate = decideGate({ toolName, input, agentId: agent.id, cwd: this.gateCwd(agent, toolName), tmpDir: GATE_TMP_DIR, projectId: this.projectOf(job.taskId, agent.id)?.id, ctx: { roomHop: (job.origin?.hop ?? 0) > 0, tainted: this.active.get(job.taskId)?.tainted === true || job.origin?.tainted === true, connectorData: this.store.getTask(job.taskId)?.usedConnectors === true } }, gatesFor(this.config).rules, mode, job.origin?.approvalCeiling === 'ask');
       if (gate.verdict === 'deny') return { allow: false, message: 'Blocked by a gate rule (Settings -> Gates).' };
+      // the shell floor sits ahead of allow rules and the baseline: an allow rule cannot pass a command nobody could read
+      const floor = this.shellFloor(job, agent, toolName, input);
+      if (floor) return floor;
       if (gate.verdict === 'allow') return { allow: true };
       if (gate.verdict !== 'ask' && !needsApproval(mode, toolName, { capped: job.origin?.approvalCeiling === 'ask' })) return { allow: true };
       const o = job.origin;
@@ -1278,7 +1312,11 @@ This run read connector (GitHub) data and other outside text. Web access can sen
           return d.allow ? { continue: true } : preToolDeny(d.message ?? 'The user denied this action.');
         }
         const g = decideGate({ toolName: input.tool_name, input: (input.tool_input ?? {}) as Record<string, unknown>, agentId: agent.id, cwd: this.gateCwd(agent, input.tool_name), tmpDir: GATE_TMP_DIR, projectId: this.projectOf(job.taskId, agent.id)?.id, ctx: { roomHop: (job.origin?.hop ?? 0) > 0, tainted: this.active.get(job.taskId)?.tainted === true || job.origin?.tainted === true, connectorData: this.store.getTask(job.taskId)?.usedConnectors === true } }, gatesFor(this.config).rules, 'full', false);
-        return g.verdict === 'deny' ? preToolDeny('Blocked by a gate rule (Settings -> Gates).') : { continue: true };
+        if (g.verdict === 'deny') return preToolDeny('Blocked by a gate rule (Settings -> Gates).');
+        // Full forgives the approval card, not the machine: the shell floor holds here too (Claude's own Bash included)
+        const floor = this.shellFloor(job, agent, input.tool_name, (input.tool_input ?? {}) as Record<string, unknown>);
+        if (floor) { const d = await floor; return d.allow ? { continue: true } : preToolDeny(d.message ?? 'The user denied this action.'); }
+        return { continue: true };
       }] });
     } else {
       options.permissionMode = 'default';

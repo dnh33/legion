@@ -393,11 +393,99 @@ function runsText(cmd: string): boolean {
   return false;
 }
 
+/** Programs that read a script from standard input when no command flag or script file is given (`curl … | bash`). */
+const STDIN_RUNNERS = new Set(['bash', 'sh', 'zsh', 'dash', 'ksh', 'fish', 'pwsh', 'powershell', 'iex', 'invoke-expression', 'python', 'python3', 'node', 'perl', 'ruby']);
+/** Flags after which such a program runs the next word, not standard input. */
+const INLINE_FLAGS = new Set([...SHELL_COMMAND_FLAGS, '-e', '--eval', '-p', '--print', '-file', '-f']);
+
+/** Whether this pipeline stage hands its standard input to a shell or interpreter as a script. */
+function runsStdin(ws: readonly string[]): boolean {
+  const pos = commandPositions(ws);
+  const last = pos[pos.length - 1];
+  if (last === undefined || !STDIN_RUNNERS.has(program(ws[last]!))) return false;
+  // `bash -s`, `python -` and option-only forms read the script from stdin; a script file or an inline command does not
+  return ws.slice(last + 1).every((w) => w.startsWith('-') && !INLINE_FLAGS.has(w));
+}
+
+/** Decoders that turn hidden text into readable text: their output piped into a shell is a command nobody could read first. */
+const DECODES = (ws: readonly string[]): boolean => {
+  const p = ws.map(program);
+  return (p.includes('base64') && ws.some((w) => w === '-d' || w === '--decode'))
+    || (p.includes('xxd') && ws.some((w) => w === '-r' || /^-r/.test(w)))
+    || (p.includes('openssl') && ws.includes('-d') && ws.some((w) => w === 'base64' || w === 'enc'));
+};
+/** PowerShell's -EncodedCommand and every prefix PowerShell accepts for it (-e, -ec, -enc, …). */
+const PS_ENCODED = /^-(?:e|ec|en|enc|enco|encod|encode|encoded|encodedc|encodedco|encodedcom|encodedcomm|encodedcomma|encodedcomman|encodedcommand)$/;
+
+/** Why the command runs hidden (decoded or encoded) text as a command, else undefined. Hard refusal: a card could not show it. */
+function hiddenPayload(cmd: string): string | undefined {
+  if (/frombase64string/i.test(cmd) && /\b(?:iex|invoke-expression)\b/i.test(cmd)) return 'running decoded text as a command';
+  for (const segment of cmd.split(/&&|\|\||[;&\n\r]/)) {
+    const stages = segment.split('|').map(words);
+    for (const ws of stages) {
+      if (commandPositions(ws).some((i) => { const p = program(ws[i]!); return (p === 'powershell' || p === 'pwsh') && ws.slice(i + 1).some((w) => PS_ENCODED.test(w)); })) return 'running a hidden (encoded) PowerShell command';
+    }
+    for (let s = 1; s < stages.length; s++) if (runsStdin(stages[s]!) && stages.slice(0, s).some(DECODES)) return 'running decoded text as a command';
+  }
+  return undefined;
+}
+
+/** Words that open a compound command rather than name a program (`do rm …` runs rm). */
+const SHELL_KEYWORDS = new Set(['do', 'then', 'else', 'elif', 'if', 'while', 'until', '!', '{', '(', 'time']);
+/** A program word only known when the command runs: a variable or substitution ($, backtick), cmd's %VAR%, or a brace expansion. */
+const BUILT_AT_RUN = /[$`]|%[^%\s]+%|^\{[^}]*,[^}]*\}$/;
+/** Programs that run the rest of their line as a command of its own. */
+const EVAL_RUNNERS = new Set(['eval', 'iex', 'invoke-expression', 'source', '.']);
+
+/**
+ * Why the guard cannot judge this command by reading it, else undefined. The safety floor reads commands; a command
+ * whose PROGRAM is built when it runs (`$(echo rm) -rf /c`, `x=rm; $x`, `{rm,-rf,/c}`, `%X%`) or that runs another
+ * command's output as a script (`curl … | bash`) could be anything, so it needs the owner's approval card in every
+ * approval mode (Full included). Fail closed: an unreadable command is asked about, never assumed safe. Variables and
+ * substitutions in ARGUMENTS (`echo $HOME`, `git commit -m "$(date)"`) are ordinary and pass.
+ */
+export function unjudgeableCommand(cmd: string, depth = 0): string | undefined {
+  if (depth > 3) return 'it nests commands too deeply to read';
+  const built = 'the program it runs is only known when it runs (made from a variable, a substitution or an expansion)';
+  for (const segment of cmd.split(/&&|\|\||[;&\n\r]/)) {
+    const stages = segment.split('|');
+    for (let s = 0; s < stages.length; s++) {
+      let ws = words(stages[s]!);
+      // leading assignments (`VERSION=$(git describe) npm run build`) and compound keywords are not the program
+      let k = 0;
+      while (k < ws.length && (SHELL_KEYWORDS.has(ws[k]!) || /^[a-z_][a-z0-9_]*=/.test(ws[k]!))) k++;
+      ws = ws.slice(k);
+      if (!ws.length) continue;
+      for (const i of commandPositions(ws)) {
+        const w = ws[i]!;
+        // a shell's -c text is a command line of its own: read it, rather than calling every $ in it a program
+        if (/\s/.test(w)) { const inner = unjudgeableCommand(w, depth + 1); if (inner) return inner; continue; }
+        if (BUILT_AT_RUN.test(w)) return built;
+        if (EVAL_RUNNERS.has(program(w))) { const inner = unjudgeableCommand(ws.slice(i + 1).join(' '), depth + 1); if (inner) return inner; }
+      }
+      if (s > 0 && runsStdin(ws)) {
+        // `printf "ls\n" | bash` runs text that is on the line (refuseCatastrophic reads it); anything else is unseen
+        const prev = words(stages[s - 1]!);
+        const literal = ['echo', 'printf'].includes(program(prev[0] ?? '')) && !prev.some((x) => /[$`]/.test(x));
+        if (!literal) return 'it runs the output of another command as a script, which cannot be read before it runs';
+      }
+    }
+  }
+  // a substitution's own text is a command too
+  for (const m of cmd.matchAll(/\$\(([^()]*)\)|`([^`]*)`/g)) {
+    const inner = unjudgeableCommand(m[1] ?? m[2] ?? '', depth + 1);
+    if (inner) return inner;
+  }
+  return undefined;
+}
+
 export function refuseCatastrophic(cmd: string, depth = 0): string | undefined {
   const say = (what: string): string => `Refused: this command looks like ${what}, which can destroy the machine or its data. It is blocked for every agent, even full access.`;
   for (const [re, what] of CATASTROPHIC) {
     if (re.test(cmd)) return say(what);
   }
+  const hidden = hiddenPayload(cmd);
+  if (hidden) return `Refused: this command is ${hidden}. Text that is decoded or encoded cannot be read before it runs, so it is blocked for every agent, even full access. Run the command itself, written out plainly.`;
   // The whole-machine commands count anywhere on the line (behind `start ""`, `call`, `&`, a group, `timeout`…), except
   // inside quoted text of several words on a line that runs no text: a commit message or a grep pattern naming one is data.
   // A one-word quote (`format "c:"`) is kept, unquoted, so quoting a target cannot hide it.
