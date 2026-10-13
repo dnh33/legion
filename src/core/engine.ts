@@ -540,6 +540,25 @@ export class Engine {
     }
   }
 
+  /**
+   * Says, at the start of a run, that another live run works in the same folder (decision B2): a run in the same project
+   * folder, or another run of the same agent (its own folder). Advisory: nothing is blocked; the run already working is not told.
+   */
+  private noteSharedFolder(taskId: string, agent: AgentProfile, project: Project | undefined): void {
+    for (const other of this.active.keys()) {
+      if (other === taskId) continue;
+      const t = this.store.getTask(other);
+      if (!t) continue;
+      const otherName = this.store.getAgent(t.agentId)?.name ?? t.agentId;
+      let text: string | undefined;
+      if (project && this.projectOf(other, t.agentId)?.id === project.id) text = `${otherName} is also working in this project's folder now ("${t.title}"). Both runs can change the same files.`;
+      else if (t.agentId === agent.id) text = `${agent.name} is also running another task now ("${t.title}"), in the same agent folder. Both runs can change the same files.`;
+      if (!text) continue;
+      try { this.addMessage(taskId, 'system', text); } catch { /* the note is advisory */ }
+      return;
+    }
+  }
+
   /** The project this task's run belongs to right now (active, agent is a member), else undefined. Checked at every run. */
   private projectOf(taskId: string, agentId: string): Project | undefined {
     if (!this.projects) return undefined;
@@ -1297,6 +1316,7 @@ This run read connector (GitHub) data and other outside text. Web access can sen
     if (!project && job.projectAtStart && this.projects) this.noteProjectLost(job.taskId, job.projectAtStart, agent);
     let projectFolder: string | undefined;
     if (project) { try { mkdirSync(project.folder, { recursive: true }); projectFolder = project.folder; } catch { /* no folder this run: the instructions still apply */ } }
+    this.noteSharedFolder(job.taskId, agent, project);
     const servers = this.buildMcpServers(agent, job, act);
     const skillSet = this.moduleSkills(agent);
     const allowSkillShell = this.skillShellAllowed();
@@ -1528,6 +1548,8 @@ This run read connector (GitHub) data and other outside text. Web access can sen
     const projectHere = this.projectOf(taskId, agent.id);
     // in the project when it was queued, not any more when it starts: said in the thread, as on the Claude path
     if (!projectHere && job.projectAtStart && this.projects) this.noteProjectLost(taskId, job.projectAtStart, agent);
+    // only the agent shell writes files on a provider run
+    if (agent.host?.enabled) this.noteSharedFolder(taskId, agent, projectHere);
     const host: ProviderHost = {
       taskId, agentName: agent.name, signal: act.ac.signal, cancelled: () => act.cancelled || act.ac.signal.aborted,
       // the same teamwork and capabilities blocks as a Claude run, so an agent on another provider gets the same rules and tool facts

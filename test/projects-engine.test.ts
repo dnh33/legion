@@ -366,7 +366,8 @@ test('B3 a live run whose project is archived, or whose agent is removed, finish
     await new Promise<void>((r) => releases.push(r));
     yield ok();
   })());
-  const notes = (id: string) => s.store.listMessages(id).filter((m) => m.role === 'system').map((m) => m.text);
+  // only the notes about the project changing (a shared-folder note may also be in the thread)
+  const notes = (id: string) => s.store.listMessages(id).filter((m) => m.role === 'system' && /while this run was working/.test(m.text)).map((m) => m.text);
   const p = s.mk('Atlas', ['a1', 'a2']);
   const a = s.engine.startTask({ agentId: 'a1', prompt: 'x', source: 'ui', projectId: p.id });
   const b = s.engine.startTask({ agentId: 'a2', prompt: 'y', source: 'ui', projectId: p.id });
@@ -422,4 +423,29 @@ test('C5 a live pair thread in a project never takes a message from a caller out
     assert.notEqual(second.taskId, first.taskId, 'a new thread, not queued into the project thread');
     assert.equal(s.store.getTask(second.taskId)!.projectId, undefined);
   } finally { release(); }
+});
+
+test('B2 a run says when another live run works in the same folder: the same project folder, or the same agent\'s own folder', async () => {
+  const releases: Array<() => void> = [];
+  const s = setup(() => (async function* () {
+    yield { type: 'system', subtype: 'init', session_id: 's1' };
+    await new Promise<void>((r) => releases.push(r));
+    yield ok();
+  })());
+  const notes = (id: string) => s.store.listMessages(id).filter((m) => m.role === 'system').map((m) => m.text);
+  const p = s.mk('Atlas', ['a1', 'a2']);
+  try {
+    const first = s.engine.startTask({ agentId: 'a1', prompt: 'x', source: 'ui', projectId: p.id });
+    await new Promise((r) => setTimeout(r, 30));
+    assert.deepEqual(notes(first.id), [], 'alone: nothing to say');
+    const second = s.engine.startTask({ agentId: 'a2', prompt: 'y', source: 'ui', projectId: p.id });
+    await new Promise((r) => setTimeout(r, 30));
+    assert.equal(notes(second.id).length, 1, notes(second.id).join(' | '));
+    assert.match(notes(second.id)[0]!, /A1 is also working in this project's folder now \("x"\)\. Both runs can change the same files\./);
+    assert.deepEqual(notes(first.id), [], 'the run already working is not interrupted with a note');
+    const third = s.engine.startTask({ agentId: 'a1', prompt: 'z', source: 'ui' });
+    await new Promise((r) => setTimeout(r, 30));
+    assert.equal(notes(third.id).length, 1, notes(third.id).join(' | '));
+    assert.match(notes(third.id)[0]!, /A1 is also running another task now \("x"\), in the same agent folder\. Both runs can change the same files\./);
+  } finally { for (const r of releases) r(); }
 });
