@@ -60,6 +60,8 @@ export interface KgNode {
   origin?: KgOrigin;
   /** Counts every change to this node (engine-derived). Undo compares it, not the clock: two writes in one millisecond differ. */
   rev?: number;
+  /** The project an agent's private note was written in (engine-set, never on a shared note): it ranks first in that project. */
+  projectId?: string;
   /** Agent id, 'human', or 'system'. */
   createdBy: string;
   createdAt: string;
