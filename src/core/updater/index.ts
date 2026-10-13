@@ -15,7 +15,7 @@ import { FULL_PACKAGE_SET, outcomePath, readOutcome, removeOwned, type Outcome }
 import { DRAIN_MS, FREEZE_MAX_MS, LIMITS, manifestUrl, POLL_MS, PRODUCTION_SOURCE, RETRY_MS, SAMPLE_MS, sigUrl, type UpdateSource } from './config.js';
 import { planRelease } from './deps-change.js';
 import { isUpdateInProgress, type MarkerDeps } from './update-marker.js';
-import { computeBusy, QuietClock, type BusyProbe } from './idle.js';
+import { BOOT_REASON, computeBusy, QuietClock, type BusyProbe } from './idle.js';
 import { checkPolicy, ManifestError, parseManifest, type Manifest, type PolicyVerdict } from './manifest.js';
 import { fetchSmall, NetError, type FetchLike } from './net.js';
 import { stagePackage, stageFullPackage, stagedInfo, StageError, dependencyHash, type Staged } from './package.js';
@@ -321,7 +321,8 @@ export function createUpdaterModule(deps: ModuleDeps, opts: UpdaterOptions): Upd
       const info = stagedInfo(opts.root, staged.version);
       if (!info) throw new HttpError(409, 'The staged update is incomplete; download it again.');
       const forced = !!o.force && now() - drainedAt < 60_000;
-      const reasons = await busyNow();
+      // the owner's Restart now (forced, right after a drain) is not held back by the start-up grace: that is a wait for the automatic install, not work
+      const reasons = (await busyNow()).filter((r) => !(forced && r === BOOT_REASON));
       if (reasons.length) throw new HttpError(409, `Legion is busy: ${reasons.join('; ')}`);
       if (!forced && !clock.isQuiet(now())) throw new HttpError(409, 'Legion has not been quiet long enough yet.');
       freeze();
