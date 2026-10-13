@@ -267,6 +267,8 @@ export function buildHostShellEnv(config: LegionConfig): Record<string, string> 
 
 interface Job {
   taskId: string; agentId: string; prompt: string; choice: ModelChoice; priorModel?: ConcreteModel;
+  /** The project the run was queued in (A10): if it is gone when the run starts, the thread says so. */
+  projectAtStart?: string;
   /** One-line bridge header prepended to what Claude sees (not stored). */
   header?: string;
   /** Text the auto router scores, when it differs from `prompt` (a typed brief scores its goal only; Fascia 3b). */
@@ -449,8 +451,10 @@ export class Engine {
       task = this.saveTask(next);
     }
     this.addMessage(task.id, 'user', prompt, undefined, p.bridge?.fromAgentId);
+    const projectAtStart = this.projectOf(task.id, agent.id)?.id;
     this.queue.push({
       taskId: task.id, agentId: agent.id, prompt, choice: task.requestedModel, priorModel,
+      ...(projectAtStart ? { projectAtStart } : {}),
       header: p.bridge?.header, fromAgentId: p.bridge?.fromAgentId, parentTaskId: p.bridge && !p.bridge.reply ? p.bridge.parentTaskId : undefined,
       ...(p.routeText !== undefined ? { routeText: p.routeText } : {}),
       ...(p.maxBudgetUsd !== undefined ? { maxBudgetUsd: p.maxBudgetUsd } : {}),
@@ -490,6 +494,17 @@ export class Engine {
     // and the caller would never know (council A3). The caller is told, and can ask a member or the owner instead.
     if (delegated && pr) throw new EngineError(`${agent.name} is not a member of project "${pr.name}". Ask an agent that is a member, or ask the owner to add ${agent.name} to the project.`, 403);
     return undefined;
+  }
+
+  /**
+   * Says in the thread that a run queued in a project starts without it (council A10): the project was archived or
+   * deleted, or the agent was removed, while the run waited. Worded like the note a continued task gets at start.
+   */
+  private noteProjectLost(taskId: string, projectId: string, agent: AgentProfile): void {
+    const pr = this.projects?.get(projectId);
+    const text = !pr ? 'This run has no project: its project was deleted while the run waited.'
+      : `This run is not in project "${pr.name}": ${pr.status === 'archived' ? 'the project is archived' : `${agent.name} is not a member of it any more`}. The task still belongs to the project; it runs without the project's instructions, board and folder until that changes.`;
+    try { this.addMessage(taskId, 'system', text); } catch { /* the note is advisory */ }
   }
 
   /** The project this task's run belongs to right now (active, agent is a member), else undefined. Checked at every run. */
@@ -1190,6 +1205,8 @@ This run read connector (GitHub) data and other outside text. Web access can sen
     mkdirSync(cwd, { recursive: true });
     // the project (if any) adds text AFTER everything else and one extra folder: its own, and only its own
     const project = this.projectOf(job.taskId, agent.id);
+    // in the project when it was queued, not any more when it starts (archived, deleted, member removed meanwhile)
+    if (!project && job.projectAtStart && this.projects) this.noteProjectLost(job.taskId, job.projectAtStart, agent);
     let projectFolder: string | undefined;
     if (project) { try { mkdirSync(project.folder, { recursive: true }); projectFolder = project.folder; } catch { /* no folder this run: the instructions still apply */ } }
     const servers = this.buildMcpServers(agent, job, act);

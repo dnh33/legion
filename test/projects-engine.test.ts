@@ -281,3 +281,23 @@ test('without a projects service nothing about projects is interpreted: a task k
   await engine.waitFor(c.id, 3000);
   assert.equal(calls[calls.length - 1].options.additionalDirectories, undefined);
 });
+
+test('council A10: a run queued in a project that is lost before it starts says so in the thread, once', async () => {
+  const s = setup();
+  const p = s.mk('Site', ['a1', 'a2'], 'instr-a10-zq');
+  const notes = (taskId: string) => s.store.listMessages(taskId).filter((m) => m.role === 'system').map((m) => m.text);
+  // queued in the project; the agent is removed before the run starts
+  const queued = s.engine.startTask({ agentId: 'a1', prompt: 'x', source: 'ui', projectId: p.id });
+  s.projects.setMembers(p.id, ['a2']);
+  await s.engine.waitFor(queued.id, 3000);
+  const n1 = notes(queued.id);
+  assert.equal(n1.length, 1, n1.join(' | '));
+  assert.match(n1[0]!, /This run is not in project "Site": A1 is not a member of it any more/);
+  assert.ok(!s.calls.at(-1)!.options.systemPrompt.append.includes('instr-a10-zq'), 'and it really runs without the project');
+  // a continued task is noted once, at start (not again when the run begins)
+  await s.engine.waitFor(s.engine.startTask({ agentId: 'a1', prompt: 'more', source: 'ui', continueTaskId: queued.id }).id, 3000);
+  assert.equal(notes(queued.id).length, 2, 'one more note for the one more run');
+  // a run with its project says nothing
+  const fine = await run(s, { agentId: 'a2', prompt: 'y', source: 'ui', projectId: p.id });
+  assert.deepEqual(notes(fine.id), []);
+});
