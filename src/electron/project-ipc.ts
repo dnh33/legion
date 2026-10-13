@@ -34,6 +34,40 @@ export function parseProjectChange(raw: unknown): ProjectChange | undefined {
   return undefined;
 }
 
+/** What each agent has in one project: runs in progress, open tasks, unfinished board items assigned to it, rooms it is in. */
+export interface ProjectWork { live: Record<string, number>; open: Record<string, number>; board: Record<string, number>; rooms: Record<string, number> }
+
+/** Reads the counts from the core. A part that cannot be read (no board, an older core) counts as nothing, never as an error. */
+export async function workOf(deps: Pick<ProjectIpcDeps, 'call'>, id: string): Promise<ProjectWork> {
+  const work: ProjectWork = { live: {}, open: {}, board: {}, rooms: {} };
+  const add = (m: Record<string, number>, k: unknown) => { if (typeof k === 'string') m[k] = (m[k] ?? 0) + 1; };
+  const impact = await deps.call('GET', `/api/projects/${id}/impact`).catch(() => undefined);
+  const agents = impact?.status === 200 ? (impact.json as { agents?: Record<string, { live?: unknown; open?: unknown }> }).agents : undefined;
+  for (const [a, c] of Object.entries(agents ?? {})) {
+    if (typeof c?.live === 'number') work.live[a] = c.live;
+    if (typeof c?.open === 'number') work.open[a] = c.open;
+  }
+  const board = await deps.call('GET', `/api/projects/${id}/board`).catch(() => undefined);
+  const items = board?.status === 200 ? (board.json as { items?: unknown }).items : undefined;
+  if (Array.isArray(items)) for (const it of items as Array<{ status?: unknown; assignee?: { kind?: unknown; id?: unknown } | null }>) {
+    if (it?.status !== 'done' && it?.assignee?.kind === 'agent') add(work.board, it.assignee.id);
+  }
+  const rooms = await deps.call('GET', '/api/rooms').catch(() => undefined);
+  if (rooms?.status === 200 && Array.isArray(rooms.json)) for (const r of rooms.json as Array<{ projectId?: unknown; members?: unknown }>) {
+    if (r?.projectId === id && Array.isArray(r.members)) for (const m of r.members) add(work.rooms, m);
+  }
+  return work;
+}
+
+/** "1 run in progress, 4 open tasks, 2 board items, 1 room": only the parts that are not zero. Empty when there is nothing. */
+export function countsLine(w: ProjectWork, agentId: string): string {
+  const part = (n: number | undefined, one: string, many: string) => (n ? `${n} ${n === 1 ? one : many}` : '');
+  return [
+    part(w.live[agentId], 'run in progress', 'runs in progress'), part(w.open[agentId], 'open task', 'open tasks'),
+    part(w.board[agentId], 'board item', 'board items'), part(w.rooms[agentId], 'room', 'rooms'),
+  ].filter(Boolean).join(', ');
+}
+
 let open = false;
 
 export async function projectChange(raw: unknown, deps: ProjectIpcDeps): Promise<ProjectChangeResult> {
@@ -58,7 +92,11 @@ export async function projectChange(raw: unknown, deps: ProjectIpcDeps): Promise
     if (!added.length && !removed.length) return { ok: true, view: cur.json };
     const lines: string[] = [];
     if (added.length) lines.push(`Added: ${added.map(nameOf).join(', ')}. They will get this project's instructions and notes, and can read and write files in its folder (${oldFolder}) when they work on its tasks.`);
-    if (removed.length) lines.push(`Removed: ${removed.map(nameOf).join(', ')}. Their next run on an existing task of this project has no project context.`);
+    if (removed.length) {
+      const work = await workOf(deps, ch.id);
+      const counted = removed.map((id) => { const n = countsLine(work, id); return n ? `${nameOf(id)} (${n})` : nameOf(id); });
+      lines.push(`Removed: ${counted.join(', ')}. Runs in progress finish. Their next run on an existing task of this project has no project context.`);
+    }
     title = 'Change project members?'; confirmLabel = 'Confirm change';
     message = `Change who works on "${name}"?`;
     detail = lines.join('\n\n');

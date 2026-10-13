@@ -186,3 +186,19 @@ test('council A13: a deleted agent leaves every member list', async () => {
     assert.deepEqual(x.projects.get(x.p.id)!.members, ['zealot'], 'the deleted agent is no longer a member');
   } finally { await x.close(); }
 });
+
+test('council A9: the impact route counts runs in progress and open tasks per agent, for the app only', async () => {
+  const x = await boot(true, { holdRuns: true });
+  try {
+    // the fake engine keeps no project on its tasks: set it the way the real engine does
+    x.f.ctx.engine.startTask({ agentId: 'zealot', prompt: 'a', source: 'ui' } as any).projectId = x.p.id;
+    x.f.ctx.engine.startTask({ agentId: 'zealot', prompt: 'b', source: 'ui' } as any);
+    const r = await x.call('GET', `/api/projects/${x.p.id}/impact`);
+    assert.equal(r.status, 200);
+    const j: any = await r.json();
+    assert.equal(j.agents.zealot.open, 1, 'only the task in this project');
+    assert.equal(j.agents.zealot.live, 1, 'held, so still running');
+    assert.equal(isClientRoute('GET', `/api/projects/${x.p.id}/impact`), false, 'not a client route');
+    assert.equal((await x.call('GET', '/api/projects/proj_000000000000/impact')).status, 404);
+  } finally { await x.close(); }
+});

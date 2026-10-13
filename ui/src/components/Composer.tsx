@@ -9,6 +9,7 @@ import { buildMenu, isCostly, parseSlash, runLegionCommand, LEGION_COMMANDS, typ
 import { api } from '../api';
 import { modelLabel } from '../models';
 import { cancelSelected, confirmStop, effectiveModel, getState, loadCatalog, sendPrompt, sendPromptTo, useStore } from '../store';
+import { newTaskTarget } from '../projects/projectsLogic';
 import { clip } from '../util';
 import { Icon } from './icons';
 import { ModelPicker } from './ModelPicker';
@@ -33,6 +34,9 @@ export function Composer() {
   const task = tasks.find((t) => t.id === taskId);
   const approvals = useStore((s) => s.approvals);
   const agent = agents.find((a) => a.id === agentId);
+  const projects = useStore((s) => s.projects);
+  const projectFilter = useStore((s) => s.projectFilter);
+  const target = newTaskTarget(projects, projectFilter, agent, !!taskId);
   const running = task?.status === 'running' || task?.status === 'queued';
   // busy: own run, an approval waiting, or the agent working for a room / agent call. Enter queues while busy.
   const busy = useMemo(() => busyReason(agentId, taskId, tasks, approvals), [agentId, taskId, tasks, approvals]);
@@ -169,6 +173,8 @@ export function Composer() {
             title="Choose model (Ctrl M). Remembered for this agent.">
             {modelLabel(catalog, model)}<Icon name="down" size={12} />
           </button>
+          {target && <span className={`target-pill${target.why ? ' warn' : ''}`} role="status" title={target.why ?? `A new task starts in ${target.label === 'No project' ? 'no project' : `the project ${target.label}`}`}>
+            {target.why && <Icon name="shield" size={11} />}New task in: <b>{target.label}</b></span>}
           <span className="composer-hint">
             {busy
               ? <span className="hint-long" data-testid="composer-hint"><kbd>Enter</kbd> {joinable ? 'adds it to the run' : 'queues'} <kbd>Ctrl+Enter</kbd> interrupts </span>

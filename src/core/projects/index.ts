@@ -45,6 +45,20 @@ export function createProjectsModule(deps: ModuleDeps, opts: ProjectsModuleOpts)
         if (!p) throw new HttpError(404, `Unknown project "${params[0]}"`);
         return p;
       });
+      // what a member removal or an archive touches, per agent: runs in progress (they finish) and open tasks. Admin only
+      // (not a client route): the app's own confirmation dialogs read it before they ask.
+      add('GET', '/api/projects/:id/impact', ({ params }) => {
+        const p = projects.get(params[0]!);
+        if (!p) throw new HttpError(404, `Unknown project "${params[0]}"`);
+        const agents: Record<string, { live: number; open: number }> = {};
+        for (const t of deps.store.listTasks(Number.MAX_SAFE_INTEGER)) {
+          if (t.projectId !== p.id) continue;
+          const c = (agents[t.agentId] ??= { live: 0, open: 0 });
+          c.open++;
+          if (t.status === 'queued' || t.status === 'running') c.live++;
+        }
+        return { agents };
+      });
       add('POST', '/api/projects', (c) => {
         const b = body(c);
         if (b.folder !== undefined || b.members !== undefined) throw new HttpError(400, 'A new project takes a name and instructions only. Set its folder and members afterwards: they need a confirmation from the app.');
