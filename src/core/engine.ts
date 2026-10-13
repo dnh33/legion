@@ -401,7 +401,12 @@ export class Engine {
       if (prev.agentId !== agent.id) throw new EngineError('Task belongs to a different agent', 400);
       // a task that read connector data holds that text in its session: nothing started by or down a chain from an MCP client may resume it
       if (prev.usedConnectors && origin?.viaMcpClient) throw new EngineError(CONTINUE_REFUSED, 403);
-      const projectId = this.pickProject(p, agent, prev);
+      const picked = this.pickProject(p, agent, prev);
+      // Continuing never erases the task's project (council A4): when this run cannot use it (the agent left the project,
+      // or it is archived), the task keeps it, the run goes without it, and the thread says so. Only an explicit `null`
+      // from the app or a room clears it.
+      const projectId = picked ?? (p.projectId === null ? undefined : prev.projectId);
+      const lostProject = picked === undefined && projectId !== undefined && this.projects ? this.projects.get(projectId) : undefined;
       priorModel = prev.model;
       const viaBridge = p.bridge && !p.bridge.reply;
       // A model another bot chose lasts for that run only: a later message that asks for none (and is not a reply landing in the caller's own task) goes back to the agent's setting.
@@ -428,6 +433,10 @@ export class Engine {
         ...(tainted ? { tainted: true } : {}),
       };
       task = this.saveTask(next);
+      if (lostProject) {
+        const why = lostProject.status === 'archived' ? 'the project is archived' : `${agent.name} is not a member of it any more`;
+        this.addMessage(task.id, 'system', `This run is not in project "${lostProject.name}": ${why}. The task still belongs to the project; it runs without the project's instructions, board and folder until that changes.`);
+      }
     } else {
       const now = nowIso();
       const base = prompt.replace(/^\s*\/(opus|sonnet)\b\s*/i, '') || prompt;
@@ -473,9 +482,11 @@ export class Engine {
     }
     let want: string | undefined;
     let named = false;
+    // a delegation (ask/tell) belongs to its CALLER's project, before any older thread's (BUG-5)
+    const delegated = !!p.bridge && !p.bridge.reply && !!p.bridge.parentTaskId;
     if ((p.source === 'ui' || p.source === 'bot') && p.projectId !== undefined) { want = p.projectId ?? undefined; named = true; }
+    else if (delegated) want = this.store.getTask(p.bridge!.parentTaskId!)?.projectId;
     else if (prev) want = prev.projectId;
-    else if (p.bridge && !p.bridge.reply && p.bridge.parentTaskId) want = this.store.getTask(p.bridge.parentTaskId)?.projectId;
     if (!want) return undefined;
     const pr = this.projects.get(want);
     if (pr && pr.status === 'archived') {
@@ -484,6 +495,9 @@ export class Engine {
     }
     if (pr && pr.members.includes(agent.id)) return want;
     if (p.source === 'ui' && named) throw new EngineError(pr ? `${agent.name} is not a member of project "${pr.name}"` : `Unknown project: ${want}`, 400);
+    // A delegation into a project goes to its members only: a run without the project would miss its rules, board and folder,
+    // and the caller would never know (council A3). The caller is told, and can ask a member or the owner instead.
+    if (delegated && pr) throw new EngineError(`${agent.name} is not a member of project "${pr.name}". Ask an agent that is a member, or ask the owner to add ${agent.name} to the project.`, 403);
     return undefined;
   }
 
@@ -1465,6 +1479,7 @@ This run read connector (GitHub) data and other outside text. Web access can sen
       else if (cfg.type === 'stdio' || cfg.type === undefined) external[name] = { command: (cfg as { command: string }).command, ...((cfg as { args?: string[] }).args ? { args: (cfg as { args?: string[] }).args } : {}), ...((cfg as { env?: Record<string, string> }).env ? { env: (cfg as { env?: Record<string, string> }).env } : {}) };
     }
     const decide = this.toolDecider(job, agent);
+    const projectHere = this.projectOf(taskId, agent.id);
     const host: ProviderHost = {
       taskId, agentName: agent.name, signal: act.ac.signal, cancelled: () => act.cancelled || act.ac.signal.aborted,
       // the same teamwork and capabilities blocks as a Claude run, so an agent on another provider gets the same rules and tool facts
@@ -1475,7 +1490,9 @@ This run read connector (GitHub) data and other outside text. Web access can sen
         + (agent.systemPrompt ? '\n\n' + agent.systemPrompt : '')
         + (() => { const t = renderForModel(this.taskLists.load(taskId)); return t ? '\n\n' + t : ''; })()
         + `\n\nYou are running on ${pr.model} through ${pr.entry?.label ?? pr.providerId}. You have only the tools listed in this request; you have no file, shell or web tools of your own.`
-        + (leadDoctrineFor(agent.id) ? '\n\n' + leadDoctrineFor(agent.id) : ''),
+        + (leadDoctrineFor(agent.id) ? '\n\n' + leadDoctrineFor(agent.id) : '')
+        // the project's own rules and folder, last, as on the Claude path (council A5: provider runs had none)
+        + (projectHere ? '\n\n' + projectSection({ name: projectHere.name, instructions: projectHere.instructions, folder: projectHere.folder }) : ''),
       prompt, stored: this.store.listMessages(taskId),
       taskListText: () => renderForModel(this.taskLists.load(taskId)),
       servers, external,
