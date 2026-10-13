@@ -61,9 +61,12 @@ function blankRanges(s: string, ranges: ReadonlyArray<readonly [number, number]>
   return parts.join('');
 }
 
-/** The text a shell actually runs, joined and normalised for reading. */
+/**
+ * The text a shell actually runs, joined and normalised for reading. bash (Git Bash included) and cmd drop every carriage
+ * return before they read a line, even inside quotes: `r<CR>m -rf /c` runs rm. So the floor reads the line without them.
+ */
 const prepare = (cmd: string, shell: ShellKind): string => {
-  const joined = joinLines(cmd, shell);
+  const joined = joinLines(shell === 'pwsh' ? cmd : cmd.replace(/\r/g, ''), shell);
   return shell === 'pwsh' ? normalizePwsh(joined) : withoutComments(joined, shell);
 };
 /** cmd lets a switch touch its command (`rd/s/q`, `cmd/c`): read them apart. */
@@ -275,8 +278,15 @@ const GLOBAL = new WeakMap<RegExp, RegExp>();
  * quotes keep spaces inside a word, and are then dropped; cmd's ^ escape is removed. Lower case.
  */
 function words(segment: string): string[] {
-  return (segment.match(/(?:"[^"]*"|'[^']*'|[^\s"'])+/g) ?? []).map((w) => w.replace(/["'^]/g, '').toLowerCase()).filter(Boolean);
+  return (segment.match(/(?:"[^"]*"|'[^']*'|[^\s"'])+/g) ?? []).map((w) => undoubled(w.replace(/["'^]/g, '').toLowerCase())).filter(Boolean);
 }
+
+/**
+ * Git Bash reads a word that starts with one slash as a path when it hands it to a Windows program, so a Windows switch
+ * is written with two there: `cmd //c`, `robocopy //mir`, `rd //s`. Read as the switch it is. A word with a further
+ * slash (`//server/share`) is a path and stays as written.
+ */
+const undoubled = (w: string): string => (/^\/\/[a-z?][\w:?.-]*$/.test(w) ? w.slice(1) : w);
 
 /**
  * The program a word names: `/bin/rm` and `C:\Windows\System32\cmd.exe` are `rm` and `cmd`. A backslash in a word with
@@ -318,12 +328,17 @@ function clean(w: string): string {
   return s.slice(0, end);
 }
 
-/** A word of a stage: as written (lower case, quotes dropped) and cleaned of brackets and redirects. */
-interface Arg { raw: string; w: string }
+/**
+ * A word of a stage: as written (lower case, quotes dropped) and cleaned of brackets and redirects. `sw`: the word is a
+ * Windows switch in this shell. In cmd and PowerShell that is `/s`; in sh only `//s`, because Git Bash hands a native
+ * program `/c` as the path C:/ and `//c` as the switch /c.
+ */
+interface Arg { raw: string; w: string; sw: boolean }
 
 /** The words of a stage without redirects (`> out`, `2>&1`, `>>log`): what a redirect writes to is not an argument. */
-function argWords(stage: string): Arg[] {
+function argWords(stage: string, shell: ShellKind = 'sh'): Arg[] {
   const tokens = stage.match(/(?:"[^"]*"|'[^']*'|[^\s"'])+/g) ?? [];
+  const gitBashSwitches = shell === 'sh' && tokens.some((t) => /^\/\/[a-z?][\w:?.-]*$/i.test(t.replace(/["'^]/g, '')));
   const out: Arg[] = [];
   for (let i = 0; i < tokens.length; i++) {
     const t = tokens[i]!;
@@ -331,8 +346,10 @@ function argWords(stage: string): Arg[] {
     if (/^\d?>/.test(t)) continue;
     // find's -exec terminator (\; or ';') is the end of the command it runs, not a `\` drive root
     if (/^(?:\\;|';'|";")$/.test(t) && out.some((a) => /^-(?:exec|execdir|ok|okdir)$/.test(a.w))) continue;
-    const raw = t.replace(/["'^]/g, '').toLowerCase();
-    if (raw) out.push({ raw, w: clean(raw) });
+    const lower = t.replace(/["'^]/g, '').toLowerCase();
+    const raw = undoubled(lower);
+    // in sh, once a stage writes a switch the Git Bash way (//s), its single-slash words are paths (/c is C:/)
+    if (raw) { const w = clean(raw); out.push({ raw, w, sw: shell === 'sh' && gitBashSwitches ? raw !== lower : CMD_SWITCH.test(w) }); }
   }
   return out;
 }
@@ -459,6 +476,10 @@ export function isProtectedTarget(word: string): boolean {
   if (/^\/usr\/(?:bin|lib|lib64|libexec|sbin|share|local)$/.test(w) || /^\/volumes\/[^/]+$/.test(w) || /^\/var\/lib$/.test(w)) return true;
   if (/^\/home\/[^/]+$/.test(w)) return true;
   if (/^(?:~|\$home|\$\{home(?::[-?=+][^}]*)?\})$/.test(w)) return true;
+  // ~name is that user's home (Git Bash: ~Danie is C:/Users/Danie); ~+ and ~- are the current and the last folder
+  if (/^~(?:[a-z0-9._-]+|[+-])$/.test(w)) return true;
+  // Git for Windows' own folders under its / (deleting them deletes git and bash)
+  if (/^\/(?:mingw32|mingw64|clang32|clang64|clangarm64|ucrt64|cmd|git-bash\.exe|git-cmd\.exe)$/.test(w)) return true;
   if (/^[a-z]:(?:\*(?:\.\*)?)?$/.test(w)) return true;
   // a wildcard in the first folder below a drive (C:\Win*, C:\??????s, C:\W*\S*32) reaches a system folder or the users
   if (/^[a-z]:\/[^/]*[?*[]/.test(w)) return true;
@@ -612,7 +633,7 @@ const CATASTROPHIC_COMMANDS: Array<[RegExp, string]> = [
 const CATASTROPHIC: Array<[RegExp, string]> = [
   [/:\(\)\s*\{\s*:\s*\|\s*:\s*&\s*\}\s*;\s*:/, 'a fork bomb'],
   [/>\s*['"]?\/dev\/(?:sd|hd|nvme|mmcblk|vd)[a-z0-9]*['"]?\s*(?:$|[;&|\n])/i, 'overwriting a block device'],
-  [/(?:of\s*=|>)\s*['"]?\\\\\.\\physicaldrive\d/i, 'raw write to a disk'],
+  [/(?:of\s*=|>)\s*['"]?(?:\\\\|\/\/)\.(?:\\|\/)(?:physicaldrive\d|[a-z]:)/i, 'raw write to a disk'],
 ];
 /** Whole-machine Windows tools: no target is needed for these to be catastrophic. Matched on the normalised text. */
 const CATASTROPHIC_WINDOWS: Array<[RegExp, string]> = [
@@ -669,8 +690,10 @@ class Stage {
   private readonly protAfter: Int32Array;
   private readonly protAfterNoSwitch: Int32Array;
   private readonly verbOk: boolean[];
+  private readonly sw: boolean[];
   constructor(args: Arg[]) {
     this.ws = args.map((a) => a.w);
+    this.sw = args.map((a) => a.sw);
     const n = this.ws.length;
     this.protAfter = new Int32Array(n + 1).fill(-1);
     this.protAfterNoSwitch = new Int32Array(n + 1).fill(-1);
@@ -678,7 +701,7 @@ class Stage {
       const w = this.ws[i]!;
       const prot = isProtectedTarget(w);
       this.protAfter[i] = prot ? i : this.protAfter[i + 1]!;
-      this.protAfterNoSwitch[i] = prot && !CMD_SWITCH.test(w) ? i : this.protAfterNoSwitch[i + 1]!;
+      this.protAfterNoSwitch[i] = prot && !args[i]!.sw ? i : this.protAfterNoSwitch[i + 1]!;
     }
     const runs = liberalPositions(args);
     this.verbOk = args.map((_a, i) => runs.has(i));
@@ -695,7 +718,7 @@ class Stage {
   /** The plain words after word i (no options), for commands where one position is the target. */
   plainAfter(i: number, slashOptions: boolean): string[] {
     const out: string[] = [];
-    for (let j = i + 1; j < this.ws.length && out.length < 4; j++) { const w = this.ws[j]!; if (!w.startsWith('-') && !(slashOptions && /^\/[a-z]/.test(w))) out.push(w); }
+    for (let j = i + 1; j < this.ws.length && out.length < 4; j++) { const w = this.ws[j]!; if (!w.startsWith('-') && !(slashOptions && this.sw[j])) out.push(w); }
     return out;
   }
   has(pred: (w: string) => boolean, from = 0): boolean { for (let j = from; j < this.ws.length; j++) if (pred(this.ws[j]!)) return true; return false; }
@@ -709,7 +732,7 @@ const deleteMsg = 'a recursive delete of a drive, a system folder or a home fold
 
 /** Why one command segment (no ; & && || or newline in it) is catastrophic, else undefined. */
 function refuseSegment(segment: string, shell: ShellKind): string | undefined {
-  const stages = splitOutside(segment, PIPE, shell).map((s) => new Stage(argWords(s)));
+  const stages = splitOutside(segment, PIPE, shell).map((s) => new Stage(argWords(s, shell)));
   const mirrorMsg = 'mirroring over a drive, a system folder or a home folder (it deletes what is not in the source)';
   const permMsg = 'changing the permissions of a whole drive, system folder or home folder';
   for (const st of stages) {
@@ -766,7 +789,8 @@ export function refuseCatastrophic(raw: string, shell: ShellKind = 'sh', depth =
   // Quoted text of several words on a line that runs no text is data (a commit message, a grep pattern): read it as a
   // space. A one-word quote (`format "c:"`) is kept, unquoted, so quoting a target cannot hide it.
   const text = runsText(cmd) ? cmd : cmd.replace(/"([^"]*)"|'([^']*)'/g, (_m, a?: string, b?: string) => (/\s/.test(a ?? b ?? '') ? ' ' : (a ?? b ?? '')));
-  const scan = text.replace(/[\^"']/g, '').toLowerCase();
+  // a Git Bash doubled switch (bcdedit //delete, cipher //w) is the switch the program receives
+  const scan = text.replace(/[\^"']/g, '').toLowerCase().replace(/(^|\s)\/\/(?=[a-z?][\w:?.-]*(?:\s|$))/g, '$1/');
   for (const [re, what] of [...CATASTROPHIC_COMMANDS, ...CATASTROPHIC_WINDOWS]) if (re.test(scan)) return say(what);
   const loop = refuseWindowsLoops(cmd);
   if (loop) return say(loop);
@@ -778,16 +802,17 @@ export function refuseCatastrophic(raw: string, shell: ShellKind = 'sh', depth =
     for (const segment of splitOutside(variant, SEGMENTS, shell)) {
       const why = refuseSegment(segment, shell);
       if (why) return say(why);
-      const st = new Stage(argWords(segment));
+      const st = new Stage(argWords(segment, shell));
       const c = st.at(CD_VERBS)[0];
-      if (c !== undefined) { const t = st.plainAfter(c, CMD_SWITCH_VERBS.has(program(st.ws[c]!)))[0]; inRoot = t !== undefined && isProtectedTarget(t); continue; }
+      // in sh, cd and pushd are bash's own: /c is the C: drive, never a switch
+      if (c !== undefined) { const t = st.plainAfter(c, shell !== 'sh' && CMD_SWITCH_VERBS.has(program(st.ws[c]!)))[0]; inRoot = t !== undefined && isProtectedTarget(t); continue; }
       if (!inRoot) continue;
       // after `cd /`: rm -rf *, del /s /q *, find . -delete, git clean, rsync --delete into `.`, `ls -r | rm`
       const wipe = st.at(DELETE_VERBS).some((i) => st.ws.slice(i + 1).some((w) => EVERYTHING_HERE.test(w)))
         || (st.has((w) => w === '-delete') && !st.has((w) => FIND_FILTERS.has(w)) && st.at(new Set(['find'])).length > 0)
         || (st.has((w) => w === 'clean') && st.at(new Set(['git'])).length > 0)
         || (st.has((w) => w.startsWith('--delete')) && st.at(new Set(['rsync'])).some((i) => EVERYTHING_HERE.test(st.ws.slice(i + 1).filter((w) => !w.startsWith('-')).at(-1) ?? '')))
-        || (splitOutside(segment, PIPE, shell).length > 1 && splitOutside(segment, PIPE, shell).slice(1).some((s) => new Stage(argWords(s)).runsDelete()));
+        || (splitOutside(segment, PIPE, shell).length > 1 && splitOutside(segment, PIPE, shell).slice(1).some((s) => new Stage(argWords(s, shell)).runsDelete()));
       if (wipe) return say('deleting everything in a drive, a system folder or a home folder');
     }
   }
@@ -854,7 +879,7 @@ const INIT_TOOLS = new RegExp('^\\$\\((?:[\\w./\\\\-]*[\\\\/])?(?:'
 /** PowerShell programs that run a script block given to them. */
 const BLOCK_RUNNERS = new Set(['invoke-command', 'icm', 'start-job', 'start-threadjob']);
 /** A delete target that is nothing but a variable or a substitution: if it is empty or unexpected, the delete reaches a root. */
-const TARGET_FROM_VARIABLE = /^(?:[\\/]|[a-z]:[\\/]?|~[\\/]|\$home[\\/])?(?:\$\{?[\w:]+\}?|\$\(.*\)|`.*`|%[\w~:]+%|%%?\w|![\w]+!|@\w+)[\\/]?\*?$/;
+const TARGET_FROM_VARIABLE = /^(?:[\\/]|[a-z]:[\\/]?|\/[a-z]\/|~[\\/]|\$home[\\/])?(?:\$\{?[\w:]+\}?|\$\(.*\)|`.*`|%[\w~:]+%|%%?\w|![\w]+!|@\w+)[\\/]?\*?$/;
 /** A recursive delete flag in sh, cmd and PowerShell. */
 const RECURSIVE = (w: string): boolean => /^-[a-z]*r/.test(w) || w === '--recursive' || w === '/s' || /^-rec/.test(w);
 

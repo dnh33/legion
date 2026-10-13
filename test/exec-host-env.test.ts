@@ -121,3 +121,11 @@ test('masked: a short value under a secret-looking name is hidden as a whole wor
   assert.match(r.text, /port 3000 mode dev/, 'a port or a mode is not a secret: blanking it would mangle ordinary output');
   assert.match(r.text, /id 48210/, 'only the whole word: a longer number that contains the value is left alone');
 });
+
+test('review 2026-10-13: a carriage return inside the name does not hide a .env file from the guard (bash and cmd drop it)', async () => {
+  const root = project();
+  const CR = String.fromCharCode(13);
+  for (const mode of ['masked', 'block'] as const) {
+    for (const command of [`cat .e${CR}nv`, `type .e${CR}nv`, `cp .en${CR}v x.txt`]) assert.equal((await call(hostServer(root, mode), 'shell', { command })).isError, true, `${mode}: ${JSON.stringify(command)}`);
+  }
+});
