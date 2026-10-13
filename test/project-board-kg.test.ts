@@ -120,3 +120,38 @@ test('the board preamble separates the agent\'s own task list from the shared bo
   assert.doesNotMatch(BOARD_PREAMBLE, /TaskCreate|todo_/, 'an agent with the task tools off is not pointed at tools it lacks');
   assert.match(BOARD_PREAMBLE, /Nothing moves between them by itself/);
 });
+
+test('B5 a private note written in a project run carries the project; a shared note never does; an edit from another project keeps the label; it survives a reload', () => {
+  const dir = cleanupTemp('legion-b5-');
+  const g = new Graph({ dir, bsvEnabled: () => false });
+  const inP1 = agentActor('alpha', { projectId: P1 });
+  const n = g.upsertNode(inP1, { title: 'Port map', body: 'ports', scope: 'agent:alpha' }).node;
+  assert.equal(n.projectId, P1);
+  assert.equal(g.upsertNode(agentActor('alpha'), { title: 'Loose note', body: 'x', scope: 'agent:alpha' }).node.projectId, undefined);
+  assert.equal(g.upsertNode(inP1, { title: 'Shared fact', body: 'x', scope: 'shared' }).node.projectId, undefined, 'a shared note would tell every run which project wrote it');
+  assert.equal(g.upsertNode(agentActor('alpha', { projectId: P2 }), { id: n.id, body: 'ports, updated' }).node.projectId, P1);
+  assert.equal(new Graph({ dir, bsvEnabled: () => false }).getNode(HUMAN, n.id)!.projectId, P1);
+});
+
+test('B5 inside a project, the agent\'s own notes from that project rank above its other private notes; elsewhere neither is boosted', () => {
+  const g = mk();
+  const plain = g.upsertNode(agentActor('alpha'), { title: 'Zephyr rollout notes', body: 'zephyr rollout steps for staging', scope: 'agent:alpha' }).node;
+  const fromP1 = g.upsertNode(agentActor('alpha', { projectId: P1 }), { title: 'Zephyr rollout notes', body: 'zephyr rollout steps for staging', scope: 'agent:alpha' }).node;
+  const score = (projectId: string, id: string) => g.search(agentActor('alpha', { projectId }), 'zephyr rollout').find((h) => h.node.id === id)!.score;
+  assert.ok(score(P1, fromP1.id) > score(P1, plain.id), 'boosted in its own project');
+  assert.equal(score(P2, fromP1.id), score(P2, plain.id), 'no boost in another project');
+});
+
+test('B5 a labelled private note moved to shared by the owner loses its project label', () => {
+  const g = mk();
+  const n = g.upsertNode(agentActor('alpha', { projectId: P1 }), { title: 'Port map', body: 'ports', scope: 'agent:alpha' }).node;
+  assert.equal(g.upsertNode(HUMAN, { id: n.id, scope: 'shared' }).node.projectId, undefined);
+});
+
+test('D1 a board run\'s progress is its latest activity: the task row or its newest message, whichever is later', async () => {
+  const { runProgressAt } = await import('../src/core/projects/board/index.js');
+  const t = { updatedAt: '2026-03-01T12:00:00.000Z' };
+  assert.equal(runProgressAt(t, []), Date.parse('2026-03-01T12:00:00.000Z'));
+  assert.equal(runProgressAt(t, [{ at: '2026-03-01T12:07:00.000Z' }, { at: '2026-03-01T12:11:00.000Z' }]), Date.parse('2026-03-01T12:11:00.000Z'));
+  assert.equal(runProgressAt({ updatedAt: '2026-03-01T12:20:00.000Z' }, [{ at: '2026-03-01T12:11:00.000Z' }]), Date.parse('2026-03-01T12:20:00.000Z'));
+});

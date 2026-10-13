@@ -1,8 +1,8 @@
 /** Pure helpers for the Projects UI (no React, no store): tested in node. */
 import type { Room } from '../../../src/shared/comms.js';
-import { PROJECT_LIMITS } from '../../../src/shared/projects.js';
+import { PROJECT_LIMITS, roomOutOfProjectReason } from '../../../src/shared/projects.js';
 import type { Project } from '../../../src/shared/projects.js';
-import type { AgentProfile, Task } from '../../../src/shared/types.js';
+import type { AgentProfile, ApprovalRequest, PendingQuestion, Task } from '../../../src/shared/types.js';
 
 export const INSTRUCTIONS_MAX = PROJECT_LIMITS.instructionsChars;
 export const FILTER_KEY = 'legion.project';
@@ -69,9 +69,21 @@ export function archiveQuestion(name: string, n: { live: number; open: number; r
   const lines = [`Archive "${name}"?`];
   if (n.live) lines.push(`${plural(n.live, 'run in progress finishes', 'runs in progress finish')} first.`);
   lines.push(n.open ? `Its ${plural(n.open, 'open task', 'open tasks')} cannot be continued, and no new task can start in it, until you unarchive it.` : 'No new task can start in it until you unarchive it.');
-  if (n.rooms) lines.push(`${plural(n.rooms, 'room keeps', 'rooms keep')} working, without the project's instructions and notes.`);
+  if (n.rooms) lines.push(`${plural(n.rooms, 'room is', 'rooms are')} marked out of project, with a notice in ${n.rooms === 1 ? 'it' : 'each'}; ${n.rooms === 1 ? 'it keeps' : 'they keep'} working without the project's instructions, board and notes.`);
   return lines.join('\n\n');
 }
+
+/** Why a room is out of its project (the same rule the core uses for its notice), or undefined: shown as a badge. */
+export function roomOutOfProject(room: Pick<Room, 'projectId' | 'members'>, projects: Project[], names: Record<string, string>): string | undefined {
+  if (!room.projectId) return undefined;
+  return roomOutOfProjectReason(room.members, projects.find((p) => p.id === room.projectId), (id) => names[id] ?? id);
+}
+
+/** The question before a project is unarchived: what comes back. */
+export const unarchiveQuestion = (name: string): string =>
+  `Unarchive "${name}"?
+
+Its tasks can be continued again and new tasks can start in it. Its rooms and members get its instructions, board and notes again.`;
 
 export const roomsOf = (rooms: Room[], projectId: string): Room[] => rooms.filter((r) => r.projectId === projectId);
 /** Rooms the owner can move into the project: none yet, and every member of the room is already a member of the project. */
@@ -92,3 +104,72 @@ export function statusLine(p: Project, taskCount: number, roomCount: number): st
   const bits = [p.status === 'archived' ? 'Archived' : 'Active', `${p.members.length} ${p.members.length === 1 ? 'member' : 'members'}`, `${taskCount} ${taskCount === 1 ? 'task' : 'tasks'}`, `${roomCount} ${roomCount === 1 ? 'room' : 'rooms'}`];
   return bits.join(', ');
 }
+
+const clipTitle = (t: string): string => (t.length > 40 ? t.slice(0, 39) + '…' : t);
+
+/** One thing waiting on the owner that the rail hides under the project in view (decision B1). */
+export interface WaitingRow { kind: 'approval' | 'question'; id: string; taskId: string; agentId: string; projectId: string | null; label: string }
+
+/**
+ * Approvals and questions the rail would hide under this filter: their task is in another project or none, or the agent
+ * is not one of the project's members (so it has no row). Oldest first. Under "All" every agent has a row: nothing.
+ */
+export function waitingElsewhere(
+  approvals: Pick<ApprovalRequest, 'id' | 'taskId' | 'agentId' | 'at'>[],
+  questions: Pick<PendingQuestion, 'id' | 'taskId' | 'agentId' | 'at'>[],
+  tasks: Pick<Task, 'id' | 'projectId' | 'title'>[],
+  projects: Project[], names: Record<string, string>, filter: string | null,
+): WaitingRow[] {
+  if (!filter) return [];
+  const here = projects.find((p) => p.id === filter);
+  const items = [...approvals.map((a) => ({ ...a, kind: 'approval' as const })), ...questions.map((q) => ({ ...q, kind: 'question' as const }))];
+  const rows: Array<WaitingRow & { at: string }> = [];
+  for (const it of items) {
+    const t = tasks.find((x) => x.id === it.taskId);
+    if (t && t.projectId === filter && here?.members.includes(it.agentId)) continue;
+    const who = names[it.agentId] ?? it.agentId;
+    const verb = it.kind === 'approval' ? 'needs your OK' : 'asks you something';
+    const where = !t ? 'in another task'
+      : !t.projectId ? `in no project: ${clipTitle(t.title)}`
+        : `in ${projects.find((p) => p.id === t.projectId)?.name ?? 'a removed project'}: ${clipTitle(t.title)}`;
+    rows.push({ kind: it.kind, id: it.id, taskId: it.taskId, agentId: it.agentId, projectId: t?.projectId ?? null, label: `${who} ${verb} ${where}`, at: it.at });
+  }
+  return rows.sort((a, b) => a.at.localeCompare(b.at)).map(({ at: _at, ...r }) => r);
+}
+
+type LiveTask = Pick<Task, 'id' | 'agentId' | 'status' | 'projectId' | 'title' | 'updatedAt'>;
+/**
+ * The agent's live (queued or running) tasks outside the project in view, or outside this thread's project, newest
+ * first; never the thread itself. With no project to compare (All, and a thread in none): every other live task.
+ * Shown as "Also working in…", never a block (decision B1).
+ */
+export function liveElsewhere(agentId: string, tasks: LiveTask[], here: { filter: string | null; taskId: string | null; taskProjectId?: string }): LiveTask[] {
+  const ref = here.taskProjectId ?? here.filter ?? undefined;
+  return tasks
+    .filter((t) => t.agentId === agentId && t.id !== here.taskId && (t.status === 'running' || t.status === 'queued') && (ref === undefined || t.projectId !== ref))
+    .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+}
+
+/** "Also working in Shop: Fix the header (+2 more)", or nothing. */
+export function alsoWorkingLabel(rows: Pick<Task, 'projectId' | 'title'>[], projects: Project[]): string | undefined {
+  const first = rows[0];
+  if (!first) return undefined;
+  const where = first.projectId ? (projects.find((p) => p.id === first.projectId)?.name ?? 'a removed project') : 'no project';
+  return `Also working in ${where}: ${clipTitle(first.title)}${rows.length > 1 ? ` (+${rows.length - 1} more)` : ''}`;
+}
+
+/** The agent rail's "Also working in…" line: only while a project is in view (under All, every run is already in view). */
+export function railAlsoWorking(agentId: string, tasks: LiveTask[], filter: string | null, projects: Project[]): string | undefined {
+  return filter === null ? undefined : alsoWorkingLabel(liveElsewhere(agentId, tasks, { filter, taskId: null }), projects);
+}
+
+/** An editor's text after the saved value changed elsewhere: untouched (still the old saved value) follows; edited keeps the owner's text. */
+export const followRemote = (local: string, prevRemote: string, nextRemote: string): string => (local === prevRemote ? nextRemote : local);
+
+/** Who starts a new task from the project page by default: the agent in view when it is a member, else the first member. */
+export const defaultStarter = (members: string[], selected: string | null): string | undefined =>
+  selected && members.includes(selected) ? selected : members[0];
+
+/** The project page lists this many tasks until the owner asks for all. */
+export const PROJECT_TASKS_FOLDED = 30;
+export const visibleTasks = <T>(list: T[], expanded: boolean): T[] => (expanded ? list : list.slice(0, PROJECT_TASKS_FOLDED));

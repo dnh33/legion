@@ -68,3 +68,30 @@ test('C16 a bot\'s room_create has no project, and a room wake carries the room\
   const w2 = started.find((s) => s.agentId === 'ranger' && s.source === 'bot');
   assert.equal(w2.projectId, null);
 });
+
+test('B4 a room whose project lost one of its members, or was archived, is out of project: one notice, and one when it is back', () => {
+  const { h, projects, p } = setup();
+  const room = h.hub.createRoom({ name: 'In project', members: ['zealot', 'scout'], projectId: p.id });
+  const notes = () => h.messages(room.id).filter((m) => m.from.kind === 'system').map((m) => m.text);
+  const emit = (pr: ReturnType<typeof projects.get>) => h.bus.emit({ type: 'project.updated', project: pr! });
+  emit(projects.setMembers(p.id, ['zealot', 'builder']));
+  emit(projects.get(p.id));
+  let out = notes().filter((t) => /out of project/.test(t));
+  assert.equal(out.length, 1, notes().join(' | '));
+  assert.match(out[0]!, /This room is out of project "Crew": Scout is not a member of it\. Its agents work without the project's instructions, board and notes until that changes\./);
+  assert.equal(h.hub.getRoom(room.id).projectId, p.id, 'the room keeps its project, so putting things right restores it');
+  emit(projects.setMembers(p.id, ['zealot', 'scout', 'builder']));
+  assert.equal(notes().filter((t) => /back in project "Crew"/.test(t)).length, 1);
+  emit(projects.update(p.id, { status: 'archived' }));
+  emit(projects.get(p.id));
+  out = notes().filter((t) => /out of project/.test(t));
+  assert.equal(out.length, 2);
+  assert.match(out[1]!, /out of project "Crew": the project is archived/);
+});
+
+test('B4 a room of another project, or with none, hears nothing', () => {
+  const { h, projects, p } = setup();
+  const plain = h.hub.createRoom({ name: 'Plain', members: ['zealot', 'scout'] });
+  h.bus.emit({ type: 'project.updated', project: projects.update(p.id, { status: 'archived' }) });
+  assert.deepEqual(h.messages(plain.id).filter((m) => /project/.test(m.text)), []);
+});

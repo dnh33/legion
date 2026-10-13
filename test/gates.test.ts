@@ -302,3 +302,14 @@ test('a deny path rule also catches the Git Bash form of the same path (/d/secre
   const allow = rule('allow', { paths: ['D:/work/**'] });
   assert.equal(decideGate(read('/d/work/a.txt'), [allow], 'ask', false).verdict, 'baseline', 'the wider reading never widens an allow');
 });
+
+test('a run that lost its project mid-way still meets that project\'s deny and ask rules, but never its allow rules', () => {
+  const deny = rule('deny', { projects: ['proj_aaaaaaaaaaaa'], tools: ['Bash'] });
+  const ask = rule('ask', { projects: ['proj_aaaaaaaaaaaa'] });
+  const allow = rule('allow', { projects: ['proj_aaaaaaaaaaaa'] });
+  const lost = { toolName: 'Bash', input: { command: 'ls' }, startProjectId: 'proj_aaaaaaaaaaaa' };
+  assert.equal(decideGate(lost, [deny], 'full', false).verdict, 'deny');
+  assert.equal(decideGate(lost, [ask], 'auto-edits', false).verdict, 'ask');
+  assert.equal(decideGate(lost, [allow], 'auto-edits', false).verdict, 'baseline', 'an allow rule needs the project now');
+  assert.equal(decideGate({ toolName: 'Bash', input: { command: 'ls' } }, [deny], 'full', false).verdict, 'baseline', 'a run never in the project is untouched');
+});

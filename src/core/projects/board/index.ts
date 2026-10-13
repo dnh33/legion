@@ -56,6 +56,13 @@ const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 
 /** The approval ceiling of a run on text no human has read: the same as a token client's run. */
 const UNTRUSTED_ORIGIN: TaskOrigin = { roomId: 'board', fromAgentId: 'board', hop: 0, approvalCeiling: 'ask', tainted: true };
 
+/** When a board run last showed life: its task row or its newest message, whichever is later (D1: a busy run is not a stalled one). */
+export function runProgressAt(task: { updatedAt: string }, lastMessages: ReadonlyArray<{ at: string }>): number {
+  let best = Date.parse(task.updatedAt);
+  for (const m of lastMessages) { const at = Date.parse(m.at); if (Number.isFinite(at) && !(at <= best)) best = at; }
+  return best;
+}
+
 export function createBoardModule(deps: ModuleDeps, opts: BoardModuleOpts): BoardModule {
   const { projects, board, notes } = opts;
   const wrap = <T>(fn: () => T): T => {
@@ -99,8 +106,14 @@ export function createBoardModule(deps: ModuleDeps, opts: BoardModuleOpts): Boar
       try {
         const t = deps.store.getTask(taskId);
         if (!t) return { status: 'unknown' };
-        const at = Date.parse(t.updatedAt);
-        return { status: t.status, ...(Number.isFinite(at) ? { progressAt: at } : {}), ...(t.error ? { error: t.error } : {}) };
+        // the task row changes only at a few points of a run: its newest message (a tool call, a reply) is the real sign of life
+        // the extra signs of life are best effort: they can never hide the run's real status
+        let last: Array<{ at: string }> = [];
+        try { last = deps.store.listMessages(taskId).slice(-1); } catch { /* the task row still counts */ }
+        let waiting = false;
+        try { waiting = deps.engine.waitingOnOwner?.(taskId) === true; } catch { /* not waiting */ }
+        const at = runProgressAt(t, last);
+        return { status: t.status, ...(Number.isFinite(at) ? { progressAt: at } : {}), ...(t.error ? { error: t.error } : {}), ...(waiting ? { waitingOnOwner: true } : {}) };
       } catch {
         // an unreadable task store counts as live, exactly like the board's own run lookup: never end a run on a guess
         return { status: 'running', progressAt: Date.now() };
@@ -109,7 +122,12 @@ export function createBoardModule(deps: ModuleDeps, opts: BoardModuleOpts): Boar
     cancelRun: (taskId) => deps.engine.cancel(taskId),
     // a bot the owner (or another bot) already has working is busy: the Marshal does not put a second run on it
     botBusy: (id) => {
-      try { return deps.store.listTasks(200, id, true).some((t) => t.status === 'running' || t.status === 'queued'); } catch { return true; }
+      try {
+        const t = deps.store.listTasks(200, id, true).find((x) => x.status === 'running' || x.status === 'queued');
+        if (!t) return false;
+        const where = t.projectId ? (projects.get(t.projectId)?.name ?? 'a removed project') : 'no project';
+        return `busy in ${where}: ${t.title.length > 60 ? t.title.slice(0, 59) + '…' : t.title}`;
+      } catch { return 'busy (its state cannot be read)'; }
     },
   });
   const driver = new MarshalDriver({

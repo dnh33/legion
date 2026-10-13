@@ -1,0 +1,12 @@
+Legion 0.2.6-y: Projects that keep you in the loop, and less lost work between agents.
+
+- Approvals and questions from other projects show at the top of the agent list, whatever project you are viewing. One click opens them.
+- An agent's row and the composer say when it is also working in another project. A run says when another run works in the same folder.
+- An agent outside a project can now help with it, without the project's folder, notes or board. The project's deny rules still apply, and both threads say so.
+- Archiving a project or removing an agent while a run works: the run finishes and says so. Rooms of the project are marked "out of project".
+- An agent's own notes remember their project and come first there. The agent shell of a project run can use the project folder.
+- The Marshal no longer stops healthy runs after eight minutes, and an item you assign to a busy agent waits for it instead of being blocked.
+- No more lost answers between agents: late answers arrive, a run stopped at its limit hands back its work so far, and replies to an archived project's task still land.
+- The project page: pick who starts a new task, show all tasks, and unarchive asks first.
+
+Installs over 0.2.5-o and later. Full detail in CHANGELOG.md.

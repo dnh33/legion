@@ -3,7 +3,8 @@ import type { Room } from '../../../src/shared/comms';
 import type { AgentProfile } from '../../../src/shared/types';
 import { Icon } from '../components/icons';
 import { Face } from './Stack';
-import { toast } from '../store';
+import { toast, useStore } from '../store';
+import { roomOutOfProject } from '../projects/projectsLogic';
 import './rooms.css';
 import { activeIn, exportRoom, freezeRoom, PAUSE_LABEL, resumeRoom, setSettingsOpen, type LiveState } from './roomsStore';
 import { fmtBudget, fmtCost, STRATEGY_INFO } from './roomsUtil';
@@ -66,6 +67,10 @@ export function RoomHeader({ room, agents, live, offline, narrow, onList }: {
   const act = new Map(activeIn(live, room).map((a) => [a.agentId, a.state]));
   const [freezing, setFreezing] = useState(false);
   const paused = room.paused;
+  const projects = useStore((s) => s.projects);
+  const names = Object.fromEntries(agents.map((a) => [a.id, a.name]));
+  const project = room.projectId ? projects.find((p) => p.id === room.projectId) : undefined;
+  const outWhy = roomOutOfProject(room, projects, names);
   const g = room.guards;
   return (
     <header className="rm-head">
@@ -77,6 +82,9 @@ export function RoomHeader({ room, agents, live, offline, narrow, onList }: {
             {room.kind === 'dm' ? 'Direct message' : `${room.members.length} bots`} {'·'} {STRATEGY_INFO[room.strategy].label} {'·'} lead {nm(room.lead)}
             {room.createdBy && <span className="rm-pill" title="You approved this room. Only you can delete it.">created by {nm(room.createdBy)}</span>}
             {paused && <span className="rm-pill warn">{PAUSE_LABEL[paused.reason]}</span>}
+            {room.projectId && (outWhy
+              ? <span className="rm-pill warn" data-testid="room-out-of-project" title={`Out of project: ${outWhy}. Its agents work without the project's instructions, board and notes until that changes.`}>out of project {project?.name ?? ''}</span>
+              : <span className="rm-pill" title="This room's agents get the project's instructions, board and notes">project {project?.name}</span>)}
           </span>
         </div>
         <span className="spacer" />

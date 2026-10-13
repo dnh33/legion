@@ -1,10 +1,10 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { PROJECT_LIMITS } from '../../../src/shared/projects';
 import type { Project } from '../../../src/shared/projects';
 import { ensureRoomList, openRoom, useRooms } from '../rooms/roomsStore';
 import { loadProjectTasks, newTask, selectAgent, selectTask, setView, useStore } from '../store';
-import { archiveProject, assignRoom, changeMembers, chooseFolder, closeProjectPage, saveProject, setProjectFilter, useDefaultFolder } from './projectsStore';
-import { assignableRooms, instructionsCounter, projectLabel, roomsOf, statusLine } from './projectsLogic';
+import { archiveProject, unarchiveProject, assignRoom, changeMembers, chooseFolder, closeProjectPage, saveProject, setProjectFilter, useDefaultFolder } from './projectsStore';
+import { assignableRooms, defaultStarter, followRemote, PROJECT_TASKS_FOLDED, visibleTasks, instructionsCounter, projectLabel, roomOutOfProject, roomsOf, statusLine } from './projectsLogic';
 import { BoardPanel } from './board/BoardPanel';
 import './projects.css';
 
@@ -25,6 +25,7 @@ export function ProjectView() {
 function ProjectPage({ project }: { project: Project }) {
   const agents = useStore((s) => s.agents);
   const tasks = useStore((s) => s.tasks);
+  const selected = useStore((s) => s.selectedAgentId);
   const rooms = useRooms((s) => s.rooms);
   useEffect(() => { ensureRoomList(); }, []);
   // the window's snapshot holds only the newest tasks per agent: fetch this project's own
@@ -34,9 +35,15 @@ function ProjectPage({ project }: { project: Project }) {
   const [add, setAdd] = useState('');
   const [busy, setBusy] = useState(false);
   const [roomPick, setRoomPick] = useState('');
+  const [allTasks, setAllTasks] = useState(false);
+  const [starter, setStarter] = useState<string | undefined>(() => defaultStarter(project.members, selected));
   // keep the editors in step with changes from elsewhere (another window, a confirmation) while nothing is being edited
-  useEffect(() => { setName((n) => (n === project.name || !n.trim() ? project.name : n)); }, [project.name]);
-  useEffect(() => { setText((t) => (t === project.instructions ? t : t)); }, [project.instructions]);
+  const prev = useRef(project);
+  useEffect(() => {
+    setName((n) => (!n.trim() ? project.name : followRemote(n, prev.current.name, project.name)));
+    setText((t) => followRemote(t, prev.current.instructions, project.instructions));
+    prev.current = project;
+  }, [project.name, project.instructions]);
 
   const archived = project.status === 'archived';
   const inTasks = useMemo(() => tasks.filter((t) => t.projectId === project.id && !t.archived).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)), [tasks, project.id]);
@@ -44,16 +51,18 @@ function ProjectPage({ project }: { project: Project }) {
   const free = assignableRooms(rooms, project);
   const members = project.members.map((id) => agents.find((a) => a.id === id) ?? { id, name: id, emoji: '?' });
   const outside = agents.filter((a) => !project.members.includes(a.id));
+  const names = Object.fromEntries(agents.map((a) => [a.id, a.name]));
   const counter = instructionsCounter(text);
   const nameDirty = name.trim() !== project.name;
   const textDirty = text.slice(0, PROJECT_LIMITS.instructionsChars) !== project.instructions;
 
   const run = async (fn: () => Promise<unknown>) => { setBusy(true); try { await fn(); } finally { setBusy(false); } };
+  // the chosen member, while it is still one (a member removed meanwhile falls back to the default)
+  const who = starter && project.members.includes(starter) ? starter : defaultStarter(project.members, selected);
   const startTask = () => {
-    const first = project.members[0];
-    if (!first) return;
+    if (!who) return;
     setProjectFilter(project.id);
-    selectAgent(first);
+    selectAgent(who);
     setView('chat');
     newTask();
   };
@@ -66,8 +75,13 @@ function ProjectPage({ project }: { project: Project }) {
           <p className="muted-s" role="status">{statusLine(project, inTasks.length, inRooms.length)}</p>
         </div>
         <div className="proj-headact">
+          {members.length > 1 && !archived && (
+            <select aria-label="Agent for the new task" value={who} onChange={(e) => setStarter(e.target.value)}>
+              {members.map((a) => <option key={a.id} value={a.id}>{a.emoji} {a.name}</option>)}
+            </select>
+          )}
           <button type="button" className="btn" onClick={startTask} disabled={archived || members.length === 0} aria-describedby={members.length === 0 ? 'proj-nomem' : undefined}>New task in this project</button>
-          <button type="button" className="btn" disabled={busy} onClick={() => void run(() => (archived ? saveProject(project.id, { status: 'active' }) : archiveProject(project)))}>{archived ? 'Unarchive' : 'Archive'}</button>
+          <button type="button" className="btn" disabled={busy} onClick={() => void run(() => (archived ? unarchiveProject(project) : archiveProject(project)))}>{archived ? 'Unarchive' : 'Archive'}</button>
           <button type="button" className="btn-ghost" onClick={closeProjectPage}>Back to chat</button>
         </div>
       </header>
@@ -129,13 +143,19 @@ function ProjectPage({ project }: { project: Project }) {
           <h3 id="proj-h-tasks">Tasks</h3>
           {inTasks.length === 0 ? <p className="muted-s">No tasks yet. Start one from this page, or choose this project in the rail and write to an agent.</p> : (
             <ul className="proj-list">
-              {inTasks.slice(0, 30).map((t) => (
+              {visibleTasks(inTasks, allTasks).map((t) => (
                 <li key={t.id}>
                   <button type="button" className="proj-link" onClick={() => { setView('chat'); selectTask(t.id); }}>{t.title}</button>
                   <span className="muted-s">{agents.find((a) => a.id === t.agentId)?.name ?? t.agentId}, {t.status}</span>
                 </li>
               ))}
             </ul>
+          )}
+          {inTasks.length >= PROJECT_TASKS_FOLDED && (
+            <button type="button" className="link-btn" aria-expanded={allTasks}
+              onClick={() => { if (!allTasks) void loadProjectTasks(project.id, 100); setAllTasks((v) => !v); }}>
+              {allTasks ? 'Show fewer' : `Show all ${inTasks.length}${inTasks.length === PROJECT_TASKS_FOLDED ? '+' : ''}`}
+            </button>
           )}
         </section>
 
@@ -146,6 +166,7 @@ function ProjectPage({ project }: { project: Project }) {
               {inRooms.map((r) => (
                 <li key={r.id}>
                   <button type="button" className="proj-link" onClick={() => { setView('rooms'); openRoom(r.id); }}>{r.name}</button>
+                  {roomOutOfProject(r, [project], names) && <span className="muted-s" title={roomOutOfProject(r, [project], names)}>out of project</span>}
                   <button type="button" className="btn-ghost sm" disabled={busy} aria-label={`Take ${r.name} out of this project`} onClick={() => void run(() => assignRoom(r.id, null))}>Take out</button>
                 </li>
               ))}

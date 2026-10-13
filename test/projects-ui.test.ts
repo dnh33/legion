@@ -99,6 +99,149 @@ test('council A9: the archive question says what archiving touches', async () =>
   assert.match(q, /^Archive "Site"\?/);
   assert.match(q, /2 runs in progress finish first\./);
   assert.match(q, /Its 5 open tasks cannot be continued, and no new task can start in it, until you unarchive it\./);
-  assert.match(q, /1 room keeps working, without the project's instructions and notes\./);
+  assert.match(q, /1 room is marked out of project, with a notice in it; it keeps working without the project's instructions, board and notes\./);
   assert.doesNotMatch(archiveQuestion('Site', { live: 0, open: 0, rooms: 0 }), /run|room|open task/);
+});
+
+test('B4 roomOutOfProject: the reason a room is out of its project, or nothing', async () => {
+  const { roomOutOfProject } = await import('../ui/src/projects/projectsLogic.js');
+  const P = { id: 'proj_aaaaaaaaaaaa', name: 'Crew', status: 'active', members: ['zealot', 'scout'] } as any;
+  const names = { zealot: 'Zealot', scout: 'Scout', ranger: 'Ranger' };
+  assert.equal(roomOutOfProject({ projectId: P.id, members: ['zealot', 'scout'] }, [P], names), undefined);
+  assert.equal(roomOutOfProject({ members: ['zealot', 'ranger'] }, [P], names), undefined, 'no project, nothing to say');
+  assert.equal(roomOutOfProject({ projectId: P.id, members: ['zealot', 'ranger'] }, [P], names), 'Ranger is not a member of it');
+  assert.equal(roomOutOfProject({ projectId: P.id, members: ['zealot'] }, [{ ...P, status: 'archived' }], names), 'the project is archived');
+  assert.equal(roomOutOfProject({ projectId: P.id, members: ['zealot'] }, [], names), 'the project was deleted');
+});
+
+test('B4 the room header names the room\'s project, and marks it "out of project" with the reason', () => {
+  const root = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
+  const head = readFileSync(join(root, 'ui', 'src', 'rooms', 'RoomHeader.tsx'), 'utf8');
+  assert.match(head, /roomOutOfProject\(room, projects, names\)/);
+  assert.match(head, /data-testid="room-out-of-project"/);
+  const view = readFileSync(join(root, 'ui', 'src', 'projects', 'ProjectView.tsx'), 'utf8');
+  assert.match(view, /roomOutOfProject\(r, \[project\], names\)/);
+});
+
+test('B1 waitingElsewhere: what waits on the owner but is hidden by the project in view, oldest first, with where it is', async () => {
+  const { waitingElsewhere } = await import('../ui/src/projects/projectsLogic.js');
+  const P = { id: 'proj_aaaaaaaaaaaa', name: 'Site', status: 'active', members: ['builder'] } as any;
+  const Q = { id: 'proj_bbbbbbbbbbbb', name: 'Shop', status: 'active', members: ['scout', 'builder'] } as any;
+  const tasks = [
+    { id: 't_p', projectId: P.id, title: 'Fix the header' },
+    { id: 't_q', projectId: Q.id, title: 'Price list for the summer sale in all the shops' },
+    { id: 't_none', title: 'Loose task' },
+  ];
+  const names = { scout: 'Scout', builder: 'Builder' };
+  const approvals = [
+    { id: 'a1', taskId: 't_q', agentId: 'scout', at: '2026-10-13T10:00:02Z' },
+    { id: 'a2', taskId: 't_p', agentId: 'builder', at: '2026-10-13T10:00:01Z' },
+    { id: 'a3', taskId: 't_gone', agentId: 'scout', at: '2026-10-13T10:00:04Z' },
+  ];
+  const questions = [{ id: 'q1', taskId: 't_none', agentId: 'builder', at: '2026-10-13T10:00:03Z' }];
+  const rows = waitingElsewhere(approvals, questions, tasks, [P, Q], names, P.id);
+  assert.deepEqual(rows.map((r) => r.taskId), ['t_q', 't_none', 't_gone'], 'the P approval shows on its own rail row; the rest, oldest first');
+  assert.equal(rows[0]!.label, 'Scout needs your OK in Shop: Price list for the summer sale in all t…');
+  assert.equal(rows[0]!.projectId, Q.id);
+  assert.equal(rows[1]!.label, 'Builder asks you something in no project: Loose task');
+  assert.equal(rows[1]!.projectId, null);
+  assert.equal(rows[2]!.label, 'Scout needs your OK in another task');
+  assert.deepEqual(waitingElsewhere(approvals, questions, tasks, [P, Q], names, null), [], 'All shows everything already');
+  // an agent removed from P whose old P task waits: its row is hidden, so it is listed
+  const removed = waitingElsewhere([{ id: 'a9', taskId: 't_p', agentId: 'scout', at: 'x' }], [], tasks, [P, Q], names, P.id);
+  assert.equal(removed.length, 1);
+  assert.equal(removed[0]!.label, 'Scout needs your OK in Site: Fix the header');
+});
+
+test('B1 the rail shows a "Needs you in other projects" block built from waitingElsewhere, and a click opens the item in its project', () => {
+  const root = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
+  const rail = readFileSync(join(root, 'ui', 'src', 'components', 'AgentRail.tsx'), 'utf8');
+  assert.match(rail, /waitingElsewhere\(approvals, questions, tasks, projects, names, filter\)/);
+  assert.match(rail, /data-testid="rail-waiting"/);
+  assert.match(rail, /Needs you in other projects/);
+  assert.match(rail, /setProjectFilter\(row\.projectId\)/);
+  assert.match(rail, /selectTask\(row\.taskId\)/);
+  assert.match(rail, /aria-live="polite"/);
+});
+
+test('B2 liveElsewhere and alsoWorkingLabel: the agent\'s live runs outside the project in view or the thread\'s project', async () => {
+  const { liveElsewhere, alsoWorkingLabel } = await import('../ui/src/projects/projectsLogic.js');
+  const P = { id: 'proj_aaaaaaaaaaaa', name: 'Site', status: 'active', members: ['builder'] } as any;
+  const Q = { id: 'proj_bbbbbbbbbbbb', name: 'Shop', status: 'active', members: ['builder'] } as any;
+  const t = (id: string, status: string, projectId?: string, updatedAt = '2026-10-13T10:00:00Z') => ({ id, agentId: 'builder', status, title: 'Task ' + id, updatedAt, ...(projectId ? { projectId } : {}) }) as any;
+  const tasks = [t('q1', 'running', Q.id, '2026-10-13T10:00:02Z'), t('p1', 'running', P.id), t('n1', 'queued', undefined, '2026-10-13T10:00:01Z'), t('q2', 'done', Q.id)];
+  // project P in view: q1 and n1 are elsewhere, newest first; p1 is here; done does not count
+  assert.deepEqual(liveElsewhere('builder', tasks, { filter: P.id, taskId: null }).map((x: any) => x.id), ['q1', 'n1']);
+  // a thread in Q under "All": everything live that is not in Q, and never the thread itself
+  assert.deepEqual(liveElsewhere('builder', tasks, { filter: null, taskId: 'q1', taskProjectId: Q.id }).map((x: any) => x.id), ['n1', 'p1']);
+  // "All" with no thread: any live task other than this one
+  assert.deepEqual(liveElsewhere('builder', tasks, { filter: null, taskId: 'p1' }).map((x: any) => x.id), ['q1', 'n1']);
+  assert.equal(alsoWorkingLabel([], [P, Q]), undefined);
+  assert.equal(alsoWorkingLabel([tasks[0]], [P, Q]), 'Also working in Shop: Task q1');
+  assert.equal(alsoWorkingLabel([tasks[2]], [P, Q]), 'Also working in no project: Task n1');
+  assert.equal(alsoWorkingLabel([tasks[0], tasks[2], tasks[1]], [P, Q]), 'Also working in Shop: Task q1 (+2 more)');
+});
+
+test('B2 the rail row and the composer show the "Also working" line; it never blocks sending', () => {
+  const root = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
+  const rail = readFileSync(join(root, 'ui', 'src', 'components', 'AgentRail.tsx'), 'utf8');
+  assert.match(rail, /railAlsoWorking\(a\.id, tasks, filter, projects\)/);
+  const comp = readFileSync(join(root, 'ui', 'src', 'components', 'Composer.tsx'), 'utf8');
+  assert.match(comp, /className="also-pill" role="status"/);
+  const busy = readFileSync(join(root, 'ui', 'src', 'chat', 'busy.ts'), 'utf8');
+  assert.doesNotMatch(busy, /liveElsewhere|alsoWorking/, 'busy rules unchanged (decision B1: no block)');
+});
+
+test('C1 followRemote: an untouched editor follows a change made elsewhere; an edited one keeps the owner\'s text', async () => {
+  const { followRemote } = await import('../ui/src/projects/projectsLogic.js');
+  assert.equal(followRemote('old', 'old', 'new'), 'new', 'untouched: follows');
+  assert.equal(followRemote('mine', 'old', 'new'), 'mine', 'edited: kept');
+  assert.equal(followRemote('old', 'old', 'old'), 'old');
+  const root = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
+  const view = readFileSync(join(root, 'ui', 'src', 'projects', 'ProjectView.tsx'), 'utf8');
+  assert.doesNotMatch(view, /setText\(\(t\) => \(t === project\.instructions \? t : t\)\)/, 'the no-op is gone');
+  assert.match(view, /followRemote\(t, prev\.current\.instructions, project\.instructions\)/);
+});
+
+test('C2 defaultStarter: the selected agent when it is a member, else the first member; the page offers a labelled choice', async () => {
+  const { defaultStarter } = await import('../ui/src/projects/projectsLogic.js');
+  assert.equal(defaultStarter(['scout', 'builder'], 'builder'), 'builder');
+  assert.equal(defaultStarter(['scout', 'builder'], 'herald'), 'scout');
+  assert.equal(defaultStarter(['scout'], null), 'scout');
+  assert.equal(defaultStarter([], 'scout'), undefined);
+  const root = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
+  const view = readFileSync(join(root, 'ui', 'src', 'projects', 'ProjectView.tsx'), 'utf8');
+  assert.match(view, /<select aria-label="Agent for the new task"/);
+  assert.doesNotMatch(view, /const first = project\.members\[0\];/, 'no longer always the first member');
+});
+
+test('C3 the project page shows 30 tasks, and all of them on request', async () => {
+  const { visibleTasks, PROJECT_TASKS_FOLDED } = await import('../ui/src/projects/projectsLogic.js');
+  const list = Array.from({ length: 45 }, (_, i) => i);
+  assert.equal(PROJECT_TASKS_FOLDED, 30);
+  assert.equal(visibleTasks(list, false).length, 30);
+  assert.equal(visibleTasks(list, true).length, 45);
+  const root = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
+  const view = readFileSync(join(root, 'ui', 'src', 'projects', 'ProjectView.tsx'), 'utf8');
+  assert.match(view, /Show all \$\{inTasks\.length\}/);
+  assert.match(view, /loadProjectTasks\(project\.id, 100\)/);
+  assert.doesNotMatch(view, /inTasks\.slice\(0, 30\)/);
+});
+
+test('C4 unarchive asks first and says what comes back', async () => {
+  const { unarchiveQuestion } = await import('../ui/src/projects/projectsLogic.js');
+  assert.equal(unarchiveQuestion('Site'), 'Unarchive "Site"?\n\nIts tasks can be continued again and new tasks can start in it. Its rooms and members get its instructions, board and notes again.');
+  const root = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
+  const view = readFileSync(join(root, 'ui', 'src', 'projects', 'ProjectView.tsx'), 'utf8');
+  assert.match(view, /unarchiveProject\(project\)/);
+  assert.doesNotMatch(view, /saveProject\(project\.id, \{ status: 'active' \}\)/, 'no unarchive without the question');
+});
+
+test('review #9 the agent rail says "Also working in" only while a project is in view; under All every run is already on the rail', async () => {
+  const { railAlsoWorking } = await import('../ui/src/projects/projectsLogic.js');
+  const now = '2026-10-13T10:00:00Z';
+  const tasks = [{ id: 't1', agentId: 'a1', status: 'running' as const, projectId: 'p2', title: 'Fix the header', updatedAt: now }];
+  const projects = [{ id: 'p2', name: 'Shop' }] as Project[];
+  assert.equal(railAlsoWorking('a1', tasks, null, projects), undefined);
+  assert.equal(railAlsoWorking('a1', tasks, 'p1', projects), 'Also working in Shop: Fix the header');
 });

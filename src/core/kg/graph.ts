@@ -370,7 +370,8 @@ export class Graph {
       if (wantTags.length && !wantTags.every((t) => n.tags.includes(t))) continue;
       // recall v2: BM25 x recency x confidence x trust; a retired node, when asked for, counts for a third
       // a run inside a project prefers that project's own notes over equal shared ones (other projects' notes were already filtered out by canSeeNode)
-      const mine = actor.kind === 'agent' && actor.projectId !== undefined && n.scope === projectScope(actor.projectId) ? PROJECT_BOOST : 1;
+      const mine = actor.kind === 'agent' && actor.projectId !== undefined
+        && (n.scope === projectScope(actor.projectId) || (n.scope === `agent:${actor.id}` && n.projectId === actor.projectId)) ? PROJECT_BOOST : 1;
       ranked.push({ n, score: Math.round(score * rankFactor(n, nowMs) * mine * (inactive ? 0.3 : 1) * 10_000) / 10_000, inactive });
     }
     ranked.sort((a, b) => b.score - a.score || b.n.updatedAt.localeCompare(a.n.updatedAt) || a.n.id.localeCompare(b.n.id));
@@ -748,6 +749,8 @@ export class Graph {
       ...(f.sources?.length ? { sources: f.sources } : {}),
       ...(f.confidence !== undefined ? { confidence: f.confidence } : {}),
       trust: w.trust, ...(w.hold ? { status: 'pending' as const } : {}), ...(w.origin ? { origin: w.origin } : {}),
+      // an agent's own private note remembers the project it was written in (decision B5); a shared note never says
+      ...(actor.kind === 'agent' && actor.projectId !== undefined && scope === `agent:${actor.id}` ? { projectId: actor.projectId } : {}),
       createdBy: actorName(actor), createdAt: now, updatedAt: now, rev: 1,
     };
   }
@@ -905,6 +908,8 @@ export class Graph {
     if (f.body !== undefined) next.body = f.body;
     if (f.tags !== undefined) next.tags = f.tags;
     if (f.scope !== undefined) next.scope = f.scope;
+    // the project label belongs to the writer's private note; a note moved out of that scope does not take it along
+    if (next.projectId !== undefined && next.scope !== existing.scope) delete next.projectId;
     if (f.confidence !== undefined) next.confidence = f.confidence;
     if (f.sources !== undefined) {
       if (f.untrusted && !f.sources.length) throw new KgError('invalid', 'Content from the web, files or other untrusted input needs at least one source (ref).');
@@ -2509,6 +2514,8 @@ function loadNode(v: unknown): KgNode | undefined {
   if (v.status === 'pending' || v.status === 'superseded' || v.status === 'archived') n.status = v.status;
   if (typeof v.supersededBy === 'string' && v.supersededBy) n.supersededBy = v.supersededBy;
   if (typeof v.rev === 'number' && Number.isFinite(v.rev) && v.rev >= 0) n.rev = Math.floor(v.rev);
+  // only on an agent's own private note (never a shared or project note)
+  if (typeof v.projectId === 'string' && PROJECT_ID_RE.test(v.projectId) && scope.startsWith('agent:') && projectIdOfScope(scope) === undefined) n.projectId = v.projectId;
   if (isObj(v.origin) && typeof v.origin.taskId === 'string') {
     n.origin = { taskId: v.origin.taskId, tainted: v.origin.tainted === true, ...(typeof v.origin.via === 'string' ? { via: v.origin.via } : {}) };
   }

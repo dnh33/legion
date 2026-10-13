@@ -108,3 +108,11 @@ test('the whole roster catalogs, visibly', () => {
   assert.equal(all.length, ALL.length - 1, 'the hidden bot is left out entirely');
   assert.ok(all.every((b) => b.role.length > 100 && b.never !== undefined), 'every entry carries full prose and a never-list');
 });
+
+test('eligible names where a busy bot is working when it is told (C3): busy in Shop: <task>', () => {
+  const told = eligible([entry('builder')], ctx({ busy: () => true, busyWhy: () => 'busy in Shop: Fix the header' }));
+  assert.equal(told.excluded[0]!.why, 'busy in Shop: Fix the header');
+  assert.equal(told.excluded[0]!.transient, true);
+  const plain = eligible([entry('builder')], ctx({ busy: () => true }));
+  assert.equal(plain.excluded[0]!.why, 'already working on another item');
+});

@@ -11,7 +11,7 @@ import type { McpSdkServerConfigWithInstance } from '@anthropic-ai/claude-agent-
 import { readdirSync, readFileSync, realpathSync, statSync } from 'node:fs';
 import { mkdir, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { dirname, join, resolve, sep } from 'node:path';
+import { dirname, isAbsolute, join, resolve, sep } from 'node:path';
 import { z } from 'zod';
 import type { ExecutionBackend } from './types.js';
 import { clampExecLimits, type ExecLimits } from './limits.js';
@@ -31,6 +31,8 @@ export interface HostToolsCtx {
   taskId: string;
   /** Where commands run and file paths must stay: the task workspace / repo root. */
   rootDir: string;
+  /** More folders file paths and a shell cwd may use (a project run's project folder). Relative paths still resolve against rootDir. */
+  extraRoots?: string[];
   backend: ExecutionBackend;
   /** Tunable limits (timeout, output window, write cap). Clamped to defaults when omitted. */
   limits?: ExecLimits;
@@ -201,6 +203,16 @@ function realOf(p: string): string | undefined {
   }
 }
 
+/** resolveWithin against the first root that holds the target; the main root's refusal when none does. */
+export function resolveWithinAny(roots: readonly string[], target: string): string {
+  let first: unknown;
+  // a relative path means the agent's own root only; an extra root is reached by its full path
+  for (const r of isAbsolute(nativePath(target)) ? roots : roots.slice(0, 1)) {
+    try { return resolveWithin(r, target); } catch (e) { first ??= e; }
+  }
+  throw first ?? new Error(`Path "${target}" is outside the allowed root`);
+}
+
 /**
  * Resolve `target` against `root`, and refuse anything that escapes it: first by the path as written (`..`, another
  * drive, UNC), then by the REAL path, so a symlink or junction inside the root that points outside it is refused too.
@@ -265,6 +277,7 @@ export function redactValues(text: string, values: readonly string[]): string {
 export function buildHostToolsServer(ctx: HostToolsCtx): McpSdkServerConfigWithInstance {
   const limits = clampExecLimits(ctx.limits);
   const envMode = ctx.envFiles ?? 'masked';
+  const roots = [ctx.rootDir, ...(ctx.extraRoots ?? [])];
   // the secrets Legion holds, and (unless the owner allowed .env files) every value in this root's .env files
   const redact = (s: string): string => {
     const t = ctx.redact ? ctx.redact(s) : s;
@@ -297,7 +310,7 @@ export function buildHostToolsServer(ctx: HostToolsCtx): McpSdkServerConfigWithI
       // the floor again, in this shell's own reading; a command over the reading limit was carded by the engine
       const bad = a.command.length <= MAX_READABLE ? refuseCatastrophic(a.command, floorShell(sh)) : undefined;
       if (bad) throw new Error(bad);
-      const cwd = a.cwd === undefined ? ctx.rootDir : resolveWithin(ctx.rootDir, a.cwd);
+      const cwd = a.cwd === undefined ? ctx.rootDir : resolveWithinAny(roots, a.cwd);
       const r = await ctx.backend.execute({ cmd: a.command, cwd, timeoutMs: (a.timeoutSeconds ?? limits.timeoutSeconds) * 1000 });
       const body = await windowOrSpill(redact(r.output), ctx.rootDir, ctx.taskId, limits.maxOutputChars);
       return `exit code: ${r.exit_code}${r.timedOut ? ' (timed out)' : ''}\n${body}`;
@@ -309,7 +322,7 @@ export function buildHostToolsServer(ctx: HostToolsCtx): McpSdkServerConfigWithI
     'Read a UTF-8 text file on this machine (within the allowed root). A long file is returned in a window with a pointer to the full text, so nothing is lost.',
     { path: z.string().describe('File path (must stay inside the allowed root)') },
     (a) => run(async () => {
-      const p = resolveWithin(ctx.rootDir, a.path);
+      const p = resolveWithinAny(roots, a.path);
       const env = isEnvFile(p);
       if (env && envMode === 'block') throw envRefusal('read');
       const text = await readFile(p, 'utf8');
@@ -326,7 +339,7 @@ export function buildHostToolsServer(ctx: HostToolsCtx): McpSdkServerConfigWithI
     },
     (a) => run(async () => {
       if (a.content.length > limits.maxWriteChars) throw new Error(`Content is too large (${a.content.length} > ${limits.maxWriteChars} chars)`);
-      const p = resolveWithin(ctx.rootDir, a.path);
+      const p = resolveWithinAny(roots, a.path);
       if (isEnvFile(p) && envMode !== 'allow') throw envRefusal('write');
       await mkdir(dirname(p), { recursive: true });
       await writeFile(p, a.content, 'utf8');

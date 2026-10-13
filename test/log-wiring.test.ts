@@ -192,3 +192,20 @@ test('the Logs copy leads with the benefit and uses no tracking words', () => {
   assert.equal(/diagnostic|analytics|telemetry/i.test(LOGS_DESCRIPTION), false);
   assert.equal(/diagnostic|analytics|telemetry/i.test(src('ui/src/logs/LogsSection.tsx')), false);
 });
+
+test('bus events: run.started and run.finished name the run\'s project (empty for none)', () => {
+  const dir = tempDir('legion-log-');
+  const sink = new LogSink({ dir });
+  const bus = new EventBus();
+  const detach = attachLogEvents(bus, sink, () => 1000);
+  const t = (id: string, status: Task['status'], projectId?: string): Task => ({ id, agentId: 'scout', title: 'x', status, source: 'ui', requestedModel: 'auto', model: 'sonnet', createdAt: 'x', updatedAt: 'x', ...(projectId ? { projectId } : {}) } as Task);
+  bus.emit({ type: 'task.updated', task: t('p1', 'running', 'proj_aaaaaaaaaaaa') });
+  bus.emit({ type: 'task.updated', task: t('p1', 'done', 'proj_aaaaaaaaaaaa') });
+  bus.emit({ type: 'task.updated', task: t('n1', 'running') });
+  bus.emit({ type: 'task.updated', task: t('n1', 'done') });
+  detach();
+  sink.flushSync(); sink.closeAll();
+  const agents = readFileSync(join(dir, 'agents.log'), 'utf8');
+  assert.equal(agents.match(/run\.(started|finished) [^\n]*project="proj_aaaaaaaaaaaa"/g)?.length, 2, agents);
+  assert.equal(agents.match(/run\.(started|finished) [^\n]*project=""/g)?.length, 2, agents);
+});

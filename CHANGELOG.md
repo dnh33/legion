@@ -4,6 +4,51 @@ All notable changes are recorded here. The format follows [Keep a Changelog](htt
 
 ## [Unreleased]
 
+## [0.2.6-y] - 2026-10-13
+
+### Added
+
+- **What waits on you stays in sight in every project.** When you view one project, approvals and questions from
+  other projects (or from no project) show at the top of the agent list under "Needs you in other projects". One
+  click opens the card in its own project.
+- **"Also working in" another project.** An agent's row and the composer say when the agent is also working on a task
+  in another project. Nothing is blocked: two runs of one agent still go ahead.
+- **A note when two runs share a folder.** A run that starts while another run works in the same project folder, or
+  while the same agent runs another task in its own folder, says so in its thread.
+- **The agent list tells a project run who is in the project.** Agents give project work to members first.
+- **The project page:** choose which member starts a new task, show all of the project's tasks, and unarchiving asks
+  first.
+
+### Changed
+
+- **An agent outside a project can help with it.** Before, an agent in a project could only ask the project's members
+  for help, and asking anyone else was refused. Now a non-member helps from outside: it works without the project's
+  folder, notes and board, the project's deny rules still apply to it, and both threads say so. To give it the project,
+  add it on the project page. A run whose project was archived while it worked can still hand work on the same way.
+- **Archiving a project, or removing an agent from it, while a run works:** the run finishes and its thread says so
+  once. The project's deny rules keep applying to that run until it ends.
+- **A room whose project was archived, or which has an agent who left the project, is marked "out of project"**, with
+  a notice in the room, and a second notice when it is back in.
+- **An agent's own notes remember the project they were written in**, and rank first when the agent works in that
+  project again. A note you move to the shared notes leaves that label behind.
+- **The agent shell of a project run can read and write the project folder**, given by its full path, as well as the
+  agent's own folder. A link inside it that points elsewhere is still refused.
+- **Agents on other providers get the project too:** its board, its notes and the "this run is not in the project"
+  note, and they are no longer told they can edit files there when they cannot.
+- **Run log lines name the project.**
+
+### Fixed
+
+- **The Marshal no longer stops healthy board runs as "stalled".** A run that worked for more than eight minutes was
+  cancelled, because only its start and end counted as signs of life. Now every message counts, and a run that waits
+  for a free slot or for your answer is never called stalled.
+- **An item you assign to a busy agent waits for it**, instead of going to Blocked. The Marshal says where the agent is
+  busy.
+- **Work is no longer lost between agents.** An answer that comes after an ask timed out now arrives in the asking
+  task. A run that stops at its turn or spend limit hands its work so far back to the agent that asked. A reply to a
+  task whose project was archived still lands. A hand-off that is refused before it starts no longer counts against
+  the hourly hand-off limit.
+
 ## [0.2.6-x] - 2026-10-13
 
 ### Changed

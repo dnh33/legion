@@ -109,3 +109,26 @@ describe('history pages over HTTP', () => {
     assert.ok((full.tasks as Task[]).every((t) => t.result === undefined));
   });
 });
+
+describe('history pages over HTTP: the project filter (council A13)', () => {
+  const f = makeFakes();
+  const store = new Store(tempDir('legion-histhttp-proj-'), { saveDebounceMs: 5 });
+  let base = ''; let close: () => Promise<void>;
+  const ids = async (qs: string) => ((await (await fetch(base + '/api/tasks?' + qs, { headers: AUTH })).json()) as { tasks: Task[] }).tasks.map((t) => t.id).sort();
+  before(async () => {
+    (f.ctx as { store: unknown }).store = store;
+    store.upsertAgent(mkAgent('zealot', 'Zealot'));
+    store.upsertTask(mk('inA', 1, { projectId: 'proj_aaaaaaaaaaaa' }));
+    store.upsertTask(mk('inB', 2, { projectId: 'proj_bbbbbbbbbbbb' }));
+    store.upsertTask(mk('none1', 3));
+    store.upsertTask(mk('none2', 4));
+    const s = await start(f.ctx); base = s.base; close = s.close;
+  });
+  after(async () => { await close(); await store.flush(); });
+
+  it('projectId=none lists only the tasks in no project; projectId=<id> only that project\'s', async () => {
+    assert.deepEqual(await ids('projectId=none'), ['none1', 'none2']);
+    assert.deepEqual(await ids('projectId=proj_aaaaaaaaaaaa'), ['inA']);
+    assert.deepEqual(await ids(''), ['inA', 'inB', 'none1', 'none2']);
+  });
+});

@@ -235,6 +235,8 @@ export interface Task {
   archived?: boolean;
   /** The project this task belongs to (absent: none). Set only by the app, a room's own wake or an `ask`/`tell` inheriting its caller's; see claude/plan-projects.md. */
   projectId?: string;
+  /** Set when this task's agent helps with a project from outside it (an outside helper): the project's deny rules bind its runs and the work it hands on. Ignored while `projectId` is set. */
+  helpingProjectId?: string;
   requestedModel: ModelChoice;
   /** Set when another bot picked the model for this task through `ask`/`tell` (or a room message): who, and which. Applies to that task's run only; a later message that asks for none clears it. Never changes approvals. */
   modelOverride?: { model: ModelChoice; by: string };

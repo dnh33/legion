@@ -2,7 +2,7 @@
 import type { Project } from '../../../src/shared/projects';
 import { api, ApiError } from '../api';
 import { getState, selectAgent, selectTask, setState, setView, toast } from '../store';
-import { agentsFor, archiveQuestion, FILTER_KEY, resolveFilter } from './projectsLogic';
+import { agentsFor, archiveQuestion, FILTER_KEY, resolveFilter, unarchiveQuestion } from './projectsLogic';
 
 const errText = (e: unknown): string => (e instanceof ApiError || e instanceof Error ? e.message : String(e));
 function persist(id: string | null) { try { if (id) localStorage.setItem(FILTER_KEY, id); else localStorage.removeItem(FILTER_KEY); } catch { /* ignore */ } }
@@ -43,6 +43,12 @@ function put(p: Project): void { setState((s) => ({ projects: s.projects.some((x
 
 export async function saveProject(id: string, patch: { name?: string; instructions?: string; status?: 'active' | 'archived' }): Promise<boolean> {
   try { put(await api.patchProject(id, patch)); return true; } catch (e) { toast(errText(e), 'error'); return false; }
+}
+
+/** Unarchive after a question that says what comes back (it changes what every member's next run gets). */
+export async function unarchiveProject(p: Project): Promise<boolean> {
+  if (!window.confirm(unarchiveQuestion(p.name))) return false;
+  return saveProject(p.id, { status: 'active' });
 }
 
 /** Archive after a question that says what it touches (council A9). Without the numbers (an older core) it still asks. */

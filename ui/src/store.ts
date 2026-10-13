@@ -150,9 +150,9 @@ export function openHistoryTask(t: Task) {
   selectTask(t.id);
 }
 /** The newest tasks of one project, for its page: the window's snapshot only holds the newest few per agent. */
-export async function loadProjectTasks(projectId: string) {
+export async function loadProjectTasks(projectId: string, limit = 30) {
   try {
-    const page = await api.tasksPage({ projectId, limit: 30 });
+    const page = await api.tasksPage({ projectId, limit });
     setState((s) => { let tasks = s.tasks; for (const t of page.tasks) tasks = upsertTaskIfNewer(tasks, t); return tasks === s.tasks ? {} : { tasks }; });
   } catch { /* the page still shows what the window already has */ }
 }

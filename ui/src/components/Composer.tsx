@@ -10,7 +10,7 @@ import { api } from '../api';
 import { modelLabel } from '../models';
 import { useProviders } from '../providers/providersStore';
 import { cancelSelected, confirmStop, effectiveModel, getState, loadCatalog, sendPrompt, sendPromptTo, useStore } from '../store';
-import { newTaskTarget } from '../projects/projectsLogic';
+import { alsoWorkingLabel, liveElsewhere, newTaskTarget } from '../projects/projectsLogic';
 import { clip } from '../util';
 import { Icon } from './icons';
 import { ModelPicker } from './ModelPicker';
@@ -39,6 +39,8 @@ export function Composer() {
   const projects = useStore((s) => s.projects);
   const projectFilter = useStore((s) => s.projectFilter);
   const target = newTaskTarget(projects, projectFilter, agent, !!taskId);
+  // the same agent live in another project: said, never a block (decision B1)
+  const also = useMemo(() => alsoWorkingLabel(liveElsewhere(agentId, tasks, { filter: projectFilter, taskId, ...(task?.projectId ? { taskProjectId: task.projectId } : {}) }), projects), [agentId, tasks, projectFilter, taskId, task?.projectId, projects]);
   const running = task?.status === 'running' || task?.status === 'queued';
   // busy: own run, an approval waiting, or the agent working for a room / agent call. Enter queues while busy.
   const busy = useMemo(() => busyReason(agentId, taskId, tasks, approvals), [agentId, taskId, tasks, approvals]);
@@ -177,6 +179,7 @@ export function Composer() {
           </button>
           {target && <span className={`target-pill${target.why ? ' warn' : ''}`} role="status" title={target.why ?? `A new task starts in ${target.label === 'No project' ? 'no project' : `the project ${target.label}`}`}>
             {target.why && <Icon name="shield" size={11} />}New task in: <b>{target.label}</b></span>}
+          {also && <span className="also-pill" role="status" title={also}>{also}</span>}
           <span className="composer-hint">
             {busy
               ? <span className="hint-long" data-testid="composer-hint"><kbd>Enter</kbd> {joinable ? 'adds it to the run' : 'queues'} <kbd>Ctrl+Enter</kbd> interrupts </span>

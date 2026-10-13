@@ -32,7 +32,11 @@ export const STALL_MS = 8 * 60_000;
 export const ESCALATE_AFTER_STALLS = 2;
 
 /** What a monitor sees about one run. `progressAt` is when the run last said anything (its task's updatedAt). */
-export interface RunState { status: 'queued' | 'running' | 'done' | 'error' | 'cancelled' | 'unknown'; progressAt?: number; error?: string }
+export interface RunState {
+  status: 'queued' | 'running' | 'done' | 'error' | 'cancelled' | 'unknown'; progressAt?: number; error?: string;
+  /** An approval card or a question waits on the owner: the run is paused on a person, not stalled. */
+  waitingOnOwner?: boolean;
+}
 
 /**
  * The effects the loop needs, and the only ones. Deliberately, `startRun` has no model field: a dispatch
@@ -48,7 +52,7 @@ export interface MarshalPorts {
   runState(taskId: string): RunState;
   cancelRun(taskId: string): boolean;
   /** A bot already working outside the Marshal (a run the owner or another bot started) is busy too. Optional: absent, only the Marshal's own runs count. */
-  botBusy?(id: string): boolean;
+  botBusy?(id: string): boolean | string;
 }
 
 export interface DispatchedItem {
@@ -68,7 +72,9 @@ export interface DispatchedItem {
   taskId: string;
 }
 export interface BlockedItem { itemId: string; title: string; reason: string }
-export interface StepReport { dispatched: DispatchedItem[]; blocked: BlockedItem[]; candidates: number }
+/** An item that waits for its bot to be free: it stays in the backlog and the next pass tries again (not Blocked). */
+export interface WaitingItem { itemId: string; title: string; reason: string }
+export interface StepReport { dispatched: DispatchedItem[]; blocked: BlockedItem[]; waiting: WaitingItem[]; candidates: number }
 export interface MonitorReport { finished: string[]; failed: string[]; stalled: string[]; escalated: string[] }
 
 /** The picture the owner reads: what runs and why, what is blocked and why, what comes next and why. */
@@ -85,6 +91,8 @@ export class Marshal {
   private readonly live = new Map<string, Live>();
   /** The last block reason per item, so `status` can show it even after the board dropped the item. */
   private readonly blocked = new Map<string, BlockedItem>();
+  /** Items the last wave held back for their busy bot, with why: shown in the status text (review #6). */
+  private waiting: WaitingItem[] = [];
 
   constructor(private readonly ports: MarshalPorts, private project: ProjectRef, options: { ledger?: AttemptLedger; waveSize?: number; stallMs?: number; escalateAfterStalls?: number } = {}) {
     this.ledger = options.ledger ?? Marshal.loadLedger(ports.board, project);
@@ -128,12 +136,14 @@ export class Marshal {
     this.persist(itemId);
   }
 
-  private context(): { catalog: BotCatalogEntry[]; visible(id: string): boolean; busy(id: string): boolean; depsOf(id: string): readonly string[]; isDone(id: string): boolean } {
+  private context(): { catalog: BotCatalogEntry[]; visible(id: string): boolean; busy(id: string): boolean; busyWhy(id: string): string | undefined; depsOf(id: string): readonly string[]; isDone(id: string): boolean } {
     const { board, project } = { board: this.ports.board, project: this.project };
     return {
       catalog: catalogOfAll(this.ports.agents(), (a) => this.ports.visible(a.id)),
       visible: (id: string) => this.ports.visible(id),
-      busy: (id: string) => [...this.live.values()].some((l) => l.botId === id) || this.ports.botBusy?.(id) === true,
+      // a string from the port is a busy bot with the place it works named (C3); any project counts: the Marshal never double-books a bot
+      busy: (id: string) => [...this.live.values()].some((l) => l.botId === id) || !!this.ports.botBusy?.(id),
+      busyWhy: (id: string) => { if ([...this.live.values()].some((l) => l.botId === id)) return undefined; const b = this.ports.botBusy?.(id); return typeof b === 'string' ? b : undefined; },
       depsOf: (id: string) => (board.sidecar(project.id, id)?.deps as string[] | undefined) ?? [],
       isDone: (id: string) => board.get(project.id, id)?.status === 'done',
     };
@@ -149,6 +159,7 @@ export class Marshal {
     const candidates: DispatchCandidate[] = dispatchable(this.ports.board.view(this.project), ctx);
     const dispatched: DispatchedItem[] = [];
     const blocked: BlockedItem[] = [];
+    const waiting: WaitingItem[] = [];
     for (const candidate of candidates) {
       if (dispatched.length >= max) break;
       const item = candidate.item;
@@ -156,6 +167,12 @@ export class Marshal {
       const untrusted = untrustedRefusal(item);
       if (untrusted) { blocked.push(this.block(item.id, item.title, untrusted)); continue; }
       let record: AssignmentResult;
+      if (candidate.assignedTo && ctx.busy(candidate.assignedTo)) {
+        // the owner's bot is merely busy: that passes with time, so the item waits for it (never Blocked for it)
+        const where = ctx.busyWhy(candidate.assignedTo);
+        waiting.push({ itemId: item.id, title: item.title, reason: `waiting for ${candidate.assignedTo}${where ? ` (${where})` : ' (it is working on another item)'}` });
+        continue;
+      }
       if (candidate.assignedTo) {
         // the owner named the bot: a routing DECISION, honoured directly — still through every code guard
         record = this.assignFromOwner(item, candidate.assignedTo, ctx);
@@ -163,7 +180,7 @@ export class Marshal {
         // capacity before matching: if everyone who could take it is merely busy, that is this wave's shape
         // (come back next pass), not a no-fit. Nobody able to take it ever is a no-fit the owner must see.
         const reuse = (id: string) => this.ledger.mayDispatch(item.id, id);
-        const prelim = eligible(ctx.catalog, { members: this.project.members, visible: ctx.visible, busy: ctx.busy, reuse });
+        const prelim = eligible(ctx.catalog, { members: this.project.members, visible: ctx.visible, busy: ctx.busy, busyWhy: ctx.busyWhy, reuse });
         if (!prelim.candidates.length) {
           const capacity = eligible(ctx.catalog, { members: this.project.members, visible: ctx.visible, busy: () => false, reuse }).candidates.length > 0;
           if (capacity) continue;
@@ -171,7 +188,7 @@ export class Marshal {
           continue;
         }
         record = await assignItem(
-          { item, catalog: ctx.catalog, members: this.project.members, visible: ctx.visible, busy: ctx.busy, reuse },
+          { item, catalog: ctx.catalog, members: this.project.members, visible: ctx.visible, busy: ctx.busy, busyWhy: ctx.busyWhy, reuse },
           this.ports.matcher,
         );
       }
@@ -202,7 +219,8 @@ export class Marshal {
       dispatched.push(dispatch);
       this.blocked.delete(item.id);
     }
-    return { dispatched, blocked, candidates: candidates.length };
+    this.waiting = waiting;
+    return { dispatched, blocked, waiting, candidates: candidates.length };
   }
 
   /** A wave, by name: the batch view of `step`. */
@@ -247,6 +265,8 @@ export class Marshal {
     for (const [itemId, live] of [...this.live]) {
       const state = this.ports.runState(live.taskId);
       if (state.status === 'running' || state.status === 'queued') {
+        // queued behind the engine cap, or waiting on the owner's card or answer: nobody's fault, never a stall
+        if (state.status === 'queued' || state.waitingOnOwner) continue;
         const progressAt = state.progressAt ?? live.startedAt;
         if (now - progressAt < this.stallMs) continue;
         this.ports.cancelRun(live.taskId);
@@ -297,6 +317,7 @@ export class Marshal {
     const lines: string[] = [`STATUS ${s.running.length} running, ${s.blocked.length} blocked, ${s.next.length} next`];
     for (const r of s.running) lines.push(`Running: ${r.title} → ${r.botName} (${r.model}, ${r.tier}${r.irreversible.length ? `, irreversible: ${r.irreversible.join(', ')}${r.gated ? ' — the card will gate it' : ''}` : ''}). Why: ${r.why} Rank: ${r.rankWhy}`);
     for (const b of s.blocked) lines.push(`Blocked: ${b.title}. ${b.reason}`);
+    for (const w of this.waiting) lines.push(`Waiting: ${w.title}. ${w.reason}`);
     for (const n of s.next) lines.push(`Next: ${n.title} (score ${n.score}). ${n.why}`);
     return lines.join('\n');
   }
