@@ -24,7 +24,7 @@ If the answer needs a second read, it is wrong. Cut it.
 5. **Every line earns its place or is cut.** If a fix does not change what the user sees or does,
    it does not get a line in the notes. It still goes in `CHANGELOG.md` — that file is the record,
    the notes are the pitch.
-6. **Any manual step the user must take gets its own line, at the end, in plain words.** This is the
+6. **Any manual step the user must take gets its own line, at the top under the restart line, in plain words.** This is the
    rule that earned its place: a stuck-update escape hatch was shipped as release notes, and if it
    is wrong the release fails silently. One-time instructions say so: "only needed this once".
 7. **Never say "safe", "secure", "verified", "cannot be bypassed".** Say what was done and what it
@@ -36,23 +36,56 @@ If the answer needs a second read, it is wrong. Cut it.
 
 ## Shape
 
-```
-<what changed for the user, one line per change>
+Owner decision (2026-10-13): **one story, with the restart line on top.** The reader is at the restart prompt
+and asks, in this order: what does restarting do to my work, do I have to do anything, what changed for me.
+People remember one thing, so the notes spend their space on the change that matters most.
 
-<if a manual step is needed: a short line, plainly worded, marked as one-time if it is>
+The update panel (the `--notes` text, plain text):
+
+```
+<Restart line: what restarting does to running work, and "You need to do nothing." or the one step.>
+
+<Plain title of the one change that matters most>
+<The problem, in one sentence, as the user met it.>
+<What Legion does now, one or two sentences.>
+Try it: <where to see it, one sentence>        (leave out for a fix with nothing to try)
+
+Also new:                                       (leave out when empty; one line each, at most 3)
+- <change>
+Fixed:                                          (leave out when empty; only fixes a user would notice)
+- <fix>
 ```
 
-Two shapes only. A one-line release gets one line. If there is nothing a user would notice, say
-that in one line — "Internal fixes, nothing changes for you" — rather than padding.
+- **The restart line is always first and always true.** Today it reads "Restarting stops running agents. Each
+  stopped run offers Continue afterwards." Check it against the updater before each release; never write that
+  a restart is safe (rule 7).
+- **Pick the headline by what a user would miss most,** not by the size of the work. A safety fix beats a
+  feature. If two changes are truly equal, the one the user meets first wins; the other goes under "Also new".
+- **A release with one change is just the restart line and the story.** If there is nothing a user would
+  notice, say so in one line, "Internal fixes, nothing changes for you", rather than padding.
+
+The GitHub release page (markdown) tells the same story as **before and now** pairs, one per change, each with
+a fresh screenshot of the real app when the change is visible. The pair must make sense without the picture.
+`CHANGELOG.md` stays the full list.
 
 ## Worked examples
 
 Good:
 ```
-Fixes the update button asking twice, which made an update look stuck.
+Restarting stops running agents. Each stopped run offers Continue afterwards. You need to do nothing.
 
-- Update button: installs straight away now.
-- Stuck update? Turn on "Install updates automatically when idle", let it update, then turn it off again. Only needed for this one update.
+Stray typing no longer answers an approval
+Pressing A with nothing selected could allow an approval card you could not see.
+Now A allows a card only when all of it is on screen, as one deliberate press. On a card off screen, A scrolls to it first.
+```
+
+Good, with a manual step:
+```
+Restarting stops running agents. Each stopped run offers Continue afterwards.
+Stuck update? Turn on "Install updates automatically when idle", let it update, then turn it off again. Only needed for this one update.
+
+The update button installs straight away
+It asked twice, which made an update look stuck. Now one press installs.
 ```
 
 Rejected — right information, unusable delivery:
