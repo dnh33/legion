@@ -139,7 +139,7 @@ test('C5 the app cannot start a task for a non-member (400); a bridge run to a n
   // a non-member callee used to start silently without the project (no rules, no board, no folder) while the caller was
   // never told: now the caller hears why, and can ask a member or the owner instead
   assert.throws(() => s.engine.startTask({ agentId: 'a3', prompt: 'help', source: 'agent', bridge: { fromAgentId: 'a1', parentTaskId: parent.id, hop: 1 } }),
-    (e: any) => e instanceof EngineError && /not a member of project "P"/.test(e.message) && /member/.test(e.message));
+    (e: any) => e instanceof EngineError && e.status === 403 && /not a member of project "P"/.test(e.message) && /member/.test(e.message));
 });
 
 test('BUG-5 (council A2): a delegation goes to a thread in the CALLER\'s project; an older thread with the same agent in another project is left alone', async () => {
@@ -401,4 +401,25 @@ test('B6 the agent shell of a run in a project reaches the project folder; the s
   assert.equal(await write(0, join(p.folder, 'from-shell.txt')), false, 'in the project: the folder is reachable');
   await run(s, { agentId: 'a1', prompt: 'y', source: 'ui' });
   assert.equal(await write(1, join(p.folder, 'other.txt')), true, 'no project: refused');
+});
+
+test('C5 a live pair thread in a project never takes a message from a caller outside it: a new thread starts instead', async () => {
+  let release!: () => void;
+  const held = new Promise<void>((r) => { release = r; });
+  let a2Runs = 0;
+  const s = setup((p) => String(p.options?.systemPrompt?.append ?? '').includes('You are A2') || (p.options?.cwd ?? '').endsWith('a2')
+    ? (async function* () { const n = a2Runs++; yield { type: 'system', subtype: 'init', session_id: 's1' }; if (n === 0) await held; yield ok(); })()
+    : quick());
+  const p = s.mk('P', ['a1', 'a2']);
+  const inP = await run(s, { agentId: 'a1', prompt: 'lead', source: 'ui', projectId: p.id });
+  const outside = await run(s, { agentId: 'a1', prompt: 'other', source: 'ui' });
+  try {
+    const first = s.engine.bridge.tell(inP.id, 'a2', 'in the project');
+    await new Promise((r) => setTimeout(r, 30));
+    assert.equal(s.store.getTask(first.taskId)!.status, 'running');
+    assert.equal(s.store.getTask(first.taskId)!.projectId, p.id);
+    const second = s.engine.bridge.tell(outside.id, 'a2', 'not in the project');
+    assert.notEqual(second.taskId, first.taskId, 'a new thread, not queued into the project thread');
+    assert.equal(s.store.getTask(second.taskId)!.projectId, undefined);
+  } finally { release(); }
 });

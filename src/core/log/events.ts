@@ -40,14 +40,14 @@ export function attachLogEvents(bus: EventBus, sink: LogSink, now: () => number 
         if (prev?.status === t.status) return;
         if (t.status === 'running') {
           status.set(t.id, { status: 'running', startedAt: now(), turnsAtStart: t.turns ?? 0 });
-          agents.info('run.started', { agent: t.agentId, provider: providerOfRun(t), model: t.model ?? '' });
+          agents.info('run.started', { agent: t.agentId, provider: providerOfRun(t), model: t.model ?? '', project: t.projectId ?? '' });
         } else if (TERMINAL.has(t.status)) {
           // Log a finish only for a run seen starting: a later edit of a finished task (archive, cost) is not one.
           if (prev && !TERMINAL.has(prev.status)) {
             const outcome = OUTCOME[t.status] ?? t.status;
             // `turns` on the task counts the whole conversation; the log line is about this run
             const turns = Math.max(0, (t.turns ?? 0) - (prev.turnsAtStart ?? 0));
-            const f = { agent: t.agentId, provider: providerOfRun(t), model: t.model ?? '', ms: Math.max(0, now() - prev.startedAt), turns, outcome };
+            const f = { agent: t.agentId, provider: providerOfRun(t), model: t.model ?? '', ms: Math.max(0, now() - prev.startedAt), turns, outcome, project: t.projectId ?? '' };
             if (t.status === 'error') agents.warn('run.finished', f); else agents.info('run.finished', f);
           }
           status.set(t.id, { status: t.status, startedAt: prev?.startedAt ?? now() });
