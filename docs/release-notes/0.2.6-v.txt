@@ -1,7 +1,7 @@
 Legion 0.2.6-v: the safety floor covers every shell on your computer.
 
 - Legion refuses a command that would delete a whole drive, a system folder or a home folder, in every approval mode. Claude agents' own Bash and PowerShell now go through that check too, not only Legion's agent shell.
-- A command whose program is only known when it runs, such as $(echo rm) -rf /c, now shows you an approval card even with full access. So does a delete whose folder comes from a variable (rm -rf "$DIR"), and running another command's output as a script (curl ... | bash). The card says why and has no Remember button.
+- A command whose program is only known when it runs, such as $(echo rm) -rf /c, is never run unchecked. So is a delete whose folder comes from a variable (rm -rf "$DIR"), and running another command's output as a script (curl ... | bash). When an agent asks first, you get a card that says why. With full access, Legion refuses it at once and tells the agent to write it out plainly, so an agent you leave running never waits on a card.
 - Decoded or encoded commands (base64 -d | bash, PowerShell -EncodedCommand) are refused. Write the command out plainly instead.
 - More ways to wipe a drive or a home are refused: robocopy /MIR, rsync --delete, chmod -R, moving it away, and the same commands behind timeout, start, call, wsl or eval.
 - Variables in arguments, such as echo $HOME, run as before. So do multi-line python -c and node -e scripts.

@@ -1128,8 +1128,9 @@ This run read connector (GitHub) data and other outside text. Web access can sen
    * The safety floor for every shell an agent drives: Legion's own host shell AND Claude Code's Bash and PowerShell tools.
    * A catastrophic command (a whole drive, a system or home folder) or one that runs decoded or encoded text is refused, with
    * no card. A command the floor cannot read (its program is built when it runs: `$(echo rm)`, `$x`, `{a,b}`, `%X%`, or
-   * another command's output piped into a shell) gets a card in EVERY approval mode, Full included, and the card offers no
-   * Remember. Fail closed: what cannot be read is asked about, never assumed safe. Undefined when the floor has nothing to say.
+   * another command's output piped into a shell) is never assumed safe: in the ask modes it gets a card with no Remember;
+   * in Full it is refused at once with the reason and how to write it plainly, so a run nobody watches never waits on a card
+   * (owner decision 2026-10-13). Undefined when the floor has nothing to say.
    */
   private shellFloor(job: Job, agent: AgentProfile, toolName: string, input: Record<string, unknown>, opts: { card?: boolean } = {}): Promise<{ allow: boolean; message?: string }> | undefined {
     if (!SHELL_TOOLS.has(toolName)) return undefined;
@@ -1152,6 +1153,10 @@ This run read connector (GitHub) data and other outside text. Web access can sen
       why = 'the safety check could not read it';
     }
     if (!why) return undefined;
+    const mode = this.store.getAgent(agent.id)?.approval ?? agent.approval;
+    if ((job.origin?.approvalCeiling ? stricterMode(mode, job.origin.approvalCeiling) : mode) === 'full') {
+      return Promise.resolve({ allow: false, message: `Not run: Legion cannot read what this command will run (${why}), and with full access such a command is refused rather than asked about. Write it out plainly: name the program itself, not through a variable, a substitution or a pipe into a shell, and keep it under ${MAX_READABLE.toLocaleString('en-US')} characters. Then run it again. If it cannot be written plainly, do not look for another way around: tell the user what it was meant to do.` });
+    }
     const o = job.origin;
     let timedOut = false;
     const shown = command.length > 1000 ? `${command.slice(0, 1000)}\n(${(command.length - 1000).toLocaleString('en-US')} more characters not shown here)` : command;
