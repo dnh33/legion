@@ -163,3 +163,31 @@ test('B1 the rail shows a "Needs you in other projects" block built from waiting
   assert.match(rail, /selectTask\(row\.taskId\)/);
   assert.match(rail, /aria-live="polite"/);
 });
+
+test('B2 liveElsewhere and alsoWorkingLabel: the agent\'s live runs outside the project in view or the thread\'s project', async () => {
+  const { liveElsewhere, alsoWorkingLabel } = await import('../ui/src/projects/projectsLogic.js');
+  const P = { id: 'proj_aaaaaaaaaaaa', name: 'Site', status: 'active', members: ['builder'] } as any;
+  const Q = { id: 'proj_bbbbbbbbbbbb', name: 'Shop', status: 'active', members: ['builder'] } as any;
+  const t = (id: string, status: string, projectId?: string, updatedAt = '2026-10-13T10:00:00Z') => ({ id, agentId: 'builder', status, title: 'Task ' + id, updatedAt, ...(projectId ? { projectId } : {}) }) as any;
+  const tasks = [t('q1', 'running', Q.id, '2026-10-13T10:00:02Z'), t('p1', 'running', P.id), t('n1', 'queued', undefined, '2026-10-13T10:00:01Z'), t('q2', 'done', Q.id)];
+  // project P in view: q1 and n1 are elsewhere, newest first; p1 is here; done does not count
+  assert.deepEqual(liveElsewhere('builder', tasks, { filter: P.id, taskId: null }).map((x: any) => x.id), ['q1', 'n1']);
+  // a thread in Q under "All": everything live that is not in Q, and never the thread itself
+  assert.deepEqual(liveElsewhere('builder', tasks, { filter: null, taskId: 'q1', taskProjectId: Q.id }).map((x: any) => x.id), ['n1', 'p1']);
+  // "All" with no thread: any live task other than this one
+  assert.deepEqual(liveElsewhere('builder', tasks, { filter: null, taskId: 'p1' }).map((x: any) => x.id), ['q1', 'n1']);
+  assert.equal(alsoWorkingLabel([], [P, Q]), undefined);
+  assert.equal(alsoWorkingLabel([tasks[0]], [P, Q]), 'Also working in Shop: Task q1');
+  assert.equal(alsoWorkingLabel([tasks[2]], [P, Q]), 'Also working in no project: Task n1');
+  assert.equal(alsoWorkingLabel([tasks[0], tasks[2], tasks[1]], [P, Q]), 'Also working in Shop: Task q1 (+2 more)');
+});
+
+test('B2 the rail row and the composer show the "Also working" line; it never blocks sending', () => {
+  const root = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
+  const rail = readFileSync(join(root, 'ui', 'src', 'components', 'AgentRail.tsx'), 'utf8');
+  assert.match(rail, /alsoWorkingLabel\(liveElsewhere\(a\.id, tasks, \{ filter, taskId: null \}\), projects\)/);
+  const comp = readFileSync(join(root, 'ui', 'src', 'components', 'Composer.tsx'), 'utf8');
+  assert.match(comp, /className="also-pill" role="status"/);
+  const busy = readFileSync(join(root, 'ui', 'src', 'chat', 'busy.ts'), 'utf8');
+  assert.doesNotMatch(busy, /liveElsewhere|alsoWorking/, 'busy rules unchanged (decision B1: no block)');
+});

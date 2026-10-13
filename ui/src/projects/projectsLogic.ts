@@ -130,3 +130,24 @@ export function waitingElsewhere(
   }
   return rows.sort((a, b) => a.at.localeCompare(b.at)).map(({ at: _at, ...r }) => r);
 }
+
+type LiveTask = Pick<Task, 'id' | 'agentId' | 'status' | 'projectId' | 'title' | 'updatedAt'>;
+/**
+ * The agent's live (queued or running) tasks outside the project in view, or outside this thread's project, newest
+ * first; never the thread itself. With no project to compare (All, and a thread in none): every other live task.
+ * Shown as "Also working in…", never a block (decision B1).
+ */
+export function liveElsewhere(agentId: string, tasks: LiveTask[], here: { filter: string | null; taskId: string | null; taskProjectId?: string }): LiveTask[] {
+  const ref = here.taskProjectId ?? here.filter ?? undefined;
+  return tasks
+    .filter((t) => t.agentId === agentId && t.id !== here.taskId && (t.status === 'running' || t.status === 'queued') && (ref === undefined || t.projectId !== ref))
+    .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+}
+
+/** "Also working in Shop: Fix the header (+2 more)", or nothing. */
+export function alsoWorkingLabel(rows: Pick<Task, 'projectId' | 'title'>[], projects: Project[]): string | undefined {
+  const first = rows[0];
+  if (!first) return undefined;
+  const where = first.projectId ? (projects.find((p) => p.id === first.projectId)?.name ?? 'a removed project') : 'no project';
+  return `Also working in ${where}: ${clipTitle(first.title)}${rows.length > 1 ? ` (+${rows.length - 1} more)` : ''}`;
+}
