@@ -63,7 +63,7 @@ function setup(script: Script = () => quick()) {
     const p = projects.create({ name, instructions });
     return projects.setMembers(p.id, members);
   };
-  return { root, store, config, projects, engine, calls, taintedPaths, mk };
+  return { root, store, config, projects, engine, calls, taintedPaths, mk, bus };
 }
 const run = async (s: ReturnType<typeof setup>, p: Parameters<Engine['startTask']>[0]) => s.engine.waitFor(s.engine.startTask(p).id, 3000);
 
@@ -357,4 +357,33 @@ test('a project deny rule still applies to a live run after its agent is removed
     s.engine.cancel(t.id); // an open card must not hold the test
     await s.engine.waitFor(t.id, 3000);
   }
+});
+
+test('B3 a live run whose project is archived, or whose agent is removed, finishes and says so once in its thread', async () => {
+  const releases: Array<() => void> = [];
+  const s = setup(() => (async function* () {
+    yield { type: 'system', subtype: 'init', session_id: 's1' };
+    await new Promise<void>((r) => releases.push(r));
+    yield ok();
+  })());
+  const notes = (id: string) => s.store.listMessages(id).filter((m) => m.role === 'system').map((m) => m.text);
+  const p = s.mk('Atlas', ['a1', 'a2']);
+  const a = s.engine.startTask({ agentId: 'a1', prompt: 'x', source: 'ui', projectId: p.id });
+  const b = s.engine.startTask({ agentId: 'a2', prompt: 'y', source: 'ui', projectId: p.id });
+  await new Promise((r) => setTimeout(r, 30));
+  // a2 leaves: only a2's run is told
+  s.bus.emit({ type: 'project.updated', project: s.projects.setMembers(p.id, ['a1']) });
+  s.bus.emit({ type: 'project.updated', project: s.projects.get(p.id)! });
+  assert.deepEqual(notes(a.id), []);
+  assert.equal(notes(b.id).length, 1, notes(b.id).join(' | '));
+  assert.match(notes(b.id)[0]!, /A2 was removed from project "Atlas" while this run was working\. The run finishes/);
+  // archived: a1's run is told once; a2's run is not told twice
+  s.bus.emit({ type: 'project.updated', project: s.projects.update(p.id, { status: 'archived' }) });
+  s.bus.emit({ type: 'project.updated', project: s.projects.get(p.id)! });
+  assert.equal(notes(a.id).length, 1, notes(a.id).join(' | '));
+  assert.match(notes(a.id)[0]!, /Project "Atlas" was archived while this run was working\. The run finishes/);
+  assert.equal(notes(b.id).length, 1);
+  for (const r of releases) r();
+  assert.equal((await s.engine.waitFor(a.id, 3000)).status, 'done', 'the run finishes; it is not cancelled');
+  await s.engine.waitFor(b.id, 3000);
 });

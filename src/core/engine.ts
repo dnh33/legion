@@ -340,6 +340,8 @@ export class Engine {
   private readonly projects?: ProjectStore;
   private readonly queue: Job[] = [];
   private readonly active = new Map<string, Active>();
+  /** Live runs already told that their project was archived or their agent removed (decision B3): one note per run. */
+  private readonly projectNoted = new Set<string>();
   private idleTimer: ReturnType<typeof setTimeout> | undefined;
   readonly bridge: Bridge;
   private modules: CoreModule[];
@@ -367,6 +369,7 @@ export class Engine {
     this.taskLists = deps.taskLists ?? new TaskListStore(join(deps.config.workspaceDir, '.task-lists'));
     // a deleted task takes its task list with it, so nothing of it is left behind for a later task to find
     this.bus.on((e) => { if (e.type === 'task.deleted') { try { this.taskLists.remove(e.taskId); } catch { /* best effort */ } } });
+    this.bus.on((e) => { if (e.type === 'project.updated') { try { this.onProjectUpdated(e.project); } catch { /* the note is advisory */ } } });
     this.bridge = new Bridge({ store: this.store, bus: this.bus, engine: this });
   }
 
@@ -520,6 +523,21 @@ export class Engine {
     const text = !pr ? 'This run has no project: its project was deleted while the run waited.'
       : `This run is not in project "${pr.name}": ${pr.status === 'archived' ? 'the project is archived' : `${agent.name} is not a member of it any more`}. The task still belongs to the project; it runs without the project's instructions, board and folder until that changes.`;
     try { this.addMessage(taskId, 'system', text); } catch { /* the note is advisory */ }
+  }
+
+  /** A live run whose project was archived, or whose agent left it, finishes; its thread says so once (decision B3). */
+  private onProjectUpdated(p: Project): void {
+    for (const taskId of this.active.keys()) {
+      if (this.projectNoted.has(taskId)) continue;
+      const t = this.store.getTask(taskId);
+      if (!t || t.projectId !== p.id) continue;
+      const archived = p.status === 'archived';
+      if (!archived && p.members.includes(t.agentId)) continue;
+      this.projectNoted.add(taskId);
+      const name = this.store.getAgent(t.agentId)?.name ?? t.agentId;
+      const why = archived ? `Project "${p.name}" was archived while this run was working.` : `${name} was removed from project "${p.name}" while this run was working.`;
+      this.addMessage(taskId, 'system', `${why} The run finishes; its remaining steps have no project board or notes, and the project's deny rules still apply.`);
+    }
   }
 
   /** The project this task's run belongs to right now (active, agent is a member), else undefined. Checked at every run. */
@@ -788,7 +806,7 @@ export class Engine {
     } finally {
       this.settleHandover(job.taskId, act);
       this.endTask(job, act);
-      if (this.active.get(job.taskId) === act) this.active.delete(job.taskId);
+      if (this.active.get(job.taskId) === act) { this.active.delete(job.taskId); this.projectNoted.delete(job.taskId); }
       try { this.approvals.cancelForTask(job.taskId); } catch { /* ignore */ }
       try { this.questions.cancelForTask(job.taskId); } catch { /* ignore */ }
       if (this.active.size === 0 && this.queue.length === 0) this.scheduleIdle();
