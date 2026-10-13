@@ -22,7 +22,7 @@ Legion is in beta: expect rough edges and the odd bug. This is the one place for
 - **Project board:** in daily use on the maintainer's PC. Screen-reader, display-scale and crash checks are still open.
 - **Browser tool:** agents have used it on the maintainer's Windows PC. Web search today goes through Claude's own search tool.
 - **BSV mode:** tested against fake wallets only. Mainnet is built and OFF until you switch it on.
-- **Blender bridge:** local mode (headless Blender on this computer) and Legion's own managed Blender copy ("Get Blender for Legion") are in use on the maintainer's Windows PC. Cloud VM mode, Live mode (your open Blender through the add-on) and the official extension install are not yet tried on a real Blender.
+- **Blender bridge:** local mode (headless Blender on your computer) and Legion's own managed Blender copy ("Get Blender for Legion") are in use on the maintainer's Windows PC. Cloud VM mode, Live mode (your open Blender through the add-on) and the official extension install are not yet tried on a real Blender.
 - **Cloud VMs (boat.dev):** agents have started and used VMs.
 - **Installer:** not code-signed and not widely tested. Expect SmartScreen or antivirus prompts.
 - **macOS and Linux:** dev install only. The automated tests run on Windows, Linux and macOS in CI; the maintainer uses Windows.
@@ -31,10 +31,10 @@ Legion is in beta: expect rough edges and the odd bug. This is the one place for
 <details><summary>Details</summary>
 
 - The automated tests use no network and no real Claude calls. They cover the core, the app, agents, rooms, the Lattice and Library, Projects with the work board, the browser tool, MCP orchestration, approvals, the updater and the Windows installer scripts.
-- BSV mode has a read-only status check of a wallet on this computer, plus one spend tool that asks the wallet to pay only after your confirmations in native dialogs (testnet and mainnet). It is not verified against a real wallet or with real funds yet, until your checks are recorded. Legion has never been pointed at your funded wallet by its own code, tests or agents.
+- BSV mode has a read-only status check of a wallet on your computer, plus one spend tool that asks the wallet to pay only after your confirmations in native dialogs (testnet and mainnet). It is not verified against a real wallet or with real funds yet, until your checks are recorded. Legion has never been pointed at your funded wallet by its own code, tests or agents.
 - The installer has not yet run on a wide range of Windows machines. Expect Windows SmartScreen or antivirus prompts for `.cmd` files.
 - Updates are a separate matter from the installer: each one is checked against the maintainer's signature before it is applied.
-- With OpenRouter, add your own key and run any model. An agent on another provider gets Legion's own tools, not Claude Code's file, shell or web tools; Settings, Providers lists what it cannot do.
+- With OpenRouter, add your own key and run any model. An agent on another provider gets Legion's own tools, not Claude Code's file, shell or web tools; Settings, Providers lists what it cannot do. Its own agent shell, when you turn it on, runs Git Bash on Windows (cmd.exe when Git for Windows is not installed).
 
 </details>
 
@@ -153,8 +153,8 @@ Legion runs several Claude agents from one desktop app, on your own machine.
 
 <details><summary>Details</summary>
 
-- BSV mode: the wallet check is read-only, for a wallet on this computer. The spend tool asks the wallet to pay only once you have confirmed in native dialogs (testnet and mainnet; mainnet is built and OFF until you switch it on). See [Status](#status) for what is not yet tried for real.
-- Blender: headless Blender on this computer by default (in the Sculptor's cloud VM when Blender is not found), or your open Blender after an approval card that shows the whole script. Backends are downloaded only when you press Set up. See [Status](#status) for what is not yet tried for real.
+- BSV mode: the wallet check is read-only, for a wallet on your computer. The spend tool asks the wallet to pay only once you have confirmed in native dialogs (testnet and mainnet; mainnet is built and OFF until you switch it on). See [Status](#status) for what is not yet tried for real.
+- Blender: headless Blender on your computer by default (in the Sculptor's cloud VM when Blender is not found), or your open Blender after an approval card that shows the whole script. Backends are downloaded only when you press Set up. See [Status](#status) for what is not yet tried for real.
 
 </details>
 
@@ -236,7 +236,7 @@ The ten that join the originals:
 
 <details><summary>Details</summary>
 
-An optional switch in the title bar, off by default. It shows the Assayer bot, loads a read-only BSV knowledge pack into the Lattice (167 notes) and gives the Assayer a short preamble. It can run a read-only status check of a wallet on this computer (four harmless questions to an address you type; the answer is the wallet's own claim). Legion's own code also has one spend tool, `bsv_spend_request`: it asks your wallet to build a transaction, Legion decodes it itself, you read native dialogs (amount, the full address, the network, the fee, the limits left), and only then is the wallet asked to sign; whether the wallet asks too depends on the wallet (see docs/BSV-MODE.md). It works on testnet and on mainnet. **Mainnet is built behind a hard-off switch that ships OFF**: only you turn it on, in the app, and each mainnet spend needs its own Arm and an extra dialog. Limits are tiny by default and per network, the recipient list starts empty, and an outcome Legion cannot confirm blocks every spend until you resolve it. Legion's own code holds no key and does no signing or broadcasting itself. An agent's ordinary tools (a shell, a web fetch) are outside all of this and rest on their approval cards. The Assayer is an ordinary agent: in `ask` mode its shell commands and file edits need your approval, while web fetch and read-only tools run without a prompt. **The spend tool was built and tested against fake wallets only and has not been verified against a real wallet or with real funds until your checks are recorded**; Legion has never been pointed at your funded wallet by its own code, tests or agents. See [docs/BSV-MODE.md](docs/BSV-MODE.md) for what it is and is not.
+An optional switch in the title bar, off by default. It shows the Assayer bot, loads a read-only BSV knowledge pack into the Lattice (167 notes) and gives the Assayer a short preamble. It can run a read-only status check of a wallet on your computer (four harmless questions to an address you type; the answer is the wallet's own claim). Legion's own code also has one spend tool, `bsv_spend_request`: it asks your wallet to build a transaction, Legion decodes it itself, you read native dialogs (amount, the full address, the network, the fee, the limits left), and only then is the wallet asked to sign; whether the wallet asks too depends on the wallet (see docs/BSV-MODE.md). It works on testnet and on mainnet. **Mainnet is built behind a hard-off switch that ships OFF**: only you turn it on, in the app, and each mainnet spend needs its own Arm and an extra dialog. Limits are tiny by default and per network, the recipient list starts empty, and an outcome Legion cannot confirm blocks every spend until you resolve it. Legion's own code holds no key and does no signing or broadcasting itself. An agent's ordinary tools (a shell, a web fetch) are outside all of this and rest on their approval cards. The Assayer is an ordinary agent: in `ask` mode its shell commands and file edits need your approval, while web fetch and read-only tools run without a prompt. **The spend tool was built and tested against fake wallets only and has not been verified against a real wallet or with real funds until your checks are recorded**; Legion has never been pointed at your funded wallet by its own code, tests or agents. See [docs/BSV-MODE.md](docs/BSV-MODE.md) for what it is and is not.
 
 </details>
 
@@ -543,6 +543,10 @@ Not in v1, and not promised:
 - **Codex.** Its command-line agent runs its own shell and file tools outside Legion's approvals, so it is not offered yet.
 - **BSV mode beyond one payment:** wallet reads (balances), a VM boundary for wallet tools, and spends by anything other than a run you started.
 - A code-signed installer.
+- **A browser you can watch:** see an agent use a browser inside Legion as it works.
+- **Knowledge graph audit button:** an agent that refreshes stale notes from current docs.
+- **Scheduled Sentinel runs.** Nothing in Legion runs on a timer today.
+- **An optional lighter package.**
 
 <details><summary>Details</summary>
 

@@ -251,6 +251,19 @@ Then check that a new install still works: `curl -sL https://getlegion.xyz/insta
 the release's `install.ps1` (not "Legion installer unavailable"), and
 `https://github.com/dnh33/legion/releases/latest/download/install.sh` must answer 200.
 
+### 11. Rebuild the website
+
+The website (repo `dnh33/legion-site`, served at getlegion.xyz) reads the latest release's version when it is built
+(`tools/fetch-version.mjs`), so after a release it still shows the old version until it is rebuilt. Cloudflare Pages
+rebuilds on every push to its `main`: merge the site's pending change, or trigger a rebuild, then check the live page
+in a browser (curl without a browser user agent gets the install script, not the page) shows the new version.
+
+### 12. Clean up
+
+When the release is live, remove what the work left behind: merged branches (local and remote), worktrees made for
+it, package and scratch folders, merged or superseded PRs. Anything with unmerged commits, someone else's uncommitted
+work or a stash is listed for the owner, not deleted. Keep the `pre-merge-*` restore tags.
+
 ---
 
 ## Protect the `v*` release tags (one-time, owner only)
