@@ -14,7 +14,7 @@ import { constants as osConstants, platform } from 'node:os';
 import type { BackendCaps, ExecRequest, ExecResult, ExecutionBackend, RunningExec } from './types.js';
 import { validateEnv } from './types.js';
 import { clampExecLimits, DEFAULT_EXEC_LIMITS, type ExecLimits } from './limits.js';
-import { agentShell, killShellGroup, shellLaunch, type AgentShell } from './agent-shell.js';
+import { agentShell, findShellGroup, killShellGroup, shellLaunch, type AgentShell } from './agent-shell.js';
 
 type StreamEvent = { type: 'stdout' | 'stderr'; data: string } | { type: 'exit'; exit_code: number };
 
@@ -34,10 +34,12 @@ function killTree(proc: ChildProcess, sig: NodeJS.Signals, shell: AgentShell): v
   const pid = proc.pid;
   if (pid === undefined) return;
   if (platform() === 'win32') {
-    // Git Bash: its background jobs are outside the Windows tree, but inside bash's own process group
-    killShellGroup(shell, pid);
+    // Git Bash: the group is found from bash's PID, so it is read while bash still lives; killed after the tree
+    const group = findShellGroup(shell, pid);
     // /T kills the whole tree; /F forces. Safe here because the top PID is our still-running child.
     spawnSync('taskkill', ['/pid', String(pid), '/T', '/F'], { stdio: 'ignore' });
+    // background jobs left the Windows tree, but stay in bash's own process group
+    if (group) killShellGroup(shell, group);
   } else {
     // spawned detached => the child is its own process-group leader; -pid kills the group.
     try { process.kill(-pid, sig); } catch { try { proc.kill(sig); } catch { /* already gone */ } }

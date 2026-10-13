@@ -66,7 +66,8 @@ export function findGitBash(probe: Probe = { env: process.env, isFile }): string
   if (own && /^(off|cmd|none|false|0)$/i.test(own.trim())) return undefined;
   const named = [own, envGet(probe.env, 'CLAUDE_CODE_GIT_BASH_PATH')].filter((s): s is string => !!s);
   // the git the owner actually runs: <root>\cmd\git.exe, <root>\bin\git.exe or <root>\mingw64\bin\git.exe
-  const onPath = (envGet(probe.env, 'PATH') ?? '').split(';').map((d) => d.trim().replace(/^"(.*)"$/, '$1')).filter(Boolean)
+  // only absolute folders: a relative PATH entry would name a git in whatever folder the core runs from
+  const onPath = (envGet(probe.env, 'PATH') ?? '').split(';').map((d) => d.trim().replace(/^"(.*)"$/, '$1')).filter((d) => /^[a-z]:\\/i.test(d))
     .filter((d) => probe.isFile(win32.join(d, 'git.exe')))
     .map((d) => win32.join(/\\mingw64\\bin\\?$/i.test(d) ? win32.dirname(win32.dirname(d.replace(/\\$/, ''))) : win32.dirname(d.replace(/\\$/, '')), 'bin', 'bash.exe'));
   const installed = ['ProgramFiles', 'ProgramW6432', 'ProgramFiles(x86)'].map((v) => envGet(probe.env, v.toUpperCase()))
@@ -118,21 +119,26 @@ export function shellLaunch(s: AgentShell, command: string, env: Record<string, 
 }
 
 /**
- * Kill bash's own process group, which holds what a command left running in the background (out of reach of taskkill
- * /T). Only when the process Node started leads its group, so no other group is ever hit. Windows Git Bash only.
+ * bash's own process group, which holds what a command left running in the background (out of reach of taskkill /T):
+ * found from the Windows PID Node started, and only when that process leads its group, so no other group is ever named.
+ * Read while bash still lives. Windows Git Bash only.
  */
-export function killShellGroup(s: AgentShell, winPid: number): void {
-  if (s.kind !== 'git-bash') return;
-  const bin = win32.join(s.root, 'usr', 'bin');
-  const ps = spawnSync(win32.join(bin, 'ps.exe'), ['-W'], { encoding: 'utf8', windowsHide: true, timeout: 5000 });
+export function findShellGroup(s: AgentShell, winPid: number): string | undefined {
+  if (s.kind !== 'git-bash') return undefined;
+  const ps = spawnSync(win32.join(s.root, 'usr', 'bin', 'ps.exe'), ['-W'], { encoding: 'utf8', windowsHide: true, timeout: 5000 });
   for (const line of (ps.stdout ?? '').split('\n')) {
     const r = line.trim().split(/\s+/);
     if (/^[A-Z]$/.test(r[0] ?? '')) r.shift(); // a status letter before the PID
     // PID PPID PGID WINPID ...
-    if (r[3] !== String(winPid) || !/^\d+$/.test(r[0] ?? '') || r[0] !== r[2]) continue;
-    spawnSync(win32.join(bin, 'kill.exe'), ['-9', '--', `-${r[2]}`], { stdio: 'ignore', windowsHide: true, timeout: 5000 });
-    return;
+    if (r[3] === String(winPid) && /^\d+$/.test(r[0] ?? '') && r[0] === r[2]) return r[2];
   }
+  return undefined;
+}
+
+/** Kill a group found by findShellGroup. */
+export function killShellGroup(s: AgentShell, group: string): void {
+  if (s.kind !== 'git-bash' || !/^\d+$/.test(group)) return;
+  spawnSync(win32.join(s.root, 'usr', 'bin', 'kill.exe'), ['-9', '--', `-${group}`], { stdio: 'ignore', windowsHide: true, timeout: 5000 });
 }
 
 /** For tests: the variable the command travels in. */
