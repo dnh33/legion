@@ -29,13 +29,13 @@ function WalletSection() {
       </dl>
       {!bridge && <p className="bsv-fine">This window has no app bridge (a browser tab?). Open the Legion app to connect a wallet.</p>}
       <div className="bsv-row">
-        <input className="bsv-input" type="text" inputMode="url" spellCheck={false} autoComplete="off" aria-label="Wallet address on this computer" placeholder="http://127.0.0.1:<port>" value={addr} onChange={(e) => setAddr(e.target.value)} disabled={!bridge || connected} />
+        <input className="bsv-input" type="text" inputMode="url" spellCheck={false} autoComplete="off" aria-label="Wallet address on your computer" placeholder="http://127.0.0.1:<port>" value={addr} onChange={(e) => setAddr(e.target.value)} disabled={!bridge || connected} />
         {connected
           ? <button type="button" className="btn-ghost" disabled={!bridge || changing} onClick={() => void disconnectWallet()}>Disconnect</button>
           : <button type="button" className="btn" disabled={!bridge || changing || !addr.trim()} onClick={() => void connectWallet(addr)}>Connect&hellip;</button>}
         <button type="button" className="btn-ghost" disabled={!connected} onClick={() => void checkWallet()}>Check now</button>
       </div>
-      <p className="bsv-fine">Legion does not guess an address and does not look for a wallet by itself. Connect opens a native confirmation that names the address, and only after you confirm does Legion ask four read-only questions: version, network, whether it is logged in, and block height. It does not ask for balances, outputs, keys or addresses. The connection lasts until you disconnect, freeze, turn BSV mode off or restart. The answer is the wallet&apos;s own claim; any program on this computer could give it.</p>
+      <p className="bsv-fine">Legion does not guess an address and does not look for a wallet by itself. Connect opens a native confirmation that names the address, and only after you confirm does Legion ask four read-only questions: version, network, whether it is logged in, and block height. It does not ask for balances, outputs, keys or addresses. The connection lasts until you disconnect, freeze, turn BSV mode off or restart. The answer is the wallet&apos;s own claim; any program on your computer could give it.</p>
     </section>
   );
 }

@@ -166,8 +166,8 @@ export function Composer() {
           onKeyDown={onKeyDown} aria-label="Message" aria-expanded={menuOpen} aria-haspopup="listbox" />
         <div className="composer-bar">
           <button type="button" className={`model-pill${picker ? ' open' : ''}`} onClick={() => setPicker((o) => !o)} aria-haspopup="listbox" aria-expanded={picker}
-            title="Choose model (Ctrl M). Remembered for this agent.">
-            {modelLabel(catalog, model)}<Icon name="down" size={12} />
+            title={`${modelLabel(catalog, model)}. Choose model (Ctrl M). Remembered for this agent.`}>
+            <span className="mp-label">{modelLabel(catalog, model)}</span><Icon name="down" size={12} />
           </button>
           <span className="composer-hint">
             {busy

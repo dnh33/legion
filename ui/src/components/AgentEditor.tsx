@@ -148,8 +148,8 @@ export function AgentEditor({ id, focus }: { id: string | null; focus?: 'skills'
           <span className="field-note">On by default for the lead. Newer Claude models plan without a written list; turn this on for agents that run long, multi-step work. Runs on other providers always have a task list.</span>
         </fieldset>
         <fieldset>
-          <legend>Shell (this computer)</legend>
-          <label className="check-row"><input type="checkbox" checked={hostOn} onChange={(e) => setHostOn(e.target.checked)} /> Let this agent run commands and read/write files on this computer</label>
+          <legend>Shell (your computer)</legend>
+          <label className="check-row"><input type="checkbox" checked={hostOn} onChange={(e) => setHostOn(e.target.checked)} /> Let this agent run commands and read/write files on your computer</label>
           <span className="field-note">Off by default. When on, the agent gets its own shell inside the scope root below. Its approval mode still decides whether each call asks you, and Gates (Settings, Gates) refine when it asks. This switch decides whether the agent gets the tools at all.</span>
           <div className="row" style={{ opacity: hostOn ? 1 : 0.5 }}>
             <label className="grow">Scope root<input disabled={!hostOn} value={hostRoot} onChange={(e) => setHostRoot(e.target.value)} placeholder="Leave empty for this agent’s own workspace folder" spellCheck={false} /></label>

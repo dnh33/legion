@@ -104,7 +104,7 @@ export function literals(src: string): string {
 const readable = (s: Src): string => (s.code ? literals(s.text) : s.text);
 const sentences = (t: string): string[] => t.split(/(?<=[.!?])\s+|\n+/).map((x) => x.trim()).filter(Boolean);
 
-const LOCALISH = /\blocal (mode|run|script|blender)|\bthis (computer|pc)\b|\bon this pc\b|\bheadless\b|\bin the background\b/i;
+const LOCALISH = /\blocal (mode|run|script|blender)|\b(?:this|your) (computer|pc)\b|\bon (?:this|your) pc\b|\bheadless\b|\bin the background\b/i;
 /** Words that name local mode itself (bare "this computer" and "headless" also appear in sentences about the VM: "away from this computer"). */
 const STRONG_LOCAL = /\blocal (mode|run|script|blender)|\bin the background\b|\bon this (pc|computer)\b/i;
 const VMISH = /\b(vm|cloud|boat\.dev|live blender|open blender|live card)\b/i;

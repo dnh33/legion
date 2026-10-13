@@ -19,7 +19,7 @@ export function lightLabel(l: BlenderStatusView['light']): { label: string; tone
   }
 }
 
-export const BLENDER_CHIP_TIP = 'Blender scripts run on this computer with your rights; every script needs your OK';
+export const BLENDER_CHIP_TIP = 'Blender scripts run on your computer with your rights; every script needs your OK';
 export const BLENDER_UNKNOWN = 'Blender: unknown';
 
 export type ChipTone = 'off' | 'on' | 'warn' | 'bad' | 'unknown';
@@ -71,7 +71,7 @@ export function chipModel(i: ChipInput): ChipModel {
   switch (light) {
     case 'off': label = 'Blender: Off'; break;
     case 'not-found': label = 'Blender not found'; action = 'get'; break;
-    case 'local': label = `Ready: this computer${ver}`; break;
+    case 'local': label = `Ready: your computer${ver}`; break;
     case 'sandbox': label = 'Ready: cloud VM'; break;
     case 'connected': label = 'Live Blender connected'; break;
     case 'needs-setup': label = 'Blender needs setup'; action = 'setup'; break;
