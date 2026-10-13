@@ -903,12 +903,14 @@ test('the safety floor holds on the ask path too (canUseTool): a catastrophic Ba
   assert.equal(refused.behavior, 'deny');
   assert.match(refused.message, /Refused/);
   assert.equal(s.approvals.pending().length, 0);
+  // an unreadable command: its card is the hook's (below); canUseTool raises only the ordinary ask card, never a second floor card
   const pending = use('Bash', { command: '{rm,-rf,/c}' }, sig);
   await new Promise((r) => setTimeout(r, 10));
-  assert.equal(s.approvals.pending().length, 1, 'one card, not the shell card and then the ordinary one');
-  assert.equal(s.approvals.pending()[0]!.noRemember, true);
-  s.approvals.resolve(s.approvals.pending()[0]!.id, true);
-  assert.equal((await pending).behavior, 'allow');
+  assert.equal(s.approvals.pending().length, 1);
+  assert.equal(s.approvals.pending()[0]!.noRemember, undefined, 'the ordinary card of an ask agent');
+  s.approvals.resolve(s.approvals.pending()[0]!.id, false);
+  assert.equal((await pending).behavior, 'deny');
+  // the provider path has no hook: there toolDecider raises the floor card itself (covered by the provider tests)
   s.engine.cancel(t.id);
   await s.engine.waitFor(t.id, 3000);
 });
@@ -917,8 +919,8 @@ test('REVIEW F7: the floor also runs as a PreToolUse hook in ask mode, so an all
   const s = setup(hanging, { agent: { approval: 'ask' } });
   const t = s.engine.startTask({ agentId: 'a1', prompt: 'x', source: 'ui' });
   await new Promise((r) => setTimeout(r, 30));
-  const floor = s.calls[0]!.options.hooks.PreToolUse.filter((h: any) => typeof h.matcher === 'string' && /Bash/.test(h.matcher) && /PowerShell/.test(h.matcher) && /mcp__host__shell/.test(h.matcher));
-  assert.equal(floor.length, 1, 'one hook for the three shell tools');
+  const floor = s.calls[0]!.options.hooks.PreToolUse.filter((h: any) => typeof h.matcher === 'string' && /Bash/.test(h.matcher) && /PowerShell/.test(h.matcher) && /Monitor/.test(h.matcher) && /mcp__host__shell/.test(h.matcher));
+  assert.equal(floor.length, 1, 'one hook for the shell tools');
   assert.ok(floor[0].timeout >= s.approvals.timeoutSeconds, 'the hook waits at least as long as its card');
   const hook = floor[0].hooks[0];
   const decide = (tool: string, input: unknown) => hook({ hook_event_name: 'PreToolUse', tool_name: tool, tool_input: input });
@@ -929,10 +931,10 @@ test('REVIEW F7: the floor also runs as a PreToolUse hook in ask mode, so an all
   await new Promise((r) => setTimeout(r, 10));
   assert.equal(s.approvals.pending().length, 1);
   s.approvals.resolve(s.approvals.pending()[0]!.id, true);
-  assert.equal((await pending)?.hookSpecificOutput?.permissionDecision, 'allow', 'approved on its card: allowed, no second card from the normal approval');
-  // and if canUseTool is still asked about the same call, it does not ask the owner again
-  const use = await s.calls[0]!.options.canUseTool('Bash', { command: 'x=ls; $x' }, { signal: new AbortController().signal });
-  assert.equal(use.behavior, 'allow');
+  assert.equal((await pending)?.hookSpecificOutput?.permissionDecision, 'allow', 'approved on its card: the hook allows the call, so no ordinary card follows');
+  // Monitor runs a command too; PowerShell is read with PowerShell's rules (an expression is not a program)
+  assert.equal((await decide('Monitor', { command: 'rm -rf ~' }))?.hookSpecificOutput?.permissionDecision, 'deny');
+  assert.equal((await decide('PowerShell', { command: '$i++; [math]::Round(1.5)' }))?.hookSpecificOutput?.permissionDecision, undefined);
   assert.equal(s.approvals.pending().length, 0);
   s.engine.cancel(t.id);
   await s.engine.waitFor(t.id, 3000);
