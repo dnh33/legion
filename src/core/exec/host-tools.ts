@@ -255,6 +255,8 @@ const TEXT_RUNNERS = new Set(['eval', 'iex', 'invoke-expression', 'ssh', 'su', '
 const DELETE_VERBS = new Set(['rm', 'rmdir', 'rd', 'del', 'erase', 'remove-item', 'ri']);
 /** PowerShell's listers: `gci C:\ | Remove-Item` deletes what they list. */
 const LIST_VERBS = new Set(['get-childitem', 'gci', 'dir', 'ls']);
+/** cmd's commands among them, whose options are written /s, /q: a one-letter /x word after them is a switch. */
+const CMD_SWITCH_VERBS = new Set(['rd', 'rmdir', 'del', 'erase', 'dir']);
 
 /** A command line as words: quotes keep a word together and are then dropped; cmd's ^ escape is removed. Lower case. */
 function words(segment: string): string[] {
@@ -292,6 +294,10 @@ function collapseDots(p: string): string {
 function isProtectedTarget(word: string): boolean {
   const w = collapseDots(word.replace(/[\\/]+\*(?:\.\*)?$/, '/').replace(/\\/g, '/').replace(/\/+$/, '') || '/');
   if (w === '/' || w === '/*') return true;
+  // Git for Windows' tools (rm.exe is on PATH, so cmd.exe reaches it too), Cygwin and WSL name a drive /c, /cygdrive/c or
+  // /mnt/c: judged as the drive itself. On a POSIX machine a one-letter top-level folder is refused as well, which costs nothing.
+  const drive = /^\/(?:cygdrive\/|mnt\/)?([a-z])(\/.*)?$/.exec(w);
+  if (drive) return isProtectedTarget(`${drive[1]}:${drive[2] ?? ''}`);
   if (/^\/users(?:\/[^/]+)?$/.test(w)) return true;
   if (/^[a-z]:\/windows\/system32$/.test(w)) return true;
   if (/^\/(?:bin|boot|dev|etc|home|lib|lib64|opt|proc|root|sbin|srv|sys|usr|var)$/.test(w)) return true;
@@ -302,6 +308,8 @@ function isProtectedTarget(word: string): boolean {
   if (/^[a-z]:\/users\/[^/]+$/.test(w)) return true;
   if (/^%(?:userprofile|systemroot|windir|systemdrive|programfiles|programdata|homedrive%%homepath)%$/.test(w)) return true;
   if (/^\$env:(?:userprofile|systemroot|windir|systemdrive|programfiles|programdata|homedrive)$/.test(w)) return true;
+  // the same variables as sh writes them (Git Bash inherits the Windows environment)
+  if (/^\$(?:\{(?:userprofile|systemroot|windir|systemdrive|programfiles|programdata|homedrive)\}|(?:userprofile|systemroot|windir|systemdrive|programfiles|programdata|homedrive))$/.test(w)) return true;
   return false;
 }
 
@@ -351,7 +359,11 @@ function refuseSegment(segment: string): string | undefined {
   // a pipeline is judged whole: PowerShell's `gci C:\ | Remove-Item` lists in one stage and deletes in the next
   const stages = segment.split('|').map(words);
   const runs = (ws: readonly string[], verbs: ReadonlySet<string>): number[] => commandPositions(ws).filter((i) => verbs.has(program(ws[i]!)));
-  const targetsAfter = (ws: readonly string[], i: number): boolean => ws.slice(i + 1).some(isProtectedTarget);
+  // cmd's own commands take /s, /q, /a:h switches: there such a word is an option, not Git Bash's /s drive
+  const targetsAfter = (ws: readonly string[], i: number): boolean => {
+    const switches = CMD_SWITCH_VERBS.has(program(ws[i]!));
+    return ws.slice(i + 1).some((w) => !(switches && /^\/[a-z?](?::\S*)?$/.test(w)) && isProtectedTarget(w));
+  };
   for (const ws of stages) {
     if (runs(ws, DELETE_VERBS).some((i) => targetsAfter(ws, i))) return 'a recursive delete of a drive, a system folder or a home folder';
     const deletes = ws.includes('-delete') || ws.some((w, i) => (w === '-exec' || w === '-execdir') && DELETE_VERBS.has(program(ws[i + 1] ?? '')));
