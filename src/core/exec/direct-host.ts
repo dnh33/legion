@@ -1,5 +1,6 @@
 /**
- * The direct-host execution backend: runs a shell command on this machine via node:child_process.
+ * The direct-host execution backend: runs a shell command on this machine via node:child_process, in the agent shell
+ * (agent-shell.ts: Git Bash or cmd.exe on Windows, /bin/sh elsewhere).
  *
  * This is the one place that starts a process for the shell tool. It lives OUTSIDE src/core/providers/ on purpose:
  * test/providers-tripwire.test.ts bans child_process there, and test/bsv-scan.ts allowlists THIS file's child_process
@@ -13,6 +14,7 @@ import { constants as osConstants, platform } from 'node:os';
 import type { BackendCaps, ExecRequest, ExecResult, ExecutionBackend, RunningExec } from './types.js';
 import { validateEnv } from './types.js';
 import { clampExecLimits, DEFAULT_EXEC_LIMITS, type ExecLimits } from './limits.js';
+import { agentShell, findShellGroup, killShellGroup, shellLaunch, type AgentShell } from './agent-shell.js';
 
 type StreamEvent = { type: 'stdout' | 'stderr'; data: string } | { type: 'exit'; exit_code: number };
 
@@ -23,14 +25,21 @@ function signalNum(sig: string | null | undefined): number | undefined {
   return typeof n === 'number' ? n : undefined;
 }
 
+/** After a kill, how long the output may stay open before the run ends without it (something it started outlived it). */
+const KILL_GRACE_MS = 2000;
+
 /** Kill a process AND its descendants. Guarded: only while our child is still live, so a recycled PID is never hit. */
-function killTree(proc: ChildProcess, sig: NodeJS.Signals): void {
+function killTree(proc: ChildProcess, sig: NodeJS.Signals, shell: AgentShell): void {
   if (proc.exitCode !== null || proc.signalCode !== null) return; // already gone; a recycled PID is not ours
   const pid = proc.pid;
   if (pid === undefined) return;
   if (platform() === 'win32') {
+    // Git Bash: the group is found from bash's PID, so it is read while bash still lives; killed after the tree
+    const group = findShellGroup(shell, pid);
     // /T kills the whole tree; /F forces. Safe here because the top PID is our still-running child.
     spawnSync('taskkill', ['/pid', String(pid), '/T', '/F'], { stdio: 'ignore' });
+    // background jobs left the Windows tree, but stay in bash's own process group
+    if (group) killShellGroup(shell, group);
   } else {
     // spawned detached => the child is its own process-group leader; -pid kills the group.
     try { process.kill(-pid, sig); } catch { try { proc.kill(sig); } catch { /* already gone */ } }
@@ -58,15 +67,16 @@ class DirectRun implements RunningExec {
   private pending: ((v: IteratorResult<StreamEvent>) => void)[] = [];
   private finished = false;
 
-  constructor(private readonly req: ExecRequest, private readonly limits: ExecLimits, private readonly baseEnv?: Record<string, string | undefined>) {
+  constructor(private readonly req: ExecRequest, private readonly limits: ExecLimits, private readonly baseEnv: Record<string, string | undefined> | undefined, private readonly shell: AgentShell) {
     this.result = new Promise<ExecResult>((res, rej) => { this.resolveResult = res; this.rejectResult = rej; });
 
     const env = validateEnv(req.env);
     const cwd = req.cwd;
-    this.proc = spawn(req.cmd, {
-      shell: true,
+    const launch = shellLaunch(shell, req.cmd, { ...(this.baseEnv ?? process.env), ...env });
+    this.proc = spawn(launch.file, launch.args, {
+      shell: launch.shell,
       cwd,
-      env: { ...(this.baseEnv ?? process.env), ...env },
+      env: launch.env,
       detached: platform() !== 'win32',
       windowsHide: true,
       stdio: ['pipe', 'pipe', 'pipe'],
@@ -103,7 +113,7 @@ class DirectRun implements RunningExec {
       const t = setTimeout(() => {
         if (this.closed) return;
         this.timedOut = true;
-        killTree(this.proc, 'SIGKILL');
+        this.killNow('SIGKILL');
       }, req.timeoutMs);
       t.unref?.();
       this.proc.on('close', () => clearTimeout(t));
@@ -114,12 +124,27 @@ class DirectRun implements RunningExec {
       const onAbort = (): void => {
         if (this.closed) return;
         this.cancelled = true;
-        killTree(this.proc, 'SIGTERM');
-        setTimeout(() => { if (!this.closed) killTree(this.proc, 'SIGKILL'); }, 1000).unref?.();
+        this.killNow('SIGTERM');
       };
       if (req.signal.aborted) onAbort();
       else req.signal.addEventListener('abort', onAbort, { once: true });
     }
+  }
+
+  /**
+   * Kill the run and everything it started. If the output is still held open after the grace period (a process outside
+   * the tree, or one that will not die), the run ends anyway with what it had: a call never waits on a leftover.
+   */
+  private killNow(sig: NodeJS.Signals): void {
+    killTree(this.proc, sig, this.shell);
+    if (sig !== 'SIGKILL') setTimeout(() => { if (!this.closed) killTree(this.proc, 'SIGKILL', this.shell); }, 1000).unref?.();
+    setTimeout(() => {
+      if (this.closed) return;
+      this.closed = true;
+      this.proc.stdout?.destroy();
+      this.proc.stderr?.destroy();
+      this.finish();
+    }, KILL_GRACE_MS + (sig === 'SIGKILL' ? 0 : 1000)).unref?.();
   }
 
   private onData(type: 'stdout' | 'stderr', data: string): void {
@@ -187,8 +212,7 @@ class DirectRun implements RunningExec {
   async kill(): Promise<void> {
     if (this.closed) return;
     this.cancelled = true;
-    killTree(this.proc, 'SIGTERM');
-    setTimeout(() => { if (!this.closed) killTree(this.proc, 'SIGKILL'); }, 1000).unref?.();
+    this.killNow('SIGTERM');
     await this.result.catch(() => undefined);
   }
 }
@@ -198,12 +222,15 @@ export class DirectHostBackend implements ExecutionBackend {
   private readonly limits: ExecLimits;
   /** The environment every command starts from. Absent: this process's own (the engine always passes a scrubbed one). */
   private readonly env?: Record<string, string | undefined>;
-  constructor(options?: { limits?: ExecLimits; env?: Record<string, string | undefined> }) {
+  /** The shell commands run in (agent-shell.ts): Git Bash or cmd.exe on Windows, /bin/sh elsewhere. */
+  readonly shell: AgentShell;
+  constructor(options?: { limits?: ExecLimits; env?: Record<string, string | undefined>; shell?: AgentShell }) {
     this.limits = clampExecLimits(options?.limits ?? DEFAULT_EXEC_LIMITS);
     this.env = options?.env;
+    this.shell = options?.shell ?? agentShell();
   }
   capabilities(): BackendCaps { return { shell: true, perCallCwd: true, streaming: true, remote: false }; }
-  execute(req: ExecRequest): Promise<ExecResult> { return new DirectRun(req, this.limits, this.env).waitForExit(); }
-  start(req: ExecRequest): RunningExec { return new DirectRun(req, this.limits, this.env); }
+  execute(req: ExecRequest): Promise<ExecResult> { return new DirectRun(req, this.limits, this.env, this.shell).waitForExit(); }
+  start(req: ExecRequest): RunningExec { return new DirectRun(req, this.limits, this.env, this.shell); }
   async cleanup(): Promise<void> { /* each run is killed through its own handle; nothing global to release */ }
 }
