@@ -4,6 +4,36 @@ All notable changes are recorded here. The format follows [Keep a Changelog](htt
 
 ## [Unreleased]
 
+## [0.2.6-v] - 2026-10-13
+
+### Security
+
+- **The safety floor now covers every shell an agent can use.** Legion refuses any command that would delete a whole
+  drive, a system folder or a home folder, in every approval mode. That check ran only for Legion's own agent shell.
+  Claude agents' own Bash and PowerShell tools now go through it too, so a Claude agent with full access cannot wipe a
+  drive either.
+- **A command Legion cannot read is never run unchecked.** Some commands only reveal what they run when they run, for
+  example `$(echo rm) -rf /c` or a program name kept in a variable. Legion cannot judge these by reading them. When an
+  agent asks first, you get an approval card that says why, with no Remember button, because the part that changes is
+  the program itself. With full access, Legion refuses the command at once and tells the agent to write it out plainly,
+  so an agent you leave running never stops to wait for a card nobody answers. Running another command's output as a
+  script (`curl ... | bash`) is handled the same way.
+- **Hidden commands are refused.** Text that is decoded and then run as a command (`base64 -d | bash`) and PowerShell's
+  `-EncodedCommand` cannot be read before they run, so Legion refuses them. Write the command out plainly instead.
+- **A delete whose folder comes from a variable is checked the same way.** `rm -rf "$DIR"` deletes a root when the
+  variable is empty, so Legion shows you the card (with full access: refuses it and asks the agent to name the folder). `rm -rf "$DIR/build"` runs as before, and so does `DIR=dist/site; rm -rf "$DIR"`: when
+  the same command sets the variable once to a folder that is written out, Legion reads it as that folder.
+- **Each shell is read by its own rules.** PowerShell's block comments, curly quotes and a backtick inside a word, and
+  cmd's commas between arguments, are read the way that shell reads them, so they cannot hide a command. A line break
+  inside quotes no longer splits a command, so a multi-line `python -c "..."` or `node -e "..."` script runs without a
+  card. Text in single quotes or in a quoted heredoc is never run by the shell, so Legion does not judge it as a
+  command either.
+- **More ways to wipe a drive or a home are refused:** mirroring an empty folder over it (`robocopy /MIR`,
+  `rsync --delete`), taking away its permissions (`chmod -R`, `icacls /T`), moving it away, wiping a disk device, and
+  the same commands hidden behind `timeout`, `start`, `call`, `wsl`, `eval`, quotes inside a word or a line break.
+- Commands that only use variables in their arguments, such as `echo $HOME` or `git commit -m "$(date)"`, run as before,
+  and so do PowerShell lines that set a variable first (`$env:NODE_ENV='test'; npm test`).
+
 ## [0.2.6-u] - 2026-10-13
 
 ### Security

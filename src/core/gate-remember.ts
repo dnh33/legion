@@ -16,9 +16,9 @@ export interface RememberCall { agentId: string; toolName: string; input: Record
 /** Cards a rule must not decide: rails (a Blender script, a download, read and clicked every time) and room requests. */
 const NO_REMEMBER = /^(?:mcp__legion_blender__blender_exec|mcp__legion_blender__blender_asset_get|legion_get_blender|mcp__legion_comms__room_(?:create|add_member|remove_member))$/;
 
-/** Whether a rule may be remembered for this request at all. */
-export function canRemember(a: { toolName: string }): boolean {
-  return !NO_REMEMBER.test(a.toolName);
+/** Whether a rule may be remembered for this request at all. A card the core marks `noRemember` (a command it cannot read) never offers one. */
+export function canRemember(a: { toolName: string; noRemember?: boolean }): boolean {
+  return a.noRemember !== true && !NO_REMEMBER.test(a.toolName);
 }
 
 const PATH_KEYS = ['file_path', 'path', 'notebook_path'] as const;

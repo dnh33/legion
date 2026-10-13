@@ -21,6 +21,11 @@ import { TaintedPaths } from './tainted-paths.js';
 import { carryDone, CLAUDE_TASK_TOOLS, mirrorClaudeTaskCall, renderEmptyHandover, renderForModel, renderHandover, TaskList, TaskListStore } from './task-list.js';
 import { nativeTaskListOn } from '../shared/task-list-setting.js';
 import { buildHostToolsServer, redactValues } from './exec/host-tools.js';
+import { MAX_READABLE, refuseCatastrophic, unjudgeableCommand, type ShellKind } from './exec/shell-floor.js';
+/** The tools that run a shell command: Legion's host shell and Claude Code's own Bash and PowerShell. */
+const SHELL_TOOLS: ReadonlySet<string> = new Set(['mcp__host__shell', 'Bash', 'PowerShell', 'Monitor']);
+/** The shell each tool runs its command in: Claude Code's Bash and Monitor (POSIX sh, Git Bash on Windows), its PowerShell, Legion's host shell (cmd.exe on Windows). */
+const shellKindOf = (toolName: string): ShellKind => (toolName === 'PowerShell' ? 'pwsh' : toolName === 'mcp__host__shell' && process.platform === 'win32' ? 'cmd' : 'sh');
 import { DirectHostBackend } from './exec/direct-host.js';
 import { clampExecLimits } from './exec/limits.js';
 import { CONTINUE_REFUSED } from './connector-withhold.js';
@@ -169,6 +174,10 @@ export function taintsRun(toolName: string): boolean {
 /** A PreToolUse hook answer that blocks the tool and tells the agent why. */
 function preToolDeny(reason: string): { hookSpecificOutput: { hookEventName: 'PreToolUse'; permissionDecision: 'deny'; permissionDecisionReason: string } } {
   return { hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'deny', permissionDecisionReason: reason } };
+}
+/** The owner already decided this call (on a floor card): skip the ordinary permission check for it. */
+function preToolAllow(reason: string): { hookSpecificOutput: { hookEventName: 'PreToolUse'; permissionDecision: 'allow'; permissionDecisionReason: string } } {
+  return { hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'allow', permissionDecisionReason: reason } };
 }
 
 /** The path with symlinks and junctions resolved as far as it exists (the rest of the name is appended as written). */
@@ -1116,10 +1125,57 @@ This run read connector (GitHub) data and other outside text. Web access can sen
   }
 
   /**
+   * The safety floor for every shell an agent drives: Legion's own host shell AND Claude Code's Bash and PowerShell tools.
+   * A catastrophic command (a whole drive, a system or home folder) or one that runs decoded or encoded text is refused, with
+   * no card. A command the floor cannot read (its program is built when it runs: `$(echo rm)`, `$x`, `{a,b}`, `%X%`, or
+   * another command's output piped into a shell) is never assumed safe: in the ask modes it gets a card with no Remember;
+   * in Full it is refused at once with the reason and how to write it plainly, so a run nobody watches never waits on a card
+   * (owner decision 2026-10-13). Undefined when the floor has nothing to say.
+   */
+  private shellFloor(job: Job, agent: AgentProfile, toolName: string, input: Record<string, unknown>, opts: { card?: boolean } = {}): Promise<{ allow: boolean; message?: string }> | undefined {
+    if (!SHELL_TOOLS.has(toolName)) return undefined;
+    const command = typeof input?.command === 'string' ? input.command : '';
+    if (!command) return undefined;
+    const kind = shellKindOf(toolName);
+    let why: string | undefined;
+    try {
+      // a command too long to read is not read (that would hold up the core): it goes straight to the owner's card
+      if (command.length <= MAX_READABLE) {
+        const refused = refuseCatastrophic(command, kind);
+        if (refused) return Promise.resolve({ allow: false, message: refused });
+      }
+      // the card is raised in one place per call: where the call is decided first (the ask-mode hook owns it for Claude's tools)
+      if (opts.card === false) return undefined;
+      why = unjudgeableCommand(command, kind);
+    } catch {
+      // fail closed: a floor that could not read the command asks the owner
+      if (opts.card === false) return undefined;
+      why = 'the safety check could not read it';
+    }
+    if (!why) return undefined;
+    const mode = this.store.getAgent(agent.id)?.approval ?? agent.approval;
+    if ((job.origin?.approvalCeiling ? stricterMode(mode, job.origin.approvalCeiling) : mode) === 'full') {
+      return Promise.resolve({ allow: false, message: `Not run: Legion cannot read what this command will run (${why}), and with full access such a command is refused rather than asked about. Write it out plainly: name the program itself, not through a variable, a substitution or a pipe into a shell, and keep it under ${MAX_READABLE.toLocaleString('en-US')} characters. Then run it again. If it cannot be written plainly, do not look for another way around: tell the user what it was meant to do.` });
+    }
+    const o = job.origin;
+    let timedOut = false;
+    const shown = command.length > 1000 ? `${command.slice(0, 1000)}\n(${(command.length - 1000).toLocaleString('en-US')} more characters not shown here)` : command;
+    return this.approvals.request(job.taskId, agent.id, toolName, input, o ? { roomId: o.roomId, fromAgentId: o.fromAgentId, hop: o.hop } : undefined, {
+      onTimeout: () => { timedOut = true; },
+      noRemember: true,
+      summary: `Legion cannot read what this command will run.\n${shown}\nWhy: ${why}.\nThe safety check cannot judge it by reading it, so you are asked in every approval mode. Allow it only if you know what it does.`,
+    }).then((allowed) => {
+      if (allowed) return { allow: true };
+      const stop = 'Do not retry it, rephrase it or reach the same result another way. Stop, tell the user what the command was meant to do, and wait for their answer.';
+      return { allow: false, message: timedOut ? `No one answered the approval request within ${this.approvals.timeoutWait}, so this command was not run (${why}). ${stop}` : `The user has not approved this command (${why}). ${stop}` };
+    });
+  }
+
+  /**
    * The approval decision for one tool call, shared by the Claude path (canUseTool) and the provider path: effective mode (never looser
    * than the run's ceiling), then needsApproval, then a card the user answers (10 minutes, then denied).
    */
-  private toolDecider(job: Job, agent: AgentProfile, opts: { egress?: boolean } = {}): (toolName: string, input: Record<string, unknown>) => Promise<{ allow: boolean; message?: string }> {
+  private toolDecider(job: Job, agent: AgentProfile, opts: { egress?: boolean; /** false: the floor's card is raised by a hook for this path; only its refusals apply here. */ floorCard?: boolean } = {}): (toolName: string, input: Record<string, unknown>) => Promise<{ allow: boolean; message?: string }> {
     const ceiling = job.origin?.approvalCeiling;
     const effective = (): ApprovalMode => {
       const mode = this.store.getAgent(agent.id)?.approval ?? agent.approval;
@@ -1135,6 +1191,9 @@ This run read connector (GitHub) data and other outside text. Web access can sen
       // explicit allow skips the card, an ask forces one (inert in full), and no rule falls through to the baseline.
       const gate = decideGate({ toolName, input, agentId: agent.id, cwd: this.gateCwd(agent, toolName), tmpDir: GATE_TMP_DIR, projectId: this.projectOf(job.taskId, agent.id)?.id, ctx: { roomHop: (job.origin?.hop ?? 0) > 0, tainted: this.active.get(job.taskId)?.tainted === true || job.origin?.tainted === true, connectorData: this.store.getTask(job.taskId)?.usedConnectors === true } }, gatesFor(this.config).rules, mode, job.origin?.approvalCeiling === 'ask');
       if (gate.verdict === 'deny') return { allow: false, message: 'Blocked by a gate rule (Settings -> Gates).' };
+      // the shell floor sits ahead of allow rules and the baseline: an allow rule cannot pass a command nobody could read
+      const floor = this.shellFloor(job, agent, toolName, input, { card: opts.floorCard !== false });
+      if (floor) return floor;
       if (gate.verdict === 'allow') return { allow: true };
       if (gate.verdict !== 'ask' && !needsApproval(mode, toolName, { capped: job.origin?.approvalCeiling === 'ask' })) return { allow: true };
       const o = job.origin;
@@ -1255,9 +1314,9 @@ This run read connector (GitHub) data and other outside text. Web access can sen
       const mode = this.store.getAgent(agent.id)?.approval ?? agent.approval;
       return ceiling ? stricterMode(mode, ceiling) : mode;
     };
+    // a hook that awaits a card gets the card's own wait and a minute more: a hook timeout would stop the run, not deny the call
+    const cardHookSeconds = this.approvals.timeoutSeconds + 60;
     if (agent.approval === 'full' && !(ceiling && ceiling !== 'full')) {
-      // a hook that awaits a card gets the card's own wait and a minute more: a hook timeout would stop the run, not deny the call
-      const cardHookSeconds = this.approvals.timeoutSeconds + 60;
       options.permissionMode = 'bypassPermissions';
       options.allowDangerouslySkipPermissions = true;
       // bypass mode has no canUseTool: the web-egress card is raised from a PreToolUse hook instead (never both, so one card per call)
@@ -1278,11 +1337,29 @@ This run read connector (GitHub) data and other outside text. Web access can sen
           return d.allow ? { continue: true } : preToolDeny(d.message ?? 'The user denied this action.');
         }
         const g = decideGate({ toolName: input.tool_name, input: (input.tool_input ?? {}) as Record<string, unknown>, agentId: agent.id, cwd: this.gateCwd(agent, input.tool_name), tmpDir: GATE_TMP_DIR, projectId: this.projectOf(job.taskId, agent.id)?.id, ctx: { roomHop: (job.origin?.hop ?? 0) > 0, tainted: this.active.get(job.taskId)?.tainted === true || job.origin?.tainted === true, connectorData: this.store.getTask(job.taskId)?.usedConnectors === true } }, gatesFor(this.config).rules, 'full', false);
-        return g.verdict === 'deny' ? preToolDeny('Blocked by a gate rule (Settings -> Gates).') : { continue: true };
+        if (g.verdict === 'deny') return preToolDeny('Blocked by a gate rule (Settings -> Gates).');
+        // Full forgives the approval card, not the machine: the shell floor holds here too (Claude's own Bash included)
+        const floor = this.shellFloor(job, agent, input.tool_name, (input.tool_input ?? {}) as Record<string, unknown>);
+        if (floor) { const d = await floor; return d.allow ? { continue: true } : preToolDeny(d.message ?? 'The user denied this action.'); }
+        return { continue: true };
       }] });
     } else {
       options.permissionMode = 'default';
-      const decide = this.toolDecider(job, agent);
+      // The shell floor as a hook too: Claude Code's own allow rules (inherited settings, `Bash(rm:*)`) decide a call before
+      // canUseTool is asked, which would step around the floor. A Block gate still wins first; an approved floor card is
+      // final for that call (no second, ordinary card).
+      options.hooks?.PreToolUse?.push({ matcher: 'Bash|PowerShell|Monitor|mcp__host__shell', timeout: cardHookSeconds, hooks: [async (input) => {
+        if (input.hook_event_name !== 'PreToolUse') return { continue: true };
+        const tin = (input.tool_input ?? {}) as Record<string, unknown>;
+        const g = decideGate({ toolName: input.tool_name, input: tin, agentId: agent.id, cwd: this.gateCwd(agent, input.tool_name), tmpDir: GATE_TMP_DIR, projectId: this.projectOf(job.taskId, agent.id)?.id, ctx: { roomHop: (job.origin?.hop ?? 0) > 0, tainted: this.active.get(job.taskId)?.tainted === true || job.origin?.tainted === true, connectorData: this.store.getTask(job.taskId)?.usedConnectors === true } }, gatesFor(this.config).rules, effective(), job.origin?.approvalCeiling === 'ask');
+        if (g.verdict === 'deny') return preToolDeny('Blocked by a gate rule (Settings -> Gates).');
+        const floor = this.shellFloor(job, agent, input.tool_name, tin);
+        if (!floor) return { continue: true };
+        const d = await floor;
+        return d.allow ? preToolAllow('The owner approved this command on its card.') : preToolDeny(d.message ?? 'The user denied this action.');
+      }] });
+      // the hook above owns the floor's card for Claude's shell tools, so it is not asked a second time here
+      const decide = this.toolDecider(job, agent, { floorCard: false });
       options.canUseTool = async (toolName, input) => {
         const d = await decide(toolName, input);
         return d.allow ? { behavior: 'allow', updatedInput: input } : { behavior: 'deny', message: d.message ?? 'The user denied this action.' };

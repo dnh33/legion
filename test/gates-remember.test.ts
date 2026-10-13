@@ -81,3 +81,9 @@ test('SMOKE FIX: a chained command is remembered per part, so the rule really ma
   // a line no allow can hold on (command substitution) offers no allow at all
   assert.equal(canRememberAllow(req('Bash', { command: 'echo $(date)' })), false);
 });
+
+test('a card the core marks noRemember (a command it cannot read) offers no Remember at all', () => {
+  assert.equal(canRemember({ toolName: 'Bash' }), true);
+  assert.equal(canRemember({ toolName: 'Bash', noRemember: true }), false);
+  assert.equal(canRemember({ toolName: 'mcp__host__shell', noRemember: true }), false);
+});

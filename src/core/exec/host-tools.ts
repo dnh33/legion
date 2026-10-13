@@ -14,6 +14,9 @@ import { dirname, join, resolve, sep } from 'node:path';
 import { z } from 'zod';
 import type { ExecutionBackend } from './types.js';
 import { clampExecLimits, type ExecLimits } from './limits.js';
+import { MAX_READABLE, refuseCatastrophic } from './shell-floor.js';
+// the safety floor lives in its own module; these names stay importable from here
+export { refuseCatastrophic, unjudgeableCommand } from './shell-floor.js';
 
 type ToolResult = { content: { type: 'text'; text: string }[]; isError?: boolean };
 const ok = (text: string): ToolResult => ({ content: [{ type: 'text', text }] });
@@ -215,221 +218,6 @@ let spillN = 0;
 /** Most spill files kept: the oldest are dropped so a long session cannot grow without bound. */
 const SPILL_KEEP_FILES = 50;
 
-/**
- * A hard safety floor (the Wipe Lesson): command shapes that can destroy the machine or its data irrecoverably. They
- * are refused for EVERY agent — a full-access tier forgives the approval card, not the machine. This is the one check
- * an approval cannot override. Matched conservatively: it must never block ordinary work (rm of a project folder, git,
- * builds all pass through).
- */
-/** Commands that are catastrophic by themselves: judged where a command runs, so a note or a grep pattern naming one passes. */
-const CATASTROPHIC_COMMANDS: Array<[RegExp, string]> = [
-  [/\bmkfs(?:\.\w+)?\b/i, 'formatting a filesystem'],
-  [/\bdd\b[^|&;\n]*\bof\s*=\s*['"]?\/dev\//i, 'raw write to a device'],
-  [/\bformat(?:\.com)?\s+['"]?[A-Za-z]:/i, 'formatting a drive'],
-  [/\bdiskpart\b/i, 'disk partitioning'],
-];
-/** Shapes that are not words (a fork bomb, a redirect onto a disk): matched anywhere on the line. */
-const CATASTROPHIC: Array<[RegExp, string]> = [
-  [/:\(\)\s*\{\s*:\s*\|\s*:\s*&\s*\}\s*;\s*:/, 'a fork bomb'],
-  [/>\s*['"]?\/dev\/(?:sd|hd|nvme|mmcblk|vd)[a-z0-9]*['"]?\s*$/i, 'overwriting a block device'],
-];
-
-/**
- * Whole-machine Windows tools (the shell tool runs cmd.exe there): no target is needed for these to be catastrophic.
- * Matched on the normalised text (lower case, cmd's ^ escapes and quotes removed).
- */
-const CATASTROPHIC_WINDOWS: Array<[RegExp, string]> = [
-  [/\bvssadmin\s+delete\s+shadows\b/, 'deleting the system restore copies'],
-  [/\bwmic\s+shadowcopy\s+delete\b/, 'deleting the system restore copies'],
-  [/\bwbadmin\s+delete\b/, 'deleting the backups'],
-  [/\bbcdedit\s+\/delete\b/, 'deleting a boot entry'],
-  [/\breg(?:\.exe)?\s+delete\s+(?:hklm|hkey_local_machine)\\(?:system|software|sam|security)\b/, 'deleting a core part of the registry'],
-  [/\bcipher(?:\.exe)?\s+\/w\b/, 'wiping a drive\'s free space'],
-  [/\b(?:format-volume|clear-disk|initialize-disk|remove-partition)\b/, 'formatting or wiping a disk'],
-];
-
-/** Programs that run TEXT as a command (besides the shells): only for these is a quoted string judged as a command of its own. */
-const TEXT_RUNNERS = new Set(['eval', 'iex', 'invoke-expression', 'ssh', 'su', 'wsl', 'xargs', 'start', 'watch', 'source', '.', 'runas', 'call', 'invoke-command', 'start-process']);
-
-/** Delete commands of sh, cmd and PowerShell (with its aliases). */
-const DELETE_VERBS = new Set(['rm', 'rmdir', 'rd', 'del', 'erase', 'remove-item', 'ri']);
-/** PowerShell's listers: `gci C:\ | Remove-Item` deletes what they list. */
-const LIST_VERBS = new Set(['get-childitem', 'gci', 'dir', 'ls']);
-/** cmd's commands among them, whose options are written /s, /q: a one-letter /x word after them is a switch. */
-const CMD_SWITCH_VERBS = new Set(['rd', 'rmdir', 'del', 'erase', 'dir']);
-
-/** A command line as words: quotes keep a word together and are then dropped; cmd's ^ escape is removed. Lower case. */
-function words(segment: string): string[] {
-  return (segment.match(/"[^"]*"|'[^']*'|\S+/g) ?? []).map((w) => w.replace(/["'^]/g, '').toLowerCase()).filter(Boolean);
-}
-
-/**
- * The program a word names: `/bin/rm` and `C:\Windows\System32\cmd.exe` are `rm` and `cmd`. A backslash in a word with
- * no drive or slash is sh's escape, not a folder separator: `r\m` runs `rm`.
- */
-const program = (w: string): string => (/^[a-z]:|\//.test(w) ? w : w.replace(/\\/g, '')).replace(/^.*[\\/]/, '').replace(/\.exe$/, '');
-
-/**
- * `.` and `..` folded away, never above the first segment, which stays as written (`/`, `c:`, `~`, `$home`,
- * `%userprofile%`): `/home/x/..` is `/home`, `c:/.` is `c:`, `./a/../b` is `b`. Forward slashes only.
- */
-function collapseDots(p: string): string {
-  const abs = p.startsWith('/');
-  const segs = p.split('/').filter((s, i) => !(abs && i === 0 && s === ''));
-  const out: string[] = [];
-  const anchored = abs || /^(?:[a-z]:|~|\$home|\$\{home\}|%[a-z]+%|\$env:[a-z]+)$/.test(segs[0] ?? '');
-  for (const s of segs) {
-    if (s === '' || s === '.') continue;
-    if (s === '..') { if (out.length > (anchored && !abs ? 1 : 0)) out.pop(); continue; }
-    out.push(s);
-  }
-  return abs ? `/${out.join('/')}` : out.join('/') || '.';
-}
-
-/**
- * A path whose recursive deletion destroys the machine or a person's data: a drive or file-system root, a system
- * folder, a home folder (or its root), each optionally followed by a separator and a wildcard. A folder INSIDE a
- * home or a project is not one of these: deleting `~/proj/build` or `C:\proj\build` is ordinary work.
- */
-function isProtectedTarget(word: string): boolean {
-  const w = collapseDots(word.replace(/[\\/]+\*(?:\.\*)?$/, '/').replace(/\\/g, '/').replace(/\/+$/, '') || '/');
-  if (w === '/' || w === '/*') return true;
-  // Git for Windows' tools (rm.exe is on PATH, so cmd.exe reaches it too), Cygwin and WSL name a drive /c, /cygdrive/c or
-  // /mnt/c: judged as the drive itself. On a POSIX machine a one-letter top-level folder is refused as well, which costs nothing.
-  const drive = /^\/(?:cygdrive\/|mnt\/)?([a-z])(\/.*)?$/.exec(w);
-  if (drive) return isProtectedTarget(`${drive[1]}:${drive[2] ?? ''}`);
-  if (/^\/users(?:\/[^/]+)?$/.test(w)) return true;
-  if (/^[a-z]:\/windows\/system32$/.test(w)) return true;
-  if (/^\/(?:bin|boot|dev|etc|home|lib|lib64|opt|proc|root|sbin|srv|sys|usr|var)$/.test(w)) return true;
-  if (/^\/home\/[^/]+$/.test(w)) return true;
-  if (/^(?:~|\$home|\$\{home\})$/.test(w)) return true;
-  if (/^[a-z]:(?:\*(?:\.\*)?)?$/.test(w)) return true;
-  if (/^[a-z]:\/(?:windows|users|program files|program files \(x86\)|programdata)$/.test(w)) return true;
-  if (/^[a-z]:\/users\/[^/]+$/.test(w)) return true;
-  if (/^%(?:userprofile|systemroot|windir|systemdrive|programfiles|programdata|homedrive%%homepath)%$/.test(w)) return true;
-  if (/^\$env:(?:userprofile|systemroot|windir|systemdrive|programfiles|programdata|homedrive)$/.test(w)) return true;
-  // the same variables as sh writes them (Git Bash inherits the Windows environment)
-  if (/^\$(?:\{(?:userprofile|systemroot|windir|systemdrive|programfiles|programdata|homedrive)\}|(?:userprofile|systemroot|windir|systemdrive|programfiles|programdata|homedrive))$/.test(w)) return true;
-  return false;
-}
-
-/** Programs that run the rest of the line as the command (`sudo rm …` is an rm); their own options are skipped. */
-const WRAPPERS = new Set(['sudo', 'doas', 'command', 'builtin', 'exec', 'env', 'nice', 'nohup', 'time', 'xargs']);
-const WRAPPER_OPTS_WITH_ARG = new Set(['-u', '-g', '-p', '-h', '-n']);
-/** PowerShell options that take a value. */
-const PS_OPTS_WITH_ARG = new Set(['-executionpolicy', '-ep', '-ex', '-windowstyle', '-w', '-outputformat', '-of', '-inputformat', '-if', '-configurationname', '-workingdirectory', '-wd', '-settingsfile', '-version', '-v']);
-/** Shells that run the command line after their command flag (`bash -c`, `cmd /c`, `powershell -Command`). */
-const SHELLS = new Set(['bash', 'sh', 'zsh', 'dash', 'ksh', 'fish', 'cmd', 'powershell', 'pwsh']);
-const SHELL_COMMAND_FLAGS = new Set(['-c', '/c', '/k', '-command']);
-const FIND_VERB = new Set(['find']);
-
-/**
- * The words of a stage that are in command position, i.e. that RUN: the first word, the word after a wrapper and its
- * options, the word after a shell's command flag, and the word after find's -exec. A delete word anywhere else is data
- * (`grep rm /etc`, `findstr del`, a commit message) and never makes a command catastrophic.
- */
-function commandPositions(ws: readonly string[]): number[] {
-  const out: number[] = [];
-  let i = 0;
-  while (i < ws.length) {
-    out.push(i);
-    const p = program(ws[i]!);
-    if (WRAPPERS.has(p)) {
-      i++;
-      while (i < ws.length && (ws[i]!.startsWith('-') || /^[a-z_][a-z0-9_]*=/.test(ws[i]!))) { if (WRAPPER_OPTS_WITH_ARG.has(ws[i++]!)) i++; }
-      continue;
-    }
-    const flag = SHELLS.has(p) ? ws.findIndex((w, j) => j > i && SHELL_COMMAND_FLAGS.has(w)) : -1;
-    if (flag > i) { i = flag + 1; continue; }
-    // PowerShell runs its first plain argument as a command even without -Command (`powershell Format-Volume …`);
-    // its options that take a value (-ExecutionPolicy Bypass) are stepped over, and -File runs a script, not a command
-    if (p === 'powershell' || p === 'pwsh') {
-      let j = i + 1;
-      while (j < ws.length && ws[j]!.startsWith('-')) { if (ws[j] === '-file' || ws[j] === '-f') { j = ws.length; break; } j += PS_OPTS_WITH_ARG.has(ws[j]!) ? 2 : 1; }
-      if (j < ws.length) { i = j; continue; }
-    }
-    break;
-  }
-  ws.forEach((w, j) => { if ((w === '-exec' || w === '-execdir') && j + 1 < ws.length) out.push(j + 1); });
-  return out;
-}
-
-/** Why one command segment (no ; & && || or newline in it) is catastrophic, else undefined. */
-function refuseSegment(segment: string): string | undefined {
-  // a pipeline is judged whole: PowerShell's `gci C:\ | Remove-Item` lists in one stage and deletes in the next
-  const stages = segment.split('|').map(words);
-  const runs = (ws: readonly string[], verbs: ReadonlySet<string>): number[] => commandPositions(ws).filter((i) => verbs.has(program(ws[i]!)));
-  // cmd's own commands take /s, /q, /a:h switches: there such a word is an option, not Git Bash's /s drive
-  const targetsAfter = (ws: readonly string[], i: number): boolean => {
-    const switches = CMD_SWITCH_VERBS.has(program(ws[i]!));
-    return ws.slice(i + 1).some((w) => !(switches && /^\/[a-z?](?::\S*)?$/.test(w)) && isProtectedTarget(w));
-  };
-  for (const ws of stages) {
-    if (runs(ws, DELETE_VERBS).some((i) => targetsAfter(ws, i))) return 'a recursive delete of a drive, a system folder or a home folder';
-    const deletes = ws.includes('-delete') || ws.some((w, i) => (w === '-exec' || w === '-execdir') && DELETE_VERBS.has(program(ws[i + 1] ?? '')));
-    if (deletes && runs(ws, FIND_VERB).some((i) => targetsAfter(ws, i))) return 'deleting everything under a drive, a system folder or a home folder';
-  }
-  if (stages.length > 1) {
-    const lists = stages.slice(0, -1).some((ws) => runs(ws, LIST_VERBS).some((i) => targetsAfter(ws, i)));
-    const deletes = stages.slice(1).some((ws) => runs(ws, DELETE_VERBS).length > 0);
-    if (lists && deletes) return 'a recursive delete of a drive, a system folder or a home folder';
-  }
-  return undefined;
-}
-
-/**
- * The refusal reason when a command is catastrophic, else undefined.
- *
- * Known limit, stated rather than hidden: this is a list of shapes, so a command that builds its payload at run time
- * (`echo <base64> | base64 -d | sh`, a script file it wrote first) is not seen. Only a sandboxed backend closes that;
- * until one exists, a full-access agent with the host shell can do anything the user can.
- */
-/** Whether some command position on the line is a shell or another program that runs text as a command. */
-function runsText(cmd: string): boolean {
-  for (const seg of cmd.split(/&&|\|\||[;&|\n\r]/)) {
-    const ws = words(seg);
-    if (commandPositions(ws).some((i) => { const p = program(ws[i]!); return SHELLS.has(p) || TEXT_RUNNERS.has(p); })) return true;
-  }
-  return false;
-}
-
-export function refuseCatastrophic(cmd: string, depth = 0): string | undefined {
-  const say = (what: string): string => `Refused: this command looks like ${what}, which can destroy the machine or its data. It is blocked for every agent, even full access.`;
-  for (const [re, what] of CATASTROPHIC) {
-    if (re.test(cmd)) return say(what);
-  }
-  // The whole-machine commands count anywhere on the line (behind `start ""`, `call`, `&`, a group, `timeout`…), except
-  // inside quoted text of several words on a line that runs no text: a commit message or a grep pattern naming one is data.
-  // A one-word quote (`format "c:"`) is kept, unquoted, so quoting a target cannot hide it.
-  const scan = (runsText(cmd) ? cmd : cmd.replace(/"([^"]*)"|'([^']*)'/g, (_m, a?: string, b?: string) => (/\s/.test(a ?? b ?? '') ? ' ' : (a ?? b ?? ''))))
-    .replace(/[\^"']/g, '').toLowerCase();
-  for (const [re, what] of [...CATASTROPHIC_COMMANDS, ...CATASTROPHIC_WINDOWS]) {
-    if (re.test(scan)) return say(what);
-  }
-  for (const segment of cmd.split(/&&|\|\||[;&\n\r]/)) {
-    const why = refuseSegment(segment);
-    if (why) return say(why);
-  }
-  // A quoted string keeps a path with spaces together, but it can also carry a whole command to a wrapper
-  // (`powershell -c "Remove-Item …"`, `bash -c '…'`): each such string is judged as a command of its own.
-  if (depth < 2) {
-    // a command substitution runs its text as a command: `echo $(rm -rf /)`, backticks the same
-    for (const m of cmd.matchAll(/\$\(([^()]*)\)|`([^`]*)`/g)) {
-      const inner = refuseCatastrophic(m[1] ?? m[2] ?? '', depth + 1);
-      if (inner) return inner;
-    }
-    // one plain scan per quote (a pattern that also demands whitespace inside backtracks quadratically on an open quote);
-    // only when something on the line runs text (a shell's -c, eval, ssh, a pipe into sh): a commit message is data
-    if (runsText(cmd)) for (const m of cmd.matchAll(/"([^"]*)"|'([^']*)'/g)) {
-      const text = m[1] ?? m[2] ?? '';
-      if (!/\s/.test(text)) continue;
-      const inner = refuseCatastrophic(text, depth + 1);
-      if (inner) return inner;
-    }
-  }
-  return undefined;
-}
-
 async function pruneSpill(dir: string): Promise<void> {
   try {
     const names = (await readdir(dir)).filter((n) => n.endsWith('.txt'));
@@ -497,7 +285,8 @@ export function buildHostToolsServer(ctx: HostToolsCtx): McpSdkServerConfigWithI
     (a) => run(async () => {
       // masked too: a command can rename, copy or print the file; read_file is the masked way to see it
       if (envMode !== 'allow' && mentionsEnvFile(a.command)) throw envMode === 'masked' ? new Error('This agent\'s setting for .env files is "masked": a command may not name one (it could copy, move or print it). Use read_file for a view with the values hidden, or change the setting in the agent\'s Shell settings.') : envRefusal('name');
-      const bad = refuseCatastrophic(a.command);
+      // the floor again, in this shell's own reading (cmd.exe on Windows); a command over the reading limit was carded by the engine
+      const bad = a.command.length <= MAX_READABLE ? refuseCatastrophic(a.command, process.platform === 'win32' ? 'cmd' : 'sh') : undefined;
       if (bad) throw new Error(bad);
       const cwd = a.cwd === undefined ? ctx.rootDir : resolveWithin(ctx.rootDir, a.cwd);
       const r = await ctx.backend.execute({ cmd: a.command, cwd, timeoutMs: (a.timeoutSeconds ?? limits.timeoutSeconds) * 1000 });

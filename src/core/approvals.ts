@@ -158,12 +158,13 @@ export class ApprovalBroker {
   request(
     taskId: string, agentId: string, toolName: string, input: Record<string, unknown>,
     origin?: ApprovalRequest['origin'],
-    opts: { onTimeout?: () => void; /** A written-out card text (a room request), instead of the compact JSON of the input. */ summary?: string } = {},
+    opts: { onTimeout?: () => void; /** A written-out card text (a room request), instead of the compact JSON of the input. */ summary?: string; /** No "Remember" on this card. */ noRemember?: boolean } = {},
   ): Promise<boolean> {
     const req: ApprovalRequest = {
       id: newId('apr'), taskId, agentId, toolName,
       summary: opts.summary ?? summarizeToolInput(toolName, input), input, at: nowIso(),
       ...(origin ? { origin } : {}),
+      ...(opts.noRemember ? { noRemember: true } : {}),
     };
     return new Promise<boolean>((resolvePromise) => {
       const timer = setTimeout(() => { try { opts.onTimeout?.(); } catch { /* advisory */ } this.settle(req.id, false); }, this.timeoutMs);

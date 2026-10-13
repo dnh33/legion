@@ -373,6 +373,8 @@ export interface ApprovalRequest {
   at: string;
   /** Present when the requesting task was woken by another bot: who asked, in which room. */
   origin?: { roomId: string; fromAgentId: string; hop: number };
+  /** The card offers no "Remember": the core cannot read what the command will run, so no rule could be scoped safely. */
+  noRemember?: boolean;
 }
 
 /** MCP server entry — same shape as Claude Code's .mcp.json entries. */
