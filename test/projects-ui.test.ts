@@ -191,3 +191,14 @@ test('B2 the rail row and the composer show the "Also working" line; it never bl
   const busy = readFileSync(join(root, 'ui', 'src', 'chat', 'busy.ts'), 'utf8');
   assert.doesNotMatch(busy, /liveElsewhere|alsoWorking/, 'busy rules unchanged (decision B1: no block)');
 });
+
+test('C1 followRemote: an untouched editor follows a change made elsewhere; an edited one keeps the owner\'s text', async () => {
+  const { followRemote } = await import('../ui/src/projects/projectsLogic.js');
+  assert.equal(followRemote('old', 'old', 'new'), 'new', 'untouched: follows');
+  assert.equal(followRemote('mine', 'old', 'new'), 'mine', 'edited: kept');
+  assert.equal(followRemote('old', 'old', 'old'), 'old');
+  const root = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
+  const view = readFileSync(join(root, 'ui', 'src', 'projects', 'ProjectView.tsx'), 'utf8');
+  assert.doesNotMatch(view, /setText\(\(t\) => \(t === project\.instructions \? t : t\)\)/, 'the no-op is gone');
+  assert.match(view, /followRemote\(t, prev\.current\.instructions, project\.instructions\)/);
+});

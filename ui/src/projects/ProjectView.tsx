@@ -1,10 +1,10 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { PROJECT_LIMITS } from '../../../src/shared/projects';
 import type { Project } from '../../../src/shared/projects';
 import { ensureRoomList, openRoom, useRooms } from '../rooms/roomsStore';
 import { loadProjectTasks, newTask, selectAgent, selectTask, setView, useStore } from '../store';
 import { archiveProject, assignRoom, changeMembers, chooseFolder, closeProjectPage, saveProject, setProjectFilter, useDefaultFolder } from './projectsStore';
-import { assignableRooms, instructionsCounter, projectLabel, roomOutOfProject, roomsOf, statusLine } from './projectsLogic';
+import { assignableRooms, followRemote, instructionsCounter, projectLabel, roomOutOfProject, roomsOf, statusLine } from './projectsLogic';
 import { BoardPanel } from './board/BoardPanel';
 import './projects.css';
 
@@ -35,8 +35,12 @@ function ProjectPage({ project }: { project: Project }) {
   const [busy, setBusy] = useState(false);
   const [roomPick, setRoomPick] = useState('');
   // keep the editors in step with changes from elsewhere (another window, a confirmation) while nothing is being edited
-  useEffect(() => { setName((n) => (n === project.name || !n.trim() ? project.name : n)); }, [project.name]);
-  useEffect(() => { setText((t) => (t === project.instructions ? t : t)); }, [project.instructions]);
+  const prev = useRef(project);
+  useEffect(() => {
+    setName((n) => (!n.trim() ? project.name : followRemote(n, prev.current.name, project.name)));
+    setText((t) => followRemote(t, prev.current.instructions, project.instructions));
+    prev.current = project;
+  }, [project.name, project.instructions]);
 
   const archived = project.status === 'archived';
   const inTasks = useMemo(() => tasks.filter((t) => t.projectId === project.id && !t.archived).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)), [tasks, project.id]);

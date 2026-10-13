@@ -151,3 +151,6 @@ export function alsoWorkingLabel(rows: Pick<Task, 'projectId' | 'title'>[], proj
   const where = first.projectId ? (projects.find((p) => p.id === first.projectId)?.name ?? 'a removed project') : 'no project';
   return `Also working in ${where}: ${clipTitle(first.title)}${rows.length > 1 ? ` (+${rows.length - 1} more)` : ''}`;
 }
+
+/** An editor's text after the saved value changed elsewhere: untouched (still the old saved value) follows; edited keeps the owner's text. */
+export const followRemote = (local: string, prevRemote: string, nextRemote: string): string => (local === prevRemote ? nextRemote : local);
