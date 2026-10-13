@@ -94,3 +94,14 @@ test('parse is tolerant of decoration but strict about the contract', () => {
   assert.throws(() => parseMatchAnswer('', []), /PICK line/);
   assert.throws(() => parseMatchAnswer('PICK', []), /PICK line/, 'an empty pick is not a pick');
 });
+
+test('the matching prompt says what each bot can do on the owner\'s computer, and that work needing a shell goes only to a bot with one', () => {
+  const withTools: BotCatalogEntry[] = [
+    { ...bots[0]!, tools: 'shell and file tools (Claude Code)' },
+    { ...bots[1]!, tools: 'no shell and no file tools: give it questions, writing and review, not commands or edits' },
+  ];
+  const text = matchPrompt({ ...input, catalog: withTools });
+  assert.match(text, /builder \| Builder \| model auto \| access tier full \| tools: shell and file tools \(Claude Code\)/);
+  assert.match(text, /herald \| Herald \| .*tools: no shell and no file tools/);
+  assert.match(text, /needs commands run or files changed.*only to a bot with a shell/i);
+});

@@ -8,6 +8,7 @@ import { fullResultPointer, ResultStore } from './result-store.js';
 import { briefBudget, renderBrief, verdictOf } from './brief.js';
 import type { Brief } from './brief.js';
 import { MAX_SENDS_PER_GOAL, SendBackLedger } from './sendback-ledger.js';
+import { toolsOf } from './agent-reach.js';
 import type { EventBus } from './bus.js';
 import type { Store } from './store.js';
 
@@ -179,6 +180,8 @@ export class Bridge {
       const thread = this.findPair(callerAgentId, a.id) ? 'thread' : 'no-thread';
       // the whole description: a role's last clause is often its limit ("Reports, never upgrades."), and a cut one routes work to a bot that may not do it
       lines.push(`${a.id} | ${a.name} | ${oneLine(a.description)} | ${status} | ${thread}`);
+      // what it can do on the owner's computer: a lead must not hand commands or file edits to an agent without a shell
+      lines.push(`  tools: ${toolsOf(a)}`);
       const card = cardOf(a);
       if (card) lines.push(`  ${card}`);
     }
