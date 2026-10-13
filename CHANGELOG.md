@@ -4,6 +4,15 @@ All notable changes are recorded here. The format follows [Keep a Changelog](htt
 
 ## [Unreleased]
 
+## [0.2.6-z] - 2026-10-13
+
+### Fixed
+
+- **Stray typing no longer answers an approval.** In a chat, pressing A with nothing focused allowed the waiting
+  approval card, even when the card was far below the part of the thread on screen. Now A allows a card only when all
+  of it is in view, it has been on screen for a second, and no other key was pressed in that second. On a card that is
+  not in view, A scrolls to it first. D follows the same one-second rule, so the "d" in a stray word denies nothing.
+
 ## [0.2.6-y] - 2026-10-13
 
 ### Added
