@@ -27,3 +27,53 @@ test('a provider run in a project carries the project section (name, instruction
     assert.match(system, /PROJECT-RULE-MARKER: write tests first\./);
   } finally { await f.close(); }
 });
+
+const systemOf = (f: { requests: Array<{ url: string; body: any }> }): string => {
+  const sent = f.requests.filter((r) => r.url.endsWith('/chat/completions')).at(-1);
+  return String(sent!.body.messages.find((m: { role: string }) => m.role === 'system')?.content ?? '');
+};
+
+test('a provider run in a project hands the project to the modules (board digest, Library briefing), as a Claude run does', async () => {
+  const f = await startFake((_r, res) => replyText(res, 'done'));
+  try {
+    const root = cleanupTemp('legion-prov-proj2-');
+    const projects = new ProjectStore(join(root, 'data'), join(root, 'ws'));
+    const p = projects.setMembers(projects.create({ name: 'Atlas' }).id, ['a1']);
+    const h = setup(f, { agent: { approval: 'full' }, projects });
+    const seen: Array<string | undefined> = [];
+    h.engine.setModules([{ id: 'spy', preamble: (_a, ctx) => { if (ctx) seen.push(ctx.projectId); return ''; } }]);
+    const t = await run(h, 'hello', { projectId: p.id });
+    assert.equal(t.status, 'done', t.error);
+    assert.deepEqual(seen, [p.id]);
+  } finally { await f.close(); }
+});
+
+test('a provider run queued in a project that is lost before it starts says so in the thread, once', async () => {
+  const f = await startFake((_r, res) => replyText(res, 'done'));
+  try {
+    const root = cleanupTemp('legion-prov-proj3-');
+    const projects = new ProjectStore(join(root, 'data'), join(root, 'ws'));
+    const p = projects.setMembers(projects.create({ name: 'Atlas' }).id, ['a1']);
+    const h = setup(f, { agent: { approval: 'full' }, projects });
+    const queued = h.engine.startTask({ agentId: 'a1', prompt: 'x', source: 'ui', projectId: p.id } as any);
+    projects.setMembers(p.id, []);
+    await h.engine.waitFor(queued.id, 16000);
+    const notes = h.store.listMessages(queued.id).filter((m: { role: string }) => m.role === 'system').map((m: { text: string }) => m.text);
+    assert.equal(notes.length, 1, notes.join(' | '));
+    assert.match(notes[0]!, /This run is not in project "Atlas": Alpha is not a member of it any more/);
+  } finally { await f.close(); }
+});
+
+test('a provider run without the agent shell is not told it may edit files in the project folder', async () => {
+  const f = await startFake((_r, res) => replyText(res, 'done'));
+  try {
+    const root = cleanupTemp('legion-prov-proj4-');
+    const projects = new ProjectStore(join(root, 'data'), join(root, 'ws'));
+    const p = projects.setMembers(projects.create({ name: 'Atlas' }).id, ['a1']);
+    const h = setup(f, { agent: { approval: 'full' }, projects });
+    await run(h, 'hello', { projectId: p.id });
+    const system = systemOf(f);
+    assert.match(system, /Project folder: .*this run cannot open files there/);
+    assert.doesNotMatch(system, /you may read and write files there/);
+  } finally { await f.close(); }
+});
