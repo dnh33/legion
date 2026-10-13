@@ -34,6 +34,11 @@ All notable changes are recorded here. The format follows [Keep a Changelog](htt
 - **Projects show where things go.** A queued message keeps the project you queued it in. The thread header, task tabs
   and History show a task's project. The composer says "New task in: <project>". Removing a member or archiving a
   project first says what it touches. A run queued in a project that is archived or loses the agent says so.
+- **OpenRouter works on a fresh install as soon as you save its key.** Settings showed OpenRouter as on, with its models
+  in the picker, but every run failed with "The provider openrouter is not set up any more" until the provider had been
+  edited and saved once. Runs now use the same built-in OpenRouter settings that Settings shows.
+- **A provider model shows as "OpenRouter · vendor/model" everywhere**, not as its raw id, in the composer, on replies,
+  in task tabs and in recent tasks.
 - **MiMo 2.6 Pro and MiMo 2.6 Flash lead the OpenRouter models.** A new OpenRouter setup offers
   `xiaomi/mimo-v2.6-pro` (reasoning) and `xiaomi/mimo-v2.6-flash` (fast everyday work) first, above DeepSeek. A list you
   already saved keeps its own order.
