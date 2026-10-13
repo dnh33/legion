@@ -33,6 +33,9 @@ If the answer needs a second read, it is wrong. Cut it.
    need a persona to tell you a button now works.
 9. **Write it before you cut the release, not after.** Notes written at cut time are checked by
    `scripts/release-preflight.mjs`, which fails the release when they are missing or over the cap.
+10. **Put any `@name` in backticks on the GitHub release page.** GitHub turns a bare `@everyone`
+    into a mention of a real account and lists it under "Contributors". This happened on 0.2.6.
+    After publishing, open the rendered release page and check the contributor list.
 
 ## Shape
 
