@@ -275,8 +275,15 @@ const GLOBAL = new WeakMap<RegExp, RegExp>();
  * quotes keep spaces inside a word, and are then dropped; cmd's ^ escape is removed. Lower case.
  */
 function words(segment: string): string[] {
-  return (segment.match(/(?:"[^"]*"|'[^']*'|[^\s"'])+/g) ?? []).map((w) => w.replace(/["'^]/g, '').toLowerCase()).filter(Boolean);
+  return (segment.match(/(?:"[^"]*"|'[^']*'|[^\s"'])+/g) ?? []).map((w) => undoubled(w.replace(/["'^]/g, '').toLowerCase())).filter(Boolean);
 }
+
+/**
+ * Git Bash reads a word that starts with one slash as a path when it hands it to a Windows program, so a Windows switch
+ * is written with two there: `cmd //c`, `robocopy //mir`, `rd //s`. Read as the switch it is. A word with a further
+ * slash (`//server/share`) is a path and stays as written.
+ */
+const undoubled = (w: string): string => (/^\/\/[a-z?][\w:?.-]*$/.test(w) ? w.slice(1) : w);
 
 /**
  * The program a word names: `/bin/rm` and `C:\Windows\System32\cmd.exe` are `rm` and `cmd`. A backslash in a word with
@@ -331,7 +338,7 @@ function argWords(stage: string): Arg[] {
     if (/^\d?>/.test(t)) continue;
     // find's -exec terminator (\; or ';') is the end of the command it runs, not a `\` drive root
     if (/^(?:\\;|';'|";")$/.test(t) && out.some((a) => /^-(?:exec|execdir|ok|okdir)$/.test(a.w))) continue;
-    const raw = t.replace(/["'^]/g, '').toLowerCase();
+    const raw = undoubled(t.replace(/["'^]/g, '').toLowerCase());
     if (raw) out.push({ raw, w: clean(raw) });
   }
   return out;

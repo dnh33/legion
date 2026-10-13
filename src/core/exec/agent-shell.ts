@@ -17,8 +17,9 @@
  *  - usr\bin\bash.exe is started directly, with what Git's bin\bash.exe wrapper adds (MINGW64 and its PATH), so the
  *    process Node knows is bash itself. A background job (`sleep 60 &`) leaves the Windows process tree, so taskkill /T
  *    misses it and it holds the output open; bash's own process group still holds it, and is killed by that.
- *  - MSYS_NO_PATHCONV and MSYS2_ARG_CONV_EXCL stop MSYS rewriting arguments that look like paths (`cmd /c`, `tasklist
- *    /FO`); Windows programs then take C:/ paths, which the tool description says.
+ *  - MSYS path conversion stays on, as in Git Bash's default and Claude Code's own Bash tool: `node /tmp/x.js` and
+ *    `node "$(pwd)/x.js"` reach a Windows program as C:/ paths (with it off, both failed). Its cost is that a Windows
+ *    switch is read as a path (`cmd /c` became `cmd C:/`); the tool description says to double the slash (`cmd //c`).
  */
 import { spawnSync } from 'node:child_process';
 import { statSync } from 'node:fs';
@@ -92,7 +93,7 @@ export const floorShell = (s: AgentShell): ShellKind => (s.kind === 'cmd' ? 'cmd
 /** The shell tool's description: which shell, its syntax, and what does not carry over between calls. */
 export function shellToolDescription(s: AgentShell): string {
   const tail = 'Each call starts a fresh shell: cd and variables do not carry over (use the cwd argument). A short timeout is enforced; the command is killed with everything it started if it overruns.';
-  if (s.kind === 'git-bash') return `Run a command in Git Bash (bash on Windows; not cmd.exe or PowerShell) and return its exit code and output. Use bash syntax. Windows programs take paths as C:/Users/name (forward slashes); bash itself also reads /c/Users/name. ${tail}`;
+  if (s.kind === 'git-bash') return `Run a command in Git Bash (bash on Windows; not cmd.exe or PowerShell) and return its exit code and output. Use bash syntax and forward slashes in paths (C:/Users/name or /c/Users/name; both reach Windows programs). A Windows program's switch that starts with / needs it doubled, or it is read as a path: cmd //c ver, tasklist //FO CSV. ${tail}`;
   if (s.kind === 'cmd') return `Run a command in cmd.exe (Windows Command Prompt; Git for Windows is not installed, so there is no bash) and return its exit code and output. Use cmd syntax: & or && to chain, %NAME% for variables. One line only: cmd runs just the first line of a multi-line command, so a command with a line break is refused; chain with & or write a script file and run it. ${tail}`;
   return `Run a command in /bin/sh (POSIX shell) and return its exit code and output. ${tail}`;
 }
@@ -112,8 +113,6 @@ export function shellLaunch(s: AgentShell, command: string, env: Record<string, 
   // what Git's bin\bash.exe wrapper adds, so bash finds its own tools (ls, grep, git) first
   out[pathKey] = [win32.join(s.root, 'mingw64', 'bin'), win32.join(s.root, 'usr', 'bin'), envGet(env, 'PATH')].filter(Boolean).join(';');
   out.MSYSTEM ??= 'MINGW64';
-  out.MSYS_NO_PATHCONV = '1';
-  out.MSYS2_ARG_CONV_EXCL = '*';
   out[COMMAND_VAR] = command;
   return { file: s.bash, args: ['-c', `__c=$${COMMAND_VAR}; unset ${COMMAND_VAR}; eval "$__c"`], shell: false, env: out };
 }

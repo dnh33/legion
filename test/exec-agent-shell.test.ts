@@ -58,7 +58,7 @@ test('cmd.exe refuses a multi-line command (it would run only the first line); b
   assert.equal(shellRefusal({ kind: 'sh' }, two), undefined);
 });
 
-test('Git Bash gets the command in a variable (never on the command line), its own tools first on PATH, and no path rewriting', () => {
+test('Git Bash gets the command in a variable (never on the command line), its own tools first on PATH, and the Git Bash path conversion left on', () => {
   const s: AgentShell = { kind: 'git-bash', root: 'C:\\G', bash: 'C:\\G\\usr\\bin\\bash.exe' };
   const l = shellLaunch(s, 'dir \\\\server\\share', { Path: 'C:\\Windows', HOME: 'x' });
   assert.equal(l.file, s.bash);
@@ -68,8 +68,8 @@ test('Git Bash gets the command in a variable (never on the command line), its o
   assert.match(l.args[1]!, new RegExp(`unset ${SHELL_COMMAND_VAR}; eval`));
   assert.equal(l.env.Path, 'C:\\G\\mingw64\\bin;C:\\G\\usr\\bin;C:\\Windows', 'one PATH, under its own spelling');
   assert.equal(l.env.PATH, undefined);
-  assert.equal(l.env.MSYS_NO_PATHCONV, '1');
-  assert.equal(l.env.MSYS2_ARG_CONV_EXCL, '*');
+  assert.equal(l.env.MSYS_NO_PATHCONV, undefined, 'as in Claude Code\'s Bash tool: /tmp and $(pwd) paths reach Windows programs');
+  assert.equal(l.env.MSYS2_ARG_CONV_EXCL, undefined);
   assert.equal(l.env.MSYSTEM, 'MINGW64');
   // cmd.exe and sh: as before, through Node's shell
   assert.deepEqual(shellLaunch({ kind: 'cmd' }, 'echo hi', { A: '1' }), { file: 'echo hi', args: [], shell: true, env: { A: '1' } });
@@ -85,11 +85,21 @@ test('Git Bash runs the exact text the floor read: double backslashes, UNC paths
     const r = await b.execute({ cmd: `cat <<'EOF'\n${t}\nEOF`, timeoutMs: 20_000 });
     assert.equal(r.output.replace(/\r?\n$/, ''), t, JSON.stringify(t));
   }
-  const env = await b.execute({ cmd: `echo "[$${SHELL_COMMAND_VAR}][$MSYS_NO_PATHCONV]"; exit 3`, timeoutMs: 20_000 });
+  const env = await b.execute({ cmd: `echo "[$${SHELL_COMMAND_VAR}][$MSYSTEM]"; exit 3`, timeoutMs: 20_000 });
   assert.equal(env.exit_code, 3);
-  assert.match(env.output, /^\[\]\[1\]/, 'the command variable is gone before the command runs');
+  assert.match(env.output, /^\[\]\[MINGW64\]/, 'the command variable is gone before the command runs');
   const multi = await b.execute({ cmd: 'for i in 1 2; do\n  echo n$i\ndone | tr "\\n" ,', timeoutMs: 20_000 });
   assert.equal(multi.output.trim(), 'n1,n2,');
+});
+
+test('Git Bash: a bash path reaches a Windows program as a Windows path, a doubled switch reaches cmd, and a long command arrives whole', { skip: skipReal }, async () => {
+  const b = new DirectHostBackend({ shell: real });
+  const p = await b.execute({ cmd: 'node -e "console.log(process.argv[1])" /tmp/x', timeoutMs: 20_000 });
+  assert.match(p.output.trim(), /^[A-Za-z]:[\\/]/, p.output);
+  assert.match((await b.execute({ cmd: 'cmd //c echo via-cmd', timeoutMs: 20_000 })).output, /via-cmd/);
+  // the floor's reading limit is 10,000 characters; a longer command is carded, and once approved must still run whole
+  const long = `echo ${'x'.repeat(30_000)} | wc -c`;
+  assert.equal((await b.execute({ cmd: long, timeoutMs: 20_000 })).output.trim(), '30001');
 });
 
 test('Git Bash: a timeout ends the call promptly and kills what the command left in the background', { skip: skipReal }, async () => {
@@ -115,4 +125,13 @@ test('a cancel ends a Git Bash run the same way', { skip: skipReal }, async () =
   const r = await p;
   assert.equal(r.exit_code, 130);
   assert.ok(Date.now() - t0 < 8000, `ended after ${Date.now() - t0} ms`);
+});
+
+test('the floor reads a Git Bash doubled switch (cmd //c, robocopy //MIR, rd //s) as the switch it is', async () => {
+  const { refuseCatastrophic } = await import('../src/core/exec/shell-floor.js');
+  for (const c of ['cmd //c rd /s /q C:\\', 'cmd //c del /s /q C:\\Users', 'robocopy //MIR C:/empty C:/Users', 'cmd //c rd //s //q C:\\Windows', 'powershell //c "Remove-Item -Recurse -Force C:\\Windows"']) {
+    assert.ok(refuseCatastrophic(c, 'sh'), c);
+  }
+  // a path written with two slashes is a path, not a switch; ordinary work still runs
+  for (const c of ['ls //server/share', 'rm -rf ./build', 'cmd //c ver', 'tasklist //FO CSV']) assert.equal(refuseCatastrophic(c, 'sh'), undefined, c);
 });
