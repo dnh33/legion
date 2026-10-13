@@ -1,0 +1,6 @@
+Legion 0.2.6-u: a security fix for agents with a shell on your computer.
+
+- Legion's safety floor refuses any command that would delete a whole drive, a system folder or a home folder, in every approval mode. It now also knows the Git Bash names for your drives: rm -rf /c, /c/Users, /c/Windows and "$USERPROFILE" are refused like C:\. With Git for Windows installed, these could reach your C: drive from an agent's shell.
+- Deleting a folder inside a drive or a project still runs as before.
+
+Installs over 0.2.5-o and later. Full detail in CHANGELOG.md.

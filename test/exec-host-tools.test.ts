@@ -168,6 +168,18 @@ test('a protected target is recognised however it is spelled: dot segments, macO
     assert.equal(refuseCatastrophic(cmd), undefined, `allowed: ${cmd}`);
 });
 
+test('Git Bash drive paths are drives: /c, /c/Users, /cygdrive/c and /mnt/c are refused like C:\\ (Git\'s rm runs from cmd.exe too)', () => {
+  // Git for Windows puts its Unix tools (rm.exe) on PATH, and they read /c as the C: drive, from Git Bash AND from cmd.exe
+  for (const cmd of [
+    'rm -rf /c', 'rm -rf /c/', 'rm -rf /c/*', 'rm -rf /d/*', 'rm -rf /C', 'rm -rf /c/Users', 'rm -rf /c/Users/Danie', 'rm -rf /c/Windows',
+    'rm -rf "/c/Program Files"', 'rm -rf /c/ProgramData', 'rm -rf /c/Windows/System32', 'rm -rf /cygdrive/c', 'rm -rf /mnt/c/', 'rm -rf /c/Users/Danie/..',
+    'rm -rf "$USERPROFILE"', 'rm -rf $USERPROFILE/', 'rm -rf ${USERPROFILE}', 'rm -rf $SYSTEMROOT', 'rm -rf "${PROGRAMFILES}"', 'rm -rf $WINDIR',
+  ]) assert.ok(refuseCatastrophic(cmd), `refused: ${cmd}`);
+  // a folder INSIDE a drive, a home or a project stays ordinary work, in the Git Bash spelling too
+  for (const cmd of ['rm -rf /c/work/site/dist', 'rm -rf /d/bots/legion/node_modules', 'rm -rf /c/Users/Danie/proj/build', 'rm -rf "$USERPROFILE/proj/build"', 'rm -rf /tmp/x', 'rm -rf /mnt/c/work/out'])
+    assert.equal(refuseCatastrophic(cmd), undefined, `allowed: ${cmd}`);
+});
+
 test('a command substitution is a command too: $(…) and backticks are judged', () => {
   for (const cmd of ['echo $(rm -rf /)', 'echo `rm -rf ~`', 'x=$(sudo rm -rf /etc)']) assert.ok(refuseCatastrophic(cmd), `refused: ${cmd}`);
   assert.equal(refuseCatastrophic('echo $(date) `whoami`'), undefined);
