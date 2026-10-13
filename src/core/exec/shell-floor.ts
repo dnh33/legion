@@ -258,7 +258,8 @@ function closingParen(s: string, from: number, shell: ShellKind, budget: { chars
 /** Splits at `re` where it matches OUTSIDE quotes, comments and heredocs, as the shell reads a line (`node -e "a; b"` is one command). */
 function splitOutside(s: string, re: RegExp, shell: ShellKind = 'sh'): string[] {
   const masked = maskQuotes(s, shell);
-  const g = new RegExp(re.source, re.flags.includes('g') ? re.flags : `${re.flags}g`);
+  let g = GLOBAL.get(re);
+  if (!g) { g = new RegExp(re.source, re.flags.includes('g') ? re.flags : `${re.flags}g`); GLOBAL.set(re, g); }
   const parts: string[] = [];
   let last = 0;
   for (const m of masked.matchAll(g)) { parts.push(s.slice(last, m.index)); last = m.index! + m[0].length; }
@@ -266,6 +267,8 @@ function splitOutside(s: string, re: RegExp, shell: ShellKind = 'sh'): string[] 
   return parts;
 }
 const PIPE = /\|/;
+/** The global copy of each splitting pattern, made once (a long command is split thousands of times). */
+const GLOBAL = new WeakMap<RegExp, RegExp>();
 
 /**
  * A command line as words, the way a shell joins them: quoted and unquoted parts that touch are ONE word (`"r"m` is `rm`),
@@ -280,11 +283,17 @@ function words(segment: string): string[] {
  * no drive or slash is sh's escape, not a folder separator: `r\m` runs `rm`.
  */
 const program = (w: string): string => {
+  let p = PROGRAMS.get(w);
+  if (p !== undefined) return p;
   // a module-qualified cmdlet (Microsoft.PowerShell.Management\Remove-Item) is the cmdlet
   const qualified = /^[a-z][\w]*\.[\w.]+\\([a-z][\w-]*)$/.exec(w);
-  if (qualified) return qualified[1]!;
-  return (/^[a-z]:|\//.test(w) ? w : w.replace(/\\/g, '')).replace(/^.*[\\/]/, '').replace(/\.(?:exe|com|cmd|bat)$/, '');
+  p = qualified ? qualified[1]! : (/^[a-z]:|\//.test(w) ? w : w.replace(/\\/g, '')).replace(/^.*[\\/]/, '').replace(/\.(?:exe|com|cmd|bat)$/, '');
+  if (PROGRAMS.size > 4096) PROGRAMS.clear();
+  PROGRAMS.set(w, p);
+  return p;
 };
+/** Words already read as programs: a long command repeats the same few words many times. */
+const PROGRAMS = new Map<string, string>();
 
 /**
  * A word as a verb or a target: no group or subshell brackets, no cmd `@`, no redirect glued on (`C:\>nul`). A closing
@@ -801,7 +810,7 @@ export function refuseCatastrophic(raw: string, shell: ShellKind = 'sh', depth =
       if (inner) return inner;
     }
     // a command substitution runs its text as a command: `echo $(rm -rf /)`, backticks the same
-    for (const t of substitutions(cmd, shell)) {
+    for (const t of new Set(substitutions(cmd, shell))) {
       const inner = refuseCatastrophic(t, shell, depth + 1);
       if (inner) return inner;
     }
@@ -945,7 +954,7 @@ export function unjudgeableCommand(cmd: string, shell: ShellKind = 'sh', depth =
     if (riskyMix(segment, shell)) return RISKY;
   }
   // a substitution's own text is a command too
-  for (const t of substitutions(text, shell)) {
+  for (const t of new Set(substitutions(text, shell))) {
     const inner = unjudgeableCommand(t, shell, depth + 1);
     if (inner) return inner;
   }
