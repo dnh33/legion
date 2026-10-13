@@ -253,7 +253,8 @@ const LEGION_CREDENTIAL_ENV = new Set(['ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKE
 /**
  * The environment the agent shell (host tools) starts from. Legion's own credentials are not the agent's: the Anthropic
  * key and token, the boat key, and any variable whose value holds the bearer token or a configured key are left out, so a
- * command (`set`, `env`, a curl that sends a variable) does not get them from its environment. Everything else is kept,
+ * command (`set`, `env`, a curl that sends a variable) does not get them from its environment. Legion's own control
+ * variables (the LEGION_ namespace) are left out too. Everything else is kept,
  * including credentials the owner set up for the work itself (a GITHUB_TOKEN for git push): the approval card is the
  * check on those.
  *
@@ -267,6 +268,8 @@ export function buildHostShellEnv(config: LegionConfig): Record<string, string> 
   const out: Record<string, string> = {};
   for (const [k, v] of Object.entries(scrubHostSessionEnv({ ...process.env }))) {
     if (v === undefined || LEGION_CREDENTIAL_ENV.has(k.toUpperCase())) continue;
+    // LEGION_* steers the core itself (LEGION_PORT, LEGION_HOME, LEGION_TEST_MODE, ...): a Legion or a test the agent starts must not inherit it
+    if (/^LEGION_/i.test(k)) continue;
     const lower = v.toLowerCase();
     if (secrets.some((s) => lower.includes(s))) continue;
     out[k] = v;
