@@ -1,0 +1,5 @@
+Legion 0.2.6-z: a safety fix for the approval shortcut.
+
+- Pressing A with nothing focused could allow a waiting approval card that was not on screen. Now A allows a card only when you can see all of it, and only as a single deliberate press: typing a word on the page answers nothing. On a card that is not on screen, A scrolls to it first.
+
+Installs over 0.2.5-o and later. Full detail in CHANGELOG.md.
