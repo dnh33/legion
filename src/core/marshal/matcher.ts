@@ -16,11 +16,13 @@ import type { AssignmentRecord, MatchInput, ProseMatcher } from './match.js';
 export const MATCH_TIMEOUT_MS = 5 * 60_000;
 
 export interface MatcherDeps {
-  engine: { startTask(p: { agentId: string; prompt: string; source: 'ui' }): Task };
+  engine: { startTask(p: { agentId: string; prompt: string; source: 'ui'; projectId?: string }): Task };
   bus: EventBus;
   store: { getTask(taskId: string): Task | undefined };
   /** Who does the matching: the Marshal by default. */
   matcherAgentId?: string;
+  /** May the matcher run in this project (active, and the matcher a member)? Without it, the run is filed under no project. */
+  canRunIn?(projectId: string, agentId: string): boolean;
   timeoutMs?: number;
 }
 
@@ -76,7 +78,10 @@ export function engineMatcher(deps: MatcherDeps): ProseMatcher {
     const off = deps.bus.on((ev) => { if (ev.type === 'task.updated' && ev.task?.id === taskId && !isLive(ev.task)) answer(ev.task); });
     const timer = setTimeout(() => stop(() => reject(new Error(`the matcher did not answer within ${Math.round(timeoutMs / 1000)} seconds`))), timeoutMs);
     try {
-      const task = deps.engine.startTask({ agentId: deps.matcherAgentId ?? LEAD_AGENT_ID, prompt: matchPrompt(input), source: 'ui' });
+      // filed under the item's project when the matcher may run there; a named project it is not in would refuse the run
+      const agentId = deps.matcherAgentId ?? LEAD_AGENT_ID;
+      const pid = input.projectId && deps.canRunIn?.(input.projectId, agentId) ? input.projectId : undefined;
+      const task = deps.engine.startTask({ agentId, prompt: matchPrompt(input), source: 'ui', ...(pid ? { projectId: pid } : {}) });
       taskId = task.id;
       const current = deps.store.getTask(taskId);
       if (current && !isLive(current)) answer(current);

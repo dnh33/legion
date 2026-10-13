@@ -88,7 +88,7 @@ export function createBoardModule(deps: ModuleDeps, opts: BoardModuleOpts): Boar
   // The run port carries NO model. `engine.startTask({ agentId, prompt, source: 'ui', projectId })` asked for
   // no model at all resolves to the bot's own chosen setting, so a dispatch structurally cannot reroute where
   // a run runs — the port has no slot to put a model in.
-  const matcher = engineMatcher({ engine: deps.engine, bus: deps.bus, store: deps.store });
+  const matcher = engineMatcher({ engine: deps.engine, bus: deps.bus, store: deps.store, canRunIn: (pid, agentId) => !!projects.forRun(pid, agentId) });
   const portsFor = (pid: string): MarshalPorts => ({
     board,
     agents: () => deps.store.listAgents(),
