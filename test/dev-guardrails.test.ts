@@ -50,6 +50,14 @@ test('package.json runs the guard first in test and test:run, tidy is wired, and
   assert.doesNotMatch(ci, /npm (run )?test/);
 });
 
+test('the local full suite has the same per-file timeout as CI, so one hung test fails by name instead of blocking the run', () => {
+  const pkg = JSON.parse(readFileSync(root + 'package.json', 'utf8'));
+  const ci = readFileSync(root + '.github/workflows/ci.yml', 'utf8');
+  const ciTimeout = /--test-timeout=(\d+)/.exec(ci)?.[1];
+  assert.ok(ciTimeout, 'CI sets a per-file timeout');
+  for (const s of ['test', 'test:run']) if (pkg.scripts[s]?.includes('node --test')) assert.match(pkg.scripts[s], new RegExp(`node --test --test-timeout=${ciTimeout} `), s);
+});
+
 const FULL_WIN = '"C:\\Program Files\\nodejs\\node.exe" --test "dist\\test\\*.test.js"';
 const FULL_POSIX = 'node --test --test-timeout=180000 --test-shard=1/4 dist/test/*.test.js';
 

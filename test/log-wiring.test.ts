@@ -96,7 +96,8 @@ test('bus events: run.finished and approvals carry fixed fields only, never text
   const bus = new EventBus();
   let clock = 1000;
   const detach = attachLogEvents(bus, sink, () => clock);
-  const task = (status: Task['status']): Task => ({ id: 't1', agentId: 'scout', title: MARKER, status, source: 'ui', requestedModel: 'auto', model: 'sonnet', turns: 7, result: MARKER, createdAt: 'x', updatedAt: 'x' } as Task);
+  // a conversation with 3 turns before this run: the run's own turns are what it adds (7 - 3), not the conversation total
+  const task = (status: Task['status']): Task => ({ id: 't1', agentId: 'scout', title: MARKER, status, source: 'ui', requestedModel: 'auto', model: 'sonnet', turns: status === 'running' ? 3 : 7, result: MARKER, createdAt: 'x', updatedAt: 'x' } as Task);
   bus.emit({ type: 'task.updated', task: task('running') });
   bus.emit({ type: 'message', message: { id: 'm', taskId: 't1', role: 'assistant', text: MARKER, at: 'x' } });
   bus.emit({ type: 'message.delta', taskId: 't1', text: MARKER });
@@ -108,11 +109,32 @@ test('bus events: run.finished and approvals carry fixed fields only, never text
   detach();
   sink.flushSync(); sink.closeAll();
   const agents = readFileSync(join(dir, 'agents.log'), 'utf8');
-  assert.match(agents, /run\.finished agent="scout" provider="claude" model="sonnet" ms=41000 turns=7 outcome="ok"/);
+  assert.match(agents, /run\.finished agent="scout" provider="claude" model="sonnet" ms=41000 turns=4 outcome="ok"/);
   assert.equal(agents.match(/run\.finished/g)?.length, 1);
   assert.match(agents, /approval\.asked agent="scout" tool="Bash"/);
   assert.match(agents, /approval\.answered allowed=false/);
   assert.equal(allLogText(dir).includes(MARKER), false);
+});
+
+test('bus events: a provider run logs its provider (from the model it runs on), even when the task still names the previous run\'s', () => {
+  const dir = tempDir('legion-log-');
+  const sink = new LogSink({ dir });
+  const bus = new EventBus();
+  const detach = attachLogEvents(bus, sink, () => 1000);
+  const base = { id: 't2', agentId: 'builder', title: 'x', source: 'ui', requestedModel: 'auto', createdAt: 'x', updatedAt: 'x' };
+  // the provider field is written when a provider run ENDS, so at the start of this run it is missing (or an older run's)
+  bus.emit({ type: 'task.updated', task: { ...base, status: 'running', model: 'openrouter:xiaomi/mimo-v2.6-pro' } as Task });
+  bus.emit({ type: 'task.updated', task: { ...base, status: 'done', model: 'openrouter:xiaomi/mimo-v2.6-pro', provider: 'openrouter', turns: 2 } as Task });
+  // and a Claude run after a provider run is Claude, although the task still carries provider: 'openrouter'
+  bus.emit({ type: 'task.updated', task: { ...base, status: 'running', model: 'sonnet', provider: 'openrouter', turns: 2 } as Task });
+  bus.emit({ type: 'task.updated', task: { ...base, status: 'done', model: 'sonnet', provider: 'openrouter', turns: 5 } as Task });
+  detach();
+  sink.flushSync(); sink.closeAll();
+  const agents = readFileSync(join(dir, 'agents.log'), 'utf8');
+  assert.match(agents, /run\.started agent="builder" provider="openrouter" model="openrouter:xiaomi\/mimo-v2\.6-pro"/);
+  assert.match(agents, /run\.finished agent="builder" provider="openrouter" model="openrouter:xiaomi\/mimo-v2\.6-pro" ms=0 turns=2 outcome="ok"/);
+  assert.match(agents, /run\.started agent="builder" provider="claude" model="sonnet"/);
+  assert.match(agents, /run\.finished agent="builder" provider="claude" model="sonnet" ms=0 turns=3 outcome="ok"/);
 });
 
 test('a real run with a marker in its prompt and its messages leaves the marker in no log file', async () => {
