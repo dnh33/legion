@@ -22,6 +22,9 @@ class FakeStore {
   tasks = new Map<string, Task>();
   msgs: ChatMessage[] = [];
   getAgent(id: string) { return this.agents.get(id); }
+  // the bridge reads these (ask/tell between agents in a project)
+  listAgents() { return [...this.agents.values()]; }
+  listTasks(limit = 500, agentId?: string, _all = false) { return [...this.tasks.values()].filter((t) => !agentId || t.agentId === agentId).sort((a, b) => (b.createdAt > a.createdAt ? 1 : b.createdAt < a.createdAt ? -1 : 0)).slice(0, limit).map((t) => ({ ...t })); }
   upsertTask(t: Task) { const c = { ...t }; this.tasks.set(t.id, c); return c; }
   getTask(id: string) { const t = this.tasks.get(id); return t ? { ...t } : undefined; }
   addMessage(m: ChatMessage) { this.msgs.push(m); return m; }
@@ -121,7 +124,7 @@ test('C7 a project run gets its own folder as an extra directory, created, and n
   assert.ok(!s.calls[2]!.options.systemPrompt.append.includes('legion-project'));
 });
 
-test('C5 the app cannot start a task for a non-member (400); a bridge run to a non-member starts without the project; members inherit it', async () => {
+test('C5 the app cannot start a task for a non-member (400); a bridge run to a non-member is refused with the reason (council A3); members inherit it', async () => {
   const s = setup();
   const p = s.mk('P', ['a1', 'a2']);
   assert.throws(() => s.engine.startTask({ agentId: 'a3', prompt: 'x', source: 'ui', projectId: p.id }), (e: any) => e instanceof EngineError && e.status === 400);
@@ -130,13 +133,50 @@ test('C5 the app cannot start a task for a non-member (400); a bridge run to a n
   // member callee inherits
   const viaMember = s.engine.startTask({ agentId: 'a2', prompt: 'help', source: 'agent', bridge: { fromAgentId: 'a1', parentTaskId: parent.id, hop: 1 } });
   assert.equal(viaMember.projectId, p.id);
-  // non-member callee: no project, no folder, no section
-  const viaOutsider = s.engine.startTask({ agentId: 'a3', prompt: 'help', source: 'agent', bridge: { fromAgentId: 'a1', parentTaskId: parent.id, hop: 1 } });
-  assert.equal(viaOutsider.projectId, undefined);
-  await s.engine.waitFor(viaMember.id, 3000); await s.engine.waitFor(viaOutsider.id, 3000);
-  const outsiderCall = s.calls.find((c) => c.prompt && String(c.prompt).includes('help') && !c.options.additionalDirectories);
-  assert.ok(outsiderCall, 'the outsider run has no extra directory');
-  assert.ok(!outsiderCall!.options.systemPrompt.append.includes('legion-project'));
+  await s.engine.waitFor(viaMember.id, 3000);
+  // a non-member callee used to start silently without the project (no rules, no board, no folder) while the caller was
+  // never told: now the caller hears why, and can ask a member or the owner instead
+  assert.throws(() => s.engine.startTask({ agentId: 'a3', prompt: 'help', source: 'agent', bridge: { fromAgentId: 'a1', parentTaskId: parent.id, hop: 1 } }),
+    (e: any) => e instanceof EngineError && /not a member of project "P"/.test(e.message) && /member/.test(e.message));
+});
+
+test('BUG-5 (council A2): a delegation goes to a thread in the CALLER\'s project; an older thread with the same agent in another project is left alone', async () => {
+  const s = setup();
+  const one = s.mk('One', ['a1', 'a2']);
+  const two = s.mk('Two', ['a1', 'a2']);
+  const inOne = await run(s, { agentId: 'a1', prompt: 'lead in one', source: 'ui', projectId: one.id });
+  const first = s.engine.bridge.tell(inOne.id, 'a2', 'work for one');
+  const t1 = await s.engine.waitFor(first.taskId, 3000);
+  assert.equal(t1.projectId, one.id);
+  // the same pair, now from a task in project Two: a new thread in Two, not the thread in One
+  const inTwo = await run(s, { agentId: 'a1', prompt: 'lead in two', source: 'ui', projectId: two.id });
+  const second = s.engine.bridge.tell(inTwo.id, 'a2', 'work for two');
+  assert.notEqual(second.taskId, first.taskId, 'not the thread of project One');
+  const t2 = await s.engine.waitFor(second.taskId, 3000);
+  assert.equal(t2.projectId, two.id);
+  assert.equal(s.store.getTask(first.taskId)!.projectId, one.id, 'the thread in One keeps its project');
+  // a caller with no project gets a thread with no project
+  const loose = await run(s, { agentId: 'a1', prompt: 'lead, no project', source: 'ui' });
+  const third = s.engine.bridge.tell(loose.id, 'a2', 'loose work');
+  assert.ok(third.taskId !== first.taskId && third.taskId !== second.taskId);
+  assert.equal((await s.engine.waitFor(third.taskId, 3000)).projectId, undefined);
+  // back in One: the One thread is used again
+  const again = s.engine.bridge.tell(inOne.id, 'a2', 'more for one');
+  assert.equal(again.taskId, first.taskId);
+  await s.engine.waitFor(again.taskId, 3000);
+});
+
+test('council A4: continuing a task never erases its project; a run that cannot use it says so in the thread', async () => {
+  const s = setup();
+  const p = s.mk('Keep', ['a1', 'a2']);
+  const t = await run(s, { agentId: 'a2', prompt: 'first', source: 'ui', projectId: p.id });
+  s.projects.setMembers(p.id, ['a1']); // a2 leaves the project
+  const cont = await run(s, { agentId: 'a2', prompt: 'second', source: 'ui', continueTaskId: t.id });
+  assert.equal(cont.projectId, p.id, 'the task still belongs to the project (re-adding the member restores its context)');
+  const last = s.calls.at(-1)!;
+  assert.ok(!last.options.systemPrompt.append.includes('legion-project'), 'this run has no project context');
+  const notes = s.store.listMessages(t.id).filter((m: ChatMessage) => m.role === 'system').map((m: ChatMessage) => m.text);
+  assert.ok(notes.some((n: string) => /not in project "Keep"/.test(n) && /member/.test(n)), JSON.stringify(notes));
 });
 
 test('C4 only the app and a room wake name a project: an MCP client, ask/tell and continue cannot put a task in, or move one to, another project', async () => {

@@ -8,6 +8,7 @@ import { EventBus } from '../src/core/bus.js';
 import { Engine } from '../src/core/engine.js';
 import type { QueryFn } from '../src/core/engine.js';
 import { ProviderRuntime } from '../src/core/providers/runtime.js';
+import type { ProjectStore } from '../src/core/projects/store.js';
 import type { chatTurn } from '../src/core/providers/openai-compat.js';
 import type { HttpLimits } from '../src/core/providers/http.js';
 import type { ProviderEntry } from '../src/core/providers/types.js';
@@ -44,6 +45,8 @@ export interface Opts {
   turn?: typeof chatTurn;
   approvalTimeoutMs?: number;
   claude?: (params: any) => AsyncGenerator<any, void>;
+  /** A projects service, for project runs on a provider. */
+  projects?: ProjectStore;
 }
 
 export function setup(fake: Fake, o: Opts = {}) {
@@ -73,7 +76,7 @@ export function setup(fake: Fake, o: Opts = {}) {
     exec: async (_id: string, cmd: string) => { vmCalls.push(cmd); return { exitCode: 0, stdout: 'vm says: ' + cmd, stderr: '' }; },
     usage: () => ({ secondsThisRun: 0, secondsToday: 0 }), status: () => ({ state: 'running', size: 'default' }), claudeAvailable: () => false,
   } as any;
-  const engine = new Engine({ store: store as any, bus, vms, approvals, config, queryFn, boatConfigured: () => !!o.vm, providers });
+  const engine = new Engine({ store: store as any, bus, vms, approvals, config, queryFn, boatConfigured: () => !!o.vm, providers, ...(o.projects ? { projects: o.projects } : {}) });
   return { store, bus, events, config, approvals, claudeCalls, vmCalls, engine, agent, providers, keys };
 }
 
