@@ -122,3 +122,44 @@ test('B4 the room header names the room\'s project, and marks it "out of project
   const view = readFileSync(join(root, 'ui', 'src', 'projects', 'ProjectView.tsx'), 'utf8');
   assert.match(view, /roomOutOfProject\(r, \[project\], names\)/);
 });
+
+test('B1 waitingElsewhere: what waits on the owner but is hidden by the project in view, oldest first, with where it is', async () => {
+  const { waitingElsewhere } = await import('../ui/src/projects/projectsLogic.js');
+  const P = { id: 'proj_aaaaaaaaaaaa', name: 'Site', status: 'active', members: ['builder'] } as any;
+  const Q = { id: 'proj_bbbbbbbbbbbb', name: 'Shop', status: 'active', members: ['scout', 'builder'] } as any;
+  const tasks = [
+    { id: 't_p', projectId: P.id, title: 'Fix the header' },
+    { id: 't_q', projectId: Q.id, title: 'Price list for the summer sale in all the shops' },
+    { id: 't_none', title: 'Loose task' },
+  ];
+  const names = { scout: 'Scout', builder: 'Builder' };
+  const approvals = [
+    { id: 'a1', taskId: 't_q', agentId: 'scout', at: '2026-10-13T10:00:02Z' },
+    { id: 'a2', taskId: 't_p', agentId: 'builder', at: '2026-10-13T10:00:01Z' },
+    { id: 'a3', taskId: 't_gone', agentId: 'scout', at: '2026-10-13T10:00:04Z' },
+  ];
+  const questions = [{ id: 'q1', taskId: 't_none', agentId: 'builder', at: '2026-10-13T10:00:03Z' }];
+  const rows = waitingElsewhere(approvals, questions, tasks, [P, Q], names, P.id);
+  assert.deepEqual(rows.map((r) => r.taskId), ['t_q', 't_none', 't_gone'], 'the P approval shows on its own rail row; the rest, oldest first');
+  assert.equal(rows[0]!.label, 'Scout needs your OK in Shop: Price list for the summer sale in all t…');
+  assert.equal(rows[0]!.projectId, Q.id);
+  assert.equal(rows[1]!.label, 'Builder asks you something in no project: Loose task');
+  assert.equal(rows[1]!.projectId, null);
+  assert.equal(rows[2]!.label, 'Scout needs your OK in another task');
+  assert.deepEqual(waitingElsewhere(approvals, questions, tasks, [P, Q], names, null), [], 'All shows everything already');
+  // an agent removed from P whose old P task waits: its row is hidden, so it is listed
+  const removed = waitingElsewhere([{ id: 'a9', taskId: 't_p', agentId: 'scout', at: 'x' }], [], tasks, [P, Q], names, P.id);
+  assert.equal(removed.length, 1);
+  assert.equal(removed[0]!.label, 'Scout needs your OK in Site: Fix the header');
+});
+
+test('B1 the rail shows a "Needs you in other projects" block built from waitingElsewhere, and a click opens the item in its project', () => {
+  const root = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
+  const rail = readFileSync(join(root, 'ui', 'src', 'components', 'AgentRail.tsx'), 'utf8');
+  assert.match(rail, /waitingElsewhere\(approvals, questions, tasks, projects, names, filter\)/);
+  assert.match(rail, /data-testid="rail-waiting"/);
+  assert.match(rail, /Needs you in other projects/);
+  assert.match(rail, /setProjectFilter\(row\.projectId\)/);
+  assert.match(rail, /selectTask\(row\.taskId\)/);
+  assert.match(rail, /aria-live="polite"/);
+});

@@ -73,6 +73,11 @@ kbd { font-size: 10.5px; line-height: 1; padding: 3px 5px; border: 1px solid var
 /* ---------- rail ---------- */
 .rail { display: flex; flex-direction: column; min-height: 0; background: var(--bg); border-right: 1px solid var(--line); }
 .rail-head { display: flex; align-items: center; justify-content: space-between; padding: 14px 16px 6px 16px; color: var(--faint); font-size: 11px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; }
+.rail-waiting { padding: 0 8px 6px; border-bottom: 1px solid var(--line, rgba(127,127,127,.2)); }
+.rail-wait-row { display: flex; align-items: center; gap: 6px; width: 100%; padding: 5px 8px; border: 0; border-radius: 6px; background: transparent; color: var(--warn); font-size: 12px; text-align: left; cursor: pointer; }
+.rail-wait-row:hover, .rail-wait-row:focus-visible { background: var(--hover, rgba(127,127,127,.12)); }
+.rail-wait-row .icon { flex: none; }
+.rail-wait-row span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .rail-list { flex: 1; overflow-y: auto; padding: 4px 8px; display: flex; flex-direction: column; gap: 2px; }
 .agent { position: relative; display: flex; align-items: center; gap: 10px; text-align: left; padding: 8px; border-radius: var(--r); border: 1px solid transparent; background: transparent; transition: background var(--t) var(--ease), border-color var(--t) var(--ease); }
 .agent:hover { background: var(--surface); }

@@ -1,10 +1,11 @@
 import { useMemo } from 'react';
-import { openEditor, selectAgent, useStore } from '../store';
+import { openEditor, selectAgent, selectTask, setView, useStore } from '../store';
+import { setProjectFilter } from '../projects/projectsStore';
 import { Icon } from './icons';
 import { vmTone, vmLabel } from '../util';
 import { Bust } from '../mascot/Bust';
 import { ProjectSwitcher } from '../projects/ProjectSwitcher';
-import { agentsFor, inProject } from '../projects/projectsLogic';
+import { agentsFor, inProject, waitingElsewhere } from '../projects/projectsLogic';
 import { hasBust } from '../mascot/busts';
 import { heldAgents } from '../chat/queue';
 import { ownerOfThread, useQueueState } from '../chat/queueStore';
@@ -15,6 +16,7 @@ export function AgentRail() {
   const vms = useStore((s) => s.vms);
   const approvals = useStore((s) => s.approvals);
   const tasks = useStore((s) => s.tasks);
+  const questions = useStore((s) => s.questions);
   const loaded = useStore((s) => s.loaded);
   const projects = useStore((s) => s.projects);
   const filter = useStore((s) => s.projectFilter);
@@ -23,10 +25,24 @@ export function AgentRail() {
   // a paused queue shows on the agent too, not only inside its thread, so a message waiting on you is never out of sight
   const queues = useQueueState();
   const held = useMemo(() => heldAgents(queues, (k) => ownerOfThread(k, tasks)), [queues, tasks]);
+  // anything waiting on the owner stays in sight whatever project is in view (decision B1): one click opens it in its own project
+  const names = useMemo(() => Object.fromEntries(agents.map((a) => [a.id, a.name])), [agents]);
+  const waiting = useMemo(() => waitingElsewhere(approvals, questions, tasks, projects, names, filter), [approvals, questions, tasks, projects, names, filter]);
 
   return (
     <nav className="rail" aria-label="Agents">
       <ProjectSwitcher />
+      {waiting.length > 0 && (
+        <section className="rail-waiting" data-testid="rail-waiting" aria-live="polite" aria-label="Needs you in other projects">
+          <div className="rail-head"><span>Needs you in other projects ({waiting.length})</span></div>
+          {waiting.map((row) => (
+            <button key={row.id} type="button" className="rail-wait-row" title={row.label}
+              onClick={() => { setProjectFilter(row.projectId); selectAgent(row.agentId); setView('chat'); selectTask(row.taskId); }}>
+              <Icon name={row.kind === 'approval' ? 'shield' : 'help'} size={12} /><span>{row.label}</span>
+            </button>
+          ))}
+        </section>
+      )}
       <div className="rail-head"><span title={filterName ? `Members of ${filterName}` : undefined}>{filterName ? 'Members' : 'Agents'}</span></div>
       <div className="rail-list">
         {!loaded && [0, 1, 2].map((i) => <div key={i} className="agent skeleton" />)}

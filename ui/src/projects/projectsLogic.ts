@@ -2,7 +2,7 @@
 import type { Room } from '../../../src/shared/comms.js';
 import { PROJECT_LIMITS, roomOutOfProjectReason } from '../../../src/shared/projects.js';
 import type { Project } from '../../../src/shared/projects.js';
-import type { AgentProfile, Task } from '../../../src/shared/types.js';
+import type { AgentProfile, ApprovalRequest, PendingQuestion, Task } from '../../../src/shared/types.js';
 
 export const INSTRUCTIONS_MAX = PROJECT_LIMITS.instructionsChars;
 export const FILTER_KEY = 'legion.project';
@@ -97,4 +97,36 @@ export function instructionsCounter(text: string): { count: number; over: boolea
 export function statusLine(p: Project, taskCount: number, roomCount: number): string {
   const bits = [p.status === 'archived' ? 'Archived' : 'Active', `${p.members.length} ${p.members.length === 1 ? 'member' : 'members'}`, `${taskCount} ${taskCount === 1 ? 'task' : 'tasks'}`, `${roomCount} ${roomCount === 1 ? 'room' : 'rooms'}`];
   return bits.join(', ');
+}
+
+const clipTitle = (t: string): string => (t.length > 40 ? t.slice(0, 39) + '…' : t);
+
+/** One thing waiting on the owner that the rail hides under the project in view (decision B1). */
+export interface WaitingRow { kind: 'approval' | 'question'; id: string; taskId: string; agentId: string; projectId: string | null; label: string }
+
+/**
+ * Approvals and questions the rail would hide under this filter: their task is in another project or none, or the agent
+ * is not one of the project's members (so it has no row). Oldest first. Under "All" every agent has a row: nothing.
+ */
+export function waitingElsewhere(
+  approvals: Pick<ApprovalRequest, 'id' | 'taskId' | 'agentId' | 'at'>[],
+  questions: Pick<PendingQuestion, 'id' | 'taskId' | 'agentId' | 'at'>[],
+  tasks: Pick<Task, 'id' | 'projectId' | 'title'>[],
+  projects: Project[], names: Record<string, string>, filter: string | null,
+): WaitingRow[] {
+  if (!filter) return [];
+  const here = projects.find((p) => p.id === filter);
+  const items = [...approvals.map((a) => ({ ...a, kind: 'approval' as const })), ...questions.map((q) => ({ ...q, kind: 'question' as const }))];
+  const rows: Array<WaitingRow & { at: string }> = [];
+  for (const it of items) {
+    const t = tasks.find((x) => x.id === it.taskId);
+    if (t && t.projectId === filter && here?.members.includes(it.agentId)) continue;
+    const who = names[it.agentId] ?? it.agentId;
+    const verb = it.kind === 'approval' ? 'needs your OK' : 'asks you something';
+    const where = !t ? 'in another task'
+      : !t.projectId ? `in no project: ${clipTitle(t.title)}`
+        : `in ${projects.find((p) => p.id === t.projectId)?.name ?? 'a removed project'}: ${clipTitle(t.title)}`;
+    rows.push({ kind: it.kind, id: it.id, taskId: it.taskId, agentId: it.agentId, projectId: t?.projectId ?? null, label: `${who} ${verb} ${where}`, at: it.at });
+  }
+  return rows.sort((a, b) => a.at.localeCompare(b.at)).map(({ at: _at, ...r }) => r);
 }
