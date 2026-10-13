@@ -6,7 +6,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { Project } from '../src/shared/projects.js';
 import type { Room } from '../src/shared/comms.js';
-import { agentsFor, assignableRooms, inProject, instructionsCounter, INSTRUCTIONS_MAX, memberDiff, newTaskProjectId, projectLabel, resolveFilter, roomsOf, sortProjects, statusLine } from '../ui/src/projects/projectsLogic.js';
+import { agentsFor, assignableRooms, inProject, instructionsCounter, INSTRUCTIONS_MAX, memberDiff, newTaskProjectId, projectLabel, resolveFilter, roomsOf, sortProjects, statusLine, taskProjectChip } from '../ui/src/projects/projectsLogic.js';
 
 const P = (id: string, name: string, over: Partial<Project> = {}): Project => ({ id, name, instructions: '', folder: '/f', members: [], status: 'active', createdAt: '', updatedAt: '', ...over });
 const agents = ['zealot', 'scout', 'builder'].map((id) => ({ id } as any));
@@ -66,4 +66,13 @@ test('C19 every control on the project UI has a visible label or aria-label, sel
   assert.equal((view.match(/<section [^>]*aria-labelledby=/g) ?? []).length, 6, 'every section is named by its heading');
   assert.match(src('NewProjectDialog.tsx'), /<Modal title="New project"/);
   for (const f of ['ProjectSwitcher.tsx', 'ProjectView.tsx', 'NewProjectDialog.tsx']) assert.doesNotMatch(src(f), /cannot be bypassed|guarantee|100 ?%|fully safe|impossible/i, f);
+});
+
+test('council A7: a task shows its project when it is not the one in view; an unknown id reads as a removed project', () => {
+  const ps = [P('p1', 'Site'), P('p2', 'Old', { status: 'archived' })];
+  assert.equal(taskProjectChip(ps, 'p1', null), 'Site', 'under All, every task names its project');
+  assert.equal(taskProjectChip(ps, 'p1', 'p1'), undefined, 'inside its own project the chip would repeat the filter');
+  assert.equal(taskProjectChip(ps, 'p2', 'p1'), 'Old (archived)');
+  assert.equal(taskProjectChip(ps, 'p9', null), 'removed project');
+  assert.equal(taskProjectChip(ps, undefined, 'p1'), undefined, 'no project: no chip (the header says "No project")');
 });

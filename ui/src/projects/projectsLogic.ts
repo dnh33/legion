@@ -12,6 +12,17 @@ const byName = (a: Project, b: Project): number => a.name.localeCompare(b.name) 
 export const sortProjects = (ps: Project[]): Project[] => [...ps.filter((p) => p.status === 'active').sort(byName), ...ps.filter((p) => p.status !== 'active').sort(byName)];
 export const projectLabel = (p: Pick<Project, 'name' | 'status'>): string => (p.status === 'archived' ? `${p.name} (archived)` : p.name);
 
+/**
+ * The project a task shows as its own on a tab, a History row or the thread header: its name, or "removed project"
+ * for an id the window does not know. Nothing (undefined) when the task has no project, or when it is the project in
+ * view (every task there is in it, so the chip would repeat the filter).
+ */
+export function taskProjectChip(projects: Project[], projectId: string | undefined, filter: string | null): string | undefined {
+  if (!projectId || projectId === filter) return undefined;
+  const p = projects.find((x) => x.id === projectId);
+  return p ? projectLabel(p) : 'removed project';
+}
+
 /** A stored or chosen filter that names no project (deleted file, other machine) falls back to "All" (null). */
 export const resolveFilter = (projects: Project[], filter: string | null | undefined): string | null =>
   filter && projects.some((p) => p.id === filter) ? filter : null;

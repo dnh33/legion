@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { modelLabel } from '../models';
-import { inProject } from '../projects/projectsLogic';
+import { inProject, taskProjectChip } from '../projects/projectsLogic';
 import { archiveTask, newTask, openTaskMenu, renameTask, selectTask, startRename, stopRename, useStore } from '../store';
 import { Icon } from './icons';
 import { HistoryList } from '../history/HistoryList';
@@ -24,6 +24,7 @@ export function TaskSwitcher() {
   const sel = useStore((s) => s.selectedTaskId);
   const catalog = useStore((s) => s.catalog);
   const filter = useStore((s) => s.projectFilter);
+  const projects = useStore((s) => s.projects);
   const renaming = useStore((s) => (s.renaming?.src === 'tab' ? s.renaming.id : null));
   const MAX = 12;
   // stable order: newest-created first, so tabs never jump when a task finishes
@@ -46,6 +47,7 @@ export function TaskSwitcher() {
       <div className="tabs-scroll" ref={scroller}>
         {mine.map((t) => {
           const from = t.source === 'agent' && t.fromAgentId ? agents.find((a) => a.id === t.fromAgentId)?.name ?? t.fromAgentId : null;
+          const inProj = taskProjectChip(projects, t.projectId, filter);
           return (
             <div key={t.id} role="tab" tabIndex={0} aria-selected={t.id === sel} className={`tab${t.id === sel ? ' sel' : ''}${t.archived ? ' closed' : ''}`}
               onClick={() => selectTask(t.id)} title={cleanTitle(t.title)}
@@ -56,6 +58,7 @@ export function TaskSwitcher() {
               <i className={`st st-${statusDot(t)}`} />
               {renaming === t.id ? <RenameInput id={t.id} title={t.title} /> : <span>{taskTitle(t.title, from)}</span>}
               {from && renaming !== t.id && <em className="from-chip">from {from}</em>}
+              {inProj && renaming !== t.id && <em className="from-chip project-chip" title={`In the project ${inProj}`}>{inProj}</em>}
               {t.modelOverride && renaming !== t.id && <em className="from-chip model-chip" title={`${agents.find((a) => a.id === t.modelOverride!.by)?.name ?? t.modelOverride.by} chose ${modelLabel(catalog, t.modelOverride.model)} for this task`}>{modelLabel(catalog, t.modelOverride.model)}</em>}
               {renaming !== t.id && !t.archived && <button type="button" className="tab-x" aria-label={`Close ${cleanTitle(t.title)}`} title="Close task" tabIndex={-1}
                 onClick={(e) => { e.stopPropagation(); void archiveTask(t.id); }}><Icon name="x" size={11} /></button>}

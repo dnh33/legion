@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useId, useRef, useState } from 'react';
 import { api } from '../api';
-import { adoptTask, openHistoryTask, openTaskMenu, tapEvents } from '../store';
+import { adoptTask, openHistoryTask, openTaskMenu, tapEvents, useStore } from '../store';
+import { taskProjectChip } from '../projects/projectsLogic';
+import { setProjectFilter } from '../projects/projectsStore';
 import { statusDot } from '../../../src/shared/continue';
 import { cleanTitle } from '../util';
 import { PAGE, ROW_H, SEARCH_DEBOUNCE_MS, applyLiveEvent, emptyHistory, historyStatus, mergePage, needsMore, scrollToRow, windowRange, type HistoryState } from './historyLogic';
@@ -58,7 +60,10 @@ export function HistoryList({ agentId, onClose }: { agentId: string; onClose: ()
     if (box.current && top !== scroll) box.current.scrollTop = top;
     setScroll(top);
   };
-  const open = (i: number) => { const t = st.rows[i]; if (t) { openHistoryTask(t); onClose(); } };
+  const projects = useStore((s) => s.projects);
+  const filter = useStore((s) => s.projectFilter);
+  // a task from another project (or from none) opens with the view switched to where it lives, so it is not hidden
+  const open = (i: number) => { const t = st.rows[i]; if (t) { if (filter !== null && t.projectId !== filter) setProjectFilter(t.projectId ?? null); openHistoryTask(t); onClose(); } };
 
   return (
     <div className="more-pop history-pop">
@@ -83,6 +88,7 @@ export function HistoryList({ agentId, onClose }: { agentId: string; onClose: ()
                 }}
                 onContextMenu={(e) => { e.preventDefault(); adoptTask(t); openTaskMenu(e.clientX, e.clientY, t.id); }}>
                 <i className={`st st-${statusDot(t)}`} /><span>{cleanTitle(t.title)}</span>
+                {taskProjectChip(projects, t.projectId, filter) && <em className="from-chip project-chip">{taskProjectChip(projects, t.projectId, filter)}</em>}
                 {t.archived && <em className="from-chip closed-chip">closed</em>}
               </button>
             );
