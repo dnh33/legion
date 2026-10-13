@@ -365,6 +365,120 @@ test('D6 a non-member helps as an outside helper: no project folder, notes or bo
   } finally { release(); s.engine.cancel(t.id); await s.engine.waitFor(t.id, 3000); }
 });
 
+/** Runs hold while `hold.on` is true when they start (so canUseTool can be asked mid-run); `release()` lets all held runs end. */
+function holdable() {
+  const hold = { on: false };
+  const waiting: Array<() => void> = [];
+  const s = setup(() => hold.on
+    ? (async function* () { yield { type: 'system', subtype: 'init', session_id: 's1' }; await new Promise<void>((r) => waiting.push(r)); yield ok(); })()
+    : quick());
+  const release = () => { hold.on = false; for (const r of waiting.splice(0)) r(); };
+  // a verdict, or an open card (ask) after a short wait
+  const verdict = async (call: number) => (await Promise.race([s.calls[call]!.options.canUseTool('Bash', { command: 'ls' }, { signal: new AbortController().signal }), new Promise((r) => setTimeout(() => r({ behavior: 'card shown (no verdict)' }), 300))]) as { behavior: string }).behavior;
+  return { s, hold, release, verdict };
+}
+const denyBashIn = (s: ReturnType<typeof setup>, projectId: string) => { s.config.gates = { rules: [{ id: 'gr_p', enabled: true, then: 'deny', label: 'no shell in P', source: 'user', when: { projects: [projectId], tools: ['Bash'] } }] } as any; };
+
+test('review #1 an outside helper that hands work on: the next run is still bound by the project\'s deny rules', async () => {
+  const { s, hold, release, verdict } = holdable();
+  const p = s.mk('P', ['a1', 'a2']);
+  denyBashIn(s, p.id);
+  const parent = await run(s, { agentId: 'a1', prompt: 'lead', source: 'ui', projectId: p.id });
+  const helper = await run(s, { agentId: 'a3', prompt: 'help', source: 'agent', bridge: { fromAgentId: 'a1', parentTaskId: parent.id, hop: 1 } });
+  hold.on = true;
+  const next = s.engine.startTask({ agentId: 'a2', prompt: 'more', source: 'agent', bridge: { fromAgentId: 'a3', parentTaskId: helper.id, hop: 2 } });
+  try {
+    await new Promise((r) => setTimeout(r, 40));
+    assert.equal(next.projectId, undefined, 'work handed on by an outside helper stays outside the project');
+    assert.equal(await verdict(s.calls.length - 1), 'deny', "P's deny rule binds the run one hop on");
+  } finally { release(); s.engine.cancel(next.id); await s.engine.waitFor(next.id, 3000); }
+});
+
+test('review #1 an outside helper\'s own later runs (a reply landing in its task) stay bound by the project\'s deny rules', async () => {
+  const { s, hold, release, verdict } = holdable();
+  const p = s.mk('P', ['a1', 'a2']);
+  denyBashIn(s, p.id);
+  const parent = await run(s, { agentId: 'a1', prompt: 'lead', source: 'ui', projectId: p.id });
+  const helper = await run(s, { agentId: 'a3', prompt: 'help', source: 'agent', bridge: { fromAgentId: 'a1', parentTaskId: parent.id, hop: 1 } });
+  hold.on = true;
+  s.engine.startTask({ agentId: 'a3', prompt: '[Reply from A2] done', source: 'agent', continueTaskId: helper.id, bridge: { fromAgentId: 'a2', parentTaskId: helper.id, hop: 2, reply: true } } as any);
+  try {
+    await new Promise((r) => setTimeout(r, 40));
+    assert.equal(await verdict(s.calls.length - 1), 'deny');
+  } finally { release(); s.engine.cancel(helper.id); await s.engine.waitFor(helper.id, 3000); }
+});
+
+test('review #2 a reply run in a task whose project was archived is still bound by the project\'s deny rules', async () => {
+  const { s, hold, release, verdict } = holdable();
+  const p = s.mk('P', ['a1', 'a2']);
+  denyBashIn(s, p.id);
+  const parent = await run(s, { agentId: 'a1', prompt: 'lead', source: 'ui', projectId: p.id });
+  s.projects.update(p.id, { status: 'archived' });
+  hold.on = true;
+  s.engine.startTask({ agentId: 'a1', prompt: '[Reply from A2] done', source: 'agent', continueTaskId: parent.id, bridge: { fromAgentId: 'a2', parentTaskId: parent.id, hop: 1, reply: true } } as any);
+  try {
+    await new Promise((r) => setTimeout(r, 40));
+    assert.equal(await verdict(s.calls.length - 1), 'deny');
+  } finally { release(); s.engine.cancel(parent.id); await s.engine.waitFor(parent.id, 3000); }
+});
+
+test('review #2 continuing the task of an agent removed from the project: the run is still bound by the project\'s deny rules', async () => {
+  const { s, hold, release, verdict } = holdable();
+  const p = s.mk('P', ['a1']);
+  denyBashIn(s, p.id);
+  const t = await run(s, { agentId: 'a1', prompt: 'x', source: 'ui', projectId: p.id });
+  s.projects.setMembers(p.id, []);
+  hold.on = true;
+  s.engine.startTask({ agentId: 'a1', prompt: 'more', source: 'ui', continueTaskId: t.id });
+  try {
+    await new Promise((r) => setTimeout(r, 40));
+    assert.equal(await verdict(s.calls.length - 1), 'deny');
+  } finally { release(); s.engine.cancel(t.id); await s.engine.waitFor(t.id, 3000); }
+});
+
+test('review #3 an outside helper keeps one thread with its caller in the project; a caller outside the project gets its own', async () => {
+  const s = setup();
+  const p = s.mk('P', ['a1', 'a2']);
+  const inP = await run(s, { agentId: 'a1', prompt: 'lead', source: 'ui', projectId: p.id });
+  const first = await s.engine.bridge.ask(inP.id, 'a3', 'one');
+  const second = await s.engine.bridge.ask(inP.id, 'a3', 'two');
+  assert.equal(second.taskId, first.taskId, 'the second ask continues the helper thread');
+  const notes = s.store.listMessages(inP.id).filter((m) => m.role === 'system' && /helped from outside project/.test(m.text));
+  assert.equal(notes.length, 2, 'one note per run the helper did for the caller');
+  const free = await run(s, { agentId: 'a1', prompt: 'other', source: 'ui' });
+  const third = await s.engine.bridge.ask(free.id, 'a3', 'three');
+  assert.notEqual(third.taskId, first.taskId, 'a caller outside the project never continues the project\'s helper thread');
+});
+
+test('review #4 an agent shell call that works in the project folder: a path deny rule reads its relative paths against that folder', async () => {
+  const { s, hold, release } = holdable();
+  s.store.agents.set('a1', { ...s.store.agents.get('a1')!, host: { enabled: true } } as any);
+  const p = s.mk('P', ['a1']);
+  s.config.gates = { rules: [{ id: 'gr_sec', enabled: true, then: 'deny', label: 'no secrets', source: 'user', when: { paths: [join(p.folder, 'secrets', '**')] } }] } as any;
+  hold.on = true;
+  const t = s.engine.startTask({ agentId: 'a1', prompt: 'x', source: 'ui', projectId: p.id });
+  try {
+    await new Promise((r) => setTimeout(r, 40));
+    const v = await Promise.race([s.calls[0]!.options.canUseTool('mcp__host__shell', { command: 'echo x > secrets/key.txt', cwd: p.folder }, { signal: new AbortController().signal }), new Promise((r) => setTimeout(() => r({ behavior: 'card shown (no verdict)' }), 300))]) as { behavior: string };
+    assert.equal(v.behavior, 'deny');
+  } finally { release(); s.engine.cancel(t.id); await s.engine.waitFor(t.id, 3000); }
+});
+
+test('review #5 a run that started without its project is not told a second time that the project changed', async () => {
+  const { s, hold, release } = holdable();
+  const p = s.mk('P', ['a1']);
+  const t = await run(s, { agentId: 'a1', prompt: 'x', source: 'ui', projectId: p.id });
+  s.projects.setMembers(p.id, []);
+  hold.on = true;
+  s.engine.startTask({ agentId: 'a1', prompt: 'more', source: 'ui', continueTaskId: t.id });
+  try {
+    await new Promise((r) => setTimeout(r, 40));
+    s.bus.emit({ type: 'project.updated', project: s.projects.update(p.id, { status: 'archived' }) });
+    const late = s.store.listMessages(t.id).filter((m) => m.role === 'system' && /while this run was working/.test(m.text));
+    assert.deepEqual(late.map((m) => m.text), [], 'the run already said at start that it is not in the project');
+  } finally { release(); await s.engine.waitFor(t.id, 3000); }
+});
+
 test('D3 a reply lands in a task whose project was archived meanwhile: the caller\'s run goes on without the project', async () => {
   const s = setup();
   const p = s.mk('P', ['a1', 'a2']);

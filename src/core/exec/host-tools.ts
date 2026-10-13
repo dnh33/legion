@@ -203,11 +203,6 @@ function realOf(p: string): string | undefined {
   }
 }
 
-/**
- * Resolve `target` against `root`, and refuse anything that escapes it: first by the path as written (`..`, another
- * drive, UNC), then by the REAL path, so a symlink or junction inside the root that points outside it is refused too.
- * The real check uses the nearest existing ancestor, so a file about to be created under a link is caught as well.
- */
 /** resolveWithin against the first root that holds the target; the main root's refusal when none does. */
 export function resolveWithinAny(roots: readonly string[], target: string): string {
   let first: unknown;
@@ -218,6 +213,11 @@ export function resolveWithinAny(roots: readonly string[], target: string): stri
   throw first ?? new Error(`Path "${target}" is outside the allowed root`);
 }
 
+/**
+ * Resolve `target` against `root`, and refuse anything that escapes it: first by the path as written (`..`, another
+ * drive, UNC), then by the REAL path, so a symlink or junction inside the root that points outside it is refused too.
+ * The real check uses the nearest existing ancestor, so a file about to be created under a link is caught as well.
+ */
 export function resolveWithin(root: string, target: string): string {
   const r = resolve(root);
   const t = resolve(r, nativePath(target));
