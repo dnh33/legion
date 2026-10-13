@@ -24,7 +24,11 @@ export const OVERRIDE = '\u0000override';
 
 export type Hold = 'cancelled' | 'error' | 'restored';
 
-export interface QItem { id: string; text: string; model: string; at: number }
+/**
+ * One waiting message. `project` is the project a NEW thread starts in, taken when the message was queued (null: no
+ * project), so switching projects before it goes out does not move it. Absent on items queued before this field.
+ */
+export interface QItem { id: string; text: string; model: string; at: number; project?: string | null }
 export interface QThread {
   items: QItem[];
   /** Why automatic sending is stopped (null = running normally). */
@@ -68,12 +72,12 @@ export const countOf = (s: QState, key: string): number => s.threads[key]?.items
 
 export type EnqueueResult = { ok: true; state: QState; item: QItem } | { ok: false; state: QState; reason: RejectReason };
 
-export function enqueue(s: QState, key: string, text: string, model: string, id: string, now: number): EnqueueResult {
+export function enqueue(s: QState, key: string, text: string, model: string, id: string, now: number, project?: string | null): EnqueueResult {
   const t = get(s, key);
   if (!text.trim()) return { ok: false, state: s, reason: 'empty' };
   if (text.length > MAX_TEXT) return { ok: false, state: s, reason: 'too-long' };
   if (t.items.length >= MAX_QUEUE) return { ok: false, state: s, reason: 'full' };
-  const item: QItem = { id, text, model, at: now };
+  const item: QItem = { id, text, model, at: now, ...(project !== undefined ? { project } : {}) };
   return { ok: true, item, state: put(s, key, { ...t, items: [...t.items, item] }) };
 }
 
@@ -260,14 +264,14 @@ export function restore(raw: string | null | undefined): QState {
     for (const it of arr) {
       if (items.length >= MAX_QUEUE) break;
       if (!it || typeof it !== 'object') continue;
-      const { id, text, model, at } = it as Record<string, unknown>;
+      const { id, text, model, at, project } = it as Record<string, unknown>;
       if (typeof id !== 'string' || !id || typeof text !== 'string' || !text.trim() || text.length > MAX_TEXT) continue;
       // No model was stored: the message never carried a choice of its own, so it comes back with NO model ('')
       // and the sender puts the agent's own configured model on it - defaulting to 'auto' here would override
       // Settings with the router's choice every time a queue came back from storage. A hostile value (anything
       // that is not a string) still falls back to 'auto', as before.
       const m = typeof model === 'string' ? model : model === undefined ? '' : 'auto';
-      items.push({ id, text, model: m, at: typeof at === 'number' && Number.isFinite(at) ? at : 0 });
+      items.push({ id, text, model: m, at: typeof at === 'number' && Number.isFinite(at) ? at : 0, ...(project === null || (typeof project === 'string' && /^proj_[a-z0-9]{6,40}$/.test(project)) ? { project } : {}) });
     }
     if (items.length) threads[k] = { items, hold: 'restored', sending: null };
   }

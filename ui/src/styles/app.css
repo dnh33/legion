@@ -720,3 +720,11 @@ kbd { font-size: 10.5px; line-height: 1; padding: 3px 5px; border: 1px solid var
 .firstrun .later > summary { cursor: pointer; color: var(--muted); font-size: 12.5px; padding: 4px 0; }
 :root[data-kbd-nav] .firstrun .later > summary:focus-visible { outline: 2px solid var(--accent-line); outline-offset: 2px; border-radius: var(--r-sm); }
 .firstrun .later[open] > summary { margin-bottom: 10px; }
+/* the project a task belongs to (council A7): quiet, so it reads as context, not as a control */
+.chip-pill.project-pill { max-width: 220px; overflow: hidden; text-overflow: ellipsis; }
+.chip-pill.project-pill.none { opacity: .7; }
+.from-chip.project-chip { max-width: 140px; overflow: hidden; text-overflow: ellipsis; }
+/* where a new task goes (council A8): said before it is sent; a warning colour when the project in view cannot take it */
+.target-pill { flex: none; display: inline-flex; align-items: center; gap: 4px; font-size: 11px; color: var(--faint); white-space: nowrap; max-width: 240px; overflow: hidden; text-overflow: ellipsis; }
+.target-pill b { font-weight: 600; color: var(--muted); overflow: hidden; text-overflow: ellipsis; }
+.target-pill.warn, .target-pill.warn b { color: var(--warn); }

@@ -6,7 +6,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { Project } from '../src/shared/projects.js';
 import type { Room } from '../src/shared/comms.js';
-import { agentsFor, assignableRooms, inProject, instructionsCounter, INSTRUCTIONS_MAX, memberDiff, newTaskProjectId, projectLabel, resolveFilter, roomsOf, sortProjects, statusLine } from '../ui/src/projects/projectsLogic.js';
+import { agentsFor, assignableRooms, inProject, instructionsCounter, INSTRUCTIONS_MAX, memberDiff, newTaskProjectId, projectLabel, resolveFilter, roomsOf, sortProjects, statusLine, taskProjectChip, newTaskTarget } from '../ui/src/projects/projectsLogic.js';
 
 const P = (id: string, name: string, over: Partial<Project> = {}): Project => ({ id, name, instructions: '', folder: '/f', members: [], status: 'active', createdAt: '', updatedAt: '', ...over });
 const agents = ['zealot', 'scout', 'builder'].map((id) => ({ id } as any));
@@ -66,4 +66,39 @@ test('C19 every control on the project UI has a visible label or aria-label, sel
   assert.equal((view.match(/<section [^>]*aria-labelledby=/g) ?? []).length, 6, 'every section is named by its heading');
   assert.match(src('NewProjectDialog.tsx'), /<Modal title="New project"/);
   for (const f of ['ProjectSwitcher.tsx', 'ProjectView.tsx', 'NewProjectDialog.tsx']) assert.doesNotMatch(src(f), /cannot be bypassed|guarantee|100 ?%|fully safe|impossible/i, f);
+});
+
+test('council A8: the composer says where a new task goes, and why it is no project when the owner might expect one', () => {
+  const ps = [P('p1', 'Site', { members: ['scout'] }), P('p2', 'Old', { status: 'archived', members: ['scout'] })];
+  const scout = { id: 'scout', name: 'Scout' };
+  const builder = { id: 'builder', name: 'Builder' };
+  assert.deepEqual(newTaskTarget(ps, 'p1', scout, false), { label: 'Site' });
+  assert.deepEqual(newTaskTarget(ps, null, scout, false), { label: 'No project' }, 'All: a new task has no project');
+  assert.match(newTaskTarget(ps, 'p1', builder, false)!.why ?? '', /Builder is not a member of Site/);
+  assert.match(newTaskTarget(ps, 'p2', scout, false)!.why ?? '', /Old is archived/);
+  assert.equal(newTaskTarget(ps, 'p1', scout, true), undefined, 'a follow-up stays in its task: nothing to say');
+  assert.equal(newTaskTarget([], null, scout, false), undefined, 'no projects at all: nothing to say');
+  // the label and the rule that sends agree
+  for (const [f, a] of [['p1', scout], ['p1', builder], ['p2', scout], [null, scout]] as const) {
+    assert.equal(newTaskTarget(ps, f, a, false)!.label === 'No project', newTaskProjectId(ps, f, a.id, false) === undefined);
+  }
+});
+
+test('council A7: a task shows its project when it is not the one in view; an unknown id reads as a removed project', () => {
+  const ps = [P('p1', 'Site'), P('p2', 'Old', { status: 'archived' })];
+  assert.equal(taskProjectChip(ps, 'p1', null), 'Site', 'under All, every task names its project');
+  assert.equal(taskProjectChip(ps, 'p1', 'p1'), undefined, 'inside its own project the chip would repeat the filter');
+  assert.equal(taskProjectChip(ps, 'p2', 'p1'), 'Old (archived)');
+  assert.equal(taskProjectChip(ps, 'p9', null), 'removed project');
+  assert.equal(taskProjectChip(ps, undefined, 'p1'), undefined, 'no project: no chip (the header says "No project")');
+});
+
+test('council A9: the archive question says what archiving touches', async () => {
+  const { archiveQuestion } = await import('../ui/src/projects/projectsLogic.js');
+  const q = archiveQuestion('Site', { live: 2, open: 5, rooms: 1 });
+  assert.match(q, /^Archive "Site"\?/);
+  assert.match(q, /2 runs in progress finish first\./);
+  assert.match(q, /Its 5 open tasks cannot be continued, and no new task can start in it, until you unarchive it\./);
+  assert.match(q, /1 room keeps working, without the project's instructions and notes\./);
+  assert.doesNotMatch(archiveQuestion('Site', { live: 0, open: 0, rooms: 0 }), /run|room|open task/);
 });

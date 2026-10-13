@@ -17,6 +17,7 @@ import { TaskSwitcher } from './TaskSwitcher';
 import { ToolGroup } from './ToolChip';
 import { WorkingRow } from './WorkingRow';
 import { TodoList } from './TodoList';
+import { taskProjectChip } from '../projects/projectsLogic';
 
 type Item = { k: 'msg'; m: ChatMessage } | { k: 'tools'; items: ChatMessage[] };
 
@@ -69,6 +70,8 @@ export function Thread() {
   const loaded = useStore((s) => s.loaded);
   const agent = agents.find((a) => a.id === agentId);
   const task = taskId ? tasks.find((t) => t.id === taskId) : undefined;
+  const projects = useStore((s) => s.projects);
+  const hasProjects = projects.length > 0;
   const running = task?.status === 'running' || task?.status === 'queued';
   // a turn-limit or spend-limit stop is a pause with the work kept, not a failure: it gets its own card
   const paused = isLimitPause(task);
@@ -199,6 +202,7 @@ export function Thread() {
           </div>
         </div>
         <div className="th-right">
+          {task && hasProjects && <span className={`chip-pill project-pill${task.projectId ? '' : ' none'}`} title={task.projectId ? 'The project this task belongs to' : 'This task belongs to no project'}>{taskProjectChip(projects, task.projectId, null) ?? 'No project'}</span>}
           {agent && <span className={`chip-pill ap-${agent.approval}`} title="Approval mode">{agent.approval === 'full' ? 'Full access' : agent.approval === 'ask' ? 'Asks first' : 'Auto-edits'}</span>}
           {task?.provider && <span className="th-cost" title="This run used a provider, not Claude. Cost is shown only when you entered prices for the model.">{task.provider}{task.tokenUsage?.inputTokens != null ? ` \u00b7 ${task.tokenUsage.inputTokens} in / ${task.tokenUsage.outputTokens ?? 0} out` : ''}{task.tokenUsage?.unknown ? ' \u00b7 token counts unknown' : ''}{task.costUsd == null ? ' \u00b7 cost unknown' : ''}</span>}
           {task && <span className="th-cost" title="Cumulative cost and turns for this task">{task.costUsd != null ? money(task.costUsd) : ''}{task.costUsd != null && task.turns != null ? ' · ' : ''}{task.turns != null ? `${task.turns} turn${task.turns === 1 ? '' : 's'}` : ''}</span>}

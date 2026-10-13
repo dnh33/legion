@@ -452,12 +452,13 @@ export type SendResult = { ok: true; task: Task } | { ok: false; status: number;
  * Sends a prompt to a given thread (a task to continue, or null for a new task of `agentId`). The composer uses it for the selected thread; the
  * message queue uses it for any thread, so it never reads the selection. `select` moves the view to the task the send created/continued.
  */
-export async function sendPromptTo(target: { agentId: string; taskId: string | null }, prompt: string, opts: { model?: ModelChoice; select?: boolean } = {}): Promise<SendResult> {
+export async function sendPromptTo(target: { agentId: string; taskId: string | null }, prompt: string, opts: { model?: ModelChoice; select?: boolean; projectId?: string | null } = {}): Promise<SendResult> {
   const s = getState();
   const text = prompt.trim();
   if (!text) return { ok: false, status: 400, message: 'Prompt is empty' };
   const cont = target.taskId ? s.tasks.find((t) => t.id === target.taskId) : undefined;
-  const projectId = newTaskProjectId(s.projects, s.projectFilter, target.agentId, !!cont);
+  // a queued message carries the project it was queued in (null: none); a direct send takes the one in view
+  const projectId = cont ? undefined : opts.projectId !== undefined ? opts.projectId ?? undefined : newTaskProjectId(s.projects, s.projectFilter, target.agentId, false);
   const configured = s.agents.find((a) => a.id === target.agentId)?.model ?? 'auto';
   // What this send is asking for: its own model, else the selection's composer state, else the target agent's own
   // setting (a queued message that never carried a choice, or a thread of an agent that is not selected). It goes

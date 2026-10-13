@@ -1827,7 +1827,8 @@ export class Graph {
     const origin: KgOrigin = { taskId: e.taskId, tainted: e.tainted };
     let op: LogOp;
     if (existing) {
-      op = { op: 'patch', id, fields: { title, body, props, origin, sources: episodeSources(e.taskId), updatedAt: now } };
+      // the scope follows the run that recorded it: a task that moved project (or left one) moves its note too (council A11)
+      op = { op: 'patch', id, fields: { title, body, props, origin, sources: episodeSources(e.taskId), updatedAt: now, ...(existing.scope !== scope ? { scope } : {}) } };
     } else {
       const node: KgNode = {
         id, type: 'episode', title, body, tags: ['episode', 'auto'], scope, props,

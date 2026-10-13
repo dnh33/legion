@@ -5,6 +5,7 @@ import { EventBus } from '../src/core/bus.js';
 import type { Task } from '../src/shared/types.js';
 import { engineMatcher, matchPrompt, parseMatchAnswer } from '../src/core/marshal/matcher.js';
 import type { MatchInput } from '../src/core/marshal/match.js';
+import { LEAD_AGENT_ID } from '../src/core/lead.js';
 import type { BotCatalogEntry } from '../src/core/marshal/catalog.js';
 
 const task = (over: Partial<Task> = {}): Task => ({ id: 'task_1', agentId: 'zealot', title: 'match', status: 'running', source: 'ui', requestedModel: 'auto', createdAt: 'x', updatedAt: 'x', ...over } as Task);
@@ -104,4 +105,24 @@ test('the matching prompt says what each bot can do on the owner\'s computer, an
   assert.match(text, /builder \| Builder \| model auto \| access tier full \| tools: shell and file tools \(Claude Code\)/);
   assert.match(text, /herald \| Herald \| .*tools: no shell and no file tools/);
   assert.match(text, /needs commands run or files changed.*only to a bot with a shell/i);
+});
+
+test('council A12: the matching run is filed under the item\'s project when the Marshal may run there, else under none', async () => {
+  const seen: Array<Record<string, unknown>> = [];
+  let member = true;
+  const asked: string[] = [];
+  const matcher = engineMatcher({
+    engine: { startTask: (p) => { seen.push(p); return task({ id: `task_${seen.length}` }); } },
+    bus: new EventBus(), store: { getTask: () => undefined }, timeoutMs: 20,
+    canRunIn: (pid, agentId) => { asked.push(`${pid}:${agentId}`); return member; },
+  });
+  const withProject: MatchInput = { ...input, projectId: 'proj_aaaaaaaaaaaa' };
+  await Promise.resolve(matcher(withProject)).catch(() => undefined);
+  assert.equal(seen[0]!.projectId, 'proj_aaaaaaaaaaaa', 'the run belongs to the project the item is on');
+  assert.deepEqual(asked, [`proj_aaaaaaaaaaaa:${LEAD_AGENT_ID}`]);
+  member = false;
+  await Promise.resolve(matcher(withProject)).catch(() => undefined);
+  assert.equal('projectId' in seen[1]!, false, 'a Marshal outside the project still matches, filed under no project');
+  await Promise.resolve(matcher(input)).catch(() => undefined);
+  assert.equal('projectId' in seen[2]!, false, 'an item with no project names none');
 });

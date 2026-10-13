@@ -3,7 +3,7 @@ import { PROJECT_LIMITS } from '../../../src/shared/projects';
 import type { Project } from '../../../src/shared/projects';
 import { ensureRoomList, openRoom, useRooms } from '../rooms/roomsStore';
 import { loadProjectTasks, newTask, selectAgent, selectTask, setView, useStore } from '../store';
-import { assignRoom, changeMembers, chooseFolder, closeProjectPage, saveProject, setProjectFilter, useDefaultFolder } from './projectsStore';
+import { archiveProject, assignRoom, changeMembers, chooseFolder, closeProjectPage, saveProject, setProjectFilter, useDefaultFolder } from './projectsStore';
 import { assignableRooms, instructionsCounter, projectLabel, roomsOf, statusLine } from './projectsLogic';
 import { BoardPanel } from './board/BoardPanel';
 import './projects.css';
@@ -67,7 +67,7 @@ function ProjectPage({ project }: { project: Project }) {
         </div>
         <div className="proj-headact">
           <button type="button" className="btn" onClick={startTask} disabled={archived || members.length === 0} aria-describedby={members.length === 0 ? 'proj-nomem' : undefined}>New task in this project</button>
-          <button type="button" className="btn" disabled={busy} onClick={() => void run(() => saveProject(project.id, { status: archived ? 'active' : 'archived' }))}>{archived ? 'Unarchive' : 'Archive'}</button>
+          <button type="button" className="btn" disabled={busy} onClick={() => void run(() => (archived ? saveProject(project.id, { status: 'active' }) : archiveProject(project)))}>{archived ? 'Unarchive' : 'Archive'}</button>
           <button type="button" className="btn-ghost" onClick={closeProjectPage}>Back to chat</button>
         </div>
       </header>

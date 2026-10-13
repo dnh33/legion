@@ -395,3 +395,19 @@ test('held queues are listed per agent, so a paused queue can be shown where the
   s = resume(s, 't:task1');
   assert.deepEqual(heldAgents(s, owner), new Map([['agentB', 1]]));
 });
+
+test('council A6: a message queued for a new thread keeps the project it was queued in, through a reload too', () => {
+  const key = threadKey('scout', null);
+  let r = enqueue(emptyState, key, 'start the report', '', 'p1', 1, 'proj_aaaaaaaaaaaa');
+  assert.ok(r.ok);
+  r = enqueue(r.state, key, 'and then this', '', 'p2', 2, null);
+  assert.ok(r.ok);
+  const items = queueOf(r.state, key)!.items;
+  assert.equal(items[0]!.project, 'proj_aaaaaaaaaaaa', 'the project in view when it was queued');
+  assert.equal(items[1]!.project, null, 'queued with no project in view: it starts in none, whatever is in view later');
+  const back = queueOf(restore(serialize(r.state)), key)!.items;
+  assert.deepEqual(back.map((i) => i.project), ['proj_aaaaaaaaaaaa', null], 'kept through storage');
+  // storage is not trusted: a project value that is not an id is dropped, and an old item without one stays without
+  const raw = JSON.stringify({ v: 1, threads: { [key]: { items: [{ id: 'x', text: 'a', at: 1, project: '../../etc' }, { id: 'y', text: 'b', at: 2 }], hold: null } } });
+  assert.deepEqual(queueOf(restore(raw), key)!.items.map((i) => 'project' in i), [false, false]);
+});

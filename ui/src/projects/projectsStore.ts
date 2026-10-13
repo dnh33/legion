@@ -2,7 +2,7 @@
 import type { Project } from '../../../src/shared/projects';
 import { api, ApiError } from '../api';
 import { getState, selectAgent, selectTask, setState, setView, toast } from '../store';
-import { agentsFor, FILTER_KEY, resolveFilter } from './projectsLogic';
+import { agentsFor, archiveQuestion, FILTER_KEY, resolveFilter } from './projectsLogic';
 
 const errText = (e: unknown): string => (e instanceof ApiError || e instanceof Error ? e.message : String(e));
 function persist(id: string | null) { try { if (id) localStorage.setItem(FILTER_KEY, id); else localStorage.removeItem(FILTER_KEY); } catch { /* ignore */ } }
@@ -43,6 +43,15 @@ function put(p: Project): void { setState((s) => ({ projects: s.projects.some((x
 
 export async function saveProject(id: string, patch: { name?: string; instructions?: string; status?: 'active' | 'archived' }): Promise<boolean> {
   try { put(await api.patchProject(id, patch)); return true; } catch (e) { toast(errText(e), 'error'); return false; }
+}
+
+/** Archive after a question that says what it touches (council A9). Without the numbers (an older core) it still asks. */
+export async function archiveProject(p: Project): Promise<boolean> {
+  const n = { live: 0, open: 0, rooms: 0 };
+  try { for (const c of Object.values((await api.projectImpact(p.id)).agents)) { n.live += c.live; n.open += c.open; } } catch { /* asked without counts */ }
+  try { n.rooms = (await api.roomsList()).filter((r) => r.projectId === p.id).length; } catch { /* asked without the room count */ }
+  if (!window.confirm(archiveQuestion(p.name, n))) return false;
+  return saveProject(p.id, { status: 'archived' });
 }
 
 /** The app's own native confirmation (main process) decides; this window never holds the secret that lets the core accept the change. */

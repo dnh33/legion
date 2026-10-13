@@ -1,7 +1,7 @@
 /** The app's native confirmation for project folder and member changes (control C2, app side). */
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { parseProjectChange, projectChange } from '../src/electron/project-ipc.js';
+import { countsLine, parseProjectChange, projectChange, workOf } from '../src/electron/project-ipc.js';
 import type { ProjectIpcDeps } from '../src/electron/project-ipc.js';
 
 const ID = 'proj_0123456789ab';
@@ -82,4 +82,27 @@ test('a refusing or unreachable core is reported in plain words', async () => {
   const down = deps({ coreDown: true });
   const r2 = await projectChange({ kind: 'members', id: ID, members: ['scout'] }, down.d);
   assert.equal(r2.ok, false); assert.match(r2.error!, /could not reach/);
+});
+
+test('council A9: removing a member says what it touches (runs in progress, open tasks, board items, rooms), read from the core', async () => {
+  const dialogs: Array<{ detail: string }> = [];
+  const d: ProjectIpcDeps = {
+    async call(method, route) {
+      if (method !== 'GET') return { status: 200, json: { ok: true } };
+      if (route === '/api/agents') return { status: 200, json: AGENTS };
+      if (route === `/api/projects/${ID}/impact`) return { status: 200, json: { agents: { zealot: { live: 1, open: 4 } } } };
+      if (route === `/api/projects/${ID}/board`) return { status: 200, json: { items: [
+        { status: 'doing', assignee: { kind: 'agent', id: 'zealot' } }, { status: 'done', assignee: { kind: 'agent', id: 'zealot' } }, { status: 'backlog', assignee: { kind: 'owner' } },
+      ] } };
+      if (route === '/api/rooms') return { status: 200, json: [{ projectId: ID, members: ['zealot', 'scout'] }, { projectId: 'proj_ffffffffffff', members: ['zealot'] }] };
+      return { status: 200, json: PROJECT };
+    },
+    async confirm(o) { dialogs.push(o); return false; },
+    async pickFolder() { return undefined; },
+  };
+  await projectChange({ kind: 'members', id: ID, members: ['scout'] }, d);
+  assert.match(dialogs[0]!.detail, /Removed: Zealot \(1 run in progress, 4 open tasks, 1 board item, 1 room\)\. Runs in progress finish\./);
+  // a core that cannot answer a part (no board, an older core) gives no number for it, never an error
+  const bare = await workOf({ async call() { return { status: 404, json: {} }; } }, ID);
+  assert.equal(countsLine(bare, 'zealot'), '');
 });
