@@ -33,6 +33,8 @@ export interface QThread {
   sending: string | null;
   /** Last failure, shown with the 'error' hold. */
   error?: string;
+  /** The core said the task is still running (409): the first item waits for the next idle. Not a failure, not stored. */
+  waiting?: true;
 }
 export interface QState { threads: Readonly<Record<string, QThread>> }
 
@@ -99,8 +101,30 @@ export function beginSend(s: QState, key: string, itemId?: string): { state: QSt
 export function finishSend(s: QState, key: string, itemId: string, ok: boolean, error?: string): QState {
   const t = s.threads[key];
   if (!t || t.sending !== itemId) return s;
-  if (ok) return put(s, key, { ...t, items: t.items.filter((i) => i.id !== itemId), sending: null });
-  return put(s, key, { ...t, sending: null, hold: 'error', error: error ?? 'Sending failed' });
+  const { waiting: _w, ...rest } = t;
+  if (ok) return put(s, key, { ...rest, items: t.items.filter((i) => i.id !== itemId), sending: null });
+  return put(s, key, { ...rest, sending: null, hold: 'error', error: error ?? 'Sending failed' });
+}
+
+/**
+ * The core answered that the task is still running (409): our copy said idle a moment too early, or another caller woke
+ * the same task. That is not a failure: the item stays first in line, nothing is held, and it goes out on the next idle.
+ */
+export function deferSend(s: QState, key: string, itemId: string): QState {
+  const t = s.threads[key];
+  if (!t || t.sending !== itemId) return s;
+  return put(s, key, { ...t, sending: null, waiting: true });
+}
+
+/** How many held queues each agent has (owner of a thread key from `ownerOf`), so a paused queue can be shown on the agent itself. */
+export function heldAgents(s: QState, ownerOf: (key: string) => string | null): Map<string, number> {
+  const out = new Map<string, number>();
+  for (const [k, t] of Object.entries(s.threads)) {
+    if (t.hold === null || t.items.length === 0) continue;
+    const a = ownerOf(k);
+    if (a) out.set(a, (out.get(a) ?? 0) + 1);
+  }
+  return out;
 }
 
 /** Ctrl+Enter: while the run is being cancelled and the new message sent, nothing queued may go out. */
