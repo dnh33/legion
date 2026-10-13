@@ -202,3 +202,15 @@ test('C1 followRemote: an untouched editor follows a change made elsewhere; an e
   assert.doesNotMatch(view, /setText\(\(t\) => \(t === project\.instructions \? t : t\)\)/, 'the no-op is gone');
   assert.match(view, /followRemote\(t, prev\.current\.instructions, project\.instructions\)/);
 });
+
+test('C2 defaultStarter: the selected agent when it is a member, else the first member; the page offers a labelled choice', async () => {
+  const { defaultStarter } = await import('../ui/src/projects/projectsLogic.js');
+  assert.equal(defaultStarter(['scout', 'builder'], 'builder'), 'builder');
+  assert.equal(defaultStarter(['scout', 'builder'], 'herald'), 'scout');
+  assert.equal(defaultStarter(['scout'], null), 'scout');
+  assert.equal(defaultStarter([], 'scout'), undefined);
+  const root = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
+  const view = readFileSync(join(root, 'ui', 'src', 'projects', 'ProjectView.tsx'), 'utf8');
+  assert.match(view, /<select aria-label="Agent for the new task"/);
+  assert.doesNotMatch(view, /const first = project\.members\[0\];/, 'no longer always the first member');
+});

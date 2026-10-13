@@ -4,7 +4,7 @@ import type { Project } from '../../../src/shared/projects';
 import { ensureRoomList, openRoom, useRooms } from '../rooms/roomsStore';
 import { loadProjectTasks, newTask, selectAgent, selectTask, setView, useStore } from '../store';
 import { archiveProject, assignRoom, changeMembers, chooseFolder, closeProjectPage, saveProject, setProjectFilter, useDefaultFolder } from './projectsStore';
-import { assignableRooms, followRemote, instructionsCounter, projectLabel, roomOutOfProject, roomsOf, statusLine } from './projectsLogic';
+import { assignableRooms, defaultStarter, followRemote, instructionsCounter, projectLabel, roomOutOfProject, roomsOf, statusLine } from './projectsLogic';
 import { BoardPanel } from './board/BoardPanel';
 import './projects.css';
 
@@ -25,6 +25,7 @@ export function ProjectView() {
 function ProjectPage({ project }: { project: Project }) {
   const agents = useStore((s) => s.agents);
   const tasks = useStore((s) => s.tasks);
+  const selected = useStore((s) => s.selectedAgentId);
   const rooms = useRooms((s) => s.rooms);
   useEffect(() => { ensureRoomList(); }, []);
   // the window's snapshot holds only the newest tasks per agent: fetch this project's own
@@ -34,6 +35,7 @@ function ProjectPage({ project }: { project: Project }) {
   const [add, setAdd] = useState('');
   const [busy, setBusy] = useState(false);
   const [roomPick, setRoomPick] = useState('');
+  const [starter, setStarter] = useState<string | undefined>(() => defaultStarter(project.members, selected));
   // keep the editors in step with changes from elsewhere (another window, a confirmation) while nothing is being edited
   const prev = useRef(project);
   useEffect(() => {
@@ -54,11 +56,12 @@ function ProjectPage({ project }: { project: Project }) {
   const textDirty = text.slice(0, PROJECT_LIMITS.instructionsChars) !== project.instructions;
 
   const run = async (fn: () => Promise<unknown>) => { setBusy(true); try { await fn(); } finally { setBusy(false); } };
+  // the chosen member, while it is still one (a member removed meanwhile falls back to the default)
+  const who = starter && project.members.includes(starter) ? starter : defaultStarter(project.members, selected);
   const startTask = () => {
-    const first = project.members[0];
-    if (!first) return;
+    if (!who) return;
     setProjectFilter(project.id);
-    selectAgent(first);
+    selectAgent(who);
     setView('chat');
     newTask();
   };
@@ -71,6 +74,11 @@ function ProjectPage({ project }: { project: Project }) {
           <p className="muted-s" role="status">{statusLine(project, inTasks.length, inRooms.length)}</p>
         </div>
         <div className="proj-headact">
+          {members.length > 1 && !archived && (
+            <select aria-label="Agent for the new task" value={who} onChange={(e) => setStarter(e.target.value)}>
+              {members.map((a) => <option key={a.id} value={a.id}>{a.emoji} {a.name}</option>)}
+            </select>
+          )}
           <button type="button" className="btn" onClick={startTask} disabled={archived || members.length === 0} aria-describedby={members.length === 0 ? 'proj-nomem' : undefined}>New task in this project</button>
           <button type="button" className="btn" disabled={busy} onClick={() => void run(() => (archived ? saveProject(project.id, { status: 'active' }) : archiveProject(project)))}>{archived ? 'Unarchive' : 'Archive'}</button>
           <button type="button" className="btn-ghost" onClick={closeProjectPage}>Back to chat</button>

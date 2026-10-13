@@ -154,3 +154,7 @@ export function alsoWorkingLabel(rows: Pick<Task, 'projectId' | 'title'>[], proj
 
 /** An editor's text after the saved value changed elsewhere: untouched (still the old saved value) follows; edited keeps the owner's text. */
 export const followRemote = (local: string, prevRemote: string, nextRemote: string): string => (local === prevRemote ? nextRemote : local);
+
+/** Who starts a new task from the project page by default: the agent in view when it is a member, else the first member. */
+export const defaultStarter = (members: string[], selected: string | null): string | undefined =>
+  selected && members.includes(selected) ? selected : members[0];
