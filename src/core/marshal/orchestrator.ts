@@ -72,7 +72,9 @@ export interface DispatchedItem {
   taskId: string;
 }
 export interface BlockedItem { itemId: string; title: string; reason: string }
-export interface StepReport { dispatched: DispatchedItem[]; blocked: BlockedItem[]; candidates: number }
+/** An item that waits for its bot to be free: it stays in the backlog and the next pass tries again (not Blocked). */
+export interface WaitingItem { itemId: string; title: string; reason: string }
+export interface StepReport { dispatched: DispatchedItem[]; blocked: BlockedItem[]; waiting: WaitingItem[]; candidates: number }
 export interface MonitorReport { finished: string[]; failed: string[]; stalled: string[]; escalated: string[] }
 
 /** The picture the owner reads: what runs and why, what is blocked and why, what comes next and why. */
@@ -155,6 +157,7 @@ export class Marshal {
     const candidates: DispatchCandidate[] = dispatchable(this.ports.board.view(this.project), ctx);
     const dispatched: DispatchedItem[] = [];
     const blocked: BlockedItem[] = [];
+    const waiting: WaitingItem[] = [];
     for (const candidate of candidates) {
       if (dispatched.length >= max) break;
       const item = candidate.item;
@@ -162,6 +165,12 @@ export class Marshal {
       const untrusted = untrustedRefusal(item);
       if (untrusted) { blocked.push(this.block(item.id, item.title, untrusted)); continue; }
       let record: AssignmentResult;
+      if (candidate.assignedTo && ctx.busy(candidate.assignedTo)) {
+        // the owner's bot is merely busy: that passes with time, so the item waits for it (never Blocked for it)
+        const where = ctx.busyWhy(candidate.assignedTo);
+        waiting.push({ itemId: item.id, title: item.title, reason: `waiting for ${candidate.assignedTo}${where ? ` (${where})` : ' (it is working on another item)'}` });
+        continue;
+      }
       if (candidate.assignedTo) {
         // the owner named the bot: a routing DECISION, honoured directly — still through every code guard
         record = this.assignFromOwner(item, candidate.assignedTo, ctx);
@@ -208,7 +217,7 @@ export class Marshal {
       dispatched.push(dispatch);
       this.blocked.delete(item.id);
     }
-    return { dispatched, blocked, candidates: candidates.length };
+    return { dispatched, blocked, waiting, candidates: candidates.length };
   }
 
   /** A wave, by name: the batch view of `step`. */

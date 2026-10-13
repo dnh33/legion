@@ -253,3 +253,24 @@ test('D1 a run still queued behind the engine cap, or waiting on the owner, is n
   r.states.set(d.taskId, { status: 'running', progressAt: T0 });
   assert.deepEqual(m.monitor(T0 + 30 * MIN).stalled, [a.id], 'running and silent: stalled');
 });
+
+test('D2 items the owner assigned to a busy bot wait in the backlog with the reason; they are never Blocked for it', async () => {
+  const r = rig(matchFirst('builder'));
+  const items = [1, 2, 3].map((n) => r.board.create(P, { title: `assigned ${n}`, assignee: { kind: 'agent', id: 'builder' } }));
+  const m = r.marshal({ waveSize: 3 });
+  for (const it of items) m.writeDoneWhen(it.id, ['done']);
+  const report = await m.step(T0);
+  assert.equal(report.dispatched.length, 1, 'one run on the Builder');
+  assert.equal(report.blocked.length, 0, 'nothing is Blocked because the Builder is busy');
+  assert.equal(report.waiting.length, 2);
+  assert.match(report.waiting[0]!.reason, /waiting for builder/i);
+  for (const it of items.slice(1)) assert.notEqual(r.board.get(PID, it.id)!.status, 'blocked');
+  // busy outside the Marshal (the owner's own chat with it): the same, with where it works
+  const r2 = rig(matchFirst('builder'));
+  const solo = r2.board.create(P, { title: 'later', assignee: { kind: 'agent', id: 'builder' } });
+  const m2 = new Marshal({ ...r2.ports, botBusy: (id: string) => (id === 'builder' ? 'busy in Shop: Fix the header' : false) }, P, {});
+  m2.writeDoneWhen(solo.id, ['done']);
+  const rep2 = await m2.step(T0);
+  assert.deepEqual(rep2.blocked, []);
+  assert.match(rep2.waiting[0]!.reason, /busy in Shop: Fix the header/);
+});
