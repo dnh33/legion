@@ -4,6 +4,23 @@ All notable changes are recorded here. The format follows [Keep a Changelog](htt
 
 ## [Unreleased]
 
+## [0.2.6-v] - 2026-10-13
+
+### Security
+
+- **The safety floor now covers every shell an agent can use.** Legion refuses any command that would delete a whole
+  drive, a system folder or a home folder, in every approval mode. That check ran only for Legion's own agent shell.
+  Claude agents' own Bash and PowerShell tools now go through it too, so a Claude agent with full access cannot wipe a
+  drive either.
+- **A command Legion cannot read now asks you first, even with full access.** Some commands only reveal what they run
+  when they run, for example `$(echo rm) -rf /c` or a program name kept in a variable. Legion can no longer judge
+  these by reading them, so it shows you an approval card for them in every approval mode, including Full. The card
+  says why, and it has no Remember button, because the part that changes is the program itself. Running another
+  command's output as a script (`curl ... | bash`) asks the same way.
+- **Hidden commands are refused.** Text that is decoded and then run as a command (`base64 -d | bash`) and PowerShell's
+  `-EncodedCommand` cannot be read before they run, so Legion refuses them. Write the command out plainly instead.
+- Commands that only use variables in their arguments, such as `echo $HOME` or `git commit -m "$(date)"`, run as before.
+
 ## [0.2.6-u] - 2026-10-13
 
 ### Security

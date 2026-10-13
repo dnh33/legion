@@ -1,0 +1,8 @@
+Legion 0.2.6-v: the safety floor covers every shell on your computer.
+
+- Legion refuses a command that would delete a whole drive, a system folder or a home folder, in every approval mode. Claude agents' own Bash and PowerShell now go through that check too, not only Legion's agent shell.
+- A command whose program is only known when it runs, such as $(echo rm) -rf /c, now shows you an approval card even with full access. The card says why and has no Remember button. Running another command's output as a script (curl ... | bash) asks the same way.
+- Decoded or encoded commands (base64 -d | bash, PowerShell -EncodedCommand) are refused. Write the command out plainly instead.
+- Variables in arguments, such as echo $HOME, run as before.
+
+Installs over 0.2.5-o and later. Full detail in CHANGELOG.md.
