@@ -32,7 +32,11 @@ export const STALL_MS = 8 * 60_000;
 export const ESCALATE_AFTER_STALLS = 2;
 
 /** What a monitor sees about one run. `progressAt` is when the run last said anything (its task's updatedAt). */
-export interface RunState { status: 'queued' | 'running' | 'done' | 'error' | 'cancelled' | 'unknown'; progressAt?: number; error?: string }
+export interface RunState {
+  status: 'queued' | 'running' | 'done' | 'error' | 'cancelled' | 'unknown'; progressAt?: number; error?: string;
+  /** An approval card or a question waits on the owner: the run is paused on a person, not stalled. */
+  waitingOnOwner?: boolean;
+}
 
 /**
  * The effects the loop needs, and the only ones. Deliberately, `startRun` has no model field: a dispatch
@@ -249,6 +253,8 @@ export class Marshal {
     for (const [itemId, live] of [...this.live]) {
       const state = this.ports.runState(live.taskId);
       if (state.status === 'running' || state.status === 'queued') {
+        // queued behind the engine cap, or waiting on the owner's card or answer: nobody's fault, never a stall
+        if (state.status === 'queued' || state.waitingOnOwner) continue;
         const progressAt = state.progressAt ?? live.startedAt;
         if (now - progressAt < this.stallMs) continue;
         this.ports.cancelRun(live.taskId);

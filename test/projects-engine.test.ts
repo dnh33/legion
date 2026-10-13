@@ -449,3 +449,24 @@ test('B2 a run says when another live run works in the same folder: the same pro
     assert.match(notes(third.id)[0]!, /A1 is also running another task now \("x"\), in the same agent folder\. Both runs can change the same files\./);
   } finally { for (const r of releases) r(); }
 });
+
+test('D1 waitingOnOwner: true while the run\'s approval card is open, false after it is answered', async () => {
+  let release!: () => void;
+  const held = new Promise<void>((r) => { release = r; });
+  const s = setup(() => (async function* () { yield { type: 'system', subtype: 'init', session_id: 's1' }; await held; yield ok(); })());
+  const t = s.engine.startTask({ agentId: 'a1', prompt: 'x', source: 'ui' });
+  try {
+    await new Promise((r) => setTimeout(r, 30));
+    assert.equal(s.engine.waitingOnOwner(t.id), false);
+    const card = s.calls[0]!.options.canUseTool('Bash', { command: 'ls' }, { signal: new AbortController().signal });
+    await new Promise((r) => setTimeout(r, 10));
+    assert.equal(s.engine.waitingOnOwner(t.id), true);
+    s.engine.cancel(t.id);
+    await card;
+    assert.equal(s.engine.waitingOnOwner(t.id), false);
+  } finally {
+    s.engine.cancel(t.id);
+    release();
+    await s.engine.waitFor(t.id, 3000);
+  }
+});

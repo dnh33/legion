@@ -147,3 +147,11 @@ test('B5 a labelled private note moved to shared by the owner loses its project 
   const n = g.upsertNode(agentActor('alpha', { projectId: P1 }), { title: 'Port map', body: 'ports', scope: 'agent:alpha' }).node;
   assert.equal(g.upsertNode(HUMAN, { id: n.id, scope: 'shared' }).node.projectId, undefined);
 });
+
+test('D1 a board run\'s progress is its latest activity: the task row or its newest message, whichever is later', async () => {
+  const { runProgressAt } = await import('../src/core/projects/board/index.js');
+  const t = { updatedAt: '2026-03-01T12:00:00.000Z' };
+  assert.equal(runProgressAt(t, []), Date.parse('2026-03-01T12:00:00.000Z'));
+  assert.equal(runProgressAt(t, [{ at: '2026-03-01T12:07:00.000Z' }, { at: '2026-03-01T12:11:00.000Z' }]), Date.parse('2026-03-01T12:11:00.000Z'));
+  assert.equal(runProgressAt({ updatedAt: '2026-03-01T12:20:00.000Z' }, [{ at: '2026-03-01T12:11:00.000Z' }]), Date.parse('2026-03-01T12:20:00.000Z'));
+});
