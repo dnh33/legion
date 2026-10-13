@@ -806,8 +806,10 @@ export class Engine {
     const task = this.store.getTask(job.taskId);
     const agent = this.store.getAgent(job.agentId);
     if (!task || !agent) return;
+    const projectId = this.projectOf(job.taskId, agent.id)?.id;
     const outcome: TaskEndOutcome = {
       status: task.status, isError: task.status === 'error', ...(task.error ? { errorText: task.error } : {}), tainted: act.tainted,
+      ...(projectId ? { projectId } : {}),
     };
     for (const m of this.modules) {
       try { m.onTaskEnd?.(task, agent, outcome); } catch { /* ignore */ }

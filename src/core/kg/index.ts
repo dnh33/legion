@@ -130,7 +130,7 @@ export function createKnowledgeModule(deps: ModuleDeps, opts: KnowledgeModuleOpt
         : {};
       return { [KG_SERVER_NAME]: buildKgToolsServer(getGraph(), agent.id, run) };
     },
-    onTaskEnd: (task, agent) => {
+    onTaskEnd: (task, agent, outcome) => {
       quotas.delete(task.id);
       // Close-out with no model turn: a long or costly task that saved nothing leaves a plain episode behind.
       if (captured.has(task.id)) return;
@@ -140,7 +140,8 @@ export function createKnowledgeModule(deps: ModuleDeps, opts: KnowledgeModuleOpt
         getGraph().recordEpisode({
           taskId: task.id, agentId: agent.id, title: task.title, status: task.status, turns: task.turns ?? 0, costUsd: task.costUsd ?? 0,
           prompt: first?.text ?? task.title, result: task.result ?? task.error ?? '', tainted: task.tainted === true || task.origin?.tainted === true,
-          ...(task.projectId ? { projectId: task.projectId } : {}),
+          // the run's project, not the task's: a run without project context never writes into that project's Library
+          ...(outcome.projectId ? { projectId: outcome.projectId } : {}),
         });
       } catch { /* a failed episode must never disturb the engine */ }
     },

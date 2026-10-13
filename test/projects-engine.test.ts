@@ -14,7 +14,9 @@ import { ProjectStore } from '../src/core/projects/store.js';
 import { projectSection } from '../src/core/projects/prompt.js';
 import { TaintedPaths } from '../src/core/tainted-paths.js';
 import { defaultConfig } from '../src/shared/config.js';
-import { PROJECT_LIMITS } from '../src/shared/projects.js';
+import { PROJECT_LIMITS, projectScope } from '../src/shared/projects.js';
+import { createKnowledgeModule, EPISODE_MIN_TURNS } from '../src/core/kg/index.js';
+import { HUMAN } from '../src/core/kg/types.js';
 import type { AgentProfile, ChatMessage, Task } from '../src/shared/types.js';
 
 class FakeStore {
@@ -300,4 +302,28 @@ test('council A10: a run queued in a project that is lost before it starts says 
   // a run with its project says nothing
   const fine = await run(s, { agentId: 'a2', prompt: 'y', source: 'ui', projectId: p.id });
   assert.deepEqual(notes(fine.id), []);
+});
+
+test('L1 the run\'s episode goes to the project the run had: a removed member\'s continue writes to its own scope, not the project\'s Library', async () => {
+  // the first run is short (no episode); every later run is long enough to leave one
+  const s = setup((_p, call) => call === 0 ? quick() : (async function* () {
+    yield { type: 'system', subtype: 'init', session_id: 's1' };
+    yield { ...ok('long'), num_turns: EPISODE_MIN_TURNS + 1 };
+  })());
+  const kg = createKnowledgeModule({ config: s.config, store: s.store as any, bus: new EventBus(), engine: s.engine, approvals: {} as any, dataDir: join(s.root, 'data'), bsvEnabled: () => false }, { debounceMs: 20 });
+  s.engine.setModules([kg]);
+  const p = s.mk('Lib', ['a1', 'a2']);
+  const t = await run(s, { agentId: 'a2', prompt: 'first', source: 'ui', projectId: p.id });
+  assert.equal(kg.graph().getNode(HUMAN, `ep:${t.id}`), undefined, 'the short first run leaves no episode');
+  s.projects.setMembers(p.id, ['a1']); // a2 leaves the project
+  await run(s, { agentId: 'a2', prompt: 'second', source: 'ui', continueTaskId: t.id });
+  assert.equal(kg.graph().getNode(HUMAN, `ep:${t.id}`)?.scope, 'agent:a2', 'the run had no project, so neither has its episode');
+  // a member's run still lands in the project
+  const inP = await run(s, { agentId: 'a1', prompt: 'third', source: 'ui', projectId: p.id });
+  assert.equal(kg.graph().getNode(HUMAN, `ep:${inP.id}`)?.scope, projectScope(p.id));
+  // and an archived project takes it back the same way
+  s.projects.update(p.id, { status: 'archived' });
+  const kept = s.store.getTask(inP.id)!;
+  kg.onTaskEnd!({ ...kept, id: 'task_archived', projectId: p.id }, s.store.getAgent('a1')!, { status: 'done', isError: false, tainted: false });
+  assert.equal(kg.graph().getNode(HUMAN, 'ep:task_archived')?.scope, 'agent:a1', 'no outcome.projectId: the episode stays out of the project');
 });
