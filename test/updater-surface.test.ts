@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { ALLOWLIST, lex, scanTree } from './bsv-scan.js';
 import { CODE_SET, FULL_PACKAGE_SET } from '../src/core/updater/apply.js';
 import { buildJob, commitMatches, restartNowText } from '../src/core/updater/main-logic.js';
+import { BOOT_REASON } from '../src/core/updater/idle.js';
 import { UPDATE_KEYS } from '../src/core/updater/trust.js';
 import { createPublicKey } from 'node:crypto';
 
@@ -117,6 +118,9 @@ test('Electron side: the job relaunches the same command as the shortcut; the re
   assert.match(t.detail, /- 2 tasks running or waiting/); assert.match(t.detail, /not resumed automatically/); assert.match(t.detail, /Cloud VMs are not touched/); assert.match(t.detail, /previous one/);
   assert.deepEqual(t.buttons, ['Cancel', 'Stop work and restart']);
   assert.match(restartNowText([], '1.1.0').detail, /nothing is running/);
+  // "Legion just started" is a wait for the automatic install, not work: the dialog does not list it as something it stops
+  assert.match(restartNowText([BOOT_REASON], '1.1.0').detail, /nothing is running/);
+  assert.doesNotMatch(restartNowText([BOOT_REASON, '1 approval waiting for you'], '1.1.0').detail, /just started/);
 });
 
 

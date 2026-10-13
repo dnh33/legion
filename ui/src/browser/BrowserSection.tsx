@@ -4,7 +4,7 @@ import { errText } from '../store';
 import type { BrowserCheckResult, BrowserStatusView } from '../../../src/shared/browser';
 import './browser.css';
 
-/** Settings: the browser tool (headless Edge or Chrome already on this computer). All text from the core is shown as plain text. */
+/** Settings: the browser tool (headless Edge or Chrome already on your computer). All text from the core is shown as plain text. */
 export function BrowserSection() {
   const [st, setSt] = useState<BrowserStatusView | null>(null);
   const [err, setErr] = useState<string | null>(null);
@@ -32,7 +32,7 @@ export function BrowserSection() {
   return (
     <div className="brw" aria-label="Browser">
       <h4>Browser</h4>
-      <p className="brw-muted">Lets agents read web pages as text. It uses Microsoft Edge or Google Chrome, already on this computer, in a hidden window: nothing is downloaded. It does not draw pages for you or take screenshots. Every page is treated as untrusted text; the first page, each new site and each script ask you first. The browser runs with your user rights: a cloud VM is the only isolated way to browse (use the VM live view for that).</p>
+      <p className="brw-muted">Lets agents read web pages as text. It uses Microsoft Edge or Google Chrome, already on your computer, in a hidden window: nothing is downloaded. It does not draw pages for you or take screenshots. Every page is treated as untrusted text; the first page, each new site and each script ask you first. The browser runs with your user rights: a cloud VM is the only isolated way to browse (use the VM live view for that).</p>
       <label className="brw-row"><input type="checkbox" checked={st.enabled} disabled={busy} onChange={(e) => void save({ enabled: e.target.checked })} /> Let agents browse the web {st.enabled ? '(on)' : '(off)'}</label>
       <ul className="brw-engines" aria-label="Browser engine">
         {st.engines.map((e) => <li key={e.id}><b>Engine:</b> {e.label}</li>)}
@@ -64,7 +64,7 @@ export function BrowserSection() {
         <button type="button" className="btn-ghost sm" disabled={busy || !ports.trim()} onClick={() => void native({ kind: 'local', allow: true, ports: ports.split(/[\s,]+/).filter(Boolean).map(Number) })}>Allow local addresses (until restart)</button>
         {st.allowLocal && <button type="button" className="btn-ghost sm" disabled={busy} onClick={() => void native({ kind: 'local', allow: false })}>Turn off</button>}
       </div>
-      <p className="brw-muted">Not protected: anything else on this computer can reach the browser's local debugging port while a task runs; the browser can resolve a name differently from Legion's check; sockets and WebRTC a page opens are not claimed to be checked.</p>
+      <p className="brw-muted">Not protected: anything else on your computer can reach the browser's local debugging port while a task runs; the browser can resolve a name differently from Legion's check; sockets and WebRTC a page opens are not claimed to be checked.</p>
       {note && <p className="brw-note" role="status">{note}</p>}
       {err && <p className="brw-err" role="alert">{err}</p>}
     </div>

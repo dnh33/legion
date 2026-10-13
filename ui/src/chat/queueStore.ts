@@ -10,6 +10,7 @@ import { useSyncExternalStore } from 'react';
 import type { ModelChoice, Task } from '../../../src/shared/types';
 import { api } from '../api';
 import { confirmStop, getState, sendPromptTo, subscribeStore, tapEvents, toast } from '../store';
+import { newTaskProjectId } from '../projects/projectsLogic';
 import { busyReason } from './busy';
 import * as Q from './queue';
 
@@ -34,6 +35,15 @@ function set(next: Q.QState) {
   qs = next; save(qs);
   subs.forEach((l) => l());
 }
+/** The whole queue state (its identity changes only when a queue changes): for views that summarise all threads, like the agent rail. */
+export function useQueueState(): Q.QState {
+  return useSyncExternalStore(subQ, () => qs);
+}
+/** The agent a thread belongs to: its task's agent, or the agent of a New task queue. */
+export function ownerOfThread(key: string, tasks: readonly Task[]): string | null {
+  const k = Q.parseKey(key);
+  return k.taskId ? tasks.find((t) => t.id === k.taskId)?.agentId ?? null : k.agentId;
+}
 /** One thread's queue. Other threads' edits keep this object's identity, so this does not re-render for them. */
 export function useThreadQueue(key: string): Q.QThread | undefined {
   return useSyncExternalStore(subQ, () => qs.threads[key]);
@@ -44,7 +54,10 @@ const newId = () => `q${Date.now().toString(36)}${(idSeq++).toString(36)}`;
 
 /* ---------- owner actions ---------- */
 export function enqueueMessage(agentId: string, taskId: string | null, text: string, model: ModelChoice): boolean {
-  const r = Q.enqueue(qs, Q.threadKey(agentId, taskId), text, model, newId(), Date.now());
+  // a new thread starts in the project in view NOW, not in whichever one is in view when the message finally goes out
+  const s = getState();
+  const project = taskId ? undefined : newTaskProjectId(s.projects, s.projectFilter, agentId, false) ?? null;
+  const r = Q.enqueue(qs, Q.threadKey(agentId, taskId), text, model, newId(), Date.now(), project);
   if (!r.ok) { toast(Q.rejectMessage(r.reason), 'error'); return false; }
   set(r.state); kick();
   return true;
@@ -87,12 +100,24 @@ const viewing = (at: { agentId: string; taskId: string | null }): boolean => {
   return at.taskId ? s.selectedTaskId === at.taskId : s.selectedTaskId === null && s.selectedAgentId === at.agentId;
 };
 
-/** Sends one message to a thread. A 409 (the core still has the thread running although our copy says idle) is retried a few times. */
-async function sendItem(at: { agentId: string; taskId: string | null }, text: string, model: string) {
+/** Sends one message to a thread. A 409 (the core still has the thread running although our copy says idle) is retried twice at once. */
+async function sendItem(at: { agentId: string; taskId: string | null }, text: string, model: string, project?: string | null) {
   const select = viewing(at);
-  let r = await sendPromptTo(at, text, { model, select });
-  for (let i = 0; !r.ok && r.status === 409 && i < 5; i++) { await sleep(600); r = await sendPromptTo(at, text, { model, select }); }
+  const opts = { model, select, ...(project !== undefined ? { projectId: project } : {}) };
+  let r = await sendPromptTo(at, text, opts);
+  for (let i = 0; !r.ok && r.status === 409 && i < 2; i++) { await sleep(600); r = await sendPromptTo(at, text, opts); }
   return r;
+}
+
+/**
+ * A thread the core still calls busy (409) is tried again: on the next status change (the runner re-evaluates then), and on a
+ * timer that backs off from 2 s to 30 s, in case that change never reaches this window. Never an error hold: nothing is wrong.
+ */
+const retryAfter = new Map<string, number>();
+function retryLater(key: string) {
+  const wait = Math.min(30_000, (retryAfter.get(key) ?? 1_000) * 2);
+  retryAfter.set(key, wait);
+  setTimeout(kick, wait);
 }
 
 async function drain(key: string, at: { agentId: string; taskId: string | null }) {
@@ -101,11 +126,17 @@ async function drain(key: string, at: { agentId: string; taskId: string | null }
   set(began.state);
   const item = began.item;
   const run = (async () => {
-    const r = await sendItem(at, item.text, item.model);
+    const r = await sendItem(at, item.text, item.model, item.project);
     if (r.ok) {
+      retryAfter.delete(key);
       set(Q.finishSend(qs, key, item.id, true));
       if (!at.taskId) set(Q.rekey(qs, key, Q.threadKey(at.agentId, r.task.id)));
+    } else if (r.status === 409) {
+      // still running on the core's side: wait for it, quietly; the queue strip says the message is waiting for the agent
+      set(Q.deferSend(qs, key, item.id));
+      retryLater(key);
     } else {
+      retryAfter.delete(key);
       set(Q.finishSend(qs, key, item.id, false, r.message));
       toast(`Queued message not sent: ${r.message}`, 'error');
     }

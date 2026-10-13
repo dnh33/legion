@@ -30,7 +30,7 @@ const NAV: { id: SettingsSection; label: string; hint: string }[] = [
   { id: 'armory', label: 'Armory', hint: 'Skills your agents can pick up' },
   { id: 'github', label: 'GitHub', hint: 'Connector: read repos and CI' },
   { id: 'connections', label: 'Use from Claude', hint: 'Drive Legion from Claude Code' },
-  { id: 'logs', label: 'Logs', hint: 'What Legion did, on this computer' },
+  { id: 'logs', label: 'Logs', hint: 'What Legion did, on your computer' },
   { id: 'about', label: 'About', hint: 'Version and folders' },
 ];
 
@@ -588,7 +588,7 @@ function McpSection({ s }: { s: SettingsView }) {
             <div className="seg" role="radiogroup" aria-label="Server type">
               {(['stdio', 'http', 'sse'] as const).map((t) => <button key={t} type="button" role="radio" aria-checked={draft.type === t} className={draft.type === t ? 'on' : ''} onClick={() => set({ type: t })}>{t}</button>)}
             </div>
-            <span className="set-hint">{draft.type === 'stdio' ? 'Legion starts a program on this computer.' : 'Legion connects to a server at a URL.'}</span>
+            <span className="set-hint">{draft.type === 'stdio' ? 'Legion starts a program on your computer.' : 'Legion connects to a server at a URL.'}</span>
           </div>
           {draft.type === 'stdio' ? (<>
             <Field id="mcp-cmd" label="Command"><input id="mcp-cmd" value={draft.command} onChange={(e) => set({ command: e.target.value })} placeholder="npx" spellCheck={false} /></Field>
@@ -661,7 +661,7 @@ function BlenderSection() {
   const mg = st.managed;
   return (
     <div className="set-section">
-      <Head title="Blender" lead="The Sculptor can build 3D scenes in Blender. Every script is checked, shown to you in full and needs your OK. By default it runs in Blender on this computer when Blender is found." />
+      <Head title="Blender" lead="The Sculptor can build 3D scenes in Blender. Every script is checked, shown to you in full and needs your OK. By default it runs in Blender on your computer when Blender is found." />
       <div className="set-card">
         <div className={`set-status st-${dot}`} role="status"><i className="set-dot" /><b>{label}</b><span className="muted-s">{st.summary}</span></div>
         <label className="set-check"><input type="checkbox" checked={st.enabled} disabled={b} onChange={(e) => { if (e.target.checked) requestEnableBlender(); else void saveBlenderConfig({ enabled: false }); }} />
@@ -737,14 +737,14 @@ function BlenderSection() {
       </div>
       {!off && (
         <div className="set-card">
-          <div className="set-field"><span className="set-label">Blender on this computer</span>
+          <div className="set-field"><span className="set-label">Blender on your computer</span>
             {st.installs.length === 0 ? <span className="set-hint">Not found. Install Blender from blender.org, or set its folder under Advanced.</span> : (
               <ul className="bl-install">{st.installs.map((i) => <li key={i.path} className={st.selected?.path === i.path ? 'sel' : ''}>{st.selected?.path === i.path ? '\u25cf ' : '\u25cb '}Blender {i.version}{i.versionGuessed ? ' (from folder name)' : ''} {'\u00b7'} {i.path}</li>)}</ul>
             )}
           </div>
           <details className="set-adv">
             <summary>Advanced</summary>
-            <Field id="bl-port" label="My open Blender: add-on port" hint={`The port Blender's add-on listens on (this computer only). Default 9876.${liveOk ? '' : ' Not used while scripts are set to run on this computer or in the cloud VM.'}`}>
+            <Field id="bl-port" label="My open Blender: add-on port" hint={`The port Blender's add-on listens on (your computer only). Default 9876.${liveOk ? '' : ' Not used while scripts are set to run on your computer or in the cloud VM.'}`}>
               <div className="set-inline">
                 <input id="bl-port" className="narrow" inputMode="numeric" disabled={!liveOk} value={port} onChange={(e) => setPort(e.target.value.replace(/[^\d]/g, ''))} />
                 <button type="button" className="btn" disabled={b || !liveOk || !portDirty || !portOk} onClick={() => void saveBlenderConfig({ port: portNum })}>Save port</button>
@@ -797,7 +797,7 @@ function AboutSection({ s }: { s: SettingsView }) {
   const rows: [string, string, boolean][] = [['Version', version ? `v${version}` : '\u2026', false], ['Data folder', s.dataDir, true], ['Config file', s.configPath, true], ['Local port', String(s.port), false]];
   return (
     <div className="set-section">
-      <Head title="About" lead="Legion runs on this computer. Nothing here leaves it except your own Claude and boat.dev calls." />
+      <Head title="About" lead="Legion runs on your computer. Nothing here leaves it except your own Claude and boat.dev calls." />
       <dl className="set-about">
         {rows.map(([k, v, copy]) => (
           <div key={k}><dt>{k}</dt><dd><code>{v}</code>{copy && <button type="button" className="btn-ghost sm" onClick={() => void copyText(v).then((ok) => ok && toast('Copied'))}><Icon name="copy" size={12} /> Copy</button>}</dd></div>

@@ -52,7 +52,7 @@ export function ReadDialog() {
       {r.status === 'builtin' ? (
         <div className="arm-readbody">
           {skill?.description ? <p className="house-readdesc">{skill.description}</p> : null}
-          <p className="set-hint">This skill is built in to Claude Code, so its text is not on this computer to read here.</p>
+          <p className="set-hint">This skill is built in to Claude Code, so its text is not on your computer to read here.</p>
           {skill?.offReason ? <p className="set-hint">Legion keeps it off. {skill.offReason}</p> : null}
         </div>
       ) : null}

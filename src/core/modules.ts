@@ -47,6 +47,8 @@ export interface TaskEndOutcome {
   errorText?: string;
   /** True when the run touched outside content at any point. */
   tainted: boolean;
+  /** The project this run belonged to (active, agent a member), not the task's raw projectId: a removed member's or archived project's run has none. */
+  projectId?: string;
 }
 
 export interface CoreModule {

@@ -63,7 +63,8 @@ export interface PageQuery {
   limit?: number;
   cursor?: string;
   agentId?: string;
-  projectId?: string;
+  /** A project id, or null for the tasks that belong to no project. */
+  projectId?: string | null;
   includeArchived?: boolean;
   /** Search text: every word must match (a word matches a title word that starts with it, or the name of the task's agent). */
   q?: string;
@@ -164,7 +165,7 @@ export class TaskIndex {
     for (let i = start; i < arr.length && out.length <= limit; i++) {
       const e = arr[i]!;
       if (e.archived && !q.includeArchived) continue;
-      if (q.projectId !== undefined && e.projectId !== q.projectId) continue;
+      if (q.projectId !== undefined && (e.projectId ?? null) !== q.projectId) continue;
       if (!agentOk(e.agentId)) continue;
       let hit = true;
       for (const s of sets) if (!s.ids.has(e.id) && !s.agents.has(e.agentId)) { hit = false; break; }

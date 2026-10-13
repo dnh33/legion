@@ -123,10 +123,31 @@ test('agents tool: compact roster with status and thread flag', async () => {
   })());
   await s.engine.waitFor(s.engine.startTask({ agentId: 'zealot', prompt: 'go', source: 'ui' }).id, 5000);
   const lines = text.split('\n');
-  assert.equal(lines.length, 3);
+  const rows = lines.filter((l) => !l.startsWith(' '));
+  assert.equal(rows.length, 3);
   assert.ok(!lines.some((l) => l.startsWith('zealot')));
   assert.match(lines.find((l) => l.startsWith('scout'))!, /^scout \| Scout \| .* \| idle \| thread$/);
   assert.match(lines.find((l) => l.startsWith('builder'))!, /\| idle \| no-thread$/);
+  // every agent says what it can do on the owner's computer, on its own line under its row
+  assert.equal(lines.filter((l) => l.startsWith('  tools: ')).length, 3);
+});
+
+test('agents tool: each agent says whether it has a shell, so a lead does not hand commands to one without (trial finding 1)', async () => {
+  let text = '';
+  const s = setup((c) => c.agent !== 'zealot' ? undefined : (async function* () {
+    yield init('z1');
+    text = (await callTool(c.options, 'agents', {})).text;
+    yield ok('x', 'z1');
+  })());
+  s.store.upsertAgent({ ...s.store.getAgent('builder')!, model: 'openrouter:xiaomi/mimo-v2.6-pro', host: { enabled: true } } as AgentProfile);
+  s.store.upsertAgent({ ...s.store.getAgent('worker')!, model: 'openrouter:deepseek/deepseek-v4.1' } as AgentProfile);
+  s.store.upsertAgent({ ...s.store.getAgent('scout')!, vm: { ...s.store.getAgent('scout')!.vm, enabled: true } } as AgentProfile);
+  await s.engine.waitFor(s.engine.startTask({ agentId: 'zealot', prompt: 'go', source: 'ui' }).id, 5000);
+  const lines = text.split('\n');
+  const toolsOf = (id: string) => lines[lines.findIndex((l) => l.startsWith(`${id} |`)) + 1]!;
+  assert.match(toolsOf('scout'), /^ {2}tools: shell and file tools \(Claude Code\); its own cloud VM$/);
+  assert.match(toolsOf('builder'), /^ {2}tools: shell and file tools \(agent shell\)$/);
+  assert.match(toolsOf('worker'), /^ {2}tools: no shell and no file tools/);
 });
 
 test('busy target thread: messages queue FIFO and each ask gets its own run result', async () => {

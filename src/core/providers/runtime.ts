@@ -54,14 +54,16 @@ export class ProviderRuntime {
   config(): ProvidersConfig { return this.cfg; }
 
   /**
-   * The provider a model value names, or undefined (the Claude path, exactly as before). A prefix that is a preset name or a configured
-   * provider counts even when its entry is gone, so a deleted provider stops the run instead of sending the id to Claude.
+   * The provider a model value names, or undefined (the Claude path, exactly as before). A preset with no saved entry runs on
+   * the preset's own entry, the one Settings shows: saving only a key (a fresh install's OpenRouter) is enough to run. A preset
+   * that ships off resolves to its off entry, so the run says "turned off". A configured provider whose entry is gone stops the
+   * run instead of sending the id to Claude.
    */
   resolve(model: string | undefined): ResolvedModel | undefined {
     const m = typeof model === 'string' ? PREFIX_RE.exec(model) : null;
     if (!m || m[1] === 'arn') return undefined;
     const id = m[1]!;
-    const entry = this.cfg.entries[id];
+    const entry = this.cfg.entries[id] ?? PROVIDER_PRESETS.find((p) => p.id === id)?.entry;
     if (!entry && !PRESET_IDS.has(id)) return undefined;
     return { providerId: id, model: m[2]!, ...(entry ? { entry } : {}) };
   }

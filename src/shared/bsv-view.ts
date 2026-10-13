@@ -135,6 +135,25 @@ export function heightText(h: unknown): string {
   return typeof h === 'number' && Number.isSafeInteger(h) && h >= 0 ? h.toLocaleString('en-US') : '';
 }
 
+/** The way out of a freeze, named in the banner and in the pill. One line, the same words everywhere. */
+export const UNFREEZE_POINTER = 'Unfreeze is in the BSV panel.';
+
+/**
+ * The frozen banner's candidate lines, longest first: why the chain is frozen, then since when and how to undo it.
+ * The ticker shows the first candidate whose longest line fits the gap (useTickerSlot), so a narrow window keeps the date
+ * and the way out together rather than cutting the reason off mid word. The reason and the date are the values the core
+ * saved when the chain was frozen: this view never invents them, and a freeze with neither simply says BSV FROZEN.
+ */
+function frozenLines(f: { at?: string; reason?: string } | null | undefined): string[][] {
+  const reason = safeLine(f?.reason, 60).replace(/[\u2013\u2014]/g, '-');
+  const m = /^(\d{4}-\d{2}-\d{2})/.exec(typeof f?.at === 'string' ? f.at : '');
+  const since = m ? `since ${m[1]}` : '';
+  const pointer = UNFREEZE_POINTER.replace(/\.$/, '');
+  const tail = since ? `${since}. ${pointer}` : pointer;
+  const wide = [reason, tail].filter((s) => s.length > 0);
+  const middle = [tail];
+  return [['BSV FROZEN', ...wide], ['BSV FROZEN', ...middle], ['BSV FROZEN']];
+}
 /** The decision for the title bar, the pill and the Freeze button. `now` only matters for an armed state that has run out. */
 export function overlayModel(i: { enabled: boolean; policy: PolicyView | null; wallet: WalletView | null; nodes?: number | null; knowledge?: KnowledgeSummary | null; knowledgeLoaded?: boolean; knowledgeAt?: number; now: number }): OverlayModel {
   if (!i.enabled) return { mode: 'off', mainnetWarning: false, showFreeze: false, tiers: [], pill: null };
@@ -148,7 +167,7 @@ export function overlayModel(i: { enabled: boolean; policy: PolicyView | null; w
   const second = block || count;
   const showFreeze = (armed || pending > 0) && !frozen;
   if (frozen) {
-    return { mode: 'frozen', mainnetWarning, showFreeze: false, tiers: [['BSV FROZEN', 'BSV tools stopped'], ['BSV FROZEN']], pill: { kind: 'frozen', text: 'The BSV chain is frozen.' } };
+    return { mode: 'frozen', mainnetWarning, showFreeze: false, tiers: frozenLines(p.frozen), pill: { kind: 'frozen', text: 'The BSV chain is frozen. ' + UNFREEZE_POINTER } };
   }
   if (armed) {
     return {

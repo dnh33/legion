@@ -12,6 +12,13 @@
 import type { EventBus } from '../bus.js';
 import type { Task } from '../../shared/types.js';
 import type { LogSink } from './logger.js';
+import { providerPrefix } from '../providers/runtime.js';
+
+/**
+ * The provider of the run that is starting or ending: read from the model it runs on (`openrouter:…`). The task's own
+ * `provider` field is written when a provider run ENDS, so at the start it is missing or names an older run.
+ */
+const providerOfRun = (t: Task): string => providerPrefix(t.model) ?? 'claude';
 
 const TERMINAL = new Set<Task['status']>(['done', 'error', 'cancelled']);
 const OUTCOME: Record<string, string> = { done: 'ok', error: 'error', cancelled: 'cancelled' };
@@ -21,7 +28,8 @@ const MAX_TRACKED = 2000;
 export function attachLogEvents(bus: EventBus, sink: LogSink, now: () => number = Date.now): () => void {
   const agents = sink.logger('agents');
   const blender = sink.logger('blender');
-  const status = new Map<string, { status: Task['status']; startedAt: number }>();
+  /** Per task: its last status, when its current run started, and the conversation's turn count then (a run logs its own turns). */
+  const status = new Map<string, { status: Task['status']; startedAt: number; turnsAtStart?: number }>();
   let light: string | undefined;
 
   return bus.on((ev) => {
@@ -31,17 +39,19 @@ export function attachLogEvents(bus: EventBus, sink: LogSink, now: () => number 
         const prev = status.get(t.id);
         if (prev?.status === t.status) return;
         if (t.status === 'running') {
-          status.set(t.id, { status: 'running', startedAt: now() });
-          agents.info('run.started', { agent: t.agentId, provider: t.provider ?? 'claude', model: t.model ?? '' });
+          status.set(t.id, { status: 'running', startedAt: now(), turnsAtStart: t.turns ?? 0 });
+          agents.info('run.started', { agent: t.agentId, provider: providerOfRun(t), model: t.model ?? '' });
         } else if (TERMINAL.has(t.status)) {
           // Log a finish only for a run seen starting: a later edit of a finished task (archive, cost) is not one.
           if (prev && !TERMINAL.has(prev.status)) {
             const outcome = OUTCOME[t.status] ?? t.status;
-            const f = { agent: t.agentId, provider: t.provider ?? 'claude', model: t.model ?? '', ms: Math.max(0, now() - prev.startedAt), turns: t.turns ?? 0, outcome };
+            // `turns` on the task counts the whole conversation; the log line is about this run
+            const turns = Math.max(0, (t.turns ?? 0) - (prev.turnsAtStart ?? 0));
+            const f = { agent: t.agentId, provider: providerOfRun(t), model: t.model ?? '', ms: Math.max(0, now() - prev.startedAt), turns, outcome };
             if (t.status === 'error') agents.warn('run.finished', f); else agents.info('run.finished', f);
           }
           status.set(t.id, { status: t.status, startedAt: prev?.startedAt ?? now() });
-        } else status.set(t.id, { status: t.status, startedAt: prev?.startedAt ?? now() });
+        } else status.set(t.id, { ...prev, status: t.status, startedAt: prev?.startedAt ?? now() });
         if (status.size > MAX_TRACKED) for (const k of status.keys()) { status.delete(k); if (status.size <= MAX_TRACKED * 0.9) break; }
       } else if (ev.type === 'approval.requested') {
         agents.info('approval.asked', { agent: ev.approval.agentId, tool: ev.approval.toolName });

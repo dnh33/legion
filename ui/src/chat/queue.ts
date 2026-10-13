@@ -24,7 +24,11 @@ export const OVERRIDE = '\u0000override';
 
 export type Hold = 'cancelled' | 'error' | 'restored';
 
-export interface QItem { id: string; text: string; model: string; at: number }
+/**
+ * One waiting message. `project` is the project a NEW thread starts in, taken when the message was queued (null: no
+ * project), so switching projects before it goes out does not move it. Absent on items queued before this field.
+ */
+export interface QItem { id: string; text: string; model: string; at: number; project?: string | null }
 export interface QThread {
   items: QItem[];
   /** Why automatic sending is stopped (null = running normally). */
@@ -33,6 +37,8 @@ export interface QThread {
   sending: string | null;
   /** Last failure, shown with the 'error' hold. */
   error?: string;
+  /** The core said the task is still running (409): the first item waits for the next idle. Not a failure, not stored. */
+  waiting?: true;
 }
 export interface QState { threads: Readonly<Record<string, QThread>> }
 
@@ -66,12 +72,12 @@ export const countOf = (s: QState, key: string): number => s.threads[key]?.items
 
 export type EnqueueResult = { ok: true; state: QState; item: QItem } | { ok: false; state: QState; reason: RejectReason };
 
-export function enqueue(s: QState, key: string, text: string, model: string, id: string, now: number): EnqueueResult {
+export function enqueue(s: QState, key: string, text: string, model: string, id: string, now: number, project?: string | null): EnqueueResult {
   const t = get(s, key);
   if (!text.trim()) return { ok: false, state: s, reason: 'empty' };
   if (text.length > MAX_TEXT) return { ok: false, state: s, reason: 'too-long' };
   if (t.items.length >= MAX_QUEUE) return { ok: false, state: s, reason: 'full' };
-  const item: QItem = { id, text, model, at: now };
+  const item: QItem = { id, text, model, at: now, ...(project !== undefined ? { project } : {}) };
   return { ok: true, item, state: put(s, key, { ...t, items: [...t.items, item] }) };
 }
 
@@ -99,8 +105,30 @@ export function beginSend(s: QState, key: string, itemId?: string): { state: QSt
 export function finishSend(s: QState, key: string, itemId: string, ok: boolean, error?: string): QState {
   const t = s.threads[key];
   if (!t || t.sending !== itemId) return s;
-  if (ok) return put(s, key, { ...t, items: t.items.filter((i) => i.id !== itemId), sending: null });
-  return put(s, key, { ...t, sending: null, hold: 'error', error: error ?? 'Sending failed' });
+  const { waiting: _w, ...rest } = t;
+  if (ok) return put(s, key, { ...rest, items: t.items.filter((i) => i.id !== itemId), sending: null });
+  return put(s, key, { ...rest, sending: null, hold: 'error', error: error ?? 'Sending failed' });
+}
+
+/**
+ * The core answered that the task is still running (409): our copy said idle a moment too early, or another caller woke
+ * the same task. That is not a failure: the item stays first in line, nothing is held, and it goes out on the next idle.
+ */
+export function deferSend(s: QState, key: string, itemId: string): QState {
+  const t = s.threads[key];
+  if (!t || t.sending !== itemId) return s;
+  return put(s, key, { ...t, sending: null, waiting: true });
+}
+
+/** How many held queues each agent has (owner of a thread key from `ownerOf`), so a paused queue can be shown on the agent itself. */
+export function heldAgents(s: QState, ownerOf: (key: string) => string | null): Map<string, number> {
+  const out = new Map<string, number>();
+  for (const [k, t] of Object.entries(s.threads)) {
+    if (t.hold === null || t.items.length === 0) continue;
+    const a = ownerOf(k);
+    if (a) out.set(a, (out.get(a) ?? 0) + 1);
+  }
+  return out;
 }
 
 /** Ctrl+Enter: while the run is being cancelled and the new message sent, nothing queued may go out. */
@@ -236,14 +264,14 @@ export function restore(raw: string | null | undefined): QState {
     for (const it of arr) {
       if (items.length >= MAX_QUEUE) break;
       if (!it || typeof it !== 'object') continue;
-      const { id, text, model, at } = it as Record<string, unknown>;
+      const { id, text, model, at, project } = it as Record<string, unknown>;
       if (typeof id !== 'string' || !id || typeof text !== 'string' || !text.trim() || text.length > MAX_TEXT) continue;
       // No model was stored: the message never carried a choice of its own, so it comes back with NO model ('')
       // and the sender puts the agent's own configured model on it - defaulting to 'auto' here would override
       // Settings with the router's choice every time a queue came back from storage. A hostile value (anything
       // that is not a string) still falls back to 'auto', as before.
       const m = typeof model === 'string' ? model : model === undefined ? '' : 'auto';
-      items.push({ id, text, model: m, at: typeof at === 'number' && Number.isFinite(at) ? at : 0 });
+      items.push({ id, text, model: m, at: typeof at === 'number' && Number.isFinite(at) ? at : 0, ...(project === null || (typeof project === 'string' && /^proj_[a-z0-9]{6,40}$/.test(project)) ? { project } : {}) });
     }
     if (items.length) threads[k] = { items, hold: 'restored', sending: null };
   }

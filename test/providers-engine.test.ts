@@ -66,10 +66,16 @@ test('C2 a provider failure is the task\'s error: no fallback to Claude, no esca
 test('C19 a deleted or disabled provider stops the run before any request and says what to fix', async () => {
   const f = await startFake((_r, res) => replyText(res, 'x'));
   try {
-    const gone = setup(f, { noEntry: true, agent: { model: 'openai:gpt-test' } });
+    // a provider of your own whose entry was deleted: not set up any more
+    const gone = setup(f, { noEntry: true, agent: { model: 'mylab:gpt-test' } });
     const t = await run(gone);
     assert.equal(t.status, 'error'); assert.match(t.error ?? '', /not set up any more/);
     assert.equal(gone.claudeCalls.length, 0); assert.equal(f.requests.length, 0);
+    // a preset with no saved entry runs on the preset's own entry; OpenAI's ships off, so the run says "turned off", as Settings does
+    const preset = setup(f, { noEntry: true, agent: { model: 'openai:gpt-test' } });
+    const tp = await run(preset);
+    assert.equal(tp.status, 'error'); assert.match(tp.error ?? '', /turned off/);
+    assert.equal(preset.claudeCalls.length, 0); assert.equal(f.requests.length, 0);
     const off = setup(f, { entry: { enabled: false } });
     const t2 = await run(off);
     assert.match(t2.error ?? '', /turned off/); assert.equal(f.requests.length, 0);

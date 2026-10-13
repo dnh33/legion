@@ -1,0 +1,15 @@
+Legion 0.2.6-x: Git Bash for agents on Windows, and a round of fixes.
+
+- On Windows an agent's shell is now Git Bash, so ;, pipes, several lines and here-docs work as written. Without Git for Windows it is cmd.exe, named as such, and a multi-line command is refused with how to write it on one line.
+- A timeout or a cancel now also stops what a command left running in the background.
+- Restart now works right after Legion starts (from the next update on).
+- A queued message waits for the agent to finish instead of failing, and a paused queue shows on the agent.
+- Agents on OpenRouter stop failing on a low balance: Legion sends an output cap, and says plainly when the credit is too low.
+- The Marshal knows which agents have a shell, and sends shell work only to them.
+- Projects: delegated work lands in the right project, and the app shows where a task and a new message go.
+- OpenRouter works on a fresh install as soon as you save its key (runs failed with "not set up any more").
+- OpenRouter offers MiMo 2.6 Pro and MiMo 2.6 Flash first in a new setup, above DeepSeek.
+- The agent shell no longer inherits Legion's own LEGION_* settings.
+- The BSV frozen banner says why, since when, and where to unfreeze. The model pill keeps one line. The app says "your computer".
+
+Installs over 0.2.5-o and later. Full detail in CHANGELOG.md.

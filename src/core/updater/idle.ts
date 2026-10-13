@@ -16,6 +16,13 @@ export interface BusyInputs {
   updaterBusy(): boolean;
 }
 
+/**
+ * The reason given while the core is inside BOOT_GRACE_MS. It holds back the AUTOMATIC install only (a fresh start is
+ * not yet a settled idle); it is not work, so the owner's own "Restart now" is not refused for it, and the restart
+ * dialog does not list it as something it stops.
+ */
+export const BOOT_REASON = 'Legion just started';
+
 /** The plain-words reasons the core is busy right now (empty = nothing is running). */
 export async function computeBusy(i: BusyInputs, nowMs: number, startedAtMs: number): Promise<string[]> {
   const why: string[] = [];
@@ -38,7 +45,7 @@ export async function computeBusy(i: BusyInputs, nowMs: number, startedAtMs: num
     try { if (await probe()) why.push(name); } catch { why.push(`${name} could not be read`); }
   }
   if (guard('the updater', () => i.updaterBusy())) why.push('an update is being prepared');
-  if (nowMs - startedAtMs < BOOT_GRACE_MS) why.push('Legion just started');
+  if (nowMs - startedAtMs < BOOT_GRACE_MS) why.push(BOOT_REASON);
   return why;
 }
 

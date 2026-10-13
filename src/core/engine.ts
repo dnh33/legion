@@ -24,9 +24,10 @@ import { buildHostToolsServer, redactValues } from './exec/host-tools.js';
 import { MAX_READABLE, refuseCatastrophic, unjudgeableCommand, type ShellKind } from './exec/shell-floor.js';
 /** The tools that run a shell command: Legion's host shell and Claude Code's own Bash and PowerShell. */
 const SHELL_TOOLS: ReadonlySet<string> = new Set(['mcp__host__shell', 'Bash', 'PowerShell', 'Monitor']);
-/** The shell each tool runs its command in: Claude Code's Bash and Monitor (POSIX sh, Git Bash on Windows), its PowerShell, Legion's host shell (cmd.exe on Windows). */
-const shellKindOf = (toolName: string): ShellKind => (toolName === 'PowerShell' ? 'pwsh' : toolName === 'mcp__host__shell' && process.platform === 'win32' ? 'cmd' : 'sh');
+/** The shell each tool runs its command in: Claude Code's Bash and Monitor (POSIX sh, Git Bash on Windows), its PowerShell, Legion's host shell (agent-shell.ts: Git Bash, or cmd.exe on Windows without Git). */
+const shellKindOf = (toolName: string): ShellKind => (toolName === 'PowerShell' ? 'pwsh' : toolName === 'mcp__host__shell' ? floorShell(agentShell()) : 'sh');
 import { DirectHostBackend } from './exec/direct-host.js';
+import { agentShell, floorShell } from './exec/agent-shell.js';
 import { clampExecLimits } from './exec/limits.js';
 import { CONTINUE_REFUSED } from './connector-withhold.js';
 import type { CoreModule, ModuleJob, PreambleContext, TaskEndOutcome } from './modules.js';
@@ -253,7 +254,8 @@ const LEGION_CREDENTIAL_ENV = new Set(['ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKE
 /**
  * The environment the agent shell (host tools) starts from. Legion's own credentials are not the agent's: the Anthropic
  * key and token, the boat key, and any variable whose value holds the bearer token or a configured key are left out, so a
- * command (`set`, `env`, a curl that sends a variable) does not get them from its environment. Everything else is kept,
+ * command (`set`, `env`, a curl that sends a variable) does not get them from its environment. Legion's own control
+ * variables (the LEGION_ namespace) are left out too. Everything else is kept,
  * including credentials the owner set up for the work itself (a GITHUB_TOKEN for git push): the approval card is the
  * check on those.
  *
@@ -267,6 +269,8 @@ export function buildHostShellEnv(config: LegionConfig): Record<string, string> 
   const out: Record<string, string> = {};
   for (const [k, v] of Object.entries(scrubHostSessionEnv({ ...process.env }))) {
     if (v === undefined || LEGION_CREDENTIAL_ENV.has(k.toUpperCase())) continue;
+    // LEGION_* steers the core itself (LEGION_PORT, LEGION_HOME, LEGION_TEST_MODE, ...): a Legion or a test the agent starts must not inherit it
+    if (/^LEGION_/i.test(k)) continue;
     const lower = v.toLowerCase();
     if (secrets.some((s) => lower.includes(s))) continue;
     out[k] = v;
@@ -276,6 +280,8 @@ export function buildHostShellEnv(config: LegionConfig): Record<string, string> 
 
 interface Job {
   taskId: string; agentId: string; prompt: string; choice: ModelChoice; priorModel?: ConcreteModel;
+  /** The project the run was queued in (A10): if it is gone when the run starts, the thread says so. */
+  projectAtStart?: string;
   /** One-line bridge header prepended to what Claude sees (not stored). */
   header?: string;
   /** Text the auto router scores, when it differs from `prompt` (a typed brief scores its goal only; Fascia 3b). */
@@ -401,7 +407,12 @@ export class Engine {
       if (prev.agentId !== agent.id) throw new EngineError('Task belongs to a different agent', 400);
       // a task that read connector data holds that text in its session: nothing started by or down a chain from an MCP client may resume it
       if (prev.usedConnectors && origin?.viaMcpClient) throw new EngineError(CONTINUE_REFUSED, 403);
-      const projectId = this.pickProject(p, agent, prev);
+      const picked = this.pickProject(p, agent, prev);
+      // Continuing never erases the task's project (council A4): when this run cannot use it (the agent left the project,
+      // or it is archived), the task keeps it, the run goes without it, and the thread says so. Only an explicit `null`
+      // from the app or a room clears it.
+      const projectId = picked ?? (p.projectId === null ? undefined : prev.projectId);
+      const lostProject = picked === undefined && projectId !== undefined && this.projects ? this.projects.get(projectId) : undefined;
       priorModel = prev.model;
       const viaBridge = p.bridge && !p.bridge.reply;
       // A model another bot chose lasts for that run only: a later message that asks for none (and is not a reply landing in the caller's own task) goes back to the agent's setting.
@@ -428,6 +439,10 @@ export class Engine {
         ...(tainted ? { tainted: true } : {}),
       };
       task = this.saveTask(next);
+      if (lostProject) {
+        const why = lostProject.status === 'archived' ? 'the project is archived' : `${agent.name} is not a member of it any more`;
+        this.addMessage(task.id, 'system', `This run is not in project "${lostProject.name}": ${why}. The task still belongs to the project; it runs without the project's instructions, board and folder until that changes.`);
+      }
     } else {
       const now = nowIso();
       const base = prompt.replace(/^\s*\/(opus|sonnet)\b\s*/i, '') || prompt;
@@ -449,8 +464,10 @@ export class Engine {
       task = this.saveTask(next);
     }
     this.addMessage(task.id, 'user', prompt, undefined, p.bridge?.fromAgentId);
+    const projectAtStart = this.projectOf(task.id, agent.id)?.id;
     this.queue.push({
       taskId: task.id, agentId: agent.id, prompt, choice: task.requestedModel, priorModel,
+      ...(projectAtStart ? { projectAtStart } : {}),
       header: p.bridge?.header, fromAgentId: p.bridge?.fromAgentId, parentTaskId: p.bridge && !p.bridge.reply ? p.bridge.parentTaskId : undefined,
       ...(p.routeText !== undefined ? { routeText: p.routeText } : {}),
       ...(p.maxBudgetUsd !== undefined ? { maxBudgetUsd: p.maxBudgetUsd } : {}),
@@ -473,9 +490,11 @@ export class Engine {
     }
     let want: string | undefined;
     let named = false;
+    // a delegation (ask/tell) belongs to its CALLER's project, before any older thread's (BUG-5)
+    const delegated = !!p.bridge && !p.bridge.reply && !!p.bridge.parentTaskId;
     if ((p.source === 'ui' || p.source === 'bot') && p.projectId !== undefined) { want = p.projectId ?? undefined; named = true; }
+    else if (delegated) want = this.store.getTask(p.bridge!.parentTaskId!)?.projectId;
     else if (prev) want = prev.projectId;
-    else if (p.bridge && !p.bridge.reply && p.bridge.parentTaskId) want = this.store.getTask(p.bridge.parentTaskId)?.projectId;
     if (!want) return undefined;
     const pr = this.projects.get(want);
     if (pr && pr.status === 'archived') {
@@ -484,7 +503,21 @@ export class Engine {
     }
     if (pr && pr.members.includes(agent.id)) return want;
     if (p.source === 'ui' && named) throw new EngineError(pr ? `${agent.name} is not a member of project "${pr.name}"` : `Unknown project: ${want}`, 400);
+    // A delegation into a project goes to its members only: a run without the project would miss its rules, board and folder,
+    // and the caller would never know (council A3). The caller is told, and can ask a member or the owner instead.
+    if (delegated && pr) throw new EngineError(`${agent.name} is not a member of project "${pr.name}". Ask an agent that is a member, or ask the owner to add ${agent.name} to the project.`, 403);
     return undefined;
+  }
+
+  /**
+   * Says in the thread that a run queued in a project starts without it (council A10): the project was archived or
+   * deleted, or the agent was removed, while the run waited. Worded like the note a continued task gets at start.
+   */
+  private noteProjectLost(taskId: string, projectId: string, agent: AgentProfile): void {
+    const pr = this.projects?.get(projectId);
+    const text = !pr ? 'This run has no project: its project was deleted while the run waited.'
+      : `This run is not in project "${pr.name}": ${pr.status === 'archived' ? 'the project is archived' : `${agent.name} is not a member of it any more`}. The task still belongs to the project; it runs without the project's instructions, board and folder until that changes.`;
+    try { this.addMessage(taskId, 'system', text); } catch { /* the note is advisory */ }
   }
 
   /** The project this task's run belongs to right now (active, agent is a member), else undefined. Checked at every run. */
@@ -773,8 +806,10 @@ export class Engine {
     const task = this.store.getTask(job.taskId);
     const agent = this.store.getAgent(job.agentId);
     if (!task || !agent) return;
+    const projectId = this.projectOf(job.taskId, agent.id)?.id;
     const outcome: TaskEndOutcome = {
       status: task.status, isError: task.status === 'error', ...(task.error ? { errorText: task.error } : {}), tainted: act.tainted,
+      ...(projectId ? { projectId } : {}),
     };
     for (const m of this.modules) {
       try { m.onTaskEnd?.(task, agent, outcome); } catch { /* ignore */ }
@@ -1235,6 +1270,8 @@ This run read connector (GitHub) data and other outside text. Web access can sen
     mkdirSync(cwd, { recursive: true });
     // the project (if any) adds text AFTER everything else and one extra folder: its own, and only its own
     const project = this.projectOf(job.taskId, agent.id);
+    // in the project when it was queued, not any more when it starts (archived, deleted, member removed meanwhile)
+    if (!project && job.projectAtStart && this.projects) this.noteProjectLost(job.taskId, job.projectAtStart, agent);
     let projectFolder: string | undefined;
     if (project) { try { mkdirSync(project.folder, { recursive: true }); projectFolder = project.folder; } catch { /* no folder this run: the instructions still apply */ } }
     const servers = this.buildMcpServers(agent, job, act);
@@ -1465,6 +1502,7 @@ This run read connector (GitHub) data and other outside text. Web access can sen
       else if (cfg.type === 'stdio' || cfg.type === undefined) external[name] = { command: (cfg as { command: string }).command, ...((cfg as { args?: string[] }).args ? { args: (cfg as { args?: string[] }).args } : {}), ...((cfg as { env?: Record<string, string> }).env ? { env: (cfg as { env?: Record<string, string> }).env } : {}) };
     }
     const decide = this.toolDecider(job, agent);
+    const projectHere = this.projectOf(taskId, agent.id);
     const host: ProviderHost = {
       taskId, agentName: agent.name, signal: act.ac.signal, cancelled: () => act.cancelled || act.ac.signal.aborted,
       // the same teamwork and capabilities blocks as a Claude run, so an agent on another provider gets the same rules and tool facts
@@ -1475,7 +1513,9 @@ This run read connector (GitHub) data and other outside text. Web access can sen
         + (agent.systemPrompt ? '\n\n' + agent.systemPrompt : '')
         + (() => { const t = renderForModel(this.taskLists.load(taskId)); return t ? '\n\n' + t : ''; })()
         + `\n\nYou are running on ${pr.model} through ${pr.entry?.label ?? pr.providerId}. You have only the tools listed in this request; you have no file, shell or web tools of your own.`
-        + (leadDoctrineFor(agent.id) ? '\n\n' + leadDoctrineFor(agent.id) : ''),
+        + (leadDoctrineFor(agent.id) ? '\n\n' + leadDoctrineFor(agent.id) : '')
+        // the project's own rules and folder, last, as on the Claude path (council A5: provider runs had none)
+        + (projectHere ? '\n\n' + projectSection({ name: projectHere.name, instructions: projectHere.instructions, folder: projectHere.folder }) : ''),
       prompt, stored: this.store.listMessages(taskId),
       taskListText: () => renderForModel(this.taskLists.load(taskId)),
       servers, external,

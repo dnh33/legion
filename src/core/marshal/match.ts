@@ -40,6 +40,8 @@ export interface MatchInput {
   catalog: BotCatalogEntry[];
   /** The irreversible verbs the owner's text names (a routing signal for the deny table). */
   verbs: IrreversibleVerb[];
+  /** The project the item is on: the matching run is filed under it when the matcher may run there. */
+  projectId?: string;
 }
 
 /** The prose matcher. It may answer synchronously or asynchronously; either way its answer is re-checked in code. */
@@ -75,7 +77,7 @@ export async function assignItem(s: CandidateSetup, matcher: ProseMatcher): Prom
   }
   let record: AssignmentRecord;
   try {
-    record = await matcher({ task: { id: s.item.id, title: s.item.title, description: s.item.description }, catalog: candidates, verbs });
+    record = await matcher({ task: { id: s.item.id, title: s.item.title, description: s.item.description }, catalog: candidates, verbs, projectId: s.item.projectId });
   } catch (e) {
     return { ...base('blocked', 'The matching could not run for this item.', { refused: e instanceof Error ? e.message : String(e) }), excluded };
   }

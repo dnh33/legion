@@ -12,6 +12,17 @@ const byName = (a: Project, b: Project): number => a.name.localeCompare(b.name) 
 export const sortProjects = (ps: Project[]): Project[] => [...ps.filter((p) => p.status === 'active').sort(byName), ...ps.filter((p) => p.status !== 'active').sort(byName)];
 export const projectLabel = (p: Pick<Project, 'name' | 'status'>): string => (p.status === 'archived' ? `${p.name} (archived)` : p.name);
 
+/**
+ * The project a task shows as its own on a tab, a History row or the thread header: its name, or "removed project"
+ * for an id the window does not know. Nothing (undefined) when the task has no project, or when it is the project in
+ * view (every task there is in it, so the chip would repeat the filter).
+ */
+export function taskProjectChip(projects: Project[], projectId: string | undefined, filter: string | null): string | undefined {
+  if (!projectId || projectId === filter) return undefined;
+  const p = projects.find((x) => x.id === projectId);
+  return p ? projectLabel(p) : 'removed project';
+}
+
 /** A stored or chosen filter that names no project (deleted file, other machine) falls back to "All" (null). */
 export const resolveFilter = (projects: Project[], filter: string | null | undefined): string | null =>
   filter && projects.some((p) => p.id === filter) ? filter : null;
@@ -33,6 +44,33 @@ export function newTaskProjectId(projects: Project[], filter: string | null, age
   if (continuing || !filter) return undefined;
   const p = projects.find((x) => x.id === filter);
   return p && p.status === 'active' && p.members.includes(agentId) ? p.id : undefined;
+}
+
+/**
+ * Where a NEW task of this agent will go, said before it is sent (the same rule as newTaskProjectId): the project in
+ * view, or no project. `why` explains a "No project" that the owner might not expect: the project is archived, or the
+ * agent is not one of its members. Undefined when there is nothing to say: a follow-up, or no projects at all.
+ */
+export function newTaskTarget(projects: Project[], filter: string | null, agent: { id: string; name: string } | undefined, continuing: boolean): { label: string; why?: string } | undefined {
+  if (continuing || !agent || !projects.length) return undefined;
+  const p = filter ? projects.find((x) => x.id === filter) : undefined;
+  if (!p) return { label: 'No project' };
+  if (p.status !== 'active') return { label: 'No project', why: `${p.name} is archived, so a new task starts in no project` };
+  if (!p.members.includes(agent.id)) return { label: 'No project', why: `${agent.name} is not a member of ${p.name}, so a new task starts in no project` };
+  return { label: p.name };
+}
+
+/**
+ * The question before a project is archived, with what it touches: runs in progress finish; open tasks cannot be
+ * continued and no new task starts in it until it is unarchived; its rooms keep working without its context.
+ */
+export function archiveQuestion(name: string, n: { live: number; open: number; rooms: number }): string {
+  const plural = (k: number, one: string, many: string) => `${k} ${k === 1 ? one : many}`;
+  const lines = [`Archive "${name}"?`];
+  if (n.live) lines.push(`${plural(n.live, 'run in progress finishes', 'runs in progress finish')} first.`);
+  lines.push(n.open ? `Its ${plural(n.open, 'open task', 'open tasks')} cannot be continued, and no new task can start in it, until you unarchive it.` : 'No new task can start in it until you unarchive it.');
+  if (n.rooms) lines.push(`${plural(n.rooms, 'room keeps', 'rooms keep')} working, without the project's instructions and notes.`);
+  return lines.join('\n\n');
 }
 
 export const roomsOf = (rooms: Room[], projectId: string): Room[] => rooms.filter((r) => r.projectId === projectId);

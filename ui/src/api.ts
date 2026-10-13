@@ -1,4 +1,5 @@
 import type { Project } from '../../src/shared/projects';
+import type { Room } from '../../src/shared/comms';
 import type { BoardMarshalStatus, BoardStatus, BoardView, MarshalConfig, WorkItem } from '../../src/shared/board';
 import type { BlenderStatusView } from '../../src/shared/blender';
 import type {
@@ -118,6 +119,8 @@ export const api = {
   deleteAgent: (id: string) => request<{ ok: true }>('DELETE', `/api/agents/${encodeURIComponent(id)}`),
   projects: () => request<Project[]>('GET', '/api/projects'),
   createProject: (b: { name: string; instructions?: string }) => request<Project>('POST', '/api/projects', b),
+  roomsList: () => request<Room[]>('GET', '/api/rooms'),
+  projectImpact: (id: string) => request<{ agents: Record<string, { live: number; open: number }> }>('GET', `/api/projects/${encodeURIComponent(id)}/impact`),
   patchProject: (id: string, b: { name?: string; instructions?: string; status?: 'active' | 'archived' }) => request<Project>('PATCH', `/api/projects/${encodeURIComponent(id)}`, b),
   boardProbe: () => request<{ enabled: true }>('GET', '/api/board'),
   boardView: (pid: string) => request<BoardView>('GET', `/api/projects/${encodeURIComponent(pid)}/board`),

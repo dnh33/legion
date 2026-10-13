@@ -56,6 +56,7 @@ test('the index follows create, update and delete: archived, agent, project, tit
   assert.deepEqual(walk(s, { agentId: 'scout', includeArchived: true }), []);
   assert.deepEqual(walk(s, { agentId: 'zealot', includeArchived: true }), ['a', 'c', 'b']);
   assert.deepEqual(walk(s, { projectId: 'p1', includeArchived: true }), ['c']);
+  assert.deepEqual(walk(s, { projectId: null, includeArchived: true }), ['a', 'b'], 'council A13: null is the tasks in no project');
   s.upsertTask({ ...s.getTask('c')!, title: 'renamed to billing' });
   assert.deepEqual(walk(s, { q: 'task', includeArchived: true }), ['a', 'b'], 'the old title word no longer finds c');
   assert.deepEqual(walk(s, { q: 'billing', includeArchived: true }), ['c']);

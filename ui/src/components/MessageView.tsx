@@ -3,12 +3,14 @@ import type { AgentProfile, ChatMessage, Task } from '../../../src/shared/types'
 import { CopyMenu } from './CopyMenu';
 import { Markdown } from './Markdown';
 import { modelLabel } from '../models';
+import { useProviders } from '../providers/providersStore';
 import { selectTask, useStore } from '../store';
 import { CONTINUE_PROMPT } from '../../../src/shared/continue';
 import { replyFailure } from '../chat/bridgeView';
 
 export function ModelTag({ task }: { task?: Task }) {
   const catalog = useStore((s) => s.catalog);
+  useProviders((s) => s.view); // a provider model's label (OpenRouter · vendor/model) comes from the provider list
   if (!task?.model) return null;
   return (
     <span className="mtags">
@@ -47,6 +49,7 @@ function MessageViewImpl({ m, agent, task, streaming }: { m: Pick<ChatMessage, '
 
 function UserBubble({ text }: { text: string }) {
   const catalog = useStore((s) => s.catalog);
+  useProviders((s) => s.view); // a provider model's label (OpenRouter · vendor/model) comes from the provider list
   const p = splitPrefix(text);
   return (
     <div className="msg user">

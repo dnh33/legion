@@ -132,3 +132,16 @@ test('a task moved out of the project of its episode does not hand its new resul
   }
   assert.equal(projectScope(pid), s.graph.getNode(HUMAN, 'ep:task_moved')!.scope);
 });
+
+test('council A11: an episode recorded again takes the scope of the run that recorded it (a task that changed project does not leave its note in the old one)', () => {
+  const s = setup(() => undefined);
+  const one = 'proj_aaaaaaaaaaaa';
+  const two = 'proj_bbbbbbbbbbbb';
+  const rec = (projectId?: string) => s.graph.recordEpisode({ taskId: 'task_scoped', agentId: 'alpha', title: 'x', status: 'done', turns: 9, costUsd: 0, prompt: 'p', result: 'r', tainted: false, ...(projectId ? { projectId } : {}) });
+  rec(one);
+  assert.equal(s.graph.getNode(HUMAN, 'ep:task_scoped')!.scope, projectScope(one));
+  rec(two);
+  assert.equal(s.graph.getNode(HUMAN, 'ep:task_scoped')!.scope, projectScope(two), 'the second run was in project Two');
+  rec(undefined);
+  assert.equal(s.graph.getNode(HUMAN, 'ep:task_scoped')!.scope, 'agent:alpha', 'a run with no project keeps it private to the agent');
+});

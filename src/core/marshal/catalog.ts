@@ -11,6 +11,7 @@
  * manual") a matcher has to see to route safely; nothing here is truncated.
  */
 import type { AgentProfile, ApprovalMode } from '../../shared/types.js';
+import { toolsOf } from '../agent-reach.js';
 
 /** The verbs that cannot be undone. The council's list: a task containing one is routed, never guessed at. */
 export const IRREVERSIBLE_VERBS = ['send', 'sign', 'deploy', 'delete', 'rotate', 'upgrade', 'merge'] as const;
@@ -33,6 +34,8 @@ export interface BotCatalogEntry {
   approval: ApprovalMode;
   /** Verbs this bot's role forbids it, with the line that says so. An irreversible task never routes to a bot listed for its verb. */
   never: NeverClaim[];
+  /** What it can do on the owner's computer (agent-reach.ts): a shell and files, or neither. */
+  tools?: string;
 }
 
 /**
@@ -103,7 +106,7 @@ export function catalogOf(a: AgentProfile): BotCatalogEntry {
   const never: NeverClaim[] = Object.entries(table ?? {}).map(([verb, evidence]) => ({ verb: verb as IrreversibleVerb, evidence: evidence!, source: 'table' as const }));
   const role = fullRole(a);
   if (!adjudicated) for (const claim of neverVerbsIn(role)) if (!never.some((n) => n.verb === claim.verb)) never.push(claim);
-  return { id: a.id, name: a.name, role, model: a.model, approval: a.approval, never };
+  return { id: a.id, name: a.name, role, model: a.model, approval: a.approval, never, tools: toolsOf(a) };
 }
 
 /** The whole visible roster as catalog entries. A matcher is only ever shown bots that pass `visible`. */

@@ -24,7 +24,7 @@ export const QueueStrip = memo(function QueueStrip({ qkey, waiting }: { qkey: st
   const n = q.items.length;
   const held = q.hold !== null;
   const sendingNow = q.sending !== null;
-  const state = held ? 'Paused' : sendingNow ? 'Sending…' : waiting || 'Waiting';
+  const state = held ? 'Paused' : sendingNow ? 'Sending…' : q.waiting ? 'Waiting for the agent to finish' : waiting || 'Waiting';
   const save = (id: string) => { if (skipSave.current) { skipSave.current = false; return; } const ok = editQueued(qkey, id, draft); if (ok) setEditing(null); };
 
   return (

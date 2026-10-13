@@ -4,6 +4,53 @@ All notable changes are recorded here. The format follows [Keep a Changelog](htt
 
 ## [Unreleased]
 
+## [0.2.6-x] - 2026-10-13
+
+### Changed
+
+- **On Windows, an agent's shell is now Git Bash.** Agents write bash, so commands with `;`, pipes, several lines or a
+  here-doc now work as written. The shell tool tells the agent which shell it has and how to write paths for Windows
+  programs. Without Git for Windows the shell is cmd.exe, named as such, and a command of several lines is refused with
+  how to write it on one line: cmd would run only the first line. When a command runs too long or you cancel it,
+  Legion now also stops what it left running in the background. You can choose the bash with `LEGION_GIT_BASH` (a
+  path to bash.exe, or `off` for cmd.exe); Claude Code's own `CLAUDE_CODE_GIT_BASH_PATH` is honoured too.
+
+### Fixed
+
+- **Restart now works right after Legion starts.** In the first minute after a start, Restart now said "Legion is busy:
+  Legion just started". That wait is now only for the automatic install, and the restart dialog no longer lists it as
+  something it stops. The fix works from the next update on, because an update runs on the updater you already have.
+- **A queued message is never lost to "the task is still running".** It now waits and goes out when the agent is free,
+  and the queue strip says "Waiting for the agent to finish". A paused queue shows on the agent's row, so you see it
+  from anywhere.
+- **Agents on OpenRouter stop failing on a low balance.** Legion now sends an output cap with every turn, so the
+  provider no longer reserves credit for the model's whole maximum. When the credit covers only part of a reply,
+  Legion tries once with what it covers, or tells you plainly to add credit or pick a cheaper model.
+- **The Marshal knows which agents have a shell.** Its roster and the board's matcher say, for each agent, whether it
+  has shell and file tools, and work that needs commands goes only to an agent that has them.
+- **Delegated work lands in the right project.** Work delegated in one project no longer reuses a thread from another
+  project. Delegating to an agent outside the project is refused out loud. A task keeps its project when you continue
+  it with an agent that has left. Agents on other providers get the project's rules too.
+- **Projects show where things go.** A queued message keeps the project you queued it in. The thread header, task tabs
+  and History show a task's project. The composer says "New task in: <project>". Removing a member or archiving a
+  project first says what it touches. A run queued in a project that is archived or loses the agent says so.
+- **OpenRouter works on a fresh install as soon as you save its key.** Settings showed OpenRouter as on, with its models
+  in the picker, but every run failed with "The provider openrouter is not set up any more" until the provider had been
+  edited and saved once. Runs now use the same built-in OpenRouter settings that Settings shows.
+- **A provider model shows as "OpenRouter · vendor/model" everywhere**, not as its raw id, in the composer, on replies,
+  in task tabs and in recent tasks.
+- **MiMo 2.6 Pro and MiMo 2.6 Flash lead the OpenRouter models.** A new OpenRouter setup offers
+  `xiaomi/mimo-v2.6-pro` (reasoning) and `xiaomi/mimo-v2.6-flash` (fast everyday work) first, above DeepSeek. A list you
+  already saved keeps its own order.
+- **The agent shell no longer inherits Legion's own `LEGION_*` settings.** An agent that ran Legion's own tests picked
+  up the live app's port.
+- **The BSV frozen banner says why, since when, and that Unfreeze is in the BSV panel.**
+- **The model pill keeps one line**, and the app says "your computer" instead of "this computer".
+- **Logs name the provider a run really used** and count only that run's turns. `npm test` gets the same per-file
+  timeout as CI.
+- **docs/UPDATES.md** now says what the updater does: a version that fails its first start is rolled back and held
+  back for seven days, or offered again at once with Retry in the update panel.
+
 ## [0.2.6-w] - 2026-10-13
 
 ### Security

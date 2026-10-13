@@ -8,6 +8,7 @@ import type { ApprovalRequest, Task } from '../src/shared/types.js';
 import {
   MAX_QUEUE, MAX_TEXT, OVERRIDE, beginSend, canDrain, cancelObserved, clear, countOf, edit, emptyState, enqueue, failureObserved, finishSend,
   lock, parseKey, pause, prune, queueOf, rejectMessage, rekey, remove, restore, resume, serialize, shouldQueue, takeLast, threadKey, unlock,
+  deferSend, heldAgents,
   type QState,
 } from '../ui/src/chat/queue.js';
 import { busyReason } from '../ui/src/chat/busy.js';
@@ -362,4 +363,51 @@ test('restoreDraft: a message that failed to send comes back, and what was typed
   assert.equal(restoreDraft('urgent fix', 'urgent fix'), 'urgent fix', 'no doubling');
   assert.equal(restoreDraft('urgent fix\nmore', 'urgent fix'), 'urgent fix\nmore');
   assert.equal(restoreDraft('', 'multi\nline'), 'multi\nline');
+});
+
+test('a 409 ("the task is still running") is not a failure: the message stays queued, unheld, and goes out on the next idle', () => {
+  let s = add(add(emptyState, 'first'), 'second');
+  const b = beginSend(s, K)!;
+  s = deferSend(b.state, K, b.item.id);
+  const t = queueOf(s, K)!;
+  assert.equal(t.hold, null, 'no error hold: the owner has nothing to fix');
+  assert.equal(t.sending, null);
+  assert.deepEqual(t.items.map((i) => i.text), ['first', 'second'], 'order kept, nothing lost');
+  assert.equal(t.waiting, true, 'the strip can say it is waiting for the agent');
+  assert.equal(canDrain(t, false), true, 'it may go as soon as the thread is idle');
+  // the next send clears the waiting mark, success or not
+  const again = beginSend(s, K)!;
+  assert.equal(queueOf(finishSend(again.state, K, again.item.id, true), K)!.waiting, undefined);
+  // a deferral for an item that is not in flight changes nothing
+  assert.equal(deferSend(s, K, 'nope'), s);
+  // waiting is not stored: after a reload the queue is held as "restored" like any other
+  assert.equal(JSON.parse(serialize(s)).threads[K].waiting, undefined);
+});
+
+test('held queues are listed per agent, so a paused queue can be shown where the owner is looking (not only in its thread)', () => {
+  let s = add(emptyState, 'a', 't:task1');
+  s = add(s, 'b', 't:task2');
+  s = add(s, 'c', 'n:agentB');
+  s = pause(s, 't:task1', 'error', 'boom');
+  s = pause(s, 'n:agentB', 'cancelled');
+  const owner = (key: string): string | null => (key === 't:task1' || key === 't:task2' ? 'agentA' : key === 'n:agentB' ? 'agentB' : null);
+  assert.deepEqual(heldAgents(s, owner), new Map([['agentA', 1], ['agentB', 1]]));
+  s = resume(s, 't:task1');
+  assert.deepEqual(heldAgents(s, owner), new Map([['agentB', 1]]));
+});
+
+test('council A6: a message queued for a new thread keeps the project it was queued in, through a reload too', () => {
+  const key = threadKey('scout', null);
+  let r = enqueue(emptyState, key, 'start the report', '', 'p1', 1, 'proj_aaaaaaaaaaaa');
+  assert.ok(r.ok);
+  r = enqueue(r.state, key, 'and then this', '', 'p2', 2, null);
+  assert.ok(r.ok);
+  const items = queueOf(r.state, key)!.items;
+  assert.equal(items[0]!.project, 'proj_aaaaaaaaaaaa', 'the project in view when it was queued');
+  assert.equal(items[1]!.project, null, 'queued with no project in view: it starts in none, whatever is in view later');
+  const back = queueOf(restore(serialize(r.state)), key)!.items;
+  assert.deepEqual(back.map((i) => i.project), ['proj_aaaaaaaaaaaa', null], 'kept through storage');
+  // storage is not trusted: a project value that is not an id is dropped, and an old item without one stays without
+  const raw = JSON.stringify({ v: 1, threads: { [key]: { items: [{ id: 'x', text: 'a', at: 1, project: '../../etc' }, { id: 'y', text: 'b', at: 2 }], hold: null } } });
+  assert.deepEqual(queueOf(restore(raw), key)!.items.map((i) => 'project' in i), [false, false]);
 });
