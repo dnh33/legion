@@ -4,6 +4,21 @@ All notable changes are recorded here. The format follows [Keep a Changelog](htt
 
 ## [Unreleased]
 
+## [0.2.6] - 2026-10-13
+
+### Fixed
+
+- **Esc no longer throws away unsaved changes to an agent.** In the agent editor, Esc closed the editor at once. Now it
+  asks first, the same as the close button: discard the changes, or keep editing.
+- **An answer of your own can have spaces.** In a question card, the "Other" field removed every space as you typed,
+  so an answer of more than one word could not be written.
+- **A bare @ in a room no longer picks @everyone.** The mention list showed @everyone first, so pressing Enter woke
+  every agent in the room. Members are listed first now, and @everyone last.
+- **Done-when checks are kept when you save a work item.** Checks typed but not saved with their own button were lost
+  when you pressed Save on the item. Save now stores them first, and the dialog stays open if that fails.
+- **A message that could not be sent says why.** When the core refused a message sent into a running task, the text
+  came back into the box with no explanation. Now an error says what went wrong.
+
 ## [0.2.6-z] - 2026-10-13
 
 ### Fixed

@@ -9,7 +9,7 @@ import { buildMenu, isCostly, parseSlash, runLegionCommand, LEGION_COMMANDS, typ
 import { api } from '../api';
 import { modelLabel } from '../models';
 import { useProviders } from '../providers/providersStore';
-import { cancelSelected, confirmStop, effectiveModel, getState, loadCatalog, sendPrompt, sendPromptTo, useStore } from '../store';
+import { cancelSelected, confirmStop, effectiveModel, getState, loadCatalog, sendPrompt, sendPromptTo, toast, useStore } from '../store';
 import { alsoWorkingLabel, liveElsewhere, newTaskTarget } from '../projects/projectsLogic';
 import { clip } from '../util';
 import { Icon } from './icons';
@@ -123,6 +123,7 @@ export function Composer() {
       const r = await sendPromptTo({ agentId: aId, taskId: tId }, raw, { model: effectiveModel(st), select: true });
       if (r.ok) return;
       if (r.status === 409 && enqueueMessage(aId, tId, raw, effectiveModel(st))) return;
+      toast(r.message, 'error');
       setText((cur) => restoreDraft(cur, raw));
       return;
     }
