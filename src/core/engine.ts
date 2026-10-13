@@ -172,6 +172,10 @@ export function taintsRun(toolName: string): boolean {
 function preToolDeny(reason: string): { hookSpecificOutput: { hookEventName: 'PreToolUse'; permissionDecision: 'deny'; permissionDecisionReason: string } } {
   return { hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'deny', permissionDecisionReason: reason } };
 }
+/** The owner already decided this call (on a floor card): skip the ordinary permission check for it. */
+function preToolAllow(reason: string): { hookSpecificOutput: { hookEventName: 'PreToolUse'; permissionDecision: 'allow'; permissionDecisionReason: string } } {
+  return { hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'allow', permissionDecisionReason: reason } };
+}
 
 /** The path with symlinks and junctions resolved as far as it exists (the rest of the name is appended as written). */
 function realish(p: string): string {
@@ -1132,19 +1136,24 @@ This run read connector (GitHub) data and other outside text. Web access can sen
     if (refused) return Promise.resolve({ allow: false, message: refused });
     const why = unjudgeableCommand(command);
     if (!why) return undefined;
+    // the same call can reach the floor twice (its PreToolUse hook, then canUseTool): a card the owner just approved is not asked again
+    const key = `${job.taskId}\u0000${toolName}\u0000${command}`;
+    const ok = this.floorApproved.get(key);
+    if (ok !== undefined && ok > Date.now()) { this.floorApproved.delete(key); return Promise.resolve({ allow: true }); }
     const o = job.origin;
     let timedOut = false;
     return this.approvals.request(job.taskId, agent.id, toolName, input, o ? { roomId: o.roomId, fromAgentId: o.fromAgentId, hop: o.hop } : undefined, {
       onTimeout: () => { timedOut = true; },
       noRemember: true,
-      summary: `Legion cannot read what this command will run.\n${command.slice(0, 1000)}\nWhy: ${why}.\nYou are asked even in Full access, because the safety check cannot see the program until it runs. Allow it only if you know what it does.`,
-    }).then((allowed) => allowed ? { allow: true } : {
-      allow: false,
-      message: timedOut
-        ? `No one answered the approval request within ${this.approvals.timeoutWait}, so this command was not run (${why}). Do not retry it or reach the same result another way: write the command out plainly so it can be checked, or ask the user.`
-        : `The user has not approved this command (${why}). Do not retry it, rephrase it or reach the same result another way. Stop, tell the user what the command was meant to do, and wait for their answer.`,
+      summary: `Legion cannot read what this command will run.\n${command.slice(0, 1000)}\nWhy: ${why}.\nThe safety check cannot see the program until it runs, so you are asked in every approval mode. Allow it only if you know what it does.`,
+    }).then((allowed) => {
+      if (allowed) { this.floorApproved.set(key, Date.now() + 60_000); return { allow: true }; }
+      const stop = 'Do not retry it, rephrase it or reach the same result another way. Stop, tell the user what the command was meant to do, and wait for their answer.';
+      return { allow: false, message: timedOut ? `No one answered the approval request within ${this.approvals.timeoutWait}, so this command was not run (${why}). ${stop}` : `The user has not approved this command (${why}). ${stop}` };
     });
   }
+  /** Commands the owner approved on a floor card in the last minute, so the second check of the same call does not ask again. */
+  private readonly floorApproved = new Map<string, number>();
 
   /**
    * The approval decision for one tool call, shared by the Claude path (canUseTool) and the provider path: effective mode (never looser
@@ -1289,9 +1298,9 @@ This run read connector (GitHub) data and other outside text. Web access can sen
       const mode = this.store.getAgent(agent.id)?.approval ?? agent.approval;
       return ceiling ? stricterMode(mode, ceiling) : mode;
     };
+    // a hook that awaits a card gets the card's own wait and a minute more: a hook timeout would stop the run, not deny the call
+    const cardHookSeconds = this.approvals.timeoutSeconds + 60;
     if (agent.approval === 'full' && !(ceiling && ceiling !== 'full')) {
-      // a hook that awaits a card gets the card's own wait and a minute more: a hook timeout would stop the run, not deny the call
-      const cardHookSeconds = this.approvals.timeoutSeconds + 60;
       options.permissionMode = 'bypassPermissions';
       options.allowDangerouslySkipPermissions = true;
       // bypass mode has no canUseTool: the web-egress card is raised from a PreToolUse hook instead (never both, so one card per call)
@@ -1320,6 +1329,19 @@ This run read connector (GitHub) data and other outside text. Web access can sen
       }] });
     } else {
       options.permissionMode = 'default';
+      // The shell floor as a hook too: Claude Code's own allow rules (inherited settings, `Bash(rm:*)`) decide a call before
+      // canUseTool is asked, which would step around the floor. A Block gate still wins first; an approved floor card is
+      // final for that call (no second, ordinary card).
+      options.hooks?.PreToolUse?.push({ matcher: 'Bash|PowerShell|mcp__host__shell', timeout: cardHookSeconds, hooks: [async (input) => {
+        if (input.hook_event_name !== 'PreToolUse') return { continue: true };
+        const tin = (input.tool_input ?? {}) as Record<string, unknown>;
+        const g = decideGate({ toolName: input.tool_name, input: tin, agentId: agent.id, cwd: this.gateCwd(agent, input.tool_name), tmpDir: GATE_TMP_DIR, projectId: this.projectOf(job.taskId, agent.id)?.id, ctx: { roomHop: (job.origin?.hop ?? 0) > 0, tainted: this.active.get(job.taskId)?.tainted === true || job.origin?.tainted === true, connectorData: this.store.getTask(job.taskId)?.usedConnectors === true } }, gatesFor(this.config).rules, effective(), job.origin?.approvalCeiling === 'ask');
+        if (g.verdict === 'deny') return preToolDeny('Blocked by a gate rule (Settings -> Gates).');
+        const floor = this.shellFloor(job, agent, input.tool_name, tin);
+        if (!floor) return { continue: true };
+        const d = await floor;
+        return d.allow ? preToolAllow('The owner approved this command on its card.') : preToolDeny(d.message ?? 'The user denied this action.');
+      }] });
       const decide = this.toolDecider(job, agent);
       options.canUseTool = async (toolName, input) => {
         const d = await decide(toolName, input);

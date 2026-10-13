@@ -913,6 +913,31 @@ test('the safety floor holds on the ask path too (canUseTool): a catastrophic Ba
   await s.engine.waitFor(t.id, 3000);
 });
 
+test('REVIEW F7: the floor also runs as a PreToolUse hook in ask mode, so an allow rule in the owner\'s Claude Code settings cannot skip it, and an approved card is not asked twice', async () => {
+  const s = setup(hanging, { agent: { approval: 'ask' } });
+  const t = s.engine.startTask({ agentId: 'a1', prompt: 'x', source: 'ui' });
+  await new Promise((r) => setTimeout(r, 30));
+  const floor = s.calls[0]!.options.hooks.PreToolUse.filter((h: any) => typeof h.matcher === 'string' && /Bash/.test(h.matcher) && /PowerShell/.test(h.matcher) && /mcp__host__shell/.test(h.matcher));
+  assert.equal(floor.length, 1, 'one hook for the three shell tools');
+  assert.ok(floor[0].timeout >= s.approvals.timeoutSeconds, 'the hook waits at least as long as its card');
+  const hook = floor[0].hooks[0];
+  const decide = (tool: string, input: unknown) => hook({ hook_event_name: 'PreToolUse', tool_name: tool, tool_input: input });
+  const refused = await decide('Bash', { command: 'rm -rf /c' });
+  assert.equal(refused?.hookSpecificOutput?.permissionDecision, 'deny');
+  assert.equal((await decide('Bash', { command: 'npm test' }))?.hookSpecificOutput?.permissionDecision, undefined, 'a readable command is left to the normal approval');
+  const pending = decide('Bash', { command: 'x=ls; $x' });
+  await new Promise((r) => setTimeout(r, 10));
+  assert.equal(s.approvals.pending().length, 1);
+  s.approvals.resolve(s.approvals.pending()[0]!.id, true);
+  assert.equal((await pending)?.hookSpecificOutput?.permissionDecision, 'allow', 'approved on its card: allowed, no second card from the normal approval');
+  // and if canUseTool is still asked about the same call, it does not ask the owner again
+  const use = await s.calls[0]!.options.canUseTool('Bash', { command: 'x=ls; $x' }, { signal: new AbortController().signal });
+  assert.equal(use.behavior, 'allow');
+  assert.equal(s.approvals.pending().length, 0);
+  s.engine.cancel(t.id);
+  await s.engine.waitFor(t.id, 3000);
+});
+
 test('in full mode the hooks that can wait on a card allow at least the card\'s own wait (a hook timeout would stop the run instead)', async () => {
   const s = setup(hanging, { agent: { approval: 'full' }, approvalTimeoutMs: 600_000 });
   const t = s.engine.startTask({ agentId: 'a1', prompt: 'x', source: 'ui' });

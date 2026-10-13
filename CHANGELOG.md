@@ -19,7 +19,13 @@ All notable changes are recorded here. The format follows [Keep a Changelog](htt
   command's output as a script (`curl ... | bash`) asks the same way.
 - **Hidden commands are refused.** Text that is decoded and then run as a command (`base64 -d | bash`) and PowerShell's
   `-EncodedCommand` cannot be read before they run, so Legion refuses them. Write the command out plainly instead.
-- Commands that only use variables in their arguments, such as `echo $HOME` or `git commit -m "$(date)"`, run as before.
+- **A delete whose folder comes from a variable asks first.** `rm -rf "$DIR"` deletes a root when the variable is empty,
+  so Legion shows you the card. `rm -rf "$DIR/build"` runs as before.
+- **More ways to wipe a drive or a home are refused:** mirroring an empty folder over it (`robocopy /MIR`,
+  `rsync --delete`), taking away its permissions (`chmod -R`, `icacls /T`), moving it away, wiping a disk device, and
+  the same commands hidden behind `timeout`, `start`, `call`, `wsl`, `eval`, quotes inside a word or a line break.
+- Commands that only use variables in their arguments, such as `echo $HOME` or `git commit -m "$(date)"`, run as before,
+  and so do PowerShell lines that set a variable first (`$env:NODE_ENV='test'; npm test`).
 
 ## [0.2.6-u] - 2026-10-13
 

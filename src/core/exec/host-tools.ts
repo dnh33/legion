@@ -227,6 +227,7 @@ const CATASTROPHIC_COMMANDS: Array<[RegExp, string]> = [
   [/\bdd\b[^|&;\n]*\bof\s*=\s*['"]?\/dev\//i, 'raw write to a device'],
   [/\bformat(?:\.com)?\s+['"]?[A-Za-z]:/i, 'formatting a drive'],
   [/\bdiskpart\b/i, 'disk partitioning'],
+  [/\b(?:shred|wipefs|blkdiscard)\b[^|&;\n]*\/dev\//i, 'wiping a disk device'],
 ];
 /** Shapes that are not words (a fork bomb, a redirect onto a disk): matched anywhere on the line. */
 const CATASTROPHIC: Array<[RegExp, string]> = [
@@ -258,10 +259,16 @@ const LIST_VERBS = new Set(['get-childitem', 'gci', 'dir', 'ls']);
 /** cmd's commands among them, whose options are written /s, /q: a one-letter /x word after them is a switch. */
 const CMD_SWITCH_VERBS = new Set(['rd', 'rmdir', 'del', 'erase', 'dir']);
 
-/** A command line as words: quotes keep a word together and are then dropped; cmd's ^ escape is removed. Lower case. */
+/**
+ * A command line as words, the way a shell joins them: quoted and unquoted parts that touch are ONE word (`"r"m` is `rm`),
+ * quotes keep spaces inside a word, and are then dropped; cmd's ^ escape is removed. Lower case.
+ */
 function words(segment: string): string[] {
-  return (segment.match(/"[^"]*"|'[^']*'|\S+/g) ?? []).map((w) => w.replace(/["'^]/g, '').toLowerCase()).filter(Boolean);
+  return (segment.match(/(?:"[^"]*"|'[^']*'|[^\s"'])+/g) ?? []).map((w) => w.replace(/["'^]/g, '').toLowerCase()).filter(Boolean);
 }
+
+/** A line continuation (sh's backslash-newline, PowerShell's backtick-newline) joins two lines into one command: read it joined. */
+const joinLines = (cmd: string): string => cmd.replace(/[\\`]\r?\n/g, '');
 
 /**
  * The program a word names: `/bin/rm` and `C:\Windows\System32\cmd.exe` are `rm` and `cmd`. A backslash in a word with
@@ -292,8 +299,16 @@ function collapseDots(p: string): string {
  * home or a project is not one of these: deleting `~/proj/build` or `C:\proj\build` is ordinary work.
  */
 function isProtectedTarget(word: string): boolean {
-  const w = collapseDots(word.replace(/[\\/]+\*(?:\.\*)?$/, '/').replace(/\\/g, '/').replace(/\/+$/, '') || '/');
+  // PowerShell's -Path:C:\ form, and the \\?\ and \\.\ device prefixes, name the same folder
+  const bare = word.replace(/^-(?:literal)?path:/, '').replace(/^[\\/]{2}[?.][\\/]/, '');
+  // a whole drive through an admin share (\\localhost\c$)
+  if (/^[\\/]{2}[^\\/]+[\\/][a-z]\$[\\/]?\*?$/.test(bare)) return true;
+  // every dot-file of a home (~/.*): the configuration of every program the person uses
+  if (/^(?:~|\$home|\$\{home\}|%userprofile%|\$env:userprofile)[\\/]\.\*$/.test(bare)) return true;
+  const w = collapseDots(bare.replace(/[\\/]+\*(?:\.\*)?$/, '/').replace(/\\/g, '/').replace(/\/+$/, '') || '/');
   if (w === '/' || w === '/*') return true;
+  // a wildcard in the first folder below the root (/[c], /?, /c*) reaches a drive or a system folder
+  if (/^\/[^/]*[?*[][^/]*$/.test(w)) return true;
   // Git for Windows' tools (rm.exe is on PATH, so cmd.exe reaches it too), Cygwin and WSL name a drive /c, /cygdrive/c or
   // /mnt/c: judged as the drive itself. On a POSIX machine a one-letter top-level folder is refused as well, which costs nothing.
   const drive = /^\/(?:cygdrive\/|mnt\/)?([a-z])(\/.*)?$/.exec(w);
@@ -314,8 +329,17 @@ function isProtectedTarget(word: string): boolean {
 }
 
 /** Programs that run the rest of the line as the command (`sudo rm …` is an rm); their own options are skipped. */
-const WRAPPERS = new Set(['sudo', 'doas', 'command', 'builtin', 'exec', 'env', 'nice', 'nohup', 'time', 'xargs']);
-const WRAPPER_OPTS_WITH_ARG = new Set(['-u', '-g', '-p', '-h', '-n']);
+const WRAPPERS = new Set([
+  'sudo', 'doas', 'command', 'builtin', 'exec', 'env', 'nice', 'nohup', 'time', 'xargs',
+  'timeout', 'stdbuf', 'setsid', 'ionice', 'chroot', 'flock', 'strace', 'ltrace', 'busybox', 'taskset', 'chrt', 'unbuffer', 'caffeinate',
+  // cmd's call and start, and wsl, run the command that follows them; eval and PowerShell's iex run their words as a command
+  'call', 'start', 'wsl', 'eval', 'iex', 'invoke-expression',
+]);
+const WRAPPER_OPTS_WITH_ARG = new Set(['-u', '-g', '-p', '-h', '-n', '-s', '-k', '-o', '-e', '-c', '-w', '-t', '-d', '--distribution', '--user', '--cd', '--signal', '--kill-after']);
+/** Wrappers whose first plain word is their own argument, not the command (`timeout 5 rm`, `chroot / rm`, `flock lockfile rm`). */
+const WRAPPER_TAKES_ONE = new Set(['timeout', 'chroot', 'flock', 'taskset', 'chrt']);
+/** cmd's call and start take /x switches (`start /b`). */
+const SLASH_OPTION_WRAPPERS = new Set(['call', 'start']);
 /** PowerShell options that take a value. */
 const PS_OPTS_WITH_ARG = new Set(['-executionpolicy', '-ep', '-ex', '-windowstyle', '-w', '-outputformat', '-of', '-inputformat', '-if', '-configurationname', '-workingdirectory', '-wd', '-settingsfile', '-version', '-v']);
 /** Shells that run the command line after their command flag (`bash -c`, `cmd /c`, `powershell -Command`). */
@@ -336,7 +360,9 @@ function commandPositions(ws: readonly string[]): number[] {
     const p = program(ws[i]!);
     if (WRAPPERS.has(p)) {
       i++;
-      while (i < ws.length && (ws[i]!.startsWith('-') || /^[a-z_][a-z0-9_]*=/.test(ws[i]!))) { if (WRAPPER_OPTS_WITH_ARG.has(ws[i++]!)) i++; }
+      const opt = (w: string) => w.startsWith('-') || /^[a-z_][a-z0-9_]*=/.test(w) || (SLASH_OPTION_WRAPPERS.has(p) && /^\/[a-z]/.test(w));
+      while (i < ws.length && opt(ws[i]!)) { if (WRAPPER_OPTS_WITH_ARG.has(ws[i++]!)) i++; }
+      if (WRAPPER_TAKES_ONE.has(p) && i < ws.length) { i++; while (i < ws.length && ws[i]!.startsWith('-')) i++; }
       continue;
     }
     const flag = SHELLS.has(p) ? ws.findIndex((w, j) => j > i && SHELL_COMMAND_FLAGS.has(w)) : -1;
@@ -364,8 +390,20 @@ function refuseSegment(segment: string): string | undefined {
     const switches = CMD_SWITCH_VERBS.has(program(ws[i]!));
     return ws.slice(i + 1).some((w) => !(switches && /^\/[a-z?](?::\S*)?$/.test(w)) && isProtectedTarget(w));
   };
+  // the plain words after position i (no options), for commands where only one of them is the target
+  const plain = (ws: readonly string[], i: number): string[] => ws.slice(i + 1).filter((w) => !w.startsWith('-') && !/^\/[a-z]+(?::\S*)?$/.test(w));
   for (const ws of stages) {
     if (runs(ws, DELETE_VERBS).some((i) => targetsAfter(ws, i))) return 'a recursive delete of a drive, a system folder or a home folder';
+    // mirroring an empty folder onto a drive or a home deletes everything in it (robocopy /MIR or /PURGE: the destination is the second path)
+    if (runs(ws, new Set(['robocopy'])).some((i) => ws.some((w) => w === '/mir' || w === '/purge') && isProtectedTarget(plain(ws, i)[1] ?? ''))) return 'mirroring over a drive, a system folder or a home folder (it deletes what is not in the source)';
+    if (runs(ws, new Set(['rsync'])).some((i) => ws.some((w) => w.startsWith('--delete')) && isProtectedTarget(plain(ws, i).at(-1) ?? ''))) return 'mirroring over a drive, a system folder or a home folder (it deletes what is not in the source)';
+    // taking away every permission or owner of a drive or a home locks the person out of it
+    if (runs(ws, new Set(['chmod', 'chown', 'chgrp', 'setfacl'])).some((i) => ws.some((w) => /^-[a-z]*r/.test(w) || w === '--recursive') && targetsAfter(ws, i))) return 'changing the permissions of a whole drive, system folder or home folder';
+    if (runs(ws, new Set(['icacls', 'takeown'])).some((i) => ws.some((w) => w === '/t' || w === '/r') && targetsAfter(ws, i))) return 'changing the permissions of a whole drive, system folder or home folder';
+    // moving a drive, a system folder or a home away (mv ~ /dev/null) is a delete too: the first path is what moves
+    if (runs(ws, new Set(['mv', 'move', 'move-item', 'mi'])).some((i) => isProtectedTarget(plain(ws, i)[0] ?? ''))) return 'moving a drive, a system folder or a home folder away';
+    // git clean -fdx in a drive root deletes every file git does not track there
+    if (runs(ws, new Set(['git'])).some((i) => ws.includes('clean') && ws.some((w, j) => w === '-c' && j > i && isProtectedTarget(ws[j + 1] ?? '')))) return 'cleaning a drive, a system folder or a home folder with git';
     const deletes = ws.includes('-delete') || ws.some((w, i) => (w === '-exec' || w === '-execdir') && DELETE_VERBS.has(program(ws[i + 1] ?? '')));
     if (deletes && runs(ws, FIND_VERB).some((i) => targetsAfter(ws, i))) return 'deleting everything under a drive, a system folder or a home folder';
   }
@@ -402,9 +440,27 @@ const INLINE_FLAGS = new Set([...SHELL_COMMAND_FLAGS, '-e', '--eval', '-p', '--p
 function runsStdin(ws: readonly string[]): boolean {
   const pos = commandPositions(ws);
   const last = pos[pos.length - 1];
-  if (last === undefined || !STDIN_RUNNERS.has(program(ws[last]!))) return false;
+  if (last === undefined) return false;
+  const p = program(ws[last]!);
+  // `… | xargs sh -c`: xargs hands the text to the shell's -c as the command (the -c has nothing after it on the line)
+  if (pos.some((i, n) => n > 0 && SHELLS.has(program(ws[i]!)) && program(ws[pos[n - 1]!]!) === 'xargs') && SHELL_COMMAND_FLAGS.has(ws[ws.length - 1]!)) return true;
+  if (!STDIN_RUNNERS.has(p)) return false;
+  const after = ws.slice(last + 1);
+  // `bash -n` only checks the syntax; it runs nothing
+  if (after.includes('-n') && SHELLS.has(p)) return false;
   // `bash -s`, `python -` and option-only forms read the script from stdin; a script file or an inline command does not
-  return ws.slice(last + 1).every((w) => w.startsWith('-') && !INLINE_FLAGS.has(w));
+  return after.every((w) => w.startsWith('-') && !INLINE_FLAGS.has(w));
+}
+
+/** Where one command ends and the next begins: ; & && || newlines, and the body after do, then or else. */
+const SEGMENTS = /&&|\|\||[;&\n\r]|\s(?:do|then|else)\s/;
+
+/** The text an echo or printf stage writes, when it is written out on the line (no variable, substitution or escape). */
+function literalOutput(stage: string): string | undefined {
+  const ws = words(stage);
+  if (!['echo', 'printf'].includes(program(ws[0] ?? ''))) return undefined;
+  if (/[$`]|\\[0-7xuUe]/.test(stage)) return undefined;
+  return ws.slice(1).filter((w) => !/^-[a-z]+$/.test(w)).join(' ');
 }
 
 /** Decoders that turn hidden text into readable text: their output piped into a shell is a command nobody could read first. */
@@ -420,7 +476,7 @@ const PS_ENCODED = /^-(?:e|ec|en|enc|enco|encod|encode|encoded|encodedc|encodedc
 /** Why the command runs hidden (decoded or encoded) text as a command, else undefined. Hard refusal: a card could not show it. */
 function hiddenPayload(cmd: string): string | undefined {
   if (/frombase64string/i.test(cmd) && /\b(?:iex|invoke-expression)\b/i.test(cmd)) return 'running decoded text as a command';
-  for (const segment of cmd.split(/&&|\|\||[;&\n\r]/)) {
+  for (const segment of joinLines(cmd).split(SEGMENTS)) {
     const stages = segment.split('|').map(words);
     for (const ws of stages) {
       if (commandPositions(ws).some((i) => { const p = program(ws[i]!); return (p === 'powershell' || p === 'pwsh') && ws.slice(i + 1).some((w) => PS_ENCODED.test(w)); })) return 'running a hidden (encoded) PowerShell command';
@@ -431,11 +487,21 @@ function hiddenPayload(cmd: string): string | undefined {
 }
 
 /** Words that open a compound command rather than name a program (`do rm …` runs rm). */
-const SHELL_KEYWORDS = new Set(['do', 'then', 'else', 'elif', 'if', 'while', 'until', '!', '{', '(', 'time']);
-/** A program word only known when the command runs: a variable or substitution ($, backtick), cmd's %VAR%, or a brace expansion. */
-const BUILT_AT_RUN = /[$`]|%[^%\s]+%|^\{[^}]*,[^}]*\}$/;
+const SHELL_KEYWORDS = new Set(['do', 'then', 'else', 'elif', 'elseif', 'if', 'while', 'until', 'switch', 'foreach', 'for', '!', '{', '}', '(', 'time']);
+/** Keywords followed by a condition in parentheses (PowerShell `if ($x) { … }`): the condition is not the program. */
+const CONDITION_KEYWORDS = new Set(['if', 'elseif', 'while', 'switch', 'foreach', 'for']);
+/** A program word only known when the command runs: a variable or substitution ($, backtick), cmd's %VAR% and !VAR!, or a brace expansion. */
+const BUILT_AT_RUN = /[$`]|%[^%\s]+%|![^!\s]+!|^\{[^}]*,[^}]*\}$/;
+/** A program named by a variable that is only the folder in front of a written-out file name (`$HOME/.local/bin/tool`, `"%ProgramFiles%\Git\bin\git.exe"`). */
+const PATH_FROM_VARIABLE = /^(?:\$\{?[a-z_][\w:]*\}?|%[a-z_][\w()]*%)[\\/][^$%`!]*[^\\/$%`!]$/;
+/** Tools whose whole purpose is to print shell setup for `eval "$(tool …)"`: the usual way to start an agent or a version manager. */
+const INIT_TOOLS = /^\$\((?:ssh-agent|direnv|fnm|pyenv|rbenv|nodenv|brew|zoxide|starship|mise|rtx|conda|opam)\b[^()]*\)$/;
 /** Programs that run the rest of their line as a command of its own. */
 const EVAL_RUNNERS = new Set(['eval', 'iex', 'invoke-expression', 'source', '.']);
+/** PowerShell programs that run a script block given to them. */
+const BLOCK_RUNNERS = new Set(['invoke-command', 'icm', 'start-job', 'start-threadjob']);
+/** A delete target that is nothing but a variable or a substitution: if it is empty or unexpected, the delete reaches a root. */
+const TARGET_FROM_VARIABLE = /^(?:\$\{?[\w:]+\}?|\$\(.*\)|`.*`|%[\w~:]+%|%%?\w|![\w]+!)[\\/]?\*?$/;
 
 /**
  * Why the guard cannot judge this command by reading it, else undefined. The safety floor reads commands; a command
@@ -446,29 +512,47 @@ const EVAL_RUNNERS = new Set(['eval', 'iex', 'invoke-expression', 'source', '.']
  */
 export function unjudgeableCommand(cmd: string, depth = 0): string | undefined {
   if (depth > 3) return 'it nests commands too deeply to read';
-  const built = 'the program it runs is only known when it runs (made from a variable, a substitution or an expansion)';
-  for (const segment of cmd.split(/&&|\|\||[;&\n\r]/)) {
+  const built = 'the program it runs is only known when it runs (it is built from a variable or another command)';
+  const piped = 'it runs the output of another command as a script, which cannot be read before it runs';
+  for (const segment of joinLines(cmd).split(SEGMENTS)) {
     const stages = segment.split('|');
     for (let s = 0; s < stages.length; s++) {
       let ws = words(stages[s]!);
-      // leading assignments (`VERSION=$(git describe) npm run build`) and compound keywords are not the program
+      // leading assignments (`VERSION=$(git describe) npm run build`, PowerShell `$env:X='y'` and `$r = …`), compound
+      // keywords and a condition in parentheses (`if ($x) {`) are not the program
       let k = 0;
-      while (k < ws.length && (SHELL_KEYWORDS.has(ws[k]!) || /^[a-z_][a-z0-9_]*=/.test(ws[k]!))) k++;
+      for (;;) {
+        const w = ws[k];
+        if (w === undefined) break;
+        if (SHELL_KEYWORDS.has(w) || /^[a-z_][a-z0-9_]*=/.test(w) || /^\$[\w:{}]+=/.test(w)) { k++; continue; }
+        if (w.startsWith('$') && ws[k + 1] === '=') { k += 2; continue; }
+        if (w.startsWith('(') && k > 0 && CONDITION_KEYWORDS.has(ws[k - 1]!)) { k++; continue; }
+        break;
+      }
       ws = ws.slice(k);
       if (!ws.length) continue;
-      for (const i of commandPositions(ws)) {
+      const pos = commandPositions(ws);
+      for (const [n, i] of pos.entries()) {
         const w = ws[i]!;
+        // after eval or iex, a parenthesised expression is the text that runs (`iex (irm https://…)`), not a subshell
+        if (n > 0 && w.startsWith('(') && ['eval', 'iex', 'invoke-expression'].includes(program(ws[pos[n - 1]!]!))) return built;
+        if (INIT_TOOLS.test(w)) continue;
         // a shell's -c text is a command line of its own: read it, rather than calling every $ in it a program
         if (/\s/.test(w)) { const inner = unjudgeableCommand(w, depth + 1); if (inner) return inner; continue; }
+        if (PATH_FROM_VARIABLE.test(w)) continue;
         if (BUILT_AT_RUN.test(w)) return built;
-        if (EVAL_RUNNERS.has(program(w))) { const inner = unjudgeableCommand(ws.slice(i + 1).join(' '), depth + 1); if (inner) return inner; }
+        // PowerShell builds a program from an expression: & ('r'+'m'), [scriptblock]::Create(…), iex (irm …). A subshell
+        // `(cd ui` stays readable: what follows the parenthesis is a plain program name.
+        if (/^[([]/.test(w) && !/^\(+[\w./\\:-]+$/.test(w)) return built;
+        if (BLOCK_RUNNERS.has(program(w)) && ws.slice(i + 1).some((x) => x.startsWith('{') || x === '-scriptblock')) return 'it runs a PowerShell script block, which is only known when it runs';
+        if (DELETE_VERBS.has(program(w)) && ws.slice(i + 1).some((x) => !/^-|^\/[a-z?]$/.test(x) && TARGET_FROM_VARIABLE.test(x))) return 'what it deletes is only known when it runs (the folder comes from a variable)';
       }
-      if (s > 0 && runsStdin(ws)) {
-        // `printf "ls\n" | bash` runs text that is on the line (refuseCatastrophic reads it); anything else is unseen
-        const prev = words(stages[s - 1]!);
-        const literal = ['echo', 'printf'].includes(program(prev[0] ?? '')) && !prev.some((x) => /[$`]/.test(x));
-        if (!literal) return 'it runs the output of another command as a script, which cannot be read before it runs';
-      }
+      // `bash <(curl …)`, `source <(…)`: a script made by another command
+      const last = pos[pos.length - 1];
+      const runner = last === undefined ? '' : program(ws[last]!);
+      if ((STDIN_RUNNERS.has(runner) || runner === 'source' || runner === '.') && ws.some((x) => x.startsWith('<('))) return piped;
+      // `printf "ls\n" | bash` runs text that is on the line (refuseCatastrophic reads it); anything else is unseen
+      if (s > 0 && runsStdin(ws) && literalOutput(stages[s - 1]!) === undefined) return piped;
     }
   }
   // a substitution's own text is a command too
@@ -479,7 +563,8 @@ export function unjudgeableCommand(cmd: string, depth = 0): string | undefined {
   return undefined;
 }
 
-export function refuseCatastrophic(cmd: string, depth = 0): string | undefined {
+export function refuseCatastrophic(raw: string, depth = 0): string | undefined {
+  const cmd = joinLines(raw);
   const say = (what: string): string => `Refused: this command looks like ${what}, which can destroy the machine or its data. It is blocked for every agent, even full access.`;
   for (const [re, what] of CATASTROPHIC) {
     if (re.test(cmd)) return say(what);
@@ -494,13 +579,24 @@ export function refuseCatastrophic(cmd: string, depth = 0): string | undefined {
   for (const [re, what] of [...CATASTROPHIC_COMMANDS, ...CATASTROPHIC_WINDOWS]) {
     if (re.test(scan)) return say(what);
   }
-  for (const segment of cmd.split(/&&|\|\||[;&\n\r]/)) {
+  for (const segment of cmd.split(SEGMENTS)) {
     const why = refuseSegment(segment);
     if (why) return say(why);
   }
   // A quoted string keeps a path with spaces together, but it can also carry a whole command to a wrapper
   // (`powershell -c "Remove-Item …"`, `bash -c '…'`): each such string is judged as a command of its own.
   if (depth < 2) {
+    for (const segment of cmd.split(SEGMENTS)) {
+      const stages = segment.split('|');
+      for (let s = 0; s < stages.length; s++) {
+        const ws = words(stages[s]!);
+        // a shell's -c text, joined as the shell joins it (`bash -c 'r''m -rf /c'`), is a command of its own
+        for (const i of commandPositions(ws)) if (/\s/.test(ws[i]!)) { const inner = refuseCatastrophic(ws[i]!, depth + 1); if (inner) return inner; }
+        // `echo rm -rf /c | sh` runs the echoed text
+        const text = s > 0 && runsStdin(ws) ? literalOutput(stages[s - 1]!) : undefined;
+        if (text) { const inner = refuseCatastrophic(text, depth + 1); if (inner) return inner; }
+      }
+    }
     // a command substitution runs its text as a command: `echo $(rm -rf /)`, backticks the same
     for (const m of cmd.matchAll(/\$\(([^()]*)\)|`([^`]*)`/g)) {
       const inner = refuseCatastrophic(m[1] ?? m[2] ?? '', depth + 1);
