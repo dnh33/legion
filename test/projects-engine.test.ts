@@ -360,7 +360,7 @@ test('D6 a non-member helps as an outside helper: no project folder, notes or bo
     const v = await Promise.race([call.options.canUseTool('Bash', { command: 'ls' }, { signal: new AbortController().signal }), new Promise((r) => setTimeout(() => r({ behavior: 'card' }), 300))]) as { behavior: string };
     assert.equal(v.behavior, 'deny', "P's deny rule binds the outside helper");
     const sys = (id: string) => s.store.listMessages(id).filter((m) => m.role === 'system').map((m) => m.text).join(' | ');
-    assert.match(sys(t.id), /You are helping with project "P" from outside it \(A3 is not a member\)\. You have no access to its folder, notes or board; its deny rules still apply\./);
+    assert.match(sys(t.id), /You are helping with project "P" from outside it \(A3 is not a member\)\. You are not given its folder, notes or board; its deny rules still apply\./);
     assert.match(sys(parent.id), /A3 helped from outside project "P" \(A3 is not a member\)\. To give A3 the project's folder, notes and board, add it on the project page\./);
   } finally { release(); s.engine.cancel(t.id); await s.engine.waitFor(t.id, 3000); }
 });

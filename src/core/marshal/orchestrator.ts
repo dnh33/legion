@@ -91,6 +91,8 @@ export class Marshal {
   private readonly live = new Map<string, Live>();
   /** The last block reason per item, so `status` can show it even after the board dropped the item. */
   private readonly blocked = new Map<string, BlockedItem>();
+  /** Items the last wave held back for their busy bot, with why: shown in the status text (review #6). */
+  private waiting: WaitingItem[] = [];
 
   constructor(private readonly ports: MarshalPorts, private project: ProjectRef, options: { ledger?: AttemptLedger; waveSize?: number; stallMs?: number; escalateAfterStalls?: number } = {}) {
     this.ledger = options.ledger ?? Marshal.loadLedger(ports.board, project);
@@ -217,6 +219,7 @@ export class Marshal {
       dispatched.push(dispatch);
       this.blocked.delete(item.id);
     }
+    this.waiting = waiting;
     return { dispatched, blocked, waiting, candidates: candidates.length };
   }
 
@@ -314,6 +317,7 @@ export class Marshal {
     const lines: string[] = [`STATUS ${s.running.length} running, ${s.blocked.length} blocked, ${s.next.length} next`];
     for (const r of s.running) lines.push(`Running: ${r.title} → ${r.botName} (${r.model}, ${r.tier}${r.irreversible.length ? `, irreversible: ${r.irreversible.join(', ')}${r.gated ? ' — the card will gate it' : ''}` : ''}). Why: ${r.why} Rank: ${r.rankWhy}`);
     for (const b of s.blocked) lines.push(`Blocked: ${b.title}. ${b.reason}`);
+    for (const w of this.waiting) lines.push(`Waiting: ${w.title}. ${w.reason}`);
     for (const n of s.next) lines.push(`Next: ${n.title} (score ${n.score}). ${n.why}`);
     return lines.join('\n');
   }

@@ -273,4 +273,6 @@ test('D2 items the owner assigned to a busy bot wait in the backlog with the rea
   const rep2 = await m2.step(T0);
   assert.deepEqual(rep2.blocked, []);
   assert.match(rep2.waiting[0]!.reason, /busy in Shop: Fix the header/);
+  // the owner sees why the item waits (review #6): the status text the Marshal panel shows names it
+  assert.match(m2.statusText(T0), /^Waiting: later\. waiting for builder \(busy in Shop: Fix the header\)$/m);
 });

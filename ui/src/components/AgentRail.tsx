@@ -5,7 +5,7 @@ import { Icon } from './icons';
 import { vmTone, vmLabel } from '../util';
 import { Bust } from '../mascot/Bust';
 import { ProjectSwitcher } from '../projects/ProjectSwitcher';
-import { agentsFor, alsoWorkingLabel, inProject, liveElsewhere, waitingElsewhere } from '../projects/projectsLogic';
+import { agentsFor, inProject, railAlsoWorking, waitingElsewhere } from '../projects/projectsLogic';
 import { hasBust } from '../mascot/busts';
 import { heldAgents } from '../chat/queue';
 import { ownerOfThread, useQueueState } from '../chat/queueStore';
@@ -52,7 +52,7 @@ export function AgentRail() {
           const pending = approvals.filter((x) => x.agentId === a.id).length;
           const running = tasks.some((t) => t.agentId === a.id && inProject(t, filter) && (t.status === 'running' || t.status === 'queued'));
           const tone = vm ? vmTone(vm.state) : 'off';
-          const also = alsoWorkingLabel(liveElsewhere(a.id, tasks, { filter, taskId: null }), projects);
+          const also = railAlsoWorking(a.id, tasks, filter, projects);
           return (
             <button key={a.id} className={`agent${hasBust(a.id) ? ' bust-row' : ''}${a.id === sel ? ' sel' : ''}`} onClick={() => selectAgent(a.id)} aria-current={a.id === sel} title={`${a.name}${i < 9 ? ` (Alt ${i + 1})` : ''}`}>
               {hasBust(a.id)

@@ -158,6 +158,11 @@ export function alsoWorkingLabel(rows: Pick<Task, 'projectId' | 'title'>[], proj
   return `Also working in ${where}: ${clipTitle(first.title)}${rows.length > 1 ? ` (+${rows.length - 1} more)` : ''}`;
 }
 
+/** The agent rail's "Also working in…" line: only while a project is in view (under All, every run is already in view). */
+export function railAlsoWorking(agentId: string, tasks: LiveTask[], filter: string | null, projects: Project[]): string | undefined {
+  return filter === null ? undefined : alsoWorkingLabel(liveElsewhere(agentId, tasks, { filter, taskId: null }), projects);
+}
+
 /** An editor's text after the saved value changed elsewhere: untouched (still the old saved value) follows; edited keeps the owner's text. */
 export const followRemote = (local: string, prevRemote: string, nextRemote: string): string => (local === prevRemote ? nextRemote : local);
 

@@ -545,7 +545,7 @@ export class Engine {
 
   /** An outside helper is told it works on the project from outside it, and its caller is told how to give it the project (decision 2026-10-13). */
   private noteOutsideHelper(taskId: string, callerTaskId: string | undefined, agent: AgentProfile, o: { project: Project; why: string }): void {
-    try { this.addMessage(taskId, 'system', `You are helping with project "${o.project.name}" from outside it (${o.why}). You have no access to its folder, notes or board; its deny rules still apply.`); } catch { /* advisory */ }
+    try { this.addMessage(taskId, 'system', `You are helping with project "${o.project.name}" from outside it (${o.why}). You are not given its folder, notes or board; its deny rules still apply.`); } catch { /* advisory */ }
     if (!callerTaskId) return;
     const how = o.project.status === 'archived' ? 'Unarchive the project to work in it again.' : `To give ${agent.name} the project's folder, notes and board, add it on the project page.`;
     try { this.addMessage(callerTaskId, 'system', `${agent.name} helped from outside project "${o.project.name}" (${o.why}). ${how}`); } catch { /* advisory */ }

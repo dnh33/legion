@@ -185,7 +185,7 @@ test('B2 liveElsewhere and alsoWorkingLabel: the agent\'s live runs outside the 
 test('B2 the rail row and the composer show the "Also working" line; it never blocks sending', () => {
   const root = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
   const rail = readFileSync(join(root, 'ui', 'src', 'components', 'AgentRail.tsx'), 'utf8');
-  assert.match(rail, /alsoWorkingLabel\(liveElsewhere\(a\.id, tasks, \{ filter, taskId: null \}\), projects\)/);
+  assert.match(rail, /railAlsoWorking\(a\.id, tasks, filter, projects\)/);
   const comp = readFileSync(join(root, 'ui', 'src', 'components', 'Composer.tsx'), 'utf8');
   assert.match(comp, /className="also-pill" role="status"/);
   const busy = readFileSync(join(root, 'ui', 'src', 'chat', 'busy.ts'), 'utf8');
@@ -235,4 +235,13 @@ test('C4 unarchive asks first and says what comes back', async () => {
   const view = readFileSync(join(root, 'ui', 'src', 'projects', 'ProjectView.tsx'), 'utf8');
   assert.match(view, /unarchiveProject\(project\)/);
   assert.doesNotMatch(view, /saveProject\(project\.id, \{ status: 'active' \}\)/, 'no unarchive without the question');
+});
+
+test('review #9 the agent rail says "Also working in" only while a project is in view; under All every run is already on the rail', async () => {
+  const { railAlsoWorking } = await import('../ui/src/projects/projectsLogic.js');
+  const now = '2026-10-13T10:00:00Z';
+  const tasks = [{ id: 't1', agentId: 'a1', status: 'running' as const, projectId: 'p2', title: 'Fix the header', updatedAt: now }];
+  const projects = [{ id: 'p2', name: 'Shop' }] as Project[];
+  assert.equal(railAlsoWorking('a1', tasks, null, projects), undefined);
+  assert.equal(railAlsoWorking('a1', tasks, 'p1', projects), 'Also working in Shop: Fix the header');
 });
