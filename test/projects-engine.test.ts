@@ -327,3 +327,12 @@ test('L1 the run\'s episode goes to the project the run had: a removed member\'s
   kg.onTaskEnd!({ ...kept, id: 'task_archived', projectId: p.id }, s.store.getAgent('a1')!, { status: 'done', isError: false, tainted: false });
   assert.equal(kg.graph().getNode(HUMAN, 'ep:task_archived')?.scope, 'agent:a1', 'no outcome.projectId: the episode stays out of the project');
 });
+
+test('L2 a delegation from a task in an archived project is refused (409), not run without the project', async () => {
+  const s = setup();
+  const p = s.mk('P', ['a1', 'a2']);
+  const parent = await run(s, { agentId: 'a1', prompt: 'lead', source: 'ui', projectId: p.id });
+  s.projects.update(p.id, { status: 'archived' });
+  assert.throws(() => s.engine.startTask({ agentId: 'a2', prompt: 'help', source: 'agent', bridge: { fromAgentId: 'a1', parentTaskId: parent.id, hop: 1 } }),
+    (e: any) => e instanceof EngineError && e.status === 409 && /Project "P" is archived/.test(e.message));
+});

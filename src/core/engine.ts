@@ -499,6 +499,8 @@ export class Engine {
     const pr = this.projects.get(want);
     if (pr && pr.status === 'archived') {
       if (p.source === 'ui' || (prev && !named)) throw new EngineError(`Project "${pr.name}" is archived. Unarchive it to start or continue a task in it.`, 409);
+      // a hand-off from an archived project would run without its rules, board and folder, and the caller would not know
+      if (delegated) throw new EngineError(`Project "${pr.name}" is archived, so work cannot be handed on from it. Unarchive it first.`, 409);
       return undefined;
     }
     if (pr && pr.members.includes(agent.id)) return want;
