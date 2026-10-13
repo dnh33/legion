@@ -10,6 +10,7 @@ import { useSyncExternalStore } from 'react';
 import type { ModelChoice, Task } from '../../../src/shared/types';
 import { api } from '../api';
 import { confirmStop, getState, sendPromptTo, subscribeStore, tapEvents, toast } from '../store';
+import { newTaskProjectId } from '../projects/projectsLogic';
 import { busyReason } from './busy';
 import * as Q from './queue';
 
@@ -44,7 +45,10 @@ const newId = () => `q${Date.now().toString(36)}${(idSeq++).toString(36)}`;
 
 /* ---------- owner actions ---------- */
 export function enqueueMessage(agentId: string, taskId: string | null, text: string, model: ModelChoice): boolean {
-  const r = Q.enqueue(qs, Q.threadKey(agentId, taskId), text, model, newId(), Date.now());
+  // a new thread starts in the project in view NOW, not in whichever one is in view when the message finally goes out
+  const s = getState();
+  const project = taskId ? undefined : newTaskProjectId(s.projects, s.projectFilter, agentId, false) ?? null;
+  const r = Q.enqueue(qs, Q.threadKey(agentId, taskId), text, model, newId(), Date.now(), project);
   if (!r.ok) { toast(Q.rejectMessage(r.reason), 'error'); return false; }
   set(r.state); kick();
   return true;
@@ -88,10 +92,11 @@ const viewing = (at: { agentId: string; taskId: string | null }): boolean => {
 };
 
 /** Sends one message to a thread. A 409 (the core still has the thread running although our copy says idle) is retried a few times. */
-async function sendItem(at: { agentId: string; taskId: string | null }, text: string, model: string) {
+async function sendItem(at: { agentId: string; taskId: string | null }, text: string, model: string, project?: string | null) {
   const select = viewing(at);
-  let r = await sendPromptTo(at, text, { model, select });
-  for (let i = 0; !r.ok && r.status === 409 && i < 5; i++) { await sleep(600); r = await sendPromptTo(at, text, { model, select }); }
+  const opts = { model, select, ...(project !== undefined ? { projectId: project } : {}) };
+  let r = await sendPromptTo(at, text, opts);
+  for (let i = 0; !r.ok && r.status === 409 && i < 5; i++) { await sleep(600); r = await sendPromptTo(at, text, opts); }
   return r;
 }
 
@@ -101,7 +106,7 @@ async function drain(key: string, at: { agentId: string; taskId: string | null }
   set(began.state);
   const item = began.item;
   const run = (async () => {
-    const r = await sendItem(at, item.text, item.model);
+    const r = await sendItem(at, item.text, item.model, item.project);
     if (r.ok) {
       set(Q.finishSend(qs, key, item.id, true));
       if (!at.taskId) set(Q.rekey(qs, key, Q.threadKey(at.agentId, r.task.id)));
