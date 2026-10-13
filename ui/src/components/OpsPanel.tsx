@@ -4,6 +4,7 @@ import { BustStage } from '../mascot/BustStage';
 import { hasBust } from '../mascot/busts';
 import { forceMascot, forceMascotVm, openTaskMenu, reopenTask, selectTask, setShowClosed, useStore, type RelicState } from '../store';
 import { modelLabel } from '../models';
+import { useProviders } from '../providers/providersStore';
 import { inProject } from '../projects/projectsLogic';
 import { RenameInput } from './TaskSwitcher';
 import { cleanTitle, money, relTime, taskTitle } from '../util';
@@ -40,6 +41,7 @@ export function OpsPanel() {
   const tasks = useStore((s) => s.tasks);
   const agents = useStore((s) => s.agents);
   const catalog = useStore((s) => s.catalog);
+  useProviders((s) => s.view); // a provider model's label (OpenRouter · vendor/model) comes from the provider list
   const selAgent = useStore((s) => s.selectedAgentId);
   const sel = useStore((s) => s.selectedTaskId);
   const showClosed = useStore((s) => s.showClosed);

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { modelLabel } from '../models';
+import { useProviders } from '../providers/providersStore';
 import { inProject, taskProjectChip } from '../projects/projectsLogic';
 import { archiveTask, newTask, openTaskMenu, renameTask, selectTask, startRename, stopRename, useStore } from '../store';
 import { Icon } from './icons';
@@ -23,6 +24,7 @@ export function TaskSwitcher() {
   const agentId = useStore((s) => s.selectedAgentId);
   const sel = useStore((s) => s.selectedTaskId);
   const catalog = useStore((s) => s.catalog);
+  useProviders((s) => s.view); // a provider model's label (OpenRouter · vendor/model) comes from the provider list
   const filter = useStore((s) => s.projectFilter);
   const projects = useStore((s) => s.projects);
   const renaming = useStore((s) => (s.renaming?.src === 'tab' ? s.renaming.id : null));

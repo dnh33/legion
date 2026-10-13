@@ -3,6 +3,7 @@ import type {
   AgentProfile, ApprovalRequest, BoatHealthView, GateSuggestion, Catalog, SettingsPatch, SettingsView, ChatMessage, DoctorCheck, LegionEvent, MascotMood, ModelChoice, PendingQuestion, QuestionPick, StateSnapshot, Task, TaskProgress, VmRecord,
 } from '../../src/shared/types';
 import { api, request, subscribe, ApiError, type ConnStatus } from './api';
+import { loadProviders } from './providers/providersStore';
 import { incomingWins } from './chat/tasksync';
 import { keepTasks } from './history/historyLogic';
 import { metaDetached, hasOlder, loadedHas, prependPage, reconcileNewest, type ThreadMeta } from './chat/threadWindow';
@@ -348,6 +349,8 @@ export function init() {
   void refresh();
   void runDoctor();
   void loadCatalog();
+  // provider model labels ("OpenRouter · vendor/model") read the provider list: load it once at start
+  void loadProviders();
 }
 
 export async function runDoctor() {

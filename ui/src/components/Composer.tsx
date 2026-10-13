@@ -8,6 +8,7 @@ import { enqueueMessage, getQueue, interruptAndSend, pauseQueue, startQueueRunne
 import { buildMenu, isCostly, parseSlash, runLegionCommand, LEGION_COMMANDS, type MenuItem } from '../commands';
 import { api } from '../api';
 import { modelLabel } from '../models';
+import { useProviders } from '../providers/providersStore';
 import { cancelSelected, confirmStop, effectiveModel, getState, loadCatalog, sendPrompt, sendPromptTo, useStore } from '../store';
 import { newTaskTarget } from '../projects/projectsLogic';
 import { clip } from '../util';
@@ -29,6 +30,7 @@ export function Composer() {
   const [text, setText] = useDraft(agentId, taskId);
   const model = useStore(effectiveModel);
   const catalog = useStore((s) => s.catalog);
+  useProviders((s) => s.view); // a provider model's label (OpenRouter · vendor/model) comes from the provider list
   const agents = useStore((s) => s.agents);
   const tasks = useStore((s) => s.tasks);
   const task = tasks.find((t) => t.id === taskId);
