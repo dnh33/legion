@@ -577,3 +577,40 @@ test('review 2026-10-13: the floor reads what Git Bash and cmd run (a CR is drop
   for (const c of ['rd //s //q build', 'robocopy src dst //E', 'rd /s /q build', 'cd /c/work/site && npm test', 'rm -rf ./build', 'cd build && rm -rf *.o', 'ls ~/projects', 'ls //server/share', 'cmd //c ver', 'tasklist //FO CSV']) assert.equal(refuseCatastrophic(c, 'sh'), undefined, c);
   assert.equal(refuseCatastrophic('cmd /c dir C:\\work', 'cmd'), undefined);
 });
+
+test('B6 a second allowed root (the project folder): read, write and shell cwd reach it; a link out of it and ../ out of both are refused', async () => {
+  const { symlinkSync, writeFileSync: wf, existsSync, readFileSync: rf } = await import('node:fs');
+  const root = mkdtempSync(join(tmpdir(), 'legion-root-'));
+  const proj = mkdtempSync(join(tmpdir(), 'legion-proj-'));
+  const outside = mkdtempSync(join(tmpdir(), 'legion-outside-'));
+  wf(join(outside, 'secret.txt'), 'outside the scope');
+  symlinkSync(outside, join(proj, 'link'), 'junction');
+  const mk = (extraRoots?: string[]) => {
+    const srv = buildHostToolsServer({ agentId: 'a', taskId: 't', rootDir: root, backend: new DirectHostBackend(), ...(extraRoots ? { extraRoots } : {}) });
+    return async (name: string, args: Record<string, unknown>) => {
+      const out = await (srv as any).instance._registeredTools[name].handler(args, {});
+      return { text: out.content.map((c: any) => c.text).join('\n'), isError: out.isError === true };
+    };
+  };
+  const without = mk();
+  assert.equal((await without('write_file', { path: join(proj, 'a.txt'), content: 'x' })).isError, true, 'no extra root: refused');
+  const call = mk([proj]);
+  const w = await call('write_file', { path: join(proj, 'notes', 'a.txt'), content: 'in the project' });
+  assert.equal(w.isError, false, w.text);
+  assert.equal(rf(join(proj, 'notes', 'a.txt'), 'utf8'), 'in the project');
+  const r = await call('read_file', { path: join(proj, 'notes', 'a.txt') });
+  assert.match(r.text, /in the project/);
+  const sh = await call('shell', { command: 'echo hi', cwd: proj });
+  assert.equal(sh.isError, false, sh.text);
+  const viaLink = await call('read_file', { path: join(proj, 'link', 'secret.txt') });
+  assert.equal(viaLink.isError, true, viaLink.text);
+  assert.doesNotMatch(viaLink.text, /outside the scope/);
+  const wLink = await call('write_file', { path: join(proj, 'link', 'x.txt'), content: 'x' });
+  assert.equal(wLink.isError, true);
+  assert.equal(existsSync(join(outside, 'x.txt')), false);
+  assert.equal((await call('read_file', { path: '../' + outside.split(/[\/]/).pop() + '/secret.txt' })).isError, true, '../ out of the main root');
+  // relative paths still resolve against the agent's own root
+  assert.equal((await call('write_file', { path: 'own.txt', content: 'x' })).isError, false);
+  assert.equal((await call('read_file', { path: 'notes/a.txt' })).isError, true, 'a relative path never resolves against the extra root');
+  assert.equal(existsSync(join(root, 'own.txt')), true);
+});

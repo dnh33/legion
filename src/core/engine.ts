@@ -955,7 +955,8 @@ export class Engine {
 
   private buildMcpServers(agent: AgentProfile, job: Job, act: Active, runtime: 'claude' | 'provider' = 'claude'): Record<string, McpServerConfig> {
     const taskId = job.taskId;
-    const pid = this.projectOf(taskId, agent.id)?.id;
+    const project = this.projectOf(taskId, agent.id);
+    const pid = project?.id;
     const out: Record<string, McpServerConfig> = {};
     const wanted = agent.mcpServers ?? [];
     const all = wanted.includes('*');
@@ -987,6 +988,8 @@ export class Engine {
       out.host = buildHostToolsServer({
         agentId: agent.id, taskId,
         rootDir: this.hostRootOf(agent),
+        // a project run's shell also reaches the project folder (decision B6); paths there are given in full
+        ...(project ? { extraRoots: [project.folder] } : {}),
         backend: new DirectHostBackend({ limits: clampExecLimits({ timeoutSeconds: agent.host.timeoutSeconds }), env: buildHostShellEnv(this.config) }),
         // the shell can read Legion's own files (config.json, provider keys): every secret Legion holds is taken out of what comes back
         redact: (text) => redactValues(text, [...liveSecrets(this.config), ...(this.providers?.secretValues() ?? [])]),

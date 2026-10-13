@@ -387,3 +387,18 @@ test('B3 a live run whose project is archived, or whose agent is removed, finish
   assert.equal((await s.engine.waitFor(a.id, 3000)).status, 'done', 'the run finishes; it is not cancelled');
   await s.engine.waitFor(b.id, 3000);
 });
+
+test('B6 the agent shell of a run in a project reaches the project folder; the same agent outside the project does not', async () => {
+  const s = setup();
+  s.store.agents.set('a1', { ...s.store.agents.get('a1')!, host: { enabled: true } } as any);
+  const p = s.mk('Shelf', ['a1']);
+  const write = async (call: number, file: string) => {
+    const host = s.calls[call]!.options.mcpServers.host;
+    const out = await host.instance._registeredTools.write_file.handler({ path: file, content: 'x' }, {});
+    return out.isError === true;
+  };
+  await run(s, { agentId: 'a1', prompt: 'x', source: 'ui', projectId: p.id });
+  assert.equal(await write(0, join(p.folder, 'from-shell.txt')), false, 'in the project: the folder is reachable');
+  await run(s, { agentId: 'a1', prompt: 'y', source: 'ui' });
+  assert.equal(await write(1, join(p.folder, 'other.txt')), true, 'no project: refused');
+});
