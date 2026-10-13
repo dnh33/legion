@@ -4,6 +4,16 @@ All notable changes are recorded here. The format follows [Keep a Changelog](htt
 
 ## [Unreleased]
 
+## [0.2.6-u] - 2026-10-13
+
+### Security
+
+- **The safety floor now knows the Git Bash names for your drives.** Legion always refuses a command that would delete a
+  whole drive, a system folder or a home folder, whatever the agent's approval mode. It refused `rm -rf C:/` but not
+  `rm -rf /c`, `/c/Users`, `/c/Windows` or `"$USERPROFILE"`. With Git for Windows installed, its `rm` is on your PATH
+  and reads `/c` as your C: drive, so an agent's shell could reach it. These spellings, and `/cygdrive/c` and `/mnt/c`,
+  are now refused like `C:\`. Deleting a folder inside a drive or a project, such as `/c/work/site/dist`, still runs.
+
 ## [0.2.6-t] - 2026-10-12
 
 ### Fixed
