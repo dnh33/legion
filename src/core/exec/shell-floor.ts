@@ -17,7 +17,9 @@
  *
  * Known limits, stated rather than hidden: a script written to a file and then run, `python -c` or `node -e` calling a
  * delete, a target that arrives on stdin (`echo /c | xargs rm -rf`), and relative deletes from an unknown folder are not
- * seen by reading. Only a sandboxed backend closes those.
+ * seen by reading. Neither are folders below the protected ones (C:\Windows\System32\config, ~/.ssh), single system
+ * files, overwrites (`> /etc/passwd`) and the registry. Only a sandboxed backend closes those; the next step is a card
+ * for any delete whose target is not provably ordinary (council 2026-10-13, measured on 20,205 real agent commands).
  */
 
 export type ShellKind = 'sh' | 'pwsh' | 'cmd';
@@ -27,8 +29,43 @@ export const MAX_READABLE = 10_000;
 
 /* ---------- reading a command ---------- */
 
-/** A line continuation (sh's backslash-newline, PowerShell's backtick-newline) joins two lines into one command. */
-const joinLines = (cmd: string): string => cmd.replace(/[\\`]\r?\n/g, '');
+/**
+ * A line continuation joins two lines into one command, each shell with its own character: sh's backslash, PowerShell's
+ * backtick, cmd's caret. Only that shell's: in PowerShell a path that ends in a backslash (`ls C:\`) ends its line.
+ */
+const joinLines = (cmd: string, shell: ShellKind): string => cmd.replace(shell === 'pwsh' ? /`\r?\n/g : shell === 'cmd' ? /\^\r?\n/g : /\\\r?\n/g, '');
+
+/**
+ * PowerShell text in the form the rest of the reading expects, without changing what it runs: curly quotes are quotes
+ * to PowerShell (‘C:\’ is 'C:\'), a backtick before a letter or path character inside a word is dropped (Re`move-Item is
+ * Remove-Item, C:`\ is C:\), a block comment <# … #> is blank space, and a call operator glued to what it calls (&$x,
+ * &("a"+"b")) is read with a space, so the card rule for built programs sees it.
+ */
+function normalizePwsh(s: string): string {
+  const t = withoutComments(s.replace(/[\u2018\u2019\u201a\u201b]/g, "'").replace(/[\u201c\u201d\u201e]/g, '"'), 'pwsh');
+  return t.replace(/`(?=[\w\\/:.-])/g, '').replace(/(^|[^&\w])&(?=[($"'{])/g, '$1& ');
+}
+
+/** The text with every comment turned into blank space (line breaks kept): nothing in a comment runs. */
+function withoutComments(s: string, shell: ShellKind): string {
+  return shell === 'cmd' ? s : blankRanges(s, readLine(s, shell).blocks);
+}
+
+/** The text with each range (in order, not overlapping) turned into spaces, line breaks kept. One pass, however many ranges. */
+function blankRanges(s: string, ranges: ReadonlyArray<readonly [number, number]>): string {
+  if (!ranges.length) return s;
+  const parts: string[] = [];
+  let at = 0;
+  for (const [a, b] of ranges) { if (a < at) continue; parts.push(s.slice(at, a), s.slice(a, b).replace(/[^\n]/g, ' ')); at = b; }
+  parts.push(s.slice(at));
+  return parts.join('');
+}
+
+/** The text a shell actually runs, joined and normalised for reading. */
+const prepare = (cmd: string, shell: ShellKind): string => {
+  const joined = joinLines(cmd, shell);
+  return shell === 'pwsh' ? normalizePwsh(joined) : withoutComments(joined, shell);
+};
 /** cmd lets a switch touch its command (`rd/s/q`, `cmd/c`): read them apart. */
 const unglue = (s: string): string => s.replace(/(^|[\s(@&|;])(rd|rmdir|del|erase|cmd|dir|start|call|robocopy|icacls|takeown|format|move|ren|rename)(?=\/)/gi, '$1$2 ');
 /** ANSI-C quoting (`$'/'`) names the same text as a plain single quote, for the refusal (the card treats `$` as built). */
@@ -37,7 +74,7 @@ const ansiC = (s: string): string => s.replace(/\$'/g, "'");
 const ESCAPED_SPACE = '\u0001';
 
 /** How a shell reads a line: the text with quoted strings, comments and heredoc bodies masked (same length), and what was left open. */
-interface Reading { masked: string; open: boolean; heredocToRunner: boolean }
+interface Reading { masked: string; open: boolean; heredocToRunner: boolean; blocks: Array<[number, number]>; literal: Array<[number, number]> }
 
 /**
  * Reads a line the way `shell` does: what is inside quotes, a comment or a heredoc body is masked (same length), so a
@@ -50,45 +87,66 @@ function readLine(s: string, shell: ShellKind): Reading {
   let out = '';
   let q: string | null = null;
   let heredocToRunner = false;
-  const heredocs: string[] = [];
+  let openComment = false;
+  const heredocs: Array<{ end: string; quoted: boolean }> = [];
+  const blocks: Array<[number, number]> = [];
+  // text the shell never expands: single quotes, here-strings @'…'@, quoted heredoc bodies
+  const literal: Array<[number, number]> = [];
+  let litStart = -1;
   const atWordStart = (i: number) => i === 0 || /[\s;&|(]/.test(s[i - 1]!);
   for (let i = 0; i < s.length; i++) {
     const ch = s[i]!;
     if (q === '@"' || q === "@'") {
       // a PowerShell here-string ends at a line that starts with "@ or '@
-      if ((ch === '"' || ch === "'") && s[i + 1] === '@' && (i === 0 || s[i - 1] === '\n') && ch === q[1]) { out += '__'; i++; q = null; continue; }
-      out += ch === '\n' ? '\n' : '_';
+      if ((ch === '"' || ch === "'") && s[i + 1] === '@' && (i === 0 || s[i - 1] === '\n') && ch === q[1]) { if (q === "@'") literal.push([litStart, i + 2]); out += '__'; i++; q = null; continue; }
+      out += '_';
       continue;
     }
     if (q) {
       if (shell === 'sh' && ch === '\\' && q === '"' && i + 1 < s.length) { out += '__'; i++; continue; }
       if (shell === 'pwsh' && ch === '`' && i + 1 < s.length) { out += '__'; i++; continue; }
       if (shell === 'pwsh' && ch === q && s[i + 1] === q) { out += '__'; i++; continue; }
-      if (ch === q) { q = null; out += ch; } else out += ch === '\n' ? '\n' : '_';
+      // a line break inside quotes is text, not the end of a command: masked like the rest
+      if (ch === q) { if (q === "'") literal.push([litStart, i + 1]); q = null; out += ch; } else out += '_';
       continue;
     }
     // escapes outside quotes: sh's backslash, PowerShell's backtick, cmd's caret
     if ((shell === 'sh' && ch === '\\') || (shell === 'pwsh' && ch === '`') || (shell === 'cmd' && ch === '^')) {
       if (i + 1 < s.length && s[i + 1] !== '\n') { out += ch + '_'; i++; continue; }
     }
-    if (shell === 'pwsh' && ch === '@' && (s[i + 1] === '"' || s[i + 1] === "'") && /^\r?\n/.test(s.slice(i + 2))) { q = '@' + s[i + 1]; out += '__'; i++; continue; }
-    if (ch === '"' || (ch === "'" && shell !== 'cmd')) { q = ch; out += ch; continue; }
+    if (shell === 'pwsh' && ch === '@' && (s[i + 1] === '"' || s[i + 1] === "'") && /^\r?\n/.test(s.slice(i + 2))) { q = '@' + s[i + 1]; litStart = i; out += '__'; i++; continue; }
+    if (ch === '"' || (ch === "'" && shell !== 'cmd')) { q = ch; litStart = i; out += ch; continue; }
     // sh arithmetic `(( … ))` and `$(( … ))`: its ; < > are arithmetic, not separators or redirects
     if (shell === 'sh' && ch === '(' && s[i + 1] === '(') {
       const end = s.indexOf('))', i + 2);
       if (end > 0) { out += '((' + '_'.repeat(end - i - 2) + '))'; i = end + 1; continue; }
     }
+    // a PowerShell block comment runs to #>, across lines; the command after it on the same line runs. One never closed is unreadable.
+    if (shell === 'pwsh' && ch === '<' && s[i + 1] === '#') {
+      const end = s.indexOf('#>', i + 2);
+      const stop = end < 0 ? s.length : end + 2;
+      if (end < 0) openComment = true;
+      blocks.push([i, stop]);
+      out += s.slice(i, stop).replace(/[^\n]/g, '_');
+      i = stop - 1;
+      continue;
+    }
     // a comment runs to the end of the line: nothing in it is read
-    if (ch === '#' && shell !== 'cmd' && atWordStart(i)) { while (i < s.length && s[i] !== '\n') { out += '_'; i++; } i--; continue; }
+    if (ch === '#' && shell !== 'cmd' && atWordStart(i)) { const from = i; while (i < s.length && s[i] !== '\n') { out += '_'; i++; } blocks.push([from, i]); i--; continue; }
     // sh heredoc: `<<WORD`, `<<-WORD`, `<<'WORD'`: the body lines that follow are data (or a script, for a shell or interpreter)
     if (shell === 'sh' && ch === '<' && s[i + 1] === '<' && s[i + 2] !== '<') {
-      const m = /^<<-?\s*(['"]?)([\w.-]+)\1/.exec(s.slice(i));
+      // the delimiter is a shell word: quotes and backslashes anywhere in it (E"O"F, \EOF) are removed, and quote the body
+      const m = /^<<-?[ \t]*((?:'[^'\n]*'|"[^"\n]*"|\\.|[^\s;&|<>()'"\\])+)/.exec(s.slice(i));
       if (m) {
-        heredocs.push(m[2]!);
+        heredocs.push({ end: m[1]!.replace(/['"\\]/g, ''), quoted: /['"\\]/.test(m[1]!) });
         const lineStart = s.lastIndexOf('\n', i) + 1;
-        const owner = words(s.slice(lineStart, i).split(/[;&|]/).pop() ?? '').map((w) => program(w));
+        const nl = s.indexOf('\n', i);
+        // the command the heredoc feeds: the words before it, and the pipe stages after it on its line (`cat <<EOF | sh`)
+        const before = s.slice(lineStart, i).split(/[;&]/).pop() ?? '';
+        const after = s.slice(i + m[0].length, nl < 0 ? s.length : nl).split(/[;&]/)[0] ?? '';
+        const owners = `${before}${after}`.split('|').map((stage) => { const ws = words(stage); return commandPositions(ws).map((k) => program(clean(ws[k]!))); }).flat();
         // a heredoc into a SHELL is a script of commands nobody can read here; into python or node it is like their -c
-        if (owner.some((p) => SHELLS.has(p))) heredocToRunner = true;
+        if (owners.some((p) => SHELLS.has(p))) heredocToRunner = true;
         out += m[0];
         i += m[0].length - 1;
         continue;
@@ -100,12 +158,14 @@ function readLine(s: string, shell: ShellKind): Reading {
       // mask each pending heredoc's body up to its terminator line
       let j = i + 1;
       while (heredocs.length) {
-        const end = heredocs.shift()!;
+        const { end, quoted } = heredocs.shift()!;
+        const bodyStart = j;
         for (;;) {
           if (j >= s.length) { i = s.length; break; }
           const nl = s.indexOf('\n', j);
           const line = s.slice(j, nl < 0 ? s.length : nl);
           const stop = line.trim() === end;
+          if (quoted && (stop || nl < 0)) literal.push([bodyStart, stop ? j : s.length]);
           out += stop ? line : '_'.repeat(line.length);
           if (nl < 0) { j = s.length; break; }
           out += stop && !heredocs.length ? '\n' : '_';
@@ -118,10 +178,70 @@ function readLine(s: string, shell: ShellKind): Reading {
     }
     out += ch;
   }
-  return { masked: out.slice(0, s.length).padEnd(s.length, '_'), open: q !== null, heredocToRunner };
+  return { masked: out.slice(0, s.length).padEnd(s.length, '_'), open: q !== null || openComment, heredocToRunner, blocks, literal };
 }
 /** The text with quoted strings (and comments and heredoc bodies) masked, for the default sh reading. */
 const maskQuotes = (s: string, shell: ShellKind = 'sh'): string => readLine(s, shell).masked;
+
+/**
+ * The text of every command substitution the shell runs: `$( )` (sh and PowerShell), backticks (sh only: in PowerShell
+ * a backtick is the escape), and sh's process substitution `<( )` / `>( )` at the start of a word outside quotes.
+ * Single-quoted text, here-strings and quoted heredoc bodies are never expanded, so nothing in them runs. cmd has none.
+ */
+function substitutions(cmd: string, shell: ShellKind): string[] {
+  if (shell === 'cmd') return [];
+  const r = readLine(cmd, shell);
+  // an escaped character is text: \$( and \` in sh, `$( in PowerShell
+  const open = blankRanges(cmd, r.literal).replace(shell === 'pwsh' ? /`[\s\S]/g : /\\[\s\S]/g, '  ');
+  const out: string[] = [];
+  // each outermost $( … ) whole, nested ones and parentheses inside quotes or a heredoc included; its inner
+  // substitutions and backticks are judged when its own text is (the caller recurses)
+  const spans: Array<[number, number]> = [];
+  const budget = { chars: 4 * cmd.length + 20_000 };
+  for (let k = open.indexOf('$('); k >= 0;) {
+    if (open[k + 2] === '(') { k = open.indexOf('$(', k + 3); continue; } // $(( … )) is arithmetic
+    const end = closingParen(cmd, k + 2, shell, budget);
+    out.push(cmd.slice(k + 2, end < 0 ? cmd.length : end));
+    spans.push([k, end < 0 ? cmd.length : end + 1]);
+    if (end < 0) break;
+    k = open.indexOf('$(', end + 1);
+  }
+  if (shell === 'sh') for (const m of blankRanges(open, spans).matchAll(/`([^`]*)`/g)) out.push(m[1]!);
+  if (shell === 'sh') {
+    for (const m of r.masked.matchAll(/(?:^|[\s;&|(])[<>]\(/g)) {
+      const inner = /^([^()]*)\)/.exec(cmd.slice(m.index! + m[0].length));
+      if (inner) out.push(inner[1]!);
+    }
+  }
+  return out;
+}
+
+/**
+ * The index of the `)` that closes a group opened just before `from`, read the way the shell reads the text inside it
+ * (quotes, comments and heredoc bodies hold no brackets). -1 when it never closes. Plain text takes a quick scan.
+ */
+function closingParen(s: string, from: number, shell: ShellKind, budget: { chars: number }): number {
+  let depth = 0;
+  for (let i = from; i < s.length; i++) {
+    const ch = s[i]!;
+    if (/['"`\\#<]/.test(ch)) {
+      // quotes, escapes, a comment or a heredoc: read the rest properly. Bounded in total: past the budget the rest of
+      // the line is taken as one substitution, which is read (and judged) as a whole by the caller
+      budget.chars -= s.length - from;
+      if (budget.chars < 0) return -1;
+      const masked = readLine(s.slice(from), shell).masked;
+      let d = 0;
+      for (let j = 0; j < masked.length; j++) {
+        if (masked[j] === '(') d++;
+        else if (masked[j] === ')') { if (d === 0) return from + j; d--; }
+      }
+      return -1;
+    }
+    if (ch === '(') depth++;
+    else if (ch === ')') { if (depth === 0) return i; depth--; }
+  }
+  return -1;
+}
 
 /** Splits at `re` where it matches OUTSIDE quotes, comments and heredocs, as the shell reads a line (`node -e "a; b"` is one command). */
 function splitOutside(s: string, re: RegExp, shell: ShellKind = 'sh'): string[] {
@@ -160,15 +280,20 @@ const program = (w: string): string => {
  */
 function clean(w: string): string {
   // PowerShell casts in front of an expression ([void](Remove-Item …)) are not the command either
-  let s = w.replace(/^(?:\[[\w.]+\])+/, '').replace(/^[(@{]+/, '').replace(/(?<=.)\d?>{1,2}.*$/, '');
+  const s = w.replace(/^(?:\[[\w.]+\])+/, '').replace(/^[(@{]+/, '').replace(/(?<=.)\d?>{1,2}.*$/, '');
+  // counted once, then kept up to date while trailing closers come off: one pass, however many closers there are
+  const count = { '(': 0, ')': 0, '{': 0, '}': 0 } as Record<string, number>;
+  for (const ch of s) if (ch in count) count[ch]!++;
+  let end = s.length;
   for (;;) {
-    const last = s.at(-1);
+    const last = s[end - 1];
+    if (last === ';') { end--; continue; }
     const open = last === ')' ? '(' : last === '}' ? '{' : undefined;
-    if (last === ';') { s = s.slice(0, -1); continue; }
-    if (!open || s.split(open).length > s.split(last!).length - 1) break;
-    s = s.slice(0, -1);
+    if (!open || count[open]! >= count[last!]!) break;
+    count[last!]!--;
+    end--;
   }
-  return s;
+  return s.slice(0, end);
 }
 
 /** A word of a stage: as written (lower case, quotes dropped) and cleaned of brackets and redirects. */
@@ -182,6 +307,8 @@ function argWords(stage: string): Arg[] {
     const t = tokens[i]!;
     if (/^\d?>{1,2}&?\d?$/.test(t)) { i++; continue; }
     if (/^\d?>/.test(t)) continue;
+    // find's -exec terminator (\; or ';') is the end of the command it runs, not a `\` drive root
+    if (/^(?:\\;|';'|";")$/.test(t) && out.some((a) => /^-(?:exec|execdir|ok|okdir)$/.test(a.w))) continue;
     const raw = t.replace(/["'^]/g, '').toLowerCase();
     if (raw) out.push({ raw, w: clean(raw) });
   }
@@ -248,6 +375,28 @@ function collapseDots(p: string): string {
 
 const WIN_VARS = 'userprofile|systemroot|windir|systemdrive|programfiles|programdata|homedrive';
 
+/** The folders Windows' own variables name, for reading a path written with one (any user name stands for the user). */
+const WIN_FOLDERS: Record<string, string> = {
+  systemdrive: 'c:', homedrive: 'c:', systemroot: 'c:/windows', windir: 'c:/windows', programfiles: 'c:/program files',
+  'programfiles(x86)': 'c:/program files (x86)', programw6432: 'c:/program files', programdata: 'c:/programdata', allusersprofile: 'c:/programdata',
+  userprofile: 'c:/users/u', localappdata: 'c:/users/u/appdata/local', appdata: 'c:/users/u/appdata/roaming', temp: 'c:/users/u/appdata/local/temp', tmp: 'c:/users/u/appdata/local/temp',
+};
+
+/**
+ * A Windows path in the plain drive form the checks read: a PowerShell provider prefix (FileSystem::) dropped, an
+ * admin share (\\host\c$\x) read as c:\x, a drive-relative root (\Windows) as c:\Windows, and a Windows variable
+ * (%SystemRoot%\System32, $env:LOCALAPPDATA\..\.., %ProgramFiles(x86)%) as the folder it names.
+ */
+function windowsPath(p: string): string {
+  let t = p.replace(/^(?:microsoft\.powershell\.core\\)?filesystem::/, '');
+  t = t.replace(/^[\\/]{2}[^\\/]+[\\/]([a-z])\$(?=[\\/]|$)/, '$1:');
+  if (/^\\(?![\\])/.test(t)) t = `c:${t}`;
+  const v = /^(?:%([\w()]+)%|\$env:([\w()]+)|\$\{env:([\w()]+)\}|\$\{?([a-z]\w*)\}?)(?=[\\/]|$)(.*)$/.exec(t);
+  const name = v && (v[1] ?? v[2] ?? v[3] ?? v[4] ?? '').toLowerCase();
+  if (v && name && WIN_FOLDERS[name] && !(v[4] && ['temp', 'tmp'].includes(name))) t = WIN_FOLDERS[name] + v[5];
+  return t;
+}
+
 /**
  * A path whose recursive deletion destroys the machine or a person's data: a drive or file-system root, a system
  * folder, a home folder (or its root), each optionally followed by a separator and a wildcard. A folder INSIDE a
@@ -257,7 +406,11 @@ export function isProtectedTarget(word: string): boolean {
   // PowerShell's -Path:C:\ form, the \\?\ and \\.\ device prefixes, and sh's escaped spaces name the same folder
   // a target names a root, a drive, a home or a variable: a plain word (most of a command) is none of these, so it is skipped at once
   if (!/[\\/~$%:*?[]/.test(word)) return false;
-  const bare = word.split(ESCAPED_SPACE).join(' ').replace(/^-(?:literal)?path:/, '').replace(/^[\\/]{2}[?.][\\/]/, '');
+  // cmd reads , and = as spaces between arguments (`rd /s /q,C:\`), and a PowerShell comma list is every path in it
+  // (`C:\,D:\`); a brace list keeps its commas for the expansion below
+  if (/[,=]/.test(word) && !/\{[^}]*,/.test(word)) return word.split(/[,=]+/).some((part) => part !== word && isProtectedTarget(part));
+  // Windows drops trailing dots from a folder name: %USERPROFILE%. is the home
+  const bare = windowsPath(word.split(ESCAPED_SPACE).join(' ').replace(/^-(?:literal)?path:/, '').replace(/^[\\/]{2}[?.][\\/]/, '').replace(/(?<=[^.\\/])\.+$/, ''));
   if (!bare) return false;
   // a brace expansion is every one of its forms: /{etc,usr} is /etc and /usr, /{,} is /
   const brace = /^([^{]*)\{([^{}]*,[^{}]*)\}(.*)$/.exec(bare);
@@ -285,6 +438,8 @@ export function isProtectedTarget(word: string): boolean {
   if (/^\/home\/[^/]+$/.test(w)) return true;
   if (/^(?:~|\$home|\$\{home(?::[-?=+][^}]*)?\})$/.test(w)) return true;
   if (/^[a-z]:(?:\*(?:\.\*)?)?$/.test(w)) return true;
+  // a wildcard in the first folder below a drive (C:\Win*, C:\??????s, C:\W*\S*32) reaches a system folder or the users
+  if (/^[a-z]:\/[^/]*[?*[]/.test(w)) return true;
   if (/^[a-z]:\/(?:windows|users|program files|program files \(x86\)|programdata|progra~\d|docume~\d)$/.test(w)) return true;
   if (/^[a-z]:\/users\/[^/]+$/.test(w)) return true;
   if (new RegExp(`^%(?:${WIN_VARS}|homedrive%%homepath)%$`).test(w)) return true;
@@ -304,6 +459,8 @@ const WRAPPERS = new Set([
   'call', 'start', 'wsl', 'eval', 'iex', 'invoke-expression',
   // ssh-agent runs the command after its options as its child; these run the command that follows them too
   'ssh-agent', 'pkexec', 'fakeroot', 'unshare', 'nsenter', 'systemd-run', 'runuser', 'setpriv', 'coproc', 'parallel', 'watch', 'firejail', 'screen',
+  // npx and its kin run the program of the package named after them (npx rimraf /)
+  'npx', 'pnpx', 'bunx',
 ]);
 const WRAPPER_OPTS_WITH_ARG = new Set(['-u', '-g', '-p', '-h', '-n', '-s', '-k', '-o', '-e', '-c', '-w', '-t', '-d', '-a', '--distribution', '--user', '--cd', '--signal', '--kill-after']);
 /** Wrappers whose first plain word is their own argument, not the command (`timeout 5 rm`, `chroot / rm`, `flock lockfile rm`). */
@@ -317,7 +474,7 @@ const SHELLS = new Set(['bash', 'sh', 'zsh', 'dash', 'ksh', 'fish', 'ash', 'csh'
 const SHELL_COMMAND_FLAGS = new Set(['-c', '/c', '/k', '-command']);
 
 /** Delete commands of sh, cmd and PowerShell (with its aliases), and the ones that overwrite before they delete. */
-const DELETE_VERBS = new Set(['rm', 'rmdir', 'rd', 'del', 'erase', 'remove-item', 'ri', 'shred', 'srm']);
+const DELETE_VERBS = new Set(['rm', 'rmdir', 'rd', 'del', 'erase', 'remove-item', 'ri', 'shred', 'srm', 'rimraf', 'trash', 'trash-put']);
 /** PowerShell's and sh's listers: `gci C:\ | Remove-Item` deletes what they list. */
 const LIST_VERBS = new Set(['get-childitem', 'gci', 'dir', 'ls']);
 const MOVE_VERBS = new Set(['mv', 'move', 'move-item', 'mi', 'ren', 'rename', 'rename-item', 'rni']);
@@ -551,7 +708,7 @@ function refuseSegment(segment: string, shell: ShellKind): string | undefined {
   // a protected path in one stage, a delete RUNNING in a later one: `find / | xargs rm`, `echo ~/* | xargs rm -rf`,
   // `'C:\' | Remove-Item -Recurse`, `gci C:\ | % { rm $_ -r }`
   for (let s = 1; s < stages.length; s++) {
-    if (stages[s]!.runsDelete() && stages.slice(0, s).some((st) => st.anyProtected())) return deleteMsg;
+    if (stages[s]!.runsDelete() && stages.slice(0, s).some((st) => st.anyProtected() && !narrowed(st.ws))) return deleteMsg;
   }
   return undefined;
 }
@@ -577,7 +734,7 @@ function refuseWindowsLoops(scan: string): string | undefined {
  * piped into a shell is read too.
  */
 export function refuseCatastrophic(raw: string, shell: ShellKind = 'sh', depth = 0): string | undefined {
-  const cmd = unglue(ansiC(joinLines(raw)));
+  const cmd = unglue(ansiC(prepare(raw, shell)));
   const say = (what: string): string => `Refused: this command looks like ${what}, which can destroy the machine or its data. It is blocked for every agent, even full access.`;
   for (const [re, what] of CATASTROPHIC) if (re.test(cmd)) return say(what);
   const hidden = hiddenPayload(cmd, shell);
@@ -629,8 +786,8 @@ export function refuseCatastrophic(raw: string, shell: ShellKind = 'sh', depth =
       if (inner) return inner;
     }
     // a command substitution runs its text as a command: `echo $(rm -rf /)`, backticks the same
-    for (const m of cmd.matchAll(/\$\(([^()]*)\)|`([^`]*)`/g)) {
-      const inner = refuseCatastrophic(m[1] ?? m[2] ?? '', shell, depth + 1);
+    for (const t of substitutions(cmd, shell)) {
+      const inner = refuseCatastrophic(t, shell, depth + 1);
       if (inner) return inner;
     }
     // one plain scan per quote; only when something on the line runs text (a shell's -c, eval, ssh, a pipe into sh)
@@ -681,6 +838,36 @@ const BUILT = 'the program it runs is only known when it runs (it is built from 
 const PIPED = 'it runs the output of another command as a script, which cannot be read before it runs';
 const VAR_DELETE = 'what it deletes is only known when it runs (the folder comes from a variable)';
 
+/**
+ * The text a variable target stands for when the command itself sets it ONCE, to a written-out value, as a statement
+ * of its own before the delete (`S="C:/tmp/x"; rm -rf "$S"`, `$d = 'out'; Remove-Item $d -Recurse`). Anything else
+ * (set twice, set from another variable or command, set only for one command as in `S=x rm -rf $S`) is not known.
+ */
+function literalTarget(w: string, cmd: string): string | undefined {
+  const m = /^(?:\$\{?|\$env:)([a-z_]\w*)\}?([\\/].*)?$/i.exec(w);
+  if (!m) return undefined;
+  const name = m[1]!;
+  const sets = [...cmd.matchAll(new RegExp(`(?:^|[;&\\n]\\s*)(?:export\\s+|set\\s+)?(?:\\$(?:env:)?)?${name}\\s*=\\s*("[^"$\`]*"|'[^']*'|[^\\s;&|$\`"'()]+)\\s*(?=[;&\\n]|$)`, 'gi'))];
+  if (sets.length !== 1 || (cmd.match(new RegExp(`\\b${name}\\s*=`, 'gi')) ?? []).length !== 1) return undefined;
+  return sets[0]![1]!.replace(/^["']|["']$/g, '').toLowerCase() + (m[2] ?? '');
+}
+/**
+ * A program word that is a variable the command sets once to a written-out program (`$c="C:\\x\\codex.exe"; & $c`), when
+ * that program is an ordinary one: never a shell, a runner, a wrapper or a delete, which would need the full reading.
+ */
+function knownProgram(w: string, cmd: string): boolean {
+  const lit = literalTarget(w, cmd);
+  if (!lit || BUILT_AT_RUN.test(lit) || /\s/.test(lit.replace(/^.*[\\/]/, ''))) return false;
+  const p = program(lit);
+  return !(DESTRUCTIVE.has(p) || SHELLS.has(p) || TEXT_RUNNERS.has(p) || WRAPPERS.has(p) || STDIN_RUNNERS.has(p) || BLOCK_RUNNERS.has(p) || PERM_VERBS.has(p) || p === 'find');
+}
+/** A delete target named by a variable, unless the command sets it to a written-out value that is not protected. */
+const unknownTarget = (w: string, cmd: string): boolean => {
+  if (!TARGET_FROM_VARIABLE.test(w)) return false;
+  const known = literalTarget(w, cmd);
+  return known === undefined || known === '' || isProtectedTarget(known);
+};
+
 /** Whether `name` is assigned in the command itself (then `$name/…` is the agent's own text, not the system's folder). */
 const assigned = (cmd: string, name: string): boolean => new RegExp(`(?:^|[\\s;&|])(?:export\\s+|set\\s+)?(?:\\$env:)?${name}\\s*=`, 'i').test(cmd);
 
@@ -700,7 +887,7 @@ export function unjudgeableCommand(cmd: string, shell: ShellKind = 'sh', depth =
   if (cmd.length > MAX_READABLE) return `it is too long to read safely (${cmd.length.toLocaleString('en-US')} characters)`;
   if (depth > 3) return 'it nests commands too deeply to read';
   // `iex(irm …)` is `iex (irm …)`
-  const text = unglue(joinLines(cmd)).replace(/\b(iex|invoke-expression)\(/gi, '$1 (');
+  const text = unglue(prepare(cmd, shell)).replace(/\b(iex|invoke-expression)\(/gi, '$1 (');
   // a quote that never closes: the shell would read the rest of the line differently from any reading here
   const reading = readLine(text, shell);
   if (reading.open) return 'its quotes do not close, so it cannot be read safely';
@@ -708,7 +895,8 @@ export function unjudgeableCommand(cmd: string, shell: ShellKind = 'sh', depth =
   // a substitution is judged on its own below; while the words are read it is one word ($S), so `$(git describe)` stays
   // whole (nested ones too); the setup printed by an init tool (`eval "$(ssh-agent -s)"`) is a plain word
   let flat = text.replace(new RegExp(INIT_TOOLS.source.slice(1, -1), 'gi'), 'init-setup');
-  for (let prev = ''; prev !== flat;) { prev = flat; flat = flat.replace(/\$\([^()]*\)|`[^`]*`/g, '$S'); }
+  const subst = shell === 'pwsh' ? /\$\([^()]*\)/g : /\$\([^()]*\)|`[^`]*`/g;
+  for (let prev = ''; prev !== flat;) { prev = flat; flat = flat.replace(subst, '$S'); }
   for (const segment of splitOutside(flat, shell === 'pwsh' ? PS_SEGMENTS : SEGMENTS, shell)) {
     const stages = splitOutside(segment, PIPE, shell);
     for (let s = 0; s < stages.length; s++) {
@@ -724,8 +912,8 @@ export function unjudgeableCommand(cmd: string, shell: ShellKind = 'sh', depth =
     if (riskyMix(segment, shell)) return RISKY;
   }
   // a substitution's own text is a command too
-  for (const m of text.matchAll(/\$\(([^()]*)\)|`([^`]*)`/g)) {
-    const inner = unjudgeableCommand(m[1] ?? m[2] ?? '', shell === 'pwsh' && m[1] !== undefined ? 'pwsh' : 'sh', depth + 1);
+  for (const t of substitutions(text, shell)) {
+    const inner = unjudgeableCommand(t, shell, depth + 1);
     if (inner) return inner;
   }
   return undefined;
@@ -738,15 +926,46 @@ const RISKY = 'it names a drive, a system folder or a home folder together with 
 /** Whether a segment has a destructive verb outside quotes and a protected target anywhere (riskyMix tier of the floor). */
 function riskyMix(segment: string, shell: ShellKind): boolean {
   const outside = words(maskQuotes(segment, shell)).map((w) => program(clean(w)));
-  const destructive = outside.some((p) => DESTRUCTIVE.has(p))
+  const recursive = outside.some((w) => /^-[a-z]*r/.test(w) || w === '--recursive' || w === '/t' || w === '/r');
+  // a permission change of the folder itself (chmod 755 ~) is ordinary; a recursive one reaches everything below it
+  const deletes = outside.some((p) => DESTRUCTIVE.has(p) && !MOVE_VERBS.has(p) && (!PERM_VERBS.has(p) || recursive))
     || (outside.includes('find') && outside.includes('-delete') && !outside.some((w) => FIND_FILTERS.has(w)))
     || (outside.includes('git') && outside.includes('clean'))
-    || /::delete\s*\(/i.test(segment);
-  if (!destructive) return false;
+    || DELETE_METHOD.test(maskQuotes(segment, shell));
+  // a delete method on an object ((Get-Item C:\Users).Delete(), gci C:\ | % { $_.Delete() }): its path sits inside the
+  // expression. Only a call outside quotes and heredocs counts (map.delete(k) in a script's text is not one)
+  if (DELETE_METHOD.test(maskQuotes(segment, shell)) && segment.toLowerCase().split(/[\s()'",;{}|]+/).some((p) => isProtectedTarget(p))) return true;
+  const moves = outside.some((p) => MOVE_VERBS.has(p));
+  if (!deletes && !moves) return false;
   // after cmd's own commands a /x word is a switch (`icacls dist /T`), not Git Bash's /t drive
   const switches = outside.some((p) => CMD_SWITCH_VERBS.has(p)) || shell === 'cmd';
-  return argWords(segment).some((a) => !(switches && CMD_SWITCH.test(a.w)) && isProtectedTarget(a.w));
+  const stages = splitOutside(segment, PIPE, shell);
+  return stages.some((stage) => {
+    const args = argWords(stage);
+    // a listing narrowed by a filter (gci ~ -Filter *.tmp, find ~ -name '*.pyc') names only the files that match
+    if (narrowed(args.map((a) => a.w))) return false;
+    // a move's destination is where things go, not what is lost: only its sources (every path but the last, or
+    // everything but -Destination's value) count when the stage only moves
+    let skip = new Set<number>();
+    if (!deletes) {
+      const at = args.findIndex((a) => MOVE_VERBS.has(program(a.w)));
+      const dest = args.findIndex((a, i) => i > at && /^-dest(?:ination)?$/.test(a.w));
+      if (dest > at) skip = new Set([dest + 1]);
+      else { const plain = args.flatMap((a, i) => (i > at && !a.w.startsWith('-') && !(switches && CMD_SWITCH.test(a.w)) ? [i] : [])); if (plain.length > 1) skip = new Set([plain.at(-1)!]); }
+    }
+    return args.some((a, i) => !skip.has(i) && !(switches && CMD_SWITCH.test(a.w)) && isProtectedTarget(a.w));
+  });
 }
+
+/** .NET and COM delete calls: [IO.Directory]::Delete(…), $x.Delete(), .DeleteFolder(…), ::DeleteDirectory(…). */
+const DELETE_METHOD = /(?:\.|::)delete(?:folder|directory|file)?\s*\(/i;
+/** Permission commands: only a recursive one is a risk to a whole folder. */
+const PERM_VERBS = new Set(['chmod', 'chown', 'chgrp', 'setfacl', 'icacls', 'takeown']);
+/** A listing narrowed to the files that match a filter: find's predicates, PowerShell's -Filter and -Include. */
+const narrowed = (ws: readonly string[]): boolean => {
+  const p = program(clean(ws[0] ?? ''));
+  return (p === 'find' || LIST_VERBS.has(p)) && ws.some((w) => FIND_FILTERS.has(w) || /^-(?:filt|filte|filter|incl|inclu|includ|include)$/.test(w));
+};
 
 /** The kind of shell a word in command position starts, for the text after its command flag. */
 const shellOf = (p: string, fallback: ShellKind): ShellKind => (p === 'powershell' || p === 'pwsh' ? 'pwsh' : p === 'cmd' ? 'cmd' : SHELLS.has(p) ? 'sh' : fallback);
@@ -760,7 +979,14 @@ function shStage(stage: string, all: string, shell: ShellKind, depth: number): s
   if (/^(?:\[\[?|\(\()/.test(ws[0]!) || ((ws[0] === 'while' || ws[0] === 'until' || ws[0] === 'if' || ws[0] === '!') && /^(?:\[\[?|\(\()/.test(ws[1] ?? ''))) return undefined;
   if (ws[0] === 'for' || ws[0] === 'select') return undefined; // its body runs after `do`, a segment of its own
   if (ws[0] === 'case') { const j = ws.findIndex((w) => /\)$/.test(w) && !w.includes('(')); if (j < 0) return undefined; ws = ws.slice(j + 1); }
-  if (/^[\w.-]+\(\)$/.test(ws[0]!) || ws[0] === 'function') return undefined;
+  // a function definition (f() { …, f(){ …, function f { …): the command after its opening brace is judged like any other
+  if (/^[\w.-]+\(\)/.test(ws[0]!) || ws[0] === 'function') {
+    ws = ws[0] === 'function' ? ws.slice(2) : [ws[0]!.replace(/^[\w.-]+\(\)/, ''), ...ws.slice(1)];
+    if (ws[0] === '()') ws = ws.slice(1);
+    if (ws[0]?.startsWith('{')) ws = [ws[0].slice(1), ...ws.slice(1)];
+    ws = ws.filter((w, i) => i > 0 || w !== '');
+    if (!ws.length) return undefined;
+  }
   // leading assignments (`VERSION=$(git describe) npm run build`), keywords and cmd's `if` conditions are not the program
   let k = 0;
   let afterIf = false;
@@ -790,9 +1016,9 @@ function shStage(stage: string, all: string, shell: ShellKind, depth: number): s
     if (!bare) continue;
     const known = fromKnownFolder(bare, all);
     const prog = known ?? program(bare);
-    if (!known && BUILT_AT_RUN.test(bare)) return BUILT;
-    if (!known && !/^[\w./\\:+~-]+$/.test(bare)) return BUILT;
-    if (DELETE_VERBS.has(prog) && ws.slice(i + 1).some(RECURSIVE) && ws.slice(i + 1).some((x) => !/^-|^\/[a-z?]$/.test(x) && TARGET_FROM_VARIABLE.test(x))) return VAR_DELETE;
+    if (!known && BUILT_AT_RUN.test(bare) && !knownProgram(bare, all)) return BUILT;
+    if (!known && !/^[\w./\\:+~@-]+$/.test(bare)) return BUILT;
+    if (DELETE_VERBS.has(prog) && ws.slice(i + 1).some(RECURSIVE) && ws.slice(i + 1).some((x) => !/^-|^\/[a-z?]$/.test(x) && unknownTarget(x, all))) return VAR_DELETE;
     // a delete target written with escapes ($'\x2f' is /) is only known once the shell decodes it
     if (DELETE_VERBS.has(prog) && /\$'[^']*\\/.test(stage)) return VAR_DELETE;
   }
@@ -826,6 +1052,7 @@ function psStage(stage: string, all: string, depth: number): string | undefined 
   if (head === '&' || head === '.') {
     const target = ws[1] ?? '';
     if (fromKnownFolder(target, all)) return undefined;
+    if (knownProgram(target, all)) return undefined;
     if (/^[$({[]/.test(target) || BUILT_AT_RUN.test(target)) return BUILT;
     return undefined;
   }
@@ -844,7 +1071,7 @@ function psStage(stage: string, all: string, depth: number): string | undefined 
   if (DELETE_VERBS.has(prog) && ws.slice(1).some(RECURSIVE)) {
     // Remove-Item -Recurse (Get-PSDrive C).Root, or $target: the folder is only known when it runs
     const targets = ws.slice(1).filter((w) => !w.startsWith('-'));
-    if (targets.some((w) => w.startsWith('(') || (TARGET_FROM_VARIABLE.test(w) && !fromKnownFolder(w, all)))) return VAR_DELETE;
+    if (targets.some((w) => w.startsWith('(') || (unknownTarget(w, all) && !fromKnownFolder(w, all)))) return VAR_DELETE;
   }
   // powershell -c "…", bash -c "…": the inner text in its own shell's rules
   for (const [n, w] of ws.entries()) if (n > 0 && /\s/.test(w) && SHELL_COMMAND_FLAGS.has(ws[n - 1]!)) {

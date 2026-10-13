@@ -4,6 +4,7 @@ Legion 0.2.6-v: the safety floor covers every shell on your computer.
 - A command whose program is only known when it runs, such as $(echo rm) -rf /c, now shows you an approval card even with full access. So does a delete whose folder comes from a variable (rm -rf "$DIR"), and running another command's output as a script (curl ... | bash). The card says why and has no Remember button.
 - Decoded or encoded commands (base64 -d | bash, PowerShell -EncodedCommand) are refused. Write the command out plainly instead.
 - More ways to wipe a drive or a home are refused: robocopy /MIR, rsync --delete, chmod -R, moving it away, and the same commands behind timeout, start, call, wsl or eval.
-- Variables in arguments, such as echo $HOME, run as before.
+- Variables in arguments, such as echo $HOME, run as before. So do multi-line python -c and node -e scripts.
+- Each shell is read by its own rules (PowerShell comments, quotes and backticks; cmd's commas), so these cannot hide a command.
 
 Installs over 0.2.5-o and later. Full detail in CHANGELOG.md.

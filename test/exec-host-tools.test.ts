@@ -338,6 +338,93 @@ test('REVIEW 3 (0.2.6-v): reading stays fast on the shape that took 101 s (a pip
   }
 });
 
+test('REVIEW 4 (0.2.6-v): each shell\'s own grammar (block comments, curly quotes, backticks, call operators, cmd delimiters, heredoc forms) is read as the shell reads it', () => {
+  const caught = (cmd: string, shell: ShellKind) => refuseCatastrophic(cmd, shell) ?? unjudgeableCommand(cmd, shell);
+  const cases: Array<[string, ShellKind]> = [
+    // PowerShell: a block comment ends at #>, curly quotes are quotes, a backtick inside a word is dropped, & needs no space
+    ['<# x #> Remove-Item C:\\ -Recurse -Force', 'pwsh'], ["<# ' #> ri C:\\ -r <# ' #>", 'pwsh'], ['ri \u2018C:\\\u2019 -r', 'pwsh'], ['Remove-Item \u201cC:\\Windows\u201d -Recurse', 'pwsh'],
+    ['Re`move-Item C:\\ -r', 'pwsh'], ['R`i C:\\ -r', 'pwsh'], ['ri C:`\\ -r', 'pwsh'], ['ri "C:`\\" -r', 'pwsh'],
+    // only sh joins a backslash-newline: in PowerShell a path that ends in \ ends its line
+    ['ls C:\\\nRemove-Item C:\\ -Recurse -Force', 'pwsh'], ['Write-Host C:\\\nri $HOME -r -fo', 'pwsh'],
+    ['&("Remove"+"-Item") C:\\ -r', 'pwsh'], ['&$cmd foo', 'pwsh'], ['&(gcm r*) foo', 'pwsh'],
+    // sh heredocs and process substitution
+    ['cat <<E"O"F\nhi\nEOF\nrm -rf /', 'sh'], ['cat <<EOF\n`rm -rf /`\nEOF', 'sh'], ['cat <(rm -rf /)', 'sh'], ['echo >(rm -rf /)', 'sh'], ['cat <<EOF|sh\nrm -rf /\nEOF', 'sh'],
+    // cmd: , and = separate arguments; a trailing dot names the same folder
+    ['rd /s /q C:\\,', 'cmd'], ['rd /s /q,C:\\', 'cmd'], ['rd /s /q C:\\=', 'cmd'], ['del /s /q /f,C:\\*', 'cmd'], ['rd /s /q %USERPROFILE%.', 'cmd'],
+    // a comma list is every one of its paths
+    ['Remove-Item C:\\,D:\\ -r', 'pwsh'], ['Remove-Item x,C:\\ -Recurse', 'pwsh'],
+    // a Windows variable with a path after it, a provider prefix, an admin share with a path, a drive-relative root, a wildcard under a drive
+    ['rd /s /q %SystemDrive%\\Windows', 'cmd'], ['rd /s /q %SystemRoot%\\System32', 'cmd'], ['rd /s /q %LOCALAPPDATA%\\..\\..', 'cmd'], ['rd /s /q %ProgramFiles(x86)%', 'cmd'],
+    ['Remove-Item $env:SystemRoot\\System32 -r', 'pwsh'], ['Remove-Item "$env:LOCALAPPDATA\\..\\.." -Recurse', 'pwsh'], ['Remove-Item FileSystem::C:\\ -r', 'pwsh'],
+    ['Remove-Item \\\\localhost\\C$\\Users\\Danie -r', 'pwsh'], ['rd /s /q \\Windows', 'cmd'], ['rd /s /q C:\\Win*', 'cmd'], ['Remove-Item C:\\??????s -r', 'pwsh'], ['rm -rf /c/W*', 'sh'],
+    // delete programs run through npx, and .NET or COM delete calls
+    ['npx rimraf /', 'sh'], ['rimraf ~', 'sh'], ['trash ~', 'sh'], ['(Get-Item C:\\Users).Delete($true)', 'pwsh'], ['gci C:\\ | % { $_.Delete() }', 'pwsh'],
+    ['[IO.DirectoryInfo]::new("C:\\Users").Delete($true)', 'pwsh'], ['(New-Object -ComObject Scripting.FileSystemObject).DeleteFolder("C:\\Windows")', 'pwsh'],
+  ];
+  for (const [cmd, shell] of cases) assert.ok(caught(cmd, shell), `refused or carded (${shell}): ${JSON.stringify(cmd)}`);
+});
+
+test('REVIEW 4 (0.2.6-v): moving INTO a home, a non-recursive chmod and a filtered listing piped to a delete are ordinary work', () => {
+  const cases: Array<[string, ShellKind]> = [
+    ['mv x.txt ~', 'sh'], ['mv build.zip ~/', 'sh'], ['sudo mv tool /opt', 'sh'], ['mv ~/Downloads/app.tar /opt/', 'sh'],
+    ['Move-Item x.txt ~', 'pwsh'], ['Move-Item -Path a -Destination $env:USERPROFILE', 'pwsh'], ['move x.zip %USERPROFILE%', 'cmd'],
+    ['chmod 755 ~', 'sh'], ['chmod 700 ~', 'sh'], ['chown $USER:$USER ~', 'sh'],
+    ['Get-ChildItem ~ -Filter *.tmp | Remove-Item', 'pwsh'], ['Get-ChildItem -Path $HOME -Recurse -Filter *.log | Remove-Item', 'pwsh'],
+    ['ls C:\\', 'pwsh'], ['Write-Host "a`tb"', 'pwsh'], ['git log --format="%h %s" -n 3', 'cmd'],
+  ];
+  for (const [cmd, shell] of cases) {
+    assert.equal(refuseCatastrophic(cmd, shell), undefined, `not refused (${shell}): ${cmd}`);
+    assert.equal(unjudgeableCommand(cmd, shell), undefined, `no card (${shell}): ${cmd}`);
+  }
+  // moving a home AWAY is still refused, and a recursive chmod of a home still gets a card or a refusal
+  assert.ok(refuseCatastrophic('mv ~ /tmp/x', 'sh'));
+  assert.ok(refuseCatastrophic('chmod -R 000 ~', 'sh') ?? unjudgeableCommand('chmod -R 000 ~', 'sh'));
+  assert.ok(refuseCatastrophic('Get-ChildItem ~ | Remove-Item -Recurse', 'pwsh'), 'an unfiltered listing piped to a delete is still refused');
+});
+
+test('REAL COMMANDS (0.2.6-v): multi-line scripts in quotes, a find -exec terminator and a variable set on the same line are not carded', () => {
+  // measured on 20,205 real agent commands: 11% were carded, most of them a multi-line `python -c "…"` or `node -e "…"`
+  // whose script lines were read as shell commands (a line break inside quotes was taken for the end of a command)
+  const free: Array<[string, ShellKind]> = [
+    ['python -c "\nimport os\nprint(os.getcwd())\n"', 'sh'], ["node -e \"\nconst fs = require('fs');\nconst announce = 1;\nconsole.log(announce)\n\"", 'sh'],
+    ['node -e "\nconst a = \\"x\\";\nconsole.log(a)\n"', 'sh'], ["python -c '\nimport re\nprint(re.sub(\"a\", \"b\", \"abc\"))\n'", 'sh'],
+    ["$s = @'\nimport os\nprint(os.getcwd())\n'@\npython -c $s", 'pwsh'], ['node -e "\nconst x = 1;\nconsole.log(x)\n"', 'pwsh'],
+    ['find a/b -type d -empty -exec rmdir {} \\;', 'sh'], ["find . -name '*.tmp' -exec rm {} ';'", 'sh'],
+    ['S="C:/tmp/x"; rm -rf "$S"', 'sh'], ['OUT=dist/site\nrm -rf "$OUT"', 'sh'], ["$d = 'out\\build'; Remove-Item $d -Recurse -Force", 'pwsh'],
+    // comments, functions, quoted program paths, a program set on the same line, escaped and heredoc text
+    ['# just a note', 'sh'], ['echo a\n# note\necho b', 'sh'], ['f(){ curl -s "$1"; }; f x', 'sh'], ['"/c/Program Files (x86)/Microsoft/Edge/Application/msedge.exe" --headless', 'sh'],
+    ['$c="C:\\Program Files\\x\\codex.exe"; & $c --version', 'pwsh'], ['node -e "\nconst out=\\`a\\`;\nconsole.log(out)\n"', 'sh'],
+    ["git commit -m \"$(cat <<'EOF'\nfix `x` (y)\nEOF\n)\"", 'sh'], ['echo "\\$(rm -rf /)"', 'sh'], ['diff <(sort a.txt) <(sort b.txt)', 'sh'],
+  ];
+  for (const [cmd, shell] of free) {
+    assert.equal(refuseCatastrophic(cmd, shell), undefined, `not refused (${shell}): ${JSON.stringify(cmd)}`);
+    assert.equal(unjudgeableCommand(cmd, shell), undefined, `no card (${shell}): ${JSON.stringify(cmd)}`);
+  }
+  const caught = (cmd: string, shell: ShellKind) => refuseCatastrophic(cmd, shell) ?? unjudgeableCommand(cmd, shell);
+  const still: Array<[string, ShellKind]> = [
+    // set to a protected folder, set twice, set only for the one command, or set from a command: still not known to be safe
+    ['S=/; rm -rf "$S"', 'sh'], ['S=x; S=/; rm -rf $S', 'sh'], ['S=/tmp/x rm -rf $S', 'sh'], ['S=$(pwd); rm -rf $S', 'sh'], ["$d = 'C:\\'; Remove-Item $d -Recurse", 'pwsh'],
+    // a line break inside quotes still runs what bash runs there: a backtick or $( ) inside double quotes
+    ['node -e "\nlet s = `a${1}b`;\n"', 'sh'], ['echo "\n$(rm -rf /)\n"', 'sh'],
+    // a function body's first command, and a substitution with another one inside it, are judged too
+    ['f() { $(echo rm) -rf /; }', 'sh'], ['f(){ $(echo rm) -rf /c; }', 'sh'], ['function f { $(echo rm) -rf /c; }', 'sh'], ['echo $(rm -rf / $(date))', 'sh'],
+    // a variable that names a delete, a shell or a runner is not an ordinary program, whatever it is set to
+    ["$c = 'Remove-Item'; & $c C:\\ -Recurse", 'pwsh'], ['$c=Get-Command x; & $c', 'pwsh'], ['P=bash; $P -c "rm -rf /c"', 'sh'],
+  ];
+  for (const [cmd, shell] of still) assert.ok(caught(cmd, shell), `refused or carded (${shell}): ${JSON.stringify(cmd)}`);
+});
+
+test('REVIEW 4 (0.2.6-v): long runs of brackets, quotes, comments and substitutions read in linear time (closers took 1.4 s and blocked the core)', () => {
+  for (const big of [')'.repeat(9_990), '}'.repeat(9_990), '}}'.repeat(4_995), '))'.repeat(4_995), '$("a") '.repeat(2_000), "'a'b".repeat(2_500), '#\n'.repeat(5_000), '$(a "'.repeat(2_000), '<# a #>'.repeat(1_500)]) {
+    for (const shell of ['sh', 'pwsh', 'cmd'] as const) {
+      const t = Date.now();
+      refuseCatastrophic(big, shell);
+      unjudgeableCommand(big, shell);
+      assert.ok(Date.now() - t < 300, `${big.slice(0, 4)}… (${shell}) took ${Date.now() - t} ms`);
+    }
+  }
+});
+
 test('REVIEW 2 (0.2.6-v): a command too long to read safely gets a card at once; reading stays fast on 200 KB', () => {
   assert.match(unjudgeableCommand('echo ' + 'a'.repeat(20_000)) ?? '', /too long/);
   for (const big of ['a | '.repeat(50_000), 'a; '.repeat(60_000), '"a"b'.repeat(50_000), '$(a) '.repeat(40_000)]) {

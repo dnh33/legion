@@ -20,7 +20,13 @@ All notable changes are recorded here. The format follows [Keep a Changelog](htt
 - **Hidden commands are refused.** Text that is decoded and then run as a command (`base64 -d | bash`) and PowerShell's
   `-EncodedCommand` cannot be read before they run, so Legion refuses them. Write the command out plainly instead.
 - **A delete whose folder comes from a variable asks first.** `rm -rf "$DIR"` deletes a root when the variable is empty,
-  so Legion shows you the card. `rm -rf "$DIR/build"` runs as before.
+  so Legion shows you the card. `rm -rf "$DIR/build"` runs as before, and so does `DIR=dist/site; rm -rf "$DIR"`: when
+  the same command sets the variable once to a folder that is written out, Legion reads it as that folder.
+- **Each shell is read by its own rules.** PowerShell's block comments, curly quotes and a backtick inside a word, and
+  cmd's commas between arguments, are read the way that shell reads them, so they cannot hide a command. A line break
+  inside quotes no longer splits a command, so a multi-line `python -c "..."` or `node -e "..."` script runs without a
+  card. Text in single quotes or in a quoted heredoc is never run by the shell, so Legion does not judge it as a
+  command either.
 - **More ways to wipe a drive or a home are refused:** mirroring an empty folder over it (`robocopy /MIR`,
   `rsync --delete`), taking away its permissions (`chmod -R`, `icacls /T`), moving it away, wiping a disk device, and
   the same commands hidden behind `timeout`, `start`, `call`, `wsl`, `eval`, quotes inside a word or a line break.
