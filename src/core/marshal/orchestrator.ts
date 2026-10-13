@@ -48,7 +48,7 @@ export interface MarshalPorts {
   runState(taskId: string): RunState;
   cancelRun(taskId: string): boolean;
   /** A bot already working outside the Marshal (a run the owner or another bot started) is busy too. Optional: absent, only the Marshal's own runs count. */
-  botBusy?(id: string): boolean;
+  botBusy?(id: string): boolean | string;
 }
 
 export interface DispatchedItem {
@@ -128,12 +128,14 @@ export class Marshal {
     this.persist(itemId);
   }
 
-  private context(): { catalog: BotCatalogEntry[]; visible(id: string): boolean; busy(id: string): boolean; depsOf(id: string): readonly string[]; isDone(id: string): boolean } {
+  private context(): { catalog: BotCatalogEntry[]; visible(id: string): boolean; busy(id: string): boolean; busyWhy(id: string): string | undefined; depsOf(id: string): readonly string[]; isDone(id: string): boolean } {
     const { board, project } = { board: this.ports.board, project: this.project };
     return {
       catalog: catalogOfAll(this.ports.agents(), (a) => this.ports.visible(a.id)),
       visible: (id: string) => this.ports.visible(id),
-      busy: (id: string) => [...this.live.values()].some((l) => l.botId === id) || this.ports.botBusy?.(id) === true,
+      // a string from the port is a busy bot with the place it works named (C3); any project counts: the Marshal never double-books a bot
+      busy: (id: string) => [...this.live.values()].some((l) => l.botId === id) || !!this.ports.botBusy?.(id),
+      busyWhy: (id: string) => { if ([...this.live.values()].some((l) => l.botId === id)) return undefined; const b = this.ports.botBusy?.(id); return typeof b === 'string' ? b : undefined; },
       depsOf: (id: string) => (board.sidecar(project.id, id)?.deps as string[] | undefined) ?? [],
       isDone: (id: string) => board.get(project.id, id)?.status === 'done',
     };
@@ -163,7 +165,7 @@ export class Marshal {
         // capacity before matching: if everyone who could take it is merely busy, that is this wave's shape
         // (come back next pass), not a no-fit. Nobody able to take it ever is a no-fit the owner must see.
         const reuse = (id: string) => this.ledger.mayDispatch(item.id, id);
-        const prelim = eligible(ctx.catalog, { members: this.project.members, visible: ctx.visible, busy: ctx.busy, reuse });
+        const prelim = eligible(ctx.catalog, { members: this.project.members, visible: ctx.visible, busy: ctx.busy, busyWhy: ctx.busyWhy, reuse });
         if (!prelim.candidates.length) {
           const capacity = eligible(ctx.catalog, { members: this.project.members, visible: ctx.visible, busy: () => false, reuse }).candidates.length > 0;
           if (capacity) continue;
@@ -171,7 +173,7 @@ export class Marshal {
           continue;
         }
         record = await assignItem(
-          { item, catalog: ctx.catalog, members: this.project.members, visible: ctx.visible, busy: ctx.busy, reuse },
+          { item, catalog: ctx.catalog, members: this.project.members, visible: ctx.visible, busy: ctx.busy, busyWhy: ctx.busyWhy, reuse },
           this.ports.matcher,
         );
       }

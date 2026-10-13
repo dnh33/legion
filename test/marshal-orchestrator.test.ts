@@ -229,3 +229,13 @@ test('a bot already working on a hand-started run counts as busy: the Marshal do
   assert.equal(report.dispatched.length, 1);
   assert.notEqual(report.dispatched[0]!.botId, 'builder', 'the Builder is busy with the owner, so the item goes to the next bot');
 });
+
+test('C3 a bot busy on a run outside the Marshal still counts as busy (any project), and the reason names where', async () => {
+  const r = rig(prefer('builder'));
+  r.board.create(P, { title: 'Write the parser', priority: 'high' });
+  const ports = { ...r.ports, botBusy: (id: string) => (id === 'builder' ? 'busy in Shop: Fix the header' : false) };
+  const m = new Marshal(ports, P, {});
+  m.writeDoneWhen(r.board.view(P).items[0]!.id, ['it parses']);
+  const report = await m.step(T0);
+  assert.notEqual(report.dispatched[0]?.botId, 'builder');
+});

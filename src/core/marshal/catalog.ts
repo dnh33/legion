@@ -125,6 +125,8 @@ export interface CandidateCtx {
   visible(id: string): boolean;
   /** Whether the bot already owns a live dispatch (one owner at a time). */
   busy(id: string): boolean;
+  /** Where a busy bot is working, in the owner's words ("busy in Shop: Fix the header"); absent: the generic line. */
+  busyWhy?(id: string): string | undefined;
   /** The attempt ledger's answer: whether this item may go (back) to this bot at all. */
   reuse(id: string): { ok: true } | { ok: false; why: string };
 }
@@ -139,7 +141,7 @@ export function eligible(catalog: readonly BotCatalogEntry[], ctx: CandidateCtx)
   for (const b of catalog) {
     if (!ctx.members.includes(b.id)) { excluded.push({ id: b.id, why: 'not a member of this project' }); continue; }
     if (!ctx.visible(b.id)) { excluded.push({ id: b.id, why: 'switched off (its feature is off)' }); continue; }
-    if (ctx.busy(b.id)) { excluded.push({ id: b.id, why: 'already working on another item', transient: true }); continue; }
+    if (ctx.busy(b.id)) { excluded.push({ id: b.id, why: ctx.busyWhy?.(b.id) ?? 'already working on another item', transient: true }); continue; }
     const reuse = ctx.reuse(b.id);
     if (!reuse.ok) { excluded.push({ id: b.id, why: reuse.why }); continue; }
     candidates.push(b);

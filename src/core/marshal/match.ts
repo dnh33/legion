@@ -54,6 +54,7 @@ export interface CandidateSetup {
   members: readonly string[];
   visible(id: string): boolean;
   busy(id: string): boolean;
+  busyWhy?(id: string): string | undefined;
   reuse(id: string): { ok: true } | { ok: false; why: string };
 }
 
@@ -70,7 +71,7 @@ const base = (outcome: MatchOutcome, reason: string, extra: Partial<AssignmentRe
 export async function assignItem(s: CandidateSetup, matcher: ProseMatcher): Promise<AssignmentResult> {
   if (s.item.trust !== 'human') return { ...base('blocked', UNTRUSTED), excluded: [] };
   const verbs = irreversibleVerbsIn(`${s.item.title}\n${s.item.description}`);
-  const { candidates, excluded } = eligible(s.catalog, { members: s.members, visible: s.visible, busy: s.busy, reuse: s.reuse });
+  const { candidates, excluded } = eligible(s.catalog, { members: s.members, visible: s.visible, busy: s.busy, ...(s.busyWhy ? { busyWhy: s.busyWhy } : {}), reuse: s.reuse });
   if (!candidates.length) {
     const why = excluded.map((e) => `${e.id} (${e.why})`).join('; ') || 'this project has no agents';
     return { ...base('no-fit', `No eligible bot for this item: ${why}`), excluded };
