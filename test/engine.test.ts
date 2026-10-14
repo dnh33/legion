@@ -1162,7 +1162,7 @@ test('mcpServers: config filtered per agent; legion vm server only when vm enabl
   await some.engine.waitFor(some.engine.startTask({ agentId: 'a1', prompt: 'x', source: 'ui' }).id, 3000);
   assert.deepEqual(Object.keys(some.calls[0]!.options.mcpServers).sort(), ['legion', 'two']);
   assert.deepEqual(Object.keys((some.calls[0]!.options.mcpServers.legion.instance as any)._registeredTools).sort(), ['agents', 'ask', 'ask_user_question', 'task_result', 'tell']);
-  assert.deepEqual(some.calls[0]!.options.disallowedTools, ['SendMessage', 'ListAgents', 'TaskCreate', 'TaskUpdate', 'TaskList', 'TaskGet', 'TodoWrite']); // task list off by default for a non-lead agent
+  assert.deepEqual(some.calls[0]!.options.disallowedTools, ['SendMessage', 'ListAgents', 'AskUserQuestion', 'TaskCreate', 'TaskUpdate', 'TaskList', 'TaskGet', 'TodoWrite']); // task list off by default for a non-lead agent
   assert.deepEqual(Object.keys((all.calls[0]!.options.mcpServers.legion.instance as any)._registeredTools).sort(), ['agents', 'ask', 'ask_user_question', 'task_result', 'tell', 'vm_claude', 'vm_desktop', 'vm_exec', 'vm_read_file', 'vm_start', 'vm_stop', 'vm_usage', 'vm_write_file']);
 });
 
@@ -1235,7 +1235,7 @@ test('modules: disallowedTools are added in every permission mode; a throwing mo
   await s.engine.waitFor(t.id, 3000);
   const o = s.calls[0]!.options;
   assert.equal(o.permissionMode, 'bypassPermissions');
-  assert.deepEqual(o.disallowedTools, ['SendMessage', 'ListAgents', 'TaskCreate', 'TaskUpdate', 'TaskList', 'TaskGet', 'TodoWrite', 'mcp__blender']);
+  assert.deepEqual(o.disallowedTools, ['SendMessage', 'ListAgents', 'AskUserQuestion', 'TaskCreate', 'TaskUpdate', 'TaskList', 'TaskGet', 'TodoWrite', 'mcp__blender']);
 });
 
 test('bot-origin task: a full-approval agent is never run in bypass mode when the sender is stricter', async () => {
