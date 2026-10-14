@@ -152,7 +152,7 @@ test('B1 waitingElsewhere: what waits on the owner but is hidden by the project 
   assert.deepEqual(rows.map((r) => r.taskId), ['t_q', 't_none', 't_gone'], 'the P approval shows on its own rail row; the rest, oldest first');
   assert.equal(rows[0]!.label, 'Scout needs your OK in Shop: Price list for the summer sale in all t…');
   assert.equal(rows[0]!.projectId, Q.id);
-  assert.equal(rows[1]!.label, 'Builder asks you something in no project: Loose task');
+  assert.equal(rows[1]!.label, 'Builder asks you something outside projects: Loose task');
   assert.equal(rows[1]!.projectId, null);
   assert.equal(rows[2]!.label, 'Scout needs your OK in another task');
   assert.deepEqual(waitingElsewhere(approvals, questions, tasks, [P, Q], names, null), [], 'All shows everything already');
@@ -168,7 +168,8 @@ test('B1 the rail shows a "Needs you in other projects" block built from waiting
   assert.match(rail, /waitingElsewhere\(approvals, questions, tasks, projects, names, filter\)/);
   assert.match(rail, /data-testid="rail-waiting"/);
   assert.match(rail, /Needs you in other projects/);
-  assert.match(rail, /setProjectFilter\(row\.projectId\)/);
+  // the project switch lives in selectTask (one function for every way to open a task), not in the row
+  assert.doesNotMatch(rail, /setProjectFilter/);
   assert.match(rail, /selectTask\(row\.taskId\)/);
   assert.match(rail, /aria-live="polite"/);
 });
@@ -187,7 +188,7 @@ test('B2 liveElsewhere and alsoWorkingLabel: the agent\'s live runs outside the 
   assert.deepEqual(liveElsewhere('builder', tasks, { filter: null, taskId: 'p1' }).map((x: any) => x.id), ['q1', 'n1']);
   assert.equal(alsoWorkingLabel([], [P, Q]), undefined);
   assert.equal(alsoWorkingLabel([tasks[0]], [P, Q]), 'Also working in Shop: Task q1');
-  assert.equal(alsoWorkingLabel([tasks[2]], [P, Q]), 'Also working in no project: Task n1');
+  assert.equal(alsoWorkingLabel([tasks[2]], [P, Q]), 'Also working outside projects: Task n1');
   assert.equal(alsoWorkingLabel([tasks[0], tasks[2], tasks[1]], [P, Q]), 'Also working in Shop: Task q1 (+2 more)');
 });
 

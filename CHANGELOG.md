@@ -16,6 +16,8 @@ All notable changes are recorded here. The format follows [Keep a Changelog](htt
 ### Changed
 
 - **The agent list is lighter.** A bust at rest is now a small picture, and it comes alive only when you point at it or tab to it. With 13 agents in the list, opening a panel and scrolling no longer stutter. A bust that needs you shows a steady amber ring.
+
+- **An agent's task tabs follow the project you chose.** Under a project, an agent's tabs are only that project's tasks. Opening a task from another project (from "Needs you in other projects", History, a link in a message) switches the project first, so the task you open is always in the project you see. A quiet line at the end of the tabs, like "+2 running in Atlas", tells you when the agent is busy in another project, and opens that task when you click it.
 - **Messages say "your computer".** Dialogs, warnings and status lines that said "this computer" or "this machine" now
   say "your computer".
 

@@ -1,6 +1,5 @@
 import { useMemo } from 'react';
 import { openEditor, selectAgent, selectTask, setView, useStore } from '../store';
-import { setProjectFilter } from '../projects/projectsStore';
 import { Icon } from './icons';
 import { vmTone, vmLabel } from '../util';
 import { Bust } from '../mascot/Bust';
@@ -37,7 +36,7 @@ export function AgentRail() {
           <div className="rail-head"><span>Needs you in other projects ({waiting.length})</span></div>
           {waiting.map((row) => (
             <button key={row.id} type="button" className="rail-wait-row" title={row.label}
-              onClick={() => { setProjectFilter(row.projectId); selectAgent(row.agentId); setView('chat'); selectTask(row.taskId); }}>
+              onClick={() => { setView('chat'); selectTask(row.taskId); }}>
               <Icon name={row.kind === 'approval' ? 'shield' : 'help'} size={12} /><span>{row.label}</span>
             </button>
           ))}

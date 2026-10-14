@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { modelLabel } from '../models';
 import { useProviders } from '../providers/providersStore';
-import { inProject, taskProjectChip } from '../projects/projectsLogic';
+import { taskProjectChip } from '../projects/projectsLogic';
+import { otherProjectsHint, tabTasks } from '../chat/taskTabs';
 import { archiveTask, newTask, openTaskMenu, renameTask, selectTask, startRename, stopRename, useStore } from '../store';
 import { Icon } from './icons';
 import { HistoryList } from '../history/HistoryList';
@@ -30,9 +31,23 @@ export function TaskSwitcher() {
   const renaming = useStore((s) => (s.renaming?.src === 'tab' ? s.renaming.id : null));
   const MAX = 12;
   // stable order: newest-created first, so tabs never jump when a task finishes
-  const all = useMemo(() => tasks.filter((t) => t.agentId === agentId && (!t.archived || t.id === sel) && (inProject(t, filter) || t.id === sel)).sort((a, b) => b.createdAt.localeCompare(a.createdAt) || a.id.localeCompare(b.id)), [tasks, agentId, sel, filter]);
+  // strictly the project in view: opening a task of another project switches the dropdown (selectTask), so the open task is always a tab
+  const all = useMemo(() => tabTasks(tasks, agentId, sel, filter), [tasks, agentId, sel, filter]);
+  const approvals = useStore((s) => s.approvals);
+  const questions = useStore((s) => s.questions);
+  const hint = useMemo(() => otherProjectsHint(tasks, agentId, filter, projects, [...approvals, ...questions]), [tasks, agentId, filter, projects, approvals, questions]);
+  const [hintOpen, setHintOpen] = useState(false);
   const mine = useMemo(() => { const head = all.slice(0, MAX); if (sel && !head.some((t) => t.id === sel)) { const s = all.find((t) => t.id === sel); if (s) head[MAX - 1] = s; } return head; }, [all, sel]);
   const [more, setMore] = useState(false);
+  useEffect(() => {
+    if (!hintOpen) return;
+    const close = (e: MouseEvent) => { if (!(e.target as HTMLElement).closest('.tab-hint-wrap')) setHintOpen(false); };
+    const esc = (e: KeyboardEvent) => { if (e.key === 'Escape') setHintOpen(false); };
+    document.addEventListener('mousedown', close); document.addEventListener('keydown', esc);
+    return () => { document.removeEventListener('mousedown', close); document.removeEventListener('keydown', esc); };
+  }, [hintOpen]);
+  useEffect(() => { if (!hint) setHintOpen(false); }, [hint]);
+  const openHinted = (id: string) => { setHintOpen(false); selectTask(id); };
   useEffect(() => {
     if (!more) return;
     const close = (e: MouseEvent) => { if (!(e.target as HTMLElement).closest('.tab-more')) setMore(false); };
@@ -68,6 +83,23 @@ export function TaskSwitcher() {
           );
         })}
       </div>
+      {hint && (
+        <div className="tab-hint-wrap">
+          <button type="button" className={`tab-hint${hint.tone === 'amber' ? ' needs' : ''}`} aria-label={`${hint.text}. ${hint.tasks.length === 1 ? 'Open it' : 'Show them'}`}
+            aria-haspopup={hint.tasks.length > 1 ? 'menu' : undefined} aria-expanded={hint.tasks.length > 1 ? hintOpen : undefined}
+            onClick={() => (hint.tasks.length === 1 ? openHinted(hint.tasks[0]!.id) : setHintOpen((v) => !v))}>{hint.text}</button>
+          {hintOpen && hint.tasks.length > 1 && (
+            <div className="more-pop hint-pop" role="menu" aria-label="Tasks running in other projects">
+              {hint.tasks.map((t) => {
+                const full = tasks.find((x) => x.id === t.id)!;
+                const where = taskProjectChip(projects, t.projectId, filter) ?? 'No project';
+                return <button key={t.id} type="button" role="menuitem" className="more-item" autoFocus={t === hint.tasks[0]} onClick={() => openHinted(t.id)}>
+                  <i className={`st st-${statusDot(full)}`} /><span>{cleanTitle(full.title)}</span><em className="from-chip project-chip">{where}</em></button>;
+              })}
+            </div>
+          )}
+        </div>
+      )}
       <div className="tab-more">
         <button type="button" className="tab more-btn" onClick={() => setMore((v) => !v)} aria-expanded={more} aria-haspopup="menu" title="Search and browse every task of this agent">History</button>
         {more && <HistoryList agentId={agentId} onClose={() => setMore(false)} />}
