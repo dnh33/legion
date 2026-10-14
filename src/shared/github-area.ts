@@ -1,7 +1,7 @@
 /** The GitHub area's shared contract (UI and core import it; written first so the units can build in parallel). Design 6.5. */
 import type { AgentProfile } from './types.js';
 
-export type GithubApp = 'read' | 'write' | 'create';
+export type GithubApp = 'read' | 'write';
 export interface GithubRepoRow { fullName: string; private: boolean; installedRead: boolean; installedWrite: boolean; ticked: boolean; htmlUrl: string; installationSettingsUrl: string }
 export interface GithubAreaView {
   registered: Record<GithubApp, boolean>; signedIn: Record<GithubApp, boolean>; login?: string;
