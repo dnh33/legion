@@ -544,7 +544,12 @@ export async function compactNow(taskId: string, focus?: string): Promise<{ ok: 
 }
 
 /** The window's own bookkeeping when a card is answered: the card leaves, a denial is noted, the mascot reacts. The project page calls it after its own send succeeded. */
+const decisionTaps = new Set<(allow: boolean) => void>();
+/** Plain subscription to the owner's own Allow or Deny (the sounds listen here). */
+export function tapDecisions(fn: (allow: boolean) => void): () => void { decisionTaps.add(fn); return () => { decisionTaps.delete(fn); }; }
+
 export function settleApproval(id: string, allow: boolean) {
+  decisionTaps.forEach((t) => { try { t(allow); } catch { /* a tap never breaks the store */ } });
   setState((s) => {
     const card = s.approvals.find((a) => a.id === id);
     return { approvals: s.approvals.filter((a) => a.id !== id), denials: noteDenial(s.denials, card, allow), mascot: moodAfterDecision(s.mascot, card, allow, Date.now()) };
