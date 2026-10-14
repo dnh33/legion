@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   askTarget, clearAskRequest, clearInboxRequest, getAskRequest, getInboxRequest, inboxFocusPlan, latestChat, noteTaskSelected, noteViewSet,
-  BOARD_WAIT_MS, canTakeFocus, failBoardLoad, markBoardSettled, pickAskCard, proposalFocusPlan, proposalsForThread, REQUEST_TTL_MS, requestAsk, requestInbox,
+  BOARD_WAIT_MS, canTakeFocus, failBoardLoad, markBoardSettled, navigationCount, noteNavigation, withoutNavigation, pickAskCard, proposalFocusPlan, proposalsForThread, REQUEST_TTL_MS, requestAsk, requestInbox,
 } from '../ui/src/projects/railRoute.js';
 
 const T = (id: string, agentId: string, projectId: string | undefined, updatedAt: string, archived = false) => ({ id, agentId, projectId, updatedAt, archived });
@@ -160,11 +160,42 @@ test('markBoardSettled only touches the request it was started for', () => {
 test('failBoardLoad clears the request it was started for and says so; a newer request is left alone', () => {
   clearAskRequest(); clearInboxRequest();
   requestAsk('t1', 'wi1', 3000, 'p2');
-  assert.equal(failBoardLoad(2999), false);
+  assert.equal(failBoardLoad(2999, 3500), false);
   assert.ok(getAskRequest(3001));
-  assert.equal(failBoardLoad(3000), true);
+  assert.equal(failBoardLoad(3000, 3500), true);
   assert.equal(getAskRequest(3001), null);
   requestInbox('p1', 'wi1', 4000);
-  assert.equal(failBoardLoad(4000), true);
+  assert.equal(failBoardLoad(4000, 4500), true);
   assert.equal(getInboxRequest(4001), null);
+});
+
+test('round 4: a late load cannot revive an expired request (no settle, no late toast)', () => {
+  requestAsk('t1', 'a1', 1000, 'p1');
+  const late = 1000 + BOARD_WAIT_MS + 1;
+  markBoardSettled(1000, late);
+  assert.equal(getAskRequest(late), null, 'still expired after a late settle');
+  requestAsk('t1', 'a1', 1000, 'p1');
+  assert.equal(failBoardLoad(1000, late), false, 'an expired request is not announced as failed');
+  requestInbox('p1', 'wi1', 1000);
+  markBoardSettled(1000, late);
+  assert.equal(getInboxRequest(late), null);
+  clearAskRequest(); clearInboxRequest();
+});
+test('round 4: a settle inside the wait window still works', () => {
+  requestAsk('t1', 'a1', 1000, 'p1');
+  markBoardSettled(1000, 1000 + BOARD_WAIT_MS);
+  assert.ok(getAskRequest(1000 + BOARD_WAIT_MS + 100));
+  assert.equal(failBoardLoad(1000, 1000 + BOARD_WAIT_MS), true);
+  clearAskRequest();
+});
+
+test('round 4: navigation counter counts manual moves, not the routing\'s own or the system\'s', () => {
+  const before = navigationCount();
+  noteNavigation();
+  assert.equal(navigationCount(), before + 1);
+  withoutNavigation(() => { noteNavigation(); noteNavigation(); });
+  assert.equal(navigationCount(), before + 1);
+  assert.throws(() => withoutNavigation(() => { throw new Error('x'); }));
+  noteNavigation();
+  assert.equal(navigationCount(), before + 2, 'the guard is released even when the callback throws');
 });

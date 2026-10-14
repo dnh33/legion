@@ -5,13 +5,13 @@ import { getState, selectAgent, selectTask, setState, setView, subscribeStore, t
 import { initAway } from './awayStore';
 import { enterProject, setTab } from './page/pageState';
 import { dropStaleReads } from './page/readsGrant';
-import { ASK_QUEUE_MS, queuedAskStep, resolveAsk } from './openAsk';
-import { askTarget, failBoardLoad, markBoardSettled, requestAsk, requestInbox } from './railRoute';
+import { ASK_QUEUE_MS, fallsToOldest, queuedAskStep, resolveAsk } from './openAsk';
+import { askTarget, failBoardLoad, markBoardSettled, navigationCount, requestAsk, requestInbox, withoutNavigation } from './railRoute';
 import type { RailTarget, RouteRow } from './railRoute';
 import type { AskRef } from './openAsk';
 import { agentsFor, archiveQuestion, boardItemsAssigned, FILTER_KEY, resolveFilter, unarchiveQuestion } from './projectsLogic';
 import { closeSheet } from './page/sheetState';
-import { currentProposals, refreshBoard } from './board/boardStore';
+import { currentProposals, ensureBoards, missingBoards, refreshBoard } from './board/boardStore';
 
 const errText = (e: unknown): string => (e instanceof ApiError || e instanceof Error ? e.message : String(e));
 function persist(id: string | null) { try { if (id) localStorage.setItem(FILTER_KEY, id); else localStorage.removeItem(FILTER_KEY); } catch { /* ignore */ } }
@@ -53,24 +53,39 @@ export function openProjectBoard(id: string): void {
 }
 /** The window can route an ask once its tasks, agents and projects have loaded (a failed load counts: nothing more is coming). */
 const askReady = (): boolean => getState().loaded && projectsSettled;
-let queued: { ref: AskRef; at: number } | null = null;
+let queued: { ref: AskRef; at: number; nav: number } | null = null;
 let queueTimer: ReturnType<typeof setTimeout> | undefined;
 let queueUnsub: (() => void) | undefined;
 function stopQueue(): void { queued = null; clearTimeout(queueTimer); queueUnsub?.(); queueUnsub = undefined; }
 function pumpQueuedAsk(): void {
-  const step = queuedAskStep(queued?.at ?? null, askReady(), Date.now());
-  if (step === 'run' && queued) { const ref = queued.ref; stopQueue(); routeAsk(ref); }
+  const step = queuedAskStep(queued?.at ?? null, askReady(), Date.now(), queued?.nav, navigationCount());
+  if (step === 'run' && queued) { const { ref, at } = queued; stopQueue(); void routeAsk(ref, at); }
+  else if (step === 'cancelled') stopQueue(); // the owner went somewhere by hand while the window loaded: this click is stale
   else if (step === 'expired') { stopQueue(); toast('Could not open that. Open the project and look in its Inbox.', 'error'); }
 }
 /** The one way to open an ask: a notification click and the tray item end here (the choice is `resolveAsk`, the destination `askTarget`). Before the window has loaded it waits, at most ASK_QUEUE_MS. */
 export function openAsk(ref: AskRef): void {
-  if (askReady()) { routeAsk(ref); return; }
+  if (askReady()) { void routeAsk(ref, Date.now()); return; }
   stopQueue();
-  queued = { ref, at: Date.now() };
+  queued = { ref, at: Date.now(), nav: navigationCount() };
   queueUnsub = subscribeStore(() => { if (askReady()) setTimeout(pumpQueuedAsk, 0); });
   queueTimer = setTimeout(pumpQueuedAsk, ASK_QUEUE_MS + 50);
 }
-function routeAsk(ref: AskRef): void {
+async function routeAsk(ref: AskRef, startedAt: number): Promise<void> {
+  // "The oldest anywhere" (the tray) needs the boards to see the oldest proposal: load the ones missing, for no longer than the queue allows
+  if (fallsToOldest(ref, getState().projects.map((p) => p.id))) {
+    const missing = missingBoards(getState().projects);
+    if (missing.length) {
+      const nav = navigationCount();
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      await Promise.race([ensureBoards(missing), new Promise<void>((r) => { timer = setTimeout(r, Math.max(0, ASK_QUEUE_MS - (Date.now() - startedAt))); })]);
+      clearTimeout(timer);
+      if (navigationCount() !== nav) return; // the owner moved on while the boards loaded
+    }
+  }
+  withoutNavigation(() => applyAsk(ref));
+}
+function applyAsk(ref: AskRef): void {
   const s = getState();
   const waiting = [...s.approvals, ...s.questions].map((a) => ({ taskId: a.taskId, projectId: s.tasks.find((t) => t.id === a.taskId)?.projectId ?? null, at: a.at }));
   const proposals = currentProposals().map((i) => ({ id: i.id, projectId: i.projectId, agentId: i.createdBy.kind === 'agent' ? i.createdBy.id : '', createdAt: i.createdAt }));
@@ -83,14 +98,14 @@ function routeAsk(ref: AskRef): void {
 export function openRailRow(row: RouteRow): boolean {
   const t = askTarget(row, getState().tasks);
   if (t.kind === 'none') return false;
-  openAskTarget(t);
+  openAskTarget(t); // a click is the owner's own move: it counts as navigation, so a click still queued from cold start is dropped
   return true;
 }
 /** A fresh board load for the request made at `at`: when it lands the request's TTL starts; when it fails the request is dropped and the owner told. */
 function settleBoard(projectId: string, at: number): void {
-  void refreshBoard(projectId).then((ok) => {
-    if (ok) markBoardSettled(at);
-    else if (failBoardLoad(at)) toast('Could not load the board for that project.', 'error');
+  void refreshBoard(projectId).then((r) => {
+    if (r.ok) markBoardSettled(at);
+    else if (failBoardLoad(at) && !r.told) toast('Could not load the board for that project.', 'error'); // one message per failed flight: if the load already showed its own, this adds none
   });
 }
 /** Applies the answer of `askTarget`. */

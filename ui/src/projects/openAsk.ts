@@ -22,11 +22,22 @@ function oldest(asks: readonly WaitingAsk[], proposals: readonly WaitingProposal
   return p ? { kind: 'proposal', projectId: p.projectId, itemId: p.id, agentId: p.agentId } : undefined;
 }
 
+/** True when the ref names nothing that exists, so `resolveAsk` falls through to the oldest ask or proposal anywhere. */
+export function fallsToOldest(ref: AskRef | null | undefined, projectIds: readonly string[]): boolean {
+  if (str(ref?.taskId)) return false;
+  const projectId = str(ref?.projectId);
+  return !(projectId && projectIds.includes(projectId));
+}
+/** The active projects whose board has not been loaded yet. */
+export function unloadedBoards(projects: ReadonlyArray<{ id: string; status: string }>, views: Record<string, unknown>): string[] {
+  return projects.filter((p) => p.status === 'active' && !views[p.id]).map((p) => p.id);
+}
+
 export function resolveAsk(ref: AskRef | null | undefined, waiting: readonly WaitingAsk[], projectIds: readonly string[], proposals: readonly WaitingProposal[] = []): OpenAskAction {
   const taskId = str(ref?.taskId);
   if (taskId) return { kind: 'thread', taskId };
   const projectId = str(ref?.projectId);
-  if (projectId && projectIds.includes(projectId)) {
+  if (!fallsToOldest(ref, projectIds) && projectId) {
     // only a ref that names a proposal opens one, from its ids alone (the board need not be loaded); a project-only ref (a notification) is the page
     const itemId = str(ref?.itemId);
     if (!itemId) return { kind: 'project', projectId };
@@ -38,9 +49,11 @@ export function resolveAsk(ref: AskRef | null | undefined, waiting: readonly Wai
 
 /** A click that arrives before the window has loaded its projects, tasks and agents waits for them, for at most this long. */
 export const ASK_QUEUE_MS = 15_000;
-export type QueuedAskStep = 'none' | 'wait' | 'run' | 'expired';
-export function queuedAskStep(queuedAt: number | null, ready: boolean, now: number): QueuedAskStep {
+export type QueuedAskStep = 'none' | 'wait' | 'run' | 'expired' | 'cancelled';
+/** `navAtQueue` / `navNow`: the owner's navigation count when the click was queued and now. They differ when the owner moved by hand: the click is dropped. */
+export function queuedAskStep(queuedAt: number | null, ready: boolean, now: number, navAtQueue?: number, navNow?: number): QueuedAskStep {
   if (queuedAt === null) return 'none';
+  if (navAtQueue !== undefined && navNow !== undefined && navAtQueue !== navNow) return 'cancelled';
   if (ready) return 'run';
   return now - queuedAt >= ASK_QUEUE_MS ? 'expired' : 'wait';
 }

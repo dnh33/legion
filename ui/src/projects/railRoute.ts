@@ -117,15 +117,30 @@ export function canTakeFocus(active: { tagName?: string; isContentEditable?: boo
 
 /** The fresh load of a board finished for the request made at `at`: its TTL starts now. A newer request is left alone. */
 export function markBoardSettled(at: number, now = Date.now()): void {
+  if (now - at > BOARD_WAIT_MS) return; // too late: the request has expired, and a late load does not bring it back
   if (askReq && askReq.at === at) askReq = { ...askReq, boardAt: now };
   if (inboxReq && inboxReq.at === at) inboxReq = { ...inboxReq, boardAt: now };
   emit();
 }
-/** The load failed: drops the request made at `at`. True when one was dropped (the caller then says so). */
-export function failBoardLoad(at: number): boolean {
+/** The load failed: drops the request made at `at`. True when one was dropped (the caller then says so). A request that has expired is left to lapse: no late toast. */
+export function failBoardLoad(at: number, now = Date.now()): boolean {
+  if (now - at > BOARD_WAIT_MS) return false;
   let dropped = false;
   if (askReq && askReq.at === at) { askReq = null; dropped = true; }
   if (inboxReq && inboxReq.at === at) { inboxReq = null; dropped = true; }
   if (dropped) emit();
   return dropped;
+}
+
+/**
+ * A count of the owner's own moves (a view switch, a chat or agent pick). A click queued at cold start is for the screen the owner was on:
+ * if they moved since, it is dropped. The routing's own moves and the app's housekeeping run `withoutNavigation` and do not count.
+ */
+let navCount = 0;
+let quietDepth = 0;
+export const navigationCount = (): number => navCount;
+export function noteNavigation(): void { if (quietDepth === 0) navCount++; }
+export function withoutNavigation<T>(fn: () => T): T {
+  quietDepth++;
+  try { return fn(); } finally { quietDepth--; }
 }

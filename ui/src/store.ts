@@ -11,7 +11,7 @@ import { askToStop } from './chat/background';
 import type { Project } from '../../src/shared/projects';
 import { FILTER_KEY, inProject, newTaskProjectId } from './projects/projectsLogic';
 import { projectToShow } from './chat/taskTabs';
-import { noteTaskSelected, noteViewSet } from './projects/railRoute';
+import { noteNavigation, noteTaskSelected, noteViewSet, withoutNavigation } from './projects/railRoute';
 import { moodAfterDecision, noteDenial } from './mascot/toolActivity';
 
 export type RelicState = 'idle' | 'listening' | 'thinking' | 'hacking' | 'awaiting' | 'victory' | 'error' | 'sleeping' | 'annoyed';
@@ -336,7 +336,7 @@ export async function refresh() {
     });
     if (snap.tasks.length && getState().selectedTaskId === null && !selectionTouched) {
       const id = pickTaskFor(getState().selectedAgentId);
-      if (id) selectTask(id);
+      if (id) withoutNavigation(() => selectTask(id)); // the app's own first pick, not a move by the owner
     }
   } catch (e) {
     setState({ loaded: true, conn: 'offline' });
@@ -417,6 +417,7 @@ export function jumpToLatest(id: string) { void loadTask(id, true); }
 /* ---------- actions ---------- */
 export function selectAgent(id: string) {
   selectionTouched = true;
+  noteNavigation();
   const taskId = pickTaskFor(id);
   setState({ selectedAgentId: id, selectedTaskId: taskId, modelOverride: null });
   if (taskId) void loadTask(taskId);
@@ -434,6 +435,7 @@ function projectFollowing(t: Pick<Task, 'projectId'> | undefined): { projectFilt
 }
 export function selectTask(id: string | null) {
   selectionTouched = true;
+  noteNavigation();
   noteTaskSelected(id);
   if (id) {
     const t = getState().tasks.find((x) => x.id === id);
@@ -743,7 +745,7 @@ export async function resetCompaction(): Promise<SettingsView> {
 }
 export { errText };
 
-export const setView = (view: AppState['view']) => { noteViewSet(view); setState({ view }); };
+export const setView = (view: AppState['view']) => { noteNavigation(); noteViewSet(view); setState({ view }); };
 
 /** Re-probe what the boat.dev key may do (cheap reads; never creates a VM). The result also arrives as a boat.health event. */
 /** Settings, boat.dev opened: the first look at what the key may do (once; later opens answer from the core's cache). */

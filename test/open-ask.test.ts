@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { ASK_QUEUE_MS, queuedAskStep, resolveAsk } from '../ui/src/projects/openAsk.js';
+import { ASK_QUEUE_MS, fallsToOldest, queuedAskStep, resolveAsk, unloadedBoards } from '../ui/src/projects/openAsk.js';
 
 const waiting = [
   { taskId: 't-old', projectId: 'p1', at: '2026-10-14T10:00:00Z' },
@@ -59,4 +59,25 @@ test('queuedAskStep: a click before the window has loaded waits, runs once loade
   assert.equal(queuedAskStep(1000, true, 2000), 'run');
   assert.equal(queuedAskStep(1000, false, 1000 + ASK_QUEUE_MS), 'expired');
   assert.equal(queuedAskStep(1000, true, 1000 + ASK_QUEUE_MS + 5), 'run', 'loaded just in time still runs');
+});
+
+test('round 4: a queued click is cancelled when the owner navigated by hand before it ran', () => {
+  assert.equal(queuedAskStep(1000, true, 2000, 4, 4), 'run', 'no navigation: runs');
+  assert.equal(queuedAskStep(1000, true, 2000, 4, 5), 'cancelled', 'the owner moved: the stale click does not yank them back');
+  assert.equal(queuedAskStep(1000, false, 2000, 4, 5), 'cancelled', 'cancelled even before the window is ready');
+  assert.equal(queuedAskStep(1000, false, 1000 + ASK_QUEUE_MS, 4, 5), 'cancelled', 'cancel wins over the expiry toast (nothing to apologise for)');
+  assert.equal(queuedAskStep(null, true, 2000, 4, 5), 'none');
+});
+
+test('round 4: a ref that falls through to "the oldest anywhere" is told apart from one that names something', () => {
+  assert.equal(fallsToOldest({}, ['p1']), true);
+  assert.equal(fallsToOldest(null, ['p1']), true);
+  assert.equal(fallsToOldest({ projectId: 'gone' }, ['p1']), true, 'an unknown project falls through as resolveAsk does');
+  assert.equal(fallsToOldest({ projectId: 'p1' }, ['p1']), false);
+  assert.equal(fallsToOldest({ taskId: 't1' }, []), false);
+});
+
+test('round 4: only active projects whose board has not loaded are fetched before routing the oldest', () => {
+  assert.deepEqual(unloadedBoards([{ id: 'a', status: 'active' }, { id: 'b', status: 'active' }, { id: 'c', status: 'archived' }], { a: {} }), ['b']);
+  assert.deepEqual(unloadedBoards([], {}), []);
 });
