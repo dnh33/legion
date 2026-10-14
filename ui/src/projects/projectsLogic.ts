@@ -64,14 +64,19 @@ export function newTaskTarget(projects: Project[], filter: string | null, agent:
  * The question before a project is archived, with what it touches: runs in progress finish; open tasks cannot be
  * continued and no new task starts in it until it is unarchived; its rooms keep working without its context.
  */
-export function archiveQuestion(name: string, n: { live: number; open: number; rooms: number }): string {
+export function archiveQuestion(name: string, n: { live: number; open: number; rooms: number; board?: number }): string {
   const plural = (k: number, one: string, many: string) => `${k} ${k === 1 ? one : many}`;
   const lines = [`Archive "${name}"?`];
   if (n.live) lines.push(`${plural(n.live, 'run in progress finishes', 'runs in progress finish')} first.`);
   lines.push(n.open ? `Its ${plural(n.open, 'open task', 'open tasks')} cannot be continued, and no new task can start in it, until you unarchive it.` : 'No new task can start in it until you unarchive it.');
+  if (n.board) lines.push(`${plural(n.board, 'unfinished board item is', 'unfinished board items are')} assigned to ${n.board === 1 ? 'an agent; it stays' : 'agents; they stay'} on the board.`);
   if (n.rooms) lines.push(`${plural(n.rooms, 'room is', 'rooms are')} marked out of project, with a notice in ${n.rooms === 1 ? 'it' : 'each'}; ${n.rooms === 1 ? 'it keeps' : 'they keep'} working without the project's instructions, board and notes.`);
   return lines.join('\n\n');
 }
+
+/** Board items that are not done and are assigned to an agent: what archiving or removing a member touches. */
+export const boardItemsAssigned = (items: ReadonlyArray<{ status: string; assignee: { kind: string } | null }>): number =>
+  items.filter((i) => i.status !== 'done' && i.assignee?.kind === 'agent').length;
 
 /** Why a room is out of its project (the same rule the core uses for its notice), or undefined: shown as a badge. */
 export function roomOutOfProject(room: Pick<Room, 'projectId' | 'members'>, projects: Project[], names: Record<string, string>): string | undefined {

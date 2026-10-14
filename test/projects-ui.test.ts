@@ -100,7 +100,16 @@ test('council A9: the archive question says what archiving touches', async () =>
   assert.match(q, /2 runs in progress finish first\./);
   assert.match(q, /Its 5 open tasks cannot be continued, and no new task can start in it, until you unarchive it\./);
   assert.match(q, /1 room is marked out of project, with a notice in it; it keeps working without the project's instructions, board and notes\./);
-  assert.doesNotMatch(archiveQuestion('Site', { live: 0, open: 0, rooms: 0 }), /run|room|open task/);
+  assert.doesNotMatch(archiveQuestion('Site', { live: 0, open: 0, rooms: 0 }), /run|room|open task|board/);
+  assert.match(archiveQuestion('Site', { live: 0, open: 0, rooms: 0, board: 3 }), /3 unfinished board items are assigned to agents; they stay on the board\./);
+  assert.match(archiveQuestion('Site', { live: 0, open: 0, rooms: 0, board: 1 }), /1 unfinished board item is assigned to an agent; it stays on the board\./);
+});
+
+test('council A9 boardItemsAssigned counts unfinished items assigned to an agent, nothing else', async () => {
+  const { boardItemsAssigned } = await import('../ui/src/projects/projectsLogic.js');
+  const it = (status: string, assignee: any) => ({ status, assignee }) as any;
+  assert.equal(boardItemsAssigned([it('doing', { kind: 'agent', id: 'a' }), it('backlog', { kind: 'agent', id: 'b' }), it('done', { kind: 'agent', id: 'a' }), it('doing', { kind: 'owner' }), it('doing', null)]), 2);
+  assert.equal(boardItemsAssigned([]), 0);
 });
 
 test('B4 roomOutOfProject: the reason a room is out of its project, or nothing', async () => {

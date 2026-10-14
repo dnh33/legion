@@ -20,6 +20,8 @@ All notable changes are recorded here. The format follows [Keep a Changelog](htt
 
 ### Fixed
 
+- **Archiving a project now tells you about unfinished board items.** The question lists runs in progress, open tasks,
+  board items assigned to agents, and rooms. Removing a member already showed the same counts.
 - **The agent list and the agent's picture now agree.** When an agent works in another project, its row shows it as busy
   and says where ("Working in Atlas: ..."). Under a project, a row counts only that project's "needs your OK" asks.
   The agent's picture also asks for you when the agent asks a question, not only for an approval.
