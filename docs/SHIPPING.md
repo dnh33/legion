@@ -87,6 +87,10 @@ D:\bots\legion-<topic>  a worktree for ONE feature               <- also fine, m
 
 Never ship from a worktree that is not merged. Never build or test in the install folder.
 
+### 0b. Live test before the release, not after
+
+As soon as a feature runs, put a test copy of the release branch on the owner's PC and let him click through it in the real Legion window. The copy has its own data folder (`LEGION_HOME`) and port, and is launched from the worktree, so his real install is not touched. Unit tests and stubbed screenshots do not replace this. The 0.3.0 live test found a sign-in that never showed its code, and a missing in-app repo picker, both after every PR had merged. Checking external-API assumptions in the spec against the official docs before building would have caught the second.
+
 ### 1. Gate
 
 GitHub CI is the full-suite gate: all 11 required checks green on the release PR's head (Windows, macOS, Linux
