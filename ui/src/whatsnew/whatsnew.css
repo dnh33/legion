@@ -1,5 +1,5 @@
 /* What's new tips. A small note beside its anchor: nothing dims, nothing blocks, the page stays usable under it. */
-.wn-tip { position: fixed; z-index: 40; box-sizing: border-box; width: 320px; max-width: calc(100vw - 16px); padding: 12px 14px; background: var(--surface-3); color: var(--text); border: 1px solid var(--control-line); border-left: 3px solid var(--accent-text); border-radius: var(--r-lg); box-shadow: 0 8px 24px rgba(0, 0, 0, .25); font-size: 13px; line-height: 1.45; }
+.wn-tip { position: fixed; z-index: 40; box-sizing: border-box; width: 320px; max-width: calc(100vw - 16px); padding: 12px 14px; background: var(--surface-3); color: var(--text); border: 1px solid var(--accent-line); border-radius: var(--r-lg); box-shadow: 0 8px 24px rgba(0, 0, 0, .25); font-size: 13px; line-height: 1.45; }
 .wn-tip::before { content: ''; position: absolute; width: 10px; height: 10px; background: var(--surface-3); border: 1px solid var(--control-line); transform: rotate(45deg); }
 .wn-tip[data-placement='bottom']::before { top: -6px; left: calc(var(--wn-caret) - 5px); border-right: 0; border-bottom: 0; }
 .wn-tip[data-placement='top']::before { bottom: -6px; left: calc(var(--wn-caret) - 5px); border-left: 0; border-top: 0; }
