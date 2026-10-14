@@ -757,3 +757,4 @@ kbd { font-size: 10.5px; line-height: 1; padding: 3px 5px; border: 1px solid var
 .arm-discard::before { background: var(--danger); -webkit-mask-image: var(--ico-warn); mask-image: var(--ico-warn); }
 .arm-notice::before, .bd-offer::before { background: var(--accent-text); }
 .proj-note::before { background: var(--muted); }
+.proj-note.needs::before { background: var(--warn); -webkit-mask-image: var(--ico-warn); mask-image: var(--ico-warn); }

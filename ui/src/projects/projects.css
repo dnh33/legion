@@ -24,7 +24,7 @@
 .proj-check { display: flex !important; flex-direction: row !important; align-items: center; gap: 8px !important; color: var(--text) !important; font-size: 13px !important; }
 .proj-note { margin: 0; padding: 8px 12px; border: 1px solid var(--line-strong); border-radius: var(--r-sm); background: var(--surface-2); color: var(--text-2); font-size: 13px; }
 /* a note that asks the owner to do something (read agent-written text, re-check a changed item) is the one amber kind */
-.proj-note.needs { border-left-color: var(--warn); background: var(--warn-soft); }
+.proj-note.needs { border-color: var(--warn-line); background: var(--warn-soft); }
 .proj-over, .proj-err { color: var(--danger) !important; }
 .proj-empty { color: var(--muted); }
 .proj-foot { margin: 0; }
