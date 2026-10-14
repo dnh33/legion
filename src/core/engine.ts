@@ -4,7 +4,7 @@ import { basename, dirname, join, resolve, sep } from 'node:path';
 import { query as realQuery } from '@anthropic-ai/claude-agent-sdk';
 import type { McpServerConfig, Options, Query, Settings, query as sdkQuery } from '@anthropic-ai/claude-agent-sdk';
 import type {
-  AgentProfile, ApprovalMode, ChatMessage, ConcreteModel, LegionConfig, MascotMood, MessageRole, ModelChoice, Task, TaskProgress, TaskSource,
+  AgentProfile, ApprovalMode, ChatMessage, ConcreteModel, LegionConfig, MascotMood, MessageRole, ModelChoice, QueueReason, QueueSnapshot, StartTrigger, Task, TaskProgress, TaskSource,
 } from '../shared/types.js';
 import { newId, nowIso, titleFrom } from '../shared/util.js';
 import { gatesFor, scrubHostSessionEnv } from '../shared/config.js';
@@ -62,6 +62,19 @@ const GATE_TMP_DIR = process.platform === 'win32' ? tmpdir() : undefined;
 
 export type QueryFn = typeof sdkQuery;
 
+/**
+ * What the engine asks of the away module (0.3.0). Absent: nothing is ever held and no spend is written, exactly as before.
+ * Every method is called inside a try: a throwing hook never stops the queue or a run.
+ */
+export interface AwayHooks {
+  /** "Pause new starts" is on for this project. */
+  isPaused(projectId: string): boolean;
+  /** The project's budget is reached and no override is in force. */
+  budgetBlocked(projectId: string): boolean;
+  /** One cost the run reported (a result's rise in spend). */
+  recordSpend(e: { taskId: string; agentId: string; projectId?: string; usd: number }): void;
+}
+
 export interface EngineDeps {
   store: Store; bus: EventBus; vms: VmManager; approvals: ApprovalBroker; config: LegionConfig;
   /** Structured questions (agent ask_user_question -> thread card). Defaults to one private to this engine, on the same bus. */
@@ -71,6 +84,8 @@ export interface EngineDeps {
   /** Returns whether boat is configured (vm tools only offered when true). */
   boatConfigured: () => boolean;
   maxConcurrent?: number;
+  /** The away module's hooks: pause, budget, spend ledger. Absent: today's behaviour. */
+  away?: AwayHooks;
   modules?: CoreModule[];
   /** Where the list of files written by tainted runs is kept; defaults to <workspaceDir>/.tainted-paths.json. */
   taintedPaths?: TaintedPaths;
@@ -294,6 +309,10 @@ interface Job {
   fromAgentId?: string; parentTaskId?: string;
   /** Set when another bot woke this run (rooms, or the agent bridge). Caps the run's approval mode. */
   origin?: TaskOrigin;
+  /** What started the run. Only 'marshal' and 'schedule' are held by "Pause new starts". */
+  trigger: StartTrigger;
+  /** "Queue after it": the agent's other live tasks in this project at enqueue time. The job waits until none of them is live. */
+  after?: string[];
 }
 interface Active {
   ac: AbortController; cancelled: boolean; q?: Query;
@@ -342,7 +361,10 @@ export class Engine {
   private readonly taskLists: TaskListStore;
   private readonly providers?: ProviderRuntime;
   private readonly projects?: ProjectStore;
+  private readonly away?: AwayHooks;
   private readonly queue: Job[] = [];
+  /** The last queue snapshot sent, as text: `queue.updated` goes out only when it changes. */
+  private lastQueueJson = JSON.stringify({ cap: 0, running: 0, items: [] });
   private readonly active = new Map<string, Active>();
   /** Live runs already told that their project was archived or their agent removed (decision B3): one note per run. */
   private readonly projectNoted = new Set<string>();
@@ -369,11 +391,15 @@ export class Engine {
     this.modules = deps.modules ?? [];
     this.providers = deps.providers;
     this.projects = deps.projects;
+    this.away = deps.away;
+    this.lastQueueJson = JSON.stringify(this.queueSnapshot());
     this.taintedPaths = deps.taintedPaths ?? new TaintedPaths(join(deps.config.workspaceDir, '.tainted-paths.json'));
     this.taskLists = deps.taskLists ?? new TaskListStore(join(deps.config.workspaceDir, '.task-lists'));
     // a deleted task takes its task list with it, so nothing of it is left behind for a later task to find
     this.bus.on((e) => { if (e.type === 'task.deleted') { try { this.taskLists.remove(e.taskId); } catch { /* best effort */ } } });
     this.bus.on((e) => { if (e.type === 'project.updated') { try { this.onProjectUpdated(e.project); } catch { /* the note is advisory */ } } });
+    // a pause was lifted or a budget changed: what was held can start now
+    this.bus.on((e) => { if (e.type === 'away.updated') this.pump(); });
     this.bridge = new Bridge({ store: this.store, bus: this.bus, engine: this });
   }
 
@@ -493,6 +519,9 @@ export class Engine {
       ...(p.routeText !== undefined ? { routeText: p.routeText } : {}),
       ...(p.maxBudgetUsd !== undefined ? { maxBudgetUsd: p.maxBudgetUsd } : {}),
       origin: task.origin,
+      // a delegation and a room wake are never held by a pause; only the Marshal and a schedule name themselves
+      trigger: p.trigger ?? (p.bridge ? 'delegation' : p.source === 'bot' ? 'room' : 'owner'),
+      ...(p.startAfter ? { after: this.liveOfAgent(agent.id, projectAtStart, task.id) } : {}),
     });
     queueMicrotask(() => this.pump());
     return { ...task };
@@ -651,6 +680,7 @@ export class Engine {
       this.queue.splice(qi, 1);
       this.markCancelled(taskId);
       try { this.bridge.cancelFor(taskId); } catch { /* ignore */ }
+      this.emitQueue();
       return true;
     }
     const a = this.active.get(taskId);
@@ -832,6 +862,7 @@ export class Engine {
       const i = this.queue.indexOf(j);
       if (i >= 0) { this.queue.splice(i, 1); this.dropHiddenJob(j); ids.push(j.taskId); }
     }
+    if (ids.length) this.emitQueue();
     if (ids.length && this.active.size === 0 && this.queue.length === 0) this.scheduleIdle();
     return ids;
   }
@@ -859,6 +890,48 @@ export class Engine {
     void this.runJob(job, act);
   }
 
+  /** The ids of this agent's tasks in this project that are running or waiting (what "Queue after it" waits for). */
+  private liveOfAgent(agentId: string, projectId: string | undefined, selfId: string): string[] {
+    const ids: string[] = [];
+    for (const id of this.active.keys()) {
+      if (id !== selfId && this.store.getTask(id)?.agentId === agentId && this.projectOf(id, agentId)?.id === projectId) ids.push(id);
+    }
+    for (const j of this.queue) if (j.taskId !== selfId && j.agentId === agentId && j.projectAtStart === projectId) ids.push(j.taskId);
+    return ids;
+  }
+
+  /**
+   * Why a queued job cannot start now, or undefined when it can. Order (spec 4.3): budget, paused, after, slot.
+   * Budget holds every start in the project, the owner's too (a budget the owner set); a pause holds only the Marshal and schedules.
+   * `ignoreSlot`: used by the start loop, which has already checked the cap.
+   */
+  private blockedReason(job: Job, opts: { ignoreSlot?: boolean } = {}): QueueReason | undefined {
+    const pid = job.projectAtStart;
+    if (this.away && pid) {
+      try {
+        if (this.away.budgetBlocked(pid)) return 'budget';
+        if ((job.trigger === 'marshal' || job.trigger === 'schedule') && this.away.isPaused(pid)) return 'paused';
+      } catch { /* a failing hook holds nothing */ }
+    }
+    if (job.after?.some((id) => this.active.has(id) || this.queue.some((j) => j.taskId === id))) return 'after';
+    if (!opts.ignoreSlot && this.active.size >= this.maxConcurrent) return 'slot';
+    return undefined;
+  }
+
+  /** Who waits and why. `running` counts every live run; a delegated child may exceed `cap`, so the app shows min(running, cap). */
+  queueSnapshot(): QueueSnapshot {
+    const items = this.queue.filter((j) => !this.active.has(j.taskId)).map((j, i) => ({ taskId: j.taskId, reason: this.blockedReason(j) ?? ('slot' as const), position: i + 1 }));
+    return { cap: this.maxConcurrent, running: this.active.size, items };
+  }
+
+  private emitQueue(): void {
+    const q = this.queueSnapshot();
+    const json = JSON.stringify(q);
+    if (json === this.lastQueueJson) return;
+    this.lastQueueJson = json;
+    this.bus.emit({ type: 'queue.updated', queue: q });
+  }
+
   private pump(): void {
     // Bridge runs whose parent is running bypass the cap, so nested asks cannot deadlock the queue.
     for (let i = 0; i < this.queue.length;) {
@@ -869,10 +942,11 @@ export class Engine {
       } else i++;
     }
     while (this.active.size < this.maxConcurrent) {
-      const idx = this.queue.findIndex((j) => !this.active.has(j.taskId));
+      const idx = this.queue.findIndex((j) => !this.active.has(j.taskId) && this.blockedReason(j, { ignoreSlot: true }) === undefined);
       if (idx < 0) break;
       this.startJob(this.queue.splice(idx, 1)[0]!);
     }
+    this.emitQueue();
   }
 
   private async runJob(job: Job, act: Active): Promise<void> {
