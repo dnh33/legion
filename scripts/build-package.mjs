@@ -9,7 +9,7 @@ import { spawnSync } from 'node:child_process';
 import { basename, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { args, die, isReleaseVersion, listZipNames, loadDist, readZipEntry, REPO } from './lib/release-lib.mjs';
-import { CAPS, checkSdkBinary, ELECTRON_REL, FILES_LIST, isSafeRel, listTree, packageAssetName, PLATFORM, pruneSdkPlatforms, sha256File } from './lib/package-lib.mjs';
+import { APP_SHIM_REL, appShim, CAPS, checkSdkBinary, ELECTRON_REL, FILES_LIST, isSafeRel, listTree, packageAssetName, PLATFORM, pruneSdkPlatforms, sha256File } from './lib/package-lib.mjs';
 import { writeZipFile } from './lib/zip-stream.mjs';
 
 const sha = (b) => createHash('sha256').update(b).digest('hex');
@@ -57,15 +57,12 @@ export async function buildPackage(o) {
   log(`code set: ${entries.length} files from the update zip`);
 
   for (const f of listTree(o.nodeModules, SKIP_NM)) entries.push({ name: `${top}/node_modules/${f.rel}`, file: join(o.nodeModules, ...f.rel.split('/')), size: f.size });
-  // Electron's FALLBACK app. `package.json` sets "main": "dist/src/electron/main.js", so this archive is never loaded — it is
-// dead weight in every install. Worse, it is the file heuristic antivirus scanners flag (it contains a small script,
-// `default_app.js`, in an archive), so shipping it means users can hit a Defender quarantine mid-install and the install fails
-// with "Windows or your antivirus blocked or removed runtime/electron/resources/default_app.asar". Excluding it here fixes
-// that for EVERYONE; an antivirus exclusion would only ever fix one machine.
-const runtimeFiles = listTree(o.electronDist); // include default_app.asar (required for Electron boot; AV exclusion needed on CI runners)
-for (const f of runtimeFiles) entries.push({ name: `${top}/runtime/electron/${f.rel}`, file: join(o.electronDist, ...f.rel.split('/')), size: f.size });
-
-// default_app.asar now included (Electron needs resources/ dir)
+  // Electron's FALLBACK app is left out: it is the file antivirus scanners flag (a small script inside an archive), and shipping it made
+  // fresh installs fail with "Windows or your antivirus blocked or removed runtime/electron/resources/default_app.asar". electron.exe
+  // boots Legion from resources/app/package.json instead (see APP_SHIM_REL in lib/package-lib.mjs), so nothing needs the fallback.
+  const runtimeFiles = listTree(o.electronDist).filter((f) => !/^resources\/default_app\.asar$/i.test(f.rel));
+  for (const f of runtimeFiles) entries.push({ name: `${top}/runtime/electron/${f.rel}`, file: join(o.electronDist, ...f.rel.split('/')), size: f.size });
+  entries.push({ name: `${top}/${APP_SHIM_REL}`, data: Buffer.from(appShim(version)) });
 
   // names and limits (the installer and PowerShell refuse the same things; better to fail here)
   let unpacked = 0;

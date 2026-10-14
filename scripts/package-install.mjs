@@ -10,7 +10,7 @@ import { spawnSync } from 'node:child_process';
 import { dirname, join, parse, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { args, loadDist } from './lib/release-lib.mjs';
-import { blockedMessage, CLAUDE_REL, ELECTRON_REL, FILES_LIST, listTree, packageTopNames, parseFilesList, readBuildInfo } from './lib/package-lib.mjs';
+import { APP_SHIM_REL, blockedMessage, CLAUDE_REL, ELECTRON_REL, FILES_LIST, listTree, packageTopNames, parseFilesList, readBuildInfo } from './lib/package-lib.mjs';
 
 export class InstallError extends Error {
   constructor(code, message, file) { super(message); this.code = code; this.file = file; }
@@ -68,7 +68,7 @@ export function checkSourceTree(src, topNames) {
   }
   const have = new Set(onDisk.map((f) => f.rel));
   for (const f of files) if (!have.has(f.path)) throw new InstallError('blocked', blockedMessage(f.path), f.path);
-  for (const must of [ELECTRON_REL, CLAUDE_REL, 'package.json', 'dist/src/electron/main.js', 'dist/src/bin/legion-core.js', 'dist-ui/index.html', 'build-info.json']) if (!listed.has(must)) throw new InstallError('incomplete', `the package list has no ${must}`);
+  for (const must of [ELECTRON_REL, APP_SHIM_REL, CLAUDE_REL, 'package.json', 'dist/src/electron/main.js', 'dist/src/bin/legion-core.js', 'dist-ui/index.html', 'build-info.json']) if (!listed.has(must)) throw new InstallError('incomplete', `the package list has no ${must}`);
   const modes = new Map(onDisk.map((f) => [f.rel, f.mode]));
   return { info, files, modes };
 }

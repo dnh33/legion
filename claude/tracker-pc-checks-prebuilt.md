@@ -59,7 +59,7 @@ Expect a JSON-RPC response naming server `legion` (a `tools/list` follows the sa
 
 ## PB8 Update in place (a second package)
 In the worktree bump `package.json` version to `0.2.1` locally (do not commit), `build-package.cmd --out D:\bots\legion-pkg-out2 --allow-dirty`, unzip, run its `setup-yes.cmd -InstallDir "D:\bots\legion-pkg-test\Legion Test"`. Expect: the old app was stopped, "package installed", `package.json` says 0.2.1, `.update\prev` is gone, `config.json` and `uninstall.cmd` byte-identical, the app starts and `/health` says 0.2.1. Then revert the local version bump.
-Also: a failed update keeps the old build: before running, rename `runtime\electron\resources\default_app.asar` in the UNZIPPED copy (a missing listed file) and expect "Windows or your antivirus blocked or removed ... Legion did not retry", exit code 3, and the installed 0.2.0 untouched.
+Also: a failed update keeps the old build: before running, rename `runtime\electron\resources\app\package.json` in the UNZIPPED copy (a missing listed file) and expect "Windows or your antivirus blocked or removed ... Legion did not retry", exit code 3, and the installed 0.2.0 untouched.
 
 ## PB9 Antivirus / quarantine behaviour (no malware samples)
 Do not use test viruses without the owner's go. Check what you can: (a) the "blocked" message above; (b) watch **Windows Security > Protection history** during PB1 and PB3 and write down whether Defender scanned, delayed (how many seconds the copy and the `claude.exe --version` smoke test took) or removed anything. If it quarantines `claude.exe` or `electron.exe`, copy the exact Protection history text.

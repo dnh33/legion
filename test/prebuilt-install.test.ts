@@ -99,6 +99,15 @@ test('install: a changed byte is caught WHILE copying too (list says one thing, 
   assert.equal(existsSync(join(dest, '.update', 'staging')), false);
 });
 
+test('install: a package whose list has no resources/app/package.json is refused (electron.exe would have nothing to boot)', async () => {
+  const { installPackage } = await installer();
+  const src = await fakePackage({ skipList: true });
+  const { makeFilesList } = await lib();
+  rmSync(join(src, 'runtime/electron/resources/app'), { recursive: true });
+  put(src, 'PACKAGE-FILES.json', JSON.stringify(await makeFilesList(src)));
+  await assert.rejects(installPackage({ src, dest: join(tmp(), 'Legion'), smoke: ok }), (e: any) => e.code === 'incomplete' && /resources\/app\/package\.json/.test(e.message));
+});
+
 test('install: a failing start test rolls back to the previous build, names the file, does not retry (exit code 3)', async () => {
   const { installPackage, InstallError } = await installer();
   const dest = join(tmp(), 'Legion');

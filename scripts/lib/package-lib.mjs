@@ -9,6 +9,15 @@ export const ELECTRON_REL = 'runtime/electron/electron.exe';
 export const SDK_PKG = '@anthropic-ai/claude-agent-sdk-win32-x64';
 export const CLAUDE_REL = `node_modules/${SDK_PKG}/claude.exe`;
 export const FILES_LIST = 'PACKAGE-FILES.json';
+/**
+ * The app electron.exe boots. Electron looks in `resources/` for `app`, `app.asar` or `default_app.asar` and runs the first it
+ * finds. The package ships the first one: a package.json whose `main` climbs from resources/app to the install's own compiled
+ * main, so Legion does not need Electron's default app (an archive antivirus scanners remove). Launching still passes the install
+ * folder (shortcuts, the taskbar identity and the updater all do), which Electron then hands to the app as a plain argument.
+ */
+export const APP_SHIM_REL = 'runtime/electron/resources/app/package.json';
+export const APP_SHIM_MAIN = '../../../../dist/src/electron/main.js';
+export function appShim(version) { return JSON.stringify({ name: 'legion', version, main: APP_SHIM_MAIN }); }
 /** Top-level names a full package holds beyond the updater's code set. */
 export const EXTRA_TOP = Object.freeze(['node_modules', 'runtime']);
 export const CAPS = Object.freeze({ zipBytes: 450 * 1024 * 1024, unpackedBytes: 1200 * 1024 * 1024, entries: 20_000, relPathChars: 200 });
