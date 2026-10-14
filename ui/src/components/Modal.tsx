@@ -20,7 +20,7 @@ export function Modal({ title, onClose = closeOverlays, children, width = 560, f
       ?? root?.querySelector<HTMLElement>('.modal-body :is(input, textarea, select, button):not([disabled])')
       ?? root?.querySelector<HTMLElement>('button:not([disabled])');
     first?.focus();
-    const esc = (e: KeyboardEvent) => { if (e.key === 'Escape') { e.preventDefault(); closeRef.current(); } };
+    const esc = (e: KeyboardEvent) => { if (e.key === 'Escape' && !e.defaultPrevented) { e.preventDefault(); closeRef.current(); } };
     window.addEventListener('keydown', esc);
     return () => { window.removeEventListener('keydown', esc); prev?.focus?.(); };
   }, []);

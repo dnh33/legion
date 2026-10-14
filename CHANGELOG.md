@@ -4,6 +4,8 @@ All notable changes are recorded here. The format follows [Keep a Changelog](htt
 
 ## [Unreleased]
 
+Fixed: the work item window on the Board is no longer cut off under the title bar; every dialog now stays fully in view.
+
 ## [0.3.0] - 2026-10-14
 
 ### Projects: what needs you comes first
