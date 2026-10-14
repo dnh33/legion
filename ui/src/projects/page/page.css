@@ -57,8 +57,9 @@
 .pg-lens button[aria-checked=true] { color: var(--text); background: var(--surface-3); font-weight: 500; }
 
 /* content */
-.pg-area { position: relative; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr); overflow: hidden; }
-.pg-scroll { overflow: auto; min-height: 0; padding: 18px 24px 40px; container-type: inline-size; container-name: pg; }
+.pg-area { position: relative; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr); overflow: clip; }
+/* scrolled content fades out under the tab row instead of running flush into it; at rest the content starts below the 24 px fade */
+.pg-scroll { -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 24px); mask-image: linear-gradient(to bottom, transparent 0, #000 24px); overflow: auto; min-height: 0; padding: 24px 24px 40px; container-type: inline-size; container-name: pg; }
 .pg-scroll.fade { animation: pg-fade 120ms ease-out; }
 @keyframes pg-fade { from { opacity: 0; } }
 .pg-inner { max-width: 1180px; }

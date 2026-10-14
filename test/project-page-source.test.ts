@@ -82,7 +82,8 @@ test('review fixes: one proposal source for switcher and rail, a picker for 2+ m
   assert.match(rail, /waitingElsewhere\([^)]*proposals\)/);
   assert.match(rail, /board: \{ items: \[\], inbox: proposals \}/);
   const frame = read('ProjectPage.tsx');
-  assert.match(frame, /project\.members\.length > 1 &&[\s\S]*aria-label="Agent for the new task"/);
+  assert.doesNotMatch(frame, /Agent for the new task/, 'the old To: select is replaced by the New task sheet pills');
+  assert.match(read('Sheet.tsx'), /Best fit \(Marshal chooses\)/);
   assert.match(readFileSync(join(ui, 'App.tsx'), 'utf8'), /opsOpenPref && view !== 'project'/);
   assert.doesNotMatch(read('TabsContent.tsx'), /disabled=\{busy \|\| archived\}/);
   assert.match(read('Overview.tsx'), /Viewing \{projectLabel\(project\)\}/);

@@ -32,8 +32,6 @@ test('settings controls are real switches and radios with names', () => {
 
 test('the second-run box offers exactly the two spec choices as pressed buttons', () => {
   const s = read('Sheet.tsx');
-  assert.match(s, /aria-pressed=\{choice === 'run'\}[^
-]*>Run anyway</);
-  assert.match(s, /aria-pressed=\{choice === 'after'\}[^
-]*>Queue after it</);
+  assert.match(s, /aria-pressed=\{choice === 'run'\}.*>Run anyway</);
+  assert.match(s, /aria-pressed=\{choice === 'after'\}.*>Queue after it</);
 });

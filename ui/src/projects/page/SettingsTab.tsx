@@ -59,7 +59,9 @@ export function SettingsTab({ f, project }: { f: PageFacts; project: Project }) 
   }, []);
   const go = (id: string): void => {
     const el = root.current?.querySelector<HTMLElement>(`[data-sec="${id}"]`);
-    el?.scrollIntoView({ block: 'start' });
+    const scroller = document.getElementById('pg-panel');
+    // scroll the page's own scroll area only: scrollIntoView would also move every clipped ancestor
+    if (el && scroller) scroller.scrollTo({ top: scroller.scrollTop + el.getBoundingClientRect().top - scroller.getBoundingClientRect().top - 24 });
     setActive(id);
     el?.querySelector<HTMLElement>('h2')?.focus();
   };

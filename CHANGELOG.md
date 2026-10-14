@@ -20,14 +20,22 @@ All notable changes are recorded here. The format follows [Keep a Changelog](htt
 - **The rail says more in one line.** Each member shows what needs you, what it is working on, or where else it works. An agent
   with two or more runs going shows the number on its picture. The project control is a menu with a dot and "N elsewhere" when
   something waits for you in another project.
-- **An Allow you started keeps its countdown if you leave the page.** A small chip at the bottom of the window says "Publishing in 6 s" with Undo and Send now, so a pending Allow is never out of sight.
+- **An Allow you started keeps its countdown if you leave the page.** A small chip at the top of the page says "Publishing in 6 s" with Undo and Send now, so a pending Allow is never out of sight.
   The project page also has its own side column, so the agent panel is closed there and comes back with the chat.
 - **Budget and pause show on the page.** A banner says when the budget is reached (with a way to change it or run anyway) or when
   new starts are paused (with Resume).
 
+- **A task opens in a side sheet.** Click a task on the project page and it opens beside the list with its status, its asks (answered in place, with the same wait), the last message and the next step: Stop, Stop waiting, Continue, Retry or Mark done. "Open full thread" takes you to the chat. Esc closes it and puts you back where you were.
+- **New task is a sheet with "To" and "in".** Type what should happen, pick who does it (or Best fit) and which project. If that agent is already working in the project, you are told, and choose Run anyway or Queue after it, which starts when its current run finishes.
+- **Settings for while you are away.** The project Settings tab now has General, Folders, Members, While you are away (pause new starts, let the Marshal start board items), Safety (stop asking for reads in this project, after you confirm), Budget (day, week or month) and Notifications. Changed values get a dot.
+- **A "2 runs" menu in the chat header** when the agent has two or more runs going: see each run, stop one, or jump to it.
+
 ### Fixed
 
 - **Hovering a mascot no longer flashes.** Pointing at an agent in the list, or moving away, could show an empty tile for a moment before the picture came back. The still now stays until the live mascot has drawn, the two fade into each other, and moving away fades back to the same picture.
+- The pending-Allow chip no longer covers the message box or the header: it sits in the page's flow, above the content.
+- An agent in Ask mode that uses Claude Code's own question tool no longer shows a card full of raw text: it uses Legion's question card.
+- Scrolled content on the project page fades out under the tabs instead of running into them, and jumping between Settings sections no longer moves the page frame.
 - The big picture of the selected agent no longer asks for you when a different agent has an approval waiting.
 - A queued run that is waiting for a free slot now says so on the project page.
 - **The message box keeps its controls while a run is going.** With "Stop all" showing, the model name no longer shrinks to "A..." and the key hint no longer gets cut off. The hint hides first when the box is narrow; the model name, Add or Queue, Stop all and Stop always stay.
