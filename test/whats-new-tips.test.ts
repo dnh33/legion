@@ -9,8 +9,8 @@ import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, it } from 'node:test';
 import { RELEASES, tipsFor } from '../ui/src/whatsnew/releases.js';
-import { decideStart, endTour, isIdle, nextTip, pickTip, placeTip, skipTour, startTour, tipDone } from '../ui/src/whatsnew/tipsLogic.js';
-import { hasPriorUse, markSeen, readEnabled, readSeen, writeEnabled } from '../ui/src/whatsnew/tipsStorage.js';
+import { decideStart, endTour, isIdle, nextTip, pickTip, placeTip, startTour, tipDone } from '../ui/src/whatsnew/tipsLogic.js';
+import { markSeen, readEnabled, readSeen, writeEnabled } from '../ui/src/whatsnew/tipsStorage.js';
 
 const REPO = resolve(fileURLToPath(import.meta.url), '..', '..', '..');
 const src = (p: string): string => readFileSync(join(REPO, 'ui', 'src', p), 'utf8');
@@ -63,23 +63,17 @@ describe('the tour: skip, end, never again', () => {
     assert.equal(pickTip(t, new Set(['b', 'c'])), 'b');
     assert.equal(pickTip(t, new Set()), null);
   });
-  it('Next and Skip move on and never repeat a tip; the end of the list ends the tour', () => {
+  it('Next moves on and never repeat a tip; the end of the list ends the tour', () => {
     let t = nextTip(startTour(ids), 'a');
     assert.deepEqual(t.pending, ['b', 'c']);
     t = nextTip(nextTip(t, 'b'), 'c');
     assert.equal(tipDone(t), true);
     assert.equal(pickTip(t, new Set(ids)), null);
   });
-  it('End tour stops everything and asks to mark this version seen', () => {
-    const r = endTour(startTour(ids));
-    assert.equal(r.tour.pending.length, 0);
-    assert.equal(r.markSeen, true);
-    assert.equal(pickTip(r.tour, new Set(ids)), null);
-  });
-  it('Skip tour stops for now and does not mark the version seen', () => {
-    const r = skipTour(startTour(ids));
-    assert.equal(r.tour.pending.length, 0);
-    assert.equal(r.markSeen, false);
+  it('End tour stops everything; there is no skip-for-now path', () => {
+    const t = endTour(startTour(ids));
+    assert.equal(t.pending.length, 0);
+    assert.equal(pickTip(t, new Set(ids)), null);
   });
   it('an unknown id passed to Next changes nothing', () => assert.deepEqual(nextTip(startTour(ids), 'zzz').pending, ids));
 });
@@ -102,17 +96,10 @@ describe('seen state and settings storage', () => {
     writeEnabled(kv, true);
     assert.equal(readEnabled(kv), true);
   });
-  it('when storage throws: nothing throws (switch on, nothing seen, no prior use)', () => {
+  it('when storage throws: nothing throws (switch on, nothing seen)', () => {
     assert.deepEqual(readSeen(brokenKv), []);
     assert.equal(readEnabled(brokenKv), true);
-    assert.equal(hasPriorUse(brokenKv), false);
     assert.doesNotThrow(() => { markSeen(brokenKv, '0.3.0'); writeEnabled(brokenKv, false); });
-  });
-  it('prior use means other legion.* keys exist; our own keys do not count', () => {
-    assert.equal(hasPriorUse(memKv()), false);
-    assert.equal(hasPriorUse(memKv({ 'legion.tips.seen': '[]', unrelated: '1' })), false);
-    assert.equal(hasPriorUse(memKv({ 'legion.theme': 'dark' })), true);
-    assert.equal(hasPriorUse(memKv({ 'legion.onboarded': '1' })), true);
   });
 });
 
@@ -121,6 +108,15 @@ describe('placement: flips, clamps, never covers the anchor', () => {
   const size = { w: 300, h: 120 };
   type R = { left: number; top: number; w: number; h: number };
   const overlaps = (a: R, b: R): boolean => a.left < b.left + b.w && a.left + a.w > b.left && a.top < b.top + b.h && a.top + a.h > b.top;
+  it('sits under the anchor start edge, with a caret pointing at the anchor', () => {
+    const a = { left: 264, top: 114, w: 900, h: 36 };
+    const p = placeTip(a, size, win, 'bottom');
+    assert.equal(p.left, 264);
+    assert.equal(p.caret, 18);
+    const near = placeTip({ left: 960, top: 200, w: 30, h: 30 }, size, win, 'bottom');
+    assert.ok(near.caret >= 14 && near.caret <= size.w - 14);
+    assert.ok(near.left + size.w <= win.w - 8);
+  });
   it('uses the preferred side when it fits', () => {
     const a = { left: 400, top: 200, w: 100, h: 30 };
     const p = placeTip(a, size, win, 'bottom');
@@ -187,11 +183,16 @@ describe('accessibility promises (source guard)', () => {
     assert.doesNotMatch(tsx, /autoFocus|focusTrap|\.focus\(/);
     assert.doesNotMatch(tsx, /setTimeout|auto-?advance/i);
   });
-  it('the first tip offers Skip tour, End tour and the link that turns the switch off; Escape ends', () => {
-    assert.match(tsx, /Skip tour/);
+  it('Next (Done on the last), End tour, and on the first tip the link that turns the switch off; Escape ends; no Skip', () => {
+    assert.match(tsx, /'Done' : 'Next'/);
     assert.match(tsx, /End tour/);
+    assert.doesNotMatch(tsx, /Skip/);
     assert.match(tsx, /Don.t show tips after updates/);
     assert.match(tsx, /'Escape'/);
+  });
+  it('a caret ties the tip to its anchor, in CSS only', () => {
+    assert.match(css, /\.wn-tip::before/);
+    assert.match(css, /--wn-caret/);
   });
   it('motion only when the user has not asked for less', () => {
     assert.match(css, /prefers-reduced-motion:\s*no-preference/);

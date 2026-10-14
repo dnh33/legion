@@ -1,7 +1,8 @@
+import type { CSSProperties } from 'react';
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { useStore } from '../store';
+import { getState, useStore } from '../store';
 import { useAnswers } from '../projects/page/answerStore';
-import { autoStartTips, tipEnd, tipNext, tipSkipTour, tipsNeverAgain, useTips } from './tipsStore';
+import { autoStartTips, tipEnd, tipNext, tipsNeverAgain, useTips } from './tipsStore';
 import { isIdle, pickTip, placeTip } from './tipsLogic';
 import type { Box } from './tipsLogic';
 import './whatsnew.css';
@@ -16,14 +17,13 @@ export function WhatsNew() {
   const t = useTips();
   const loaded = useStore((s) => s.loaded);
   const version = useStore((s) => s.version);
-  const hasTasks = useStore((s) => s.tasks.length > 0);
   const approvals = useStore((s) => s.approvals.length);
   const questions = useStore((s) => s.questions.length);
   const answers = useAnswers();
   const holding = [...answers.values()].some((a) => a.kind === 'holding');
   const idle = isIdle({ approvals, questions, holding });
 
-  useEffect(() => { if (loaded && version) autoStartTips(version, hasTasks); }, [loaded, version, hasTasks]);
+  useEffect(() => { if (loaded && version) autoStartTips(version, () => { const s = getState(); return s.tasks.length > 0 || s.projects.length > 0 || s.onboardingDismissed; }); }, [loaded, version]);
 
   const [cur, setCur] = useState<{ id: string; box: Box } | null>(null);
   const tourRef = useRef(t);
@@ -95,14 +95,12 @@ export function WhatsNew() {
   const n = total - t.tour.pending.length + 1;
   const last = t.tour.pending.length === 1;
   return (
-    <div ref={ref} className="wn-tip" role="dialog" aria-label="What's new" aria-describedby="wn-text" data-placement={pos.placement} style={{ left: pos.left, top: pos.top }}>
+    <div ref={ref} className="wn-tip" role="dialog" aria-label="What's new" aria-describedby="wn-text" data-placement={pos.placement} style={{ left: pos.left, top: pos.top, '--wn-caret': `${pos.caret}px` } as CSSProperties}>
       <p className="wn-step">What's new, {n} of {total}</p>
       <p id="wn-text" className="wn-text">{tip.text}</p>
       <div className="wn-actions">
         <button type="button" className="btn primary sm" onClick={() => tipNext(tip.id)}>{last ? 'Done' : 'Next'}</button>
-        {!last && <button type="button" className="btn sm" onClick={() => tipNext(tip.id)}>Skip</button>}
-        {first && <button type="button" className="btn-ghost sm" onClick={tipSkipTour}>Skip tour</button>}
-        {first && <button type="button" className="btn-ghost sm" onClick={tipEnd}>End tour</button>}
+        <button type="button" className="btn-ghost sm" onClick={tipEnd}>End tour</button>
       </div>
       {first && <button type="button" className="wn-link" onClick={tipsNeverAgain}>Don't show tips after updates</button>}
     </div>

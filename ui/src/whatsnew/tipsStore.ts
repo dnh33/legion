@@ -5,9 +5,9 @@
 import { useSyncExternalStore } from 'react';
 import { tipsFor } from './releases';
 import type { Tip } from './releases';
-import { decideStart, endTour, nextTip, skipTour, startTour } from './tipsLogic';
+import { decideStart, nextTip, startTour } from './tipsLogic';
 import type { Tour } from './tipsLogic';
-import { hasPriorUse, markSeen, readEnabled, readSeen, writeEnabled } from './tipsStorage';
+import { markSeen, readEnabled, readSeen, writeEnabled } from './tipsStorage';
 import type { Kv } from './tipsStorage';
 
 export interface TipsState {
@@ -30,13 +30,28 @@ function set(p: Partial<TipsState>): void { state = { ...state, ...p }; subs.for
 export const getTips = (): TipsState => state;
 export function useTips(): TipsState { return useSyncExternalStore((cb) => { subs.add(cb); return () => { subs.delete(cb); }; }, () => state); }
 
-/** Once the app has loaded and knows its version: start the tour, or quietly record a fresh install. Safe to call again. */
-export function autoStartTips(version: string, tasksExist: boolean): void {
-  if (state.tour || !version) return;
+/**
+ * Once the app has loaded and knows its version: start the tour, or quietly record a fresh install. Safe to call again.
+ * `usedBefore` reads the evidence the core's own data gives of an earlier version (tasks, projects) or that the welcome screen was
+ * dismissed. The core keeps no last-version record, and the old key scan of localStorage was a guess a cleared cache breaks.
+ */
+let settling = false;
+export function autoStartTips(version: string, usedBefore: () => boolean): void {
+  if (state.tour || !version || settling) return;
   const tips = tipsFor(version);
-  const d = decideStart({ enabled: state.enabled, version, seen: readSeen(store()), priorUse: hasPriorUse(store()) || tasksExist, tipCount: tips.length });
-  if (d === 'mark-seen') markSeen(store(), version);
-  else if (d === 'start') set({ tour: startTour(tips.map((t) => t.id)), version, tips, moved: 0 });
+  const decide = (): 'start' | 'mark-seen' | 'none' => decideStart({ enabled: state.enabled, version, seen: readSeen(store()), priorUse: usedBefore(), tipCount: tips.length });
+  const d = decide();
+  if (d === 'start') set({ tour: startTour(tips.map((t) => t.id)), version, tips, moved: 0 });
+  else if (d === 'mark-seen') {
+    // Projects and tasks arrive a moment after the app says it is loaded: look again before calling this a fresh install.
+    settling = true;
+    setTimeout(() => {
+      settling = false;
+      const again = decide();
+      if (again === 'start') set({ tour: startTour(tips.map((t) => t.id)), version, tips, moved: 0 });
+      else if (again === 'mark-seen') markSeen(store(), version);
+    }, 2500);
+  }
 }
 
 /** The "What's new" button: this release's tips again, whatever was seen. Each shows when its page is on screen. */
@@ -53,16 +68,10 @@ export function tipNext(id: string): void {
   const tour = nextTip(state.tour, id);
   set({ tour: tour.pending.length ? tour : null, moved: state.moved + 1 });
 }
+/** End tour (and Escape): stop, and this version counts as seen. */
 export function tipEnd(): void {
   if (!state.tour) return;
-  const r = endTour(state.tour);
-  if (r.markSeen) markSeen(store(), state.version);
-  set({ tour: null });
-}
-export function tipSkipTour(): void {
-  if (!state.tour) return;
-  const r = skipTour(state.tour);
-  if (r.markSeen) markSeen(store(), state.version);
+  markSeen(store(), state.version);
   set({ tour: null });
 }
 export function setTipsEnabled(on: boolean): void { writeEnabled(store(), on); set({ enabled: on }); }

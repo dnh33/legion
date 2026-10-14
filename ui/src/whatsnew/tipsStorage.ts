@@ -7,7 +7,6 @@ export interface Kv { readonly length: number; key(i: number): string | null; ge
 
 export const SEEN_KEY = 'legion.tips.seen';
 export const ENABLED_KEY = 'legion.tips.enabled';
-const OWN = 'legion.tips.';
 
 export function readSeen(kv: Kv): string[] {
   try {
@@ -29,15 +28,4 @@ export function readEnabled(kv: Kv): boolean {
 
 export function writeEnabled(kv: Kv, on: boolean): void {
   try { kv.setItem(ENABLED_KEY, on ? '1' : '0'); } catch { /* not remembered */ }
-}
-
-/** True when this window has stored anything of its own before (theme, onboarding, project filter...). A fresh install has not. */
-export function hasPriorUse(kv: Kv): boolean {
-  try {
-    for (let i = 0; i < kv.length; i++) {
-      const k = kv.key(i);
-      if (k && k.startsWith('legion.') && !k.startsWith(OWN)) return true;
-    }
-    return false;
-  } catch { return false; }
 }
