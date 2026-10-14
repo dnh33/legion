@@ -9,10 +9,10 @@ import type { NativeImage } from 'electron';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import type { AttentionView, LegionEvent, StateSnapshot } from '../shared/types.js';
-import { initialPlanState, plan, sanitizeName } from './attention.js';
-import type { AskSignal, FocusInfo, NameLookup, Notif, NotifyLevel, PlanInput, PlanState, Prefs } from './attention.js';
+import { adoptOpen, initialPlanState, plan } from './attention.js';
+import type { FocusInfo, Notif, NotifyLevel, PlanInput, PlanState, Prefs } from './attention.js';
 import { OVERLAY_SIZES, overlayFile } from './overlay-files.js';
-import { eventSignals, SseReader } from './signals-logic.js';
+import { Feed, follow } from './signals-logic.js';
 
 export interface SignalsDeps {
   /** The core's port and the admin header, only while main holds a proven core of its own. */
@@ -30,37 +30,26 @@ export interface Signals {
   attach(win: BrowserWindow): void;
   /** The window says what it shows (IPC). */
   setView(v: { pageProjectId: string | null; threadTaskId: string | null }): void;
+  /** Where "open what needs you" goes. */
+  firstRef(): { projectId?: string; taskId?: string };
   stop(): void;
 }
 
-const POLL_MS = 3000;
 const SPEND_MS = 20_000;
 
 export function startSignals(d: SignalsDeps): Signals {
   let stopped = false;
   let state: PlanState = initialPlanState();
-  const open = new Map<string, AskSignal>();
-  const statuses = new Map<string, string>();
-  const agents = new Map<string, string>();
-  const projects = new Map<string, string>();
-  const taskProject = new Map<string, string>();
-  let total = 0;
+  const feed = new Feed();
   let spent = 0;
   let spentAt = 0;
   let prefs: Prefs = { enabled: true, returnSummary: true, levels: {} };
   let view = { pageProjectId: null as string | null, threadTaskId: null as string | null };
-  let pending: { failed: PlanInput['failed']; finished: PlanInput['finished']; budget: PlanInput['budget'] } = { failed: [], finished: [], budget: [] };
   let timer: ReturnType<typeof setTimeout> | undefined;
   let lastOverlay: { key: string | null; description: string } | undefined;
   let abort: AbortController | undefined;
   const live = new Set<Notification>();
   const imageCache = new Map<string, NativeImage>();
-
-  const names: NameLookup = {
-    agent: (id) => agents.get(id),
-    project: (id) => projects.get(id),
-    projectOfTask: (t) => taskProject.get(t),
-  };
 
   async function get<T>(route: string): Promise<T | undefined> {
     const c = d.core();
@@ -111,7 +100,7 @@ export function startSignals(d: SignalsDeps): Signals {
       note.on('click', () => {
         done();
         d.showWindow();
-        d.openAsk(n.target);
+        d.openAsk(Object.keys(n.target).length ? n.target : feed.firstRef());
       });
       note.on('close', done);
       note.on('failed', done);
@@ -135,23 +124,17 @@ export function startSignals(d: SignalsDeps): Signals {
     prefs = { enabled: a.app?.notify?.enabled !== false, returnSummary: a.app?.notify?.returnSummary !== false, ...(a.app?.quiet ? { quiet: a.app.quiet } : {}), levels };
   }
 
+  /** A fresh look at the core, at start and after every reconnect. Asks already open are adopted, so none gets a pop-up. */
   async function seed(): Promise<void> {
     const [st, pr, at] = await Promise.all([get<StateSnapshot>('/api/state?slim=1'), get<Array<{ id: string; name: string }>>('/api/projects'), get<AttentionView>('/api/attention')]);
     if (st) {
-      agents.clear();
-      for (const a of st.agents) agents.set(a.id, a.name);
-      for (const t of st.tasks) { if (t.projectId) taskProject.set(t.id, t.projectId); statuses.set(t.id, t.status); }
-      open.clear();
-      const fixed = (kind: AskSignal['kind'], s: { id: string; taskId: string; agentId: string; projectId?: string }): void => {
-        const projectId = s.projectId ?? taskProject.get(s.taskId) ?? null;
-        open.set(`a:${s.id}`, { key: `a:${s.id}`, kind, agentName: sanitizeName(agents.get(s.agentId)), projectId, projectName: projectId ? sanitizeName(projects.get(projectId)) || null : null, taskId: s.taskId });
-      };
-      if (pr) { projects.clear(); for (const p of pr) projects.set(p.id, p.name); }
-      for (const a of st.approvals) fixed('approval', a);
-      for (const q of st.questions ?? []) fixed('question', q);
-      for (const p of st.parked ?? []) fixed('parked', p);
-    }
-    if (at) total = at.total;
+      const keys = feed.reseed({
+        agents: st.agents, ...(pr ? { projects: pr } : {}), tasks: st.tasks, approvals: st.approvals,
+        ...(st.questions ? { questions: st.questions } : {}), ...(st.parked ? { parked: st.parked } : {}),
+        attention: at ?? { total: feed.total, byProject: feed.byProject },
+      });
+      state = adoptOpen(state, keys);
+    } else if (at) feed.setCount(at.total, at.byProject);
     await refreshPrefs();
     await refreshSpend(true);
   }
@@ -168,9 +151,7 @@ export function startSignals(d: SignalsDeps): Signals {
     if (stopped) return;
     const f = focus();
     if (!f.focused || prefs.quiet?.enabled) await refreshSpend();
-    const asks = [...open.values()];
-    const input: PlanInput = { total, asks, ...pending, spentUsd: spent, prefs, focus: f };
-    pending = { failed: [], finished: [], budget: [] };
+    const input: PlanInput = { total: feed.total, asks: [...feed.open.values()], ...feed.takePending(), spentUsd: spent, prefs, focus: f };
     const r = plan(state, input, Date.now());
     state = r.state;
     if (r.overlay) { lastOverlay = r.overlay; applyOverlay(d.getWin(), r.overlay); }
@@ -180,49 +161,19 @@ export function startSignals(d: SignalsDeps): Signals {
   }
 
   function onEvent(ev: LegionEvent): void {
-    switch (ev.type) {
-      case 'attention.updated': total = ev.attention.total; break;
-      case 'away.updated': void refreshPrefs().then(() => run()); return;
-      case 'agent.updated': agents.set(ev.agent.id, ev.agent.name); break;
-      case 'project.updated': projects.set(ev.project.id, ev.project.name); break;
-      case 'task.updated': if (ev.task.projectId) taskProject.set(ev.task.id, ev.task.projectId); break;
-      default: break;
-    }
-    const sig = eventSignals(ev, open, names, statuses);
-    if (sig.failed) pending.failed.push(...sig.failed);
-    if (sig.finished) pending.finished.push(...sig.finished);
-    if (sig.budget) pending.budget.push(...sig.budget);
+    if (ev.type === 'away.updated') { void refreshPrefs().then(() => run()); return; }
+    feed.apply(ev);
     void run();
   }
 
-  /** The stream, forever: reconnects after a drop, and polls the count meanwhile. */
-  async function follow(): Promise<void> {
-    while (!stopped) {
-      const c = d.core();
-      if (!c) { await sleep(POLL_MS); continue; }
-      abort = new AbortController();
-      try {
-        const res = await fetch(`http://127.0.0.1:${c.port}/api/events`, { headers: c.headers, signal: abort.signal });
-        if (!res.ok || !res.body) throw new Error(`events ${res.status}`);
-        await seed();
-        await run();
-        const reader = new SseReader();
-        const dec = new TextDecoder();
-        for await (const chunk of res.body as unknown as AsyncIterable<Uint8Array>) {
-          if (stopped) break;
-          for (const ev of reader.push(dec.decode(chunk, { stream: true }))) onEvent(ev as LegionEvent);
-        }
-      } catch { /* dropped: fall through to the poll */ }
-      if (stopped) return;
-      // the stream is down: keep the number honest by polling until it can be opened again
-      const until = Date.now() + POLL_MS;
-      const at = await get<AttentionView>('/api/attention');
-      if (at && at.total !== total) { total = at.total; await run(); }
-      await sleep(Math.max(0, until - Date.now()));
-    }
-  }
-
-  void follow();
+  abort = new AbortController();
+  const fetchFn: typeof fetch = (input, init) => fetch(input, { ...init, signal: abort!.signal });
+  void follow({
+    core: d.core, fetchFn, stopped: () => stopped, sleep,
+    onConnected: async () => { await seed(); await run(); },
+    onEvent,
+    onPoll: async (a) => { if (a.total !== feed.total) { feed.setCount(a.total, a.byProject); await run(); } },
+  });
 
   return {
     attach(w) {
@@ -233,6 +184,7 @@ export function startSignals(d: SignalsDeps): Signals {
       applyOverlay(w, lastOverlay);
     },
     setView(v) { view = v; void run(); },
+    firstRef: () => feed.firstRef(),
     stop() { stopped = true; abort?.abort(); if (timer) clearTimeout(timer); },
   };
 }

@@ -223,7 +223,18 @@ function summary(parts: { need: number; failed: number; budget: number; spent: n
   return { tag: 'summary', title: `While you were away: ${text.join(', ')}.`, body: 'Open Legion to see more.', target: {} };
 }
 
-const trim = (known: string[]): string[] => (known.length > KNOWN_MAX ? known.slice(known.length - KNOWN_MAX) : known);
+/** Past the cap the oldest CLOSED keys go first; a key that is still open stays, or its ask would be announced again. */
+const trim = (known: string[], open: ReadonlySet<string>): string[] => {
+  let extra = known.length - KNOWN_MAX;
+  if (extra <= 0) return known;
+  return known.filter((k) => (extra > 0 && !open.has(k) ? (extra--, false) : true));
+};
+
+/** Asks that are already open when Legion starts or reconnects are known, not news: they get no pop-up (the number still shows). */
+export function adoptOpen(state: PlanState, keys: readonly string[]): PlanState {
+  const have = new Set(keys);
+  return { ...state, known: trim([...state.known.filter((k) => !have.has(k)), ...keys], have) };
+}
 
 export function plan(prev: PlanState, inp: PlanInput, now: number): PlanResult {
   const state: PlanState = { ...prev, known: [...prev.known], burst: [...prev.burst], held: { ...prev.held } };
@@ -257,7 +268,7 @@ export function plan(prev: PlanState, inp: PlanInput, now: number): PlanResult {
     if (quiet) hold(state, it);
     else { state.burst.push(it); if (state.burstSince === null) state.burstSince = now; }
   }
-  state.known = trim(state.known);
+  state.known = trim(state.known, new Set(inp.asks.map((a) => a.key)));
 
   // a burst is announced when its window has passed
   if (state.burst.length && state.burstSince !== null && now - state.burstSince >= BURST_MS) {

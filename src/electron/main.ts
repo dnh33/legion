@@ -525,7 +525,7 @@ let trayText = 'Legion';
 let trayAsks = false;
 function trayMenu(): Menu {
   return Menu.buildFromTemplate([
-    ...(trayAsks ? [{ label: 'Open what needs you', click: () => { showWindow(); sendOpenAsk({}); } }] : []),
+    ...(trayAsks ? [{ label: 'Open what needs you', click: () => { showWindow(); sendOpenAsk(signals?.firstRef() ?? {}); } }] : []),
     { label: 'Show Legion', click: showWindow },
     { label: 'Freeze BSV chain', click: () => void bsvPolicyChange({ kind: 'freeze' }) },
     { label: 'Restart core', click: () => void restartCore() },
