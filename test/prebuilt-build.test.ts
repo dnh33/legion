@@ -1,7 +1,7 @@
 /** scripts/build-package.mjs with a fake electron and a fake claude: layout, pruning, SDK check, determinism, subset, round trip through the installer and the updater's stager. */
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync, readFileSync, rmSync } from 'node:fs';
+import { cpSync, existsSync, readFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { load, builtTree, fakeElectronDist, fakeNodeModules, FAKE_CLAUDE, installer, put, sha, tmp } from './prebuilt-helpers.js';
 const { readZipEntry, listZipNames } = await load('scripts/lib/release-lib.mjs');
@@ -109,4 +109,20 @@ test('zip writer: refuses unsorted or duplicate entries, writes nothing on failu
   assert.equal(existsSync(f), false); assert.equal(existsSync(f + '.part'), false);
   const w = writeZipFile(f, [{ name: 'a', data: Buffer.alloc(0) }, { name: 'b', data: Buffer.from('hello') }]);
   const z = readFileSync(f); assert.equal(w.sha256, sha(z)); assert.equal(readZipEntry(z, 'b').toString(), 'hello'); assert.equal(readZipEntry(z, 'a').length, 0);
+});
+
+test('build: the tokenizer package ships only the o200k vocabulary, and a build without it is refused', async () => {
+  const withTokenizer = (): string => {
+    const root = builtTree();
+    put(root, 'package.json', JSON.stringify({ name: 'legion', version: '0.9.0', type: 'module', dependencies: { 'gpt-tokenizer': '4.0.0' } }));
+    return root;
+  };
+  const nm = fakeNodeModules();
+  cpSync(join(process.cwd(), 'node_modules', 'gpt-tokenizer'), join(nm, 'gpt-tokenizer'), { recursive: true });
+  const { r } = await build({ root: withTokenizer(), nodeModules: nm });
+  const names = listZipNames(readFileSync(r.zip));
+  const top = 'legion-0.9.0/node_modules/gpt-tokenizer/';
+  assert.ok(names.includes(top + 'cjs/bpeRanks/o200k_base.js'));
+  assert.ok(!names.some((n: string) => n.startsWith(top + 'data/') || n.startsWith(top + 'esm/') || /bpeRanks\/(cl100k|p50k|r50k)/.test(n)), 'no other vocabulary, no sources');
+  await assert.rejects(build({ root: withTokenizer() }), /gpt-tokenizer is a dependency but is not installed/);
 });

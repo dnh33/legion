@@ -9,7 +9,7 @@ import { spawnSync } from 'node:child_process';
 import { basename, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { args, die, isReleaseVersion, listZipNames, loadDist, readZipEntry, REPO } from './lib/release-lib.mjs';
-import { APP_SHIM_REL, appShim, CAPS, checkSdkBinary, ELECTRON_REL, FILES_LIST, isSafeRel, listTree, packageAssetName, PLATFORM, pruneSdkPlatforms, sha256File } from './lib/package-lib.mjs';
+import { APP_SHIM_REL, appShim, CAPS, checkSdkBinary, ELECTRON_REL, FILES_LIST, isSafeRel, listTree, packageAssetName, PLATFORM, pruneSdkPlatforms, pruneTokenizer, sha256File } from './lib/package-lib.mjs';
 import { writeZipFile } from './lib/zip-stream.mjs';
 
 const sha = (b) => createHash('sha256').update(b).digest('hex');
@@ -41,6 +41,9 @@ export async function buildPackage(o) {
 
   const gone = pruneSdkPlatforms(o.nodeModules);
   log(`removed other SDK platforms: ${gone.join(', ') || 'none'}`);
+  const tok = pruneTokenizer(o.nodeModules);
+  if (pkg.dependencies?.['gpt-tokenizer'] && !tok) throw new Error('gpt-tokenizer is a dependency but is not installed in node_modules');
+  if (tok) log(`gpt-tokenizer: kept the o200k vocabulary, removed ${Math.round(tok.removedBytes / 1e6)} MB`);
   const sdk = await checkSdkBinary(o.nodeModules);
   const sdkVersion = JSON.parse(readFileSync(join(o.nodeModules, '@anthropic-ai', 'claude-agent-sdk', 'package.json'), 'utf8')).version;
 

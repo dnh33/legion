@@ -2,7 +2,8 @@
 // Plain Node, no dependencies. Nothing here talks to the network.
 import { createHash } from 'node:crypto';
 import { createReadStream, existsSync, lstatSync, readdirSync, readFileSync, rmSync } from 'node:fs';
-import { posix, win32, join } from 'node:path';
+import { spawnSync } from 'node:child_process';
+import { posix, win32, join, resolve } from 'node:path';
 
 export const PLATFORM = 'win32-x64';
 export const ELECTRON_REL = 'runtime/electron/electron.exe';
@@ -145,6 +146,37 @@ export function pruneSdkPlatforms(nodeModules, keep = SDK_PKG.split('/')[1]) {
   for (const n of sdkPlatformDirs(nodeModules)) if (n !== keep) { rmSync(join(nodeModules, '@anthropic-ai', n), { recursive: true, force: true }); gone.push(n); }
   return gone;
 }
+
+/** The one gpt-tokenizer entry point Legion counts with (src/core/providers/compaction.ts), relative to the package folder. */
+export const TOKENIZER_ENTRY = 'cjs/encoding/o200k_base.js';
+/**
+ * gpt-tokenizer holds five vocabularies and their sources (27 MB unpacked); Legion uses one. Loads the entry point, notes
+ * every file it pulls in, and deletes the rest of the package folder except package.json and the licence. Returns null when
+ * the package is not installed, else { removedBytes }. Safe to run twice. Fails if the pruned copy can no longer count.
+ */
+export function pruneTokenizer(nodeModules) {
+  const dir = resolve(nodeModules, 'gpt-tokenizer');
+  if (!existsSync(join(dir, 'package.json'))) return null;
+  const entry = join(dir, ...TOKENIZER_ENTRY.split('/'));
+  const probe = `require(${JSON.stringify(entry)}); process.stdout.write(JSON.stringify(Object.keys(require.cache)))`;
+  const traced = spawnSync(process.execPath, ['-e', probe], { encoding: 'utf8', maxBuffer: 1 << 24 });
+  if (traced.status !== 0) throw new Error(`gpt-tokenizer would not load from ${TOKENIZER_ENTRY}: ${traced.stderr.slice(0, 300)}`);
+  const keep = new Set(JSON.parse(traced.stdout).map((f) => resolve(f).toLowerCase()));
+  for (const n of ['package.json', 'LICENSE']) keep.add(join(dir, n).toLowerCase());
+  let removedBytes = 0;
+  const walk = (d) => {
+    for (const e of readdirSync(d, { withFileTypes: true })) {
+      const f = join(d, e.name);
+      if (e.isDirectory()) { walk(f); if (readdirSync(f).length === 0) rmSync(f, { recursive: true, force: true }); }
+      else if (!keep.has(f.toLowerCase())) { removedBytes += lstatSync(f).size; rmSync(f, { force: true }); }
+    }
+  };
+  walk(dir);
+  const check = spawnSync(process.execPath, ['-e', `process.stdout.write(String(require(${JSON.stringify(entry)}).countTokens('hello world')))`], { encoding: 'utf8' });
+  if (check.status !== 0 || check.stdout !== '2') throw new Error(`gpt-tokenizer no longer counts after pruning: ${(check.stderr || check.stdout).slice(0, 300)}`);
+  return { removedBytes };
+}
+
 /** claude.exe must be there, and equal the size and sha256 the SDK's own manifest.json gives for win32-x64. Returns { size, sha256 }. */
 export async function checkSdkBinary(nodeModules) {
   const dir = join(nodeModules, '@anthropic-ai', SDK_PKG.split('/')[1]);
