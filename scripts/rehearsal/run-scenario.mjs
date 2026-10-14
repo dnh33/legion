@@ -4,6 +4,8 @@
 //   locked    a file under node_modules is held open during the swap: the update is refused cleanly, the old version keeps running
 //   slow-short / slow-long   the new build's core starts 25 s / 75 s late (past the app's 15 s wait, and for slow-long past the old
 //             helper's 60 s window): whichever way it settles, the install is whole and runs (the new version, or the old one restored)
+//   vanished-live  the same, but from the LIVE release: its own (older) helper does the swap, so the check below is not there yet.
+//             Kept strict on purpose: a failure here is a finding about the live release, not something to bend the scenario around.
 //   chain     the live release is updated by a CODE-ONLY candidate built from this checkout (0.98.0), then by the full-package
 //             candidate (0.99.0): the second swap must be done by the NEW helper (its log line carries the helper stamp)
 //   vanished  the staged runtime folder disappears after staging (an antivirus): the swap is refused before anything moves.
@@ -23,7 +25,7 @@ import { args, die } from '../lib/release-lib.mjs';
 
 const a = args(process.argv.slice(2), { scenario: 'v', install: 'v', prepared: 'v', work: 'v', baseline: 'v' });
 for (const k of ['scenario', 'install', 'prepared', 'work', 'baseline']) if (!a[k]) die(`--${k} is required`);
-if (!['success', 'rollback', 'locked', 'slow-short', 'slow-long', 'vanished', 'chain'].includes(a.scenario)) die('--scenario must be success, rollback, locked, slow-short, slow-long, vanished or chain');
+if (!['success', 'rollback', 'locked', 'slow-short', 'slow-long', 'vanished', 'vanished-live', 'chain'].includes(a.scenario)) die('--scenario must be success, rollback, locked, slow-short, slow-long, vanished, vanished-live or chain');
 const here = dirname(fileURLToPath(import.meta.url));
 const install = resolve(a.install), work = resolve(a.work), preparedDir = resolve(a.prepared);
 const prepared = { ...JSON.parse(readFileSync(join(preparedDir, 'prepared.json'), 'utf8')), pubKeyFile: join(preparedDir, 'legion-update-k1.pub.pem') };
@@ -98,6 +100,28 @@ function scanLogs() {
   if (process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMMARY, `\n#### Installed copy's logs (${a.scenario}): ${seen.length} error/warning line(s)\n\`\`\`\n${seen.slice(0, 60).join('\n')}\n\`\`\`\n`);
 }
 
+/** One line per scenario for the reviewer: what ended up running, whether the install is whole, whether data survived, and which code decided. */
+async function report() {
+  const h = await health();
+  const al = existsSync(join(up, 'apply.log')) ? readFileSync(join(up, 'apply.log'), 'utf8').split('\n').filter(Boolean) : [];
+  const swaps = al.filter((l) => / apply \S+ -> \S+/.test(l)).map((l) => `${l.match(/apply \S+ -> \S+/)[0]} by ${l.includes('[helper:') ? 'NEW helper' : 'OLD helper (no stamp)'}`);
+  const settle = al.filter((l) => l.includes('new build ')).map((l) => l.replace(/^\[[^\]]*\] /, ''));
+  const j = readJson(join(up, 'journal.json')), o = readJson(join(up, 'outcome.json'));
+  let intact = 'unknown';
+  try {
+    if (h?.version === a.baseline) { const d = diff(before, await tree(install)); intact = d.length ? `NO, differs from baseline: ${d.slice(0, 5).join(', ')}` : 'yes, byte-identical to the baseline'; }
+    else if (h?.version === good) {
+      const list = readJson(join(preparedDir, 'served', 'good', 'PACKAGE-FILES.json')); const wrong = [];
+      for (const f of list?.files ?? []) { try { if ((await sha(join(install, ...f.path.split('/')))) !== f.sha256) wrong.push(f.path); } catch { wrong.push(f.path); } }
+      intact = wrong.length ? `NO, ${wrong.length} file(s) differ from the new package: ${wrong.slice(0, 5).join(', ')}` : 'yes, equals the new package';
+    }
+  } catch (e) { intact = `check failed: ${e.message}`; }
+  const data = existsSync(join(home, 'rehearsal-marker.txt')) && readFileSync(join(home, 'rehearsal-marker.txt'), 'utf8').startsWith('user data') ? 'survived' : 'LOST';
+  const line = `REPORT ${a.scenario}: running ${h?.version ?? 'nothing answering'}; install intact: ${intact}; data folder: ${data}; journal ${j?.state ?? '-'}, outcome ${o?.result ?? '-'}${o?.reason ? ` (${o.reason.slice(0, 120)})` : ''}; swap: ${swaps.join(' | ') || 'none'}; new build at start: ${settle.join(' | ') || 'nothing logged'}`;
+  log(line);
+  if (process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMMARY, `\n${line}\n`);
+}
+
 function collect() {
   try { cpSync(join(home, 'logs'), join(art, 'logs'), { recursive: true }); } catch { /* no logs folder */ }
   try { for (const n of readdirSync(home)) if (/^core\.log/.test(n)) cpSync(join(home, n), join(art, n)); } catch { /* none */ }
@@ -109,10 +133,11 @@ function collect() {
 }
 
 let holder = null;
+let before = {};
 try {
   log(`scenario ${a.scenario}: baseline ${a.baseline} installed at ${install}`);
   check(readJson(join(install, 'build-info.json'))?.version === a.baseline, `the install is ${a.baseline}`);
-  const before = await tree(install);
+  before = await tree(install);
   log(`baseline tree hashed: ${Object.keys(before).length} files`);
 
   children.push(spawn(process.execPath, [join(here, 'serve.mjs'), '--served', join(preparedDir, 'served'), '--control', control, '--port', String(PORT), '--log', serveLog], { stdio: 'ignore', windowsHide: true }));
@@ -215,7 +240,7 @@ try {
     for (const f of list?.files ?? []) { try { if ((await sha(join(install, ...f.path.split('/')))) !== f.sha256) wrong.push(f.path); } catch { wrong.push(f.path); } }
     check(wrong.length === 0, `the install is the complete full package (${list?.files.length ?? 0} files${wrong.length ? `; wrong: ${wrong.slice(0, 5).join(', ')}` : ''})`);
     check(await waitFor('the old copy to be cleaned', async () => !existsSync(join(up, 'prev')), 120000) !== null, '.update/prev was deleted after the healthy start');
-  } else if (a.scenario === 'vanished') {
+  } else if (a.scenario.startsWith('vanished')) {
     const staged = join(up, 'staging', good, 'stage.json');
     const seen = await waitFor('the package to be staged', async () => (existsSync(staged) ? true : null), 600000);
     check(!!seen, 'the candidate was downloaded, checked and staged');
@@ -249,6 +274,7 @@ try {
 } catch (e) {
   problems.push(`the scenario stopped: ${e.message}`); log(`FAIL  the scenario stopped: ${e.stack || e.message}`);
 } finally {
+  try { await report(); } catch (e) { log(`report failed: ${e.message}`); }
   collect();
   try { if (holder) holder.kill(); } catch { /* gone */ }
   killInstalled();

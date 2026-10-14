@@ -205,9 +205,13 @@ export async function settleAfterStart(installDir: string, runningVersion: strin
   try {
     const j = readJournal(installDir);
     if (!j || j.to !== runningVersion) return;
-    if (j.state === 'awaiting-health') markCommitted(installDir);
+    const note = (line: string): void => { try { appendFileSync(join(upDir(installDir), 'apply.log'), `[${new Date().toISOString()}] ${line}
+`); } catch { /* ignore */ } };
+    if (j.state === 'awaiting-health') { markCommitted(installDir); note(`new build ${runningVersion} started healthy and confirmed the update`); }
     else if (j.state !== 'committed') return;
+    const had = existsSync(prevDir(installDir));
     await cleanPrev(installDir);
+    if (had) note(`new build ${runningVersion} removed the previous copy`);
   } catch { /* a failed cleanup only leaves a folder behind */ }
 }
 

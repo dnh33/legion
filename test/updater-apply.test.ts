@@ -405,3 +405,14 @@ test('R3: the helper stamps its generation in the log, so a rehearsal can tell w
   assert.equal(await runApply(job(f), deps({ f, newHealthy: true, log: (l: string) => lines.push(l) })), 'ok');
   assert.ok(lines.some((l) => l.includes(APPLY_HELPER_STAMP) && l.includes('1.0.0 -> 1.1.0')), lines.join(' | '));
 });
+
+test('R4: the new build writes what it did at start into apply.log, so a log shows who confirmed and who cleaned', async () => {
+  const f = fixture();
+  await swapIn({ installDir: f.install, stagedDir: f.staged, from: '1.0.0', to: '1.1.0', names: FULL_PACKAGE_SET });
+  await settleAfterStart(f.install, '1.1.0');
+  const log = readFileSync(join(f.install, '.update', 'apply.log'), 'utf8');
+  assert.match(log, /new build 1\.1\.0 .*confirmed the update/);
+  assert.match(log, /new build 1\.1\.0 .*removed the previous copy/);
+  await settleAfterStart(f.install, '1.0.0'); // another version: writes nothing more
+  assert.equal(readFileSync(join(f.install, '.update', 'apply.log'), 'utf8'), log);
+});

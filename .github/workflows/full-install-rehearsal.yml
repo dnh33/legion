@@ -8,6 +8,7 @@ name: Full-install rehearsal
 #   rollback  a first start that fails puts the previous version back byte for byte
 #   locked    a file held open under node_modules makes the swap refuse cleanly and the old version keeps running
 #   slow-short, slow-long   the new build's core starts 25 s / 75 s late; the install must be whole and running however it settles
+#   vanished-live  the same from the live release, whose own helper does the swap (reported, does not gate)
 #   chain     live release -> code-only candidate from this checkout -> full-package candidate: the second swap runs the NEW helper
 #   vanished  the staged runtime folder disappears before the swap (an antivirus): the swap is refused and the old version stays
 #             (from a baseline built from this checkout, since the swap helper belongs to the version updated from)
@@ -82,13 +83,15 @@ jobs:
   scenario:
     name: ${{ matrix.scenario }}
     needs: prepare
+    # vanished-live documents a known limit of the LIVE release (its helper predates the staged-folder check). Its result is read, it does not gate.
+    continue-on-error: ${{ matrix.scenario == 'vanished-live' }}
     if: github.repository == 'dnh33/legion'
     runs-on: windows-latest
     timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
-        scenario: [success, rollback, locked, slow-short, slow-long, vanished, chain]
+        scenario: [success, rollback, locked, slow-short, slow-long, vanished, vanished-live, chain]
     defaults:
       run:
         shell: pwsh
