@@ -73,7 +73,7 @@ export function SoundsSection() {
         <>
           <div className="snd-opt">
             <div><b>Play sounds</b><span className="snd-h">Turn this off and Legion makes no sound at all.</span></div>
-            <Switch id="snd-master" on={sounds.enabled} label="Play sounds" onChange={(on) => { void patch({ enabled: on }).then((ok) => { if (ok && on) playFeedback('check', shown, pack); }); }} />
+            <Switch silent id="snd-master" on={sounds.enabled} label="Play sounds" onChange={(on) => { void patch({ enabled: on }).then((ok) => { if (ok && on) playFeedback('check', shown, pack); }); }} />
           </div>
           <div className="snd-opt snd-vol">
             <label htmlFor="sounds-volume"><b>Volume</b></label>
