@@ -4,6 +4,8 @@ All notable changes are recorded here. The format follows [Keep a Changelog](htt
 
 ## [Unreleased]
 
+## [0.2.7] - 2026-10-14
+
 ### Added
 
 - **Stop a team.** When a task has started other tasks, you can stop it and everything it started in one click ("Stop

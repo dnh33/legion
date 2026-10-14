@@ -6,7 +6,7 @@ Now one click stops the task and everything it started: "Stop this and the 2 tas
 Try it: open the task menu, or use Stop all next to Stop.
 
 Also new:
-- OpenAI, Ollama, LM Studio and vLLM are usable in Settings, Providers.
+- OpenAI, Ollama, LM Studio and vLLM work in Settings, Providers. Each card has a link to tell us how it goes.
 - Resting mascots are still pictures, so the agent list and pages move smoothly.
 - An agent's task tabs follow the project you chose.
 Fixed:
