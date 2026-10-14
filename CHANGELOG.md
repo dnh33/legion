@@ -6,7 +6,7 @@ All notable changes are recorded here. The format follows [Keep a Changelog](htt
 
 ## [0.3.0] - 2026-10-14
 
-### Runs without you
+### Projects: what needs you comes first
 
 - **The project page opens on what needs you.** A project now has tabs (Overview, Board, Tasks, Rooms, Settings). Overview shows who is working right now, then "Since you last looked": the three riskiest asks first, each with what saying yes would do, and the rest behind "N more". Failed, stopped and finished work folds into one line. "Mark as seen" moves the starting point. You can allow or deny a command, answer a question, or accept or reject a board proposal right there.
 - **Allow waits a few seconds first, so you can take it back.** On the project page an Allow is held for 5 seconds (10 seconds for something that leaves your computer, deletes files or cannot be undone), with Undo and Send now. Deny goes at once. If you close or reload the window during the wait, nothing is sent and the ask is still waiting. With the keyboard, A on an irreversible ask needs a second A within 2 seconds.
