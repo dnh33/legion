@@ -5,7 +5,7 @@ import { Menu } from './page/Menu';
 import { useAllProposals } from './useProposals';
 import { PIcon } from './page/PIcon';
 import { NewProjectDialog } from './NewProjectDialog';
-import { projectLabel } from './projectsLogic';
+import { elsewhereBadge, projectLabel } from './projectsLogic';
 import { projectMenu } from './page/pageLogic';
 import { openProject, setProjectFilter } from './projectsStore';
 import './projects.css';
@@ -33,6 +33,7 @@ export function ProjectSwitcher() {
   useEffect(() => { const on = (): void => setOpen(true); window.addEventListener(OPEN_EVENT, on); return () => window.removeEventListener(OPEN_EVENT, on); }, []);
   const asks = useMemo(() => deriveAsks({ approvals, questions, tasks, proposals }), [approvals, questions, tasks, proposals]);
   const menu = useMemo(() => projectMenu(projects, asks, filter), [projects, asks, filter]);
+  const badge = elsewhereBadge(menu.elsewhere);
   const current = filter ? projects.find((p) => p.id === filter) : undefined;
   const label = current ? projectLabel(current) : 'All projects';
   return (
@@ -41,7 +42,7 @@ export function ProjectSwitcher() {
       <button ref={btn} type="button" className="pg-proj" id="proj-select" aria-haspopup="menu" aria-expanded={open} aria-labelledby="proj-label proj-select-name"
         aria-describedby={menu.elsewhere ? 'proj-else' : undefined} title={`Shows ${label}. Pick a project to filter the rail and the tasks.`} onClick={() => setOpen((v) => !v)}>
         <span className="pn" id="proj-select-name">{label}</span>
-        {menu.elsewhere > 0 && <span className="else" id="proj-else" title="Waiting in other projects. Opens the project list." aria-label={`${menu.elsewhere} ${menu.elsewhere === 1 ? 'ask' : 'asks'} waiting in other projects`}><i aria-hidden="true" /><span aria-hidden="true">{menu.elsewhere} waiting elsewhere</span></span>}
+        {menu.elsewhere > 0 && <span className="else" id="proj-else" title={`${badge.full}. Opens the project list.`} aria-label={`${menu.elsewhere} ${menu.elsewhere === 1 ? 'ask' : 'asks'} waiting in other projects`}><i aria-hidden="true" /><span aria-hidden="true"><span className="else-n">{badge.count}</span><span className="else-words"> {badge.words}</span></span></span>}
         <PIcon name="chev" size={12} />
       </button>
       {open && (

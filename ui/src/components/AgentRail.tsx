@@ -1,10 +1,11 @@
-import { useMemo } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 import { openEditor, selectAgent, useStore } from '../store';
 import { Icon } from './icons';
 import { vmTone, vmLabel } from '../util';
 import { Bust } from '../mascot/Bust';
 import { ProjectSwitcher, openProjectMenu } from '../projects/ProjectSwitcher';
-import { agentsFor, waitingElsewhere } from '../projects/projectsLogic';
+import { agentsFor, waitingChangeLine, waitingElsewhere } from '../projects/projectsLogic';
+import { announce } from '../projects/page/announce';
 import { agentAsks, railLine } from '../projects/page/pageLogic';
 import { AgentBust } from '../projects/page/AgentBust';
 import { hasBust } from '../mascot/busts';
@@ -38,6 +39,14 @@ export function AgentRail() {
   // anything waiting on the owner stays in sight whatever project is in view (decision B1): one click opens it in its own project
   const names = useMemo(() => Object.fromEntries(agents.map((a) => [a.id, a.name])), [agents]);
   const waiting = useMemo(() => waitingElsewhere(approvals, questions, tasks, projects, names, filter, proposals), [approvals, questions, tasks, projects, names, filter, proposals]);
+  // the live region gets one short line when the count changes, never the list (a change used to re-read every row)
+  const waitCount = useRef<number | undefined>(undefined);
+  useEffect(() => {
+    if (!loaded) return;
+    const line = waitingChangeLine(waitCount.current, waiting.length);
+    waitCount.current = waiting.length;
+    if (line) announce(line);
+  }, [loaded, waiting.length]);
   const lineFacts = useMemo(() => ({ tasks, projects, agents, approvals, questions, board: { items: [], inbox: proposals } }), [tasks, projects, agents, approvals, questions, proposals]);
 
   // one tab stop for the member list: Arrow keys move inside it
@@ -57,12 +66,12 @@ export function AgentRail() {
       {view === 'project' && <a className="pg-skip" href="#pg-panel" onClick={(e) => { e.preventDefault(); document.getElementById('pg-panel')?.focus(); }}>Skip to project page</a>}
       <ProjectSwitcher />
       {waiting.length > 0 && (
-        <section className="rail-waiting" data-testid="rail-waiting" aria-live="polite" aria-label="Needs you in other projects">
+        <section className="rail-waiting" data-testid="rail-waiting" aria-label="Needs you in other projects">
           <div className="rail-head"><span>Needs you in other projects ({waiting.length})</span></div>
           {waiting.slice(0, WAIT_CAP).map((row) => (
-            <button key={row.id} type="button" className="rail-wait-row" title={row.label}
+            <button key={row.id} type="button" className="rail-wait-row" title={row.label} aria-label={row.label}
               onClick={() => openRailRow(row)}>
-              <Icon name={row.kind === 'approval' ? 'shield' : row.kind === 'proposal' ? 'inbox' : 'help'} size={12} /><span>{row.label}</span>
+              <Icon name={row.kind === 'approval' ? 'shield' : row.kind === 'proposal' ? 'inbox' : 'help'} size={12} /><span>{row.short}</span>
             </button>
           ))}
           {waiting.length > WAIT_CAP && <button type="button" className="rail-wait-more" title="Opens the project list. It does not open an item." onClick={openProjectMenu}>{waiting.length - WAIT_CAP} more in other projects</button>}

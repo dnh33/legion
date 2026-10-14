@@ -3,7 +3,8 @@ import { toast, useStore } from '../store';
 import { acceptItem, rejectItem, sayItem, useBoard } from '../projects/board/boardStore';
 import { actionNotice, actionState, descriptionNeedsMore, proposalNote } from '../projects/proposalCard';
 import { openInboxItem } from '../projects/projectsStore';
-import { canTakeFocus, clearAskRequest, getAskRequest, proposalFocusPlan, proposalsForThread, subscribeFocus } from '../projects/railRoute';
+import { clearAskRequest, getAskRequest, proposalFocusPlan, proposalsForThread, subscribeFocus } from '../projects/railRoute';
+import { settleFocus } from '../projects/focusSettle';
 import { useAllProposals } from '../projects/useProposals';
 import { Icon } from './icons';
 
@@ -16,19 +17,19 @@ export function ProposalCards({ agentId, taskId }: { agentId: string; taskId: st
   const agents = useStore((s) => s.agents);
   const projects = useStore((s) => s.projects);
   const tasks = useStore((s) => s.tasks);
+  const filter = useStore((s) => s.projectFilter);
   const busy = useBoard((s) => s.busy);
   const [more, setMore] = useState<Record<string, boolean>>({});
   const archived = new Set(projects.filter((p) => p.status === 'archived').map((p) => p.id));
-  const mine = proposalsForThread(agentId, taskId, tasks, all, archived);
-  // opened from a click that named one of these cards: bring it into view and focus it, once
+  const mine = proposalsForThread(agentId, taskId, tasks, all, archived, filter);
+  // opened from a click that named one of these cards: bring it into view and focus it, once the layout has settled (the tour's callout can move it)
   const req = useSyncExternalStore(subscribeFocus, getAskRequest);
   const boardLoaded = req?.boardAt !== undefined; // the fresh load for this click finished
   const plan = proposalFocusPlan(req, taskId, mine.map((i) => i.id), all.map((i) => i.id), boardLoaded);
   useEffect(() => {
     if (plan === 'show' && req) {
       const el = document.querySelector<HTMLElement>(`[data-proposal-id="${CSS.escape(req.askId)}"]`);
-      el?.scrollIntoView?.({ block: 'nearest' });
-      if (canTakeFocus(document.activeElement as HTMLElement | null)) el?.focus({ preventScroll: true });
+      if (el) settleFocus(el);
       clearAskRequest();
     } else if (plan === 'gone') {
       toast('That proposal was already handled.', 'info');
@@ -56,7 +57,7 @@ export function ProposalCards({ agentId, taskId }: { agentId: string; taskId: st
                 {long && <button type="button" className="link-btn" aria-expanded={!!more[i.id]} onClick={() => setMore({ ...more, [i.id]: !more[i.id] })}>{more[i.id] ? 'Less' : 'More'}</button>}
               </>
             )}
-            <div className="approval-actions">
+            <div className="approval-actions proposal-actions">
               <button className="btn primary" disabled={st.disabled} title={st.reason} onClick={() => void acceptItem(i.projectId, i.id, { assignee: suggested ? { kind: 'agent', id: suggested } : null }).then((r) => { const t = actionNotice(r, `${i.title} accepted to Backlog.`); if (t) { sayItem(t); toast(t, 'info'); } })}>Accept</button>
               <button className="btn" disabled={st.disabled} title={st.reason} onClick={() => void rejectItem(i.projectId, i.id).then((r) => { const t = actionNotice(r, `${i.title} rejected.`); if (t) { sayItem(t); toast(t, 'info'); } })}>Reject</button>
               <button className="btn-ghost" onClick={() => openInboxItem(i.projectId, i.id)}>Open on board</button>

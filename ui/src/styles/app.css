@@ -143,6 +143,13 @@ kbd { font-size: 10.5px; line-height: 1; padding: 3px 5px; border: 1px solid var
 .proposal-cards { display: grid; gap: 8px; margin: 10px 20px 0; max-height: 40vh; overflow-y: auto; }
 .proposal-cards .approval { margin: 0; }
 .proposal-cards .approval-actions { flex-wrap: wrap; }
+/* The region scrolls the card, never its buttons: at a short window (1.5x zoom at 960x600) the action row sticks to the bottom of the region, so
+   Accept, Reject and Open on board stay whole. The row takes the card's own side and bottom padding, so it sits flush with the card edge. */
+.proposal-actions { position: sticky; bottom: 0; margin: 8px -14px -12px; padding: 8px 14px 12px; background: var(--surface); }
+@media (max-height: 500px) { .proposal-desc:not(.open) { -webkit-line-clamp: 2; } }
+/* The entry or card a rail click brought into view holds focus. It shows the focus token (--accent) for a mouse user too: a focus the app moves
+   does not match :focus-visible after a click, and the owner has to see where focus landed. */
+[data-inbox-id]:focus, [data-proposal-id]:focus { outline: 2px solid var(--accent); outline-offset: 2px; }
 .proposal-title { margin: 8px 0 4px; overflow-wrap: anywhere; }
 .proposal-desc { margin: 6px 0 0; font-size: 12.5px; color: var(--text-2); overflow-wrap: anywhere; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; overflow: hidden; white-space: pre-wrap; }
 .proposal-desc.open { display: block; -webkit-line-clamp: unset; max-height: 160px; overflow: auto; }

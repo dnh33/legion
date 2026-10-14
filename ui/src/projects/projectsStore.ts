@@ -10,7 +10,7 @@ import { askTarget, failBoardLoad, markBoardSettled, navigationCount, requestAsk
 import type { RailTarget, RouteRow } from './railRoute';
 import type { AskRef } from './openAsk';
 import { agentsFor, archiveQuestion, boardItemsAssigned, FILTER_KEY, resolveFilter, unarchiveQuestion } from './projectsLogic';
-import { closeSheet } from './page/sheetState';
+import { closeSheet, closeSheetKeepFocus } from './page/sheetState';
 import { currentProposals, ensureBoards, missingBoards, refreshBoard } from './board/boardStore';
 
 const errText = (e: unknown): string => (e instanceof ApiError || e instanceof Error ? e.message : String(e));
@@ -44,9 +44,9 @@ export function openProject(id: string): void {
   setProjectFilter(id);
   setView('project');
 }
-/** Opens a project's page on its Board tab (where its proposals wait). An open side sheet closes first, so focus is not left on an inert panel. */
+/** Opens a project's page on its Board tab (where its proposals wait). An open side sheet closes first, so focus is not left on an inert panel. The caller focuses its own target, so the sheet hands no focus back. */
 export function openProjectBoard(id: string): void {
-  closeSheet();
+  closeSheetKeepFocus();
   enterProject(id);
   setTab('board');
   openProject(id);

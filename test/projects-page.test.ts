@@ -3,7 +3,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import type { WorkItem } from '../src/shared/board.js';
 import { deriveAsks } from '../src/shared/attention.js';
-import { waitingElsewhere } from '../ui/src/projects/projectsLogic.js';
+import { elsewhereBadge, waitingChangeLine, waitingElsewhere } from '../ui/src/projects/projectsLogic.js';
 import { askTarget } from '../ui/src/projects/railRoute.js';
 import { PARKED_PREFIX, TURN_LIMIT_PREFIX } from '../src/shared/continue.js';
 import type { ApprovalRequest, PendingQuestion, Task } from '../src/shared/types.js';
@@ -277,6 +277,7 @@ test('one pending proposal counts the same on the page, the project menu, the ra
   assert.equal(rows[0]!.kind, 'proposal');
   assert.equal(rows[0]!.projectId, P2);
   assert.equal(rows[0]!.label, 'Scout proposes a board item in Atlas: Move the deploy');
+  assert.equal(rows[0]!.short, 'Atlas: Move the deploy', 'the rail row leads with the project, then the title');
   assert.equal(waitingElsewhere([], [], [], [{ id: P2, name: 'Atlas', status: 'active', members: ['scout'] }] as never, { scout: 'Scout' }, P2, [prop]).length, 0, 'in its own project it is on the page, not "elsewhere"');
 });
 
@@ -289,4 +290,17 @@ test('rail parity: the agent rail count equals the list its click opens from, an
   for (const a of asks) assert.notEqual(askTarget(a, f.tasks).kind, 'none', `${a.kind} has somewhere to go`);
   assert.deepEqual(asks.map((a) => askTarget(a, f.tasks).kind).sort(), ['thread', 'thread'], 'both open a chat: the approval its thread, the proposal the agent\'s newest chat in the project');
   assert.equal(agentAsks(f, 'scout', P1).length, 0);
+});
+
+test('the switcher badge keeps the number and the full words for the title, so the words can collapse on a narrow rail', () => {
+  assert.deepEqual(elsewhereBadge(4), { count: '4', words: 'waiting elsewhere', full: '4 waiting elsewhere' });
+  assert.deepEqual(elsewhereBadge(1), { count: '1', words: 'waiting elsewhere', full: '1 waiting elsewhere' });
+});
+
+test('the live line says the count when it changes, and nothing when it does not (no re-reading of the list)', () => {
+  assert.equal(waitingChangeLine(undefined, 2), null, 'the first load is not announced');
+  assert.equal(waitingChangeLine(2, 2), null, 'an unchanged count is silent');
+  assert.equal(waitingChangeLine(2, 3), '3 items need you');
+  assert.equal(waitingChangeLine(0, 1), '1 item needs you');
+  assert.equal(waitingChangeLine(3, 0), 'Nothing else needs you');
 });

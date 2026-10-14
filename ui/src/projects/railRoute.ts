@@ -32,13 +32,17 @@ export function askTarget(row: RouteRow, tasks: readonly RouteTask[]): RailTarge
 
 interface ProposalLike { projectId: string; createdAt: string; createdBy: { kind: string; id?: string } }
 /**
- * The proposals to show as cards in the chat in view: the agent's own, one project at a time, only in the chat a click opens (its newest in
- * that project), or in the new-chat view for projects where it has no chat. Archived projects are left out. Oldest first.
+ * The proposals to show as cards in the chat in view: the agent's own, one project at a time. In a chat, only those whose newest chat in their
+ * project is this one. In the new-chat view, only the project in view (`scope`, the rail's filter) and only where the agent has no chat yet:
+ * another project's card waits in the rail's "Needs you in other projects", not here. Archived projects are left out. Oldest first.
  */
-export function proposalsForThread<P extends ProposalLike>(agentId: string, taskId: string | null, tasks: readonly RouteTask[], proposals: readonly P[], archivedProjects: ReadonlySet<string>): P[] {
+export function proposalsForThread<P extends ProposalLike>(agentId: string, taskId: string | null, tasks: readonly RouteTask[], proposals: readonly P[], archivedProjects: ReadonlySet<string>, scope: string | null = null): P[] {
   return proposals
     .filter((p) => p.createdBy.kind === 'agent' && p.createdBy.id === agentId && !archivedProjects.has(p.projectId))
-    .filter((p) => { const home = latestChat(agentId, p.projectId, tasks); return taskId === null ? !home : home?.id === taskId; })
+    .filter((p) => {
+      const home = latestChat(agentId, p.projectId, tasks);
+      return taskId !== null ? home?.id === taskId : p.projectId === scope && !home;
+    })
     .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
 }
 

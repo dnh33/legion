@@ -117,7 +117,8 @@ export const inWhere = (projects: Pick<Project, 'id' | 'name'>[], projectId: str
 const clipTitle = (t: string): string => (t.length > 40 ? t.slice(0, 39) + '…' : t);
 
 /** One thing waiting on the owner that the rail hides under the project in view (decision B1). */
-export interface WaitingRow { kind: 'approval' | 'question' | 'proposal'; id: string; taskId: string; agentId: string; projectId: string | null; label: string }
+/** `label` is the whole sentence (the agent included): the row's tooltip and accessible name. `short` is what the row shows: the project, then the title. */
+export interface WaitingRow { kind: 'approval' | 'question' | 'proposal'; id: string; taskId: string; agentId: string; projectId: string | null; label: string; short: string }
 
 /**
  * Approvals and questions the rail would hide under this filter: their task is in another project or none, or the agent
@@ -135,21 +136,41 @@ export function waitingElsewhere(
   const here = projects.find((p) => p.id === filter);
   const items = [...approvals.map((a) => ({ ...a, kind: 'approval' as const })), ...questions.map((q) => ({ ...q, kind: 'question' as const }))];
   const rows: Array<WaitingRow & { at: string }> = [];
+  const placeName = (id: string | null | undefined): string => (id ? projects.find((p) => p.id === id)?.name ?? 'a removed project' : 'Outside projects');
   for (const it of items) {
     const t = tasks.find((x) => x.id === it.taskId);
     if (t && t.projectId === filter && here?.members.includes(it.agentId)) continue;
     const who = names[it.agentId] ?? it.agentId;
     const verb = it.kind === 'approval' ? 'needs your OK' : 'asks you something';
     const where = !t ? 'in another task' : `${inWhere(projects, t.projectId)}: ${clipTitle(t.title)}`;
-    rows.push({ kind: it.kind, id: it.id, taskId: it.taskId, agentId: it.agentId, projectId: t?.projectId ?? null, label: `${who} ${verb} ${where}`, at: it.at });
+    const short = t ? `${placeName(t.projectId)}: ${clipTitle(t.title)}` : 'Another task';
+    rows.push({ kind: it.kind, id: it.id, taskId: it.taskId, agentId: it.agentId, projectId: t?.projectId ?? null, label: `${who} ${verb} ${where}`, short, at: it.at });
   }
   for (const p of proposals) {
     if (p.projectId === filter) continue; // in the project in view it is on the page
     const agentId = p.createdBy.kind === 'agent' ? p.createdBy.id ?? '' : '';
     const who = names[agentId] ?? (agentId || 'An agent');
-    rows.push({ kind: 'proposal', id: p.id, taskId: '', agentId, projectId: p.projectId, label: `${who} proposes a board item ${inWhere(projects, p.projectId)}: ${clipTitle(p.title)}`, at: p.createdAt });
+    rows.push({ kind: 'proposal', id: p.id, taskId: '', agentId, projectId: p.projectId, label: `${who} proposes a board item ${inWhere(projects, p.projectId)}: ${clipTitle(p.title)}`, short: `${placeName(p.projectId)}: ${clipTitle(p.title)}`, at: p.createdAt });
   }
   return rows.sort((a, b) => a.at.localeCompare(b.at)).map(({ at: _at, ...r }) => r);
+}
+
+/**
+ * The switcher's "waiting elsewhere" badge. The number always shows; the words collapse on a narrow rail (CSS), and `full` is the title, so
+ * the whole text is still there for a pointer and a screen reader.
+ */
+export function elsewhereBadge(n: number): { count: string; words: string; full: string } {
+  return { count: String(n), words: 'waiting elsewhere', full: `${n} waiting elsewhere` };
+}
+
+/**
+ * The one line the live region says when the rail's "needs you in other projects" count changes. Silent on the first count (the load) and when
+ * the count stays the same, so the list itself is never read again.
+ */
+export function waitingChangeLine(prev: number | undefined, next: number): string | null {
+  if (prev === undefined || prev === next) return null;
+  if (next === 0) return 'Nothing else needs you';
+  return `${next} ${next === 1 ? 'item needs' : 'items need'} you`;
 }
 
 type LiveTask = Pick<Task, 'id' | 'agentId' | 'status' | 'projectId' | 'title' | 'updatedAt'>;
