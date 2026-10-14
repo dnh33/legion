@@ -44,6 +44,7 @@ All notable changes are recorded here. The format follows [Keep a Changelog](htt
 
 ### Fixed
 
+- **The CI badge no longer sticks on "failing".** A failed run now stops counting once a later run of the same workflow passes on that branch, including a re-run that passes, and the badge follows the latest answer even if an update was missed. You can also press Dismiss in the CI panel to hide the failures you have seen. They come back only when a new run fails, and Show again undoes it.
 - **Updates that change Legion's parts now install by themselves.** When a release changes the libraries Legion runs on, it comes as one larger download (about 285 MB). Before, a forgotten step could ship such a release as a notice only. Now the release build decides this from the files, and the release checks refuse a release that is missing the larger download.
 - **A larger update is checked file by file before it replaces anything.** If your antivirus removes or changes a file after the download is unpacked, Legion stops and keeps your current version instead of installing something that cannot start.
 - **An update that starts slowly can no longer delete your install.** A rollback that arrives late now never touches a version that has started well, and the update remembers exactly which files had a previous copy. A larger update whose unpacked folder lost a part is refused before anything moves.
