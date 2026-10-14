@@ -199,7 +199,7 @@ function Board({ project }: { project: Project }) {
                     <tr key={i.id}>
                       <th scope="row"><button type="button" className="proj-link" onClick={() => setEditing(i)}>{i.title}</button>{i.trust === 'untrusted' && <span className="bd-warn"> Not reviewed</span>}</th>
                       <td><select aria-label={`Status of ${i.title}`} value={i.status} disabled={archived} onChange={(e) => mv(i, e.target.value as BoardStatus, byColumn(all)[e.target.value as BoardStatus].length)}>{COLUMNS.map((c) => <option key={c} value={c}>{columnLabel(c)}</option>)}</select></td>
-                      <td>{priorityMark(i.priority)}</td><td>{assigneeLabel(i.assignee, name)}</td><td className={`bd-due d-${dueState(i.due)}`}>{dueText(i.due) || '—'}</td>
+                      <td>{priorityMark(i.priority)}</td><td>{assigneeLabel(i.assignee, name)}</td><td className={`bd-due d-${dueState(i.due)}`}>{dueText(i.due) || 'No date'}</td>
                     </tr>
                   ))}
                 </tbody>

@@ -211,7 +211,7 @@ export function GateTester({ rules, agents }: { rules: readonly GateRule[]; agen
           disabled={tool.kind === 'none'} onChange={(e) => { setText(e.target.value); setResult(null); }} />
         <button type="button" className="btn" onClick={run} disabled={tool.kind !== 'none' && !text.trim()}>Test</button>
       </div>
-      <span className="set-hint">This agent{'\u2019'}s mode: <b>{MODE_TEXT[mode]}</b>{mode === 'full' ? ' — Ask rules are off in Full; Block rules still apply.' : ''}</span>
+      <span className="set-hint">This agent{'\u2019'}s mode: <b>{MODE_TEXT[mode]}</b>{mode === 'full' ? ' Ask rules are off in Full. Block rules still apply.' : ''}</span>
       {result && <GateTestOut result={result} />}
     </div>
   );
@@ -222,11 +222,11 @@ export function GateTestOut({ result }: { result: GateTestResult }) {
   return (
     <div className={`gate-test-out v-${result.verdict}`} role="status">
       <b>{VERDICT_TEXT[result.verdict]}</b>
-      <span className="muted-s">{result.matched.length ? `${result.matched.length} matching gate${result.matched.length === 1 ? '' : 's'}` : 'No gate matched — your mode decides, exactly as without gates.'}</span>
+      <span className="muted-s">{result.matched.length ? `${result.matched.length} matching gate${result.matched.length === 1 ? '' : 's'}` : 'No gate matched. Your mode decides, exactly as without gates.'}</span>
       <ul>
         {result.matched.map((r) => (
           <li key={r.id}><span className={`gate-then ${r.then}`}>{THEN_BADGE[r.then].text}</span> {r.label}{r.enabled ? '' : ' (off)'}
-            {!r.enabled && <span className="muted-s"> — this rule is switched off, so it did not decide anything.</span>}</li>
+            {!r.enabled && <span className="muted-s"> This rule is switched off, so it did not decide anything.</span>}</li>
         ))}
       </ul>
     </div>
@@ -237,7 +237,7 @@ export function GateTestOut({ result }: { result: GateTestResult }) {
 export function GateRails() {
   return (
     <div className="set-card gate-rails" aria-label="Rails (locked)">
-      <h4><Icon name="shield" size={13} /> Rails — locked</h4>
+      <h4><Icon name="shield" size={13} /> Locked rails</h4>
       <p className="muted-s">These are decided before rules and cannot be changed here. Every one of them is stricter than any rule could make it.</p>
       <ul>
         {GATE_RAILS.map((r) => <li key={r.title}><b>{r.title}</b><span className="muted-s">{r.why}</span></li>)}

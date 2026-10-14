@@ -33,7 +33,7 @@ export function TitleBar() {
   const pending = useL((s) => s.inbox?.length ?? 0);
   const roomAttn = useRooms((s) => s.rooms.filter((r) => r.paused || isUnread(s, r)).length);
   const bad = doctor ? doctor.filter((c) => !c.ok).length : 0;
-  const connLabel = conn === 'online' ? 'Connected' : conn === 'connecting' ? 'Connecting…' : 'Offline — retrying';
+  const connLabel = conn === 'online' ? 'Connected' : conn === 'connecting' ? 'Connecting…' : 'Offline, retrying';
   const padRight = platform === 'darwin' || platform === 'linux' ? 16 : 140;
   const padLeft = platform === 'darwin' ? 84 : 14;
   return (
