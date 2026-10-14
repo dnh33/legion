@@ -11,6 +11,7 @@ import { githubAgentsFor, normRepo } from '../../../src/shared/github-area';
 import type { GithubAreaView } from '../../../src/shared/github-area';
 import type { GithubStatusView } from '../../../src/shared/connectors-view';
 import { createFailureKind, createFailureText, PAGE } from './areaState';
+import { OPEN_GITHUB_EVENT } from './openArea';
 import type { CreateFailure } from './areaState';
 import { activityFrom, parseCreateReply, parseOrgs, parseProjectsUsing, parseWriteFlow, plainError } from './githubRoutes';
 import type { AreaAgent, CreateRepoBody, GithubAreaData, GithubRepoDetail } from './types';
@@ -337,4 +338,5 @@ export function initGithub(): void {
   started = true;
   void loadArea();
   window.addEventListener('focus', () => { if (st.open) void loadArea(true); });
+  window.addEventListener(OPEN_GITHUB_EVENT, (e) => { openGithub((e as CustomEvent<{ repo?: string }>).detail?.repo); });
 }

@@ -18,6 +18,7 @@ import { BUDGET_ERROR, PARK_ERROR, SETTINGS_NAV, awayFormModel, budgetPatch, cha
 import type { Period } from './settingsLogic';
 import type { PageFacts } from './pageLogic';
 import { PIcon } from './PIcon';
+import { ProjectRepoLine } from '../../github/ProjectRepoLine';
 import { Switch } from './Switch';
 import '../projects.css';
 import './settings.css';
@@ -136,6 +137,7 @@ function Folders({ project }: { project: Project }) {
         <button type="button" className="pg-btn" disabled={busy} onClick={() => void run(() => chooseFolder(project.id))}>Choose folder&hellip;</button>
         <button type="button" className="pg-btn ghost" disabled={busy} onClick={() => void run(() => useDefaultFolder(project.id))}>Use default folder</button>
       </div>
+      <ProjectRepoLine project={project} />
     </section>
   );
 }
