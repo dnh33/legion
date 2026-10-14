@@ -2,6 +2,7 @@
 import { PACKS, cueNames, getCue } from './vendor/uisfx/index.js';
 import type { RenderedSound } from './vendor/uisfx/index.js';
 import './lore/lore.js';
+import { CUE_ROLES } from './soundLogic.js';
 import type { Cue } from './soundLogic.js';
 
 export interface SoundPackInfo { id: string; label: string; description: string; custom: boolean }
@@ -22,14 +23,30 @@ const lorePack = (id: string, label: string, description: string): CustomPack[] 
 /** Forge and Reliquary come first in the picker, then the built-in packs. Add another pack by adding it here. */
 export const CUSTOM_PACKS: readonly CustomPack[] = [
   ...lorePack('forge', 'Forge', 'Forge-temple machinery, iron and servos.'),
-  ...lorePack('reliquary', 'Reliquary', 'A sacred hall of bells and choir.'),
+  ...lorePack('reliquary', 'Reliquary', 'A sacred hall of bells and a quiet choir.'),
 ];
 
 export const DEFAULT_PACK = 'forge';
 export const FALLBACK_PACK = 'minimal';
 
+/** The library's own blurbs are marketing copy. These say the same thing in plain, calm words (6 to 8 each). */
+const PLAIN: Record<string, string> = {
+  minimal: 'Dry, precise sounds you barely notice.',
+  soft: 'Soft, rounded tones that feel warm.',
+  glass: 'Bright, clear tones like tapped glass.',
+  arcade: 'Short, chunky pixel sounds from old arcades.',
+  mechanical: 'Switches, relays and firm mechanical clicks.',
+  organic: 'Natural sounds of wood, water and stone.',
+  dreamy: 'Light, airy tones that fade slowly.',
+  scifi: 'Clean digital pings with a soft shimmer.',
+  rubber: 'Quick, elastic taps with a soft rebound.',
+  cinematic: 'Deep, low impacts with long, quiet tails.',
+  studio: 'Precise, warm sounds for careful editing work.',
+  zen: 'Pure tones and dry wood, kept brief.',
+};
+
 export function listPacks(custom: readonly CustomPack[] = CUSTOM_PACKS): SoundPackInfo[] {
-  const built = PACKS.map((p) => ({ id: p.name as string, label: p.label as string, description: p.description as string, custom: false }));
+  const built = PACKS.map((p) => ({ id: p.name as string, label: p.label as string, description: PLAIN[p.name as string] ?? (p.description as string), custom: false }));
   const ids = new Set(built.map((p) => p.id));
   return [...custom.filter((c) => !ids.has(c.id)).map((c) => ({ id: c.id, label: c.label, description: c.description, custom: true })), ...built];
 }
@@ -51,11 +68,18 @@ export interface CueOption { id: string; label: string }
 export interface CueGroup { pack: string; label: string; cues: CueOption[] }
 const words = (id: string): string => id.charAt(0).toUpperCase() + id.slice(1).replace(/-/g, ' ');
 let groups: CueGroup[] | null = null;
-/** Every cue of every pack, grouped by pack in picker order, for the per-event sound choice. The cue's label is its role (what it is for). */
+/**
+ * The sounds the per-event picker offers: for each pack, the cues Legion plays, named by their role (never the library's cue id).
+ * Packs are in picker order. A pack lacking a cue leaves it out.
+ */
 export function listCueGroups(): CueGroup[] {
   if (groups) return groups;
-  const names = [...cueNames] as string[];
-  const built = names.map((n) => ({ id: n, label: (getCue(n as never) as { label?: string } | undefined)?.label ?? words(n) }));
-  groups = listPacks().map((p) => ({ pack: p.id, label: p.label, cues: p.custom ? (CUSTOM_PACKS.find((c) => c.id === p.id)?.cues ?? []).map((c) => ({ id: c, label: words(c) })) : built }));
+  const builtCues = new Set<string>(cueNames as string[]);
+  groups = listPacks().map((p) => {
+    const have = p.custom ? new Set(CUSTOM_PACKS.find((c) => c.id === p.id)?.cues ?? []) : builtCues;
+    return { pack: p.id, label: p.label, cues: Object.keys(CUE_ROLES).filter((c) => have.has(c)).map((c) => ({ id: c, label: cueRole(c) })) };
+  });
   return groups;
 }
+/** The words for a cue that is not one Legion plays (an old stored choice): its id, readable. */
+export const cueRole = (id: string): string => CUE_ROLES[id] ?? words(id);

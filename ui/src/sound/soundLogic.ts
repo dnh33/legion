@@ -47,13 +47,18 @@ export const DEFAULT_SOUND_PREFS: SoundPrefs = { enabled: true, volume: 0.6, pac
 /** The events a person can set one by one, in the order Settings lists them, with the plain words for each. */
 export const EVENT_ROWS: ReadonlyArray<{ key: EventKey; label: string; hint: string }> = [
   { key: 'ask', label: 'Something needs you', hint: 'An approval or a question arrives.' },
-  { key: 'run-done', label: 'A run finished', hint: 'Many runs finishing together make one sound.' },
+  { key: 'run-done', label: 'A run finished', hint: 'Several together make one sound.' },
   { key: 'run-failed', label: 'A run failed', hint: 'A run stopped with an error.' },
   { key: 'allow', label: 'Allow sent', hint: 'You pressed Allow.' },
   { key: 'deny', label: 'Deny sent', hint: 'You pressed Deny.' },
-  { key: 'switch', label: 'A setting switched', hint: 'You turned a switch in Settings on or off.' },
-  { key: 'run-started', label: 'A run started or queued', hint: 'Off until you switch it on: it is the chattiest.' },
+  { key: 'switch', label: 'A setting switched', hint: 'You turned a switch in Settings.' },
+  { key: 'run-started', label: 'A run started or queued', hint: 'Off until you switch it on.' },
 ];
+/** What each cue Legion plays is for, in the words Settings uses (the sound picker names a cue by its role, never by its library id). */
+export const CUE_ROLES: Readonly<Record<string, string>> = {
+  notification: 'Something needs you', complete: 'A run finished', error: 'A run failed', success: 'Allow sent', cancel: 'Deny sent',
+  check: 'Switch turned on', deselect: 'Switch turned off', queued: 'A run started',
+};
 /** Is the event's sound on when the owner has not touched its row? */
 export const eventDefaultOn = (k: EventKey): boolean => k !== 'run-started';
 

@@ -52,7 +52,18 @@ test('the pack picker lists every built-in pack, no placeholder for the lore pac
   assert.equal(withCustom[0]!.id, 'forge');
   const g = m.listCueGroups();
   assert.deepEqual(g.slice(0, 2).map((x) => x.pack), ['forge', 'reliquary']);
-  assert.ok(g[0]!.cues.some((c) => c.id === 'notification') && g[2]!.cues.length > 50 && g[2]!.cues.every((c) => c.label));
+  assert.ok(g[0]!.cues.some((c) => c.id === 'notification'));
+  // the picker offers the cues Legion plays, named by what they are for, never by the library's cue id
+  assert.ok(g.every((x) => x.cues.length >= 7 && x.cues.length <= 9));
+  assert.ok(g.every((x) => x.cues.every((c) => c.label && c.label !== c.id && /^[A-Z]/.test(c.label) && !/^(Notification|Complete|Error|Success|Cancel|Check|Deselect|Queued)$/.test(c.label))));
+  assert.equal(g[2]!.cues.find((c) => c.id === 'notification')!.label, 'Something needs you');
+  assert.equal(g[2]!.cues.find((c) => c.id === 'complete')!.label, 'A run finished');
+  // plain, short, calm descriptions for the library packs; the two Legion packs speak in Legion's voice
+  const lib = packs.filter((p) => !p.custom);
+  assert.ok(lib.every((p) => { const n = p.description.split(/\s+/).length; return n >= 6 && n <= 8; }), lib.map((p) => p.description).join(' | '));
+  assert.ok(lib.every((p) => !/premium|cheerful|voltage|washi|restrained|cinematic restraint/i.test(p.description)));
+  assert.equal(packs[0]!.description, 'Forge-temple machinery, iron and servos.');
+  assert.equal(packs[1]!.description, 'A sacred hall of bells and a quiet choir.');
   assert.equal(withCustom.filter((p) => p.id === 'minimal').length, 1);
 });
 
