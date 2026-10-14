@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   askTarget, clearAskRequest, clearInboxRequest, getAskRequest, getInboxRequest, inboxFocusPlan, latestChat, noteTaskSelected, noteViewSet,
-  pickAskCard, proposalsForThread, REQUEST_TTL_MS, requestAsk, requestInbox,
+  canTakeFocus, pickAskCard, proposalFocusPlan, proposalsForThread, REQUEST_TTL_MS, requestAsk, requestInbox,
 } from '../ui/src/projects/railRoute.js';
 
 const T = (id: string, agentId: string, projectId: string | undefined, updatedAt: string, archived = false) => ({ id, agentId, projectId, updatedAt, archived });
@@ -21,10 +21,10 @@ test('latestChat: the agent\'s newest unarchived chat in that project', () => {
 });
 
 test('a proposal opens the proposing agent\'s newest chat in that project, naming the card', () => {
-  assert.deepEqual(askTarget({ kind: 'proposal', id: 'wi1', agentId: 'forge', projectId: 'p2' }, tasks), { kind: 'thread', taskId: 't-new', askId: 'wi1' });
+  assert.deepEqual(askTarget({ kind: 'proposal', id: 'wi1', agentId: 'forge', projectId: 'p2' }, tasks), { kind: 'thread', taskId: 't-new', askId: 'wi1', proposalProject: 'p2' });
 });
 test('a proposal from an agent with no chat in that project opens a new chat for it there', () => {
-  assert.deepEqual(askTarget({ kind: 'proposal', id: 'wi1', agentId: 'forge', projectId: 'p9' }, tasks), { kind: 'newChat', agentId: 'forge', projectId: 'p9', askId: 'wi1' });
+  assert.deepEqual(askTarget({ kind: 'proposal', id: 'wi1', agentId: 'forge', projectId: 'p9' }, tasks), { kind: 'newChat', agentId: 'forge', projectId: 'p9', askId: 'wi1', proposalProject: 'p9' });
 });
 test('a proposal with no agent (or no project) cannot open a chat: the Inbox entry, else nothing', () => {
   assert.deepEqual(askTarget({ kind: 'proposal', id: 'wi1', agentId: '', projectId: 'p2' }, tasks), { kind: 'inbox', projectId: 'p2', itemId: 'wi1' });
@@ -104,4 +104,30 @@ test('leaving the chat or the project page drops the matching request', () => {
   assert.equal(getInboxRequest(1001), null, 'an Inbox request is for the project page');
   noteViewSet('graph');
   assert.equal(getAskRequest(1001), null);
+});
+
+test('proposalFocusPlan: a proposal request waits for the board, shows its card, or reports it gone', () => {
+  const req = { taskId: 't1', askId: 'wi1', at: 1, projectId: 'p2' };
+  assert.equal(proposalFocusPlan(null, 't1', ['wi1'], ['wi1'], true), 'ignore');
+  assert.equal(proposalFocusPlan({ taskId: 't1', askId: 'wi1', at: 1 }, 't1', ['wi1'], ['wi1'], true), 'ignore', 'not a proposal request');
+  assert.equal(proposalFocusPlan(req, 't2', ['wi1'], ['wi1'], true), 'ignore', 'another chat');
+  assert.equal(proposalFocusPlan(req, 't1', ['wi1'], ['wi1'], true), 'show');
+  assert.equal(proposalFocusPlan(req, 't1', [], [], false), 'wait', 'cold start: the board has not loaded yet');
+  assert.equal(proposalFocusPlan(req, 't1', [], [], true), 'gone', 'loaded and it is not there');
+  assert.equal(proposalFocusPlan(req, 't1', [], ['wi1'], true), 'ignore', 'it exists but this chat does not hold its card');
+});
+test('requestAsk can carry the proposal project', () => {
+  clearAskRequest();
+  requestAsk('t1', 'wi1', 1000, 'p2');
+  assert.deepEqual(getAskRequest(1001), { taskId: 't1', askId: 'wi1', at: 1000, projectId: 'p2' });
+  clearAskRequest();
+});
+test('canTakeFocus: never from a text field', () => {
+  assert.equal(canTakeFocus(null), true);
+  assert.equal(canTakeFocus({ tagName: 'BUTTON' }), true);
+  assert.equal(canTakeFocus({ tagName: 'DIV', isContentEditable: false }), true);
+  assert.equal(canTakeFocus({ tagName: 'INPUT' }), false);
+  assert.equal(canTakeFocus({ tagName: 'TEXTAREA' }), false);
+  assert.equal(canTakeFocus({ tagName: 'SELECT' }), false);
+  assert.equal(canTakeFocus({ tagName: 'DIV', isContentEditable: true }), false);
 });

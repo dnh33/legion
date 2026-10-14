@@ -8,8 +8,8 @@ export interface RouteTask { id: string; agentId: string; projectId?: string | n
 
 export type RailTarget =
   | { kind: 'inbox'; projectId: string; itemId: string }
-  | { kind: 'thread'; taskId: string; askId: string }
-  | { kind: 'newChat'; agentId: string; projectId: string; askId: string }
+  | { kind: 'thread'; taskId: string; askId: string; proposalProject?: string }
+  | { kind: 'newChat'; agentId: string; projectId: string; askId: string; proposalProject: string }
   | { kind: 'project'; projectId: string }
   | { kind: 'none' };
 
@@ -24,7 +24,7 @@ export function askTarget(row: RouteRow, tasks: readonly RouteTask[]): RailTarge
     if (!row.projectId) return { kind: 'none' };
     if (!row.agentId) return { kind: 'inbox', projectId: row.projectId, itemId: row.id };
     const chat = latestChat(row.agentId, row.projectId, tasks);
-    return chat ? { kind: 'thread', taskId: chat.id, askId: row.id } : { kind: 'newChat', agentId: row.agentId, projectId: row.projectId, askId: row.id };
+    return chat ? { kind: 'thread', taskId: chat.id, askId: row.id, proposalProject: row.projectId } : { kind: 'newChat', agentId: row.agentId, projectId: row.projectId, askId: row.id, proposalProject: row.projectId };
   }
   if (row.taskId) return { kind: 'thread', taskId: row.taskId, askId: row.id };
   return row.projectId ? { kind: 'project', projectId: row.projectId } : { kind: 'none' };
@@ -69,7 +69,7 @@ export function inboxFocusPlan(req: { projectId: string; itemId: string } | null
  */
 export const REQUEST_TTL_MS = 3000;
 export interface InboxRequest { projectId: string; itemId: string; at: number }
-export interface AskRequest { taskId: string | null; askId: string; at: number }
+export interface AskRequest { taskId: string | null; askId: string; at: number; /** Set when the card is a proposal's: the project whose board must load before it can show. */ projectId?: string }
 let inboxReq: InboxRequest | null = null;
 let askReq: AskRequest | null = null;
 const subs = new Set<() => void>();
@@ -80,7 +80,7 @@ export const getInboxRequest = (now = Date.now()): InboxRequest | null => fresh(
 export const getAskRequest = (now = Date.now()): AskRequest | null => fresh(askReq, now);
 export function requestInbox(projectId: string, itemId: string, now = Date.now()): void { inboxReq = { projectId, itemId, at: now }; emit(); }
 export function clearInboxRequest(): void { if (inboxReq) { inboxReq = null; emit(); } }
-export function requestAsk(taskId: string | null, askId: string, now = Date.now()): void { askReq = { taskId, askId, at: now }; emit(); }
+export function requestAsk(taskId: string | null, askId: string, now = Date.now(), projectId?: string): void { askReq = { taskId, askId, at: now, ...(projectId ? { projectId } : {}) }; emit(); }
 export function clearAskRequest(): void { if (askReq) { askReq = null; emit(); } }
 /** A task (or the new-chat view, null) was selected: a card request for another one is dropped. */
 export function noteTaskSelected(taskId: string | null): void { if (askReq && askReq.taskId !== taskId) clearAskRequest(); }
@@ -88,4 +88,23 @@ export function noteTaskSelected(taskId: string | null): void { if (askReq && as
 export function noteViewSet(view: string): void {
   if (view !== 'chat') clearAskRequest();
   if (view !== 'project') clearInboxRequest();
+}
+
+/**
+ * What the chat does with a request for a proposal card: wait for the board to load, show the card, say it is gone, or do nothing.
+ * `cardIds` are the cards this chat holds; `knownIds` every proposal known to be waiting.
+ */
+export type ProposalFocusPlan = 'ignore' | 'wait' | 'show' | 'gone';
+export function proposalFocusPlan(req: AskRequest | null, taskId: string | null, cardIds: readonly string[], knownIds: readonly string[], boardLoaded: boolean): ProposalFocusPlan {
+  if (!req || !req.projectId || req.taskId !== taskId) return 'ignore';
+  if (cardIds.includes(req.askId)) return 'show';
+  if (knownIds.includes(req.askId)) return 'ignore';
+  return boardLoaded ? 'gone' : 'wait';
+}
+
+/** Moving focus is fine unless the owner is typing: a text field keeps it (the card is scrolled into view instead). */
+export function canTakeFocus(active: { tagName?: string; isContentEditable?: boolean } | null): boolean {
+  if (!active) return true;
+  const tag = (active.tagName ?? '').toUpperCase();
+  return !(tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || active.isContentEditable);
 }

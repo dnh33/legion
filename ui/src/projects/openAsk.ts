@@ -1,9 +1,9 @@
 /**
  * Where "open this ask" goes (a notification click, the tray item, the rail row). Pure: the store applies the answer.
- * A thread when the ask has a task; a proposal when the ref names one; for a project, its oldest waiting proposal (else its page);
+ * A thread when the ask has a task; a proposal when the ref names one; a project alone is its page, a ref with an item id is that proposal;
  * with no ref, the oldest ask or proposal waiting anywhere; else nothing (the window just shows).
  */
-export interface AskRef { projectId?: string; taskId?: string; itemId?: string }
+export interface AskRef { projectId?: string; taskId?: string; itemId?: string; agentId?: string }
 export interface WaitingAsk { taskId: string; projectId: string | null; at: string }
 export interface WaitingProposal { id: string; projectId: string; agentId: string; createdAt: string }
 export type OpenAskAction =
@@ -27,10 +27,11 @@ export function resolveAsk(ref: AskRef | null | undefined, waiting: readonly Wai
   if (taskId) return { kind: 'thread', taskId };
   const projectId = str(ref?.projectId);
   if (projectId && projectIds.includes(projectId)) {
+    // only a ref that names a proposal opens one, from its ids alone (the board need not be loaded); a project-only ref (a notification) is the page
     const itemId = str(ref?.itemId);
-    const named = itemId ? proposals.find((p) => p.id === itemId && p.projectId === projectId) : undefined;
-    if (named) return { kind: 'proposal', projectId, itemId: named.id, agentId: named.agentId };
-    return oldest([], proposals.filter((p) => p.projectId === projectId)) ?? { kind: 'project', projectId };
+    if (!itemId) return { kind: 'project', projectId };
+    const agentId = str(ref?.agentId) ?? proposals.find((p) => p.id === itemId)?.agentId ?? '';
+    return { kind: 'proposal', projectId, itemId, agentId };
   }
   return oldest(waiting, proposals) ?? { kind: 'none' };
 }

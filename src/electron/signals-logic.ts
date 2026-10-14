@@ -74,7 +74,7 @@ export interface Snapshot {
   approvals: Array<{ id: string; taskId: string; agentId: string; projectId?: string }>;
   questions?: Array<{ id: string; taskId: string; agentId: string; projectId?: string }>;
   parked?: Array<{ id: string; taskId: string; agentId: string; projectId?: string }>;
-  attention: { total: number; working?: number; byProject: Record<string, number>; nextProposal?: { projectId: string; itemId: string } };
+  attention: { total: number; working?: number; byProject: Record<string, number>; nextProposal?: { projectId: string; itemId: string; agentId: string } };
 }
 type Pending = { failed: RunSignal[]; finished: RunSignal[]; budget: BudgetSignal[] };
 const LIVE = new Set(['queued', 'running']);
@@ -84,7 +84,7 @@ export class Feed {
   readonly open = new Map<string, AskSignal>();
   total = 0;
   byProject: Record<string, number> = {};
-  nextProposal: { projectId: string; itemId: string } | undefined;
+  nextProposal: { projectId: string; itemId: string; agentId: string } | undefined;
   private readonly statuses = new Map<string, string>();
   private readonly agents = new Map<string, string>();
   private readonly projects = new Map<string, string>();
@@ -148,10 +148,10 @@ export class Feed {
    * Where "open what needs you" goes: the first open ask; if only proposals wait (they count toward the number but have no pop-up,
    * spec 3.9), the oldest proposal (the core names it), else the project that holds them; else nothing in particular.
    */
-  firstRef(): { projectId?: string; taskId?: string; itemId?: string } {
+  firstRef(): { projectId?: string; taskId?: string; itemId?: string; agentId?: string } {
     const a = this.open.values().next().value as AskSignal | undefined;
     if (a) return { ...(a.projectId ? { projectId: a.projectId } : {}), ...(a.taskId ? { taskId: a.taskId } : {}) };
-    if (this.nextProposal) return { projectId: this.nextProposal.projectId, itemId: this.nextProposal.itemId };
+    if (this.nextProposal) return { projectId: this.nextProposal.projectId, itemId: this.nextProposal.itemId, agentId: this.nextProposal.agentId };
     const p = Object.entries(this.byProject).find(([id, n]) => id !== 'none' && n > 0);
     return p ? { projectId: p[0] } : {};
   }

@@ -83,11 +83,11 @@ test('follow: seeds on the first connect and again on every reconnect, polls whi
 
 test('proposals only: "open what needs you" names the oldest proposal the core reported; asks still come first', () => {
   const feed = new Feed();
-  feed.reseed(snap({ attention: { total: 1, working: 0, byProject: { p1: 1 }, nextProposal: { projectId: 'p1', itemId: 'wi1' } } }));
-  assert.deepEqual(feed.firstRef(), { projectId: 'p1', itemId: 'wi1' });
-  feed.apply({ type: 'attention.updated', attention: { total: 1, working: 0, byProject: { p1: 1 }, nextProposal: { projectId: 'p1', itemId: 'wi2' } } } as never);
-  assert.deepEqual(feed.firstRef(), { projectId: 'p1', itemId: 'wi2' });
-  feed.reseed(snap({ approvals: [{ id: 'a1', taskId: 't1', agentId: 'scout', projectId: 'p1' }], attention: { total: 2, working: 0, byProject: { p1: 2 }, nextProposal: { projectId: 'p1', itemId: 'wi2' } } }));
+  feed.reseed(snap({ attention: { total: 1, working: 0, byProject: { p1: 1 }, nextProposal: { projectId: 'p1', itemId: 'wi1', agentId: 'forge' } } }));
+  assert.deepEqual(feed.firstRef(), { projectId: 'p1', itemId: 'wi1', agentId: 'forge' });
+  feed.apply({ type: 'attention.updated', attention: { total: 1, working: 0, byProject: { p1: 1 }, nextProposal: { projectId: 'p1', itemId: 'wi2', agentId: 'forge' } } } as never);
+  assert.deepEqual(feed.firstRef(), { projectId: 'p1', itemId: 'wi2', agentId: 'forge' });
+  feed.reseed(snap({ approvals: [{ id: 'a1', taskId: 't1', agentId: 'scout', projectId: 'p1' }], attention: { total: 2, working: 0, byProject: { p1: 2 }, nextProposal: { projectId: 'p1', itemId: 'wi2', agentId: 'forge' } } }));
   assert.deepEqual(feed.firstRef(), { projectId: 'p1', taskId: 't1' });
   feed.apply({ type: 'attention.updated', attention: { total: 0, working: 0, byProject: {} } } as never);
   feed.reseed(snap());

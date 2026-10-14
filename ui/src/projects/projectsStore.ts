@@ -11,7 +11,7 @@ import type { RailTarget, RouteRow } from './railRoute';
 import type { AskRef } from './openAsk';
 import { agentsFor, archiveQuestion, boardItemsAssigned, FILTER_KEY, resolveFilter, unarchiveQuestion } from './projectsLogic';
 import { closeSheet } from './page/sheetState';
-import { currentProposals } from './board/boardStore';
+import { currentProposals, ensureBoard } from './board/boardStore';
 
 const errText = (e: unknown): string => (e instanceof ApiError || e instanceof Error ? e.message : String(e));
 function persist(id: string | null) { try { if (id) localStorage.setItem(FILTER_KEY, id); else localStorage.removeItem(FILTER_KEY); } catch { /* ignore */ } }
@@ -67,9 +67,14 @@ export function openRailRow(row: RouteRow): boolean {
 /** Applies the answer of `askTarget`. */
 export function openAskTarget(t: RailTarget): void {
   if (t.kind === 'inbox') { requestInbox(t.projectId, t.itemId); openProjectBoard(t.projectId); }
-  else if (t.kind === 'thread') { requestAsk(t.taskId, t.askId); setView('chat'); selectTask(t.taskId); }
+  else if (t.kind === 'thread') {
+    requestAsk(t.taskId, t.askId, Date.now(), t.proposalProject);
+    if (t.proposalProject) void ensureBoard(t.proposalProject);
+    setView('chat'); selectTask(t.taskId);
+  }
   else if (t.kind === 'newChat') {
-    requestAsk(null, t.askId);
+    requestAsk(null, t.askId, Date.now(), t.proposalProject);
+    void ensureBoard(t.proposalProject);
     setProjectFilter(t.projectId);
     selectAgent(t.agentId);
     selectTask(null);

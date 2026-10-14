@@ -62,10 +62,10 @@ export function AgentRail() {
           {waiting.slice(0, WAIT_CAP).map((row) => (
             <button key={row.id} type="button" className="rail-wait-row" title={row.label}
               onClick={() => openRailRow(row)}>
-              <Icon name={row.kind === 'approval' ? 'shield' : 'help'} size={12} /><span>{row.label}</span>
+              <Icon name={row.kind === 'approval' ? 'shield' : row.kind === 'proposal' ? 'inbox' : 'help'} size={12} /><span>{row.label}</span>
             </button>
           ))}
-          {waiting.length > WAIT_CAP && <button type="button" className="rail-wait-more" title="Opens the project list. It does not open an item." onClick={openProjectMenu}>{waiting.length - WAIT_CAP} more</button>}
+          {waiting.length > WAIT_CAP && <button type="button" className="rail-wait-more" title="Opens the project list. It does not open an item." onClick={openProjectMenu}>{waiting.length - WAIT_CAP} more in other projects</button>}
         </section>
       )}
       <div className="rail-head"><span title={filterName ? `Members of ${filterName}` : undefined}>{filterName ? 'Members' : 'Agents'}</span></div>

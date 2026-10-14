@@ -20,7 +20,7 @@ import { WorkingRow } from './WorkingRow';
 import { ProposalCards } from './ProposalCards';
 import { TodoList } from './TodoList';
 import { taskProjectChip } from '../projects/projectsLogic';
-import { clearAskRequest, getAskRequest, pickAskCard, subscribeFocus } from '../projects/railRoute';
+import { canTakeFocus, clearAskRequest, getAskRequest, pickAskCard, subscribeFocus } from '../projects/railRoute';
 
 type Item = { k: 'msg'; m: ChatMessage } | { k: 'tools'; items: ChatMessage[] };
 
@@ -158,7 +158,7 @@ export function Thread() {
       const el = scroller.current?.querySelector<HTMLElement>(pick.kind === 'approval' ? `[data-approval-id="${CSS.escape(pick.id)}"]` : `[data-question-id="${CSS.escape(pick.id)}"]`);
       if (!el) return; // not drawn yet: this effect runs again after the next render
       el.scrollIntoView?.({ block: 'nearest' });
-      el.focus({ preventScroll: true });
+      if (canTakeFocus(document.activeElement as HTMLElement | null)) el.focus({ preventScroll: true });
     }
     clearAskRequest();
   });

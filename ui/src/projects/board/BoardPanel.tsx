@@ -9,7 +9,7 @@ import { api } from '../../api';
 import { ensureRoomList, openRoom, useRooms } from '../../rooms/roomsStore';
 import { roomsOf } from '../projectsLogic';
 import { actionNotice, actionState, proposalNote } from '../proposalCard';
-import { clearInboxRequest, getInboxRequest, inboxFocusPlan, subscribeFocus } from '../railRoute';
+import { canTakeFocus, clearInboxRequest, getInboxRequest, inboxFocusPlan, subscribeFocus } from '../railRoute';
 import { setView, toast, useStore } from '../../store';
 import { acceptItem, createItem, currentItem, deleteItem, loadBoard, loadMarshal, moveItem, openTask, patchItem, probeBoard, rejectItem, runItem, saveChecks, saveMarshal, sayItem, setLeader, useBoard } from './boardStore';
 import { DoneWhen, MarshalPanel } from './MarshalPanel';
@@ -78,7 +78,7 @@ function Board({ project }: { project: Project }) {
     if (plan === 'show' && inboxReq) {
       const el = document.querySelector<HTMLElement>(`[data-inbox-id="${CSS.escape(inboxReq.itemId)}"]`);
       el?.scrollIntoView?.({ block: 'nearest' });
-      el?.focus({ preventScroll: true });
+      if (canTakeFocus(document.activeElement as HTMLElement | null)) el?.focus({ preventScroll: true });
     }
     if (plan === 'gone') toast('That proposal was already handled.', 'info');
     clearInboxRequest();

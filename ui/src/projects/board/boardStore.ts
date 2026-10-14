@@ -35,6 +35,12 @@ export async function loadBoard(projectId: string): Promise<void> {
   try { const v = await api.boardView(projectId); set((s) => ({ views: { ...s.views, [projectId]: v } })); } catch (e) { toast(errText(e), 'error'); }
 }
 
+/** Loads a project's board unless it is loaded already (or the board is switched off), so a proposal can be found from its ids alone. */
+export async function ensureBoard(projectId: string): Promise<void> {
+  await probeBoard();
+  if (state.enabled === 'yes' && state.views[projectId] === undefined) await loadBoard(projectId);
+}
+
 /** What the Marshal is doing on this project. Reloaded with the board: both are advisory copies of what the core holds. */
 export async function loadMarshal(projectId: string): Promise<void> {
   try { const v = await api.boardStatus(projectId); set((s) => ({ statuses: { ...s.statuses, [projectId]: v } })); } catch (e) { toast(errText(e), 'error'); }

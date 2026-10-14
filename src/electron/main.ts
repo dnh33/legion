@@ -545,7 +545,7 @@ function setTrayState(tooltip: string, hasAsks: boolean): void {
   if (menuChanged) tray.setContextMenu(trayMenu());
 }
 /** A notification or the tray asks the window to open an ask; the window routes it (ui `openAsk`). Empty ref: the first one waiting. */
-function sendOpenAsk(ref: { projectId?: string; taskId?: string; itemId?: string }): void {
+function sendOpenAsk(ref: { projectId?: string; taskId?: string; itemId?: string; agentId?: string }): void {
   const send = (): void => { try { if (win && !win.isDestroyed()) win.webContents.send('legion:open-ask', ref); } catch { /* the window is gone */ } };
   if (win && !win.isDestroyed() && !win.webContents.isLoading()) send(); else setTimeout(send, 800);
 }

@@ -357,7 +357,7 @@ export interface QueueSnapshot { cap: number; running: number; items: QueueItem[
 export interface AttentionView {
   total: number; working: number; byProject: Record<string, number>;
   /** The oldest proposal waiting in any Inbox (ids only), so "open what needs you" can open it. Absent when none waits. */
-  nextProposal?: { projectId: string; itemId: string };
+  nextProposal?: { projectId: string; itemId: string; agentId: string };
 }
 
 /** A run stopped on purpose and waiting for an answer (PR 5 fills this; the field exists so clients can already read it). */

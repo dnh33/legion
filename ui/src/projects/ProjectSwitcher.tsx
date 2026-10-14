@@ -41,7 +41,7 @@ export function ProjectSwitcher() {
       <button ref={btn} type="button" className="pg-proj" id="proj-select" aria-haspopup="menu" aria-expanded={open} aria-labelledby="proj-label proj-select-name"
         aria-describedby={menu.elsewhere ? 'proj-else' : undefined} title={`Shows ${label}. Pick a project to filter the rail and the tasks.`} onClick={() => setOpen((v) => !v)}>
         <span className="pn" id="proj-select-name">{label}</span>
-        {menu.elsewhere > 0 && <span className="else" id="proj-else" aria-label={`${menu.elsewhere} ${menu.elsewhere === 1 ? 'ask' : 'asks'} waiting in other projects`}><i aria-hidden="true" /><span aria-hidden="true">{menu.elsewhere} elsewhere</span></span>}
+        {menu.elsewhere > 0 && <span className="else" id="proj-else" title="Waiting in other projects. Opens the project list." aria-label={`${menu.elsewhere} ${menu.elsewhere === 1 ? 'ask' : 'asks'} waiting in other projects`}><i aria-hidden="true" /><span aria-hidden="true">{menu.elsewhere} elsewhere</span></span>}
         <PIcon name="chev" size={12} />
       </button>
       {open && (

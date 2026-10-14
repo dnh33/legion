@@ -28,14 +28,21 @@ const props = [
   { id: 'wi-old', projectId: 'p1', agentId: 'forge', createdAt: '2026-10-14T09:00:00Z' },
   { id: 'wi-p2', projectId: 'p2', agentId: 'scout', createdAt: '2026-10-14T08:00:00Z' },
 ];
-test('a ref that names a proposal opens that proposal', () => {
-  assert.deepEqual(resolveAsk({ projectId: 'p1', itemId: 'wi-new' }, waiting, ['p1'], props), { kind: 'proposal', projectId: 'p1', itemId: 'wi-new', agentId: 'forge' });
-  assert.deepEqual(resolveAsk({ projectId: 'p1', itemId: 'gone' }, [], ['p1'], props), { kind: 'proposal', projectId: 'p1', itemId: 'wi-old', agentId: 'forge' }, 'a proposal that is gone falls back to the oldest one waiting in its project');
+test('a ref that carries an itemId opens that proposal from the ids alone, board loaded or not', () => {
+  assert.deepEqual(resolveAsk({ projectId: 'p1', itemId: 'wi-new', agentId: 'forge' }, waiting, ['p1'], []), { kind: 'proposal', projectId: 'p1', itemId: 'wi-new', agentId: 'forge' }, 'cold start: nothing loaded');
+  assert.deepEqual(resolveAsk({ projectId: 'p1', itemId: 'wi-new' }, waiting, ['p1'], props), { kind: 'proposal', projectId: 'p1', itemId: 'wi-new', agentId: 'forge' }, 'an older core: the agent comes from the loaded Inbox');
+  assert.deepEqual(resolveAsk({ projectId: 'p1', itemId: 'wi-new' }, [], ['p1'], []), { kind: 'proposal', projectId: 'p1', itemId: 'wi-new', agentId: '' }, 'no agent known: the Inbox entry');
 });
-test('a project-only ref opens the oldest proposal waiting in that project, else the project page', () => {
-  assert.deepEqual(resolveAsk({ projectId: 'p1' }, [], ['p1', 'p2'], props), { kind: 'proposal', projectId: 'p1', itemId: 'wi-old', agentId: 'forge' });
-  assert.deepEqual(resolveAsk({ projectId: 'p1' }, [{ taskId: 't-a', projectId: 'p1', at: '2026-10-14T07:00:00Z' }], ['p1'], []), { kind: 'project', projectId: 'p1' }, 'only asks: the project page, as before');
-  assert.deepEqual(resolveAsk({ projectId: 'p3' }, [], ['p3'], props), { kind: 'project', projectId: 'p3' }, 'nothing waiting there: the project page');
+test('a proposal that is gone is not swapped for another one: the same proposal action, so the chat says it was handled', () => {
+  assert.deepEqual(resolveAsk({ projectId: 'p1', itemId: 'gone', agentId: 'forge' }, [], ['p1'], props), { kind: 'proposal', projectId: 'p1', itemId: 'gone', agentId: 'forge' });
+});
+test('a project-only ref (every notification kind) opens the project page, never a proposal', () => {
+  // "N things need you in P", "N runs failed in P", "N runs finished in P" and "Budget reached in P" all send only {projectId}
+  for (const kind of ['things need you', 'runs failed', 'runs finished', 'budget reached']) {
+    assert.deepEqual(resolveAsk({ projectId: 'p1' }, [], ['p1', 'p2'], props), { kind: 'project', projectId: 'p1' }, kind);
+  }
+  assert.deepEqual(resolveAsk({ projectId: 'p1' }, [{ taskId: 't-a', projectId: 'p1', at: '2026-10-14T07:00:00Z' }], ['p1'], props), { kind: 'project', projectId: 'p1' });
+  assert.deepEqual(resolveAsk({ projectId: 'gone' }, [], ['p1'], []), { kind: 'none' });
 });
 test('an empty ref opens the oldest of every ask and proposal', () => {
   assert.deepEqual(resolveAsk({}, [], [], props), { kind: 'proposal', projectId: 'p2', itemId: 'wi-p2', agentId: 'scout' });

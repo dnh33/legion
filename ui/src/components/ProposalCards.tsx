@@ -3,7 +3,7 @@ import { toast, useStore } from '../store';
 import { acceptItem, rejectItem, sayItem, useBoard } from '../projects/board/boardStore';
 import { actionNotice, actionState, descriptionNeedsMore, proposalNote } from '../projects/proposalCard';
 import { openInboxItem } from '../projects/projectsStore';
-import { clearAskRequest, getAskRequest, proposalsForThread, subscribeFocus } from '../projects/railRoute';
+import { canTakeFocus, clearAskRequest, getAskRequest, proposalFocusPlan, proposalsForThread, subscribeFocus } from '../projects/railRoute';
 import { useAllProposals } from '../projects/useProposals';
 import { Icon } from './icons';
 
@@ -22,14 +22,19 @@ export function ProposalCards({ agentId, taskId }: { agentId: string; taskId: st
   const mine = proposalsForThread(agentId, taskId, tasks, all, archived);
   // opened from a click that named one of these cards: bring it into view and focus it, once
   const req = useSyncExternalStore(subscribeFocus, getAskRequest);
-  const wanted = req && req.taskId === taskId && mine.some((i) => i.id === req.askId) ? req.askId : null;
+  const boardLoaded = useBoard((s) => !!req?.projectId && s.views[req.projectId] !== undefined);
+  const plan = proposalFocusPlan(req, taskId, mine.map((i) => i.id), all.map((i) => i.id), boardLoaded);
   useEffect(() => {
-    if (!wanted) return;
-    const el = document.querySelector<HTMLElement>(`[data-proposal-id="${CSS.escape(wanted)}"]`);
-    el?.scrollIntoView?.({ block: 'nearest' });
-    el?.focus({ preventScroll: true });
-    clearAskRequest();
-  }, [wanted]);
+    if (plan === 'show' && req) {
+      const el = document.querySelector<HTMLElement>(`[data-proposal-id="${CSS.escape(req.askId)}"]`);
+      el?.scrollIntoView?.({ block: 'nearest' });
+      if (canTakeFocus(document.activeElement as HTMLElement | null)) el?.focus({ preventScroll: true });
+      clearAskRequest();
+    } else if (plan === 'gone') {
+      toast('That proposal was already handled.', 'info');
+      clearAskRequest();
+    }
+  }, [plan, req]);
   if (mine.length === 0) return null;
   const who = agents.find((a) => a.id === agentId)?.name ?? 'The agent';
   const st = actionState({ archived: false, busy });
