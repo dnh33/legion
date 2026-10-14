@@ -91,3 +91,16 @@ test('an empty project list does not prune the gates files: a failed projects.js
   assert.equal(existsSync(file), true, 'the cap file is kept');
   assert.deepEqual(core.store.project('proj_000000000001'), { version: 1, preset: 'ask' });
 });
+
+test('a damaged project gates file still caps a full own agent after a restart', async () => {
+  const data = join(cleanupTemp('legion-gates-restart-'), 'data');
+  const projects = new ProjectStore(data, join(data, 'ws'));
+  const p = projects.create({ name: 'Shop' });
+  mkdirSync(join(data, 'gates'), { recursive: true });
+  writeFileSync(join(data, 'gates', `${p.id}.json`), '{not json');
+  const first = createGatesCore({ dataDir: data, projects });
+  assert.equal(first.resolver.mode({ agentMode: 'full', startProjectId: p.id }), 'ask');
+  await first.store.flush();
+  const restarted = createGatesCore({ dataDir: data, projects });
+  assert.equal(restarted.resolver.mode({ agentMode: 'full', startProjectId: p.id }), 'ask');
+});

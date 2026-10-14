@@ -138,3 +138,14 @@ test('reload reads only files named for a project id', () => {
   assert.deepEqual(s.view([]).unreadable, []);
   assert.ok(existsSync(join(d, 'p_1.json')), 'a name that is not a project id is left alone');
 });
+
+test('a damaged file is rewritten as Ask, so a restart keeps the cap', async () => {
+  const d = dir(); mkdirSync(d, { recursive: true });
+  writeFileSync(join(d, `${P1}.json`), '{not json');
+  const s = new GatesStore(d);
+  assert.deepEqual(s.project(P1), { version: 1, preset: 'ask' });
+  await s.flush();
+  assert.deepEqual(JSON.parse(readFileSync(join(d, `${P1}.json`), 'utf8')), { version: 1, preset: 'ask' }, 'the Ask record is on disk');
+  assert.ok(readdirSync(d).some((n) => n.startsWith(`${P1}.json.bad-`)), 'the damaged original is kept aside');
+  assert.deepEqual(new GatesStore(d).project(P1), { version: 1, preset: 'ask' }, 'a restart still reads Ask');
+});

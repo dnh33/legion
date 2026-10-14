@@ -133,7 +133,11 @@ export class GatesStore {
       return out;
     } catch {
       this.unreadable.add(name);
-      try { renameSync(file, `${file}.bad-${Date.now()}`); } catch { /* left in place; still read as Ask */ }
+      let setAside = false;
+      try { renameSync(file, `${file}.bad-${Date.now()}`); setAside = true; } catch { /* left in place; still read as Ask */ }
+      // Write the Ask record back only once the damaged original is safely aside, so the write never removes it.
+      // A restart then reads Ask from disk instead of a blank file (which would lose the cap).
+      if (setAside) this.mark(name);
       return damaged();
     }
   }
