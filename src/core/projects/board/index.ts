@@ -32,6 +32,8 @@ export interface BoardModuleOpts {
   board: BoardStore;
   /** The project Library (absent in tests that do not need it): note links, automatic linking and "save what we learned". */
   notes?: BoardNotes;
+  /** The away module: "Pause new starts" stops the Marshal's loop for a paused project. Absent: never paused. */
+  away?: { isPaused(projectId: string): boolean };
   /** The Marshal's clock. The app takes Date.now; a test passes its own. */
   marshalNow?: () => number;
   /** The Marshal's timer: starts the tick and returns the cancel function. Tests pass a no-op and call `module.marshal.tick()` themselves. */
@@ -101,7 +103,7 @@ export function createBoardModule(deps: ModuleDeps, opts: BoardModuleOpts): Boar
     agents: () => deps.store.listAgents(),
     visible: (id) => agentIdVisible({ bsvEnabled: deps.bsvEnabled, store: deps.store }, id),
     matcher,
-    startRun: ({ agentId, prompt }) => ({ taskId: deps.engine.startTask({ agentId, prompt, source: 'ui', projectId: pid }).id }),
+    startRun: ({ agentId, prompt }) => ({ taskId: deps.engine.startTask({ agentId, prompt, source: 'ui', projectId: pid, trigger: 'marshal' }).id }),
     runState: (taskId): RunState => {
       try {
         const t = deps.store.getTask(taskId);
@@ -133,6 +135,7 @@ export function createBoardModule(deps: ModuleDeps, opts: BoardModuleOpts): Boar
   const driver = new MarshalDriver({
     board,
     project: (pid) => { try { return projects.get(pid); } catch { return undefined; } },
+    ...(opts.away ? { paused: (pid: string) => opts.away!.isPaused(pid) } : {}),
     ports: portsFor,
     changed,
     now: opts.marshalNow ?? Date.now,

@@ -16,7 +16,7 @@ import type { AssignmentRecord, MatchInput, ProseMatcher } from './match.js';
 export const MATCH_TIMEOUT_MS = 5 * 60_000;
 
 export interface MatcherDeps {
-  engine: { startTask(p: { agentId: string; prompt: string; source: 'ui'; projectId?: string }): Task };
+  engine: { startTask(p: { agentId: string; prompt: string; source: 'ui'; projectId?: string; trigger?: 'marshal' }): Task };
   bus: EventBus;
   store: { getTask(taskId: string): Task | undefined };
   /** Who does the matching: the Marshal by default. */
@@ -82,7 +82,7 @@ export function engineMatcher(deps: MatcherDeps): ProseMatcher {
       // filed under the item's project when the matcher may run there; a named project it is not in would refuse the run
       const agentId = deps.matcherAgentId ?? LEAD_AGENT_ID;
       const pid = input.projectId && deps.canRunIn?.(input.projectId, agentId) ? input.projectId : undefined;
-      const task = deps.engine.startTask({ agentId, prompt: matchPrompt(input), source: 'ui', ...(pid ? { projectId: pid } : {}) });
+      const task = deps.engine.startTask({ agentId, prompt: matchPrompt(input), source: 'ui', trigger: 'marshal', ...(pid ? { projectId: pid } : {}) });
       taskId = task.id;
       const current = deps.store.getTask(taskId);
       if (current && !isLive(current)) answer(current);

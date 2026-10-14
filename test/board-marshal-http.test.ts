@@ -96,7 +96,8 @@ test('one pass: the matcher asks, the item dispatches to the chosen bot with NO 
 
     const run = dispatchesOf(r);
     assert.equal(run.length, 1, 'one wave, one dispatch');
-    assert.deepEqual(Object.keys(run[0]!.p).sort(), ['agentId', 'projectId', 'prompt', 'source'], 'the run asks for NOTHING but the bot, the text and the project: no model slot exists');
+    assert.deepEqual(Object.keys(run[0]!.p).sort(), ['agentId', 'projectId', 'prompt', 'source', 'trigger'], 'the run asks for NOTHING but the bot, the text, the project and who started it: no model slot exists');
+    assert.equal(run[0]!.p.trigger, 'marshal', 'a pause can tell the loop start from the owner click');
     assert.equal(run[0]!.p.agentId, 'scout');
     assert.equal(run[0]!.p.source, 'ui');
     assert.equal(run[0]!.p.projectId, r.pid);
