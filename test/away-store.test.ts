@@ -179,3 +179,24 @@ test('the doc comment says the truth about the file', () => {
   assert.match(src, /undo the owner's own pause or budget/);
   assert.doesNotMatch(src, /can only RESTRICT/);
 });
+
+test('sounds: defaults on, Minimal, 60 percent; a patch is validated and kept across a restart', async () => {
+  const d = dir();
+  const s = new AwayStore(d);
+  assert.deepEqual(s.app().sounds, { enabled: true, pack: 'minimal', volume: 0.6 });
+  s.patchApp({ sounds: { enabled: false, pack: 'zen', volume: 0.25 } });
+  await s.flush();
+  assert.deepEqual(new AwayStore(d).app().sounds, { enabled: false, pack: 'zen', volume: 0.25 });
+  s.patchApp({ sounds: { volume: 1 } });
+  assert.deepEqual(s.app().sounds, { enabled: false, pack: 'zen', volume: 1 });
+  for (const bad of [{ sounds: 'on' }, { sounds: { enabled: 'yes' } }, { sounds: { volume: 1.5 } }, { sounds: { volume: -0.1 } }, { sounds: { volume: Number.NaN } }, { sounds: { pack: '../x' } }, { sounds: { pack: '' } }, { sounds: { pack: 5 } }]) {
+    assert.throws(() => s.patchApp(bad as never), (e: unknown) => e instanceof AwayError && e.status === 400, JSON.stringify(bad));
+  }
+  assert.deepEqual(s.app().sounds, { enabled: false, pack: 'zen', volume: 1 });
+});
+
+test('sounds: a damaged stored value falls back to the defaults', () => {
+  const d = dir(); mkd(d);
+  write(d, { version: 1, app: { sounds: { enabled: 'x', pack: 7, volume: 9 } }, projects: {} });
+  assert.deepEqual(new AwayStore(d).app().sounds, { enabled: true, pack: 'minimal', volume: 0.6 });
+});

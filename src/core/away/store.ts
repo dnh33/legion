@@ -36,16 +36,21 @@ export interface ProjectAway {
   budgetOverrideUntil?: string;
   notify: NotifyLevel;
 }
-export interface AppAway { quiet: QuietConfig; notify: { enabled: boolean; returnSummary: boolean } }
+/** UI sounds (0.3.0). The window plays them; the core only keeps the choice. `pack` is a pack id the window knows (an unknown id falls back to Minimal there). */
+export interface SoundsConfig { enabled: boolean; pack: string; volume: number }
+export interface AppAway { quiet: QuietConfig; notify: { enabled: boolean; returnSummary: boolean }; sounds: SoundsConfig }
 /** The settings an owner PATCH may carry. */
 export type ProjectAwayPatch = Partial<Pick<ProjectAway, 'onSilence' | 'paused' | 'budget' | 'notify'>>;
-export type AppAwayPatch = { quiet?: QuietConfig; notify?: Partial<AppAway['notify']> };
+export type AppAwayPatch = { quiet?: QuietConfig; notify?: Partial<AppAway['notify']>; sounds?: Partial<SoundsConfig> };
 
 export const PARK_MIN = 1;
 export const PARK_MAX = 120;
 export const DEFAULT_QUIET: QuietConfig = { enabled: false, from: '22:00', to: '07:00' };
 export const DEFAULT_PROJECT_AWAY: ProjectAway = { onSilence: { mode: 'deny', parkMinutes: 3 }, paused: false, budget: null, notify: 'problems' };
-const DEFAULT_APP: AppAway = { quiet: DEFAULT_QUIET, notify: { enabled: true, returnSummary: true } };
+export const DEFAULT_SOUNDS: SoundsConfig = { enabled: true, pack: 'minimal', volume: 0.6 };
+const DEFAULT_APP: AppAway = { quiet: DEFAULT_QUIET, notify: { enabled: true, returnSummary: true }, sounds: DEFAULT_SOUNDS };
+const PACK_ID = /^[a-z0-9][a-z0-9-]{0,31}$/;
+const validVolume = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v) && v >= 0 && v <= 1;
 
 const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v);
 const isIso = (v: unknown): v is string => typeof v === 'string' && Number.isFinite(Date.parse(v));
@@ -155,6 +160,15 @@ export class AwayStore {
         }
       }
     }
+    if ('sounds' in patch) {
+      const n = patch.sounds;
+      if (!isObj(n)) throw new AwayError(400, 'sounds must be an object');
+      const sounds = { ...next.sounds };
+      if ('enabled' in n) { if (typeof n.enabled !== 'boolean') throw new AwayError(400, 'sounds.enabled must be true or false'); sounds.enabled = n.enabled; }
+      if ('pack' in n) { if (typeof n.pack !== 'string' || !PACK_ID.test(n.pack)) throw new AwayError(400, 'sounds.pack must be a pack id'); sounds.pack = n.pack; }
+      if ('volume' in n) { if (!validVolume(n.volume)) throw new AwayError(400, 'sounds.volume must be a number from 0 to 1'); sounds.volume = n.volume; }
+      next.sounds = sounds;
+    }
     this.appPolicy = next;
     this.touch();
     return this.app();
@@ -198,13 +212,18 @@ export class AwayStore {
     const { version: _v, app, projects, looked, budgetNoted, ...top } = raw;
     this.topExtra = top;
     if (isObj(app)) {
-      const { quiet, notify, ...appRest } = app;
+      const { quiet, notify, sounds, ...appRest } = app;
       this.appExtra = appRest;
       this.appPolicy = {
         quiet: parseQuiet(quiet) ?? structuredClone(DEFAULT_QUIET),
         notify: {
           enabled: isObj(notify) && typeof notify.enabled === 'boolean' ? notify.enabled : DEFAULT_APP.notify.enabled,
           returnSummary: isObj(notify) && typeof notify.returnSummary === 'boolean' ? notify.returnSummary : DEFAULT_APP.notify.returnSummary,
+        },
+        sounds: {
+          enabled: isObj(sounds) && typeof sounds.enabled === 'boolean' ? sounds.enabled : DEFAULT_SOUNDS.enabled,
+          pack: isObj(sounds) && typeof sounds.pack === 'string' && PACK_ID.test(sounds.pack) ? sounds.pack : DEFAULT_SOUNDS.pack,
+          volume: isObj(sounds) && validVolume(sounds.volume) ? sounds.volume : DEFAULT_SOUNDS.volume,
         },
       };
     }
