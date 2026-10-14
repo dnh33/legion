@@ -3,6 +3,7 @@ import { useStore, type RelicState } from '../store';
 import { useComms } from './commsFeed';
 import { latestFinished } from './finished';
 import { lastToolAt } from './toolActivity';
+import { agentAwaitsOwner } from './awaiting';
 
 /** Attention states switch at once; everything else waits out the minimum dwell. */
 const INSTANT = new Set<RelicState>(['awaiting', 'error', 'victory']);
@@ -56,13 +57,13 @@ function nextDeadline(g: BustSignals, t: number): number {
 }
 
 /**
- * Per-agent bust state from the store: approvals -> awaiting, task error -> error, task just done -> victory,
+ * Per-agent bust state from the store: approvals or questions -> awaiting, task error -> error, task just done -> victory,
  * running task -> thinking (hacking while tool calls stream in), room traffic (comms.state), archived VM + long
  * idle -> sleeping. Non-attention changes respect a 1.8 s minimum dwell. All selectors return primitives,
  * so 13 busts re-render only when their own agent changes.
  */
 export function useBustState(agentId: string, enabled = true): { state: RelicState; vm: boolean } {
-  const pending = useStore((s) => s.approvals.some((a) => a.agentId === agentId));
+  const pending = useStore((s) => agentAwaitsOwner(agentId, s.approvals, s.questions));
   const running = useStore((s) => s.tasks.some((t) => t.agentId === agentId && (t.status === 'running' || t.status === 'queued')));
   const finished = useStore((s) => latestFinished(s.tasks, agentId));
   const lastActive = useStore((s) => {

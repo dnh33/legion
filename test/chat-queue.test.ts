@@ -295,6 +295,22 @@ test('busy: the same agent working for a room, an agent call or MCP counts; the 
   assert.equal(busyReason('z', null, [], []), null);
 });
 
+test('busy: a room or bridge run in ANOTHER project does not block; in the same project (or both with none) it does', () => {
+  const inP = (id: string, agentId: string, status: Task['status'], source: Task['source'], projectId?: string): Task => ({ ...task(id, agentId, status, source), ...(projectId ? { projectId } : {}) });
+  const t1 = inP('t1', 'z', 'done', 'ui', 'pA');
+  assert.equal(busyReason('z', 't1', [t1, inP('r1', 'z', 'running', 'bot', 'pB')], []), null, 'a room run in project B, thread in A');
+  assert.equal(busyReason('z', 't1', [t1, inP('r1', 'z', 'running', 'agent')], []), null, 'a bridge run with no project, thread in A');
+  assert.equal(busyReason('z', 't1', [t1, inP('r1', 'z', 'running', 'bot', 'pA')], []), 'other', 'same project');
+  assert.equal(busyReason('z', 't1', [task('t1', 'z', 'done'), inP('r1', 'z', 'running', 'bot', 'pA')], []), null, 'thread in no project, run in A');
+  assert.equal(busyReason('z', 't1', [task('t1', 'z', 'done'), task('r1', 'z', 'running', 'bot')], []), 'other', 'both in no project');
+  // the New task view: the project a new task would start in decides
+  assert.equal(busyReason('z', null, [inP('r1', 'z', 'running', 'bot', 'pB')], [], 'pA'), null);
+  assert.equal(busyReason('z', null, [inP('r1', 'z', 'running', 'bot', 'pA')], [], 'pA'), 'other');
+  assert.equal(busyReason('z', null, [inP('r1', 'z', 'running', 'bot', 'pA')], []), null, 'new task in no project, run in A');
+  // the thread's own run and approval are not about projects
+  assert.equal(busyReason('z', 't1', [inP('t1', 'z', 'running', 'ui', 'pA')], []), 'run');
+});
+
 // ---------------------------------------------------------------- HTTP snapshot vs event stream
 
 import { incomingWins } from '../ui/src/chat/tasksync.js';

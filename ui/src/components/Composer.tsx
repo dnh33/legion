@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { busyLabel, busyReason, canJoinRun } from '../chat/busy';
+import { busyIn, busyLabel, canJoinRun } from '../chat/busy';
 import { restoreDraft } from '../chat/draft';
 import { isImeKey } from '../chat/ime';
 import { queueOf, shouldQueue, threadKey } from '../chat/queue';
@@ -10,7 +10,7 @@ import { api } from '../api';
 import { modelLabel } from '../models';
 import { useProviders } from '../providers/providersStore';
 import { cancelSelected, confirmStop, effectiveModel, getState, loadCatalog, sendPrompt, sendPromptTo, stopTeam, toast, useStore } from '../store';
-import { alsoWorkingLabel, liveElsewhere, newTaskTarget } from '../projects/projectsLogic';
+import { alsoWorkingLabel, liveElsewhere, newTaskProjectId, newTaskTarget } from '../projects/projectsLogic';
 import { clip } from '../util';
 import { startedLive, stopTeamLabel } from '../chat/team';
 import { Icon } from './icons';
@@ -41,11 +41,13 @@ export function Composer() {
   const projectFilter = useStore((s) => s.projectFilter);
   const target = newTaskTarget(projects, projectFilter, agent, !!taskId);
   // the same agent live in another project: said, never a block (decision B1)
-  const also = useMemo(() => alsoWorkingLabel(liveElsewhere(agentId, tasks, { filter: projectFilter, taskId, ...(task?.projectId ? { taskProjectId: task.projectId } : {}) }), projects), [agentId, tasks, projectFilter, taskId, task?.projectId, projects]);
+  // (the thread's project is the scope busyIn uses too: what blocks is exactly what is not listed here)
+  const scope = task ? task.projectId : newTaskProjectId(projects, projectFilter, agentId, false);
+  const also = useMemo(() => alsoWorkingLabel(liveElsewhere(agentId, tasks, { filter: projectFilter, taskId, ...(scope ? { taskProjectId: scope } : {}) }), projects), [agentId, tasks, projectFilter, taskId, scope, projects]);
   const running = task?.status === 'running' || task?.status === 'queued';
   const started = useMemo(() => (taskId ? startedLive(tasks, taskId).length : 0), [tasks, taskId]);
   // busy: own run, an approval waiting, or the agent working for a room / agent call. Enter queues while busy.
-  const busy = useMemo(() => busyReason(agentId, taskId, tasks, approvals), [agentId, taskId, tasks, approvals]);
+  const busy = useMemo(() => busyIn({ tasks, approvals, projects, projectFilter }, agentId, taskId), [agentId, taskId, tasks, approvals, projects, projectFilter]);
   const qkey = threadKey(agentId, taskId);
   const thread = useThreadQueue(qkey);
   const agentName = clip(agent?.name ?? 'Legion', 26);
@@ -112,7 +114,7 @@ export function Composer() {
     const aId = st.selectedAgentId, tId = st.selectedTaskId;
     const key = threadKey(aId, tId);
     const q = queueOf(getQueue(), key);
-    const why = busyReason(aId, tId, st.tasks, st.approvals);
+    const why = busyIn(st, aId, tId);
     if (mode === 'interrupt' && (why || (q && q.items.length > 0))) {
       setText('');
       const ok = await interruptAndSend(aId, tId, raw, effectiveModel(st));

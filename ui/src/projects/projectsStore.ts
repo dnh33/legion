@@ -2,7 +2,7 @@
 import type { Project } from '../../../src/shared/projects';
 import { api, ApiError } from '../api';
 import { getState, selectAgent, selectTask, setState, setView, toast } from '../store';
-import { agentsFor, archiveQuestion, FILTER_KEY, resolveFilter, unarchiveQuestion } from './projectsLogic';
+import { agentsFor, archiveQuestion, boardItemsAssigned, FILTER_KEY, resolveFilter, unarchiveQuestion } from './projectsLogic';
 
 const errText = (e: unknown): string => (e instanceof ApiError || e instanceof Error ? e.message : String(e));
 function persist(id: string | null) { try { if (id) localStorage.setItem(FILTER_KEY, id); else localStorage.removeItem(FILTER_KEY); } catch { /* ignore */ } }
@@ -53,9 +53,10 @@ export async function unarchiveProject(p: Project): Promise<boolean> {
 
 /** Archive after a question that says what it touches (council A9). Without the numbers (an older core) it still asks. */
 export async function archiveProject(p: Project): Promise<boolean> {
-  const n = { live: 0, open: 0, rooms: 0 };
+  const n = { live: 0, open: 0, rooms: 0, board: 0 };
   try { for (const c of Object.values((await api.projectImpact(p.id)).agents)) { n.live += c.live; n.open += c.open; } } catch { /* asked without counts */ }
   try { n.rooms = (await api.roomsList()).filter((r) => r.projectId === p.id).length; } catch { /* asked without the room count */ }
+  try { n.board = boardItemsAssigned((await api.boardView(p.id)).items); } catch { /* no board (or an older core): asked without the board count */ }
   if (!window.confirm(archiveQuestion(p.name, n))) return false;
   return saveProject(p.id, { status: 'archived' });
 }

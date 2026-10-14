@@ -64,14 +64,19 @@ export function newTaskTarget(projects: Project[], filter: string | null, agent:
  * The question before a project is archived, with what it touches: runs in progress finish; open tasks cannot be
  * continued and no new task starts in it until it is unarchived; its rooms keep working without its context.
  */
-export function archiveQuestion(name: string, n: { live: number; open: number; rooms: number }): string {
+export function archiveQuestion(name: string, n: { live: number; open: number; rooms: number; board?: number }): string {
   const plural = (k: number, one: string, many: string) => `${k} ${k === 1 ? one : many}`;
   const lines = [`Archive "${name}"?`];
   if (n.live) lines.push(`${plural(n.live, 'run in progress finishes', 'runs in progress finish')} first.`);
   lines.push(n.open ? `Its ${plural(n.open, 'open task', 'open tasks')} cannot be continued, and no new task can start in it, until you unarchive it.` : 'No new task can start in it until you unarchive it.');
+  if (n.board) lines.push(`${plural(n.board, 'unfinished board item is', 'unfinished board items are')} assigned to ${n.board === 1 ? 'an agent; it stays' : 'agents; they stay'} on the board.`);
   if (n.rooms) lines.push(`${plural(n.rooms, 'room is', 'rooms are')} marked out of project, with a notice in ${n.rooms === 1 ? 'it' : 'each'}; ${n.rooms === 1 ? 'it keeps' : 'they keep'} working without the project's instructions, board and notes.`);
   return lines.join('\n\n');
 }
+
+/** Board items that are not done and are assigned to an agent: what archiving or removing a member touches. */
+export const boardItemsAssigned = (items: ReadonlyArray<{ status: string; assignee: { kind: string } | null }>): number =>
+  items.filter((i) => i.status !== 'done' && i.assignee?.kind === 'agent').length;
 
 /** Why a room is out of its project (the same rule the core uses for its notice), or undefined: shown as a badge. */
 export function roomOutOfProject(room: Pick<Room, 'projectId' | 'members'>, projects: Project[], names: Record<string, string>): string | undefined {
@@ -150,17 +155,35 @@ export function liveElsewhere(agentId: string, tasks: LiveTask[], here: { filter
     .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
 }
 
-/** "Also working in Shop: Fix the header (+2 more)", or nothing. */
-export function alsoWorkingLabel(rows: Pick<Task, 'projectId' | 'title'>[], projects: Project[]): string | undefined {
+/** "Also working in Shop: Fix the header (+2 more)", or nothing. `lead` is "Working in" when this is the agent's only run in view. */
+export function alsoWorkingLabel(rows: Pick<Task, 'projectId' | 'title'>[], projects: Project[], lead = 'Also working in'): string | undefined {
   const first = rows[0];
   if (!first) return undefined;
   const where = first.projectId ? (projects.find((p) => p.id === first.projectId)?.name ?? 'a removed project') : 'no project';
-  return `Also working in ${where}: ${clipTitle(first.title)}${rows.length > 1 ? ` (+${rows.length - 1} more)` : ''}`;
+  return `${lead} ${where}: ${clipTitle(first.title)}${rows.length > 1 ? ` (+${rows.length - 1} more)` : ''}`;
 }
 
-/** The agent rail's "Also working in…" line: only while a project is in view (under All, every run is already in view). */
+const isLive = (t: Pick<Task, 'status'>): boolean => t.status === 'running' || t.status === 'queued';
+
+/** The rail row looks busy while the agent runs anything, in any project: the same rule as its bust (the bust is the agent, not the view). */
+export const railRowBusy = (agentId: string, tasks: Pick<Task, 'agentId' | 'status'>[]): boolean => tasks.some((t) => t.agentId === agentId && isLive(t));
+
+/**
+ * The agent rail's "Also working in…" line: only while a project is in view (under All, every run is already in view).
+ * When nothing of the agent runs in the project in view, the run elsewhere is its only one: "Working in Atlas: ...".
+ */
 export function railAlsoWorking(agentId: string, tasks: LiveTask[], filter: string | null, projects: Project[]): string | undefined {
-  return filter === null ? undefined : alsoWorkingLabel(liveElsewhere(agentId, tasks, { filter, taskId: null }), projects);
+  if (filter === null) return undefined;
+  const here = tasks.some((t) => t.agentId === agentId && isLive(t) && t.projectId === filter);
+  return alsoWorkingLabel(liveElsewhere(agentId, tasks, { filter, taskId: null }), projects, here ? 'Also working in' : 'Working in');
+}
+
+/**
+ * "N needs your OK" on a member row: under a project, only the asks of that project's own tasks (the rest show under
+ * "Needs you in other projects"); under All, every ask of the agent.
+ */
+export function railPending(agentId: string, approvals: Pick<ApprovalRequest, 'agentId' | 'taskId'>[], tasks: Pick<Task, 'id' | 'projectId'>[], filter: string | null): number {
+  return approvals.filter((a) => a.agentId === agentId && (filter === null || tasks.find((t) => t.id === a.taskId)?.projectId === filter)).length;
 }
 
 /** An editor's text after the saved value changed elsewhere: untouched (still the old saved value) follows; edited keeps the owner's text. */

@@ -5,7 +5,7 @@ import { Icon } from './icons';
 import { vmTone, vmLabel } from '../util';
 import { Bust } from '../mascot/Bust';
 import { ProjectSwitcher } from '../projects/ProjectSwitcher';
-import { agentsFor, inProject, railAlsoWorking, waitingElsewhere } from '../projects/projectsLogic';
+import { agentsFor, railAlsoWorking, railPending, railRowBusy, waitingElsewhere } from '../projects/projectsLogic';
 import { hasBust } from '../mascot/busts';
 import { heldAgents } from '../chat/queue';
 import { ownerOfThread, useQueueState } from '../chat/queueStore';
@@ -49,8 +49,8 @@ export function AgentRail() {
         {loaded && filter && shown.length === 0 && <p className="muted-s" style={{ padding: '4px 8px' }}>No members yet. Open the project page to add some.</p>}
         {shown.map((a, i) => {
           const vm = vms[a.id];
-          const pending = approvals.filter((x) => x.agentId === a.id).length;
-          const running = tasks.some((t) => t.agentId === a.id && inProject(t, filter) && (t.status === 'running' || t.status === 'queued'));
+          const pending = railPending(a.id, approvals, tasks, filter);
+          const running = railRowBusy(a.id, tasks); // any project, like the bust; the sub-line says where
           const tone = vm ? vmTone(vm.state) : 'off';
           const also = railAlsoWorking(a.id, tasks, filter, projects);
           return (

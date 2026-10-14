@@ -100,7 +100,16 @@ test('council A9: the archive question says what archiving touches', async () =>
   assert.match(q, /2 runs in progress finish first\./);
   assert.match(q, /Its 5 open tasks cannot be continued, and no new task can start in it, until you unarchive it\./);
   assert.match(q, /1 room is marked out of project, with a notice in it; it keeps working without the project's instructions, board and notes\./);
-  assert.doesNotMatch(archiveQuestion('Site', { live: 0, open: 0, rooms: 0 }), /run|room|open task/);
+  assert.doesNotMatch(archiveQuestion('Site', { live: 0, open: 0, rooms: 0 }), /run|room|open task|board/);
+  assert.match(archiveQuestion('Site', { live: 0, open: 0, rooms: 0, board: 3 }), /3 unfinished board items are assigned to agents; they stay on the board\./);
+  assert.match(archiveQuestion('Site', { live: 0, open: 0, rooms: 0, board: 1 }), /1 unfinished board item is assigned to an agent; it stays on the board\./);
+});
+
+test('council A9 boardItemsAssigned counts unfinished items assigned to an agent, nothing else', async () => {
+  const { boardItemsAssigned } = await import('../ui/src/projects/projectsLogic.js');
+  const it = (status: string, assignee: any) => ({ status, assignee }) as any;
+  assert.equal(boardItemsAssigned([it('doing', { kind: 'agent', id: 'a' }), it('backlog', { kind: 'agent', id: 'b' }), it('done', { kind: 'agent', id: 'a' }), it('doing', { kind: 'owner' }), it('doing', null)]), 2);
+  assert.equal(boardItemsAssigned([]), 0);
 });
 
 test('B4 roomOutOfProject: the reason a room is out of its project, or nothing', async () => {
@@ -188,8 +197,26 @@ test('B2 the rail row and the composer show the "Also working" line; it never bl
   assert.match(rail, /railAlsoWorking\(a\.id, tasks, filter, projects\)/);
   const comp = readFileSync(join(root, 'ui', 'src', 'components', 'Composer.tsx'), 'utf8');
   assert.match(comp, /className="also-pill" role="status"/);
+  assert.match(comp, /busyIn\(/, 'the composer asks the shared busy rule');
   const busy = readFileSync(join(root, 'ui', 'src', 'chat', 'busy.ts'), 'utf8');
-  assert.doesNotMatch(busy, /liveElsewhere|alsoWorking/, 'busy rules unchanged (decision B1: no block)');
+  assert.doesNotMatch(busy, /liveElsewhere|alsoWorking/, 'busy rules never read the "Also working" list (decision B1: no block)');
+});
+
+test('council A1 the block and the "Also working" line split the same runs: what blocks is never listed, what is listed never blocks', async () => {
+  const { liveElsewhere } = await import('../ui/src/projects/projectsLogic.js');
+  const { busyReason } = await import('../ui/src/chat/busy.js');
+  const mk = (id: string, projectId?: string) => ({ id, agentId: 'z', status: 'running', title: id, updatedAt: '', createdAt: '', requestedModel: 'auto', source: 'bot', ...(projectId ? { projectId } : {}) }) as any;
+  const tasks = [mk('a', 'pA'), mk('b', 'pB'), mk('n')];
+  for (const scope of ['pA', 'pB', undefined] as const) {
+    const listed = liveElsewhere('z', tasks, { filter: null, taskId: null, ...(scope ? { taskProjectId: scope } : {}) }).map((t: any) => t.id);
+    const blocking = tasks.filter((t: any) => busyReason('z', null, [t], [], scope) === 'other').map((t: any) => t.id);
+    assert.deepEqual(blocking, tasks.filter((t: any) => t.projectId === scope).map((t: any) => t.id), String(scope));
+    // (with no project to compare, the list is every other run: a no-project run blocks AND is mentioned, by design)
+    if (scope) {
+      assert.deepEqual([...listed, ...blocking].sort(), ['a', 'b', 'n'], 'every run is either listed or blocking: ' + scope);
+      assert.equal(listed.filter((id: string) => blocking.includes(id)).length, 0);
+    }
+  }
 });
 
 test('C1 followRemote: an untouched editor follows a change made elsewhere; an edited one keeps the owner\'s text', async () => {
@@ -243,5 +270,39 @@ test('review #9 the agent rail says "Also working in" only while a project is in
   const tasks = [{ id: 't1', agentId: 'a1', status: 'running' as const, projectId: 'p2', title: 'Fix the header', updatedAt: now }];
   const projects = [{ id: 'p2', name: 'Shop' }] as Project[];
   assert.equal(railAlsoWorking('a1', tasks, null, projects), undefined);
-  assert.equal(railAlsoWorking('a1', tasks, 'p1', projects), 'Also working in Shop: Fix the header');
+  assert.equal(railAlsoWorking('a1', tasks, 'p1', projects), 'Working in Shop: Fix the header', 'its only run is elsewhere: not "Also"');
+});
+
+test('rail and bust agree: a run in another project makes the row busy, and the sub-line says where', async () => {
+  const { railAlsoWorking, railRowBusy } = await import('../ui/src/projects/projectsLogic.js');
+  const projects = [{ id: 'p1', name: 'Site' }, { id: 'p2', name: 'Atlas' }] as Project[];
+  const t = (id: string, projectId: string | undefined, status: any = 'running') => ({ id, agentId: 'a1', status, projectId, title: 'Task ' + id, updatedAt: '2026-10-14T10:00:00Z' }) as any;
+  // the only run is in Atlas while Site is in view: busy (like the bust), and the line is not "Also"
+  assert.equal(railRowBusy('a1', [t('x', 'p2')]), true);
+  assert.equal(railRowBusy('a1', [t('x', 'p2', 'done')]), false);
+  assert.equal(railRowBusy('a2', [t('x', 'p2')]), false);
+  assert.equal(railAlsoWorking('a1', [t('x', 'p2')], 'p1', projects), 'Working in Atlas: Task x');
+  // a run here too: "Also"
+  assert.equal(railAlsoWorking('a1', [t('x', 'p2'), t('y', 'p1')], 'p1', projects), 'Also working in Atlas: Task x');
+  // all projects: nothing to add
+  assert.equal(railAlsoWorking('a1', [t('x', 'p2')], null, projects), undefined);
+});
+
+test('rail row counts only this project\'s asks under a project filter; All counts everything', async () => {
+  const { railPending } = await import('../ui/src/projects/projectsLogic.js');
+  const tasks = [{ id: 't1', projectId: 'p1' }, { id: 't2', projectId: 'p2' }, { id: 't3' }] as any[];
+  const ap = (id: string, taskId: string, agentId = 'a1') => ({ id, taskId, agentId, at: '' }) as any;
+  const approvals = [ap('1', 't1'), ap('2', 't2'), ap('3', 't3'), ap('4', 'gone'), ap('5', 't1', 'a2')];
+  assert.equal(railPending('a1', approvals, tasks, null), 4, 'All');
+  assert.equal(railPending('a1', approvals, tasks, 'p1'), 1, 'only the ask in p1');
+  assert.equal(railPending('a1', approvals, tasks, 'p2'), 1);
+  assert.equal(railPending('a2', approvals, tasks, 'p2'), 0);
+});
+
+test('the bust asks (awaiting) for a question from the agent too, not only an approval', async () => {
+  const { agentAwaitsOwner } = await import('../ui/src/mascot/awaiting.js');
+  const ap = [{ agentId: 'a1' }] as any[], qs = [{ agentId: 'a2' }] as any[];
+  assert.equal(agentAwaitsOwner('a1', ap, qs), true);
+  assert.equal(agentAwaitsOwner('a2', ap, qs), true, 'a question');
+  assert.equal(agentAwaitsOwner('a3', ap, qs), false);
 });
