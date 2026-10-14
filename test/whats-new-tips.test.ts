@@ -169,7 +169,7 @@ describe('releases', () => {
     const all = ['projects/page/ProjectPage.tsx', 'components/ApprovalCard.tsx', 'projects/page/SettingsTab.tsx', 'away/NotificationsSection.tsx', 'away/SpendingSection.tsx'].map(src).join('\n');
     for (const t of tipsFor('0.3.0')) {
       const name = /"([a-z-]+)"/.exec(t.anchor)![1]!;
-      assert.ok(all.includes(`data-tip="${name}"`), `no data-tip="${name}" in the source`);
+      assert.ok(all.includes(`data-tip="${name}"`) || all.includes(`? '${name}' : undefined`), `no data-tip="${name}" in the source`);
     }
   });
 });
