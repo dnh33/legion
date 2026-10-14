@@ -24,11 +24,15 @@ export function Menu({ anchor, label, onClose, children, align = 'start', minWid
   useEffect(() => {
     const items = (): HTMLElement[] => Array.from(el.current?.querySelectorAll<HTMLElement>(kind === 'dialog' ? 'input, button' : '[role^="menuitem"]:not(:disabled)') ?? []);
     const first = kind === 'dialog' ? items()[0] : items().find((i) => i.getAttribute('aria-checked') === 'true') ?? items()[0];
+    const opener = document.activeElement as HTMLElement | null;
     first?.focus();
     const down = (e: PointerEvent): void => { const t = e.target as Node; if (!el.current?.contains(t) && !anchor.current?.contains(t)) onClose(); };
     document.addEventListener('pointerdown', down);
-    const a = anchor.current;
-    return () => { document.removeEventListener('pointerdown', down); if (a && document.activeElement && el.current?.contains(document.activeElement)) a.focus(); };
+    // focus goes back to what had it (the button that opened the menu) unless the action moved it somewhere on purpose
+    return () => {
+      document.removeEventListener('pointerdown', down);
+      requestAnimationFrame(() => { const ae = document.activeElement; if ((!ae || ae === document.body) && opener?.isConnected) opener.focus(); });
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   const key = (e: React.KeyboardEvent): void => {

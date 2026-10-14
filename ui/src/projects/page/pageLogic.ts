@@ -31,6 +31,11 @@ export interface PageFacts {
 export const money = (n: number): string => `$${(Number.isFinite(n) ? n : 0).toFixed(2)}`;
 export const plural = (n: number, one: string, many = `${one}s`): string => `${n} ${n === 1 ? one : many}`;
 export const clip = (s: string, n: number): string => (s.length > n ? `${s.slice(0, n - 1).trimEnd()}…` : s);
+/** A project's name where space is short (the rail, a unit's "also working in"): the part before a colon or a dash, else clipped. */
+export function shortProjectName(name: string): string {
+  const first = name.split(/\s*[:\u2013\u2014]\s*|\s+-\s+/)[0]?.trim() ?? '';
+  return first ? clip(first, 19) : 'a project';
+}
 const ms = (iso: string | undefined): number => { const n = Date.parse(iso ?? ''); return Number.isFinite(n) ? n : 0; };
 
 /** "now", "5 min", "3 h", "2 d": how long ago, in the mockup's words. */
@@ -163,7 +168,7 @@ export function queueText(f: PageFacts, t: Task): string {
 
 export function stopDetail(t: Task): string {
   if (isBudgetPause(t)) return 'Stopped at the spend limit. Work kept.';
-  return t.turns ? `Stopped after ${t.turns} steps. Work kept.` : 'Stopped at a limit. Work kept.';
+  return t.turns ? `Stopped after ${plural(t.turns, 'step')}. Work kept.` : 'Stopped at a limit. Work kept.';
 }
 
 function taskItem(f: PageFacts, t: Task, st: PageStatus): GroupItem {
@@ -274,7 +279,7 @@ export function unitModel(f: PageFacts, o: { weekByAgent?: Readonly<Record<strin
     units.push({
       agentId: id, name, role: agent?.description ?? '', mode: agent ? MODE_TEXT[agent.approval] ?? '' : '', cloud: !!agent?.vm?.enabled, model: String(agent?.model ?? ''),
       lead: lines[0]!, rest: lines.slice(1),
-      ...(firstAway ? { also: `Also working in ${f.projects.find((p) => p.id === firstAway.projectId)?.name ?? 'another project'}: ${firstAway.title}${away.length > 1 ? ` (+${away.length - 1})` : ''}` } : {}),
+      ...(firstAway ? { also: `Also working in ${shortProjectName(f.projects.find((p) => p.id === firstAway.projectId)?.name ?? 'another project')}: ${firstAway.title}${away.length > 1 ? ` (+${away.length - 1})` : ''}` } : {}),
       tail, runs: liveRuns(id, f.tasks), weekUsd, rank, at: lastWork,
     });
   }
@@ -329,7 +334,7 @@ export function railLine(f: Pick<PageFacts, 'tasks' | 'projects' | 'agents' | 'a
   const all = deriveAsks({ approvals: f.approvals, questions: f.questions, tasks: f.tasks, proposals: f.board?.inbox ?? [] }).filter((a) => a.agentId === agentId && (projectId === null || a.projectId === projectId));
   const facts = { ...f, nowMs: 0, queue: null } as unknown as PageFacts;
   const short = (t: Pick<Task, 'title'>): string => clip(t.title, 28);
-  const projName = (id: string | undefined): string => (id ? f.projects.find((p) => p.id === id)?.name ?? 'a removed project' : 'no project');
+  const projName = (id: string | undefined): string => (id ? shortProjectName(f.projects.find((p) => p.id === id)?.name ?? 'a removed project') : 'no project');
   const mine = sortAsks(all);
   if (mine.length) {
     const first = `Needs you: ${askShort(facts, mine[0]!)}`;

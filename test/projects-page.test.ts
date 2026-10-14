@@ -6,7 +6,7 @@ import { PARKED_PREFIX, TURN_LIMIT_PREFIX } from '../src/shared/continue.js';
 import type { ApprovalRequest, PendingQuestion, Task } from '../src/shared/types.js';
 import {
   ageText, asksOf, budgetBanner, digestHeader, foldedLine, hereRuns, liveRuns, metaParts, money, nextTab, pageStatus, projectMenu, railLine,
-  runsMenu, sinceFor, spendBlock, stateGroups, tabDefs, unitModel, workingAgents, type PageFacts,
+  runsMenu, shortProjectName, sinceFor, spendBlock, stateGroups, stopDetail, tabDefs, unitModel, workingAgents, type PageFacts,
 } from '../ui/src/projects/page/pageLogic.js';
 
 const NOW = Date.parse('2026-10-14T11:30:00');
@@ -233,3 +233,24 @@ test('project menu: counts per project, archived last, the dot counts asks in ot
 
 import { deriveAsks } from '../src/shared/attention.js';
 function asksOfAll(f: PageFacts) { return deriveAsks({ approvals: f.approvals, questions: f.questions, tasks: f.tasks }); }
+
+test('a long project name is shortened in the rail and the units: the part before a colon or dash, else clipped', () => {
+  assert.equal(shortProjectName('Atlas: migrate every client webshop from the old DanDomain theme to the new one'), 'Atlas');
+  assert.equal(shortProjectName('Atlas - the migration'), 'Atlas');
+  assert.equal(shortProjectName('Shop'), 'Shop');
+  assert.equal(shortProjectName('Spring campaign for every single client'), 'Spring campaign fo…');
+  assert.equal(shortProjectName(''), 'a project');
+  const long = base({ projects: [{ id: P1, name: 'Shop', status: 'active' }, { id: P2, name: 'Atlas: migrate every client webshop', status: 'active' }], tasks: [task('t3', 'scout', { projectId: P2, title: 'Map theme variables' })] });
+  assert.equal(railLine(long, 'scout', P1, 'role').text, 'In Atlas: Map theme variables');
+});
+
+test('stop detail says "1 step", not "1 steps"', () => {
+  assert.equal(stopDetail(task('s', 'a', { status: 'error', error: TURN_LIMIT_PREFIX, turns: 1 })), 'Stopped after 1 step. Work kept.');
+  assert.equal(stopDetail(task('s', 'a', { status: 'error', error: TURN_LIMIT_PREFIX, turns: 200 })), 'Stopped after 200 steps. Work kept.');
+  assert.equal(stopDetail(task('s', 'a', { status: 'error', error: TURN_LIMIT_PREFIX })), 'Stopped at a limit. Work kept.');
+});
+
+test('shortProjectName also cuts at an en or em dash', () => {
+  assert.equal(shortProjectName('Atlas \u2013 the migration'), 'Atlas');
+  assert.equal(shortProjectName('Atlas \u2014 the migration'), 'Atlas');
+});

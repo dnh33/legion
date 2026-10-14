@@ -12,7 +12,9 @@
 .pg-back:hover { border-color: var(--line-strong); color: var(--text); }
 .pg-title { min-width: 0; flex: 1; }
 .pg-title h1 { margin: 0; font-size: 20px; font-weight: 600; letter-spacing: -.01em; line-height: 1.25; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
-.pg-meta { color: var(--muted); font-size: 12.5px; margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pg-meta { color: var(--muted); font-size: 12.5px; margin-top: 2px; }
+.pg-meta span span { white-space: nowrap; }
+.pg-meta .pg-sep { margin: 0 0 0 6px; }
 .pg-acts { flex: none; display: flex; gap: 8px; align-items: center; position: relative; }
 .pg-acts .why { color: var(--muted); font-size: 12.5px; }
 
@@ -38,15 +40,15 @@
 .pg-more:hover { color: var(--text); }
 
 /* tabs */
-.pg-tabbar { display: flex; align-items: flex-end; border-bottom: 1px solid var(--line); padding: 0 24px; gap: 16px; }
-.pg-tabs { display: flex; gap: 22px; flex: 1; min-width: 0; }
+.pg-tabbar { display: flex; flex-wrap: wrap; align-items: flex-end; border-bottom: 1px solid var(--line); padding: 0 24px; gap: 16px; }
+.pg-tabs { display: flex; gap: 22px; flex: 1 1 auto; min-width: 0; }
 .pg-tabs button { background: none; border: 0; padding: 6px 0 10px; min-height: 36px; color: var(--muted); position: relative; font-weight: 500; transition: color 120ms var(--ease); }
 .pg-tabs button:hover { color: var(--text); }
 .pg-tabs button .c { color: var(--muted); margin-left: 5px; font-weight: 400; }
 .pg-tabs button[aria-selected=true] { color: var(--text); }
 .pg-tabs button[aria-selected=true]::after { content: ""; position: absolute; left: 0; right: 0; bottom: -1px; height: 2px; background: var(--text); border-radius: 2px; }
 .pg-tabs button .pip { display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: var(--warn); margin-left: 6px; vertical-align: 2px; }
-.pg-lens { align-self: center; margin-bottom: 5px; display: inline-flex; border: 1px solid var(--control-line); border-radius: var(--r); overflow: hidden; flex: none; }
+.pg-lens { align-self: center; margin: 0 0 5px auto; display: inline-flex; border: 1px solid var(--control-line); border-radius: var(--r); overflow: hidden; flex: none; }
 .pg-lens button { height: 28px; padding: 0 10px; font-size: 12.5px; color: var(--muted); background: var(--surface); border: 0; }
 .pg-lens button + button { border-left: 1px solid var(--control-line); }
 .pg-lens button:hover { color: var(--text); }
@@ -162,7 +164,7 @@
 .pg-unit { display: grid; grid-template-columns: 40px minmax(0, 1fr) auto; gap: 12px; padding: 12px 4px; border-bottom: 1px solid var(--line); align-items: start; }
 .pg-u-head { display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; }
 .pg-u-head b { font-weight: 600; font-size: 14px; }
-.pg-u-head .role { color: var(--muted); font-size: 12.5px; }
+.pg-u-head .role { color: var(--muted); font-size: 12.5px; min-width: 0; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pg-u-head .mode { color: var(--text-2); font-size: 11.5px; border: 1px solid var(--line-strong); border-radius: 999px; padding: 0 7px; }
 .pg-u-now { display: flex; gap: 7px; align-items: flex-start; margin-top: 4px; }
 .pg-u-now .pg-st { margin-top: 2px; }

@@ -1,5 +1,5 @@
 /** The tabbed project page: header, meta line (one derivation), tabs with a roving tabindex, and the tab panel. Spec 3.1. */
-import { useEffect, useRef, useState } from 'react';
+import { Fragment, useEffect, useRef, useState } from 'react';
 import type { Project } from '../../../../src/shared/projects';
 import { ensureRoomList, useRooms } from '../../rooms/roomsStore';
 import { loadProjectTasks, newTask, selectAgent, setView, useStore } from '../../store';
@@ -63,7 +63,7 @@ export function ProjectFrame({ project }: { project: Project }) {
         <div className="pg-title">
           <h1 id="pg-title" title={project.name}>{project.name}</h1>
           <div className="pg-meta num" data-testid="meta">
-            {parts.map((p, i) => <span key={p}>{i > 0 && <span className="pg-sep" aria-hidden="true">/</span>}{p}</span>)}
+            <span>{parts.map((p, i) => <Fragment key={p}><span>{p}{i < parts.length - 1 && <span className="pg-sep" aria-hidden="true">/</span>}</span>{' '}</Fragment>)}</span>
           </div>
         </div>
         <div className="pg-acts">

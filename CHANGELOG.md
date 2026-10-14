@@ -4,6 +4,30 @@ All notable changes are recorded here. The format follows [Keep a Changelog](htt
 
 ## [Unreleased]
 
+### Added
+
+- **The project page opens on what needs you.** A project now has tabs (Overview, Board, Tasks, Rooms, Settings). Overview shows
+  who is working right now, then "Since you last looked": the three riskiest asks first, each with what saying yes would do, and
+  the rest behind "N more". Failed, stopped and finished work folds into one line. "Mark as seen" moves the starting point. You
+  can allow or deny a command, answer a question, or accept or reject a board proposal right there.
+- **Allow waits a few seconds first, so you can take it back.** On the project page an Allow is held for 5 seconds (10 seconds
+  for something that leaves your computer, deletes files or cannot be undone), with Undo and Send now. Deny goes at once. If you
+  close or reload the window during the wait, nothing is sent and the ask is still waiting. With the keyboard, A on an
+  irreversible ask needs a second A within 2 seconds.
+- **Two ways to see the work.** "By status" groups it as working, waiting for a slot, in review, stopped and done today. "By agent"
+  shows one row per agent with what it is doing, how many runs it has, and its cost this week. Click a name under "Working now"
+  or "2 runs" to see every run of that agent, in every project.
+- **The rail says more in one line.** Each member shows what needs you, what it is working on, or where else it works. An agent
+  with two or more runs going shows the number on its picture. The project control is a menu with a dot and "N elsewhere" when
+  something waits for you in another project.
+- **Budget and pause show on the page.** A banner says when the budget is reached (with a way to change it or run anyway) or when
+  new starts are paused (with Resume).
+
+### Fixed
+
+- The big picture of the selected agent no longer asks for you when a different agent has an approval waiting.
+- A queued run that is waiting for a free slot now says so on the project page.
+
 ### Fixed
 
 - **The message box keeps its controls while a run is going.** With "Stop all" showing, the model name no longer shrinks to "A..." and the key hint no longer gets cut off. The hint hides first when the box is narrow; the model name, Add or Queue, Stop all and Stop always stay.

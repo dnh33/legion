@@ -69,7 +69,7 @@ export function RoomsTab({ f, project }: { f: PageFacts; project: Project }) {
             const out = roomOutOfProject(r, [project], names);
             return (
               <div key={r.id} className="pg-item" style={{ gridTemplateColumns: '84px minmax(0,1fr) auto', padding: '12px 4px' }}>
-                <span className="pg-stackb" aria-hidden="true">{r.members.slice(0, 3).map((m) => <AgentBust key={m} agentId={m} size={26} />)}</span>
+                <span className="pg-stackb" aria-hidden="true">{r.members.slice(0, 3).map((m) => <AgentBust key={m} agentId={m} size={26} calm />)}</span>
                 <div className="ti"><button type="button" className="lk" data-fk={`rm:${r.id}`} title={r.name} onClick={() => { setView('rooms'); openRoom(r.id); }}>{r.name}</button>
                   <div className="sub">{r.members.length} agents{out ? ', out of project (' + out + ')' : ''}</div></div>
                 <div className="r">

@@ -151,7 +151,7 @@ export function Digest({ f, asks, agentLens, openBoard }: { f: PageFacts; asks: 
       {!folded && expanded && rows.length > 3 && <div className="pg-dg-more"><button type="button" className="pg-lnk" data-fk="more" onClick={() => setExpanded(false)}>Show fewer</button></div>}
       {!folded && footLine && (
         <>
-          <div className="pg-dg-foot num"><span>{footLine}</span><span className="pg-gap" />
+          <div className="pg-dg-foot num"><span><FoldedLine text={footLine} /></span><span className="pg-gap" />
             <button type="button" className="pg-lnk" aria-expanded={foot} data-fk="foot" onClick={() => setFoot((v) => !v)}>{foot ? 'Hide' : 'Show'}</button></div>
           {foot && (
             <div className="pg-dg-list">
@@ -235,7 +235,7 @@ function AnsweredRow({ a }: { a: Answer }) {
       onPointerEnter={() => holdPointer(a.key, true)} onPointerLeave={() => holdPointer(a.key, false)}
       onFocus={(e) => holdFocus(a.key, (e.target as HTMLElement).matches(':focus-visible'))}
       onBlur={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node | null)) holdFocus(a.key, false); }}>
-      <AgentBust agentId={a.row.agentId} size={28} />
+      <AgentBust agentId={a.row.agentId} size={28} calm />
       <div style={{ minWidth: 0 }}>
         {holding ? (
           <>
@@ -254,5 +254,17 @@ function AnsweredRow({ a }: { a: Answer }) {
         </div>
       ) : <span />}
     </li>
+  );
+}
+
+/** "1 failed, 1 stopped, 5 finished or in review since 09:40": the counts in bold, as the mockup has them. */
+function FoldedLine({ text }: { text: string }) {
+  const i = text.lastIndexOf(' since ');
+  const head = i < 0 ? text : text.slice(0, i);
+  return (
+    <>
+      {head.split(', ').map((part, k) => <span key={part}>{k > 0 && ', '}<b>{part}</b></span>)}
+      {i < 0 ? null : text.slice(i)}
+    </>
   );
 }

@@ -1,5 +1,5 @@
 /**
- * The one seam for the page's view state (spec 3.1, 11.4): which tab and which lens. In memory only, no localStorage key, so the layouts
+ * The one seam for the page's view state (spec 3.1, 11.4): which tab and which lens. In memory only (no browser storage), so the layouts
  * work can move it later without touching the components. Opening a project always lands on Overview.
  */
 import { useSyncExternalStore } from 'react';

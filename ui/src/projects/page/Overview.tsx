@@ -152,7 +152,7 @@ export function RunsMenuView({ anchor, f, agentId, onClose }: { anchor: React.Re
           <div className="grp-l">{g.projectName}</div>
           {g.rows.map((r) => (
             <div key={r.taskId} style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-              <button type="button" role="menuitem" onClick={() => go(r.taskId, r.projectId)} style={{ flex: 1 }}>
+              <button type="button" role="menuitem" onClick={() => go(r.taskId, r.projectId)} style={{ flex: 1, width: 'auto', minWidth: 0 }}>
                 <PIcon name={r.needsYou ? 'hand' : 'run'} className={`pg-st ${r.needsYou ? 'warn' : 'live'}`} />
                 <span className="mm"><b>{r.title}</b><span>{r.detail} / {money(r.costUsd)}</span></span>
               </button>
@@ -185,7 +185,9 @@ function Groups({ f, asks, archived, openBoard }: { f: PageFacts; asks: ReturnTy
   const groups: Group[] = archived
     ? [{ key: 'done' as const, heading: 'Last activity', total: 0, cap: 5, items: projectTasks(f).slice().sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)).map((t): GroupItem => ({ key: `t:${t.id}`, taskId: t.id, title: t.title, agentId: t.agentId, agentName: f.agents.find((a) => a.id === t.agentId)?.name ?? t.agentId, status: 'done', detail: '', costUsd: t.costUsd ?? 0, age: ageText(f.nowMs, t.updatedAt) })) }].map((g) => ({ ...g, total: g.items.length }))
     : stateGroups(f, asks);
-  if (!groups.length) {
+  if (!groups.length || (archived && groups.every((g) => g.total === 0))) {
+    // runs that all wait on you are in the digest above: only a project with nothing at all says so
+    if (projectTasks(f).length > 0 || asks.length > 0 || archived) return null;
     return <div className="pg-empty" style={{ marginTop: 0 }}><h2>Nothing has run here yet</h2><p>Tasks you start here, and tasks agents start for you, show up on this page.</p></div>;
   }
   return (
@@ -234,7 +236,7 @@ function AgentUnits({ f, asks, weekByAgent }: { f: PageFacts; asks: ReturnType<t
     <>
       {units.length > 0 && <section className="pg-grp" aria-label="Active"><h2>Active<span className="n num">{units.length}</span></h2><div className="pg-units">{units.map((u) => <UnitRow key={u.agentId} u={u} f={f} />)}</div></section>}
       {idle.length > 0 && <section className="pg-grp" aria-label="Idle"><h2>Idle<span className="n num">{idle.length}</span></h2><div className="pg-idle">{idle.map((i) => (
-        <div key={i.agentId} className="pg-irow"><AgentBust agentId={i.agentId} size={20} /><div className="nm"><b>{i.name}</b><span>{i.text}</span></div><span className="c num">{money(i.weekUsd)}</span></div>
+        <div key={i.agentId} className="pg-irow"><AgentBust agentId={i.agentId} size={20} calm /><div className="nm"><b>{i.name}</b><span>{i.text}</span></div><span className="c num">{money(i.weekUsd)}</span></div>
       ))}</div></section>}
       {noTasks.length > 0 && <div className="pg-nontask">{plural(noTasks.length, 'member has', 'members have')} no tasks here yet: {noTasks.join(', ')}.</div>}
       <p className="pg-legend">{MODE_HELP}</p>
@@ -251,9 +253,9 @@ function UnitRow({ u, f }: { u: Unit; f: PageFacts }) {
     <div className="pg-unit" data-testid="agent-unit">
       <AgentBust agentId={u.agentId} size={40} runs={u.runs} />
       <div style={{ minWidth: 0 }}>
-        <div className="pg-u-head"><b>{u.name}</b><span className="role">{u.role}</span>{u.mode && <span className="mode">{u.mode}</span>}{u.cloud && <span className="mode">Cloud computer</span>}</div>
+        <div className="pg-u-head"><b>{u.name}</b><span className="role" title={u.role}>{u.role}</span>{u.mode && <span className="mode">{u.mode}</span>}{u.cloud && <span className="mode">Cloud computer</span>}</div>
         <div className="pg-u-now"><PIcon name={UNIT_ICON[u.lead.icon]} className={`pg-st ${tone}`} /><span title={u.lead.text}>{u.lead.text}</span></div>
-        {u.rest.length > 0 && <div className="pg-u-more"><span className="pg-sep" aria-hidden="true" style={{ margin: 0 }}>+{u.rest.length} more</span><span className="ell">{u.rest[0]!.text}{u.rest.length > 1 ? ` and ${u.rest.length - 1} other${u.rest.length > 2 ? 's' : ''}` : ''}</span></div>}
+        {u.rest.length > 0 && <div className="pg-u-more"><span style={{ whiteSpace: 'nowrap', flex: 'none' }}>+{u.rest.length} more</span><span className="ell">{u.rest[0]!.text}{u.rest.length > 1 ? ` and ${u.rest.length - 1} other${u.rest.length > 2 ? 's' : ''}` : ''}</span></div>}
         {u.also && <div className="pg-u-also">{u.also}</div>}
         {u.tail && <div className="pg-u-tail">{u.tail}</div>}
       </div>
@@ -288,7 +290,7 @@ function SideColumn({ f, project, spend, showMembers }: { f: PageFacts; project:
           <h3>Rooms<button type="button" className="pg-lnk" onClick={() => setTab('rooms')}>All rooms</button></h3>
           {rs.map((r) => (
             <div key={r.id} className="pg-rm">
-              <span className="pg-stackb" aria-hidden="true">{r.members.slice(0, 3).map((m) => <AgentBust key={m} agentId={m} size={26} />)}</span>
+              <span className="pg-stackb" aria-hidden="true">{r.members.slice(0, 3).map((m) => <AgentBust key={m} agentId={m} size={26} calm />)}</span>
               <div className="nm"><button type="button" className="rt" data-fk={`rm:${r.id}`} title={r.name} onClick={() => { setView('rooms'); openRoom(r.id); }}>{r.name}</button>
                 <span className="s">{plural(r.members.length, 'agent')}<span className="pg-sep" aria-hidden="true">/</span>updated {ageText(f.nowMs, r.updatedAt)} ago</span></div>
             </div>
@@ -301,7 +303,7 @@ function SideColumn({ f, project, spend, showMembers }: { f: PageFacts; project:
           <div className="pg-team">{project.members.map((id) => {
             const name = f.agents.find((a) => a.id === id)?.name ?? id;
             const w = working.has(id);
-            return <span key={id} className="pg-mini" role="img" aria-label={`${name}${w ? ', working' : ''}`} title={`${name}${w ? ', working' : ''}`}><AgentBust agentId={id} size={20} dot={w} /></span>;
+            return <span key={id} className="pg-mini" role="img" aria-label={`${name}${w ? ', working' : ''}`} title={`${name}${w ? ', working' : ''}`}><AgentBust agentId={id} size={20} dot={w} calm /></span>;
           })}</div>
         </div>
       )}
