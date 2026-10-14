@@ -33,6 +33,7 @@ function release(mode: 'full' | 'code'): { dir: string; tm: string; full: string
   assert.equal(run('release-package.mjs', ['--root', pkgTree(), '--out', out, '--published-at', '2026-10-20T10:00:00Z']).status, 0);
   const full = join(out, `legion-${V}-win-x64.zip`); writeFileSync(full, 'the full package bytes');
   const m = ['--zip', join(out, `legion-${V}-app.zip`), '--out', out];
+  if (mode === 'code') m.push('--stones', V); // a code-only fixture with both names the same models the stone release itself
   assert.equal(run('release-keygen.mjs', ['--out', keys]).status, 0);
   const tm = trustModule(readFileSync(join(keys, 'legion-update-k1.pub.pem'), 'utf8'));
   const key = join(keys, 'legion-update-k1.key.pem');
@@ -49,11 +50,11 @@ function release(mode: 'full' | 'code'): { dir: string; tm: string; full: string
   assert.equal(s.status, 0, s.stderr);
   return { dir: out, tm, full };
 }
-const verify = (r: { dir: string; tm: string }) => run('release-verify.mjs', ['--dir', r.dir, '--trust-module', r.tm, '--no-network']);
+const verify = (r: { dir: string; tm: string }, stones = '0.3.0') => run('release-verify.mjs', ['--dir', r.dir, '--trust-module', r.tm, '--no-network', '--stones', stones]);
 
 test('verify: a full release with the exact full zip passes; a code-only release passes', () => {
   const f = verify(release('full')); assert.equal(f.status, 0, f.stdout + f.stderr);
-  const c = verify(release('code')); assert.equal(c.status, 0, c.stdout + c.stderr);
+  const c = verify(release('code'), V); assert.equal(c.status, 0, c.stdout + c.stderr);
 });
 
 test('verify: requiresFullInstall with the full zip missing from the folder is refused', () => {
@@ -89,7 +90,7 @@ test('preflight: a stray fullAsset on a release that does not need it fails', ()
   const m = JSON.parse(readFileSync(mp, 'utf8')) as Record<string, unknown>;
   m.fullAsset = { name: `legion-${V}-win-x64.zip`, size: 22, sha256: sha(readFileSync(r.full)) };
   writeFileSync(mp, JSON.stringify(m)); writeFileSync(join(r.dir, 'legion-update-manifest.json'), JSON.stringify(m));
-  const p = run('release-preflight.mjs', ['--version', V, '--pkg', r.dir, '--no-network']);
+  const p = run('release-preflight.mjs', ['--version', V, '--pkg', r.dir, '--no-network', '--stones', V]);
   assert.match(p.stderr, /FAIL[^\n]*fullAsset/i);
 });
 
@@ -99,6 +100,6 @@ test('preflight: requiresFullInstall without fullAsset fails (it is no longer on
   const m = JSON.parse(readFileSync(mp, 'utf8')) as Record<string, unknown>;
   m.requiresFullInstall = true;
   writeFileSync(mp, JSON.stringify(m)); writeFileSync(join(r.dir, 'legion-update-manifest.json'), JSON.stringify(m));
-  const p = run('release-preflight.mjs', ['--version', V, '--pkg', r.dir, '--no-network']);
+  const p = run('release-preflight.mjs', ['--version', V, '--pkg', r.dir, '--no-network', '--stones', V]);
   assert.match(p.stderr, /FAIL[^\n]*fullAsset/i);
 });

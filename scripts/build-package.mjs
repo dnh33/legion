@@ -86,7 +86,7 @@ export async function buildPackage(o) {
   const w = writeZipFile(zip, entries);
   log(`wrote ${zip}: ${w.entries} entries, ${Math.round(w.size / 1e6)} MB`);
 
-  const mf = spawnSync(process.execPath, [join(REPO, 'scripts', 'release-manifest.mjs'), '--zip', appZip, '--out', out], { encoding: 'utf8' });
+  const mf = spawnSync(process.execPath, [join(REPO, 'scripts', 'release-manifest.mjs'), '--zip', appZip, '--out', out, '--stones', version], { encoding: 'utf8' }); // a placeholder manifest (both names the same): the release build rewrites it with --stepping-stone, and preflight/verify refuse it otherwise
   if (mf.status !== 0) throw new Error(`release-manifest.mjs failed: ${mf.stderr || mf.stdout}`);
   // release-manifest.mjs already lists the installer (its zip is written above); replace that line, never add a second one
   const sums = readFileSync(join(out, 'SHA256SUMS.txt'), 'utf8').trimEnd().split('\n').filter((l) => l.slice(66) !== basename(zip));

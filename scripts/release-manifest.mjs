@@ -1,17 +1,20 @@
 #!/usr/bin/env node
 // Builds the manifests and SHA256SUMS.txt from a package made by release-package.mjs. It does NOT sign: the owner signs by hand
-// with release-sign.mjs. usage: node scripts/release-manifest.mjs --zip <file> --out <folder> [--notes <text file>] [--previous <old manifest>] [--full-zip <file>] [--requires-full-install] [--notify-only] [--stepping-stone <folder>]
+// with release-sign.mjs. usage: node scripts/release-manifest.mjs --zip <file> --out <folder> [--notes <text file>] [--previous <old manifest>] [--full-zip <file>] [--requires-full-install] [--notify-only] [--stepping-stone <folder>] [--stones <v,v>]
 //
 // TWO manifest names (docs/SHIPPING.md, Stepping stones). legion-update-manifest-2.json is this release's own manifest and is what 0.3.0 and later read
-// first. legion-update-manifest.json is what 0.2.7 reads: for a code-only release the same bytes; for a full-install release the STONE's own signed
-// manifest and .sig from --stepping-stone, copied byte for byte (never re-signed), while the own manifest names the stone and sets minUpdater 2.
+// first. legion-update-manifest.json is what 0.2.7 reads. Only the stepping-stone release itself (a version listed in scripts/stepping-stones.json)
+// publishes its own manifest under both names. EVERY later release, code-only or full, needs --stepping-stone: the stone's own signed manifest and
+// .sig, copied byte for byte (never re-signed) under the old name. A full-install release also names the stone in its own manifest and sets minUpdater 2.
+// --stones overrides the list (tests and rehearsals only).
 import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { basename, join, resolve } from 'node:path';
 import { args, die, isReleaseVersion, listZipNames, loadDist, readZipEntry } from './lib/release-lib.mjs';
-import { NEW_NAME, OLD_NAME } from './lib/stepping-stone.mjs';
+import { NEW_NAME, OLD_NAME, readStones } from './lib/stepping-stone.mjs';
 
-const a = args(process.argv.slice(2), { zip: 'v', out: 'v', notes: 'v', previous: 'v', 'full-zip': 'v', 'requires-full-install': 'flag', 'notify-only': 'flag', 'stepping-stone': 'v' });
+const a = args(process.argv.slice(2), { zip: 'v', out: 'v', notes: 'v', previous: 'v', 'full-zip': 'v', 'requires-full-install': 'flag', 'notify-only': 'flag', 'stepping-stone': 'v', stones: 'v' });
+const stones = a.stones ? a.stones.split(',') : readStones();
 if (!a.zip || !a.out) die('usage: node scripts/release-manifest.mjs --zip <file> --out <folder> [--notes <file>] [--previous <manifest>] [--full-zip <file>] [--requires-full-install] [--notify-only]');
 const zip = readFileSync(resolve(a.zip));
 const sha = (b) => createHash('sha256').update(b).digest('hex');
@@ -76,18 +79,22 @@ const out = resolve(a.out); mkdirSync(out, { recursive: true });
 // The stepping stone: a full-install release names a code-only release that an older updater applies first. Its manifest and .sig are
 // taken as published (the folder of its release), checked with the app's own parser, and never changed.
 let stoneManifest, stoneSig;
-if (a['stepping-stone']) {
-  if (!fullAsset) die('--stepping-stone only makes sense for a full-install release (--full-zip and --requires-full-install)');
+const ownIsStone = stones.includes(version);
+if (ownIsStone) {
+  if (a['stepping-stone']) die(`${version} is itself a stepping stone (scripts/stepping-stones.json): it publishes its own manifest under both names, so --stepping-stone does not apply`);
+} else {
+  if (!a['stepping-stone']) die(`${version} is not a stepping stone, so the old name must carry the stone's own signed manifest, not this release: pass --stepping-stone <folder with the stone's legion-update-manifest.json and .sig> (gh release download v${stones[stones.length - 1]} -p 'legion-update-manifest.json*' -D <folder>). Without it a 0.2.7 install would stage this release and be stranded.`);
   const dir = resolve(a['stepping-stone']);
   const { parseManifest } = await loadDist('src/core/updater/manifest.js');
   stoneManifest = readFileSync(join(dir, OLD_NAME)); stoneSig = readFileSync(join(dir, `${OLD_NAME}.sig`));
   const st = parseManifest(stoneManifest);
   if (st.requiresFullInstall || st.fullAsset) die(`${st.version} is itself a full-install release, so it cannot be a stepping stone`);
   if (cmp(st.version, version) >= 0) die(`the stepping stone ${st.version} is not older than ${version}`);
-  manifest.minUpdater = 2;
-  manifest.steppingStone = { version: st.version, publishedAt: st.publishedAt, depsSha256: st.depsSha256, asset: st.asset };
-} else if (fullAsset) {
-  console.error('warning: a full-install release without --stepping-stone: the old name carries this full release itself, so 0.2.7 installs would jump straight to it. release-preflight and release-verify refuse that.');
+  if (!stones.includes(st.version)) die(`${st.version} is not listed in scripts/stepping-stones.json`);
+  if (fullAsset) {
+    manifest.minUpdater = 2;
+    manifest.steppingStone = { version: st.version, publishedAt: st.publishedAt, depsSha256: st.depsSha256, asset: st.asset };
+  }
 }
 const mBytes = Buffer.from(JSON.stringify(manifest, null, 2) + '\n');
 writeFileSync(join(out, NEW_NAME), mBytes);

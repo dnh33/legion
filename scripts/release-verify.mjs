@@ -21,8 +21,8 @@ const m = readFileSync(join(dir, NEW_NAME));
 const v = trust.verifyManifestSignature(m, readFileSync(join(dir, `${NEW_NAME}.sig`), 'utf8'), trust.UPDATE_KEYS);
 if (!v.ok) die(`signature: ${v.reason}`);
 const man = parseManifest(m);
-// The old name must be a signed stepping stone (full-install release) or the same manifest (code-only); its package must still be served as signed.
-const stoneErr = await stoneProblems({ oldBytes: readFileSync(join(dir, OLD_NAME)), oldSig: existsSync(join(dir, `${OLD_NAME}.sig`)) ? readFileSync(join(dir, `${OLD_NAME}.sig`), 'utf8') : '', newBytes: m, trust, parseManifest, stones: a.stones ? a.stones.split(',') : readStones(), ...(man.requiresFullInstall && !a['no-network'] ? { fetchAsset: hashUrl } : {}) });
+// The old name must be the signed stepping stone (the stone release itself: its own manifest); its package must still be served as signed.
+const stoneErr = await stoneProblems({ oldBytes: readFileSync(join(dir, OLD_NAME)), oldSig: existsSync(join(dir, `${OLD_NAME}.sig`)) ? readFileSync(join(dir, `${OLD_NAME}.sig`), 'utf8') : '', newBytes: m, trust, parseManifest, stones: a.stones ? a.stones.split(',') : readStones(), ...(!a['no-network'] ? { fetchAsset: hashUrl } : {}) });
 if (stoneErr.length) die(`stepping stone: ${stoneErr.join('; ')}`);
 const zip = readFileSync(join(dir, man.asset.name));
 if (zip.length !== man.asset.size) die('the zip size differs from the manifest');

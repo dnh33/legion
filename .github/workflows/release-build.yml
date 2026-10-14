@@ -200,10 +200,12 @@ jobs:
         run: |
           $argv = @('--zip', "$env:PKG\legion-$env:V-app.zip", '--out', $env:PKG)
           if ($env:NOTES) { $argv += @('--notes', $env:NOTES) }
-          if ($env:REQUIRES -eq 'true') {
-            $argv += @('--full-zip', "$env:PKG\legion-$env:V-win-x64.zip", '--requires-full-install')
-            # A full-install release names a stepping stone (docs/SHIPPING.md): its own published, signed old-name manifest, copied unchanged.
-            $stone = (Get-Content -Raw scripts/stepping-stones.json | ConvertFrom-Json).stones | Select-Object -Last 1
+          if ($env:REQUIRES -eq 'true') { $argv += @('--full-zip', "$env:PKG\legion-$env:V-win-x64.zip", '--requires-full-install') }
+          # EVERY release after the stepping stone, code-only or full, parks the stone's own published, signed old-name manifest under the old name,
+          # copied unchanged (docs/SHIPPING.md). Only the stone release itself (a version in scripts/stepping-stones.json) is built without it.
+          $stones = @((Get-Content -Raw scripts/stepping-stones.json | ConvertFrom-Json).stones)
+          if ($stones -notcontains $env:V) {
+            $stone = $stones | Select-Object -Last 1
             $stoneDir = Join-Path $env:RUNNER_TEMP 'stone'
             New-Item -ItemType Directory -Force -Path $stoneDir | Out-Null
             foreach ($n in 'legion-update-manifest.json', 'legion-update-manifest.json.sig') {

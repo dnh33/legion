@@ -7,7 +7,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { generateKeyPairSync } from 'node:crypto';
-import { mkdtempSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
+import { copyFileSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -45,7 +45,7 @@ function pkg(version: string, full: boolean, lock = '{"lockfileVersion":3}\n'): 
 /** The signed stone: a published code-only release folder holding its manifest and .sig under the old name. */
 function stone(t: { key: string; trust: string }, version = '0.3.0'): string {
   const d = pkg(version, false);
-  assert.equal(sh('release-manifest.mjs', '--zip', join(d, `legion-${version}-app.zip`), '--notes', join(d, 'notes.txt'), '--out', d).code, 0);
+  assert.equal(sh('release-manifest.mjs', '--zip', join(d, `legion-${version}-app.zip`), '--notes', join(d, 'notes.txt'), '--out', d, '--stones', version).code, 0);
   assert.equal(sh('release-sign.mjs', '--key', t.key, '--manifest', join(d, 'legion-update-manifest-2.json'), '--trust-module', t.trust).code, 0);
   return d;
 }
@@ -54,6 +54,12 @@ const full = (version: string, stoneDir?: string): string => {
   const r = sh('release-manifest.mjs', '--zip', join(d, `legion-${version}-app.zip`), '--full-zip', join(d, `legion-${version}-win-x64.zip`), '--requires-full-install', '--notes', join(d, 'notes.txt'), '--out', d, ...(stoneDir ? ['--stepping-stone', stoneDir] : []));
   assert.equal(r.code, 0, r.out);
   return d;
+};
+/** A code-only release AFTER the stone: its own manifest under the second name, the stone's bytes under the old name. */
+const later = (version: string, stoneDir?: string): { code: number; out: string; dir: string } => {
+  const d = pkg(version, false);
+  const r = sh('release-manifest.mjs', '--zip', join(d, `legion-${version}-app.zip`), '--notes', join(d, 'notes.txt'), '--out', d, ...(stoneDir ? ['--stepping-stone', stoneDir] : []));
+  return { ...r, dir: d };
 };
 const readJ = (p: string): Record<string, unknown> => JSON.parse(readFileSync(p, 'utf8')) as Record<string, unknown>;
 
@@ -81,20 +87,46 @@ test('stone: release-verify accepts a full release with its stone and refuses on
   assert.equal(sh('release-sign.mjs', '--key', t.key, '--manifest', join(ok, 'legion-update-manifest-2.json'), '--trust-module', t.trust).code, 0);
   const good = sh('release-verify.mjs', '--dir', ok, '--trust-module', t.trust, '--no-network');
   assert.equal(good.code, 0, good.out);
-  const bare = full('0.5.1');
-  assert.equal(sh('release-sign.mjs', '--key', t.key, '--manifest', join(bare, 'legion-update-manifest-2.json'), '--trust-module', t.trust).code, 0);
-  const bad = sh('release-verify.mjs', '--dir', bare, '--trust-module', t.trust, '--no-network');
+  const refused = sh('release-manifest.mjs', '--zip', join(ok, 'legion-0.5.0-app.zip'), '--full-zip', join(ok, 'legion-0.5.0-win-x64.zip'), '--requires-full-install', '--out', mkdtempSync(join(tmpdir(), 'legion-stone-')));
+  assert.notEqual(refused.code, 0); assert.match(refused.out, /stepping-stone/, 'the manifest script will not build a full release that is its own old name');
+  copyFileSync(join(ok, 'legion-update-manifest-2.json'), join(ok, 'legion-update-manifest.json'));
+  copyFileSync(join(ok, 'legion-update-manifest-2.json.sig'), join(ok, 'legion-update-manifest.json.sig'));
+  const bad = sh('release-verify.mjs', '--dir', ok, '--trust-module', t.trust, '--no-network');
   assert.notEqual(bad.code, 0); assert.match(bad.out, /stepping stone/i);
 });
 
 test('stone: --stepping-stone is refused for a code-only release and for a stone that is not older', () => {
   const t = trustFixture(); const sd = stone(t, '0.6.0');
   const d = pkg('0.5.0', true);
-  const r = sh('release-manifest.mjs', '--zip', join(d, 'legion-0.5.0-app.zip'), '--full-zip', join(d, 'legion-0.5.0-win-x64.zip'), '--requires-full-install', '--out', d, '--stepping-stone', sd);
+  const r = sh('release-manifest.mjs', '--zip', join(d, 'legion-0.5.0-app.zip'), '--full-zip', join(d, 'legion-0.5.0-win-x64.zip'), '--requires-full-install', '--out', d, '--stepping-stone', sd, '--stones', '0.6.0');
   assert.notEqual(r.code, 0); assert.match(r.out, /not older/);
-  const c = pkg('0.7.0', false);
-  const r2 = sh('release-manifest.mjs', '--zip', join(c, 'legion-0.7.0-app.zip'), '--out', c, '--stepping-stone', sd);
-  assert.notEqual(r2.code, 0); assert.match(r2.out, /full-install/);
+});
+
+test('stone: EVERY release after the stone, code-only or full, parks the stone itself under the old name (never itself)', () => {
+  const t = trustFixture(); const sd = stone(t);
+  const a = later('0.3.2', sd);
+  assert.equal(a.code, 0, a.out);
+  assert.deepEqual(readFileSync(join(a.dir, 'legion-update-manifest.json')), readFileSync(join(sd, 'legion-update-manifest.json')), 'a code-only release after the stone leaves the stone under the old name');
+  assert.equal(readFileSync(join(a.dir, 'legion-update-manifest.json.sig'), 'utf8'), readFileSync(join(sd, 'legion-update-manifest.json.sig'), 'utf8'));
+  assert.equal(readJ(join(a.dir, 'legion-update-manifest-2.json')).version, '0.3.2');
+  const bare = later('0.3.3');
+  assert.notEqual(bare.code, 0, 'a code-only release after the stone without --stepping-stone would put itself under the old name');
+  assert.match(bare.out, /stepping-stone/);
+  const older = later('0.2.9', sd);
+  assert.notEqual(older.code, 0); assert.match(older.out, /not older/);
+});
+
+test('stone: a code-only release after a full one verifies with the stone under the old name and is refused with itself there', () => {
+  const t = trustFixture(); const sd = stone(t);
+  const ok = later('0.3.2', sd);
+  assert.equal(sh('release-sign.mjs', '--key', t.key, '--manifest', join(ok.dir, 'legion-update-manifest-2.json'), '--trust-module', t.trust).code, 0);
+  const good = sh('release-verify.mjs', '--dir', ok.dir, '--trust-module', t.trust, '--no-network');
+  assert.equal(good.code, 0, good.out);
+  // the failure the stone design must prevent: the later code-only release replaces the stone under the old name
+  copyFileSync(join(ok.dir, 'legion-update-manifest-2.json'), join(ok.dir, 'legion-update-manifest.json'));
+  copyFileSync(join(ok.dir, 'legion-update-manifest-2.json.sig'), join(ok.dir, 'legion-update-manifest.json.sig'));
+  const bad = sh('release-verify.mjs', '--dir', ok.dir, '--trust-module', t.trust, '--no-network');
+  assert.notEqual(bad.code, 0); assert.match(bad.out, /stepping stone/i);
 });
 
 // ---- the shared rules, offline: a fake trust that accepts everything, the app's own parser
@@ -119,15 +151,68 @@ test('stone rules: a good pair passes; the signed size and hash of the stone pac
   assert.match((await L.stoneProblems({ ...base, stones: ['0.1.0'] })).join(), /not listed/);
   assert.match((await L.stoneProblems({ ...base, oldBytes: p.newB })).join(), /itself a full-install|same manifest/);
 });
+test('stone rules: a later code-only release may not carry itself under the old name; the stone release itself must', async () => {
+  const { L, parseManifest, trust } = await lib(); const t = trustFixture();
+  const sd = stone(t); const stoneB = readFileSync(join(sd, 'legion-update-manifest.json'));
+  const l = later('0.3.2', sd); const ownB = readFileSync(join(l.dir, 'legion-update-manifest-2.json'));
+  const base = { oldSig: 'x', trust, parseManifest, stones: ['0.3.0'] };
+  assert.deepEqual(await L.stoneProblems({ ...base, oldBytes: stoneB, newBytes: ownB }), [], 'stone under the old name, own manifest under the new one');
+  assert.match((await L.stoneProblems({ ...base, oldBytes: ownB, newBytes: ownB })).join(), /stepping stone/, 'a later release under both names strands 0.2.7');
+  assert.deepEqual(await L.stoneProblems({ ...base, oldBytes: stoneB, newBytes: stoneB }), [], 'the stone release itself publishes one manifest under both names');
+});
 test('stone rules: the daily check fails loudly when the live old-name manifest or the stone package is gone', async () => {
   const { L, parseManifest, trust } = await lib(); const p = pair();
   const ok = (bytes: Buffer) => ({ status: 200, bytes });
   const files = (over: Record<string, { status: number; bytes: Buffer }> = {}) => async (url: string) => over[url.split('/').pop()!] ?? (url.endsWith('manifest-2.json') ? ok(p.newB) : url.endsWith('.sig') ? ok(Buffer.from('s')) : ok(p.oldB));
-  const run = (getBytes: (u: string) => Promise<{ status: number; bytes: Buffer }>, asset: { size: number; sha256: string } | Error) => L.liveProblems({ getBytes, fetchAsset: async () => { if (asset instanceof Error) throw asset; return asset; }, trust, parseManifest });
+  const run = (getBytes: (u: string) => Promise<{ status: number; bytes: Buffer }>, asset: { size: number; sha256: string } | Error) => L.liveProblems({ getBytes, latestTag: async () => 'v0.5.0', fetchAsset: async () => { if (asset instanceof Error) throw asset; return asset; }, trust, parseManifest });
   assert.deepEqual(await run(files(), p.asset), []);
   assert.match((await run(files({ 'legion-update-manifest.json': { status: 404, bytes: Buffer.alloc(0) } }), p.asset)).join(), /stranded/);
   assert.match((await run(files(), new Error('HTTP 404'))).join(), /not reachable/);
   assert.match((await run(files(), { ...p.asset, sha256: 'b'.repeat(64) })).join(), /returns sha256/);
+});
+test('stone rules: the daily check FAILS when the latest release has no second-name manifest or its version is not the latest tag', async () => {
+  const { L, parseManifest, trust } = await lib(); const p = pair();
+  const ok = (bytes: Buffer) => ({ status: 200, bytes });
+  const gone = async (url: string) => url.includes('manifest-2.json') ? { status: 404, bytes: Buffer.alloc(0) } : url.endsWith('.sig') ? ok(Buffer.from('s')) : ok(p.oldB);
+  const run = (getBytes: (u: string) => Promise<{ status: number; bytes: Buffer }>, latestTag: () => Promise<string>) => L.liveProblems({ getBytes, latestTag, fetchAsset: async () => p.asset, trust, parseManifest });
+  const out404 = (await run(gone, async () => 'v0.5.0')).join();
+  assert.match(out404, /second-name/); assert.match(out404, /every 0\.3\.0/);
+  const fine = async (url: string) => url.endsWith('manifest-2.json') ? ok(p.newB) : url.endsWith('.sig') ? ok(Buffer.from('s')) : ok(p.oldB);
+  assert.match((await run(fine, async () => 'v0.5.1')).join(), /latest release is v0\.5\.1/);
+  assert.match((await run(fine, async () => { throw new Error('no redirect'); })).join(), /latest release/);
+});
+test('stone rules: the old name of the live release must be the stone as published at its own tag', async () => {
+  const { L, parseManifest, trust } = await lib(); const p = pair();
+  const ok = (bytes: Buffer) => ({ status: 200, bytes });
+  const tampered = Buffer.from(p.oldB.toString('utf8') + ' ');
+  const getBytes = async (url: string) => url.includes('/releases/download/v0.3.0/') && !url.endsWith('.sig') ? ok(tampered) : url.endsWith('manifest-2.json') ? ok(p.newB) : url.endsWith('.sig') ? ok(Buffer.from('s')) : ok(p.oldB);
+  const r = (await L.liveProblems({ getBytes, latestTag: async () => 'v0.5.0', fetchAsset: async () => p.asset, trust, parseManifest })).join();
+  assert.match(r, /differs from the stone/);
+});
+test('stone rules: fetchBytes gives up on a server that never answers', async () => {
+  const { createServer } = await import('node:http');
+  const srv = createServer(() => { /* never answers */ }); await new Promise<void>((r) => srv.listen(0, '127.0.0.1', r));
+  try {
+    const { fetchBytes } = (await import(pathToFileURL(S('lib/stepping-stone.mjs')).href)) as { fetchBytes(u: string, ms: number): Promise<unknown> };
+    const port = (srv.address() as { port: number }).port;
+    await assert.rejects(fetchBytes(`http://127.0.0.1:${port}/x`, 200), /timed out|abort|timeout/i);
+  } finally { srv.closeAllConnections(); srv.close(); }
+});
+
+test('publish: assets go up to a DRAFT, both manifest names with their signatures included, and only then does it become latest', () => {
+  const t = trustFixture(); const sd = stone(t); const l = later('0.3.2', sd);
+  const run = (dir: string) => sh('release-publish.mjs', '--dir', dir, '--version', '0.3.2', '--notes-file', join(dir, 'notes.txt'), '--dry-run');
+  assert.equal(sh('release-sign.mjs', '--key', t.key, '--manifest', join(l.dir, 'legion-update-manifest-2.json'), '--trust-module', t.trust).code, 0);
+  for (const f of ['SHA256SUMS.txt.sig', 'install.ps1', 'install.sh', 'legion-0.3.2-win-x64.zip']) writeFileSync(join(l.dir, f), 'x');
+  const r = run(l.dir); assert.equal(r.code, 0, r.out);
+  const lines = r.out.split('\n').filter((x) => x.startsWith('gh '));
+  assert.match(lines[0], /release create v0\.3\.2 .*--draft/);
+  assert.match(lines[lines.length - 1], /release edit v0\.3\.2 .*--draft=false --latest/);
+  const up = lines.filter((x) => x.includes('release upload')).join(' ');
+  for (const n of ['legion-update-manifest.json', 'legion-update-manifest.json.sig', 'legion-update-manifest-2.json', 'legion-update-manifest-2.json.sig', 'legion-0.3.2-app.zip', 'SHA256SUMS.txt']) assert.ok(up.includes(n), n);
+  assert.ok(lines.findIndex((x) => x.includes('release upload')) < lines.length - 1, 'every upload comes before the release becomes latest');
+  rmSync(join(l.dir, 'legion-update-manifest-2.json.sig'));
+  const bad = run(l.dir); assert.notEqual(bad.code, 0); assert.match(bad.out, /legion-update-manifest-2\.json\.sig/);
 });
 test('stone: SHIPPING.md lists every stepping stone and says they are never deleted', () => {
   const stones = (readJ(join(REPO, 'scripts', 'stepping-stones.json')).stones) as string[];

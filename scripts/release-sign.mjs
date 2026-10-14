@@ -24,8 +24,8 @@ const sigText = JSON.stringify({ keyId: embedded.id, alg: 'ed25519', sig: sign(n
 const v = trust.verifyManifestSignature(bytes, sigText, trust.UPDATE_KEYS);
 if (!v.ok) die(`the signature did not verify: ${v.reason}`);
 writeFileSync(`${mPath}.sig`, sigText + '\n');
-// A code-only release publishes the same bytes under both manifest names; one signature serves both. A full-install release's old name is
-// the stepping stone's own file with its own signature, so it differs and is left alone.
+// The stepping-stone release itself publishes the same bytes under both manifest names; one signature serves both. Every later release's old name is
+// the stone's own file with its own signature, so it differs and is left alone.
 for (const [x, y] of [['legion-update-manifest-2.json', 'legion-update-manifest.json'], ['legion-update-manifest.json', 'legion-update-manifest-2.json']]) {
   if (basename(mPath) !== x) continue;
   const twin = join(dirname(mPath), y);
