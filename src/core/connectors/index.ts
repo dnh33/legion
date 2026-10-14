@@ -11,6 +11,7 @@ import type { AgentProfile } from '../../shared/types.js';
 import { HttpError } from '../server.js';
 import type { CoreModule, ModuleDeps, ModuleJob } from '../modules.js';
 import { CONNECTORS_PREAMBLE, CONNECTORS_SERVER_NAME, buildConnectorsServer } from './gateway.js';
+import type { WriteApp } from './gateway.js';
 import type { GatewayDeps, ReadTool } from './gateway.js';
 import { DeviceFlowError, getGitHubClient } from './github/client.js';
 import type { GitHubClient } from './github/client.js';
@@ -34,8 +35,10 @@ export interface ConnectorsOptions {
   log?: (line: string) => void;
   /** Tests inject tool spies here (see GatewayDeps.tools). */
   tools?: Record<string, ReadTool>;
-  /** The signed-in write app (plugged in by the writes unit); undefined means not signed in. */
+  /** The signed-in write app. Default: the "Legion (write)" client, signed in, with its permissions read once. Tests inject their own. */
   writeApp?: GatewayDeps['writeApp'];
+  /** Defaults to the core's "Legion (write)" client (getGitHubClient('write')). */
+  writeClient?: () => GitHubClient | undefined;
   /** Tests inject write-tool spies here (see GatewayDeps.writeTools). */
   writeTools?: Record<string, ReadTool>;
 }
@@ -51,12 +54,24 @@ export function createConnectorsModule(deps: ModuleDeps, opts: ConnectorsOptions
   let view: FlowView = { phase: 'idle' };
   let abort: AbortController | undefined;
 
+  /**
+   * The real write check (design 4.3): the write client exists, is signed in, and its permissions are known (read once, on the first write).
+   * Anything short of that is `undefined`, which the gateway turns into plain words with no card. `can` is asked per tool by the gateway.
+   */
+  const writeApp = async (): Promise<WriteApp | undefined> => {
+    const w = (opts.writeClient ?? (() => getGitHubClient('write')))();
+    if (!w || !(await w.signedIn())) return undefined;
+    if (w.can('issues', 'read') === 'unknown') { try { await w.connection(); } catch { return undefined; } }
+    return { api: w, can: (area, level) => w.can(area, level) };
+  };
+
   const gatewayDeps = (): GatewayDeps => ({
     agent: (id) => deps.store.getAgent(id),
     task: (id) => deps.store.getTask(id) as { status?: string; origin?: { viaMcpClient?: boolean } } | undefined,
     github: () => client(),
     dataDir: deps.dataDir,
-    ...(opts.writeApp ? { writeApp: opts.writeApp } : {}),
+    writeApp: opts.writeApp ?? writeApp,
+    approvals: deps.approvals,
     ...(opts.writeTools ? { writeTools: opts.writeTools } : {}),
     ...(opts.now ? { now: opts.now } : {}),
     ...(opts.sleep ? { sleep: opts.sleep } : {}),
