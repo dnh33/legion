@@ -16,3 +16,13 @@
 .rail-list .agent.bust-row { padding-block: 5px; }
 /* the busy ring keeps its look but ticks (8 steps per 1.6 s): it is the only endless animation a working bust adds to the rail */
 .avatar.bust-avatar.busy::after { animation: ring 1.6s steps(8) infinite; }
+
+/* ---- resting busts (rest mode): a pre-rendered still; the engine mounts on hover or keyboard focus only ---- */
+.bust-still { display: block; width: 100%; height: 100%; object-fit: contain; pointer-events: none; }
+.bust.bust-rest { overflow: hidden; }
+/* the still is the transparent painting; the dark aura disc would sit on a light tile, so Light never draws it (still and live bust agree) */
+:root[data-theme='light'] .bust-rest .mx-aura { display: none !important; }
+/* needs you: a static amber ring, painted once and never animated, so it costs the compositor nothing */
+.bust.bust-rest.needs { border-radius: 28%; overflow: visible; }
+.bust.bust-rest.needs::after { content: ''; position: absolute; inset: 0; border-radius: inherit; border: 2px solid var(--warn); opacity: .9; pointer-events: none; }
+.bust-rest .bust-still-wrap { display: block; width: 100%; height: 100%; }
