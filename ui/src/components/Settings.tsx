@@ -18,13 +18,14 @@ import { GithubSection } from '../connectors/GithubSection';
 import { LogsSection } from '../logs/LogsSection';
 import { GatesSection } from '../gates/GatesSection';
 import { NotificationsSection } from '../away/NotificationsSection';
+import { SoundsSection } from '../sound/SoundsSection';
 import { SpendingSection } from '../away/SpendingSection';
 import { replayTips, setTipsEnabled, useTips } from '../whatsnew/tipsStore';
 
 const NAV: { id: SettingsSection; label: string; hint: string }[] = [
   { id: 'claude', label: 'Claude', hint: 'Sign-in, key, runs' },
   { id: 'gates', label: 'Gates', hint: 'When agents need your OK' },
-  { id: 'notifications', label: 'Notifications', hint: 'Pop-ups and quiet hours' },
+  { id: 'notifications', label: 'Notifications', hint: 'Pop-ups, sounds, quiet hours' },
   { id: 'spending', label: 'Spending', hint: 'What your agents cost' },
   { id: 'providers', label: 'Providers', hint: 'Other models, optional' },
   { id: 'boat', label: 'boat.dev (VMs)', hint: 'Cloud computers' },
@@ -80,7 +81,7 @@ export function SettingsPanel() {
           {!settings ? <div className="set-loading"><span className="spin" /> Loading settings{'…'}</div> : (
             section === 'claude' ? <ClaudeSection s={settings} />
               : section === 'gates' ? <GatesSection s={settings} />
-              : section === 'notifications' ? <NotificationsSection />
+              : section === 'notifications' ? <><NotificationsSection /><SoundsSection /></>
               : section === 'spending' ? <SpendingSection />
               : section === 'providers' ? <ProvidersSection />
               : section === 'boat' ? <BoatSection s={settings} />

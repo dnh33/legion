@@ -18,13 +18,9 @@ import { BUDGET_ERROR, PARK_ERROR, SETTINGS_NAV, awayFormModel, budgetPatch, cha
 import type { Period } from './settingsLogic';
 import type { PageFacts } from './pageLogic';
 import { PIcon } from './PIcon';
+import { Switch } from './Switch';
 import '../projects.css';
 import './settings.css';
-
-/** `expanded` is for a switch that opens a question before it changes anything: aria-checked stays what is true (off), aria-expanded says the question is open. */
-function Switch({ on, label, disabled, onChange, id, expanded }: { on: boolean; label: string; disabled?: boolean; onChange: (v: boolean) => void; id: string; expanded?: boolean }) {
-  return <button type="button" role="switch" id={id} className={'pg-sw' + (expanded ? ' asking' : '')} aria-checked={on} {...(expanded !== undefined ? { 'aria-expanded': expanded } : {})} aria-label={label} disabled={disabled} onClick={() => onChange(!on)} />;
-}
 
 function Opt({ id, title, help, children }: { id: string; title: string; help?: string; children: React.ReactNode }) {
   return (
