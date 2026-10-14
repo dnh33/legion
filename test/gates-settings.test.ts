@@ -106,3 +106,24 @@ test('a hand-edited config.json with one bad rule loads: the bad rule is dropped
   const loaded = normalizeGates(JSON.parse(readFileSync(file, 'utf8')).gates);
   assert.deepEqual(loaded.rules.map((r) => r.id), ['gr_a1'], 'the malformed verdict never reaches a matcher');
 });
+
+test('editGateRules: adds and removes against the rules as stored right now, so a gates edit made in between is kept', () => {
+  const { s, file } = svc({ gates: { rules: [good], presetsVersion: 3 } });
+  const mine: GateRule = { id: 'gr_m1', enabled: true, then: 'allow', when: { tools: ['reads'] }, label: 'mine', source: 'card' };
+  // another writer lands a rule first; the edit below was built without knowing about it
+  s.patch({ gates: { rules: [good, { ...good, id: 'gr_other' }], presetsVersion: 3 } });
+  const view = s.editGateRules({ add: [mine] });
+  assert.deepEqual(view.gates.rules.map((r) => r.id), ['gr_a1', 'gr_other', 'gr_m1'], 'the other writer\'s rule survives');
+  assert.equal(view.gates.presetsVersion, 3);
+  assert.deepEqual(s.editGateRules({ add: [mine] }).gates.rules.map((r) => r.id), ['gr_a1', 'gr_other', 'gr_m1'], 'adding the same id twice adds once');
+  assert.deepEqual(s.editGateRules({ remove: ['gr_m1', 'gr_nope'] }).gates.rules.map((r) => r.id), ['gr_a1', 'gr_other'], 'removing an unknown id is not an error');
+  assert.deepEqual((JSON.parse(readFileSync(file, 'utf8')) as { gates: { rules: Array<{ id: string }> } }).gates.rules.map((r) => r.id), ['gr_a1', 'gr_other'], 'written to config.json');
+});
+
+test('editGateRules: a malformed rule or body is a 400 and nothing is stored', () => {
+  const { s } = svc({ gates: { rules: [good] } });
+  assert.throws(() => s.editGateRules({ add: [{ ...good, id: 'gr_b', then: 'nuke' } as unknown as GateRule] }), (e: unknown) => e instanceof SettingsError && e.status === 400);
+  assert.throws(() => s.editGateRules({ remove: 'gr_a1' }), (e: unknown) => e instanceof SettingsError && e.status === 400);
+  assert.throws(() => s.editGateRules(null), (e: unknown) => e instanceof SettingsError && e.status === 400);
+  assert.deepEqual(s.view().gates.rules.map((r) => r.id), ['gr_a1']);
+});

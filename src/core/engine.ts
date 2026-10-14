@@ -1541,7 +1541,8 @@ This run read connector (GitHub) data and other outside text. Web access can sen
       // auto-approves them, so a Gates rule for them does not apply — harmless: they are notes (READ_ONLY), never carded.
       // Off, the old TodoWrite goes too.
       ...(nativeTaskListOn(agent) ? { allowedTools: [...NATIVE_TASK_TOOLS] } : {}),
-      disallowedTools: ['SendMessage', 'ListAgents', ...(nativeTaskListOn(agent) ? [] : [...NATIVE_TASK_TOOLS, 'TodoWrite']), ...this.moduleDisallowed(agent)],
+      // Claude Code's own AskUserQuestion is off: in an ask-mode run it surfaced as an approval card with raw JSON. Legion's ask_user_question (mcp__legion__) raises the question card.
+      disallowedTools: ['SendMessage', 'ListAgents', 'AskUserQuestion', ...(nativeTaskListOn(agent) ? [] : [...NATIVE_TASK_TOOLS, 'TodoWrite']), ...this.moduleDisallowed(agent)],
       maxTurns: this.config.claude.maxTurns,
       // optional spend cap per run; a typed brief may ask for a lower one, clamped here, never above the owner's. On a resumed session it counts only the new spend.
       ...(maxBudgetUsd !== undefined ? { maxBudgetUsd } : {}),

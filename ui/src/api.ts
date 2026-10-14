@@ -3,7 +3,7 @@ import type { Room } from '../../src/shared/comms';
 import type { BoardMarshalStatus, BoardStatus, BoardView, MarshalConfig, WorkItem } from '../../src/shared/board';
 import type { BlenderStatusView } from '../../src/shared/blender';
 import type {
-  SettingsView, SettingsPatch, McpStatusView,
+  SettingsView, SettingsPatch, McpStatusView, GateRule,
   AgentProfile, ApprovalRequest, BoatHealthView, Catalog, ChatMessage, DoctorCheck, LegionConfig, LegionEvent, ModelChoice, PendingQuestion, QuestionPick, StateSnapshot, Task, TasksPage, VmRecord,
 } from '../../src/shared/types';
 
@@ -121,6 +121,7 @@ export const api = {
   },
   settings: () => request<SettingsView>('GET', '/api/settings'),
   patchSettings: (p: SettingsPatch) => request<SettingsView>('PATCH', '/api/settings', p),
+  editGateRules: (b: { add?: GateRule[]; remove?: string[] }) => request<SettingsView>('POST', '/api/settings/gates/rules', b),
   testBoat: (apiKey?: string, baseUrl?: string) => request<{ ok: boolean; detail: string; warnings?: string[] }>('POST', '/api/settings/boat/test', { ...(apiKey ? { apiKey } : {}), ...(baseUrl ? { baseUrl } : {}) }),
   patchTask: (id: string, b: { archived?: boolean; title?: string }) => request<Task>('PATCH', `/api/tasks/${encodeURIComponent(id)}`, b),
   deleteTask: (id: string) => request<{ ok: true }>('DELETE', `/api/tasks/${encodeURIComponent(id)}`),
@@ -157,7 +158,7 @@ export const api = {
   /** The checks that decide one item (done_when): written before the Marshal may dispatch it. */
   boardDispatch: (pid: string, id: string, doneWhen: string[]) => request<{ itemId: string; doneWhen: string[] }>('PUT', `/api/projects/${encodeURIComponent(pid)}/board/items/${encodeURIComponent(id)}/dispatch`, { doneWhen }),
   patchRoomProject: (roomId: string, projectId: string | null) => request<unknown>('PATCH', `/api/rooms/${encodeURIComponent(roomId)}`, { projectId }),
-  createTask: (b: { agentId: string; prompt: string; model?: ModelChoice; continueTaskId?: string; projectId?: string }) => request<Task>('POST', '/api/tasks', b),
+  createTask: (b: { agentId: string; prompt: string; model?: ModelChoice; continueTaskId?: string; projectId?: string; startAfter?: true }) => request<Task>('POST', '/api/tasks', b),
   /** One window of a conversation (newest by default; `before` pages back, `from` opens a window at a position) and its search (`q`). */
   taskMessages: (id: string, o: { before?: number; from?: number; limit?: number }) => {
     const sp = new URLSearchParams();

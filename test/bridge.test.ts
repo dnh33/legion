@@ -90,7 +90,7 @@ test('ask round-trip: result returned, pair thread stored with fromAgentId, head
   assert.equal(msgs[0]!.fromAgentId, 'zealot');
   const builderCall = s.calls.find((c) => c.agent === 'builder')!;
   assert.equal(builderCall.prompt, '[From Zealot (Legion agent) via the bridge. Reply with just what they need; your final message is returned to them.]\nbuild it');
-  assert.deepEqual(builderCall.options.disallowedTools, ['SendMessage', 'ListAgents', 'TaskCreate', 'TaskUpdate', 'TaskList', 'TaskGet', 'TodoWrite']); // task list off by default for a non-lead agent
+  assert.deepEqual(builderCall.options.disallowedTools, ['SendMessage', 'ListAgents', 'AskUserQuestion', 'TaskCreate', 'TaskUpdate', 'TaskList', 'TaskGet', 'TodoWrite']); // task list off by default for a non-lead agent
   assert.match(builderCall.options.systemPrompt.append, /mcp__legion__ask/);
 });
 

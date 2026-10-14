@@ -307,6 +307,8 @@ export function createServer(ctx: CoreContext): Server {
   // ---- settings --------------------------------------------------------
   route('GET', '/api/settings', () => ctx.settings.view());
   route('PATCH', '/api/settings', ({ body }) => ctx.settings.patch(body));
+  // Add/remove single gate rules in one synchronous step (no lost update). Admin-only by default-deny, like every settings route.
+  route('POST', '/api/settings/gates/rules', ({ body }) => ctx.settings.editGateRules(body));
   route('POST', '/api/settings/boat/test', ({ body }) => ctx.settings.testBoat(isObj(body) ? body.apiKey : undefined, isObj(body) ? body.baseUrl : undefined));
   // Restores the shipped compaction defaults. Admin-only by default-deny (not in admin.ts CLIENT_ROUTES), like every settings route.
   route('POST', '/api/settings/compaction/reset', () => ctx.settings.resetCompaction());
@@ -404,7 +406,10 @@ export function createServer(ctx: CoreContext): Server {
     // Only the app starts a task inside a project: a token client cannot put a run in a project (it can continue one, which keeps its project).
     const projectId = str(body.projectId, 'projectId');
     if (projectId !== undefined && !admin) throw new HttpError(403, 'admin_required: only the Legion app can start a task inside a project');
-    return ctx.engine.startTask({ agentId, prompt, source: admin ? 'ui' : 'mcp', model, continueTaskId, ...(projectId ? { projectId } : {}) });
+    // "Queue after it" (the composer's second-run box): wait for this agent's other live runs in the project. The app's own choice.
+    if (body.startAfter !== undefined && typeof body.startAfter !== 'boolean') throw new HttpError(400, 'startAfter must be true or false');
+    if (body.startAfter === true && !admin) throw new HttpError(403, 'admin_required: only the Legion app can queue a task after another');
+    return ctx.engine.startTask({ agentId, prompt, source: admin ? 'ui' : 'mcp', model, continueTaskId, ...(projectId ? { projectId } : {}), ...(body.startAfter === true ? { startAfter: true as const } : {}) });
   }, 201);
   route('GET', '/api/tasks/:id/wait', async ({ params, url, req }) => {
     const raw = url.searchParams.get('timeoutMs');
