@@ -29,6 +29,10 @@ All notable changes are recorded here. The format follows [Keep a Changelog](htt
 
 ### Fixed
 
+- **Work items an agent wrote stand out again, without turning the board yellow.** An item an agent wrote and you have not
+  reviewed has a dashed edge and "Not reviewed". One written after the agent read outside content (a web page, a shell
+  command or another tool) is marked in yellow, "Outside content, not reviewed", because that text is the one to read first.
+
 - **A fresh install no longer fails when antivirus removes a file Legion did not need.** Some antivirus programs removed
   Electron's built-in starter app (`default_app.asar`) while the install was unpacking, and the install stopped with "Windows
   or your antivirus blocked or removed ...". Legion now starts from its own small start file and the package no longer

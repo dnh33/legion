@@ -96,6 +96,16 @@ describe('amber means something needs you', () => {
     assert.equal(lightLabel('needs-setup').tone, 'warn');
   });
 
+  it('an agent-written item stands out without amber; one from a run that read outside content is amber', () => {
+    const plain = rulesFor('.bd-card.untrusted');
+    assert.ok(plain.some((r) => /border-left[^;]*dashed/.test(r.body)), 'an unreviewed agent item has its own dashed marker, so it never looks like your own');
+    const tainted = rulesFor('.bd-card.tainted');
+    assert.ok(tainted.length > 0 && tainted.some((r) => usesAmber(r.body)), 'an item written after reading outside content is amber');
+    const board = readFileSync(join(UI, 'projects', 'board', 'BoardPanel.tsx'), 'utf8');
+    assert.ok(/createdBy\.kind === 'agent' && i\.createdBy\.tainted \? ' tainted'/.test(board), 'the card gets the tainted class from createdBy.tainted');
+    assert.ok(/Outside content/.test(board), 'the card says why it is amber');
+  });
+
   it('the two project notes that ask the owner to act are marked amber', () => {
     const board = readFileSync(join(UI, 'projects', 'board', 'BoardPanel.tsx'), 'utf8');
     assert.ok(/className="proj-note needs"[^>]*>\s*<strong>Written by an agent/.test(board), 'the "written by an agent, not reviewed" note is amber');
