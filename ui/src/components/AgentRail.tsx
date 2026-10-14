@@ -11,6 +11,8 @@ import { hasBust } from '../mascot/busts';
 import { useAllProposals } from '../projects/useProposals';
 import { openAsk, openProjectBoard } from '../projects/projectsStore';
 import { heldAgents } from '../chat/queue';
+import { githubTag } from '../github/agentAccess';
+import '../github/github-access.css';
 import { ownerOfThread, useQueueState } from '../chat/queueStore';
 
 /** The rail shows at most this many "needs you elsewhere" rows; the rest sit behind "N more" (which opens the project menu). */
@@ -88,6 +90,7 @@ export function AgentRail() {
               <span className="agent-main">
                 <span className="agent-name">{a.name}</span>
                 <span className={`agent-sub${line.tone === 'attn' && !queuedHeld ? ' attn' : line.tone === 'work' && !queuedHeld ? ' also' : queuedHeld ? ' warn' : ''}`} title={full} data-testid="rail-subline">{subText}</span>
+                {githubTag(a) && <span className="agent-gh" data-testid="rail-github-tag">{githubTag(a)}</span>}
               </span>
               <span className="agent-meta">
                 {a.vm.enabled && <i className={`pip pip-${tone}`} title={`VM: ${vm ? vmLabel[vm.state] : 'No VM'}`} />}

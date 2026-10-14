@@ -9,6 +9,12 @@ import { MAX_AGENT_SKILLS } from '../../../src/shared/armory-view';
 import { revealSkill } from '../armory/armoryStore';
 import { connectorsShellWarning } from '../../../src/shared/connectors-view';
 import { nativeTaskListOn } from '../../../src/shared/task-list-setting';
+import { agentGithubLevel } from '../../../src/shared/github-area';
+import type { GithubLevel } from '../../../src/shared/github-area';
+import { accessPatch } from '../github/agentAccess';
+import { loadAreaRepos } from '../github/areaApi';
+import type { AreaRepos } from '../github/areaApi';
+import { GithubAccess } from '../github/GithubAccess';
 
 export function AgentEditor({ id, focus }: { id: string | null; focus?: 'skills' }) {
   const existing = useStore((s) => s.agents.find((a) => a.id === id));
@@ -21,7 +27,11 @@ export function AgentEditor({ id, focus }: { id: string | null; focus?: 'skills'
   const [vmOn, setVmOn] = useState(existing?.vm.enabled ?? false);
   const [size, setSize] = useState<VmSize>(existing?.vm.size ?? 'default');
   const [idle, setIdle] = useState(existing?.vm.idleStopMinutes ?? 15);
-  const [github, setGithub] = useState(existing?.connectors?.includes('github') ?? false);
+  const [ghLevel, setGhLevel] = useState<GithubLevel>(() => agentGithubLevel(existing ?? {}));
+  const [ghRepos, setGhRepos] = useState<string[]>(() => existing?.githubWrite ?? []);
+  const [area, setArea] = useState<AreaRepos | null>(null);
+  useEffect(() => { let live = true; void loadAreaRepos().then((a) => { if (live) setArea(a); }); return () => { live = false; }; }, []);
+  const github = ghLevel !== 'none';
   const [hostOn, setHostOn] = useState(existing?.host?.enabled ?? false);
   const [hostRoot, setHostRoot] = useState(existing?.host?.rootDir ?? '');
   const [hostTimeout, setHostTimeout] = useState(existing?.host?.timeoutSeconds === undefined ? '' : String(existing.host.timeoutSeconds));
@@ -36,7 +46,7 @@ export function AgentEditor({ id, focus }: { id: string | null; focus?: 'skills'
   const nowSkills = settingOf(skills);
   const skillsDirty = JSON.stringify(Array.isArray(nowSkills) ? [...nowSkills].sort() : nowSkills) !== JSON.stringify(Array.isArray(startSkills.current) ? [...startSkills.current].sort() : startSkills.current);
   // Every field counts, not only Skills: the first values are kept, and anything that differs from them asks before it is thrown away.
-  const fields = JSON.stringify([name, emoji, description, systemPrompt, model, approval, vmOn, size, idle, github, hostOn, hostRoot, hostTimeout, hostEnv, taskList]);
+  const fields = JSON.stringify([name, emoji, description, systemPrompt, model, approval, vmOn, size, idle, ghLevel, ghRepos, hostOn, hostRoot, hostTimeout, hostEnv, taskList]);
   const startFields = useRef(fields);
   const dirty = skillsDirty || fields !== startFields.current;
   const [leaving, setLeaving] = useState<null | { to: 'close' } | { to: 'armory'; skill: string }>(null);
@@ -79,7 +89,7 @@ export function AgentEditor({ id, focus }: { id: string | null; focus?: 'skills'
     // The timeout field holds what the owner typed; round and clamp it the same range the server enforces (1..3600).
     const secs = hostTimeout.trim() === '' ? undefined : Math.min(3600, Math.max(1, Math.round(Number(hostTimeout.trim())) || 120));
     const body: Omit<Partial<AgentProfile>, 'taskList'> & { name: string; taskList?: 'on' | 'off' | null } = {
-      name: name.trim(), emoji: emoji.trim() || '●', description: description.trim(), systemPrompt, model, approval, connectors: github ? ['github'] : [], skills: settingOf(skills),
+      name: name.trim(), emoji: emoji.trim() || '●', description: description.trim(), systemPrompt, model, approval, ...accessPatch(ghLevel, ghRepos), skills: settingOf(skills),
       vm: { enabled: vmOn, size, idleStopMinutes: Math.max(1, Math.round(idle) || 15) },
       // Absent host = off; a present host always says so explicitly (server.ts parseHost requires `enabled`).
       host: hostOn
@@ -138,8 +148,7 @@ export function AgentEditor({ id, focus }: { id: string | null; focus?: 'skills'
         ) : null}
         <fieldset>
           <legend>Connectors</legend>
-          <label className="check-row"><input type="checkbox" checked={github} onChange={(e) => setGithub(e.target.checked)} /> Let this agent read GitHub (repositories, issues, pull requests, CI)</label>
-          <span className="field-note">Read only. Connect GitHub first in Settings, GitHub. A run started from Claude Code or another MCP client never gets connectors.</span>
+          <GithubAccess level={ghLevel} onLevel={setGhLevel} repos={ghRepos} onRepos={setGhRepos} area={area} />
           {connectorsShellWarning({ connectors: github, approval, onProvider, vmOn }) && <p className="field-note" role="alert"><b>Warning.</b> {connectorsShellWarning({ connectors: github, approval, onProvider, vmOn })}</p>}
         </fieldset>
         <fieldset>
