@@ -24,7 +24,7 @@ const T0 = Date.parse('2026-10-20T12:00:00Z');
 interface Rig { mod: UpdaterModule; srv: FakeServer; store: Store; approvals: ApprovalBroker; root: string; data: string; clock: { t: number }; engine: FakeEngine; routes: Map<string, (c: unknown) => unknown>; call: (method: string, path: string, c?: { body?: unknown; admin?: boolean; native?: string | false }) => Promise<unknown> }
 interface FakeEngine { started: unknown[]; cancelled: string[]; live: Set<string>; running(): string[]; cancel(id: string): boolean; startTask(p: unknown): unknown }
 
-async function rig(release: Release | null, o: { version?: string; platform?: NodeJS.Platform; git?: boolean; keys?: boolean; probes?: Record<string, () => boolean> } = {}): Promise<Rig> {
+async function rig(release: Release | null, o: { version?: string; platform?: NodeJS.Platform; git?: boolean; keys?: boolean; probes?: Record<string, () => boolean>; log?: (...a: unknown[]) => void } = {}): Promise<Rig> {
   const srv = await startFakeServer(release);
   const root = cleanupTemp('upd-root-'); const data = cleanupTemp('upd-data-');
   writeFileSync(join(root, 'package-lock.json'), LOCK);
@@ -40,7 +40,7 @@ async function rig(release: Release | null, o: { version?: string; platform?: No
   };
   const clock = { t: T0 };
   const deps = { config: {}, store, bus, engine, approvals, dataDir: data, bsvEnabled: () => false } as unknown as ModuleDeps;
-  const mod = createUpdaterModule(deps, { root, nativeSecret: NATIVE, source: srv.source, keys: o.keys === false ? [] : [k.key], version: o.version ?? '0.2.0', platform: o.platform ?? 'win32', timers: false, now: () => clock.t, ...(o.probes ? { probes: o.probes } : {}), freeBytes: () => 10 ** 12 });
+  const mod = createUpdaterModule(deps, { root, nativeSecret: NATIVE, source: srv.source, keys: o.keys === false ? [] : [k.key], version: o.version ?? '0.2.0', platform: o.platform ?? 'win32', timers: false, now: () => clock.t, ...(o.probes ? { probes: o.probes } : {}), ...(o.log ? { log: o.log } : {}), freeBytes: () => 10 ** 12 });
   const routes = new Map<string, (c: unknown) => unknown>();
   mod.routes!(((m: string, p: string, h: (c: unknown) => unknown) => { routes.set(`${m} ${p}`, h); }) as unknown as RouteAdder);
   const call = async (method: string, path: string, c: { body?: unknown; admin?: boolean; native?: string | false } = {}) => {
@@ -338,6 +338,16 @@ test('C10b: a dependency-change release WITHOUT a signed full package stays noti
     assert.equal(s.available?.size, (rel2.manifestObj.asset as { size: number }).size, 'the notify route still reports the app-package size');
     await assert.rejects(notify.mod.install(), /dependencies/);
     assert.equal(hitsFor(notify, '/releases/download/'), 0, 'nothing is downloaded');
+  } finally { await notify.srv.close(); }
+});
+
+test('a refused stage (StageError) is written to the app log with its code, not only shown in the panel', async () => {
+  const lines: string[] = [];
+  const notify = await rig(makeRelease(k, '0.2.1', { lock: '{"changed":true}' }), { log: (...a) => { lines.push(a.map(String).join(' ')); } });
+  try {
+    await notify.mod.check(true);
+    assert.deepEqual(await notify.mod.install(), { ok: false });
+    assert.ok(lines.some((l) => /updater stage refused/.test(l) && /full-install/.test(l)), `log lines: ${JSON.stringify(lines)}`);
   } finally { await notify.srv.close(); }
 });
 

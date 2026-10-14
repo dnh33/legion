@@ -1,16 +1,19 @@
 #!/usr/bin/env node
 // Final check before publishing: runs the app's own verifier and parser over the release files, as an installed Legion would.
 // If SHA256SUMS.txt has been signed (scripts/release-sign-sums.mjs), the signature is verified here too, against the same key.
-// usage: node scripts/release-verify.mjs --dir <folder with the release files> [--trust-module <path>]
+// usage: node scripts/release-verify.mjs --dir <folder with the release files> [--trust-module <path>] [--stone-lock <package-lock.json of the stepping stone>] [--published]
+// --published: the release is live, so a fullAsset is also fetched from its public URL and its size and sha256 must equal the signed manifest (post-publish check; before publishing the URL does not exist yet).
+// A code-only release whose lock differs from the stone's must carry its full package (docs/SHIPPING.md); the stone lock comes from --stone-lock or `git show v<stone>:package-lock.json`.
 import { createHash, createPublicKey, verify } from 'node:crypto';
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { args, die, loadDist, REPO, requireRehearsalFor } from './lib/release-lib.mjs';
 import { fullAssetProblems } from './lib/full-asset-check.mjs';
-import { fetchBytes, hashUrl, NEW_NAME, OLD_NAME, readStones, stoneProblems } from './lib/stepping-stone.mjs';
+import { fetchBytes, hashUrl, NEW_NAME, OLD_NAME, readStones, REPO_BASE, stoneProblems } from './lib/stepping-stone.mjs';
+import { carryForFolder, liveFullAssetProblems } from './lib/stone-carry.mjs';
 
-const a = args(process.argv.slice(2), { dir: 'v', 'trust-module': 'v', 'no-network': 'flag', stones: 'v' });
+const a = args(process.argv.slice(2), { dir: 'v', 'trust-module': 'v', 'no-network': 'flag', stones: 'v', 'stone-lock': 'v', published: 'flag' });
 requireRehearsalFor(a, ['no-network', 'stones', 'trust-module']);
 if (!a.dir) die('usage: node scripts/release-verify.mjs --dir <folder>');
 const dir = resolve(a.dir);
@@ -30,8 +33,19 @@ if (zip.length !== man.asset.size) die('the zip size differs from the manifest')
 if (createHash('sha256').update(zip).digest('hex') !== man.asset.sha256) die('the zip sha256 differs from the manifest');
 const sums = readFileSync(join(dir, 'SHA256SUMS.txt'), 'utf8');
 if (!sums.includes(man.asset.sha256)) die('SHA256SUMS.txt does not list the zip hash');
-const fullProblems = await fullAssetProblems({ manifest: man, version: man.version, dir, sums });
+const stones = a.stones ? a.stones.split(',') : readStones();
+const { dependencyHash } = await loadDist('src/core/updater/package.js');
+// a full-install release carries its package because it says so; the stone comparison only decides for a code-only one
+const carry = man.requiresFullInstall ? { carryRequired: false, problems: [] } : carryForFolder({ version: man.version, stones, appZip: zip, oldManifestBytes: readFileSync(join(dir, OLD_NAME)), parseManifest, dependencyHash, stoneLockPath: a['stone-lock'] });
+if (carry.problems.length) die(`stepping stone lock: ${carry.problems.join('; ')}`);
+const fullProblems = await fullAssetProblems({ manifest: man, version: man.version, dir, sums, carryRequired: carry.carryRequired, stoneVersion: stones[stones.length - 1] });
 if (fullProblems.length) die(`full package: ${fullProblems.join('; ')}`);
+// A published release: the full package must come back from its live URL with exactly the signed size and sha256 (a 285 MB download must not be a user's first test).
+// stone-check.mjs does the same for the stone's package.
+if (a.published && !a['no-network'] && man.fullAsset) {
+  const live = await liveFullAssetProblems({ manifest: man, base: REPO_BASE, fetchAsset: hashUrl });
+  if (live.length) die(`live full package: ${live.join('; ')}`);
+}
 // SHA256SUMS.txt may be signed with the same key (scripts/release-sign-sums.mjs). Optional, so a release signed before
 // that script existed still verifies; when the .sig is present it must verify against SHA256SUMS.txt and a trusted key.
 const sumsSigPath = join(dir, 'SHA256SUMS.txt.sig');

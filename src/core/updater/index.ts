@@ -300,6 +300,7 @@ export function createUpdaterModule(deps: ModuleDeps, opts: UpdaterOptions): Upd
         }
         phase = 'idle'; staged = null; consent = false;
         if (e instanceof StageError) {
+          log('updater stage refused', e.code, e.message); // a refusal must be visible in the app log, not only in the panel
           error = e.code === 'full-install' ? 'This release changes dependencies. Download its source and run setup.cmd.' : `The update was not installed: ${e.message}`;
           if (e.code === 'full-install' && available) available.manifest = { ...available.manifest, requiresFullInstall: true };
         } else if (e instanceof NetError) error = `The update was not downloaded: ${e.message}`;

@@ -121,12 +121,14 @@ test('stone: a code-only release after a full one verifies with the stone under 
   const t = trustFixture(); const sd = stone(t);
   const ok = later('0.3.2', sd);
   assert.equal(sh('release-sign.mjs', '--key', t.key, '--manifest', join(ok.dir, 'legion-update-manifest-2.json'), '--trust-module', t.trust).code, 0);
-  const good = sh('release-verify.mjs', '--dir', ok.dir, '--trust-module', t.trust, '--no-network');
+  // the fixture stone and the later release share one lock, so no full package is needed; release-verify is told which lock is the stone's
+  const stoneLock = join(tmp(), 'package-lock.json'); writeFileSync(stoneLock, '{"lockfileVersion":3}\n');
+  const good = sh('release-verify.mjs', '--dir', ok.dir, '--trust-module', t.trust, '--no-network', '--stone-lock', stoneLock);
   assert.equal(good.code, 0, good.out);
   // the failure the stone design must prevent: the later code-only release replaces the stone under the old name
   copyFileSync(join(ok.dir, 'legion-update-manifest-2.json'), join(ok.dir, 'legion-update-manifest.json'));
   copyFileSync(join(ok.dir, 'legion-update-manifest-2.json.sig'), join(ok.dir, 'legion-update-manifest.json.sig'));
-  const bad = sh('release-verify.mjs', '--dir', ok.dir, '--trust-module', t.trust, '--no-network');
+  const bad = sh('release-verify.mjs', '--dir', ok.dir, '--trust-module', t.trust, '--no-network', '--stone-lock', stoneLock);
   assert.notEqual(bad.code, 0); assert.match(bad.out, /stepping stone/i);
 });
 
