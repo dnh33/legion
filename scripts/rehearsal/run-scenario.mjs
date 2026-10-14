@@ -140,11 +140,18 @@ function collect() {
 
 let holder = null;
 let before = {};
+let baseStamp = null;
+// hop 1 is done by the baseline's own helper: its stamp when it has one, no stamp when it is older
+const byBaseHelper = (line) => (baseStamp ? line.includes(`[${baseStamp}]`) : !line.includes('helper:'));
 try {
   log(`scenario ${a.scenario}: baseline ${a.baseline} installed at ${install}`);
   check(readJson(join(install, 'build-info.json'))?.version === a.baseline, `the install is ${a.baseline}`);
   before = await tree(install);
   log(`baseline tree hashed: ${Object.keys(before).length} files`);
+  // The helper that does hop 1 is the baseline's own. Releases from 0.3.0 on stamp it; older ones do not.
+  const baseApply = join(install, 'dist', 'src', 'core', 'updater', 'apply.js');
+  baseStamp = existsSync(baseApply) ? readFileSync(baseApply, 'utf8').match(/helper:[a-z0-9-]+/)?.[0] ?? null : null;
+  log(`baseline helper: ${baseStamp ?? 'unstamped (older than 0.3.0)'}`);
 
   children.push(spawn(process.execPath, [join(here, 'serve.mjs'), '--served', join(preparedDir, 'served'), '--control', control, '--port', String(PORT), '--log', serveLog], { stdio: 'ignore', windowsHide: true }));
   await waitFor('the fake release server', async () => existsSync(serveLog), 15000);
@@ -221,7 +228,7 @@ try {
     }
     if (process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMMARY, `\n- ${a.scenario}: settled as ${o?.result}, running ${h1?.version}\n`);
   } else if (a.scenario === 'chain') {
-    // Hop 1: the code-only candidate. It is applied by the helper of the LIVE release, which knows nothing of the stamp.
+    // Hop 1: the code-only candidate. It is applied by the helper of the LIVE release (stamped from 0.3.0 on).
     const co = prepared.versions.base;
     writeFileSync(control, 'codeonly');
     const h1 = await waitFor(`/health to report ${co}`, async () => { const h = await health(); return h?.ok && h.version === co ? h : null; }, 600000);
@@ -229,7 +236,7 @@ try {
     const j1 = await waitFor('the journal to read committed', async () => (readJson(join(up, 'journal.json'))?.state === 'committed' && readJson(join(up, 'journal.json'))?.to === co ? true : null), 120000);
     check(!!j1, 'hop 1 is committed');
     const log1 = existsSync(join(up, 'apply.log')) ? readFileSync(join(up, 'apply.log'), 'utf8') : '';
-    check(log1.includes(`apply ${a.baseline} -> ${co}`) && !log1.includes('helper:'), 'hop 1 was done by the old helper (no helper stamp in its line)');
+    check(byBaseHelper(log1.split('\n').find((l) => l.includes(`apply ${a.baseline} -> ${co}`)) ?? 'missing helper:'), `hop 1 was done by the baseline's own helper (${baseStamp ?? 'no stamp'})`);
     check(!log1.includes('re-running the swap helper'), 'hop 1 was a code-only swap (no runtime re-exec)');
     const stampNow = readFileSync(join(install, 'dist', 'src', 'core', 'updater', 'apply.js'), 'utf8').match(/helper:[a-z0-9-]+/)?.[0];
     check(!!stampNow, `the code-only update replaced the helper source in dist (${stampNow})`);
@@ -269,13 +276,13 @@ try {
     const co = prepared.versions.base;
     const hitsNow = () => (existsSync(serveLog) ? readFileSync(serveLog, 'utf8').trim().split('\n').map((l) => JSON.parse(l)) : []);
     if (walk) {
-      // Hop 1: the live release reads the old name, which is the code-only stone. Its own (old) helper does the swap.
+      // Hop 1: the live release reads the old name, which is the code-only stone. Its own helper does the swap.
       const h1 = await waitFor(`/health to report the stone ${co}`, async () => { const h = await health(); return h?.ok && h.version === co ? h : null; }, 600000);
       check(!!h1, `hop 1: the stepping stone ${co} starts and reports health (the full package was not applied by the old helper)`);
       const j1 = await waitFor('the journal to read committed', async () => (readJson(join(up, 'journal.json'))?.state === 'committed' && readJson(join(up, 'journal.json'))?.to === co ? true : null), 120000);
       check(!!j1, 'hop 1 is committed');
       const log1 = existsSync(join(up, 'apply.log')) ? readFileSync(join(up, 'apply.log'), 'utf8') : '';
-      check(log1.includes(`apply ${a.baseline} -> ${co}`) && !log1.includes('helper:'), 'hop 1 was done by the old helper (no helper stamp in its line)');
+      check(byBaseHelper(log1.split('\n').find((l) => l.includes(`apply ${a.baseline} -> ${co}`)) ?? 'missing helper:'), `hop 1 was done by the baseline's own helper (${baseStamp ?? 'no stamp'})`);
       check(!log1.includes('re-running the swap helper'), 'hop 1 was a code-only swap (no runtime re-exec)');
     }
     const h2 = await waitFor(`/health to report the full candidate ${good}`, async () => { const h = await health(); return h?.ok && h.version === good ? h : null; }, 900000);
