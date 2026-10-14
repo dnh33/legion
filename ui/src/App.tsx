@@ -24,6 +24,7 @@ import { LibraryView } from './library/LibraryView';
 import { ProjectView } from './projects/ProjectView';
 import { LiveRegion } from './projects/page/announce';
 import { HoldChip } from './projects/page/HoldChip';
+import { WhatsNew } from './whatsnew/WhatsNew';
 import { initProjects, openAsk } from './projects/projectsStore';
 import { RoomsView } from './rooms/RoomsView';
 import { initRooms } from './rooms/roomsStore';
@@ -143,6 +144,7 @@ export function App() {
       <CiPanel />
       <EnableBlenderDialog />
       <Takeover />
+      <WhatsNew />
     </div>
   );
 }

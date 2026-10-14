@@ -101,7 +101,7 @@ export function ProjectFrame({ project }: { project: Project }) {
         </div>
       </header>
       <div className="pg-tabbar">
-        <div className="pg-tabs" role="tablist" aria-label="Project sections" onKeyDown={onTabKey}>
+        <div className="pg-tabs" role="tablist" aria-label="Project sections" data-tip="project-tabs" onKeyDown={onTabKey}>
           {tabs.map((t) => (
             <button key={t.key} type="button" role="tab" id={'pg-tab-' + t.key} aria-controls="pg-panel" aria-selected={tab === t.key} tabIndex={tab === t.key ? 0 : -1} onClick={() => setTab(t.key)}>
               {t.label}

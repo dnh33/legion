@@ -205,7 +205,7 @@ function Away({ project }: { project: Project }) {
   const marshalOn = marshal?.marshal.enabled === true;
   return (
     <section data-sec="away" aria-labelledby="set-h-away">
-      <h2 id="set-h-away" tabIndex={-1}>While you are away{changedSections(away).has('away') && <span className="changed">Changed</span>}</h2>
+      <h2 id="set-h-away" data-tip="project-away" tabIndex={-1}>While you are away{changedSections(away).has('away') && <span className="changed">Changed</span>}</h2>
       <p className="lead">Runs keep going without you. When one needs you, it waits for your answer.</p>
       <div className="pg-opt" role="radiogroup" aria-labelledby="away-silence-l">
         <div>
