@@ -164,6 +164,7 @@ function walkCheck(root: string): void {
 const FULL_LIST = 'PACKAGE-FILES.json';
 const FULL_REQUIRED_EXES: readonly string[] = Object.freeze([
   'runtime/electron/electron.exe',
+  'runtime/electron/resources/app/package.json', // what electron.exe boots (no default app is shipped)
   'node_modules/@anthropic-ai/claude-agent-sdk-win32-x64/claude.exe',
 ]);
 

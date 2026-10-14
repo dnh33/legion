@@ -21,6 +21,11 @@ All notable changes are recorded here. The format follows [Keep a Changelog](htt
 
 ### Fixed
 
+- **A fresh install no longer fails when antivirus removes a file Legion did not need.** Some antivirus programs removed
+  Electron's built-in starter app (`default_app.asar`) while the install was unpacking, and the install stopped with "Windows
+  or your antivirus blocked or removed ...". Legion now starts from its own small start file and the package no longer
+  contains the starter app. Your shortcuts and your taskbar pin keep working. Installs you already have get this with
+  the next full update.
 - **Archiving a project now tells you about unfinished board items.** The question lists runs in progress, open tasks,
   board items assigned to agents, and rooms. Removing a member already showed the same counts.
 - **The agent list and the agent's picture now agree.** When an agent works in another project, its row shows it as busy

@@ -3,10 +3,15 @@ name: Installer smoke tests
 # The one-line installers (scripts/install/install.ps1 and install.sh), run from this checkout against the REAL latest release,
 # into a temp folder, never launched. They install whatever is live on GitHub, so this is not part of the per-push gate (ci.yml):
 # it runs when the installer paths change, nightly, and by hand after a release.
+# install-pr-package is the one job that tests THIS checkout: it builds the Windows package from the branch, serves it from a
+# loopback folder in the layout of a GitHub release (LEGION_INSTALL_BASE), installs it with install.ps1 and launches it.
 on:
   pull_request:
     paths:
       - scripts/install/**
+      - scripts/build-package.mjs
+      - scripts/package-install.mjs
+      - src/electron/**
       - scripts/setup.ps1
       - scripts/lib/package-*
       - scripts/lib/legion-procs.ps1
@@ -36,6 +41,9 @@ jobs:
     name: install.ps1 (${{ matrix.name }})
     runs-on: windows-latest
     timeout-minutes: 20
+    # On a pull request this job installs the LIVE release, which is not the code under review: a failure there is the live
+    # release's, not the branch's (the install-pr-package job below is the branch's proof). It still runs and logs.
+    continue-on-error: ${{ github.event_name == 'pull_request' }}
     strategy:
       fail-fast: false
       matrix:
@@ -75,6 +83,85 @@ jobs:
           & ([scriptblock]::Create((Get-Content -Raw -LiteralPath scripts/install/install.ps1))) -NoLaunch -Version $env:EXPECTED_VERSION -InstallDir $inst
           $bi = Get-Content -Raw -LiteralPath (Join-Path $inst 'build-info.json') | ConvertFrom-Json
           if ($bi.version -ne $env:EXPECTED_VERSION) { throw "installed version '$($bi.version)', expected '$($env:EXPECTED_VERSION)'" }
+
+  # Builds the package from this checkout and installs THAT, so a branch that breaks a fresh install is red before any release.
+  # Defender is left on, exactly as on a user's PC: a file it removes after unzip fails this job the way it fails a user.
+  install-pr-package:
+    name: install.ps1 of the package built from this checkout (${{ matrix.name }})
+    runs-on: windows-latest
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { name: Windows PowerShell 5.1, shell: powershell, exe: powershell.exe }
+          - { name: PowerShell 7, shell: pwsh, exe: pwsh }
+    env:
+      # scripts/postinstall.mjs skips the Electron download when CI or ELECTRON_SKIP_BINARY_DOWNLOAD is set, and GitHub sets CI=true.
+      # The package ships that Electron, so both are cleared here (as in release-build.yml).
+      CI: ""
+      ELECTRON_SKIP_BINARY_DOWNLOAD: ""
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+      - run: npm ci
+      - run: npm run build
+      - name: Build the package from this checkout, lay it out like a GitHub release
+        run: |
+          $v = (Get-Content -Raw package.json | ConvertFrom-Json).version
+          "PKG_VERSION=$v" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          $pkg = Join-Path $env:RUNNER_TEMP 'legion-pkg'
+          node scripts/build-package.mjs --out $pkg --skip-build
+          if ($LASTEXITCODE -ne 0) { throw "build-package.mjs exited $LASTEXITCODE" }
+          $dl = Join-Path $env:RUNNER_TEMP "site\dnh33\legion\releases\download\v$v"
+          New-Item -ItemType Directory -Force -Path $dl | Out-Null
+          Copy-Item -LiteralPath (Join-Path $pkg "legion-$v-win-x64.zip"), (Join-Path $pkg 'SHA256SUMS.txt') -Destination $dl
+          Get-ChildItem $dl | ForEach-Object { Write-Host "$($_.Name) $($_.Length)" }
+      - name: Serve it on loopback
+        run: |
+          $site = Join-Path $env:RUNNER_TEMP 'site'
+          Start-Process python -ArgumentList '-m', 'http.server', '8099', '--bind', '127.0.0.1', '--directory', $site -WindowStyle Hidden
+          $up = $false
+          foreach ($i in 1..20) { Start-Sleep -Milliseconds 500; try { Invoke-WebRequest -UseBasicParsing "http://127.0.0.1:8099/dnh33/legion/releases/download/v$($env:PKG_VERSION)/SHA256SUMS.txt" | Out-Null; $up = $true; break } catch { } }
+          if (-not $up) { throw 'the loopback release server did not start' }
+      - name: install.ps1 -NoLaunch of that package (${{ matrix.name }})
+        env:
+          LEGION_INSTALL_BASE: http://127.0.0.1:8099
+        run: |
+          $inst = Join-Path $env:RUNNER_TEMP 'Legion pr install'
+          & ${{ matrix.exe }} -NoProfile -ExecutionPolicy Bypass -File scripts/install/install.ps1 -NoLaunch -Version $env:PKG_VERSION -InstallDir $inst
+          if ($LASTEXITCODE -ne 0) { throw "install.ps1 exited $LASTEXITCODE" }
+          $bi = Get-Content -Raw -LiteralPath (Join-Path $inst 'build-info.json') | ConvertFrom-Json
+          if ($bi.version -ne $env:PKG_VERSION) { throw "installed version '$($bi.version)', expected '$($env:PKG_VERSION)'" }
+          if (Test-Path -LiteralPath (Join-Path $inst 'runtime\electron\resources\default_app.asar')) { throw 'the package still ships Electron''s default app' }
+          if (-not (Test-Path -LiteralPath (Join-Path $inst 'runtime\electron\resources\app\package.json'))) { throw 'resources\app\package.json is missing' }
+      - name: Launch the installed app and wait for its health check
+        run: |
+          $inst = Join-Path $env:RUNNER_TEMP 'Legion pr install'
+          $home2 = Join-Path $env:RUNNER_TEMP 'legion-pr-home'
+          New-Item -ItemType Directory -Force -Path $home2 | Out-Null
+          $env:LEGION_HOME = $home2; $env:LEGION_PORT = '47992'
+          $exe = Join-Path $inst 'runtime\electron\electron.exe'
+          $p = Start-Process $exe -ArgumentList "`"$inst`"", '--disable-gpu', '--disable-software-rasterizer', '--no-sandbox' -PassThru -WindowStyle Hidden -RedirectStandardOutput (Join-Path $env:RUNNER_TEMP 'launch-out.txt') -RedirectStandardError (Join-Path $env:RUNNER_TEMP 'launch-err.txt')
+          $health = $null
+          foreach ($i in 1..60) {
+            Start-Sleep -Seconds 1
+            if ($p.HasExited) { break }
+            try { $health = Invoke-RestMethod -Uri 'http://127.0.0.1:47992/health' -TimeoutSec 2; if ($health.ok) { break } } catch { }
+          }
+          Write-Host "health: $($health | ConvertTo-Json -Compress)"
+          Get-Content (Join-Path $env:RUNNER_TEMP 'launch-err.txt') -TotalCount 40 -ErrorAction SilentlyContinue
+          Get-ChildItem $home2 -Filter *.log -Recurse | ForEach-Object { Write-Host "--- $($_.Name)"; Get-Content $_.FullName -TotalCount 20 }
+          Get-Process electron -ErrorAction SilentlyContinue | Where-Object { $_.Path -like "$inst*" } | Stop-Process -Force
+          if (-not $health -or -not $health.ok) { throw 'the installed app did not become healthy' }
+          if ($health.version -ne $env:PKG_VERSION) { throw "health reports $($health.version), expected $($env:PKG_VERSION)" }
 
   install-unix:
     name: install.sh (${{ matrix.os }})
