@@ -263,10 +263,10 @@
 .pg-skip:focus { top: 6px; }
 .avatar .pg-rc { right: -6px; bottom: -6px; }
 
-/* a hold whose row is not on screen: the app-level chip */
-.pg-holdchip { flex: none; align-self: center; z-index: 5; display: flex; align-items: center; gap: 10px; box-sizing: border-box; max-width: min(560px, calc(100% - 32px)); margin: 8px 16px 0; padding: 6px 10px 6px 14px; background: var(--surface-3); color: var(--text); border: 1px solid var(--control-line); border-radius: var(--r-lg); font-size: 13px; }
-/* the chip is a row at the top of the centre column: whatever sits below it gives up the height instead of being covered */
-.center > :not(.pg-holdchip) { min-height: 0; }
+/* a hold whose row is not on screen: the app-level chip. It floats over the bottom of the centre column and takes no height, so nothing moves when a hold starts. */
+.pg-holdchip { position: absolute; left: 50%; bottom: 20px; transform: translateX(-50%); z-index: 5; display: flex; align-items: center; gap: 10px; box-sizing: border-box; width: max-content; max-width: min(560px, calc(100% - 32px)); padding: 6px 10px 6px 14px; background: var(--surface-3); color: var(--text); border: 1px solid var(--control-line); border-radius: var(--r-lg); box-shadow: 0 8px 24px rgba(0, 0, 0, .25); font-size: 13px; }
+/* with a composer under it, the chip rides above the composer, its bar and the hint row */
+.center:has(.composer-wrap) > .pg-holdchip { bottom: 168px; }
 .pg-holdchip .msg { min-width: 0; display: flex; flex-direction: column; }
 .pg-holdchip .msg b { font-weight: 600; }
 .pg-holdchip .msg .who { color: var(--muted); font-size: 12px; }
