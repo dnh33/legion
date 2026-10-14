@@ -1,6 +1,6 @@
 # Goals and gates (Legion 0.3.x): design spec
 
-Date 2026-10-14. Revision 3. Revision 2 answered an adversarial review of revision 1 (6 must-fix, 11 should-fix; section 13). Revision 3 makes parallel work, the goal branch and re-approval user options, after research on how established tools run agents in parallel and what their users report (section 3; vault note `goal-research-parallel-agents-2026-10-14.md`). Status: approved by the owner (2026-10-14). Base: `main` at 95b97a2 (0.3.0). Nothing in this spec is built yet. File:line references come from reads at 95b97a2; `~` marks an approximate line.
+Date 2026-10-14. Revision 4 (section 4.2 replaced by the permission model the owner chose after a research council; vault `permission-layering-research-2026-10-14.md`). Revision 3. Revision 2 answered an adversarial review of revision 1 (6 must-fix, 11 should-fix; section 13). Revision 3 makes parallel work, the goal branch and re-approval user options, after research on how established tools run agents in parallel and what their users report (section 3; vault note `goal-research-parallel-agents-2026-10-14.md`). Status: approved by the owner (2026-10-14). Base: `main` at 95b97a2 (0.3.0). Nothing in this spec is built yet. File:line references come from reads at 95b97a2; `~` marks an approximate line.
 
 Sources (the owner's vault, `06-projects/legion/`): `goal-groundwork-2026-10-14.md` (code map), `gate-inventory-2026-10-14.md` (every gate), `goal-research-anthropic-done-2026-10-14.md` (Anthropic: long-running harnesses, building effective agents, agent evals, Claude Code best practices, multi-agent research, prompting guides), `goal-research-reference-and-skills-2026-10-14.md` (a reference agent's goal loop read from its source; the superpowers skill chain), `goal-council-synthesis-2026-10-14.md` (council of four and the owner's decisions).
 
@@ -10,7 +10,7 @@ Sources (the owner's vault, `06-projects/legion/`): `goal-groundwork-2026-10-14.
    - **Permission gates** ("may the agent do this?"): approval cards, holds, GitHub write cards, delete cards, update consent, attempt and stall limits, budgets. Fully optional.
    - **QA gates** ("is the result good?"): checks Legion runs itself, evidence, a fresh reviewer. On by default in every preset (kodawari). A goal can turn them down; its result then says plainly that nothing was checked.
    - **Rails** (keep outsiders from steering your agents): injection guard, ceiling, loopback-only server, signed updates, secret scrubbing, web-egress card, shell floor and the rest in 4.5. On in every preset and listed so you can see them. Only the shell floor has an expert switch.
-2. **Four presets, named like Claude Code's permission modes:** **Ask** (exactly 0.3.0 behavior, the default), **Accept edits** (file edits run, the rest asks), **Smart** (asks only for actions that leave your computer, delete, spend, can't be undone, or that Legion can't classify; a fixed rule decides, never a model), **Bypass** (no permission cards). As in Claude Code, your own Gates deny rules still apply in Bypass. Rails apply in every preset. Per project, with per-gate overrides.
+2. **Four presets, named like Claude Code's permission modes:** **Ask** (exactly 0.3.0 behavior, the default), **Accept edits** (file edits run, the rest asks), **Smart** (asks only for actions that leave your computer, delete, spend, can't be undone, or that Legion can't classify; a fixed rule decides, never a model), **Bypass** (no permission cards). As in Claude Code, your own Gates deny rules still apply in Bypass. Rails apply in every preset. Per project, with per-gate overrides. How a preset combines with each agent's own mode is section 4.2: new agents follow their project, and "Limit agents to this" makes the preset a real ceiling.
 3. **`/goal`**: you type a goal and 1 to 4 "done when" checks. Legion splits it into board steps, agents work them, Legion runs the checks itself in a clean copy of the repo, and you give the final OK. Two dials per goal:
    - **How much Legion does on its own**: Track only, Suggest steps, Check once then run (default), Run on its own, Full autonomy.
    - **How carefully each step is done**: Quick, Normal, Thorough.
@@ -100,27 +100,68 @@ export function gateValue(id: GateId, ctx: { project?: GateSettings; app: GateSe
 - Files are written by the core only, through admin routes (tmp-then-rename, as `src/core/projects/board/store.ts:287`). The `gates` folder is added to `protectedPaths()`, so agents' file tools cannot write it. Protected paths do not cover Bash (`engine.ts:1574` says so); the core keeps the last value it wrote in memory and ignores an on-disk change it did not make until the owner reloads it from the Gates page.
 - Global gates (`update-consent`, the shell floor) read the app file only.
 
-### 4.2 Effective permission mode for a run
+### 4.2 Effective permission mode for a run (decided 2026-10-14)
 
-Today a run's mode is the agent's own (`engine.ts:1451`). New, in `src/core/permission-mode.ts` (pure):
+Research on how Claude Code, Codex, Cursor, VS Code and the reference agent layer permissions, and a council of four (power user, beginner, security, simplicity), led to this model. The owner chose it.
 
-```ts
-type RunMode = 'ask' | 'auto-edits' | 'smart' | 'full';
-export function effectiveMode(a: { agentMode: ApprovalMode; preset: Preset; goalAutonomy?: GoalAutonomy; ceiling: boolean }): RunMode;
+**Inputs.**
+- The agent's own mode (`approval`: ask, auto-edits, full) and a new field `approvalSource: 'own' | 'project'`. Existing agents are `'own'`. New agents are created with `'project'` ("Follow project" in the Agent editor).
+- The project's settings: `preset` (Ask, Accept edits, Smart, Bypass; absent means "Per agent") and `limit` ("Limit agents to this"; on by default whenever a preset is set).
+- The goal's autonomy, for a goal's runs, and an optional goal lease (below).
+- The run's origin ceiling (an outside app or another bot started it).
+- The app preset, used for a run with no project.
+
+**Rule.** Strictness order: ask < auto-edits < smart < full (Bypass maps to full).
+
+```
+base      = goal autonomy, for that goal's runs (Full autonomy gives full)
+            else the agent's own mode, when approvalSource is 'own'
+            else the project preset (or the app preset when the run has no project)
+cap       = the project preset, when the project has one and "Limit agents to this" is on
+            (a goal lease replaces the cap for that goal's runs only)
+effective = the stricter of base, cap and the origin ceiling
+then, in every mode: your Gates deny rules, the shell floor (unless switched off under Expert), the rails
 ```
 
-Rules, in order:
-1. `ceiling` (MCP-started or bot-woken run) gives `ask`. Ceiling always wins (it is a rail).
-2. A goal at Full autonomy gives `full`.
-3. Otherwise the preset loosens the agent's mode and never tightens it, so Ask reproduces 0.3.0:
-   - `ask`: the agent's own mode.
-   - `accept-edits`: the looser of the agent's mode and `auto-edits`.
-   - `smart`: `full` if the agent is `full`, else `smart`.
-   - `bypass`: `full`.
-4. The run's preset is its project's (`task.projectId`), else the app preset.
-5. The mode is chosen once at run start and decides `permissionMode` and `canUseTool` (`engine.ts:1596`, `:1640`). A preset change during a run applies through the existing demotion hook (`engine.ts:~1608`) only when it tightens; a loosening applies from the next run.
+```ts
+// src/core/permission-mode.ts (pure)
+type RunMode = 'ask' | 'auto-edits' | 'smart' | 'full';
+export function effectiveMode(a: {
+  agentMode: ApprovalMode; source: 'own' | 'project';
+  project?: { preset?: Preset; limit: boolean };
+  appPreset: Preset;
+  goal?: { autonomy: GoalAutonomy; lease?: Preset };
+  ceiling?: ApprovalMode;
+}): RunMode;
+```
 
-New run mode `smart` in `toolDecider`: edits run; other tool calls are classified with `consequence.ts`; level 3 cards; levels 1 and 2 run. An action Legion cannot classify is level 3.
+**Rules that keep it safe and unsurprising.**
+- **No silent change on upgrade.** Existing projects have no preset ("Per agent") and existing agents are `'own'`, so every run resolves exactly as in 0.3.0. A one-time notice says: "Projects can now set how agents ask. Yours are set to Per agent, so nothing changed."
+- **New projects start on the app preset.** It is Ask unless the owner chose otherwise on the first-run screen (section 11, decision 5).
+- **The cap is read from the project the run started in** (`job.projectAtStart`), not from live membership. If the project disappears mid-run, the cap stays (fail closed).
+- **A goal lease.** A goal at Full autonomy (or Run on its own with a looser need) in a capped project shows the clash before it starts: "Project Shop limits agents to Ask, so this goal would still ask. Raise the limit for this goal only?" Yes needs a confirm, sets `goal.lease`, and the lease ends when the goal ends. No leaves the goal running at the cap.
+- **Who can loosen.** Only the owner, in the app, with a confirm: setting an agent to Full, a project to Bypass, turning "Limit agents to this" off, a goal to Full autonomy, a goal lease. Never an outside app, a bot, a tainted run, an agent tool or a file in a repository. A file in a repository may only tighten (it is read as a cap, never as a grant).
+- **Settings are trusted from memory.** The core keeps its in-memory copy; a change on disk it did not make is ignored and shows a banner, "Gate settings changed outside Legion", with Reload and Keep mine.
+- **One function.** The engine's two duplicate `effective()` closures (`engine.ts:1451`, `:1590`) and the module `modeOf` providers (browser `index.ts:168`, Blender `index.ts:288`, board `index.ts:159`) all call one `modeFor(job, agent)`. `ModeOf` becomes `(agentId, taskId)`.
+- **SDK bypass at run start** (`engine.ts:1596`) uses `modeFor(job, agent) === 'full'`, so a full agent held to Ask by its project starts on the normal path with cards. Tightening mid-run is caught by the existing every-call hook; loosening mid-run stops the cards (the SDK cannot switch into bypass after start, which changes nothing a user can see).
+
+**Visible, always.**
+- Every run header, task card and approval card shows a chip: "Runs as Ask", and when the effective mode differs from the agent's own, the reason: "Agent is Full, limited by project Shop", "Following project Shop (Bypass)", "Goal lease: no cards for this goal", "Started by an outside app: asks".
+- The Agent editor shows one line per project the agent belongs to: "In Shop: runs as Ask (project limit). In Blog: Full."
+- The project settings show "3 agents follow this preset; 1 has its own mode and is limited to it".
+- A mid-run change adds one transcript line: "Now runs as Full (you raised the limit, 14:02)."
+
+**Scenarios.**
+
+| Scenario | Effective |
+|---|---|
+| A full agent (own) in an Ask project, limit on | Ask |
+| The same, limit off | Full ("agent's own mode") |
+| An agent that follows its project, in a Bypass project | Full (no cards) |
+| An agent explicitly set to Ask, in a Bypass project | Ask (your explicit choice is kept) |
+| A goal at Full autonomy in an Ask project | asked before start: raise the limit for this goal only |
+| A run started by an outside app, any project | Ask |
+| A plain chat with no project | the agent's own mode, or the app preset for a follow agent |
 
 ### 4.3 Permission gates and presets
 
@@ -142,6 +183,7 @@ New run mode `smart` in `toolDecider`: edits run; other tool calls are classifie
 | `gate-rules-ask` | Gates `ask` rules (`gates.ts`) | on | on | on | off |
 
 - **Bypass means "no permission cards".** Two cards remain because they are rails: the web-egress card (`engine.ts:1381`) and, while the shell floor is on, the unreadable-command rule (refused in Bypass, as `full` does today). Gates deny rules still deny.
+- **Presets set both the base for follow agents and, with the limit on, the cap (4.2).**
 - **Smart and `npm`.** Today `npm`, `pnpm` and `yarn` are level 3 unless the subcommand is listed (`consequence.ts:193`), and `node` and `python` are not classified, so Smart would ask for `npm test`. PR 2 adds level 1 rules (local, read and build): `npm|pnpm|yarn test`; `npm|pnpm|yarn run <script>` where the script name is `test`, `build`, `lint`, `typecheck`, `check` or `format`; `npx tsc --noEmit`; `node --test`; `pytest`; `cargo test|build|check`; `go test|build|vet`. Everything else is unchanged. A test lists 40 common commands with their Smart verdict, so the copy matches the rule.
 - **Update consent is global.** When off, an update applies only when the app is idle and no goal is running. A running goal holds the update.
 - **`github-write-card` off:** the write still passes the gateway's other checks (repo ticked, agent granted, app signed in, argument limits, no destructive verbs offered). `test/connector-imports.test.ts` changes from "always cards" to "cards unless the registry says off", and a new test pins that only `gateValue` can say off.
@@ -369,7 +411,7 @@ Settings, Spending: **Show costs** (on by default). Off hides every dollar figur
 ## 9. Tests that must exist
 
 1. **Ask parity (golden).** Before the refactor, a script generates a fixture from today's functions (`needsApproval`, `guardAsk`, `toolDecider`, the GitHub gateway's card decision, board delete) over these inputs: agent mode × tool class × consequence level × ceiling × tainted × gate verdict. After the refactor, preset Ask must reproduce the fixture exactly. The fixture is committed.
-2. **`effectiveMode`:** every rule in 4.2, including ceiling over Full autonomy and loosening only.
+2. **`effectiveMode`:** every row of the 4.2 scenario table; own vs follow; limit on and off; the goal lease replaces only the cap and ends with the goal; the origin ceiling beats everything; the cap is read from the start project and survives the project disappearing; no preset on an existing project gives 0.3.0 behavior.
 3. **Each preset:** Accept edits runs edits and cards the rest; Smart cards exactly level 3, and the 40-command list gives the documented verdicts; Bypass cards nothing except the rails' cards; deny rules deny in Bypass; a damaged gates file reads as Ask; a gates file changed on disk by something other than the core is ignored until reloaded.
 4. **GitHub:** with `github-write-card` off, a write goes through without a card and still fails on an unticked repo, an ungranted agent or an oversized argument; only `gateValue` can turn the card off.
 5. **Rails:** every rail is on in every preset and has no switch, except the shell floor; its switch turns off exactly the two checks named in 4.5, shows the marker and is logged.
@@ -400,6 +442,7 @@ Settings, Spending: **Show costs** (on by default). Off hides every dollar figur
 
 ## 11. Decisions taken (owner, 2026-10-14)
 
+6. Permission model (4.2): new agents follow their project; "Limit agents to this" (on by default) makes the preset a ceiling; existing projects and agents keep 0.3.0 behavior; goals can lift the limit for one goal with a confirm. New projects start on Ask (the app preset).
 1. Presets named like Claude Code's permission modes, plus Smart: Ask, Accept edits, Smart, Bypass. Smart is a rule over Legion's risk levels, never a model.
 2. Rails: on in every preset and listed; only the shell floor has an expert switch.
 3. Full autonomy may close a goal by itself when every check passes: optional per goal, off by default.
@@ -433,8 +476,9 @@ Browser and packaged-app checks run by Legion (a `flow` check kind), Best of N (
 | Checks didn't fit the ledger | Checks in the goal record; the brief gets `text` lines; one done-when constant (5.5) |
 | UI and browser checks undefined | `flow` cut from this release; "You decide" checks and command scripts instead (5.3, 12) |
 | Accept when green vs owner-only done | The `owner-standing` actor, offered only with command checks at Thorough (4.6, 5.2) |
+| (revision 4) Presets only loosened, so an Ask project let a full agent act without cards | The combined model in 4.2: follow-project agents, a real limit, goal leases, visible chips |
 | (revision 3) Parallel steps were cut as out of scope | Side by side is a user option (5.3b, 5.8), designed from Claude Code, superpowers, the reference agent, Conductor, Cursor and users' reported problems |
 | (revision 3) The goal branch and re-approval were fixed behavior | Both are options with defaults (5.1, 5.8) |
-| Ambiguities | Approve before every re-split; harness and reviewer must both pass; flaky counts as a round; no-project runs use the app preset; presets sit on top of agent modes and only loosen; Stop cancels in-flight runs |
+| Ambiguities | Approve before every re-split; harness and reviewer must both pass; flaky counts as a round; no-project runs use the app preset; presets combine with agent modes by the 4.2 rule (revision 4); Stop cancels in-flight runs |
 | Copy | Plain rail labels; an em-dash test for new UI strings |
 | Golden test under-specified | A fixture generated from today's functions over named inputs (9.1) |
