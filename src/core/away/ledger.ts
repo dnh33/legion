@@ -10,19 +10,11 @@ import { join } from 'node:path';
 import { periodEnd, periodStart } from '../../shared/spend-periods.js';
 import type { SpendPeriod } from '../../shared/spend-periods.js';
 import { localDay, localDayStart } from '../../shared/vm-usage.js';
+import type { SpendSummary } from '../../shared/spend-view.js';
 import type { ProjectAway } from './store.js';
 
 export interface SpendEntry { at: string; taskId: string; agentId: string; projectId?: string; usd: number }
-export interface SpendSummary {
-  /** This ISO week. */
-  week: number;
-  today: number;
-  /** Within this week, biggest first. A run with no project is listed with `projectId: null`. */
-  byProject: Array<{ projectId: string | null; usd: number }>;
-  byAgent: Array<{ agentId: string; usd: number }>;
-  /** The last 14 local days, oldest first, zero-filled. */
-  daily: Array<{ day: string; usd: number }>;
-}
+export type { SpendSummary } from '../../shared/spend-view.js';
 
 const monthKey = (ms: number): string => { const d = new Date(ms); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`; };
 const valid = (e: unknown): e is SpendEntry => {
