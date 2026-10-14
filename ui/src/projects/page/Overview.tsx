@@ -141,9 +141,9 @@ function WorkChip({ f, agentId }: { f: PageFacts; agentId: string }) {
 }
 
 /** The "N runs" menu: grouped by project, the current one first; Stop only on a run that is not waiting on you (spec 3.7). */
-export function RunsMenuView({ anchor, f, agentId, onClose }: { anchor: React.RefObject<HTMLElement | null>; f: PageFacts; agentId: string; onClose: () => void }) {
+export function RunsMenuView({ anchor, f, agentId, onClose, onOpen }: { anchor: React.RefObject<HTMLElement | null>; f: PageFacts; agentId: string; onClose: () => void; onOpen?: (taskId: string, projectId: string | undefined) => void }) {
   const m = runsMenu(f, agentId);
-  const go = (taskId: string, projectId: string | undefined): void => { onClose(); if (projectId && projectId !== f.project.id) setProjectFilter(projectId); openTask(taskId); };
+  const go = (taskId: string, projectId: string | undefined): void => { onClose(); if (onOpen) { onOpen(taskId, projectId); return; } if (projectId && projectId !== f.project.id) setProjectFilter(projectId); openTask(taskId, anchor.current); };
   return (
     <Menu anchor={anchor} label={`${f.agents.find((a) => a.id === agentId)?.name ?? agentId} runs`} onClose={onClose} minWidth={320}>
       <div className="head">{m.header}</div>

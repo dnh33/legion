@@ -477,7 +477,7 @@ export type SendResult = { ok: true; task: Task } | { ok: false; status: number;
  * Sends a prompt to a given thread (a task to continue, or null for a new task of `agentId`). The composer uses it for the selected thread; the
  * message queue uses it for any thread, so it never reads the selection. `select` moves the view to the task the send created/continued.
  */
-export async function sendPromptTo(target: { agentId: string; taskId: string | null }, prompt: string, opts: { model?: ModelChoice; select?: boolean; projectId?: string | null } = {}): Promise<SendResult> {
+export async function sendPromptTo(target: { agentId: string; taskId: string | null }, prompt: string, opts: { model?: ModelChoice; select?: boolean; projectId?: string | null; startAfter?: true } = {}): Promise<SendResult> {
   const s = getState();
   const text = prompt.trim();
   if (!text) return { ok: false, status: 400, message: 'Prompt is empty' };
@@ -490,7 +490,7 @@ export async function sendPromptTo(target: { agentId: string; taskId: string | n
   // on the wire ONLY when it differs from the configured model, so Settings stays the authority: an equal value
   // would just restate what the engine already does, and it would be recorded as a request the owner never made.
   const want = opts.model || (target.agentId === s.selectedAgentId ? effectiveModel(s) : configured);
-  const body = { agentId: target.agentId, prompt: text, ...(want && want !== configured ? { model: want } : {}), ...(cont ? { continueTaskId: cont.id } : {}), ...(projectId ? { projectId } : {}) };
+  const body = { agentId: target.agentId, prompt: text, ...(want && want !== configured ? { model: want } : {}), ...(cont ? { continueTaskId: cont.id } : {}), ...(projectId ? { projectId } : {}), ...(opts.startAfter && !cont ? { startAfter: true as const } : {}) };
   // optimistic echo for follow-ups (replaced when the real user message arrives)
   if (cont) {
     const tmp: ChatMessage = { id: 'tmp-' + Date.now(), taskId: cont.id, role: 'user', text, at: new Date().toISOString() };

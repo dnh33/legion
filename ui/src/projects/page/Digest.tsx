@@ -203,7 +203,7 @@ export function Digest({ f, asks, agentLens, openBoard }: { f: PageFacts; asks: 
   );
 }
 
-function OpenRow({ row, armed, onAct }: { row: AskRow; armed: boolean; onAct: (row: AskRow, act: string, b: AskRow['buttons'][number], li: HTMLElement | null) => void }) {
+export function OpenRow({ row, armed, onAct }: { row: AskRow; armed: boolean; onAct: (row: AskRow, act: string, b: AskRow['buttons'][number], li: HTMLElement | null) => void }) {
   return (
     <li className={`pg-row${row.untrusted ? ' untrusted' : ''}`} data-row={row.key} data-fk={row.key} tabIndex={-1}>
       <AgentBust agentId={row.agentId} size={28} />
@@ -231,7 +231,7 @@ function OpenRow({ row, armed, onAct }: { row: AskRow; armed: boolean; onAct: (r
   );
 }
 
-function AnsweredRow({ a }: { a: Answer }) {
+export function AnsweredRow({ a }: { a: Answer }) {
   const v = a.view;
   const left = v?.leftMs ?? 0;
   const secs = Math.ceil(left / 1000);

@@ -2,10 +2,10 @@
 import { useEffect, useRef, useState } from 'react';
 import type { Project } from '../../../../src/shared/projects';
 import { ensureRoomList, useRooms } from '../../rooms/roomsStore';
-import { loadProjectTasks, newTask, selectAgent, setView, useStore } from '../../store';
+import { loadProjectTasks } from '../../store';
 import { BoardPanel } from '../board/BoardPanel';
-import { archiveProject, closeProjectPage, setProjectFilter, unarchiveProject } from '../projectsStore';
-import { defaultStarter, roomsOf } from '../projectsLogic';
+import { archiveProject, closeProjectPage, unarchiveProject } from '../projectsStore';
+import { roomsOf } from '../projectsLogic';
 import { projectAway, setPaused, useAway } from '../awayStore';
 import { announce } from './announce';
 import { Menu } from './Menu';
@@ -14,6 +14,9 @@ import { enterProject, setLens, setTab, usePageState } from './pageState';
 import { asksOf, metaParts, nextTab, projectTasks, tabDefs, workingAgents } from './pageLogic';
 import type { TabKey } from './pageLogic';
 import { PIcon } from './PIcon';
+import { Sheet } from './Sheet';
+import { layoutFor } from './sheetLogic';
+import { closeSheet, openSheet, useSheet } from './sheetState';
 import { SettingsTab } from './SettingsTab';
 import { RoomsTab, TasksTab } from './TabsContent';
 import { usePageFacts } from './usePageFacts';
@@ -22,16 +25,28 @@ import './page.css';
 export function ProjectFrame({ project }: { project: Project }) {
   const f = usePageFacts(project);
   const ps = usePageState();
-  const selected = useStore((s) => s.selectedAgentId);
   const rooms = useRooms((s) => s.rooms);
   const away = useAway((s) => projectAway(s, project.id));
   const weekUsd = useAway((s) => s.spend[project.id]?.week);
   const [busy, setBusy] = useState(false);
-  const [picked, setPicked] = useState<string | undefined>(undefined);
   const [menu, setMenu] = useState(false);
   const moreBtn = useRef<HTMLButtonElement>(null);
   const panel = useRef<HTMLDivElement>(null);
+  const area = useRef<HTMLDivElement>(null);
+  const sheet = useSheet().content;
+  const [areaW, setAreaW] = useState(0);
   useEffect(() => { enterProject(project.id); ensureRoomList(); void loadProjectTasks(project.id); }, [project.id]);
+  // the sheet pushes the list aside only when 520 px stay free beside it; otherwise it covers the list (dimmed, inert)
+  useEffect(() => {
+    const el = area.current;
+    if (!el) return;
+    const ro = new ResizeObserver(() => setAreaW(el.clientWidth));
+    ro.observe(el); setAreaW(el.clientWidth);
+    return () => ro.disconnect();
+  }, []);
+  useEffect(() => { panel.current?.toggleAttribute('inert', !!sheet && layoutFor(areaW) === 'over'); });
+  // a sheet belongs to the page it was opened on: leaving the page closes it
+  useEffect(() => () => { closeSheet(); }, []);
 
   const tab: TabKey = ps.project === project.id ? ps.tab : 'overview';
   const archived = project.status === 'archived';
@@ -39,17 +54,8 @@ export function ProjectFrame({ project }: { project: Project }) {
   const working = workingAgents(f, asks).length;
   const tabs = tabDefs({ asks: asks.length, board: f.board?.items.length ?? 0, tasks: projectTasks(f).length, rooms: roomsOf(rooms, project.id).length });
   const parts = metaParts(f, { asks: asks.length, working, paused: away.paused, ...(weekUsd !== undefined ? { weekUsd } : {}) });
-  // who starts the task: the one chosen here while still a member, else the agent in view, else the first member (until the New task sheet has its own To: pill)
-  const who = picked && project.members.includes(picked) ? picked : defaultStarter(project.members, selected);
   const canLens = tab === 'overview' && project.members.length > 1 && !archived;
 
-  const startTask = (): void => {
-    if (!who) return;
-    setProjectFilter(project.id);
-    selectAgent(who);
-    setView('chat');
-    newTask();
-  };
   const onTabKey = (e: React.KeyboardEvent): void => {
     const next = nextTab(tabs.map((t) => t.key), tab, e.key);
     if (!next) return;
@@ -74,14 +80,7 @@ export function ProjectFrame({ project }: { project: Project }) {
           ) : (
             <>
               {project.members.length === 0 && <span className="why" id="pg-nomem">Add a member first</span>}
-              {project.members.length > 1 && (
-                <label className="pg-to"><span>To:</span>
-                  <select aria-label="Agent for the new task" value={who} onChange={(e) => setPicked(e.target.value)}>
-                    {project.members.map((id) => <option key={id} value={id}>{f.agents.find((a) => a.id === id)?.name ?? id}</option>)}
-                  </select>
-                </label>
-              )}
-              <button type="button" className="pg-btn primary" data-fk="new" disabled={project.members.length === 0} aria-describedby={project.members.length === 0 ? 'pg-nomem' : undefined} onClick={startTask}>
+              <button type="button" className="pg-btn primary" data-fk="new" disabled={project.members.length === 0} aria-describedby={project.members.length === 0 ? 'pg-nomem' : undefined} onClick={(e) => openSheet({ kind: 'new' }, e.currentTarget)}>
                 <PIcon name="plus" size={14} />New task
               </button>
             </>
@@ -118,14 +117,15 @@ export function ProjectFrame({ project }: { project: Project }) {
           </span>
         )}
       </div>
-      <div className="pg-area">
-        <div ref={panel} key={tab} id="pg-panel" className="pg-scroll fade" role="tabpanel" tabIndex={-1} aria-labelledby={'pg-tab-' + tab}>
+      <div ref={area} className={`pg-area${sheet ? (layoutFor(areaW) === 'push' ? ' pushed' : ' over') : ''}`}>
+        <div ref={panel} key={tab} id="pg-panel" className="pg-scroll fade" role="tabpanel" tabIndex={-1} aria-labelledby={'pg-tab-' + tab} {...(sheet && layoutFor(areaW) === 'over' ? { 'aria-hidden': true } : {})}>
           {tab === 'overview' && <Overview f={f} project={project} lens={ps.lens} openBoard={() => setTab('board')} />}
           {tab === 'board' && <div className="pg-inner"><BoardPanel project={project} /></div>}
           {tab === 'tasks' && <TasksTab f={f} project={project} />}
           {tab === 'rooms' && <RoomsTab f={f} project={project} />}
           {tab === 'settings' && <SettingsTab f={f} project={project} />}
         </div>
+        <Sheet f={f} project={project} openBoard={() => setTab('board')} />
       </div>
     </section>
   );

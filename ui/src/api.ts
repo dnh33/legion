@@ -157,7 +157,7 @@ export const api = {
   /** The checks that decide one item (done_when): written before the Marshal may dispatch it. */
   boardDispatch: (pid: string, id: string, doneWhen: string[]) => request<{ itemId: string; doneWhen: string[] }>('PUT', `/api/projects/${encodeURIComponent(pid)}/board/items/${encodeURIComponent(id)}/dispatch`, { doneWhen }),
   patchRoomProject: (roomId: string, projectId: string | null) => request<unknown>('PATCH', `/api/rooms/${encodeURIComponent(roomId)}`, { projectId }),
-  createTask: (b: { agentId: string; prompt: string; model?: ModelChoice; continueTaskId?: string; projectId?: string }) => request<Task>('POST', '/api/tasks', b),
+  createTask: (b: { agentId: string; prompt: string; model?: ModelChoice; continueTaskId?: string; projectId?: string; startAfter?: true }) => request<Task>('POST', '/api/tasks', b),
   /** One window of a conversation (newest by default; `before` pages back, `from` opens a window at a position) and its search (`q`). */
   taskMessages: (id: string, o: { before?: number; from?: number; limit?: number }) => {
     const sp = new URLSearchParams();
