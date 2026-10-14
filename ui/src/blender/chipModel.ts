@@ -10,7 +10,7 @@ export function lightLabel(l: BlenderStatusView['light']): { label: string; tone
     case 'connected': return { label: 'Connected', tone: 'on' };
     case 'sandbox': return { label: 'VM ready', tone: 'on' };
     case 'local': return { label: 'Local ready', tone: 'on' };
-    case 'busy': return { label: 'Running a script', tone: 'warn' };
+    case 'busy': return { label: 'Running a script', tone: 'on' };
     case 'disconnected': return { label: 'Not listening', tone: 'warn' };
     case 'needs-setup': return { label: 'Needs setup', tone: 'warn' };
     case 'not-found': return { label: 'Not found', tone: 'bad' };
