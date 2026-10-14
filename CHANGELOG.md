@@ -6,6 +6,7 @@ All notable changes are recorded here. The format follows [Keep a Changelog](htt
 
 ### Added
 
+- **Project Settings, safer and steadier.** The reads switch only asks; it turns on after you press Confirm. Changing a project's folder ends its "read without asking" permission for the old folder, so you turn it on again for the new one. The section list fits narrow windows, a waiting answer no longer moves the page when it appears, and Best fit says what it does: Legion picks the member with the fewest running tasks.
 - **The project page opens on what needs you.** A project now has tabs (Overview, Board, Tasks, Rooms, Settings). Overview shows
   who is working right now, then "Since you last looked": the three riskiest asks first, each with what saying yes would do, and
   the rest behind "N more". Failed, stopped and finished work folds into one line. "Mark as seen" moves the starting point. You
