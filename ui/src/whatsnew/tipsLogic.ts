@@ -66,3 +66,29 @@ export function placeTip(a: Box, size: { w: number; h: number }, win: { w: numbe
   const caret = clamp(pointAt - best, CARET_MIN, span - CARET_MIN);
   return { left: box.left, top: box.top, placement: side, caret };
 }
+
+export type TipLayout = { mode: 'float'; placed: Placed } | { mode: 'inline' };
+const hit = (a: Box, b: Box): boolean => a.left < b.left + b.w && a.left + a.w > b.left && a.top < b.top + b.h && a.top + a.h > b.top;
+
+/**
+ * A tip must never cover a control or the page heading. Tries the preferred floating spot, then beside the anchor, then
+ * above it; a spot counts only if it stays in the window and its rect meets none of `obstacles` (rects of the interactive
+ * elements and the main heading, without the anchor and the tip). When none works the tip is an inline callout under the
+ * anchor's row: it takes layout space and pushes the content down once.
+ */
+export function chooseTipLayout(a: Box, size: { w: number; h: number }, win: { w: number; h: number }, pref: TipPlacement, obstacles: readonly Box[]): TipLayout {
+  const real = obstacles.filter((o) => o.w > 0 && o.h > 0);
+  const seen = new Set<string>();
+  const tries: Array<{ side: TipPlacement; strict: boolean }> = [{ side: pref, strict: false }, { side: 'right', strict: true }, { side: 'top', strict: true }];
+  for (const t of tries) {
+    const placed = placeTip(a, size, win, t.side);
+    if (t.strict && placed.placement !== t.side) continue;
+    const box: Box = { left: placed.left, top: placed.top, w: size.w, h: size.h };
+    const key = `${box.left},${box.top}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    const inWindow = box.left >= MARGIN && box.top >= MARGIN && box.left + box.w <= win.w - MARGIN && box.top + box.h <= win.h - MARGIN;
+    if (inWindow && !real.some((o) => hit(box, o))) return { mode: 'float', placed };
+  }
+  return { mode: 'inline' };
+}

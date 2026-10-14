@@ -5,6 +5,8 @@
 .wn-tip[data-placement='top']::before { bottom: -6px; left: calc(var(--wn-caret) - 5px); border-left: 0; border-top: 0; }
 .wn-tip[data-placement='right']::before { left: -6px; top: calc(var(--wn-caret) - 5px); border-right: 0; border-top: 0; }
 .wn-tip[data-placement='left']::before { right: -6px; top: calc(var(--wn-caret) - 5px); border-left: 0; border-bottom: 0; }
+.wn-host { flex: 0 0 100%; }
+.wn-tip.wn-inline { position: relative; z-index: auto; left: auto; top: auto; margin: 0 0 12px; }
 .wn-step { margin: 0 0 4px; font-size: 11px; color: var(--muted); }
 .wn-text { margin: 0 0 10px; }
 .wn-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }

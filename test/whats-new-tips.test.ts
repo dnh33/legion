@@ -9,7 +9,7 @@ import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, it } from 'node:test';
 import { RELEASES, tipsFor } from '../ui/src/whatsnew/releases.js';
-import { decideStart, endTour, isIdle, nextTip, pickTip, placeTip, startTour, tipDone } from '../ui/src/whatsnew/tipsLogic.js';
+import { decideStart, endTour, isIdle, nextTip, pickTip, placeTip, chooseTipLayout, startTour, tipDone } from '../ui/src/whatsnew/tipsLogic.js';
 import { markSeen, readEnabled, readSeen, writeEnabled } from '../ui/src/whatsnew/tipsStorage.js';
 
 const REPO = resolve(fileURLToPath(import.meta.url), '..', '..', '..');
@@ -202,5 +202,48 @@ describe('accessibility promises (source guard)', () => {
     const settings = src('components/Settings.tsx');
     assert.match(settings, /Show tips after updates/);
     assert.match(settings, /What.s new/);
+  });
+});
+
+describe('layout: a floating tip never covers a control or the page heading', () => {
+  const win = { w: 1280, h: 800 };
+  const size = { w: 320, h: 130 };
+  const hits = (a: { left: number; top: number; w: number; h: number }, b: { left: number; top: number; w: number; h: number }): boolean => a.left < b.left + b.w && a.left + a.w > b.left && a.top < b.top + b.h && a.top + a.h > b.top;
+  // The reported layout: tabs row, then the heading and the primary button right under it.
+  const tabs = { left: 264, top: 114, w: 960, h: 36 }; // the row runs to the window edge, so nothing fits beside it
+  const heading = { left: 264, top: 168, w: 200, h: 32 };
+  const primary = { left: 264, top: 212, w: 120, h: 32 };
+  it('chooses inline when the heading and the primary button sit under the anchor row', () => {
+    const l = chooseTipLayout(tabs, size, win, 'bottom', [heading, primary]);
+    assert.equal(l.mode, 'inline');
+  });
+  it('stays floating when the preferred spot covers nothing', () => {
+    const l = chooseTipLayout(tabs, size, win, 'bottom', [{ left: 264, top: 500, w: 100, h: 30 }]);
+    assert.equal(l.mode, 'float');
+    if (l.mode === 'float') assert.equal(l.placed.placement, 'bottom');
+  });
+  it('tries the right of the anchor next, when that spot is clear', () => {
+    const narrow = { left: 264, top: 114, w: 360, h: 36 };
+    const l = chooseTipLayout(narrow, size, win, 'bottom', [heading, primary]);
+    assert.equal(l.mode, 'float');
+    if (l.mode === 'float') {
+      assert.equal(l.placed.placement, 'right');
+      for (const o of [heading, primary]) assert.equal(hits({ left: l.placed.left, top: l.placed.top, ...size }, o), false);
+    }
+  });
+  it('falls back to above when below and right are covered, and above is clear', () => {
+    const a = { left: 264, top: 300, w: 900, h: 36 };
+    const l = chooseTipLayout(a, size, win, 'bottom', [{ left: 264, top: 350, w: 120, h: 32 }]);
+    assert.equal(l.mode, 'float');
+    if (l.mode === 'float') assert.equal(l.placed.placement, 'top');
+  });
+  it('goes inline when every floating spot is covered or off the window', () => {
+    const a = { left: 264, top: 40, w: 1000, h: 36 };
+    const l = chooseTipLayout(a, size, win, 'bottom', [{ left: 264, top: 90, w: 120, h: 32 }]);
+    assert.equal(l.mode, 'inline');
+  });
+  it('ignores empty obstacle boxes', () => {
+    const l = chooseTipLayout(tabs, size, win, 'bottom', [{ left: 0, top: 0, w: 0, h: 0 }]);
+    assert.equal(l.mode, 'float');
   });
 });
