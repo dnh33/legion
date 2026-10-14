@@ -7,6 +7,7 @@ import { ConnectorKeyring } from '../src/core/connectors/keyring.js';
 import { TokenStore } from '../src/core/connectors/store.js';
 import type { ModuleDeps } from '../src/core/modules.js';
 import { FAKE_CLIENT_ID, FakeGitHub } from './connectors-fake-github.js';
+import { setTicked } from '../src/core/connectors/github/allowlist.js';
 import { tempDir } from './tmp-cleanup.js';
 
 export async function signedInGitHub(): Promise<{ fake: FakeGitHub; client: GitHubClient; keys: ConnectorKeyring }> {
@@ -22,6 +23,13 @@ export async function signedInGitHub(): Promise<{ fake: FakeGitHub; client: GitH
 
 /** The connectors module over a store that is looked up late (the engine rig builds its own store after the module). */
 export function lateModule(storeOf: () => { getAgent(id: string): unknown; getTask(id: string): unknown }, gh: { client: GitHubClient; keys: ConnectorKeyring }) {
-  const deps = { store: { getAgent: (id: string) => storeOf().getAgent(id), getTask: (id: string) => storeOf().getTask(id) } } as unknown as ModuleDeps;
+  const deps = { dataDir: tickedDataDir(), store: { getAgent: (id: string) => storeOf().getAgent(id), getTask: (id: string) => storeOf().getTask(id) } } as unknown as ModuleDeps;
   return createConnectorsModule(deps, { keys: gh.keys, client: () => gh.client });
+}
+
+/** A data folder where the given repos are turned on in Legion (the gateway refuses every repo that is not). */
+export function tickedDataDir(repos: string[] = ['o/r', 'o/missing', 'o/forbidden', 'o/boom', 'o/ratelimited']): string {
+  const dir = tempDir('legion-ticked-');
+  for (const r of repos) setTicked(dir, r, true);
+  return dir;
 }

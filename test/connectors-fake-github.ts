@@ -113,6 +113,8 @@ export class FakeGitHub {
     if (path === '/repos/o/secondary') return [403, { message: 'secondary rate limit' }, { ...rate, 'retry-after': '30' }];
     if (path === '/repos/o/boom') return [502, { message: 'bad gateway' + echo }, rate];
     if (path === '/repos/o/moved') return [301, '', { location: 'https://api.github.com/repos/o/r', ...rate }];
+    if (path === '/repos/o/r/issues/old') return [307, '', { location: 'https://api.github.com/repos/O/R/issues/1', ...rate }];
+    if (path === '/repos/O/R/issues/1') return [200, { number: 1 }, rate];
     if (path === '/repos/o/evil') return [301, '', { location: 'https://evil.example/steal', ...rate }];
     if (path === '/repos/o/r/issues/1/comments' && r.method === 'POST') return [201, { id: 9 }, rate];
     if (path === '/repos/o/r/actions/jobs/7/logs') return who ? [302, '', { location: `https://${STORAGE_HOST}/blob?sig=SIGNED-SECRET-QUERY`, ...rate }] : [401, { message: 'x' }, rate];
