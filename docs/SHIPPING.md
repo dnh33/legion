@@ -193,7 +193,7 @@ verifies the signature **with the app's own verifier and its own baked-in keys**
 against the same key when that file is present (it is optional, so a release signed before the sums signer existed
 still passes).
 
-Both scripts also check the old name (`--no-network` skips only the download, for rehearsals): the old name must be a signed stepping stone listed in `scripts/stepping-stones.json` (the stone release itself: its own manifest, identical under both names), a full-install release's second manifest must name it and set `minUpdater`, and the stone's package URL must return the signed size and sha256. A later release that carries itself under the old name fails. Missing either name fails.
+Both scripts also check the old name (`--no-network` skips only the download, for rehearsals): the old name must be the permanent signed stepping stone, 0.3.0, pinned in `scripts/lib/stepping-stone.mjs` (the stone release itself: its own manifest, identical under both names), byte for byte the files published at `v0.3.0` (fetched, a network failure fails the check; `release-publish.mjs` runs the same checks before it creates the draft), a full-install release's second manifest must name it and set `minUpdater`, and the stone's package URL must return the signed size and sha256. A later release that carries itself under the old name fails. Missing either name fails.
 
 A full-install release adds these checks (both scripts fail, not warn): the manifest's `fullAsset` must equal the `legion-<v>-win-x64.zip` in the folder (name, size, sha256) and be listed in `SHA256SUMS.txt`; a release that does not need a full install must not carry a `fullAsset`.
 

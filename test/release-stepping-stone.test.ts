@@ -148,7 +148,7 @@ test('stone rules: a good pair passes; the signed size and hash of the stone pac
   assert.match((await L.stoneProblems({ ...base, fetchAsset: async () => ({ ...p.asset, size: p.asset.size + 1 }) })).join(), /returns \d+ bytes/);
   assert.match((await L.stoneProblems({ ...base, fetchAsset: async () => ({ ...p.asset, sha256: 'a'.repeat(64) }) })).join(), /returns sha256/);
   assert.match((await L.stoneProblems({ ...base, fetchAsset: async () => { throw new Error('HTTP 404'); } })).join(), /not reachable/);
-  assert.match((await L.stoneProblems({ ...base, stones: ['0.1.0'] })).join(), /not listed/);
+  assert.match((await L.stoneProblems({ ...base, stones: ['0.1.0'] })).join(), /permanent stepping stone/);
   assert.match((await L.stoneProblems({ ...base, oldBytes: p.newB })).join(), /itself a full-install|same manifest/);
 });
 test('stone rules: a later code-only release may not carry itself under the old name; the stone release itself must', async () => {
@@ -189,6 +189,44 @@ test('stone rules: the old name of the live release must be the stone as publish
   const r = (await L.liveProblems({ getBytes, latestTag: async () => 'v0.5.0', fetchAsset: async () => p.asset, trust, parseManifest })).join();
   assert.match(r, /differs from the stone/);
 });
+test('stone rules: when the latest release IS the stone, its package is still hashed against the signed size and sha256', async () => {
+  const { L, parseManifest, trust } = await lib(); const t = trustFixture(); const sd = stone(t);
+  const b = readFileSync(join(sd, 'legion-update-manifest.json')); const asset = readJ(join(sd, 'legion-update-manifest.json')).asset as { size: number; sha256: string };
+  const base = { oldBytes: b, oldSig: 'x', newBytes: b, trust, parseManifest };
+  assert.deepEqual(await L.stoneProblems({ ...base, fetchAsset: async () => asset }), []);
+  assert.match((await L.stoneProblems({ ...base, fetchAsset: async () => ({ ...asset, sha256: 'c'.repeat(64) }) })).join(), /returns sha256/);
+  assert.match((await L.stoneProblems({ ...base, fetchAsset: async () => { throw new Error('HTTP 404'); } })).join(), /not reachable/);
+  assert.deepEqual(await L.stoneProblems({ ...base, publishing: true, fetchAsset: async () => { throw new Error('not uploaded yet'); } }), [], 'the stone release itself, before it is published, has no package to fetch');
+});
+test('stone rules: the old name must equal the PUBLISHED stone file and signature byte for byte; a network failure is a failure', async () => {
+  const { L, parseManifest, trust } = await lib(); const t = trustFixture(); const sd = stone(t);
+  const stoneB = readFileSync(join(sd, 'legion-update-manifest.json')); const stoneSig = readFileSync(join(sd, 'legion-update-manifest.json.sig'));
+  const l = later('0.3.2', sd); const ownB = readFileSync(join(l.dir, 'legion-update-manifest-2.json'));
+  const base = { oldBytes: stoneB, oldSig: stoneSig.toString('utf8'), newBytes: ownB, trust, parseManifest };
+  const served = (m: Buffer, sig: Buffer) => async (url: string) => ({ status: 200, bytes: url.includes('/releases/download/v0.3.0/') ? (url.endsWith('.sig') ? sig : m) : Buffer.alloc(0) });
+  assert.deepEqual(await L.stoneProblems({ ...base, getBytes: served(stoneB, stoneSig) }), []);
+  assert.match((await L.stoneProblems({ ...base, getBytes: served(Buffer.from(stoneB.toString('utf8') + ' '), stoneSig) })).join(), /published v0\.3\.0/, 're-signed manifest bytes');
+  assert.match((await L.stoneProblems({ ...base, getBytes: served(stoneB, Buffer.from('another signature')) })).join(), /published v0\.3\.0/, 'a different signature');
+  assert.match((await L.stoneProblems({ ...base, getBytes: async () => ({ status: 404, bytes: Buffer.alloc(0) }) })).join(), /published stone v0\.3\.0/);
+  assert.match((await L.stoneProblems({ ...base, getBytes: async () => { throw new Error('offline'); } })).join(), /offline/);
+});
+test('stone rules: exactly one permanent stone (0.3.0) is pinned in code; the file may not list another', async () => {
+  const L = (await import(pathToFileURL(S('lib/stepping-stone.mjs')).href)) as { PERMANENT_STONE: string; readStones(p?: string): string[] };
+  assert.equal(L.PERMANENT_STONE, '0.3.0');
+  assert.deepEqual(L.readStones(), ['0.3.0']);
+  const d = tmp(); const f = join(d, 's.json');
+  writeFileSync(f, JSON.stringify({ stones: ['0.3.0', '0.4.0'] })); assert.throws(() => L.readStones(f), /permanent/i);
+  writeFileSync(f, JSON.stringify({ stones: ['0.4.0'] })); assert.throws(() => L.readStones(f), /permanent/i);
+});
+test('stone rules: the old name must be THE permanent stone, not any other release', async () => {
+  const { L, parseManifest, trust } = await lib(); const t = trustFixture();
+  const sd = stone(t, '0.4.0'); // a code-only release built under a throwaway stone list
+  const d2 = pkg('0.4.1', false);
+  assert.equal(sh('release-manifest.mjs', '--zip', join(d2, 'legion-0.4.1-app.zip'), '--out', d2, '--stones', '0.4.0', '--stepping-stone', sd).code, 0);
+  const o = readFileSync(join(sd, 'legion-update-manifest.json')), n = readFileSync(join(d2, 'legion-update-manifest-2.json'));
+  assert.match((await L.stoneProblems({ oldBytes: o, oldSig: 'x', newBytes: n, trust, parseManifest })).join(), /permanent stepping stone/);
+});
+
 test('stone rules: fetchBytes gives up on a server that never answers', async () => {
   const { createServer } = await import('node:http');
   const srv = createServer(() => { /* never answers */ }); await new Promise<void>((r) => srv.listen(0, '127.0.0.1', r));
@@ -201,7 +239,7 @@ test('stone rules: fetchBytes gives up on a server that never answers', async ()
 
 test('publish: assets go up to a DRAFT, both manifest names with their signatures included, and only then does it become latest', () => {
   const t = trustFixture(); const sd = stone(t); const l = later('0.3.2', sd);
-  const run = (dir: string) => sh('release-publish.mjs', '--dir', dir, '--version', '0.3.2', '--notes-file', join(dir, 'notes.txt'), '--dry-run');
+  const run = (dir: string) => sh('release-publish.mjs', '--dir', dir, '--version', '0.3.2', '--notes-file', join(dir, 'notes.txt'), '--trust-module', t.trust, '--no-network', '--dry-run');
   assert.equal(sh('release-sign.mjs', '--key', t.key, '--manifest', join(l.dir, 'legion-update-manifest-2.json'), '--trust-module', t.trust).code, 0);
   for (const f of ['SHA256SUMS.txt.sig', 'install.ps1', 'install.sh', 'legion-0.3.2-win-x64.zip']) writeFileSync(join(l.dir, f), 'x');
   const r = run(l.dir); assert.equal(r.code, 0, r.out);
@@ -213,6 +251,15 @@ test('publish: assets go up to a DRAFT, both manifest names with their signature
   assert.ok(lines.findIndex((x) => x.includes('release upload')) < lines.length - 1, 'every upload comes before the release becomes latest');
   rmSync(join(l.dir, 'legion-update-manifest-2.json.sig'));
   const bad = run(l.dir); assert.notEqual(bad.code, 0); assert.match(bad.out, /legion-update-manifest-2\.json\.sig/);
+});
+test('publish: refuses to create the draft when the old name is not the signed stone (same checks as preflight)', () => {
+  const t = trustFixture(); const sd = stone(t); const l = later('0.3.2', sd);
+  assert.equal(sh('release-sign.mjs', '--key', t.key, '--manifest', join(l.dir, 'legion-update-manifest-2.json'), '--trust-module', t.trust).code, 0);
+  for (const f of ['SHA256SUMS.txt.sig', 'install.ps1', 'install.sh', 'legion-0.3.2-win-x64.zip']) writeFileSync(join(l.dir, f), 'x');
+  copyFileSync(join(l.dir, 'legion-update-manifest-2.json'), join(l.dir, 'legion-update-manifest.json'));
+  copyFileSync(join(l.dir, 'legion-update-manifest-2.json.sig'), join(l.dir, 'legion-update-manifest.json.sig'));
+  const r = sh('release-publish.mjs', '--dir', l.dir, '--version', '0.3.2', '--notes-file', join(l.dir, 'notes.txt'), '--trust-module', t.trust, '--no-network', '--dry-run');
+  assert.notEqual(r.code, 0); assert.match(r.out, /stepping stone/i); assert.ok(!/gh release create/.test(r.out), 'no draft is created');
 });
 test('stone: SHIPPING.md lists every stepping stone and says they are never deleted', () => {
   const stones = (readJ(join(REPO, 'scripts', 'stepping-stones.json')).stones) as string[];

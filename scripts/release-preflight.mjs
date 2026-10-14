@@ -24,7 +24,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { args, die, isReleaseVersion, listZipNames, readZipEntry, REPO } from './lib/release-lib.mjs';
 import { fullAssetProblems } from './lib/full-asset-check.mjs';
-import { hashUrl, NEW_NAME, OLD_NAME, readStones, stoneProblems } from './lib/stepping-stone.mjs';
+import { fetchBytes, hashUrl, NEW_NAME, OLD_NAME, readStones, stoneProblems } from './lib/stepping-stone.mjs';
 
 const a = args(process.argv.slice(2), { version: 'v', pkg: 'v', 'no-network': 'flag', stones: 'v' });
 
@@ -186,7 +186,7 @@ try {
   if (!existsSync(oldPath) || !existsSync(`${oldPath}.sig`) || !existsSync(manifestPath)) fail(`a release publishes both ${OLD_NAME} (+ .sig) and ${NEW_NAME} (+ .sig); one is missing in ${pkgFolder}`);
   else {
     const stones = a.stones ? a.stones.split(',') : readStones(); // --stones: tests and rehearsals only
-    const problems = await stoneProblems({ oldBytes: readFileSync(oldPath), oldSig: readFileSync(`${oldPath}.sig`, 'utf8'), newBytes: readFileSync(manifestPath), trust, parseManifest, stones, ...(!a['no-network'] ? { fetchAsset: hashUrl } : {}) });
+    const problems = await stoneProblems({ oldBytes: readFileSync(oldPath), oldSig: readFileSync(`${oldPath}.sig`, 'utf8'), newBytes: readFileSync(manifestPath), trust, parseManifest, stones, publishing: true, ...(!a['no-network'] ? { fetchAsset: hashUrl, getBytes: fetchBytes } : {}) });
     for (const p of problems) fail(`stepping stone: ${p}`);
     if (!problems.length) pass(stones.includes(parseManifest(readFileSync(manifestPath)).version) ? 'this is the stepping stone: both manifest names carry its own signed manifest' : 'old-name manifest is the signed stepping stone and its package returns the signed size and sha256');
   }

@@ -8,7 +8,7 @@ import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { args, die, loadDist, REPO } from './lib/release-lib.mjs';
 import { fullAssetProblems } from './lib/full-asset-check.mjs';
-import { hashUrl, NEW_NAME, OLD_NAME, readStones, stoneProblems } from './lib/stepping-stone.mjs';
+import { fetchBytes, hashUrl, NEW_NAME, OLD_NAME, readStones, stoneProblems } from './lib/stepping-stone.mjs';
 
 const a = args(process.argv.slice(2), { dir: 'v', 'trust-module': 'v', 'no-network': 'flag', stones: 'v' });
 if (!a.dir) die('usage: node scripts/release-verify.mjs --dir <folder>');
@@ -22,7 +22,7 @@ const v = trust.verifyManifestSignature(m, readFileSync(join(dir, `${NEW_NAME}.s
 if (!v.ok) die(`signature: ${v.reason}`);
 const man = parseManifest(m);
 // The old name must be the signed stepping stone (the stone release itself: its own manifest); its package must still be served as signed.
-const stoneErr = await stoneProblems({ oldBytes: readFileSync(join(dir, OLD_NAME)), oldSig: existsSync(join(dir, `${OLD_NAME}.sig`)) ? readFileSync(join(dir, `${OLD_NAME}.sig`), 'utf8') : '', newBytes: m, trust, parseManifest, stones: a.stones ? a.stones.split(',') : readStones(), ...(!a['no-network'] ? { fetchAsset: hashUrl } : {}) });
+const stoneErr = await stoneProblems({ oldBytes: readFileSync(join(dir, OLD_NAME)), oldSig: existsSync(join(dir, `${OLD_NAME}.sig`)) ? readFileSync(join(dir, `${OLD_NAME}.sig`), 'utf8') : '', newBytes: m, trust, parseManifest, stones: a.stones ? a.stones.split(',') : readStones(), publishing: true, ...(!a['no-network'] ? { fetchAsset: hashUrl, getBytes: fetchBytes } : {}) });
 if (stoneErr.length) die(`stepping stone: ${stoneErr.join('; ')}`);
 const zip = readFileSync(join(dir, man.asset.name));
 if (zip.length !== man.asset.size) die('the zip size differs from the manifest');
