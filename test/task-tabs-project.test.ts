@@ -32,7 +32,7 @@ test('hint: live tasks of the agent in other projects, plain; amber when one nee
   assert.equal(otherProjectsHint(tasks, 'scout', null, ps, ), undefined);
   assert.equal(otherProjectsHint(tasks, 'scout', beta.id, ps, [])?.text, '+1 running in Atlas');
   const many = [...tasks, T('r3', { status: 'running' })];
-  assert.equal(otherProjectsHint(many, 'scout', atlas.id, ps, [])?.text, '+3 running in 2 other projects');
+  assert.equal(otherProjectsHint(many, 'scout', atlas.id, ps, [])?.text, '+3 running elsewhere');
   const need = otherProjectsHint(tasks, 'scout', atlas.id, ps, [{ taskId: 'r2' }]);
   assert.equal(need?.text, '1 needs you in Beta'); assert.equal(need?.tone, 'amber'); assert.equal(need?.tasks[0]!.id, 'r2');
   assert.equal(otherProjectsHint([T('x', { status: 'running', projectId: atlas.id })], 'scout', atlas.id, ps, []), undefined);
@@ -49,4 +49,19 @@ test('wiring: selectTask and a sent task switch the project through one function
   assert.equal((store.match(/projectFollowing\(/g) ?? []).length, 3); // definition + selectTask + sendPromptTo
   assert.doesNotMatch(src('history/HistoryList.tsx'), /setProjectFilter/);
   assert.doesNotMatch(src('components/TaskSwitcher.tsx'), /inProject/);
+});
+
+test('copy: a task without a project is "outside projects" everywhere; the hint counts only real projects', async () => {
+  const { inWhere, alsoWorkingLabel, railAlsoWorking } = await import('../ui/src/projects/projectsLogic.js');
+  const ps = [atlas, beta];
+  assert.equal(inWhere(ps, undefined), 'outside projects');
+  assert.equal(inWhere(ps, atlas.id), 'in Atlas');
+  assert.equal(inWhere(ps, 'proj_cccccccccccc'), 'in a removed project');
+  assert.equal(alsoWorkingLabel([T('a', { title: 'Loose chat' })], ps), 'Also working outside projects: Loose chat');
+  assert.equal(alsoWorkingLabel([T('a', { title: 'Map', projectId: beta.id }), T('b', { projectId: beta.id })], ps), 'Also working in Beta: Map (+1 more)');
+  assert.equal(railAlsoWorking('scout', [T('a', { status: 'running', title: 'Loose chat' })], atlas.id, ps), 'Working outside projects: Loose chat');
+  const live = (id: string, projectId?: string) => T(id, { status: 'running', ...(projectId ? { projectId } : {}) });
+  assert.equal(otherProjectsHint([live('1', beta.id), live('2')], 'scout', atlas.id, ps)?.text, '+2 running elsewhere');
+  assert.equal(otherProjectsHint([live('1')], 'scout', atlas.id, ps)?.text, '+1 running outside projects');
+  assert.equal(otherProjectsHint([live('1', beta.id), live('2', beta.id)], 'scout', atlas.id, ps)?.text, '+2 running in Beta');
 });

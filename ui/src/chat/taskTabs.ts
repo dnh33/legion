@@ -1,7 +1,7 @@
 /** Which tasks are tabs, the project to switch to when a task opens, and the hint about the agent's runs elsewhere (pure, tested in node). */
 import type { Project } from '../../../src/shared/projects.js';
 import type { Task } from '../../../src/shared/types.js';
-import { inProject } from '../projects/projectsLogic.js';
+import { inProject, inWhere } from '../projects/projectsLogic.js';
 
 type TabTask = Pick<Task, 'id' | 'agentId' | 'archived' | 'createdAt' | 'projectId'>;
 
@@ -35,13 +35,14 @@ export function otherProjectsHint(tasks: LiveTask[], agentId: string, filter: st
   if (!live.length) return undefined;
   const need = live.filter((t) => waiting.some((w) => w.taskId === t.id));
   const rows = need.length ? need : live;
+  // real projects are counted; a task outside projects is not a project, so a mix says "elsewhere"
   const where = (ts: LiveTask[]): string => {
-    const ids = [...new Set(ts.map((t) => t.projectId ?? ''))];
-    if (ids.length > 1) return `${ids.length} other projects`;
-    const id = ids[0]!;
-    return id ? (projects.find((p) => p.id === id)?.name ?? 'a removed project') : 'no project';
+    const ids = [...new Set(ts.filter((t) => t.projectId).map((t) => t.projectId!))];
+    if (ids.length && ts.some((t) => !t.projectId)) return 'elsewhere';
+    if (ids.length > 1) return `in ${ids.length} other projects`;
+    return inWhere(projects, ids[0]);
   };
   return need.length
-    ? { text: `${need.length} needs you in ${where(need)}`, tone: 'amber', tasks: [...need, ...live.filter((t) => !need.includes(t))] }
-    : { text: `+${rows.length} running in ${where(rows)}`, tone: 'plain', tasks: live };
+    ? { text: `${need.length} needs you ${where(need)}`, tone: 'amber', tasks: [...need, ...live.filter((t) => !need.includes(t))] }
+    : { text: `+${rows.length} running ${where(rows)}`, tone: 'plain', tasks: live };
 }

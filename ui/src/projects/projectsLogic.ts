@@ -110,6 +110,10 @@ export function statusLine(p: Project, taskCount: number, roomCount: number): st
   return bits.join(', ');
 }
 
+/** Where a task is, in words that read after "working": "in Atlas", "in a removed project", or "outside projects" when it has none. The one helper for every such line. */
+export const inWhere = (projects: Pick<Project, 'id' | 'name'>[], projectId: string | undefined): string =>
+  !projectId ? 'outside projects' : `in ${projects.find((p) => p.id === projectId)?.name ?? 'a removed project'}`;
+
 const clipTitle = (t: string): string => (t.length > 40 ? t.slice(0, 39) + '…' : t);
 
 /** One thing waiting on the owner that the rail hides under the project in view (decision B1). */
@@ -134,9 +138,7 @@ export function waitingElsewhere(
     if (t && t.projectId === filter && here?.members.includes(it.agentId)) continue;
     const who = names[it.agentId] ?? it.agentId;
     const verb = it.kind === 'approval' ? 'needs your OK' : 'asks you something';
-    const where = !t ? 'in another task'
-      : !t.projectId ? `in no project: ${clipTitle(t.title)}`
-        : `in ${projects.find((p) => p.id === t.projectId)?.name ?? 'a removed project'}: ${clipTitle(t.title)}`;
+    const where = !t ? 'in another task' : `${inWhere(projects, t.projectId)}: ${clipTitle(t.title)}`;
     rows.push({ kind: it.kind, id: it.id, taskId: it.taskId, agentId: it.agentId, projectId: t?.projectId ?? null, label: `${who} ${verb} ${where}`, at: it.at });
   }
   return rows.sort((a, b) => a.at.localeCompare(b.at)).map(({ at: _at, ...r }) => r);
@@ -155,12 +157,11 @@ export function liveElsewhere(agentId: string, tasks: LiveTask[], here: { filter
     .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
 }
 
-/** "Also working in Shop: Fix the header (+2 more)", or nothing. `lead` is "Working in" when this is the agent's only run in view. */
-export function alsoWorkingLabel(rows: Pick<Task, 'projectId' | 'title'>[], projects: Project[], lead = 'Also working in'): string | undefined {
+/** "Also working in Shop: Fix the header (+2 more)", "Also working outside projects: ...", or nothing. `lead` is "Working" when this is the agent's only run in view. */
+export function alsoWorkingLabel(rows: Pick<Task, 'projectId' | 'title'>[], projects: Project[], lead = 'Also working'): string | undefined {
   const first = rows[0];
   if (!first) return undefined;
-  const where = first.projectId ? (projects.find((p) => p.id === first.projectId)?.name ?? 'a removed project') : 'no project';
-  return `${lead} ${where}: ${clipTitle(first.title)}${rows.length > 1 ? ` (+${rows.length - 1} more)` : ''}`;
+  return `${lead} ${inWhere(projects, first.projectId)}: ${clipTitle(first.title)}${rows.length > 1 ? ` (+${rows.length - 1} more)` : ''}`;
 }
 
 const isLive = (t: Pick<Task, 'status'>): boolean => t.status === 'running' || t.status === 'queued';
@@ -175,7 +176,7 @@ export const railRowBusy = (agentId: string, tasks: Pick<Task, 'agentId' | 'stat
 export function railAlsoWorking(agentId: string, tasks: LiveTask[], filter: string | null, projects: Project[]): string | undefined {
   if (filter === null) return undefined;
   const here = tasks.some((t) => t.agentId === agentId && isLive(t) && t.projectId === filter);
-  return alsoWorkingLabel(liveElsewhere(agentId, tasks, { filter, taskId: null }), projects, here ? 'Also working in' : 'Working in');
+  return alsoWorkingLabel(liveElsewhere(agentId, tasks, { filter, taskId: null }), projects, here ? 'Also working' : 'Working');
 }
 
 /**
