@@ -2,7 +2,7 @@
 import { tempDir as cleanupTemp } from './tmp-cleanup.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { GatesError, GatesStore } from '../src/core/gates-settings/store.js';
 
@@ -82,4 +82,46 @@ test('limit is a project boolean; the app file cannot hold one', () => {
 test('a project id that is not a plain id is refused', () => {
   const s = new GatesStore(dir());
   assert.throws(() => s.patchProject('../app', { preset: 'ask' }), (e: unknown) => e instanceof GatesError && e.status === 400);
+});
+
+test('a write that fails never throws: the value stays in memory and the next flush retries it', async () => {
+  const d = dir();
+  const s = new GatesStore(d);
+  writeFileSync(d, 'a file where the folder should be'); // the folder cannot be created now
+  assert.doesNotThrow(() => s.patchProject(P1, { preset: 'ask' }));
+  await assert.doesNotReject(s.flush());
+  assert.equal(s.project(P1).preset, 'ask');
+  // the debounce timer fires the same write; a throw there would be an uncaught exception and fail the test
+  await new Promise((r) => setTimeout(r, 600));
+  assert.equal(s.project(P1).preset, 'ask');
+  rmSync(d, { force: true });
+  await s.flush();
+  assert.equal(JSON.parse(readFileSync(join(d, `${P1}.json`), 'utf8')).preset, 'ask', 'the failed write is retried on the next flush');
+});
+
+test('a saved change clears the damaged-file mark for that file', () => {
+  const d = dir(); mkdirSync(d, { recursive: true });
+  writeFileSync(join(d, `${P1}.json`), '{not json');
+  const s = new GatesStore(d);
+  assert.deepEqual(s.view([P1]).unreadable, [P1]);
+  s.patchProject(P1, { preset: 'ask' });
+  assert.deepEqual(s.view([P1]).unreadable, []);
+});
+
+test('reload drops unsaved changes, and a later flush does not write them', async () => {
+  const d = dir();
+  const s = new GatesStore(d);
+  s.patchProject(P1, { preset: 'ask' });
+  s.reload();
+  assert.deepEqual(s.project(P1), { version: 1 });
+  await s.flush();
+  assert.equal(existsSync(join(d, `${P1}.json`)), false);
+});
+
+test('reload reads only files named for a project id', () => {
+  const d = dir(); mkdirSync(d, { recursive: true });
+  writeFileSync(join(d, 'p_1.json'), '{not json');
+  const s = new GatesStore(d);
+  assert.deepEqual(s.view([]).unreadable, []);
+  assert.ok(existsSync(join(d, 'p_1.json')), 'a name that is not a project id is left alone');
 });

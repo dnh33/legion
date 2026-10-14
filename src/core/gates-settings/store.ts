@@ -45,6 +45,7 @@ export class GatesStore {
 
   patchApp(body: Record<string, unknown>): GateSettings {
     this.appS = this.merge(this.appS, body, true);
+    this.unreadable.delete('app');
     this.mark('app');
     return this.app();
   }
@@ -52,6 +53,7 @@ export class GatesStore {
   patchProject(id: string, body: Record<string, unknown>): GateSettings {
     if (!PROJECT_ID_RE.test(id)) throw new GatesError(400, 'That is not a project id.');
     this.projects.set(id, this.merge(this.project(id), body, false));
+    this.unreadable.delete(id);
     this.mark(id);
     return this.project(id);
   }
@@ -63,13 +65,16 @@ export class GatesStore {
 
   /** Read both kinds of file again (the owner pressed Reload on the Gates page, or the core started). */
   reload(): void {
+    // unsaved changes are dropped: the disk is the truth again, and a later flush must not write stale state over it
+    if (this.timer) { clearTimeout(this.timer); this.timer = undefined; }
+    this.dirty.clear();
     this.unreadable.clear();
     this.projects.clear();
     this.appS = this.readOne('app') ?? blank();
     if (!existsSync(this.folder)) return;
     for (const n of readdirSync(this.folder)) {
-      const m = /^(proj_[a-f0-9]{12})\.json$/.exec(n);
-      if (!m) continue;
+      const m = /^(.+)\.json$/.exec(n);
+      if (!m || !PROJECT_ID_RE.test(m[1]!)) continue;
       const s = this.readOne(m[1]!);
       if (s) this.projects.set(m[1]!, s);
     }
@@ -131,20 +136,35 @@ export class GatesStore {
 
   private mark(name: string): void {
     this.dirty.add(name);
-    if (!this.timer) this.timer = setTimeout(() => { this.timer = undefined; this.writeDirty(); }, DEBOUNCE_MS);
+    if (!this.timer) {
+      this.timer = setTimeout(() => { this.timer = undefined; this.writeDirty(); }, DEBOUNCE_MS);
+      this.timer.unref?.();
+    }
   }
 
+  /** Never throws: a name leaves `dirty` only after its write succeeded, so a failed one is retried on the next flush. */
   private writeDirty(): void {
-    if (!this.dirty.size) return;
+    for (const name of [...this.dirty]) {
+      try {
+        this.writeOne(name);
+        this.dirty.delete(name);
+      } catch { /* best effort: the settings stay in memory and the write is retried later */ }
+    }
+  }
+
+  private writeOne(name: string): void {
+    const file = join(this.folder, `${name}.json`);
+    const s = name === 'app' ? this.appS : this.projects.get(name);
+    if (!s) { rmSync(file, { force: true }); return; }
     mkdirSync(this.folder, { recursive: true });
-    for (const name of this.dirty) {
-      const file = join(this.folder, `${name}.json`);
-      const s = name === 'app' ? this.appS : this.projects.get(name);
-      if (!s) { rmSync(file, { force: true }); continue; }
-      const tmp = `${file}.tmp`;
-      writeFileSync(tmp, JSON.stringify(s, null, 2));
+    const tmp = `${file}.tmp`;
+    writeFileSync(tmp, JSON.stringify(s, null, 2));
+    try { renameSync(tmp, file); } catch (e) {
+      // Windows: rename onto an existing file can fail with EPERM or EEXIST; remove the target and try once more
+      const code = (e as NodeJS.ErrnoException).code;
+      if (code !== 'EPERM' && code !== 'EEXIST') throw e;
+      rmSync(file, { force: true });
       renameSync(tmp, file);
     }
-    this.dirty.clear();
   }
 }
