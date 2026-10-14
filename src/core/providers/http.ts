@@ -30,6 +30,18 @@ export const DEFAULT_LIMITS: HttpLimits = {
   maxRequestBytes: 2 * 1024 * 1024, maxBodyBytes: 8 * 1024 * 1024, maxStreamBytes: 4 * 1024 * 1024, maxLineBytes: 1024 * 1024, maxInFlight: 4,
 };
 
+/**
+ * A local server (Ollama, LM Studio, vLLM) loads a model from disk on the first message after it was last used, and sends no response
+ * header until the model is ready. On a cold start that took 150 s on one PC, so the usual 30 s would fail the first message every time.
+ */
+export const LOCAL_LOAD_HEADER_MS = 5 * 60_000;
+
+/** How long to wait for the response header: a chat request to a server on your computer waits for a model load; anything else, or a limit the caller set, keeps its own. */
+export function headerWaitMs(callerMs: number | undefined, local: boolean, method: 'GET' | 'POST'): number {
+  if (callerMs !== undefined) return callerMs;
+  return local && method === 'POST' ? LOCAL_LOAD_HEADER_MS : DEFAULT_LIMITS.headerMs;
+}
+
 export type ProviderErrorCode = 'refused' | 'timeout' | 'too_large' | 'redirect' | 'status' | 'network' | 'aborted' | 'format';
 export class ProviderHttpError extends Error {
   constructor(public readonly code: ProviderErrorCode, message: string, public readonly status?: number, public readonly retryAfterSec?: number) {
@@ -118,6 +130,7 @@ export async function providerRequest(target: ProviderTarget, path: string, opts
   if (!ep.ok) throw new ProviderHttpError('refused', ep.reason);
   if (!PATH_RE.test(path) || path.includes('..')) throw new ProviderHttpError('refused', 'Not an allowed provider path.');
   const keylessOk = entry.keyless === true && (ep.loopback || (entry.allowPrivateNetwork === true && ep.privateLiteral));
+  lim.headerMs = headerWaitMs(opts.limits?.headerMs, ep.loopback || ep.privateLiteral === true, opts.method);
   if (!target.key && !keylessOk) throw new ProviderHttpError('refused', 'No API key is saved for this provider. Add one in Settings, Providers.');
   if (target.key && target.keyOrigin !== ep.origin) throw new ProviderHttpError('refused', "The saved key belongs to a different address than this provider's. Save the key again in Settings, Providers.");
   const payload = opts.body === undefined ? undefined : JSON.stringify(opts.body);
