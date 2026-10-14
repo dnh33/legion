@@ -99,11 +99,10 @@ function ComingNext() {
   const codexNote = "A command-line coding agent. Its own tools run outside Legion's approval cards.";
   return (
     <fieldset className="prov-next" disabled>
-      <legend>Next release</legend>
+      <legend>Later</legend>
       <div className="prov-tease">
-        <b>Codex</b>
+        <b>Codex: later</b>
         <span className="field-note">{codexNote}</span>
-        <span className="prov-badge">0.2.1</span>
       </div>
     </fieldset>
   );

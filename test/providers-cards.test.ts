@@ -31,3 +31,10 @@ test('the notes say what the person must run or paste, in plain words', () => {
   assert.match(note('vllm'), /only if you started the server with one/);
   for (const p of PROVIDER_PRESETS) assert.doesNotMatch(p.note, /this (computer|machine)|—/, p.id);
 });
+
+test('the Codex teaser carries no version badge and no past version', async () => {
+  const { readFileSync } = await import('node:fs');
+  const src = readFileSync(new URL('../../ui/src/providers/ProvidersSection.tsx', import.meta.url), 'utf8');
+  assert.doesNotMatch(src, /prov-badge|0\.2\.1/);
+  assert.match(src, /Codex: later/);
+});

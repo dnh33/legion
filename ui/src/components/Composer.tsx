@@ -177,7 +177,7 @@ export function Composer() {
         <textarea ref={ta} rows={1} value={text} placeholder={taskId ? `Reply to ${agentName}` : `Ask ${agentName} to do something`}
           onChange={(e) => { setText(e.target.value); const n = Date.now(); if (n - lastTyping.current > 300) { lastTyping.current = n; window.dispatchEvent(new Event('legion:typing')); } }}
           onKeyDown={onKeyDown} aria-label="Message" aria-expanded={menuOpen} aria-haspopup="listbox" />
-        <div className="composer-bar">
+        <div className={`composer-bar${busy ? ' busy' : ''}${running && started > 0 ? ' has-team' : ''}`}>
           <button type="button" className={`model-pill${picker ? ' open' : ''}`} onClick={() => setPicker((o) => !o)} aria-haspopup="listbox" aria-expanded={picker}
             title={`${modelLabel(catalog, model)}. Choose model (Ctrl M). Remembered for this agent.`}>
             <span className="mp-label">{modelLabel(catalog, model)}</span><Icon name="down" size={12} />
