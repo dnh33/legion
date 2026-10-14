@@ -1523,3 +1523,47 @@ test('cost: a resumed session\'s total_cost_usd is cumulative, so a task counts 
   const third = await s.engine.waitFor(t.id, 3000);
   assert.ok(Math.abs(third.costUsd! - 0.30) < 1e-9, `a new session adds its own total: ${third.costUsd}`);
 });
+
+/** A gate rule on tool names, for the connectors card tests below. */
+const toolRule = (then: 'ask' | 'deny', tools: string[]) => (c: any) => { c.gates = { rules: [{ id: 'gr_c1', enabled: true, then, label: 'x', source: 'user', when: { tools } }], presetsVersion: 0 }; };
+const CARDED_WRITES = ['github_issue_write', 'github_comment', 'github_create_pr', 'github_review', 'github_ci_rerun', 'github_ci_cancel'].map((n) => `mcp__legion_connectors__${n}`);
+
+test('a gate ask rule on a carded GitHub write raises no engine card: the write raises its own, so the owner sees ONE card', async () => {
+  const s = setup(hanging, { agent: { approval: 'ask' }, config: toolRule('ask', ['mcp__legion_connectors__*']) });
+  const t = s.engine.startTask({ agentId: 'a1', prompt: 'x', source: 'ui' });
+  await new Promise((r) => setTimeout(r, 30));
+  const use = s.calls[0]!.options.canUseTool;
+  const sig = { signal: new AbortController().signal };
+  for (const tool of CARDED_WRITES) {
+    assert.deepEqual(await use(tool, { repo: 'o/r', fields: {} }, sig), { behavior: 'allow', updatedInput: { repo: 'o/r', fields: {} } }, tool);
+    assert.equal(s.approvals.pending().length, 0, `${tool}: no card from the engine`);
+  }
+  s.engine.cancel(t.id);
+  await s.engine.waitFor(t.id, 3000);
+});
+
+test('a gate deny rule on a carded GitHub write still refuses it, with no card', async () => {
+  const s = setup(hanging, { agent: { approval: 'ask' }, config: toolRule('deny', ['mcp__legion_connectors__*']) });
+  const t = s.engine.startTask({ agentId: 'a1', prompt: 'x', source: 'ui' });
+  await new Promise((r) => setTimeout(r, 30));
+  const use = s.calls[0]!.options.canUseTool;
+  const out = await use('mcp__legion_connectors__github_comment', { repo: 'o/r', fields: {} }, { signal: new AbortController().signal });
+  assert.equal(out.behavior, 'deny');
+  assert.equal(s.approvals.pending().length, 0);
+  s.engine.cancel(t.id);
+  await s.engine.waitFor(t.id, 3000);
+});
+
+test('a gate ask rule on a connectors tool that is not a carded write still raises its card (unchanged)', async () => {
+  const s = setup(hanging, { agent: { approval: 'ask' }, config: toolRule('ask', ['mcp__legion_connectors__*']) });
+  const t = s.engine.startTask({ agentId: 'a1', prompt: 'x', source: 'ui' });
+  await new Promise((r) => setTimeout(r, 30));
+  const use = s.calls[0]!.options.canUseTool;
+  const pending = use('mcp__legion_connectors__github_repo_get', { repo: 'o/r' }, { signal: new AbortController().signal });
+  await new Promise((r) => setTimeout(r, 20));
+  assert.equal(s.approvals.pending().length, 1);
+  s.approvals.resolve(s.approvals.pending()[0]!.id, false);
+  assert.equal((await pending).behavior, 'deny');
+  s.engine.cancel(t.id);
+  await s.engine.waitFor(t.id, 3000);
+});

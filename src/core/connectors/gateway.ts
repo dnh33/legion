@@ -72,6 +72,8 @@ const WRITE_AREA: Readonly<Record<string, GhArea>> = {
   github_issue_write: 'issues', github_comment: 'issues', github_create_pr: 'pull_requests', github_review: 'pull_requests',
   github_ci_rerun: 'actions', github_ci_cancel: 'actions',
 };
+/** The full tool names of the six writes, as the engine sees them. Each raises its own card, so a Gates `ask` rule must not add a second. */
+export const CARDED_CONNECTOR_WRITES: ReadonlySet<string> = new Set(Object.keys(WRITE_AREA).map((n) => `mcp__${CONNECTORS_SERVER_NAME}__${n}`));
 /** Tools that take no repo: nothing to check against the allowlist. */
 const NO_REPO = new Set(['github_status', 'github_repo_list']);
 
@@ -152,6 +154,15 @@ export function buildConnectorsServer(agent: AgentProfile, job: ModuleJob, d: Ga
       const w = await d.writeApp?.();
       if (!w) return text(GITHUB_NOT_SIGNED_FOR_WRITE_TEXT, true);
       if (w.can(WRITE_AREA[name]!, 'write') !== 'yes') return text(GITHUB_WRITE_NEEDS_ACCESS_TEXT, true);
+      // the card can stay open for minutes: the handler calls this after Allow and before it sends, so a switch turned off meanwhile still stops the write
+      const recheck = async (): Promise<string | undefined> => {
+        const g = gate() ?? scope(name, args, true);
+        if (g) return g;
+        const w2 = await d.writeApp?.();
+        if (!w2) return GITHUB_NOT_SIGNED_FOR_WRITE_TEXT;
+        if (w2.can(WRITE_AREA[name]!, 'write') !== 'yes') return GITHUB_WRITE_NEEDS_ACCESS_TEXT;
+        return undefined;
+      };
       // read the run's taint BEFORE this call marks it: the card warns when the run had read outside text already (a failed read counts as yes)
       let wasTainted = true;
       try { wasTainted = job.taint() === true; } catch { wasTainted = true; }
@@ -161,7 +172,7 @@ export function buildConnectorsServer(agent: AgentProfile, job: ModuleJob, d: Ga
       const o = job.origin;
       const approvals = d.approvals;
       const wctx: WriteCtx = {
-        ...ctxFor(extra), agent: { id: live.id, name: live.name }, tainted: wasTainted,
+        ...ctxFor(extra), agent: { id: live.id, name: live.name }, tainted: wasTainted, recheck,
         // the card is raised here, by the handler, in every mode (approvals.ts, exception 2026-10-15): never through guardAsk
         ...(approvals ? { ask: (c) => approvals.request(job.taskId, live.id, `mcp__${CONNECTORS_SERVER_NAME}__${c.tool}`, c.input, o ? { roomId: o.roomId, fromAgentId: o.fromAgentId, hop: o.hop } : undefined, { summary: c.summary, noRemember: true, ...(job.projectId ? { projectId: job.projectId } : {}) }) } : {}),
       };

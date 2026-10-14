@@ -23,6 +23,8 @@ export interface WriteCtx extends ToolCtx {
   tainted?: boolean;
   /** Raises the owner's card. Absent: there is no way to ask, so nothing is sent. */
   ask?: (card: WriteCard) => Promise<boolean>;
+  /** Runs the gateway's checks again (master switch, repo, agent grant, write app). Returns the refusal in plain words, or undefined when the write may still go. Absent: nothing is sent. */
+  recheck?: () => Promise<string | undefined>;
 }
 
 /** A write that stopped before or at the card, or after the send: the text is for the agent and is shown as is. */
@@ -145,6 +147,10 @@ function handler(name: string): Run {
     const input: Record<string, unknown> = { repo, ...rest };
     const allowed = await c.ask({ tool: name, repo, summary, input }).catch(() => false);
     if (allowed !== true) throw new WriteStopped(WRITE_DENIED_TEXT);
+    // the card may have been open for minutes: the owner's yes counts only if everything that allowed the card still holds
+    if (!c.recheck) throw new WriteStopped(WRITE_NO_ASK_TEXT);
+    const refusal = await c.recheck().catch(() => WRITE_NO_ASK_TEXT);
+    if (refusal) throw new WriteStopped(`${refusal} Nothing was sent to GitHub.`);
     try {
       return await p.send(api as unknown as WriteApi, repo);
     } catch (e) {
