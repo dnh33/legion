@@ -45,7 +45,7 @@ export function areaState(view: AreaViewLike | null, ctx: AreaCtx = {}): AreaSta
   if (!view.signedIn.read || p?.kind === 'not-connected') return st('not-connected', 'idle', 'GitHub is not connected. Connect it to choose which repos Legion can use.', { id: 'connect', label: 'Connect GitHub' });
   if (p?.kind === 'rate-limited') return st('rate-limited', 'warn', p.resetAt ? `GitHub asks you to wait until ${clockTime(p.resetAt)}.` : 'GitHub asks you to wait a little.', undefined, { disableGithubButtons: true, keepsList: true });
   if (p?.kind === 'network') return st('offline', 'warn', 'Legion could not reach GitHub. Showing the last list.', { id: 'retry', label: 'Try again' }, { keepsList: true });
-  if (view.repos.length === 0) return st('nothing-installed', 'idle', 'GitHub is connected, but Legion is not installed on any repo. Pick repos at GitHub.', { id: 'choose-at-github', label: 'Choose repos at GitHub' });
+  if (view.repos.length === 0) return st('nothing-installed', 'idle', 'GitHub is connected. Install Legion (read) at GitHub once and pick its repos there; after that you choose repos here.', { id: 'choose-at-github', label: 'Install at GitHub' });
   if (view.selection === 'all') return st('all-repos', 'warn', 'Legion can reach every repo on this account. Narrow it at GitHub.', { id: 'change-at-github', label: 'Change at GitHub' }, { keepsList: true });
   if (!view.repos.some((r) => r.ticked)) return st('none-ticked', 'idle', 'No repo is turned on. Agents cannot see any repo until you turn one on.', undefined, { keepsList: true });
   return st('ready', 'ok', '', undefined, { keepsList: true });
@@ -135,3 +135,8 @@ export const activityVerb = (k: ActivityKind, titled = true): string => (k === '
 
 /** The owner to send for a new repo: only a picked organisation or login. Empty means the personal account (the core then uses /user/repos). */
 export const createOwner = (picked: string): string | undefined => (picked ? picked : undefined);
+
+/** GitHub's own install page for Legion (read) (docs: Installing a GitHub App from a third party). Keep in step with GITHUB_APP_SLUGS in hosts.ts. */
+export const READ_APP_INSTALL_URL = 'https://github.com/apps/legion-read/installations/new';
+/** Where the banner's GitHub button goes: with nothing installed, the install page (a first install can only happen there); otherwise that installation's settings. */
+export const githubActionUrl = (view: AreaViewLike | null): string => view?.repos[0]?.installationSettingsUrl ?? READ_APP_INSTALL_URL;

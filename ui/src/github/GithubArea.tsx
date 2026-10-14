@@ -8,7 +8,7 @@ import { Glyph } from '../ci/CiPanel';
 import { ago, formatDuration, runLook } from '../../../src/shared/ci-view';
 import { normRepo } from '../../../src/shared/github-area';
 import type { GithubRepoRow } from '../../../src/shared/github-area';
-import { activityVerb, areaState, CREATE_DEFAULTS, createConfirmLine, createNameError, createOwner, listRepos, rateLine, writesOffText } from './areaState';
+import { activityVerb, areaState, githubActionUrl, CREATE_DEFAULTS, createConfirmLine, createNameError, createOwner, listRepos, rateLine, writesOffText } from './areaState';
 import type { AreaState } from './areaState';
 import {
   agentsOn, cancelRun, cancelSignIn, cancelWriteSignIn, closeGithub, connectRead, connectWrite, createRepo, disconnectRead, disconnectWrite, GITHUB_NEW_REPO_URL, grantProject,
@@ -77,7 +77,7 @@ function Banner({ state, view }: { state: AreaState; view: GithubAreaData | null
   const flowNote = useGithub((s) => s.flowNote);
   const why = useGithub((s) => s.why);
   const busy = useGithub((s) => s.busy);
-  const firstUrl = view?.repos[0]?.installationSettingsUrl ?? 'https://github.com/settings/installations';
+  const firstUrl = githubActionUrl(view);
   const run = (id: NonNullable<AreaState['action']>['id']): void => {
     if (id === 'connect' || id === 'sign-in') void connectRead();
     else if (id === 'retry') void loadArea(true);

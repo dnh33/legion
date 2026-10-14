@@ -40,7 +40,7 @@ describe('areaState (design 5.4)', () => {
   it('connected but nothing installed', () => {
     const s = areaState(view({ repos: [] }));
     assert.equal(s.id, 'nothing-installed');
-    assert.equal(s.action?.label, 'Choose repos at GitHub');
+    assert.equal(s.action?.label, 'Install at GitHub');
   });
   it('installed, none ticked, is a normal state', () => {
     const s = areaState(view({ repos: [row('a'), row('b')] }));
@@ -269,4 +269,14 @@ describe('fix round: review findings', () => {
     assert.match(read('GithubArea.tsx'), /To remove it completely, /);
     assert.match(read('GithubArea.tsx'), /remove Legion \(write\) at GitHub/);
   });
+});
+
+it('the GitHub button for "nothing installed" opens the App install page (installations/new), never settings/installations (mutation: fall back to settings/installations)', async () => {
+  const { githubActionUrl, areaState: st } = await import('../ui/src/github/areaState.js');
+  const { githubInstallUrl, GITHUB_APP_SLUGS } = await import('../src/core/connectors/github/hosts.js');
+  const empty = { registered: { read: true, write: true }, signedIn: { read: true, write: false }, agentsEnabled: true, selection: 'unknown', repos: [], truncated: false } as never;
+  assert.equal(githubActionUrl(empty), githubInstallUrl(GITHUB_APP_SLUGS.read));
+  assert.match(st(empty).text, /Install Legion \(read\)/);
+  const one = { ...(empty as object), selection: 'all', repos: [{ fullName: 'a/b', private: true, installedRead: true, installedWrite: false, ticked: false, htmlUrl: 'https://github.com/a/b', installationSettingsUrl: 'https://github.com/settings/installations/7' }] } as never;
+  assert.equal(githubActionUrl(one), 'https://github.com/settings/installations/7');
 });
