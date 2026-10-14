@@ -1,0 +1,4459 @@
+{
+ "generatedFrom": "0.3.0 approvals.ts",
+ "inputs": {
+  "MODES": [
+   "ask",
+   "auto-edits",
+   "full"
+  ],
+  "CEILINGS": [
+   null,
+   "ask",
+   "auto-edits",
+   "full"
+  ],
+  "TOOLS": [
+   "Read",
+   "Glob",
+   "Grep",
+   "WebFetch",
+   "WebSearch",
+   "TodoWrite",
+   "Agent",
+   "Write",
+   "Edit",
+   "MultiEdit",
+   "NotebookEdit",
+   "Bash",
+   "PowerShell",
+   "Monitor",
+   "mcp__host__shell",
+   "mcp__legion__vm_exec",
+   "mcp__legion__vm_claude",
+   "mcp__legion__vm_desktop",
+   "mcp__legion__vm_status",
+   "mcp__legion_board__board_delete",
+   "mcp__legion_connectors__github_issue_create",
+   "mcp__someone__tool",
+   "UnknownTool"
+  ]
+ },
+ "rows": [
+  {
+   "mode": "ask",
+   "ceiling": null,
+   "tool": "Read",
+   "capped": false,
+   "needsApproval": false,
+   "guardCards": true
+  },
+  {
+   "mode": "ask",
+   "ceiling": null,
+   "tool": "Read",
+   "capped": true,
+   "needsApproval": false,
+   "guardCards": true
+  },
+  {
+   "mode": "ask",
+   "ceiling": null,
+   "tool": "Glob",
+   "capped": false,
+   "needsApproval": false,
+   "guardCards": true
+  },
+  {
+   "mode": "ask",
+   "ceiling": null,
+   "tool": "Glob",
+   "capped": true,
+   "needsApproval": false,
+   "guardCards": true
+  },
+  {
+   "mode": "ask",
+   "ceiling": null,
+   "tool": "Grep",
+   "capped": false,
+   "needsApproval": false,
+   "guardCards": true
+  },
+  {
+   "mode": "ask",
+   "ceiling": null,
+   "tool": "Grep",
+   "capped": true,
+   "needsApproval": false,
+   "guardCards": true
+  },
+  {
+   "mode": "ask",
+   "ceiling": null,
+   "tool": "WebFetch",
+   "capped": false,
+   "needsApproval": false,
+   "guardCards": true
+  },
+  {
+   "mode": "ask",
+   "ceiling": null,
+   "tool": "WebFetch",
+   "capped": true,
+   "needsApproval": false,
+   "guardCards": true
+  },
+  {
+   "mode": "ask",
+   "ceiling": null,
+   "tool": "WebSearch",
+   "capped": false,
+   "needsApproval": false,
+   "guardCards": true
+  },
+  {
+   "mode": "ask",
+   "ceiling": null,
+   "tool": "WebSearch",
+   "capped": true,
+   "needsApproval": false,
+   "guardCards": true
+  },
+  {
+   "mode": "ask",
+   "ceiling": null,
+   "tool": "TodoWrite",
+   "capped": false,
+   "needsApproval": false,
+   "guardCards": true
+  },
+  {
+   "mode": "ask",
+   "ceiling": null,
+   "tool": "TodoWrite",
+   "capped": true,
+   "needsApproval": false,
+   "guardCards": true
+  },
+  {
+   "mode": "ask",
+   "ceiling": null,
+   "tool": "Agent",
+   "capped": false,
+   "needsApproval": false,
+   "guardCards": true
+  },
+  {
+   "mode": "ask",
+   "ceiling": null,
+   "tool": "Agent",
+   "capped": true,
+   "needsApproval": false,
+   "guardCards": true
+  },
+  {
+   "mode": "ask",
+   "ceiling": null,
+   "tool": "Write",
+   "capped": false,
+   "needsApproval": true,
+   "guardCards": true
+  },
+  {
+   "mode": "ask",
+   "ceiling": null,
+   "tool": "Write",
+   "capped": true,
+   "needsApproval": true,
+   "guardCards": true
+  },
+  {
+   "mode": "ask",
+   "ceiling": null,
+   "tool": "Edit",
+   "capped": false,
+   "needsApproval": true,
+   "guardCards": true
+  },
+  {
+   "mode": "ask",
+   "ceiling": null,
+   "tool": "Edit",
+   "capped": true,
+   "needsApproval": true,
+   "guardCards": true
+  },
+  {
+   "mode": "ask",
+   "ceiling": null,
+   "tool": "MultiEdit",
+   "capped": false,
+   "needsApproval": true,
+   "guardCards": true
+  },
+  {
+   "mode": "ask",
+   "ceiling": null,
+   "tool": "MultiEdit",
+   "capped": true,
+   "needsApproval": true,
+   "guardCards": true
+  },
+  {
+   "mode": "ask",
+   "ceiling": null,
+   "tool": "NotebookEdit",
+   "capped": false,
+   "needsApproval": true,
+   "guardCards": true
+  },
+  {
+   "mode": "ask",
+   "ceiling": null,
+   "tool": "NotebookEdit",
+   "capped": true,
+   "needsApproval": true,
+   "guardCards": true
+  },
+  {
+   "mode": "ask",
+   "ceiling": null,
+   "tool": "Bash",
+   "capped": false,
+   "needsApproval": true,
+   "guardCards": true
+  },
+  {
+   "mode": "ask",
+   "ceiling": null,
+   "tool": "Bash",
+   "capped": true,
+   "needsApproval": true,
+   "guardCards": true
+  },
+  {
+   "mode": "ask",
+   "ceiling": null,
+   "tool": "PowerShell",
+   "capped": false,
+   "needsApproval": true,
+   "guardCards": true
+  },
+  {
+   "mode": "ask",
+   "ceiling": null,
+   "tool": "PowerShell",
+   "capped": true,
+   "needsApproval": true,
+   "guardCards": true
+  },
+  {
+   "mode": "ask",
+   "ceiling": null,
+   "tool": "Monitor",
+   "capped": false,
+   "needsApproval": true,
+   "guardCards": true
+  },
+  {
+   "mode": "ask",
+   "ceiling": null,
+   "tool": "Monitor",
+   "capped": true,
+   "needsApproval": true,
+   "guardCards": true
+  },
+  {
+   "mode": "ask",
+   "ceiling": null,
+   "tool": "mcp__host__shell",
+   "capped": false,
+   "needsApproval": true,
+   "guardCards": true
+  },
+  {
+   "mode": "ask",
+   "ceiling": null,
+   "tool": "mcp__host__shell",
+   "capped": true,
+   "needsApproval": true,
+   "guardCards": true
+  },
+  {
+   "mode": "ask",
+   "ceiling": null,
+   "tool": "mcp__legion__vm_exec",
+   "capped": false,
+   "needsApproval": false,
+   "guardCards": true
+  },
+  {
+   "mode": "ask",
+   "ceiling": null,
+   "tool": "mcp__legion__vm_exec",
+   "capped": true,
+   "needsApproval": true,
+   "guardCards": true
+  },
+  {
+   "mode": "ask",
+   "ceiling": null,
+   "tool": "mcp__legion__vm_claude",
+   "capped": false,
+   "needsApproval": false,
+   "guardCards": true
+  },
+  {
+   "mode": "ask",
+   "ceiling": null,
+   "tool": "mcp__legion__vm_claude",
+   "capped": true,
+   "needsApproval": true,
+   "guardCards": true
+  },
+  {
+   "mode": "ask",
+   "ceiling": null,
+   "tool": "mcp__legion__vm_desktop",
+   "capped": false,
+   "needsApproval": false,
+   "guardCards": true
+  },
+  {
+   "mode": "ask",
+   "ceiling": null,
+   "tool": "mcp__legion__vm_desktop",
+   "capped": true,
+   "needsApproval": true,
+   "guardCards": true
+  },
+  {
+   "mode": "ask",
+   "ceiling": null,
+   "tool": "mcp__legion__vm_status",
+   "capped": false,
+   "needsApproval": false,
+   "guardCards": true
+  },
+  {
+   "mode": "ask",
+   "ceiling": null,
+   "tool": "mcp__legion__vm_status",
+   "capped": true,
+   "needsApproval": false,
+   "guardCards": true
+  },
+  {
+   "mode": "ask",
+   "ceiling": null,
+   "tool": "mcp__legion_board__board_delete",
+   "capped": false,
+   "needsApproval": false,
+   "guardCards": true
+  },
+  {
+   "mode": "ask",
+   "ceiling": null,
+   "tool": "mcp__legion_board__board_delete",
+   "capped": true,
+   "needsApproval": false,
+   "guardCards": true
+  },
+  {
+   "mode": "ask",
+   "ceiling": null,
+   "tool": "mcp__legion_connectors__github_issue_create",
+   "capped": false,
+   "needsApproval": false,
+   "guardCards": true
+  },
+  {
+   "mode": "ask",
+   "ceiling": null,
+   "tool": "mcp__legion_connectors__github_issue_create",
+   "capped": true,
+   "needsApproval": false,
+   "guardCards": true
+  },
+  {
+   "mode": "ask",
+   "ceiling": null,
+   "tool": "mcp__someone__tool",
+   "capped": false,
+   "needsApproval": true,
+   "guardCards": true
+  },
+  {
+   "mode": "ask",
+   "ceiling": null,
+   "tool": "mcp__someone__tool",
+   "capped": true,
+   "needsApproval": true,
+   "guardCards": true
+  },
+  {
+   "mode": "ask",
+   "ceiling": null,
+   "tool": "UnknownTool",
+   "capped": false,
+   "needsApproval": true,
+   "guardCards": true
+  },
+  {
+   "mode": "ask",
+   "ceiling": null,
+   "tool": "UnknownTool",
+   "capped": true,
+   "needsApproval": true,
+   "guardCards": true
+  },
+  {
+   "mode": "ask",
+   "ceiling": "ask",
+   "tool": "Read",
+   "capped": false,
+   "needsApproval": false,
+   "guardCards": true
+  },
+  {
+   "mode": "ask",
+   "ceiling": "ask",
+   "tool": "Read",
+   "capped": true,
+   "needsApproval": false,
+   "guardCards": true
+  },
+  {
+   "mode": "ask",
+   "ceiling": "ask",
+   "tool": "Glob",
+   "capped": false,
+   "needsApproval": false,
+   "guardCards": true
+  },
+  {
+   "mode": "ask",
+   "ceiling": "ask",
+   "tool": "Glob",
+   "capped": true,
+   "needsApproval": false,
+   "guardCards": true
+  },
+  {
+   "mode": "ask",
+   "ceiling": "ask",
+   "tool": "Grep",
+   "capped": false,
+   "needsApproval": false,
+   "guardCards": true
+  },
+  {
+   "mode": "ask",
+   "ceiling": "ask",
+   "tool": "Grep",
+   "capped": true,
+   "needsApproval": false,
+   "guardCards": true
+  },
+  {
+   "mode": "ask",
+   "ceiling": "ask",
+   "tool": "WebFetch",
+   "capped": false,
+   "needsApproval": false,
+   "guardCards": true
+  },
+  {
+   "mode": "ask",
+   "ceiling": "ask",
+   "tool": "WebFetch",
+   "capped": true,
+   "needsApproval": false,
+   "guardCards": true
+  },
+  {
+   "mode": "ask",
+   "ceiling": "ask",
+   "tool": "WebSearch",
+   "capped": false,
+   "needsApproval": false,
+   "guardCards": true
+  },
+  {
+   "mode": "ask",
+   "ceiling": "ask",
+   "tool": "WebSearch",
+   "capped": true,
+   "needsApproval": false,
+   "guardCards": true
+  },
+  {
+   "mode": "ask",
+   "ceiling": "ask",
+   "tool": "TodoWrite",
+   "capped": false,
+   "needsApproval": false,
+   "guardCards": true
+  },
+  {
+   "mode": "ask",
+   "ceiling": "ask",
+   "tool": "TodoWrite",
+   "capped": true,
+   "needsApproval": false,
+   "guardCards": true
+  },
+  {
+   "mode": "ask",
+   "ceiling": "ask",
+   "tool": "Agent",
+   "capped": false,
+   "needsApproval": false,
+   "guardCards": true
+  },
+  {
+   "mode": "ask",
+   "ceiling": "ask",
+   "tool": "Agent",
+   "capped": true,
+   "needsApproval": false,
+   "guardCards": true
+  },
+  {
+   "mode": "ask",
+   "ceiling": "ask",
+   "tool": "Write",
+   "capped": false,
+   "needsApproval": true,
+   "guardCards": true
+  },
+  {
+   "mode": "ask",
+   "ceiling": "ask",
+   "tool": "Write",
+   "capped": true,
+   "needsApproval": true,
+   "guardCards": true
+  },
+  {
+   "mode": "ask",
+   "ceiling": "ask",
+   "tool": "Edit",
+   "capped": false,
+   "needsApproval": true,
+   "guardCards": true
+  },
+  {
+   "mode": "ask",
+   "ceiling": "ask",
+   "tool": "Edit",
+   "capped": true,
+   "needsApproval": true,
+   "guardCards": true
+  },
+  {
+   "mode": "ask",
+   "ceiling": "ask",
+   "tool": "MultiEdit",
+   "capped": false,
+   "needsApproval": true,
+   "guardCards": true
+  },
+  {
+   "mode": "ask",
+   "ceiling": "ask",
+   "tool": "MultiEdit",
+   "capped": true,
+   "needsApproval": true,
+   "guardCards": true
+  },
+  {
+   "mode": "ask",
+   "ceiling": "ask",
+   "tool": "NotebookEdit",
+   "capped": false,
+   "needsApproval": true,
+   "guardCards": true
+  },
+  {
+   "mode": "ask",
+   "ceiling": "ask",
+   "tool": "NotebookEdit",
+   "capped": true,
+   "needsApproval": true,
+   "guardCards": true
+  },
+  {
+   "mode": "ask",
+   "ceiling": "ask",
+   "tool": "Bash",
+   "capped": false,
+   "needsApproval": true,
+   "guardCards": true
+  },
+  {
+   "mode": "ask",
+   "ceiling": "ask",
+   "tool": "Bash",
+   "capped": true,
+   "needsApproval": true,
+   "guardCards": true
+  },
+  {
+   "mode": "ask",
+   "ceiling": "ask",
+   "tool": "PowerShell",
+   "capped": false,
+   "needsApproval": true,
+   "guardCards": true
+  },
+  {
+   "mode": "ask",
+   "ceiling": "ask",
+   "tool": "PowerShell",
+   "capped": true,
+   "needsApproval": true,
+   "guardCards": true
+  },
+  {
+   "mode": "ask",
+   "ceiling": "ask",
+   "tool": "Monitor",
+   "capped": false,
+   "needsApproval": true,
+   "guardCards": true
+  },
+  {
+   "mode": "ask",
+   "ceiling": "ask",
+   "tool": "Monitor",
+   "capped": true,
+   "needsApproval": true,
+   "guardCards": true
+  },
+  {
+   "mode": "ask",
+   "ceiling": "ask",
+   "tool": "mcp__host__shell",
+   "capped": false,
+   "needsApproval": true,
+   "guardCards": true
+  },
+  {
+   "mode": "ask",
+   "ceiling": "ask",
+   "tool": "mcp__host__shell",
+   "capped": true,
+   "needsApproval": true,
+   "guardCards": true
+  },
+  {
+   "mode": "ask",
+   "ceiling": "ask",
+   "tool": "mcp__legion__vm_exec",
+   "capped": false,
+   "needsApproval": false,
+   "guardCards": true
+  },
+  {
+   "mode": "ask",
+   "ceiling": "ask",
+   "tool": "mcp__legion__vm_exec",
+   "capped": true,
+   "needsApproval": true,
+   "guardCards": true
+  },
+  {
+   "mode": "ask",
+   "ceiling": "ask",
+   "tool": "mcp__legion__vm_claude",
+   "capped": false,
+   "needsApproval": false,
+   "guardCards": true
+  },
+  {
+   "mode": "ask",
+   "ceiling": "ask",
+   "tool": "mcp__legion__vm_claude",
+   "capped": true,
+   "needsApproval": true,
+   "guardCards": true
+  },
+  {
+   "mode": "ask",
+   "ceiling": "ask",
+   "tool": "mcp__legion__vm_desktop",
+   "capped": false,
+   "needsApproval": false,
+   "guardCards": true
+  },
+  {
+   "mode": "ask",
+   "ceiling": "ask",
+   "tool": "mcp__legion__vm_desktop",
+   "capped": true,
+   "needsApproval": true,
+   "guardCards": true
+  },
+  {
+   "mode": "ask",
+   "ceiling": "ask",
+   "tool": "mcp__legion__vm_status",
+   "capped": false,
+   "needsApproval": false,
+   "guardCards": true
+  },
+  {
+   "mode": "ask",
+   "ceiling": "ask",
+   "tool": "mcp__legion__vm_status",
+   "capped": true,
+   "needsApproval": false,
+   "guardCards": true
+  },
+  {
+   "mode": "ask",
+   "ceiling": "ask",
+   "tool": "mcp__legion_board__board_delete",
+   "capped": false,
+   "needsApproval": false,
+   "guardCards": true
+  },
+  {
+   "mode": "ask",
+   "ceiling": "ask",
+   "tool": "mcp__legion_board__board_delete",
+   "capped": true,
+   "needsApproval": false,
+   "guardCards": true
+  },
+  {
+   "mode": "ask",
+   "ceiling": "ask",
+   "tool": "mcp__legion_connectors__github_issue_create",
+   "capped": false,
+   "needsApproval": false,
+   "guardCards": true
+  },
+  {
+   "mode": "ask",
+   "ceiling": "ask",
+   "tool": "mcp__legion_connectors__github_issue_create",
+   "capped": true,
+   "needsApproval": false,
+   "guardCards": true
+  },
+  {
+   "mode": "ask",
+   "ceiling": "ask",
+   "tool": "mcp__someone__tool",
+   "capped": false,
+   "needsApproval": true,
+   "guardCards": true
+  },
+  {
+   "mode": "ask",
+   "ceiling": "ask",
+   "tool": "mcp__someone__tool",
+   "capped": true,
+   "needsApproval": true,
+   "guardCards": true
+  },
+  {
+   "mode": "ask",
+   "ceiling": "ask",
+   "tool": "UnknownTool",
+   "capped": false,
+   "needsApproval": true,
+   "guardCards": true
+  },
+  {
+   "mode": "ask",
+   "ceiling": "ask",
+   "tool": "UnknownTool",
+   "capped": true,
+   "needsApproval": true,
+   "guardCards": true
+  },
+  {
+   "mode": "ask",
+   "ceiling": "auto-edits",
+   "tool": "Read",
+   "capped": false,
+   "needsApproval": false,
+   "guardCards": true
+  },
+  {
+   "mode": "ask",
+   "ceiling": "auto-edits",
+   "tool": "Read",
+   "capped": true,
+   "needsApproval": false,
+   "guardCards": true
+  },
+  {
+   "mode": "ask",
+   "ceiling": "auto-edits",
+   "tool": "Glob",
+   "capped": false,
+   "needsApproval": false,
+   "guardCards": true
+  },
+  {
+   "mode": "ask",
+   "ceiling": "auto-edits",
+   "tool": "Glob",
+   "capped": true,
+   "needsApproval": false,
+   "guardCards": true
+  },
+  {
+   "mode": "ask",
+   "ceiling": "auto-edits",
+   "tool": "Grep",
+   "capped": false,
+   "needsApproval": false,
+   "guardCards": true
+  },
+  {
+   "mode": "ask",
+   "ceiling": "auto-edits",
+   "tool": "Grep",
+   "capped": true,
+   "needsApproval": false,
+   "guardCards": true
+  },
+  {
+   "mode": "ask",
+   "ceiling": "auto-edits",
+   "tool": "WebFetch",
+   "capped": false,
+   "needsApproval": false,
+   "guardCards": true
+  },
+  {
+   "mode": "ask",
+   "ceiling": "auto-edits",
+   "tool": "WebFetch",
+   "capped": true,
+   "needsApproval": false,
+   "guardCards": true
+  },
+  {
+   "mode": "ask",
+   "ceiling": "auto-edits",
+   "tool": "WebSearch",
+   "capped": false,
+   "needsApproval": false,
+   "guardCards": true
+  },
+  {
+   "mode": "ask",
+   "ceiling": "auto-edits",
+   "tool": "WebSearch",
+   "capped": true,
+   "needsApproval": false,
+   "guardCards": true
+  },
+  {
+   "mode": "ask",
+   "ceiling": "auto-edits",
+   "tool": "TodoWrite",
+   "capped": false,
+   "needsApproval": false,
+   "guardCards": true
+  },
+  {
+   "mode": "ask",
+   "ceiling": "auto-edits",
+   "tool": "TodoWrite",
+   "capped": true,
+   "needsApproval": false,
+   "guardCards": true
+  },
+  {
+   "mode": "ask",
+   "ceiling": "auto-edits",
+   "tool": "Agent",
+   "capped": false,
+   "needsApproval": false,
+   "guardCards": true
+  },
+  {
+   "mode": "ask",
+   "ceiling": "auto-edits",
+   "tool": "Agent",
+   "capped": true,
+   "needsApproval": false,
+   "guardCards": true
+  },
+  {
+   "mode": "ask",
+   "ceiling": "auto-edits",
+   "tool": "Write",
+   "capped": false,
+   "needsApproval": true,
+   "guardCards": true
+  },
+  {
+   "mode": "ask",
+   "ceiling": "auto-edits",
+   "tool": "Write",
+   "capped": true,
+   "needsApproval": true,
+   "guardCards": true
+  },
+  {
+   "mode": "ask",
+   "ceiling": "auto-edits",
+   "tool": "Edit",
+   "capped": false,
+   "needsApproval": true,
+   "guardCards": true
+  },
+  {
+   "mode": "ask",
+   "ceiling": "auto-edits",
+   "tool": "Edit",
+   "capped": true,
+   "needsApproval": true,
+   "guardCards": true
+  },
+  {
+   "mode": "ask",
+   "ceiling": "auto-edits",
+   "tool": "MultiEdit",
+   "capped": false,
+   "needsApproval": true,
+   "guardCards": true
+  },
+  {
+   "mode": "ask",
+   "ceiling": "auto-edits",
+   "tool": "MultiEdit",
+   "capped": true,
+   "needsApproval": true,
+   "guardCards": true
+  },
+  {
+   "mode": "ask",
+   "ceiling": "auto-edits",
+   "tool": "NotebookEdit",
+   "capped": false,
+   "needsApproval": true,
+   "guardCards": true
+  },
+  {
+   "mode": "ask",
+   "ceiling": "auto-edits",
+   "tool": "NotebookEdit",
+   "capped": true,
+   "needsApproval": true,
+   "guardCards": true
+  },
+  {
+   "mode": "ask",
+   "ceiling": "auto-edits",
+   "tool": "Bash",
+   "capped": false,
+   "needsApproval": true,
+   "guardCards": true
+  },
+  {
+   "mode": "ask",
+   "ceiling": "auto-edits",
+   "tool": "Bash",
+   "capped": true,
+   "needsApproval": true,
+   "guardCards": true
+  },
+  {
+   "mode": "ask",
+   "ceiling": "auto-edits",
+   "tool": "PowerShell",
+   "capped": false,
+   "needsApproval": true,
+   "guardCards": true
+  },
+  {
+   "mode": "ask",
+   "ceiling": "auto-edits",
+   "tool": "PowerShell",
+   "capped": true,
+   "needsApproval": true,
+   "guardCards": true
+  },
+  {
+   "mode": "ask",
+   "ceiling": "auto-edits",
+   "tool": "Monitor",
+   "capped": false,
+   "needsApproval": true,
+   "guardCards": true
+  },
+  {
+   "mode": "ask",
+   "ceiling": "auto-edits",
+   "tool": "Monitor",
+   "capped": true,
+   "needsApproval": true,
+   "guardCards": true
+  },
+  {
+   "mode": "ask",
+   "ceiling": "auto-edits",
+   "tool": "mcp__host__shell",
+   "capped": false,
+   "needsApproval": true,
+   "guardCards": true
+  },
+  {
+   "mode": "ask",
+   "ceiling": "auto-edits",
+   "tool": "mcp__host__shell",
+   "capped": true,
+   "needsApproval": true,
+   "guardCards": true
+  },
+  {
+   "mode": "ask",
+   "ceiling": "auto-edits",
+   "tool": "mcp__legion__vm_exec",
+   "capped": false,
+   "needsApproval": false,
+   "guardCards": true
+  },
+  {
+   "mode": "ask",
+   "ceiling": "auto-edits",
+   "tool": "mcp__legion__vm_exec",
+   "capped": true,
+   "needsApproval": true,
+   "guardCards": true
+  },
+  {
+   "mode": "ask",
+   "ceiling": "auto-edits",
+   "tool": "mcp__legion__vm_claude",
+   "capped": false,
+   "needsApproval": false,
+   "guardCards": true
+  },
+  {
+   "mode": "ask",
+   "ceiling": "auto-edits",
+   "tool": "mcp__legion__vm_claude",
+   "capped": true,
+   "needsApproval": true,
+   "guardCards": true
+  },
+  {
+   "mode": "ask",
+   "ceiling": "auto-edits",
+   "tool": "mcp__legion__vm_desktop",
+   "capped": false,
+   "needsApproval": false,
+   "guardCards": true
+  },
+  {
+   "mode": "ask",
+   "ceiling": "auto-edits",
+   "tool": "mcp__legion__vm_desktop",
+   "capped": true,
+   "needsApproval": true,
+   "guardCards": true
+  },
+  {
+   "mode": "ask",
+   "ceiling": "auto-edits",
+   "tool": "mcp__legion__vm_status",
+   "capped": false,
+   "needsApproval": false,
+   "guardCards": true
+  },
+  {
+   "mode": "ask",
+   "ceiling": "auto-edits",
+   "tool": "mcp__legion__vm_status",
+   "capped": true,
+   "needsApproval": false,
+   "guardCards": true
+  },
+  {
+   "mode": "ask",
+   "ceiling": "auto-edits",
+   "tool": "mcp__legion_board__board_delete",
+   "capped": false,
+   "needsApproval": false,
+   "guardCards": true
+  },
+  {
+   "mode": "ask",
+   "ceiling": "auto-edits",
+   "tool": "mcp__legion_board__board_delete",
+   "capped": true,
+   "needsApproval": false,
+   "guardCards": true
+  },
+  {
+   "mode": "ask",
+   "ceiling": "auto-edits",
+   "tool": "mcp__legion_connectors__github_issue_create",
+   "capped": false,
+   "needsApproval": false,
+   "guardCards": true
+  },
+  {
+   "mode": "ask",
+   "ceiling": "auto-edits",
+   "tool": "mcp__legion_connectors__github_issue_create",
+   "capped": true,
+   "needsApproval": false,
+   "guardCards": true
+  },
+  {
+   "mode": "ask",
+   "ceiling": "auto-edits",
+   "tool": "mcp__someone__tool",
+   "capped": false,
+   "needsApproval": true,
+   "guardCards": true
+  },
+  {
+   "mode": "ask",
+   "ceiling": "auto-edits",
+   "tool": "mcp__someone__tool",
+   "capped": true,
+   "needsApproval": true,
+   "guardCards": true
+  },
+  {
+   "mode": "ask",
+   "ceiling": "auto-edits",
+   "tool": "UnknownTool",
+   "capped": false,
+   "needsApproval": true,
+   "guardCards": true
+  },
+  {
+   "mode": "ask",
+   "ceiling": "auto-edits",
+   "tool": "UnknownTool",
+   "capped": true,
+   "needsApproval": true,
+   "guardCards": true
+  },
+  {
+   "mode": "ask",
+   "ceiling": "full",
+   "tool": "Read",
+   "capped": false,
+   "needsApproval": false,
+   "guardCards": true
+  },
+  {
+   "mode": "ask",
+   "ceiling": "full",
+   "tool": "Read",
+   "capped": true,
+   "needsApproval": false,
+   "guardCards": true
+  },
+  {
+   "mode": "ask",
+   "ceiling": "full",
+   "tool": "Glob",
+   "capped": false,
+   "needsApproval": false,
+   "guardCards": true
+  },
+  {
+   "mode": "ask",
+   "ceiling": "full",
+   "tool": "Glob",
+   "capped": true,
+   "needsApproval": false,
+   "guardCards": true
+  },
+  {
+   "mode": "ask",
+   "ceiling": "full",
+   "tool": "Grep",
+   "capped": false,
+   "needsApproval": false,
+   "guardCards": true
+  },
+  {
+   "mode": "ask",
+   "ceiling": "full",
+   "tool": "Grep",
+   "capped": true,
+   "needsApproval": false,
+   "guardCards": true
+  },
+  {
+   "mode": "ask",
+   "ceiling": "full",
+   "tool": "WebFetch",
+   "capped": false,
+   "needsApproval": false,
+   "guardCards": true
+  },
+  {
+   "mode": "ask",
+   "ceiling": "full",
+   "tool": "WebFetch",
+   "capped": true,
+   "needsApproval": false,
+   "guardCards": true
+  },
+  {
+   "mode": "ask",
+   "ceiling": "full",
+   "tool": "WebSearch",
+   "capped": false,
+   "needsApproval": false,
+   "guardCards": true
+  },
+  {
+   "mode": "ask",
+   "ceiling": "full",
+   "tool": "WebSearch",
+   "capped": true,
+   "needsApproval": false,
+   "guardCards": true
+  },
+  {
+   "mode": "ask",
+   "ceiling": "full",
+   "tool": "TodoWrite",
+   "capped": false,
+   "needsApproval": false,
+   "guardCards": true
+  },
+  {
+   "mode": "ask",
+   "ceiling": "full",
+   "tool": "TodoWrite",
+   "capped": true,
+   "needsApproval": false,
+   "guardCards": true
+  },
+  {
+   "mode": "ask",
+   "ceiling": "full",
+   "tool": "Agent",
+   "capped": false,
+   "needsApproval": false,
+   "guardCards": true
+  },
+  {
+   "mode": "ask",
+   "ceiling": "full",
+   "tool": "Agent",
+   "capped": true,
+   "needsApproval": false,
+   "guardCards": true
+  },
+  {
+   "mode": "ask",
+   "ceiling": "full",
+   "tool": "Write",
+   "capped": false,
+   "needsApproval": true,
+   "guardCards": true
+  },
+  {
+   "mode": "ask",
+   "ceiling": "full",
+   "tool": "Write",
+   "capped": true,
+   "needsApproval": true,
+   "guardCards": true
+  },
+  {
+   "mode": "ask",
+   "ceiling": "full",
+   "tool": "Edit",
+   "capped": false,
+   "needsApproval": true,
+   "guardCards": true
+  },
+  {
+   "mode": "ask",
+   "ceiling": "full",
+   "tool": "Edit",
+   "capped": true,
+   "needsApproval": true,
+   "guardCards": true
+  },
+  {
+   "mode": "ask",
+   "ceiling": "full",
+   "tool": "MultiEdit",
+   "capped": false,
+   "needsApproval": true,
+   "guardCards": true
+  },
+  {
+   "mode": "ask",
+   "ceiling": "full",
+   "tool": "MultiEdit",
+   "capped": true,
+   "needsApproval": true,
+   "guardCards": true
+  },
+  {
+   "mode": "ask",
+   "ceiling": "full",
+   "tool": "NotebookEdit",
+   "capped": false,
+   "needsApproval": true,
+   "guardCards": true
+  },
+  {
+   "mode": "ask",
+   "ceiling": "full",
+   "tool": "NotebookEdit",
+   "capped": true,
+   "needsApproval": true,
+   "guardCards": true
+  },
+  {
+   "mode": "ask",
+   "ceiling": "full",
+   "tool": "Bash",
+   "capped": false,
+   "needsApproval": true,
+   "guardCards": true
+  },
+  {
+   "mode": "ask",
+   "ceiling": "full",
+   "tool": "Bash",
+   "capped": true,
+   "needsApproval": true,
+   "guardCards": true
+  },
+  {
+   "mode": "ask",
+   "ceiling": "full",
+   "tool": "PowerShell",
+   "capped": false,
+   "needsApproval": true,
+   "guardCards": true
+  },
+  {
+   "mode": "ask",
+   "ceiling": "full",
+   "tool": "PowerShell",
+   "capped": true,
+   "needsApproval": true,
+   "guardCards": true
+  },
+  {
+   "mode": "ask",
+   "ceiling": "full",
+   "tool": "Monitor",
+   "capped": false,
+   "needsApproval": true,
+   "guardCards": true
+  },
+  {
+   "mode": "ask",
+   "ceiling": "full",
+   "tool": "Monitor",
+   "capped": true,
+   "needsApproval": true,
+   "guardCards": true
+  },
+  {
+   "mode": "ask",
+   "ceiling": "full",
+   "tool": "mcp__host__shell",
+   "capped": false,
+   "needsApproval": true,
+   "guardCards": true
+  },
+  {
+   "mode": "ask",
+   "ceiling": "full",
+   "tool": "mcp__host__shell",
+   "capped": true,
+   "needsApproval": true,
+   "guardCards": true
+  },
+  {
+   "mode": "ask",
+   "ceiling": "full",
+   "tool": "mcp__legion__vm_exec",
+   "capped": false,
+   "needsApproval": false,
+   "guardCards": true
+  },
+  {
+   "mode": "ask",
+   "ceiling": "full",
+   "tool": "mcp__legion__vm_exec",
+   "capped": true,
+   "needsApproval": true,
+   "guardCards": true
+  },
+  {
+   "mode": "ask",
+   "ceiling": "full",
+   "tool": "mcp__legion__vm_claude",
+   "capped": false,
+   "needsApproval": false,
+   "guardCards": true
+  },
+  {
+   "mode": "ask",
+   "ceiling": "full",
+   "tool": "mcp__legion__vm_claude",
+   "capped": true,
+   "needsApproval": true,
+   "guardCards": true
+  },
+  {
+   "mode": "ask",
+   "ceiling": "full",
+   "tool": "mcp__legion__vm_desktop",
+   "capped": false,
+   "needsApproval": false,
+   "guardCards": true
+  },
+  {
+   "mode": "ask",
+   "ceiling": "full",
+   "tool": "mcp__legion__vm_desktop",
+   "capped": true,
+   "needsApproval": true,
+   "guardCards": true
+  },
+  {
+   "mode": "ask",
+   "ceiling": "full",
+   "tool": "mcp__legion__vm_status",
+   "capped": false,
+   "needsApproval": false,
+   "guardCards": true
+  },
+  {
+   "mode": "ask",
+   "ceiling": "full",
+   "tool": "mcp__legion__vm_status",
+   "capped": true,
+   "needsApproval": false,
+   "guardCards": true
+  },
+  {
+   "mode": "ask",
+   "ceiling": "full",
+   "tool": "mcp__legion_board__board_delete",
+   "capped": false,
+   "needsApproval": false,
+   "guardCards": true
+  },
+  {
+   "mode": "ask",
+   "ceiling": "full",
+   "tool": "mcp__legion_board__board_delete",
+   "capped": true,
+   "needsApproval": false,
+   "guardCards": true
+  },
+  {
+   "mode": "ask",
+   "ceiling": "full",
+   "tool": "mcp__legion_connectors__github_issue_create",
+   "capped": false,
+   "needsApproval": false,
+   "guardCards": true
+  },
+  {
+   "mode": "ask",
+   "ceiling": "full",
+   "tool": "mcp__legion_connectors__github_issue_create",
+   "capped": true,
+   "needsApproval": false,
+   "guardCards": true
+  },
+  {
+   "mode": "ask",
+   "ceiling": "full",
+   "tool": "mcp__someone__tool",
+   "capped": false,
+   "needsApproval": true,
+   "guardCards": true
+  },
+  {
+   "mode": "ask",
+   "ceiling": "full",
+   "tool": "mcp__someone__tool",
+   "capped": true,
+   "needsApproval": true,
+   "guardCards": true
+  },
+  {
+   "mode": "ask",
+   "ceiling": "full",
+   "tool": "UnknownTool",
+   "capped": false,
+   "needsApproval": true,
+   "guardCards": true
+  },
+  {
+   "mode": "ask",
+   "ceiling": "full",
+   "tool": "UnknownTool",
+   "capped": true,
+   "needsApproval": true,
+   "guardCards": true
+  },
+  {
+   "mode": "auto-edits",
+   "ceiling": null,
+   "tool": "Read",
+   "capped": false,
+   "needsApproval": false,
+   "guardCards": true
+  },
+  {
+   "mode": "auto-edits",
+   "ceiling": null,
+   "tool": "Read",
+   "capped": true,
+   "needsApproval": false,
+   "guardCards": true
+  },
+  {
+   "mode": "auto-edits",
+   "ceiling": null,
+   "tool": "Glob",
+   "capped": false,
+   "needsApproval": false,
+   "guardCards": true
+  },
+  {
+   "mode": "auto-edits",
+   "ceiling": null,
+   "tool": "Glob",
+   "capped": true,
+   "needsApproval": false,
+   "guardCards": true
+  },
+  {
+   "mode": "auto-edits",
+   "ceiling": null,
+   "tool": "Grep",
+   "capped": false,
+   "needsApproval": false,
+   "guardCards": true
+  },
+  {
+   "mode": "auto-edits",
+   "ceiling": null,
+   "tool": "Grep",
+   "capped": true,
+   "needsApproval": false,
+   "guardCards": true
+  },
+  {
+   "mode": "auto-edits",
+   "ceiling": null,
+   "tool": "WebFetch",
+   "capped": false,
+   "needsApproval": false,
+   "guardCards": true
+  },
+  {
+   "mode": "auto-edits",
+   "ceiling": null,
+   "tool": "WebFetch",
+   "capped": true,
+   "needsApproval": false,
+   "guardCards": true
+  },
+  {
+   "mode": "auto-edits",
+   "ceiling": null,
+   "tool": "WebSearch",
+   "capped": false,
+   "needsApproval": false,
+   "guardCards": true
+  },
+  {
+   "mode": "auto-edits",
+   "ceiling": null,
+   "tool": "WebSearch",
+   "capped": true,
+   "needsApproval": false,
+   "guardCards": true
+  },
+  {
+   "mode": "auto-edits",
+   "ceiling": null,
+   "tool": "TodoWrite",
+   "capped": false,
+   "needsApproval": false,
+   "guardCards": true
+  },
+  {
+   "mode": "auto-edits",
+   "ceiling": null,
+   "tool": "TodoWrite",
+   "capped": true,
+   "needsApproval": false,
+   "guardCards": true
+  },
+  {
+   "mode": "auto-edits",
+   "ceiling": null,
+   "tool": "Agent",
+   "capped": false,
+   "needsApproval": false,
+   "guardCards": true
+  },
+  {
+   "mode": "auto-edits",
+   "ceiling": null,
+   "tool": "Agent",
+   "capped": true,
+   "needsApproval": false,
+   "guardCards": true
+  },
+  {
+   "mode": "auto-edits",
+   "ceiling": null,
+   "tool": "Write",
+   "capped": false,
+   "needsApproval": false,
+   "guardCards": true
+  },
+  {
+   "mode": "auto-edits",
+   "ceiling": null,
+   "tool": "Write",
+   "capped": true,
+   "needsApproval": false,
+   "guardCards": true
+  },
+  {
+   "mode": "auto-edits",
+   "ceiling": null,
+   "tool": "Edit",
+   "capped": false,
+   "needsApproval": false,
+   "guardCards": true
+  },
+  {
+   "mode": "auto-edits",
+   "ceiling": null,
+   "tool": "Edit",
+   "capped": true,
+   "needsApproval": false,
+   "guardCards": true
+  },
+  {
+   "mode": "auto-edits",
+   "ceiling": null,
+   "tool": "MultiEdit",
+   "capped": false,
+   "needsApproval": false,
+   "guardCards": true
+  },
+  {
+   "mode": "auto-edits",
+   "ceiling": null,
+   "tool": "MultiEdit",
+   "capped": true,
+   "needsApproval": false,
+   "guardCards": true
+  },
+  {
+   "mode": "auto-edits",
+   "ceiling": null,
+   "tool": "NotebookEdit",
+   "capped": false,
+   "needsApproval": false,
+   "guardCards": true
+  },
+  {
+   "mode": "auto-edits",
+   "ceiling": null,
+   "tool": "NotebookEdit",
+   "capped": true,
+   "needsApproval": false,
+   "guardCards": true
+  },
+  {
+   "mode": "auto-edits",
+   "ceiling": null,
+   "tool": "Bash",
+   "capped": false,
+   "needsApproval": true,
+   "guardCards": true
+  },
+  {
+   "mode": "auto-edits",
+   "ceiling": null,
+   "tool": "Bash",
+   "capped": true,
+   "needsApproval": true,
+   "guardCards": true
+  },
+  {
+   "mode": "auto-edits",
+   "ceiling": null,
+   "tool": "PowerShell",
+   "capped": false,
+   "needsApproval": true,
+   "guardCards": true
+  },
+  {
+   "mode": "auto-edits",
+   "ceiling": null,
+   "tool": "PowerShell",
+   "capped": true,
+   "needsApproval": true,
+   "guardCards": true
+  },
+  {
+   "mode": "auto-edits",
+   "ceiling": null,
+   "tool": "Monitor",
+   "capped": false,
+   "needsApproval": true,
+   "guardCards": true
+  },
+  {
+   "mode": "auto-edits",
+   "ceiling": null,
+   "tool": "Monitor",
+   "capped": true,
+   "needsApproval": true,
+   "guardCards": true
+  },
+  {
+   "mode": "auto-edits",
+   "ceiling": null,
+   "tool": "mcp__host__shell",
+   "capped": false,
+   "needsApproval": true,
+   "guardCards": true
+  },
+  {
+   "mode": "auto-edits",
+   "ceiling": null,
+   "tool": "mcp__host__shell",
+   "capped": true,
+   "needsApproval": true,
+   "guardCards": true
+  },
+  {
+   "mode": "auto-edits",
+   "ceiling": null,
+   "tool": "mcp__legion__vm_exec",
+   "capped": false,
+   "needsApproval": false,
+   "guardCards": true
+  },
+  {
+   "mode": "auto-edits",
+   "ceiling": null,
+   "tool": "mcp__legion__vm_exec",
+   "capped": true,
+   "needsApproval": true,
+   "guardCards": true
+  },
+  {
+   "mode": "auto-edits",
+   "ceiling": null,
+   "tool": "mcp__legion__vm_claude",
+   "capped": false,
+   "needsApproval": false,
+   "guardCards": true
+  },
+  {
+   "mode": "auto-edits",
+   "ceiling": null,
+   "tool": "mcp__legion__vm_claude",
+   "capped": true,
+   "needsApproval": true,
+   "guardCards": true
+  },
+  {
+   "mode": "auto-edits",
+   "ceiling": null,
+   "tool": "mcp__legion__vm_desktop",
+   "capped": false,
+   "needsApproval": false,
+   "guardCards": true
+  },
+  {
+   "mode": "auto-edits",
+   "ceiling": null,
+   "tool": "mcp__legion__vm_desktop",
+   "capped": true,
+   "needsApproval": true,
+   "guardCards": true
+  },
+  {
+   "mode": "auto-edits",
+   "ceiling": null,
+   "tool": "mcp__legion__vm_status",
+   "capped": false,
+   "needsApproval": false,
+   "guardCards": true
+  },
+  {
+   "mode": "auto-edits",
+   "ceiling": null,
+   "tool": "mcp__legion__vm_status",
+   "capped": true,
+   "needsApproval": false,
+   "guardCards": true
+  },
+  {
+   "mode": "auto-edits",
+   "ceiling": null,
+   "tool": "mcp__legion_board__board_delete",
+   "capped": false,
+   "needsApproval": false,
+   "guardCards": true
+  },
+  {
+   "mode": "auto-edits",
+   "ceiling": null,
+   "tool": "mcp__legion_board__board_delete",
+   "capped": true,
+   "needsApproval": false,
+   "guardCards": true
+  },
+  {
+   "mode": "auto-edits",
+   "ceiling": null,
+   "tool": "mcp__legion_connectors__github_issue_create",
+   "capped": false,
+   "needsApproval": false,
+   "guardCards": true
+  },
+  {
+   "mode": "auto-edits",
+   "ceiling": null,
+   "tool": "mcp__legion_connectors__github_issue_create",
+   "capped": true,
+   "needsApproval": false,
+   "guardCards": true
+  },
+  {
+   "mode": "auto-edits",
+   "ceiling": null,
+   "tool": "mcp__someone__tool",
+   "capped": false,
+   "needsApproval": true,
+   "guardCards": true
+  },
+  {
+   "mode": "auto-edits",
+   "ceiling": null,
+   "tool": "mcp__someone__tool",
+   "capped": true,
+   "needsApproval": true,
+   "guardCards": true
+  },
+  {
+   "mode": "auto-edits",
+   "ceiling": null,
+   "tool": "UnknownTool",
+   "capped": false,
+   "needsApproval": true,
+   "guardCards": true
+  },
+  {
+   "mode": "auto-edits",
+   "ceiling": null,
+   "tool": "UnknownTool",
+   "capped": true,
+   "needsApproval": true,
+   "guardCards": true
+  },
+  {
+   "mode": "auto-edits",
+   "ceiling": "ask",
+   "tool": "Read",
+   "capped": false,
+   "needsApproval": false,
+   "guardCards": true
+  },
+  {
+   "mode": "auto-edits",
+   "ceiling": "ask",
+   "tool": "Read",
+   "capped": true,
+   "needsApproval": false,
+   "guardCards": true
+  },
+  {
+   "mode": "auto-edits",
+   "ceiling": "ask",
+   "tool": "Glob",
+   "capped": false,
+   "needsApproval": false,
+   "guardCards": true
+  },
+  {
+   "mode": "auto-edits",
+   "ceiling": "ask",
+   "tool": "Glob",
+   "capped": true,
+   "needsApproval": false,
+   "guardCards": true
+  },
+  {
+   "mode": "auto-edits",
+   "ceiling": "ask",
+   "tool": "Grep",
+   "capped": false,
+   "needsApproval": false,
+   "guardCards": true
+  },
+  {
+   "mode": "auto-edits",
+   "ceiling": "ask",
+   "tool": "Grep",
+   "capped": true,
+   "needsApproval": false,
+   "guardCards": true
+  },
+  {
+   "mode": "auto-edits",
+   "ceiling": "ask",
+   "tool": "WebFetch",
+   "capped": false,
+   "needsApproval": false,
+   "guardCards": true
+  },
+  {
+   "mode": "auto-edits",
+   "ceiling": "ask",
+   "tool": "WebFetch",
+   "capped": true,
+   "needsApproval": false,
+   "guardCards": true
+  },
+  {
+   "mode": "auto-edits",
+   "ceiling": "ask",
+   "tool": "WebSearch",
+   "capped": false,
+   "needsApproval": false,
+   "guardCards": true
+  },
+  {
+   "mode": "auto-edits",
+   "ceiling": "ask",
+   "tool": "WebSearch",
+   "capped": true,
+   "needsApproval": false,
+   "guardCards": true
+  },
+  {
+   "mode": "auto-edits",
+   "ceiling": "ask",
+   "tool": "TodoWrite",
+   "capped": false,
+   "needsApproval": false,
+   "guardCards": true
+  },
+  {
+   "mode": "auto-edits",
+   "ceiling": "ask",
+   "tool": "TodoWrite",
+   "capped": true,
+   "needsApproval": false,
+   "guardCards": true
+  },
+  {
+   "mode": "auto-edits",
+   "ceiling": "ask",
+   "tool": "Agent",
+   "capped": false,
+   "needsApproval": false,
+   "guardCards": true
+  },
+  {
+   "mode": "auto-edits",
+   "ceiling": "ask",
+   "tool": "Agent",
+   "capped": true,
+   "needsApproval": false,
+   "guardCards": true
+  },
+  {
+   "mode": "auto-edits",
+   "ceiling": "ask",
+   "tool": "Write",
+   "capped": false,
+   "needsApproval": true,
+   "guardCards": true
+  },
+  {
+   "mode": "auto-edits",
+   "ceiling": "ask",
+   "tool": "Write",
+   "capped": true,
+   "needsApproval": true,
+   "guardCards": true
+  },
+  {
+   "mode": "auto-edits",
+   "ceiling": "ask",
+   "tool": "Edit",
+   "capped": false,
+   "needsApproval": true,
+   "guardCards": true
+  },
+  {
+   "mode": "auto-edits",
+   "ceiling": "ask",
+   "tool": "Edit",
+   "capped": true,
+   "needsApproval": true,
+   "guardCards": true
+  },
+  {
+   "mode": "auto-edits",
+   "ceiling": "ask",
+   "tool": "MultiEdit",
+   "capped": false,
+   "needsApproval": true,
+   "guardCards": true
+  },
+  {
+   "mode": "auto-edits",
+   "ceiling": "ask",
+   "tool": "MultiEdit",
+   "capped": true,
+   "needsApproval": true,
+   "guardCards": true
+  },
+  {
+   "mode": "auto-edits",
+   "ceiling": "ask",
+   "tool": "NotebookEdit",
+   "capped": false,
+   "needsApproval": true,
+   "guardCards": true
+  },
+  {
+   "mode": "auto-edits",
+   "ceiling": "ask",
+   "tool": "NotebookEdit",
+   "capped": true,
+   "needsApproval": true,
+   "guardCards": true
+  },
+  {
+   "mode": "auto-edits",
+   "ceiling": "ask",
+   "tool": "Bash",
+   "capped": false,
+   "needsApproval": true,
+   "guardCards": true
+  },
+  {
+   "mode": "auto-edits",
+   "ceiling": "ask",
+   "tool": "Bash",
+   "capped": true,
+   "needsApproval": true,
+   "guardCards": true
+  },
+  {
+   "mode": "auto-edits",
+   "ceiling": "ask",
+   "tool": "PowerShell",
+   "capped": false,
+   "needsApproval": true,
+   "guardCards": true
+  },
+  {
+   "mode": "auto-edits",
+   "ceiling": "ask",
+   "tool": "PowerShell",
+   "capped": true,
+   "needsApproval": true,
+   "guardCards": true
+  },
+  {
+   "mode": "auto-edits",
+   "ceiling": "ask",
+   "tool": "Monitor",
+   "capped": false,
+   "needsApproval": true,
+   "guardCards": true
+  },
+  {
+   "mode": "auto-edits",
+   "ceiling": "ask",
+   "tool": "Monitor",
+   "capped": true,
+   "needsApproval": true,
+   "guardCards": true
+  },
+  {
+   "mode": "auto-edits",
+   "ceiling": "ask",
+   "tool": "mcp__host__shell",
+   "capped": false,
+   "needsApproval": true,
+   "guardCards": true
+  },
+  {
+   "mode": "auto-edits",
+   "ceiling": "ask",
+   "tool": "mcp__host__shell",
+   "capped": true,
+   "needsApproval": true,
+   "guardCards": true
+  },
+  {
+   "mode": "auto-edits",
+   "ceiling": "ask",
+   "tool": "mcp__legion__vm_exec",
+   "capped": false,
+   "needsApproval": false,
+   "guardCards": true
+  },
+  {
+   "mode": "auto-edits",
+   "ceiling": "ask",
+   "tool": "mcp__legion__vm_exec",
+   "capped": true,
+   "needsApproval": true,
+   "guardCards": true
+  },
+  {
+   "mode": "auto-edits",
+   "ceiling": "ask",
+   "tool": "mcp__legion__vm_claude",
+   "capped": false,
+   "needsApproval": false,
+   "guardCards": true
+  },
+  {
+   "mode": "auto-edits",
+   "ceiling": "ask",
+   "tool": "mcp__legion__vm_claude",
+   "capped": true,
+   "needsApproval": true,
+   "guardCards": true
+  },
+  {
+   "mode": "auto-edits",
+   "ceiling": "ask",
+   "tool": "mcp__legion__vm_desktop",
+   "capped": false,
+   "needsApproval": false,
+   "guardCards": true
+  },
+  {
+   "mode": "auto-edits",
+   "ceiling": "ask",
+   "tool": "mcp__legion__vm_desktop",
+   "capped": true,
+   "needsApproval": true,
+   "guardCards": true
+  },
+  {
+   "mode": "auto-edits",
+   "ceiling": "ask",
+   "tool": "mcp__legion__vm_status",
+   "capped": false,
+   "needsApproval": false,
+   "guardCards": true
+  },
+  {
+   "mode": "auto-edits",
+   "ceiling": "ask",
+   "tool": "mcp__legion__vm_status",
+   "capped": true,
+   "needsApproval": false,
+   "guardCards": true
+  },
+  {
+   "mode": "auto-edits",
+   "ceiling": "ask",
+   "tool": "mcp__legion_board__board_delete",
+   "capped": false,
+   "needsApproval": false,
+   "guardCards": true
+  },
+  {
+   "mode": "auto-edits",
+   "ceiling": "ask",
+   "tool": "mcp__legion_board__board_delete",
+   "capped": true,
+   "needsApproval": false,
+   "guardCards": true
+  },
+  {
+   "mode": "auto-edits",
+   "ceiling": "ask",
+   "tool": "mcp__legion_connectors__github_issue_create",
+   "capped": false,
+   "needsApproval": false,
+   "guardCards": true
+  },
+  {
+   "mode": "auto-edits",
+   "ceiling": "ask",
+   "tool": "mcp__legion_connectors__github_issue_create",
+   "capped": true,
+   "needsApproval": false,
+   "guardCards": true
+  },
+  {
+   "mode": "auto-edits",
+   "ceiling": "ask",
+   "tool": "mcp__someone__tool",
+   "capped": false,
+   "needsApproval": true,
+   "guardCards": true
+  },
+  {
+   "mode": "auto-edits",
+   "ceiling": "ask",
+   "tool": "mcp__someone__tool",
+   "capped": true,
+   "needsApproval": true,
+   "guardCards": true
+  },
+  {
+   "mode": "auto-edits",
+   "ceiling": "ask",
+   "tool": "UnknownTool",
+   "capped": false,
+   "needsApproval": true,
+   "guardCards": true
+  },
+  {
+   "mode": "auto-edits",
+   "ceiling": "ask",
+   "tool": "UnknownTool",
+   "capped": true,
+   "needsApproval": true,
+   "guardCards": true
+  },
+  {
+   "mode": "auto-edits",
+   "ceiling": "auto-edits",
+   "tool": "Read",
+   "capped": false,
+   "needsApproval": false,
+   "guardCards": true
+  },
+  {
+   "mode": "auto-edits",
+   "ceiling": "auto-edits",
+   "tool": "Read",
+   "capped": true,
+   "needsApproval": false,
+   "guardCards": true
+  },
+  {
+   "mode": "auto-edits",
+   "ceiling": "auto-edits",
+   "tool": "Glob",
+   "capped": false,
+   "needsApproval": false,
+   "guardCards": true
+  },
+  {
+   "mode": "auto-edits",
+   "ceiling": "auto-edits",
+   "tool": "Glob",
+   "capped": true,
+   "needsApproval": false,
+   "guardCards": true
+  },
+  {
+   "mode": "auto-edits",
+   "ceiling": "auto-edits",
+   "tool": "Grep",
+   "capped": false,
+   "needsApproval": false,
+   "guardCards": true
+  },
+  {
+   "mode": "auto-edits",
+   "ceiling": "auto-edits",
+   "tool": "Grep",
+   "capped": true,
+   "needsApproval": false,
+   "guardCards": true
+  },
+  {
+   "mode": "auto-edits",
+   "ceiling": "auto-edits",
+   "tool": "WebFetch",
+   "capped": false,
+   "needsApproval": false,
+   "guardCards": true
+  },
+  {
+   "mode": "auto-edits",
+   "ceiling": "auto-edits",
+   "tool": "WebFetch",
+   "capped": true,
+   "needsApproval": false,
+   "guardCards": true
+  },
+  {
+   "mode": "auto-edits",
+   "ceiling": "auto-edits",
+   "tool": "WebSearch",
+   "capped": false,
+   "needsApproval": false,
+   "guardCards": true
+  },
+  {
+   "mode": "auto-edits",
+   "ceiling": "auto-edits",
+   "tool": "WebSearch",
+   "capped": true,
+   "needsApproval": false,
+   "guardCards": true
+  },
+  {
+   "mode": "auto-edits",
+   "ceiling": "auto-edits",
+   "tool": "TodoWrite",
+   "capped": false,
+   "needsApproval": false,
+   "guardCards": true
+  },
+  {
+   "mode": "auto-edits",
+   "ceiling": "auto-edits",
+   "tool": "TodoWrite",
+   "capped": true,
+   "needsApproval": false,
+   "guardCards": true
+  },
+  {
+   "mode": "auto-edits",
+   "ceiling": "auto-edits",
+   "tool": "Agent",
+   "capped": false,
+   "needsApproval": false,
+   "guardCards": true
+  },
+  {
+   "mode": "auto-edits",
+   "ceiling": "auto-edits",
+   "tool": "Agent",
+   "capped": true,
+   "needsApproval": false,
+   "guardCards": true
+  },
+  {
+   "mode": "auto-edits",
+   "ceiling": "auto-edits",
+   "tool": "Write",
+   "capped": false,
+   "needsApproval": false,
+   "guardCards": true
+  },
+  {
+   "mode": "auto-edits",
+   "ceiling": "auto-edits",
+   "tool": "Write",
+   "capped": true,
+   "needsApproval": false,
+   "guardCards": true
+  },
+  {
+   "mode": "auto-edits",
+   "ceiling": "auto-edits",
+   "tool": "Edit",
+   "capped": false,
+   "needsApproval": false,
+   "guardCards": true
+  },
+  {
+   "mode": "auto-edits",
+   "ceiling": "auto-edits",
+   "tool": "Edit",
+   "capped": true,
+   "needsApproval": false,
+   "guardCards": true
+  },
+  {
+   "mode": "auto-edits",
+   "ceiling": "auto-edits",
+   "tool": "MultiEdit",
+   "capped": false,
+   "needsApproval": false,
+   "guardCards": true
+  },
+  {
+   "mode": "auto-edits",
+   "ceiling": "auto-edits",
+   "tool": "MultiEdit",
+   "capped": true,
+   "needsApproval": false,
+   "guardCards": true
+  },
+  {
+   "mode": "auto-edits",
+   "ceiling": "auto-edits",
+   "tool": "NotebookEdit",
+   "capped": false,
+   "needsApproval": false,
+   "guardCards": true
+  },
+  {
+   "mode": "auto-edits",
+   "ceiling": "auto-edits",
+   "tool": "NotebookEdit",
+   "capped": true,
+   "needsApproval": false,
+   "guardCards": true
+  },
+  {
+   "mode": "auto-edits",
+   "ceiling": "auto-edits",
+   "tool": "Bash",
+   "capped": false,
+   "needsApproval": true,
+   "guardCards": true
+  },
+  {
+   "mode": "auto-edits",
+   "ceiling": "auto-edits",
+   "tool": "Bash",
+   "capped": true,
+   "needsApproval": true,
+   "guardCards": true
+  },
+  {
+   "mode": "auto-edits",
+   "ceiling": "auto-edits",
+   "tool": "PowerShell",
+   "capped": false,
+   "needsApproval": true,
+   "guardCards": true
+  },
+  {
+   "mode": "auto-edits",
+   "ceiling": "auto-edits",
+   "tool": "PowerShell",
+   "capped": true,
+   "needsApproval": true,
+   "guardCards": true
+  },
+  {
+   "mode": "auto-edits",
+   "ceiling": "auto-edits",
+   "tool": "Monitor",
+   "capped": false,
+   "needsApproval": true,
+   "guardCards": true
+  },
+  {
+   "mode": "auto-edits",
+   "ceiling": "auto-edits",
+   "tool": "Monitor",
+   "capped": true,
+   "needsApproval": true,
+   "guardCards": true
+  },
+  {
+   "mode": "auto-edits",
+   "ceiling": "auto-edits",
+   "tool": "mcp__host__shell",
+   "capped": false,
+   "needsApproval": true,
+   "guardCards": true
+  },
+  {
+   "mode": "auto-edits",
+   "ceiling": "auto-edits",
+   "tool": "mcp__host__shell",
+   "capped": true,
+   "needsApproval": true,
+   "guardCards": true
+  },
+  {
+   "mode": "auto-edits",
+   "ceiling": "auto-edits",
+   "tool": "mcp__legion__vm_exec",
+   "capped": false,
+   "needsApproval": false,
+   "guardCards": true
+  },
+  {
+   "mode": "auto-edits",
+   "ceiling": "auto-edits",
+   "tool": "mcp__legion__vm_exec",
+   "capped": true,
+   "needsApproval": true,
+   "guardCards": true
+  },
+  {
+   "mode": "auto-edits",
+   "ceiling": "auto-edits",
+   "tool": "mcp__legion__vm_claude",
+   "capped": false,
+   "needsApproval": false,
+   "guardCards": true
+  },
+  {
+   "mode": "auto-edits",
+   "ceiling": "auto-edits",
+   "tool": "mcp__legion__vm_claude",
+   "capped": true,
+   "needsApproval": true,
+   "guardCards": true
+  },
+  {
+   "mode": "auto-edits",
+   "ceiling": "auto-edits",
+   "tool": "mcp__legion__vm_desktop",
+   "capped": false,
+   "needsApproval": false,
+   "guardCards": true
+  },
+  {
+   "mode": "auto-edits",
+   "ceiling": "auto-edits",
+   "tool": "mcp__legion__vm_desktop",
+   "capped": true,
+   "needsApproval": true,
+   "guardCards": true
+  },
+  {
+   "mode": "auto-edits",
+   "ceiling": "auto-edits",
+   "tool": "mcp__legion__vm_status",
+   "capped": false,
+   "needsApproval": false,
+   "guardCards": true
+  },
+  {
+   "mode": "auto-edits",
+   "ceiling": "auto-edits",
+   "tool": "mcp__legion__vm_status",
+   "capped": true,
+   "needsApproval": false,
+   "guardCards": true
+  },
+  {
+   "mode": "auto-edits",
+   "ceiling": "auto-edits",
+   "tool": "mcp__legion_board__board_delete",
+   "capped": false,
+   "needsApproval": false,
+   "guardCards": true
+  },
+  {
+   "mode": "auto-edits",
+   "ceiling": "auto-edits",
+   "tool": "mcp__legion_board__board_delete",
+   "capped": true,
+   "needsApproval": false,
+   "guardCards": true
+  },
+  {
+   "mode": "auto-edits",
+   "ceiling": "auto-edits",
+   "tool": "mcp__legion_connectors__github_issue_create",
+   "capped": false,
+   "needsApproval": false,
+   "guardCards": true
+  },
+  {
+   "mode": "auto-edits",
+   "ceiling": "auto-edits",
+   "tool": "mcp__legion_connectors__github_issue_create",
+   "capped": true,
+   "needsApproval": false,
+   "guardCards": true
+  },
+  {
+   "mode": "auto-edits",
+   "ceiling": "auto-edits",
+   "tool": "mcp__someone__tool",
+   "capped": false,
+   "needsApproval": true,
+   "guardCards": true
+  },
+  {
+   "mode": "auto-edits",
+   "ceiling": "auto-edits",
+   "tool": "mcp__someone__tool",
+   "capped": true,
+   "needsApproval": true,
+   "guardCards": true
+  },
+  {
+   "mode": "auto-edits",
+   "ceiling": "auto-edits",
+   "tool": "UnknownTool",
+   "capped": false,
+   "needsApproval": true,
+   "guardCards": true
+  },
+  {
+   "mode": "auto-edits",
+   "ceiling": "auto-edits",
+   "tool": "UnknownTool",
+   "capped": true,
+   "needsApproval": true,
+   "guardCards": true
+  },
+  {
+   "mode": "auto-edits",
+   "ceiling": "full",
+   "tool": "Read",
+   "capped": false,
+   "needsApproval": false,
+   "guardCards": true
+  },
+  {
+   "mode": "auto-edits",
+   "ceiling": "full",
+   "tool": "Read",
+   "capped": true,
+   "needsApproval": false,
+   "guardCards": true
+  },
+  {
+   "mode": "auto-edits",
+   "ceiling": "full",
+   "tool": "Glob",
+   "capped": false,
+   "needsApproval": false,
+   "guardCards": true
+  },
+  {
+   "mode": "auto-edits",
+   "ceiling": "full",
+   "tool": "Glob",
+   "capped": true,
+   "needsApproval": false,
+   "guardCards": true
+  },
+  {
+   "mode": "auto-edits",
+   "ceiling": "full",
+   "tool": "Grep",
+   "capped": false,
+   "needsApproval": false,
+   "guardCards": true
+  },
+  {
+   "mode": "auto-edits",
+   "ceiling": "full",
+   "tool": "Grep",
+   "capped": true,
+   "needsApproval": false,
+   "guardCards": true
+  },
+  {
+   "mode": "auto-edits",
+   "ceiling": "full",
+   "tool": "WebFetch",
+   "capped": false,
+   "needsApproval": false,
+   "guardCards": true
+  },
+  {
+   "mode": "auto-edits",
+   "ceiling": "full",
+   "tool": "WebFetch",
+   "capped": true,
+   "needsApproval": false,
+   "guardCards": true
+  },
+  {
+   "mode": "auto-edits",
+   "ceiling": "full",
+   "tool": "WebSearch",
+   "capped": false,
+   "needsApproval": false,
+   "guardCards": true
+  },
+  {
+   "mode": "auto-edits",
+   "ceiling": "full",
+   "tool": "WebSearch",
+   "capped": true,
+   "needsApproval": false,
+   "guardCards": true
+  },
+  {
+   "mode": "auto-edits",
+   "ceiling": "full",
+   "tool": "TodoWrite",
+   "capped": false,
+   "needsApproval": false,
+   "guardCards": true
+  },
+  {
+   "mode": "auto-edits",
+   "ceiling": "full",
+   "tool": "TodoWrite",
+   "capped": true,
+   "needsApproval": false,
+   "guardCards": true
+  },
+  {
+   "mode": "auto-edits",
+   "ceiling": "full",
+   "tool": "Agent",
+   "capped": false,
+   "needsApproval": false,
+   "guardCards": true
+  },
+  {
+   "mode": "auto-edits",
+   "ceiling": "full",
+   "tool": "Agent",
+   "capped": true,
+   "needsApproval": false,
+   "guardCards": true
+  },
+  {
+   "mode": "auto-edits",
+   "ceiling": "full",
+   "tool": "Write",
+   "capped": false,
+   "needsApproval": false,
+   "guardCards": true
+  },
+  {
+   "mode": "auto-edits",
+   "ceiling": "full",
+   "tool": "Write",
+   "capped": true,
+   "needsApproval": false,
+   "guardCards": true
+  },
+  {
+   "mode": "auto-edits",
+   "ceiling": "full",
+   "tool": "Edit",
+   "capped": false,
+   "needsApproval": false,
+   "guardCards": true
+  },
+  {
+   "mode": "auto-edits",
+   "ceiling": "full",
+   "tool": "Edit",
+   "capped": true,
+   "needsApproval": false,
+   "guardCards": true
+  },
+  {
+   "mode": "auto-edits",
+   "ceiling": "full",
+   "tool": "MultiEdit",
+   "capped": false,
+   "needsApproval": false,
+   "guardCards": true
+  },
+  {
+   "mode": "auto-edits",
+   "ceiling": "full",
+   "tool": "MultiEdit",
+   "capped": true,
+   "needsApproval": false,
+   "guardCards": true
+  },
+  {
+   "mode": "auto-edits",
+   "ceiling": "full",
+   "tool": "NotebookEdit",
+   "capped": false,
+   "needsApproval": false,
+   "guardCards": true
+  },
+  {
+   "mode": "auto-edits",
+   "ceiling": "full",
+   "tool": "NotebookEdit",
+   "capped": true,
+   "needsApproval": false,
+   "guardCards": true
+  },
+  {
+   "mode": "auto-edits",
+   "ceiling": "full",
+   "tool": "Bash",
+   "capped": false,
+   "needsApproval": true,
+   "guardCards": true
+  },
+  {
+   "mode": "auto-edits",
+   "ceiling": "full",
+   "tool": "Bash",
+   "capped": true,
+   "needsApproval": true,
+   "guardCards": true
+  },
+  {
+   "mode": "auto-edits",
+   "ceiling": "full",
+   "tool": "PowerShell",
+   "capped": false,
+   "needsApproval": true,
+   "guardCards": true
+  },
+  {
+   "mode": "auto-edits",
+   "ceiling": "full",
+   "tool": "PowerShell",
+   "capped": true,
+   "needsApproval": true,
+   "guardCards": true
+  },
+  {
+   "mode": "auto-edits",
+   "ceiling": "full",
+   "tool": "Monitor",
+   "capped": false,
+   "needsApproval": true,
+   "guardCards": true
+  },
+  {
+   "mode": "auto-edits",
+   "ceiling": "full",
+   "tool": "Monitor",
+   "capped": true,
+   "needsApproval": true,
+   "guardCards": true
+  },
+  {
+   "mode": "auto-edits",
+   "ceiling": "full",
+   "tool": "mcp__host__shell",
+   "capped": false,
+   "needsApproval": true,
+   "guardCards": true
+  },
+  {
+   "mode": "auto-edits",
+   "ceiling": "full",
+   "tool": "mcp__host__shell",
+   "capped": true,
+   "needsApproval": true,
+   "guardCards": true
+  },
+  {
+   "mode": "auto-edits",
+   "ceiling": "full",
+   "tool": "mcp__legion__vm_exec",
+   "capped": false,
+   "needsApproval": false,
+   "guardCards": true
+  },
+  {
+   "mode": "auto-edits",
+   "ceiling": "full",
+   "tool": "mcp__legion__vm_exec",
+   "capped": true,
+   "needsApproval": true,
+   "guardCards": true
+  },
+  {
+   "mode": "auto-edits",
+   "ceiling": "full",
+   "tool": "mcp__legion__vm_claude",
+   "capped": false,
+   "needsApproval": false,
+   "guardCards": true
+  },
+  {
+   "mode": "auto-edits",
+   "ceiling": "full",
+   "tool": "mcp__legion__vm_claude",
+   "capped": true,
+   "needsApproval": true,
+   "guardCards": true
+  },
+  {
+   "mode": "auto-edits",
+   "ceiling": "full",
+   "tool": "mcp__legion__vm_desktop",
+   "capped": false,
+   "needsApproval": false,
+   "guardCards": true
+  },
+  {
+   "mode": "auto-edits",
+   "ceiling": "full",
+   "tool": "mcp__legion__vm_desktop",
+   "capped": true,
+   "needsApproval": true,
+   "guardCards": true
+  },
+  {
+   "mode": "auto-edits",
+   "ceiling": "full",
+   "tool": "mcp__legion__vm_status",
+   "capped": false,
+   "needsApproval": false,
+   "guardCards": true
+  },
+  {
+   "mode": "auto-edits",
+   "ceiling": "full",
+   "tool": "mcp__legion__vm_status",
+   "capped": true,
+   "needsApproval": false,
+   "guardCards": true
+  },
+  {
+   "mode": "auto-edits",
+   "ceiling": "full",
+   "tool": "mcp__legion_board__board_delete",
+   "capped": false,
+   "needsApproval": false,
+   "guardCards": true
+  },
+  {
+   "mode": "auto-edits",
+   "ceiling": "full",
+   "tool": "mcp__legion_board__board_delete",
+   "capped": true,
+   "needsApproval": false,
+   "guardCards": true
+  },
+  {
+   "mode": "auto-edits",
+   "ceiling": "full",
+   "tool": "mcp__legion_connectors__github_issue_create",
+   "capped": false,
+   "needsApproval": false,
+   "guardCards": true
+  },
+  {
+   "mode": "auto-edits",
+   "ceiling": "full",
+   "tool": "mcp__legion_connectors__github_issue_create",
+   "capped": true,
+   "needsApproval": false,
+   "guardCards": true
+  },
+  {
+   "mode": "auto-edits",
+   "ceiling": "full",
+   "tool": "mcp__someone__tool",
+   "capped": false,
+   "needsApproval": true,
+   "guardCards": true
+  },
+  {
+   "mode": "auto-edits",
+   "ceiling": "full",
+   "tool": "mcp__someone__tool",
+   "capped": true,
+   "needsApproval": true,
+   "guardCards": true
+  },
+  {
+   "mode": "auto-edits",
+   "ceiling": "full",
+   "tool": "UnknownTool",
+   "capped": false,
+   "needsApproval": true,
+   "guardCards": true
+  },
+  {
+   "mode": "auto-edits",
+   "ceiling": "full",
+   "tool": "UnknownTool",
+   "capped": true,
+   "needsApproval": true,
+   "guardCards": true
+  },
+  {
+   "mode": "full",
+   "ceiling": null,
+   "tool": "Read",
+   "capped": false,
+   "needsApproval": false,
+   "guardCards": false
+  },
+  {
+   "mode": "full",
+   "ceiling": null,
+   "tool": "Read",
+   "capped": true,
+   "needsApproval": false,
+   "guardCards": false
+  },
+  {
+   "mode": "full",
+   "ceiling": null,
+   "tool": "Glob",
+   "capped": false,
+   "needsApproval": false,
+   "guardCards": false
+  },
+  {
+   "mode": "full",
+   "ceiling": null,
+   "tool": "Glob",
+   "capped": true,
+   "needsApproval": false,
+   "guardCards": false
+  },
+  {
+   "mode": "full",
+   "ceiling": null,
+   "tool": "Grep",
+   "capped": false,
+   "needsApproval": false,
+   "guardCards": false
+  },
+  {
+   "mode": "full",
+   "ceiling": null,
+   "tool": "Grep",
+   "capped": true,
+   "needsApproval": false,
+   "guardCards": false
+  },
+  {
+   "mode": "full",
+   "ceiling": null,
+   "tool": "WebFetch",
+   "capped": false,
+   "needsApproval": false,
+   "guardCards": false
+  },
+  {
+   "mode": "full",
+   "ceiling": null,
+   "tool": "WebFetch",
+   "capped": true,
+   "needsApproval": false,
+   "guardCards": false
+  },
+  {
+   "mode": "full",
+   "ceiling": null,
+   "tool": "WebSearch",
+   "capped": false,
+   "needsApproval": false,
+   "guardCards": false
+  },
+  {
+   "mode": "full",
+   "ceiling": null,
+   "tool": "WebSearch",
+   "capped": true,
+   "needsApproval": false,
+   "guardCards": false
+  },
+  {
+   "mode": "full",
+   "ceiling": null,
+   "tool": "TodoWrite",
+   "capped": false,
+   "needsApproval": false,
+   "guardCards": false
+  },
+  {
+   "mode": "full",
+   "ceiling": null,
+   "tool": "TodoWrite",
+   "capped": true,
+   "needsApproval": false,
+   "guardCards": false
+  },
+  {
+   "mode": "full",
+   "ceiling": null,
+   "tool": "Agent",
+   "capped": false,
+   "needsApproval": false,
+   "guardCards": false
+  },
+  {
+   "mode": "full",
+   "ceiling": null,
+   "tool": "Agent",
+   "capped": true,
+   "needsApproval": false,
+   "guardCards": false
+  },
+  {
+   "mode": "full",
+   "ceiling": null,
+   "tool": "Write",
+   "capped": false,
+   "needsApproval": false,
+   "guardCards": false
+  },
+  {
+   "mode": "full",
+   "ceiling": null,
+   "tool": "Write",
+   "capped": true,
+   "needsApproval": false,
+   "guardCards": false
+  },
+  {
+   "mode": "full",
+   "ceiling": null,
+   "tool": "Edit",
+   "capped": false,
+   "needsApproval": false,
+   "guardCards": false
+  },
+  {
+   "mode": "full",
+   "ceiling": null,
+   "tool": "Edit",
+   "capped": true,
+   "needsApproval": false,
+   "guardCards": false
+  },
+  {
+   "mode": "full",
+   "ceiling": null,
+   "tool": "MultiEdit",
+   "capped": false,
+   "needsApproval": false,
+   "guardCards": false
+  },
+  {
+   "mode": "full",
+   "ceiling": null,
+   "tool": "MultiEdit",
+   "capped": true,
+   "needsApproval": false,
+   "guardCards": false
+  },
+  {
+   "mode": "full",
+   "ceiling": null,
+   "tool": "NotebookEdit",
+   "capped": false,
+   "needsApproval": false,
+   "guardCards": false
+  },
+  {
+   "mode": "full",
+   "ceiling": null,
+   "tool": "NotebookEdit",
+   "capped": true,
+   "needsApproval": false,
+   "guardCards": false
+  },
+  {
+   "mode": "full",
+   "ceiling": null,
+   "tool": "Bash",
+   "capped": false,
+   "needsApproval": false,
+   "guardCards": false
+  },
+  {
+   "mode": "full",
+   "ceiling": null,
+   "tool": "Bash",
+   "capped": true,
+   "needsApproval": false,
+   "guardCards": false
+  },
+  {
+   "mode": "full",
+   "ceiling": null,
+   "tool": "PowerShell",
+   "capped": false,
+   "needsApproval": false,
+   "guardCards": false
+  },
+  {
+   "mode": "full",
+   "ceiling": null,
+   "tool": "PowerShell",
+   "capped": true,
+   "needsApproval": false,
+   "guardCards": false
+  },
+  {
+   "mode": "full",
+   "ceiling": null,
+   "tool": "Monitor",
+   "capped": false,
+   "needsApproval": false,
+   "guardCards": false
+  },
+  {
+   "mode": "full",
+   "ceiling": null,
+   "tool": "Monitor",
+   "capped": true,
+   "needsApproval": false,
+   "guardCards": false
+  },
+  {
+   "mode": "full",
+   "ceiling": null,
+   "tool": "mcp__host__shell",
+   "capped": false,
+   "needsApproval": false,
+   "guardCards": false
+  },
+  {
+   "mode": "full",
+   "ceiling": null,
+   "tool": "mcp__host__shell",
+   "capped": true,
+   "needsApproval": false,
+   "guardCards": false
+  },
+  {
+   "mode": "full",
+   "ceiling": null,
+   "tool": "mcp__legion__vm_exec",
+   "capped": false,
+   "needsApproval": false,
+   "guardCards": false
+  },
+  {
+   "mode": "full",
+   "ceiling": null,
+   "tool": "mcp__legion__vm_exec",
+   "capped": true,
+   "needsApproval": true,
+   "guardCards": false
+  },
+  {
+   "mode": "full",
+   "ceiling": null,
+   "tool": "mcp__legion__vm_claude",
+   "capped": false,
+   "needsApproval": false,
+   "guardCards": false
+  },
+  {
+   "mode": "full",
+   "ceiling": null,
+   "tool": "mcp__legion__vm_claude",
+   "capped": true,
+   "needsApproval": true,
+   "guardCards": false
+  },
+  {
+   "mode": "full",
+   "ceiling": null,
+   "tool": "mcp__legion__vm_desktop",
+   "capped": false,
+   "needsApproval": false,
+   "guardCards": false
+  },
+  {
+   "mode": "full",
+   "ceiling": null,
+   "tool": "mcp__legion__vm_desktop",
+   "capped": true,
+   "needsApproval": true,
+   "guardCards": false
+  },
+  {
+   "mode": "full",
+   "ceiling": null,
+   "tool": "mcp__legion__vm_status",
+   "capped": false,
+   "needsApproval": false,
+   "guardCards": false
+  },
+  {
+   "mode": "full",
+   "ceiling": null,
+   "tool": "mcp__legion__vm_status",
+   "capped": true,
+   "needsApproval": false,
+   "guardCards": false
+  },
+  {
+   "mode": "full",
+   "ceiling": null,
+   "tool": "mcp__legion_board__board_delete",
+   "capped": false,
+   "needsApproval": false,
+   "guardCards": false
+  },
+  {
+   "mode": "full",
+   "ceiling": null,
+   "tool": "mcp__legion_board__board_delete",
+   "capped": true,
+   "needsApproval": false,
+   "guardCards": false
+  },
+  {
+   "mode": "full",
+   "ceiling": null,
+   "tool": "mcp__legion_connectors__github_issue_create",
+   "capped": false,
+   "needsApproval": false,
+   "guardCards": false
+  },
+  {
+   "mode": "full",
+   "ceiling": null,
+   "tool": "mcp__legion_connectors__github_issue_create",
+   "capped": true,
+   "needsApproval": false,
+   "guardCards": false
+  },
+  {
+   "mode": "full",
+   "ceiling": null,
+   "tool": "mcp__someone__tool",
+   "capped": false,
+   "needsApproval": false,
+   "guardCards": false
+  },
+  {
+   "mode": "full",
+   "ceiling": null,
+   "tool": "mcp__someone__tool",
+   "capped": true,
+   "needsApproval": false,
+   "guardCards": false
+  },
+  {
+   "mode": "full",
+   "ceiling": null,
+   "tool": "UnknownTool",
+   "capped": false,
+   "needsApproval": false,
+   "guardCards": false
+  },
+  {
+   "mode": "full",
+   "ceiling": null,
+   "tool": "UnknownTool",
+   "capped": true,
+   "needsApproval": false,
+   "guardCards": false
+  },
+  {
+   "mode": "full",
+   "ceiling": "ask",
+   "tool": "Read",
+   "capped": false,
+   "needsApproval": false,
+   "guardCards": true
+  },
+  {
+   "mode": "full",
+   "ceiling": "ask",
+   "tool": "Read",
+   "capped": true,
+   "needsApproval": false,
+   "guardCards": true
+  },
+  {
+   "mode": "full",
+   "ceiling": "ask",
+   "tool": "Glob",
+   "capped": false,
+   "needsApproval": false,
+   "guardCards": true
+  },
+  {
+   "mode": "full",
+   "ceiling": "ask",
+   "tool": "Glob",
+   "capped": true,
+   "needsApproval": false,
+   "guardCards": true
+  },
+  {
+   "mode": "full",
+   "ceiling": "ask",
+   "tool": "Grep",
+   "capped": false,
+   "needsApproval": false,
+   "guardCards": true
+  },
+  {
+   "mode": "full",
+   "ceiling": "ask",
+   "tool": "Grep",
+   "capped": true,
+   "needsApproval": false,
+   "guardCards": true
+  },
+  {
+   "mode": "full",
+   "ceiling": "ask",
+   "tool": "WebFetch",
+   "capped": false,
+   "needsApproval": false,
+   "guardCards": true
+  },
+  {
+   "mode": "full",
+   "ceiling": "ask",
+   "tool": "WebFetch",
+   "capped": true,
+   "needsApproval": false,
+   "guardCards": true
+  },
+  {
+   "mode": "full",
+   "ceiling": "ask",
+   "tool": "WebSearch",
+   "capped": false,
+   "needsApproval": false,
+   "guardCards": true
+  },
+  {
+   "mode": "full",
+   "ceiling": "ask",
+   "tool": "WebSearch",
+   "capped": true,
+   "needsApproval": false,
+   "guardCards": true
+  },
+  {
+   "mode": "full",
+   "ceiling": "ask",
+   "tool": "TodoWrite",
+   "capped": false,
+   "needsApproval": false,
+   "guardCards": true
+  },
+  {
+   "mode": "full",
+   "ceiling": "ask",
+   "tool": "TodoWrite",
+   "capped": true,
+   "needsApproval": false,
+   "guardCards": true
+  },
+  {
+   "mode": "full",
+   "ceiling": "ask",
+   "tool": "Agent",
+   "capped": false,
+   "needsApproval": false,
+   "guardCards": true
+  },
+  {
+   "mode": "full",
+   "ceiling": "ask",
+   "tool": "Agent",
+   "capped": true,
+   "needsApproval": false,
+   "guardCards": true
+  },
+  {
+   "mode": "full",
+   "ceiling": "ask",
+   "tool": "Write",
+   "capped": false,
+   "needsApproval": true,
+   "guardCards": true
+  },
+  {
+   "mode": "full",
+   "ceiling": "ask",
+   "tool": "Write",
+   "capped": true,
+   "needsApproval": true,
+   "guardCards": true
+  },
+  {
+   "mode": "full",
+   "ceiling": "ask",
+   "tool": "Edit",
+   "capped": false,
+   "needsApproval": true,
+   "guardCards": true
+  },
+  {
+   "mode": "full",
+   "ceiling": "ask",
+   "tool": "Edit",
+   "capped": true,
+   "needsApproval": true,
+   "guardCards": true
+  },
+  {
+   "mode": "full",
+   "ceiling": "ask",
+   "tool": "MultiEdit",
+   "capped": false,
+   "needsApproval": true,
+   "guardCards": true
+  },
+  {
+   "mode": "full",
+   "ceiling": "ask",
+   "tool": "MultiEdit",
+   "capped": true,
+   "needsApproval": true,
+   "guardCards": true
+  },
+  {
+   "mode": "full",
+   "ceiling": "ask",
+   "tool": "NotebookEdit",
+   "capped": false,
+   "needsApproval": true,
+   "guardCards": true
+  },
+  {
+   "mode": "full",
+   "ceiling": "ask",
+   "tool": "NotebookEdit",
+   "capped": true,
+   "needsApproval": true,
+   "guardCards": true
+  },
+  {
+   "mode": "full",
+   "ceiling": "ask",
+   "tool": "Bash",
+   "capped": false,
+   "needsApproval": true,
+   "guardCards": true
+  },
+  {
+   "mode": "full",
+   "ceiling": "ask",
+   "tool": "Bash",
+   "capped": true,
+   "needsApproval": true,
+   "guardCards": true
+  },
+  {
+   "mode": "full",
+   "ceiling": "ask",
+   "tool": "PowerShell",
+   "capped": false,
+   "needsApproval": true,
+   "guardCards": true
+  },
+  {
+   "mode": "full",
+   "ceiling": "ask",
+   "tool": "PowerShell",
+   "capped": true,
+   "needsApproval": true,
+   "guardCards": true
+  },
+  {
+   "mode": "full",
+   "ceiling": "ask",
+   "tool": "Monitor",
+   "capped": false,
+   "needsApproval": true,
+   "guardCards": true
+  },
+  {
+   "mode": "full",
+   "ceiling": "ask",
+   "tool": "Monitor",
+   "capped": true,
+   "needsApproval": true,
+   "guardCards": true
+  },
+  {
+   "mode": "full",
+   "ceiling": "ask",
+   "tool": "mcp__host__shell",
+   "capped": false,
+   "needsApproval": true,
+   "guardCards": true
+  },
+  {
+   "mode": "full",
+   "ceiling": "ask",
+   "tool": "mcp__host__shell",
+   "capped": true,
+   "needsApproval": true,
+   "guardCards": true
+  },
+  {
+   "mode": "full",
+   "ceiling": "ask",
+   "tool": "mcp__legion__vm_exec",
+   "capped": false,
+   "needsApproval": false,
+   "guardCards": true
+  },
+  {
+   "mode": "full",
+   "ceiling": "ask",
+   "tool": "mcp__legion__vm_exec",
+   "capped": true,
+   "needsApproval": true,
+   "guardCards": true
+  },
+  {
+   "mode": "full",
+   "ceiling": "ask",
+   "tool": "mcp__legion__vm_claude",
+   "capped": false,
+   "needsApproval": false,
+   "guardCards": true
+  },
+  {
+   "mode": "full",
+   "ceiling": "ask",
+   "tool": "mcp__legion__vm_claude",
+   "capped": true,
+   "needsApproval": true,
+   "guardCards": true
+  },
+  {
+   "mode": "full",
+   "ceiling": "ask",
+   "tool": "mcp__legion__vm_desktop",
+   "capped": false,
+   "needsApproval": false,
+   "guardCards": true
+  },
+  {
+   "mode": "full",
+   "ceiling": "ask",
+   "tool": "mcp__legion__vm_desktop",
+   "capped": true,
+   "needsApproval": true,
+   "guardCards": true
+  },
+  {
+   "mode": "full",
+   "ceiling": "ask",
+   "tool": "mcp__legion__vm_status",
+   "capped": false,
+   "needsApproval": false,
+   "guardCards": true
+  },
+  {
+   "mode": "full",
+   "ceiling": "ask",
+   "tool": "mcp__legion__vm_status",
+   "capped": true,
+   "needsApproval": false,
+   "guardCards": true
+  },
+  {
+   "mode": "full",
+   "ceiling": "ask",
+   "tool": "mcp__legion_board__board_delete",
+   "capped": false,
+   "needsApproval": false,
+   "guardCards": true
+  },
+  {
+   "mode": "full",
+   "ceiling": "ask",
+   "tool": "mcp__legion_board__board_delete",
+   "capped": true,
+   "needsApproval": false,
+   "guardCards": true
+  },
+  {
+   "mode": "full",
+   "ceiling": "ask",
+   "tool": "mcp__legion_connectors__github_issue_create",
+   "capped": false,
+   "needsApproval": false,
+   "guardCards": true
+  },
+  {
+   "mode": "full",
+   "ceiling": "ask",
+   "tool": "mcp__legion_connectors__github_issue_create",
+   "capped": true,
+   "needsApproval": false,
+   "guardCards": true
+  },
+  {
+   "mode": "full",
+   "ceiling": "ask",
+   "tool": "mcp__someone__tool",
+   "capped": false,
+   "needsApproval": true,
+   "guardCards": true
+  },
+  {
+   "mode": "full",
+   "ceiling": "ask",
+   "tool": "mcp__someone__tool",
+   "capped": true,
+   "needsApproval": true,
+   "guardCards": true
+  },
+  {
+   "mode": "full",
+   "ceiling": "ask",
+   "tool": "UnknownTool",
+   "capped": false,
+   "needsApproval": true,
+   "guardCards": true
+  },
+  {
+   "mode": "full",
+   "ceiling": "ask",
+   "tool": "UnknownTool",
+   "capped": true,
+   "needsApproval": true,
+   "guardCards": true
+  },
+  {
+   "mode": "full",
+   "ceiling": "auto-edits",
+   "tool": "Read",
+   "capped": false,
+   "needsApproval": false,
+   "guardCards": true
+  },
+  {
+   "mode": "full",
+   "ceiling": "auto-edits",
+   "tool": "Read",
+   "capped": true,
+   "needsApproval": false,
+   "guardCards": true
+  },
+  {
+   "mode": "full",
+   "ceiling": "auto-edits",
+   "tool": "Glob",
+   "capped": false,
+   "needsApproval": false,
+   "guardCards": true
+  },
+  {
+   "mode": "full",
+   "ceiling": "auto-edits",
+   "tool": "Glob",
+   "capped": true,
+   "needsApproval": false,
+   "guardCards": true
+  },
+  {
+   "mode": "full",
+   "ceiling": "auto-edits",
+   "tool": "Grep",
+   "capped": false,
+   "needsApproval": false,
+   "guardCards": true
+  },
+  {
+   "mode": "full",
+   "ceiling": "auto-edits",
+   "tool": "Grep",
+   "capped": true,
+   "needsApproval": false,
+   "guardCards": true
+  },
+  {
+   "mode": "full",
+   "ceiling": "auto-edits",
+   "tool": "WebFetch",
+   "capped": false,
+   "needsApproval": false,
+   "guardCards": true
+  },
+  {
+   "mode": "full",
+   "ceiling": "auto-edits",
+   "tool": "WebFetch",
+   "capped": true,
+   "needsApproval": false,
+   "guardCards": true
+  },
+  {
+   "mode": "full",
+   "ceiling": "auto-edits",
+   "tool": "WebSearch",
+   "capped": false,
+   "needsApproval": false,
+   "guardCards": true
+  },
+  {
+   "mode": "full",
+   "ceiling": "auto-edits",
+   "tool": "WebSearch",
+   "capped": true,
+   "needsApproval": false,
+   "guardCards": true
+  },
+  {
+   "mode": "full",
+   "ceiling": "auto-edits",
+   "tool": "TodoWrite",
+   "capped": false,
+   "needsApproval": false,
+   "guardCards": true
+  },
+  {
+   "mode": "full",
+   "ceiling": "auto-edits",
+   "tool": "TodoWrite",
+   "capped": true,
+   "needsApproval": false,
+   "guardCards": true
+  },
+  {
+   "mode": "full",
+   "ceiling": "auto-edits",
+   "tool": "Agent",
+   "capped": false,
+   "needsApproval": false,
+   "guardCards": true
+  },
+  {
+   "mode": "full",
+   "ceiling": "auto-edits",
+   "tool": "Agent",
+   "capped": true,
+   "needsApproval": false,
+   "guardCards": true
+  },
+  {
+   "mode": "full",
+   "ceiling": "auto-edits",
+   "tool": "Write",
+   "capped": false,
+   "needsApproval": false,
+   "guardCards": true
+  },
+  {
+   "mode": "full",
+   "ceiling": "auto-edits",
+   "tool": "Write",
+   "capped": true,
+   "needsApproval": false,
+   "guardCards": true
+  },
+  {
+   "mode": "full",
+   "ceiling": "auto-edits",
+   "tool": "Edit",
+   "capped": false,
+   "needsApproval": false,
+   "guardCards": true
+  },
+  {
+   "mode": "full",
+   "ceiling": "auto-edits",
+   "tool": "Edit",
+   "capped": true,
+   "needsApproval": false,
+   "guardCards": true
+  },
+  {
+   "mode": "full",
+   "ceiling": "auto-edits",
+   "tool": "MultiEdit",
+   "capped": false,
+   "needsApproval": false,
+   "guardCards": true
+  },
+  {
+   "mode": "full",
+   "ceiling": "auto-edits",
+   "tool": "MultiEdit",
+   "capped": true,
+   "needsApproval": false,
+   "guardCards": true
+  },
+  {
+   "mode": "full",
+   "ceiling": "auto-edits",
+   "tool": "NotebookEdit",
+   "capped": false,
+   "needsApproval": false,
+   "guardCards": true
+  },
+  {
+   "mode": "full",
+   "ceiling": "auto-edits",
+   "tool": "NotebookEdit",
+   "capped": true,
+   "needsApproval": false,
+   "guardCards": true
+  },
+  {
+   "mode": "full",
+   "ceiling": "auto-edits",
+   "tool": "Bash",
+   "capped": false,
+   "needsApproval": true,
+   "guardCards": true
+  },
+  {
+   "mode": "full",
+   "ceiling": "auto-edits",
+   "tool": "Bash",
+   "capped": true,
+   "needsApproval": true,
+   "guardCards": true
+  },
+  {
+   "mode": "full",
+   "ceiling": "auto-edits",
+   "tool": "PowerShell",
+   "capped": false,
+   "needsApproval": true,
+   "guardCards": true
+  },
+  {
+   "mode": "full",
+   "ceiling": "auto-edits",
+   "tool": "PowerShell",
+   "capped": true,
+   "needsApproval": true,
+   "guardCards": true
+  },
+  {
+   "mode": "full",
+   "ceiling": "auto-edits",
+   "tool": "Monitor",
+   "capped": false,
+   "needsApproval": true,
+   "guardCards": true
+  },
+  {
+   "mode": "full",
+   "ceiling": "auto-edits",
+   "tool": "Monitor",
+   "capped": true,
+   "needsApproval": true,
+   "guardCards": true
+  },
+  {
+   "mode": "full",
+   "ceiling": "auto-edits",
+   "tool": "mcp__host__shell",
+   "capped": false,
+   "needsApproval": true,
+   "guardCards": true
+  },
+  {
+   "mode": "full",
+   "ceiling": "auto-edits",
+   "tool": "mcp__host__shell",
+   "capped": true,
+   "needsApproval": true,
+   "guardCards": true
+  },
+  {
+   "mode": "full",
+   "ceiling": "auto-edits",
+   "tool": "mcp__legion__vm_exec",
+   "capped": false,
+   "needsApproval": false,
+   "guardCards": true
+  },
+  {
+   "mode": "full",
+   "ceiling": "auto-edits",
+   "tool": "mcp__legion__vm_exec",
+   "capped": true,
+   "needsApproval": true,
+   "guardCards": true
+  },
+  {
+   "mode": "full",
+   "ceiling": "auto-edits",
+   "tool": "mcp__legion__vm_claude",
+   "capped": false,
+   "needsApproval": false,
+   "guardCards": true
+  },
+  {
+   "mode": "full",
+   "ceiling": "auto-edits",
+   "tool": "mcp__legion__vm_claude",
+   "capped": true,
+   "needsApproval": true,
+   "guardCards": true
+  },
+  {
+   "mode": "full",
+   "ceiling": "auto-edits",
+   "tool": "mcp__legion__vm_desktop",
+   "capped": false,
+   "needsApproval": false,
+   "guardCards": true
+  },
+  {
+   "mode": "full",
+   "ceiling": "auto-edits",
+   "tool": "mcp__legion__vm_desktop",
+   "capped": true,
+   "needsApproval": true,
+   "guardCards": true
+  },
+  {
+   "mode": "full",
+   "ceiling": "auto-edits",
+   "tool": "mcp__legion__vm_status",
+   "capped": false,
+   "needsApproval": false,
+   "guardCards": true
+  },
+  {
+   "mode": "full",
+   "ceiling": "auto-edits",
+   "tool": "mcp__legion__vm_status",
+   "capped": true,
+   "needsApproval": false,
+   "guardCards": true
+  },
+  {
+   "mode": "full",
+   "ceiling": "auto-edits",
+   "tool": "mcp__legion_board__board_delete",
+   "capped": false,
+   "needsApproval": false,
+   "guardCards": true
+  },
+  {
+   "mode": "full",
+   "ceiling": "auto-edits",
+   "tool": "mcp__legion_board__board_delete",
+   "capped": true,
+   "needsApproval": false,
+   "guardCards": true
+  },
+  {
+   "mode": "full",
+   "ceiling": "auto-edits",
+   "tool": "mcp__legion_connectors__github_issue_create",
+   "capped": false,
+   "needsApproval": false,
+   "guardCards": true
+  },
+  {
+   "mode": "full",
+   "ceiling": "auto-edits",
+   "tool": "mcp__legion_connectors__github_issue_create",
+   "capped": true,
+   "needsApproval": false,
+   "guardCards": true
+  },
+  {
+   "mode": "full",
+   "ceiling": "auto-edits",
+   "tool": "mcp__someone__tool",
+   "capped": false,
+   "needsApproval": true,
+   "guardCards": true
+  },
+  {
+   "mode": "full",
+   "ceiling": "auto-edits",
+   "tool": "mcp__someone__tool",
+   "capped": true,
+   "needsApproval": true,
+   "guardCards": true
+  },
+  {
+   "mode": "full",
+   "ceiling": "auto-edits",
+   "tool": "UnknownTool",
+   "capped": false,
+   "needsApproval": true,
+   "guardCards": true
+  },
+  {
+   "mode": "full",
+   "ceiling": "auto-edits",
+   "tool": "UnknownTool",
+   "capped": true,
+   "needsApproval": true,
+   "guardCards": true
+  },
+  {
+   "mode": "full",
+   "ceiling": "full",
+   "tool": "Read",
+   "capped": false,
+   "needsApproval": false,
+   "guardCards": false
+  },
+  {
+   "mode": "full",
+   "ceiling": "full",
+   "tool": "Read",
+   "capped": true,
+   "needsApproval": false,
+   "guardCards": false
+  },
+  {
+   "mode": "full",
+   "ceiling": "full",
+   "tool": "Glob",
+   "capped": false,
+   "needsApproval": false,
+   "guardCards": false
+  },
+  {
+   "mode": "full",
+   "ceiling": "full",
+   "tool": "Glob",
+   "capped": true,
+   "needsApproval": false,
+   "guardCards": false
+  },
+  {
+   "mode": "full",
+   "ceiling": "full",
+   "tool": "Grep",
+   "capped": false,
+   "needsApproval": false,
+   "guardCards": false
+  },
+  {
+   "mode": "full",
+   "ceiling": "full",
+   "tool": "Grep",
+   "capped": true,
+   "needsApproval": false,
+   "guardCards": false
+  },
+  {
+   "mode": "full",
+   "ceiling": "full",
+   "tool": "WebFetch",
+   "capped": false,
+   "needsApproval": false,
+   "guardCards": false
+  },
+  {
+   "mode": "full",
+   "ceiling": "full",
+   "tool": "WebFetch",
+   "capped": true,
+   "needsApproval": false,
+   "guardCards": false
+  },
+  {
+   "mode": "full",
+   "ceiling": "full",
+   "tool": "WebSearch",
+   "capped": false,
+   "needsApproval": false,
+   "guardCards": false
+  },
+  {
+   "mode": "full",
+   "ceiling": "full",
+   "tool": "WebSearch",
+   "capped": true,
+   "needsApproval": false,
+   "guardCards": false
+  },
+  {
+   "mode": "full",
+   "ceiling": "full",
+   "tool": "TodoWrite",
+   "capped": false,
+   "needsApproval": false,
+   "guardCards": false
+  },
+  {
+   "mode": "full",
+   "ceiling": "full",
+   "tool": "TodoWrite",
+   "capped": true,
+   "needsApproval": false,
+   "guardCards": false
+  },
+  {
+   "mode": "full",
+   "ceiling": "full",
+   "tool": "Agent",
+   "capped": false,
+   "needsApproval": false,
+   "guardCards": false
+  },
+  {
+   "mode": "full",
+   "ceiling": "full",
+   "tool": "Agent",
+   "capped": true,
+   "needsApproval": false,
+   "guardCards": false
+  },
+  {
+   "mode": "full",
+   "ceiling": "full",
+   "tool": "Write",
+   "capped": false,
+   "needsApproval": false,
+   "guardCards": false
+  },
+  {
+   "mode": "full",
+   "ceiling": "full",
+   "tool": "Write",
+   "capped": true,
+   "needsApproval": false,
+   "guardCards": false
+  },
+  {
+   "mode": "full",
+   "ceiling": "full",
+   "tool": "Edit",
+   "capped": false,
+   "needsApproval": false,
+   "guardCards": false
+  },
+  {
+   "mode": "full",
+   "ceiling": "full",
+   "tool": "Edit",
+   "capped": true,
+   "needsApproval": false,
+   "guardCards": false
+  },
+  {
+   "mode": "full",
+   "ceiling": "full",
+   "tool": "MultiEdit",
+   "capped": false,
+   "needsApproval": false,
+   "guardCards": false
+  },
+  {
+   "mode": "full",
+   "ceiling": "full",
+   "tool": "MultiEdit",
+   "capped": true,
+   "needsApproval": false,
+   "guardCards": false
+  },
+  {
+   "mode": "full",
+   "ceiling": "full",
+   "tool": "NotebookEdit",
+   "capped": false,
+   "needsApproval": false,
+   "guardCards": false
+  },
+  {
+   "mode": "full",
+   "ceiling": "full",
+   "tool": "NotebookEdit",
+   "capped": true,
+   "needsApproval": false,
+   "guardCards": false
+  },
+  {
+   "mode": "full",
+   "ceiling": "full",
+   "tool": "Bash",
+   "capped": false,
+   "needsApproval": false,
+   "guardCards": false
+  },
+  {
+   "mode": "full",
+   "ceiling": "full",
+   "tool": "Bash",
+   "capped": true,
+   "needsApproval": false,
+   "guardCards": false
+  },
+  {
+   "mode": "full",
+   "ceiling": "full",
+   "tool": "PowerShell",
+   "capped": false,
+   "needsApproval": false,
+   "guardCards": false
+  },
+  {
+   "mode": "full",
+   "ceiling": "full",
+   "tool": "PowerShell",
+   "capped": true,
+   "needsApproval": false,
+   "guardCards": false
+  },
+  {
+   "mode": "full",
+   "ceiling": "full",
+   "tool": "Monitor",
+   "capped": false,
+   "needsApproval": false,
+   "guardCards": false
+  },
+  {
+   "mode": "full",
+   "ceiling": "full",
+   "tool": "Monitor",
+   "capped": true,
+   "needsApproval": false,
+   "guardCards": false
+  },
+  {
+   "mode": "full",
+   "ceiling": "full",
+   "tool": "mcp__host__shell",
+   "capped": false,
+   "needsApproval": false,
+   "guardCards": false
+  },
+  {
+   "mode": "full",
+   "ceiling": "full",
+   "tool": "mcp__host__shell",
+   "capped": true,
+   "needsApproval": false,
+   "guardCards": false
+  },
+  {
+   "mode": "full",
+   "ceiling": "full",
+   "tool": "mcp__legion__vm_exec",
+   "capped": false,
+   "needsApproval": false,
+   "guardCards": false
+  },
+  {
+   "mode": "full",
+   "ceiling": "full",
+   "tool": "mcp__legion__vm_exec",
+   "capped": true,
+   "needsApproval": true,
+   "guardCards": false
+  },
+  {
+   "mode": "full",
+   "ceiling": "full",
+   "tool": "mcp__legion__vm_claude",
+   "capped": false,
+   "needsApproval": false,
+   "guardCards": false
+  },
+  {
+   "mode": "full",
+   "ceiling": "full",
+   "tool": "mcp__legion__vm_claude",
+   "capped": true,
+   "needsApproval": true,
+   "guardCards": false
+  },
+  {
+   "mode": "full",
+   "ceiling": "full",
+   "tool": "mcp__legion__vm_desktop",
+   "capped": false,
+   "needsApproval": false,
+   "guardCards": false
+  },
+  {
+   "mode": "full",
+   "ceiling": "full",
+   "tool": "mcp__legion__vm_desktop",
+   "capped": true,
+   "needsApproval": true,
+   "guardCards": false
+  },
+  {
+   "mode": "full",
+   "ceiling": "full",
+   "tool": "mcp__legion__vm_status",
+   "capped": false,
+   "needsApproval": false,
+   "guardCards": false
+  },
+  {
+   "mode": "full",
+   "ceiling": "full",
+   "tool": "mcp__legion__vm_status",
+   "capped": true,
+   "needsApproval": false,
+   "guardCards": false
+  },
+  {
+   "mode": "full",
+   "ceiling": "full",
+   "tool": "mcp__legion_board__board_delete",
+   "capped": false,
+   "needsApproval": false,
+   "guardCards": false
+  },
+  {
+   "mode": "full",
+   "ceiling": "full",
+   "tool": "mcp__legion_board__board_delete",
+   "capped": true,
+   "needsApproval": false,
+   "guardCards": false
+  },
+  {
+   "mode": "full",
+   "ceiling": "full",
+   "tool": "mcp__legion_connectors__github_issue_create",
+   "capped": false,
+   "needsApproval": false,
+   "guardCards": false
+  },
+  {
+   "mode": "full",
+   "ceiling": "full",
+   "tool": "mcp__legion_connectors__github_issue_create",
+   "capped": true,
+   "needsApproval": false,
+   "guardCards": false
+  },
+  {
+   "mode": "full",
+   "ceiling": "full",
+   "tool": "mcp__someone__tool",
+   "capped": false,
+   "needsApproval": false,
+   "guardCards": false
+  },
+  {
+   "mode": "full",
+   "ceiling": "full",
+   "tool": "mcp__someone__tool",
+   "capped": true,
+   "needsApproval": false,
+   "guardCards": false
+  },
+  {
+   "mode": "full",
+   "ceiling": "full",
+   "tool": "UnknownTool",
+   "capped": false,
+   "needsApproval": false,
+   "guardCards": false
+  },
+  {
+   "mode": "full",
+   "ceiling": "full",
+   "tool": "UnknownTool",
+   "capped": true,
+   "needsApproval": false,
+   "guardCards": false
+  }
+ ]
+}
