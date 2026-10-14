@@ -32,3 +32,14 @@ export function githubAgentsFor(repo: string, agents: Pick<AgentProfile, 'id' | 
   }
   return { read, write };
 }
+
+/** One repo in the "Choose repos" picker: what the owner can reach, and whether this App is installed on it. */
+export interface GithubPickerRow { id: number; fullName: string; private: boolean; admin: boolean; installed: boolean }
+export type GithubPickerView =
+  | { phase: 'needs-signin' }
+  | { phase: 'not-installed'; installUrl: string }
+  | {
+    phase: 'ready'; installationId: number; selection: 'all' | 'selected'; account: string; rows: GithubPickerRow[];
+    /** True when GitHub also listed repos this App is NOT installed on. False: it only shows the installed ones, so adding needs the GitHub page. */
+    seesUninstalled: boolean; installUrl: string; truncated: boolean;
+  };
