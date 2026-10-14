@@ -4,7 +4,7 @@ import type { AwaySounds } from '../api';
 import { errText } from '../store';
 import { loadAway, useAway } from '../projects/awayStore';
 import { Switch } from '../projects/page/Switch';
-import { DEFAULT_SOUND_PREFS, EVENT_ROWS, defaultCue, eventDefaultOn, resolveEvent, withChoice } from './soundLogic';
+import { DEFAULT_SOUND_PREFS, EVENT_ROWS, eventDefaultOn, resolveEvent, withChoice } from './soundLogic';
 import type { EventChoice, EventKey, SoundEvent, SoundPrefs } from './soundLogic';
 import { cueRole, defaultPack, listCueGroups, listPacks, packOrDefault } from './soundPacks';
 import type { SoundPackInfo } from './soundPacks';
@@ -117,7 +117,7 @@ export function SoundsSection() {
                         </div>
                         <select className="snd-pick" aria-label={`Sound choice for: ${r.label}`} disabled={!on} value={cur}
                           onChange={(e) => { const v = e.target.value; if (!v) change(r.key, { sound: null }); else { const i = v.indexOf('/'); change(r.key, { sound: { pack: v.slice(0, i), cue: v.slice(i + 1) } }); } }}>
-                          <option value="">Pack sound ({packLabel}: {cueRole(defaultCue(SAMPLE[r.key]))})</option>
+                          <option value="">Pack sound ({packLabel})</option>
                           {!listed && c?.sound && <option value={cur}>{packs.find((p) => p.id === c.sound!.pack)?.label ?? c.sound.pack}: {cueRole(c.sound.cue)}</option>}
                           {groups.map((g) => (
                             <optgroup key={g.pack} label={g.label}>
