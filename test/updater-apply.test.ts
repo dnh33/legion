@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, symlinkSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, relative } from 'node:path';
-import { cleanPrev, cleanStaleApplyCopies, settleAfterStart, confirmWhenHealthy, APPLY_HELPER_STAMP, CODE_SET, FULL_PACKAGE_SET, healthWindow, markCommitted, readJournal, readOutcome, recoverInterrupted, removeOwned, rollback, runApply, swapIn, type ApplyDeps, type ApplyJob } from '../src/core/updater/apply.js';
+import { touchHeartbeat, cleanPrev, cleanStaleApplyCopies, settleAfterStart, confirmWhenHealthy, APPLY_HELPER_STAMP, CODE_SET, FULL_PACKAGE_SET, healthWindow, markCommitted, readJournal, readOutcome, recoverInterrupted, removeOwned, rollback, runApply, swapIn, type ApplyDeps, type ApplyJob } from '../src/core/updater/apply.js';
 
 function put(root: string, files: Record<string, string>): void {
   for (const [p, c] of Object.entries(files)) { mkdirSync(join(root, p, '..'), { recursive: true }); writeFileSync(join(root, p), c); }
@@ -415,4 +415,45 @@ test('R4: the new build writes what it did at start into apply.log, so a log sho
   assert.match(log, /new build 1\.1\.0 .*removed the previous copy/);
   await settleAfterStart(f.install, '1.0.0'); // another version: writes nothing more
   assert.equal(readFileSync(join(f.install, '.update', 'apply.log'), 'utf8'), log);
+});
+
+// ---- stepping-stone PR: three small findings from the review of the full-install hardening
+
+test('H2c: when the re-exec copy ran and finished by itself (it wrote the outcome and started the app), the parent changes nothing and starts nothing', { skip: process.platform !== 'win32' }, async () => {
+  const f = fixture();
+  const before = snap(f.install);
+  // what the copy leaves behind when it refuses a swap: its own outcome with the real reason, and the old app running again
+  put(f.install, { '.update/outcome.json': JSON.stringify({ at: new Date().toISOString(), from: '1.0.0', to: '1.1.0', result: 'failed', reason: 'the staged update is incomplete: runtime is missing, so nothing was changed' }) });
+  const d = deps({ f, newHealthy: true, reExec: async () => ({ ok: false, error: 'the helper copy stopped at once (exit 1)', finished: true }) });
+  assert.equal(await runApply({ ...job(f), names: FULL_PACKAGE_SET }, d), 'failed');
+  assert.equal(d.spawned, 0, 'the app is not started a second time');
+  assert.match(readOutcome(f.install)!.reason ?? '', /staged update is incomplete/, 'the real reason is kept, not replaced by "could not prepare the update helper"');
+  
+});
+
+test('H3: a new swap does not destroy the only rollback copy of an earlier build that was never confirmed: that build is rolled back first', async () => {
+  const f = fixture();
+  await swapIn({ installDir: f.install, stagedDir: f.staged, from: '1.0.0', to: '1.1.0' });
+  assert.equal(readJournal(f.install)?.state, 'awaiting-health', 'the first build was never confirmed');
+  const staged2 = join(f.install, '.update', 'staging', '1.2.0', 'x', 'legion-1.2.0');
+  put(staged2, { ...NEW, 'package.json': '{"version":"1.2.0"}', 'dist/src/electron/main.js': 'newer-main' });
+  await swapIn({ installDir: f.install, stagedDir: staged2, from: '1.1.0', to: '1.2.0' });
+  assert.equal(readFileSync(join(f.install, 'dist', 'src', 'electron', 'main.js'), 'utf8'), 'newer-main');
+  assert.equal(readFileSync(join(f.install, '.update', 'prev', 'dist', 'src', 'electron', 'main.js'), 'utf8'), 'old-main', 'the copy that was confirmed good (1.0.0) is the one kept');
+  await rollback(f.install, 'x');
+  assert.equal(readFileSync(join(f.install, 'dist', 'src', 'electron', 'main.js'), 'utf8'), 'old-main', 'and it can still be restored');
+});
+
+test('H4: a late heartbeat never overwrites a journal that was committed or rolled back meanwhile', () => {
+  const f = fixture();
+  const j = { state: 'awaiting-health', from: '1.0.0', to: '1.1.0', entries: ['dist'], stagedDir: f.staged, at: 1, heartbeat: 1 };
+  put(f.install, { '.update/journal.json': JSON.stringify(j) });
+  assert.equal(touchHeartbeat(f.install), true);
+  assert.ok(readJournal(f.install)!.heartbeat > 1, 'an unconfirmed swap gets its heartbeat');
+  for (const state of ['committed', 'rolled-back']) {
+    put(f.install, { '.update/journal.json': JSON.stringify({ ...j, state }) });
+    assert.equal(touchHeartbeat(f.install), false, state);
+    const after = readJournal(f.install)!;
+    assert.equal(after.state, state); assert.equal(after.heartbeat, 1, `${state}: untouched`);
+  }
 });
