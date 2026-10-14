@@ -2,6 +2,7 @@ import { platform } from '../api';
 import { BlenderChip } from '../blender/BlenderChip';
 import { BsvChip } from '../bsv/BsvChip';
 import { CiChip } from '../ci/CiChip';
+import { GithubChip } from '../github/GithubChip';
 import { RelicGlyph } from '../mascot/Relic';
 import { useTripleClick } from '../mascot/Takeover';
 import { useL } from '../library/libraryStore';
@@ -65,6 +66,7 @@ export function TitleBar() {
         <span className={`conn conn-${conn}`} title={connLabel}><i className="conn-dot" /> <span className="conn-label">{connLabel}</span></span>
         <BsvChip />
         <BlenderChip />
+        <GithubChip />
         <CiChip />
         <UpdateBadge />
         <UsageButton />
