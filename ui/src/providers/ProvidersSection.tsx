@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import type { ProviderView } from '../../../src/shared/providers-view';
 import { getProviders, loadProviders, refreshModels, removeKey, removeProvider, saveEntry, saveKey, saveLimits, testProvider, useProviders } from './providersStore';
+import { keyFieldFor, visibleCards } from './cards';
 import './providers.css';
 
 const PLAIN_ID = /^[a-z][a-z0-9-]{1,31}$/;
@@ -13,6 +14,7 @@ function ProviderCard({ p }: { p: ProviderView }) {
   const [addr, setAddr] = useState(p.baseUrl);
   const [editAddr, setEditAddr] = useState(false);
   const mine = busy === p.id;
+  const keyField = keyFieldFor(p);
   const submitKey = async () => { const k = key; setKey(''); if (k.trim()) await saveKey(p.id, k.trim()); };
   return (
     <article className="prov-card" aria-label={p.label}>
@@ -46,15 +48,13 @@ function ProviderCard({ p }: { p: ProviderView }) {
           </select>
         </label>
       </div>
-      {(p.needsKey || p.keySet) && (
-        <form className="prov-row" onSubmit={(e) => { e.preventDefault(); void submitKey(); }}>
-          <label className="grow">API key
-            <input type="password" autoComplete="off" spellCheck={false} value={key} onChange={(e) => setKey(e.target.value)} placeholder={p.keySet ? `Saved (${p.keyHint ?? '…'}). Paste a new one to replace it.` : 'Paste your key'} />
-          </label>
-          <button type="submit" className="btn sm" disabled={!!busy || !key.trim()}>Save key</button>
-          {p.keySet && <button type="button" className="btn-ghost sm" disabled={!!busy} onClick={() => void removeKey(p.id)}>Remove key</button>}
-        </form>
-      )}
+      <form className="prov-row" onSubmit={(e) => { e.preventDefault(); void submitKey(); }}>
+        <label className="grow">{keyField.label}
+          <input type="password" autoComplete="off" spellCheck={false} value={key} onChange={(e) => setKey(e.target.value)} placeholder={p.keySet ? `Saved (${p.keyHint ?? '…'}). Paste a new one to replace it.` : keyField.optional ? 'Leave empty if the server needs none' : 'Paste your key'} />
+        </label>
+        <button type="submit" className="btn sm" disabled={!!busy || !key.trim()}>Save key</button>
+        {p.keySet && <button type="button" className="btn-ghost sm" disabled={!!busy} onClick={() => void removeKey(p.id)}>Remove key</button>}
+      </form>
       <div className="prov-row">
         <button type="button" className="btn-ghost sm" disabled={!!busy} onClick={() => void testProvider(p.id)}>{mine ? 'Working…' : 'Test'}</button>
         <button type="button" className="btn-ghost sm" disabled={!!busy} onClick={() => void refreshModels(p.id)}>Refresh models</button>
@@ -89,22 +89,11 @@ function AddCustom() {
   );
 }
 
-// 0.2.1 providers: in the core view, not shipped in this release. Teased here, never enabled.
-const NEXT_RELEASE: ReadonlySet<string> = new Set(['openai', 'ollama', 'lmstudio', 'vllm']);
-
-function ComingNext({ providers }: { providers: ProviderView[] }) {
+function ComingNext() {
   const codexNote = "A command-line coding agent. Its own tools run outside Legion's approval cards.";
   return (
     <fieldset className="prov-next" disabled>
       <legend>Next release</legend>
-      <p className="field-note">Not in this release. Claude stays the default; OpenRouter is the second provider in this release.</p>
-      {providers.map((p) => (
-        <div key={p.id} className="prov-tease">
-          <b>{p.label}</b>
-          <span className="field-note">{p.note}</span>
-          <span className="prov-badge">0.2.1</span>
-        </div>
-      ))}
       <div className="prov-tease">
         <b>Codex</b>
         <span className="field-note">{codexNote}</span>
@@ -134,7 +123,7 @@ export function ProvidersSection() {
           <p className="field-note">Credentials are sent only to the address you set here. If a request is rejected, the provider's own message is shown.</p>
         </details>
         {view.dropped.length > 0 && <div className="set-error" role="status">Some saved providers were ignored: {view.dropped.join('; ')}</div>}
-        {view.providers.filter((p) => !NEXT_RELEASE.has(p.id) || p.enabled).map((p) => <ProviderCard key={p.id} p={p} />)}
+        {visibleCards(view.providers).map((p) => <ProviderCard key={p.id} p={p} />)}
         <AddCustom />
         <fieldset className="prov-add">
           <legend>Run limits for provider agents</legend>
@@ -145,7 +134,7 @@ export function ProvidersSection() {
           </div>
           <p className="field-note">Cost is shown only when a provider returns token counts and you have entered prices. Room spend limits count known costs only, so an agent on a provider with unknown cost adds nothing to a room's meter.</p>
         </fieldset>
-        <ComingNext providers={view.providers.filter((p) => NEXT_RELEASE.has(p.id) && !p.enabled)} />
+        <ComingNext />
         <p className="field-note">Going back to an older Legion version: the older version ignores this page. An agent still set to a provider model will fail with a model error there; it never sends anything to a provider.</p>
       </>}
     </div>

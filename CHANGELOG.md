@@ -9,6 +9,9 @@ All notable changes are recorded here. The format follows [Keep a Changelog](htt
 - **Stop a team.** When a task has started other tasks, you can stop it and everything it started in one click ("Stop
   this and the 2 tasks it started", in the task menu and next to Stop). Their late answers no longer wake the task you
   stopped.
+- **OpenAI, Ollama, LM Studio and vLLM are in Settings, Providers.** They were shown greyed out as "Next release". Each has its
+  own card now, with a note on what you need to run or paste. A local server's card has an optional key field, for a
+  server you started with a key.
 
 ### Fixed
 
