@@ -4,10 +4,11 @@ import { basename, dirname, join, resolve, sep } from 'node:path';
 import { query as realQuery } from '@anthropic-ai/claude-agent-sdk';
 import type { McpServerConfig, Options, Query, Settings, query as sdkQuery } from '@anthropic-ai/claude-agent-sdk';
 import type {
-  AgentProfile, ApprovalMode, ChatMessage, ConcreteModel, LegionConfig, MascotMood, MessageRole, ModelChoice, Task, TaskProgress, TaskSource,
+  AgentProfile, ApprovalMode, ChatMessage, ConcreteModel, LegionConfig, MascotMood, MessageRole, ModelChoice, QueueReason, QueueSnapshot, StartTrigger, Task, TaskProgress, TaskSource,
 } from '../shared/types.js';
 import { newId, nowIso, titleFrom } from '../shared/util.js';
 import { gatesFor, scrubHostSessionEnv } from '../shared/config.js';
+import { classifySafe } from '../shared/consequence.js';
 import { liveSecrets } from './kg/index.js';
 import { BUDGET_LIMIT_PREFIX, CONTINUE_PROMPT, TURN_LIMIT_PREFIX, budgetCap, formatUsdLimit } from '../shared/continue.js';
 import { clampBudget } from './brief.js';
@@ -15,7 +16,7 @@ import { InputChannel } from './input-channel.js';
 import { BackgroundTasks } from './background-tasks.js';
 import { capStored, RESULT_STORE_MAX } from './result-store.js';
 import { contextTokensOf } from '../shared/context-meter.js';
-import { isLegionTool, needsApproval, stricterMode, LEGION_SERVER_NAMES } from './approvals.js';
+import { describeWaited, isLegionTool, needsApproval, stricterMode, LEGION_SERVER_NAMES } from './approvals.js';
 import { decideGate } from './gates.js';
 import { TaintedPaths } from './tainted-paths.js';
 import { carryDone, CLAUDE_TASK_TOOLS, mirrorClaudeTaskCall, renderEmptyHandover, renderForModel, renderHandover, TaskList, TaskListStore } from './task-list.js';
@@ -62,6 +63,21 @@ const GATE_TMP_DIR = process.platform === 'win32' ? tmpdir() : undefined;
 
 export type QueryFn = typeof sdkQuery;
 
+/**
+ * What the engine asks of the away module (0.3.0). Absent: nothing is ever held and no spend is written, exactly as before.
+ * Every method is called inside a try: a throwing hook never stops the queue or a run.
+ */
+export interface AwayHooks {
+  /** "Pause new starts" is on for this project. */
+  isPaused(projectId: string): boolean;
+  /** The project's budget is reached and no override is in force. */
+  budgetBlocked(projectId: string): boolean;
+  /** When the budget period that holds this project's starts ends (ms since epoch), if it holds any. The engine wakes itself then. */
+  budgetRollsAt?(projectId: string): number | undefined;
+  /** One cost the run reported (a result's rise in spend). */
+  recordSpend(e: { taskId: string; agentId: string; projectId?: string; usd: number }): void;
+}
+
 export interface EngineDeps {
   store: Store; bus: EventBus; vms: VmManager; approvals: ApprovalBroker; config: LegionConfig;
   /** Structured questions (agent ask_user_question -> thread card). Defaults to one private to this engine, on the same bus. */
@@ -71,6 +87,8 @@ export interface EngineDeps {
   /** Returns whether boat is configured (vm tools only offered when true). */
   boatConfigured: () => boolean;
   maxConcurrent?: number;
+  /** The away module's hooks: pause, budget, spend ledger. Absent: today's behaviour. */
+  away?: AwayHooks;
   modules?: CoreModule[];
   /** Where the list of files written by tainted runs is kept; defaults to <workspaceDir>/.tainted-paths.json. */
   taintedPaths?: TaintedPaths;
@@ -294,6 +312,10 @@ interface Job {
   fromAgentId?: string; parentTaskId?: string;
   /** Set when another bot woke this run (rooms, or the agent bridge). Caps the run's approval mode. */
   origin?: TaskOrigin;
+  /** What started the run. Only 'marshal' and 'schedule' are held by "Pause new starts". */
+  trigger: StartTrigger;
+  /** "Queue after it": the agent's other live tasks in this project at enqueue time. The job waits until none of them is live. */
+  after?: string[];
 }
 interface Active {
   ac: AbortController; cancelled: boolean; q?: Query;
@@ -342,7 +364,10 @@ export class Engine {
   private readonly taskLists: TaskListStore;
   private readonly providers?: ProviderRuntime;
   private readonly projects?: ProjectStore;
+  private readonly away?: AwayHooks;
   private readonly queue: Job[] = [];
+  /** The last queue snapshot sent, as text: `queue.updated` goes out only when it changes. */
+  private lastQueueJson = JSON.stringify({ cap: 0, running: 0, items: [] });
   private readonly active = new Map<string, Active>();
   /** Live runs already told that their project was archived or their agent removed (decision B3): one note per run. */
   private readonly projectNoted = new Set<string>();
@@ -369,11 +394,15 @@ export class Engine {
     this.modules = deps.modules ?? [];
     this.providers = deps.providers;
     this.projects = deps.projects;
+    this.away = deps.away;
+    this.lastQueueJson = JSON.stringify(this.queueSnapshot());
     this.taintedPaths = deps.taintedPaths ?? new TaintedPaths(join(deps.config.workspaceDir, '.tainted-paths.json'));
     this.taskLists = deps.taskLists ?? new TaskListStore(join(deps.config.workspaceDir, '.task-lists'));
     // a deleted task takes its task list with it, so nothing of it is left behind for a later task to find
     this.bus.on((e) => { if (e.type === 'task.deleted') { try { this.taskLists.remove(e.taskId); } catch { /* best effort */ } } });
     this.bus.on((e) => { if (e.type === 'project.updated') { try { this.onProjectUpdated(e.project); } catch { /* the note is advisory */ } } });
+    // a pause was lifted or a budget changed: what was held can start now
+    this.bus.on((e) => { if (e.type === 'away.updated') this.pump(); });
     this.bridge = new Bridge({ store: this.store, bus: this.bus, engine: this });
   }
 
@@ -493,6 +522,9 @@ export class Engine {
       ...(p.routeText !== undefined ? { routeText: p.routeText } : {}),
       ...(p.maxBudgetUsd !== undefined ? { maxBudgetUsd: p.maxBudgetUsd } : {}),
       origin: task.origin,
+      // a delegation and a room wake are never held by a pause; only the Marshal and a schedule name themselves
+      trigger: p.trigger ?? (p.bridge ? 'delegation' : p.source === 'bot' ? 'room' : 'owner'),
+      ...(p.startAfter ? { after: this.liveOfAgent(agent.id, projectAtStart, task.id) } : {}),
     });
     queueMicrotask(() => this.pump());
     return { ...task };
@@ -651,6 +683,7 @@ export class Engine {
       this.queue.splice(qi, 1);
       this.markCancelled(taskId);
       try { this.bridge.cancelFor(taskId); } catch { /* ignore */ }
+      this.emitQueue();
       return true;
     }
     const a = this.active.get(taskId);
@@ -832,6 +865,7 @@ export class Engine {
       const i = this.queue.indexOf(j);
       if (i >= 0) { this.queue.splice(i, 1); this.dropHiddenJob(j); ids.push(j.taskId); }
     }
+    if (ids.length) this.emitQueue();
     if (ids.length && this.active.size === 0 && this.queue.length === 0) this.scheduleIdle();
     return ids;
   }
@@ -859,6 +893,56 @@ export class Engine {
     void this.runJob(job, act);
   }
 
+  /** The ids of this agent's tasks in this project that are running or waiting (what "Queue after it" waits for). */
+  private liveOfAgent(agentId: string, projectId: string | undefined, selfId: string): string[] {
+    const ids: string[] = [];
+    for (const id of this.active.keys()) {
+      if (id !== selfId && this.store.getTask(id)?.agentId === agentId && this.projectOf(id, agentId)?.id === projectId) ids.push(id);
+    }
+    // a queued job counts only when it is not itself held by a pause or a budget: nobody should wait behind a job that is not going to run
+    for (const j of this.queue) if (j.taskId !== selfId && j.agentId === agentId && j.projectAtStart === projectId && !this.heldByPolicy(j)) ids.push(j.taskId);
+    return ids;
+  }
+
+  /** Held by the owner's pause or budget (not by a slot or another run). */
+  private heldByPolicy(job: Job): boolean {
+    const pid = job.projectAtStart;
+    if (!this.away || !pid) return false;
+    try { return this.away.budgetBlocked(pid) || ((job.trigger === 'marshal' || job.trigger === 'schedule') && this.away.isPaused(pid)); } catch { return false; }
+  }
+
+  /**
+   * Why a queued job cannot start now, or undefined when it can. Order (spec 4.3): budget, paused, after, slot.
+   * Budget holds every start in the project, the owner's too (a budget the owner set); a pause holds only the Marshal and schedules.
+   * `ignoreSlot`: used by the start loop, which has already checked the cap.
+   */
+  private blockedReason(job: Job, opts: { ignoreSlot?: boolean } = {}): QueueReason | undefined {
+    const pid = job.projectAtStart;
+    if (this.away && pid) {
+      try {
+        if (this.away.budgetBlocked(pid)) return 'budget';
+        if ((job.trigger === 'marshal' || job.trigger === 'schedule') && this.away.isPaused(pid)) return 'paused';
+      } catch { /* a failing hook holds nothing */ }
+    }
+    if (job.after?.some((id) => this.active.has(id) || this.queue.some((j) => j.taskId === id && !this.heldByPolicy(j)))) return 'after';
+    if (!opts.ignoreSlot && this.active.size >= this.maxConcurrent) return 'slot';
+    return undefined;
+  }
+
+  /** Who waits and why. `running` counts every live run; a delegated child may exceed `cap`, so the app shows min(running, cap). */
+  queueSnapshot(): QueueSnapshot {
+    const items = this.queue.filter((j) => !this.active.has(j.taskId)).map((j, i) => ({ taskId: j.taskId, reason: this.blockedReason(j) ?? ('slot' as const), position: i + 1 }));
+    return { cap: this.maxConcurrent, running: this.active.size, items };
+  }
+
+  private emitQueue(): void {
+    const q = this.queueSnapshot();
+    const json = JSON.stringify(q);
+    if (json === this.lastQueueJson) return;
+    this.lastQueueJson = json;
+    this.bus.emit({ type: 'queue.updated', queue: q });
+  }
+
   private pump(): void {
     // Bridge runs whose parent is running bypass the cap, so nested asks cannot deadlock the queue.
     for (let i = 0; i < this.queue.length;) {
@@ -869,10 +953,42 @@ export class Engine {
       } else i++;
     }
     while (this.active.size < this.maxConcurrent) {
-      const idx = this.queue.findIndex((j) => !this.active.has(j.taskId));
+      const idx = this.queue.findIndex((j) => !this.active.has(j.taskId) && this.blockedReason(j, { ignoreSlot: true }) === undefined);
       if (idx < 0) break;
       this.startJob(this.queue.splice(idx, 1)[0]!);
     }
+    this.emitQueue();
+    this.armBudgetTimer();
+  }
+
+  /** The budget timer: set while any queued job is held by a budget, so the end of the period starts it without any event. */
+  private budgetTimer?: ReturnType<typeof setTimeout>;
+  private budgetTimerAt?: number;
+  private armBudgetTimer(): void {
+    let at: number | undefined;
+    if (this.away?.budgetRollsAt) {
+      for (const j of this.queue) {
+        const pid = j.projectAtStart;
+        if (!pid || this.active.has(j.taskId)) continue;
+        try {
+          if (!this.away.budgetBlocked(pid)) continue;
+          const r = this.away.budgetRollsAt(pid);
+          if (r !== undefined && Number.isFinite(r) && (at === undefined || r < at)) at = r;
+        } catch { /* no timer for this one */ }
+      }
+    }
+    if (at === undefined) {
+      if (this.budgetTimer) clearTimeout(this.budgetTimer);
+      this.budgetTimer = undefined; this.budgetTimerAt = undefined;
+      return;
+    }
+    if (this.budgetTimer && this.budgetTimerAt === at) return;
+    if (this.budgetTimer) clearTimeout(this.budgetTimer);
+    this.budgetTimerAt = at;
+    // a little after the boundary; a boundary already past (it should not be) is re-checked in a second, never in a tight loop
+    const delay = at > Date.now() ? Math.min(at - Date.now() + 50, 2 ** 31 - 1) : 1000;
+    this.budgetTimer = setTimeout(() => { this.budgetTimer = undefined; this.budgetTimerAt = undefined; this.pump(); }, delay);
+    this.budgetTimer.unref?.();
   }
 
   private async runJob(job: Job, act: Active): Promise<void> {
@@ -1245,6 +1361,17 @@ export class Engine {
   }
 
   /**
+   * What every card raised inside a run carries for the away features: the task's project (so the ask is counted where the work is, with no
+   * task join) and what saying yes would do. The classifier is fail-safe: anything it cannot read is level 3, not certain.
+   */
+  private askExtras(job: Job, agent: AgentProfile, toolName: string, input: Record<string, unknown>): { projectId?: string; consequence: ReturnType<typeof classifySafe> } {
+    const projectId = this.store.getTask(job.taskId)?.projectId;
+    // "inside" means inside the project's folder, else inside the agent's own working folder: with neither there is nothing to check against
+    const folder = this.projectOf(job.taskId, agent.id)?.folder ?? this.agentCwd(agent.id);
+    return { ...(projectId ? { projectId } : {}), consequence: classifySafe({ kind: 'approval', toolName, input, projectFolders: folder ? [folder] : [] }) };
+  }
+
+  /**
    * Maintainer decision 2026-10-07: in a run that read connector data AND is tainted, WebFetch and WebSearch need an approval card even in
    * full mode: web access could carry that data out. Like the connector gateway's writes this raises its own card (never through guardAsk).
    * Returns undefined when no card is due, else the decision. Used by canUseTool and the provider path (toolDecider) and, in bypass mode where
@@ -1257,12 +1384,13 @@ export class Engine {
     if (!used || !tainted) return undefined;
     const target = String(toolName === 'WebFetch' ? input?.url ?? '' : input?.query ?? '').slice(0, 1000);
     const o = job.origin;
-    let timedOut = false;
+    let timedOut = false; let waited: number | undefined;
     return this.approvals.request(job.taskId, agent.id, toolName, input, o ? { roomId: o.roomId, fromAgentId: o.fromAgentId, hop: o.hop } : undefined, {
-      onTimeout: () => { timedOut = true; },
+      onTimeout: (ms) => { timedOut = true; waited = ms; },
+      ...this.askExtras(job, agent, toolName, input),
       summary: `${toolName}: ${target}
 This run read connector (GitHub) data and other outside text. Web access can send that data out. Check the address or query before you allow it.`,
-    }).then((allowed) => allowed ? { allow: true } : { allow: false, message: timedOut ? `No one answered the approval request within ${this.approvals.timeoutWait}, so this web request was not run.` : 'The user denied this web request.' });
+    }).then((allowed) => allowed ? { allow: true } : { allow: false, message: timedOut ? `No one answered the approval request within ${this.waitedText(waited)}, so this web request was not run.` : 'The user denied this web request.' });
   }
 
   /**
@@ -1299,16 +1427,17 @@ This run read connector (GitHub) data and other outside text. Web access can sen
       return Promise.resolve({ allow: false, message: `Not run: Legion cannot read what this command will run (${why}), and with full access such a command is refused rather than asked about. Write it out plainly: name the program itself, not through a variable, a substitution or a pipe into a shell, and keep it under ${MAX_READABLE.toLocaleString('en-US')} characters. Then run it again. If it cannot be written plainly, do not look for another way around: tell the user what it was meant to do.` });
     }
     const o = job.origin;
-    let timedOut = false;
+    let timedOut = false; let waited: number | undefined;
     const shown = command.length > 1000 ? `${command.slice(0, 1000)}\n(${(command.length - 1000).toLocaleString('en-US')} more characters not shown here)` : command;
     return this.approvals.request(job.taskId, agent.id, toolName, input, o ? { roomId: o.roomId, fromAgentId: o.fromAgentId, hop: o.hop } : undefined, {
-      onTimeout: () => { timedOut = true; },
+      onTimeout: (ms) => { timedOut = true; waited = ms; },
+      ...this.askExtras(job, agent, toolName, input),
       noRemember: true,
       summary: `Legion cannot read what this command will run.\n${shown}\nWhy: ${why}.\nThe safety check cannot judge it by reading it, so you are asked in every approval mode. Allow it only if you know what it does.`,
     }).then((allowed) => {
       if (allowed) return { allow: true };
       const stop = 'Do not retry it, rephrase it or reach the same result another way. Stop, tell the user what the command was meant to do, and wait for their answer.';
-      return { allow: false, message: timedOut ? `No one answered the approval request within ${this.approvals.timeoutWait}, so this command was not run (${why}). ${stop}` : `The user has not approved this command (${why}). ${stop}` };
+      return { allow: false, message: timedOut ? `No one answered the approval request within ${this.waitedText(waited)}, so this command was not run (${why}). ${stop}` : `The user has not approved this command (${why}). ${stop}` };
     });
   }
 
@@ -1338,11 +1467,11 @@ This run read connector (GitHub) data and other outside text. Web access can sen
       if (gate.verdict === 'allow') return { allow: true };
       if (gate.verdict !== 'ask' && !needsApproval(mode, toolName, { capped: job.origin?.approvalCeiling === 'ask' })) return { allow: true };
       const o = job.origin;
-      let timedOut = false;
+      let timedOut = false; let waited: number | undefined;
       const allowed = await this.approvals.request(
         job.taskId, agent.id, toolName, input,
         o ? { roomId: o.roomId, fromAgentId: o.fromAgentId, hop: o.hop } : undefined,
-        { onTimeout: () => { timedOut = true; } },
+        { onTimeout: (ms) => { timedOut = true; waited = ms; }, ...this.askExtras(job, agent, toolName, input) },
       );
       if (allowed) return { allow: true };
       // The tool_use already set the mood to 'hacking'; after a deny nothing else would move it until the run ends, so the Relic
@@ -1350,7 +1479,7 @@ This run read connector (GitHub) data and other outside text. Web access can sen
       const live = this.active.get(job.taskId);
       if (live && !live.cancelled) this.mascot('thinking', `${toolName} ${timedOut ? 'not answered' : 'denied'}`);
       if (timedOut) {
-        const wait = this.approvals.timeoutWait;
+        const wait = this.waitedText(waited);
         // An MCP client started this run (Claude Code, Cowork) or woke it through a chain, so the ceiling is `ask`. Its card can only be answered in the Legion app window, so say so
         // when nobody answered (the app is closed, or this core was started headless by the MCP bridge).
         if (o?.approvalCeiling === 'ask') {
@@ -1672,7 +1801,22 @@ This run read connector (GitHub) data and other outside text. Web access can sen
       ...(r.costUsd !== undefined ? { costUsd: (cur?.costUsd ?? 0) + r.costUsd } : {}),
       ...(!r.isError && r.resultText !== undefined ? { result: this.keepResult(taskId, r.resultText) } : {}),
     });
+    if (r.costUsd !== undefined) this.noteSpend(taskId, r.costUsd);
     return { subtype: r.subtype, isError: r.isError, errorText: r.isError ? r.errorText : undefined };
+  }
+
+  /** Writes one cost to the spend ledger (the away module). Never throws: a failing ledger cannot fail a run. */
+  /** The wait as the model should read it: "10 minutes", or the truth when quiet hours stretched it. */
+  private waitedText(waitedMs: number | undefined): string {
+    return waitedMs === undefined ? this.approvals.timeoutWait : describeWaited(waitedMs, this.approvals.waitMs);
+  }
+
+  private noteSpend(taskId: string, usd: number): void {
+    if (!this.away || !(usd > 0) || !Number.isFinite(usd)) return;
+    try {
+      const t = this.store.getTask(taskId);
+      this.away.recordSpend({ taskId, agentId: t?.agentId ?? '', ...(t?.projectId ? { projectId: t.projectId } : {}), usd });
+    } catch { /* the ledger is advisory */ }
   }
 
   /** One SDK query() run. Returns the outcome of its result message; throws on SDK failure. */
@@ -1930,6 +2074,7 @@ This run read connector (GitHub) data and other outside text. Web access can sen
           ...(typeof msg.session_id === 'string' && !cur?.sessionId ? { sessionId: msg.session_id } : {}),
           ...(!isError && text !== undefined ? { result: this.keepResult(taskId, text) } : {}),
         });
+        this.noteSpend(taskId, spent);
         return { subtype: String(msg.subtype), isError, errorText: isError ? text : undefined };
       }
       default:

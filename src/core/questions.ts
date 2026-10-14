@@ -10,6 +10,9 @@
  */
 import { describeWait } from './approvals.js';
 import type { EventBus } from './bus.js';
+import { startAskTimer } from './away/policy.js';
+import type { AskPolicy, AskTimer } from './away/policy.js';
+import { classifySafe } from '../shared/consequence.js';
 import type { PendingQuestion, QuestionPick, QuestionSpec, QuestionOption } from '../shared/types.js';
 import { newId, nowIso } from '../shared/util.js';
 
@@ -63,26 +66,44 @@ export function validateQuestions(input: unknown): QuestionValidation {
 }
 
 /** The owner's answer to one question card: what they picked, or that nobody answered. */
-export interface QuestionResult { answered: boolean; picks: QuestionPick[] | null }
+export interface QuestionResult { answered: boolean; picks: QuestionPick[] | null; /** The question was parked (its project is set to park) rather than declined. */ parked?: boolean }
 
-interface Pending { req: PendingQuestion; resolve: (r: QuestionResult) => void; timer: ReturnType<typeof setTimeout> }
+interface Pending { req: PendingQuestion; resolve: (r: QuestionResult) => void; timer: AskTimer }
 
 export class QuestionBroker {
   private readonly items = new Map<string, Pending>();
   private readonly timeoutMs: number;
   /** How long a card waits for an answer before it is declined, in words ("10 minutes"). For messages that explain a timeout. */
   get timeoutWait(): string { return describeWait(this.timeoutMs); }
-  constructor(private readonly bus: EventBus, opts?: { timeoutMs?: number }) {
+  private policy?: AskPolicy;
+  private readonly now?: () => number;
+  constructor(private readonly bus: EventBus, opts?: { timeoutMs?: number; policy?: AskPolicy; now?: () => number }) {
     this.timeoutMs = opts?.timeoutMs ?? 10 * 60 * 1000;
+    this.policy = opts?.policy;
+    this.now = opts?.now;
   }
 
-  request(taskId: string, agentId: string, questions: QuestionSpec[], origin?: PendingQuestion['origin']): Promise<QuestionResult> {
+  /** The away module attaches its policy after the brokers are built. Absent: today's behaviour. */
+  setPolicy(policy: AskPolicy | undefined): void { this.policy = policy; }
+
+  request(
+    taskId: string, agentId: string, questions: QuestionSpec[], origin?: PendingQuestion['origin'],
+    opts: { projectId?: string; parkable?: boolean; onPark?: () => void } = {},
+  ): Promise<QuestionResult> {
+    const projectId = opts.projectId ?? this.policy?.projectOf?.(taskId);
     const req: PendingQuestion = {
       id: newId('q'), taskId, agentId, questions, at: nowIso(),
       ...(origin ? { origin } : {}),
+      ...(projectId ? { projectId } : {}),
+      consequence: classifySafe({ kind: 'question', toolName: 'AskUserQuestion', input: {} }),
     };
     return new Promise<QuestionResult>((resolvePromise) => {
-      const timer = setTimeout(() => this.settle(req.id, { answered: false, picks: null }), this.timeoutMs);
+      // the only automatic outcomes are "declined" and "parked": nothing here can answer a question for the owner
+      const timer = startAskTimer({
+        baseWaitMs: this.timeoutMs, policy: this.policy, projectId, parkable: !!opts.parkable, now: this.now,
+        onDeny: () => { this.settle(req.id, { answered: false, picks: null }); },
+        ...(opts.parkable && opts.onPark ? { onPark: () => { try { opts.onPark!(); } catch { /* advisory */ } this.settle(req.id, { answered: false, picks: null, parked: true }); } } : {}),
+      });
       this.items.set(req.id, { req, resolve: resolvePromise, timer });
       this.bus.emit({ type: 'question.requested', question: req });
     });
@@ -102,7 +123,7 @@ export class QuestionBroker {
     const p = this.items.get(id);
     if (!p) return false;
     this.items.delete(id);
-    clearTimeout(p.timer);
+    p.timer.cancel();
     this.bus.emit({ type: 'question.resolved', questionId: id, answered: result.answered });
     p.resolve(result);
     return true;

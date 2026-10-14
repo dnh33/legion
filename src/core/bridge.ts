@@ -2,7 +2,7 @@
 import { BUDGET_LIMIT_PREFIX, TURN_LIMIT_PREFIX } from '../shared/continue.js';
 import { randomUUID } from 'node:crypto';
 import { overrideAllowed, overrideRefusal } from './model-cap.js';
-import type { AgentProfile, Catalog, ChatMessage, ConcreteModel, ModelChoice, Task, TaskSource } from '../shared/types.js';
+import type { AgentProfile, Catalog, ChatMessage, ConcreteModel, ModelChoice, StartTrigger, Task, TaskSource } from '../shared/types.js';
 import type { TaskOrigin } from '../shared/comms.js';
 import { scrubSecrets } from './comms/scrub.js';
 import { fullResultPointer, ResultStore } from './result-store.js';
@@ -51,6 +51,13 @@ export interface BridgeStartParams {
    * Every other source (MCP, ask/tell, cli) is ignored here: a bridge run inherits its caller's project inside the engine, only for members.
    */
   projectId?: string | null;
+  /**
+   * What starts this run (0.3.0). Absent: worked out from the other fields (a delegation, a room wake, else the owner). Only `marshal`
+   * and `schedule` are held by "Pause new starts"; the owner's own click and every other start are never held.
+   */
+  trigger?: StartTrigger;
+  /** Wait until this agent's other live runs in the same project have finished (the composer's "Queue after it"). */
+  startAfter?: true;
   /** `fromTaskId` (replies only) is the task whose result this message carries, so its taint can follow it. */
   bridge?: { fromAgentId: string; parentTaskId?: string; header?: string; reply?: boolean; hop?: number; fromTaskId?: string };
 }

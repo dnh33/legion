@@ -1,9 +1,13 @@
 /** Human-in-the-loop tool approvals. */
 import { BLENDER_EXEC_TOOL } from '../shared/blender.js';
 import { BROWSER_SERVER_NAME, BROWSER_TOOLS } from '../shared/browser.js';
+import { classifySafe } from '../shared/consequence.js';
+import type { Consequence } from '../shared/consequence.js';
 import type { ApprovalMode, ApprovalRequest } from '../shared/types.js';
 import { newId, nowIso } from '../shared/util.js';
 import type { EventBus } from './bus.js';
+import { longestWaitSeconds, startAskTimer } from './away/policy.js';
+import type { AskPolicy, AskTimer } from './away/policy.js';
 
 /** The run's own task list (TodoWrite, and the TaskCreate/Update/List/Get tools that replaced it) is notes, not an action: never carded. */
 const READ_ONLY = new Set(['Read', 'Glob', 'Grep', 'LS', 'WebSearch', 'WebFetch', 'TodoWrite', 'TaskCreate', 'TaskUpdate', 'TaskList', 'TaskGet', 'Task', 'Agent']);
@@ -142,36 +146,81 @@ export function describeWait(ms: number): string {
   return `${mins} minute${mins === 1 ? '' : 's'}`;
 }
 
-interface Pending { req: ApprovalRequest; resolve: (allow: boolean) => void; timer: ReturnType<typeof setTimeout> }
+/**
+ * The wait as the model should read it. Normally "10 minutes". When quiet hours paused the countdown the ask stayed open much longer,
+ * and saying only "10 minutes" would be a false statement, so it says both.
+ */
+export function describeWaited(elapsedMs: number, baseMs: number): string {
+  const base = describeWait(baseMs);
+  if (elapsedMs <= baseMs + 90_000) return base;
+  const mins = Math.round(elapsedMs / 60_000);
+  const long = mins < 120 ? `${mins} minutes` : `${Math.round(mins / 60)} hours`;
+  return `${base} of waiting (quiet hours paused the countdown, so it stayed open for ${long})`;
+}
+
+interface Pending { req: ApprovalRequest; resolve: (allow: boolean) => void; timer: AskTimer }
 
 export class ApprovalBroker {
   private readonly items = new Map<string, Pending>();
   private readonly timeoutMs: number;
   /** How long a card waits for an answer before it is denied, in words ("10 minutes"). For messages that explain a timeout. */
   get timeoutWait(): string { return describeWait(this.timeoutMs); }
-  /** The same wait in whole seconds: a hook that awaits a card must be given at least this long. */
-  get timeoutSeconds(): number { return Math.ceil(this.timeoutMs / 1000); }
-  constructor(private readonly bus: EventBus, opts?: { timeoutMs?: number }) {
+  /** The plain wait in milliseconds (before quiet hours lengthen it). */
+  get waitMs(): number { return this.timeoutMs; }
+  /**
+   * The longest an ask can wait, in whole seconds: a hook that awaits a card must be given at least this long. With no policy it is the
+   * plain wait. With one (quiet hours lengthen the wait, a hold adds a few seconds, a park wait can be up to 120 minutes) it is the longest of those.
+   */
+  get timeoutSeconds(): number { return longestWaitSeconds(this.timeoutMs, this.policy); }
+  private policy?: AskPolicy;
+  private readonly now?: () => number;
+  constructor(private readonly bus: EventBus, opts?: { timeoutMs?: number; policy?: AskPolicy; now?: () => number }) {
     this.timeoutMs = opts?.timeoutMs ?? 10 * 60 * 1000;
+    this.policy = opts?.policy;
+    this.now = opts?.now;
   }
+
+  /** The away module attaches its policy after the brokers are built. Absent: today's behaviour. */
+  setPolicy(policy: AskPolicy | undefined): void { this.policy = policy; }
 
   request(
     taskId: string, agentId: string, toolName: string, input: Record<string, unknown>,
     origin?: ApprovalRequest['origin'],
-    opts: { onTimeout?: () => void; /** A written-out card text (a room request), instead of the compact JSON of the input. */ summary?: string; /** No "Remember" on this card. */ noRemember?: boolean } = {},
+    opts: {
+      /** Called when the wait ends in a deny; gets how long the ask really stayed open (quiet hours make that longer than the wait). */ onTimeout?: (waitedMs?: number) => void; /** A written-out card text (a room request), instead of the compact JSON of the input. */ summary?: string; /** No "Remember" on this card. */ noRemember?: boolean;
+      /** The run's project (the engine knows it; a module that does not is asked of the policy by task). */ projectId?: string;
+      /** What saying yes would do. Absent: worked out here from the tool and its input. */ consequence?: Consequence;
+      /** The ask may be parked when its project is set to park (only the engine's own cards). Needs `onPark`. */ parkable?: boolean;
+      /** Called when the ask is parked; the ask is then answered "no" so the waiting call returns. */ onPark?: () => void;
+    } = {},
   ): Promise<boolean> {
+    const projectId = opts.projectId ?? this.policy?.projectOf?.(taskId);
     const req: ApprovalRequest = {
       id: newId('apr'), taskId, agentId, toolName,
       summary: opts.summary ?? summarizeToolInput(toolName, input), input, at: nowIso(),
       ...(origin ? { origin } : {}),
       ...(opts.noRemember ? { noRemember: true } : {}),
+      ...(projectId ? { projectId } : {}),
+      consequence: opts.consequence ?? classifySafe({ kind: 'approval', toolName, input }),
     };
+    const askedAt = (this.now ?? Date.now)();
     return new Promise<boolean>((resolvePromise) => {
-      const timer = setTimeout(() => { try { opts.onTimeout?.(); } catch { /* advisory */ } this.settle(req.id, false); }, this.timeoutMs);
+      // the only automatic outcomes are "no" and "park" (which is also a "no" to the waiting call): there is no path to an allow here
+      const timer = startAskTimer({
+        baseWaitMs: this.timeoutMs, policy: this.policy, projectId, parkable: !!opts.parkable, now: this.now,
+        onDeny: () => { try { opts.onTimeout?.((this.now ?? Date.now)() - askedAt); } catch { /* advisory */ } this.settle(req.id, false); },
+        ...(opts.parkable && opts.onPark ? { onPark: () => { try { opts.onPark!(); } catch { /* advisory */ } this.settle(req.id, false); } } : {}),
+      });
       this.items.set(req.id, { req, resolve: resolvePromise, timer });
       this.bus.emit({ type: 'approval.requested', approval: req });
     });
   }
+
+  /**
+   * The app is about to send an answer in the last seconds of an ask's wait: push the deadline out so the answer can land (spec 3.2).
+   * Once per ask, a few seconds at most. It never answers the ask. False: unknown ask, or already held.
+   */
+  hold(id: string, ms: number): boolean { return this.items.get(id)?.timer.hold(ms) ?? false; }
 
   resolve(id: string, allow: boolean): boolean { return this.settle(id, allow); }
 
@@ -185,7 +234,7 @@ export class ApprovalBroker {
     const p = this.items.get(id);
     if (!p) return false;
     this.items.delete(id);
-    clearTimeout(p.timer);
+    p.timer.cancel();
     this.bus.emit({ type: 'approval.resolved', approvalId: id, allowed: allow });
     p.resolve(allow);
     return true;

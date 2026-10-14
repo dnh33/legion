@@ -4,7 +4,7 @@ import type { IncomingMessage, Server, ServerResponse } from 'node:http';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { redactConfig, VERSION } from '../shared/config.js';
 import type {
-  AgentHostSettings, AgentProfile, ApprovalMode, ChatMessage, DoctorCheck, LegionConfig, LegionEvent, Catalog, ModelChoice, StateSnapshot, Task, VmSize, QuestionPick,
+  AgentHostSettings, AgentProfile, ApprovalMode, ChatMessage, DoctorCheck, LegionConfig, LegionEvent, Catalog, ModelChoice, StateSnapshot, Task, VmSize, QuestionPick, CoreCaps, ParkedAsk, QueueSnapshot,
 } from '../shared/types.js';
 import { summariseUsage } from '../shared/usage-summary.js';
 import { nowIso, slugify, uniqueAgentId } from '../shared/util.js';
@@ -47,6 +47,8 @@ export interface CoreContext {
   adminSecret?: string;
   /** Projects (read-only here: the MCP tool `legion_projects` lists and gets them; every change goes through the projects module's admin routes). */
   projects?: ProjectStore;
+  /** The away module (0.3.0): what this core can do and the asks parked for the owner. Absent: the snapshot carries neither. */
+  away?: { caps(): CoreCaps; parked(): ParkedAsk[] };
   /** Project board (behind its config switch): read-only for token clients through `legion_board_read`. Absent: nothing board-related exists. */
   board?: BoardStore;
 }
@@ -243,6 +245,8 @@ export function createServer(ctx: CoreContext): Server {
   };
 
   // ---- read-only -------------------------------------------------------
+  /** The queue without the tasks of an agent the caller may not see (a hidden agent's task is left out, as in the task list). */
+  const shownQueue = (q: QueueSnapshot): QueueSnapshot => ({ ...q, items: q.items.filter((i) => { const t = ctx.store.getTask(i.taskId); return !!t && taskShown(t); }) });
   /** True for the app window (it holds the admin secret); false for an MCP-class token. */
   const isAdminReq = (req: unknown): boolean => !!(req as { legionAdmin?: boolean }).legionAdmin;
   route('GET', '/api/state', ({ url, req }): StateSnapshot => ({
@@ -263,6 +267,9 @@ export function createServer(ctx: CoreContext): Server {
     auth: ctx.config.claude.auth,
     // live progress of running runs, so a window opened mid-run shows the turn, tool and checklist at once (hidden agents' runs left out)
     progress: Object.fromEntries(Object.entries(ctx.engine.progressSnapshot?.() ?? {}).filter(([id]) => { const t = ctx.store.getTask(id); return !!t && taskShown(t); })),
+    // who waits in the queue and why (a hidden agent's task is left out)
+    ...(ctx.engine.queueSnapshot ? { queue: shownQueue(ctx.engine.queueSnapshot()) } : {}),
+    ...(ctx.away && isAdminReq(req) ? { parked: ctx.away.parked().filter((p) => agentIdVisible(ctx, p.agentId)), caps: ctx.away.caps() } : {}),
   }));
   // The history list: one page of tasks, newest first, optionally filtered. Admin-only by default-deny (not in admin.ts CLIENT_ROUTES). Visibility is applied to
   // every entry inside the index walk, so a hidden agent's tasks are in no page and no search, and `agentId=<hidden>` answers like an id that never existed.
@@ -509,6 +516,11 @@ export function createServer(ctx: CoreContext): Server {
     if (!isObj(body) || typeof body.allow !== 'boolean') throw new HttpError(400, 'body {allow:boolean} required');
     return { ok: ctx.approvals.resolve(params[0], body.allow) };
   });
+  // The app is about to send an answer in the last seconds of an ask's wait: delay the core's deny (once, a few seconds). It never answers the ask.
+  route('POST', '/api/approvals/:id/hold', ({ params, body }) => {
+    if (!isObj(body) || typeof body.ms !== 'number' || !Number.isFinite(body.ms) || body.ms <= 0) throw new HttpError(400, 'body {ms:number above 0} required');
+    return { ok: ctx.approvals.hold?.(params[0], body.ms) ?? false };
+  });
 
   // ---- structured questions (the question card) ------------------------
   // Admin-only by default-deny, exactly like approvals: an MCP-class token may start the task that asks, but only the
@@ -547,7 +559,7 @@ export function createServer(ctx: CoreContext): Server {
   };
 
   /** Events only the app window (admin) may see: the human's rooms and their text, bot-to-bot state, and settings (key hints). A token-only stream drops them. */
-  const adminOnlyEvent = (ev: LegionEvent): boolean => ev.type.startsWith('room.') || ev.type.startsWith('comms.') || ev.type.startsWith('settings.') || ev.type.startsWith('kg.') || ev.type.startsWith('blender.') || ev.type.startsWith('project.') || ev.type.startsWith('board.') || ev.type.startsWith('ci.') || ev.type.startsWith('question.');
+  const adminOnlyEvent = (ev: LegionEvent): boolean => ev.type.startsWith('room.') || ev.type.startsWith('comms.') || ev.type.startsWith('settings.') || ev.type.startsWith('kg.') || ev.type.startsWith('blender.') || ev.type.startsWith('project.') || ev.type.startsWith('board.') || ev.type.startsWith('ci.') || ev.type.startsWith('question.') || ev.type.startsWith('away.') || ev.type.startsWith('attention.') || ev.type.startsWith('budget.') || ev.type.startsWith('queue.');
 
   const handleSse = (req: IncomingMessage, res: ServerResponse, admin: boolean) => {
     res.writeHead(200, {
@@ -560,7 +572,8 @@ export function createServer(ctx: CoreContext): Server {
     const off = ctx.bus.on((ev: LegionEvent) => {
       if (!eventShown(ev)) return; // hidden agents must not leak through the event stream
       if (!admin && adminOnlyEvent(ev)) return;
-      const out = admin ? ev : withholdEvent(ev, (id) => ctx.store.getTask(id));
+      const shown = ev.type === 'queue.updated' ? { ...ev, queue: shownQueue(ev.queue) } : ev;
+      const out = admin ? shown : withholdEvent(shown, (id) => ctx.store.getTask(id));
       if (!out) return;
       pushSse(res, !admin && out.type === 'boat.health' ? { type: 'boat.health', health: publicBoatHealth(out.health) } : out);
     });

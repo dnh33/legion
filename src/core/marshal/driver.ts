@@ -33,6 +33,8 @@ export interface MarshalDriverDeps {
   ports(pid: string): MarshalPorts;
   /** The board changed: the window reloads it (advisory, exactly like every other board write). */
   changed(pid: string): void;
+  /** "Pause new starts" is on for this project: the loop settles what ended but dispatches nothing. Absent: never paused. */
+  paused?(pid: string): boolean;
   /** The loop's clock. */
   now(): number;
   /** Starts the tick; returns the cancel function. Tests pass a no-op and call `tick()` themselves. */
@@ -96,6 +98,10 @@ export class MarshalDriver {
       marshal.reconfigure({ project: p, waveSize: cfg.waveSize, stallMs: cfg.stallMinutes * 60_000 });
       const now = this.deps.now();
       const mon = marshal.monitor(now);
+      // paused: what already ended is still settled, but no new run is asked for or started (the engine holds a marshal start too: defense in depth)
+      let paused = false;
+      try { paused = this.deps.paused?.(pid) === true; } catch { /* a failing hook does not pause */ }
+      if (paused) { if (mon.finished.length || mon.failed.length || mon.stalled.length || mon.escalated.length) this.deps.changed(pid); return; }
       const step = await marshal.step(now, cfg.waveSize);
       if (mon.finished.length || mon.failed.length || mon.stalled.length || mon.escalated.length || step.dispatched.length || step.blocked.length) this.deps.changed(pid);
     } catch { /* one bad pass is one lost pass, never a stopped loop */ } finally { this.busy.delete(pid); }

@@ -34,3 +34,9 @@ export const budgetLimitFromError = (error: string | undefined): string | undefi
  * escalation). The session already holds the original request; sending that again makes the model start the task over.
  */
 export const CONTINUE_PROMPT = 'Continue from where you stopped. Do not start over: check what is already done, then finish the rest.';
+
+/** How a parked run's error text starts (a run stopped on purpose while an ask waits for the owner; the work is kept). */
+export const PARKED_PREFIX = 'Parked, waiting for your answer';
+
+/** A task parked while an ask waits: stored as an error like a limit pause, shown as a waiting ask, never as a failure. */
+export const isParkPause = (t: TaskLike): boolean => !!t && t.status === 'error' && (t.error ?? '').startsWith(PARKED_PREFIX);

@@ -21,6 +21,9 @@ const [{ dataDir, configPath, loadConfig, VERSION }, { readLaunchSecrets }, { Ap
   load('core/providers/runtime.js'), load('core/providers/secrets.js'), load('core/providers/routes.js'), load('core/updater/index.js'), load('core/projects/index.js'), load('core/projects/board/index.js'), load('core/browser/index.js'), load('core/ci/index.js'), load('core/ci/fake-github.js'), load('core/connectors/index.js'), load('core/connectors/keyring.js'), load('core/log/index.js'), load('core/gate-suggestions.js'),
 ]);
 
+const { createAwayCore, createAwayModule } = await load('core/away/index.js');
+const { agentIdVisible } = await load('core/visibility.js');
+
 const log = (...a) => process.stderr.write(`[harness-core] ${a.join(' ')}\n`);
 
 const { admin: adminSecret, native: nativeSecret } = await readLaunchSecrets(process.env, process.stdin);
@@ -38,7 +41,11 @@ const questions = new QuestionBroker(bus);
 const model = createFakeModel();
 const providerRuntime = config.features.providers ? new ProviderRuntime({ config, keys: new ProviderKeys(keyFileFor(dataDir())) }) : undefined;
 const projects = new ProjectStore(dataDir(), config.workspaceDir);
-const engine = new Engine({ store, bus, vms, approvals, questions, config, boatConfigured, projects, ...(providerRuntime ? { providers: providerRuntime } : {}), queryFn: model.queryFn });
+// the away features (0.3.0), exactly as in legion-core.ts
+const awayCore = createAwayCore({ dataDir: dataDir(), bus, tasks: store, projects });
+approvals.setPolicy(awayCore.service.policy());
+questions.setPolicy(awayCore.service.policy());
+const engine = new Engine({ store, bus, vms, approvals, questions, config, boatConfigured, projects, away: awayCore.service, ...(providerRuntime ? { providers: providerRuntime } : {}), queryFn: model.queryFn });
 const fakeCatalog = async () => ({ commands: [{ name: 'cost', description: 'Show cost', argumentHint: '' }], models: [{ value: 'sonnet', displayName: 'Sonnet (harness)', description: 'fake' }, { value: 'opus', displayName: 'Opus (harness)', description: 'fake' }], fetchedAt: new Date().toISOString() });
 engine.bridge.catalog = fakeCatalog;
 let stopReaper = () => {};
@@ -60,7 +67,12 @@ const blender = createBlenderModule(moduleDeps, { vms, boatConfigured, log });
 const updater = createUpdaterModule(moduleDeps, { root: join(dirname(fileURLToPath(import.meta.url)), '..', '..'), nativeSecret, log, probes: {} });
 const providersModules = providerRuntime ? [createProvidersModule({ runtime: providerRuntime, configPath: configPath(), nativeSecret })] : [];
 const board = config.features.projectBoard ? new BoardStore(join(dataDir(), 'board')) : undefined;
-const boardModules = board ? [createBoardModule(moduleDeps, { projects, board, notes: graphNotes(() => kg.graph()) })] : [];
+const boardModules = board ? [createBoardModule(moduleDeps, { projects, board, notes: graphNotes(() => kg.graph()), away: awayCore.service })] : [];
+const away = createAwayModule(moduleDeps, {
+  projects, core: awayCore, questions,
+  agentOk: (id) => agentIdVisible({ bsvEnabled, store }, id),
+  ...(board ? { inbox: () => projects.list().filter((p) => p.status === 'active').flatMap((p) => { try { return board.view(p).inbox; } catch { return []; } }) } : {}),
+});
 // the CI panel reads GitHub through a scriptable fake in the harness (runs, jobs, logs, refusals, 403/404, rate limit); no network
 const fakeGithub = new FakeGitHub();
 fakeGithub.scenario('mixed');
@@ -70,13 +82,13 @@ const connectors = createConnectorsModule(moduleDeps, { keys: new ConnectorKeyri
 const ci = createCiModule(moduleDeps, { github: fakeGithub, writes: () => fakeGithub.writesPort(), projects, log });
 // logs: the same module as the product, on the harness data dir
 const logs = createLogsModule(moduleDeps, { sink: openLogSink(dataDir()) });
-const modules = [kg, house, armory, createCommsModule(moduleDeps, { projects }), createProjectsModule(moduleDeps, { projects, nativeSecret }), ...boardModules, bsv, blender, ...providersModules, updater, createBrowserModule(moduleDeps, { nativeSecret, log }), connectors, ci, logs, createGateSuggestionsModule(moduleDeps)];
+const modules = [kg, house, armory, createCommsModule(moduleDeps, { projects }), createProjectsModule(moduleDeps, { projects, nativeSecret }), ...boardModules, away, bsv, blender, ...providersModules, updater, createBrowserModule(moduleDeps, { nativeSecret, log }), connectors, ci, logs, createGateSuggestionsModule(moduleDeps)];
 engine.setModules(modules);
 const server = createServer({
   config, store, bus, engine, vms, approvals, questions, boatConfigured, modules, bsvEnabled,
   doctor: async () => [{ id: 'harness', label: 'Harness', ok: true, detail: 'scripted model, fake boat.dev' }],
   catalog: fakeCatalog,
-  settings, adminSecret, projects, ...(board ? { board } : {}),
+  settings, adminSecret, projects, away: awayCore.service, ...(board ? { board } : {}),
 });
 restartReaper();
 server.on('error', (err) => { log('server error', err.code ?? err); process.exit(err.code === 'EADDRINUSE' ? 3 : 1); });
