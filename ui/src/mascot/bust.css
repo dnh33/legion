@@ -7,9 +7,9 @@
 .bust-fallback { font-family: 'Segoe UI Symbol', 'Noto Sans Symbols 2', sans-serif; color: var(--text-2); }
 
 /* agent rail: 44 px painted tile in place of the emoji avatar, keeps the busy ring from .avatar.busy */
-.avatar.bust-avatar { width: 44px; height: 44px; padding: 0; border-radius: 12px; background: var(--surface-3); overflow: visible; }
-.avatar.bust-avatar.busy::after { border-radius: 15px; }
-.bust-avatar > .bust { border-radius: 11px; overflow: hidden; }
+.avatar.bust-avatar { width: 34px; height: 34px; padding: 0; border: 0; border-radius: 10px; background: none; overflow: visible; }
+.avatar.bust-avatar.busy::after { border-radius: 13px; }
+
 .agent.sel .bust-avatar { border-color: var(--accent-line); }
 
 /* a painted tile is taller than the emoji tile: trim the row padding so a full muster fits a 900 px window */

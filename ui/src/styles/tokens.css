@@ -21,6 +21,12 @@
   --warn-soft: rgba(255, 204, 102, .10);
   --code-bg: #0e1115;
   --scrim: rgba(3, 5, 8, .62);
+  /* the project page (0.3.0): control borders at 3:1, the amber outline, the live green, and ink on amber/red fills */
+  --control-line: #667182;
+  --warn-line: rgba(255, 204, 102, .38);
+  --live: #7CFFB2;
+  --danger-ink: #1b1300;
+  --warn-ink: #1b1300;
   --font: 'IBM Plex Sans', 'Segoe UI', system-ui, sans-serif;
   --font-display: 'Grenze Gotisch', Georgia, serif;
   --font-mono: 'JetBrains Mono', 'Cascadia Code', Consolas, ui-monospace, monospace;
@@ -52,5 +58,10 @@
   --warn-soft: rgba(183, 121, 31, .1);
   --code-bg: #f1f3f6;
   --scrim: rgba(20, 24, 32, .32);
+  --control-line: #737d8f;
+  --warn-line: rgba(143, 93, 12, .35);
+  --live: #0c9f5e;
+  --danger-ink: #fff;
+  --warn-ink: #fff;
   color-scheme: light;
 }

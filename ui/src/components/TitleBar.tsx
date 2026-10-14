@@ -23,7 +23,8 @@ function ViewGlyph({ v }: { v: 'chat' | 'rooms' | 'graph' }) {
 export function TitleBar() {
   const conn = useStore((s) => s.conn);
   const theme = useStore((s) => s.theme);
-  const opsOpen = useStore((s) => s.opsOpen);
+  const onProject = useStore((s) => s.view === 'project');
+  const opsOpen = useStore((s) => s.opsOpen) && !onProject;
   const doctor = useStore((s) => s.doctor);
   const version = useStore((s) => s.version);
   const settingsOpen = useStore((s) => s.settingsOpen);
@@ -72,7 +73,7 @@ export function TitleBar() {
         </button>
         <button className={`icon-btn${settingsOpen ? ' on' : ''}`} onClick={toggleSettings} aria-label="Settings" title="Settings (Ctrl ,)"><Icon name="gear" /></button>
         <button className="icon-btn" onClick={toggleTheme} aria-label="Toggle theme" title="Toggle theme"><Icon name={theme === 'dark' ? 'sun' : 'moon'} /></button>
-        <button className={`icon-btn${opsOpen ? ' on' : ''}`} onClick={toggleOps} aria-label="Toggle Ops panel" title="Ops panel (Ctrl .)"><Icon name="sidebar" /></button>
+        <button className={`icon-btn${opsOpen ? ' on' : ''}`} onClick={toggleOps} disabled={onProject} aria-label="Toggle Ops panel" title={onProject ? 'The project page has its own side column' : 'Ops panel (Ctrl .)'}><Icon name="sidebar" /></button>
       </div>
     </header>
   );

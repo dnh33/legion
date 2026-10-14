@@ -75,7 +75,7 @@ test('C16 the sources keep the accessible names, the live region, roles and the 
   assert.ok(!/dangerouslySetInnerHTML|innerHTML/.test(src), 'item text is rendered as text only');
   const css = readFileSync(join(here, '..', '..', 'ui', 'src', 'projects', 'board', 'board.css'), 'utf8');
   assert.match(css, /focus-visible/); assert.match(css, /prefers-reduced-motion/); assert.match(css, /@media \(max-width: 760px\)/);
-  const view = readFileSync(join(here, '..', '..', 'ui', 'src', 'projects', 'ProjectView.tsx'), 'utf8');
+  const view = readFileSync(join(here, '..', '..', 'ui', 'src', 'projects', 'page', 'ProjectPage.tsx'), 'utf8');
   assert.match(view, /<BoardPanel project=\{project\} \/>/);
   const panel = src.slice(src.indexOf('export function BoardPanel'), src.indexOf('function Board('));
   assert.match(panel, /enabled !== 'yes'\) return null/, 'nothing renders until the core answers the probe');
