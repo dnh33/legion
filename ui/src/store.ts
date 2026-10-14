@@ -81,6 +81,8 @@ export interface AppState {
   projects: Project[];
   /** The rail's project switcher: null = All (today's behaviour), else a project id. Shows only that project's agents and tasks. */
   projectFilter: string | null;
+  /** The first load of the projects list has finished (it succeeded or was refused). The rail waits for it before it announces anything. */
+  projectsLoaded: boolean;
 }
 
 function ls(key: string): string | null { try { return localStorage.getItem(key); } catch { return null; } }
@@ -105,7 +107,7 @@ let state: AppState = {
   mascotLab: false, mascotForce: null, mascotVm: null,
   settings: null, settingsOpen: false, settingsSection: 'claude', showClosed: false, taskMenu: null, renaming: null,
   view: 'chat',
-  projects: [], projectFilter: ls(FILTER_KEY) || null,
+  projects: [], projectsLoaded: false, projectFilter: ls(FILTER_KEY) || null,
 };
 
 const listeners = new Set<() => void>();

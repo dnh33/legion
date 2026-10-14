@@ -168,14 +168,24 @@ export interface WaitLive { filter: string | null; ids: string[]; baselined: boo
 const sameSet = (a: readonly string[], b: readonly string[]): boolean => a.length === b.length && a.every((x) => b.includes(x));
 
 /**
- * One look at the rail's waiting list (`ids` are its item keys, under `filter`). Returns the one line to announce, or null. Silent for
- * the first non-empty list after launch (proposals that arrive once the window has loaded are not news), silent when the owner changes the
- * project filter (the list is re-based under the new filter), and otherwise a line only when the set of items changed.
+ * The proposals source has loaded once: the projects are in, and every active board has been tried (or the board is off). Until then the rail
+ * stays silent on its list, so the launch load is not announced. Once true it stays true.
  */
-export function waitingLiveStep(prev: WaitLive | null, filter: string | null, ids: readonly string[]): { st: WaitLive; line: string | null } {
+export function proposalsSettled(o: { projectsLoaded: boolean; enabled: 'unknown' | 'yes' | 'no'; activeIds: readonly string[]; attempted: Readonly<Record<string, true | undefined>> }): boolean {
+  if (!o.projectsLoaded || o.enabled === 'unknown') return false;
+  if (o.enabled === 'no') return true;
+  return o.activeIds.every((id) => o.attempted[id] === true);
+}
+
+/**
+ * One look at the rail's waiting list (`ids` are its item keys, under `filter`, `settled` from proposalsSettled). Returns the one line
+ * to announce, or null. Until the source has loaded nothing is announced. The first look after it has loaded is the baseline. After that a
+ * line for each real change in the set (the first item into an empty list included). A project-filter change re-bases silently.
+ */
+export function waitingLiveStep(prev: WaitLive | null, filter: string | null, ids: readonly string[], settled: boolean): { st: WaitLive; line: string | null } {
   const next = [...ids];
-  if (!prev || prev.filter !== filter) return { st: { filter, ids: next, baselined: (prev?.baselined ?? false) || next.length > 0 }, line: null };
-  if (!prev.baselined) return { st: { filter, ids: next, baselined: next.length > 0 }, line: null };
+  if (!settled) return { st: { filter, ids: next, baselined: false }, line: null };
+  if (!prev || !prev.baselined || prev.filter !== filter) return { st: { filter, ids: next, baselined: true }, line: null };
   if (sameSet(prev.ids, next)) return { st: { filter, ids: next, baselined: true }, line: null };
   const line = next.length === 0 ? 'Nothing else needs you' : `${next.length} ${next.length === 1 ? 'item needs' : 'items need'} you`;
   return { st: { filter, ids: next, baselined: true }, line };

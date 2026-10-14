@@ -3,7 +3,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import type { WorkItem } from '../src/shared/board.js';
 import { deriveAsks } from '../src/shared/attention.js';
-import { badgeCompact, elsewhereBadge, waitingElsewhere, waitingLiveStep, type WaitLive } from '../ui/src/projects/projectsLogic.js';
+import { badgeCompact, elsewhereBadge, proposalsSettled, waitingElsewhere, waitingLiveStep, type WaitLive } from '../ui/src/projects/projectsLogic.js';
 import { askTarget } from '../ui/src/projects/railRoute.js';
 import { PARKED_PREFIX, TURN_LIMIT_PREFIX } from '../src/shared/continue.js';
 import type { ApprovalRequest, PendingQuestion, Task } from '../src/shared/types.js';
@@ -297,16 +297,31 @@ test('the switcher badge keeps the number and the full words for the title, so t
   assert.deepEqual(elsewhereBadge(1), { count: '1', words: 'waiting elsewhere', full: '1 waiting elsewhere' });
 });
 
-test('the live line announces a real change in what needs you, not the first non-empty list after launch, not a filter change', () => {
+test('the live line is silent until the proposals source has loaded once, then announces each real change, and a filter change is silent', () => {
   let st: WaitLive | null = null;
-  let r = waitingLiveStep(st, null, []); st = r.st; assert.equal(r.line, null, 'launch with nothing is silent');
-  r = waitingLiveStep(st, null, ['a']); st = r.st; assert.equal(r.line, null, 'the proposals arriving after the window loads are not announced');
-  r = waitingLiveStep(st, null, ['a', 'b']); st = r.st; assert.equal(r.line, '2 items need you');
-  r = waitingLiveStep(st, null, ['b', 'a']); st = r.st; assert.equal(r.line, null, 'the same items in another order are silent');
-  r = waitingLiveStep(st, null, ['b', 'c']); st = r.st; assert.equal(r.line, '2 items need you', 'a swap of one item is a real change');
-  r = waitingLiveStep(st, 'p2', ['x']); st = r.st; assert.equal(r.line, null, 'a project-filter change re-bases silently');
-  r = waitingLiveStep(st, 'p2', ['x', 'y', 'z']); st = r.st; assert.equal(r.line, '3 items need you');
-  r = waitingLiveStep(st, 'p2', []); st = r.st; assert.equal(r.line, 'Nothing else needs you');
+  let r = waitingLiveStep(st, null, [], false); st = r.st; assert.equal(r.line, null, 'launch: nothing is announced');
+  r = waitingLiveStep(st, null, ['a'], false); st = r.st; assert.equal(r.line, null, 'the initial load is silent while the source has not loaded');
+  r = waitingLiveStep(st, null, ['a'], true); st = r.st; assert.equal(r.line, null, 'what the source loaded first is the baseline');
+  r = waitingLiveStep(st, null, ['a', 'b'], true); st = r.st; assert.equal(r.line, '2 items need you');
+  r = waitingLiveStep(st, null, ['b', 'a'], true); st = r.st; assert.equal(r.line, null, 'the same items in another order are silent');
+  r = waitingLiveStep(st, null, ['b', 'c'], true); st = r.st; assert.equal(r.line, '2 items need you', 'a swap of one item is a real change');
+  r = waitingLiveStep(st, 'p2', ['x'], true); st = r.st; assert.equal(r.line, null, 'a project-filter change re-bases silently');
+  r = waitingLiveStep(st, 'p2', ['x', 'y', 'z'], true); st = r.st; assert.equal(r.line, '3 items need you');
+  r = waitingLiveStep(st, 'p2', [], true); st = r.st; assert.equal(r.line, 'Nothing else needs you');
+});
+
+test('after the source has loaded, the first proposal into an empty list announces', () => {
+  const base = waitingLiveStep(null, null, [], true);
+  const r = waitingLiveStep(base.st, null, ['proposal:p1'], true);
+  assert.equal(r.line, '1 item needs you');
+});
+
+test('proposalsSettled: not until the projects are in and every active board has been tried once; with no boards it is settled', () => {
+  assert.equal(proposalsSettled({ projectsLoaded: false, enabled: 'no', activeIds: [], attempted: {} }), false, 'no projects yet');
+  assert.equal(proposalsSettled({ projectsLoaded: true, enabled: 'unknown', activeIds: ['p1'], attempted: {} }), false, 'the board probe has not answered');
+  assert.equal(proposalsSettled({ projectsLoaded: true, enabled: 'yes', activeIds: ['p1', 'p2'], attempted: { p1: true } }), false, 'p2 has not been tried');
+  assert.equal(proposalsSettled({ projectsLoaded: true, enabled: 'yes', activeIds: ['p1', 'p2'], attempted: { p1: true, p2: true } }), true);
+  assert.equal(proposalsSettled({ projectsLoaded: true, enabled: 'no', activeIds: ['p1'], attempted: {} }), true, 'the board is off: nothing to load');
 });
 
 test('the switcher badge words hide exactly when the name would be cut with them shown (its room is the space it has now, less the words if they show)', () => {

@@ -10,7 +10,7 @@ import { announce } from '../projects/page/announce';
 import { agentAsks, railLine } from '../projects/page/pageLogic';
 import { AgentBust } from '../projects/page/AgentBust';
 import { hasBust } from '../mascot/busts';
-import { useAllProposals } from '../projects/useProposals';
+import { useAllProposals, useProposalsSettled } from '../projects/useProposals';
 import { openRailRow } from '../projects/projectsStore';
 import { heldAgents } from '../chat/queue';
 import { githubTag } from '../github/agentAccess';
@@ -43,12 +43,12 @@ export function AgentRail() {
   // the live region gets one short line for a real change in what needs you, never the list (a change used to re-read every row); the first
   // non-empty list after launch and a project-filter change are silent (waitingLiveStep)
   const live = useRef<WaitLive | null>(null);
+  const settled = useProposalsSettled();
   useEffect(() => {
-    if (!loaded) return;
-    const step = waitingLiveStep(live.current, filter, waiting.map((r) => `${r.kind}:${r.id}`));
+    const step = waitingLiveStep(live.current, filter, waiting.map((r) => `${r.kind}:${r.id}`), loaded && settled);
     live.current = step.st;
     if (step.line) announce(step.line);
-  }, [loaded, filter, waiting]);
+  }, [loaded, settled, filter, waiting]);
   const lineFacts = useMemo(() => ({ tasks, projects, agents, approvals, questions, board: { items: [], inbox: proposals } }), [tasks, projects, agents, approvals, questions, proposals]);
 
   // one tab stop for the member list: Arrow keys move inside it

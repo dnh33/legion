@@ -24,6 +24,7 @@ export async function loadProjects(): Promise<void> {
     setState((s) => ({ projects, projectFilter: resolveFilter(projects, s.projectFilter) }));
   } catch { /* no admin access: no projects */ } finally {
     projectsSettled = true;
+    setState({ projectsLoaded: true });
     pumpQueuedAsk();
   }
 }

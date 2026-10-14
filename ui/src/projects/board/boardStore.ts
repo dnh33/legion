@@ -15,8 +15,10 @@ export interface BoardState {
   statuses: Record<string, BoardMarshalStatus | undefined>;
   busy: boolean;
   announce: string;
+  /** Each project whose board has been tried once (loaded or failed). The first pass the proposals source is settled by. */
+  attempted: Record<string, true | undefined>;
 }
-let state: BoardState = { enabled: 'unknown', views: {}, statuses: {}, busy: false, announce: '' };
+let state: BoardState = { enabled: 'unknown', views: {}, statuses: {}, busy: false, announce: '', attempted: {} };
 const subs = new Set<() => void>();
 const set = (p: Partial<BoardState> | ((s: BoardState) => Partial<BoardState>)): void => { state = { ...state, ...(typeof p === 'function' ? p(state) : p) }; subs.forEach((f) => f()); };
 /** Every proposal waiting in a loaded Inbox, read once (not a hook). */
@@ -38,7 +40,11 @@ export function probeBoard(): Promise<void> {
 const flights = createFlights(async (projectId) => { const v = await api.boardView(projectId); set((s) => ({ views: { ...s.views, [projectId]: v } })); }, (e) => toast(errText(e), 'error'));
 /** Loads a project's board. The data comes from a load that started after this call. True when the board arrived. */
 export async function loadBoard(projectId: string, opts: { quiet?: boolean } = {}): Promise<boolean> {
-  return (await flights.load(projectId, opts)).ok;
+  try {
+    return (await flights.load(projectId, opts)).ok;
+  } finally {
+    set((s) => (s.attempted[projectId] ? {} : { attempted: { ...s.attempted, [projectId]: true } }));
+  }
 }
 
 /**

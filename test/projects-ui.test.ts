@@ -174,6 +174,7 @@ test('B1 the rail shows a "Needs you in other projects" block built from waiting
   // the list itself is not a live region (a change re-read the whole list); one short line is announced instead
   assert.doesNotMatch(rail, /aria-live=/);
   assert.match(rail, /waitingLiveStep\(/);
+  assert.match(rail, /useProposalsSettled\(\)/);
   assert.match(rail, /announce\(step\.line\)/);
 });
 
