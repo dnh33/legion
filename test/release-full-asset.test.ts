@@ -8,6 +8,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { tempDir } from './tmp-cleanup.js';
 
+process.env.LEGION_REHEARSAL = '1'; // these tests use the rehearsal-only skip flags (see release-rehearsal-gate.test.ts)
 const REPO = fileURLToPath(new URL('../../', import.meta.url));
 const run = (script: string, argv: string[]) => spawnSync(process.execPath, [join(REPO, 'scripts', script), ...argv], { encoding: 'utf8' });
 const sha = (b: Buffer | string) => createHash('sha256').update(b).digest('hex');

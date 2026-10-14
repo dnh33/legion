@@ -15,6 +15,7 @@ import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+process.env.LEGION_REHEARSAL = '1'; // these tests use the rehearsal-only skip flags (see release-rehearsal-gate.test.ts)
 const REPO = fileURLToPath(new URL('../../', import.meta.url));
 const run = (script: string, argv: string[], env?: NodeJS.ProcessEnv) =>
   spawnSync(process.execPath, [join(REPO, 'scripts', script), ...argv], { encoding: 'utf8', env: env ? { ...process.env, ...env } : process.env });

@@ -6,11 +6,12 @@ import { createHash, createPublicKey, verify } from 'node:crypto';
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { args, die, loadDist, REPO } from './lib/release-lib.mjs';
+import { args, die, loadDist, REPO, requireRehearsalFor } from './lib/release-lib.mjs';
 import { fullAssetProblems } from './lib/full-asset-check.mjs';
 import { fetchBytes, hashUrl, NEW_NAME, OLD_NAME, readStones, stoneProblems } from './lib/stepping-stone.mjs';
 
 const a = args(process.argv.slice(2), { dir: 'v', 'trust-module': 'v', 'no-network': 'flag', stones: 'v' });
+requireRehearsalFor(a, ['no-network', 'stones', 'trust-module']);
 if (!a.dir) die('usage: node scripts/release-verify.mjs --dir <folder>');
 const dir = resolve(a.dir);
 const trust = await import(pathToFileURL(a['trust-module'] ? resolve(a['trust-module']) : join(REPO, 'dist/src/core/updater/trust.js')).href);

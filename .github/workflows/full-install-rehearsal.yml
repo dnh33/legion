@@ -73,6 +73,8 @@ jobs:
       - run: npm ci
       - run: npm run build
       - name: Build and sign the candidates
+        env:
+          LEGION_REHEARSAL: "1" # throwaway stones: the release-check skip flags are allowed here only
         run: node scripts/rehearsal/prepare.mjs --out "$env:RUNNER_TEMP\rehearsal"
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:

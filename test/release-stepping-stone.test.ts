@@ -13,6 +13,7 @@ import { join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { makeZip } from './updater-helpers.js';
 
+process.env.LEGION_REHEARSAL = '1'; // these tests use the rehearsal-only skip flags (see release-rehearsal-gate.test.ts)
 const REPO = fileURLToPath(new URL('../../', import.meta.url));
 const S = (n: string): string => join(REPO, 'scripts', n);
 const tmp = (): string => realpathSync.native(mkdtempSync(join(tmpdir(), 'legion-stone-')));

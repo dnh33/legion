@@ -12,6 +12,7 @@ import { stagePackage, dependencyHash } from '../src/core/updater/package.js';
 import { verifyManifestSignature } from '../src/core/updater/trust.js';
 import { sha256, startFakeServer } from './updater-helpers.js';
 
+process.env.LEGION_REHEARSAL = '1'; // these tests use the rehearsal-only skip flags (see release-rehearsal-gate.test.ts)
 const REPO = fileURLToPath(new URL('../../', import.meta.url));
 // These tests build bare manifests of throwaway versions: each is declared its own stepping stone (one manifest under both names). The stone rules are in release-stepping-stone.test.ts.
 const run = (script: string, argv: string[]) => {

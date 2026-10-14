@@ -8,10 +8,11 @@ import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { args, die, loadDist, REPO } from './lib/release-lib.mjs';
+import { args, die, loadDist, REPO, requireRehearsalFor } from './lib/release-lib.mjs';
 import { fetchBytes, hashUrl, NEW_NAME, OLD_NAME, stoneProblems } from './lib/stepping-stone.mjs';
 
 const a = args(process.argv.slice(2), { dir: 'v', version: 'v', 'notes-file': 'v', repo: 'v', title: 'v', 'dry-run': 'flag', 'trust-module': 'v', 'no-network': 'flag' });
+requireRehearsalFor(a, ['no-network', 'trust-module']);
 if (!a.dir || !a.version || !a['notes-file']) die('usage: node scripts/release-publish.mjs --dir <folder> --version <v> --notes-file <file> [--repo dnh33/legion] [--title <text>] [--dry-run]');
 const dir = resolve(a.dir), v = a.version, repo = a.repo ?? 'dnh33/legion', tag = `v${v}`;
 const assets = [`legion-${v}-app.zip`, `legion-${v}-win-x64.zip`, OLD_NAME, `${OLD_NAME}.sig`, NEW_NAME, `${NEW_NAME}.sig`, 'SHA256SUMS.txt', 'SHA256SUMS.txt.sig', 'install.ps1', 'install.sh'];
