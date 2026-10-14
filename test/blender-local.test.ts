@@ -69,7 +69,8 @@ class TestPort implements ProcessPort {
   noKill = false;
   pids: number[] = [];
   killCalls: number[] = [];
-  killDelayMs = 0;
+  /** When set, every kill waits for it first: the test decides when a slow kill finishes, not a clock. */
+  killGate: Promise<void> | undefined;
   /** What runner.py held at the moment of each spawn. */
   runnerSeen: string[] = [];
   file = process.execPath;
@@ -86,7 +87,7 @@ class TestPort implements ProcessPort {
   }
   async kill(pid: number): Promise<boolean> {
     this.killCalls.push(pid);
-    if (this.killDelayMs) await sleep(this.killDelayMs);
+    if (this.killGate) await this.killGate;
     return this.noKill ? false : this.inner.kill(pid);
   }
   realKill(pid: number): Promise<boolean> { return this.inner.kill(pid); }
@@ -127,6 +128,20 @@ async function isGone(pid: number): Promise<boolean> {
   return false;
 }
 const readPid = (r: Rig, name: string): number => Number(readFileSync(join(r.base, name), 'utf8'));
+
+/** Waits until `fn` holds, polling; a loaded runner gets a generous budget instead of a fixed guess. */
+async function until(what: string, fn: () => boolean, ms = 30_000): Promise<void> {
+  const end = Date.now() + ms;
+  while (!fn()) { if (Date.now() > end) assert.fail(`timed out waiting for: ${what}`); await sleep(20); }
+}
+
+/** The fake writes child.pid and then self.pid, each in its own write: existsSync on one says nothing about the other,
+ *  and a file can exist before its digits do. Wait until both hold a full PID. */
+async function waitPids(r: Rig, ms = 30_000): Promise<number[]> {
+  const read = (name: string): number => { try { return Number(readFileSync(join(r.base, name), 'utf8').trim()); } catch { return NaN; } };
+  await until('the fake Blender wrote self.pid and child.pid', () => Number.isInteger(read('self.pid')) && read('self.pid') > 0 && Number.isInteger(read('child.pid')) && read('child.pid') > 0, ms);
+  return [read('self.pid'), read('child.pid')];
+}
 
 test('readiness: no Blender, too old, and ready', () => {
   const none = new LocalRunner({ proc: new TestPort('x'), config: () => defaultBlenderConfig(), dataDir: tmp(), workspaceOf: () => tmp(), install: () => undefined });
@@ -528,8 +543,7 @@ test('Blender not startable: a plain failure, never a throw', async () => {
 test('dispose stops a running Blender', async () => {
   const r = rig({ mode: 'sleep' });
   const running = r.runner.run(req(r, 'x=1\n', 't1', 60_000));
-  for (let i = 0; i < 300 && !existsSync(join(r.base, 'child.pid')); i++) await sleep(50);
-  const pids = [readPid(r, 'self.pid'), readPid(r, 'child.pid')];
+  const pids = await waitPids(r);
   try {
     await r.runner.dispose();
     const res = await running;
@@ -607,18 +621,22 @@ test('M3: the "too large" refusal names the folder and what to delete', async ()
 
 test('L5: dispose() during a timeout kill still reaches the process (it stays tracked until it is gone)', async () => {
   const r = rig({ mode: 'sleep' }, { deps: { stopWaitMs: 3000 } });
-  r.port.killDelayMs = 700;
+  // The timeout kill is held open until the test lets it go, so dispose() always meets a kill that is still running,
+  // however slow the machine is. (A fixed 700 ms delay could already be over by the time dispose() ran.)
+  let release!: () => void;
+  r.port.killGate = new Promise<void>((res) => { release = res; });
   let pids: number[] = [];
   const running = r.runner.run(req(r, 'x=1\n', 't1', 1000));
-  for (let i = 0; i < 100 && !existsSync(join(r.base, 'self.pid')); i++) await sleep(20);
   try {
-    for (let i = 0; i < 100 && r.port.killCalls.length < 1; i++) await sleep(20); // the timeout kill has started and is slow
-    await r.runner.dispose();
-    assert.ok(r.port.killCalls.length >= 2, 'dispose issued its own kill for the tracked process');
+    await until('the timeout kill has started', () => r.port.killCalls.length >= 1);
+    const disposing = r.runner.dispose();
+    await until('dispose issued its own kill for the tracked process', () => r.port.killCalls.length >= 2);
+    release();
+    await disposing;
     await running;
-    pids = [readPid(r, 'self.pid'), readPid(r, 'child.pid')];
+    pids = await waitPids(r, 3000).catch(() => []); // a very slow start can be killed before it wrote its PIDs; then there is nothing left to check
     for (const pid of pids) assert.equal(await isGone(pid), true);
-  } finally { for (const pid of pids) await r.port.realKill(pid).catch(() => false); }
+  } finally { release(); for (const pid of pids) await r.port.realKill(pid).catch(() => false); }
 });
 
 test('L6: an output-cap kill that did not work marks the PID stuck and refuses new runs', async () => {
