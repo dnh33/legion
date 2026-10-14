@@ -293,10 +293,11 @@ describe('no GitHub client in the build', () => {
     assert.match(line, /ERR_BROKEN/);
     assert.ok(!/secret|path|token/.test(line), 'kind only, no message');
   });
-  it('the default writes module is absent today: no writes, and the real module path is a literal import', async () => {
+  it('the default writes module loads (owner buttons) and the real module path is a literal import', async () => {
     const r = createWritesResolver();
     await r.settled();
-    assert.equal(r.get(), undefined);
+    assert.equal(typeof r.get()?.rerunFailed, 'function');
+    assert.equal(typeof r.get()?.cancel, 'function');
     const src = readFileSync(join(process.cwd(), 'src', 'core', 'ci', 'wiring.ts'), 'utf8');
     assert.ok(src.includes("import('../connectors/github/writes.js')"), 'a literal specifier, as the tripwire needs');
   });

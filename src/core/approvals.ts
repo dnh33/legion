@@ -57,7 +57,8 @@ const CAPPED_CARDED = new Set(['mcp__legion__vm_exec', 'mcp__legion__vm_claude',
  * EXCEPTION (decided 2026-10-06, recorded 2026-10-07; claude/design-connectors.md 4.1 step 6): the connector gateway handlers
  * (src/core/connectors/gateway.ts, mcp__legion_connectors__) that write outward or spend raise their own card in EVERY mode, full
  * included, by calling `broker.request` directly. They are the only exception to the rule above. Do not "fix" them to go through
- * guardAsk. (Slice 1b ships READ tools only; the first carded handler arrives with the GitHub writes.)
+ * guardAsk. (Slice 1b shipped READ tools only. Since 2026-10-15 the six GitHub write tools are the carded handlers: src/core/connectors/github/write-tools.ts raises
+ * ONE card per write through the gateway's `ask`, in `ask`, `auto-edits` and `full`, on the Claude path and the provider path, with no Remember.)
  * Second exception, maintainer decision 2026-10-07: WebFetch and WebSearch in a run that read connector data AND is tainted raise their own
  * card in every mode (Engine.webEgressCard), because web access can carry that data out.
  *

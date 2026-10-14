@@ -190,11 +190,11 @@ test('Review Focus 2: a repo unticked after the owner granted write is refused i
   assert.equal(r.cards.length, 1, 'no further card');
 });
 
-test('the real write table is empty: no write tool is registered; connector_call_read never opens a write tool (mutation: allow it)', async () => {
-  assert.deepEqual(Object.keys(GITHUB_WRITE_TOOLS), [], 'the seam is empty until the writes unit fills it');
+test('the real write table holds the six write names; connector_call_read never opens a write tool (mutation: allow it)', async () => {
+  assert.deepEqual(Object.keys(GITHUB_WRITE_TOOLS).sort(), [...WRITE_NAMES].sort(), 'the table is exactly the six names of classes.ts');
   const real = mk({ agent: { githubWrite: ['o/r'] }, realWriteTable: true });
   setTicked(real.dir, 'o/r', true);
-  for (const t of WRITE_NAMES) { assert.equal(classOf('github', t), 'WRITE'); assert.equal(real.registered().includes(t), false, `${t} is not registered`); }
+  for (const t of WRITE_NAMES) { assert.equal(classOf('github', t), 'WRITE'); assert.equal(real.registered().includes(t), true, `${t} is registered with its handler`); }
   const withSpies = mk({ agent: { githubWrite: ['o/r'] } });
   setTicked(withSpies.dir, 'o/r', true);
   for (const t of WRITE_NAMES) {
