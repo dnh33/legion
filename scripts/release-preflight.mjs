@@ -23,6 +23,7 @@ import { existsSync, readFileSync, mkdtempSync, mkdirSync, writeFileSync, rmSync
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { args, die, isReleaseVersion, listZipNames, readZipEntry, REPO } from './lib/release-lib.mjs';
+import { fullAssetProblems } from './lib/full-asset-check.mjs';
 
 const a = args(process.argv.slice(2), { version: 'v', pkg: 'v' });
 
@@ -138,8 +139,12 @@ else {
   const m = JSON.parse(readFileSync(manifestPath, 'utf8'));
   if (m.version !== version) fail(`manifest version is ${m.version}, expected ${version}`);
   else pass('manifest version matches');
-  if (m.requiresFullInstall === true) warn('manifest says requiresFullInstall: this release cannot self-apply (correct only if dependencies changed)');
-  else pass('manifest allows self-apply (requiresFullInstall: false)');
+  // A dependency change must ship the signed full package, or the release only notifies. This used to be a warning that a
+  // forgotten --full-zip slipped through; it is a failure now, and the package in the folder is checked byte for byte.
+  const sumsText = existsSync(join(pkgFolder, 'SHA256SUMS.txt')) ? readFileSync(join(pkgFolder, 'SHA256SUMS.txt'), 'utf8') : '';
+  const fullProblems = await fullAssetProblems({ manifest: m, version, dir: pkgFolder, sums: sumsText });
+  for (const p of fullProblems) fail(`fullAsset: ${p}`);
+  if (!fullProblems.length) pass(m.requiresFullInstall === true ? 'full package: fullAsset equals the full zip (name, size, sha256) and is listed in SHA256SUMS.txt' : 'manifest is code-only (requiresFullInstall: false, no fullAsset)');
   if (!m.notes || !String(m.notes).trim()) fail('manifest has no release notes — people read these before updating');
   else if (String(m.notes).length > 2000) fail('manifest notes exceed the 2000-char cap');
   else pass(`manifest carries release notes (${String(m.notes).length} chars)`);
