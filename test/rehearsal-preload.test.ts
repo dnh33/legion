@@ -67,15 +67,15 @@ test('rehearsal preload: delays the start of the core of ONE named version, and 
   const { publicKey } = generateKeyPairSync('ed25519'); writeFileSync(keyFile, publicKey.export({ type: 'spki', format: 'pem' }).toString());
   const delayFile = join(tempDir('rh-delay-'), 'delay.txt');
   const timed = (version: string) => {
-    writeFileSync(delayFile, `${version}:700`);
+    writeFileSync(delayFile, `${version}:3000`);
     const t0 = Date.now();
     return new Promise<number>((resolve) => {
       const c = spawn(process.execPath, ['--import', pathToFileURL(PRELOAD).href, core], { env: { ...process.env, REHEARSAL_PORT: '1', REHEARSAL_PUBKEY_FILE: keyFile, REHEARSAL_DELAY_FILE: delayFile }, stdio: 'ignore' });
       c.on('close', () => resolve(Date.now() - t0));
     });
   };
-  assert.ok(await timed('0.99.0') >= 700, 'the named version waits');
-  assert.ok(await timed('0.2.7') < 700, 'another version does not');
+  assert.ok(await timed('0.99.0') >= 3000, 'the named version waits');
+  assert.ok(await timed('0.2.7') < 3000, 'another version does not');
 });
 
 // ---- tripwires: no way to point a production build at a test source or key
