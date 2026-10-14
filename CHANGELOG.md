@@ -7,6 +7,7 @@ All notable changes are recorded here. The format follows [Keep a Changelog](htt
 ### Added
 
 - **Every future update can reach you, even if you skipped one.** Legion now checks a second update list first and uses the old one only when the new one is not there. A release that needs a bigger install can ask Legion to take a small step update first and offers the bigger one on the next check, so an older copy is never left half updated. If a release needs something your Legion cannot do yet and no step exists, Legion says so in plain words and offers nothing.
+- **Every release now keeps the step update in place, and cannot go out half published.** Each release must publish both update lists, and a later small release can no longer replace the step update that older copies depend on. The release is uploaded as a draft and goes live only when every file is there. The daily check now also fails when the new update list is missing from the latest release.
 - **A daily check that the step update is still there.** A scheduled check confirms the update that older copies depend on can still be downloaded exactly as signed, so a deleted file is noticed within a day.
 
 ### Fixed

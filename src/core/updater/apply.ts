@@ -169,7 +169,11 @@ export async function rollback(installDir: string, reason: string, retryMs = 15_
   try { removeOwned(installDir, failedDir(installDir)); } catch { /* leftovers are harmless */ }
 }
 
-/** Heartbeat of an unconfirmed swap. Re-reads right before writing and never touches a journal that was committed or rolled back meanwhile (the new build confirms itself from its own process). */
+/**
+ * Heartbeat of an unconfirmed swap. Re-reads right before writing and never touches a journal that was committed or rolled back meanwhile (the new build confirms itself from its own process).
+ * Known, accepted window: the read and the write are two separate steps with no file lock, so a commit from another process in between is still overwritten by this
+ * beat. The window is a few microseconds; closing it needs a cross-process lock or a separate heartbeat file (not done).
+ */
 export function touchHeartbeat(installDir: string): boolean {
   const j = readJournal(installDir);
   if (!j || (j.state !== 'swapping' && j.state !== 'awaiting-health')) return false;
