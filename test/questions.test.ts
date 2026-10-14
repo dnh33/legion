@@ -116,8 +116,3 @@ test('ask_user_question is one of Legion\'s own tools: it never raises an approv
   assert.match(src, /'ask_user_question'/, 'the tool is registered on the legion server');
   assert.match(src, /ctx\.questions\.request\(ctx\.taskId, agentId, v\.questions/);
 });
-
-test('Claude Code\'s own AskUserQuestion is switched off so the model uses Legion\'s question tool (it showed up as an approval card with raw JSON)', () => {
-  const src = readFileSync(join(process.cwd(), 'src', 'core', 'engine.ts'), 'utf8').replace(/\r/g, '');
-  assert.match(src, /disallowedTools: \['SendMessage', 'ListAgents', 'AskUserQuestion'/);
-});

@@ -1140,6 +1140,15 @@ test('waitFor times out with the current task', async () => {
   await assert.rejects(s.engine.waitFor('nope', 10), (e: any) => e.status === 404);
 });
 
+test('the built-in AskUserQuestion is switched off on every run, whatever the approval mode, so questions go through ask_user_question', async () => {
+  for (const approval of ['ask', 'auto-edits', 'full'] as const) {
+    const s = setup(() => happy(), { agent: { approval } });
+    await s.engine.waitFor(s.engine.startTask({ agentId: 'a1', prompt: 'x', source: 'ui' }).id, 3000);
+    assert.ok((s.calls[0]!.options.disallowedTools as string[]).includes('AskUserQuestion'), `disallowed in ${approval} mode`);
+    assert.ok(!(s.calls[0]!.options.allowedTools as string[] | undefined)?.includes('AskUserQuestion'), 'and never allowed');
+  }
+});
+
 test('mcpServers: config filtered per agent; legion vm server only when vm enabled + boat configured', async () => {
   const cfgFn = (c: LegionConfig) => {
     c.mcpServers = {
