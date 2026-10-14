@@ -396,3 +396,21 @@ test('picker: a reply the core could not have sent says so and shows no rows; th
   assert.equal(pk().loadError, null);
   S.closePicker();
 });
+
+test('picker: after an unsure failure (5xx or no answer) the list is read again, since GitHub may have made the change; a plain refusal (4xx) is not (mutation: never re-read)', async () => {
+  await fresh(bothSignedIn());
+  core = pickerCore();
+  S.openPicker();
+  await sleep(10);
+  calls.length = 0;
+  core = (m, p) => (m === 'PUT' ? { status: 502, body: { error: 'Could not reach GitHub. Check the repo list before you try again.' } } : pickerCore()(m, p));
+  await S.setPickerRepo('read', 2, true);
+  await sleep(10);
+  assert.ok(apiCalls().includes('GET /api/github/apps/read/repos'), `calls: ${apiCalls().join(' | ')}`);
+  calls.length = 0;
+  core = (m, p) => (m === 'PUT' ? { status: 403, body: { error: 'You need to be an admin of that repo to add it.' } } : pickerCore()(m, p));
+  await S.setPickerRepo('read', 2, true);
+  await sleep(10);
+  assert.ok(!apiCalls().includes('GET /api/github/apps/read/repos'), 'a refusal does not re-read');
+  S.closePicker();
+});

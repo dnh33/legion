@@ -183,3 +183,20 @@ test('one change at a time per App: the second is a 409, the other App is free, 
   await first;
   assert.deepEqual(await r.del('read', id(r, 'dnh33/b')), { ok: true });
 });
+
+test('a write-App change lands on the write installation and never on the read one (mutation: always use the read client)', async () => {
+  const r = rig();
+  await r.put('write', id(r, 'dnh33/b'));
+  assert.deepEqual(r.fakes.write.installations[0]!.repos, ['dnh33/a', 'dnh33/b']);
+  assert.deepEqual(r.fakes.read.installations[0]!.repos, ['dnh33/a', 'dnh33/b']);
+  assert.equal(r.changes('read').length, 0);
+  assert.deepEqual(r.changes('write').map((c) => c.path), [`/user/installations/22/repositories/${id(r, 'dnh33/b')}`]);
+});
+
+test('a failed change releases the lock, so the next change on that App goes through (mutation: release only on success)', async () => {
+  const r = rig();
+  r.fakes.read.failChange = { status: 422 };
+  assert.equal((await r.refused(r.put('read', id(r, 'dnh33/d'))))?.status, 422);
+  await r.put('read', id(r, 'dnh33/d'));
+  assert.ok(r.fakes.read.installations[0]!.repos.includes('dnh33/d'));
+});

@@ -363,6 +363,8 @@ export async function setPickerRepo(app: GithubApp, repoId: number, on: boolean)
     pendingPicks.delete(key);
     mark(!on);
     setPicker({ errors: { ...(st.picker?.errors ?? {}), [key]: whyText(e) } });
+    // no answer or a server error: GitHub may still have made the change, so show what it really holds
+    if (!(e instanceof ApiError) || e.status === 0 || e.status >= 500) void loadPicker();
   } finally {
     pendingPicks.delete(key);
     if (st.picker) { const { [app]: _s, ...left } = st.picker.sending; setPicker({ sending: left }); }
