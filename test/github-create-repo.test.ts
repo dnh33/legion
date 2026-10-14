@@ -156,7 +156,7 @@ test('source: only repo-admin*.ts import repo-admin; the agent tool files do not
   const importers = walk(src).filter((f) => /\.ts$/.test(f)).filter((f) => /from\s+['"][^'"]*repo-admin(?:-routes)?\.js['"]/.test(readFileSync(f, 'utf8')));
   for (const f of importers) {
     const rel = f.slice(src.length + 1).replace(/\\/g, '/');
-    assert.ok(/^core\/connectors\/github\/repo-admin/.test(rel) || rel === 'bin/legion-core.ts', `unexpected importer ${rel}`);
+    assert.ok(/^core\/connectors\/github\/repo-admin/.test(rel) || rel === 'core/connectors/index.ts', `unexpected importer ${rel}`);
   }
   for (const n of ['tools.ts', 'write-tools.ts']) assert.doesNotMatch(readFileSync(join(src, 'core/connectors/github', n), 'utf8'), /repo-admin/);
   assert.doesNotMatch(readFileSync(join(src, 'core/connectors/github/repo-admin.ts'), 'utf8'), /\bfetch\s*\(|node:http|node:net/);
@@ -170,4 +170,17 @@ test('a reply without full_name and no owner: created, but nothing bogus is tick
   assert.equal(out.ticked, false);
   assert.ok(!String(out.fullName).startsWith('/'), out.fullName);
   assert.deepEqual(readAllowlist(r.dataDir).ticked, []);
+});
+
+test('a done create refreshes the GitHub area list; a refused one does not', async () => {
+  const r = await rig();
+  let n = 0;
+  const handlers = new Map<string, (c: unknown) => unknown>();
+  addRepoAdminRoutes(((m: string, p: string, h: unknown) => { handlers.set(`${m} ${p}`, h as (c: unknown) => unknown); }) as RouteAdder, { dataDir: r.dataDir, client: () => r.client, area: { invalidate: () => { n++; } } });
+  const post = (body: unknown) => handlers.get('POST /api/github/repos')!({ req: { headers: {} }, body, params: [], url: new URL('http://x/api/github/repos') });
+  r.fake.override = (_h, m, p) => (m === 'POST' && p === '/user/repos' ? created() : undefined);
+  await post({ name: 'new-one' });
+  assert.equal(n, 1);
+  await assert.rejects(Promise.resolve(post({ name: 'bad name!' })));
+  assert.equal(n, 1);
 });
