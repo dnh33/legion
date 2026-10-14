@@ -168,7 +168,8 @@ test('B1 the rail shows a "Needs you in other projects" block built from waiting
   assert.match(rail, /waitingElsewhere\(approvals, questions, tasks, projects, names, filter\)/);
   assert.match(rail, /data-testid="rail-waiting"/);
   assert.match(rail, /Needs you in other projects/);
-  assert.match(rail, /setProjectFilter\(row\.projectId\)/);
+  // the project switch lives in selectTask (one function for every way to open a task), not in the row
+  assert.doesNotMatch(rail, /setProjectFilter/);
   assert.match(rail, /selectTask\(row\.taskId\)/);
   assert.match(rail, /aria-live="polite"/);
 });

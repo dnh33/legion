@@ -10,6 +10,7 @@ import { metaDetached, hasOlder, loadedHas, prependPage, reconcileNewest, type T
 import { askToStop } from './chat/background';
 import type { Project } from '../../src/shared/projects';
 import { FILTER_KEY, inProject, newTaskProjectId } from './projects/projectsLogic';
+import { projectToShow } from './chat/taskTabs';
 import { moodAfterDecision, noteDenial } from './mascot/toolActivity';
 
 export type RelicState = 'idle' | 'listening' | 'thinking' | 'hacking' | 'awaiting' | 'victory' | 'error' | 'sleeping' | 'annoyed';
@@ -408,11 +409,22 @@ export function selectAgent(id: string) {
   setState({ selectedAgentId: id, selectedTaskId: taskId, modelOverride: null });
   if (taskId) void loadTask(taskId);
 }
+/**
+ * The one place that keeps the project dropdown and the open task together: a task outside the project in view moves the dropdown to its own
+ * project (to All when it has none), remembered like a pick in the switcher. Returns the state to merge into the same update as the selection.
+ */
+function projectFollowing(t: Pick<Task, 'projectId'> | undefined): { projectFilter?: string | null } {
+  const s = getState();
+  const next = t ? projectToShow(t, s.projectFilter, s.projects) : undefined;
+  if (next === undefined) return {};
+  if (next) lsSet(FILTER_KEY, next); else lsDel(FILTER_KEY);
+  return { projectFilter: next };
+}
 export function selectTask(id: string | null) {
   selectionTouched = true;
   if (id) {
     const t = getState().tasks.find((x) => x.id === id);
-    setState({ selectedTaskId: id, ...(t ? { selectedAgentId: t.agentId } : {}) });
+    setState({ selectedTaskId: id, ...(t ? { selectedAgentId: t.agentId } : {}), ...projectFollowing(t) });
     void loadTask(id);
   } else setState({ selectedTaskId: null });
 }
@@ -478,7 +490,7 @@ export async function sendPromptTo(target: { agentId: string; taskId: string | n
     const task = await api.createTask(body);
     setState((st) => ({
       tasks: upsertTaskIfNewer(st.tasks, task),
-      ...(opts.select === false ? {} : { selectedTaskId: task.id, selectedAgentId: task.agentId }),
+      ...(opts.select === false ? {} : { selectedTaskId: task.id, selectedAgentId: task.agentId, ...projectFollowing(task) }),
       messages: st.messages[task.id] ? st.messages : { ...st.messages, [task.id]: [] },
     }));
     if (!cont) void loadTask(task.id, true);
