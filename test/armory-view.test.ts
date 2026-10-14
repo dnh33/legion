@@ -526,11 +526,13 @@ describe('markup contracts', () => {
     assert.match(section, /const lost = want\.current \|\| !document\.activeElement \|\| document\.activeElement === document\.body;/);
     assert.match(section, /wantRemovedFocus\.current = intent;\s*void removeSkill/, 'after Remove, focus goes to Undo, if it is still wanted');
   });
-  it('Settings has the Armory entry right after Doctrine, with its plain hint, and renders the section', () => {
+  it('Settings has the Armory entry in Your agents (Gates, Armory, Doctrine), with its plain hint, and renders the section', () => {
     const settings = read('ui/src/components/Settings.tsx');
-    assert.match(settings, /\{ id: 'house', label: 'Doctrine', hint: 'Rules and drills your agents follow' \},\s*\{ id: 'armory', label: 'Armory', hint: 'Skills your agents can pick up' \},/);
+    const nav = read('ui/src/components/settingsNav.ts');
+    assert.match(nav, /heading: 'Your agents', ids: \['gates', 'armory', 'house'\]/);
+    assert.match(nav, /armory: \{ label: 'Armory', hint: 'Skills your agents can pick up' \}/);
     assert.match(settings, /section === 'armory' \? <ArmorySection \/>/);
-    assert.match(read('ui/src/store.ts'), /'house' \| 'armory' \| (?:'github' \| )?'connections'/);
+    assert.match(nav, /'house' \| 'armory' \| (?:'github' \| )?'connections'/);
   });
   it('the header says what the Armory is and links to Doctrine; the notice and the Advanced warning use the owner words', () => {
     assert.match(section, /<p>\{HEADER_TEXT\}<\/p>/);
@@ -881,7 +883,7 @@ describe('review fixes: the markup', () => {
     assert.ok(!/IntersectionObserver/.test(section));
   });
   it('M4: Doctrine holds drills and the Armory holds skills, in the nav, the header and the drill editor', () => {
-    assert.match(read('ui/src/components/Settings.tsx'), /label: 'Doctrine', hint: 'Rules and drills your agents follow'/);
+    assert.match(read('ui/src/components/settingsNav.ts'), /label: 'Doctrine', hint: 'Rules and drills your agents follow'/);
     assert.match(editor, /to decide whether to open the \$\{noun\}/);
     assert.match(editor, /What the agent reads once it opens the \$\{noun\}/);
   });
