@@ -85,7 +85,7 @@ export function UpdatePanel() {
         <p className="upd-muted">
           You are on v{st.installed.version}.{' '}
           {st.check.lastResult
-            ? `Last check: ${st.check.lastResult}${st.check.lastCheckedAt ? ` — checked ${fmtWhen(st.check.lastCheckedAt)}` : ''}.`
+            ? `Last check: ${st.check.lastResult}${st.check.lastCheckedAt ? `, checked ${fmtWhen(st.check.lastCheckedAt)}` : ''}.`
             : st.check.lastCheckedAt ? `Last checked ${fmtWhen(st.check.lastCheckedAt)}.` : 'Not checked yet.'}
         </p>
       )}

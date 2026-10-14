@@ -4,6 +4,10 @@ All notable changes are recorded here. The format follows [Keep a Changelog](htt
 
 ## [Unreleased]
 
+### Changed
+
+- Banners, notices, tips and selected rows no longer use a coloured stripe down their left edge. They now show their state with a full outline, a soft tint and a small icon. A board card that read outside content carries an "Outside content, not reviewed" label with an amber outline.
+
 ### Added
 
 - Each agent now has its own GitHub choice in its settings: None, Read, or Read and write. Nothing is on until you pick it. Under Write you tick the repositories that agent may change, and every write still asks you first, even with Full access. Agents with access show a small GitHub tag in the list.
